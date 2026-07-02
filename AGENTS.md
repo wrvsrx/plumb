@@ -19,8 +19,9 @@ Start with the design docs, in this order:
 
 - `docs/vision.dj` — why the language exists, its core philosophy, and the
   ecosystem strategy.
-- `docs/spec.dj` — the v0 grammar spec: every strict rule, plus the crucial
-  classification of which rules are *grammar* and which are *semantic lints*.
+- `docs/spec.dj` — the v0 grammar spec. It specifies **only the core syntax**;
+  every rule is syntactic, classified by which are pure CFG vs syntactic lints.
+  All *semantics* live in extensions, not core.
 - `docs/features.dj` — the full feature set the tooling must support. It mirrors
   **all** current djot-tools features and adds the strict-language-specific
   ones.
@@ -48,37 +49,53 @@ project, but it is a **separate project**:
 
 ## Core principles
 
-1. **The hand-written strict parser is the single source of truth** for
-   correctness, diagnostics, and export. It is *reject-but-recover*: it reports
-   every error it can (recovering at line/block boundaries to keep going), and
-   refuses to produce a valid document when any error exists.
-2. **tree-sitter is intentionally lenient and ergonomics-only.** It powers
+1. **The hand-written strict parser is the single source of truth for *syntax*.**
+   It is *reject-but-recover*: it reports every syntactic error it can (recovering
+   at line/block boundaries), and refuses to hand a document downstream when any
+   syntactic error exists. Strictness is **syntactic only**.
+2. **The core is semantics-neutral; all meaning lives in extensions.**
+   `plumb-core` produces a generic, uninterpreted tree (`{#id .class k=v}` are
+   opaque attributes). Everything semantic — metadata, link/anchor resolution,
+   references, id generation, tasks, and lowering to HTML/pandoc — is an
+   **extension** (a compile-time Rust transform over the tree; the exporter is
+   itself an extension). No registry, no roles, no class-name validation in core.
+   See `docs/vision.dj` (the Pandoc/Docutils model).
+3. **tree-sitter is intentionally lenient and ergonomics-only.** It powers
    editor features (highlighting, text objects, folding, injections) and is
    *never* the strictness engine. It is a phase-2 concern. Do **not** distort the
    language design to fit a CFG — strictness and good errors come from the hand
-   parser regardless.
-3. **Export owns portability.** plumb is its own pandoc *reader*: the parser emits
-   a `pandoc_types` JSON AST that is piped into `pandoc` as a *writer* only. This
-   — not adopting a popular syntax — is the answer to "small ecosystem": output
-   to PDF/HTML/etc. and a clean migration path out are always available.
+   parser regardless. Because core is semantics-neutral, core and tree-sitter
+   cover the same (pure-syntax) scope, differing only in strict-vs-lenient.
+4. **Export owns portability.** plumb is its own pandoc *reader*: the exporter
+   (an extension) emits a `pandoc_types` JSON AST that is piped into `pandoc` as a
+   *writer* only. This — not adopting a popular syntax — is the answer to "small
+   ecosystem": output to PDF/HTML/etc. and a clean migration path out are always
+   available.
 
 ## Intended architecture
 
 A Cargo workspace (`crates/*`), mirroring djot-tools' deliberate split so the
 semantics can be shared by more than one tool:
 
-- **`plumb-core`** — protocol-agnostic strict parser + analysis. Does no file I/O,
-  works in byte offsets only. Hand-written lexer + line-oriented block scanner +
-  strict inline parser, producing `(AST, Vec<Diagnostic>)`. Owns anchors,
-  references, metadata, task records, target resolution, and the in-memory
-  `Workspace`.
-- **`plumb-ls`** — everything LSP (`lsp_types`, `async-lsp`, UTF-16 positions).
-- **`plumb-export`** — AST → `pandoc_types` JSON → `pandoc` (writer only).
+- **`plumb-core`** — semantics-neutral strict reader. Does no file I/O, works in
+  byte offsets only. Hand-written lexer + line-oriented block scanner + strict
+  inline parser, producing `(tree, Vec<Diagnostic>)` where diagnostics are
+  **syntactic only**. `{#id .class k=v}` are parsed but opaque. Contains **no**
+  anchors, references, metadata, tasks, or resolution logic.
+- **extensions** — compile-time Rust transforms consuming the core tree, adding
+  all semantics plus their own diagnostics: outline, anchors/references, target
+  resolution, workspace, metadata, tasks. (These are djot-tools' `djot-core`
+  analysis, relocated out of core.)
+- **`plumb-ls`** — everything LSP (`lsp_types`, `async-lsp`, UTF-16 positions);
+  wires core + extensions and merges their diagnostics.
+- **`plumb-export`** — itself an extension: core tree → `pandoc_types` JSON →
+  `pandoc` (writer only).
 - **`plumb-notes`** — CEL query/edit CLI over directories of plumb documents.
 - **`tree-sitter-plumb`** (eventually a separate repo) — lenient grammar for
   editor ergonomics. Phase 2.
 
-All binaries reuse `plumb-core` without pulling in each other's types.
+All binaries reuse `plumb-core` + the extensions without pulling in each other's
+types.
 
 ## Runtime gotcha inherited from async-lsp (applies once `plumb-ls` exists)
 
