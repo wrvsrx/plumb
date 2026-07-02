@@ -1,0 +1,119 @@
+# AGENTS.md
+
+This file provides guidance to AI coding agents working in this repository.
+
+`AGENTS.md` is the canonical instruction file. Tool-specific files, such as
+`CLAUDE.md`, should point agents here rather than duplicating these
+instructions.
+
+## What this is
+
+**plumb** (working name — see the naming open question in `docs/vision.dj`) is a
+**strict markup language** and its tooling, built for personal use. Where
+[Djot](https://djot.net) and Markdown are deliberately error-tolerant, plumb is
+deliberately strict: one meaning per spelling, every special character is always
+special, and any unclosed or malformed construct is a hard parse error rather
+than a silent fallback to literal text.
+
+Start with the design docs, in this order:
+
+- `docs/vision.dj` — why the language exists, its core philosophy, and the
+  ecosystem strategy.
+- `docs/spec.dj` — the v0 grammar spec: every strict rule, plus the crucial
+  classification of which rules are *grammar* and which are *semantic lints*.
+- `docs/features.dj` — the full feature set the tooling must support. It mirrors
+  **all** current djot-tools features and adds the strict-language-specific
+  ones.
+
+## Current status
+
+**Greenfield.** This repository currently contains only design docs (`docs/`)
+and this guidance. There is no code yet. The first implementation target is
+`plumb-core`: a hand-written strict parser producing `(AST, Vec<Diagnostic>)`.
+
+## Relationship to djot-tools
+
+plumb is inspired by, and reuses architectural patterns from, the `djot-tools`
+project, but it is a **separate project**:
+
+- It does **not** use `jotdown` (or any existing markup parser). Its parser is
+  hand-written so it can reject invalid input with precise diagnostics — see
+  `docs/vision.dj` for why tree-sitter and error-tolerant parsers cannot fill
+  this role.
+- It has its own versioning, its own release line, and (eventually) its own
+  `tree-sitter-plumb` grammar repo.
+- LSP scaffolding, byte-offset↔position conversion, and workspace-indexing
+  patterns are **copied** from djot-tools' `djot-ls`, not shared as a
+  dependency, to keep the two projects decoupled while they are both young.
+
+## Core principles
+
+1. **The hand-written strict parser is the single source of truth** for
+   correctness, diagnostics, and export. It is *reject-but-recover*: it reports
+   every error it can (recovering at line/block boundaries to keep going), and
+   refuses to produce a valid document when any error exists.
+2. **tree-sitter is intentionally lenient and ergonomics-only.** It powers
+   editor features (highlighting, text objects, folding, injections) and is
+   *never* the strictness engine. It is a phase-2 concern. Do **not** distort the
+   language design to fit a CFG — strictness and good errors come from the hand
+   parser regardless.
+3. **Export owns portability.** plumb is its own pandoc *reader*: the parser emits
+   a `pandoc_types` JSON AST that is piped into `pandoc` as a *writer* only. This
+   — not adopting a popular syntax — is the answer to "small ecosystem": output
+   to PDF/HTML/etc. and a clean migration path out are always available.
+
+## Intended architecture
+
+A Cargo workspace (`crates/*`), mirroring djot-tools' deliberate split so the
+semantics can be shared by more than one tool:
+
+- **`plumb-core`** — protocol-agnostic strict parser + analysis. Does no file I/O,
+  works in byte offsets only. Hand-written lexer + line-oriented block scanner +
+  strict inline parser, producing `(AST, Vec<Diagnostic>)`. Owns anchors,
+  references, metadata, task records, target resolution, and the in-memory
+  `Workspace`.
+- **`plumb-ls`** — everything LSP (`lsp_types`, `async-lsp`, UTF-16 positions).
+- **`plumb-export`** — AST → `pandoc_types` JSON → `pandoc` (writer only).
+- **`plumb-notes`** — CEL query/edit CLI over directories of plumb documents.
+- **`tree-sitter-plumb`** (eventually a separate repo) — lenient grammar for
+  editor ergonomics. Phase 2.
+
+All binaries reuse `plumb-core` without pulling in each other's types.
+
+## Runtime gotcha inherited from async-lsp (applies once `plumb-ls` exists)
+
+async-lsp's omni-trait style (`Router::from_language_server` +
+`impl LanguageServer`) pre-registers a *breaking* handler for every standard LSP
+notification. **Whenever you advertise a capability that makes editors send a
+new notification** (`didSave`, `didChangeWatchedFiles`, etc.), you MUST add that
+method to `impl LanguageServer` — even as a no-op `ControlFlow::Continue(())` —
+or the server crashes in real editors. A catch-all does not cover these.
+(`$/`-prefixed notifications, `exit`, and `initialized` are exempt.)
+
+## Commit workflow
+
+Start from `main` and create a short-lived topic branch (`feat/…`, `fix/…`)
+before changing code; do not implement features or fixes directly on `main`.
+Commit each coherent piece as it is completed; split non-trivial work into small
+logical commits. Prefer this order: protocol-agnostic core data/model changes
+first, core behavior with focused unit tests next, LSP/CLI integration and
+black-box tests after the shared behavior exists, docs/roadmap updates last.
+Before each commit, check `git status --short` and `git diff` so unrelated
+changes are not included, and run the warning gate
+(`cargo check --workspace --all-targets`) once there is a workspace. Use
+conventional-style messages: `feat(core): …`, `fix(ls): …`, `docs: …`.
+
+## Release workflow
+
+Semantic-ish `0.x.y` while pre-1.0: release `0.x.(y+1)` when the release
+contains only fixes; release `0.(x+1).y` when it includes features or behavior
+changes. Bump `[workspace.package].version` in `Cargo.toml`, let a Cargo command
+update `Cargo.lock` (never edit it by hand), commit the release, tag it, then
+bump to the next `-dev` version.
+
+## Docs language note
+
+`AGENTS.md`/`CLAUDE.md` are in English by convention. The `docs/` design
+material is in Chinese, matching the design conversation that produced it. The
+`docs/` files are written in **Djot** for now (bootstrapping — plumb's own tooling
+does not exist yet); migrate them to plumb once the exporter can render them.

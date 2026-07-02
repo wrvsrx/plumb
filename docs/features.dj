@@ -1,0 +1,105 @@
+# plumb 工具需要支持的功能
+
+本文是功能清单 / 路线图。它有两条硬性要求：
+
+1. **必须覆盖 djot-tools 当前的全部功能**（下面标 `[djot-tools]` 的条目逐一对应
+   现有能力，语言基座换成 plumb 的严格解析器，不得丢失）。
+2. 叠加 plumb 特有的严格 / 报错 / 编辑器支持能力（标 `[plumb]`）。
+
+阶段标记：`MVP` = 首个可用版本；`v1` = 稳定版；`later` = 之后。
+crate 归属沿用 `AGENTS.md` 的架构划分。
+
+## A. 语言与解析（`plumb-core`，基座）
+
+- `[plumb]` `MVP` 手写严格解析器：lexer + 行内 → `(AST, Vec<Diagnostic>)`，
+  reject-but-recover，字节偏移，无文件 I/O。
+- `[plumb]` `MVP` 精确诊断：每条带字节范围、错误码、"期望 X / 实际 Y"。这是 plumb 的
+  一等公民能力（Djot 里诊断是后期路线，这里前置）。
+- `[plumb]` `MVP` §5.3 语义 lint：标题跳级、有序序号连续、紧凑/松散一致、空行计数、
+  行尾空白/tab/换行符检查。
+- `[djot-tools]` `MVP` 嵌套标题大纲（对应 `heading_outline`），供 documentSymbol。
+- `[djot-tools]` `MVP` 文档分析（对应 `analyze`）：一次解析收集锚点、引用、元数据、
+  任务记录、文档内诊断。
+- `[djot-tools]` `MVP` 文档索引（对应 `build_index` / `DocIndex`）：
+  - 锚点：标题/section id 及显式 `{#id}` → 字节范围；
+  - 引用：每个链接 → 字节跨度 + `RefTarget` 分类（内部 `#id` / 外部 `path#id` /
+    URL）。
+- `[djot-tools]` `MVP` 元数据块（对应 `metadata_block` / `has_class`）：读取文首
+  元数据原文（形式见 spec §4 开放问题）。
+- `[djot-tools]` `MVP` 目标解析（对应 `resolve_target`）：规范化内部与相对跨文件
+  目标；URL 返回 None。
+- `[djot-tools]` `MVP` 工作区（对应 `Workspace`）：按规范化路径存已解析文档；
+  活动 buffer 插入/移除；`reference_at`（definition 命中测试）；锚点查询；
+  `anchor_at`（references 命中测试）；`references_to`（跨文档反向链接扫描）；自身
+  不做文件 I/O。
+- `[djot-tools]` `v1` 任务编辑助手：状态变更、周期任务推进的字节范围文本编辑（只产
+  出编辑，不落盘）。
+
+## B. 语言服务器（`plumb-ls`）
+
+- `[plumb]` `MVP` `publishDiagnostics`：把 `plumb-core` 的诊断实时推给编辑器（严格性对
+  用户可见的主要途径）。
+- `[djot-tools]` `MVP` `textDocument/documentSymbol`：嵌套标题 → DocumentSymbol。
+- `[djot-tools]` `MVP` `textDocument/definition`：命中链接跨度 → `resolve_target`
+  → 惰性加载跨文件目标 → 返回锚点 Location；同文件与跨文件同路径；URL 返回空。
+- `[djot-tools]` `MVP` `textDocument/references`：解析光标处锚点或链接 →
+  `references_to`；可选包含锚点声明本身。
+- `[djot-tools]` `MVP` `textDocument/hover`：目标类型、id、`path:line`、源码预览。
+- `[plumb]` `v1` `textDocument/semanticTokens`：高亮直接来自权威解析器，始终与真相
+  一致（可替代/叠加 tree-sitter 高亮）。
+- `[djot-tools]` `v1` `textDocument/completion`：锚点/链接目标补全。
+- `[djot-tools]` `MVP` FULL 文本同步：`did_change` 全量重解析；`did_close` 恢复
+  磁盘索引版本 / 移除非工作区 buffer。
+- `[djot-tools]` `MVP` `initialize` 记录 `workspaceFolders`（回退 `rootUri`）；
+  `initialized` 索引根下 `.plumb` 文件并用 `$/progress` 报进度；无根时仅索引已打开
+  buffer + 惰性目标。
+- `[djot-tools]` `MVP` 字节偏移 ↔ LSP Position（UTF-16）转换。
+- `[djot-tools]` `MVP` 每个 LSP notification 都有处理（async-lsp omni-trait 崩溃
+  规避，见 `AGENTS.md`）。
+- `[plumb]` `later` 折叠 `foldingRange`、扩展选择 `selectionRange`、rename 等。
+
+## C. 导出（`plumb-export`）
+
+- `[plumb]` `MVP` plumb 自己当 pandoc *reader*：解析器 → `pandoc_types` JSON AST →
+  交给 `pandoc` 当 writer（不再 `pandoc -f`）。
+- `[plumb]` `MVP` 有任何诊断即拒绝出文档，只打印错误；无错才产出 AST。
+- `[djot-tools]` `MVP` 元数据折叠：文首元数据并入 pandoc `Meta` 而非渲染进正文。
+- `[djot-tools]` `later` 项目特定导出语义（如引用文献 `[@key]` 处理），按需迁移。
+
+## D. 笔记 CLI（`plumb-notes`）
+
+- `[djot-tools]` `v1` 递归扫描根目录下 `.plumb` 文件，载入 `Workspace`，打印匹配的
+  根相对路径。
+- `[djot-tools]` `v1` `--query` CEL 谓词：上下文暴露根相对 `path`、元数据 `title`、
+  `directly_referenced_by`、`transitively_referenced_by`。
+- `[djot-tools]` `v1` `--interactive` skim：显示并输出根相对路径，匹配 `path + 全
+  文`，内存 ANSI 高亮预览；接受选择后用 `$EDITOR`（`shlex` 解析）打开；`ctrl-n` 从
+  当前 query 新建文件（拒绝空/越根路径，缺扩展名补 `.plumb`）。
+- `[djot-tools]` `v1` `tasks` 查询：暴露任务 `title`、`created`、`due`、`done`、
+  `recur`、`prev` 字段。
+
+## E. tree-sitter（`tree-sitter-plumb`，第二阶段，独立仓库）
+
+- `[plumb]` `later` 宽松镜像语法（CFG + 中等外部 scanner），覆盖 spec §5.1 + §5.2；
+  刻意宽松、容错。
+- `[plumb]` `later` 编辑器人体工学 query：`highlights`、`textobjects`、`folds`、
+  `injections`（代码块内嵌语言高亮）、`indents`。
+- 约束：**不做严格性引擎**；语言稳定后再动手，避免追着变动的语法反复重写。
+
+## F. 打包与开发环境
+
+- `[djot-tools]` `later` Nix flake 打包 workspace 二进制；版本从 `Cargo.toml`
+  读取。
+- `[djot-tools]` `later` git 钩子：warning gate（`cargo check --workspace
+  --all-targets`）等。
+
+## 建议的实现顺序
+
+1. `plumb-core`：lexer + 块扫描 + 最小行内 + 诊断（A 的 MVP 项），配"违规即报错"
+   单元测试。
+2. `plumb-ls`：诊断 + documentSymbol + definition/references/hover（B 的 MVP 项），
+   拷贝 djot-ls 的 LSP 胶水。
+3. `plumb-export`：AST → pandoc JSON + 拒绝出错文档（C 的 MVP 项）。
+4. semantic tokens、completion、任务助手（v1）。
+5. `plumb-notes`（v1）。
+6. `tree-sitter-plumb`（later，语法冻结后）。
