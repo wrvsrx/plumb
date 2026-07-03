@@ -17,8 +17,8 @@
 - `[plumb]` `MVP` 手写严格解析器：lexer + 块扫描 + 行内 → `(树, Vec<Diagnostic>)`，
   reject-but-recover，字节偏移，无文件 I/O，**无任何语义**。
 - `[plumb]` `MVP` 精确**语法**诊断：每条带字节范围、错误码、"期望 X / 实际 Y"。
-- `[plumb]` `MVP` 语法 lint（spec §5.3）：紧凑/松散一致、块间单空行、行尾空白/tab/
-  换行符、定义列表结构良构（key 唯一、不混 list/map）。
+- `[plumb]` `MVP` 语法 lint（spec §5.3）：块间单空行、tab/换行符、定义列表结构
+  良构（key 唯一、不混 list/map）。
 - `[plumb]` `MVP` 通用属性：`{element #id .class k=v}` 解析为**不透明**属性
   （对上 HTML tag/id/class/属性），不校验名字。
 - 产物是一棵**小而中性的 Pandoc 形状 AST**（结构性构造为类型化节点，其余语义壳走
