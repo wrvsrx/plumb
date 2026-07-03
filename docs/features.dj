@@ -19,8 +19,10 @@
 - `[plumb]` `MVP` 精确**语法**诊断：每条带字节范围、错误码、"期望 X / 实际 Y"。
 - `[plumb]` `MVP` 语法 lint（spec §5.3）：紧凑/松散一致、块间单空行、行尾空白/tab/
   换行符、定义列表结构良构（key 唯一、不混 list/map）。
-- `[plumb]` `MVP` 通用属性：`{#id .class k=v}` 解析为**不透明**属性，不校验名字。
-- 产物是一棵**语义中立的树**，供下面所有 extension 消费。
+- `[plumb]` `MVP` 通用属性：`{element #id .class k=v}` 解析为**不透明**属性
+  （对上 HTML tag/id/class/属性），不校验名字。
+- 产物是一棵**小而中性的 Pandoc 形状 AST**（结构性构造为类型化节点，其余语义壳走
+  通用 `Container`/`Span`；前端糖归约到同一棵树，见 spec §8），供所有 extension 消费。
 
 ## B. 语义扩展（extensions，消费 core 树）
 
@@ -67,7 +69,8 @@ transform）实现，各自产出语义诊断 / 变换：
 ## D. 导出（`plumb-export`，本身是一个 extension）
 
 - `[plumb]` `MVP` plumb 自己当 pandoc *reader*：树 → `pandoc_types` JSON AST → 交给
-  `pandoc` 当 writer（不再 `pandoc -f`）。
+  `pandoc` 当 writer（不再 `pandoc -f`）。**HTML 语义在此落地**：不透明 `element`
+  token 落成对应标签 / pandoc 节点。
 - `[plumb]` `MVP` core 有任何**语法**诊断即拒绝出文档，只打印错误。
 - `[djot-tools]` `MVP` 元信息折叠（经元信息 extension）：并入 pandoc `Meta` 而非
   正文。

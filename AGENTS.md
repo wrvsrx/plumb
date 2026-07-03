@@ -54,8 +54,9 @@ project, but it is a **separate project**:
    at line/block boundaries), and refuses to hand a document downstream when any
    syntactic error exists. Strictness is **syntactic only**.
 2. **The core is semantics-neutral; all meaning lives in extensions.**
-   `plumb-core` produces a generic, uninterpreted tree (`{#id .class k=v}` are
-   opaque attributes). Everything semantic — metadata, link/anchor resolution,
+   `plumb-core` produces a small, semantics-neutral Pandoc-shaped tree
+   (`{tag #id .class k=v}` are opaque attributes; surface sugar like `*`=strong
+   desugars into it). Everything semantic — metadata, link/anchor resolution,
    references, id generation, tasks, and lowering to HTML/pandoc — is an
    **extension** (a compile-time Rust transform over the tree; the exporter is
    itself an extension). No registry, no roles, no class-name validation in core.
@@ -79,9 +80,11 @@ semantics can be shared by more than one tool:
 
 - **`plumb-core`** — semantics-neutral strict reader. Does no file I/O, works in
   byte offsets only. Hand-written lexer + line-oriented block scanner + strict
-  inline parser, producing `(tree, Vec<Diagnostic>)` where diagnostics are
-  **syntactic only**. `{#id .class k=v}` are parsed but opaque. Contains **no**
-  anchors, references, metadata, tasks, or resolution logic.
+  inline parser, producing a small Pandoc-shaped `(tree, Vec<Diagnostic>)` where
+  diagnostics are **syntactic only**. Structural constructs are typed nodes; other
+  semantic wrappers collapse to a generic `Container`/`Span` carrying an opaque
+  `{tag #id .class k=v}`. Surface sugar (`*`=strong, …) desugars to the same tree.
+  Contains **no** anchors, references, metadata, tasks, or resolution logic.
 - **extensions** — compile-time Rust transforms consuming the core tree, adding
   all semantics plus their own diagnostics: outline, anchors/references, target
   resolution, workspace, metadata, tasks. (These are djot-tools' `djot-core`
