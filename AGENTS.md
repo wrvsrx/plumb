@@ -8,7 +8,7 @@ instructions.
 
 ## What this is
 
-**plumb** (working name — see the naming open question in `docs/spec.dj`) is a
+**plumb** (working name — see the naming open question in `docs/spec.md`) is a
 **strict markup language** and its tooling, built for personal use. Where
 [Djot](https://djot.net) and Markdown are deliberately error-tolerant, plumb is
 deliberately strict: malformed syntax is a hard parse error rather than a silent
@@ -17,19 +17,19 @@ always special" rather than "every punctuation character is globally special."
 
 Start with the design docs, in this order:
 
-- `docs/requirements.dj` — the current source of truth for goals, non-goals,
+- `docs/requirements.md` — the current source of truth for goals, non-goals,
   design principles, and MVP requirements.
-- `docs/vision.dj` — why the language exists, its core philosophy, and the
+- `docs/vision.md` — why the language exists, its core philosophy, and the
   ecosystem strategy.
-- `docs/spec.dj` — the current syntax design draft. It is **not** a final grammar
+- `docs/spec.md` — the current syntax design draft. It is **not** a final grammar
   yet; it records directions and open questions.
-- `docs/features.dj` — the tool roadmap derived from the requirements.
+- `docs/features.md` — the tool roadmap derived from the requirements.
 
 ## Current status
 
 **Greenfield design reset.** This repository currently contains only design docs
 (`docs/`) and this guidance. There is no code yet. Before implementation, freeze
-the MVP syntax and AST from `docs/requirements.dj` and `docs/spec.dj`. The first
+the MVP syntax and AST from `docs/requirements.md` and `docs/spec.md`. The first
 implementation target remains `plumb-core`: a hand-written strict parser
 producing `(AST, Vec<Diagnostic>)`.
 
@@ -40,7 +40,7 @@ project, but it is a **separate project**:
 
 - It does **not** use `jotdown` (or any existing markup parser). Its parser is
   hand-written so it can reject invalid input with precise diagnostics — see
-  `docs/vision.dj` for why tree-sitter and error-tolerant parsers cannot fill
+  `docs/vision.md` for why tree-sitter and error-tolerant parsers cannot fill
   this role.
 - It has its own versioning, its own release line, and (eventually) its own
   `tree-sitter-plumb` grammar repo.
@@ -61,7 +61,7 @@ project, but it is a **separate project**:
    references, id generation, tasks, and lowering to HTML/pandoc — is an
    **extension** (a compile-time Rust transform over the tree; the exporter is
    itself an extension). No registry, no roles, no class-name validation in core.
-   See `docs/vision.dj` (the Pandoc/Docutils model).
+   See `docs/vision.md` (the Pandoc/Docutils model).
 3. **tree-sitter is intentionally lenient and ergonomics-only.** It powers
    editor features (highlighting, text objects, folding, injections) and is
    *never* the strictness engine. It is a phase-2 concern. Do **not** distort the
@@ -135,6 +135,7 @@ bump to the next `-dev` version.
 ## Docs language note
 
 `AGENTS.md`/`CLAUDE.md` are in English by convention. The `docs/` design
-material is in Chinese, matching the design conversation that produced it. The
-`docs/` files are written in **Djot** for now (bootstrapping — plumb's own tooling
-does not exist yet); migrate them to plumb once the exporter can render them.
+material is in Chinese, matching the design conversation that produced it.
+Design docs are written in **Markdown** for now (bootstrapping — plumb's own
+tooling does not exist yet). Migrate them to plumb once the exporter can render
+them.

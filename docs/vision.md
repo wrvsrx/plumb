@@ -1,7 +1,7 @@
 # plumb 设计愿景
 
 > 工作名 `plumb`（strict markup）与扩展名 `.plumb` 均为占位，可改。当前阶段的具体
-> 目标和需求见 `docs/requirements.dj`。
+> 目标和需求见 `docs/requirements.md`。
 
 ## 为什么要造这门语言
 
