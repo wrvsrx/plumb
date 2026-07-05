@@ -1,0 +1,222 @@
+# plumb 目标与需求
+
+> 本文是当前阶段的设计事实源。我们从头设计语法时，先用这里的目标、非目标和需求
+> 约束每个具体符号选择；`docs/spec.dj` 只记录尚未完全拍板的语法草案。
+
+## 1. 项目定位
+
+plumb 是一门用于个人长期文档系统的 strict markup language。它不是 Markdown 方言，
+也不是面向大众生态的兼容格式。它的重点是：源码可以长期维护，结构可以被可靠解析，
+错误可以尽早暴露，文档可以稳定导出和迁移。
+
+## 2. 核心目标
+
+- **错误尽早暴露。** 格式写错、结构没闭合、缩进不合法、语法入口残缺时，必须报错，
+  不能静默变成普通文本。
+- **源码可长期维护。** 文档几年后仍应能被可靠解析、批量转换、重构、查询。语法不能
+  依赖“看起来大概像”的容错规则。
+- **语法和语义分离。** core 只负责把文本解析成结构树和语法诊断。任务、元信息、链接
+  解析、锚点唯一性、导出策略都放在 extension。
+- **可导出、可迁移。** 工具链必须能稳定输出 HTML / Pandoc AST / PDF 等格式。生态
+  策略不是兼容 Markdown，而是可靠导出。
+- **适合日常写作。** 严格不能变成到处转义、到处样板代码。高频场景（段落、标题、
+  列表、链接、任务）必须足够轻。
+
+## 3. 非目标
+
+- 不追求 Markdown / Djot 兼容。可以借鉴常见习惯，但不为了兼容保留歧义。
+- 不追求语法表达力最大化。宁可少一点特性，也要规则简单、诊断明确。
+- 不把 core 做成语义引擎。core 不知道 `.todo`、`.meta`、`kbd`、`due` 是什么意思。
+- 不为了 tree-sitter 扭曲语言设计。严格解析器是权威；tree-sitter 以后只服务编辑
+  体验，可以宽松。
+- 不把面向多人协作或通用发布平台的需求放在个人长期使用体验之上。
+
+## 4. 设计原则
+
+### 4.1 严格性
+
+严格性针对语法入口和结构良构，而不是要求每个标点在所有位置都必须转义。
+
+建议公理：
+
+> 特殊拼写永远特殊；能构成语法入口的地方必须合法，否则报错。普通文本里不构成入口的
+> 字符可以按字面处理。
+
+例如，普通文本中的这些写法不应强迫转义：
+
+```
+a*b
+snake_case
+A > B
+3-5
+```
+
+但这些明显进入语法结构却没有写完整的形式应当报错：
+
+```
+*bold
+[text]
+<bad
+{.class
+```
+
+### 4.2 归属明确
+
+属性和 modifier 必须贴在目标的结构边界上，让人和解析器都能清楚判断归属。
+
+- block attribute 放在目标 block 前。
+- span attribute 放在刚闭合的 span 后。
+- list item attribute / task marker 放在 list marker 后的 item modifier 区。
+
+这不追求表面位置完全一致，而追求结构归属一致。
+
+### 4.3 语义中立
+
+core 产出的 AST 应是小而中性的 Pandoc-shaped tree。结构性构造使用类型化节点；包装性
+语义走通用 `Container` / `Span` + opaque `Attr`。surface sugar 必须归约到同一棵树，
+避免多个语法拼写造成多个语义节点。
+
+### 4.4 Reject-but-recover
+
+严格解析器遇到语法错误后，应报告带字节范围的诊断，并恢复到下一个安全边界继续扫描，
+以便一次显示尽可能多的错误。
+
+## 5. Core syntax 需求
+
+MVP core 只包含语法结构和语法诊断。候选结构：
+
+- 标题
+- 段落
+- 强调 / 加粗
+- 行内代码
+- 链接
+- 自动链接
+- 列表
+- 引用
+- 代码块
+- 分隔线
+- 属性
+- 通用块容器
+- 定义列表 / 字段列表（是否进 MVP 待定）
+- 转义和 raw text
+
+core 输出：
+
+```
+Document
+Block[]
+Inline[]
+Attr
+Diagnostic[]
+```
+
+core 不做：
+
+- 自动生成 heading id
+- 校验 id 唯一
+- 判断链接目标是否存在
+- 解释 `.todo`
+- 解释 `.meta`
+- 解释 `kbd` / `mark` / `aside` 等元素名
+- 任务查询
+- HTML 语义映射
+
+## 6. Attribute model 需求
+
+属性模型继续以 Pandoc / HTML 的形状为基线：
+
+```
+{tag #id .class key=value}
+```
+
+core 只校验属性语法是否良构，并把各部分保存为 opaque token。core 不校验元素名、
+class、id 唯一性或 key 的语义。
+
+归属模型：
+
+```
+{.lead}
+这是段落。
+
+[Enter]{kbd}
+
+- @ {.done} 买牛奶
+- @todo 买牛奶
+```
+
+- block attribute 是前缀，修饰紧随其后的 block。
+- span attribute 是后缀，修饰刚闭合的 span。
+- list item attribute 走 marker 后的 item modifier 区，避免 `- {.done}` 这种靠位置
+  细节判断归属的写法。
+
+## 7. Task model 需求
+
+任务不是 core 语义。core 只解析 item modifier 或 item attribute；task extension 解释
+状态、日期和查询字段。
+
+推荐方向：
+
+```
+- @todo 买牛奶
+- @done 交水费
+- @todo {due=2026-07-10 .urgent} 预约体检
+```
+
+不建议保留裸 Markdown task item：
+
+```
+- [ ] task
+- [x] task
+```
+
+原因：
+
+- `[` 已经是 inline span / link 的入口，在 item 开头引入特殊例外会增加歧义。
+- task 是 extension 语义，不应成为 core 的专用 block 语义。
+- item-level 信息应统一进入 `@` modifier 通道。
+
+HTML 导出建议由 task extension / export extension 共同决定，例如 task list 输出
+disabled checkbox 和 task class，但源码不需要保留 checkbox 拼写。
+
+## 8. Escape / raw text 需求
+
+保留逐字符 escape：
+
+```
+\*
+\[
+\{
+```
+
+再考虑增加 raw text span，用于一段里面有很多特殊拼写但不希望有 code 语义的文本：
+
+```
+r[a*b, snake_case, [not a link](x), A > B]
+r[[text with ] inside]]
+```
+
+`raw text` 是“普通文字但不解析”；inline code 是“代码文字”。两者语义不同，不应只用
+反引号兼任。
+
+## 9. Extension 需求
+
+第一批 extension 候选：
+
+- `html-export`
+- `pandoc-export`
+- `links`
+- `anchors`
+- `meta`
+- `tasks`
+- `outline`
+- `workspace`
+
+extension 消费 core AST，各自产生自己的 diagnostics。core 有语法错误时，下游工具不得
+把文档当作完全有效输入继续导出。
+
+## 10. 需求总结
+
+plumb 是一门严格、语义中立、适合个人长期文档系统的标记语言。core 只负责无歧义地
+解析语法并报告语法错误；所有语义由 extension 解释。语法设计优先保证源码可读、归属
+明确、错误可诊断、导出可靠，同时避免为了 Markdown 兼容或全局特殊字符规则牺牲日常
+书写体验。

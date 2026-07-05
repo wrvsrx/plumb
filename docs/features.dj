@@ -1,117 +1,95 @@
-# plumb 工具需要支持的功能
+# plumb 工具需求与路线图
 
-本文是功能清单 / 路线图。两条硬性要求：
+本文从 `docs/requirements.dj` 的目标推导工具需求。具体语法尚未冻结，所以这里避免绑定
+过细的语法拼写。
 
-1. **必须覆盖 djot-tools 当前的全部功能**（标 `[djot-tools]` 的条目逐一对应现有
-   能力，不得丢失）。注意**分层变了**：djot-tools 把分析放在 `djot-core`，而 plumb
-   的 core 只做严格解析，**这些分析全部下沉为 extension**（见 B 节）。
-2. 叠加 plumb 特有的严格 / 报错 / 编辑器支持能力（标 `[plumb]`）。
+阶段：`MVP` = 首个可用版本；`v1` = 稳定版；`later` = 之后。
 
-阶段：`MVP` = 首个可用版本；`v1` = 稳定版；`later` = 之后。crate 归属见 `AGENTS.md`。
+## A. 解析内核（`plumb-core`）
 
-架构分层（见 `docs/vision.dj`）：**core = 语义中立的严格 reader**；**extension =
-消费通用树、添加全部语义的编译期 Rust transform**（导出器也是 extension）。
+- `[plumb]` `MVP` 手写严格解析器：输入 UTF-8 字符串，输出 `(Document,
+  Vec<Diagnostic>)`。
+- `[plumb]` `MVP` reject-but-recover：遇到语法错误后恢复到安全边界，尽量继续报告后续
+  错误。
+- `[plumb]` `MVP` 精确语法诊断：每条诊断包含字节范围、错误码和简短说明。
+- `[plumb]` `MVP` 无文件 I/O，只使用 byte offsets；位置换算交给上层。
+- `[plumb]` `MVP` 语义中立 AST：core 不解释属性、链接目标、任务、元信息、id 唯一性或
+  HTML 语义。
+- `[plumb]` `MVP` 通用属性解析：属性形状良构即可，内部 token opaque。
+- `[plumb]` `MVP` 最小高频语法：标题、段落、列表、引用、代码块、inline code、链接、
+  emphasis / strong、属性、escape。
+- `[plumb]` `v1` raw text、字段列表、通用容器等根据语法拍板结果纳入。
 
-## A. 解析内核（`plumb-core`，语义中立）
+## B. 语义扩展（extensions）
 
-- `[plumb]` `MVP` 手写严格解析器：lexer + 块扫描 + 行内 → `(树, Vec<Diagnostic>)`，
-  reject-but-recover，字节偏移，无文件 I/O，**无任何语义**。
-- `[plumb]` `MVP` 精确**语法**诊断：每条带字节范围、错误码、"期望 X / 实际 Y"。
-- `[plumb]` `MVP` 语法 lint（spec §5.3）：tab/换行符、定义列表结构良构（key 唯一、
-  不混 list/map）。
-- `[plumb]` `MVP` 通用属性：`{element #id .class k=v}` 解析为**不透明**属性
-  （对上 HTML tag/id/class/属性），不校验名字。
-- 产物是一棵**小而中性的 Pandoc 形状 AST**（结构性构造为类型化节点，其余语义壳走
-  通用 `Container`/`Span`；前端糖归约到同一棵树，见 spec §8），供所有 extension 消费。
+extension 是编译期 Rust transform / analysis，消费 core AST，产出变换结果和语义
+diagnostics。导出器也是 extension。
 
-## B. 语义扩展（extensions，消费 core 树）
-
-这些就是 djot-tools 原来放在 `djot-core` 的分析，现在作为 extension（编译期 Rust
-transform）实现，各自产出语义诊断 / 变换：
-
-- `[djot-tools]` `MVP` 大纲 extension（对应 `heading_outline`）：从标题结构建嵌套
-  大纲，供 documentSymbol。
-- `[djot-tools]` `MVP` 锚点/引用索引 extension（对应 `build_index` / `DocIndex`）：
-  - 锚点：标题自动 id + 显式 `{#id}` → 字节范围；
-  - 引用：每个链接 → 字节跨度 + 目标分类（内部 `#id` / 相对 `path#id` / URL）。
-- `[djot-tools]` `MVP` 目标解析 extension（对应 `resolve_target`）：规范化内部与
-  相对跨文件目标；URL 不解析。
-- `[djot-tools]` `MVP` 工作区 extension（对应 `Workspace`）：按规范化路径存树；
-  活动 buffer 插入/移除；`reference_at`、锚点查询、`anchor_at`、`references_to`；
-  自身不做文件 I/O。
-- `[djot-tools]` `MVP` 元信息 extension（对应 `metadata_block`）：认出 `.meta`
-  定义列表并折叠（spec §4）。
-- `[plumb]` `MVP` 分析类 extension 产出的**语义诊断**（悬空链接、重复 id 等）叠加
-  到 core 语法诊断之上。
-- `[djot-tools]` `v1` 任务 extension：任务记录解析 + 状态变更/周期推进的字节范围
-  文本编辑（只产出编辑，不落盘）。
+- `[plumb]` `MVP` extension trait 和诊断合并模型。
+- `[djot-tools]` `MVP` outline extension：从 heading 结构构建 document symbol 所需的大纲。
+- `[djot-tools]` `MVP` anchors / links extension：收集显式锚点、自动 heading id、链接
+  引用和目标分类。
+- `[djot-tools]` `MVP` target resolution extension：解析内部和相对跨文件目标；URL 不解析。
+- `[djot-tools]` `MVP` workspace extension：按规范化路径存 AST / analysis 结果，支持打开
+  buffer、磁盘文档和跨文件引用查询。
+- `[plumb]` `MVP` html / pandoc export extension：core AST 到 Pandoc JSON AST，再交给
+  pandoc writer。
+- `[plumb]` `v1` meta extension：识别约定的元信息结构并折叠到导出 metadata。
+- `[plumb]` `v1` tasks extension：解释 item modifier / attr 中的任务状态、日期和查询字段，
+  并提供状态变更所需的文本编辑。
 
 ## C. 语言服务器（`plumb-ls`）
 
-`plumb-ls` 装配 core + 选定的 extension，把结果映射到 LSP。
+`plumb-ls` 装配 core + extensions，把结果映射到 LSP。
 
-- `[plumb]` `MVP` `publishDiagnostics`：core 语法诊断 + extension 语义诊断合并推送。
-- `[djot-tools]` `MVP` `textDocument/documentSymbol`（经大纲 extension）。
-- `[djot-tools]` `MVP` `textDocument/definition`（经引用/解析 extension）：命中链接
-  → 解析目标 → 惰性加载跨文件 → 返回锚点 Location；URL 返回空。
-- `[djot-tools]` `MVP` `textDocument/references`（经工作区 extension）。
-- `[djot-tools]` `MVP` `textDocument/hover`：目标类型、id、`path:line`、源码预览。
-- `[plumb]` `v1` `textDocument/semanticTokens`：高亮直接来自权威解析器。
-- `[djot-tools]` `v1` `textDocument/completion`：锚点/链接目标补全。
-- `[djot-tools]` `MVP` FULL 文本同步；`did_close` 恢复磁盘版本 / 移除非工作区 buffer。
-- `[djot-tools]` `MVP` `initialize` / `initialized` 索引根下 `.plumb`，`$/progress`
-  报进度；无根时仅索引已打开 buffer + 惰性目标。
-- `[djot-tools]` `MVP` 字节偏移 ↔ LSP Position（UTF-16）转换。
-- `[djot-tools]` `MVP` 每个 LSP notification 都有处理（async-lsp omni-trait 崩溃
-  规避，见 `AGENTS.md`）。
-- `[plumb]` `later` 折叠 `foldingRange`、扩展选择 `selectionRange`、rename 等。
+- `[plumb]` `MVP` `publishDiagnostics`：core 语法诊断 + extension 语义诊断。
+- `[djot-tools]` `MVP` `textDocument/documentSymbol`：经 outline extension。
+- `[djot-tools]` `MVP` `textDocument/definition`：命中链接后解析目标并返回位置；URL 返回空。
+- `[djot-tools]` `MVP` `textDocument/references`：经 workspace / links extension。
+- `[djot-tools]` `MVP` `textDocument/hover`：目标类型、id、路径和源码预览。
+- `[djot-tools]` `MVP` FULL 文本同步；打开 buffer 优先于磁盘版本。
+- `[djot-tools]` `MVP` 初始化时索引根下文档；无根时仅索引已打开 buffer 和惰性目标。
+- `[djot-tools]` `MVP` byte offset ↔ LSP UTF-16 Position 转换。
+- `[djot-tools]` `MVP` async-lsp advertised notification 必须显式实现 handler，即使只是
+  no-op。
+- `[plumb]` `v1` semantic tokens、completion、folding、selection range、rename。
 
-## D. 导出（`plumb-export`，本身是一个 extension）
+## D. 导出（`plumb-export`）
 
-- `[plumb]` `MVP` plumb 自己当 pandoc *reader*：树 → `pandoc_types` JSON AST → 交给
-  `pandoc` 当 writer（不再 `pandoc -f`）。**HTML 语义在此落地**：不透明 `element`
-  token 落成对应标签 / pandoc 节点。
-- `[plumb]` `MVP` core 有任何**语法**诊断即拒绝出文档，只打印错误。
-- `[djot-tools]` `MVP` 元信息折叠（经元信息 extension）：并入 pandoc `Meta` 而非
-  正文。
-- `[djot-tools]` `later` 项目特定导出语义（如引用文献 `[@key]`），作为 extension 按
-  需迁移。
+- `[plumb]` `MVP` plumb 作为 Pandoc reader：AST → `pandoc_types` JSON → pandoc writer。
+- `[plumb]` `MVP` core 有语法 error 时拒绝导出。
+- `[plumb]` `MVP` HTML 语义由 export extension 落地，而不是 core 落地。
+- `[plumb]` `v1` meta、tasks、links 等 extension 结果参与导出。
+- `[plumb]` `later` 项目特定导出语义作为独立 extension 添加。
 
 ## E. 笔记 CLI（`plumb-notes`）
 
-装配 core + 工作区/引用/元信息/任务 extension。
+- `[djot-tools]` `v1` 递归扫描根下 plumb 文档，载入 workspace，打印匹配路径。
+- `[djot-tools]` `v1` 查询语言：路径、元信息、链接关系、任务字段。
+- `[djot-tools]` `v1` interactive picker：路径显示/输出、全文匹配、预览、`$EDITOR` 打开、
+  从 query 建档。
+- `[djot-tools]` `v1` task 查询和状态变更：只产出文本编辑，是否落盘由 CLI 层决定。
 
-- `[djot-tools]` `v1` 递归扫描根下 `.plumb`，载入工作区，打印匹配的根相对路径。
-- `[djot-tools]` `v1` `--query` CEL：`path`、元信息 `title`、
-  `directly_referenced_by`、`transitively_referenced_by`。
-- `[djot-tools]` `v1` `--interactive` skim：路径显示/输出、`path + 全文`匹配、内存
-  ANSI 预览、`$EDITOR`（`shlex`）打开、`ctrl-n` 从 query 建档（补 `.plumb`）。
-- `[djot-tools]` `v1` `tasks` 查询：`title` / `created` / `due` / `done` / `recur`
-  / `prev` 字段。
+## F. tree-sitter（`tree-sitter-plumb`）
 
-## F. tree-sitter（`tree-sitter-plumb`，第二阶段，独立仓库）
-
-- `[plumb]` `later` 宽松镜像语法（CFG + 中等外部 scanner），覆盖 spec §5.1 + §5.2；
-  刻意宽松容错。因 core 语义中立，tree-sitter 与 core 覆盖同一（纯语法）范围。
-- `[plumb]` `later` 编辑器人体工学 query：`highlights`、`textobjects`、`folds`、
-  `injections`（代码块内嵌语言高亮）、`indents`。
-- 约束：**不做严格性引擎**；语法冻结后再动手，避免追着变动的语法反复重写。
+- `[plumb]` `later` 宽松镜像语法，用于编辑器高亮、文本对象、折叠、injection 和缩进。
+- `[plumb]` `later` 不做严格性引擎，不决定文档是否有效。
+- `[plumb]` `later` 语法冻结后再开始，避免跟随草案反复重写。
 
 ## G. 打包与开发环境
 
-- `[djot-tools]` `later` Nix flake 打包 workspace 二进制；版本从 `Cargo.toml`
-  读取。
-- `[djot-tools]` `later` git 钩子：warning gate（`cargo check --workspace
-  --all-targets`）等。
+- `[plumb]` `later` Cargo workspace 和 crate 划分：`plumb-core`、extensions、
+  `plumb-ls`、`plumb-export`、`plumb-notes`。
+- `[djot-tools]` `later` Nix flake 打包二进制。
+- `[plumb]` `later` warning gate：`cargo check --workspace --all-targets`。
 
-## 建议的实现顺序
+## 建议实现顺序
 
-1. `plumb-core`：lexer + 块扫描 + 最小行内 + 属性 + 语法诊断（A），配"违规即报错"
-   单元测试。**先把语义中立的树和诊断跑通。**
-2. extension 骨架 + 大纲/锚点/引用/解析/工作区 extension（B 的 MVP）。
-3. `plumb-ls`：诊断 + documentSymbol + definition/references/hover（C），拷贝
-   djot-ls 的 LSP 胶水。
-4. `plumb-export`（D）+ 元信息 extension。
-5. semantic tokens、completion、任务 extension（v1）。
-6. `plumb-notes`（v1）。
-7. `tree-sitter-plumb`（later，语法冻结后）。
+1. 冻结 MVP 语法和 AST。
+2. 实现 `plumb-core`：lexer、block scanner、inline parser、diagnostics 和 focused tests。
+3. 实现 extension trait、outline、anchors、links、workspace。
+4. 实现 `plumb-ls` 的 diagnostics、documentSymbol、definition、references、hover。
+5. 实现 `plumb-export` 和最小 HTML / Pandoc 导出。
+6. 增加 meta、tasks、completion、semantic tokens。
+7. 实现 `plumb-notes`。
+8. 语法稳定后实现 `tree-sitter-plumb`。

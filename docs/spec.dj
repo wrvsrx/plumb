@@ -1,302 +1,182 @@
-# plumb 语法规范（MVP 草案 v0）
+# plumb 语法设计草案
 
-> 本文是设计草案，非最终规范。工作名 `plumb`、扩展名 `.plumb` 为占位。
-> 全程对 Djot 做"减法 + 把容错改成报错"。
-> **本文只规定 core 的语法**；一切语义（元信息、链接解析、class 含义、大纲、任务）
-> 都是 extension 的事，见 `docs/vision.dj`。
+> 本文不是最终规范。当前阶段先记录从 `docs/requirements.dj` 推导出的语法方向、约束和
+> 待拍板问题。实现开始前，再把已定部分收敛成精确 grammar。
 
-## 0. 设计公理
+## 1. 设计基线
 
-- 一种意思只有一种写法，一种写法只有一种意思。
-- 特殊字符永远特殊：`_ * ` [ ] ( ) < \` 在任何位置都有语法含义，字面量须转义。
-- 不闭合 / 不合法 = 报错，绝不静默降级成字面文本。
-- 解析器 reject-but-recover：报带字节范围的诊断并恢复以继续报后续错误。
-- **严格只针对语法**：core 产出语义中立的树，不解释任何 class/属性/链接目标。
-- 优先用语法让非法状态无法表达，而非事后 lint 检测（例：有序列表用无数字标记 `#.`，
-  源码里无从写错序号）。
+- strictness 针对特殊拼写和结构入口：入口一旦出现，就必须完整合法。
+- 普通文本中不构成语法入口的标点不应强迫转义。
+- core 只产出语法 AST 和语法 diagnostics，不解释语义。
+- 表面语法可以为高频写作服务，但内部 AST 应保持小而中性。
 
-## 1. 词法与文档级规则
+## 2. 特殊拼写，而非全局特殊字符
 
-- 文件编码必须 UTF-8。
-- 换行只允许 `LF`；出现 `CRLF` / `CR` → 错误。
-- 缩进及一切空白只允许空格；出现 `Tab` → 错误（消灭 tab/空格歧义）。
-- 空行 = 空行或只含空格的行。行尾空格不报错（无意义、忽略）。
-- 文件末尾的换行与空行不作要求：有无结尾换行、有几个结尾空行都可以，忽略。
+建议把旧公理“特殊字符永远特殊”改为：
 
-## 2. 块级语法
+> 特殊拼写永远特殊。
 
-- 块之间以空行分隔（一个或多个空行都行，只作边界，数量不限）。
-- 块类型由无歧义的行首前缀唯一决定。
+也就是说，解析器识别具体入口 pattern，而不是把每个标点在任意位置都视为非法普通
+字符。
 
-### 2.1 标题
+候选分类：
 
-```
-## 标题文本
-```
+- inline 入口：反引号代码、bracket span / link、自动链接、inline attr、emphasis /
+  strong delimiter、escape、raw text。
+- block-start 入口：heading、list、quote、code fence、thematic break、block attr、
+  container、definition / field list。
+- item modifier 入口：list marker 后的 `@...` 区域。
 
-- `#`×N（1–6）+ 恰好一个空格 + 非空文本，到行尾。
-- 无闭合 `#`，无 setext（下划线式）标题。
-- 允许层级跳级：编译目标是 HTML，`<h1>`–`<h6>` 本就可跳级，不设约束。
-- 可选显式锚点 `## 标题 {#custom-id}`（`{` 前恰好一个空格）。core 只记录这个 id、
-  不校验唯一性；由文本自动生成 id、构建大纲都是 extension 的事。
+待定：每个入口的确切拼写。
 
-### 2.2 段落
+## 3. Attribute 归属模型
 
-- 一段是若干连续非空行；段内软换行渲染为空格。
-- 段内硬换行用行尾反斜杠 `\`（显式，替代 Markdown 隐形的两空格）。
-
-### 2.3 代码块（仅围栏式）
-
-- 开栏为 N（≥3）个反引号，可紧跟单个语言标识符 `[A-Za-z0-9_-]+`（无空格）；有
-  空格或多 token → 错误。
-- 闭栏必须是恰好 N 个反引号独占一行；数量不匹配或到 EOF 未闭合 → 错误。
-- 只允许反引号围栏（无 `~~~`），内容原样，不解析。
-
-### 2.4 引用块
+属性值形状继续以 Pandoc / HTML 为基线：
 
 ```
-> 被引文本
-> 第二行也必须带前缀
+{tag #id .class key=value}
 ```
 
-- 每一行都必须有 `> ` 前缀（`>` + 一个空格）；引用内空行写作单独的 `>`。缺前缀的
-  续行 → 错误（消灭 lazy continuation）。
-- 嵌套用 `> > `。
+归属规则：
 
-### 2.5 列表
+- block attribute 是前缀，修饰紧随其后的 block。
+- span attribute 是后缀，修饰刚闭合的 span。
+- list item attribute 走 list marker 后的 item modifier 区。
 
-标记：无序 `- `（连字符 + 空格，宽 2）；有序 `#. `（`#` + `.` + 空格，宽 3），
-**不含数字**（序号由渲染器自动生成，源码无从写错；参考 reStructuredText 的 `#.`，
-与标题 `# ` 无歧义）。用 `*`/`+` 或带数字的标记 → 错误。
-
-**一个 item = 标记行 + 可选缩进正文**（正文缩进恰好 = 标记宽度，差一个空格 → 错误）：
-
-- **标记行**：`标记` → 可选 `{item 属性}`（紧跟标记）→ 可选首块内容。**紧跟标记的
-  `{...}` 永远是 item 的属性**（与排版无关，见 §2.8）。
-- **首块可在标记行上，也可下沉到缩进的下一行**；后续块缩进对齐、套标准块规则、
-  空行分隔。
-- **空 item**：`- ` 或 `- {属性}` 且无正文。
-- **一律 loose**：item 内容一律按块级处理，段落渲染成 `<p>`；**不区分 tight/loose，
-  空行不改变渲染**。紧凑外观由 CSS 决定（如 `li > p { margin: 0 }`）。
-
-例：`- {.done} 买牛奶` → `<li class="done"><p>买牛奶</p></li>`。要给**首块**而非 item
-挂属性，用独占行 `{...}` 放它上方（`-` 换行、缩进 `{.lead}`、再缩进内容；见 §2.8）。
-
-### 2.6 分隔线
-
-- 恰好 `---`（三个连字符）独占一行；其它写法 → 错误。
-
-### 2.7 定义列表（字段列表）
-
-行首 `:` 标记的字段列表，用 标量 / list / map 表达结构化数据（JSON 级表达力）。
-core 只产出这棵数据树；渲染成 `<dl>`、或被当作元信息（§4）都是 extension 的事。
+示意：
 
 ```
-:name: 张三
-:roles:
-  - 作者
-  - 维护者
-:contact:
-  :email: z@example.com
-  :city: 北京
+{.lead}
+这是段落。
+
+[Enter]{kbd}
+
+- @ {.done} 买牛奶
 ```
 
-- 标量：`:key: 值`（`:` + key + `: ` + 值到行尾；值为字符串）。
-- map：`:key:`（冒号后直接换行）+ 缩进 2 空格的子字段 `:subkey: ...`。
-- list：`:key:` + 缩进 2 空格的 `- 元素`；元素可为标量 / map / list。
-- 行首 `:` 是唯一入口；`:` 开头却不构成合法字段行 → 错误；正文要以字面冒号开头写
-  `\:`。
-- `- ` 仅在定义列表内部（缩进于某 `:key:` 下）表示 list 值；正文顶层的 `- ` 仍是
-  普通无序列表——两者不撞，因为定义列表必须由 `:key:` 行进入。
-- 缩进恰好 2 空格/层；`:` 后恰好一个空格。
-- 标量一律字符串，**禁隐式类型**（无 `no→false`、`1.20→1.2` 这类 YAML 坑）。
-- 结构良构（语法）：同一 map 内 key 唯一（重复 → 错误）；同层不得混用 `- `（list）
-  与 `:key:`（map）→ 错误。
-
-### 2.8 属性 `{...}`
-
-`{...}` 给块或 span 附加**不透明属性**。core **只校验它语法良构**，绝不解释其含义
-——元素是什么、class 什么意思、属性有没有用，全部是 extension 的事。四种记号，正好
-对上 HTML 的属性模型：
-
-- 裸词 —— **元素/tag**（≤1）。约定用 HTML 元素名（`kbd`/`mark`/`aside`/…），由
-  HTML 导出器落成对应标签；core 只当不透明 token 记下。
-- `#id` —— id（≤1）。core 只记录，**不校验唯一性**（那是链接 extension 的事）。
-- `.class` —— class（**0..n，可叠加**，正如 HTML 一个元素可有多个 class）。
-- `key=value` —— 具名属性（0..n）。
-
-**无注册表、无校验**：元素名 / class / 属性对 core 都是不透明串，写错也不报错——只有
-`{...}` 本身的**形状**错了才报错。语义构造 = 通用容器/span + 元素/class，如
-`[press]{kbd}`、`:::{aside .warn}`、`[书名]{cite}`、定义列表配 `{.meta}`（§4）。这
-就是 Djot/Pandoc 的 `{tag #id .class k=v}` 属性模型，正好对上 HTML 的
-tag/id/class/属性与 pandoc 的 `Attr`。
-
-放置方式：
-
-- **块属性**：`{...}` 独占一行，紧接在目标块上方（中间不能有空行；有空行即脱钩 →
-  悬空 → 错误）。
-- **行内属性**：紧跟在 span 之后，`[文本]{...}`。
-- **通用容器**：`:::{...}` 开、`:::` 独占一行闭的 fenced div，承载块级内容。
-- **列表项属性**：紧跟标记之后 `- {...} 内容`（§2.5）。
-
-**位置决定归属**：紧跟标记的 `{...}` 属于 item；独占一行的 `{...}` 属于紧随其后的那个
-块，永远不飘给 item。每个块前**至多一行** `{...}`（多个属性写进同一个）；堆叠两行、或
-后面没有块（悬空）→ 错误。
-
-**书写形式**：默认**紧凑单行** `{tag #id .class k=v}`。属性多时用**块形式**——行首一个
-孤 `{` 开、单独的 `}` 闭，其间一行一项；两者等价，只是排版：
+不建议：
 
 ```
-{
-  aside
-  #note-3
-  .callout .important
-  data-level=2
-}
+- {.done} 买牛奶
 ```
 
-（不支持"未闭合 `{` 续行"那种写法。）
+这种写法把 item attribute 和 block attribute 都写成裸 `{...}`，只靠位置判断归属，
+阅读成本偏高。
 
-## 3. 行内语法
+待定：
 
-出现在段落、标题、列表项、引用文本中。
+- item modifier 的最终拼写：`- @ {.done}`、`-@ {.done}`，或其它。
+- block attribute 是否支持多行属性块。
+- heading id 是否统一用 block attribute，而不是标题尾随 `{#id}`。
 
-- 强调 / 加粗：`_斜体_`、`*粗体*`——是 `[x]{em}` / `[x]{strong}` 的**糖**，归约成
-  同一个 `Span` 节点（见 §8）。
-  - 必须在同一块内闭合；未闭合 → 错误（旗舰特性，绝不降级为字面量）。
-  - 开定界符后须紧跟非空格、闭定界符前须紧邻非空格：`_ x_` → 错误。
-  - 同类不可自嵌套；异类可嵌套：`*粗 _又斜_*`。
-- 通用行内元素：`[文本]{element}`（如 `[press]{kbd}`、`[2]{sub}`、`[书名]{cite}`）
-  ——覆盖 `*`/`_`/`` ` `` 之外的所有 HTML 行内语义。
-- 行内代码：`` `code` ``，可用 N 个反引号配对以容纳内部反引号；未闭合 → 错误；
-  内容原样。
-- 链接：只有行内式 `[文本](目标)`。
-  - 无引用式、无隐式/快捷链接。
-  - core 只捕获**原始 target 串**，不分类（URL/内部/相对）也不解析——那是链接
-    extension 的事。
-  - `[文本]` 后缺 `(...)`、括号未闭合 → 错误。
-- 自动链接：`<https://…>`；裸 `<` 非法自动链接 → 错误（`<` 永远特殊）。
-- 转义：`\` + 任一 ASCII 标点 = 该标点字面量；`\` 后跟不可转义字符 → 错误（无游离
-  反斜杠）；`\` + 行尾 = 硬换行。
+## 4. Task item 方向
 
-## 4. 元信息（extension 约定，非 core 语法）
+任务状态走 item modifier，而不是 Markdown checkbox 拼写。
 
-元信息**不是 core 的语法特性**，而是 **meta extension** 的约定：一个带 `.meta`
-class 的定义列表被解释为文档元信息。core 只把它当"带属性的通用定义列表"，看不见
-"元信息"这个概念。
+推荐方向：
 
 ```
-{.meta}
-:title: 我的文档
-:date: 2026-07-02
-:tags:
-  - todo
-  - draft
+- @todo 买牛奶
+- @done 交水费
+- @todo {due=2026-07-10 .urgent} 预约体检
 ```
 
-由 meta extension 负责（非 core）：
+task extension 解释 `@todo` / `@done` / `due=...` 等语义。core 只记录 item modifier
+或 item attr。
 
-- 认出带 `.meta` 的定义列表并折叠为元信息（导出时进 pandoc `Meta`，不渲染进正文）。
-- 值类型映射：标量 → MetaString，list → MetaList，map → MetaMap。
-- 约束（如"全文至多一个"）由该 extension 决定并报错；core 不参与。
-
-不引入外部格式：元信息复用 §2.7 的定义列表，值一律字符串、无隐式类型。
-
-## 5. 语法 vs lint 分类（core 只做语法；写解析器/tree-sitter 前必读）
-
-core 的严格性**全部是语法级**，分三层。**语义（链接解析、class 含义、id 唯一、
-元信息、大纲、任务……）不在这里，一律是 extension 的事。**
-
-### 5.1 纯 CFG（tree-sitter 语法可直接表达）
-
-- 标题 `#{1,6} `、段落、分隔线 `---`
-- 链接 `[..](..)`（含嵌套括号，平衡括号是标准上下文无关语言）
-- 转义序列
-- 定义列表单行字段 `:key: 值` 的入口（行首 `:`）、属性 `{...}` 的形状
-
-### 5.2 需外部 scanner（自定义 lexer / 栈式状态）
-
-- 匹配长度的代码围栏（N 个反引号开 = 闭）
-- 行内代码的 N 反引号配对
-- 列表 / 引用块的精确缩进与块延续
-- 定义列表的缩进嵌套（map/list 层级与值归属）
-- 强调 / 加粗定界符的成对识别
-
-### 5.3 CFG 表达不了、但仍是语法 —— 语法 lint，活在手写解析器
-
-跨兄弟 / 跨块的上下文相关**语法**约束，**不进 grammar.js**，只作为诊断：
-
-- 无 tab / 仅 LF（词法级，tree-sitter 也不会主动为它们报错）
-- 定义列表结构良构：同一 map 内 key 唯一、同层不混 list/map
-
-（注：已删除的规则——"标题不得跳级"（放开）、"有序序号必须连续"（用无数字 `#.` 从
-语法层消除）、"行尾空白"（无所谓）、"紧凑/松散一致"（列表改为一律 loose，紧凑交 CSS）、"块间
-恰好一个空行"（空行数量随意）；另原 §5.4"语义注册表校验"整层已删——core 不含任何
-语义校验，全部下沉为 extension。）
-
-结论：手写解析器负责 §5.1–§5.3（**全部是语法**）并给出精确诊断；extension 在其上
-另做语义诊断；tree-sitter 只覆盖 §5.1 + §5.2，且刻意宽松，仅服务编辑器人体工学。
-
-## 6. 相对 Djot 明确砍掉的容错（摘要）
-
-setext 标题、lazy 引用续行、`*`/`+`/`~~~` 多写法、引用式/隐式链接、未闭合定界符
-降级为文本、两空格硬换行、tab 缩进、有序列表源码数字（改用无数字 `#.`）—— 全部改为
-报错或删除。（注：标题跳级、行尾空白、紧凑/松散、空行数量不在此列——已放开或交给
-渲染。）
-
-## 7. 开放问题（待拍板）
-
-1. 名字与扩展名（`plumb` / `.plumb` 为占位）。
-2. ~~标题跳级 / 有序序号严格度~~ **已定**：标题允许跳级；有序列表用无数字标记
-   `#. `。（`#.` 若想换成 `. ` 可再议。）
-3. ~~元信息形式~~ **已定**：`.meta` class 的定义列表，由 meta extension 解释；
-   **core 不含元信息语义**（§4）。
-4. ~~列表项多块内容~~ **已定**：支持多块（`Item{attr, blocks}`）；首块可在标记行或
-   下沉一行；item 属性走标记后 `- {...}`、块属性走独占行（位置决定归属，§2.8）；
-   列表一律 loose（不含 `Plain`，紧凑交 CSS，§2.5）。
-5. ~~强调/加粗字符~~ **已定**：`_`=em、`*`=strong、`` ` ``=code，作为糖归约到通用
-   `Span`/`Code`（§8）；其余 HTML 行内走 `[x]{element}`。
-6. ~~属性系统形态~~ **已定**：core 只解析**不透明** `{element #id .class k=v}`
-   （四种记号对上 HTML tag/id/class/属性），无注册表、无校验；书写有紧凑单行 + 块
-   形式两种（§2.8）；一切语义在 extension（§2.8、vision）。仍待细化：块属性行 `{...}`
-   与标题尾随 `{#id}`（§2.1）两种放置是否统一。
-7. extension 机制细节：编译期 Rust transform 的 trait 形态、执行顺序、如何各自产出
-   诊断（vision 已定"编译期 Rust"方向，细节待设计）。
-8. 表格：作为一等结构节点给专用语法（如管道表），还是走通用容器 `:::{table}` 内嵌
-   `{tr}{td}`？后者难写，倾向专用语法，待定。
-
-## 8. 附录：内部表示（中性 AST）与语法糖
-
-内部表示是一棵**小而中性**的树（Pandoc AST 的形状）；前端所有书写便利都**归约到
-它**。不变量：糖和通用形式产出**同一个节点**——`*x*` ≡ `[x]{strong}`。
-
-构造分两类：
-
-- **结构性**（自带结构数据，各是一个类型化节点，只有一种终端语法）：标题、段落、
-  列表、代码块、引用、定义列表、分隔线、链接、行内代码。
-- **包装性**（只是给内容套个语义壳，全部归约到通用 `Container`/`Span` + 不透明
-  `element`）：strong/em/kbd/mark/cite/sub/sup/aside/figure/… 其中 `*`/`_`/`` ` ``
-  是最常用几个的糖。
-
-节点集（`element`/`id`/`class`/`keyvals` 全是不透明串，语义在导出器）：
+不建议保留裸 checkbox：
 
 ```
-Block  = Heading{level, inlines}
-       | Paragraph{inlines}
-       | List{ordered, items}           // items: [ Item ]
-       | CodeBlock{lang, text}
-       | BlockQuote{blocks}
-       | DefList{entries}
-       | ThematicBreak
-       | Container{attr, blocks}        // 通用块壳：aside/figure/section/…
-Item   = { attr, blocks }               // 列表项：属性 + 多块；一律 loose（Para → <p>）
+- [ ] task
+- [x] task
+```
+
+原因是 `[` 已经是 inline 入口；在 list marker 后把它特殊解释成 task，会增加 core
+特例和阅读歧义。
+
+## 5. Escape 与 raw text
+
+逐字符 escape 保留：
+
+```
+\*
+\[
+\{
+```
+
+同时考虑 raw text span，用于“普通文字但不解析”的场景：
+
+```
+r[a*b, snake_case, [not a link](x), A > B]
+r[[text with ] inside]]
+```
+
+raw text 和 inline code 语义不同：raw text 仍是普通文字，inline code 是代码文字。
+
+待定：
+
+- raw text 的最终 delimiter。
+- raw block 是否进入 MVP。
+- escape 的可转义字符集合。
+
+## 6. MVP core 候选结构
+
+MVP 需要支持的 core 结构候选：
+
+- 标题
+- 段落
+- 强调 / 加粗
+- 行内代码
+- 链接
+- 自动链接
+- 列表
+- 引用
+- 代码块
+- 分隔线
+- 属性
+- 通用块容器
+- 定义列表 / 字段列表（待定）
+- 转义和 raw text
+
+## 7. 中性 AST 方向
+
+候选节点集：
+
+```
+Document = Block[]
+
+Block  = Heading{level, attr, inlines}
+       | Paragraph{attr, inlines}
+       | List{attr, ordered, items}
+       | CodeBlock{attr, lang, text}
+       | BlockQuote{attr, blocks}
+       | FieldList{attr, entries}
+       | ThematicBreak{attr}
+       | Container{attr, blocks}
+
+Item   = { attr, modifiers, blocks }
+
 Inline = Text{str}
        | Code{text}
        | Link{target, inlines}
        | LineBreak
-       | Span{attr, inlines}            // 通用行内壳：strong/em/kbd/mark/…
-Attr   = { element, id, classes, keyvals }
+       | Span{attr, inlines}
+       | RawText{str}
+
+Attr   = { tag, id, classes, keyvals }
 ```
 
-推论：**加一个新包装元素 → parser 零改动**（走通用 `{element}`）；**加一个新糖 →
-只加一条 parser 规则、不加节点**。
+注意：这只是方向。最终 AST 应按实现前的精确语法和 extension 需求再收敛。
+
+## 8. 仍需拍板的问题
+
+- 名字与扩展名。
+- list marker：无序 / 有序的最终拼写。
+- item modifier：`@todo` / `@done` / attribute 的确切组合规则。
+- block、span、item attribute 的最终拼写和多行形式。
+- emphasis / strong delimiter 的字符和合法边界规则。
+- raw text 的必要性和 delimiter。
+- 定义列表 / 字段列表是否进 MVP。
+- 表格是否作为 core 一等结构，还是后续 extension / container 处理。
+- code fence 的 delimiter 和语言标识规则。
+- block 分隔、缩进、空行的精确规则。

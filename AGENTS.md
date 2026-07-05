@@ -8,29 +8,30 @@ instructions.
 
 ## What this is
 
-**plumb** (working name — see the naming open question in `docs/vision.dj`) is a
+**plumb** (working name — see the naming open question in `docs/spec.dj`) is a
 **strict markup language** and its tooling, built for personal use. Where
 [Djot](https://djot.net) and Markdown are deliberately error-tolerant, plumb is
-deliberately strict: one meaning per spelling, every special character is always
-special, and any unclosed or malformed construct is a hard parse error rather
-than a silent fallback to literal text.
+deliberately strict: malformed syntax is a hard parse error rather than a silent
+fallback to literal text. The current design direction is "special spellings are
+always special" rather than "every punctuation character is globally special."
 
 Start with the design docs, in this order:
 
+- `docs/requirements.dj` — the current source of truth for goals, non-goals,
+  design principles, and MVP requirements.
 - `docs/vision.dj` — why the language exists, its core philosophy, and the
   ecosystem strategy.
-- `docs/spec.dj` — the v0 grammar spec. It specifies **only the core syntax**;
-  every rule is syntactic, classified by which are pure CFG vs syntactic lints.
-  All *semantics* live in extensions, not core.
-- `docs/features.dj` — the full feature set the tooling must support. It mirrors
-  **all** current djot-tools features and adds the strict-language-specific
-  ones.
+- `docs/spec.dj` — the current syntax design draft. It is **not** a final grammar
+  yet; it records directions and open questions.
+- `docs/features.dj` — the tool roadmap derived from the requirements.
 
 ## Current status
 
-**Greenfield.** This repository currently contains only design docs (`docs/`)
-and this guidance. There is no code yet. The first implementation target is
-`plumb-core`: a hand-written strict parser producing `(AST, Vec<Diagnostic>)`.
+**Greenfield design reset.** This repository currently contains only design docs
+(`docs/`) and this guidance. There is no code yet. Before implementation, freeze
+the MVP syntax and AST from `docs/requirements.dj` and `docs/spec.dj`. The first
+implementation target remains `plumb-core`: a hand-written strict parser
+producing `(AST, Vec<Diagnostic>)`.
 
 ## Relationship to djot-tools
 
@@ -55,8 +56,8 @@ project, but it is a **separate project**:
    syntactic error exists. Strictness is **syntactic only**.
 2. **The core is semantics-neutral; all meaning lives in extensions.**
    `plumb-core` produces a small, semantics-neutral Pandoc-shaped tree
-   (`{tag #id .class k=v}` are opaque attributes; surface sugar like `*`=strong
-   desugars into it). Everything semantic — metadata, link/anchor resolution,
+   (`{tag #id .class k=v}` are opaque attributes; surface sugar desugars into the
+   same core nodes). Everything semantic — metadata, link/anchor resolution,
    references, id generation, tasks, and lowering to HTML/pandoc — is an
    **extension** (a compile-time Rust transform over the tree; the exporter is
    itself an extension). No registry, no roles, no class-name validation in core.
@@ -83,7 +84,7 @@ semantics can be shared by more than one tool:
   inline parser, producing a small Pandoc-shaped `(tree, Vec<Diagnostic>)` where
   diagnostics are **syntactic only**. Structural constructs are typed nodes; other
   semantic wrappers collapse to a generic `Container`/`Span` carrying an opaque
-  `{tag #id .class k=v}`. Surface sugar (`*`=strong, …) desugars to the same tree.
+  `{tag #id .class k=v}`. Surface sugar desugars to the same tree.
   Contains **no** anchors, references, metadata, tasks, or resolution logic.
 - **extensions** — compile-time Rust transforms consuming the core tree, adding
   all semantics plus their own diagnostics: outline, anchors/references, target
