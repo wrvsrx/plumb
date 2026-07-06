@@ -9,6 +9,8 @@
 当前方向：
 
 - block level 使用 line marker + indentation。
+- marked block 采用 headless 结构：marker line 只有 marker 和 attr，正文永远放在缩进
+  child blocks 中。
 - inline structure 使用 Lisp-like brace form：`{name ...}`。
 - 普通 inline text 中尽量只有 `{` 和 escape 本身需要转义；其它标点默认字面量。
 - attributes 使用 attr slot：`[tag #id .class key=value]`，只在 marker / form 的指定位置
@@ -19,15 +21,18 @@
 一个健康的文档应接近：
 
 ```
-# [#today] 今天
+# [#today]
+  今天
 
 普通文本里的 a*b、snake_case、[brackets]、A > B 都不用转义。
 这是 {em brace form}，这是 {link ./syntax 语法草案}。
 
-- @todo [due=2026-07-10 .urgent] 写语法草案
+- [task=todo due=2026-07-10 .urgent]
+  写语法草案
   先整理 block 模型。
 
-  - 子任务
+  -
+    子任务
     检查缩进规则。
 
 : aside [.note]
@@ -61,7 +66,7 @@
 block 层包含关系统一由 indentation 表达：
 
 ```
-ContainerLine
+MarkerLine
   ChildBlock
   ChildBlock
 ```
@@ -78,10 +83,12 @@ ContainerLine
 合法：
 
 ```
-- item
+-
+  item
   child paragraph
 
-  - nested item
+  -
+    nested item
     nested child
 ```
 
@@ -94,20 +101,24 @@ ContainerLine
 
 ## 4. Heading and section
 
-Heading 是普通 block，不是 indentation container。
+Heading 是普通 block：它只允许一个缩进 paragraph 作为标题文本，不允许承载 section
+children。
 
 源码保持平面：
 
 ```
-# 第一章
+#
+  第一章
 
 段落 A。
 
-## 小节
+##
+  小节
 
 段落 B。
 
-# 第二章
+#
+  第二章
 
 段落 C。
 ```
@@ -155,24 +166,42 @@ Section("第二章", [
 示意：
 
 ```
-# [#intro] 引言
+# [#intro]
+  引言
 
-- @todo [due=2026-07-10] 写文档
+- [task=todo due=2026-07-10]
+  写文档
   item child block。
 
-> 引用
+>
+  引用
   quote child block。
 
 : aside [.warn]
   container child block。
 ```
 
+统一形状：
+
+```
+MarkedBlock = Marker Attr? Newline Indent Block+ Dedent
+```
+
+parser 可以先把 marked block 统一解析为 `marker + attr + children`。随后 core 对内建
+marker 做 structural validation：
+
+- heading：children 必须恰好是一个 paragraph，该 paragraph 的 inline 内容成为标题文本；
+  heading 不能拥有 section children。
+- list item：children 必须是一个或多个 block。
+- quote：children 必须是一个或多个 block。
+- container：children 数量是否允许为零待定。
+- thematic break：若采用 marker block 形态，children 必须为零；也可作为独立 line marker。
+
 待定：
 
 - ordered list marker。
 - definition / field list 是否复用 `:`，还是用独立 marker。
 - empty container 是否允许。
-- marker line 是否允许同一行首段内容；倾向允许 list item 首段同 marker line。
 
 ## 6. Inline brace forms
 
@@ -230,7 +259,8 @@ attribute slot 使用 bracket form：
 示例：
 
 ```
-# [#today] 今天
+# [#today]
+  今天
 
 : aside [.note data-level=2]
   内容。
@@ -246,17 +276,22 @@ Attr = { tag, id, classes, keyvals }
 
 core 不校验 tag / class / key 的语义，也不校验 id 唯一性。
 
-## 8. Tasks and item modifiers
+## 8. Tasks as attributes
 
-任务状态走 list item modifier，不使用 Markdown checkbox：
+任务状态走 list item attributes，不使用 Markdown checkbox，也不另设任务 modifier 通道：
 
 ```
-- @todo 买牛奶
-- @done 交水费
-- @todo [due=2026-07-10 .urgent] 预约体检
+- [task=todo]
+  买牛奶
+
+- [task=done]
+  交水费
+
+- [task=todo due=2026-07-10 .urgent]
+  预约体检
 ```
 
-core 只记录 item modifiers / attrs。task extension 解释 `@todo`、`@done`、`due` 等语义。
+core 只记录 item attrs。task extension 解释 `task=todo`、`task=done`、`due` 等语义。
 
 ## 9. Code blocks
 
@@ -291,7 +326,7 @@ Block  = Heading{level, attr, inlines}
        | Container{name, attr, blocks}
        | ThematicBreak{attr}
 
-Item   = { attr, modifiers, blocks }
+Item   = { attr, blocks }
 
 Inline = Text{str}
        | Code{text}

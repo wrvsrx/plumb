@@ -35,7 +35,7 @@ diagnostics。导出器也是 extension。
 - `[plumb]` `MVP` html / pandoc export extension：core AST 到 Pandoc JSON AST，再交给
   pandoc writer。
 - `[plumb]` `v1` meta extension：识别约定的元信息结构并折叠到导出 metadata。
-- `[plumb]` `v1` tasks extension：解释 item modifier / attr 中的任务状态、日期和查询字段，
+- `[plumb]` `v1` tasks extension：解释 list item attrs 中的任务状态、日期和查询字段，
   并提供状态变更所需的文本编辑。
 
 ## C. 语言服务器（`plumb-ls`）
