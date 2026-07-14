@@ -1,7 +1,7 @@
 # plumb 目标与需求
 
 > 本文是当前阶段的设计事实源。我们从头设计语法时，先用这里的目标、非目标和需求
-> 约束每个具体符号选择；`docs/spec.md` 只记录尚未完全拍板的语法草案。
+> 约束每个具体符号选择；block 规范见 `docs/spec.md`，inline 设计见 `docs/inline.md`。
 
 ## 1. 项目定位
 
@@ -40,7 +40,7 @@ plumb 是一门用于个人长期文档系统的 strict markup language。它不
 
 严格性针对语法入口和结构良构，而不是要求每个标点在所有位置都必须转义。普通文本中
 应尽量只有极少数入口需要转义。block level 目前只把行首的统一 block introducer 视为
-结构入口；inline level 的入口和转义规则尚未设计。
+结构入口；inline level 已选用同一个 introducer，具体规则见 `docs/inline.md`。
 
 建议公理：
 
@@ -86,7 +86,8 @@ tree-sitter 可以做宽松镜像，不能反向约束权威语法。
 
 core 产出的 AST 应是小而中性的 Pandoc-shaped tree。syntax 层先保留 opaque marker
 token；后续 core lowering 再将内建 marker 归约成类型化节点。marker 不混入普通
-attributes，二者在 syntax node 中并列保存。inline tree 的具体形状尚未设计。
+attributes，二者在 syntax node 中并列保存。inline 的外层 envelope 已经收敛，最终 typed
+inline AST 尚未设计。
 
 ### 4.5 Reject-but-recover
 
@@ -165,9 +166,9 @@ MVP core 的 block structure 已经冻结，精确规则和实现前待定细节
 - block 属性
 - 通用块容器
 
-inline syntax 和通用 raw leaf 暂不设计，不能从旧草案推断其入口、转义或 AST。code
-block 是目前唯一冻结的 raw-body block。分隔线、表格、定义列表和字段列表等未来 block
-类型不在本次定稿范围内。
+inline element 和 inline verbatim 的外层 syntax 见 `docs/inline.md`；parsed inline content
+和最终 AST 尚未冻结。通用 raw block leaf 暂不设计；code block 是目前唯一冻结的
+raw-body block。分隔线、表格、定义列表和字段列表等未来 block 类型不在本次定稿范围内。
 
 core 输出：
 

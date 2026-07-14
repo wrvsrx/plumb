@@ -21,16 +21,19 @@ Start with the design docs, in this order:
   design principles, and MVP requirements.
 - `docs/vision.md` — why the language exists, its core philosophy, and the
   ecosystem strategy.
-- `docs/spec.md` — the current syntax design draft. It is **not** a final grammar
-  yet; it records directions and open questions.
+- `docs/spec.md` — the finalized block-level structure and the precise details
+  that still need decisions before implementation.
+- `docs/inline.md` — the current inline envelope design and its remaining open
+  questions. Read it after the block-level design in `docs/spec.md`.
 - `docs/features.md` — the tool roadmap derived from the requirements.
 
 ## Current status
 
 **Greenfield design reset.** This repository currently contains only design docs
 (`docs/`) and this guidance. There is no code yet. Before implementation, freeze
-the MVP syntax and AST from `docs/requirements.md` and `docs/spec.md`. The first
-implementation target remains `plumb-core`: a hand-written strict parser
+the remaining MVP syntax and AST details from `docs/requirements.md`,
+`docs/spec.md`, and `docs/inline.md`. The first implementation target remains
+`plumb-core`: a hand-written strict parser
 producing `(AST, Vec<Diagnostic>)`.
 
 ## Relationship to djot-tools
