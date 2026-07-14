@@ -1,29 +1,28 @@
 /// <reference types="tree-sitter-cli/dsl" />
 // @ts-check
 
-const PREC = {
-  escape: 4,
-  verbatim: 3,
-  inline: 2,
-  text: 1,
-};
+const PREC = { escape: 3, inline: 2, text: 1 };
 
 module.exports = grammar({
   name: 'plumb',
 
-  extras: $ => [/[ \t\r]/],
+  externals: $ => [
+    $._indent,
+    $._same_indent,
+    $._dedent,
+    $.code_marker,
+    $.raw_code_line,
+    $._inline_verbatim_token,
+    $._eof,
+  ],
 
+  extras: _ => [/[ \t\r]/],
   word: $ => $.attribute_name,
 
   rules: {
     document: $ => repeat(choice($._block, $.blank_line)),
 
-    _block: $ => choice(
-      $.code_block,
-      $.marked_block,
-      $.paragraph,
-    ),
-
+    _block: $ => choice($.code_block, $.marked_block, $.paragraph),
     blank_line: _ => /\n/,
 
     marked_block: $ => prec.right(seq(
@@ -32,57 +31,56 @@ module.exports = grammar({
       optional(field('attributes', $.attributes)),
       optional(seq($.head_separator, field('head', $.inline_content))),
       $._line_end,
-      optional(field('body', $.indented_body)),
+      optional(choice(
+        field('continued_head', $.headed_body),
+        field('body', $.block_body),
+      )),
     )),
 
-    code_block: $ => prec.right(seq(
+    headed_body: $ => prec.right(2, seq(
+      $._indent,
+      field('continuation', $.head_continuation),
+      repeat(seq($._same_indent, field('continuation', $.head_continuation))),
+      optional(choice(
+        seq(
+          repeat1($.blank_line),
+          optional(seq(
+            $._same_indent,
+            field('child', $._block),
+            repeat(choice($.blank_line, seq($._same_indent, field('child', $._block)))),
+          )),
+        ),
+        seq(
+          $._same_indent,
+          field('child', choice($.marked_block, $.code_block)),
+          repeat(choice($.blank_line, seq($._same_indent, field('child', $._block)))),
+        ),
+      )),
+      $._dedent,
+    )),
+
+    head_continuation: $ => prec(2, seq(field('content', $.inline_content), $._line_end)),
+
+    block_body: $ => prec.right(seq(
+      repeat($.blank_line),
+      $._indent,
+      $._block,
+      repeat(choice(
+        $.blank_line,
+        seq($._same_indent, $._block),
+      )),
+      $._dedent,
+    )),
+
+    code_block: $ => seq(
       field('introducer', $.introducer),
       field('marker', $.code_marker),
       optional(field('attributes', $.attributes)),
       $._line_end,
-      field('body', repeat1($.code_line)),
-    )),
-
-    indented_body: $ => prec.right(seq(
-      repeat($.blank_line),
-      choice(
-        $.indented_marked_block,
-        $.indented_code_block,
-        $.indented_paragraph,
-      ),
-      repeat(choice(
-        $.indented_marked_block,
-        $.indented_code_block,
-        $.indented_paragraph,
-        $.blank_line,
-      )),
-    )),
-
-    indented_marked_block: $ => seq(
-      field('indent', $.indent),
-      field('block', $.marked_block),
+      field('body', repeat1(alias($.raw_code_line, $.raw_text))),
     ),
 
-    indented_code_block: $ => seq(
-      field('indent', $.indent),
-      field('block', $.code_block),
-    ),
-
-    indented_paragraph: $ => seq(
-      field('indent', $.indent),
-      field('block', $.paragraph),
-    ),
-
-    paragraph: $ => seq(
-      field('content', $.inline_content),
-      $._line_end,
-    ),
-
-    code_line: $ => seq(
-      field('indent', $.indent),
-      optional(field('content', alias($.raw_line, $.raw_text))),
-      $._line_end,
-    ),
+    paragraph: $ => seq(field('content', $.inline_content), $._line_end),
 
     inline_content: $ => repeat1(choice(
       $.introducer_escape,
@@ -100,11 +98,10 @@ module.exports = grammar({
       optional(field('attributes', $.attributes)),
     )),
 
-    inline_verbatim: $ => prec(PREC.verbatim, choice(
-      seq('`"[', field('content', alias(/([^\]\n]|\][^"\n])*/, $.raw_text)), ']"'),
-      seq('`""[', field('content', alias(/([^\]\n]|\][^"\n]|\]"[^"\n])*/, $.raw_text)), ']""'),
-      seq('`"""[', field('content', alias(/([^\]\n]|\][^"\n]|\]"[^"\n]|\]""[^"\n])*/, $.raw_text)), ']"""'),
-    )),
+    inline_verbatim: $ => seq(
+      field('source', $._inline_verbatim_token),
+      optional(field('attributes', $.attributes)),
+    ),
 
     attributes: $ => seq(
       '{',
@@ -126,20 +123,14 @@ module.exports = grammar({
       field('value', $.attribute_value),
     ),
     attribute_name: _ => /[^\s{}#.=]+/,
-    attribute_value: _ => choice(
-      /[^\s{}"]+/,
-      /"([^"\\]|\\.)*"/,
-    ),
+    attribute_value: _ => choice(/[^\s{}"]+/, /"([^"\\]|\\.)*"/),
 
     introducer_escape: _ => prec(PREC.escape, '``'),
     introducer: _ => '`',
-    code_marker: _ => /"+/,
     marker: _ => /[^\s\[{`"]+/,
     inline_kind: _ => /[^\s\[{`"]+/,
     head_separator: _ => token(prec(2, /[ \t]+/)),
-    indent: _ => token(prec(2, / +/)),
-    raw_line: _ => /[^\n]+/,
     text: _ => prec(PREC.text, /[^`\]\n]+|\]/),
-    _line_end: _ => '\n',
+    _line_end: $ => choice('\n', $._eof),
   },
 });

@@ -44,7 +44,7 @@ Nested `*[outer `_[inner] text]{.important}.
 Inline verbatim and escapes
 ==================
 
-Use `"[code]" and `""[contains ]" safely]"".
+Use `"[code]"{language=text} and `""[contains ]" safely]"".
 ``*[literal introducer]
 
 ---
@@ -54,14 +54,28 @@ Use `"[code]" and `""[contains ]" safely]"".
   (paragraph
     (inline_content
       (text)
-      (inline_verbatim
-        (raw_text))
+      (inline_verbatim)
       (text)
-      (inline_verbatim
-        (raw_text))
+      (inline_verbatim)
       (text)))
   (paragraph
     (inline_content
       (introducer_escape)
       (text)
+      (text))))
+
+==================
+Arbitrary verbatim delimiter length
+==================
+
+Use `"""""[contains ]"""" safely]""""" here.
+
+---
+
+(document
+  (blank_line)
+  (paragraph
+    (inline_content
+      (text)
+      (inline_verbatim)
       (text))))

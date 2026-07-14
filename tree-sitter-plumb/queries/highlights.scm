@@ -10,5 +10,5 @@
 (attribute_pair key: (attribute_name) @property)
 (attribute_pair value: (attribute_value) @string)
 
-(inline_verbatim (raw_text) @string)
-(code_block (code_line (raw_text) @string))
+(inline_verbatim) @string
+(code_block (raw_text) @string)

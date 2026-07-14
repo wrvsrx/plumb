@@ -67,22 +67,18 @@ Nested blocks and paragraphs
     (head_separator)
     (inline_content
       (text))
-    (indented_body
+    (block_body
       (blank_line)
-      (indented_paragraph
-        (indent)
-        (paragraph
-          (inline_content
-            (text))))
+      (paragraph
+        (inline_content
+          (text)))
       (blank_line)
-      (indented_marked_block
-        (indent)
-        (marked_block
-          (introducer)
-          (marker)
-          (head_separator)
-          (inline_content
-            (text)))))))
+      (marked_block
+        (introducer)
+        (marker)
+        (head_separator)
+        (inline_content
+          (text))))))
 
 ==================
 Code block
@@ -106,15 +102,193 @@ after
       (attribute_pair
         (attribute_name)
         (attribute_value)))
-    (code_line
-      (indent)
-      (raw_text))
-    (code_line
-      (indent)
-      (raw_text))
-    (code_line
-      (indent)
-      (raw_text)))
+    (raw_text)
+    (raw_text)
+    (raw_text)
+    (raw_text))
+  (paragraph
+    (inline_content
+      (text))))
+
+==================
+Head continuation and children
+==================
+
+`> first head line
+   second head line
+   third head line
+
+   paragraph child
+
+   `- marked child
+
+---
+
+(document
+  (blank_line)
+  (marked_block
+    (introducer)
+    (marker)
+    (head_separator)
+    (inline_content
+      (text))
+    (headed_body
+      (head_continuation
+        (inline_content
+          (text)))
+      (head_continuation
+        (inline_content
+          (text)))
+      (blank_line)
+      (paragraph
+        (inline_content
+          (text)))
+      (blank_line)
+      (marked_block
+        (introducer)
+        (marker)
+        (head_separator)
+        (inline_content
+          (text))))))
+
+==================
+Empty head before paragraph child
+==================
+
+`>
+
+  paragraph child
+
+---
+
+(document
+  (blank_line)
+  (marked_block
+    (introducer)
+    (marker)
+    (block_body
+      (blank_line)
+      (paragraph
+        (inline_content
+          (text))))))
+
+==================
+Dynamic indentation and consecutive dedent
+==================
+
+`- parent
+
+   child
+
+   `- nested
+
+      grandchild
+
+   sibling child
+
+`- top-level sibling
+
+---
+
+(document
+  (blank_line)
+  (marked_block
+    (introducer)
+    (marker)
+    (head_separator)
+    (inline_content
+      (text))
+    (block_body
+      (blank_line)
+      (paragraph
+        (inline_content
+          (text)))
+      (blank_line)
+      (marked_block
+        (introducer)
+        (marker)
+        (head_separator)
+        (inline_content
+          (text))
+        (block_body
+          (blank_line)
+          (paragraph
+            (inline_content
+              (text)))
+          (blank_line)))
+      (paragraph
+        (inline_content
+          (text)))
+      (blank_line)))
+  (marked_block
+    (introducer)
+    (marker)
+    (head_separator)
+    (inline_content
+      (text))))
+
+==================
+Code margin follows quote count
+==================
+
+`""{language=text}
+   first
+     indented by two raw spaces
+
+`- after code
+
+---
+
+(document
+  (blank_line)
+  (code_block
+    (introducer)
+    (code_marker)
+    (attributes
+      (attribute_pair
+        (attribute_name)
+        (attribute_value)))
+    (raw_text)
+    (raw_text)
+    (raw_text))
+  (marked_block
+    (introducer)
+    (marker)
+    (head_separator)
+    (inline_content
+      (text))))
+
+==================
+Partial dedent recovery
+==================
+
+`- parent
+
+   child
+
+  invalid partial dedent
+
+after recovery
+
+---
+
+(document
+  (blank_line)
+  (marked_block
+    (introducer)
+    (marker)
+    (head_separator)
+    (inline_content
+      (text))
+    (block_body
+      (blank_line)
+      (paragraph
+        (inline_content
+          (text)))
+      (blank_line)))
+  (paragraph
+    (inline_content
+      (text)))
   (blank_line)
   (paragraph
     (inline_content
