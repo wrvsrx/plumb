@@ -1,4 +1,9 @@
-type Language = unknown;
+interface Language {
+  name: string;
+}
 
-declare const language: Language;
-export = language;
+declare const binding: {
+  language: Language;
+};
+
+export = binding;

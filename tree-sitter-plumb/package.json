@@ -21,10 +21,15 @@
   ],
   "scripts": {
     "generate": "tree-sitter generate",
-    "test": "tree-sitter test"
+    "test": "tree-sitter test",
+    "test:node": "node bindings/node/smoke-test.js"
   },
   "peerDependencies": {
     "tree-sitter": "^0.25.0"
+  },
+  "dependencies": {
+    "node-addon-api": "^8.3.1",
+    "node-gyp-build": "^4.8.4"
   },
   "devDependencies": {
     "tree-sitter-cli": "^0.26.0"
