@@ -1,12 +1,33 @@
-# plumb block level 语法设计
+# plumb block level 语法规范
 
-> 本文只记录已经收敛的 block level 设计。inline syntax、通用 raw leaf 及最终 inline
-> AST 尚未设计；不得从本文的 `InlineContent` 占位符推断其表面拼写。
+> **状态：结构设计已定稿。** 本文中的 frozen rules 是实现 block parser 的规范基线；
+> “实现前需确定的细节”仍须拍板，但不得改变总体 block model。inline syntax、通用 raw
+> leaf 及最终 inline AST 不在本次定稿范围内；不得从 `InlineContent` 占位符推断其表面
+> 拼写。
+
+## 0. 定稿边界
+
+以下规则已经冻结：
+
+- block start 的反引号是唯一 `BlockIntroducer`；两个连续反引号转义字面的行首反引号。
+- introducer 后是独立于 attributes 的 `MarkerToken`；syntax node 原样保存 marker。
+- 普通 marked block 具有 `marker + attrs + head + children` 的统一结构。
+- block attributes 紧贴 marker，使用 `{tag #id .class key=value}` 的形状。
+- head 保存为抽象 `InlineContent`，可以跨物理行；空行结束 head。
+- children 只由 indentation 表达；同级结构不得依赖 marker 的视觉宽度对齐。
+- 普通 paragraph 是省略 introducer 和 marker 的默认 inline leaf，不能拥有 children。
+- heading 的 head 是标题内容，heading 不能拥有 children；section 是派生视图。
+- 保留 marker `""` 产生 indented code block；它没有 head 或 block children，dedent 结束
+  raw payload。
+- syntax 层使用 `InlinePayload | RawPayload` 区分普通 marked block 与 code block。
+
+实现前仍需确定的项目集中列在本文末尾。除这些项目外，block surface syntax 不再继续
+发散。
 
 ## 1. 总体模型
 
-block syntax 只有一个显式入口：位于 block start 的统一 block introducer。当前选定
-反引号作为 introducer；它在这里不是 escape，而是声明“后面开始一个 marked block”。
+block syntax 只有一个显式入口：位于 block start 的统一 block introducer。反引号已经
+确定为 introducer；它在这里不是 escape，而是声明“后面开始一个 marked block”。
 
 ```text
 MarkedBlock = BlockIntroducer MarkerToken BlockAttr? Head? Newline
@@ -90,7 +111,7 @@ SyntaxNode { attrs: { marker: "#", id: "intro" }, ... }
 
 ## 3. Marker token
 
-当前高频 marker token 的方向：
+已经确定的内建 marker token：
 
 ```text
 #, ##, ...  heading level
@@ -113,8 +134,8 @@ SyntaxNode { attrs: { marker: "#", id: "intro" }, ... }
 ```
 
 syntax 层只保存 marker token。后续 core lowering / structural validation 才解释内建 token，
-例如将 `#` 归约为一级 heading、将 `-` 归约为 list item。是否允许 identifier marker、未知
-marker 如何归约，以及 ordered list 的 marker token 尚未拍板。
+例如将 `#` 归约为一级 heading、将 `-` 归约为 list item。identifier marker、未知 marker
+和 ordered list token 属于实现前仍需确定的细节。
 
 `""` 是保留的结构 marker，syntax parser 必须识别它以切换 raw-body parsing mode；这不
 要求 parser 解释 `language` 等 attributes。
@@ -248,8 +269,8 @@ block containment 只由 indentation 表达：
 同级 marked block 或文档结束会结束它。paragraph 必须有 `InlineContent`，并且不能拥有
 children。
 
-需要 block attributes 的 paragraph 可以暂时使用 generic marked block 表达；最终拼写随
-marker token 集合一起拍板：
+需要 block attributes 的 paragraph 暂时可以使用 generic marked block 表达；是否将其
+定为唯一正式写法仍需拍板：
 
 ```plumb
 `:{p .lead} 带 block attributes 的 paragraph。
@@ -326,15 +347,45 @@ head 不统一包装成 `Paragraph`。共享的抽象应是 `InlineContent`：he
 content；list item、quote 或 container 的 head 在 lowering 时可归约为首个 paragraph。
 具体 AST 在 inline design 完成后再冻结。
 
-## 10. 尚未拍板
+## 10. 实现前需确定的细节
 
-- 固定缩进宽度是否为 2 spaces。
-- `MarkerToken` 的精确字符集和最长匹配规则。
+这些项目会影响 block parser、diagnostics 或 core AST，必须在实现开始前决定：
+
+### 10.1 Indentation
+
+- 每层固定宽度已经确定；最终值是否为 2 spaces。
+- 空白行是否忽略其 indentation 和 trailing whitespace。
+- EOF、文件末尾缺少 newline、连续 dedent 的精确处理。
+- head continuation 和直接 children 是否必须共享同一个 body indentation column。
+
+### 10.2 Marker tokens
+
+- `MarkerToken` 的精确字符集、token boundary 和最长匹配规则。
+- heading marker 的最大重复次数。
 - ordered list marker 的最终拼写。
-- identifier marker 和未知 marker 是否允许。
+- identifier marker 是否允许；未知 marker 是语法错误还是 generic node。
 - `:` container 与 field list / metadata 的关系。
-- 哪些 marker 允许空 head、children 或 block attr。
+
+### 10.3 Node constraints and lowering
+
+- 哪些 marker 允许空 head、children 或 block attrs。
+- 连续 sibling list items 如何聚合成 `List`，以及空行是否影响聚合。
+- list item、quote 和 container 的 head 是否统一 lowering 为首个 `Paragraph`。
+- 空 code block 是否允许，以及 raw payload 是否保留最终 newline。
+- paragraph block attributes 是否正式使用 `:{p ...}`，还是另设形式。
+
+### 10.4 Attribute grammar
+
+- tag 和 id 是否各最多一个，重复时如何诊断。
+- class 和 key/value 是否允许重复，是否保留输入顺序。
+- token 的精确字符集、value quoting 和 escape rules。
 - 无属性的 `{}` 是否允许。
-- paragraph block attributes 的最终写法。
-- inline syntax、inline attributes、换行表示和 escape rules。
-- 通用 raw/verbatim leaf、thematic break 和 table。
+
+## 11. 定稿范围外
+
+以下内容尚未设计，但不会改变已经冻结的 block model：
+
+- inline syntax、inline attributes、inline 换行表示和 escape rules。
+- 通用 raw/verbatim leaf。
+- thematic break、table 及未来新增的 block 类型。
+- 最终 Pandoc-shaped inline AST 和 extension semantics。
