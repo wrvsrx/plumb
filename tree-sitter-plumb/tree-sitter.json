@@ -1,0 +1,22 @@
+{
+  "grammars": [
+    {
+      "name": "plumb",
+      "camelcase": "Plumb",
+      "scope": "source.plumb",
+      "path": ".",
+      "file-types": ["plumb"],
+      "injection-regex": "^plumb$"
+    }
+  ],
+  "metadata": {
+    "version": "0.1.0",
+    "license": "MIT",
+    "description": "Plumb grammar for tree-sitter"
+  },
+  "bindings": {
+    "c": true,
+    "node": true,
+    "rust": true
+  }
+}

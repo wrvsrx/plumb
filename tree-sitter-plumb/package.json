@@ -1,0 +1,39 @@
+{
+  "name": "tree-sitter-plumb",
+  "version": "0.1.0",
+  "description": "Plumb grammar for tree-sitter",
+  "license": "MIT",
+  "main": "bindings/node",
+  "types": "bindings/node",
+  "keywords": [
+    "incremental",
+    "parsing",
+    "tree-sitter",
+    "plumb"
+  ],
+  "files": [
+    "grammar.js",
+    "tree-sitter.json",
+    "binding.gyp",
+    "bindings/node/*",
+    "queries/*",
+    "src/**"
+  ],
+  "scripts": {
+    "generate": "tree-sitter generate",
+    "test": "tree-sitter test"
+  },
+  "peerDependencies": {
+    "tree-sitter": "^0.25.0"
+  },
+  "devDependencies": {
+    "tree-sitter-cli": "^0.26.0"
+  },
+  "tree-sitter": [
+    {
+      "scope": "source.plumb",
+      "file-types": ["plumb"],
+      "injection-regex": "^plumb$"
+    }
+  ]
+}

@@ -1,0 +1,67 @@
+==================
+Parsed inline elements
+==================
+
+Text with `*[emphasis] and `kbd[Ctrl+C]{.shortcut}.
+Nested `*[outer `_[inner] text]{.important}.
+
+---
+
+(document
+  (blank_line)
+  (paragraph
+    (inline_content
+      (text)
+      (inline_element
+        (introducer)
+        (inline_kind)
+        (inline_content
+          (text)))
+      (text)
+      (inline_element
+        (introducer)
+        (inline_kind)
+        (inline_content
+          (text)))
+      (text)))
+  (paragraph
+    (inline_content
+      (text)
+      (inline_element
+        (introducer)
+        (inline_kind)
+        (inline_content
+          (text)
+          (inline_element
+            (introducer)
+            (inline_kind)
+            (inline_content
+              (text)))
+          (text)))
+      (text))))
+
+==================
+Inline verbatim and escapes
+==================
+
+Use `"[code]" and `""[contains ]" safely]"".
+``*[literal introducer]
+
+---
+
+(document
+  (blank_line)
+  (paragraph
+    (inline_content
+      (text)
+      (inline_verbatim
+        (raw_text))
+      (text)
+      (inline_verbatim
+        (raw_text))
+      (text)))
+  (paragraph
+    (inline_content
+      (introducer_escape)
+      (text)
+      (text))))

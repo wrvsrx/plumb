@@ -1,0 +1,121 @@
+==================
+Marked blocks
+==================
+
+`#{#intro .lead} Introduction
+`- first item
+`> quote
+`:{aside role=note} container
+
+---
+
+(document
+  (blank_line)
+  (marked_block
+    (introducer)
+    (marker)
+    (attributes
+      (attribute_id
+        (attribute_name))
+      (attribute_class
+        (attribute_name)))
+    (head_separator)
+    (inline_content
+      (text)))
+  (marked_block
+    (introducer)
+    (marker)
+    (head_separator)
+    (inline_content
+      (text)))
+  (marked_block
+    (introducer)
+    (marker)
+    (head_separator)
+    (inline_content
+      (text)))
+  (marked_block
+    (introducer)
+    (marker)
+    (attributes
+      (attribute_tag
+        (attribute_name))
+      (attribute_pair
+        (attribute_name)
+        (attribute_value)))
+    (head_separator)
+    (inline_content
+      (text))))
+
+==================
+Nested blocks and paragraphs
+==================
+
+`- parent
+
+   child paragraph
+
+   `- nested
+
+---
+
+(document
+  (blank_line)
+  (marked_block
+    (introducer)
+    (marker)
+    (head_separator)
+    (inline_content
+      (text))
+    (indented_body
+      (blank_line)
+      (indented_paragraph
+        (indent)
+        (paragraph
+          (inline_content
+            (text))))
+      (blank_line)
+      (indented_marked_block
+        (indent)
+        (marked_block
+          (introducer)
+          (marker)
+          (head_separator)
+          (inline_content
+            (text)))))))
+
+==================
+Code block
+==================
+
+`"{language=rust}
+  fn main() {
+      println!("hello");
+  }
+
+after
+
+---
+
+(document
+  (blank_line)
+  (code_block
+    (introducer)
+    (code_marker)
+    (attributes
+      (attribute_pair
+        (attribute_name)
+        (attribute_value)))
+    (code_line
+      (indent)
+      (raw_text))
+    (code_line
+      (indent)
+      (raw_text))
+    (code_line
+      (indent)
+      (raw_text)))
+  (blank_line)
+  (paragraph
+    (inline_content
+      (text))))

@@ -1,0 +1,608 @@
+[
+  {
+    "type": "attribute_class",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "attribute_name",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "attribute_id",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "attribute_name",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "attribute_pair",
+    "named": true,
+    "fields": {
+      "key": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "attribute_name",
+            "named": true
+          }
+        ]
+      },
+      "value": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "attribute_value",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "attribute_tag",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "attribute_name",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "attribute_value",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "attributes",
+    "named": true,
+    "fields": {
+      "class": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "attribute_class",
+            "named": true
+          }
+        ]
+      },
+      "id": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "attribute_id",
+            "named": true
+          }
+        ]
+      },
+      "pair": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "attribute_pair",
+            "named": true
+          }
+        ]
+      },
+      "tag": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "attribute_tag",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "code_block",
+    "named": true,
+    "fields": {
+      "attributes": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "attributes",
+            "named": true
+          }
+        ]
+      },
+      "body": {
+        "multiple": true,
+        "required": true,
+        "types": [
+          {
+            "type": "code_line",
+            "named": true
+          }
+        ]
+      },
+      "introducer": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "introducer",
+            "named": true
+          }
+        ]
+      },
+      "marker": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "code_marker",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "code_line",
+    "named": true,
+    "fields": {
+      "content": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "raw_text",
+            "named": true
+          }
+        ]
+      },
+      "indent": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "indent",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "document",
+    "named": true,
+    "root": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "blank_line",
+          "named": true
+        },
+        {
+          "type": "code_block",
+          "named": true
+        },
+        {
+          "type": "marked_block",
+          "named": true
+        },
+        {
+          "type": "paragraph",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "indented_body",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "blank_line",
+          "named": true
+        },
+        {
+          "type": "indented_code_block",
+          "named": true
+        },
+        {
+          "type": "indented_marked_block",
+          "named": true
+        },
+        {
+          "type": "indented_paragraph",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "indented_code_block",
+    "named": true,
+    "fields": {
+      "block": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "code_block",
+            "named": true
+          }
+        ]
+      },
+      "indent": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "indent",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "indented_marked_block",
+    "named": true,
+    "fields": {
+      "block": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "marked_block",
+            "named": true
+          }
+        ]
+      },
+      "indent": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "indent",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "indented_paragraph",
+    "named": true,
+    "fields": {
+      "block": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "paragraph",
+            "named": true
+          }
+        ]
+      },
+      "indent": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "indent",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "inline_content",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "inline_element",
+          "named": true
+        },
+        {
+          "type": "inline_verbatim",
+          "named": true
+        },
+        {
+          "type": "introducer_escape",
+          "named": true
+        },
+        {
+          "type": "text",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "inline_element",
+    "named": true,
+    "fields": {
+      "attributes": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "attributes",
+            "named": true
+          }
+        ]
+      },
+      "content": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "inline_content",
+            "named": true
+          }
+        ]
+      },
+      "introducer": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "introducer",
+            "named": true
+          }
+        ]
+      },
+      "kind": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "inline_kind",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "inline_kind",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "inline_verbatim",
+    "named": true,
+    "fields": {
+      "content": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "raw_text",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "introducer_escape",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "marked_block",
+    "named": true,
+    "fields": {
+      "attributes": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "attributes",
+            "named": true
+          }
+        ]
+      },
+      "body": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "indented_body",
+            "named": true
+          }
+        ]
+      },
+      "head": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "inline_content",
+            "named": true
+          }
+        ]
+      },
+      "introducer": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "introducer",
+            "named": true
+          }
+        ]
+      },
+      "marker": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "marker",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": false,
+      "types": [
+        {
+          "type": "head_separator",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "marker",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "paragraph",
+    "named": true,
+    "fields": {
+      "content": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "inline_content",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "text",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "\n",
+    "named": false
+  },
+  {
+    "type": "#",
+    "named": false
+  },
+  {
+    "type": ".",
+    "named": false
+  },
+  {
+    "type": "=",
+    "named": false
+  },
+  {
+    "type": "[",
+    "named": false
+  },
+  {
+    "type": "]",
+    "named": false
+  },
+  {
+    "type": "]\"",
+    "named": false
+  },
+  {
+    "type": "]\"\"",
+    "named": false
+  },
+  {
+    "type": "]\"\"\"",
+    "named": false
+  },
+  {
+    "type": "`\"\"\"[",
+    "named": false
+  },
+  {
+    "type": "`\"\"[",
+    "named": false
+  },
+  {
+    "type": "`\"[",
+    "named": false
+  },
+  {
+    "type": "``",
+    "named": false
+  },
+  {
+    "type": "attribute_name",
+    "named": true
+  },
+  {
+    "type": "blank_line",
+    "named": true
+  },
+  {
+    "type": "code_marker",
+    "named": true
+  },
+  {
+    "type": "head_separator",
+    "named": true
+  },
+  {
+    "type": "indent",
+    "named": true
+  },
+  {
+    "type": "introducer",
+    "named": true
+  },
+  {
+    "type": "raw_text",
+    "named": true
+  },
+  {
+    "type": "{",
+    "named": false
+  },
+  {
+    "type": "}",
+    "named": false
+  }
+]
