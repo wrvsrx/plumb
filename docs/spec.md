@@ -9,36 +9,32 @@
 当前方向：
 
 - block level 使用 line marker + indentation。
-- marked block 采用 headless 结构：marker line 只有 marker 和 attr，正文永远放在缩进
-  child blocks 中。
+- marked block 使用 `marker{attr}? head?`；marker line 可以承载简短正文，缩进只承载
+  后续 child blocks。
 - inline structure 使用 Lisp-like brace form：`{name ...}`。
 - 普通 inline text 中尽量只有 `{` 和 escape 本身需要转义；其它标点默认字面量。
-- attributes 使用 attr slot：`[tag #id .class key=value]`，只在 marker / form 的指定位置
-  特殊。
+- block attributes 使用紧贴 marker 的 `{tag #id .class key=value}`；inline attributes
+  仍使用 form 内的 `[tag #id .class key=value]` attr slot。
 - 语法尽可能局部、接近上下文无关；允许有限有状态 scanner 处理缩进、围栏长度、行首
   位置和 brace nesting。
 
 一个健康的文档应接近：
 
 ```
-# [#today]
-  今天
+#{#today} 今天
 
 普通文本里的 a*b、snake_case、[brackets]、A > B 都不用转义。
 这是 {em brace form}，这是 {link ./syntax 语法草案}。
 
-- [task=todo due=2026-07-10 .urgent]
-  写语法草案
+-{task=todo due=2026-07-10 .urgent} 写语法草案
   先整理 block 模型。
 
-  -
-    子任务
-    检查缩进规则。
+  - 子任务
 
-: aside [.note]
+:{aside .note} 提示
   缩进只表示这个 aside 的内容。
 
-> 引用
+> 引用的开头
   引用里的第二段。
 ```
 
@@ -66,7 +62,7 @@
 block 层包含关系统一由 indentation 表达：
 
 ```
-MarkerLine
+MarkerLine head?
   ChildBlock
   ChildBlock
 ```
@@ -83,13 +79,10 @@ MarkerLine
 合法：
 
 ```
--
-  item
+- item
   child paragraph
 
-  -
-    nested item
-    nested child
+  - nested item
 ```
 
 非法：
@@ -101,24 +94,21 @@ MarkerLine
 
 ## 4. Heading and section
 
-Heading 是普通 block：它只允许一个缩进 paragraph 作为标题文本，不允许承载 section
+Heading 是原子 block：marker line 上的 head 是标题文本，heading 不允许承载 indented
 children。
 
 源码保持平面：
 
 ```
-#
-  第一章
+# 第一章
 
 段落 A。
 
-##
-  小节
+## 小节
 
 段落 B。
 
-#
-  第二章
+# 第二章
 
 段落 C。
 ```
@@ -166,34 +156,39 @@ Section("第二章", [
 示意：
 
 ```
-# [#intro]
-  引言
+#{#intro} 引言
 
-- [task=todo due=2026-07-10]
-  写文档
+-{task=todo due=2026-07-10} 写文档
   item child block。
 
->
-  引用
+> 引用
   quote child block。
 
-: aside [.warn]
+:{aside .warn} 提示
   container child block。
 ```
 
 统一形状：
 
 ```
-MarkedBlock = Marker Attr? Newline Indent Block+ Dedent
+MarkedBlock = Marker BlockAttr? Head? Newline (Indent Block+ Dedent)?
+BlockAttr   = "{" AttrItems "}"  // 必须紧贴 Marker
 ```
 
-parser 可以先把 marked block 统一解析为 `marker + attr + children`。随后 core 对内建
-marker 做 structural validation：
+marker 与 block attr 之间不允许空格。因此下面两种形式可以只看局部字符便确定结构：
 
-- heading：children 必须恰好是一个 paragraph，该 paragraph 的 inline 内容成为标题文本；
-  heading 不能拥有 section children。
-- list item：children 必须是一个或多个 block。
-- quote：children 必须是一个或多个 block。
+```
+#{#intro} 引言       // block attr + plain head
+# {em 引言}          // 无 block attr；head 以 inline form 开始
+```
+
+head 是完整的 inline payload，不延续到下一行。对 list item、quote 和 generic container，
+parser 将非空 head 归约为 children 中的第一个 paragraph；缩进内容解析为其后的独立 child
+blocks。随后 core 对内建 marker 做 structural validation：
+
+- heading：head 必须非空，成为标题文本；不能拥有 indented children。
+- list item：非空 head 和 indented children 归约后必须得到一个或多个 blocks。
+- quote：非空 head 和 indented children 归约后必须得到一个或多个 blocks。
 - container：children 数量是否允许为零待定。
 - thematic break：若采用 marker block 形态，children 必须为零；也可作为独立 line marker。
 
@@ -248,21 +243,29 @@ A > B
 
 ## 7. Attributes
 
-attribute slot 使用 bracket form：
+attribute value 使用同一个 Pandoc-shaped 内容模型，但 block 与 inline 的 slot delimiter
+不同。block attr 使用紧贴 marker 的 brace form：
 
 ```
-[tag #id .class key=value]
+marker{tag #id .class key=value}
 ```
 
-`[` 只在 marker / form 的 attr slot 中特殊；普通文本中的 `[` 和 `]` 默认字面量。
+inline attr 继续使用 inline form 内的 bracket form：
+
+```
+{name [tag #id .class key=value] body}
+```
+
+`marker{` 是 block attr 的特殊入口；marker 与 `{` 之间出现空格时，`{` 属于 head 的
+inline grammar。`[` 只在 inline form 的 attr slot 中特殊；普通文本中的 `[` 和 `]`
+默认字面量。
 
 示例：
 
 ```
-# [#today]
-  今天
+#{#today} 今天
 
-: aside [.note data-level=2]
+:{aside .note data-level=2} 提示
   内容。
 
 这是 {span [mark .yellow] 文本}。
@@ -281,14 +284,11 @@ core 不校验 tag / class / key 的语义，也不校验 id 唯一性。
 任务状态走 list item attributes，不使用 Markdown checkbox，也不另设任务 modifier 通道：
 
 ```
-- [task=todo]
-  买牛奶
+-{task=todo} 买牛奶
 
-- [task=done]
-  交水费
+-{task=done} 交水费
 
-- [task=todo due=2026-07-10 .urgent]
-  预约体检
+-{task=todo due=2026-07-10 .urgent} 预约体检
 ```
 
 core 只记录 item attrs。task extension 解释 `task=todo`、`task=done`、`due` 等语义。
@@ -348,6 +348,7 @@ Attr   = { tag, id, classes, keyvals }
 - `{link target text}` 的 target 和 text 如何无歧义分隔。
 - brace form 的 quote / escape / raw 规则。
 - built-in forms 和 generic forms 的边界。
-- block attr slot 是否所有 marker 都支持。
+- 哪些 marker 支持 block attr slot；无属性的 `{}` 是否允许。
+- 哪些 marker 支持 head；generic container 的 head 是否允许为空。
 - paragraph continuation 和空行的精确规则。
 - table 是否作为 core 一等结构。
