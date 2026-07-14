@@ -1,7 +1,7 @@
 # plumb 工具需求与路线图
 
-本文从 `docs/requirements.md` 的目标推导工具需求。具体语法记录在 `docs/spec.md`，尚未
-冻结，所以这里避免绑定过细的语法拼写。
+本文从 `docs/requirements.md` 的目标推导工具需求。block structure 已在 `docs/spec.md`
+冻结，inline envelope 记录在 `docs/inline.md`；两者仍有实现前细节需要拍板。
 
 阶段：`MVP` = 首个可用版本；`v1` = 稳定版；`later` = 之后。
 
@@ -16,8 +16,8 @@
 - `[plumb]` `MVP` 语义中立 AST：core 不解释属性、链接目标、任务、元信息、id 唯一性或
   HTML 语义。
 - `[plumb]` `MVP` 通用属性解析：属性形状良构即可，内部 token opaque。
-- `[plumb]` `MVP` 最小高频语法：标题、段落、列表、引用、代码块、inline code、链接、
-  emphasis / strong、属性、escape。
+- `[plumb]` `MVP` 最小高频语法：标题、段落、列表、引用、代码块、inline envelope、
+  属性和 introducer escape；具体 inline kinds 随 inline AST 一起冻结。
 - `[plumb]` `v1` raw text、字段列表、通用容器等根据语法拍板结果纳入。
 
 ## B. 语义扩展（extensions）

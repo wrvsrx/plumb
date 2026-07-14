@@ -158,10 +158,10 @@ syntax tree 可以保留 delimiter length 以支持 lossless rewrite；语义 AS
 
 ## 5. 与 block code 的消歧
 
-block code 使用保留 marker `""`，inline verbatim 使用 quote run 后紧接的 `[`：
+block code 和 inline verbatim 都使用 quote run，并由 run 后紧接的字符消歧：
 
 ````plumb
-`""{language=rust}
+`"{language=rust}
   fn main() {}
 
 `""[fn main() {}]""{language=rust}
@@ -170,13 +170,13 @@ block code 使用保留 marker `""`，inline verbatim 使用 quote run 后紧接
 局部 dispatch 规则：
 
 ```text
-`""{            block code with attributes
-`"" + newline   block code without attributes
-`""[            inline verbatim，delimiter length = 2
+` + Quotes + `{`       block code with attributes
+` + Quotes + newline   block code without attributes
+` + Quotes + `[`       inline verbatim，delimiter length = Quotes.length
 ```
 
-一个 quote 后没有 `[`、两个 quotes 后既没有 `{`、`[` 也没有 newline，以及未找到等长
-closing quote run，均为语法错误，不能退回普通文本。
+quote run 后既没有 `{`、`[` 也没有 newline，以及 inline verbatim 未找到等长 closing
+quote run，均为语法错误，不能退回普通文本。
 
 ## 6. 已确定的规则
 
@@ -210,6 +210,8 @@ closing quote run，均为语法错误，不能退回普通文本。
 - inline verbatim 是否允许跨物理行。
 - 空 verbatim 已确定可表达；是否作为 lint warning 留给上层。
 - formatter 是否选择不会出现在 content 中的最小 quote count。
+- closing `]` 后出现多于 delimiter length 的 quote run 时，是消费所需前缀立即闭合，还是
+  只接受长度恰好相等的完整 run。
 - raw text 是否保留源码换行和所有 UTF-8 字节的精确策略。
 
 ### 7.4 Attributes
@@ -217,3 +219,11 @@ closing quote run，均为语法错误，不能退回普通文本。
 - inline attributes 是否完整复用 block `Attr`，还是禁止其中的 `tag` slot。
 - attribute token、quoting、重复 key 和空 `{}` 的规则；这些应与 block attribute grammar
   一起冻结。
+
+### 7.5 Dispatch and recovery
+
+- 三个或更多连续反引号的 escape/introducer 分组规则。
+- malformed kind、未闭合 parsed content、未闭合 verbatim 和 malformed trailing attrs
+  分别恢复到哪个 byte/physical-line boundary。
+- 位于 block start 的 inline element 由 block scanner 交给 paragraph parser 后，错误归属
+  block diagnostic 还是 inline diagnostic。

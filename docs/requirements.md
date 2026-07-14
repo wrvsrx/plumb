@@ -69,7 +69,7 @@ plumb 是一门用于个人长期文档系统的 strict markup language。它不
 语法设计应尽可能保持局部、可组合、接近上下文无关。允许 scanner 维护有限状态：
 
 - line start / block start
-- 固定缩进层级
+- indentation column stack
 - 当前 block indentation
 - head continuation / blank-line boundary
 
@@ -97,10 +97,13 @@ inline AST 尚未设计。
 ### 4.6 Block containment
 
 block 层的包含关系统一由 indentation 表达，但缩进只表达 block containment，不能表达
-inline、属性参数或语义关系。为了避免 YAML / Python 式缩进地狱：
+inline、属性参数或语义关系：
 
-- 缩进宽度固定，一层只能增加固定数量的空格（倾向 2 spaces）。
-- tab 非法。
+- child indentation 可以比 parent 多任意正数个 spaces；第一个非空缩进行建立该 parent
+  的 `body_indent`。
+- 同一 parent 的直接 head continuations 和 children 必须使用相同的 `body_indent`。
+- dedent 必须精确落在 indentation stack 的已有 column。
+- 结构 indentation 中 tab 非法。
 - 只有显式 marker block 可以拥有 indented child blocks。
 - 普通段落不能凭空拥有缩进子块。
 - heading 的 marker line 承载标题文本，不允许拥有 indented child blocks；
@@ -114,14 +117,14 @@ subblocks”的形状：
   child blocks*
 ```
 
-反引号目前作为 block introducer，而不是 inline escape。只有 block start 的
+反引号是 block 与 inline 共用的 introducer。只有 block start 的
 `` ` + MarkerToken `` 进入 marked block grammar；`#`、`-`、`>` 等字符本身不再是
 block 入口。syntax 层只保存 `#`、`-` 等 opaque marker token，不在 parser 的通用 block
 外形中编码 heading、list item 等类型。
 
 block start 的两个连续反引号 `` `` `` 是 introducer 的 escape，产生一个字面的行首
-反引号，不进入 marked block grammar。code block 使用保留 marker token `""`，完整入口
-为 `` `"" ``，因此不与 introducer escape 冲突。
+反引号，不进入 marked block grammar。code block 使用一个或多个 quotes 组成的保留 marker
+token，因此不与 introducer escape 冲突。
 
 block attr slot 必须紧贴 marker，中间不能有空格。marker 后的空格开始可选 head。head
 在 syntax 层只保存为抽象 `InlineContent`，本文不规定其内部语法。紧接的、增加一级缩进
@@ -145,13 +148,14 @@ RawPayload    = { text: RawText }
 heading 等内建类型的结构限制在 core lowering / structural validation 中执行。例如，
 heading 的 head 成为标题内容且 children 必须为空；section tree 仍由 extension 从平面
 heading sequence 派生。对于 list item、quote、container，head 如何归约到 Pandoc-shaped
-block children，由后续 AST 定稿决定，不属于 inline surface syntax。保留 marker `""`
+block children，由后续 AST 定稿决定，不属于 inline surface syntax。quote-run marker
 选择 `RawPayload`，其他当前 marker 选择 `InlinePayload`。
 
-code marker `""` 是 syntax 层唯一已确定的 raw-body marker。它不允许 head 或 block
-children；下一缩进层是 raw code payload，dedent 结束 code block。parser 去掉每个非空
-code line 的一层结构缩进，余下字节（包括代码自己的 spaces 和 tabs）原样保存。空行可以
-完全为空。
+一个或多个 quotes 组成 syntax 层唯一已确定的 raw-body marker。它不允许 head 或 block
+children；若 quote 数量为 `N`，raw code payload 与整个 opening marker 的末尾对齐，即
+`code_indent = parent_indent + 1 + N`。parser 去掉每个非空 code line 的这段前缀，余下
+字节（包括代码自己的 spaces 和 tabs）原样保存。空行可以完全为空；dedent 结束 code
+block。
 
 ## 5. Core syntax 需求
 
