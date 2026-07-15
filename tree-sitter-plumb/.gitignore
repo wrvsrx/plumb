@@ -3,3 +3,4 @@
 /src/parser.c
 /src/tree_sitter/
 /build/
+/.direnv/
