@@ -25,6 +25,123 @@ another paragraph
       (text))))
 
 ==================
+Head continuation and children
+==================
+
+`marker first head line
+   second head line
+   third head line
+
+   paragraph child
+
+   `child marked child
+
+---
+
+(document
+  (blank_line)
+  (marked_block
+    (introducer)
+    (marker)
+    (head_separator)
+    (inline_content
+      (text))
+    (headed_body
+      (head_continuation
+        (inline_content
+          (text))
+        (inline_content
+          (text)))
+      (blank_line)
+      (paragraph
+        (inline_content
+          (text)))
+      (blank_line)
+      (marked_block
+        (introducer)
+        (marker)
+        (head_separator)
+        (inline_content
+          (text))))))
+
+==================
+Dynamic indentation and dedent
+==================
+
+`parent
+
+   first child
+
+   `nested
+
+      grandchild
+
+   sibling child
+
+`top-level-sibling
+
+---
+
+(document
+  (blank_line)
+  (marked_block
+    (introducer)
+    (marker)
+    (block_body
+      (blank_line)
+      (paragraph
+        (inline_content
+          (text)))
+      (blank_line)
+      (marked_block
+        (introducer)
+        (marker)
+        (block_body
+          (blank_line)
+          (paragraph
+            (inline_content
+              (text)))
+          (blank_line)))
+      (paragraph
+        (inline_content
+          (text)))
+      (blank_line)))
+  (marked_block
+    (introducer)
+    (marker)))
+
+==================
+Raw code margin
+==================
+
+`""{language=text}
+   first raw line
+     two preserved leading spaces
+
+`after code
+
+---
+
+(document
+  (blank_line)
+  (code_block
+    (introducer)
+    (code_marker)
+    (attributes
+      (attribute_pair
+        (attribute_name)
+        (attribute_value)))
+    (raw_text)
+    (raw_text)
+    (raw_text))
+  (marked_block
+    (introducer)
+    (marker)
+    (head_separator)
+    (inline_content
+      (text))))
+
+==================
 Opaque marked blocks
 ==================
 
