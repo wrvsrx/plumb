@@ -6,6 +6,7 @@
 
 enum TokenType {
   INDENT,
+  INDENT_AFTER_BLANK,
   SAME_INDENT,
   PARAGRAPH_CONTINUE,
   DEDENT,
@@ -221,14 +222,16 @@ static bool scan_layout(Scanner *scanner, TSLexer *lexer,
   lexer->mark_end(lexer);
 
   uint16_t column = 0;
+  bool after_blank = false;
   for (;;) {
     while (lexer->lookahead == ' ') {
       skip(lexer);
       column++;
     }
-    if (lexer->lookahead != '\n' || !valid_symbols[INDENT]) break;
+    if (lexer->lookahead != '\n' || !valid_symbols[INDENT_AFTER_BLANK]) break;
     skip(lexer);
     column = 0;
+    after_blank = true;
   }
   if (lexer->lookahead == '\n') return false;
 
@@ -246,12 +249,13 @@ static bool scan_layout(Scanner *scanner, TSLexer *lexer,
     return true;
   }
 
-  if (column > current && valid_symbols[INDENT] &&
-      scanner->depth + 1 < MAX_INDENT_DEPTH) {
+  bool valid_indent = after_blank ? valid_symbols[INDENT_AFTER_BLANK]
+                                  : valid_symbols[INDENT];
+  if (column > current && valid_indent && scanner->depth + 1 < MAX_INDENT_DEPTH) {
     scanner->depth++;
     scanner->indents[scanner->depth] = column;
     lexer->mark_end(lexer);
-    lexer->result_symbol = INDENT;
+    lexer->result_symbol = after_blank ? INDENT_AFTER_BLANK : INDENT;
     return true;
   }
 

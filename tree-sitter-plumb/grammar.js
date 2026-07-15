@@ -6,6 +6,7 @@ module.exports = grammar({
 
   externals: $ => [
     $._indent,
+    $._indent_after_blank,
     $._same_indent,
     $._paragraph_continue,
     $._dedent,
@@ -77,7 +78,7 @@ module.exports = grammar({
     )),
 
     block_body: $ => prec.dynamic(1, prec.right(seq(
-      $._indent,
+      choice($._indent, $._indent_after_blank),
       field('child', $._block),
       repeat(choice(
         $.blank_line,

@@ -1,0 +1,104 @@
+==================
+Deferred head after attributes
+==================
+
+`-{.todo}
+  something
+
+---
+
+(document
+  (blank_line)
+  (marked_block
+    (introducer)
+    (marker)
+    (attributes
+      (attribute_class
+        (attribute_name)))
+    (headed_body
+      (head_continuation
+        (inline_content
+          (text))))))
+
+==================
+Hanging head continuation
+==================
+
+`-{.todo} something
+          kkk
+
+          child paragraph
+
+---
+
+(document
+  (blank_line)
+  (marked_block
+    (introducer)
+    (marker)
+    (attributes
+      (attribute_class
+        (attribute_name)))
+    (head_separator)
+    (inline_content
+      (text))
+    (headed_body
+      (head_continuation
+        (inline_content
+          (text)))
+      (blank_line)
+      (paragraph
+        (inline_content
+          (text))))))
+
+==================
+Short head continuation
+==================
+
+`-{.todo} something
+  kkk
+
+  child paragraph
+
+---
+
+(document
+  (blank_line)
+  (marked_block
+    (introducer)
+    (marker)
+    (attributes
+      (attribute_class
+        (attribute_name)))
+    (head_separator)
+    (inline_content
+      (text))
+    (headed_body
+      (head_continuation
+        (inline_content
+          (text)))
+      (blank_line)
+      (paragraph
+        (inline_content
+          (text))))))
+
+==================
+Unindented sibling paragraph
+==================
+
+`# something
+something
+
+---
+
+(document
+  (blank_line)
+  (marked_block
+    (introducer)
+    (marker)
+    (head_separator)
+    (inline_content
+      (text)))
+  (paragraph
+    (inline_content
+      (text))))

@@ -105,16 +105,16 @@ Dynamic indentation and dedent
   (marked_block
     (introducer)
     (marker)
-    (headed_body
-      (head_continuation
+    (block_body
+      (paragraph
         (inline_content
           (text)))
       (blank_line)
       (marked_block
         (introducer)
         (marker)
-        (headed_body
-          (head_continuation
+        (block_body
+          (paragraph
             (inline_content
               (text)))
           (blank_line)))
@@ -216,8 +216,8 @@ Empty head before paragraph child
   (marked_block
     (introducer)
     (marker)
-    (headed_body
-      (head_continuation
+    (block_body
+      (paragraph
         (inline_content
           (text))))))
 
@@ -240,8 +240,8 @@ Nested multiline paragraph
   (marked_block
     (introducer)
     (marker)
-    (headed_body
-      (head_continuation
+    (block_body
+      (paragraph
         (inline_content
           (text))
         (inline_content
