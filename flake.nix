@@ -19,6 +19,8 @@
           { pkgs, ... }:
           {
             devShells.default = pkgs.callPackage ./shell.nix { };
+            devShells.tree-sitter-plumb =
+              pkgs.callPackage ./tree-sitter-plumb/shell.nix { };
             formatter = pkgs.nixfmt;
           };
       }
