@@ -1,18 +1,44 @@
+; Core block and inline envelopes. Marker and kind meanings remain opaque.
 (introducer) @punctuation.special
 (introducer_escape) @string.escape
-(marker) @type
-(code_marker) @punctuation.special
-(inline_kind) @function.macro
+(marker) @keyword
+(code_marker) @punctuation.delimiter
+(inline_kind) @tag
+
+; Parsed inline delimiters.
+(inline_element
+  "[" @punctuation.bracket
+  "]" @punctuation.bracket)
+
+; Attributes and their local punctuation.
+(attributes
+  "{" @punctuation.bracket
+  "}" @punctuation.bracket)
+
+(incomplete_attributes
+  "{" @punctuation.bracket)
 
 (attribute_tag) @tag
-(attribute_id) @attribute
-(attribute_class) @attribute
-(attribute_pair key: (attribute_name) @property)
-(attribute_pair value: (attribute_value) @string)
 
-(inline_verbatim) @string
-(code_block (raw_text) @string)
+(attribute_id
+  "#" @punctuation.special
+  (attribute_name) @attribute)
 
+(attribute_class
+  "." @punctuation.special
+  (attribute_name) @attribute)
+
+(attribute_pair
+  key: (attribute_name) @property
+  "=" @operator
+  value: (attribute_value) @string)
+
+; Raw payloads are syntax nodes because they change the lexical mode.
+((inline_verbatim) @markup.raw
+  (#set! priority 90))
+(code_block (raw_text) @markup.raw.block)
+
+; Recovery nodes represent incomplete editor input, not valid strict syntax.
 [
   (incomplete_inline_element)
   (incomplete_attributes)

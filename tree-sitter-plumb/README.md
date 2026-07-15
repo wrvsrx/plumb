@@ -52,3 +52,24 @@ repair a generated parser by hand; change its source and regenerate it.
 Generated parser sources and binary packages are produced for releases in a Nix
 sandbox. They are intentionally absent from Git and must be consumed from a
 release artifact or regenerated locally.
+
+## Neovim highlighting
+
+`queries/highlights.scm` uses Neovim's standard tree-sitter capture names and
+only highlights the generic core CST. It does not interpret marker or inline
+kind values as headings, list items, tasks, emphasis, or links.
+
+When dogfooding a locally built parser, make the query available at
+`queries/plumb/highlights.scm` on Neovim's runtime path. For example, a personal
+configuration can symlink this repository's query into that directory. Use
+`:InspectTree` to inspect the CST and `:Inspect` to see the capture under the
+cursor.
+
+The query can be checked outside Neovim with the tracked fixture:
+
+```sh
+nix develop .#tree-sitter-plumb -c tree-sitter query \
+  -p tree-sitter-plumb \
+  tree-sitter-plumb/queries/highlights.scm \
+  tree-sitter-plumb/test/fixtures/highlights.plumb
+```

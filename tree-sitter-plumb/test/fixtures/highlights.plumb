@@ -1,0 +1,8 @@
+`marker{aside #intro .note key="value"} head with `kind[span]{.inline}
+
+Paragraph with `"[raw text]"{language=text} and ``escaped introducer.
+
+`"{language=rust}
+  fn main() {}
+
+Broken `kind[inline
