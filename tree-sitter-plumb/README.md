@@ -59,11 +59,30 @@ release artifact or regenerated locally.
 only highlights the generic core CST. It does not interpret marker or inline
 kind values as headings, list items, tasks, emphasis, or links.
 
-When dogfooding a locally built parser, make the query available at
-`queries/plumb/highlights.scm` on Neovim's runtime path. For example, a personal
-configuration can symlink this repository's query into that directory. Use
-`:InspectTree` to inspect the CST and `:Inspect` to see the capture under the
-cursor.
+Build the parser explicitly through the locked Nix environment:
+
+```sh
+./tree-sitter-plumb/build-parser.sh
+```
+
+The ignored output is written to `tree-sitter-plumb/build/plumb.so`. Re-run the
+script after changing the grammar, scanner, or locked toolchain.
+
+The repository's `.nvim.lua` symlink points to `dev/nvim.lua`. That project
+configuration only loads the prebuilt parser and this query, registers the
+`plumb` filetype, and starts tree-sitter highlighting for `*.plumb` buffers. It
+does not invoke Nix or compile code during Neovim startup.
+
+Enable trusted project-local configuration in your global Neovim `init.lua`:
+
+```lua
+vim.o.exrc = true
+```
+
+Then start Neovim in this repository and approve `.nvim.lua` with `:trust` when
+prompted. Project-local configuration can execute arbitrary code, so review it
+before granting trust. Use `:InspectTree` to inspect the CST and `:Inspect` to
+see the capture under the cursor.
 
 The query can be checked outside Neovim with the tracked fixture:
 
