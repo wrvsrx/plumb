@@ -68,10 +68,14 @@ Build the parser explicitly through the locked Nix environment:
 The ignored output is written to `tree-sitter-plumb/build/plumb.so`. Re-run the
 script after changing the grammar, scanner, or locked toolchain.
 
-The repository's `.nvim.lua` symlink points to `dev/nvim.lua`. That project
-configuration only loads the prebuilt parser and this query, registers the
-`plumb` filetype, and starts tree-sitter highlighting for `*.plumb` buffers. It
-does not invoke Nix or compile code during Neovim startup.
+The optional project configuration in `dev/nvim.lua` only loads the prebuilt
+parser and this query, registers the `plumb` filetype, and starts tree-sitter
+highlighting for `*.plumb` buffers. It does not invoke Nix or compile code
+during Neovim startup. Enable it locally with an ignored symlink:
+
+```sh
+ln -s dev/nvim.lua .nvim.lua
+```
 
 Enable trusted project-local configuration in your global Neovim `init.lua`:
 
