@@ -1,0 +1,105 @@
+==================
+Parsed inline elements
+==================
+
+Text with `*[emphasis-like content] and `kbd[Ctrl+C]{.shortcut}.
+Nested `outer[before `inner[nested] after]{role=example}.
+
+---
+
+(document
+  (blank_line)
+  (paragraph
+    (inline_content
+      (text)
+      (inline_element
+        (introducer)
+        (inline_kind)
+        (parsed_inline_content
+          (inline_text)))
+      (text)
+      (inline_element
+        (introducer)
+        (inline_kind)
+        (parsed_inline_content
+          (inline_text)))
+      (text))
+    (inline_content
+      (text)
+      (inline_element
+        (introducer)
+        (inline_kind)
+        (parsed_inline_content
+          (inline_text)
+          (inline_element
+            (introducer)
+            (inline_kind)
+            (parsed_inline_content
+              (inline_text)))
+          (inline_text)))
+      (text))))
+
+==================
+Inline verbatim
+==================
+
+Use `"[raw]"{language=text} here.
+Use `""""[contains ]""" safely]"""" here.
+
+---
+
+(document
+  (blank_line)
+  (paragraph
+    (inline_content
+      (text)
+      (inline_verbatim)
+      (text))
+    (inline_content
+      (text)
+      (inline_verbatim)
+      (text))))
+
+==================
+Introducer escape
+==================
+
+``# literal introducer
+continued with ``inline escape
+
+---
+
+(document
+  (blank_line)
+  (paragraph
+    (inline_content
+      (introducer_escape)
+      (text))
+    (inline_content
+      (text)
+      (introducer_escape)
+      (text))))
+
+==================
+Inline at physical line start
+==================
+
+first line
+`kind[second inline line]
+third line
+
+---
+
+(document
+  (blank_line)
+  (paragraph
+    (inline_content
+      (text))
+    (inline_content
+      (inline_element
+        (introducer)
+        (inline_kind)
+        (parsed_inline_content
+          (inline_text))))
+    (inline_content
+      (text))))

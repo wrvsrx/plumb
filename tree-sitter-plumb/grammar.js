@@ -11,6 +11,7 @@ module.exports = grammar({
     $._dedent,
     $.code_marker,
     $.raw_code_line,
+    $._inline_verbatim_token,
     $._eof,
   ],
 
@@ -101,7 +102,33 @@ module.exports = grammar({
       $._line_end,
     ),
 
-    inline_content: $ => repeat1($.text),
+    inline_content: $ => repeat1(choice(
+      $.introducer_escape,
+      $.inline_verbatim,
+      $.inline_element,
+      $.text,
+    )),
+
+    parsed_inline_content: $ => repeat1(choice(
+      $.introducer_escape,
+      $.inline_verbatim,
+      $.inline_element,
+      $.inline_text,
+    )),
+
+    inline_element: $ => prec.right(2, seq(
+      field('introducer', $.introducer),
+      field('kind', $.inline_kind),
+      '[',
+      optional(field('content', $.parsed_inline_content)),
+      ']',
+      optional(field('attributes', $.attributes)),
+    )),
+
+    inline_verbatim: $ => seq(
+      field('source', $._inline_verbatim_token),
+      optional(field('attributes', $.attributes)),
+    ),
 
     attributes: $ => seq(
       '{',
@@ -128,10 +155,13 @@ module.exports = grammar({
       /"([^"\\]|\\.)*"/,
     ),
 
+    introducer_escape: _ => prec(3, '``'),
     introducer: _ => '`',
     marker: _ => /[^\s\[{`"]+/,
+    inline_kind: _ => /[^\s\[{`"]+/,
     head_separator: _ => token(prec(2, /[ \t]+/)),
     text: _ => /[^`\n]+/,
+    inline_text: _ => /[^`\]\n]+/,
     _line_end: $ => choice('\n', $._eof),
   },
 });
