@@ -12,6 +12,8 @@ module.exports = grammar({
     $.code_marker,
     $.raw_code_line,
     $._inline_verbatim_token,
+    $._incomplete_inline_end,
+    $._incomplete_attributes_end,
     $._eof,
   ],
 
@@ -29,7 +31,7 @@ module.exports = grammar({
     marked_block: $ => prec.right(seq(
       field('introducer', $.introducer),
       field('marker', $.marker),
-      optional(field('attributes', $.attributes)),
+      optional(field('attributes', choice($.attributes, $.incomplete_attributes))),
       optional(seq($.head_separator, field('head', $.inline_content))),
       $._line_end,
       optional(choice(
@@ -106,15 +108,16 @@ module.exports = grammar({
       $.introducer_escape,
       $.inline_verbatim,
       $.inline_element,
+      $.incomplete_inline_element,
       $.text,
     )),
 
-    parsed_inline_content: $ => repeat1(choice(
+    parsed_inline_content: $ => prec.right(repeat1(choice(
       $.introducer_escape,
       $.inline_verbatim,
       $.inline_element,
       $.inline_text,
-    )),
+    ))),
 
     inline_element: $ => prec.right(2, seq(
       field('introducer', $.introducer),
@@ -125,13 +128,21 @@ module.exports = grammar({
       optional(field('attributes', $.attributes)),
     )),
 
+    incomplete_inline_element: $ => prec.right(-1, seq(
+      field('introducer', $.introducer),
+      field('kind', $.inline_kind),
+      '[',
+      optional(field('content', $.parsed_inline_content)),
+      $._incomplete_inline_end,
+    )),
+
     inline_verbatim: $ => seq(
       field('source', $._inline_verbatim_token),
       optional(field('attributes', $.attributes)),
     ),
 
     attributes: $ => seq(
-      '{',
+      $._attribute_open,
       repeat(choice(
         field('tag', $.attribute_tag),
         field('id', $.attribute_id),
@@ -140,6 +151,17 @@ module.exports = grammar({
       )),
       '}',
     ),
+
+    incomplete_attributes: $ => prec.right(-1, seq(
+      $._attribute_open,
+      repeat(choice(
+        field('tag', $.attribute_tag),
+        field('id', $.attribute_id),
+        field('class', $.attribute_class),
+        field('pair', $.attribute_pair),
+      )),
+      $._incomplete_attributes_end,
+    )),
 
     attribute_tag: $ => $.attribute_name,
     attribute_id: $ => seq('#', $.attribute_name),
@@ -160,6 +182,7 @@ module.exports = grammar({
     marker: _ => /[^\s\[{`"]+/,
     inline_kind: _ => /[^\s\[{`"]+/,
     head_separator: _ => token(prec(2, /[ \t]+/)),
+    _attribute_open: _ => token(prec(2, '{')),
     text: _ => /[^`\n]+/,
     inline_text: _ => /[^`\]\n]+/,
     _line_end: $ => choice('\n', $._eof),

@@ -12,6 +12,8 @@ enum TokenType {
   CODE_MARKER,
   RAW_CODE_LINE,
   INLINE_VERBATIM_TOKEN,
+  INCOMPLETE_INLINE_END,
+  INCOMPLETE_ATTRIBUTES_END,
   END_OF_FILE,
 };
 
@@ -253,6 +255,16 @@ bool tree_sitter_plumb_external_scanner_scan(void *payload, TSLexer *lexer,
     return true;
   }
   if (scan_layout(scanner, lexer, valid_symbols)) return true;
+  if (valid_symbols[INCOMPLETE_INLINE_END] &&
+      (lexer->lookahead == '\n' || lexer->lookahead == 0)) {
+    lexer->result_symbol = INCOMPLETE_INLINE_END;
+    return true;
+  }
+  if (valid_symbols[INCOMPLETE_ATTRIBUTES_END] &&
+      (lexer->lookahead == '\n' || lexer->lookahead == 0)) {
+    lexer->result_symbol = INCOMPLETE_ATTRIBUTES_END;
+    return true;
+  }
   if (valid_symbols[END_OF_FILE] && lexer->lookahead == 0) {
     lexer->result_symbol = END_OF_FILE;
     return true;

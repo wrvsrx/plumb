@@ -1,0 +1,50 @@
+==================
+Recover after unclosed inline
+==================
+
+broken `kind[unfinished
+`valid recovered
+
+---
+
+(document
+  (blank_line)
+  (paragraph
+    (inline_content
+      (text)
+      (incomplete_inline_element
+        (introducer)
+        (inline_kind)
+        (parsed_inline_content
+          (inline_text)))))
+  (marked_block
+    (introducer)
+    (marker)
+    (head_separator)
+    (inline_content
+      (text))))
+
+==================
+Recover after unclosed attributes
+==================
+
+`marker{key=value
+`valid recovered
+
+---
+
+(document
+  (blank_line)
+  (marked_block
+    (introducer)
+    (marker)
+    (incomplete_attributes
+      (attribute_pair
+        (attribute_name)
+        (attribute_value))))
+  (marked_block
+    (introducer)
+    (marker)
+    (head_separator)
+    (inline_content
+      (text))))

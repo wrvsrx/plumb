@@ -25,6 +25,24 @@ another paragraph
       (text))))
 
 ==================
+Empty code block
+==================
+
+`"
+`after
+
+---
+
+(document
+  (blank_line)
+  (code_block
+    (introducer)
+    (code_marker))
+  (marked_block
+    (introducer)
+    (marker)))
+
+==================
 Head continuation and children
 ==================
 

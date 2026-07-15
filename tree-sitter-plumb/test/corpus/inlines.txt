@@ -22,7 +22,10 @@ Nested `outer[before `inner[nested] after]{role=example}.
         (introducer)
         (inline_kind)
         (parsed_inline_content
-          (inline_text)))
+          (inline_text))
+        (attributes
+          (attribute_class
+            (attribute_name))))
       (text))
     (inline_content
       (text)
@@ -36,7 +39,29 @@ Nested `outer[before `inner[nested] after]{role=example}.
             (inline_kind)
             (parsed_inline_content
               (inline_text)))
-          (inline_text)))
+          (inline_text))
+        (attributes
+          (attribute_pair
+            (attribute_name)
+            (attribute_value))))
+      (text))))
+
+==================
+Empty parsed inline
+==================
+
+An empty `kind[] element.
+
+---
+
+(document
+  (blank_line)
+  (paragraph
+    (inline_content
+      (text)
+      (inline_element
+        (introducer)
+        (inline_kind))
       (text))))
 
 ==================
@@ -53,7 +78,11 @@ Use `""""[contains ]""" safely]"""" here.
   (paragraph
     (inline_content
       (text)
-      (inline_verbatim)
+      (inline_verbatim
+        (attributes
+          (attribute_pair
+            (attribute_name)
+            (attribute_value))))
       (text))
     (inline_content
       (text)
