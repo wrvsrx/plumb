@@ -99,8 +99,9 @@ inline AST 尚未设计。
 block 层的包含关系统一由 indentation 表达，但缩进只表达 block containment，不能表达
 inline、属性参数或语义关系：
 
-- child indentation 可以比 parent 多任意正数个 spaces；第一个非空缩进行建立该 parent
-  的 `body_indent`。
+- body indentation 可以比 parent 多任意正数个 spaces；marker line 之后第一条非空、
+  且缩进大于 parent column 的结构行建立该 parent 的 `body_indent`。这条结构行既可以是
+  head continuation，也可以是第一个 child block。
 - 同一 parent 的直接 head continuations 和 children 必须使用相同的 `body_indent`。
 - dedent 必须精确落在 indentation stack 的已有 column。
 - 结构 indentation 中 tab 非法。
@@ -127,9 +128,11 @@ block start 的两个连续反引号 `` `` `` 是 introducer 的 escape，产生
 token，因此不与 introducer escape 冲突。
 
 block attr slot 必须紧贴 marker，中间不能有空格。marker 后的空格开始可选 head。head
-在 syntax 层只保存为抽象 `InlineContent`，本文不规定其内部语法。紧接的、增加一级缩进
-的普通文本行继续 head；空行结束 head；缩进后的 marked block 直接开始 children。一旦
-进入 children 就不能恢复 head。
+在 syntax 层只保存为抽象 `InlineContent`，本文不规定其内部语法。读完 marker line 后，
+head 即使为空也保持 open；紧接的缩进普通文本行可以启动 deferred head 或继续已有 head。
+同列普通文本结束当前 block 并开始 sibling paragraph；空行结束 head，空行后的缩进普通
+文本是 paragraph child；缩进后的 marked block 直接开始 children。一旦进入 children 就
+不能恢复 head。
 
 普通 paragraph 是省略 introducer 和 marker 的默认 inline leaf。leaf 不是新的语法类别：
 没有 children 的 syntax node 就是 leaf。syntax 层的统一形状为：

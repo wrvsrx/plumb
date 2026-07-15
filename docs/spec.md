@@ -203,6 +203,78 @@ head 可以跨物理行：
 5. 从 `body_indent` 开始的 marked block 直接结束 head 并开始 children，不要求前置空行。
 6. 一旦开始 children，就不能恢复 head。
 
+### 5.1 Deferred head
+
+head 不必从 marker line 开始。marker line 没有 inline text 时，空 head 仍处于
+`HEAD_OPEN`；直接跟随的第一条缩进普通行可以启动 deferred head：
+
+```plumb
+`-{.todo}
+  something
+```
+
+概念结构为：
+
+```text
+marked_block {
+  marker: "-",
+  attrs: {.todo},
+  head: "something",
+  children: [],
+}
+```
+
+如果 marker line 后先出现空行，空 head 会先关闭；相同的缩进普通行因此成为 paragraph
+child：
+
+```plumb
+`-{.todo}
+
+  something
+```
+
+```text
+marked_block {
+  marker: "-",
+  attrs: {.todo},
+  head: empty,
+  children: [paragraph("something")],
+}
+```
+
+这一规则允许较长 attributes 与 head 分行书写，同时仍用空行明确区分 deferred head 和
+paragraph child。
+
+### 5.2 Continuation indentation
+
+head continuation 只要求位于新建立的 `body_indent`，不要求采用某个固定缩进宽度。
+下面两种源码具有相同的 syntax 结构：
+
+```plumb
+`-{.todo} something
+          kkk
+```
+
+```plumb
+`-{.todo} something
+  kkk
+```
+
+它们都表示 head 为两行 `something` / `kkk`、没有 children 的 marked block。区别只在
+source layout：第一种用 hanging indent，使 continuation 与 marker line 上的 head 对齐；
+第二种用较短的 2-space indent。第一条 continuation 分别建立不同的 `body_indent`，但
+缩进宽度本身不产生额外语义。
+
+如果 continuation 前有空行，则结构不同：
+
+```plumb
+`-{.todo} something
+
+  kkk
+```
+
+这里 head 只有 `something`，`kkk` 是 paragraph child。
+
 因此，下面三种形式含义不同：
 
 ```plumb
@@ -274,8 +346,10 @@ block containment 只由 indentation 表达：
 
 约束：
 
-- child indentation 可以比 parent 多任意正数个 spaces。
-- 第一个非空缩进行建立该 parent 的 `body_indent`。
+- body indentation 可以比 parent 多任意正数个 spaces。
+- marker line 之后第一条非空、且缩进大于 parent column 的结构行建立该 parent 的
+  `body_indent`。它可以是 head continuation、空行后的第一个 paragraph child，或直接
+  开始 children 的 marked block。
 - 同一 parent 的所有直接 head continuations 和 children 必须从 `body_indent` 开始。
 - nested marked block 为自己的 body 独立建立更大的 indentation column。
 - dedent 必须精确落在 indentation stack 中已有的 column；partial dedent 非法。
@@ -283,6 +357,28 @@ block containment 只由 indentation 表达：
 - 只有显式 marked block 可以拥有 indented children。
 - 普通 paragraph 不能凭空拥有 children。
 - 空行只参与 head / paragraph 边界，不建立或改变 indentation column，也不产生节点。
+
+例如，以下三种形式都可以首次建立 `body_indent`：
+
+```plumb
+`parent head
+   head continuation
+```
+
+```plumb
+`parent
+
+  paragraph child
+```
+
+```plumb
+`parent
+    `child
+```
+
+建立以后，该 parent 的其他直接 head continuations、paragraph children 和 marked
+children 都必须从同一 column 开始。nested marked block 再为自己的 body 独立重复这一
+过程。空行及其自身携带的 spaces 不参与 column 建立。
 
 合法：
 
