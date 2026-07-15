@@ -132,3 +132,33 @@ third line
           (inline_text))))
     (inline_content
       (text))))
+
+==================
+Ordinary brackets and braces
+==================
+
+Plain [brackets], closing ], and {braces} remain text.
+
+---
+
+(document
+  (blank_line)
+  (paragraph
+    (inline_content
+      (text))))
+
+==================
+Verbatim ignores longer false close
+==================
+
+Use `""[contains ]""" without closing, then closes here]"" safely.
+
+---
+
+(document
+  (blank_line)
+  (paragraph
+    (inline_content
+      (text)
+      (inline_verbatim)
+      (text))))

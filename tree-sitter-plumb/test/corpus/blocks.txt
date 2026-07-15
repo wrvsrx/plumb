@@ -105,18 +105,16 @@ Dynamic indentation and dedent
   (marked_block
     (introducer)
     (marker)
-    (block_body
-      (blank_line)
-      (paragraph
+    (headed_body
+      (head_continuation
         (inline_content
           (text)))
       (blank_line)
       (marked_block
         (introducer)
         (marker)
-        (block_body
-          (blank_line)
-          (paragraph
+        (headed_body
+          (head_continuation
             (inline_content
               (text)))
           (blank_line)))
@@ -158,6 +156,129 @@ Raw code margin
     (head_separator)
     (inline_content
       (text))))
+
+==================
+Dedent after direct marked child
+==================
+
+`parent
+  `child
+
+`top-level-sibling
+
+---
+
+(document
+  (blank_line)
+  (marked_block
+    (introducer)
+    (marker)
+    (block_body
+      (marked_block
+        (introducer)
+        (marker))))
+  (blank_line)
+  (marked_block
+    (introducer)
+    (marker)))
+
+==================
+Empty head dispatch
+==================
+
+`direct-parent
+  `direct-marked-child
+
+---
+
+(document
+  (blank_line)
+  (marked_block
+    (introducer)
+    (marker)
+    (block_body
+      (marked_block
+        (introducer)
+        (marker)))))
+
+==================
+Empty head before paragraph child
+==================
+
+`paragraph-parent
+
+  paragraph child after blank
+
+---
+
+(document
+  (blank_line)
+  (marked_block
+    (introducer)
+    (marker)
+    (headed_body
+      (head_continuation
+        (inline_content
+          (text))))))
+
+==================
+Nested multiline paragraph
+==================
+
+`parent
+
+    first physical line
+    second physical line
+    third physical line
+
+    `sibling
+
+---
+
+(document
+  (blank_line)
+  (marked_block
+    (introducer)
+    (marker)
+    (headed_body
+      (head_continuation
+        (inline_content
+          (text))
+        (inline_content
+          (text))
+        (inline_content
+          (text)))
+      (blank_line)
+      (marked_block
+        (introducer)
+        (marker)))))
+
+==================
+Nested code margin
+==================
+
+`parent
+   `"
+     raw at absolute column five
+
+   `sibling
+
+---
+
+(document
+  (blank_line)
+  (marked_block
+    (introducer)
+    (marker)
+    (block_body
+      (code_block
+        (introducer)
+        (code_marker)
+        (raw_text)
+        (raw_text))
+      (marked_block
+        (introducer)
+        (marker)))))
 
 ==================
 Opaque marked blocks

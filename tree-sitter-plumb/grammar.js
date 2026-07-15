@@ -40,7 +40,7 @@ module.exports = grammar({
       )),
     )),
 
-    headed_body: $ => prec.right(2, seq(
+    headed_body: $ => prec.dynamic(2, prec.right(seq(
       $._indent,
       field('continuation', $.head_continuation),
       optional(choice(
@@ -65,7 +65,7 @@ module.exports = grammar({
         ),
       )),
       $._dedent,
-    )),
+    ))),
 
     head_continuation: $ => prec(2, seq(
       field('content', $.inline_content),
@@ -76,8 +76,7 @@ module.exports = grammar({
       $._line_end,
     )),
 
-    block_body: $ => prec.right(seq(
-      repeat($.blank_line),
+    block_body: $ => prec.dynamic(1, prec.right(seq(
       $._indent,
       field('child', $._block),
       repeat(choice(
@@ -85,7 +84,7 @@ module.exports = grammar({
         seq($._same_indent, field('child', $._block)),
       )),
       $._dedent,
-    )),
+    ))),
 
     code_block: $ => seq(
       field('introducer', $.introducer),
@@ -125,7 +124,7 @@ module.exports = grammar({
       '[',
       optional(field('content', $.parsed_inline_content)),
       ']',
-      optional(field('attributes', $.attributes)),
+      optional(field('attributes', choice($.attributes, $.incomplete_attributes))),
     )),
 
     incomplete_inline_element: $ => prec.right(-1, seq(
@@ -138,7 +137,7 @@ module.exports = grammar({
 
     inline_verbatim: $ => seq(
       field('source', $._inline_verbatim_token),
-      optional(field('attributes', $.attributes)),
+      optional(field('attributes', choice($.attributes, $.incomplete_attributes))),
     ),
 
     attributes: $ => seq(

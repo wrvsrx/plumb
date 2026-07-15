@@ -91,7 +91,9 @@ static bool scan_code_marker(Scanner *scanner, TSLexer *lexer) {
   return true;
 }
 
-static bool scan_raw_code_line(Scanner *scanner, TSLexer *lexer) {
+static bool scan_raw_code_line(Scanner *scanner, TSLexer *lexer,
+                               const bool *valid_symbols) {
+  lexer->mark_end(lexer);
   uint16_t spaces = 0;
   while (lexer->lookahead == ' ' && spaces < scanner->code_indent) {
     take(lexer);
@@ -104,7 +106,24 @@ static bool scan_raw_code_line(Scanner *scanner, TSLexer *lexer) {
     lexer->result_symbol = RAW_CODE_LINE;
     return true;
   }
-  if (spaces < scanner->code_indent || lexer->lookahead == 0) return false;
+  if (spaces < scanner->code_indent) {
+    uint16_t current = scanner->indents[scanner->depth];
+    if (spaces == current && current > 0 && valid_symbols[SAME_INDENT]) {
+      lexer->mark_end(lexer);
+      lexer->result_symbol = SAME_INDENT;
+      return true;
+    }
+    if (spaces < current && valid_symbols[DEDENT]) {
+      uint8_t target = scanner->depth;
+      while (target > 0 && scanner->indents[target] > spaces) target--;
+      scanner->pending_dedents = scanner->depth - target - 1;
+      scanner->depth--;
+      lexer->result_symbol = DEDENT;
+      return true;
+    }
+    return false;
+  }
+  if (lexer->lookahead == 0) return false;
 
   while (lexer->lookahead != '\n' && lexer->lookahead != 0) take(lexer);
   if (lexer->lookahead == '\n') take(lexer);
@@ -202,9 +221,14 @@ static bool scan_layout(Scanner *scanner, TSLexer *lexer,
   lexer->mark_end(lexer);
 
   uint16_t column = 0;
-  while (lexer->lookahead == ' ') {
+  for (;;) {
+    while (lexer->lookahead == ' ') {
+      skip(lexer);
+      column++;
+    }
+    if (lexer->lookahead != '\n' || !valid_symbols[INDENT]) break;
     skip(lexer);
-    column++;
+    column = 0;
   }
   if (lexer->lookahead == '\n') return false;
 
@@ -246,13 +270,15 @@ static bool scan_layout(Scanner *scanner, TSLexer *lexer,
 bool tree_sitter_plumb_external_scanner_scan(void *payload, TSLexer *lexer,
                                               const bool *valid_symbols) {
   Scanner *scanner = payload;
-  if (valid_symbols[INLINE_VERBATIM_TOKEN] && scan_inline_verbatim(lexer)) {
-    return true;
+  if (valid_symbols[INLINE_VERBATIM_TOKEN] && lexer->lookahead == '`') {
+    return scan_inline_verbatim(lexer);
   }
   if (valid_symbols[CODE_MARKER] && scan_code_marker(scanner, lexer)) return true;
-  if (valid_symbols[RAW_CODE_LINE] && scan_raw_code_line(scanner, lexer)) return true;
-  if (valid_symbols[PARAGRAPH_CONTINUE] && scan_paragraph_continue(scanner, lexer)) {
-    return true;
+  if (valid_symbols[RAW_CODE_LINE] && lexer->get_column(lexer) == 0) {
+    return scan_raw_code_line(scanner, lexer, valid_symbols);
+  }
+  if (valid_symbols[PARAGRAPH_CONTINUE] && lexer->lookahead == '\n') {
+    return scan_paragraph_continue(scanner, lexer);
   }
   if (scan_layout(scanner, lexer, valid_symbols)) return true;
   if (valid_symbols[INCOMPLETE_INLINE_END] &&
