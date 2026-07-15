@@ -13,7 +13,8 @@
 - introducer 后是独立于 attributes 的 `MarkerToken`；syntax node 原样保存 marker。
 - 普通 marked block 具有 `marker + attrs + head + children` 的统一结构。
 - block attributes 紧贴 marker，使用 `{tag #id .class key=value}` 的形状。
-- head 保存为抽象 `InlineContent`，可以跨物理行；空行结束 head。
+- head 保存为抽象 `InlineContent`，可以跨物理行；空行结束 head，同列普通文本结束当前
+  marked block 并开始 sibling paragraph。
 - children 只由 indentation 表达；每个 parent 的第一个非空缩进行建立 `body_indent`，
   所有直接 head continuations 和 children 必须使用同一 column。
 - 普通 paragraph 是省略 introducer 和 marker 的默认 inline leaf，不能拥有 children。
@@ -191,13 +192,46 @@ head 可以跨物理行：
 
 边界规则：
 
-1. marker line 上的 inline text 开始 head。
-2. 紧接的、增加一级缩进的普通文本行继续 head。
-3. 单个换行属于 head continuation；空行结束 head。
-4. 缩进后的 marked block 直接开始 children，不要求前置空行。
-5. 一旦开始 children，就不能恢复 head。
+1. 读完 marker line 后进入 `HEAD_OPEN` 状态；即使 marker line 没有 inline text，空 head
+   仍处于 open 状态。
+2. `HEAD_OPEN` 中，紧接的、从该 parent 的 `body_indent` 开始的普通文本行继续 head。
+   continuation 可以有多行，并共享同一个 `body_indent`。
+3. 同列、没有增加缩进的普通文本行结束当前 marked block，由外层 block parser 重新处理
+   为 sibling paragraph；它不需要用空行与 marked block 分隔。
+4. 空行结束 head。空行之后，从 `body_indent` 开始的普通文本行是 paragraph child，而
+   不是 head continuation。
+5. 从 `body_indent` 开始的 marked block 直接结束 head 并开始 children，不要求前置空行。
+6. 一旦开始 children，就不能恢复 head。
 
-因此：
+因此，下面三种形式含义不同：
+
+```plumb
+`# something
+something
+```
+
+第一种是一个 head 为 `something` 的 marked block，随后是同列的 sibling paragraph；
+空行不是 sibling paragraph 的必要入口。
+
+```plumb
+`# something
+   something
+```
+
+第二种只有一个 marked block。缩进后的第二行建立 `body_indent`，并作为 head
+continuation 加入同一个 head。
+
+```plumb
+`# something
+
+   something
+```
+
+第三种也只有一个 marked block，但空行先关闭了 head，因此缩进后的普通文本是
+paragraph child。heading 等不允许 children 的结构限制仍由 core lowering / structural
+validation 报告，不由通用 block surface grammar 特判。
+
+包含 head continuation 与 children 的完整例子：
 
 ```plumb
 `- 父项目
