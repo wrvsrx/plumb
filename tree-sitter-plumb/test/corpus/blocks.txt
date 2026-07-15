@@ -1,0 +1,105 @@
+==================
+Paragraphs
+==================
+
+# punctuation is ordinary text
+two physical lines
+belong to one paragraph
+
+another paragraph
+
+---
+
+(document
+  (blank_line)
+  (paragraph
+    (inline_content
+      (text))
+    (inline_content
+      (text))
+    (inline_content
+      (text)))
+  (blank_line)
+  (paragraph
+    (inline_content
+      (text))))
+
+==================
+Opaque marked blocks
+==================
+
+`# heading-like head
+`- list-like head
+`> quote-like head
+`:{aside .note} container-like head
+`custom extension marker
+
+---
+
+(document
+  (blank_line)
+  (marked_block
+    (introducer)
+    (marker)
+    (head_separator)
+    (inline_content
+      (text)))
+  (marked_block
+    (introducer)
+    (marker)
+    (head_separator)
+    (inline_content
+      (text)))
+  (marked_block
+    (introducer)
+    (marker)
+    (head_separator)
+    (inline_content
+      (text)))
+  (marked_block
+    (introducer)
+    (marker)
+    (attributes
+      (attribute_tag
+        (attribute_name))
+      (attribute_class
+        (attribute_name)))
+    (head_separator)
+    (inline_content
+      (text)))
+  (marked_block
+    (introducer)
+    (marker)
+    (head_separator)
+    (inline_content
+      (text))))
+
+==================
+Block attributes
+==================
+
+`marker{aside #intro .note key=value quoted="two words"} head
+
+---
+
+(document
+  (blank_line)
+  (marked_block
+    (introducer)
+    (marker)
+    (attributes
+      (attribute_tag
+        (attribute_name))
+      (attribute_id
+        (attribute_name))
+      (attribute_class
+        (attribute_name))
+      (attribute_pair
+        (attribute_name)
+        (attribute_value))
+      (attribute_pair
+        (attribute_name)
+        (attribute_value)))
+    (head_separator)
+    (inline_content
+      (text))))
