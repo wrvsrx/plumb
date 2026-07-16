@@ -6,7 +6,7 @@
 }:
 
 let
-  version = "0.1.1-dev";
+  version = (builtins.fromJSON (builtins.readFile ./tree-sitter.json)).metadata.version;
 
   source = lib.fileset.toSource {
     root = ./.;
