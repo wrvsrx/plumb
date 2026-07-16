@@ -1,4 +1,15 @@
-{ mkShell, tree-sitter }:
+{
+  mkShell,
+  stdenv,
+  tree-sitter,
+}:
 mkShell {
-  packages = [ tree-sitter ];
+  packages = [
+    stdenv.cc
+    tree-sitter
+  ];
+
+  shellHook = ''
+    export CC="${stdenv.cc}/bin/cc"
+  '';
 }
