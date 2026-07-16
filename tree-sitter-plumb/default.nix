@@ -6,7 +6,7 @@
 }:
 
 let
-  version = "0.2.0-dev";
+  version = "0.1.1-dev";
 
   source = lib.fileset.toSource {
     root = ./.;
