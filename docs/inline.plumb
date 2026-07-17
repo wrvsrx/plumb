@@ -202,8 +202,8 @@ quote run，均为语法错误，不能退回普通文本。
 `### 7.4 Attributes
 
 `- inline attributes 完整复用 block `"[Attr]"。
-`- attribute token、quoting、重复 key 和空 `"[{}]" 的规则；这些应与 block attribute grammar
-  一起冻结。
+`- 已决定：attribute token、quoting、duplicate 和空 `"[{}]" 的规则见 `"[docs/spec.plumb]"
+  第 4 节，block 与 inline 不产生方言差异。
 
 `### 7.5 Dispatch and recovery
 

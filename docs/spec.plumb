@@ -167,11 +167,50 @@ block attr slot 紧贴 marker token，中间不允许空格：
 attribute value 使用 Pandoc / HTML-shaped 内容模型：
 
 `"{language=text}
-  Attr = { id, classes, keyvals }
+  Attr        = "{" (AttrItem (Whitespace+ AttrItem)*)? "}"
+  AttrItem    = Id | Class | Pair
+  Id          = "#" AttrName
+  Class       = "." AttrName
+  Pair        = AttrName "=" Value
+  Value       = BareValue | QuotedValue
 
-core 只校验 block attr slot 是否良构并保存 opaque tokens，不校验 class、key 的语义，也不
-校验 id 唯一性。attributes 只包含 id、classes 和 keyvals。任务状态等 metadata 进入同一个
-attr slot，不另设 modifier 通道。
+  AttrNameChar = any Unicode scalar value except:
+                 whitespace
+                 control characters
+                 ` " [ ] { } # . =
+
+  BareValueChar = any Unicode scalar value except:
+                  whitespace
+                  control characters
+                  ` " { }
+
+  QuotedValue = '"' QuotedChar* '"'
+  QuotedChar  = any Unicode scalar value except control characters, '"' and '\\'
+              | '\\"'
+              | '\\\\'
+
+`"[AttrName]" 统一用于 id、class 和 key，不允许 `"[#]"、`"[.]" 或 `"[=]"。bare value 使用
+更宽的字符集，可以直接包含 `"[[]"、`"[]]"、`"[#]"、`"[.]"、`"[=]"、URL punctuation 和路径
+字符。quoted value 不允许物理换行；反斜杠只能组成 `"[\\"]" 或 `"[\\\\]"，其他 escape 是
+syntax error。空 attributes `"[{}]" 和空 quoted value `"[key=\"\"]" 都合法。
+
+core 必须在单个 attribute slot 内执行重复性检查：id 最多出现一次；同名 key 最多出现
+一次。key 使用原始 UTF-8 bytes、大小写敏感且不做 Unicode normalization 的精确比较。
+duplicate diagnostic 的 primary range 指向第二次及后续 occurrence，并用 related range 指向
+第一次 occurrence；parser 继续读取剩余 attributes 以恢复并报告更多错误。class 可以重复，
+包括相同 class name；是否提示重复 class 不属于 syntax validity。
+
+`"{language=text}
+  valid:   {}
+  valid:   {#intro .note .note url=https://example.test/a?q=x#part}
+  valid:   {pattern=[a-z]=value quoted="two words" empty=""}
+  invalid: {#first #second}
+  invalid: {key=one key=two}
+  invalid: {name="bad\\q"}
+
+core 保存 source-ordered attribute items，不因 canonicalization 丢弃 duplicate occurrences。只有
+在没有 core diagnostics 时，下游才可以将其投影为 `"[{ id, classes, keyvals }]"。任务状态等
+metadata 进入同一个 attr slot，不另设 modifier 通道。
 
 `## 5. Head
 
@@ -497,10 +536,8 @@ marker registry。
 
 `### 10.4 Attribute grammar
 
-`- id 是否最多一个，重复时如何诊断。
-`- class 和 key/value 是否允许重复，是否保留输入顺序。
-`- token 的精确字符集、value quoting 和 escape rules。
-`- 无属性的 `"[{}]" 是否允许。
+`- 已决定：attribute grammar、字符集、quoted escapes、空 attributes 和 duplicate rules 见
+  第 4 节；core 按 source order 保存所有 items 并负责 id/key 重复诊断。
 
 `### 10.5 Dispatch and recovery
 

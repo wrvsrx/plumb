@@ -28,23 +28,18 @@
 以下问题共同决定一段 UTF-8 source 是否是合法 plumb。它们全部完成前，不应把手写 parser
 视为可实现规范。
 
-`### S01 `"[open]" Attribute grammar
+`### S01 `"[decided]" Attribute grammar
 
 `*[决策目标：] 冻结 block 和 inline 共用的 attribute lexer 与 parser。
 
-需要决定：
+已决定：block 与 inline 复用唯一 `"[Attr]" grammar。id、class、key 使用统一的窄
+`"[AttrName]" 字符集，额外排除 `"[#]"、`"[.]"、`"[=]"；bare value 使用更宽的字段并允许
+`"[[]]"、`"[#]"、`"[.]"、`"[=]" 等字符。quoted value 使用 double quote，只允许 `"[\\"]" 和
+`"[\\\\]" escape；空 `"[{}]" 和 `"[key=\"\"]" 合法。
 
-`- id、class、key 和 bare value 的字符集及 token boundary。
-`- quoted value 的 delimiter、escape 和允许字符。
-`- id 是否最多一个。
-`- 重复 class、重复 key 是否允许，是否保留输入顺序。
-`- 空 `"[{}]" 是否合法。
-
-建议方向：block 与 inline 复用唯一 `"[Attr]" grammar；core 只验证形状并保留 opaque
-tokens，不验证名称的语义。
-
-必须覆盖：合法完整属性、每种 token、quoted value、重复项、空属性、未闭合属性和非法
-escape。
+core 按 source order 保存 items，负责诊断第二个 id 和同名 duplicate key。class 可以重复，
+包括相同名称。精确 grammar、正反例和 duplicate diagnostic ranges 见
+`"[docs/spec.plumb]" 第 4 节；未闭合 attribute 的 recovery 仍由 S09 统一冻结。
 
 `### S02 `"[decided]" MarkerToken lexical grammar
 
