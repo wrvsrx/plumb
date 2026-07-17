@@ -5,13 +5,14 @@
 
 `## 1. 定义与边界
 
-extension 是消费有效 core AST 并添加语义的 analysis 或 transform。它可以识别 opaque
+extension 是消费未来 normalized core AST 并添加语义的 analysis 或 transform。它可以识别 opaque
 attributes、构建派生索引、产生语义 diagnostics、生成 text edits，或将文档 lower 到
 其他表示。它不能改变什么源码在 core syntax 中合法。
 
 core 与 extension 的边界如下：
 
-`- core 决定 syntax validity，产出 semantics-neutral AST 和 syntactic diagnostics。
+`- core 第一阶段决定 syntax validity，产出 lossless SyntaxTree 和 syntactic diagnostics；
+  normalized AST lowering 在实际 extension 实现前冻结。
 `- extension 解释 AST 中的结构、marker、kind 和 opaque attributes。
 `- host 负责装配 extension、提供 capability、调度依赖并合并 diagnostics。
 `- application 负责文件 I/O、外部进程、LSP mapping、落盘和用户交互。
@@ -32,6 +33,7 @@ core 与 extension 的边界如下：
 
 `## 3. Inputs
 
+以下 snapshot 是 extension 阶段的目标 contract，不是第一阶段 strict parser 的输出承诺。
 extension 的最小输入是一个不可变 document snapshot：
 
 `"{language=text}
@@ -61,8 +63,8 @@ core AST 附加任意数据。常见输出分为：
 `- lowering：Pandoc AST、HTML model 或其他目标 representation。
 
 extension 不得原地修改 core AST。需要表示新语义时，应返回 side table、派生树或新的
-target representation。side table 引用 AST node 时使用 `"[NodeId]" 和 byte range；
-`"[NodeId]" 只在产生它的 document revision 内有效。
+target representation。side table 的 AST identity/source-map contract 与 normalized AST 一起
+冻结；第一阶段 SyntaxTree 不承诺 `"[NodeId]" 或跨 revision identity reuse。
 
 `## 5. Diagnostics
 
@@ -141,7 +143,7 @@ distribution format。
     -> export
 
 outline 应作为第一个 reference extension：它只依赖 core document，输出 section tree 和
-diagnostics，适合验证 snapshot、NodeId、output schema 和 host composition。anchors 与 links
+diagnostics，适合验证 snapshot、AST identity/source map、output schema 和 host composition。anchors 与 links
 随后验证显式 dependency；workspace resolution 最后验证 capability boundary。
 
 `## 10. 尚待决定

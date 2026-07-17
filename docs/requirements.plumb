@@ -83,11 +83,10 @@ tree-sitter 可以做宽松镜像，不能反向约束权威语法。
 
 `### 4.4 语义中立
 
-core 产出的 AST 应是小而中性的 Pandoc-shaped tree。普通 marker token 一律保留为 opaque
-token 并产生 generic parsed block；core 不保留或解释 heading、list、quote 等 marker
-spelling。可选 marker 与 attributes 打包为可省略的 `"[Mark]"；显式 anonymous mark 只省略
-其中的 marker，省略整个 mark 的 parsed block 才是普通 paragraph。inline 的外层 envelope
-已经收敛，最终 inline AST 尚未设计。
+core 第一阶段产出 semantics-neutral lossless SyntaxTree，不解释 heading、list、quote、kind 或
+attributes 的意义。未来 normalized AST 应保持小而中性，并从没有 syntax diagnostics 的
+SyntaxTree lower；已决定的 block lowering shape 作为设计方向保留，最终 inline AST 与物理
+表示等出现第一个实际 extension consumer 后再冻结。
 
 `### 4.5 Reject-but-recover
 
@@ -186,18 +185,28 @@ MVP core 的 block structure 已经冻结，精确规则和实现前待定细节
 标题、列表、引用和其他 marker-specific structures 由 extension 从 generic marked blocks
 派生，不属于 core syntax node 类型。
 
-inline element 和 inline verbatim 的外层 syntax 见 `"[docs/inline.plumb]"；parsed inline content
-和最终 AST 尚未冻结。通用 raw block leaf 暂不设计；code block 是目前唯一冻结的
+inline element、parsed content 和 inline verbatim syntax 见 `"[docs/inline.plumb]"；最终 AST
+明确延后。通用 raw block leaf 暂不设计；code block 是目前唯一冻结的
 raw-body block。分隔线、表格、定义列表和字段列表等未来 block 类型不在本次定稿范围内。
 
-core 输出：
+第一阶段 core 输出：
 
 `"
-  Document
-  Block[]
-  InlineContent
-  Attr
+  SyntaxTree
   Diagnostic[]
+
+`"[SyntaxTree]" 必须无损：所有 source-backed leaf token 的 UTF-8 byte ranges 按顺序、无重叠、
+无空洞地覆盖整个 source，拼接其 source bytes 必须逐字节等于输入。spaces、tabs、indentation、
+LF/CRLF、delimiters、trivia 和 malformed bytes 都必须保留。range 统一为 UTF-8 half-open
+`"[[start, end)]"。
+
+非空 source 的每个 source-backed leaf token 也必须非空。空 source 产生没有 leaf token、range
+为 `"[[0, 0)]" 的 document root；空 leaf 不用于表示缺失 syntax。
+
+无法归入正常 grammar 的实际 bytes 放入 error node，仍参与无损覆盖。parser 不插入 synthetic
+missing tokens；缺失 delimiter 由 diagnostic range 和 insertion fix 表达。node range 由其
+source-backed descendants 推导。MVP 不承诺跨 document revisions 的 node identity 或
+`"[NodeId]" 复用。
 
 core 不做：
 

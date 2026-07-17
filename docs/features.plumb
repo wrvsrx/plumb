@@ -8,14 +8,14 @@
 
 `## A. 解析内核（`"[plumb-core]"）
 
-`- [plumb] MVP 手写严格解析器：输入 UTF-8 字符串，输出
-  `"[(Document, Vec<Diagnostic>)]"。
+`- [plumb] MVP 手写严格解析器：输入 UTF-8 字符串，输出 lossless
+  `"[SyntaxTree + Vec<Diagnostic>]"。
 `- [plumb] MVP reject-but-recover：遇到语法错误后恢复到安全边界，尽量继续报告后续
   错误。
 `- [plumb] MVP 精确语法诊断：每条诊断包含字节范围、错误码和简短说明。
 `- [plumb] MVP 无文件 I/O，只使用 byte offsets；位置换算交给上层。
-`- [plumb] MVP 语义中立 AST：core 不解释属性、链接目标、任务、元信息、id 唯一性或
-  HTML 语义。
+`- [plumb] MVP 语义中立 syntax tree：core 不解释属性、链接目标、任务、元信息、id 唯一性
+  或 HTML 语义。
 `- [plumb] MVP 通用属性解析：属性形状良构即可，内部 token opaque。
 `- [plumb] MVP 最小高频语法：paragraph、generic marked block、代码块、inline envelope、
   属性和 introducer escape；标题、列表、引用等 marker 语义由 extension 提供。
@@ -88,11 +88,12 @@ extension 是语言无关的语义 analysis / transform contract，消费 core A
 
 `## 建议实现顺序
 
-`- 1. 冻结 MVP 语法和 AST。
+`- 1. 冻结 MVP syntax 和 lossless SyntaxTree contract。
 `- 2. 实现 `"[plumb-core]"：lexer、block scanner、inline parser、diagnostics 和 focused tests。
-`- 3. 冻结 extension contract，实现官方 host API、outline、anchors、links、workspace。
-`- 4. 实现 `"[plumb-ls]" 的 diagnostics、documentSymbol、definition、references、hover。
-`- 5. 实现 `"[plumb-export]" 和最小 HTML / Pandoc 导出。
-`- 6. 增加 meta、tasks、completion、semantic tokens。
-`- 7. 实现 `"[plumb-notes]"。
-`- 8. 语法稳定后实现 `"[tree-sitter-plumb]"。
+`- 3. 以第一个实际 extension 为 consumer，冻结 typed view / normalized AST lowering contract。
+`- 4. 实现官方 host API、outline、anchors、links、workspace。
+`- 5. 实现 `"[plumb-ls]" 的 diagnostics、documentSymbol、definition、references、hover。
+`- 6. 实现 `"[plumb-export]" 和最小 HTML / Pandoc 导出。
+`- 7. 增加 meta、tasks、completion、semantic tokens。
+`- 8. 实现 `"[plumb-notes]"。
+`- 9. 继续维护已经存在的 `"[tree-sitter-plumb]" 宽松镜像。

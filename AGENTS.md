@@ -25,8 +25,8 @@ Start with the design docs, in this order:
   that still need decisions before implementation.
 - `docs/inline.plumb` — the current inline envelope design and its remaining open
   questions. Read it after the block-level design in `docs/spec.plumb`.
-- `docs/syntax-open-questions.plumb` — the prioritized decision queue for the
-  syntax and core AST details that remain before parser implementation.
+- `docs/syntax-open-questions.plumb` — the syntax decision record and the
+  deferred core AST questions that no longer block parser implementation.
 - `docs/extensions.plumb` — the language-neutral contract for adding semantics
   outside core, including inputs, outputs, diagnostics, dependencies, and I/O
   boundaries.
@@ -34,12 +34,12 @@ Start with the design docs, in this order:
 
 ## Current status
 
-**Greenfield design reset.** This repository currently contains only design docs
-(`docs/`) and this guidance. There is no code yet. Before implementation, freeze
-the remaining MVP syntax and AST details from `docs/requirements.plumb`,
-`docs/spec.plumb`, and `docs/inline.plumb`. The first implementation target remains
-`plumb-core`: a hand-written strict parser
-producing `(AST, Vec<Diagnostic>)`.
+**Greenfield design reset.** This repository currently contains design docs and a
+lenient tree-sitter mirror, but no strict parser yet. The MVP syntax is frozen in
+`docs/requirements.plumb`, `docs/spec.plumb`, and `docs/inline.plumb`. The first
+`plumb-core` implementation target is a hand-written strict parser producing a
+lossless syntax tree plus `Vec<Diagnostic>`. Normalized AST lowering is deferred
+until an extension provides a concrete consumer.
 
 ## Relationship to djot-tools
 
@@ -60,13 +60,15 @@ project, but it is a **separate project**:
 
 1. **The hand-written strict parser is the single source of truth for *syntax*.**
    It is *reject-but-recover*: it reports every syntactic error it can (recovering
-   at line/block boundaries), and refuses to hand a document downstream when any
-   syntactic error exists. Strictness is **syntactic only**.
+   at line/block boundaries) and always produces a lossless source-oriented tree.
+   A document with any syntactic error is not valid input for future AST lowering
+   or extensions. Strictness is **syntactic only**.
 2. **The core is semantics-neutral; all meaning lives in extensions.**
-   `plumb-core` produces a small, semantics-neutral Pandoc-shaped tree
-   (`{#id .class k=v}` are opaque attributes; surface sugar desugars into the
-   same core nodes). Everything semantic — metadata, link/anchor resolution,
-   references, id generation, tasks, and lowering to HTML/pandoc — is an
+   The first `plumb-core` phase produces only a lossless syntax tree. A future
+   lowering layer will expose a small, semantics-neutral Pandoc-shaped AST once
+   an extension provides a concrete consumer (`{#id .class k=v}` remain opaque
+   attributes). Everything semantic — metadata, link/anchor resolution,
+   references, id generation, tasks, and lowering to HTML/pandoc — remains an
    **extension** (a language-neutral semantic analysis or transform over the
    tree; the exporter is itself an extension). Rust modules are one host
    implementation, not part of the extension definition. No registry, no roles,
@@ -91,14 +93,15 @@ semantics can be shared by more than one tool:
 
 - **`plumb-core`** — semantics-neutral strict reader. Does no file I/O, works in
   byte offsets only. Hand-written lexer + line-oriented block scanner + strict
-  inline parser, producing a small Pandoc-shaped `(tree, Vec<Diagnostic>)` where
-  diagnostics are **syntactic only**. Ordinary marker and inline-kind tokens
+  inline parser, initially producing a lossless syntax tree and syntactic
+  diagnostics. Ordinary marker and inline-kind tokens
   produce generic nodes carrying an opaque `{#id .class k=v}`; core does not
   reserve heading, list, quote, or semantic marker spellings. Quote runs remain a
   syntax-level special case because they switch the payload to raw mode. Contains
   **no** anchors, references, metadata, tasks, outline, or resolution logic.
 - **extensions** — implementations of the language-neutral extension contract,
-  consuming the core tree and adding semantics plus their own diagnostics:
+  eventually consuming the normalized core representation and adding semantics
+  plus their own diagnostics:
   outline, anchors/references, target resolution, workspace, metadata, tasks.
   The official toolchain may implement and compose them as Rust modules, without
   making Rust part of the semantic contract. (These are djot-tools' `djot-core`
