@@ -86,10 +86,10 @@ An empty `kind[] element.
       (text))))
 
 ==================
-Bracket escapes in parsed content
+Opening bracket text and closing bracket escape
 ==================
 
-Use `kind[literal `[ and `]] brackets.
+Use `kind[literal [ and `]] brackets.
 
 ---
 
@@ -103,9 +103,49 @@ Use `kind[literal `[ and `]] brackets.
         (inline_kind)
         (parsed_inline_content
           (inline_text)
-          (bracket_escape)
-          (inline_text)
           (bracket_escape)))
+      (text))))
+
+==================
+Anonymous spans
+==================
+
+Text with `[anonymous [ content]{.highlight}.
+Nested `[before `[inner] after].
+Empty `[]{} span.
+
+---
+
+(document
+  (blank_line)
+  (paragraph
+    (inline_content
+      (text)
+      (inline_element
+        (introducer)
+        (parsed_inline_content
+          (inline_text))
+        (attributes
+          (attribute_class
+            (attribute_name))))
+      (text))
+    (inline_content
+      (text)
+      (inline_element
+        (introducer)
+        (parsed_inline_content
+          (inline_text)
+          (inline_element
+            (introducer)
+            (parsed_inline_content
+              (inline_text)))
+          (inline_text)))
+      (text))
+    (inline_content
+      (text)
+      (inline_element
+        (introducer)
+        (attributes))
       (text))))
 
 ==================

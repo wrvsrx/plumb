@@ -67,6 +67,45 @@ Explicit leading blank code line
     (marker)))
 
 ==================
+Anonymous marked block
+==================
+
+`{.container} anonymous head
+
+  child paragraph
+
+`{}
+  `child direct child
+
+---
+
+(document
+  (blank_line)
+  (marked_block
+    (introducer)
+    (attributes
+      (attribute_class
+        (attribute_name)))
+    (head_separator)
+    (inline_content
+      (text))
+    (block_body
+      (paragraph
+        (inline_content
+          (text)))
+      (blank_line)))
+  (marked_block
+    (introducer)
+    (attributes)
+    (block_body
+      (marked_block
+        (introducer)
+        (marker)
+        (head_separator)
+        (inline_content
+          (text))))))
+
+==================
 Head continuation and children
 ==================
 

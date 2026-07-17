@@ -75,18 +75,20 @@ start。`"[1]" 至 `"[6]" 的展开表、context rule 和正反例见 `"[docs/sp
 之间的局部 dispatch 算法。
 
 已决定：读取最大 `"[MarkerToken]"/`"[QuoteRun]" 后，仅由紧接 delimiter 和 block-start context
-dispatch。`"[[]" 始终进入 inline；attrs/head-separator/newline 进入 block-only path；quote-run
-只允许 bracket、attrs 或 newline。非法入口不回退为 text。block scanner 与 inline parser
-按 context 拥有 diagnostic，primary range 覆盖到第一个证明 dispatch 非法的 scalar。完整表见
-`"[docs/spec.plumb]" 第 1.1 节；recovery boundary 仍由 S09 决定。
+dispatch。introducer 后直接出现 opening bracket 进入 anonymous span，直接出现 opening brace
+在 block start 进入 anonymous marked block；具名 token 后的 bracket 进入 inline，attrs、
+head-separator 或 newline 进入 block-only path。quote-run 只允许 bracket、attrs 或 newline。
+非法入口不回退为 text。block scanner 与 inline parser 按 context 拥有 diagnostic，primary
+range 覆盖到第一个证明 dispatch 非法的 scalar。完整表见 `"[docs/spec.plumb]" 第 1.1 节。
 
 `### S06 `"[decided]" Parsed inline content grammar
 
 `*[决策目标：] 定义普通 paragraph、marked-block head 和 parsed inline element 共享的完整 inline
 grammar。
 
-已决定：parsed content 中字面 brackets 写作 `"[`[]" 和 `"[`]]"；未转义 `"[[]" 非法，
-未转义 `"[]]" 关闭当前 element。空 content 合法。element 可以跨本来就属于同一 enclosing
+已决定：parsed content 中普通 opening bracket 是字面 text；introducer + opening bracket
+进入 anonymous span。未转义 closing bracket 关闭当前 element，字面 closing bracket 写作
+`"[`]]"。空 content 合法。element 可以跨本来就属于同一 enclosing
 `"[InlineContent]" 的 continuation line并产生 `"[SoftBreak]"，但不能跨 blank line、enclosing
 dedent 或 block-only entry；结构 indentation 被移除，额外 spaces 保留为 text。
 
@@ -155,10 +157,11 @@ attributes、去 margin 的 raw bytes 和整个 node span。normative rules 见 
 `### A03 `"[decided]" Generic parsed block lowering
 
 已决定：普通 paragraph 与普通 marked block 统一 lower 为 `"[ParsedBlock]"，包含 mark、head
-和 children。显式 marker 与紧贴它的 attributes 打包为 `"[Mark]"；普通 paragraph 省略整个
-mark，而不是补出保留 marker。head 始终保持独立；显式 mark 的 head 允许为空。mark 为 None
-时 parser/core 则保证 head 非空且 children 为空。quote-run 仍 lower 为独立的
-`"[CodeBlock]"。source ranges 留给 A05 决定。
+和 children。显式 marker 与紧贴它的 attributes 打包为 `"[Mark]"；introducer 后直接出现
+attributes 时产生 marker 为空的显式 Mark，普通 paragraph 则省略整个 mark。只有省略整个
+mark 时 parser/core 才保证 head 非空且 children 为空；anonymous/named Mark 都允许空 head
+和 children，具体约束由 extension 检查。quote-run 仍 lower 为独立的 `"[CodeBlock]"。
+source ranges 留给 A05 决定。
 
 `### A04 `"[open]" Inline AST
 

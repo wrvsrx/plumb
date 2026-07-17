@@ -85,8 +85,9 @@ tree-sitter 可以做宽松镜像，不能反向约束权威语法。
 
 core 产出的 AST 应是小而中性的 Pandoc-shaped tree。普通 marker token 一律保留为 opaque
 token 并产生 generic parsed block；core 不保留或解释 heading、list、quote 等 marker
-spelling。显式 marker 与紧贴它的 attributes 打包为可省略的 `"[Mark]"；省略整个 mark 的
-parsed block 就是普通 paragraph。inline 的外层 envelope 已经收敛，最终 inline AST 尚未设计。
+spelling。可选 marker 与 attributes 打包为可省略的 `"[Mark]"；显式 anonymous mark 只省略
+其中的 marker，省略整个 mark 的 parsed block 才是普通 paragraph。inline 的外层 envelope
+已经收敛，最终 inline AST 尚未设计。
 
 `### 4.5 Reject-but-recover
 
@@ -118,15 +119,17 @@ subblocks”的形状：
   `marker{attr}? head?
     child blocks*
 
-反引号是 block 与 inline 共用的 introducer。只有 block start 的
-`"[` + MarkerToken]" 进入 marked block grammar；任何 marker 字符本身都不是 block 入口。
-syntax 层原样保存 marker token，不在 parser 的通用 block 外形中编码其意义。
+反引号是 block 与 inline 共用的 introducer。block start 的 introducer 后可以是
+`"[MarkerToken]"，也可以直接是 attributes；后者产生 anonymous marked block。任何 marker
+字符本身都不是 block 入口。syntax 层原样保存可选 marker token，不在 parser 的通用 block
+外形中编码其意义。
 
 block start 的两个连续反引号 `"[``]" 是 introducer 的 escape，产生一个字面的行首
 反引号，不进入 marked block grammar。code block 使用一个或多个 quotes 组成的保留 marker
 token，因此不与 introducer escape 冲突。
 
-block attr slot 必须紧贴 marker，中间不能有空格。marker 后的空格开始可选 head。head
+block attr slot 必须紧贴 marker；anonymous mark 的 attr slot 直接紧贴 introducer。attr slot
+前都不能有空格。marker 或 attr slot 后的空格开始可选 head。head
 在 syntax 层只保存为抽象 `"[InlineContent]"，本文不规定其内部语法。读完 marker line 后，
 head 即使为空也保持 open；紧接的缩进普通文本行可以启动 deferred head 或继续已有 head。
 同列普通文本结束当前 block 并开始 sibling paragraph；空行结束 head，空行后的缩进普通
@@ -146,7 +149,7 @@ head 即使为空也保持 open；紧接的缩进普通文本行可以启动 def
   }
 
   Mark {
-    marker: MarkerToken,
+    marker: MarkerToken?,
     attrs: Attr,
   }
 
@@ -156,8 +159,9 @@ head 即使为空也保持 open；紧接的缩进普通文本行可以启动 def
   }
 
 `"[mark = None]" 的 parsed block 必须具有非空 head 且没有 children；这两个 invariant 由
-parser/core 保证。它不会被补成某个保留的 paragraph marker。`"[mark = Some(...)]" 时 head
-保持独立并允许为空，也可以拥有 children。
+parser/core 保证。显式 `"[`{attrs}]" 产生 marker 为空的 `"[Some(Mark)]"，与具名 mark 一样
+允许空 head 和 children；具体结构约束由 extension 检查。core 不补出保留的 paragraph
+marker。
 
 普通 marker node 不做 marker-specific structural lowering；extension 可以把约定的 marker
 解释为 heading、list、quote、metadata 或其他语义，并自行验证结构约束。quote-run 选择
@@ -208,11 +212,12 @@ core 不做：
 
 `## 6. Attribute model 需求
 
-属性值继续以 Pandoc / HTML 的形状为基线。block attr slot 使用紧贴 marker token 的
-braces：
+属性值继续以 Pandoc / HTML 的形状为基线。block attr slot 使用紧贴 marker token 或
+introducer 的 braces：
 
 `"
   `marker{#id .class key=value}
+  `{#id .class key=value}
 
 core 校验属性语法是否良构，并把各部分按 source order 保存为 opaque token。id、class、
 key 和 bare value 使用统一的窄 name 字符集；复杂 value 必须 quoted。quoted value 支持空值

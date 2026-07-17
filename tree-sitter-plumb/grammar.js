@@ -32,8 +32,13 @@ module.exports = grammar({
 
     marked_block: $ => prec.right(seq(
       field('introducer', $.introducer),
-      field('marker', $.marker),
-      optional(field('attributes', choice($.attributes, $.incomplete_attributes))),
+      choice(
+        seq(
+          field('marker', $.marker),
+          optional(field('attributes', choice($.attributes, $.incomplete_attributes))),
+        ),
+        field('attributes', choice($.attributes, $.incomplete_attributes)),
+      ),
       optional(seq($.head_separator, field('head', $.inline_content))),
       $._line_end,
       optional(choice(
@@ -124,7 +129,7 @@ module.exports = grammar({
 
     inline_element: $ => prec.right(2, seq(
       field('introducer', $.introducer),
-      field('kind', $.inline_kind),
+      optional(field('kind', $.inline_kind)),
       '[',
       optional(field('content', $.parsed_inline_content)),
       ']',
@@ -133,7 +138,7 @@ module.exports = grammar({
 
     incomplete_inline_element: $ => prec.right(-1, seq(
       field('introducer', $.introducer),
-      field('kind', $.inline_kind),
+      optional(field('kind', $.inline_kind)),
       '[',
       optional(field('content', $.parsed_inline_content)),
       $._incomplete_inline_end,
@@ -178,7 +183,7 @@ module.exports = grammar({
     )),
 
     introducer_escape: _ => prec(3, '``'),
-    bracket_escape: _ => prec(4, choice('`[', '`]')),
+    bracket_escape: _ => prec(4, '`]'),
     soft_break: $ => $._inline_continue,
     introducer: _ => '`',
     marker: _ => /[^\s\x00-\x1f\x7f-\x9f\[\]{}`"]+/,
@@ -186,7 +191,7 @@ module.exports = grammar({
     head_separator: _ => token(prec(2, /[ \t]+/)),
     _attribute_open: _ => token(prec(2, '{')),
     text: _ => /[^`\n]+/,
-    inline_text: _ => /[^`\[\]\n]+/,
+    inline_text: _ => /[^`\]\n]+/,
     _line_end: $ => choice('\n', $._eof),
   },
 });

@@ -26,34 +26,6 @@ broken `kind[unfinished
       (text))))
 
 ==================
-Reject unescaped opening bracket in parsed content
-==================
-
-broken `kind[unescaped [ bracket]
-`valid recovered
-
----
-
-(document
-  (blank_line)
-  (paragraph
-    (inline_content
-      (text)
-      (inline_element
-        (introducer)
-        (inline_kind)
-        (parsed_inline_content
-          (inline_text))
-        (ERROR
-          (attribute_name)))))
-  (marked_block
-    (introducer)
-    (marker)
-    (head_separator)
-    (inline_content
-      (text))))
-
-==================
 Reject parsed inline across a blank line
 ==================
 
@@ -170,11 +142,14 @@ broken `"[unfinished
   (blank_line)
   (paragraph
     (inline_content
-      (text))
-    (ERROR
-      (introducer)
-      (code_marker)
-      (attribute_name)))
+      (text)
+      (inline_element
+        (introducer)
+        (ERROR
+          (code_marker))
+        (parsed_inline_content
+          (inline_text))
+        (MISSING "]"))))
   (marked_block
     (introducer)
     (marker)
@@ -196,13 +171,15 @@ second line]"
   (blank_line)
   (paragraph
     (inline_content
-      (text))
-    (ERROR
-      (introducer)
-      (code_marker)
-      (attribute_name)
-      (attribute_name))
-    (inline_content
+      (text)
+      (inline_element
+        (introducer)
+        (ERROR
+          (code_marker))
+        (parsed_inline_content
+          (inline_text)
+          (soft_break)
+          (inline_text)))
       (text)))
   (marked_block
     (introducer)
