@@ -61,34 +61,24 @@ rule 和正反例见 `"[docs/spec.plumb]" 第 3 节。diagnostic/recovery 仍由
 没有内建集合；所有词法良构的 kind 产生 generic span。quote-run 不属于普通 kind，仅因切换
 raw payload mode 而由 parser 特判。diagnostic/recovery 仍由 S09 统一冻结。
 
-`### S04 `"[open]" Introducer grouping
+`### S04 `"[decided]" Introducer grouping
 
 `*[决策目标：] 统一 block start 和 inline text 中连续反引号的分组规则。
 
-当前只确定两个反引号产生一个字面反引号。需要决定三个或更多反引号如何从左到右分组，
-以及奇数 run 剩余一个 introducer 时如何处理。
+已决定：连续 run 从左到右每两个反引号组成一个 escape，奇数 run 的最后一个反引号作为
+introducer；scanner 不得回溯。escape 产生 inline text，因此消费过 escape 后不再处于 block
+start。`"[1]" 至 `"[6]" 的展开表、context rule 和正反例见 `"[docs/spec.plumb]" 第 1.1 节。
 
-必须覆盖 `"[1]" 到至少 `"[6]" 个连续反引号，并分别放在 block start、普通 inline text、
-parsed inline content 和 delimiter 邻接位置测试。
-
-`### S05 `"[open]" Block/inline dispatch order
+`### S05 `"[decided]" Block/inline dispatch order
 
 `*[决策目标：] 冻结行首 introducer 在 escape、code、verbatim、marked block 和 inline element
 之间的局部 dispatch 算法。
 
-至少需要区分：
-
-`"{language=text}
-  ``literal
-  `* block
-  `*[inline]
-  `" code
-  `"[verbatim]"
-
-建议方向：escape 优先；quote-run 根据后继 `"[{]"、`"[[]" 或 newline dispatch；其他 token
-根据 `"[[]" 与 attrs/whitespace/newline dispatch；任何不完整入口都是 syntax error。
-
-需要明确错误由 block scanner 还是 inline parser 拥有，以及 diagnostic primary range。
+已决定：读取最大 `"[MarkerToken]"/`"[QuoteRun]" 后，仅由紧接 delimiter 和 block-start context
+dispatch。`"[[]" 始终进入 inline；attrs/head-separator/newline 进入 block-only path；quote-run
+只允许 bracket、attrs 或 newline。非法入口不回退为 text。block scanner 与 inline parser
+按 context 拥有 diagnostic，primary range 覆盖到第一个证明 dispatch 非法的 scalar。完整表见
+`"[docs/spec.plumb]" 第 1.1 节；recovery boundary 仍由 S09 决定。
 
 `### S06 `"[open]" Parsed inline content grammar
 

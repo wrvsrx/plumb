@@ -77,6 +77,57 @@ introducer 后缺少合法 marker token、block attr 没有闭合、缩进层级
 escape 必须优先于 marker token 识别。解除 escape 后，上面两行分别以字面的
 `"[`title]" 和 `"[`task]" 开头。
 
+`### 1.1 Introducer grouping and dispatch
+
+连续反引号 run 在 block start 和 inline context 中使用同一条无回溯规则：从左到右每两个
+反引号组成一个 `"[EscapedIntroducer]" 并产生一个字面反引号；run 长度为奇数时，最后一个
+反引号才是 `"[Introducer]"。
+
+`"{language=text}
+  run length 1 -> Introducer
+  run length 2 -> EscapedIntroducer
+  run length 3 -> EscapedIntroducer + Introducer
+  run length 4 -> EscapedIntroducer + EscapedIntroducer
+  run length 5 -> EscapedIntroducer + EscapedIntroducer + Introducer
+  run length 6 -> EscapedIntroducer + EscapedIntroducer + EscapedIntroducer
+
+scanner 不得根据 introducer 后面的内容改变上述分组。每个 `"[EscapedIntroducer]" 都会产生
+inline text，因此一旦 run 中消费了 escape，当前位置就不再是 block start。奇数 run 剩余的
+introducer 可以继续启动 inline element 或 inline verbatim；若它拼成只能位于 block start 的
+marked block/code 入口，则是 syntax error。
+
+单个 introducer 之后先按最大长度读取 `"[MarkerToken]" 或 `"[QuoteRun]"，再只根据紧接的
+delimiter 和当前 context dispatch：
+
+`"{language=text}
+  Introducer MarkerToken "["       -> parsed inline element
+  Introducer MarkerToken "{"       -> marked block with attributes, block start only
+  Introducer MarkerToken HeadSep    -> marked block with head, block start only
+  Introducer MarkerToken newline    -> empty-head marked block, block start only
+
+  Introducer QuoteRun "["           -> inline verbatim
+  Introducer QuoteRun "{"           -> code block with attributes, block start only
+  Introducer QuoteRun newline       -> code block, block start only
+
+`"[EOF]" 在这里等价于 newline。inline element 和 inline verbatim 即使位于物理行的 block
+start，也会启动或继续 paragraph。block-only 入口出现在 inline context、quote run 后出现
+head separator、token 后出现其他 delimiter，或者 introducer/token 在 EOF 前不完整，都是
+syntax error，不能回退成普通文本。
+
+grouping error 由 introducer lexer 报告；dispatch error 在 block start 由 block scanner
+报告，在 inline context 由 inline parser 报告。primary range 从 introducer 开始，覆盖已读取
+token/quote run 和第一个证明 dispatch 非法的 scalar；若在 EOF 才能确定错误，range 结束于
+EOF。具体 recovery boundary 与多诊断优先级仍由 S09 冻结。
+
+`"{language=text}
+  valid:   `node head
+  valid:   `kind[content]
+  valid:   ```kind[content]       # literal ` followed by an inline element
+  valid:   ````literal            # two literal backticks
+  invalid: text `node head        # block-only entry in inline context
+  invalid: ```node head           # escape has already entered inline context
+  invalid: `" code head           # code blocks cannot have a head
+
 `## 2. Syntax node
 
 syntax parser 对所有 marked block 使用同一个节点形状：
@@ -536,8 +587,8 @@ marker registry。
 
 `### 10.5 Dispatch and recovery
 
-`- 三个或更多连续反引号如何从左到右分组，以及剩余单个 introducer 的诊断。
-`- block start 的 introducer 在 marker、inline element 和 escape 之间的精确 dispatch 顺序。
+`- 已决定：连续 introducer grouping、block/inline dispatch 和 diagnostic ownership 见
+  1.1 节；recovery boundary 与多诊断优先级仍待决定。
 `- malformed marker、attribute、indentation 和 code body 分别恢复到哪个 line/indentation
   boundary。
 `- code body 结束行同时存在 indentation error 时，优先报告 code-prefix error 还是外层

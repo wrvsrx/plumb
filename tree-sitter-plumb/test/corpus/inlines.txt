@@ -131,6 +131,91 @@ continued with ``inline escape
       (text))))
 
 ==================
+Introducer runs one through six
+==================
+
+`kind[one]
+``literal-two
+```kind[three]
+````literal-four
+`````kind[five]
+``````literal-six
+
+---
+
+(document
+  (blank_line)
+  (paragraph
+    (inline_content
+      (inline_element
+        (introducer)
+        (inline_kind)
+        (parsed_inline_content
+          (inline_text))))
+    (inline_content
+      (introducer_escape)
+      (text))
+    (inline_content
+      (introducer_escape)
+      (inline_element
+        (introducer)
+        (inline_kind)
+        (parsed_inline_content
+          (inline_text))))
+    (inline_content
+      (introducer_escape)
+      (introducer_escape)
+      (text))
+    (inline_content
+      (introducer_escape)
+      (introducer_escape)
+      (inline_element
+        (introducer)
+        (inline_kind)
+        (parsed_inline_content
+          (inline_text))))
+    (inline_content
+      (introducer_escape)
+      (introducer_escape)
+      (introducer_escape)
+      (text))))
+
+==================
+Introducer runs in parsed content and before verbatim
+==================
+
+`outer[before ```inner[nested] and `````` literal]
+Use ```"[raw]" after a literal introducer.
+
+---
+
+(document
+  (blank_line)
+  (paragraph
+    (inline_content
+      (inline_element
+        (introducer)
+        (inline_kind)
+        (parsed_inline_content
+          (inline_text)
+          (introducer_escape)
+          (inline_element
+            (introducer)
+            (inline_kind)
+            (parsed_inline_content
+              (inline_text)))
+          (inline_text)
+          (introducer_escape)
+          (introducer_escape)
+          (introducer_escape)
+          (inline_text))))
+    (inline_content
+      (text)
+      (introducer_escape)
+      (inline_verbatim)
+      (text))))
+
+==================
 Inline at physical line start
 ==================
 

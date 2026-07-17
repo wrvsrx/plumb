@@ -94,6 +94,59 @@ Reject unknown quoted escapes
       (attribute_name))))
 
 ==================
+Reject block-only dispatch after an escape
+==================
+
+```node head
+
+---
+
+(document
+  (blank_line)
+  (paragraph
+    (inline_content
+      (introducer_escape))
+    (ERROR
+      (introducer)
+      (inline_kind)
+      (attribute_name))))
+
+==================
+Reject block-only dispatch in inline context
+==================
+
+text `node head
+
+---
+
+(document
+  (blank_line)
+  (paragraph
+    (inline_content
+      (text))
+    (ERROR
+      (introducer)
+      (inline_kind)
+      (attribute_name))))
+
+==================
+Reject code block head
+==================
+
+`" code head
+
+---
+
+(document
+  (blank_line)
+  (code_block
+    (introducer)
+    (code_marker)
+    (ERROR
+      (attribute_name)
+      (attribute_name))))
+
+==================
 Recover after unclosed attributes
 ==================
 
