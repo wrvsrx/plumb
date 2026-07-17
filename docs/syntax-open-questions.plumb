@@ -34,12 +34,11 @@
 
 需要决定：
 
-`- tag、id、class、key 和 bare value 的字符集及 token boundary。
+`- id、class、key 和 bare value 的字符集及 token boundary。
 `- quoted value 的 delimiter、escape 和允许字符。
-`- tag 和 id 是否各最多一个。
+`- id 是否最多一个。
 `- 重复 class、重复 key 是否允许，是否保留输入顺序。
 `- 空 `"[{}]" 是否合法。
-`- inline attributes 是否允许 tag，还是只允许 id/classes/keyvals。
 
 建议方向：block 与 inline 复用唯一 `"[Attr]" grammar；core 只验证形状并保留 opaque
 tokens，不验证名称的语义。
@@ -47,39 +46,25 @@ tokens，不验证名称的语义。
 必须覆盖：合法完整属性、每种 token、quoted value、重复项、空属性、未闭合属性和非法
 escape。
 
-`### S02 `"[open]" MarkerToken lexical grammar
+`### S02 `"[decided]" MarkerToken lexical grammar
 
 `*[决策目标：] 让 block scanner 能在不查询语义 registry 的情况下确定 marker 边界。
 
-需要决定：
+已决定：普通 marker 没有保留 spelling 或内建集合。`"[MarkerToken]" 是由非 whitespace、
+非 control 且不属于 `"[` " [ ] { }]" 的一个或多个 Unicode scalar values 组成的最大 token。
+token 按 UTF-8 原样保存、大小写敏感且不做 normalization；所有词法良构的 marker 都产生
+generic marked node。
 
-`- `"[MarkerToken]" 的允许字符、最长匹配和终止字符。
-`- heading marker 的最大重复次数。
-`- identifier marker 是否允许。
-`- 未知但词法良构的 marker 是 generic block，还是 syntax error。
-`- ordered list 是否进入 MVP；若进入，其 marker 拼写是什么。
-`- `"[:]" 是否只是 generic container marker，field/meta 是否完全留给 extension。
+quote-run 不属于 `"[MarkerToken]"，仅因切换 raw payload mode 而由 parser 特判。normative
+rule 和正反例见 `"[docs/spec.plumb]" 第 3 节。diagnostic/recovery 仍由 S09 统一冻结。
 
-建议方向：词法规则与内建 marker 集合分开；未知但词法良构的 marker lower 为 generic
-container，以保持 core 语义中立。
-
-必须覆盖：所有内建 marker、最长匹配、marker 后 attrs/head/newline、未知 marker、非法
-字符和 EOF。
-
-`### S03 `"[open]" InlineKind lexical grammar
+`### S03 `"[decided]" InlineKind lexical grammar
 
 `*[决策目标：] 让 inline parser 局部确定 kind 与 opening bracket 的边界。
 
-需要决定：
-
-`- `"[InlineKind]" 的允许字符、最长匹配和终止字符。
-`- 内建 kinds 的最小集合。
-`- 未知但词法良构的 kind 是 generic span，还是 syntax error。
-`- verbatim quote-run 是否是唯一进入 raw inline payload 的保留 kind。
-`- kind 与 attribute tag 同时存在是否合法。
-
-建议方向：未知 kind 产生 generic span；只有 payload mode 需要由 core 特判，class/tag 等
-语义不影响 syntax dispatch。
+已决定：`"[InlineKind]" 复用 S02 的宽字符集、最大匹配和 source-preserving 规则。普通 kind
+没有内建集合；所有词法良构的 kind 产生 generic span。quote-run 不属于普通 kind，仅因切换
+raw payload mode 而由 parser 特判。diagnostic/recovery 仍由 S09 统一冻结。
 
 `### S04 `"[open]" Introducer grouping
 
@@ -112,7 +97,7 @@ parsed inline content 和 delimiter 邻接位置测试。
 
 `### S06 `"[open]" Parsed inline content grammar
 
-`*[决策目标：] 定义普通 paragraph、heading head 和 parsed inline element 共享的完整 inline
+`*[决策目标：] 定义普通 paragraph、marked-block head 和 parsed inline element 共享的完整 inline
 grammar。
 
 需要决定：
@@ -178,40 +163,27 @@ partial dedent 始终报错。
 这些问题通常不改变 token 是否良构，但会改变 core tree、下游 extension contract 和导出。
 应在 parser 对外暴露稳定 AST 前完成。
 
-`### A01 `"[open]" Marker structural constraints
+`### A01 `"[decided]" Marker structural constraints
 
-决定每个内建 marker 是否允许空 head、block attributes 和 children。heading 已确定不允许
-children，但其余 marker 与空 heading 仍需完整矩阵。
+所有普通 marker 产生相同的 generic marked node，并允许统一的 attributes、head 和 children
+surface shape。marker-specific constraints 由 extension 验证，不改变 syntax validity。
 
-`### A02 `"[open]" List aggregation
-
-决定连续 sibling list items 如何聚合成 `"[List]"，空行是否打断聚合，以及未来 ordered /
-unordered list 相邻时如何分组。
-
-`### A03 `"[open]" Head lowering
-
-决定 list item、quote 和 generic container 的 head 是否统一 lower 为第一个
-`"[Paragraph]"。heading 继续直接拥有 `"[InlineContent]"，不包装 paragraph。
-
-`### A04 `"[open]" CodeBlock payload
+`### A02 `"[open]" CodeBlock payload
 
 决定空 code block 是否允许，raw payload 是否包含最终 newline，以及 syntax tree 是否保留
 quote count/source margin 供 lossless rewrite 使用。
 
-`### A05 `"[open]" Paragraph attributes
+`### A03 `"[open]" Generic marked node lowering
 
-决定 `"[:{p .lead}]" 是否是带 attributes paragraph 的正式表达，或是否需要独立 surface
-syntax。该决定不得让 core 解释 `"[p]" 的 HTML 语义。
+决定 generic marked node 的最终 core AST shape：head 是否保持独立 `"[InlineContent]"，还是
+统一表示为 block children；同时不得解释 marker spelling。
 
-`### A06 `"[open]" Typed inline AST
+`### A04 `"[open]" Inline AST
 
-决定哪些 inline kinds lower 为 typed nodes，哪些统一为 generic `"[Span]"；同时冻结 text、
-soft break、verbatim 和 source range 的表示。
+决定普通 inline kinds 的 generic `"[Span]" 表示，并冻结 text、soft break、verbatim 和 source
+range。kind-specific meaning 由 extension 解释。
 
-建议保持最小 typed set：只有跨工具确实需要稳定结构的 inline constructs 进入 typed AST；
-其他 kind 保留为 opaque generic span。
-
-`### A07 `"[open]" Source fidelity and node identity
+`### A05 `"[open]" Source fidelity and node identity
 
 决定 syntax tree/core AST 是否保留 delimiter length、attribute 输入顺序和原始 ranges，以及
 是否为同一 parse snapshot 中的节点分配 `"[NodeId]"。这些信息影响 formatter、LSP、text
@@ -226,8 +198,7 @@ edits 和 extension side tables。
 `- 空 inline verbatim 的 lint policy。
 `- 通用 raw/verbatim block leaf。
 `- thematic break、table、definition list 和 field list。
-`- ordered list，如果 S02 决定不纳入 MVP。
-`- extension 对 task、meta、link、class 和 tag 的语义解释。
+`- extension 对 heading、list、quote、task、meta、link、class 和 marker 的语义解释与聚合。
 
 lint、formatter 和 extension policy 不能反向改变 syntax validity。
 
@@ -242,7 +213,7 @@ lint、formatter 和 extension policy 不能反向改变 syntax validity。
 `- 5. S07 Inline verbatim。
 `- 6. S08 indentation / EOF。
 `- 7. S09 recovery / diagnostic precedence。
-`- 8. A01 至 A07 core AST 与 lowering。
+`- 8. A01 至 A05 core AST 与 lowering。
 
 每完成一项，都应同步更新 `"[docs/spec.plumb]" 或 `"[docs/inline.plumb]"，并把 tree-sitter
 grammar 当作宽松镜像更新；tree-sitter 的可表达性不参与权威语法决策。

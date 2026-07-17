@@ -284,10 +284,10 @@ Nested code margin
 Opaque marked blocks
 ==================
 
-`# heading-like head
-`- list-like head
-`> quote-like head
-`:{aside .note} container-like head
+`symbol# punctuation head
+`任务 Unicode head
+`note! punctuation head
+`aside{.note} attributed head
 `custom extension marker
 
 ---
@@ -316,8 +316,6 @@ Opaque marked blocks
     (introducer)
     (marker)
     (attributes
-      (attribute_tag
-        (attribute_name))
       (attribute_class
         (attribute_name)))
     (head_separator)
@@ -334,7 +332,7 @@ Opaque marked blocks
 Block attributes
 ==================
 
-`marker{aside #intro .note key=value quoted="two words"} head
+`marker{#intro .note key=value quoted="two words"} head
 
 ---
 
@@ -344,8 +342,6 @@ Block attributes
     (introducer)
     (marker)
     (attributes
-      (attribute_tag
-        (attribute_name))
       (attribute_id
         (attribute_name))
       (attribute_class

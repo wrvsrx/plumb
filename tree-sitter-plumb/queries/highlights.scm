@@ -3,7 +3,7 @@
 (introducer_escape) @string.escape
 (marker) @keyword
 (code_marker) @punctuation.delimiter
-(inline_kind) @tag
+(inline_kind) @keyword
 
 ; Parsed inline delimiters.
 (inline_element
@@ -17,8 +17,6 @@
 
 (incomplete_attributes
   "{" @punctuation.bracket)
-
-(attribute_tag) @tag
 
 (attribute_id
   "#" @punctuation.special

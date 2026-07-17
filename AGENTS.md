@@ -64,7 +64,7 @@ project, but it is a **separate project**:
    syntactic error exists. Strictness is **syntactic only**.
 2. **The core is semantics-neutral; all meaning lives in extensions.**
    `plumb-core` produces a small, semantics-neutral Pandoc-shaped tree
-   (`{tag #id .class k=v}` are opaque attributes; surface sugar desugars into the
+   (`{#id .class k=v}` are opaque attributes; surface sugar desugars into the
    same core nodes). Everything semantic — metadata, link/anchor resolution,
    references, id generation, tasks, and lowering to HTML/pandoc — is an
    **extension** (a language-neutral semantic analysis or transform over the
@@ -92,10 +92,11 @@ semantics can be shared by more than one tool:
 - **`plumb-core`** — semantics-neutral strict reader. Does no file I/O, works in
   byte offsets only. Hand-written lexer + line-oriented block scanner + strict
   inline parser, producing a small Pandoc-shaped `(tree, Vec<Diagnostic>)` where
-  diagnostics are **syntactic only**. Structural constructs are typed nodes; other
-  semantic wrappers collapse to a generic `Container`/`Span` carrying an opaque
-  `{tag #id .class k=v}`. Surface sugar desugars to the same tree.
-  Contains **no** anchors, references, metadata, tasks, or resolution logic.
+  diagnostics are **syntactic only**. Ordinary marker and inline-kind tokens
+  produce generic nodes carrying an opaque `{#id .class k=v}`; core does not
+  reserve heading, list, quote, or semantic marker spellings. Quote runs remain a
+  syntax-level special case because they switch the payload to raw mode. Contains
+  **no** anchors, references, metadata, tasks, outline, or resolution logic.
 - **extensions** — implementations of the language-neutral extension contract,
   consuming the core tree and adding semantics plus their own diagnostics:
   outline, anchors/references, target resolution, workspace, metadata, tasks.

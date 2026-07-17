@@ -144,7 +144,6 @@ module.exports = grammar({
     attributes: $ => seq(
       $._attribute_open,
       repeat(choice(
-        field('tag', $.attribute_tag),
         field('id', $.attribute_id),
         field('class', $.attribute_class),
         field('pair', $.attribute_pair),
@@ -155,7 +154,6 @@ module.exports = grammar({
     incomplete_attributes: $ => prec.right(-1, seq(
       $._attribute_open,
       repeat(choice(
-        field('tag', $.attribute_tag),
         field('id', $.attribute_id),
         field('class', $.attribute_class),
         field('pair', $.attribute_pair),
@@ -163,7 +161,6 @@ module.exports = grammar({
       $._incomplete_attributes_end,
     )),
 
-    attribute_tag: $ => $.attribute_name,
     attribute_id: $ => seq('#', $.attribute_name),
     attribute_class: $ => seq('.', $.attribute_name),
     attribute_pair: $ => seq(
@@ -179,8 +176,8 @@ module.exports = grammar({
 
     introducer_escape: _ => prec(3, '``'),
     introducer: _ => '`',
-    marker: _ => /[^\s\[{`"]+/,
-    inline_kind: _ => /[^\s\[{`"]+/,
+    marker: _ => /[^\s\x00-\x1f\x7f-\x9f\[\]{}`"]+/,
+    inline_kind: _ => /[^\s\x00-\x1f\x7f-\x9f\[\]{}`"]+/,
     head_separator: _ => token(prec(2, /[ \t]+/)),
     _attribute_open: _ => token(prec(2, '{')),
     text: _ => /[^`\n]+/,

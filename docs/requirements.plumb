@@ -59,7 +59,7 @@ plumb 是一门用于个人长期文档系统的 strict markup language。它不
 属性必须贴在目标的结构边界上，让人和解析器都能清楚判断归属。
 
 `- block attribute 放在紧贴 block marker 的 `"[{...}]" attr slot 中。
-`- list item 的任务状态、日期等机器信息也放进 attr slot，不另设 modifier 通道。
+`- 任务状态、日期等机器信息也放进 attr slot，不另设 modifier 通道。
 
 这不追求所有结构都长得一样，而追求归属局部、可见、无需向前后远距离搜索。
 
@@ -83,10 +83,10 @@ tree-sitter 可以做宽松镜像，不能反向约束权威语法。
 
 `### 4.4 语义中立
 
-core 产出的 AST 应是小而中性的 Pandoc-shaped tree。syntax 层先保留 opaque marker
-token；后续 core lowering 再将内建 marker 归约成类型化节点。marker 不混入普通
-attributes，二者在 syntax node 中并列保存。inline 的外层 envelope 已经收敛，最终 typed
-inline AST 尚未设计。
+core 产出的 AST 应是小而中性的 Pandoc-shaped tree。普通 marker token 一律保留为 opaque
+token 并产生 generic marked node；core 不保留或解释 heading、list、quote 等 marker
+spelling。marker 不混入普通 attributes，二者在 syntax node 中并列保存。inline 的外层
+envelope 已经收敛，最终 inline AST 尚未设计。
 
 `### 4.5 Reject-but-recover
 
@@ -106,8 +106,8 @@ inline、属性参数或语义关系：
 `- 结构 indentation 中 tab 非法。
 `- 只有显式 marker block 可以拥有 indented child blocks。
 `- 普通段落不能凭空拥有缩进子块。
-`- heading 的 marker line 承载标题文本，不允许拥有 indented child blocks；
-  section tree 由 outline / section extension 从 heading sequence 派生。
+`- 所有普通 marked block 使用相同的 head/children 结构；marker 的结构约束由 extension
+  解释，不影响 syntax validity。
 
 所有普通 marked block 使用一个统一 introducer，并统一为“marker line + 可选
 subblocks”的形状：
@@ -117,9 +117,8 @@ subblocks”的形状：
     child blocks*
 
 反引号是 block 与 inline 共用的 introducer。只有 block start 的
-`"[` + MarkerToken]" 进入 marked block grammar；`"[#]"、`"[-]"、`"[>]" 等字符本身不再是
-block 入口。syntax 层只保存 `"[#]"、`"[-]" 等 opaque marker token，不在 parser 的通用 block
-外形中编码 heading、list item 等类型。
+`"[` + MarkerToken]" 进入 marked block grammar；任何 marker 字符本身都不是 block 入口。
+syntax 层原样保存 marker token，不在 parser 的通用 block 外形中编码其意义。
 
 block start 的两个连续反引号 `"[``]" 是 introducer 的 escape，产生一个字面的行首
 反引号，不进入 marked block grammar。code block 使用一个或多个 quotes 组成的保留 marker
@@ -145,11 +144,9 @@ head 即使为空也保持 open；紧接的缩进普通文本行可以启动 def
   InlinePayload = { head: InlineContent, children: SyntaxNode[] }
   RawPayload    = { text: RawText }
 
-heading 等内建类型的结构限制在 core lowering / structural validation 中执行。例如，
-heading 的 head 成为标题内容且 children 必须为空；section tree 仍由 extension 从平面
-heading sequence 派生。对于 list item、quote、container，head 如何归约到 Pandoc-shaped
-block children，由后续 AST 定稿决定，不属于 inline surface syntax。quote-run marker
-选择 `"[RawPayload]"，其他当前 marker 选择 `"[InlinePayload]"。
+普通 marker node 不做 marker-specific structural lowering；extension 可以把约定的 marker
+解释为 heading、list、quote、metadata 或其他语义，并自行验证结构约束。quote-run 选择
+`"[RawPayload]"，其他 marker 选择 `"[InlinePayload]"。
 
 一个或多个 quotes 组成 syntax 层唯一已确定的 raw-body marker。它不允许 head 或 block
 children；若 quote 数量为 `"[N]"，raw code payload 与整个 opening marker 的末尾对齐，即
@@ -162,13 +159,13 @@ block。
 MVP core 的 block structure 已经冻结，精确规则和实现前待定细节见 `"[docs/spec.plumb]"。当前
 纳入的 block 结构：
 
-`- 标题
 `- 段落
-`- 列表
-`- 引用
+`- generic marked block
 `- 代码块
 `- block 属性
-`- 通用块容器
+
+标题、列表、引用和其他 marker-specific structures 由 extension 从 generic marked blocks
+派生，不属于 core syntax node 类型。
 
 inline element 和 inline verbatim 的外层 syntax 见 `"[docs/inline.plumb]"；parsed inline content
 和最终 AST 尚未冻结。通用 raw block leaf 暂不设计；code block 是目前唯一冻结的
@@ -185,12 +182,12 @@ core 输出：
 
 core 不做：
 
-`- 自动生成 heading id
+`- 自动生成 id
 `- 校验 id 唯一
 `- 判断链接目标是否存在
 `- 解释 `"[.todo]"
 `- 解释 `"[.meta]"
-`- 解释 block tag / class / marker 的 extension 语义
+`- 解释 block class / marker 的 extension 语义
 `- 任务查询
 `- HTML 语义映射
 
@@ -200,37 +197,37 @@ core 不做：
 braces：
 
 `"
-  `marker{tag #id .class key=value}
+  `marker{#id .class key=value}
 
-core 只校验属性语法是否良构，并把各部分保存为 opaque token。core 不校验元素名、
-class、id 唯一性或 key 的语义。
+core 只校验属性语法是否良构，并把各部分保存为 opaque token。core 不校验 class、id
+唯一性或 key 的语义。attributes 只包含 id、classes 和 keyvals。
 
 block marker line 可以带 head；只有真正的 subblocks 使用缩进：
 
 `"
-  `#{#today} 今天
+  `title{#today} 今天
 
   普通 paragraph。
 
-  `-{task=todo due=2026-07-10 .urgent} 买牛奶
+  `task{state=todo due=2026-07-10 .urgent} 买牛奶
 
 `- block attribute 紧贴 block marker，写作 `"[{...}]"。
-`- list item 的任务状态等机器语义也写成 attribute，例如 `"[task=todo]"。
+`- 任务状态等机器语义也写成 attribute，例如 `"[task=todo]"。
 `- marker token 与普通 attributes 分开保存；不能把 marker 塞入 `"[Attr]"。
 
 `## 7. Task model 需求
 
-任务不是 core 语义。core 只解析 item attribute；task extension 解释状态、日期和查询
+任务不是 core 语义。core 只解析 marked block attribute；task extension 解释状态、日期和查询
 字段。
 
 推荐方向：
 
 `"
-  `-{task=todo} 买牛奶
+  `task{state=todo} 买牛奶
 
-  `-{task=done} 交水费
+  `task{state=done} 交水费
 
-  `-{task=todo due=2026-07-10 .urgent} 预约体检
+  `task{state=todo due=2026-07-10 .urgent} 预约体检
 
 不建议保留裸 Markdown task item：
 
@@ -241,7 +238,7 @@ block marker line 可以带 head；只有真正的 subblocks 使用缩进：
 原因：
 
 `- task 是 extension 语义，不应成为 core 的专用 block 语义。
-`- item-level 信息应统一进入 attr slot。
+`- 机器可读信息应统一进入 attr slot。
 
 HTML 导出建议由 task extension / export extension 共同决定，例如 task list 输出
 disabled checkbox 和 task class，但源码不需要保留 checkbox 拼写。

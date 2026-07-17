@@ -57,7 +57,7 @@ release artifact or regenerated locally.
 
 `"[queries/highlights.scm]" uses Neovim's standard tree-sitter capture names and
 only highlights the generic core CST. It does not interpret marker or inline
-kind values as headings, list items, tasks, emphasis, or links.
+kind values semantically.
 
 Build the parser explicitly through the locked Nix environment:
 

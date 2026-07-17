@@ -178,10 +178,10 @@ quote run，均为语法错误，不能退回普通文本。
 
 `### 7.1 Kind tokens and lowering
 
-`- `"[InlineKind]" 的字符集、token boundary 和最长匹配规则。
-`- 内建 kinds 的集合，以及 `"[*]"、`"[_]"、`"[kbd]" 等是否进入 core typed AST。
-`- 未知 kind 是合法 generic span，还是语法错误。
-`- inline kind 与 attribute model 中可选 `"[tag]" 的关系；二者是否允许同时出现。
+`- 已决定：`"[InlineKind]" 完整复用 block `"[MarkerToken]" 的宽字符集、最大匹配、UTF-8
+  原样保存和大小写敏感规则。
+`- 已决定：普通 kind 没有内建集合；所有词法良构的 kind 产生 generic span。
+`- quote-run 不属于普通 kind，仅因切换 raw payload mode 而由 parser 特判。
 
 `### 7.2 Parsed content
 
@@ -201,7 +201,7 @@ quote run，均为语法错误，不能退回普通文本。
 
 `### 7.4 Attributes
 
-`- inline attributes 是否完整复用 block `"[Attr]"，还是禁止其中的 `"[tag]" slot。
+`- inline attributes 完整复用 block `"[Attr]"。
 `- attribute token、quoting、重复 key 和空 `"[{}]" 的规则；这些应与 block attribute grammar
   一起冻结。
 
