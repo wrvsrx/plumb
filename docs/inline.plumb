@@ -111,7 +111,9 @@ inline verbatim 使用一个或多个 double quotes 作为 kind/delimiter run：
   `"[]"
 
 quote run 的长度在 opening `"[[]" 之前已经确定。只有 `"[]]" 加相同数量的 quotes 才结束
-verbatim，因此 raw content 可以包含任意单独的 `"[[]"、`"[]]" 和较短的 closing-like sequence。
+verbatim。closing quote run 必须作为完整 run 与 opening 等长；更长 run 不能消费等长前缀
+提前闭合。因此 raw content 可以包含任意单独的 `"[[]"、`"[]]"、较短或较长的 closing-like
+sequence，只要之后存在完整等长的 closing delimiter。
 
 内容包含 `""[]"]"" 时，使用两个 quotes：
 
@@ -142,6 +144,12 @@ kind；lowering 后统一产生 verbatim payload：
 
 syntax tree 可以保留 delimiter length 以支持 lossless rewrite；语义 AST 可以丢弃它。
 
+inline verbatim 限于一条物理行，opening 与 closing delimiter 之间不得出现 newline。raw
+content 按 UTF-8 source bytes 原样保存，不解析 introducer、bracket、attribute 或 escape；空
+content 合法。未在当前行找到完整等长 closing delimiter 时是 syntax error，primary range
+从 opening introducer 到 line ending（不含 newline）或 EOF，parser 从下一物理行恢复。空
+verbatim 是否提示由 lint 决定，不影响 syntax validity。
+
 `## 5. 与 block code 的消歧
 
 block code 和 inline verbatim 都使用 quote run，并由 run 后紧接的字符消歧：
@@ -170,6 +178,7 @@ quote run，均为语法错误，不能退回普通文本。
 `- parsed content 使用配对 brackets，允许嵌套 inline elements。
 `- inline verbatim 使用 `"[` + N quotes + [raw] + N quotes]"，其中 `"[N >= 1]"。
 `- verbatim 的 closing delimiter 必须使用与 opening 完全相同的 quote 数量。
+`- inline verbatim 不跨物理行；raw content 在当前行内逐字节保留。
 `- attributes 必须紧贴完整 closing delimiter，归属当前 inline element。
 `- block/inline dispatch 只依赖 kind/marker 后的局部 delimiter，不依赖语义注册表。
 
@@ -193,12 +202,10 @@ quote run，均为语法错误，不能退回普通文本。
 
 `### 7.3 Verbatim
 
-`- inline verbatim 是否允许跨物理行。
-`- 空 verbatim 已确定可表达；是否作为 lint warning 留给上层。
+`- 已决定：inline verbatim 不允许跨物理行；raw content 在当前行内按 UTF-8 bytes 原样保存。
+`- 已决定：空 verbatim 合法；是否作为 lint warning 留给上层。
 `- formatter 是否选择不会出现在 content 中的最小 quote count。
-`- closing `"[]]" 后出现多于 delimiter length 的 quote run 时，是消费所需前缀立即闭合，还是
-  只接受长度恰好相等的完整 run。
-`- raw text 是否保留源码换行和所有 UTF-8 字节的精确策略。
+`- 已决定：closing 必须是完整且等长的 quote run；更长 run 不以前缀闭合。
 
 `### 7.4 Attributes
 

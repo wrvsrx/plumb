@@ -25,6 +25,60 @@ broken `kind[unfinished
       (text))))
 
 ==================
+Recover after unclosed inline verbatim
+==================
+
+broken `"[unfinished
+`valid recovered
+
+---
+
+(document
+  (blank_line)
+  (paragraph
+    (inline_content
+      (text))
+    (ERROR
+      (introducer)
+      (code_marker)
+      (attribute_name)))
+  (marked_block
+    (introducer)
+    (marker)
+    (head_separator)
+    (inline_content
+      (text))))
+
+==================
+Reject multiline inline verbatim
+==================
+
+broken `"[first line
+second line]"
+`valid recovered
+
+---
+
+(document
+  (blank_line)
+  (paragraph
+    (inline_content
+      (text))
+    (ERROR
+      (introducer)
+      (code_marker)
+      (attribute_name)
+      (attribute_name))
+    (inline_content
+      (text)))
+  (marked_block
+    (introducer)
+    (marker)
+    (head_separator)
+    (inline_content
+      (text))))
+
+==================
 Reject bare complex attribute values
 ==================
 

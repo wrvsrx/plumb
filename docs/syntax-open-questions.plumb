@@ -97,19 +97,14 @@ grammar。
 这是当前最大阻塞项。完成时需要一组独立 inline corpus，覆盖普通文本、嵌套、escape、空
 content、跨行、未闭合 content 和 EOF。
 
-`### S07 `"[open]" Inline verbatim boundaries
+`### S07 `"[decided]" Inline verbatim boundaries
 
 `*[决策目标：] 冻结 raw inline payload 的 closing 与换行规则。
 
-需要决定：
-
-`- verbatim 是否允许跨物理行。
-`- closing `"[]]" 后出现比 opening 更长的 quote-run 时，是前缀闭合还是整段长度不符。
-`- raw payload 是否逐字保留换行和所有 UTF-8 bytes。
-`- 未找到 closing delimiter 时恢复到行末还是更外层边界。
-
-建议方向：MVP 禁止跨行；closing quote-run 必须作为完整 run 与 opening 等长。这样更符合
-strictness，也避免 closing 后残留 quote 的局部歧义。
+已决定：inline verbatim 限于一条物理行；raw content 在该行内按 UTF-8 bytes 原样保存。
+closing quote run 必须完整且与 opening 等长，更长 run 不能以前缀闭合。空 content 合法。
+未找到 closing 时，primary range 从 opening introducer 到 line ending/EOF，并从下一物理行
+恢复。normative rule 和示例见 `"[docs/inline.plumb]" 第 4 节。
 
 `### S08 `"[open]" Indentation, blank lines and EOF
 
