@@ -248,6 +248,10 @@ disabled checkbox 和 task class，但源码不需要保留 checkbox 拼写。
 
 `## 8. Extension 需求
 
+extension 是对 core AST 的语言无关语义解释或转换，不等同于 Rust trait、动态插件或某种
+装载机制。规范定义 observable contract；官方工具链如何承载该 contract 属于 host
+implementation。完整规则见 `"[docs/extensions.plumb]"。
+
 第一批 extension 候选：
 
 `- `"[html-export]"

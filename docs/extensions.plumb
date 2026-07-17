@@ -1,0 +1,154 @@
+`# plumb extension 规范
+
+`> 状态：设计草案。本文定义 extension 的语言无关语义契约。Rust module、WASM、脚本、
+  动态库或外部进程是 host implementation choice，不是 extension 本身。
+
+`## 1. 定义与边界
+
+extension 是消费有效 core AST 并添加语义的 analysis 或 transform。它可以识别 opaque
+attributes、构建派生索引、产生语义 diagnostics、生成 text edits，或将文档 lower 到
+其他表示。它不能改变什么源码在 core syntax 中合法。
+
+core 与 extension 的边界如下：
+
+`- core 决定 syntax validity，产出 semantics-neutral AST 和 syntactic diagnostics。
+`- extension 解释 AST 中的结构、marker、kind 和 opaque attributes。
+`- host 负责装配 extension、提供 capability、调度依赖并合并 diagnostics。
+`- application 负责文件 I/O、外部进程、LSP mapping、落盘和用户交互。
+
+`## 2. Extension contract
+
+每个 extension 必须声明：
+
+`- stable id，例如 `"[outline]"、`"[anchors]"、`"[links]" 或 `"[tasks]"。
+`- contract version，用于判断 input / output schema compatibility。
+`- required inputs：core AST、source snapshot，以及明确命名的 extension outputs。
+`- produced outputs：结构化 analysis、derived representation、diagnostics 或 text edits。
+`- required host capabilities，例如 workspace lookup；没有 capability 时必须明确拒绝运行，
+  不能隐式读取环境。
+
+相同 input snapshot、dependency outputs、configuration 和 capability responses 必须产生相同
+结果。extension 不能依赖隐藏的全局状态或未声明的执行顺序。
+
+`## 3. Inputs
+
+extension 的最小输入是一个不可变 document snapshot：
+
+`"{language=text}
+  DocumentSnapshot {
+    document_id
+    revision
+    source
+    core_ast
+  }
+
+`- `"[document_id]" 由 host 分配，用于同一 host session 内标识文档。
+`- `"[revision]" 标识 source 与 AST 的一致快照。
+`- source 使用 UTF-8 bytes；range 继续使用 core 的 byte offsets。
+`- syntax error 存在时，host 不得把 partial AST 作为有效 snapshot 交给 extension。
+
+跨文档查询、时间、配置或其他外部信息必须通过显式 capability 或 input 提供。extension
+不得自行读取文件系统、环境变量、系统时钟、网络或编辑器状态。
+
+`## 4. Outputs
+
+输出必须是可命名、可版本化的结构化值，不能通过无 schema 的字符串 key/value bag 向
+core AST 附加任意数据。常见输出分为：
+
+`- analysis：outline、anchor index、link index、task index。
+`- validation：结构化语义值和 semantic diagnostics。
+`- rewrite proposal：不落盘的 text edits。
+`- lowering：Pandoc AST、HTML model 或其他目标 representation。
+
+extension 不得原地修改 core AST。需要表示新语义时，应返回 side table、派生树或新的
+target representation。side table 引用 AST node 时使用 `"[NodeId]" 和 byte range；
+`"[NodeId]" 只在产生它的 document revision 内有效。
+
+`## 5. Diagnostics
+
+所有 extension 使用共同的 diagnostic envelope：
+
+`"{language=text}
+  Diagnostic {
+    source
+    code
+    severity
+    message
+    primary_range
+    related_ranges[]
+  }
+
+`- `"[source]" 是 extension stable id。
+`- `"[code]" 在该 extension 内稳定，例如 `"[links/unresolved-target]"。
+`- range 使用当前 document snapshot 的 UTF-8 byte offsets。
+`- semantic diagnostic 不能伪装成 core syntax diagnostic。
+`- severity 用于呈现，不直接等同于 pipeline control flow。
+
+是否因 semantic diagnostic 拒绝某项操作由 consumer policy 决定。例如 unresolved link 可以
+允许 outline 和编辑器导航继续工作，但 export extension 可以声明它无法完成 lowering。
+
+`## 6. Dependencies and composition
+
+extension 依赖的是另一个 extension 的已版本化 output contract，而不是它的实现语言或
+进程形态。例如 links 可以依赖 anchors output，export 可以依赖 links、meta 和 tasks
+outputs。
+
+依赖必须构成有向无环图。host 负责：
+
+`- 检查 dependency 和 contract version。
+`- 按依赖顺序运行 extension。
+`- 保证同一 pipeline 中的 document-scoped outputs 来自同一 revision。
+`- 在 input、configuration 或 dependency output 改变时使缓存失效。
+
+MVP 不要求动态 discovery、通用 registry 或运行时安装协议。官方工具链可以显式、静态地
+装配固定 pipeline；这不会改变 language-neutral contract。
+
+`## 7. Capabilities and side effects
+
+需要外部信息的 extension 必须通过 host capability 请求，而不是直接产生副作用。候选
+capabilities 包括：
+
+`- 按规范化 document id 查询另一个有效 document snapshot。
+`- 枚举 workspace documents。
+`- 读取显式 configuration。
+
+extension 可以返回 effect proposal，例如 text edits、待写出的 bytes 或 pandoc invocation
+request；application 决定是否执行。tasks extension 只产生 edits，不自行写文件；export
+extension 产生 Pandoc AST 或 invocation request，不自行启动进程。
+
+`## 8. Host implementations
+
+host implementation 负责把上述 contract 映射到具体技术：
+
+`- 官方 Rust 工具链可以用 typed structs、traits 或普通函数静态组合 extension。
+`- WASM host 可以把相同 inputs、outputs 和 diagnostics 映射为 versioned ABI。
+`- 外部进程 host 可以使用 framing protocol 和序列化 schema。
+
+这些 mechanism 可以有各自的安全、性能和生命周期规则，但不得改变 extension 的语义
+结果。第一阶段只需实现官方 Rust host；本文不承诺稳定 Rust API、WASM ABI 或 plugin
+distribution format。
+
+`## 9. Reference pipeline
+
+第一条 reference pipeline 用于验证 contract，而不是建立全局 registry：
+
+`"{language=text}
+  valid core document
+    -> outline
+    -> anchors
+    -> links
+    -> target resolution
+    -> export
+
+outline 应作为第一个 reference extension：它只依赖 core document，输出 section tree 和
+diagnostics，适合验证 snapshot、NodeId、output schema 和 host composition。anchors 与 links
+随后验证显式 dependency；workspace resolution 最后验证 capability boundary。
+
+`## 10. 尚待决定
+
+`- stable id 和 contract version 的精确拼写及兼容规则。
+`- structured output 是否需要统一 serialization schema，还是仅在非 Rust host 出现时冻结。
+`- semantic failure 与 partial output 的统一表示。
+`- capability request 是同步、异步还是由 host 预先物化为 input。
+`- workspace-scoped output 的 revision / invalidation model。
+`- configuration schema 的 ownership 和 namespacing。

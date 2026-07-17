@@ -39,11 +39,14 @@ plumb 采用 Pandoc / Docutils 风格的分层：
 `- core = 严格 reader。输入源码，输出小而中性的文档树和语法诊断。syntax 层保留
   opaque marker token，core lowering 再产出类型化 block 节点。core 不含
   文件 I/O，不解析链接目标，不生成 id，不做大纲、任务、元信息或导出语义。
-`- extension = transform / analysis。消费 core AST，添加全部语义：大纲、锚点、
-  引用解析、元信息、任务、工作区索引、HTML / Pandoc 导出等。导出器本身也是
-  extension。
+`- extension = language-neutral semantic contract。消费 core AST，产出 analysis、
+  transform、diagnostics 或 text edits，添加全部语义：大纲、锚点、引用解析、元信息、
+  任务、工作区索引、HTML / Pandoc 导出等。导出器本身也是 extension。Rust module、
+  WASM 或外部进程只是可能的 host mechanism，不属于 extension 的定义。
 
 一句话：树是语义中立的，意义活在 extension 里。
+
+extension 的输入输出、依赖和副作用边界见 `"[docs/extensions.plumb]"。
 
 `## 两套解析器原则
 

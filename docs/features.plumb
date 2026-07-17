@@ -23,10 +23,12 @@
 
 `## B. 语义扩展（extensions）
 
-extension 是编译期 Rust transform / analysis，消费 core AST，产出变换结果和语义
-diagnostics。导出器也是 extension。
+extension 是语言无关的语义 analysis / transform contract，消费 core AST，产出结构化结果、
+语义 diagnostics 或 text edits。导出器也是 extension。官方工具链可以使用 Rust module
+实现并静态组合它们，但 Rust trait、WASM 或外部进程协议都属于 host implementation，
+不属于 extension 的语义定义。完整契约见 `"[docs/extensions.plumb]"。
 
-`- [plumb] MVP extension trait 和诊断合并模型。
+`- [plumb] MVP 语言无关的 extension contract、诊断合并模型和官方 host API。
 `- [djot-tools] MVP outline extension：从 heading 结构构建 document symbol 所需的大纲。
 `- [djot-tools] MVP anchors / links extension：收集显式锚点、自动 heading id、链接
   引用和目标分类。
@@ -88,7 +90,7 @@ diagnostics。导出器也是 extension。
 
 `- 1. 冻结 MVP 语法和 AST。
 `- 2. 实现 `"[plumb-core]"：lexer、block scanner、inline parser、diagnostics 和 focused tests。
-`- 3. 实现 extension trait、outline、anchors、links、workspace。
+`- 3. 冻结 extension contract，实现官方 host API、outline、anchors、links、workspace。
 `- 4. 实现 `"[plumb-ls]" 的 diagnostics、documentSymbol、definition、references、hover。
 `- 5. 实现 `"[plumb-export]" 和最小 HTML / Pandoc 导出。
 `- 6. 增加 meta、tasks、completion、semantic tokens。

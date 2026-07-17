@@ -25,6 +25,9 @@ Start with the design docs, in this order:
   that still need decisions before implementation.
 - `docs/inline.plumb` — the current inline envelope design and its remaining open
   questions. Read it after the block-level design in `docs/spec.plumb`.
+- `docs/extensions.plumb` — the language-neutral contract for adding semantics
+  outside core, including inputs, outputs, diagnostics, dependencies, and I/O
+  boundaries.
 - `docs/features.plumb` — the tool roadmap derived from the requirements.
 
 ## Current status
@@ -62,8 +65,10 @@ project, but it is a **separate project**:
    (`{tag #id .class k=v}` are opaque attributes; surface sugar desugars into the
    same core nodes). Everything semantic — metadata, link/anchor resolution,
    references, id generation, tasks, and lowering to HTML/pandoc — is an
-   **extension** (a compile-time Rust transform over the tree; the exporter is
-   itself an extension). No registry, no roles, no class-name validation in core.
+   **extension** (a language-neutral semantic analysis or transform over the
+   tree; the exporter is itself an extension). Rust modules are one host
+   implementation, not part of the extension definition. No registry, no roles,
+   no class-name validation in core.
    See `docs/vision.plumb` (the Pandoc/Docutils model).
 3. **tree-sitter is intentionally lenient and ergonomics-only.** It powers
    editor features (highlighting, text objects, folding, injections) and is
@@ -89,9 +94,11 @@ semantics can be shared by more than one tool:
   semantic wrappers collapse to a generic `Container`/`Span` carrying an opaque
   `{tag #id .class k=v}`. Surface sugar desugars to the same tree.
   Contains **no** anchors, references, metadata, tasks, or resolution logic.
-- **extensions** — compile-time Rust transforms consuming the core tree, adding
-  all semantics plus their own diagnostics: outline, anchors/references, target
-  resolution, workspace, metadata, tasks. (These are djot-tools' `djot-core`
+- **extensions** — implementations of the language-neutral extension contract,
+  consuming the core tree and adding semantics plus their own diagnostics:
+  outline, anchors/references, target resolution, workspace, metadata, tasks.
+  The official toolchain may implement and compose them as Rust modules, without
+  making Rust part of the semantic contract. (These are djot-tools' `djot-core`
   analysis, relocated out of core.)
 - **`plumb-ls`** — everything LSP (`lsp_types`, `async-lsp`, UTF-16 positions);
   wires core + extensions and merges their diagnostics.
