@@ -1,0 +1,248 @@
+`# plumb syntax open questions
+
+`> 状态：决策队列。本文汇总实现 strict parser 和冻结 core AST 前仍需明确的问题。
+  `"[docs/spec.plumb]" 和 `"[docs/inline.plumb]" 继续保存规范正文；问题解决后，应先更新对应
+  规范和测试，再在本文记录结论并标记完成。
+
+`## 1. 使用方式
+
+每次只处理一个边界清楚的问题或一组不可分割的问题。每项使用以下状态：
+
+`- `"[open]"：尚未开始。
+`- `"[deciding]"：正在比较候选方案。
+`- `"[decided]"：规则已写回规范，并有正反例覆盖。
+`- `"[deferred]"：明确不阻塞当前阶段，并记录重新评估条件。
+
+一项语法问题只有同时满足以下条件才算 `"[decided]"：
+
+`- 规范给出无歧义的 normative rule。
+`- 至少给出一个合法例子和一个非法例子。
+`- 明确错误范围和 recovery boundary。
+`- 与 block/inline/attribute 的相邻规则没有冲突。
+`- parser corpus 或未来 core unit tests 能直接表达该结论。
+
+本文中的“建议方向”不是既定结论，只用于缩小讨论范围。
+
+`## 2. P0：决定 syntax validity
+
+以下问题共同决定一段 UTF-8 source 是否是合法 plumb。它们全部完成前，不应把手写 parser
+视为可实现规范。
+
+`### S01 `"[open]" Attribute grammar
+
+`*[决策目标：] 冻结 block 和 inline 共用的 attribute lexer 与 parser。
+
+需要决定：
+
+`- tag、id、class、key 和 bare value 的字符集及 token boundary。
+`- quoted value 的 delimiter、escape 和允许字符。
+`- tag 和 id 是否各最多一个。
+`- 重复 class、重复 key 是否允许，是否保留输入顺序。
+`- 空 `"[{}]" 是否合法。
+`- inline attributes 是否允许 tag，还是只允许 id/classes/keyvals。
+
+建议方向：block 与 inline 复用唯一 `"[Attr]" grammar；core 只验证形状并保留 opaque
+tokens，不验证名称的语义。
+
+必须覆盖：合法完整属性、每种 token、quoted value、重复项、空属性、未闭合属性和非法
+escape。
+
+`### S02 `"[open]" MarkerToken lexical grammar
+
+`*[决策目标：] 让 block scanner 能在不查询语义 registry 的情况下确定 marker 边界。
+
+需要决定：
+
+`- `"[MarkerToken]" 的允许字符、最长匹配和终止字符。
+`- heading marker 的最大重复次数。
+`- identifier marker 是否允许。
+`- 未知但词法良构的 marker 是 generic block，还是 syntax error。
+`- ordered list 是否进入 MVP；若进入，其 marker 拼写是什么。
+`- `"[:]" 是否只是 generic container marker，field/meta 是否完全留给 extension。
+
+建议方向：词法规则与内建 marker 集合分开；未知但词法良构的 marker lower 为 generic
+container，以保持 core 语义中立。
+
+必须覆盖：所有内建 marker、最长匹配、marker 后 attrs/head/newline、未知 marker、非法
+字符和 EOF。
+
+`### S03 `"[open]" InlineKind lexical grammar
+
+`*[决策目标：] 让 inline parser 局部确定 kind 与 opening bracket 的边界。
+
+需要决定：
+
+`- `"[InlineKind]" 的允许字符、最长匹配和终止字符。
+`- 内建 kinds 的最小集合。
+`- 未知但词法良构的 kind 是 generic span，还是 syntax error。
+`- verbatim quote-run 是否是唯一进入 raw inline payload 的保留 kind。
+`- kind 与 attribute tag 同时存在是否合法。
+
+建议方向：未知 kind 产生 generic span；只有 payload mode 需要由 core 特判，class/tag 等
+语义不影响 syntax dispatch。
+
+`### S04 `"[open]" Introducer grouping
+
+`*[决策目标：] 统一 block start 和 inline text 中连续反引号的分组规则。
+
+当前只确定两个反引号产生一个字面反引号。需要决定三个或更多反引号如何从左到右分组，
+以及奇数 run 剩余一个 introducer 时如何处理。
+
+必须覆盖 `"[1]" 到至少 `"[6]" 个连续反引号，并分别放在 block start、普通 inline text、
+parsed inline content 和 delimiter 邻接位置测试。
+
+`### S05 `"[open]" Block/inline dispatch order
+
+`*[决策目标：] 冻结行首 introducer 在 escape、code、verbatim、marked block 和 inline element
+之间的局部 dispatch 算法。
+
+至少需要区分：
+
+`"{language=text}
+  ``literal
+  `* block
+  `*[inline]
+  `" code
+  `"[verbatim]"
+
+建议方向：escape 优先；quote-run 根据后继 `"[{]"、`"[[]" 或 newline dispatch；其他 token
+根据 `"[[]" 与 attrs/whitespace/newline dispatch；任何不完整入口都是 syntax error。
+
+需要明确错误由 block scanner 还是 inline parser 拥有，以及 diagnostic primary range。
+
+`### S06 `"[open]" Parsed inline content grammar
+
+`*[决策目标：] 定义普通 paragraph、heading head 和 parsed inline element 共享的完整 inline
+grammar。
+
+需要决定：
+
+`- 字面 closing `"[]]"、反引号和其他入口字符如何 escape。
+`- 普通 bracket 是否参与嵌套配对。
+`- 空 parsed content 是否允许。
+`- physical newline 是否允许，以及 lower 为 soft break、space 还是保留换行。
+`- parsed inline element 是否允许跨行。
+`- 实现是否设置 nesting limit；超过上限的 diagnostic 是 syntax error 还是 resource limit。
+
+这是当前最大阻塞项。完成时需要一组独立 inline corpus，覆盖普通文本、嵌套、escape、空
+content、跨行、未闭合 content 和 EOF。
+
+`### S07 `"[open]" Inline verbatim boundaries
+
+`*[决策目标：] 冻结 raw inline payload 的 closing 与换行规则。
+
+需要决定：
+
+`- verbatim 是否允许跨物理行。
+`- closing `"[]]" 后出现比 opening 更长的 quote-run 时，是前缀闭合还是整段长度不符。
+`- raw payload 是否逐字保留换行和所有 UTF-8 bytes。
+`- 未找到 closing delimiter 时恢复到行末还是更外层边界。
+
+建议方向：MVP 禁止跨行；closing quote-run 必须作为完整 run 与 opening 等长。这样更符合
+strictness，也避免 closing 后残留 quote 的局部歧义。
+
+`### S08 `"[open]" Indentation, blank lines and EOF
+
+`*[决策目标：] 补齐 indentation stack 在所有文档边界上的行为。
+
+需要决定：
+
+`- blank line 的 indentation 和 trailing whitespace 是否完全忽略。
+`- 文件末尾没有 newline 是否合法。
+`- EOF 是否隐式关闭所有有效 indentation levels。
+`- 连续 dedent 如何消费。
+`- code body 后的 partial dedent 如何归属和诊断。
+`- 结构前缀中的 tab 与 raw payload 中的 tab 如何精确划界。
+
+建议方向：blank line 不建立或改变 column；EOF 等价于完成当前行后关闭所有有效层级；
+partial dedent 始终报错。
+
+`### S09 `"[open]" Recovery and diagnostic precedence
+
+`*[决策目标：] 为 reject-but-recover 定义可测试的安全恢复点。
+
+需要分别规定：
+
+`- malformed marker 和 incomplete introducer。
+`- malformed 或未闭合 attributes。
+`- 未闭合 parsed inline content。
+`- 未闭合 inline verbatim。
+`- mismatched indentation 和 partial dedent。
+`- code-prefix error 与外层 indentation error 同时发生时的优先级。
+
+每类错误需要明确 primary range、是否产生 secondary diagnostics，以及恢复到 physical line、
+当前 parent dedent 还是下一个同级 block start。
+
+`## 3. P1：冻结 core AST 与 lowering
+
+这些问题通常不改变 token 是否良构，但会改变 core tree、下游 extension contract 和导出。
+应在 parser 对外暴露稳定 AST 前完成。
+
+`### A01 `"[open]" Marker structural constraints
+
+决定每个内建 marker 是否允许空 head、block attributes 和 children。heading 已确定不允许
+children，但其余 marker 与空 heading 仍需完整矩阵。
+
+`### A02 `"[open]" List aggregation
+
+决定连续 sibling list items 如何聚合成 `"[List]"，空行是否打断聚合，以及未来 ordered /
+unordered list 相邻时如何分组。
+
+`### A03 `"[open]" Head lowering
+
+决定 list item、quote 和 generic container 的 head 是否统一 lower 为第一个
+`"[Paragraph]"。heading 继续直接拥有 `"[InlineContent]"，不包装 paragraph。
+
+`### A04 `"[open]" CodeBlock payload
+
+决定空 code block 是否允许，raw payload 是否包含最终 newline，以及 syntax tree 是否保留
+quote count/source margin 供 lossless rewrite 使用。
+
+`### A05 `"[open]" Paragraph attributes
+
+决定 `"[:{p .lead}]" 是否是带 attributes paragraph 的正式表达，或是否需要独立 surface
+syntax。该决定不得让 core 解释 `"[p]" 的 HTML 语义。
+
+`### A06 `"[open]" Typed inline AST
+
+决定哪些 inline kinds lower 为 typed nodes，哪些统一为 generic `"[Span]"；同时冻结 text、
+soft break、verbatim 和 source range 的表示。
+
+建议保持最小 typed set：只有跨工具确实需要稳定结构的 inline constructs 进入 typed AST；
+其他 kind 保留为 opaque generic span。
+
+`### A07 `"[open]" Source fidelity and node identity
+
+决定 syntax tree/core AST 是否保留 delimiter length、attribute 输入顺序和原始 ranges，以及
+是否为同一 parse snapshot 中的节点分配 `"[NodeId]"。这些信息影响 formatter、LSP、text
+edits 和 extension side tables。
+
+`## 4. P2：明确延后，不阻塞 MVP parser
+
+以下项目应记录为 `"[deferred]"，除非某个 P0/P1 决策证明它们不可分割：
+
+`- formatter 选择 hanging indent 还是固定最小 `"[body_indent]"。
+`- formatter 为 inline verbatim 选择最小安全 quote count。
+`- 空 inline verbatim 的 lint policy。
+`- 通用 raw/verbatim block leaf。
+`- thematic break、table、definition list 和 field list。
+`- ordered list，如果 S02 决定不纳入 MVP。
+`- extension 对 task、meta、link、class 和 tag 的语义解释。
+
+lint、formatter 和 extension policy 不能反向改变 syntax validity。
+
+`## 5. 建议解决顺序
+
+建议按以下顺序逐项推进：
+
+`- 1. S01 Attribute grammar。
+`- 2. S02 MarkerToken 与 S03 InlineKind。
+`- 3. S04 Introducer grouping 与 S05 dispatch order。
+`- 4. S06 Parsed inline content。
+`- 5. S07 Inline verbatim。
+`- 6. S08 indentation / EOF。
+`- 7. S09 recovery / diagnostic precedence。
+`- 8. A01 至 A07 core AST 与 lowering。
+
+每完成一项，都应同步更新 `"[docs/spec.plumb]" 或 `"[docs/inline.plumb]"，并把 tree-sitter
+grammar 当作宽松镜像更新；tree-sitter 的可表达性不参与权威语法决策。
