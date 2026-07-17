@@ -25,6 +25,8 @@ Start with the design docs, in this order:
   that still need decisions before implementation.
 - `docs/inline.plumb` — the current inline envelope design and its remaining open
   questions. Read it after the block-level design in `docs/spec.plumb`.
+- `docs/syntax-open-questions.plumb` — the prioritized decision queue for the
+  syntax and core AST details that remain before parser implementation.
 - `docs/features.plumb` — the tool roadmap derived from the requirements.
 
 ## Current status
