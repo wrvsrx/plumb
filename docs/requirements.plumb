@@ -153,8 +153,8 @@ head 即使为空也保持 open；紧接的缩进普通文本行可以启动 def
 一个或多个 quotes 组成 syntax 层唯一已确定的 raw-body marker。它不允许 head 或 block
 children；若 quote 数量为 `"[N]"，raw code payload 与整个 opening marker 的末尾对齐，即
 `"[code_indent = parent_indent + 1 + N]"。parser 去掉每个非空 code line 的这段前缀，余下
-字节（包括代码自己的 spaces 和 tabs）原样保存。空行可以完全为空；dedent 结束 code
-block。
+字节（包括代码自己的 spaces、tabs 和原始 LF/CRLF）原样保存。marker line ending 不属于
+payload；空 block 合法；EOF 不补 final newline；dedent 结束 code block。
 
 `## 5. Core syntax 需求
 

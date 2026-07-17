@@ -43,6 +43,30 @@ Empty code block
     (marker)))
 
 ==================
+Explicit leading blank code line
+==================
+
+`"
+
+  code after leading blank
+
+`after-code
+
+---
+
+(document
+  (blank_line)
+  (code_block
+    (introducer)
+    (code_marker)
+    (raw_text)
+    (raw_text)
+    (raw_text))
+  (marked_block
+    (introducer)
+    (marker)))
+
+==================
 Head continuation and children
 ==================
 

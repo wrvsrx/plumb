@@ -141,10 +141,15 @@ dedent、structural tab 和 whitespace-only code-prefix error 按专用优先级
 所有普通 marker 产生相同的 generic marked node，并允许统一的 attributes、head 和 children
 surface shape。marker-specific constraints 由 extension 验证，不改变 syntax validity。
 
-`### A02 `"[open]" CodeBlock payload
+`### A02 `"[decided]" CodeBlock payload
 
-决定空 code block 是否允许，raw payload 是否包含最终 newline，以及 syntax tree 是否保留
-quote count/source margin 供 lossless rewrite 使用。
+已决定：空 code block 合法。opening marker line ending 不进入 payload；下一物理行开始的
+body bytes 和原始 LF/CRLF line endings 在去除 structural margin 后逐字保存；EOF 不补 final
+newline。显式首个空 code line 会产生 leading newline。
+
+syntax tree 保留 quote count、opening range 和每行 structural-prefix range；core AST 只保存
+attributes、去 margin 的 raw bytes 和整个 node span。normative rules 见 `"[docs/spec.plumb]"
+第 8、9 节。
 
 `### A03 `"[open]" Generic marked node lowering
 
