@@ -401,7 +401,8 @@ child block。
   `container
     `child 子节点
 
-head 内部的物理换行在 `"[InlineContent]" 中如何表示和导出，留给 inline design 决定。
+head 内部的物理换行以及跨行 parsed inline element lower 为 `"[SoftBreak]"；完整规则见
+`"[docs/inline.plumb]" 第 3 节。
 
 `## 6. Children and indentation
 

@@ -86,6 +86,69 @@ An empty `kind[] element.
       (text))))
 
 ==================
+Bracket escapes in parsed content
+==================
+
+Use `kind[literal `[ and `]] brackets.
+
+---
+
+(document
+  (blank_line)
+  (paragraph
+    (inline_content
+      (text)
+      (inline_element
+        (introducer)
+        (inline_kind)
+        (parsed_inline_content
+          (inline_text)
+          (bracket_escape)
+          (inline_text)
+          (bracket_escape)))
+      (text))))
+
+==================
+Multiline parsed inline content
+==================
+
+Paragraph `kind[first line
+second line] tail.
+
+`node head `kind[first line
+  second line]
+
+---
+
+(document
+  (blank_line)
+  (paragraph
+    (inline_content
+      (text)
+      (inline_element
+        (introducer)
+        (inline_kind)
+        (parsed_inline_content
+          (inline_text)
+          (soft_break)
+          (inline_text)))
+      (text)))
+  (blank_line)
+  (marked_block
+    (introducer)
+    (marker)
+    (head_separator)
+    (inline_content
+      (text)
+      (inline_element
+        (introducer)
+        (inline_kind)
+        (parsed_inline_content
+          (inline_text)
+          (soft_break)
+          (inline_text))))))
+
+==================
 Inline verbatim
 ==================
 

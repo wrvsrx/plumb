@@ -1,6 +1,7 @@
 ; Core block and inline envelopes. Marker and kind meanings remain opaque.
 (introducer) @punctuation.special
 (introducer_escape) @string.escape
+(bracket_escape) @string.escape
 (marker) @keyword
 (code_marker) @punctuation.delimiter
 (inline_kind) @keyword

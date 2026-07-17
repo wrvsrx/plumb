@@ -12,11 +12,109 @@ broken `kind[unfinished
   (paragraph
     (inline_content
       (text)
-      (incomplete_inline_element
+      (inline_element
         (introducer)
         (inline_kind)
         (parsed_inline_content
-          (inline_text)))))
+          (inline_text))
+        (MISSING "]"))))
+  (marked_block
+    (introducer)
+    (marker)
+    (head_separator)
+    (inline_content
+      (text))))
+
+==================
+Reject unescaped opening bracket in parsed content
+==================
+
+broken `kind[unescaped [ bracket]
+`valid recovered
+
+---
+
+(document
+  (blank_line)
+  (paragraph
+    (inline_content
+      (text)
+      (inline_element
+        (introducer)
+        (inline_kind)
+        (parsed_inline_content
+          (inline_text))
+        (ERROR
+          (attribute_name)))))
+  (marked_block
+    (introducer)
+    (marker)
+    (head_separator)
+    (inline_content
+      (text))))
+
+==================
+Reject parsed inline across a blank line
+==================
+
+broken `kind[first line
+
+second line]
+`valid recovered
+
+---
+
+(document
+  (blank_line)
+  (paragraph
+    (inline_content
+      (text)
+      (inline_element
+        (introducer)
+        (inline_kind)
+        (parsed_inline_content
+          (inline_text))
+        (MISSING "]"))))
+  (blank_line)
+  (paragraph
+    (inline_content
+      (text)))
+  (marked_block
+    (introducer)
+    (marker)
+    (head_separator)
+    (inline_content
+      (text))))
+
+==================
+Reject parsed inline across an enclosing dedent
+==================
+
+`parent
+  paragraph `kind[first line
+outside]
+`valid recovered
+
+---
+
+(document
+  (blank_line)
+  (marked_block
+    (introducer)
+    (marker)
+    (headed_body
+      (head_continuation
+        (inline_content
+          (text)
+          (inline_element
+            (introducer)
+            (inline_kind)
+            (parsed_inline_content
+              (inline_text))
+            (MISSING "]"))))))
+  (paragraph
+    (inline_content
+      (text)))
   (marked_block
     (introducer)
     (marker)

@@ -9,6 +9,7 @@ module.exports = grammar({
     $._indent_after_blank,
     $._same_indent,
     $._paragraph_continue,
+    $._inline_continue,
     $._dedent,
     $.code_marker,
     $.raw_code_line,
@@ -114,8 +115,10 @@ module.exports = grammar({
 
     parsed_inline_content: $ => prec.right(repeat1(choice(
       $.introducer_escape,
+      $.bracket_escape,
       $.inline_verbatim,
       $.inline_element,
+      $.soft_break,
       $.inline_text,
     ))),
 
@@ -175,13 +178,15 @@ module.exports = grammar({
     )),
 
     introducer_escape: _ => prec(3, '``'),
+    bracket_escape: _ => prec(4, choice('`[', '`]')),
+    soft_break: $ => $._inline_continue,
     introducer: _ => '`',
     marker: _ => /[^\s\x00-\x1f\x7f-\x9f\[\]{}`"]+/,
     inline_kind: _ => /[^\s\x00-\x1f\x7f-\x9f\[\]{}`"]+/,
     head_separator: _ => token(prec(2, /[ \t]+/)),
     _attribute_open: _ => token(prec(2, '{')),
     text: _ => /[^`\n]+/,
-    inline_text: _ => /[^`\]\n]+/,
+    inline_text: _ => /[^`\[\]\n]+/,
     _line_end: $ => choice('\n', $._eof),
   },
 });
