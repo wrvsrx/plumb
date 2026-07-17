@@ -1,0 +1,70 @@
+`# plumb 设计愿景
+
+`> 工作名 `"[plumb]"（strict markup）与扩展名 `"[.plumb]" 均为占位，可改。当前阶段的具体
+  目标和需求见 `"[docs/requirements.plumb]"。
+
+`## 为什么要造这门语言
+
+现有的 Djot / Markdown 容错太强：解析器几乎从不报错，把任何输入都解析成
+“某种东西”。未闭合的 emphasis、缩进差一个空格、tab 与空格混用、语法入口写到一半，
+都可能被静默吞掉或降级为普通文本。对个人长期维护的文档来说，这意味着格式错误会被
+藏起来，并随时间漂移。
+
+plumb 的目标是反过来：一份文档要么语法良构，要么在写错的当下就被明确拒绝并精确
+报错。
+
+`## 核心思想
+
+`- 语法严格。能构成语法入口的特殊拼写必须完整、合法；不闭合 / 不合法即报错。
+`- 日常可写。严格性不应演变成所有标点全局特殊、普通文本到处转义。设计应尽量
+  让常见自然文本保持自然。
+`- 入口集中。block level 使用统一 introducer 进入 marked block grammar；marker
+  token 本身在普通文本中不特殊；inline element 复用同一个 introducer，两个 introducer
+  转义一个字面 introducer。parsed inline content 和完整 escape rules 尚未设计。
+`- block 归属靠缩进。block level containment 统一由 indentation stack 表达；每个
+  parent 自己建立 body column，同级必须一致。缩进只表达 block 包含关系，不表达 inline、
+  参数或语义关系。
+`- 语义中立。core 只解析语法，不解释 `"[.todo]"、`"[.meta]"、`"[kbd]"、链接目标或 id
+  唯一性。
+`- 归属明确。block 和 list item 的属性必须贴在清楚的结构边界上；任务状态等
+  item-level 机器信息也作为属性，而不是另设 modifier 通道。
+`- section 是派生视图。heading 不作为缩进容器；section tree 由 extension 从平面
+  heading sequence 派生，避免长文档陷入缩进地狱。
+`- reject-but-recover。解析器报告带字节范围的诊断，并恢复到安全边界继续扫描。
+
+`## 语义中立的内核 + extension
+
+plumb 采用 Pandoc / Docutils 风格的分层：
+
+`- core = 严格 reader。输入源码，输出小而中性的文档树和语法诊断。syntax 层保留
+  opaque marker token，core lowering 再产出类型化 block 节点。core 不含
+  文件 I/O，不解析链接目标，不生成 id，不做大纲、任务、元信息或导出语义。
+`- extension = transform / analysis。消费 core AST，添加全部语义：大纲、锚点、
+  引用解析、元信息、任务、工作区索引、HTML / Pandoc 导出等。导出器本身也是
+  extension。
+
+一句话：树是语义中立的，意义活在 extension 里。
+
+`## 两套解析器原则
+
+`- 手写严格解析器 = 唯一权威。它负责语法正确性、精确报错和 AST。
+`- tree-sitter = 有意宽松，只服务编辑器人体工学。它以后用于高亮、文本对象、折叠
+  和 injection，不做严格性引擎。
+
+tree-sitter 的 error-tolerant 模型很适合编辑中间态，但不适合决定文档是否语法有效。
+因此不能为了 tree-sitter 容易写而扭曲语言设计。
+
+`## 生态策略
+
+plumb 不靠兼容 Markdown 获得生态，而靠可靠导出和迁移：
+
+`- LSP 提供诊断、大纲、跳转、引用、补全等编辑体验。
+`- export extension 产出 Pandoc JSON AST，再交给 pandoc writer 输出 HTML / PDF / docx
+  等格式。
+`- 用户任何时候都能通过导出路径迁出，不被私有格式锁死。
+
+`## 与 djot-tools 的关系
+
+plumb 受 `"[djot-tools]" 架构启发，但不依赖 jotdown，也不共享解析器。LSP scaffolding、
+byte-offset ↔ position conversion、workspace indexing 等工程模式可以复制，但 plumb
+有自己的语法、版本线和严格解析器。

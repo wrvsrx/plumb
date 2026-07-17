@@ -19,13 +19,13 @@ Start with the design docs, in this order:
 
 - `docs/requirements.md` — the current source of truth for goals, non-goals,
   design principles, and MVP requirements.
-- `docs/vision.md` — why the language exists, its core philosophy, and the
+- `docs/vision.plumb` — why the language exists, its core philosophy, and the
   ecosystem strategy.
 - `docs/spec.md` — the finalized block-level structure and the precise details
   that still need decisions before implementation.
 - `docs/inline.md` — the current inline envelope design and its remaining open
   questions. Read it after the block-level design in `docs/spec.md`.
-- `docs/features.md` — the tool roadmap derived from the requirements.
+- `docs/features.plumb` — the tool roadmap derived from the requirements.
 
 ## Current status
 
@@ -43,7 +43,7 @@ project, but it is a **separate project**:
 
 - It does **not** use `jotdown` (or any existing markup parser). Its parser is
   hand-written so it can reject invalid input with precise diagnostics — see
-  `docs/vision.md` for why tree-sitter and error-tolerant parsers cannot fill
+  `docs/vision.plumb` for why tree-sitter and error-tolerant parsers cannot fill
   this role.
 - It has its own versioning, its own release line, and (eventually) its own
   `tree-sitter-plumb` grammar repo.
@@ -64,7 +64,7 @@ project, but it is a **separate project**:
    references, id generation, tasks, and lowering to HTML/pandoc — is an
    **extension** (a compile-time Rust transform over the tree; the exporter is
    itself an extension). No registry, no roles, no class-name validation in core.
-   See `docs/vision.md` (the Pandoc/Docutils model).
+   See `docs/vision.plumb` (the Pandoc/Docutils model).
 3. **tree-sitter is intentionally lenient and ergonomics-only.** It powers
    editor features (highlighting, text objects, folding, injections) and is
    *never* the strictness engine. It is a phase-2 concern. Do **not** distort the
@@ -174,6 +174,6 @@ bump to the next `-dev` version.
 
 `AGENTS.md`/`CLAUDE.md` are in English by convention. The `docs/` design
 material is in Chinese, matching the design conversation that produced it.
-Design docs are written in **Markdown** for now (bootstrapping — plumb's own
-tooling does not exist yet). Migrate them to plumb once the exporter can render
-them.
+Design docs are being migrated to plumb for dogfooding. Keep `AGENTS.md` and
+`CLAUDE.md` in Markdown because external agent tools consume them; use `.plumb`
+for project documentation where the current syntax can represent it faithfully.
