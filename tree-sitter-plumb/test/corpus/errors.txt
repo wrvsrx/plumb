@@ -241,7 +241,7 @@ Reject bare complex attribute values
 Reject bare attribute tags
 ==================
 
-`marker{aside .note} head
+`marker{aside state=todo .note} head
 
 ---
 
@@ -253,6 +253,9 @@ Reject bare attribute tags
     (attributes
       (ERROR
         (attribute_name))
+      (attribute_pair
+        (attribute_name)
+        (attribute_value))
       (attribute_class
         (attribute_name)))
     (head_separator)

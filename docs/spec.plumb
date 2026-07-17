@@ -607,11 +607,74 @@ marker registry。
 `### 10.5 Dispatch and recovery
 
 `- 已决定：连续 introducer grouping、block/inline dispatch 和 diagnostic ownership 见
-  1.1 节；recovery boundary 与多诊断优先级仍待决定。
-`- malformed marker、attribute、indentation 和 code body 分别恢复到哪个 line/indentation
-  boundary。
-`- code body 结束行同时存在 indentation error 时，优先报告 code-prefix error 还是外层
-  block indentation error。
+  1.1 节；recovery boundary、diagnostic precedence 和稳定错误码见 10.6 节。
+
+`### 10.6 Diagnostic and recovery rules
+
+strict parser 使用稳定、具体的 syntax diagnostics，不暴露内部 `"[expected token]" 错误。
+同一 source range 上按以下优先级只报告最具体的根因：
+
+`"{language=text}
+  structural indentation/tab
+    > local lexical error
+    > delimiter/dispatch error
+    > generic unexpected token
+
+`- incomplete introducer/marker 和 block-start invalid dispatch：primary range 从 introducer
+  到行末/EOF 或首个非法 scalar；丢弃当前物理行剩余部分，下一行重新 block dispatch。
+`- inline-context invalid dispatch：产生 error inline node并跳到当前物理行末。
+`- duplicate id/key：primary range 指向第二次及后续 occurrence，related range 指向第一次；
+  继续解析同一 attribute slot。
+`- malformed attribute item：使用具体错误码，消费当前 item 到下一个 attribute whitespace
+  或 `"[}]"，然后继续解析后续 items。
+`- invalid quoted escape：primary range 是反斜杠及其后 scalar；继续扫描到 closing quote。
+`- unclosed quoted value/attributes：primary range 从 opening quote/brace 到行末；下一物理行
+  恢复。若先前存在独立的 malformed item，可以同时报告局部错误和 unclosed error。
+`- unescaped `"[[]"：消费为 error inline token并继续当前 parsed content。
+`- unclosed parsed inline：在第一个 blank、enclosing dedent、block-only entry 或 EOF 前停止；
+  primary range 指向 opening `"[[]"，hard boundary 不消费并交回 block parser。
+`- unclosed inline verbatim：按 inline 规范在当前行末恢复。
+
+malformed attribute item 使用以下具体错误码：
+
+`"{language=text}
+  syntax/unexpected-attribute-item
+  syntax/missing-attribute-key
+  syntax/missing-attribute-value
+  syntax/invalid-attribute-name
+  syntax/invalid-attribute-escape
+
+partial dedent 不丢弃错误行。设实际 indentation 为 `"[C]"，parser 在当前 indentation stack 中
+选择严格大于 `"[C]" 的最小已有 column `"[T]"，虚拟补 `"[T - C]" 个 spaces，并按 column
+`"[T]" 继续解析。diagnostic primary range 是该行 leading whitespace，附带在 indentation
+末尾插入所需 spaces 的 fix。若不存在更大的已有 column，则该情况不是 partial dedent，按
+其他 indentation rule 处理。
+
+`"{language=text}
+  stack:  0, 2, 4, 6
+  actual: 3
+  recover as: 4
+  fix: insert 1 space
+
+code body 的非空行若正好 dedent 到已有 outer column，正常结束 code 并把该行交回 block
+parser；若落不到已有 column，使用上述 partial-dedent diagnostic，不再同时报告 code-prefix。
+结构前缀中的 tab 只报告 `"[syntax/structural-tab]"。whitespace-only code line 未满足
+`"[code_indent]" 时报告 `"[syntax/code-prefix]"，跳过该行并继续 code body。
+
+稳定的通用错误码至少包括：
+
+`"{language=text}
+  syntax/incomplete-introducer
+  syntax/invalid-dispatch
+  syntax/duplicate-id
+  syntax/duplicate-key
+  syntax/unclosed-attributes
+  syntax/unescaped-bracket
+  syntax/unclosed-inline
+  syntax/unclosed-verbatim
+  syntax/structural-tab
+  syntax/partial-dedent
+  syntax/code-prefix
 
 `## 11. 定稿范围外
 

@@ -117,21 +117,19 @@ required structural indentation 只允许 ASCII spaces；prefix 完成后的 tab
 final newline。normative rules 见 `"[docs/spec.plumb]" 第 6、8 节；partial-dedent recovery 和
 diagnostic precedence 仍由 S09 决定。
 
-`### S09 `"[open]" Recovery and diagnostic precedence
+`### S09 `"[decided]" Recovery and diagnostic precedence
 
 `*[决策目标：] 为 reject-but-recover 定义可测试的安全恢复点。
 
-需要分别规定：
+已决定：同一 range 优先报告 structural、local lexical、delimiter/dispatch、generic 中最具体
+的根因。block-start malformed entry 按物理行恢复；attribute item 按下一个 whitespace/`"[}]"
+局部恢复；unclosed parsed inline 在 blank/dedent/block-only/EOF boundary 前停止且不消费边界；
+inline verbatim 按当前行恢复。
 
-`- malformed marker 和 incomplete introducer。
-`- malformed 或未闭合 attributes。
-`- 未闭合 parsed inline content。
-`- 未闭合 inline verbatim。
-`- mismatched indentation 和 partial dedent。
-`- code-prefix error 与外层 indentation error 同时发生时的优先级。
-
-每类错误需要明确 primary range、是否产生 secondary diagnostics，以及恢复到 physical line、
-当前 parent dedent 还是下一个同级 block start。
+partial dedent 选择严格大于实际 column 的最小已有 stack column，虚拟向前补最少 spaces，并
+提供 insertion fix 后继续解析该行。code line 正常落到 outer column 时结束 code；partial
+dedent、structural tab 和 whitespace-only code-prefix error 按专用优先级只报告一个根因。
+完整 ranges、错误码和规则见 `"[docs/spec.plumb]" 第 10.6 节。
 
 `## 3. P1：冻结 core AST 与 lowering
 
