@@ -47,6 +47,27 @@ Nested `outer[before `inner[nested] after]{role=example}.
       (text))))
 
 ==================
+Empty inline attributes
+==================
+
+Text with `kind[content]{} attached.
+
+---
+
+(document
+  (blank_line)
+  (paragraph
+    (inline_content
+      (text)
+      (inline_element
+        (introducer)
+        (inline_kind)
+        (parsed_inline_content
+          (inline_text))
+        (attributes))
+      (text))))
+
+==================
 Empty parsed inline
 ==================
 

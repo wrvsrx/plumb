@@ -158,6 +158,70 @@ Raw code margin
       (text))))
 
 ==================
+Empty and escaped attributes
+==================
+
+`empty{} head
+`escaped{quote="say \"hi\"" path="c:\\tmp"} head
+
+---
+
+(document
+  (blank_line)
+  (marked_block
+    (introducer)
+    (marker)
+    (attributes)
+    (head_separator)
+    (inline_content
+      (text)))
+  (marked_block
+    (introducer)
+    (marker)
+    (attributes
+      (attribute_pair
+        (attribute_name)
+        (attribute_value))
+      (attribute_pair
+        (attribute_name)
+        (attribute_value)))
+    (head_separator)
+    (inline_content
+      (text))))
+
+==================
+Duplicate attributes retained in the CST
+==================
+
+`duplicates{#first #second key=one key=two .note .note} head
+
+---
+
+(document
+  (blank_line)
+  (marked_block
+    (introducer)
+    (marker)
+    (attributes
+      (attribute_id
+        (attribute_name))
+      (attribute_id
+        (attribute_name))
+      (attribute_pair
+        (attribute_name)
+        (attribute_value))
+      (attribute_pair
+        (attribute_name)
+        (attribute_value))
+      (attribute_class
+        (attribute_name))
+      (attribute_class
+        (attribute_name)))
+    (head_separator)
+    (inline_content
+      (text))))
+
+==================
 Dedent after direct marked child
 ==================
 

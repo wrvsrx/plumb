@@ -25,6 +25,75 @@ broken `kind[unfinished
       (text))))
 
 ==================
+Reject bare complex attribute values
+==================
+
+`marker{url=https://example.test pattern=[a-z]} head
+
+---
+
+(document
+  (blank_line)
+  (marked_block
+    (introducer)
+    (marker)
+    (attributes
+      (attribute_pair
+        (attribute_name)
+        (attribute_value))
+      (attribute_class
+        (attribute_name))
+      (ERROR
+        (attribute_name)
+        (attribute_name)))
+    (head_separator)
+    (inline_content
+      (text))))
+
+==================
+Reject bare attribute tags
+==================
+
+`marker{aside .note} head
+
+---
+
+(document
+  (blank_line)
+  (marked_block
+    (introducer)
+    (marker)
+    (attributes
+      (ERROR
+        (attribute_name))
+      (attribute_class
+        (attribute_name)))
+    (head_separator)
+    (inline_content
+      (text))))
+
+==================
+Reject unknown quoted escapes
+==================
+
+`marker{key="bad\q"} head
+
+---
+
+(document
+  (blank_line)
+  (code_block
+    (introducer)
+    (ERROR
+      (marker)
+      (attribute_name)
+      (code_marker)
+      (attribute_name))
+    (code_marker)
+    (ERROR
+      (attribute_name))))
+
+==================
 Recover after unclosed attributes
 ==================
 
