@@ -8,7 +8,7 @@ instructions.
 
 ## What this is
 
-**plumb** (working name — see the naming open question in `docs/spec.md`) is a
+**plumb** (working name — see the naming open question in `docs/spec.plumb`) is a
 **strict markup language** and its tooling, built for personal use. Where
 [Djot](https://djot.net) and Markdown are deliberately error-tolerant, plumb is
 deliberately strict: malformed syntax is a hard parse error rather than a silent
@@ -17,22 +17,22 @@ always special" rather than "every punctuation character is globally special."
 
 Start with the design docs, in this order:
 
-- `docs/requirements.md` — the current source of truth for goals, non-goals,
+- `docs/requirements.plumb` — the current source of truth for goals, non-goals,
   design principles, and MVP requirements.
 - `docs/vision.plumb` — why the language exists, its core philosophy, and the
   ecosystem strategy.
-- `docs/spec.md` — the finalized block-level structure and the precise details
+- `docs/spec.plumb` — the finalized block-level structure and the precise details
   that still need decisions before implementation.
-- `docs/inline.md` — the current inline envelope design and its remaining open
-  questions. Read it after the block-level design in `docs/spec.md`.
+- `docs/inline.plumb` — the current inline envelope design and its remaining open
+  questions. Read it after the block-level design in `docs/spec.plumb`.
 - `docs/features.plumb` — the tool roadmap derived from the requirements.
 
 ## Current status
 
 **Greenfield design reset.** This repository currently contains only design docs
 (`docs/`) and this guidance. There is no code yet. Before implementation, freeze
-the remaining MVP syntax and AST details from `docs/requirements.md`,
-`docs/spec.md`, and `docs/inline.md`. The first implementation target remains
+the remaining MVP syntax and AST details from `docs/requirements.plumb`,
+`docs/spec.plumb`, and `docs/inline.plumb`. The first implementation target remains
 `plumb-core`: a hand-written strict parser
 producing `(AST, Vec<Diagnostic>)`.
 
