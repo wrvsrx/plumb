@@ -158,6 +158,28 @@ Raw code margin
       (text))))
 
 ==================
+Raw tab after the structural prefix
+==================
+
+`"
+  x	payload tab is preserved
+
+`after-code
+
+---
+
+(document
+  (blank_line)
+  (code_block
+    (introducer)
+    (code_marker)
+    (raw_text)
+    (raw_text))
+  (marked_block
+    (introducer)
+    (marker)))
+
+==================
 Empty and escaped attributes
 ==================
 

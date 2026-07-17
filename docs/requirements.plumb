@@ -103,7 +103,9 @@ inline、属性参数或语义关系：
   head continuation，也可以是第一个 child block。
 `- 同一 parent 的直接 head continuations 和 children 必须使用相同的 `"[body_indent]"。
 `- dedent 必须精确落在 indentation stack 的已有 column。
-`- 结构 indentation 中 tab 非法。
+`- dedent 可以一次退出多个层级；目标不在 stack 中时是 partial-dedent syntax error。
+`- 结构 indentation 中 tab 非法；结构前缀后的 payload tab 允许并保留。
+`- blank-line whitespace 不影响 indentation；EOF 关闭所有有效层级，末行 newline 可省略。
 `- 只有显式 marker block 可以拥有 indented child blocks。
 `- 普通段落不能凭空拥有缩进子块。
 `- 所有普通 marked block 使用相同的 head/children 结构；marker 的结构约束由 extension

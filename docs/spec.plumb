@@ -427,6 +427,21 @@ block containment 只由 indentation 表达：
 `- 普通 paragraph 不能凭空拥有 children。
 `- 空行只参与 head / paragraph 边界，不建立或改变 indentation column，也不产生节点。
 
+结构 blank line 是只包含 spaces/tabs 后接 newline 的物理行。其 whitespace 完全忽略：不建立
+或改变 indentation column，不进入 core AST，也不产生 trailing-whitespace syntax error。
+raw code body 使用第 8 节的独立 blank-line 规则。
+
+结构 indentation 只允许 ASCII spaces。required structural prefix 内出现 tab 是 syntax
+error；required prefix 完成后的 tab 属于 inline/raw payload，允许并按 source bytes 保留。
+tab 不参与 indentation column 计算。
+
+dedent 可以在一条物理行上一次退出多个嵌套层级，但目标 column 必须精确等于 indentation
+stack 中已有 column。若目标位于两个已有 columns 之间，则是 partial-dedent syntax error；
+primary range 是该行的 leading whitespace。具体 recovery 由 S09 决定。
+
+文件最后一行不要求 newline。EOF 完成当前物理行后，按从内到外的顺序关闭 indentation
+stack 中所有有效层级，不产生 diagnostic，也不向 source/raw payload 添加 newline。
+
 例如，以下三种形式都可以首次建立 `"[body_indent]"：
 
 `"{language=plumb}
@@ -536,7 +551,8 @@ code marker line 只允许紧贴 marker 的 block attributes，不允许 head：
 
 其他规则：
 
-`- 空行可以完全为空，不要求带结构缩进。
+`- 只有完全空的 code blank line 可以省略结构前缀。包含任何 whitespace 的非空行仍必须
+  先满足完整 `"[code_indent]"；去除前缀后的 whitespace 原样属于 raw payload。
 `- 第一个 indentation 小于 `"[code_indent]" 的非空行结束 code block，并由外层 block parser
   重新处理。
 `- code 结束后的 indentation 必须能按普通 block rules 解释；不能落到有效结构位置的
@@ -548,6 +564,8 @@ code marker line 只允许紧贴 marker 的 block attributes，不允许 head：
 quote run 不是 opening fence，不需要 closing marker。code block 只由 dedent 结束。最短
 形式 `"[`"]" 使 body 从相对 parent 的 column 2 开始，正好对应一次常见的 2-space Tab；
 增加 quote 数量会把 structural margin 相应向右移动。
+
+最后一条 raw code line 可以由 EOF 直接结束；保存的 raw payload 不自动增加 final newline。
 
 `## 9. Core lowering
 
@@ -566,8 +584,8 @@ marker registry。
 
 `### 10.1 Indentation
 
-`- 空白行是否忽略其 indentation 和 trailing whitespace。
-`- EOF、文件末尾缺少 newline、连续 dedent 的精确处理。
+`- 已决定：blank-line whitespace、tab boundary、multi-level/partial dedent 和 EOF 规则见
+  第 6 节；raw code 的对应规则见第 8 节。
 `- formatter 如何选择 `"[body_indent]"：优先与 head 对齐，还是使用最小固定视觉宽度；长
   attributes 时如何避免过深 hanging indent。
 

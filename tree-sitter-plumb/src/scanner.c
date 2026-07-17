@@ -103,6 +103,7 @@ static bool scan_raw_code_line(Scanner *scanner, TSLexer *lexer,
   }
 
   if (lexer->lookahead == '\n') {
+    if (spaces > 0 && spaces < scanner->code_indent) return false;
     take(lexer);
     lexer->mark_end(lexer);
     lexer->result_symbol = RAW_CODE_LINE;
