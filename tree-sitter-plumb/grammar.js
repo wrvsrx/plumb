@@ -168,11 +168,11 @@ module.exports = grammar({
       '=',
       field('value', $.attribute_value),
     ),
-    attribute_name: _ => /[^\s\x00-\x1f\x7f-\x9f\[\]{}`"#.=]+/,
-    attribute_value: _ => choice(
-      /[^\s\x00-\x1f\x7f-\x9f{}`"]+/,
+    attribute_name: _ => token(/[^\s\x00-\x1f\x7f-\x9f\[\]{}`"#.=]+/),
+    attribute_value: _ => token(choice(
+      /[^\s\x00-\x1f\x7f-\x9f\[\]{}`"#.=]+/,
       /"([^"\\\x00-\x1f\x7f-\x9f]|\\["\\])*"/,
-    ),
+    )),
 
     introducer_escape: _ => prec(3, '``'),
     introducer: _ => '`',

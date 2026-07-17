@@ -33,9 +33,9 @@
 `*[决策目标：] 冻结 block 和 inline 共用的 attribute lexer 与 parser。
 
 已决定：block 与 inline 复用唯一 `"[Attr]" grammar。id、class、key 使用统一的窄
-`"[AttrName]" 字符集，额外排除 `"[#]"、`"[.]"、`"[=]"；bare value 使用更宽的字段并允许
-`"[[]]"、`"[#]"、`"[.]"、`"[=]" 等字符。quoted value 使用 double quote，只允许 `"[\\"]" 和
-`"[\\\\]" escape；空 `"[{}]" 和 `"[key=\"\"]" 合法。
+`"[AttrName]" 字符集，额外排除 `"[#]"、`"[.]"、`"[=]"；bare value 复用同一字符集，复杂
+value 必须 quoted。quoted value 使用 double quote，只允许 `"[\\"]" 和 `"[\\\\]" escape；
+空 `"[{}]" 和 `"[key=\"\"]" 合法。
 
 core 按 source order 保存 items，负责诊断第二个 id 和同名 duplicate key。class 可以重复，
 包括相同名称。精确 grammar、正反例和 duplicate diagnostic ranges 见

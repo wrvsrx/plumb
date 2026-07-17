@@ -332,7 +332,7 @@ Opaque marked blocks
 Block attributes
 ==================
 
-`marker{#intro .note .note key=value url=https://example.test/a?q=x#part pattern=[a-z]=value quoted="two words" empty=""} head
+`marker{#intro .note .note key=value url="https://example.test/a?q=x#part" pattern="[a-z]=value" quoted="two words" empty=""} head
 
 ---
 

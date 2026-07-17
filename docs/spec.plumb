@@ -172,27 +172,22 @@ attribute value 使用 Pandoc / HTML-shaped 内容模型：
   Id          = "#" AttrName
   Class       = "." AttrName
   Pair        = AttrName "=" Value
-  Value       = BareValue | QuotedValue
+  Value       = AttrName | QuotedValue
 
   AttrNameChar = any Unicode scalar value except:
                  whitespace
                  control characters
                  ` " [ ] { } # . =
 
-  BareValueChar = any Unicode scalar value except:
-                  whitespace
-                  control characters
-                  ` " { }
-
   QuotedValue = '"' QuotedChar* '"'
   QuotedChar  = any Unicode scalar value except control characters, '"' and '\\'
               | '\\"'
               | '\\\\'
 
-`"[AttrName]" 统一用于 id、class 和 key，不允许 `"[#]"、`"[.]" 或 `"[=]"。bare value 使用
-更宽的字符集，可以直接包含 `"[[]"、`"[]]"、`"[#]"、`"[.]"、`"[=]"、URL punctuation 和路径
-字符。quoted value 不允许物理换行；反斜杠只能组成 `"[\\"]" 或 `"[\\\\]"，其他 escape 是
-syntax error。空 attributes `"[{}]" 和空 quoted value `"[key=\"\"]" 都合法。
+`"[AttrName]" 统一用于 id、class、key 和 bare value，不允许 `"[#]"、`"[.]" 或 `"[=]"。
+包含 whitespace、dot、hash、equals、brackets 或其他复杂字符的 value 必须使用 quoted value。
+quoted value 不允许物理换行；反斜杠只能组成 `"[\\"]" 或 `"[\\\\]"，其他 escape 是 syntax
+error。空 attributes `"[{}]" 和空 quoted value `"[key=\"\"]" 都合法。
 
 core 必须在单个 attribute slot 内执行重复性检查：id 最多出现一次；同名 key 最多出现
 一次。key 使用原始 UTF-8 bytes、大小写敏感且不做 Unicode normalization 的精确比较。
@@ -202,8 +197,8 @@ duplicate diagnostic 的 primary range 指向第二次及后续 occurrence，并
 
 `"{language=text}
   valid:   {}
-  valid:   {#intro .note .note url=https://example.test/a?q=x#part}
-  valid:   {pattern=[a-z]=value quoted="two words" empty=""}
+  valid:   {#intro .note .note state=todo due=2026-07-10}
+  valid:   {url="https://example.test/a?q=x#part" pattern="[a-z]=value" empty=""}
   invalid: {#first #second}
   invalid: {key=one key=two}
   invalid: {name="bad\\q"}

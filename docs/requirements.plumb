@@ -199,9 +199,9 @@ braces：
 `"
   `marker{#id .class key=value}
 
-core 校验属性语法是否良构，并把各部分按 source order 保存为 opaque token。id、class 和
-key 使用统一的窄 name 字符集；bare value 使用更宽的字符集；quoted value 支持空值以及
-`"[\\"]"、`"[\\\\]" 两种 escape。空 `"[{}]" 合法。core 不解释 class 或 key 的语义，但必须
+core 校验属性语法是否良构，并把各部分按 source order 保存为 opaque token。id、class、
+key 和 bare value 使用统一的窄 name 字符集；复杂 value 必须 quoted。quoted value 支持空值
+以及 `"[\\"]"、`"[\\\\]" 两种 escape。空 `"[{}]" 合法。core 不解释 class 或 key 的语义，但必须
 拒绝第二个 id 和同名 duplicate key；class 可以重复。
 
 block marker line 可以带 head；只有真正的 subblocks 使用缩进：
