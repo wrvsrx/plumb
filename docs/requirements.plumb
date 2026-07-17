@@ -84,9 +84,9 @@ tree-sitter 可以做宽松镜像，不能反向约束权威语法。
 `### 4.4 语义中立
 
 core 产出的 AST 应是小而中性的 Pandoc-shaped tree。普通 marker token 一律保留为 opaque
-token 并产生 generic marked node；core 不保留或解释 heading、list、quote 等 marker
-spelling。marker 不混入普通 attributes，二者在 syntax node 中并列保存。inline 的外层
-envelope 已经收敛，最终 inline AST 尚未设计。
+token 并产生 generic parsed block；core 不保留或解释 heading、list、quote 等 marker
+spelling。显式 marker 与紧贴它的 attributes 打包为可省略的 `"[Mark]"；省略整个 mark 的
+parsed block 就是普通 paragraph。inline 的外层 envelope 已经收敛，最终 inline AST 尚未设计。
 
 `### 4.5 Reject-but-recover
 
@@ -133,22 +133,35 @@ head 即使为空也保持 open；紧接的缩进普通文本行可以启动 def
 文本是 paragraph child；缩进后的 marked block 直接开始 children。一旦进入 children 就
 不能恢复 head。
 
-普通 paragraph 是省略 introducer 和 marker 的默认 inline leaf。leaf 不是新的语法类别：
-没有 children 的 syntax node 就是 leaf。syntax 层的统一形状为：
+普通 paragraph 是省略 introducer、marker 和 attributes 的默认 parsed block。leaf 不是新的
+语法类别：没有 children 的 parsed block 就是 leaf。core block tree 的统一形状为：
 
 `"
-  SyntaxNode {
-    marker: MarkerToken?,
-    attrs: Attr,
-    payload: InlinePayload | RawPayload,
+  Block = ParsedBlock | CodeBlock
+
+  ParsedBlock {
+    mark: Mark?,
+    head: InlineContent,
+    children: Block[],
   }
 
-  InlinePayload = { head: InlineContent, children: SyntaxNode[] }
-  RawPayload    = { text: RawText }
+  Mark {
+    marker: MarkerToken,
+    attrs: Attr,
+  }
+
+  CodeBlock {
+    attrs: Attr,
+    text: RawText,
+  }
+
+`"[mark = None]" 的 parsed block 必须具有非空 head 且没有 children；这两个 invariant 由
+parser/core 保证。它不会被补成某个保留的 paragraph marker。`"[mark = Some(...)]" 时 head
+保持独立并允许为空，也可以拥有 children。
 
 普通 marker node 不做 marker-specific structural lowering；extension 可以把约定的 marker
 解释为 heading、list、quote、metadata 或其他语义，并自行验证结构约束。quote-run 选择
-`"[RawPayload]"，其他 marker 选择 `"[InlinePayload]"。
+独立的 `"[CodeBlock]"；其他 marker 进入 `"[ParsedBlock.mark]"。
 
 一个或多个 quotes 组成 syntax 层唯一已确定的 raw-body marker。它不允许 head 或 block
 children；若 quote 数量为 `"[N]"，raw code payload 与整个 opening marker 的末尾对齐，即

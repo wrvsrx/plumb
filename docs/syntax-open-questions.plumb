@@ -138,8 +138,9 @@ dedent、structural tab 和 whitespace-only code-prefix error 按专用优先级
 
 `### A01 `"[decided]" Marker structural constraints
 
-所有普通 marker 产生相同的 generic marked node，并允许统一的 attributes、head 和 children
-surface shape。marker-specific constraints 由 extension 验证，不改变 syntax validity。
+所有普通 marker 产生相同的 `"[ParsedBlock]" 并携带 `"[Some(Mark)]"，允许统一的 attributes、
+head 和 children surface shape。marker-specific constraints 由 extension 验证，不改变 syntax
+validity。
 
 `### A02 `"[decided]" CodeBlock payload
 
@@ -151,10 +152,13 @@ syntax tree 保留 quote count、opening range 和每行 structural-prefix range
 attributes、去 margin 的 raw bytes 和整个 node span。normative rules 见 `"[docs/spec.plumb]"
 第 8、9 节。
 
-`### A03 `"[open]" Generic marked node lowering
+`### A03 `"[decided]" Generic parsed block lowering
 
-决定 generic marked node 的最终 core AST shape：head 是否保持独立 `"[InlineContent]"，还是
-统一表示为 block children；同时不得解释 marker spelling。
+已决定：普通 paragraph 与普通 marked block 统一 lower 为 `"[ParsedBlock]"，包含 mark、head
+和 children。显式 marker 与紧贴它的 attributes 打包为 `"[Mark]"；普通 paragraph 省略整个
+mark，而不是补出保留 marker。head 始终保持独立；显式 mark 的 head 允许为空。mark 为 None
+时 parser/core 则保证 head 非空且 children 为空。quote-run 仍 lower 为独立的
+`"[CodeBlock]"。source ranges 留给 A05 决定。
 
 `### A04 `"[open]" Inline AST
 

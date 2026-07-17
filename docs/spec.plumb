@@ -23,7 +23,7 @@
 `- 保留一个或多个 quotes 组成的 marker 产生 indented code block；它没有 head 或 block
   children，dedent 结束 raw payload。code body 对齐到整个 `"[` + quote run]" 的末尾，
   即 `"[code_indent = parent_indent + 1 + quote_count]"。
-`- syntax 层使用 `"[InlinePayload | RawPayload]" 区分普通 marked block 与 code block。
+`- core block tree 使用 `"[ParsedBlock | CodeBlock]" 区分 parsed payload 与 raw payload。
 
 实现前仍需确定的项目集中列在本文末尾。除这些项目外，block surface syntax 不再继续
 发散。
@@ -128,37 +128,48 @@ EOF。具体 recovery boundary 与多诊断优先级仍由 S09 冻结。
   invalid: ```node head           # escape has already entered inline context
   invalid: `" code head           # code blocks cannot have a head
 
-`## 2. Syntax node
+`## 2. Core block node
 
-syntax parser 对所有 marked block 使用同一个节点形状：
+普通 paragraph 与所有普通 marked block lower 为同一个 parsed node shape：
 
 `"{language=text}
-  SyntaxNode {
-    marker: MarkerToken?,
-    attrs: Attr,
-    payload: InlinePayload | RawPayload,
+  Block = ParsedBlock | CodeBlock
+
+  ParsedBlock {
+    mark: Mark?,
+    head: InlineContent,
+    children: Block[],
   }
 
-  InlinePayload = { head: InlineContent, children: SyntaxNode[] }
-  RawPayload    = { text: RawText }
+  Mark {
+    marker: MarkerToken,
+    attrs: Attr,
+  }
 
-`- `"[marker]" 原样保存 opaque token；syntax parser 不根据其 spelling 改变通用 block 外形。
-`- `"[attrs]" 保存紧贴 marker 的 block attributes。
-`- `"[head]" 是 marker line 及其 continuation 上的 inline payload。`"[InlineContent]" 的内部语法
-  尚未设计。
+  CodeBlock {
+    attrs: Attr,
+    text: RawText,
+  }
+
+`- `"[Mark.marker]" 原样保存 opaque token；parser 不根据其 spelling 改变通用 block 外形。
+`- `"[Mark.attrs]" 保存紧贴 marker 的 block attributes；marker 与 attributes 作为一个整体
+  出现或省略。
+`- `"[head]" 是 marker line 及其 continuation 上的独立 inline payload。`"[InlineContent]" 的
+  内部语法尚未设计。
 `- `"[children]" 只来自缩进的 subblocks。
-`- 普通 paragraph 是没有显式 marker 的默认 inline leaf。
-`- 没有 children 的 syntax node 就是 leaf，不需要另一种 leaf delimiter。
-`- quote-run marker 选择 `"[RawPayload]"；其他当前 marker 选择 `"[InlinePayload]"。
+`- 普通 paragraph 是 `"[mark = None]" 的默认 parsed leaf；core 不为它补出隐式 marker。
+`- `"[mark = None]" 时 head 必须非空且 children 必须为空；parser/core 保证这两个 invariant。
+`- `"[mark = Some(...)]" 时 head 仍保持独立；它允许为空，node 也可以拥有 children。
+`- quote-run marker 选择独立的 `"[CodeBlock]"；其他当前 marker 选择 `"[ParsedBlock]"。
 
 marker 控制结构，而 attributes 是 opaque metadata，二者不能混在同一个 `"[Attr]" 中：
 
 `"{language=text}
   // 推荐
-  SyntaxNode { marker: "#", attrs: { id: "intro" }, ... }
+  ParsedBlock { mark: Some(Mark { marker: "#", attrs: { id: "intro" } }), ... }
 
   // 不采用
-  SyntaxNode { attrs: { marker: "#", id: "intro" }, ... }
+  ParsedBlock { mark: Some(Mark { attrs: { marker: "#", id: "intro" } }), ... }
 
 `## 3. Marker token
 
@@ -576,9 +587,10 @@ quote run 不是 opening fence，不需要 closing marker。code block 只由 de
 
 `## 9. Core lowering
 
-syntax tree 与 core tree 都不解释普通 marker spelling。所有普通 marked blocks lower 为同一
-generic node，保留 marker、attributes、head 和 children；extension 可以从这些节点派生
-outline、list、quote、task 或其他结构，并产生自己的 semantic diagnostics。
+syntax tree 与 core tree 都不解释普通 marker spelling。普通 paragraph 与所有普通 marked
+blocks lower 为 `"[ParsedBlock]"：前者省略整个 `"[Mark]"，后者在 `"[Mark]" 中保留 marker
+和 attributes；两者都把 head 保持为独立的 `"[InlineContent]"。extension 可以从这些节点
+派生 outline、list、quote、task 或其他结构，并产生自己的 semantic diagnostics。
 
 quote-run block lower 为 `"[CodeBlock { attr, text }]"；quote count 只影响 source margin，
 syntax tree 必须保留 quote count、opening range 和每条 code line 的 structural-prefix range，
@@ -607,7 +619,8 @@ raw bytes 和整个 node span，不保留 source layout margin。这个区别来
 
 `- 已决定：空 code block、marker line ending、raw line endings、EOF 和 source-margin fidelity
   规则见第 8、9 节。
-`- generic marked node 的最终 core AST shape 和 source ranges。
+`- 已决定：generic parsed block 的 core AST shape 和 invariants 见第 2、7、9 节；source
+  ranges 留给 A05 决定。
 
 `### 10.4 Attribute grammar
 
