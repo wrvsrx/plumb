@@ -102,7 +102,8 @@ content、跨行、未闭合 content 和 EOF。
 `*[决策目标：] 冻结 raw inline payload 的 closing 与换行规则。
 
 已决定：inline verbatim 限于一条物理行；raw content 在该行内按 UTF-8 bytes 原样保存。
-closing quote run 必须完整且与 opening 等长，更长 run 不能以前缀闭合。空 content 合法。
+closing delimiter 消费与 opening 相同数量的 quote 前缀并立即闭合；更长 run 的剩余 quotes
+属于后续 inline text。空 content 合法。
 未找到 closing 时，primary range 从 opening introducer 到 line ending/EOF，并从下一物理行
 恢复。normative rule 和示例见 `"[docs/inline.plumb]" 第 4 节。
 

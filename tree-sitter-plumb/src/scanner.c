@@ -157,7 +157,7 @@ static bool scan_inline_verbatim(TSLexer *lexer) {
       take(lexer);
       closing_quotes++;
     }
-    if (closing_quotes == quotes && lexer->lookahead != '"') {
+    if (closing_quotes == quotes) {
       lexer->mark_end(lexer);
       lexer->result_symbol = INLINE_VERBATIM_TOKEN;
       return true;
