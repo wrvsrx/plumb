@@ -3,21 +3,23 @@ use std::fs;
 use std::ops::ControlFlow;
 use std::path::{Path, PathBuf};
 
-use async_lsp::{ClientSocket, LanguageServer, ResponseError};
+use async_lsp::{ClientSocket, ErrorCode, LanguageServer, ResponseError};
 use futures::future::BoxFuture;
 use lsp_types::{
     Diagnostic as LspDiagnostic, DiagnosticRelatedInformation, DiagnosticSeverity,
     DidChangeConfigurationParams, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
-    DidOpenTextDocumentParams, DidSaveTextDocumentParams, DocumentSymbol, DocumentSymbolParams,
-    DocumentSymbolResponse, GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverContents,
-    HoverParams, HoverProviderCapability, InitializeParams, InitializeResult, InitializedParams,
-    Location, MarkupContent, MarkupKind, NumberOrString, OneOf, PublishDiagnosticsParams,
-    ReferenceParams, ServerCapabilities, SymbolKind, TextDocumentSyncCapability,
-    TextDocumentSyncKind, Url,
+    DidOpenTextDocumentParams, DidSaveTextDocumentParams, DocumentChanges, DocumentSymbol,
+    DocumentSymbolParams, DocumentSymbolResponse, GotoDefinitionParams, GotoDefinitionResponse,
+    Hover, HoverContents, HoverParams, HoverProviderCapability, InitializeParams, InitializeResult,
+    InitializedParams, Location, MarkupContent, MarkupKind, NumberOrString, OneOf,
+    OptionalVersionedTextDocumentIdentifier, PrepareRenameResponse, PublishDiagnosticsParams,
+    ReferenceParams, RenameOptions, RenameParams, ServerCapabilities, SymbolKind, TextDocumentEdit,
+    TextDocumentSyncCapability, TextDocumentSyncKind, TextEdit as LspTextEdit, Url,
+    WorkDoneProgressOptions, WorkspaceEdit as LspWorkspaceEdit,
 };
 use plumb_core::Diagnostic;
 use plumb_extensions::{AnchorKind, AnchorRecord, Heading};
-use plumb_workspace::{normalize, ResolvedTarget, Workspace};
+use plumb_workspace::{normalize, ResolvedTarget, Workspace, WorkspaceEdit};
 
 use crate::position::{byte_range_to_lsp, position_to_offset};
 
@@ -26,6 +28,7 @@ pub(crate) struct ServerState {
     workspace: Workspace,
     open_documents: HashMap<Url, PathBuf>,
     roots: Vec<PathBuf>,
+    supports_document_changes: bool,
 }
 
 impl ServerState {
@@ -35,6 +38,7 @@ impl ServerState {
             workspace: Workspace::new(),
             open_documents: HashMap::new(),
             roots: Vec::new(),
+            supports_document_changes: false,
         }
     }
 
@@ -121,6 +125,13 @@ impl LanguageServer for ServerState {
         params: InitializeParams,
     ) -> BoxFuture<'static, Result<InitializeResult, Self::Error>> {
         self.roots = workspace_roots(&params);
+        self.supports_document_changes = params
+            .capabilities
+            .workspace
+            .as_ref()
+            .and_then(|workspace| workspace.workspace_edit.as_ref())
+            .and_then(|edit| edit.document_changes)
+            .unwrap_or(false);
         Box::pin(async {
             Ok(InitializeResult {
                 capabilities: ServerCapabilities {
@@ -131,6 +142,10 @@ impl LanguageServer for ServerState {
                     definition_provider: Some(OneOf::Left(true)),
                     references_provider: Some(OneOf::Left(true)),
                     hover_provider: Some(HoverProviderCapability::Simple(true)),
+                    rename_provider: Some(OneOf::Right(RenameOptions {
+                        prepare_provider: Some(true),
+                        work_done_progress_options: WorkDoneProgressOptions::default(),
+                    })),
                     ..ServerCapabilities::default()
                 },
                 server_info: None,
@@ -334,6 +349,58 @@ impl LanguageServer for ServerState {
             });
         Box::pin(async move { Ok(hover) })
     }
+
+    fn prepare_rename(
+        &mut self,
+        params: lsp_types::TextDocumentPositionParams,
+    ) -> BoxFuture<'static, Result<Option<PrepareRenameResponse>, Self::Error>> {
+        let response = params
+            .text_document
+            .uri
+            .to_file_path()
+            .ok()
+            .and_then(|path| {
+                let entry = self.workspace.get(&path)?;
+                let offset = position_to_offset(&entry.parsed.source, params.position);
+                let target = self.workspace.anchor_rename_target_at(&path, offset).ok()?;
+                Some(PrepareRenameResponse::RangeWithPlaceholder {
+                    range: byte_range_to_lsp(&entry.parsed.source, &target.range),
+                    placeholder: target.id,
+                })
+            });
+        Box::pin(async move { Ok(response) })
+    }
+
+    fn rename(
+        &mut self,
+        params: RenameParams,
+    ) -> BoxFuture<'static, Result<Option<LspWorkspaceEdit>, Self::Error>> {
+        if !self.supports_document_changes {
+            return Box::pin(async {
+                Err(ResponseError::new(
+                    ErrorCode::REQUEST_FAILED,
+                    "anchor rename requires workspace.workspaceEdit.documentChanges support",
+                ))
+            });
+        }
+        let result = params
+            .text_document_position
+            .text_document
+            .uri
+            .to_file_path()
+            .ok()
+            .and_then(|path| {
+                let entry = self.workspace.get(&path)?;
+                let offset = position_to_offset(
+                    &entry.parsed.source,
+                    params.text_document_position.position,
+                );
+                let target = self.workspace.anchor_rename_target_at(&path, offset).ok()?;
+                self.workspace.rename_anchor(&target, &params.new_name).ok()
+            })
+            .and_then(|edit| workspace_edit_to_lsp(&self.workspace, edit));
+        Box::pin(async move { Ok(result) })
+    }
 }
 
 fn heading_symbol(source: &str, heading: &Heading) -> DocumentSymbol {
@@ -385,6 +452,36 @@ fn location_for(
         uri,
         byte_range_to_lsp(&entry.parsed.source, range),
     ))
+}
+
+fn workspace_edit_to_lsp(workspace: &Workspace, edit: WorkspaceEdit) -> Option<LspWorkspaceEdit> {
+    let mut document_changes = Vec::new();
+    for document in edit.document_changes {
+        let entry = workspace.get(&document.path)?;
+        let uri = Url::from_file_path(&document.path).ok()?;
+        let version = (document.expected_revision > 0)
+            .then(|| i32::try_from(document.expected_revision).ok())
+            .flatten();
+        let edits = document
+            .edits
+            .into_iter()
+            .map(|edit| {
+                OneOf::Left(LspTextEdit::new(
+                    byte_range_to_lsp(&entry.parsed.source, &edit.range),
+                    edit.new_text,
+                ))
+            })
+            .collect();
+        document_changes.push(TextDocumentEdit {
+            text_document: OptionalVersionedTextDocumentIdentifier { uri, version },
+            edits,
+        });
+    }
+    Some(LspWorkspaceEdit {
+        changes: None,
+        document_changes: Some(DocumentChanges::Edits(document_changes)),
+        change_annotations: None,
+    })
 }
 
 fn workspace_roots(params: &InitializeParams) -> Vec<PathBuf> {

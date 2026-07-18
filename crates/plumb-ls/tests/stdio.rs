@@ -85,7 +85,7 @@ fn resolves_cross_file_navigation_over_stdio() {
                 "processId": null,
                 "rootUri": root_uri,
                 "workspaceFolders": [{ "uri": root_uri, "name": "test" }],
-                "capabilities": {}
+                "capabilities": { "workspace": { "workspaceEdit": { "documentChanges": true } } }
             }
         }),
         json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
@@ -111,7 +111,19 @@ fn resolves_cross_file_navigation_over_stdio() {
             "jsonrpc": "2.0", "id": 4, "method": "textDocument/hover",
             "params": { "textDocument": { "uri": source_uri }, "position": { "line": 0, "character": 10 } }
         }),
-        json!({ "jsonrpc": "2.0", "id": 5, "method": "shutdown", "params": null }),
+        json!({
+            "jsonrpc": "2.0", "id": 5, "method": "textDocument/prepareRename",
+            "params": { "textDocument": { "uri": source_uri }, "position": { "line": 0, "character": 32 } }
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 6, "method": "textDocument/rename",
+            "params": {
+                "textDocument": { "uri": source_uri },
+                "position": { "line": 0, "character": 32 },
+                "newName": "renamed"
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 7, "method": "shutdown", "params": null }),
         json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
     ];
     let output = run_server(&messages);
@@ -125,6 +137,14 @@ fn resolves_cross_file_navigation_over_stdio() {
         .as_str()
         .unwrap()
         .contains("#target"));
+    let prepare = response(&output, 5);
+    assert_eq!(prepare["result"]["placeholder"], "target");
+    let rename = response(&output, 6);
+    let changes = rename["result"]["documentChanges"].as_array().unwrap();
+    assert_eq!(changes.len(), 2);
+    assert!(changes
+        .iter()
+        .all(|change| change["edits"][0]["newText"] == "renamed"));
 
     std::fs::remove_dir_all(root).unwrap();
 }
