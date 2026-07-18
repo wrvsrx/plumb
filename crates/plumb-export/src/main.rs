@@ -4,7 +4,7 @@ use std::io::{self, Read};
 use std::process::ExitCode;
 
 use plumb_core::{parse, AttrItem, Attributes, Block, Inline, InlineContent, ParsedBlock};
-use plumb_extensions::{analyze_headings, HeadingOutput};
+use plumb_extensions::{analyze_document, DocumentOutput};
 use serde_json::{json, Value};
 
 fn main() -> ExitCode {
@@ -60,14 +60,15 @@ fn export(source: &str) -> Result<Value, String> {
             .join("\n");
         return Err(format!("document has syntax errors:\n{summary}"));
     }
+    let analysis = analyze_document(&parsed.source, &parsed.syntax);
     Ok(json!({
         "pandoc-api-version": [1, 23, 1],
         "meta": {},
-        "blocks": lower_blocks(&parsed.syntax.blocks, &analyze_headings(&parsed.syntax)),
+        "blocks": lower_blocks(&parsed.syntax.blocks, &analysis),
     }))
 }
 
-fn lower_blocks(blocks: &[Block], headings: &HeadingOutput) -> Vec<Value> {
+fn lower_blocks(blocks: &[Block], analysis: &DocumentOutput) -> Vec<Value> {
     let mut output = Vec::new();
     for block in blocks {
         match block {
@@ -75,40 +76,40 @@ fn lower_blocks(blocks: &[Block], headings: &HeadingOutput) -> Vec<Value> {
                 "t": "CodeBlock",
                 "c": [lower_attrs(&code.attrs, None), code.text],
             })),
-            Block::Parsed(parsed) => lower_parsed_block(parsed, headings, &mut output),
+            Block::Parsed(parsed) => lower_parsed_block(parsed, analysis, &mut output),
         }
     }
     output
 }
 
-fn lower_parsed_block(block: &ParsedBlock, headings: &HeadingOutput, output: &mut Vec<Value>) {
+fn lower_parsed_block(block: &ParsedBlock, analysis: &DocumentOutput, output: &mut Vec<Value>) {
     let marker = block.mark.as_ref().and_then(|mark| mark.marker.as_deref());
-    if let Some(heading) = headings.heading_at_node_start(block.range.start) {
+    if let Some(heading) = analysis.headings.heading_at_node_start(block.range.start) {
         let attrs = &block.mark.as_ref().expect("heading has mark").attrs;
         output.push(json!({
             "t": "Header",
-            "c": [heading.level, lower_attrs(attrs, None), lower_inlines(&block.head)],
+            "c": [heading.level, lower_attrs(attrs, None), lower_inlines(&block.head, analysis)],
         }));
-        output.extend(lower_blocks(&block.children, headings));
+        output.extend(lower_blocks(&block.children, analysis));
         return;
     }
 
     if let Some(mark) = &block.mark {
         let mut contents = Vec::new();
         if !block.head.items.is_empty() {
-            contents.push(json!({ "t": "Para", "c": lower_inlines(&block.head) }));
+            contents.push(json!({ "t": "Para", "c": lower_inlines(&block.head, analysis) }));
         }
-        contents.extend(lower_blocks(&block.children, headings));
+        contents.extend(lower_blocks(&block.children, analysis));
         output.push(json!({
             "t": "Div",
             "c": [lower_attrs(&mark.attrs, marker), contents],
         }));
     } else {
-        output.push(json!({ "t": "Para", "c": lower_inlines(&block.head) }));
+        output.push(json!({ "t": "Para", "c": lower_inlines(&block.head, analysis) }));
     }
 }
 
-fn lower_inlines(content: &InlineContent) -> Vec<Value> {
+fn lower_inlines(content: &InlineContent, analysis: &DocumentOutput) -> Vec<Value> {
     let mut output = Vec::new();
     for inline in &content.items {
         match inline {
@@ -119,14 +120,24 @@ fn lower_inlines(content: &InlineContent) -> Vec<Value> {
                 "c": [lower_attrs(attrs, None), text],
             })),
             Inline::Element {
+                range,
                 kind,
                 content,
                 attrs,
                 ..
-            } => output.push(json!({
-                "t": "Span",
-                "c": [lower_attrs(attrs, kind.as_deref()), lower_inlines(content)],
-            })),
+            } => {
+                if let Some(link) = analysis.link_at_node_start(range.start) {
+                    output.push(json!({
+                        "t": "Link",
+                        "c": [lower_attrs(attrs, None), lower_inlines(content, analysis), [&link.target.value, ""]],
+                    }));
+                } else {
+                    output.push(json!({
+                        "t": "Span",
+                        "c": [lower_attrs(attrs, kind.as_deref()), lower_inlines(content, analysis)],
+                    }));
+                }
+            }
         }
     }
     output
@@ -180,5 +191,12 @@ mod tests {
     #[test]
     fn rejects_syntax_errors() {
         assert!(export("`node{key=a key=b} broken\n").is_err());
+    }
+
+    #[test]
+    fn exports_links_from_shared_document_facts() {
+        let document = export("See `link[target]{to=\"other.plumb#id\"}.\n").unwrap();
+        assert_eq!(document["blocks"][0]["c"][2]["t"], "Link");
+        assert_eq!(document["blocks"][0]["c"][2]["c"][2][0], "other.plumb#id");
     }
 }

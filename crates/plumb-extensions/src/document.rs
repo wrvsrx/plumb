@@ -72,6 +72,12 @@ pub struct DocumentOutput {
     pub diagnostics: Vec<Diagnostic>,
 }
 
+impl DocumentOutput {
+    pub fn link_at_node_start(&self, start: usize) -> Option<&LinkRecord> {
+        self.links.iter().find(|link| link.range.start == start)
+    }
+}
+
 pub fn analyze_document(source: &str, document: &Document) -> DocumentOutput {
     let headings = analyze_headings(document);
     let mut output = DocumentOutput {
