@@ -4,6 +4,7 @@ use std::io::{self, Read};
 use std::process::ExitCode;
 
 use plumb_core::{parse, AttrItem, Attributes, Block, Inline, InlineContent, ParsedBlock};
+use plumb_extensions::{analyze_headings, HeadingOutput};
 use serde_json::{json, Value};
 
 fn main() -> ExitCode {
@@ -62,11 +63,11 @@ fn export(source: &str) -> Result<Value, String> {
     Ok(json!({
         "pandoc-api-version": [1, 23, 1],
         "meta": {},
-        "blocks": lower_blocks(&parsed.syntax.blocks),
+        "blocks": lower_blocks(&parsed.syntax.blocks, &analyze_headings(&parsed.syntax)),
     }))
 }
 
-fn lower_blocks(blocks: &[Block]) -> Vec<Value> {
+fn lower_blocks(blocks: &[Block], headings: &HeadingOutput) -> Vec<Value> {
     let mut output = Vec::new();
     for block in blocks {
         match block {
@@ -74,21 +75,21 @@ fn lower_blocks(blocks: &[Block]) -> Vec<Value> {
                 "t": "CodeBlock",
                 "c": [lower_attrs(&code.attrs, None), code.text],
             })),
-            Block::Parsed(parsed) => lower_parsed_block(parsed, &mut output),
+            Block::Parsed(parsed) => lower_parsed_block(parsed, headings, &mut output),
         }
     }
     output
 }
 
-fn lower_parsed_block(block: &ParsedBlock, output: &mut Vec<Value>) {
+fn lower_parsed_block(block: &ParsedBlock, headings: &HeadingOutput, output: &mut Vec<Value>) {
     let marker = block.mark.as_ref().and_then(|mark| mark.marker.as_deref());
-    if let Some(level) = heading_level(block) {
+    if let Some(heading) = headings.heading_at_node_start(block.range.start) {
         let attrs = &block.mark.as_ref().expect("heading has mark").attrs;
         output.push(json!({
             "t": "Header",
-            "c": [level, lower_attrs(attrs, None), lower_inlines(&block.head)],
+            "c": [heading.level, lower_attrs(attrs, None), lower_inlines(&block.head)],
         }));
-        output.extend(lower_blocks(&block.children));
+        output.extend(lower_blocks(&block.children, headings));
         return;
     }
 
@@ -97,7 +98,7 @@ fn lower_parsed_block(block: &ParsedBlock, output: &mut Vec<Value>) {
         if !block.head.items.is_empty() {
             contents.push(json!({ "t": "Para", "c": lower_inlines(&block.head) }));
         }
-        contents.extend(lower_blocks(&block.children));
+        contents.extend(lower_blocks(&block.children, headings));
         output.push(json!({
             "t": "Div",
             "c": [lower_attrs(&mark.attrs, marker), contents],
@@ -105,19 +106,6 @@ fn lower_parsed_block(block: &ParsedBlock, output: &mut Vec<Value>) {
     } else {
         output.push(json!({ "t": "Para", "c": lower_inlines(&block.head) }));
     }
-}
-
-fn heading_level(block: &ParsedBlock) -> Option<u8> {
-    let mark = block.mark.as_ref()?;
-    let marker = mark.marker.as_deref()?;
-    let hashes = marker.bytes().take_while(|byte| *byte == b'#').count();
-    if hashes == marker.len() && (1..=6).contains(&hashes) {
-        return Some(hashes as u8);
-    }
-    (marker == "heading")
-        .then(|| mark.attrs.value("level")?.parse::<u8>().ok())
-        .flatten()
-        .filter(|level| (1..=6).contains(level))
 }
 
 fn lower_inlines(content: &InlineContent) -> Vec<Value> {

@@ -1,10 +1,8 @@
 [package]
-name = "plumb-export"
+name = "plumb-extensions"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
 [dependencies]
 plumb-core = { path = "../plumb-core" }
-plumb-extensions = { path = "../plumb-extensions" }
-serde_json.workspace = true

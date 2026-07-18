@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use crate::{Block, Diagnostic, DiagnosticSeverity, Document, ParsedBlock};
+use plumb_core::{Block, Diagnostic, DiagnosticSeverity, Document, ParsedBlock};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Heading {
@@ -16,6 +16,12 @@ pub struct Heading {
 pub struct HeadingOutput {
     pub headings: Vec<Heading>,
     pub diagnostics: Vec<Diagnostic>,
+}
+
+impl HeadingOutput {
+    pub fn heading_at_node_start(&self, start: usize) -> Option<&Heading> {
+        find_heading(&self.headings, start)
+    }
 }
 
 pub fn analyze_headings(document: &Document) -> HeadingOutput {
@@ -151,4 +157,32 @@ fn get_heading_children_mut<'a>(
         children = &mut children[*index].children;
     }
     children
+}
+
+fn find_heading(headings: &[Heading], start: usize) -> Option<&Heading> {
+    for heading in headings {
+        if heading.node_range.start == start {
+            return Some(heading);
+        }
+        if let Some(found) = find_heading(&heading.children, start) {
+            return Some(found);
+        }
+    }
+    None
+}
+
+#[cfg(test)]
+mod tests {
+    use plumb_core::parse;
+
+    use super::*;
+
+    #[test]
+    fn builds_heading_hierarchy() {
+        let parsed =
+            parse("`heading{level=1} One\n`heading{level=2} Two\n`heading{level=1} Three\n");
+        let output = analyze_headings(&parsed.syntax);
+        assert_eq!(output.headings.len(), 2);
+        assert_eq!(output.headings[0].children[0].title, "Two");
+    }
 }

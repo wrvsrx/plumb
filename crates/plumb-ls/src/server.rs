@@ -11,7 +11,8 @@ use lsp_types::{
     NumberOrString, OneOf, PublishDiagnosticsParams, ServerCapabilities, SymbolKind,
     TextDocumentSyncCapability, TextDocumentSyncKind, Url,
 };
-use plumb_core::{analyze_headings, parse, Diagnostic, Heading, ParsedDocument};
+use plumb_core::{parse, Diagnostic, ParsedDocument};
+use plumb_extensions::{analyze_headings, Heading};
 
 use crate::position::byte_range_to_lsp;
 

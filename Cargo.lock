@@ -360,7 +360,15 @@ name = "plumb-export"
 version = "0.2.1-dev"
 dependencies = [
  "plumb-core",
+ "plumb-extensions",
  "serde_json",
+]
+
+[[package]]
+name = "plumb-extensions"
+version = "0.2.1-dev"
+dependencies = [
+ "plumb-core",
 ]
 
 [[package]]
@@ -371,6 +379,7 @@ dependencies = [
  "futures",
  "lsp-types",
  "plumb-core",
+ "plumb-extensions",
  "serde_json",
  "tokio",
  "tower",

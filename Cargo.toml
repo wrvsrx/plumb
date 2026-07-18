@@ -1,6 +1,11 @@
 [workspace]
 resolver = "2"
-members = ["crates/plumb-core", "crates/plumb-ls", "crates/plumb-export"]
+members = [
+  "crates/plumb-core",
+  "crates/plumb-extensions",
+  "crates/plumb-ls",
+  "crates/plumb-export",
+]
 
 [workspace.package]
 version = "0.2.1-dev"

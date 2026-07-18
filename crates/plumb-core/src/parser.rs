@@ -824,13 +824,4 @@ mod tests {
         };
         assert_eq!(block.head.plain_text(), "Text inside and raw.");
     }
-
-    #[test]
-    fn builds_heading_hierarchy() {
-        let parsed =
-            parse("`heading{level=1} One\n`heading{level=2} Two\n`heading{level=1} Three\n");
-        let output = crate::analyze_headings(&parsed.syntax);
-        assert_eq!(output.headings.len(), 2);
-        assert_eq!(output.headings[0].children[0].title, "Two");
-    }
 }
