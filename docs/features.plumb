@@ -49,7 +49,7 @@ djot-tools crates。README、semantics 与实际 handler/command 用来确认已
 `### 迁移边界
 
 `- Djot implicit links、Djot auto heading ids、native task-list spelling 和 fenced div conversion
-  不能原样迁移；对应能力只能基于 plumb 官方 extension spelling/profile 实现。
+  不迁移。plumb heading 的 head/title 不生成 id；只有 source 中的显式 id attribute 产生 anchor。
 `- Pandoc 的 Djot reader 不能作为 plumb reader；`"[plumb-export]" 必须由 plumb tree 构造
   Pandoc AST，pandoc 只作为 writer。
 `- djot-tools 的 bundled Codex skills、Neovim 示例、内部 module cleanup 和计划中的 live web UI
@@ -118,8 +118,8 @@ capability negotiation、不可变 operation context，以及独立的 cancellat
 
 `- [plumb] MVP 语言无关的 extension contract、诊断合并模型和官方 host API。
 `- [plumb] MVP headings + outline extensions：解释约定的 marker 并构建 document symbols。
-`- [plumb] MVP anchors / links analyses：收集显式锚点、自动 heading id、链接
-  引用和目标分类。
+`- [plumb] MVP anchors / links analyses：收集显式锚点、链接引用和目标分类；无显式 id 的
+  heading 只参与 outline，不是 link target。
 `- [plumb] MVP target resolution：解析内部和相对跨文件目标；URL 只分类、不读取网络。
 `- [plumb] MVP workspace analysis：按规范化 document id 存 snapshots / outputs，支持打开
   buffer、磁盘文档和跨文件引用查询。
@@ -160,8 +160,8 @@ capability wiring 和 revision/cancellation policy，不复制 parser 或 semant
 `- [plumb] MVP `"[textDocument/prepareRename]" / `"[rename]"：经 guarded operation 重命名 explicit
   anchor；document/path rename 同时返回 resource rename 和所有受影响的 relative-link edits。
 `- [plumb] MVP `"[textDocument/hover]"：目标类型、id、路径和源码预览。
-`- [plumb] MVP `"[textDocument/codeAction]"：先提供 materialize explicit id 和 metadata insertion；
-  action 只包装 extension operation 的 byte edits。
+`- [plumb] MVP `"[textDocument/codeAction]"：先提供 add explicit id 和 metadata insertion；action
+  只包装 extension operation 的 byte edits。
 `- [plumb] MVP FULL 文本同步；打开 buffer 优先于磁盘版本。
 `- [plumb] MVP 初始化时索引根下文档；无根时仅索引已打开 buffer 和惰性目标。
 `- [plumb] MVP 处理 create/change/remove file events 并 targeted re-index；client 支持时动态注册
@@ -173,8 +173,8 @@ capability wiring 和 revision/cancellation policy，不复制 parser 或 semant
   code actions。
 `- [plumb] v1 semantic tokens 标记 completed/canceled task；folding、selection range 和更多
   refactors。
-`- [plumb] later heading-text rename：更新 heading text、derived id 和引用；它与 explicit anchor
-  rename 是不同 operation。
+`- [plumb] later heading-text rename：只更新 heading text；因为 heading title 不派生 anchor id，
+  它不会隐式改写 references。
 
 `## D. 导出（`"[plumb-export]"）
 
@@ -234,7 +234,7 @@ capability wiring 和 revision/cancellation policy，不复制 parser 或 semant
   remove/open-buffer lifecycle。用 nested paths、spaces/escaping、duplicate ids 和 partial index
   fixtures 验证。
 `- `"[Phase 4: authoring operations]"：实现 recovered completion、explicit anchor rename、document
-  rename、materialize-id fix 和 metadata insertion。先在 protocol-neutral tests 验证 source maps、
+  rename、add-explicit-id fix 和 metadata insertion。先在 protocol-neutral tests 验证 source maps、
   overlap rejection、revision guards 和 resource capabilities，再映射到 LSP。
 `- `"[Phase 5: export]"：完成 `"[D07]" spike，建立 Pandoc-shaped lowering；先交付 plain structure
   + links，再加入 metadata/citations。golden tests 比较 Pandoc JSON；pandoc 只作为 writer 做
