@@ -111,7 +111,7 @@ semantics can be shared by more than one tool:
 - **`plumb-workspace`** — document snapshots, last-valid extension outputs,
   dependency invalidation, cross-file indexes, and guarded workspace edits.
 - **`plumb-ls`** — everything LSP (`lsp_types`, `async-lsp`, UTF-16 positions);
-  wires core + extensions, hosts recovered editor queries, and merges their
+  wires core + extensions, hosts request-scoped queries, and merges their
   diagnostics.
 - **`plumb-export`** — itself an extension: valid typed view or exporter-specific
   normalized model → `pandoc_types` JSON → `pandoc` (writer only).

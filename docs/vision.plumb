@@ -43,7 +43,7 @@ plumb 采用 Pandoc / Docutils 风格的分层：
   mode 而由 syntax 特判。core 不含
   文件 I/O，不解析链接目标，不生成 id，不做大纲、任务、元信息或导出语义。
 `- extension = language-neutral semantic contract。消费 typed view、snapshots 和已声明的
-  outputs，产出 editor query、analysis、diagnostics 或 effect proposal，添加全部语义：大纲、
+  outputs，产出 query、analysis、diagnostics 或 effect proposal，添加全部语义：大纲、
   锚点、引用解析、元信息、任务、工作区索引、HTML / Pandoc 导出等。导出器本身也是
   extension。Rust module、WASM 或外部进程只是可能的 host mechanism，不属于 extension
   的定义。

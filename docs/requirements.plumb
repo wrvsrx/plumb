@@ -84,9 +84,10 @@ tree-sitter 可以做宽松镜像，不能反向约束权威语法。
 `### 4.4 语义中立
 
 core 第一阶段对每个 revision 只产出一棵 semantics-neutral recovered lossless SyntaxTree 和
-syntax diagnostics，不解释 heading、list、quote、kind 或 attributes 的意义。editor query
-可以读取 recovered typed view；权威 semantic analysis 只能读取 diagnostics 为空时对同一棵
-树建立的 valid view。normalized AST 仅在实际 consumer 证明需要时 materialize。
+syntax diagnostics，不解释 heading、list、quote、kind 或 attributes 的意义。声明 recovered
+input policy 的 query 可以读取 recovered typed view；权威 semantic analysis 只能读取
+diagnostics 为空时对同一棵树建立的 valid view。normalized AST 仅在实际 consumer 证明需要时
+materialize。
 
 `### 4.5 Reject-but-recover
 
@@ -294,8 +295,8 @@ contract，具体 Rust API 仍属于 implementation。完整规则见 `"[docs/ex
 `- `"[definition-lists]"
 `- `"[events]"
 
-extension 分为 recovered editor query、valid document analysis、workspace analysis 和
-operation。completion/assist 可以消费当前 recovered tree；outline、indexes、rename 和 export
+extension 分为 query、document analysis、workspace analysis 和 operation。completion/assist
+query 可以消费当前 recovered tree；outline、indexes、rename 和 export
 只能消费满足各自 revision/validity policy 的 inputs。invalid current revision 不产生新的
 权威 semantic output，但 host 可以保留明确标注旧 revision 的 last-valid cache。
 
