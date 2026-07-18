@@ -1,0 +1,18 @@
+[package]
+name = "plumb-ls"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+plumb-core = { path = "../plumb-core" }
+async-lsp = { version = "0.2.4", features = ["tokio"] }
+futures = { version = "0.3", default-features = false, features = ["async-await", "std"] }
+lsp-types = "0.95"
+tokio = { version = "1", features = ["io-std", "io-util", "macros", "net", "rt", "time"] }
+tower = "0.5"
+tracing = "0.1"
+tracing-subscriber = "0.3"
+
+[dev-dependencies]
+serde_json.workspace = true
