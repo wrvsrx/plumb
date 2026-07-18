@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use plumb_core::{Block, Diagnostic, DiagnosticSeverity, Document, ParsedBlock};
+use plumb_core::{Block, Diagnostic, Document, ParsedBlock};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Heading {
@@ -27,14 +27,12 @@ impl HeadingOutput {
 pub fn analyze_headings(document: &Document) -> HeadingOutput {
     let mut flat = Vec::new();
     collect_headings(&document.blocks, &mut flat);
-    let mut diagnostics = Vec::new();
+    let diagnostics = Vec::new();
     let mut roots: Vec<Heading> = Vec::new();
     let mut path: Vec<usize> = Vec::new();
 
     for (index, block) in flat.iter().enumerate() {
-        let Some(level) = heading_level(block, &mut diagnostics) else {
-            continue;
-        };
+        let level = heading_level(block).expect("only heading markers are collected");
 
         while let Some(parent) = get_heading(&roots, &path) {
             if parent.level < level {
@@ -46,7 +44,7 @@ pub fn analyze_headings(document: &Document) -> HeadingOutput {
         let section_end = flat
             .iter()
             .skip(index + 1)
-            .find(|next| heading_level_quiet(next).is_some_and(|next| next <= level))
+            .find(|next| heading_level(next).is_some_and(|next| next <= level))
             .map(|next| next.range.start)
             .unwrap_or(document.range.end);
 
@@ -85,58 +83,19 @@ fn is_heading_marker(block: &ParsedBlock) -> bool {
         .mark
         .as_ref()
         .and_then(|mark| mark.marker.as_deref())
-        .is_some_and(|marker| marker == "heading" || hash_level(marker).is_some())
+        .and_then(hash_level)
+        .is_some()
 }
 
-fn heading_level(block: &ParsedBlock, diagnostics: &mut Vec<Diagnostic>) -> Option<u8> {
+fn heading_level(block: &ParsedBlock) -> Option<u8> {
     let mark = block.mark.as_ref()?;
     let marker = mark.marker.as_deref()?;
-    if let Some(level) = hash_level(marker) {
-        return Some(level);
-    }
-    let Some(level_text) = mark.attrs.value("level") else {
-        diagnostics.push(Diagnostic {
-            code: "heading.missing-level",
-            severity: DiagnosticSeverity::Warning,
-            message: "heading requires a level attribute from 1 through 6".to_string(),
-            range: block.range.clone(),
-            related: Vec::new(),
-        });
-        return None;
-    };
-    match level_text.parse::<u8>() {
-        Ok(level) if (1..=6).contains(&level) => Some(level),
-        _ => {
-            diagnostics.push(invalid_level(block));
-            None
-        }
-    }
-}
-
-fn heading_level_quiet(block: &ParsedBlock) -> Option<u8> {
-    let mark = block.mark.as_ref()?;
-    let marker = mark.marker.as_deref()?;
-    hash_level(marker).or_else(|| {
-        (marker == "heading")
-            .then(|| mark.attrs.value("level")?.parse::<u8>().ok())
-            .flatten()
-            .filter(|level| (1..=6).contains(level))
-    })
+    hash_level(marker)
 }
 
 fn hash_level(marker: &str) -> Option<u8> {
     let count = marker.bytes().take_while(|byte| *byte == b'#').count();
     (count == marker.len() && (1..=6).contains(&count)).then_some(count as u8)
-}
-
-fn invalid_level(block: &ParsedBlock) -> Diagnostic {
-    Diagnostic {
-        code: "heading.invalid-level",
-        severity: DiagnosticSeverity::Warning,
-        message: "heading level must be an integer from 1 through 6".to_string(),
-        range: block.range.clone(),
-        related: Vec::new(),
-    }
 }
 
 fn get_heading<'a>(roots: &'a [Heading], path: &[usize]) -> Option<&'a Heading> {
@@ -179,8 +138,7 @@ mod tests {
 
     #[test]
     fn builds_heading_hierarchy() {
-        let parsed =
-            parse("`heading{level=1} One\n`heading{level=2} Two\n`heading{level=1} Three\n");
+        let parsed = parse("`# One\n`## Two\n`# Three\n");
         let output = analyze_headings(&parsed.syntax);
         assert_eq!(output.headings.len(), 2);
         assert_eq!(output.headings[0].children[0].title, "Two");

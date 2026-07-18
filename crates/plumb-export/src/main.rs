@@ -170,8 +170,7 @@ mod tests {
     #[test]
     fn exports_heading_paragraph_and_generic_block() {
         let document =
-            export("`heading{#intro level=1} Intro\nParagraph text.\n`note{.tip} Remember this.\n")
-                .unwrap();
+            export("`#{#intro} Intro\nParagraph text.\n`note{.tip} Remember this.\n").unwrap();
         let blocks = document["blocks"].as_array().unwrap();
         assert_eq!(blocks[0]["t"], "Header");
         assert_eq!(blocks[1]["t"], "Para");

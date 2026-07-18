@@ -206,7 +206,7 @@ mod tests {
 
     #[test]
     fn maps_nested_heading_facts_to_nested_symbols() {
-        let parsed = parse("`heading{level=1} One\n`heading{level=2} Two\n");
+        let parsed = parse("`# One\n`## Two\n");
         let output = analyze_headings(&parsed.syntax);
         let symbols = output
             .headings

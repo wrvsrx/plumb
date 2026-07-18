@@ -15,9 +15,9 @@ SyntaxTree contract 已冻结；normalized AST 和 extension-specific semantics 
 `- `"[plumb-ls]" 支持 FULL sync、current-revision diagnostics 和 nested document symbols。
 `- `"[plumb-export]" 从同一 valid tree 产生 Pandoc JSON；syntax error 时拒绝输出。
 
-当前 heading profile 是 dogfood prototype：`"[#]" 至 `"[######]" marker 的长度是 level，同时
-接受示例形式 `"[heading{level=N}]"。它用于验证 extension/dataflow boundary，不代表 D01 已冻结。
-运行方法、测试边界和已知 parser gaps 见 `"[docs/toolchain.plumb]"。
+当前 heading profile 已确定：`"[#]" 至 `"[######]" marker 的长度是 level，`"[{#id}]" 是唯一
+显式 anchor spelling；`"[id=value]" 不产生 anchor。运行方法、测试边界和已知 parser gaps 见
+`"[docs/toolchain.plumb]"。
 
 `## Djot-tools feature 审计
 

@@ -28,7 +28,7 @@ fn publishes_diagnostics_and_returns_heading_symbols_over_stdio() {
                     "uri": "file:///tmp/first.plumb",
                     "languageId": "plumb",
                     "version": 1,
-                    "text": "`heading{level=1} Root\n`heading{level=2} Child\n"
+                    "text": "`# Root\n`## Child\n"
                 }
             }
         }),
