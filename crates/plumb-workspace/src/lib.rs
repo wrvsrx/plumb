@@ -4,6 +4,39 @@ use std::path::{Component, Path, PathBuf};
 use plumb_core::{parse, Diagnostic, DiagnosticSeverity, ParsedDocument};
 use plumb_extensions::{analyze_document, AnchorRecord, DocumentOutput, LinkRecord, LinkTarget};
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TextEdit {
+    pub range: std::ops::Range<usize>,
+    pub new_text: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DocumentEdit {
+    pub path: PathBuf,
+    pub expected_revision: i64,
+    pub edits: Vec<TextEdit>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct WorkspaceEdit {
+    pub document_changes: Vec<DocumentEdit>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RenameTarget {
+    pub path: PathBuf,
+    pub id: String,
+    pub range: std::ops::Range<usize>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RenameError {
+    NotRenameable,
+    InvalidId,
+    StaleOrInvalidDocument,
+    OverlappingEdits,
+}
+
 #[derive(Debug, Clone)]
 pub struct VersionedDocumentOutput {
     pub revision: i64,
@@ -228,6 +261,113 @@ impl Workspace {
         diagnostics
     }
 
+    pub fn anchor_rename_target_at(
+        &self,
+        path: impl AsRef<Path>,
+        offset: usize,
+    ) -> Result<RenameTarget, RenameError> {
+        let path = normalize(path.as_ref());
+        let output = self
+            .current_output(&path)
+            .ok_or(RenameError::StaleOrInvalidDocument)?;
+        if let Some(anchor) = output
+            .anchors
+            .iter()
+            .find(|anchor| contains_inclusive(&anchor.id.range, offset))
+        {
+            return Ok(RenameTarget {
+                path,
+                id: anchor.id.value.clone(),
+                range: anchor.id.range.clone(),
+            });
+        }
+        let link = output
+            .links
+            .iter()
+            .find(|link| {
+                link.fragment_range
+                    .as_ref()
+                    .is_some_and(|range| contains_inclusive(range, offset))
+            })
+            .ok_or(RenameError::NotRenameable)?;
+        let range = link
+            .fragment_range
+            .clone()
+            .ok_or(RenameError::NotRenameable)?;
+        match self.resolve_link(&path, link) {
+            ResolvedTarget::Anchor { path, id, .. } => Ok(RenameTarget { path, id, range }),
+            _ => Err(RenameError::NotRenameable),
+        }
+    }
+
+    pub fn rename_anchor(
+        &self,
+        target: &RenameTarget,
+        replacement: &str,
+    ) -> Result<WorkspaceEdit, RenameError> {
+        if !valid_anchor_id(replacement) {
+            return Err(RenameError::InvalidId);
+        }
+        let entry = self
+            .documents
+            .get(&target.path)
+            .filter(|entry| entry.current.is_some())
+            .ok_or(RenameError::StaleOrInvalidDocument)?;
+        let anchor = entry
+            .current
+            .as_ref()
+            .and_then(|current| {
+                current
+                    .output
+                    .anchors
+                    .iter()
+                    .find(|anchor| anchor.id.value == target.id)
+            })
+            .ok_or(RenameError::NotRenameable)?;
+        let mut grouped: HashMap<PathBuf, Vec<TextEdit>> = HashMap::new();
+        grouped
+            .entry(target.path.clone())
+            .or_default()
+            .push(TextEdit {
+                range: anchor.id.range.clone(),
+                new_text: replacement.to_string(),
+            });
+        for (path, link) in self.references_to(&target.path, &target.id) {
+            let Some(range) = &link.fragment_range else {
+                continue;
+            };
+            grouped
+                .entry(path.to_path_buf())
+                .or_default()
+                .push(TextEdit {
+                    range: range.clone(),
+                    new_text: replacement.to_string(),
+                });
+        }
+        let mut document_changes = Vec::new();
+        for (path, mut edits) in grouped {
+            edits.sort_by_key(|edit| edit.range.start);
+            if edits
+                .windows(2)
+                .any(|pair| pair[0].range.end > pair[1].range.start)
+            {
+                return Err(RenameError::OverlappingEdits);
+            }
+            let expected_revision = self
+                .documents
+                .get(&path)
+                .ok_or(RenameError::StaleOrInvalidDocument)?
+                .revision;
+            document_changes.push(DocumentEdit {
+                path,
+                expected_revision,
+                edits,
+            });
+        }
+        document_changes.sort_by(|left, right| left.path.cmp(&right.path));
+        Ok(WorkspaceEdit { document_changes })
+    }
+
     fn current_output(&self, path: &Path) -> Option<&DocumentOutput> {
         self.documents
             .get(&normalize(path))?
@@ -260,6 +400,22 @@ fn resolve_relative(from: &Path, target: &str) -> PathBuf {
     } else {
         normalize(&from.parent().unwrap_or_else(|| Path::new("")).join(target))
     }
+}
+
+fn contains_inclusive(range: &std::ops::Range<usize>, offset: usize) -> bool {
+    range.start <= offset && offset <= range.end
+}
+
+fn valid_anchor_id(value: &str) -> bool {
+    !value.is_empty()
+        && value.chars().all(|character| {
+            !character.is_whitespace()
+                && !character.is_control()
+                && !matches!(
+                    character,
+                    '`' | '"' | '[' | ']' | '{' | '}' | '#' | '.' | '='
+                )
+        })
 }
 
 #[cfg(test)]
@@ -322,5 +478,38 @@ mod tests {
         workspace.insert("a.plumb", 1, "`#{#target} Target\n");
         workspace.insert("b.plumb", 1, "`link[x]{to=\"a.plumb#target\"}\n");
         assert_eq!(workspace.references_to("a.plumb", "target").len(), 1);
+    }
+
+    #[test]
+    fn rename_updates_declaration_and_cross_file_fragments() {
+        let mut workspace = Workspace::new();
+        workspace.insert("a.plumb", 4, "`#{#target} Target\n");
+        workspace.insert("b.plumb", 7, "`link[x]{to=\"a.plumb#target\"}\n");
+        let target = workspace.anchor_rename_target_at("a.plumb", 5).unwrap();
+        let edit = workspace.rename_anchor(&target, "renamed").unwrap();
+        assert_eq!(edit.document_changes.len(), 2);
+        assert_eq!(edit.document_changes[0].expected_revision, 4);
+        assert_eq!(edit.document_changes[1].expected_revision, 7);
+        assert!(edit
+            .document_changes
+            .iter()
+            .flat_map(|document| &document.edits)
+            .all(|edit| edit.new_text == "renamed"));
+    }
+
+    #[test]
+    fn rename_rejects_pair_style_or_invalid_ids() {
+        let mut workspace = Workspace::new();
+        workspace.insert("a.plumb", 1, "`#{id=pair} Not an anchor\n");
+        assert_eq!(
+            workspace.anchor_rename_target_at("a.plumb", 6),
+            Err(RenameError::NotRenameable)
+        );
+        workspace.insert("a.plumb", 2, "`#{#real} Anchor\n");
+        let target = workspace.anchor_rename_target_at("a.plumb", 5).unwrap();
+        assert_eq!(
+            workspace.rename_anchor(&target, "has space"),
+            Err(RenameError::InvalidId)
+        );
     }
 }
