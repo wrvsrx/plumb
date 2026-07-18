@@ -63,7 +63,9 @@ fn export(source: &str) -> Result<Value, String> {
     let analysis = analyze_document(&parsed.source, &parsed.syntax);
     Ok(json!({
         "pandoc-api-version": [1, 23, 1],
-        "meta": {},
+        "meta": analysis.metadata.as_ref().map_or_else(serde_json::Map::new, |metadata| {
+            metadata.table.iter().map(|(key, value)| (key.clone(), lower_meta(value))).collect()
+        }),
         "blocks": lower_blocks(&parsed.syntax.blocks, &analysis),
     }))
 }
@@ -72,14 +74,41 @@ fn lower_blocks(blocks: &[Block], analysis: &DocumentOutput) -> Vec<Value> {
     let mut output = Vec::new();
     for block in blocks {
         match block {
-            Block::Code(code) => output.push(json!({
-                "t": "CodeBlock",
-                "c": [lower_attrs(&code.attrs, None), code.text],
-            })),
+            Block::Code(code) => {
+                if analysis
+                    .metadata
+                    .as_ref()
+                    .is_some_and(|metadata| metadata.range == code.range)
+                {
+                    continue;
+                }
+                output.push(json!({
+                    "t": "CodeBlock",
+                    "c": [lower_attrs(&code.attrs, None), code.text],
+                }));
+            }
             Block::Parsed(parsed) => lower_parsed_block(parsed, analysis, &mut output),
         }
     }
     output
+}
+
+fn lower_meta(value: &toml::Value) -> Value {
+    match value {
+        toml::Value::Boolean(value) => json!({ "t": "MetaBool", "c": value }),
+        toml::Value::Array(values) => json!({
+            "t": "MetaList",
+            "c": values.iter().map(lower_meta).collect::<Vec<_>>(),
+        }),
+        toml::Value::Table(values) => json!({
+            "t": "MetaMap",
+            "c": values.iter().map(|(key, value)| (key.clone(), lower_meta(value))).collect::<serde_json::Map<_, _>>(),
+        }),
+        toml::Value::String(value) => json!({ "t": "MetaString", "c": value }),
+        toml::Value::Integer(value) => json!({ "t": "MetaString", "c": value.to_string() }),
+        toml::Value::Float(value) => json!({ "t": "MetaString", "c": value.to_string() }),
+        toml::Value::Datetime(value) => json!({ "t": "MetaString", "c": value.to_string() }),
+    }
 }
 
 fn lower_parsed_block(block: &ParsedBlock, analysis: &DocumentOutput, output: &mut Vec<Value>) {
@@ -198,5 +227,15 @@ mod tests {
         let document = export("See `link[target]{to=\"other.plumb#id\"}.\n").unwrap();
         assert_eq!(document["blocks"][0]["c"][2]["t"], "Link");
         assert_eq!(document["blocks"][0]["c"][2]["c"][2][0], "other.plumb#id");
+    }
+
+    #[test]
+    fn lifts_metadata_out_of_the_body() {
+        let document =
+            export("`\"{.metadata}\n  title = \"Design\"\n  draft = true\n\n`# Body\n").unwrap();
+        assert_eq!(document["meta"]["title"]["c"], "Design");
+        assert_eq!(document["meta"]["draft"]["c"], true);
+        assert_eq!(document["blocks"].as_array().unwrap().len(), 1);
+        assert_eq!(document["blocks"][0]["t"], "Header");
     }
 }
