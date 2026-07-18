@@ -1,0 +1,65 @@
+`# 第一版 toolchain
+
+`> 状态：可运行的 vertical-slice prototype，不是完整 MVP parser release。syntax source of truth
+  仍是 `"[docs/spec.plumb]" 和 `"[docs/inline.plumb]"；本页明确记录实现覆盖面和剩余差距。
+
+`## Build and test
+
+`"{language=text}
+  nix develop -c cargo build --workspace
+  nix develop -c cargo test --workspace
+  nix develop -c cargo check --workspace --all-targets
+  nix build
+
+`"[nix build]" 产生包含 `"[plumb-ls]" 和 `"[plumb-export]" 的 package。
+
+`## LSP
+
+`"[plumb-ls]" 通过 stdio 提供：
+
+`- FULL document sync。
+`- 当前 revision 的 strict syntax diagnostics；syntax valid 时再加入 heading diagnostics。
+`- `"[textDocument/documentSymbol]" nested heading symbols。
+
+第一版只保存 opened documents，不扫描 workspace，也尚未实现 links、completion、rename 或
+task symbols。async-lsp advertised notifications 必须继续显式实现；增加 capability 时遵守
+`"[AGENTS.md]" 的 runtime gotcha。
+
+`## Export
+
+`"{language=text}
+  plumb-export document.plumb | pandoc -f json -t html -o document.html
+  cat document.plumb | plumb-export | pandoc -f json -o document.pdf
+
+exporter 直接从 `"[plumb-core]" valid tree 生成 Pandoc JSON，不调用 Pandoc reader。paragraph、
+heading、generic marked block、code block、generic span 和 inline verbatim 分别 lower 到 Para、
+Header、Div、CodeBlock、Span 和 Code。generic marker 保存在 `"[data-plumb-marker]" attribute 中；
+pandoc 仅作为 writer 消费结果。
+
+`## Experimental heading profile
+
+为验证 Heading facts → document symbols / Pandoc Header 的共享 dataflow，prototype 暂时识别：
+
+`"{language=plumb}
+  `# Level one
+  `## Level two
+  `heading{level=3} Explicit prototype spelling
+
+hash run 必须为一至六个；`"[heading]" marker 需要 `"[level=1]" 至 `"[level=6]"。这不是 official
+profile freeze；D01 仍应在扩展更多 heading behavior 前单独确认。
+
+`## Known parser gaps
+
+当前 parser 已覆盖 paragraph、generic marked block、attributes、indented raw code、inline
+element/verbatim、basic indentation recovery 和 duplicate id/key diagnostics，并能解析仓库全部
+dogfood docs。它还没有满足完整 strict parser release gate：
+
+`- parsed inline element 尚不能跨 physical continuation line；当前会在首行报告 unclosed inline。
+`- block 与 inline nesting 暂时使用 Rust recursion；规范要求改为 explicit stack，以保证语言不
+  设 nesting depth limit。
+`- tree 保留完整 source 和主要 node/token byte ranges，但尚未为所有 punctuation/whitespace
+  materialize token-granular lossless nodes。
+`- recovery/diagnostic precedence 只覆盖第一批 fixtures，尚未移植全部 normative corpus。
+
+这些差距必须在宣称 Phase 1 complete 或发布 strict parser 前关闭。tree-sitter 仍不参与 validity
+判断；第一版 LSP 和 exporter 只消费手写 parser 的结果。

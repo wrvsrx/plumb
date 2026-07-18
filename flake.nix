@@ -19,6 +19,12 @@
           { pkgs, ... }:
           let
             tree-sitter-plumb = pkgs.callPackage ./tree-sitter-plumb/default.nix { };
+            plumb = pkgs.rustPlatform.buildRustPackage {
+              pname = "plumb";
+              version = "0.2.1-dev";
+              src = inputs.self;
+              cargoLock.lockFile = ./Cargo.lock;
+            };
           in
           {
             devShells.default = pkgs.callPackage ./shell.nix { };
@@ -32,7 +38,10 @@
                 export CC="${pkgs.stdenv.cc}/bin/cc"
               '';
             };
-            packages = { inherit tree-sitter-plumb; };
+            packages = {
+              inherit plumb tree-sitter-plumb;
+              default = plumb;
+            };
             formatter = pkgs.nixfmt;
           };
       }

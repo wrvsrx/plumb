@@ -31,6 +31,8 @@ Start with the design docs, in this order:
   outside core, including inputs, outputs, diagnostics, dependencies, and I/O
   boundaries.
 - `docs/features.plumb` — the tool roadmap derived from the requirements.
+- `docs/toolchain.plumb` — runnable first-toolchain usage, implemented surface,
+  experimental semantic profile, and known parser gaps.
 
 ## Current status
 

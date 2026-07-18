@@ -6,6 +6,19 @@ SyntaxTree contract 已冻结；normalized AST 和 extension-specific semantics 
 
 阶段：`"[MVP]" = 首个可用版本；`"[v1]" = 稳定版；`"[later]" = 之后。
 
+`## 当前实现状态
+
+第一版 vertical slice 已开始实现，使用 `"[docs/extensions.plumb]" 的 typed dataflow model：
+
+`- `"[plumb-core]" 手写 parser 产生 source-ranged tree 与 syntax diagnostics，并从 valid tree
+  推导 Heading facts。
+`- `"[plumb-ls]" 支持 FULL sync、current-revision diagnostics 和 nested document symbols。
+`- `"[plumb-export]" 从同一 valid tree 产生 Pandoc JSON；syntax error 时拒绝输出。
+
+当前 heading profile 是 dogfood prototype：`"[#]" 至 `"[######]" marker 的长度是 level，同时
+接受示例形式 `"[heading{level=N}]"。它用于验证 extension/dataflow boundary，不代表 D01 已冻结。
+运行方法、测试边界和已知 parser gaps 见 `"[docs/toolchain.plumb]"。
+
 `## Djot-tools feature 审计
 
 本清单审计 `"[~/Documents/djot-tools]" 在 commit `"[8957311]" 的 README、plan、semantics 和
