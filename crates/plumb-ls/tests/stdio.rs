@@ -85,7 +85,9 @@ fn resolves_cross_file_navigation_over_stdio() {
                 "processId": null,
                 "rootUri": root_uri,
                 "workspaceFolders": [{ "uri": root_uri, "name": "test" }],
-                "capabilities": { "workspace": { "workspaceEdit": { "documentChanges": true } } }
+                "capabilities": { "workspace": { "workspaceEdit": {
+                    "documentChanges": true, "resourceOperations": ["rename"]
+                } } }
             }
         }),
         json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
@@ -127,6 +129,18 @@ fn resolves_cross_file_navigation_over_stdio() {
                 "newName": "renamed"
             }
         }),
+        json!({
+            "jsonrpc": "2.0", "id": 9, "method": "textDocument/prepareRename",
+            "params": { "textDocument": { "uri": source_uri }, "position": { "line": 0, "character": 24 } }
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 10, "method": "textDocument/rename",
+            "params": {
+                "textDocument": { "uri": source_uri },
+                "position": { "line": 0, "character": 24 },
+                "newName": "moved.plumb"
+            }
+        }),
         json!({ "jsonrpc": "2.0", "id": 7, "method": "shutdown", "params": null }),
         json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
     ];
@@ -152,6 +166,16 @@ fn resolves_cross_file_navigation_over_stdio() {
     let completion = response(&output, 8);
     assert_eq!(completion["result"][0]["label"], "#target");
     assert_eq!(completion["result"][0]["textEdit"]["newText"], "target");
+    let path_prepare = response(&output, 9);
+    assert_eq!(path_prepare["result"]["placeholder"], "a.plumb");
+    let path_rename = response(&output, 10);
+    let operations = path_rename["result"]["documentChanges"].as_array().unwrap();
+    assert_eq!(operations[0]["kind"], "rename");
+    assert!(operations
+        .iter()
+        .skip(1)
+        .flat_map(|operation| operation["edits"].as_array().into_iter().flatten())
+        .any(|edit| edit["newText"] == "moved.plumb"));
 
     std::fs::remove_dir_all(root).unwrap();
 }

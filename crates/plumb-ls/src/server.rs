@@ -10,18 +10,19 @@ use lsp_types::{
     CompletionTextEdit, Diagnostic as LspDiagnostic, DiagnosticRelatedInformation,
     DiagnosticSeverity, DidChangeConfigurationParams, DidChangeTextDocumentParams,
     DidCloseTextDocumentParams, DidOpenTextDocumentParams, DidSaveTextDocumentParams,
-    DocumentChanges, DocumentSymbol, DocumentSymbolParams, DocumentSymbolResponse,
-    GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverContents, HoverParams,
-    HoverProviderCapability, InitializeParams, InitializeResult, InitializedParams, Location,
-    MarkupContent, MarkupKind, NumberOrString, OneOf, OptionalVersionedTextDocumentIdentifier,
-    PrepareRenameResponse, PublishDiagnosticsParams, ReferenceParams, RenameOptions, RenameParams,
-    ServerCapabilities, SymbolKind, TextDocumentEdit, TextDocumentSyncCapability,
-    TextDocumentSyncKind, TextEdit as LspTextEdit, Url, WorkDoneProgressOptions,
-    WorkspaceEdit as LspWorkspaceEdit,
+    DocumentChangeOperation, DocumentChanges, DocumentSymbol, DocumentSymbolParams,
+    DocumentSymbolResponse, GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverContents,
+    HoverParams, HoverProviderCapability, InitializeParams, InitializeResult, InitializedParams,
+    Location, MarkupContent, MarkupKind, NumberOrString, OneOf,
+    OptionalVersionedTextDocumentIdentifier, PrepareRenameResponse, PublishDiagnosticsParams,
+    ReferenceParams, RenameFile, RenameFileOptions, RenameOptions, RenameParams, ResourceOp,
+    ResourceOperationKind, ServerCapabilities, SymbolKind, TextDocumentEdit,
+    TextDocumentSyncCapability, TextDocumentSyncKind, TextEdit as LspTextEdit, Url,
+    WorkDoneProgressOptions, WorkspaceEdit as LspWorkspaceEdit,
 };
 use plumb_core::Diagnostic;
 use plumb_extensions::{link_completion_context, AnchorKind, AnchorRecord, Heading};
-use plumb_workspace::{normalize, ResolvedTarget, Workspace, WorkspaceEdit};
+use plumb_workspace::{normalize, ResolvedTarget, ResourceOperation, Workspace, WorkspaceEdit};
 
 use crate::position::{byte_range_to_lsp, position_to_offset};
 
@@ -31,6 +32,7 @@ pub(crate) struct ServerState {
     open_documents: HashMap<Url, PathBuf>,
     roots: Vec<PathBuf>,
     supports_document_changes: bool,
+    supports_resource_rename: bool,
 }
 
 impl ServerState {
@@ -41,6 +43,7 @@ impl ServerState {
             open_documents: HashMap::new(),
             roots: Vec::new(),
             supports_document_changes: false,
+            supports_resource_rename: false,
         }
     }
 
@@ -134,6 +137,13 @@ impl LanguageServer for ServerState {
             .and_then(|workspace| workspace.workspace_edit.as_ref())
             .and_then(|edit| edit.document_changes)
             .unwrap_or(false);
+        self.supports_resource_rename = params
+            .capabilities
+            .workspace
+            .as_ref()
+            .and_then(|workspace| workspace.workspace_edit.as_ref())
+            .and_then(|edit| edit.resource_operations.as_ref())
+            .is_some_and(|operations| operations.contains(&ResourceOperationKind::Rename));
         Box::pin(async {
             Ok(InitializeResult {
                 capabilities: ServerCapabilities {
@@ -411,10 +421,27 @@ impl LanguageServer for ServerState {
             .and_then(|path| {
                 let entry = self.workspace.get(&path)?;
                 let offset = position_to_offset(&entry.parsed.source, params.position);
-                let target = self.workspace.anchor_rename_target_at(&path, offset).ok()?;
+                let (range, placeholder) = self
+                    .workspace
+                    .anchor_rename_target_at(&path, offset)
+                    .map(|target| (target.range, target.id))
+                    .or_else(|_| {
+                        self.workspace
+                            .path_rename_target_at(&path, offset)
+                            .map(|target| {
+                                let placeholder = target
+                                    .old_path
+                                    .file_name()
+                                    .and_then(|name| name.to_str())
+                                    .unwrap_or("document.plumb")
+                                    .to_string();
+                                (target.range, placeholder)
+                            })
+                    })
+                    .ok()?;
                 Some(PrepareRenameResponse::RangeWithPlaceholder {
-                    range: byte_range_to_lsp(&entry.parsed.source, &target.range),
-                    placeholder: target.id,
+                    range: byte_range_to_lsp(&entry.parsed.source, &range),
+                    placeholder,
                 })
             });
         Box::pin(async move { Ok(response) })
@@ -444,8 +471,16 @@ impl LanguageServer for ServerState {
                     &entry.parsed.source,
                     params.text_document_position.position,
                 );
-                let target = self.workspace.anchor_rename_target_at(&path, offset).ok()?;
-                self.workspace.rename_anchor(&target, &params.new_name).ok()
+                if let Ok(target) = self.workspace.anchor_rename_target_at(&path, offset) {
+                    return self.workspace.rename_anchor(&target, &params.new_name).ok();
+                }
+                if !self.supports_resource_rename {
+                    return None;
+                }
+                let target = self.workspace.path_rename_target_at(&path, offset).ok()?;
+                self.workspace
+                    .rename_document(&target, &params.new_name)
+                    .ok()
             })
             .and_then(|edit| workspace_edit_to_lsp(&self.workspace, edit));
         Box::pin(async move { Ok(result) })
@@ -504,7 +539,8 @@ fn location_for(
 }
 
 fn workspace_edit_to_lsp(workspace: &Workspace, edit: WorkspaceEdit) -> Option<LspWorkspaceEdit> {
-    let mut document_changes = Vec::new();
+    let has_resource_operations = !edit.resource_operations.is_empty();
+    let mut document_edits = Vec::new();
     for document in edit.document_changes {
         let entry = workspace.get(&document.path)?;
         let uri = Url::from_file_path(&document.path).ok()?;
@@ -521,14 +557,41 @@ fn workspace_edit_to_lsp(workspace: &Workspace, edit: WorkspaceEdit) -> Option<L
                 ))
             })
             .collect();
-        document_changes.push(TextDocumentEdit {
+        document_edits.push(TextDocumentEdit {
             text_document: OptionalVersionedTextDocumentIdentifier { uri, version },
             edits,
         });
     }
+    let document_changes = if has_resource_operations {
+        let mut operations = edit
+            .resource_operations
+            .into_iter()
+            .filter_map(|operation| match operation {
+                ResourceOperation::Rename { old_path, new_path } => Some(
+                    DocumentChangeOperation::Op(ResourceOp::Rename(RenameFile {
+                        old_uri: Url::from_file_path(old_path).ok()?,
+                        new_uri: Url::from_file_path(new_path).ok()?,
+                        options: Some(RenameFileOptions {
+                            overwrite: Some(false),
+                            ignore_if_exists: Some(false),
+                        }),
+                        annotation_id: None,
+                    })),
+                ),
+            })
+            .collect::<Vec<_>>();
+        operations.extend(
+            document_edits
+                .into_iter()
+                .map(DocumentChangeOperation::Edit),
+        );
+        DocumentChanges::Operations(operations)
+    } else {
+        DocumentChanges::Edits(document_edits)
+    };
     Some(LspWorkspaceEdit {
         changes: None,
-        document_changes: Some(DocumentChanges::Edits(document_changes)),
+        document_changes: Some(document_changes),
         change_annotations: None,
     })
 }
