@@ -22,6 +22,50 @@ SyntaxTree 的只读 validity proof，不复制、不重新解析，也不要求
 core 决定 syntax validity；extension 解释 marker、inline kind 和 opaque attributes。extension
 不能改变什么 source 合法，不能注册 core syntax，也不能在 parser callback 中运行。
 
+`### 1.1 Mathematical model
+
+extension contract 的统一基础是不可变 snapshot 上的 typed dataflow，而不是 plugin callback：
+
+`"{language=text}
+  S(d, r) = Source + SyntaxTree + SyntaxDiagnostics
+
+  Analysis_i:
+    Snapshot x Output_1 x ... x Output_n x Configuration
+      -> Output_i x SemanticDiagnostics
+
+  Query:
+    Request x Snapshot x DeclaredOutputs
+      -> Response
+
+  Operation:
+    Request x Snapshot x DeclaredOutputs x OperationContext
+      -> EffectProposal | ExecutionFailure
+
+`"[S(d, r)]" 表示 document `"[d]" 在 revision `"[r]" 的唯一 snapshot。analysis output 可以视为
+以 `"[NodeRef]"、DocumentId 或 semantic key 为主键的有限 typed facts，例如 Heading、Task、
+Anchor 和 Link；extension 通过 join、group、source order、containment 或 graph traversal 从已有
+facts 推导新 facts。依赖形成静态 DAG，host 按拓扑顺序调用普通 Rust functions。
+
+例如 syntax nesting 不直接表达 heading section 时，heading analysis 先从 source-ordered blocks
+推导 `"[SectionContains(heading, node)]"；navigation analysis 再把 Task facts 与该 relation join，
+将 task 放入包含它的最深 section。heading recognizer 不依赖 task，task recognizer 也不依赖
+heading；耦合只存在于显式消费两组 outputs 的 aggregator。
+
+这不是要求实现 relational database、Datalog、dynamic dispatch 或通用 dataflow runtime。官方
+Rust host 第一阶段使用 structs 表示 facts，使用 `"[Vec]" / `"[HashMap]" 表示 materialized views，
+使用函数签名表达 typed dependencies，并允许一次 syntax traversal 填充多个 facet outputs。
+数学模型约束 observable behavior，不规定 allocation 或 scheduling strategy。
+
+document revision 改变可表示为 facts 的 add/remove delta；第一阶段仍允许对单个 document 做
+`"[O(n)]" 全量重算，只在 workspace 中替换该 document outputs。只有 profiling 证明需要时才做
+node-level incremental view maintenance。由于 delete、rename 和 state change 会撤销旧 facts，
+contract 不要求 analysis monotonic；跨记录递归关系可在单个 analysis 内计算 least fixed point，
+extension 之间仍保持 acyclic dependencies。
+
+effect 不在 dataflow 内执行。TextEdit、resource rename、export artifact 或 process invocation 都是
+普通 proposal values；application 验证 revision、completeness 和 capabilities 后才执行。由此，
+LSP、CLI 与 exporter 可以共享同一 analysis/operation，而不把 protocol 或 I/O 类型带入语义层。
+
 `## 2. Typed views
 
 extension 不直接依赖 punctuation-heavy raw tree shape。core 在 SyntaxTree 上提供只读 typed
