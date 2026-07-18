@@ -3,22 +3,24 @@ use std::fs;
 use std::ops::ControlFlow;
 use std::path::{Path, PathBuf};
 
-use async_lsp::{ClientSocket, ErrorCode, LanguageServer, ResponseError};
+use async_lsp::{ClientSocket, ErrorCode, LanguageClient, LanguageServer, ResponseError};
 use futures::future::BoxFuture;
 use lsp_types::{
     CompletionItem, CompletionItemKind, CompletionOptions, CompletionParams, CompletionResponse,
     CompletionTextEdit, Diagnostic as LspDiagnostic, DiagnosticRelatedInformation,
     DiagnosticSeverity, DidChangeConfigurationParams, DidChangeTextDocumentParams,
-    DidCloseTextDocumentParams, DidOpenTextDocumentParams, DidSaveTextDocumentParams,
-    DocumentChangeOperation, DocumentChanges, DocumentSymbol, DocumentSymbolParams,
-    DocumentSymbolResponse, GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverContents,
-    HoverParams, HoverProviderCapability, InitializeParams, InitializeResult, InitializedParams,
-    Location, MarkupContent, MarkupKind, NumberOrString, OneOf,
-    OptionalVersionedTextDocumentIdentifier, PrepareRenameResponse, PublishDiagnosticsParams,
-    ReferenceParams, RenameFile, RenameFileOptions, RenameOptions, RenameParams, ResourceOp,
-    ResourceOperationKind, ServerCapabilities, SymbolKind, TextDocumentEdit,
-    TextDocumentSyncCapability, TextDocumentSyncKind, TextEdit as LspTextEdit, Url,
-    WorkDoneProgressOptions, WorkspaceEdit as LspWorkspaceEdit,
+    DidChangeWatchedFilesParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
+    DidSaveTextDocumentParams, DocumentChangeOperation, DocumentChanges, DocumentSymbol,
+    DocumentSymbolParams, DocumentSymbolResponse, FileChangeType, FileSystemWatcher, GlobPattern,
+    GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverContents, HoverParams,
+    HoverProviderCapability, InitializeParams, InitializeResult, InitializedParams, Location,
+    MarkupContent, MarkupKind, NumberOrString, OneOf, OptionalVersionedTextDocumentIdentifier,
+    PrepareRenameResponse, ProgressParams, ProgressParamsValue, PublishDiagnosticsParams,
+    ReferenceParams, Registration, RegistrationParams, RenameFile, RenameFileOptions,
+    RenameOptions, RenameParams, ResourceOp, ResourceOperationKind, ServerCapabilities, SymbolKind,
+    TextDocumentEdit, TextDocumentSyncCapability, TextDocumentSyncKind, TextEdit as LspTextEdit,
+    Url, WatchKind, WorkDoneProgress, WorkDoneProgressBegin, WorkDoneProgressEnd,
+    WorkDoneProgressOptions, WorkDoneProgressReport, WorkspaceEdit as LspWorkspaceEdit,
 };
 use plumb_core::Diagnostic;
 use plumb_extensions::{link_completion_context, AnchorKind, AnchorRecord, Heading};
@@ -33,6 +35,7 @@ pub(crate) struct ServerState {
     roots: Vec<PathBuf>,
     supports_document_changes: bool,
     supports_resource_rename: bool,
+    supports_dynamic_watching: bool,
 }
 
 impl ServerState {
@@ -44,6 +47,7 @@ impl ServerState {
             roots: Vec::new(),
             supports_document_changes: false,
             supports_resource_rename: false,
+            supports_dynamic_watching: false,
         }
     }
 
@@ -83,29 +87,82 @@ impl ServerState {
             });
     }
 
-    fn index_roots(&mut self) {
+    fn index_roots(&mut self) -> usize {
+        self.notify_index_progress(WorkDoneProgress::Begin(WorkDoneProgressBegin {
+            title: "Indexing plumb workspace".to_string(),
+            cancellable: Some(false),
+            message: Some("Scanning .plumb files".to_string()),
+            percentage: None,
+        }));
         let roots = self.roots.clone();
+        let mut indexed = 0;
         for root in roots {
-            self.index_directory(&root);
+            indexed += self.index_directory(&root);
         }
+        self.notify_index_progress(WorkDoneProgress::Report(WorkDoneProgressReport {
+            cancellable: Some(false),
+            message: Some(format!("Indexed {indexed} files")),
+            percentage: None,
+        }));
+        self.notify_index_progress(WorkDoneProgress::End(WorkDoneProgressEnd {
+            message: Some(format!("Indexed {indexed} plumb files")),
+        }));
+        indexed
     }
 
-    fn index_directory(&mut self, directory: &Path) {
+    fn index_directory(&mut self, directory: &Path) -> usize {
         let Ok(entries) = fs::read_dir(directory) else {
-            return;
+            return 0;
         };
+        let mut indexed = 0;
         for entry in entries.flatten() {
             let path = entry.path();
             if path.is_dir() {
-                self.index_directory(&path);
+                indexed += self.index_directory(&path);
             } else if is_plumb_file(&path)
                 && !self.open_documents.values().any(|open| open == &path)
             {
                 if let Ok(text) = fs::read_to_string(&path) {
                     self.workspace.insert(path, 0, text);
+                    indexed += 1;
                 }
             }
         }
+        indexed
+    }
+
+    fn notify_index_progress(&self, progress: WorkDoneProgress) {
+        let _ = self
+            .client
+            .notify::<lsp_types::notification::Progress>(ProgressParams {
+                token: NumberOrString::String("plumb-ls-index".to_string()),
+                value: ProgressParamsValue::WorkDone(progress),
+            });
+    }
+
+    fn register_workspace_file_watchers(&self) {
+        if !self.supports_dynamic_watching || self.roots.is_empty() {
+            return;
+        }
+        let params = RegistrationParams {
+            registrations: vec![Registration {
+                id: "plumb-ls-workspace-files".to_string(),
+                method: "workspace/didChangeWatchedFiles".to_string(),
+                register_options: Some(
+                    serde_json::to_value(lsp_types::DidChangeWatchedFilesRegistrationOptions {
+                        watchers: vec![FileSystemWatcher {
+                            glob_pattern: GlobPattern::String("**/*.plumb".to_string()),
+                            kind: Some(WatchKind::Create | WatchKind::Change | WatchKind::Delete),
+                        }],
+                    })
+                    .expect("watch registration is serializable"),
+                ),
+            }],
+        };
+        let mut client = self.client.clone();
+        tokio::spawn(async move {
+            let _ = client.register_capability(params).await;
+        });
     }
 
     fn target_at(&self, path: &Path, offset: usize) -> Option<ResolvedTarget> {
@@ -144,6 +201,13 @@ impl LanguageServer for ServerState {
             .and_then(|workspace| workspace.workspace_edit.as_ref())
             .and_then(|edit| edit.resource_operations.as_ref())
             .is_some_and(|operations| operations.contains(&ResourceOperationKind::Rename));
+        self.supports_dynamic_watching = params
+            .capabilities
+            .workspace
+            .as_ref()
+            .and_then(|workspace| workspace.did_change_watched_files.as_ref())
+            .and_then(|watching| watching.dynamic_registration)
+            .unwrap_or(false);
         Box::pin(async {
             Ok(InitializeResult {
                 capabilities: ServerCapabilities {
@@ -176,6 +240,7 @@ impl LanguageServer for ServerState {
 
     fn initialized(&mut self, _params: InitializedParams) -> Self::NotifyResult {
         self.index_roots();
+        self.register_workspace_file_watchers();
         self.publish_all_open_diagnostics();
         ControlFlow::Continue(())
     }
@@ -229,6 +294,34 @@ impl LanguageServer for ServerState {
         &mut self,
         _params: DidChangeConfigurationParams,
     ) -> Self::NotifyResult {
+        ControlFlow::Continue(())
+    }
+
+    fn did_change_watched_files(
+        &mut self,
+        params: DidChangeWatchedFilesParams,
+    ) -> Self::NotifyResult {
+        for change in params.changes {
+            let Ok(path) = change.uri.to_file_path() else {
+                continue;
+            };
+            let path = normalize(&path);
+            if !is_plumb_file(&path) || self.open_documents.values().any(|open| open == &path) {
+                continue;
+            }
+            match change.typ {
+                FileChangeType::CREATED | FileChangeType::CHANGED => {
+                    if let Ok(text) = fs::read_to_string(&path) {
+                        self.workspace.insert(path, 0, text);
+                    }
+                }
+                FileChangeType::DELETED => {
+                    self.workspace.remove(path);
+                }
+                _ => {}
+            }
+        }
+        self.publish_all_open_diagnostics();
         ControlFlow::Continue(())
     }
 
