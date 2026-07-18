@@ -22,6 +22,15 @@ pub struct DocumentEdit {
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct WorkspaceEdit {
     pub document_changes: Vec<DocumentEdit>,
+    pub resource_operations: Vec<ResourceOperation>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ResourceOperation {
+    Rename {
+        old_path: PathBuf,
+        new_path: PathBuf,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -37,6 +46,14 @@ pub enum RenameError {
     InvalidId,
     StaleOrInvalidDocument,
     OverlappingEdits,
+    InvalidPath,
+    TargetExists,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PathRenameTarget {
+    pub old_path: PathBuf,
+    pub range: std::ops::Range<usize>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -375,7 +392,125 @@ impl Workspace {
             });
         }
         document_changes.sort_by(|left, right| left.path.cmp(&right.path));
-        Ok(WorkspaceEdit { document_changes })
+        Ok(WorkspaceEdit {
+            document_changes,
+            resource_operations: Vec::new(),
+        })
+    }
+
+    pub fn path_rename_target_at(
+        &self,
+        path: impl AsRef<Path>,
+        offset: usize,
+    ) -> Result<PathRenameTarget, RenameError> {
+        let path = normalize(path.as_ref());
+        let link = self
+            .current_output(&path)
+            .and_then(|output| {
+                output.links.iter().find(|link| {
+                    link.path_range
+                        .as_ref()
+                        .is_some_and(|range| contains_inclusive(range, offset))
+                })
+            })
+            .ok_or(RenameError::NotRenameable)?;
+        let old_path = match self.resolve_link(&path, link) {
+            ResolvedTarget::Anchor { path, .. } | ResolvedTarget::Document { path } => path,
+            _ => return Err(RenameError::NotRenameable),
+        };
+        Ok(PathRenameTarget {
+            old_path,
+            range: link.path_range.clone().ok_or(RenameError::NotRenameable)?,
+        })
+    }
+
+    pub fn rename_document(
+        &self,
+        target: &PathRenameTarget,
+        new_path: impl AsRef<Path>,
+    ) -> Result<WorkspaceEdit, RenameError> {
+        let old_path = normalize(&target.old_path);
+        let new_path = if new_path.as_ref().is_absolute() {
+            normalize(new_path.as_ref())
+        } else {
+            normalize(
+                &old_path
+                    .parent()
+                    .unwrap_or_else(|| Path::new(""))
+                    .join(new_path),
+            )
+        };
+        if new_path
+            .extension()
+            .is_none_or(|extension| extension != "plumb")
+            || new_path == old_path
+        {
+            return Err(RenameError::InvalidPath);
+        }
+        if self.documents.contains_key(&new_path) {
+            return Err(RenameError::TargetExists);
+        }
+        if !self.documents.contains_key(&old_path) {
+            return Err(RenameError::NotRenameable);
+        }
+
+        let mut grouped: HashMap<PathBuf, Vec<TextEdit>> = HashMap::new();
+        for entry in self.documents.values() {
+            let Some(current) = &entry.current else {
+                continue;
+            };
+            for link in &current.output.links {
+                let Some(path_range) = &link.path_range else {
+                    continue;
+                };
+                let resolved = self.resolve_link(&entry.path, link);
+                let old_target = match resolved {
+                    ResolvedTarget::Anchor { path, .. } | ResolvedTarget::Document { path } => path,
+                    _ => continue,
+                };
+                let source_moves = entry.path == old_path;
+                let target_moves = old_target == old_path;
+                if !source_moves && !target_moves {
+                    continue;
+                }
+                let effective_source = if source_moves { &new_path } else { &entry.path };
+                let effective_target = if target_moves { &new_path } else { &old_target };
+                let Some(replacement) = relative_path(effective_source, effective_target) else {
+                    return Err(RenameError::InvalidPath);
+                };
+                grouped
+                    .entry(entry.path.clone())
+                    .or_default()
+                    .push(TextEdit {
+                        range: path_range.clone(),
+                        new_text: replacement,
+                    });
+            }
+        }
+        let mut document_changes = Vec::new();
+        for (path, mut edits) in grouped {
+            edits.sort_by_key(|edit| edit.range.start);
+            if edits
+                .windows(2)
+                .any(|pair| pair[0].range.end > pair[1].range.start)
+            {
+                return Err(RenameError::OverlappingEdits);
+            }
+            document_changes.push(DocumentEdit {
+                expected_revision: self
+                    .documents
+                    .get(&path)
+                    .ok_or(RenameError::StaleOrInvalidDocument)?
+                    .revision,
+                path,
+                edits,
+            });
+        }
+        document_changes.sort_by(|left, right| left.path.cmp(&right.path));
+        Ok(WorkspaceEdit {
+            document_changes,
+            resource_operations: vec![ResourceOperation::Rename { old_path, new_path }],
+        })
     }
 
     pub fn complete_link(
@@ -638,5 +773,45 @@ mod tests {
         );
         assert_eq!(anchors.len(), 1);
         assert_eq!(anchors[0].new_text, "api");
+    }
+
+    #[test]
+    fn document_rename_rewrites_incoming_and_outgoing_relative_paths() {
+        let mut workspace = Workspace::new();
+        workspace.insert(
+            "notes/a.plumb",
+            1,
+            "`#{#a} A\n`link[c]{to=\"../shared/c.plumb#c\"}\n",
+        );
+        workspace.insert("notes/b.plumb", 2, "`link[a]{to=\"a.plumb#a\"}\n");
+        workspace.insert("shared/c.plumb", 3, "`#{#c} C\n");
+        let link = &workspace
+            .get("notes/b.plumb")
+            .unwrap()
+            .current
+            .as_ref()
+            .unwrap()
+            .output
+            .links[0];
+        let offset = link.path_range.as_ref().unwrap().start;
+        let target = workspace
+            .path_rename_target_at("notes/b.plumb", offset)
+            .unwrap();
+        let edit = workspace
+            .rename_document(&target, "archive/a.plumb")
+            .unwrap();
+        assert_eq!(edit.resource_operations.len(), 1);
+        let incoming = edit
+            .document_changes
+            .iter()
+            .find(|document| document.path == Path::new("notes/b.plumb"))
+            .unwrap();
+        assert_eq!(incoming.edits[0].new_text, "archive/a.plumb");
+        let outgoing = edit
+            .document_changes
+            .iter()
+            .find(|document| document.path == Path::new("notes/a.plumb"))
+            .unwrap();
+        assert_eq!(outgoing.edits[0].new_text, "../../shared/c.plumb");
     }
 }
