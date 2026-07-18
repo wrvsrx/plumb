@@ -388,6 +388,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "plumb-workspace"
+version = "0.2.1-dev"
+dependencies = [
+ "plumb-core",
+ "plumb-extensions",
+]
+
+[[package]]
 name = "potential_utf"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"

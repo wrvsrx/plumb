@@ -1,0 +1,9 @@
+[package]
+name = "plumb-workspace"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+plumb-core = { path = "../plumb-core" }
+plumb-extensions = { path = "../plumb-extensions" }
