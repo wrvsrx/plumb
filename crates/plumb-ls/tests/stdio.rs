@@ -1,17 +1,12 @@
 use std::io::{Read, Write};
+use std::path::PathBuf;
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde_json::{json, Value};
 
 #[test]
 fn publishes_diagnostics_and_returns_heading_symbols_over_stdio() {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_plumb-ls"))
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .expect("start plumb-ls");
-
     let messages = [
         json!({
             "jsonrpc": "2.0",
@@ -50,29 +45,7 @@ fn publishes_diagnostics_and_returns_heading_symbols_over_stdio() {
         json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
     ];
 
-    {
-        let stdin = child.stdin.as_mut().expect("child stdin");
-        for message in messages {
-            write_message(stdin, &message);
-        }
-    }
-    drop(child.stdin.take());
-
-    let mut stdout = String::new();
-    child
-        .stdout
-        .take()
-        .expect("child stdout")
-        .read_to_string(&mut stdout)
-        .expect("read stdout");
-    let output = child.wait_with_output().expect("wait for plumb-ls");
-    assert!(
-        output.status.success(),
-        "plumb-ls failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    let messages = read_messages(&stdout);
+    let messages = run_server(&messages);
     let symbols = messages
         .iter()
         .find(|message| message.get("id") == Some(&json!(2)))
@@ -90,6 +63,116 @@ fn publishes_diagnostics_and_returns_heading_symbols_over_stdio() {
         diagnostics["params"]["diagnostics"][0]["code"],
         "syntax.duplicate-key"
     );
+}
+
+#[test]
+fn resolves_cross_file_navigation_over_stdio() {
+    let root = unique_temp_dir();
+    std::fs::create_dir_all(&root).unwrap();
+    let target = root.join("a.plumb");
+    let source = root.join("b.plumb");
+    std::fs::write(&target, "`#{#target} Target\n").unwrap();
+    let source_text = "See `link[target]{to=\"a.plumb#target\"}.\n";
+    std::fs::write(&source, source_text).unwrap();
+    let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
+    let target_uri = lsp_types::Url::from_file_path(&target).unwrap();
+    let source_uri = lsp_types::Url::from_file_path(&source).unwrap();
+
+    let messages = [
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {
+                "processId": null,
+                "rootUri": root_uri,
+                "workspaceFolders": [{ "uri": root_uri, "name": "test" }],
+                "capabilities": {}
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": {
+                "uri": source_uri, "languageId": "plumb", "version": 1, "text": source_text
+            }}
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 2, "method": "textDocument/definition",
+            "params": { "textDocument": { "uri": source_uri }, "position": { "line": 0, "character": 10 } }
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 3, "method": "textDocument/references",
+            "params": {
+                "textDocument": { "uri": target_uri },
+                "position": { "line": 0, "character": 4 },
+                "context": { "includeDeclaration": false }
+            }
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 4, "method": "textDocument/hover",
+            "params": { "textDocument": { "uri": source_uri }, "position": { "line": 0, "character": 10 } }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 5, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+    let output = run_server(&messages);
+    let definition = response(&output, 2);
+    assert_eq!(definition["result"]["uri"], target_uri.as_str());
+    let references = response(&output, 3);
+    assert_eq!(references["result"].as_array().unwrap().len(), 1);
+    assert_eq!(references["result"][0]["uri"], source_uri.as_str());
+    let hover = response(&output, 4);
+    assert!(hover["result"]["contents"]["value"]
+        .as_str()
+        .unwrap()
+        .contains("#target"));
+
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+fn run_server(messages: &[Value]) -> Vec<Value> {
+    let mut child = Command::new(env!("CARGO_BIN_EXE_plumb-ls"))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("start plumb-ls");
+    {
+        let stdin = child.stdin.as_mut().expect("child stdin");
+        for message in messages {
+            write_message(stdin, message);
+        }
+    }
+    drop(child.stdin.take());
+    let mut stdout = String::new();
+    child
+        .stdout
+        .take()
+        .expect("child stdout")
+        .read_to_string(&mut stdout)
+        .expect("read stdout");
+    let output = child.wait_with_output().expect("wait for plumb-ls");
+    assert!(
+        output.status.success(),
+        "plumb-ls failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    read_messages(&stdout)
+}
+
+fn response(messages: &[Value], id: u64) -> &Value {
+    messages
+        .iter()
+        .find(|message| message.get("id") == Some(&json!(id)))
+        .expect("response")
+}
+
+fn unique_temp_dir() -> PathBuf {
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    std::env::temp_dir().join(format!(
+        "plumb-ls-test-{}-{}",
+        std::process::id(),
+        COUNTER.fetch_add(1, Ordering::Relaxed)
+    ))
 }
 
 fn write_message(output: &mut impl Write, message: &Value) {

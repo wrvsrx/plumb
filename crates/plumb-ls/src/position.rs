@@ -7,6 +7,26 @@ pub(crate) fn byte_range_to_lsp(text: &str, range: &std::ops::Range<usize>) -> R
     )
 }
 
+pub(crate) fn position_to_offset(text: &str, position: Position) -> usize {
+    let mut line = 0;
+    let mut character = 0;
+    for (index, value) in text.char_indices() {
+        if line == position.line && character >= position.character {
+            return index;
+        }
+        if value == '\n' {
+            if line == position.line {
+                return index;
+            }
+            line += 1;
+            character = 0;
+        } else {
+            character += value.len_utf16() as u32;
+        }
+    }
+    text.len()
+}
+
 fn offset_to_position(text: &str, offset: usize) -> Position {
     let mut line = 0;
     let mut character = 0;

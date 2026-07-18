@@ -380,6 +380,7 @@ dependencies = [
  "lsp-types",
  "plumb-core",
  "plumb-extensions",
+ "plumb-workspace",
  "serde_json",
  "tokio",
  "tower",
