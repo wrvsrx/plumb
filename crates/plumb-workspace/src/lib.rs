@@ -2,7 +2,9 @@ use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
 
 use plumb_core::{parse, Diagnostic, DiagnosticSeverity, ParsedDocument};
-use plumb_extensions::{analyze_document, AnchorRecord, DocumentOutput, LinkRecord, LinkTarget};
+use plumb_extensions::{
+    analyze_document, AnchorRecord, DocumentOutput, LinkCompletionContext, LinkRecord, LinkTarget,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TextEdit {
@@ -35,6 +37,14 @@ pub enum RenameError {
     InvalidId,
     StaleOrInvalidDocument,
     OverlappingEdits,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CompletionCandidate {
+    pub label: String,
+    pub detail: String,
+    pub new_text: String,
+    pub replace: std::ops::Range<usize>,
 }
 
 #[derive(Debug, Clone)]
@@ -368,6 +378,62 @@ impl Workspace {
         Ok(WorkspaceEdit { document_changes })
     }
 
+    pub fn complete_link(
+        &self,
+        from: impl AsRef<Path>,
+        context: &LinkCompletionContext,
+    ) -> Vec<CompletionCandidate> {
+        let from = normalize(from.as_ref());
+        let mut candidates: Vec<CompletionCandidate> = match context {
+            LinkCompletionContext::Path { replace, query } => self
+                .documents
+                .values()
+                .filter(|entry| entry.current.is_some() || entry.last_valid.is_some())
+                .filter(|entry| entry.path != from)
+                .filter_map(|entry| {
+                    let relative = relative_path(&from, &entry.path)?;
+                    fuzzy_match(&relative, query).then(|| CompletionCandidate {
+                        label: relative.clone(),
+                        detail: "plumb document".to_string(),
+                        new_text: relative,
+                        replace: replace.clone(),
+                    })
+                })
+                .collect(),
+            LinkCompletionContext::Anchor {
+                path,
+                replace,
+                query,
+            } => {
+                let target_path = if path.is_empty() {
+                    from.clone()
+                } else {
+                    resolve_relative(&from, path)
+                };
+                self.documents
+                    .get(&target_path)
+                    .and_then(|entry| entry.current.as_ref().or(entry.last_valid.as_ref()))
+                    .map(|versioned| {
+                        versioned
+                            .output
+                            .anchors
+                            .iter()
+                            .filter(|anchor| fuzzy_match(&anchor.id.value, query))
+                            .map(|anchor| CompletionCandidate {
+                                label: format!("#{}", anchor.id.value),
+                                detail: format!("explicit anchor in {}", target_path.display()),
+                                new_text: anchor.id.value.clone(),
+                                replace: replace.clone(),
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default()
+            }
+        };
+        candidates.sort_by(|left, right| left.label.cmp(&right.label));
+        candidates
+    }
+
     fn current_output(&self, path: &Path) -> Option<&DocumentOutput> {
         self.documents
             .get(&normalize(path))?
@@ -416,6 +482,42 @@ fn valid_anchor_id(value: &str) -> bool {
                     '`' | '"' | '[' | ']' | '{' | '}' | '#' | '.' | '='
                 )
         })
+}
+
+fn relative_path(from: &Path, target: &Path) -> Option<String> {
+    let from_directory = from.parent().unwrap_or_else(|| Path::new(""));
+    let from_components = from_directory.components().collect::<Vec<_>>();
+    let target_components = target.components().collect::<Vec<_>>();
+    let common = from_components
+        .iter()
+        .zip(&target_components)
+        .take_while(|(left, right)| left == right)
+        .count();
+    let mut relative = PathBuf::new();
+    for _ in common..from_components.len() {
+        relative.push("..");
+    }
+    for component in &target_components[common..] {
+        relative.push(component.as_os_str());
+    }
+    relative.to_str().map(str::to_string)
+}
+
+fn fuzzy_match(candidate: &str, query: &str) -> bool {
+    if query.is_empty() {
+        return true;
+    }
+    let mut query = query.chars().flat_map(char::to_lowercase);
+    let mut wanted = query.next();
+    for character in candidate.chars().flat_map(char::to_lowercase) {
+        if wanted == Some(character) {
+            wanted = query.next();
+            if wanted.is_none() {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 #[cfg(test)]
@@ -511,5 +613,30 @@ mod tests {
             workspace.rename_anchor(&target, "has space"),
             Err(RenameError::InvalidId)
         );
+    }
+
+    #[test]
+    fn completes_paths_and_only_explicit_anchors() {
+        let mut workspace = Workspace::new();
+        workspace.insert("notes/current.plumb", 1, "Current\n");
+        workspace.insert("notes/design.plumb", 1, "`# No id\n`##{#api} API\n");
+        let paths = workspace.complete_link(
+            "notes/current.plumb",
+            &LinkCompletionContext::Path {
+                replace: 10..13,
+                query: "dsg".to_string(),
+            },
+        );
+        assert_eq!(paths[0].new_text, "design.plumb");
+        let anchors = workspace.complete_link(
+            "notes/current.plumb",
+            &LinkCompletionContext::Anchor {
+                path: "design.plumb".to_string(),
+                replace: 20..20,
+                query: String::new(),
+            },
+        );
+        assert_eq!(anchors.len(), 1);
+        assert_eq!(anchors[0].new_text, "api");
     }
 }
