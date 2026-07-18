@@ -112,6 +112,10 @@ fn resolves_cross_file_navigation_over_stdio() {
             "params": { "textDocument": { "uri": source_uri }, "position": { "line": 0, "character": 10 } }
         }),
         json!({
+            "jsonrpc": "2.0", "id": 8, "method": "textDocument/completion",
+            "params": { "textDocument": { "uri": source_uri }, "position": { "line": 0, "character": 32 } }
+        }),
+        json!({
             "jsonrpc": "2.0", "id": 5, "method": "textDocument/prepareRename",
             "params": { "textDocument": { "uri": source_uri }, "position": { "line": 0, "character": 32 } }
         }),
@@ -145,6 +149,9 @@ fn resolves_cross_file_navigation_over_stdio() {
     assert!(changes
         .iter()
         .all(|change| change["edits"][0]["newText"] == "renamed"));
+    let completion = response(&output, 8);
+    assert_eq!(completion["result"][0]["label"], "#target");
+    assert_eq!(completion["result"][0]["textEdit"]["newText"], "target");
 
     std::fs::remove_dir_all(root).unwrap();
 }

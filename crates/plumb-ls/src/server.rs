@@ -6,19 +6,21 @@ use std::path::{Path, PathBuf};
 use async_lsp::{ClientSocket, ErrorCode, LanguageServer, ResponseError};
 use futures::future::BoxFuture;
 use lsp_types::{
-    Diagnostic as LspDiagnostic, DiagnosticRelatedInformation, DiagnosticSeverity,
-    DidChangeConfigurationParams, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
-    DidOpenTextDocumentParams, DidSaveTextDocumentParams, DocumentChanges, DocumentSymbol,
-    DocumentSymbolParams, DocumentSymbolResponse, GotoDefinitionParams, GotoDefinitionResponse,
-    Hover, HoverContents, HoverParams, HoverProviderCapability, InitializeParams, InitializeResult,
-    InitializedParams, Location, MarkupContent, MarkupKind, NumberOrString, OneOf,
-    OptionalVersionedTextDocumentIdentifier, PrepareRenameResponse, PublishDiagnosticsParams,
-    ReferenceParams, RenameOptions, RenameParams, ServerCapabilities, SymbolKind, TextDocumentEdit,
-    TextDocumentSyncCapability, TextDocumentSyncKind, TextEdit as LspTextEdit, Url,
-    WorkDoneProgressOptions, WorkspaceEdit as LspWorkspaceEdit,
+    CompletionItem, CompletionItemKind, CompletionOptions, CompletionParams, CompletionResponse,
+    CompletionTextEdit, Diagnostic as LspDiagnostic, DiagnosticRelatedInformation,
+    DiagnosticSeverity, DidChangeConfigurationParams, DidChangeTextDocumentParams,
+    DidCloseTextDocumentParams, DidOpenTextDocumentParams, DidSaveTextDocumentParams,
+    DocumentChanges, DocumentSymbol, DocumentSymbolParams, DocumentSymbolResponse,
+    GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverContents, HoverParams,
+    HoverProviderCapability, InitializeParams, InitializeResult, InitializedParams, Location,
+    MarkupContent, MarkupKind, NumberOrString, OneOf, OptionalVersionedTextDocumentIdentifier,
+    PrepareRenameResponse, PublishDiagnosticsParams, ReferenceParams, RenameOptions, RenameParams,
+    ServerCapabilities, SymbolKind, TextDocumentEdit, TextDocumentSyncCapability,
+    TextDocumentSyncKind, TextEdit as LspTextEdit, Url, WorkDoneProgressOptions,
+    WorkspaceEdit as LspWorkspaceEdit,
 };
 use plumb_core::Diagnostic;
-use plumb_extensions::{AnchorKind, AnchorRecord, Heading};
+use plumb_extensions::{link_completion_context, AnchorKind, AnchorRecord, Heading};
 use plumb_workspace::{normalize, ResolvedTarget, Workspace, WorkspaceEdit};
 
 use crate::position::{byte_range_to_lsp, position_to_offset};
@@ -142,6 +144,15 @@ impl LanguageServer for ServerState {
                     definition_provider: Some(OneOf::Left(true)),
                     references_provider: Some(OneOf::Left(true)),
                     hover_provider: Some(HoverProviderCapability::Simple(true)),
+                    completion_provider: Some(CompletionOptions {
+                        resolve_provider: Some(false),
+                        trigger_characters: Some(vec![
+                            "\"".to_string(),
+                            "/".to_string(),
+                            "#".to_string(),
+                        ]),
+                        ..CompletionOptions::default()
+                    }),
                     rename_provider: Some(OneOf::Right(RenameOptions {
                         prepare_provider: Some(true),
                         work_done_progress_options: WorkDoneProgressOptions::default(),
@@ -348,6 +359,44 @@ impl LanguageServer for ServerState {
                 })
             });
         Box::pin(async move { Ok(hover) })
+    }
+
+    fn completion(
+        &mut self,
+        params: CompletionParams,
+    ) -> BoxFuture<'static, Result<Option<CompletionResponse>, Self::Error>> {
+        let position = params.text_document_position;
+        let items = position
+            .text_document
+            .uri
+            .to_file_path()
+            .ok()
+            .and_then(|path| {
+                let entry = self.workspace.get(&path)?;
+                let offset = position_to_offset(&entry.parsed.source, position.position);
+                let context = link_completion_context(&entry.parsed.source, offset)?;
+                Some(
+                    self.workspace
+                        .complete_link(&path, &context)
+                        .into_iter()
+                        .map(|candidate| CompletionItem {
+                            label: candidate.label,
+                            kind: Some(if candidate.detail == "plumb document" {
+                                CompletionItemKind::FILE
+                            } else {
+                                CompletionItemKind::REFERENCE
+                            }),
+                            detail: Some(candidate.detail),
+                            text_edit: Some(CompletionTextEdit::Edit(LspTextEdit::new(
+                                byte_range_to_lsp(&entry.parsed.source, &candidate.replace),
+                                candidate.new_text,
+                            ))),
+                            ..CompletionItem::default()
+                        })
+                        .collect::<Vec<_>>(),
+                )
+            });
+        Box::pin(async move { Ok(items.map(CompletionResponse::Array)) })
     }
 
     fn prepare_rename(
