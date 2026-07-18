@@ -1,8 +1,8 @@
 `# plumb 工具需求与路线图
 
-本文从 `"[docs/requirements.plumb]" 的目标推导工具需求。block structure 已在
-`"[docs/spec.plumb]" 冻结，inline envelope 记录在 `"[docs/inline.plumb]"；两者仍有实现前
-细节需要拍板。
+本文从 `"[docs/requirements.plumb]" 的目标推导工具需求。MVP block/inline syntax 与 lossless
+SyntaxTree contract 已冻结；normalized AST 和 extension-specific semantics 按实际 consumer
+推进。
 
 阶段：`"[MVP]" = 首个可用版本；`"[v1]" = 稳定版；`"[later]" = 之后。
 
@@ -23,43 +23,54 @@
 
 `## B. 语义扩展（extensions）
 
-extension 是语言无关的语义 analysis / transform contract，消费 core AST，产出结构化结果、
-语义 diagnostics 或 text edits。导出器也是 extension。官方工具链可以使用 Rust module
-实现并静态组合它们，但 Rust trait、WASM 或外部进程协议都属于 host implementation，
-不属于 extension 的语义定义。完整契约见 `"[docs/extensions.plumb]"。
+extension 是语言无关的 query / analysis / operation contract，第一阶段消费同一 SyntaxTree
+上的 typed recovered/valid views，产出结构化结果、semantic diagnostics 或 edit proposals；
+只有实际 consumer 需要时才 materialize AST。导出器也是 extension。官方工具链使用 Rust
+module 静态组合，动态 plugin/ABI 不属于当前范围。完整契约见 `"[docs/extensions.plumb]"。
 
 `- [plumb] MVP 语言无关的 extension contract、诊断合并模型和官方 host API。
-`- [djot-tools] MVP outline extension：解释约定的 marker 并构建 document symbol 所需的大纲。
-`- [djot-tools] MVP anchors / links extension：收集显式锚点、自动 heading id、链接
+`- [plumb] MVP headings + outline extensions：解释约定的 marker 并构建 document symbols。
+`- [plumb] MVP anchors / links analyses：收集显式锚点、自动 heading id、链接
   引用和目标分类。
-`- [djot-tools] MVP target resolution extension：解析内部和相对跨文件目标；URL 不解析。
-`- [djot-tools] MVP workspace extension：按规范化路径存 AST / analysis 结果，支持打开
+`- [plumb] MVP target resolution：解析内部和相对跨文件目标；URL 只分类、不读取网络。
+`- [plumb] MVP workspace analysis：按规范化 document id 存 snapshots / outputs，支持打开
   buffer、磁盘文档和跨文件引用查询。
-`- [plumb] MVP html / pandoc export extension：core AST 到 Pandoc JSON AST，再交给
-  pandoc writer。
-`- [plumb] v1 meta extension：识别约定的元信息结构并折叠到导出 metadata。
-`- [plumb] v1 tasks extension：解释 marked block attrs 中的任务状态、日期和查询字段，
+`- [plumb] MVP recovered completion query：在不完整 link target 中补全文件和 anchors，依赖
+  当前 recovered tree 与其他文档的 last-valid indexes。
+`- [plumb] MVP guarded rename operation：重命名显式 anchor 与明确 resolve 的跨文件引用，
+  返回带 expected revisions 的 atomic WorkspaceEdit proposal。
+`- [plumb] MVP html / pandoc export extension：从 valid typed view 或 exporter-specific
+  normalized model 产生 Pandoc JSON AST，再交给 pandoc writer。
+`- [plumb] v1 list item、definition list、meta、task 和 event analyses/aggregations。
+`- [plumb] v1 tasks operation：解释 marked block attrs 中的任务状态、日期和查询字段，
   并提供状态变更所需的文本编辑。
 
 `## C. 语言服务器（`"[plumb-ls]"）
 
 `"[plumb-ls]" 装配 core + extensions，把结果映射到 LSP。
 
-`- [plumb] MVP `"[publishDiagnostics]"：core 语法诊断 + extension 语义诊断。
-`- [djot-tools] MVP `"[textDocument/documentSymbol]"：经 outline extension。
-`- [djot-tools] MVP `"[textDocument/definition]"：命中链接后解析目标并返回位置；URL 返回空。
-`- [djot-tools] MVP `"[textDocument/references]"：经 workspace / links extension。
-`- [djot-tools] MVP `"[textDocument/hover]"：目标类型、id、路径和源码预览。
-`- [djot-tools] MVP FULL 文本同步；打开 buffer 优先于磁盘版本。
-`- [djot-tools] MVP 初始化时索引根下文档；无根时仅索引已打开 buffer 和惰性目标。
-`- [djot-tools] MVP byte offset ↔ LSP UTF-16 Position 转换。
-`- [djot-tools] MVP async-lsp advertised notification 必须显式实现 handler，即使只是
+第一阶段使用 Rust、`"[async-lsp]" 和 `"[lsp-types]"；LSP 层只负责 transport、UTF-16 mapping、
+capability wiring 和 revision/cancellation policy，不复制 parser 或 semantic logic。
+
+`- [plumb] MVP `"[publishDiagnostics]"：始终发布当前 revision 的 core syntax diagnostics；
+  只有当前 revision valid 时才合并对应 semantic diagnostics，不能把 last-valid diagnostics
+  发布成当前结果。
+`- [plumb] MVP `"[textDocument/documentSymbol]"：经 outline extension。
+`- [plumb] MVP `"[textDocument/definition]"：命中链接后解析目标并返回位置；URL 返回空。
+`- [plumb] MVP `"[textDocument/references]"：经 workspace / links outputs。
+`- [plumb] MVP `"[textDocument/completion]"：recovered query 补全 marker、attrs、文件与 anchors。
+`- [plumb] MVP `"[textDocument/prepareRename]" / `"[rename]"：经 guarded rename operation。
+`- [plumb] MVP `"[textDocument/hover]"：目标类型、id、路径和源码预览。
+`- [plumb] MVP FULL 文本同步；打开 buffer 优先于磁盘版本。
+`- [plumb] MVP 初始化时索引根下文档；无根时仅索引已打开 buffer 和惰性目标。
+`- [plumb] MVP byte offset ↔ LSP UTF-16 Position 转换。
+`- [plumb] MVP async-lsp advertised notification 必须显式实现 handler，即使只是
   no-op。
-`- [plumb] v1 semantic tokens、completion、folding、selection range、rename。
+`- [plumb] v1 semantic tokens、folding、selection range 和更多 refactors。
 
 `## D. 导出（`"[plumb-export]"）
 
-`- [plumb] MVP plumb 作为 Pandoc reader：AST → `"[pandoc_types]" JSON → pandoc writer。
+`- [plumb] MVP plumb 作为 Pandoc reader：valid document → `"[pandoc_types]" JSON → pandoc writer。
 `- [plumb] MVP core 有语法 error 时拒绝导出。
 `- [plumb] MVP HTML 语义由 export extension 落地，而不是 core 落地。
 `- [plumb] v1 meta、tasks、links 等 extension 结果参与导出。
@@ -67,33 +78,33 @@ extension 是语言无关的语义 analysis / transform contract，消费 core A
 
 `## E. 笔记 CLI（`"[plumb-notes]"）
 
-`- [djot-tools] v1 递归扫描根下 plumb 文档，载入 workspace，打印匹配路径。
-`- [djot-tools] v1 查询语言：路径、元信息、链接关系、任务字段。
-`- [djot-tools] v1 interactive picker：路径显示/输出、全文匹配、预览、`"[$EDITOR]" 打开、
+`- [plumb] v1 递归扫描根下 plumb 文档，载入 workspace，打印匹配路径。
+`- [plumb] v1 查询语言：路径、元信息、链接关系、任务字段。
+`- [plumb] v1 interactive picker：路径显示/输出、全文匹配、预览、`"[$EDITOR]" 打开、
   从 query 建档。
-`- [djot-tools] v1 task 查询和状态变更：只产出文本编辑，是否落盘由 CLI 层决定。
+`- [plumb] v1 task 查询和状态变更：只产出文本编辑，是否落盘由 CLI 层决定。
 
 `## F. tree-sitter（`"[tree-sitter-plumb]"）
 
-`- [plumb] later 宽松镜像语法，用于编辑器高亮、文本对象、折叠、injection 和缩进。
-`- [plumb] later 不做严格性引擎，不决定文档是否有效。
-`- [plumb] later 语法冻结后再开始，避免跟随草案反复重写。
+`- [plumb] current 宽松镜像语法与 corpus，用于编辑器高亮、文本对象、折叠、injection 和缩进。
+`- [plumb] current 不做严格性引擎，不决定文档是否有效。
+`- [plumb] later 独立 bindings、release automation 与单独 repository。
 
 `## G. 打包与开发环境
 
-`- [plumb] later Cargo workspace 和 crate 划分：`"[plumb-core]"、extensions、
+`- [plumb] MVP Cargo workspace 和 crate 划分：`"[plumb-core]"、extensions、workspace、
   `"[plumb-ls]"、`"[plumb-export]"、`"[plumb-notes]"。
-`- [djot-tools] later Nix flake 打包二进制。
-`- [plumb] later warning gate：`"[cargo check --workspace --all-targets]"。
+`- [plumb] MVP Nix flake 打包二进制。
+`- [plumb] MVP warning gate：`"[cargo check --workspace --all-targets]"。
 
 `## 建议实现顺序
 
 `- 1. 冻结 MVP syntax 和 lossless SyntaxTree contract。
 `- 2. 实现 `"[plumb-core]"：lexer、block scanner、inline parser、diagnostics 和 focused tests。
-`- 3. 以第一个实际 extension 为 consumer，冻结 typed view / normalized AST lowering contract。
-`- 4. 实现官方 host API、outline、anchors、links、workspace。
-`- 5. 实现 `"[plumb-ls]" 的 diagnostics、documentSymbol、definition、references、hover。
-`- 6. 实现 `"[plumb-export]" 和最小 HTML / Pandoc 导出。
-`- 7. 增加 meta、tasks、completion、semantic tokens。
+`- 3. 实现 recovered/valid typed views 与官方静态 Rust extension host。
+`- 4. 实现 headings/outline、anchors/links 和增量 workspace outputs。
+`- 5. 实现 `"[plumb-ls]" diagnostics、completion、navigation、references 和 guarded rename。
+`- 6. 按 exporter 的实际需求决定是否 materialize normalized AST，再实现 Pandoc export。
+`- 7. 增加 lists、definitions、meta、tasks、events 和 semantic tokens。
 `- 8. 实现 `"[plumb-notes]"。
 `- 9. 继续维护已经存在的 `"[tree-sitter-plumb]" 宽松镜像。

@@ -1,9 +1,8 @@
 `# plumb block level 语法规范
 
-`> `*[状态：结构设计已定稿。] 本文中的 frozen rules 是实现 block parser 的规范基线；
-  “实现前需确定的细节”仍须拍板，但不得改变总体 block model。inline syntax、通用 raw
-  leaf 及最终 inline AST 不在本次定稿范围内。inline envelope 的独立设计见
-  `"[docs/inline.plumb]"；本文仍将 `"[InlineContent]" 视为 opaque payload。
+`> `*[状态：MVP syntax 与 lossless contract 已定稿。] 本文是 strict block parser 的规范
+  基线；inline syntax 见 `"[docs/inline.plumb]"。formatter policy、通用 raw leaf 与 normalized
+  AST 明确 deferred，不阻塞 parser implementation。
 
 `## 0. 定稿边界
 
@@ -27,8 +26,7 @@
   即 `"[code_indent = parent_indent + 1 + quote_count]"。
 `- core block tree 使用 `"[ParsedBlock | CodeBlock]" 区分 parsed payload 与 raw payload。
 
-实现前仍需确定的项目集中列在本文末尾。除这些项目外，block surface syntax 不再继续
-发散。
+决策状态与 deferred policy 集中列在本文末尾；block surface syntax 已冻结。
 
 `## 1. 总体模型
 
@@ -453,9 +451,10 @@ block containment 只由 indentation 表达：
 `- 普通 paragraph 不能凭空拥有 children。
 `- 空行只参与 head / paragraph 边界，不建立或改变 indentation column，也不产生节点。
 
-结构 blank line 是只包含 spaces/tabs 后接 newline 的物理行。其 whitespace 完全忽略：不建立
-或改变 indentation column，不进入 core AST，也不产生 trailing-whitespace syntax error。
-raw code body 使用第 8 节的独立 blank-line 规则。
+结构 blank line 是只包含 spaces/tabs 后接 newline 的物理行。其 whitespace 在结构计算中完全
+忽略：不建立或改变 indentation column，不进入未来 normalized payload，也不产生
+trailing-whitespace syntax error；lossless SyntaxTree 仍逐字节保留整行。raw code body 使用
+第 8 节的独立 blank-line 规则。
 
 结构 indentation 只允许 ASCII spaces。required structural prefix 内出现 tab 是 syntax
 error；required prefix 完成后的 tab 属于 inline/raw payload，允许并按 source bytes 保留。
@@ -642,7 +641,7 @@ syntax tree 必须保留 quote count、opening range 和每条 code line 的 str
 raw bytes 和整个 node span，不保留 source layout margin。这个区别来自 raw payload mode，
 而不是 marker registry。
 
-`## 10. 实现前需确定的细节
+`## 10. 决策状态与 deferred policy
 
 这些项目会影响 block parser、diagnostics 或未来 core AST；第一阶段 parser 只受已决定的
 syntax 与 lossless SyntaxTree contract 约束：

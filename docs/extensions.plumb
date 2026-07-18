@@ -1,74 +1,222 @@
 `# plumb extension 规范
 
-`> 状态：设计草案。本文定义 extension 的语言无关语义契约。Rust module、WASM、脚本、
-  动态库或外部进程是 host implementation choice，不是 extension 本身。
+`> 状态：当前架构基线。本文定义 extension 的 observable semantic contract。第一阶段官方
+  host 使用静态组合的 Rust typed modules；WASM、动态库、脚本或外部进程不是当前目标，也
+  不影响这里定义的输入、输出与副作用边界。
 
-`## 1. 定义与边界
+`## 1. 总体模型
 
-extension 是消费未来 normalized core AST 并添加语义的 analysis 或 transform。它可以识别 opaque
-attributes、构建派生索引、产生语义 diagnostics、生成 text edits，或将文档 lower 到
-其他表示。它不能改变什么源码在 core syntax 中合法。
-
-core 与 extension 的边界如下：
-
-`- core 第一阶段决定 syntax validity，产出 lossless SyntaxTree 和 syntactic diagnostics；
-  normalized AST lowering 在实际 extension 实现前冻结。
-`- extension 解释 AST 中的结构、marker、kind 和 opaque attributes。
-`- host 负责装配 extension、提供 capability、调度依赖并合并 diagnostics。
-`- application 负责文件 I/O、外部进程、LSP mapping、落盘和用户交互。
-
-`## 2. Extension contract
-
-每个 extension 必须声明：
-
-`- stable id，例如 `"[outline]"、`"[anchors]"、`"[links]" 或 `"[tasks]"。
-`- contract version，用于判断 input / output schema compatibility。
-`- required inputs：core AST、source snapshot，以及明确命名的 extension outputs。
-`- produced outputs：结构化 analysis、derived representation、diagnostics 或 text edits。
-`- required host capabilities，例如 workspace lookup；没有 capability 时必须明确拒绝运行，
-  不能隐式读取环境。
-
-相同 input snapshot、dependency outputs、configuration 和 capability responses 必须产生相同
-结果。extension 不能依赖隐藏的全局状态或未声明的执行顺序。
-
-`## 3. Inputs
-
-以下 snapshot 是 extension 阶段的目标 contract，不是第一阶段 strict parser 的输出承诺。
-extension 的最小输入是一个不可变 document snapshot：
+strict parser 对每个 document revision 只构造一棵 recovered lossless SyntaxTree，并始终返回
+syntactic diagnostics。合法文档不是另一种 parse product，而是同一结果通过 validity gate：
 
 `"{language=text}
-  DocumentSnapshot {
+  Source
+    -> strict reject-but-recover parser
+    -> ParsedDocument { syntax, diagnostics }
+         -> recovered editor queries
+         -> if diagnostics.is_empty(): valid analyses and indexes
+
+`"[ParsedDocument.syntax]" 在合法和非法输入上都可用。`"[ValidDocumentView]" 只是对同一棵
+SyntaxTree 的只读 validity proof，不复制、不重新解析，也不要求先 materialize normalized AST。
+
+core 决定 syntax validity；extension 解释 marker、inline kind 和 opaque attributes。extension
+不能改变什么 source 合法，不能注册 core syntax，也不能在 parser callback 中运行。
+
+`## 2. Typed views
+
+extension 不直接依赖 punctuation-heavy raw tree shape。core 在 SyntaxTree 上提供只读 typed
+views，同时保留回到 source token/range 的能力：
+
+`"{language=text}
+  DocumentView
+  BlockView {
+    node_ref
+    mark: None | Anonymous(attrs) | Named(marker, attrs)
+    head
+    children
+  }
+  InlineView = Text | SoftBreak | Span | Verbatim
+
+recovered view 的 required syntax child 使用 optional accessor，例如未闭合 inline 的 closing
+bracket 为 None。`"[ValidDocumentView]" 可以提供保证良构的 wrapper，但内部仍引用相同 syntax
+nodes。normalized AST、Text canonicalization 和 serialization 等出现实际 consumer 后再冻结。
+
+`## 3. Extension categories
+
+extension 分为四类，不能用一个含糊的 callback 同时承担所有生命周期：
+
+`- `"[EditorQuery<Request, Response>]"：读取当前 recovered SyntaxTree，处理 completion、hover、
+  syntax-aware assist 和 partial target lookup；结果是 cursor/request scoped，不进入权威索引。
+`- `"[DocumentAnalysis<Input, Output>]"：只读取 `"[ValidDocumentView]"，产生 heading、list item、
+  definition、task、event、anchor 或 link records 及 semantic diagnostics。
+`- `"[WorkspaceAnalysis<Inputs, Output>]"：聚合多个 document outputs，产生 outline、list groups、
+  anchor/reference indexes 和 cross-file target resolution。
+`- `"[Operation<Request, Output>]"：消费显式 request、snapshots 和 indexes，返回 rename、fix、
+  export 或其他 effect proposal，不直接执行副作用。
+
+descriptor 至少声明 stable id、contract version、category、input policy、required outputs、
+required host capabilities 和 configuration schema。`"[InputPolicy]" 至少区分
+`"[RecoveredSyntax]" 与 `"[ValidDocument]"；operation 必须按具体 request 声明 policy。依赖必须
+形成 DAG；missing/incompatible dependency 和 cycle 在执行前由 host 拒绝。
+
+`## 4. Snapshots and identity
+
+`"{language=text}
+  ParsedDocument {
     document_id
     revision
     source
-    core_ast
+    syntax
+    syntax_diagnostics
   }
 
-`- `"[document_id]" 由 host 分配，用于同一 host session 内标识文档。
-`- `"[revision]" 标识 source 与 AST 的一致快照。
-`- source 使用 UTF-8 bytes；range 继续使用 core 的 byte offsets。
-`- syntax error 存在时，host 不得把 partial AST 作为有效 snapshot 交给 extension。
+  NodeRef {
+    document_id
+    revision
+    syntax_node_key
+    range
+  }
 
-跨文档查询、时间、配置或其他外部信息必须通过显式 capability 或 input 提供。extension
-不得自行读取文件系统、环境变量、系统时钟、网络或编辑器状态。
+source 是 UTF-8 snapshot，range 使用 half-open byte offsets。`"[syntax_node_key]" 只需在同一
+revision 内唯一，不承诺 edit 后复用。跨 revision 的领域 identity 使用显式 anchor id、
+normalized document id 等 semantic key，不能依赖 syntax node identity。
 
-`## 4. Outputs
+`"[ValidDocumentView]" 的唯一 gate 是 syntax diagnostics 为空；不能只检查树中是否存在 error
+node，因为 duplicate id/key 等 syntax error 可能不需要 error node。
 
-输出必须是可命名、可版本化的结构化值，不能通过无 schema 的字符串 key/value bag 向
-core AST 附加任意数据。常见输出分为：
+`## 5. Outputs and facet composition
 
-`- analysis：outline、anchor index、link index、task index。
-`- validation：结构化语义值和 semantic diagnostics。
-`- rewrite proposal：不落盘的 text edits。
-`- lowering：Pandoc AST、HTML model 或其他目标 representation。
+authoritative output 必须是 typed、immutable、named 和 versioned value：
 
-extension 不得原地修改 core AST。需要表示新语义时，应返回 side table、派生树或新的
-target representation。side table 的 AST identity/source-map contract 与 normalized AST 一起
-冻结；第一阶段 SyntaxTree 不承诺 `"[NodeId]" 或跨 revision identity reuse。
+`"{language=text}
+  ExtensionOutput<T> {
+    extension_id
+    contract_version
+    scope
+    input_revisions
+    value: T
+    diagnostics
+  }
 
-`## 5. Diagnostics
+extension 不得原地修改 SyntaxTree、view 或其他 output，也不得向共享对象写入无 schema 的
+string property bag。需要添加语义时返回 side table、derived tree 或 target representation。
 
-所有 extension 使用共同的 diagnostic envelope：
+一个 node 可以同时拥有多个 semantic facets。例如：
+
+`"{language=plumb}
+  `item{.task #parser state=todo due=2026-08-01} Implement parser
+
+可以同时产生 `"[ListItemRecord]"、`"[TaskRecord]" 和 `"[AnchorRecord]"。多重标注默认合法；
+禁止全局 `"[SemanticKind]" 和 first-extension-wins。只有具体 output contract 声明排他关系时，
+composer 才能产生 conflict diagnostic。
+
+`## 6. Recognition and aggregation
+
+单节点 recognition/local validation 与跨节点 aggregation 必须分开：
+
+`"{language=text}
+  headings     -> HeadingRecord[]     -> outline
+  list-items   -> ListItemRecord[]    -> list groups
+  definitions  -> DefinitionRecord[]  -> definition lists
+  tasks        -> TaskRecord[]        -> task index
+  events       -> EventRecord[]       -> calendar index
+  anchors      -> AnchorRecord[]      -> workspace anchor index
+  links        -> LinkRecord[]        -> target resolution
+
+recognizer 验证 marker/attributes/head/children 的 local schema。aggregation 才解释相邻 siblings、
+层级、跨文档目标和 workspace uniqueness。marker/class 的默认 spelling 属于具体 extension 的
+configuration，不属于 core registry。
+
+`### 6.1 Common semantic shapes
+
+下面的 spelling 只用于展示 output flow，不在 core 中保留，也尚未冻结为 official defaults：
+
+`"{language=plumb}
+  `heading{level=2 #extensions} Extension design
+
+  `item First item
+  `item{.task state=todo due=2026-08-01} Implement parser
+
+  `definition Extension
+
+    A typed semantic computation over a document.
+
+  `event{start="2026-08-01T10:00:00+08:00"} Parser review
+
+  See `link[extension design]{to="design.plumb#extensions"}.
+
+heading recognizer 产生 title/level/id record，outline aggregator 再构建层级。list-item recognizer
+不直接创建 list；list aggregator 对相邻 sibling records 分组。definition recognizer 把 head
+解释为 term、children 解释为 body。task/event 是可叠加 facets，不排斥 list item、heading 或
+anchor。link recognizer 只解析 target spelling，cross-file resolver 再依赖 workspace anchor
+index；这些 extension 都不修改原 SyntaxTree。
+
+`## 7. Recovered editor queries
+
+syntax error 存在时不能产生新的 authoritative document/workspace output，但 editor query 仍可
+读取当前 recovered tree。例如正在输入：
+
+`"{language=plumb}
+  `link[design]{to="docs/extensions.plumb#
+
+completion 从当前 revision 提取 key、value prefix、cursor 和 replacement range，再通过
+workspace capability 查询 path 与该文件最新 valid anchor output。query response 必须标记它
+使用的 current revision 和 dependency output revisions；稍旧的候选可以用于交互，但不能
+伪装成当前文档的权威 analysis。
+
+host 为每个 document 区分：
+
+`"{language=text}
+  current ParsedDocument
+  last-valid DocumentAnalysis outputs
+
+invalid edit 不删除其他工具仍可使用的 last-valid output，但该 output 必须保留旧 revision，
+不能参与要求 current-valid consistency 的 export、rename 或 workspace commit。
+
+`## 8. Workspace and cross-file links
+
+extension 不自行读取文件系统。host 显式提供：
+
+`"{language=text}
+  WorkspaceCapability {
+    snapshot(document_id)
+    documents()
+    resolve_path(from_document, target_path)
+    configuration(extension_id)
+  }
+
+打开 buffer 优先于磁盘 snapshot；document id/path normalization 由 host 统一执行。anchors、
+links 和 resolution 使用独立 outputs：link recognition 不自行查询文件，resolver 依赖 link 与
+anchor indexes，并将 target 分类为 resolved、unresolved、ambiguous 或 external。
+
+`"[LinkRecord]" 必须同时保留 raw target、parsed path/fragment 和 decoded component 到 source
+bytes 的映射。没有 escape 时 component 可以直接引用 contiguous range；quoted value 含
+escaped backslash 或 quote 时必须保留分段 mapping，不能假设 decoded offset 等于 source
+byte offset。
+
+`## 9. Operations and edits
+
+operation 只返回 proposal。跨文件 rename 使用带 revision guard 的原子 edit：
+
+`"{language=text}
+  WorkspaceEdit {
+    document_changes: [
+      { document_id, expected_revision, edits[] }
+    ]
+  }
+
+application 在应用前检查所有 expected revisions；任一不匹配就拒绝整个 proposal 并重新计算。
+第一阶段 anchor rename 只支持显式 id：它修改 definition id 和所有已明确 resolve 到它的
+reference fragments，并先验证新 id/target spelling。自动 heading id 没有可编辑 definition，
+除非另一个 operation 显式 materialize id，否则不可直接 rename。unresolved 或 ambiguous
+references 使 rename 拒绝或要求显式 policy。document rename 另行计算每个引用文档的新相对
+路径，不与 anchor rename 混为一个隐式操作。
+
+精确 edit 使用 lossless SyntaxTree token ranges，保留无关 quoting、relative path spelling 和
+formatting。extension 不写文件、不启动 pandoc、不读取环境或时钟；这些 effect 由 application
+在接受 proposal 后执行。
+
+`## 10. Diagnostics and failure
 
 `"{language=text}
   Diagnostic {
@@ -80,77 +228,52 @@ target representation。side table 的 AST identity/source-map contract 与 norm
     related_ranges[]
   }
 
-`- `"[source]" 是 extension stable id。
-`- `"[code]" 在该 extension 内稳定，例如 `"[links/unresolved-target]"。
-`- range 使用当前 document snapshot 的 UTF-8 byte offsets。
-`- semantic diagnostic 不能伪装成 core syntax diagnostic。
-`- severity 用于呈现，不直接等同于 pipeline control flow。
+source 是 extension stable id，code 在该 extension 内稳定。semantic diagnostic 不能伪装成
+core syntax diagnostic。severity 不等于 pipeline control flow；例如 unresolved link 可以允许
+completion/outline 继续，但 export 或 rename 可以声明无法产生可靠 output。
 
-是否因 semantic diagnostic 拒绝某项操作由 consumer policy 决定。例如 unresolved link 可以
-允许 outline 和编辑器导航继续工作，但 export extension 可以声明它无法完成 lowering。
+缺少 capability、dependency version 不兼容、stale revision 和 resource exhaustion 是
+execution failure，不应伪装成 document semantic diagnostic。
 
-`## 6. Dependencies and composition
+`## 11. Scheduling, caching and performance
 
-extension 依赖的是另一个 extension 的已版本化 output contract，而不是它的实现语言或
-进程形态。例如 links 可以依赖 anchors output，export 可以依赖 links、meta 和 tasks
-outputs。
-
-依赖必须构成有向无环图。host 负责：
-
-`- 检查 dependency 和 contract version。
-`- 按依赖顺序运行 extension。
-`- 保证同一 pipeline 中的 document-scoped outputs 来自同一 revision。
-`- 在 input、configuration 或 dependency output 改变时使缓存失效。
-
-MVP 不要求动态 discovery、通用 registry 或运行时安装协议。官方工具链可以显式、静态地
-装配固定 pipeline；这不会改变 language-neutral contract。
-
-`## 7. Capabilities and side effects
-
-需要外部信息的 extension 必须通过 host capability 请求，而不是直接产生副作用。候选
-capabilities 包括：
-
-`- 按规范化 document id 查询另一个有效 document snapshot。
-`- 枚举 workspace documents。
-`- 读取显式 configuration。
-
-extension 可以返回 effect proposal，例如 text edits、待写出的 bytes 或 pandoc invocation
-request；application 决定是否执行。tasks extension 只产生 edits，不自行写文件；export
-extension 产生 Pandoc AST 或 invocation request，不自行启动进程。
-
-`## 8. Host implementations
-
-host implementation 负责把上述 contract 映射到具体技术：
-
-`- 官方 Rust 工具链可以用 typed structs、traits 或普通函数静态组合 extension。
-`- WASM host 可以把相同 inputs、outputs 和 diagnostics 映射为 versioned ABI。
-`- 外部进程 host 可以使用 framing protocol 和序列化 schema。
-
-这些 mechanism 可以有各自的安全、性能和生命周期规则，但不得改变 extension 的语义
-结果。第一阶段只需实现官方 Rust host；本文不承诺稳定 Rust API、WASM ABI 或 plugin
-distribution format。
-
-`## 9. Reference pipeline
-
-第一条 reference pipeline 用于验证 contract，而不是建立全局 registry：
+相同 snapshots、dependency outputs、configuration 和 capability responses 必须产生相同结果。
+推荐 cache key：
 
 `"{language=text}
-  valid core document
-    -> outline
-    -> anchors
-    -> links
-    -> target resolution
+  extension_id + contract_version + document_id + revision
+    + config_hash + dependency_output_versions
+
+document 改变时只重跑该文档 analyses；workspace analyses 接收 changed/removed records 并更新
+indexes。第一阶段允许每个 extension 各自 O(n) 遍历。出现实际瓶颈后，core 可以提供
+`"[nodes_by_marker]"、`"[nodes_with_class]"、`"[nodes_with_attribute]" 等纯 syntax-derived
+index；它们不解释 spelling，也不是 semantic registry。
+
+`## 12. Official host and reference order
+
+第一阶段官方 host 使用 Rust typed structs、traits 或普通函数静态组合 extension，不要求每次
+调用序列化，不冻结稳定 Rust API、WASM ABI 或 plugin installation protocol。observable
+contract 保持语言无关；等真实 non-Rust consumer 出现后再冻结 serialization/transport。
+
+建议实现顺序：
+
+`"{language=text}
+  typed recovered/valid views
+    -> headings -> outline
+    -> anchors -> links -> workspace resolution
+    -> completion -> definition/references -> rename
+    -> list-items/definitions/tasks/events
     -> export
 
-outline 应作为第一个 reference extension：它只依赖 core document，输出 section tree 和
-diagnostics，适合验证 snapshot、AST identity/source map、output schema 和 host composition。anchors 与 links
-随后验证显式 dependency；workspace resolution 最后验证 capability boundary。
+这条 pipeline 依次验证 typed view、facet composition、dependency DAG、last-valid cache、
+cross-file index 和 guarded workspace edits，而不是建立 core marker registry。
 
-`## 10. 尚待决定
+`## 13. Deferred details
 
-`- stable id 和 contract version 的精确拼写及兼容规则。
-`- structured output 是否需要统一 serialization schema，还是仅在非 Rust host 出现时冻结。
-`- semantic failure 与 partial output 的统一表示。
-`- capability request 是同步、异步还是由 host 预先物化为 input。
-`- workspace-scoped output 的 revision / invalidation model。
-`- configuration schema 的 ownership 和 namespacing。
+以下细节等实现 consumer 后决定，不阻塞 strict parser：
+
+`- normalized AST 是否 materialize，或 typed views 是否已经足够。
+`- official marker/class spellings 与各 extension configuration schema。
+`- non-Rust serialization schema 和 ABI。
+`- workspace index 的具体 persistent storage。
+`- cache eviction、parallel scheduling 和 cancellation 的实现策略。

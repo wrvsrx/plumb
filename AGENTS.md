@@ -8,7 +8,7 @@ instructions.
 
 ## What this is
 
-**plumb** (working name — see the naming open question in `docs/spec.plumb`) is a
+**plumb** (working name — see `docs/vision.plumb`) is a
 **strict markup language** and its tooling, built for personal use. Where
 [Djot](https://djot.net) and Markdown are deliberately error-tolerant, plumb is
 deliberately strict: malformed syntax is a hard parse error rather than a silent
@@ -21,10 +21,10 @@ Start with the design docs, in this order:
   design principles, and MVP requirements.
 - `docs/vision.plumb` — why the language exists, its core philosophy, and the
   ecosystem strategy.
-- `docs/spec.plumb` — the finalized block-level structure and the precise details
-  that still need decisions before implementation.
-- `docs/inline.plumb` — the current inline envelope design and its remaining open
-  questions. Read it after the block-level design in `docs/spec.plumb`.
+- `docs/spec.plumb` — the finalized block-level structure and lossless syntax-tree
+  contract.
+- `docs/inline.plumb` — the finalized MVP inline syntax. Read it after the
+  block-level design in `docs/spec.plumb`.
 - `docs/syntax-open-questions.plumb` — the syntax decision record and the
   deferred core AST questions that no longer block parser implementation.
 - `docs/extensions.plumb` — the language-neutral contract for adding semantics
@@ -61,22 +61,24 @@ project, but it is a **separate project**:
 1. **The hand-written strict parser is the single source of truth for *syntax*.**
    It is *reject-but-recover*: it reports every syntactic error it can (recovering
    at line/block boundaries) and always produces a lossless source-oriented tree.
-   A document with any syntactic error is not valid input for future AST lowering
-   or extensions. Strictness is **syntactic only**.
+   A document with syntactic errors is not valid input for authoritative semantic
+   analysis or export. Recovered-tree editor queries such as completion and
+   syntax-aware assists remain available. Strictness is **syntactic only**.
 2. **The core is semantics-neutral; all meaning lives in extensions.**
-   The first `plumb-core` phase produces only a lossless syntax tree. A future
-   lowering layer will expose a small, semantics-neutral Pandoc-shaped AST once
-   an extension provides a concrete consumer (`{#id .class k=v}` remain opaque
-   attributes). Everything semantic — metadata, link/anchor resolution,
-   references, id generation, tasks, and lowering to HTML/pandoc — remains an
-   **extension** (a language-neutral semantic analysis or transform over the
-   tree; the exporter is itself an extension). Rust modules are one host
-   implementation, not part of the extension definition. No registry, no roles,
-   no class-name validation in core.
+   The first `plumb-core` phase produces one recovered lossless syntax tree per
+   revision. Extensions initially consume typed recovered/valid views over that
+   tree; a normalized AST is materialized only if a concrete consumer needs it
+   (`{#id .class k=v}` remain opaque attributes). Everything semantic —
+   metadata, link/anchor resolution, references, id generation, tasks, and
+   lowering to HTML/pandoc — remains an
+   **extension** (a language-neutral query, analysis, or operation over typed
+   views and declared outputs; the exporter is itself an extension). Rust
+   modules are one host implementation, not part of the extension definition.
+   No registry, roles, or class-name validation exists in core.
    See `docs/vision.plumb` (the Pandoc/Docutils model).
-3. **tree-sitter is intentionally lenient and ergonomics-only.** It powers
-   editor features (highlighting, text objects, folding, injections) and is
-   *never* the strictness engine. It is a phase-2 concern. Do **not** distort the
+3. **tree-sitter is intentionally lenient and ergonomics-only.** Its current
+   grammar powers editor features (highlighting, text objects, folding,
+   injections) and is *never* the strictness engine. Do **not** distort the
    language design to fit a CFG — strictness and good errors come from the hand
    parser regardless. Because core is semantics-neutral, core and tree-sitter
    cover the same (pure-syntax) scope, differing only in strict-vs-lenient.
@@ -99,20 +101,23 @@ semantics can be shared by more than one tool:
   reserve heading, list, quote, or semantic marker spellings. Quote runs remain a
   syntax-level special case because they switch the payload to raw mode. Contains
   **no** anchors, references, metadata, tasks, outline, or resolution logic.
-- **extensions** — implementations of the language-neutral extension contract,
-  eventually consuming the normalized core representation and adding semantics
-  plus their own diagnostics:
+- **extensions** — statically composed Rust implementations of the
+  language-neutral extension contract, initially consuming typed views and
+  adding semantics plus their own diagnostics and edit proposals:
   outline, anchors/references, target resolution, workspace, metadata, tasks.
   The official toolchain may implement and compose them as Rust modules, without
   making Rust part of the semantic contract. (These are djot-tools' `djot-core`
   analysis, relocated out of core.)
+- **`plumb-workspace`** — document snapshots, last-valid extension outputs,
+  dependency invalidation, cross-file indexes, and guarded workspace edits.
 - **`plumb-ls`** — everything LSP (`lsp_types`, `async-lsp`, UTF-16 positions);
-  wires core + extensions and merges their diagnostics.
-- **`plumb-export`** — itself an extension: core tree → `pandoc_types` JSON →
-  `pandoc` (writer only).
+  wires core + extensions, hosts recovered editor queries, and merges their
+  diagnostics.
+- **`plumb-export`** — itself an extension: valid typed view or exporter-specific
+  normalized model → `pandoc_types` JSON → `pandoc` (writer only).
 - **`plumb-notes`** — CEL query/edit CLI over directories of plumb documents.
-- **`tree-sitter-plumb`** (eventually a separate repo) — lenient grammar for
-  editor ergonomics. Phase 2.
+- **`tree-sitter-plumb`** (eventually a separate repo) — the existing lenient
+  grammar for editor ergonomics.
 
 All binaries reuse `plumb-core` + the extensions without pulling in each other's
 types.
@@ -179,9 +184,10 @@ conventional-style messages: `feat(core): …`, `fix(ls): …`, `docs: …`.
 
 Semantic-ish `0.x.y` while pre-1.0: release `0.x.(y+1)` when the release
 contains only fixes; release `0.(x+1).y` when it includes features or behavior
-changes. Bump `[workspace.package].version` in `Cargo.toml`, let a Cargo command
-update `Cargo.lock` (never edit it by hand), commit the release, tag it, then
-bump to the next `-dev` version.
+changes. Until the Cargo workspace exists, `tree-sitter-plumb/tree-sitter.json`
+is the version source. Once it exists, bump `[workspace.package].version` in
+`Cargo.toml` and let Cargo update `Cargo.lock` (never edit it by hand). Commit the
+release, tag it, then bump to the next `-dev` version.
 
 ## Docs language note
 

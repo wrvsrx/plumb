@@ -11,7 +11,8 @@ The grammar represents plumb's core surface syntax with generic nodes such as
 Marker and inline kind tokens remain opaque. It deliberately does not create
 nodes such as `"[heading]"、`"[list_item]"、`"[quote]"、`"[task]"、`"[emphasis]" or
 `"[link]"。
-Those interpretations belong to core lowering or extensions.
+Those interpretations belong to extension typed views, analyses, and future
+consumer-specific lowering.
 
 `"[code_block]" and `"[inline_verbatim]" are separate syntax nodes because their raw
 payloads change the lexical parsing mode. The recovery-only
