@@ -1,0 +1,9 @@
+[package]
+name = "plumb-export"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+plumb-core = { path = "../plumb-core" }
+serde_json.workspace = true

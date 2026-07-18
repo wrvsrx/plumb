@@ -356,6 +356,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "plumb-export"
+version = "0.2.1-dev"
+dependencies = [
+ "plumb-core",
+ "serde_json",
+]
+
+[[package]]
 name = "plumb-ls"
 version = "0.2.1-dev"
 dependencies = [
