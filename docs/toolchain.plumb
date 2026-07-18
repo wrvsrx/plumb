@@ -44,7 +44,8 @@ Heading facts、document symbols 与 Pandoc Header 共享以下 profile：
   `#{#intro} Level one with an explicit anchor
   `## Level two
 
-hash run 必须为一至六个，长度直接给出 level。只有 `"[{#id}]" 产生 anchor；`"[id=value]" 是
+hash run 必须为一至六个，长度直接给出 level。anchor 索引只收录 `"[#id]"；在
+heading 上 attributes 紧跟 marker，例如 `"[`#{#intro} Heading]"。`"[id=value]" 是
 普通 opaque pair。heading 没有显式 id 时仍进入 outline，但不能作为 link target。
 
 `## Known parser gaps

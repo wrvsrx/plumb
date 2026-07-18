@@ -377,10 +377,10 @@ mod tests {
 
     #[test]
     fn only_shorthand_ids_create_anchors() {
-        let parsed = parse("`# Heading\n`##{id=pair} Pair only\n`##{#real} Real\n");
+        let parsed = parse("`#{#intro} Heading\n`##{id=pair} Pair only\n");
         let output = analyze_document(&parsed.source, &parsed.syntax);
         assert_eq!(output.anchors.len(), 1);
-        assert_eq!(output.anchors[0].id.value, "real");
+        assert_eq!(output.anchors[0].id.value, "intro");
         assert_eq!(output.anchors[0].kind, AnchorKind::Heading);
     }
 

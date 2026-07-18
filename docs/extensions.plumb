@@ -206,7 +206,8 @@ core 中保留，也尚未冻结为 official defaults：
 
   See `link[extension design]{to="design.plumb#extensions"}.
 
-heading recognizer 产生 title/level/id record，outline aggregator 再构建层级。list-item recognizer
+heading recognizer 只产生 title/level record，outline aggregator 再构建层级。anchor recognizer
+独立收集显式 `"[#id]" 并产生 `"[AnchorRecord]"；heading 本身不保存第二份 id 描述。list-item recognizer
 不直接创建 list；list aggregator 对相邻 sibling records 分组。definition recognizer 把 head
 解释为 term、children 解释为 body。task/event 是可叠加 facets，不排斥 list item、heading 或
 anchor。link recognizer 只解析 target spelling，cross-file resolver 再依赖 workspace anchor
@@ -215,7 +216,8 @@ index；这些 extension 都不修改原 SyntaxTree。
 Heading marker 是一至六个 `"[#]"，marker 长度直接给出 level；例如
 `"[`#{#intro} Heading]" 是带显式 anchor 的一级 heading。
 
-Anchor 只来自 source 中的 `"[AttrItem::Id]"，唯一 spelling 是 `"[{#id}]"。普通 pair
+Anchor 索引只收录 source 中的 `"[AttrItem::Id]"，唯一 spelling 是 `"[#id]"；
+它在 heading 上的完整形式是 `"[`#{#intro} Heading]"。普通 pair
 `"[id=value]" 没有内建 anchor 语义。heading 的 head/title 不生成 implicit id；没有 `"[{#id}]"
 的 heading 可以进入 outline 和 document symbols，但不产生 `"[AnchorRecord]"，也不能作为
 definition、references 或 anchor rename 的目标。添加显式 id 是单独的 edit operation，不能
