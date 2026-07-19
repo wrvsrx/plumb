@@ -649,11 +649,15 @@ fn completes_links_by_document_metadata_title() {
     std::fs::create_dir_all(&root).unwrap();
     let source = root.join("current.plumb");
     let target = root.join("usage.plumb");
-    let source_text = "`link[Us\n`link[x]{to=\"Guide\n";
-    std::fs::write(&source, source_text).unwrap();
+    let closed_path = "`link[x]{to=\"usXXX\"}";
+    let closed_anchor = "`link[x]{to=\"usage.plumb#usXXX\"}";
+    let raw = "`\"[raw `link[x]{to=\"us\"}]\"";
+    let source_text =
+        format!("`link[Us\n`link[x]{{to=\"Guide\n{closed_path}\n{closed_anchor}\n{raw}\n");
+    std::fs::write(&source, &source_text).unwrap();
     std::fs::write(
         &target,
-        "`meta\n  `: title\n\n    Usage Guide\n\n`# Usage\n",
+        "`meta\n  `: title\n\n    Usage Guide\n\n`#{#usage} Usage\n",
     )
     .unwrap();
     let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
@@ -689,7 +693,37 @@ fn completes_links_by_document_metadata_title() {
                 "position": { "line": 1, "character": 18 }
             }
         }),
-        json!({ "jsonrpc": "2.0", "id": 4, "method": "shutdown", "params": null }),
+        json!({
+            "jsonrpc": "2.0", "id": 4, "method": "textDocument/completion",
+            "params": {
+                "textDocument": { "uri": source_uri },
+                "position": {
+                    "line": 2,
+                    "character": closed_path.find("usXXX").unwrap() + 2
+                }
+            }
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 5, "method": "textDocument/completion",
+            "params": {
+                "textDocument": { "uri": source_uri },
+                "position": {
+                    "line": 3,
+                    "character": closed_anchor.find("usXXX").unwrap() + 2
+                }
+            }
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 6, "method": "textDocument/completion",
+            "params": {
+                "textDocument": { "uri": source_uri },
+                "position": {
+                    "line": 4,
+                    "character": raw.find("us").unwrap() + 2
+                }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 7, "method": "shutdown", "params": null }),
         json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
     ];
     let output = run_server(&messages);
@@ -704,6 +738,25 @@ fn completes_links_by_document_metadata_title() {
     assert_eq!(path["label"], "usage.plumb");
     assert_eq!(path["detail"], "Usage Guide");
     assert_eq!(path["textEdit"]["newText"], "usage.plumb");
+    let closed_path_item = &response(&output, 4)["result"][0];
+    assert_eq!(closed_path_item["textEdit"]["newText"], "usage.plumb");
+    assert_eq!(
+        closed_path_item["textEdit"]["range"],
+        json!({
+            "start": { "line": 2, "character": closed_path.find("usXXX").unwrap() },
+            "end": { "line": 2, "character": closed_path.find("usXXX").unwrap() + 5 }
+        })
+    );
+    let closed_anchor_item = &response(&output, 5)["result"][0];
+    assert_eq!(closed_anchor_item["textEdit"]["newText"], "usage");
+    assert_eq!(
+        closed_anchor_item["textEdit"]["range"],
+        json!({
+            "start": { "line": 3, "character": closed_anchor.find("usXXX").unwrap() },
+            "end": { "line": 3, "character": closed_anchor.find("usXXX").unwrap() + 5 }
+        })
+    );
+    assert!(response(&output, 6)["result"].is_null());
     std::fs::remove_dir_all(root).unwrap();
 }
 

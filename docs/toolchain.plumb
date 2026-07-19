@@ -43,8 +43,10 @@
 当前 server 会扫描 workspace、监听 `[*.plumb] changes，并实现 links、completion、
 anchor/document rename。link label completion 按 metadata title 或 relative path 模糊匹配，并生成
 完整 `[link] element；`[to] value completion 同时按 title/path 匹配但只插入 relative path，
-fragment completion 继续只匹配显式 anchors。metadata field completion、已有 metadata 的任意 edit
-和 metadata hover 尚未实现。
+fragment completion 继续只匹配显式 anchors。closed target 中只替换 cursor 所在 path/fragment
+component，保留 quote、`[#] separator 和另一 component；recovered tree/diagnostics 确保 inline/block
+verbatim payload 内不触发 completion。metadata field completion、已有 metadata 的任意 edit 和
+metadata hover 尚未实现。
 definition 与 reference hover 遇到尚未索引的本地 `[.plumb] target 时按需从磁盘加载并重试，
 因此无 workspace root 时也能解析 opened buffer 的相对 link、task `[prev] 和 `[depends]；hover
 在 task reference 上优先显示 target，普通 task body 才显示 task summary。anchor/file target hover

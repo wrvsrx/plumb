@@ -644,7 +644,7 @@ impl LanguageServer for ServerState {
             .and_then(|path| {
                 let entry = self.workspace.get(&path)?;
                 let offset = position_to_offset(&entry.parsed.source, position.position);
-                let context = link_completion_context(&entry.parsed.source, offset)?;
+                let context = link_completion_context(&entry.parsed, offset)?;
                 let is_document = matches!(
                     &context,
                     plumb_extensions::LinkCompletionContext::Label { .. }
