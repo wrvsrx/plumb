@@ -306,6 +306,18 @@ impl Workspace {
         task: &TaskRecord,
     ) -> Vec<ResolvedTaskDependency> {
         let path = normalize(path.as_ref());
+        self.task_dependencies(path, task)
+            .into_iter()
+            .filter(|dependency| dependency.task.state() == TaskState::Open)
+            .collect()
+    }
+
+    pub fn task_dependencies(
+        &self,
+        path: impl AsRef<Path>,
+        task: &TaskRecord,
+    ) -> Vec<ResolvedTaskDependency> {
+        let path = normalize(path.as_ref());
         let mut dependencies = task
             .depends
             .iter()
@@ -317,7 +329,7 @@ impl Workspace {
                 else {
                     return None;
                 };
-                (target_task.state() == TaskState::Open).then(|| ResolvedTaskDependency {
+                Some(ResolvedTaskDependency {
                     source: dependency.source.clone(),
                     target,
                     task: target_task,
@@ -331,6 +343,43 @@ impl Workspace {
                 .then(left.target.id.cmp(&right.target.id))
         });
         dependencies
+    }
+
+    pub fn directly_blocking_tasks(
+        &self,
+        target_path: impl AsRef<Path>,
+        target_id: &str,
+    ) -> Vec<TaskRef> {
+        let target = TaskRef {
+            path: normalize(target_path.as_ref()),
+            id: target_id.to_string(),
+        };
+        let mut blocking = Vec::new();
+        for entry in self.documents.values() {
+            let Some(current) = &entry.current else {
+                continue;
+            };
+            for task in &current.output.tasks.tasks {
+                let Some(id) = &task.id else {
+                    continue;
+                };
+                if task.state() != TaskState::Open {
+                    continue;
+                }
+                if self
+                    .task_dependencies(&entry.path, task)
+                    .iter()
+                    .any(|dependency| dependency.target == target)
+                {
+                    blocking.push(TaskRef {
+                        path: entry.path.clone(),
+                        id: id.value.clone(),
+                    });
+                }
+            }
+        }
+        blocking.sort_by(|left, right| left.path.cmp(&right.path).then(left.id.cmp(&right.id)));
+        blocking
     }
 
     pub fn is_task_blocked(&self, path: impl AsRef<Path>, task: &TaskRecord) -> bool {
@@ -379,6 +428,27 @@ impl Workspace {
             }],
             resource_operations: Vec::new(),
         })
+    }
+
+    pub fn set_task_status_by_id(
+        &self,
+        path: impl AsRef<Path>,
+        id: &str,
+        status: TaskStatus,
+        timestamp: &str,
+    ) -> Result<WorkspaceEdit, TaskEditError> {
+        let path = normalize(path.as_ref());
+        let task = self
+            .current_output(&path)
+            .and_then(|output| {
+                output
+                    .tasks
+                    .tasks
+                    .iter()
+                    .find(|task| task.id.as_ref().is_some_and(|task_id| task_id.value == id))
+            })
+            .ok_or(TaskEditError::TaskNotFound)?;
+        self.set_task_status(path, task.selection_range.start, status, timestamp)
     }
 
     fn recurring_task_status_edit(
@@ -1462,6 +1532,13 @@ mod tests {
         assert_eq!(blockers[0].target.id, "draft");
         assert!(workspace.is_task_blocked("notes/review.plumb", task));
         assert_eq!(
+            workspace.directly_blocking_tasks("notes/Project Plan.plumb", "draft"),
+            vec![TaskRef {
+                path: PathBuf::from("notes/review.plumb"),
+                id: "review".to_string(),
+            }]
+        );
+        assert_eq!(
             workspace.task_at("notes/review.plumb", task.range.start),
             Some(task)
         );
@@ -1503,9 +1580,9 @@ mod tests {
         workspace.insert("tasks.plumb", 7, source);
 
         let edit = workspace
-            .set_task_status(
+            .set_task_status_by_id(
                 "tasks.plumb",
-                source.find("Write parser").unwrap(),
+                "write",
                 TaskStatus::Done,
                 "2026-07-20T12:00:00+08:00",
             )
