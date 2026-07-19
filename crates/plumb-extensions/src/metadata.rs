@@ -87,6 +87,12 @@ pub struct MetadataOutput {
 }
 
 impl MetadataOutput {
+    pub fn definition_list_at_node_start(&self, start: usize) -> Option<&DefinitionList> {
+        self.definition_lists
+            .iter()
+            .find(|definitions| definitions.range.start == start)
+    }
+
     pub fn document_title(&self) -> Option<String> {
         let metadata = self.metadata.as_ref()?;
         let entry = metadata.entries.iter().find(|entry| entry.key == "title")?;

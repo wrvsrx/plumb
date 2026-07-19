@@ -73,6 +73,8 @@ Para、Header、Div、CodeBlock、Span 和 Code。generic marker 保存在
 `[data-plumb-marker] attribute 中；
 同层相邻 `[item] blocks 聚合为 BulletList，nested items 递归形成 nested BulletList；item 有
 attributes 时以内部 Div 保留 id/classes/pairs，包括可叠加的 `[.task] facet。
+普通相邻 `[:] blocks 聚合为 DefinitionList，definition attributes 同样用 body 内 Div 保留；
+唯一顶层 `[meta] 的 definitions 只进入 Pandoc metadata，不重复进入 body。
 pandoc 仅作为 writer 消费结果。
 
 唯一顶层 `[meta] block 不进入 Pandoc body，而是投影到 Pandoc `[meta]：scalar、list、map、

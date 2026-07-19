@@ -32,6 +32,8 @@ SyntaxTree contract 已冻结；normalized AST 和 extension-specific semantics 
   dependency、cycle 和 blocked state。
 `- list extension 识别 `[item] marker，并把同层相邻 items 聚合为 source-backed groups；
   `[plumb-export] lower 为 nested Pandoc `[BulletList]，带属性 item 通过内部 `[Div] 保留属性。
+`- 普通相邻 `[:] definition records 由 `[plumb-export] lower 为 Pandoc `[DefinitionList]；
+  metadata definitions 继续只投影到 Pandoc metadata，不重复进入 body。
 `- `[plumb-ls] 输出 nested task symbols、task hover、complete/cancel code actions 与 closed task
   semantic tokens；`[prev]/`[depends] 参与 definition/references 与 anchor/document rename；
   recurring task action 会关闭当前实例并追加下一实例。
@@ -224,6 +226,8 @@ capability wiring 和 revision/cancellation policy，不复制 parser 或 semant
   bibliography。
 `- [plumb] v1 相邻/nested `[item] groups lowering 到 Pandoc BulletList；带属性 item 使用内部
   Div 保存 id/classes/pairs。
+`- [plumb] v1 普通相邻 `[:] groups lowering 到 Pandoc DefinitionList；definition attributes
+  使用 body 内 Div 保存。
 `- [plumb] later structured citation clusters、prefix/suffix/locator、suppress-author、
   author-in-text 和 rich affixes；不嵌入 Pandoc Markdown citation mini-language。
 `- [plumb] v1 meta、tasks、links 等 extension 结果参与导出。

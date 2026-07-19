@@ -138,6 +138,19 @@ fn lower_blocks(blocks: &[Block], analysis: &DocumentOutput) -> Vec<Value> {
     let mut index = 0;
     while index < blocks.len() {
         if let Block::Parsed(block) = &blocks[index] {
+            if let Some(definitions) = analysis
+                .metadata
+                .definition_list_at_node_start(block.range.start)
+            {
+                let end = index + definitions.definitions.len();
+                output.push(lower_definition_list(
+                    &blocks[index..end],
+                    definitions,
+                    analysis,
+                ));
+                index = end;
+                continue;
+            }
             if let Some(group) = analysis.lists.group_at_node_start(block.range.start) {
                 let end = index + group.items.len();
                 output.push(lower_list_group(&blocks[index..end], analysis));
@@ -157,6 +170,32 @@ fn lower_blocks(blocks: &[Block], analysis: &DocumentOutput) -> Vec<Value> {
         index += 1;
     }
     output
+}
+
+fn lower_definition_list(
+    blocks: &[Block],
+    definitions: &plumb_extensions::DefinitionList,
+    analysis: &DocumentOutput,
+) -> Value {
+    let entries = blocks
+        .iter()
+        .zip(&definitions.definitions)
+        .map(|(block, definition)| {
+            let Block::Parsed(block) = block else {
+                unreachable!("a definition list contains only parsed definition blocks")
+            };
+            let mark = block.mark.as_ref().expect("a definition has a mark");
+            let mut body = lower_blocks(&block.children, analysis);
+            if !mark.attrs.items.is_empty() {
+                body = vec![json!({
+                    "t": "Div",
+                    "c": [lower_attrs(&mark.attrs, None), body],
+                })];
+            }
+            json!([lower_inlines(&definition.term, analysis), [body],])
+        })
+        .collect::<Vec<_>>();
+    json!({ "t": "DefinitionList", "c": entries })
 }
 
 fn lower_list_group(blocks: &[Block], analysis: &DocumentOutput) -> Value {
@@ -343,6 +382,28 @@ mod tests {
         assert_eq!(attributed["c"][1][1]["t"], "BulletList");
         assert_eq!(attributed["c"][1][1]["c"][0][0]["c"][0]["c"], "Nested");
         assert_eq!(blocks[1]["t"], "Para");
+    }
+
+    #[test]
+    fn exports_adjacent_definitions_and_preserves_definition_attributes() {
+        let source = "`: Term\n\n  Definition.\n\n`:{#tag .kind key=value} Tagged\n  `item First\n  `item Second\n";
+        let document = export(source).unwrap();
+        let blocks = document["blocks"].as_array().unwrap();
+
+        assert_eq!(blocks.len(), 1);
+        assert_eq!(blocks[0]["t"], "DefinitionList");
+        let entries = blocks[0]["c"].as_array().unwrap();
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0][0][0]["c"], "Term");
+        assert_eq!(entries[0][1][0][0]["t"], "Para");
+
+        let attributed = &entries[1][1][0][0];
+        assert_eq!(attributed["t"], "Div");
+        assert_eq!(attributed["c"][0][0], "tag");
+        assert_eq!(attributed["c"][0][1], json!(["kind"]));
+        assert_eq!(attributed["c"][0][2], json!([["key", "value"]]));
+        assert_eq!(attributed["c"][1][0]["t"], "BulletList");
+        assert_eq!(attributed["c"][1][0]["c"].as_array().unwrap().len(), 2);
     }
 
     #[test]
