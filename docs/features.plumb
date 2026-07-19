@@ -25,6 +25,8 @@ SyntaxTree contract 已冻结；normalized AST 和 extension-specific semantics 
   revision 的 guarded edit。
 `- `[plumb-export] 把 metadata scalar/list/map/verbatim/null lower 到 Pandoc metadata，并从
   rendered body 移除 `[meta] block；unsupported value 时拒绝 export。
+`- citation extension 识别单个 plain-id `"[`cite[id]]"，发布 invalid-shape diagnostics；
+  `[plumb-export] 在 body 与 metadata 中 lower 为单 item Pandoc `[Cite]。
 
 当前 heading profile 已确定：`[#] 至 `[######] marker 的长度是 level，`[{#id}] 是唯一
 显式 anchor spelling；`[id=value] 不产生 anchor。运行方法、测试边界和已知 parser gaps 见
@@ -148,8 +150,8 @@ capability negotiation、不可变 operation context，以及独立的 cancellat
 `- [plumb] v1 list item aggregation、task 和 event analyses/aggregations。
 `- [plumb] v1 tasks operation：解释 marked block attrs 中的任务状态、日期和查询字段，
   并提供状态变更所需的文本编辑。
-`- [plumb] v1 metadata authoring/query adapters 与 citation records；metadata export adapter
-  已实现。
+`- [plumb] v1 metadata authoring/query adapters；单 plain-id citation records 与 metadata
+  export adapter 已实现。
 `- [plumb] v1 task dependency workspace analysis：产生 normalized dependency edges、reverse
   blockers、cycles、blocked/actionable 状态和 diagnostics；subtask composition 与 depends edge
   保持独立。
@@ -199,7 +201,10 @@ capability wiring 和 revision/cancellation policy，不复制 parser 或 semant
 `- [plumb] MVP HTML 语义由 export extension 落地，而不是 core 落地。
 `- [plumb] v1 metadata lowering：scalar/list/map/verbatim/null 映射为 Pandoc typed metadata；
   unsupported value 拒绝 export，duplicate key first-wins。
-`- [plumb] v1 citation record lowering 到 Pandoc Cite，由下游 citeproc 解析 bibliography。
+`- [plumb] v1 单 plain-id citation record lowering 到 Pandoc Cite，由下游 citeproc 解析
+  bibliography。
+`- [plumb] later structured citation clusters、prefix/suffix/locator、suppress-author、
+  author-in-text 和 rich affixes；不嵌入 Pandoc Markdown citation mini-language。
 `- [plumb] v1 meta、tasks、links 等 extension 结果参与导出。
 `- [plumb] later richer author/date rendering、document math macros、workspace/static-site export，
   以及项目特定导出语义。
@@ -252,9 +257,9 @@ capability wiring 和 revision/cancellation policy，不复制 parser 或 semant
 `- `[Phase 4: authoring operations]：实现 recovered completion、explicit anchor rename、document
   rename 和 add-explicit-id fix。先在 protocol-neutral tests 验证 source maps、
   overlap rejection、revision guards 和 resource capabilities，再映射到 LSP。
-`- `[Phase 5: export]：完成 `[D07] spike，建立 Pandoc-shaped lowering；plain structure、links
-  与 metadata 已交付，继续加入 citations。golden tests 比较 Pandoc JSON；pandoc 只作为 writer
-  做 end-to-end smoke tests。
+`- `[Phase 5: export]：完成 `[D07] spike，建立 Pandoc-shaped lowering；plain structure、links、
+  metadata 与 single citation 已交付。golden tests 比较 Pandoc JSON；pandoc 只作为 writer 做
+  end-to-end smoke tests。
 `- `[Phase 6: notes query]：实现 workspace-backed CEL document values、referrer graph、CLI scan/
   output；之后加入 picker、preview、editor open 和 safe file creation。Query schema 必须复用
   extension records，不能重新 parse source。
