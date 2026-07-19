@@ -912,6 +912,106 @@ fn path_rename_is_optimistic_and_reconciles_failed_client_application() {
     std::fs::remove_dir_all(root).unwrap();
 }
 
+#[test]
+fn definition_and_hover_lazily_load_targets_without_a_workspace_root() {
+    let root = unique_temp_dir();
+    std::fs::create_dir_all(&root).unwrap();
+    let source = root.join("source.plumb");
+    let task_target = root.join("task target.plumb");
+    let link_target = root.join("link target.plumb");
+    let hover_target = root.join("hover target.plumb");
+    let file_target = root.join("file target.plumb");
+    let source_text = "`item{.task depends=\"task%20target.plumb#draft\"} Review\nSee `link[note]{to=\"link target.plumb#note\"}.\nSee `link[hover]{to=\"hover target.plumb#hover\"}.\nSee `link[file]{to=\"file target.plumb\"}.\n";
+    std::fs::write(&source, source_text).unwrap();
+    std::fs::write(&task_target, "`item{.task #draft} Draft\n").unwrap();
+    std::fs::write(&link_target, "`node{#note} Note\n").unwrap();
+    std::fs::write(&hover_target, "`node{#hover} Hover\n").unwrap();
+    std::fs::write(&file_target, "\n\nFirst content\nSecond content\n").unwrap();
+    let source_uri = lsp_types::Url::from_file_path(&source).unwrap();
+    let task_uri = lsp_types::Url::from_file_path(&task_target).unwrap();
+    let link_uri = lsp_types::Url::from_file_path(&link_target).unwrap();
+    let task_position = source_text.lines().next().unwrap().find("#draft").unwrap() + 1;
+    let link_position = source_text.lines().nth(1).unwrap().find("#note").unwrap() + 1;
+    let hover_position = source_text.lines().nth(2).unwrap().find("#hover").unwrap() + 1;
+    let file_position = source_text
+        .lines()
+        .nth(3)
+        .unwrap()
+        .find("file target.plumb")
+        .unwrap();
+    let messages = [
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": { "processId": null, "rootUri": null, "capabilities": {} }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": {
+                "uri": source_uri, "languageId": "plumb", "version": 1, "text": source_text
+            }}
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 2, "method": "textDocument/definition",
+            "params": {
+                "textDocument": { "uri": source_uri },
+                "position": { "line": 0, "character": task_position }
+            }
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 3, "method": "textDocument/definition",
+            "params": {
+                "textDocument": { "uri": source_uri },
+                "position": { "line": 1, "character": link_position }
+            }
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 4, "method": "textDocument/hover",
+            "params": {
+                "textDocument": { "uri": source_uri },
+                "position": { "line": 2, "character": hover_position }
+            }
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 5, "method": "textDocument/hover",
+            "params": {
+                "textDocument": { "uri": source_uri },
+                "position": { "line": 0, "character": task_position }
+            }
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 6, "method": "textDocument/hover",
+            "params": {
+                "textDocument": { "uri": source_uri },
+                "position": { "line": 3, "character": file_position }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 7, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+    let output = run_server(&messages);
+    assert_eq!(response(&output, 2)["result"]["uri"], task_uri.as_str());
+    assert_eq!(response(&output, 3)["result"]["uri"], link_uri.as_str());
+    let hover = response(&output, 4)["result"]["contents"]["value"]
+        .as_str()
+        .unwrap();
+    assert!(hover.contains("#hover"));
+    assert!(hover.contains("hover target.plumb"));
+    assert!(hover.contains("`node{#hover} Hover"));
+    let task_reference_hover = response(&output, 5)["result"]["contents"]["value"]
+        .as_str()
+        .unwrap();
+    assert!(task_reference_hover.starts_with("**Anchor** `#draft`"));
+    assert!(task_reference_hover.contains("`item{.task #draft} Draft"));
+    let file_hover = response(&output, 6)["result"]["contents"]["value"]
+        .as_str()
+        .unwrap();
+    assert!(file_hover.starts_with("**File**"));
+    assert!(file_hover.contains(":3`"));
+    assert!(file_hover.contains("First content\nSecond content"));
+    std::fs::remove_dir_all(root).unwrap();
+}
+
 fn run_server(messages: &[Value]) -> Vec<Value> {
     let mut child = Command::new(env!("CARGO_BIN_EXE_plumb-ls"))
         .stdin(Stdio::piped())

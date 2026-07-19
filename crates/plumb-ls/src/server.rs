@@ -233,13 +233,24 @@ impl ServerState {
             .retain(|rename| !(rename.old_removed && rename.new_seen));
     }
 
-    fn target_at(&self, path: &Path, offset: usize) -> Option<ResolvedTarget> {
+    fn reference_target_at(&self, path: &Path, offset: usize) -> Option<ResolvedTarget> {
         if let Some(reference) = self.workspace.anchor_reference_at(path, offset) {
             return Some(ResolvedTarget::Anchor {
                 path: reference.target_path,
                 id: reference.target_id,
                 anchor: reference.anchor,
             });
+        }
+        if let Some(target) = self.workspace.resolve_task_reference_at(path, offset) {
+            return Some(target);
+        }
+        let link = self.workspace.link_at(path, offset)?;
+        Some(self.workspace.resolve_link(path, link))
+    }
+
+    fn target_at(&self, path: &Path, offset: usize) -> Option<ResolvedTarget> {
+        if let Some(target) = self.reference_target_at(path, offset) {
+            return Some(target);
         }
         if let Some(anchor) = self.workspace.anchor_at(path, offset) {
             return Some(ResolvedTarget::Anchor {
@@ -248,8 +259,41 @@ impl ServerState {
                 anchor: anchor.clone(),
             });
         }
-        let link = self.workspace.link_at(path, offset)?;
-        Some(self.workspace.resolve_link(path, link))
+        None
+    }
+
+    fn target_at_with_lazy_load(&mut self, path: &Path, offset: usize) -> Option<ResolvedTarget> {
+        let target = self.target_at(path, offset)?;
+        if !self.load_unresolved_target(&target) {
+            return Some(target);
+        }
+        self.target_at(path, offset)
+    }
+
+    fn reference_target_at_with_lazy_load(
+        &mut self,
+        path: &Path,
+        offset: usize,
+    ) -> Option<ResolvedTarget> {
+        let target = self.reference_target_at(path, offset)?;
+        if !self.load_unresolved_target(&target) {
+            return Some(target);
+        }
+        self.reference_target_at(path, offset)
+    }
+
+    fn load_unresolved_target(&mut self, target: &ResolvedTarget) -> bool {
+        let ResolvedTarget::UnresolvedPath { path: target_path } = target else {
+            return false;
+        };
+        if !is_plumb_file(target_path) {
+            return false;
+        }
+        let Ok(source) = fs::read_to_string(target_path) else {
+            return false;
+        };
+        self.workspace.insert(target_path, 0, source);
+        true
     }
 }
 
@@ -482,7 +526,7 @@ impl LanguageServer for ServerState {
             .and_then(|path| {
                 let entry = self.workspace.get(&path)?;
                 let offset = position_to_offset(&entry.parsed.source, position.position);
-                match self.target_at(&path, offset)? {
+                match self.target_at_with_lazy_load(&path, offset)? {
                     ResolvedTarget::Anchor { path, anchor, .. } => {
                         location_for(&self.workspace, &path, &anchor.selection_range)
                     }
@@ -547,13 +591,26 @@ impl LanguageServer for ServerState {
             .to_file_path()
             .ok()
             .and_then(|path| {
-                let entry = self.workspace.get(&path)?;
-                let offset = position_to_offset(&entry.parsed.source, position.position);
-                if let Some(task) = self.workspace.task_at(&path, offset) {
+                let offset = {
+                    let entry = self.workspace.get(&path)?;
+                    position_to_offset(&entry.parsed.source, position.position)
+                };
+                if let Some(target) = self.reference_target_at_with_lazy_load(&path, offset) {
+                    let message = target_hover(&self.workspace, &target);
                     return Some(Hover {
                         contents: HoverContents::Markup(MarkupContent {
                             kind: MarkupKind::Markdown,
-                            value: task_hover(&self.workspace, &path, task),
+                            value: message,
+                        }),
+                        range: None,
+                    });
+                }
+                if let Some(task) = self.workspace.task_at(&path, offset).cloned() {
+                    let entry = self.workspace.get(&path)?;
+                    return Some(Hover {
+                        contents: HoverContents::Markup(MarkupContent {
+                            kind: MarkupKind::Markdown,
+                            value: task_hover(&self.workspace, &path, &task),
                         }),
                         range: Some(byte_range_to_lsp(
                             &entry.parsed.source,
@@ -562,25 +619,7 @@ impl LanguageServer for ServerState {
                     });
                 }
                 let target = self.target_at(&path, offset)?;
-                let message = match target {
-                    ResolvedTarget::Anchor { path, id, .. } => {
-                        format!("Explicit anchor `#{id}` in `{}`", path.display())
-                    }
-                    ResolvedTarget::Document { path } => {
-                        format!("Plumb document `{}`", path.display())
-                    }
-                    ResolvedTarget::External => "External link".to_string(),
-                    ResolvedTarget::Other => "Non-plumb link".to_string(),
-                    ResolvedTarget::UnresolvedPath { path } => {
-                        format!("Unresolved plumb document `{}`", path.display())
-                    }
-                    ResolvedTarget::UnresolvedAnchor { path, id } => {
-                        format!("Unresolved explicit anchor `#{id}` in `{}`", path.display())
-                    }
-                    ResolvedTarget::AmbiguousAnchor { path, id } => {
-                        format!("Ambiguous explicit anchor `#{id}` in `{}`", path.display())
-                    }
-                };
+                let message = target_hover(&self.workspace, &target);
                 Some(Hover {
                     contents: HoverContents::Markup(MarkupContent {
                         kind: MarkupKind::Markdown,
@@ -835,6 +874,104 @@ impl LanguageServer for ServerState {
             });
         Box::pin(async move { Ok(result) })
     }
+}
+
+fn target_hover(workspace: &Workspace, target: &ResolvedTarget) -> String {
+    match target {
+        ResolvedTarget::Anchor { path, id, anchor } => {
+            let Some(entry) = workspace.get(path) else {
+                return format!("Explicit anchor `#{id}` in `{}`", path.display());
+            };
+            let kind = if anchor.kind == AnchorKind::Heading {
+                "Heading"
+            } else {
+                "Anchor"
+            };
+            let line = line_number(&entry.parsed.source, anchor.range.start);
+            let preview = preview_from_offset(&entry.parsed.source, anchor.range.start, 5);
+            format!(
+                "**{kind}** `#{}`\n\n`{}:{line}`\n\n{}",
+                escape_markdown_code(id),
+                escape_markdown_code(&path.display().to_string()),
+                fenced_plumb(&preview)
+            )
+        }
+        ResolvedTarget::Document { path } => {
+            let Some(entry) = workspace.get(path) else {
+                return format!("Plumb document `{}`", path.display());
+            };
+            let (line, offset) = first_preview_offset(&entry.parsed.source);
+            let preview = preview_from_offset(&entry.parsed.source, offset, 5);
+            let location = format!("{}:{line}", path.display());
+            if preview.is_empty() {
+                format!("**File**\n\n`{}`", escape_markdown_code(&location))
+            } else {
+                format!(
+                    "**File**\n\n`{}`\n\n{}",
+                    escape_markdown_code(&location),
+                    fenced_plumb(&preview)
+                )
+            }
+        }
+        ResolvedTarget::External => "External link".to_string(),
+        ResolvedTarget::Other => "Non-plumb link".to_string(),
+        ResolvedTarget::UnresolvedPath { path } => {
+            format!("Unresolved plumb document `{}`", path.display())
+        }
+        ResolvedTarget::UnresolvedAnchor { path, id } => {
+            format!("Unresolved explicit anchor `#{id}` in `{}`", path.display())
+        }
+        ResolvedTarget::AmbiguousAnchor { path, id } => {
+            format!("Ambiguous explicit anchor `#{id}` in `{}`", path.display())
+        }
+    }
+}
+
+fn first_preview_offset(source: &str) -> (usize, usize) {
+    source
+        .lines()
+        .scan(0usize, |offset, line| {
+            let current = *offset;
+            *offset += line.len() + 1;
+            Some((current, line))
+        })
+        .enumerate()
+        .find(|(_, (_, line))| !line.trim().is_empty())
+        .map(|(line, (offset, _))| (line + 1, offset))
+        .unwrap_or((1, 0))
+}
+
+fn preview_from_offset(source: &str, offset: usize, max_lines: usize) -> String {
+    let start = source[..offset].rfind('\n').map_or(0, |index| index + 1);
+    source[start..]
+        .lines()
+        .take(max_lines)
+        .collect::<Vec<_>>()
+        .join("\n")
+        .trim_end()
+        .to_string()
+}
+
+fn line_number(source: &str, offset: usize) -> usize {
+    source[..offset]
+        .bytes()
+        .filter(|byte| *byte == b'\n')
+        .count()
+        + 1
+}
+
+fn fenced_plumb(source: &str) -> String {
+    let longest_run = source
+        .split(|character| character != '`')
+        .map(str::len)
+        .max()
+        .unwrap_or(0);
+    let fence = "`".repeat((longest_run + 1).max(3));
+    format!("{fence}plumb\n{source}\n{fence}")
+}
+
+fn escape_markdown_code(source: &str) -> String {
+    source.replace('`', "\\`")
 }
 
 fn heading_symbol(source: &str, heading: &Heading) -> DocumentSymbol {
@@ -1197,5 +1334,12 @@ mod tests {
         assert_eq!(children[0].name, "title");
         assert_eq!(children[0].detail.as_deref(), Some("Document title"));
         assert_eq!(children[1].children.as_ref().unwrap()[0].name, "name");
+    }
+
+    #[test]
+    fn hover_preview_fence_exceeds_source_backtick_runs() {
+        let preview = fenced_plumb("before ```` after");
+        assert!(preview.starts_with("`````plumb\n"));
+        assert!(preview.ends_with("\n`````"));
     }
 }
