@@ -212,10 +212,13 @@ fn inserts_metadata_code_action_only_for_valid_documents_without_metadata() {
     assert_eq!(change["textDocument"]["version"], 3);
     assert_eq!(change["edits"][0]["range"]["start"]["line"], 0);
     assert_eq!(change["edits"][0]["range"]["start"]["character"], 0);
-    assert_eq!(
-        change["edits"][0]["newText"],
-        "`meta\n  `: title\n\n    metadata-action\n\n"
-    );
+    let new_text = change["edits"][0]["newText"].as_str().unwrap();
+    let prefix = "`meta\n  `: title\n\n    metadata-action\n\n  `: created\n\n    ";
+    let created = new_text
+        .strip_prefix(prefix)
+        .and_then(|suffix| suffix.strip_suffix("\n\n"))
+        .expect("metadata contains created after title");
+    chrono::DateTime::parse_from_rfc3339(created).expect("created is an RFC 3339 timestamp");
     assert!(response(&output, 3)["result"].is_null());
     assert!(response(&output, 4)["result"].is_null());
 }

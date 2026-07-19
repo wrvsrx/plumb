@@ -4,6 +4,7 @@ use std::ops::ControlFlow;
 use std::path::{Path, PathBuf};
 
 use async_lsp::{ClientSocket, ErrorCode, LanguageClient, LanguageServer, ResponseError};
+use chrono::{Local, SecondsFormat};
 use futures::future::BoxFuture;
 use lsp_types::{
     CodeAction, CodeActionKind, CodeActionOrCommand, CodeActionParams,
@@ -534,7 +535,11 @@ impl LanguageServer for ServerState {
             .flatten()
             .and_then(|path| {
                 let title = path.file_stem()?.to_str()?;
-                let edit = self.workspace.insert_metadata(&path, title).ok()?;
+                let created = Local::now().to_rfc3339_opts(SecondsFormat::Secs, false);
+                let edit = self
+                    .workspace
+                    .insert_metadata(&path, title, &created)
+                    .ok()?;
                 let edit = workspace_edit_to_lsp(&self.workspace, edit)?;
                 Some(CodeActionOrCommand::CodeAction(CodeAction {
                     title: "Insert document metadata".to_string(),
