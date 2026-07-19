@@ -827,6 +827,7 @@ fn to_lsp_diagnostic(source: &str, uri: &Url, diagnostic: Diagnostic) -> LspDiag
         severity: Some(match diagnostic.severity {
             plumb_core::DiagnosticSeverity::Error => DiagnosticSeverity::ERROR,
             plumb_core::DiagnosticSeverity::Warning => DiagnosticSeverity::WARNING,
+            plumb_core::DiagnosticSeverity::Hint => DiagnosticSeverity::HINT,
         }),
         code: Some(NumberOrString::String(diagnostic.code.to_string())),
         code_description: None,

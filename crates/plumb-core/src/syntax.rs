@@ -6,6 +6,7 @@ pub type SourceRange = std::ops::Range<usize>;
 pub enum DiagnosticSeverity {
     Error,
     Warning,
+    Hint,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
