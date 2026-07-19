@@ -14,7 +14,9 @@
   nix develop -c cargo check --workspace --all-targets
   nix build
 
-`[nix build] 产生包含 `[plumb-ls] 和 `[plumb-export] 的 package。
+`[nix build] 产生包含 `[plumb-ls]、`[plumb-export] 和 `[plumb-notes] 的 package；package version
+读取 Cargo workspace version，default main program 是 `[plumb-ls]。Nix sandbox 会运行 workspace
+tests；无 TTY 时 task table 使用 120-column fallback，避免非交互输出丢列。
 
 `# LSP
 

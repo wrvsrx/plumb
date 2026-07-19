@@ -259,7 +259,8 @@ capability wiring 和 revision/cancellation policy，不复制 parser 或 semant
 
 `- [plumb] MVP Cargo workspace 和 crate 划分：`[plumb-core]、extensions、workspace、
   `[plumb-ls]、`[plumb-export]、`[plumb-notes]。
-`- [plumb] MVP Nix flake 打包二进制。
+`- [plumb] MVP Nix flake 打包三个二进制；version 读取 Cargo workspace package，main program 是
+  `[plumb-ls]，sandbox build 运行 workspace tests。
 `- [plumb] MVP warning gate：`[cargo check --workspace --all-targets]。
 
 `# 实现路线图
