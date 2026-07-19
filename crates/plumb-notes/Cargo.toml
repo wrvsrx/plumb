@@ -1,0 +1,10 @@
+[package]
+name = "plumb-notes"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+cel.workspace = true
+clap.workspace = true
+plumb-workspace = { path = "../plumb-workspace" }
