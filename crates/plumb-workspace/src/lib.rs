@@ -515,9 +515,42 @@ impl Workspace {
             .get(&path)
             .filter(|entry| entry.current.is_some())
             .ok_or(TaskEditError::StaleOrInvalidDocument)?;
-        let task = self
-            .task_at(&path, offset)
-            .ok_or(TaskEditError::TaskNotFound)?;
+        let tasks = &entry
+            .current
+            .as_ref()
+            .expect("current output checked")
+            .output
+            .tasks
+            .tasks;
+        let task = tasks
+            .iter()
+            .filter(|task| {
+                task.state() == TaskState::Open
+                    && task.range.start <= offset
+                    && offset <= task.range.end
+            })
+            .max_by_key(|task| task.range.start)
+            .ok_or_else(|| {
+                if tasks
+                    .iter()
+                    .any(|task| task.range.start <= offset && offset <= task.range.end)
+                {
+                    TaskEditError::TaskAlreadyClosed
+                } else {
+                    TaskEditError::TaskNotFound
+                }
+            })?;
+        self.task_status_edit(entry, &path, task, status, timestamp)
+    }
+
+    fn task_status_edit(
+        &self,
+        entry: &DocumentEntry,
+        path: &Path,
+        task: &TaskRecord,
+        status: TaskStatus,
+        timestamp: &str,
+    ) -> Result<WorkspaceEdit, TaskEditError> {
         if task.state() != TaskState::Open {
             return Err(TaskEditError::TaskAlreadyClosed);
         }
@@ -532,7 +565,7 @@ impl Workspace {
         }
         Ok(WorkspaceEdit {
             document_changes: vec![DocumentEdit {
-                path,
+                path: path.to_path_buf(),
                 expected_revision: entry.revision,
                 edits: vec![TextEdit {
                     range: task.attribute_insert..task.attribute_insert,
@@ -550,18 +583,26 @@ impl Workspace {
         status: TaskStatus,
         timestamp: &str,
     ) -> Result<WorkspaceEdit, TaskEditError> {
+        if !valid_task_datetime(timestamp) {
+            return Err(TaskEditError::InvalidTimestamp);
+        }
         let path = normalize(path.as_ref());
-        let task = self
-            .current_output(&path)
-            .and_then(|output| {
-                output
-                    .tasks
-                    .tasks
-                    .iter()
-                    .find(|task| task.id.as_ref().is_some_and(|task_id| task_id.value == id))
-            })
+        let entry = self
+            .documents
+            .get(&path)
+            .filter(|entry| entry.current.is_some())
+            .ok_or(TaskEditError::StaleOrInvalidDocument)?;
+        let task = entry
+            .current
+            .as_ref()
+            .expect("current output checked")
+            .output
+            .tasks
+            .tasks
+            .iter()
+            .find(|task| task.id.as_ref().is_some_and(|task_id| task_id.value == id))
             .ok_or(TaskEditError::TaskNotFound)?;
-        self.set_task_status(path, task.selection_range.start, status, timestamp)
+        self.task_status_edit(entry, &path, task, status, timestamp)
     }
 
     fn recurring_task_status_edit(
@@ -1954,6 +1995,49 @@ mod tests {
     }
 
     #[test]
+    fn task_status_cursor_falls_back_from_closed_child_to_open_parent() {
+        let mut workspace = Workspace::new();
+        let source = "`item{.task #outer} Outer\n  `item{.task #inner done=\"2026-07-20T09:00:00Z\"} Inner\n";
+        workspace.insert("tasks.plumb", 3, source);
+        let tasks = &workspace
+            .get("tasks.plumb")
+            .unwrap()
+            .current
+            .as_ref()
+            .unwrap()
+            .output
+            .tasks
+            .tasks;
+
+        let edit = workspace
+            .set_task_status(
+                "tasks.plumb",
+                source.find("Inner").unwrap(),
+                TaskStatus::Done,
+                "2026-07-20T12:00:00Z",
+            )
+            .unwrap();
+        assert_eq!(edit.document_changes[0].edits.len(), 1);
+        assert_eq!(
+            edit.document_changes[0].edits[0].range.start,
+            tasks[0].attribute_insert
+        );
+        assert_ne!(
+            edit.document_changes[0].edits[0].range.start,
+            tasks[1].attribute_insert
+        );
+        assert_eq!(
+            workspace.set_task_status_by_id(
+                "tasks.plumb",
+                "inner",
+                TaskStatus::Done,
+                "2026-07-20T12:00:00Z",
+            ),
+            Err(TaskEditError::TaskAlreadyClosed)
+        );
+    }
+
+    #[test]
     fn task_status_operation_rejects_closed_blocked_and_recurring_tasks() {
         let mut workspace = Workspace::new();
         workspace.insert(
@@ -2008,7 +2092,7 @@ mod tests {
         let edit = workspace
             .set_task_status(
                 "tasks.plumb",
-                source.find("Monthly review").unwrap(),
+                source.find("Nested").unwrap(),
                 TaskStatus::Done,
                 "2026-01-31T10:00:00+08:00",
             )
