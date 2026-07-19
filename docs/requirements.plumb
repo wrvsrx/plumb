@@ -1,4 +1,7 @@
-`# plumb 目标与需求
+`meta
+  `: title
+
+    plumb 目标与需求
 
 `> 本文是当前阶段的设计事实源。我们从头设计语法时，先用这里的目标、非目标和需求
   约束每个具体符号选择；block 规范见 `[docs/spec.plumb]，inline 设计见 `[docs/inline.plumb]。

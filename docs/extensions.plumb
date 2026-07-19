@@ -1,4 +1,7 @@
-`# plumb extension 规范
+`meta
+  `: title
+
+    plumb extension 规范
 
 `> 状态：当前架构基线。本文定义 extension 的 observable semantic contract。第一阶段官方
   host 使用静态组合的 Rust typed modules；WASM、动态库、脚本或外部进程不是当前目标，也

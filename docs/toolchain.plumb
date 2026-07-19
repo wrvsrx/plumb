@@ -1,4 +1,7 @@
-`# 第一版 toolchain
+`meta
+  `: title
+
+    第一版 toolchain
 
 `> 状态：可运行的 vertical-slice prototype，不是完整 MVP parser release。syntax source of truth
   仍是 `[docs/spec.plumb] 和 `[docs/inline.plumb]；本页明确记录实现覆盖面和剩余差距。

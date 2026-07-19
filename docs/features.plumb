@@ -1,4 +1,7 @@
-`# plumb 工具需求与路线图
+`meta
+  `: title
+
+    plumb 工具需求与路线图
 
 本文从 `[docs/requirements.plumb] 的目标推导工具需求。MVP block/inline syntax 与 lossless
 SyntaxTree contract 已冻结；normalized AST 和 extension-specific semantics 按实际 consumer

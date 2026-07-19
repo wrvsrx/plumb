@@ -1,4 +1,7 @@
-`# plumb syntax open questions
+`meta
+  `: title
+
+    plumb syntax open questions
 
 `> 状态：决策记录。MVP syntax 与 lossless SyntaxTree contract 已冻结；normalized AST 在出现
   第一个实际 extension consumer 前明确延后。

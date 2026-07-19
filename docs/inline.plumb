@@ -1,4 +1,7 @@
-`# plumb inline syntax
+`meta
+  `: title
+
+    plumb inline syntax
 
 `> `*[状态：syntax 已收敛。] 本文记录 named parsed inline element 和 inline verbatim syntax；
   block level 的定稿规范见 `[docs/spec.plumb]。

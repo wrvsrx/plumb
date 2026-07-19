@@ -1,4 +1,7 @@
-`# plumb block level 语法规范
+`meta
+  `: title
+
+    plumb block level 语法规范
 
 `> `*[状态：MVP syntax 与 lossless contract 已定稿。] 本文是 strict block parser 的规范
   基线；inline syntax 见 `[docs/inline.plumb]。formatter policy 与 normalized
