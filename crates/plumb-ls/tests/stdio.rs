@@ -413,11 +413,20 @@ fn publishes_task_symbols_hover_and_workspace_diagnostics() {
                 "position": { "line": 0, "character": 1 }
             }
         }),
-        json!({ "jsonrpc": "2.0", "id": 4, "method": "shutdown", "params": null }),
+        json!({
+            "jsonrpc": "2.0", "id": 4, "method": "textDocument/semanticTokens/full",
+            "params": { "textDocument": { "uri": tasks_uri } }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 5, "method": "shutdown", "params": null }),
         json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
     ];
 
     let output = run_server(&messages);
+    assert_eq!(
+        response(&output, 1)["result"]["capabilities"]["semanticTokensProvider"]["legend"]
+            ["tokenTypes"][0],
+        "task"
+    );
     let symbols = response(&output, 2)["result"].as_array().unwrap();
     assert_eq!(symbols.len(), 1);
     assert_eq!(symbols[0]["name"], "Review task");
@@ -432,6 +441,11 @@ fn publishes_task_symbols_hover_and_workspace_diagnostics() {
     assert!(hover.contains("**Recur:** `P1M1D`"));
     assert!(hover.contains("**Depends:** `blockers.plumb#draft`"));
     assert!(hover.contains("**Open blockers:** `blockers.plumb#draft`"));
+
+    let semantic_data = response(&output, 4)["result"]["data"].as_array().unwrap();
+    assert_eq!(semantic_data.len(), 5);
+    assert_eq!(semantic_data[3], 0);
+    assert_eq!(semantic_data[4], 1);
 
     let diagnostics = output
         .iter()

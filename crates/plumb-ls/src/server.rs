@@ -20,10 +20,12 @@ use lsp_types::{
     NumberOrString, OneOf, OptionalVersionedTextDocumentIdentifier, PrepareRenameResponse,
     ProgressParams, ProgressParamsValue, PublishDiagnosticsParams, ReferenceParams, Registration,
     RegistrationParams, RenameFile, RenameFileOptions, RenameOptions, RenameParams, ResourceOp,
-    ResourceOperationKind, ServerCapabilities, SymbolKind, TextDocumentEdit,
-    TextDocumentSyncCapability, TextDocumentSyncKind, TextEdit as LspTextEdit, Url, WatchKind,
-    WorkDoneProgress, WorkDoneProgressBegin, WorkDoneProgressEnd, WorkDoneProgressOptions,
-    WorkDoneProgressReport, WorkspaceEdit as LspWorkspaceEdit,
+    ResourceOperationKind, SemanticToken, SemanticTokenModifier, SemanticTokenType, SemanticTokens,
+    SemanticTokensFullOptions, SemanticTokensLegend, SemanticTokensOptions, SemanticTokensParams,
+    SemanticTokensResult, SemanticTokensServerCapabilities, ServerCapabilities, SymbolKind,
+    TextDocumentEdit, TextDocumentSyncCapability, TextDocumentSyncKind, TextEdit as LspTextEdit,
+    Url, WatchKind, WorkDoneProgress, WorkDoneProgressBegin, WorkDoneProgressEnd,
+    WorkDoneProgressOptions, WorkDoneProgressReport, WorkspaceEdit as LspWorkspaceEdit,
 };
 use plumb_core::Diagnostic;
 use plumb_extensions::{
@@ -222,6 +224,19 @@ impl LanguageServer for ServerState {
                     )),
                     document_symbol_provider: Some(OneOf::Left(true)),
                     code_action_provider: Some(CodeActionProviderCapability::Simple(true)),
+                    semantic_tokens_provider: Some(
+                        SemanticTokensServerCapabilities::SemanticTokensOptions(
+                            SemanticTokensOptions {
+                                work_done_progress_options: WorkDoneProgressOptions::default(),
+                                legend: SemanticTokensLegend {
+                                    token_types: vec![SemanticTokenType::new("task")],
+                                    token_modifiers: vec![SemanticTokenModifier::new("completed")],
+                                },
+                                range: Some(false),
+                                full: Some(SemanticTokensFullOptions::Bool(true)),
+                            },
+                        ),
+                    ),
                     definition_provider: Some(OneOf::Left(true)),
                     references_provider: Some(OneOf::Left(true)),
                     hover_provider: Some(HoverProviderCapability::Simple(true)),
@@ -596,6 +611,58 @@ impl LanguageServer for ServerState {
             }
         }
         Box::pin(async move { Ok((!actions.is_empty()).then_some(actions)) })
+    }
+
+    fn semantic_tokens_full(
+        &mut self,
+        params: SemanticTokensParams,
+    ) -> BoxFuture<'static, Result<Option<SemanticTokensResult>, Self::Error>> {
+        let tokens = params
+            .text_document
+            .uri
+            .to_file_path()
+            .ok()
+            .and_then(|path| self.workspace.get(path))
+            .and_then(|entry| entry.current.as_ref().map(|current| (entry, current)))
+            .map(|(entry, current)| {
+                let mut previous_line = 0;
+                let mut previous_start = 0;
+                let data = current
+                    .output
+                    .tasks
+                    .tasks
+                    .iter()
+                    .filter(|task| task.state() != TaskState::Open)
+                    .filter_map(|task| {
+                        let range = byte_range_to_lsp(&entry.parsed.source, &task.marker_range);
+                        if range.start.line != range.end.line
+                            || range.end.character <= range.start.character
+                        {
+                            return None;
+                        }
+                        let delta_line = range.start.line - previous_line;
+                        let delta_start = if delta_line == 0 {
+                            range.start.character - previous_start
+                        } else {
+                            range.start.character
+                        };
+                        previous_line = range.start.line;
+                        previous_start = range.start.character;
+                        Some(SemanticToken {
+                            delta_line,
+                            delta_start,
+                            length: range.end.character - range.start.character,
+                            token_type: 0,
+                            token_modifiers_bitset: 1,
+                        })
+                    })
+                    .collect();
+                SemanticTokensResult::Tokens(SemanticTokens {
+                    result_id: None,
+                    data,
+                })
+            });
+        Box::pin(async move { Ok(tokens) })
     }
 
     fn prepare_rename(

@@ -53,6 +53,7 @@ impl TaskStatus {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TaskRecord {
     pub range: Range<usize>,
+    pub marker_range: Range<usize>,
     pub selection_range: Range<usize>,
     pub title: String,
     pub depth: usize,
@@ -117,9 +118,11 @@ fn collect_blocks(source: &str, blocks: &[Block], task_depth: usize, output: &mu
 }
 
 fn task_record(source: &str, block: &ParsedBlock, depth: usize) -> TaskRecord {
-    let attrs = &block.mark.as_ref().expect("task is a marked block").attrs;
+    let mark = block.mark.as_ref().expect("task is a marked block");
+    let attrs = &mark.attrs;
     TaskRecord {
         range: block.range.clone(),
+        marker_range: mark.range.clone(),
         selection_range: block.head.range.clone(),
         title: block.head.plain_text().trim().to_string(),
         depth,
