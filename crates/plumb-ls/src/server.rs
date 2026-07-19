@@ -493,23 +493,49 @@ impl LanguageServer for ServerState {
                     .iter()
                     .map(|heading| heading_symbol(&entry.parsed.source, heading))
                     .collect::<Vec<_>>();
-                symbols.extend(current.output.anchors.iter().filter_map(|anchor| {
-                    (anchor.kind != AnchorKind::Heading
-                        && !current
-                            .output
-                            .tasks
-                            .tasks
-                            .iter()
-                            .any(|task| task.range == anchor.range))
-                    .then(|| anchor_symbol(&entry.parsed.source, anchor))
-                }));
+                let mut additional = current
+                    .output
+                    .anchors
+                    .iter()
+                    .filter_map(|anchor| {
+                        (anchor.kind != AnchorKind::Heading
+                            && !current
+                                .output
+                                .tasks
+                                .tasks
+                                .iter()
+                                .any(|task| task.range == anchor.range))
+                        .then(|| {
+                            (
+                                anchor.range.start,
+                                anchor_symbol(&entry.parsed.source, anchor),
+                            )
+                        })
+                    })
+                    .collect::<Vec<_>>();
                 if let Some(metadata) = &current.output.metadata.metadata {
-                    symbols.push(metadata_symbol(&entry.parsed.source, metadata));
+                    additional.push((
+                        metadata.range.start,
+                        metadata_symbol(&entry.parsed.source, metadata),
+                    ));
                 }
-                symbols.extend(task_symbols(
-                    &entry.parsed.source,
-                    &current.output.tasks.tasks,
-                ));
+                additional.extend(
+                    current
+                        .output
+                        .tasks
+                        .tasks
+                        .iter()
+                        .filter(|task| task.depth == 0)
+                        .map(|task| task.range.start)
+                        .zip(task_symbols(
+                            &entry.parsed.source,
+                            &current.output.tasks.tasks,
+                        )),
+                );
+                additional.sort_by_key(|(start, _)| *start);
+                for (_, symbol) in additional {
+                    insert_document_symbol(&mut symbols, symbol);
+                }
                 symbols
             });
         Box::pin(async move { Ok(symbols.map(DocumentSymbolResponse::Nested)) })
@@ -1151,6 +1177,31 @@ fn task_symbol_children_mut<'a>(
         children = children[*index].children.get_or_insert_with(Vec::new);
     }
     children
+}
+
+fn insert_document_symbol(symbols: &mut Vec<DocumentSymbol>, symbol: DocumentSymbol) {
+    let containing_heading = symbols.iter().position(|candidate| {
+        candidate.kind == SymbolKind::STRING && lsp_range_contains(&candidate.range, &symbol.range)
+    });
+    if let Some(index) = containing_heading {
+        insert_document_symbol(symbols[index].children.get_or_insert_with(Vec::new), symbol);
+        return;
+    }
+    let start = symbol.range.start;
+    let index = symbols
+        .iter()
+        .position(|candidate| lsp_position_key(candidate.range.start) > lsp_position_key(start))
+        .unwrap_or(symbols.len());
+    symbols.insert(index, symbol);
+}
+
+fn lsp_range_contains(outer: &lsp_types::Range, inner: &lsp_types::Range) -> bool {
+    lsp_position_key(outer.start) <= lsp_position_key(inner.start)
+        && lsp_position_key(inner.end) <= lsp_position_key(outer.end)
+}
+
+fn lsp_position_key(position: lsp_types::Position) -> (u32, u32) {
+    (position.line, position.character)
 }
 
 fn task_hover(workspace: &Workspace, path: &Path, task: &TaskRecord) -> String {

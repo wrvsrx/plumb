@@ -298,6 +298,43 @@ fn publishes_diagnostics_and_returns_heading_symbols_over_stdio() {
 }
 
 #[test]
+fn nests_anchors_and_tasks_under_their_containing_headings() {
+    let uri = "file:///tmp/symbol-containment.plumb";
+    let source = "`# Project\n`node{#note} Note\n`item{.task #write} Write parser\n`## Section\n`node{#inside} Inside\n";
+    let messages = [
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": { "processId": null, "rootUri": null, "capabilities": {} }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": {
+                "uri": uri, "languageId": "plumb", "version": 1, "text": source
+            }}
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 2, "method": "textDocument/documentSymbol",
+            "params": { "textDocument": { "uri": uri } }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 3, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+
+    let output = run_server(&messages);
+    let roots = response(&output, 2)["result"].as_array().unwrap();
+    assert_eq!(roots.len(), 1);
+    assert_eq!(roots[0]["name"], "Project");
+    let children = roots[0]["children"].as_array().unwrap();
+    assert_eq!(children.len(), 3);
+    assert_eq!(children[0]["name"], "#note");
+    assert_eq!(children[1]["name"], "Write parser");
+    assert_eq!(children[1]["detail"], "open #write");
+    assert_eq!(children[2]["name"], "Section");
+    assert_eq!(children[2]["children"][0]["name"], "#inside");
+}
+
+#[test]
 fn publishes_metadata_diagnostics_and_nested_symbols_over_stdio() {
     let source = "`meta\n  `: title\n\n    Document title\n\n  `: author\n    `: name\n\n      Alice\n\n  `: title\n\nInvalid `cite[@old-style].\n";
     let messages = [

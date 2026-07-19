@@ -178,7 +178,8 @@ capability wiring 和 revision/cancellation policy，不复制 parser 或 semant
   发布成当前结果。
 `- [plumb] MVP semantic diagnostics：duplicate explicit id、unresolved document/anchor 和
   ambiguous target；task-specific diagnostics 随 task extension 在 v1 加入。
-`- [plumb] MVP `[textDocument/documentSymbol]：经 outline extension。
+`- [plumb] MVP `[textDocument/documentSymbol]：经 outline extension；anchor 与 task symbol tree 按
+  source range 归入最深 containing heading，heading 外 facts 保持 root-level。
 `- [plumb] MVP `[textDocument/definition]：命中链接后解析目标并返回位置；URL 返回空。
 `- [plumb] MVP `[textDocument/references]：经 workspace / links outputs。
 `- [plumb] MVP `[textDocument/completion]：recovered query 补全 link label、path 和 anchors；文件

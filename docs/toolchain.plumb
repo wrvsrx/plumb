@@ -23,7 +23,8 @@
 `- FULL document sync。
 `- 当前 revision 的 strict syntax diagnostics；syntax valid 时再加入 heading、anchor、link、
   definition-list metadata 与 task diagnostics，包括 dependency resolution、cycle 和 blocked hint。
-`- `[textDocument/documentSymbol] nested heading、anchor、metadata key 与 task symbols。
+`- `[textDocument/documentSymbol] nested heading、anchor、metadata key 与 task symbols；普通 anchor
+  和顶层 task tree 按 source range 放入最深 containing heading，并保持 sibling source order。
 `- definition-list metadata 使用顶层 `[meta]、`[:] definitions 和 `[item] list values；支持
   scalar、list、map、verbatim 与 null typed values。
 `- `[textDocument/codeAction] 为 syntax-valid、尚无 `[meta] 的文档提供
