@@ -60,7 +60,7 @@ export 路径，notes document/task queries，以及 metadata insertion scratchp
 
 当前 server 会扫描 workspace、监听 `[*.plumb] changes，并实现 links、completion、
 anchor/document rename。link label completion 按 metadata title 或 relative path 模糊匹配，并生成
-完整 `[link] element；`[to] value completion 同时按 title/path 匹配但只插入 relative path，
+完整 `[->] element；`[to] value completion 同时按 title/path 匹配但只插入 relative path，
 fragment completion 继续只匹配显式 anchors。closed target 中只替换 cursor 所在 path/fragment
 component，保留 quote、`[#] separator 和另一 component；recovered tree/diagnostics 确保 inline/block
 verbatim payload 内不触发 completion。metadata field completion、已有 metadata 的任意 edit 和
@@ -125,7 +125,7 @@ timestamp，缺失的 optional field 是 null。complete/cancel 通过 shared gu
 
 `[plumb-notes note --query] 的 CEL document fields 是 `[path]、metadata scalar `[title]、
 `[directly_referenced_by] 和 `[transitively_referenced_by]。没有 valid scalar title 的文档以空
-string 参与查询。reverse graph 复用 workspace 的统一 reference edges，包含 ordinary `[link]、
+string 参与查询。reverse graph 复用 workspace 的统一 reference edges，包含 ordinary `[->] link、
 task `[prev] 与 `[depends]；target document 已明确时，即使 fragment missing/ambiguous 也保留
 document-level edge。
 

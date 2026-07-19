@@ -296,6 +296,15 @@ contract，具体 Rust API 仍属于 implementation。完整规则见 `[docs/ext
 `- `[definition-lists]
 `- `[events]
 
+official link profile 的唯一 inline kind 是 `[->]，完整形式为：
+
+`{language=plumb}
+  `->[label]{to="path.plumb#anchor"}
+
+`[link] 仍是语法合法的 generic inline kind，但不产生
+link/reference 语义。`[to] attribute 保存同文件 fragment、相对文档 path、跨文件 fragment 或
+external URL；具体 target classification 与 workspace resolution 属于 extension。
+
 official definition-list metadata profile 使用 document top-level 的唯一 `[meta] container、
 `[:] definition children 和 `[-] list children。普通 `[:] siblings 只形成 definition list，
 不自动成为 document metadata。metadata key 是无 whitespace/markup 的 plain text；value body

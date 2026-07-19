@@ -32,7 +32,7 @@ This document exercises the successfully exportable semantic profile.
 
 This paragraph contains `*[strong-shaped content], `_[emphasis-shaped content],
 inline verbatim `[cargo test], a `kbd[Ctrl+C]{.shortcut} element, and a
-`link[link back to the index]{to="index.plumb"}.
+`->[link back to the index]{to="index.plumb"}.
 
 The exporter preserves generic inline kinds as Pandoc spans. The official
 citation profile currently accepts one plain id, such as `cite[smith2004].
@@ -70,4 +70,4 @@ Task semantics can coexist with list-item structure and attributes:
 `# Conclusion
 
 This heading is a target for navigation tests from the
-`link[language server playground]{to="plumb-ls.plumb#export-target"}.
+`->[language server playground]{to="plumb-ls.plumb#export-target"}.

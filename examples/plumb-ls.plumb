@@ -21,11 +21,11 @@ This heading should be nested below `[Document symbols].
 
 Try go-to-definition, hover, find references, and rename on these links:
 
-`- Same-file anchor: `link[Document symbols]{to="#symbols"}
-`- Same-file explicit anchor: `link[local anchor]{to="#local-anchor"}
-`- Cross-file anchor: `link[Exporter conclusion]{to="plumb-export.plumb#export-target"}
-`- Cross-file document: `link[Notes playground]{to="plumb-notes.plumb"}
-`- Repeated reference: `link[Exporter conclusion]{to="plumb-export.plumb#export-target"}
+`- Same-file anchor: `->[Document symbols]{to="#symbols"}
+`- Same-file explicit anchor: `->[local anchor]{to="#local-anchor"}
+`- Cross-file anchor: `->[Exporter conclusion]{to="plumb-export.plumb#export-target"}
+`- Cross-file document: `->[Notes playground]{to="plumb-notes.plumb"}
+`- Repeated reference: `->[Exporter conclusion]{to="plumb-export.plumb#export-target"}
 
 `anchor{#local-anchor} Rename this id to update its references.
 
@@ -33,20 +33,20 @@ Try go-to-definition, hover, find references, and rename on these links:
 
 Try completion after each relevant introducer in a temporary edit:
 
-`- Start a link label with ``link[ and select a document title.
-`- Complete a path in ``link[target]{to="plumb-.
-`- Complete a fragment in ``link[target]{to="plumb-export.plumb#.
-`- Complete a same-file fragment in ``link[target]{to="#.
+`- Start a link label with ``->[ and select a document title.
+`- Complete a path in ``->[target]{to="plumb-.
+`- Complete a fragment in ``->[target]{to="plumb-export.plumb#.
+`- Complete a same-file fragment in ``->[target]{to="#.
 
 `#{#rename} Rename
 
 Rename the `[plumb-export.plumb] path in
-`link[this link]{to="plumb-export.plumb"}. Rename `[local-anchor] from either
-its declaration or this `link[reference]{to="#local-anchor"}.
+`->[this link]{to="plumb-export.plumb"}. Rename `[local-anchor] from either
+its declaration or this `->[reference]{to="#local-anchor"}.
 
 `#{#actions} Code actions and task hover
 
-Open `link[metadata-scratch.plumb]{to="metadata-scratch.plumb"} to try
+Open `->[metadata-scratch.plumb]{to="metadata-scratch.plumb"} to try
 `[Insert document metadata].
 
 Place the cursor in this task and request Complete or Cancel. Hover shows its
@@ -74,9 +74,9 @@ The exporter playground links to this explicit anchor.
 
 The following valid syntax deliberately produces semantic diagnostics:
 
-`- Missing same-file anchor: `link[missing]{to="#missing-anchor"}
-`- Missing file: `link[missing file]{to="missing-target.plumb"}
-`- Missing cross-file anchor: `link[missing heading]{to="plumb-export.plumb#missing-anchor"}
+`- Missing same-file anchor: `->[missing]{to="#missing-anchor"}
+`- Missing file: `->[missing file]{to="missing-target.plumb"}
+`- Missing cross-file anchor: `->[missing heading]{to="plumb-export.plumb#missing-anchor"}
 
 `anchor{#duplicate-anchor} First duplicate target.
 

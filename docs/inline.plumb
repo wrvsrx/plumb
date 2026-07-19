@@ -168,7 +168,7 @@ inline verbatim 限于一条物理行。未找到 matching closing 时，parser 
 parsed element 与 inline verbatim 完整复用 block `[Attr] grammar：
 
 `{language=plumb}
-  `link[label]{to="guide.plumb#intro" .external}
+  `->[label]{to="guide.plumb#intro" .external}
 
   `[x + y]{language=text #expression}
 

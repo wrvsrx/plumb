@@ -60,6 +60,6 @@ Complete or cancel copies of these tasks with an explicit target:
 
 `# Cross references
 
-This file links to the `link[index]{to="index.plumb"} and the
-`link[language server playground]{to="plumb-ls.plumb#navigation"}, giving the
+This file links to the `->[index]{to="index.plumb"} and the
+`->[language server playground]{to="plumb-ls.plumb#navigation"}, giving the
 reverse-reference graph multiple edges.
