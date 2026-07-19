@@ -6,7 +6,7 @@
 `> `*[状态：syntax 已收敛。] 本文记录 named parsed inline element 和 inline verbatim syntax；
   block level 的定稿规范见 `[docs/spec.plumb]。
 
-`## 1. 两种 inline envelope
+`# 1. 两种 inline envelope
 
 inline syntax 与 block syntax 共用反引号 introducer，但 parsed 与 verbatim payload 使用不同
 入口：
@@ -62,7 +62,7 @@ kind、content 和 attributes 的边界完全由相邻 delimiter 决定：
 
 escape 产生的字面反引号已经消费 inline dispatch，因此后面的 `[*[] 只是普通文本。
 
-`## 2. 与 block dispatch 的关系
+`# 2. 与 block dispatch 的关系
 
 物理行 block start 的单个 introducer 使用以下局部分派：
 
@@ -78,7 +78,7 @@ escape 产生的字面反引号已经消费 inline dispatch，因此后面的 `[
 只有紧贴 introducer 的 `[{] 才选择 verbatim block，且只允许位于 block start。具名 marker
 后的 `[{] 仍是 marked-block attributes。完整 dispatch 表见 `[docs/spec.plumb] 第 1.1 节。
 
-`## 3. Named parsed inline element
+`# 3. Named parsed inline element
 
 普通 inline kind 的 `"[[...]]" 包含 parsed `[InlineContent]，允许嵌套 named elements：
 
@@ -124,7 +124,7 @@ opening introducer 到 boundary 前，boundary 不被消费并交回 block parse
 语言不设置 nesting depth limit；strict parser 使用显式 stack。实现可以设置资源限制，但
 resource exhaustion 不是 source syntax diagnostic。
 
-`## 4. Inline verbatim
+`# 4. Inline verbatim
 
 inline verbatim 的 quote count 可以为零。最短形式服务于高频 inline code 和其他逐字 payload：
 
@@ -163,7 +163,7 @@ inline verbatim 限于一条物理行。未找到 matching closing 时，parser 
 `[syntax.unclosed-verbatim]，primary range 从 opening introducer 到当前 line ending/EOF，
 并从下一物理行恢复。
 
-`## 5. Attributes
+`# 5. Attributes
 
 parsed element 与 inline verbatim 完整复用 block `[Attr] grammar：
 
@@ -176,7 +176,7 @@ attributes 只有在紧贴完整 closing delimiter 时才归属该 node。任何
 whitespace 都结束 adjacency。attribute token、quoted value、duplicate 与 recovery 规则见
 `[docs/spec.plumb] 第 4 节。
 
-`## 6. MVP frozen summary
+`# 6. MVP frozen summary
 
 `- parsed inline element 使用 `"[`kind[content]{attrs}?]"；kind 必须是非空 opaque token。
 `- 不存在 anonymous parsed span spelling。
@@ -189,7 +189,7 @@ whitespace 都结束 adjacency。attribute token、quoted value、duplicate 与 
 `- attributes 必须紧贴完整 closing delimiter。
 `- core 不解释 inline kind、verbatim payload 或 attributes 的语义。
 
-`## 7. Deferred
+`# 7. Deferred
 
 `- formatter 为 inline verbatim 选择最小安全 quote count。
 `- 空 inline verbatim 的 lint policy。

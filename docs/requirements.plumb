@@ -6,13 +6,13 @@
 `> 本文是当前阶段的设计事实源。我们从头设计语法时，先用这里的目标、非目标和需求
   约束每个具体符号选择；block 规范见 `[docs/spec.plumb]，inline 设计见 `[docs/inline.plumb]。
 
-`## 1. 项目定位
+`# 1. 项目定位
 
 plumb 是一门用于个人长期文档系统的 strict markup language。它不是 Markdown 方言，
 也不是面向大众生态的兼容格式。它的重点是：源码可以长期维护，结构可以被可靠解析，
 错误可以尽早暴露，文档可以稳定导出和迁移。
 
-`## 2. 核心目标
+`# 2. 核心目标
 
 `- `*[错误尽早暴露。] 格式写错、结构没闭合、缩进不合法、语法入口残缺时，必须报错，
   不能静默变成普通文本。
@@ -28,7 +28,7 @@ plumb 是一门用于个人长期文档系统的 strict markup language。它不
   围栏长度、行首位置等文本排版结构，但不把语义解析、注册表或工作区状态放进 core
   grammar。
 
-`## 3. 非目标
+`# 3. 非目标
 
 `- 不追求 Markdown / Djot 兼容。可以借鉴常见习惯，但不为了兼容保留歧义。
 `- 不追求语法表达力最大化。宁可少一点特性，也要规则简单、诊断明确。
@@ -37,9 +37,9 @@ plumb 是一门用于个人长期文档系统的 strict markup language。它不
   编辑体验，可以宽松。
 `- 不把面向多人协作或通用发布平台的需求放在个人长期使用体验之上。
 
-`## 4. 设计原则
+`# 4. 设计原则
 
-`### 4.1 严格性
+`## 4.1 严格性
 
 严格性针对语法入口和结构良构，而不是要求每个标点在所有位置都必须转义。普通文本中
 应尽量只有极少数入口需要转义。block level 目前只把行首的统一 block introducer 视为
@@ -57,7 +57,7 @@ plumb 是一门用于个人长期文档系统的 strict markup language。它不
   `
   `#{#intro
 
-`### 4.2 归属明确
+`## 4.2 归属明确
 
 属性必须贴在目标的结构边界上，让人和解析器都能清楚判断归属。
 
@@ -66,7 +66,7 @@ plumb 是一门用于个人长期文档系统的 strict markup language。它不
 
 这不追求所有结构都长得一样，而追求归属局部、可见、无需向前后远距离搜索。
 
-`### 4.3 语法局部性
+`## 4.3 语法局部性
 
 语法设计应尽可能保持局部、可组合、接近上下文无关。允许 scanner 维护有限状态：
 
@@ -84,7 +84,7 @@ plumb 是一门用于个人长期文档系统的 strict markup language。它不
 
 tree-sitter 可以做宽松镜像，不能反向约束权威语法。
 
-`### 4.4 语义中立
+`## 4.4 语义中立
 
 core 第一阶段对每个 revision 只产出一棵 semantics-neutral recovered lossless SyntaxTree 和
 syntax diagnostics，不解释 heading、list、quote、kind 或 attributes 的意义。声明 recovered
@@ -92,12 +92,12 @@ input policy 的 query 可以读取 recovered typed view；权威 semantic analy
 diagnostics 为空时对同一棵树建立的 valid view。normalized AST 仅在实际 consumer 证明需要时
 materialize。
 
-`### 4.5 Reject-but-recover
+`## 4.5 Reject-but-recover
 
 严格解析器遇到语法错误后，应报告带字节范围的诊断，并恢复到下一个安全边界继续扫描，
 以便一次显示尽可能多的错误。
 
-`### 4.6 Block containment
+`## 4.6 Block containment
 
 block 层的包含关系统一由 indentation 表达，但缩进只表达 block containment，不能表达
 inline、属性参数或语义关系：
@@ -174,7 +174,7 @@ verbatim block 的 opening line 是 `[`{attrs}]，不允许 head 或 block child
 余下字节（包括 payload 自己的 spaces、tabs 和原始 LF/CRLF）原样保存。opening line ending
 不属于 payload；空 block 合法；EOF 不补 final newline；dedent 结束 verbatim block。
 
-`## 5. Core syntax 需求
+`# 5. Core syntax 需求
 
 MVP core 的 block structure 已经冻结，精确规则和实现前待定细节见 `[docs/spec.plumb]。当前
 纳入的 block 结构：
@@ -221,7 +221,7 @@ core 不做：
 `- 任务查询
 `- HTML 语义映射
 
-`## 6. Attribute model 需求
+`# 6. Attribute model 需求
 
 属性值继续以 Pandoc / HTML 的形状为基线。block attr slot 使用紧贴 marker token 或
 introducer 的 braces：
@@ -248,7 +248,7 @@ block marker line 可以带 head；只有真正的 subblocks 使用缩进：
 `- 任务状态等机器语义也写成 attribute，例如 `[task=todo]。
 `- marker token 与普通 attributes 分开保存；不能把 marker 塞入 `[Attr]。
 
-`## 7. Task model 需求
+`# 7. Task model 需求
 
 任务不是 core 语义。core 只解析 marked block attribute；task extension 解释状态、日期和查询
 字段。
@@ -276,7 +276,7 @@ block marker line 可以带 head；只有真正的 subblocks 使用缩进：
 HTML 导出建议由 task extension / export extension 共同决定，例如 task list 输出
 disabled checkbox 和 task class，但源码不需要保留 checkbox 拼写。
 
-`## 8. Extension 需求
+`# 8. Extension 需求
 
 extension 是对 typed syntax view/未来 normalized AST 的语言无关语义解释、query 或 operation，
 不等同于动态插件。第一阶段官方 host 使用静态 Rust typed modules；规范定义 observable
@@ -308,7 +308,7 @@ query 可以消费当前 recovered tree；outline、indexes、rename 和 export
 只能消费满足各自 revision/validity policy 的 inputs。invalid current revision 不产生新的
 权威 semantic output，但 host 可以保留明确标注旧 revision 的 last-valid cache。
 
-`## 9. 需求总结
+`# 9. 需求总结
 
 plumb 是一门严格、语义中立、适合个人长期文档系统的标记语言。core 只负责无歧义地
 解析语法并报告语法错误；所有语义由 extension 解释。语法设计优先保证源码可读、归属

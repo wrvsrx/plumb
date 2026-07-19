@@ -9,7 +9,7 @@ SyntaxTree contract 已冻结；normalized AST 和 extension-specific semantics 
 
 阶段：`[MVP] = 首个可用版本；`[v1] = 稳定版；`[later] = 之后。
 
-`## 当前实现状态
+`# 当前实现状态
 
 第一版 vertical slice 已开始实现，使用 `[docs/extensions.plumb] 的 typed dataflow model：
 
@@ -28,14 +28,14 @@ SyntaxTree contract 已冻结；normalized AST 和 extension-specific semantics 
 metadata 不使用此前试验过的 raw TOML profile。official profile、value shapes 和当前 LSP
 surface 见 `[docs/extensions.plumb] 第 6.2 节；export lowering 与 authoring operations 仍待实现。
 
-`## Djot-tools feature 审计
+`# Djot-tools feature 审计
 
 本清单审计 `[~/Documents/djot-tools] 在 commit `[8957311] 的 README、plan、semantics 和
 实际 binary entry points。它记录值得迁移的用户能力，不表示复用 Djot syntax、jotdown 或
 djot-tools crates。README、semantics 与实际 handler/command 用来确认已实现行为；plan 中未完成
 项目只作为 later 候选。plumb 必须通过自己的 strict parser 和 extension contract 重新实现。
 
-`### 已验证的能力组
+`## 已验证的能力组
 
 `- 文档导航：heading/anchor/task document symbols；同文件与跨文件 definition；正向 target
   resolution、references/backlinks；link/anchor/task hover。
@@ -55,7 +55,7 @@ djot-tools crates。README、semantics 与实际 handler/command 用来确认已
   actionable 派生状态；跨文件依赖、reverse blockers、recurrence advancement、nested display；
   CEL task query、table output，以及 complete/cancel operations。
 
-`### 迁移边界
+`## 迁移边界
 
 `- Djot implicit links、Djot auto heading ids、native task-list spelling 和 fenced div conversion
   不迁移。plumb heading 的 head/title 不生成 id；只有 source 中的显式 id attribute 产生 anchor。
@@ -66,7 +66,7 @@ djot-tools crates。README、semantics 与实际 handler/command 用来确认已
 `- Disk-backed cache、static-site driver、math macros 和 task batch actions 保留为 later，
   不阻塞首个完整 toolchain。
 
-`## 实现前必须完成的设计
+`# 实现前必须完成的设计
 
 下面的工作比任何具体 extension 或 LSP handler 更基础。`[docs/extensions.plumb] 已冻结语言
 无关边界，但这些 concrete contracts 仍需先拍板和写入文档：
@@ -98,7 +98,7 @@ djot-tools crates。README、semantics 与实际 handler/command 用来确认已
 完成；`[D04] 在 workspace slice 前、`[D05] 在首个 edit operation 前、`[D07] 在 export
 前完成。serialization ABI、dynamic plugin、persistent cache 和 parallel scheduler 仍可延后。
 
-`## A. 解析内核（`[plumb-core]）
+`# A. 解析内核（`[plumb-core]）
 
 `- [plumb] MVP 手写严格解析器：输入 UTF-8 字符串，输出 lossless
   `[SyntaxTree + Vec<Diagnostic>]。
@@ -113,7 +113,7 @@ djot-tools crates。README、semantics 与实际 handler/command 用来确认已
   属性和 introducer escape；标题、列表、引用等 marker 语义由 extension 提供。
 `- [plumb] v1 raw text、字段列表、通用容器等根据语法拍板结果纳入。
 
-`## B. 语义扩展（extensions）
+`# B. 语义扩展（extensions）
 
 extension 是语言无关的 query / analysis / operation contract，第一阶段消费同一 SyntaxTree
 上的 typed recovered/valid views，产出结构化结果、semantic diagnostics 或 edit proposals；
@@ -149,7 +149,7 @@ capability negotiation、不可变 operation context，以及独立的 cancellat
 `- [plumb] v1 recurrence operation：complete 时以同一 operation timestamp 写入 done，并按
   recur 规则产生下一实例及 prev link；LSP 与 CLI 复用同一 edit proposal。
 
-`## C. 语言服务器（`[plumb-ls]）
+`# C. 语言服务器（`[plumb-ls]）
 
 `[plumb-ls] 装配 core + extensions，把结果映射到 LSP。
 
@@ -185,7 +185,7 @@ capability wiring 和 revision/cancellation policy，不复制 parser 或 semant
 `- [plumb] later heading-text rename：只更新 heading text；因为 heading title 不派生 anchor id，
   它不会隐式改写 references。
 
-`## D. 导出（`[plumb-export]）
+`# D. 导出（`[plumb-export]）
 
 `- [plumb] MVP plumb 作为 Pandoc reader：valid document → `[pandoc_types] JSON → pandoc writer。
 `- [plumb] MVP core 有语法 error 时拒绝导出。
@@ -197,7 +197,7 @@ capability wiring 和 revision/cancellation policy，不复制 parser 或 semant
 `- [plumb] later richer author/date rendering、document math macros、workspace/static-site export，
   以及项目特定导出语义。
 
-`## E. 笔记 CLI（`[plumb-notes]）
+`# E. 笔记 CLI（`[plumb-notes]）
 
 `- [plumb] v1 递归扫描根下 plumb 文档，载入 workspace，打印匹配路径。
 `- [plumb] v1 CEL document query：path、directly_referenced_by 和
@@ -210,20 +210,20 @@ capability wiring 和 revision/cancellation policy，不复制 parser 或 semant
 `- [plumb] v1 complete/cancel/reopen task actions：消费 shared operation，只由 CLI 校验并落盘。
 `- [plumb] later indexed query prefilters、batch/interactive actions 和 structured output。
 
-`## F. tree-sitter（`[tree-sitter-plumb]）
+`# F. tree-sitter（`[tree-sitter-plumb]）
 
 `- [plumb] current 宽松镜像语法与 corpus，用于编辑器高亮、文本对象、折叠、injection 和缩进。
 `- [plumb] current 不做严格性引擎，不决定文档是否有效。
 `- [plumb] later 独立 bindings、release automation 与单独 repository。
 
-`## G. 打包与开发环境
+`# G. 打包与开发环境
 
 `- [plumb] MVP Cargo workspace 和 crate 划分：`[plumb-core]、extensions、workspace、
   `[plumb-ls]、`[plumb-export]、`[plumb-notes]。
 `- [plumb] MVP Nix flake 打包二进制。
 `- [plumb] MVP warning gate：`[cargo check --workspace --all-targets]。
 
-`## 实现路线图
+`# 实现路线图
 
 每一阶段必须以可运行的 vertical slice 收尾；不能先批量创建空 crates 或 LSP handlers，再回头
 补 shared behavior。
