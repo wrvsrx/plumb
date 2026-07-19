@@ -310,6 +310,33 @@ impl Workspace {
         None
     }
 
+    pub fn resolve_task_reference_at(
+        &self,
+        path: impl AsRef<Path>,
+        offset: usize,
+    ) -> Option<ResolvedTarget> {
+        let path = normalize(path.as_ref());
+        let output = self.current_output(&path)?;
+        for task in &output.tasks.tasks {
+            if let Some(prev) = &task.prev {
+                if contains_inclusive(&prev.range, offset) {
+                    return Some(self.resolve_task_reference_target(
+                        &path,
+                        &parse_task_reference_target(&prev.value),
+                    ));
+                }
+            }
+            if let Some(dependency) = task
+                .depends
+                .iter()
+                .find(|dependency| contains_inclusive(&dependency.range, offset))
+            {
+                return Some(self.resolve_task_reference_target(&path, &dependency.target));
+            }
+        }
+        None
+    }
+
     pub fn references_to(
         &self,
         target_path: impl AsRef<Path>,
@@ -387,24 +414,38 @@ impl Workspace {
         from: &Path,
         target: &TaskReferenceTarget,
     ) -> Option<(PathBuf, String, AnchorRecord)> {
+        let ResolvedTarget::Anchor { path, id, anchor } =
+            self.resolve_task_reference_target(from, target)
+        else {
+            return None;
+        };
+        Some((path, id, anchor))
+    }
+
+    fn resolve_task_reference_target(
+        &self,
+        from: &Path,
+        target: &TaskReferenceTarget,
+    ) -> ResolvedTarget {
         let (path, id) = match target {
             TaskReferenceTarget::Internal { id } => (normalize(from), id.clone()),
             TaskReferenceTarget::External { path, id } => (
                 resolve_relative(from, &percent_decode_path(path)),
                 id.clone(),
             ),
-            TaskReferenceTarget::Invalid => return None,
+            TaskReferenceTarget::Invalid => return ResolvedTarget::Other,
         };
-        let mut anchors = self
-            .current_output(&path)?
-            .anchors
-            .iter()
-            .filter(|anchor| anchor.id.value == id);
-        let anchor = anchors.next()?.clone();
+        let Some(output) = self.current_output(&path) else {
+            return ResolvedTarget::UnresolvedPath { path };
+        };
+        let mut anchors = output.anchors.iter().filter(|anchor| anchor.id.value == id);
+        let Some(anchor) = anchors.next().cloned() else {
+            return ResolvedTarget::UnresolvedAnchor { path, id };
+        };
         if anchors.next().is_some() {
-            return None;
+            return ResolvedTarget::AmbiguousAnchor { path, id };
         }
-        Some((path, id, anchor))
+        ResolvedTarget::Anchor { path, id, anchor }
     }
 
     pub fn task_at(&self, path: impl AsRef<Path>, offset: usize) -> Option<&TaskRecord> {
