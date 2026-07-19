@@ -57,21 +57,21 @@ pub struct Document {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Block {
     Parsed(ParsedBlock),
-    Code(CodeBlock),
+    Verbatim(VerbatimBlock),
 }
 
 impl Block {
     pub fn range(&self) -> &SourceRange {
         match self {
             Self::Parsed(block) => &block.range,
-            Self::Code(block) => &block.range,
+            Self::Verbatim(block) => &block.range,
         }
     }
 
     pub fn children(&self) -> &[Block] {
         match self {
             Self::Parsed(block) => &block.children,
-            Self::Code(_) => &[],
+            Self::Verbatim(_) => &[],
         }
     }
 }
@@ -85,10 +85,9 @@ pub struct ParsedBlock {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CodeBlock {
+pub struct VerbatimBlock {
     pub range: SourceRange,
-    pub marker_range: SourceRange,
-    pub quote_count: usize,
+    pub opener_range: SourceRange,
     pub attrs: Attributes,
     pub text: String,
     pub text_range: SourceRange,
@@ -97,8 +96,8 @@ pub struct CodeBlock {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Mark {
     pub range: SourceRange,
-    pub marker: Option<String>,
-    pub marker_range: Option<SourceRange>,
+    pub marker: String,
+    pub marker_range: SourceRange,
     pub attrs: Attributes,
 }
 
@@ -195,8 +194,8 @@ pub enum Inline {
     },
     Element {
         range: SourceRange,
-        kind: Option<String>,
-        kind_range: Option<SourceRange>,
+        kind: String,
+        kind_range: SourceRange,
         content: InlineContent,
         attrs: Attributes,
     },

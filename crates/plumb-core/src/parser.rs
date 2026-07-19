@@ -122,9 +122,9 @@ impl Parser<'_> {
                         blocks.push(Block::Parsed(block));
                         index = next;
                     }
-                    BlockDispatch::Code(quotes) => {
-                        let (block, next) = self.parse_code(index, effective_indent, quotes);
-                        blocks.push(Block::Code(block));
+                    BlockDispatch::Verbatim => {
+                        let (block, next) = self.parse_verbatim(index, effective_indent);
+                        blocks.push(Block::Verbatim(block));
                         index = next;
                     }
                 }
@@ -161,6 +161,9 @@ impl Parser<'_> {
         if byte == b'[' {
             return None;
         }
+        if byte == b'{' {
+            return Some(BlockDispatch::Verbatim);
+        }
         if byte == b'"' {
             let quotes = self.source[after..line.content_end]
                 .bytes()
@@ -170,9 +173,7 @@ impl Parser<'_> {
             if tail < line.content_end && self.source.as_bytes()[tail] == b'[' {
                 return None;
             }
-            return Some(BlockDispatch::Code(quotes));
-        }
-        if byte != b'{' {
+        } else {
             let marker_end = take_name_like(self.source, after, line.content_end, marker_char);
             if marker_end < line.content_end && self.source.as_bytes()[marker_end] == b'[' {
                 return None;
@@ -185,22 +186,17 @@ impl Parser<'_> {
         let line = self.lines.0[index].clone();
         let introducer = line.start + indent;
         let mut cursor = introducer + 1;
-        let mut marker = None;
-        let mut marker_range = None;
-        if cursor < line.content_end && self.source.as_bytes()[cursor] != b'{' {
-            let start = cursor;
-            cursor = take_name_like(self.source, cursor, line.content_end, marker_char);
-            if cursor == start {
-                self.diagnostics.push(Diagnostic::error(
-                    "syntax.invalid-marker",
-                    "invalid or missing marker token",
-                    introducer..(cursor + 1).min(line.content_end),
-                ));
-            } else {
-                marker = Some(self.source[start..cursor].to_string());
-                marker_range = Some(start..cursor);
-            }
+        let marker_start = cursor;
+        cursor = take_name_like(self.source, cursor, line.content_end, marker_char);
+        if cursor == marker_start {
+            self.diagnostics.push(Diagnostic::error(
+                "syntax.invalid-marker",
+                "invalid or missing marker token",
+                introducer..(cursor + 1).min(line.content_end),
+            ));
         }
+        let marker = self.source[marker_start..cursor].to_string();
+        let marker_range = marker_start..cursor;
 
         let attrs = if cursor < line.content_end && self.source.as_bytes()[cursor] == b'{' {
             let (attrs, next) = self.parse_attributes(cursor, line.content_end);
@@ -306,41 +302,36 @@ impl Parser<'_> {
         )
     }
 
-    fn parse_code(&mut self, index: usize, indent: usize, quotes: usize) -> (CodeBlock, usize) {
+    fn parse_verbatim(&mut self, index: usize, indent: usize) -> (VerbatimBlock, usize) {
         let line = self.lines.0[index].clone();
         let introducer = line.start + indent;
-        let marker_start = introducer + 1;
-        let marker_end = marker_start + quotes;
-        let attrs = if marker_end < line.content_end && self.source.as_bytes()[marker_end] == b'{' {
-            self.parse_attributes(marker_end, line.content_end).0
-        } else {
-            if marker_end != line.content_end {
-                self.diagnostics.push(Diagnostic::error(
-                    "syntax.invalid-code-dispatch",
-                    "code marker must be followed by attributes or end of line",
-                    introducer..line.content_end,
-                ));
-            }
-            Attributes::default()
-        };
-        let code_indent = indent + 1 + quotes;
+        let attr_start = introducer + 1;
+        let (attrs, after_attrs) = self.parse_attributes(attr_start, line.content_end);
+        if after_attrs != line.content_end {
+            self.diagnostics.push(Diagnostic::error(
+                "syntax.invalid-verbatim-block-dispatch",
+                "verbatim block attributes must be followed by end of line",
+                introducer..line.content_end,
+            ));
+        }
+        let body_indent = indent + 2;
         let mut next = index + 1;
         let mut text = String::new();
         let text_start = self.lines.0.get(next).map_or(line.end, |next| next.start);
         let mut text_end = text_start;
         while next < self.lines.0.len() {
             let candidate = &self.lines.0[next];
-            if !candidate.blank && candidate.indent < code_indent {
+            if !candidate.blank && candidate.indent < body_indent {
                 break;
             }
             if candidate.blank {
                 text.push('\n');
             } else {
-                let content = candidate.start + code_indent;
+                let content = candidate.start + body_indent;
                 if content > candidate.content_end {
                     self.diagnostics.push(Diagnostic::error(
-                        "syntax.short-code-indent",
-                        format!("code payload requires at least {code_indent} spaces"),
+                        "syntax.short-verbatim-indent",
+                        format!("verbatim payload requires at least {body_indent} spaces"),
                         candidate.start..candidate.content_end,
                     ));
                 } else {
@@ -354,10 +345,9 @@ impl Parser<'_> {
             next += 1;
         }
         (
-            CodeBlock {
+            VerbatimBlock {
                 range: introducer..text_end.max(line.end),
-                marker_range: marker_start..marker_end,
-                quote_count: quotes,
+                opener_range: introducer..introducer + 2,
                 attrs,
                 text,
                 text_range: text_start..text_end,
@@ -447,48 +437,44 @@ impl Parser<'_> {
                 text_start = cursor;
                 continue;
             }
-            if cursor < end && self.source.as_bytes()[cursor] == b'"' {
-                let quotes = self.source[cursor..end]
-                    .bytes()
-                    .take_while(|candidate| *candidate == b'"')
-                    .count();
-                let open = cursor + quotes;
-                if open < end && self.source.as_bytes()[open] == b'[' {
-                    if let Some((close, after_close)) =
-                        find_verbatim_close(self.source, open + 1, end, quotes)
-                    {
-                        let (attrs, after_attrs) =
-                            if after_close < end && self.source.as_bytes()[after_close] == b'{' {
-                                self.parse_attributes(after_close, end)
-                            } else {
-                                (Attributes::default(), after_close)
-                            };
-                        items.push(Inline::Verbatim {
-                            range: introducer..after_attrs,
-                            text: self.source[open + 1..close].to_string(),
-                            text_range: open + 1..close,
-                            quote_count: quotes,
-                            attrs,
-                        });
-                        cursor = after_attrs;
-                        text_start = cursor;
-                        continue;
-                    }
-                    self.diagnostics.push(Diagnostic::error(
-                        "syntax.unclosed-verbatim",
-                        "inline verbatim must close on the same physical line",
-                        introducer..end,
-                    ));
-                    cursor = end;
-                    text_start = end;
+            let quotes = self.source[cursor..end]
+                .bytes()
+                .take_while(|candidate| *candidate == b'"')
+                .count();
+            let open = cursor + quotes;
+            if open < end && self.source.as_bytes()[open] == b'[' {
+                if let Some((close, after_close)) =
+                    find_verbatim_close(self.source, open + 1, end, quotes)
+                {
+                    let (attrs, after_attrs) =
+                        if after_close < end && self.source.as_bytes()[after_close] == b'{' {
+                            self.parse_attributes(after_close, end)
+                        } else {
+                            (Attributes::default(), after_close)
+                        };
+                    items.push(Inline::Verbatim {
+                        range: introducer..after_attrs,
+                        text: self.source[open + 1..close].to_string(),
+                        text_range: open + 1..close,
+                        quote_count: quotes,
+                        attrs,
+                    });
+                    cursor = after_attrs;
+                    text_start = cursor;
                     continue;
                 }
+                self.diagnostics.push(Diagnostic::error(
+                    "syntax.unclosed-verbatim",
+                    "inline verbatim must close on the same physical line",
+                    introducer..end,
+                ));
+                cursor = end;
+                text_start = end;
+                continue;
             }
 
             let kind_start = cursor;
-            if cursor < end && self.source.as_bytes()[cursor] != b'[' {
-                cursor = take_name_like(self.source, cursor, end, marker_char);
-            }
+            cursor = take_name_like(self.source, cursor, end, marker_char);
             let kind_end = cursor;
             if cursor < end && self.source.as_bytes()[cursor] == b'[' {
                 let content_start = cursor + 1;
@@ -504,9 +490,8 @@ impl Parser<'_> {
                         };
                     items.push(Inline::Element {
                         range: introducer..after_attrs,
-                        kind: (kind_start < kind_end)
-                            .then(|| self.source[kind_start..kind_end].to_string()),
-                        kind_range: (kind_start < kind_end).then_some(kind_start..kind_end),
+                        kind: self.source[kind_start..kind_end].to_string(),
+                        kind_range: kind_start..kind_end,
                         content,
                         attrs,
                     });
@@ -715,7 +700,7 @@ impl Parser<'_> {
 #[derive(Clone, Copy)]
 enum BlockDispatch {
     Marked,
-    Code(usize),
+    Verbatim,
 }
 
 fn marker_char(character: char) -> bool {
@@ -817,11 +802,79 @@ mod tests {
 
     #[test]
     fn parses_inline_elements_and_verbatim() {
-        let parsed = parse("Text `em[inside] and `\"[raw]\".\n");
+        let parsed = parse("Text `em[inside] and `[raw].\n");
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let Block::Parsed(block) = &parsed.syntax.blocks[0] else {
             panic!("expected paragraph");
         };
         assert_eq!(block.head.plain_text(), "Text inside and raw.");
+    }
+
+    #[test]
+    fn quote_count_strengthens_inline_verbatim_delimiters() {
+        let parsed = parse("`[plain] `\"[contains ] safely]\" `\"\"[contains ]\" safely]\"\"\n");
+        assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
+        let Block::Parsed(block) = &parsed.syntax.blocks[0] else {
+            panic!("expected paragraph");
+        };
+        let verbatim = block
+            .head
+            .items
+            .iter()
+            .filter_map(|inline| match inline {
+                Inline::Verbatim {
+                    text, quote_count, ..
+                } => Some((text.as_str(), *quote_count)),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            verbatim,
+            [
+                ("plain", 0),
+                ("contains ] safely", 1),
+                ("contains ]\" safely", 2)
+            ]
+        );
+    }
+
+    #[test]
+    fn strengthened_inline_verbatim_can_start_a_physical_line() {
+        let parsed = parse("`\"[raw]\" tail\n");
+        assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
+        let Block::Parsed(block) = &parsed.syntax.blocks[0] else {
+            panic!("expected paragraph");
+        };
+        assert!(matches!(block.head.items[0], Inline::Verbatim { .. }));
+    }
+
+    #[test]
+    fn parses_verbatim_block_with_fixed_two_column_margin() {
+        let parsed = parse("`{language=rust}\n  fn main() {}\n    indented\nnext\n");
+        assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
+        let Block::Verbatim(block) = &parsed.syntax.blocks[0] else {
+            panic!("expected verbatim block");
+        };
+        assert_eq!(block.attrs.value("language"), Some("rust"));
+        assert_eq!(block.text, "fn main() {}\n  indented\n");
+        assert!(matches!(parsed.syntax.blocks[1], Block::Parsed(_)));
+    }
+
+    #[test]
+    fn parsed_inline_and_marked_block_require_names() {
+        let inline = parse("`[not parsed]\n");
+        let Block::Parsed(paragraph) = &inline.syntax.blocks[0] else {
+            panic!("expected paragraph");
+        };
+        assert!(matches!(paragraph.head.items[0], Inline::Verbatim { .. }));
+
+        let block = parse("`{.note}\n  raw `em[not parsed]\n");
+        assert!(matches!(block.syntax.blocks[0], Block::Verbatim(_)));
+
+        let old_quote_block = parse("`\"\n  old code block spelling\n");
+        assert!(!old_quote_block.is_valid());
+
+        let verbatim_head = parse("`{} head is forbidden\n");
+        assert!(!verbatim_head.is_valid());
     }
 }

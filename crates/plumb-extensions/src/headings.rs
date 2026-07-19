@@ -82,15 +82,14 @@ fn is_heading_marker(block: &ParsedBlock) -> bool {
     block
         .mark
         .as_ref()
-        .and_then(|mark| mark.marker.as_deref())
+        .map(|mark| mark.marker.as_str())
         .and_then(hash_level)
         .is_some()
 }
 
 fn heading_level(block: &ParsedBlock) -> Option<u8> {
     let mark = block.mark.as_ref()?;
-    let marker = mark.marker.as_deref()?;
-    hash_level(marker)
+    hash_level(&mark.marker)
 }
 
 fn hash_level(marker: &str) -> Option<u8> {

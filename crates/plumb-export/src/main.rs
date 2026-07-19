@@ -72,10 +72,10 @@ fn lower_blocks(blocks: &[Block], analysis: &DocumentOutput) -> Vec<Value> {
     let mut output = Vec::new();
     for block in blocks {
         match block {
-            Block::Code(code) => {
+            Block::Verbatim(block) => {
                 output.push(json!({
                     "t": "CodeBlock",
-                    "c": [lower_attrs(&code.attrs, None), code.text],
+                    "c": [lower_attrs(&block.attrs, None), block.text],
                 }));
             }
             Block::Parsed(parsed) => lower_parsed_block(parsed, analysis, &mut output),
@@ -85,7 +85,7 @@ fn lower_blocks(blocks: &[Block], analysis: &DocumentOutput) -> Vec<Value> {
 }
 
 fn lower_parsed_block(block: &ParsedBlock, analysis: &DocumentOutput, output: &mut Vec<Value>) {
-    let marker = block.mark.as_ref().and_then(|mark| mark.marker.as_deref());
+    let marker = block.mark.as_ref().map(|mark| mark.marker.as_str());
     if let Some(heading) = analysis.headings.heading_at_node_start(block.range.start) {
         let attrs = &block.mark.as_ref().expect("heading has mark").attrs;
         output.push(json!({
@@ -136,7 +136,7 @@ fn lower_inlines(content: &InlineContent, analysis: &DocumentOutput) -> Vec<Valu
                 } else {
                     output.push(json!({
                         "t": "Span",
-                        "c": [lower_attrs(attrs, kind.as_deref()), lower_inlines(content, analysis)],
+                        "c": [lower_attrs(attrs, Some(kind)), lower_inlines(content, analysis)],
                     }));
                 }
             }
@@ -200,5 +200,16 @@ mod tests {
         let document = export("See `link[target]{to=\"other.plumb#id\"}.\n").unwrap();
         assert_eq!(document["blocks"][0]["c"][2]["t"], "Link");
         assert_eq!(document["blocks"][0]["c"][2]["c"][2][0], "other.plumb#id");
+    }
+
+    #[test]
+    fn exports_verbatim_envelopes_as_pandoc_code() {
+        let document =
+            export("Use `[cargo check]{language=sh}.\n\n`{language=rust}\n  fn main() {}\n")
+                .unwrap();
+        assert_eq!(document["blocks"][0]["c"][2]["t"], "Code");
+        assert_eq!(document["blocks"][0]["c"][2]["c"][1], "cargo check");
+        assert_eq!(document["blocks"][1]["t"], "CodeBlock");
+        assert_eq!(document["blocks"][1]["c"][1], "fn main() {}\n");
     }
 }

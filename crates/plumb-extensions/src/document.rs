@@ -30,7 +30,7 @@ pub enum AnchorKind {
     Heading,
     Block,
     Inline,
-    CodeBlock,
+    VerbatimBlock,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -121,13 +121,13 @@ fn collect_blocks(
                 collect_inlines(source, &parsed.head, first_ids, output);
                 collect_blocks(source, &parsed.children, first_ids, output);
             }
-            Block::Code(code) => {
+            Block::Verbatim(block) => {
                 collect_anchor(
                     source,
-                    &code.attrs,
-                    AnchorKind::CodeBlock,
-                    code.range.clone(),
-                    code.marker_range.clone(),
+                    &block.attrs,
+                    AnchorKind::VerbatimBlock,
+                    block.range.clone(),
+                    block.opener_range.clone(),
                     first_ids,
                     output,
                 );
@@ -160,7 +160,7 @@ fn collect_inlines(
                     first_ids,
                     output,
                 );
-                if kind.as_deref() == Some("link") {
+                if kind == "link" {
                     collect_link(source, range.clone(), content.range.clone(), attrs, output);
                 }
                 collect_inlines(source, content, first_ids, output);
@@ -339,6 +339,15 @@ mod tests {
         assert_eq!(output.anchors.len(), 1);
         assert_eq!(output.anchors[0].id.value, "intro");
         assert_eq!(output.anchors[0].kind, AnchorKind::Heading);
+    }
+
+    #[test]
+    fn verbatim_blocks_create_syntax_neutral_anchors() {
+        let parsed = parse("`{#example language=text}\n  raw text\n");
+        assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
+        let output = analyze_document(&parsed.source, &parsed.syntax);
+        assert_eq!(output.anchors.len(), 1);
+        assert_eq!(output.anchors[0].kind, AnchorKind::VerbatimBlock);
     }
 
     #[test]
