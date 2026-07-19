@@ -362,7 +362,7 @@ mod tests {
 
     #[test]
     fn exports_adjacent_and_nested_items_as_bullet_lists() {
-        let source = "`item One\n`item{.task #two priority=high} Two\n  `item Nested\nParagraph.\n";
+        let source = "`- One\n`item{.task #two priority=high} Two\n  `- Nested\nParagraph.\n";
         let document = export(source).unwrap();
         let blocks = document["blocks"].as_array().unwrap();
 

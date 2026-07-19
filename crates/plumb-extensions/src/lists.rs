@@ -69,7 +69,7 @@ fn list_item(block: &Block) -> Option<&ParsedBlock> {
     block
         .mark
         .as_ref()
-        .is_some_and(|mark| mark.marker == "item")
+        .is_some_and(|mark| matches!(mark.marker.as_str(), "item" | "-"))
         .then_some(block)
 }
 
@@ -82,7 +82,7 @@ mod tests {
     #[test]
     fn groups_adjacent_sibling_items_and_nested_items() {
         let parsed = parse(
-            "`item One\n  `item Nested one\n  `item Nested two\n`item Two\nParagraph.\n`item Three\n",
+            "`-{.task} One\n  `item Nested one\n  `- Nested two\n`item Two\nParagraph.\n`- Three\n",
         );
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 

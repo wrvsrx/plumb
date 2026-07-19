@@ -370,7 +370,7 @@ mod tests {
 
     #[test]
     fn collects_task_facets_fields_dependencies_and_nesting() {
-        let source = "`item{.task #write created=\"2026-07-20T09:00:00+08:00\" due=\"2026-07-21T09:00:00+08:00\" wait=\"2026-07-20T12:00:00+08:00\" recur=P1W prev=\"#old\" depends=\"#draft other.plumb#review\"} Write parser\n  `note Details\n  `item{.task done=\"2026-07-20T10:00:00+08:00\"} Nested task\n";
+        let source = "`-{.task #write created=\"2026-07-20T09:00:00+08:00\" due=\"2026-07-21T09:00:00+08:00\" wait=\"2026-07-20T12:00:00+08:00\" recur=P1W prev=\"#old\" depends=\"#draft other.plumb#review\"} Write parser\n  `note Details\n  `-{.task done=\"2026-07-20T10:00:00+08:00\"} Nested task\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
