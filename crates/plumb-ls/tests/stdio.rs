@@ -1189,6 +1189,174 @@ fn path_rename_is_optimistic_and_reconciles_failed_client_application() {
 }
 
 #[test]
+fn path_rename_watcher_confirms_a_successful_filesystem_rename() {
+    let root = unique_temp_dir();
+    std::fs::create_dir_all(&root).unwrap();
+    let old_target = root.join("old.plumb");
+    let new_target = root.join("new.plumb");
+    let source = root.join("source.plumb");
+    let target_text = "`#{#target} Target\n";
+    let old_source = "See `link[target]{to=\"old.plumb#target\"}.\n";
+    let new_source = "See `link[target]{to=\"new.plumb#target\"}.\n";
+    std::fs::write(&old_target, target_text).unwrap();
+    std::fs::write(&source, old_source).unwrap();
+    let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
+    let old_uri = lsp_types::Url::from_file_path(&old_target).unwrap();
+    let new_uri = lsp_types::Url::from_file_path(&new_target).unwrap();
+    let source_uri = lsp_types::Url::from_file_path(&source).unwrap();
+    let path_position = old_source.find("old.plumb").unwrap();
+    let target_position = new_source.find("#target").unwrap() + 1;
+    let first = [
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {
+                "processId": null,
+                "rootUri": root_uri,
+                "workspaceFolders": [{ "uri": root_uri, "name": "test" }],
+                "capabilities": { "workspace": { "workspaceEdit": {
+                    "documentChanges": true, "resourceOperations": ["rename"]
+                } } }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": {
+                "uri": source_uri, "languageId": "plumb", "version": 1, "text": old_source
+            }}
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 2, "method": "textDocument/rename",
+            "params": {
+                "textDocument": { "uri": source_uri },
+                "position": { "line": 0, "character": path_position },
+                "newName": "new.plumb"
+            }
+        }),
+    ];
+    let second = [
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didChange",
+            "params": {
+                "textDocument": { "uri": source_uri, "version": 2 },
+                "contentChanges": [{ "text": new_source }]
+            }
+        }),
+        json!({
+            "jsonrpc": "2.0", "method": "workspace/didChangeWatchedFiles",
+            "params": { "changes": [
+                { "uri": old_uri, "type": 3 },
+                { "uri": new_uri, "type": 1 }
+            ] }
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 3, "method": "textDocument/definition",
+            "params": {
+                "textDocument": { "uri": source_uri },
+                "position": { "line": 0, "character": target_position }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 4, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+    let rename = std::thread::spawn({
+        let old_target = old_target.clone();
+        let new_target = new_target.clone();
+        move || {
+            std::thread::sleep(std::time::Duration::from_millis(30));
+            std::fs::rename(old_target, new_target).unwrap();
+        }
+    });
+    let output = run_server_with_pause(&first, &second);
+    rename.join().unwrap();
+    assert_eq!(response(&output, 3)["result"]["uri"], new_uri.as_str());
+    assert!(!old_target.exists());
+    assert!(new_target.exists());
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn path_rename_watcher_clears_a_missing_optimistic_target() {
+    let root = unique_temp_dir();
+    std::fs::create_dir_all(&root).unwrap();
+    let old_target = root.join("old.plumb");
+    let new_target = root.join("new.plumb");
+    let source = root.join("source.plumb");
+    let old_source = "See `link[target]{to=\"old.plumb#target\"}.\n";
+    let new_source = "See `link[target]{to=\"new.plumb#target\"}.\n";
+    std::fs::write(&old_target, "`#{#target} Target\n").unwrap();
+    std::fs::write(&source, old_source).unwrap();
+    let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
+    let old_uri = lsp_types::Url::from_file_path(&old_target).unwrap();
+    let source_uri = lsp_types::Url::from_file_path(&source).unwrap();
+    let path_position = old_source.find("old.plumb").unwrap();
+    let target_position = new_source.find("#target").unwrap() + 1;
+    let first = [
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {
+                "processId": null,
+                "rootUri": root_uri,
+                "workspaceFolders": [{ "uri": root_uri, "name": "test" }],
+                "capabilities": { "workspace": { "workspaceEdit": {
+                    "documentChanges": true, "resourceOperations": ["rename"]
+                } } }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": {
+                "uri": source_uri, "languageId": "plumb", "version": 1, "text": old_source
+            }}
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 2, "method": "textDocument/rename",
+            "params": {
+                "textDocument": { "uri": source_uri },
+                "position": { "line": 0, "character": path_position },
+                "newName": "new.plumb"
+            }
+        }),
+    ];
+    let second = [
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didChange",
+            "params": {
+                "textDocument": { "uri": source_uri, "version": 2 },
+                "contentChanges": [{ "text": new_source }]
+            }
+        }),
+        json!({
+            "jsonrpc": "2.0", "method": "workspace/didChangeWatchedFiles",
+            "params": { "changes": [{ "uri": old_uri, "type": 3 }] }
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 3, "method": "textDocument/definition",
+            "params": {
+                "textDocument": { "uri": source_uri },
+                "position": { "line": 0, "character": target_position }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 4, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+    let remove = std::thread::spawn({
+        let old_target = old_target.clone();
+        move || {
+            std::thread::sleep(std::time::Duration::from_millis(30));
+            std::fs::remove_file(old_target).unwrap();
+        }
+    });
+    let output = run_server_with_pause(&first, &second);
+    remove.join().unwrap();
+    assert!(response(&output, 3)["result"].is_null());
+    assert!(!old_target.exists());
+    assert!(!new_target.exists());
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn path_rename_requires_resource_rename_support() {
     let (root, output) =
         run_path_rename_precondition_test(json!({ "documentChanges": true }), "new.plumb", false);
