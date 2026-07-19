@@ -26,6 +26,11 @@
               src = pkgs.lib.cleanSource ./.;
               cargoLock.lockFile = ./Cargo.lock;
 
+              postInstall = ''
+                mkdir -p $out/share/plumb
+                cp -r skills $out/share/plumb/
+              '';
+
               meta = {
                 description = "Strict plumb markup language and tooling";
                 license = pkgs.lib.licenses.mit;
