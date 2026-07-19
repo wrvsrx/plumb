@@ -3,7 +3,6 @@
 (introducer_escape) @string.escape
 (bracket_escape) @string.escape
 (marker) @keyword
-(code_marker) @punctuation.delimiter
 (inline_kind) @keyword
 
 ; Parsed inline delimiters.
@@ -35,7 +34,7 @@
 ; Raw payloads are syntax nodes because they change the lexical mode.
 ((inline_verbatim) @markup.raw
   (#set! priority 90))
-(code_block (raw_text) @markup.raw.block)
+(verbatim_block (raw_text) @markup.raw.block)
 
 ; Recovery nodes represent incomplete editor input, not valid strict syntax.
 [

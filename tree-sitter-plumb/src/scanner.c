@@ -11,7 +11,6 @@ enum TokenType {
   PARAGRAPH_CONTINUE,
   INLINE_CONTINUE,
   DEDENT,
-  CODE_MARKER,
   RAW_CODE_LINE,
   INLINE_VERBATIM_TOKEN,
   INCOMPLETE_INLINE_END,
@@ -23,7 +22,6 @@ enum TokenType {
 
 typedef struct {
   uint16_t indents[MAX_INDENT_DEPTH];
-  uint16_t code_indent;
   uint8_t depth;
   uint8_t pending_dedents;
 } Scanner;
@@ -45,8 +43,6 @@ unsigned tree_sitter_plumb_external_scanner_serialize(void *payload,
   unsigned size = 0;
   buffer[size++] = (char)scanner->depth;
   buffer[size++] = (char)scanner->pending_dedents;
-  buffer[size++] = (char)(scanner->code_indent & 0xff);
-  buffer[size++] = (char)(scanner->code_indent >> 8);
   for (uint8_t i = 0; i <= scanner->depth; i++) {
     buffer[size++] = (char)(scanner->indents[i] & 0xff);
     buffer[size++] = (char)(scanner->indents[i] >> 8);
@@ -60,56 +56,40 @@ void tree_sitter_plumb_external_scanner_deserialize(void *payload,
   Scanner *scanner = payload;
   scanner->depth = 0;
   scanner->pending_dedents = 0;
-  scanner->code_indent = 0;
   scanner->indents[0] = 0;
-  if (length < 4) return;
+  if (length < 2) return;
 
   scanner->depth = (uint8_t)buffer[0];
   if (scanner->depth >= MAX_INDENT_DEPTH) scanner->depth = MAX_INDENT_DEPTH - 1;
   scanner->pending_dedents = (uint8_t)buffer[1];
-  scanner->code_indent = (uint8_t)buffer[2] |
-                         ((uint16_t)(uint8_t)buffer[3] << 8);
-
-  unsigned available = (length - 4) / 2;
+  unsigned available = (length - 2) / 2;
   if (available <= scanner->depth) scanner->depth = available ? available - 1 : 0;
   for (uint8_t i = 0; i <= scanner->depth; i++) {
-    unsigned offset = 4u + (unsigned)i * 2u;
+    unsigned offset = 2u + (unsigned)i * 2u;
     if (offset + 1u >= length) break;
     scanner->indents[i] = (uint8_t)buffer[offset] |
                           ((uint16_t)(uint8_t)buffer[offset + 1u] << 8);
   }
 }
 
-static bool scan_code_marker(Scanner *scanner, TSLexer *lexer) {
-  if (lexer->lookahead != '"') return false;
-
-  do {
-    take(lexer);
-  } while (lexer->lookahead == '"');
-
-  lexer->mark_end(lexer);
-  scanner->code_indent = (uint16_t)lexer->get_column(lexer);
-  lexer->result_symbol = CODE_MARKER;
-  return true;
-}
-
 static bool scan_raw_code_line(Scanner *scanner, TSLexer *lexer,
                                const bool *valid_symbols) {
   lexer->mark_end(lexer);
+  uint16_t verbatim_indent = scanner->indents[scanner->depth] + 2;
   uint16_t spaces = 0;
-  while (lexer->lookahead == ' ' && spaces < scanner->code_indent) {
+  while (lexer->lookahead == ' ' && spaces < verbatim_indent) {
     take(lexer);
     spaces++;
   }
 
   if (lexer->lookahead == '\n') {
-    if (spaces > 0 && spaces < scanner->code_indent) return false;
+    if (spaces > 0 && spaces < verbatim_indent) return false;
     take(lexer);
     lexer->mark_end(lexer);
     lexer->result_symbol = RAW_CODE_LINE;
     return true;
   }
-  if (spaces < scanner->code_indent) {
+  if (spaces < verbatim_indent) {
     uint16_t current = scanner->indents[scanner->depth];
     if (spaces == current && current > 0 && valid_symbols[SAME_INDENT]) {
       lexer->mark_end(lexer);
@@ -144,7 +124,7 @@ static bool scan_inline_verbatim(TSLexer *lexer) {
     take(lexer);
     quotes++;
   }
-  if (quotes == 0 || lexer->lookahead != '[') return false;
+  if (lexer->lookahead != '[') return false;
   take(lexer);
 
   while (lexer->lookahead != 0 && lexer->lookahead != '\n') {
@@ -172,6 +152,7 @@ static bool scan_inline_verbatim(TSLexer *lexer) {
 static bool backtick_starts_inline(TSLexer *lexer) {
   take(lexer);
   if (lexer->lookahead == '`') return true;
+  if (lexer->lookahead == '[') return true;
 
   bool has_kind = false;
   if (lexer->lookahead == '"') {
@@ -300,7 +281,6 @@ bool tree_sitter_plumb_external_scanner_scan(void *payload, TSLexer *lexer,
   if (valid_symbols[INLINE_VERBATIM_TOKEN] && lexer->lookahead == '`') {
     return scan_inline_verbatim(lexer);
   }
-  if (valid_symbols[CODE_MARKER] && scan_code_marker(scanner, lexer)) return true;
   if (valid_symbols[RAW_CODE_LINE] && lexer->get_column(lexer) == 0) {
     return scan_raw_code_line(scanner, lexer, valid_symbols);
   }

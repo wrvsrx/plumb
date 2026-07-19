@@ -3,5 +3,5 @@
 
 [
   (marked_block)
-  (code_block)
+  (verbatim_block)
 ] @indent.branch

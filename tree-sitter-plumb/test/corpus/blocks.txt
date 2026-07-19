@@ -25,28 +25,28 @@ another paragraph
       (text))))
 
 ==================
-Empty code block
+Empty verbatim block
 ==================
 
-`"
+`{}
 `after
 
 ---
 
 (document
   (blank_line)
-  (code_block
+  (verbatim_block
     (introducer)
-    (code_marker))
+    (attributes))
   (marked_block
     (introducer)
     (marker)))
 
 ==================
-Explicit leading blank code line
+Explicit leading blank verbatim line
 ==================
 
-`"
+`{}
 
   code after leading blank
 
@@ -56,9 +56,9 @@ Explicit leading blank code line
 
 (document
   (blank_line)
-  (code_block
+  (verbatim_block
     (introducer)
-    (code_marker)
+    (attributes)
     (raw_text)
     (raw_text)
     (raw_text))
@@ -67,43 +67,30 @@ Explicit leading blank code line
     (marker)))
 
 ==================
-Anonymous marked block
+Verbatim blocks
 ==================
 
-`{.container} anonymous head
-
-  child paragraph
+`{.container}
+  raw child
 
 `{}
-  `child direct child
+  `child remains raw
 
 ---
 
 (document
   (blank_line)
-  (marked_block
+  (verbatim_block
     (introducer)
     (attributes
       (attribute_class
         (attribute_name)))
-    (head_separator)
-    (inline_content
-      (text))
-    (block_body
-      (paragraph
-        (inline_content
-          (text)))
-      (blank_line)))
-  (marked_block
+    (raw_text)
+    (raw_text))
+  (verbatim_block
     (introducer)
     (attributes)
-    (block_body
-      (marked_block
-        (introducer)
-        (marker)
-        (head_separator)
-        (inline_content
-          (text))))))
+    (raw_text)))
 
 ==================
 Head continuation and children
@@ -190,12 +177,12 @@ Dynamic indentation and dedent
     (marker)))
 
 ==================
-Raw code margin
+Raw verbatim margin
 ==================
 
-`""{language=text}
-   first raw line
-     two preserved leading spaces
+`{language=text}
+  first raw line
+    two preserved leading spaces
 
 `after code
 
@@ -203,9 +190,8 @@ Raw code margin
 
 (document
   (blank_line)
-  (code_block
+  (verbatim_block
     (introducer)
-    (code_marker)
     (attributes
       (attribute_pair
         (attribute_name)
@@ -224,7 +210,7 @@ Raw code margin
 Raw tab after the structural prefix
 ==================
 
-`"
+`{}
   x	payload tab is preserved
 
 `after-code
@@ -233,9 +219,9 @@ Raw tab after the structural prefix
 
 (document
   (blank_line)
-  (code_block
+  (verbatim_block
     (introducer)
-    (code_marker)
+    (attributes)
     (raw_text)
     (raw_text))
   (marked_block
@@ -403,11 +389,11 @@ Nested multiline paragraph
         (marker)))))
 
 ==================
-Nested code margin
+Nested verbatim margin
 ==================
 
 `parent
-   `"
+   `{}
      raw at absolute column five
 
    `sibling
@@ -420,9 +406,9 @@ Nested code margin
     (introducer)
     (marker)
     (block_body
-      (code_block
+      (verbatim_block
         (introducer)
-        (code_marker)
+        (attributes)
         (raw_text)
         (raw_text))
       (marked_block

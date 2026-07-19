@@ -107,12 +107,12 @@ Use `kind[literal [ and `]] brackets.
       (text))))
 
 ==================
-Anonymous spans
+Zero-quote inline verbatim
 ==================
 
-Text with `[anonymous [ content]{.highlight}.
-Nested `[before `[inner] after].
-Empty `[]{} span.
+Text with `[raw content]{.highlight}.
+Opening brackets `[before [inner]{.example}.
+Empty `[]{} verbatim.
 
 ---
 
@@ -121,30 +121,21 @@ Empty `[]{} span.
   (paragraph
     (inline_content
       (text)
-      (inline_element
-        (introducer)
-        (parsed_inline_content
-          (inline_text))
+      (inline_verbatim
         (attributes
           (attribute_class
             (attribute_name))))
       (text))
     (inline_content
       (text)
-      (inline_element
-        (introducer)
-        (parsed_inline_content
-          (inline_text)
-          (inline_element
-            (introducer)
-            (parsed_inline_content
-              (inline_text)))
-          (inline_text)))
+      (inline_verbatim
+        (attributes
+          (attribute_class
+            (attribute_name))))
       (text))
     (inline_content
       (text)
-      (inline_element
-        (introducer)
+      (inline_verbatim
         (attributes))
       (text))))
 
@@ -324,6 +315,7 @@ Inline at physical line start
 
 first line
 `kind[second inline line]
+`"[third verbatim line]"
 third line
 
 ---
@@ -339,6 +331,8 @@ third line
         (inline_kind)
         (parsed_inline_content
           (inline_text))))
+    (inline_content
+      (inline_verbatim))
     (inline_content
       (text))))
 

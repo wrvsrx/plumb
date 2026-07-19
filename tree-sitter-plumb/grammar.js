@@ -11,7 +11,6 @@ module.exports = grammar({
     $._paragraph_continue,
     $._inline_continue,
     $._dedent,
-    $.code_marker,
     $.raw_code_line,
     $._inline_verbatim_token,
     $._incomplete_inline_end,
@@ -26,19 +25,14 @@ module.exports = grammar({
   rules: {
     document: $ => repeat(choice($._block, $.blank_line)),
 
-    _block: $ => choice($.code_block, $.marked_block, $.paragraph),
+    _block: $ => choice($.verbatim_block, $.marked_block, $.paragraph),
 
     blank_line: _ => '\n',
 
     marked_block: $ => prec.right(seq(
       field('introducer', $.introducer),
-      choice(
-        seq(
-          field('marker', $.marker),
-          optional(field('attributes', choice($.attributes, $.incomplete_attributes))),
-        ),
-        field('attributes', choice($.attributes, $.incomplete_attributes)),
-      ),
+      field('marker', $.marker),
+      optional(field('attributes', choice($.attributes, $.incomplete_attributes))),
       optional(seq($.head_separator, field('head', $.inline_content))),
       $._line_end,
       optional(choice(
@@ -64,7 +58,7 @@ module.exports = grammar({
         ),
         seq(
           $._same_indent,
-          field('child', choice($.code_block, $.marked_block)),
+          field('child', choice($.verbatim_block, $.marked_block)),
           repeat(choice(
             $.blank_line,
             seq($._same_indent, field('child', $._block)),
@@ -93,10 +87,9 @@ module.exports = grammar({
       $._dedent,
     ))),
 
-    code_block: $ => seq(
+    verbatim_block: $ => seq(
       field('introducer', $.introducer),
-      field('marker', $.code_marker),
-      optional(field('attributes', $.attributes)),
+      field('attributes', $.attributes),
       $._line_end,
       field('body', repeat(alias($.raw_code_line, $.raw_text))),
     ),
@@ -129,7 +122,7 @@ module.exports = grammar({
 
     inline_element: $ => prec.right(2, seq(
       field('introducer', $.introducer),
-      optional(field('kind', $.inline_kind)),
+      field('kind', $.inline_kind),
       '[',
       optional(field('content', $.parsed_inline_content)),
       ']',
@@ -138,7 +131,7 @@ module.exports = grammar({
 
     incomplete_inline_element: $ => prec.right(-1, seq(
       field('introducer', $.introducer),
-      optional(field('kind', $.inline_kind)),
+      field('kind', $.inline_kind),
       '[',
       optional(field('content', $.parsed_inline_content)),
       $._incomplete_inline_end,

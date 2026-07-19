@@ -142,14 +142,10 @@ broken `"[unfinished
   (blank_line)
   (paragraph
     (inline_content
-      (text)
-      (inline_element
-        (introducer)
-        (ERROR
-          (code_marker))
-        (parsed_inline_content
-          (inline_text))
-        (MISSING "]"))))
+      (text))
+    (ERROR
+      (introducer)
+      (UNEXPECTED '\n')))
   (marked_block
     (introducer)
     (marker)
@@ -171,15 +167,11 @@ second line]"
   (blank_line)
   (paragraph
     (inline_content
-      (text)
-      (inline_element
-        (introducer)
-        (ERROR
-          (code_marker))
-        (parsed_inline_content
-          (inline_text)
-          (soft_break)
-          (inline_text)))
+      (text))
+    (ERROR
+      (introducer)
+      (UNEXPECTED '\n'))
+    (inline_content
       (text)))
   (marked_block
     (introducer)
@@ -249,16 +241,14 @@ Reject unknown quoted escapes
 
 (document
   (blank_line)
-  (code_block
+  (marked_block
     (introducer)
+    (marker)
     (ERROR
-      (marker)
       (attribute_name)
-      (code_marker)
-      (attribute_name))
-    (code_marker)
-    (ERROR
-      (attribute_name))))
+      (UNEXPECTED 'q')
+      (attribute_name)
+      (UNEXPECTED '\n'))))
 
 ==================
 Reject block-only dispatch after an escape
@@ -297,18 +287,18 @@ text `node head
       (attribute_name))))
 
 ==================
-Reject code block head
+Reject verbatim block head
 ==================
 
-`" code head
+`{} code head
 
 ---
 
 (document
   (blank_line)
-  (code_block
+  (verbatim_block
     (introducer)
-    (code_marker)
+    (attributes)
     (ERROR
       (attribute_name)
       (attribute_name))))
