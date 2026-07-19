@@ -50,7 +50,7 @@ plumb 是一门用于个人长期文档系统的 strict markup language。它不
 例如，行首 block introducer 后缺少合法 marker token，或 block attr 没有闭合时，应当
 报错，不能退回普通文本：
 
-`"
+`{}
   `
   `#{#intro
 
@@ -115,21 +115,21 @@ inline、属性参数或语义关系：
 所有普通 marked block 使用一个统一 introducer，并统一为“marker line + 可选
 subblocks”的形状：
 
-`"
+`{}
   `marker{attr}? head?
     child blocks*
 
-反引号是 block 与 inline 共用的 introducer。block start 的 introducer 后可以是
-`"[MarkerToken]"，也可以直接是 attributes；后者产生 anonymous marked block。任何 marker
-字符本身都不是 block 入口。syntax 层原样保存可选 marker token，不在 parser 的通用 block
-外形中编码其意义。
+反引号是 block 与 inline 共用的 introducer。普通 marked block 的 introducer 后必须是
+`"[MarkerToken]"；syntax 层原样保存 marker token，不在 parser 的通用 block 外形中编码其
+意义。introducer 后直接出现 attributes 时切换到 verbatim block，不产生 anonymous mark。
+任何 marker 字符本身都不是 block 入口。
 
 block start 的两个连续反引号 `"[``]" 是 introducer 的 escape，产生一个字面的行首
-反引号，不进入 marked block grammar。code block 使用一个或多个 quotes 组成的保留 marker
-token，因此不与 introducer escape 冲突。
+反引号，不进入 marked block grammar。verbatim block 使用 introducer 后直接出现的
+attributes，因此不与 introducer escape 冲突。
 
-block attr slot 必须紧贴 marker；anonymous mark 的 attr slot 直接紧贴 introducer。attr slot
-前都不能有空格。marker 或 attr slot 后的空格开始可选 head。head
+marked-block attr slot 必须紧贴 marker，前面不能有空格。marker 或 attr slot 后的空格开始
+可选 head。head
 在 syntax 层只保存为抽象 `"[InlineContent]"，本文不规定其内部语法。读完 marker line 后，
 head 即使为空也保持 open；紧接的缩进普通文本行可以启动 deferred head 或继续已有 head。
 同列普通文本结束当前 block 并开始 sibling paragraph；空行结束 head，空行后的缩进普通
@@ -139,8 +139,8 @@ head 即使为空也保持 open；紧接的缩进普通文本行可以启动 def
 普通 paragraph 是省略 introducer、marker 和 attributes 的默认 parsed block。leaf 不是新的
 语法类别：没有 children 的 parsed block 就是 leaf。core block tree 的统一形状为：
 
-`"
-  Block = ParsedBlock | CodeBlock
+`{}
+  Block = ParsedBlock | VerbatimBlock
 
   ParsedBlock {
     mark: Mark?,
@@ -149,29 +149,27 @@ head 即使为空也保持 open；紧接的缩进普通文本行可以启动 def
   }
 
   Mark {
-    marker: MarkerToken?,
+    marker: MarkerToken,
     attrs: Attr,
   }
 
-  CodeBlock {
+  VerbatimBlock {
     attrs: Attr,
     text: RawText,
   }
 
 `"[mark = None]" 的 parsed block 必须具有非空 head 且没有 children；这两个 invariant 由
-parser/core 保证。显式 `"[`{attrs}]" 产生 marker 为空的 `"[Some(Mark)]"，与具名 mark 一样
-允许空 head 和 children；具体结构约束由 extension 检查。core 不补出保留的 paragraph
-marker。
+parser/core 保证。`"[mark = Some(...)]" 必须具有非空 marker，允许空 head 和 children；
+具体结构约束由 extension 检查。core 不补出保留的 paragraph marker。
 
 普通 marker node 不做 marker-specific structural lowering；extension 可以把约定的 marker
-解释为 heading、list、quote、metadata 或其他语义，并自行验证结构约束。quote-run 选择
-独立的 `"[CodeBlock]"；其他 marker 进入 `"[ParsedBlock.mark]"。
+解释为 heading、list、quote、metadata 或其他语义，并自行验证结构约束。attribute-only
+block 选择独立的 `"[VerbatimBlock]"；具名 marker 进入 `"[ParsedBlock.mark]"。
 
-一个或多个 quotes 组成 syntax 层唯一已确定的 raw-body marker。它不允许 head 或 block
-children；若 quote 数量为 `"[N]"，raw code payload 与整个 opening marker 的末尾对齐，即
-`"[code_indent = parent_indent + 1 + N]"。parser 去掉每个非空 code line 的这段前缀，余下
-字节（包括代码自己的 spaces、tabs 和原始 LF/CRLF）原样保存。marker line ending 不属于
-payload；空 block 合法；EOF 不补 final newline；dedent 结束 code block。
+verbatim block 的 opening line 是 `"[`{attrs}]"，不允许 head 或 block children；raw payload
+使用固定 `"[verbatim_indent = parent_indent + 2]"。parser 去掉每个非空 raw line 的这段前缀，
+余下字节（包括 payload 自己的 spaces、tabs 和原始 LF/CRLF）原样保存。opening line ending
+不属于 payload；空 block 合法；EOF 不补 final newline；dedent 结束 verbatim block。
 
 `## 5. Core syntax 需求
 
@@ -180,19 +178,19 @@ MVP core 的 block structure 已经冻结，精确规则和实现前待定细节
 
 `- 段落
 `- generic marked block
-`- 代码块
+`- verbatim block
 `- block 属性
 
 标题、列表、引用和其他 marker-specific structures 由 extension 从 generic marked blocks
 派生，不属于 core syntax node 类型。
 
 inline element、parsed content 和 inline verbatim syntax 见 `"[docs/inline.plumb]"；最终 AST
-明确延后。通用 raw block leaf 暂不设计；code block 是目前唯一冻结的
-raw-body block。分隔线、表格、定义列表和字段列表等未来 block 类型不在本次定稿范围内。
+明确延后。verbatim block 是通用的 raw-body block；core 不判断 payload 是 code、math、output
+或目标格式源码。分隔线、表格、定义列表和字段列表等未来 block 类型不在本次定稿范围内。
 
 第一阶段 core 输出：
 
-`"
+`{}
   SyntaxTree
   Diagnostic[]
 
@@ -225,7 +223,7 @@ core 不做：
 属性值继续以 Pandoc / HTML 的形状为基线。block attr slot 使用紧贴 marker token 或
 introducer 的 braces：
 
-`"
+`{}
   `marker{#id .class key=value}
   `{#id .class key=value}
 
@@ -236,7 +234,7 @@ key 和 bare value 使用统一的窄 name 字符集；复杂 value 必须 quote
 
 block marker line 可以带 head；只有真正的 subblocks 使用缩进：
 
-`"
+`{}
   `title{#today} 今天
 
   普通 paragraph。
@@ -254,7 +252,7 @@ block marker line 可以带 head；只有真正的 subblocks 使用缩进：
 
 推荐方向：
 
-`"
+`{}
   `task{state=todo} 买牛奶
 
   `task{state=done} 交水费
@@ -263,7 +261,7 @@ block marker line 可以带 head；只有真正的 subblocks 使用缩进：
 
 不建议保留裸 Markdown task item：
 
-`"
+`{}
   - [ ] task
   - [x] task
 

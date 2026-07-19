@@ -103,7 +103,7 @@ djot-tools crates。README、semantics 与实际 handler/command 用来确认已
 `- [plumb] MVP 语义中立 syntax tree：core 不解释属性、链接目标、任务、元信息、id 唯一性
   或 HTML 语义。
 `- [plumb] MVP 通用属性解析：属性形状良构即可，内部 token opaque。
-`- [plumb] MVP 最小高频语法：paragraph、generic marked block、代码块、inline envelope、
+`- [plumb] MVP 最小高频语法：paragraph、generic marked block、verbatim block、inline envelope、
   属性和 introducer escape；标题、列表、引用等 marker 语义由 extension 提供。
 `- [plumb] v1 raw text、字段列表、通用容器等根据语法拍板结果纳入。
 

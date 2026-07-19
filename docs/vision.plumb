@@ -39,8 +39,8 @@ plumb 采用 Pandoc / Docutils 风格的分层：
 `- core = 严格 reader。每个 revision 输入源码，输出一棵 recovered 无损 syntax tree 和语法
   诊断。extension 先消费这棵树上的 typed recovered/valid views；normalized AST 只在实际
   consumer 需要时 materialize。syntax 层保留
-  opaque marker token 并产出 generic marked nodes；只有 quote-run 因切换 raw payload
-  mode 而由 syntax 特判。core 不含
+  opaque marker token 并产出 generic marked nodes；inline 与 block verbatim envelope 因切换
+  raw payload mode 而由 syntax 特判。core 不含
   文件 I/O，不解析链接目标，不生成 id，不做大纲、任务、元信息或导出语义。
 `- extension = language-neutral semantic contract。消费 typed view、snapshots 和已声明的
   outputs，产出 query、analysis、diagnostics 或 effect proposal，添加全部语义：大纲、

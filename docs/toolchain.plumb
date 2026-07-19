@@ -5,7 +5,7 @@
 
 `## Build and test
 
-`"{language=text}
+`{language=text}
   nix develop -c cargo build --workspace
   nix develop -c cargo test --workspace
   nix develop -c cargo check --workspace --all-targets
@@ -27,20 +27,21 @@ task symbols。async-lsp advertised notifications 必须继续显式实现；增
 
 `## Export
 
-`"{language=text}
+`{language=text}
   plumb-export document.plumb | pandoc -f json -t html -o document.html
   cat document.plumb | plumb-export | pandoc -f json -o document.pdf
 
 exporter 直接从 `"[plumb-core]" valid tree 生成 Pandoc JSON，不调用 Pandoc reader。paragraph、
-heading、generic marked block、code block、generic span 和 inline verbatim 分别 lower 到 Para、
-Header、Div、CodeBlock、Span 和 Code。generic marker 保存在 `"[data-plumb-marker]" attribute 中；
+heading、generic marked block、verbatim block、generic span 和 inline verbatim 分别 lower 到
+Para、Header、Div、CodeBlock、Span 和 Code。generic marker 保存在
+`"[data-plumb-marker]" attribute 中；
 pandoc 仅作为 writer 消费结果。
 
 `## Heading and anchor profile
 
 Heading facts、document symbols 与 Pandoc Header 共享以下 profile：
 
-`"{language=plumb}
+`{language=plumb}
   `#{#intro} Level one with an explicit anchor
   `## Level two
 
@@ -50,7 +51,7 @@ heading 上 attributes 紧跟 marker，例如 `"[`#{#intro} Heading]"。`"[id=va
 
 `## Known parser gaps
 
-当前 parser 已覆盖 paragraph、generic marked block、attributes、indented raw code、inline
+当前 parser 已覆盖 paragraph、generic marked block、attributes、indented verbatim block、inline
 element/verbatim、basic indentation recovery 和 duplicate id/key diagnostics，并能解析仓库全部
 dogfood docs。它还没有满足完整 strict parser release gate：
 

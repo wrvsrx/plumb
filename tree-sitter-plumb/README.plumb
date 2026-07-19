@@ -1,7 +1,7 @@
 `# tree-sitter-plumb
 
 The intentionally lenient tree-sitter grammar for plumb editor tooling. The
-future hand-written `"[plumb-core]" parser remains the authority for syntax errors
+hand-written `"[plumb-core]" parser remains the authority for syntax errors
 and document acceptance.
 
 `## Core-only CST
@@ -14,7 +14,7 @@ nodes such as `"[heading]"、`"[list_item]"、`"[quote]"、`"[task]"、`"[emphas
 Those interpretations belong to extension typed views, analyses, and future
 consumer-specific lowering.
 
-`"[code_block]" and `"[inline_verbatim]" are separate syntax nodes because their raw
+`"[verbatim_block]" and `"[inline_verbatim]" are separate syntax nodes because their raw
 payloads change the lexical parsing mode. The recovery-only
 `"[incomplete_inline_element]" and `"[incomplete_attributes]" nodes keep subsequent
 blocks parseable while a document is being edited; they do not make malformed
@@ -26,8 +26,8 @@ Edit and commit grammar sources such as:
 
 `- `"[grammar.js]"
 `- `"[tree-sitter.json]"
-`- future corpus tests and queries
-`- future hand-written scanners and bindings
+`- corpus tests and queries
+`- the hand-written `"[src/scanner.c]" and future bindings
 
 Do not edit or commit files generated under `"[src/]"：
 
@@ -36,14 +36,14 @@ Do not edit or commit files generated under `"[src/]"：
 `- `"[src/parser.c]"
 `- `"[src/tree_sitter/]"
 
-The ignore rules name these paths individually so a future hand-written
+The ignore rules name these paths individually so the hand-written
 `"[src/scanner.c]" remains trackable.
 
 `## Generate
 
 Run generation through the repository's locked Nix environment:
 
-`"{language=sh}
+`{language=sh}
   cd tree-sitter-plumb
   nix develop .#tree-sitter-plumb -c tree-sitter generate
 
@@ -62,7 +62,7 @@ kind values semantically.
 
 Build the parser explicitly through the locked Nix environment:
 
-`"{language=sh}
+`{language=sh}
   ./tree-sitter-plumb/build-parser.sh
 
 The ignored output is written to `"[tree-sitter-plumb/build/plumb.so]". Re-run the
@@ -73,12 +73,12 @@ parser and this query, registers the `"[plumb]" filetype, and starts tree-sitter
 highlighting for `"[*.plumb]" buffers. It does not invoke Nix or compile code
 during Neovim startup. Enable it locally with an ignored symlink:
 
-`"{language=sh}
+`{language=sh}
   ln -s dev/nvim.lua .nvim.lua
 
 Enable trusted project-local configuration in your global Neovim `"[init.lua]"：
 
-`"{language=lua}
+`{language=lua}
   vim.o.exrc = true
 
 Then start Neovim in this repository and approve `"[.nvim.lua]" with `"[:trust]" when
@@ -88,7 +88,7 @@ see the capture under the cursor.
 
 The query can be checked outside Neovim with the tracked fixture:
 
-`"{language=sh}
+`{language=sh}
   nix develop .#tree-sitter-plumb -c tree-sitter query \
     -p tree-sitter-plumb \
     tree-sitter-plumb/queries/highlights.scm \

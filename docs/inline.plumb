@@ -1,282 +1,195 @@
-`# plumb inline syntax 设计
+`# plumb inline syntax
 
-`> `*[状态：syntax 已收敛。] 本文记录 parsed inline element 和 inline verbatim syntax；
-  normalized inline AST lowering 明确延后到实际 extension consumer 出现时。
+`> `*[状态：syntax 已收敛。] 本文记录 named parsed inline element 和 inline verbatim syntax；
   block level 的定稿规范见 `"[docs/spec.plumb]"。
 
-`## 1. 统一 introducer
+`## 1. 两种 inline envelope
 
-inline element 与 marked block 共用反引号 introducer。introducer 后可以先写 opaque inline
-kind，也可以直接用 `"[[]" 开始 anonymous span：
+inline syntax 与 block syntax 共用反引号 introducer，但 parsed 与 verbatim payload 使用不同
+入口：
 
-`"{language=text}
-  InlineElement = "`" InlineKind? "[" InlineContent "]" InlineAttr?
-  InlineAttr    = "{" AttrItems "}"  // 必须紧贴 closing delimiter
+`{language=text}
+  InlineElement  = "`" InlineKind "[" InlineContent "]" InlineAttr?
+  InlineVerbatim = "`" Quotes "[" RawInlineText "]" Quotes InlineAttr?
+  InlineAttr     = "{" AttrItems "}"  // 必须紧贴完整 closing delimiter
+  Quotes         = '"'*                // opening/closing 数量相同，允许零个
 
-示例：
+`"[InlineKind]" 必须存在。introducer 后直接出现 `"[[]" 不产生 anonymous span，而是最短
+inline verbatim：
 
-`"{language=plumb}
-  这是 `*[强调内容]。
-
-  这是 `*[带属性的强调内容]{.important}。
+`{language=plumb}
+  这是 `*[带语义 kind 的 parsed 内容]{.important}。
 
   按 `kbd[Ctrl+C]{.shortcut} 复制。
 
-  这是 `[匿名 span]{.highlight}。
+  使用 `[cargo check] 检查 workspace。
 
-syntax 层只保存 kind token，不通过注册表解释其意义：
+概念结构分别为：
 
-`"{language=text}
-  InlineNode {
-    kind: Some("*"),
-    attrs: { classes: ["important"] },
-    payload: Parsed(InlineContent(...)),
+`{language=text}
+  Inline::Element {
+    kind: "*",
+    content: Parsed("带语义 kind 的 parsed 内容"),
+    attrs: {.important},
   }
 
-kind、content 和 attributes 的边界都由相邻 delimiter 决定：
+  Inline::Verbatim {
+    quote_count: 0,
+    text: "cargo check",
+    attrs: {},
+  }
 
-`"{language=text}
-  `kind[content]{attrs}
-   ^^^^ ^^^^^^^ ^^^^^
+kind、content 和 attributes 的边界完全由相邻 delimiter 决定：
 
-  `[content]{attrs}
-    ^^^^^^^ ^^^^^
+`{language=text}
+  `kind[content]{attrs}   named parsed inline element
+  `[raw]                  zero-quote inline verbatim
+  `"[raw]"                one-quote inline verbatim
 
-`- kind 若存在，与 opening `"[[]" 之间不允许空格。
-`- attributes 可选；存在时，`"[{]" 必须紧贴 closing `"[]]"。
-`- optional kind 与 attributes 分开保存；kind 不是普通 attribute。
-`- introducer 后直接出现 `"[[]" 进入 anonymous span；它不是字面 bracket escape。
+`- kind 与 opening `"[[]" 之间不允许 whitespace。
+`- parsed element 和 verbatim 都允许紧贴 closing delimiter 的 attributes。
+`- kind 与 attributes 分开保存；kind 不是普通 attribute。
+`- core 不解释 kind 或 attributes 的意义。
+`- 空 parsed content、空 raw content 和空 attributes 都合法。
 
-连续反引号按 `"[docs/spec.plumb]" 第 1.1 节从左到右无回溯分组；两个反引号产生一个字面的
-反引号。该 escape 在 block start 和普通 inline text 中使用同一规则：
+普通文本若要以字面的 introducer 开始，仍使用两个反引号 escape：
 
-`"{language=plumb}
+`{language=plumb}
   ``*[这不是 inline element]
 
-解除 escape 后，文本以字面的 `"[`*]" 开头。
+escape 产生的字面反引号已经消费 inline dispatch，因此后面的 `"[*[]" 只是普通文本。
 
-`## 2. 与 block 的消歧
+`## 2. 与 block dispatch 的关系
 
-block 和 inline 共用 introducer 与 marker/kind token，但通过 token 后紧接的字符局部
-消歧；完整 dispatch 表见 `"[docs/spec.plumb]" 第 1.1 节：
+物理行 block start 的单个 introducer 使用以下局部分派：
 
-`"{language=text}
-  `*{attrs} head       marked block
-  `* head              marked block
-  `* + newline         marked block
+`{language=text}
+  `kind[content]       parsed inline；该行属于 paragraph
+  `[raw]               inline verbatim；该行属于 paragraph
+  `"[raw]"             strengthened inline verbatim；该行属于 paragraph
+  `marker{attrs} head  marked block
+  `marker head         marked block
+  `marker + newline    marked block
+  `{attrs} + newline   verbatim block
 
-  `*[content]          inline element
-  `*[content]{attrs}   inline element with attributes
-  `[content]           anonymous span
-  `[content]{attrs}    anonymous span with attributes
+只有紧贴 introducer 的 `"[{]" 才选择 verbatim block，且只允许位于 block start。具名 marker
+后的 `"[{]" 仍是 marked-block attributes。完整 dispatch 表见 `"[docs/spec.plumb]" 第 1.1 节。
 
-即使 inline element 位于物理行开头，紧接 kind 的 `"[[]" 也足以让 block scanner 将该行交给
-paragraph / inline parser。block head 若要从字面 `"[[]" 开始，marker 与 head 之间已有一个
-必需 head separator，因此不冲突。block-only 入口出现在 inline context 时是 syntax error，
-不能回退为普通文本。
+`## 3. Named parsed inline element
 
-`## 3. Parsed inline element
+普通 inline kind 的 `"[[...]]" 包含 parsed `"[InlineContent]"，允许嵌套 named elements：
 
-普通 inline kind 的 `"[[...]]" 包含 parsed `"[InlineContent]"，允许嵌套 inline elements：
-
-`"{language=plumb}
+`{language=plumb}
   `*[这是 `_[嵌套内容] 的外层内容]{.important}
 
-概念结构：
+概念结果：
 
-`"{language=text}
-  InlineNode {
+`{language=text}
+  Inline::Element {
     kind: "*",
-    attrs: { classes: ["important"] },
-    payload: Parsed([
+    attrs: {.important},
+    content: [
       Text("这是 "),
-      InlineNode { kind: "_", payload: Parsed("嵌套内容") },
+      Inline::Element { kind: "_", content: Parsed("嵌套内容") },
       Text(" 的外层内容"),
-    ]),
+    ],
   }
 
-parsed content 中普通 `"[[]" 是字面 text，因为 nested element 必须由 introducer 开始；
-`"[`[]" 开始 anonymous nested span。未转义的 `"[]]" 结束当前 element，字面 closing bracket
-写作 `"[`]]"。该 closing escape 只适用于已打开的 parsed inline content；普通 paragraph/head
-中不位于 element 内的 brackets 仍是普通文本。
+parsed content 中普通 opening bracket 是字面 text；nested parsed element 必须由 introducer、
+非空 kind 和 opening bracket 开始。introducer 后直接出现 opening bracket 会启动 inline
+verbatim，而不是 nested span。未转义 closing bracket 关闭当前 parsed element；字面 closing
+bracket 写作 `"[`]]"。
 
-空 parsed content 合法。parsed inline element 可以跨物理行，但只能跨越本来就属于同一个
-enclosing `"[InlineContent]" 的 continuation line：blank line、enclosing block dedent 和
-block-only entry 都是边界，不能被未闭合 element 吞掉。合法换行产生带 source range 的
-`"[SoftBreak]"；满足 enclosing continuation 所需的结构 indentation 不进入 content，超过该
-前缀的额外 spaces 作为 inline text 保留。
+`{language=plumb}
+  `outer[literal [ opening；literal `] closing；`inner[nested]]
 
-`"{language=plumb}
-  `note[]
+parsed element 可以跨物理行，但只能跨本来就属于同一个 enclosing `"[InlineContent]" 的
+continuation line。换行 lower 为 `"[SoftBreak]"；结构 indentation 被移除，额外 spaces
+保留为 text：
 
-  `note[literal brackets: [ and `]]
-
-  `[anonymous with `_[nested content]]{.example}
-
-  paragraph `note[first line
+`{language=plumb}
+  paragraph `kind[first line
   second line] tail
 
-  `node head `note[first line
+  `node head `kind[first line
     second line]
 
-parsed inline element 不允许跨 blank line 或 enclosing block boundary。遇到这些边界而 element
-仍未闭合时，报告 unclosed inline diagnostic，并把边界交回 block parser 重新处理。
+parsed element 不允许跨 blank line、enclosing block dedent 或 block-only entry。遇到 hard
+boundary 而 element 尚未关闭时，parser 报 `"[syntax.unclosed-inline]"，primary range 从
+opening introducer 到 boundary 前，boundary 不被消费并交回 block parser。
 
-语言规范不设置 nesting depth limit。权威 parser 必须使用显式 stack，不能让 source nesting
-消耗 Rust call stack。实现可以设置内存/工作量资源上限，但超过资源上限不是 source syntax
-error，必须使用独立的 resource-exhaustion failure。
+语言不设置 nesting depth limit；strict parser 使用显式 stack。实现可以设置资源限制，但
+resource exhaustion 不是 source syntax diagnostic。
 
 `## 4. Inline verbatim
 
-inline verbatim 使用一个或多个 double quotes 作为 kind/delimiter run：
+inline verbatim 的 quote count 可以为零。最短形式服务于高频 inline code 和其他逐字 payload：
 
-`"{language=text}
-  InlineVerbatim = "`" Quotes "[" RawText "]" SameQuotes InlineAttr?
-  Quotes         = '"'+
+`{language=plumb}
+  `[cargo test]
 
-最短形式：
+零 quote closing 是第一个 `"[]]"。内容需要包含 closing-like sequence 时，在 opening bracket
+前增加 quotes，并要求 closing bracket 后出现相同数量的 quotes：
 
-`"{language=plumb}
-  `"[verbatim]"
+`{language=plumb}
+  `"[contains ] safely]"
 
-空内容：
-
-`"{language=plumb}
-  `"[]"
-
-quote run 的长度在 opening `"[[]" 之前已经确定。只有 `"[]]" 加相同数量的 quotes 才结束
-verbatim。parser 只消费 closing delimiter 所需的 quote 前缀；若源码 quote run 更长，多出的
-quotes 属于 closing 后的普通 inline text。因此 raw content 可以包含任意单独的 `"[[]"、
-`"[]]" 和少于 opening 长度的 closing-like sequence。
-
-内容包含 `""[]"]"" 时，使用两个 quotes：
-
-`"{language=plumb}
   `""[contains ]" safely]""
 
-内容包含 `"""[]""]""" 时，使用三个 quotes：
+形式化规则：
 
-`"{language=plumb}
-  `"""[contains ]"" safely]"""
+`{language=text}
+  opening = ` + N quotes + [
+  closing = ] + N quotes
+  N >= 0
+
+quote count 在 opening bracket 之前确定。遇到 `"[]]" 时，只有随后至少有 `"[N]" 个 quotes
+才关闭；closing 只消费恰好 `"[N]" 个 quotes，更长 run 的剩余 quotes 属于后续普通 text。
 
 attributes 位于完整 closing delimiter 之后：
 
-`"{language=plumb}
-  `"[let x = 1;]"{language=rust}
+`{language=plumb}
+  `[let x = 1;]{language=rust}
 
-  `""[contains ]" safely]""{.example}
+  `"[contains ] safely]"{.example}
 
-verbatim content 完全不解析 inline syntax。quote 数量只决定 source delimiter，不是语义
-kind；lowering 后统一产生 verbatim payload：
+conceptual node 保留 raw content、quote count、attributes 和全部 source ranges。raw content
+按 UTF-8 source bytes 原样保存，不解析 introducer、bracket、attribute 或 escape。
 
-`"{language=text}
-  InlineNode {
-    kind: Verbatim,
-    attrs: Attr,
-    payload: Verbatim(RawText),
-  }
+inline verbatim 限于一条物理行。未找到 matching closing 时，parser 报
+`"[syntax.unclosed-verbatim]"，primary range 从 opening introducer 到当前 line ending/EOF，
+并从下一物理行恢复。
 
-syntax tree 可以保留 delimiter length 以支持 lossless rewrite；语义 AST 可以丢弃它。
+`## 5. Attributes
 
-例如 opening 使用两个 quotes 时，三个 closing quotes 中前两个闭合 verbatim，第三个留给
-后续文本：
+parsed element 与 inline verbatim 完整复用 block `"[Attr]" grammar：
 
-`"{language=plumb}
-  `""[content]"""tail
+`{language=plumb}
+  `link[label]{to="guide.plumb#intro" .external}
 
-概念结果为 `"[Verbatim(\"content\"), Text(\"\\\"tail\")]"。attributes 只有在紧贴 parser
-实际消费的 closing delimiter 时才归属 verbatim：
+  `[x + y]{language=text #expression}
 
-`"{language=plumb}
-  `""[content]""{.note}
+attributes 只有在紧贴完整 closing delimiter 时才归属该 node。任何额外 quote、text 或
+whitespace 都结束 adjacency。attribute token、quoted value、duplicate 与 recovery 规则见
+`"[docs/spec.plumb]" 第 4 节。
 
-  `""[content]"""{.note}
+`## 6. MVP frozen summary
 
-第一行的 attributes 属于 verbatim；第二行多出的 quote 隔开了 attributes，因此
-`"[{.note}]" 是后续普通文本。
+`- parsed inline element 使用 `"[`kind[content]{attrs}?]"；kind 必须是非空 opaque token。
+`- 不存在 anonymous parsed span spelling。
+`- parsed content 中普通 opening bracket是 text；nested element 必须有 introducer 与 kind。
+`- 未转义 closing bracket 关闭 parsed element；字面 closing bracket写作 `"[`]]"。
+`- parsed element 可以跨同一 enclosing content 的 continuation line，但不能跨 hard boundary。
+`- inline verbatim 使用 `"[` + N quotes + [raw] + N quotes]"，其中 `"[N >= 0]"。
+`- 零 quotes 的 `"[`[raw]]" 是高频最短形式；quotes 只用于增强 inline closing delimiter。
+`- inline verbatim 不跨物理行，payload bytes 原样保存。
+`- attributes 必须紧贴完整 closing delimiter。
+`- core 不解释 inline kind、verbatim payload 或 attributes 的语义。
 
-inline verbatim 限于一条物理行，opening 与 closing delimiter 之间不得出现 newline。raw
-content 按 UTF-8 source bytes 原样保存，不解析 introducer、bracket、attribute 或 escape；空
-content 合法。未在当前行找到所需长度的 closing delimiter 时是 syntax error，primary range
-从 opening introducer 到 line ending（不含 newline）或 EOF，parser 从下一物理行恢复。空
-verbatim 是否提示由 lint 决定，不影响 syntax validity。
+`## 7. Deferred
 
-`## 5. 与 block code 的消歧
+`- formatter 为 inline verbatim 选择最小安全 quote count。
+`- 空 inline verbatim 的 lint policy。
+`- 第一个实际 normalized AST consumer 所需的 canonicalization 与 source map。
 
-block code 和 inline verbatim 都使用 quote run，并由 run 后紧接的字符消歧：
-
-`"{language=plumb}
-  `"{language=rust}
-    fn main() {}
-
-  `""[fn main() {}]""{language=rust}
-
-局部 dispatch 规则：
-
-`"{language=text}
-  ` + Quotes + `{`       block code with attributes
-  ` + Quotes + newline   block code without attributes
-  ` + Quotes + `[`       inline verbatim，delimiter length = Quotes.length
-
-quote run 后既没有 `"[{]"、`"[[]" 也没有 newline，以及 inline verbatim 未找到等长 closing
-quote run，均为语法错误，不能退回普通文本。
-
-`## 6. 已确定的规则
-
-`- inline 与 block 共用反引号 introducer；两个反引号转义一个字面反引号。
-`- parsed inline element 使用 `"[`kind?[content]{attrs}?]"；省略 kind 产生 anonymous span。
-`- optional kind token 在 syntax 层保持 opaque，并与 attributes 分开保存。
-`- parsed content 使用配对 brackets，允许嵌套 inline elements。
-`- parsed content 中普通 `"[[]" 是字面 text，`"[`[]" 开始 anonymous span；未转义 `"[]]"
-  关闭当前 element，字面 closing bracket 写作 `"[`]]"。
-`- parsed inline element 允许跨同一 enclosing `"[InlineContent]" 的 continuation line，换行
-  lower 为 `"[SoftBreak]"，但不能跨 blank line、dedent 或 block-only entry。
-`- 语言规范不限制 nesting depth；实现资源上限不属于 syntax validity。
-`- inline verbatim 使用 `"[` + N quotes + [raw] + N quotes]"，其中 `"[N >= 1]"。
-`- verbatim closing delimiter 消费与 opening 相同数量的 quotes；更长 run 的剩余 quotes
-  属于后续文本。
-`- inline verbatim 不跨物理行；raw content 在当前行内逐字节保留。
-`- attributes 必须紧贴完整 closing delimiter，归属当前 inline element。
-`- block/inline dispatch 只依赖 kind/marker 后的局部 delimiter，不依赖语义注册表。
-
-`## 7. 决策状态
-
-统一优先级、决策记录和完成条件见 `"[docs/syntax-open-questions.plumb]"。
-
-`### 7.1 Kind tokens and lowering
-
-`- 已决定：`"[InlineKind]" 完整复用 block `"[MarkerToken]" 的宽字符集、最大匹配、UTF-8
-  原样保存和大小写敏感规则。
-`- 已决定：普通 kind 没有内建集合；所有词法良构的 kind 产生 generic span。
-`- 已决定：kind 可以省略；`"[`[content]]" 产生 anonymous generic span。
-`- quote-run 不属于普通 kind，仅因切换 raw payload mode 而由 parser 特判。
-
-`### 7.2 Parsed content
-
-`- 已决定：普通 opening bracket 是字面 text，introducer + opening bracket 启动 anonymous
-  span；未转义 closing bracket 关闭当前 element，字面 closing bracket 使用 introducer escape。
-`- 已决定：空 parsed content 合法。
-`- 已决定：允许跨同一 enclosing `"[InlineContent]" 的 continuation line，产生
-  `"[SoftBreak]"；blank、dedent 和 block-only entry 是恢复边界。
-`- 已决定：语言不限制 nesting depth；实现资源上限使用非 syntax failure。
-
-`### 7.3 Verbatim
-
-`- 已决定：inline verbatim 不允许跨物理行；raw content 在当前行内按 UTF-8 bytes 原样保存。
-`- 已决定：空 verbatim 合法；是否作为 lint warning 留给上层。
-`- formatter 是否选择不会出现在 content 中的最小 quote count。
-`- 已决定：closing 消费 opening 所需的 quote 前缀并立即闭合；更长 run 的剩余 quotes 属于
-  后续 inline text。
-
-`### 7.4 Attributes
-
-`- inline attributes 完整复用 block `"[Attr]"。
-`- 已决定：attribute token、quoting、duplicate 和空 `"[{}]" 的规则见 `"[docs/spec.plumb]"
-  第 4 节，block 与 inline 不产生方言差异。
-
-`### 7.5 Dispatch and recovery
-
-`- 已决定：连续反引号 grouping、block/inline dispatch 和 diagnostic ownership 见
-  `"[docs/spec.plumb]" 第 1.1 节。
-`- malformed kind、未闭合 parsed content、未闭合 verbatim 和 malformed trailing attrs 的
-  recovery 与 diagnostic ownership 已由 `"[docs/spec.plumb]" 第 10.6 节和 S09 冻结。
+这些 policy 不得改变 strict syntax validity。
