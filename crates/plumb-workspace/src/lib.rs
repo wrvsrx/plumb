@@ -376,6 +376,31 @@ impl Workspace {
         references
     }
 
+    pub fn referenced_documents_from(&self, source_path: impl AsRef<Path>) -> Vec<PathBuf> {
+        let source_path = normalize(source_path.as_ref());
+        let Some(output) = self.current_output(&source_path) else {
+            return Vec::new();
+        };
+        let mut targets = HashSet::new();
+        for link in &output.links {
+            if let Some(path) = resolved_document_path(self.resolve_link(&source_path, link)) {
+                targets.insert(path);
+            }
+        }
+        for task in &output.tasks.tasks {
+            for (_, _, target) in task_reference_fields(task) {
+                if let Some(path) = resolved_document_path(
+                    self.resolve_task_reference_target(&source_path, &target),
+                ) {
+                    targets.insert(path);
+                }
+            }
+        }
+        let mut targets = targets.into_iter().collect::<Vec<_>>();
+        targets.sort();
+        targets
+    }
+
     fn link_anchor_reference(&self, from: &Path, link: &LinkRecord) -> Option<AnchorReference> {
         let ResolvedTarget::Anchor { path, id, anchor } = self.resolve_link(from, link) else {
             return None;
@@ -1638,6 +1663,18 @@ fn task_reference_ranges(
     Some((path_range, id_start..range.end))
 }
 
+fn resolved_document_path(target: ResolvedTarget) -> Option<PathBuf> {
+    match target {
+        ResolvedTarget::Anchor { path, .. }
+        | ResolvedTarget::Document { path }
+        | ResolvedTarget::UnresolvedAnchor { path, .. }
+        | ResolvedTarget::AmbiguousAnchor { path, .. } => Some(path),
+        ResolvedTarget::External
+        | ResolvedTarget::Other
+        | ResolvedTarget::UnresolvedPath { .. } => None,
+    }
+}
+
 fn task_reference_fields(
     task: &TaskRecord,
 ) -> Vec<(&str, &std::ops::Range<usize>, TaskReferenceTarget)> {
@@ -1727,7 +1764,21 @@ mod tests {
         let mut workspace = Workspace::new();
         workspace.insert("a.plumb", 1, "`#{#target} Target\n");
         workspace.insert("b.plumb", 1, "`link[x]{to=\"a.plumb#target\"}\n");
+        workspace.insert("missing.plumb", 1, "`link[x]{to=\"a.plumb#missing\"}\n");
+        workspace.insert(
+            "task.plumb",
+            1,
+            "`item{.task depends=\"a.plumb#missing\"} Task\n",
+        );
         assert_eq!(workspace.references_to("a.plumb", "target").len(), 1);
+        assert_eq!(
+            workspace.referenced_documents_from("missing.plumb"),
+            vec![PathBuf::from("a.plumb")]
+        );
+        assert_eq!(
+            workspace.referenced_documents_from("task.plumb"),
+            vec![PathBuf::from("a.plumb")]
+        );
     }
 
     #[test]
