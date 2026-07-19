@@ -8,3 +8,5 @@ license.workspace = true
 cel.workspace = true
 clap.workspace = true
 plumb-workspace = { path = "../plumb-workspace" }
+shlex.workspace = true
+skim.workspace = true

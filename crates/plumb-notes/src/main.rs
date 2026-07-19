@@ -6,6 +6,10 @@ use cel::{Context, ExecutionError, Program, Value};
 use clap::{Args, Parser, Subcommand};
 use plumb_workspace::{normalize, ResolvedTarget, Workspace};
 
+mod interactive;
+
+use interactive::{handle_interactive_action, run_interactive};
+
 fn main() -> ExitCode {
     match run(Config::parse()) {
         Ok(()) => ExitCode::SUCCESS,
@@ -22,20 +26,29 @@ fn run(config: Config) -> Result<(), String> {
         .unwrap_or(std::env::current_dir().map_err(|error| error.to_string())?);
     let loaded = load_workspace(&root)?;
     match config.command {
-        Command::Note(_) => {
+        Command::Note(note) => {
             let plan = config
                 .query
                 .as_deref()
                 .map(QueryPlan::compile)
                 .transpose()?;
             let reverse = ReverseReferences::build(&loaded.workspace);
+            let mut selected_paths = Vec::new();
             for path in &loaded.paths {
-                let matches = match &plan {
+                let is_match = match &plan {
                     Some(plan) => plan.matches(&root, path, &loaded.workspace, &reverse)?,
                     None => true,
                 };
-                if matches {
-                    println!("{}", display_path(&root, path));
+                if is_match {
+                    selected_paths.push(path.clone());
+                }
+            }
+            if note.interactive {
+                let action = run_interactive(&root, &selected_paths, &loaded.texts)?;
+                handle_interactive_action(&root, action)?;
+            } else {
+                for path in selected_paths {
+                    println!("{}", display_path(&root, &path));
                 }
             }
         }
@@ -62,11 +75,15 @@ enum Command {
 }
 
 #[derive(Debug, Args)]
-struct NoteConfig {}
+struct NoteConfig {
+    #[arg(short, long)]
+    interactive: bool,
+}
 
 struct LoadedWorkspace {
     workspace: Workspace,
     paths: Vec<PathBuf>,
+    texts: HashMap<PathBuf, String>,
 }
 
 fn load_workspace(root: &Path) -> Result<LoadedWorkspace, String> {
@@ -75,12 +92,18 @@ fn load_workspace(root: &Path) -> Result<LoadedWorkspace, String> {
     collect_plumb_files(&root, &mut paths)?;
     paths.sort();
     let mut workspace = Workspace::new();
+    let mut texts = HashMap::new();
     for path in &paths {
         let text = std::fs::read_to_string(path)
             .map_err(|error| format!("cannot read {}: {error}", path.display()))?;
-        workspace.insert(path, 0, text);
+        workspace.insert(path, 0, text.clone());
+        texts.insert(path.clone(), text);
     }
-    Ok(LoadedWorkspace { workspace, paths })
+    Ok(LoadedWorkspace {
+        workspace,
+        paths,
+        texts,
+    })
 }
 
 fn collect_plumb_files(path: &Path, output: &mut Vec<PathBuf>) -> Result<(), String> {
@@ -221,6 +244,25 @@ mod tests {
     use std::sync::atomic::{AtomicU64, Ordering};
 
     use super::*;
+
+    #[test]
+    fn accepts_interactive_note_options_after_subcommand() {
+        let config = Config::parse_from([
+            "plumb-notes",
+            "note",
+            "--root",
+            "notes",
+            "--query",
+            "title == 'Topic'",
+            "--interactive",
+        ]);
+        assert_eq!(config.root.as_deref(), Some(Path::new("notes")));
+        assert_eq!(config.query.as_deref(), Some("title == 'Topic'"));
+        assert!(matches!(
+            config.command,
+            Command::Note(NoteConfig { interactive: true })
+        ));
+    }
 
     #[test]
     fn queries_title_and_transitive_referrers() {
