@@ -1,5 +1,5 @@
 {
-  description = "flake template";
+  description = "Strict plumb markup language and tooling";
 
   inputs = {
     nixpkgs.url = "github:wrvsrx/nixpkgs/patched-nixos-unstable";
@@ -18,12 +18,19 @@
         perSystem =
           { pkgs, ... }:
           let
+            cargoToml = builtins.fromTOML (builtins.readFile ./Cargo.toml);
             tree-sitter-plumb = pkgs.callPackage ./tree-sitter-plumb/default.nix { };
             plumb = pkgs.rustPlatform.buildRustPackage {
               pname = "plumb";
-              version = "0.2.1-dev";
-              src = inputs.self;
+              version = cargoToml.workspace.package.version;
+              src = pkgs.lib.cleanSource ./.;
               cargoLock.lockFile = ./Cargo.lock;
+
+              meta = {
+                description = "Strict plumb markup language and tooling";
+                license = pkgs.lib.licenses.mit;
+                mainProgram = "plumb-ls";
+              };
             };
           in
           {
