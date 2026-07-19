@@ -1,9 +1,10 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Component, Path, PathBuf};
 
 use plumb_core::{parse, Diagnostic, DiagnosticSeverity, ParsedDocument};
 use plumb_extensions::{
-    analyze_document, AnchorRecord, DocumentOutput, LinkCompletionContext, LinkRecord, LinkTarget,
+    analyze_document, parse_task_reference_target, AnchorRecord, DocumentOutput,
+    LinkCompletionContext, LinkRecord, LinkTarget, TaskRecord, TaskReferenceTarget, TaskState,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -108,6 +109,29 @@ pub enum ResolvedTarget {
         path: PathBuf,
         id: String,
     },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct TaskRef {
+    pub path: PathBuf,
+    pub id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolvedTaskDependency {
+    pub source: String,
+    pub target: TaskRef,
+    pub task: TaskRecord,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum TaskTargetResolution {
+    Task { target: TaskRef, task: TaskRecord },
+    Invalid,
+    UnresolvedPath { path: PathBuf },
+    UnresolvedAnchor { path: PathBuf, id: String },
+    AmbiguousAnchor { path: PathBuf, id: String },
+    NotTask { path: PathBuf, id: String },
 }
 
 #[derive(Debug, Default)]
@@ -256,6 +280,125 @@ impl Workspace {
         references
     }
 
+    pub fn task_at(&self, path: impl AsRef<Path>, offset: usize) -> Option<&TaskRecord> {
+        self.current_output(path.as_ref())?
+            .tasks
+            .tasks
+            .iter()
+            .filter(|task| task.range.start <= offset && offset <= task.range.end)
+            .max_by_key(|task| task.range.start)
+    }
+
+    pub fn open_task_dependencies(
+        &self,
+        path: impl AsRef<Path>,
+        task: &TaskRecord,
+    ) -> Vec<ResolvedTaskDependency> {
+        let path = normalize(path.as_ref());
+        let mut dependencies = task
+            .depends
+            .iter()
+            .filter_map(|dependency| {
+                let TaskTargetResolution::Task {
+                    target,
+                    task: target_task,
+                } = self.resolve_task_target(&path, &dependency.target)
+                else {
+                    return None;
+                };
+                (target_task.state() == TaskState::Open).then(|| ResolvedTaskDependency {
+                    source: dependency.source.clone(),
+                    target,
+                    task: target_task,
+                })
+            })
+            .collect::<Vec<_>>();
+        dependencies.sort_by(|left, right| {
+            left.target
+                .path
+                .cmp(&right.target.path)
+                .then(left.target.id.cmp(&right.target.id))
+        });
+        dependencies
+    }
+
+    pub fn is_task_blocked(&self, path: impl AsRef<Path>, task: &TaskRecord) -> bool {
+        !self.open_task_dependencies(path, task).is_empty()
+    }
+
+    fn resolve_task_target(
+        &self,
+        from: &Path,
+        target: &TaskReferenceTarget,
+    ) -> TaskTargetResolution {
+        let (path, id) = match target {
+            TaskReferenceTarget::Internal { id } => (normalize(from), id.clone()),
+            TaskReferenceTarget::External { path, id } => (
+                resolve_relative(from, &percent_decode_path(path)),
+                id.clone(),
+            ),
+            TaskReferenceTarget::Invalid => return TaskTargetResolution::Invalid,
+        };
+        let Some(output) = self.current_output(&path) else {
+            return TaskTargetResolution::UnresolvedPath { path };
+        };
+        let matching_anchors = output
+            .anchors
+            .iter()
+            .filter(|anchor| anchor.id.value == id)
+            .count();
+        if matching_anchors == 0 {
+            return TaskTargetResolution::UnresolvedAnchor { path, id };
+        }
+        if matching_anchors > 1 {
+            return TaskTargetResolution::AmbiguousAnchor { path, id };
+        }
+        let Some(task) = output
+            .tasks
+            .tasks
+            .iter()
+            .find(|task| task.id.as_ref().is_some_and(|task_id| task_id.value == id))
+        else {
+            return TaskTargetResolution::NotTask { path, id };
+        };
+        TaskTargetResolution::Task {
+            target: TaskRef { path, id },
+            task: task.clone(),
+        }
+    }
+
+    fn task_dependency_graph(&self) -> HashMap<TaskRef, Vec<TaskRef>> {
+        let mut graph = HashMap::new();
+        for entry in self.documents.values() {
+            let Some(current) = &entry.current else {
+                continue;
+            };
+            for task in &current.output.tasks.tasks {
+                let Some(id) = &task.id else {
+                    continue;
+                };
+                let task_ref = TaskRef {
+                    path: entry.path.clone(),
+                    id: id.value.clone(),
+                };
+                let dependencies = task
+                    .depends
+                    .iter()
+                    .filter_map(|dependency| {
+                        let TaskTargetResolution::Task { target, .. } =
+                            self.resolve_task_target(&entry.path, &dependency.target)
+                        else {
+                            return None;
+                        };
+                        Some(target)
+                    })
+                    .collect();
+                graph.insert(task_ref, dependencies);
+            }
+        }
+        graph
+    }
+
     pub fn diagnostics(&self, path: impl AsRef<Path>) -> Vec<Diagnostic> {
         let path = normalize(path.as_ref());
         let Some(entry) = self.documents.get(&path) else {
@@ -294,7 +437,134 @@ impl Workspace {
                 related: Vec::new(),
             });
         }
+        diagnostics.extend(self.task_workspace_diagnostics(&path, current));
         diagnostics
+    }
+
+    fn task_workspace_diagnostics(
+        &self,
+        path: &Path,
+        current: &VersionedDocumentOutput,
+    ) -> Vec<Diagnostic> {
+        let graph = self.task_dependency_graph();
+        let mut diagnostics = Vec::new();
+        for task in &current.output.tasks.tasks {
+            let own_ref = task.id.as_ref().map(|id| TaskRef {
+                path: path.to_path_buf(),
+                id: id.value.clone(),
+            });
+            if let Some(prev) = &task.prev {
+                let target = parse_task_reference_target(&prev.value);
+                if let Some(diagnostic) =
+                    self.task_target_diagnostic(path, &prev.value, &prev.range, &target, "prev")
+                {
+                    diagnostics.push(diagnostic);
+                }
+            }
+            for dependency in &task.depends {
+                if let Some(diagnostic) = self.task_target_diagnostic(
+                    path,
+                    &dependency.source,
+                    &dependency.range,
+                    &dependency.target,
+                    "dependency",
+                ) {
+                    diagnostics.push(diagnostic);
+                    continue;
+                }
+                if let TaskTargetResolution::Task { target, .. } =
+                    self.resolve_task_target(path, &dependency.target)
+                {
+                    if own_ref.as_ref() == Some(&target) {
+                        diagnostics.push(Diagnostic {
+                            code: "task.self-dependency",
+                            severity: DiagnosticSeverity::Warning,
+                            message: format!(
+                                "task depends on itself through '{}'",
+                                dependency.source
+                            ),
+                            range: dependency.range.clone(),
+                            related: Vec::new(),
+                        });
+                    }
+                }
+            }
+            if let Some(task_ref) = &own_ref {
+                if dependency_cycle_contains(&graph, task_ref) {
+                    diagnostics.push(Diagnostic {
+                        code: "task.dependency-cycle",
+                        severity: DiagnosticSeverity::Warning,
+                        message: format!(
+                            "task '#{}' participates in a dependency cycle",
+                            task_ref.id
+                        ),
+                        range: task.selection_range.clone(),
+                        related: Vec::new(),
+                    });
+                }
+            }
+            if task.state() == TaskState::Open {
+                let blockers = self.open_task_dependencies(path, task);
+                if !blockers.is_empty() {
+                    diagnostics.push(Diagnostic {
+                        code: "task.blocked",
+                        severity: DiagnosticSeverity::Hint,
+                        message: format!(
+                            "task is blocked by {} open {}",
+                            blockers.len(),
+                            if blockers.len() == 1 {
+                                "dependency"
+                            } else {
+                                "dependencies"
+                            }
+                        ),
+                        range: task.selection_range.clone(),
+                        related: Vec::new(),
+                    });
+                }
+            }
+        }
+        diagnostics
+    }
+
+    fn task_target_diagnostic(
+        &self,
+        from: &Path,
+        source: &str,
+        range: &std::ops::Range<usize>,
+        target: &TaskReferenceTarget,
+        role: &str,
+    ) -> Option<Diagnostic> {
+        let (code, message) = match self.resolve_task_target(from, target) {
+            TaskTargetResolution::Task { .. } => return None,
+            TaskTargetResolution::Invalid => (
+                "task.invalid-target",
+                format!("invalid task {role} target '{source}'"),
+            ),
+            TaskTargetResolution::UnresolvedPath { path } => (
+                "task.unresolved-path",
+                format!("unresolved task document '{}'", path.display()),
+            ),
+            TaskTargetResolution::UnresolvedAnchor { id, .. } => (
+                "task.unresolved-anchor",
+                format!("unresolved task anchor '#{id}'"),
+            ),
+            TaskTargetResolution::AmbiguousAnchor { id, .. } => (
+                "task.ambiguous-anchor",
+                format!("task anchor '#{id}' is ambiguous"),
+            ),
+            TaskTargetResolution::NotTask { id, .. } => (
+                "task.non-task-target",
+                format!("anchor '#{id}' does not identify a task"),
+            ),
+        };
+        Some(Diagnostic {
+            code,
+            severity: DiagnosticSeverity::Warning,
+            message,
+            range: range.clone(),
+            related: Vec::new(),
+        })
     }
 
     pub fn anchor_rename_target_at(
@@ -654,6 +924,57 @@ fn resolve_relative(from: &Path, target: &str) -> PathBuf {
     }
 }
 
+fn dependency_cycle_contains(graph: &HashMap<TaskRef, Vec<TaskRef>>, start: &TaskRef) -> bool {
+    fn visit(
+        graph: &HashMap<TaskRef, Vec<TaskRef>>,
+        current: &TaskRef,
+        start: &TaskRef,
+        visited: &mut HashSet<TaskRef>,
+    ) -> bool {
+        if !visited.insert(current.clone()) {
+            return false;
+        }
+        graph.get(current).is_some_and(|dependencies| {
+            dependencies
+                .iter()
+                .any(|dependency| dependency == start || visit(graph, dependency, start, visited))
+        })
+    }
+
+    visit(graph, start, start, &mut HashSet::new())
+}
+
+fn percent_decode_path(path: &str) -> String {
+    let mut decoded = Vec::with_capacity(path.len());
+    let bytes = path.as_bytes();
+    let mut cursor = 0;
+    while cursor < bytes.len() {
+        if bytes[cursor] == b'%' && cursor + 2 < bytes.len() {
+            if let Some(byte) = hex_byte(bytes[cursor + 1], bytes[cursor + 2]) {
+                decoded.push(byte);
+                cursor += 3;
+                continue;
+            }
+        }
+        decoded.push(bytes[cursor]);
+        cursor += 1;
+    }
+    String::from_utf8(decoded).unwrap_or_else(|_| path.to_string())
+}
+
+fn hex_byte(high: u8, low: u8) -> Option<u8> {
+    Some(hex_digit(high)? * 16 + hex_digit(low)?)
+}
+
+fn hex_digit(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
+}
+
 fn contains_inclusive(range: &std::ops::Range<usize>, offset: usize) -> bool {
     range.start <= offset && offset <= range.end
 }
@@ -865,6 +1186,68 @@ mod tests {
             .find(|document| document.path == Path::new("notes/a.plumb"))
             .unwrap();
         assert_eq!(outgoing.edits[0].new_text, "../../shared/c.plumb");
+    }
+
+    #[test]
+    fn resolves_open_task_dependencies_and_blocked_state() {
+        let mut workspace = Workspace::new();
+        workspace.insert(
+            "notes/Project Plan.plumb",
+            1,
+            "`item{.task #draft} Draft\n`item{.task #done done=\"2026-07-20T09:00:00Z\"} Done\n",
+        );
+        workspace.insert(
+            "notes/review.plumb",
+            2,
+            "`item{.task #review depends=\"Project%20Plan.plumb#draft Project%20Plan.plumb#done\"} Review\n",
+        );
+
+        let task = &workspace
+            .get("notes/review.plumb")
+            .unwrap()
+            .current
+            .as_ref()
+            .unwrap()
+            .output
+            .tasks
+            .tasks[0];
+        let blockers = workspace.open_task_dependencies("notes/review.plumb", task);
+        assert_eq!(blockers.len(), 1);
+        assert_eq!(blockers[0].target.id, "draft");
+        assert!(workspace.is_task_blocked("notes/review.plumb", task));
+        assert_eq!(
+            workspace.task_at("notes/review.plumb", task.range.start),
+            Some(task)
+        );
+
+        let diagnostics = workspace.diagnostics("notes/review.plumb");
+        let blocked = diagnostics
+            .iter()
+            .find(|diagnostic| diagnostic.code == "task.blocked")
+            .unwrap();
+        assert_eq!(blocked.severity, DiagnosticSeverity::Hint);
+    }
+
+    #[test]
+    fn diagnoses_invalid_task_targets_self_dependencies_and_cycles() {
+        let mut workspace = Workspace::new();
+        workspace.insert(
+            "tasks.plumb",
+            1,
+            "`node{#plain} Plain anchor\n`item{.task #a depends=\"#b\"} A\n`item{.task #b depends=\"#a\"} B\n`item{.task #self depends=\"#self\"} Self\n`item{.task prev=\"#plain\" depends=\"#plain #missing bare missing.plumb#x\"} Invalid targets\n",
+        );
+
+        let diagnostics = workspace.diagnostics("tasks.plumb");
+        let codes = diagnostics
+            .iter()
+            .map(|diagnostic| diagnostic.code)
+            .collect::<Vec<_>>();
+        assert!(codes.contains(&"task.non-task-target"));
+        assert!(codes.contains(&"task.unresolved-anchor"));
+        assert!(codes.contains(&"task.invalid-target"));
+        assert!(codes.contains(&"task.unresolved-path"));
+        assert!(codes.contains(&"task.self-dependency"));
+        assert!(codes.contains(&"task.dependency-cycle"));
     }
 
     #[test]

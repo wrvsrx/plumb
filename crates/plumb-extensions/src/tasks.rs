@@ -159,7 +159,7 @@ fn dependency_fields(source: &str, items: &[AttrItem]) -> Vec<TaskDependency> {
             Some(TaskDependency {
                 source: token.to_string(),
                 range: source_backed.source_range(decoded_range)?,
-                target: task_reference_target(token),
+                target: parse_task_reference_target(token),
             })
         })
         .collect()
@@ -183,7 +183,7 @@ fn dependency_tokens(value: &str) -> Vec<(&str, Range<usize>)> {
     output
 }
 
-fn task_reference_target(source: &str) -> TaskReferenceTarget {
+pub fn parse_task_reference_target(source: &str) -> TaskReferenceTarget {
     if let Some(id) = source.strip_prefix('#').filter(|id| !id.is_empty()) {
         TaskReferenceTarget::Internal { id: id.to_string() }
     } else if let Some((path, id)) = source
