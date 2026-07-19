@@ -116,11 +116,8 @@ fn lower_metadata_value(
             "t": "MetaList",
             "c": items
                 .iter()
-                .map(|item| json!({
-                    "t": "MetaInlines",
-                    "c": lower_inlines(&item.content, analysis),
-                }))
-                .collect::<Vec<_>>(),
+                .map(|item| lower_metadata_value(key, &item.value, analysis))
+                .collect::<Result<Vec<_>, _>>()?,
         })),
         MetadataValue::Map { entries, .. } => Ok(json!({
             "t": "MetaMap",
@@ -453,7 +450,7 @@ mod tests {
 
     #[test]
     fn lifts_typed_metadata_out_of_the_document_body() {
-        let source = "`meta\n  `: title\n\n     Rich `*[title]\n\n  `: tags\n    `- plumb\n    `- tools\n\n  `: author\n    `: name\n\n       Alice\n\n  `: source\n    `{language=text}\n      raw\n\n  `: empty\n\n`# Section\n";
+        let source = "`meta\n  `: title\n\n     Rich `*[title]\n\n  `: tags\n    `- plumb\n    `- tools\n\n  `: macros\n    `-\n      `- `[nearSet]\n      `- `[\\mathscr{C}]\n      `- 0\n\n  `: author\n    `: name\n\n       Alice\n\n  `: source\n    `{language=text}\n      raw\n\n  `: empty\n\n`# Section\n";
         let document = export(source).unwrap();
 
         assert_eq!(document["blocks"].as_array().unwrap().len(), 1);
@@ -461,6 +458,13 @@ mod tests {
         assert_eq!(document["meta"]["title"]["t"], "MetaInlines");
         assert_eq!(document["meta"]["tags"]["t"], "MetaList");
         assert_eq!(document["meta"]["tags"]["c"].as_array().unwrap().len(), 2);
+        assert_eq!(document["meta"]["macros"]["t"], "MetaList");
+        assert_eq!(document["meta"]["macros"]["c"][0]["t"], "MetaList");
+        assert_eq!(document["meta"]["macros"]["c"][0]["c"][0]["c"], "nearSet");
+        assert_eq!(
+            document["meta"]["macros"]["c"][0]["c"][1]["c"],
+            "\\mathscr{C}"
+        );
         assert_eq!(document["meta"]["author"]["t"], "MetaMap");
         assert_eq!(
             document["meta"]["author"]["c"]["name"]["c"][0]["c"],

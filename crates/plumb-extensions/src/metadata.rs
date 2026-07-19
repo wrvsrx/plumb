@@ -75,7 +75,7 @@ impl MetadataValue {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MetadataListItem {
-    pub content: InlineContent,
+    pub value: MetadataValue,
     pub range: Range<usize>,
 }
 
@@ -251,6 +251,12 @@ fn parse_value(block: &ParsedBlock, diagnostics: &mut Vec<Diagnostic>) -> Metada
     if block.children.len() == 1 {
         match &block.children[0] {
             Block::Parsed(child) if child.mark.is_none() => {
+                if let Some(text) = inline_verbatim(&child.head) {
+                    return MetadataValue::Verbatim {
+                        text: text.to_string(),
+                        range,
+                    };
+                }
                 return MetadataValue::Scalar {
                     content: child.head.clone(),
                     range,
@@ -275,15 +281,31 @@ fn parse_value(block: &ParsedBlock, diagnostics: &mut Vec<Diagnostic>) -> Metada
             let Block::Parsed(item) = child else {
                 unreachable!("dash marker implies parsed block");
             };
-            if !item.children.is_empty() {
+            let value = if item.children.is_empty() {
+                match inline_verbatim(&item.head) {
+                    Some(text) => MetadataValue::Verbatim {
+                        text: text.to_string(),
+                        range: item.head.range.clone(),
+                    },
+                    None => MetadataValue::Scalar {
+                        content: item.head.clone(),
+                        range: item.head.range.clone(),
+                    },
+                }
+            } else if item.head.items.is_empty() {
+                parse_value(item, diagnostics)
+            } else {
                 diagnostics.push(warning(
                     "metadata.invalid-list-item",
-                    "metadata list items must not have child blocks",
+                    "metadata list items with child blocks must have an empty head",
                     item.range.clone(),
                 ));
-            }
+                MetadataValue::Unsupported {
+                    range: item.range.clone(),
+                }
+            };
             items.push(MetadataListItem {
-                content: item.head.clone(),
+                value,
                 range: item.range.clone(),
             });
         }
@@ -306,6 +328,13 @@ fn parse_value(block: &ParsedBlock, diagnostics: &mut Vec<Diagnostic>) -> Metada
         range.clone(),
     ));
     MetadataValue::Unsupported { range }
+}
+
+fn inline_verbatim(content: &InlineContent) -> Option<&str> {
+    let [Inline::Verbatim { text, attrs, .. }] = content.items.as_slice() else {
+        return None;
+    };
+    attrs.items.is_empty().then_some(text)
 }
 
 fn metadata_key(block: &ParsedBlock) -> Option<String> {
@@ -369,7 +398,7 @@ mod tests {
     #[test]
     fn groups_definition_lists_and_projects_metadata_values() {
         let parsed = parse(
-            "`: term\n\n  Definition.\n\n`meta\n  `: title\n\n    Document `em[title]\n\n  `: tags\n    `- plumb\n    `- parser\n\n  `: author\n    `: name\n\n      Alice\n\n  `: source\n    `{language=text}\n      raw\n",
+            "`: term\n\n  Definition.\n\n`meta\n  `: title\n\n    Document `em[title]\n\n  `: tags\n    `- plumb\n    `- parser\n\n  `: macros\n    `-\n      `- `[name]\n      `- `[expansion]\n      `- 1\n\n  `: author\n    `: name\n\n      Alice\n\n  `: source\n    `{language=text}\n      raw\n",
         );
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let output = analyze_metadata(&parsed.syntax);
@@ -377,7 +406,7 @@ mod tests {
         assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
         assert_eq!(output.document_title().as_deref(), Some("Document title"));
         let metadata = output.metadata.unwrap();
-        assert_eq!(metadata.entries.len(), 4);
+        assert_eq!(metadata.entries.len(), 5);
         assert!(matches!(
             metadata.entries[0].value,
             MetadataValue::Scalar { .. }
@@ -388,10 +417,15 @@ mod tests {
         ));
         assert!(matches!(
             metadata.entries[2].value,
-            MetadataValue::Map { .. }
+            MetadataValue::List { ref items, .. }
+                if matches!(items[0].value, MetadataValue::List { .. })
         ));
         assert!(matches!(
             metadata.entries[3].value,
+            MetadataValue::Map { .. }
+        ));
+        assert!(matches!(
+            metadata.entries[4].value,
             MetadataValue::Verbatim { .. }
         ));
     }
