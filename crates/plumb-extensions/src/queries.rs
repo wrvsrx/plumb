@@ -2,6 +2,10 @@ use std::ops::Range;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LinkCompletionContext {
+    Label {
+        replace: Range<usize>,
+        query: String,
+    },
     Path {
         replace: Range<usize>,
         query: String,
@@ -20,8 +24,40 @@ pub fn link_completion_context(source: &str, offset: usize) -> Option<LinkComple
     let line_start = source[..offset].rfind('\n').map_or(0, |index| index + 1);
     let prefix = &source[line_start..offset];
     let link_start = prefix.rfind("`link[")? + line_start;
-    let after_label =
-        source[link_start + "`link[".len()..offset].rfind("]{")? + link_start + "`link[".len() + 2;
+    let escaped_introducers = source[..link_start]
+        .chars()
+        .rev()
+        .take_while(|character| *character == '`')
+        .count();
+    if escaped_introducers % 2 == 1 {
+        return None;
+    }
+    let label_start = link_start + "`link[".len();
+    let label_prefix = &source[label_start..offset];
+    let Some(label_end) = label_prefix.rfind("]{") else {
+        if label_prefix
+            .chars()
+            .any(|character| character == '`' || character == ']' || character.is_control())
+        {
+            return None;
+        }
+        let line_end = source[offset..]
+            .find('\n')
+            .map_or(source.len(), |index| offset + index);
+        let suffix = &source[offset..line_end];
+        let replace_end = if suffix.starts_with(']') && !suffix.starts_with("]{") {
+            offset + 1
+        } else if suffix.contains(']') {
+            return None;
+        } else {
+            offset
+        };
+        return Some(LinkCompletionContext::Label {
+            replace: link_start..replace_end,
+            query: label_prefix.to_string(),
+        });
+    };
+    let after_label = label_start + label_end + 2;
     let attrs = &source[after_label..offset];
     let to = attrs.rfind("to=")? + after_label;
     if to > after_label {
@@ -59,6 +95,29 @@ mod tests {
 
     #[test]
     fn finds_incomplete_path_and_anchor_contexts() {
+        let label = "See `link[Usage";
+        assert_eq!(
+            link_completion_context(label, label.len()),
+            Some(LinkCompletionContext::Label {
+                replace: 4..15,
+                query: "Usage".to_string(),
+            })
+        );
+        let closed_label = "See `link[Usage]";
+        assert_eq!(
+            link_completion_context(closed_label, closed_label.len() - 1),
+            Some(LinkCompletionContext::Label {
+                replace: 4..16,
+                query: "Usage".to_string(),
+            })
+        );
+        let escaped = "See ``link[Usage";
+        assert_eq!(link_completion_context(escaped, escaped.len()), None);
+        let strengthened = "See ```link[Usage";
+        assert!(matches!(
+            link_completion_context(strengthened, strengthened.len()),
+            Some(LinkCompletionContext::Label { .. })
+        ));
         let path = "See `link[x]{to=\"doc";
         assert_eq!(
             link_completion_context(path, path.len()),

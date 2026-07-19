@@ -1091,18 +1091,57 @@ impl Workspace {
     ) -> Vec<CompletionCandidate> {
         let from = normalize(from.as_ref());
         let mut candidates: Vec<CompletionCandidate> = match context {
+            LinkCompletionContext::Label { replace, query } => self
+                .documents
+                .values()
+                .filter_map(|entry| {
+                    let versioned = entry.current.as_ref().or(entry.last_valid.as_ref())?;
+                    if entry.path == from {
+                        return None;
+                    }
+                    let relative = relative_path(&from, &entry.path)?;
+                    let title = versioned
+                        .output
+                        .metadata
+                        .document_title()
+                        .filter(|title| !title.is_empty())
+                        .unwrap_or_else(|| relative.clone());
+                    (fuzzy_match(&relative, query) || fuzzy_match(&title, query)).then(|| {
+                        CompletionCandidate {
+                            label: title.clone(),
+                            detail: relative.clone(),
+                            new_text: format!(
+                                "`link[{}]{{to=\"{}\"}}",
+                                escape_inline_text(&title),
+                                escape_quoted_value(&relative)
+                            ),
+                            replace: replace.clone(),
+                        }
+                    })
+                })
+                .collect(),
             LinkCompletionContext::Path { replace, query } => self
                 .documents
                 .values()
-                .filter(|entry| entry.current.is_some() || entry.last_valid.is_some())
-                .filter(|entry| entry.path != from)
                 .filter_map(|entry| {
+                    let versioned = entry.current.as_ref().or(entry.last_valid.as_ref())?;
+                    if entry.path == from {
+                        return None;
+                    }
                     let relative = relative_path(&from, &entry.path)?;
-                    fuzzy_match(&relative, query).then(|| CompletionCandidate {
-                        label: relative.clone(),
-                        detail: relative.clone(),
-                        new_text: relative,
-                        replace: replace.clone(),
+                    let title = versioned
+                        .output
+                        .metadata
+                        .document_title()
+                        .filter(|title| !title.is_empty())
+                        .unwrap_or_else(|| relative.clone());
+                    (fuzzy_match(&relative, query) || fuzzy_match(&title, query)).then(|| {
+                        CompletionCandidate {
+                            label: relative.clone(),
+                            detail: title,
+                            new_text: relative,
+                            replace: replace.clone(),
+                        }
                     })
                 })
                 .collect(),
@@ -1340,6 +1379,14 @@ fn fuzzy_match(candidate: &str, query: &str) -> bool {
     false
 }
 
+fn escape_inline_text(value: &str) -> String {
+    value.replace('`', "``").replace(']', "]]")
+}
+
+fn escape_quoted_value(value: &str) -> String {
+    value.replace('\\', "\\\\").replace('"', "\\\"")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1439,16 +1486,34 @@ mod tests {
     fn completes_paths_and_only_explicit_anchors() {
         let mut workspace = Workspace::new();
         workspace.insert("notes/current.plumb", 1, "Current\n");
-        workspace.insert("notes/design.plumb", 1, "`# No id\n`##{#api} API\n");
+        workspace.insert(
+            "notes/design.plumb",
+            1,
+            "`meta\n  `: title\n\n    Design Guide\n\n`# No id\n`##{#api} API\n",
+        );
         let paths = workspace.complete_link(
             "notes/current.plumb",
             &LinkCompletionContext::Path {
                 replace: 10..13,
-                query: "design".to_string(),
+                query: "guide".to_string(),
             },
         );
         assert_eq!(paths[0].label, "design.plumb");
+        assert_eq!(paths[0].detail, "Design Guide");
         assert_eq!(paths[0].new_text, "design.plumb");
+        let labels = workspace.complete_link(
+            "notes/current.plumb",
+            &LinkCompletionContext::Label {
+                replace: 0..8,
+                query: "guide".to_string(),
+            },
+        );
+        assert_eq!(labels[0].label, "Design Guide");
+        assert_eq!(labels[0].detail, "design.plumb");
+        assert_eq!(
+            labels[0].new_text,
+            "`link[Design Guide]{to=\"design.plumb\"}"
+        );
         let anchors = workspace.complete_link(
             "notes/current.plumb",
             &LinkCompletionContext::Anchor {
