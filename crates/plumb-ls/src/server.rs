@@ -32,7 +32,9 @@ use plumb_extensions::{
     link_completion_context, AnchorKind, AnchorRecord, Heading, MetadataBlock, MetadataEntry,
     MetadataValue, TaskRecord, TaskState, TaskStatus,
 };
-use plumb_workspace::{normalize, ResolvedTarget, ResourceOperation, Workspace, WorkspaceEdit};
+use plumb_workspace::{
+    normalize, RenameError, ResolvedTarget, ResourceOperation, Workspace, WorkspaceEdit,
+};
 
 use crate::position::{byte_range_to_lsp, position_to_offset};
 
@@ -836,44 +838,85 @@ impl LanguageServer for ServerState {
                 ))
             });
         }
-        let result = params
-            .text_document_position
-            .text_document
-            .uri
-            .to_file_path()
-            .ok()
-            .and_then(|path| {
-                let entry = self.workspace.get(&path)?;
-                let offset = position_to_offset(
-                    &entry.parsed.source,
-                    params.text_document_position.position,
-                );
-                if let Ok(target) = self.workspace.anchor_rename_target_at(&path, offset) {
-                    let edit = self
-                        .workspace
-                        .rename_anchor(&target, &params.new_name)
-                        .ok()?;
-                    return workspace_edit_to_lsp(&self.workspace, edit);
-                }
-                if !self.supports_resource_rename {
-                    return None;
-                }
-                let target = self.workspace.path_rename_target_at(&path, offset).ok()?;
+        let result = (|| {
+            let Some(path) = params
+                .text_document_position
+                .text_document
+                .uri
+                .to_file_path()
+                .ok()
+            else {
+                return Ok(None);
+            };
+            let Some(entry) = self.workspace.get(&path) else {
+                return Ok(None);
+            };
+            let offset =
+                position_to_offset(&entry.parsed.source, params.text_document_position.position);
+            if let Ok(target) = self.workspace.anchor_rename_target_at(&path, offset) {
                 let edit = self
                     .workspace
-                    .rename_document(&target, &params.new_name)
-                    .ok()?;
-                let (old_path, new_path) =
-                    edit.resource_operations.iter().find_map(|operation| {
-                        let ResourceOperation::Rename { old_path, new_path } = operation;
-                        Some((old_path.clone(), new_path.clone()))
+                    .rename_anchor(&target, &params.new_name)
+                    .map_err(|error| {
+                        rename_request_error(format!("anchor rename failed: {error:?}"))
                     })?;
-                let lsp_edit = workspace_edit_to_lsp(&self.workspace, edit)?;
-                self.begin_path_rename(old_path, new_path);
-                Some(lsp_edit)
-            });
-        Box::pin(async move { Ok(result) })
+                let edit = workspace_edit_to_lsp(&self.workspace, edit)
+                    .ok_or_else(|| rename_request_error("cannot map anchor rename edit"))?;
+                return Ok(Some(edit));
+            }
+            let Ok(target) = self.workspace.path_rename_target_at(&path, offset) else {
+                return Ok(None);
+            };
+            if !self.supports_resource_rename {
+                return Err(rename_request_error(
+                    "document rename requires workspace.workspaceEdit.resourceOperations rename support",
+                ));
+            }
+            let edit = self
+                .workspace
+                .rename_document(&target, &params.new_name)
+                .map_err(document_rename_error)?;
+            let (old_path, new_path) = edit
+                .resource_operations
+                .iter()
+                .map(|operation| match operation {
+                    ResourceOperation::Rename { old_path, new_path } => {
+                        (old_path.clone(), new_path.clone())
+                    }
+                })
+                .next()
+                .ok_or_else(|| rename_request_error("document rename produced no resource edit"))?;
+            if new_path.exists() {
+                return Err(rename_request_error(format!(
+                    "document rename target already exists: {}",
+                    new_path.display()
+                )));
+            }
+            if !self.roots.is_empty() && !self.roots.iter().any(|root| new_path.starts_with(root)) {
+                return Err(rename_request_error(format!(
+                    "document rename target is outside the workspace: {}",
+                    new_path.display()
+                )));
+            }
+            let lsp_edit = workspace_edit_to_lsp(&self.workspace, edit)
+                .ok_or_else(|| rename_request_error("cannot map document rename edit"))?;
+            self.begin_path_rename(old_path, new_path);
+            Ok(Some(lsp_edit))
+        })();
+        Box::pin(async move { result })
     }
+}
+
+fn rename_request_error(message: impl Into<String>) -> ResponseError {
+    ResponseError::new(ErrorCode::REQUEST_FAILED, message.into())
+}
+
+fn document_rename_error(error: RenameError) -> ResponseError {
+    let message = match error {
+        RenameError::TargetExists => "document rename target already exists".to_string(),
+        error => format!("document rename failed: {error:?}"),
+    };
+    rename_request_error(message)
 }
 
 fn target_hover(workspace: &Workspace, target: &ResolvedTarget) -> String {

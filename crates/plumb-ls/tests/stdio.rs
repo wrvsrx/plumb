@@ -966,6 +966,51 @@ fn path_rename_is_optimistic_and_reconciles_failed_client_application() {
 }
 
 #[test]
+fn path_rename_requires_resource_rename_support() {
+    let (root, output) =
+        run_path_rename_precondition_test(json!({ "documentChanges": true }), "new.plumb", false);
+    let error = &response(&output, 2)["error"];
+    assert_eq!(error["code"], -32803);
+    assert!(error["message"]
+        .as_str()
+        .unwrap()
+        .contains("resourceOperations rename support"));
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn path_rename_rejects_an_existing_filesystem_target() {
+    let (root, output) = run_path_rename_precondition_test(
+        json!({ "documentChanges": true, "resourceOperations": ["rename"] }),
+        "new.plumb",
+        true,
+    );
+    let error = &response(&output, 2)["error"];
+    assert_eq!(error["code"], -32803);
+    assert!(error["message"]
+        .as_str()
+        .unwrap()
+        .contains("target already exists"));
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn path_rename_rejects_a_target_outside_the_workspace() {
+    let (root, output) = run_path_rename_precondition_test(
+        json!({ "documentChanges": true, "resourceOperations": ["rename"] }),
+        "../outside.plumb",
+        false,
+    );
+    let error = &response(&output, 2)["error"];
+    assert_eq!(error["code"], -32803);
+    assert!(error["message"]
+        .as_str()
+        .unwrap()
+        .contains("outside the workspace"));
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn definition_and_hover_lazily_load_targets_without_a_workspace_root() {
     let root = unique_temp_dir();
     std::fs::create_dir_all(&root).unwrap();
@@ -1063,6 +1108,55 @@ fn definition_and_hover_lazily_load_targets_without_a_workspace_root() {
     assert!(file_hover.contains(":3`"));
     assert!(file_hover.contains("First content\nSecond content"));
     std::fs::remove_dir_all(root).unwrap();
+}
+
+fn run_path_rename_precondition_test(
+    workspace_edit: Value,
+    new_name: &str,
+    create_target: bool,
+) -> (PathBuf, Vec<Value>) {
+    let root = unique_temp_dir();
+    std::fs::create_dir_all(&root).unwrap();
+    let old_target = root.join("old.plumb");
+    let source = root.join("source.plumb");
+    let source_text = "See `link[target]{to=\"old.plumb#target\"}.\n";
+    std::fs::write(&old_target, "`#{#target} Target\n").unwrap();
+    std::fs::write(&source, source_text).unwrap();
+    if create_target {
+        std::fs::write(root.join(new_name), "Already here.\n").unwrap();
+    }
+    let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
+    let source_uri = lsp_types::Url::from_file_path(&source).unwrap();
+    let path_position = source_text.find("old.plumb").unwrap();
+    let messages = [
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {
+                "processId": null,
+                "rootUri": root_uri,
+                "workspaceFolders": [{ "uri": root_uri, "name": "test" }],
+                "capabilities": { "workspace": { "workspaceEdit": workspace_edit } }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": {
+                "uri": source_uri, "languageId": "plumb", "version": 1, "text": source_text
+            }}
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 2, "method": "textDocument/rename",
+            "params": {
+                "textDocument": { "uri": source_uri },
+                "position": { "line": 0, "character": path_position },
+                "newName": new_name
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 3, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+    (root, run_server(&messages))
 }
 
 fn run_server(messages: &[Value]) -> Vec<Value> {
