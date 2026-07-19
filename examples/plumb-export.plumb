@@ -13,8 +13,8 @@
 
   `: keywords
 
-    `item strict markup
-    `item pandoc
+    `- strict markup
+    `- pandoc
 
   `: project
 
@@ -40,9 +40,9 @@ citation profile currently accepts one plain id, such as `cite[smith2004].
 `# Lists and definitions
 
 `- first item
-`item second item using the long spelling
+`- second item
   `- nested item
-`item{.example key=value} attributed item
+`-{.example key=value} attributed item
 
 `: term
 

@@ -15,7 +15,7 @@ document symbol tree.
 
 This heading should be nested below `[Document symbols].
 
-`item{.task #symbol-task} Task symbol nested in this section
+`-{.task #symbol-task} Task symbol nested in this section
 
 `#{#navigation} Definition, hover, and references
 
@@ -33,10 +33,10 @@ Try go-to-definition, hover, find references, and rename on these links:
 
 Try completion after each relevant introducer in a temporary edit:
 
-`item Start a link label with ``link[ and select a document title.
-`item Complete a path in ``link[target]{to="plumb-.
-`item Complete a fragment in ``link[target]{to="plumb-export.plumb#.
-`item Complete a same-file fragment in ``link[target]{to="#.
+`- Start a link label with ``link[ and select a document title.
+`- Complete a path in ``link[target]{to="plumb-.
+`- Complete a fragment in ``link[target]{to="plumb-export.plumb#.
+`- Complete a same-file fragment in ``link[target]{to="#.
 
 `#{#rename} Rename
 
@@ -82,6 +82,6 @@ The following valid syntax deliberately produces semantic diagnostics:
 
 `anchor{#duplicate-anchor} Second duplicate target.
 
-`item{.task #conflicted-task done="2026-07-20T09:00:00+08:00" canceled="2026-07-20T10:00:00+08:00"} Conflicting closed state
+`-{.task #conflicted-task done="2026-07-20T09:00:00+08:00" canceled="2026-07-20T10:00:00+08:00"} Conflicting closed state
 
-`item{.task #self-dependent depends="#self-dependent"} Self dependency
+`-{.task #self-dependent depends="#self-dependent"} Self dependency

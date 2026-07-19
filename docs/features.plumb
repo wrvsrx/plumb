@@ -30,8 +30,7 @@ SyntaxTree contract 已冻结；normalized AST 和 extension-specific semantics 
 `- task extension 识别任意 marked block 上的 `[.task] facet，产生 local records、状态与字段
   diagnostics；workspace 建立跨文件 dependency/reverse-blocker graph，并诊断无效 target、self
   dependency、cycle 和 blocked state。
-`- list extension 识别推荐简写 `[-] 与长写法 `[item] marker，并把同层相邻 items 聚合为
-  source-backed groups；两种 spelling 混用不会打断 group。
+`- list extension 只识别 `[-] marker，并把同层相邻 items 聚合为 source-backed groups。
   `[plumb-export] lower 为 nested Pandoc `[BulletList]，带属性 item 通过内部 `[Div] 保留属性。
 `- 普通相邻 `[:] definition records 由 `[plumb-export] lower 为 Pandoc `[DefinitionList]；
   metadata definitions 继续只投影到 Pandoc metadata，不重复进入 body。
@@ -159,7 +158,7 @@ capability negotiation、不可变 operation context，以及独立的 cancellat
 `- [plumb] MVP html / pandoc export extension：从 valid typed view 或 exporter-specific
   normalized model 产生 Pandoc JSON AST，再交给 pandoc writer。
 `- [plumb] MVP definition-list facts 与 definition-list based metadata analysis。
-`- [plumb] v1 list-item analysis 已实现：识别 `[-] 与 `[item]，按 sibling adjacency 聚合 groups，并保留
+`- [plumb] v1 list-item analysis 已实现：识别 `[-]，按 sibling adjacency 聚合 groups，并保留
   nested groups 与 source ranges。
 `- [plumb] v1 task analysis 已实现：解释任意 marked block 的 `[.task] facet、状态、日期、嵌套与
   查询字段。event analysis 尚未实现。
@@ -225,7 +224,7 @@ capability wiring 和 revision/cancellation policy，不复制 parser 或 semant
   unsupported value 拒绝 export，duplicate key first-wins。
 `- [plumb] v1 单 plain-id citation record lowering 到 Pandoc Cite，由下游 citeproc 解析
   bibliography。
-`- [plumb] v1 相邻/nested `[-]/`[item] groups lowering 到 Pandoc BulletList；带属性 item 使用内部
+`- [plumb] v1 相邻/nested `[-] groups lowering 到 Pandoc BulletList；带属性 item 使用内部
   Div 保存 id/classes/pairs。
 `- [plumb] v1 普通相邻 `[:] groups lowering 到 Pandoc DefinitionList；definition attributes
   使用 body 内 Div 保存。
