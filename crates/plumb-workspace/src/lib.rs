@@ -547,7 +547,7 @@ impl Workspace {
         let escaped_title = title.replace('`', "``");
         let escaped_created = created.replace('`', "``");
         let new_text = format!(
-            "`meta{newline}  `: title{newline}{newline}    {escaped_title}{newline}{newline}  `: created{newline}{newline}    {escaped_created}{newline}{newline}"
+            "`meta{newline}  `: title{newline}{newline}     {escaped_title}{newline}{newline}  `: created{newline}{newline}     {escaped_created}{newline}{newline}"
         );
         Ok(WorkspaceEdit {
             document_changes: vec![DocumentEdit {
@@ -885,7 +885,7 @@ mod tests {
         assert_eq!(document.edits[0].range, 0..0);
         assert_eq!(
             document.edits[0].new_text,
-            "`meta\n  `: title\n\n    my``note\n\n  `: created\n\n    2026-07-19T12:34:56+08:00\n\n"
+            "`meta\n  `: title\n\n     my``note\n\n  `: created\n\n     2026-07-19T12:34:56+08:00\n\n"
         );
     }
 
@@ -900,7 +900,7 @@ mod tests {
 
         assert_eq!(
             edit.document_changes[0].edits[0].new_text,
-            "`meta\r\n  `: title\r\n\r\n    note\r\n\r\n  `: created\r\n\r\n    2026-07-19T12:34:56+08:00\r\n\r\n"
+            "`meta\r\n  `: title\r\n\r\n     note\r\n\r\n  `: created\r\n\r\n     2026-07-19T12:34:56+08:00\r\n\r\n"
         );
     }
 
