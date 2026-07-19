@@ -1,0 +1,32 @@
+`meta
+  `: title
+
+    plumb playground
+
+  `: created
+
+    `[2026-07-20T00:00:00+08:00]
+
+Open this directory as a workspace after building the toolchain. These documents
+exercise the implemented language server, exporter, and notes features.
+
+`# Start here
+
+`item `link[Language server playground]{to="plumb-ls.plumb"}
+`item `link[Metadata code-action scratchpad]{to="metadata-scratch.plumb"}
+`item `link[Exporter playground]{to="plumb-export.plumb"}
+`item `link[Notes playground]{to="plumb-notes.plumb"}
+
+`# Suggested commands
+
+`{language=sh}
+  nix develop -c cargo build --workspace
+  cargo run -q -p plumb-export -- examples/plumb-export.plumb | pandoc -f json -t markdown
+  cargo run -q -p plumb-notes -- --root examples note --query 'title.matches("playground")'
+  cargo run -q -p plumb-notes -- --root examples note --query '"index.plumb" in directly_referenced_by'
+  cargo run -q -p plumb-notes -- --root examples task --flat
+  cargo run -q -p plumb-notes -- --root examples task --query 'actionable'
+  cargo run -q -p plumb-notes -- --root examples task --query 'blocked'
+
+The linked files intentionally reference each other so workspace navigation and
+reverse-reference queries return useful results.

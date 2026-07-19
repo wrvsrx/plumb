@@ -18,6 +18,21 @@
 读取 Cargo workspace version，default main program 是 `[plumb-ls]。Nix sandbox 会运行 workspace
 tests；无 TTY 时 task table 使用 120-column fallback，避免非交互输出丢列。
 
+`# Playground
+
+`[examples/index.plumb] 是整套工具的入口。`[examples/] 是一个可直接作为 workspace 打开的
+互链文档集，分别覆盖 LSP navigation、completion、rename、diagnostics 与 code actions，成功
+export 路径，notes document/task queries，以及 metadata insertion scratchpad。
+
+`{language=text}
+  cargo run -q -p plumb-export -- examples/plumb-export.plumb | pandoc -f json -t markdown
+  cargo run -q -p plumb-notes -- --root examples note --query 'title.matches("playground")'
+  cargo run -q -p plumb-notes -- --root examples task --flat
+
+`[examples/plumb-ls.plumb] 的最后一节故意包含 unresolved links、duplicate anchor、conflicted task
+和 self-dependency，用于观察 semantic diagnostics；这些都是有效 plumb syntax。其余 playground
+文件提供正常成功路径。
+
 `# LSP
 
 `[plumb-ls] 通过 stdio 提供：

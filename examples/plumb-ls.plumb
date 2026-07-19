@@ -1,0 +1,87 @@
+`meta
+  `: title
+
+    plumb-ls playground
+
+Use this file with plumb-ls attached. The final diagnostics section contains
+intentional semantic errors; the entire file remains syntactically valid.
+
+`#{#symbols} Document symbols
+
+This heading, its explicit anchor, and the task below should appear in the
+document symbol tree.
+
+`## Nested symbol
+
+This heading should be nested below `[Document symbols].
+
+`item{.task #symbol-task} Task symbol nested in this section
+
+`#{#navigation} Definition, hover, and references
+
+Try go-to-definition, hover, find references, and rename on these links:
+
+`item Same-file anchor: `link[Document symbols]{to="#symbols"}
+`item Same-file explicit anchor: `link[local anchor]{to="#local-anchor"}
+`item Cross-file anchor: `link[Exporter conclusion]{to="plumb-export.plumb#export-target"}
+`item Cross-file document: `link[Notes playground]{to="plumb-notes.plumb"}
+`item Repeated reference: `link[Exporter conclusion]{to="plumb-export.plumb#export-target"}
+
+`anchor{#local-anchor} Rename this id to update its references.
+
+`#{#completion} Completion
+
+Try completion after each relevant introducer in a temporary edit:
+
+`item Start a link label with ``link[ and select a document title.
+`item Complete a path in ``link[target]{to="plumb-.
+`item Complete a fragment in ``link[target]{to="plumb-export.plumb#.
+`item Complete a same-file fragment in ``link[target]{to="#.
+
+`#{#rename} Rename
+
+Rename the `[plumb-export.plumb] path in
+`link[this link]{to="plumb-export.plumb"}. Rename `[local-anchor] from either
+its declaration or this `link[reference]{to="#local-anchor"}.
+
+`#{#actions} Code actions and task hover
+
+Open `link[metadata-scratch.plumb]{to="metadata-scratch.plumb"} to try
+`[Insert document metadata].
+
+Place the cursor in this task and request Complete or Cancel. Hover shows its
+state, id, and timestamps:
+
+`item{.task #action-task created="2026-07-20T09:00:00+08:00" due="2026-07-30T17:00:00+08:00"} Close this task from a code action
+
+This task is blocked while its dependency remains open, so Complete is omitted
+but Cancel remains available:
+
+`item{.task #open-dependency} Finish this dependency first
+
+`item{.task #blocked-action depends="#open-dependency"} Try actions on a blocked task
+
+Completing this recurring task closes the current instance and appends the next
+instance with an advanced due date and a `[prev] reference:
+
+`item{.task #recurring-action due="2026-07-27T17:00:00+08:00" recur=P1W} Advance this recurring task
+
+`#{#export-target} Export target
+
+The exporter playground links to this explicit anchor.
+
+`# Intentional diagnostics
+
+The following valid syntax deliberately produces semantic diagnostics:
+
+`item Missing same-file anchor: `link[missing]{to="#missing-anchor"}
+`item Missing file: `link[missing file]{to="missing-target.plumb"}
+`item Missing cross-file anchor: `link[missing heading]{to="plumb-export.plumb#missing-anchor"}
+
+`anchor{#duplicate-anchor} First duplicate target.
+
+`anchor{#duplicate-anchor} Second duplicate target.
+
+`item{.task #conflicted-task done="2026-07-20T09:00:00+08:00" canceled="2026-07-20T10:00:00+08:00"} Conflicting closed state
+
+`item{.task #self-dependent depends="#self-dependent"} Self dependency

@@ -1,0 +1,73 @@
+`meta
+  `: title
+
+    plumb-export playground
+
+  `: author
+
+    plumb
+
+  `: created
+
+    `[2026-07-20T00:00:00+08:00]
+
+  `: keywords
+
+    `item strict markup
+    `item pandoc
+
+  `: project
+
+    `: name
+
+      plumb
+
+    `: stage
+
+      prototype
+
+This document exercises the successfully exportable semantic profile.
+
+`# Inline content
+
+This paragraph contains `*[strong-shaped content], `_[emphasis-shaped content],
+inline verbatim `[cargo test], a `kbd[Ctrl+C]{.shortcut} element, and a
+`link[link back to the index]{to="index.plumb"}.
+
+The exporter preserves generic inline kinds as Pandoc spans. The official
+citation profile currently accepts one plain id, such as `cite[smith2004].
+
+`# Lists and definitions
+
+`item first item
+`item second item
+  `item nested item
+`item attributed item{.example key=value}
+
+`: term
+
+  First definition.
+
+`: another term{.example}
+
+  Second definition with attributes.
+
+`# Generic blocks and raw content
+
+`aside{.notice} Generic marked blocks become Pandoc Div values.
+
+`{language=rust #hello-rust}
+  fn main() {
+      println!("hello from plumb-export");
+  }
+
+`# Tasks in exported content
+
+Task semantics can coexist with list-item structure and attributes:
+
+`item{.task #export-example created="2026-07-20T09:00:00+08:00"} Inspect exported task attributes
+
+`# Conclusion
+
+This heading is a target for navigation tests from the
+`link[language server playground]{to="plumb-ls.plumb#export-target"}.

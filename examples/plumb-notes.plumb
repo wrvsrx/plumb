@@ -1,0 +1,65 @@
+`meta
+  `: title
+
+    plumb-notes playground
+
+  `: area
+
+    examples
+
+This file provides records for document queries, reverse references, task
+queries, nesting, dependencies, recurrence, and task actions.
+
+`# Document queries
+
+Run these commands from the repository root:
+
+`{language=sh}
+  cargo run -q -p plumb-notes -- --root examples note --query 'title.matches("playground")'
+  cargo run -q -p plumb-notes -- --root examples note --query 'path.endsWith("plumb-ls.plumb")'
+  cargo run -q -p plumb-notes -- --root examples note --query '"index.plumb" in directly_referenced_by'
+  cargo run -q -p plumb-notes -- --root examples note --query '"plumb-ls.plumb" in transitively_referenced_by'
+
+`# Interactive mode
+
+`{language=sh}
+  EDITOR=nvim cargo run -q -p plumb-notes -- --root examples note --interactive
+
+The picker supports fuzzy matching, source previews, multiple selections,
+`[$EDITOR] opening, and Ctrl-N file creation.
+
+`# Task queries
+
+`{language=sh}
+  cargo run -q -p plumb-notes -- --root examples task
+  cargo run -q -p plumb-notes -- --root examples task --flat
+  cargo run -q -p plumb-notes -- --root examples task --query 'created != null && done == null'
+  cargo run -q -p plumb-notes -- --root examples task --query 'actionable'
+  cargo run -q -p plumb-notes -- --root examples task --query 'blocked'
+  cargo run -q -p plumb-notes -- --root examples task --query 'done != null'
+  cargo run -q -p plumb-notes -- --root examples task --query 'canceled != null'
+
+`item{.task #try-task-query created="2026-07-20T09:00:00+08:00" wait="2026-07-20T18:00:00+08:00"} Try a task query
+  `note This open task becomes actionable when `[wait <= now].
+
+  `item{.task #nested-task} Inspect nested task output
+
+`item{.task #finished-query created="2026-07-20T10:00:00+08:00" done="2026-07-20T11:00:00+08:00"} Read completed results
+
+`item{.task #canceled-query created="2026-07-20T12:00:00+08:00" canceled="2026-07-20T13:00:00+08:00"} Inspect canceled results
+
+`item{.task #blocked-query depends="#try-task-query"} Inspect a blocked task
+
+`item{.task #weekly-review due="2026-07-27T17:00:00+08:00" wait="2026-07-27T09:00:00+08:00" recur=P1W} Review recurring task advancement
+
+Complete or cancel copies of these tasks with an explicit target:
+
+`{language=sh}
+  cargo run -q -p plumb-notes -- --root examples task complete plumb-notes.plumb#try-task-query
+  cargo run -q -p plumb-notes -- --root examples task cancel plumb-notes.plumb#blocked-query
+
+`# Cross references
+
+This file links to the `link[index]{to="index.plumb"} and the
+`link[language server playground]{to="plumb-ls.plumb#navigation"}, giving the
+reverse-reference graph multiple edges.
