@@ -42,7 +42,7 @@ export 路径，notes document/task queries，以及 metadata insertion scratchp
   definition-list metadata 与 task diagnostics，包括 dependency resolution、cycle 和 blocked hint。
 `- `[textDocument/documentSymbol] nested heading、anchor、metadata key 与 task symbols；普通 anchor
   和顶层 task tree 按 source range 放入最深 containing heading，并保持 sibling source order。
-`- definition-list metadata 使用顶层 `[meta]、`[:] definitions 和 `[item] list values；支持
+`- definition-list metadata 使用顶层 `[meta]、`[:] definitions 和 `[-]/`[item] list values；支持
   scalar、list、map、verbatim 与 null typed values。
 `- `[textDocument/codeAction] 为 syntax-valid、尚无 `[meta] 的文档提供
   `[Insert document metadata]；`[title] 默认取文件名 stem，`[created] 使用 action 执行时的本地
@@ -92,7 +92,8 @@ exporter 直接从 `[plumb-core] valid tree 生成 Pandoc JSON，不调用 Pando
 heading、generic marked block、verbatim block、generic span 和 inline verbatim 分别 lower 到
 Para、Header、Div、CodeBlock、Span 和 Code。generic marker 保存在
 `[data-plumb-marker] attribute 中；
-同层相邻 `[item] blocks 聚合为 BulletList，nested items 递归形成 nested BulletList；item 有
+同层相邻 `[-] 或 `[item] blocks 聚合为 BulletList，二者混用不会打断 group，nested items
+递归形成 nested BulletList；item 有
 attributes 时以内部 Div 保留 id/classes/pairs，包括可叠加的 `[.task] facet。
 普通相邻 `[:] blocks 聚合为 DefinitionList，definition attributes 同样用 body 内 Div 保留；
 唯一顶层 `[meta] 的 definitions 只进入 Pandoc metadata，不重复进入 body。

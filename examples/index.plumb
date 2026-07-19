@@ -12,10 +12,10 @@ exercise the implemented language server, exporter, and notes features.
 
 `# Start here
 
-`item `link[Language server playground]{to="plumb-ls.plumb"}
-`item `link[Metadata code-action scratchpad]{to="metadata-scratch.plumb"}
-`item `link[Exporter playground]{to="plumb-export.plumb"}
-`item `link[Notes playground]{to="plumb-notes.plumb"}
+`- `link[Language server playground]{to="plumb-ls.plumb"}
+`- `link[Metadata code-action scratchpad]{to="metadata-scratch.plumb"}
+`- `link[Exporter playground]{to="plumb-export.plumb"}
+`- `link[Notes playground]{to="plumb-notes.plumb"}
 
 `# Suggested commands
 

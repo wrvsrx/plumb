@@ -297,7 +297,7 @@ contract，具体 Rust API 仍属于 implementation。完整规则见 `[docs/ext
 `- `[events]
 
 official definition-list metadata profile 使用 document top-level 的唯一 `[meta] container、
-`[:] definition children 和 `[item] list children。普通 `[:] siblings 只形成 definition list，
+`[:] definition children 和 `[-] 或 `[item] list children。普通 `[:] siblings 只形成 definition list，
 不自动成为 document metadata。metadata key 是无 whitespace/markup 的 plain text；value body
 按 null、单 paragraph scalar、item list、nested definition map 或单 verbatim block 投影。
 duplicate key、nested/multiple meta、invalid key 和 unsupported mixed body 属于 semantic

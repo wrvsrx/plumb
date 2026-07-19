@@ -21,11 +21,11 @@ This heading should be nested below `[Document symbols].
 
 Try go-to-definition, hover, find references, and rename on these links:
 
-`item Same-file anchor: `link[Document symbols]{to="#symbols"}
-`item Same-file explicit anchor: `link[local anchor]{to="#local-anchor"}
-`item Cross-file anchor: `link[Exporter conclusion]{to="plumb-export.plumb#export-target"}
-`item Cross-file document: `link[Notes playground]{to="plumb-notes.plumb"}
-`item Repeated reference: `link[Exporter conclusion]{to="plumb-export.plumb#export-target"}
+`- Same-file anchor: `link[Document symbols]{to="#symbols"}
+`- Same-file explicit anchor: `link[local anchor]{to="#local-anchor"}
+`- Cross-file anchor: `link[Exporter conclusion]{to="plumb-export.plumb#export-target"}
+`- Cross-file document: `link[Notes playground]{to="plumb-notes.plumb"}
+`- Repeated reference: `link[Exporter conclusion]{to="plumb-export.plumb#export-target"}
 
 `anchor{#local-anchor} Rename this id to update its references.
 
@@ -52,19 +52,19 @@ Open `link[metadata-scratch.plumb]{to="metadata-scratch.plumb"} to try
 Place the cursor in this task and request Complete or Cancel. Hover shows its
 state, id, and timestamps:
 
-`item{.task #action-task created="2026-07-20T09:00:00+08:00" due="2026-07-30T17:00:00+08:00"} Close this task from a code action
+`-{.task #action-task created="2026-07-20T09:00:00+08:00" due="2026-07-30T17:00:00+08:00"} Close this task from a code action
 
 This task is blocked while its dependency remains open, so Complete is omitted
 but Cancel remains available:
 
-`item{.task #open-dependency} Finish this dependency first
+`-{.task #open-dependency} Finish this dependency first
 
-`item{.task #blocked-action depends="#open-dependency"} Try actions on a blocked task
+`-{.task #blocked-action depends="#open-dependency"} Try actions on a blocked task
 
 Completing this recurring task closes the current instance and appends the next
 instance with an advanced due date and a `[prev] reference:
 
-`item{.task #recurring-action due="2026-07-27T17:00:00+08:00" recur=P1W} Advance this recurring task
+`-{.task #recurring-action due="2026-07-27T17:00:00+08:00" recur=P1W} Advance this recurring task
 
 `#{#export-target} Export target
 
@@ -74,9 +74,9 @@ The exporter playground links to this explicit anchor.
 
 The following valid syntax deliberately produces semantic diagnostics:
 
-`item Missing same-file anchor: `link[missing]{to="#missing-anchor"}
-`item Missing file: `link[missing file]{to="missing-target.plumb"}
-`item Missing cross-file anchor: `link[missing heading]{to="plumb-export.plumb#missing-anchor"}
+`- Missing same-file anchor: `link[missing]{to="#missing-anchor"}
+`- Missing file: `link[missing file]{to="missing-target.plumb"}
+`- Missing cross-file anchor: `link[missing heading]{to="plumb-export.plumb#missing-anchor"}
 
 `anchor{#duplicate-anchor} First duplicate target.
 
