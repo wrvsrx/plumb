@@ -46,6 +46,15 @@ fn publishes_diagnostics_and_returns_heading_symbols_over_stdio() {
     ];
 
     let messages = run_server(&messages);
+    let capabilities = &response(&messages, 1)["result"]["capabilities"];
+    assert_eq!(
+        capabilities["codeActionProvider"]["codeActionKinds"],
+        json!(["quickfix", "refactor.rewrite"])
+    );
+    assert!(capabilities["completionProvider"]["triggerCharacters"]
+        .as_array()
+        .unwrap()
+        .contains(&json!("[")));
     let symbols = messages
         .iter()
         .find(|message| message.get("id") == Some(&json!(2)))
@@ -205,10 +214,11 @@ fn inserts_metadata_code_action_only_for_valid_documents_without_metadata() {
     ];
 
     let output = run_server(&messages);
-    assert_eq!(
-        response(&output, 1)["result"]["capabilities"]["codeActionProvider"],
-        true
-    );
+    assert!(response(&output, 1)["result"]["capabilities"]["codeActionProvider"]
+        ["codeActionKinds"]
+        .as_array()
+        .unwrap()
+        .contains(&json!("refactor.rewrite")));
     let actions = response(&output, 2)["result"].as_array().unwrap();
     assert_eq!(actions.len(), 1);
     assert_eq!(actions[0]["title"], "Insert document metadata");

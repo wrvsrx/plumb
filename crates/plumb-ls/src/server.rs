@@ -7,7 +7,7 @@ use async_lsp::{ClientSocket, ErrorCode, LanguageClient, LanguageServer, Respons
 use chrono::{Local, SecondsFormat};
 use futures::future::BoxFuture;
 use lsp_types::{
-    CodeAction, CodeActionKind, CodeActionOrCommand, CodeActionParams,
+    CodeAction, CodeActionKind, CodeActionOptions, CodeActionOrCommand, CodeActionParams,
     CodeActionProviderCapability, CodeActionResponse, CompletionItem, CompletionItemKind,
     CompletionOptions, CompletionParams, CompletionResponse, CompletionTextEdit,
     Diagnostic as LspDiagnostic, DiagnosticRelatedInformation, DiagnosticSeverity,
@@ -230,7 +230,16 @@ impl LanguageServer for ServerState {
                         TextDocumentSyncKind::FULL,
                     )),
                     document_symbol_provider: Some(OneOf::Left(true)),
-                    code_action_provider: Some(CodeActionProviderCapability::Simple(true)),
+                    code_action_provider: Some(CodeActionProviderCapability::Options(
+                        CodeActionOptions {
+                            code_action_kinds: Some(vec![
+                                CodeActionKind::QUICKFIX,
+                                CodeActionKind::REFACTOR_REWRITE,
+                            ]),
+                            resolve_provider: Some(false),
+                            work_done_progress_options: WorkDoneProgressOptions::default(),
+                        },
+                    )),
                     semantic_tokens_provider: Some(
                         SemanticTokensServerCapabilities::SemanticTokensOptions(
                             SemanticTokensOptions {
@@ -250,6 +259,7 @@ impl LanguageServer for ServerState {
                     completion_provider: Some(CompletionOptions {
                         resolve_provider: Some(false),
                         trigger_characters: Some(vec![
+                            "[".to_string(),
                             "\"".to_string(),
                             "/".to_string(),
                             "#".to_string(),

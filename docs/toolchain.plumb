@@ -30,6 +30,8 @@
   `[Insert document metadata]；`[title] 默认取文件名 stem，`[created] 使用 action 执行时的本地
   RFC 3339 timestamp（秒精度），并在 byte offset 0 产生带 revision 的 guarded edit。client
   必须支持 `[workspace.workspaceEdit.documentChanges]。
+`- code action capability 明确广告 `[quickfix] 与 `[refactor.rewrite]；completion triggers 包括
+  link label 的 `[[]、quoted target、path separator 和 fragment introducer。
 `- task hover 显示 state、id、时间、recurrence、dependencies 和 open blockers；`[Complete task]
   与 `[Cancel task] code actions 复用 guarded workspace operation。recurring task action 同时关闭
   当前实例并追加下一实例。cursor 位于 closed nested task 内时，action 作用于最深 open ancestor。
