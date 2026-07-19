@@ -51,6 +51,12 @@ pub enum RenameError {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MetadataInsertError {
+    StaleOrInvalidDocument,
+    MetadataAlreadyExists,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PathRenameTarget {
     pub old_path: PathBuf,
     pub range: std::ops::Range<usize>,
@@ -514,6 +520,46 @@ impl Workspace {
         })
     }
 
+    pub fn insert_metadata(
+        &self,
+        path: impl AsRef<Path>,
+        title: &str,
+    ) -> Result<WorkspaceEdit, MetadataInsertError> {
+        let path = normalize(path.as_ref());
+        let entry = self
+            .documents
+            .get(&path)
+            .ok_or(MetadataInsertError::StaleOrInvalidDocument)?;
+        let current = entry
+            .current
+            .as_ref()
+            .ok_or(MetadataInsertError::StaleOrInvalidDocument)?;
+        if current.output.metadata.metadata.is_some() {
+            return Err(MetadataInsertError::MetadataAlreadyExists);
+        }
+
+        let newline = if entry.parsed.source.contains("\r\n") {
+            "\r\n"
+        } else {
+            "\n"
+        };
+        let escaped_title = title.replace('`', "``");
+        let new_text = format!(
+            "`meta{newline}  `: title{newline}{newline}    {escaped_title}{newline}{newline}"
+        );
+        Ok(WorkspaceEdit {
+            document_changes: vec![DocumentEdit {
+                path,
+                expected_revision: entry.revision,
+                edits: vec![TextEdit {
+                    range: 0..0,
+                    new_text,
+                }],
+            }],
+            resource_operations: Vec::new(),
+        })
+    }
+
     pub fn complete_link(
         &self,
         from: impl AsRef<Path>,
@@ -815,5 +861,58 @@ mod tests {
             .find(|document| document.path == Path::new("notes/a.plumb"))
             .unwrap();
         assert_eq!(outgoing.edits[0].new_text, "../../shared/c.plumb");
+    }
+
+    #[test]
+    fn inserts_metadata_with_revision_and_escaped_title() {
+        let mut workspace = Workspace::new();
+        workspace.insert("notes/my`note.plumb", 7, "`# Section\n");
+
+        let edit = workspace
+            .insert_metadata("notes/my`note.plumb", "my`note")
+            .unwrap();
+
+        assert_eq!(edit.document_changes.len(), 1);
+        let document = &edit.document_changes[0];
+        assert_eq!(document.path, Path::new("notes/my`note.plumb"));
+        assert_eq!(document.expected_revision, 7);
+        assert_eq!(document.edits[0].range, 0..0);
+        assert_eq!(
+            document.edits[0].new_text,
+            "`meta\n  `: title\n\n    my``note\n\n"
+        );
+    }
+
+    #[test]
+    fn metadata_insertion_preserves_crlf() {
+        let mut workspace = Workspace::new();
+        workspace.insert("note.plumb", 1, "First\r\nSecond\r\n");
+
+        let edit = workspace.insert_metadata("note.plumb", "note").unwrap();
+
+        assert_eq!(
+            edit.document_changes[0].edits[0].new_text,
+            "`meta\r\n  `: title\r\n\r\n    note\r\n\r\n"
+        );
+    }
+
+    #[test]
+    fn metadata_insertion_rejects_existing_or_invalid_metadata_target() {
+        let mut workspace = Workspace::new();
+        workspace.insert("existing.plumb", 1, "`meta\n  `: title\n\n    Existing\n");
+        assert_eq!(
+            workspace.insert_metadata("existing.plumb", "existing"),
+            Err(MetadataInsertError::MetadataAlreadyExists)
+        );
+
+        workspace.insert("invalid.plumb", 2, "`node{key=a key=b} Broken\n");
+        assert_eq!(
+            workspace.insert_metadata("invalid.plumb", "invalid"),
+            Err(MetadataInsertError::StaleOrInvalidDocument)
+        );
+        assert_eq!(
+            workspace.insert_metadata("missing.plumb", "missing"),
+            Err(MetadataInsertError::StaleOrInvalidDocument)
+        );
     }
 }
