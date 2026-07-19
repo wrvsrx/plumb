@@ -23,7 +23,10 @@ use lsp_types::{
     WorkDoneProgressOptions, WorkDoneProgressReport, WorkspaceEdit as LspWorkspaceEdit,
 };
 use plumb_core::Diagnostic;
-use plumb_extensions::{link_completion_context, AnchorKind, AnchorRecord, Heading};
+use plumb_extensions::{
+    link_completion_context, AnchorKind, AnchorRecord, Heading, MetadataBlock, MetadataEntry,
+    MetadataValue,
+};
 use plumb_workspace::{normalize, ResolvedTarget, ResourceOperation, Workspace, WorkspaceEdit};
 
 use crate::position::{byte_range_to_lsp, position_to_offset};
@@ -348,6 +351,9 @@ impl LanguageServer for ServerState {
                     (anchor.kind != AnchorKind::Heading)
                         .then(|| anchor_symbol(&entry.parsed.source, anchor))
                 }));
+                if let Some(metadata) = &current.output.metadata.metadata {
+                    symbols.push(metadata_symbol(&entry.parsed.source, metadata));
+                }
                 symbols
             });
         Box::pin(async move { Ok(symbols.map(DocumentSymbolResponse::Nested)) })
@@ -622,6 +628,56 @@ fn anchor_symbol(source: &str, anchor: &AnchorRecord) -> DocumentSymbol {
     }
 }
 
+fn metadata_symbol(source: &str, metadata: &MetadataBlock) -> DocumentSymbol {
+    #[allow(deprecated)]
+    DocumentSymbol {
+        name: "metadata".to_string(),
+        detail: Some("document metadata".to_string()),
+        kind: SymbolKind::OBJECT,
+        tags: None,
+        deprecated: None,
+        range: byte_range_to_lsp(source, &metadata.range),
+        selection_range: byte_range_to_lsp(source, &metadata.selection_range),
+        children: (!metadata.entries.is_empty()).then(|| {
+            metadata
+                .entries
+                .iter()
+                .map(|entry| metadata_entry_symbol(source, entry))
+                .collect()
+        }),
+    }
+}
+
+fn metadata_entry_symbol(source: &str, entry: &MetadataEntry) -> DocumentSymbol {
+    let (detail, children) = match &entry.value {
+        MetadataValue::Null { .. } => ("null".to_string(), None),
+        MetadataValue::Scalar { content, .. } => (content.plain_text(), None),
+        MetadataValue::List { items, .. } => (format!("list ({} items)", items.len()), None),
+        MetadataValue::Map { entries, .. } => (
+            "map".to_string(),
+            (!entries.is_empty()).then(|| {
+                entries
+                    .iter()
+                    .map(|entry| metadata_entry_symbol(source, entry))
+                    .collect()
+            }),
+        ),
+        MetadataValue::Verbatim { .. } => ("verbatim".to_string(), None),
+        MetadataValue::Unsupported { .. } => ("unsupported value".to_string(), None),
+    };
+    #[allow(deprecated)]
+    DocumentSymbol {
+        name: entry.key.clone(),
+        detail: Some(detail),
+        kind: SymbolKind::PROPERTY,
+        tags: None,
+        deprecated: None,
+        range: byte_range_to_lsp(source, &entry.range),
+        selection_range: byte_range_to_lsp(source, &entry.key_range),
+        children,
+    }
+}
+
 fn location_for(
     workspace: &Workspace,
     path: &Path,
@@ -745,7 +801,7 @@ fn to_lsp_diagnostic(source: &str, uri: &Url, diagnostic: Diagnostic) -> LspDiag
 #[cfg(test)]
 mod tests {
     use plumb_core::parse;
-    use plumb_extensions::analyze_headings;
+    use plumb_extensions::{analyze_headings, analyze_metadata};
 
     use super::*;
 
@@ -760,5 +816,20 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(symbols[0].name, "One");
         assert_eq!(symbols[0].children.as_ref().unwrap()[0].name, "Two");
+    }
+
+    #[test]
+    fn maps_metadata_facts_to_nested_symbols() {
+        let parsed = parse(
+            "`meta\n  `: title\n\n    Document title\n\n  `: author\n    `: name\n\n      Alice\n",
+        );
+        assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
+        let output = analyze_metadata(&parsed.syntax);
+        let symbol = metadata_symbol(&parsed.source, output.metadata.as_ref().unwrap());
+        assert_eq!(symbol.name, "metadata");
+        let children = symbol.children.unwrap();
+        assert_eq!(children[0].name, "title");
+        assert_eq!(children[0].detail.as_deref(), Some("Document title"));
+        assert_eq!(children[1].children.as_ref().unwrap()[0].name, "name");
     }
 }

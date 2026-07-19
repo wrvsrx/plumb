@@ -66,6 +66,63 @@ fn publishes_diagnostics_and_returns_heading_symbols_over_stdio() {
 }
 
 #[test]
+fn publishes_metadata_diagnostics_and_nested_symbols_over_stdio() {
+    let source = "`meta\n  `: title\n\n    Document title\n\n  `: author\n    `: name\n\n      Alice\n\n  `: title\n";
+    let messages = [
+        json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": { "processId": null, "rootUri": null, "capabilities": {} }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({
+            "jsonrpc": "2.0",
+            "method": "textDocument/didOpen",
+            "params": {
+                "textDocument": {
+                    "uri": "file:///tmp/metadata.plumb",
+                    "languageId": "plumb",
+                    "version": 1,
+                    "text": source
+                }
+            }
+        }),
+        json!({
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "textDocument/documentSymbol",
+            "params": { "textDocument": { "uri": "file:///tmp/metadata.plumb" } }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 3, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+
+    let output = run_server(&messages);
+    let symbols = response(&output, 2);
+    let metadata = symbols["result"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|symbol| symbol["name"] == "metadata")
+        .expect("metadata symbol");
+    assert_eq!(metadata["children"][0]["name"], "title");
+    assert_eq!(metadata["children"][1]["name"], "author");
+    assert_eq!(metadata["children"][1]["children"][0]["name"], "name");
+
+    let diagnostics = output
+        .iter()
+        .filter(|message| message.get("method") == Some(&json!("textDocument/publishDiagnostics")))
+        .last()
+        .expect("diagnostics notification");
+    assert!(diagnostics["params"]["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|diagnostic| diagnostic["code"] == "metadata.duplicate-key"));
+}
+
+#[test]
 fn resolves_cross_file_navigation_over_stdio() {
     let root = unique_temp_dir();
     std::fs::create_dir_all(&root).unwrap();
