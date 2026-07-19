@@ -57,11 +57,17 @@ Generated parser sources and binary packages are produced for releases in a Nix
 sandbox. They are intentionally absent from Git and must be consumed from a
 release artifact or regenerated locally.
 
-`# Neovim highlighting
+`# Neovim editor queries
 
 `[queries/highlights.scm] uses Neovim's standard tree-sitter capture names and
 only highlights the generic core CST. It does not interpret marker or inline
 kind values semantically.
+
+`[queries/folds.scm] and `[queries/indents.scm] cover generic block structure。
+`[queries/textobjects.scm] publishes `[block.outer]、`[block.inner]、`[inline.outer] and
+`[inline.inner] captures。`[queries/injections.scm] injects `[raw_text] from a verbatim block
+whose attributes contain `[language=...]。Inline verbatim does not expose a separate raw-content
+node yet, so it is not an injection target.
 
 Build the parser explicitly through the locked Nix environment:
 
@@ -72,7 +78,7 @@ The ignored output is written to `[tree-sitter-plumb/build/plumb.so]. Re-run the
 script after changing the grammar, scanner, or locked toolchain.
 
 The optional project configuration in `[dev/nvim.lua] loads the prebuilt parser
-and this query, registers the `[plumb] filetype, starts tree-sitter highlighting,
+and all tracked queries, registers the `[plumb] filetype, starts tree-sitter highlighting,
 and enables the development `[plumb-ls] binary for `[*.plumb] buffers. It does
 not invoke Nix or compile code during Neovim startup. Build both development
 artifacts first:
@@ -96,7 +102,7 @@ prompted. Project-local configuration can execute arbitrary code, so review it
 before granting trust. Use `[:InspectTree] to inspect the CST and `[:Inspect] to
 see the capture under the cursor.
 
-The query can be checked outside Neovim with the tracked fixture:
+The highlight query can be checked outside Neovim with the tracked fixture:
 
 `{language=sh}
   nix develop .#tree-sitter-plumb -c tree-sitter query \

@@ -251,7 +251,8 @@ capability wiring 和 revision/cancellation policy，不复制 parser 或 semant
 
 `# F. tree-sitter（`[tree-sitter-plumb]）
 
-`- [plumb] current 宽松镜像语法与 corpus，用于编辑器高亮、文本对象、折叠、injection 和缩进。
+`- [plumb] current 宽松镜像语法与 corpus，用于编辑器高亮、文本对象、折叠、verbatim block
+  language injection 和缩进；inline verbatim injection 等待独立 raw-content node。
 `- [plumb] current 不做严格性引擎，不决定文档是否有效。
 `- [plumb] later 独立 bindings、release automation 与单独 repository。
 

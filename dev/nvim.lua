@@ -5,7 +5,7 @@ local parser_path = grammar_dir .. "/build/plumb.so"
 
 if vim.uv.fs_stat(parser_path) then
   vim.treesitter.language.add("plumb", { path = parser_path })
-  for _, query in ipairs({ "highlights", "folds", "indents" }) do
+  for _, query in ipairs({ "highlights", "folds", "indents", "textobjects", "injections" }) do
     vim.treesitter.query.set(
       "plumb",
       query,
