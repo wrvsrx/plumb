@@ -20,13 +20,16 @@ SyntaxTree contract 已冻结；normalized AST 和 extension-specific semantics 
 `- definition extension 聚合相邻 `[:] blocks；metadata extension 把唯一顶层 `[meta] 中的
   definitions 投影为 typed scalar/list/map/verbatim/null values。
 `- `[plumb-ls] 合并 metadata profile diagnostics，并输出 nested metadata key symbols。
+`- `[plumb-ls] 为 syntax-valid、尚无 metadata 的文档提供从文件名生成 title 的 metadata
+  insertion code action，并返回带 revision 的 guarded edit。
 
 当前 heading profile 已确定：`[#] 至 `[######] marker 的长度是 level，`[{#id}] 是唯一
 显式 anchor spelling；`[id=value] 不产生 anchor。运行方法、测试边界和已知 parser gaps 见
 `[docs/toolchain.plumb]。
 
 metadata 不使用此前试验过的 raw TOML profile。official profile、value shapes 和当前 LSP
-surface 见 `[docs/extensions.plumb] 第 6.2 节；export lowering 与 authoring operations 仍待实现。
+surface 见 `[docs/extensions.plumb] 第 6.2 节；除 metadata insertion 外的 authoring operations
+与 export lowering 仍待实现。
 
 `# Djot-tools feature 审计
 
@@ -169,8 +172,8 @@ capability wiring 和 revision/cancellation policy，不复制 parser 或 semant
 `- [plumb] MVP `[textDocument/prepareRename] / `[rename]：经 guarded operation 重命名 explicit
   anchor；document/path rename 同时返回 resource rename 和所有受影响的 relative-link edits。
 `- [plumb] MVP `[textDocument/hover]：目标类型、id、路径和源码预览。
-`- [plumb] MVP `[textDocument/codeAction]：先提供 add explicit id；action
-  只包装 extension operation 的 byte edits。
+`- [plumb] MVP `[textDocument/codeAction]：当前提供 insert document metadata；后续提供 add
+  explicit id。action 只包装 protocol-neutral operation 的 byte edits。
 `- [plumb] MVP FULL 文本同步；打开 buffer 优先于磁盘版本。
 `- [plumb] MVP 初始化时索引根下文档；无根时仅索引已打开 buffer 和惰性目标。
 `- [plumb] MVP 处理 create/change/remove file events 并 targeted re-index；client 支持时动态注册

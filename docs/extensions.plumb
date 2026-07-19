@@ -263,8 +263,10 @@ definition body 按 shape 投影：空 body 为 null；单 paragraph 为 rich in
 blocks。所有 records 保留 node、key、value 与 nested entries 的 source ranges。
 
 当前 LSP 合并 metadata diagnostics，并把 `[metadata] object 与 nested keys 映射到
-`[textDocument/documentSymbol]。completion、metadata insertion/edit operation 和 Pandoc
-metadata lowering 尚未实现。
+`[textDocument/documentSymbol]。workspace operation 可以在 syntax-valid、尚无 `[meta] 的文档
+byte offset 0 插入带 `[title] 的完整 metadata block；LSP code action 以文件名 stem 作为默认
+标题，并用 guarded `[documentChanges] 应用。completion、已有 metadata 的任意 edit operation
+和 Pandoc metadata lowering 尚未实现。
 
 `# 7. Request-scoped queries
 
