@@ -17,6 +17,6 @@ pub use metadata::{
 };
 pub use queries::{link_completion_context, LinkCompletionContext};
 pub use tasks::{
-    analyze_tasks, parse_task_reference_target, TaskDependency, TaskField, TaskOutput, TaskRecord,
-    TaskReferenceTarget, TaskState,
+    analyze_tasks, parse_task_reference_target, valid_task_datetime, TaskDependency, TaskField,
+    TaskOutput, TaskRecord, TaskReferenceTarget, TaskState, TaskStatus,
 };

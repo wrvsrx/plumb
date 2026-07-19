@@ -35,12 +35,28 @@ pub enum TaskState {
     Conflicted,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TaskStatus {
+    Done,
+    Canceled,
+}
+
+impl TaskStatus {
+    pub fn attribute(self) -> &'static str {
+        match self {
+            Self::Done => "done",
+            Self::Canceled => "canceled",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TaskRecord {
     pub range: Range<usize>,
     pub selection_range: Range<usize>,
     pub title: String,
     pub depth: usize,
+    pub attribute_insert: usize,
     pub id: Option<TaskField>,
     pub created: Option<TaskField>,
     pub due: Option<TaskField>,
@@ -105,6 +121,12 @@ fn task_record(source: &str, block: &ParsedBlock, depth: usize) -> TaskRecord {
         selection_range: block.head.range.clone(),
         title: block.head.plain_text().trim().to_string(),
         depth,
+        attribute_insert: attrs
+            .range
+            .as_ref()
+            .expect("task class is inside an attribute slot")
+            .end
+            .saturating_sub(1),
         id: attrs.items.iter().find_map(|item| match item {
             AttrItem::Id { value, range } => Some(TaskField {
                 value: value.clone(),
@@ -125,9 +147,11 @@ fn task_record(source: &str, block: &ParsedBlock, depth: usize) -> TaskRecord {
 
 fn datetime_field(items: &[AttrItem], key: &str) -> Option<TaskField> {
     let value = pair_value(items, key)?;
-    DateTime::parse_from_rfc3339(&value.decoded)
-        .is_ok()
-        .then(|| task_field(value))
+    valid_task_datetime(&value.decoded).then(|| task_field(value))
+}
+
+pub fn valid_task_datetime(value: &str) -> bool {
+    DateTime::parse_from_rfc3339(value).is_ok()
 }
 
 fn string_field(items: &[AttrItem], key: &str) -> Option<TaskField> {
@@ -268,6 +292,10 @@ mod tests {
         let task = &output.tasks[0];
         assert_eq!(task.title, "Write parser");
         assert_eq!(task.depth, 0);
+        assert_eq!(
+            &source[task.attribute_insert..task.attribute_insert + 1],
+            "}"
+        );
         assert_eq!(task.id.as_ref().unwrap().value, "write");
         assert_eq!(task.state(), TaskState::Open);
         assert_eq!(task.depends.len(), 2);

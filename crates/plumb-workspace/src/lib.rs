@@ -3,8 +3,9 @@ use std::path::{Component, Path, PathBuf};
 
 use plumb_core::{parse, Diagnostic, DiagnosticSeverity, ParsedDocument};
 use plumb_extensions::{
-    analyze_document, parse_task_reference_target, AnchorRecord, DocumentOutput,
-    LinkCompletionContext, LinkRecord, LinkTarget, TaskRecord, TaskReferenceTarget, TaskState,
+    analyze_document, parse_task_reference_target, valid_task_datetime, AnchorRecord,
+    DocumentOutput, LinkCompletionContext, LinkRecord, LinkTarget, TaskRecord, TaskReferenceTarget,
+    TaskState, TaskStatus,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -55,6 +56,16 @@ pub enum RenameError {
 pub enum MetadataInsertError {
     StaleOrInvalidDocument,
     MetadataAlreadyExists,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TaskEditError {
+    StaleOrInvalidDocument,
+    TaskNotFound,
+    TaskAlreadyClosed,
+    TaskBlocked,
+    RecurrenceNotSupported,
+    InvalidTimestamp,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -324,6 +335,47 @@ impl Workspace {
 
     pub fn is_task_blocked(&self, path: impl AsRef<Path>, task: &TaskRecord) -> bool {
         !self.open_task_dependencies(path, task).is_empty()
+    }
+
+    pub fn set_task_status(
+        &self,
+        path: impl AsRef<Path>,
+        offset: usize,
+        status: TaskStatus,
+        timestamp: &str,
+    ) -> Result<WorkspaceEdit, TaskEditError> {
+        if !valid_task_datetime(timestamp) {
+            return Err(TaskEditError::InvalidTimestamp);
+        }
+        let path = normalize(path.as_ref());
+        let entry = self
+            .documents
+            .get(&path)
+            .filter(|entry| entry.current.is_some())
+            .ok_or(TaskEditError::StaleOrInvalidDocument)?;
+        let task = self
+            .task_at(&path, offset)
+            .ok_or(TaskEditError::TaskNotFound)?;
+        if task.state() != TaskState::Open {
+            return Err(TaskEditError::TaskAlreadyClosed);
+        }
+        if task.recur.is_some() && task.due.is_some() {
+            return Err(TaskEditError::RecurrenceNotSupported);
+        }
+        if status == TaskStatus::Done && self.is_task_blocked(&path, task) {
+            return Err(TaskEditError::TaskBlocked);
+        }
+        Ok(WorkspaceEdit {
+            document_changes: vec![DocumentEdit {
+                path,
+                expected_revision: entry.revision,
+                edits: vec![TextEdit {
+                    range: task.attribute_insert..task.attribute_insert,
+                    new_text: format!(" {}=\"{}\"", status.attribute(), timestamp),
+                }],
+            }],
+            resource_operations: Vec::new(),
+        })
     }
 
     fn resolve_task_target(
@@ -1248,6 +1300,84 @@ mod tests {
         assert!(codes.contains(&"task.unresolved-path"));
         assert!(codes.contains(&"task.self-dependency"));
         assert!(codes.contains(&"task.dependency-cycle"));
+    }
+
+    #[test]
+    fn task_status_operation_is_guarded_and_preserves_the_attribute_slot() {
+        let mut workspace = Workspace::new();
+        let source = "`item{.task #write due=\"2026-07-21T09:00:00Z\"} Write parser\n";
+        workspace.insert("tasks.plumb", 7, source);
+
+        let edit = workspace
+            .set_task_status(
+                "tasks.plumb",
+                source.find("Write parser").unwrap(),
+                TaskStatus::Done,
+                "2026-07-20T12:00:00+08:00",
+            )
+            .unwrap();
+        let document = &edit.document_changes[0];
+        assert_eq!(document.expected_revision, 7);
+        assert_eq!(&source[document.edits[0].range.clone()], "");
+        assert_eq!(
+            document.edits[0].new_text,
+            " done=\"2026-07-20T12:00:00+08:00\""
+        );
+        let offset = document.edits[0].range.start;
+        let edited = format!(
+            "{}{}{}",
+            &source[..offset],
+            document.edits[0].new_text,
+            &source[offset..]
+        );
+        assert!(parse(edited).is_valid());
+    }
+
+    #[test]
+    fn task_status_operation_rejects_closed_blocked_and_recurring_tasks() {
+        let mut workspace = Workspace::new();
+        workspace.insert(
+            "tasks.plumb",
+            1,
+            "`item{.task #blocker} Blocker\n`item{.task #blocked depends=\"#blocker\"} Blocked\n`item{.task #closed done=\"2026-07-20T09:00:00Z\"} Closed\n`item{.task #recur due=\"2026-07-21T09:00:00Z\" recur=P1D} Recurring\n",
+        );
+        let timestamp = "2026-07-20T12:00:00Z";
+        let source = &workspace.get("tasks.plumb").unwrap().parsed.source;
+        assert_eq!(
+            workspace.set_task_status(
+                "tasks.plumb",
+                source.find("Blocked").unwrap(),
+                TaskStatus::Done,
+                timestamp,
+            ),
+            Err(TaskEditError::TaskBlocked)
+        );
+        assert!(workspace
+            .set_task_status(
+                "tasks.plumb",
+                source.find("Blocked").unwrap(),
+                TaskStatus::Canceled,
+                timestamp,
+            )
+            .is_ok());
+        assert_eq!(
+            workspace.set_task_status(
+                "tasks.plumb",
+                source.find("Closed").unwrap(),
+                TaskStatus::Canceled,
+                timestamp,
+            ),
+            Err(TaskEditError::TaskAlreadyClosed)
+        );
+        assert_eq!(
+            workspace.set_task_status(
+                "tasks.plumb",
+                source.find("Recurring").unwrap(),
+                TaskStatus::Done,
+                timestamp,
+            ),
+            Err(TaskEditError::RecurrenceNotSupported)
+        );
     }
 
     #[test]
