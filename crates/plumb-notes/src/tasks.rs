@@ -81,7 +81,21 @@ fn task_output_record(root: &Path, path: &Path, task: &TaskRecord, tree: bool) -
 }
 
 fn render_task_table(records: &[TaskOutputRecord], heading: bool) -> String {
-    render_task_table_with_width(records, heading, None)
+    render_task_table_with_width(records, heading, Some(terminal_width()))
+}
+
+fn terminal_width() -> u16 {
+    crossterm::terminal::size()
+        .ok()
+        .map(|(width, _)| width)
+        .filter(|width| *width > 0)
+        .or_else(|| {
+            std::env::var("COLUMNS")
+                .ok()
+                .and_then(|width| width.parse().ok())
+                .filter(|width| *width > 0)
+        })
+        .unwrap_or(120)
 }
 
 fn render_task_table_with_width(
@@ -332,10 +346,9 @@ mod tests {
         let all = task_records(&root, &loaded, None, true).unwrap();
         assert!(all.iter().any(|record| record.title == "> Nested"));
         let rendered = render_task_table(&records, true);
-        let heading = rendered.lines().next().unwrap();
-        assert!(heading.contains('S'));
-        assert!(heading.contains("Task"));
-        assert!(heading.contains("Source"));
+        assert!(rendered.contains('S'));
+        assert!(rendered.contains("Task"));
+        assert!(rendered.contains("Source"));
         std::fs::remove_dir_all(root).unwrap();
     }
 

@@ -9,6 +9,7 @@ cel.workspace = true
 chrono.workspace = true
 clap.workspace = true
 comfy-table.workspace = true
+crossterm.workspace = true
 plumb-extensions = { path = "../plumb-extensions" }
 plumb-workspace = { path = "../plumb-workspace" }
 shlex.workspace = true
