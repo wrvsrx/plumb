@@ -65,7 +65,10 @@ Use one headless document-level `meta` block containing only `:` definitions:
 
 Keys must be nonempty plain text without whitespace or inline markup. Values
 may be empty/null, one paragraph scalar, a `-` list, a nested `:` map, or one
-verbatim block. Do not mix incompatible child shapes. Only the first valid
+verbatim block. A paragraph or list-item head containing exactly one inline
+verbatim value becomes a literal string. A list item with an empty head may use
+children to hold another list, map, scalar, or verbatim value. Do not combine a
+nonempty item head with children or mix incompatible child shapes. Only the first valid
 top-level `meta` block is document metadata; ordinary definitions remain body
 content.
 

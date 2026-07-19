@@ -273,10 +273,14 @@ container marker 是 `[meta]，definition marker 是 `[:]，list item marker 是
 metadata key 必须是非空、无 whitespace、无 inline markup 的 plain text；同一 map 内 duplicate
 key 产生 semantic diagnostic，并用 related range 指向第一次 occurrence。
 
-definition body 按 shape 投影：空 body 为 null；单 paragraph 为 rich inline scalar；相邻
+definition body 按 shape 投影：空 body 为 null；单 paragraph 为 rich inline scalar，其中只有
+一个无 attributes inline verbatim 的 paragraph 投影为 verbatim scalar；相邻
 `[-] children 为 list；相邻 `[:] children 为 map；单 verbatim block 为 verbatim scalar。
-其他 mixed body 产生 `[metadata.unsupported-value] diagnostic。list item 当前不能拥有 child
-blocks。所有 records 保留 node、key、value 与 nested entries 的 source ranges。
+list item 的非空 head 是 scalar，同样把单个无 attributes inline verbatim 投影为 verbatim
+scalar；空 head 可以用相同 shape rules 从 children 递归产生 nested list、map、scalar 或
+verbatim value。非空 head 与 children 混用产生
+`[metadata.invalid-list-item] diagnostic；其他 mixed body 产生 `[metadata.unsupported-value]
+diagnostic。所有 records 保留 node、key、value 与 nested entries 的 source ranges。
 
 当前 LSP 合并 metadata diagnostics，并把 `[metadata] object 与 nested keys 映射到
 `[textDocument/documentSymbol]。workspace operation 可以在 syntax-valid、尚无 `[meta] 的文档

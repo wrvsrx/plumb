@@ -101,7 +101,8 @@ pandoc 仅作为 writer 消费结果。
 
 唯一顶层 `[meta] block 不进入 Pandoc body，而是投影到 Pandoc `[meta]：scalar、list、map、
 verbatim、null 分别 lower 为 `[MetaInlines]、`[MetaList]、`[MetaMap]、`[MetaString] 和空
-`[MetaString]。duplicate key 使用第一个值；`[metadata.unsupported-value] 会让 export 明确失败。
+`[MetaString]；空 head list item 可以递归承载 nested list/map/value。duplicate key 使用第一个值；
+`[metadata.unsupported-value] 会让 export 明确失败。
 
 单个 plain-id citation 写作 `"[`cite[smith2004]]"，并 lower 为单 item、`[NormalCitation] mode 的
 Pandoc `[Cite]；正文和 metadata rich scalar 都支持。复杂 cluster、affix、locator 和其他 mode
