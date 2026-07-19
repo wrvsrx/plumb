@@ -44,6 +44,14 @@ pub(crate) struct ServerState {
     supports_document_changes: bool,
     supports_resource_rename: bool,
     supports_dynamic_watching: bool,
+    pending_path_renames: Vec<PendingPathRename>,
+}
+
+struct PendingPathRename {
+    old_path: PathBuf,
+    new_path: PathBuf,
+    old_removed: bool,
+    new_seen: bool,
 }
 
 impl ServerState {
@@ -56,6 +64,7 @@ impl ServerState {
             supports_document_changes: false,
             supports_resource_rename: false,
             supports_dynamic_watching: false,
+            pending_path_renames: Vec::new(),
         }
     }
 
@@ -171,6 +180,57 @@ impl ServerState {
         tokio::spawn(async move {
             let _ = client.register_capability(params).await;
         });
+    }
+
+    fn begin_path_rename(&mut self, old_path: PathBuf, new_path: PathBuf) {
+        if let Some(entry) = self.workspace.get(&old_path) {
+            let revision = entry.revision;
+            let source = entry.parsed.source.clone();
+            self.workspace.insert(&new_path, revision, source);
+            self.workspace.remove(&old_path);
+        }
+        self.pending_path_renames.push(PendingPathRename {
+            old_path,
+            new_path,
+            old_removed: false,
+            new_seen: false,
+        });
+    }
+
+    fn confirm_pending_path_rename(&mut self, changed_path: &Path) {
+        for rename in &mut self.pending_path_renames {
+            if changed_path == rename.old_path {
+                rename.old_removed = !rename.old_path.exists();
+                if rename.old_removed {
+                    self.workspace.remove(&rename.old_path);
+                }
+                if !rename.new_path.exists()
+                    && !self
+                        .open_documents
+                        .values()
+                        .any(|open| open == &rename.new_path)
+                {
+                    self.workspace.remove(&rename.new_path);
+                    rename.new_seen = false;
+                }
+            } else if changed_path == rename.new_path {
+                rename.new_seen = rename.new_path.exists();
+                if rename.new_seen {
+                    if let Ok(text) = fs::read_to_string(&rename.new_path) {
+                        self.workspace.insert(&rename.new_path, 0, text);
+                    }
+                } else if !self
+                    .open_documents
+                    .values()
+                    .any(|open| open == &rename.new_path)
+                {
+                    self.workspace.remove(&rename.new_path);
+                }
+                rename.old_removed = !rename.old_path.exists();
+            }
+        }
+        self.pending_path_renames
+            .retain(|rename| !(rename.old_removed && rename.new_seen));
     }
 
     fn target_at(&self, path: &Path, offset: usize) -> Option<ResolvedTarget> {
@@ -345,7 +405,11 @@ impl LanguageServer for ServerState {
                 continue;
             };
             let path = normalize(&path);
-            if !is_plumb_file(&path) || self.open_documents.values().any(|open| open == &path) {
+            if !is_plumb_file(&path) {
+                continue;
+            }
+            self.confirm_pending_path_rename(&path);
+            if self.open_documents.values().any(|open| open == &path) {
                 continue;
             }
             match change.typ {
@@ -746,17 +810,29 @@ impl LanguageServer for ServerState {
                     params.text_document_position.position,
                 );
                 if let Ok(target) = self.workspace.anchor_rename_target_at(&path, offset) {
-                    return self.workspace.rename_anchor(&target, &params.new_name).ok();
+                    let edit = self
+                        .workspace
+                        .rename_anchor(&target, &params.new_name)
+                        .ok()?;
+                    return workspace_edit_to_lsp(&self.workspace, edit);
                 }
                 if !self.supports_resource_rename {
                     return None;
                 }
                 let target = self.workspace.path_rename_target_at(&path, offset).ok()?;
-                self.workspace
+                let edit = self
+                    .workspace
                     .rename_document(&target, &params.new_name)
-                    .ok()
-            })
-            .and_then(|edit| workspace_edit_to_lsp(&self.workspace, edit));
+                    .ok()?;
+                let (old_path, new_path) =
+                    edit.resource_operations.iter().find_map(|operation| {
+                        let ResourceOperation::Rename { old_path, new_path } = operation;
+                        Some((old_path.clone(), new_path.clone()))
+                    })?;
+                let lsp_edit = workspace_edit_to_lsp(&self.workspace, edit)?;
+                self.begin_path_rename(old_path, new_path);
+                Some(lsp_edit)
+            });
         Box::pin(async move { Ok(result) })
     }
 }

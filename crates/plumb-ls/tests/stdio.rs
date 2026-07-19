@@ -214,11 +214,12 @@ fn inserts_metadata_code_action_only_for_valid_documents_without_metadata() {
     ];
 
     let output = run_server(&messages);
-    assert!(response(&output, 1)["result"]["capabilities"]["codeActionProvider"]
-        ["codeActionKinds"]
-        .as_array()
-        .unwrap()
-        .contains(&json!("refactor.rewrite")));
+    assert!(
+        response(&output, 1)["result"]["capabilities"]["codeActionProvider"]["codeActionKinds"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("refactor.rewrite"))
+    );
     let actions = response(&output, 2)["result"].as_array().unwrap();
     assert_eq!(actions.len(), 1);
     assert_eq!(actions[0]["title"], "Insert document metadata");
@@ -820,6 +821,94 @@ fn task_references_support_navigation_and_rename() {
             .count(),
         2
     );
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn path_rename_is_optimistic_and_reconciles_failed_client_application() {
+    let root = unique_temp_dir();
+    std::fs::create_dir_all(&root).unwrap();
+    let old_target = root.join("old.plumb");
+    let new_target = root.join("new.plumb");
+    let source = root.join("source.plumb");
+    let target_text = "`#{#target} Target\n";
+    let old_source = "See `link[target]{to=\"old.plumb#target\"}.\n";
+    let new_source = "See `link[target]{to=\"new.plumb#target\"}.\n";
+    std::fs::write(&old_target, target_text).unwrap();
+    std::fs::write(&source, old_source).unwrap();
+    let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
+    let old_uri = lsp_types::Url::from_file_path(&old_target).unwrap();
+    let new_uri = lsp_types::Url::from_file_path(&new_target).unwrap();
+    let source_uri = lsp_types::Url::from_file_path(&source).unwrap();
+    let path_position = old_source.find("old.plumb").unwrap();
+    let target_position = old_source.find("#target").unwrap() + 1;
+    let messages = [
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {
+                "processId": null,
+                "rootUri": root_uri,
+                "workspaceFolders": [{ "uri": root_uri, "name": "test" }],
+                "capabilities": { "workspace": { "workspaceEdit": {
+                    "documentChanges": true, "resourceOperations": ["rename"]
+                } } }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": {
+                "uri": source_uri, "languageId": "plumb", "version": 1, "text": old_source
+            }}
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 2, "method": "textDocument/rename",
+            "params": {
+                "textDocument": { "uri": source_uri },
+                "position": { "line": 0, "character": path_position },
+                "newName": "new.plumb"
+            }
+        }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didChange",
+            "params": {
+                "textDocument": { "uri": source_uri, "version": 2 },
+                "contentChanges": [{ "text": new_source }]
+            }
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 3, "method": "textDocument/definition",
+            "params": {
+                "textDocument": { "uri": source_uri },
+                "position": { "line": 0, "character": target_position }
+            }
+        }),
+        json!({
+            "jsonrpc": "2.0", "method": "workspace/didChangeWatchedFiles",
+            "params": { "changes": [{ "uri": old_uri, "type": 2 }] }
+        }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didChange",
+            "params": {
+                "textDocument": { "uri": source_uri, "version": 3 },
+                "contentChanges": [{ "text": old_source }]
+            }
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 4, "method": "textDocument/definition",
+            "params": {
+                "textDocument": { "uri": source_uri },
+                "position": { "line": 0, "character": target_position }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 5, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+    let output = run_server(&messages);
+    assert_eq!(response(&output, 3)["result"]["uri"], new_uri.as_str());
+    assert_eq!(response(&output, 4)["result"]["uri"], old_uri.as_str());
+    assert!(old_target.exists());
+    assert!(!new_target.exists());
     std::fs::remove_dir_all(root).unwrap();
 }
 

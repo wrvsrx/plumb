@@ -185,7 +185,8 @@ capability wiring 和 revision/cancellation policy，不复制 parser 或 semant
   候选同时按 metadata title 与 relative path fuzzy matching，label completion 生成完整 link，
   `[to] completion 插入 path，fragment completion 只插入显式 anchor。marker/通用 attrs 尚未补全。
 `- [plumb] MVP `[textDocument/prepareRename] / `[rename]：经 guarded operation 重命名 explicit
-  anchor；document/path rename 同时返回 resource rename 和所有受影响的 relative-link edits。
+  anchor；document/path rename 同时返回 resource rename 和所有受影响的 relative-link edits，
+  并以 watcher events reconcile optimistic workspace state 与实际 client/filesystem outcome。
 `- [plumb] MVP `[textDocument/hover]：目标类型、id、路径和源码预览。
 `- [plumb] MVP `[textDocument/codeAction]：当前提供 insert document metadata；后续提供 add
   explicit id。action 只包装 protocol-neutral operation 的 byte edits。
