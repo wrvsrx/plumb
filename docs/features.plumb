@@ -82,7 +82,7 @@ djot-tools crates。README、semantics 与实际 handler/command 用来确认已
   Pandoc AST，pandoc 只作为 writer。
 `- djot-tools 的 bundled Codex skills、Neovim 示例、内部 module cleanup 和计划中的 live web UI
   不属于当前 plumb feature 路线图。
-`- Disk-backed cache、static-site driver、math macros 和 task batch actions 保留为 later，
+`- Disk-backed cache、static-site driver 和 math macros 保留为 later，
   不阻塞首个完整 toolchain。
 
 `# 实现前必须完成的设计
@@ -246,8 +246,9 @@ capability wiring 和 revision/cancellation policy，不复制 parser 或 semant
 `- [plumb] v1 task tree/table output 已实现终端宽度适配，并保留 flat 与 no-heading
   script-friendly modes。
 `- [plumb] v1 complete/cancel task actions 已实现：消费 shared operation，只由 CLI 校验并落盘；
-  reopen deferred。
-`- [plumb] later indexed query prefilters、batch/interactive actions 和 structured output。
+  一次可处理多个 explicit `[path.plumb#task-id] targets，reopen deferred。
+`- [plumb] later indexed query prefilters、query-selected/interactive batch actions 和 structured
+  output。
 
 `# F. tree-sitter（`[tree-sitter-plumb]）
 

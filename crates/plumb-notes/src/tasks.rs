@@ -371,6 +371,33 @@ mod tests {
     }
 
     #[test]
+    fn task_action_updates_multiple_explicit_targets() {
+        let root = unique_temp_dir();
+        std::fs::create_dir_all(&root).unwrap();
+        let first = root.join("first.plumb");
+        let second = root.join("second.plumb");
+        std::fs::write(&first, "`item{.task #first} First\n").unwrap();
+        std::fs::write(&second, "`item{.task #second} Second\n").unwrap();
+
+        run_task_action(
+            &root,
+            TaskAction::Complete(crate::TaskTargetsConfig {
+                targets: vec![
+                    "first.plumb#first".to_string(),
+                    "second.plumb#second".to_string(),
+                ],
+            }),
+        )
+        .unwrap();
+
+        assert!(std::fs::read_to_string(first).unwrap().contains(" done=\""));
+        assert!(std::fs::read_to_string(second)
+            .unwrap()
+            .contains(" done=\""));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn task_table_wraps_to_requested_width() {
         let records = [TaskOutputRecord {
             status: "-".to_string(),
