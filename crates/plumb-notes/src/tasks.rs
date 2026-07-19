@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 
 use cel::{Context, ExecutionError, Program, Value};
 use chrono::{DateTime, FixedOffset, Local, SecondsFormat};
+use comfy_table::{presets::NOTHING, ContentArrangement, Table};
 use plumb_extensions::{TaskRecord, TaskState, TaskStatus};
 use plumb_workspace::{normalize, TaskEditError, TaskRef, TextEdit, Workspace};
 
@@ -80,27 +81,28 @@ fn task_output_record(root: &Path, path: &Path, task: &TaskRecord, tree: bool) -
 }
 
 fn render_task_table(records: &[TaskOutputRecord], heading: bool) -> String {
-    let status_width = 1;
-    let title_width = records
-        .iter()
-        .map(|record| record.title.chars().count())
-        .chain(heading.then_some("Task".len()))
-        .max()
-        .unwrap_or(0);
-    let mut lines = Vec::new();
-    if heading {
-        lines.push(format!(
-            "{:<status_width$}  {:<title_width$}  Source",
-            "S", "Task"
-        ));
+    render_task_table_with_width(records, heading, None)
+}
+
+fn render_task_table_with_width(
+    records: &[TaskOutputRecord],
+    heading: bool,
+    width: Option<u16>,
+) -> String {
+    let mut table = Table::new();
+    table
+        .load_preset(NOTHING)
+        .set_content_arrangement(ContentArrangement::Dynamic);
+    if let Some(width) = width {
+        table.set_width(width);
     }
-    lines.extend(records.iter().map(|record| {
-        format!(
-            "{:<status_width$}  {:<title_width$}  {}",
-            record.status, record.title, record.source
-        )
-    }));
-    lines.join("\n")
+    if heading {
+        table.set_header(["S", "Task", "Source"]);
+    }
+    for record in records {
+        table.add_row([&record.status, &record.title, &record.source]);
+    }
+    table.to_string()
 }
 
 struct TaskQueryPlan {
@@ -329,7 +331,11 @@ mod tests {
 
         let all = task_records(&root, &loaded, None, true).unwrap();
         assert!(all.iter().any(|record| record.title == "> Nested"));
-        assert!(render_task_table(&records, true).starts_with("S  Task"));
+        let rendered = render_task_table(&records, true);
+        let heading = rendered.lines().next().unwrap();
+        assert!(heading.contains('S'));
+        assert!(heading.contains("Task"));
+        assert!(heading.contains("Source"));
         std::fs::remove_dir_all(root).unwrap();
     }
 
@@ -349,6 +355,22 @@ mod tests {
         let updated = std::fs::read_to_string(path).unwrap();
         assert!(updated.contains("done=\"2026-07-20T12:00:00+08:00\""));
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn task_table_wraps_to_requested_width() {
+        let records = [TaskOutputRecord {
+            status: "-".to_string(),
+            title: "Write a parser that handles narrow terminals".to_string(),
+            source: "tasks.plumb#write-parser".to_string(),
+        }];
+
+        let rendered = render_task_table_with_width(&records, true, Some(40));
+        assert!(rendered.lines().all(|line| line.chars().count() <= 40));
+        assert!(rendered.lines().count() > 2);
+        let without_heading = render_task_table_with_width(&records, false, Some(100));
+        assert!(!without_heading.contains("Task"));
+        assert!(without_heading.contains("Write a parser"));
     }
 
     fn unique_temp_dir() -> PathBuf {

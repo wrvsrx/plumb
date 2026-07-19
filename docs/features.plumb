@@ -227,7 +227,8 @@ capability wiring 和 revision/cancellation policy，不复制 parser 或 semant
   从 query 建档。
 `- [plumb] v1 CEL task query：id/title/source、datetime/state、depends_on、directly_blocking、
   blocked/actionable 和 operation context 中的 now。
-`- [plumb] v1 task tree/table output，保留 flat 与 no-heading script-friendly modes。
+`- [plumb] v1 task tree/table output 已实现终端宽度适配，并保留 flat 与 no-heading
+  script-friendly modes。
 `- [plumb] v1 complete/cancel task actions 已实现：消费 shared operation，只由 CLI 校验并落盘；
   reopen deferred。
 `- [plumb] later indexed query prefilters、batch/interactive actions 和 structured output。

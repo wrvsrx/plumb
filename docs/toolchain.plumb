@@ -76,7 +76,8 @@ Pandoc `[Cite]；正文和 metadata rich scalar 都支持。复杂 cluster、aff
   plumb-notes task cancel notes/tasks.plumb#obsolete-task
 
 `[plumb-notes task] 递归读取 workspace task，默认以 nested table 输出；`[--flat] 省略 nesting
-缩进，`[--no-heading] 适合脚本消费。CEL query fields 包括 `[path]、`[id]、`[title]、
+缩进，`[--no-heading] 适合脚本消费；table 按当前终端 display width 动态分配列并折行。CEL query
+fields 包括 `[path]、`[id]、`[title]、
 `[created]、`[due]、`[wait]、`[done]、`[canceled]、`[recur]、`[prev]、`[depends_on]、
 `[directly_blocking]、`[blocked]、`[actionable] 和 `[now]；datetime fields 与 `[now] 是 CEL
 timestamp，缺失的 optional field 是 null。complete/cancel 通过 shared guarded operation 修改文件，
