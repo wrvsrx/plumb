@@ -28,7 +28,7 @@ use lsp_types::{
 use plumb_core::Diagnostic;
 use plumb_extensions::{
     link_completion_context, AnchorKind, AnchorRecord, Heading, MetadataBlock, MetadataEntry,
-    MetadataValue,
+    MetadataValue, TaskRecord, TaskState,
 };
 use plumb_workspace::{normalize, ResolvedTarget, ResourceOperation, Workspace, WorkspaceEdit};
 
@@ -352,12 +352,22 @@ impl LanguageServer for ServerState {
                     .map(|heading| heading_symbol(&entry.parsed.source, heading))
                     .collect::<Vec<_>>();
                 symbols.extend(current.output.anchors.iter().filter_map(|anchor| {
-                    (anchor.kind != AnchorKind::Heading)
-                        .then(|| anchor_symbol(&entry.parsed.source, anchor))
+                    (anchor.kind != AnchorKind::Heading
+                        && !current
+                            .output
+                            .tasks
+                            .tasks
+                            .iter()
+                            .any(|task| task.range == anchor.range))
+                    .then(|| anchor_symbol(&entry.parsed.source, anchor))
                 }));
                 if let Some(metadata) = &current.output.metadata.metadata {
                     symbols.push(metadata_symbol(&entry.parsed.source, metadata));
                 }
+                symbols.extend(task_symbols(
+                    &entry.parsed.source,
+                    &current.output.tasks.tasks,
+                ));
                 symbols
             });
         Box::pin(async move { Ok(symbols.map(DocumentSymbolResponse::Nested)) })
@@ -443,6 +453,18 @@ impl LanguageServer for ServerState {
             .and_then(|path| {
                 let entry = self.workspace.get(&path)?;
                 let offset = position_to_offset(&entry.parsed.source, position.position);
+                if let Some(task) = self.workspace.task_at(&path, offset) {
+                    return Some(Hover {
+                        contents: HoverContents::Markup(MarkupContent {
+                            kind: MarkupKind::Markdown,
+                            value: task_hover(&self.workspace, &path, task),
+                        }),
+                        range: Some(byte_range_to_lsp(
+                            &entry.parsed.source,
+                            &task.selection_range,
+                        )),
+                    });
+                }
                 let target = self.target_at(&path, offset)?;
                 let message = match target {
                     ResolvedTarget::Anchor { path, id, .. } => {
@@ -715,6 +737,112 @@ fn metadata_entry_symbol(source: &str, entry: &MetadataEntry) -> DocumentSymbol 
         range: byte_range_to_lsp(source, &entry.range),
         selection_range: byte_range_to_lsp(source, &entry.key_range),
         children,
+    }
+}
+
+fn task_symbols(source: &str, tasks: &[TaskRecord]) -> Vec<DocumentSymbol> {
+    let mut roots = Vec::new();
+    let mut path = Vec::new();
+    for task in tasks {
+        while path.len() > task.depth {
+            path.pop();
+        }
+        let siblings = task_symbol_children_mut(&mut roots, &path);
+        siblings.push(task_symbol(source, task));
+        path.push(siblings.len() - 1);
+    }
+    roots
+}
+
+fn task_symbol(source: &str, task: &TaskRecord) -> DocumentSymbol {
+    let id = task
+        .id
+        .as_ref()
+        .map(|id| format!(" #{}", id.value))
+        .unwrap_or_default();
+    #[allow(deprecated)]
+    DocumentSymbol {
+        name: if task.title.is_empty() {
+            "Untitled task".to_string()
+        } else {
+            task.title.clone()
+        },
+        detail: Some(format!("{}{}", task_state_name(task.state()), id)),
+        kind: SymbolKind::EVENT,
+        tags: None,
+        deprecated: None,
+        range: byte_range_to_lsp(source, &task.range),
+        selection_range: byte_range_to_lsp(source, &task.selection_range),
+        children: None,
+    }
+}
+
+fn task_symbol_children_mut<'a>(
+    roots: &'a mut Vec<DocumentSymbol>,
+    path: &[usize],
+) -> &'a mut Vec<DocumentSymbol> {
+    let mut children = roots;
+    for index in path {
+        children = children[*index].children.get_or_insert_with(Vec::new);
+    }
+    children
+}
+
+fn task_hover(workspace: &Workspace, path: &Path, task: &TaskRecord) -> String {
+    let state = match task.state() {
+        TaskState::Open if workspace.is_task_blocked(path, task) => "blocked",
+        state => task_state_name(state),
+    };
+    let mut lines = vec![
+        format!("**Task:** {}", task.title),
+        format!("**State:** {state}"),
+    ];
+    if let Some(id) = &task.id {
+        lines.push(format!("**ID:** `#{}`", id.value));
+    }
+    for (label, field) in [
+        ("Created", &task.created),
+        ("Due", &task.due),
+        ("Wait", &task.wait),
+        ("Done", &task.done),
+        ("Canceled", &task.canceled),
+        ("Recur", &task.recur),
+        ("Previous", &task.prev),
+    ] {
+        if let Some(field) = field {
+            lines.push(format!("**{label}:** `{}`", field.value));
+        }
+    }
+    if !task.depends.is_empty() {
+        lines.push(format!(
+            "**Depends:** {}",
+            task.depends
+                .iter()
+                .map(|dependency| format!("`{}`", dependency.source))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+    }
+    let blockers = workspace.open_task_dependencies(path, task);
+    if !blockers.is_empty() {
+        lines.push(format!(
+            "**Open blockers:** {}",
+            blockers
+                .iter()
+                .map(|dependency| format!("`{}`", dependency.source))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+    }
+    lines.join("\n\n")
+}
+
+fn task_state_name(state: TaskState) -> &'static str {
+    match state {
+        TaskState::Open => "open",
+        TaskState::Done => "done",
+        TaskState::Canceled => "canceled",
+        TaskState::Conflicted => "conflicted",
     }
 }
 

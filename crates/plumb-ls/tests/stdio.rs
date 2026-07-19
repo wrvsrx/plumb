@@ -263,6 +263,87 @@ fn omits_metadata_code_action_without_guarded_edit_support() {
 }
 
 #[test]
+fn publishes_task_symbols_hover_and_workspace_diagnostics() {
+    let root = unique_temp_dir();
+    std::fs::create_dir_all(&root).unwrap();
+    let blockers_path = root.join("blockers.plumb");
+    let tasks_path = root.join("tasks.plumb");
+    let blocker_source = "`item{.task #draft} Draft dependency\n";
+    let task_source = "`item{.task #review due=\"not-a-date\" recur=P1M1D depends=\"blockers.plumb#draft\"} Review task\n  `item{.task #nested done=\"2026-07-20T10:00:00Z\"} Nested task\n";
+    std::fs::write(&blockers_path, blocker_source).unwrap();
+    std::fs::write(&tasks_path, task_source).unwrap();
+    let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
+    let tasks_uri = lsp_types::Url::from_file_path(&tasks_path).unwrap();
+    let messages = [
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {
+                "processId": null,
+                "rootUri": root_uri,
+                "workspaceFolders": [{ "uri": root_uri, "name": "test" }],
+                "capabilities": {}
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": {
+                "uri": tasks_uri, "languageId": "plumb", "version": 3, "text": task_source
+            }}
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 2, "method": "textDocument/documentSymbol",
+            "params": { "textDocument": { "uri": tasks_uri } }
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 3, "method": "textDocument/hover",
+            "params": {
+                "textDocument": { "uri": tasks_uri },
+                "position": { "line": 0, "character": 1 }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 4, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+
+    let output = run_server(&messages);
+    let symbols = response(&output, 2)["result"].as_array().unwrap();
+    assert_eq!(symbols.len(), 1);
+    assert_eq!(symbols[0]["name"], "Review task");
+    assert_eq!(symbols[0]["detail"], "open #review");
+    assert_eq!(symbols[0]["children"][0]["name"], "Nested task");
+    assert_eq!(symbols[0]["children"][0]["detail"], "done #nested");
+
+    let hover = response(&output, 3)["result"]["contents"]["value"]
+        .as_str()
+        .unwrap();
+    assert!(hover.contains("**State:** blocked"));
+    assert!(hover.contains("**Recur:** `P1M1D`"));
+    assert!(hover.contains("**Depends:** `blockers.plumb#draft`"));
+    assert!(hover.contains("**Open blockers:** `blockers.plumb#draft`"));
+
+    let diagnostics = output
+        .iter()
+        .filter(|message| message.get("method") == Some(&json!("textDocument/publishDiagnostics")))
+        .last()
+        .unwrap();
+    let diagnostics = diagnostics["params"]["diagnostics"].as_array().unwrap();
+    assert!(diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic["code"] == "task.invalid-recur"));
+    assert!(diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic["code"] == "task.missing-due-for-recur"));
+    let blocked = diagnostics
+        .iter()
+        .find(|diagnostic| diagnostic["code"] == "task.blocked")
+        .unwrap();
+    assert_eq!(blocked["severity"], 4);
+
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn resolves_cross_file_navigation_over_stdio() {
     let root = unique_temp_dir();
     std::fs::create_dir_all(&root).unwrap();
