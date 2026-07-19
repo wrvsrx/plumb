@@ -30,6 +30,8 @@ SyntaxTree contract 已冻结；normalized AST 和 extension-specific semantics 
 `- task extension 识别任意 marked block 上的 `[.task] facet，产生 local records、状态与字段
   diagnostics；workspace 建立跨文件 dependency/reverse-blocker graph，并诊断无效 target、self
   dependency、cycle 和 blocked state。
+`- list extension 识别 `[item] marker，并把同层相邻 items 聚合为 source-backed groups；
+  `[plumb-export] lower 为 nested Pandoc `[BulletList]，带属性 item 通过内部 `[Div] 保留属性。
 `- `[plumb-ls] 输出 nested task symbols、task hover、complete/cancel code actions 与 closed task
   semantic tokens；`[prev]/`[depends] 参与 definition/references 与 anchor/document rename；
   recurring task action 会关闭当前实例并追加下一实例。
@@ -55,8 +57,8 @@ djot-tools crates。README、semantics 与实际 handler/command 用来确认已
 `- 文档导航：heading/anchor/task document symbols；同文件与跨文件 definition；正向 target
   resolution、references/backlinks；link/anchor/task hover。
 `- 编辑辅助：按 title/path 模糊补全文件引用，补全 link path 与 anchor fragment；显式 anchor
-  rename；document/path rename 并更新引用；metadata insertion、task state change 和 list-to-task
-  conversion code actions；closed task semantic tokens。
+  rename；document/path rename 并更新引用；metadata insertion 与 task state change code actions；
+  closed task semantic tokens。
 `- 诊断：duplicate anchor、unresolved document/anchor、无效 task fields、非 task target、
   self-dependency、dependency cycle 和互斥 task state。
 `- Workspace：root scan、open-buffer-over-disk、create/change/remove targeted re-index、file
@@ -154,8 +156,10 @@ capability negotiation、不可变 operation context，以及独立的 cancellat
 `- [plumb] MVP html / pandoc export extension：从 valid typed view 或 exporter-specific
   normalized model 产生 Pandoc JSON AST，再交给 pandoc writer。
 `- [plumb] MVP definition-list facts 与 definition-list based metadata analysis。
+`- [plumb] v1 list-item analysis 已实现：识别 `[item]，按 sibling adjacency 聚合 groups，并保留
+  nested groups 与 source ranges。
 `- [plumb] v1 task analysis 已实现：解释任意 marked block 的 `[.task] facet、状态、日期、嵌套与
-  查询字段。list item aggregation 和 event analysis 尚未实现。
+  查询字段。event analysis 尚未实现。
 `- [plumb] v1 task operation 已实现 complete/cancel 与 guarded text edits；reopen deferred。
   cursor operation 支持从 closed nested task 回退到最深 open ancestor；id operation 保持精确命中。
 `- [plumb] v1 metadata authoring/query adapters；单 plain-id citation records 与 metadata
@@ -218,6 +222,8 @@ capability wiring 和 revision/cancellation policy，不复制 parser 或 semant
   unsupported value 拒绝 export，duplicate key first-wins。
 `- [plumb] v1 单 plain-id citation record lowering 到 Pandoc Cite，由下游 citeproc 解析
   bibliography。
+`- [plumb] v1 相邻/nested `[item] groups lowering 到 Pandoc BulletList；带属性 item 使用内部
+  Div 保存 id/classes/pairs。
 `- [plumb] later structured citation clusters、prefix/suffix/locator、suppress-author、
   author-in-text 和 rich affixes；不嵌入 Pandoc Markdown citation mini-language。
 `- [plumb] v1 meta、tasks、links 等 extension 结果参与导出。

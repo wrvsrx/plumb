@@ -222,6 +222,12 @@ task/event 是可叠加 facets，不排斥 list item、heading 或
 anchor。link recognizer 只解析 target spelling，cross-file resolver 再依赖 workspace anchor
 index；这些 extension 都不修改原 SyntaxTree。
 
+当前 `[ListItemRecord] 保存 item block 与 head selection ranges；`[ListGroup] 聚合同一 sibling
+层连续的 `[item] records，非 item sibling 会结束当前 group，nested children 独立产生 nested
+group。export extension 把 group lower 为 Pandoc `[BulletList]；item head 成为 `[Para]，children
+递归 lower。item attributes 不能直接挂在 Pandoc list item 上，因此有属性时在 item body 内包
+一层 `[Div] 保存 id/classes/pairs；这使 `[.task] facet 与 list 语义可以同时保留。
+
 Heading marker 是一至六个 `[#]，marker 长度直接给出 level；例如
 `[`#{#intro} Heading] 是带显式 anchor 的一级 heading。
 

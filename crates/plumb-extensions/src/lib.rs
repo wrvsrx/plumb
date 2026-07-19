@@ -1,6 +1,7 @@
 mod citations;
 mod document;
 mod headings;
+mod lists;
 mod metadata;
 mod queries;
 mod tasks;
@@ -11,6 +12,7 @@ pub use document::{
     SourceBacked,
 };
 pub use headings::{analyze_headings, Heading, HeadingOutput};
+pub use lists::{analyze_lists, ListGroup, ListItemRecord, ListOutput};
 pub use metadata::{
     analyze_metadata, DefinitionList, DefinitionRecord, MetadataBlock, MetadataEntry,
     MetadataListItem, MetadataOutput, MetadataValue,

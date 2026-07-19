@@ -71,6 +71,8 @@ exporter 直接从 `[plumb-core] valid tree 生成 Pandoc JSON，不调用 Pando
 heading、generic marked block、verbatim block、generic span 和 inline verbatim 分别 lower 到
 Para、Header、Div、CodeBlock、Span 和 Code。generic marker 保存在
 `[data-plumb-marker] attribute 中；
+同层相邻 `[item] blocks 聚合为 BulletList，nested items 递归形成 nested BulletList；item 有
+attributes 时以内部 Div 保留 id/classes/pairs，包括可叠加的 `[.task] facet。
 pandoc 仅作为 writer 消费结果。
 
 唯一顶层 `[meta] block 不进入 Pandoc body，而是投影到 Pandoc `[meta]：scalar、list、map、

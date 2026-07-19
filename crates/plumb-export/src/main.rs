@@ -135,8 +135,17 @@ fn lower_metadata_value(
 
 fn lower_blocks(blocks: &[Block], analysis: &DocumentOutput) -> Vec<Value> {
     let mut output = Vec::new();
-    for block in blocks {
-        match block {
+    let mut index = 0;
+    while index < blocks.len() {
+        if let Block::Parsed(block) = &blocks[index] {
+            if let Some(group) = analysis.lists.group_at_node_start(block.range.start) {
+                let end = index + group.items.len();
+                output.push(lower_list_group(&blocks[index..end], analysis));
+                index = end;
+                continue;
+            }
+        }
+        match &blocks[index] {
             Block::Verbatim(block) => {
                 output.push(json!({
                     "t": "CodeBlock",
@@ -145,8 +154,35 @@ fn lower_blocks(blocks: &[Block], analysis: &DocumentOutput) -> Vec<Value> {
             }
             Block::Parsed(parsed) => lower_parsed_block(parsed, analysis, &mut output),
         }
+        index += 1;
     }
     output
+}
+
+fn lower_list_group(blocks: &[Block], analysis: &DocumentOutput) -> Value {
+    let items = blocks
+        .iter()
+        .map(|block| {
+            let Block::Parsed(block) = block else {
+                unreachable!("a list group contains only parsed item blocks")
+            };
+            let mark = block.mark.as_ref().expect("a list item has a mark");
+            let mut contents = Vec::new();
+            if !block.head.items.is_empty() {
+                contents.push(json!({ "t": "Para", "c": lower_inlines(&block.head, analysis) }));
+            }
+            contents.extend(lower_blocks(&block.children, analysis));
+            if mark.attrs.items.is_empty() {
+                contents
+            } else {
+                vec![json!({
+                    "t": "Div",
+                    "c": [lower_attrs(&mark.attrs, None), contents],
+                })]
+            }
+        })
+        .collect::<Vec<_>>();
+    json!({ "t": "BulletList", "c": items })
 }
 
 fn lower_parsed_block(block: &ParsedBlock, analysis: &DocumentOutput, output: &mut Vec<Value>) {
@@ -283,6 +319,30 @@ mod tests {
         assert_eq!(blocks[0]["t"], "Header");
         assert_eq!(blocks[1]["t"], "Para");
         assert_eq!(blocks[2]["t"], "Div");
+    }
+
+    #[test]
+    fn exports_adjacent_and_nested_items_as_bullet_lists() {
+        let source = "`item One\n`item{.task #two priority=high} Two\n  `item Nested\nParagraph.\n";
+        let document = export(source).unwrap();
+        let blocks = document["blocks"].as_array().unwrap();
+
+        assert_eq!(blocks.len(), 2);
+        assert_eq!(blocks[0]["t"], "BulletList");
+        let items = blocks[0]["c"].as_array().unwrap();
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0][0]["t"], "Para");
+        assert_eq!(items[0][0]["c"][0]["c"], "One");
+
+        let attributed = &items[1][0];
+        assert_eq!(attributed["t"], "Div");
+        assert_eq!(attributed["c"][0][0], "two");
+        assert_eq!(attributed["c"][0][1], json!(["task"]));
+        assert_eq!(attributed["c"][0][2], json!([["priority", "high"]]));
+        assert_eq!(attributed["c"][1][0]["t"], "Para");
+        assert_eq!(attributed["c"][1][1]["t"], "BulletList");
+        assert_eq!(attributed["c"][1][1]["c"][0][0]["c"][0]["c"], "Nested");
+        assert_eq!(blocks[1]["t"], "Para");
     }
 
     #[test]
