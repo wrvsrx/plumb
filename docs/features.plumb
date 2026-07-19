@@ -27,6 +27,12 @@ SyntaxTree contract 已冻结；normalized AST 和 extension-specific semantics 
   rendered body 移除 `[meta] block；unsupported value 时拒绝 export。
 `- citation extension 识别单个 plain-id `"[`cite[id]]"，发布 invalid-shape diagnostics；
   `[plumb-export] 在 body 与 metadata 中 lower 为单 item Pandoc `[Cite]。
+`- task extension 识别任意 marked block 上的 `[.task] facet，产生 local records、状态与字段
+  diagnostics；workspace 建立跨文件 dependency/reverse-blocker graph，并诊断无效 target、self
+  dependency、cycle 和 blocked state。
+`- `[plumb-ls] 输出 nested task symbols、task hover、complete/cancel code actions 与 closed task
+  semantic tokens；recurring task action 会关闭当前实例并追加下一实例。
+`- `[plumb-notes task] 提供 CEL task query、nested/flat table output 与 complete/cancel actions。
 
 当前 heading profile 已确定：`[#] 至 `[######] marker 的长度是 level，`[{#id}] 是唯一
 显式 anchor spelling；`[id=value] 不产生 anchor。运行方法、测试边界和已知 parser gaps 见
@@ -147,9 +153,9 @@ capability negotiation、不可变 operation context，以及独立的 cancellat
 `- [plumb] MVP html / pandoc export extension：从 valid typed view 或 exporter-specific
   normalized model 产生 Pandoc JSON AST，再交给 pandoc writer。
 `- [plumb] MVP definition-list facts 与 definition-list based metadata analysis。
-`- [plumb] v1 list item aggregation、task 和 event analyses/aggregations。
-`- [plumb] v1 tasks operation：解释 marked block attrs 中的任务状态、日期和查询字段，
-  并提供状态变更所需的文本编辑。
+`- [plumb] v1 task analysis 已实现：解释任意 marked block 的 `[.task] facet、状态、日期、嵌套与
+  查询字段。list item aggregation 和 event analysis 尚未实现。
+`- [plumb] v1 task operation 已实现 complete/cancel 与 guarded text edits；reopen deferred。
 `- [plumb] v1 metadata authoring/query adapters；单 plain-id citation records 与 metadata
   export adapter 已实现。
 `- [plumb] v1 task dependency workspace analysis：产生 normalized dependency edges、reverse
@@ -187,9 +193,9 @@ capability wiring 和 revision/cancellation policy，不复制 parser 或 semant
 `- [plumb] MVP byte offset ↔ LSP UTF-16 Position 转换。
 `- [plumb] MVP async-lsp advertised notification 必须显式实现 handler，即使只是
   no-op。
-`- [plumb] v1 task/anchor symbols 与 task hover；task complete/cancel/reopen、list-to-task conversion
-  code actions。
-`- [plumb] v1 semantic tokens 标记 completed/canceled task；folding、selection range 和更多
+`- [plumb] v1 task/anchor symbols、task hover 与 complete/cancel code actions 已实现；reopen
+  deferred，native checkbox/list-to-task conversion 不属于 plumb profile。
+`- [plumb] v1 semantic tokens 标记 completed/canceled/conflicted task 已实现；folding、selection range 和更多
   refactors。
 `- [plumb] later heading-text rename：只更新 heading text；因为 heading title 不派生 anchor id，
   它不会隐式改写 references。
@@ -219,7 +225,8 @@ capability wiring 和 revision/cancellation policy，不复制 parser 或 semant
 `- [plumb] v1 CEL task query：id/title/source、datetime/state、depends_on、directly_blocking、
   blocked/actionable 和 operation context 中的 now。
 `- [plumb] v1 task tree/table output，保留 flat 与 no-heading script-friendly modes。
-`- [plumb] v1 complete/cancel/reopen task actions：消费 shared operation，只由 CLI 校验并落盘。
+`- [plumb] v1 complete/cancel task actions 已实现：消费 shared operation，只由 CLI 校验并落盘；
+  reopen deferred。
 `- [plumb] later indexed query prefilters、batch/interactive actions 和 structured output。
 
 `# F. tree-sitter（`[tree-sitter-plumb]）
@@ -263,10 +270,9 @@ capability wiring 和 revision/cancellation policy，不复制 parser 或 semant
 `- `[Phase 6: notes query]：实现 workspace-backed CEL document values、referrer graph、CLI scan/
   output；之后加入 picker、preview、editor open 和 safe file creation。Query schema 必须复用
   extension records，不能重新 parse source。
-`- `[Phase 7: structured semantics]：definition-list metadata vertical slice 已实现；继续加入
-  list grouping、tasks 和 events。
-  task 再分 local record/state、workspace dependency graph、hover/query、complete/cancel/reopen、
-  recurrence 五个 slices；每个 edit workflow 同时覆盖 LSP 与 CLI adapters。
+`- `[Phase 7: structured semantics]：definition-list metadata 与 task vertical slices 已实现；task
+  已覆盖 local record/state、workspace dependency graph、hover/query、complete/cancel、recurrence、
+  LSP 与 CLI adapters。list grouping、events 和 task reopen deferred。
 `- `[Phase 8: ergonomics and scale]：semantic tokens、folding、selection range、query prefilters、
   persistent cache 和 workspace/static-site export。只有 profiling 证明需要时才实现 disk cache
   或 parallel scheduling。

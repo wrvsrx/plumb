@@ -21,15 +21,20 @@
 `[plumb-ls] 通过 stdio 提供：
 
 `- FULL document sync。
-`- 当前 revision 的 strict syntax diagnostics；syntax valid 时再加入 heading、anchor、link 与
-  definition-list metadata diagnostics。
-`- `[textDocument/documentSymbol] nested heading、anchor 与 metadata key symbols。
+`- 当前 revision 的 strict syntax diagnostics；syntax valid 时再加入 heading、anchor、link、
+  definition-list metadata 与 task diagnostics，包括 dependency resolution、cycle 和 blocked hint。
+`- `[textDocument/documentSymbol] nested heading、anchor、metadata key 与 task symbols。
 `- definition-list metadata 使用顶层 `[meta]、`[:] definitions 和 `[item] list values；支持
   scalar、list、map、verbatim 与 null typed values。
 `- `[textDocument/codeAction] 为 syntax-valid、尚无 `[meta] 的文档提供
   `[Insert document metadata]；`[title] 默认取文件名 stem，`[created] 使用 action 执行时的本地
   RFC 3339 timestamp（秒精度），并在 byte offset 0 产生带 revision 的 guarded edit。client
   必须支持 `[workspace.workspaceEdit.documentChanges]。
+`- task hover 显示 state、id、时间、recurrence、dependencies 和 open blockers；`[Complete task]
+  与 `[Cancel task] code actions 复用 guarded workspace operation。recurring task action 同时关闭
+  当前实例并追加下一实例。
+`- semantic tokens 使用 `[task] token type；done、canceled 和 conflicted task 带 `[completed]
+  modifier。
 
 当前 server 会扫描 workspace、监听 `[*.plumb] changes，并实现 links、completion、
 anchor/document rename。metadata completion、已有 metadata 的任意 edit 和 hover 尚未实现。
@@ -55,6 +60,22 @@ verbatim、null 分别 lower 为 `[MetaInlines]、`[MetaList]、`[MetaMap]、`[M
 单个 plain-id citation 写作 `"[`cite[smith2004]]"，并 lower 为单 item、`[NormalCitation] mode 的
 Pandoc `[Cite]；正文和 metadata rich scalar 都支持。复杂 cluster、affix、locator 和其他 mode
 尚未实现；不接受 Pandoc Markdown `[@key] spelling。
+
+`# Notes
+
+`{language=text}
+  plumb-notes task
+  plumb-notes task --query 'actionable && due < now'
+  plumb-notes task --flat --no-heading
+  plumb-notes task complete notes/tasks.plumb#write-parser
+  plumb-notes task cancel notes/tasks.plumb#obsolete-task
+
+`[plumb-notes task] 递归读取 workspace task，默认以 nested table 输出；`[--flat] 省略 nesting
+缩进，`[--no-heading] 适合脚本消费。CEL query fields 包括 `[path]、`[id]、`[title]、
+`[created]、`[due]、`[wait]、`[done]、`[canceled]、`[recur]、`[prev]、`[depends_on]、
+`[directly_blocking]、`[blocked]、`[actionable] 和 `[now]；datetime fields 与 `[now] 是 CEL
+timestamp，缺失的 optional field 是 null。complete/cancel 通过 shared guarded operation 修改文件，
+recurring task 会同时生成下一实例。
 
 `# Heading and anchor profile
 
