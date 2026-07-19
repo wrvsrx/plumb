@@ -174,6 +174,13 @@ impl ServerState {
     }
 
     fn target_at(&self, path: &Path, offset: usize) -> Option<ResolvedTarget> {
+        if let Some(reference) = self.workspace.anchor_reference_at(path, offset) {
+            return Some(ResolvedTarget::Anchor {
+                path: reference.target_path,
+                id: reference.target_id,
+                anchor: reference.anchor,
+            });
+        }
         if let Some(anchor) = self.workspace.anchor_at(path, offset) {
             return Some(ResolvedTarget::Anchor {
                 path: normalize(path),
@@ -439,8 +446,8 @@ impl LanguageServer for ServerState {
                     .workspace
                     .references_to(&target_path, &id)
                     .into_iter()
-                    .filter_map(|(source_path, link)| {
-                        location_for(&self.workspace, source_path, &link.selection_range)
+                    .filter_map(|(source_path, reference)| {
+                        location_for(&self.workspace, source_path, &reference.source_range)
                     })
                     .collect::<Vec<_>>();
                 if params.context.include_declaration {

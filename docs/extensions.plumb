@@ -328,6 +328,12 @@ done/canceled/conflicted task。`[plumb-notes task] 通过 CEL 暴露 `[path]、
 datetime fields、`[recur]、`[prev]、`[depends_on]、`[directly_blocking]、`[blocked]、
 `[actionable] 和 operation `[now]，同时复用相同的 complete/cancel operation。
 
+`[prev] 与每个 `[depends] token 同时进入 shared reference index，因此 definition、references、
+explicit anchor rename 和 document/path rename 与普通 `[link] 使用同一 workspace resolution。
+task semantic validation 与 reference identity 分离：指向唯一 non-task anchor 的 field 仍可导航和
+rename，同时发布 `[task.non-task-target] diagnostic。document rename 重写 task reference path 时
+使用 URI percent encoding；同文件 `[#id] 不需要 path edit。
+
 reopen、batch action 和 event profile deferred。Djot/native checkbox task-list spelling 及其
 list-to-task conversion 不属于 plumb profile。
 

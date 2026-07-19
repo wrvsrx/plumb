@@ -31,7 +31,8 @@ SyntaxTree contract 已冻结；normalized AST 和 extension-specific semantics 
   diagnostics；workspace 建立跨文件 dependency/reverse-blocker graph，并诊断无效 target、self
   dependency、cycle 和 blocked state。
 `- `[plumb-ls] 输出 nested task symbols、task hover、complete/cancel code actions 与 closed task
-  semantic tokens；recurring task action 会关闭当前实例并追加下一实例。
+  semantic tokens；`[prev]/`[depends] 参与 definition/references 与 anchor/document rename；
+  recurring task action 会关闭当前实例并追加下一实例。
 `- `[plumb-notes task] 提供 CEL task query、nested/flat table output 与 complete/cancel actions。
 
 当前 heading profile 已确定：`[#] 至 `[######] marker 的长度是 level，`[{#id}] 是唯一

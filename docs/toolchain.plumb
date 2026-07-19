@@ -33,6 +33,8 @@
 `- task hover 显示 state、id、时间、recurrence、dependencies 和 open blockers；`[Complete task]
   与 `[Cancel task] code actions 复用 guarded workspace operation。recurring task action 同时关闭
   当前实例并追加下一实例。
+`- task `[prev] 与 `[depends] fields 参与 `[definition]、`[references]、anchor rename 和 document
+  rename；跨文件 task path 使用 URI percent encoding。
 `- semantic tokens 使用 `[task] token type；done、canceled 和 conflicted task 带 `[completed]
   modifier。
 

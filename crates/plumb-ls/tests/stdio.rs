@@ -647,6 +647,123 @@ fn completes_links_by_document_metadata_title() {
     std::fs::remove_dir_all(root).unwrap();
 }
 
+#[test]
+fn task_references_support_navigation_and_rename() {
+    let root = unique_temp_dir();
+    std::fs::create_dir_all(&root).unwrap();
+    let target = root.join("Project Plan.plumb");
+    let source = root.join("review.plumb");
+    let target_text = "`item{.task #draft} Draft\n";
+    let source_text = "`item{.task #review prev=\"Project%20Plan.plumb#draft\" depends=\"Project%20Plan.plumb#draft\"} Review\n";
+    std::fs::write(&target, target_text).unwrap();
+    std::fs::write(&source, source_text).unwrap();
+    let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
+    let target_uri = lsp_types::Url::from_file_path(&target).unwrap();
+    let source_uri = lsp_types::Url::from_file_path(&source).unwrap();
+    let target_id = target_text.find("#draft").unwrap() + 1;
+    let prev_id = source_text.find("#draft").unwrap() + 1;
+    let depends_start = source_text.find("depends=").unwrap();
+    let depends_id = depends_start + source_text[depends_start..].find("#draft").unwrap() + 1;
+    let task_path = source_text.find("Project%20Plan.plumb").unwrap();
+    let messages = [
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {
+                "processId": null,
+                "rootUri": root_uri,
+                "workspaceFolders": [{ "uri": root_uri, "name": "test" }],
+                "capabilities": { "workspace": { "workspaceEdit": {
+                    "documentChanges": true, "resourceOperations": ["rename"]
+                } } }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": {
+                "uri": source_uri, "languageId": "plumb", "version": 7, "text": source_text
+            }}
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 2, "method": "textDocument/definition",
+            "params": {
+                "textDocument": { "uri": source_uri },
+                "position": { "line": 0, "character": depends_id }
+            }
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 3, "method": "textDocument/references",
+            "params": {
+                "textDocument": { "uri": target_uri },
+                "position": { "line": 0, "character": target_id },
+                "context": { "includeDeclaration": false }
+            }
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 4, "method": "textDocument/references",
+            "params": {
+                "textDocument": { "uri": source_uri },
+                "position": { "line": 0, "character": prev_id },
+                "context": { "includeDeclaration": true }
+            }
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 5, "method": "textDocument/rename",
+            "params": {
+                "textDocument": { "uri": source_uri },
+                "position": { "line": 0, "character": depends_id },
+                "newName": "first-draft"
+            }
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 6, "method": "textDocument/rename",
+            "params": {
+                "textDocument": { "uri": source_uri },
+                "position": { "line": 0, "character": task_path },
+                "newName": "Archived Plan.plumb"
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 7, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+    let output = run_server(&messages);
+    assert_eq!(response(&output, 2)["result"]["uri"], target_uri.as_str());
+    assert_eq!(response(&output, 3)["result"].as_array().unwrap().len(), 2);
+    assert_eq!(response(&output, 4)["result"].as_array().unwrap().len(), 3);
+
+    let anchor_changes = response(&output, 5)["result"]["documentChanges"]
+        .as_array()
+        .unwrap();
+    assert_eq!(anchor_changes.len(), 2);
+    assert_eq!(
+        anchor_changes
+            .iter()
+            .flat_map(|change| change["edits"].as_array().into_iter().flatten())
+            .filter(|edit| edit["newText"] == "first-draft")
+            .count(),
+        3
+    );
+
+    let path_changes = response(&output, 6)["result"]["documentChanges"]
+        .as_array()
+        .unwrap();
+    assert_eq!(path_changes[0]["kind"], "rename");
+    assert_eq!(
+        path_changes[0]["newUri"],
+        root_uri.join("Archived%20Plan.plumb").unwrap().as_str()
+    );
+    assert_eq!(
+        path_changes
+            .iter()
+            .skip(1)
+            .flat_map(|change| change["edits"].as_array().into_iter().flatten())
+            .filter(|edit| edit["newText"] == "Archived%20Plan.plumb")
+            .count(),
+        2
+    );
+    std::fs::remove_dir_all(root).unwrap();
+}
+
 fn run_server(messages: &[Value]) -> Vec<Value> {
     let mut child = Command::new(env!("CARGO_BIN_EXE_plumb-ls"))
         .stdin(Stdio::piped())
