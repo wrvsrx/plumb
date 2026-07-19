@@ -363,9 +363,6 @@ impl Workspace {
                 let Some(id) = &task.id else {
                     continue;
                 };
-                if task.state() != TaskState::Open {
-                    continue;
-                }
                 if self
                     .task_dependencies(&entry.path, task)
                     .iter()

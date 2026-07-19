@@ -7,8 +7,10 @@ use clap::{Args, Parser, Subcommand};
 use plumb_workspace::{normalize, ResolvedTarget, Workspace};
 
 mod interactive;
+mod tasks;
 
 use interactive::{handle_interactive_action, run_interactive};
+use tasks::{print_tasks, run_task_action};
 
 fn main() -> ExitCode {
     match run(Config::parse()) {
@@ -52,6 +54,25 @@ fn run(config: Config) -> Result<(), String> {
                 }
             }
         }
+        Command::Task(task) => {
+            if let Some(action) = task.action {
+                if config.query.is_some() {
+                    return Err(
+                        "task actions do not support --query; pass explicit TARGET values"
+                            .to_string(),
+                    );
+                }
+                run_task_action(&root, action)?;
+            } else {
+                print_tasks(
+                    &root,
+                    &loaded,
+                    config.query.as_deref(),
+                    !task.flat,
+                    !task.no_heading,
+                )?;
+            }
+        }
     }
     Ok(())
 }
@@ -72,12 +93,37 @@ struct Config {
 #[derive(Debug, Subcommand)]
 enum Command {
     Note(NoteConfig),
+    Task(TaskConfig),
 }
 
 #[derive(Debug, Args)]
 struct NoteConfig {
     #[arg(short, long)]
     interactive: bool,
+}
+
+#[derive(Debug, Args)]
+struct TaskConfig {
+    #[arg(long)]
+    flat: bool,
+
+    #[arg(long)]
+    no_heading: bool,
+
+    #[command(subcommand)]
+    action: Option<TaskAction>,
+}
+
+#[derive(Debug, Subcommand)]
+enum TaskAction {
+    Complete(TaskTargetsConfig),
+    Cancel(TaskTargetsConfig),
+}
+
+#[derive(Debug, Args)]
+struct TaskTargetsConfig {
+    #[arg(value_name = "TARGET", required = true)]
+    targets: Vec<String>,
 }
 
 struct LoadedWorkspace {
@@ -257,6 +303,42 @@ mod tests {
         assert!(matches!(
             config.command,
             Command::Note(NoteConfig { interactive: true })
+        ));
+    }
+
+    #[test]
+    fn accepts_task_listing_and_action_options() {
+        let listing = Config::parse_from([
+            "plumb-notes",
+            "task",
+            "--root",
+            "notes",
+            "--query",
+            "actionable",
+            "--flat",
+            "--no-heading",
+        ]);
+        assert!(matches!(
+            listing.command,
+            Command::Task(TaskConfig {
+                flat: true,
+                no_heading: true,
+                action: None,
+            })
+        ));
+
+        let action = Config::parse_from([
+            "plumb-notes",
+            "task",
+            "complete",
+            "notes/tasks.plumb#write-parser",
+        ]);
+        assert!(matches!(
+            action.command,
+            Command::Task(TaskConfig {
+                action: Some(TaskAction::Complete(TaskTargetsConfig { ref targets })),
+                ..
+            }) if targets == &["notes/tasks.plumb#write-parser"]
         ));
     }
 

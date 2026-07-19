@@ -6,7 +6,9 @@ license.workspace = true
 
 [dependencies]
 cel.workspace = true
+chrono.workspace = true
 clap.workspace = true
+plumb-extensions = { path = "../plumb-extensions" }
 plumb-workspace = { path = "../plumb-workspace" }
 shlex.workspace = true
 skim.workspace = true
