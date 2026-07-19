@@ -300,7 +300,7 @@ fn publishes_diagnostics_and_returns_heading_symbols_over_stdio() {
 #[test]
 fn nests_anchors_and_tasks_under_their_containing_headings() {
     let uri = "file:///tmp/symbol-containment.plumb";
-    let source = "`# Project\n`node{#note} Note\n`item{.task #write} Write parser\n`## Section\n`node{#inside} Inside\n";
+    let source = "`# Project\n`node{#note} Note\n`-{.task #write} Write parser\n`## Section\n`node{#inside} Inside\n";
     let messages = [
         json!({
             "jsonrpc": "2.0", "id": 1, "method": "initialize",
@@ -536,7 +536,7 @@ fn omits_metadata_code_action_without_guarded_edit_support() {
 #[test]
 fn offers_guarded_task_status_code_actions() {
     let uri = "file:///tmp/task-actions.plumb";
-    let source = "`item{.task #write} Write parser\n";
+    let source = "`-{.task #write} Write parser\n";
     let messages = [
         json!({
             "jsonrpc": "2.0", "id": 1, "method": "initialize",
@@ -591,7 +591,7 @@ fn offers_guarded_task_status_code_actions() {
 #[test]
 fn recurring_task_action_closes_current_and_appends_next_instance() {
     let uri = "file:///tmp/recurring-task.plumb";
-    let source = "`item{.task due=\"2026-07-20T09:00:00+08:00\" recur=P1W} Weekly review\n";
+    let source = "`-{.task due=\"2026-07-20T09:00:00+08:00\" recur=P1W} Weekly review\n";
     let messages = [
         json!({
             "jsonrpc": "2.0", "id": 1, "method": "initialize",
@@ -647,7 +647,7 @@ fn recurring_task_action_closes_current_and_appends_next_instance() {
 #[test]
 fn blocked_task_offers_cancel_but_not_complete() {
     let uri = "file:///tmp/blocked-task-actions.plumb";
-    let source = "`item{.task #draft} Draft\n`item{.task #review depends=\"#draft\"} Review\n";
+    let source = "`-{.task #draft} Draft\n`-{.task #review depends=\"#draft\"} Review\n";
     let cursor = source.find("Review").unwrap();
     let line_start = source.find('\n').unwrap() + 1;
     let messages = [
@@ -697,7 +697,7 @@ fn blocked_task_offers_cancel_but_not_complete() {
 #[test]
 fn canceling_a_recurring_task_appends_the_next_instance() {
     let uri = "file:///tmp/cancel-recurring-task.plumb";
-    let source = "`item{.task due=\"2026-07-20T09:00:00+08:00\" recur=P1W} Weekly review\n";
+    let source = "`-{.task due=\"2026-07-20T09:00:00+08:00\" recur=P1W} Weekly review\n";
     let cursor = source.find("Weekly review").unwrap();
     let messages = [
         json!({
@@ -755,8 +755,7 @@ fn canceling_a_recurring_task_appends_the_next_instance() {
 #[test]
 fn task_actions_fall_back_from_closed_child_to_open_parent() {
     let uri = "file:///tmp/nested-task-actions.plumb";
-    let source =
-        "`item{.task #outer} Outer\n  `item{.task #inner done=\"2026-07-20T09:00:00Z\"} Inner\n";
+    let source = "`-{.task #outer} Outer\n  `-{.task #inner done=\"2026-07-20T09:00:00Z\"} Inner\n";
     let cursor = source.find("Inner").unwrap();
     let line_start = source.find('\n').unwrap() + 1;
     let character = cursor - line_start;
@@ -807,8 +806,8 @@ fn publishes_task_symbols_hover_and_workspace_diagnostics() {
     std::fs::create_dir_all(&root).unwrap();
     let blockers_path = root.join("blockers.plumb");
     let tasks_path = root.join("tasks.plumb");
-    let blocker_source = "`item{.task #draft} Draft dependency\n";
-    let task_source = "`item{.task #review due=\"not-a-date\" recur=P1M1D depends=\"blockers.plumb#draft\"} Review task\n  `item{.task #nested done=\"2026-07-20T10:00:00Z\"} Nested task\n";
+    let blocker_source = "`-{.task #draft} Draft dependency\n";
+    let task_source = "`-{.task #review due=\"not-a-date\" recur=P1M1D depends=\"blockers.plumb#draft\"} Review task\n  `-{.task #nested done=\"2026-07-20T10:00:00Z\"} Nested task\n";
     std::fs::write(&blockers_path, blocker_source).unwrap();
     std::fs::write(&tasks_path, task_source).unwrap();
     let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
@@ -1236,8 +1235,8 @@ fn task_references_support_navigation_and_rename() {
     std::fs::create_dir_all(&root).unwrap();
     let target = root.join("Project Plan.plumb");
     let source = root.join("review.plumb");
-    let target_text = "`item{.task #draft} Draft\n";
-    let source_text = "`item{.task #review prev=\"Project%20Plan.plumb#draft\" depends=\"Project%20Plan.plumb#draft\"} Review\n";
+    let target_text = "`-{.task #draft} Draft\n";
+    let source_text = "`-{.task #review prev=\"Project%20Plan.plumb#draft\" depends=\"Project%20Plan.plumb#draft\"} Review\n";
     std::fs::write(&target, target_text).unwrap();
     std::fs::write(&source, source_text).unwrap();
     let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
@@ -1657,9 +1656,9 @@ fn definition_and_hover_lazily_load_targets_without_a_workspace_root() {
     let link_target = root.join("link target.plumb");
     let hover_target = root.join("hover target.plumb");
     let file_target = root.join("file target.plumb");
-    let source_text = "`item{.task depends=\"task%20target.plumb#draft\"} Review\nSee `link[note]{to=\"link target.plumb#note\"}.\nSee `link[hover]{to=\"hover target.plumb#hover\"}.\nSee `link[file]{to=\"file target.plumb\"}.\n";
+    let source_text = "`-{.task depends=\"task%20target.plumb#draft\"} Review\nSee `link[note]{to=\"link target.plumb#note\"}.\nSee `link[hover]{to=\"hover target.plumb#hover\"}.\nSee `link[file]{to=\"file target.plumb\"}.\n";
     std::fs::write(&source, source_text).unwrap();
-    std::fs::write(&task_target, "`item{.task #draft} Draft\n").unwrap();
+    std::fs::write(&task_target, "`-{.task #draft} Draft\n").unwrap();
     std::fs::write(&link_target, "`node{#note} Note\n").unwrap();
     std::fs::write(&hover_target, "`node{#hover} Hover\n").unwrap();
     std::fs::write(&file_target, "\n\nFirst content\nSecond content\n").unwrap();
@@ -1738,7 +1737,7 @@ fn definition_and_hover_lazily_load_targets_without_a_workspace_root() {
         .as_str()
         .unwrap();
     assert!(task_reference_hover.starts_with("**Anchor** `#draft`"));
-    assert!(task_reference_hover.contains("`item{.task #draft} Draft"));
+    assert!(task_reference_hover.contains("`-{.task #draft} Draft"));
     let file_hover = response(&output, 6)["result"]["contents"]["value"]
         .as_str()
         .unwrap();

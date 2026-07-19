@@ -1768,7 +1768,7 @@ mod tests {
         workspace.insert(
             "task.plumb",
             1,
-            "`item{.task depends=\"a.plumb#missing\"} Task\n",
+            "`-{.task depends=\"a.plumb#missing\"} Task\n",
         );
         assert_eq!(workspace.references_to("a.plumb", "target").len(), 1);
         assert_eq!(
@@ -1783,8 +1783,8 @@ mod tests {
 
     #[test]
     fn task_fields_participate_in_navigation_references_and_anchor_rename() {
-        let target_source = "`item{.task #draft} Draft\n`node{#note} Note\n";
-        let reference_source = "`item{.task #review prev=\"Project%20Plan.plumb#draft\" depends=\"Project%20Plan.plumb#draft Project%20Plan.plumb#note\"} Review\nSee `link[draft]{to=\"Project Plan.plumb#draft\"}.\n";
+        let target_source = "`-{.task #draft} Draft\n`node{#note} Note\n";
+        let reference_source = "`-{.task #review prev=\"Project%20Plan.plumb#draft\" depends=\"Project%20Plan.plumb#draft Project%20Plan.plumb#note\"} Review\nSee `link[draft]{to=\"Project Plan.plumb#draft\"}.\n";
         let mut workspace = Workspace::new();
         workspace.insert("Project Plan.plumb", 4, target_source);
         workspace.insert("review.plumb", 7, reference_source);
@@ -1831,8 +1831,8 @@ mod tests {
 
     #[test]
     fn document_rename_rewrites_percent_encoded_task_reference_paths() {
-        let target_source = "`item{.task #draft} Draft\n";
-        let reference_source = "`item{.task prev=\"Project%20Plan.plumb#draft\" depends=\"Project%20Plan.plumb#draft\"} Review\nSee `link[draft]{to=\"Project Plan.plumb#draft\"}.\n";
+        let target_source = "`-{.task #draft} Draft\n";
+        let reference_source = "`-{.task prev=\"Project%20Plan.plumb#draft\" depends=\"Project%20Plan.plumb#draft\"} Review\nSee `link[draft]{to=\"Project Plan.plumb#draft\"}.\n";
         let mut workspace = Workspace::new();
         workspace.insert("Project Plan.plumb", 4, target_source);
         workspace.insert("review.plumb", 7, reference_source);
@@ -1992,12 +1992,12 @@ mod tests {
         workspace.insert(
             "notes/Project Plan.plumb",
             1,
-            "`item{.task #draft} Draft\n`item{.task #done done=\"2026-07-20T09:00:00Z\"} Done\n",
+            "`-{.task #draft} Draft\n`-{.task #done done=\"2026-07-20T09:00:00Z\"} Done\n",
         );
         workspace.insert(
             "notes/review.plumb",
             2,
-            "`item{.task #review depends=\"Project%20Plan.plumb#draft Project%20Plan.plumb#done\"} Review\n",
+            "`-{.task #review depends=\"Project%20Plan.plumb#draft Project%20Plan.plumb#done\"} Review\n",
         );
 
         let task = &workspace
@@ -2039,7 +2039,7 @@ mod tests {
         workspace.insert(
             "tasks.plumb",
             1,
-            "`node{#plain} Plain anchor\n`item{.task #a depends=\"#b\"} A\n`item{.task #b depends=\"#a\"} B\n`item{.task #self depends=\"#self\"} Self\n`item{.task prev=\"#plain\" depends=\"#plain #missing bare missing.plumb#x\"} Invalid targets\n",
+            "`node{#plain} Plain anchor\n`-{.task #a depends=\"#b\"} A\n`-{.task #b depends=\"#a\"} B\n`-{.task #self depends=\"#self\"} Self\n`-{.task prev=\"#plain\" depends=\"#plain #missing bare missing.plumb#x\"} Invalid targets\n",
         );
 
         let diagnostics = workspace.diagnostics("tasks.plumb");
@@ -2058,7 +2058,7 @@ mod tests {
     #[test]
     fn task_status_operation_is_guarded_and_preserves_the_attribute_slot() {
         let mut workspace = Workspace::new();
-        let source = "`item{.task #write due=\"2026-07-21T09:00:00Z\"} Write parser\n";
+        let source = "`-{.task #write due=\"2026-07-21T09:00:00Z\"} Write parser\n";
         workspace.insert("tasks.plumb", 7, source);
 
         let edit = workspace
@@ -2089,7 +2089,8 @@ mod tests {
     #[test]
     fn task_status_cursor_falls_back_from_closed_child_to_open_parent() {
         let mut workspace = Workspace::new();
-        let source = "`item{.task #outer} Outer\n  `item{.task #inner done=\"2026-07-20T09:00:00Z\"} Inner\n";
+        let source =
+            "`-{.task #outer} Outer\n  `-{.task #inner done=\"2026-07-20T09:00:00Z\"} Inner\n";
         workspace.insert("tasks.plumb", 3, source);
         let tasks = &workspace
             .get("tasks.plumb")
@@ -2135,7 +2136,7 @@ mod tests {
         workspace.insert(
             "tasks.plumb",
             1,
-            "`item{.task #blocker} Blocker\n`item{.task #blocked depends=\"#blocker\"} Blocked\n`item{.task #closed done=\"2026-07-20T09:00:00Z\"} Closed\n`item{.task #recur due=\"2026-07-21T09:00:00Z\" recur=P1D} Recurring\n",
+            "`-{.task #blocker} Blocker\n`-{.task #blocked depends=\"#blocker\"} Blocked\n`-{.task #closed done=\"2026-07-20T09:00:00Z\"} Closed\n`-{.task #recur due=\"2026-07-21T09:00:00Z\" recur=P1D} Recurring\n",
         );
         let timestamp = "2026-07-20T12:00:00Z";
         let source = &workspace.get("tasks.plumb").unwrap().parsed.source;
@@ -2178,7 +2179,7 @@ mod tests {
     #[test]
     fn recurring_task_status_advances_and_clones_the_task_losslessly() {
         let mut workspace = Workspace::new();
-        let source = "`item{.task .daily due=\"2026-01-31T09:00:00+08:00\" wait=\"2026-01-30T09:00:00+08:00\" recur=P1M} Monthly review\n  `note Keep details\n  `item{.task #nested done=\"2026-01-20T09:00:00+08:00\"} Nested\n";
+        let source = "`-{.task .daily due=\"2026-01-31T09:00:00+08:00\" wait=\"2026-01-30T09:00:00+08:00\" recur=P1M} Monthly review\n  `note Keep details\n  `-{.task #nested done=\"2026-01-20T09:00:00+08:00\"} Nested\n";
         workspace.insert("tasks.plumb", 4, source);
 
         let edit = workspace

@@ -69,7 +69,7 @@ fn list_item(block: &Block) -> Option<&ParsedBlock> {
     block
         .mark
         .as_ref()
-        .is_some_and(|mark| matches!(mark.marker.as_str(), "item" | "-"))
+        .is_some_and(|mark| mark.marker == "-")
         .then_some(block)
 }
 
@@ -82,7 +82,7 @@ mod tests {
     #[test]
     fn groups_adjacent_sibling_items_and_nested_items() {
         let parsed = parse(
-            "`-{.task} One\n  `item Nested one\n  `- Nested two\n`item Two\nParagraph.\n`- Three\n",
+            "`-{.task} One\n  `- Nested one\n  `- Nested two\n`- Two\nParagraph.\n`- Three\n",
         );
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
@@ -101,5 +101,15 @@ mod tests {
                 .unwrap(),
             &output.groups[0]
         );
+    }
+
+    #[test]
+    fn item_marker_is_not_a_list_item() {
+        let parsed = parse("`item Generic block\n`- List item\n");
+        assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
+
+        let output = analyze_lists(&parsed.syntax);
+        assert_eq!(output.groups.len(), 1);
+        assert_eq!(output.groups[0].range.start, "`item Generic block\n".len());
     }
 }

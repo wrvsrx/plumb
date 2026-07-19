@@ -268,12 +268,12 @@ fn parse_value(block: &ParsedBlock, diagnostics: &mut Vec<Diagnostic>) -> Metada
     if block
         .children
         .iter()
-        .all(|child| parsed_marker(child) == Some("item"))
+        .all(|child| parsed_marker(child) == Some("-"))
     {
         let mut items = Vec::new();
         for child in &block.children {
             let Block::Parsed(item) = child else {
-                unreachable!("item marker implies parsed block");
+                unreachable!("dash marker implies parsed block");
             };
             if !item.children.is_empty() {
                 diagnostics.push(warning(
@@ -302,7 +302,7 @@ fn parse_value(block: &ParsedBlock, diagnostics: &mut Vec<Diagnostic>) -> Metada
 
     diagnostics.push(warning(
         "metadata.unsupported-value",
-        "metadata values must be a paragraph, item list, definition map, verbatim block, or empty",
+        "metadata values must be a paragraph, list, definition map, verbatim block, or empty",
         range.clone(),
     ));
     MetadataValue::Unsupported { range }
@@ -369,7 +369,7 @@ mod tests {
     #[test]
     fn groups_definition_lists_and_projects_metadata_values() {
         let parsed = parse(
-            "`: term\n\n  Definition.\n\n`meta\n  `: title\n\n    Document `em[title]\n\n  `: tags\n    `item plumb\n    `item parser\n\n  `: author\n    `: name\n\n      Alice\n\n  `: source\n    `{language=text}\n      raw\n",
+            "`: term\n\n  Definition.\n\n`meta\n  `: title\n\n    Document `em[title]\n\n  `: tags\n    `- plumb\n    `- parser\n\n  `: author\n    `: name\n\n      Alice\n\n  `: source\n    `{language=text}\n      raw\n",
         );
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let output = analyze_metadata(&parsed.syntax);
@@ -399,9 +399,25 @@ mod tests {
     #[test]
     fn document_title_requires_a_scalar_value() {
         let parsed =
-            parse("`meta\n  `: title\n    `item Not a scalar\n\n  `: title\n\n    Later scalar\n");
+            parse("`meta\n  `: title\n    `- Not a scalar\n\n  `: title\n\n    Later scalar\n");
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         assert_eq!(analyze_metadata(&parsed.syntax).document_title(), None);
+    }
+
+    #[test]
+    fn item_marker_is_not_a_metadata_list_item() {
+        let parsed = parse("`meta\n  `: tags\n    `item Generic block\n");
+        assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
+
+        let output = analyze_metadata(&parsed.syntax);
+        assert!(matches!(
+            output.metadata.unwrap().entries[0].value,
+            MetadataValue::Unsupported { .. }
+        ));
+        assert!(output
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == "metadata.unsupported-value"));
     }
 
     #[test]

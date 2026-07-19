@@ -402,15 +402,15 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(
             root.join("index.plumb"),
-            "`item{.task #index prev=\"topic.plumb#topic\"} Index\n",
+            "`-{.task #index prev=\"topic.plumb#topic\"} Index\n",
         )
         .unwrap();
         std::fs::write(
             root.join("topic.plumb"),
-            "`item{.task #topic depends=\"leaf.plumb#leaf\"} Topic\n",
+            "`-{.task #topic depends=\"leaf.plumb#leaf\"} Topic\n",
         )
         .unwrap();
-        std::fs::write(root.join("leaf.plumb"), "`item{.task #leaf} Leaf\n").unwrap();
+        std::fs::write(root.join("leaf.plumb"), "`-{.task #leaf} Leaf\n").unwrap();
         let loaded = load_workspace(&root).unwrap();
         let reverse = ReverseReferences::build(&loaded.workspace);
         let leaf = normalize(&root.join("leaf.plumb"));

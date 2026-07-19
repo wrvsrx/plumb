@@ -362,7 +362,7 @@ mod tests {
 
     #[test]
     fn exports_adjacent_and_nested_items_as_bullet_lists() {
-        let source = "`- One\n`item{.task #two priority=high} Two\n  `- Nested\nParagraph.\n";
+        let source = "`- One\n`-{.task #two priority=high} Two\n  `- Nested\nParagraph.\n";
         let document = export(source).unwrap();
         let blocks = document["blocks"].as_array().unwrap();
 
@@ -385,8 +385,18 @@ mod tests {
     }
 
     #[test]
+    fn exports_item_marker_as_a_generic_block() {
+        let document = export("`item Not a list item\n").unwrap();
+        let blocks = document["blocks"].as_array().unwrap();
+
+        assert_eq!(blocks.len(), 1);
+        assert_eq!(blocks[0]["t"], "Div");
+        assert_eq!(blocks[0]["c"][0][2], json!([["data-plumb-marker", "item"]]));
+    }
+
+    #[test]
     fn exports_adjacent_definitions_and_preserves_definition_attributes() {
-        let source = "`: Term\n\n  Definition.\n\n`:{#tag .kind key=value} Tagged\n  `item First\n  `item Second\n";
+        let source = "`: Term\n\n  Definition.\n\n`:{#tag .kind key=value} Tagged\n  `- First\n  `- Second\n";
         let document = export(source).unwrap();
         let blocks = document["blocks"].as_array().unwrap();
 
@@ -431,7 +441,7 @@ mod tests {
 
     #[test]
     fn lifts_typed_metadata_out_of_the_document_body() {
-        let source = "`meta\n  `: title\n\n     Rich `*[title]\n\n  `: tags\n    `item plumb\n    `item tools\n\n  `: author\n    `: name\n\n       Alice\n\n  `: source\n    `{language=text}\n      raw\n\n  `: empty\n\n`# Section\n";
+        let source = "`meta\n  `: title\n\n     Rich `*[title]\n\n  `: tags\n    `- plumb\n    `- tools\n\n  `: author\n    `: name\n\n       Alice\n\n  `: source\n    `{language=text}\n      raw\n\n  `: empty\n\n`# Section\n";
         let document = export(source).unwrap();
 
         assert_eq!(document["blocks"].as_array().unwrap().len(), 1);
@@ -466,7 +476,7 @@ mod tests {
             export("`meta\n  `: title\n\n     First\n\n  `: title\n\n     Second\n").unwrap();
         assert_eq!(duplicate["meta"]["title"]["c"][0]["c"], "First");
 
-        let unsupported = export("`meta\n  `: mixed\n\n    paragraph\n    `item child\n");
+        let unsupported = export("`meta\n  `: mixed\n\n    paragraph\n    `- child\n");
         assert_eq!(
             unsupported.unwrap_err(),
             "metadata field 'mixed' has an unsupported value"

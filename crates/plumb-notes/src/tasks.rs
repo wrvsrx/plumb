@@ -314,10 +314,10 @@ mod tests {
     fn task_queries_and_tree_output_use_workspace_facts() {
         let root = unique_temp_dir();
         std::fs::create_dir_all(&root).unwrap();
-        std::fs::write(root.join("deps.plumb"), "`item{.task #draft} Draft\n").unwrap();
+        std::fs::write(root.join("deps.plumb"), "`-{.task #draft} Draft\n").unwrap();
         std::fs::write(
             root.join("tasks.plumb"),
-            "`item{.task #review depends=\"deps.plumb#draft\"} Review\n  `item{.task #nested done=\"2026-07-20T09:00:00Z\"} Nested\n",
+            "`-{.task #review depends=\"deps.plumb#draft\"} Review\n  `-{.task #nested done=\"2026-07-20T09:00:00Z\"} Nested\n",
         )
         .unwrap();
         let loaded = load_workspace(&root).unwrap();
@@ -357,7 +357,7 @@ mod tests {
         let root = unique_temp_dir();
         std::fs::create_dir_all(&root).unwrap();
         let path = root.join("tasks.plumb");
-        std::fs::write(&path, "`item{.task #write} Write parser\n").unwrap();
+        std::fs::write(&path, "`-{.task #write} Write parser\n").unwrap();
         set_task_status_target(
             &root,
             "tasks.plumb#write",
@@ -376,8 +376,8 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();
         let first = root.join("first.plumb");
         let second = root.join("second.plumb");
-        std::fs::write(&first, "`item{.task #first} First\n").unwrap();
-        std::fs::write(&second, "`item{.task #second} Second\n").unwrap();
+        std::fs::write(&first, "`-{.task #first} First\n").unwrap();
+        std::fs::write(&second, "`-{.task #second} Second\n").unwrap();
 
         run_task_action(
             &root,

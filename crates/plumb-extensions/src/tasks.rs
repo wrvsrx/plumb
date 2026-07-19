@@ -399,7 +399,7 @@ mod tests {
 
     #[test]
     fn reports_local_task_state_and_recurrence_diagnostics() {
-        let source = "`item{.task done=\"2026-07-20T09:00:00Z\" canceled=\"2026-07-20T10:00:00Z\"} Conflict\n`item{.task due=\"not-a-date\" recur=P1M1D} Invalid recurrence\n";
+        let source = "`-{.task done=\"2026-07-20T09:00:00Z\" canceled=\"2026-07-20T10:00:00Z\"} Conflict\n`-{.task due=\"not-a-date\" recur=P1M1D} Invalid recurrence\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
