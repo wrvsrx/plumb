@@ -527,20 +527,8 @@ impl Workspace {
                 .filter(|entry| entry.path != from)
                 .filter_map(|entry| {
                     let relative = relative_path(&from, &entry.path)?;
-                    let output = entry
-                        .current
-                        .as_ref()
-                        .or(entry.last_valid.as_ref())
-                        .map(|versioned| &versioned.output)?;
-                    let title = output
-                        .metadata
-                        .as_ref()
-                        .and_then(|metadata| metadata.table.get("title"))
-                        .and_then(|value| value.as_str());
-                    (fuzzy_match(&relative, query)
-                        || title.is_some_and(|title| fuzzy_match(title, query)))
-                    .then(|| CompletionCandidate {
-                        label: title.unwrap_or(&relative).to_string(),
+                    fuzzy_match(&relative, query).then(|| CompletionCandidate {
+                        label: relative.clone(),
                         detail: relative.clone(),
                         new_text: relative,
                         replace: replace.clone(),
@@ -766,19 +754,15 @@ mod tests {
     fn completes_paths_and_only_explicit_anchors() {
         let mut workspace = Workspace::new();
         workspace.insert("notes/current.plumb", 1, "Current\n");
-        workspace.insert(
-            "notes/design.plumb",
-            1,
-            "`\"{.metadata}\n  title = \"Architecture\"\n\n`# No id\n`##{#api} API\n",
-        );
+        workspace.insert("notes/design.plumb", 1, "`# No id\n`##{#api} API\n");
         let paths = workspace.complete_link(
             "notes/current.plumb",
             &LinkCompletionContext::Path {
                 replace: 10..13,
-                query: "arch".to_string(),
+                query: "design".to_string(),
             },
         );
-        assert_eq!(paths[0].label, "Architecture");
+        assert_eq!(paths[0].label, "design.plumb");
         assert_eq!(paths[0].new_text, "design.plumb");
         let anchors = workspace.complete_link(
             "notes/current.plumb",

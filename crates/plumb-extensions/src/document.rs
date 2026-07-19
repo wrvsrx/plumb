@@ -64,18 +64,11 @@ pub struct LinkRecord {
     pub fragment_range: Option<Range<usize>>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct MetadataRecord {
-    pub range: Range<usize>,
-    pub table: toml::Table,
-}
-
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct DocumentOutput {
     pub headings: HeadingOutput,
     pub anchors: Vec<AnchorRecord>,
     pub links: Vec<LinkRecord>,
-    pub metadata: Option<MetadataRecord>,
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -129,7 +122,6 @@ fn collect_blocks(
                 collect_blocks(source, &parsed.children, first_ids, output);
             }
             Block::Code(code) => {
-                collect_metadata(code, output);
                 collect_anchor(
                     source,
                     &code.attrs,
@@ -141,41 +133,6 @@ fn collect_blocks(
                 );
             }
         }
-    }
-}
-
-fn collect_metadata(code: &plumb_core::CodeBlock, output: &mut DocumentOutput) {
-    if !code.attrs.has_class("metadata") {
-        return;
-    }
-    if output.metadata.is_some() {
-        output.diagnostics.push(Diagnostic {
-            code: "metadata.duplicate-block",
-            severity: DiagnosticSeverity::Warning,
-            message: "only the first valid metadata block is used".to_string(),
-            range: code.range.clone(),
-            related: output
-                .metadata
-                .as_ref()
-                .map(|metadata| vec![metadata.range.clone()])
-                .unwrap_or_default(),
-        });
-        return;
-    }
-    match code.text.parse::<toml::Table>() {
-        Ok(table) => {
-            output.metadata = Some(MetadataRecord {
-                range: code.range.clone(),
-                table,
-            });
-        }
-        Err(error) => output.diagnostics.push(Diagnostic {
-            code: "metadata.invalid-toml",
-            severity: DiagnosticSeverity::Warning,
-            message: format!("invalid metadata TOML: {error}"),
-            range: code.text_range.clone(),
-            related: Vec::new(),
-        }),
     }
 }
 
@@ -412,16 +369,5 @@ mod tests {
         assert!(parsed.is_valid());
         let output = analyze_document(&parsed.source, &parsed.syntax);
         assert_eq!(output.diagnostics[0].code, "anchor.duplicate-id");
-    }
-
-    #[test]
-    fn parses_first_metadata_toml_block() {
-        let parsed = parse(
-            "`\"{.metadata}\n  title = \"Design\"\n  draft = true\n\n`\"{.metadata}\n  title = \"Other\"\n",
-        );
-        let output = analyze_document(&parsed.source, &parsed.syntax);
-        let metadata = output.metadata.unwrap();
-        assert_eq!(metadata.table["title"].as_str(), Some("Design"));
-        assert_eq!(output.diagnostics[0].code, "metadata.duplicate-block");
     }
 }

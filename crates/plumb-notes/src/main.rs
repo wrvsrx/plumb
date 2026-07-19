@@ -147,18 +147,11 @@ impl QueryPlan {
         workspace: &Workspace,
         reverse: &ReverseReferences,
     ) -> Result<bool, String> {
-        let entry = workspace
-            .get(path)
-            .ok_or_else(|| format!("document is not loaded: {}", path.display()))?;
-        let output = entry.current.as_ref().map(|current| &current.output);
-        let title = output
-            .and_then(|output| output.metadata.as_ref())
-            .and_then(|metadata| metadata.table.get("title"))
-            .and_then(|title| title.as_str())
-            .unwrap_or_default();
+        if workspace.get(path).is_none() {
+            return Err(format!("document is not loaded: {}", path.display()));
+        }
         let mut context = Context::default();
         context.add_variable_from_value("path", display_path(root, path));
-        context.add_variable_from_value("title", title.to_string());
         context.add_variable_from_value(
             "directly_referenced_by",
             reverse
@@ -253,11 +246,14 @@ mod tests {
             "--root",
             "notes",
             "--query",
-            "title == 'Topic'",
+            "path.endsWith('topic.plumb')",
             "--interactive",
         ]);
         assert_eq!(config.root.as_deref(), Some(Path::new("notes")));
-        assert_eq!(config.query.as_deref(), Some("title == 'Topic'"));
+        assert_eq!(
+            config.query.as_deref(),
+            Some("path.endsWith('topic.plumb')")
+        );
         assert!(matches!(
             config.command,
             Command::Note(NoteConfig { interactive: true })
@@ -265,7 +261,7 @@ mod tests {
     }
 
     #[test]
-    fn queries_title_and_transitive_referrers() {
+    fn queries_transitive_referrers() {
         let root = unique_temp_dir();
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(
@@ -274,20 +270,16 @@ mod tests {
         )
         .unwrap();
         std::fs::write(root.join("topic.plumb"), "`link[leaf]{to=\"leaf.plumb\"}\n").unwrap();
-        std::fs::write(
-            root.join("leaf.plumb"),
-            "`\"{.metadata}\n  title = \"Leaf Note\"\n",
-        )
-        .unwrap();
+        std::fs::write(root.join("leaf.plumb"), "Leaf note.\n").unwrap();
         let loaded = load_workspace(&root).unwrap();
         let reverse = ReverseReferences::build(&loaded.workspace);
         let leaf = normalize(&root.join("leaf.plumb"));
-        assert!(QueryPlan::compile(
-            "title == 'Leaf Note' && 'index.plumb' in transitively_referenced_by"
-        )
-        .unwrap()
-        .matches(&root, &leaf, &loaded.workspace, &reverse)
-        .unwrap());
+        assert!(
+            QueryPlan::compile("'index.plumb' in transitively_referenced_by")
+                .unwrap()
+                .matches(&root, &leaf, &loaded.workspace, &reverse)
+                .unwrap()
+        );
         std::fs::remove_dir_all(root).unwrap();
     }
 
@@ -299,7 +291,7 @@ mod tests {
         let loaded = load_workspace(&root).unwrap();
         let reverse = ReverseReferences::build(&loaded.workspace);
         let note = normalize(&root.join("note.plumb"));
-        let error = QueryPlan::compile("title")
+        let error = QueryPlan::compile("path")
             .unwrap()
             .matches(&root, &note, &loaded.workspace, &reverse)
             .unwrap_err();

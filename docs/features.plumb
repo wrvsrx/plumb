@@ -19,6 +19,9 @@ SyntaxTree contract 已冻结；normalized AST 和 extension-specific semantics 
 显式 anchor spelling；`"[id=value]" 不产生 anchor。运行方法、测试边界和已知 parser gaps 见
 `"[docs/toolchain.plumb]"。
 
+metadata 尚未完成设计，当前工具链不识别 metadata，也不包含此前试验过的 raw TOML profile。
+definition-list based metadata 是待讨论方案，不构成当前 syntax 或 extension contract。
+
 `## Djot-tools feature 审计
 
 本清单审计 `"[~/Documents/djot-tools]" 在 commit `"[8957311]" 的 README、plan、semantics 和
@@ -156,11 +159,11 @@ capability wiring 和 revision/cancellation policy，不复制 parser 或 semant
 `- [plumb] MVP `"[textDocument/definition]"：命中链接后解析目标并返回位置；URL 返回空。
 `- [plumb] MVP `"[textDocument/references]"：经 workspace / links outputs。
 `- [plumb] MVP `"[textDocument/completion]"：recovered query 补全 marker、attrs、文件与 anchors；
-  文件候选支持 title/path fuzzy matching，link 内分别补全 path 和 fragment。
+  文件候选支持 path fuzzy matching，link 内分别补全 path 和 fragment。
 `- [plumb] MVP `"[textDocument/prepareRename]" / `"[rename]"：经 guarded operation 重命名 explicit
   anchor；document/path rename 同时返回 resource rename 和所有受影响的 relative-link edits。
 `- [plumb] MVP `"[textDocument/hover]"：目标类型、id、路径和源码预览。
-`- [plumb] MVP `"[textDocument/codeAction]"：先提供 add explicit id 和 metadata insertion；action
+`- [plumb] MVP `"[textDocument/codeAction]"：先提供 add explicit id；action
   只包装 extension operation 的 byte edits。
 `- [plumb] MVP FULL 文本同步；打开 buffer 优先于磁盘版本。
 `- [plumb] MVP 初始化时索引根下文档；无根时仅索引已打开 buffer 和惰性目标。
@@ -181,8 +184,7 @@ capability wiring 和 revision/cancellation policy，不复制 parser 或 semant
 `- [plumb] MVP plumb 作为 Pandoc reader：valid document → `"[pandoc_types]" JSON → pandoc writer。
 `- [plumb] MVP core 有语法 error 时拒绝导出。
 `- [plumb] MVP HTML 语义由 export extension 落地，而不是 core 落地。
-`- [plumb] v1 metadata block 从 body 提升到 Pandoc metadata；string markup、boolean、list 和
-  nested map 保持类型。
+`- [plumb] v1 metadata lowering：等待 definition-list based metadata profile 拍板后设计。
 `- [plumb] v1 citation record lowering 到 Pandoc Cite，由下游 citeproc 解析 bibliography。
 `- [plumb] v1 meta、tasks、links 等 extension 结果参与导出。
 `- [plumb] later richer author/date rendering、document math macros、workspace/static-site export，
@@ -191,7 +193,7 @@ capability wiring 和 revision/cancellation policy，不复制 parser 或 semant
 `## E. 笔记 CLI（`"[plumb-notes]"）
 
 `- [plumb] v1 递归扫描根下 plumb 文档，载入 workspace，打印匹配路径。
-`- [plumb] v1 CEL document query：path、title、metadata、directly_referenced_by 和
+`- [plumb] v1 CEL document query：path、directly_referenced_by 和
   transitively_referenced_by。
 `- [plumb] v1 interactive picker：路径显示/输出、全文匹配、预览、`"[$EDITOR]" 打开、
   从 query 建档。
@@ -234,10 +236,10 @@ capability wiring 和 revision/cancellation policy，不复制 parser 或 semant
   remove/open-buffer lifecycle。用 nested paths、spaces/escaping、duplicate ids 和 partial index
   fixtures 验证。
 `- `"[Phase 4: authoring operations]"：实现 recovered completion、explicit anchor rename、document
-  rename、add-explicit-id fix 和 metadata insertion。先在 protocol-neutral tests 验证 source maps、
+  rename 和 add-explicit-id fix。先在 protocol-neutral tests 验证 source maps、
   overlap rejection、revision guards 和 resource capabilities，再映射到 LSP。
 `- `"[Phase 5: export]"：完成 `"[D07]" spike，建立 Pandoc-shaped lowering；先交付 plain structure
-  + links，再加入 metadata/citations。golden tests 比较 Pandoc JSON；pandoc 只作为 writer 做
+  + links，再加入 citations；metadata 等 profile 拍板后另行加入。golden tests 比较 Pandoc JSON；pandoc 只作为 writer 做
   end-to-end smoke tests。
 `- `"[Phase 6: notes query]"：实现 workspace-backed CEL document values、referrer graph、CLI scan/
   output；之后加入 picker、preview、editor open 和 safe file creation。Query schema 必须复用
