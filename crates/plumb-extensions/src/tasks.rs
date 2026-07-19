@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use chrono::DateTime;
+use chrono::{DateTime, Datelike, Duration, FixedOffset, SecondsFormat, TimeZone, Timelike};
 use plumb_core::{
     AttrItem, AttrValue, Block, Diagnostic, DiagnosticSeverity, Document, ParsedBlock,
 };
@@ -57,6 +57,8 @@ pub struct TaskRecord {
     pub title: String,
     pub depth: usize,
     pub attribute_insert: usize,
+    pub attribute_range: Range<usize>,
+    pub persistent_attributes: Vec<String>,
     pub id: Option<TaskField>,
     pub created: Option<TaskField>,
     pub due: Option<TaskField>,
@@ -127,6 +129,20 @@ fn task_record(source: &str, block: &ParsedBlock, depth: usize) -> TaskRecord {
             .expect("task class is inside an attribute slot")
             .end
             .saturating_sub(1),
+        attribute_range: attrs
+            .range
+            .clone()
+            .expect("task class is inside an attribute slot"),
+        persistent_attributes: attrs
+            .items
+            .iter()
+            .filter(|item| !transient_task_attribute(item))
+            .map(|item| match item {
+                AttrItem::Id { range, .. }
+                | AttrItem::Class { range, .. }
+                | AttrItem::Pair { range, .. } => source[range.clone()].to_string(),
+            })
+            .collect(),
         id: attrs.items.iter().find_map(|item| match item {
             AttrItem::Id { value, range } => Some(TaskField {
                 value: value.clone(),
@@ -169,6 +185,17 @@ fn task_field(value: &AttrValue) -> TaskField {
     TaskField {
         value: value.decoded.clone(),
         range: value.range.clone(),
+    }
+}
+
+fn transient_task_attribute(item: &AttrItem) -> bool {
+    match item {
+        AttrItem::Id { .. } => true,
+        AttrItem::Pair { key, .. } => matches!(
+            key.as_str(),
+            "created" | "due" | "wait" | "done" | "canceled" | "recur" | "prev"
+        ),
+        AttrItem::Class { .. } => false,
     }
 }
 
@@ -258,20 +285,78 @@ fn collect_task_diagnostics(task: &TaskRecord, output: &mut TaskOutput) {
 }
 
 fn valid_repeat_rule(value: &str) -> bool {
+    parse_repeat_rule(value).is_some()
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RepeatRule {
+    Days(i64),
+    Weeks(i64),
+    Months(i32),
+    Years(i32),
+}
+
+fn parse_repeat_rule(value: &str) -> Option<RepeatRule> {
     let Some(value) = value.strip_prefix('P') else {
-        return false;
+        return None;
     };
     let Some((unit, digits)) = value
         .chars()
         .last()
         .map(|unit| (unit, &value[..value.len() - unit.len_utf8()]))
     else {
-        return false;
+        return None;
     };
-    matches!(unit, 'D' | 'W' | 'M' | 'Y')
-        && !digits.is_empty()
-        && digits.bytes().all(|byte| byte.is_ascii_digit())
-        && digits.parse::<u64>().is_ok_and(|count| count > 0)
+    if digits.is_empty() || !digits.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    let count = digits.parse::<u64>().ok().filter(|count| *count > 0)?;
+    match unit {
+        'D' => i64::try_from(count).ok().map(RepeatRule::Days),
+        'W' => i64::try_from(count).ok().map(RepeatRule::Weeks),
+        'M' => i32::try_from(count).ok().map(RepeatRule::Months),
+        'Y' => i32::try_from(count).ok().map(RepeatRule::Years),
+        _ => None,
+    }
+}
+
+pub fn next_task_datetime(datetime: &str, recur: &str) -> Option<String> {
+    let datetime = DateTime::parse_from_rfc3339(datetime).ok()?;
+    let next = match parse_repeat_rule(recur)? {
+        RepeatRule::Days(days) => datetime + Duration::days(days),
+        RepeatRule::Weeks(weeks) => datetime + Duration::weeks(weeks),
+        RepeatRule::Months(months) => add_months(datetime, months)?,
+        RepeatRule::Years(years) => add_months(datetime, years.checked_mul(12)?)?,
+    };
+    Some(next.to_rfc3339_opts(SecondsFormat::Secs, false))
+}
+
+fn add_months(datetime: DateTime<FixedOffset>, months: i32) -> Option<DateTime<FixedOffset>> {
+    let month0 = datetime.month0() as i32 + months;
+    let year = datetime.year() + month0.div_euclid(12);
+    let month = (month0.rem_euclid(12) + 1) as u32;
+    let day = datetime.day().min(last_day_of_month(year, month)?);
+    datetime
+        .timezone()
+        .with_ymd_and_hms(
+            year,
+            month,
+            day,
+            datetime.hour(),
+            datetime.minute(),
+            datetime.second(),
+        )
+        .single()
+}
+
+fn last_day_of_month(year: i32, month: u32) -> Option<u32> {
+    let (next_year, next_month) = if month == 12 {
+        (year + 1, 1)
+    } else {
+        (year, month + 1)
+    };
+    let first_next = chrono::NaiveDate::from_ymd_opt(next_year, next_month, 1)?;
+    Some((first_next - Duration::days(1)).day())
 }
 
 #[cfg(test)]
@@ -330,5 +415,22 @@ mod tests {
                 "task.missing-due-for-recur",
             ]
         );
+    }
+
+    #[test]
+    fn advances_task_datetimes_by_calendar_repeat_rules() {
+        assert_eq!(
+            next_task_datetime("2026-07-20T09:00:00+08:00", "P2W").as_deref(),
+            Some("2026-08-03T09:00:00+08:00")
+        );
+        assert_eq!(
+            next_task_datetime("2026-01-31T09:00:00+08:00", "P1M").as_deref(),
+            Some("2026-02-28T09:00:00+08:00")
+        );
+        assert_eq!(
+            next_task_datetime("2024-02-29T09:00:00Z", "P1Y").as_deref(),
+            Some("2025-02-28T09:00:00+00:00")
+        );
+        assert!(next_task_datetime("2026-07-20T09:00:00Z", "P1M1D").is_none());
     }
 }

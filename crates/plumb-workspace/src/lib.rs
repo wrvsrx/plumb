@@ -3,9 +3,9 @@ use std::path::{Component, Path, PathBuf};
 
 use plumb_core::{parse, Diagnostic, DiagnosticSeverity, ParsedDocument};
 use plumb_extensions::{
-    analyze_document, parse_task_reference_target, valid_task_datetime, AnchorRecord,
-    DocumentOutput, LinkCompletionContext, LinkRecord, LinkTarget, TaskRecord, TaskReferenceTarget,
-    TaskState, TaskStatus,
+    analyze_document, next_task_datetime, parse_task_reference_target, valid_task_datetime,
+    AnchorRecord, DocumentOutput, LinkCompletionContext, LinkRecord, LinkTarget, TaskRecord,
+    TaskReferenceTarget, TaskState, TaskStatus,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -64,7 +64,7 @@ pub enum TaskEditError {
     TaskNotFound,
     TaskAlreadyClosed,
     TaskBlocked,
-    RecurrenceNotSupported,
+    InvalidRecurrence,
     InvalidTimestamp,
 }
 
@@ -360,7 +360,10 @@ impl Workspace {
             return Err(TaskEditError::TaskAlreadyClosed);
         }
         if task.recur.is_some() && task.due.is_some() {
-            return Err(TaskEditError::RecurrenceNotSupported);
+            if status == TaskStatus::Done && self.is_task_blocked(&path, task) {
+                return Err(TaskEditError::TaskBlocked);
+            }
+            return self.recurring_task_status_edit(entry, task, status, timestamp);
         }
         if status == TaskStatus::Done && self.is_task_blocked(&path, task) {
             return Err(TaskEditError::TaskBlocked);
@@ -373,6 +376,134 @@ impl Workspace {
                     range: task.attribute_insert..task.attribute_insert,
                     new_text: format!(" {}=\"{}\"", status.attribute(), timestamp),
                 }],
+            }],
+            resource_operations: Vec::new(),
+        })
+    }
+
+    fn recurring_task_status_edit(
+        &self,
+        entry: &DocumentEntry,
+        task: &TaskRecord,
+        status: TaskStatus,
+        timestamp: &str,
+    ) -> Result<WorkspaceEdit, TaskEditError> {
+        let recur = task
+            .recur
+            .as_ref()
+            .ok_or(TaskEditError::InvalidRecurrence)?;
+        let due = task.due.as_ref().ok_or(TaskEditError::InvalidRecurrence)?;
+        let next_due =
+            next_task_datetime(&due.value, &recur.value).ok_or(TaskEditError::InvalidRecurrence)?;
+        let next_wait = match &task.wait {
+            Some(wait) => Some(
+                next_task_datetime(&wait.value, &recur.value)
+                    .ok_or(TaskEditError::InvalidRecurrence)?,
+            ),
+            None => None,
+        };
+        let current = entry
+            .current
+            .as_ref()
+            .ok_or(TaskEditError::StaleOrInvalidDocument)?;
+        let mut reserved = current
+            .output
+            .anchors
+            .iter()
+            .map(|anchor| anchor.id.value.clone())
+            .collect::<HashSet<_>>();
+        let current_id = task
+            .id
+            .as_ref()
+            .map(|id| id.value.clone())
+            .unwrap_or_else(|| {
+                let id = unique_task_instance_id(&task.title, &due.value, &reserved);
+                reserved.insert(id.clone());
+                id
+            });
+        let next_id = unique_task_instance_id(&task.title, &next_due, &reserved);
+
+        let source = &entry.parsed.source;
+        let mut clone = source[task.range.clone()].to_string();
+        let mut replacements = current
+            .output
+            .tasks
+            .tasks
+            .iter()
+            .filter(|candidate| {
+                task.range.start <= candidate.range.start && candidate.range.end <= task.range.end
+            })
+            .map(|candidate| {
+                let replacement = if candidate.range == task.range {
+                    recurring_task_attributes(
+                        task,
+                        &next_id,
+                        timestamp,
+                        &next_due,
+                        next_wait.as_deref(),
+                        &recur.value,
+                        &current_id,
+                    )
+                } else {
+                    attribute_slot(&candidate.persistent_attributes)
+                };
+                (
+                    candidate.attribute_range.start - task.range.start
+                        ..candidate.attribute_range.end - task.range.start,
+                    replacement,
+                )
+            })
+            .collect::<Vec<_>>();
+        replacements.sort_by_key(|(range, _)| std::cmp::Reverse(range.start));
+        for (range, replacement) in replacements {
+            clone.replace_range(range, &replacement);
+        }
+
+        let newline = if source.contains("\r\n") {
+            "\r\n"
+        } else {
+            "\n"
+        };
+        let line_start = source[..task.range.start]
+            .rfind('\n')
+            .map_or(0, |offset| offset + 1);
+        let indent = &source[line_start..task.range.start];
+        let before = &source[..task.range.end];
+        let separator = if before.ends_with(&format!("{newline}{newline}")) {
+            ""
+        } else if before.ends_with(newline) {
+            newline
+        } else {
+            // A parser-valid task may be the final line without a newline.
+            if newline == "\r\n" {
+                "\r\n\r\n"
+            } else {
+                "\n\n"
+            }
+        };
+        let current_id_edit = task
+            .id
+            .is_none()
+            .then(|| format!(" #{current_id}"))
+            .unwrap_or_default();
+        Ok(WorkspaceEdit {
+            document_changes: vec![DocumentEdit {
+                path: entry.path.clone(),
+                expected_revision: entry.revision,
+                edits: vec![
+                    TextEdit {
+                        range: task.attribute_insert..task.attribute_insert,
+                        new_text: format!(
+                            "{current_id_edit} {}=\"{}\"",
+                            status.attribute(),
+                            timestamp
+                        ),
+                    },
+                    TextEdit {
+                        range: task.range.end..task.range.end,
+                        new_text: format!("{separator}{indent}{clone}"),
+                    },
+                ],
             }],
             resource_operations: Vec::new(),
         })
@@ -996,6 +1127,69 @@ fn dependency_cycle_contains(graph: &HashMap<TaskRef, Vec<TaskRef>>, start: &Tas
     visit(graph, start, start, &mut HashSet::new())
 }
 
+fn recurring_task_attributes(
+    task: &TaskRecord,
+    next_id: &str,
+    timestamp: &str,
+    next_due: &str,
+    next_wait: Option<&str>,
+    recur: &str,
+    current_id: &str,
+) -> String {
+    let mut attributes = task.persistent_attributes.clone();
+    attributes.push(format!("#{next_id}"));
+    attributes.push(format!("created=\"{}\"", escape_attribute_value(timestamp)));
+    attributes.push(format!("due=\"{}\"", escape_attribute_value(next_due)));
+    if let Some(wait) = next_wait {
+        attributes.push(format!("wait=\"{}\"", escape_attribute_value(wait)));
+    }
+    attributes.push(format!("recur=\"{}\"", escape_attribute_value(recur)));
+    attributes.push(format!("prev=\"#{}\"", escape_attribute_value(current_id)));
+    attribute_slot(&attributes)
+}
+
+fn attribute_slot(attributes: &[String]) -> String {
+    format!("{{{}}}", attributes.join(" "))
+}
+
+fn escape_attribute_value(value: &str) -> String {
+    value.replace('\\', "\\\\").replace('"', "\\\"")
+}
+
+fn unique_task_instance_id(title: &str, datetime: &str, reserved: &HashSet<String>) -> String {
+    let mut slug = String::new();
+    let mut separator = false;
+    for character in title.chars().flat_map(char::to_lowercase) {
+        if character.is_alphanumeric() || matches!(character, '_' | '-') {
+            if separator && !slug.is_empty() && !slug.ends_with('-') {
+                slug.push('-');
+            }
+            separator = false;
+            slug.push(character);
+        } else {
+            separator = true;
+        }
+    }
+    while slug.ends_with('-') {
+        slug.pop();
+    }
+    if slug.is_empty() {
+        slug.push_str("task");
+    }
+    let date = datetime.get(..10).unwrap_or("instance");
+    let candidate = format!("{slug}-{date}");
+    if !reserved.contains(&candidate) {
+        return candidate;
+    }
+    for suffix in 2.. {
+        let candidate = format!("{slug}-{date}-{suffix}");
+        if !reserved.contains(&candidate) {
+            return candidate;
+        }
+    }
+    unreachable!()
+}
+
 fn percent_decode_path(path: &str) -> String {
     let mut decoded = Vec::with_capacity(path.len());
     let bytes = path.as_bytes();
@@ -1369,15 +1563,51 @@ mod tests {
             ),
             Err(TaskEditError::TaskAlreadyClosed)
         );
-        assert_eq!(
-            workspace.set_task_status(
+        assert!(workspace
+            .set_task_status(
                 "tasks.plumb",
                 source.find("Recurring").unwrap(),
                 TaskStatus::Done,
                 timestamp,
-            ),
-            Err(TaskEditError::RecurrenceNotSupported)
-        );
+            )
+            .is_ok());
+    }
+
+    #[test]
+    fn recurring_task_status_advances_and_clones_the_task_losslessly() {
+        let mut workspace = Workspace::new();
+        let source = "`item{.task .daily due=\"2026-01-31T09:00:00+08:00\" wait=\"2026-01-30T09:00:00+08:00\" recur=P1M} Monthly review\n  `note Keep details\n  `item{.task #nested done=\"2026-01-20T09:00:00+08:00\"} Nested\n";
+        workspace.insert("tasks.plumb", 4, source);
+
+        let edit = workspace
+            .set_task_status(
+                "tasks.plumb",
+                source.find("Monthly review").unwrap(),
+                TaskStatus::Done,
+                "2026-01-31T10:00:00+08:00",
+            )
+            .unwrap();
+        let mut edits = edit.document_changes[0].edits.clone();
+        assert_eq!(edits.len(), 2);
+        edits.sort_by_key(|edit| std::cmp::Reverse(edit.range.start));
+        let mut edited = source.to_string();
+        for edit in edits {
+            edited.replace_range(edit.range, &edit.new_text);
+        }
+
+        assert!(edited.contains("#monthly-review-2026-01-31 done=\"2026-01-31T10:00:00+08:00\""));
+        assert!(edited.contains("#monthly-review-2026-02-28"));
+        assert!(edited.contains("created=\"2026-01-31T10:00:00+08:00\""));
+        assert!(edited.contains("due=\"2026-02-28T09:00:00+08:00\""));
+        assert!(edited.contains("wait=\"2026-02-28T09:00:00+08:00\""));
+        assert!(edited.contains("prev=\"#monthly-review-2026-01-31\""));
+        assert_eq!(edited.matches("#nested").count(), 1);
+        assert_eq!(edited.matches("done=\"2026-01-20").count(), 1);
+        let parsed = parse(&edited);
+        assert!(parsed.is_valid(), "{}\n{:?}", edited, parsed.diagnostics);
+        let output = analyze_document(&parsed.source, &parsed.syntax);
+        assert_eq!(output.tasks.tasks.len(), 4);
+        assert_eq!(output.tasks.tasks[2].state(), TaskState::Open);
     }
 
     #[test]

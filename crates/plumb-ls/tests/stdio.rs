@@ -318,6 +318,62 @@ fn offers_guarded_task_status_code_actions() {
 }
 
 #[test]
+fn recurring_task_action_closes_current_and_appends_next_instance() {
+    let uri = "file:///tmp/recurring-task.plumb";
+    let source = "`item{.task due=\"2026-07-20T09:00:00+08:00\" recur=P1W} Weekly review\n";
+    let messages = [
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {
+                "processId": null, "rootUri": null,
+                "capabilities": {
+                    "workspace": { "workspaceEdit": { "documentChanges": true } }
+                }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": {
+                "uri": uri, "languageId": "plumb", "version": 2, "text": source
+            }}
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 2, "method": "textDocument/codeAction",
+            "params": {
+                "textDocument": { "uri": uri },
+                "range": {
+                    "start": { "line": 0, "character": 68 },
+                    "end": { "line": 0, "character": 68 }
+                },
+                "context": { "diagnostics": [], "only": ["quickfix"] }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 3, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+
+    let output = run_server(&messages);
+    let actions = response(&output, 2)["result"].as_array().unwrap();
+    let complete = actions
+        .iter()
+        .find(|action| action["title"] == "Complete task")
+        .unwrap();
+    let edits = complete["edit"]["documentChanges"][0]["edits"]
+        .as_array()
+        .unwrap();
+    assert_eq!(edits.len(), 2);
+    assert!(edits[0]["newText"]
+        .as_str()
+        .unwrap()
+        .contains("#weekly-review-2026-07-20 done="));
+    let next = edits[1]["newText"].as_str().unwrap();
+    assert!(next.contains("#weekly-review-2026-07-27"));
+    assert!(next.contains("due=\"2026-07-27T09:00:00+08:00\""));
+    assert!(next.contains("prev=\"#weekly-review-2026-07-20\""));
+}
+
+#[test]
 fn publishes_task_symbols_hover_and_workspace_diagnostics() {
     let root = unique_temp_dir();
     std::fs::create_dir_all(&root).unwrap();
