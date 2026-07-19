@@ -175,7 +175,7 @@ fn collect_inlines(
                     first_ids,
                     output,
                 );
-                if kind == "link" {
+                if kind == "->" {
                     collect_link(source, range.clone(), content.range.clone(), attrs, output);
                 }
                 collect_inlines(source, content, first_ids, output);
@@ -367,7 +367,7 @@ mod tests {
 
     #[test]
     fn links_keep_component_source_ranges_through_quotes() {
-        let parsed = parse("See `link[target]{to=\"docs/a.plumb#intro\"}.\n");
+        let parsed = parse("See `->[target]{to=\"docs/a.plumb#intro\"}.\n");
         let output = analyze_document(&parsed.source, &parsed.syntax);
         let link = &output.links[0];
         assert_eq!(
@@ -385,6 +385,15 @@ mod tests {
                 fragment: "intro".to_string(),
             }
         );
+    }
+
+    #[test]
+    fn link_kind_is_not_a_reference() {
+        let parsed = parse("`link[generic]{to=\"other.plumb#target\"}\n");
+        assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
+
+        let output = analyze_document(&parsed.source, &parsed.syntax);
+        assert!(output.links.is_empty());
     }
 
     #[test]

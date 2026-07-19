@@ -377,12 +377,8 @@ mod tests {
     fn queries_transitive_referrers() {
         let root = unique_temp_dir();
         std::fs::create_dir_all(&root).unwrap();
-        std::fs::write(
-            root.join("index.plumb"),
-            "`link[topic]{to=\"topic.plumb\"}\n",
-        )
-        .unwrap();
-        std::fs::write(root.join("topic.plumb"), "`link[leaf]{to=\"leaf.plumb\"}\n").unwrap();
+        std::fs::write(root.join("index.plumb"), "`->[topic]{to=\"topic.plumb\"}\n").unwrap();
+        std::fs::write(root.join("topic.plumb"), "`->[leaf]{to=\"leaf.plumb\"}\n").unwrap();
         std::fs::write(root.join("leaf.plumb"), "Leaf note.\n").unwrap();
         let loaded = load_workspace(&root).unwrap();
         let reverse = ReverseReferences::build(&loaded.workspace);

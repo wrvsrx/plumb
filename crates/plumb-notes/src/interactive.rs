@@ -196,7 +196,7 @@ fn highlight_plumb(source: &str) -> String {
             lines.push(ansi(line, "35"));
         } else if trimmed.starts_with("`#") {
             lines.push(ansi(line, "1;34"));
-        } else if line.contains("`link[") {
+        } else if line.contains("`->[") {
             lines.push(ansi(line, "32"));
         } else {
             lines.push(line.to_string());
@@ -242,7 +242,7 @@ mod tests {
             editor_command("'code editor' --wait").unwrap(),
             ("code editor".to_string(), vec!["--wait".to_string()])
         );
-        let preview = preview_text("topic.plumb", "`#{#topic} Topic\nSee `link[x]{to=\"x\"}.\n");
+        let preview = preview_text("topic.plumb", "`#{#topic} Topic\nSee `->[x]{to=\"x\"}.\n");
         assert!(preview.contains("topic.plumb"));
         assert!(preview.contains("\x1b[1;34m"));
         assert!(preview.contains("\x1b[32m"));

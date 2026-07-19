@@ -1368,7 +1368,7 @@ impl Workspace {
                             label: title.clone(),
                             detail: relative.clone(),
                             new_text: format!(
-                                "`link[{}]{{to=\"{}\"}}",
+                                "`->[{}]{{to=\"{}\"}}",
                                 escape_inline_text(&title),
                                 escape_quoted_value(&relative)
                             ),
@@ -1716,7 +1716,7 @@ mod tests {
         workspace.insert(
             "notes/b.plumb",
             1,
-            "See `link[local]{to=\"a.plumb#local\"}.\n",
+            "See `->[local]{to=\"a.plumb#local\"}.\n",
         );
         let link = &workspace
             .get("notes/b.plumb")
@@ -1738,7 +1738,7 @@ mod tests {
         workspace.insert(
             "a.plumb",
             1,
-            "`# No anchor\nSee `link[x]{to=\"#No-anchor\"}.\n",
+            "`# No anchor\nSee `->[x]{to=\"#No-anchor\"}.\n",
         );
         let entry = workspace.get("a.plumb").unwrap();
         let link = &entry.current.as_ref().unwrap().output.links[0];
@@ -1763,8 +1763,8 @@ mod tests {
     fn returns_reverse_references() {
         let mut workspace = Workspace::new();
         workspace.insert("a.plumb", 1, "`#{#target} Target\n");
-        workspace.insert("b.plumb", 1, "`link[x]{to=\"a.plumb#target\"}\n");
-        workspace.insert("missing.plumb", 1, "`link[x]{to=\"a.plumb#missing\"}\n");
+        workspace.insert("b.plumb", 1, "`->[x]{to=\"a.plumb#target\"}\n");
+        workspace.insert("missing.plumb", 1, "`->[x]{to=\"a.plumb#missing\"}\n");
         workspace.insert(
             "task.plumb",
             1,
@@ -1784,7 +1784,7 @@ mod tests {
     #[test]
     fn task_fields_participate_in_navigation_references_and_anchor_rename() {
         let target_source = "`-{.task #draft} Draft\n`node{#note} Note\n";
-        let reference_source = "`-{.task #review prev=\"Project%20Plan.plumb#draft\" depends=\"Project%20Plan.plumb#draft Project%20Plan.plumb#note\"} Review\nSee `link[draft]{to=\"Project Plan.plumb#draft\"}.\n";
+        let reference_source = "`-{.task #review prev=\"Project%20Plan.plumb#draft\" depends=\"Project%20Plan.plumb#draft Project%20Plan.plumb#note\"} Review\nSee `->[draft]{to=\"Project Plan.plumb#draft\"}.\n";
         let mut workspace = Workspace::new();
         workspace.insert("Project Plan.plumb", 4, target_source);
         workspace.insert("review.plumb", 7, reference_source);
@@ -1832,7 +1832,7 @@ mod tests {
     #[test]
     fn document_rename_rewrites_percent_encoded_task_reference_paths() {
         let target_source = "`-{.task #draft} Draft\n";
-        let reference_source = "`-{.task prev=\"Project%20Plan.plumb#draft\" depends=\"Project%20Plan.plumb#draft\"} Review\nSee `link[draft]{to=\"Project Plan.plumb#draft\"}.\n";
+        let reference_source = "`-{.task prev=\"Project%20Plan.plumb#draft\" depends=\"Project%20Plan.plumb#draft\"} Review\nSee `->[draft]{to=\"Project Plan.plumb#draft\"}.\n";
         let mut workspace = Workspace::new();
         workspace.insert("Project Plan.plumb", 4, target_source);
         workspace.insert("review.plumb", 7, reference_source);
@@ -1873,7 +1873,7 @@ mod tests {
     fn rename_updates_declaration_and_cross_file_fragments() {
         let mut workspace = Workspace::new();
         workspace.insert("a.plumb", 4, "`#{#target} Target\n");
-        workspace.insert("b.plumb", 7, "`link[x]{to=\"a.plumb#target\"}\n");
+        workspace.insert("b.plumb", 7, "`->[x]{to=\"a.plumb#target\"}\n");
         let target = workspace.anchor_rename_target_at("a.plumb", 5).unwrap();
         let edit = workspace.rename_anchor(&target, "renamed").unwrap();
         assert_eq!(edit.document_changes.len(), 2);
@@ -1930,10 +1930,7 @@ mod tests {
         );
         assert_eq!(labels[0].label, "Design Guide");
         assert_eq!(labels[0].detail, "design.plumb");
-        assert_eq!(
-            labels[0].new_text,
-            "`link[Design Guide]{to=\"design.plumb\"}"
-        );
+        assert_eq!(labels[0].new_text, "`->[Design Guide]{to=\"design.plumb\"}");
         let anchors = workspace.complete_link(
             "notes/current.plumb",
             &LinkCompletionContext::Anchor {
@@ -1952,9 +1949,9 @@ mod tests {
         workspace.insert(
             "notes/a.plumb",
             1,
-            "`#{#a} A\n`link[c]{to=\"../shared/c.plumb#c\"}\n",
+            "`#{#a} A\n`->[c]{to=\"../shared/c.plumb#c\"}\n",
         );
-        workspace.insert("notes/b.plumb", 2, "`link[a]{to=\"a.plumb#a\"}\n");
+        workspace.insert("notes/b.plumb", 2, "`->[a]{to=\"a.plumb#a\"}\n");
         workspace.insert("shared/c.plumb", 3, "`#{#c} C\n");
         let link = &workspace
             .get("notes/b.plumb")

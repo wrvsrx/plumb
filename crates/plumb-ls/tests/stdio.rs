@@ -118,7 +118,7 @@ fn watched_file_create_indexes_the_new_document() {
     let target = root.join("topic.plumb");
     let source = root.join("index.plumb");
     std::fs::write(&target, "`#{#topic} Topic\n").unwrap();
-    let source_text = "See `link[topic]{to=\"topic.plumb#topic\"}.\n";
+    let source_text = "See `->[topic]{to=\"topic.plumb#topic\"}.\n";
     let target_uri = lsp_types::Url::from_file_path(&target).unwrap();
     let source_uri = lsp_types::Url::from_file_path(&source).unwrap();
     let messages = [
@@ -168,7 +168,7 @@ fn diagnostics_clear_after_a_link_is_fixed() {
             "jsonrpc": "2.0", "method": "textDocument/didOpen",
             "params": { "textDocument": {
                 "uri": uri, "languageId": "plumb", "version": 1,
-                "text": "See `link[missing]{to=\"#missing\"}.\n"
+                "text": "See `->[missing]{to=\"#missing\"}.\n"
             }}
         }),
         json!({
@@ -176,7 +176,7 @@ fn diagnostics_clear_after_a_link_is_fixed() {
             "params": {
                 "textDocument": { "uri": uri, "version": 2 },
                 "contentChanges": [{
-                    "text": "`node{#target} Target\nSee `link[target]{to=\"#target\"}.\n"
+                    "text": "`node{#target} Target\nSee `->[target]{to=\"#target\"}.\n"
                 }]
             }
         }),
@@ -201,7 +201,7 @@ fn diagnostics_refresh_when_a_target_document_changes() {
             "jsonrpc": "2.0", "method": "textDocument/didOpen",
             "params": { "textDocument": {
                 "uri": source_uri, "languageId": "plumb", "version": 1,
-                "text": "See `link[target]{to=\"diagnostic-target.plumb#target\"}.\n"
+                "text": "See `->[target]{to=\"diagnostic-target.plumb#target\"}.\n"
             }}
         }),
         json!({
@@ -902,7 +902,7 @@ fn resolves_cross_file_navigation_over_stdio() {
     let target = root.join("a.plumb");
     let source = root.join("b.plumb");
     std::fs::write(&target, "`#{#target} Target\n").unwrap();
-    let source_text = "See `link[target]{to=\"a.plumb#target\"}.\n";
+    let source_text = "See `->[target]{to=\"a.plumb#target\"}.\n";
     std::fs::write(&source, source_text).unwrap();
     let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
     let target_uri = lsp_types::Url::from_file_path(&target).unwrap();
@@ -1016,11 +1016,11 @@ fn completes_links_by_document_metadata_title() {
     std::fs::create_dir_all(&root).unwrap();
     let source = root.join("current.plumb");
     let target = root.join("usage.plumb");
-    let closed_path = "`link[x]{to=\"usXXX\"}";
-    let closed_anchor = "`link[x]{to=\"usage.plumb#usXXX\"}";
-    let raw = "`\"[raw `link[x]{to=\"us\"}]\"";
+    let closed_path = "`->[x]{to=\"usXXX\"}";
+    let closed_anchor = "`->[x]{to=\"usage.plumb#usXXX\"}";
+    let raw = "`\"[raw `->[x]{to=\"us\"}]\"";
     let source_text =
-        format!("`link[Us\n`link[x]{{to=\"Guide\n{closed_path}\n{closed_anchor}\n{raw}\n");
+        format!("`->[Us\n`->[x]{{to=\"Guide\n{closed_path}\n{closed_anchor}\n{raw}\n");
     std::fs::write(&source, &source_text).unwrap();
     std::fs::write(
         &target,
@@ -1099,7 +1099,7 @@ fn completes_links_by_document_metadata_title() {
     assert_eq!(label["detail"], "usage.plumb");
     assert_eq!(
         label["textEdit"]["newText"],
-        "`link[Usage Guide]{to=\"usage.plumb\"}"
+        "`->[Usage Guide]{to=\"usage.plumb\"}"
     );
     let path = &response(&output, 3)["result"][0];
     assert_eq!(path["label"], "usage.plumb");
@@ -1136,7 +1136,7 @@ fn completion_from_a_subdirectory_inserts_a_relative_path() {
     std::fs::create_dir_all(&target_dir).unwrap();
     let source = source_dir.join("current.plumb");
     let target = target_dir.join("target.plumb");
-    let source_text = "`link[Target";
+    let source_text = "`->[Target";
     std::fs::write(&source, source_text).unwrap();
     std::fs::write(
         &target,
@@ -1182,7 +1182,7 @@ fn completion_from_a_subdirectory_inserts_a_relative_path() {
     assert_eq!(item["detail"], "../a/target.plumb");
     assert_eq!(
         item["textEdit"]["newText"],
-        "`link[Target A]{to=\"../a/target.plumb\"}"
+        "`->[Target A]{to=\"../a/target.plumb\"}"
     );
     std::fs::remove_dir_all(root).unwrap();
 }
@@ -1193,7 +1193,7 @@ fn definition_resolves_a_file_name_containing_spaces() {
     std::fs::create_dir_all(&root).unwrap();
     let source = root.join("source.plumb");
     let target = root.join("other file.plumb");
-    let source_text = "See `link[topic]{to=\"other file.plumb#topic\"}.\n";
+    let source_text = "See `->[topic]{to=\"other file.plumb#topic\"}.\n";
     std::fs::write(&source, source_text).unwrap();
     std::fs::write(&target, "`node{#topic} Topic\n").unwrap();
     let source_uri = lsp_types::Url::from_file_path(&source).unwrap();
@@ -1354,8 +1354,8 @@ fn path_rename_is_optimistic_and_reconciles_failed_client_application() {
     let new_target = root.join("new.plumb");
     let source = root.join("source.plumb");
     let target_text = "`#{#target} Target\n";
-    let old_source = "See `link[target]{to=\"old.plumb#target\"}.\n";
-    let new_source = "See `link[target]{to=\"new.plumb#target\"}.\n";
+    let old_source = "See `->[target]{to=\"old.plumb#target\"}.\n";
+    let new_source = "See `->[target]{to=\"new.plumb#target\"}.\n";
     std::fs::write(&old_target, target_text).unwrap();
     std::fs::write(&source, old_source).unwrap();
     let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
@@ -1442,8 +1442,8 @@ fn path_rename_watcher_confirms_a_successful_filesystem_rename() {
     let new_target = root.join("new.plumb");
     let source = root.join("source.plumb");
     let target_text = "`#{#target} Target\n";
-    let old_source = "See `link[target]{to=\"old.plumb#target\"}.\n";
-    let new_source = "See `link[target]{to=\"new.plumb#target\"}.\n";
+    let old_source = "See `->[target]{to=\"old.plumb#target\"}.\n";
+    let new_source = "See `->[target]{to=\"new.plumb#target\"}.\n";
     std::fs::write(&old_target, target_text).unwrap();
     std::fs::write(&source, old_source).unwrap();
     let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
@@ -1528,8 +1528,8 @@ fn path_rename_watcher_clears_a_missing_optimistic_target() {
     let old_target = root.join("old.plumb");
     let new_target = root.join("new.plumb");
     let source = root.join("source.plumb");
-    let old_source = "See `link[target]{to=\"old.plumb#target\"}.\n";
-    let new_source = "See `link[target]{to=\"new.plumb#target\"}.\n";
+    let old_source = "See `->[target]{to=\"old.plumb#target\"}.\n";
+    let new_source = "See `->[target]{to=\"new.plumb#target\"}.\n";
     std::fs::write(&old_target, "`#{#target} Target\n").unwrap();
     std::fs::write(&source, old_source).unwrap();
     let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
@@ -1656,7 +1656,7 @@ fn definition_and_hover_lazily_load_targets_without_a_workspace_root() {
     let link_target = root.join("link target.plumb");
     let hover_target = root.join("hover target.plumb");
     let file_target = root.join("file target.plumb");
-    let source_text = "`-{.task depends=\"task%20target.plumb#draft\"} Review\nSee `link[note]{to=\"link target.plumb#note\"}.\nSee `link[hover]{to=\"hover target.plumb#hover\"}.\nSee `link[file]{to=\"file target.plumb\"}.\n";
+    let source_text = "`-{.task depends=\"task%20target.plumb#draft\"} Review\nSee `->[note]{to=\"link target.plumb#note\"}.\nSee `->[hover]{to=\"hover target.plumb#hover\"}.\nSee `->[file]{to=\"file target.plumb\"}.\n";
     std::fs::write(&source, source_text).unwrap();
     std::fs::write(&task_target, "`-{.task #draft} Draft\n").unwrap();
     std::fs::write(&link_target, "`node{#note} Note\n").unwrap();
@@ -1756,7 +1756,7 @@ fn run_path_rename_precondition_test(
     std::fs::create_dir_all(&root).unwrap();
     let old_target = root.join("old.plumb");
     let source = root.join("source.plumb");
-    let source_text = "See `link[target]{to=\"old.plumb#target\"}.\n";
+    let source_text = "See `->[target]{to=\"old.plumb#target\"}.\n";
     std::fs::write(&old_target, "`#{#target} Target\n").unwrap();
     std::fs::write(&source, source_text).unwrap();
     if create_target {

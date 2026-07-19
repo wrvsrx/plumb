@@ -423,9 +423,21 @@ mod tests {
 
     #[test]
     fn exports_links_from_shared_document_facts() {
-        let document = export("See `link[target]{to=\"other.plumb#id\"}.\n").unwrap();
+        let document = export("See `->[target]{to=\"other.plumb#id\"}.\n").unwrap();
         assert_eq!(document["blocks"][0]["c"][2]["t"], "Link");
         assert_eq!(document["blocks"][0]["c"][2]["c"][2][0], "other.plumb#id");
+    }
+
+    #[test]
+    fn exports_link_kind_as_a_generic_span() {
+        let document = export("`link[target]{to=\"other.plumb#id\"}\n").unwrap();
+        let inline = &document["blocks"][0]["c"][0];
+
+        assert_eq!(inline["t"], "Span");
+        assert_eq!(
+            inline["c"][0][2],
+            json!([["to", "other.plumb#id"], ["data-plumb-marker", "link"]])
+        );
     }
 
     #[test]

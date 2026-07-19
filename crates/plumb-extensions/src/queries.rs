@@ -2,6 +2,8 @@ use std::ops::Range;
 
 use plumb_core::{Block, Inline, InlineContent, ParsedDocument};
 
+const LINK_OPEN: &str = "`->[";
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LinkCompletionContext {
     Label {
@@ -32,7 +34,7 @@ pub fn link_completion_context(
     }
     let line_start = source[..offset].rfind('\n').map_or(0, |index| index + 1);
     let prefix = &source[line_start..offset];
-    let link_start = prefix.rfind("`link[")? + line_start;
+    let link_start = prefix.rfind(LINK_OPEN)? + line_start;
     let escaped_introducers = source[..link_start]
         .chars()
         .rev()
@@ -41,7 +43,7 @@ pub fn link_completion_context(
     if escaped_introducers % 2 == 1 {
         return None;
     }
-    let label_start = link_start + "`link[".len();
+    let label_start = link_start + LINK_OPEN.len();
     let label_prefix = &source[label_start..offset];
     let Some(label_end) = label_prefix.rfind("]{") else {
         if label_prefix
@@ -175,43 +177,45 @@ mod tests {
 
     #[test]
     fn finds_incomplete_path_and_anchor_contexts() {
-        let label = "See `link[Usage";
+        let label = "See `->[Usage";
         assert_eq!(
             completion_context(label, label.len()),
             Some(LinkCompletionContext::Label {
-                replace: 4..15,
+                replace: 4..13,
                 query: "Usage".to_string(),
             })
         );
-        let closed_label = "See `link[Usage]";
+        let closed_label = "See `->[Usage]";
         assert_eq!(
             completion_context(closed_label, closed_label.len() - 1),
             Some(LinkCompletionContext::Label {
-                replace: 4..16,
+                replace: 4..14,
                 query: "Usage".to_string(),
             })
         );
-        let escaped = "See ``link[Usage";
+        let escaped = "See ``->[Usage";
         assert_eq!(completion_context(escaped, escaped.len()), None);
-        let strengthened = "See ```link[Usage";
+        let old_kind = "See `link[Usage";
+        assert_eq!(completion_context(old_kind, old_kind.len()), None);
+        let strengthened = "See ```->[Usage";
         assert!(matches!(
             completion_context(strengthened, strengthened.len()),
             Some(LinkCompletionContext::Label { .. })
         ));
-        let path = "See `link[x]{to=\"doc";
+        let path = "See `->[x]{to=\"doc";
         assert_eq!(
             completion_context(path, path.len()),
             Some(LinkCompletionContext::Path {
-                replace: 17..20,
+                replace: 15..18,
                 query: "doc".to_string(),
             })
         );
-        let anchor = "See `link[x]{to=\"doc.plumb#tar";
+        let anchor = "See `->[x]{to=\"doc.plumb#tar";
         assert_eq!(
             completion_context(anchor, anchor.len()),
             Some(LinkCompletionContext::Anchor {
                 path: "doc.plumb".to_string(),
-                replace: 27..30,
+                replace: 25..28,
                 query: "tar".to_string(),
             })
         );
@@ -219,7 +223,7 @@ mod tests {
 
     #[test]
     fn replaces_complete_target_components_around_the_cursor() {
-        let (path, cursor) = strip_cursor("See `link[x]{to=\"do|c.plumb#target\"}");
+        let (path, cursor) = strip_cursor("See `->[x]{to=\"do|c.plumb#target\"}");
         let value_start = path.find("doc.plumb").unwrap();
         let separator = path.find("#target").unwrap();
         assert_eq!(
@@ -230,7 +234,7 @@ mod tests {
             })
         );
 
-        let (anchor, cursor) = strip_cursor("See `link[x]{to=\"doc.plumb#ta|rget\"}");
+        let (anchor, cursor) = strip_cursor("See `->[x]{to=\"doc.plumb#ta|rget\"}");
         let fragment_start = anchor.find("target").unwrap();
         assert_eq!(
             completion_context(&anchor, cursor),
@@ -241,7 +245,7 @@ mod tests {
             })
         );
 
-        let (empty, cursor) = strip_cursor("See `link[x]{to=\"|\"}");
+        let (empty, cursor) = strip_cursor("See `->[x]{to=\"|\"}");
         assert_eq!(
             completion_context(&empty, cursor),
             Some(LinkCompletionContext::Path {
@@ -253,15 +257,15 @@ mod tests {
 
     #[test]
     fn ignores_link_like_text_inside_verbatim_payloads() {
-        let closed = "`\"[raw `link[x]{to=\"doc|\"}]\"";
+        let closed = "`\"[raw `->[x]{to=\"doc|\"}]\"";
         let (closed, cursor) = strip_cursor(closed);
         assert_eq!(completion_context(&closed, cursor), None);
 
-        let unclosed = "`\"[raw `link[x]{to=\"doc|\"}";
+        let unclosed = "`\"[raw `->[x]{to=\"doc|\"}";
         let (unclosed, cursor) = strip_cursor(unclosed);
         assert_eq!(completion_context(&unclosed, cursor), None);
 
-        let block = "`{language=text}\n  raw `link[x]{to=\"doc|\"}\n";
+        let block = "`{language=text}\n  raw `->[x]{to=\"doc|\"}\n";
         let (block, cursor) = strip_cursor(block);
         assert_eq!(completion_context(&block, cursor), None);
     }
