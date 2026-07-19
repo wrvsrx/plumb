@@ -267,6 +267,7 @@ impl Workspace {
         };
         diagnostics.extend(current.output.headings.diagnostics.clone());
         diagnostics.extend(current.output.metadata.diagnostics.clone());
+        diagnostics.extend(current.output.citations.diagnostics.clone());
         diagnostics.extend(current.output.diagnostics.clone());
         for link in &current.output.links {
             let (code, message) = match self.resolve_link(&path, link) {

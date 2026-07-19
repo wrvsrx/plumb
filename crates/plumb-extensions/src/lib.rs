@@ -1,8 +1,12 @@
+mod citations;
 mod document;
 mod headings;
 mod metadata;
 mod queries;
 
+pub use citations::{
+    analyze_citations, CitationItem, CitationMode, CitationOutput, CitationRecord,
+};
 pub use document::{
     analyze_document, AnchorKind, AnchorRecord, DocumentOutput, LinkRecord, LinkTarget,
     SourceBacked,
