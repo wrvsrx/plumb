@@ -157,6 +157,7 @@ capability negotiation、不可变 operation context，以及独立的 cancellat
 `- [plumb] v1 task analysis 已实现：解释任意 marked block 的 `[.task] facet、状态、日期、嵌套与
   查询字段。list item aggregation 和 event analysis 尚未实现。
 `- [plumb] v1 task operation 已实现 complete/cancel 与 guarded text edits；reopen deferred。
+  cursor operation 支持从 closed nested task 回退到最深 open ancestor；id operation 保持精确命中。
 `- [plumb] v1 metadata authoring/query adapters；单 plain-id citation records 与 metadata
   export adapter 已实现。
 `- [plumb] v1 task dependency workspace analysis：产生 normalized dependency edges、reverse

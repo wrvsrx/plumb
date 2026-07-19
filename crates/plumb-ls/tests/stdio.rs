@@ -374,6 +374,55 @@ fn recurring_task_action_closes_current_and_appends_next_instance() {
 }
 
 #[test]
+fn task_actions_fall_back_from_closed_child_to_open_parent() {
+    let uri = "file:///tmp/nested-task-actions.plumb";
+    let source =
+        "`item{.task #outer} Outer\n  `item{.task #inner done=\"2026-07-20T09:00:00Z\"} Inner\n";
+    let cursor = source.find("Inner").unwrap();
+    let line_start = source.find('\n').unwrap() + 1;
+    let character = cursor - line_start;
+    let messages = [
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {
+                "processId": null, "rootUri": null,
+                "capabilities": {
+                    "workspace": { "workspaceEdit": { "documentChanges": true } }
+                }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": {
+                "uri": uri, "languageId": "plumb", "version": 1, "text": source
+            }}
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 2, "method": "textDocument/codeAction",
+            "params": {
+                "textDocument": { "uri": uri },
+                "range": {
+                    "start": { "line": 1, "character": character },
+                    "end": { "line": 1, "character": character }
+                },
+                "context": { "diagnostics": [], "only": ["quickfix"] }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 3, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+    let output = run_server(&messages);
+    let actions = response(&output, 2)["result"].as_array().unwrap();
+    assert_eq!(actions.len(), 2);
+    for action in actions {
+        let edit = &action["edit"]["documentChanges"][0]["edits"][0];
+        assert_eq!(edit["range"]["start"]["line"], 0);
+        assert!(edit["newText"].as_str().unwrap().contains("2026-"));
+    }
+}
+
+#[test]
 fn publishes_task_symbols_hover_and_workspace_diagnostics() {
     let root = unique_temp_dir();
     std::fs::create_dir_all(&root).unwrap();
