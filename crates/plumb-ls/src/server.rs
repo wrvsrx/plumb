@@ -6,21 +6,23 @@ use std::path::{Path, PathBuf};
 use async_lsp::{ClientSocket, ErrorCode, LanguageClient, LanguageServer, ResponseError};
 use futures::future::BoxFuture;
 use lsp_types::{
-    CompletionItem, CompletionItemKind, CompletionOptions, CompletionParams, CompletionResponse,
-    CompletionTextEdit, Diagnostic as LspDiagnostic, DiagnosticRelatedInformation,
-    DiagnosticSeverity, DidChangeConfigurationParams, DidChangeTextDocumentParams,
-    DidChangeWatchedFilesParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
-    DidSaveTextDocumentParams, DocumentChangeOperation, DocumentChanges, DocumentSymbol,
-    DocumentSymbolParams, DocumentSymbolResponse, FileChangeType, FileSystemWatcher, GlobPattern,
-    GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverContents, HoverParams,
-    HoverProviderCapability, InitializeParams, InitializeResult, InitializedParams, Location,
-    MarkupContent, MarkupKind, NumberOrString, OneOf, OptionalVersionedTextDocumentIdentifier,
-    PrepareRenameResponse, ProgressParams, ProgressParamsValue, PublishDiagnosticsParams,
-    ReferenceParams, Registration, RegistrationParams, RenameFile, RenameFileOptions,
-    RenameOptions, RenameParams, ResourceOp, ResourceOperationKind, ServerCapabilities, SymbolKind,
-    TextDocumentEdit, TextDocumentSyncCapability, TextDocumentSyncKind, TextEdit as LspTextEdit,
-    Url, WatchKind, WorkDoneProgress, WorkDoneProgressBegin, WorkDoneProgressEnd,
-    WorkDoneProgressOptions, WorkDoneProgressReport, WorkspaceEdit as LspWorkspaceEdit,
+    CodeAction, CodeActionKind, CodeActionOrCommand, CodeActionParams,
+    CodeActionProviderCapability, CodeActionResponse, CompletionItem, CompletionItemKind,
+    CompletionOptions, CompletionParams, CompletionResponse, CompletionTextEdit,
+    Diagnostic as LspDiagnostic, DiagnosticRelatedInformation, DiagnosticSeverity,
+    DidChangeConfigurationParams, DidChangeTextDocumentParams, DidChangeWatchedFilesParams,
+    DidCloseTextDocumentParams, DidOpenTextDocumentParams, DidSaveTextDocumentParams,
+    DocumentChangeOperation, DocumentChanges, DocumentSymbol, DocumentSymbolParams,
+    DocumentSymbolResponse, FileChangeType, FileSystemWatcher, GlobPattern, GotoDefinitionParams,
+    GotoDefinitionResponse, Hover, HoverContents, HoverParams, HoverProviderCapability,
+    InitializeParams, InitializeResult, InitializedParams, Location, MarkupContent, MarkupKind,
+    NumberOrString, OneOf, OptionalVersionedTextDocumentIdentifier, PrepareRenameResponse,
+    ProgressParams, ProgressParamsValue, PublishDiagnosticsParams, ReferenceParams, Registration,
+    RegistrationParams, RenameFile, RenameFileOptions, RenameOptions, RenameParams, ResourceOp,
+    ResourceOperationKind, ServerCapabilities, SymbolKind, TextDocumentEdit,
+    TextDocumentSyncCapability, TextDocumentSyncKind, TextEdit as LspTextEdit, Url, WatchKind,
+    WorkDoneProgress, WorkDoneProgressBegin, WorkDoneProgressEnd, WorkDoneProgressOptions,
+    WorkDoneProgressReport, WorkspaceEdit as LspWorkspaceEdit,
 };
 use plumb_core::Diagnostic;
 use plumb_extensions::{
@@ -218,6 +220,7 @@ impl LanguageServer for ServerState {
                         TextDocumentSyncKind::FULL,
                     )),
                     document_symbol_provider: Some(OneOf::Left(true)),
+                    code_action_provider: Some(CodeActionProviderCapability::Simple(true)),
                     definition_provider: Some(OneOf::Left(true)),
                     references_provider: Some(OneOf::Left(true)),
                     hover_provider: Some(HoverProviderCapability::Simple(true)),
@@ -510,6 +513,38 @@ impl LanguageServer for ServerState {
                 )
             });
         Box::pin(async move { Ok(items.map(CompletionResponse::Array)) })
+    }
+
+    fn code_action(
+        &mut self,
+        params: CodeActionParams,
+    ) -> BoxFuture<'static, Result<Option<CodeActionResponse>, Self::Error>> {
+        let accepts_rewrite = params.context.only.as_ref().is_none_or(|kinds| {
+            kinds.iter().any(|kind| {
+                let candidate = "refactor.rewrite";
+                let requested = kind.as_str();
+                candidate == requested
+                    || candidate
+                        .strip_prefix(requested)
+                        .is_some_and(|suffix| suffix.starts_with('.'))
+            })
+        });
+        let action = (self.supports_document_changes && accepts_rewrite)
+            .then(|| params.text_document.uri.to_file_path().ok())
+            .flatten()
+            .and_then(|path| {
+                let title = path.file_stem()?.to_str()?;
+                let edit = self.workspace.insert_metadata(&path, title).ok()?;
+                let edit = workspace_edit_to_lsp(&self.workspace, edit)?;
+                Some(CodeActionOrCommand::CodeAction(CodeAction {
+                    title: "Insert document metadata".to_string(),
+                    kind: Some(CodeActionKind::REFACTOR_REWRITE),
+                    edit: Some(edit),
+                    is_preferred: Some(true),
+                    ..CodeAction::default()
+                }))
+            });
+        Box::pin(async move { Ok(action.map(|action| vec![action])) })
     }
 
     fn prepare_rename(

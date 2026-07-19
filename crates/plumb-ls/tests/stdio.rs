@@ -123,6 +123,138 @@ fn publishes_metadata_diagnostics_and_nested_symbols_over_stdio() {
 }
 
 #[test]
+fn inserts_metadata_code_action_only_for_valid_documents_without_metadata() {
+    let uri = "file:///tmp/metadata-action.plumb";
+    let messages = [
+        json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "processId": null,
+                "rootUri": null,
+                "capabilities": {
+                    "workspace": { "workspaceEdit": { "documentChanges": true } }
+                }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({
+            "jsonrpc": "2.0",
+            "method": "textDocument/didOpen",
+            "params": { "textDocument": {
+                "uri": uri, "languageId": "plumb", "version": 3, "text": "`# Section\n"
+            }}
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 2, "method": "textDocument/codeAction",
+            "params": {
+                "textDocument": { "uri": uri },
+                "range": {
+                    "start": { "line": 0, "character": 0 },
+                    "end": { "line": 0, "character": 0 }
+                },
+                "context": { "diagnostics": [], "only": ["refactor"] }
+            }
+        }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didChange",
+            "params": {
+                "textDocument": { "uri": uri, "version": 4 },
+                "contentChanges": [{
+                    "text": "`meta\n  `: title\n\n    Existing\n\n`# Section\n"
+                }]
+            }
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 3, "method": "textDocument/codeAction",
+            "params": {
+                "textDocument": { "uri": uri },
+                "range": {
+                    "start": { "line": 0, "character": 0 },
+                    "end": { "line": 0, "character": 0 }
+                },
+                "context": { "diagnostics": [] }
+            }
+        }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didChange",
+            "params": {
+                "textDocument": { "uri": uri, "version": 5 },
+                "contentChanges": [{ "text": "`node{key=a key=b} Broken\n" }]
+            }
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 4, "method": "textDocument/codeAction",
+            "params": {
+                "textDocument": { "uri": uri },
+                "range": {
+                    "start": { "line": 0, "character": 0 },
+                    "end": { "line": 0, "character": 0 }
+                },
+                "context": { "diagnostics": [] }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 5, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+
+    let output = run_server(&messages);
+    assert_eq!(
+        response(&output, 1)["result"]["capabilities"]["codeActionProvider"],
+        true
+    );
+    let actions = response(&output, 2)["result"].as_array().unwrap();
+    assert_eq!(actions.len(), 1);
+    assert_eq!(actions[0]["title"], "Insert document metadata");
+    assert_eq!(actions[0]["kind"], "refactor.rewrite");
+    let change = &actions[0]["edit"]["documentChanges"][0];
+    assert_eq!(change["textDocument"]["version"], 3);
+    assert_eq!(change["edits"][0]["range"]["start"]["line"], 0);
+    assert_eq!(change["edits"][0]["range"]["start"]["character"], 0);
+    assert_eq!(
+        change["edits"][0]["newText"],
+        "`meta\n  `: title\n\n    metadata-action\n\n"
+    );
+    assert!(response(&output, 3)["result"].is_null());
+    assert!(response(&output, 4)["result"].is_null());
+}
+
+#[test]
+fn omits_metadata_code_action_without_guarded_edit_support() {
+    let uri = "file:///tmp/no-guarded-edits.plumb";
+    let messages = [
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": { "processId": null, "rootUri": null, "capabilities": {} }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": {
+                "uri": uri, "languageId": "plumb", "version": 1, "text": "Content\n"
+            }}
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 2, "method": "textDocument/codeAction",
+            "params": {
+                "textDocument": { "uri": uri },
+                "range": {
+                    "start": { "line": 0, "character": 0 },
+                    "end": { "line": 0, "character": 0 }
+                },
+                "context": { "diagnostics": [] }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 3, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+
+    let output = run_server(&messages);
+    assert!(response(&output, 2)["result"].is_null());
+}
+
+#[test]
 fn resolves_cross_file_navigation_over_stdio() {
     let root = unique_temp_dir();
     std::fs::create_dir_all(&root).unwrap();
