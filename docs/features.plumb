@@ -1,30 +1,30 @@
 `# plumb 工具需求与路线图
 
-本文从 `"[docs/requirements.plumb]" 的目标推导工具需求。MVP block/inline syntax 与 lossless
+本文从 `[docs/requirements.plumb] 的目标推导工具需求。MVP block/inline syntax 与 lossless
 SyntaxTree contract 已冻结；normalized AST 和 extension-specific semantics 按实际 consumer
 推进。
 
-阶段：`"[MVP]" = 首个可用版本；`"[v1]" = 稳定版；`"[later]" = 之后。
+阶段：`[MVP] = 首个可用版本；`[v1] = 稳定版；`[later] = 之后。
 
 `## 当前实现状态
 
-第一版 vertical slice 已开始实现，使用 `"[docs/extensions.plumb]" 的 typed dataflow model：
+第一版 vertical slice 已开始实现，使用 `[docs/extensions.plumb] 的 typed dataflow model：
 
-`- `"[plumb-core]" 手写 parser 产生 source-ranged tree 与 syntax diagnostics，并从 valid tree
+`- `[plumb-core] 手写 parser 产生 source-ranged tree 与 syntax diagnostics，并从 valid tree
   推导 Heading facts。
-`- `"[plumb-ls]" 支持 FULL sync、current-revision diagnostics 和 nested document symbols。
-`- `"[plumb-export]" 从同一 valid tree 产生 Pandoc JSON；syntax error 时拒绝输出。
+`- `[plumb-ls] 支持 FULL sync、current-revision diagnostics 和 nested document symbols。
+`- `[plumb-export] 从同一 valid tree 产生 Pandoc JSON；syntax error 时拒绝输出。
 
-当前 heading profile 已确定：`"[#]" 至 `"[######]" marker 的长度是 level，`"[{#id}]" 是唯一
-显式 anchor spelling；`"[id=value]" 不产生 anchor。运行方法、测试边界和已知 parser gaps 见
-`"[docs/toolchain.plumb]"。
+当前 heading profile 已确定：`[#] 至 `[######] marker 的长度是 level，`[{#id}] 是唯一
+显式 anchor spelling；`[id=value] 不产生 anchor。运行方法、测试边界和已知 parser gaps 见
+`[docs/toolchain.plumb]。
 
 metadata 尚未完成设计，当前工具链不识别 metadata，也不包含此前试验过的 raw TOML profile。
 definition-list based metadata 是待讨论方案，不构成当前 syntax 或 extension contract。
 
 `## Djot-tools feature 审计
 
-本清单审计 `"[~/Documents/djot-tools]" 在 commit `"[8957311]" 的 README、plan、semantics 和
+本清单审计 `[~/Documents/djot-tools] 在 commit `[8957311] 的 README、plan、semantics 和
 实际 binary entry points。它记录值得迁移的用户能力，不表示复用 Djot syntax、jotdown 或
 djot-tools crates。README、semantics 与实际 handler/command 用来确认已实现行为；plan 中未完成
 项目只作为 later 候选。plumb 必须通过自己的 strict parser 和 extension contract 重新实现。
@@ -44,7 +44,7 @@ djot-tools crates。README、semantics 与实际 handler/command 用来确认已
   markup、boolean/list/table preservation、citation lowering；规划中的 richer metadata、math
   macros 和 workspace/static-site export。
 `- Notes：CEL document query，字段包括 path、title、direct/transitive referrers；interactive
-  fuzzy picker、preview、`"[$EDITOR]" open 和 query-to-file creation。
+  fuzzy picker、preview、`[$EDITOR] open 和 query-to-file creation。
 `- Tasks：created/due/wait/done/canceled/recur/prev/depends records；open/waiting/blocked/
   actionable 派生状态；跨文件依赖、reverse blockers、recurrence advancement、nested display；
   CEL task query、table output，以及 complete/cancel operations。
@@ -53,7 +53,7 @@ djot-tools crates。README、semantics 与实际 handler/command 用来确认已
 
 `- Djot implicit links、Djot auto heading ids、native task-list spelling 和 fenced div conversion
   不迁移。plumb heading 的 head/title 不生成 id；只有 source 中的显式 id attribute 产生 anchor。
-`- Pandoc 的 Djot reader 不能作为 plumb reader；`"[plumb-export]" 必须由 plumb tree 构造
+`- Pandoc 的 Djot reader 不能作为 plumb reader；`[plumb-export] 必须由 plumb tree 构造
   Pandoc AST，pandoc 只作为 writer。
 `- djot-tools 的 bundled Codex skills、Neovim 示例、内部 module cleanup 和计划中的 live web UI
   不属于当前 plumb feature 路线图。
@@ -62,40 +62,40 @@ djot-tools crates。README、semantics 与实际 handler/command 用来确认已
 
 `## 实现前必须完成的设计
 
-下面的工作比任何具体 extension 或 LSP handler 更基础。`"[docs/extensions.plumb]" 已冻结语言
+下面的工作比任何具体 extension 或 LSP handler 更基础。`[docs/extensions.plumb] 已冻结语言
 无关边界，但这些 concrete contracts 仍需先拍板和写入文档：
 
-`- `"[D01 Official semantic profile]"：确定 heading、list item、definition、link、metadata、task、
+`- `[D01 Official semantic profile]：确定 heading、list item、definition、link、metadata、task、
   event 和 citation 的默认 marker/class/attribute spelling；说明哪些 profile 必须一起启用，哪些
   spelling 可配置。没有它就无法写 recognizer fixture。
-`- `"[D02 Rust host API]"：为四类 extension 冻结最小 Rust traits/functions、descriptor、typed
+`- `[D02 Rust host API]：为四类 extension 冻结最小 Rust traits/functions、descriptor、typed
   dependency lookup、execution result 和 registration/composition API。语言无关 contract 不等于
   Rust API，可以先承诺 source compatibility 之外的最小实现接口。
-`- `"[D03 Shared record schemas]"：冻结 `"[SourceBacked<T>]"、HeadingRecord、AnchorRecord、
+`- `[D03 Shared record schemas]：冻结 `[SourceBacked<T>]、HeadingRecord、AnchorRecord、
   LinkRecord、ResolvedTarget、Outline、DocumentMetadata 和后续 TaskRecord 的字段、identity、
   source ranges 与 diagnostics ownership。
-`- `"[D04 Workspace identity]"：确定 DocumentId、root、normalized path、URI boundary、文件扩展名、
+`- `[D04 Workspace identity]：确定 DocumentId、root、normalized path、URI boundary、文件扩展名、
   open-buffer override、document rename、partial/indexing completeness 和 last-valid propagation。
-`- `"[D05 Edit/effect API]"：冻结 TextEdit ordering/non-overlap validation、expected revision、
+`- `[D05 Edit/effect API]：冻结 TextEdit ordering/non-overlap validation、expected revision、
   atomic multi-document edit、resource rename preconditions，以及 LSP/CLI application capability
   negotiation。
-`- `"[D06 Query surface]"：确定 cursor hit testing、request/response revision provenance、
-  `"[is_incomplete]"、fuzzy candidate ordering 和 CEL value schema；LSP 与 CLI 只能做 protocol
+`- `[D06 Query surface]：确定 cursor hit testing、request/response revision provenance、
+  `[is_incomplete]、fuzzy candidate ordering 和 CEL value schema；LSP 与 CLI 只能做 protocol
   mapping，不能各自发明语义。
-`- `"[D07 Export lowering boundary]"：用最小 exporter spike 决定 typed views + extension outputs
+`- `[D07 Export lowering boundary]：用最小 exporter spike 决定 typed views + extension outputs
   是否足够，还是需要 materialized normalized AST；同时冻结 metadata/citation 如何进入 Pandoc AST。
-`- `"[D08 Composition/configuration]"：确定官方 extension bundle、configuration merge、diagnostic
+`- `[D08 Composition/configuration]：确定官方 extension bundle、configuration merge、diagnostic
   code namespace、facet conflict policy 和 contract-version mismatch 的 host 行为。
 
-`"[D01]" 和 `"[D03]" 按 extension slice 冻结所需部分，不能预先设计全部领域模型。`"[D02]"、
-`"[D06]" 的基础 Query contract 和 `"[D08]" 的 composition baseline 在第一个 semantic slice 前
-完成；`"[D04]" 在 workspace slice 前、`"[D05]" 在首个 edit operation 前、`"[D07]" 在 export
+`[D01] 和 `[D03] 按 extension slice 冻结所需部分，不能预先设计全部领域模型。`[D02]、
+`[D06] 的基础 Query contract 和 `[D08] 的 composition baseline 在第一个 semantic slice 前
+完成；`[D04] 在 workspace slice 前、`[D05] 在首个 edit operation 前、`[D07] 在 export
 前完成。serialization ABI、dynamic plugin、persistent cache 和 parallel scheduler 仍可延后。
 
-`## A. 解析内核（`"[plumb-core]"）
+`## A. 解析内核（`[plumb-core]）
 
 `- [plumb] MVP 手写严格解析器：输入 UTF-8 字符串，输出 lossless
-  `"[SyntaxTree + Vec<Diagnostic>]"。
+  `[SyntaxTree + Vec<Diagnostic>]。
 `- [plumb] MVP reject-but-recover：遇到语法错误后恢复到安全边界，尽量继续报告后续
   错误。
 `- [plumb] MVP 精确语法诊断：每条诊断包含字节范围、错误码和简短说明。
@@ -112,7 +112,7 @@ djot-tools crates。README、semantics 与实际 handler/command 用来确认已
 extension 是语言无关的 query / analysis / operation contract，第一阶段消费同一 SyntaxTree
 上的 typed recovered/valid views，产出结构化结果、semantic diagnostics 或 edit proposals；
 只有实际 consumer 需要时才 materialize AST。导出器也是 extension。官方工具链使用 Rust
-module 静态组合，动态 plugin/ABI 不属于当前范围。完整契约见 `"[docs/extensions.plumb]"。
+module 静态组合，动态 plugin/ABI 不属于当前范围。完整契约见 `[docs/extensions.plumb]。
 
 框架 contract 必须支持 protocol-neutral Query、workspace deltas/completeness、可追溯的
 source-backed semantic fields、revision-guarded text/resource effect proposals、application
@@ -143,27 +143,27 @@ capability negotiation、不可变 operation context，以及独立的 cancellat
 `- [plumb] v1 recurrence operation：complete 时以同一 operation timestamp 写入 done，并按
   recur 规则产生下一实例及 prev link；LSP 与 CLI 复用同一 edit proposal。
 
-`## C. 语言服务器（`"[plumb-ls]"）
+`## C. 语言服务器（`[plumb-ls]）
 
-`"[plumb-ls]" 装配 core + extensions，把结果映射到 LSP。
+`[plumb-ls] 装配 core + extensions，把结果映射到 LSP。
 
-第一阶段使用 Rust、`"[async-lsp]" 和 `"[lsp-types]"；LSP 层只负责 transport、UTF-16 mapping、
+第一阶段使用 Rust、`[async-lsp] 和 `[lsp-types]；LSP 层只负责 transport、UTF-16 mapping、
 capability wiring 和 revision/cancellation policy，不复制 parser 或 semantic logic。
 
-`- [plumb] MVP `"[publishDiagnostics]"：始终发布当前 revision 的 core syntax diagnostics；
+`- [plumb] MVP `[publishDiagnostics]：始终发布当前 revision 的 core syntax diagnostics；
   只有当前 revision valid 时才合并对应 semantic diagnostics，不能把 last-valid diagnostics
   发布成当前结果。
 `- [plumb] MVP semantic diagnostics：duplicate explicit id、unresolved document/anchor 和
   ambiguous target；task-specific diagnostics 随 task extension 在 v1 加入。
-`- [plumb] MVP `"[textDocument/documentSymbol]"：经 outline extension。
-`- [plumb] MVP `"[textDocument/definition]"：命中链接后解析目标并返回位置；URL 返回空。
-`- [plumb] MVP `"[textDocument/references]"：经 workspace / links outputs。
-`- [plumb] MVP `"[textDocument/completion]"：recovered query 补全 marker、attrs、文件与 anchors；
+`- [plumb] MVP `[textDocument/documentSymbol]：经 outline extension。
+`- [plumb] MVP `[textDocument/definition]：命中链接后解析目标并返回位置；URL 返回空。
+`- [plumb] MVP `[textDocument/references]：经 workspace / links outputs。
+`- [plumb] MVP `[textDocument/completion]：recovered query 补全 marker、attrs、文件与 anchors；
   文件候选支持 path fuzzy matching，link 内分别补全 path 和 fragment。
-`- [plumb] MVP `"[textDocument/prepareRename]" / `"[rename]"：经 guarded operation 重命名 explicit
+`- [plumb] MVP `[textDocument/prepareRename] / `[rename]：经 guarded operation 重命名 explicit
   anchor；document/path rename 同时返回 resource rename 和所有受影响的 relative-link edits。
-`- [plumb] MVP `"[textDocument/hover]"：目标类型、id、路径和源码预览。
-`- [plumb] MVP `"[textDocument/codeAction]"：先提供 add explicit id；action
+`- [plumb] MVP `[textDocument/hover]：目标类型、id、路径和源码预览。
+`- [plumb] MVP `[textDocument/codeAction]：先提供 add explicit id；action
   只包装 extension operation 的 byte edits。
 `- [plumb] MVP FULL 文本同步；打开 buffer 优先于磁盘版本。
 `- [plumb] MVP 初始化时索引根下文档；无根时仅索引已打开 buffer 和惰性目标。
@@ -179,9 +179,9 @@ capability wiring 和 revision/cancellation policy，不复制 parser 或 semant
 `- [plumb] later heading-text rename：只更新 heading text；因为 heading title 不派生 anchor id，
   它不会隐式改写 references。
 
-`## D. 导出（`"[plumb-export]"）
+`## D. 导出（`[plumb-export]）
 
-`- [plumb] MVP plumb 作为 Pandoc reader：valid document → `"[pandoc_types]" JSON → pandoc writer。
+`- [plumb] MVP plumb 作为 Pandoc reader：valid document → `[pandoc_types] JSON → pandoc writer。
 `- [plumb] MVP core 有语法 error 时拒绝导出。
 `- [plumb] MVP HTML 语义由 export extension 落地，而不是 core 落地。
 `- [plumb] v1 metadata lowering：等待 definition-list based metadata profile 拍板后设计。
@@ -190,12 +190,12 @@ capability wiring 和 revision/cancellation policy，不复制 parser 或 semant
 `- [plumb] later richer author/date rendering、document math macros、workspace/static-site export，
   以及项目特定导出语义。
 
-`## E. 笔记 CLI（`"[plumb-notes]"）
+`## E. 笔记 CLI（`[plumb-notes]）
 
 `- [plumb] v1 递归扫描根下 plumb 文档，载入 workspace，打印匹配路径。
 `- [plumb] v1 CEL document query：path、directly_referenced_by 和
   transitively_referenced_by。
-`- [plumb] v1 interactive picker：路径显示/输出、全文匹配、预览、`"[$EDITOR]" 打开、
+`- [plumb] v1 interactive picker：路径显示/输出、全文匹配、预览、`[$EDITOR] 打开、
   从 query 建档。
 `- [plumb] v1 CEL task query：id/title/source、datetime/state、depends_on、directly_blocking、
   blocked/actionable 和 operation context 中的 now。
@@ -203,7 +203,7 @@ capability wiring 和 revision/cancellation policy，不复制 parser 或 semant
 `- [plumb] v1 complete/cancel/reopen task actions：消费 shared operation，只由 CLI 校验并落盘。
 `- [plumb] later indexed query prefilters、batch/interactive actions 和 structured output。
 
-`## F. tree-sitter（`"[tree-sitter-plumb]"）
+`## F. tree-sitter（`[tree-sitter-plumb]）
 
 `- [plumb] current 宽松镜像语法与 corpus，用于编辑器高亮、文本对象、折叠、injection 和缩进。
 `- [plumb] current 不做严格性引擎，不决定文档是否有效。
@@ -211,43 +211,43 @@ capability wiring 和 revision/cancellation policy，不复制 parser 或 semant
 
 `## G. 打包与开发环境
 
-`- [plumb] MVP Cargo workspace 和 crate 划分：`"[plumb-core]"、extensions、workspace、
-  `"[plumb-ls]"、`"[plumb-export]"、`"[plumb-notes]"。
+`- [plumb] MVP Cargo workspace 和 crate 划分：`[plumb-core]、extensions、workspace、
+  `[plumb-ls]、`[plumb-export]、`[plumb-notes]。
 `- [plumb] MVP Nix flake 打包二进制。
-`- [plumb] MVP warning gate：`"[cargo check --workspace --all-targets]"。
+`- [plumb] MVP warning gate：`[cargo check --workspace --all-targets]。
 
 `## 实现路线图
 
 每一阶段必须以可运行的 vertical slice 收尾；不能先批量创建空 crates 或 LSP handlers，再回头
 补 shared behavior。
 
-`- `"[Phase 0: contracts]"：先解决 heading slice 所需的 `"[D01-D03]"、基础 `"[D06]" 和
-  `"[D08]"，为 descriptor、heading/outline records 和 Query 写 compile-time examples/fixtures。
-  `"[D04-D05]" 在各自首次使用前继续拍板。exit gate 是 heading slice 不需要新增未文档化的
+`- `[Phase 0: contracts]：先解决 heading slice 所需的 `[D01-D03]、基础 `[D06] 和
+  `[D08]，为 descriptor、heading/outline records 和 Query 写 compile-time examples/fixtures。
+  `[D04-D05] 在各自首次使用前继续拍板。exit gate 是 heading slice 不需要新增未文档化的
   host 概念。
-`- `"[Phase 1: strict core]"：实现 lexer、line-oriented block scanner、inline parser、lossless tree、
+`- `[Phase 1: strict core]：实现 lexer、line-oriented block scanner、inline parser、lossless tree、
   diagnostics、recovery 和 recovered/valid typed views。exit gate 是规范 corpus 在 valid/invalid
   cases 上同时验证 tree、ranges 和全部 diagnostics。
-`- `"[Phase 2: first extension slice]"：实现静态 Rust host、heading recognition、outline、document
-  symbol Query 和 semantic diagnostics merge；接入最小 `"[plumb-ls]" diagnostics + symbols。
+`- `[Phase 2: first extension slice]：实现静态 Rust host、heading recognition、outline、document
+  symbol Query 和 semantic diagnostics merge；接入最小 `[plumb-ls] diagnostics + symbols。
   这一阶段验证四类 contract 中的 Query 与 DocumentAnalysis。
-`- `"[Phase 3: workspace links]"：实现 anchor/link records、target classification、document/path
+`- `[Phase 3: workspace links]：实现 anchor/link records、target classification、document/path
   normalization、incremental workspace resolution、definition/references/hover，以及 create/change/
   remove/open-buffer lifecycle。用 nested paths、spaces/escaping、duplicate ids 和 partial index
   fixtures 验证。
-`- `"[Phase 4: authoring operations]"：实现 recovered completion、explicit anchor rename、document
+`- `[Phase 4: authoring operations]：实现 recovered completion、explicit anchor rename、document
   rename 和 add-explicit-id fix。先在 protocol-neutral tests 验证 source maps、
   overlap rejection、revision guards 和 resource capabilities，再映射到 LSP。
-`- `"[Phase 5: export]"：完成 `"[D07]" spike，建立 Pandoc-shaped lowering；先交付 plain structure
+`- `[Phase 5: export]：完成 `[D07] spike，建立 Pandoc-shaped lowering；先交付 plain structure
   + links，再加入 citations；metadata 等 profile 拍板后另行加入。golden tests 比较 Pandoc JSON；pandoc 只作为 writer 做
   end-to-end smoke tests。
-`- `"[Phase 6: notes query]"：实现 workspace-backed CEL document values、referrer graph、CLI scan/
+`- `[Phase 6: notes query]：实现 workspace-backed CEL document values、referrer graph、CLI scan/
   output；之后加入 picker、preview、editor open 和 safe file creation。Query schema 必须复用
   extension records，不能重新 parse source。
-`- `"[Phase 7: structured semantics]"：依次加入 list grouping、definition lists、tasks 和 events。
+`- `[Phase 7: structured semantics]：依次加入 list grouping、definition lists、tasks 和 events。
   task 再分 local record/state、workspace dependency graph、hover/query、complete/cancel/reopen、
   recurrence 五个 slices；每个 edit workflow 同时覆盖 LSP 与 CLI adapters。
-`- `"[Phase 8: ergonomics and scale]"：semantic tokens、folding、selection range、query prefilters、
+`- `[Phase 8: ergonomics and scale]：semantic tokens、folding、selection range、query prefilters、
   persistent cache 和 workspace/static-site export。只有 profiling 证明需要时才实现 disk cache
   或 parallel scheduling。
 

@@ -1,7 +1,7 @@
 `# plumb 目标与需求
 
 `> 本文是当前阶段的设计事实源。我们从头设计语法时，先用这里的目标、非目标和需求
-  约束每个具体符号选择；block 规范见 `"[docs/spec.plumb]"，inline 设计见 `"[docs/inline.plumb]"。
+  约束每个具体符号选择；block 规范见 `[docs/spec.plumb]，inline 设计见 `[docs/inline.plumb]。
 
 `## 1. 项目定位
 
@@ -29,7 +29,7 @@ plumb 是一门用于个人长期文档系统的 strict markup language。它不
 
 `- 不追求 Markdown / Djot 兼容。可以借鉴常见习惯，但不为了兼容保留歧义。
 `- 不追求语法表达力最大化。宁可少一点特性，也要规则简单、诊断明确。
-`- 不把 core 做成语义引擎。core 不知道 `"[.todo]"、`"[.meta]"、`"[kbd]"、`"[due]" 是什么意思。
+`- 不把 core 做成语义引擎。core 不知道 `[.todo]、`[.meta]、`[kbd]、`[due] 是什么意思。
 `- 不为了 tree-sitter 扭曲语言设计。严格解析器是权威；当前 tree-sitter grammar 只服务
   编辑体验，可以宽松。
 `- 不把面向多人协作或通用发布平台的需求放在个人长期使用体验之上。
@@ -40,7 +40,7 @@ plumb 是一门用于个人长期文档系统的 strict markup language。它不
 
 严格性针对语法入口和结构良构，而不是要求每个标点在所有位置都必须转义。普通文本中
 应尽量只有极少数入口需要转义。block level 目前只把行首的统一 block introducer 视为
-结构入口；inline level 已选用同一个 introducer，具体规则见 `"[docs/inline.plumb]"。
+结构入口；inline level 已选用同一个 introducer，具体规则见 `[docs/inline.plumb]。
 
 建议公理：
 
@@ -58,7 +58,7 @@ plumb 是一门用于个人长期文档系统的 strict markup language。它不
 
 属性必须贴在目标的结构边界上，让人和解析器都能清楚判断归属。
 
-`- block attribute 放在紧贴 block marker 的 `"[{...}]" attr slot 中。
+`- block attribute 放在紧贴 block marker 的 `[{...}] attr slot 中。
 `- 任务状态、日期等机器信息也放进 attr slot，不另设 modifier 通道。
 
 这不追求所有结构都长得一样，而追求归属局部、可见、无需向前后远距离搜索。
@@ -100,9 +100,9 @@ block 层的包含关系统一由 indentation 表达，但缩进只表达 block 
 inline、属性参数或语义关系：
 
 `- body indentation 可以比 parent 多任意正数个 spaces；marker line 之后第一条非空、
-  且缩进大于 parent column 的结构行建立该 parent 的 `"[body_indent]"。这条结构行既可以是
+  且缩进大于 parent column 的结构行建立该 parent 的 `[body_indent]。这条结构行既可以是
   head continuation，也可以是第一个 child block。
-`- 同一 parent 的直接 head continuations 和 children 必须使用相同的 `"[body_indent]"。
+`- 同一 parent 的直接 head continuations 和 children 必须使用相同的 `[body_indent]。
 `- dedent 必须精确落在 indentation stack 的已有 column。
 `- dedent 可以一次退出多个层级；目标不在 stack 中时是 partial-dedent syntax error。
 `- 结构 indentation 中 tab 非法；结构前缀后的 payload tab 允许并保留。
@@ -120,17 +120,17 @@ subblocks”的形状：
     child blocks*
 
 反引号是 block 与 inline 共用的 introducer。普通 marked block 的 introducer 后必须是
-`"[MarkerToken]"；syntax 层原样保存 marker token，不在 parser 的通用 block 外形中编码其
+`[MarkerToken]；syntax 层原样保存 marker token，不在 parser 的通用 block 外形中编码其
 意义。introducer 后直接出现 attributes 时切换到 verbatim block，不产生 anonymous mark。
 任何 marker 字符本身都不是 block 入口。
 
-block start 的两个连续反引号 `"[``]" 是 introducer 的 escape，产生一个字面的行首
+block start 的两个连续反引号 `[``] 是 introducer 的 escape，产生一个字面的行首
 反引号，不进入 marked block grammar。verbatim block 使用 introducer 后直接出现的
 attributes，因此不与 introducer escape 冲突。
 
 marked-block attr slot 必须紧贴 marker，前面不能有空格。marker 或 attr slot 后的空格开始
 可选 head。head
-在 syntax 层只保存为抽象 `"[InlineContent]"，本文不规定其内部语法。读完 marker line 后，
+在 syntax 层只保存为抽象 `[InlineContent]，本文不规定其内部语法。读完 marker line 后，
 head 即使为空也保持 open；紧接的缩进普通文本行可以启动 deferred head 或继续已有 head。
 同列普通文本结束当前 block 并开始 sibling paragraph；空行结束 head，空行后的缩进普通
 文本是 paragraph child；缩进后的 marked block 直接开始 children。一旦进入 children 就
@@ -158,22 +158,22 @@ head 即使为空也保持 open；紧接的缩进普通文本行可以启动 def
     text: RawText,
   }
 
-`"[mark = None]" 的 parsed block 必须具有非空 head 且没有 children；这两个 invariant 由
-parser/core 保证。`"[mark = Some(...)]" 必须具有非空 marker，允许空 head 和 children；
+`[mark = None] 的 parsed block 必须具有非空 head 且没有 children；这两个 invariant 由
+parser/core 保证。`[mark = Some(...)] 必须具有非空 marker，允许空 head 和 children；
 具体结构约束由 extension 检查。core 不补出保留的 paragraph marker。
 
 普通 marker node 不做 marker-specific structural lowering；extension 可以把约定的 marker
 解释为 heading、list、quote、metadata 或其他语义，并自行验证结构约束。attribute-only
-block 选择独立的 `"[VerbatimBlock]"；具名 marker 进入 `"[ParsedBlock.mark]"。
+block 选择独立的 `[VerbatimBlock]；具名 marker 进入 `[ParsedBlock.mark]。
 
-verbatim block 的 opening line 是 `"[`{attrs}]"，不允许 head 或 block children；raw payload
-使用固定 `"[verbatim_indent = parent_indent + 2]"。parser 去掉每个非空 raw line 的这段前缀，
+verbatim block 的 opening line 是 `[`{attrs}]，不允许 head 或 block children；raw payload
+使用固定 `[verbatim_indent = parent_indent + 2]。parser 去掉每个非空 raw line 的这段前缀，
 余下字节（包括 payload 自己的 spaces、tabs 和原始 LF/CRLF）原样保存。opening line ending
 不属于 payload；空 block 合法；EOF 不补 final newline；dedent 结束 verbatim block。
 
 `## 5. Core syntax 需求
 
-MVP core 的 block structure 已经冻结，精确规则和实现前待定细节见 `"[docs/spec.plumb]"。当前
+MVP core 的 block structure 已经冻结，精确规则和实现前待定细节见 `[docs/spec.plumb]。当前
 纳入的 block 结构：
 
 `- 段落
@@ -184,7 +184,7 @@ MVP core 的 block structure 已经冻结，精确规则和实现前待定细节
 标题、列表、引用和其他 marker-specific structures 由 extension 从 generic marked blocks
 派生，不属于 core syntax node 类型。
 
-inline element、parsed content 和 inline verbatim syntax 见 `"[docs/inline.plumb]"；最终 AST
+inline element、parsed content 和 inline verbatim syntax 见 `[docs/inline.plumb]；最终 AST
 明确延后。verbatim block 是通用的 raw-body block；core 不判断 payload 是 code、math、output
 或目标格式源码。分隔线、表格、定义列表和字段列表等未来 block 类型不在本次定稿范围内。
 
@@ -194,26 +194,26 @@ inline element、parsed content 和 inline verbatim syntax 见 `"[docs/inline.pl
   SyntaxTree
   Diagnostic[]
 
-`"[SyntaxTree]" 必须无损：所有 source-backed leaf token 的 UTF-8 byte ranges 按顺序、无重叠、
+`[SyntaxTree] 必须无损：所有 source-backed leaf token 的 UTF-8 byte ranges 按顺序、无重叠、
 无空洞地覆盖整个 source，拼接其 source bytes 必须逐字节等于输入。spaces、tabs、indentation、
 LF/CRLF、delimiters、trivia 和 malformed bytes 都必须保留。range 统一为 UTF-8 half-open
-`"[[start, end)]"。
+`[[start, end)]。
 
 非空 source 的每个 source-backed leaf token 也必须非空。空 source 产生没有 leaf token、range
-为 `"[[0, 0)]" 的 document root；空 leaf 不用于表示缺失 syntax。
+为 `[[0, 0)] 的 document root；空 leaf 不用于表示缺失 syntax。
 
 无法归入正常 grammar 的实际 bytes 放入 error node，仍参与无损覆盖。parser 不插入 synthetic
 missing tokens；缺失 delimiter 由 diagnostic range 和 insertion fix 表达。node range 由其
 source-backed descendants 推导。MVP 不承诺跨 document revisions 的 node identity 或
-`"[NodeId]" 复用。
+`[NodeId] 复用。
 
 core 不做：
 
 `- 自动生成 id
 `- 校验 id 唯一
 `- 判断链接目标是否存在
-`- 解释 `"[.todo]"
-`- 解释 `"[.meta]"
+`- 解释 `[.todo]
+`- 解释 `[.meta]
 `- 解释 block class / marker 的 extension 语义
 `- 任务查询
 `- HTML 语义映射
@@ -229,7 +229,7 @@ introducer 的 braces：
 
 core 校验属性语法是否良构，并把各部分按 source order 保存为 opaque token。id、class、
 key 和 bare value 使用统一的窄 name 字符集；复杂 value 必须 quoted。quoted value 支持空值
-以及 `"[\\"]"、`"[\\\\]" 两种 escape。空 `"[{}]" 合法。core 不解释 class 或 key 的语义，但必须
+以及 `[\\"]、`[\\\\] 两种 escape。空 `[{}] 合法。core 不解释 class 或 key 的语义，但必须
 拒绝第二个 id 和同名 duplicate key；class 可以重复。
 
 block marker line 可以带 head；只有真正的 subblocks 使用缩进：
@@ -241,9 +241,9 @@ block marker line 可以带 head；只有真正的 subblocks 使用缩进：
 
   `task{state=todo due=2026-07-10 .urgent} 买牛奶
 
-`- block attribute 紧贴 block marker，写作 `"[{...}]"。
-`- 任务状态等机器语义也写成 attribute，例如 `"[task=todo]"。
-`- marker token 与普通 attributes 分开保存；不能把 marker 塞入 `"[Attr]"。
+`- block attribute 紧贴 block marker，写作 `[{...}]。
+`- 任务状态等机器语义也写成 attribute，例如 `[task=todo]。
+`- marker token 与普通 attributes 分开保存；不能把 marker 塞入 `[Attr]。
 
 `## 7. Task model 需求
 
@@ -277,21 +277,21 @@ disabled checkbox 和 task class，但源码不需要保留 checkbox 拼写。
 
 extension 是对 typed syntax view/未来 normalized AST 的语言无关语义解释、query 或 operation，
 不等同于动态插件。第一阶段官方 host 使用静态 Rust typed modules；规范定义 observable
-contract，具体 Rust API 仍属于 implementation。完整规则见 `"[docs/extensions.plumb]"。
+contract，具体 Rust API 仍属于 implementation。完整规则见 `[docs/extensions.plumb]。
 
 第一批 extension 候选：
 
-`- `"[html-export]"
-`- `"[pandoc-export]"
-`- `"[links]"
-`- `"[anchors]"
-`- `"[meta]"
-`- `"[tasks]"
-`- `"[outline]"
-`- `"[workspace]"
-`- `"[completion]"
-`- `"[definition-lists]"
-`- `"[events]"
+`- `[html-export]
+`- `[pandoc-export]
+`- `[links]
+`- `[anchors]
+`- `[meta]
+`- `[tasks]
+`- `[outline]
+`- `[workspace]
+`- `[completion]
+`- `[definition-lists]
+`- `[events]
 
 extension 分为 query、document analysis、workspace analysis 和 operation。completion/assist
 query 可以消费当前 recovered tree；outline、indexes、rename 和 export
