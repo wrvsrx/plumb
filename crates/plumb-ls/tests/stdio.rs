@@ -1021,6 +1021,108 @@ fn completes_links_by_document_metadata_title() {
 }
 
 #[test]
+fn completion_from_a_subdirectory_inserts_a_relative_path() {
+    let root = unique_temp_dir();
+    let source_dir = root.join("b");
+    let target_dir = root.join("a");
+    std::fs::create_dir_all(&source_dir).unwrap();
+    std::fs::create_dir_all(&target_dir).unwrap();
+    let source = source_dir.join("current.plumb");
+    let target = target_dir.join("target.plumb");
+    let source_text = "`link[Target";
+    std::fs::write(&source, source_text).unwrap();
+    std::fs::write(
+        &target,
+        "`meta\n  `: title\n\n    Target A\n\n`#{#target} Target\n",
+    )
+    .unwrap();
+    let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
+    let source_uri = lsp_types::Url::from_file_path(&source).unwrap();
+    let messages = [
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {
+                "processId": null, "rootUri": root_uri,
+                "workspaceFolders": [{ "uri": root_uri, "name": "test" }],
+                "capabilities": {}
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": {
+                "uri": source_uri, "languageId": "plumb", "version": 1, "text": source_text
+            }}
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 2, "method": "textDocument/completion",
+            "params": {
+                "textDocument": { "uri": source_uri },
+                "position": { "line": 0, "character": source_text.len() }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 3, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+
+    let output = run_server(&messages);
+    let item = response(&output, 2)["result"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["label"] == "Target A")
+        .expect("Target A completion");
+    assert_eq!(item["detail"], "../a/target.plumb");
+    assert_eq!(
+        item["textEdit"]["newText"],
+        "`link[Target A]{to=\"../a/target.plumb\"}"
+    );
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn definition_resolves_a_file_name_containing_spaces() {
+    let root = unique_temp_dir();
+    std::fs::create_dir_all(&root).unwrap();
+    let source = root.join("source.plumb");
+    let target = root.join("other file.plumb");
+    let source_text = "See `link[topic]{to=\"other file.plumb#topic\"}.\n";
+    std::fs::write(&source, source_text).unwrap();
+    std::fs::write(&target, "`node{#topic} Topic\n").unwrap();
+    let source_uri = lsp_types::Url::from_file_path(&source).unwrap();
+    let target_uri = lsp_types::Url::from_file_path(&target).unwrap();
+    let position = source_text.find("other file.plumb").unwrap();
+    let messages = [
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": { "processId": null, "rootUri": null, "capabilities": {} }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": {
+                "uri": source_uri, "languageId": "plumb", "version": 1, "text": source_text
+            }}
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 2, "method": "textDocument/definition",
+            "params": {
+                "textDocument": { "uri": source_uri },
+                "position": { "line": 0, "character": position }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 3, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+
+    let output = run_server(&messages);
+    let result = &response(&output, 2)["result"];
+    assert_eq!(result["uri"], target_uri.as_str());
+    assert_eq!(result["range"]["start"]["line"], 0);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn task_references_support_navigation_and_rename() {
     let root = unique_temp_dir();
     std::fs::create_dir_all(&root).unwrap();
