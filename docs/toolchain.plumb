@@ -32,8 +32,8 @@
   必须支持 `[workspace.workspaceEdit.documentChanges]。
 
 当前 server 会扫描 workspace、监听 `[*.plumb] changes，并实现 links、completion、
-anchor/document rename。metadata completion、已有 metadata 的任意 edit、hover 和 export
-lowering 尚未实现。async-lsp advertised notifications 必须继续显式实现；增加 capability 时遵守
+anchor/document rename。metadata completion、已有 metadata 的任意 edit 和 hover 尚未实现。
+async-lsp advertised notifications 必须继续显式实现；增加 capability 时遵守
 `[AGENTS.md] 的 runtime gotcha。
 
 `# Export
@@ -47,6 +47,10 @@ heading、generic marked block、verbatim block、generic span 和 inline verbat
 Para、Header、Div、CodeBlock、Span 和 Code。generic marker 保存在
 `[data-plumb-marker] attribute 中；
 pandoc 仅作为 writer 消费结果。
+
+唯一顶层 `[meta] block 不进入 Pandoc body，而是投影到 Pandoc `[meta]：scalar、list、map、
+verbatim、null 分别 lower 为 `[MetaInlines]、`[MetaList]、`[MetaMap]、`[MetaString] 和空
+`[MetaString]。duplicate key 使用第一个值；`[metadata.unsupported-value] 会让 export 明确失败。
 
 `# Heading and anchor profile
 

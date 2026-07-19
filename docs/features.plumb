@@ -23,6 +23,8 @@ SyntaxTree contract 已冻结；normalized AST 和 extension-specific semantics 
 `- `[plumb-ls] 为 syntax-valid、尚无 metadata 的文档提供 metadata insertion code action；从
   文件名生成 `[title]，以 operation 的本地 RFC 3339 timestamp 生成 `[created]，并返回带
   revision 的 guarded edit。
+`- `[plumb-export] 把 metadata scalar/list/map/verbatim/null lower 到 Pandoc metadata，并从
+  rendered body 移除 `[meta] block；unsupported value 时拒绝 export。
 
 当前 heading profile 已确定：`[#] 至 `[######] marker 的长度是 level，`[{#id}] 是唯一
 显式 anchor spelling；`[id=value] 不产生 anchor。运行方法、测试边界和已知 parser gaps 见
@@ -30,11 +32,11 @@ SyntaxTree contract 已冻结；normalized AST 和 extension-specific semantics 
 
 metadata 不使用此前试验过的 raw TOML profile。official profile、value shapes 和当前 LSP
 surface 见 `[docs/extensions.plumb] 第 6.2 节；除 metadata insertion 外的 authoring operations
-与 export lowering 仍待实现。
+仍待实现。
 
 `# Djot-tools feature 审计
 
-本清单审计 `[~/Documents/djot-tools] 在 commit `[8957311] 的 README、plan、semantics 和
+本清单审计 `[~/Documents/djot-tools] 在 commit `[ec937d7] 的 README、plan、semantics 和
 实际 binary entry points。它记录值得迁移的用户能力，不表示复用 Djot syntax、jotdown 或
 djot-tools crates。README、semantics 与实际 handler/command 用来确认已实现行为；plan 中未完成
 项目只作为 later 候选。plumb 必须通过自己的 strict parser 和 extension contract 重新实现。
@@ -146,7 +148,8 @@ capability negotiation、不可变 operation context，以及独立的 cancellat
 `- [plumb] v1 list item aggregation、task 和 event analyses/aggregations。
 `- [plumb] v1 tasks operation：解释 marked block attrs 中的任务状态、日期和查询字段，
   并提供状态变更所需的文本编辑。
-`- [plumb] v1 metadata authoring/query/export adapters 与 citation records。
+`- [plumb] v1 metadata authoring/query adapters 与 citation records；metadata export adapter
+  已实现。
 `- [plumb] v1 task dependency workspace analysis：产生 normalized dependency edges、reverse
   blockers、cycles、blocked/actionable 状态和 diagnostics；subtask composition 与 depends edge
   保持独立。
@@ -194,8 +197,8 @@ capability wiring 和 revision/cancellation policy，不复制 parser 或 semant
 `- [plumb] MVP plumb 作为 Pandoc reader：valid document → `[pandoc_types] JSON → pandoc writer。
 `- [plumb] MVP core 有语法 error 时拒绝导出。
 `- [plumb] MVP HTML 语义由 export extension 落地，而不是 core 落地。
-`- [plumb] v1 metadata lowering：profile 已冻结，尚需设计 Pandoc scalar/list/map/verbatim/null
-  mapping 与 unsupported-value policy。
+`- [plumb] v1 metadata lowering：scalar/list/map/verbatim/null 映射为 Pandoc typed metadata；
+  unsupported value 拒绝 export，duplicate key first-wins。
 `- [plumb] v1 citation record lowering 到 Pandoc Cite，由下游 citeproc 解析 bibliography。
 `- [plumb] v1 meta、tasks、links 等 extension 结果参与导出。
 `- [plumb] later richer author/date rendering、document math macros、workspace/static-site export，
@@ -249,9 +252,9 @@ capability wiring 和 revision/cancellation policy，不复制 parser 或 semant
 `- `[Phase 4: authoring operations]：实现 recovered completion、explicit anchor rename、document
   rename 和 add-explicit-id fix。先在 protocol-neutral tests 验证 source maps、
   overlap rejection、revision guards 和 resource capabilities，再映射到 LSP。
-`- `[Phase 5: export]：完成 `[D07] spike，建立 Pandoc-shaped lowering；先交付 plain structure
-  + links，再加入 citations；metadata profile 已拍板，lowering 另行加入。golden tests比较 Pandoc JSON；pandoc 只作为 writer 做
-  end-to-end smoke tests。
+`- `[Phase 5: export]：完成 `[D07] spike，建立 Pandoc-shaped lowering；plain structure、links
+  与 metadata 已交付，继续加入 citations。golden tests 比较 Pandoc JSON；pandoc 只作为 writer
+  做 end-to-end smoke tests。
 `- `[Phase 6: notes query]：实现 workspace-backed CEL document values、referrer graph、CLI scan/
   output；之后加入 picker、preview、editor open 和 safe file creation。Query schema 必须复用
   extension records，不能重新 parse source。

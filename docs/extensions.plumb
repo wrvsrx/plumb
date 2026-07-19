@@ -267,7 +267,12 @@ blocks。所有 records 保留 node、key、value 与 nested entries 的 source 
 byte offset 0 插入带 `[title] 和 `[created] 的完整 metadata block；LSP code action 以文件名
 stem 作为默认标题，并把 operation context 的本地 RFC 3339 timestamp（秒精度）写入
 `[created]，再用 guarded `[documentChanges] 应用。completion、已有 metadata 的任意 edit
-operation 和 Pandoc metadata lowering 尚未实现。
+operation 尚未实现。
+
+export extension 从 Pandoc body 移除唯一顶层 `[meta] block，并把 scalar、list、map、verbatim、
+null 分别 lower 为 `[MetaInlines]、`[MetaList]、`[MetaMap]、`[MetaString]、空
+`[MetaString]。duplicate key 按 source order first-wins；unsupported value 使 export 失败，不能
+静默丢弃 metadata source。
 
 `# 7. Request-scoped queries
 
