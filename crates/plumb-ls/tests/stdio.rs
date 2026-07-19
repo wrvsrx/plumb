@@ -263,6 +263,61 @@ fn omits_metadata_code_action_without_guarded_edit_support() {
 }
 
 #[test]
+fn offers_guarded_task_status_code_actions() {
+    let uri = "file:///tmp/task-actions.plumb";
+    let source = "`item{.task #write} Write parser\n";
+    let messages = [
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {
+                "processId": null,
+                "rootUri": null,
+                "capabilities": {
+                    "workspace": { "workspaceEdit": { "documentChanges": true } }
+                }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": {
+                "uri": uri, "languageId": "plumb", "version": 3, "text": source
+            }}
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 2, "method": "textDocument/codeAction",
+            "params": {
+                "textDocument": { "uri": uri },
+                "range": {
+                    "start": { "line": 0, "character": 25 },
+                    "end": { "line": 0, "character": 25 }
+                },
+                "context": { "diagnostics": [], "only": ["quickfix"] }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 3, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+
+    let output = run_server(&messages);
+    let actions = response(&output, 2)["result"].as_array().unwrap();
+    assert_eq!(actions.len(), 2);
+    assert_eq!(actions[0]["title"], "Complete task");
+    assert_eq!(actions[1]["title"], "Cancel task");
+    for (action, attribute) in actions.iter().zip(["done", "canceled"]) {
+        assert_eq!(action["kind"], "quickfix");
+        let change = &action["edit"]["documentChanges"][0];
+        assert_eq!(change["textDocument"]["version"], 3);
+        let new_text = change["edits"][0]["newText"].as_str().unwrap();
+        let timestamp = new_text
+            .strip_prefix(&format!(" {attribute}=\""))
+            .and_then(|value| value.strip_suffix('"'))
+            .unwrap();
+        chrono::DateTime::parse_from_rfc3339(timestamp).unwrap();
+    }
+}
+
+#[test]
 fn publishes_task_symbols_hover_and_workspace_diagnostics() {
     let root = unique_temp_dir();
     std::fs::create_dir_all(&root).unwrap();

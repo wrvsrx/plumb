@@ -28,7 +28,7 @@ use lsp_types::{
 use plumb_core::Diagnostic;
 use plumb_extensions::{
     link_completion_context, AnchorKind, AnchorRecord, Heading, MetadataBlock, MetadataEntry,
-    MetadataValue, TaskRecord, TaskState,
+    MetadataValue, TaskRecord, TaskState, TaskStatus,
 };
 use plumb_workspace::{normalize, ResolvedTarget, ResourceOperation, Workspace, WorkspaceEdit};
 
@@ -542,36 +542,60 @@ impl LanguageServer for ServerState {
         &mut self,
         params: CodeActionParams,
     ) -> BoxFuture<'static, Result<Option<CodeActionResponse>, Self::Error>> {
-        let accepts_rewrite = params.context.only.as_ref().is_none_or(|kinds| {
-            kinds.iter().any(|kind| {
-                let candidate = "refactor.rewrite";
-                let requested = kind.as_str();
-                candidate == requested
-                    || candidate
-                        .strip_prefix(requested)
-                        .is_some_and(|suffix| suffix.starts_with('.'))
-            })
-        });
-        let action = (self.supports_document_changes && accepts_rewrite)
-            .then(|| params.text_document.uri.to_file_path().ok())
-            .flatten()
-            .and_then(|path| {
-                let title = path.file_stem()?.to_str()?;
-                let created = Local::now().to_rfc3339_opts(SecondsFormat::Secs, false);
-                let edit = self
+        if !self.supports_document_changes {
+            return Box::pin(async { Ok(None) });
+        }
+        let Some(path) = params.text_document.uri.to_file_path().ok() else {
+            return Box::pin(async { Ok(None) });
+        };
+        let timestamp = Local::now().to_rfc3339_opts(SecondsFormat::Secs, false);
+        let mut actions = Vec::new();
+        if code_action_kind_requested(
+            params.context.only.as_deref(),
+            &CodeActionKind::REFACTOR_REWRITE,
+        ) {
+            if let Some(title) = path.file_stem().and_then(|stem| stem.to_str()) {
+                if let Some(edit) = self
                     .workspace
-                    .insert_metadata(&path, title, &created)
-                    .ok()?;
-                let edit = workspace_edit_to_lsp(&self.workspace, edit)?;
-                Some(CodeActionOrCommand::CodeAction(CodeAction {
-                    title: "Insert document metadata".to_string(),
-                    kind: Some(CodeActionKind::REFACTOR_REWRITE),
-                    edit: Some(edit),
-                    is_preferred: Some(true),
-                    ..CodeAction::default()
-                }))
-            });
-        Box::pin(async move { Ok(action.map(|action| vec![action])) })
+                    .insert_metadata(&path, title, &timestamp)
+                    .ok()
+                    .and_then(|edit| workspace_edit_to_lsp(&self.workspace, edit))
+                {
+                    actions.push(CodeActionOrCommand::CodeAction(CodeAction {
+                        title: "Insert document metadata".to_string(),
+                        kind: Some(CodeActionKind::REFACTOR_REWRITE),
+                        edit: Some(edit),
+                        is_preferred: Some(true),
+                        ..CodeAction::default()
+                    }));
+                }
+            }
+        }
+        if code_action_kind_requested(params.context.only.as_deref(), &CodeActionKind::QUICKFIX) {
+            if let Some(entry) = self.workspace.get(&path) {
+                let offset = position_to_offset(&entry.parsed.source, params.range.start);
+                for (status, title, preferred) in [
+                    (TaskStatus::Done, "Complete task", true),
+                    (TaskStatus::Canceled, "Cancel task", false),
+                ] {
+                    if let Some(edit) = self
+                        .workspace
+                        .set_task_status(&path, offset, status, &timestamp)
+                        .ok()
+                        .and_then(|edit| workspace_edit_to_lsp(&self.workspace, edit))
+                    {
+                        actions.push(CodeActionOrCommand::CodeAction(CodeAction {
+                            title: title.to_string(),
+                            kind: Some(CodeActionKind::QUICKFIX),
+                            edit: Some(edit),
+                            is_preferred: Some(preferred),
+                            ..CodeAction::default()
+                        }));
+                    }
+                }
+            }
+        }
+        Box::pin(async move { Ok((!actions.is_empty()).then_some(actions)) })
     }
 
     fn prepare_rename(
@@ -844,6 +868,18 @@ fn task_state_name(state: TaskState) -> &'static str {
         TaskState::Canceled => "canceled",
         TaskState::Conflicted => "conflicted",
     }
+}
+
+fn code_action_kind_requested(only: Option<&[CodeActionKind]>, candidate: &CodeActionKind) -> bool {
+    only.is_none_or(|kinds| {
+        kinds.iter().any(|requested| {
+            candidate.as_str() == requested.as_str()
+                || candidate
+                    .as_str()
+                    .strip_prefix(requested.as_str())
+                    .is_some_and(|suffix| suffix.starts_with('.'))
+        })
+    })
 }
 
 fn location_for(
