@@ -80,9 +80,11 @@ fn run(config: Config) -> Result<(), String> {
 #[derive(Debug, Parser)]
 #[command(name = "plumb-notes", about = "Query plumb documents")]
 struct Config {
+    /// Directory to scan recursively. Defaults to the current directory.
     #[arg(long, global = true, value_name = "DIR")]
     root: Option<PathBuf>,
 
+    /// Keep records whose CEL predicate evaluates to true.
     #[arg(long, global = true, value_name = "EXPR")]
     query: Option<String>,
 
@@ -92,21 +94,26 @@ struct Config {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Filter plumb note files under the scanned directory.
     Note(NoteConfig),
+    /// Print tasks found in scanned plumb files.
     Task(TaskConfig),
 }
 
 #[derive(Debug, Args)]
 struct NoteConfig {
+    /// Re-filter results interactively with skim.
     #[arg(short, long)]
     interactive: bool,
 }
 
 #[derive(Debug, Args)]
 struct TaskConfig {
+    /// Print task titles without nested task tree markers.
     #[arg(long)]
     flat: bool,
 
+    /// Print task rows without the table heading.
     #[arg(long)]
     no_heading: bool,
 
@@ -116,12 +123,15 @@ struct TaskConfig {
 
 #[derive(Debug, Subcommand)]
 enum TaskAction {
+    /// Mark task targets complete. Recurring tasks advance to the next instance.
     Complete(TaskTargetsConfig),
+    /// Mark task targets canceled. Recurring tasks advance to the next instance.
     Cancel(TaskTargetsConfig),
 }
 
 #[derive(Debug, Args)]
 struct TaskTargetsConfig {
+    /// Task targets, written as path.plumb#task-id.
     #[arg(value_name = "TARGET", required = true)]
     targets: Vec<String>,
 }
@@ -283,7 +293,27 @@ fn display_path(root: &Path, path: &Path) -> String {
 mod tests {
     use std::sync::atomic::{AtomicU64, Ordering};
 
+    use clap::CommandFactory;
+
     use super::*;
+
+    #[test]
+    fn help_describes_commands_options_and_task_target_spelling() {
+        let root_help = Config::command().render_long_help().to_string();
+        assert!(root_help.contains("Filter plumb note files"));
+        assert!(root_help.contains("Print tasks found"));
+        assert!(root_help.contains("Directory to scan recursively"));
+        assert!(root_help.contains("CEL predicate"));
+
+        let mut command = Config::command();
+        let task = command
+            .find_subcommand_mut("task")
+            .unwrap()
+            .find_subcommand_mut("complete")
+            .unwrap();
+        let task_help = task.render_long_help().to_string();
+        assert!(task_help.contains("path.plumb#task-id"));
+    }
 
     #[test]
     fn accepts_interactive_note_options_after_subcommand() {
