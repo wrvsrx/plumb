@@ -122,6 +122,16 @@ pub enum ResolvedTarget {
     },
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AnchorReference {
+    pub source_range: std::ops::Range<usize>,
+    pub path_range: Option<std::ops::Range<usize>>,
+    pub id_range: std::ops::Range<usize>,
+    pub target_path: PathBuf,
+    pub target_id: String,
+    pub anchor: AnchorRecord,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct TaskRef {
     pub path: PathBuf,
@@ -262,11 +272,49 @@ impl Workspace {
             .max_by_key(|anchor| anchor.range.start)
     }
 
+    pub fn anchor_reference_at(
+        &self,
+        path: impl AsRef<Path>,
+        offset: usize,
+    ) -> Option<AnchorReference> {
+        let path = normalize(path.as_ref());
+        let output = self.current_output(&path)?;
+        if let Some(link) = output
+            .links
+            .iter()
+            .filter(|link| contains_inclusive(&link.range, offset))
+            .max_by_key(|link| link.range.start)
+        {
+            return self.link_anchor_reference(&path, link);
+        }
+        for task in &output.tasks.tasks {
+            if let Some(prev) = &task.prev {
+                if contains_inclusive(&prev.range, offset) {
+                    let target = parse_task_reference_target(&prev.value);
+                    return self.task_anchor_reference(&path, &prev.value, &prev.range, &target);
+                }
+            }
+            if let Some(dependency) = task
+                .depends
+                .iter()
+                .find(|dependency| contains_inclusive(&dependency.range, offset))
+            {
+                return self.task_anchor_reference(
+                    &path,
+                    &dependency.source,
+                    &dependency.range,
+                    &dependency.target,
+                );
+            }
+        }
+        None
+    }
+
     pub fn references_to(
         &self,
         target_path: impl AsRef<Path>,
         target_id: &str,
-    ) -> Vec<(&Path, &LinkRecord)> {
+    ) -> Vec<(&Path, AnchorReference)> {
         let target_path = normalize(target_path.as_ref());
         let mut references = Vec::new();
         for entry in self.documents.values() {
@@ -274,21 +322,89 @@ impl Workspace {
                 continue;
             };
             for link in &current.output.links {
-                if matches!(
-                    self.resolve_link(&entry.path, link),
-                    ResolvedTarget::Anchor { path, ref id, .. }
-                        if path == target_path && id == target_id
-                ) {
-                    references.push((entry.path.as_path(), link));
+                if let Some(reference) = self.link_anchor_reference(&entry.path, link) {
+                    if reference.target_path == target_path && reference.target_id == target_id {
+                        references.push((entry.path.as_path(), reference));
+                    }
+                }
+            }
+            for task in &current.output.tasks.tasks {
+                for (source, range, target) in task_reference_fields(task) {
+                    if let Some(reference) =
+                        self.task_anchor_reference(&entry.path, source, range, &target)
+                    {
+                        if reference.target_path == target_path && reference.target_id == target_id
+                        {
+                            references.push((entry.path.as_path(), reference));
+                        }
+                    }
                 }
             }
         }
         references.sort_by(|left, right| {
             left.0
                 .cmp(right.0)
-                .then(left.1.range.start.cmp(&right.1.range.start))
+                .then(left.1.source_range.start.cmp(&right.1.source_range.start))
         });
         references
+    }
+
+    fn link_anchor_reference(&self, from: &Path, link: &LinkRecord) -> Option<AnchorReference> {
+        let ResolvedTarget::Anchor { path, id, anchor } = self.resolve_link(from, link) else {
+            return None;
+        };
+        Some(AnchorReference {
+            source_range: link.selection_range.clone(),
+            path_range: link.path_range.clone(),
+            id_range: link.fragment_range.clone()?,
+            target_path: path,
+            target_id: id,
+            anchor,
+        })
+    }
+
+    fn task_anchor_reference(
+        &self,
+        from: &Path,
+        source: &str,
+        range: &std::ops::Range<usize>,
+        target: &TaskReferenceTarget,
+    ) -> Option<AnchorReference> {
+        let (target_path, target_id, anchor) = self.resolve_task_anchor(from, target)?;
+        let (path_range, id_range) = task_reference_ranges(source, range, target_id.as_str())?;
+        Some(AnchorReference {
+            source_range: range.clone(),
+            path_range,
+            id_range,
+            target_path,
+            target_id,
+            anchor,
+        })
+    }
+
+    fn resolve_task_anchor(
+        &self,
+        from: &Path,
+        target: &TaskReferenceTarget,
+    ) -> Option<(PathBuf, String, AnchorRecord)> {
+        let (path, id) = match target {
+            TaskReferenceTarget::Internal { id } => (normalize(from), id.clone()),
+            TaskReferenceTarget::External { path, id } => (
+                resolve_relative(from, &percent_decode_path(path)),
+                id.clone(),
+            ),
+            TaskReferenceTarget::Invalid => return None,
+        };
+        let mut anchors = self
+            .current_output(&path)?
+            .anchors
+            .iter()
+            .filter(|anchor| anchor.id.value == id);
+        let anchor = anchors.next()?.clone();
+        if anchors.next().is_some() {
+            return None;
+        }
+        Some((path, id, anchor))
     }
 
     pub fn task_at(&self, path: impl AsRef<Path>, offset: usize) -> Option<&TaskRecord> {
@@ -837,23 +953,15 @@ impl Workspace {
                 range: anchor.id.range.clone(),
             });
         }
-        let link = output
-            .links
-            .iter()
-            .find(|link| {
-                link.fragment_range
-                    .as_ref()
-                    .is_some_and(|range| contains_inclusive(range, offset))
-            })
+        let reference = self
+            .anchor_reference_at(&path, offset)
+            .filter(|reference| contains_inclusive(&reference.id_range, offset))
             .ok_or(RenameError::NotRenameable)?;
-        let range = link
-            .fragment_range
-            .clone()
-            .ok_or(RenameError::NotRenameable)?;
-        match self.resolve_link(&path, link) {
-            ResolvedTarget::Anchor { path, id, .. } => Ok(RenameTarget { path, id, range }),
-            _ => Err(RenameError::NotRenameable),
-        }
+        Ok(RenameTarget {
+            path: reference.target_path,
+            id: reference.target_id,
+            range: reference.id_range,
+        })
     }
 
     pub fn rename_anchor(
@@ -888,15 +996,12 @@ impl Workspace {
                 range: anchor.id.range.clone(),
                 new_text: replacement.to_string(),
             });
-        for (path, link) in self.references_to(&target.path, &target.id) {
-            let Some(range) = &link.fragment_range else {
-                continue;
-            };
+        for (path, reference) in self.references_to(&target.path, &target.id) {
             grouped
                 .entry(path.to_path_buf())
                 .or_default()
                 .push(TextEdit {
-                    range: range.clone(),
+                    range: reference.id_range,
                     new_text: replacement.to_string(),
                 });
         }
@@ -933,23 +1038,34 @@ impl Workspace {
         offset: usize,
     ) -> Result<PathRenameTarget, RenameError> {
         let path = normalize(path.as_ref());
-        let link = self
-            .current_output(&path)
-            .and_then(|output| {
-                output.links.iter().find(|link| {
-                    link.path_range
-                        .as_ref()
-                        .is_some_and(|range| contains_inclusive(range, offset))
-                })
+        if let Some(link) = self.current_output(&path).and_then(|output| {
+            output.links.iter().find(|link| {
+                link.path_range
+                    .as_ref()
+                    .is_some_and(|range| contains_inclusive(range, offset))
+            })
+        }) {
+            let old_path = match self.resolve_link(&path, link) {
+                ResolvedTarget::Anchor { path, .. } | ResolvedTarget::Document { path } => path,
+                _ => return Err(RenameError::NotRenameable),
+            };
+            return Ok(PathRenameTarget {
+                old_path,
+                range: link.path_range.clone().ok_or(RenameError::NotRenameable)?,
+            });
+        }
+        let reference = self
+            .anchor_reference_at(&path, offset)
+            .filter(|reference| {
+                reference
+                    .path_range
+                    .as_ref()
+                    .is_some_and(|range| contains_inclusive(range, offset))
             })
             .ok_or(RenameError::NotRenameable)?;
-        let old_path = match self.resolve_link(&path, link) {
-            ResolvedTarget::Anchor { path, .. } | ResolvedTarget::Document { path } => path,
-            _ => return Err(RenameError::NotRenameable),
-        };
         Ok(PathRenameTarget {
-            old_path,
-            range: link.path_range.clone().ok_or(RenameError::NotRenameable)?,
+            old_path: reference.target_path,
+            range: reference.path_range.ok_or(RenameError::NotRenameable)?,
         })
     }
 
@@ -1014,6 +1130,40 @@ impl Workspace {
                         range: path_range.clone(),
                         new_text: replacement,
                     });
+            }
+            for task in &current.output.tasks.tasks {
+                for (source, range, target) in task_reference_fields(task) {
+                    let Some(reference) =
+                        self.task_anchor_reference(&entry.path, source, range, &target)
+                    else {
+                        continue;
+                    };
+                    let Some(path_range) = reference.path_range else {
+                        continue;
+                    };
+                    let source_moves = entry.path == old_path;
+                    let target_moves = reference.target_path == old_path;
+                    if !source_moves && !target_moves {
+                        continue;
+                    }
+                    let effective_source = if source_moves { &new_path } else { &entry.path };
+                    let effective_target = if target_moves {
+                        &new_path
+                    } else {
+                        &reference.target_path
+                    };
+                    let Some(replacement) = relative_path(effective_source, effective_target)
+                    else {
+                        return Err(RenameError::InvalidPath);
+                    };
+                    grouped
+                        .entry(entry.path.clone())
+                        .or_default()
+                        .push(TextEdit {
+                            range: path_range,
+                            new_text: percent_encode_path(&replacement),
+                        });
+                }
             }
         }
         let mut document_changes = Vec::new();
@@ -1314,6 +1464,19 @@ fn percent_decode_path(path: &str) -> String {
     String::from_utf8(decoded).unwrap_or_else(|_| path.to_string())
 }
 
+fn percent_encode_path(path: &str) -> String {
+    let mut encoded = String::with_capacity(path.len());
+    for byte in path.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~' | b'/') {
+            encoded.push(char::from(byte));
+        } else {
+            use std::fmt::Write as _;
+            write!(&mut encoded, "%{byte:02X}").expect("writing to String cannot fail");
+        }
+    }
+    encoded
+}
+
 fn hex_byte(high: u8, low: u8) -> Option<u8> {
     Some(hex_digit(high)? * 16 + hex_digit(low)?)
 }
@@ -1377,6 +1540,42 @@ fn fuzzy_match(candidate: &str, query: &str) -> bool {
         }
     }
     false
+}
+
+fn task_reference_ranges(
+    source: &str,
+    range: &std::ops::Range<usize>,
+    target_id: &str,
+) -> Option<(Option<std::ops::Range<usize>>, std::ops::Range<usize>)> {
+    let separator = source.find('#')?;
+    if &source[separator + 1..] != target_id {
+        return None;
+    }
+    let path_range = (separator > 0).then(|| range.start..range.start + separator);
+    let id_start = range.start + separator + 1;
+    Some((path_range, id_start..range.end))
+}
+
+fn task_reference_fields(
+    task: &TaskRecord,
+) -> Vec<(&str, &std::ops::Range<usize>, TaskReferenceTarget)> {
+    task.prev
+        .iter()
+        .map(|prev| {
+            (
+                prev.value.as_str(),
+                &prev.range,
+                parse_task_reference_target(&prev.value),
+            )
+        })
+        .chain(task.depends.iter().map(|dependency| {
+            (
+                dependency.source.as_str(),
+                &dependency.range,
+                dependency.target.clone(),
+            )
+        }))
+        .collect()
 }
 
 fn escape_inline_text(value: &str) -> String {
@@ -1447,6 +1646,94 @@ mod tests {
         workspace.insert("a.plumb", 1, "`#{#target} Target\n");
         workspace.insert("b.plumb", 1, "`link[x]{to=\"a.plumb#target\"}\n");
         assert_eq!(workspace.references_to("a.plumb", "target").len(), 1);
+    }
+
+    #[test]
+    fn task_fields_participate_in_navigation_references_and_anchor_rename() {
+        let target_source = "`item{.task #draft} Draft\n`node{#note} Note\n";
+        let reference_source = "`item{.task #review prev=\"Project%20Plan.plumb#draft\" depends=\"Project%20Plan.plumb#draft Project%20Plan.plumb#note\"} Review\nSee `link[draft]{to=\"Project Plan.plumb#draft\"}.\n";
+        let mut workspace = Workspace::new();
+        workspace.insert("Project Plan.plumb", 4, target_source);
+        workspace.insert("review.plumb", 7, reference_source);
+
+        let depends_attribute = reference_source.find("depends=").unwrap();
+        let depends = depends_attribute
+            + reference_source[depends_attribute..]
+                .find("#draft")
+                .unwrap()
+            + 1;
+        let reference = workspace
+            .anchor_reference_at("review.plumb", depends)
+            .unwrap();
+        assert_eq!(reference.target_path, PathBuf::from("Project Plan.plumb"));
+        assert_eq!(reference.target_id, "draft");
+        assert_eq!(
+            workspace.references_to("Project Plan.plumb", "draft").len(),
+            3
+        );
+
+        let note = reference_source.find("#note").unwrap() + 1;
+        assert_eq!(
+            workspace
+                .anchor_reference_at("review.plumb", note)
+                .unwrap()
+                .target_id,
+            "note"
+        );
+
+        let target = workspace
+            .anchor_rename_target_at("review.plumb", depends)
+            .unwrap();
+        let edit = workspace.rename_anchor(&target, "first-draft").unwrap();
+        assert_eq!(edit.document_changes.len(), 2);
+        assert_eq!(
+            edit.document_changes
+                .iter()
+                .flat_map(|document| &document.edits)
+                .filter(|edit| edit.new_text == "first-draft")
+                .count(),
+            4
+        );
+    }
+
+    #[test]
+    fn document_rename_rewrites_percent_encoded_task_reference_paths() {
+        let target_source = "`item{.task #draft} Draft\n";
+        let reference_source = "`item{.task prev=\"Project%20Plan.plumb#draft\" depends=\"Project%20Plan.plumb#draft\"} Review\nSee `link[draft]{to=\"Project Plan.plumb#draft\"}.\n";
+        let mut workspace = Workspace::new();
+        workspace.insert("Project Plan.plumb", 4, target_source);
+        workspace.insert("review.plumb", 7, reference_source);
+
+        let path_offset = reference_source.find("Project%20Plan.plumb").unwrap();
+        let target = workspace
+            .path_rename_target_at("review.plumb", path_offset)
+            .unwrap();
+        let edit = workspace
+            .rename_document(&target, "Archived Plan.plumb")
+            .unwrap();
+        let reference_edits = &edit
+            .document_changes
+            .iter()
+            .find(|document| document.path == PathBuf::from("review.plumb"))
+            .unwrap()
+            .edits;
+        assert_eq!(
+            reference_edits
+                .iter()
+                .filter(|edit| edit.new_text == "Archived%20Plan.plumb")
+                .count(),
+            2
+        );
+        assert!(reference_edits
+            .iter()
+            .any(|edit| edit.new_text == "Archived Plan.plumb"));
+        assert_eq!(
+            edit.resource_operations,
+            vec![ResourceOperation::Rename {
+                old_path: PathBuf::from("Project Plan.plumb"),
+                new_path: PathBuf::from("Archived Plan.plumb"),
+            }]
+        );
     }
 
     #[test]
