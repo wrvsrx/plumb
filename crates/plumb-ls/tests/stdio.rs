@@ -6,6 +6,229 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use serde_json::{json, Value};
 
 #[test]
+fn did_save_does_not_crash_the_server() {
+    let messages = [
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": { "processId": null, "rootUri": null, "capabilities": {} }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": {
+                "uri": "file:///tmp/save.plumb", "languageId": "plumb", "version": 1,
+                "text": "`# Title\n"
+            }}
+        }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didSave",
+            "params": { "textDocument": { "uri": "file:///tmp/save.plumb" } }
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 2, "method": "textDocument/documentSymbol",
+            "params": { "textDocument": { "uri": "file:///tmp/save.plumb" } }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 3, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+
+    assert_eq!(
+        response(&run_server(&messages), 2)["result"][0]["name"],
+        "Title"
+    );
+}
+
+#[test]
+fn initialized_reports_workspace_index_progress() {
+    let root = unique_temp_dir();
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(root.join("a.plumb"), "`# A\n").unwrap();
+    std::fs::write(root.join("b.plumb"), "`# B\n").unwrap();
+    let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
+    let messages = [
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": { "processId": null, "rootUri": root_uri, "capabilities": {} }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({ "jsonrpc": "2.0", "id": 2, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+
+    let output = run_server(&messages);
+    let kinds = output
+        .iter()
+        .filter(|message| message["method"] == "$/progress")
+        .map(|message| message["params"]["value"]["kind"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(kinds, ["begin", "report", "end"]);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn watcher_registration_follows_client_capability() {
+    let root = unique_temp_dir();
+    std::fs::create_dir_all(&root).unwrap();
+    let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
+    let messages_without_support = [
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": { "processId": null, "rootUri": root_uri, "capabilities": {} }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({ "jsonrpc": "2.0", "id": 2, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+    let without_support = run_server(&messages_without_support);
+    assert!(!without_support
+        .iter()
+        .any(|message| message["method"] == "client/registerCapability"));
+
+    let initialize_with_support = [
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {
+                "processId": null, "rootUri": root_uri,
+                "capabilities": { "workspace": { "didChangeWatchedFiles": {
+                    "dynamicRegistration": true, "relativePatternSupport": true
+                } } }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+    ];
+    let shutdown = [
+        json!({ "jsonrpc": "2.0", "id": 2, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+    let with_support = run_server_with_pause(&initialize_with_support, &shutdown);
+    let registration = with_support
+        .iter()
+        .find(|message| message["method"] == "client/registerCapability")
+        .expect("watcher registration request");
+    let watcher = &registration["params"]["registrations"][0]["registerOptions"]["watchers"][0];
+    assert_eq!(watcher["globPattern"], "**/*.plumb");
+    assert_eq!(watcher["kind"], 7);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn watched_file_create_indexes_the_new_document() {
+    let root = unique_temp_dir();
+    std::fs::create_dir_all(&root).unwrap();
+    let target = root.join("topic.plumb");
+    let source = root.join("index.plumb");
+    std::fs::write(&target, "`#{#topic} Topic\n").unwrap();
+    let source_text = "See `link[topic]{to=\"topic.plumb#topic\"}.\n";
+    let target_uri = lsp_types::Url::from_file_path(&target).unwrap();
+    let source_uri = lsp_types::Url::from_file_path(&source).unwrap();
+    let messages = [
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": { "processId": null, "rootUri": null, "capabilities": {} }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({
+            "jsonrpc": "2.0", "method": "workspace/didChangeWatchedFiles",
+            "params": { "changes": [{ "uri": target_uri, "type": 1 }] }
+        }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": {
+                "uri": source_uri, "languageId": "plumb", "version": 1, "text": source_text
+            }}
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 2, "method": "textDocument/definition",
+            "params": {
+                "textDocument": { "uri": source_uri },
+                "position": { "line": 0, "character": 30 }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 3, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+
+    assert_eq!(
+        response(&run_server(&messages), 2)["result"]["uri"],
+        target_uri.as_str()
+    );
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn diagnostics_clear_after_a_link_is_fixed() {
+    let uri = "file:///tmp/fix-link.plumb";
+    let messages = [
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": { "processId": null, "rootUri": null, "capabilities": {} }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": {
+                "uri": uri, "languageId": "plumb", "version": 1,
+                "text": "See `link[missing]{to=\"#missing\"}.\n"
+            }}
+        }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didChange",
+            "params": {
+                "textDocument": { "uri": uri, "version": 2 },
+                "contentChanges": [{
+                    "text": "`node{#target} Target\nSee `link[target]{to=\"#target\"}.\n"
+                }]
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 2, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+
+    assert_eq!(diagnostic_counts(&run_server(&messages), uri), [1, 0]);
+}
+
+#[test]
+fn diagnostics_refresh_when_a_target_document_changes() {
+    let source_uri = "file:///tmp/diagnostic-source.plumb";
+    let target_uri = "file:///tmp/diagnostic-target.plumb";
+    let messages = [
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": { "processId": null, "rootUri": null, "capabilities": {} }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": {
+                "uri": source_uri, "languageId": "plumb", "version": 1,
+                "text": "See `link[target]{to=\"diagnostic-target.plumb#target\"}.\n"
+            }}
+        }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": {
+                "uri": target_uri, "languageId": "plumb", "version": 1,
+                "text": "No anchor yet.\n"
+            }}
+        }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didChange",
+            "params": {
+                "textDocument": { "uri": target_uri, "version": 2 },
+                "contentChanges": [{ "text": "`node{#target} Target\n" }]
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 2, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+
+    assert_eq!(
+        diagnostic_counts(&run_server(&messages), source_uri),
+        [1, 1, 0]
+    );
+}
+
+#[test]
 fn publishes_diagnostics_and_returns_heading_symbols_over_stdio() {
     let messages = [
         json!({
@@ -1160,6 +1383,28 @@ fn run_path_rename_precondition_test(
 }
 
 fn run_server(messages: &[Value]) -> Vec<Value> {
+    run_server_with_writer(|stdin| {
+        for message in messages {
+            write_message(stdin, message);
+        }
+    })
+}
+
+fn run_server_with_pause(first: &[Value], second: &[Value]) -> Vec<Value> {
+    run_server_with_writer(|stdin| {
+        for message in first {
+            write_message(stdin, message);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        for message in second {
+            write_message(stdin, message);
+        }
+    })
+}
+
+fn run_server_with_writer(
+    write_messages: impl FnOnce(&mut std::process::ChildStdin),
+) -> Vec<Value> {
     let mut child = Command::new(env!("CARGO_BIN_EXE_plumb-ls"))
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -1168,9 +1413,7 @@ fn run_server(messages: &[Value]) -> Vec<Value> {
         .expect("start plumb-ls");
     {
         let stdin = child.stdin.as_mut().expect("child stdin");
-        for message in messages {
-            write_message(stdin, message);
-        }
+        write_messages(stdin);
     }
     drop(child.stdin.take());
     let mut stdout = String::new();
@@ -1194,6 +1437,17 @@ fn response(messages: &[Value], id: u64) -> &Value {
         .iter()
         .find(|message| message.get("id") == Some(&json!(id)))
         .expect("response")
+}
+
+fn diagnostic_counts(messages: &[Value], uri: &str) -> Vec<usize> {
+    messages
+        .iter()
+        .filter(|message| {
+            message["method"] == "textDocument/publishDiagnostics"
+                && message["params"]["uri"] == uri
+        })
+        .map(|message| message["params"]["diagnostics"].as_array().unwrap().len())
+        .collect()
 }
 
 fn unique_temp_dir() -> PathBuf {
