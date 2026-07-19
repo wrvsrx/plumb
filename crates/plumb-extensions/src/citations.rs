@@ -2,26 +2,11 @@ use std::ops::Range;
 
 use plumb_core::{Block, Diagnostic, DiagnosticSeverity, Document, Inline, InlineContent};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CitationMode {
-    Normal,
-    SuppressAuthor,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CitationItem {
-    pub id: String,
-    pub prefix: String,
-    pub suffix: String,
-    pub mode: CitationMode,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CitationRecord {
     pub range: Range<usize>,
     pub selection_range: Range<usize>,
-    pub text: String,
-    pub items: Vec<CitationItem>,
+    pub id: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -65,18 +50,16 @@ fn collect_inlines(content: &InlineContent, output: &mut CitationOutput) {
             continue;
         };
         if kind == "cite" {
-            let text = content.plain_text();
-            match parse_citation_items(&text) {
-                Some(items) => output.citations.push(CitationRecord {
+            match citation_id(content) {
+                Some(id) => output.citations.push(CitationRecord {
                     range: range.clone(),
                     selection_range: content.range.clone(),
-                    text,
-                    items,
+                    id,
                 }),
                 None => output.diagnostics.push(Diagnostic {
                     code: "citation.invalid",
                     severity: DiagnosticSeverity::Warning,
-                    message: "citations must contain semicolon-separated @id items".to_string(),
+                    message: "a citation must contain one plain id".to_string(),
                     range: content.range.clone(),
                     related: Vec::new(),
                 }),
@@ -86,41 +69,23 @@ fn collect_inlines(content: &InlineContent, output: &mut CitationOutput) {
     }
 }
 
-fn parse_citation_items(text: &str) -> Option<Vec<CitationItem>> {
-    let mut items = Vec::new();
-    for segment in text.split(';') {
-        let segment = segment.trim();
-        let at = segment.find('@')?;
-        let suppress_author = at > 0 && segment.as_bytes()[at - 1] == b'-';
-        let prefix_end = at - usize::from(suppress_author);
-        let prefix = segment[..prefix_end].trim();
-        let after_at = &segment[at + 1..];
-        let id_end = after_at
-            .find(|character: char| character.is_whitespace() || character == ',')
-            .unwrap_or(after_at.len());
-        let id = &after_at[..id_end];
-        let suffix = after_at[id_end..].trim();
-        if id.is_empty()
-            || id.chars().any(|character| {
-                character.is_control() || matches!(character, '@' | '[' | ']' | '{' | '}')
-            })
-            || prefix.contains('@')
-            || suffix.contains('@')
-        {
-            return None;
-        }
-        items.push(CitationItem {
-            id: id.to_string(),
-            prefix: prefix.to_string(),
-            suffix: suffix.to_string(),
-            mode: if suppress_author {
-                CitationMode::SuppressAuthor
-            } else {
-                CitationMode::Normal
-            },
-        });
+fn citation_id(content: &InlineContent) -> Option<String> {
+    if content.items.is_empty()
+        || !content
+            .items
+            .iter()
+            .all(|inline| matches!(inline, Inline::Text { .. }))
+    {
+        return None;
     }
-    (!items.is_empty()).then_some(items)
+    let id = content.plain_text();
+    id.chars()
+        .all(|character| {
+            !character.is_whitespace()
+                && !character.is_control()
+                && !matches!(character, '`' | '@' | ';' | ',' | '[' | ']' | '{' | '}')
+        })
+        .then_some(id)
 }
 
 #[cfg(test)]
@@ -130,43 +95,25 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parses_citation_items_and_modes() {
-        let parsed = parse(
-            "See `cite[see @smith2004, pp. 33-35; -@doe2010].\n\n`meta\n  `: source\n\n     `cite[@roe2020]\n",
-        );
+    fn collects_single_plain_id_citations() {
+        let parsed = parse("See `cite[smith2004].\n\n`meta\n  `: source\n\n     `cite[roe-2020]\n");
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
         let output = analyze_citations(&parsed.syntax);
         assert!(output.diagnostics.is_empty());
         assert_eq!(output.citations.len(), 2);
-        assert_eq!(
-            output.citations[0].items,
-            vec![
-                CitationItem {
-                    id: "smith2004".to_string(),
-                    prefix: "see".to_string(),
-                    suffix: ", pp. 33-35".to_string(),
-                    mode: CitationMode::Normal,
-                },
-                CitationItem {
-                    id: "doe2010".to_string(),
-                    prefix: String::new(),
-                    suffix: String::new(),
-                    mode: CitationMode::SuppressAuthor,
-                },
-            ]
-        );
-        assert_eq!(output.citations[1].items[0].id, "roe2020");
+        assert_eq!(output.citations[0].id, "smith2004");
+        assert_eq!(output.citations[1].id, "roe-2020");
     }
 
     #[test]
     fn diagnoses_invalid_citation_content() {
-        let parsed = parse("`cite[plain text] and `cite[@one @two].\n");
+        let parsed = parse("`cite[plain text] `cite[@one] `cite[one;two] `cite[`*[nested]].\n");
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
         let output = analyze_citations(&parsed.syntax);
         assert!(output.citations.is_empty());
-        assert_eq!(output.diagnostics.len(), 2);
+        assert_eq!(output.diagnostics.len(), 4);
         assert!(output
             .diagnostics
             .iter()

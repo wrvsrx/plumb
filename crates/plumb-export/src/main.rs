@@ -5,7 +5,7 @@ use std::process::ExitCode;
 
 use plumb_core::{parse, AttrItem, Attributes, Block, Inline, InlineContent, ParsedBlock};
 use plumb_extensions::{
-    analyze_document, DocumentOutput, MetadataBlock, MetadataEntry, MetadataValue,
+    analyze_document, CitationRecord, DocumentOutput, MetadataBlock, MetadataEntry, MetadataValue,
 };
 use serde_json::{json, Map, Value};
 
@@ -201,7 +201,9 @@ fn lower_inlines(content: &InlineContent, analysis: &DocumentOutput) -> Vec<Valu
                 attrs,
                 ..
             } => {
-                if let Some(link) = analysis.link_at_node_start(range.start) {
+                if let Some(citation) = analysis.citations.citation_at_node_start(range.start) {
+                    output.push(lower_citation(citation));
+                } else if let Some(link) = analysis.link_at_node_start(range.start) {
                     output.push(json!({
                         "t": "Link",
                         "c": [lower_attrs(attrs, None), lower_inlines(content, analysis), [&link.target.value, ""]],
@@ -215,6 +217,26 @@ fn lower_inlines(content: &InlineContent, analysis: &DocumentOutput) -> Vec<Valu
             }
         }
     }
+    output
+}
+
+fn lower_citation(citation: &CitationRecord) -> Value {
+    json!({
+        "t": "Cite",
+        "c": [[{
+            "citationId": citation.id,
+            "citationPrefix": [],
+            "citationSuffix": [],
+            "citationMode": { "t": "NormalCitation" },
+            "citationNoteNum": 0,
+            "citationHash": 0,
+        }], text_inlines(&format!("[{}]", citation.id))],
+    })
+}
+
+fn text_inlines(text: &str) -> Vec<Value> {
+    let mut output = Vec::new();
+    lower_text(text, &mut output);
     output
 }
 
@@ -328,5 +350,27 @@ mod tests {
             unsupported.unwrap_err(),
             "metadata field 'mixed' has an unsupported value"
         );
+    }
+
+    #[test]
+    fn exports_single_citations_in_body_and_metadata_without_a_pandoc_reader() {
+        let document =
+            export("`meta\n  `: source\n\n     `cite[roe2020]\n\nSee `cite[smith2004].\n").unwrap();
+
+        assert_eq!(document["meta"]["source"]["c"][0]["t"], "Cite");
+        let cite = &document["blocks"][0]["c"][2];
+        assert_eq!(cite["t"], "Cite");
+        assert_eq!(cite["c"][0].as_array().unwrap().len(), 1);
+        assert_eq!(cite["c"][0][0]["citationId"], "smith2004");
+        assert_eq!(cite["c"][0][0]["citationMode"]["t"], "NormalCitation");
+        assert!(cite["c"][0][0]["citationPrefix"]
+            .as_array()
+            .unwrap()
+            .is_empty());
+        assert!(cite["c"][0][0]["citationSuffix"]
+            .as_array()
+            .unwrap()
+            .is_empty());
+        assert_eq!(cite["c"][1][0]["c"], "[smith2004]");
     }
 }

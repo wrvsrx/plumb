@@ -67,7 +67,7 @@ fn publishes_diagnostics_and_returns_heading_symbols_over_stdio() {
 
 #[test]
 fn publishes_metadata_diagnostics_and_nested_symbols_over_stdio() {
-    let source = "`meta\n  `: title\n\n    Document title\n\n  `: author\n    `: name\n\n      Alice\n\n  `: title\n";
+    let source = "`meta\n  `: title\n\n    Document title\n\n  `: author\n    `: name\n\n      Alice\n\n  `: title\n\nInvalid `cite[@old-style].\n";
     let messages = [
         json!({
             "jsonrpc": "2.0",
@@ -120,6 +120,11 @@ fn publishes_metadata_diagnostics_and_nested_symbols_over_stdio() {
         .unwrap()
         .iter()
         .any(|diagnostic| diagnostic["code"] == "metadata.duplicate-key"));
+    assert!(diagnostics["params"]["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|diagnostic| diagnostic["code"] == "citation.invalid"));
 }
 
 #[test]
