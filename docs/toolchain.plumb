@@ -27,8 +27,9 @@
 `- definition-list metadata 使用顶层 `[meta]、`[:] definitions 和 `[item] list values；支持
   scalar、list、map、verbatim 与 null typed values。
 `- `[textDocument/codeAction] 为 syntax-valid、尚无 `[meta] 的文档提供
-  `[Insert document metadata]；标题默认取文件名 stem，并在 byte offset 0 产生带 revision 的
-  guarded edit。client 必须支持 `[workspace.workspaceEdit.documentChanges]。
+  `[Insert document metadata]；`[title] 默认取文件名 stem，`[created] 使用 action 执行时的本地
+  RFC 3339 timestamp（秒精度），并在 byte offset 0 产生带 revision 的 guarded edit。client
+  必须支持 `[workspace.workspaceEdit.documentChanges]。
 
 当前 server 会扫描 workspace、监听 `[*.plumb] changes，并实现 links、completion、
 anchor/document rename。metadata completion、已有 metadata 的任意 edit、hover 和 export

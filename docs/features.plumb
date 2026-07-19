@@ -20,8 +20,9 @@ SyntaxTree contract 已冻结；normalized AST 和 extension-specific semantics 
 `- definition extension 聚合相邻 `[:] blocks；metadata extension 把唯一顶层 `[meta] 中的
   definitions 投影为 typed scalar/list/map/verbatim/null values。
 `- `[plumb-ls] 合并 metadata profile diagnostics，并输出 nested metadata key symbols。
-`- `[plumb-ls] 为 syntax-valid、尚无 metadata 的文档提供从文件名生成 title 的 metadata
-  insertion code action，并返回带 revision 的 guarded edit。
+`- `[plumb-ls] 为 syntax-valid、尚无 metadata 的文档提供 metadata insertion code action；从
+  文件名生成 `[title]，以 operation 的本地 RFC 3339 timestamp 生成 `[created]，并返回带
+  revision 的 guarded edit。
 
 当前 heading profile 已确定：`[#] 至 `[######] marker 的长度是 level，`[{#id}] 是唯一
 显式 anchor spelling；`[id=value] 不产生 anchor。运行方法、测试边界和已知 parser gaps 见
