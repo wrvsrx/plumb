@@ -173,22 +173,47 @@ fn preview_text(path: &str, source: &str) -> String {
 }
 
 fn highlight_plumb(source: &str) -> String {
-    source
-        .lines()
-        .map(|line| {
-            let trimmed = line.trim_start();
-            if trimmed.starts_with("`#") {
-                ansi(line, "1;34")
-            } else if trimmed.starts_with("`\"") {
-                ansi(line, "36")
-            } else if line.contains("`link[") {
-                ansi(line, "32")
-            } else {
-                line.to_string()
+    let mut verbatim_margin = None;
+    let mut lines = Vec::new();
+    for line in source.lines() {
+        let trimmed = line.trim_start();
+        let indent = line.len() - trimmed.len();
+        if let Some(margin) = verbatim_margin {
+            if trimmed.is_empty() {
+                lines.push(line.to_string());
+                continue;
             }
+            if indent >= margin {
+                lines.push(ansi(line, "90"));
+                continue;
+            }
+            verbatim_margin = None;
+        }
+        if trimmed.starts_with("`{") {
+            verbatim_margin = Some(indent + 2);
+            lines.push(ansi(line, "36"));
+        } else if marked_kind(trimmed, "meta") {
+            lines.push(ansi(line, "35"));
+        } else if trimmed.starts_with("`#") {
+            lines.push(ansi(line, "1;34"));
+        } else if line.contains("`link[") {
+            lines.push(ansi(line, "32"));
+        } else {
+            lines.push(line.to_string());
+        }
+    }
+    lines.join("\n")
+}
+
+fn marked_kind(source: &str, kind: &str) -> bool {
+    source
+        .strip_prefix('`')
+        .and_then(|source| source.strip_prefix(kind))
+        .is_some_and(|rest| {
+            rest.is_empty()
+                || rest.starts_with('{')
+                || rest.chars().next().is_some_and(char::is_whitespace)
         })
-        .collect::<Vec<_>>()
-        .join("\n")
 }
 
 fn ansi(text: &str, code: &str) -> String {
@@ -221,5 +246,16 @@ mod tests {
         assert!(preview.contains("topic.plumb"));
         assert!(preview.contains("\x1b[1;34m"));
         assert!(preview.contains("\x1b[32m"));
+    }
+
+    #[test]
+    fn preview_highlights_metadata_and_verbatim_blocks() {
+        let preview = highlight_plumb(
+            "`meta\n  `: title\n\n    Preview\n\n`{language=rust}\n  fn main() {}\n\n`# Heading\n",
+        );
+        assert!(preview.contains("\x1b[35m`meta\x1b[0m"));
+        assert!(preview.contains("\x1b[36m`{language=rust}\x1b[0m"));
+        assert!(preview.contains("\x1b[90m  fn main() {}\x1b[0m"));
+        assert!(preview.contains("\x1b[1;34m`# Heading\x1b[0m"));
     }
 }
