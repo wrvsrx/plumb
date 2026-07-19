@@ -524,6 +524,7 @@ impl Workspace {
         &self,
         path: impl AsRef<Path>,
         title: &str,
+        created: &str,
     ) -> Result<WorkspaceEdit, MetadataInsertError> {
         let path = normalize(path.as_ref());
         let entry = self
@@ -544,8 +545,9 @@ impl Workspace {
             "\n"
         };
         let escaped_title = title.replace('`', "``");
+        let escaped_created = created.replace('`', "``");
         let new_text = format!(
-            "`meta{newline}  `: title{newline}{newline}    {escaped_title}{newline}{newline}"
+            "`meta{newline}  `: title{newline}{newline}    {escaped_title}{newline}{newline}  `: created{newline}{newline}    {escaped_created}{newline}{newline}"
         );
         Ok(WorkspaceEdit {
             document_changes: vec![DocumentEdit {
@@ -869,7 +871,11 @@ mod tests {
         workspace.insert("notes/my`note.plumb", 7, "`# Section\n");
 
         let edit = workspace
-            .insert_metadata("notes/my`note.plumb", "my`note")
+            .insert_metadata(
+                "notes/my`note.plumb",
+                "my`note",
+                "2026-07-19T12:34:56+08:00",
+            )
             .unwrap();
 
         assert_eq!(edit.document_changes.len(), 1);
@@ -879,7 +885,7 @@ mod tests {
         assert_eq!(document.edits[0].range, 0..0);
         assert_eq!(
             document.edits[0].new_text,
-            "`meta\n  `: title\n\n    my``note\n\n"
+            "`meta\n  `: title\n\n    my``note\n\n  `: created\n\n    2026-07-19T12:34:56+08:00\n\n"
         );
     }
 
@@ -888,11 +894,13 @@ mod tests {
         let mut workspace = Workspace::new();
         workspace.insert("note.plumb", 1, "First\r\nSecond\r\n");
 
-        let edit = workspace.insert_metadata("note.plumb", "note").unwrap();
+        let edit = workspace
+            .insert_metadata("note.plumb", "note", "2026-07-19T12:34:56+08:00")
+            .unwrap();
 
         assert_eq!(
             edit.document_changes[0].edits[0].new_text,
-            "`meta\r\n  `: title\r\n\r\n    note\r\n\r\n"
+            "`meta\r\n  `: title\r\n\r\n    note\r\n\r\n  `: created\r\n\r\n    2026-07-19T12:34:56+08:00\r\n\r\n"
         );
     }
 
@@ -901,17 +909,17 @@ mod tests {
         let mut workspace = Workspace::new();
         workspace.insert("existing.plumb", 1, "`meta\n  `: title\n\n    Existing\n");
         assert_eq!(
-            workspace.insert_metadata("existing.plumb", "existing"),
+            workspace.insert_metadata("existing.plumb", "existing", "created"),
             Err(MetadataInsertError::MetadataAlreadyExists)
         );
 
         workspace.insert("invalid.plumb", 2, "`node{key=a key=b} Broken\n");
         assert_eq!(
-            workspace.insert_metadata("invalid.plumb", "invalid"),
+            workspace.insert_metadata("invalid.plumb", "invalid", "created"),
             Err(MetadataInsertError::StaleOrInvalidDocument)
         );
         assert_eq!(
-            workspace.insert_metadata("missing.plumb", "missing"),
+            workspace.insert_metadata("missing.plumb", "missing", "created"),
             Err(MetadataInsertError::StaleOrInvalidDocument)
         );
     }
