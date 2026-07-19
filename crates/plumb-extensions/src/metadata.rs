@@ -86,6 +86,21 @@ pub struct MetadataOutput {
     pub diagnostics: Vec<Diagnostic>,
 }
 
+impl MetadataOutput {
+    pub fn document_title(&self) -> Option<String> {
+        let metadata = self.metadata.as_ref()?;
+        let entry = metadata.entries.iter().find(|entry| entry.key == "title")?;
+        match &entry.value {
+            MetadataValue::Scalar { content, .. } => Some(content.plain_text()),
+            MetadataValue::Null { .. }
+            | MetadataValue::List { .. }
+            | MetadataValue::Map { .. }
+            | MetadataValue::Verbatim { .. }
+            | MetadataValue::Unsupported { .. } => None,
+        }
+    }
+}
+
 pub fn analyze_metadata(document: &Document) -> MetadataOutput {
     let mut output = MetadataOutput::default();
     collect_definition_lists(&document.blocks, &mut output.definition_lists);
@@ -348,12 +363,13 @@ mod tests {
     #[test]
     fn groups_definition_lists_and_projects_metadata_values() {
         let parsed = parse(
-            "`: term\n\n  Definition.\n\n`meta\n  `: title\n\n    Document title\n\n  `: tags\n    `item plumb\n    `item parser\n\n  `: author\n    `: name\n\n      Alice\n\n  `: source\n    `{language=text}\n      raw\n",
+            "`: term\n\n  Definition.\n\n`meta\n  `: title\n\n    Document `em[title]\n\n  `: tags\n    `item plumb\n    `item parser\n\n  `: author\n    `: name\n\n      Alice\n\n  `: source\n    `{language=text}\n      raw\n",
         );
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let output = analyze_metadata(&parsed.syntax);
         assert_eq!(output.definition_lists.len(), 3);
         assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+        assert_eq!(output.document_title().as_deref(), Some("Document title"));
         let metadata = output.metadata.unwrap();
         assert_eq!(metadata.entries.len(), 4);
         assert!(matches!(
@@ -372,6 +388,14 @@ mod tests {
             metadata.entries[3].value,
             MetadataValue::Verbatim { .. }
         ));
+    }
+
+    #[test]
+    fn document_title_requires_a_scalar_value() {
+        let parsed =
+            parse("`meta\n  `: title\n    `item Not a scalar\n\n  `: title\n\n    Later scalar\n");
+        assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
+        assert_eq!(analyze_metadata(&parsed.syntax).document_title(), None);
     }
 
     #[test]

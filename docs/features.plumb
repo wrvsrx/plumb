@@ -218,8 +218,8 @@ capability wiring 和 revision/cancellation policy，不复制 parser 或 semant
 `# E. 笔记 CLI（`[plumb-notes]）
 
 `- [plumb] v1 递归扫描根下 plumb 文档，载入 workspace，打印匹配路径。
-`- [plumb] v1 CEL document query：path、directly_referenced_by 和
-  transitively_referenced_by。
+`- [plumb] v1 CEL document query：path、metadata title、directly_referenced_by 和
+  transitively_referenced_by 已实现。
 `- [plumb] v1 interactive picker：路径显示/输出、全文匹配、预览、`[$EDITOR] 打开、
   从 query 建档。
 `- [plumb] v1 CEL task query：id/title/source、datetime/state、depends_on、directly_blocking、

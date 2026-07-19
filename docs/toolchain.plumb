@@ -77,6 +77,10 @@ Pandoc `[Cite]；正文和 metadata rich scalar 都支持。复杂 cluster、aff
 timestamp，缺失的 optional field 是 null。complete/cancel 通过 shared guarded operation 修改文件，
 recurring task 会同时生成下一实例。
 
+`[plumb-notes note --query] 的 CEL document fields 是 `[path]、metadata scalar `[title]、
+`[directly_referenced_by] 和 `[transitively_referenced_by]。没有 valid scalar title 的文档以空
+string 参与查询。
+
 `# Heading and anchor profile
 
 Heading facts、document symbols 与 Pandoc Header 共享以下 profile：

@@ -193,11 +193,19 @@ impl QueryPlan {
         workspace: &Workspace,
         reverse: &ReverseReferences,
     ) -> Result<bool, String> {
-        if workspace.get(path).is_none() {
-            return Err(format!("document is not loaded: {}", path.display()));
-        }
+        let entry = workspace
+            .get(path)
+            .ok_or_else(|| format!("document is not loaded: {}", path.display()))?;
         let mut context = Context::default();
         context.add_variable_from_value("path", display_path(root, path));
+        context.add_variable_from_value(
+            "title",
+            entry
+                .current
+                .as_ref()
+                .and_then(|current| current.output.metadata.document_title())
+                .unwrap_or_default(),
+        );
         context.add_variable_from_value(
             "directly_referenced_by",
             reverse
@@ -360,6 +368,28 @@ mod tests {
             QueryPlan::compile("'index.plumb' in transitively_referenced_by")
                 .unwrap()
                 .matches(&root, &leaf, &loaded.workspace, &reverse)
+                .unwrap()
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn queries_document_metadata_title() {
+        let root = unique_temp_dir();
+        std::fs::create_dir_all(root.join("docs")).unwrap();
+        std::fs::write(
+            root.join("docs/semantics.plumb"),
+            "`meta\n  `: title\n\n    Semantics `em[Guide]\n\n`# Heading\n",
+        )
+        .unwrap();
+        std::fs::write(root.join("notes.plumb"), "`# Notes\n").unwrap();
+        let loaded = load_workspace(&root).unwrap();
+        let reverse = ReverseReferences::build(&loaded.workspace);
+        let semantics = normalize(&root.join("docs/semantics.plumb"));
+        assert!(
+            QueryPlan::compile("path.startsWith('docs/') && title.matches('Semantics Guide')")
+                .unwrap()
+                .matches(&root, &semantics, &loaded.workspace, &reverse)
                 .unwrap()
         );
         std::fs::remove_dir_all(root).unwrap();
