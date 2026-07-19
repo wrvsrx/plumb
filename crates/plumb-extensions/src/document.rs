@@ -6,7 +6,7 @@ use plumb_core::{
     InlineContent,
 };
 
-use crate::{analyze_headings, HeadingOutput};
+use crate::{analyze_headings, analyze_metadata, HeadingOutput, MetadataOutput};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceBacked<T> {
@@ -67,6 +67,7 @@ pub struct LinkRecord {
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct DocumentOutput {
     pub headings: HeadingOutput,
+    pub metadata: MetadataOutput,
     pub anchors: Vec<AnchorRecord>,
     pub links: Vec<LinkRecord>,
     pub diagnostics: Vec<Diagnostic>,
@@ -80,8 +81,10 @@ impl DocumentOutput {
 
 pub fn analyze_document(source: &str, document: &Document) -> DocumentOutput {
     let headings = analyze_headings(document);
+    let metadata = analyze_metadata(document);
     let mut output = DocumentOutput {
         headings,
+        metadata,
         ..DocumentOutput::default()
     };
     let mut first_ids: HashMap<String, Range<usize>> = HashMap::new();
