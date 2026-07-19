@@ -225,7 +225,7 @@ capability wiring 和 revision/cancellation policy，不复制 parser 或 semant
 
 `- [plumb] v1 递归扫描根下 plumb 文档，载入 workspace，打印匹配路径。
 `- [plumb] v1 CEL document query：path、metadata title、directly_referenced_by 和
-  transitively_referenced_by 已实现。
+  transitively_referenced_by 已实现；reverse graph 覆盖 link、task prev 与 task dependencies。
 `- [plumb] v1 interactive picker 已实现：路径显示/输出、全文匹配、当前 plumb syntax preview、
   multi-select、`[$EDITOR] 打开和从 query 安全建档。
 `- [plumb] v1 CEL task query：id/title/source、datetime/state、depends_on、directly_blocking、

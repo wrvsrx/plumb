@@ -95,7 +95,9 @@ recurring task 会同时生成下一实例。
 
 `[plumb-notes note --query] 的 CEL document fields 是 `[path]、metadata scalar `[title]、
 `[directly_referenced_by] 和 `[transitively_referenced_by]。没有 valid scalar title 的文档以空
-string 参与查询。
+string 参与查询。reverse graph 复用 workspace 的统一 reference edges，包含 ordinary `[link]、
+task `[prev] 与 `[depends]；target document 已明确时，即使 fragment missing/ambiguous 也保留
+document-level edge。
 
 `[plumb-notes note --interactive] 提供 path/全文 fuzzy matching、multi-select、plumb syntax
 preview、`[$EDITOR] open，以及 Ctrl-N 从当前 query 在 root 内建立 `[.plumb] 文件。preview

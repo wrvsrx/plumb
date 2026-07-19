@@ -4,7 +4,7 @@ use std::process::ExitCode;
 
 use cel::{Context, ExecutionError, Program, Value};
 use clap::{Args, Parser, Subcommand};
-use plumb_workspace::{normalize, ResolvedTarget, Workspace};
+use plumb_workspace::{normalize, Workspace};
 
 mod interactive;
 mod tasks;
@@ -242,14 +242,7 @@ impl ReverseReferences {
     fn build(workspace: &Workspace) -> Self {
         let mut direct: HashMap<PathBuf, HashSet<PathBuf>> = HashMap::new();
         for entry in workspace.documents() {
-            let Some(current) = &entry.current else {
-                continue;
-            };
-            for link in &current.output.links {
-                let target = match workspace.resolve_link(&entry.path, link) {
-                    ResolvedTarget::Anchor { path, .. } | ResolvedTarget::Document { path } => path,
-                    _ => continue,
-                };
+            for target in workspace.referenced_documents_from(&entry.path) {
                 direct.entry(target).or_default().insert(entry.path.clone());
             }
         }
@@ -370,6 +363,33 @@ mod tests {
                 .matches(&root, &leaf, &loaded.workspace, &reverse)
                 .unwrap()
         );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn document_referrer_queries_include_task_prev_and_dependencies() {
+        let root = unique_temp_dir();
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(
+            root.join("index.plumb"),
+            "`item{.task #index prev=\"topic.plumb#topic\"} Index\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("topic.plumb"),
+            "`item{.task #topic depends=\"leaf.plumb#leaf\"} Topic\n",
+        )
+        .unwrap();
+        std::fs::write(root.join("leaf.plumb"), "`item{.task #leaf} Leaf\n").unwrap();
+        let loaded = load_workspace(&root).unwrap();
+        let reverse = ReverseReferences::build(&loaded.workspace);
+        let leaf = normalize(&root.join("leaf.plumb"));
+        assert!(QueryPlan::compile(
+            "'topic.plumb' in directly_referenced_by && 'index.plumb' in transitively_referenced_by"
+        )
+        .unwrap()
+        .matches(&root, &leaf, &loaded.workspace, &reverse)
+        .unwrap());
         std::fs::remove_dir_all(root).unwrap();
     }
 
