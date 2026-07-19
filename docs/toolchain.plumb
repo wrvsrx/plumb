@@ -61,6 +61,10 @@ workspace roots；前置条件失败时返回 `[RequestFailed]，不修改 optim
 async-lsp advertised notifications 必须继续显式实现；增加 capability 时遵守
 `[AGENTS.md] 的 runtime gotcha。
 
+`[dev/nvim.lua] 面向 Neovim 0.12 的 repo-local exrc 会加载本地 parser 与 highlights/folds/indents
+queries，启动 `[target/debug/plumb-ls]，声明 guarded document changes、resource rename 和动态
+file watching capabilities，并把 closed task semantic token 链接到 `[Comment] highlight。
+
 `# Export
 
 `{language=text}
