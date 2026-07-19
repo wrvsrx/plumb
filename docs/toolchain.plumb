@@ -18,11 +18,15 @@
 `[plumb-ls] 通过 stdio 提供：
 
 `- FULL document sync。
-`- 当前 revision 的 strict syntax diagnostics；syntax valid 时再加入 heading diagnostics。
-`- `[textDocument/documentSymbol] nested heading symbols。
+`- 当前 revision 的 strict syntax diagnostics；syntax valid 时再加入 heading、anchor、link 与
+  definition-list metadata diagnostics。
+`- `[textDocument/documentSymbol] nested heading、anchor 与 metadata key symbols。
+`- definition-list metadata 使用顶层 `[meta]、`[:] definitions 和 `[item] list values；支持
+  scalar、list、map、verbatim 与 null typed values。
 
-第一版只保存 opened documents，不扫描 workspace，也尚未实现 links、completion、rename 或
-task symbols。async-lsp advertised notifications 必须继续显式实现；增加 capability 时遵守
+当前 server 会扫描 workspace、监听 `[*.plumb] changes，并实现 links、completion、
+anchor/document rename。metadata completion、edit operations、hover 和 export lowering 尚未
+实现。async-lsp advertised notifications 必须继续显式实现；增加 capability 时遵守
 `[AGENTS.md] 的 runtime gotcha。
 
 `## Export

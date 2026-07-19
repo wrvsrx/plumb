@@ -189,8 +189,8 @@ configuration，不属于 core registry。
 
 `### 6.1 Common semantic shapes
 
-heading 与 anchor 使用已确定的 official spelling；其余 spelling 只用于展示 output flow，不在
-core 中保留，也尚未冻结为 official defaults：
+heading、anchor、definition list 和 metadata 使用已确定的 official spelling；task/event
+spelling 只用于展示 output flow，不在 core 中保留，也尚未冻结为 official defaults：
 
 `{language=plumb}
   `##{#extensions} Extension design
@@ -198,9 +198,14 @@ core 中保留，也尚未冻结为 official defaults：
   `item First item
   `item{.task state=todo due=2026-08-01} Implement parser
 
-  `definition Extension
+  `: Extension
 
     A typed semantic computation over a document.
+
+  `meta
+    `: title
+
+      Extension design
 
   `event{start="2026-08-01T10:00:00+08:00"} Parser review
 
@@ -208,8 +213,9 @@ core 中保留，也尚未冻结为 official defaults：
 
 heading recognizer 只产生 title/level record，outline aggregator 再构建层级。anchor recognizer
 独立收集显式 `[#id] 并产生 `[AnchorRecord]；heading 本身不保存第二份 id 描述。list-item recognizer
-不直接创建 list；list aggregator 对相邻 sibling records 分组。definition recognizer 把 head
-解释为 term、children 解释为 body。task/event 是可叠加 facets，不排斥 list item、heading 或
+不直接创建 list；list aggregator 对相邻 sibling records 分组。`[:] definition recognizer 把
+head 解释为 term、children 解释为 body，相邻 sibling records 聚合成 definition list。
+task/event 是可叠加 facets，不排斥 list item、heading 或
 anchor。link recognizer 只解析 target spelling，cross-file resolver 再依赖 workspace anchor
 index；这些 extension 都不修改原 SyntaxTree。
 
@@ -222,6 +228,40 @@ Anchor 索引只收录 source 中的 `[AttrItem::Id]，唯一 spelling 是 `[#id
 的 heading 可以进入 outline 和 document symbols，但不产生 `[AnchorRecord]，也不能作为
 definition、references 或 anchor rename 的目标。添加显式 id 是单独的 edit operation，不能
 把此前不存在的 derived id 伪装成可重命名 definition。
+
+`### 6.2 Definition-list metadata profile
+
+metadata 是 definition list 的 document-level projection，不改变 core syntax。official
+container marker 是 `[meta]，definition marker 是 `[:]，list item marker 是 `[item]：
+
+`{language=plumb}
+  `meta
+    `: title
+
+      Extension design
+
+    `: tags
+      `item plumb
+      `item parser
+
+    `: author
+      `: name
+
+        Alice
+
+普通 definition list 不产生 document metadata；只有 document top-level 的唯一 `[meta] block
+启用 metadata projection。`[meta] 必须没有 head，direct children 必须是 `[:] definitions。
+metadata key 必须是非空、无 whitespace、无 inline markup 的 plain text；同一 map 内 duplicate
+key 产生 semantic diagnostic，并用 related range 指向第一次 occurrence。
+
+definition body 按 shape 投影：空 body 为 null；单 paragraph 为 rich inline scalar；相邻
+`[item] children 为 list；相邻 `[:] children 为 map；单 verbatim block 为 verbatim scalar。
+其他 mixed body 产生 `[metadata.unsupported-value] diagnostic。list item 当前不能拥有 child
+blocks。所有 records 保留 node、key、value 与 nested entries 的 source ranges。
+
+当前 LSP 合并 metadata diagnostics，并把 `[metadata] object 与 nested keys 映射到
+`[textDocument/documentSymbol]。completion、metadata insertion/edit operation 和 Pandoc
+metadata lowering 尚未实现。
 
 `## 7. Request-scoped queries
 
