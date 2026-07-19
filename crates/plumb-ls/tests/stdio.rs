@@ -645,6 +645,114 @@ fn recurring_task_action_closes_current_and_appends_next_instance() {
 }
 
 #[test]
+fn blocked_task_offers_cancel_but_not_complete() {
+    let uri = "file:///tmp/blocked-task-actions.plumb";
+    let source = "`item{.task #draft} Draft\n`item{.task #review depends=\"#draft\"} Review\n";
+    let cursor = source.find("Review").unwrap();
+    let line_start = source.find('\n').unwrap() + 1;
+    let messages = [
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {
+                "processId": null, "rootUri": null,
+                "capabilities": {
+                    "workspace": { "workspaceEdit": { "documentChanges": true } }
+                }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": {
+                "uri": uri, "languageId": "plumb", "version": 1, "text": source
+            }}
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 2, "method": "textDocument/codeAction",
+            "params": {
+                "textDocument": { "uri": uri },
+                "range": {
+                    "start": { "line": 1, "character": cursor - line_start },
+                    "end": { "line": 1, "character": cursor - line_start }
+                },
+                "context": { "diagnostics": [], "only": ["quickfix"] }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 3, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+
+    let output = run_server(&messages);
+    let actions = response(&output, 2)["result"].as_array().unwrap();
+    assert_eq!(actions.len(), 1);
+    assert_eq!(actions[0]["title"], "Cancel task");
+    assert!(
+        actions[0]["edit"]["documentChanges"][0]["edits"][0]["newText"]
+            .as_str()
+            .unwrap()
+            .starts_with(" canceled=\"")
+    );
+}
+
+#[test]
+fn canceling_a_recurring_task_appends_the_next_instance() {
+    let uri = "file:///tmp/cancel-recurring-task.plumb";
+    let source = "`item{.task due=\"2026-07-20T09:00:00+08:00\" recur=P1W} Weekly review\n";
+    let cursor = source.find("Weekly review").unwrap();
+    let messages = [
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {
+                "processId": null, "rootUri": null,
+                "capabilities": {
+                    "workspace": { "workspaceEdit": { "documentChanges": true } }
+                }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": {
+                "uri": uri, "languageId": "plumb", "version": 4, "text": source
+            }}
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 2, "method": "textDocument/codeAction",
+            "params": {
+                "textDocument": { "uri": uri },
+                "range": {
+                    "start": { "line": 0, "character": cursor },
+                    "end": { "line": 0, "character": cursor }
+                },
+                "context": { "diagnostics": [], "only": ["quickfix"] }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 3, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+
+    let output = run_server(&messages);
+    let cancel = response(&output, 2)["result"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|action| action["title"] == "Cancel task")
+        .expect("Cancel task action");
+    let edits = cancel["edit"]["documentChanges"][0]["edits"]
+        .as_array()
+        .unwrap();
+    assert_eq!(edits.len(), 2);
+    assert!(edits[0]["newText"]
+        .as_str()
+        .unwrap()
+        .contains("#weekly-review-2026-07-20 canceled="));
+    let next = edits[1]["newText"].as_str().unwrap();
+    assert!(next.contains("#weekly-review-2026-07-27"));
+    assert!(next.contains("due=\"2026-07-27T09:00:00+08:00\""));
+    assert!(next.contains("prev=\"#weekly-review-2026-07-20\""));
+}
+
+#[test]
 fn task_actions_fall_back_from_closed_child_to_open_parent() {
     let uri = "file:///tmp/nested-task-actions.plumb";
     let source =
