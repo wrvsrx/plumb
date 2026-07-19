@@ -47,6 +47,30 @@ Nested `outer[before `inner[nested] after]{role=example}.
       (text))))
 
 ==================
+Punctuation inline kind
+==================
+
+See `->[target]{to="guide.plumb#intro"}.
+
+---
+
+(document
+  (blank_line)
+  (paragraph
+    (inline_content
+      (text)
+      (inline_element
+        (introducer)
+        (inline_kind)
+        (parsed_inline_content
+          (inline_text))
+        (attributes
+          (attribute_pair
+            (attribute_name)
+            (attribute_value))))
+      (text))))
+
+==================
 Empty inline attributes
 ==================
 
