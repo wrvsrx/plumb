@@ -3,6 +3,7 @@ mod document;
 mod headings;
 mod metadata;
 mod queries;
+mod tasks;
 
 pub use citations::{analyze_citations, CitationOutput, CitationRecord};
 pub use document::{
@@ -15,3 +16,7 @@ pub use metadata::{
     MetadataListItem, MetadataOutput, MetadataValue,
 };
 pub use queries::{link_completion_context, LinkCompletionContext};
+pub use tasks::{
+    analyze_tasks, TaskDependency, TaskField, TaskOutput, TaskRecord, TaskReferenceTarget,
+    TaskState,
+};

@@ -7,8 +7,8 @@ use plumb_core::{
 };
 
 use crate::{
-    analyze_citations, analyze_headings, analyze_metadata, CitationOutput, HeadingOutput,
-    MetadataOutput,
+    analyze_citations, analyze_headings, analyze_metadata, analyze_tasks, CitationOutput,
+    HeadingOutput, MetadataOutput, TaskOutput,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -72,6 +72,7 @@ pub struct DocumentOutput {
     pub headings: HeadingOutput,
     pub metadata: MetadataOutput,
     pub citations: CitationOutput,
+    pub tasks: TaskOutput,
     pub anchors: Vec<AnchorRecord>,
     pub links: Vec<LinkRecord>,
     pub diagnostics: Vec<Diagnostic>,
@@ -87,10 +88,12 @@ pub fn analyze_document(source: &str, document: &Document) -> DocumentOutput {
     let headings = analyze_headings(document);
     let metadata = analyze_metadata(document);
     let citations = analyze_citations(document);
+    let tasks = analyze_tasks(source, document);
     let mut output = DocumentOutput {
         headings,
         metadata,
         citations,
+        tasks,
         ..DocumentOutput::default()
     };
     let mut first_ids: HashMap<String, Range<usize>> = HashMap::new();
@@ -305,7 +308,7 @@ fn direct_source_backed(source: &str, value: String, range: Range<usize>) -> Sou
     }
 }
 
-fn attr_source_backed(source: &str, value: &AttrValue) -> SourceBacked<String> {
+pub(crate) fn attr_source_backed(source: &str, value: &AttrValue) -> SourceBacked<String> {
     if !value.quoted {
         return direct_source_backed(source, value.decoded.clone(), value.range.clone());
     }

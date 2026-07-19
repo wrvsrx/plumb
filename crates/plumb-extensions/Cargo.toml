@@ -6,3 +6,4 @@ license.workspace = true
 
 [dependencies]
 plumb-core = { path = "../plumb-core" }
+chrono.workspace = true
