@@ -583,6 +583,70 @@ fn resolves_cross_file_navigation_over_stdio() {
     std::fs::remove_dir_all(root).unwrap();
 }
 
+#[test]
+fn completes_links_by_document_metadata_title() {
+    let root = unique_temp_dir();
+    std::fs::create_dir_all(&root).unwrap();
+    let source = root.join("current.plumb");
+    let target = root.join("usage.plumb");
+    let source_text = "`link[Us\n`link[x]{to=\"Guide\n";
+    std::fs::write(&source, source_text).unwrap();
+    std::fs::write(
+        &target,
+        "`meta\n  `: title\n\n    Usage Guide\n\n`# Usage\n",
+    )
+    .unwrap();
+    let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
+    let source_uri = lsp_types::Url::from_file_path(&source).unwrap();
+    let messages = [
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {
+                "processId": null,
+                "rootUri": root_uri,
+                "workspaceFolders": [{ "uri": root_uri, "name": "test" }],
+                "capabilities": {}
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": {
+                "uri": source_uri, "languageId": "plumb", "version": 1, "text": source_text
+            }}
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 2, "method": "textDocument/completion",
+            "params": {
+                "textDocument": { "uri": source_uri },
+                "position": { "line": 0, "character": 8 }
+            }
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 3, "method": "textDocument/completion",
+            "params": {
+                "textDocument": { "uri": source_uri },
+                "position": { "line": 1, "character": 18 }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 4, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+    let output = run_server(&messages);
+    let label = &response(&output, 2)["result"][0];
+    assert_eq!(label["label"], "Usage Guide");
+    assert_eq!(label["detail"], "usage.plumb");
+    assert_eq!(
+        label["textEdit"]["newText"],
+        "`link[Usage Guide]{to=\"usage.plumb\"}"
+    );
+    let path = &response(&output, 3)["result"][0];
+    assert_eq!(path["label"], "usage.plumb");
+    assert_eq!(path["detail"], "Usage Guide");
+    assert_eq!(path["textEdit"]["newText"], "usage.plumb");
+    std::fs::remove_dir_all(root).unwrap();
+}
+
 fn run_server(messages: &[Value]) -> Vec<Value> {
     let mut child = Command::new(env!("CARGO_BIN_EXE_plumb-ls"))
         .stdin(Stdio::piped())

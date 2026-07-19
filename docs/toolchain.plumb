@@ -37,7 +37,10 @@
   modifier。
 
 当前 server 会扫描 workspace、监听 `[*.plumb] changes，并实现 links、completion、
-anchor/document rename。metadata completion、已有 metadata 的任意 edit 和 hover 尚未实现。
+anchor/document rename。link label completion 按 metadata title 或 relative path 模糊匹配，并生成
+完整 `[link] element；`[to] value completion 同时按 title/path 匹配但只插入 relative path，
+fragment completion 继续只匹配显式 anchors。metadata field completion、已有 metadata 的任意 edit
+和 metadata hover 尚未实现。
 async-lsp advertised notifications 必须继续显式实现；增加 capability 时遵守
 `[AGENTS.md] 的 runtime gotcha。
 

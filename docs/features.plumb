@@ -179,8 +179,9 @@ capability wiring 和 revision/cancellation policy，不复制 parser 或 semant
 `- [plumb] MVP `[textDocument/documentSymbol]：经 outline extension。
 `- [plumb] MVP `[textDocument/definition]：命中链接后解析目标并返回位置；URL 返回空。
 `- [plumb] MVP `[textDocument/references]：经 workspace / links outputs。
-`- [plumb] MVP `[textDocument/completion]：recovered query 补全 marker、attrs、文件与 anchors；
-  文件候选支持 path fuzzy matching，link 内分别补全 path 和 fragment。
+`- [plumb] MVP `[textDocument/completion]：recovered query 补全 link label、path 和 anchors；文件
+  候选同时按 metadata title 与 relative path fuzzy matching，label completion 生成完整 link，
+  `[to] completion 插入 path，fragment completion 只插入显式 anchor。marker/通用 attrs 尚未补全。
 `- [plumb] MVP `[textDocument/prepareRename] / `[rename]：经 guarded operation 重命名 explicit
   anchor；document/path rename 同时返回 resource rename 和所有受影响的 relative-link edits。
 `- [plumb] MVP `[textDocument/hover]：目标类型、id、路径和源码预览。

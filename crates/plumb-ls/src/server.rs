@@ -525,9 +525,10 @@ impl LanguageServer for ServerState {
                 let entry = self.workspace.get(&path)?;
                 let offset = position_to_offset(&entry.parsed.source, position.position);
                 let context = link_completion_context(&entry.parsed.source, offset)?;
-                let is_path = matches!(
+                let is_document = matches!(
                     &context,
-                    plumb_extensions::LinkCompletionContext::Path { .. }
+                    plumb_extensions::LinkCompletionContext::Label { .. }
+                        | plumb_extensions::LinkCompletionContext::Path { .. }
                 );
                 Some(
                     self.workspace
@@ -535,7 +536,7 @@ impl LanguageServer for ServerState {
                         .into_iter()
                         .map(|candidate| CompletionItem {
                             label: candidate.label,
-                            kind: Some(if is_path {
+                            kind: Some(if is_document {
                                 CompletionItemKind::FILE
                             } else {
                                 CompletionItemKind::REFERENCE
