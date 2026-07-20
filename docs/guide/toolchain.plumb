@@ -40,9 +40,12 @@ hover、completion、anchor/document rename、metadata insertion、task conversi
 列宽计算。有 children 的 siblings 使用空行分隔，同 marker 的 leaf siblings 保持紧凑。verbatim
 payload 仍使用 core 要求的 opener column 加两个 ASCII spaces。
 
-formatter 把 attributes 排成单行，为 inline verbatim 选择最小安全 quote count，不重排普通文本，
-不改变 attribute item 顺序，也不解释 heading、list、metadata 或 task semantics。包含 syntax error
-的 document 会被拒绝。
+完整 block opener 不超过 80 display columns 时，formatter 将 attributes 排成单行；超过时 opening
+brace 留在 owner line，每个 item 独占一行，closing brace 与 items 对齐。宽度包含 indent、marker、
+attributes 和 head 首行；inline attributes 保持单行。
+
+formatter 为 inline verbatim 选择最小安全 quote count，不重排普通文本，不改变 attribute item
+顺序，也不解释 heading、list、metadata 或 task semantics。包含 syntax error 的 document 会被拒绝。
 
 不带 path 时从 stdin 读取并写到 stdout；带 path 时原地更新：
 
@@ -52,7 +55,7 @@ formatter 把 attributes 排成单行，为 inline verbatim 选择最小安全 q
   plumb fmt --check docs/*.plumb
 
 `[--check] 不写文件；任一输入需要重新格式化时返回非零状态。LSP 使用同一个 formatter 实现
-`[textDocument/formatting]，editor 的 tab size 不改变 canonical two-space policy。
+`[textDocument/formatting]，editor 的 tab size 不改变 canonical alignment policy。
 
 `# Export
 

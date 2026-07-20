@@ -96,6 +96,9 @@ brace 必须对齐，quoted value 仍保持单行：
      created="2026-07-20T09:00:00+08:00"
      } Write parser
 
+formatter 在完整 block opener 超过 80 display columns 时采用这种 multiline layout，并让每个
+attribute item 独占一行。inline attributes 不自动换行。
+
 `# Escape
 
 两个连续反引号产生一个字面反引号：
