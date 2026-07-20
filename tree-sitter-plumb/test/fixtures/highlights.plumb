@@ -5,4 +5,7 @@ Paragraph with `[raw text]{language=text} and ``escaped introducer.
 `{language=rust}
   fn main() {}
 
+`{.$}
+  E = mc^2
+
 Broken `kind[inline

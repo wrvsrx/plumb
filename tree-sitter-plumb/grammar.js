@@ -6,6 +6,7 @@ module.exports = grammar({
 
   externals: $ => [
     $._indent,
+    $._same_line_child_indent,
     $._indent_after_blank,
     $._same_indent,
     $._paragraph_continue,
@@ -33,12 +34,26 @@ module.exports = grammar({
       field('introducer', $.introducer),
       field('marker', $.marker),
       optional(field('attributes', choice($.attributes, $.incomplete_attributes))),
-      optional(seq($.head_separator, field('head', $.inline_content))),
-      $._line_end,
-      optional(choice(
-        field('continued_head', $.headed_body),
-        field('body', $.block_body),
-      )),
+      choice(
+        seq(
+          $.head_separator,
+          $._same_line_child_indent,
+          field('child', choice($.verbatim_block, $.marked_block)),
+          repeat(choice(
+            $.blank_line,
+            seq($._same_indent, field('child', $._block)),
+          )),
+          $._dedent,
+        ),
+        seq(
+          optional(seq($.head_separator, field('head', $.inline_content))),
+          $._line_end,
+          optional(choice(
+            field('continued_head', $.headed_body),
+            field('body', $.block_body),
+          )),
+        ),
+      ),
     )),
 
     headed_body: $ => prec.dynamic(2, prec.right(seq(
@@ -145,6 +160,7 @@ module.exports = grammar({
     attributes: $ => seq(
       $._attribute_open,
       repeat(choice(
+        $._attribute_newline,
         field('id', $.attribute_id),
         field('class', $.attribute_class),
         field('pair', $.attribute_pair),
@@ -155,6 +171,7 @@ module.exports = grammar({
     incomplete_attributes: $ => prec.right(-1, seq(
       $._attribute_open,
       repeat(choice(
+        $._attribute_newline,
         field('id', $.attribute_id),
         field('class', $.attribute_class),
         field('pair', $.attribute_pair),
@@ -183,6 +200,7 @@ module.exports = grammar({
     inline_kind: _ => /[^\s\x00-\x1f\x7f-\x9f\[\]{}`"]+/,
     head_separator: _ => token(prec(2, /[ \t]+/)),
     _attribute_open: _ => token(prec(2, '{')),
+    _attribute_newline: _ => /\n[ ]*/,
     text: _ => /[^`\n]+/,
     inline_text: _ => /[^`\]\n]+/,
     _line_end: $ => choice('\n', $._eof),

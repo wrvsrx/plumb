@@ -6,6 +6,7 @@
 
 enum TokenType {
   INDENT,
+  SAME_LINE_CHILD_INDENT,
   INDENT_AFTER_BLANK,
   SAME_INDENT,
   PARAGRAPH_CONTINUE,
@@ -275,9 +276,38 @@ static bool scan_layout(Scanner *scanner, TSLexer *lexer,
   return false;
 }
 
+static bool scan_same_line_child_indent(Scanner *scanner, TSLexer *lexer) {
+  uint16_t column = lexer->get_column(lexer);
+  uint16_t current = scanner->indents[scanner->depth];
+  if (column <= current || scanner->depth + 1 >= MAX_INDENT_DEPTH) return false;
+  if (lexer->lookahead != '`') return false;
+  lexer->mark_end(lexer);
+  if (backtick_starts_inline(lexer)) return false;
+  scanner->depth++;
+  scanner->indents[scanner->depth] = column;
+  lexer->result_symbol = SAME_LINE_CHILD_INDENT;
+  return true;
+}
+
+static bool attribute_continues(Scanner *scanner, TSLexer *lexer) {
+  if (lexer->lookahead != '\n') return false;
+  take(lexer);
+  uint16_t column = 0;
+  while (lexer->lookahead == ' ') {
+    take(lexer);
+    column++;
+  }
+  return column > scanner->indents[scanner->depth] &&
+         lexer->lookahead != '\n' && lexer->lookahead != 0;
+}
+
 bool tree_sitter_plumb_external_scanner_scan(void *payload, TSLexer *lexer,
                                               const bool *valid_symbols) {
   Scanner *scanner = payload;
+  if (valid_symbols[SAME_LINE_CHILD_INDENT] &&
+      scan_same_line_child_indent(scanner, lexer)) {
+    return true;
+  }
   if (valid_symbols[INLINE_VERBATIM_TOKEN] && lexer->lookahead == '`') {
     return scan_inline_verbatim(lexer);
   }
@@ -298,6 +328,8 @@ bool tree_sitter_plumb_external_scanner_scan(void *payload, TSLexer *lexer,
   }
   if (valid_symbols[INCOMPLETE_ATTRIBUTES_END] &&
       (lexer->lookahead == '\n' || lexer->lookahead == 0)) {
+    lexer->mark_end(lexer);
+    if (attribute_continues(scanner, lexer)) return false;
     lexer->result_symbol = INCOMPLETE_ATTRIBUTES_END;
     return true;
   }

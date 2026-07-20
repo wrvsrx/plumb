@@ -402,3 +402,49 @@ Use `""[content]"""{.note} with attributes separated by the extra quote.
       (text)
       (inline_verbatim)
       (text))))
+
+==================
+Multiline inline attributes
+==================
+
+Text `span[value]{
+  #inline
+  .mark
+  key=value
+  } tail.
+Raw `[x]{
+  .$
+  language=tex
+  } end.
+
+---
+
+(document
+  (blank_line)
+  (paragraph
+    (inline_content
+      (text)
+      (inline_element
+        (introducer)
+        (inline_kind)
+        (parsed_inline_content
+          (inline_text))
+        (attributes
+          (attribute_id
+            (attribute_name))
+          (attribute_class
+            (attribute_name))
+          (attribute_pair
+            (attribute_name)
+            (attribute_value))))
+      (text))
+    (inline_content
+      (text)
+      (inline_verbatim
+        (attributes
+          (attribute_class
+            (attribute_name))
+          (attribute_pair
+            (attribute_name)
+            (attribute_value))))
+      (text))))
