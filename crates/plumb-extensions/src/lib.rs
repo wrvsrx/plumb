@@ -12,7 +12,7 @@ pub use document::{
     SourceBacked,
 };
 pub use headings::{analyze_headings, Heading, HeadingOutput};
-pub use lists::{analyze_lists, ListGroup, ListItemRecord, ListOutput};
+pub use lists::{analyze_lists, ListGroup, ListItemRecord, ListKind, ListOutput};
 pub use metadata::{
     analyze_metadata, DefinitionList, DefinitionRecord, MetadataBlock, MetadataEntry,
     MetadataListItem, MetadataOutput, MetadataValue,

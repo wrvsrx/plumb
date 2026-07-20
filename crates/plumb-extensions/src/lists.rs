@@ -8,9 +8,16 @@ pub struct ListItemRecord {
     pub selection_range: Range<usize>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ListKind {
+    Bullet,
+    Ordered,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ListGroup {
     pub range: Range<usize>,
+    pub kind: ListKind,
     pub items: Vec<ListItemRecord>,
 }
 
@@ -35,13 +42,16 @@ pub fn analyze_lists(document: &Document) -> ListOutput {
 fn collect_groups(blocks: &[Block], output: &mut ListOutput) {
     let mut index = 0;
     while index < blocks.len() {
-        let Some(first) = list_item(&blocks[index]) else {
+        let Some((first, kind)) = list_item(&blocks[index]) else {
             collect_child_groups(&blocks[index], output);
             index += 1;
             continue;
         };
         let mut items = Vec::new();
-        while let Some(item) = blocks.get(index).and_then(list_item) {
+        while let Some((item, item_kind)) = blocks.get(index).and_then(list_item) {
+            if item_kind != kind {
+                break;
+            }
             items.push(ListItemRecord {
                 range: item.range.clone(),
                 selection_range: item.head.range.clone(),
@@ -51,6 +61,7 @@ fn collect_groups(blocks: &[Block], output: &mut ListOutput) {
         }
         output.groups.push(ListGroup {
             range: first.range.start..items.last().expect("list has an item").range.end,
+            kind,
             items,
         });
     }
@@ -62,15 +73,16 @@ fn collect_child_groups(block: &Block, output: &mut ListOutput) {
     }
 }
 
-fn list_item(block: &Block) -> Option<&ParsedBlock> {
+fn list_item(block: &Block) -> Option<(&ParsedBlock, ListKind)> {
     let Block::Parsed(block) = block else {
         return None;
     };
-    block
-        .mark
-        .as_ref()
-        .is_some_and(|mark| mark.marker == "-")
-        .then_some(block)
+    let kind = match block.mark.as_ref()?.marker.as_str() {
+        "-" => ListKind::Bullet,
+        "." => ListKind::Ordered,
+        _ => return None,
+    };
+    Some((block, kind))
 }
 
 #[cfg(test)]
@@ -88,6 +100,7 @@ mod tests {
 
         let output = analyze_lists(&parsed.syntax);
         assert_eq!(output.groups.len(), 3);
+        assert_eq!(output.groups[0].kind, ListKind::Bullet);
         assert_eq!(output.groups[0].items.len(), 2);
         assert_eq!(output.groups[1].items.len(), 2);
         assert_eq!(output.groups[2].items.len(), 1);
@@ -101,6 +114,25 @@ mod tests {
                 .unwrap(),
             &output.groups[0]
         );
+    }
+
+    #[test]
+    fn separates_bullet_and_ordered_groups_and_recognizes_nested_lists() {
+        let parsed = parse(
+            "`- Bullet\n`. Ordered one\n  `. Nested ordered\n`. Ordered two\n`- Bullet again\n",
+        );
+        assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
+
+        let output = analyze_lists(&parsed.syntax);
+        assert_eq!(output.groups.len(), 4);
+        assert_eq!(output.groups[0].kind, ListKind::Bullet);
+        assert_eq!(output.groups[0].items.len(), 1);
+        assert_eq!(output.groups[1].kind, ListKind::Ordered);
+        assert_eq!(output.groups[1].items.len(), 2);
+        assert_eq!(output.groups[2].kind, ListKind::Ordered);
+        assert_eq!(output.groups[2].items.len(), 1);
+        assert_eq!(output.groups[3].kind, ListKind::Bullet);
+        assert_eq!(output.groups[3].items.len(), 1);
     }
 
     #[test]

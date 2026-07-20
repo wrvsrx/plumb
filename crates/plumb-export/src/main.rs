@@ -5,7 +5,8 @@ use std::process::ExitCode;
 
 use plumb_core::{parse, AttrItem, Attributes, Block, Inline, InlineContent, ParsedBlock};
 use plumb_extensions::{
-    analyze_document, CitationRecord, DocumentOutput, MetadataBlock, MetadataEntry, MetadataValue,
+    analyze_document, CitationRecord, DocumentOutput, ListGroup, ListKind, MetadataBlock,
+    MetadataEntry, MetadataValue,
 };
 use serde_json::{json, Map, Value};
 
@@ -150,7 +151,7 @@ fn lower_blocks(blocks: &[Block], analysis: &DocumentOutput) -> Vec<Value> {
             }
             if let Some(group) = analysis.lists.group_at_node_start(block.range.start) {
                 let end = index + group.items.len();
-                output.push(lower_list_group(&blocks[index..end], analysis));
+                output.push(lower_list_group(&blocks[index..end], group, analysis));
                 index = end;
                 continue;
             }
@@ -195,7 +196,7 @@ fn lower_definition_list(
     json!({ "t": "DefinitionList", "c": entries })
 }
 
-fn lower_list_group(blocks: &[Block], analysis: &DocumentOutput) -> Value {
+fn lower_list_group(blocks: &[Block], group: &ListGroup, analysis: &DocumentOutput) -> Value {
     let items = blocks
         .iter()
         .map(|block| {
@@ -218,7 +219,13 @@ fn lower_list_group(blocks: &[Block], analysis: &DocumentOutput) -> Value {
             }
         })
         .collect::<Vec<_>>();
-    json!({ "t": "BulletList", "c": items })
+    match group.kind {
+        ListKind::Bullet => json!({ "t": "BulletList", "c": items }),
+        ListKind::Ordered => json!({
+            "t": "OrderedList",
+            "c": [[1, { "t": "Decimal" }, { "t": "Period" }], items],
+        }),
+    }
 }
 
 fn lower_parsed_block(block: &ParsedBlock, analysis: &DocumentOutput, output: &mut Vec<Value>) {
@@ -379,6 +386,26 @@ mod tests {
         assert_eq!(attributed["c"][1][1]["t"], "BulletList");
         assert_eq!(attributed["c"][1][1]["c"][0][0]["c"][0]["c"], "Nested");
         assert_eq!(blocks[1]["t"], "Para");
+    }
+
+    #[test]
+    fn exports_adjacent_and_nested_ordered_items() {
+        let source = "`. One\n`. Two\n  `. Nested one\n  `. Nested two\n`- Bullet\n";
+        let document = export(source).unwrap();
+        let blocks = document["blocks"].as_array().unwrap();
+
+        assert_eq!(blocks.len(), 2);
+        assert_eq!(blocks[0]["t"], "OrderedList");
+        assert_eq!(
+            blocks[0]["c"][0],
+            json!([1, { "t": "Decimal" }, { "t": "Period" }])
+        );
+        let items = blocks[0]["c"][1].as_array().unwrap();
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0][0]["c"][0]["c"], "One");
+        assert_eq!(items[1][1]["t"], "OrderedList");
+        assert_eq!(items[1][1]["c"][1].as_array().unwrap().len(), 2);
+        assert_eq!(blocks[1]["t"], "BulletList");
     }
 
     #[test]

@@ -455,6 +455,22 @@ mod tests {
     }
 
     #[test]
+    fn ordered_marker_is_not_a_metadata_list_item() {
+        let parsed = parse("`meta\n  `: ranking\n    `. First\n    `. Second\n");
+        assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
+
+        let output = analyze_metadata(&parsed.syntax);
+        assert!(matches!(
+            output.metadata.unwrap().entries[0].value,
+            MetadataValue::Unsupported { .. }
+        ));
+        assert!(output
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == "metadata.unsupported-value"));
+    }
+
+    #[test]
     fn diagnoses_metadata_profile_violations() {
         let parsed = parse(
             "`meta head\n  `: bad key\n\n    value\n  `: duplicate\n  `: duplicate\n  paragraph\n\n`meta\n  `: other\n",
