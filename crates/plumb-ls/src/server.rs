@@ -650,6 +650,22 @@ impl LanguageServer for ServerState {
                     let entry = self.workspace.get(&path)?;
                     position_to_offset(&entry.parsed.source, position.position)
                 };
+                if let Some(link) = self.workspace.link_at(&path, offset).cloned() {
+                    let target = self.workspace.resolve_link(&path, &link);
+                    if matches!(target, ResolvedTarget::External | ResolvedTarget::Other) {
+                        let entry = self.workspace.get(&path)?;
+                        return Some(Hover {
+                            contents: HoverContents::Markup(MarkupContent {
+                                kind: MarkupKind::Markdown,
+                                value: link_hover(&target, &link),
+                            }),
+                            range: Some(byte_range_to_lsp(
+                                &entry.parsed.source,
+                                &link.selection_range,
+                            )),
+                        });
+                    }
+                }
                 if let Some(target) = self.reference_target_at_with_lazy_load(&path, offset) {
                     let message = target_hover(&self.workspace, &target);
                     return Some(Hover {
@@ -1068,6 +1084,20 @@ fn target_hover(workspace: &Workspace, target: &ResolvedTarget) -> String {
         ResolvedTarget::AmbiguousAnchor { path, id } => {
             format!("Ambiguous explicit anchor `#{id}` in `{}`", path.display())
         }
+    }
+}
+
+fn link_hover(target: &ResolvedTarget, link: &plumb_extensions::LinkRecord) -> String {
+    match target {
+        ResolvedTarget::External => format!(
+            "**External link**\n\n`{}`",
+            escape_markdown_code(&link.target.value)
+        ),
+        ResolvedTarget::Other => format!(
+            "**Non-plumb link**\n\n`{}`",
+            escape_markdown_code(&link.target.value)
+        ),
+        _ => unreachable!("only external and non-plumb links use the direct link hover"),
     }
 }
 

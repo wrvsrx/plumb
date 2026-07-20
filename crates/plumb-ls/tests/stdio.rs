@@ -1081,6 +1081,48 @@ fn highlights_closed_tasks_with_multiline_attributes() {
 }
 
 #[test]
+fn hovers_verbatim_autolinks_with_the_original_uri() {
+    let uri = "file:///tmp/verbatim-autolink.plumb";
+    let source = "Visit `[https://example.test/a%20b]{.->}.\n";
+    let messages = [
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": { "processId": null, "rootUri": null, "capabilities": {} }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": {
+                "uri": uri, "languageId": "plumb", "version": 1, "text": source
+            }}
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 2, "method": "textDocument/hover",
+            "params": {
+                "textDocument": { "uri": uri },
+                "position": { "line": 0, "character": 12 }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 3, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+
+    let output = run_server(&messages);
+    let hover = &response(&output, 2)["result"];
+    assert_eq!(
+        hover["contents"]["value"],
+        "**External link**\n\n`https://example.test/a%20b`"
+    );
+    assert_eq!(
+        hover["range"],
+        json!({
+            "start": { "line": 0, "character": 8 },
+            "end": { "line": 0, "character": 34 }
+        })
+    );
+}
+
+#[test]
 fn resolves_cross_file_navigation_over_stdio() {
     let root = unique_temp_dir();
     std::fs::create_dir_all(&root).unwrap();

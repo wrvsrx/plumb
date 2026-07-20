@@ -5,6 +5,7 @@ use plumb_core::{
     AttrItem, AttrValue, Attributes, Block, Diagnostic, DiagnosticSeverity, Document, Inline,
     InlineContent,
 };
+use url::Url;
 
 use crate::{
     analyze_citations, analyze_headings, analyze_lists, analyze_math, analyze_metadata,
@@ -118,6 +119,7 @@ fn collect_blocks(
         match block {
             Block::Parsed(parsed) => {
                 if let Some(mark) = &parsed.mark {
+                    diagnose_autolink_owner(&mark.attrs, output);
                     let kind = if output
                         .headings
                         .heading_at_node_start(parsed.range.start)
@@ -141,6 +143,7 @@ fn collect_blocks(
                 collect_blocks(source, &parsed.children, first_ids, output);
             }
             Block::Verbatim(block) => {
+                diagnose_autolink_owner(&block.attrs, output);
                 collect_anchor(
                     source,
                     &block.attrs,
@@ -170,6 +173,7 @@ fn collect_inlines(
                 attrs,
                 ..
             } => {
+                diagnose_autolink_owner(attrs, output);
                 collect_anchor(
                     source,
                     attrs,
@@ -184,18 +188,123 @@ fn collect_inlines(
                 }
                 collect_inlines(source, content, first_ids, output);
             }
-            Inline::Verbatim { range, attrs, .. } => collect_anchor(
-                source,
+            Inline::Verbatim {
+                range,
+                text,
+                text_range,
                 attrs,
-                AnchorKind::Inline,
-                range.clone(),
-                range.clone(),
-                first_ids,
-                output,
-            ),
+                ..
+            } => {
+                collect_anchor(
+                    source,
+                    attrs,
+                    AnchorKind::Inline,
+                    range.clone(),
+                    range.clone(),
+                    first_ids,
+                    output,
+                );
+                collect_verbatim_autolink(
+                    source,
+                    range.clone(),
+                    text,
+                    text_range.clone(),
+                    attrs,
+                    output,
+                );
+            }
             Inline::Text { .. } | Inline::SoftBreak { .. } => {}
         }
     }
+}
+
+fn diagnose_autolink_owner(attrs: &Attributes, output: &mut DocumentOutput) {
+    for range in attrs.items.iter().filter_map(|item| match item {
+        AttrItem::Class { value, range } if value == "->" => Some(range.clone()),
+        _ => None,
+    }) {
+        output.diagnostics.push(Diagnostic {
+            code: "link.invalid-owner",
+            severity: DiagnosticSeverity::Warning,
+            message: "the '.->' facet is only valid on inline verbatim".to_string(),
+            range,
+            related: Vec::new(),
+        });
+    }
+}
+
+fn collect_verbatim_autolink(
+    source: &str,
+    range: Range<usize>,
+    text: &str,
+    text_range: Range<usize>,
+    attrs: &Attributes,
+    output: &mut DocumentOutput,
+) {
+    let Some(class_range) = attrs.items.iter().find_map(|item| match item {
+        AttrItem::Class { value, range } if value == "->" => Some(range.clone()),
+        _ => None,
+    }) else {
+        return;
+    };
+    if let Some(conflict) = attrs.items.iter().find_map(|item| match item {
+        AttrItem::Pair { key, range, .. } if key == "to" => Some(range.clone()),
+        AttrItem::Class { value, range } if value == "$" => Some(range.clone()),
+        _ => None,
+    }) {
+        output.diagnostics.push(Diagnostic {
+            code: "link.conflicting-facet",
+            severity: DiagnosticSeverity::Warning,
+            message: "the '.->' facet cannot be combined with 'to' or '.$'".to_string(),
+            range: conflict,
+            related: vec![class_range],
+        });
+        return;
+    }
+    if !valid_absolute_uri(text) {
+        output.diagnostics.push(Diagnostic {
+            code: "link.invalid-autolink-target",
+            severity: DiagnosticSeverity::Warning,
+            message: "verbatim autolink payload must be a nonempty absolute URI".to_string(),
+            range: text_range,
+            related: Vec::new(),
+        });
+        return;
+    }
+    output.links.push(LinkRecord {
+        range,
+        selection_range: text_range.clone(),
+        target: direct_source_backed(source, text.to_string(), text_range),
+        target_kind: LinkTarget::External,
+        path_range: None,
+        fragment_range: None,
+    });
+}
+
+fn valid_absolute_uri(target: &str) -> bool {
+    if target.is_empty()
+        || target
+            .chars()
+            .any(|character| character.is_whitespace() || character.is_control())
+    {
+        return false;
+    }
+    let bytes = target.as_bytes();
+    let mut cursor = 0;
+    while cursor < bytes.len() {
+        if bytes[cursor] == b'%' {
+            if cursor + 2 >= bytes.len()
+                || !bytes[cursor + 1].is_ascii_hexdigit()
+                || !bytes[cursor + 2].is_ascii_hexdigit()
+            {
+                return false;
+            }
+            cursor += 3;
+        } else {
+            cursor += 1;
+        }
+    }
+    Url::parse(target).is_ok()
 }
 
 fn collect_anchor(
@@ -398,6 +507,49 @@ mod tests {
 
         let output = analyze_document(&parsed.source, &parsed.syntax);
         assert!(output.links.is_empty());
+    }
+
+    #[test]
+    fn recognizes_inline_verbatim_autolinks_without_normalizing_the_target() {
+        let source = "Visit `[https://example.test/a%20b]{.-> #site .keep rel=nofollow} or `\"[https://[::1]/]\"{.->}.\n";
+        let parsed = parse(source);
+        assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
+
+        let output = analyze_document(&parsed.source, &parsed.syntax);
+        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+        assert_eq!(output.links.len(), 2);
+        assert_eq!(output.links[0].target.value, "https://example.test/a%20b");
+        assert_eq!(output.links[0].target.raw, "https://example.test/a%20b");
+        assert_eq!(output.links[0].target_kind, LinkTarget::External);
+        assert_eq!(output.links[1].target.value, "https://[::1]/");
+    }
+
+    #[test]
+    fn diagnoses_invalid_autolink_targets_owners_and_conflicts() {
+        let source = "`[]{.->}\n`[relative.plumb]{.->}\n`[https://example.test/%zz]{.->}\n`[https://example.test]{.-> to=other}\n`[https://example.test]{.-> .$}\n`span[text]{.->}\n`note{.->} head\n`{.->}\n  raw\n";
+        let parsed = parse(source);
+        assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
+
+        let output = analyze_document(&parsed.source, &parsed.syntax);
+        assert!(output.links.is_empty());
+        let codes = output
+            .diagnostics
+            .iter()
+            .map(|diagnostic| diagnostic.code)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            codes,
+            [
+                "link.invalid-autolink-target",
+                "link.invalid-autolink-target",
+                "link.invalid-autolink-target",
+                "link.conflicting-facet",
+                "link.conflicting-facet",
+                "link.invalid-owner",
+                "link.invalid-owner",
+                "link.invalid-owner",
+            ]
+        );
     }
 
     #[test]

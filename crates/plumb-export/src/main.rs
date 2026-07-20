@@ -297,7 +297,12 @@ fn lower_inlines(content: &InlineContent, analysis: &DocumentOutput) -> Vec<Valu
             Inline::Verbatim {
                 range, text, attrs, ..
             } => {
-                if analysis.math.math_at_node_start(range.start).is_some() {
+                if let Some(link) = analysis.link_at_node_start(range.start) {
+                    output.push(json!({
+                        "t": "Link",
+                        "c": [lower_autolink_attrs(attrs), text_inlines(text), [&link.target.value, ""]],
+                    }));
+                } else if analysis.math.math_at_node_start(range.start).is_some() {
                     let math = json!({
                         "t": "Math",
                         "c": [{ "t": "InlineMath" }, text],
@@ -380,6 +385,10 @@ fn lower_attrs(attrs: &Attributes, semantic_marker: Option<&str>) -> Value {
 
 fn lower_math_attrs(attrs: &Attributes) -> Value {
     lower_attrs_filtered(attrs, None, |class| class == "$", |key| key == "language")
+}
+
+fn lower_autolink_attrs(attrs: &Attributes) -> Value {
+    lower_attrs_filtered(attrs, None, |class| class == "->", |_| false)
 }
 
 fn lower_attrs_filtered(
@@ -517,6 +526,25 @@ mod tests {
         let document = export("See `->[target]{to=\"other.plumb#id\"}.\n").unwrap();
         assert_eq!(document["blocks"][0]["c"][2]["t"], "Link");
         assert_eq!(document["blocks"][0]["c"][2]["c"][2][0], "other.plumb#id");
+    }
+
+    #[test]
+    fn exports_verbatim_autolinks_in_body_and_metadata() {
+        let source = "`meta\n  `: homepage\n\n    `[https://example.test/meta]{.->}\n\nBody `[https://example.test/a%20b]{.-> #site .keep rel=nofollow}.\n";
+        let document = export(source).unwrap();
+
+        let metadata_link = &document["meta"]["homepage"]["c"][0];
+        assert_eq!(metadata_link["t"], "Link");
+        assert_eq!(metadata_link["c"][2][0], "https://example.test/meta");
+
+        let body_link = &document["blocks"][0]["c"][2];
+        assert_eq!(body_link["t"], "Link");
+        assert_eq!(
+            body_link["c"][0],
+            json!(["site", ["keep"], [["rel", "nofollow"]]])
+        );
+        assert_eq!(body_link["c"][1][0]["c"], "https://example.test/a%20b");
+        assert_eq!(body_link["c"][2][0], "https://example.test/a%20b");
     }
 
     #[test]
