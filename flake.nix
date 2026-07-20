@@ -31,6 +31,10 @@
                 cp -r skills $out/share/plumb/
               '';
 
+              passthru = {
+                "tree-sitter-plumb" = tree-sitter-plumb;
+              };
+
               meta = {
                 description = "Strict plumb markup language and tooling";
                 license = pkgs.lib.licenses.mit;
