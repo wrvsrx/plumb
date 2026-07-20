@@ -18,6 +18,14 @@
 
 `# Standard extensions
 
+`-{.task #standard-div-span} 支持标准 div 与 span 透明容器
+  `note 将 `[div] marked block 与 `[span] parsed inline kind 冻结为 standard extension spellings。
+  `note `[div] 保留 generic block 的 head/children behavior；`[span] 保留 parsed inline content behavior。
+  `note 两者只提供 container ownership，不增加 presentation、section、warning 或其他隐式 semantics。
+  `note Export 分别产生 Pandoc Div/Span，并省略冗余的 `[data-plumb-marker="div"] 与 `[data-plumb-marker="span"]。
+  `note 其他 generic marker/kind 继续导出 data-plumb-marker，core parser 和 syntax tree 不增加 special cases。
+  `note 更新 extension/export tests、standard extension reference、guide、playground 和 bundled skill。
+
 `-{.task #restrict-task-owner} 将 `[.task] 标准语义限制到 list item
   `note Task recognizer 只为 `[-] 和 `[.] marker 生成 TaskRecord。
   `note `[.task] 出现在其他 marker 上时发布 `[task.invalid-owner]，且不生成 TaskRecord。
