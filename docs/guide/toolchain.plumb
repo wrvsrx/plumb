@@ -35,10 +35,14 @@ hover、completion、anchor/document rename、metadata insertion、task conversi
 
 `# Format
 
-`[plumb fmt] 对 syntax-valid document 进行 canonical formatting：使用两个 ASCII spaces 表达
-structural indentation，把 attributes 排成单行，并为 inline verbatim 选择最小安全 quote count。
-formatter 不重排普通文本，不改变 attribute item 顺序，也不解释 heading、list、metadata 或 task
-semantics。包含 syntax error 的 document 会被拒绝。
+`[plumb fmt] 对 syntax-valid document 进行 canonical formatting。空 head block 的 children 比 owner
+深一列；非空 head block 的 children 与 marker 定义的 conceptual head column 对齐，attributes 不参与
+列宽计算。有 children 的 siblings 使用空行分隔，同 marker 的 leaf siblings 保持紧凑。verbatim
+payload 仍使用 core 要求的 opener column 加两个 ASCII spaces。
+
+formatter 把 attributes 排成单行，为 inline verbatim 选择最小安全 quote count，不重排普通文本，
+不改变 attribute item 顺序，也不解释 heading、list、metadata 或 task semantics。包含 syntax error
+的 document 会被拒绝。
 
 不带 path 时从 stdin 读取并写到 stdout；带 path 时原地更新：
 

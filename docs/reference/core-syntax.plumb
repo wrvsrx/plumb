@@ -83,7 +83,8 @@ text lines 属于同一 paragraph，并以 soft break 连接；blank、dedent、
 `# 6. Children 与 indentation
 
 只有 marked block 可以拥有 children。第一个 child 的首个非空 physical line 建立 child column；
-同级 siblings 必须从同一 column 开始。项目 style 使用 parent column 加两个 ASCII spaces。
+同级 siblings 必须从同一 column 开始。具体 column 是 formatter policy，不影响 syntax validity；
+官方 formatter 对空 head 使用 owner column 加一，对非空 head 使用 marker 的 conceptual head column。
 
 dedent 可以一次退出多个 levels，但必须落在 indentation stack 中已有的 column。落在两个已有
 columns 之间是 partial dedent error。结构 indentation 只能使用 ASCII spaces；tab 不得用于建立

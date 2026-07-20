@@ -66,7 +66,8 @@ export 将 scalar、sequence、map、verbatim、null 映射为 Pandoc `[MetaInli
 
 metadata insertion operation 只用于尚无 metadata 的 syntax-valid document，在 byte offset 0
 插入 `[title] 与 `[created]。title 默认取 filename stem；created 使用 operation 时刻的本地
-RFC 3339 timestamp。
+RFC 3339 timestamp。生成布局与 formatter 一致：definitions 比空 head `[meta] 深一列，value
+paragraph 与 definition head 对齐。
 
 `# 7. Links 与 target resolution
 
