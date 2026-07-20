@@ -55,7 +55,7 @@
               '';
             };
             packages = {
-              inherit plumb tree-sitter-plumb;
+              inherit plumb;
               default = plumb;
             };
             formatter = pkgs.nixfmt;

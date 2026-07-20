@@ -18,8 +18,8 @@
 读取 Cargo workspace version，default main program 是 `[plumb-ls]。Nix sandbox 会运行 workspace
 tests；`[share/plumb/skills/plumb-markup] 安装与当前 release 同版本的 core syntax 和 standard
 extensions agent skill。`[plumb.tree-sitter-plumb] passthru 提供同一 source/version 的 grammar
-derivation；兼容用的顶层 `[tree-sitter-plumb] package output 仍然指向同一个 derivation。无 TTY
-时 task table 使用 120-column fallback，避免非交互输出丢列。
+derivation；grammar generation 用的 `[devShells.tree-sitter-plumb] 继续独立提供。无 TTY 时 task
+table 使用 120-column fallback，避免非交互输出丢列。
 
 `# Playground
 
