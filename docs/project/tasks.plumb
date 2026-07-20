@@ -16,6 +16,23 @@
   `note 覆盖 generic marker、bullet/ordered nesting、attributes、recursive compact children 和 malformed recovery。
   `note 同步 strict parser、lossless ranges、tree-sitter grammar/corpus、reference、guide 和 bundled skill。
 
+`-{.task #multiline-parsed-inline} 实现跨行 parsed inline elements
+  `note 允许 element 跨越原本属于同一 enclosing InlineContent 的 physical continuation lines。
+  `note 移除 structural indentation、保留额外 spaces，并把合法 continuation newline lower 为 SoftBreak。
+  `note Blank、enclosing dedent、block-only entry 和 EOF 保持 hard boundaries；unclosed recovery 不消费 boundary。
+  `note 使用 explicit stack 支持 nested multiline elements，不把 implementation depth limit 变成 syntax rule。
+  `note 覆盖 paragraph、marked-block head、nested element、UTF-8 ranges、recovery 和 tree-sitter corpus。
+  `note 完成后更新 parser gap、core syntax reference、guide、playground 和 bundled skill。
+
+`-{.task #multiline-attributes} 设计并实现 multiline shared attributes
+  `note Block mark、parsed inline、inline verbatim 和 verbatim block 继续共享一个 attribute grammar。
+  `note Opening brace 后允许 newline；第一条 continuation 建立 attr indent，后续 items 与 closing brace 精确对齐。
+  `note Physical newline 等价于 attribute whitespace；quoted value 仍限制在一条 physical line。
+  `note Closing brace 后按 owner context 继续 head、inline content 或 verbatim-block line ending。
+  `note Blank、dedent、block-only entry 或 EOF 前未关闭时发布 unclosed-attributes，并在 boundary 恢复。
+  `note 覆盖 duplicate id/key、invalid escape、nested inline ownership、lossless ranges 和 tree-sitter corpus。
+  `note 更新 core syntax/diagnostics references、guide、playground 和 bundled skill。
+
 `# Standard extensions
 
 `-{.task #standard-div-span} 支持标准 div 与 span 透明容器
