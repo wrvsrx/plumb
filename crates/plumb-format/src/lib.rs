@@ -337,9 +337,7 @@ fn compact_siblings(previous: &Block, current: &Block) -> bool {
     let (Some(previous_mark), Some(current_mark)) = (&previous.mark, &current.mark) else {
         return false;
     };
-    previous.children.is_empty()
-        && current.children.is_empty()
-        && previous_mark.marker == current_mark.marker
+    previous.children.is_empty() && previous_mark.marker == current_mark.marker
 }
 
 fn hanging_indent(owner_indent: usize, marker: &str) -> usize {
@@ -476,8 +474,8 @@ mod tests {
     #[test]
     fn aligns_children_and_spaces_siblings_by_structure() {
         assert_formats(
-            "`meta\n  `: title\n\n     this is a title\n  `: created\n\n     2026-07-20\n`- something\n  `- aaa\n`- ssss\n\n`- jjjj\n",
-            "`meta\n `: title\n\n    this is a title\n\n `: created\n\n    2026-07-20\n\n`- something\n\n   `- aaa\n\n`- ssss\n`- jjjj\n",
+            "`meta\n  `: title\n\n     this is a title\n  `: created\n\n     2026-07-20\n`- before\n\n`- something\n  `- aaa\n`- ssss\n\n`- jjjj\n",
+            "`meta\n `: title\n\n    this is a title\n\n `: created\n\n    2026-07-20\n\n`- before\n`- something\n\n   `- aaa\n\n`- ssss\n`- jjjj\n",
         );
     }
 

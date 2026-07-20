@@ -37,8 +37,9 @@ hover、completion、anchor/document rename、metadata insertion、task conversi
 
 `[plumb fmt] 对 syntax-valid document 进行 canonical formatting。空 head block 的 children 比 owner
 深一列；非空 head block 的 children 与 marker 定义的 conceptual head column 对齐，attributes 不参与
-列宽计算。有 children 的 siblings 使用空行分隔，同 marker 的 leaf siblings 保持紧凑。verbatim
-payload 仍使用 core 要求的 opener column 加两个 ASCII spaces。
+列宽计算。parent head 与 children 之间、subtree 与后继 sibling 之间使用空行；当前 sibling 是否
+拥有 children 不影响它前面的间距，因此同 marker 的 leaf-to-parent 与 leaf-to-leaf siblings 保持
+紧凑。verbatim payload 仍使用 core 要求的 opener column 加两个 ASCII spaces。
 
 完整 block opener 不超过 100 display columns 时，formatter 将 attributes 排成单行；超过时 opening
 brace 留在 owner line，items 从 brace 右侧一列开始并贪心累积到不超过 100 列，closing brace 与
