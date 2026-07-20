@@ -8,6 +8,30 @@
 
 `# Core syntax
 
+`-{.task #strict-parser-corpus} 建立 strict parser normative corpus
+  `note 将 core syntax reference 中每条 valid、invalid 与 recovery rule 映射为 executable fixture。
+  `note 固定 typed structural projection、diagnostic code、range、related ranges、precedence 和 deterministic ordering。
+  `note 覆盖同一输入的多个独立错误，并保证同一根因只产生最具体 diagnostic。
+  `note Corpus 属于 hand-written strict parser；不得使用 lenient tree-sitter corpus 代替 syntax authority。
+
+`-{.task #explicit-block-stack depends="#strict-parser-corpus"} 将 block nesting 改为 explicit stack
+  `note 使用 block frames 保存 structural column、parent、head/children phase 和 recovery state，移除 Rust block recursion。
+  `note Dedent 可以一次关闭多个 frames；partial dedent、blank line、same-line first child 和 verbatim margin 行为保持不变。
+  `note 保持现有 typed tree、diagnostic ranges 与 corpus observable output，不把 implementation depth limit 变成 syntax rule。
+  `note 增加数万层 valid/malformed block nesting stress tests，并验证不 panic、stack overflow 或无限循环。
+
+`-{.task #token-lossless-tree depends="#explicit-block-stack"} 补齐 token-granular lossless tree
+  `note 为 introducers、literal escapes、markers/kinds、delimiters、attribute punctuation、trivia、indentation、line endings、payload 和 malformed regions 建立 source-backed leaves。
+  `note Leaves 按 source order 非空、无重叠、无空洞；拼接 leaf bytes 必须逐字节等于原始 UTF-8 source。
+  `note Missing token 只由 diagnostic/fix 表达，不能伪造 source leaf；error node 必须继续覆盖 malformed bytes。
+  `note Typed recovered/valid views 继续投影 marker、head、children、attributes 与 inline structures，extensions 不直接依赖 trivia layout。
+
+`-{.task #lossless-properties depends="#token-lossless-tree #strict-parser-corpus"} 添加任意 UTF-8 lossless property tests
+  `note 使用 generated arbitrary UTF-8 与结构化 cases 覆盖 quote runs、deep nesting、indent/dedent、unclosed constructs、CRLF/LF 和 multibyte characters。
+  `note 验证 parser 不 panic 或无限循环，全部 ranges 位于 UTF-8 boundaries 且不越界，并满足 leaf reconstruction invariant。
+  `note 同一 source 重复 parse 必须产生相同 tree 与 diagnostics；存在 syntax error 时不能构造 valid view。
+  `note 将 property failure 保存为最小 regression fixture，并在需要时再补 cargo-fuzz，不把 fuzzing 本身设为首个 release gate。
+
 `-{.task #same-line-first-child done="2026-07-20T13:00:12+08:00"} 支持 same-line first child
   `note 保持 empty-head marked block 在下一 physical line 以缩进 block 开始 children 的现有行为。
   `note Head 为空时，head separator 后的 block-only entry 成为 first child，而不是 inline dispatch error。
