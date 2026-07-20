@@ -1971,12 +1971,13 @@ fn run_server_with_pause(first: &[Value], second: &[Value]) -> Vec<Value> {
 fn run_server_with_writer(
     write_messages: impl FnOnce(&mut std::process::ChildStdin),
 ) -> Vec<Value> {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_plumb-ls"))
+    let mut child = Command::new(env!("CARGO_BIN_EXE_plumb"))
+        .arg("lsp")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .expect("start plumb-ls");
+        .expect("start plumb lsp");
     {
         let stdin = child.stdin.as_mut().expect("child stdin");
         write_messages(stdin);
@@ -1992,7 +1993,7 @@ fn run_server_with_writer(
     let output = child.wait_with_output().expect("wait for plumb-ls");
     assert!(
         output.status.success(),
-        "plumb-ls failed: {}",
+        "plumb lsp failed: {}",
         String::from_utf8_lossy(&output.stderr)
     );
     read_messages(&stdout)

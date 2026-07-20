@@ -3,6 +3,10 @@ name = "plumb-notes"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+autobins = false
+
+[lib]
+path = "src/main.rs"
 
 [dependencies]
 cel.workspace = true

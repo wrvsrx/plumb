@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -12,11 +13,18 @@ mod tasks;
 use interactive::{handle_interactive_action, run_interactive};
 use tasks::{print_tasks, run_task_action};
 
-fn main() -> ExitCode {
-    match run(Config::parse()) {
+pub fn run_cli(args: impl IntoIterator<Item = OsString>) -> ExitCode {
+    let config = match Config::try_parse_from(args) {
+        Ok(config) => config,
+        Err(error) => {
+            let _ = error.print();
+            return ExitCode::from(error.exit_code() as u8);
+        }
+    };
+    match run(config) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            eprintln!("plumb-notes: {error}");
+            eprintln!("plumb: {error}");
             ExitCode::FAILURE
         }
     }
@@ -78,7 +86,7 @@ fn run(config: Config) -> Result<(), String> {
 }
 
 #[derive(Debug, Parser)]
-#[command(name = "plumb-notes", about = "Query plumb documents")]
+#[command(name = "plumb", about = "Query plumb documents")]
 struct Config {
     /// Directory to scan recursively. Defaults to the current directory.
     #[arg(long, global = true, value_name = "DIR")]

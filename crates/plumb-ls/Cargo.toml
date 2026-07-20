@@ -1,13 +1,15 @@
 [package]
-name = "plumb-ls"
+name = "plumb"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
 [dependencies]
 plumb-core = { path = "../plumb-core" }
+plumb-export = { path = "../plumb-export" }
 plumb-extensions = { path = "../plumb-extensions" }
 plumb-format = { path = "../plumb-format" }
+plumb-notes = { path = "../plumb-notes" }
 plumb-workspace = { path = "../plumb-workspace" }
 async-lsp = { version = "0.2.4", features = ["tokio"] }
 chrono.workspace = true

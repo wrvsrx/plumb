@@ -1,4 +1,4 @@
-use std::env;
+use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::io::{self, Read};
 use std::process::ExitCode;
@@ -10,11 +10,17 @@ use plumb_extensions::{
 };
 use serde_json::{json, Map, Value};
 
-fn main() -> ExitCode {
-    let input = match read_input() {
+pub fn run_cli(args: impl IntoIterator<Item = OsString>) -> ExitCode {
+    let mut args = args.into_iter().skip(1);
+    let path = args.next();
+    if args.next().is_some() {
+        eprintln!("plumb export: expected at most one input path");
+        return ExitCode::from(2);
+    }
+    let input = match read_input(path.as_deref()) {
         Ok(input) => input,
         Err(error) => {
-            eprintln!("plumb-export: {error}");
+            eprintln!("plumb export: {error}");
             return ExitCode::FAILURE;
         }
     };
@@ -24,14 +30,14 @@ fn main() -> ExitCode {
             ExitCode::SUCCESS
         }
         Err(error) => {
-            eprintln!("plumb-export: {error}");
+            eprintln!("plumb export: {error}");
             ExitCode::FAILURE
         }
     }
 }
 
-fn read_input() -> Result<String, String> {
-    match env::args_os().nth(1) {
+fn read_input(path: Option<&OsStr>) -> Result<String, String> {
+    match path {
         Some(path) => fs::read_to_string(&path)
             .map_err(|error| format!("cannot read {}: {error}", path.to_string_lossy())),
         None => {
