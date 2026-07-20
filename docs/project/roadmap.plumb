@@ -4,7 +4,8 @@
     plumb roadmap
 
 本页只记录尚未完成或需要继续验证的工作。当前可用 surface 见
-`->[工具链指南]{to="../guide/toolchain.plumb"}；已经冻结的规则见 `[`reference/]。
+`->[工具链指南]{to="../guide/toolchain.plumb"}；已经冻结的规则见 `[`reference/]；可以直接
+实施和验收的 TODO 见 `->[tasks]{to="tasks.plumb"}。
 
 `# Strict parser release gate
 

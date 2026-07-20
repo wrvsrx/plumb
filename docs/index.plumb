@@ -17,8 +17,8 @@ heading、list、metadata、link、citation 和 task 等含义由标准 extensio
 `- 开发 plumb：阅读 `->[架构总览]{to="architecture/overview.plumb"}、
   `->[extension system]{to="architecture/extension-system.plumb"} 和
   `->[syntax tree]{to="architecture/syntax-tree.plumb"}。
-`- 了解项目方向：阅读 `->[愿景]{to="project/vision.plumb"} 和
-  `->[路线图]{to="project/roadmap.plumb"}。
+`- 了解项目方向：阅读 `->[愿景]{to="project/vision.plumb"}、
+  `->[路线图]{to="project/roadmap.plumb"} 和 `->[当前任务]{to="project/tasks.plumb"}。
 `- 追溯设计理由：阅读 `->[语法决策记录]{to="history/syntax-decisions.plumb"} 和
   `->[djot-tools 能力审计]{to="history/djot-tools-audit.plumb"}。
 

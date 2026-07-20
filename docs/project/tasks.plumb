@@ -1,0 +1,15 @@
+`meta
+  `: title
+
+    plumb tasks
+
+本页只记录可以直接实施和验收的工作。方向、约束和 deferred design 继续放在
+`->[roadmap]{to="roadmap.plumb"}。
+
+`# Standard extensions
+
+`-{.task #restrict-task-owner} 将 `[.task] 标准语义限制到 list item
+  `note Task recognizer 只为 `[-] 和 `[.] marker 生成 TaskRecord。
+  `note `[.task] 出现在其他 marker 上时发布 `[task.invalid-owner]，且不生成 TaskRecord。
+  `note Bullet/ordered list kind 不改变 task state、dependency、recurrence 或 operation semantics。
+  `note 更新 extension、export、LSP、CLI tests，以及 standard extension reference 和 bundled skill。
