@@ -41,7 +41,7 @@ they conflict with this skill.
 - Use explicit `{#id}` anchors. Headings do not generate implicit ids.
 - Keep parsed inline elements on one physical line for compatibility with the
   current released parser.
-- Do not invent ordered-list, quote, table, thematic-break, emphasis, or strong
+- Do not invent quote, table, thematic-break, emphasis, or strong
   semantics. Generic markers and inline kinds remain generic.
 
 ## Standard Spelling
@@ -50,6 +50,7 @@ they conflict with this skill.
 `#{#intro} Heading
 
 `- List item
+`. Ordered item
 `-{.task #write-parser} Implement parser
 
 `: Term
@@ -64,6 +65,6 @@ Use `[cargo test] for inline raw text.
   fn main() {}
 ```
 
-Use `-` as the sole list marker and `->` as the sole link inline kind. `item`
-and `link` remain syntactically valid generic names but have no list or link
-semantics.
+Use `-` for bullet-list items, `.` for ordered-list items, and `->` as the sole
+link inline kind. `item` and `link` remain syntactically valid generic names but
+have no list or link semantics.

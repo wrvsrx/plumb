@@ -223,15 +223,19 @@ anchor。link recognizer 只接受 `[->] inline kind 并解析 `[to] target；`[
 generic inline kind。cross-file resolver 再依赖 workspace anchor index；这些 extension 都不修改
 原 SyntaxTree。
 
-list-item recognizer 只接受 `[-] marker。`[`item First] 在 core 中仍是语法合法的 generic
-marked block，但不产生 `[ListItemRecord]。attributes 必须紧贴 marker，因此 task list item
+list-item recognizer 接受 `[-] bullet marker 与 `[.] ordered marker。`[`item First] 在 core 中
+仍是语法合法的 generic marked block，但不产生 `[ListItemRecord]。attributes 必须紧贴 marker，因此 task list item
 写作 `[`-{.task #id} Title]，而不是 `[`- {.task}]。
 
 当前 `[ListItemRecord] 保存 list item block 与 head selection ranges；`[ListGroup] 聚合同一 sibling
-层连续的 `[-] records，其他 marker 会结束当前 group，nested children 独立产生 nested
-group。export extension 把 group lower 为 Pandoc `[BulletList]；item head 成为 `[Para]，children
+层连续且 marker 相同的 records；`[-] 与 `[.] 互相结束当前 group，nested children 独立产生
+nested group。`[ListKind] 区分 `[Bullet] 与 `[Ordered]，ordered list 固定从 1 开始。export
+extension 分别把 group lower 为 Pandoc `[BulletList] 或 `[OrderedList]；item head 成为 `[Para]，children
 递归 lower。item attributes 不能直接挂在 Pandoc list item 上，因此有属性时在 item body 内包
 一层 `[Div] 保存 id/classes/pairs；这使 `[.task] facet 与 list 语义可以同时保留。
+
+metadata 中的 `[-] 表示有序数据序列并投影为 `[MetaList]；metadata 不接受 `[.]，因为 metadata
+value 没有 bullet/ordered 呈现区别，不为同一种数组提供两种 spelling。
 
 普通 `[DefinitionList] 同样按 sibling adjacency 消费连续 `[:] records，并 lower 为 Pandoc
 `[DefinitionList]：term 使用 record 的 rich inline content，每个 definition body 递归 lower child

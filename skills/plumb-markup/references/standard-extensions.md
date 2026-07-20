@@ -19,16 +19,21 @@ the `#id` shorthand creates an anchor; `id=value` does not.
 
 ## Lists And Definitions
 
-Use `-` as the only list-item marker. Adjacent sibling items form one list;
-nested items form nested lists:
+Use `-` for bullet-list items and `.` for ordered-list items. Adjacent sibling
+items with the same marker form one list; switching markers starts another
+list. Nested items form nested lists:
 
 ```plumb
 `- First
 `- Second
   `- Nested
+
+`. First
+`. Second
+  `. Nested
 ```
 
-`item` is a generic marker, not a list alias.
+Ordered lists always start at 1. `item` is a generic marker, not a list alias.
 
 Use `:` for definition entries. The head is the term and children are its
 definition body. Adjacent sibling definitions form a definition list:
@@ -51,7 +56,7 @@ Use one headless document-level `meta` block containing only `:` definitions:
 
   `: created
 
-    `[2026-07-20T09:00:00+08:00]
+    2026-07-20T09:00:00+08:00
 
   `: tags
     `- plumb
@@ -71,6 +76,10 @@ children to hold another list, map, scalar, or verbatim value. Do not combine a
 nonempty item head with children or mix incompatible child shapes. Only the first valid
 top-level `meta` block is document metadata; ordinary definitions remain body
 content.
+
+Metadata uses only `-` for list values. A metadata list is an ordered data
+sequence rather than a rendered bullet or numbered list, so `.` is unsupported
+inside `meta`.
 
 The metadata insertion action creates `title` from the filename stem and
 `created` from the current local RFC 3339 timestamp.
@@ -150,5 +159,5 @@ Pipe the result to a Pandoc writer rather than invoking a Pandoc plumb reader:
 plumb-export document.plumb | pandoc -f json -t html -o document.html
 ```
 
-Do not assume ordered lists, quotes, tables, thematic breaks, or `*`/`_`
-emphasis semantics until an official extension freezes them.
+Do not assume quote, table, thematic-break, or `*`/`_` emphasis semantics until
+an official extension freezes them.

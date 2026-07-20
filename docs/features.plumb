@@ -30,8 +30,10 @@ SyntaxTree contract 已冻结；normalized AST 和 extension-specific semantics 
 `- task extension 识别任意 marked block 上的 `[.task] facet，产生 local records、状态与字段
   diagnostics；workspace 建立跨文件 dependency/reverse-blocker graph，并诊断无效 target、self
   dependency、cycle 和 blocked state。
-`- list extension 只识别 `[-] marker，并把同层相邻 items 聚合为 source-backed groups。
-  `[plumb-export] lower 为 nested Pandoc `[BulletList]，带属性 item 通过内部 `[Div] 保留属性。
+`- list extension 识别 `[-] bullet 与 `[.] ordered marker，并按相同 marker 的同层相邻 items
+  聚合 source-backed groups。`[plumb-export] lower 为 nested Pandoc `[BulletList] / `[OrderedList]；
+  ordered list 固定从 1 开始，带属性 item 通过内部 `[Div] 保留属性。metadata list 仍只接受
+  `[-]。
 `- 普通相邻 `[:] definition records 由 `[plumb-export] lower 为 Pandoc `[DefinitionList]；
   metadata definitions 继续只投影到 Pandoc metadata，不重复进入 body。
 `- `[plumb-ls] 输出 nested task symbols、task hover、complete/cancel code actions 与 closed task
@@ -224,8 +226,8 @@ capability wiring 和 revision/cancellation policy，不复制 parser 或 semant
   unsupported value 拒绝 export，duplicate key first-wins。
 `- [plumb] v1 单 plain-id citation record lowering 到 Pandoc Cite，由下游 citeproc 解析
   bibliography。
-`- [plumb] v1 相邻/nested `[-] groups lowering 到 Pandoc BulletList；带属性 item 使用内部
-  Div 保存 id/classes/pairs。
+`- [plumb] v1 相邻/nested `[-] / `[.] groups lowering 到 Pandoc BulletList / OrderedList；
+  ordered list 固定从 1 开始，带属性 item 使用内部 Div 保存 id/classes/pairs。
 `- [plumb] v1 普通相邻 `[:] groups lowering 到 Pandoc DefinitionList；definition attributes
   使用 body 内 Div 保存。
 `- [plumb] later structured citation clusters、prefix/suffix/locator、suppress-author、

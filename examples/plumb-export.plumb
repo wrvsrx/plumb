@@ -44,6 +44,10 @@ citation profile currently accepts one plain id, such as `cite[smith2004].
   `- nested item
 `-{.example key=value} attributed item
 
+`. first ordered item
+`. second ordered item
+  `. nested ordered item
+
 `: term
 
   First definition.
