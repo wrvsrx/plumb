@@ -130,19 +130,21 @@ id、class、key 和 bare value 使用同一个 `[AttrName]。比较使用原始
 quoted。quoted value 不能跨 physical line，只允许 `[`\"] 和 `[`\\] escape；未知 escape 非法。
 空 string 和空 slot 合法。
 
-attributes 可以跨 physical lines。opening brace 所在行没有 closing brace 时，第一条非空、缩进
-大于 owner structural column 的 continuation 建立 attr column；后续 items 与 closing brace 必须
-从同一 column 开始。closing brace 后按 owner context 继续 block head、inline content，或结束
-verbatim-block opener：
+attributes 可以跨 physical lines。opening brace 未关闭时，任何缩进严格大于 owner structural
+column 的非空 continuation 都继续当前 attribute slot；newline 等价于 attribute whitespace，
+attribute items 和 closing brace 不要求从同一 column 开始。closing brace 可以紧跟最后一个 item，
+也可以出现在单独的 continuation line；其后按 owner context 继续 block head、inline content，或
+结束 verbatim-block opener：
 
 `{language=plumb}
   `-{.task
      #write
      created="2026-07-20T09:00:00+08:00"
-     } Write parser
+    } Write parser
 
-quoted value 仍必须在同一 physical line 内关闭。blank、dedent、block-only entry、错位 continuation
-或 EOF 是 unclosed attributes 的 hard boundary。
+quoted value 仍必须在同一 physical line 内关闭。blank、dedent 到 owner structural column 或更浅、
+block-only entry、structural tab 或 EOF 是 unclosed attributes 的 hard boundary。continuation 的具体
+对齐属于 formatter policy，不影响 syntax validity。
 
 attributes 必须紧贴 owner。whitespace 会结束 ownership：
 
@@ -210,7 +212,7 @@ parser 使用 reject-but-recover：
 
 `- malformed block entry 恢复到下一 physical line。
 `- malformed attribute item 恢复到下一个 attribute whitespace 或 closing brace；unclosed multiline
-  attributes 在 blank、dedent、block-only entry、错位 continuation 或 EOF 前停止。
+  attributes 在 blank、owner-level dedent、block-only entry、structural tab 或 EOF 前停止。
 `- unclosed parsed inline 在 blank、dedent、block-only entry 或 EOF 前停止，不消费边界。
 `- unclosed inline verbatim 在当前 physical line 结束。
 `- partial dedent 虚拟补到严格大于实际 column 的最小已有 column，并继续解析当前行。

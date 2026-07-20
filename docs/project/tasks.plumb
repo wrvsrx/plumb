@@ -32,11 +32,12 @@
   `note 同一 source 重复 parse 必须产生相同 tree 与 diagnostics；存在 syntax error 时不能构造 valid view。
   `note 将 property failure 保存为最小 regression fixture，并在需要时再补 cargo-fuzz，不把 fuzzing 本身设为首个 release gate。
 
-`-{.task #aligned-block-attribute-delimiters} 对齐 multiline block attribute delimiters
-  `note 对 block attribute slot 定义 brace column；attribute items 使用 brace column 加两个 ASCII spaces，closing brace 回到 brace column。
-  `note Closing brace 的特殊 dedent 只在该列出现完整 `[`}] delimiter 时生效，不能改变普通 item continuation、block dedent 或 recovery boundary。
-  `note 继续接受 closing brace 与 items 同列的既有布局；multiline inline attributes 保持当前 dynamic attr column 与 closing alignment。
-  `note Formatter 对超过 80 display columns 的 block opener 生成 braces 对齐、items 内缩两列的 canonical layout。
+`-{.task #aligned-block-attribute-delimiters done="2026-07-21T01:08:27+08:00"} 对齐 multiline block attribute delimiters
+  `note Syntax 只要求非空 continuation 缩进严格大于 owner structural column；items 与 closing brace 的相互对齐不影响 validity。
+  `note Newline 等价于 attribute whitespace；closing brace 可以紧跟最后一个 item，也可以出现在任意合法 continuation column。
+  `note Blank、owner-level dedent、block-only entry、structural tab 与 EOF 保持 recovery boundary。
+  `note Formatter 对超过 100 absolute display columns 的 block opener 生成 braces 对齐、items 从 brace 右侧一列开始的 canonical layout。
+  `note Formatter 在 100 列内贪心累积 attribute items；不拆分单个 item，inline attributes 不自动换行。
   `note 覆盖 marked/verbatim blocks、closing 后的 head、empty head children、CRLF、misaligned closing 和 malformed recovery。
   `note 同步 strict parser、tree-sitter grammar/corpus、core syntax reference、guide、formatter tests 和 bundled skill。
 
@@ -58,7 +59,7 @@
 
 `-{.task #multiline-attributes done="2026-07-20T13:00:12+08:00"} 设计并实现 multiline shared attributes
   `note Block mark、parsed inline、inline verbatim 和 verbatim block 继续共享一个 attribute grammar。
-  `note Opening brace 后允许 newline；第一条 continuation 建立 attr indent，后续 items 与 closing brace 精确对齐。
+  `note Opening brace 后允许 newline；最初版本要求 dynamic attr column，后续语法放宽为仅检查 owner boundary。
   `note Physical newline 等价于 attribute whitespace；quoted value 仍限制在一条 physical line。
   `note Closing brace 后按 owner context 继续 head、inline content 或 verbatim-block line ending。
   `note Blank、dedent、block-only entry 或 EOF 前未关闭时发布 unclosed-attributes，并在 boundary 恢复。

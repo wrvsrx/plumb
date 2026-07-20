@@ -87,17 +87,20 @@ attribute slot 使用 `[{#id .class key=value}]：
 每个 slot 最多有一个 id；class 可以重复；同一个 key 不能重复。包含 whitespace 或复杂标点
 的 value 必须使用双引号，quoted value 只支持 `[`\"] 和 `[`\\] 两种 escape。
 
-attribute items 较多时可以跨行；第一条 continuation 建立 attr column，后续 items 和 closing
-brace 必须对齐，quoted value 仍保持单行：
+attribute items 较多时可以跨行。非空 continuation 只需缩进到 owner structural column 右侧；
+items 和 closing brace 不必互相对齐，closing brace 也可以紧跟最后一个 item。quoted value 仍保持
+单行：
 
 `{language=plumb}
   `-{.task
      #write
      created="2026-07-20T09:00:00+08:00"
-     } Write parser
+    } Write parser
 
-formatter 在完整 block opener 超过 80 display columns 时采用这种 multiline layout，并让每个
-attribute item 独占一行。inline attributes 不自动换行。
+formatter 在完整 block opener 超过 100 display columns 时采用 canonical multiline layout；宽度
+从 physical line 第 0 列开始按 Unicode display width 绝对计算。items 从 opening brace 右侧一列
+开始，在不超过 100 列时尽量放在同一行；closing brace 与 opening brace 对齐。单个 item 超长时
+保持完整并允许超过上限。inline attributes 不自动换行。
 
 `# Escape
 

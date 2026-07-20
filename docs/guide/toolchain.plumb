@@ -40,9 +40,11 @@ hover、completion、anchor/document rename、metadata insertion、task conversi
 列宽计算。有 children 的 siblings 使用空行分隔，同 marker 的 leaf siblings 保持紧凑。verbatim
 payload 仍使用 core 要求的 opener column 加两个 ASCII spaces。
 
-完整 block opener 不超过 80 display columns 时，formatter 将 attributes 排成单行；超过时 opening
-brace 留在 owner line，每个 item 独占一行，closing brace 与 items 对齐。宽度包含 indent、marker、
-attributes 和 head 首行；inline attributes 保持单行。
+完整 block opener 不超过 100 display columns 时，formatter 将 attributes 排成单行；超过时 opening
+brace 留在 owner line，items 从 brace 右侧一列开始并贪心累积到不超过 100 列，closing brace 与
+opening brace 对齐。100 列是从 physical line 第 0 列开始计算的绝对 Unicode display width，包含
+indent、marker、attributes 和 head 首行；单个 attribute item 不拆分，必要时可独自超过上限。
+inline attributes 保持单行。
 
 formatter 为 inline verbatim 选择最小安全 quote count，不重排普通文本，不改变 attribute item
 顺序，也不解释 heading、list、metadata 或 task semantics。包含 syntax error 的 document 会被拒绝。

@@ -72,10 +72,12 @@ The shared attribute form is `{#id .class key=value}`.
   `\t`, or unknown escapes.
 - Allow `{}` and `key=""`.
 
-Attributes may cross physical lines. The first continuation establishes an
-attribute column greater than the owner's structural column; later items and
-the closing brace align there. Newlines separate items, but quoted values stay
-on one physical line.
+Attributes may cross physical lines. Each nonblank continuation must be
+indented beyond the owner's structural column, but attribute items and the
+closing brace need not align. Newlines act as attribute whitespace, and the
+closing brace may follow the last item directly. Quoted values stay on one
+physical line. Blank lines, owner-level dedents, block-only entries, structural
+tabs, and EOF end an unclosed slot.
 
 ```plumb
 `node{#intro .note level=2 url="https://example.test/a#part"} Head

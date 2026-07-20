@@ -35,7 +35,7 @@ delimiter error。
 
 `- block-start error：当前 physical line。
 `- attribute item error：下一个 attribute whitespace 或 closing brace；multiline slot 不跨越 blank、
-  dedent、block-only entry 或错位 continuation。
+  dedent 到 owner boundary、block-only entry、structural tab 或 EOF。
 `- parsed inline error：blank、dedent、block-only entry 或 EOF 前。
 `- inline verbatim error：当前 physical line ending 或 EOF。
 `- partial dedent：补到最接近的合法 outer column 后继续当前 line。
