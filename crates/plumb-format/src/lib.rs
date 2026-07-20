@@ -14,7 +14,7 @@ pub enum FormatError {
     InvalidSyntax,
 }
 
-const MAX_BLOCK_WIDTH: usize = 80;
+const MAX_BLOCK_WIDTH: usize = 100;
 
 #[derive(Debug, Parser)]
 #[command(name = "plumb fmt", about = "Format plumb documents")]
@@ -130,7 +130,7 @@ impl Formatter {
             Block::Verbatim(block) => {
                 self.indent(indent);
                 self.output.push('`');
-                self.block_attributes(&block.attrs, indent + 1, 0, indent + 2);
+                self.block_attributes(&block.attrs, indent + 1, 0);
                 if !block.text.is_empty() {
                     self.output.push('\n');
                     let mut lines = block.text.split('\n').collect::<Vec<_>>();
@@ -167,7 +167,6 @@ impl Formatter {
                 &mark.attrs,
                 indent + 1 + UnicodeWidthStr::width(mark.marker.as_str()),
                 head_width,
-                hanging_indent,
             );
             if !block.head.items.is_empty() {
                 self.output.push(' ');
@@ -251,13 +250,7 @@ impl Formatter {
         self.output.push_str(&attributes);
     }
 
-    fn block_attributes(
-        &mut self,
-        attrs: &Attributes,
-        prefix_width: usize,
-        suffix_width: usize,
-        continuation_indent: usize,
-    ) {
+    fn block_attributes(&mut self, attrs: &Attributes, prefix_width: usize, suffix_width: usize) {
         let Some(attributes) = attributes_text(attrs) else {
             return;
         };
@@ -270,13 +263,24 @@ impl Formatter {
         }
 
         self.output.push('{');
+        let item_indent = prefix_width + 1;
+        let mut line_width = 0;
         for item in &attrs.items {
-            self.output.push('\n');
-            self.indent(continuation_indent);
-            write_attribute_item(&mut self.output, item);
+            let item = attribute_item_text(item);
+            let item_width = UnicodeWidthStr::width(item.as_str());
+            if line_width == 0 || line_width + 1 + item_width > MAX_BLOCK_WIDTH {
+                self.output.push('\n');
+                self.indent(item_indent);
+                self.output.push_str(&item);
+                line_width = item_indent + item_width;
+            } else {
+                self.output.push(' ');
+                self.output.push_str(&item);
+                line_width += 1 + item_width;
+            }
         }
         self.output.push('\n');
-        self.indent(continuation_indent);
+        self.indent(prefix_width);
         self.output.push('}');
     }
 
@@ -318,6 +322,12 @@ fn write_attribute_item(output: &mut String, item: &AttrItem) {
             let _ = write!(output, "{key}={}", value.raw);
         }
     }
+}
+
+fn attribute_item_text(item: &AttrItem) -> String {
+    let mut output = String::new();
+    write_attribute_item(&mut output, item);
+    output
 }
 
 fn compact_siblings(previous: &Block, current: &Block) -> bool {
@@ -480,14 +490,14 @@ mod tests {
     }
 
     #[test]
-    fn wraps_long_block_attributes_at_eighty_display_columns() {
+    fn packs_long_block_attributes_within_one_hundred_display_columns() {
         assert_formats(
-            "`-{.task #write created=2026-07-20T12:00:00+08:00 due=2026-07-21T12:00:00+08:00} Work\n",
-            "`-{\n   .task\n   #write\n   created=2026-07-20T12:00:00+08:00\n   due=2026-07-21T12:00:00+08:00\n   } Work\n",
+            "`-{.task #write created=\"2026-07-20T12:00:00+08:00\" due=\"2026-07-21T12:00:00+08:00\" depends=\"notes/project.plumb#prepare\"} Work\n",
+            "`-{\n   .task #write created=\"2026-07-20T12:00:00+08:00\" due=\"2026-07-21T12:00:00+08:00\"\n   depends=\"notes/project.plumb#prepare\"\n  } Work\n",
         );
         assert_formats(
-            "`{language=text source=generated-with-a-deliberately-long-identifier another=value}\n  payload\n",
-            "`{\n  language=text\n  source=generated-with-a-deliberately-long-identifier\n  another=value\n  }\n  payload\n",
+            "`{language=text source=generated-with-a-deliberately-long-identifier-that-exceeds-the-limit-by-itself another=value}\n  payload\n",
+            "`{\n  language=text\n  source=generated-with-a-deliberately-long-identifier-that-exceeds-the-limit-by-itself\n  another=value\n }\n  payload\n",
         );
     }
 
