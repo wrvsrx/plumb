@@ -64,7 +64,10 @@ impl Lines {
         let mut start = 0;
         for chunk in source.split_inclusive('\n') {
             let end = start + chunk.len();
-            let content_end = if chunk.ends_with('\n') { end - 1 } else { end };
+            let mut content_end = if chunk.ends_with('\n') { end - 1 } else { end };
+            if content_end > start && source.as_bytes()[content_end - 1] == b'\r' {
+                content_end -= 1;
+            }
             output.push(line(source, start, content_end, end));
             start = end;
         }
@@ -398,7 +401,7 @@ impl Parser<'_> {
                 break;
             }
             if candidate.blank {
-                text.push('\n');
+                text.push_str(&self.source[candidate.content_end..candidate.end]);
             } else {
                 let content = candidate.start + body_indent;
                 if content > candidate.content_end {
@@ -409,9 +412,7 @@ impl Parser<'_> {
                     ));
                 } else {
                     text.push_str(&self.source[content..candidate.content_end]);
-                    if candidate.end > candidate.content_end {
-                        text.push('\n');
-                    }
+                    text.push_str(&self.source[candidate.content_end..candidate.end]);
                 }
             }
             text_end = candidate.end;
@@ -1191,6 +1192,18 @@ mod tests {
 
         let inline = parse("Text `span[value]{\n    .mark\n  key=value\n } tail\n");
         assert!(inline.is_valid(), "{:?}", inline.diagnostics);
+
+        let crlf = parse("`-{.task\r\n    #crlf\r\n  key=value} Work\r\n");
+        assert!(crlf.is_valid(), "{:?}", crlf.diagnostics);
+        let Block::Parsed(task) = &crlf.syntax.blocks[0] else {
+            panic!("expected CRLF task block");
+        };
+        assert_eq!(task.mark.as_ref().unwrap().attrs.id(), Some("crlf"));
+        assert_eq!(
+            task.mark.as_ref().unwrap().attrs.value("key"),
+            Some("value")
+        );
+        assert_eq!(task.head.plain_text(), "Work");
     }
 
     #[test]

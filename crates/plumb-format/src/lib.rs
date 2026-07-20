@@ -497,6 +497,17 @@ mod tests {
             "`{language=text source=generated-with-a-deliberately-long-identifier-that-exceeds-the-limit-by-itself another=value}\n  payload\n",
             "`{\n  language=text\n  source=generated-with-a-deliberately-long-identifier-that-exceeds-the-limit-by-itself\n  another=value\n }\n  payload\n",
         );
+
+        assert_formats(
+            "`-{.task\r\n    #crlf\r\n  key=value} Work\r\n",
+            "`-{.task #crlf key=value} Work\n",
+        );
+
+        let value = "界".repeat(45);
+        assert_formats(
+            &format!("`-{{.task label=\"{value}\"}} Work\n"),
+            &format!("`-{{\n   .task\n   label=\"{value}\"\n  }} Work\n"),
+        );
     }
 
     #[test]
