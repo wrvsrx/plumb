@@ -34,6 +34,9 @@ This paragraph contains `*[strong-shaped content], `_[emphasis-shaped content],
 inline verbatim `[cargo test], a `kbd[Ctrl+C]{.shortcut} element, and a
 `->[link back to the index]{to="index.plumb"}.
 
+An absolute URI can use a nonduplicated verbatim autolink:
+`[https://example.test/a%20b]{.-> #external .reference rel=nofollow}.
+
 Transparent `span[inline containers]{.notice} and TeX `[x^2 + y^2]{.$} use standard profiles.
 
 The exporter preserves generic inline kinds as Pandoc spans. The official

@@ -71,7 +71,8 @@ paragraph 与 definition head 对齐。
 
 `# 7. Links 与 target resolution
 
-唯一 link inline kind 是 `[->]。它必须有一个 `[to] pair：
+带自定义 label、relative path 或 fragment 的 link 使用唯一 parsed inline kind `[->]，并提供
+`[to] pair：
 
 `{language=plumb}
   `->[label]{to="#anchor"}
@@ -82,6 +83,18 @@ paragraph 与 definition head 对齐。
 `[link] 不是 alias。local/cross-file fragment 只解析显式 anchors。relative document target 使用
 `[..plumb] path；含 spaces 或 unsafe bytes 的 task/reference path 使用 URI percent encoding。
 external URL 只分类，不进行网络 I/O。
+
+absolute URI 可以使用 inline verbatim `[.->] facet 作为 autolink；payload 同时是 label 与 target：
+
+`{language=plumb}
+  `[https://example.test/a%20b]{.->}
+  `"[https://[2001:db8::1]/]"{.->}
+
+`[.->] 只允许出现在 inline verbatim，不能与 `[to] 或 `[.$] 组合。payload 必须是非空 absolute
+URI，不能包含 whitespace/control 或 invalid percent escape；relative path 与 fragment 仍使用
+显式 `[->]。URI 保留原始 UTF-8 spelling，不做 percent decode 或 normalization。IPv6 等包含
+closing bracket 的 URI 使用现有 quote strength。其他 id、classes 与 pairs 作为 Pandoc Link
+attributes 保留，`[.->] 本身被 semantic lowering 消费。
 
 workspace 使用 open buffer 覆盖 disk snapshot。document target 已确定但 fragment missing 时，
 仍保留 document-level reverse edge。

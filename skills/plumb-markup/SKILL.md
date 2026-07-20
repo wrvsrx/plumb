@@ -61,7 +61,7 @@ Inline `span[container]{.notice} and `[x^2]{.$} math.
 
   Definition body.
 
-See `->[guide]{to="guide.plumb#intro"} and `cite[smith2004].
+See `->[guide]{to="guide.plumb#intro"}, `[https://example.test]{.->}, and `cite[smith2004].
 
 Use `[cargo test] for inline raw text.
 
@@ -70,7 +70,8 @@ Use `[cargo test] for inline raw text.
 ```
 
 Use `-` for bullet-list items, `.` for ordered-list items, and `->` as the sole
-link inline kind. `item` and `link` remain syntactically valid generic names but
+link inline kind. Use `.->` for an absolute-URI verbatim autolink whose payload
+is both label and target. `item` and `link` remain syntactically valid generic names but
 have no list or link semantics. Only `-` and `.` items may carry the standard
 `.task` facet. `div` and `span` are transparent containers; `.$` on verbatim
 inline/block nodes is TeX math.

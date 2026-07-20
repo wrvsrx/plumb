@@ -99,6 +99,19 @@ Use `->` as the only link inline kind and put the target in `to`:
 must be explicit. Use relative `.plumb` paths. When a task reference path
 contains spaces or unsafe bytes, URI-percent-encode the path segment.
 
+For an absolute URI, inline verbatim with `.->` is the standard autolink; its
+payload is both label and target and its original UTF-8 spelling is preserved:
+
+```plumb
+`[https://example.test/a%20b]{.->}
+`"[https://[2001:db8::1]/]"{.->}
+```
+
+The payload must be a nonempty absolute URI without whitespace, control
+characters, or invalid percent escapes. Use explicit `->` links for relative
+paths, fragments, or custom labels. `.->` is valid only on inline verbatim and
+cannot be combined with `to` or `.$`; other attributes are preserved.
+
 ## Citations
 
 The current citation profile accepts exactly one plain id:
@@ -158,8 +171,8 @@ consumed; other attributes are preserved with Span/Div wrappers. `.$` on a
 non-verbatim owner is invalid.
 
 `plumb export` emits Pandoc JSON directly. Standard lowering includes headings,
-bullet lists, definition lists, metadata, `->` links, single-id citations, and
-task attributes. Generic marked blocks become Divs, generic parsed inline
+bullet lists, definition lists, metadata, `->` links, `.->` verbatim
+autolinks, single-id citations, and task attributes. Generic marked blocks become Divs, generic parsed inline
 elements become Spans, verbatim blocks become CodeBlocks, and inline verbatim
 becomes Code.
 

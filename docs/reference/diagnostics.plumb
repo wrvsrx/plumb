@@ -48,7 +48,8 @@ recovery 的目标是报告后续独立错误并保留 source，不是把 malfor
 
 `- heading/anchor：非法 heading level、duplicate anchor。
 `- metadata：duplicate/invalid key、invalid location、unsupported 或 mixed value shape。
-`- link/reference：缺失或无效 target、missing document/anchor、ambiguous anchor。
+`- link/reference：缺失或无效 target、invalid autolink owner/facet、missing document/anchor、
+  ambiguous anchor。
 `- citation：空 id、nested 或 unsupported citation shape。
 `- task：invalid owner、无效 field、timestamp/recur/reference、互斥 closure state、self dependency、
   cycle、blocked completion。

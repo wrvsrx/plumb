@@ -26,6 +26,7 @@ Try go-to-definition, hover, find references, and rename on these links:
 `- Cross-file anchor: `->[Exporter conclusion]{to="plumb-export.plumb#export-target"}
 `- Cross-file document: `->[Notes playground]{to="plumb-notes.plumb"}
 `- Repeated reference: `->[Exporter conclusion]{to="plumb-export.plumb#export-target"}
+`- External autolink hover: `[https://example.test/a%20b]{.->}
 
 `anchor{#local-anchor} Rename this id to update its references.
 
@@ -97,3 +98,7 @@ The following valid syntax deliberately produces semantic diagnostics:
 `note{.task} Invalid task owner
 
 `span[not raw]{.$} Invalid math owner
+
+`span[not verbatim]{.->} Invalid autolink owner
+
+`[relative.plumb]{.->} Invalid relative autolink target

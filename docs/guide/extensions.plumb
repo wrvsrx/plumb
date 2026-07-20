@@ -67,7 +67,7 @@ block。metadata sequence 只使用 `[-]；它表示数据顺序，不带正文 
 
 `# Link
 
-唯一标准 link inline kind 是 `[->]，target 放在 `[to] attribute：
+自定义 label、相对文档与 anchor 使用 `[->]，target 放在 `[to] attribute：
 
 `{language=plumb}
   `->[same document]{to="#intro"}
@@ -76,6 +76,16 @@ block。metadata sequence 只使用 `[-]；它表示数据顺序，不带正文 
   `->[website]{to="https://example.test"}
 
 本地 anchor 必须显式存在。跨文件 target 使用相对 `[..plumb] path。
+
+absolute URI 可以省略重复 label，改用 inline verbatim `[.->] autolink：
+
+`{language=plumb}
+  `[https://example.test/a%20b]{.->}
+  `"[https://[2001:db8::1]/]"{.->}
+
+payload 同时作为 label 与 target，并保留原始 spelling。它必须是非空 absolute URI；relative path、
+fragment 与自定义 label 继续使用显式 `[->]。`[.->] 不能用于其他 owner，也不能与 `[to] 或
+`[.$] 组合。
 
 `# Citation
 
