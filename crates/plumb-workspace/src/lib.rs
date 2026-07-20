@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Component, Path, PathBuf};
 
-use plumb_core::{parse, Diagnostic, DiagnosticSeverity, ParsedDocument};
+use plumb_core::{parse, Block, Diagnostic, DiagnosticSeverity, ParsedBlock, ParsedDocument};
 use plumb_extensions::{
     analyze_document, next_task_datetime, parse_task_reference_target, valid_task_datetime,
     AnchorRecord, DocumentOutput, LinkCompletionContext, LinkRecord, LinkTarget, TaskRecord,
@@ -66,6 +66,9 @@ pub enum TaskEditError {
     TaskBlocked,
     InvalidRecurrence,
     InvalidTimestamp,
+    ListItemNotFound,
+    TaskAlreadyExists,
+    CreatedAlreadyExists,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -607,6 +610,83 @@ impl Workspace {
                 }
             })?;
         self.task_status_edit(entry, &path, task, status, timestamp)
+    }
+
+    pub fn convert_list_item_to_task(
+        &self,
+        path: impl AsRef<Path>,
+        offset: usize,
+        timestamp: &str,
+    ) -> Result<WorkspaceEdit, TaskEditError> {
+        if !valid_task_datetime(timestamp) {
+            return Err(TaskEditError::InvalidTimestamp);
+        }
+        let path = normalize(path.as_ref());
+        let entry = self
+            .documents
+            .get(&path)
+            .filter(|entry| entry.current.is_some())
+            .ok_or(TaskEditError::StaleOrInvalidDocument)?;
+        let item = deepest_list_item(&entry.parsed.syntax.blocks, offset)
+            .ok_or(TaskEditError::ListItemNotFound)?;
+        let mark = item.mark.as_ref().expect("list item has a mark");
+        if mark.attrs.has_class("task") {
+            return Err(TaskEditError::TaskAlreadyExists);
+        }
+        let (range, new_text) = match &mark.attrs.range {
+            Some(range) => (
+                range.end.saturating_sub(1)..range.end.saturating_sub(1),
+                format!(" .task created=\"{timestamp}\""),
+            ),
+            None => (
+                mark.marker_range.end..mark.marker_range.end,
+                format!("{{.task created=\"{timestamp}\"}}"),
+            ),
+        };
+        Ok(single_document_edit(
+            entry,
+            path,
+            TextEdit { range, new_text },
+        ))
+    }
+
+    pub fn add_task_created(
+        &self,
+        path: impl AsRef<Path>,
+        offset: usize,
+        timestamp: &str,
+    ) -> Result<WorkspaceEdit, TaskEditError> {
+        if !valid_task_datetime(timestamp) {
+            return Err(TaskEditError::InvalidTimestamp);
+        }
+        let path = normalize(path.as_ref());
+        let entry = self
+            .documents
+            .get(&path)
+            .filter(|entry| entry.current.is_some())
+            .ok_or(TaskEditError::StaleOrInvalidDocument)?;
+        let task = entry
+            .current
+            .as_ref()
+            .expect("current output checked")
+            .output
+            .tasks
+            .tasks
+            .iter()
+            .filter(|task| task.range.start <= offset && offset <= task.range.end)
+            .max_by_key(|task| task.range.start)
+            .ok_or(TaskEditError::TaskNotFound)?;
+        if task.created.is_some() {
+            return Err(TaskEditError::CreatedAlreadyExists);
+        }
+        Ok(single_document_edit(
+            entry,
+            path,
+            TextEdit {
+                range: task.attribute_insert..task.attribute_insert,
+                new_text: format!(" created=\"{timestamp}\""),
+            },
+        ))
     }
 
     fn task_status_edit(
@@ -1446,6 +1526,39 @@ impl Workspace {
     }
 }
 
+fn deepest_list_item(blocks: &[Block], offset: usize) -> Option<&ParsedBlock> {
+    let mut result = None;
+    for block in blocks {
+        let Block::Parsed(block) = block else {
+            continue;
+        };
+        if block.range.start <= offset && offset <= block.range.end {
+            if block
+                .mark
+                .as_ref()
+                .is_some_and(|mark| matches!(mark.marker.as_str(), "-" | "."))
+            {
+                result = Some(block);
+            }
+            if let Some(child) = deepest_list_item(&block.children, offset) {
+                result = Some(child);
+            }
+        }
+    }
+    result
+}
+
+fn single_document_edit(entry: &DocumentEntry, path: PathBuf, edit: TextEdit) -> WorkspaceEdit {
+    WorkspaceEdit {
+        document_changes: vec![DocumentEdit {
+            path,
+            expected_revision: entry.revision,
+            edits: vec![edit],
+        }],
+        resource_operations: Vec::new(),
+    }
+}
+
 pub fn normalize(path: &Path) -> PathBuf {
     let mut normalized = PathBuf::new();
     for component in path.components() {
@@ -2082,6 +2195,49 @@ mod tests {
             &source[offset..]
         );
         assert!(parse(edited).is_valid());
+    }
+
+    #[test]
+    fn task_authoring_operations_convert_items_and_add_created() {
+        let source = "`-{#outer .keep} Outer\n  `- Nested\n`.{.task #closed done=\"2026-07-20T09:00:00Z\"} Closed\n";
+        let mut workspace = Workspace::new();
+        workspace.insert("tasks.plumb", 7, source);
+        let timestamp = "2026-07-20T10:00:00+08:00";
+
+        let nested_offset = source.find("Nested").unwrap();
+        let conversion = workspace
+            .convert_list_item_to_task("tasks.plumb", nested_offset, timestamp)
+            .unwrap();
+        assert_eq!(conversion.document_changes[0].expected_revision, 7);
+        let edit = &conversion.document_changes[0].edits[0];
+        assert_eq!(
+            edit.new_text,
+            "{.task created=\"2026-07-20T10:00:00+08:00\"}"
+        );
+        let mut converted = source.to_string();
+        converted.replace_range(edit.range.clone(), &edit.new_text);
+        assert!(converted.contains("  `-{.task created=\"2026-07-20T10:00:00+08:00\"} Nested"));
+
+        let outer_conversion = workspace
+            .convert_list_item_to_task("tasks.plumb", source.find("Outer").unwrap(), timestamp)
+            .unwrap();
+        assert_eq!(
+            outer_conversion.document_changes[0].edits[0].new_text,
+            " .task created=\"2026-07-20T10:00:00+08:00\""
+        );
+
+        let closed_offset = source.find("Closed").unwrap();
+        let created = workspace
+            .add_task_created("tasks.plumb", closed_offset, timestamp)
+            .unwrap();
+        assert_eq!(
+            created.document_changes[0].edits[0].new_text,
+            " created=\"2026-07-20T10:00:00+08:00\""
+        );
+        assert_eq!(
+            workspace.add_task_created("tasks.plumb", nested_offset, timestamp),
+            Err(TaskEditError::TaskNotFound)
+        );
     }
 
     #[test]

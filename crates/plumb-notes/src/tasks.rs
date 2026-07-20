@@ -301,6 +301,11 @@ fn task_edit_error(error: TaskEditError) -> String {
         TaskEditError::TaskBlocked => "task is blocked by open dependencies".to_string(),
         TaskEditError::InvalidRecurrence => "task recurrence is invalid".to_string(),
         TaskEditError::InvalidTimestamp => "operation timestamp is invalid".to_string(),
+        TaskEditError::ListItemNotFound => "no list item exists at the target".to_string(),
+        TaskEditError::TaskAlreadyExists => "the list item is already a task".to_string(),
+        TaskEditError::CreatedAlreadyExists => {
+            "the task already has a created timestamp".to_string()
+        }
     }
 }
 

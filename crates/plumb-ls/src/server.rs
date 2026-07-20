@@ -734,6 +734,33 @@ impl LanguageServer for ServerState {
                     }));
                 }
             }
+            if let Some(entry) = self.workspace.get(&path) {
+                let offset = position_to_offset(&entry.parsed.source, params.range.start);
+                for (title, edit) in [
+                    (
+                        "Convert to task",
+                        self.workspace
+                            .convert_list_item_to_task(&path, offset, &timestamp),
+                    ),
+                    (
+                        "Add task created timestamp",
+                        self.workspace.add_task_created(&path, offset, &timestamp),
+                    ),
+                ] {
+                    if let Some(edit) = edit
+                        .ok()
+                        .and_then(|edit| workspace_edit_to_lsp(&self.workspace, edit))
+                    {
+                        actions.push(CodeActionOrCommand::CodeAction(CodeAction {
+                            title: title.to_string(),
+                            kind: Some(CodeActionKind::REFACTOR_REWRITE),
+                            edit: Some(edit),
+                            is_preferred: Some(true),
+                            ..CodeAction::default()
+                        }));
+                    }
+                }
+            }
         }
         if code_action_kind_requested(params.context.only.as_deref(), &CodeActionKind::QUICKFIX) {
             if let Some(entry) = self.workspace.get(&path) {

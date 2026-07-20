@@ -534,6 +534,95 @@ fn omits_metadata_code_action_without_guarded_edit_support() {
 }
 
 #[test]
+fn offers_task_authoring_refactor_actions() {
+    let uri = "file:///tmp/task-authoring.plumb";
+    let messages = [
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {
+                "processId": null, "rootUri": null,
+                "capabilities": {
+                    "workspace": { "workspaceEdit": { "documentChanges": true } }
+                }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": {
+                "uri": uri, "languageId": "plumb", "version": 1,
+                "text": "`-{#keep .kind} List item\n"
+            }}
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 2, "method": "textDocument/codeAction",
+            "params": {
+                "textDocument": { "uri": uri },
+                "range": {
+                    "start": { "line": 0, "character": 20 },
+                    "end": { "line": 0, "character": 20 }
+                },
+                "context": { "diagnostics": [], "only": ["refactor.rewrite"] }
+            }
+        }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didChange",
+            "params": {
+                "textDocument": { "uri": uri, "version": 2 },
+                "contentChanges": [{
+                    "text": "`.{.task #closed done=\"2026-07-20T09:00:00Z\"} Closed\n"
+                }]
+            }
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 3, "method": "textDocument/codeAction",
+            "params": {
+                "textDocument": { "uri": uri },
+                "range": {
+                    "start": { "line": 0, "character": 55 },
+                    "end": { "line": 0, "character": 55 }
+                },
+                "context": { "diagnostics": [], "only": ["refactor.rewrite"] }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 4, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+
+    let output = run_server(&messages);
+    let conversion = response(&output, 2)["result"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|action| action["title"] == "Convert to task")
+        .unwrap();
+    assert_eq!(conversion["kind"], "refactor.rewrite");
+    let inserted = conversion["edit"]["documentChanges"][0]["edits"][0]["newText"]
+        .as_str()
+        .unwrap();
+    assert!(inserted.starts_with(" .task created=\""));
+    chrono::DateTime::parse_from_rfc3339(
+        inserted
+            .strip_prefix(" .task created=\"")
+            .and_then(|value| value.strip_suffix('"'))
+            .unwrap(),
+    )
+    .unwrap();
+
+    let created = response(&output, 3)["result"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|action| action["title"] == "Add task created timestamp")
+        .unwrap();
+    assert_eq!(created["kind"], "refactor.rewrite");
+    assert!(created["edit"]["documentChanges"][0]["edits"][0]["newText"]
+        .as_str()
+        .unwrap()
+        .starts_with(" created=\""));
+}
+
+#[test]
 fn offers_guarded_task_status_code_actions() {
     let uri = "file:///tmp/task-actions.plumb";
     let source = "`-{.task #write} Write parser\n";
