@@ -1,0 +1,80 @@
+`meta
+  `: title
+
+    plumb architecture overview
+
+`# 1. Data flow
+
+官方工具链的数据流是：
+
+`{language=text}
+  UTF-8 source
+      -> plumb-core recovered lossless tree + syntax diagnostics
+      -> typed recovered/valid views
+      -> document extensions
+      -> workspace indexes
+      -> queries / operations / export
+      -> LSP, CLI, Pandoc JSON
+
+一次 revision 只解析一次。extensions 共享 source-backed views，不各自重新解析文本。
+
+`# 2. Strict parser
+
+`[plumb-core] 是 syntax 的唯一权威。它无文件 I/O，只使用 byte offsets，并对 valid 或 invalid
+input 都产生 lossless tree 与 diagnostics。它不解释 heading、list、metadata、link、task 或 id。
+
+parser 使用 reject-but-recover。当前 revision 有 syntax error 时，authoritative semantic analysis
+和 export 必须停止；completion 等明确面向编辑中 source 的 query 可以消费 recovered view。
+
+`# 3. Extensions
+
+extension 是对 typed syntax view 或其他 extension outputs 的语言无关 analysis、query 或 operation。
+Rust module 是当前 host implementation，不是 extension contract 的一部分。
+
+官方 bundle 包括 outline、anchors/references、target resolution、lists、definitions、metadata、
+citations、tasks 和 export。core 不维护 semantic registry，也不校验 class 或 marker spelling。
+
+`# 4. Workspace
+
+`[plumb-workspace] 保存 document snapshots、revision、last-valid extension outputs、dependency indexes
+和 guarded edit preconditions。open buffer 优先于 disk source；create/change/remove 只使相关
+documents 与 dependents invalidated。
+
+workspace identity 使用 normalized document path/URI boundary。跨文件 query 必须说明 index
+completeness；不能把 partial result 表示成 complete negative result。
+
+`# 5. Consumers
+
+`- `[plumb-ls] 负责 JSON-RPC/LSP transport、UTF-16 positions、capabilities、cancellation 和
+  protocol mapping。
+`- `[plumb-export] 是 extension consumer，从 valid views 产生 Pandoc JSON，不调用 Pandoc reader。
+`- `[plumb-notes] 复用 workspace queries 和 operations，提供 CEL、picker 与 task CLI。
+`- `[tree-sitter-plumb] 是 lenient editor mirror，只负责 highlight、fold、indent、text object 和
+  injection。
+
+consumer 不复制 parser、semantic recognition 或 edit logic。
+
+`# 6. Crate boundaries
+
+`- `[plumb-core]：strict syntax tree、diagnostics、typed views。
+`- `[plumb-extensions]：protocol-neutral semantic records、analyses、queries、operations、export model。
+`- `[plumb-workspace]：snapshots、indexes、cross-file invalidation 和 guarded edits。
+`- `[plumb-ls]：LSP adapter。
+`- `[plumb-export]：Pandoc JSON binary。
+`- `[plumb-notes]：notes/task CLI。
+
+binary crates 可以依赖共享 layers，但不能依赖彼此的 protocol types。
+
+`# 7. Tree-sitter boundary
+
+tree-sitter grammar 与 strict core 覆盖相同的纯 syntax surface，但容错目标不同。grammar 不能定义
+validity，也不能迫使语言设计适应 CFG。
+
+`[grammar.js] 和 `[tree-sitter.json] 是 source of truth。generated parser files 是 build/release
+artifacts；修改 grammar 后必须在 locked Nix environment 中 regenerate 并测试。
+
+`# 8. Export boundary
+
+portability 由 export 保证。plumb 自己充当 Pandoc reader：标准 semantic structures lower 为原生
+Pandoc nodes，generic structures lower 为 Div/Span/CodeBlock/Code 并保留 opaque data。Pandoc 只
+负责目标 writer。

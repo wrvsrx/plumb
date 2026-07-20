@@ -27,9 +27,10 @@ text.
 ## Authority
 
 Treat this bundled skill as the portable guide for the release that shipped
-it. Inside the plumb source repository, prefer `docs/requirements.plumb`, then
-`docs/spec.plumb`, `docs/inline.plumb`, and `docs/extensions.plumb` whenever
-they conflict with this skill.
+it. Inside the plumb source repository, prefer
+`docs/reference/core-syntax.plumb`, then
+`docs/reference/standard-extensions.plumb` and
+`docs/reference/diagnostics.plumb` whenever they conflict with this skill.
 
 ## Core Rules
 

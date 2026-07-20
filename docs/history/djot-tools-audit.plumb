@@ -1,0 +1,35 @@
+`meta
+  `: title
+
+    djot-tools capability audit
+
+本页记录 plumb 早期从 djot-tools 提取的产品能力，不表示 syntax 或 crate compatibility。当前功能
+与计划分别以 `[`guide/] 和 `[`project/roadmap.plumb] 为准。
+
+`# 值得保留的能力
+
+`- heading/anchor/task document symbols、definition、references、backlinks 和 hover。
+`- link path/fragment completion、explicit anchor rename、document rename 和 guarded workspace edits。
+`- workspace scan、open-buffer override、targeted re-index、watcher、progress 和 lazy local target load。
+`- Pandoc JSON export、metadata promotion、citation lowering 和 generic structure preservation。
+`- CEL document/task query、interactive picker、preview、editor open 和 query-to-file creation。
+`- task timestamps、dependencies、reverse blockers、recurrence、nested display 和 complete/cancel operations。
+
+`# 明确不迁移
+
+`- Djot implicit links 和 automatic heading ids。
+`- Djot task-list、fenced div、citation 或 attribute spelling。
+`- jotdown parser dependency 或 Pandoc Djot reader。
+`- 让 core 解释 metadata、task、link 或 HTML semantics。
+`- 为兼容旧 notes 保留两套 standard spelling。
+
+`# 架构经验
+
+LSP 的 byte-offset/UTF-16 mapping、async-lsp notification wiring、workspace snapshot、last-valid index、
+revision-guarded operation 和 Pandoc AST lowering 可以复用设计模式，但应复制到 plumb 自己的 layers，
+避免两个年轻项目形成同步发布依赖。
+
+`# 后续评估项
+
+persistent cache、static-site export、math macros、structured output 和 live UI 只有在 plumb workflow
+出现实际需求后才进入 roadmap；Djot 项目曾经规划过不构成 plumb requirement。

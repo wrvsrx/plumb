@@ -1,0 +1,58 @@
+`meta
+  `: title
+
+    plumb vision
+
+`# 为什么存在
+
+Djot 和 Markdown 的容错适合人类随手书写，但不适合作为需要可靠重构、索引和自动编辑的个人
+知识格式。一个漏掉的 delimiter 不应悄悄改变后续结构，也不应在不同 tools 中得到不同解释。
+
+plumb 选择严格语法：特殊 spelling 一旦出现就必须完整合法。parser 在错误后恢复以继续反馈，
+但 malformed document 不是 authoritative semantics 或 export 的有效输入。
+
+`# 设计目标
+
+`- source 易于直接阅读和编辑。
+`- syntax 局部可判定，错误位置与 recovery boundary 明确。
+`- parse tree lossless，支持可靠 diagnostics、navigation、rename 和 guarded edits。
+`- core semantics-neutral；新领域含义通过 extensions 增加。
+`- 文件长期可迁移，官方 exporter 提供 Pandoc portability。
+`- editor ergonomics 不削弱 authoritative strictness。
+
+`# 特殊 spelling 总是特殊
+
+plumb 不让某个 punctuation 在所有位置全局 special。反引号是显式 introducer；普通正文大多数
+字符无需 escape。反过来，一旦 introducer 开始特殊结构，错误就不能 fallback 为 literal text。
+
+这种选择牺牲了 malformed source 的“看起来还能渲染”，换取 tools 对 structure 的一致理解。
+
+`# Core 与 semantics
+
+core 只回答 source 由哪些 blocks、inline elements、attributes 和 raw payload 构成。heading level、
+list grouping、metadata shape、link resolution、task state 和 export mapping 全部属于 extensions。
+
+这条边界允许同一 syntax tree 服务不同 semantic profiles，也避免 parser 随每个新 workflow 膨胀。
+
+`# 两套 parser
+
+手写 strict parser 是 validity、diagnostics 和 authoritative tooling 的唯一来源。tree-sitter grammar
+是刻意宽松的 editor mirror，用于 highlight、fold、indent、text object 和 injection。
+
+两者覆盖同一纯 syntax surface，但目标不同。tree-sitter 的 CFG 限制不决定语言设计；strict parser
+也不承担增量高亮职责。
+
+`# 生态与退出路径
+
+plumb 不要求通用工具原生理解其 source。`[plumb-export] 直接构造 Pandoc JSON AST，再交给 Pandoc
+writers 输出 HTML、PDF 和其他格式。generic structures 仍以 Div/Span/CodeBlock/Code 保留。
+
+因此 plumb 可以为个人 workflow 保持严格和小型，同时始终保留清晰的迁移路径。
+
+`# 与 djot-tools 的关系
+
+plumb 复用了 djot-tools 在 LSP、workspace indexing、task operations 和 Pandoc export 上的经验，
+但不是其新 parser frontend。它不依赖 jotdown，不继承 Djot syntax，也不共享必须同步演进的
+semantic crate。
+
+两个项目可以共享设计教训，不能共享 syntax authority。

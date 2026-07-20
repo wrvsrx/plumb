@@ -1,0 +1,101 @@
+`meta
+  `: title
+
+    plumb extension system
+
+`# 1. Contract
+
+extension 接收 immutable input，并产生 immutable output、diagnostics 或 effect proposal。extension
+不得隐式读写文件、读取 editor state、调用网络或直接应用 edits；这些 effects 由 host 明确提供。
+
+observable contract 包括：
+
+`- extension identity 与 contract version。
+`- 输入 view、依赖 outputs 与 completeness requirements。
+`- output schema、source provenance 和 diagnostics ownership。
+`- query/operation 的 cancellation、progress 与 failure channel。
+`- cache key、invalidation dependencies 和 effect capabilities。
+
+`# 2. Typed views
+
+core 为同一 recovered tree 提供 typed recovered/valid views。view 负责安全遍历、source ranges、
+marker/head/children/attributes 访问，不增加 semantic meaning。
+
+`[Recovered] view 可用于 completion、selection 和 syntax-aware fixes。`[Valid] view 只有 syntax
+diagnostics 为空时存在，用于 authoritative analysis、indexes、rename 和 export。
+
+normalized AST 只在具体 consumer 能证明 typed views 不足时 materialize。
+
+`# 3. Extension categories
+
+`- document analysis：从一个 revision 的 valid view 产生 records 和 diagnostics。
+`- workspace analysis：组合 document outputs，产生 resolution、reverse edges、cycles 等 indexes。
+`- query：读取 immutable context，返回当前请求的结果，不改变 state。
+`- operation：验证 preconditions，提出 guarded text/resource effects，不直接应用。
+
+export 是 document analysis/query 的组合，不是 core 特例。
+
+`# 4. Source-backed outputs
+
+semantic record 必须携带足够 provenance：document identity、revision、owner node/range、selection
+range 和从 source 提取的值。derived field 应可追溯到一个或多个 source ranges。
+
+record identity 不能依赖 unstable allocation address。跨 revision reuse 只有在 host 能证明 source
+identity 时才允许。
+
+`# 5. Facet composition
+
+同一个 syntax node 可以被多个 extensions 识别。例如 `[-{.task}] 同时具有 list-item 与 task
+facets。extensions 不取得 node ownership，也不能删除其他 facet 所需的数据。
+
+composition 冲突必须通过显式 diagnostic 或 documented priority 解决，不能依赖 registration order。
+generic export 在标准 facet lower 后仍保留未消费 attributes。
+
+`# 6. Dependencies
+
+extension descriptor 声明直接依赖的 output types。host 建立 acyclic dependency graph，并以
+document revision、configuration 和 dependency output identity 形成 cache key。
+
+document change 只 invalidates 直接或传递依赖该 output 的 computations。workspace analysis 必须
+声明需要 complete index 还是可以返回 partial result。
+
+`# 7. Snapshots and last-valid data
+
+snapshot 包含 document identity、revision、source、recovered tree、syntax diagnostics 和可选 valid
+outputs。新 revision invalid 时，host 可以保留前一 revision 的 last-valid outputs 供其他 documents
+稳定解析，但必须携带 provenance。
+
+当前 document 的 semantic diagnostics 和 authoritative query 不能使用自己的 last-valid output
+冒充 current result。
+
+`# 8. Queries
+
+query context 至少包含 request document/revision、cursor 或 target、workspace completeness、
+cancellation 和 configuration。结果必须说明 provenance；candidate ordering 应 deterministic。
+
+completion 可以读取 current recovered view 与其他 documents 的 last-valid indexes。definition、
+references、hover 和 rename 默认要求当前 target 具有 valid semantic record。
+
+`# 9. Operations
+
+operation 返回 proposal：ordered non-overlapping text edits、resource edits、expected revisions 和
+required application capabilities。proposal 本身不改变 workspace。
+
+host/app adapter 在应用前重新验证 revisions、document identity、target existence 和 capability。
+multi-document operation 必须 atomic，或在协议不能保证 atomic 时明确失败。
+
+task complete/cancel、metadata insertion、anchor rename 和 document rename 都复用这套 contract。
+
+`# 10. Diagnostics and failure
+
+diagnostic 是可定位的 source problem；query failure 是请求无法完成；cancellation 不是 failure；
+host/runtime failure 不应伪装成 source diagnostic。
+
+extension 只拥有自己定义的 codes。依赖 output 缺失时，应报告 dependency/completeness failure，
+不能猜测 negative semantic result。
+
+`# 11. Host policy
+
+当前 official host 静态组合 Rust modules。dynamic plugin ABI、WASM、external-process extensions 和
+persistent distributed cache 不属于当前 release contract。未来 host 形式可以变化，但不得改变
+本页定义的 observable dataflow 与 effect boundaries。

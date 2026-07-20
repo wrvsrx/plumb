@@ -1,0 +1,49 @@
+`meta
+  `: title
+
+    plumb roadmap
+
+本页只记录尚未完成或需要继续验证的工作。当前可用 surface 见
+`->[工具链指南]{to="../guide/toolchain.plumb"}；已经冻结的规则见 `[`reference/]。
+
+`# Strict parser release gate
+
+`- 让 parsed inline element 支持跨属于同一 inline content 的 physical continuation lines。
+`- 将 block 与 inline nesting 从 Rust recursion 改为 explicit stacks，使语言本身不设置 depth limit。
+`- 为 punctuation、whitespace、delimiters 和 malformed regions 补齐 token-granular lossless nodes。
+`- 把 normative valid/invalid/recovery cases 全部移入可执行 corpus，并固定 diagnostic precedence。
+`- 加入覆盖任意 UTF-8 source 的 lossless reconstruction property tests。
+
+`# Authoring tools
+
+`- 为需要引用的 heading/block 提供 add explicit id operation。
+`- 补全 metadata field/value completion、existing metadata edits 和 metadata hover。
+`- 评估 formatter；它必须保持语义、选择合法 indentation，并为 verbatim delimiter 选择最小安全
+  quote count。
+`- 评估 task reopen；必须先冻结 recurrent instance 与 dependency history 的行为。
+
+`# Editor ergonomics
+
+`- 补全 marker 与通用 attributes completion。
+`- 增加 folding、selection ranges 和更多 syntax-aware refactors。
+`- 为 inline verbatim 提供独立 tree-sitter raw-content node 与 language injection。
+`- 在 tree-sitter 独立发布前补齐 bindings、release artifacts 和 consumer instructions。
+
+`# Semantic extensions
+
+`- 只有具体需求出现后再设计 structured citation cluster、locator、affix 和 citation modes。
+`- event semantics 继续 deferred；不得从 task fields 隐式推断 event。
+`- table、thematic break、quote、emphasis 和其他 presentation semantics 需要独立 proposal，不进入
+  core reserved syntax。
+`- normalized AST 只在 typed views 无法满足 concrete consumer 时引入。
+
+`# Workspace and notes
+
+`- 为大 workspace 评估 persistent cache 和 indexed CEL prefilters。
+`- 评估 query-selected/interactive batch operations 与 structured output。
+`- 扩展 static-site/workspace export 前先冻结跨文档 export context 与 reproducibility contract。
+
+`# Release policy
+
+0.x 阶段遵循 semantic-ish versioning：仅 fixes 发布 `[0.x.(y+1)]；新增 feature 或 behavior change
+发布 `[0.(x+1).y]。release commit 统一更新 workspace version 和 lockfile，tag 后进入下一 dev version。

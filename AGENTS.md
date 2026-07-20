@@ -8,39 +8,34 @@ instructions.
 
 ## What this is
 
-**plumb** (working name — see `docs/vision.plumb`) is a
-**strict markup language** and its tooling, built for personal use. Where
+**plumb** is a **strict markup language** and its tooling, built for personal use. Where
 [Djot](https://djot.net) and Markdown are deliberately error-tolerant, plumb is
 deliberately strict: malformed syntax is a hard parse error rather than a silent
 fallback to literal text. The current design direction is "special spellings are
 always special" rather than "every punctuation character is globally special."
 
-Start with the design docs, in this order:
+Start at `docs/index.plumb`. For implementation work, read these sources of
+truth in order:
 
-- `docs/requirements.plumb` — the current source of truth for goals, non-goals,
-  design principles, and MVP requirements.
-- `docs/vision.plumb` — why the language exists, its core philosophy, and the
-  ecosystem strategy.
-- `docs/spec.plumb` — the finalized block-level structure and lossless syntax-tree
-  contract.
-- `docs/inline.plumb` — the finalized MVP inline syntax. Read it after the
-  block-level design in `docs/spec.plumb`.
-- `docs/syntax-open-questions.plumb` — the syntax decision record and the
-  deferred core AST questions that no longer block parser implementation.
-- `docs/extensions.plumb` — the language-neutral contract for adding semantics
-  outside core, including inputs, outputs, diagnostics, dependencies, and I/O
-  boundaries.
-- `docs/features.plumb` — the tool roadmap derived from the requirements.
-- `docs/toolchain.plumb` — runnable first-toolchain usage, implemented surface,
-  experimental semantic profile, and known parser gaps.
+- `docs/reference/core-syntax.plumb` — authoritative core syntax validity.
+- `docs/reference/standard-extensions.plumb` — official semantic profile.
+- `docs/reference/diagnostics.plumb` — diagnostic ownership and recovery policy.
+- `docs/architecture/overview.plumb` — crates, data flow, and tool boundaries.
+- `docs/architecture/extension-system.plumb` — extension inputs, outputs,
+  dependencies, queries, operations, and effects.
+- `docs/architecture/syntax-tree.plumb` — lossless tree and typed-view contract.
+
+User-facing material lives in `docs/guide/`; project direction lives in
+`docs/project/`; completed design discussion lives in `docs/history/` and does
+not override the references above.
 
 ## Current status
 
-**Runnable vertical-slice prototype.** The repository contains the frozen MVP
+**Runnable 0.3 development line.** The repository contains the frozen core
 syntax, a hand-written strict parser, typed extension/workspace layers, an LSP,
 an exporter, notes tooling, and a lenient tree-sitter mirror. The parser already
 produces a source-oriented tree plus `Vec<Diagnostic>`, but the remaining gaps in
-`docs/toolchain.plumb` still block calling it a complete lossless parser release.
+`docs/project/roadmap.plumb` still block calling it a complete lossless parser release.
 Normalized AST lowering remains deferred until an extension provides a concrete
 consumer.
 
@@ -51,7 +46,7 @@ project, but it is a **separate project**:
 
 - It does **not** use `jotdown` (or any existing markup parser). Its parser is
   hand-written so it can reject invalid input with precise diagnostics — see
-  `docs/vision.plumb` for why tree-sitter and error-tolerant parsers cannot fill
+  `docs/project/vision.plumb` for why tree-sitter and error-tolerant parsers cannot fill
   this role.
 - It has its own versioning, its own release line, and (eventually) its own
   `tree-sitter-plumb` grammar repo.
@@ -78,7 +73,7 @@ project, but it is a **separate project**:
    views and declared outputs; the exporter is itself an extension). Rust
    modules are one host implementation, not part of the extension definition.
    No registry, roles, or class-name validation exists in core.
-   See `docs/vision.plumb` (the Pandoc/Docutils model).
+   See `docs/project/vision.plumb` (the Pandoc/Docutils model).
 3. **tree-sitter is intentionally lenient and ergonomics-only.** Its current
    grammar powers editor features (highlighting, text objects, folding,
    injections) and is *never* the strictness engine. Do **not** distort the

@@ -1,0 +1,58 @@
+`meta
+  `: title
+
+    plumb lossless syntax tree
+
+`# 1. Purpose
+
+strict parser 对任意 UTF-8 source 产生 recovered lossless tree。tree 服务 diagnostics、editor
+queries、source-preserving edits 和 extensions；它不是已经解释语义的 document AST。
+
+`# 2. Fidelity
+
+所有 source-backed leaf tokens 使用 UTF-8 half-open byte ranges，按 source order 无重叠、无空洞
+覆盖输入。拼接 leaf bytes 必须逐字节等于 source。
+
+tree 保留 trivia、structural indentation、line endings、delimiters、attributes、payload 和 malformed
+source。非空 source 的 leaf token 非空；空 source 产生 range `[[0, 0)] 的 document root。
+
+missing token 不作为 synthetic leaf 插入，由 diagnostic 和 insertion fix 表达。node range 从其
+source-backed descendants 推导。
+
+`# 3. Structural nodes
+
+tree 表达 document、paragraph、marked block、verbatim block、attributes、inline element、inline
+verbatim、text、soft break 和 error regions。普通 marker/kind 保持原始 spelling；tree 不区分
+heading、list、link 或 task。
+
+marked block 暴露 marker、attributes、head 和 children。paragraph 只有 inline content。verbatim
+block 暴露 opener、attributes、每行 structural prefix 与 raw payload ranges。
+
+`# 4. Recovered and valid views
+
+recovered tree 始终存在。typed recovered view 可以容忍 error nodes，并提供 cursor-local syntax
+查询。valid view 只在 syntax diagnostics 为空时构造，并保证 extensions 不会误把 recovery choice
+当作 author intent。
+
+views 是对同一 tree 的 projection，不复制 source，也不重新 parse。
+
+`# 5. Recovery representation
+
+malformed source bytes 放在 error node 中并继续参与 lossless coverage。virtual indentation 或
+missing delimiter 只存在于 diagnostics/fixes，不进入 source-backed leaf sequence。
+
+recovery boundary 必须 deterministic，使相同 source 产生稳定 tree、diagnostic ordering 和 edit
+ranges。
+
+`# 6. Future normalized AST
+
+可能的 normalized model 会包含 parsed block、verbatim block，以及 `[Text]、`[SoftBreak]、`[Span]
+和 `[Verbatim] inline variants。它只在 exporter 或其他 concrete consumer 证明 typed views 不足时加入。
+
+normalized model 不取代 lossless tree，不改变 syntax validity，也不把 extension semantics 放回
+core。
+
+`# 7. Incremental identity
+
+当前 contract 不承诺跨 revision `[NodeId] reuse。incremental parsing、source-map identity 和 text
+canonicalization 必须作为同一设计问题解决；实现优化不能泄漏为不稳定的 public identity。

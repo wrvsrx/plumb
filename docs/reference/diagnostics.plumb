@@ -1,0 +1,83 @@
+`meta
+  `: title
+
+    plumb diagnostics reference
+
+`# 1. Diagnostic ownership
+
+core diagnostics 只报告 syntax。standard extensions 报告 semantic profile violations；workspace
+分析报告跨文档 resolution、identity 和 dependency 问题；protocol adapters 不重新解释这些错误。
+
+每条 diagnostic 包含稳定 code、severity、message 和 source range。可修复错误可以附带 edit，
+但缺失 token 不作为 synthetic syntax-tree leaf。
+
+`# 2. Publication policy
+
+每个 revision 都发布当前 recovered tree 的 syntax diagnostics。只有当前 revision syntax-valid 时，
+才合并同 revision 的 semantic diagnostics。last-valid extension outputs 可以继续服务跨文件查询，
+但不能伪装成当前文档的 diagnostics。
+
+export 只接受 valid authoritative view。LSP completion 等 editor assist 可以显式查询 recovered view。
+
+`# 3. Syntax categories
+
+syntax diagnostics 分为：
+
+`- structural：indentation、partial dedent、非法 structural tab、verbatim margin。
+`- lexical：非法 marker/kind/attribute token、control character、非法 quoted escape。
+`- delimiter/dispatch：非法 introducer entry、unclosed attributes、inline 或 verbatim。
+`- cardinality：duplicate id、duplicate attribute key。
+
+同一 source range 和根因只发布最具体的错误。structural error 优先于由错误结构派生的 generic
+delimiter error。
+
+`# 4. Recovery boundaries
+
+`- block-start error：当前 physical line。
+`- attribute item error：下一个 attribute whitespace 或 closing brace。
+`- parsed inline error：blank、dedent、block-only entry 或 EOF 前。
+`- inline verbatim error：当前 physical line ending 或 EOF。
+`- partial dedent：补到最接近的合法 outer column 后继续当前 line。
+
+recovery 的目标是报告后续独立错误并保留 source，不是把 malformed spelling 当作 text。
+
+`# 5. Semantic categories
+
+官方 extensions 至少区分：
+
+`- heading/anchor：非法 heading level、duplicate anchor。
+`- metadata：duplicate/invalid key、invalid location、unsupported 或 mixed value shape。
+`- link/reference：缺失或无效 target、missing document/anchor、ambiguous anchor。
+`- citation：空 id、nested 或 unsupported citation shape。
+`- task：无效 field、timestamp/recur/reference、互斥 closure state、self dependency、cycle、blocked
+  completion。
+
+semantic diagnostic 应指向最小 source-backed field range。由多个 documents 共同形成的问题可以
+携带 related locations。
+
+`# 6. Stability
+
+diagnostic code 是 editor、test 和 automation 的接口；重写 message 不应改变 code。新增更精确
+diagnostic 时，应更新 parser/extension fixtures，并验证 recovery 后续 diagnostics 不回退。
+
+当前 core codes：
+
+`{language=text}
+  syntax.incomplete-introducer
+  syntax.invalid-block-dispatch
+  syntax.invalid-inline-dispatch
+  syntax.invalid-verbatim-block-dispatch
+  syntax.invalid-marker
+  syntax.malformed-attribute-item
+  syntax.empty-attribute-name
+  syntax.empty-attribute-value
+  syntax.unknown-quoted-escape
+  syntax.unclosed-quoted-value
+  syntax.unclosed-attributes
+  syntax.duplicate-id
+  syntax.duplicate-key
+  syntax.unclosed-inline
+  syntax.unclosed-verbatim
+  syntax.tab-indentation
+  syntax.partial-indent
+  syntax.short-verbatim-indent

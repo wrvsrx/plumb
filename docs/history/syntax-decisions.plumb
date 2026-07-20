@@ -1,0 +1,100 @@
+`meta
+  `: title
+
+    plumb syntax decision record
+
+本页保存已经影响当前语言形状的设计理由。当前 validity 只以
+`->[core syntax reference]{to="../reference/core-syntax.plumb"} 为准；本页不重复充当规范。
+
+`# Introducer
+
+`## 反引号作为唯一入口
+
+决定使用一个显式 introducer，而不是让 Markdown 式 punctuation 全局 special。这样 ordinary text
+需要的 escape 更少，parser 可以在局部确定是否进入 special structure。
+
+`## 连续 introducer 从左到右配对
+
+两个反引号 escape 一个 literal backtick，奇数 run 最后一个继续作为 introducer。禁止回溯可以让
+block/inline scanner 使用同一规则，并给 malformed entry 稳定 range。
+
+`# Generic envelopes
+
+`## Marker 与 inline kind 不设 registry
+
+任意词法良构 marker 产生 generic marked block，任意词法良构 kind 产生 generic parsed inline。
+heading、list、link 等 spelling 由 extensions 解释。这个决定避免 core semantics 与 plugin/profile
+演进耦合。
+
+`## Inline code 使用无名 verbatim envelope
+
+高频 raw inline 使用 `[`[...]]，而不是名为 Code 或 Verbatim 的 kind。double-quote run 增强 closing
+delimiter，使 payload 不需要通用 escape language。
+
+`## Raw block 使用 attribute-only opener
+
+verbatim block 通过 introducer 紧跟 attributes 进入，body 使用 indentation boundary。它不需要
+closing fence，payload language 通过 opaque attribute 表达。
+
+`# Inline parsing
+
+ordinary opening bracket 在 parsed content 中是 text；closing bracket 关闭当前 element。nested
+element 必须再次使用 introducer，因此 bracket-heavy prose 不需要成对 escape。
+
+inline verbatim 限于一个 physical line；parsed inline 规范允许跨已有 continuation line。语言不
+设置 nesting depth limit，实现应使用 explicit stack。
+
+`# Indentation
+
+marked block 是唯一能拥有 children 的 core node。第一个 child 建立 column，后续 sibling 必须
+精确匹配已有 column。partial dedent 是 error，而不是猜测最接近层级。
+
+structural indentation 只允许 ASCII spaces，避免 tab width 依赖 editor。verbatim payload 在固定
+structural margin 之后仍完整保留 tabs 和 spaces。
+
+`# Attributes
+
+block、inline 和 verbatim 共用一个 attribute grammar。id/class shorthand 与 key-value pair 只是
+lossless syntax；core 只约束 slot 内 cardinality 和 lexical shape。
+
+quoted value 只允许 quote 与 backslash escape。拒绝 `[`\n] 等 abstract escape 可以保持 source
+value 与视觉内容的关系清楚。
+
+`# Recovery
+
+选择 reject-but-recover，而不是 fail-fast 或 fallback-to-text。block errors 以 physical line 为主要
+边界；inline errors 不吞掉 enclosing blank/dedent；partial dedent 使用最小 virtual insertion 继续。
+
+recovery node 永远不使 document 重新变成 valid，它只服务多错误反馈和 editor queries。
+
+`# Semantic spellings
+
+`## Heading
+
+标准 heading 使用一至六个 `[#] marker。heading title 不生成 implicit id；显式 id 只在需要引用
+时出现，避免 rename title 隐式改变 links。
+
+`## List
+
+bullet/ordered items 分别使用 `[-] 与 `[.]。长名 `[item] 和额外 ordered/start attributes 被移除，
+因为 list marker 本身已经提供足够信息。
+
+`## Metadata
+
+metadata 使用 `[meta] + definition entries，而不是 raw TOML。这样 keys、scalar/list/map 与 source
+ranges 都能由同一个 parser 和 extension model 处理。
+
+`## Citation
+
+首个 profile 只冻结 `[`cite[id]]。复杂 citation model 延后，避免把 Pandoc Markdown mini-language
+嵌入 plumb。
+
+`## Task
+
+task 是 `[.task] facet，标准形状为 `[-{.task}]。状态由 closure timestamps 派生，不增加 status
+field 或 checkbox syntax；nested display 与 explicit dependency edge 保持独立。
+
+`# Deferred decisions
+
+formatter policy、normalized AST、incremental node identity、table/quote/emphasis semantics、rich
+citations 和 dynamic extension ABI 都需要 concrete consumer 或独立 proposal 后再决定。

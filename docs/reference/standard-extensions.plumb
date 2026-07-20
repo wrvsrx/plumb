@@ -1,0 +1,133 @@
+`meta
+  `: title
+
+    plumb standard extensions reference
+
+`# 1. Scope
+
+本文定义官方工具链在 valid core tree 上启用的 semantic profile。recognizer 只解释这里冻结的
+spelling；其他词法良构 marker、inline kind 和 attributes 保持 opaque generic data。
+
+semantic diagnostics 不改变 core syntax validity，但 authoritative export 和 operations 可以拒绝
+违反 profile constraint 的文档。
+
+`# 2. Heading 与 outline
+
+marker 是一至六个 `[#] 的 marked block 是 heading，run length 是 level，head 是 title。
+heading 进入 outline；children 和后续 headings 的层级关系由 source order 与 level 推导。
+
+heading 不生成 implicit id。只有 `[#id] shorthand 产生 anchor；`[id=value] 是 opaque pair。
+需要作为 link、task reference 或 rename target 时才应添加显式 id。
+
+`# 3. Anchors
+
+任意 syntax node attribute slot 中的 `[#id] 产生显式 anchor。document 内 id 必须唯一。
+anchor 保存 source document、id、owner 和 selection range。跨文件 index 只使用最新 valid snapshot。
+
+`# 4. Lists
+
+marker `[-] 产生 bullet list item；marker `[.] 产生 ordered list item。`[item] 不是 alias。
+
+相同 parent 下 source-adjacent 且 marker 相同的 items 形成一个 list group。不同 marker、普通 block
+或 paragraph 结束 group。nested item groups lower 为 nested lists。ordered list 固定从 1 开始，
+不提供 start attribute semantics。
+
+export 分别产生 Pandoc `[BulletList] 和 `[OrderedList]。item attributes 通过内部 `[Div] 保存，
+因此 `[-{.task}] 可以同时具有 list 与 task facets。
+
+`# 5. Definitions
+
+marker `[:] 产生 definition record。head 是 term，children 是 definition body。相同 parent 下
+相邻 definitions 聚合为 Pandoc `[DefinitionList]；attributes 通过 definition body 内的 `[Div]
+保存。
+
+`# 6. Metadata
+
+第一个 document-level `[meta] block 是 document metadata。它必须没有 head，直接 children 只能
+是 definitions；其他 `[meta] block 保持 generic body content 并产生 profile diagnostic。
+
+metadata key 必须是非空 plain text，不含 whitespace 或 inline markup。value shapes：
+
+`- 没有 body：null。
+`- 一个 paragraph：scalar。
+`- `[-] children：sequence。
+`- `[:] children：map。
+`- 一个 verbatim block：literal string。
+
+paragraph 或 list-item head 恰好只有一个 inline verbatim 时产生 literal string。空 head list item
+可以用 children 承载 nested sequence、map、scalar 或 verbatim value。非空 item head 不能同时有
+children；同一 container 不能混合不兼容 shapes。
+
+metadata sequence 只接受 `[-]。它是有序数据，不表达 bullet/ordered rendering，因此 `[.] 不受
+支持。duplicate key 使用第一个值并发布 diagnostic。
+
+export 将 scalar、sequence、map、verbatim、null 映射为 Pandoc `[MetaInlines]、`[MetaList]、
+`[MetaMap]、`[MetaString] 和空 `[MetaString]。metadata block 不进入 document body。
+
+metadata insertion operation 只用于尚无 metadata 的 syntax-valid document，在 byte offset 0
+插入 `[title] 与 `[created]。title 默认取 filename stem；created 使用 operation 时刻的本地
+RFC 3339 timestamp。
+
+`# 7. Links 与 target resolution
+
+唯一 link inline kind 是 `[->]。它必须有一个 `[to] pair：
+
+`{language=plumb}
+  `->[label]{to="#anchor"}
+  `->[label]{to="relative/path.plumb"}
+  `->[label]{to="relative/path.plumb#anchor"}
+  `->[label]{to="https://example.test"}
+
+`[link] 不是 alias。local/cross-file fragment 只解析显式 anchors。relative document target 使用
+`[..plumb] path；含 spaces 或 unsafe bytes 的 task/reference path 使用 URI percent encoding。
+external URL 只分类，不进行网络 I/O。
+
+workspace 使用 open buffer 覆盖 disk snapshot。document target 已确定但 fragment missing 时，
+仍保留 document-level reverse edge。
+
+`# 8. Citations
+
+标准 citation 是 kind `[cite] 的 parsed inline element，content 必须是一个非空 plain id，且不能
+包含 nested markup：
+
+`{language=plumb}
+  `cite[smith2004]
+
+export 产生一个 `[NormalCitation] mode 的 Pandoc `[Cite]。cluster、locator、prefix、suffix、
+suppress-author 和 author-in-text deferred；Pandoc Markdown `[`@key] spelling 不受支持。
+
+`# 9. Tasks
+
+任意带 `[.task] class 的 marked block 产生 task facet。标准 spelling 使用 bullet item marker：
+
+`{language=plumb}
+  `-{.task #write-parser} Implement parser
+
+head 是 title，children 是 details。nested tasks 形成 display tree，但只有 `[depends] 建立 dependency
+edge。
+
+字段约束：
+
+`- `[created]、`[due]、`[wait]、`[done] 和 `[canceled] 是 quoted RFC 3339 timestamps。
+`- `[recur] 是正整数 `[`PnD]、`[`PnW]、`[`PnM] 或 `[`PnY]，并要求 `[due]。
+`- `[prev] 是一个 same-file `[#id] 或 cross-file `[`path.plumb#id] reference。
+`- `[depends] 是一个 quoted、whitespace-separated reference list。
+
+state：
+
+`- 没有 `[done] 或 `[canceled]：open。
+`- 只有 `[done]：done。
+`- 只有 `[canceled]：canceled。
+`- 两者同时存在：conflicted。
+
+`[state]、`[status]、`[priority]、`[scheduled] 和 checkbox spelling 没有标准 task semantics。
+
+complete 为 open task 添加 `[done]；open dependency 存在时拒绝 complete。cancel 添加 `[canceled]
+且不受 blocker 限制。关闭 recurring task 时保留 closed instance，并追加下一 instance：推进 due/wait、
+移除 transient state、生成唯一 id，并用 `[prev] 指回当前 instance。
+
+`# 10. Generic export
+
+不具有标准语义的 valid structures 仍可 portable export：generic marked block 变为 Pandoc `[Div]，
+generic parsed inline element 变为 `[Span]，verbatim block 变为 `[CodeBlock]，inline verbatim 变为
+`[Code]。generic marker 与 inline kind 都使用 `[data-plumb-marker] 保留。

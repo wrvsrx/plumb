@@ -1,0 +1,106 @@
+`meta
+  `: title
+
+    plumb 标准扩展指南
+
+core 只识别结构；本页介绍官方工具链赋予常用 marker、inline kind 和 attributes 的语义。
+
+`# Heading
+
+一至六个 `[#] 表示 heading level：
+
+`{language=plumb}
+  `# 一级标题
+  `## 二级标题
+
+heading 默认只有 outline identity。需要成为 link 或 rename target 时才添加显式 id：
+
+`{language=plumb}
+  `#{#intro} 可引用的标题
+
+`# List 与 definition
+
+`[-] 是 bullet item，`[.] 是 ordered item。相邻、同层且 marker 相同的 items 聚合为一个 list：
+
+`{language=plumb}
+  `- First
+  `- Second
+    `- Nested
+
+  `. One
+  `. Two
+
+ordered list 固定从 1 开始。
+
+`[:] 是 definition entry，head 是 term，children 是 definition body：
+
+`{language=plumb}
+  `: Term
+
+    Definition body.
+
+`# Metadata
+
+文档 metadata 是唯一的顶层、无 head `[`meta] block，其中只包含 definitions：
+
+`{language=plumb}
+  `meta
+    `: title
+
+      Document title
+
+    `: created
+
+      2026-07-20T09:00:00+08:00
+
+    `: tags
+      `- plumb
+      `- notes
+
+    `: author
+      `: name
+
+        Alice
+
+value 可以是 null、一个 paragraph scalar、`[-] sequence、nested `[:] map 或一个 verbatim
+block。metadata sequence 只使用 `[-]；它表示数据顺序，不带正文 list style。
+
+`# Link
+
+唯一标准 link inline kind 是 `[->]，target 放在 `[to] attribute：
+
+`{language=plumb}
+  `->[same document]{to="#intro"}
+  `->[another document]{to="guide.plumb"}
+  `->[another anchor]{to="guide.plumb#intro"}
+  `->[website]{to="https://example.test"}
+
+本地 anchor 必须显式存在。跨文件 target 使用相对 `[..plumb] path。
+
+`# Citation
+
+当前 citation profile 只接受一个 plain id：
+
+`{language=plumb}
+  See `cite[smith2004].
+
+cluster、locator、prefix、suffix 和 citation mode 尚未进入标准 profile。
+
+`# Task
+
+任意带 `[`task] class 的 block 都是 task；标准 list-shaped spelling 是：
+
+`{language=plumb}
+  `-{.task #write-parser created="2026-07-20T09:00:00+08:00" due="2026-07-21T09:00:00+08:00"} Implement parser
+
+head 是 title，children 是 details。另一个 task 需要引用它时才添加 id。
+
+标准字段包括 `[created]、`[due]、`[wait]、`[done]、`[canceled]、`[recur]、`[prev] 和
+`[depends]。时间使用 quoted RFC 3339；`[depends] 是 whitespace-separated references；
+`[recur] 接受正整数 `[`PnD]、`[`PnW]、`[`PnM] 或 `[`PnY]，并要求 `[due]。
+
+task state 由 closure timestamps 推导：没有 `[done]/[canceled] 是 open；只有 `[done] 是
+done；只有 `[canceled] 是 canceled；两者同时存在是 conflicted。
+
+精确 recognition、diagnostics 和 export semantics 见
+`->[standard extensions reference]{to="../reference/standard-extensions.plumb"}。

@@ -1,0 +1,67 @@
+`meta
+  `: title
+
+    plumb 工具链指南
+
+`# Build and test
+
+`{language=text}
+  nix develop
+  cargo test --workspace
+  cargo check --workspace --all-targets
+
+tree-sitter grammar 使用独立 shell 生成和测试：
+
+`{language=text}
+  nix develop .#tree-sitter-plumb -c tree-sitter generate
+  nix develop .#tree-sitter-plumb -c tree-sitter test
+
+generated parser sources 不属于 repository source，不应提交。
+
+`# Playground
+
+`[playground.plumb] 覆盖 core syntax 和标准 extensions，可用于编辑器、diagnostics 和 export
+smoke test。
+
+`# LSP
+
+`[plumb-ls] 提供 strict syntax 与 semantic diagnostics、document symbols、definition、references、
+hover、completion、anchor/document rename、metadata insertion、task actions 和 task semantic
+tokens。server 会扫描 workspace，并在 editor 支持时监听 `[..plumb] file changes。
+
+`[dev/nvim.lua] 是面向 Neovim 0.12 的 repo-local exrc：加载本地 tree-sitter parser 与 queries，
+启动 `[`target/debug/plumb-ls]，并配置 workspace edits、resource rename 和 file watching。
+
+`# Export
+
+`[plumb-export] 直接产生 Pandoc JSON AST。Pandoc 只作为 writer：
+
+`{language=text}
+  plumb-export document.plumb | pandoc -f json -t html -o document.html
+  cat document.plumb | plumb-export | pandoc -f json -o document.pdf
+
+syntax error、无效 metadata 或其他阻止 authoritative semantics 的错误会让 export 失败。
+
+`# Notes
+
+`[plumb-notes] 提供 document/task CEL query、interactive picker 和 task operations：
+
+`{language=text}
+  plumb-notes note --query 'title.contains("parser")'
+  plumb-notes note --interactive
+  plumb-notes task --query 'actionable && due < now'
+  plumb-notes task complete notes/tasks.plumb#write-parser
+  plumb-notes task cancel notes/tasks.plumb#obsolete-task
+
+task output 默认是 nested table；`[--flat] 省略 nesting indentation，`[--no-heading] 适合脚本。
+complete/cancel 使用带 revision guard 的 shared operation 修改文件。
+
+`# 当前限制
+
+`- parsed inline element 还不能跨 physical continuation line。
+`- block 与 inline nesting 仍使用 Rust recursion。
+`- syntax tree 尚未为所有 punctuation/whitespace 提供 token-granular nodes。
+`- normative recovery corpus 尚未全部移植。
+
+这些限制不改变已经发布的 syntax spelling；进展统一记录在
+`->[路线图]{to="../project/roadmap.plumb"}。
