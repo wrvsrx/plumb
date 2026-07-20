@@ -6,6 +6,16 @@
 本页只记录可以直接实施和验收的工作。方向、约束和 deferred design 继续放在
 `->[roadmap]{to="roadmap.plumb"}。
 
+`# Core syntax
+
+`-{.task #same-line-first-child} 支持 same-line first child
+  `note 保持 empty-head marked block 在下一 physical line 以缩进 block 开始 children 的现有行为。
+  `note Head 为空时，head separator 后的 block-only entry 成为 first child，而不是 inline dispatch error。
+  `note Same-line child 的 introducer column 建立 parent body indent；后续 children 必须精确对齐。
+  `note Same-line 与换行布局在 attributes 和 children 相同时产生相同 tree；head 已有 text 时仍拒绝 block entry。
+  `note 覆盖 generic marker、bullet/ordered nesting、attributes、recursive compact children 和 malformed recovery。
+  `note 同步 strict parser、lossless ranges、tree-sitter grammar/corpus、reference、guide 和 bundled skill。
+
 `# Standard extensions
 
 `-{.task #restrict-task-owner} 将 `[.task] 标准语义限制到 list item
