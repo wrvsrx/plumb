@@ -226,6 +226,49 @@ impl Parser<'_> {
             cursor
         };
 
+        if head_start < line.content_end {
+            let child_indent = head_start - line.start;
+            if let Some(dispatch) = self.block_dispatch(index, child_indent) {
+                let (first_child, mut next) = match dispatch {
+                    BlockDispatch::Marked => {
+                        let (child, next) = self.parse_marked(index, child_indent);
+                        (Block::Parsed(child), next)
+                    }
+                    BlockDispatch::Verbatim => {
+                        let (child, next) = self.parse_verbatim(index, child_indent);
+                        (Block::Verbatim(child), next)
+                    }
+                };
+                let mut children = vec![first_child];
+                let (siblings, after_siblings) = self.parse_blocks(next, child_indent);
+                if !siblings.is_empty() {
+                    children.extend(siblings);
+                    next = after_siblings;
+                }
+                let end = children
+                    .last()
+                    .map(|child| child.range().end)
+                    .unwrap_or(line.end);
+                return (
+                    ParsedBlock {
+                        range: introducer..end,
+                        mark: Some(Mark {
+                            range: introducer..mark_end,
+                            marker,
+                            marker_range,
+                            attrs,
+                        }),
+                        head: InlineContent {
+                            range: head_start..head_start,
+                            items: Vec::new(),
+                        },
+                        children,
+                    },
+                    next,
+                );
+            }
+        }
+
         let mut head = self.parse_inline(head_start, line.content_end, false);
         let mut next = index + 1;
         let mut saw_blank = false;
@@ -858,6 +901,55 @@ mod tests {
         assert_eq!(block.attrs.value("language"), Some("rust"));
         assert_eq!(block.text, "fn main() {}\n  indented\n");
         assert!(matches!(parsed.syntax.blocks[1], Block::Parsed(_)));
+    }
+
+    #[test]
+    fn parses_same_line_first_child_like_an_indented_first_child() {
+        let compact = parse("`- `- a\n   `- b\n   `- c\n");
+        let expanded = parse("`-\n   `- a\n   `- b\n   `- c\n");
+        assert!(compact.is_valid(), "{:?}", compact.diagnostics);
+        assert!(expanded.is_valid(), "{:?}", expanded.diagnostics);
+
+        let Block::Parsed(compact_outer) = &compact.syntax.blocks[0] else {
+            panic!("expected compact outer item");
+        };
+        let Block::Parsed(expanded_outer) = &expanded.syntax.blocks[0] else {
+            panic!("expected expanded outer item");
+        };
+        assert!(compact_outer.head.items.is_empty());
+        assert_eq!(compact_outer.children.len(), 3);
+        assert_eq!(
+            compact_outer
+                .children
+                .iter()
+                .map(|child| match child {
+                    Block::Parsed(child) => child.head.plain_text(),
+                    Block::Verbatim(_) => panic!("expected parsed child"),
+                })
+                .collect::<Vec<_>>(),
+            ["a", "b", "c"]
+        );
+        assert_eq!(compact_outer.children.len(), expanded_outer.children.len());
+    }
+
+    #[test]
+    fn same_line_first_child_requires_an_empty_head_and_supports_recursion() {
+        let nested = parse("`- `- `- deep\n");
+        assert!(nested.is_valid(), "{:?}", nested.diagnostics);
+        let Block::Parsed(outer) = &nested.syntax.blocks[0] else {
+            panic!("expected outer item");
+        };
+        let Block::Parsed(middle) = &outer.children[0] else {
+            panic!("expected middle item");
+        };
+        assert_eq!(middle.children.len(), 1);
+
+        let invalid = parse("`- text `- child\n");
+        assert!(!invalid.is_valid());
+        assert!(invalid
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == "syntax.invalid-inline-dispatch"));
     }
 
     #[test]
