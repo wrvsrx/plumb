@@ -836,13 +836,9 @@ impl LanguageServer for ServerState {
                     .tasks
                     .iter()
                     .filter(|task| task.state() != TaskState::Open)
-                    .filter_map(|task| {
-                        let range = byte_range_to_lsp(&entry.parsed.source, &task.marker_range);
-                        if range.start.line != range.end.line
-                            || range.end.character <= range.start.character
-                        {
-                            return None;
-                        }
+                    .flat_map(|task| physical_line_ranges(&entry.parsed.source, &task.marker_range))
+                    .map(|byte_range| {
+                        let range = byte_range_to_lsp(&entry.parsed.source, &byte_range);
                         let delta_line = range.start.line - previous_line;
                         let delta_start = if delta_line == 0 {
                             range.start.character - previous_start
@@ -851,13 +847,13 @@ impl LanguageServer for ServerState {
                         };
                         previous_line = range.start.line;
                         previous_start = range.start.character;
-                        Some(SemanticToken {
+                        SemanticToken {
                             delta_line,
                             delta_start,
                             length: range.end.character - range.start.character,
                             token_type: 0,
                             token_modifiers_bitset: 1,
-                        })
+                        }
                     })
                     .collect();
                 SemanticTokensResult::Tokens(SemanticTokens {
@@ -985,6 +981,31 @@ impl LanguageServer for ServerState {
         })();
         Box::pin(async move { result })
     }
+}
+
+fn physical_line_ranges(
+    source: &str,
+    range: &std::ops::Range<usize>,
+) -> Vec<std::ops::Range<usize>> {
+    let mut ranges = Vec::new();
+    let mut start = range.start;
+    while start < range.end {
+        let newline = source[start..range.end]
+            .find('\n')
+            .map(|offset| start + offset);
+        let end = newline.unwrap_or(range.end);
+        let line = &source[start..end];
+        let leading = line.len() - line.trim_start_matches([' ', '\t']).len();
+        let trailing = line.len() - line.trim_end_matches([' ', '\t', '\r']).len();
+        if start + leading < end.saturating_sub(trailing) {
+            ranges.push(start + leading..end - trailing);
+        }
+        let Some(newline) = newline else {
+            break;
+        };
+        start = newline + 1;
+    }
+    ranges
 }
 
 fn rename_request_error(message: impl Into<String>) -> ResponseError {
@@ -1489,5 +1510,17 @@ mod tests {
         let preview = fenced_plumb("before ```` after");
         assert!(preview.starts_with("`````plumb\n"));
         assert!(preview.ends_with("\n`````"));
+    }
+
+    #[test]
+    fn splits_multiline_semantic_ranges_at_crlf_boundaries() {
+        let source = "before `-{\r\n   .任务\r\n  } Head";
+        let start = source.find('`').unwrap();
+        let end = source.find('}').unwrap() + 1;
+        let segments = physical_line_ranges(source, &(start..end))
+            .into_iter()
+            .map(|range| &source[range])
+            .collect::<Vec<_>>();
+        assert_eq!(segments, ["`-{", ".任务", "}"]);
     }
 }

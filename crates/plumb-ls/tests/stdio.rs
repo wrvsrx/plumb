@@ -1048,6 +1048,39 @@ fn publishes_task_symbols_hover_and_workspace_diagnostics() {
 }
 
 #[test]
+fn highlights_closed_tasks_with_multiline_attributes() {
+    let uri = "file:///tmp/multiline-closed-tasks.plumb";
+    let source = "`-{\n   .task\n   done=\"2026-07-20T10:00:00Z\"\n  } Done\n`-{\n   .task\n   canceled=\"2026-07-20T11:00:00Z\"\n  } Canceled\n";
+    let messages = [
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": { "processId": null, "rootUri": null, "capabilities": {} }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": {
+                "uri": uri, "languageId": "plumb", "version": 1, "text": source
+            }}
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 2, "method": "textDocument/semanticTokens/full",
+            "params": { "textDocument": { "uri": uri } }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 3, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+
+    assert_eq!(
+        response(&run_server(&messages), 2)["result"]["data"],
+        json!([
+            0, 0, 3, 0, 1, 1, 3, 5, 0, 1, 1, 3, 27, 0, 1, 1, 2, 1, 0, 1, 1, 0, 3, 0, 1, 1, 3, 5, 0,
+            1, 1, 3, 31, 0, 1, 1, 2, 1, 0, 1
+        ])
+    );
+}
+
+#[test]
 fn resolves_cross_file_navigation_over_stdio() {
     let root = unique_temp_dir();
     std::fs::create_dir_all(&root).unwrap();
