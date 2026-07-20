@@ -49,6 +49,14 @@ its declaration or this `->[reference]{to="#local-anchor"}.
 Open `->[metadata-scratch.plumb]{to="metadata-scratch.plumb"} to try
 `[Insert document metadata].
 
+Place the cursor in this ordinary item and request `[Convert to task]：
+
+`- Convert this item and add its created timestamp
+
+Place the cursor in this task and request `[Add task created timestamp]：
+
+`-{.task #missing-created} Add the missing created field
+
 Place the cursor in this task and request Complete or Cancel. Hover shows its
 state, id, and timestamps:
 
@@ -85,3 +93,7 @@ The following valid syntax deliberately produces semantic diagnostics:
 `-{.task #conflicted-task done="2026-07-20T09:00:00+08:00" canceled="2026-07-20T10:00:00+08:00"} Conflicting closed state
 
 `-{.task #self-dependent depends="#self-dependent"} Self dependency
+
+`note{.task} Invalid task owner
+
+`span[not raw]{.$} Invalid math owner

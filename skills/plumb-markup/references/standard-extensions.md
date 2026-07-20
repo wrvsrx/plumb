@@ -112,7 +112,7 @@ modes. Those forms are deferred.
 
 ## Tasks
 
-A task is any marked block carrying `.task`; the standard list-shaped form is:
+A task is a `-` or `.` list item carrying `.task`:
 
 ```plumb
 `-{.task #write-parser created="2026-07-20T09:00:00+08:00" due="2026-07-21T09:00:00+08:00" depends="#design"} Implement parser
@@ -122,6 +122,10 @@ A task is any marked block carrying `.task`; the standard list-shaped form is:
 The block head is the title and child blocks are details. Nested `.task` blocks
 form the display tree, but only `depends` creates a dependency edge. Add an
 explicit id when another task must reference it.
+
+`.task` on another marker is `task.invalid-owner`. The LSP can convert an
+ordinary list item to a task while adding `created`, or add `created` to an
+existing task; both use the operation's local RFC 3339 timestamp.
 
 Defined fields:
 
@@ -146,6 +150,12 @@ Closing a recurring task keeps the closed instance and appends the next one,
 advancing `due` and `wait`, assigning a unique id, and setting `prev`.
 
 ## Export Semantics
+
+`div` and `span` are transparent standard containers and export without a
+redundant `data-plumb-marker`. Verbatim inline/block nodes carrying `.$` are
+TeX inline/display math. The math facet and optional `language=tex` are
+consumed; other attributes are preserved with Span/Div wrappers. `.$` on a
+non-verbatim owner is invalid.
 
 `plumb-export` emits Pandoc JSON directly. Standard lowering includes headings,
 bullet lists, definition lists, metadata, `->` links, single-id citations, and

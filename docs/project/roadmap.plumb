@@ -9,8 +9,7 @@
 
 `# Strict parser release gate
 
-`- 让 parsed inline element 支持跨属于同一 inline content 的 physical continuation lines。
-`- 将 block 与 inline nesting 从 Rust recursion 改为 explicit stacks，使语言本身不设置 depth limit。
+`- 将 block nesting 从 Rust recursion 改为 explicit stack，使语言本身不设置 block depth limit。
 `- 为 punctuation、whitespace、delimiters 和 malformed regions 补齐 token-granular lossless nodes。
 `- 把 normative valid/invalid/recovery cases 全部移入可执行 corpus，并固定 diagnostic precedence。
 `- 加入覆盖任意 UTF-8 source 的 lossless reconstruction property tests。

@@ -34,6 +34,8 @@ This paragraph contains `*[strong-shaped content], `_[emphasis-shaped content],
 inline verbatim `[cargo test], a `kbd[Ctrl+C]{.shortcut} element, and a
 `->[link back to the index]{to="index.plumb"}.
 
+Transparent `span[inline containers]{.notice} and TeX `[x^2 + y^2]{.$} use standard profiles.
+
 The exporter preserves generic inline kinds as Pandoc spans. The official
 citation profile currently accepts one plain id, such as `cite[smith2004].
 
@@ -43,6 +45,8 @@ citation profile currently accepts one plain id, such as `cite[smith2004].
 `- second item
   `- nested item
 `-{.example key=value} attributed item
+`- `- compact nested item
+   `- compact sibling
 
 `. first ordered item
 `. second ordered item
@@ -60,16 +64,24 @@ citation profile currently accepts one plain id, such as `cite[smith2004].
 
 `aside{.notice} Generic marked blocks become Pandoc Div values.
 
+`div{#transparent .notice} Standard div containers omit the generic marker pair.
+
 `{language=rust #hello-rust}
   fn main() {
       println!("hello from plumb-export");
   }
 
+`{.$ #energy}
+  E = mc^2
+
 `# Tasks in exported content
 
 Task semantics can coexist with list-item structure and attributes:
 
-`-{.task #export-example created="2026-07-20T09:00:00+08:00"} Inspect exported task attributes
+`-{.task
+   #export-example
+   created="2026-07-20T09:00:00+08:00"
+   } Inspect multiline task attributes
 
 `# Conclusion
 

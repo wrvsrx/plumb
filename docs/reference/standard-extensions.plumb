@@ -96,15 +96,47 @@ workspace 使用 open buffer 覆盖 disk snapshot。document target 已确定但
 export 产生一个 `[NormalCitation] mode 的 Pandoc `[Cite]。cluster、locator、prefix、suffix、
 suppress-author 和 author-in-text deferred；Pandoc Markdown `[`@key] spelling 不受支持。
 
-`# 9. Tasks
+`# 9. Transparent containers
 
-任意带 `[.task] class 的 marked block 产生 task facet。标准 spelling 使用 bullet item marker：
+marker `[div] 与 parsed inline kind `[span] 是标准 transparent containers：
+
+`{language=plumb}
+  `div{#notice .warning} Warning
+
+    More details.
+
+  This is `span[important]{.warning}.
+
+`[div] 保留 generic marked block 的 head/children behavior，`[span] 保留 parsed inline content。
+二者不增加 presentation、section、warning 或其他隐式 semantics。export 直接产生 Pandoc `[Div] /
+`[Span]，不添加冗余 `[data-plumb-marker]；其他 generic spellings 仍保留 marker/kind pair。
+
+`# 10. Math
+
+verbatim inline 或 block 上的 `[.$] class 是标准 math facet：
+
+`{language=plumb}
+  Inline `[pi r^2]{.$}.
+
+  `{.$ #energy}
+    E = mc^2
+
+inline verbatim lower 为 Pandoc `[InlineMath]，verbatim block lower 为 `[DisplayMath]。input 默认是
+TeX；可选 `[language=tex]。其他 language 产生 `[math.unsupported-language]。
+
+`[.$] 只允许出现在这两种 verbatim owners；其他 owner 产生 `[math.invalid-owner]，不生成 math
+record。export 消费 `[.$] 与 `[language=tex]；其余 id/classes/pairs 分别通过 `[Span] 或 `[Div]
+wrapper 保留。普通 dollar characters 和 dollar-delimited math 没有特殊 syntax。
+
+`# 11. Tasks
+
+只有 `[-] 或 `[.] list item 上的 `[.task] class 产生 task facet：
 
 `{language=plumb}
   `-{.task #write-parser} Implement parser
 
 head 是 title，children 是 details。nested tasks 形成 display tree，但只有 `[depends] 建立 dependency
-edge。
+edge。`[.task] 出现在其他 marker 上时产生 `[task.invalid-owner]，且不生成 task record。
 
 字段约束：
 
@@ -126,7 +158,12 @@ complete 为 open task 添加 `[done]；open dependency 存在时拒绝 complete
 且不受 blocker 限制。关闭 recurring task 时保留 closed instance，并追加下一 instance：推进 due/wait、
 移除 transient state、生成唯一 id，并用 `[prev] 指回当前 instance。
 
-`# 10. Generic export
+authoring operations 使用执行时的本地 RFC 3339 timestamp：`[Convert to task] 把 cursor 命中的最深
+普通 `[-]/[.] item 转为 task，同时添加 `[.task] 与 `[created]；`[Add task created timestamp] 为
+缺少 `[created] 的最深 enclosing task 补录时间。后者不受 task state、dependency 或 recurrence
+限制。两者都保留已有 attributes，并返回 revision-guarded edits。
+
+`# 12. Generic export
 
 不具有标准语义的 valid structures 仍可 portable export：generic marked block 变为 Pandoc `[Div]，
 generic parsed inline element 变为 `[Span]，verbatim block 变为 `[CodeBlock]，inline verbatim 变为

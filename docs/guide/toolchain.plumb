@@ -20,14 +20,14 @@ generated parser sources 不属于 repository source，不应提交。
 
 `# Playground
 
-`[playground.plumb] 覆盖 core syntax 和标准 extensions，可用于编辑器、diagnostics 和 export
-smoke test。
+`[examples/index.plumb] 及同目录文档覆盖 core syntax 和标准 extensions，可用于 editor、
+diagnostics 和 export smoke test。
 
 `# LSP
 
 `[plumb-ls] 提供 strict syntax 与 semantic diagnostics、document symbols、definition、references、
-hover、completion、anchor/document rename、metadata insertion、task actions 和 task semantic
-tokens。server 会扫描 workspace，并在 editor 支持时监听 `[..plumb] file changes。
+hover、completion、anchor/document rename、metadata insertion、task conversion/created/status actions
+和 task semantic tokens。server 会扫描 workspace，并在 editor 支持时监听 `[..plumb] file changes。
 
 `[dev/nvim.lua] 是面向 Neovim 0.12 的 repo-local exrc：加载本地 tree-sitter parser 与 queries，
 启动 `[`target/debug/plumb-ls]，并配置 workspace edits、resource rename 和 file watching。
@@ -58,8 +58,7 @@ complete/cancel 使用带 revision guard 的 shared operation 修改文件。
 
 `# 当前限制
 
-`- parsed inline element 还不能跨 physical continuation line。
-`- block 与 inline nesting 仍使用 Rust recursion。
+`- block nesting 仍使用 Rust recursion；inline element 使用 explicit stack。
 `- syntax tree 尚未为所有 punctuation/whitespace 提供 token-granular nodes。
 `- normative recovery corpus 尚未全部移植。
 

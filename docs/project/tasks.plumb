@@ -8,7 +8,7 @@
 
 `# Core syntax
 
-`-{.task #same-line-first-child} 支持 same-line first child
+`-{.task #same-line-first-child done="2026-07-20T13:00:12+08:00"} 支持 same-line first child
   `note 保持 empty-head marked block 在下一 physical line 以缩进 block 开始 children 的现有行为。
   `note Head 为空时，head separator 后的 block-only entry 成为 first child，而不是 inline dispatch error。
   `note Same-line child 的 introducer column 建立 parent body indent；后续 children 必须精确对齐。
@@ -16,7 +16,7 @@
   `note 覆盖 generic marker、bullet/ordered nesting、attributes、recursive compact children 和 malformed recovery。
   `note 同步 strict parser、lossless ranges、tree-sitter grammar/corpus、reference、guide 和 bundled skill。
 
-`-{.task #multiline-parsed-inline} 实现跨行 parsed inline elements
+`-{.task #multiline-parsed-inline done="2026-07-20T13:00:12+08:00"} 实现跨行 parsed inline elements
   `note 允许 element 跨越原本属于同一 enclosing InlineContent 的 physical continuation lines。
   `note 移除 structural indentation、保留额外 spaces，并把合法 continuation newline lower 为 SoftBreak。
   `note Blank、enclosing dedent、block-only entry 和 EOF 保持 hard boundaries；unclosed recovery 不消费 boundary。
@@ -24,7 +24,7 @@
   `note 覆盖 paragraph、marked-block head、nested element、UTF-8 ranges、recovery 和 tree-sitter corpus。
   `note 完成后更新 parser gap、core syntax reference、guide、playground 和 bundled skill。
 
-`-{.task #multiline-attributes} 设计并实现 multiline shared attributes
+`-{.task #multiline-attributes done="2026-07-20T13:00:12+08:00"} 设计并实现 multiline shared attributes
   `note Block mark、parsed inline、inline verbatim 和 verbatim block 继续共享一个 attribute grammar。
   `note Opening brace 后允许 newline；第一条 continuation 建立 attr indent，后续 items 与 closing brace 精确对齐。
   `note Physical newline 等价于 attribute whitespace；quoted value 仍限制在一条 physical line。
@@ -35,7 +35,7 @@
 
 `# Standard extensions
 
-`-{.task #standard-div-span} 支持标准 div 与 span 透明容器
+`-{.task #standard-div-span done="2026-07-20T13:00:12+08:00"} 支持标准 div 与 span 透明容器
   `note 将 `[div] marked block 与 `[span] parsed inline kind 冻结为 standard extension spellings。
   `note `[div] 保留 generic block 的 head/children behavior；`[span] 保留 parsed inline content behavior。
   `note 两者只提供 container ownership，不增加 presentation、section、warning 或其他隐式 semantics。
@@ -43,7 +43,7 @@
   `note 其他 generic marker/kind 继续导出 data-plumb-marker，core parser 和 syntax tree 不增加 special cases。
   `note 更新 extension/export tests、standard extension reference、guide、playground 和 bundled skill。
 
-`-{.task #standard-math} 支持 `[.$] standard math facet
+`-{.task #standard-math done="2026-07-20T13:00:12+08:00"} 支持 `[.$] standard math facet
   `note Inline verbatim 与 verbatim block 上的 `[.$] 分别产生 inline math 和 display math。
   `note `[.$] 默认使用 TeX input；可选 `[language=tex]，暂不支持其他 math input languages。
   `note `[.$] 出现在其他 owner 上时发布 `[math.invalid-owner]，且不产生 math semantic record。
@@ -53,19 +53,19 @@
   `note 覆盖 quote-strength、explicit anchors、invalid owners、metadata/export 和 tree-sitter TeX injection。
   `note 更新 standard extension reference、guide、playground 和 bundled skill。
 
-`-{.task #restrict-task-owner} 将 `[.task] 标准语义限制到 list item
+`-{.task #restrict-task-owner done="2026-07-20T13:00:12+08:00"} 将 `[.task] 标准语义限制到 list item
   `note Task recognizer 只为 `[-] 和 `[.] marker 生成 TaskRecord。
   `note `[.task] 出现在其他 marker 上时发布 `[task.invalid-owner]，且不生成 TaskRecord。
   `note Bullet/ordered list kind 不改变 task state、dependency、recurrence 或 operation semantics。
   `note 更新 extension、export、LSP、CLI tests，以及 standard extension reference 和 bundled skill。
 
-`-{.task #convert-list-item-to-task depends="#restrict-task-owner"} 添加 list item 转 task code action
+`-{.task #convert-list-item-to-task depends="#restrict-task-owner" done="2026-07-20T13:00:22+08:00"} 添加 list item 转 task code action
   `note Cursor 位于非 task 的 `[-] 或 `[.] item 内时提供 Convert to task。
   `note 同一次 operation 添加 `[.task] 和本地 RFC 3339 `[created] timestamp，并保留已有 attributes。
   `note 使用 protocol-neutral guarded operation；LSP 映射为 `[refactor.rewrite] code action。
   `note Nested list 中只转换 cursor 命中的最深 item，并覆盖无 attributes 与已有 attributes 的 tests。
 
-`-{.task #add-task-created depends="#restrict-task-owner"} 添加 task created timestamp code action
+`-{.task #add-task-created depends="#restrict-task-owner" done="2026-07-20T13:00:22+08:00"} 添加 task created timestamp code action
   `note Cursor 位于缺少 `[created] 的 task 内时提供 Add task created timestamp。
   `note 使用 action 执行时的本地 RFC 3339 timestamp；已有 `[created] 时不提供 action。
   `note Closed、blocked 或 conflicted task 仍可补录；nested task 只作用于 cursor 命中的最深 task。

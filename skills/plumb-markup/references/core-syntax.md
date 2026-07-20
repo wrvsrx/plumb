@@ -35,7 +35,16 @@ the normal style. Dedent returns to an existing outer indentation level.
 `parent Head
   `child One
   `child Two
-    `grandchild Three
+`grandchild Three
+```
+
+An empty-head marked block may put its first marked/verbatim child after the
+head separator on the same physical line. That child's introducer column
+establishes the sibling column:
+
+```plumb
+`- `- First
+   `- Second
 ```
 
 A nonblank indented plain line immediately following a marked head, without an
@@ -63,6 +72,11 @@ The shared attribute form is `{#id .class key=value}`.
   `\t`, or unknown escapes.
 - Allow `{}` and `key=""`.
 
+Attributes may cross physical lines. The first continuation establishes an
+attribute column greater than the owner's structural column; later items and
+the closing brace align there. Newlines separate items, but quoted values stay
+on one physical line.
+
 ```plumb
 `node{#intro .note level=2 url="https://example.test/a#part"} Head
 ```
@@ -78,8 +92,10 @@ A parsed inline element has a nonempty kind and parsed content:
 
 An opening bracket inside parsed content is ordinary text. An unescaped closing
 bracket closes the current element; write a literal closing bracket as `` `] ``.
-Attributes must touch the complete closing delimiter. Keep parsed inline
-elements on one physical line for the current toolchain.
+Attributes must touch the complete closing delimiter. Parsed inline elements
+may cross continuation lines belonging to the same paragraph/head; those
+boundaries become soft breaks. Blank lines, dedents, block-only entries, and
+EOF remain hard boundaries.
 
 Core does not interpret kinds. For example, `*[text]` and `_[text]` are generic
 inline elements unless an extension explicitly defines them.

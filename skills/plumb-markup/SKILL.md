@@ -40,8 +40,8 @@ it. Inside the plumb source repository, prefer
 - Attach attributes directly to their block marker or complete inline
   delimiter. Whitespace before attributes changes their ownership.
 - Use explicit `{#id}` anchors. Headings do not generate implicit ids.
-- Keep parsed inline elements on one physical line for compatibility with the
-  current released parser.
+- Parsed inline elements may cross valid paragraph/head continuation lines;
+  inline verbatim payloads remain on one physical line.
 - Do not invent quote, table, thematic-break, emphasis, or strong
   semantics. Generic markers and inline kinds remain generic.
 
@@ -53,6 +53,9 @@ it. Inside the plumb source repository, prefer
 `- List item
 `. Ordered item
 `-{.task #write-parser} Implement parser
+
+`div{.notice} Transparent block container
+Inline `span[container]{.notice} and `[x^2]{.$} math.
 
 `: Term
 
@@ -68,4 +71,6 @@ Use `[cargo test] for inline raw text.
 
 Use `-` for bullet-list items, `.` for ordered-list items, and `->` as the sole
 link inline kind. `item` and `link` remain syntactically valid generic names but
-have no list or link semantics.
+have no list or link semantics. Only `-` and `.` items may carry the standard
+`.task` facet. `div` and `span` are transparent containers; `.$` on verbatim
+inline/block nodes is TeX math.

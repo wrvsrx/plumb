@@ -34,7 +34,8 @@ delimiter error。
 `# 4. Recovery boundaries
 
 `- block-start error：当前 physical line。
-`- attribute item error：下一个 attribute whitespace 或 closing brace。
+`- attribute item error：下一个 attribute whitespace 或 closing brace；multiline slot 不跨越 blank、
+  dedent、block-only entry 或错位 continuation。
 `- parsed inline error：blank、dedent、block-only entry 或 EOF 前。
 `- inline verbatim error：当前 physical line ending 或 EOF。
 `- partial dedent：补到最接近的合法 outer column 后继续当前 line。
@@ -49,8 +50,9 @@ recovery 的目标是报告后续独立错误并保留 source，不是把 malfor
 `- metadata：duplicate/invalid key、invalid location、unsupported 或 mixed value shape。
 `- link/reference：缺失或无效 target、missing document/anchor、ambiguous anchor。
 `- citation：空 id、nested 或 unsupported citation shape。
-`- task：无效 field、timestamp/recur/reference、互斥 closure state、self dependency、cycle、blocked
-  completion。
+`- task：invalid owner、无效 field、timestamp/recur/reference、互斥 closure state、self dependency、
+  cycle、blocked completion。
+`- math：invalid owner 或 unsupported input language。
 
 semantic diagnostic 应指向最小 source-backed field range。由多个 documents 共同形成的问题可以
 携带 related locations。
