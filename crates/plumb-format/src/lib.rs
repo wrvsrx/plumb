@@ -209,10 +209,99 @@ mod tests {
     use super::*;
 
     fn assert_formats(source: &str, expected: &str) {
+        let original = parse(source);
+        assert!(original.is_valid());
         let formatted = format(source).unwrap();
         assert_eq!(formatted, expected);
-        assert!(parse(&formatted).is_valid());
+        let reparsed = parse(&formatted);
+        assert!(reparsed.is_valid());
+        assert_eq!(
+            shape(&original.syntax.blocks),
+            shape(&reparsed.syntax.blocks)
+        );
         assert_eq!(format(&formatted).unwrap(), formatted);
+    }
+
+    fn shape(blocks: &[Block]) -> String {
+        let mut output = String::new();
+        shape_blocks(blocks, &mut output);
+        output
+    }
+
+    fn shape_blocks(blocks: &[Block], output: &mut String) {
+        output.push('[');
+        for block in blocks {
+            match block {
+                Block::Parsed(block) => {
+                    output.push('P');
+                    match &block.mark {
+                        Some(mark) => {
+                            let _ = write!(output, "{:?}", mark.marker);
+                            shape_attrs(&mark.attrs, output);
+                        }
+                        None => output.push('-'),
+                    }
+                    shape_inlines(&block.head, output);
+                    shape_blocks(&block.children, output);
+                }
+                Block::Verbatim(block) => {
+                    output.push('V');
+                    shape_attrs(&block.attrs, output);
+                    let _ = write!(output, "{:?}", block.text);
+                }
+            }
+        }
+        output.push(']');
+    }
+
+    fn shape_inlines(content: &InlineContent, output: &mut String) {
+        output.push('(');
+        for inline in &content.items {
+            match inline {
+                Inline::Text { text, .. } => {
+                    let _ = write!(output, "T{text:?}");
+                }
+                Inline::SoftBreak { .. } => output.push('S'),
+                Inline::Element {
+                    kind,
+                    content,
+                    attrs,
+                    ..
+                } => {
+                    let _ = write!(output, "E{kind:?}");
+                    shape_inlines(content, output);
+                    shape_attrs(attrs, output);
+                }
+                Inline::Verbatim { text, attrs, .. } => {
+                    let _ = write!(output, "V{text:?}");
+                    shape_attrs(attrs, output);
+                }
+            }
+        }
+        output.push(')');
+    }
+
+    fn shape_attrs(attrs: &Attributes, output: &mut String) {
+        match &attrs.range {
+            None => output.push('-'),
+            Some(_) => {
+                output.push('{');
+                for item in &attrs.items {
+                    match item {
+                        AttrItem::Id { value, .. } => {
+                            let _ = write!(output, "I{value:?}");
+                        }
+                        AttrItem::Class { value, .. } => {
+                            let _ = write!(output, "C{value:?}");
+                        }
+                        AttrItem::Pair { key, value, .. } => {
+                            let _ = write!(output, "K{key:?}={:?}", value.decoded);
+                        }
+                    }
+                }
+                output.push('}');
+            }
+        }
     }
 
     #[test]
@@ -238,7 +327,10 @@ mod tests {
 
     #[test]
     fn preserves_verbatim_payload_and_its_final_newline() {
-        assert_formats("`{language=text}\n  a\nnext\n", "`{language=text}\n  a\nnext\n");
+        assert_formats(
+            "`{language=text}\n  a\nnext\n",
+            "`{language=text}\n  a\nnext\n",
+        );
         assert_formats(
             "`{language=text}\n    a\n\nnext\n",
             "`{language=text}\n    a\n\nnext\n",

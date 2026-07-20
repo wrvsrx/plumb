@@ -11,6 +11,7 @@
   UTF-8 source
       -> plumb-core recovered lossless tree + syntax diagnostics
       -> typed recovered/valid views
+      -> syntax formatter
       -> document extensions
       -> workspace indexes
       -> queries / operations / export
@@ -25,6 +26,9 @@ input 都产生 lossless tree 与 diagnostics。它不解释 heading、list、me
 
 parser 使用 reject-but-recover。当前 revision 有 syntax error 时，authoritative semantic analysis
 和 export 必须停止；completion 等明确面向编辑中 source 的 query 可以消费 recovered view。
+
+`[plumb-format] 消费 valid syntax tree 并产生 canonical source。formatting policy 不属于 core syntax
+validity，也不依赖 semantic extensions；invalid recovered tree 不进入 formatter。
 
 `# 3. Extensions
 
@@ -46,7 +50,8 @@ completeness；不能把 partial result 表示成 complete negative result。
 `# 5. Consumers
 
 `- `[plumb-ls] 负责 JSON-RPC/LSP transport、UTF-16 positions、capabilities、cancellation 和
-  protocol mapping。
+  protocol mapping，并把 document formatting 映射到 shared formatter。
+`- `[plumb-fmt] 提供 file/stdin formatting 和 check mode。
 `- `[plumb-export] 是 extension consumer，从 valid views 产生 Pandoc JSON，不调用 Pandoc reader。
 `- `[plumb-notes] 复用 workspace queries 和 operations，提供 CEL、picker 与 task CLI。
 `- `[tree-sitter-plumb] 是 lenient editor mirror，只负责 highlight、fold、indent、text object 和
@@ -57,6 +62,7 @@ consumer 不复制 parser、semantic recognition 或 edit logic。
 `# 6. Crate boundaries
 
 `- `[plumb-core]：strict syntax tree、diagnostics、typed views。
+`- `[plumb-format]：syntax-valid document 的 protocol-neutral canonical formatter 与 CLI。
 `- `[plumb-extensions]：protocol-neutral semantic records、analyses、queries、operations、export model。
 `- `[plumb-workspace]：snapshots、indexes、cross-file invalidation 和 guarded edits。
 `- `[plumb-ls]：LSP adapter。
