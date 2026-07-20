@@ -79,13 +79,13 @@ script after changing the grammar, scanner, or locked toolchain.
 
 The optional project configuration in `[dev/nvim.lua] loads the prebuilt parser
 and all tracked queries, registers the `[plumb] filetype, starts tree-sitter highlighting,
-and enables the development `[plumb-ls] binary for `[*.plumb] buffers. It does
+and enables the development `[plumb lsp] server for `[*.plumb] buffers. It does
 not invoke Nix or compile code during Neovim startup. Build both development
 artifacts first:
 
 `{language=sh}
   ./tree-sitter-plumb/build-parser.sh
-  cargo build -p plumb-ls
+  cargo build -p plumb
 
 Enable the configuration locally with an ignored symlink:
 

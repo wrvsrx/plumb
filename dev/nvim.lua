@@ -29,14 +29,14 @@ local capabilities = vim.lsp.protocol.make_client_capabilities()
 capabilities.workspace.workspaceEdit.documentChanges = true
 capabilities.workspace.workspaceEdit.resourceOperations = { "rename" }
 -- Neovim disables workspace/didChangeWatchedFiles by default on Linux. Opt in
--- for local plumb-ls testing; install inotify-tools for the inotify backend.
+-- for local `plumb lsp` testing; install inotify-tools for the inotify backend.
 capabilities.workspace.didChangeWatchedFiles =
   capabilities.workspace.didChangeWatchedFiles or {}
 capabilities.workspace.didChangeWatchedFiles.dynamicRegistration = true
 capabilities.workspace.didChangeWatchedFiles.relativePatternSupport = true
 
-vim.lsp.config["plumb-ls"] = {
-  cmd = { repo_root .. "/target/debug/plumb-ls" },
+vim.lsp.config["plumb"] = {
+  cmd = { repo_root .. "/target/debug/plumb", "lsp" },
   filetypes = { "plumb" },
   root_markers = { ".git" },
   capabilities = capabilities,
@@ -55,4 +55,4 @@ vim.api.nvim_create_autocmd("ColorScheme", {
   callback = set_plumb_semantic_highlights,
 })
 
-vim.lsp.enable("plumb-ls")
+vim.lsp.enable("plumb")

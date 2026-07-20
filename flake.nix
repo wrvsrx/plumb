@@ -38,7 +38,7 @@
               meta = {
                 description = "Strict plumb markup language and tooling";
                 license = pkgs.lib.licenses.mit;
-                mainProgram = "plumb-ls";
+                mainProgram = "plumb";
               };
             };
           in

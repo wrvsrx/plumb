@@ -1,9 +1,9 @@
 `meta
   `: title
 
-    plumb-ls playground
+    plumb lsp playground
 
-Use this file with plumb-ls attached. The final diagnostics section contains
+Use this file with `[plumb lsp] attached. The final diagnostics section contains
 intentional semantic errors; the entire file remains syntactically valid.
 
 `#{#symbols} Document symbols

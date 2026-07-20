@@ -157,7 +157,7 @@ TeX inline/display math. The math facet and optional `language=tex` are
 consumed; other attributes are preserved with Span/Div wrappers. `.$` on a
 non-verbatim owner is invalid.
 
-`plumb-export` emits Pandoc JSON directly. Standard lowering includes headings,
+`plumb export` emits Pandoc JSON directly. Standard lowering includes headings,
 bullet lists, definition lists, metadata, `->` links, single-id citations, and
 task attributes. Generic marked blocks become Divs, generic parsed inline
 elements become Spans, verbatim blocks become CodeBlocks, and inline verbatim
@@ -166,7 +166,7 @@ becomes Code.
 Pipe the result to a Pandoc writer rather than invoking a Pandoc plumb reader:
 
 ```sh
-plumb-export document.plumb | pandoc -f json -t html -o document.html
+plumb export document.plumb | pandoc -f json -t html -o document.html
 ```
 
 Do not assume quote, table, thematic-break, or `*`/`_` emphasis semantics until

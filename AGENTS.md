@@ -109,17 +109,15 @@ semantics can be shared by more than one tool:
   analysis, relocated out of core.)
 - **`plumb-workspace`** — document snapshots, last-valid extension outputs,
   dependency invalidation, cross-file indexes, and guarded workspace edits.
-- **`plumb-ls`** — everything LSP (`lsp_types`, `async-lsp`, UTF-16 positions);
-  wires core + extensions, hosts request-scoped queries, and merges their
-  diagnostics.
-- **`plumb-export`** — itself an extension: valid typed view or exporter-specific
-  normalized model → `pandoc_types` JSON → `pandoc` (writer only).
-- **`plumb-notes`** — CEL query/edit CLI over directories of plumb documents.
+- **`plumb`** — the single user-facing binary. Its `lsp`, `export`, `fmt`, `note`,
+  and `task` subcommands adapt the shared libraries to stdio, files, and editor
+  protocols. The LSP implementation owns `lsp_types`, `async-lsp`, and UTF-16
+  positions; export remains an extension that emits Pandoc JSON.
 - **`tree-sitter-plumb`** (eventually a separate repo) — the existing lenient
   grammar for editor ergonomics.
 
-All binaries reuse `plumb-core` + the extensions without pulling in each other's
-types.
+The unified binary reuses `plumb-core` and the shared libraries; subcommand
+dispatch does not move syntax or semantic behavior into the CLI layer.
 
 ## Tree-sitter generation workflow
 
@@ -156,7 +154,7 @@ generated files. Git consumers are not promised a directly buildable generated
 parser; they should consume release artifacts or run the documented generation
 step.
 
-## Runtime gotcha inherited from async-lsp (applies once `plumb-ls` exists)
+## Runtime gotcha inherited from async-lsp (applies to `plumb lsp`)
 
 async-lsp's omni-trait style (`Router::from_language_server` +
 `impl LanguageServer`) pre-registers a *breaking* handler for every standard LSP

@@ -1,6 +1,6 @@
 This file intentionally starts without a metadata block.
 
-Open it with plumb-ls, place the cursor in this first block, and request code
+Open it with `[plumb lsp], place the cursor in this first block, and request code
 actions. The server should offer `[Insert document metadata] and prepend a
 `[meta] block whose title is `[metadata-scratch] and whose created value is the
 current local RFC 3339 timestamp.

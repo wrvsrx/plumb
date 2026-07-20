@@ -1,6 +1,6 @@
 ---
 name: plumb-markup
-description: Write, edit, review, or convert strict plumb (.plumb) documents using the released core syntax and standard extensions. Use for plumb blocks, inline elements, attributes, raw content, headings, lists, definitions, metadata, links, citations, tasks, references, or documents consumed by plumb-ls, plumb-export, and plumb-notes.
+description: Write, edit, review, or convert strict plumb (.plumb) documents using the released core syntax and standard extensions. Use for plumb blocks, inline elements, attributes, raw content, headings, lists, definitions, metadata, links, citations, tasks, references, or documents consumed by the plumb toolchain.
 ---
 
 # Plumb Markup
@@ -21,8 +21,8 @@ text.
 4. Use only frozen standard spellings. Keep unknown markers and inline kinds
    generic; do not infer Markdown semantics from punctuation.
 5. Validate edited documents with the repository's required checks. When no
-   repository-specific command exists and `plumb-export` is available, run
-   `plumb-export FILE >/dev/null` as a strict parse/export check.
+   repository-specific command exists and `plumb` is available, run
+   `plumb export FILE >/dev/null` as a strict parse/export check.
 
 ## Authority
 

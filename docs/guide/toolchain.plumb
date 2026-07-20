@@ -25,17 +25,17 @@ diagnostics 和 export smoke test。
 
 `# LSP
 
-`[plumb-ls] 提供 strict syntax 与 semantic diagnostics、document symbols、definition、references、
+`[plumb lsp] 提供 strict syntax 与 semantic diagnostics、document symbols、definition、references、
 hover、completion、anchor/document rename、metadata insertion、task conversion/created/status actions
 、task semantic tokens 和 whole-document formatting。server 会扫描 workspace，并在 editor 支持时
 监听 `[..plumb] file changes。
 
 `[dev/nvim.lua] 是面向 Neovim 0.12 的 repo-local exrc：加载本地 tree-sitter parser 与 queries，
-启动 `[`target/debug/plumb-ls]，并配置 workspace edits、resource rename 和 file watching。
+启动 `[`target/debug/plumb lsp]，并配置 workspace edits、resource rename 和 file watching。
 
 `# Format
 
-`[plumb-fmt] 对 syntax-valid document 进行 canonical formatting：使用两个 ASCII spaces 表达
+`[plumb fmt] 对 syntax-valid document 进行 canonical formatting：使用两个 ASCII spaces 表达
 structural indentation，把 attributes 排成单行，并为 inline verbatim 选择最小安全 quote count。
 formatter 不重排普通文本，不改变 attribute item 顺序，也不解释 heading、list、metadata 或 task
 semantics。包含 syntax error 的 document 会被拒绝。
@@ -43,33 +43,33 @@ semantics。包含 syntax error 的 document 会被拒绝。
 不带 path 时从 stdin 读取并写到 stdout；带 path 时原地更新：
 
 `{language=text}
-  plumb-fmt document.plumb
-  cat document.plumb | plumb-fmt > formatted.plumb
-  plumb-fmt --check docs/*.plumb
+  plumb fmt document.plumb
+  cat document.plumb | plumb fmt > formatted.plumb
+  plumb fmt --check docs/*.plumb
 
 `[--check] 不写文件；任一输入需要重新格式化时返回非零状态。LSP 使用同一个 formatter 实现
 `[textDocument/formatting]，editor 的 tab size 不改变 canonical two-space policy。
 
 `# Export
 
-`[plumb-export] 直接产生 Pandoc JSON AST。Pandoc 只作为 writer：
+`[plumb export] 直接产生 Pandoc JSON AST。Pandoc 只作为 writer：
 
 `{language=text}
-  plumb-export document.plumb | pandoc -f json -t html -o document.html
-  cat document.plumb | plumb-export | pandoc -f json -o document.pdf
+  plumb export document.plumb | pandoc -f json -t html -o document.html
+  cat document.plumb | plumb export | pandoc -f json -o document.pdf
 
 syntax error、无效 metadata 或其他阻止 authoritative semantics 的错误会让 export 失败。
 
 `# Notes
 
-`[plumb-notes] 提供 document/task CEL query、interactive picker 和 task operations：
+`[plumb note] 与 `[plumb task] 提供 document/task CEL query、interactive picker 和 task operations：
 
 `{language=text}
-  plumb-notes note --query 'title.contains("parser")'
-  plumb-notes note --interactive
-  plumb-notes task --query 'actionable && due < now'
-  plumb-notes task complete notes/tasks.plumb#write-parser
-  plumb-notes task cancel notes/tasks.plumb#obsolete-task
+  plumb note --query 'title.contains("parser")'
+  plumb note --interactive
+  plumb task --query 'actionable && due < now'
+  plumb task complete notes/tasks.plumb#write-parser
+  plumb task cancel notes/tasks.plumb#obsolete-task
 
 task output 默认是 nested table；`[--flat] 省略 nesting indentation，`[--no-heading] 适合脚本。
 complete/cancel 使用带 revision guard 的 shared operation 修改文件。

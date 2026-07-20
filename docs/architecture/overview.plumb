@@ -49,11 +49,8 @@ completeness；不能把 partial result 表示成 complete negative result。
 
 `# 5. Consumers
 
-`- `[plumb-ls] 负责 JSON-RPC/LSP transport、UTF-16 positions、capabilities、cancellation 和
-  protocol mapping，并把 document formatting 映射到 shared formatter。
-`- `[plumb-fmt] 提供 file/stdin formatting 和 check mode。
-`- `[plumb-export] 是 extension consumer，从 valid views 产生 Pandoc JSON，不调用 Pandoc reader。
-`- `[plumb-notes] 复用 workspace queries 和 operations，提供 CEL、picker 与 task CLI。
+`- `[plumb] 是唯一 user-facing binary；`[lsp]、`[fmt]、`[export]、`[note] 和 `[task]
+  subcommands 分别适配 editor protocol、file/stdin、Pandoc JSON、CEL 和 task operations。
 `- `[tree-sitter-plumb] 是 lenient editor mirror，只负责 highlight、fold、indent、text object 和
   injection。
 
@@ -62,14 +59,14 @@ consumer 不复制 parser、semantic recognition 或 edit logic。
 `# 6. Crate boundaries
 
 `- `[plumb-core]：strict syntax tree、diagnostics、typed views。
-`- `[plumb-format]：syntax-valid document 的 protocol-neutral canonical formatter 与 CLI。
+`- `[plumb-format]：syntax-valid document 的 protocol-neutral canonical formatter library。
 `- `[plumb-extensions]：protocol-neutral semantic records、analyses、queries、operations、export model。
 `- `[plumb-workspace]：snapshots、indexes、cross-file invalidation 和 guarded edits。
-`- `[plumb-ls]：LSP adapter。
-`- `[plumb-export]：Pandoc JSON binary。
-`- `[plumb-notes]：notes/task CLI。
+`- `[plumb]：统一 CLI、LSP adapter 以及各 library entry point 的 subcommand dispatch。
+`- `[plumb-export]：Pandoc JSON lowering library。
+`- `[plumb-notes]：notes/task query 与 operation library。
 
-binary crates 可以依赖共享 layers，但不能依赖彼此的 protocol types。
+统一 binary 可以依赖共享 layers，但 shared libraries 不能依赖 CLI protocol types。
 
 `# 7. Tree-sitter boundary
 

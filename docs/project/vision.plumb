@@ -44,7 +44,7 @@ list grouping、metadata shape、link resolution、task state 和 export mapping
 
 `# 生态与退出路径
 
-plumb 不要求通用工具原生理解其 source。`[plumb-export] 直接构造 Pandoc JSON AST，再交给 Pandoc
+plumb 不要求通用工具原生理解其 source。`[plumb export] 直接构造 Pandoc JSON AST，再交给 Pandoc
 writers 输出 HTML、PDF 和其他格式。generic structures 仍以 Div/Span/CodeBlock/Code 保留。
 
 因此 plumb 可以为个人 workflow 保持严格和小型，同时始终保留清晰的迁移路径。
