@@ -7,8 +7,9 @@ use plumb_core::{
 };
 
 use crate::{
-    analyze_citations, analyze_headings, analyze_lists, analyze_metadata, analyze_tasks,
-    CitationOutput, HeadingOutput, ListOutput, MetadataOutput, TaskOutput,
+    analyze_citations, analyze_headings, analyze_lists, analyze_math, analyze_metadata,
+    analyze_tasks, CitationOutput, HeadingOutput, ListOutput, MathOutput, MetadataOutput,
+    TaskOutput,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -73,6 +74,7 @@ pub struct DocumentOutput {
     pub metadata: MetadataOutput,
     pub citations: CitationOutput,
     pub lists: ListOutput,
+    pub math: MathOutput,
     pub tasks: TaskOutput,
     pub anchors: Vec<AnchorRecord>,
     pub links: Vec<LinkRecord>,
@@ -90,12 +92,14 @@ pub fn analyze_document(source: &str, document: &Document) -> DocumentOutput {
     let metadata = analyze_metadata(document);
     let citations = analyze_citations(document);
     let lists = analyze_lists(document);
+    let math = analyze_math(document);
     let tasks = analyze_tasks(source, document);
     let mut output = DocumentOutput {
         headings,
         metadata,
         citations,
         lists,
+        math,
         tasks,
         ..DocumentOutput::default()
     };

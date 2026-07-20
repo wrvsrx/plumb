@@ -99,10 +99,26 @@ fn collect_blocks(source: &str, blocks: &[Block], task_depth: usize, output: &mu
         let Block::Parsed(block) = block else {
             continue;
         };
-        let is_task = block
-            .mark
-            .as_ref()
-            .is_some_and(|mark| mark.attrs.has_class("task"));
+        let task_class = block.mark.as_ref().and_then(|mark| {
+            mark.attrs.items.iter().find_map(|item| match item {
+                AttrItem::Class { value, range } if value == "task" => Some(range.clone()),
+                _ => None,
+            })
+        });
+        let is_task = task_class.is_some()
+            && block
+                .mark
+                .as_ref()
+                .is_some_and(|mark| matches!(mark.marker.as_str(), "-" | "."));
+        if let Some(range) = task_class.filter(|_| !is_task) {
+            output.diagnostics.push(Diagnostic {
+                code: "task.invalid-owner",
+                severity: DiagnosticSeverity::Warning,
+                message: "the '.task' facet is only valid on '-' and '.' list items".to_string(),
+                range,
+                related: Vec::new(),
+            });
+        }
         if is_task {
             let task = task_record(source, block, task_depth);
             collect_task_diagnostics(&task, output);
@@ -435,5 +451,17 @@ mod tests {
             Some("2025-02-28T09:00:00+00:00")
         );
         assert!(next_task_datetime("2026-07-20T09:00:00Z", "P1M1D").is_none());
+    }
+
+    #[test]
+    fn task_facet_requires_a_list_item_owner() {
+        let source = "`note{.task} Not a task\n`-{.task} Bullet\n`.{.task} Ordered\n";
+        let parsed = parse(source);
+        assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
+
+        let output = analyze_tasks(source, &parsed.syntax);
+        assert_eq!(output.tasks.len(), 2);
+        assert_eq!(output.diagnostics.len(), 1);
+        assert_eq!(output.diagnostics[0].code, "task.invalid-owner");
     }
 }

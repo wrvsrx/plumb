@@ -884,6 +884,7 @@ impl Workspace {
         diagnostics.extend(current.output.headings.diagnostics.clone());
         diagnostics.extend(current.output.metadata.diagnostics.clone());
         diagnostics.extend(current.output.citations.diagnostics.clone());
+        diagnostics.extend(current.output.math.diagnostics.clone());
         diagnostics.extend(current.output.tasks.diagnostics.clone());
         diagnostics.extend(current.output.diagnostics.clone());
         for link in &current.output.links {

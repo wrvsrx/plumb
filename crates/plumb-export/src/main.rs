@@ -158,10 +158,30 @@ fn lower_blocks(blocks: &[Block], analysis: &DocumentOutput) -> Vec<Value> {
         }
         match &blocks[index] {
             Block::Verbatim(block) => {
-                output.push(json!({
-                    "t": "CodeBlock",
-                    "c": [lower_attrs(&block.attrs, None), block.text],
-                }));
+                if analysis
+                    .math
+                    .math_at_node_start(block.range.start)
+                    .is_some()
+                {
+                    let math = json!({
+                        "t": "Math",
+                        "c": [{ "t": "DisplayMath" }, block.text],
+                    });
+                    let paragraph = json!({ "t": "Para", "c": [math] });
+                    if has_unconsumed_math_attrs(&block.attrs) {
+                        output.push(json!({
+                            "t": "Div",
+                            "c": [lower_math_attrs(&block.attrs), [paragraph]],
+                        }));
+                    } else {
+                        output.push(paragraph);
+                    }
+                } else {
+                    output.push(json!({
+                        "t": "CodeBlock",
+                        "c": [lower_attrs(&block.attrs, None), block.text],
+                    }));
+                }
             }
             Block::Parsed(parsed) => lower_parsed_block(parsed, analysis, &mut output),
         }
@@ -237,7 +257,6 @@ fn lower_parsed_block(block: &ParsedBlock, analysis: &DocumentOutput, output: &m
     {
         return;
     }
-    let marker = block.mark.as_ref().map(|mark| mark.marker.as_str());
     if let Some(heading) = analysis.headings.heading_at_node_start(block.range.start) {
         let attrs = &block.mark.as_ref().expect("heading has mark").attrs;
         output.push(json!({
@@ -256,7 +275,7 @@ fn lower_parsed_block(block: &ParsedBlock, analysis: &DocumentOutput, output: &m
         contents.extend(lower_blocks(&block.children, analysis));
         output.push(json!({
             "t": "Div",
-            "c": [lower_attrs(&mark.attrs, marker), contents],
+            "c": [lower_attrs(&mark.attrs, (mark.marker != "div").then_some(mark.marker.as_str())), contents],
         }));
     } else {
         output.push(json!({ "t": "Para", "c": lower_inlines(&block.head, analysis) }));
@@ -269,10 +288,29 @@ fn lower_inlines(content: &InlineContent, analysis: &DocumentOutput) -> Vec<Valu
         match inline {
             Inline::Text { text, .. } => lower_text(text, &mut output),
             Inline::SoftBreak { .. } => output.push(json!({ "t": "SoftBreak" })),
-            Inline::Verbatim { text, attrs, .. } => output.push(json!({
-                "t": "Code",
-                "c": [lower_attrs(attrs, None), text],
-            })),
+            Inline::Verbatim {
+                range, text, attrs, ..
+            } => {
+                if analysis.math.math_at_node_start(range.start).is_some() {
+                    let math = json!({
+                        "t": "Math",
+                        "c": [{ "t": "InlineMath" }, text],
+                    });
+                    if has_unconsumed_math_attrs(attrs) {
+                        output.push(json!({
+                            "t": "Span",
+                            "c": [lower_math_attrs(attrs), [math]],
+                        }));
+                    } else {
+                        output.push(math);
+                    }
+                } else {
+                    output.push(json!({
+                        "t": "Code",
+                        "c": [lower_attrs(attrs, None), text],
+                    }));
+                }
+            }
             Inline::Element {
                 range,
                 kind,
@@ -290,7 +328,7 @@ fn lower_inlines(content: &InlineContent, analysis: &DocumentOutput) -> Vec<Valu
                 } else {
                     output.push(json!({
                         "t": "Span",
-                        "c": [lower_attrs(attrs, Some(kind)), lower_inlines(content, analysis)],
+                        "c": [lower_attrs(attrs, (kind != "span").then_some(kind)), lower_inlines(content, analysis)],
                     }));
                 }
             }
@@ -331,13 +369,28 @@ fn lower_text(text: &str, output: &mut Vec<Value>) {
 }
 
 fn lower_attrs(attrs: &Attributes, semantic_marker: Option<&str>) -> Value {
+    lower_attrs_filtered(attrs, semantic_marker, |_| false, |_| false)
+}
+
+fn lower_math_attrs(attrs: &Attributes) -> Value {
+    lower_attrs_filtered(attrs, None, |class| class == "$", |key| key == "language")
+}
+
+fn lower_attrs_filtered(
+    attrs: &Attributes,
+    semantic_marker: Option<&str>,
+    consume_class: impl Fn(&str) -> bool,
+    consume_pair: impl Fn(&str) -> bool,
+) -> Value {
     let mut id = String::new();
     let mut classes = Vec::new();
     let mut pairs = Vec::new();
     for item in &attrs.items {
         match item {
             AttrItem::Id { value, .. } => id = value.clone(),
-            AttrItem::Class { value, .. } => classes.push(value.clone()),
+            AttrItem::Class { value, .. } if !consume_class(value) => classes.push(value.clone()),
+            AttrItem::Class { .. } => {}
+            AttrItem::Pair { key, .. } if consume_pair(key) => {}
             AttrItem::Pair { key, value, .. } if key != "level" => {
                 pairs.push(json!([key, value.decoded]));
             }
@@ -348,6 +401,14 @@ fn lower_attrs(attrs: &Attributes, semantic_marker: Option<&str>) -> Value {
         pairs.push(json!(["data-plumb-marker", marker]));
     }
     json!([id, classes, pairs])
+}
+
+fn has_unconsumed_math_attrs(attrs: &Attributes) -> bool {
+    attrs.items.iter().any(|item| match item {
+        AttrItem::Id { .. } => true,
+        AttrItem::Class { value, .. } => value != "$",
+        AttrItem::Pair { key, .. } => key != "language",
+    })
 }
 
 #[cfg(test)]
@@ -473,6 +534,47 @@ mod tests {
         assert_eq!(document["blocks"][0]["c"][2]["c"][1], "cargo check");
         assert_eq!(document["blocks"][1]["t"], "CodeBlock");
         assert_eq!(document["blocks"][1]["c"][1], "fn main() {}\n");
+    }
+
+    #[test]
+    fn exports_standard_div_and_span_without_redundant_markers() {
+        let document = export("`div{#box .note} Body\n`span[text]{.mark}\n").unwrap();
+        let div_attrs = &document["blocks"][0]["c"][0];
+        assert_eq!(div_attrs, &json!(["box", ["note"], []]));
+        let span_attrs = &document["blocks"][1]["c"][0]["c"][0];
+        assert_eq!(span_attrs, &json!(["", ["mark"], []]));
+    }
+
+    #[test]
+    fn exports_inline_and_display_math_with_attribute_wrappers() {
+        let source = "Inline `[x^2]{.$}. Wrapped `[y]{.$ #inline .keep key=value}.\n\n`{.$}\n  E = mc^2\n`{.$ #display .numbered language=tex}\n  a = b\n";
+        let document = export(source).unwrap();
+        assert_eq!(document["blocks"][0]["c"][2]["t"], "Math");
+        assert_eq!(document["blocks"][0]["c"][2]["c"][0]["t"], "InlineMath");
+        let inline_wrapper = document["blocks"][0]["c"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|inline| inline["t"] == "Span")
+            .unwrap();
+        assert_eq!(inline_wrapper["t"], "Span");
+        assert_eq!(
+            inline_wrapper["c"][0],
+            json!(["inline", ["keep"], [["key", "value"]]])
+        );
+        assert_eq!(inline_wrapper["c"][1][0]["t"], "Math");
+        assert_eq!(document["blocks"][1]["t"], "Para");
+        assert_eq!(document["blocks"][1]["c"][0]["c"][0]["t"], "DisplayMath");
+        let display_wrapper = &document["blocks"][2];
+        assert_eq!(display_wrapper["t"], "Div");
+        assert_eq!(
+            display_wrapper["c"][0],
+            json!(["display", ["numbered"], []])
+        );
+        assert_eq!(
+            display_wrapper["c"][1][0]["c"][0]["c"][0]["t"],
+            "DisplayMath"
+        );
     }
 
     #[test]

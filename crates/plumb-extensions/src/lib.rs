@@ -2,6 +2,7 @@ mod citations;
 mod document;
 mod headings;
 mod lists;
+mod math;
 mod metadata;
 mod queries;
 mod tasks;
@@ -13,6 +14,7 @@ pub use document::{
 };
 pub use headings::{analyze_headings, Heading, HeadingOutput};
 pub use lists::{analyze_lists, ListGroup, ListItemRecord, ListKind, ListOutput};
+pub use math::{analyze_math, MathKind, MathOutput, MathRecord};
 pub use metadata::{
     analyze_metadata, DefinitionList, DefinitionRecord, MetadataBlock, MetadataEntry,
     MetadataListItem, MetadataOutput, MetadataValue,
