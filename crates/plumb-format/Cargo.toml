@@ -1,0 +1,16 @@
+[package]
+name = "plumb-format"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+clap.workspace = true
+plumb-core = { path = "../plumb-core" }
+
+[lib]
+name = "plumb_format"
+
+[[bin]]
+name = "plumb-fmt"
+path = "src/main.rs"

@@ -1155,6 +1155,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "plumb-format"
+version = "0.4.1-dev"
+dependencies = [
+ "clap 4.6.2",
+ "plumb-core",
+]
+
+[[package]]
 name = "plumb-ls"
 version = "0.4.1-dev"
 dependencies = [
