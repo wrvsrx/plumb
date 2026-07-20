@@ -14,6 +14,8 @@ pub enum FormatError {
     InvalidSyntax,
 }
 
+const MAX_BLOCK_WIDTH: usize = 80;
+
 #[derive(Debug, Parser)]
 #[command(name = "plumb fmt", about = "Format plumb documents")]
 struct Args {
@@ -128,7 +130,7 @@ impl Formatter {
             Block::Verbatim(block) => {
                 self.indent(indent);
                 self.output.push('`');
-                self.attributes(&block.attrs);
+                self.block_attributes(&block.attrs, indent + 1, 0, indent + 2);
                 if !block.text.is_empty() {
                     self.output.push('\n');
                     let mut lines = block.text.split('\n').collect::<Vec<_>>();
@@ -157,11 +159,20 @@ impl Formatter {
         let continuation_indent = if let Some(mark) = &block.mark {
             self.output.push('`');
             self.output.push_str(&mark.marker);
-            self.attributes(&mark.attrs);
+            let hanging_indent = hanging_indent(indent, &mark.marker);
+            let head_width = (!block.head.items.is_empty())
+                .then(|| 1 + inline_first_line_width(&block.head))
+                .unwrap_or(0);
+            self.block_attributes(
+                &mark.attrs,
+                indent + 1 + UnicodeWidthStr::width(mark.marker.as_str()),
+                head_width,
+                hanging_indent,
+            );
             if !block.head.items.is_empty() {
                 self.output.push(' ');
             }
-            hanging_indent(indent, &mark.marker)
+            hanging_indent
         } else {
             indent
         };
@@ -234,33 +245,78 @@ impl Formatter {
     }
 
     fn attributes(&mut self, attrs: &Attributes) {
-        if attrs.range.is_none() {
+        let Some(attributes) = attributes_text(attrs) else {
+            return;
+        };
+        self.output.push_str(&attributes);
+    }
+
+    fn block_attributes(
+        &mut self,
+        attrs: &Attributes,
+        prefix_width: usize,
+        suffix_width: usize,
+        continuation_indent: usize,
+    ) {
+        let Some(attributes) = attributes_text(attrs) else {
+            return;
+        };
+        if attrs.items.is_empty()
+            || prefix_width + UnicodeWidthStr::width(attributes.as_str()) + suffix_width
+                <= MAX_BLOCK_WIDTH
+        {
+            self.output.push_str(&attributes);
             return;
         }
+
         self.output.push('{');
-        for (index, item) in attrs.items.iter().enumerate() {
-            if index > 0 {
-                self.output.push(' ');
-            }
-            match item {
-                AttrItem::Id { value, .. } => {
-                    self.output.push('#');
-                    self.output.push_str(value);
-                }
-                AttrItem::Class { value, .. } => {
-                    self.output.push('.');
-                    self.output.push_str(value);
-                }
-                AttrItem::Pair { key, value, .. } => {
-                    let _ = write!(self.output, "{key}={}", value.raw);
-                }
-            }
+        for item in &attrs.items {
+            self.output.push('\n');
+            self.indent(continuation_indent);
+            write_attribute_item(&mut self.output, item);
         }
+        self.output.push('\n');
+        self.indent(continuation_indent);
         self.output.push('}');
     }
 
     fn indent(&mut self, indent: usize) {
         self.output.extend(std::iter::repeat_n(' ', indent));
+    }
+}
+
+fn attributes_text(attrs: &Attributes) -> Option<String> {
+    attrs.range.as_ref()?;
+    let mut output = String::from("{");
+    for (index, item) in attrs.items.iter().enumerate() {
+        if index > 0 {
+            output.push(' ');
+        }
+        write_attribute_item(&mut output, item);
+    }
+    output.push('}');
+    Some(output)
+}
+
+fn inline_first_line_width(content: &InlineContent) -> usize {
+    let mut formatter = Formatter::default();
+    formatter.inlines(content, 0, false);
+    UnicodeWidthStr::width(formatter.output.lines().next().unwrap_or_default())
+}
+
+fn write_attribute_item(output: &mut String, item: &AttrItem) {
+    match item {
+        AttrItem::Id { value, .. } => {
+            output.push('#');
+            output.push_str(value);
+        }
+        AttrItem::Class { value, .. } => {
+            output.push('.');
+            output.push_str(value);
+        }
+        AttrItem::Pair { key, value, .. } => {
+            let _ = write!(output, "{key}={}", value.raw);
+        }
     }
 }
 
@@ -420,6 +476,18 @@ mod tests {
         assert_formats(
             "`-{.task #write created=now} Work\n  Details\n",
             "`-{.task #write created=now} Work\n   Details\n",
+        );
+    }
+
+    #[test]
+    fn wraps_long_block_attributes_at_eighty_display_columns() {
+        assert_formats(
+            "`-{.task #write created=2026-07-20T12:00:00+08:00 due=2026-07-21T12:00:00+08:00} Work\n",
+            "`-{\n   .task\n   #write\n   created=2026-07-20T12:00:00+08:00\n   due=2026-07-21T12:00:00+08:00\n   } Work\n",
+        );
+        assert_formats(
+            "`{language=text source=generated-with-a-deliberately-long-identifier another=value}\n  payload\n",
+            "`{\n  language=text\n  source=generated-with-a-deliberately-long-identifier\n  another=value\n  }\n  payload\n",
         );
     }
 
