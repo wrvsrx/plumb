@@ -1181,6 +1181,7 @@ version = "0.5.1-dev"
 dependencies = [
  "clap 4.6.2",
  "plumb-core",
+ "unicode-width 0.2.2",
 ]
 
 [[package]]

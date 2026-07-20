@@ -7,6 +7,7 @@ use std::process::ExitCode;
 
 use clap::Parser;
 use plumb_core::{parse, AttrItem, Attributes, Block, Inline, InlineContent, ParsedBlock};
+use unicode_width::UnicodeWidthStr;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FormatError {
@@ -111,9 +112,7 @@ impl Formatter {
                     if !self.output.ends_with('\n') {
                         self.output.push('\n');
                     }
-                } else if matches!(previous, Block::Parsed(block) if block.mark.is_some())
-                    && matches!(block, Block::Parsed(block) if block.mark.is_some())
-                {
+                } else if compact_siblings(previous, block) {
                     self.output.push('\n');
                 } else {
                     self.output.push_str("\n\n");
@@ -162,15 +161,26 @@ impl Formatter {
             if !block.head.items.is_empty() {
                 self.output.push(' ');
             }
-            indent + 2
+            hanging_indent(indent, &mark.marker)
         } else {
             indent
         };
         self.inlines(&block.head, continuation_indent, false);
 
         if !block.children.is_empty() {
-            self.output.push_str("\n\n");
-            self.blocks(&block.children, indent + 2);
+            if block.head.items.is_empty() {
+                self.output.push('\n');
+            } else {
+                self.output.push_str("\n\n");
+            }
+            let child_indent = block.mark.as_ref().map_or(indent, |mark| {
+                if block.head.items.is_empty() {
+                    indent + 1
+                } else {
+                    hanging_indent(indent, &mark.marker)
+                }
+            });
+            self.blocks(&block.children, child_indent);
         }
     }
 
@@ -252,6 +262,22 @@ impl Formatter {
     fn indent(&mut self, indent: usize) {
         self.output.extend(std::iter::repeat_n(' ', indent));
     }
+}
+
+fn compact_siblings(previous: &Block, current: &Block) -> bool {
+    let (Block::Parsed(previous), Block::Parsed(current)) = (previous, current) else {
+        return false;
+    };
+    let (Some(previous_mark), Some(current_mark)) = (&previous.mark, &current.mark) else {
+        return false;
+    };
+    previous.children.is_empty()
+        && current.children.is_empty()
+        && previous_mark.marker == current_mark.marker
+}
+
+fn hanging_indent(owner_indent: usize, marker: &str) -> usize {
+    owner_indent + 1 + UnicodeWidthStr::width(marker) + 1
 }
 
 fn minimum_quote_count(text: &str) -> usize {
@@ -377,7 +403,23 @@ mod tests {
     fn formats_blocks_attributes_and_indentation() {
         assert_formats(
             "`meta\n   `: title\n\n      Example\n\n`-{.task\n   #write\n   created=now\n   } Work\n",
-            "`meta\n\n  `: title\n\n    Example\n`-{.task #write created=now} Work\n",
+            "`meta\n `: title\n\n    Example\n\n`-{.task #write created=now} Work\n",
+        );
+    }
+
+    #[test]
+    fn aligns_children_and_spaces_siblings_by_structure() {
+        assert_formats(
+            "`meta\n  `: title\n\n     this is a title\n  `: created\n\n     2026-07-20\n`- something\n  `- aaa\n`- ssss\n\n`- jjjj\n",
+            "`meta\n `: title\n\n    this is a title\n\n `: created\n\n    2026-07-20\n\n`- something\n\n   `- aaa\n\n`- ssss\n`- jjjj\n",
+        );
+    }
+
+    #[test]
+    fn attributes_do_not_shift_the_conceptual_head_column() {
+        assert_formats(
+            "`-{.task #write created=now} Work\n  Details\n",
+            "`-{.task #write created=now} Work\n   Details\n",
         );
     }
 
@@ -385,7 +427,7 @@ mod tests {
     fn preserves_soft_breaks_and_inline_meaning() {
         assert_formats(
             "`note First `span[a `] b `` c]\n   second\n",
-            "`note First `span[a `] b `` c]\n  second\n",
+            "`note First `span[a `] b `` c]\n      second\n",
         );
     }
 
