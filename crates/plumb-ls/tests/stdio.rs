@@ -896,7 +896,7 @@ fn publishes_task_symbols_hover_and_workspace_diagnostics() {
     let blockers_path = root.join("blockers.plumb");
     let tasks_path = root.join("tasks.plumb");
     let blocker_source = "`-{.task #draft} Draft dependency\n";
-    let task_source = "`-{.task #review due=\"not-a-date\" recur=P1M1D depends=\"blockers.plumb#draft\"} Review task\n  `-{.task #nested done=\"2026-07-20T10:00:00Z\"} Nested task\n";
+    let task_source = "`-{.task #review due=\"not-a-date\" recur=P1M1D depends=\"blockers.plumb#draft\"} Review task\n  `-{.task #nested done=\"2026-07-20T10:00:00Z\"} Nested task\n`note{.task} Invalid owner\n`span[not raw]{.$}\n";
     std::fs::write(&blockers_path, blocker_source).unwrap();
     std::fs::write(&tasks_path, task_source).unwrap();
     let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
@@ -975,6 +975,12 @@ fn publishes_task_symbols_hover_and_workspace_diagnostics() {
     assert!(diagnostics
         .iter()
         .any(|diagnostic| diagnostic["code"] == "task.missing-due-for-recur"));
+    assert!(diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic["code"] == "task.invalid-owner"));
+    assert!(diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic["code"] == "math.invalid-owner"));
     let blocked = diagnostics
         .iter()
         .find(|diagnostic| diagnostic["code"] == "task.blocked")

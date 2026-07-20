@@ -453,11 +453,39 @@ impl Parser<'_> {
             end = candidate.end;
             next += 1;
         }
-        let head = self.parse_inline_segments(&mut head_segments);
-        if let Some(consumed) = self.line_index_at_offset(head.range.end.saturating_sub(1)) {
+        let diagnostic_start = self.diagnostics.len();
+        let head = loop {
+            let head = self.parse_inline_segments(&mut head_segments);
+            let Some(consumed) = self.line_index_at_offset(head.range.end.saturating_sub(1)) else {
+                break head;
+            };
             next = next.max(consumed + 1);
             end = self.lines.0[consumed].end;
-        }
+            let mut scan = next;
+            let mut extended = false;
+            while let Some(candidate) = self.lines.0.get(scan).cloned() {
+                if candidate.blank
+                    || candidate.indent != indent
+                    || self.block_dispatch(scan, indent).is_some()
+                {
+                    break;
+                }
+                head_segments.push(InlineSegment {
+                    start: candidate.start + indent,
+                    end: candidate.content_end,
+                });
+                end = candidate.end;
+                scan += 1;
+                extended = true;
+            }
+            if !extended {
+                break head;
+            }
+            next = scan;
+            head_segments.sort_by_key(|segment| segment.start);
+            head_segments.dedup_by_key(|segment| segment.start);
+            self.diagnostics.truncate(diagnostic_start);
+        };
         (
             ParsedBlock {
                 range: start..end,
@@ -1080,7 +1108,7 @@ mod tests {
 
     #[test]
     fn parses_multiline_attributes_on_inline_owners() {
-        let source = "Text `span[value]{\n  #inline\n  .mark\n  key=value\n  } tail\nRaw `[x]{\n  .$\n  language=tex\n  } end\n";
+        let source = "Text `span[value]{\n  #inline\n  .mark\n  key=value\n  } tail\ncontinued paragraph\n\nRaw `[x]{\n  .$\n  language=tex\n  } end\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
@@ -1093,7 +1121,10 @@ mod tests {
         assert_eq!(attrs.id(), Some("inline"));
         assert!(attrs.has_class("mark"));
         assert_eq!(attrs.value("key"), Some("value"));
-        assert_eq!(first.head.plain_text(), "Text value tail");
+        assert_eq!(
+            first.head.plain_text(),
+            "Text value tail continued paragraph"
+        );
 
         let Block::Parsed(second) = &parsed.syntax.blocks[1] else {
             panic!("expected second paragraph");
@@ -1121,6 +1152,17 @@ mod tests {
             .diagnostics
             .iter()
             .any(|diagnostic| diagnostic.code == "syntax.unclosed-quoted-value"));
+
+        let duplicate =
+            parse("`node{#one\n  #two\n  key=one\n  key=two\n  escaped=\"bad\\q\"\n  } Head\n");
+        let codes = duplicate
+            .diagnostics
+            .iter()
+            .map(|diagnostic| diagnostic.code)
+            .collect::<Vec<_>>();
+        assert!(codes.contains(&"syntax.duplicate-id"));
+        assert!(codes.contains(&"syntax.duplicate-key"));
+        assert!(codes.contains(&"syntax.unknown-quoted-escape"));
     }
 
     #[test]
@@ -1296,6 +1338,14 @@ mod tests {
             .diagnostics
             .iter()
             .any(|diagnostic| diagnostic.code == "syntax.invalid-inline-dispatch"));
+
+        let attributed = parse(format!("`-{{.class}} `- a\n{}`- b\n", " ".repeat(11)));
+        assert!(attributed.is_valid(), "{:?}", attributed.diagnostics);
+        let Block::Parsed(outer) = &attributed.syntax.blocks[0] else {
+            panic!("expected attributed outer item");
+        };
+        assert!(outer.mark.as_ref().unwrap().attrs.has_class("class"));
+        assert_eq!(outer.children.len(), 2);
     }
 
     #[test]

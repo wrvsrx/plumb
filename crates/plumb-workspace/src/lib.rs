@@ -2199,7 +2199,7 @@ mod tests {
 
     #[test]
     fn task_authoring_operations_convert_items_and_add_created() {
-        let source = "`-{#outer .keep} Outer\n  `- Nested\n`.{.task #closed done=\"2026-07-20T09:00:00Z\"} Closed\n";
+        let source = "`-{#outer .keep} Outer\n  `- Nested\n`.{.task #closed done=\"2026-07-20T09:00:00Z\"} Closed\n`-{.task #existing created=\"2026-07-19T09:00:00Z\"} Existing\n";
         let mut workspace = Workspace::new();
         workspace.insert("tasks.plumb", 7, source);
         let timestamp = "2026-07-20T10:00:00+08:00";
@@ -2237,6 +2237,10 @@ mod tests {
         assert_eq!(
             workspace.add_task_created("tasks.plumb", nested_offset, timestamp),
             Err(TaskEditError::TaskNotFound)
+        );
+        assert_eq!(
+            workspace.add_task_created("tasks.plumb", source.find("Existing").unwrap(), timestamp),
+            Err(TaskEditError::CreatedAlreadyExists)
         );
     }
 

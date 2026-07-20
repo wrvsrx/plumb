@@ -376,6 +376,23 @@ mod tests {
     }
 
     #[test]
+    fn task_query_ignores_invalid_task_owners() {
+        let root = unique_temp_dir();
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(
+            root.join("tasks.plumb"),
+            "`note{.task #invalid} Invalid owner\n`.{.task #valid} Valid task\n",
+        )
+        .unwrap();
+
+        let loaded = load_workspace(&root).unwrap();
+        let records = task_records(&root, &loaded, None, true).unwrap();
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].source, "tasks.plumb#valid");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn task_action_updates_multiple_explicit_targets() {
         let root = unique_temp_dir();
         std::fs::create_dir_all(&root).unwrap();

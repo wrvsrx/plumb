@@ -578,6 +578,21 @@ mod tests {
     }
 
     #[test]
+    fn exports_math_inside_rich_metadata_scalars() {
+        let source = "`meta\n  `: formula\n\n    Area `[\\pi r^2]{.$}\n";
+        let document = export(source).unwrap();
+        assert_eq!(document["meta"]["formula"]["t"], "MetaInlines");
+        let math = document["meta"]["formula"]["c"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|inline| inline["t"] == "Math")
+            .unwrap();
+        assert_eq!(math["c"][0]["t"], "InlineMath");
+        assert_eq!(math["c"][1], "\\pi r^2");
+    }
+
+    #[test]
     fn lifts_typed_metadata_out_of_the_document_body() {
         let source = "`meta\n  `: title\n\n     Rich `*[title]\n\n  `: tags\n    `- plumb\n    `- tools\n\n  `: macros\n    `-\n      `- `[nearSet]\n      `- `[\\mathscr{C}]\n      `- 0\n\n  `: author\n    `: name\n\n       Alice\n\n  `: source\n    `{language=text}\n      raw\n\n  `: empty\n\n`# Section\n";
         let document = export(source).unwrap();
