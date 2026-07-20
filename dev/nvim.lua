@@ -38,7 +38,7 @@ capabilities.workspace.didChangeWatchedFiles.relativePatternSupport = true
 vim.lsp.config["plumb-ls"] = {
   cmd = { repo_root .. "/target/debug/plumb-ls" },
   filetypes = { "plumb" },
-  root_dir = repo_root,
+  root_markers = { ".git" },
   capabilities = capabilities,
 }
 
