@@ -67,6 +67,14 @@
 
 `# Standard extensions
 
+`-{.task #standard-verbatim-autolink} 支持 `[.->] verbatim autolink
+  `note 只有 inline verbatim 上的 `[.->] class 产生 autolink facet；其他 owner 发布 `[link.invalid-owner]，且不生成 link record。
+  `note Verbatim payload 同时作为显示 label 与 target，必须是非空 absolute URI；relative path 与 fragment 继续使用显式 `[`->] link。
+  `note 保留 payload 原始 UTF-8 spelling，不做 backslash escape、percent decode 或 normalization；space、control、invalid percent escape 和 malformed URI 发布 diagnostic。
+  `note `[.->] 与 `[to] pair 不能同时出现；其他 id/classes/pairs 通过 export wrapper 保留，不能被 link facet 静默消费。
+  `note 复用 inline verbatim quote strength 容纳 IPv6 host 等包含 closing bracket 的 URI，formatter 继续选择最小安全 quote count。
+  `note Export 产生 label 与 target 相同的 Pandoc Link，并补齐 extension、LSP hover、export、metadata、playground 与 bundled skill tests/docs。
+
 `-{.task #standard-div-span done="2026-07-20T13:00:12+08:00"} 支持标准 div 与 span 透明容器
   `note 将 `[div] marked block 与 `[span] parsed inline kind 冻结为 standard extension spellings。
   `note `[div] 保留 generic block 的 head/children behavior；`[span] 保留 parsed inline content behavior。
