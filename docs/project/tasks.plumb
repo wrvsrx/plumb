@@ -43,6 +43,16 @@
   `note 其他 generic marker/kind 继续导出 data-plumb-marker，core parser 和 syntax tree 不增加 special cases。
   `note 更新 extension/export tests、standard extension reference、guide、playground 和 bundled skill。
 
+`-{.task #standard-math} 支持 `[.$] standard math facet
+  `note Inline verbatim 与 verbatim block 上的 `[.$] 分别产生 inline math 和 display math。
+  `note `[.$] 默认使用 TeX input；可选 `[language=tex]，暂不支持其他 math input languages。
+  `note `[.$] 出现在其他 owner 上时发布 `[math.invalid-owner]，且不产生 math semantic record。
+  `note Export lower 为 Pandoc InlineMath/DisplayMath，并消费 `[.$] 与 `[language=tex] semantic attributes。
+  `note 其他 id/classes/pairs 分别通过 Span 或 Div wrapper 保留；display math 放在 wrapper 内的 paragraph。
+  `note Dollar-delimited math 不进入 syntax；普通 source 中的 dollar characters 继续作为 text。
+  `note 覆盖 quote-strength、explicit anchors、invalid owners、metadata/export 和 tree-sitter TeX injection。
+  `note 更新 standard extension reference、guide、playground 和 bundled skill。
+
 `-{.task #restrict-task-owner} 将 `[.task] 标准语义限制到 list item
   `note Task recognizer 只为 `[-] 和 `[.] marker 生成 TaskRecord。
   `note `[.task] 出现在其他 marker 上时发布 `[task.invalid-owner]，且不生成 TaskRecord。
