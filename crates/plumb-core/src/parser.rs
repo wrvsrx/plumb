@@ -693,15 +693,12 @@ impl Parser<'_> {
         }
 
         let mut index = line_index + 1;
-        let mut attr_indent = None;
         let mut last = line_index;
         while let Some(line) = self.lines.0.get(index) {
             if line.blank || line.indent <= owner_indent || line.has_tab_indent {
                 break;
             }
-            let expected = *attr_indent.get_or_insert(line.indent);
-            if line.indent != expected || self.block_dispatch_readonly(index, line.indent).is_some()
-            {
+            if self.block_dispatch_readonly(index, line.indent).is_some() {
                 break;
             }
             last = index;
@@ -1138,13 +1135,9 @@ mod tests {
     }
 
     #[test]
-    fn multiline_attributes_require_aligned_continuations_and_single_line_quotes() {
-        let misaligned = parse("`node{.one\n   key=value\n  } Head\n");
-        assert!(!misaligned.is_valid());
-        assert!(misaligned
-            .diagnostics
-            .iter()
-            .any(|diagnostic| diagnostic.code == "syntax.unclosed-attributes"));
+    fn multiline_attributes_allow_variable_indentation_and_require_single_line_quotes() {
+        let varied = parse("`node{.one\n   key=value\n  } Head\n");
+        assert!(varied.is_valid(), "{:?}", varied.diagnostics);
 
         let quoted = parse("`node{key=\"first\n  second\"\n  } Head\n");
         assert!(!quoted.is_valid());
@@ -1163,6 +1156,57 @@ mod tests {
         assert!(codes.contains(&"syntax.duplicate-id"));
         assert!(codes.contains(&"syntax.duplicate-key"));
         assert!(codes.contains(&"syntax.unknown-quoted-escape"));
+    }
+
+    #[test]
+    fn multiline_attributes_allow_compact_and_brace_aligned_closing_delimiters() {
+        let source = "`-{.task\n   #write\n  } Work\n`{\n  language=text\n }\n  payload\n`x{\n   .class\n  }\n `child Nested\n";
+        let parsed = parse(source);
+        assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
+
+        let Block::Parsed(task) = &parsed.syntax.blocks[0] else {
+            panic!("expected marked block");
+        };
+        assert!(task.mark.as_ref().unwrap().attrs.has_class("task"));
+        assert_eq!(task.mark.as_ref().unwrap().attrs.id(), Some("write"));
+        assert_eq!(task.head.plain_text(), "Work");
+
+        let Block::Verbatim(verbatim) = &parsed.syntax.blocks[1] else {
+            panic!("expected verbatim block");
+        };
+        assert_eq!(verbatim.attrs.value("language"), Some("text"));
+        assert_eq!(verbatim.text, "payload\n");
+
+        let Block::Parsed(container) = &parsed.syntax.blocks[2] else {
+            panic!("expected empty-head container");
+        };
+        assert!(container.mark.as_ref().unwrap().attrs.has_class("class"));
+        assert_eq!(container.children.len(), 1);
+
+        let old_layout = parse("`-{.task\n   #write\n   } Work\n");
+        assert!(old_layout.is_valid(), "{:?}", old_layout.diagnostics);
+
+        let compact = parse("`-{.task\n   #id} Something\n");
+        assert!(compact.is_valid(), "{:?}", compact.diagnostics);
+
+        let inline = parse("Text `span[value]{\n    .mark\n  key=value\n } tail\n");
+        assert!(inline.is_valid(), "{:?}", inline.diagnostics);
+    }
+
+    #[test]
+    fn multiline_attributes_stop_at_structural_boundaries() {
+        for source in [
+            "`node{\n  .class\n} outside\n",
+            "`node{\n  .class\n  `child boundary\n",
+            "Text `span[value]{\n  .mark\n\ntail\n",
+        ] {
+            let parsed = parse(source);
+            assert!(!parsed.is_valid(), "unexpectedly valid: {source}");
+            assert!(parsed
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == "syntax.unclosed-attributes"));
+        }
     }
 
     #[test]

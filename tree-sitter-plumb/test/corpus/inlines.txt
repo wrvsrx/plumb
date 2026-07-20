@@ -408,10 +408,9 @@ Multiline inline attributes
 ==================
 
 Text `span[value]{
-  #inline
-  .mark
-  key=value
-  } tail.
+    #inline
+ .mark
+   key=value} tail.
 Raw `[x]{
   .$
   language=tex
