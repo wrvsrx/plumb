@@ -1109,7 +1109,7 @@ fn completes_links_by_document_metadata_title() {
     let closed_anchor = "`->[x]{to=\"usage.plumb#usXXX\"}";
     let raw = "`\"[raw `->[x]{to=\"us\"}]\"";
     let source_text =
-        format!("`->[Us\n`->[x]{{to=\"Guide\n{closed_path}\n{closed_anchor}\n{raw}\n");
+        format!("`->[Us\n\n`->[x]{{to=\"Guide\n\n{closed_path}\n{closed_anchor}\n{raw}\n");
     std::fs::write(&source, &source_text).unwrap();
     std::fs::write(
         &target,
@@ -1146,7 +1146,7 @@ fn completes_links_by_document_metadata_title() {
             "jsonrpc": "2.0", "id": 3, "method": "textDocument/completion",
             "params": {
                 "textDocument": { "uri": source_uri },
-                "position": { "line": 1, "character": 18 }
+                "position": { "line": 2, "character": 18 }
             }
         }),
         json!({
@@ -1154,7 +1154,7 @@ fn completes_links_by_document_metadata_title() {
             "params": {
                 "textDocument": { "uri": source_uri },
                 "position": {
-                    "line": 2,
+                    "line": 4,
                     "character": closed_path.find("usXXX").unwrap() + 2
                 }
             }
@@ -1164,7 +1164,7 @@ fn completes_links_by_document_metadata_title() {
             "params": {
                 "textDocument": { "uri": source_uri },
                 "position": {
-                    "line": 3,
+                    "line": 5,
                     "character": closed_anchor.find("usXXX").unwrap() + 2
                 }
             }
@@ -1174,7 +1174,7 @@ fn completes_links_by_document_metadata_title() {
             "params": {
                 "textDocument": { "uri": source_uri },
                 "position": {
-                    "line": 4,
+                    "line": 6,
                     "character": raw.find("us").unwrap() + 2
                 }
             }
@@ -1199,8 +1199,8 @@ fn completes_links_by_document_metadata_title() {
     assert_eq!(
         closed_path_item["textEdit"]["range"],
         json!({
-            "start": { "line": 2, "character": closed_path.find("usXXX").unwrap() },
-            "end": { "line": 2, "character": closed_path.find("usXXX").unwrap() + 5 }
+            "start": { "line": 4, "character": closed_path.find("usXXX").unwrap() },
+            "end": { "line": 4, "character": closed_path.find("usXXX").unwrap() + 5 }
         })
     );
     let closed_anchor_item = &response(&output, 5)["result"][0];
@@ -1208,8 +1208,8 @@ fn completes_links_by_document_metadata_title() {
     assert_eq!(
         closed_anchor_item["textEdit"]["range"],
         json!({
-            "start": { "line": 3, "character": closed_anchor.find("usXXX").unwrap() },
-            "end": { "line": 3, "character": closed_anchor.find("usXXX").unwrap() + 5 }
+            "start": { "line": 5, "character": closed_anchor.find("usXXX").unwrap() },
+            "end": { "line": 5, "character": closed_anchor.find("usXXX").unwrap() + 5 }
         })
     );
     assert!(response(&output, 6)["result"].is_null());

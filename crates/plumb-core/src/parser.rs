@@ -31,6 +31,31 @@ struct Line {
     has_tab_indent: bool,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct InlineSegment {
+    start: usize,
+    end: usize,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct InlinePosition {
+    segment: usize,
+    offset: usize,
+}
+
+struct InlineOpening {
+    introducer: usize,
+    kind: String,
+    kind_range: SourceRange,
+}
+
+struct InlineFrame {
+    start: usize,
+    text_start: usize,
+    items: Vec<Inline>,
+    opening: Option<InlineOpening>,
+}
+
 struct Lines(Vec<Line>);
 
 impl Lines {
@@ -183,7 +208,8 @@ impl Parser<'_> {
     }
 
     fn parse_marked(&mut self, index: usize, indent: usize) -> (ParsedBlock, usize) {
-        let line = self.lines.0[index].clone();
+        let mut line = self.lines.0[index].clone();
+        let mut header_index = index;
         let introducer = line.start + indent;
         let mut cursor = introducer + 1;
         let marker_start = cursor;
@@ -199,8 +225,11 @@ impl Parser<'_> {
         let marker_range = marker_start..cursor;
 
         let attrs = if cursor < line.content_end && self.source.as_bytes()[cursor] == b'{' {
-            let (attrs, next) = self.parse_attributes(cursor, line.content_end);
+            let (limit, last_line) = self.attribute_extent(cursor, index, indent);
+            let (attrs, next) = self.parse_attributes(cursor, limit);
             cursor = next;
+            header_index = last_line;
+            line = self.lines.0[last_line].clone();
             attrs
         } else {
             Attributes::default()
@@ -228,14 +257,14 @@ impl Parser<'_> {
 
         if head_start < line.content_end {
             let child_indent = head_start - line.start;
-            if let Some(dispatch) = self.block_dispatch(index, child_indent) {
+            if let Some(dispatch) = self.block_dispatch(header_index, child_indent) {
                 let (first_child, mut next) = match dispatch {
                     BlockDispatch::Marked => {
-                        let (child, next) = self.parse_marked(index, child_indent);
+                        let (child, next) = self.parse_marked(header_index, child_indent);
                         (Block::Parsed(child), next)
                     }
                     BlockDispatch::Verbatim => {
-                        let (child, next) = self.parse_verbatim(index, child_indent);
+                        let (child, next) = self.parse_verbatim(header_index, child_indent);
                         (Block::Verbatim(child), next)
                     }
                 };
@@ -269,8 +298,11 @@ impl Parser<'_> {
             }
         }
 
-        let mut head = self.parse_inline(head_start, line.content_end, false);
-        let mut next = index + 1;
+        let mut head_segments = vec![InlineSegment {
+            start: head_start,
+            end: line.content_end,
+        }];
+        let mut next = header_index + 1;
         let mut saw_blank = false;
         let mut body_indent = None;
 
@@ -289,22 +321,18 @@ impl Parser<'_> {
                 break;
             }
             if !saw_blank && self.block_dispatch(next, candidate.indent).is_none() {
-                if !head.items.is_empty() {
-                    head.items.push(Inline::SoftBreak {
-                        range: line.content_end..candidate.start + candidate.indent,
-                    });
-                }
-                let continuation = self.parse_inline(
-                    candidate.start + candidate.indent,
-                    candidate.content_end,
-                    false,
-                );
-                head.items.extend(continuation.items);
-                head.range.end = candidate.content_end;
+                head_segments.push(InlineSegment {
+                    start: candidate.start + candidate.indent,
+                    end: candidate.content_end,
+                });
                 next += 1;
                 continue;
             }
             break;
+        }
+        let head = self.parse_inline_segments(&mut head_segments);
+        if let Some(consumed) = self.line_index_at_offset(head.range.end.saturating_sub(1)) {
+            next = next.max(consumed + 1);
         }
 
         let mut child_start = next;
@@ -346,10 +374,12 @@ impl Parser<'_> {
     }
 
     fn parse_verbatim(&mut self, index: usize, indent: usize) -> (VerbatimBlock, usize) {
-        let line = self.lines.0[index].clone();
+        let mut line = self.lines.0[index].clone();
         let introducer = line.start + indent;
         let attr_start = introducer + 1;
-        let (attrs, after_attrs) = self.parse_attributes(attr_start, line.content_end);
+        let (limit, header_index) = self.attribute_extent(attr_start, index, indent);
+        let (attrs, after_attrs) = self.parse_attributes(attr_start, limit);
+        line = self.lines.0[header_index].clone();
         if after_attrs != line.content_end {
             self.diagnostics.push(Diagnostic::error(
                 "syntax.invalid-verbatim-block-dispatch",
@@ -358,7 +388,7 @@ impl Parser<'_> {
             ));
         }
         let body_indent = indent + 2;
-        let mut next = index + 1;
+        let mut next = header_index + 1;
         let mut text = String::new();
         let text_start = self.lines.0.get(next).map_or(line.end, |next| next.start);
         let mut text_end = text_start;
@@ -402,7 +432,10 @@ impl Parser<'_> {
     fn parse_paragraph(&mut self, index: usize, indent: usize) -> (ParsedBlock, usize) {
         let first = self.lines.0[index].clone();
         let start = first.start + indent;
-        let mut head = self.parse_inline(start, first.content_end, false);
+        let mut head_segments = vec![InlineSegment {
+            start,
+            end: first.content_end,
+        }];
         let mut next = index + 1;
         let mut end = first.end;
         while next < self.lines.0.len() {
@@ -413,15 +446,17 @@ impl Parser<'_> {
             {
                 break;
             }
-            head.items.push(Inline::SoftBreak {
-                range: end.saturating_sub(1)..candidate.start + indent,
+            head_segments.push(InlineSegment {
+                start: candidate.start + indent,
+                end: candidate.content_end,
             });
-            let continuation =
-                self.parse_inline(candidate.start + indent, candidate.content_end, false);
-            head.items.extend(continuation.items);
-            head.range.end = candidate.content_end;
             end = candidate.end;
             next += 1;
+        }
+        let head = self.parse_inline_segments(&mut head_segments);
+        if let Some(consumed) = self.line_index_at_offset(head.range.end.saturating_sub(1)) {
+            next = next.max(consumed + 1);
+            end = self.lines.0[consumed].end;
         }
         (
             ParsedBlock {
@@ -434,76 +469,132 @@ impl Parser<'_> {
         )
     }
 
-    fn parse_inline(&mut self, start: usize, end: usize, nested: bool) -> InlineContent {
-        let mut items = Vec::new();
-        let mut cursor = start;
-        let mut text_start = start;
-        while cursor < end {
-            let byte = self.source.as_bytes()[cursor];
-            if nested && byte == b']' {
-                break;
-            }
-            if byte != b'`' {
-                cursor = next_char_end(self.source, cursor);
+    fn parse_inline_segments(&mut self, segments: &mut Vec<InlineSegment>) -> InlineContent {
+        let start = segments.first().map_or(0, |segment| segment.start);
+        let mut position = InlinePosition {
+            segment: 0,
+            offset: start,
+        };
+        let mut frames = vec![InlineFrame {
+            start,
+            text_start: start,
+            items: Vec::new(),
+            opening: None,
+        }];
+
+        while position.segment < segments.len() {
+            let segment = segments[position.segment];
+            if position.offset >= segment.end {
+                flush_inline_text(self.source, frames.last_mut().unwrap(), position.offset);
+                let previous_end = segment.end;
+                position.segment += 1;
+                let Some(next) = segments.get(position.segment) else {
+                    break;
+                };
+                let nested = frames.len() > 1;
+                let frame = frames.last_mut().unwrap();
+                if nested || !frame.items.is_empty() {
+                    frame.items.push(Inline::SoftBreak {
+                        range: previous_end..next.start,
+                    });
+                }
+                position.offset = next.start;
+                frame.text_start = position.offset;
                 continue;
             }
-            if text_start < cursor {
-                items.push(Inline::Text {
-                    text: self.source[text_start..cursor].to_string(),
-                    range: text_start..cursor,
+
+            let end = segment.end;
+            let cursor = position.offset;
+            let byte = self.source.as_bytes()[cursor];
+            if frames.len() > 1 && byte == b']' {
+                flush_inline_text(self.source, frames.last_mut().unwrap(), cursor);
+                position.offset += 1;
+                let after_close = position.offset;
+                let (attrs, after_attrs) =
+                    if after_close < end && self.source.as_bytes()[after_close] == b'{' {
+                        self.parse_inline_attributes(segments, &mut position, after_close)
+                    } else {
+                        (Attributes::default(), after_close)
+                    };
+                position.offset = after_attrs;
+                let frame = frames.pop().unwrap();
+                let opening = frame.opening.unwrap();
+                let content = InlineContent {
+                    range: frame.start..cursor,
+                    items: frame.items,
+                };
+                frames.last_mut().unwrap().items.push(Inline::Element {
+                    range: opening.introducer..after_attrs,
+                    kind: opening.kind,
+                    kind_range: opening.kind_range,
+                    content,
+                    attrs,
                 });
+                frames.last_mut().unwrap().text_start = after_attrs;
+                continue;
             }
+            if byte != b'`' {
+                position.offset = next_char_end(self.source, cursor);
+                continue;
+            }
+
+            flush_inline_text(self.source, frames.last_mut().unwrap(), cursor);
             let ticks = self.source[cursor..end]
                 .bytes()
                 .take_while(|candidate| *candidate == b'`')
                 .count();
             for pair in 0..ticks / 2 {
                 let pair_start = cursor + pair * 2;
-                items.push(Inline::Text {
+                frames.last_mut().unwrap().items.push(Inline::Text {
                     text: "`".to_string(),
                     range: pair_start..pair_start + 2,
                 });
             }
-            cursor += (ticks / 2) * 2;
+            position.offset += (ticks / 2) * 2;
             if ticks % 2 == 0 {
-                text_start = cursor;
+                frames.last_mut().unwrap().text_start = position.offset;
                 continue;
             }
-            let introducer = cursor;
-            cursor += 1;
-            if nested && cursor < end && self.source.as_bytes()[cursor] == b']' {
-                items.push(Inline::Text {
+
+            let introducer = position.offset;
+            position.offset += 1;
+            if frames.len() > 1
+                && position.offset < end
+                && self.source.as_bytes()[position.offset] == b']'
+            {
+                frames.last_mut().unwrap().items.push(Inline::Text {
                     text: "]".to_string(),
-                    range: introducer..cursor + 1,
+                    range: introducer..position.offset + 1,
                 });
-                cursor += 1;
-                text_start = cursor;
+                position.offset += 1;
+                frames.last_mut().unwrap().text_start = position.offset;
                 continue;
             }
-            let quotes = self.source[cursor..end]
+
+            let quotes = self.source[position.offset..end]
                 .bytes()
                 .take_while(|candidate| *candidate == b'"')
                 .count();
-            let open = cursor + quotes;
+            let open = position.offset + quotes;
             if open < end && self.source.as_bytes()[open] == b'[' {
                 if let Some((close, after_close)) =
                     find_verbatim_close(self.source, open + 1, end, quotes)
                 {
                     let (attrs, after_attrs) =
                         if after_close < end && self.source.as_bytes()[after_close] == b'{' {
-                            self.parse_attributes(after_close, end)
+                            self.parse_inline_attributes(segments, &mut position, after_close)
                         } else {
                             (Attributes::default(), after_close)
                         };
-                    items.push(Inline::Verbatim {
+                    frames.last_mut().unwrap().items.push(Inline::Verbatim {
                         range: introducer..after_attrs,
                         text: self.source[open + 1..close].to_string(),
                         text_range: open + 1..close,
                         quote_count: quotes,
                         attrs,
                     });
-                    cursor = after_attrs;
-                    text_start = cursor;
+                    position.offset = after_attrs;
+                    frames.last_mut().unwrap().text_start = after_attrs;
                     continue;
                 }
                 self.diagnostics.push(Diagnostic::error(
@@ -511,64 +602,150 @@ impl Parser<'_> {
                     "inline verbatim must close on the same physical line",
                     introducer..end,
                 ));
-                cursor = end;
-                text_start = end;
+                position.offset = end;
+                frames.last_mut().unwrap().text_start = end;
                 continue;
             }
 
-            let kind_start = cursor;
-            cursor = take_name_like(self.source, cursor, end, marker_char);
-            let kind_end = cursor;
-            if cursor < end && self.source.as_bytes()[cursor] == b'[' {
-                let content_start = cursor + 1;
-                let content = self.parse_inline(content_start, end, true);
-                let close = content.range.end;
-                if close < end && self.source.as_bytes()[close] == b']' {
-                    let after_close = close + 1;
-                    let (attrs, after_attrs) =
-                        if after_close < end && self.source.as_bytes()[after_close] == b'{' {
-                            self.parse_attributes(after_close, end)
-                        } else {
-                            (Attributes::default(), after_close)
-                        };
-                    items.push(Inline::Element {
-                        range: introducer..after_attrs,
+            let kind_start = position.offset;
+            position.offset = take_name_like(self.source, position.offset, end, marker_char);
+            let kind_end = position.offset;
+            if position.offset < end && self.source.as_bytes()[position.offset] == b'[' {
+                position.offset += 1;
+                frames.push(InlineFrame {
+                    start: position.offset,
+                    text_start: position.offset,
+                    items: Vec::new(),
+                    opening: Some(InlineOpening {
+                        introducer,
                         kind: self.source[kind_start..kind_end].to_string(),
                         kind_range: kind_start..kind_end,
-                        content,
-                        attrs,
-                    });
-                    cursor = after_attrs;
-                    text_start = cursor;
-                    continue;
-                }
-                self.diagnostics.push(Diagnostic::error(
-                    "syntax.unclosed-inline",
-                    "parsed inline element is not closed before the line boundary",
-                    introducer..end,
-                ));
-                cursor = end;
-                text_start = end;
+                    }),
+                });
                 continue;
             }
 
             self.diagnostics.push(Diagnostic::error(
                 "syntax.invalid-inline-dispatch",
                 "inline introducer requires an inline kind followed by '['",
-                introducer..next_char_end(self.source, cursor.min(end.saturating_sub(1))),
+                introducer..next_char_end(self.source, position.offset.min(end.saturating_sub(1))),
             ));
-            text_start = cursor;
+            frames.last_mut().unwrap().text_start = position.offset;
         }
-        if text_start < cursor {
-            items.push(Inline::Text {
-                text: self.source[text_start..cursor].to_string(),
-                range: text_start..cursor,
-            });
+
+        if frames.len() > 1 {
+            for frame in frames.iter().skip(1).rev() {
+                let opening = frame.opening.as_ref().unwrap();
+                self.diagnostics.push(Diagnostic::error(
+                    "syntax.unclosed-inline",
+                    "parsed inline element is not closed before the enclosing inline boundary",
+                    opening.introducer..position.offset,
+                ));
+            }
+            frames.truncate(1);
+            frames[0].text_start = position.offset;
         }
+        let mut root = frames.pop().unwrap();
+        flush_inline_text(self.source, &mut root, position.offset);
         InlineContent {
-            range: start..cursor,
-            items,
+            range: root.start..position.offset,
+            items: root.items,
         }
+    }
+
+    fn attribute_extent(
+        &self,
+        start: usize,
+        line_index: usize,
+        owner_indent: usize,
+    ) -> (usize, usize) {
+        let first = &self.lines.0[line_index];
+        if has_unquoted_closing_brace(self.source, start + 1, first.content_end) {
+            return (first.content_end, line_index);
+        }
+
+        let mut index = line_index + 1;
+        let mut attr_indent = None;
+        let mut last = line_index;
+        while let Some(line) = self.lines.0.get(index) {
+            if line.blank || line.indent <= owner_indent || line.has_tab_indent {
+                break;
+            }
+            let expected = *attr_indent.get_or_insert(line.indent);
+            if line.indent != expected || self.block_dispatch_readonly(index, line.indent).is_some()
+            {
+                break;
+            }
+            last = index;
+            if has_unquoted_closing_brace(self.source, line.start + line.indent, line.content_end) {
+                return (line.content_end, line_index.max(index));
+            }
+            index += 1;
+        }
+        (self.lines.0[last].content_end, last)
+    }
+
+    fn parse_inline_attributes(
+        &mut self,
+        segments: &mut Vec<InlineSegment>,
+        position: &mut InlinePosition,
+        start: usize,
+    ) -> (Attributes, usize) {
+        let line_index = self
+            .line_index_at_offset(start)
+            .expect("inline attribute starts on a source line");
+        let owner_indent = self.lines.0[line_index].indent;
+        let (limit, last_line) = self.attribute_extent(start, line_index, owner_indent);
+        for line_index in line_index + 1..=last_line {
+            let line = &self.lines.0[line_index];
+            let segment = InlineSegment {
+                start: line.start + line.indent,
+                end: line.content_end,
+            };
+            if !segments
+                .iter()
+                .any(|candidate| candidate.start == segment.start)
+            {
+                segments.push(segment);
+            }
+        }
+        segments.sort_by_key(|segment| segment.start);
+        let (attrs, after_attrs) = self.parse_attributes(start, limit);
+        if let Some(segment) = segments
+            .iter()
+            .position(|segment| segment.start <= after_attrs && after_attrs <= segment.end)
+        {
+            position.segment = segment;
+        }
+        position.offset = after_attrs;
+        (attrs, after_attrs)
+    }
+
+    fn line_index_at_offset(&self, offset: usize) -> Option<usize> {
+        self.lines
+            .0
+            .iter()
+            .position(|line| line.start <= offset && offset <= line.content_end)
+    }
+
+    fn block_dispatch_readonly(&self, index: usize, indent: usize) -> Option<BlockDispatch> {
+        let line = &self.lines.0[index];
+        let start = line.start + indent;
+        let text = &self.source[start..line.content_end];
+        let ticks = text.bytes().take_while(|byte| *byte == b'`').count();
+        if ticks != 1 {
+            return None;
+        }
+        let after = start + 1;
+        if after >= line.content_end || self.source.as_bytes()[after] == b'[' {
+            return None;
+        }
+        if self.source.as_bytes()[after] == b'{' {
+            return Some(BlockDispatch::Verbatim);
+        }
+        let marker_end = take_name_like(self.source, after, line.content_end, marker_char);
+        (marker_end == line.content_end || self.source.as_bytes().get(marker_end) != Some(&b'['))
+            .then_some(BlockDispatch::Marked)
     }
 
     fn parse_attributes(&mut self, start: usize, limit: usize) -> (Attributes, usize) {
@@ -650,8 +827,18 @@ impl Parser<'_> {
                         cursor += 1;
                         let mut decoded = String::new();
                         let mut closed = false;
+                        let mut reported_unclosed = false;
                         while cursor < limit {
                             let byte = self.source.as_bytes()[cursor];
+                            if matches!(byte, b'\n' | b'\r') {
+                                self.diagnostics.push(Diagnostic::error(
+                                    "syntax.unclosed-quoted-value",
+                                    "quoted attribute values must close on the same physical line",
+                                    value_start..cursor,
+                                ));
+                                reported_unclosed = true;
+                                break;
+                            }
                             if byte == b'"' {
                                 cursor += 1;
                                 closed = true;
@@ -675,7 +862,7 @@ impl Parser<'_> {
                             decoded.push_str(&self.source[cursor..next]);
                             cursor = next;
                         }
-                        if !closed {
+                        if !closed && !reported_unclosed {
                             self.diagnostics.push(Diagnostic::error(
                                 "syntax.unclosed-quoted-value",
                                 "quoted attribute value is not closed",
@@ -793,6 +980,16 @@ fn next_token_end(source: &str, mut cursor: usize, limit: usize) -> usize {
     cursor
 }
 
+fn flush_inline_text(source: &str, frame: &mut InlineFrame, end: usize) {
+    if frame.text_start < end {
+        frame.items.push(Inline::Text {
+            text: source[frame.text_start..end].to_string(),
+            range: frame.text_start..end,
+        });
+    }
+    frame.text_start = end;
+}
+
 fn find_verbatim_close(
     source: &str,
     mut cursor: usize,
@@ -813,6 +1010,22 @@ fn find_verbatim_close(
         cursor = next_char_end(source, cursor);
     }
     None
+}
+
+fn has_unquoted_closing_brace(source: &str, mut cursor: usize, limit: usize) -> bool {
+    let mut quoted = false;
+    while cursor < limit {
+        match source.as_bytes()[cursor] {
+            b'\\' if quoted => cursor = (cursor + 2).min(limit),
+            b'"' => {
+                quoted = !quoted;
+                cursor += 1;
+            }
+            b'}' if !quoted => return true,
+            _ => cursor = next_char_end(source, cursor),
+        }
+    }
+    false
 }
 
 #[cfg(test)]
@@ -844,6 +1057,73 @@ mod tests {
     }
 
     #[test]
+    fn parses_multiline_attributes_on_marked_and_verbatim_blocks() {
+        let source = "`-{.task\n   #write\n   created=\"2026-07-20T09:00:00+08:00\"\n   } Work\n`{.$\n  #equation\n  language=tex\n  }\n  E = mc^2\n";
+        let parsed = parse(source);
+        assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
+
+        let Block::Parsed(task) = &parsed.syntax.blocks[0] else {
+            panic!("expected task block");
+        };
+        let attrs = &task.mark.as_ref().unwrap().attrs;
+        assert!(attrs.has_class("task"));
+        assert_eq!(attrs.id(), Some("write"));
+        assert_eq!(task.head.plain_text(), "Work");
+
+        let Block::Verbatim(math) = &parsed.syntax.blocks[1] else {
+            panic!("expected verbatim block");
+        };
+        assert!(math.attrs.has_class("$"));
+        assert_eq!(math.attrs.value("language"), Some("tex"));
+        assert_eq!(math.text, "E = mc^2\n");
+    }
+
+    #[test]
+    fn parses_multiline_attributes_on_inline_owners() {
+        let source = "Text `span[value]{\n  #inline\n  .mark\n  key=value\n  } tail\nRaw `[x]{\n  .$\n  language=tex\n  } end\n";
+        let parsed = parse(source);
+        assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
+
+        let Block::Parsed(first) = &parsed.syntax.blocks[0] else {
+            panic!("expected first paragraph");
+        };
+        let Inline::Element { attrs, .. } = &first.head.items[1] else {
+            panic!("expected span");
+        };
+        assert_eq!(attrs.id(), Some("inline"));
+        assert!(attrs.has_class("mark"));
+        assert_eq!(attrs.value("key"), Some("value"));
+        assert_eq!(first.head.plain_text(), "Text value tail");
+
+        let Block::Parsed(second) = &parsed.syntax.blocks[1] else {
+            panic!("expected second paragraph");
+        };
+        let Inline::Verbatim { attrs, .. } = &second.head.items[1] else {
+            panic!("expected verbatim inline");
+        };
+        assert!(attrs.has_class("$"));
+        assert_eq!(attrs.value("language"), Some("tex"));
+        assert_eq!(second.head.plain_text(), "Raw x end");
+    }
+
+    #[test]
+    fn multiline_attributes_require_aligned_continuations_and_single_line_quotes() {
+        let misaligned = parse("`node{.one\n   key=value\n  } Head\n");
+        assert!(!misaligned.is_valid());
+        assert!(misaligned
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == "syntax.unclosed-attributes"));
+
+        let quoted = parse("`node{key=\"first\n  second\"\n  } Head\n");
+        assert!(!quoted.is_valid());
+        assert!(quoted
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == "syntax.unclosed-quoted-value"));
+    }
+
+    #[test]
     fn parses_inline_elements_and_verbatim() {
         let parsed = parse("Text `em[inside] and `[raw].\n");
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
@@ -851,6 +1131,72 @@ mod tests {
             panic!("expected paragraph");
         };
         assert_eq!(block.head.plain_text(), "Text inside and raw.");
+    }
+
+    #[test]
+    fn parses_multiline_elements_in_paragraphs_and_marked_heads() {
+        let source = "Before `span[first\nsecond `em[嵌套]\nthird] after\n`note Head `span[one\n  two] tail\n";
+        let parsed = parse(source);
+        assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
+
+        let Block::Parsed(paragraph) = &parsed.syntax.blocks[0] else {
+            panic!("expected paragraph");
+        };
+        assert_eq!(
+            paragraph.head.plain_text(),
+            "Before first second 嵌套 third after"
+        );
+        let Inline::Element { content, .. } = &paragraph.head.items[1] else {
+            panic!("expected multiline span");
+        };
+        assert_eq!(
+            content
+                .items
+                .iter()
+                .filter(|inline| matches!(inline, Inline::SoftBreak { .. }))
+                .count(),
+            2
+        );
+
+        let Block::Parsed(note) = &parsed.syntax.blocks[1] else {
+            panic!("expected marked block");
+        };
+        assert_eq!(note.head.plain_text(), "Head one two tail");
+    }
+
+    #[test]
+    fn multiline_element_recovers_before_hard_boundaries() {
+        let blank = parse("`span[open\ncontinued\n\nNext paragraph.\n");
+        assert!(!blank.is_valid());
+        assert_eq!(blank.syntax.blocks.len(), 2);
+        assert!(blank
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == "syntax.unclosed-inline"));
+
+        let block = parse("`parent `span[open\n  `child Boundary\n");
+        assert!(!block.is_valid());
+        let Block::Parsed(parent) = &block.syntax.blocks[0] else {
+            panic!("expected parent");
+        };
+        assert_eq!(parent.children.len(), 1);
+    }
+
+    #[test]
+    fn inline_element_nesting_uses_an_explicit_stack() {
+        let depth = 4096;
+        let mut source = String::new();
+        for _ in 0..depth {
+            source.push_str("`x[");
+        }
+        source.push_str("value");
+        for _ in 0..depth {
+            source.push(']');
+        }
+        source.push('\n');
+
+        let parsed = parse(source);
+        assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
     }
 
     #[test]
