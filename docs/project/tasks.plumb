@@ -13,3 +13,15 @@
   `note `[.task] 出现在其他 marker 上时发布 `[task.invalid-owner]，且不生成 TaskRecord。
   `note Bullet/ordered list kind 不改变 task state、dependency、recurrence 或 operation semantics。
   `note 更新 extension、export、LSP、CLI tests，以及 standard extension reference 和 bundled skill。
+
+`-{.task #convert-list-item-to-task depends="#restrict-task-owner"} 添加 list item 转 task code action
+  `note Cursor 位于非 task 的 `[-] 或 `[.] item 内时提供 Convert to task。
+  `note 同一次 operation 添加 `[.task] 和本地 RFC 3339 `[created] timestamp，并保留已有 attributes。
+  `note 使用 protocol-neutral guarded operation；LSP 映射为 `[refactor.rewrite] code action。
+  `note Nested list 中只转换 cursor 命中的最深 item，并覆盖无 attributes 与已有 attributes 的 tests。
+
+`-{.task #add-task-created depends="#restrict-task-owner"} 添加 task created timestamp code action
+  `note Cursor 位于缺少 `[created] 的 task 内时提供 Add task created timestamp。
+  `note 使用 action 执行时的本地 RFC 3339 timestamp；已有 `[created] 时不提供 action。
+  `note Closed、blocked 或 conflicted task 仍可补录；nested task 只作用于 cursor 命中的最深 task。
+  `note 复用转换 action 的 attribute-edit、timestamp 和 guarded-operation primitives，并增加 LSP tests。
