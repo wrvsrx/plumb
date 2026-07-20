@@ -7,6 +7,7 @@ license.workspace = true
 [dependencies]
 plumb-core = { path = "../plumb-core" }
 plumb-extensions = { path = "../plumb-extensions" }
+plumb-format = { path = "../plumb-format" }
 plumb-workspace = { path = "../plumb-workspace" }
 async-lsp = { version = "0.2.4", features = ["tokio"] }
 chrono.workspace = true

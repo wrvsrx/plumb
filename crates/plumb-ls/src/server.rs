@@ -13,19 +13,20 @@ use lsp_types::{
     Diagnostic as LspDiagnostic, DiagnosticRelatedInformation, DiagnosticSeverity,
     DidChangeConfigurationParams, DidChangeTextDocumentParams, DidChangeWatchedFilesParams,
     DidCloseTextDocumentParams, DidOpenTextDocumentParams, DidSaveTextDocumentParams,
-    DocumentChangeOperation, DocumentChanges, DocumentSymbol, DocumentSymbolParams,
-    DocumentSymbolResponse, FileChangeType, FileSystemWatcher, GlobPattern, GotoDefinitionParams,
-    GotoDefinitionResponse, Hover, HoverContents, HoverParams, HoverProviderCapability,
-    InitializeParams, InitializeResult, InitializedParams, Location, MarkupContent, MarkupKind,
-    NumberOrString, OneOf, OptionalVersionedTextDocumentIdentifier, PrepareRenameResponse,
-    ProgressParams, ProgressParamsValue, PublishDiagnosticsParams, ReferenceParams, Registration,
-    RegistrationParams, RenameFile, RenameFileOptions, RenameOptions, RenameParams, ResourceOp,
-    ResourceOperationKind, SemanticToken, SemanticTokenModifier, SemanticTokenType, SemanticTokens,
-    SemanticTokensFullOptions, SemanticTokensLegend, SemanticTokensOptions, SemanticTokensParams,
-    SemanticTokensResult, SemanticTokensServerCapabilities, ServerCapabilities, SymbolKind,
-    TextDocumentEdit, TextDocumentSyncCapability, TextDocumentSyncKind, TextEdit as LspTextEdit,
-    Url, WatchKind, WorkDoneProgress, WorkDoneProgressBegin, WorkDoneProgressEnd,
-    WorkDoneProgressOptions, WorkDoneProgressReport, WorkspaceEdit as LspWorkspaceEdit,
+    DocumentChangeOperation, DocumentChanges, DocumentFormattingParams, DocumentSymbol,
+    DocumentSymbolParams, DocumentSymbolResponse, FileChangeType, FileSystemWatcher, GlobPattern,
+    GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverContents, HoverParams,
+    HoverProviderCapability, InitializeParams, InitializeResult, InitializedParams, Location,
+    MarkupContent, MarkupKind, NumberOrString, OneOf, OptionalVersionedTextDocumentIdentifier,
+    PrepareRenameResponse, ProgressParams, ProgressParamsValue, PublishDiagnosticsParams,
+    ReferenceParams, Registration, RegistrationParams, RenameFile, RenameFileOptions,
+    RenameOptions, RenameParams, ResourceOp, ResourceOperationKind, SemanticToken,
+    SemanticTokenModifier, SemanticTokenType, SemanticTokens, SemanticTokensFullOptions,
+    SemanticTokensLegend, SemanticTokensOptions, SemanticTokensParams, SemanticTokensResult,
+    SemanticTokensServerCapabilities, ServerCapabilities, SymbolKind, TextDocumentEdit,
+    TextDocumentSyncCapability, TextDocumentSyncKind, TextEdit as LspTextEdit, Url, WatchKind,
+    WorkDoneProgress, WorkDoneProgressBegin, WorkDoneProgressEnd, WorkDoneProgressOptions,
+    WorkDoneProgressReport, WorkspaceEdit as LspWorkspaceEdit,
 };
 use plumb_core::Diagnostic;
 use plumb_extensions::{
@@ -336,6 +337,7 @@ impl LanguageServer for ServerState {
                         TextDocumentSyncKind::FULL,
                     )),
                     document_symbol_provider: Some(OneOf::Left(true)),
+                    document_formatting_provider: Some(OneOf::Left(true)),
                     code_action_provider: Some(CodeActionProviderCapability::Options(
                         CodeActionOptions {
                             code_action_kinds: Some(vec![
@@ -539,6 +541,31 @@ impl LanguageServer for ServerState {
                 symbols
             });
         Box::pin(async move { Ok(symbols.map(DocumentSymbolResponse::Nested)) })
+    }
+
+    fn formatting(
+        &mut self,
+        params: DocumentFormattingParams,
+    ) -> BoxFuture<'static, Result<Option<Vec<LspTextEdit>>, Self::Error>> {
+        let edits = params
+            .text_document
+            .uri
+            .to_file_path()
+            .ok()
+            .and_then(|path| self.workspace.get(path))
+            .and_then(|entry| {
+                let source = &entry.parsed.source;
+                let formatted = plumb_format::format(source).ok()?;
+                Some(if formatted == *source {
+                    Vec::new()
+                } else {
+                    vec![LspTextEdit::new(
+                        byte_range_to_lsp(source, &(0..source.len())),
+                        formatted,
+                    )]
+                })
+            });
+        Box::pin(async move { Ok(edits) })
     }
 
     fn definition(

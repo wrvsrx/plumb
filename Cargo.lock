@@ -1172,6 +1172,7 @@ dependencies = [
  "lsp-types",
  "plumb-core",
  "plumb-extensions",
+ "plumb-format",
  "plumb-workspace",
  "serde_json",
  "tokio",
