@@ -1,13 +1,14 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Component, Path, PathBuf};
 
+use chrono::{DateTime, FixedOffset};
 use plumb_core::{
     parse, Attributes, Block, Diagnostic, DiagnosticSeverity, ParsedBlock, ParsedDocument,
 };
 use plumb_extensions::{
     analyze_document, next_task_datetime, parse_task_reference_target, valid_task_datetime,
-    AnchorRecord, DocumentOutput, LinkCompletionContext, LinkRecord, LinkTarget, TaskRecord,
-    TaskReferenceTarget, TaskState, TaskStatus,
+    AnchorRecord, DocumentOutput, LinkCompletionContext, LinkRecord, LinkTarget, MetadataValue,
+    TaskRecord, TaskReferenceTarget, TaskState, TaskStatus,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -95,6 +96,33 @@ pub struct CompletionCandidate {
     pub detail: String,
     pub new_text: String,
     pub replace: std::ops::Range<usize>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SearchRecordKind {
+    Note,
+    Task,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SearchRecord {
+    pub kind: SearchRecordKind,
+    pub title: String,
+    pub path: PathBuf,
+    pub relative_path: String,
+    pub range: std::ops::Range<usize>,
+    pub revision: i64,
+    pub id: Option<String>,
+    pub task_state: Option<TaskState>,
+    pub due: Option<String>,
+    pub blocked: Option<bool>,
+    pub actionable: Option<bool>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SearchResults {
+    pub items: Vec<SearchRecord>,
+    pub complete: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -224,6 +252,100 @@ impl Workspace {
 
     pub fn documents(&self) -> impl Iterator<Item = &DocumentEntry> {
         self.documents.values()
+    }
+
+    pub fn search_records(
+        &self,
+        root: impl AsRef<Path>,
+        kind: Option<SearchRecordKind>,
+        query: &str,
+        limit: usize,
+        now: DateTime<FixedOffset>,
+    ) -> SearchResults {
+        let root = normalize(root.as_ref());
+        let mut matches = Vec::new();
+        for entry in self.documents.values() {
+            let Some(current) = &entry.current else {
+                continue;
+            };
+            let relative_path = entry
+                .path
+                .strip_prefix(&root)
+                .unwrap_or(&entry.path)
+                .display()
+                .to_string();
+            if kind.is_none_or(|kind| kind == SearchRecordKind::Note) {
+                let (title, range) = note_search_title(current, entry, &relative_path);
+                if let Some(score) = search_score(query, &[&title, &relative_path]) {
+                    matches.push((
+                        score,
+                        SearchRecord {
+                            kind: SearchRecordKind::Note,
+                            title,
+                            path: entry.path.clone(),
+                            relative_path: relative_path.clone(),
+                            range,
+                            revision: current.revision,
+                            id: None,
+                            task_state: None,
+                            due: None,
+                            blocked: None,
+                            actionable: None,
+                        },
+                    ));
+                }
+            }
+            if kind.is_none_or(|kind| kind == SearchRecordKind::Task) {
+                for task in &current.output.tasks.tasks {
+                    let id = task.id.as_ref().map(|id| id.value.clone());
+                    let fields = [
+                        task.title.as_str(),
+                        id.as_deref().unwrap_or_default(),
+                        relative_path.as_str(),
+                    ];
+                    let Some(score) = search_score(query, &fields) else {
+                        continue;
+                    };
+                    let blocked = self.is_task_blocked(&entry.path, task);
+                    let actionable = task.state() == TaskState::Open
+                        && !blocked
+                        && task
+                            .wait
+                            .as_ref()
+                            .and_then(|wait| DateTime::parse_from_rfc3339(&wait.value).ok())
+                            .is_none_or(|wait| wait <= now);
+                    matches.push((
+                        score,
+                        SearchRecord {
+                            kind: SearchRecordKind::Task,
+                            title: task.title.clone(),
+                            path: entry.path.clone(),
+                            relative_path: relative_path.clone(),
+                            range: task.selection_range.clone(),
+                            revision: current.revision,
+                            id,
+                            task_state: Some(task.state()),
+                            due: task.due.as_ref().map(|due| due.value.clone()),
+                            blocked: Some(blocked),
+                            actionable: Some(actionable),
+                        },
+                    ));
+                }
+            }
+        }
+        matches.sort_by(|(left_score, left), (right_score, right)| {
+            right_score
+                .cmp(left_score)
+                .then_with(|| left.relative_path.cmp(&right.relative_path))
+                .then_with(|| left.range.start.cmp(&right.range.start))
+                .then_with(|| search_kind_order(left.kind).cmp(&search_kind_order(right.kind)))
+        });
+        let complete = matches.len() <= limit;
+        matches.truncate(limit);
+        SearchResults {
+            items: matches.into_iter().map(|(_, record)| record).collect(),
+            complete,
+        }
     }
 
     pub fn resolve_link(&self, from: impl AsRef<Path>, link: &LinkRecord) -> ResolvedTarget {
@@ -1723,8 +1845,8 @@ fn finalize_authoring_edit(
         modified.replace_range(edit.range.clone(), &edit.new_text);
     }
     if entry.parsed.syntax.blocks.is_empty() {
-        let new_text = plumb_format::format(&modified)
-            .map_err(|_| AuthoringEditError::GeneratedInvalid)?;
+        let new_text =
+            plumb_format::format(&modified).map_err(|_| AuthoringEditError::GeneratedInvalid)?;
         return Ok(single_document_edit(
             entry,
             path,
@@ -1973,6 +2095,89 @@ fn relative_path(from: &Path, target: &Path) -> Option<String> {
         relative.push(component.as_os_str());
     }
     relative.to_str().map(str::to_string)
+}
+
+fn note_search_title(
+    current: &VersionedDocumentOutput,
+    entry: &DocumentEntry,
+    relative_path: &str,
+) -> (String, std::ops::Range<usize>) {
+    let title = current
+        .output
+        .metadata
+        .metadata
+        .as_ref()
+        .and_then(|metadata| metadata.entries.iter().find(|entry| entry.key == "title"))
+        .and_then(|entry| match &entry.value {
+            MetadataValue::Scalar { content, .. } if !content.plain_text().is_empty() => {
+                Some((content.plain_text(), content.range.clone()))
+            }
+            _ => None,
+        });
+    title.unwrap_or_else(|| {
+        let fallback = Path::new(relative_path)
+            .file_stem()
+            .and_then(|stem| stem.to_str())
+            .filter(|stem| !stem.is_empty())
+            .unwrap_or(relative_path)
+            .to_string();
+        (fallback, 0..entry.parsed.source.len().min(1))
+    })
+}
+
+fn search_kind_order(kind: SearchRecordKind) -> u8 {
+    match kind {
+        SearchRecordKind::Note => 0,
+        SearchRecordKind::Task => 1,
+    }
+}
+
+fn search_score(query: &str, fields: &[&str]) -> Option<i64> {
+    if query.is_empty() {
+        return Some(0);
+    }
+    fields
+        .iter()
+        .filter_map(|field| fuzzy_score(field, query))
+        .max()
+}
+
+fn fuzzy_score(candidate: &str, query: &str) -> Option<i64> {
+    let candidate = candidate.to_lowercase().chars().collect::<Vec<_>>();
+    let query = query.to_lowercase().chars().collect::<Vec<_>>();
+    if query.is_empty() {
+        return Some(0);
+    }
+    let mut position = 0;
+    let mut previous = None;
+    let mut score = 0i64;
+    for wanted in &query {
+        let relative = candidate[position..]
+            .iter()
+            .position(|character| character == wanted)?;
+        let found = position + relative;
+        score += 20 - i64::try_from(relative.min(20)).unwrap_or(20);
+        if previous.is_some_and(|previous| previous + 1 == found) {
+            score += 15;
+        }
+        if found == 0
+            || candidate
+                .get(found.wrapping_sub(1))
+                .is_some_and(|character| {
+                    character.is_whitespace() || matches!(character, '/' | '-' | '_')
+                })
+        {
+            score += 10;
+        }
+        previous = Some(found);
+        position = found + 1;
+    }
+    if candidate == query {
+        score += 1000;
+    } else if candidate.starts_with(&query) {
+        score += 500;
+    }
+    Some(score)
 }
 
 fn fuzzy_match(candidate: &str, query: &str) -> bool {
@@ -2293,6 +2498,58 @@ mod tests {
         );
         assert_eq!(anchors.len(), 1);
         assert_eq!(anchors[0].new_text, "api");
+    }
+
+    #[test]
+    fn searches_note_and_task_records_with_stable_fuzzy_results() {
+        let root = Path::new("notes");
+        let now = DateTime::parse_from_rfc3339("2026-07-22T12:00:00+08:00").unwrap();
+        let mut workspace = Workspace::new();
+        workspace.insert(
+            "notes/design.plumb",
+            4,
+            "`meta\n `: title\n\n    Design Guide\n\n`-{.task #review due=\"2026-07-23T12:00:00+08:00\"} Review parser\n",
+        );
+        workspace.insert("notes/fallback.plumb", 2, "Fallback body\n");
+
+        let notes = workspace.search_records(root, Some(SearchRecordKind::Note), "dsg", 20, now);
+        assert!(notes.complete);
+        assert_eq!(notes.items.len(), 1);
+        assert_eq!(notes.items[0].title, "Design Guide");
+        assert_eq!(notes.items[0].relative_path, "design.plumb");
+        assert_eq!(notes.items[0].revision, 4);
+
+        let tasks = workspace.search_records(root, Some(SearchRecordKind::Task), "review", 20, now);
+        assert_eq!(tasks.items.len(), 1);
+        assert_eq!(tasks.items[0].id.as_deref(), Some("review"));
+        assert_eq!(tasks.items[0].task_state, Some(TaskState::Open));
+        assert_eq!(tasks.items[0].blocked, Some(false));
+        assert_eq!(tasks.items[0].actionable, Some(true));
+
+        let fallback =
+            workspace.search_records(root, Some(SearchRecordKind::Note), "fallback", 20, now);
+        assert_eq!(fallback.items[0].title, "fallback");
+    }
+
+    #[test]
+    fn search_records_use_current_valid_snapshots_and_report_truncation() {
+        let now = DateTime::parse_from_rfc3339("2026-07-22T12:00:00Z").unwrap();
+        let mut workspace = Workspace::new();
+        workspace.insert("a.plumb", 1, "Old title\n");
+        workspace.insert("a.plumb", 2, "New title\n");
+        workspace.insert("b.plumb", 1, "Another\n");
+
+        let limited = workspace.search_records("", None, "", 1, now);
+        assert_eq!(limited.items.len(), 1);
+        assert!(!limited.complete);
+        assert!(limited
+            .items
+            .iter()
+            .all(|record| record.revision != 1 || record.path != Path::new("a.plumb")));
+
+        workspace.insert("a.plumb", 3, "`span[broken\n");
+        let invalid = workspace.search_records("", None, "new", 20, now);
+        assert!(invalid.items.is_empty());
     }
 
     #[test]
@@ -2913,11 +3170,7 @@ mod tests {
         workspace.insert("notes/empty.plumb", 11, "");
 
         let edit = workspace
-            .insert_metadata(
-                "notes/empty.plumb",
-                "empty",
-                "2026-07-22T12:34:56+08:00",
-            )
+            .insert_metadata("notes/empty.plumb", "empty", "2026-07-22T12:34:56+08:00")
             .unwrap();
 
         let document = &edit.document_changes[0];
