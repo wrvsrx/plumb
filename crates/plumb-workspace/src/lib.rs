@@ -1,6 +1,7 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Component, Path, PathBuf};
 
+use cel::{Context, ExecutionError, Program, Value};
 use chrono::{DateTime, FixedOffset};
 use plumb_core::{
     parse, Attributes, Block, Diagnostic, DiagnosticSeverity, ParsedBlock, ParsedDocument,
@@ -117,6 +118,7 @@ pub struct SearchRecord {
     pub due: Option<String>,
     pub blocked: Option<bool>,
     pub actionable: Option<bool>,
+    pub depth: Option<usize>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -262,7 +264,24 @@ impl Workspace {
         limit: usize,
         now: DateTime<FixedOffset>,
     ) -> SearchResults {
+        self.search_records_filtered(root, kind, query, limit, now, None)
+            .expect("search without a semantic filter cannot fail")
+    }
+
+    pub fn search_records_filtered(
+        &self,
+        root: impl AsRef<Path>,
+        kind: Option<SearchRecordKind>,
+        query: &str,
+        limit: usize,
+        now: DateTime<FixedOffset>,
+        filter: Option<&str>,
+    ) -> Result<SearchResults, String> {
         let root = normalize(root.as_ref());
+        let filter = filter
+            .map(|source| SemanticSearchFilter::compile(source, now))
+            .transpose()?;
+        let reverse = filter.as_ref().map(|_| ReverseReferences::build(self));
         let mut matches = Vec::new();
         for entry in self.documents.values() {
             let Some(current) = &entry.current else {
@@ -276,23 +295,32 @@ impl Workspace {
                 .to_string();
             if kind.is_none_or(|kind| kind == SearchRecordKind::Note) {
                 let (title, range) = note_search_title(current, entry, &relative_path);
-                if let Some(score) = search_score(query, &[&title, &relative_path]) {
-                    matches.push((
-                        score,
-                        SearchRecord {
-                            kind: SearchRecordKind::Note,
-                            title,
-                            path: entry.path.clone(),
-                            relative_path: relative_path.clone(),
-                            range,
-                            revision: current.revision,
-                            id: None,
-                            task_state: None,
-                            due: None,
-                            blocked: None,
-                            actionable: None,
-                        },
-                    ));
+                let filter_match = match (&filter, &reverse) {
+                    (Some(filter), Some(reverse)) => {
+                        filter.note_matches(&root, entry, &title, reverse)?
+                    }
+                    _ => true,
+                };
+                if filter_match {
+                    if let Some(score) = search_score(query, &[&title, &relative_path]) {
+                        matches.push((
+                            score,
+                            SearchRecord {
+                                kind: SearchRecordKind::Note,
+                                title,
+                                path: entry.path.clone(),
+                                relative_path: relative_path.clone(),
+                                range,
+                                revision: current.revision,
+                                id: None,
+                                task_state: None,
+                                due: None,
+                                blocked: None,
+                                actionable: None,
+                                depth: None,
+                            },
+                        ));
+                    }
                 }
             }
             if kind.is_none_or(|kind| kind == SearchRecordKind::Task) {
@@ -314,6 +342,11 @@ impl Workspace {
                             .as_ref()
                             .and_then(|wait| DateTime::parse_from_rfc3339(&wait.value).ok())
                             .is_none_or(|wait| wait <= now);
+                    if let Some(filter) = &filter {
+                        if !filter.task_matches(&root, entry, task, self, blocked, actionable)? {
+                            continue;
+                        }
+                    }
                     matches.push((
                         score,
                         SearchRecord {
@@ -328,6 +361,7 @@ impl Workspace {
                             due: task.due.as_ref().map(|due| due.value.clone()),
                             blocked: Some(blocked),
                             actionable: Some(actionable),
+                            depth: Some(task.depth),
                         },
                     ));
                 }
@@ -342,10 +376,10 @@ impl Workspace {
         });
         let complete = matches.len() <= limit;
         matches.truncate(limit);
-        SearchResults {
+        Ok(SearchResults {
             items: matches.into_iter().map(|(_, record)| record).collect(),
             complete,
-        }
+        })
     }
 
     pub fn resolve_link(&self, from: impl AsRef<Path>, link: &LinkRecord) -> ResolvedTarget {
@@ -2123,6 +2157,184 @@ fn note_search_title(
             .to_string();
         (fallback, 0..entry.parsed.source.len().min(1))
     })
+}
+
+struct SemanticSearchFilter {
+    program: Program,
+    now: DateTime<FixedOffset>,
+}
+
+impl SemanticSearchFilter {
+    fn compile(source: &str, now: DateTime<FixedOffset>) -> Result<Self, String> {
+        Ok(Self {
+            program: Program::compile(source)
+                .map_err(|error| format!("invalid CEL query: {error}"))?,
+            now,
+        })
+    }
+
+    fn note_matches(
+        &self,
+        root: &Path,
+        entry: &DocumentEntry,
+        title: &str,
+        reverse: &ReverseReferences,
+    ) -> Result<bool, String> {
+        let mut context = Context::default();
+        context.add_variable_from_value("path", display_search_path(root, &entry.path));
+        context.add_variable_from_value("title", title.to_string());
+        context.add_variable_from_value(
+            "directly_referenced_by",
+            reverse
+                .direct(&entry.path)
+                .iter()
+                .map(|path| display_search_path(root, path))
+                .collect::<Vec<_>>(),
+        );
+        context.add_variable_from_value(
+            "transitively_referenced_by",
+            reverse
+                .transitive(&entry.path)
+                .iter()
+                .map(|path| display_search_path(root, path))
+                .collect::<Vec<_>>(),
+        );
+        execute_search_filter(&self.program, &context, &entry.path)
+    }
+
+    fn task_matches(
+        &self,
+        root: &Path,
+        entry: &DocumentEntry,
+        task: &TaskRecord,
+        workspace: &Workspace,
+        blocked: bool,
+        actionable: bool,
+    ) -> Result<bool, String> {
+        let depends_on = workspace
+            .task_dependencies(&entry.path, task)
+            .into_iter()
+            .map(|dependency| display_search_task_ref(root, &dependency.target))
+            .collect::<Vec<_>>();
+        let directly_blocking = task
+            .id
+            .as_ref()
+            .map(|id| {
+                workspace
+                    .directly_blocking_tasks(&entry.path, &id.value)
+                    .iter()
+                    .map(|target| display_search_task_ref(root, target))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        let mut context = Context::default();
+        context.add_variable_from_value("path", display_search_path(root, &entry.path));
+        context.add_variable_from_value(
+            "id",
+            optional_search_string(task.id.as_ref().map(|id| &id.value)),
+        );
+        context.add_variable_from_value("title", task.title.clone());
+        context.add_variable_from_value("created", search_datetime_value(task.created.as_ref()));
+        context.add_variable_from_value("due", search_datetime_value(task.due.as_ref()));
+        context.add_variable_from_value("wait", search_datetime_value(task.wait.as_ref()));
+        context.add_variable_from_value("done", search_datetime_value(task.done.as_ref()));
+        context.add_variable_from_value("canceled", search_datetime_value(task.canceled.as_ref()));
+        context.add_variable_from_value(
+            "recur",
+            optional_search_string(task.recur.as_ref().map(|field| &field.value)),
+        );
+        context.add_variable_from_value(
+            "prev",
+            optional_search_string(task.prev.as_ref().map(|field| &field.value)),
+        );
+        context.add_variable_from_value("depends_on", depends_on);
+        context.add_variable_from_value("directly_blocking", directly_blocking);
+        context.add_variable_from_value("blocked", blocked);
+        context.add_variable_from_value("actionable", actionable);
+        context.add_variable_from_value("now", Value::Timestamp(self.now));
+        execute_search_filter(&self.program, &context, &entry.path)
+    }
+}
+
+fn execute_search_filter(
+    program: &Program,
+    context: &Context,
+    path: &Path,
+) -> Result<bool, String> {
+    match program.execute(context) {
+        Ok(Value::Bool(value)) => Ok(value),
+        Ok(value) => Err(format!("CEL query must return bool, got {value:?}")),
+        Err(ExecutionError::NoSuchKey(_)) => Ok(false),
+        Err(error) => Err(format!(
+            "cannot evaluate query for {}: {error}",
+            path.display()
+        )),
+    }
+}
+
+fn optional_search_string(value: Option<&String>) -> Value {
+    value
+        .cloned()
+        .map_or(Value::Null, |value| Value::String(value.into()))
+}
+
+fn search_datetime_value(field: Option<&plumb_extensions::TaskField>) -> Value {
+    field
+        .and_then(|field| DateTime::parse_from_rfc3339(&field.value).ok())
+        .map_or(Value::Null, Value::Timestamp)
+}
+
+fn display_search_task_ref(root: &Path, task_ref: &TaskRef) -> String {
+    format!(
+        "{}#{}",
+        display_search_path(root, &task_ref.path),
+        task_ref.id
+    )
+}
+
+fn display_search_path(root: &Path, path: &Path) -> String {
+    path.strip_prefix(root)
+        .unwrap_or(path)
+        .display()
+        .to_string()
+}
+
+struct ReverseReferences {
+    direct: HashMap<PathBuf, HashSet<PathBuf>>,
+}
+
+impl ReverseReferences {
+    fn build(workspace: &Workspace) -> Self {
+        let mut direct: HashMap<PathBuf, HashSet<PathBuf>> = HashMap::new();
+        for entry in workspace.documents() {
+            for target in workspace.referenced_documents_from(&entry.path) {
+                direct.entry(target).or_default().insert(entry.path.clone());
+            }
+        }
+        Self { direct }
+    }
+
+    fn direct(&self, path: &Path) -> Vec<PathBuf> {
+        sorted_search_paths(self.direct.get(path).into_iter().flatten().cloned())
+    }
+
+    fn transitive(&self, path: &Path) -> Vec<PathBuf> {
+        let mut found = HashSet::new();
+        let mut queue = VecDeque::from(self.direct(path));
+        while let Some(source) = queue.pop_front() {
+            if source == path || !found.insert(source.clone()) {
+                continue;
+            }
+            queue.extend(self.direct(&source));
+        }
+        sorted_search_paths(found)
+    }
+}
+
+fn sorted_search_paths(values: impl IntoIterator<Item = PathBuf>) -> Vec<PathBuf> {
+    let mut values = values.into_iter().collect::<Vec<_>>();
+    values.sort();
+    values
 }
 
 fn search_kind_order(kind: SearchRecordKind) -> u8 {

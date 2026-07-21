@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+cel.workspace = true
 chrono.workspace = true
 plumb-core = { path = "../plumb-core" }
 plumb-extensions = { path = "../plumb-extensions" }

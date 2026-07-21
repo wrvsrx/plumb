@@ -1,11 +1,11 @@
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::HashMap;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use cel::{Context, ExecutionError, Program, Value};
+use chrono::Local;
 use clap::{Args, Parser, Subcommand};
-use plumb_workspace::{normalize, Workspace};
+use plumb_workspace::{normalize, SearchRecordKind, Workspace};
 
 mod interactive;
 mod tasks;
@@ -37,22 +37,20 @@ fn run(config: Config) -> Result<(), String> {
     let loaded = load_workspace(&root)?;
     match config.command {
         Command::Note(note) => {
-            let plan = config
-                .query
-                .as_deref()
-                .map(QueryPlan::compile)
-                .transpose()?;
-            let reverse = ReverseReferences::build(&loaded.workspace);
-            let mut selected_paths = Vec::new();
-            for path in &loaded.paths {
-                let is_match = match &plan {
-                    Some(plan) => plan.matches(&root, path, &loaded.workspace, &reverse)?,
-                    None => true,
-                };
-                if is_match {
-                    selected_paths.push(path.clone());
-                }
-            }
+            let selected_paths = loaded
+                .workspace
+                .search_records_filtered(
+                    &root,
+                    Some(SearchRecordKind::Note),
+                    "",
+                    usize::MAX,
+                    Local::now().fixed_offset(),
+                    config.query.as_deref(),
+                )?
+                .items
+                .into_iter()
+                .map(|record| record.path)
+                .collect::<Vec<_>>();
             if note.interactive {
                 let action = run_interactive(&root, &selected_paths, &loaded.texts)?;
                 handle_interactive_action(&root, action)?;
@@ -146,7 +144,6 @@ struct TaskTargetsConfig {
 
 struct LoadedWorkspace {
     workspace: Workspace,
-    paths: Vec<PathBuf>,
     texts: HashMap<PathBuf, String>,
 }
 
@@ -163,11 +160,7 @@ fn load_workspace(root: &Path) -> Result<LoadedWorkspace, String> {
         workspace.insert(path, 0, text.clone());
         texts.insert(path.clone(), text);
     }
-    Ok(LoadedWorkspace {
-        workspace,
-        paths,
-        texts,
-    })
+    Ok(LoadedWorkspace { workspace, texts })
 }
 
 fn collect_plumb_files(path: &Path, output: &mut Vec<PathBuf>) -> Result<(), String> {
@@ -190,104 +183,6 @@ fn collect_plumb_files(path: &Path, output: &mut Vec<PathBuf>) -> Result<(), Str
         }
     }
     Ok(())
-}
-
-struct QueryPlan {
-    program: Program,
-}
-
-impl QueryPlan {
-    fn compile(source: &str) -> Result<Self, String> {
-        Ok(Self {
-            program: Program::compile(source)
-                .map_err(|error| format!("invalid CEL query: {error}"))?,
-        })
-    }
-
-    fn matches(
-        &self,
-        root: &Path,
-        path: &Path,
-        workspace: &Workspace,
-        reverse: &ReverseReferences,
-    ) -> Result<bool, String> {
-        let entry = workspace
-            .get(path)
-            .ok_or_else(|| format!("document is not loaded: {}", path.display()))?;
-        let mut context = Context::default();
-        context.add_variable_from_value("path", display_path(root, path));
-        context.add_variable_from_value(
-            "title",
-            entry
-                .current
-                .as_ref()
-                .and_then(|current| current.output.metadata.document_title())
-                .unwrap_or_default(),
-        );
-        context.add_variable_from_value(
-            "directly_referenced_by",
-            reverse
-                .direct(path)
-                .iter()
-                .map(|path| display_path(root, path))
-                .collect::<Vec<_>>(),
-        );
-        context.add_variable_from_value(
-            "transitively_referenced_by",
-            reverse
-                .transitive(path)
-                .iter()
-                .map(|path| display_path(root, path))
-                .collect::<Vec<_>>(),
-        );
-        match self.program.execute(&context) {
-            Ok(Value::Bool(value)) => Ok(value),
-            Ok(value) => Err(format!("CEL query must return bool, got {value:?}")),
-            Err(ExecutionError::NoSuchKey(_)) => Ok(false),
-            Err(error) => Err(format!(
-                "cannot evaluate query for {}: {error}",
-                path.display()
-            )),
-        }
-    }
-}
-
-struct ReverseReferences {
-    direct: HashMap<PathBuf, HashSet<PathBuf>>,
-}
-
-impl ReverseReferences {
-    fn build(workspace: &Workspace) -> Self {
-        let mut direct: HashMap<PathBuf, HashSet<PathBuf>> = HashMap::new();
-        for entry in workspace.documents() {
-            for target in workspace.referenced_documents_from(&entry.path) {
-                direct.entry(target).or_default().insert(entry.path.clone());
-            }
-        }
-        Self { direct }
-    }
-
-    fn direct(&self, path: &Path) -> Vec<PathBuf> {
-        sorted(self.direct.get(path).into_iter().flatten().cloned())
-    }
-
-    fn transitive(&self, path: &Path) -> Vec<PathBuf> {
-        let mut found = HashSet::new();
-        let mut queue = VecDeque::from(self.direct(path));
-        while let Some(source) = queue.pop_front() {
-            if source == path || !found.insert(source.clone()) {
-                continue;
-            }
-            queue.extend(self.direct(&source));
-        }
-        sorted(found)
-    }
-}
-
-fn sorted(values: impl IntoIterator<Item = PathBuf>) -> Vec<PathBuf> {
-    let mut values = values.into_iter().collect::<Vec<_>>();
-    values.sort();
-    values
 }
 
 fn display_path(root: &Path, path: &Path) -> String {
@@ -389,14 +284,19 @@ mod tests {
         std::fs::write(root.join("topic.plumb"), "`->[leaf]{to=\"leaf.plumb\"}\n").unwrap();
         std::fs::write(root.join("leaf.plumb"), "Leaf note.\n").unwrap();
         let loaded = load_workspace(&root).unwrap();
-        let reverse = ReverseReferences::build(&loaded.workspace);
         let leaf = normalize(&root.join("leaf.plumb"));
-        assert!(
-            QueryPlan::compile("'index.plumb' in transitively_referenced_by")
-                .unwrap()
-                .matches(&root, &leaf, &loaded.workspace, &reverse)
-                .unwrap()
-        );
+        let results = loaded
+            .workspace
+            .search_records_filtered(
+                &root,
+                Some(SearchRecordKind::Note),
+                "",
+                usize::MAX,
+                Local::now().fixed_offset(),
+                Some("'index.plumb' in transitively_referenced_by"),
+            )
+            .unwrap();
+        assert!(results.items.iter().any(|record| record.path == leaf));
         std::fs::remove_dir_all(root).unwrap();
     }
 
@@ -416,14 +316,19 @@ mod tests {
         .unwrap();
         std::fs::write(root.join("leaf.plumb"), "`-{.task #leaf} Leaf\n").unwrap();
         let loaded = load_workspace(&root).unwrap();
-        let reverse = ReverseReferences::build(&loaded.workspace);
         let leaf = normalize(&root.join("leaf.plumb"));
-        assert!(QueryPlan::compile(
-            "'topic.plumb' in directly_referenced_by && 'index.plumb' in transitively_referenced_by"
-        )
-        .unwrap()
-        .matches(&root, &leaf, &loaded.workspace, &reverse)
-        .unwrap());
+        let results = loaded
+            .workspace
+            .search_records_filtered(
+                &root,
+                Some(SearchRecordKind::Note),
+                "",
+                usize::MAX,
+                Local::now().fixed_offset(),
+                Some("'topic.plumb' in directly_referenced_by && 'index.plumb' in transitively_referenced_by"),
+            )
+            .unwrap();
+        assert!(results.items.iter().any(|record| record.path == leaf));
         std::fs::remove_dir_all(root).unwrap();
     }
 
@@ -438,14 +343,19 @@ mod tests {
         .unwrap();
         std::fs::write(root.join("notes.plumb"), "`# Notes\n").unwrap();
         let loaded = load_workspace(&root).unwrap();
-        let reverse = ReverseReferences::build(&loaded.workspace);
         let semantics = normalize(&root.join("docs/semantics.plumb"));
-        assert!(
-            QueryPlan::compile("path.startsWith('docs/') && title.matches('Semantics Guide')")
-                .unwrap()
-                .matches(&root, &semantics, &loaded.workspace, &reverse)
-                .unwrap()
-        );
+        let results = loaded
+            .workspace
+            .search_records_filtered(
+                &root,
+                Some(SearchRecordKind::Note),
+                "",
+                usize::MAX,
+                Local::now().fixed_offset(),
+                Some("path.startsWith('docs/') && title.matches('Semantics Guide')"),
+            )
+            .unwrap();
+        assert!(results.items.iter().any(|record| record.path == semantics));
         std::fs::remove_dir_all(root).unwrap();
     }
 
@@ -455,11 +365,16 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(root.join("note.plumb"), "A note.\n").unwrap();
         let loaded = load_workspace(&root).unwrap();
-        let reverse = ReverseReferences::build(&loaded.workspace);
-        let note = normalize(&root.join("note.plumb"));
-        let error = QueryPlan::compile("path")
-            .unwrap()
-            .matches(&root, &note, &loaded.workspace, &reverse)
+        let error = loaded
+            .workspace
+            .search_records_filtered(
+                &root,
+                Some(SearchRecordKind::Note),
+                "",
+                usize::MAX,
+                Local::now().fixed_offset(),
+                Some("path"),
+            )
             .unwrap_err();
         assert!(error.contains("must return bool"));
         std::fs::remove_dir_all(root).unwrap();

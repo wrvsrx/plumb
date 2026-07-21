@@ -1,12 +1,11 @@
 use std::path::{Path, PathBuf};
 
-use cel::{Context, ExecutionError, Program, Value};
-use chrono::{DateTime, FixedOffset, Local, SecondsFormat};
+use chrono::{Local, SecondsFormat};
 use comfy_table::{presets::NOTHING, ContentArrangement, Table};
-use plumb_extensions::{TaskRecord, TaskState, TaskStatus};
-use plumb_workspace::{normalize, TaskEditError, TaskRef, TextEdit, Workspace};
+use plumb_extensions::{TaskState, TaskStatus};
+use plumb_workspace::{normalize, SearchRecordKind, TaskEditError, TextEdit};
 
-use crate::{display_path, load_workspace, LoadedWorkspace, TaskAction};
+use crate::{load_workspace, LoadedWorkspace, TaskAction};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct TaskOutputRecord {
@@ -22,8 +21,7 @@ pub(crate) fn print_tasks(
     tree: bool,
     heading: bool,
 ) -> Result<(), String> {
-    let plan = query.map(TaskQueryPlan::compile).transpose()?;
-    let records = task_records(root, loaded, plan.as_ref(), tree)?;
+    let records = task_records(root, loaded, query, tree)?;
     if !records.is_empty() {
         println!("{}", render_task_table(&records, heading));
     }
@@ -33,51 +31,43 @@ pub(crate) fn print_tasks(
 fn task_records(
     root: &Path,
     loaded: &LoadedWorkspace,
-    plan: Option<&TaskQueryPlan>,
+    query: Option<&str>,
     tree: bool,
 ) -> Result<Vec<TaskOutputRecord>, String> {
-    let mut records = Vec::new();
-    for path in &loaded.paths {
-        let Some(current) = loaded
-            .workspace
-            .get(path)
-            .and_then(|entry| entry.current.as_ref())
-        else {
-            continue;
-        };
-        for task in &current.output.tasks.tasks {
-            let is_match = match plan {
-                Some(plan) => plan.matches(root, path, task, &loaded.workspace)?,
-                None => true,
+    let results = loaded.workspace.search_records_filtered(
+        root,
+        Some(SearchRecordKind::Task),
+        "",
+        usize::MAX,
+        Local::now().fixed_offset(),
+        query,
+    )?;
+    Ok(results
+        .items
+        .into_iter()
+        .map(|record| {
+            let status = match record.task_state.expect("task search record has state") {
+                TaskState::Done => "o",
+                TaskState::Canceled | TaskState::Conflicted => "x",
+                TaskState::Open => "-",
             };
-            if is_match {
-                records.push(task_output_record(root, path, task, tree));
+            let depth = record.depth.unwrap_or_default();
+            let title = if tree && depth > 0 {
+                format!("{}> {}", "  ".repeat(depth - 1), record.title)
+            } else {
+                record.title
+            };
+            let source = record.id.map_or_else(
+                || record.relative_path.clone(),
+                |id| format!("{}#{id}", record.relative_path),
+            );
+            TaskOutputRecord {
+                status: status.to_string(),
+                title,
+                source,
             }
-        }
-    }
-    Ok(records)
-}
-
-fn task_output_record(root: &Path, path: &Path, task: &TaskRecord, tree: bool) -> TaskOutputRecord {
-    let status = match task.state() {
-        TaskState::Done => "o",
-        TaskState::Canceled | TaskState::Conflicted => "x",
-        TaskState::Open => "-",
-    };
-    let title = if tree && task.depth > 0 {
-        format!("{}> {}", "  ".repeat(task.depth - 1), task.title)
-    } else {
-        task.title.clone()
-    };
-    let source = task.id.as_ref().map_or_else(
-        || display_path(root, path),
-        |id| format!("{}#{}", display_path(root, path), id.value),
-    );
-    TaskOutputRecord {
-        status: status.to_string(),
-        title,
-        source,
-    }
+        })
+        .collect())
 }
 
 fn render_task_table(records: &[TaskOutputRecord], heading: bool) -> String {
@@ -117,107 +107,6 @@ fn render_task_table_with_width(
         table.add_row([&record.status, &record.title, &record.source]);
     }
     table.to_string()
-}
-
-struct TaskQueryPlan {
-    program: Program,
-    now: DateTime<FixedOffset>,
-}
-
-impl TaskQueryPlan {
-    fn compile(source: &str) -> Result<Self, String> {
-        Self::compile_at(source, Local::now().fixed_offset())
-    }
-
-    fn compile_at(source: &str, now: DateTime<FixedOffset>) -> Result<Self, String> {
-        Ok(Self {
-            program: Program::compile(source)
-                .map_err(|error| format!("invalid CEL query: {error}"))?,
-            now,
-        })
-    }
-
-    fn matches(
-        &self,
-        root: &Path,
-        path: &Path,
-        task: &TaskRecord,
-        workspace: &Workspace,
-    ) -> Result<bool, String> {
-        let depends_on = workspace
-            .task_dependencies(path, task)
-            .into_iter()
-            .map(|dependency| display_task_ref(root, &dependency.target))
-            .collect::<Vec<_>>();
-        let directly_blocking = task
-            .id
-            .as_ref()
-            .map(|id| {
-                workspace
-                    .directly_blocking_tasks(path, &id.value)
-                    .iter()
-                    .map(|target| display_task_ref(root, target))
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
-        let blocked = workspace.is_task_blocked(path, task);
-        let actionable = task.state() == TaskState::Open
-            && !blocked
-            && task
-                .wait
-                .as_ref()
-                .and_then(|wait| DateTime::parse_from_rfc3339(&wait.value).ok())
-                .is_none_or(|wait| wait <= self.now);
-
-        let mut context = Context::default();
-        context.add_variable_from_value("path", display_path(root, path));
-        context
-            .add_variable_from_value("id", optional_string(task.id.as_ref().map(|id| &id.value)));
-        context.add_variable_from_value("title", task.title.clone());
-        context.add_variable_from_value("created", datetime_value(task.created.as_ref()));
-        context.add_variable_from_value("due", datetime_value(task.due.as_ref()));
-        context.add_variable_from_value("wait", datetime_value(task.wait.as_ref()));
-        context.add_variable_from_value("done", datetime_value(task.done.as_ref()));
-        context.add_variable_from_value("canceled", datetime_value(task.canceled.as_ref()));
-        context.add_variable_from_value(
-            "recur",
-            optional_string(task.recur.as_ref().map(|field| &field.value)),
-        );
-        context.add_variable_from_value(
-            "prev",
-            optional_string(task.prev.as_ref().map(|field| &field.value)),
-        );
-        context.add_variable_from_value("depends_on", depends_on);
-        context.add_variable_from_value("directly_blocking", directly_blocking);
-        context.add_variable_from_value("blocked", blocked);
-        context.add_variable_from_value("actionable", actionable);
-        context.add_variable_from_value("now", Value::Timestamp(self.now));
-        match self.program.execute(&context) {
-            Ok(Value::Bool(value)) => Ok(value),
-            Ok(value) => Err(format!("CEL query must return bool, got {value:?}")),
-            Err(ExecutionError::NoSuchKey(_)) => Ok(false),
-            Err(error) => Err(format!(
-                "cannot evaluate task query for {}: {error}",
-                path.display()
-            )),
-        }
-    }
-}
-
-fn optional_string(value: Option<&String>) -> Value {
-    value
-        .cloned()
-        .map_or(Value::Null, |value| Value::String(value.into()))
-}
-
-fn datetime_value(field: Option<&plumb_extensions::TaskField>) -> Value {
-    field
-        .and_then(|field| DateTime::parse_from_rfc3339(&field.value).ok())
-        .map_or(Value::Null, Value::Timestamp)
-}
-
-fn display_task_ref(root: &Path, task_ref: &TaskRef) -> String {
-    format!("{}#{}", display_path(root, &task_ref.path), task_ref.id)
 }
 
 pub(crate) fn run_task_action(root: &Path, action: TaskAction) -> Result<(), String> {
@@ -327,27 +216,21 @@ mod tests {
         )
         .unwrap();
         let loaded = load_workspace(&root).unwrap();
-        let plan = TaskQueryPlan::compile("blocked && id == 'review'").unwrap();
-        let records = task_records(&root, &loaded, Some(&plan), true).unwrap();
+        let records =
+            task_records(&root, &loaded, Some("blocked && id == 'review'"), true).unwrap();
         assert_eq!(records.len(), 1);
         assert_eq!(records[0].status, "-");
         assert_eq!(records[0].source, "tasks.plumb#review");
 
-        let deps_path = normalize(&root.join("deps.plumb"));
-        let draft = &loaded
-            .workspace
-            .get(&deps_path)
-            .unwrap()
-            .current
-            .as_ref()
-            .unwrap()
-            .output
-            .tasks
-            .tasks[0];
-        let reverse = TaskQueryPlan::compile("'tasks.plumb#review' in directly_blocking").unwrap();
-        assert!(reverse
-            .matches(&root, &deps_path, draft, &loaded.workspace)
-            .unwrap());
+        let reverse = task_records(
+            &root,
+            &loaded,
+            Some("'tasks.plumb#review' in directly_blocking"),
+            true,
+        )
+        .unwrap();
+        assert_eq!(reverse.len(), 1);
+        assert_eq!(reverse[0].source, "deps.plumb#draft");
 
         let all = task_records(&root, &loaded, None, true).unwrap();
         assert!(all.iter().any(|record| record.title == "> Nested"));

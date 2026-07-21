@@ -1173,6 +1173,7 @@ dependencies = [
  "plumb-format",
  "plumb-notes",
  "plumb-workspace",
+ "serde",
  "serde_json",
  "tokio",
  "tower",
@@ -1235,6 +1236,7 @@ dependencies = [
 name = "plumb-workspace"
 version = "0.8.1-dev"
 dependencies = [
+ "cel",
  "chrono",
  "plumb-core",
  "plumb-extensions",
