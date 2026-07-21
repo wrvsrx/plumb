@@ -714,7 +714,8 @@ mod tests {
 
     #[test]
     fn formats_a_range_that_contains_the_first_generated_block() {
-        let source = "`meta\n `: title\n\n    empty\n\n `: created\n\n    2026-07-22T12:34:56+08:00\n\n";
+        let source =
+            "`meta\n `: title\n\n    empty\n\n `: created\n\n    2026-07-22T12:34:56+08:00\n\n";
         let edit = format_block_range(source, 0..source.len()).unwrap();
         assert_eq!(edit.range, 0..source.len() - 1);
         assert_eq!(edit.new_text, &source[..source.len() - 1]);

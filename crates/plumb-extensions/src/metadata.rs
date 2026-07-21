@@ -529,7 +529,10 @@ mod tests {
             .find(|diagnostic| diagnostic.code == "metadata.invalid-created")
             .expect("invalid created diagnostic");
         assert_eq!(diagnostic.severity, DiagnosticSeverity::Warning);
-        assert_eq!(&parsed.source[diagnostic.range.clone()], "2026-07-22 12:34:56\n");
+        assert_eq!(
+            &parsed.source[diagnostic.range.clone()],
+            "2026-07-22 12:34:56\n"
+        );
     }
 
     #[test]
