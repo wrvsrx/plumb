@@ -1998,6 +1998,35 @@ fn structured_search_rejects_requests_before_initial_index() {
 }
 
 #[test]
+fn structured_search_marks_failed_workspace_scans_incomplete() {
+    let root = unique_temp_dir();
+    let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
+    let messages = [
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {
+                "processId": null, "rootUri": root_uri,
+                "workspaceFolders": [{ "uri": root_uri, "name": "missing" }],
+                "capabilities": {}
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({
+            "jsonrpc": "2.0", "id": 2, "method": "plumb/search",
+            "params": { "query": "", "limit": 100 }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 3, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+
+    let output = run_server_with_pause(
+        &messages[..messages.len() - 2],
+        &messages[messages.len() - 2..],
+    );
+    assert_eq!(response(&output, 2)["result"]["complete"], false);
+}
+
+#[test]
 fn definition_resolves_a_file_name_containing_spaces() {
     let root = unique_temp_dir();
     std::fs::create_dir_all(&root).unwrap();

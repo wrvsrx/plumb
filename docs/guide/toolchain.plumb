@@ -44,8 +44,9 @@ store 或 symlink cycle 产生重复 records；扩展名为 `[..plumb] 的单文
 
 `[kind]、`[query] 和 `[filter] 可省略；filter 使用与 `[plumb note/task --query] 相同的 shared CEL
 facts。result 包含 items、Location、revision provenance 和 complete；limit 上限为 200。invalid CEL
-使用 InvalidParams，initial index 前使用 ServerNotInitialized，cancellation 使用 RequestCancelled。
-initialize response 的 `[experimental.plumb.search] 声明 method 与 schemaVersion。
+使用 InvalidParams，initial index 前使用 ServerNotInitialized，workspace scan 不完整时 complete 为 false，
+Location 等内部 invariant 失败使用 InternalError，cancellation 使用 RequestCancelled。initialize response
+的 `[experimental.plumb.search] 声明 method 与 schemaVersion。
 
 `[dev/nvim.lua] 是面向 Neovim 0.12 的 repo-local exrc：加载本地 tree-sitter parser 与 queries，
 启动 `[`target/debug/plumb lsp]，并配置 workspace edits、resource rename 和 file watching。

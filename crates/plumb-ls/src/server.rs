@@ -112,7 +112,7 @@ impl ServerState {
             });
     }
 
-    fn index_roots(&mut self) -> usize {
+    fn index_roots(&mut self) -> (usize, bool) {
         self.notify_index_progress(WorkDoneProgress::Begin(WorkDoneProgressBegin {
             title: "Indexing plumb workspace".to_string(),
             cancellable: Some(false),
@@ -121,8 +121,11 @@ impl ServerState {
         }));
         let roots = self.roots.clone();
         let mut indexed = 0;
+        let mut complete = true;
         for root in roots {
-            indexed += self.index_directory(&root);
+            let (root_indexed, root_complete) = self.index_directory(&root);
+            indexed += root_indexed;
+            complete &= root_complete;
         }
         self.notify_index_progress(WorkDoneProgress::Report(WorkDoneProgressReport {
             cancellable: Some(false),
@@ -132,31 +135,41 @@ impl ServerState {
         self.notify_index_progress(WorkDoneProgress::End(WorkDoneProgressEnd {
             message: Some(format!("Indexed {indexed} plumb files")),
         }));
-        indexed
+        (indexed, complete)
     }
 
-    fn index_directory(&mut self, directory: &Path) -> usize {
+    fn index_directory(&mut self, directory: &Path) -> (usize, bool) {
         let Ok(entries) = fs::read_dir(directory) else {
-            return 0;
+            return (0, false);
         };
         let mut indexed = 0;
-        for entry in entries.flatten() {
+        let mut complete = true;
+        for entry in entries {
+            let Ok(entry) = entry else {
+                complete = false;
+                continue;
+            };
             let path = entry.path();
             let Ok(file_type) = entry.file_type() else {
+                complete = false;
                 continue;
             };
             if file_type.is_dir() {
-                indexed += self.index_directory(&path);
+                let (child_indexed, child_complete) = self.index_directory(&path);
+                indexed += child_indexed;
+                complete &= child_complete;
             } else if is_plumb_file(&path)
                 && !self.open_documents.values().any(|open| open == &path)
             {
                 if let Ok(text) = fs::read_to_string(&path) {
                     self.workspace.insert(path, 0, text);
                     indexed += 1;
+                } else {
+                    complete = false;
                 }
             }
         }
-        indexed
+        (indexed, complete)
     }
 
     fn notify_index_progress(&self, progress: WorkDoneProgress) {
@@ -348,8 +361,8 @@ fn search_workspace(
     let items = results
         .items
         .into_iter()
-        .filter_map(|record| search_item(workspace, record))
-        .collect();
+        .map(|record| search_item(workspace, record))
+        .collect::<Result<Vec<_>, _>>()?;
     Ok(SearchResult {
         schema_version: 1,
         items,
@@ -357,13 +370,23 @@ fn search_workspace(
     })
 }
 
-fn search_item(workspace: &Workspace, record: SearchRecord) -> Option<SearchItem> {
-    let entry = workspace.get(&record.path)?;
+fn search_item(workspace: &Workspace, record: SearchRecord) -> Result<SearchItem, ResponseError> {
+    let entry = workspace.get(&record.path).ok_or_else(|| {
+        ResponseError::new(ErrorCode::INTERNAL_ERROR, "search record lost its document")
+    })?;
     let location = Location::new(
-        Url::from_file_path(&record.path).ok()?,
+        Url::from_file_path(&record.path).map_err(|_| {
+            ResponseError::new(
+                ErrorCode::INTERNAL_ERROR,
+                format!(
+                    "search path is not an absolute file path: {}",
+                    record.path.display()
+                ),
+            )
+        })?,
         byte_range_to_lsp(&entry.parsed.source, &record.range),
     );
-    Some(SearchItem {
+    Ok(SearchItem {
         kind: match record.kind {
             SearchRecordKind::Note => SearchKind::Note,
             SearchRecordKind::Task => SearchKind::Task,
@@ -479,8 +502,8 @@ impl LanguageServer for ServerState {
     }
 
     fn initialized(&mut self, _params: InitializedParams) -> Self::NotifyResult {
-        self.index_roots();
-        self.index_complete = true;
+        let (_, complete) = self.index_roots();
+        self.index_complete = complete;
         self.register_workspace_file_watchers();
         self.publish_all_open_diagnostics();
         ControlFlow::Continue(())
@@ -1751,5 +1774,24 @@ mod tests {
             .map(|range| &source[range])
             .collect::<Vec<_>>();
         assert_eq!(segments, ["`-{", ".任务", "}"]);
+    }
+
+    #[test]
+    fn structured_search_reports_internal_location_failures() {
+        let mut workspace = Workspace::new();
+        workspace.insert("relative.plumb", 1, "Relative\n");
+        let error = search_workspace(
+            &workspace,
+            &[],
+            true,
+            SearchParams {
+                kind: Some(SearchKind::Note),
+                query: String::new(),
+                filter: None,
+                limit: Some(20),
+            },
+        )
+        .unwrap_err();
+        assert_eq!(error.code, ErrorCode::INTERNAL_ERROR);
     }
 }
