@@ -779,6 +779,20 @@ impl LanguageServer for ServerState {
             }
             if let Some(entry) = self.workspace.get(&path) {
                 let offset = position_to_offset(&entry.parsed.source, params.range.start);
+                if let Some(edit) = self
+                    .workspace
+                    .add_explicit_id(&path, offset)
+                    .ok()
+                    .and_then(|edit| workspace_edit_to_lsp(&self.workspace, edit))
+                {
+                    actions.push(CodeActionOrCommand::CodeAction(CodeAction {
+                        title: "Add explicit id".to_string(),
+                        kind: Some(CodeActionKind::REFACTOR_REWRITE),
+                        edit: Some(edit),
+                        is_preferred: Some(true),
+                        ..CodeAction::default()
+                    }));
+                }
                 for (title, edit) in [
                     (
                         "Convert to task",

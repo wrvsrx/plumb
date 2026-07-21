@@ -538,10 +538,12 @@ fn inserts_metadata_code_action_only_for_valid_documents_without_metadata() {
             .contains(&json!("refactor.rewrite"))
     );
     let actions = response(&output, 2)["result"].as_array().unwrap();
-    assert_eq!(actions.len(), 1);
-    assert_eq!(actions[0]["title"], "Insert document metadata");
-    assert_eq!(actions[0]["kind"], "refactor.rewrite");
-    let change = &actions[0]["edit"]["documentChanges"][0];
+    let metadata = actions
+        .iter()
+        .find(|action| action["title"] == "Insert document metadata")
+        .unwrap();
+    assert_eq!(metadata["kind"], "refactor.rewrite");
+    let change = &metadata["edit"]["documentChanges"][0];
     assert_eq!(change["textDocument"]["version"], 3);
     assert_eq!(change["edits"][0]["range"]["start"]["line"], 0);
     assert_eq!(change["edits"][0]["range"]["start"]["character"], 0);
@@ -552,7 +554,11 @@ fn inserts_metadata_code_action_only_for_valid_documents_without_metadata() {
         .and_then(|suffix| suffix.strip_suffix("\n\n"))
         .expect("metadata contains created after title");
     chrono::DateTime::parse_from_rfc3339(created).expect("created is an RFC 3339 timestamp");
-    assert!(response(&output, 3)["result"].is_null());
+    assert!(response(&output, 3)["result"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|action| action["title"] != "Insert document metadata"));
     assert!(response(&output, 4)["result"].is_null());
 }
 
@@ -588,6 +594,84 @@ fn omits_metadata_code_action_without_guarded_edit_support() {
 
     let output = run_server(&messages);
     assert!(response(&output, 2)["result"].is_null());
+}
+
+#[test]
+fn offers_add_explicit_id_for_the_deepest_unanchored_block() {
+    let uri = "file:///tmp/add-explicit-id.plumb";
+    let messages = [
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {
+                "processId": null, "rootUri": null,
+                "capabilities": {
+                    "workspace": { "workspaceEdit": { "documentChanges": true } }
+                }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": {
+                "uri": uri, "languageId": "plumb", "version": 4,
+                "text": "`#{#same-title} Existing\n`node Parent\n  `child 😀 Same title\n"
+            }}
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 2, "method": "textDocument/codeAction",
+            "params": {
+                "textDocument": { "uri": uri },
+                "range": {
+                    "start": { "line": 2, "character": 14 },
+                    "end": { "line": 2, "character": 14 }
+                },
+                "context": { "diagnostics": [], "only": ["refactor.rewrite"] }
+            }
+        }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didChange",
+            "params": {
+                "textDocument": { "uri": uri, "version": 5 },
+                "contentChanges": [{
+                    "text": "`#{#same-title} Existing\n`node Parent\n  `child{#nested} 😀 Same title\n"
+                }]
+            }
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 3, "method": "textDocument/codeAction",
+            "params": {
+                "textDocument": { "uri": uri },
+                "range": {
+                    "start": { "line": 2, "character": 23 },
+                    "end": { "line": 2, "character": 23 }
+                },
+                "context": { "diagnostics": [], "only": ["refactor.rewrite"] }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 4, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+
+    let output = run_server(&messages);
+    let action = response(&output, 2)["result"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|action| action["title"] == "Add explicit id")
+        .unwrap();
+    assert_eq!(action["kind"], "refactor.rewrite");
+    assert_eq!(action["isPreferred"], true);
+    let change = &action["edit"]["documentChanges"][0];
+    assert_eq!(change["textDocument"]["version"], 4);
+    assert_eq!(change["edits"][0]["newText"], "{#same-title-2}");
+    assert_eq!(change["edits"][0]["range"]["start"]["line"], 2);
+    assert_eq!(change["edits"][0]["range"]["start"]["character"], 8);
+
+    assert!(response(&output, 3)["result"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|action| action["title"] != "Add explicit id"));
 }
 
 #[test]
