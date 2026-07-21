@@ -1826,6 +1826,13 @@ fn searches_workspace_symbols_and_structured_records_over_stdio() {
         "`-{.task #review due=\"2026-07-23T12:00:00+08:00\"} Review parser\n",
     )
     .unwrap();
+    for index in 0..105 {
+        std::fs::write(
+            root.join(format!("extra-{index:03}.plumb")),
+            format!("Extra note {index}\n"),
+        )
+        .unwrap();
+    }
     let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
     let note_uri = lsp_types::Url::from_file_path(&note).unwrap();
     let open_note = "`meta\n `: title\n\n    Open title\n";
@@ -1862,6 +1869,10 @@ fn searches_workspace_symbols_and_structured_records_over_stdio() {
         json!({
             "jsonrpc": "2.0", "id": 5, "method": "plumb/search",
             "params": { "query": "", "limit": 1 }
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 9, "method": "workspace/symbol",
+            "params": { "query": "" }
         }),
         json!({
             "jsonrpc": "2.0", "method": "textDocument/didChange",
@@ -1916,6 +1927,10 @@ fn searches_workspace_symbols_and_structured_records_over_stdio() {
     assert_eq!(structured["items"][0]["provenance"]["source"], "current");
     assert_eq!(structured["items"][0]["provenance"]["revision"], 0);
     assert_eq!(response(&output, 5)["result"]["complete"], false);
+    assert_eq!(
+        response(&output, 9)["result"].as_array().unwrap().len(),
+        100
+    );
     assert!(response(&output, 6)["result"]["items"]
         .as_array()
         .unwrap()
@@ -1930,7 +1945,7 @@ fn searches_workspace_symbols_and_structured_records_over_stdio() {
 }
 
 #[test]
-fn cancels_structured_search_before_result_publication() {
+fn cancels_standard_and_structured_search_before_result_publication() {
     let messages = [
         json!({
             "jsonrpc": "2.0", "id": 1, "method": "initialize",
@@ -1944,12 +1959,20 @@ fn cancels_structured_search_before_result_publication() {
         json!({
             "jsonrpc": "2.0", "method": "$/cancelRequest", "params": { "id": 2 }
         }),
-        json!({ "jsonrpc": "2.0", "id": 3, "method": "shutdown", "params": null }),
+        json!({
+            "jsonrpc": "2.0", "id": 3, "method": "workspace/symbol",
+            "params": { "query": "" }
+        }),
+        json!({
+            "jsonrpc": "2.0", "method": "$/cancelRequest", "params": { "id": 3 }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 4, "method": "shutdown", "params": null }),
         json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
     ];
 
     let output = run_server(&messages);
     assert_eq!(response(&output, 2)["error"]["code"], -32800);
+    assert_eq!(response(&output, 3)["error"]["code"], -32800);
 }
 
 #[test]
