@@ -1,5 +1,5 @@
 `meta
-  `: title
+ `: title
 
     plumb lossless syntax tree
 
@@ -19,30 +19,41 @@ source。非空 source 的 leaf token 非空；空 source 产生 range `[[0, 0)]
 missing token 不作为 synthetic leaf 插入，由 diagnostic 和 insertion fix 表达。node range 从其
 source-backed descendants 推导。
 
-`# 3. Structural nodes
+`# 3. Public representation
 
-tree 表达 document、paragraph、marked block、verbatim block、attributes、inline element、inline
-verbatim、text、soft break 和 error regions。普通 marker/kind 保持原始 spelling；tree 不区分
-heading、list、link 或 task。
+`[ParsedDocument] 同时持有原始 source、`[LosslessTree]、typed `[Document] 与 diagnostics。
+`[LosslessTree] 当前是 range 加按 source order 排列的 `[SyntaxToken] sequence；每个 token 暴露 kind、
+range，以及从同一 source 取 text 的方法。token kinds 包括 text、whitespace、indentation、line ending、
+introducer、escape、marker、inline kind、delimiter、attribute punctuation/name/value/escape、raw payload
+和 error。
+
+typed `[Document] 表达 paragraph、marked block、verbatim block、attributes、inline element、inline
+verbatim、text 和 soft break。普通 marker/kind 保持原始 spelling；typed tree 不区分 heading、list、
+link 或 task。它与 token sequence 在同一次 parse 中产生，不是第二套 parser。
 
 marked block 暴露 marker、attributes、head 和 children。paragraph 只有 inline content。verbatim
 block 暴露 opener、attributes、每行 structural prefix 与 raw payload ranges。
 
 `# 4. Recovered and valid views
 
-recovered tree 始终存在。typed recovered view 可以容忍 error nodes，并提供 cursor-local syntax
-查询。valid view 只在 syntax diagnostics 为空时构造，并保证 extensions 不会误把 recovery choice
-当作 author intent。
+lossless token stream 与 typed recovered tree 始终存在。`[recovered_syntax()] 返回 recovered typed
+view；`[valid_syntax()] 只在没有 error diagnostics 时返回同一 `[Document] reference，保证 extensions
+不会误把 recovery choice 当作 author intent。
 
-views 是对同一 tree 的 projection，不复制 source，也不重新 parse。
+访问两种 view 不会重新 parse。typed nodes 可以保存 marker、decoded attribute value 和 inline text，
+但所有 ownership 与 diagnostics 仍由 source ranges 定位。
 
 `# 5. Recovery representation
 
-malformed source bytes 放在 error node 中并继续参与 lossless coverage。virtual indentation 或
+malformed source bytes 标为 error tokens 并继续参与 lossless coverage；已有 token boundaries 保留，
+所以一个 malformed region 可以由连续多个 error leaves 表示。virtual indentation 或
 missing delimiter 只存在于 diagnostics/fixes，不进入 source-backed leaf sequence。
 
 recovery boundary 必须 deterministic，使相同 source 产生稳定 tree、diagnostic ordering 和 edit
 ranges。
+
+block 与 parsed-inline nesting 使用 explicit work stacks；typed block/inline tree 的 destruction 与
+plain-text traversal 也使用 iterative walk。语言不从 Rust call stack 获得 nesting depth limit。
 
 `# 6. Future normalized AST
 

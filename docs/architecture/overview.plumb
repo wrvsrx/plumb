@@ -1,5 +1,5 @@
 `meta
-  `: title
+ `: title
 
     plumb architecture overview
 
@@ -27,6 +27,10 @@ input 都产生 lossless tree 与 diagnostics。它不解释 heading、list、me
 parser 使用 reject-but-recover。当前 revision 有 syntax error 时，authoritative semantic analysis
 和 export 必须停止；completion 等明确面向编辑中 source 的 query 可以消费 recovered view。
 
+block 与 parsed-inline nesting 使用 explicit stacks。parser 对 source 生成完整、无空洞的 token
+sequence，并从同一次 parse 暴露 typed recovered/valid views；arbitrary UTF-8 property tests 固定
+reconstruction、range boundary 和 deterministic output invariants。
+
 `[plumb-format] 消费 valid syntax tree 并产生 canonical source。formatting policy 不属于 core syntax
 validity，也不依赖 semantic extensions；invalid recovered tree 不进入 formatter。
 
@@ -50,9 +54,9 @@ completeness；不能把 partial result 表示成 complete negative result。
 `# 5. Consumers
 
 `- `[plumb] 是唯一 user-facing binary；`[lsp]、`[fmt]、`[export]、`[note] 和 `[task]
-  subcommands 分别适配 editor protocol、file/stdin、Pandoc JSON、CEL 和 task operations。
+   subcommands 分别适配 editor protocol、file/stdin、Pandoc JSON、CEL 和 task operations。
 `- `[tree-sitter-plumb] 是 lenient editor mirror，只负责 highlight、fold、indent、text object 和
-  injection。
+   injection。
 
 consumer 不复制 parser、semantic recognition 或 edit logic。
 

@@ -1,5 +1,5 @@
 `meta
-  `: title
+ `: title
 
     plumb tasks
 
@@ -8,106 +8,135 @@
 
 `# Core syntax
 
-`-{.task #strict-parser-corpus} 建立 strict parser normative corpus
-  `note 将 core syntax reference 中每条 valid、invalid 与 recovery rule 映射为 executable fixture。
-  `note 固定 typed structural projection、diagnostic code、range、related ranges、precedence 和 deterministic ordering。
-  `note 覆盖同一输入的多个独立错误，并保证同一根因只产生最具体 diagnostic。
-  `note Corpus 属于 hand-written strict parser；不得使用 lenient tree-sitter corpus 代替 syntax authority。
+`-{.task #strict-parser-corpus done="2026-07-21T15:49:26+08:00"} 建立 strict parser normative corpus
 
-`-{.task #explicit-block-stack depends="#strict-parser-corpus"} 将 block nesting 改为 explicit stack
-  `note 使用 block frames 保存 structural column、parent、head/children phase 和 recovery state，移除 Rust block recursion。
-  `note Dedent 可以一次关闭多个 frames；partial dedent、blank line、same-line first child 和 verbatim margin 行为保持不变。
-  `note 保持现有 typed tree、diagnostic ranges 与 corpus observable output，不把 implementation depth limit 变成 syntax rule。
-  `note 增加数万层 valid/malformed block nesting stress tests，并验证不 panic、stack overflow 或无限循环。
+   `note 将 core syntax reference 中每条 valid、invalid 与 recovery rule 映射为 executable fixture。
+   `note 固定 typed structural projection、diagnostic code、range、related ranges、precedence 和 deterministic ordering。
+   `note 覆盖同一输入的多个独立错误，并保证同一根因只产生最具体 diagnostic。
+   `note Corpus 属于 hand-written strict parser；不得使用 lenient tree-sitter corpus 代替 syntax authority。
 
-`-{.task #token-lossless-tree depends="#explicit-block-stack"} 补齐 token-granular lossless tree
-  `note 为 introducers、literal escapes、markers/kinds、delimiters、attribute punctuation、trivia、indentation、line endings、payload 和 malformed regions 建立 source-backed leaves。
-  `note Leaves 按 source order 非空、无重叠、无空洞；拼接 leaf bytes 必须逐字节等于原始 UTF-8 source。
-  `note Missing token 只由 diagnostic/fix 表达，不能伪造 source leaf；error node 必须继续覆盖 malformed bytes。
-  `note Typed recovered/valid views 继续投影 marker、head、children、attributes 与 inline structures，extensions 不直接依赖 trivia layout。
+`-{
+   .task #explicit-block-stack depends="#strict-parser-corpus" done="2026-07-21T15:49:26+08:00"
+  } 将 block nesting 改为 explicit stack
 
-`-{.task #lossless-properties depends="#token-lossless-tree #strict-parser-corpus"} 添加任意 UTF-8 lossless property tests
-  `note 使用 generated arbitrary UTF-8 与结构化 cases 覆盖 quote runs、deep nesting、indent/dedent、unclosed constructs、CRLF/LF 和 multibyte characters。
-  `note 验证 parser 不 panic 或无限循环，全部 ranges 位于 UTF-8 boundaries 且不越界，并满足 leaf reconstruction invariant。
-  `note 同一 source 重复 parse 必须产生相同 tree 与 diagnostics；存在 syntax error 时不能构造 valid view。
-  `note 将 property failure 保存为最小 regression fixture，并在需要时再补 cargo-fuzz，不把 fuzzing 本身设为首个 release gate。
+   `note 使用 block frames 保存 structural column、parent、head/children phase 和 recovery state，移除 Rust block recursion。
+   `note Dedent 可以一次关闭多个 frames；partial dedent、blank line、same-line first child 和 verbatim margin 行为保持不变。
+   `note 保持现有 typed tree、diagnostic ranges 与 corpus observable output，不把 implementation depth limit 变成 syntax rule。
+   `note 增加数万层 valid/malformed block nesting stress tests，并验证不 panic、stack overflow 或无限循环。
 
-`-{.task #aligned-block-attribute-delimiters done="2026-07-21T01:08:27+08:00"} 对齐 multiline block attribute delimiters
-  `note Syntax 只要求非空 continuation 缩进严格大于 owner structural column；items 与 closing brace 的相互对齐不影响 validity。
-  `note Newline 等价于 attribute whitespace；closing brace 可以紧跟最后一个 item，也可以出现在任意合法 continuation column。
-  `note Blank、owner-level dedent、block-only entry、structural tab 与 EOF 保持 recovery boundary。
-  `note Formatter 对超过 100 absolute display columns 的 block opener 生成 braces 对齐、items 从 brace 右侧一列开始的 canonical layout。
-  `note Formatter 在 100 列内贪心累积 attribute items；不拆分单个 item，inline attributes 不自动换行。
-  `note 覆盖 marked/verbatim blocks、closing 后的 head、empty head children、CRLF、misaligned closing 和 malformed recovery。
-  `note 同步 strict parser、tree-sitter grammar/corpus、core syntax reference、guide、formatter tests 和 bundled skill。
+`-{
+   .task #token-lossless-tree depends="#explicit-block-stack" done="2026-07-21T15:49:26+08:00"
+  } 补齐 token-granular lossless tree
+
+   `note 为 introducers、literal escapes、markers/kinds、delimiters、attribute punctuation、trivia、indentation、line endings、payload 和 malformed regions 建立 source-backed leaves。
+   `note Leaves 按 source order 非空、无重叠、无空洞；拼接 leaf bytes 必须逐字节等于原始 UTF-8 source。
+   `note Missing token 只由 diagnostic/fix 表达，不能伪造 source leaf；error node 必须继续覆盖 malformed bytes。
+   `note Typed recovered/valid views 继续投影 marker、head、children、attributes 与 inline structures，extensions 不直接依赖 trivia layout。
+
+`-{
+   .task #lossless-properties depends="#token-lossless-tree #strict-parser-corpus"
+   done="2026-07-21T15:49:26+08:00"
+  } 添加任意 UTF-8 lossless property tests
+
+   `note 使用 generated arbitrary UTF-8 与结构化 cases 覆盖 quote runs、deep nesting、indent/dedent、unclosed constructs、CRLF/LF 和 multibyte characters。
+   `note 验证 parser 不 panic 或无限循环，全部 ranges 位于 UTF-8 boundaries 且不越界，并满足 leaf reconstruction invariant。
+   `note 同一 source 重复 parse 必须产生相同 tree 与 diagnostics；存在 syntax error 时不能构造 valid view。
+   `note 将 property failure 保存为最小 regression fixture，并在需要时再补 cargo-fuzz，不把 fuzzing 本身设为首个 release gate。
+
+`-{
+   .task #aligned-block-attribute-delimiters done="2026-07-21T01:08:27+08:00"
+  } 对齐 multiline block attribute delimiters
+
+   `note Syntax 只要求非空 continuation 缩进严格大于 owner structural column；items 与 closing brace 的相互对齐不影响 validity。
+   `note Newline 等价于 attribute whitespace；closing brace 可以紧跟最后一个 item，也可以出现在任意合法 continuation column。
+   `note Blank、owner-level dedent、block-only entry、structural tab 与 EOF 保持 recovery boundary。
+   `note Formatter 对超过 100 absolute display columns 的 block opener 生成 braces 对齐、items 从 brace 右侧一列开始的 canonical layout。
+   `note Formatter 在 100 列内贪心累积 attribute items；不拆分单个 item，inline attributes 不自动换行。
+   `note 覆盖 marked/verbatim blocks、closing 后的 head、empty head children、CRLF、misaligned closing 和 malformed recovery。
+   `note 同步 strict parser、tree-sitter grammar/corpus、core syntax reference、guide、formatter tests 和 bundled skill。
 
 `-{.task #same-line-first-child done="2026-07-20T13:00:12+08:00"} 支持 same-line first child
-  `note 保持 empty-head marked block 在下一 physical line 以缩进 block 开始 children 的现有行为。
-  `note Head 为空时，head separator 后的 block-only entry 成为 first child，而不是 inline dispatch error。
-  `note Same-line child 的 introducer column 建立 parent body indent；后续 children 必须精确对齐。
-  `note Same-line 与换行布局在 attributes 和 children 相同时产生相同 tree；head 已有 text 时仍拒绝 block entry。
-  `note 覆盖 generic marker、bullet/ordered nesting、attributes、recursive compact children 和 malformed recovery。
-  `note 同步 strict parser、lossless ranges、tree-sitter grammar/corpus、reference、guide 和 bundled skill。
+
+   `note 保持 empty-head marked block 在下一 physical line 以缩进 block 开始 children 的现有行为。
+   `note Head 为空时，head separator 后的 block-only entry 成为 first child，而不是 inline dispatch error。
+   `note Same-line child 的 introducer column 建立 parent body indent；后续 children 必须精确对齐。
+   `note Same-line 与换行布局在 attributes 和 children 相同时产生相同 tree；head 已有 text 时仍拒绝 block entry。
+   `note 覆盖 generic marker、bullet/ordered nesting、attributes、recursive compact children 和 malformed recovery。
+   `note 同步 strict parser、lossless ranges、tree-sitter grammar/corpus、reference、guide 和 bundled skill。
 
 `-{.task #multiline-parsed-inline done="2026-07-20T13:00:12+08:00"} 实现跨行 parsed inline elements
-  `note 允许 element 跨越原本属于同一 enclosing InlineContent 的 physical continuation lines。
-  `note 移除 structural indentation、保留额外 spaces，并把合法 continuation newline lower 为 SoftBreak。
-  `note Blank、enclosing dedent、block-only entry 和 EOF 保持 hard boundaries；unclosed recovery 不消费 boundary。
-  `note 使用 explicit stack 支持 nested multiline elements，不把 implementation depth limit 变成 syntax rule。
-  `note 覆盖 paragraph、marked-block head、nested element、UTF-8 ranges、recovery 和 tree-sitter corpus。
-  `note 完成后更新 parser gap、core syntax reference、guide、playground 和 bundled skill。
 
-`-{.task #multiline-attributes done="2026-07-20T13:00:12+08:00"} 设计并实现 multiline shared attributes
-  `note Block mark、parsed inline、inline verbatim 和 verbatim block 继续共享一个 attribute grammar。
-  `note Opening brace 后允许 newline；最初版本要求 dynamic attr column，后续语法放宽为仅检查 owner boundary。
-  `note Physical newline 等价于 attribute whitespace；quoted value 仍限制在一条 physical line。
-  `note Closing brace 后按 owner context 继续 head、inline content 或 verbatim-block line ending。
-  `note Blank、dedent、block-only entry 或 EOF 前未关闭时发布 unclosed-attributes，并在 boundary 恢复。
-  `note 覆盖 duplicate id/key、invalid escape、nested inline ownership、lossless ranges 和 tree-sitter corpus。
-  `note 更新 core syntax/diagnostics references、guide、playground 和 bundled skill。
+   `note 允许 element 跨越原本属于同一 enclosing InlineContent 的 physical continuation lines。
+   `note 移除 structural indentation、保留额外 spaces，并把合法 continuation newline lower 为 SoftBreak。
+   `note Blank、enclosing dedent、block-only entry 和 EOF 保持 hard boundaries；unclosed recovery 不消费 boundary。
+   `note 使用 explicit stack 支持 nested multiline elements，不把 implementation depth limit 变成 syntax rule。
+   `note 覆盖 paragraph、marked-block head、nested element、UTF-8 ranges、recovery 和 tree-sitter corpus。
+   `note 完成后更新 parser gap、core syntax reference、guide、playground 和 bundled skill。
+
+`-{
+   .task #multiline-attributes done="2026-07-20T13:00:12+08:00"
+  } 设计并实现 multiline shared attributes
+
+   `note Block mark、parsed inline、inline verbatim 和 verbatim block 继续共享一个 attribute grammar。
+   `note Opening brace 后允许 newline；最初版本要求 dynamic attr column，后续语法放宽为仅检查 owner boundary。
+   `note Physical newline 等价于 attribute whitespace；quoted value 仍限制在一条 physical line。
+   `note Closing brace 后按 owner context 继续 head、inline content 或 verbatim-block line ending。
+   `note Blank、dedent、block-only entry 或 EOF 前未关闭时发布 unclosed-attributes，并在 boundary 恢复。
+   `note 覆盖 duplicate id/key、invalid escape、nested inline ownership、lossless ranges 和 tree-sitter corpus。
+   `note 更新 core syntax/diagnostics references、guide、playground 和 bundled skill。
 
 `# Standard extensions
 
 `-{.task #standard-verbatim-autolink done="2026-07-21T01:52:18+08:00"} 支持 `[.->] verbatim autolink
-  `note 只有 inline verbatim 上的 `[.->] class 产生 autolink facet；其他 owner 发布 `[link.invalid-owner]，且不生成 link record。
-  `note Verbatim payload 同时作为显示 label 与 target，必须是非空 absolute URI；relative path 与 fragment 继续使用显式 `[`->] link。
-  `note 保留 payload 原始 UTF-8 spelling，不做 backslash escape、percent decode 或 normalization；space、control、invalid percent escape 和 malformed URI 发布 diagnostic。
-  `note `[.->] 与 `[to] pair 或 `[.$] facet 不能同时出现；其他 id/classes/pairs 通过 Pandoc Link attributes 保留，不能被 link facet 静默消费。
-  `note 复用 inline verbatim quote strength 容纳 IPv6 host 等包含 closing bracket 的 URI，formatter 继续选择最小安全 quote count。
-  `note Export 产生 label 与 target 相同的 Pandoc Link，并补齐 extension、LSP hover、export、metadata、playground 与 bundled skill tests/docs。
+
+   `note 只有 inline verbatim 上的 `[.->] class 产生 autolink facet；其他 owner 发布 `[link.invalid-owner]，且不生成 link record。
+   `note Verbatim payload 同时作为显示 label 与 target，必须是非空 absolute URI；relative path 与 fragment 继续使用显式 `[`->] link。
+   `note 保留 payload 原始 UTF-8 spelling，不做 backslash escape、percent decode 或 normalization；space、control、invalid percent escape 和 malformed URI 发布 diagnostic。
+   `note `[.->] 与 `[to] pair 或 `[.$] facet 不能同时出现；其他 id/classes/pairs 通过 Pandoc Link attributes 保留，不能被 link facet 静默消费。
+   `note 复用 inline verbatim quote strength 容纳 IPv6 host 等包含 closing bracket 的 URI，formatter 继续选择最小安全 quote count。
+   `note Export 产生 label 与 target 相同的 Pandoc Link，并补齐 extension、LSP hover、export、metadata、playground 与 bundled skill tests/docs。
 
 `-{.task #standard-div-span done="2026-07-20T13:00:12+08:00"} 支持标准 div 与 span 透明容器
-  `note 将 `[div] marked block 与 `[span] parsed inline kind 冻结为 standard extension spellings。
-  `note `[div] 保留 generic block 的 head/children behavior；`[span] 保留 parsed inline content behavior。
-  `note 两者只提供 container ownership，不增加 presentation、section、warning 或其他隐式 semantics。
-  `note Export 分别产生 Pandoc Div/Span，并省略冗余的 `[data-plumb-marker="div"] 与 `[data-plumb-marker="span"]。
-  `note 其他 generic marker/kind 继续导出 data-plumb-marker，core parser 和 syntax tree 不增加 special cases。
-  `note 更新 extension/export tests、standard extension reference、guide、playground 和 bundled skill。
+
+   `note 将 `[div] marked block 与 `[span] parsed inline kind 冻结为 standard extension spellings。
+   `note `[div] 保留 generic block 的 head/children behavior；`[span] 保留 parsed inline content behavior。
+   `note 两者只提供 container ownership，不增加 presentation、section、warning 或其他隐式 semantics。
+   `note Export 分别产生 Pandoc Div/Span，并省略冗余的 `[data-plumb-marker="div"] 与 `[data-plumb-marker="span"]。
+   `note 其他 generic marker/kind 继续导出 data-plumb-marker，core parser 和 syntax tree 不增加 special cases。
+   `note 更新 extension/export tests、standard extension reference、guide、playground 和 bundled skill。
 
 `-{.task #standard-math done="2026-07-20T13:00:12+08:00"} 支持 `[.$] standard math facet
-  `note Inline verbatim 与 verbatim block 上的 `[.$] 分别产生 inline math 和 display math。
-  `note `[.$] 默认使用 TeX input；可选 `[language=tex]，暂不支持其他 math input languages。
-  `note `[.$] 出现在其他 owner 上时发布 `[math.invalid-owner]，且不产生 math semantic record。
-  `note Export lower 为 Pandoc InlineMath/DisplayMath，并消费 `[.$] 与 `[language=tex] semantic attributes。
-  `note 其他 id/classes/pairs 分别通过 Span 或 Div wrapper 保留；display math 放在 wrapper 内的 paragraph。
-  `note Dollar-delimited math 不进入 syntax；普通 source 中的 dollar characters 继续作为 text。
-  `note 覆盖 quote-strength、explicit anchors、invalid owners、metadata/export 和 tree-sitter TeX injection。
-  `note 更新 standard extension reference、guide、playground 和 bundled skill。
+
+   `note Inline verbatim 与 verbatim block 上的 `[.$] 分别产生 inline math 和 display math。
+   `note `[.$] 默认使用 TeX input；可选 `[language=tex]，暂不支持其他 math input languages。
+   `note `[.$] 出现在其他 owner 上时发布 `[math.invalid-owner]，且不产生 math semantic record。
+   `note Export lower 为 Pandoc InlineMath/DisplayMath，并消费 `[.$] 与 `[language=tex] semantic attributes。
+   `note 其他 id/classes/pairs 分别通过 Span 或 Div wrapper 保留；display math 放在 wrapper 内的 paragraph。
+   `note Dollar-delimited math 不进入 syntax；普通 source 中的 dollar characters 继续作为 text。
+   `note 覆盖 quote-strength、explicit anchors、invalid owners、metadata/export 和 tree-sitter TeX injection。
+   `note 更新 standard extension reference、guide、playground 和 bundled skill。
 
 `-{.task #restrict-task-owner done="2026-07-20T13:00:12+08:00"} 将 `[.task] 标准语义限制到 list item
-  `note Task recognizer 只为 `[-] 和 `[.] marker 生成 TaskRecord。
-  `note `[.task] 出现在其他 marker 上时发布 `[task.invalid-owner]，且不生成 TaskRecord。
-  `note Bullet/ordered list kind 不改变 task state、dependency、recurrence 或 operation semantics。
-  `note 更新 extension、export、LSP、CLI tests，以及 standard extension reference 和 bundled skill。
 
-`-{.task #convert-list-item-to-task depends="#restrict-task-owner" done="2026-07-20T13:00:22+08:00"} 添加 list item 转 task code action
-  `note Cursor 位于非 task 的 `[-] 或 `[.] item 内时提供 Convert to task。
-  `note 同一次 operation 添加 `[.task] 和本地 RFC 3339 `[created] timestamp，并保留已有 attributes。
-  `note 使用 protocol-neutral guarded operation；LSP 映射为 `[refactor.rewrite] code action。
-  `note Nested list 中只转换 cursor 命中的最深 item，并覆盖无 attributes 与已有 attributes 的 tests。
+   `note Task recognizer 只为 `[-] 和 `[.] marker 生成 TaskRecord。
+   `note `[.task] 出现在其他 marker 上时发布 `[task.invalid-owner]，且不生成 TaskRecord。
+   `note Bullet/ordered list kind 不改变 task state、dependency、recurrence 或 operation semantics。
+   `note 更新 extension、export、LSP、CLI tests，以及 standard extension reference 和 bundled skill。
 
-`-{.task #add-task-created depends="#restrict-task-owner" done="2026-07-20T13:00:22+08:00"} 添加 task created timestamp code action
-  `note Cursor 位于缺少 `[created] 的 task 内时提供 Add task created timestamp。
-  `note 使用 action 执行时的本地 RFC 3339 timestamp；已有 `[created] 时不提供 action。
-  `note Closed、blocked 或 conflicted task 仍可补录；nested task 只作用于 cursor 命中的最深 task。
-  `note 复用转换 action 的 attribute-edit、timestamp 和 guarded-operation primitives，并增加 LSP tests。
+`-{
+   .task #convert-list-item-to-task depends="#restrict-task-owner" done="2026-07-20T13:00:22+08:00"
+  } 添加 list item 转 task code action
+
+   `note Cursor 位于非 task 的 `[-] 或 `[.] item 内时提供 Convert to task。
+   `note 同一次 operation 添加 `[.task] 和本地 RFC 3339 `[created] timestamp，并保留已有 attributes。
+   `note 使用 protocol-neutral guarded operation；LSP 映射为 `[refactor.rewrite] code action。
+   `note Nested list 中只转换 cursor 命中的最深 item，并覆盖无 attributes 与已有 attributes 的 tests。
+
+`-{
+   .task #add-task-created depends="#restrict-task-owner" done="2026-07-20T13:00:22+08:00"
+  } 添加 task created timestamp code action
+
+   `note Cursor 位于缺少 `[created] 的 task 内时提供 Add task created timestamp。
+   `note 使用 action 执行时的本地 RFC 3339 timestamp；已有 `[created] 时不提供 action。
+   `note Closed、blocked 或 conflicted task 仍可补录；nested task 只作用于 cursor 命中的最深 task。
+   `note 复用转换 action 的 attribute-edit、timestamp 和 guarded-operation primitives，并增加 LSP tests。

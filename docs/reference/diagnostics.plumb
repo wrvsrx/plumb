@@ -1,5 +1,5 @@
 `meta
-  `: title
+ `: title
 
     plumb diagnostics reference
 
@@ -31,11 +31,17 @@ syntax diagnostics 分为：
 同一 source range 和根因只发布最具体的错误。structural error 优先于由错误结构派生的 generic
 delimiter error。
 
+当前固定 precedence 包括：孤立 block introducer 的 `[syntax.incomplete-introducer] 优先于同 range
+的 `[syntax.invalid-inline-dispatch]；`[syntax.invalid-marker] 优先于派生的
+`[syntax.invalid-block-dispatch]；verbatim payload margin 的 `[syntax.short-verbatim-indent] 优先于
+同 range 的 `[syntax.partial-indent]；`[syntax.unclosed-quoted-value] 优先于包住它的派生
+`[syntax.unclosed-attributes]。独立根因继续按 source/recovery order 发布。
+
 `# 4. Recovery boundaries
 
 `- block-start error：当前 physical line。
 `- attribute item error：下一个 attribute whitespace 或 closing brace；multiline slot 不跨越 blank、
-  dedent 到 owner boundary、block-only entry、structural tab 或 EOF。
+   dedent 到 owner boundary、block-only entry、structural tab 或 EOF。
 `- parsed inline error：blank、dedent、block-only entry 或 EOF 前。
 `- inline verbatim error：当前 physical line ending 或 EOF。
 `- partial dedent：补到最接近的合法 outer column 后继续当前 line。
@@ -49,10 +55,10 @@ recovery 的目标是报告后续独立错误并保留 source，不是把 malfor
 `- heading/anchor：非法 heading level、duplicate anchor。
 `- metadata：duplicate/invalid key、invalid location、unsupported 或 mixed value shape。
 `- link/reference：缺失或无效 target、invalid autolink owner/facet、missing document/anchor、
-  ambiguous anchor。
+   ambiguous anchor。
 `- citation：空 id、nested 或 unsupported citation shape。
 `- task：invalid owner、无效 field、timestamp/recur/reference、互斥 closure state、self dependency、
-  cycle、blocked completion。
+   cycle、blocked completion。
 `- math：invalid owner 或 unsupported input language。
 
 semantic diagnostic 应指向最小 source-backed field range。由多个 documents 共同形成的问题可以
@@ -62,6 +68,9 @@ semantic diagnostic 应指向最小 source-backed field range。由多个 docume
 
 diagnostic code 是 editor、test 和 automation 的接口；重写 message 不应改变 code。新增更精确
 diagnostic 时，应更新 parser/extension fixtures，并验证 recovery 后续 diagnostics 不回退。
+
+strict parser normative corpus 固定 typed structural projection、code、primary/related ranges、
+precedence、ordering、recovery 与 lossless token coverage；lenient tree-sitter corpus 不能代替它。
 
 当前 core codes：
 
