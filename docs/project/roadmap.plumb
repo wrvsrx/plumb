@@ -10,8 +10,7 @@
 `# Authoring tools
 
 `- 补全 metadata field/value completion、existing metadata edits 和 metadata hover。
-`- 在 whole-document formatter 稳定后评估 range formatting 与 format-on-type；不得用 recovered
-   invalid tree 猜测 author intent。
+`- 评估 format-on-type；不得用 recovered invalid tree 猜测 author intent。
 `- 评估 task reopen；必须先冻结 recurrent instance 与 dependency history 的行为。
 
 `# Editor ergonomics
