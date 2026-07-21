@@ -158,3 +158,40 @@
    `note 使用 plumb-format library canonicalize generated task，而不是复制原 source layout。
    `note 格式化 fragment 后只添加一次 owner base indentation，并保留 LF/CRLF line ending。
    `note 覆盖 top-level、nested task、long attributes、children、CRLF、strict parse 与 LSP edits。
+
+`# Editor search
+
+`-{.task #search-records} 建立 protocol-neutral note/task search records
+
+   `note 从 plumb-workspace current valid snapshots 投影 search records；open buffer 继续覆盖 disk snapshot。
+   `note Note record 包含 metadata title 或 filename fallback、path 与 document location。
+   `note Task record 包含 title、id、path、state、due、blocked/actionable facts 与 title location。
+   `note 定义 deterministic fuzzy score、stable tie-break、limit 与 complete/incomplete result contract。
+   `note Search model 不依赖 LSP、CLI、Neovim 或具体 picker，也不把 full-text body search 混入 semantic records。
+
+`-{
+   .task #workspace-symbol-search depends="#search-records"
+  } 通过 workspace/symbol 搜索 notes 与 tasks
+
+   `note Advertise standard workspace symbol capability；普通 LSP clients 不需要 plumb-specific plugin。
+   `note 支持 note QUERY、task QUERY 与无 prefix 的 combined search，匹配 title、id 和 relative path。
+   `note Note 与 task 使用稳定 SymbolKind、container detail 和 source-backed Location；选择结果必须能直接跳转。
+   `note Query 为空与超出 limit 的行为必须 bounded；ordering、open-buffer precedence、invalid revisions 和 cancellation 需要 black-box tests。
+
+`-{.task #structured-editor-search depends="#search-records"} 添加 plumb/search custom LSP request
+
+   `note 使用不带 dollar prefix 的 versioned JSON-RPC method，并在 initialize experimental.plumb.search 中声明 schema version。
+   `note Params 包含 note/task kind、structured query 与 limit；result 返回 typed items、Location、provenance 和 complete flag。
+   `note 将现有 notes/task CEL compile/evaluate logic 下沉到 shared library，LSP 不调用 CLI adapter。
+   `note Live query 支持 cancellation，旧 request 不得覆盖新结果；invalid query、partial index 与 internal failure 使用明确 error channel。
+   `note workspace/executeCommand 只用于 actions，不代替 search request；full-text body search 继续 deferred。
+
+`-{
+   .task #neovim-search-integration depends="#structured-editor-search #workspace-symbol-search"
+  } 提供仓库内 Neovim search integration
+
+   `note 在 contrib/nvim 提供无 plugin manager 依赖的 Lua module，暴露 search_notes 与 search_tasks。
+   `note Native adapter 使用 vim.ui.input/select，显示 title、path、state/due，并通过 returned Location 跳转。
+   `note Live picker adapter 负责 debounce、request cancellation、preview 与 incomplete result 提示；server contract 不依赖 Telescope、Snacks 或 fzf-lua。
+   `note 提供 capabilities/version detection、keymap 示例和失败提示，并以 Neovim 0.12 做端到端验证。
+   `note 只有 LSP setup、tree-sitter setup、pickers 与 task actions 的 public configuration surface 稳定后，才评估抽离独立 plumb.nvim。
