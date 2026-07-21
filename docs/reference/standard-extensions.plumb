@@ -177,7 +177,9 @@ state：
 
 complete 为 open task 添加 `[done]；open dependency 存在时拒绝 complete。cancel 添加 `[canceled]
 且不受 blocker 限制。关闭 recurring task 时保留 closed instance，并追加下一 instance：推进 due/wait、
-移除 transient state、生成唯一 id，并用 `[prev] 指回当前 instance。
+移除 transient state、生成唯一 id，并用 `[prev] 指回当前 instance。新 instance 作为 closed instance
+的 source-adjacent sibling 插入，不额外添加 blank line；生成内容使用 canonical formatter layout，
+同时保留 owner base indentation 与 document line ending。
 
 authoring operations 使用执行时的本地 RFC 3339 timestamp：`[Convert to task] 把 cursor 命中的最深
 普通 `[-]/[.] item 转为 task，同时添加 `[.task] 与 `[created]；`[Add task created timestamp] 为

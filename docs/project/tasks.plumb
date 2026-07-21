@@ -149,3 +149,12 @@
    `note 使用 action 执行时的本地 RFC 3339 timestamp；已有 `[created] 时不提供 action。
    `note Closed、blocked 或 conflicted task 仍可补录；nested task 只作用于 cursor 命中的最深 task。
    `note 复用转换 action 的 attribute-edit、timestamp 和 guarded-operation primitives，并增加 LSP tests。
+
+`-{
+   .task #format-recurring-task-clone done="2026-07-21T16:50:14+08:00"
+  } 规范化 recurring task clone layout
+
+   `note 新 instance 与 closed instance 保持 source-adjacent，不额外插入 blank line。
+   `note 使用 plumb-format library canonicalize generated task，而不是复制原 source layout。
+   `note 格式化 fragment 后只添加一次 owner base indentation，并保留 LF/CRLF line ending。
+   `note 覆盖 top-level、nested task、long attributes、children、CRLF、strict parse 与 LSP edits。
