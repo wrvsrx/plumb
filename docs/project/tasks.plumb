@@ -121,6 +121,15 @@
    `note 复用 inline verbatim quote strength 容纳 IPv6 host 等包含 closing bracket 的 URI，formatter 继续选择最小安全 quote count。
    `note Export 产生 label 与 target 相同的 Pandoc Link，并补齐 extension、LSP hover、export、metadata、playground 与 bundled skill tests/docs。
 
+`-{.task #relative-verbatim-references} 支持 `[.->] relative file references 与 `[.plumb] completion
+
+   `note 将 `[.->] target 从 absolute URI 放宽为 URI reference，不增加 `[.file] 或 `[.path] spelling。
+   `note Relative path 以 source document 所在目录为基准；保留原始 UTF-8 spelling，unsafe bytes 使用 percent encoding，仍拒绝 backslash、control 与裸 space。
+   `note `[..plumb] 与 `[..plumb#id] targets 继续进入 document/explicit-anchor resolution；其他 relative paths 分类为 file resources，缺失文件最多发布 semantic warning。
+   `note Cursor 位于带 `[.->] facet 的 inline verbatim payload 时，补全 metadata title、filename 或 relative path 匹配的 workspace `[..plumb] documents。
+   `note Completion 显示 metadata title 与 relative-path detail，只插入 URI-encoded relative path；排除当前 document，输入 `[#] 后继续补全 target document 的 explicit anchors。
+   `note 复用现有 link completion context、workspace candidate ordering 和 last-valid cross-document index；补齐 resolution、hover、definition、export、LSP completion、guide、playground 与 bundled skill tests/docs。
+
 `-{.task #standard-div-span done="2026-07-20T13:00:12+08:00"} 支持标准 div 与 span 透明容器
 
    `note 将 `[div] marked block 与 `[span] parsed inline kind 冻结为 standard extension spellings。
