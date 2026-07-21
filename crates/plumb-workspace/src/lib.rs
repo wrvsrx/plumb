@@ -58,6 +58,7 @@ pub enum RenameError {
 pub enum MetadataInsertError {
     StaleOrInvalidDocument,
     MetadataAlreadyExists,
+    GeneratedInvalid,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -65,6 +66,7 @@ pub enum ExplicitIdError {
     StaleOrInvalidDocument,
     BlockNotFound,
     IdAlreadyExists,
+    GeneratedInvalid,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -653,11 +655,13 @@ impl Workspace {
                 format!("{{.task created=\"{timestamp}\"}}"),
             ),
         };
-        Ok(single_document_edit(
+        finalize_authoring_edit(
             entry,
             path,
-            TextEdit { range, new_text },
-        ))
+            item.range.clone(),
+            vec![TextEdit { range, new_text }],
+        )
+        .map_err(|_| TaskEditError::GeneratedInvalid)
     }
 
     pub fn add_task_created(
@@ -689,14 +693,16 @@ impl Workspace {
         if task.created.is_some() {
             return Err(TaskEditError::CreatedAlreadyExists);
         }
-        Ok(single_document_edit(
+        finalize_authoring_edit(
             entry,
             path,
-            TextEdit {
+            task.range.clone(),
+            vec![TextEdit {
                 range: task.attribute_insert..task.attribute_insert,
                 new_text: format!(" created=\"{timestamp}\""),
-            },
-        ))
+            }],
+        )
+        .map_err(|_| TaskEditError::GeneratedInvalid)
     }
 
     pub fn add_explicit_id(
@@ -744,7 +750,8 @@ impl Workspace {
                 new_text: format!("{{#{id}}}"),
             }
         };
-        Ok(single_document_edit(entry, path, edit))
+        finalize_authoring_edit(entry, path, target.block_range, vec![edit])
+            .map_err(|_| ExplicitIdError::GeneratedInvalid)
     }
 
     fn task_status_edit(
@@ -767,17 +774,16 @@ impl Workspace {
         if status == TaskStatus::Done && self.is_task_blocked(&path, task) {
             return Err(TaskEditError::TaskBlocked);
         }
-        Ok(WorkspaceEdit {
-            document_changes: vec![DocumentEdit {
-                path: path.to_path_buf(),
-                expected_revision: entry.revision,
-                edits: vec![TextEdit {
-                    range: task.attribute_insert..task.attribute_insert,
-                    new_text: format!(" {}=\"{}\"", status.attribute(), timestamp),
-                }],
+        finalize_authoring_edit(
+            entry,
+            path.to_path_buf(),
+            task.range.clone(),
+            vec![TextEdit {
+                range: task.attribute_insert..task.attribute_insert,
+                new_text: format!(" {}=\"{}\"", status.attribute(), timestamp),
             }],
-            resource_operations: Vec::new(),
-        })
+        )
+        .map_err(|_| TaskEditError::GeneratedInvalid)
     }
 
     pub fn set_task_status_by_id(
@@ -910,29 +916,22 @@ impl Workspace {
             .unwrap_or_default();
         let status_text = format!("{current_id_edit} {}=\"{}\"", status.attribute(), timestamp);
         let insertion_text = format!("{separator}{clone}");
-        let mut modified = source.clone();
-        modified.insert_str(task.range.end, &insertion_text);
-        modified.insert_str(task.attribute_insert, &status_text);
-        let changed_end = task.range.end + status_text.len() + insertion_text.len();
-        let formatted = plumb_format::format_block_range(&modified, task.range.start..changed_end)
-            .map_err(|_| TaskEditError::GeneratedInvalid)?;
-        let inserted_len = status_text.len() + insertion_text.len();
-        let original_end = formatted
-            .range
-            .end
-            .checked_sub(inserted_len)
-            .ok_or(TaskEditError::GeneratedInvalid)?;
-        Ok(WorkspaceEdit {
-            document_changes: vec![DocumentEdit {
-                path: entry.path.clone(),
-                expected_revision: entry.revision,
-                edits: vec![TextEdit {
-                    range: formatted.range.start..original_end,
-                    new_text: formatted.new_text,
-                }],
-            }],
-            resource_operations: Vec::new(),
-        })
+        finalize_authoring_edit(
+            entry,
+            entry.path.clone(),
+            task.range.clone(),
+            vec![
+                TextEdit {
+                    range: task.attribute_insert..task.attribute_insert,
+                    new_text: status_text,
+                },
+                TextEdit {
+                    range: task.range.end..task.range.end,
+                    new_text: insertion_text,
+                },
+            ],
+        )
+        .map_err(|_| TaskEditError::GeneratedInvalid)
     }
 
     fn resolve_task_target(
@@ -1465,17 +1464,16 @@ impl Workspace {
         let new_text = format!(
             "`meta{newline} `: title{newline}{newline}    {escaped_title}{newline}{newline} `: created{newline}{newline}    {escaped_created}{newline}{newline}"
         );
-        Ok(WorkspaceEdit {
-            document_changes: vec![DocumentEdit {
-                path,
-                expected_revision: entry.revision,
-                edits: vec![TextEdit {
-                    range: 0..0,
-                    new_text,
-                }],
+        finalize_authoring_edit(
+            entry,
+            path,
+            0..0,
+            vec![TextEdit {
+                range: 0..0,
+                new_text,
             }],
-            resource_operations: Vec::new(),
-        })
+        )
+        .map_err(|_| MetadataInsertError::GeneratedInvalid)
     }
 
     pub fn complete_link(
@@ -1605,6 +1603,7 @@ fn deepest_list_item(blocks: &[Block], offset: usize) -> Option<&ParsedBlock> {
 }
 
 struct BlockIdTarget<'a> {
+    block_range: std::ops::Range<usize>,
     attrs: &'a Attributes,
     attribute_insert: usize,
     seed: String,
@@ -1627,6 +1626,7 @@ fn deepest_block_id_target(blocks: &[Block], offset: usize) -> Option<BlockIdTar
                     if result.is_none() || (depth, block.range.start) > result_position {
                         let title = block.head.plain_text();
                         result = Some(BlockIdTarget {
+                            block_range: block.range.clone(),
                             attrs: &mark.attrs,
                             attribute_insert: mark.marker_range.end,
                             seed: if title.trim().is_empty() {
@@ -1643,6 +1643,7 @@ fn deepest_block_id_target(blocks: &[Block], offset: usize) -> Option<BlockIdTar
             Block::Verbatim(block) => {
                 if result.is_none() || (depth, block.range.start) > result_position {
                     result = Some(BlockIdTarget {
+                        block_range: block.range.clone(),
                         attrs: &block.attrs,
                         attribute_insert: block.opener_range.end,
                         seed: "block".to_string(),
@@ -1664,6 +1665,81 @@ fn single_document_edit(entry: &DocumentEntry, path: PathBuf, edit: TextEdit) ->
         }],
         resource_operations: Vec::new(),
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AuthoringEditError {
+    InvalidRange,
+    OverlappingEdits,
+    GeneratedInvalid,
+}
+
+fn finalize_authoring_edit(
+    entry: &DocumentEntry,
+    path: PathBuf,
+    affected_block: std::ops::Range<usize>,
+    mut logical_edits: Vec<TextEdit>,
+) -> Result<WorkspaceEdit, AuthoringEditError> {
+    let source = &entry.parsed.source;
+    if affected_block.start > affected_block.end
+        || affected_block.end > source.len()
+        || !source.is_char_boundary(affected_block.start)
+        || !source.is_char_boundary(affected_block.end)
+        || logical_edits.iter().any(|edit| {
+            edit.range.start > edit.range.end
+                || edit.range.start < affected_block.start
+                || edit.range.end > affected_block.end
+                || !source.is_char_boundary(edit.range.start)
+                || !source.is_char_boundary(edit.range.end)
+        })
+    {
+        return Err(AuthoringEditError::InvalidRange);
+    }
+
+    logical_edits.sort_by_key(|edit| (edit.range.start, edit.range.end));
+    if logical_edits.windows(2).any(|edits| {
+        edits[0].range.end > edits[1].range.start || edits[0].range.start == edits[1].range.start
+    }) {
+        return Err(AuthoringEditError::OverlappingEdits);
+    }
+
+    let delta = logical_edits.iter().try_fold(0isize, |delta, edit| {
+        let removed = isize::try_from(edit.range.len()).ok()?;
+        let inserted = isize::try_from(edit.new_text.len()).ok()?;
+        delta.checked_add(inserted.checked_sub(removed)?)
+    });
+    let delta = delta.ok_or(AuthoringEditError::InvalidRange)?;
+    let modified_end = affected_block
+        .end
+        .checked_add_signed(delta)
+        .ok_or(AuthoringEditError::InvalidRange)?;
+
+    let mut modified = source.clone();
+    for edit in logical_edits.iter().rev() {
+        modified.replace_range(edit.range.clone(), &edit.new_text);
+    }
+    let formatted = plumb_format::format_block_range(&modified, affected_block.start..modified_end)
+        .map_err(|_| AuthoringEditError::GeneratedInvalid)?;
+    if formatted.range.end < modified_end {
+        return Err(AuthoringEditError::InvalidRange);
+    }
+    let inverse_delta = delta
+        .checked_neg()
+        .ok_or(AuthoringEditError::InvalidRange)?;
+    let original_end = formatted
+        .range
+        .end
+        .checked_add_signed(inverse_delta)
+        .ok_or(AuthoringEditError::InvalidRange)?;
+
+    Ok(single_document_edit(
+        entry,
+        path,
+        TextEdit {
+            range: formatted.range.start..original_end,
+            new_text: formatted.new_text,
+        },
+    ))
 }
 
 pub fn normalize(path: &Path) -> PathBuf {
@@ -1959,6 +2035,15 @@ fn escape_quoted_value(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn apply_single_edit(source: &str, operation: &WorkspaceEdit) -> String {
+        assert_eq!(operation.document_changes.len(), 1);
+        assert_eq!(operation.document_changes[0].edits.len(), 1);
+        let edit = &operation.document_changes[0].edits[0];
+        let mut edited = source.to_string();
+        edited.replace_range(edit.range.clone(), &edit.new_text);
+        edited
+    }
 
     #[test]
     fn resolves_same_and_cross_file_explicit_anchors() {
@@ -2304,7 +2389,7 @@ mod tests {
     }
 
     #[test]
-    fn task_status_operation_is_guarded_and_preserves_the_attribute_slot() {
+    fn task_status_operation_is_guarded_and_formats_the_affected_block() {
         let mut workspace = Workspace::new();
         let source = "`-{.task #write due=\"2026-07-21T09:00:00Z\"} Write parser\n";
         workspace.insert("tasks.plumb", 7, source);
@@ -2319,19 +2404,39 @@ mod tests {
             .unwrap();
         let document = &edit.document_changes[0];
         assert_eq!(document.expected_revision, 7);
-        assert_eq!(&source[document.edits[0].range.clone()], "");
+        assert_eq!(document.edits.len(), 1);
+        let operation = &document.edits[0];
+        let mut edited = source.to_string();
+        edited.replace_range(operation.range.clone(), &operation.new_text);
+        assert!(edited
+            .contains("#write due=\"2026-07-21T09:00:00Z\" done=\"2026-07-20T12:00:00+08:00\""));
+        assert_eq!(plumb_format::format(&edited).unwrap(), edited);
+    }
+
+    #[test]
+    fn task_status_formats_multiline_attributes_with_a_long_head() {
+        let source = "`-{\n   .task created=\"2026-07-21T14:37:59+08:00\"\n  } `->[如何在 nix 中检查 IFD]{to=\"如何在 nix 中检查 IFD.plumb\"}\n";
+        assert_eq!(plumb_format::format(source).unwrap(), source);
+        let mut workspace = Workspace::new();
+        workspace.insert("closed.plumb", 8, source);
+
+        let operation = workspace
+            .set_task_status(
+                "closed.plumb",
+                source.find("检查 IFD").unwrap(),
+                TaskStatus::Done,
+                "2026-07-21T21:52:24+08:00",
+            )
+            .unwrap();
+        let edit = &operation.document_changes[0].edits[0];
+        let mut edited = source.to_string();
+        edited.replace_range(edit.range.clone(), &edit.new_text);
+
         assert_eq!(
-            document.edits[0].new_text,
-            " done=\"2026-07-20T12:00:00+08:00\""
+            edited,
+            "`-{\n   .task created=\"2026-07-21T14:37:59+08:00\" done=\"2026-07-21T21:52:24+08:00\"\n  } `->[如何在 nix 中检查 IFD]{to=\"如何在 nix 中检查 IFD.plumb\"}\n"
         );
-        let offset = document.edits[0].range.start;
-        let edited = format!(
-            "{}{}{}",
-            &source[..offset],
-            document.edits[0].new_text,
-            &source[offset..]
-        );
-        assert!(parse(edited).is_valid());
+        assert_eq!(plumb_format::format(&edited).unwrap(), edited);
     }
 
     #[test]
@@ -2347,10 +2452,6 @@ mod tests {
             .unwrap();
         assert_eq!(conversion.document_changes[0].expected_revision, 7);
         let edit = &conversion.document_changes[0].edits[0];
-        assert_eq!(
-            edit.new_text,
-            "{.task created=\"2026-07-20T10:00:00+08:00\"}"
-        );
         let mut converted = source.to_string();
         converted.replace_range(edit.range.clone(), &edit.new_text);
         assert!(converted.contains("  `-{.task created=\"2026-07-20T10:00:00+08:00\"} Nested"));
@@ -2358,19 +2459,17 @@ mod tests {
         let outer_conversion = workspace
             .convert_list_item_to_task("tasks.plumb", source.find("Outer").unwrap(), timestamp)
             .unwrap();
-        assert_eq!(
-            outer_conversion.document_changes[0].edits[0].new_text,
-            " .task created=\"2026-07-20T10:00:00+08:00\""
-        );
+        assert!(outer_conversion.document_changes[0].edits[0]
+            .new_text
+            .contains("`-{#outer .keep .task created=\"2026-07-20T10:00:00+08:00\"} Outer"));
 
         let closed_offset = source.find("Closed").unwrap();
         let created = workspace
             .add_task_created("tasks.plumb", closed_offset, timestamp)
             .unwrap();
-        assert_eq!(
-            created.document_changes[0].edits[0].new_text,
-            " created=\"2026-07-20T10:00:00+08:00\""
-        );
+        assert!(created.document_changes[0].edits[0].new_text.contains(
+            "#closed done=\"2026-07-20T09:00:00Z\" created=\"2026-07-20T10:00:00+08:00\""
+        ));
         assert_eq!(
             workspace.add_task_created("tasks.plumb", nested_offset, timestamp),
             Err(TaskEditError::TaskNotFound)
@@ -2378,6 +2477,95 @@ mod tests {
         assert_eq!(
             workspace.add_task_created("tasks.plumb", source.find("Existing").unwrap(), timestamp),
             Err(TaskEditError::CreatedAlreadyExists)
+        );
+    }
+
+    #[test]
+    fn authoring_operations_preserve_formatter_fixed_points() {
+        let timestamp = "2026-07-21T21:52:24+08:00";
+
+        let conversion_source = "`-{#item .kind} Convert me\n";
+        let mut conversion_workspace = Workspace::new();
+        conversion_workspace.insert("conversion.plumb", 1, conversion_source);
+        let conversion = conversion_workspace
+            .convert_list_item_to_task(
+                "conversion.plumb",
+                conversion_source.find("Convert").unwrap(),
+                timestamp,
+            )
+            .unwrap();
+        let converted = apply_single_edit(conversion_source, &conversion);
+        assert_eq!(plumb_format::format(&converted).unwrap(), converted);
+
+        let created_source = "`-{.task #created} Add created\n";
+        let mut created_workspace = Workspace::new();
+        created_workspace.insert("created.plumb", 2, created_source);
+        let created = created_workspace
+            .add_task_created(
+                "created.plumb",
+                created_source.find("Add created").unwrap(),
+                timestamp,
+            )
+            .unwrap();
+        let with_created = apply_single_edit(created_source, &created);
+        assert_eq!(plumb_format::format(&with_created).unwrap(), with_created);
+
+        let id_source = "`note{.class key=value} Add an explicit identifier\n";
+        let mut id_workspace = Workspace::new();
+        id_workspace.insert("id.plumb", 3, id_source);
+        let id = id_workspace
+            .add_explicit_id("id.plumb", id_source.find("identifier").unwrap())
+            .unwrap();
+        let with_id = apply_single_edit(id_source, &id);
+        assert_eq!(plumb_format::format(&with_id).unwrap(), with_id);
+
+        let metadata_source = "`# Section\n";
+        let mut metadata_workspace = Workspace::new();
+        metadata_workspace.insert("metadata.plumb", 4, metadata_source);
+        let metadata = metadata_workspace
+            .insert_metadata("metadata.plumb", "metadata", timestamp)
+            .unwrap();
+        let with_metadata = apply_single_edit(metadata_source, &metadata);
+        assert_eq!(plumb_format::format(&with_metadata).unwrap(), with_metadata);
+    }
+
+    #[test]
+    fn authoring_finalization_rejects_ambiguous_or_out_of_range_edits() {
+        let source = "`- Item\n";
+        let mut workspace = Workspace::new();
+        workspace.insert("item.plumb", 1, source);
+        let entry = workspace.get("item.plumb").unwrap();
+        let block_range = entry.parsed.syntax.blocks[0].range().clone();
+
+        assert_eq!(
+            finalize_authoring_edit(
+                entry,
+                PathBuf::from("item.plumb"),
+                block_range.clone(),
+                vec![
+                    TextEdit {
+                        range: 2..2,
+                        new_text: "a".to_string(),
+                    },
+                    TextEdit {
+                        range: 2..2,
+                        new_text: "b".to_string(),
+                    },
+                ],
+            ),
+            Err(AuthoringEditError::OverlappingEdits)
+        );
+        assert_eq!(
+            finalize_authoring_edit(
+                entry,
+                PathBuf::from("item.plumb"),
+                block_range,
+                vec![TextEdit {
+                    range: source.len() + 1..source.len() + 1,
+                    new_text: "outside".to_string(),
+                }],
+            ),
+            Err(AuthoringEditError::InvalidRange)
         );
     }
 
@@ -2392,38 +2580,37 @@ mod tests {
             .unwrap();
         assert_eq!(heading.document_changes[0].expected_revision, 7);
         let edit = &heading.document_changes[0].edits[0];
-        assert_eq!(edit.new_text, "#hello-world-2 ");
-        assert_eq!(&source[edit.range.clone()], "");
-        assert_eq!(&source[edit.range.start - 1..edit.range.start], "{");
+        assert!(edit
+            .new_text
+            .contains("`#{#hello-world-2 .keep} Hello, World!"));
 
         let nested = workspace
             .add_explicit_id("note.plumb", source.find("Nested title").unwrap())
             .unwrap();
-        assert_eq!(
-            nested.document_changes[0].edits[0].new_text,
-            "{#nested-title}"
-        );
+        assert!(nested.document_changes[0].edits[0]
+            .new_text
+            .contains("`child{#nested-title} Nested title"));
 
         let sibling_boundary = workspace
             .add_explicit_id("note.plumb", source.find("`node").unwrap())
             .unwrap();
-        assert_eq!(
-            sibling_boundary.document_changes[0].edits[0].new_text,
-            "{#outer}"
-        );
+        assert!(sibling_boundary.document_changes[0].edits[0]
+            .new_text
+            .contains("`node{#outer} Outer"));
 
         let raw = workspace
             .add_explicit_id("note.plumb", source.find("raw").unwrap())
             .unwrap();
-        assert_eq!(raw.document_changes[0].edits[0].new_text, "#block ");
+        assert!(raw.document_changes[0].edits[0]
+            .new_text
+            .contains("`{#block language=text}"));
 
         let multiline = workspace
             .add_explicit_id("note.plumb", source.find("Multiline attrs").unwrap())
             .unwrap();
-        assert_eq!(
-            multiline.document_changes[0].edits[0].new_text,
-            "#multiline-attrs"
-        );
+        assert!(multiline.document_changes[0].edits[0]
+            .new_text
+            .contains("`note{#multiline-attrs .keep} Multiline attrs"));
 
         for operation in [&heading, &nested, &sibling_boundary, &raw, &multiline] {
             let edit = &operation.document_changes[0].edits[0];
@@ -2487,14 +2674,14 @@ mod tests {
             )
             .unwrap();
         assert_eq!(edit.document_changes[0].edits.len(), 1);
-        assert_eq!(
-            edit.document_changes[0].edits[0].range.start,
-            tasks[0].attribute_insert
-        );
-        assert_ne!(
-            edit.document_changes[0].edits[0].range.start,
-            tasks[1].attribute_insert
-        );
+        let operation = &edit.document_changes[0].edits[0];
+        assert!(operation.range.start <= tasks[0].range.start);
+        assert!(operation.range.end >= tasks[0].range.end);
+        assert_ne!(operation.range.start, tasks[1].attribute_insert);
+        let mut edited = source.to_string();
+        edited.replace_range(operation.range.clone(), &operation.new_text);
+        assert!(edited.contains("#outer done=\"2026-07-20T12:00:00Z\""));
+        assert_eq!(edited.matches("#inner done=").count(), 1);
         assert_eq!(
             workspace.set_task_status_by_id(
                 "tasks.plumb",

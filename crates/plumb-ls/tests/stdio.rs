@@ -663,9 +663,12 @@ fn offers_add_explicit_id_for_the_deepest_unanchored_block() {
     assert_eq!(action["isPreferred"], true);
     let change = &action["edit"]["documentChanges"][0];
     assert_eq!(change["textDocument"]["version"], 4);
-    assert_eq!(change["edits"][0]["newText"], "{#same-title-2}");
+    assert!(change["edits"][0]["newText"]
+        .as_str()
+        .unwrap()
+        .contains("`child{#same-title-2} 😀 Same title"));
     assert_eq!(change["edits"][0]["range"]["start"]["line"], 2);
-    assert_eq!(change["edits"][0]["range"]["start"]["character"], 8);
+    assert_eq!(change["edits"][0]["range"]["start"]["character"], 0);
 
     assert!(response(&output, 3)["result"]
         .as_array()
@@ -741,14 +744,8 @@ fn offers_task_authoring_refactor_actions() {
     let inserted = conversion["edit"]["documentChanges"][0]["edits"][0]["newText"]
         .as_str()
         .unwrap();
-    assert!(inserted.starts_with(" .task created=\""));
-    chrono::DateTime::parse_from_rfc3339(
-        inserted
-            .strip_prefix(" .task created=\"")
-            .and_then(|value| value.strip_suffix('"'))
-            .unwrap(),
-    )
-    .unwrap();
+    assert!(inserted.contains(".task"));
+    chrono::DateTime::parse_from_rfc3339(attribute_value(inserted, "created")).unwrap();
 
     let created = response(&output, 3)["result"]
         .as_array()
@@ -757,10 +754,10 @@ fn offers_task_authoring_refactor_actions() {
         .find(|action| action["title"] == "Add task created timestamp")
         .unwrap();
     assert_eq!(created["kind"], "refactor.rewrite");
-    assert!(created["edit"]["documentChanges"][0]["edits"][0]["newText"]
+    let created_text = created["edit"]["documentChanges"][0]["edits"][0]["newText"]
         .as_str()
-        .unwrap()
-        .starts_with(" created=\""));
+        .unwrap();
+    chrono::DateTime::parse_from_rfc3339(attribute_value(created_text, "created")).unwrap();
 }
 
 #[test]
@@ -810,10 +807,7 @@ fn offers_guarded_task_status_code_actions() {
         let change = &action["edit"]["documentChanges"][0];
         assert_eq!(change["textDocument"]["version"], 3);
         let new_text = change["edits"][0]["newText"].as_str().unwrap();
-        let timestamp = new_text
-            .strip_prefix(&format!(" {attribute}=\""))
-            .and_then(|value| value.strip_suffix('"'))
-            .unwrap();
+        let timestamp = attribute_value(new_text, attribute);
         chrono::DateTime::parse_from_rfc3339(timestamp).unwrap();
     }
 }
@@ -914,12 +908,10 @@ fn blocked_task_offers_cancel_but_not_complete() {
     let actions = response(&output, 2)["result"].as_array().unwrap();
     assert_eq!(actions.len(), 1);
     assert_eq!(actions[0]["title"], "Cancel task");
-    assert!(
-        actions[0]["edit"]["documentChanges"][0]["edits"][0]["newText"]
-            .as_str()
-            .unwrap()
-            .starts_with(" canceled=\"")
-    );
+    let new_text = actions[0]["edit"]["documentChanges"][0]["edits"][0]["newText"]
+        .as_str()
+        .unwrap();
+    chrono::DateTime::parse_from_rfc3339(attribute_value(new_text, "canceled")).unwrap();
 }
 
 #[test]
@@ -2159,6 +2151,14 @@ fn response(messages: &[Value], id: u64) -> &Value {
         .iter()
         .find(|message| message.get("id") == Some(&json!(id)))
         .expect("response")
+}
+
+fn attribute_value<'a>(text: &'a str, key: &str) -> &'a str {
+    let needle = format!("{key}=\"");
+    text.split_once(&needle)
+        .and_then(|(_, value)| value.split_once('"'))
+        .map(|(value, _)| value)
+        .expect("attribute value")
 }
 
 fn diagnostic_counts(messages: &[Value], uri: &str) -> Vec<usize> {
