@@ -1,7 +1,9 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Component, Path, PathBuf};
 
-use plumb_core::{parse, Block, Diagnostic, DiagnosticSeverity, ParsedBlock, ParsedDocument};
+use plumb_core::{
+    parse, Attributes, Block, Diagnostic, DiagnosticSeverity, ParsedBlock, ParsedDocument,
+};
 use plumb_extensions::{
     analyze_document, next_task_datetime, parse_task_reference_target, valid_task_datetime,
     AnchorRecord, DocumentOutput, LinkCompletionContext, LinkRecord, LinkTarget, TaskRecord,
@@ -56,6 +58,13 @@ pub enum RenameError {
 pub enum MetadataInsertError {
     StaleOrInvalidDocument,
     MetadataAlreadyExists,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ExplicitIdError {
+    StaleOrInvalidDocument,
+    BlockNotFound,
+    IdAlreadyExists,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -687,6 +696,54 @@ impl Workspace {
                 new_text: format!(" created=\"{timestamp}\""),
             },
         ))
+    }
+
+    pub fn add_explicit_id(
+        &self,
+        path: impl AsRef<Path>,
+        offset: usize,
+    ) -> Result<WorkspaceEdit, ExplicitIdError> {
+        let path = normalize(path.as_ref());
+        let entry = self
+            .documents
+            .get(&path)
+            .filter(|entry| entry.current.is_some())
+            .ok_or(ExplicitIdError::StaleOrInvalidDocument)?;
+        let target = deepest_block_id_target(&entry.parsed.syntax.blocks, offset)
+            .ok_or(ExplicitIdError::BlockNotFound)?;
+        if target.attrs.id().is_some() {
+            return Err(ExplicitIdError::IdAlreadyExists);
+        }
+
+        let reserved = entry
+            .current
+            .as_ref()
+            .expect("current output checked")
+            .output
+            .anchors
+            .iter()
+            .map(|anchor| anchor.id.value.clone())
+            .collect::<HashSet<_>>();
+        let id = unique_anchor_id(&target.seed, &reserved);
+        let edit = if let Some(range) = &target.attrs.range {
+            let insert = range.start + 1;
+            let separator = entry.parsed.source[insert..]
+                .chars()
+                .next()
+                .is_some_and(|character| !character.is_whitespace() && character != '}')
+                .then_some(" ")
+                .unwrap_or("");
+            TextEdit {
+                range: insert..insert,
+                new_text: format!("#{id}{separator}"),
+            }
+        } else {
+            TextEdit {
+                range: target.attribute_insert..target.attribute_insert,
+                new_text: format!("{{#{id}}}"),
+            }
+        };
+        Ok(single_document_edit(entry, path, edit))
     }
 
     fn task_status_edit(
@@ -1548,6 +1605,57 @@ fn deepest_list_item(blocks: &[Block], offset: usize) -> Option<&ParsedBlock> {
     result
 }
 
+struct BlockIdTarget<'a> {
+    attrs: &'a Attributes,
+    attribute_insert: usize,
+    seed: String,
+}
+
+fn deepest_block_id_target(blocks: &[Block], offset: usize) -> Option<BlockIdTarget<'_>> {
+    let mut pending = blocks
+        .iter()
+        .map(|block| (block, 0usize))
+        .collect::<Vec<_>>();
+    let mut result = None;
+    let mut result_position = (0usize, 0usize);
+    while let Some((block, depth)) = pending.pop() {
+        if !contains_inclusive(block.range(), offset) {
+            continue;
+        }
+        match block {
+            Block::Parsed(block) => {
+                if let Some(mark) = &block.mark {
+                    if result.is_none() || (depth, block.range.start) > result_position {
+                        let title = block.head.plain_text();
+                        result = Some(BlockIdTarget {
+                            attrs: &mark.attrs,
+                            attribute_insert: mark.marker_range.end,
+                            seed: if title.trim().is_empty() {
+                                mark.marker.clone()
+                            } else {
+                                title.trim().to_string()
+                            },
+                        });
+                        result_position = (depth, block.range.start);
+                    }
+                }
+                pending.extend(block.children.iter().map(|child| (child, depth + 1)));
+            }
+            Block::Verbatim(block) => {
+                if result.is_none() || (depth, block.range.start) > result_position {
+                    result = Some(BlockIdTarget {
+                        attrs: &block.attrs,
+                        attribute_insert: block.opener_range.end,
+                        seed: "block".to_string(),
+                    });
+                    result_position = (depth, block.range.start);
+                }
+            }
+        }
+    }
+    result
+}
+
 fn single_document_edit(entry: &DocumentEntry, path: PathBuf, edit: TextEdit) -> WorkspaceEdit {
     WorkspaceEdit {
         document_changes: vec![DocumentEdit {
@@ -1634,9 +1742,19 @@ fn escape_attribute_value(value: &str) -> String {
 }
 
 fn unique_task_instance_id(title: &str, datetime: &str, reserved: &HashSet<String>) -> String {
+    let slug = slugify(title, "task");
+    let date = datetime.get(..10).unwrap_or("instance");
+    unique_id(&format!("{slug}-{date}"), reserved)
+}
+
+fn unique_anchor_id(seed: &str, reserved: &HashSet<String>) -> String {
+    unique_id(&slugify(seed, "block"), reserved)
+}
+
+fn slugify(value: &str, fallback: &str) -> String {
     let mut slug = String::new();
     let mut separator = false;
-    for character in title.chars().flat_map(char::to_lowercase) {
+    for character in value.chars().flat_map(char::to_lowercase) {
         if character.is_alphanumeric() || matches!(character, '_' | '-') {
             if separator && !slug.is_empty() && !slug.ends_with('-') {
                 slug.push('-');
@@ -1651,15 +1769,17 @@ fn unique_task_instance_id(title: &str, datetime: &str, reserved: &HashSet<Strin
         slug.pop();
     }
     if slug.is_empty() {
-        slug.push_str("task");
+        slug.push_str(fallback);
     }
-    let date = datetime.get(..10).unwrap_or("instance");
-    let candidate = format!("{slug}-{date}");
-    if !reserved.contains(&candidate) {
-        return candidate;
+    slug
+}
+
+fn unique_id(base: &str, reserved: &HashSet<String>) -> String {
+    if !reserved.contains(base) {
+        return base.to_string();
     }
     for suffix in 2.. {
-        let candidate = format!("{slug}-{date}-{suffix}");
+        let candidate = format!("{base}-{suffix}");
         if !reserved.contains(&candidate) {
             return candidate;
         }
@@ -2241,6 +2361,87 @@ mod tests {
         assert_eq!(
             workspace.add_task_created("tasks.plumb", source.find("Existing").unwrap(), timestamp),
             Err(TaskEditError::CreatedAlreadyExists)
+        );
+    }
+
+    #[test]
+    fn add_explicit_id_targets_the_deepest_block_and_generates_unique_slugs() {
+        let source = "`#{.keep} Hello, World!\n`node Outer\n  `child Nested title\n`{language=text}\n  raw\n`note{\n  .keep\n } Multiline attrs\n`other{#hello-world} Existing\n`# Hello, World!\n";
+        let mut workspace = Workspace::new();
+        workspace.insert("note.plumb", 7, source);
+
+        let heading = workspace
+            .add_explicit_id("note.plumb", source.find("Hello, World!").unwrap())
+            .unwrap();
+        assert_eq!(heading.document_changes[0].expected_revision, 7);
+        let edit = &heading.document_changes[0].edits[0];
+        assert_eq!(edit.new_text, "#hello-world-2 ");
+        assert_eq!(&source[edit.range.clone()], "");
+        assert_eq!(&source[edit.range.start - 1..edit.range.start], "{");
+
+        let nested = workspace
+            .add_explicit_id("note.plumb", source.find("Nested title").unwrap())
+            .unwrap();
+        assert_eq!(
+            nested.document_changes[0].edits[0].new_text,
+            "{#nested-title}"
+        );
+
+        let sibling_boundary = workspace
+            .add_explicit_id("note.plumb", source.find("`node").unwrap())
+            .unwrap();
+        assert_eq!(
+            sibling_boundary.document_changes[0].edits[0].new_text,
+            "{#outer}"
+        );
+
+        let raw = workspace
+            .add_explicit_id("note.plumb", source.find("raw").unwrap())
+            .unwrap();
+        assert_eq!(raw.document_changes[0].edits[0].new_text, "#block ");
+
+        let multiline = workspace
+            .add_explicit_id("note.plumb", source.find("Multiline attrs").unwrap())
+            .unwrap();
+        assert_eq!(
+            multiline.document_changes[0].edits[0].new_text,
+            "#multiline-attrs"
+        );
+
+        for operation in [&heading, &nested, &sibling_boundary, &raw, &multiline] {
+            let edit = &operation.document_changes[0].edits[0];
+            let mut edited = source.to_string();
+            edited.replace_range(edit.range.clone(), &edit.new_text);
+            let parsed = parse(&edited);
+            assert!(parsed.is_valid(), "{edited}\n{:?}", parsed.diagnostics);
+            assert!(!analyze_document(&parsed.source, &parsed.syntax)
+                .anchors
+                .is_empty());
+        }
+
+        assert_eq!(
+            workspace.add_explicit_id("note.plumb", source.find("Existing").unwrap()),
+            Err(ExplicitIdError::IdAlreadyExists)
+        );
+    }
+
+    #[test]
+    fn add_explicit_id_requires_a_valid_marked_or_verbatim_block() {
+        let mut workspace = Workspace::new();
+        workspace.insert("plain.plumb", 1, "Plain paragraph\n");
+        workspace.insert("invalid.plumb", 2, "`node{key=a key=b} Broken\n");
+
+        assert_eq!(
+            workspace.add_explicit_id("plain.plumb", 2),
+            Err(ExplicitIdError::BlockNotFound)
+        );
+        assert_eq!(
+            workspace.add_explicit_id("invalid.plumb", 2),
+            Err(ExplicitIdError::StaleOrInvalidDocument)
+        );
+        assert_eq!(
+            workspace.add_explicit_id("missing.plumb", 0),
+            Err(ExplicitIdError::StaleOrInvalidDocument)
         );
     }
 
