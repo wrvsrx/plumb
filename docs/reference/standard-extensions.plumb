@@ -1,5 +1,5 @@
 `meta
-  `: title
+ `: title
 
     plumb standard extensions reference
 
@@ -23,6 +23,13 @@ heading 不生成 implicit id。只有 `[#id] shorthand 产生 anchor；`[id=val
 
 任意 syntax node attribute slot 中的 `[#id] 产生显式 anchor。document 内 id 必须唯一。
 anchor 保存 source document、id、owner 和 selection range。跨文件 index 只使用最新 valid snapshot。
+
+`[Add explicit id] authoring operation 只用于 syntax-valid document 中 cursor 命中的最深 marked 或
+verbatim block；paragraph、inline owner 与已有 id 的 block 不提供 operation。marked block 默认以
+非空 plain head 生成 id，空 head 回退到 marker；verbatim block 回退到 `[block]。生成过程保留
+Unicode alphanumeric、underscore 与 hyphen，将其他 runs 变为单个 hyphen，并做 Unicode lowercase；
+空结果回退为 `[block]。与 document 中任意 explicit anchor 冲突时依次添加 `[-2]、`[-3]。
+operation 将 id 插入已有 attribute slot 首位，或创建新 slot，并返回 revision-guarded edit。
 
 `# 4. Lists
 

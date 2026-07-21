@@ -1,5 +1,5 @@
 `meta
-  `: title
+ `: title
 
     plumb extension system
 
@@ -84,7 +84,8 @@ required application capabilities。proposal 本身不改变 workspace。
 host/app adapter 在应用前重新验证 revisions、document identity、target existence 和 capability。
 multi-document operation 必须 atomic，或在协议不能保证 atomic 时明确失败。
 
-task complete/cancel、metadata insertion、anchor rename 和 document rename 都复用这套 contract。
+add explicit id、task complete/cancel、metadata insertion、anchor rename 和 document rename 都复用
+这套 contract。
 
 `# 10. Diagnostics and failure
 

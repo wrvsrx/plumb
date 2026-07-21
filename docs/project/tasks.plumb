@@ -87,6 +87,15 @@
 
 `# Standard extensions
 
+`-{.task #add-explicit-id done="2026-07-21T16:17:35+08:00"} 添加 explicit id code action
+
+   `note Cursor 命中的最深 marked/verbatim block 尚无 id 时提供 Add explicit id；paragraph 与 inline owner 不提供。
+   `note Marked block 使用非空 plain head 生成 slug，空 head 回退 marker；verbatim block 回退 block。
+   `note 保留 Unicode alphanumeric、underscore 与 hyphen，对其他 runs 做 separator folding，并使用 Unicode lowercase。
+   `note 与 document 内任意 explicit anchor 冲突时使用 -2、-3 suffix，结果必须是合法 attribute name。
+   `note 将 id 放在已有 attribute slot 首位，或创建新 slot；operation 返回 revision-guarded edit。
+   `note 覆盖 nested owner、existing/multiline attributes、duplicate slug、invalid revision 和 LSP UTF-16 mapping。
+
 `-{.task #standard-verbatim-autolink done="2026-07-21T01:52:18+08:00"} 支持 `[.->] verbatim autolink
 
    `note 只有 inline verbatim 上的 `[.->] class 产生 autolink facet；其他 owner 发布 `[link.invalid-owner]，且不生成 link record。
