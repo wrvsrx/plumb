@@ -29,6 +29,7 @@
               postInstall = ''
                 mkdir -p $out/share/plumb
                 cp -r skills $out/share/plumb/
+                cp -r contrib $out/share/plumb/
               '';
 
               passthru = {
