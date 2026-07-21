@@ -28,10 +28,32 @@ diagnostics 和 export smoke test。
 `[plumb lsp] 提供 strict syntax 与 semantic diagnostics、document symbols、definition、references、
 hover、completion、anchor/document rename、metadata insertion、task conversion/created/status actions
 、task semantic tokens 和 whole-document formatting。server 会扫描 workspace，并在 editor 支持时
-监听 `[..plumb] file changes。
+监听 `[..plumb] file changes。递归扫描不进入 directory symlink，避免 workspace snapshot、Nix
+store 或 symlink cycle 产生重复 records；扩展名为 `[..plumb] 的单文件 symlink 仍会被索引。
+
+标准 `[workspace/symbol] 支持 `[note QUERY]、`[task QUERY] 和无 prefix 的混合 note/task 搜索，
+结果包含可跳转 Location。`[plumb/search] custom request 提供 schema version 1 的 typed records：
+
+`{language=json}
+  {
+    "kind": "task",
+    "query": "review",
+    "filter": "actionable && due < now",
+    "limit": 100
+  }
+
+`[kind]、`[query] 和 `[filter] 可省略；filter 使用与 `[plumb note/task --query] 相同的 shared CEL
+facts。result 包含 items、Location、revision provenance 和 complete；limit 上限为 200。invalid CEL
+使用 InvalidParams，initial index 前使用 ServerNotInitialized，cancellation 使用 RequestCancelled。
+initialize response 的 `[experimental.plumb.search] 声明 method 与 schemaVersion。
 
 `[dev/nvim.lua] 是面向 Neovim 0.12 的 repo-local exrc：加载本地 tree-sitter parser 与 queries，
 启动 `[`target/debug/plumb lsp]，并配置 workspace edits、resource rename 和 file watching。
+
+`[contrib/nvim] 提供面向 Neovim 0.12 的 `[plumb.search] Lua module。`[search_notes] 与
+`[search_tasks] 使用 `[vim.ui.input/select]；`[live_search] 为 picker adapter 统一处理 debounce、
+request cancellation、stale response、preview Location 和 incomplete state。module 不依赖 plugin
+manager、Telescope、Snacks 或 fzf-lua；setup 与 keymap 示例见 `[contrib/nvim/README.plumb]。
 
 `# Format
 

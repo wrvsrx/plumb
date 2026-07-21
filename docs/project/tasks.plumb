@@ -87,14 +87,16 @@
 
 `# Standard extensions
 
-`-{.task #insert-metadata-into-empty-document} 支持向空文档插入 metadata
+`-{
+   .task #insert-metadata-into-empty-document done="2026-07-22T04:42:12+08:00"
+  } 支持向空文档插入 metadata
 
    `note 空文档是 valid document；Insert document metadata code action 必须在 offset 0 可用。
    `note Workspace operation 生成 revision-guarded edit，并使用 filename 作为默认 title、本地 RFC 3339 时间作为 created。
    `note 统一 authoring edit finalization 必须支持原 source 不含 block、逻辑编辑首次创建 block 的情形。
    `note 结果必须符合 formatter canonical layout；增加 workspace operation 与 LSP code action 的 empty-document regression tests。
 
-`-{.task #lint-metadata-created} Lint metadata created timestamp
+`-{.task #lint-metadata-created done="2026-07-22T04:42:12+08:00"} Lint metadata created timestamp
 
    `note Metadata extension 将标准 created 字段解析为完整 RFC 3339 timestamp，不接受模糊日期或无 timezone 的值。
    `note 非法值发布 metadata.invalid-created warning，range 指向 created value，不影响 strict syntax validity 或其他 metadata facts。
@@ -175,7 +177,9 @@
 
 `# Workspace indexing
 
-`-{.task #do-not-follow-directory-symlinks} Workspace scanner 不递归进入目录 symlink
+`-{
+   .task #do-not-follow-directory-symlinks done="2026-07-22T04:42:12+08:00"
+  } Workspace scanner 不递归进入目录 symlink
 
    `note 使用 DirEntry file type 区分真实目录与 symlink，只递归扫描真实目录。
    `note 默认不跟随指向 workspace 内部或外部的目录 symlink，避免重复索引、循环、越界扫描与 watcher 语义不一致。
@@ -184,7 +188,9 @@
 
 `# Editor search
 
-`-{.task #search-records} 建立 protocol-neutral note/task search records
+`-{
+   .task #search-records done="2026-07-22T04:42:12+08:00"
+  } 建立 protocol-neutral note/task search records
 
    `note 从 plumb-workspace current valid snapshots 投影 search records；open buffer 继续覆盖 disk snapshot。
    `note Note record 包含 metadata title 或 filename fallback、path 与 document location。
@@ -193,7 +199,7 @@
    `note Search model 不依赖 LSP、CLI、Neovim 或具体 picker，也不把 full-text body search 混入 semantic records。
 
 `-{
-   .task #workspace-symbol-search depends="#search-records"
+   .task #workspace-symbol-search depends="#search-records" done="2026-07-22T04:42:12+08:00"
   } 通过 workspace/symbol 搜索 notes 与 tasks
 
    `note Advertise standard workspace symbol capability；普通 LSP clients 不需要 plumb-specific plugin。
@@ -201,7 +207,9 @@
    `note Note 与 task 使用稳定 SymbolKind、container detail 和 source-backed Location；选择结果必须能直接跳转。
    `note Query 为空与超出 limit 的行为必须 bounded；ordering、open-buffer precedence、invalid revisions 和 cancellation 需要 black-box tests。
 
-`-{.task #structured-editor-search depends="#search-records"} 添加 plumb/search custom LSP request
+`-{
+   .task #structured-editor-search depends="#search-records" done="2026-07-22T04:42:12+08:00"
+  } 添加 plumb/search custom LSP request
 
    `note 使用不带 dollar prefix 的 versioned JSON-RPC method，并在 initialize experimental.plumb.search 中声明 schema version。
    `note Params 包含 note/task kind、structured query 与 limit；result 返回 typed items、Location、provenance 和 complete flag。
@@ -211,6 +219,7 @@
 
 `-{
    .task #neovim-search-integration depends="#structured-editor-search #workspace-symbol-search"
+   done="2026-07-22T04:42:12+08:00"
   } 提供仓库内 Neovim search integration
 
    `note 在 contrib/nvim 提供无 plugin manager 依赖的 Lua module，暴露 search_notes 与 search_tasks。
