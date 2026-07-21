@@ -23,10 +23,11 @@ use lsp_types::{
     RegistrationParams, RenameFile, RenameFileOptions, RenameOptions, RenameParams, ResourceOp,
     ResourceOperationKind, SemanticToken, SemanticTokenModifier, SemanticTokenType, SemanticTokens,
     SemanticTokensFullOptions, SemanticTokensLegend, SemanticTokensOptions, SemanticTokensParams,
-    SemanticTokensResult, SemanticTokensServerCapabilities, ServerCapabilities, SymbolKind,
-    TextDocumentEdit, TextDocumentSyncCapability, TextDocumentSyncKind, TextEdit as LspTextEdit,
-    Url, WatchKind, WorkDoneProgress, WorkDoneProgressBegin, WorkDoneProgressEnd,
-    WorkDoneProgressOptions, WorkDoneProgressReport, WorkspaceEdit as LspWorkspaceEdit,
+    SemanticTokensResult, SemanticTokensServerCapabilities, ServerCapabilities, SymbolInformation,
+    SymbolKind, TextDocumentEdit, TextDocumentSyncCapability, TextDocumentSyncKind,
+    TextEdit as LspTextEdit, Url, WatchKind, WorkDoneProgress, WorkDoneProgressBegin,
+    WorkDoneProgressEnd, WorkDoneProgressOptions, WorkDoneProgressReport,
+    WorkspaceEdit as LspWorkspaceEdit, WorkspaceSymbolParams, WorkspaceSymbolResponse,
 };
 use plumb_core::Diagnostic;
 use plumb_extensions::{
@@ -34,10 +35,12 @@ use plumb_extensions::{
     MetadataValue, TaskRecord, TaskState, TaskStatus,
 };
 use plumb_workspace::{
-    normalize, RenameError, ResolvedTarget, ResourceOperation, Workspace, WorkspaceEdit,
+    normalize, RenameError, ResolvedTarget, ResourceOperation, SearchRecord, SearchRecordKind,
+    Workspace, WorkspaceEdit,
 };
 
 use crate::position::{byte_range_to_lsp, position_to_offset};
+use crate::search::{SearchItem, SearchKind, SearchParams, SearchProvenance, SearchResult};
 
 pub(crate) struct ServerState {
     client: ClientSocket,
@@ -301,6 +304,65 @@ impl ServerState {
         self.workspace.insert(target_path, 0, source);
         true
     }
+
+    pub(crate) fn search(&self, params: SearchParams) -> Result<SearchResult, ResponseError> {
+        let kind = params.kind.map(|kind| match kind {
+            SearchKind::Note => SearchRecordKind::Note,
+            SearchKind::Task => SearchRecordKind::Task,
+        });
+        let limit = params.limit.unwrap_or(100).min(200) as usize;
+        let root = self
+            .roots
+            .first()
+            .map_or_else(|| Path::new(""), PathBuf::as_path);
+        let results = self
+            .workspace
+            .search_records_filtered(
+                root,
+                kind,
+                &params.query,
+                limit,
+                Local::now().fixed_offset(),
+                params.filter.as_deref(),
+            )
+            .map_err(|message| ResponseError::new(ErrorCode::INVALID_PARAMS, message))?;
+        let items = results
+            .items
+            .into_iter()
+            .filter_map(|record| self.search_item(record))
+            .collect();
+        Ok(SearchResult {
+            schema_version: 1,
+            items,
+            complete: results.complete,
+        })
+    }
+
+    fn search_item(&self, record: SearchRecord) -> Option<SearchItem> {
+        let entry = self.workspace.get(&record.path)?;
+        let location = Location::new(
+            Url::from_file_path(&record.path).ok()?,
+            byte_range_to_lsp(&entry.parsed.source, &record.range),
+        );
+        Some(SearchItem {
+            kind: match record.kind {
+                SearchRecordKind::Note => SearchKind::Note,
+                SearchRecordKind::Task => SearchKind::Task,
+            },
+            title: record.title,
+            path: record.relative_path,
+            location,
+            provenance: SearchProvenance {
+                source: "current".to_string(),
+                revision: record.revision,
+            },
+            id: record.id,
+            state: record.task_state.map(task_state_name).map(str::to_string),
+            due: record.due,
+            blocked: record.blocked,
+            actionable: record.actionable,
+        })
+    }
 }
 
 impl LanguageServer for ServerState {
@@ -381,6 +443,15 @@ impl LanguageServer for ServerState {
                     rename_provider: Some(OneOf::Right(RenameOptions {
                         prepare_provider: Some(true),
                         work_done_progress_options: WorkDoneProgressOptions::default(),
+                    })),
+                    workspace_symbol_provider: Some(OneOf::Left(true)),
+                    experimental: Some(serde_json::json!({
+                        "plumb": {
+                            "search": {
+                                "schemaVersion": 1,
+                                "method": "plumb/search"
+                            }
+                        }
                     })),
                     ..ServerCapabilities::default()
                 },
@@ -545,6 +616,54 @@ impl LanguageServer for ServerState {
                 symbols
             });
         Box::pin(async move { Ok(symbols.map(DocumentSymbolResponse::Nested)) })
+    }
+
+    fn symbol(
+        &mut self,
+        params: WorkspaceSymbolParams,
+    ) -> BoxFuture<'static, Result<Option<WorkspaceSymbolResponse>, Self::Error>> {
+        let (kind, query) = workspace_symbol_query(&params.query);
+        let result = match self.search(SearchParams {
+            kind,
+            query,
+            filter: None,
+            limit: Some(100),
+        }) {
+            Ok(result) => result,
+            Err(error) => return Box::pin(async move { Err(error) }),
+        };
+        let symbols = result
+            .items
+            .into_iter()
+            .map(|item| {
+                let detail = match item.kind {
+                    SearchKind::Note => item.path,
+                    SearchKind::Task => {
+                        let mut parts = vec![item.path];
+                        if let Some(state) = item.state {
+                            parts.push(state);
+                        }
+                        if let Some(due) = item.due {
+                            parts.push(format!("due {due}"));
+                        }
+                        parts.join(" · ")
+                    }
+                };
+                #[allow(deprecated)]
+                SymbolInformation {
+                    name: item.title,
+                    kind: match item.kind {
+                        SearchKind::Note => SymbolKind::FILE,
+                        SearchKind::Task => SymbolKind::EVENT,
+                    },
+                    tags: None,
+                    deprecated: None,
+                    location: item.location,
+                    container_name: Some(detail),
+                }
+            })
+            .collect();
+        Box::pin(async move { Ok(Some(WorkspaceSymbolResponse::Flat(symbols))) })
     }
 
     fn formatting(
@@ -1510,6 +1629,22 @@ fn workspace_roots(params: &InitializeParams) -> Vec<PathBuf> {
         .and_then(|uri| uri.to_file_path().ok())
         .map(|path| vec![normalize(&path)])
         .unwrap_or_default()
+}
+
+fn workspace_symbol_query(query: &str) -> (Option<SearchKind>, String) {
+    let query = query.trim();
+    for (prefix, kind) in [("note", SearchKind::Note), ("task", SearchKind::Task)] {
+        if query == prefix {
+            return (Some(kind), String::new());
+        }
+        if let Some(query) = query
+            .strip_prefix(prefix)
+            .and_then(|rest| rest.strip_prefix(' '))
+        {
+            return (Some(kind), query.trim_start().to_string());
+        }
+    }
+    (None, query.to_string())
 }
 
 fn is_plumb_file(path: &Path) -> bool {

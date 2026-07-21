@@ -16,6 +16,7 @@ chrono.workspace = true
 futures = { version = "0.3", default-features = false, features = ["async-await", "std"] }
 lsp-types = "0.95"
 serde_json.workspace = true
+serde.workspace = true
 tokio = { version = "1", features = ["io-std", "io-util", "macros", "net", "rt", "time"] }
 tower = "0.5"
 tracing = "0.1"

@@ -600,7 +600,10 @@ fn publishes_metadata_diagnostics_and_nested_symbols_over_stdio() {
         .find(|diagnostic| diagnostic["code"] == "metadata.invalid-created")
         .expect("invalid created diagnostic");
     assert_eq!(invalid_created["severity"], 2);
-    assert_eq!(invalid_created["range"]["start"], json!({ "line": 14, "character": 4 }));
+    assert_eq!(
+        invalid_created["range"]["start"],
+        json!({ "line": 14, "character": 4 })
+    );
 }
 
 #[test]
@@ -756,8 +759,14 @@ fn inserts_metadata_into_an_empty_document_over_stdio() {
         .expect("metadata action");
     let change = &metadata["edit"]["documentChanges"][0];
     assert_eq!(change["textDocument"]["version"], 7);
-    assert_eq!(change["edits"][0]["range"]["start"], json!({ "line": 0, "character": 0 }));
-    assert_eq!(change["edits"][0]["range"]["end"], json!({ "line": 0, "character": 0 }));
+    assert_eq!(
+        change["edits"][0]["range"]["start"],
+        json!({ "line": 0, "character": 0 })
+    );
+    assert_eq!(
+        change["edits"][0]["range"]["end"],
+        json!({ "line": 0, "character": 0 })
+    );
     let generated = change["edits"][0]["newText"].as_str().unwrap();
     assert!(generated.starts_with("`meta\n `: title\n\n    empty-note\n"));
     assert_eq!(plumb_format::format(generated).unwrap(), generated);
@@ -1748,7 +1757,13 @@ fn workspace_index_does_not_follow_directory_symlinks() {
 
     let output = run_server(&messages);
     let items = response(&output, 2)["result"].as_array().unwrap();
-    assert_eq!(items.iter().filter(|item| item["label"] == "Target").count(), 1);
+    assert_eq!(
+        items
+            .iter()
+            .filter(|item| item["label"] == "Target")
+            .count(),
+        1
+    );
     assert_eq!(
         items
             .iter()
@@ -1762,6 +1777,118 @@ fn workspace_index_does_not_follow_directory_symlinks() {
 
     std::fs::remove_dir_all(root).unwrap();
     std::fs::remove_dir_all(snapshot).unwrap();
+}
+
+#[test]
+fn searches_workspace_symbols_and_structured_records_over_stdio() {
+    let root = unique_temp_dir();
+    std::fs::create_dir_all(&root).unwrap();
+    let note = root.join("note.plumb");
+    let tasks = root.join("tasks.plumb");
+    std::fs::write(&note, "`meta\n `: title\n\n    Disk title\n").unwrap();
+    std::fs::write(
+        &tasks,
+        "`-{.task #review due=\"2026-07-23T12:00:00+08:00\"} Review parser\n",
+    )
+    .unwrap();
+    let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
+    let note_uri = lsp_types::Url::from_file_path(&note).unwrap();
+    let open_note = "`meta\n `: title\n\n    Open title\n";
+    let messages = [
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {
+                "processId": null, "rootUri": root_uri,
+                "workspaceFolders": [{ "uri": root_uri, "name": "test" }],
+                "capabilities": {}
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": {
+                "uri": note_uri, "languageId": "plumb", "version": 9, "text": open_note
+            }}
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 2, "method": "workspace/symbol",
+            "params": { "query": "note Open" }
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 3, "method": "workspace/symbol",
+            "params": { "query": "task review" }
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 4, "method": "plumb/search",
+            "params": {
+                "kind": "task", "query": "review", "filter": "actionable", "limit": 20
+            }
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 5, "method": "plumb/search",
+            "params": { "query": "", "limit": 1 }
+        }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didChange",
+            "params": {
+                "textDocument": { "uri": note_uri, "version": 10 },
+                "contentChanges": [{ "text": "`span[broken\n" }]
+            }
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 6, "method": "plumb/search",
+            "params": { "kind": "note", "query": "Open", "limit": 20 }
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 7, "method": "plumb/search",
+            "params": { "kind": "note", "filter": "path", "limit": 20 }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 8, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+
+    let output = run_server(&messages);
+    let capabilities = &response(&output, 1)["result"]["capabilities"];
+    assert_eq!(capabilities["workspaceSymbolProvider"], true);
+    assert_eq!(
+        capabilities["experimental"]["plumb"]["search"]["schemaVersion"],
+        1
+    );
+    assert_eq!(
+        capabilities["experimental"]["plumb"]["search"]["method"],
+        "plumb/search"
+    );
+
+    let notes = response(&output, 2)["result"].as_array().unwrap();
+    assert_eq!(notes.len(), 1);
+    assert_eq!(notes[0]["name"], "Open title");
+    assert_eq!(notes[0]["kind"], 1);
+    assert_eq!(notes[0]["location"]["uri"], note_uri.as_str());
+    let task_symbols = response(&output, 3)["result"].as_array().unwrap();
+    assert_eq!(task_symbols.len(), 1);
+    assert_eq!(task_symbols[0]["name"], "Review parser");
+
+    let structured = &response(&output, 4)["result"];
+    assert_eq!(structured["schemaVersion"], 1);
+    assert_eq!(structured["complete"], true);
+    assert_eq!(structured["items"][0]["kind"], "task");
+    assert_eq!(structured["items"][0]["id"], "review");
+    assert_eq!(structured["items"][0]["state"], "open");
+    assert_eq!(structured["items"][0]["blocked"], false);
+    assert_eq!(structured["items"][0]["provenance"]["source"], "current");
+    assert_eq!(structured["items"][0]["provenance"]["revision"], 0);
+    assert_eq!(response(&output, 5)["result"]["complete"], false);
+    assert!(response(&output, 6)["result"]["items"]
+        .as_array()
+        .unwrap()
+        .is_empty());
+    assert_eq!(response(&output, 7)["error"]["code"], -32602);
+    assert!(response(&output, 7)["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("must return bool"));
+
+    std::fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
