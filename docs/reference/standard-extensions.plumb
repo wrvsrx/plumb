@@ -30,6 +30,8 @@ verbatim block；paragraph、inline owner 与已有 id 的 block 不提供 opera
 Unicode alphanumeric、underscore 与 hyphen，将其他 runs 变为单个 hyphen，并做 Unicode lowercase；
 空结果回退为 `[block]。与 document 中任意 explicit anchor 冲突时依次添加 `[-2]、`[-3]。
 operation 将 id 插入已有 attribute slot 首位，或创建新 slot，并返回 revision-guarded edit。
+authoring operation 修改的完整 block 使用 canonical formatter layout；相邻 sibling 只提供 spacing
+context，不被一并格式化。anchor 与 document rename 仍只执行必要的 minimal replacements。
 
 `# 4. Lists
 
