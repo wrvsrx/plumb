@@ -114,6 +114,73 @@ pub fn format_block_range(source: &str, range: Range<usize>) -> Result<FormatEdi
 
     let (blocks, first, last) = sibling_block_range(source, &parsed.syntax.blocks, &range)
         .ok_or(FormatError::InvalidBlockRange)?;
+    Ok(format_block_group(source, blocks, first, last))
+}
+
+/// Formats maximal complete block subtrees contained by `selection`.
+pub fn format_contained_blocks(
+    source: &str,
+    selection: Range<usize>,
+) -> Result<Vec<FormatEdit>, FormatError> {
+    let parsed = parse(source);
+    if !parsed.is_valid() {
+        return Err(FormatError::InvalidSyntax);
+    }
+    if selection.start > selection.end
+        || selection.end > source.len()
+        || !source.is_char_boundary(selection.start)
+        || !source.is_char_boundary(selection.end)
+    {
+        return Err(FormatError::InvalidBlockRange);
+    }
+    if selection.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut groups = Vec::new();
+    collect_contained_groups(&parsed.syntax.blocks, &selection, &mut groups);
+    let mut edits = groups
+        .into_iter()
+        .map(|group| format_contained_group(source, group.blocks, group.first, group.last))
+        .filter(|edit| source[edit.range.clone()] != edit.new_text)
+        .collect::<Vec<_>>();
+    edits.sort_by_key(|edit| edit.range.start);
+    if edits
+        .windows(2)
+        .any(|edits| edits[0].range.end > edits[1].range.start)
+    {
+        return Err(FormatError::InvalidBlockRange);
+    }
+    Ok(edits)
+}
+
+fn format_contained_group(source: &str, blocks: &[Block], first: usize, last: usize) -> FormatEdit {
+    let selected = &blocks[first..=last];
+    let block_start = selected.first().unwrap().range().start;
+    let line_start = source[..block_start]
+        .rfind('\n')
+        .map_or(0, |offset| offset + 1);
+    let indent = source[line_start..block_start].chars().count();
+    let edit_range = block_start..block_content_range(selected.last().unwrap()).end;
+
+    let mut formatter = Formatter::default();
+    formatter.blocks(selected, indent);
+    let prefix = " ".repeat(indent);
+    let mut new_text = formatter
+        .output
+        .strip_prefix(&prefix)
+        .unwrap_or(&formatter.output)
+        .to_string();
+    if source.contains("\r\n") {
+        new_text = new_text.replace('\n', "\r\n");
+    }
+    FormatEdit {
+        range: edit_range,
+        new_text,
+    }
+}
+
+fn format_block_group(source: &str, blocks: &[Block], first: usize, last: usize) -> FormatEdit {
     let selected = &blocks[first..=last];
     let following = blocks.get(last + 1);
     let block_start = selected.first().unwrap().range().start;
@@ -142,10 +209,71 @@ pub fn format_block_range(source: &str, range: Range<usize>) -> Result<FormatEdi
     if source.contains("\r\n") {
         new_text = new_text.replace('\n', "\r\n");
     }
-    Ok(FormatEdit {
+    FormatEdit {
         range: edit_range,
         new_text,
-    })
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct BlockGroup<'a> {
+    blocks: &'a [Block],
+    first: usize,
+    last: usize,
+}
+
+fn collect_contained_groups<'a>(
+    blocks: &'a [Block],
+    selection: &Range<usize>,
+    groups: &mut Vec<BlockGroup<'a>>,
+) {
+    let mut group_start = None;
+    for (index, block) in blocks.iter().enumerate() {
+        let content = block_content_range(block);
+        if selection.start <= content.start && content.end <= selection.end {
+            group_start.get_or_insert(index);
+            continue;
+        }
+
+        if let Some(first) = group_start.take() {
+            groups.push(BlockGroup {
+                blocks,
+                first,
+                last: index - 1,
+            });
+        }
+        collect_contained_groups(block.children(), selection, groups);
+    }
+    if let Some(first) = group_start {
+        groups.push(BlockGroup {
+            blocks,
+            first,
+            last: blocks.len() - 1,
+        });
+    }
+}
+
+fn block_content_range(block: &Block) -> Range<usize> {
+    match block {
+        Block::Parsed(block) => {
+            let own_end = block.mark.as_ref().map_or(block.head.range.end, |mark| {
+                mark.range.end.max(block.head.range.end)
+            });
+            let end = block
+                .children
+                .last()
+                .map_or(own_end, |child| block_content_range(child).end.max(own_end));
+            block.range.start..end
+        }
+        Block::Verbatim(block) => {
+            let attributes_end = block
+                .attrs
+                .range
+                .as_ref()
+                .map_or(block.opener_range.end, |range| range.end);
+            block.range.start..attributes_end.max(block.text_range.end)
+        }
+    }
 }
 
 fn sibling_block_range<'a>(
@@ -596,6 +724,96 @@ mod tests {
             edit.new_text,
             "  `-{.task #old done=now} Work\r\n  `-{.task #next} Work\r\n\r\n"
         );
+    }
+
+    #[test]
+    fn contained_range_formats_only_complete_maximal_blocks() {
+        let source = "`node Parent\n       `-{.task\n          #one\n        } One\n\n       `-{.task #two} Two\n\n`# Following\n";
+        let parsed = parse(source);
+        assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
+        let parent = &parsed.syntax.blocks[0];
+        let children = parent.children();
+        let selection =
+            block_content_range(&children[0]).start..block_content_range(&children[1]).end;
+        let edits = format_contained_blocks(source, selection).unwrap();
+
+        assert_eq!(edits.len(), 1);
+        assert_eq!(edits[0].range.start, children[0].range().start);
+        assert_eq!(edits[0].range.end, block_content_range(&children[1]).end);
+        assert_eq!(
+            edits[0].new_text,
+            "`-{.task #one} One\n       `-{.task #two} Two"
+        );
+        assert_eq!(&source[edits[0].range.end..], "\n\n`# Following\n");
+        assert!(!edits[0].new_text.contains("`node Parent"));
+    }
+
+    #[test]
+    fn contained_range_formats_a_complete_parent_subtree() {
+        let source =
+            "`node Parent\n       `-{.task\n          #one\n        } One\n\n`# Following\n";
+        let parsed = parse(source);
+        let parent_range = block_content_range(&parsed.syntax.blocks[0]);
+        let edits = format_contained_blocks(source, parent_range).unwrap();
+        assert_eq!(edits.len(), 1);
+
+        let mut formatted = source.to_string();
+        formatted.replace_range(edits[0].range.clone(), &edits[0].new_text);
+        assert_eq!(
+            formatted,
+            "`node Parent\n\n      `-{.task #one} One\n\n`# Following\n"
+        );
+        assert_eq!(format(&formatted).unwrap(), formatted);
+        let reparsed = parse(&formatted);
+        assert!(format_contained_blocks(
+            &formatted,
+            block_content_range(&reparsed.syntax.blocks[0]),
+        )
+        .unwrap()
+        .is_empty());
+    }
+
+    #[test]
+    fn contained_range_returns_non_overlapping_maximal_groups() {
+        let source = "`node First\n  `-{.task\n      #one\n    } One\n`node Second\n  `-{.task\n      #two\n    } Two\n";
+        let parsed = parse(source);
+        let first_child = &parsed.syntax.blocks[0].children()[0];
+        let second_parent = &parsed.syntax.blocks[1];
+        let selection =
+            block_content_range(first_child).start..block_content_range(second_parent).end;
+        let edits = format_contained_blocks(source, selection).unwrap();
+
+        assert_eq!(edits.len(), 2);
+        assert!(edits[0].range.end <= edits[1].range.start);
+        assert!(!edits[0].new_text.contains("`node First"));
+        assert!(edits[1].new_text.starts_with("`node Second"));
+        assert!(edits[0].new_text.contains("`-{.task #one} One"));
+        assert!(edits[1].new_text.contains("`-{.task #two} Two"));
+    }
+
+    #[test]
+    fn contained_range_ignores_partial_and_empty_selections() {
+        let source = "`-{.task #one} One\n";
+        let head = source.find("One").unwrap();
+        assert!(format_contained_blocks(source, head..head + 3)
+            .unwrap()
+            .is_empty());
+        assert!(format_contained_blocks(source, head..head)
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn contained_range_preserves_crlf_and_external_layout() {
+        let source =
+            "`node Parent\r\n  `-{.task\r\n      #one\r\n    } One\r\n\r\n`# Following\r\n";
+        let parsed = parse(source);
+        let child = &parsed.syntax.blocks[0].children()[0];
+        let edits = format_contained_blocks(source, block_content_range(child)).unwrap();
+
+        assert_eq!(edits.len(), 1);
+        assert_eq!(edits[0].new_text, "`-{.task #one} One");
+        assert_eq!(&source[edits[0].range.end..], "\r\n\r\n`# Following\r\n");
     }
 
     #[test]
