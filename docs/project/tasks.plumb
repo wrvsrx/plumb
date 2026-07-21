@@ -130,6 +130,15 @@
    `note Completion 显示 metadata title 与 relative-path detail，只插入 URI-encoded relative path；排除当前 document，输入 `[#] 后继续补全 target document 的 explicit anchors。
    `note 复用现有 link completion context、workspace candidate ordering 和 last-valid cross-document index；补齐 resolution、hover、definition、export、LSP completion、guide、playground 与 bundled skill tests/docs。
 
+`-{.task #standard-image} 支持 `[img] standard image extension
+
+   `note `"[img[alt]{src="target"}]" 是唯一 image spelling；parsed inline content 是 alt content，`[src] 是必需且非空的 URI reference。
+   `note `[src] 接受 absolute URI 或相对 source document 所在目录的 file path；保留原始 spelling，并复用 relative reference 的 percent-encoding 与 validity rules。
+   `note Empty alt 合法；非空 alt 保留 parsed inline content。缺失、空或无效 src 发布 `[image.missing-source] 或 `[image.invalid-source] semantic diagnostic。
+   `note Export lower 为 Pandoc Image，并保留未消费的 explicit id、classes 和 key/value attributes；image-only paragraph 仍是只含 Image 的 paragraph。
+   `note LSP 在 src value 中补全相对本地图片文件，初版覆盖 PNG、JPEG、WebP、GIF、SVG 和 AVIF，插入 URI-encoded path；hover/definition 使用 resolved file location。
+   `note Core parser 不增加 image special case；补齐 extension、export、metadata、LSP、guide、playground 和 bundled skill tests/docs。Figure、caption、numbering 与 cross-reference 继续 deferred。
+
 `-{.task #standard-div-span done="2026-07-20T13:00:12+08:00"} 支持标准 div 与 span 透明容器
 
    `note 将 `[div] marked block 与 `[span] parsed inline kind 冻结为 standard extension spellings。
