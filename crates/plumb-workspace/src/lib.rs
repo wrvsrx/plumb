@@ -2440,6 +2440,27 @@ mod tests {
     }
 
     #[test]
+    fn task_status_formats_the_complete_owner_subtree() {
+        let source = "`-{.task #parent} Parent\n       `- Child\n\n`# Following\n";
+        let mut workspace = Workspace::new();
+        workspace.insert("tasks.plumb", 9, source);
+
+        let operation = workspace
+            .set_task_status_by_id(
+                "tasks.plumb",
+                "parent",
+                TaskStatus::Done,
+                "2026-07-21T22:00:00+08:00",
+            )
+            .unwrap();
+        let edited = apply_single_edit(source, &operation);
+
+        assert!(edited.contains("#parent done=\"2026-07-21T22:00:00+08:00\""));
+        assert!(edited.contains("\n   `- Child\n\n`# Following"));
+        assert_eq!(plumb_format::format(&edited).unwrap(), edited);
+    }
+
+    #[test]
     fn task_authoring_operations_convert_items_and_add_created() {
         let source = "`-{#outer .keep} Outer\n  `- Nested\n`.{.task #closed done=\"2026-07-20T09:00:00Z\"} Closed\n`-{.task #existing created=\"2026-07-19T09:00:00Z\"} Existing\n";
         let mut workspace = Workspace::new();

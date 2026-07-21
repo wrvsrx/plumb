@@ -88,8 +88,9 @@ add explicit id、task complete/cancel、metadata insertion、anchor rename 和 
 这套 contract。
 
 official workspace host 将单文档 authoring operation 的 proposal 分成 logical text edits 与 affected
-complete block range：先在 revision snapshot 的内存副本应用 logical edits，再使用相邻 sibling 作为
-layout context canonicalize affected blocks，最后映射为针对原 revision 的单个连续 text edit。
+complete owner block range：先在 revision snapshot 的内存副本应用 logical edits，再使用相邻 sibling
+作为 layout context canonicalize 完整 owner subtree，最后映射为针对原 revision 的单个连续 text
+edit。children 即使未被 logical edits 直接触及也随 owner canonicalize；相邻 sibling 不被格式化。
 task complete/cancel、task conversion、created insertion、add explicit id 与 metadata insertion 复用
 这条 finalization pipeline。anchor/document rename 属于跨位置机械重写，保持 ordered minimal edits，
 不触发无关 block formatting。
