@@ -8,8 +8,9 @@ use plumb_core::{
 };
 use plumb_extensions::{
     analyze_document, next_task_datetime, parse_task_reference_target, valid_task_datetime,
-    AnchorRecord, DocumentOutput, LinkCompletionContext, LinkRecord, LinkTarget, MetadataValue,
-    TaskRecord, TaskReferenceTarget, TaskState, TaskStatus,
+    AnchorRecord, DocumentOutput, ImageCompletionContext, ImageRecord, ImageTarget,
+    LinkCompletionContext, LinkRecord, LinkTarget, MetadataValue, TaskRecord, TaskReferenceTarget,
+    TaskState, TaskStatus,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -153,6 +154,12 @@ pub enum ResolvedTarget {
         path: PathBuf,
     },
     External,
+    File {
+        path: PathBuf,
+    },
+    UnresolvedFile {
+        path: PathBuf,
+    },
     Other,
     UnresolvedPath {
         path: PathBuf,
@@ -386,9 +393,17 @@ impl Workspace {
         let from = normalize(from.as_ref());
         match &link.target_kind {
             LinkTarget::External => ResolvedTarget::External,
+            LinkTarget::File { path } => {
+                let target = resolve_relative(&from, &percent_decode_path(path));
+                if target.is_file() {
+                    ResolvedTarget::File { path: target }
+                } else {
+                    ResolvedTarget::UnresolvedFile { path: target }
+                }
+            }
             LinkTarget::Other => ResolvedTarget::Other,
             LinkTarget::Document { path } => {
-                let target = resolve_relative(&from, path);
+                let target = resolve_relative(&from, &percent_decode_path(path));
                 if self.current_output(&target).is_some() {
                     ResolvedTarget::Document { path: target }
                 } else {
@@ -396,9 +411,10 @@ impl Workspace {
                 }
             }
             LinkTarget::Anchor { path, fragment } => {
-                let target = path
-                    .as_deref()
-                    .map_or_else(|| from.clone(), |path| resolve_relative(&from, path));
+                let target = path.as_deref().map_or_else(
+                    || from.clone(),
+                    |path| resolve_relative(&from, &percent_decode_path(path)),
+                );
                 let Some(output) = self.current_output(&target) else {
                     return ResolvedTarget::UnresolvedPath { path: target };
                 };
@@ -433,6 +449,28 @@ impl Workspace {
             .iter()
             .filter(|link| link.range.start <= offset && offset <= link.range.end)
             .max_by_key(|link| link.range.start)
+    }
+
+    pub fn resolve_image(&self, from: impl AsRef<Path>, image: &ImageRecord) -> ResolvedTarget {
+        match &image.target_kind {
+            ImageTarget::External => ResolvedTarget::External,
+            ImageTarget::File { path } => {
+                let target = resolve_relative(from.as_ref(), &percent_decode_path(path));
+                if target.is_file() {
+                    ResolvedTarget::File { path: target }
+                } else {
+                    ResolvedTarget::UnresolvedFile { path: target }
+                }
+            }
+        }
+    }
+
+    pub fn image_at(&self, path: impl AsRef<Path>, offset: usize) -> Option<&ImageRecord> {
+        self.current_output(path.as_ref())?
+            .images
+            .iter()
+            .filter(|image| contains_inclusive(&image.range, offset))
+            .max_by_key(|image| image.range.start)
     }
 
     pub fn anchor_at(&self, path: impl AsRef<Path>, offset: usize) -> Option<&AnchorRecord> {
@@ -1192,6 +1230,10 @@ impl Workspace {
                     "link.ambiguous-anchor",
                     format!("explicit anchor '#{id}' is ambiguous"),
                 ),
+                ResolvedTarget::UnresolvedFile { path } => (
+                    "link.unresolved-file",
+                    format!("unresolved file reference '{}'", path.display()),
+                ),
                 _ => continue,
             };
             diagnostics.push(Diagnostic {
@@ -1199,6 +1241,19 @@ impl Workspace {
                 severity: DiagnosticSeverity::Warning,
                 message,
                 range: link.target.range.clone(),
+                related: Vec::new(),
+            });
+        }
+        for image in &current.output.images {
+            let ResolvedTarget::UnresolvedFile { path: target } = self.resolve_image(&path, image)
+            else {
+                continue;
+            };
+            diagnostics.push(Diagnostic {
+                code: "image.unresolved-file",
+                severity: DiagnosticSeverity::Warning,
+                message: format!("unresolved image file '{}'", target.display()),
+                range: image.source.range.clone(),
                 related: Vec::new(),
             });
         }
@@ -1659,13 +1714,14 @@ impl Workspace {
                         .filter(|title| !title.is_empty())
                         .unwrap_or_else(|| relative.clone());
                     (fuzzy_match(&relative, query) || fuzzy_match(&title, query)).then(|| {
+                        let encoded = percent_encode_path(&relative);
                         CompletionCandidate {
                             label: title.clone(),
                             detail: relative.clone(),
                             new_text: format!(
                                 "`->[{}]{{to=\"{}\"}}",
                                 escape_inline_text(&title),
-                                escape_quoted_value(&relative)
+                                escape_quoted_value(&encoded)
                             ),
                             replace: replace.clone(),
                         }
@@ -1691,7 +1747,7 @@ impl Workspace {
                         CompletionCandidate {
                             label: relative.clone(),
                             detail: title,
-                            new_text: relative,
+                            new_text: percent_encode_path(&relative),
                             replace: replace.clone(),
                         }
                     })
@@ -1705,7 +1761,7 @@ impl Workspace {
                 let target_path = if path.is_empty() {
                     from.clone()
                 } else {
-                    resolve_relative(&from, path)
+                    resolve_relative(&from, &percent_decode_path(path))
                 };
                 self.documents
                     .get(&target_path)
@@ -1727,6 +1783,59 @@ impl Workspace {
                     .unwrap_or_default()
             }
         };
+        candidates.sort_by(|left, right| left.label.cmp(&right.label));
+        candidates
+    }
+
+    pub fn complete_image_path(
+        &self,
+        from: impl AsRef<Path>,
+        context: &ImageCompletionContext,
+    ) -> Vec<CompletionCandidate> {
+        let from = normalize(from.as_ref());
+        let decoded_query = percent_decode_path(&context.query);
+        if Path::new(&decoded_query).is_absolute() {
+            return Vec::new();
+        }
+        let (directory_prefix, name_query) = decoded_query
+            .rsplit_once('/')
+            .map_or(("", decoded_query.as_str()), |(directory, name)| {
+                (&decoded_query[..directory.len() + 1], name)
+            });
+        let directory = normalize(
+            &from
+                .parent()
+                .unwrap_or_else(|| Path::new(""))
+                .join(directory_prefix),
+        );
+        let Ok(entries) = std::fs::read_dir(directory) else {
+            return Vec::new();
+        };
+        let mut candidates = entries
+            .filter_map(Result::ok)
+            .filter_map(|entry| {
+                let name = entry.file_name().to_str()?.to_string();
+                if !fuzzy_match(&name, name_query) {
+                    return None;
+                }
+                let path = entry.path();
+                let (suffix, detail) = if path.is_dir() {
+                    ("/", "image directory")
+                } else if path.is_file() && is_image_path(&path) {
+                    ("", "image file")
+                } else {
+                    return None;
+                };
+                let decoded = format!("{directory_prefix}{name}{suffix}");
+                let encoded = percent_encode_path(&decoded);
+                Some(CompletionCandidate {
+                    label: encoded.clone(),
+                    detail: detail.to_string(),
+                    new_text: encoded,
+                    replace: context.replace.clone(),
+                })
+            })
+            .collect::<Vec<_>>();
         candidates.sort_by(|left, right| left.label.cmp(&right.label));
         candidates
     }
@@ -2083,6 +2192,17 @@ fn percent_encode_path(path: &str) -> String {
     encoded
 }
 
+fn is_image_path(path: &Path) -> bool {
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| {
+            matches!(
+                extension.to_ascii_lowercase().as_str(),
+                "png" | "jpg" | "jpeg" | "webp" | "gif" | "svg" | "avif"
+            )
+        })
+}
+
 fn hex_byte(high: u8, low: u8) -> Option<u8> {
     Some(hex_digit(high)? * 16 + hex_digit(low)?)
 }
@@ -2429,6 +2549,8 @@ fn resolved_document_path(target: ResolvedTarget) -> Option<PathBuf> {
         | ResolvedTarget::UnresolvedAnchor { path, .. }
         | ResolvedTarget::AmbiguousAnchor { path, .. } => Some(path),
         ResolvedTarget::External
+        | ResolvedTarget::File { .. }
+        | ResolvedTarget::UnresolvedFile { .. }
         | ResolvedTarget::Other
         | ResolvedTarget::UnresolvedPath { .. } => None,
     }
@@ -2679,6 +2801,11 @@ mod tests {
             1,
             "`meta\n  `: title\n\n    Design Guide\n\n`# No id\n`##{#api} API\n",
         );
+        workspace.insert(
+            "notes/Project Plan.plumb",
+            1,
+            "`meta\n `: title\n\n    Project Plan\n\n`#{#roadmap} Roadmap\n",
+        );
         let paths = workspace.complete_link(
             "notes/current.plumb",
             &LinkCompletionContext::Path {
@@ -2699,6 +2826,24 @@ mod tests {
         assert_eq!(labels[0].label, "Design Guide");
         assert_eq!(labels[0].detail, "design.plumb");
         assert_eq!(labels[0].new_text, "`->[Design Guide]{to=\"design.plumb\"}");
+        let encoded = workspace.complete_link(
+            "notes/current.plumb",
+            &LinkCompletionContext::Path {
+                replace: 0..0,
+                query: "project".to_string(),
+            },
+        );
+        assert_eq!(encoded[0].label, "Project Plan.plumb");
+        assert_eq!(encoded[0].new_text, "Project%20Plan.plumb");
+        let encoded_anchor = workspace.complete_link(
+            "notes/current.plumb",
+            &LinkCompletionContext::Anchor {
+                path: "Project%20Plan.plumb".to_string(),
+                replace: 0..0,
+                query: "road".to_string(),
+            },
+        );
+        assert_eq!(encoded_anchor[0].new_text, "roadmap");
         let anchors = workspace.complete_link(
             "notes/current.plumb",
             &LinkCompletionContext::Anchor {
@@ -2709,6 +2854,77 @@ mod tests {
         );
         assert_eq!(anchors.len(), 1);
         assert_eq!(anchors[0].new_text, "api");
+    }
+
+    #[test]
+    fn completes_and_resolves_relative_image_files() {
+        use std::sync::atomic::{AtomicU64, Ordering};
+
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let root = std::env::temp_dir().join(format!(
+            "plumb-image-completion-{}-{}",
+            std::process::id(),
+            COUNTER.fetch_add(1, Ordering::Relaxed)
+        ));
+        let static_dir = root.join("static");
+        std::fs::create_dir_all(static_dir.join("nested")).unwrap();
+        std::fs::write(static_dir.join("image one.PNG"), b"png").unwrap();
+        std::fs::write(static_dir.join("ignored.txt"), b"text").unwrap();
+        let source_path = root.join("current.plumb");
+        let source =
+            "`[static/image%20one.PNG]{.->}\n`img[Result]{src=\"static/image%20one.PNG\"}\n";
+        let mut workspace = Workspace::new();
+        workspace.insert(&source_path, 3, source);
+
+        let candidates = workspace.complete_image_path(
+            &source_path,
+            &ImageCompletionContext {
+                replace: 18..25,
+                query: "static/im".to_string(),
+            },
+        );
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].label, "static/image%20one.PNG");
+        assert_eq!(candidates[0].detail, "image file");
+        assert_eq!(candidates[0].replace, 18..25);
+
+        let directories = workspace.complete_image_path(
+            &source_path,
+            &ImageCompletionContext {
+                replace: 0..0,
+                query: "static/ne".to_string(),
+            },
+        );
+        assert!(directories
+            .iter()
+            .any(|candidate| candidate.new_text == "static/nested/"));
+
+        let link = workspace
+            .link_at(&source_path, source.find("image%20one").unwrap())
+            .unwrap();
+        assert_eq!(
+            workspace.resolve_link(&source_path, link),
+            ResolvedTarget::File {
+                path: static_dir.join("image one.PNG")
+            }
+        );
+        let image = workspace
+            .image_at(&source_path, source.find("Result").unwrap())
+            .unwrap();
+        assert_eq!(
+            workspace.resolve_image(&source_path, image),
+            ResolvedTarget::File {
+                path: static_dir.join("image one.PNG")
+            }
+        );
+        assert!(workspace.diagnostics(&source_path).is_empty());
+
+        std::fs::remove_file(static_dir.join("image one.PNG")).unwrap();
+        assert!(workspace
+            .diagnostics(&source_path)
+            .iter()
+            .any(|diagnostic| diagnostic.code == "image.unresolved-file"));
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

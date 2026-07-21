@@ -21,6 +21,12 @@ pub enum LinkCompletionContext {
     },
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ImageCompletionContext {
+    pub replace: Range<usize>,
+    pub query: String,
+}
+
 pub fn link_completion_context(
     document: &ParsedDocument,
     offset: usize,
@@ -28,6 +34,9 @@ pub fn link_completion_context(
     let source = &document.source;
     if offset > source.len() || !source.is_char_boundary(offset) {
         return None;
+    }
+    if let Some(context) = verbatim_reference_completion_context(document, offset) {
+        return Some(context);
     }
     if verbatim_at(document, offset) {
         return None;
@@ -110,6 +119,129 @@ pub fn link_completion_context(
             query: query.to_string(),
         })
     }
+}
+
+pub fn image_completion_context(
+    document: &ParsedDocument,
+    offset: usize,
+) -> Option<ImageCompletionContext> {
+    let source = &document.source;
+    if offset > source.len() || !source.is_char_boundary(offset) || verbatim_at(document, offset) {
+        return None;
+    }
+    let line_start = source[..offset].rfind('\n').map_or(0, |index| index + 1);
+    let prefix = &source[line_start..offset];
+    let image_start = prefix.rfind("`img[")? + line_start;
+    let escaped_introducers = source[..image_start]
+        .chars()
+        .rev()
+        .take_while(|character| *character == '`')
+        .count();
+    if escaped_introducers % 2 == 1 {
+        return None;
+    }
+    let after_alt = source[image_start..offset].rfind("]{")? + image_start + 2;
+    let attrs = &source[after_alt..offset];
+    let src = attrs.rfind("src=")? + after_alt;
+    if src > after_alt {
+        let previous = source[..src].chars().next_back()?;
+        if !previous.is_whitespace() && previous != '{' {
+            return None;
+        }
+    }
+    let raw_value_start = src + 4;
+    let quoted = source.as_bytes().get(raw_value_start) == Some(&b'"');
+    let value_start = raw_value_start + usize::from(quoted);
+    if offset < value_start {
+        return None;
+    }
+    let query = &source[value_start..offset];
+    if query.contains('"')
+        || query.contains('}')
+        || query.contains('#')
+        || query.contains('?')
+        || query.contains(':')
+        || query.chars().any(char::is_control)
+    {
+        return None;
+    }
+    let value_end = if quoted {
+        closing_quote(source, offset).unwrap_or(offset)
+    } else {
+        source[offset..]
+            .find(|character: char| character.is_whitespace() || character == '}')
+            .map_or(source.len(), |end| offset + end)
+    };
+    Some(ImageCompletionContext {
+        replace: value_start..value_end,
+        query: query.to_string(),
+    })
+}
+
+fn verbatim_reference_completion_context(
+    document: &ParsedDocument,
+    offset: usize,
+) -> Option<LinkCompletionContext> {
+    blocks_find_verbatim_reference(&document.source, &document.syntax.blocks, offset)
+}
+
+fn blocks_find_verbatim_reference(
+    source: &str,
+    blocks: &[Block],
+    offset: usize,
+) -> Option<LinkCompletionContext> {
+    blocks.iter().find_map(|block| match block {
+        Block::Verbatim(_) => None,
+        Block::Parsed(block) => inlines_find_verbatim_reference(source, &block.head, offset)
+            .or_else(|| blocks_find_verbatim_reference(source, &block.children, offset)),
+    })
+}
+
+fn inlines_find_verbatim_reference(
+    source: &str,
+    content: &InlineContent,
+    offset: usize,
+) -> Option<LinkCompletionContext> {
+    content.items.iter().find_map(|inline| match inline {
+        Inline::Verbatim {
+            text_range, attrs, ..
+        } if text_range.start <= offset
+            && offset <= text_range.end
+            && attrs.items.iter().any(
+                |item| matches!(item, plumb_core::AttrItem::Class { value, .. } if value == "->"),
+            ) =>
+        {
+            component_completion_context(source, text_range, offset)
+        }
+        Inline::Element { content, .. } => inlines_find_verbatim_reference(source, content, offset),
+        Inline::Verbatim { .. } | Inline::Text { .. } | Inline::SoftBreak { .. } => None,
+    })
+}
+
+fn component_completion_context(
+    source: &str,
+    range: &Range<usize>,
+    offset: usize,
+) -> Option<LinkCompletionContext> {
+    let prefix = &source[range.start..offset];
+    if prefix.chars().any(|character| character.is_control()) {
+        return None;
+    }
+    if let Some((path, fragment)) = prefix.split_once('#') {
+        let fragment_start = range.start + path.len() + 1;
+        return Some(LinkCompletionContext::Anchor {
+            path: path.to_string(),
+            replace: fragment_start..range.end,
+            query: fragment.to_string(),
+        });
+    }
+    let path_end = source[offset..range.end]
+        .find('#')
+        .map_or(range.end, |separator| offset + separator);
+    Some(LinkCompletionContext::Path {
+        replace: range.start..path_end,
+        query: prefix.to_string(),
+    })
 }
 
 fn verbatim_at(document: &ParsedDocument, offset: usize) -> bool {
@@ -270,8 +402,64 @@ mod tests {
         assert_eq!(completion_context(&block, cursor), None);
     }
 
+    #[test]
+    fn completes_paths_and_anchors_inside_verbatim_references() {
+        let (path, cursor) = strip_cursor("See `[do|c.plumb]{.->}");
+        let value_start = path.find("doc.plumb").unwrap();
+        assert_eq!(
+            completion_context(&path, cursor),
+            Some(LinkCompletionContext::Path {
+                replace: value_start..value_start + "doc.plumb".len(),
+                query: "do".to_string(),
+            })
+        );
+
+        let (anchor, cursor) = strip_cursor("See `\"[doc.plumb#ta|rget]\"{.->}");
+        let fragment_start = anchor.find("target").unwrap();
+        assert_eq!(
+            completion_context(&anchor, cursor),
+            Some(LinkCompletionContext::Anchor {
+                path: "doc.plumb".to_string(),
+                replace: fragment_start..fragment_start + "target".len(),
+                query: "ta".to_string(),
+            })
+        );
+
+        let (ordinary, cursor) = strip_cursor("See `[doc.pl|umb]");
+        assert_eq!(completion_context(&ordinary, cursor), None);
+    }
+
+    #[test]
+    fn completes_image_source_values_in_valid_and_recovered_documents() {
+        let (valid, cursor) = strip_cursor("`img[Alt]{src=\"static/im|age.png\"}");
+        let value_start = valid.find("static/image.png").unwrap();
+        assert_eq!(
+            image_completion(&valid, cursor),
+            Some(ImageCompletionContext {
+                replace: value_start..value_start + "static/image.png".len(),
+                query: "static/im".to_string(),
+            })
+        );
+
+        let (recovered, cursor) = strip_cursor("`img[Alt]{src=\"static/im|");
+        assert_eq!(
+            image_completion(&recovered, cursor),
+            Some(ImageCompletionContext {
+                replace: recovered.find("static/im").unwrap()..cursor,
+                query: "static/im".to_string(),
+            })
+        );
+
+        let (external, cursor) = strip_cursor("`img[Alt]{src=\"https:|//example.test/a.png\"}");
+        assert_eq!(image_completion(&external, cursor), None);
+    }
+
     fn completion_context(source: &str, offset: usize) -> Option<LinkCompletionContext> {
         link_completion_context(&parse(source), offset)
+    }
+
+    fn image_completion(source: &str, offset: usize) -> Option<ImageCompletionContext> {
+        image_completion_context(&parse(source), offset)
     }
 
     fn strip_cursor(source: &str) -> (String, usize) {
