@@ -1706,17 +1706,15 @@ fn workspace_index_does_not_follow_directory_symlinks() {
     std::fs::create_dir_all(&root).unwrap();
     std::fs::create_dir_all(&snapshot).unwrap();
     let source = root.join("current.plumb");
+    let target = root.join("target.plumb");
+    let target_source =
+        "`meta\n `: title\n\n    Target\n\n`#{#anchor} Target\n`-{.task #work} Target work\n";
     std::fs::write(&source, "`->[").unwrap();
-    std::fs::write(
-        root.join("target.plumb"),
-        "`meta\n `: title\n\n    Target\n",
-    )
-    .unwrap();
-    std::fs::write(
-        snapshot.join("target.plumb"),
-        "`meta\n `: title\n\n    Target\n",
-    )
-    .unwrap();
+    std::fs::write(&target, target_source).unwrap();
+    std::fs::write(snapshot.join("target.plumb"), target_source).unwrap();
+    let reference_source = "`->[Target]{to=\"target.plumb#anchor\"}\n";
+    std::fs::write(root.join("reference.plumb"), reference_source).unwrap();
+    std::fs::write(snapshot.join("reference.plumb"), reference_source).unwrap();
     std::fs::write(
         root.join("linked-source.txt"),
         "`meta\n `: title\n\n    Linked file\n",
@@ -1728,6 +1726,7 @@ fn workspace_index_does_not_follow_directory_symlinks() {
 
     let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
     let source_uri = lsp_types::Url::from_file_path(&source).unwrap();
+    let target_uri = lsp_types::Url::from_file_path(&target).unwrap();
     let messages = [
         json!({
             "jsonrpc": "2.0", "id": 1, "method": "initialize",
@@ -1751,11 +1750,26 @@ fn workspace_index_does_not_follow_directory_symlinks() {
                 "position": { "line": 0, "character": 4 }
             }
         }),
-        json!({ "jsonrpc": "2.0", "id": 3, "method": "shutdown", "params": null }),
+        json!({
+            "jsonrpc": "2.0", "id": 3, "method": "plumb/search",
+            "params": { "query": "Target", "limit": 20 }
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 4, "method": "textDocument/references",
+            "params": {
+                "textDocument": { "uri": target_uri },
+                "position": { "line": 5, "character": 5 },
+                "context": { "includeDeclaration": false }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 5, "method": "shutdown", "params": null }),
         json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
     ];
 
-    let output = run_server(&messages);
+    let output = run_server_with_pause(
+        &messages[..messages.len() - 2],
+        &messages[messages.len() - 2..],
+    );
     let items = response(&output, 2)["result"].as_array().unwrap();
     assert_eq!(
         items
@@ -1774,6 +1788,27 @@ fn workspace_index_does_not_follow_directory_symlinks() {
     assert!(items.iter().all(|item| !item["detail"]
         .as_str()
         .is_some_and(|detail| detail.contains("snapshot"))));
+    let records = response(&output, 3)["result"]["items"].as_array().unwrap();
+    assert_eq!(
+        records
+            .iter()
+            .filter(|item| item["kind"] == "note" && item["title"] == "Target")
+            .count(),
+        1
+    );
+    assert_eq!(
+        records
+            .iter()
+            .filter(|item| item["kind"] == "task" && item["title"] == "Target work")
+            .count(),
+        1
+    );
+    let references = response(&output, 4)["result"].as_array().unwrap();
+    assert_eq!(references.len(), 1);
+    assert!(references[0]["uri"]
+        .as_str()
+        .unwrap()
+        .ends_with("/reference.plumb"));
 
     std::fs::remove_dir_all(root).unwrap();
     std::fs::remove_dir_all(snapshot).unwrap();
@@ -1847,7 +1882,10 @@ fn searches_workspace_symbols_and_structured_records_over_stdio() {
         json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
     ];
 
-    let output = run_server(&messages);
+    let output = run_server_with_pause(
+        &messages[..messages.len() - 2],
+        &messages[messages.len() - 2..],
+    );
     let capabilities = &response(&output, 1)["result"]["capabilities"];
     assert_eq!(capabilities["workspaceSymbolProvider"], true);
     assert_eq!(
@@ -1889,6 +1927,51 @@ fn searches_workspace_symbols_and_structured_records_over_stdio() {
         .contains("must return bool"));
 
     std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn cancels_structured_search_before_result_publication() {
+    let messages = [
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": { "processId": null, "rootUri": null, "capabilities": {} }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({
+            "jsonrpc": "2.0", "id": 2, "method": "plumb/search",
+            "params": { "query": "", "limit": 100 }
+        }),
+        json!({
+            "jsonrpc": "2.0", "method": "$/cancelRequest", "params": { "id": 2 }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 3, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+
+    let output = run_server(&messages);
+    assert_eq!(response(&output, 2)["error"]["code"], -32800);
+}
+
+#[test]
+fn structured_search_rejects_requests_before_initial_index() {
+    let first = [
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": { "processId": null, "rootUri": null, "capabilities": {} }
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 2, "method": "plumb/search",
+            "params": { "query": "", "limit": 100 }
+        }),
+    ];
+    let second = [
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({ "jsonrpc": "2.0", "id": 3, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+
+    let output = run_server_with_pause(&first, &second);
+    assert_eq!(response(&output, 2)["error"]["code"], -32002);
 }
 
 #[test]

@@ -17,8 +17,8 @@ pub async fn run_lsp() {
     let (server, _) = async_lsp::MainLoop::new_server(|client| {
         let mut router = Router::from_language_server(ServerState::new(client.clone()));
         router.request::<search::PlumbSearchRequest, _>(|state, params| {
-            let result = state.search(params);
-            async move { result.map_err(Into::into) }
+            let future = state.search(params);
+            async move { future.await.map_err(Into::into) }
         });
         ServiceBuilder::new()
             .layer(TracingLayer::default())

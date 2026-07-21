@@ -50,6 +50,7 @@ pub(crate) struct ServerState {
     supports_document_changes: bool,
     supports_resource_rename: bool,
     supports_dynamic_watching: bool,
+    index_complete: bool,
     pending_path_renames: Vec<PendingPathRename>,
 }
 
@@ -70,6 +71,7 @@ impl ServerState {
             supports_document_changes: false,
             supports_resource_rename: false,
             supports_dynamic_watching: false,
+            index_complete: false,
             pending_path_renames: Vec::new(),
         }
     }
@@ -305,64 +307,80 @@ impl ServerState {
         true
     }
 
-    pub(crate) fn search(&self, params: SearchParams) -> Result<SearchResult, ResponseError> {
-        let kind = params.kind.map(|kind| match kind {
-            SearchKind::Note => SearchRecordKind::Note,
-            SearchKind::Task => SearchRecordKind::Task,
-        });
-        let limit = params.limit.unwrap_or(100).min(200) as usize;
-        let root = self
-            .roots
-            .first()
-            .map_or_else(|| Path::new(""), PathBuf::as_path);
-        let results = self
-            .workspace
-            .search_records_filtered(
-                root,
-                kind,
-                &params.query,
-                limit,
-                Local::now().fixed_offset(),
-                params.filter.as_deref(),
-            )
-            .map_err(|message| ResponseError::new(ErrorCode::INVALID_PARAMS, message))?;
-        let items = results
-            .items
-            .into_iter()
-            .filter_map(|record| self.search_item(record))
-            .collect();
-        Ok(SearchResult {
-            schema_version: 1,
-            items,
-            complete: results.complete,
+    pub(crate) fn search(
+        &self,
+        params: SearchParams,
+    ) -> BoxFuture<'static, Result<SearchResult, ResponseError>> {
+        let workspace = self.workspace.clone();
+        let roots = self.roots.clone();
+        let index_complete = self.index_complete;
+        Box::pin(async move {
+            tokio::task::yield_now().await;
+            search_workspace(&workspace, &roots, index_complete, params)
         })
     }
+}
 
-    fn search_item(&self, record: SearchRecord) -> Option<SearchItem> {
-        let entry = self.workspace.get(&record.path)?;
-        let location = Location::new(
-            Url::from_file_path(&record.path).ok()?,
-            byte_range_to_lsp(&entry.parsed.source, &record.range),
-        );
-        Some(SearchItem {
-            kind: match record.kind {
-                SearchRecordKind::Note => SearchKind::Note,
-                SearchRecordKind::Task => SearchKind::Task,
-            },
-            title: record.title,
-            path: record.relative_path,
-            location,
-            provenance: SearchProvenance {
-                source: "current".to_string(),
-                revision: record.revision,
-            },
-            id: record.id,
-            state: record.task_state.map(task_state_name).map(str::to_string),
-            due: record.due,
-            blocked: record.blocked,
-            actionable: record.actionable,
-        })
-    }
+fn search_workspace(
+    workspace: &Workspace,
+    roots: &[PathBuf],
+    index_complete: bool,
+    params: SearchParams,
+) -> Result<SearchResult, ResponseError> {
+    let kind = params.kind.map(|kind| match kind {
+        SearchKind::Note => SearchRecordKind::Note,
+        SearchKind::Task => SearchRecordKind::Task,
+    });
+    let limit = params.limit.unwrap_or(100).min(200) as usize;
+    let root = roots
+        .first()
+        .map_or_else(|| Path::new(""), PathBuf::as_path);
+    let results = workspace
+        .search_records_filtered(
+            root,
+            kind,
+            &params.query,
+            limit,
+            Local::now().fixed_offset(),
+            params.filter.as_deref(),
+        )
+        .map_err(|message| ResponseError::new(ErrorCode::INVALID_PARAMS, message))?;
+    let items = results
+        .items
+        .into_iter()
+        .filter_map(|record| search_item(workspace, record))
+        .collect();
+    Ok(SearchResult {
+        schema_version: 1,
+        items,
+        complete: index_complete && results.complete,
+    })
+}
+
+fn search_item(workspace: &Workspace, record: SearchRecord) -> Option<SearchItem> {
+    let entry = workspace.get(&record.path)?;
+    let location = Location::new(
+        Url::from_file_path(&record.path).ok()?,
+        byte_range_to_lsp(&entry.parsed.source, &record.range),
+    );
+    Some(SearchItem {
+        kind: match record.kind {
+            SearchRecordKind::Note => SearchKind::Note,
+            SearchRecordKind::Task => SearchKind::Task,
+        },
+        title: record.title,
+        path: record.relative_path,
+        location,
+        provenance: SearchProvenance {
+            source: "current".to_string(),
+            revision: record.revision,
+        },
+        id: record.id,
+        state: record.task_state.map(task_state_name).map(str::to_string),
+        due: record.due,
+        blocked: record.blocked,
+        actionable: record.actionable,
+    })
 }
 
 impl LanguageServer for ServerState {
@@ -462,6 +480,7 @@ impl LanguageServer for ServerState {
 
     fn initialized(&mut self, _params: InitializedParams) -> Self::NotifyResult {
         self.index_roots();
+        self.index_complete = true;
         self.register_workspace_file_watchers();
         self.publish_all_open_diagnostics();
         ControlFlow::Continue(())
@@ -623,47 +642,47 @@ impl LanguageServer for ServerState {
         params: WorkspaceSymbolParams,
     ) -> BoxFuture<'static, Result<Option<WorkspaceSymbolResponse>, Self::Error>> {
         let (kind, query) = workspace_symbol_query(&params.query);
-        let result = match self.search(SearchParams {
+        let search = self.search(SearchParams {
             kind,
             query,
             filter: None,
             limit: Some(100),
-        }) {
-            Ok(result) => result,
-            Err(error) => return Box::pin(async move { Err(error) }),
-        };
-        let symbols = result
-            .items
-            .into_iter()
-            .map(|item| {
-                let detail = match item.kind {
-                    SearchKind::Note => item.path,
-                    SearchKind::Task => {
-                        let mut parts = vec![item.path];
-                        if let Some(state) = item.state {
-                            parts.push(state);
+        });
+        Box::pin(async move {
+            let result = search.await?;
+            let symbols = result
+                .items
+                .into_iter()
+                .map(|item| {
+                    let detail = match item.kind {
+                        SearchKind::Note => item.path,
+                        SearchKind::Task => {
+                            let mut parts = vec![item.path];
+                            if let Some(state) = item.state {
+                                parts.push(state);
+                            }
+                            if let Some(due) = item.due {
+                                parts.push(format!("due {due}"));
+                            }
+                            parts.join(" · ")
                         }
-                        if let Some(due) = item.due {
-                            parts.push(format!("due {due}"));
-                        }
-                        parts.join(" · ")
+                    };
+                    #[allow(deprecated)]
+                    SymbolInformation {
+                        name: item.title,
+                        kind: match item.kind {
+                            SearchKind::Note => SymbolKind::FILE,
+                            SearchKind::Task => SymbolKind::EVENT,
+                        },
+                        tags: None,
+                        deprecated: None,
+                        location: item.location,
+                        container_name: Some(detail),
                     }
-                };
-                #[allow(deprecated)]
-                SymbolInformation {
-                    name: item.title,
-                    kind: match item.kind {
-                        SearchKind::Note => SymbolKind::FILE,
-                        SearchKind::Task => SymbolKind::EVENT,
-                    },
-                    tags: None,
-                    deprecated: None,
-                    location: item.location,
-                    container_name: Some(detail),
-                }
-            })
-            .collect();
-        Box::pin(async move { Ok(Some(WorkspaceSymbolResponse::Flat(symbols))) })
+                })
+                .collect();
+            Ok(Some(WorkspaceSymbolResponse::Flat(symbols)))
+        })
     }
 
     fn formatting(

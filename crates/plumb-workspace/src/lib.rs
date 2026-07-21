@@ -200,7 +200,7 @@ enum TaskTargetResolution {
     NotTask { path: PathBuf, id: String },
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct Workspace {
     documents: HashMap<PathBuf, DocumentEntry>,
 }
