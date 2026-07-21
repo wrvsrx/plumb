@@ -87,6 +87,13 @@
 
 `# Standard extensions
 
+`-{.task #insert-metadata-into-empty-document} 支持向空文档插入 metadata
+
+   `note 空文档是 valid document；Insert document metadata code action 必须在 offset 0 可用。
+   `note Workspace operation 生成 revision-guarded edit，并使用 filename 作为默认 title、本地 RFC 3339 时间作为 created。
+   `note 统一 authoring edit finalization 必须支持原 source 不含 block、逻辑编辑首次创建 block 的情形。
+   `note 结果必须符合 formatter canonical layout；增加 workspace operation 与 LSP code action 的 empty-document regression tests。
+
 `-{.task #add-explicit-id done="2026-07-21T16:17:35+08:00"} 添加 explicit id code action
 
    `note Cursor 命中的最深 marked/verbatim block 尚无 id 时提供 Add explicit id；paragraph 与 inline owner 不提供。
