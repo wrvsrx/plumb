@@ -1467,7 +1467,11 @@ impl Workspace {
         finalize_authoring_edit(
             entry,
             path,
-            0..0,
+            0..if entry.parsed.syntax.blocks.is_empty() {
+                entry.parsed.source.len()
+            } else {
+                0
+            },
             vec![TextEdit {
                 range: 0..0,
                 new_text,
@@ -1717,6 +1721,18 @@ fn finalize_authoring_edit(
     let mut modified = source.clone();
     for edit in logical_edits.iter().rev() {
         modified.replace_range(edit.range.clone(), &edit.new_text);
+    }
+    if entry.parsed.syntax.blocks.is_empty() {
+        let new_text = plumb_format::format(&modified)
+            .map_err(|_| AuthoringEditError::GeneratedInvalid)?;
+        return Ok(single_document_edit(
+            entry,
+            path,
+            TextEdit {
+                range: affected_block,
+                new_text,
+            },
+        ));
     }
     let formatted = plumb_format::format_block_range(&modified, affected_block.start..modified_end)
         .map_err(|_| AuthoringEditError::GeneratedInvalid)?;
@@ -2888,6 +2904,32 @@ mod tests {
         assert_eq!(
             document.edits[0].new_text,
             "`meta\n `: title\n\n    my``note\n\n `: created\n\n    2026-07-19T12:34:56+08:00\n\n"
+        );
+    }
+
+    #[test]
+    fn inserts_formatted_metadata_into_an_empty_document() {
+        let mut workspace = Workspace::new();
+        workspace.insert("notes/empty.plumb", 11, "");
+
+        let edit = workspace
+            .insert_metadata(
+                "notes/empty.plumb",
+                "empty",
+                "2026-07-22T12:34:56+08:00",
+            )
+            .unwrap();
+
+        let document = &edit.document_changes[0];
+        assert_eq!(document.expected_revision, 11);
+        assert_eq!(document.edits[0].range, 0..0);
+        assert_eq!(
+            document.edits[0].new_text,
+            "`meta\n `: title\n\n    empty\n\n `: created\n\n    2026-07-22T12:34:56+08:00\n"
+        );
+        assert_eq!(
+            plumb_format::format(&document.edits[0].new_text).unwrap(),
+            document.edits[0].new_text
         );
     }
 
