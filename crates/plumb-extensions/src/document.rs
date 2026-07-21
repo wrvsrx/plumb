@@ -56,6 +56,9 @@ pub enum LinkTarget {
         path: String,
     },
     External,
+    File {
+        path: String,
+    },
     Other,
 }
 
@@ -69,6 +72,20 @@ pub struct LinkRecord {
     pub fragment_range: Option<Range<usize>>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ImageTarget {
+    External,
+    File { path: String },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ImageRecord {
+    pub range: Range<usize>,
+    pub selection_range: Range<usize>,
+    pub source: SourceBacked<String>,
+    pub target_kind: ImageTarget,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct DocumentOutput {
     pub headings: HeadingOutput,
@@ -79,12 +96,17 @@ pub struct DocumentOutput {
     pub tasks: TaskOutput,
     pub anchors: Vec<AnchorRecord>,
     pub links: Vec<LinkRecord>,
+    pub images: Vec<ImageRecord>,
     pub diagnostics: Vec<Diagnostic>,
 }
 
 impl DocumentOutput {
     pub fn link_at_node_start(&self, start: usize) -> Option<&LinkRecord> {
         self.links.iter().find(|link| link.range.start == start)
+    }
+
+    pub fn image_at_node_start(&self, start: usize) -> Option<&ImageRecord> {
+        self.images.iter().find(|image| image.range.start == start)
     }
 }
 
@@ -185,6 +207,8 @@ fn collect_inlines(
                 );
                 if kind == "->" {
                     collect_link(source, range.clone(), content.range.clone(), attrs, output);
+                } else if kind == "img" {
+                    collect_image(source, range.clone(), content.range.clone(), attrs, output);
                 }
                 collect_inlines(source, content, first_ids, output);
             }
@@ -261,31 +285,36 @@ fn collect_verbatim_autolink(
         });
         return;
     }
-    if !valid_absolute_uri(text) {
+    if !valid_uri_reference(text) {
         output.diagnostics.push(Diagnostic {
             code: "link.invalid-autolink-target",
             severity: DiagnosticSeverity::Warning,
-            message: "verbatim autolink payload must be a nonempty absolute URI".to_string(),
+            message: "verbatim reference payload must be a nonempty URI reference".to_string(),
             range: text_range,
             related: Vec::new(),
         });
         return;
     }
+    let (target_kind, path_decoded, fragment_decoded) = classify_target(text);
+    let path_range = path_decoded
+        .map(|decoded| text_range.start + decoded.start..text_range.start + decoded.end);
+    let fragment_range = fragment_decoded
+        .map(|decoded| text_range.start + decoded.start..text_range.start + decoded.end);
     output.links.push(LinkRecord {
         range,
         selection_range: text_range.clone(),
         target: direct_source_backed(source, text.to_string(), text_range),
-        target_kind: LinkTarget::External,
-        path_range: None,
-        fragment_range: None,
+        target_kind,
+        path_range,
+        fragment_range,
     });
 }
 
-fn valid_absolute_uri(target: &str) -> bool {
+fn valid_uri_reference(target: &str) -> bool {
     if target.is_empty()
-        || target
-            .chars()
-            .any(|character| character.is_whitespace() || character.is_control())
+        || target.chars().any(|character| {
+            character.is_whitespace() || character.is_control() || character == '\\'
+        })
     {
         return false;
     }
@@ -304,7 +333,76 @@ fn valid_absolute_uri(target: &str) -> bool {
             cursor += 1;
         }
     }
-    Url::parse(target).is_ok()
+    let base = Url::parse("https://plumb.invalid/").expect("static base URL is valid");
+    Url::parse(target).is_ok() || base.join(target).is_ok()
+}
+
+fn collect_image(
+    source: &str,
+    range: Range<usize>,
+    selection_range: Range<usize>,
+    attrs: &Attributes,
+    output: &mut DocumentOutput,
+) {
+    let Some(value) = attrs.items.iter().find_map(|item| match item {
+        AttrItem::Pair { key, value, .. } if key == "src" => Some(value),
+        _ => None,
+    }) else {
+        output.diagnostics.push(Diagnostic {
+            code: "image.missing-source",
+            severity: DiagnosticSeverity::Warning,
+            message: "image requires a nonempty 'src' URI reference".to_string(),
+            range,
+            related: Vec::new(),
+        });
+        return;
+    };
+    let source_value = attr_source_backed(source, value);
+    if source_value.value.is_empty() {
+        output.diagnostics.push(Diagnostic {
+            code: "image.missing-source",
+            severity: DiagnosticSeverity::Warning,
+            message: "image requires a nonempty 'src' URI reference".to_string(),
+            range: source_value.range,
+            related: Vec::new(),
+        });
+        return;
+    }
+    if !valid_uri_reference(&source_value.value) {
+        output.diagnostics.push(Diagnostic {
+            code: "image.invalid-source",
+            severity: DiagnosticSeverity::Warning,
+            message: "image 'src' must be a valid URI reference".to_string(),
+            range: source_value.range,
+            related: Vec::new(),
+        });
+        return;
+    }
+    let target_kind =
+        if Url::parse(&source_value.value).is_ok() || source_value.value.starts_with("//") {
+            ImageTarget::External
+        } else {
+            let path = uri_reference_path(&source_value.value);
+            if path.is_empty() {
+                output.diagnostics.push(Diagnostic {
+                    code: "image.invalid-source",
+                    severity: DiagnosticSeverity::Warning,
+                    message: "relative image 'src' must contain a file path".to_string(),
+                    range: source_value.range,
+                    related: Vec::new(),
+                });
+                return;
+            }
+            ImageTarget::File {
+                path: path.to_string(),
+            }
+        };
+    output.images.push(ImageRecord {
+        range,
+        selection_range,
+        source: source_value,
+        target_kind,
+    });
 }
 
 fn collect_anchor(
@@ -378,7 +476,7 @@ fn collect_link(
 }
 
 fn classify_target(target: &str) -> (LinkTarget, Option<Range<usize>>, Option<Range<usize>>) {
-    if target.contains("://") || target.starts_with("mailto:") {
+    if Url::parse(target).is_ok() || target.starts_with("//") {
         return (LinkTarget::External, None, None);
     }
     let (path, fragment) = match target.split_once('#') {
@@ -392,10 +490,32 @@ fn classify_target(target: &str) -> (LinkTarget, Option<Range<usize>>, Option<Ra
                 None,
             );
         }
-        None => return (LinkTarget::Other, None, None),
+        None => {
+            let path = uri_reference_path(target);
+            if path.is_empty() {
+                return (LinkTarget::Other, None, None);
+            }
+            return (
+                LinkTarget::File {
+                    path: path.to_string(),
+                },
+                Some(0..path.len()),
+                None,
+            );
+        }
     };
-    if fragment.is_empty() || (!path.is_empty() && !is_plumb_path(path)) {
+    if fragment.is_empty() {
         return (LinkTarget::Other, None, None);
+    }
+    if !path.is_empty() && !is_plumb_path(path) {
+        let file_path = uri_reference_path(path);
+        return (
+            LinkTarget::File {
+                path: file_path.to_string(),
+            },
+            Some(0..file_path.len()),
+            None,
+        );
     }
     let path_value = (!path.is_empty()).then(|| path.to_string());
     let path_range = (!path.is_empty()).then_some(0..path.len());
@@ -408,6 +528,11 @@ fn classify_target(target: &str) -> (LinkTarget, Option<Range<usize>>, Option<Ra
         path_range,
         Some(fragment_start..target.len()),
     )
+}
+
+fn uri_reference_path(target: &str) -> &str {
+    let end = target.find(['?', '#']).unwrap_or(target.len());
+    &target[..end]
 }
 
 fn is_plumb_path(value: &str) -> bool {
@@ -525,8 +650,79 @@ mod tests {
     }
 
     #[test]
+    fn recognizes_relative_verbatim_document_anchor_and_file_references() {
+        let source = "`[other.plumb]{.->}\n`[other.plumb#section]{.->}\n`[../assets/a%20b.pdf]{.->}\n`[#local]{.->}\n";
+        let parsed = parse(source);
+        assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
+
+        let output = analyze_document(&parsed.source, &parsed.syntax);
+        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+        assert_eq!(output.links.len(), 4);
+        assert_eq!(
+            output.links[0].target_kind,
+            LinkTarget::Document {
+                path: "other.plumb".to_string()
+            }
+        );
+        assert_eq!(
+            output.links[1].target_kind,
+            LinkTarget::Anchor {
+                path: Some("other.plumb".to_string()),
+                fragment: "section".to_string()
+            }
+        );
+        assert_eq!(
+            output.links[2].target_kind,
+            LinkTarget::File {
+                path: "../assets/a%20b.pdf".to_string()
+            }
+        );
+        assert_eq!(
+            &parsed.source[output.links[1].fragment_range.clone().unwrap()],
+            "section"
+        );
+        assert_eq!(
+            output.links[3].target_kind,
+            LinkTarget::Anchor {
+                path: None,
+                fragment: "local".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn recognizes_standard_images_and_diagnoses_invalid_sources() {
+        let source = "`img[Alt `em[text]]{src=\"static/a%20b.png\" #figure .wide loading=lazy}\n`img[]{src=\"https://example.test/a.png\"}\n`img[Missing]\n`img[Empty]{src=\"\"}\n`img[Invalid]{src=\"bad path.png\"}\n";
+        let parsed = parse(source);
+        assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
+
+        let output = analyze_document(&parsed.source, &parsed.syntax);
+        assert_eq!(output.images.len(), 2);
+        assert_eq!(output.images[0].source.value, "static/a%20b.png");
+        assert_eq!(
+            output.images[0].target_kind,
+            ImageTarget::File {
+                path: "static/a%20b.png".to_string()
+            }
+        );
+        assert_eq!(output.images[1].target_kind, ImageTarget::External);
+        assert_eq!(
+            output
+                .diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.code)
+                .collect::<Vec<_>>(),
+            [
+                "image.missing-source",
+                "image.missing-source",
+                "image.invalid-source"
+            ]
+        );
+    }
+
+    #[test]
     fn diagnoses_invalid_autolink_targets_owners_and_conflicts() {
-        let source = "`[]{.->}\n`[relative.plumb]{.->}\n`[https://example.test/%zz]{.->}\n`[https://example.test]{.-> to=other}\n`[https://example.test]{.-> .$}\n`span[text]{.->}\n`note{.->} head\n`{.->}\n  raw\n";
+        let source = "`[]{.->}\n`[bad path.plumb]{.->}\n`[https://example.test/%zz]{.->}\n`[https://example.test]{.-> to=other}\n`[https://example.test]{.-> .$}\n`span[text]{.->}\n`note{.->} head\n`{.->}\n  raw\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
