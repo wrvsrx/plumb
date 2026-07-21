@@ -2,6 +2,7 @@ use std::ffi::OsString;
 use std::fmt::Write;
 use std::fs;
 use std::io::{self, Read};
+use std::ops::Range;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -12,6 +13,13 @@ use unicode_width::UnicodeWidthStr;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FormatError {
     InvalidSyntax,
+    InvalidBlockRange,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FormatEdit {
+    pub range: Range<usize>,
+    pub new_text: String,
 }
 
 const MAX_BLOCK_WIDTH: usize = 100;
@@ -91,6 +99,83 @@ pub fn format(source: &str) -> Result<String, FormatError> {
         formatter.output.push('\n');
     }
     Ok(formatter.output)
+}
+
+/// Formats complete sibling blocks covered by `range`. The following sibling
+/// is used as read-only spacing context and is not itself reformatted.
+pub fn format_block_range(source: &str, range: Range<usize>) -> Result<FormatEdit, FormatError> {
+    let parsed = parse(source);
+    if !parsed.is_valid() {
+        return Err(FormatError::InvalidSyntax);
+    }
+    if range.start > range.end || range.end > source.len() {
+        return Err(FormatError::InvalidBlockRange);
+    }
+
+    let (blocks, first, last) = sibling_block_range(source, &parsed.syntax.blocks, &range)
+        .ok_or(FormatError::InvalidBlockRange)?;
+    let selected = &blocks[first..=last];
+    let following = blocks.get(last + 1);
+    let block_start = selected.first().unwrap().range().start;
+    let line_start = source[..block_start]
+        .rfind('\n')
+        .map_or(0, |offset| offset + 1);
+    let edit_range = line_start
+        ..following.map_or_else(
+            || selected.last().unwrap().range().end,
+            |block| block.range().start,
+        );
+    let indent = source[line_start..block_start].chars().count();
+
+    let mut formatter = Formatter::default();
+    formatter.blocks(selected, indent);
+    if let Some(following) = following {
+        if compact_siblings(selected.last().unwrap(), following) {
+            formatter.output.push('\n');
+        } else {
+            formatter.output.push_str("\n\n");
+        }
+    } else if terminal_verbatim(selected).is_none() && !formatter.output.is_empty() {
+        formatter.output.push('\n');
+    }
+    let mut new_text = formatter.output;
+    if source.contains("\r\n") {
+        new_text = new_text.replace('\n', "\r\n");
+    }
+    Ok(FormatEdit {
+        range: edit_range,
+        new_text,
+    })
+}
+
+fn sibling_block_range<'a>(
+    source: &str,
+    blocks: &'a [Block],
+    range: &Range<usize>,
+) -> Option<(&'a [Block], usize, usize)> {
+    if let Some(first) = blocks
+        .iter()
+        .position(|block| block.range().start == range.start)
+    {
+        let last = blocks[first..]
+            .iter()
+            .take_while(|block| block.range().end <= range.end)
+            .count()
+            .checked_sub(1)?
+            + first;
+        if source[blocks[last].range().end..range.end]
+            .chars()
+            .all(|character| matches!(character, '\r' | '\n'))
+        {
+            return Some((blocks, first, last));
+        }
+    }
+
+    blocks.iter().find_map(|block| {
+        (block.range().start <= range.start && range.end <= block.range().end)
+            .then(|| sibling_block_range(source, block.children(), range))
+            .flatten()
+    })
 }
 
 fn terminal_verbatim(blocks: &[Block]) -> Option<&plumb_core::VerbatimBlock> {
@@ -476,6 +561,49 @@ mod tests {
         assert_formats(
             "`meta\n  `: title\n\n     this is a title\n  `: created\n\n     2026-07-20\n`- before\n\n`- something\n  `- aaa\n`- ssss\n\n`- jjjj\n",
             "`meta\n `: title\n\n    this is a title\n\n `: created\n\n    2026-07-20\n\n`- before\n`- something\n\n   `- aaa\n\n`- ssss\n`- jjjj\n",
+        );
+    }
+
+    #[test]
+    fn formats_a_complete_block_range_with_following_sibling_context() {
+        let source =
+            "`-{.task #old done=now} Work\n\n`-{.task #next} Work\n`# Following\n\nUnrelated\n";
+        let parsed = parse(source);
+        let first = parsed.syntax.blocks[0].range().clone();
+        let second = parsed.syntax.blocks[1].range().clone();
+        let edit = format_block_range(source, first.start..second.end).unwrap();
+
+        assert_eq!(
+            &source[edit.range.clone()],
+            "`-{.task #old done=now} Work\n\n`-{.task #next} Work\n"
+        );
+        assert_eq!(
+            edit.new_text,
+            "`-{.task #old done=now} Work\n`-{.task #next} Work\n\n"
+        );
+        assert_eq!(&source[edit.range.end..], "`# Following\n\nUnrelated\n");
+    }
+
+    #[test]
+    fn formats_a_nested_block_range_and_preserves_crlf() {
+        let source = "`node Parent\r\n  `-{.task #old done=now} Work\r\n\r\n  `-{.task #next} Work\r\n  `note Following\r\n";
+        let parsed = parse(source);
+        let children = parsed.syntax.blocks[0].children();
+        let edit =
+            format_block_range(source, children[0].range().start..children[1].range().end).unwrap();
+
+        assert_eq!(
+            edit.new_text,
+            "  `-{.task #old done=now} Work\r\n  `-{.task #next} Work\r\n\r\n"
+        );
+    }
+
+    #[test]
+    fn block_range_rejects_partial_blocks() {
+        let source = "`- First\n`- Second\n";
+        assert_eq!(
+            format_block_range(source, 1..source.len()),
+            Err(FormatError::InvalidBlockRange)
         );
     }
 
