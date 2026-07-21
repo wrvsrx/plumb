@@ -85,15 +85,32 @@ block。metadata sequence 只使用 `[-]；它表示数据顺序，不带正文 
 
 本地 anchor 必须显式存在。跨文件 target 使用相对 `[..plumb] path。
 
-absolute URI 可以省略重复 label，改用 inline verbatim `[.->] autolink：
+label 与 target 相同时，可以改用 inline verbatim `[.->] reference：
 
 `{language=plumb}
   `[https://example.test/a%20b]{.->}
   `"[https://[2001:db8::1]/]"{.->}
+  `[guide.plumb#intro]{.->}
+  `[../assets/manual%20draft.pdf]{.->}
 
-payload 同时作为 label 与 target，并保留原始 spelling。它必须是非空 absolute URI；relative path、
-fragment 与自定义 label 继续使用显式 `[->]。`[.->] 不能用于其他 owner，也不能与 `[to] 或
+payload 同时作为 label 与 target，并保留原始 spelling。它必须是非空 URI reference；relative
+path 以当前 document 目录为基准，spaces 和 unsafe bytes 使用 URI percent encoding。
+`[..plumb] path 与 explicit anchor 可以由 LSP 补全。自定义 label 继续使用显式 `[->]。
+`[.->] 不能用于其他 owner，也不能与 `[to] 或
 `[.$] 组合。
+
+`# Image
+
+`[img] content 是 alt text，`[src] 是 absolute URI 或相对当前 document 的 file reference：
+
+`{language=plumb}
+  Text with `img[status icon]{src="static/status.png"} inline.
+
+  `img[]{src="https://example.test/decorative.svg"}
+
+empty alt 用于 decorative image。image 单独占一个 paragraph 时不需要另一种 block syntax；
+figure 与 caption 尚未进入标准 profile。LSP 在 src 中补全常见本地图片文件，并为
+存在的文件提供 hover 和 go-to-definition。
 
 `# Citation
 

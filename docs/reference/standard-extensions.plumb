@@ -100,22 +100,49 @@ canonical formatted edit。
 `[..plumb] path；含 spaces 或 unsafe bytes 的 task/reference path 使用 URI percent encoding。
 external URL 只分类，不进行网络 I/O。
 
-absolute URI 可以使用 inline verbatim `[.->] facet 作为 autolink；payload 同时是 label 与 target：
+URI reference 可以使用 inline verbatim `[.->] facet；payload 同时是 label 与 target：
 
 `{language=plumb}
   `[https://example.test/a%20b]{.->}
   `"[https://[2001:db8::1]/]"{.->}
+  `[guide.plumb#intro]{.->}
+  `[../assets/manual%20draft.pdf]{.->}
 
-`[.->] 只允许出现在 inline verbatim，不能与 `[to] 或 `[.$] 组合。payload 必须是非空 absolute
-URI，不能包含 whitespace/control 或 invalid percent escape；relative path 与 fragment 仍使用
-显式 `[->]。URI 保留原始 UTF-8 spelling，不做 percent decode 或 normalization。IPv6 等包含
+`[.->] 只允许出现在 inline verbatim，不能与 `[to] 或 `[.$] 组合。payload 必须是非空 URI
+reference，不能包含 whitespace/control、backslash 或 invalid percent escape。relative path 以
+source document 所在目录为基准；`[..plumb] 和 `[..plumb#id] 进入 document/anchor
+resolution，其他 relative targets 是 file resources。URI 保留原始 UTF-8 spelling，仅在
+filesystem resolution 时 percent decode，不改写 source。IPv6 等包含
 closing bracket 的 URI 使用现有 quote strength。其他 id、classes 与 pairs 作为 Pandoc Link
 attributes 保留，`[.->] 本身被 semantic lowering 消费。
+
+LSP 在 `[.->] payload 中复用 document title/path 与 explicit-anchor completion，插入
+URI-percent-encoded relative path。存在的普通 file target 可 hover 和 go-to-definition；缺失
+file 发布 `[link.unresolved-file] warning。
 
 workspace 使用 open buffer 覆盖 disk snapshot。document target 已确定但 fragment missing 时，
 仍保留 document-level reverse edge。
 
-`# 8. Citations
+`# 8. Images
+
+parsed inline kind `[img] 是标准 image；content 是 alt content，`[src] pair 是非空 URI
+reference：
+
+`{language=plumb}
+  Inline `img[status icon]{src="static/status.png"} image.
+  `img[]{src="https://example.test/decorative.svg"}
+
+empty alt 合法。缺失或空 src 产生 `[image.missing-source]；非法 URI reference 产生
+`[image.invalid-source]。relative src 使用与 file reference 相同的 source-directory、percent-encoding
+和 resolution rules；缺失本地文件产生 `[image.unresolved-file] warning。
+
+export lower 为 Pandoc `[Image]，消费 `[src] 并保留 alt inlines 与其他 id/classes/pairs。
+image-only paragraph 仍是只含 Image 的 paragraph；不存在独立 block-image spelling。Figure、
+caption、numbering 和 cross-reference deferred。LSP src completion 列出相对 directories 和
+PNG/JPEG/WebP/GIF/SVG/AVIF files，插入 URI-encoded path；本地 image 支持 hover 和
+go-to-definition。
+
+`# 9. Citations
 
 标准 citation 是 kind `[cite] 的 parsed inline element，content 必须是一个非空 plain id，且不能
 包含 nested markup：
@@ -126,7 +153,7 @@ workspace 使用 open buffer 覆盖 disk snapshot。document target 已确定但
 export 产生一个 `[NormalCitation] mode 的 Pandoc `[Cite]。cluster、locator、prefix、suffix、
 suppress-author 和 author-in-text deferred；Pandoc Markdown `[`@key] spelling 不受支持。
 
-`# 9. Transparent containers
+`# 10. Transparent containers
 
 marker `[div] 与 parsed inline kind `[span] 是标准 transparent containers：
 
@@ -141,7 +168,7 @@ marker `[div] 与 parsed inline kind `[span] 是标准 transparent containers：
 二者不增加 presentation、section、warning 或其他隐式 semantics。export 直接产生 Pandoc `[Div] /
 `[Span]，不添加冗余 `[data-plumb-marker]；其他 generic spellings 仍保留 marker/kind pair。
 
-`# 10. Math
+`# 11. Math
 
 verbatim inline 或 block 上的 `[.$] class 是标准 math facet：
 
@@ -158,7 +185,7 @@ TeX；可选 `[language=tex]。其他 language 产生 `[math.unsupported-languag
 record。export 消费 `[.$] 与 `[language=tex]；其余 id/classes/pairs 分别通过 `[Span] 或 `[Div]
 wrapper 保留。普通 dollar characters 和 dollar-delimited math 没有特殊 syntax。
 
-`# 11. Tasks
+`# 12. Tasks
 
 只有 `[-] 或 `[.] list item 上的 `[.task] class 产生 task facet：
 

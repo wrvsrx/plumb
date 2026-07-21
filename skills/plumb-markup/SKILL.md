@@ -1,6 +1,6 @@
 ---
 name: plumb-markup
-description: Write, edit, review, or convert strict plumb (.plumb) documents using the released core syntax and standard extensions. Use for plumb blocks, inline elements, attributes, raw content, headings, lists, definitions, metadata, links, citations, tasks, references, or documents consumed by the plumb toolchain.
+description: Write, edit, review, or convert strict plumb (.plumb) documents using the released core syntax and standard extensions. Use for plumb blocks, inline elements, attributes, raw content, headings, lists, definitions, metadata, links, images, citations, tasks, references, or documents consumed by the plumb toolchain.
 ---
 
 # Plumb Markup
@@ -14,7 +14,7 @@ text.
 1. Read `references/core-syntax.md` completely before creating or changing
    plumb source.
 2. Read `references/standard-extensions.md` completely when the document uses
-   headings, lists, definitions, metadata, links, citations, tasks, anchors, or
+   headings, lists, definitions, metadata, links, images, citations, tasks, anchors, or
    export semantics.
 3. Preserve nearby source style, indentation, attributes, explicit ids, and
    reference spelling unless the requested change requires modifying them.
@@ -61,7 +61,9 @@ Inline `span[container]{.notice} and `[x^2]{.$} math.
 
   Definition body.
 
-See `->[guide]{to="guide.plumb#intro"}, `[https://example.test]{.->}, and `cite[smith2004].
+See `->[guide]{to="guide.plumb#intro"}, `[guide.plumb#intro]{.->}, and `cite[smith2004].
+
+Use `img[status icon]{src="static/status.png"} for an image.
 
 Use `[cargo test] for inline raw text.
 
@@ -70,8 +72,10 @@ Use `[cargo test] for inline raw text.
 ```
 
 Use `-` for bullet-list items, `.` for ordered-list items, and `->` as the sole
-link inline kind. Use `.->` for an absolute-URI verbatim autolink whose payload
-is both label and target. `item` and `link` remain syntactically valid generic names but
+link inline kind. Use `.->` for a verbatim URI reference whose payload is both
+label and target; relative `.plumb` targets resolve as documents and other
+relative targets resolve as files. Use `img[alt]{src="target"}` for images.
+`item` and `link` remain syntactically valid generic names but
 have no list or link semantics. Only `-` and `.` items may carry the standard
 `.task` facet. `div` and `span` are transparent containers; `.$` on verbatim
 inline/block nodes is TeX math.

@@ -99,18 +99,41 @@ Use `->` as the only link inline kind and put the target in `to`:
 must be explicit. Use relative `.plumb` paths. When a task reference path
 contains spaces or unsafe bytes, URI-percent-encode the path segment.
 
-For an absolute URI, inline verbatim with `.->` is the standard autolink; its
-payload is both label and target and its original UTF-8 spelling is preserved:
+When label and target are identical, inline verbatim with `.->` is the standard
+reference; its payload is both label and target and its original UTF-8 spelling
+is preserved:
 
 ```plumb
 `[https://example.test/a%20b]{.->}
 `"[https://[2001:db8::1]/]"{.->}
+`[guide.plumb#intro]{.->}
+`[../assets/manual%20draft.pdf]{.->}
 ```
 
-The payload must be a nonempty absolute URI without whitespace, control
-characters, or invalid percent escapes. Use explicit `->` links for relative
-paths, fragments, or custom labels. `.->` is valid only on inline verbatim and
-cannot be combined with `to` or `.$`; other attributes are preserved.
+The payload must be a nonempty URI reference without whitespace, control
+characters, backslashes, or invalid percent escapes. Relative paths resolve
+from the source document directory. Relative `.plumb` paths and fragments use
+document/explicit-anchor resolution; other relative targets are files. Encode
+spaces and unsafe path bytes with URI percent encoding. Use explicit `->` links
+for custom labels. `.->` is valid only on inline verbatim and cannot be combined
+with `to` or `.$`; other attributes are preserved.
+
+## Images
+
+Use the `img` parsed inline kind. Its content is alt content and `src` is a
+required nonempty URI reference:
+
+```plumb
+Text with `img[status icon]{src="static/status.png"} inline.
+
+`img[]{src="https://example.test/decorative.svg"}
+```
+
+Empty alt is valid for a decorative image. Relative sources resolve from the
+source document directory and use the same percent-encoding rules as file
+references. There is no separate block-image spelling: an image-only paragraph
+is still a paragraph containing one image. Figure, caption, numbering, and
+cross-reference semantics are deferred.
 
 ## Citations
 
@@ -172,7 +195,7 @@ non-verbatim owner is invalid.
 
 `plumb export` emits Pandoc JSON directly. Standard lowering includes headings,
 bullet lists, definition lists, metadata, `->` links, `.->` verbatim
-autolinks, single-id citations, and task attributes. Generic marked blocks become Divs, generic parsed inline
+references, `img` images, single-id citations, and task attributes. Generic marked blocks become Divs, generic parsed inline
 elements become Spans, verbatim blocks become CodeBlocks, and inline verbatim
 becomes Code.
 

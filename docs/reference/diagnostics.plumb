@@ -56,7 +56,8 @@ recovery 的目标是报告后续独立错误并保留 source，不是把 malfor
 `- metadata：duplicate/invalid key、invalid location、unsupported 或 mixed value shape，以及
    `[metadata.invalid-created] RFC 3339 timestamp warning。
 `- link/reference：缺失或无效 target、invalid autolink owner/facet、missing document/anchor、
-   ambiguous anchor。
+   ambiguous anchor 或 unresolved file。
+`- image：missing/invalid src 或 unresolved local file。
 `- citation：空 id、nested 或 unsupported citation shape。
 `- task：invalid owner、无效 field、timestamp/recur/reference、互斥 closure state、self dependency、
    cycle、blocked completion。

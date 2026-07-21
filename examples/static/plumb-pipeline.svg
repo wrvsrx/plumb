@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="180" viewBox="0 0 720 180" role="img" aria-labelledby="title desc">
+  <title id="title">plumb processing pipeline</title>
+  <desc id="desc">Source flows through the strict parser and extensions into editor and export tools.</desc>
+  <rect width="720" height="180" fill="#f7f7f5"/>
+  <g fill="#ffffff" stroke="#30343b" stroke-width="2">
+    <rect x="30" y="55" width="130" height="70" rx="4"/>
+    <rect x="215" y="55" width="130" height="70" rx="4"/>
+    <rect x="400" y="55" width="130" height="70" rx="4"/>
+    <rect x="585" y="55" width="105" height="70" rx="4"/>
+  </g>
+  <g fill="#20242a" font-family="sans-serif" font-size="18" text-anchor="middle">
+    <text x="95" y="96">source</text>
+    <text x="280" y="86">strict</text>
+    <text x="280" y="108">parser</text>
+    <text x="465" y="96">extensions</text>
+    <text x="637" y="86">LSP</text>
+    <text x="637" y="108">export</text>
+  </g>
+  <g fill="none" stroke="#167d6d" stroke-width="4">
+    <path d="M160 90h47"/>
+    <path d="M345 90h47"/>
+    <path d="M530 90h47"/>
+  </g>
+  <g fill="#167d6d">
+    <path d="m207 90-12-8v16z"/>
+    <path d="m392 90-12-8v16z"/>
+    <path d="m577 90-12-8v16z"/>
+  </g>
+</svg>

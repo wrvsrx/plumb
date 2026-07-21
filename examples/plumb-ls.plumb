@@ -1,5 +1,5 @@
 `meta
-  `: title
+ `: title
 
     plumb lsp playground
 
@@ -27,6 +27,9 @@ Try go-to-definition, hover, find references, and rename on these links:
 `- Cross-file document: `->[Notes playground]{to="plumb-notes.plumb"}
 `- Repeated reference: `->[Exporter conclusion]{to="plumb-export.plumb#export-target"}
 `- External autolink hover: `[https://example.test/a%20b]{.->}
+`- Relative document reference: `[plumb-export.plumb#export-target]{.->}
+`- Relative file reference: `[static/plumb-pipeline.svg]{.->}
+`- Image file hover and definition: `img[pipeline]{src="static/plumb-pipeline.svg"}
 
 `anchor{#local-anchor} Rename this id to update its references.
 
@@ -38,6 +41,9 @@ Try completion after each relevant introducer in a temporary edit:
 `- Complete a path in ``->[target]{to="plumb-.
 `- Complete a fragment in ``->[target]{to="plumb-export.plumb#.
 `- Complete a same-file fragment in ``->[target]{to="#.
+`- Complete a raw document path inside ``[plumb-]{.->}.
+`- Complete a raw fragment inside ``[plumb-export.plumb#]{.->}.
+`- Complete an image path in ``img[alt]{src="static/}.
 
 `#{#rename} Rename
 
@@ -61,13 +67,14 @@ Place the cursor in this task and request `[Add task created timestamp]：
 Place the cursor in this task and request Complete or Cancel. Hover shows its
 state, id, and timestamps:
 
-`-{.task #action-task created="2026-07-20T09:00:00+08:00" due="2026-07-30T17:00:00+08:00"} Close this task from a code action
+`-{
+   .task #action-task created="2026-07-20T09:00:00+08:00" due="2026-07-30T17:00:00+08:00"
+  } Close this task from a code action
 
 This task is blocked while its dependency remains open, so Complete is omitted
 but Cancel remains available:
 
 `-{.task #open-dependency} Finish this dependency first
-
 `-{.task #blocked-action depends="#open-dependency"} Try actions on a blocked task
 
 Completing this recurring task closes the current instance and appends the next
@@ -88,11 +95,11 @@ The following valid syntax deliberately produces semantic diagnostics:
 `- Missing cross-file anchor: `->[missing heading]{to="plumb-export.plumb#missing-anchor"}
 
 `anchor{#duplicate-anchor} First duplicate target.
-
 `anchor{#duplicate-anchor} Second duplicate target.
 
-`-{.task #conflicted-task done="2026-07-20T09:00:00+08:00" canceled="2026-07-20T10:00:00+08:00"} Conflicting closed state
-
+`-{
+   .task #conflicted-task done="2026-07-20T09:00:00+08:00" canceled="2026-07-20T10:00:00+08:00"
+  } Conflicting closed state
 `-{.task #self-dependent depends="#self-dependent"} Self dependency
 
 `note{.task} Invalid task owner
@@ -101,4 +108,10 @@ The following valid syntax deliberately produces semantic diagnostics:
 
 `span[not verbatim]{.->} Invalid autolink owner
 
-`[relative.plumb]{.->} Invalid relative autolink target
+`[bad path.plumb]{.->} Invalid verbatim reference target
+
+`img[missing source]
+
+`img[invalid source]{src="bad path.png"}
+
+`img[unresolved image]{src="static/missing.png"}
