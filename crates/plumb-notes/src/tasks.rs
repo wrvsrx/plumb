@@ -306,6 +306,7 @@ fn task_edit_error(error: TaskEditError) -> String {
         TaskEditError::CreatedAlreadyExists => {
             "the task already has a created timestamp".to_string()
         }
+        TaskEditError::GeneratedInvalid => "the generated recurring task is invalid".to_string(),
     }
 }
 

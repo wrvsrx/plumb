@@ -869,6 +869,7 @@ fn recurring_task_action_closes_current_and_appends_next_instance() {
         .unwrap()
         .contains("#weekly-review-2026-07-20 done="));
     let next = edits[1]["newText"].as_str().unwrap();
+    assert!(!next.starts_with('\n'));
     assert!(next.contains("#weekly-review-2026-07-27"));
     assert!(next.contains("due=\"2026-07-27T09:00:00+08:00\""));
     assert!(next.contains("prev=\"#weekly-review-2026-07-20\""));

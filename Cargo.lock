@@ -1237,6 +1237,7 @@ version = "0.6.1-dev"
 dependencies = [
  "plumb-core",
  "plumb-extensions",
+ "plumb-format",
 ]
 
 [[package]]

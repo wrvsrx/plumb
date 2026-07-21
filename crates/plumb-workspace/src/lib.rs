@@ -78,6 +78,7 @@ pub enum TaskEditError {
     ListItemNotFound,
     TaskAlreadyExists,
     CreatedAlreadyExists,
+    GeneratedInvalid,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -885,6 +886,7 @@ impl Workspace {
         for (range, replacement) in replacements {
             clone.replace_range(range, &replacement);
         }
+        let clone = plumb_format::format(&clone).map_err(|_| TaskEditError::GeneratedInvalid)?;
 
         let newline = if source.contains("\r\n") {
             "\r\n"
@@ -895,19 +897,12 @@ impl Workspace {
             .rfind('\n')
             .map_or(0, |offset| offset + 1);
         let indent = &source[line_start..task.range.start];
-        let before = &source[..task.range.end];
-        let separator = if before.ends_with(&format!("{newline}{newline}")) {
+        let separator = if source[..task.range.end].ends_with(newline) {
             ""
-        } else if before.ends_with(newline) {
-            newline
         } else {
-            // A parser-valid task may be the final line without a newline.
-            if newline == "\r\n" {
-                "\r\n\r\n"
-            } else {
-                "\n\n"
-            }
+            newline
         };
+        let clone = indent_formatted_fragment(&clone, indent, newline);
         let current_id_edit = task
             .id
             .is_none()
@@ -928,7 +923,7 @@ impl Workspace {
                     },
                     TextEdit {
                         range: task.range.end..task.range.end,
-                        new_text: format!("{separator}{indent}{clone}"),
+                        new_text: format!("{separator}{clone}"),
                     },
                 ],
             }],
@@ -1735,6 +1730,24 @@ fn recurring_task_attributes(
 
 fn attribute_slot(attributes: &[String]) -> String {
     format!("{{{}}}", attributes.join(" "))
+}
+
+fn indent_formatted_fragment(formatted: &str, indent: &str, newline: &str) -> String {
+    let mut output = String::with_capacity(formatted.len() + indent.len());
+    for line in formatted.split_inclusive('\n') {
+        if line != "\n" {
+            output.push_str(indent);
+        }
+        let content = line.strip_suffix('\n').unwrap_or(line);
+        output.push_str(content);
+        if line.ends_with('\n') {
+            output.push_str(newline);
+        }
+    }
+    if !formatted.is_empty() && !formatted.ends_with('\n') {
+        output.push_str(newline);
+    }
+    output
 }
 
 fn escape_attribute_value(value: &str) -> String {
@@ -2551,12 +2564,19 @@ mod tests {
             .unwrap();
         let mut edits = edit.document_changes[0].edits.clone();
         assert_eq!(edits.len(), 2);
+        let appended = edits.iter().max_by_key(|edit| edit.range.start).unwrap();
+        assert!(!appended.new_text.starts_with('\n'));
+        assert_eq!(
+            plumb_format::format(&appended.new_text).unwrap(),
+            appended.new_text
+        );
         edits.sort_by_key(|edit| std::cmp::Reverse(edit.range.start));
         let mut edited = source.to_string();
         for edit in edits {
             edited.replace_range(edit.range, &edit.new_text);
         }
 
+        assert!(!edited.contains("\n\n`-{.task"));
         assert!(edited.contains("#monthly-review-2026-01-31 done=\"2026-01-31T10:00:00+08:00\""));
         assert!(edited.contains("#monthly-review-2026-02-28"));
         assert!(edited.contains("created=\"2026-01-31T10:00:00+08:00\""));
@@ -2570,6 +2590,57 @@ mod tests {
         let output = analyze_document(&parsed.source, &parsed.syntax);
         assert_eq!(output.tasks.tasks.len(), 4);
         assert_eq!(output.tasks.tasks[2].state(), TaskState::Open);
+    }
+
+    #[test]
+    fn recurring_task_clone_preserves_crlf_and_nested_base_indent() {
+        let source = "`node Parent\r\n  `-{.task due=\"2026-07-20T09:00:00+08:00\" recur=P1W} Weekly review\r\n";
+        let mut workspace = Workspace::new();
+        workspace.insert("tasks.plumb", 5, source);
+        let task = &workspace
+            .get("tasks.plumb")
+            .unwrap()
+            .current
+            .as_ref()
+            .unwrap()
+            .output
+            .tasks
+            .tasks[0];
+        let line_start = source[..task.range.start]
+            .rfind('\n')
+            .map_or(0, |offset| offset + 1);
+        assert_eq!(&source[line_start..task.range.start], "  ");
+
+        let edit = workspace
+            .set_task_status(
+                "tasks.plumb",
+                source.find("Weekly review").unwrap(),
+                TaskStatus::Done,
+                "2026-07-20T10:00:00+08:00",
+            )
+            .unwrap();
+        let appended = edit.document_changes[0]
+            .edits
+            .iter()
+            .max_by_key(|edit| edit.range.start)
+            .unwrap();
+        assert!(
+            appended.new_text.starts_with("  `-"),
+            "{:?}",
+            appended.new_text
+        );
+        assert!(!appended.new_text.starts_with("\r\n"));
+        assert!(!appended.new_text.replace("\r\n", "").contains('\n'));
+
+        let mut edits = edit.document_changes[0].edits.clone();
+        edits.sort_by_key(|edit| std::cmp::Reverse(edit.range.start));
+        let mut edited = source.to_string();
+        for edit in edits {
+            edited.replace_range(edit.range, &edit.new_text);
+        }
+        let parsed = parse(&edited);
+        assert!(parsed.is_valid(), "{edited:?}\n{:?}", parsed.diagnostics);
+        assert!(!edited.contains("\r\n\r\n  `-{.task"));
     }
 
     #[test]
