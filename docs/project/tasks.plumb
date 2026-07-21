@@ -166,6 +166,15 @@
    `note 格式化 fragment 后只添加一次 owner base indentation，并保留 LF/CRLF line ending。
    `note 覆盖 top-level、nested task、long attributes、children、CRLF、strict parse 与 LSP edits。
 
+`# Workspace indexing
+
+`-{.task #do-not-follow-directory-symlinks} Workspace scanner 不递归进入目录 symlink
+
+   `note 使用 DirEntry file type 区分真实目录与 symlink，只递归扫描真实目录。
+   `note 默认不跟随指向 workspace 内部或外部的目录 symlink，避免重复索引、循环、越界扫描与 watcher 语义不一致。
+   `note 扩展名为 .plumb 的 file symlink 保持现有行为；如果未来需要跟随目录 symlink，必须作为显式 opt-in 并定义 canonical-path deduplication。
+   `note 增加 workspace root 内含 symlinked repository snapshot 和 symlink cycle 的 tests，验证 completion、references 与 note/task indexes 不产生重复 records。
+
 `# Editor search
 
 `-{.task #search-records} 建立 protocol-neutral note/task search records
