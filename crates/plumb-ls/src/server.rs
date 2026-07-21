@@ -31,8 +31,8 @@ use lsp_types::{
 };
 use plumb_core::Diagnostic;
 use plumb_extensions::{
-    link_completion_context, AnchorKind, AnchorRecord, Heading, MetadataBlock, MetadataEntry,
-    MetadataValue, TaskRecord, TaskState, TaskStatus,
+    image_completion_context, link_completion_context, AnchorKind, AnchorRecord, Heading,
+    MetadataBlock, MetadataEntry, MetadataValue, TaskRecord, TaskState, TaskStatus,
 };
 use plumb_workspace::{
     normalize, RenameError, ResolvedTarget, ResourceOperation, SearchRecord, SearchRecordKind,
@@ -267,6 +267,9 @@ impl ServerState {
         }
         if let Some(target) = self.workspace.resolve_task_reference_at(path, offset) {
             return Some(target);
+        }
+        if let Some(image) = self.workspace.image_at(path, offset) {
+            return Some(self.workspace.resolve_image(path, image));
         }
         let link = self.workspace.link_at(path, offset)?;
         Some(self.workspace.resolve_link(path, link))
@@ -780,6 +783,10 @@ impl LanguageServer for ServerState {
                     ResolvedTarget::Document { path } => {
                         location_for(&self.workspace, &path, &(0..0))
                     }
+                    ResolvedTarget::File { path } => Some(Location::new(
+                        Url::from_file_path(path).ok()?,
+                        lsp_types::Range::default(),
+                    )),
                     _ => None,
                 }
             });
@@ -842,6 +849,20 @@ impl LanguageServer for ServerState {
                     let entry = self.workspace.get(&path)?;
                     position_to_offset(&entry.parsed.source, position.position)
                 };
+                if let Some(image) = self.workspace.image_at(&path, offset).cloned() {
+                    let target = self.workspace.resolve_image(&path, &image);
+                    let entry = self.workspace.get(&path)?;
+                    return Some(Hover {
+                        contents: HoverContents::Markup(MarkupContent {
+                            kind: MarkupKind::Markdown,
+                            value: image_hover(&target, &image),
+                        }),
+                        range: Some(byte_range_to_lsp(
+                            &entry.parsed.source,
+                            &image.selection_range,
+                        )),
+                    });
+                }
                 if let Some(link) = self.workspace.link_at(&path, offset).cloned() {
                     let target = self.workspace.resolve_link(&path, &link);
                     if matches!(target, ResolvedTarget::External | ResolvedTarget::Other) {
@@ -907,23 +928,32 @@ impl LanguageServer for ServerState {
             .and_then(|path| {
                 let entry = self.workspace.get(&path)?;
                 let offset = position_to_offset(&entry.parsed.source, position.position);
-                let context = link_completion_context(&entry.parsed, offset)?;
-                let is_document = matches!(
-                    &context,
-                    plumb_extensions::LinkCompletionContext::Label { .. }
-                        | plumb_extensions::LinkCompletionContext::Path { .. }
-                );
+                let (candidates, kind) =
+                    if let Some(context) = link_completion_context(&entry.parsed, offset) {
+                        let kind = if matches!(
+                            &context,
+                            plumb_extensions::LinkCompletionContext::Label { .. }
+                                | plumb_extensions::LinkCompletionContext::Path { .. }
+                        ) {
+                            CompletionItemKind::FILE
+                        } else {
+                            CompletionItemKind::REFERENCE
+                        };
+                        (self.workspace.complete_link(&path, &context), kind)
+                    } else if let Some(context) = image_completion_context(&entry.parsed, offset) {
+                        (
+                            self.workspace.complete_image_path(&path, &context),
+                            CompletionItemKind::FILE,
+                        )
+                    } else {
+                        return None;
+                    };
                 Some(
-                    self.workspace
-                        .complete_link(&path, &context)
+                    candidates
                         .into_iter()
                         .map(|candidate| CompletionItem {
                             label: candidate.label,
-                            kind: Some(if is_document {
-                                CompletionItemKind::FILE
-                            } else {
-                                CompletionItemKind::REFERENCE
-                            }),
+                            kind: Some(kind),
                             detail: Some(candidate.detail),
                             text_edit: Some(CompletionTextEdit::Edit(LspTextEdit::new(
                                 byte_range_to_lsp(&entry.parsed.source, &candidate.replace),
@@ -1280,6 +1310,14 @@ fn target_hover(workspace: &Workspace, target: &ResolvedTarget) -> String {
             }
         }
         ResolvedTarget::External => "External link".to_string(),
+        ResolvedTarget::File { path } => format!(
+            "**File**\n\n`{}`",
+            escape_markdown_code(&path.display().to_string())
+        ),
+        ResolvedTarget::UnresolvedFile { path } => format!(
+            "**Unresolved file**\n\n`{}`",
+            escape_markdown_code(&path.display().to_string())
+        ),
         ResolvedTarget::Other => "Non-plumb link".to_string(),
         ResolvedTarget::UnresolvedPath { path } => {
             format!("Unresolved plumb document `{}`", path.display())
@@ -1290,6 +1328,24 @@ fn target_hover(workspace: &Workspace, target: &ResolvedTarget) -> String {
         ResolvedTarget::AmbiguousAnchor { path, id } => {
             format!("Ambiguous explicit anchor `#{id}` in `{}`", path.display())
         }
+    }
+}
+
+fn image_hover(target: &ResolvedTarget, image: &plumb_extensions::ImageRecord) -> String {
+    match target {
+        ResolvedTarget::External => format!(
+            "**External image**\n\n`{}`",
+            escape_markdown_code(&image.source.value)
+        ),
+        ResolvedTarget::File { path } => format!(
+            "**Image file**\n\n`{}`",
+            escape_markdown_code(&path.display().to_string())
+        ),
+        ResolvedTarget::UnresolvedFile { path } => format!(
+            "**Unresolved image file**\n\n`{}`",
+            escape_markdown_code(&path.display().to_string())
+        ),
+        _ => "Image".to_string(),
     }
 }
 

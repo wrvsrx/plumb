@@ -1696,6 +1696,149 @@ fn completion_from_a_subdirectory_inserts_a_relative_path() {
     std::fs::remove_dir_all(root).unwrap();
 }
 
+#[test]
+fn completes_and_navigates_relative_verbatim_references_and_images() {
+    let root = unique_temp_dir();
+    let static_dir = root.join("static");
+    std::fs::create_dir_all(&static_dir).unwrap();
+    let current = root.join("current.plumb");
+    let target = root.join("target.plumb");
+    let image = static_dir.join("image one.PNG");
+    let source = "`[tar]{.->}\n`\"[target.plumb#an]\"{.->}\n`img[Query]{src=\"static/im\"}\n`img[Missing]{src=\"static/missing.png\"}\n`[target.plumb]{.->}\n`img[Result]{src=\"static/image%20one.PNG\"}\n";
+    std::fs::write(&current, source).unwrap();
+    std::fs::write(
+        &target,
+        "`meta\n `: title\n\n    Target note\n\n`#{#anchor} Anchor\n",
+    )
+    .unwrap();
+    std::fs::write(&image, b"png").unwrap();
+
+    let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
+    let current_uri = lsp_types::Url::from_file_path(&current).unwrap();
+    let target_uri = lsp_types::Url::from_file_path(&target).unwrap();
+    let image_uri = lsp_types::Url::from_file_path(&image).unwrap();
+    let lines = source.lines().collect::<Vec<_>>();
+    let raw_path_cursor = lines[0].find("tar").unwrap() + "tar".len();
+    let raw_anchor_cursor = lines[1].find("#an").unwrap() + "#an".len();
+    let image_query_cursor = lines[2].find("static/im").unwrap() + "static/im".len();
+    let raw_definition = lines[4].find("target.plumb").unwrap() + 2;
+    let image_definition = lines[5].find("static/image").unwrap() + 2;
+    let messages = [
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {
+                "processId": null, "rootUri": root_uri,
+                "workspaceFolders": [{ "uri": root_uri, "name": "test" }],
+                "capabilities": {}
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": {
+                "uri": current_uri, "languageId": "plumb", "version": 4, "text": source
+            }}
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 2, "method": "textDocument/completion",
+            "params": {
+                "textDocument": { "uri": current_uri },
+                "position": { "line": 0, "character": raw_path_cursor }
+            }
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 3, "method": "textDocument/completion",
+            "params": {
+                "textDocument": { "uri": current_uri },
+                "position": { "line": 1, "character": raw_anchor_cursor }
+            }
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 4, "method": "textDocument/completion",
+            "params": {
+                "textDocument": { "uri": current_uri },
+                "position": { "line": 2, "character": image_query_cursor }
+            }
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 5, "method": "textDocument/hover",
+            "params": {
+                "textDocument": { "uri": current_uri },
+                "position": { "line": 5, "character": image_definition }
+            }
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 6, "method": "textDocument/definition",
+            "params": {
+                "textDocument": { "uri": current_uri },
+                "position": { "line": 5, "character": image_definition }
+            }
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 7, "method": "textDocument/definition",
+            "params": {
+                "textDocument": { "uri": current_uri },
+                "position": { "line": 4, "character": raw_definition }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 8, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+
+    let output = run_server(&messages);
+    let raw_path = response(&output, 2)["result"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["label"] == "target.plumb")
+        .expect("raw document path completion");
+    assert_eq!(raw_path["detail"], "Target note");
+    assert_eq!(raw_path["textEdit"]["newText"], "target.plumb");
+
+    let anchor = response(&output, 3)["result"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["label"] == "#anchor")
+        .expect("raw anchor completion");
+    assert_eq!(anchor["textEdit"]["newText"], "anchor");
+
+    let image_completion = response(&output, 4)["result"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["label"] == "static/image%20one.PNG")
+        .expect("image path completion");
+    assert_eq!(image_completion["kind"], 17);
+    assert_eq!(
+        image_completion["textEdit"]["newText"],
+        "static/image%20one.PNG"
+    );
+
+    assert!(response(&output, 5)["result"]["contents"]["value"]
+        .as_str()
+        .unwrap()
+        .contains("Image file"));
+    assert_eq!(response(&output, 6)["result"]["uri"], image_uri.as_str());
+    assert_eq!(response(&output, 7)["result"]["uri"], target_uri.as_str());
+
+    let diagnostics = output
+        .iter()
+        .filter(|message| {
+            message["method"] == "textDocument/publishDiagnostics"
+                && message["params"]["uri"] == current_uri.as_str()
+        })
+        .last()
+        .expect("current diagnostics");
+    assert!(diagnostics["params"]["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|diagnostic| diagnostic["code"] == "image.unresolved-file"));
+
+    std::fs::remove_dir_all(root).unwrap();
+}
+
 #[cfg(unix)]
 #[test]
 fn workspace_index_does_not_follow_directory_symlinks() {
