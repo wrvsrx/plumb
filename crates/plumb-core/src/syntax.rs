@@ -37,6 +37,7 @@ impl Diagnostic {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParsedDocument {
     pub source: String,
+    pub lossless: LosslessTree,
     pub syntax: Document,
     pub diagnostics: Vec<Diagnostic>,
 }
@@ -47,12 +48,78 @@ impl ParsedDocument {
             .iter()
             .all(|diagnostic| diagnostic.severity != DiagnosticSeverity::Error)
     }
+
+    pub fn recovered_syntax(&self) -> &Document {
+        &self.syntax
+    }
+
+    pub fn valid_syntax(&self) -> Option<&Document> {
+        self.is_valid().then_some(&self.syntax)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SyntaxKind {
+    Text,
+    Whitespace,
+    Indentation,
+    LineEnding,
+    Introducer,
+    Escape,
+    Marker,
+    InlineKind,
+    Delimiter,
+    AttributePunctuation,
+    AttributeName,
+    AttributeValue,
+    AttributeEscape,
+    RawPayload,
+    Error,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SyntaxToken {
+    pub kind: SyntaxKind,
+    pub range: SourceRange,
+}
+
+impl SyntaxToken {
+    pub fn text<'a>(&self, source: &'a str) -> &'a str {
+        &source[self.range.clone()]
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LosslessTree {
+    pub range: SourceRange,
+    pub tokens: Vec<SyntaxToken>,
+}
+
+impl LosslessTree {
+    pub fn reconstruct(&self, source: &str) -> String {
+        let mut output = String::with_capacity(source.len());
+        for token in &self.tokens {
+            output.push_str(token.text(source));
+        }
+        output
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Document {
     pub blocks: Vec<Block>,
     pub range: SourceRange,
+}
+
+impl Drop for Document {
+    fn drop(&mut self) {
+        let mut pending = std::mem::take(&mut self.blocks);
+        while let Some(block) = pending.pop() {
+            if let Block::Parsed(mut block) = block {
+                pending.append(&mut block.children);
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -166,6 +233,17 @@ pub struct InlineContent {
     pub items: Vec<Inline>,
 }
 
+impl Drop for InlineContent {
+    fn drop(&mut self) {
+        let mut pending = std::mem::take(&mut self.items);
+        while let Some(inline) = pending.pop() {
+            if let Inline::Element { mut content, .. } = inline {
+                pending.append(&mut content.items);
+            }
+        }
+    }
+}
+
 impl InlineContent {
     pub fn plain_text(&self) -> String {
         let mut output = String::new();
@@ -175,11 +253,16 @@ impl InlineContent {
 }
 
 fn append_plain_text(items: &[Inline], output: &mut String) {
-    for item in items {
-        match item {
+    let mut stack = vec![(items, 0usize)];
+    while let Some((items, index)) = stack.pop() {
+        if index >= items.len() {
+            continue;
+        }
+        stack.push((items, index + 1));
+        match &items[index] {
             Inline::Text { text, .. } | Inline::Verbatim { text, .. } => output.push_str(text),
             Inline::SoftBreak { .. } => output.push(' '),
-            Inline::Element { content, .. } => append_plain_text(&content.items, output),
+            Inline::Element { content, .. } => stack.push((&content.items, 0)),
         }
     }
 }

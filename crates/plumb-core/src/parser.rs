@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use crate::lossless::build_lossless;
 use crate::syntax::*;
 
 pub fn parse(source: impl Into<String>) -> ParsedDocument {
@@ -11,14 +12,43 @@ pub fn parse(source: impl Into<String>) -> ParsedDocument {
         diagnostics: Vec::new(),
     };
     let (blocks, _) = parser.parse_blocks(0, 0);
+    let syntax = Document {
+        blocks,
+        range: 0..source.len(),
+    };
+    let diagnostics = normalize_diagnostics(parser.diagnostics);
+    let lossless = build_lossless(&source, &syntax, &diagnostics);
     ParsedDocument {
-        syntax: Document {
-            blocks,
-            range: 0..source.len(),
-        },
-        diagnostics: parser.diagnostics,
         source,
+        lossless,
+        syntax,
+        diagnostics,
     }
+}
+
+fn normalize_diagnostics(mut diagnostics: Vec<Diagnostic>) -> Vec<Diagnostic> {
+    let preferred = diagnostics
+        .iter()
+        .map(|diagnostic| (diagnostic.code, diagnostic.range.clone()))
+        .collect::<Vec<_>>();
+    diagnostics.retain(|diagnostic| {
+        !preferred.iter().any(|(code, range)| {
+            (range == &diagnostic.range
+                && matches!(
+                    (*code, diagnostic.code),
+                    (
+                        "syntax.incomplete-introducer",
+                        "syntax.invalid-inline-dispatch"
+                    ) | ("syntax.invalid-marker", "syntax.invalid-block-dispatch")
+                        | ("syntax.short-verbatim-indent", "syntax.partial-indent")
+                ))
+                || (*code == "syntax.unclosed-quoted-value"
+                    && diagnostic.code == "syntax.unclosed-attributes"
+                    && diagnostic.range.start <= range.start
+                    && diagnostic.range.end >= range.end)
+        })
+    });
+    diagnostics
 }
 
 #[derive(Debug, Clone)]
@@ -54,6 +84,37 @@ struct InlineFrame {
     text_start: usize,
     items: Vec<Inline>,
     opening: Option<InlineOpening>,
+}
+
+struct BlockFrame {
+    cursor: usize,
+    indent: usize,
+    same_line: bool,
+    blocks: Vec<Block>,
+    owner: Option<ParsedBlock>,
+}
+
+struct MarkedParse {
+    block: ParsedBlock,
+    next: usize,
+    child: Option<(usize, usize, bool)>,
+}
+
+fn finish_block_frame(frames: &mut Vec<BlockFrame>, next: usize) -> Option<(Vec<Block>, usize)> {
+    let frame = frames.pop().expect("block parser always has a frame");
+    let Some(mut owner) = frame.owner else {
+        return Some((frame.blocks, next));
+    };
+    owner.children = frame.blocks;
+    if let Some(last) = owner.children.last() {
+        owner.range.end = last.range().end;
+    }
+    let parent = frames
+        .last_mut()
+        .expect("an owner frame always has a parent sequence");
+    parent.blocks.push(Block::Parsed(owner));
+    parent.cursor = next;
+    None
 }
 
 struct Lines(Vec<Line>);
@@ -117,52 +178,87 @@ struct Parser<'a> {
 
 impl Parser<'_> {
     fn parse_blocks(&mut self, mut index: usize, indent: usize) -> (Vec<Block>, usize) {
-        let mut blocks = Vec::new();
-        while index < self.lines.0.len() {
-            let current = &self.lines.0[index];
-            if current.blank {
-                index += 1;
+        let mut frames = vec![BlockFrame {
+            cursor: index,
+            indent,
+            same_line: false,
+            blocks: Vec::new(),
+            owner: None,
+        }];
+        loop {
+            index = frames.last().unwrap().cursor;
+            if index >= self.lines.0.len() {
+                if let Some(result) = finish_block_frame(&mut frames, index) {
+                    return result;
+                }
                 continue;
             }
-            if current.has_tab_indent {
+            let current = &self.lines.0[index];
+            if current.blank {
+                frames.last_mut().unwrap().cursor += 1;
+                continue;
+            }
+            let expected_indent = frames.last().unwrap().indent;
+            let same_line = frames.last().unwrap().same_line;
+            if !same_line && current.indent < expected_indent {
+                if let Some(result) = finish_block_frame(&mut frames, index) {
+                    return result;
+                }
+                continue;
+            }
+            if !same_line && current.has_tab_indent {
                 self.diagnostics.push(Diagnostic::error(
                     "syntax.tab-indentation",
                     "tabs are not allowed in structural indentation",
                     current.start..current.start + current.indent + 1,
                 ));
             }
-            if current.indent < indent {
-                break;
-            }
-            if current.indent > indent {
+            if !same_line && current.indent > expected_indent {
                 self.diagnostics.push(Diagnostic::error(
                     "syntax.partial-indent",
-                    format!("expected indentation column {indent}"),
+                    format!("expected indentation column {expected_indent}"),
                     current.start..current.start + current.indent,
                 ));
             }
 
-            let effective_indent = current.indent;
+            let effective_indent = if same_line {
+                frames.last_mut().unwrap().same_line = false;
+                expected_indent
+            } else {
+                current.indent
+            };
             if let Some(kind) = self.block_dispatch(index, effective_indent) {
                 match kind {
                     BlockDispatch::Marked => {
-                        let (block, next) = self.parse_marked(index, effective_indent);
-                        blocks.push(Block::Parsed(block));
-                        index = next;
+                        let parsed = self.parse_marked(index, effective_indent);
+                        if let Some((child_index, child_indent, same_line)) = parsed.child {
+                            frames.push(BlockFrame {
+                                cursor: child_index,
+                                indent: child_indent,
+                                same_line,
+                                blocks: Vec::new(),
+                                owner: Some(parsed.block),
+                            });
+                        } else {
+                            let frame = frames.last_mut().unwrap();
+                            frame.blocks.push(Block::Parsed(parsed.block));
+                            frame.cursor = parsed.next;
+                        }
                     }
                     BlockDispatch::Verbatim => {
                         let (block, next) = self.parse_verbatim(index, effective_indent);
-                        blocks.push(Block::Verbatim(block));
-                        index = next;
+                        let frame = frames.last_mut().unwrap();
+                        frame.blocks.push(Block::Verbatim(block));
+                        frame.cursor = next;
                     }
                 }
             } else {
                 let (block, next) = self.parse_paragraph(index, effective_indent);
-                blocks.push(Block::Parsed(block));
-                index = next;
+                let frame = frames.last_mut().unwrap();
+                frame.blocks.push(Block::Parsed(block));
+                frame.cursor = next;
             }
         }
-        (blocks, index)
     }
 
     fn block_dispatch(&mut self, index: usize, indent: usize) -> Option<BlockDispatch> {
@@ -210,7 +306,7 @@ impl Parser<'_> {
         Some(BlockDispatch::Marked)
     }
 
-    fn parse_marked(&mut self, index: usize, indent: usize) -> (ParsedBlock, usize) {
+    fn parse_marked(&mut self, index: usize, indent: usize) -> MarkedParse {
         let mut line = self.lines.0[index].clone();
         let mut header_index = index;
         let introducer = line.start + indent;
@@ -221,7 +317,7 @@ impl Parser<'_> {
             self.diagnostics.push(Diagnostic::error(
                 "syntax.invalid-marker",
                 "invalid or missing marker token",
-                introducer..(cursor + 1).min(line.content_end),
+                introducer..next_char_end(self.source, cursor).min(line.content_end),
             ));
         }
         let marker = self.source[marker_start..cursor].to_string();
@@ -260,30 +356,10 @@ impl Parser<'_> {
 
         if head_start < line.content_end {
             let child_indent = head_start - line.start;
-            if let Some(dispatch) = self.block_dispatch(header_index, child_indent) {
-                let (first_child, mut next) = match dispatch {
-                    BlockDispatch::Marked => {
-                        let (child, next) = self.parse_marked(header_index, child_indent);
-                        (Block::Parsed(child), next)
-                    }
-                    BlockDispatch::Verbatim => {
-                        let (child, next) = self.parse_verbatim(header_index, child_indent);
-                        (Block::Verbatim(child), next)
-                    }
-                };
-                let mut children = vec![first_child];
-                let (siblings, after_siblings) = self.parse_blocks(next, child_indent);
-                if !siblings.is_empty() {
-                    children.extend(siblings);
-                    next = after_siblings;
-                }
-                let end = children
-                    .last()
-                    .map(|child| child.range().end)
-                    .unwrap_or(line.end);
-                return (
-                    ParsedBlock {
-                        range: introducer..end,
+            if self.block_dispatch(header_index, child_indent).is_some() {
+                return MarkedParse {
+                    block: ParsedBlock {
+                        range: introducer..line.end,
                         mark: Some(Mark {
                             range: introducer..mark_end,
                             marker,
@@ -294,10 +370,11 @@ impl Parser<'_> {
                             range: head_start..head_start,
                             items: Vec::new(),
                         },
-                        children,
+                        children: Vec::new(),
                     },
-                    next,
-                );
+                    next: header_index + 1,
+                    child: Some((header_index, child_indent, true)),
+                };
             }
         }
 
@@ -342,26 +419,15 @@ impl Parser<'_> {
         while child_start < self.lines.0.len() && self.lines.0[child_start].blank {
             child_start += 1;
         }
-        let (children, after_children) =
-            if child_start < self.lines.0.len() && self.lines.0[child_start].indent > indent {
-                self.parse_blocks(child_start, self.lines.0[child_start].indent)
-            } else {
-                (Vec::new(), next)
-            };
-        if !children.is_empty() {
-            next = after_children;
-        }
-        let end = children
-            .last()
-            .map(|child| child.range().end)
-            .or_else(|| {
-                next.checked_sub(1)
-                    .and_then(|i| self.lines.0.get(i).map(|l| l.end))
-            })
+        let child = (child_start < self.lines.0.len() && self.lines.0[child_start].indent > indent)
+            .then(|| (child_start, self.lines.0[child_start].indent, false));
+        let end = next
+            .checked_sub(1)
+            .and_then(|i| self.lines.0.get(i).map(|line| line.end))
             .unwrap_or(line.end);
 
-        (
-            ParsedBlock {
+        MarkedParse {
+            block: ParsedBlock {
                 range: introducer..end,
                 mark: Some(Mark {
                     range: introducer..mark_end,
@@ -370,10 +436,11 @@ impl Parser<'_> {
                     attrs,
                 }),
                 head,
-                children,
+                children: Vec::new(),
             },
             next,
-        )
+            child,
+        }
     }
 
     fn parse_verbatim(&mut self, index: usize, indent: usize) -> (VerbatimBlock, usize) {
@@ -398,6 +465,13 @@ impl Parser<'_> {
         while next < self.lines.0.len() {
             let candidate = &self.lines.0[next];
             if !candidate.blank && candidate.indent < body_indent {
+                if candidate.indent > indent {
+                    self.diagnostics.push(Diagnostic::error(
+                        "syntax.short-verbatim-indent",
+                        format!("verbatim payload requires at least {body_indent} spaces"),
+                        candidate.start..candidate.start + candidate.indent,
+                    ));
+                }
                 break;
             }
             if candidate.blank {
@@ -654,10 +728,15 @@ impl Parser<'_> {
                 continue;
             }
 
+            let diagnostic_end = if position.offset < end {
+                next_char_end(self.source, position.offset)
+            } else {
+                end
+            };
             self.diagnostics.push(Diagnostic::error(
                 "syntax.invalid-inline-dispatch",
                 "inline introducer requires an inline kind followed by '['",
-                introducer..next_char_end(self.source, position.offset.min(end.saturating_sub(1))),
+                introducer..diagnostic_end,
             ));
             frames.last_mut().unwrap().text_start = position.offset;
         }
@@ -881,7 +960,11 @@ impl Parser<'_> {
                                 self.diagnostics.push(Diagnostic::error(
                                     "syntax.unknown-quoted-escape",
                                     "quoted values only allow escaping quote and backslash",
-                                    cursor..(cursor + 2).min(limit),
+                                    cursor..if cursor + 1 < limit {
+                                        next_char_end(self.source, cursor + 1)
+                                    } else {
+                                        limit
+                                    },
                                 ));
                             }
                             let next = next_char_end(self.source, cursor);
@@ -1042,7 +1125,12 @@ fn has_unquoted_closing_brace(source: &str, mut cursor: usize, limit: usize) -> 
     let mut quoted = false;
     while cursor < limit {
         match source.as_bytes()[cursor] {
-            b'\\' if quoted => cursor = (cursor + 2).min(limit),
+            b'\\' if quoted => {
+                cursor += 1;
+                if cursor < limit {
+                    cursor = next_char_end(source, cursor);
+                }
+            }
             b'"' => {
                 quoted = !quoted;
                 cursor += 1;
@@ -1403,6 +1491,36 @@ mod tests {
         };
         assert!(outer.mark.as_ref().unwrap().attrs.has_class("class"));
         assert_eq!(outer.children.len(), 2);
+    }
+
+    #[test]
+    fn block_nesting_uses_an_explicit_stack() {
+        const DEPTH: usize = 20_000;
+        let mut source = "`x ".repeat(DEPTH);
+        source.push_str("leaf\n");
+        let parsed = parse(source);
+        assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
+
+        let mut blocks = parsed.syntax.blocks.as_slice();
+        let mut depth = 0;
+        while let [Block::Parsed(block)] = blocks {
+            depth += 1;
+            blocks = &block.children;
+        }
+        assert_eq!(depth, DEPTH);
+    }
+
+    #[test]
+    fn deeply_nested_malformed_blocks_recover_without_call_stack_recursion() {
+        const DEPTH: usize = 20_000;
+        let mut source = "`x ".repeat(DEPTH);
+        source.push_str("`\n");
+        let parsed = parse(source);
+        assert!(!parsed.is_valid());
+        assert!(parsed
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == "syntax.incomplete-introducer"));
     }
 
     #[test]

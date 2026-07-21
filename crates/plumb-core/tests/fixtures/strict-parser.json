@@ -1,0 +1,295 @@
+[
+  {
+    "name": "marked block and complete attributes",
+    "source": "`node{#id .class key=\"complex value\"} Head\n",
+    "valid": true,
+    "blocks": [{"kind":"marked","marker":"node","attrs":["#id",".class","key=complex value"],"head":"Head","inline":"T\"Head\"","children":[]}],
+    "diagnostics": [],
+    "required_tokens": ["Introducer","Marker","AttributePunctuation","AttributeName","AttributeValue","Delimiter","LineEnding"]
+  },
+  {
+    "name": "empty attribute slot value and valid quoted escapes",
+    "source": "`node{} Empty\n`node{empty=\"\" escaped=\"quote\\\" slash\\\\\"} Escaped\n",
+    "valid": true,
+    "blocks": [
+      {"kind":"marked","marker":"node","attrs":[],"head":"Empty","inline":"T\"Empty\"","children":[]},
+      {"kind":"marked","marker":"node","attrs":["empty=","escaped=quote\" slash\\"],"head":"Escaped","inline":"T\"Escaped\"","children":[]}
+    ],
+    "diagnostics": [],
+    "required_tokens": ["AttributeEscape","AttributeValue","Delimiter"]
+  },
+  {
+    "name": "deferred head and paragraph child",
+    "source": "`node Head\n  continuation\n\n  child paragraph\n",
+    "valid": true,
+    "blocks": [{"kind":"marked","marker":"node","attrs":[],"head":"Head continuation","inline":"T\"Head\"ST\"continuation\"","children":[{"kind":"paragraph","head":"child paragraph","inline":"T\"child paragraph\""}]}],
+    "diagnostics": [],
+    "required_tokens": ["Indentation","LineEnding","Text"]
+  },
+  {
+    "name": "same line first child and siblings",
+    "source": "`- `- a\n   `- b\n",
+    "valid": true,
+    "blocks": [{"kind":"marked","marker":"-","attrs":[],"head":"","inline":"","children":[{"kind":"marked","marker":"-","attrs":[],"head":"a","inline":"T\"a\"","children":[]},{"kind":"marked","marker":"-","attrs":[],"head":"b","inline":"T\"b\"","children":[]}]}],
+    "diagnostics": [],
+    "required_tokens": ["Introducer","Marker","Indentation"]
+  },
+  {
+    "name": "multiline attributes with compact close",
+    "source": "`node{.one\n    #two\n  key=value} Head\n",
+    "valid": true,
+    "blocks": [{"kind":"marked","marker":"node","attrs":[".one","#two","key=value"],"head":"Head","inline":"T\"Head\"","children":[]}],
+    "diagnostics": [],
+    "required_tokens": ["AttributePunctuation","AttributeName","AttributeValue","Indentation"]
+  },
+  {
+    "name": "nested parsed inline and escapes",
+    "source": "before `span[a `em[b] `` `] c]{.x} after\n",
+    "valid": true,
+    "blocks": [{"kind":"paragraph","head":"before a b ` ] c after","inline":"T\"before \"Espan[\".x\"][T\"a \"Eem[][T\"b\"]T\" \"T\"`\"T\" \"T\"]\"T\" c\"]T\" after\""}],
+    "diagnostics": [],
+    "required_tokens": ["InlineKind","Escape","Delimiter"]
+  },
+  {
+    "name": "multiline parsed inline soft break",
+    "source": "before `span[a\nb] after\n",
+    "valid": true,
+    "blocks": [{"kind":"paragraph","head":"before a b after","inline":"T\"before \"Espan[][T\"a\"ST\"b\"]T\" after\""}],
+    "diagnostics": [],
+    "required_tokens": ["InlineKind","LineEnding"]
+  },
+  {
+    "name": "strengthened inline verbatim",
+    "source": "Raw `\"[a ] b]\"{language=text}\n",
+    "valid": true,
+    "blocks": [{"kind":"paragraph","head":"Raw a ] b","inline":"T\"Raw \"V1[\"language=text\"]\"a ] b\""}],
+    "diagnostics": [],
+    "required_tokens": ["RawPayload","AttributeName","AttributeValue"]
+  },
+  {
+    "name": "verbatim block preserves CRLF payload",
+    "source": "`{language=text}\r\n  raw\r\n\r\nnext\r\n",
+    "valid": true,
+    "blocks": [{"kind":"verbatim","attrs":["language=text"],"text":"raw\r\n\r\n"},{"kind":"paragraph","head":"next","inline":"T\"next\""}],
+    "diagnostics": [],
+    "required_tokens": ["RawPayload","LineEnding","Indentation"]
+  },
+  {
+    "name": "EOF closes nested blocks",
+    "source": "`parent\n  `child End",
+    "valid": true,
+    "blocks": [{"kind":"marked","marker":"parent","attrs":[],"head":"","inline":"","children":[{"kind":"marked","marker":"child","attrs":[],"head":"End","inline":"T\"End\"","children":[]}]}],
+    "diagnostics": [],
+    "required_tokens": ["Introducer","Marker","Indentation"]
+  },
+  {
+    "name": "duplicate attribute cardinality and escape ordering",
+    "source": "`node{#one #two key=a key=b escaped=\"bad\\q\"} Head\n",
+    "valid": false,
+    "blocks": [{"kind":"marked","marker":"node","attrs":["#one","#two","key=a","key=b","escaped=bad\\q"],"head":"Head","inline":"T\"Head\"","children":[]}],
+    "diagnostics": [
+      {"code":"syntax.duplicate-id","range":{"text":"#two"},"related":[{"text":"#one"}]},
+      {"code":"syntax.duplicate-key","range":{"text":"key","occurrence":1},"related":[{"text":"key"}]},
+      {"code":"syntax.unknown-quoted-escape","range":{"text":"\\q"}}
+    ],
+    "required_tokens": ["Error"]
+  },
+  {
+    "name": "unclosed attributes recover before sibling block",
+    "source": "`node{.x\n  key=value\n`next Sibling\n",
+    "valid": false,
+    "blocks": [{"kind":"marked","marker":"node","attrs":[".x","key=value"],"head":"","inline":"","children":[]},{"kind":"marked","marker":"next","attrs":[],"head":"Sibling","inline":"T\"Sibling\"","children":[]}],
+    "diagnostics": [{"code":"syntax.unclosed-attributes","range":{"text":"{.x\n  key=value"}}],
+    "required_tokens": ["Error","Introducer","Marker"]
+  },
+  {
+    "name": "unclosed parsed inline recovers at blank",
+    "source": "before `span[open\n\nnext\n",
+    "valid": false,
+    "blocks": [{"kind":"paragraph","head":"before ","inline":"T\"before \""},{"kind":"paragraph","head":"next","inline":"T\"next\""}],
+    "diagnostics": [{"code":"syntax.unclosed-inline","range":{"text":"`span[open"}}],
+    "required_tokens": ["Error","LineEnding","Text"]
+  },
+  {
+    "name": "unclosed inline verbatim stays on physical line",
+    "source": "before `[raw\nnext\n",
+    "valid": false,
+    "blocks": [{"kind":"paragraph","head":"before  next","inline":"T\"before \"ST\"next\""}],
+    "diagnostics": [{"code":"syntax.unclosed-verbatim","range":{"text":"`[raw"}}],
+    "required_tokens": ["Error","LineEnding"]
+  },
+  {
+    "name": "partial dedent recovers as outer block",
+    "source": "`parent\n  `child\n `partial\n",
+    "valid": false,
+    "blocks": [{"kind":"marked","marker":"parent","attrs":[],"head":"","inline":"","children":[{"kind":"marked","marker":"child","attrs":[],"head":"","inline":"","children":[]}]},{"kind":"marked","marker":"partial","attrs":[],"head":"","inline":"","children":[]}],
+    "diagnostics": [{"code":"syntax.partial-indent","range":{"text":" ","occurrence":2}}],
+    "required_tokens": ["Error"]
+  },
+  {
+    "name": "structural tab is diagnosed and recovered",
+    "source": "`parent\n\t`child\nnext\n",
+    "valid": false,
+    "blocks": [{"kind":"marked","marker":"parent","attrs":[],"head":"","inline":"","children":[]},{"kind":"paragraph","head":"\t next","inline":"T\"\\t\"ST\"next\""}],
+    "diagnostics": [{"code":"syntax.tab-indentation","range":{"text":"\t"}},{"code":"syntax.invalid-inline-dispatch","range":{"text":"`child"}}],
+    "required_tokens": ["Error"]
+  },
+  {
+    "name": "invalid marked block dispatch stays an error",
+    "source": "`node}bad\nnext\n",
+    "valid": false,
+    "blocks": [{"kind":"marked","marker":"node","attrs":[],"head":"}bad","inline":"T\"}bad\"","children":[]},{"kind":"paragraph","head":"next","inline":"T\"next\""}],
+    "diagnostics": [{"code":"syntax.invalid-block-dispatch","range":{"text":"`node}"}}],
+    "required_tokens": ["Error"]
+  },
+  {
+    "name": "incomplete introducer has one specific diagnostic",
+    "source": "`",
+    "valid": false,
+    "blocks": [{"kind":"paragraph","head":"","inline":""}],
+    "diagnostics": [{"code":"syntax.incomplete-introducer","range":{"text":"`"}}],
+    "required_tokens": ["Error"]
+  },
+  {
+    "name": "introducer grouping and unknown spellings remain generic",
+    "source": "``literal `custom[value]\n`mystery Head\n",
+    "valid": true,
+    "blocks": [
+      {"kind":"paragraph","head":"`literal value","inline":"T\"`\"T\"literal \"Ecustom[][T\"value\"]"},
+      {"kind":"marked","marker":"mystery","attrs":[],"head":"Head","inline":"T\"Head\"","children":[]}
+    ],
+    "diagnostics": [],
+    "required_tokens": ["Escape","InlineKind","Marker"]
+  },
+  {
+    "name": "invalid marker outranks derived block dispatch",
+    "source": "`}bad\n",
+    "valid": false,
+    "blocks": [{"kind":"marked","marker":"","attrs":[],"head":"}bad","inline":"T\"}bad\"","children":[]}],
+    "diagnostics": [{"code":"syntax.invalid-marker","range":{"text":"`}"}}],
+    "required_tokens": ["Error"]
+  },
+  {
+    "name": "invalid verbatim block head recovers at next line",
+    "source": "`{} forbidden\nnext\n",
+    "valid": false,
+    "blocks": [
+      {"kind":"verbatim","attrs":[],"text":""},
+      {"kind":"paragraph","head":"next","inline":"T\"next\""}
+    ],
+    "diagnostics": [{"code":"syntax.invalid-verbatim-block-dispatch","range":{"text":"`{} forbidden"}}],
+    "required_tokens": ["Error","Text"]
+  },
+  {
+    "name": "malformed attribute item recovers at closing brace",
+    "source": "`node{bad} Head\n",
+    "valid": false,
+    "blocks": [{"kind":"marked","marker":"node","attrs":[],"head":"Head","inline":"T\"Head\"","children":[]}],
+    "diagnostics": [{"code":"syntax.malformed-attribute-item","range":{"text":"bad"}}],
+    "required_tokens": ["Error","Delimiter"]
+  },
+  {
+    "name": "empty attribute shorthand name",
+    "source": "`node{#} Head\n",
+    "valid": false,
+    "blocks": [{"kind":"marked","marker":"node","attrs":[],"head":"Head","inline":"T\"Head\"","children":[]}],
+    "diagnostics": [{"code":"syntax.empty-attribute-name","range":{"text":"#"}}],
+    "required_tokens": ["Error"]
+  },
+  {
+    "name": "empty bare attribute value has a missing-token range",
+    "source": "`node{key=} Head\n",
+    "valid": false,
+    "blocks": [{"kind":"marked","marker":"node","attrs":["key="],"head":"Head","inline":"T\"Head\"","children":[]}],
+    "diagnostics": [{"code":"syntax.empty-attribute-value","range":{"at":10}}],
+    "required_tokens": ["AttributeName","AttributePunctuation"]
+  },
+  {
+    "name": "invalid inline dispatch recovers to following line",
+    "source": "before `oops\nnext\n",
+    "valid": false,
+    "blocks": [{"kind":"paragraph","head":"before  next","inline":"T\"before \"ST\"next\""}],
+    "diagnostics": [{"code":"syntax.invalid-inline-dispatch","range":{"text":"`oops"}}],
+    "required_tokens": ["Error","LineEnding"]
+  },
+  {
+    "name": "short verbatim margin outranks partial indent",
+    "source": "`{}\n x\nnext\n",
+    "valid": false,
+    "blocks": [
+      {"kind":"verbatim","attrs":[],"text":""},
+      {"kind":"paragraph","head":"x","inline":"T\"x\""},
+      {"kind":"paragraph","head":"next","inline":"T\"next\""}
+    ],
+    "diagnostics": [{"code":"syntax.short-verbatim-indent","range":{"text":" "}}],
+    "required_tokens": ["Error","Text"]
+  },
+  {
+    "name": "unclosed quoted value outranks enclosing attributes",
+    "source": "`node{key=\"open\nnext\n",
+    "valid": false,
+    "blocks": [
+      {"kind":"marked","marker":"node","attrs":["key=open"],"head":"","inline":"","children":[]},
+      {"kind":"paragraph","head":"next","inline":"T\"next\""}
+    ],
+    "diagnostics": [{"code":"syntax.unclosed-quoted-value","range":{"text":"\"open"}}],
+    "required_tokens": ["Error","Text"]
+  },
+  {
+    "name": "odd quote run emits a literal tick before an inline node",
+    "source": "```[raw]\n",
+    "valid": true,
+    "blocks": [{"kind":"paragraph","head":"`raw","inline":"T\"`\"V0[]\"raw\""}],
+    "diagnostics": [],
+    "required_tokens": ["Escape","Introducer","RawPayload"]
+  },
+  {
+    "name": "whitespace prevents block attribute ownership",
+    "source": "`node {.x}\n",
+    "valid": true,
+    "blocks": [{"kind":"marked","marker":"node","attrs":[],"head":"{.x}","inline":"T\"{.x}\"","children":[]}],
+    "diagnostics": [],
+    "required_tokens": ["Marker","Text"]
+  },
+  {
+    "name": "malformed attribute item recovers to later item",
+    "source": "`node{bad .ok} Head\n",
+    "valid": false,
+    "blocks": [{"kind":"marked","marker":"node","attrs":[".ok"],"head":"Head","inline":"T\"Head\"","children":[]}],
+    "diagnostics": [{"code":"syntax.malformed-attribute-item","range":{"text":"bad"}}],
+    "required_tokens": ["Error","AttributeName"]
+  },
+  {
+    "name": "unclosed inline stops before block-only child",
+    "source": "`parent `span[open\n  `child Boundary\n",
+    "valid": false,
+    "blocks": [{"kind":"marked","marker":"parent","attrs":[],"head":"","inline":"","children":[{"kind":"marked","marker":"child","attrs":[],"head":"Boundary","inline":"T\"Boundary\"","children":[]}]}],
+    "diagnostics": [{"code":"syntax.unclosed-inline","range":{"text":"`span[open"}}],
+    "required_tokens": ["Error","Marker"]
+  },
+  {
+    "name": "dedent closes multiple block frames",
+    "source": "`a\n  `b\n    `c\n`d\n",
+    "valid": true,
+    "blocks": [
+      {"kind":"marked","marker":"a","attrs":[],"head":"","inline":"","children":[{"kind":"marked","marker":"b","attrs":[],"head":"","inline":"","children":[{"kind":"marked","marker":"c","attrs":[],"head":"","inline":"","children":[]}]}]},
+      {"kind":"marked","marker":"d","attrs":[],"head":"","inline":"","children":[]}
+    ],
+    "diagnostics": [],
+    "required_tokens": ["Indentation","Marker"]
+  },
+  {
+    "name": "recovery continues to a later independent error",
+    "source": "`node}bad\nbefore `oops\n",
+    "valid": false,
+    "blocks": [
+      {"kind":"marked","marker":"node","attrs":[],"head":"}bad","inline":"T\"}bad\"","children":[]},
+      {"kind":"paragraph","head":"before ","inline":"T\"before \""}
+    ],
+    "diagnostics": [
+      {"code":"syntax.invalid-block-dispatch","range":{"text":"`node}"}},
+      {"code":"syntax.invalid-inline-dispatch","range":{"text":"`oops"}}
+    ],
+    "required_tokens": ["Error","Text"]
+  }
+]
