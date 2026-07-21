@@ -294,7 +294,7 @@ impl Workspace {
                 .display()
                 .to_string();
             if kind.is_none_or(|kind| kind == SearchRecordKind::Note) {
-                let (title, range) = note_search_title(current, entry, &relative_path);
+                let (title, range) = note_search_title(current, &relative_path);
                 let filter_match = match (&filter, &reverse) {
                     (Some(filter), Some(reverse)) => {
                         filter.note_matches(&root, entry, &title, reverse)?
@@ -2133,7 +2133,6 @@ fn relative_path(from: &Path, target: &Path) -> Option<String> {
 
 fn note_search_title(
     current: &VersionedDocumentOutput,
-    entry: &DocumentEntry,
     relative_path: &str,
 ) -> (String, std::ops::Range<usize>) {
     let title = current
@@ -2155,7 +2154,7 @@ fn note_search_title(
             .filter(|stem| !stem.is_empty())
             .unwrap_or(relative_path)
             .to_string();
-        (fallback, 0..entry.parsed.source.len().min(1))
+        (fallback, 0..0)
     })
 }
 

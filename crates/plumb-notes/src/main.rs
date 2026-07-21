@@ -174,7 +174,7 @@ fn collect_plumb_files(path: &Path, output: &mut Vec<PathBuf>) -> Result<(), Str
             .map_err(|error| format!("cannot stat {}: {error}", path.display()))?;
         if file_type.is_dir() {
             collect_plumb_files(&path, output)?;
-        } else if file_type.is_file()
+        } else if (file_type.is_file() || file_type.is_symlink())
             && path
                 .extension()
                 .is_some_and(|extension| extension == "plumb")
@@ -378,6 +378,30 @@ mod tests {
             .unwrap_err();
         assert!(error.contains("must return bool"));
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn workspace_scan_keeps_file_symlinks_without_following_directory_symlinks() {
+        use std::os::unix::fs::symlink;
+
+        let root = unique_temp_dir();
+        let snapshot = unique_temp_dir();
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::create_dir_all(&snapshot).unwrap();
+        std::fs::write(snapshot.join("hidden.plumb"), "Hidden\n").unwrap();
+        std::fs::write(root.join("linked.txt"), "Linked\n").unwrap();
+        symlink(&snapshot, root.join("snapshot")).unwrap();
+        symlink(root.join("linked.txt"), root.join("linked.plumb")).unwrap();
+
+        let loaded = load_workspace(&root).unwrap();
+        assert!(loaded.workspace.contains(root.join("linked.plumb")));
+        assert!(!loaded
+            .workspace
+            .contains(root.join("snapshot/hidden.plumb")));
+
+        std::fs::remove_dir_all(root).unwrap();
+        std::fs::remove_dir_all(snapshot).unwrap();
     }
 
     fn unique_temp_dir() -> PathBuf {
