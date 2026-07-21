@@ -535,7 +535,7 @@ fn nests_anchors_and_tasks_under_their_containing_headings() {
 
 #[test]
 fn publishes_metadata_diagnostics_and_nested_symbols_over_stdio() {
-    let source = "`meta\n  `: title\n\n    Document title\n\n  `: author\n    `: name\n\n      Alice\n\n  `: title\n\nInvalid `cite[@old-style].\n";
+    let source = "`meta\n  `: title\n\n    Document title\n\n  `: author\n    `: name\n\n      Alice\n\n  `: title\n\n  `: created\n\n    yesterday\n\nInvalid `cite[@old-style].\n";
     let messages = [
         json!({
             "jsonrpc": "2.0",
@@ -593,6 +593,14 @@ fn publishes_metadata_diagnostics_and_nested_symbols_over_stdio() {
         .unwrap()
         .iter()
         .any(|diagnostic| diagnostic["code"] == "citation.invalid"));
+    let invalid_created = diagnostics["params"]["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|diagnostic| diagnostic["code"] == "metadata.invalid-created")
+        .expect("invalid created diagnostic");
+    assert_eq!(invalid_created["severity"], 2);
+    assert_eq!(invalid_created["range"]["start"], json!({ "line": 14, "character": 4 }));
 }
 
 #[test]
@@ -702,6 +710,57 @@ fn inserts_metadata_code_action_only_for_valid_documents_without_metadata() {
         .iter()
         .all(|action| action["title"] != "Insert document metadata"));
     assert!(response(&output, 4)["result"].is_null());
+}
+
+#[test]
+fn inserts_metadata_into_an_empty_document_over_stdio() {
+    let uri = "file:///tmp/empty-note.plumb";
+    let messages = [
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {
+                "processId": null, "rootUri": null,
+                "capabilities": {
+                    "workspace": { "workspaceEdit": { "documentChanges": true } }
+                }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": {
+                "uri": uri, "languageId": "plumb", "version": 7, "text": ""
+            }}
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 2, "method": "textDocument/codeAction",
+            "params": {
+                "textDocument": { "uri": uri },
+                "range": {
+                    "start": { "line": 0, "character": 0 },
+                    "end": { "line": 0, "character": 0 }
+                },
+                "context": { "diagnostics": [], "only": ["refactor.rewrite"] }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 3, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+
+    let output = run_server(&messages);
+    let metadata = response(&output, 2)["result"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|action| action["title"] == "Insert document metadata")
+        .expect("metadata action");
+    let change = &metadata["edit"]["documentChanges"][0];
+    assert_eq!(change["textDocument"]["version"], 7);
+    assert_eq!(change["edits"][0]["range"]["start"], json!({ "line": 0, "character": 0 }));
+    assert_eq!(change["edits"][0]["range"]["end"], json!({ "line": 0, "character": 0 }));
+    let generated = change["edits"][0]["newText"].as_str().unwrap();
+    assert!(generated.starts_with("`meta\n `: title\n\n    empty-note\n"));
+    assert_eq!(plumb_format::format(generated).unwrap(), generated);
 }
 
 #[test]
@@ -1626,6 +1685,83 @@ fn completion_from_a_subdirectory_inserts_a_relative_path() {
         "`->[Target A]{to=\"../a/target.plumb\"}"
     );
     std::fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn workspace_index_does_not_follow_directory_symlinks() {
+    use std::os::unix::fs::symlink;
+
+    let root = unique_temp_dir();
+    let snapshot = unique_temp_dir();
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::create_dir_all(&snapshot).unwrap();
+    let source = root.join("current.plumb");
+    std::fs::write(&source, "`->[").unwrap();
+    std::fs::write(
+        root.join("target.plumb"),
+        "`meta\n `: title\n\n    Target\n",
+    )
+    .unwrap();
+    std::fs::write(
+        snapshot.join("target.plumb"),
+        "`meta\n `: title\n\n    Target\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("linked-source.txt"),
+        "`meta\n `: title\n\n    Linked file\n",
+    )
+    .unwrap();
+    symlink(&snapshot, root.join("snapshot")).unwrap();
+    symlink(&root, root.join("cycle")).unwrap();
+    symlink(root.join("linked-source.txt"), root.join("linked.plumb")).unwrap();
+
+    let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
+    let source_uri = lsp_types::Url::from_file_path(&source).unwrap();
+    let messages = [
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {
+                "processId": null, "rootUri": root_uri,
+                "workspaceFolders": [{ "uri": root_uri, "name": "test" }],
+                "capabilities": {}
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": {
+                "uri": source_uri, "languageId": "plumb", "version": 1, "text": "`->["
+            }}
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 2, "method": "textDocument/completion",
+            "params": {
+                "textDocument": { "uri": source_uri },
+                "position": { "line": 0, "character": 4 }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 3, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+
+    let output = run_server(&messages);
+    let items = response(&output, 2)["result"].as_array().unwrap();
+    assert_eq!(items.iter().filter(|item| item["label"] == "Target").count(), 1);
+    assert_eq!(
+        items
+            .iter()
+            .filter(|item| item["label"] == "Linked file")
+            .count(),
+        1
+    );
+    assert!(items.iter().all(|item| !item["detail"]
+        .as_str()
+        .is_some_and(|detail| detail.contains("snapshot"))));
+
+    std::fs::remove_dir_all(root).unwrap();
+    std::fs::remove_dir_all(snapshot).unwrap();
 }
 
 #[test]

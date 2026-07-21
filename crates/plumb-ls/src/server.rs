@@ -137,7 +137,10 @@ impl ServerState {
         let mut indexed = 0;
         for entry in entries.flatten() {
             let path = entry.path();
-            if path.is_dir() {
+            let Ok(file_type) = entry.file_type() else {
+                continue;
+            };
+            if file_type.is_dir() {
                 indexed += self.index_directory(&path);
             } else if is_plumb_file(&path)
                 && !self.open_documents.values().any(|open| open == &path)
