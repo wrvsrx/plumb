@@ -908,24 +908,28 @@ impl Workspace {
             .is_none()
             .then(|| format!(" #{current_id}"))
             .unwrap_or_default();
+        let status_text = format!("{current_id_edit} {}=\"{}\"", status.attribute(), timestamp);
+        let insertion_text = format!("{separator}{clone}");
+        let mut modified = source.clone();
+        modified.insert_str(task.range.end, &insertion_text);
+        modified.insert_str(task.attribute_insert, &status_text);
+        let changed_end = task.range.end + status_text.len() + insertion_text.len();
+        let formatted = plumb_format::format_block_range(&modified, task.range.start..changed_end)
+            .map_err(|_| TaskEditError::GeneratedInvalid)?;
+        let inserted_len = status_text.len() + insertion_text.len();
+        let original_end = formatted
+            .range
+            .end
+            .checked_sub(inserted_len)
+            .ok_or(TaskEditError::GeneratedInvalid)?;
         Ok(WorkspaceEdit {
             document_changes: vec![DocumentEdit {
                 path: entry.path.clone(),
                 expected_revision: entry.revision,
-                edits: vec![
-                    TextEdit {
-                        range: task.attribute_insert..task.attribute_insert,
-                        new_text: format!(
-                            "{current_id_edit} {}=\"{}\"",
-                            status.attribute(),
-                            timestamp
-                        ),
-                    },
-                    TextEdit {
-                        range: task.range.end..task.range.end,
-                        new_text: format!("{separator}{clone}"),
-                    },
-                ],
+                edits: vec![TextEdit {
+                    range: formatted.range.start..original_end,
+                    new_text: formatted.new_text,
+                }],
             }],
             resource_operations: Vec::new(),
         })
@@ -2563,13 +2567,7 @@ mod tests {
             )
             .unwrap();
         let mut edits = edit.document_changes[0].edits.clone();
-        assert_eq!(edits.len(), 2);
-        let appended = edits.iter().max_by_key(|edit| edit.range.start).unwrap();
-        assert!(!appended.new_text.starts_with('\n'));
-        assert_eq!(
-            plumb_format::format(&appended.new_text).unwrap(),
-            appended.new_text
-        );
+        assert_eq!(edits.len(), 1);
         edits.sort_by_key(|edit| std::cmp::Reverse(edit.range.start));
         let mut edited = source.to_string();
         for edit in edits {
@@ -2619,18 +2617,11 @@ mod tests {
                 "2026-07-20T10:00:00+08:00",
             )
             .unwrap();
-        let appended = edit.document_changes[0]
-            .edits
-            .iter()
-            .max_by_key(|edit| edit.range.start)
-            .unwrap();
-        assert!(
-            appended.new_text.starts_with("  `-"),
-            "{:?}",
-            appended.new_text
-        );
-        assert!(!appended.new_text.starts_with("\r\n"));
-        assert!(!appended.new_text.replace("\r\n", "").contains('\n'));
+        assert_eq!(edit.document_changes[0].edits.len(), 1);
+        let replacement = &edit.document_changes[0].edits[0].new_text;
+        assert!(replacement.starts_with("  `-"), "{replacement:?}");
+        assert!(!replacement.starts_with("\r\n"));
+        assert!(!replacement.replace("\r\n", "").contains('\n'));
 
         let mut edits = edit.document_changes[0].edits.clone();
         edits.sort_by_key(|edit| std::cmp::Reverse(edit.range.start));
@@ -2641,6 +2632,31 @@ mod tests {
         let parsed = parse(&edited);
         assert!(parsed.is_valid(), "{edited:?}\n{:?}", parsed.diagnostics);
         assert!(!edited.contains("\r\n\r\n  `-{.task"));
+    }
+
+    #[test]
+    fn recurring_task_completion_preserves_canonical_layout() {
+        let source = "`# 饮食相关任务\n\n`-{\n   #控制饮食-2026-07-20 .task created=\"2026-07-20T01:06:48+08:00\" due=\"2026-07-20T23:59:59+08:00\"\n   wait=\"2026-07-20T00:00:00+08:00\" recur=\"P1D\" prev=\"#控制饮食-2026-07-19\"\n  } 控制饮食\n\n`# 锻炼相关任务\n";
+        assert_eq!(plumb_format::format(source).unwrap(), source);
+        let mut workspace = Workspace::new();
+        workspace.insert("减肥.plumb", 6, source);
+
+        let operation = workspace
+            .set_task_status_by_id(
+                "减肥.plumb",
+                "控制饮食-2026-07-20",
+                TaskStatus::Done,
+                "2026-07-21T18:01:12+08:00",
+            )
+            .unwrap();
+        assert_eq!(operation.document_changes[0].edits.len(), 1);
+        let edit = &operation.document_changes[0].edits[0];
+        let mut edited = source.to_string();
+        edited.replace_range(edit.range.clone(), &edit.new_text);
+
+        assert!(edited.contains("done=\"2026-07-21T18:01:12+08:00\"\n  } 控制饮食\n`-{"));
+        assert!(edited.contains("prev=\"#控制饮食-2026-07-20\"\n  } 控制饮食\n\n`# 锻炼相关任务"));
+        assert_eq!(plumb_format::format(&edited).unwrap(), edited);
     }
 
     #[test]
