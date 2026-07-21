@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::ops::Range;
 
+use chrono::DateTime;
 use plumb_core::{
     Block, Diagnostic, DiagnosticSeverity, Document, Inline, InlineContent, ParsedBlock,
 };
@@ -184,6 +185,7 @@ fn collect_metadata_blocks(
                     ));
                 }
                 let entries = parse_entries(&parsed.children, &mut output.diagnostics);
+                lint_standard_entries(&entries, &mut output.diagnostics);
                 output.metadata = Some(MetadataBlock {
                     range: parsed.range.clone(),
                     selection_range: parsed
@@ -197,6 +199,28 @@ fn collect_metadata_blocks(
             }
         }
         collect_metadata_blocks(&parsed.children, depth + 1, first_meta, output);
+    }
+}
+
+fn lint_standard_entries(entries: &[MetadataEntry], diagnostics: &mut Vec<Diagnostic>) {
+    for entry in entries.iter().filter(|entry| entry.key == "created") {
+        let valid = match &entry.value {
+            MetadataValue::Scalar { content, .. } => {
+                DateTime::parse_from_rfc3339(&content.plain_text()).is_ok()
+            }
+            MetadataValue::Null { .. }
+            | MetadataValue::List { .. }
+            | MetadataValue::Map { .. }
+            | MetadataValue::Verbatim { .. }
+            | MetadataValue::Unsupported { .. } => false,
+        };
+        if !valid {
+            diagnostics.push(warning(
+                "metadata.invalid-created",
+                "metadata 'created' must be a complete RFC 3339 timestamp",
+                entry.value.range().clone(),
+            ));
+        }
     }
 }
 
@@ -487,5 +511,34 @@ mod tests {
         assert!(codes.contains(&"metadata.duplicate-key"));
         assert!(codes.contains(&"metadata.expected-definition"));
         assert!(codes.contains(&"metadata.multiple-blocks"));
+    }
+
+    #[test]
+    fn lints_only_the_standard_created_timestamp() {
+        let parsed = parse(
+            "`meta\n  `: created\n\n    2026-07-22T12:34:56+08:00\n\n  `: custom\n\n    not-a-date\n",
+        );
+        let output = analyze_metadata(&parsed.syntax);
+        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+
+        let parsed = parse("`meta\n  `: created\n\n    2026-07-22 12:34:56\n");
+        let output = analyze_metadata(&parsed.syntax);
+        let diagnostic = output
+            .diagnostics
+            .iter()
+            .find(|diagnostic| diagnostic.code == "metadata.invalid-created")
+            .expect("invalid created diagnostic");
+        assert_eq!(diagnostic.severity, DiagnosticSeverity::Warning);
+        assert_eq!(&parsed.source[diagnostic.range.clone()], "2026-07-22 12:34:56\n");
+    }
+
+    #[test]
+    fn rejects_non_scalar_created_values() {
+        let parsed = parse("`meta\n  `: created\n    `- 2026-07-22T12:34:56+08:00\n");
+        let output = analyze_metadata(&parsed.syntax);
+        assert!(output
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == "metadata.invalid-created"));
     }
 }
