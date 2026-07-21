@@ -817,6 +817,36 @@ mod tests {
     }
 
     #[test]
+    fn contained_range_ending_at_the_next_block_excludes_it() {
+        let source = "`-{.task\n    #one\n  } One\n`-{.task #two} Two\n";
+        let parsed = parse(source);
+        let second_start = parsed.syntax.blocks[1].range().start;
+        let edits = format_contained_blocks(source, 0..second_start).unwrap();
+
+        assert_eq!(edits.len(), 1);
+        assert_eq!(edits[0].new_text, "`-{.task #one} One");
+        assert!(!edits[0].new_text.contains("Two"));
+        assert_eq!(&source[edits[0].range.end..], "\n`-{.task #two} Two\n");
+    }
+
+    #[test]
+    fn contained_range_supports_verbatim_blocks_and_paragraphs() {
+        let source = "`{\n  language=text\n  source=test\n }\n  payload\n\nParagraph `\"\"\"[a ]\" b]\"\"\".\n\n`# Following\n";
+        let parsed = parse(source);
+        assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
+        let selection = block_content_range(&parsed.syntax.blocks[0]).start
+            ..block_content_range(&parsed.syntax.blocks[1]).end;
+        let edits = format_contained_blocks(source, selection).unwrap();
+
+        assert_eq!(edits.len(), 1);
+        assert_eq!(
+            edits[0].new_text,
+            "`{language=text source=test}\n  payload\n\nParagraph `\"\"[a ]\" b]\"\"."
+        );
+        assert_eq!(&source[edits[0].range.end..], "\n\n`# Following\n");
+    }
+
+    #[test]
     fn block_range_rejects_partial_blocks() {
         let source = "`- First\n`- Second\n";
         assert_eq!(

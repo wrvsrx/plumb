@@ -155,6 +155,56 @@ fn range_formatting_formats_only_complete_contained_blocks() {
 }
 
 #[test]
+fn range_formatting_returns_multiple_maximal_groups() {
+    let uri = "file:///tmp/range-format-groups.plumb";
+    let source = "`node First\n  `-{.task\n      #one\n    } One\n`node Second\n  `-{.task\n      #two\n    } Two\n";
+    let end_character = source.lines().nth(7).unwrap().encode_utf16().count() as u32;
+    let messages = [
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": { "processId": null, "rootUri": null, "capabilities": {} }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": {
+                "uri": uri, "languageId": "plumb", "version": 1, "text": source
+            }}
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 2, "method": "textDocument/rangeFormatting",
+            "params": {
+                "textDocument": { "uri": uri },
+                "range": {
+                    "start": { "line": 1, "character": 2 },
+                    "end": { "line": 7, "character": end_character }
+                },
+                "options": { "tabSize": 4, "insertSpaces": true }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 3, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+
+    let output = run_server(&messages);
+    let edits = response(&output, 2)["result"].as_array().unwrap();
+    assert_eq!(edits.len(), 2);
+    assert_eq!(
+        edits[0]["range"]["start"],
+        json!({ "line": 1, "character": 2 })
+    );
+    assert_eq!(edits[0]["newText"], "`-{.task #one} One");
+    assert_eq!(
+        edits[1]["range"]["start"],
+        json!({ "line": 4, "character": 0 })
+    );
+    assert!(edits[1]["newText"]
+        .as_str()
+        .unwrap()
+        .starts_with("`node Second\n"));
+}
+
+#[test]
 fn did_save_does_not_crash_the_server() {
     let messages = [
         json!({
