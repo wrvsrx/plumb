@@ -121,7 +121,9 @@
    `note 复用 inline verbatim quote strength 容纳 IPv6 host 等包含 closing bracket 的 URI，formatter 继续选择最小安全 quote count。
    `note Export 产生 label 与 target 相同的 Pandoc Link，并补齐 extension、LSP hover、export、metadata、playground 与 bundled skill tests/docs。
 
-`-{.task #relative-verbatim-references} 支持 `[.->] relative file references 与 `[.plumb] completion
+`-{
+   .task #relative-verbatim-references done="2026-07-22T05:38:10+08:00"
+  } 支持 `[.->] relative file references 与 `[.plumb] completion
 
    `note 将 `[.->] target 从 absolute URI 放宽为 URI reference，不增加 `[.file] 或 `[.path] spelling。
    `note Relative path 以 source document 所在目录为基准；保留原始 UTF-8 spelling，unsafe bytes 使用 percent encoding，仍拒绝 backslash、control 与裸 space。
@@ -130,7 +132,7 @@
    `note Completion 显示 metadata title 与 relative-path detail，只插入 URI-encoded relative path；排除当前 document，输入 `[#] 后继续补全 target document 的 explicit anchors。
    `note 复用现有 link completion context、workspace candidate ordering 和 last-valid cross-document index；补齐 resolution、hover、definition、export、LSP completion、guide、playground 与 bundled skill tests/docs。
 
-`-{.task #standard-image} 支持 `[img] standard image extension
+`-{.task #standard-image done="2026-07-22T05:38:10+08:00"} 支持 `[img] standard image extension
 
    `note `"[img[alt]{src="target"}]" 是唯一 image spelling；parsed inline content 是 alt content，`[src] 是必需且非空的 URI reference。
    `note `[src] 接受 absolute URI 或相对 source document 所在目录的 file path；保留原始 spelling，并复用 relative reference 的 percent-encoding 与 validity rules。
