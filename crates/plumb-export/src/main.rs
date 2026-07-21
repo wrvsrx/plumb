@@ -331,6 +331,11 @@ fn lower_inlines(content: &InlineContent, analysis: &DocumentOutput) -> Vec<Valu
             } => {
                 if let Some(citation) = analysis.citations.citation_at_node_start(range.start) {
                     output.push(lower_citation(citation));
+                } else if let Some(image) = analysis.image_at_node_start(range.start) {
+                    output.push(json!({
+                        "t": "Image",
+                        "c": [lower_image_attrs(attrs), lower_inlines(content, analysis), [&image.source.value, ""]],
+                    }));
                 } else if let Some(link) = analysis.link_at_node_start(range.start) {
                     output.push(json!({
                         "t": "Link",
@@ -389,6 +394,10 @@ fn lower_math_attrs(attrs: &Attributes) -> Value {
 
 fn lower_autolink_attrs(attrs: &Attributes) -> Value {
     lower_attrs_filtered(attrs, None, |class| class == "->", |_| false)
+}
+
+fn lower_image_attrs(attrs: &Attributes) -> Value {
+    lower_attrs_filtered(attrs, None, |_| false, |key| key == "src")
 }
 
 fn lower_attrs_filtered(
@@ -545,6 +554,34 @@ mod tests {
         );
         assert_eq!(body_link["c"][1][0]["c"], "https://example.test/a%20b");
         assert_eq!(body_link["c"][2][0], "https://example.test/a%20b");
+    }
+
+    #[test]
+    fn exports_standard_images_in_body_and_metadata() {
+        let source = "`meta\n `: cover\n\n    `img[Cover]{src=\"static/cover.png\"}\n\nBefore `img[Rich `em[alt]]{src=\"static/a%20b.webp\" #image .wide loading=lazy} after.\n\n`img[]{src=\"https://example.test/decorative.svg\"}\n";
+        let document = export(source).unwrap();
+
+        let metadata_image = &document["meta"]["cover"]["c"][0];
+        assert_eq!(metadata_image["t"], "Image");
+        assert_eq!(metadata_image["c"][2][0], "static/cover.png");
+
+        let body_image = &document["blocks"][0]["c"][2];
+        assert_eq!(body_image["t"], "Image");
+        assert_eq!(
+            body_image["c"][0],
+            json!(["image", ["wide"], [["loading", "lazy"]]])
+        );
+        assert_eq!(body_image["c"][1][0]["c"], "Rich");
+        assert_eq!(body_image["c"][1][2]["t"], "Span");
+        assert_eq!(body_image["c"][2][0], "static/a%20b.webp");
+
+        let image_only_paragraph = &document["blocks"][1];
+        assert_eq!(image_only_paragraph["t"], "Para");
+        assert_eq!(image_only_paragraph["c"][0]["t"], "Image");
+        assert!(image_only_paragraph["c"][0]["c"][1]
+            .as_array()
+            .unwrap()
+            .is_empty());
     }
 
     #[test]
