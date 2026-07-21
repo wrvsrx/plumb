@@ -94,6 +94,13 @@
    `note 统一 authoring edit finalization 必须支持原 source 不含 block、逻辑编辑首次创建 block 的情形。
    `note 结果必须符合 formatter canonical layout；增加 workspace operation 与 LSP code action 的 empty-document regression tests。
 
+`-{.task #lint-metadata-created} Lint metadata created timestamp
+
+   `note Metadata extension 将标准 created 字段解析为完整 RFC 3339 timestamp，不接受模糊日期或无 timezone 的值。
+   `note 非法值发布 metadata.invalid-created warning，range 指向 created value，不影响 strict syntax validity 或其他 metadata facts。
+   `note 依赖时间的查询、排序与导出必须忽略非法 created value，不猜测、不自动规范化。
+   `note 未知 metadata keys 继续允许且不发布 warning；增加 extension diagnostics、workspace 传递与 LSP range tests。
+
 `-{.task #add-explicit-id done="2026-07-21T16:17:35+08:00"} 添加 explicit id code action
 
    `note Cursor 命中的最深 marked/verbatim block 尚无 id 时提供 Add explicit id；paragraph 与 inline owner 不提供。
