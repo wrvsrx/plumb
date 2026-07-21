@@ -1,0 +1,21 @@
+`meta
+ `: title
+
+    plumb Neovim search integration
+
+`# Setup
+
+Add contrib/nvim to runtimepath, then map the native note and task pickers:
+
+`{language=lua}
+  vim.keymap.set('n', '<leader>pn', function()
+    require('plumb.search').search_notes()
+  end)
+  vim.keymap.set('n', '<leader>pt', function()
+    require('plumb.search').search_tasks({ filter = 'actionable' })
+  end)
+
+The module requires Neovim 0.12 and an attached plumb LSP advertising
+experimental.plumb.search schema version 1. Native search uses vim.ui.input and
+vim.ui.select. live_search accepts a picker adapter and owns debounce, request
+cancellation, stale-result suppression, locations and incomplete-result state.
