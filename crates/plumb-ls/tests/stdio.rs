@@ -1717,7 +1717,7 @@ fn completion_from_a_subdirectory_inserts_a_relative_path() {
 }
 
 #[test]
-fn completes_and_navigates_relative_autolinks_and_images() {
+fn completes_and_navigates_relative_autolinks_files_and_images() {
     let root = unique_temp_dir();
     let static_dir = root.join("static");
     std::fs::create_dir_all(&static_dir).unwrap();
@@ -1725,7 +1725,8 @@ fn completes_and_navigates_relative_autolinks_and_images() {
     let target = root.join("target note.plumb");
     let unicode_target = root.join("中文笔记 [草稿].plumb");
     let image = static_dir.join("image one.PNG");
-    let source = "`[tar]{.->}\n`\"[target note.plumb#an]\"{.->}\n`img[Query]{src=\"static/im\"}\n`img[Missing]{src=\"static/missing.png\"}\n`[target note.plumb]{.->}\n`img[Result]{src=\"static/image%20one.PNG\"}\n`[中文]{.->}\n";
+    let attachment = static_dir.join("manual draft.pdf");
+    let source = "`[tar]{.->}\n`\"[target note.plumb#an]\"{.->}\n`img[Query]{src=\"static/im\"}\n`img[Missing]{src=\"static/missing.png\"}\n`[target note.plumb]{.->}\n`img[Result]{src=\"static/image%20one.PNG\"}\n`[中文]{.->}\n`[static/manual draft.pdf]{.->}\n`->[manual]{to=\"static/manual draft.pdf\"}\n`[static/missing guide.pdf]{.->}\n";
     std::fs::write(&current, source).unwrap();
     std::fs::write(
         &target,
@@ -1734,11 +1735,13 @@ fn completes_and_navigates_relative_autolinks_and_images() {
     .unwrap();
     std::fs::write(&unicode_target, "`# 中文笔记\n").unwrap();
     std::fs::write(&image, b"png").unwrap();
+    std::fs::write(&attachment, b"pdf").unwrap();
 
     let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
     let current_uri = lsp_types::Url::from_file_path(&current).unwrap();
     let target_uri = lsp_types::Url::from_file_path(&target).unwrap();
     let image_uri = lsp_types::Url::from_file_path(&image).unwrap();
+    let attachment_uri = lsp_types::Url::from_file_path(&attachment).unwrap();
     let lines = source.lines().collect::<Vec<_>>();
     let autolink_path_cursor = lines[0].find("tar").unwrap() + "tar".len();
     let autolink_anchor_cursor = lines[1].find("#an").unwrap() + "#an".len();
@@ -1748,6 +1751,8 @@ fn completes_and_navigates_relative_autolinks_and_images() {
     let unicode_cursor = lines[6][..lines[6].find("中文").unwrap() + "中文".len()]
         .encode_utf16()
         .count();
+    let attachment_autolink = lines[7].find("manual draft").unwrap() + 2;
+    let attachment_link = lines[8].find("manual draft").unwrap() + 2;
     let messages = [
         json!({
             "jsonrpc": "2.0", "id": 1, "method": "initialize",
@@ -1813,7 +1818,28 @@ fn completes_and_navigates_relative_autolinks_and_images() {
                 "position": { "line": 6, "character": unicode_cursor }
             }
         }),
-        json!({ "jsonrpc": "2.0", "id": 9, "method": "shutdown", "params": null }),
+        json!({
+            "jsonrpc": "2.0", "id": 9, "method": "textDocument/hover",
+            "params": {
+                "textDocument": { "uri": current_uri },
+                "position": { "line": 7, "character": attachment_autolink }
+            }
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 10, "method": "textDocument/definition",
+            "params": {
+                "textDocument": { "uri": current_uri },
+                "position": { "line": 7, "character": attachment_autolink }
+            }
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 11, "method": "textDocument/definition",
+            "params": {
+                "textDocument": { "uri": current_uri },
+                "position": { "line": 8, "character": attachment_link }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 12, "method": "shutdown", "params": null }),
         json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
     ];
 
@@ -1871,6 +1897,18 @@ fn completes_and_navigates_relative_autolinks_and_images() {
             "end": { "line": 6, "character": 5 }
         })
     );
+    assert!(response(&output, 9)["result"]["contents"]["value"]
+        .as_str()
+        .unwrap()
+        .contains("File"));
+    assert_eq!(
+        response(&output, 10)["result"]["uri"],
+        attachment_uri.as_str()
+    );
+    assert_eq!(
+        response(&output, 11)["result"]["uri"],
+        attachment_uri.as_str()
+    );
 
     let diagnostics = output
         .iter()
@@ -1885,6 +1923,11 @@ fn completes_and_navigates_relative_autolinks_and_images() {
         .unwrap()
         .iter()
         .any(|diagnostic| diagnostic["code"] == "image.unresolved-file"));
+    assert!(diagnostics["params"]["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|diagnostic| diagnostic["code"] == "link.unresolved-file"));
 
     std::fs::remove_dir_all(root).unwrap();
 }
