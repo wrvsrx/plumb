@@ -1925,9 +1925,12 @@ fn completes_constructs_after_a_single_backtick() {
             .iter()
             .map(|item| item["label"].as_str().unwrap())
             .collect::<Vec<_>>(),
-        ["Heading", "List item", "Task"]
+        ["Task"]
     );
-    assert_eq!(block[0]["textEdit"]["newText"], "`# ${1:Heading}");
+    let task = block[0]["textEdit"]["newText"].as_str().unwrap();
+    assert!(task.starts_with("`-{.task created=\""));
+    assert!(task.ends_with("\"} ${1:Task}"));
+    chrono::DateTime::parse_from_rfc3339(attribute_value(task, "created")).unwrap();
     assert_eq!(block[0]["insertTextFormat"], 2);
 
     let inline = response(&output, 3)["result"].as_array().unwrap();
@@ -1968,7 +1971,14 @@ fn completes_constructs_after_a_single_backtick() {
                 "position": { "line": 1, "character": 6 }
             }
         }),
-        json!({ "jsonrpc": "2.0", "id": 3, "method": "shutdown", "params": null }),
+        json!({
+            "jsonrpc": "2.0", "id": 3, "method": "textDocument/completion",
+            "params": {
+                "textDocument": { "uri": document_uri },
+                "position": { "line": 0, "character": 1 }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 4, "method": "shutdown", "params": null }),
         json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
     ];
     let fallback_output = run_server(&fallback_messages);
@@ -1980,6 +1990,13 @@ fn completes_constructs_after_a_single_backtick() {
         .unwrap();
     assert_eq!(fallback["textEdit"]["newText"], "`[]{.->}");
     assert_eq!(fallback["insertTextFormat"], 1);
+    let fallback_block = response(&fallback_output, 3)["result"].as_array().unwrap();
+    assert_eq!(fallback_block.len(), 1);
+    let fallback_task = fallback_block[0]["textEdit"]["newText"].as_str().unwrap();
+    assert!(fallback_task.starts_with("`-{.task created=\""));
+    assert!(fallback_task.ends_with("\"} "));
+    chrono::DateTime::parse_from_rfc3339(attribute_value(fallback_task, "created")).unwrap();
+    assert_eq!(fallback_block[0]["insertTextFormat"], 1);
     std::fs::remove_dir_all(root).unwrap();
 }
 

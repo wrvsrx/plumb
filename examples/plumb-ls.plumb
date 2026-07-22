@@ -37,7 +37,7 @@ Try go-to-definition, hover, find references, and rename on these links:
 
 Try completion after each relevant introducer in a temporary edit:
 
-`- Type a single backtick at block entry to choose Heading, List item, or Task.
+`- Type a single backtick at block entry to create a Task with `[created].
 `- Type a single backtick in ordinary inline content to choose Inline verbatim, Autolink, or Link.
 `- Start a link label with ``->[ and select a document title.
 `- Complete a path in ``->[target]{to="plumb-.

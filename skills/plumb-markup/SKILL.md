@@ -24,9 +24,11 @@ text.
    repository-specific command exists and `plumb` is available, run
    `plumb export FILE >/dev/null` as a strict parse/export check.
 
-In an editor using `plumb lsp`, completion after a single backtick offers the
-standard block or inline construct skeletons appropriate to the source context.
-Snippet-capable clients receive tab stops.
+In an editor using `plumb lsp`, completion after a single backtick at block
+entry offers a Task skeleton with a current local RFC 3339 `created` timestamp;
+heading and ordinary list-item spellings are short enough to type directly.
+Inline completion offers the standard inline skeletons. Snippet-capable clients
+receive tab stops.
 
 ## Authority
 

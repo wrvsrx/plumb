@@ -144,7 +144,7 @@
 
 `-{.task #construct-completion done="2026-07-22T16:32:30+08:00"} 提供 backtick construct completion
 
-   `note 单个 backtick 在 block entry 提供 Heading、List item 与 Task，在 ordinary inline context 提供 Inline verbatim、Autolink 与 Link。
+   `note 单个 backtick 在 block entry 只提供 Task，并用当前本地 RFC 3339 timestamp 创建 `[created]；heading 与 ordinary list item 不提供 candidates。ordinary inline context 提供 Inline verbatim、Autolink 与 Link。
    `note 双 backtick literal escape、attributes 与 verbatim payload 不提供 candidates；context detection 保持 protocol-neutral。
    `note 根据 client snippetSupport 返回 tab-stop snippets 或 plain complete skeleton，并将 backtick 注册为 LSP trigger character。
    `note 覆盖 block/inline context、explicit Autolink 选择、snippet fallback 与 stdio tests，并更新 guide、playground 和 bundled skill；普通 bare/incomplete verbatim 不推测 link 意图。

@@ -941,10 +941,12 @@ impl LanguageServer for ServerState {
                 let entry = self.workspace.get(&path)?;
                 let offset = position_to_offset(&entry.parsed.source, position.position);
                 if let Some(context) = construct_completion_context(&entry.parsed, offset) {
+                    let timestamp = Local::now().to_rfc3339_opts(SecondsFormat::Secs, false);
                     return Some(construct_completion_items(
                         &entry.parsed.source,
                         context,
                         self.supports_completion_snippets,
+                        &timestamp,
                     ));
                 }
                 let (candidates, kind) =
@@ -1295,62 +1297,52 @@ fn document_rename_error(error: RenameError) -> ResponseError {
 struct ConstructTemplate {
     label: &'static str,
     detail: &'static str,
-    snippet: &'static str,
-    plain: &'static str,
+    snippet: String,
+    plain: String,
 }
 
 fn construct_completion_items(
     source: &str,
     context: ConstructCompletionContext,
     snippets: bool,
+    timestamp: &str,
 ) -> Vec<CompletionItem> {
-    const BLOCKS: &[ConstructTemplate] = &[
-        ConstructTemplate {
-            label: "Heading",
-            detail: "plumb heading",
-            snippet: "`# ${1:Heading}",
-            plain: "`# ",
-        },
-        ConstructTemplate {
-            label: "List item",
-            detail: "plumb bullet list item",
-            snippet: "`- ${1:Item}",
-            plain: "`- ",
-        },
-        ConstructTemplate {
-            label: "Task",
-            detail: "plumb task list item",
-            snippet: "`-{.task} ${1:Task}",
-            plain: "`-{.task} ",
-        },
-    ];
-    const INLINES: &[ConstructTemplate] = &[
-        ConstructTemplate {
-            label: "Inline verbatim",
-            detail: "plumb inline verbatim",
-            snippet: "`[${1:text}]",
-            plain: "`[]",
-        },
-        ConstructTemplate {
-            label: "Autolink",
-            detail: "plumb autolink",
-            snippet: "`[${1:path}]{.->}",
-            plain: "`[]{.->}",
-        },
-        ConstructTemplate {
-            label: "Link",
-            detail: "plumb link",
-            snippet: "`->[${1:label}]{to=\"${2:target}\"}",
-            plain: "`->[]{to=\"\"}",
-        },
-    ];
-
     let (replace, templates) = match context {
-        ConstructCompletionContext::Block { replace } => (replace, BLOCKS),
-        ConstructCompletionContext::Inline { replace } => (replace, INLINES),
+        ConstructCompletionContext::Block { replace } => (
+            replace,
+            vec![ConstructTemplate {
+                label: "Task",
+                detail: "plumb task list item",
+                snippet: format!("`-{{.task created=\"{timestamp}\"}} ${{1:Task}}"),
+                plain: format!("`-{{.task created=\"{timestamp}\"}} "),
+            }],
+        ),
+        ConstructCompletionContext::Inline { replace } => (
+            replace,
+            vec![
+                ConstructTemplate {
+                    label: "Inline verbatim",
+                    detail: "plumb inline verbatim",
+                    snippet: "`[${1:text}]".to_string(),
+                    plain: "`[]".to_string(),
+                },
+                ConstructTemplate {
+                    label: "Autolink",
+                    detail: "plumb autolink",
+                    snippet: "`[${1:path}]{.->}".to_string(),
+                    plain: "`[]{.->}".to_string(),
+                },
+                ConstructTemplate {
+                    label: "Link",
+                    detail: "plumb link",
+                    snippet: "`->[${1:label}]{to=\"${2:target}\"}".to_string(),
+                    plain: "`->[]{to=\"\"}".to_string(),
+                },
+            ],
+        ),
     };
     templates
-        .iter()
+        .into_iter()
         .map(|template| CompletionItem {
             label: template.label.to_string(),
             kind: Some(CompletionItemKind::SNIPPET),
@@ -1366,8 +1358,7 @@ fn construct_completion_items(
                     template.snippet
                 } else {
                     template.plain
-                }
-                .to_string(),
+                },
             ))),
             ..CompletionItem::default()
         })

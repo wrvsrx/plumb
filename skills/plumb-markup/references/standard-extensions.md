@@ -175,6 +175,9 @@ explicit id when another task must reference it.
 `.task` on another marker is `task.invalid-owner`. The LSP can convert an
 ordinary list item to a task while adding `created`, or add `created` to an
 existing task; both use the operation's local RFC 3339 timestamp.
+At block entry, single-backtick construct completion offers only Task and
+creates its `created` field from the current local RFC 3339 timestamp. Heading
+and ordinary list-item constructs are typed directly.
 
 Defined fields:
 
@@ -207,8 +210,8 @@ consumed; other attributes are preserved with Span/Div wrappers. `.$` on a
 non-verbatim owner is invalid.
 
 `plumb export` emits Pandoc JSON directly. Standard lowering includes headings,
-bullet lists, definition lists, metadata, `->` links, `.->` verbatim
-references, `img` images, single-id citations, and task attributes. Generic marked blocks become Divs, generic parsed inline
+bullet lists, definition lists, metadata, `->` links, `.->` Autolinks, `img`
+images, single-id citations, and task attributes. Generic marked blocks become Divs, generic parsed inline
 elements become Spans, verbatim blocks become CodeBlocks, and inline verbatim
 becomes Code.
 
