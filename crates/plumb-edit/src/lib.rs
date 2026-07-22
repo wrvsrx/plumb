@@ -55,12 +55,12 @@ pub enum OwnedValue {
 pub enum OwnedBlock {
     Parsed {
         marker: Option<String>,
-        attributes: Vec<OwnedAttribute>,
+        attributes: OwnedAttributes,
         head: Vec<OwnedInline>,
         children: Vec<OwnedBlock>,
     },
     Verbatim {
-        attributes: Vec<OwnedAttribute>,
+        attributes: OwnedAttributes,
         text: String,
     },
 }
@@ -72,12 +72,18 @@ pub enum OwnedInline {
     Element {
         kind: String,
         content: Vec<OwnedInline>,
-        attributes: Vec<OwnedAttribute>,
+        attributes: OwnedAttributes,
     },
     Verbatim {
         text: String,
-        attributes: Vec<OwnedAttribute>,
+        attributes: OwnedAttributes,
     },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct OwnedAttributes {
+    pub present: bool,
+    pub items: Vec<OwnedAttribute>,
 }
 
 impl OwnedAttribute {
@@ -122,7 +128,7 @@ impl OwnedBlock {
     pub fn marked(marker: impl Into<String>, head: impl Into<String>) -> Self {
         Self::Parsed {
             marker: Some(marker.into()),
-            attributes: Vec::new(),
+            attributes: OwnedAttributes::default(),
             head: vec![OwnedInline::Text(head.into())],
             children: Vec::new(),
         }
@@ -131,14 +137,26 @@ impl OwnedBlock {
     pub fn paragraph(text: impl Into<String>) -> Self {
         Self::Parsed {
             marker: None,
-            attributes: Vec::new(),
+            attributes: OwnedAttributes::default(),
             head: vec![OwnedInline::Text(text.into())],
             children: Vec::new(),
         }
     }
 
     pub fn with_attributes(mut self, attributes: Vec<OwnedAttribute>) -> Self {
-        *self.attributes_mut() = attributes;
+        match &mut self {
+            Self::Parsed {
+                attributes: current,
+                ..
+            }
+            | Self::Verbatim {
+                attributes: current,
+                ..
+            } => {
+                current.present = true;
+                current.items = attributes;
+            }
+        }
         self
     }
 
@@ -154,13 +172,17 @@ impl OwnedBlock {
 
     pub fn attributes(&self) -> &[OwnedAttribute] {
         match self {
-            Self::Parsed { attributes, .. } | Self::Verbatim { attributes, .. } => attributes,
+            Self::Parsed { attributes, .. } | Self::Verbatim { attributes, .. } => {
+                &attributes.items
+            }
         }
     }
 
     pub fn attributes_mut(&mut self) -> &mut Vec<OwnedAttribute> {
         match self {
-            Self::Parsed { attributes, .. } | Self::Verbatim { attributes, .. } => attributes,
+            Self::Parsed { attributes, .. } | Self::Verbatim { attributes, .. } => {
+                &mut attributes.items
+            }
         }
     }
 
@@ -187,7 +209,9 @@ impl OwnedBlock {
             attributes: block
                 .mark
                 .as_ref()
-                .map_or_else(Vec::new, |mark| owned_attributes(&mark.attrs)),
+                .map_or_else(OwnedAttributes::default, |mark| {
+                    owned_attributes(&mark.attrs)
+                }),
             head: block
                 .head
                 .items
@@ -409,23 +433,26 @@ fn attribute_sources(source: &str, attributes: &Attributes) -> Vec<String> {
         .collect()
 }
 
-fn owned_attributes(attributes: &Attributes) -> Vec<OwnedAttribute> {
-    attributes
-        .items
-        .iter()
-        .map(|item| match item {
-            AttrItem::Id { value, .. } => OwnedAttribute::Id(value.clone()),
-            AttrItem::Class { value, .. } => OwnedAttribute::Class(value.clone()),
-            AttrItem::Pair { key, value, .. } => OwnedAttribute::Pair {
-                key: key.clone(),
-                value: if value.quoted {
-                    OwnedValue::Quoted(value.decoded.clone())
-                } else {
-                    OwnedValue::Bare(value.decoded.clone())
+fn owned_attributes(attributes: &Attributes) -> OwnedAttributes {
+    OwnedAttributes {
+        present: attributes.range.is_some(),
+        items: attributes
+            .items
+            .iter()
+            .map(|item| match item {
+                AttrItem::Id { value, .. } => OwnedAttribute::Id(value.clone()),
+                AttrItem::Class { value, .. } => OwnedAttribute::Class(value.clone()),
+                AttrItem::Pair { key, value, .. } => OwnedAttribute::Pair {
+                    key: key.clone(),
+                    value: if value.quoted {
+                        OwnedValue::Quoted(value.decoded.clone())
+                    } else {
+                        OwnedValue::Bare(value.decoded.clone())
+                    },
                 },
-            },
-        })
-        .collect()
+            })
+            .collect(),
+    }
 }
 
 fn item_range(item: &AttrItem) -> Range<usize> {
@@ -440,12 +467,12 @@ fn render_attribute_slot(items: &[String]) -> String {
     format!("{{{}}}", items.join(" "))
 }
 
-fn render_owned_attributes(attributes: &[OwnedAttribute], output: &mut String) {
-    if attributes.is_empty() {
+fn render_owned_attributes(attributes: &OwnedAttributes, output: &mut String) {
+    if !attributes.present {
         return;
     }
     output.push('{');
-    for (index, attribute) in attributes.iter().enumerate() {
+    for (index, attribute) in attributes.items.iter().enumerate() {
         if index > 0 {
             output.push(' ');
         }
@@ -460,7 +487,6 @@ fn format_owned_blocks(blocks: &[OwnedBlock], newline: &str) -> Result<String, E
     }
     let mut source = String::new();
     render_owned_blocks(blocks, 0, &mut source);
-    source.push('\n');
     let formatted = plumb_format::format(&source).map_err(|_| EditError::GeneratedInvalid)?;
     if newline == "\r\n" {
         Ok(formatted.replace('\n', "\r\n"))
@@ -495,7 +521,8 @@ fn render_owned_block(block: &OwnedBlock, indent: usize, output: &mut String) {
                     output.push(' ');
                 }
             }
-            render_owned_inlines(head, marker.is_some(), output);
+            let continuation_indent = if marker.is_some() { indent + 2 } else { indent };
+            render_owned_inlines(head, marker.is_some(), continuation_indent, output);
             if !children.is_empty() {
                 if head.is_empty() {
                     output.push('\n');
@@ -507,14 +534,9 @@ fn render_owned_block(block: &OwnedBlock, indent: usize, output: &mut String) {
         }
         OwnedBlock::Verbatim { attributes, text } => {
             output.push('`');
-            output.push('{');
-            for (index, attribute) in attributes.iter().enumerate() {
-                if index > 0 {
-                    output.push(' ');
-                }
-                output.push_str(&attribute.render());
-            }
-            output.push('}');
+            let mut attributes = attributes.clone();
+            attributes.present = true;
+            render_owned_attributes(&attributes, output);
             if !text.is_empty() {
                 output.push('\n');
                 for (index, line) in text.split_terminator('\n').enumerate() {
@@ -534,7 +556,12 @@ fn render_owned_block(block: &OwnedBlock, indent: usize, output: &mut String) {
     }
 }
 
-fn render_owned_inlines(inlines: &[OwnedInline], nested: bool, output: &mut String) {
+fn render_owned_inlines(
+    inlines: &[OwnedInline],
+    nested: bool,
+    continuation_indent: usize,
+    output: &mut String,
+) {
     for inline in inlines {
         match inline {
             OwnedInline::Text(text) => {
@@ -546,7 +573,10 @@ fn render_owned_inlines(inlines: &[OwnedInline], nested: bool, output: &mut Stri
                     }
                 }
             }
-            OwnedInline::SoftBreak => output.push('\n'),
+            OwnedInline::SoftBreak => {
+                output.push('\n');
+                output.extend(std::iter::repeat_n(' ', continuation_indent));
+            }
             OwnedInline::Element {
                 kind,
                 content,
@@ -555,7 +585,7 @@ fn render_owned_inlines(inlines: &[OwnedInline], nested: bool, output: &mut Stri
                 output.push('`');
                 output.push_str(kind);
                 output.push('[');
-                render_owned_inlines(content, true, output);
+                render_owned_inlines(content, true, continuation_indent, output);
                 output.push(']');
                 render_owned_attributes(attributes, output);
             }
@@ -827,6 +857,33 @@ mod tests {
         assert!(formatted.contains("`span[text]"));
         assert!(formatted.contains("`[raw]"));
         assert!(formatted.contains("`child Body"));
+    }
+
+    #[test]
+    fn preserves_empty_attribute_slots_and_soft_breaks() {
+        let source = "`node{} Head `span[first\n  second] and `[raw]{}\n";
+        let parsed = parse(source);
+        assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
+        let owned = OwnedBlock::from_syntax(source, &parsed.syntax.blocks[0]);
+        let formatted = owned.format().unwrap();
+        let reparsed = parse(&formatted);
+        assert!(
+            reparsed.is_valid(),
+            "{formatted}\n{:?}",
+            reparsed.diagnostics
+        );
+        assert!(formatted.contains("`node{}"));
+        assert!(formatted.contains("`span[first\n"));
+        assert!(formatted.contains("`[raw]{}"));
+    }
+
+    #[test]
+    fn preserves_verbatim_payload_when_detaching_a_block() {
+        let source = "`{#raw language=text}\n  first\n    second\n";
+        let parsed = parse(source);
+        assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
+        let owned = OwnedBlock::from_syntax(source, &parsed.syntax.blocks[0]);
+        assert_eq!(owned.format().unwrap(), source);
     }
 
     #[test]
