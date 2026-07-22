@@ -1048,80 +1048,39 @@ impl Workspace {
         let next_id = unique_task_instance_id(&task.title, &next_due, &reserved);
 
         let source = &entry.parsed.source;
-        let mut clone = source[task.range.clone()].to_string();
-        let mut replacements = current
-            .output
-            .tasks
-            .tasks
-            .iter()
-            .filter(|candidate| {
-                task.range.start <= candidate.range.start && candidate.range.end <= task.range.end
-            })
-            .map(|candidate| {
-                let replacement = if candidate.range == task.range {
-                    recurring_task_attributes(
-                        task,
-                        &next_id,
-                        timestamp,
-                        &next_due,
-                        next_wait.as_deref(),
-                        &recur.value,
-                        &current_id,
-                    )
-                } else {
-                    attribute_slot(&candidate.persistent_attributes)
-                };
-                (
-                    candidate.attribute_range.start - task.range.start
-                        ..candidate.attribute_range.end - task.range.start,
-                    replacement,
-                )
-            })
-            .collect::<Vec<_>>();
-        replacements.sort_by_key(|(range, _)| std::cmp::Reverse(range.start));
-        for (range, replacement) in replacements {
-            clone.replace_range(range, &replacement);
-        }
-        let clone = plumb_format::format(&clone).map_err(|_| TaskEditError::GeneratedInvalid)?;
+        let block = parsed_block_with_range(&entry.parsed.syntax.blocks, &task.range)
+            .ok_or(TaskEditError::TaskNotFound)?;
+        let mark = block.mark.as_ref().ok_or(TaskEditError::TaskNotFound)?;
+        let mut next = OwnedBlock::from_parsed(source, block);
+        prepare_recurring_task_clone(
+            &mut next,
+            block,
+            &current.output.tasks.tasks,
+            task,
+            &next_id,
+            timestamp,
+            &next_due,
+            next_wait.as_deref(),
+            &recur.value,
+            &current_id,
+        );
 
-        let newline = if source.contains("\r\n") {
-            "\r\n"
-        } else {
-            "\n"
-        };
-        let line_start = source[..task.range.start]
-            .rfind('\n')
-            .map_or(0, |offset| offset + 1);
-        let indent = &source[line_start..task.range.start];
-        let separator = if source[..task.range.end].ends_with(newline) {
-            ""
-        } else {
-            newline
-        };
-        let clone = indent_formatted_fragment(&clone, indent, newline);
-        let current_id_edit = task
-            .id
-            .is_none()
-            .then(|| format!(" #{current_id}"))
-            .unwrap_or_default();
-        let status_text = format!("{current_id_edit} {}=\"{}\"", status.attribute(), timestamp);
-        let insertion_text = format!("{separator}{clone}");
-        finalize_authoring_edit(
-            entry,
-            entry.path.clone(),
-            task.range.clone(),
-            vec![
-                TextEdit {
-                    range: task.attribute_insert..task.attribute_insert,
-                    new_text: status_text,
-                },
-                TextEdit {
-                    range: task.range.end..task.range.end,
-                    new_text: insertion_text,
-                },
-            ],
-        )
-        .map_err(|_| TaskEditError::GeneratedInvalid)
+        let mut additions = Vec::new();
+        if task.id.is_none() {
+            additions.push((AttributePosition::Last, OwnedAttribute::id(current_id)));
+        }
+        additions.push((
+            AttributePosition::Last,
+            OwnedAttribute::quoted(status.attribute(), timestamp),
+        ));
+        let mut edit = EditSession::new(&entry.parsed, task.range.clone())
+            .map_err(|_| TaskEditError::GeneratedInvalid)?;
+        edit.insert_attributes(&mark.attrs, mark.marker_range.end, additions)
+            .map_err(|_| TaskEditError::GeneratedInvalid)?;
+        edit.insert_sibling_blocks(&task.range, &[next])
+            .map_err(|_| TaskEditError::GeneratedInvalid)?;
+        let edit = edit.finish().map_err(|_| TaskEditError::GeneratedInvalid)?;
+        Ok(single_document_edit(entry, entry.path.clone(), edit))
     }
 
     fn resolve_task_target(
@@ -2012,16 +1971,6 @@ fn single_document_edit(entry: &DocumentEntry, path: PathBuf, edit: TextEdit) ->
     }
 }
 
-fn finalize_authoring_edit(
-    entry: &DocumentEntry,
-    path: PathBuf,
-    affected_block: std::ops::Range<usize>,
-    logical_edits: Vec<TextEdit>,
-) -> Result<WorkspaceEdit, plumb_edit::EditError> {
-    let edit = plumb_edit::finalize(&entry.parsed, affected_block, logical_edits)?;
-    Ok(single_document_edit(entry, path, edit))
-}
-
 pub fn normalize(path: &Path) -> PathBuf {
     let mut normalized = PathBuf::new();
     for component in path.components() {
@@ -2067,51 +2016,64 @@ fn dependency_cycle_contains(graph: &HashMap<TaskRef, Vec<TaskRef>>, start: &Tas
     visit(graph, start, start, &mut HashSet::new())
 }
 
-fn recurring_task_attributes(
-    task: &TaskRecord,
+fn prepare_recurring_task_clone(
+    owned: &mut OwnedBlock,
+    block: &ParsedBlock,
+    tasks: &[TaskRecord],
+    root: &TaskRecord,
     next_id: &str,
     timestamp: &str,
     next_due: &str,
     next_wait: Option<&str>,
     recur: &str,
     current_id: &str,
-) -> String {
-    let mut attributes = task.persistent_attributes.clone();
-    attributes.push(format!("#{next_id}"));
-    attributes.push(format!("created=\"{}\"", escape_attribute_value(timestamp)));
-    attributes.push(format!("due=\"{}\"", escape_attribute_value(next_due)));
-    if let Some(wait) = next_wait {
-        attributes.push(format!("wait=\"{}\"", escape_attribute_value(wait)));
-    }
-    attributes.push(format!("recur=\"{}\"", escape_attribute_value(recur)));
-    attributes.push(format!("prev=\"#{}\"", escape_attribute_value(current_id)));
-    attribute_slot(&attributes)
-}
-
-fn attribute_slot(attributes: &[String]) -> String {
-    format!("{{{}}}", attributes.join(" "))
-}
-
-fn indent_formatted_fragment(formatted: &str, indent: &str, newline: &str) -> String {
-    let mut output = String::with_capacity(formatted.len() + indent.len());
-    for line in formatted.split_inclusive('\n') {
-        if line != "\n" {
-            output.push_str(indent);
-        }
-        let content = line.strip_suffix('\n').unwrap_or(line);
-        output.push_str(content);
-        if line.ends_with('\n') {
-            output.push_str(newline);
+) {
+    if let Some(task) = tasks.iter().find(|task| task.range == block.range) {
+        owned.attributes_mut().retain(persistent_task_attribute);
+        if task.range == root.range {
+            let attributes = owned.attributes_mut();
+            attributes.push(OwnedAttribute::id(next_id));
+            attributes.push(OwnedAttribute::quoted("created", timestamp));
+            attributes.push(OwnedAttribute::quoted("due", next_due));
+            if let Some(wait) = next_wait {
+                attributes.push(OwnedAttribute::quoted("wait", wait));
+            }
+            attributes.push(OwnedAttribute::quoted("recur", recur));
+            attributes.push(OwnedAttribute::quoted("prev", format!("#{current_id}")));
         }
     }
-    if !formatted.is_empty() && !formatted.ends_with('\n') {
-        output.push_str(newline);
+
+    let OwnedBlock::Parsed { children, .. } = owned else {
+        return;
+    };
+    for (owned_child, syntax_child) in children.iter_mut().zip(&block.children) {
+        let Block::Parsed(syntax_child) = syntax_child else {
+            continue;
+        };
+        prepare_recurring_task_clone(
+            owned_child,
+            syntax_child,
+            tasks,
+            root,
+            next_id,
+            timestamp,
+            next_due,
+            next_wait,
+            recur,
+            current_id,
+        );
     }
-    output
 }
 
-fn escape_attribute_value(value: &str) -> String {
-    value.replace('\\', "\\\\").replace('"', "\\\"")
+fn persistent_task_attribute(attribute: &OwnedAttribute) -> bool {
+    match attribute {
+        OwnedAttribute::Id(_) => false,
+        OwnedAttribute::Class(_) => true,
+        OwnedAttribute::Pair { key, .. } => !matches!(
+            key.as_str(),
+            "created" | "due" | "wait" | "done" | "canceled" | "recur" | "prev"
+        ),
+    }
 }
 
 fn unique_task_instance_id(title: &str, datetime: &str, reserved: &HashSet<String>) -> String {
@@ -3393,46 +3355,6 @@ mod tests {
             .unwrap();
         let with_metadata = apply_single_edit(metadata_source, &metadata);
         assert_eq!(plumb_format::format(&with_metadata).unwrap(), with_metadata);
-    }
-
-    #[test]
-    fn authoring_finalization_rejects_ambiguous_or_out_of_range_edits() {
-        let source = "`- Item\n";
-        let mut workspace = Workspace::new();
-        workspace.insert("item.plumb", 1, source);
-        let entry = workspace.get("item.plumb").unwrap();
-        let block_range = entry.parsed.syntax.blocks[0].range().clone();
-
-        assert_eq!(
-            finalize_authoring_edit(
-                entry,
-                PathBuf::from("item.plumb"),
-                block_range.clone(),
-                vec![
-                    TextEdit {
-                        range: 2..2,
-                        new_text: "a".to_string(),
-                    },
-                    TextEdit {
-                        range: 2..2,
-                        new_text: "b".to_string(),
-                    },
-                ],
-            ),
-            Err(plumb_edit::EditError::OverlappingEdits)
-        );
-        assert_eq!(
-            finalize_authoring_edit(
-                entry,
-                PathBuf::from("item.plumb"),
-                block_range,
-                vec![TextEdit {
-                    range: source.len() + 1..source.len() + 1,
-                    new_text: "outside".to_string(),
-                }],
-            ),
-            Err(plumb_edit::EditError::InvalidRange)
-        );
     }
 
     #[test]

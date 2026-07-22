@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use plumb_core::{AttrItem, Attributes, Block, Inline, ParsedDocument};
+use plumb_core::{AttrItem, Attributes, Block, Inline, ParsedBlock, ParsedDocument};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TextEdit {
@@ -159,28 +159,32 @@ impl OwnedBlock {
 
     pub fn from_syntax(source: &str, block: &Block) -> Self {
         match block {
-            Block::Parsed(block) => Self::Parsed {
-                marker: block.mark.as_ref().map(|mark| mark.marker.clone()),
-                attributes: block
-                    .mark
-                    .as_ref()
-                    .map_or_else(Vec::new, |mark| owned_attributes(&mark.attrs)),
-                head: block
-                    .head
-                    .items
-                    .iter()
-                    .map(|inline| OwnedInline::from_syntax(source, inline))
-                    .collect(),
-                children: block
-                    .children
-                    .iter()
-                    .map(|child| Self::from_syntax(source, child))
-                    .collect(),
-            },
+            Block::Parsed(block) => Self::from_parsed(source, block),
             Block::Verbatim(block) => Self::Verbatim {
                 attributes: owned_attributes(&block.attrs),
                 text: block.text.clone(),
             },
+        }
+    }
+
+    pub fn from_parsed(source: &str, block: &ParsedBlock) -> Self {
+        Self::Parsed {
+            marker: block.mark.as_ref().map(|mark| mark.marker.clone()),
+            attributes: block
+                .mark
+                .as_ref()
+                .map_or_else(Vec::new, |mark| owned_attributes(&mark.attrs)),
+            head: block
+                .head
+                .items
+                .iter()
+                .map(|inline| OwnedInline::from_syntax(source, inline))
+                .collect(),
+            children: block
+                .children
+                .iter()
+                .map(|child| Self::from_syntax(source, child))
+                .collect(),
         }
     }
 
@@ -290,6 +294,29 @@ impl<'a> EditSession<'a> {
         let newline = line_ending(&self.parsed.source);
         let new_text = format_owned_blocks(blocks, newline)?;
         self.replace(offset..offset, new_text)
+    }
+
+    pub fn insert_sibling_blocks(
+        &mut self,
+        after: &Range<usize>,
+        blocks: &[OwnedBlock],
+    ) -> Result<(), EditError> {
+        validate_range(&self.parsed.source, after)?;
+        let newline = line_ending(&self.parsed.source);
+        let formatted = format_owned_blocks(blocks, newline)?;
+        let line_start = self.parsed.source[..after.start]
+            .rfind('\n')
+            .map_or(0, |offset| offset + 1);
+        let indent = &self.parsed.source[line_start..after.start];
+        if !indent.chars().all(|character| character == ' ') {
+            return Err(EditError::InvalidRange);
+        }
+        let mut new_text = String::new();
+        if !self.parsed.source[..after.end].ends_with(newline) {
+            new_text.push_str(newline);
+        }
+        new_text.push_str(&indent_fragment(&formatted, indent, newline));
+        self.replace(after.end..after.end, new_text)
     }
 
     pub fn replace_block(
@@ -546,6 +573,24 @@ fn line_ending(source: &str) -> &str {
     }
 }
 
+fn indent_fragment(formatted: &str, indent: &str, newline: &str) -> String {
+    let mut output = String::with_capacity(formatted.len() + indent.len());
+    for line in formatted.split_inclusive(newline) {
+        let content = line.strip_suffix(newline).unwrap_or(line);
+        if !content.is_empty() {
+            output.push_str(indent);
+            output.push_str(content);
+        }
+        if line.ends_with(newline) {
+            output.push_str(newline);
+        }
+    }
+    if !formatted.is_empty() && !formatted.ends_with(newline) {
+        output.push_str(newline);
+    }
+    output
+}
+
 fn validate_range(source: &str, range: &Range<usize>) -> Result<(), EditError> {
     if range.start > range.end
         || range.end > source.len()
@@ -720,6 +765,17 @@ mod tests {
             ),
             Err(EditError::OverlappingEdits)
         );
+        assert_eq!(
+            finalize(
+                &parsed,
+                0..8,
+                vec![TextEdit {
+                    range: 9..9,
+                    new_text: "outside".to_string(),
+                }],
+            ),
+            Err(EditError::InvalidRange)
+        );
     }
 
     #[test]
@@ -757,5 +813,45 @@ mod tests {
         assert!(formatted.contains("`span[text]"));
         assert!(formatted.contains("`[raw]"));
         assert!(formatted.contains("`child Body"));
+    }
+
+    #[test]
+    fn replaces_and_removes_attributes_by_explicit_index() {
+        let source = "`node{#old .keep key=value} Head\n";
+        let parsed = parse(source);
+        let Block::Parsed(block) = &parsed.syntax.blocks[0] else {
+            unreachable!();
+        };
+        let mark = block.mark.as_ref().unwrap();
+        let mut replace = EditSession::new(&parsed, block.range.clone()).unwrap();
+        replace
+            .replace_attribute(&mark.attrs, 0, OwnedAttribute::id("new"))
+            .unwrap();
+        let replacement = replace.finish().unwrap();
+        assert_eq!(replacement.new_text, "`node{#new .keep key=value} Head\n");
+
+        let mut remove = EditSession::new(&parsed, block.range.clone()).unwrap();
+        remove.remove_attribute(&mark.attrs, 2).unwrap();
+        let removal = remove.finish().unwrap();
+        assert_eq!(removal.new_text, "`node{#old .keep} Head\n");
+    }
+
+    #[test]
+    fn replaces_and_removes_complete_blocks() {
+        let source = "`old Head\n`next Keep\n";
+        let parsed = parse(source);
+        let first = parsed.syntax.blocks[0].range().clone();
+        let mut replace = EditSession::new(&parsed, first.clone()).unwrap();
+        replace
+            .replace_block(first.clone(), &OwnedBlock::marked("new", "Replacement"))
+            .unwrap();
+        let replacement = replace.finish().unwrap();
+        assert_eq!(replacement.new_text, "`new Replacement\n\n");
+
+        let mut remove = EditSession::new(&parsed, first.clone()).unwrap();
+        remove.remove_block(first.clone()).unwrap();
+        let removal = remove.finish().unwrap();
+        assert_eq!(removal.range, first);
+        assert!(removal.new_text.is_empty());
     }
 }
