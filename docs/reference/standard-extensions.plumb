@@ -219,11 +219,17 @@ state：
 
 `[state]、`[status]、`[priority]、`[scheduled] 和 checkbox spelling 没有标准 task semantics。
 
+datetime fields 必须使用 quoted RFC 3339 value；unquoted 或无法解析的值发布
+`[task.invalid-datetime] warning，并且不参与 task state、query 或 operations。recur 只有在 `[due]
+attribute 确实缺失时发布 `[task.missing-due-for-recur]；存在但非法的 due 只发布 invalid-datetime。
+
 complete 为 open task 添加 `[done]；open dependency 存在时拒绝 complete。cancel 添加 `[canceled]
 且不受 blocker 限制。关闭 recurring task 时保留 closed instance，并追加下一 instance：推进 due/wait、
 移除 transient state、生成唯一 id，并用 `[prev] 指回当前 instance。新 instance 作为 closed instance
 的 source-adjacent sibling 插入，不额外添加 blank line；生成内容使用 canonical formatter layout，
 同时保留 owner base indentation 与 document line ending。
+普通 status operation 格式化完整 owner subtree；following sibling 只提供 spacing context，其 source
+与 structural indentation 不得进入 edit range。
 
 authoring operations 使用执行时的本地 RFC 3339 timestamp：`[Convert to task] 把 cursor 命中的最深
 普通 `[-]/[.] item 转为 task，同时添加 `[.task] 与 `[created]；`[Add task created timestamp] 为

@@ -121,7 +121,8 @@ fn collect_blocks(source: &str, blocks: &[Block], task_depth: usize, output: &mu
         }
         if is_task {
             let task = task_record(source, block, task_depth);
-            collect_task_diagnostics(&task, output);
+            let attrs = &block.mark.as_ref().expect("task is a marked block").attrs;
+            collect_task_diagnostics(&task, attrs.items.as_slice(), output);
             output.tasks.push(task);
         }
         collect_blocks(
@@ -182,7 +183,7 @@ fn task_record(source: &str, block: &ParsedBlock, depth: usize) -> TaskRecord {
 
 fn datetime_field(items: &[AttrItem], key: &str) -> Option<TaskField> {
     let value = pair_value(items, key)?;
-    valid_task_datetime(&value.decoded).then(|| task_field(value))
+    (value.quoted && valid_task_datetime(&value.decoded)).then(|| task_field(value))
 }
 
 pub fn valid_task_datetime(value: &str) -> bool {
@@ -269,7 +270,22 @@ pub fn parse_task_reference_target(source: &str) -> TaskReferenceTarget {
     }
 }
 
-fn collect_task_diagnostics(task: &TaskRecord, output: &mut TaskOutput) {
+fn collect_task_diagnostics(task: &TaskRecord, attrs: &[AttrItem], output: &mut TaskOutput) {
+    for key in ["created", "due", "wait", "done", "canceled"] {
+        let Some(value) = pair_value(attrs, key) else {
+            continue;
+        };
+        if !value.quoted || !valid_task_datetime(&value.decoded) {
+            output.diagnostics.push(Diagnostic {
+                code: "task.invalid-datetime",
+                severity: DiagnosticSeverity::Warning,
+                message: format!("'{key}' must be a quoted RFC 3339 timestamp"),
+                range: value.range.clone(),
+                related: Vec::new(),
+            });
+        }
+    }
+
     if let (Some(done), Some(canceled)) = (&task.done, &task.canceled) {
         output.diagnostics.push(Diagnostic {
             code: "task.conflicting-closed-state",
@@ -292,7 +308,7 @@ fn collect_task_diagnostics(task: &TaskRecord, output: &mut TaskOutput) {
             related: Vec::new(),
         });
     }
-    if task.due.is_none() {
+    if pair_value(attrs, "due").is_none() {
         output.diagnostics.push(Diagnostic {
             code: "task.missing-due-for-recur",
             severity: DiagnosticSeverity::Warning,
@@ -415,7 +431,7 @@ mod tests {
 
     #[test]
     fn reports_local_task_state_and_recurrence_diagnostics() {
-        let source = "`-{.task done=\"2026-07-20T09:00:00Z\" canceled=\"2026-07-20T10:00:00Z\"} Conflict\n`-{.task due=\"not-a-date\" recur=P1M1D} Invalid recurrence\n";
+        let source = "`-{.task done=\"2026-07-20T09:00:00Z\" canceled=\"2026-07-20T10:00:00Z\"} Conflict\n`-{.task due=\"not-a-date\" recur=P1M1D} Invalid recurrence\n`-{.task created=2026-07-20T09:00:00Z wait=tomorrow done=later canceled=never} Invalid datetimes\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
@@ -430,9 +446,35 @@ mod tests {
             codes,
             vec![
                 "task.conflicting-closed-state",
+                "task.invalid-datetime",
                 "task.invalid-recur",
-                "task.missing-due-for-recur",
+                "task.invalid-datetime",
+                "task.invalid-datetime",
+                "task.invalid-datetime",
+                "task.invalid-datetime",
             ]
+        );
+        assert_eq!(output.tasks[1].due, None);
+        assert_eq!(output.tasks[2].created, None);
+        assert_eq!(output.tasks[2].state(), TaskState::Open);
+    }
+
+    #[test]
+    fn reports_missing_due_only_when_the_attribute_is_absent() {
+        let source =
+            "`-{.task recur=P1W} Missing due\n`-{.task due=\"invalid\" recur=P1W} Invalid due\n";
+        let parsed = parse(source);
+        assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
+
+        let output = analyze_tasks(source, &parsed.syntax);
+        let codes = output
+            .diagnostics
+            .iter()
+            .map(|diagnostic| diagnostic.code)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            codes,
+            vec!["task.missing-due-for-recur", "task.invalid-datetime"]
         );
     }
 

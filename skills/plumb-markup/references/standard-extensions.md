@@ -187,6 +187,11 @@ Defined fields:
 - `prev`: one same-file `#id` or cross-file `path.plumb#id` reference.
 - `depends`: whitespace-separated references in one quoted value.
 
+Datetime fields must use quoted RFC 3339 values. An unquoted or unparseable
+value produces `task.invalid-datetime` and does not participate in task state,
+queries, or operations. `task.missing-due-for-recur` applies only when the
+`due` attribute is absent, not when it is present but invalid.
+
 State is derived from closure timestamps:
 
 - Neither `done` nor `canceled`: open.
@@ -201,6 +206,8 @@ Completing an open task adds `done`; canceling adds `canceled`. Completion is
 rejected while an open dependency blocks the task. Cancel remains allowed.
 Closing a recurring task keeps the closed instance and appends the next one,
 advancing `due` and `wait`, assigning a unique id, and setting `prev`.
+Status operations format only the complete task subtree; a following sibling
+provides spacing context without entering the edit or losing indentation.
 
 ## Export Semantics
 

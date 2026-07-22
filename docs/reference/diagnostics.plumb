@@ -59,8 +59,8 @@ recovery 的目标是报告后续独立错误并保留 source，不是把 malfor
    ambiguous anchor 或 unresolved file。
 `- image：missing/invalid src 或 unresolved local file。
 `- citation：空 id、nested 或 unsupported citation shape。
-`- task：invalid owner、无效 field、timestamp/recur/reference、互斥 closure state、self dependency、
-   cycle、blocked completion。
+`- task：invalid owner、`[task.invalid-datetime]、无效 recur/reference、互斥 closure state、
+   self dependency、cycle、blocked completion。
 `- math：invalid owner 或 unsupported input language。
 
 semantic diagnostic 应指向最小 source-backed field range。由多个 documents 共同形成的问题可以

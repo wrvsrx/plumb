@@ -177,5 +177,9 @@ cursor 位于普通 list item 时，`[Convert to task] code action 同时添加 
 已有 task 缺少 `[created] 时，`[Add task created timestamp] 可以补录。两者使用执行时的本地
 RFC 3339 timestamp。
 
+`[created]、`[due]、`[wait]、`[done] 与 `[canceled] 必须是 quoted RFC 3339 timestamp；非法值发布
+`[task.invalid-datetime] warning，不参与 state 或 operations。完成或取消 nested task 时只格式化该
+task subtree，不改变 following sibling 的层级。
+
 精确 recognition、diagnostics 和 export semantics 见
 `->[standard extensions reference]{to="../reference/standard-extensions.plumb"}。

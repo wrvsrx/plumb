@@ -977,7 +977,8 @@ fn offers_task_authoring_refactor_actions() {
 #[test]
 fn offers_guarded_task_status_code_actions() {
     let uri = "file:///tmp/task-actions.plumb";
-    let source = "`-{.task #write} Write parser\n";
+    let source = "`-{#task-f81deb18 .task created=\"2026-05-24T02:35:50Z\"} MJCF in, USD out solver\n   `-{#task-c2cf5756 .task created=\"2026-05-27T13:03:04Z\"} parse MJCF\n   `-{#task-99e28dad .task created=\"2026-05-27T13:02:45Z\"} solver with passive joint\n";
+    let character = source.lines().nth(1).unwrap().find("parse MJCF").unwrap();
     let messages = [
         json!({
             "jsonrpc": "2.0", "id": 1, "method": "initialize",
@@ -1001,8 +1002,8 @@ fn offers_guarded_task_status_code_actions() {
             "params": {
                 "textDocument": { "uri": uri },
                 "range": {
-                    "start": { "line": 0, "character": 25 },
-                    "end": { "line": 0, "character": 25 }
+                    "start": { "line": 1, "character": character },
+                    "end": { "line": 1, "character": character }
                 },
                 "context": { "diagnostics": [], "only": ["quickfix"] }
             }
@@ -1021,6 +1022,9 @@ fn offers_guarded_task_status_code_actions() {
         let change = &action["edit"]["documentChanges"][0];
         assert_eq!(change["textDocument"]["version"], 3);
         let new_text = change["edits"][0]["newText"].as_str().unwrap();
+        assert!(new_text.contains("#task-c2cf5756"));
+        assert!(!new_text.contains("#task-f81deb18"));
+        assert!(!new_text.contains("#task-99e28dad"));
         let timestamp = attribute_value(new_text, attribute);
         chrono::DateTime::parse_from_rfc3339(timestamp).unwrap();
     }
@@ -1315,7 +1319,19 @@ fn publishes_task_symbols_hover_and_workspace_diagnostics() {
     assert!(diagnostics
         .iter()
         .any(|diagnostic| diagnostic["code"] == "task.invalid-recur"));
-    assert!(diagnostics
+    let invalid_due = diagnostics
+        .iter()
+        .find(|diagnostic| diagnostic["code"] == "task.invalid-datetime")
+        .unwrap();
+    let invalid_due_start = task_source.find("\"not-a-date\"").unwrap();
+    assert_eq!(
+        invalid_due["range"],
+        json!({
+            "start": { "line": 0, "character": invalid_due_start },
+            "end": { "line": 0, "character": invalid_due_start + "\"not-a-date\"".len() }
+        })
+    );
+    assert!(!diagnostics
         .iter()
         .any(|diagnostic| diagnostic["code"] == "task.missing-due-for-recur"));
     assert!(diagnostics

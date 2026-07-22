@@ -190,7 +190,11 @@ fn format_block_group(source: &str, blocks: &[Block], first: usize, last: usize)
     let edit_range = line_start
         ..following.map_or_else(
             || selected.last().unwrap().range().end,
-            |block| block.range().start,
+            |block| {
+                source[..block.range().start]
+                    .rfind('\n')
+                    .map_or(0, |offset| offset + 1)
+            },
         );
     let indent = source[line_start..block_start].chars().count();
 
@@ -733,6 +737,19 @@ mod tests {
             edit.new_text,
             "  `-{.task #old done=now} Work\r\n  `-{.task #next} Work\r\n\r\n"
         );
+        assert_eq!(&source[edit.range.end..], "  `note Following\r\n");
+    }
+
+    #[test]
+    fn nested_block_range_preserves_the_following_sibling_indent() {
+        let source = "`node Parent\n   `-{.task #old} Old\n   `-{.task #next} Next\n";
+        let parsed = parse(source);
+        let first = &parsed.syntax.blocks[0].children()[0];
+        let edit = format_block_range(source, first.range().clone()).unwrap();
+        let mut edited = source.to_string();
+        edited.replace_range(edit.range.clone(), &edit.new_text);
+
+        assert_eq!(edited, source);
     }
 
     #[test]

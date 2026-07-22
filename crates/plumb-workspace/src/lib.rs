@@ -3303,6 +3303,30 @@ mod tests {
     }
 
     #[test]
+    fn task_status_targets_an_explicitly_anchored_nested_task() {
+        let source = "`-{#task-f81deb18 .task created=\"2026-05-24T02:35:50Z\"} MJCF in, USD out solver\n\n   `-{#task-9d49eb30 .task created=\"2026-05-24T02:35:32Z\" done=\"2026-05-26T01:43:39Z\"} 刚体版本\n   `-{#task-c2cf5756 .task created=\"2026-05-27T13:03:04Z\"} parse MJCF\n   `-{#task-99e28dad .task created=\"2026-05-27T13:02:45Z\"} solver with passive joint\n";
+        let mut workspace = Workspace::new();
+        workspace.insert("embodied-intelligence.plumb", 12, source);
+
+        let operation = workspace
+            .set_task_status(
+                "embodied-intelligence.plumb",
+                source.find("parse MJCF").unwrap(),
+                TaskStatus::Done,
+                "2026-07-22T22:41:21+08:00",
+            )
+            .unwrap();
+        let edit = &operation.document_changes[0].edits[0];
+        let mut edited = source.to_string();
+        edited.replace_range(edit.range.clone(), &edit.new_text);
+
+        assert!(edited.contains("#task-c2cf5756 .task created=\"2026-05-27T13:03:04Z\" done=\"2026-07-22T22:41:21+08:00\""));
+        assert!(!edited.contains("#task-f81deb18 .task created=\"2026-05-24T02:35:50Z\" done="));
+        assert!(!edited.contains("#task-99e28dad .task created=\"2026-05-27T13:02:45Z\" done="));
+        assert_eq!(plumb_format::format(&edited).unwrap(), edited);
+    }
+
+    #[test]
     fn task_status_formats_multiline_attributes_with_a_long_head() {
         let source = "`-{\n   .task created=\"2026-07-21T14:37:59+08:00\"\n  } `->[如何在 nix 中检查 IFD]{to=\"如何在 nix 中检查 IFD.plumb\"}\n";
         assert_eq!(plumb_format::format(source).unwrap(), source);
