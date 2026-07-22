@@ -108,18 +108,19 @@ path 以当前 document 目录为基准，spaces 和 unsafe bytes 使用 URI per
 
   `img[]{src="https://example.test/decorative.svg"}
 
-empty alt 用于 decorative image。image 单独占一个 paragraph 时不需要另一种 block syntax；
-figure 与 caption 尚未进入标准 profile。LSP 在 src 中补全常见本地图片文件，并为
-存在的文件提供 hover 和 go-to-definition。
+empty alt 用于 decorative image。image 单独占一个 paragraph 时不需要另一种 block syntax。
+LSP 在 src 中补全常见本地图片文件，并为存在的文件提供 hover 和 go-to-definition。image 的
+标准 profile 边界见 `->[standard extensions reference]{to="../reference/standard-extensions.plumb"}。
 
 `# Citation
 
-当前 citation profile 只接受一个 plain id：
+标准 citation 接受一个 plain id：
 
 `{language=plumb}
   See `cite[smith2004].
 
-cluster、locator、prefix、suffix 和 citation mode 尚未进入标准 profile。
+其他 citation shape 的 profile 边界见
+`->[standard extensions reference]{to="../reference/standard-extensions.plumb"}。
 
 `# Div 与 span
 

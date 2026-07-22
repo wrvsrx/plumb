@@ -1,5 +1,5 @@
 `meta
-  `: title
+ `: title
 
     plumb 文档
 
@@ -9,18 +9,18 @@ heading、list、metadata、link、citation 和 task 等含义由标准 extensio
 `# 阅读路径
 
 `- 第一次使用 plumb：从 `->[语法指南]{to="guide/syntax.plumb"} 开始，再阅读
-  `->[标准扩展指南]{to="guide/extensions.plumb"} 和
-  `->[工具链指南]{to="guide/toolchain.plumb"}。
+   `->[标准扩展指南]{to="guide/extensions.plumb"} 和
+   `->[工具链指南]{to="guide/toolchain.plumb"}。
 `- 查询精确规则：阅读 `->[core syntax reference]{to="reference/core-syntax.plumb"}、
-  `->[standard extensions reference]{to="reference/standard-extensions.plumb"} 和
-  `->[diagnostics reference]{to="reference/diagnostics.plumb"}。
+   `->[standard extensions reference]{to="reference/standard-extensions.plumb"} 和
+   `->[diagnostics reference]{to="reference/diagnostics.plumb"}。
 `- 开发 plumb：阅读 `->[架构总览]{to="architecture/overview.plumb"}、
-  `->[extension system]{to="architecture/extension-system.plumb"} 和
-  `->[syntax tree]{to="architecture/syntax-tree.plumb"}。
+   `->[extension system]{to="architecture/extension-system.plumb"} 和
+   `->[syntax tree]{to="architecture/syntax-tree.plumb"}。
 `- 了解项目方向：阅读 `->[愿景]{to="project/vision.plumb"}、
-  `->[路线图]{to="project/roadmap.plumb"} 和 `->[当前任务]{to="project/tasks.plumb"}。
+   `->[路线图]{to="project/roadmap.plumb"} 和 `->[当前任务]{to="project/tasks.plumb"}。
 `- 追溯设计理由：阅读 `->[语法决策记录]{to="history/syntax-decisions.plumb"} 和
-  `->[djot-tools 能力审计]{to="history/djot-tools-audit.plumb"}。
+   `->[djot-tools 能力审计]{to="history/djot-tools-audit.plumb"}。
 
 `# 权威顺序
 
@@ -31,3 +31,10 @@ heading、list、metadata、link、citation 和 task 等含义由标准 extensio
 `. `[`architecture/] 决定官方工具链的实现边界。
 `. `[`guide/] 解释如何使用当前 release。
 `. `[`project/] 与 `[`history/] 记录方向和背景，不覆盖当前规范。
+
+`# 状态归属
+
+`[`guide/] 只描述当前 release 已提供的行为，不复制实现进度或 TODO。尚未完成、需要继续验证和
+deferred 的工作统一记录在 `->[路线图]{to="project/roadmap.plumb"}；可直接实施和验收的工作统一
+记录在 `->[当前任务]{to="project/tasks.plumb"}。标准 profile 明确排除的语义仍由
+`->[standard extensions reference]{to="reference/standard-extensions.plumb"} 定义。

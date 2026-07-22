@@ -193,3 +193,12 @@ material is in Chinese, matching the design conversation that produced it.
 Design docs are being migrated to plumb for dogfooding. Keep `AGENTS.md` and
 `CLAUDE.md` in Markdown because external agent tools consume them; use `.plumb`
 for project documentation where the current syntax can represent it faithfully.
+
+Guides describe only behavior available in the current release. Do not copy
+implementation progress, TODOs, or "not yet implemented" lists into
+`docs/guide/`: unfinished or exploratory work belongs in
+`docs/project/roadmap.plumb`, directly actionable work belongs in
+`docs/project/tasks.plumb`, and normative exclusions belong in the references.
+`cargo test -p plumb-core --test project_documents` enforces this ownership and
+also verifies all project `.plumb` documents plus bundled-skill plumb examples
+with the strict parser.

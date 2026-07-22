@@ -113,11 +113,5 @@ syntax error、无效 metadata 或其他阻止 authoritative semantics 的错误
 task output 默认是 nested table；`[--flat] 省略 nesting indentation，`[--no-heading] 适合脚本。
 complete/cancel 使用带 revision guard 的 shared operation 修改文件。
 
-`# 当前限制
-
-`- block nesting 仍使用 Rust recursion；inline element 使用 explicit stack。
-`- syntax tree 尚未为所有 punctuation/whitespace 提供 token-granular nodes。
-`- normative recovery corpus 尚未全部移植。
-
-这些限制不改变已经发布的 syntax spelling；进展统一记录在
-`->[路线图]{to="../project/roadmap.plumb"}。
+项目方向与尚需验证的工作统一记录在 `->[路线图]{to="../project/roadmap.plumb"}；可直接实施的
+工作见 `->[当前任务]{to="../project/tasks.plumb"}。本指南不复制实现进度。
