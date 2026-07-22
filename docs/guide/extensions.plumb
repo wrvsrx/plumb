@@ -101,9 +101,9 @@ label 继续使用显式 `[->]。
 `[.->] 不能用于其他 owner，也不能与 `[to] 或
 `[.$] 组合。
 
-创建 raw reference 时可以输入 bare ``[query] 或处于 unclosed 状态的 ``[query，再选择 completion；
-LSP 会补齐安全 delimiter 与 `[{.->}]。bare form 必须没有 attributes。忽略 completion 时，closed
-form 仍是普通 inline verbatim，unclosed form 也可以自行关闭 `[]]。
+创建 raw reference 时，在 ordinary inline context 输入单个 backtick，并从 construct completion
+选择 Raw reference。生成 `[{.->}] 后，LSP 才在 payload 中提供 path 与 explicit-anchor completion；
+bare 或 unclosed inline verbatim 不提供 reference candidates。
 
 `# Image
 

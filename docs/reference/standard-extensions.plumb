@@ -125,11 +125,9 @@ characters 全部原样插入，不进行 URL escaping；候选包含 closing-li
 完整 verbatim envelope 并选择最小安全 quote count。存在的普通 file target 可 hover 和
 go-to-definition；缺失 file 发布 `[link.unresolved-file] warning。
 
-为了创建 raw reference，可以输入 bare inline verbatim ``[guide]，或在同一 physical line 输入尚未
-关闭的 ``[guide，并直接请求 completion。bare form 只在没有 attributes 时提供候选；unclosed form
-只在 strict parser 已发布 `[syntax.unclosed-verbatim] 的当前 envelope 中提供候选。选择后一次生成
-完整 inline verbatim 与 `[.->] facet；忽略候选时 bare form 仍是普通 inline verbatim，unclosed form
-也可以正常关闭 delimiter，不改变 syntax interpretation。
+为了创建 raw reference，在 ordinary inline context 输入单个 backtick，并从 construct completion
+选择 Raw reference。生成 `[.->] facet 后，LSP 才在 payload 中提供 document path 与 explicit-anchor
+completion。bare 或尚未关闭的 inline verbatim 始终保持普通 verbatim，不推测 reference 意图。
 
 workspace 使用 open buffer 覆盖 disk snapshot。document target 已确定但 fragment missing 时，
 仍保留 document-level reverse edge。

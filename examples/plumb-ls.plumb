@@ -43,8 +43,6 @@ Try completion after each relevant introducer in a temporary edit:
 `- Complete a path in ``->[target]{to="plumb-.
 `- Complete a fragment in ``->[target]{to="plumb-export.plumb#.
 `- Complete a same-file fragment in ``->[target]{to="#.
-`- Start an incomplete raw reference with ``[plumb- and select a document; completion adds `[.->].
-`- Complete a bare raw reference inside ``[plumb-]; selecting a document replaces the whole inline.
 `- Complete a raw document path inside ``[plumb-]{.->}.
 `- Complete a raw fragment inside ``[plumb-export.plumb#]{.->}.
 `- Complete an image path in ``img[alt]{src="static/}.

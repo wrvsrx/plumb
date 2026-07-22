@@ -947,30 +947,27 @@ impl LanguageServer for ServerState {
                         self.supports_completion_snippets,
                     ));
                 }
-                let (candidates, kind) = if let Some(context) =
-                    link_completion_context(&entry.parsed, offset)
-                {
-                    let kind = if matches!(
-                        &context,
-                        plumb_extensions::LinkCompletionContext::Label { .. }
-                            | plumb_extensions::LinkCompletionContext::Path { .. }
-                            | plumb_extensions::LinkCompletionContext::VerbatimPath { .. }
-                            | plumb_extensions::LinkCompletionContext::IncompleteVerbatimPath { .. }
-                            | plumb_extensions::LinkCompletionContext::BareVerbatimPath { .. }
-                    ) {
-                        CompletionItemKind::FILE
+                let (candidates, kind) =
+                    if let Some(context) = link_completion_context(&entry.parsed, offset) {
+                        let kind = if matches!(
+                            &context,
+                            plumb_extensions::LinkCompletionContext::Label { .. }
+                                | plumb_extensions::LinkCompletionContext::Path { .. }
+                                | plumb_extensions::LinkCompletionContext::VerbatimPath { .. }
+                        ) {
+                            CompletionItemKind::FILE
+                        } else {
+                            CompletionItemKind::REFERENCE
+                        };
+                        (self.workspace.complete_link(&path, &context), kind)
+                    } else if let Some(context) = image_completion_context(&entry.parsed, offset) {
+                        (
+                            self.workspace.complete_image_path(&path, &context),
+                            CompletionItemKind::FILE,
+                        )
                     } else {
-                        CompletionItemKind::REFERENCE
+                        return None;
                     };
-                    (self.workspace.complete_link(&path, &context), kind)
-                } else if let Some(context) = image_completion_context(&entry.parsed, offset) {
-                    (
-                        self.workspace.complete_image_path(&path, &context),
-                        CompletionItemKind::FILE,
-                    )
-                } else {
-                    return None;
-                };
                 Some(
                     candidates
                         .into_iter()

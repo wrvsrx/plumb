@@ -130,8 +130,7 @@
    `note `[..plumb] 与 `[..plumb#id] targets 继续进入 document/explicit-anchor resolution；其他 relative paths 分类为 file resources，缺失文件最多发布 semantic warning。
    `note Cursor 位于带 `[.->] facet 的 inline verbatim payload 时，补全 metadata title、filename 或 relative path 匹配的 workspace `[..plumb] documents。
    `note Completion 显示 metadata title 与 relative-path detail，原样插入 relative path；`[]] 冲突时增强 verbatim delimiter，输入 `[#] 后继续补全 target document 的 explicit anchors。
-   `note 尚未关闭的 inline verbatim ``[query 也提供 raw-reference candidates；选择后一次补齐安全 delimiter 与 `[.->] facet，忽略 completion 则仍可写成普通 inline verbatim。
-   `note 没有 attributes 的 bare inline verbatim ``[query] 同样提供 candidates；选择后替换完整 inline，忽略 completion 则保持普通 inline verbatim。
+   `note Raw-reference completion 只在 `[.->] 已显式存在时补全 payload；普通 bare 或尚未关闭的 inline verbatim 不推测 reference 意图。
    `note 复用现有 link completion context、workspace candidate ordering 和 last-valid cross-document index；补齐 resolution、hover、definition、export、LSP completion、guide、playground 与 bundled skill tests/docs。
 
 `-{.task #standard-image done="2026-07-22T05:38:10+08:00"} 支持 `[img] standard image extension
@@ -148,7 +147,7 @@
    `note 单个 backtick 在 block entry 提供 Heading、List item 与 Task，在 ordinary inline context 提供 Inline verbatim、Raw reference 与 Named link。
    `note 双 backtick literal escape、attributes 与 verbatim payload 不提供 candidates；context detection 保持 protocol-neutral。
    `note 根据 client snippetSupport 返回 tab-stop snippets 或 plain complete skeleton，并将 backtick 注册为 LSP trigger character。
-   `note 覆盖 block/inline context、bare/incomplete raw reference 衔接、snippet fallback 与 stdio tests，并更新 guide、playground 和 bundled skill。
+   `note 覆盖 block/inline context、explicit raw reference 选择、snippet fallback 与 stdio tests，并更新 guide、playground 和 bundled skill；普通 bare/incomplete verbatim 不推测 reference 意图。
 
 `-{.task #standard-div-span done="2026-07-20T13:00:12+08:00"} 支持标准 div 与 span 透明容器
 

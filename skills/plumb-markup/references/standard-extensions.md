@@ -125,13 +125,11 @@ when needed. Use explicit `->` links for custom labels. `.->` is valid only on
 inline verbatim and cannot be combined with `to` or `.$`; other attributes are
 preserved.
 
-To create a raw reference, request completion inside a bare inline verbatim such
-as `` `[guide] `` or an unclosed inline verbatim such as `` `[guide `` on one
-physical line. A bare form must have no attributes; the unclosed form must be the
-recovered `syntax.unclosed-verbatim` envelope. Accepting a candidate inserts the
-complete verbatim envelope and `.->` facet. Ignoring completion leaves a closed
-bare form as ordinary inline verbatim, and an unclosed form can still be closed
-normally.
+To create a raw reference, type one backtick in ordinary inline content and
+choose `Raw reference` from construct completion. Once the `.->` facet exists,
+the LSP completes document paths and explicit anchors inside its payload. Bare
+or unclosed inline verbatim remains ordinary verbatim and does not offer
+reference candidates.
 
 ## Images
 

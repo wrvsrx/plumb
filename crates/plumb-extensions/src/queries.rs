@@ -21,14 +21,6 @@ pub enum LinkCompletionContext {
         suffix: String,
         query: String,
     },
-    IncompleteVerbatimPath {
-        replace: Range<usize>,
-        query: String,
-    },
-    BareVerbatimPath {
-        replace: Range<usize>,
-        query: String,
-    },
     Anchor {
         path: String,
         replace: Range<usize>,
@@ -92,9 +84,6 @@ pub fn link_completion_context(
         return None;
     }
     if let Some(context) = verbatim_reference_completion_context(document, offset) {
-        return Some(context);
-    }
-    if let Some(context) = incomplete_verbatim_reference_completion_context(document, offset) {
         return Some(context);
     }
     if verbatim_at(document, offset) {
@@ -178,42 +167,6 @@ pub fn link_completion_context(
             query: query.to_string(),
         })
     }
-}
-
-fn incomplete_verbatim_reference_completion_context(
-    document: &ParsedDocument,
-    offset: usize,
-) -> Option<LinkCompletionContext> {
-    let diagnostic = document.diagnostics.iter().find(|diagnostic| {
-        diagnostic.code == "syntax.unclosed-verbatim"
-            && diagnostic.range.start <= offset
-            && offset <= diagnostic.range.end
-    })?;
-    let source = &document.source;
-    let mut payload_start = diagnostic.range.start + 1;
-    while source.as_bytes().get(payload_start) == Some(&b'"') {
-        payload_start += 1;
-    }
-    if source.as_bytes().get(payload_start) != Some(&b'[') {
-        return None;
-    }
-    payload_start += 1;
-    if offset < payload_start {
-        return None;
-    }
-    let query = &source[payload_start..offset];
-    if query.contains('#')
-        || query.contains('`')
-        || query
-            .chars()
-            .any(|character| character.is_control() || character == '\\')
-    {
-        return None;
-    }
-    Some(LinkCompletionContext::IncompleteVerbatimPath {
-        replace: diagnostic.range.clone(),
-        query: query.to_string(),
-    })
 }
 
 pub fn image_completion_context(
@@ -304,30 +257,20 @@ fn inlines_find_verbatim_reference(
             quote_count,
             attrs,
             ..
-        } if text_range.start <= offset && offset <= text_range.end => {
-            if attrs.items.iter().any(
+        } if text_range.start <= offset
+            && offset <= text_range.end
+            && attrs.items.iter().any(
                 |item| matches!(item, plumb_core::AttrItem::Class { value, .. } if value == "->"),
-            ) {
-                let envelope_end = attrs.range.as_ref().map_or(range.end, |range| range.start);
-                component_completion_context(
-                    source,
-                    text_range,
-                    range.start..envelope_end,
-                    *quote_count,
-                    offset,
-                )
-            } else if attrs.items.is_empty() {
-                let query = &source[text_range.start..offset];
-                (!query.contains('#')
-                    && !query.contains('`')
-                    && !query.chars().any(char::is_control))
-                .then(|| LinkCompletionContext::BareVerbatimPath {
-                    replace: range.clone(),
-                    query: query.to_string(),
-                })
-            } else {
-                None
-            }
+            ) =>
+        {
+            let envelope_end = attrs.range.as_ref().map_or(range.end, |range| range.start);
+            component_completion_context(
+                source,
+                text_range,
+                range.start..envelope_end,
+                *quote_count,
+                offset,
+            )
         }
         Inline::Element { content, .. } => inlines_find_verbatim_reference(source, content, offset),
         Inline::Verbatim { .. } | Inline::Text { .. } | Inline::SoftBreak { .. } => None,
@@ -620,60 +563,18 @@ mod tests {
         );
 
         let (ordinary, cursor) = strip_cursor("See `[doc.pl|umb]");
-        assert_eq!(
-            completion_context(&ordinary, cursor),
-            Some(LinkCompletionContext::BareVerbatimPath {
-                replace: ordinary.find('`').unwrap()..ordinary.len(),
-                query: "doc.pl".to_string(),
-            })
-        );
+        assert_eq!(completion_context(&ordinary, cursor), None);
     }
 
     #[test]
-    fn completes_incomplete_and_bare_verbatim_references_without_claiming_attributed_code() {
+    fn does_not_guess_that_verbatim_is_a_reference() {
         let incomplete = "See `[do";
-        assert_eq!(
-            completion_context(incomplete, incomplete.len()),
-            Some(LinkCompletionContext::IncompleteVerbatimPath {
-                replace: 4..incomplete.len(),
-                query: "do".to_string(),
-            })
-        );
-
-        let strengthened = "See `\"[do";
-        assert_eq!(
-            completion_context(strengthened, strengthened.len()),
-            Some(LinkCompletionContext::IncompleteVerbatimPath {
-                replace: 4..strengthened.len(),
-                query: "do".to_string(),
-            })
-        );
+        assert_eq!(completion_context(incomplete, incomplete.len()), None);
 
         let closed_code = "See `[doc]";
-        assert_eq!(
-            completion_context(closed_code, closed_code.len() - 1),
-            Some(LinkCompletionContext::BareVerbatimPath {
-                replace: 4..closed_code.len(),
-                query: "doc".to_string(),
-            })
-        );
+        assert_eq!(completion_context(closed_code, closed_code.len() - 1), None);
         let empty = "See `[]";
-        assert_eq!(
-            completion_context(empty, empty.len() - 1),
-            Some(LinkCompletionContext::BareVerbatimPath {
-                replace: 4..empty.len(),
-                query: String::new(),
-            })
-        );
-        let attributed_code = "See `[doc]{language=text}";
-        assert_eq!(
-            completion_context(attributed_code, attributed_code.find(']').unwrap()),
-            None
-        );
-        let escaped = "See ``[do";
-        assert_eq!(completion_context(escaped, escaped.len()), None);
-        let next_line = "`[do\nnext";
-        assert_eq!(completion_context(next_line, next_line.len()), None);
+        assert_eq!(completion_context(empty, empty.len() - 1), None);
     }
 
     #[test]

@@ -1791,35 +1791,6 @@ impl Workspace {
                     })
                 })
                 .collect(),
-            LinkCompletionContext::IncompleteVerbatimPath { replace, query }
-            | LinkCompletionContext::BareVerbatimPath { replace, query } => self
-                .documents
-                .values()
-                .filter_map(|entry| {
-                    let versioned = entry.current.as_ref().or(entry.last_valid.as_ref())?;
-                    if entry.path == from {
-                        return None;
-                    }
-                    let relative = relative_path(&from, &entry.path)?;
-                    if !valid_raw_completion_path(&relative) {
-                        return None;
-                    }
-                    let title = versioned
-                        .output
-                        .metadata
-                        .document_title()
-                        .filter(|title| !title.is_empty())
-                        .unwrap_or_else(|| relative.clone());
-                    (fuzzy_match(&relative, query) || fuzzy_match(&title, query)).then(|| {
-                        CompletionCandidate {
-                            label: relative.clone(),
-                            detail: title,
-                            new_text: format!("{}{{.->}}", format_inline_verbatim(&relative)),
-                            replace: replace.clone(),
-                        }
-                    })
-                })
-                .collect(),
             LinkCompletionContext::Anchor {
                 path,
                 replace,
@@ -3008,16 +2979,6 @@ mod tests {
         assert_eq!(closing_bracket[0].label, "方案]终稿.plumb");
         assert_eq!(closing_bracket[0].new_text, "`\"[方案]终稿.plumb]\"");
         assert_eq!(closing_bracket[0].replace, 0..5);
-        let incomplete = workspace.complete_link(
-            "notes/current.plumb",
-            &LinkCompletionContext::IncompleteVerbatimPath {
-                replace: 0..7,
-                query: "终稿".to_string(),
-            },
-        );
-        assert_eq!(incomplete[0].label, "方案]终稿.plumb");
-        assert_eq!(incomplete[0].new_text, "`\"[方案]终稿.plumb]\"{.->}");
-        assert_eq!(incomplete[0].replace, 0..7);
         let encoded_anchor = workspace.complete_link(
             "notes/current.plumb",
             &LinkCompletionContext::VerbatimAnchor {

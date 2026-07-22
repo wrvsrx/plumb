@@ -1874,66 +1874,6 @@ fn completes_and_navigates_relative_verbatim_references_and_images() {
 }
 
 #[test]
-fn completes_a_bare_verbatim_as_a_raw_reference() {
-    let root = unique_temp_dir();
-    std::fs::create_dir_all(&root).unwrap();
-    let current = root.join("current.plumb");
-    let target = root.join("中文笔记 [草稿].plumb");
-    let source = "`[中文]";
-    std::fs::write(&current, source).unwrap();
-    std::fs::write(&target, "`# 中文笔记\n").unwrap();
-
-    let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
-    let current_uri = lsp_types::Url::from_file_path(&current).unwrap();
-    let messages = [
-        json!({
-            "jsonrpc": "2.0", "id": 1, "method": "initialize",
-            "params": {
-                "processId": null, "rootUri": root_uri,
-                "workspaceFolders": [{ "uri": root_uri, "name": "test" }],
-                "capabilities": {}
-            }
-        }),
-        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
-        json!({
-            "jsonrpc": "2.0", "method": "textDocument/didOpen",
-            "params": { "textDocument": {
-                "uri": current_uri, "languageId": "plumb", "version": 1, "text": source
-            }}
-        }),
-        json!({
-            "jsonrpc": "2.0", "id": 2, "method": "textDocument/completion",
-            "params": {
-                "textDocument": { "uri": current_uri },
-                "position": { "line": 0, "character": source[..source.find(']').unwrap()].encode_utf16().count() }
-            }
-        }),
-        json!({ "jsonrpc": "2.0", "id": 3, "method": "shutdown", "params": null }),
-        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
-    ];
-
-    let output = run_server(&messages);
-    let completion = response(&output, 2)["result"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|item| item["label"] == "中文笔记 [草稿].plumb")
-        .expect("bare raw-reference completion");
-    assert_eq!(
-        completion["textEdit"]["newText"],
-        "`\"[中文笔记 [草稿].plumb]\"{.->}"
-    );
-    assert_eq!(
-        completion["textEdit"]["range"],
-        json!({
-            "start": { "line": 0, "character": 0 },
-            "end": { "line": 0, "character": 5 }
-        })
-    );
-    std::fs::remove_dir_all(root).unwrap();
-}
-
-#[test]
 fn completes_constructs_after_a_single_backtick() {
     let root = unique_temp_dir();
     std::fs::create_dir_all(&root).unwrap();
