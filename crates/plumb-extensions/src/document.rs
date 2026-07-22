@@ -63,11 +63,21 @@ pub enum LinkTarget {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LinkSpelling {
+    Explicit,
+    Verbatim {
+        envelope: Range<usize>,
+        quote_count: usize,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LinkRecord {
     pub range: Range<usize>,
     pub selection_range: Range<usize>,
     pub target: SourceBacked<String>,
     pub target_kind: LinkTarget,
+    pub spelling: LinkSpelling,
     pub path_range: Option<Range<usize>>,
     pub fragment_range: Option<Range<usize>>,
 }
@@ -216,8 +226,8 @@ fn collect_inlines(
                 range,
                 text,
                 text_range,
+                quote_count,
                 attrs,
-                ..
             } => {
                 collect_anchor(
                     source,
@@ -233,6 +243,7 @@ fn collect_inlines(
                     range.clone(),
                     text,
                     text_range.clone(),
+                    *quote_count,
                     attrs,
                     output,
                 );
@@ -262,6 +273,7 @@ fn collect_verbatim_autolink(
     range: Range<usize>,
     text: &str,
     text_range: Range<usize>,
+    quote_count: usize,
     attrs: &Attributes,
     output: &mut DocumentOutput,
 ) {
@@ -285,26 +297,33 @@ fn collect_verbatim_autolink(
         });
         return;
     }
-    if !valid_uri_reference(text) {
+    if !valid_raw_reference(text) {
         output.diagnostics.push(Diagnostic {
             code: "link.invalid-autolink-target",
             severity: DiagnosticSeverity::Warning,
-            message: "verbatim reference payload must be a nonempty URI reference".to_string(),
+            message:
+                "verbatim reference payload must be a nonempty absolute URI or raw relative path"
+                    .to_string(),
             range: text_range,
             related: Vec::new(),
         });
         return;
     }
-    let (target_kind, path_decoded, fragment_decoded) = classify_target(text);
+    let (target_kind, path_decoded, fragment_decoded) = classify_raw_target(text);
     let path_range = path_decoded
         .map(|decoded| text_range.start + decoded.start..text_range.start + decoded.end);
     let fragment_range = fragment_decoded
         .map(|decoded| text_range.start + decoded.start..text_range.start + decoded.end);
+    let envelope = range.start..attrs.range.as_ref().map_or(range.end, |range| range.start);
     output.links.push(LinkRecord {
         range,
         selection_range: text_range.clone(),
         target: direct_source_backed(source, text.to_string(), text_range),
         target_kind,
+        spelling: LinkSpelling::Verbatim {
+            envelope,
+            quote_count,
+        },
         path_range,
         fragment_range,
     });
@@ -335,6 +354,36 @@ fn valid_uri_reference(target: &str) -> bool {
     }
     let base = Url::parse("https://plumb.invalid/").expect("static base URL is valid");
     Url::parse(target).is_ok() || base.join(target).is_ok()
+}
+
+fn valid_raw_reference(target: &str) -> bool {
+    if target.is_empty()
+        || target
+            .chars()
+            .any(|character| character.is_control() || character == '\\')
+    {
+        return false;
+    }
+    if has_uri_scheme(target) || target.starts_with("//") {
+        return valid_uri_reference(target);
+    }
+    if target
+        .split_once('#')
+        .is_some_and(|(_, fragment)| fragment.is_empty() || fragment.contains('#'))
+    {
+        return false;
+    }
+    if target.chars().any(char::is_whitespace) {
+        let path_end = target.find('#').unwrap_or(target.len());
+        if target
+            .chars()
+            .any(|character| character != ' ' && character.is_whitespace())
+            || target[path_end..].contains(' ')
+        {
+            return false;
+        }
+    }
+    true
 }
 
 fn collect_image(
@@ -470,6 +519,7 @@ fn collect_link(
         selection_range,
         target,
         target_kind,
+        spelling: LinkSpelling::Explicit,
         path_range,
         fragment_range,
     });
@@ -528,6 +578,57 @@ fn classify_target(target: &str) -> (LinkTarget, Option<Range<usize>>, Option<Ra
         path_range,
         Some(fragment_start..target.len()),
     )
+}
+
+fn classify_raw_target(target: &str) -> (LinkTarget, Option<Range<usize>>, Option<Range<usize>>) {
+    if has_uri_scheme(target) || target.starts_with("//") {
+        return (LinkTarget::External, None, None);
+    }
+    let (path, fragment) = match target.split_once('#') {
+        Some(parts) => parts,
+        None if is_plumb_path(target) => {
+            return (
+                LinkTarget::Document {
+                    path: target.to_string(),
+                },
+                Some(0..target.len()),
+                None,
+            );
+        }
+        None => {
+            return (
+                LinkTarget::File {
+                    path: target.to_string(),
+                },
+                Some(0..target.len()),
+                None,
+            );
+        }
+    };
+    let path_value = (!path.is_empty()).then(|| path.to_string());
+    let path_range = (!path.is_empty()).then_some(0..path.len());
+    let fragment_start = path.len() + 1;
+    (
+        LinkTarget::Anchor {
+            path: path_value,
+            fragment: fragment.to_string(),
+        },
+        path_range,
+        Some(fragment_start..target.len()),
+    )
+}
+
+fn has_uri_scheme(target: &str) -> bool {
+    let Some((scheme, _)) = target.split_once(':') else {
+        return false;
+    };
+    let mut characters = scheme.chars();
+    characters
+        .next()
+        .is_some_and(|first| first.is_ascii_alphabetic())
+        && characters.all(|character| {
+            character.is_ascii_alphanumeric() || matches!(character, '+' | '-' | '.')
+        })
 }
 
 fn uri_reference_path(target: &str) -> &str {
@@ -608,6 +709,7 @@ mod tests {
         let parsed = parse("See `->[target]{to=\"docs/a.plumb#intro\"}.\n");
         let output = analyze_document(&parsed.source, &parsed.syntax);
         let link = &output.links[0];
+        assert_eq!(link.spelling, LinkSpelling::Explicit);
         assert_eq!(
             &parsed.source[link.path_range.clone().unwrap()],
             "docs/a.plumb"
@@ -651,13 +753,17 @@ mod tests {
 
     #[test]
     fn recognizes_relative_verbatim_document_anchor_and_file_references() {
-        let source = "`[other.plumb]{.->}\n`[other.plumb#section]{.->}\n`[../assets/a%20b.pdf]{.->}\n`[#local]{.->}\n";
+        let source = "`[other.plumb]{.->}\n`[other notes.plumb#section]{.->}\n`[../assets/a b.pdf]{.->}\n`[../assets/100% done?.pdf]{.->}\n`[#local]{.->}\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
         let output = analyze_document(&parsed.source, &parsed.syntax);
         assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
-        assert_eq!(output.links.len(), 4);
+        assert_eq!(output.links.len(), 5);
+        assert!(output
+            .links
+            .iter()
+            .all(|link| matches!(link.spelling, LinkSpelling::Verbatim { .. })));
         assert_eq!(
             output.links[0].target_kind,
             LinkTarget::Document {
@@ -667,14 +773,14 @@ mod tests {
         assert_eq!(
             output.links[1].target_kind,
             LinkTarget::Anchor {
-                path: Some("other.plumb".to_string()),
+                path: Some("other notes.plumb".to_string()),
                 fragment: "section".to_string()
             }
         );
         assert_eq!(
             output.links[2].target_kind,
             LinkTarget::File {
-                path: "../assets/a%20b.pdf".to_string()
+                path: "../assets/a b.pdf".to_string()
             }
         );
         assert_eq!(
@@ -683,6 +789,12 @@ mod tests {
         );
         assert_eq!(
             output.links[3].target_kind,
+            LinkTarget::File {
+                path: "../assets/100% done?.pdf".to_string()
+            }
+        );
+        assert_eq!(
+            output.links[4].target_kind,
             LinkTarget::Anchor {
                 path: None,
                 fragment: "local".to_string()
@@ -722,7 +834,7 @@ mod tests {
 
     #[test]
     fn diagnoses_invalid_autolink_targets_owners_and_conflicts() {
-        let source = "`[]{.->}\n`[bad path.plumb]{.->}\n`[https://example.test/%zz]{.->}\n`[https://example.test]{.-> to=other}\n`[https://example.test]{.-> .$}\n`span[text]{.->}\n`note{.->} head\n`{.->}\n  raw\n";
+        let source = "`[]{.->}\n`[https://example.test/bad path]{.->}\n`[https://example.test/%zz]{.->}\n`[doc.plumb#one#two]{.->}\n`[https://example.test]{.-> to=other}\n`[https://example.test]{.-> .$}\n`span[text]{.->}\n`note{.->} head\n`{.->}\n  raw\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
@@ -736,6 +848,7 @@ mod tests {
         assert_eq!(
             codes,
             [
+                "link.invalid-autolink-target",
                 "link.invalid-autolink-target",
                 "link.invalid-autolink-target",
                 "link.invalid-autolink-target",

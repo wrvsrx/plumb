@@ -9,8 +9,8 @@ use plumb_core::{
 use plumb_extensions::{
     analyze_document, next_task_datetime, parse_task_reference_target, valid_task_datetime,
     AnchorRecord, DocumentOutput, ImageCompletionContext, ImageRecord, ImageTarget,
-    LinkCompletionContext, LinkRecord, LinkTarget, MetadataValue, TaskRecord, TaskReferenceTarget,
-    TaskState, TaskStatus,
+    LinkCompletionContext, LinkRecord, LinkSpelling, LinkTarget, MetadataValue, TaskRecord,
+    TaskReferenceTarget, TaskState, TaskStatus,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -394,7 +394,7 @@ impl Workspace {
         match &link.target_kind {
             LinkTarget::External => ResolvedTarget::External,
             LinkTarget::File { path } => {
-                let target = resolve_relative(&from, &percent_decode_path(path));
+                let target = resolve_relative(&from, &link_filesystem_path(link, path));
                 if target.is_file() {
                     ResolvedTarget::File { path: target }
                 } else {
@@ -403,7 +403,7 @@ impl Workspace {
             }
             LinkTarget::Other => ResolvedTarget::Other,
             LinkTarget::Document { path } => {
-                let target = resolve_relative(&from, &percent_decode_path(path));
+                let target = resolve_relative(&from, &link_filesystem_path(link, path));
                 if self.current_output(&target).is_some() {
                     ResolvedTarget::Document { path: target }
                 } else {
@@ -413,7 +413,7 @@ impl Workspace {
             LinkTarget::Anchor { path, fragment } => {
                 let target = path.as_deref().map_or_else(
                     || from.clone(),
-                    |path| resolve_relative(&from, &percent_decode_path(path)),
+                    |path| resolve_relative(&from, &link_filesystem_path(link, path)),
                 );
                 let Some(output) = self.current_output(&target) else {
                     return ResolvedTarget::UnresolvedPath { path: target };
@@ -1580,10 +1580,7 @@ impl Workspace {
                 grouped
                     .entry(entry.path.clone())
                     .or_default()
-                    .push(TextEdit {
-                        range: path_range.clone(),
-                        new_text: replacement,
-                    });
+                    .push(link_path_rename_edit(link, path_range, replacement));
             }
             for task in &current.output.tasks.tasks {
                 for (source, range, target) in task_reference_fields(task) {
@@ -1753,6 +1750,76 @@ impl Workspace {
                     })
                 })
                 .collect(),
+            LinkCompletionContext::VerbatimPath {
+                replace,
+                envelope,
+                quote_count,
+                suffix,
+                query,
+            } => self
+                .documents
+                .values()
+                .filter_map(|entry| {
+                    let versioned = entry.current.as_ref().or(entry.last_valid.as_ref())?;
+                    if entry.path == from {
+                        return None;
+                    }
+                    let relative = relative_path(&from, &entry.path)?;
+                    if !valid_raw_completion_path(&relative) {
+                        return None;
+                    }
+                    let title = versioned
+                        .output
+                        .metadata
+                        .document_title()
+                        .filter(|title| !title.is_empty())
+                        .unwrap_or_else(|| relative.clone());
+                    (fuzzy_match(&relative, query) || fuzzy_match(&title, query)).then(|| {
+                        let payload = format!("{relative}{suffix}");
+                        let (new_text, replace) =
+                            if verbatim_payload_is_safe(&payload, *quote_count) {
+                                (relative.clone(), replace.clone())
+                            } else {
+                                (format_inline_verbatim(&payload), envelope.clone())
+                            };
+                        CompletionCandidate {
+                            label: relative.clone(),
+                            detail: title,
+                            new_text,
+                            replace,
+                        }
+                    })
+                })
+                .collect(),
+            LinkCompletionContext::IncompleteVerbatimPath { replace, query }
+            | LinkCompletionContext::BareVerbatimPath { replace, query } => self
+                .documents
+                .values()
+                .filter_map(|entry| {
+                    let versioned = entry.current.as_ref().or(entry.last_valid.as_ref())?;
+                    if entry.path == from {
+                        return None;
+                    }
+                    let relative = relative_path(&from, &entry.path)?;
+                    if !valid_raw_completion_path(&relative) {
+                        return None;
+                    }
+                    let title = versioned
+                        .output
+                        .metadata
+                        .document_title()
+                        .filter(|title| !title.is_empty())
+                        .unwrap_or_else(|| relative.clone());
+                    (fuzzy_match(&relative, query) || fuzzy_match(&title, query)).then(|| {
+                        CompletionCandidate {
+                            label: relative.clone(),
+                            detail: title,
+                            new_text: format!("{}{{.->}}", format_inline_verbatim(&relative)),
+                            replace: replace.clone(),
+                        }
+                    })
+                })
+                .collect(),
             LinkCompletionContext::Anchor {
                 path,
                 replace,
@@ -1762,6 +1829,35 @@ impl Workspace {
                     from.clone()
                 } else {
                     resolve_relative(&from, &percent_decode_path(path))
+                };
+                self.documents
+                    .get(&target_path)
+                    .and_then(|entry| entry.current.as_ref().or(entry.last_valid.as_ref()))
+                    .map(|versioned| {
+                        versioned
+                            .output
+                            .anchors
+                            .iter()
+                            .filter(|anchor| fuzzy_match(&anchor.id.value, query))
+                            .map(|anchor| CompletionCandidate {
+                                label: format!("#{}", anchor.id.value),
+                                detail: format!("explicit anchor in {}", target_path.display()),
+                                new_text: anchor.id.value.clone(),
+                                replace: replace.clone(),
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default()
+            }
+            LinkCompletionContext::VerbatimAnchor {
+                path,
+                replace,
+                query,
+            } => {
+                let target_path = if path.is_empty() {
+                    from.clone()
+                } else {
+                    resolve_relative(&from, path)
                 };
                 self.documents
                     .get(&target_path)
@@ -2179,6 +2275,13 @@ fn percent_decode_path(path: &str) -> String {
     String::from_utf8(decoded).unwrap_or_else(|_| path.to_string())
 }
 
+fn link_filesystem_path(link: &LinkRecord, path: &str) -> String {
+    match &link.spelling {
+        LinkSpelling::Explicit => percent_decode_path(path),
+        LinkSpelling::Verbatim { .. } => path.to_string(),
+    }
+}
+
 fn percent_encode_path(path: &str) -> String {
     let mut encoded = String::with_capacity(path.len());
     for byte in path.bytes() {
@@ -2190,6 +2293,58 @@ fn percent_encode_path(path: &str) -> String {
         }
     }
     encoded
+}
+
+fn valid_raw_completion_path(path: &str) -> bool {
+    !path.contains('#')
+        && !path
+            .chars()
+            .any(|character| character.is_control() || character == '\\')
+        && !path
+            .chars()
+            .any(|character| character.is_whitespace() && character != ' ')
+}
+
+fn link_path_rename_edit(
+    link: &LinkRecord,
+    path_range: &std::ops::Range<usize>,
+    replacement: String,
+) -> TextEdit {
+    let LinkSpelling::Verbatim {
+        envelope,
+        quote_count,
+    } = &link.spelling
+    else {
+        return TextEdit {
+            range: path_range.clone(),
+            new_text: replacement,
+        };
+    };
+    let suffix_start = path_range.end - link.target.range.start;
+    let payload = format!("{replacement}{}", &link.target.value[suffix_start..]);
+    if verbatim_payload_is_safe(&payload, *quote_count) {
+        TextEdit {
+            range: path_range.clone(),
+            new_text: replacement,
+        }
+    } else {
+        TextEdit {
+            range: envelope.clone(),
+            new_text: format_inline_verbatim(&payload),
+        }
+    }
+}
+
+fn verbatim_payload_is_safe(payload: &str, quote_count: usize) -> bool {
+    !payload.contains(&format!("]{}", "\"".repeat(quote_count)))
+}
+
+fn format_inline_verbatim(payload: &str) -> String {
+    let quote_count = (0..)
+        .find(|quote_count| verbatim_payload_is_safe(payload, *quote_count))
+        .expect("a finite payload always has a safe verbatim delimiter");
+    let quotes = "\"".repeat(quote_count);
+    format!("`{quotes}[{payload}]{quotes}")
 }
 
 fn is_image_path(path: &Path) -> bool {
@@ -2602,11 +2757,11 @@ mod tests {
     #[test]
     fn resolves_same_and_cross_file_explicit_anchors() {
         let mut workspace = Workspace::new();
-        workspace.insert("notes/a.plumb", 1, "`#{#local} Local\n");
+        workspace.insert("notes/a note.plumb", 1, "`#{#local} Local\n");
         workspace.insert(
             "notes/b.plumb",
             1,
-            "See `->[local]{to=\"a.plumb#local\"}.\n",
+            "See `->[local]{to=\"a%20note.plumb#local\"}.\n",
         );
         let link = &workspace
             .get("notes/b.plumb")
@@ -2795,6 +2950,14 @@ mod tests {
     #[test]
     fn completes_paths_and_only_explicit_anchors() {
         let mut workspace = Workspace::new();
+        let raw_path =
+            |replace: std::ops::Range<usize>, query: &str| LinkCompletionContext::VerbatimPath {
+                envelope: replace.clone(),
+                replace,
+                quote_count: 0,
+                suffix: String::new(),
+                query: query.to_string(),
+            };
         workspace.insert("notes/current.plumb", 1, "Current\n");
         workspace.insert(
             "notes/design.plumb",
@@ -2806,13 +2969,10 @@ mod tests {
             1,
             "`meta\n `: title\n\n    Project Plan\n\n`#{#roadmap} Roadmap\n",
         );
-        let paths = workspace.complete_link(
-            "notes/current.plumb",
-            &LinkCompletionContext::Path {
-                replace: 10..13,
-                query: "guide".to_string(),
-            },
-        );
+        workspace.insert("notes/中文笔记.plumb", 1, "`#{#内容} 中文内容\n");
+        workspace.insert("notes/方案 (草稿).plumb", 1, "`# 草稿\n");
+        workspace.insert("notes/方案]终稿.plumb", 1, "`# 终稿\n");
+        let paths = workspace.complete_link("notes/current.plumb", &raw_path(10..13, "guide"));
         assert_eq!(paths[0].label, "design.plumb");
         assert_eq!(paths[0].detail, "Design Guide");
         assert_eq!(paths[0].new_text, "design.plumb");
@@ -2826,19 +2986,42 @@ mod tests {
         assert_eq!(labels[0].label, "Design Guide");
         assert_eq!(labels[0].detail, "design.plumb");
         assert_eq!(labels[0].new_text, "`->[Design Guide]{to=\"design.plumb\"}");
-        let encoded = workspace.complete_link(
+        let encoded = workspace.complete_link("notes/current.plumb", &raw_path(0..0, "project"));
+        assert_eq!(encoded[0].label, "Project Plan.plumb");
+        assert_eq!(encoded[0].new_text, "Project Plan.plumb");
+        let unicode = workspace.complete_link("notes/current.plumb", &raw_path(0..0, "中文"));
+        assert_eq!(unicode[0].label, "中文笔记.plumb");
+        assert_eq!(unicode[0].new_text, "中文笔记.plumb");
+        let parentheses = workspace.complete_link("notes/current.plumb", &raw_path(0..0, "草稿"));
+        assert_eq!(parentheses[0].label, "方案 (草稿).plumb");
+        assert_eq!(parentheses[0].new_text, "方案 (草稿).plumb");
+        let closing_bracket = workspace.complete_link(
             "notes/current.plumb",
-            &LinkCompletionContext::Path {
-                replace: 0..0,
-                query: "project".to_string(),
+            &LinkCompletionContext::VerbatimPath {
+                replace: 2..3,
+                envelope: 0..5,
+                quote_count: 0,
+                suffix: String::new(),
+                query: "终稿".to_string(),
             },
         );
-        assert_eq!(encoded[0].label, "Project Plan.plumb");
-        assert_eq!(encoded[0].new_text, "Project%20Plan.plumb");
+        assert_eq!(closing_bracket[0].label, "方案]终稿.plumb");
+        assert_eq!(closing_bracket[0].new_text, "`\"[方案]终稿.plumb]\"");
+        assert_eq!(closing_bracket[0].replace, 0..5);
+        let incomplete = workspace.complete_link(
+            "notes/current.plumb",
+            &LinkCompletionContext::IncompleteVerbatimPath {
+                replace: 0..7,
+                query: "终稿".to_string(),
+            },
+        );
+        assert_eq!(incomplete[0].label, "方案]终稿.plumb");
+        assert_eq!(incomplete[0].new_text, "`\"[方案]终稿.plumb]\"{.->}");
+        assert_eq!(incomplete[0].replace, 0..7);
         let encoded_anchor = workspace.complete_link(
             "notes/current.plumb",
-            &LinkCompletionContext::Anchor {
-                path: "Project%20Plan.plumb".to_string(),
+            &LinkCompletionContext::VerbatimAnchor {
+                path: "Project Plan.plumb".to_string(),
                 replace: 0..0,
                 query: "road".to_string(),
             },
@@ -2869,10 +3052,10 @@ mod tests {
         let static_dir = root.join("static");
         std::fs::create_dir_all(static_dir.join("nested")).unwrap();
         std::fs::write(static_dir.join("image one.PNG"), b"png").unwrap();
+        std::fs::write(static_dir.join("literal%20name.txt"), b"text").unwrap();
         std::fs::write(static_dir.join("ignored.txt"), b"text").unwrap();
         let source_path = root.join("current.plumb");
-        let source =
-            "`[static/image%20one.PNG]{.->}\n`img[Result]{src=\"static/image%20one.PNG\"}\n";
+        let source = "`[static/image one.PNG]{.->}\n`img[Result]{src=\"static/image%20one.PNG\"}\n`[static/literal%20name.txt]{.->}\n";
         let mut workspace = Workspace::new();
         workspace.insert(&source_path, 3, source);
 
@@ -2900,12 +3083,21 @@ mod tests {
             .any(|candidate| candidate.new_text == "static/nested/"));
 
         let link = workspace
-            .link_at(&source_path, source.find("image%20one").unwrap())
+            .link_at(&source_path, source.find("image one").unwrap())
             .unwrap();
         assert_eq!(
             workspace.resolve_link(&source_path, link),
             ResolvedTarget::File {
                 path: static_dir.join("image one.PNG")
+            }
+        );
+        let literal_percent = workspace
+            .link_at(&source_path, source.find("literal%20name").unwrap())
+            .unwrap();
+        assert_eq!(
+            workspace.resolve_link(&source_path, literal_percent),
+            ResolvedTarget::File {
+                path: static_dir.join("literal%20name.txt")
             }
         );
         let image = workspace
@@ -2920,6 +3112,7 @@ mod tests {
         assert!(workspace.diagnostics(&source_path).is_empty());
 
         std::fs::remove_file(static_dir.join("image one.PNG")).unwrap();
+        std::fs::remove_file(static_dir.join("literal%20name.txt")).unwrap();
         assert!(workspace
             .diagnostics(&source_path)
             .iter()
@@ -3017,6 +3210,39 @@ mod tests {
             .find(|document| document.path == Path::new("notes/a.plumb"))
             .unwrap();
         assert_eq!(outgoing.edits[0].new_text, "../../shared/c.plumb");
+    }
+
+    #[test]
+    fn document_rename_strengthens_raw_reference_delimiters() {
+        let mut workspace = Workspace::new();
+        workspace.insert("notes/a.plumb", 1, "`#{#a} A\n");
+        let reference = "`[a.plumb#a]{.->}\n";
+        workspace.insert("notes/b.plumb", 2, reference);
+        let link = &workspace
+            .get("notes/b.plumb")
+            .unwrap()
+            .current
+            .as_ref()
+            .unwrap()
+            .output
+            .links[0];
+        let target = workspace
+            .path_rename_target_at("notes/b.plumb", link.path_range.as_ref().unwrap().start)
+            .unwrap();
+        let edit = workspace
+            .rename_document(&target, "archive/a] final.plumb")
+            .unwrap();
+        let incoming = edit
+            .document_changes
+            .iter()
+            .find(|document| document.path == Path::new("notes/b.plumb"))
+            .unwrap();
+        let mut edited = reference.to_string();
+        for text_edit in incoming.edits.iter().rev() {
+            edited.replace_range(text_edit.range.clone(), &text_edit.new_text);
+        }
+        assert_eq!(edited, "`\"[archive/a] final.plumb#a]\"{.->}\n");
+        assert!(parse(edited).is_valid());
     }
 
     #[test]

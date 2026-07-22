@@ -17,8 +17,8 @@ use lsp_types::{
     DocumentRangeFormattingParams, DocumentSymbol, DocumentSymbolParams, DocumentSymbolResponse,
     FileChangeType, FileSystemWatcher, GlobPattern, GotoDefinitionParams, GotoDefinitionResponse,
     Hover, HoverContents, HoverParams, HoverProviderCapability, InitializeParams, InitializeResult,
-    InitializedParams, Location, MarkupContent, MarkupKind, NumberOrString, OneOf,
-    OptionalVersionedTextDocumentIdentifier, PrepareRenameResponse, ProgressParams,
+    InitializedParams, InsertTextFormat, Location, MarkupContent, MarkupKind, NumberOrString,
+    OneOf, OptionalVersionedTextDocumentIdentifier, PrepareRenameResponse, ProgressParams,
     ProgressParamsValue, PublishDiagnosticsParams, ReferenceParams, Registration,
     RegistrationParams, RenameFile, RenameFileOptions, RenameOptions, RenameParams, ResourceOp,
     ResourceOperationKind, SemanticToken, SemanticTokenModifier, SemanticTokenType, SemanticTokens,
@@ -31,8 +31,9 @@ use lsp_types::{
 };
 use plumb_core::Diagnostic;
 use plumb_extensions::{
-    image_completion_context, link_completion_context, AnchorKind, AnchorRecord, Heading,
-    MetadataBlock, MetadataEntry, MetadataValue, TaskRecord, TaskState, TaskStatus,
+    construct_completion_context, image_completion_context, link_completion_context, AnchorKind,
+    AnchorRecord, ConstructCompletionContext, Heading, MetadataBlock, MetadataEntry, MetadataValue,
+    TaskRecord, TaskState, TaskStatus,
 };
 use plumb_workspace::{
     normalize, RenameError, ResolvedTarget, ResourceOperation, SearchRecord, SearchRecordKind,
@@ -50,6 +51,7 @@ pub(crate) struct ServerState {
     supports_document_changes: bool,
     supports_resource_rename: bool,
     supports_dynamic_watching: bool,
+    supports_completion_snippets: bool,
     index_complete: bool,
     pending_path_renames: Vec<PendingPathRename>,
 }
@@ -71,6 +73,7 @@ impl ServerState {
             supports_document_changes: false,
             supports_resource_rename: false,
             supports_dynamic_watching: false,
+            supports_completion_snippets: false,
             index_complete: false,
             pending_path_renames: Vec::new(),
         }
@@ -439,6 +442,14 @@ impl LanguageServer for ServerState {
             .and_then(|workspace| workspace.did_change_watched_files.as_ref())
             .and_then(|watching| watching.dynamic_registration)
             .unwrap_or(false);
+        self.supports_completion_snippets = params
+            .capabilities
+            .text_document
+            .as_ref()
+            .and_then(|text_document| text_document.completion.as_ref())
+            .and_then(|completion| completion.completion_item.as_ref())
+            .and_then(|item| item.snippet_support)
+            .unwrap_or(false);
         Box::pin(async {
             Ok(InitializeResult {
                 capabilities: ServerCapabilities {
@@ -477,6 +488,7 @@ impl LanguageServer for ServerState {
                     completion_provider: Some(CompletionOptions {
                         resolve_provider: Some(false),
                         trigger_characters: Some(vec![
+                            "`".to_string(),
                             "[".to_string(),
                             "\"".to_string(),
                             "/".to_string(),
@@ -928,26 +940,37 @@ impl LanguageServer for ServerState {
             .and_then(|path| {
                 let entry = self.workspace.get(&path)?;
                 let offset = position_to_offset(&entry.parsed.source, position.position);
-                let (candidates, kind) =
-                    if let Some(context) = link_completion_context(&entry.parsed, offset) {
-                        let kind = if matches!(
-                            &context,
-                            plumb_extensions::LinkCompletionContext::Label { .. }
-                                | plumb_extensions::LinkCompletionContext::Path { .. }
-                        ) {
-                            CompletionItemKind::FILE
-                        } else {
-                            CompletionItemKind::REFERENCE
-                        };
-                        (self.workspace.complete_link(&path, &context), kind)
-                    } else if let Some(context) = image_completion_context(&entry.parsed, offset) {
-                        (
-                            self.workspace.complete_image_path(&path, &context),
-                            CompletionItemKind::FILE,
-                        )
+                if let Some(context) = construct_completion_context(&entry.parsed, offset) {
+                    return Some(construct_completion_items(
+                        &entry.parsed.source,
+                        context,
+                        self.supports_completion_snippets,
+                    ));
+                }
+                let (candidates, kind) = if let Some(context) =
+                    link_completion_context(&entry.parsed, offset)
+                {
+                    let kind = if matches!(
+                        &context,
+                        plumb_extensions::LinkCompletionContext::Label { .. }
+                            | plumb_extensions::LinkCompletionContext::Path { .. }
+                            | plumb_extensions::LinkCompletionContext::VerbatimPath { .. }
+                            | plumb_extensions::LinkCompletionContext::IncompleteVerbatimPath { .. }
+                            | plumb_extensions::LinkCompletionContext::BareVerbatimPath { .. }
+                    ) {
+                        CompletionItemKind::FILE
                     } else {
-                        return None;
+                        CompletionItemKind::REFERENCE
                     };
+                    (self.workspace.complete_link(&path, &context), kind)
+                } else if let Some(context) = image_completion_context(&entry.parsed, offset) {
+                    (
+                        self.workspace.complete_image_path(&path, &context),
+                        CompletionItemKind::FILE,
+                    )
+                } else {
+                    return None;
+                };
                 Some(
                     candidates
                         .into_iter()
@@ -1270,6 +1293,88 @@ fn document_rename_error(error: RenameError) -> ResponseError {
         error => format!("document rename failed: {error:?}"),
     };
     rename_request_error(message)
+}
+
+struct ConstructTemplate {
+    label: &'static str,
+    detail: &'static str,
+    snippet: &'static str,
+    plain: &'static str,
+}
+
+fn construct_completion_items(
+    source: &str,
+    context: ConstructCompletionContext,
+    snippets: bool,
+) -> Vec<CompletionItem> {
+    const BLOCKS: &[ConstructTemplate] = &[
+        ConstructTemplate {
+            label: "Heading",
+            detail: "plumb heading",
+            snippet: "`# ${1:Heading}",
+            plain: "`# ",
+        },
+        ConstructTemplate {
+            label: "List item",
+            detail: "plumb bullet list item",
+            snippet: "`- ${1:Item}",
+            plain: "`- ",
+        },
+        ConstructTemplate {
+            label: "Task",
+            detail: "plumb task list item",
+            snippet: "`-{.task} ${1:Task}",
+            plain: "`-{.task} ",
+        },
+    ];
+    const INLINES: &[ConstructTemplate] = &[
+        ConstructTemplate {
+            label: "Inline verbatim",
+            detail: "plumb inline verbatim",
+            snippet: "`[${1:text}]",
+            plain: "`[]",
+        },
+        ConstructTemplate {
+            label: "Raw reference",
+            detail: "plumb raw reference",
+            snippet: "`[${1:path}]{.->}",
+            plain: "`[]{.->}",
+        },
+        ConstructTemplate {
+            label: "Named link",
+            detail: "plumb named link",
+            snippet: "`->[${1:label}]{to=\"${2:target}\"}",
+            plain: "`->[]{to=\"\"}",
+        },
+    ];
+
+    let (replace, templates) = match context {
+        ConstructCompletionContext::Block { replace } => (replace, BLOCKS),
+        ConstructCompletionContext::Inline { replace } => (replace, INLINES),
+    };
+    templates
+        .iter()
+        .map(|template| CompletionItem {
+            label: template.label.to_string(),
+            kind: Some(CompletionItemKind::SNIPPET),
+            detail: Some(template.detail.to_string()),
+            insert_text_format: Some(if snippets {
+                InsertTextFormat::SNIPPET
+            } else {
+                InsertTextFormat::PLAIN_TEXT
+            }),
+            text_edit: Some(CompletionTextEdit::Edit(LspTextEdit::new(
+                byte_range_to_lsp(source, &replace),
+                if snippets {
+                    template.snippet
+                } else {
+                    template.plain
+                }
+                .to_string(),
+            ))),
+            ..CompletionItem::default()
+        })
+        .collect()
 }
 
 fn target_hover(workspace: &Workspace, target: &ResolvedTarget) -> String {

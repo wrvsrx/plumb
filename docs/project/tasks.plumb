@@ -125,21 +125,30 @@
    .task #relative-verbatim-references done="2026-07-22T05:38:10+08:00"
   } 支持 `[.->] relative file references 与 `[.plumb] completion
 
-   `note 将 `[.->] target 从 absolute URI 放宽为 URI reference，不增加 `[.file] 或 `[.path] spelling。
-   `note Relative path 以 source document 所在目录为基准；保留原始 UTF-8 spelling，unsafe bytes 使用 percent encoding，仍拒绝 backslash、control 与裸 space。
+   `note 将 `[.->] target 从 absolute URI 放宽为 absolute URI 或 raw relative path，不增加 `[.file] 或 `[.path] spelling。
+   `note Relative path 以 source document 所在目录为基准；raw spelling 不做 percent encode/decode 或 normalization，`[#] 只用于 explicit anchor，仍拒绝 backslash 与 control。
    `note `[..plumb] 与 `[..plumb#id] targets 继续进入 document/explicit-anchor resolution；其他 relative paths 分类为 file resources，缺失文件最多发布 semantic warning。
    `note Cursor 位于带 `[.->] facet 的 inline verbatim payload 时，补全 metadata title、filename 或 relative path 匹配的 workspace `[..plumb] documents。
-   `note Completion 显示 metadata title 与 relative-path detail，只插入 URI-encoded relative path；排除当前 document，输入 `[#] 后继续补全 target document 的 explicit anchors。
+   `note Completion 显示 metadata title 与 relative-path detail，原样插入 relative path；`[]] 冲突时增强 verbatim delimiter，输入 `[#] 后继续补全 target document 的 explicit anchors。
+   `note 尚未关闭的 inline verbatim ``[query 也提供 raw-reference candidates；选择后一次补齐安全 delimiter 与 `[.->] facet，忽略 completion 则仍可写成普通 inline verbatim。
+   `note 没有 attributes 的 bare inline verbatim ``[query] 同样提供 candidates；选择后替换完整 inline，忽略 completion 则保持普通 inline verbatim。
    `note 复用现有 link completion context、workspace candidate ordering 和 last-valid cross-document index；补齐 resolution、hover、definition、export、LSP completion、guide、playground 与 bundled skill tests/docs。
 
 `-{.task #standard-image done="2026-07-22T05:38:10+08:00"} 支持 `[img] standard image extension
 
    `note `"[img[alt]{src="target"}]" 是唯一 image spelling；parsed inline content 是 alt content，`[src] 是必需且非空的 URI reference。
-   `note `[src] 接受 absolute URI 或相对 source document 所在目录的 file path；保留原始 spelling，并复用 relative reference 的 percent-encoding 与 validity rules。
+   `note `[src] 接受 absolute URI 或相对 source document 所在目录的 URI-reference file path；保留原始 spelling，并继续使用 percent-encoding 与 URI validity rules。
    `note Empty alt 合法；非空 alt 保留 parsed inline content。缺失、空或无效 src 发布 `[image.missing-source] 或 `[image.invalid-source] semantic diagnostic。
    `note Export lower 为 Pandoc Image，并保留未消费的 explicit id、classes 和 key/value attributes；image-only paragraph 仍是只含 Image 的 paragraph。
    `note LSP 在 src value 中补全相对本地图片文件，初版覆盖 PNG、JPEG、WebP、GIF、SVG 和 AVIF，插入 URI-encoded path；hover/definition 使用 resolved file location。
    `note Core parser 不增加 image special case；补齐 extension、export、metadata、LSP、guide、playground 和 bundled skill tests/docs。Figure、caption、numbering 与 cross-reference 继续 deferred。
+
+`-{.task #construct-completion done="2026-07-22T16:32:30+08:00"} 提供 backtick construct completion
+
+   `note 单个 backtick 在 block entry 提供 Heading、List item 与 Task，在 ordinary inline context 提供 Inline verbatim、Raw reference 与 Named link。
+   `note 双 backtick literal escape、attributes 与 verbatim payload 不提供 candidates；context detection 保持 protocol-neutral。
+   `note 根据 client snippetSupport 返回 tab-stop snippets 或 plain complete skeleton，并将 backtick 注册为 LSP trigger character。
+   `note 覆盖 block/inline context、bare/incomplete raw reference 衔接、snippet fallback 与 stdio tests，并更新 guide、playground 和 bundled skill。
 
 `-{.task #standard-div-span done="2026-07-20T13:00:12+08:00"} 支持标准 div 与 span 透明容器
 

@@ -14,7 +14,27 @@ pub enum LinkCompletionContext {
         replace: Range<usize>,
         query: String,
     },
+    VerbatimPath {
+        replace: Range<usize>,
+        envelope: Range<usize>,
+        quote_count: usize,
+        suffix: String,
+        query: String,
+    },
+    IncompleteVerbatimPath {
+        replace: Range<usize>,
+        query: String,
+    },
+    BareVerbatimPath {
+        replace: Range<usize>,
+        query: String,
+    },
     Anchor {
+        path: String,
+        replace: Range<usize>,
+        query: String,
+    },
+    VerbatimAnchor {
         path: String,
         replace: Range<usize>,
         query: String,
@@ -27,6 +47,42 @@ pub struct ImageCompletionContext {
     pub query: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ConstructCompletionContext {
+    Block { replace: Range<usize> },
+    Inline { replace: Range<usize> },
+}
+
+pub fn construct_completion_context(
+    document: &ParsedDocument,
+    offset: usize,
+) -> Option<ConstructCompletionContext> {
+    let source = &document.source;
+    if offset == 0 || offset > source.len() || !source.is_char_boundary(offset) {
+        return None;
+    }
+    let introducer = source[..offset].char_indices().next_back()?.0;
+    if &source[introducer..offset] != "`"
+        || source[..introducer].ends_with('`')
+        || verbatim_at(document, introducer)
+        || blocks_attributes_contain(&document.syntax.blocks, introducer)
+    {
+        return None;
+    }
+    let replace = introducer..offset;
+    let line_start = source[..introducer]
+        .rfind('\n')
+        .map_or(0, |index| index + 1);
+    if source[line_start..introducer]
+        .chars()
+        .all(|character| character == ' ')
+    {
+        Some(ConstructCompletionContext::Block { replace })
+    } else {
+        Some(ConstructCompletionContext::Inline { replace })
+    }
+}
+
 pub fn link_completion_context(
     document: &ParsedDocument,
     offset: usize,
@@ -36,6 +92,9 @@ pub fn link_completion_context(
         return None;
     }
     if let Some(context) = verbatim_reference_completion_context(document, offset) {
+        return Some(context);
+    }
+    if let Some(context) = incomplete_verbatim_reference_completion_context(document, offset) {
         return Some(context);
     }
     if verbatim_at(document, offset) {
@@ -121,6 +180,42 @@ pub fn link_completion_context(
     }
 }
 
+fn incomplete_verbatim_reference_completion_context(
+    document: &ParsedDocument,
+    offset: usize,
+) -> Option<LinkCompletionContext> {
+    let diagnostic = document.diagnostics.iter().find(|diagnostic| {
+        diagnostic.code == "syntax.unclosed-verbatim"
+            && diagnostic.range.start <= offset
+            && offset <= diagnostic.range.end
+    })?;
+    let source = &document.source;
+    let mut payload_start = diagnostic.range.start + 1;
+    while source.as_bytes().get(payload_start) == Some(&b'"') {
+        payload_start += 1;
+    }
+    if source.as_bytes().get(payload_start) != Some(&b'[') {
+        return None;
+    }
+    payload_start += 1;
+    if offset < payload_start {
+        return None;
+    }
+    let query = &source[payload_start..offset];
+    if query.contains('#')
+        || query.contains('`')
+        || query
+            .chars()
+            .any(|character| character.is_control() || character == '\\')
+    {
+        return None;
+    }
+    Some(LinkCompletionContext::IncompleteVerbatimPath {
+        replace: diagnostic.range.clone(),
+        query: query.to_string(),
+    })
+}
+
 pub fn image_completion_context(
     document: &ParsedDocument,
     offset: usize,
@@ -204,14 +299,35 @@ fn inlines_find_verbatim_reference(
 ) -> Option<LinkCompletionContext> {
     content.items.iter().find_map(|inline| match inline {
         Inline::Verbatim {
-            text_range, attrs, ..
-        } if text_range.start <= offset
-            && offset <= text_range.end
-            && attrs.items.iter().any(
+            range,
+            text_range,
+            quote_count,
+            attrs,
+            ..
+        } if text_range.start <= offset && offset <= text_range.end => {
+            if attrs.items.iter().any(
                 |item| matches!(item, plumb_core::AttrItem::Class { value, .. } if value == "->"),
-            ) =>
-        {
-            component_completion_context(source, text_range, offset)
+            ) {
+                let envelope_end = attrs.range.as_ref().map_or(range.end, |range| range.start);
+                component_completion_context(
+                    source,
+                    text_range,
+                    range.start..envelope_end,
+                    *quote_count,
+                    offset,
+                )
+            } else if attrs.items.is_empty() {
+                let query = &source[text_range.start..offset];
+                (!query.contains('#')
+                    && !query.contains('`')
+                    && !query.chars().any(char::is_control))
+                .then(|| LinkCompletionContext::BareVerbatimPath {
+                    replace: range.clone(),
+                    query: query.to_string(),
+                })
+            } else {
+                None
+            }
         }
         Inline::Element { content, .. } => inlines_find_verbatim_reference(source, content, offset),
         Inline::Verbatim { .. } | Inline::Text { .. } | Inline::SoftBreak { .. } => None,
@@ -221,6 +337,8 @@ fn inlines_find_verbatim_reference(
 fn component_completion_context(
     source: &str,
     range: &Range<usize>,
+    envelope: Range<usize>,
+    quote_count: usize,
     offset: usize,
 ) -> Option<LinkCompletionContext> {
     let prefix = &source[range.start..offset];
@@ -229,7 +347,7 @@ fn component_completion_context(
     }
     if let Some((path, fragment)) = prefix.split_once('#') {
         let fragment_start = range.start + path.len() + 1;
-        return Some(LinkCompletionContext::Anchor {
+        return Some(LinkCompletionContext::VerbatimAnchor {
             path: path.to_string(),
             replace: fragment_start..range.end,
             query: fragment.to_string(),
@@ -238,8 +356,11 @@ fn component_completion_context(
     let path_end = source[offset..range.end]
         .find('#')
         .map_or(range.end, |separator| offset + separator);
-    Some(LinkCompletionContext::Path {
+    Some(LinkCompletionContext::VerbatimPath {
         replace: range.start..path_end,
+        envelope,
+        quote_count,
+        suffix: source[path_end..range.end].to_string(),
         query: prefix.to_string(),
     })
 }
@@ -264,6 +385,42 @@ fn blocks_contain_verbatim(blocks: &[Block], offset: usize) -> bool {
             inlines_contain_verbatim(&block.head, offset)
                 || blocks_contain_verbatim(&block.children, offset)
         }
+    })
+}
+
+fn blocks_attributes_contain(blocks: &[Block], offset: usize) -> bool {
+    blocks.iter().any(|block| match block {
+        Block::Verbatim(block) => block
+            .attrs
+            .range
+            .as_ref()
+            .is_some_and(|range| range.start <= offset && offset <= range.end),
+        Block::Parsed(block) => {
+            block.mark.as_ref().is_some_and(|mark| {
+                mark.attrs
+                    .range
+                    .as_ref()
+                    .is_some_and(|range| range.start <= offset && offset <= range.end)
+            }) || inlines_attributes_contain(&block.head, offset)
+                || blocks_attributes_contain(&block.children, offset)
+        }
+    })
+}
+
+fn inlines_attributes_contain(content: &InlineContent, offset: usize) -> bool {
+    content.items.iter().any(|inline| match inline {
+        Inline::Element { attrs, content, .. } => {
+            attrs
+                .range
+                .as_ref()
+                .is_some_and(|range| range.start <= offset && offset <= range.end)
+                || inlines_attributes_contain(content, offset)
+        }
+        Inline::Verbatim { attrs, .. } => attrs
+            .range
+            .as_ref()
+            .is_some_and(|range| range.start <= offset && offset <= range.end),
+        Inline::Text { .. } | Inline::SoftBreak { .. } => false,
     })
 }
 
@@ -306,6 +463,40 @@ mod tests {
     use plumb_core::parse;
 
     use super::*;
+
+    #[test]
+    fn classifies_construct_completion_by_source_context() {
+        let block = parse("`");
+        assert_eq!(
+            construct_completion_context(&block, 1),
+            Some(ConstructCompletionContext::Block { replace: 0..1 })
+        );
+        let nested = parse("  `");
+        assert_eq!(
+            construct_completion_context(&nested, 3),
+            Some(ConstructCompletionContext::Block { replace: 2..3 })
+        );
+        let inline = parse("Text `");
+        assert_eq!(
+            construct_completion_context(&inline, 6),
+            Some(ConstructCompletionContext::Inline { replace: 5..6 })
+        );
+
+        let escaped = parse("Text ``");
+        assert_eq!(construct_completion_context(&escaped, 7), None);
+        let verbatim = parse("`\"[raw ` content]\"");
+        let verbatim_offset = verbatim.source.find("` content").unwrap() + 1;
+        assert_eq!(
+            construct_completion_context(&verbatim, verbatim_offset),
+            None
+        );
+        let attribute = parse("`node{key=\"`\"} Head\n");
+        let attribute_offset = attribute.source.find("`\"").unwrap() + 1;
+        assert_eq!(
+            construct_completion_context(&attribute, attribute_offset),
+            None
+        );
+    }
 
     #[test]
     fn finds_incomplete_path_and_anchor_contexts() {
@@ -408,8 +599,11 @@ mod tests {
         let value_start = path.find("doc.plumb").unwrap();
         assert_eq!(
             completion_context(&path, cursor),
-            Some(LinkCompletionContext::Path {
+            Some(LinkCompletionContext::VerbatimPath {
                 replace: value_start..value_start + "doc.plumb".len(),
+                envelope: path.find('`').unwrap()..path.find("{.->}").unwrap(),
+                quote_count: 0,
+                suffix: String::new(),
                 query: "do".to_string(),
             })
         );
@@ -418,7 +612,7 @@ mod tests {
         let fragment_start = anchor.find("target").unwrap();
         assert_eq!(
             completion_context(&anchor, cursor),
-            Some(LinkCompletionContext::Anchor {
+            Some(LinkCompletionContext::VerbatimAnchor {
                 path: "doc.plumb".to_string(),
                 replace: fragment_start..fragment_start + "target".len(),
                 query: "ta".to_string(),
@@ -426,7 +620,60 @@ mod tests {
         );
 
         let (ordinary, cursor) = strip_cursor("See `[doc.pl|umb]");
-        assert_eq!(completion_context(&ordinary, cursor), None);
+        assert_eq!(
+            completion_context(&ordinary, cursor),
+            Some(LinkCompletionContext::BareVerbatimPath {
+                replace: ordinary.find('`').unwrap()..ordinary.len(),
+                query: "doc.pl".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn completes_incomplete_and_bare_verbatim_references_without_claiming_attributed_code() {
+        let incomplete = "See `[do";
+        assert_eq!(
+            completion_context(incomplete, incomplete.len()),
+            Some(LinkCompletionContext::IncompleteVerbatimPath {
+                replace: 4..incomplete.len(),
+                query: "do".to_string(),
+            })
+        );
+
+        let strengthened = "See `\"[do";
+        assert_eq!(
+            completion_context(strengthened, strengthened.len()),
+            Some(LinkCompletionContext::IncompleteVerbatimPath {
+                replace: 4..strengthened.len(),
+                query: "do".to_string(),
+            })
+        );
+
+        let closed_code = "See `[doc]";
+        assert_eq!(
+            completion_context(closed_code, closed_code.len() - 1),
+            Some(LinkCompletionContext::BareVerbatimPath {
+                replace: 4..closed_code.len(),
+                query: "doc".to_string(),
+            })
+        );
+        let empty = "See `[]";
+        assert_eq!(
+            completion_context(empty, empty.len() - 1),
+            Some(LinkCompletionContext::BareVerbatimPath {
+                replace: 4..empty.len(),
+                query: String::new(),
+            })
+        );
+        let attributed_code = "See `[doc]{language=text}";
+        assert_eq!(
+            completion_context(attributed_code, attributed_code.find(']').unwrap()),
+            None
+        );
+        let escaped = "See ``[do";
+        assert_eq!(completion_context(escaped, escaped.len()), None);
+        let next_line = "`[do\nnext";
+        assert_eq!(completion_context(next_line, next_line.len()), None);
     }
 
     #[test]

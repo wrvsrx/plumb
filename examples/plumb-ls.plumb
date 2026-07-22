@@ -37,10 +37,14 @@ Try go-to-definition, hover, find references, and rename on these links:
 
 Try completion after each relevant introducer in a temporary edit:
 
+`- Type a single backtick at block entry to choose Heading, List item, or Task.
+`- Type a single backtick in ordinary inline content to choose Inline verbatim, Raw reference, or Named link.
 `- Start a link label with ``->[ and select a document title.
 `- Complete a path in ``->[target]{to="plumb-.
 `- Complete a fragment in ``->[target]{to="plumb-export.plumb#.
 `- Complete a same-file fragment in ``->[target]{to="#.
+`- Start an incomplete raw reference with ``[plumb- and select a document; completion adds `[.->].
+`- Complete a bare raw reference inside ``[plumb-]; selecting a document replaces the whole inline.
 `- Complete a raw document path inside ``[plumb-]{.->}.
 `- Complete a raw fragment inside ``[plumb-export.plumb#]{.->}.
 `- Complete an image path in ``img[alt]{src="static/}.

@@ -477,6 +477,10 @@ fn publishes_diagnostics_and_returns_heading_symbols_over_stdio() {
         .as_array()
         .unwrap()
         .contains(&json!("[")));
+    assert!(capabilities["completionProvider"]["triggerCharacters"]
+        .as_array()
+        .unwrap()
+        .contains(&json!("`")));
     let symbols = messages
         .iter()
         .find(|message| message.get("id") == Some(&json!(2)))
@@ -1702,15 +1706,17 @@ fn completes_and_navigates_relative_verbatim_references_and_images() {
     let static_dir = root.join("static");
     std::fs::create_dir_all(&static_dir).unwrap();
     let current = root.join("current.plumb");
-    let target = root.join("target.plumb");
+    let target = root.join("target note.plumb");
+    let unicode_target = root.join("中文笔记 [草稿].plumb");
     let image = static_dir.join("image one.PNG");
-    let source = "`[tar]{.->}\n`\"[target.plumb#an]\"{.->}\n`img[Query]{src=\"static/im\"}\n`img[Missing]{src=\"static/missing.png\"}\n`[target.plumb]{.->}\n`img[Result]{src=\"static/image%20one.PNG\"}\n";
+    let source = "`[tar]{.->}\n`\"[target note.plumb#an]\"{.->}\n`img[Query]{src=\"static/im\"}\n`img[Missing]{src=\"static/missing.png\"}\n`[target note.plumb]{.->}\n`img[Result]{src=\"static/image%20one.PNG\"}\n`[中文]{.->}\n";
     std::fs::write(&current, source).unwrap();
     std::fs::write(
         &target,
         "`meta\n `: title\n\n    Target note\n\n`#{#anchor} Anchor\n",
     )
     .unwrap();
+    std::fs::write(&unicode_target, "`# 中文笔记\n").unwrap();
     std::fs::write(&image, b"png").unwrap();
 
     let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
@@ -1721,8 +1727,11 @@ fn completes_and_navigates_relative_verbatim_references_and_images() {
     let raw_path_cursor = lines[0].find("tar").unwrap() + "tar".len();
     let raw_anchor_cursor = lines[1].find("#an").unwrap() + "#an".len();
     let image_query_cursor = lines[2].find("static/im").unwrap() + "static/im".len();
-    let raw_definition = lines[4].find("target.plumb").unwrap() + 2;
+    let raw_definition = lines[4].find("target note.plumb").unwrap() + 2;
     let image_definition = lines[5].find("static/image").unwrap() + 2;
+    let unicode_cursor = lines[6][..lines[6].find("中文").unwrap() + "中文".len()]
+        .encode_utf16()
+        .count();
     let messages = [
         json!({
             "jsonrpc": "2.0", "id": 1, "method": "initialize",
@@ -1781,7 +1790,14 @@ fn completes_and_navigates_relative_verbatim_references_and_images() {
                 "position": { "line": 4, "character": raw_definition }
             }
         }),
-        json!({ "jsonrpc": "2.0", "id": 8, "method": "shutdown", "params": null }),
+        json!({
+            "jsonrpc": "2.0", "id": 8, "method": "textDocument/completion",
+            "params": {
+                "textDocument": { "uri": current_uri },
+                "position": { "line": 6, "character": unicode_cursor }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 9, "method": "shutdown", "params": null }),
         json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
     ];
 
@@ -1790,10 +1806,10 @@ fn completes_and_navigates_relative_verbatim_references_and_images() {
         .as_array()
         .unwrap()
         .iter()
-        .find(|item| item["label"] == "target.plumb")
+        .find(|item| item["label"] == "target note.plumb")
         .expect("raw document path completion");
     assert_eq!(raw_path["detail"], "Target note");
-    assert_eq!(raw_path["textEdit"]["newText"], "target.plumb");
+    assert_eq!(raw_path["textEdit"]["newText"], "target note.plumb");
 
     let anchor = response(&output, 3)["result"]
         .as_array()
@@ -1822,6 +1838,24 @@ fn completes_and_navigates_relative_verbatim_references_and_images() {
     assert_eq!(response(&output, 6)["result"]["uri"], image_uri.as_str());
     assert_eq!(response(&output, 7)["result"]["uri"], target_uri.as_str());
 
+    let unicode_completion = response(&output, 8)["result"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["label"] == "中文笔记 [草稿].plumb")
+        .expect("Unicode raw-reference completion");
+    assert_eq!(
+        unicode_completion["textEdit"]["newText"],
+        "`\"[中文笔记 [草稿].plumb]\""
+    );
+    assert_eq!(
+        unicode_completion["textEdit"]["range"],
+        json!({
+            "start": { "line": 6, "character": 0 },
+            "end": { "line": 6, "character": 5 }
+        })
+    );
+
     let diagnostics = output
         .iter()
         .filter(|message| {
@@ -1836,6 +1870,169 @@ fn completes_and_navigates_relative_verbatim_references_and_images() {
         .iter()
         .any(|diagnostic| diagnostic["code"] == "image.unresolved-file"));
 
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn completes_a_bare_verbatim_as_a_raw_reference() {
+    let root = unique_temp_dir();
+    std::fs::create_dir_all(&root).unwrap();
+    let current = root.join("current.plumb");
+    let target = root.join("中文笔记 [草稿].plumb");
+    let source = "`[中文]";
+    std::fs::write(&current, source).unwrap();
+    std::fs::write(&target, "`# 中文笔记\n").unwrap();
+
+    let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
+    let current_uri = lsp_types::Url::from_file_path(&current).unwrap();
+    let messages = [
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {
+                "processId": null, "rootUri": root_uri,
+                "workspaceFolders": [{ "uri": root_uri, "name": "test" }],
+                "capabilities": {}
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": {
+                "uri": current_uri, "languageId": "plumb", "version": 1, "text": source
+            }}
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 2, "method": "textDocument/completion",
+            "params": {
+                "textDocument": { "uri": current_uri },
+                "position": { "line": 0, "character": source[..source.find(']').unwrap()].encode_utf16().count() }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 3, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+
+    let output = run_server(&messages);
+    let completion = response(&output, 2)["result"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["label"] == "中文笔记 [草稿].plumb")
+        .expect("bare raw-reference completion");
+    assert_eq!(
+        completion["textEdit"]["newText"],
+        "`\"[中文笔记 [草稿].plumb]\"{.->}"
+    );
+    assert_eq!(
+        completion["textEdit"]["range"],
+        json!({
+            "start": { "line": 0, "character": 0 },
+            "end": { "line": 0, "character": 5 }
+        })
+    );
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn completes_constructs_after_a_single_backtick() {
+    let root = unique_temp_dir();
+    std::fs::create_dir_all(&root).unwrap();
+    let document = root.join("constructs.plumb");
+    let source = "`\nText `";
+    std::fs::write(&document, source).unwrap();
+    let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
+    let document_uri = lsp_types::Url::from_file_path(&document).unwrap();
+    let messages = [
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {
+                "processId": null, "rootUri": root_uri,
+                "workspaceFolders": [{ "uri": root_uri, "name": "test" }],
+                "capabilities": { "textDocument": { "completion": {
+                    "completionItem": { "snippetSupport": true }
+                } } }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": {
+                "uri": document_uri, "languageId": "plumb", "version": 1, "text": source
+            }}
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 2, "method": "textDocument/completion",
+            "params": {
+                "textDocument": { "uri": document_uri },
+                "position": { "line": 0, "character": 1 }
+            }
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 3, "method": "textDocument/completion",
+            "params": {
+                "textDocument": { "uri": document_uri },
+                "position": { "line": 1, "character": 6 }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 4, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+
+    let output = run_server(&messages);
+    let block = response(&output, 2)["result"].as_array().unwrap();
+    assert_eq!(
+        block
+            .iter()
+            .map(|item| item["label"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        ["Heading", "List item", "Task"]
+    );
+    assert_eq!(block[0]["textEdit"]["newText"], "`# ${1:Heading}");
+    assert_eq!(block[0]["insertTextFormat"], 2);
+
+    let inline = response(&output, 3)["result"].as_array().unwrap();
+    let raw_reference = inline
+        .iter()
+        .find(|item| item["label"] == "Raw reference")
+        .unwrap();
+    assert_eq!(raw_reference["textEdit"]["newText"], "`[${1:path}]{.->}");
+    assert_eq!(raw_reference["insertTextFormat"], 2);
+
+    let fallback_messages = [
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {
+                "processId": null, "rootUri": root_uri,
+                "workspaceFolders": [{ "uri": root_uri, "name": "test" }],
+                "capabilities": {}
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": {
+                "uri": document_uri, "languageId": "plumb", "version": 1, "text": source
+            }}
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 2, "method": "textDocument/completion",
+            "params": {
+                "textDocument": { "uri": document_uri },
+                "position": { "line": 1, "character": 6 }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 3, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+    let fallback_output = run_server(&fallback_messages);
+    let fallback = response(&fallback_output, 2)["result"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["label"] == "Raw reference")
+        .unwrap();
+    assert_eq!(fallback["textEdit"]["newText"], "`[]{.->}");
+    assert_eq!(fallback["insertTextFormat"], 1);
     std::fs::remove_dir_all(root).unwrap();
 }
 

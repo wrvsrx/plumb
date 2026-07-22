@@ -24,6 +24,10 @@ text.
    repository-specific command exists and `plumb` is available, run
    `plumb export FILE >/dev/null` as a strict parse/export check.
 
+In an editor using `plumb lsp`, completion after a single backtick offers the
+standard block or inline construct skeletons appropriate to the source context.
+Snippet-capable clients receive tab stops.
+
 ## Authority
 
 Treat this bundled skill as the portable guide for the release that shipped
@@ -72,9 +76,10 @@ Use `[cargo test] for inline raw text.
 ```
 
 Use `-` for bullet-list items, `.` for ordered-list items, and `->` as the sole
-link inline kind. Use `.->` for a verbatim URI reference whose payload is both
-label and target; relative `.plumb` targets resolve as documents and other
-relative targets resolve as files. Use `img[alt]{src="target"}` for images.
+link inline kind. Use `.->` for a verbatim absolute URI or raw relative path
+whose payload is both label and target; relative `.plumb` targets resolve as
+documents and other relative targets resolve as files. Use
+`img[alt]{src="target"}` for images.
 `item` and `link` remain syntactically valid generic names but
 have no list or link semantics. Only `-` and `.` items may carry the standard
 `.task` facet. `div` and `span` are transparent containers; `.$` on verbatim

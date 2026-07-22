@@ -97,28 +97,39 @@ canonical formatted edit。
   `->[label]{to="https://example.test"}
 
 `[link] 不是 alias。local/cross-file fragment 只解析显式 anchors。relative document target 使用
-`[..plumb] path；含 spaces 或 unsafe bytes 的 task/reference path 使用 URI percent encoding。
+`[..plumb] path；含 spaces 或 unsafe bytes 的 task reference path 使用 URI percent encoding。
 external URL 只分类，不进行网络 I/O。
 
-URI reference 可以使用 inline verbatim `[.->] facet；payload 同时是 label 与 target：
+label 与 target 相同时可以使用 inline verbatim `[.->] facet；payload 同时是 label 与 target：
 
 `{language=plumb}
   `[https://example.test/a%20b]{.->}
   `"[https://[2001:db8::1]/]"{.->}
   `[guide.plumb#intro]{.->}
-  `[../assets/manual%20draft.pdf]{.->}
+  `[../assets/manual draft.pdf]{.->}
 
-`[.->] 只允许出现在 inline verbatim，不能与 `[to] 或 `[.$] 组合。payload 必须是非空 URI
-reference，不能包含 whitespace/control、backslash 或 invalid percent escape。relative path 以
-source document 所在目录为基准；`[..plumb] 和 `[..plumb#id] 进入 document/anchor
-resolution，其他 relative targets 是 file resources。URI 保留原始 UTF-8 spelling，仅在
-filesystem resolution 时 percent decode，不改写 source。IPv6 等包含
-closing bracket 的 URI 使用现有 quote strength。其他 id、classes 与 pairs 作为 Pandoc Link
-attributes 保留，`[.->] 本身被 semantic lowering 消费。
+`[.->] 只允许出现在 inline verbatim，不能与 `[to] 或 `[.$] 组合。payload 必须非空。带 scheme 或以
+`[//] 开始的 target 是 absolute/network URI，按 URI validity 检查但不改写。其他 target 是 raw
+relative filesystem path，以 source document 所在目录为基准；`[..plumb] 和 `[..plumb#id] 进入
+document/anchor resolution，其他 relative targets 是 file resources。
 
-LSP 在 `[.->] payload 中复用 document title/path 与 explicit-anchor completion，插入
-URI-percent-encoded relative path。存在的普通 file target 可 hover 和 go-to-definition；缺失
-file 发布 `[link.unresolved-file] warning。
+raw relative path 不进行 percent encode、percent decode 或 normalization；UTF-8、spaces、`[%]、`[?]
+和其他 path characters 都保持字面值。`[#] 是唯一 structure separator，用于 explicit anchor，因此
+relative filename 本身不能包含 `[#]。control characters 与 backslash 不合法。payload 中与 closing
+delimiter 冲突的 `[]] 不转义，使用 inline verbatim quote strength 表达。absolute/network URI 中的
+whitespace、control、backslash 与 invalid percent escape 仍不合法。其他 id、classes 与 pairs 作为
+Pandoc Link attributes 保留，`[.->] 本身被 semantic lowering 消费。
+
+LSP 在 `[.->] payload 中复用 document title/path 与 explicit-anchor completion。relative path 中的
+characters 全部原样插入，不进行 URL escaping；候选包含 closing-like sequence 时，completion 重写
+完整 verbatim envelope 并选择最小安全 quote count。存在的普通 file target 可 hover 和
+go-to-definition；缺失 file 发布 `[link.unresolved-file] warning。
+
+为了创建 raw reference，可以输入 bare inline verbatim ``[guide]，或在同一 physical line 输入尚未
+关闭的 ``[guide，并直接请求 completion。bare form 只在没有 attributes 时提供候选；unclosed form
+只在 strict parser 已发布 `[syntax.unclosed-verbatim] 的当前 envelope 中提供候选。选择后一次生成
+完整 inline verbatim 与 `[.->] facet；忽略候选时 bare form 仍是普通 inline verbatim，unclosed form
+也可以正常关闭 delimiter，不改变 syntax interpretation。
 
 workspace 使用 open buffer 覆盖 disk snapshot。document target 已确定但 fragment missing 时，
 仍保留 document-level reverse edge。
@@ -133,8 +144,8 @@ reference：
   `img[]{src="https://example.test/decorative.svg"}
 
 empty alt 合法。缺失或空 src 产生 `[image.missing-source]；非法 URI reference 产生
-`[image.invalid-source]。relative src 使用与 file reference 相同的 source-directory、percent-encoding
-和 resolution rules；缺失本地文件产生 `[image.unresolved-file] warning。
+`[image.invalid-source]。relative src 仍是 URI reference：以 source document directory 为基准，spaces
+与 unsafe path bytes 使用 percent encoding；缺失本地文件产生 `[image.unresolved-file] warning。
 
 export lower 为 Pandoc `[Image]，消费 `[src] 并保留 alt inlines 与其他 id/classes/pairs。
 image-only paragraph 仍是只含 Image 的 paragraph；不存在独立 block-image spelling。Figure、

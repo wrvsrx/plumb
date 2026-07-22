@@ -100,23 +100,38 @@ must be explicit. Use relative `.plumb` paths. When a task reference path
 contains spaces or unsafe bytes, URI-percent-encode the path segment.
 
 When label and target are identical, inline verbatim with `.->` is the standard
-reference; its payload is both label and target and its original UTF-8 spelling
-is preserved:
+reference; its payload is both label and target:
 
 ```plumb
 `[https://example.test/a%20b]{.->}
 `"[https://[2001:db8::1]/]"{.->}
 `[guide.plumb#intro]{.->}
-`[../assets/manual%20draft.pdf]{.->}
+`[../assets/manual draft.pdf]{.->}
 ```
 
-The payload must be a nonempty URI reference without whitespace, control
-characters, backslashes, or invalid percent escapes. Relative paths resolve
-from the source document directory. Relative `.plumb` paths and fragments use
-document/explicit-anchor resolution; other relative targets are files. Encode
-spaces and unsafe path bytes with URI percent encoding. Use explicit `->` links
-for custom labels. `.->` is valid only on inline verbatim and cannot be combined
-with `to` or `.$`; other attributes are preserved.
+The payload must be nonempty. A target with a scheme or `//` prefix is an
+absolute/network URI: validate it as a URI but preserve its source spelling.
+Other targets are raw relative filesystem paths resolved from the source
+document directory. Relative `.plumb` paths and fragments use
+document/explicit-anchor resolution; other relative targets are files.
+
+Do not percent-encode, percent-decode, or normalize raw relative paths. UTF-8,
+spaces, `%`, `?`, and other path characters are literal. `#` is the sole
+structure separator for an explicit anchor, so a relative filename cannot
+contain `#`. Control characters and backslashes remain invalid. Use verbatim
+quote strength, rather than payload escaping, when `]` conflicts with the
+delimiter. Completion inserts the path verbatim and strengthens the envelope
+when needed. Use explicit `->` links for custom labels. `.->` is valid only on
+inline verbatim and cannot be combined with `to` or `.$`; other attributes are
+preserved.
+
+To create a raw reference, request completion inside a bare inline verbatim such
+as `` `[guide] `` or an unclosed inline verbatim such as `` `[guide `` on one
+physical line. A bare form must have no attributes; the unclosed form must be the
+recovered `syntax.unclosed-verbatim` envelope. Accepting a candidate inserts the
+complete verbatim envelope and `.->` facet. Ignoring completion leaves a closed
+bare form as ordinary inline verbatim, and an unclosed form can still be closed
+normally.
 
 ## Images
 
@@ -129,11 +144,11 @@ Text with `img[status icon]{src="static/status.png"} inline.
 `img[]{src="https://example.test/decorative.svg"}
 ```
 
-Empty alt is valid for a decorative image. Relative sources resolve from the
-source document directory and use the same percent-encoding rules as file
-references. There is no separate block-image spelling: an image-only paragraph
-is still a paragraph containing one image. Figure, caption, numbering, and
-cross-reference semantics are deferred.
+Empty alt is valid for a decorative image. Relative sources remain URI
+references resolved from the source document directory; encode spaces and
+unsafe path bytes. There is no separate block-image spelling: an image-only
+paragraph is still a paragraph containing one image. Figure, caption, numbering,
+and cross-reference semantics are deferred.
 
 ## Citations
 
