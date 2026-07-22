@@ -116,15 +116,7 @@ static bool scan_raw_code_line(Scanner *scanner, TSLexer *lexer,
   return true;
 }
 
-static bool scan_inline_verbatim(TSLexer *lexer) {
-  if (lexer->lookahead != '`') return false;
-  take(lexer);
-
-  uint16_t quotes = 0;
-  while (lexer->lookahead == '"') {
-    take(lexer);
-    quotes++;
-  }
+static bool finish_inline_verbatim(TSLexer *lexer, uint16_t quotes) {
   if (lexer->lookahead != '[') return false;
   take(lexer);
 
@@ -148,6 +140,18 @@ static bool scan_inline_verbatim(TSLexer *lexer) {
   }
 
   return false;
+}
+
+static bool scan_inline_verbatim(TSLexer *lexer) {
+  if (lexer->lookahead != '`') return false;
+  take(lexer);
+
+  uint16_t quotes = 0;
+  while (lexer->lookahead == '"') {
+    take(lexer);
+    quotes++;
+  }
+  return finish_inline_verbatim(lexer, quotes);
 }
 
 static bool backtick_starts_inline(TSLexer *lexer) {
@@ -276,13 +280,38 @@ static bool scan_layout(Scanner *scanner, TSLexer *lexer,
   return false;
 }
 
-static bool scan_same_line_child_indent(Scanner *scanner, TSLexer *lexer) {
+static bool scan_same_line_child_indent(Scanner *scanner, TSLexer *lexer,
+                                        const bool *valid_symbols) {
   uint16_t column = lexer->get_column(lexer);
   uint16_t current = scanner->indents[scanner->depth];
   if (column <= current || scanner->depth + 1 >= MAX_INDENT_DEPTH) return false;
   if (lexer->lookahead != '`') return false;
   lexer->mark_end(lexer);
-  if (backtick_starts_inline(lexer)) return false;
+  take(lexer);
+
+  if (lexer->lookahead == '`') return false;
+  if (lexer->lookahead == '[' || lexer->lookahead == '"') {
+    uint16_t quotes = 0;
+    while (lexer->lookahead == '"') {
+      take(lexer);
+      quotes++;
+    }
+    if (lexer->lookahead == '[' && valid_symbols[INLINE_VERBATIM_TOKEN]) {
+      return finish_inline_verbatim(lexer, quotes);
+    }
+    return false;
+  }
+
+  bool has_marker = false;
+  while (lexer->lookahead != 0 && lexer->lookahead != '\n' &&
+         lexer->lookahead != ' ' && lexer->lookahead != '\t' &&
+         lexer->lookahead != '[' && lexer->lookahead != '{' &&
+         lexer->lookahead != '`' && lexer->lookahead != '"') {
+    take(lexer);
+    has_marker = true;
+  }
+  if (has_marker && lexer->lookahead == '[') return false;
+
   scanner->depth++;
   scanner->indents[scanner->depth] = column;
   lexer->result_symbol = SAME_LINE_CHILD_INDENT;
@@ -305,7 +334,7 @@ bool tree_sitter_plumb_external_scanner_scan(void *payload, TSLexer *lexer,
                                               const bool *valid_symbols) {
   Scanner *scanner = payload;
   if (valid_symbols[SAME_LINE_CHILD_INDENT] &&
-      scan_same_line_child_indent(scanner, lexer)) {
+      scan_same_line_child_indent(scanner, lexer, valid_symbols)) {
     return true;
   }
   if (valid_symbols[INLINE_VERBATIM_TOKEN] && lexer->lookahead == '`') {

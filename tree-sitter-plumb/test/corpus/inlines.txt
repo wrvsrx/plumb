@@ -361,6 +361,39 @@ third line
       (text))))
 
 ==================
+Inline verbatim in marked block head
+==================
+
+`-{#anki} `[anki.plumb]{.->}
+`- `[learn workflow.plumb]{.->}
+
+---
+
+(document
+  (blank_line)
+  (marked_block
+    (introducer)
+    (marker)
+    (attributes
+      (attribute_id
+        (attribute_name)))
+    (head_separator)
+    (inline_content
+      (inline_verbatim
+        (attributes
+          (attribute_class
+            (attribute_name))))))
+  (marked_block
+    (introducer)
+    (marker)
+    (head_separator)
+    (inline_content
+      (inline_verbatim
+        (attributes
+          (attribute_class
+            (attribute_name)))))))
+
+==================
 Ordinary brackets and braces
 ==================
 
