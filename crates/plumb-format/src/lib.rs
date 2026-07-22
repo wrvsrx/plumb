@@ -327,7 +327,7 @@ impl Formatter {
         for (index, block) in blocks.iter().enumerate() {
             if index > 0 {
                 let previous = &blocks[index - 1];
-                if matches!(previous, Block::Verbatim(_)) {
+                if terminal_verbatim(std::slice::from_ref(previous)).is_some() {
                     if !self.output.ends_with('\n') {
                         self.output.push('\n');
                     }
@@ -937,6 +937,14 @@ mod tests {
         );
         assert_formats("`{}\n  final newline\n", "`{}\n  final newline\n");
         assert_formats("`{}\n  no newline", "`{}\n  no newline");
+    }
+
+    #[test]
+    fn terminal_verbatim_descendants_do_not_accumulate_sibling_spacing() {
+        let source = "`. config\n\n   `{.json}\n     {\"enabled\": true}\n\n\n`# Following\n";
+        let formatted = format(source).unwrap();
+        assert_eq!(format(&formatted).unwrap(), formatted);
+        assert_eq!(formatted.matches("\n\n\n`# Following").count(), 1);
     }
 
     #[test]
