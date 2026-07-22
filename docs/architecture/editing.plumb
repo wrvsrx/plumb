@@ -1,0 +1,69 @@
+`meta
+ `: title
+
+    plumb syntax editing
+
+`# 1. Boundary
+
+`[plumb-edit] 是 valid strict syntax tree 上的 protocol-neutral mutation 与 finalization layer。它依赖
+`[plumb-core] 和 `[plumb-format]，不依赖 semantic extensions、workspace、LSP 或 filesystem。
+
+extensions 与 workspace 决定 operation intent 和 target；edit layer 只执行 syntax mutation、验证
+source ranges、canonicalize affected complete block subtree，并产生针对原 revision 的 text edit。
+
+`# 2. Owned syntax
+
+新增内容使用 semantics-neutral `[OwnedBlock]、`[OwnedInline]、`[OwnedAttribute] 和 `[OwnedValue]。
+owned nodes 表达 marker、attributes、head、children、verbatim payload 与 inline structure，不携带 source
+ranges，也不识别 metadata、task、link 或其他 extension semantics。
+
+owned nodes 可以从 strict typed syntax view detach，也可以由 operation 构造。serializer 只负责生成
+valid intermediate source；最终 layout 始终由 `[plumb-format] canonicalize。operation 不拼接完整 CST
+block、手工计算 multiline attribute layout 或复制 subtree indentation。
+
+`# 3. Attribute mutations
+
+attribute API 将 insert、replace 与 remove 分开。insert 必须显式给出 `[First]、`[Last]、`[Before(index)]
+或 `[After(index)]；不存在隐式 append policy。一次 transaction 可以依次应用多个显式 insertion，最后
+只替换一次 attribute slot。
+
+replace 与 remove 使用明确 item index。edit layer 不按 semantic name 猜测顺序，也不重新排列 opaque
+attributes；formatter 只处理 whitespace、wrapping 和 indentation。
+
+`# 4. Block mutations
+
+block API 支持插入 owned blocks、插入 sibling blocks、用 owned block 替换完整 block，以及删除完整
+block。sibling insertion 从 revision snapshot 的 owner column 推导 base indentation，保留 LF/CRLF，
+再由 formatter 使用相邻 sibling 作为 read-only spacing context。
+
+metadata insertion 与 recurring-task clone 都使用 owned block insertion。recurring task operation 在
+owned attributes 上移除旧 instance state、设置 next instance fields，不再对 source slice 做相对 range
+replacement。
+
+`# 5. Finalization
+
+`[EditSession] 绑定一个 valid `[ParsedDocument] revision 和 affected complete block range。commit：
+
+`. 验证所有 logical mutation ranges 位于 UTF-8 boundaries 和 affected range 内。
+`. 拒绝 overlapping 或 ambiguous logical edits。
+`. 在内存副本应用 logical mutations。
+`. 使用 strict parser 与 `[plumb-format] canonicalize affected complete subtree。
+`. 将 modified ranges 映射回原 revision，产生一个连续 `[TextEdit]。
+
+format scope 外 source 必须逐字节不变。children 随 owner subtree canonicalize；相邻 sibling 只提供
+spacing context，不进入 editable scope。empty document insertion format 整个新文档。
+
+`# 6. Token rewrites
+
+anchor/document rename 是 valid revision 上的机械 token rewrite。它们通过 `[plumb-edit] 验证 source
+range 并产生 ordered minimal edits，但不触发 subtree formatting。workspace 继续负责 multi-document
+grouping、expected revisions、resource operations 与 atomicity requirements。
+
+`# 7. Recovered-source assists
+
+completion、delimiter closure 等 assists 可能运行在 incomplete recovered source 上，此时不存在可安全
+mutation 的 valid owner node。它们可以返回局部 recovery text replacement，但不得伪装成 authoritative
+owned-syntax mutation，也不得进入 authoring finalization pipeline。
+
+tree-sitter 不参与 mutation、formatting 或 range authority；它仍只服务 editor highlighting、folding、
+indentation、text objects 和 injections。

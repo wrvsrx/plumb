@@ -24,6 +24,7 @@ truth in order:
 - `docs/architecture/extension-system.plumb` — extension inputs, outputs,
   dependencies, queries, operations, and effects.
 - `docs/architecture/syntax-tree.plumb` — lossless tree and typed-view contract.
+- `docs/architecture/editing.plumb` — owned syntax mutations and edit finalization.
 
 User-facing material lives in `docs/guide/`; project direction lives in
 `docs/project/`; completed design discussion lives in `docs/history/` and does
@@ -109,6 +110,8 @@ semantics can be shared by more than one tool:
   analysis, relocated out of core.)
 - **`plumb-workspace`** — document snapshots, last-valid extension outputs,
   dependency invalidation, cross-file indexes, and guarded workspace edits.
+- **`plumb-edit`** — protocol-neutral owned syntax, valid-tree mutations,
+  format-aware authoring finalization, and validated minimal token rewrites.
 - **`plumb`** — the single user-facing binary. Its `lsp`, `export`, `fmt`, `note`,
   and `task` subcommands adapt the shared libraries to stdio, files, and editor
   protocols. The LSP implementation owns `lsp_types`, `async-lsp`, and UTF-16

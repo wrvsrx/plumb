@@ -63,6 +63,10 @@ plain-text traversal 也使用 iterative walk。语言不从 Rust call stack 获
 normalized model 不取代 lossless tree，不改变 syntax validity，也不把 extension semantics 放回
 core。
 
+`[plumb-edit] 的 owned syntax nodes 不是 normalized semantic AST。它们只是 typed syntax view 的
+source-independent、可构造 counterpart，用于插入或替换 generic blocks、inlines 和 attributes；最终
+source layout 仍由 formatter 决定。
+
 `# 7. Incremental identity
 
 当前 contract 不承诺跨 revision `[NodeId] reuse。incremental parsing、source-map identity 和 text

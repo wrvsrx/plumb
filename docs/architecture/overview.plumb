@@ -15,6 +15,7 @@
       -> document extensions
       -> workspace indexes
       -> queries / operations / export
+      -> syntax edits + canonical formatting
       -> LSP, CLI, Pandoc JSON
 
 一次 revision 只解析一次。extensions 共享 source-backed views，不各自重新解析文本。
@@ -33,6 +34,9 @@ reconstruction、range boundary 和 deterministic output invariants。
 
 `[plumb-format] 消费 valid syntax tree 并产生 canonical source。formatting policy 不属于 core syntax
 validity，也不依赖 semantic extensions；invalid recovered tree 不进入 formatter。
+
+`[plumb-edit] 在 valid revision 上执行 syntax-level attribute/block mutations、owned syntax insertion、
+token rewrites 和 authoring finalization。详细 contract 见 `->[syntax editing]{to="editing.plumb"}。
 
 `# 3. Extensions
 
@@ -64,6 +68,7 @@ consumer 不复制 parser、semantic recognition 或 edit logic。
 
 `- `[plumb-core]：strict syntax tree、diagnostics、typed views。
 `- `[plumb-format]：syntax-valid document 的 protocol-neutral canonical formatter library。
+`- `[plumb-edit]：owned syntax、valid-tree mutations、format-aware finalization 与 validated token edits。
 `- `[plumb-extensions]：protocol-neutral semantic records、analyses、queries、operations、export model。
 `- `[plumb-workspace]：snapshots、indexes、cross-file invalidation 和 guarded edits。
 `- `[plumb]：统一 CLI、LSP adapter 以及各 library entry point 的 subcommand dispatch。
