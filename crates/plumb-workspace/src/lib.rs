@@ -1750,7 +1750,7 @@ impl Workspace {
                     })
                 })
                 .collect(),
-            LinkCompletionContext::VerbatimPath {
+            LinkCompletionContext::AutolinkPath {
                 replace,
                 envelope,
                 quote_count,
@@ -1765,7 +1765,7 @@ impl Workspace {
                         return None;
                     }
                     let relative = relative_path(&from, &entry.path)?;
-                    if !valid_raw_completion_path(&relative) {
+                    if !valid_autolink_completion_path(&relative) {
                         return None;
                     }
                     let title = versioned
@@ -1820,7 +1820,7 @@ impl Workspace {
                     })
                     .unwrap_or_default()
             }
-            LinkCompletionContext::VerbatimAnchor {
+            LinkCompletionContext::AutolinkAnchor {
                 path,
                 replace,
                 query,
@@ -2266,7 +2266,7 @@ fn percent_encode_path(path: &str) -> String {
     encoded
 }
 
-fn valid_raw_completion_path(path: &str) -> bool {
+fn valid_autolink_completion_path(path: &str) -> bool {
     !path.contains('#')
         && !path
             .chars()
@@ -2921,8 +2921,8 @@ mod tests {
     #[test]
     fn completes_paths_and_only_explicit_anchors() {
         let mut workspace = Workspace::new();
-        let raw_path =
-            |replace: std::ops::Range<usize>, query: &str| LinkCompletionContext::VerbatimPath {
+        let autolink_path =
+            |replace: std::ops::Range<usize>, query: &str| LinkCompletionContext::AutolinkPath {
                 envelope: replace.clone(),
                 replace,
                 quote_count: 0,
@@ -2943,7 +2943,7 @@ mod tests {
         workspace.insert("notes/中文笔记.plumb", 1, "`#{#内容} 中文内容\n");
         workspace.insert("notes/方案 (草稿).plumb", 1, "`# 草稿\n");
         workspace.insert("notes/方案]终稿.plumb", 1, "`# 终稿\n");
-        let paths = workspace.complete_link("notes/current.plumb", &raw_path(10..13, "guide"));
+        let paths = workspace.complete_link("notes/current.plumb", &autolink_path(10..13, "guide"));
         assert_eq!(paths[0].label, "design.plumb");
         assert_eq!(paths[0].detail, "Design Guide");
         assert_eq!(paths[0].new_text, "design.plumb");
@@ -2957,18 +2957,20 @@ mod tests {
         assert_eq!(labels[0].label, "Design Guide");
         assert_eq!(labels[0].detail, "design.plumb");
         assert_eq!(labels[0].new_text, "`->[Design Guide]{to=\"design.plumb\"}");
-        let encoded = workspace.complete_link("notes/current.plumb", &raw_path(0..0, "project"));
+        let encoded =
+            workspace.complete_link("notes/current.plumb", &autolink_path(0..0, "project"));
         assert_eq!(encoded[0].label, "Project Plan.plumb");
         assert_eq!(encoded[0].new_text, "Project Plan.plumb");
-        let unicode = workspace.complete_link("notes/current.plumb", &raw_path(0..0, "中文"));
+        let unicode = workspace.complete_link("notes/current.plumb", &autolink_path(0..0, "中文"));
         assert_eq!(unicode[0].label, "中文笔记.plumb");
         assert_eq!(unicode[0].new_text, "中文笔记.plumb");
-        let parentheses = workspace.complete_link("notes/current.plumb", &raw_path(0..0, "草稿"));
+        let parentheses =
+            workspace.complete_link("notes/current.plumb", &autolink_path(0..0, "草稿"));
         assert_eq!(parentheses[0].label, "方案 (草稿).plumb");
         assert_eq!(parentheses[0].new_text, "方案 (草稿).plumb");
         let closing_bracket = workspace.complete_link(
             "notes/current.plumb",
-            &LinkCompletionContext::VerbatimPath {
+            &LinkCompletionContext::AutolinkPath {
                 replace: 2..3,
                 envelope: 0..5,
                 quote_count: 0,
@@ -2981,7 +2983,7 @@ mod tests {
         assert_eq!(closing_bracket[0].replace, 0..5);
         let encoded_anchor = workspace.complete_link(
             "notes/current.plumb",
-            &LinkCompletionContext::VerbatimAnchor {
+            &LinkCompletionContext::AutolinkAnchor {
                 path: "Project Plan.plumb".to_string(),
                 replace: 0..0,
                 query: "road".to_string(),
@@ -3174,7 +3176,7 @@ mod tests {
     }
 
     #[test]
-    fn document_rename_strengthens_raw_reference_delimiters() {
+    fn document_rename_strengthens_autolink_delimiters() {
         let mut workspace = Workspace::new();
         workspace.insert("notes/a.plumb", 1, "`#{#a} A\n");
         let reference = "`[a.plumb#a]{.->}\n";

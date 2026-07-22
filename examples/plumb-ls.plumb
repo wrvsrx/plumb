@@ -27,8 +27,8 @@ Try go-to-definition, hover, find references, and rename on these links:
 `- Cross-file document: `->[Notes playground]{to="plumb-notes.plumb"}
 `- Repeated reference: `->[Exporter conclusion]{to="plumb-export.plumb#export-target"}
 `- External autolink hover: `[https://example.test/a%20b]{.->}
-`- Relative document reference: `[plumb-export.plumb#export-target]{.->}
-`- Relative file reference: `[static/plumb-pipeline.svg]{.->}
+`- Relative document Autolink: `[plumb-export.plumb#export-target]{.->}
+`- Relative file Autolink: `[static/plumb-pipeline.svg]{.->}
 `- Image file hover and definition: `img[pipeline]{src="static/plumb-pipeline.svg"}
 
 `anchor{#local-anchor} Rename this id to update its references.
@@ -38,12 +38,12 @@ Try go-to-definition, hover, find references, and rename on these links:
 Try completion after each relevant introducer in a temporary edit:
 
 `- Type a single backtick at block entry to choose Heading, List item, or Task.
-`- Type a single backtick in ordinary inline content to choose Inline verbatim, Raw reference, or Named link.
+`- Type a single backtick in ordinary inline content to choose Inline verbatim, Autolink, or Link.
 `- Start a link label with ``->[ and select a document title.
 `- Complete a path in ``->[target]{to="plumb-.
 `- Complete a fragment in ``->[target]{to="plumb-export.plumb#.
 `- Complete a same-file fragment in ``->[target]{to="#.
-`- Complete a raw document path inside ``[plumb-]{.->}.
+`- Complete an Autolink document path inside ``[plumb-]{.->}.
 `- Complete a raw fragment inside ``[plumb-export.plumb#]{.->}.
 `- Complete an image path in ``img[alt]{src="static/}.
 
@@ -110,7 +110,7 @@ The following valid syntax deliberately produces semantic diagnostics:
 
 `span[not verbatim]{.->} Invalid autolink owner
 
-`[bad path.plumb]{.->} Invalid verbatim reference target
+`[bad path.plumb]{.->} Invalid autolink target
 
 `img[missing source]
 

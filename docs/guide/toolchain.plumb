@@ -53,7 +53,7 @@ Location 等内部 invariant 失败使用 InternalError，cancellation 使用 Re
 
 在普通 authoring context 输入单个 backtick character 会触发 construct completion。block entry 提供
 `[Heading]、`[List item] 和 `[Task]；paragraph/head inline 位置提供 `[Inline verbatim]、
-`[Raw reference] 和 `[Named link]。双 backtick literal escape、attributes 与 verbatim payload 不提供
+`[Autolink] 和 `[Link]。双 backtick literal escape、attributes 与 verbatim payload 不提供
 construct candidates。支持 LSP snippets 的 client 获得 tab stops；其他 client 获得完整 plain
 skeleton。
 

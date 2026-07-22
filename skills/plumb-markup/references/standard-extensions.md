@@ -84,7 +84,7 @@ inside `meta`.
 The metadata insertion action creates `title` from the filename stem and
 `created` from the current local RFC 3339 timestamp.
 
-## Links And References
+## Links
 
 Use `->` as the only link inline kind and put the target in `to`:
 
@@ -100,7 +100,7 @@ must be explicit. Use relative `.plumb` paths. When a task reference path
 contains spaces or unsafe bytes, URI-percent-encode the path segment.
 
 When label and target are identical, inline verbatim with `.->` is the standard
-reference; its payload is both label and target:
+Autolink; its payload is both label and target:
 
 ```plumb
 `[https://example.test/a%20b]{.->}
@@ -125,11 +125,11 @@ when needed. Use explicit `->` links for custom labels. `.->` is valid only on
 inline verbatim and cannot be combined with `to` or `.$`; other attributes are
 preserved.
 
-To create a raw reference, type one backtick in ordinary inline content and
-choose `Raw reference` from construct completion. Once the `.->` facet exists,
+To create an Autolink, type one backtick in ordinary inline content and choose
+`Autolink` from construct completion. Once the `.->` facet exists,
 the LSP completes document paths and explicit anchors inside its payload. Bare
 or unclosed inline verbatim remains ordinary verbatim and does not offer
-reference candidates.
+Autolink candidates.
 
 ## Images
 

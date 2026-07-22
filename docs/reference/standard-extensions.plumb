@@ -87,8 +87,7 @@ canonical formatted edit。
 
 `# 7. Links 与 target resolution
 
-带自定义 label、relative path 或 fragment 的 link 使用唯一 parsed inline kind `[->]，并提供
-`[to] pair：
+标准 Link 使用唯一 parsed inline kind `[->]；parsed content 是 label，`[to] pair 是 target：
 
 `{language=plumb}
   `->[label]{to="#anchor"}
@@ -100,7 +99,7 @@ canonical formatted edit。
 `[..plumb] path；含 spaces 或 unsafe bytes 的 task reference path 使用 URI percent encoding。
 external URL 只分类，不进行网络 I/O。
 
-label 与 target 相同时可以使用 inline verbatim `[.->] facet；payload 同时是 label 与 target：
+标准 Autolink 使用 inline verbatim `[.->] facet；payload 同时是 label 与 target：
 
 `{language=plumb}
   `[https://example.test/a%20b]{.->}
@@ -125,9 +124,9 @@ characters 全部原样插入，不进行 URL escaping；候选包含 closing-li
 完整 verbatim envelope 并选择最小安全 quote count。存在的普通 file target 可 hover 和
 go-to-definition；缺失 file 发布 `[link.unresolved-file] warning。
 
-为了创建 raw reference，在 ordinary inline context 输入单个 backtick，并从 construct completion
-选择 Raw reference。生成 `[.->] facet 后，LSP 才在 payload 中提供 document path 与 explicit-anchor
-completion。bare 或尚未关闭的 inline verbatim 始终保持普通 verbatim，不推测 reference 意图。
+为了创建 Autolink，在 ordinary inline context 输入单个 backtick，并从 construct completion
+选择 Autolink。生成 `[.->] facet 后，LSP 才在 payload 中提供 document path 与 explicit-anchor
+completion。bare 或尚未关闭的 inline verbatim 始终保持普通 verbatim，不推测 Autolink 意图。
 
 workspace 使用 open buffer 覆盖 disk snapshot。document target 已确定但 fragment missing 时，
 仍保留 document-level reverse edge。

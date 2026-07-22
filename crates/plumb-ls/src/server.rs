@@ -953,7 +953,7 @@ impl LanguageServer for ServerState {
                             &context,
                             plumb_extensions::LinkCompletionContext::Label { .. }
                                 | plumb_extensions::LinkCompletionContext::Path { .. }
-                                | plumb_extensions::LinkCompletionContext::VerbatimPath { .. }
+                                | plumb_extensions::LinkCompletionContext::AutolinkPath { .. }
                         ) {
                             CompletionItemKind::FILE
                         } else {
@@ -1332,14 +1332,14 @@ fn construct_completion_items(
             plain: "`[]",
         },
         ConstructTemplate {
-            label: "Raw reference",
-            detail: "plumb raw reference",
+            label: "Autolink",
+            detail: "plumb autolink",
             snippet: "`[${1:path}]{.->}",
             plain: "`[]{.->}",
         },
         ConstructTemplate {
-            label: "Named link",
-            detail: "plumb named link",
+            label: "Link",
+            detail: "plumb link",
             snippet: "`->[${1:label}]{to=\"${2:target}\"}",
             plain: "`->[]{to=\"\"}",
         },

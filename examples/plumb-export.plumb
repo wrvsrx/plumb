@@ -34,10 +34,10 @@ This paragraph contains `*[strong-shaped content], `_[emphasis-shaped content],
 inline verbatim `[cargo test], a `kbd[Ctrl+C]{.shortcut} element, and a
 `->[link back to the index]{to="index.plumb"}.
 
-An identical label and target can use a nonduplicated verbatim reference:
+An identical label and target can use an Autolink without duplication:
 `[https://example.test/a%20b]{.-> #external .reference rel=nofollow}.
 
-A relative file reference uses the same form: `[static/plumb-pipeline.svg]{.->}.
+A relative file Autolink uses the same form: `[static/plumb-pipeline.svg]{.->}.
 
 Images use parsed alt content and a src URI reference:
 

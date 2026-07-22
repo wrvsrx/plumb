@@ -112,7 +112,7 @@
    `note 将 id 放在已有 attribute slot 首位，或创建新 slot；operation 返回 revision-guarded edit。
    `note 覆盖 nested owner、existing/multiline attributes、duplicate slug、invalid revision 和 LSP UTF-16 mapping。
 
-`-{.task #standard-verbatim-autolink done="2026-07-21T01:52:18+08:00"} 支持 `[.->] verbatim autolink
+`-{.task #standard-autolink done="2026-07-21T01:52:18+08:00"} 支持 `[.->] Autolink
 
    `note 只有 inline verbatim 上的 `[.->] class 产生 autolink facet；其他 owner 发布 `[link.invalid-owner]，且不生成 link record。
    `note Verbatim payload 同时作为显示 label 与 target，必须是非空 absolute URI；relative path 与 fragment 继续使用显式 `[`->] link。
@@ -122,15 +122,15 @@
    `note Export 产生 label 与 target 相同的 Pandoc Link，并补齐 extension、LSP hover、export、metadata、playground 与 bundled skill tests/docs。
 
 `-{
-   .task #relative-verbatim-references done="2026-07-22T05:38:10+08:00"
-  } 支持 `[.->] relative file references 与 `[.plumb] completion
+   .task #relative-autolinks done="2026-07-22T05:38:10+08:00"
+  } 支持 `[.->] relative file Autolinks 与 `[.plumb] completion
 
    `note 将 `[.->] target 从 absolute URI 放宽为 absolute URI 或 raw relative path，不增加 `[.file] 或 `[.path] spelling。
    `note Relative path 以 source document 所在目录为基准；raw spelling 不做 percent encode/decode 或 normalization，`[#] 只用于 explicit anchor，仍拒绝 backslash 与 control。
    `note `[..plumb] 与 `[..plumb#id] targets 继续进入 document/explicit-anchor resolution；其他 relative paths 分类为 file resources，缺失文件最多发布 semantic warning。
    `note Cursor 位于带 `[.->] facet 的 inline verbatim payload 时，补全 metadata title、filename 或 relative path 匹配的 workspace `[..plumb] documents。
    `note Completion 显示 metadata title 与 relative-path detail，原样插入 relative path；`[]] 冲突时增强 verbatim delimiter，输入 `[#] 后继续补全 target document 的 explicit anchors。
-   `note Raw-reference completion 只在 `[.->] 已显式存在时补全 payload；普通 bare 或尚未关闭的 inline verbatim 不推测 reference 意图。
+   `note Autolink completion 只在 `[.->] 已显式存在时补全 payload；普通 bare 或尚未关闭的 inline verbatim 不推测 link 意图。
    `note 复用现有 link completion context、workspace candidate ordering 和 last-valid cross-document index；补齐 resolution、hover、definition、export、LSP completion、guide、playground 与 bundled skill tests/docs。
 
 `-{.task #standard-image done="2026-07-22T05:38:10+08:00"} 支持 `[img] standard image extension
@@ -144,10 +144,10 @@
 
 `-{.task #construct-completion done="2026-07-22T16:32:30+08:00"} 提供 backtick construct completion
 
-   `note 单个 backtick 在 block entry 提供 Heading、List item 与 Task，在 ordinary inline context 提供 Inline verbatim、Raw reference 与 Named link。
+   `note 单个 backtick 在 block entry 提供 Heading、List item 与 Task，在 ordinary inline context 提供 Inline verbatim、Autolink 与 Link。
    `note 双 backtick literal escape、attributes 与 verbatim payload 不提供 candidates；context detection 保持 protocol-neutral。
    `note 根据 client snippetSupport 返回 tab-stop snippets 或 plain complete skeleton，并将 backtick 注册为 LSP trigger character。
-   `note 覆盖 block/inline context、explicit raw reference 选择、snippet fallback 与 stdio tests，并更新 guide、playground 和 bundled skill；普通 bare/incomplete verbatim 不推测 reference 意图。
+   `note 覆盖 block/inline context、explicit Autolink 选择、snippet fallback 与 stdio tests，并更新 guide、playground 和 bundled skill；普通 bare/incomplete verbatim 不推测 link 意图。
 
 `-{.task #standard-div-span done="2026-07-20T13:00:12+08:00"} 支持标准 div 与 span 透明容器
 

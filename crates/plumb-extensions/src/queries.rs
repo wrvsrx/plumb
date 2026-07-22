@@ -14,7 +14,7 @@ pub enum LinkCompletionContext {
         replace: Range<usize>,
         query: String,
     },
-    VerbatimPath {
+    AutolinkPath {
         replace: Range<usize>,
         envelope: Range<usize>,
         quote_count: usize,
@@ -26,7 +26,7 @@ pub enum LinkCompletionContext {
         replace: Range<usize>,
         query: String,
     },
-    VerbatimAnchor {
+    AutolinkAnchor {
         path: String,
         replace: Range<usize>,
         query: String,
@@ -83,7 +83,7 @@ pub fn link_completion_context(
     if offset > source.len() || !source.is_char_boundary(offset) {
         return None;
     }
-    if let Some(context) = verbatim_reference_completion_context(document, offset) {
+    if let Some(context) = autolink_completion_context(document, offset) {
         return Some(context);
     }
     if verbatim_at(document, offset) {
@@ -226,26 +226,26 @@ pub fn image_completion_context(
     })
 }
 
-fn verbatim_reference_completion_context(
+fn autolink_completion_context(
     document: &ParsedDocument,
     offset: usize,
 ) -> Option<LinkCompletionContext> {
-    blocks_find_verbatim_reference(&document.source, &document.syntax.blocks, offset)
+    blocks_find_autolink(&document.source, &document.syntax.blocks, offset)
 }
 
-fn blocks_find_verbatim_reference(
+fn blocks_find_autolink(
     source: &str,
     blocks: &[Block],
     offset: usize,
 ) -> Option<LinkCompletionContext> {
     blocks.iter().find_map(|block| match block {
         Block::Verbatim(_) => None,
-        Block::Parsed(block) => inlines_find_verbatim_reference(source, &block.head, offset)
-            .or_else(|| blocks_find_verbatim_reference(source, &block.children, offset)),
+        Block::Parsed(block) => inlines_find_autolink(source, &block.head, offset)
+            .or_else(|| blocks_find_autolink(source, &block.children, offset)),
     })
 }
 
-fn inlines_find_verbatim_reference(
+fn inlines_find_autolink(
     source: &str,
     content: &InlineContent,
     offset: usize,
@@ -272,7 +272,7 @@ fn inlines_find_verbatim_reference(
                 offset,
             )
         }
-        Inline::Element { content, .. } => inlines_find_verbatim_reference(source, content, offset),
+        Inline::Element { content, .. } => inlines_find_autolink(source, content, offset),
         Inline::Verbatim { .. } | Inline::Text { .. } | Inline::SoftBreak { .. } => None,
     })
 }
@@ -290,7 +290,7 @@ fn component_completion_context(
     }
     if let Some((path, fragment)) = prefix.split_once('#') {
         let fragment_start = range.start + path.len() + 1;
-        return Some(LinkCompletionContext::VerbatimAnchor {
+        return Some(LinkCompletionContext::AutolinkAnchor {
             path: path.to_string(),
             replace: fragment_start..range.end,
             query: fragment.to_string(),
@@ -299,7 +299,7 @@ fn component_completion_context(
     let path_end = source[offset..range.end]
         .find('#')
         .map_or(range.end, |separator| offset + separator);
-    Some(LinkCompletionContext::VerbatimPath {
+    Some(LinkCompletionContext::AutolinkPath {
         replace: range.start..path_end,
         envelope,
         quote_count,
@@ -537,12 +537,12 @@ mod tests {
     }
 
     #[test]
-    fn completes_paths_and_anchors_inside_verbatim_references() {
+    fn completes_paths_and_anchors_inside_autolinks() {
         let (path, cursor) = strip_cursor("See `[do|c.plumb]{.->}");
         let value_start = path.find("doc.plumb").unwrap();
         assert_eq!(
             completion_context(&path, cursor),
-            Some(LinkCompletionContext::VerbatimPath {
+            Some(LinkCompletionContext::AutolinkPath {
                 replace: value_start..value_start + "doc.plumb".len(),
                 envelope: path.find('`').unwrap()..path.find("{.->}").unwrap(),
                 quote_count: 0,
@@ -555,7 +555,7 @@ mod tests {
         let fragment_start = anchor.find("target").unwrap();
         assert_eq!(
             completion_context(&anchor, cursor),
-            Some(LinkCompletionContext::VerbatimAnchor {
+            Some(LinkCompletionContext::AutolinkAnchor {
                 path: "doc.plumb".to_string(),
                 replace: fragment_start..fragment_start + "target".len(),
                 query: "ta".to_string(),
@@ -567,7 +567,7 @@ mod tests {
     }
 
     #[test]
-    fn does_not_guess_that_verbatim_is_a_reference() {
+    fn does_not_guess_that_verbatim_is_an_autolink() {
         let incomplete = "See `[do";
         assert_eq!(completion_context(incomplete, incomplete.len()), None);
 

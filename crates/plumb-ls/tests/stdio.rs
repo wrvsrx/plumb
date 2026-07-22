@@ -1701,7 +1701,7 @@ fn completion_from_a_subdirectory_inserts_a_relative_path() {
 }
 
 #[test]
-fn completes_and_navigates_relative_verbatim_references_and_images() {
+fn completes_and_navigates_relative_autolinks_and_images() {
     let root = unique_temp_dir();
     let static_dir = root.join("static");
     std::fs::create_dir_all(&static_dir).unwrap();
@@ -1724,10 +1724,10 @@ fn completes_and_navigates_relative_verbatim_references_and_images() {
     let target_uri = lsp_types::Url::from_file_path(&target).unwrap();
     let image_uri = lsp_types::Url::from_file_path(&image).unwrap();
     let lines = source.lines().collect::<Vec<_>>();
-    let raw_path_cursor = lines[0].find("tar").unwrap() + "tar".len();
-    let raw_anchor_cursor = lines[1].find("#an").unwrap() + "#an".len();
+    let autolink_path_cursor = lines[0].find("tar").unwrap() + "tar".len();
+    let autolink_anchor_cursor = lines[1].find("#an").unwrap() + "#an".len();
     let image_query_cursor = lines[2].find("static/im").unwrap() + "static/im".len();
-    let raw_definition = lines[4].find("target note.plumb").unwrap() + 2;
+    let autolink_definition = lines[4].find("target note.plumb").unwrap() + 2;
     let image_definition = lines[5].find("static/image").unwrap() + 2;
     let unicode_cursor = lines[6][..lines[6].find("中文").unwrap() + "中文".len()]
         .encode_utf16()
@@ -1752,14 +1752,14 @@ fn completes_and_navigates_relative_verbatim_references_and_images() {
             "jsonrpc": "2.0", "id": 2, "method": "textDocument/completion",
             "params": {
                 "textDocument": { "uri": current_uri },
-                "position": { "line": 0, "character": raw_path_cursor }
+                "position": { "line": 0, "character": autolink_path_cursor }
             }
         }),
         json!({
             "jsonrpc": "2.0", "id": 3, "method": "textDocument/completion",
             "params": {
                 "textDocument": { "uri": current_uri },
-                "position": { "line": 1, "character": raw_anchor_cursor }
+                "position": { "line": 1, "character": autolink_anchor_cursor }
             }
         }),
         json!({
@@ -1787,7 +1787,7 @@ fn completes_and_navigates_relative_verbatim_references_and_images() {
             "jsonrpc": "2.0", "id": 7, "method": "textDocument/definition",
             "params": {
                 "textDocument": { "uri": current_uri },
-                "position": { "line": 4, "character": raw_definition }
+                "position": { "line": 4, "character": autolink_definition }
             }
         }),
         json!({
@@ -1802,14 +1802,14 @@ fn completes_and_navigates_relative_verbatim_references_and_images() {
     ];
 
     let output = run_server(&messages);
-    let raw_path = response(&output, 2)["result"]
+    let autolink_path = response(&output, 2)["result"]
         .as_array()
         .unwrap()
         .iter()
         .find(|item| item["label"] == "target note.plumb")
-        .expect("raw document path completion");
-    assert_eq!(raw_path["detail"], "Target note");
-    assert_eq!(raw_path["textEdit"]["newText"], "target note.plumb");
+        .expect("autolink document path completion");
+    assert_eq!(autolink_path["detail"], "Target note");
+    assert_eq!(autolink_path["textEdit"]["newText"], "target note.plumb");
 
     let anchor = response(&output, 3)["result"]
         .as_array()
@@ -1843,7 +1843,7 @@ fn completes_and_navigates_relative_verbatim_references_and_images() {
         .unwrap()
         .iter()
         .find(|item| item["label"] == "中文笔记 [草稿].plumb")
-        .expect("Unicode raw-reference completion");
+        .expect("Unicode autolink completion");
     assert_eq!(
         unicode_completion["textEdit"]["newText"],
         "`\"[中文笔记 [草稿].plumb]\""
@@ -1931,12 +1931,19 @@ fn completes_constructs_after_a_single_backtick() {
     assert_eq!(block[0]["insertTextFormat"], 2);
 
     let inline = response(&output, 3)["result"].as_array().unwrap();
-    let raw_reference = inline
+    assert_eq!(
+        inline
+            .iter()
+            .map(|item| item["label"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        ["Inline verbatim", "Autolink", "Link"]
+    );
+    let autolink = inline
         .iter()
-        .find(|item| item["label"] == "Raw reference")
+        .find(|item| item["label"] == "Autolink")
         .unwrap();
-    assert_eq!(raw_reference["textEdit"]["newText"], "`[${1:path}]{.->}");
-    assert_eq!(raw_reference["insertTextFormat"], 2);
+    assert_eq!(autolink["textEdit"]["newText"], "`[${1:path}]{.->}");
+    assert_eq!(autolink["insertTextFormat"], 2);
 
     let fallback_messages = [
         json!({
@@ -1969,7 +1976,7 @@ fn completes_constructs_after_a_single_backtick() {
         .as_array()
         .unwrap()
         .iter()
-        .find(|item| item["label"] == "Raw reference")
+        .find(|item| item["label"] == "Autolink")
         .unwrap();
     assert_eq!(fallback["textEdit"]["newText"], "`[]{.->}");
     assert_eq!(fallback["insertTextFormat"], 1);

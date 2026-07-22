@@ -297,13 +297,12 @@ fn collect_verbatim_autolink(
         });
         return;
     }
-    if !valid_raw_reference(text) {
+    if !valid_autolink_target(text) {
         output.diagnostics.push(Diagnostic {
             code: "link.invalid-autolink-target",
             severity: DiagnosticSeverity::Warning,
-            message:
-                "verbatim reference payload must be a nonempty absolute URI or raw relative path"
-                    .to_string(),
+            message: "autolink target must be a nonempty absolute URI or raw relative path"
+                .to_string(),
             range: text_range,
             related: Vec::new(),
         });
@@ -356,7 +355,7 @@ fn valid_uri_reference(target: &str) -> bool {
     Url::parse(target).is_ok() || base.join(target).is_ok()
 }
 
-fn valid_raw_reference(target: &str) -> bool {
+fn valid_autolink_target(target: &str) -> bool {
     if target.is_empty()
         || target
             .chars()
@@ -728,7 +727,7 @@ mod tests {
     }
 
     #[test]
-    fn link_kind_is_not_a_reference() {
+    fn link_kind_is_not_a_standard_link() {
         let parsed = parse("`link[generic]{to=\"other.plumb#target\"}\n");
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
@@ -752,7 +751,7 @@ mod tests {
     }
 
     #[test]
-    fn recognizes_relative_verbatim_document_anchor_and_file_references() {
+    fn recognizes_relative_autolink_targets() {
         let source = "`[other.plumb]{.->}\n`[other notes.plumb#section]{.->}\n`[../assets/a b.pdf]{.->}\n`[../assets/100% done?.pdf]{.->}\n`[#local]{.->}\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
