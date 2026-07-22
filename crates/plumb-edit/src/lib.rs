@@ -8,6 +8,20 @@ pub struct TextEdit {
     pub new_text: String,
 }
 
+impl TextEdit {
+    pub fn replace(
+        parsed: &ParsedDocument,
+        range: Range<usize>,
+        new_text: impl Into<String>,
+    ) -> Result<Self, EditError> {
+        validate_range(&parsed.source, &range)?;
+        Ok(Self {
+            range,
+            new_text: new_text.into(),
+        })
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EditError {
     InvalidRange,

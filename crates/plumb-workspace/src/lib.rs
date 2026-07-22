@@ -1401,18 +1401,24 @@ impl Workspace {
         grouped
             .entry(target.path.clone())
             .or_default()
-            .push(TextEdit {
-                range: anchor.id.range.clone(),
-                new_text: replacement.to_string(),
-            });
+            .push(validated_token_edit(
+                entry,
+                anchor.id.range.clone(),
+                replacement,
+            )?);
         for (path, reference) in self.references_to(&target.path, &target.id) {
+            let reference_entry = self
+                .documents
+                .get(path)
+                .ok_or(RenameError::StaleOrInvalidDocument)?;
             grouped
                 .entry(path.to_path_buf())
                 .or_default()
-                .push(TextEdit {
-                    range: reference.id_range,
-                    new_text: replacement.to_string(),
-                });
+                .push(validated_token_edit(
+                    reference_entry,
+                    reference.id_range,
+                    replacement,
+                )?);
         }
         let mut document_changes = Vec::new();
         for (path, mut edits) in grouped {
@@ -1535,7 +1541,7 @@ impl Workspace {
                 grouped
                     .entry(entry.path.clone())
                     .or_default()
-                    .push(link_path_rename_edit(link, path_range, replacement));
+                    .push(link_path_rename_edit(entry, link, path_range, replacement)?);
             }
             for task in &current.output.tasks.tasks {
                 for (source, range, target) in task_reference_fields(task) {
@@ -1565,10 +1571,11 @@ impl Workspace {
                     grouped
                         .entry(entry.path.clone())
                         .or_default()
-                        .push(TextEdit {
-                            range: path_range,
-                            new_text: percent_encode_path(&replacement),
-                        });
+                        .push(validated_token_edit(
+                            entry,
+                            path_range,
+                            percent_encode_path(&replacement),
+                        )?);
                 }
             }
         }
@@ -1971,6 +1978,15 @@ fn single_document_edit(entry: &DocumentEntry, path: PathBuf, edit: TextEdit) ->
     }
 }
 
+fn validated_token_edit(
+    entry: &DocumentEntry,
+    range: std::ops::Range<usize>,
+    replacement: impl Into<String>,
+) -> Result<TextEdit, RenameError> {
+    TextEdit::replace(&entry.parsed, range, replacement)
+        .map_err(|_| RenameError::StaleOrInvalidDocument)
+}
+
 pub fn normalize(path: &Path) -> PathBuf {
     let mut normalized = PathBuf::new();
     for component in path.components() {
@@ -2171,32 +2187,24 @@ fn valid_autolink_completion_path(path: &str) -> bool {
 }
 
 fn link_path_rename_edit(
+    entry: &DocumentEntry,
     link: &LinkRecord,
     path_range: &std::ops::Range<usize>,
     replacement: String,
-) -> TextEdit {
+) -> Result<TextEdit, RenameError> {
     let LinkSpelling::Verbatim {
         envelope,
         quote_count,
     } = &link.spelling
     else {
-        return TextEdit {
-            range: path_range.clone(),
-            new_text: replacement,
-        };
+        return validated_token_edit(entry, path_range.clone(), replacement);
     };
     let suffix_start = path_range.end - link.target.range.start;
     let payload = format!("{replacement}{}", &link.target.value[suffix_start..]);
     if verbatim_payload_is_safe(&payload, *quote_count) {
-        TextEdit {
-            range: path_range.clone(),
-            new_text: replacement,
-        }
+        validated_token_edit(entry, path_range.clone(), replacement)
     } else {
-        TextEdit {
-            range: envelope.clone(),
-            new_text: format_inline_verbatim(&payload),
-        }
+        validated_token_edit(entry, envelope.clone(), format_inline_verbatim(&payload))
     }
 }
 
