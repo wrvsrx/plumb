@@ -7,7 +7,7 @@ use plumb_core::{
     parse, Attributes, Block, Diagnostic, DiagnosticSeverity, ParsedBlock, ParsedDocument,
 };
 pub use plumb_edit::TextEdit;
-use plumb_edit::{AttributePosition, EditSession, OwnedAttribute};
+use plumb_edit::{AttributePosition, EditSession, OwnedAttribute, OwnedBlock};
 use plumb_extensions::{
     analyze_document, next_task_datetime, parse_task_reference_target, valid_task_datetime,
     AnchorRecord, DocumentOutput, ImageCompletionContext, ImageRecord, ImageTarget,
@@ -1658,30 +1658,23 @@ impl Workspace {
             return Err(MetadataInsertError::MetadataAlreadyExists);
         }
 
-        let newline = if entry.parsed.source.contains("\r\n") {
-            "\r\n"
+        let metadata = OwnedBlock::marked("meta", "").with_children(vec![
+            OwnedBlock::marked(":", "title").with_children(vec![OwnedBlock::paragraph(title)]),
+            OwnedBlock::marked(":", "created").with_children(vec![OwnedBlock::paragraph(created)]),
+        ]);
+        let affected = 0..if entry.parsed.syntax.blocks.is_empty() {
+            entry.parsed.source.len()
         } else {
-            "\n"
+            0
         };
-        let escaped_title = title.replace('`', "``");
-        let escaped_created = created.replace('`', "``");
-        let new_text = format!(
-            "`meta{newline} `: title{newline}{newline}    {escaped_title}{newline}{newline} `: created{newline}{newline}    {escaped_created}{newline}{newline}"
-        );
-        finalize_authoring_edit(
-            entry,
-            path,
-            0..if entry.parsed.syntax.blocks.is_empty() {
-                entry.parsed.source.len()
-            } else {
-                0
-            },
-            vec![TextEdit {
-                range: 0..0,
-                new_text,
-            }],
-        )
-        .map_err(|_| MetadataInsertError::GeneratedInvalid)
+        let mut edit = EditSession::new(&entry.parsed, affected)
+            .map_err(|_| MetadataInsertError::GeneratedInvalid)?;
+        edit.insert_blocks(0, &[metadata])
+            .map_err(|_| MetadataInsertError::GeneratedInvalid)?;
+        let edit = edit
+            .finish()
+            .map_err(|_| MetadataInsertError::GeneratedInvalid)?;
+        Ok(single_document_edit(entry, path, edit))
     }
 
     pub fn complete_link(
