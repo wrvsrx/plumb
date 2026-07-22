@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
   "crates/plumb-core",
+  "crates/plumb-edit",
   "crates/plumb-format",
   "crates/plumb-extensions",
   "crates/plumb-workspace",

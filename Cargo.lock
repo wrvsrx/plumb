@@ -1191,6 +1191,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "plumb-edit"
+version = "0.10.2-dev"
+dependencies = [
+ "plumb-core",
+ "plumb-format",
+]
+
+[[package]]
 name = "plumb-export"
 version = "0.10.2-dev"
 dependencies = [
@@ -1239,6 +1247,7 @@ dependencies = [
  "cel",
  "chrono",
  "plumb-core",
+ "plumb-edit",
  "plumb-extensions",
  "plumb-format",
 ]

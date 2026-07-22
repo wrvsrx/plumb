@@ -6,18 +6,14 @@ use chrono::{DateTime, FixedOffset};
 use plumb_core::{
     parse, Attributes, Block, Diagnostic, DiagnosticSeverity, ParsedBlock, ParsedDocument,
 };
+pub use plumb_edit::TextEdit;
+use plumb_edit::{AttributePosition, EditSession, OwnedAttribute};
 use plumb_extensions::{
     analyze_document, next_task_datetime, parse_task_reference_target, valid_task_datetime,
     AnchorRecord, DocumentOutput, ImageCompletionContext, ImageRecord, ImageTarget,
     LinkCompletionContext, LinkRecord, LinkSpelling, LinkTarget, MetadataValue, TaskRecord,
     TaskReferenceTarget, TaskState, TaskStatus,
 };
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TextEdit {
-    pub range: std::ops::Range<usize>,
-    pub new_text: String,
-}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DocumentEdit {
@@ -839,23 +835,22 @@ impl Workspace {
         if mark.attrs.has_class("task") {
             return Err(TaskEditError::TaskAlreadyExists);
         }
-        let (range, new_text) = match &mark.attrs.range {
-            Some(range) => (
-                range.end.saturating_sub(1)..range.end.saturating_sub(1),
-                format!(" .task created=\"{timestamp}\""),
-            ),
-            None => (
-                mark.marker_range.end..mark.marker_range.end,
-                format!("{{.task created=\"{timestamp}\"}}"),
-            ),
-        };
-        finalize_authoring_edit(
-            entry,
-            path,
-            item.range.clone(),
-            vec![TextEdit { range, new_text }],
+        let mut edit = EditSession::new(&entry.parsed, item.range.clone())
+            .map_err(|_| TaskEditError::GeneratedInvalid)?;
+        edit.insert_attributes(
+            &mark.attrs,
+            mark.marker_range.end,
+            [
+                (AttributePosition::Last, OwnedAttribute::class("task")),
+                (
+                    AttributePosition::Last,
+                    OwnedAttribute::quoted("created", timestamp),
+                ),
+            ],
         )
-        .map_err(|_| TaskEditError::GeneratedInvalid)
+        .map_err(|_| TaskEditError::GeneratedInvalid)?;
+        let edit = edit.finish().map_err(|_| TaskEditError::GeneratedInvalid)?;
+        Ok(single_document_edit(entry, path, edit))
     }
 
     pub fn add_task_created(
@@ -887,16 +882,20 @@ impl Workspace {
         if task.created.is_some() {
             return Err(TaskEditError::CreatedAlreadyExists);
         }
-        finalize_authoring_edit(
-            entry,
-            path,
-            task.range.clone(),
-            vec![TextEdit {
-                range: task.attribute_insert..task.attribute_insert,
-                new_text: format!(" created=\"{timestamp}\""),
-            }],
+        let block = parsed_block_with_range(&entry.parsed.syntax.blocks, &task.range)
+            .ok_or(TaskEditError::TaskNotFound)?;
+        let mark = block.mark.as_ref().ok_or(TaskEditError::TaskNotFound)?;
+        let mut edit = EditSession::new(&entry.parsed, block.range.clone())
+            .map_err(|_| TaskEditError::GeneratedInvalid)?;
+        edit.insert_attribute(
+            &mark.attrs,
+            mark.marker_range.end,
+            AttributePosition::Last,
+            OwnedAttribute::quoted("created", timestamp),
         )
-        .map_err(|_| TaskEditError::GeneratedInvalid)
+        .map_err(|_| TaskEditError::GeneratedInvalid)?;
+        let edit = edit.finish().map_err(|_| TaskEditError::GeneratedInvalid)?;
+        Ok(single_document_edit(entry, path, edit))
     }
 
     pub fn add_explicit_id(
@@ -926,26 +925,19 @@ impl Workspace {
             .map(|anchor| anchor.id.value.clone())
             .collect::<HashSet<_>>();
         let id = unique_anchor_id(&target.seed, &reserved);
-        let edit = if let Some(range) = &target.attrs.range {
-            let insert = range.start + 1;
-            let separator = entry.parsed.source[insert..]
-                .chars()
-                .next()
-                .is_some_and(|character| !character.is_whitespace() && character != '}')
-                .then_some(" ")
-                .unwrap_or("");
-            TextEdit {
-                range: insert..insert,
-                new_text: format!("#{id}{separator}"),
-            }
-        } else {
-            TextEdit {
-                range: target.attribute_insert..target.attribute_insert,
-                new_text: format!("{{#{id}}}"),
-            }
-        };
-        finalize_authoring_edit(entry, path, target.block_range, vec![edit])
-            .map_err(|_| ExplicitIdError::GeneratedInvalid)
+        let mut edit = EditSession::new(&entry.parsed, target.block_range)
+            .map_err(|_| ExplicitIdError::GeneratedInvalid)?;
+        edit.insert_attribute(
+            target.attrs,
+            target.attribute_insert,
+            AttributePosition::First,
+            OwnedAttribute::id(id),
+        )
+        .map_err(|_| ExplicitIdError::GeneratedInvalid)?;
+        let edit = edit
+            .finish()
+            .map_err(|_| ExplicitIdError::GeneratedInvalid)?;
+        Ok(single_document_edit(entry, path, edit))
     }
 
     fn task_status_edit(
@@ -968,16 +960,20 @@ impl Workspace {
         if status == TaskStatus::Done && self.is_task_blocked(&path, task) {
             return Err(TaskEditError::TaskBlocked);
         }
-        finalize_authoring_edit(
-            entry,
-            path.to_path_buf(),
-            task.range.clone(),
-            vec![TextEdit {
-                range: task.attribute_insert..task.attribute_insert,
-                new_text: format!(" {}=\"{}\"", status.attribute(), timestamp),
-            }],
+        let block = parsed_block_with_range(&entry.parsed.syntax.blocks, &task.range)
+            .ok_or(TaskEditError::TaskNotFound)?;
+        let mark = block.mark.as_ref().ok_or(TaskEditError::TaskNotFound)?;
+        let mut edit = EditSession::new(&entry.parsed, block.range.clone())
+            .map_err(|_| TaskEditError::GeneratedInvalid)?;
+        edit.insert_attribute(
+            &mark.attrs,
+            mark.marker_range.end,
+            AttributePosition::Last,
+            OwnedAttribute::quoted(status.attribute(), timestamp),
         )
-        .map_err(|_| TaskEditError::GeneratedInvalid)
+        .map_err(|_| TaskEditError::GeneratedInvalid)?;
+        let edit = edit.finish().map_err(|_| TaskEditError::GeneratedInvalid)?;
+        Ok(single_document_edit(entry, path.to_path_buf(), edit))
     }
 
     pub fn set_task_status_by_id(
@@ -1938,6 +1934,26 @@ fn deepest_list_item(blocks: &[Block], offset: usize) -> Option<&ParsedBlock> {
     result
 }
 
+fn parsed_block_with_range<'a>(
+    blocks: &'a [Block],
+    range: &std::ops::Range<usize>,
+) -> Option<&'a ParsedBlock> {
+    for block in blocks {
+        let Block::Parsed(block) = block else {
+            continue;
+        };
+        if &block.range == range {
+            return Some(block);
+        }
+        if block.range.start <= range.start && range.end <= block.range.end {
+            if let Some(found) = parsed_block_with_range(&block.children, range) {
+                return Some(found);
+            }
+        }
+    }
+    None
+}
+
 struct BlockIdTarget<'a> {
     block_range: std::ops::Range<usize>,
     attrs: &'a Attributes,
@@ -2003,91 +2019,14 @@ fn single_document_edit(entry: &DocumentEntry, path: PathBuf, edit: TextEdit) ->
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum AuthoringEditError {
-    InvalidRange,
-    OverlappingEdits,
-    GeneratedInvalid,
-}
-
 fn finalize_authoring_edit(
     entry: &DocumentEntry,
     path: PathBuf,
     affected_block: std::ops::Range<usize>,
-    mut logical_edits: Vec<TextEdit>,
-) -> Result<WorkspaceEdit, AuthoringEditError> {
-    let source = &entry.parsed.source;
-    if affected_block.start > affected_block.end
-        || affected_block.end > source.len()
-        || !source.is_char_boundary(affected_block.start)
-        || !source.is_char_boundary(affected_block.end)
-        || logical_edits.iter().any(|edit| {
-            edit.range.start > edit.range.end
-                || edit.range.start < affected_block.start
-                || edit.range.end > affected_block.end
-                || !source.is_char_boundary(edit.range.start)
-                || !source.is_char_boundary(edit.range.end)
-        })
-    {
-        return Err(AuthoringEditError::InvalidRange);
-    }
-
-    logical_edits.sort_by_key(|edit| (edit.range.start, edit.range.end));
-    if logical_edits.windows(2).any(|edits| {
-        edits[0].range.end > edits[1].range.start || edits[0].range.start == edits[1].range.start
-    }) {
-        return Err(AuthoringEditError::OverlappingEdits);
-    }
-
-    let delta = logical_edits.iter().try_fold(0isize, |delta, edit| {
-        let removed = isize::try_from(edit.range.len()).ok()?;
-        let inserted = isize::try_from(edit.new_text.len()).ok()?;
-        delta.checked_add(inserted.checked_sub(removed)?)
-    });
-    let delta = delta.ok_or(AuthoringEditError::InvalidRange)?;
-    let modified_end = affected_block
-        .end
-        .checked_add_signed(delta)
-        .ok_or(AuthoringEditError::InvalidRange)?;
-
-    let mut modified = source.clone();
-    for edit in logical_edits.iter().rev() {
-        modified.replace_range(edit.range.clone(), &edit.new_text);
-    }
-    if entry.parsed.syntax.blocks.is_empty() {
-        let new_text =
-            plumb_format::format(&modified).map_err(|_| AuthoringEditError::GeneratedInvalid)?;
-        return Ok(single_document_edit(
-            entry,
-            path,
-            TextEdit {
-                range: affected_block,
-                new_text,
-            },
-        ));
-    }
-    let formatted = plumb_format::format_block_range(&modified, affected_block.start..modified_end)
-        .map_err(|_| AuthoringEditError::GeneratedInvalid)?;
-    if formatted.range.end < modified_end {
-        return Err(AuthoringEditError::InvalidRange);
-    }
-    let inverse_delta = delta
-        .checked_neg()
-        .ok_or(AuthoringEditError::InvalidRange)?;
-    let original_end = formatted
-        .range
-        .end
-        .checked_add_signed(inverse_delta)
-        .ok_or(AuthoringEditError::InvalidRange)?;
-
-    Ok(single_document_edit(
-        entry,
-        path,
-        TextEdit {
-            range: formatted.range.start..original_end,
-            new_text: formatted.new_text,
-        },
-    ))
+    logical_edits: Vec<TextEdit>,
+) -> Result<WorkspaceEdit, plumb_edit::EditError> {
+    let edit = plumb_edit::finalize(&entry.parsed, affected_block, logical_edits)?;
+    Ok(single_document_edit(entry, path, edit))
 }
 
 pub fn normalize(path: &Path) -> PathBuf {
@@ -3487,7 +3426,7 @@ mod tests {
                     },
                 ],
             ),
-            Err(AuthoringEditError::OverlappingEdits)
+            Err(plumb_edit::EditError::OverlappingEdits)
         );
         assert_eq!(
             finalize_authoring_edit(
@@ -3499,7 +3438,7 @@ mod tests {
                     new_text: "outside".to_string(),
                 }],
             ),
-            Err(AuthoringEditError::InvalidRange)
+            Err(plumb_edit::EditError::InvalidRange)
         );
     }
 
