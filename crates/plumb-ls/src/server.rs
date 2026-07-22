@@ -1307,7 +1307,7 @@ fn construct_completion_items(
     snippets: bool,
     timestamp: &str,
 ) -> Vec<CompletionItem> {
-    let (replace, templates) = match context {
+    let (replace, mut templates) = match context {
         ConstructCompletionContext::Block { replace } => (
             replace,
             vec![ConstructTemplate {
@@ -1317,30 +1317,22 @@ fn construct_completion_items(
                 plain: format!("`-{{.task created=\"{timestamp}\"}} "),
             }],
         ),
-        ConstructCompletionContext::Inline { replace } => (
-            replace,
-            vec![
-                ConstructTemplate {
-                    label: "Inline verbatim",
-                    detail: "plumb inline verbatim",
-                    snippet: "`[${1:text}]".to_string(),
-                    plain: "`[]".to_string(),
-                },
-                ConstructTemplate {
-                    label: "Autolink",
-                    detail: "plumb autolink",
-                    snippet: "`[${1:path}]{.->}".to_string(),
-                    plain: "`[]{.->}".to_string(),
-                },
-                ConstructTemplate {
-                    label: "Link",
-                    detail: "plumb link",
-                    snippet: "`->[${1:label}]{to=\"${2:target}\"}".to_string(),
-                    plain: "`->[]{to=\"\"}".to_string(),
-                },
-            ],
-        ),
+        ConstructCompletionContext::Inline { replace } => (replace, Vec::new()),
     };
+    templates.extend([
+        ConstructTemplate {
+            label: "Autolink",
+            detail: "plumb autolink",
+            snippet: "`[${1:path}]{.->}".to_string(),
+            plain: "`[]{.->}".to_string(),
+        },
+        ConstructTemplate {
+            label: "Link",
+            detail: "plumb link",
+            snippet: "`->[${1:label}]{to=\"${2:target}\"}".to_string(),
+            plain: "`->[]{to=\"\"}".to_string(),
+        },
+    ]);
     templates
         .into_iter()
         .map(|template| CompletionItem {

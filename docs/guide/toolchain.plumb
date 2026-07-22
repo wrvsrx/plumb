@@ -51,11 +51,11 @@ Location 等内部 invariant 失败使用 InternalError，cancellation 使用 Re
 `[dev/nvim.lua] 是面向 Neovim 0.12 的 repo-local exrc：加载本地 tree-sitter parser 与 queries，
 启动 `[`target/debug/plumb lsp]，并配置 workspace edits、resource rename 和 file watching。
 
-在普通 authoring context 输入单个 backtick character 会触发 construct completion。block entry 只提供
-`[Task]，并用当前本地 RFC 3339 timestamp 生成 `[created]；heading 与 ordinary list item 的 spelling
-足够短，不提供 candidates。paragraph/head inline 位置提供 `[Inline verbatim]、`[Autolink] 和
-`[Link]。双 backtick literal escape、attributes 与 verbatim payload 不提供 construct candidates。
-支持 LSP snippets 的 client 获得 title tab stop；其他 client 获得完整 plain skeleton。
+在普通 authoring context 输入单个 backtick character 会触发 construct completion。line start 提供
+`[Task]、`[Autolink] 和 `[Link]；Task 用当前本地 RFC 3339 timestamp 生成 `[created]。paragraph/head
+inline 位置提供 `[Autolink] 和 `[Link]。heading、ordinary list item 与 inline verbatim 的 spelling
+足够短，不提供 candidates。双 backtick literal escape、attributes 与 verbatim payload 不提供
+construct candidates。支持 LSP snippets 的 client 获得 tab stops；其他 client 获得完整 plain skeleton。
 
 `[contrib/nvim] 提供面向 Neovim 0.12 的 `[plumb.search] Lua module。`[search_notes] 与
 `[search_tasks] 使用 `[vim.ui.input/select]；`[live_search] 为 picker adapter 统一处理 debounce、

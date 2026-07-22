@@ -175,9 +175,10 @@ explicit id when another task must reference it.
 `.task` on another marker is `task.invalid-owner`. The LSP can convert an
 ordinary list item to a task while adding `created`, or add `created` to an
 existing task; both use the operation's local RFC 3339 timestamp.
-At block entry, single-backtick construct completion offers only Task and
-creates its `created` field from the current local RFC 3339 timestamp. Heading
-and ordinary list-item constructs are typed directly.
+At line start, single-backtick construct completion offers Task, Autolink, and
+Link, and creates the Task `created` field from the current local RFC 3339
+timestamp. Other ordinary inline contexts offer Autolink and Link. Heading,
+ordinary list-item, and inline-verbatim constructs are typed directly.
 
 Defined fields:
 

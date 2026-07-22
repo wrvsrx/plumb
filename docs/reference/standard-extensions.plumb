@@ -230,8 +230,9 @@ authoring operations 使用执行时的本地 RFC 3339 timestamp：`[Convert to 
 缺少 `[created] 的最深 enclosing task 补录时间。后者不受 task state、dependency 或 recurrence
 限制。两者都保留已有 attributes，并返回 revision-guarded edits。
 
-block entry 的 construct completion 只提供 Task，并在 skeleton 中用当前本地 RFC 3339 timestamp
-创建 `[created]。heading 与 ordinary list item 不提供 construct candidates。
+line start 的 construct completion 提供 Task、Autolink 与 Link；Task skeleton 用当前本地 RFC 3339
+timestamp 创建 `[created]。其他 ordinary inline context 提供 Autolink 与 Link。heading、ordinary
+list item 与 inline verbatim 不提供 construct candidates。
 
 `# 12. Generic export
 

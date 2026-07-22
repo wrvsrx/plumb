@@ -1925,7 +1925,7 @@ fn completes_constructs_after_a_single_backtick() {
             .iter()
             .map(|item| item["label"].as_str().unwrap())
             .collect::<Vec<_>>(),
-        ["Task"]
+        ["Task", "Autolink", "Link"]
     );
     let task = block[0]["textEdit"]["newText"].as_str().unwrap();
     assert!(task.starts_with("`-{.task created=\""));
@@ -1939,7 +1939,7 @@ fn completes_constructs_after_a_single_backtick() {
             .iter()
             .map(|item| item["label"].as_str().unwrap())
             .collect::<Vec<_>>(),
-        ["Inline verbatim", "Autolink", "Link"]
+        ["Autolink", "Link"]
     );
     let autolink = inline
         .iter()
@@ -1991,8 +1991,19 @@ fn completes_constructs_after_a_single_backtick() {
     assert_eq!(fallback["textEdit"]["newText"], "`[]{.->}");
     assert_eq!(fallback["insertTextFormat"], 1);
     let fallback_block = response(&fallback_output, 3)["result"].as_array().unwrap();
-    assert_eq!(fallback_block.len(), 1);
-    let fallback_task = fallback_block[0]["textEdit"]["newText"].as_str().unwrap();
+    assert_eq!(
+        fallback_block
+            .iter()
+            .map(|item| item["label"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        ["Task", "Autolink", "Link"]
+    );
+    let fallback_task = fallback_block
+        .iter()
+        .find(|item| item["label"] == "Task")
+        .unwrap()["textEdit"]["newText"]
+        .as_str()
+        .unwrap();
     assert!(fallback_task.starts_with("`-{.task created=\""));
     assert!(fallback_task.ends_with("\"} "));
     chrono::DateTime::parse_from_rfc3339(attribute_value(fallback_task, "created")).unwrap();
