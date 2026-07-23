@@ -273,11 +273,13 @@
    `note 提供 capabilities/version detection、keymap 示例和失败提示，并以 Neovim 0.12 做端到端验证。
    `note 只有 LSP setup、tree-sitter setup、pickers 与 task actions 的 public configuration surface 稳定后，才评估抽离独立 plumb.nvim。
 
-`-{.task #block-reference-codelens-position} 讨论并调整 block-level reference CodeLens 位置
+`-{
+   .task #block-reference-codelens-position done="2026-07-23T23:09:37+08:00"
+  } 讨论并调整 block-level reference CodeLens 位置
 
-   `note 当前 block-level item 的 reference CodeLens 绑定到 explicit `[#id] range；候选方案是改为绑定整个 item 的 block opener，使 CodeLens 显示在 item 上方。
-   `note 实现前必须先与用户讨论并确认最终位置；比较 `[#id]、block opener 与 item head 等候选 anchor 在 single-line、multiline attributes 和 nested item 中的呈现，不得直接按候选方案实现。
-   `note 位置确认后再统一调整 CodeLens range，并覆盖 heading、list/task item、generic marked block、multiline attributes 与 Neovim 展示的 regression tests。
+   `note 已与用户确认 block-level reference CodeLens 绑定 item 的 block opener，使 CodeLens 显示在 item 上方；inline anchor 继续绑定 explicit `[#id] range。
+   `note 位置选择比较了 `[#id]、block opener 与 item head；block opener 在 single-line、multiline attributes 和 nested item 中都稳定表示 item 起点。
+   `note 覆盖 heading、list/task item、generic marked block、verbatim block、multiline attributes、nested item 与 Neovim 0.12 原生 virt_lines_above 展示的 regression tests。
 
 `-{.task #document-neovim-lsp-entrypoints} 说明 Neovim 如何列出 notes、tasks 与 references
 
