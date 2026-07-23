@@ -9,7 +9,7 @@ Add contrib/nvim from the source checkout, or share/plumb/contrib/nvim from the 
 to runtimepath. Register the reference CodeLens command, then map the native note and task pickers:
 
 `{language=lua}
-  require('plumb.codelens').setup()
+  require('plumb.codelens').setup({ picker = 'snacks' })
 
   vim.keymap.set('n', '<leader>pn', function()
     require('plumb.search').search_notes()
@@ -28,6 +28,10 @@ cancellation, stale-result suppression, locations and incomplete-result state.
 `[plumb lsp] 在顶层 metadata 上显示 `[N file references]，并在每个 explicit anchor 上显示
 `[N references] CodeLens。前者统计其他 documents 中指向当前文件的 reference occurrences。
 command id 是 `[plumb.showReferences]，arguments 是 target URI、target position 和完整 reference locations。
-`[plumb.codelens.setup()] 为 Neovim 注册 client-side command：执行 lens 时把 locations 放入 quickfix
-list 并打开 quickfix window；0 references 时只显示提示。其他 editor 可以使用同一 arguments contract
-接入自己的 references UI。
+`[plumb.codelens.setup({ picker = 'snacks' })] 为 Neovim 注册 client-side command，并把 CodeLens 已
+携带的 locations 直接转换为 Snacks file picker items；它不会重复发送 LSP references request。picker
+提供 file preview、jump、tagstack 和 single-result auto-confirm。
+
+默认 `[picker = 'quickfix'] 会把 locations 写入 quickfix list 并打开 quickfix window。请求 Snacks
+但 module 不可用时会 warning 并回退 quickfix；0 references 时只显示提示。其他 editor 可以使用同一
+arguments contract 接入自己的 references UI。
