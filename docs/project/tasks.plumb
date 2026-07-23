@@ -277,6 +277,13 @@
    `note 实现前必须先与用户讨论并确认最终位置；比较 `[#id]、block opener 与 item head 等候选 anchor 在 single-line、multiline attributes 和 nested item 中的呈现，不得直接按候选方案实现。
    `note 位置确认后再统一调整 CodeLens range，并覆盖 heading、list/task item、generic marked block、multiline attributes 与 Neovim 展示的 regression tests。
 
+`-{.task #document-neovim-lsp-entrypoints} 说明 Neovim 如何列出 notes、tasks 与 references
+
+   `note 在 Neovim integration 文档中区分用于 notes/tasks 的 `[plumb/search] custom request 与用于 CodeLens references 的 `[plumb.showReferences] client-side command，说明各自不是 server-side `[workspace/executeCommand]。
+   `note 给出可直接调用的 Lua API、单行 `[:lua]、user command 与 keymap examples，覆盖列出 notes、列出 tasks、显示当前 metadata 或 explicit anchor references，并说明需要 attached plumb client 与对应 capabilities。
+   `note 同时说明推荐的 `[contrib/nvim] wrapper、底层 method/params/result schema、buffer/client selection、Location jump、empty result 与 error handling，使用户无需阅读实现代码即可接入 native UI 或自选 picker。
+   `note 以 Neovim 0.12 验证所有示例，并让文档示例进入 regression checks，防止 Lua API、request schema 或 command arguments 漂移。
+
 `# Neovim plugin
 
 `-{.task #neovim-plugin depends="#neovim-search-integration"} 开发完整的 Neovim plugin
