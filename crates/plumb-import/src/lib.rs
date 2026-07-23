@@ -309,7 +309,16 @@ fn render_inlines(inlines: &[Inline], bracketed: bool) -> Result<String, String>
                 output.push_str(&render_element("*", &Attr::default(), content)?)
             }
             Inline::Strong(content) => {
-                output.push_str(&render_element("**", &Attr::default(), content)?)
+                output.push_str(&render_element("!", &Attr::default(), content)?)
+            }
+            Inline::Strikeout(content) => {
+                output.push_str(&render_element("~", &Attr::default(), content)?)
+            }
+            Inline::Superscript(content) => {
+                output.push_str(&render_element("^", &Attr::default(), content)?)
+            }
+            Inline::Subscript(content) => {
+                output.push_str(&render_element("_", &Attr::default(), content)?)
             }
             Inline::Code(attrs, text) => output.push_str(&render_verbatim(text, attrs)?),
             Inline::Link(attrs, label, target) => {
@@ -342,6 +351,10 @@ fn render_inlines(inlines: &[Inline], bracketed: bool) -> Result<String, String>
                 output.push_str(&format!("`cite[{}]", citation.citation_id));
             }
             Inline::Span(attrs, content) => {
+                if let Some(attrs) = without_first_class(attrs, "mark") {
+                    output.push_str(&render_element("=", &attrs, content)?);
+                    continue;
+                }
                 if content.len() == 1 {
                     match &content[0] {
                         Inline::Emph(content) => {
@@ -349,7 +362,19 @@ fn render_inlines(inlines: &[Inline], bracketed: bool) -> Result<String, String>
                             continue;
                         }
                         Inline::Strong(content) => {
-                            output.push_str(&render_element("**", attrs, content)?);
+                            output.push_str(&render_element("!", attrs, content)?);
+                            continue;
+                        }
+                        Inline::Strikeout(content) => {
+                            output.push_str(&render_element("~", attrs, content)?);
+                            continue;
+                        }
+                        Inline::Superscript(content) => {
+                            output.push_str(&render_element("^", attrs, content)?);
+                            continue;
+                        }
+                        Inline::Subscript(content) => {
+                            output.push_str(&render_element("_", attrs, content)?);
                             continue;
                         }
                         Inline::Math(MathType::InlineMath, text) => {
@@ -370,15 +395,6 @@ fn render_inlines(inlines: &[Inline], bracketed: bool) -> Result<String, String>
             }
             Inline::Underline(_) => {
                 return Err("Underline has no standard plumb representation".into())
-            }
-            Inline::Strikeout(_) => {
-                return Err("Strikeout has no standard plumb representation".into())
-            }
-            Inline::Superscript(_) => {
-                return Err("Superscript has no standard plumb representation".into())
-            }
-            Inline::Subscript(_) => {
-                return Err("Subscript has no standard plumb representation".into())
             }
             Inline::SmallCaps(_) => {
                 return Err("SmallCaps has no standard plumb representation".into())
@@ -484,6 +500,16 @@ fn attr_pair<'a>(attrs: &'a Attr, key: &str) -> Option<&'a str> {
         .find_map(|(candidate, value)| (candidate == key).then_some(value.as_str()))
 }
 
+fn without_first_class(attrs: &Attr, class: &str) -> Option<Attr> {
+    let index = attrs
+        .classes
+        .iter()
+        .position(|candidate| candidate == class)?;
+    let mut attrs = attrs.clone();
+    attrs.classes.remove(index);
+    Some(attrs)
+}
+
 fn set_semantic_pair(attrs: &mut Attr, key: &str, value: &str) -> Result<(), String> {
     if let Some(existing) = attr_pair(attrs, key) {
         return if existing == value {
@@ -499,7 +525,17 @@ fn set_semantic_pair(attrs: &mut Attr, key: &str, value: &str) -> Result<(), Str
 }
 
 fn require_marker(marker: &str) -> Result<(), String> {
-    require_attr_name(marker, "marker")
+    if !marker.is_empty()
+        && marker.chars().all(|character| {
+            !character.is_whitespace()
+                && !character.is_control()
+                && !matches!(character, '`' | '"' | '[' | ']' | '{' | '}')
+        })
+    {
+        Ok(())
+    } else {
+        Err(format!("marker {marker:?} is not representable in plumb"))
+    }
 }
 
 fn require_attr_name(value: &str, what: &str) -> Result<(), String> {
@@ -577,6 +613,14 @@ mod tests {
                     {"t": "Space"},
                     {"t": "Strong", "c": [{"t": "Str", "c": "strong"}]},
                     {"t": "Space"},
+                    {"t": "Span", "c": [["marked", ["mark", "keep"], []], [{"t": "Str", "c": "marked"}]]},
+                    {"t": "Space"},
+                    {"t": "Strikeout", "c": [{"t": "Str", "c": "strike"}]},
+                    {"t": "Space"},
+                    {"t": "Superscript", "c": [{"t": "Str", "c": "super"}]},
+                    {"t": "Space"},
+                    {"t": "Subscript", "c": [{"t": "Str", "c": "sub"}]},
+                    {"t": "Space"},
                     {"t": "Link", "c": [["", [], []], [{"t": "Str", "c": "target"}], ["other.plumb#id", ""]]}
                 ]},
                 {"t": "BlockQuote", "c": [{"t": "Para", "c": [{"t": "Str", "c": "quoted"}]}]},
@@ -587,7 +631,9 @@ mod tests {
 
         let source = import_json(&document.to_string()).unwrap();
         assert!(source.contains("`#{#intro} Intro"));
-        assert!(source.contains("`*[em] `**[strong] `->[target]{to=\"other.plumb#id\"}"));
+        assert!(source.contains("`*[em] `![strong] `=[marked]{#marked .keep}"));
+        assert!(source.contains("`~[strike] `^[super] `_[sub]"));
+        assert!(source.contains("`->[target]{to=\"other.plumb#id\"}"));
         assert!(source.contains("`> quoted"));
         assert!(source.contains("`- item"));
         assert!(source.contains("`{#code .rust}"));

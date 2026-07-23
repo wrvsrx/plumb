@@ -36,7 +36,7 @@ fn exposes_the_unified_command_surface() {
 
 #[test]
 fn round_trips_the_exported_standard_profile_through_import() {
-    let source = "`meta\n `: title\n\n    Import test\n\n`#{#intro} Intro\nParagraph with `*[emphasis], `**[strong], and `->[a link]{to=\"other.plumb#id\"}.\n\n`>{#quote .source} Quoted\n\n`-{.task #task created=\"2026-07-23T17:00:00+08:00\"} Item\n\n`{language=rust #code}\n  fn main() {}\n";
+    let source = "`meta\n `: title\n\n    Import test\n\n`#{#intro} Intro\nParagraph with `*[emphasis], `![strong], `=[mark], `~[strike], `^[super], `_[sub], and `->[a link]{to=\"other.plumb#id\"}.\n\n`>{#quote .source} Quoted\n\n`-{.task #task created=\"2026-07-23T17:00:00+08:00\"} Item\n\n`{language=rust #code}\n  fn main() {}\n";
     let first = run_with_stdin(&["export"], source);
     assert!(
         first.status.success(),

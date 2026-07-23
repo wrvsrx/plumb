@@ -5,7 +5,7 @@ use std::process::ExitCode;
 
 use plumb_core::{parse, AttrItem, Attributes, Block, Inline, InlineContent, ParsedBlock};
 use plumb_extensions::{
-    analyze_document, CitationRecord, DocumentOutput, EmphasisKind, ListGroup, ListKind,
+    analyze_document, CitationRecord, DocumentOutput, InlineStyleKind, ListGroup, ListKind,
     MetadataBlock, MetadataEntry, MetadataValue,
 };
 use serde_json::{json, Map, Value};
@@ -350,21 +350,33 @@ fn lower_inlines(content: &InlineContent, analysis: &DocumentOutput) -> Vec<Valu
                 attrs,
                 ..
             } => {
-                if let Some(emphasis) = analysis.emphasis.emphasis_at_node_start(range.start) {
-                    let semantic = json!({
-                        "t": match emphasis.kind {
-                            EmphasisKind::Emphasis => "Emph",
-                            EmphasisKind::Strong => "Strong",
-                        },
-                        "c": lower_inlines(content, analysis),
-                    });
-                    if attrs.items.is_empty() {
-                        output.push(semantic);
-                    } else {
+                if let Some(style) = analysis.inline_styles.style_at_node_start(range.start) {
+                    let content = lower_inlines(content, analysis);
+                    if style.kind == InlineStyleKind::Mark {
                         output.push(json!({
                             "t": "Span",
-                            "c": [lower_attrs(attrs, None), [semantic]],
+                            "c": [lower_mark_attrs(attrs), content],
                         }));
+                    } else {
+                        let semantic = json!({
+                            "t": match style.kind {
+                                InlineStyleKind::Emphasis => "Emph",
+                                InlineStyleKind::Strong => "Strong",
+                                InlineStyleKind::Strikeout => "Strikeout",
+                                InlineStyleKind::Superscript => "Superscript",
+                                InlineStyleKind::Subscript => "Subscript",
+                                InlineStyleKind::Mark => unreachable!(),
+                            },
+                            "c": content,
+                        });
+                        if attrs.items.is_empty() {
+                            output.push(semantic);
+                        } else {
+                            output.push(json!({
+                                "t": "Span",
+                                "c": [lower_attrs(attrs, None), [semantic]],
+                            }));
+                        }
                     }
                 } else if let Some(citation) =
                     analysis.citations.citation_at_node_start(range.start)
@@ -437,6 +449,15 @@ fn lower_autolink_attrs(attrs: &Attributes) -> Value {
 
 fn lower_image_attrs(attrs: &Attributes) -> Value {
     lower_attrs_filtered(attrs, None, |_| false, |key| key == "src")
+}
+
+fn lower_mark_attrs(attrs: &Attributes) -> Value {
+    let mut attrs = lower_attrs(attrs, None);
+    attrs[1]
+        .as_array_mut()
+        .expect("Pandoc attributes contain a class array")
+        .insert(0, json!("mark"));
+    attrs
 }
 
 fn lower_attrs_filtered(
@@ -689,10 +710,11 @@ mod tests {
     }
 
     #[test]
-    fn exports_symbolic_emphasis_and_preserves_attributes() {
-        let document =
-            export("Plain `*[emphasis with `**[strong]] and `**[attributed]{#id .keep}.\n")
-                .unwrap();
+    fn exports_symbolic_inline_styles_and_preserves_attributes() {
+        let document = export(
+            "`*[em `![strong]] `=[mark]{#marked .keep} `~[strike] `^[super] `_[sub] `**[generic]\n",
+        )
+        .unwrap();
         let inlines = document["blocks"][0]["c"].as_array().unwrap();
 
         let emphasis = inlines.iter().find(|inline| inline["t"] == "Emph").unwrap();
@@ -701,10 +723,21 @@ mod tests {
             .unwrap()
             .iter()
             .any(|inline| inline["t"] == "Strong"));
-        let wrapper = inlines.iter().find(|inline| inline["t"] == "Span").unwrap();
-        assert_eq!(wrapper["t"], "Span");
-        assert_eq!(wrapper["c"][0], json!(["id", ["keep"], []]));
-        assert_eq!(wrapper["c"][1][0]["t"], "Strong");
+        let mark = inlines
+            .iter()
+            .find(|inline| inline["t"] == "Span" && inline["c"][0][0] == "marked")
+            .unwrap();
+        assert_eq!(mark["c"][0], json!(["marked", ["mark", "keep"], []]));
+        for kind in ["Strikeout", "Superscript", "Subscript"] {
+            assert!(inlines.iter().any(|inline| inline["t"] == kind));
+        }
+        let generic = inlines
+            .iter()
+            .find(|inline| {
+                inline["t"] == "Span" && inline["c"][0][2] == json!([["data-plumb-marker", "**"]])
+            })
+            .unwrap();
+        assert_eq!(generic["c"][1][0]["c"], "generic");
     }
 
     #[test]
