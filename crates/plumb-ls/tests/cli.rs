@@ -1,5 +1,7 @@
 use std::io::Write;
+use std::path::PathBuf;
 use std::process::{Command, Output, Stdio};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 #[test]
 fn exposes_the_unified_command_surface() {
@@ -9,7 +11,7 @@ fn exposes_the_unified_command_surface() {
         .unwrap();
     assert!(help.status.success());
     let help = String::from_utf8(help.stdout).unwrap();
-    for command in ["fmt", "export", "import", "note", "task", "lsp"] {
+    for command in ["check", "fmt", "export", "import", "note", "task", "lsp"] {
         assert!(help.contains(command));
     }
 
@@ -32,6 +34,44 @@ fn exposes_the_unified_command_surface() {
         String::from_utf8_lossy(&imported.stderr)
     );
     assert_eq!(String::from_utf8(imported.stdout).unwrap(), "Paragraph.\n");
+}
+
+#[test]
+fn checks_a_workspace_recursively_and_sets_the_exit_status() {
+    let root = unique_temp_dir();
+    std::fs::create_dir_all(root.join("nested")).unwrap();
+    std::fs::write(root.join("valid.plumb"), "Paragraph.\n").unwrap();
+    let valid = Command::new(env!("CARGO_BIN_EXE_plumb"))
+        .args(["check", "--root"])
+        .arg(&root)
+        .output()
+        .unwrap();
+    assert!(
+        valid.status.success(),
+        "{}",
+        String::from_utf8_lossy(&valid.stderr)
+    );
+    assert!(valid.stdout.is_empty());
+
+    std::fs::write(
+        root.join("nested/broken.plumb"),
+        "See `->[missing]{to=\"missing.plumb#id\"}.\n",
+    )
+    .unwrap();
+    let broken = Command::new(env!("CARGO_BIN_EXE_plumb"))
+        .args(["check", "--root"])
+        .arg(&root)
+        .output()
+        .unwrap();
+    assert!(!broken.status.success());
+    assert!(broken.stderr.is_empty());
+    let output = String::from_utf8(broken.stdout).unwrap();
+    assert!(
+        output.contains("nested/broken.plumb:1:")
+            && output.contains("warning[link.unresolved-path]"),
+        "{output}"
+    );
+    std::fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
@@ -82,4 +122,13 @@ fn run_with_stdin(args: &[&str], input: &str) -> Output {
         .write_all(input.as_bytes())
         .unwrap();
     child.wait_with_output().unwrap()
+}
+
+fn unique_temp_dir() -> PathBuf {
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    std::env::temp_dir().join(format!(
+        "plumb-cli-test-{}-{}",
+        std::process::id(),
+        COUNTER.fetch_add(1, Ordering::Relaxed)
+    ))
 }

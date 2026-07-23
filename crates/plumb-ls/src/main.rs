@@ -28,6 +28,7 @@ fn main() -> ExitCode {
                 plumb_import::run_cli(delegated_args("plumb import", rest))
             }
         }
+        Some("check") => plumb_notes::run_check_cli(delegated_args("plumb check", rest)),
         Some("note" | "task") => {
             let mut delegated = vec![OsString::from("plumb"), command];
             delegated.extend(rest);
@@ -75,6 +76,6 @@ fn wants_help(args: &[OsString]) -> bool {
 
 fn print_help() {
     println!(
-        "Strict plumb markup language and tooling\n\nUsage: plumb <COMMAND>\n\nCommands:\n  fmt     Format documents\n  export  Emit Pandoc JSON\n  import  Read Pandoc JSON\n  note    Query notes\n  task    Query or update tasks\n  lsp     Run the language server\n  help    Print this help"
+        "Strict plumb markup language and tooling\n\nUsage: plumb <COMMAND>\n\nCommands:\n  check   Check a workspace\n  fmt     Format documents\n  export  Emit Pandoc JSON\n  import  Read Pandoc JSON\n  note    Query notes\n  task    Query or update tasks\n  lsp     Run the language server\n  help    Print this help"
     );
 }
