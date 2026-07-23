@@ -263,5 +263,11 @@ Pipe the result to a Pandoc writer rather than invoking a Pandoc plumb reader:
 plumb export document.plumb | pandoc -f json -t html -o document.html
 ```
 
+`plumb import` performs the reverse conversion for the supported exported
+profile and emits canonical strict plumb. Feed other source formats through
+Pandoc JSON first. Nodes without a standard plumb representation, such as
+tables, figures, raw HTML, footnotes, and complex citations, are rejected
+rather than silently discarded.
+
 Do not assume table, thematic-break, or presentation-only italic semantics until
 an official extension freezes them.

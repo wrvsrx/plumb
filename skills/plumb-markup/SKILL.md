@@ -24,6 +24,10 @@ text.
    repository-specific command exists and `plumb` is available, run
    `plumb export FILE >/dev/null` as a strict parse/export check.
 
+For Pandoc JSON input, `plumb import FILE.json` emits canonical strict plumb.
+It supports the official exported profile and rejects Pandoc nodes that have no
+standard plumb representation instead of dropping them.
+
 In an editor using `plumb lsp`, completion after a single backtick at line start
 offers Task, Autolink, and Link. The Task skeleton includes a current local RFC
 3339 `created` timestamp. Other ordinary inline contexts offer Autolink and

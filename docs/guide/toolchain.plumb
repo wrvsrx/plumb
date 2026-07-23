@@ -105,6 +105,25 @@ range formatting 不把 selection 扩展到只被部分命中的 structure：空
 
 syntax error、无效 metadata 或其他阻止 authoritative semantics 的错误会让 export 失败。
 
+`# Import
+
+`[plumb import] 读取 Pandoc JSON AST，并在 stdout 产生 syntax-valid、canonical formatted plumb。
+省略 path 时从 stdin 读取：
+
+`{language=text}
+  pandoc source.md -t json | plumb import > document.plumb
+  plumb import document.json > document.plumb
+
+importer 覆盖 `[plumb export] 当前产生的标准 profile，并保证受支持 AST 的
+`[export -> import -> export] semantic round-trip。包括 metadata、paragraph、heading、bullet/decimal
+ordered list、definition、quote、Div、CodeBlock，以及 text、emphasis、strong、Code、Link、Image、
+simple citation、inline math 和 Span。
+
+Pandoc 中不存在标准 plumb 表示的 node 会明确失败，不会静默丢失内容。例如 table、figure、raw
+HTML、horizontal rule、line block、footnote、复杂 citation、非 decimal 或非 1 起始 ordered list
+当前均不受支持。attribute name 不能表示为 plumb AttrName，或 Link/Image attribute 与 target tuple
+冲突时也会失败。importer 不读取 Pandoc Markdown source；需要先让 Pandoc 输出 JSON。
+
 `# Notes
 
 `[plumb note] 与 `[plumb task] 提供 document/task CEL query、interactive picker 和 task operations：
