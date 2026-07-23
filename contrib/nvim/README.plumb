@@ -10,6 +10,7 @@ to runtimepath. Register the reference CodeLens command, then map the native not
 
 `{language=lua}
   require('plumb.codelens').setup({ picker = 'snacks' })
+  require('plumb.graph').setup()
 
   vim.keymap.set('n', '<leader>pn', function()
     require('plumb.search').search_notes()
@@ -22,6 +23,13 @@ The module requires Neovim 0.12 and an attached plumb LSP advertising
 experimental.plumb.search schema version 1. Native search uses vim.ui.input and
 vim.ui.select. live_search accepts a picker adapter and owns debounce, request
 cancellation, stale-result suppression, locations and incomplete-result state.
+
+`# Workspace graph
+
+`[:PlumbGraph] starts `[plumb graph] for the attached plumb client's workspace and selects the current
+plumb document in the browser. `[:PlumbGraph!] opens the whole workspace graph without a current-note
+selection. The browser process is independent of LSP; the integration only discovers the workspace root
+and starts the unified binary. Lua callers can use `[require('plumb.graph').open({ root = path })] directly.
 
 `# Reference CodeLens
 

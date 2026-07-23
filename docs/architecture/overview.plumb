@@ -63,7 +63,8 @@ completeness；不能把 partial result 表示成 complete negative result。
 
 `# 5. Consumers
 
-`- `[plumb] 是唯一 user-facing binary；`[lsp]、`[fmt]、`[export]、`[import]、`[note] 和 `[task]
+`- `[plumb] 是唯一 user-facing binary；`[lsp]、`[fmt]、`[export]、`[import]、`[note]、`[task]、
+   `[graph] 和 `[site build]
    subcommands 分别适配 editor protocol、file/stdin、Pandoc JSON、CEL 和 task operations。
 `- `[tree-sitter-plumb] 是 lenient editor mirror，只负责 highlight、fold、indent、text object 和
    injection。
@@ -81,6 +82,8 @@ consumer 不复制 parser、semantic recognition 或 edit logic。
 `- `[plumb-export]：Pandoc JSON lowering library。
 `- `[plumb-import]：受支持 Pandoc AST 到 canonical plumb 的 fallible conversion library。
 `- `[plumb-notes]：notes/task query 与 operation library。
+`- `[plumb-web]：workspace graph/Web document model、Pandoc Web target adaptation、本地只读 server、
+   browser assets 与 static site builder。
 
 统一 binary 可以依赖共享 layers，但 shared libraries 不能依赖 CLI protocol types。
 

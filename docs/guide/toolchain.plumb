@@ -28,6 +28,31 @@ diagnostics 按 relative path 和 source range 稳定排序，输出 `[path:line
 message。Error 或 Warning 令 command 返回 nonzero；Hint 仍会显示，但不会单独令检查失败。无
 diagnostic 时不输出内容并返回成功。
 
+`# Workspace Web
+
+`[plumb graph --root DIR] 启动只监听 `[127.0.0.1] 的本地只读 Web server，选择随机可用 port 并
+打开浏览器。`[--current path.plumb] 初始选择一个 note；`[--no-open] 不自动打开浏览器，`[--port]
+可以指定 port。server 递归扫描 workspace、监听变化并通过 SSE 刷新 graph 与 revision cache。
+
+浏览器提供 workspace/local graph、incoming/outgoing direction、depth、edge-kind filters、search、
+pan、zoom、node selection 与 note preview。edge 覆盖 named Link、Autolink 和 task `[prev]/[depends]；
+unresolved document targets 显示为独立 node。node 使用由 root-relative path 派生的稳定 opaque id，
+layout coordinates 只保存在 frontend。
+
+选择 note 时，plumb 将标准 exporter 的 Pandoc AST 中 document、anchor 与 local resource targets
+改写为受控 Web routes，再调用 packaged Pandoc HTML writer。JavaScript 不解析 plumb。server 只允许
+opaque document/resource ids，不接受任意 filesystem path；resource 必须已被 current-valid document
+引用、canonical path 位于 workspace root 内且仍然存在。页面设置 restrictive CSP，不导出 raw HTML。
+
+`[plumb site build --root DIR --output DIR] 使用同一 Web document model、target adaptation、templates
+与 frontend assets 生成静态站点。output 必须不存在或为空；结果包含 `[index.html]、`[graph.json]、
+`[search-index.json]、note pages、note JSON、local resources 与 embedded assets。dynamic routes 和 static
+relative URLs 从同一 logical document/resource targets lowering，静态页面不需要运行 plumb server。
+
+Neovim integration 的 `[require('plumb.graph').setup()] 注册 `[:PlumbGraph]；普通调用传递 attached
+workspace 与 current document，`[:PlumbGraph!] 只打开 workspace。Web viewer 不依赖 LSP，editor
+integration 只负责发现 root 和启动 unified binary。
+
 `# Playground
 
 `[examples/index.plumb] 及同目录文档覆盖 core syntax 和标准 extensions，可用于 editor、
