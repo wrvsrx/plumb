@@ -26,10 +26,17 @@
               src = pkgs.lib.cleanSource ./.;
               cargoLock.lockFile = ./Cargo.lock;
 
+              nativeBuildInputs = [ pkgs.makeWrapper ];
+              nativeCheckInputs = [ pkgs.pandoc ];
+
               postInstall = ''
                 mkdir -p $out/share/plumb
                 cp -r skills $out/share/plumb/
                 cp -r contrib $out/share/plumb/
+              '';
+
+              postFixup = ''
+                wrapProgram $out/bin/plumb --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.pandoc ]}
               '';
 
               passthru = {

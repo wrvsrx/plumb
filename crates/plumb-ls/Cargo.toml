@@ -12,6 +12,7 @@ plumb-format = { path = "../plumb-format" }
 plumb-import = { path = "../plumb-import" }
 plumb-notes = { path = "../plumb-notes" }
 plumb-workspace = { path = "../plumb-workspace" }
+plumb-web = { path = "../plumb-web" }
 async-lsp = { version = "0.2.4", features = ["tokio"] }
 chrono.workspace = true
 futures = { version = "0.3", default-features = false, features = ["async-await", "std"] }
