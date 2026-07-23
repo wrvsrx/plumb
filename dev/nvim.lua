@@ -3,6 +3,9 @@ local repo_root = vim.fs.dirname(vim.fs.dirname(config))
 local grammar_dir = repo_root .. "/tree-sitter-plumb"
 local parser_path = grammar_dir .. "/build/plumb.so"
 
+vim.opt.runtimepath:prepend(repo_root .. "/contrib/nvim")
+require("plumb.codelens").setup()
+
 if vim.uv.fs_stat(parser_path) then
   vim.treesitter.language.add("plumb", { path = parser_path })
   for _, query in ipairs({ "highlights", "folds", "indents", "textobjects", "injections" }) do

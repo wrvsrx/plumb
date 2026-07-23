@@ -8,26 +8,27 @@ use chrono::{Local, SecondsFormat};
 use futures::future::BoxFuture;
 use lsp_types::{
     CodeAction, CodeActionKind, CodeActionOptions, CodeActionOrCommand, CodeActionParams,
-    CodeActionProviderCapability, CodeActionResponse, CompletionItem, CompletionItemKind,
-    CompletionOptions, CompletionParams, CompletionResponse, CompletionTextEdit,
-    Diagnostic as LspDiagnostic, DiagnosticRelatedInformation, DiagnosticSeverity,
-    DidChangeConfigurationParams, DidChangeTextDocumentParams, DidChangeWatchedFilesParams,
-    DidCloseTextDocumentParams, DidOpenTextDocumentParams, DidSaveTextDocumentParams,
-    DocumentChangeOperation, DocumentChanges, DocumentFormattingParams,
-    DocumentRangeFormattingParams, DocumentSymbol, DocumentSymbolParams, DocumentSymbolResponse,
-    FileChangeType, FileSystemWatcher, GlobPattern, GotoDefinitionParams, GotoDefinitionResponse,
-    Hover, HoverContents, HoverParams, HoverProviderCapability, InitializeParams, InitializeResult,
-    InitializedParams, InsertTextFormat, Location, MarkupContent, MarkupKind, NumberOrString,
-    OneOf, OptionalVersionedTextDocumentIdentifier, PrepareRenameResponse, ProgressParams,
-    ProgressParamsValue, PublishDiagnosticsParams, ReferenceParams, Registration,
-    RegistrationParams, RenameFile, RenameFileOptions, RenameOptions, RenameParams, ResourceOp,
-    ResourceOperationKind, SemanticToken, SemanticTokenModifier, SemanticTokenType, SemanticTokens,
-    SemanticTokensFullOptions, SemanticTokensLegend, SemanticTokensOptions, SemanticTokensParams,
-    SemanticTokensResult, SemanticTokensServerCapabilities, ServerCapabilities, SymbolInformation,
-    SymbolKind, TextDocumentEdit, TextDocumentSyncCapability, TextDocumentSyncKind,
-    TextEdit as LspTextEdit, Url, WatchKind, WorkDoneProgress, WorkDoneProgressBegin,
-    WorkDoneProgressEnd, WorkDoneProgressOptions, WorkDoneProgressReport,
-    WorkspaceEdit as LspWorkspaceEdit, WorkspaceSymbolParams, WorkspaceSymbolResponse,
+    CodeActionProviderCapability, CodeActionResponse, CodeLens, CodeLensOptions, CodeLensParams,
+    Command, CompletionItem, CompletionItemKind, CompletionOptions, CompletionParams,
+    CompletionResponse, CompletionTextEdit, Diagnostic as LspDiagnostic,
+    DiagnosticRelatedInformation, DiagnosticSeverity, DidChangeConfigurationParams,
+    DidChangeTextDocumentParams, DidChangeWatchedFilesParams, DidCloseTextDocumentParams,
+    DidOpenTextDocumentParams, DidSaveTextDocumentParams, DocumentChangeOperation, DocumentChanges,
+    DocumentFormattingParams, DocumentRangeFormattingParams, DocumentSymbol, DocumentSymbolParams,
+    DocumentSymbolResponse, FileChangeType, FileSystemWatcher, GlobPattern, GotoDefinitionParams,
+    GotoDefinitionResponse, Hover, HoverContents, HoverParams, HoverProviderCapability,
+    InitializeParams, InitializeResult, InitializedParams, InsertTextFormat, Location,
+    MarkupContent, MarkupKind, NumberOrString, OneOf, OptionalVersionedTextDocumentIdentifier,
+    PrepareRenameResponse, ProgressParams, ProgressParamsValue, PublishDiagnosticsParams,
+    ReferenceParams, Registration, RegistrationParams, RenameFile, RenameFileOptions,
+    RenameOptions, RenameParams, ResourceOp, ResourceOperationKind, SemanticToken,
+    SemanticTokenModifier, SemanticTokenType, SemanticTokens, SemanticTokensFullOptions,
+    SemanticTokensLegend, SemanticTokensOptions, SemanticTokensParams, SemanticTokensResult,
+    SemanticTokensServerCapabilities, ServerCapabilities, SymbolInformation, SymbolKind,
+    TextDocumentEdit, TextDocumentSyncCapability, TextDocumentSyncKind, TextEdit as LspTextEdit,
+    Url, WatchKind, WorkDoneProgress, WorkDoneProgressBegin, WorkDoneProgressEnd,
+    WorkDoneProgressOptions, WorkDoneProgressReport, WorkspaceEdit as LspWorkspaceEdit,
+    WorkspaceSymbolParams, WorkspaceSymbolResponse,
 };
 use plumb_core::Diagnostic;
 use plumb_extensions::{
@@ -52,6 +53,7 @@ pub(crate) struct ServerState {
     supports_resource_rename: bool,
     supports_dynamic_watching: bool,
     supports_completion_snippets: bool,
+    supports_code_lens_refresh: bool,
     index_complete: bool,
     pending_path_renames: Vec<PendingPathRename>,
 }
@@ -74,6 +76,7 @@ impl ServerState {
             supports_resource_rename: false,
             supports_dynamic_watching: false,
             supports_completion_snippets: false,
+            supports_code_lens_refresh: false,
             index_complete: false,
             pending_path_renames: Vec::new(),
         }
@@ -87,6 +90,7 @@ impl ServerState {
         self.workspace.insert(&path, i64::from(version), text);
         self.open_documents.insert(uri, path);
         self.publish_all_open_diagnostics();
+        self.refresh_code_lenses();
     }
 
     fn publish_all_open_diagnostics(&self) {
@@ -206,6 +210,16 @@ impl ServerState {
         let mut client = self.client.clone();
         tokio::spawn(async move {
             let _ = client.register_capability(params).await;
+        });
+    }
+
+    fn refresh_code_lenses(&self) {
+        if !self.supports_code_lens_refresh {
+            return;
+        }
+        let mut client = self.client.clone();
+        tokio::spawn(async move {
+            let _ = client.code_lens_refresh(()).await;
         });
     }
 
@@ -450,6 +464,13 @@ impl LanguageServer for ServerState {
             .and_then(|completion| completion.completion_item.as_ref())
             .and_then(|item| item.snippet_support)
             .unwrap_or(false);
+        self.supports_code_lens_refresh = params
+            .capabilities
+            .workspace
+            .as_ref()
+            .and_then(|workspace| workspace.code_lens.as_ref())
+            .and_then(|code_lens| code_lens.refresh_support)
+            .unwrap_or(false);
         Box::pin(async {
             Ok(InitializeResult {
                 capabilities: ServerCapabilities {
@@ -459,6 +480,9 @@ impl LanguageServer for ServerState {
                     document_symbol_provider: Some(OneOf::Left(true)),
                     document_formatting_provider: Some(OneOf::Left(true)),
                     document_range_formatting_provider: Some(OneOf::Left(true)),
+                    code_lens_provider: Some(CodeLensOptions {
+                        resolve_provider: Some(false),
+                    }),
                     code_action_provider: Some(CodeActionProviderCapability::Options(
                         CodeActionOptions {
                             code_action_kinds: Some(vec![
@@ -521,6 +545,7 @@ impl LanguageServer for ServerState {
         self.index_complete = complete;
         self.register_workspace_file_watchers();
         self.publish_all_open_diagnostics();
+        self.refresh_code_lenses();
         ControlFlow::Continue(())
     }
 
@@ -562,6 +587,7 @@ impl LanguageServer for ServerState {
                 version: None,
             });
         self.publish_all_open_diagnostics();
+        self.refresh_code_lenses();
         ControlFlow::Continue(())
     }
 
@@ -605,6 +631,7 @@ impl LanguageServer for ServerState {
             }
         }
         self.publish_all_open_diagnostics();
+        self.refresh_code_lenses();
         ControlFlow::Continue(())
     }
 
@@ -844,6 +871,64 @@ impl LanguageServer for ServerState {
                 Some(locations)
             });
         Box::pin(async move { Ok(locations) })
+    }
+
+    fn code_lens(
+        &mut self,
+        params: CodeLensParams,
+    ) -> BoxFuture<'static, Result<Option<Vec<CodeLens>>, Self::Error>> {
+        let lenses = params
+            .text_document
+            .uri
+            .to_file_path()
+            .ok()
+            .and_then(|path| {
+                let entry = self.workspace.get(&path)?;
+                let output = entry.current.as_ref()?;
+                let uri = Url::from_file_path(&entry.path).ok()?;
+                Some(
+                    output
+                        .output
+                        .anchors
+                        .iter()
+                        .map(|anchor| {
+                            let locations = self
+                                .workspace
+                                .references_to(&entry.path, &anchor.id.value)
+                                .into_iter()
+                                .filter_map(|(source_path, reference)| {
+                                    location_for(
+                                        &self.workspace,
+                                        source_path,
+                                        &reference.source_range,
+                                    )
+                                })
+                                .collect::<Vec<_>>();
+                            let count = locations.len();
+                            let range = byte_range_to_lsp(&entry.parsed.source, &anchor.id.range);
+                            let title = if count == 1 {
+                                "1 reference".to_string()
+                            } else {
+                                format!("{count} references")
+                            };
+                            CodeLens {
+                                range,
+                                command: Some(Command::new(
+                                    title,
+                                    "plumb.showReferences".to_string(),
+                                    Some(vec![
+                                        serde_json::json!(uri),
+                                        serde_json::json!(range.start),
+                                        serde_json::json!(locations),
+                                    ]),
+                                )),
+                                data: None,
+                            }
+                        })
+                        .collect(),
+                )
+            });
+        Box::pin(async move { Ok(lenses) })
     }
 
     fn hover(

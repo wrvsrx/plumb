@@ -1540,6 +1540,81 @@ fn resolves_cross_file_navigation_over_stdio() {
 }
 
 #[test]
+fn code_lenses_count_anchor_references_and_ignore_last_valid_output() {
+    let root = unique_temp_dir();
+    std::fs::create_dir_all(&root).unwrap();
+    let target = root.join("target.plumb");
+    let source = root.join("source.plumb");
+    let target_text = "`#{#used} Used\n`##{#unused} Unused\n";
+    let source_text = "See `->[used]{to=\"target.plumb#used\"}.\n`-{.task depends=\"target.plumb#used\"} Review\n";
+    std::fs::write(&target, target_text).unwrap();
+    std::fs::write(&source, source_text).unwrap();
+    let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
+    let target_uri = lsp_types::Url::from_file_path(&target).unwrap();
+    let messages = [
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {
+                "processId": null,
+                "rootUri": root_uri,
+                "workspaceFolders": [{ "uri": root_uri, "name": "test" }],
+                "capabilities": { "workspace": { "codeLens": { "refreshSupport": true } } }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({
+            "jsonrpc": "2.0", "id": 2, "method": "textDocument/codeLens",
+            "params": { "textDocument": { "uri": target_uri } }
+        }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": {
+                "uri": target_uri, "languageId": "plumb", "version": 1, "text": target_text
+            }}
+        }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didChange",
+            "params": {
+                "textDocument": { "uri": target_uri, "version": 2 },
+                "contentChanges": [{ "text": "`span[open\n" }]
+            }
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 3, "method": "textDocument/codeLens",
+            "params": { "textDocument": { "uri": target_uri } }
+        }),
+    ];
+    let shutdown = [
+        json!({ "jsonrpc": "2.0", "id": 4, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+
+    let output = run_server_with_pause(&messages, &shutdown);
+    assert_eq!(
+        response(&output, 1)["result"]["capabilities"]["codeLensProvider"],
+        json!({ "resolveProvider": false })
+    );
+    let lenses = response(&output, 2)["result"].as_array().unwrap();
+    assert_eq!(lenses.len(), 2);
+    assert_eq!(lenses[0]["command"]["title"], "2 references");
+    assert_eq!(lenses[0]["command"]["command"], "plumb.showReferences");
+    assert_eq!(lenses[0]["command"]["arguments"][0], target_uri.as_str());
+    assert_eq!(
+        lenses[0]["command"]["arguments"][2]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+    assert_eq!(lenses[1]["command"]["title"], "0 references");
+    assert!(response(&output, 3)["result"].is_null());
+    assert!(output
+        .iter()
+        .any(|message| message["method"] == "workspace/codeLens/refresh"));
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn completes_links_by_document_metadata_title() {
     let root = unique_temp_dir();
     std::fs::create_dir_all(&root).unwrap();
