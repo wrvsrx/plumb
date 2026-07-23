@@ -142,6 +142,21 @@
    `note LSP 在 src value 中补全相对本地图片文件，初版覆盖 PNG、JPEG、WebP、GIF、SVG 和 AVIF，插入 URI-encoded path；hover/definition 使用 resolved file location。
    `note Core parser 不增加 image special case；补齐 extension、export、metadata、LSP、guide、playground 和 bundled skill tests/docs。Figure、caption、numbering 与 cross-reference 继续 deferred。
 
+`-{.task #verify-image-export} 确认并补齐 `[img] export
+
+   `note 检查 `[plumb export] 是否将 `[img[alt]{src="target"}] lower 为 Pandoc Image，并覆盖 inline image、image-only paragraph、empty alt 与保留未消费 attributes。
+   `note 如果当前实现缺失或不完整，则补齐 extension export lowering；如果已经支持，则保留 focused regression tests 作为验收结果。
+
+`-{.task #raw-image-src-completion} Image src completion 原样插入相对路径
+
+   `note Cursor 位于 `[img] 的 `[src] value 时，图片文件 completion 原样插入相对 source document 的 UTF-8 path，不做 percent encode、percent decode 或 backslash escaping。
+   `note 保留 absolute URI 的现有 URI validity rules；覆盖中文、空格、括号、percent character 与 quoted attribute value 必需的 quote/backslash handling。
+
+`-{.task #raw-image-src-resolution} Image 文件检查使用原始相对路径
+
+   `note 解析 `[img] 的相对 `[src] 并检查目标文件是否存在时，直接按 source spelling 相对 document directory 查找，不先做 percent encode、percent decode 或额外 escaping。
+   `note Hover、definition 与 missing-file diagnostic 复用同一 resolved target；覆盖中文、空格、括号、percent character、存在与不存在的文件。
+
 `-{.task #construct-completion done="2026-07-22T16:32:30+08:00"} 提供 backtick construct completion
 
    `note 单个 backtick 在 line start 提供 Task、Autolink 与 Link，Task 用当前本地 RFC 3339 timestamp 创建 `[created]；其他 ordinary inline context 提供 Autolink 与 Link。heading、ordinary list item 与 inline verbatim 不提供 candidates。
