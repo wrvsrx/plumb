@@ -26,8 +26,8 @@ diagnostics 和 export smoke test。
 `# LSP
 
 `[plumb lsp] 提供 strict syntax 与 semantic diagnostics、document symbols、definition、references、
-hover、completion、anchor/document rename、metadata insertion、task conversion/created/status actions
-、task semantic tokens 和 whole-document formatting。server 会扫描 workspace，并在 editor 支持时
+hover、completion、anchor/document rename、metadata insertion、task conversion/created/status actions、
+explicit-anchor reference CodeLens、task semantic tokens 和 whole-document formatting。server 会扫描 workspace，并在 editor 支持时
 监听 `[..plumb] file changes。递归扫描不进入 directory symlink，避免 workspace snapshot、Nix
 store 或 symlink cycle 产生重复 records；扩展名为 `[..plumb] 的单文件 symlink 仍会被索引。
 
@@ -61,6 +61,11 @@ construct candidates。支持 LSP snippets 的 client 获得 tab stops；其他 
 `[search_tasks] 使用 `[vim.ui.input/select]；`[live_search] 为 picker adapter 统一处理 debounce、
 request cancellation、stale response、preview Location 和 incomplete state。module 不依赖 plugin
 manager、Telescope、Snacks 或 fzf-lua；setup 与 keymap 示例见 `[contrib/nvim/README.plumb]。
+
+每个 explicit anchor 的 CodeLens 显示 workspace reference count，并返回 `[plumb.showReferences]
+client command。`[contrib/nvim] 的 `[plumb.codelens.setup()] 将 locations 显示在 quickfix list；
+其他 editor 可以按 command arguments 中的 target URI、position 与 locations 接入自己的 UI。invalid
+current revision 不使用 last-valid anchors 生成 lens。
 
 `# Format
 

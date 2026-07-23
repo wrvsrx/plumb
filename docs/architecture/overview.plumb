@@ -52,6 +52,11 @@ citations、quotes、emphasis、tasks 和 export。core 不维护 semantic regis
 和 guarded edit preconditions。open buffer 优先于 disk source；create/change/remove 只使相关
 documents 与 dependents invalidated。
 
+reference CodeLens 是 workspace reverse-reference query 的 LSP projection。server 只为 current valid
+document 的 explicit anchors 生成 lenses；count 与 command locations 来自同一次 `[references_to]
+query，避免 UI title 与执行结果偏移。`[plumb.showReferences] 是 client-side command，不把 editor UI
+行为放入 protocol-neutral workspace。
+
 workspace identity 使用 normalized document path/URI boundary。跨文件 query 必须说明 index
 completeness；不能把 partial result 表示成 complete negative result。
 
