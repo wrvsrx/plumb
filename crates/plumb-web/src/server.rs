@@ -120,7 +120,9 @@ async fn run(config: GraphConfig) -> Result<(), String> {
     let url = format!("http://{address}/");
     println!("{url}");
     if !config.no_open {
-        webbrowser::open(&url).map_err(|error| format!("cannot open browser: {error}"))?;
+        if let Err(error) = webbrowser::open(&url) {
+            eprintln!("plumb graph: cannot open browser: {error}");
+        }
     }
     axum::serve(listener, router)
         .await
@@ -275,12 +277,15 @@ async fn cached_html(
 
 async fn resource(
     State(state): State<AppState>,
-    AxumPath((id, _name)): AxumPath<(String, String)>,
+    AxumPath((id, name)): AxumPath<(String, String)>,
 ) -> Response {
     let record = state.workspace.read().await.resource(&id).cloned();
     let Some(record) = record else {
         return (StatusCode::NOT_FOUND, "unknown resource").into_response();
     };
+    if name != record.name {
+        return (StatusCode::NOT_FOUND, "unknown resource").into_response();
+    }
     let bytes = match std::fs::read(&record.path) {
         Ok(bytes) => bytes,
         Err(_) => return (StatusCode::NOT_FOUND, "resource is unavailable").into_response(),

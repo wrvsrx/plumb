@@ -564,6 +564,7 @@ mod tests {
         )
         .unwrap();
         std::fs::write(root.join("b.plumb"), "`#{#b} Beta\n").unwrap();
+        std::fs::write(root.join("broken.plumb"), "`node{key=a key=b} Broken\n").unwrap();
         let workspace = WebWorkspace::load(&root).unwrap();
         let graph = workspace.graph(&GraphQuery::default());
         assert_eq!(

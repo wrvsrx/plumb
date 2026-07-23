@@ -36,7 +36,10 @@
               '';
 
               postFixup = ''
-                wrapProgram $out/bin/plumb --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.pandoc ]}
+                wrapProgram $out/bin/plumb --prefix PATH : ${pkgs.lib.makeBinPath [
+                  pkgs.pandoc
+                  pkgs.xdg-utils
+                ]}
               '';
 
               passthru = {
