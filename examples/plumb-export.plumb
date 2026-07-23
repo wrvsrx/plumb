@@ -30,7 +30,7 @@ This document exercises the successfully exportable semantic profile.
 
 `# Inline content
 
-This paragraph contains `*[strong-shaped content], `_[emphasis-shaped content],
+This paragraph contains `*[emphasis with `**[strong content]],
 inline verbatim `[cargo test], a `kbd[Ctrl+C]{.shortcut} element, and a
 `->[link back to the index]{to="index.plumb"}.
 
@@ -81,9 +81,9 @@ citation profile currently accepts one plain id, such as `cite[smith2004].
 
 `>{#quoted .source cite=smith2004} A quote head becomes its first paragraph.
 
-  Quote children remain inside the Pandoc BlockQuote.
+   Quote children remain inside the Pandoc BlockQuote.
 
-  `> Nested quotes use the same marker.
+   `> Nested quotes use the same marker.
 
 `{language=rust #hello-rust}
   fn main() {

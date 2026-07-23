@@ -177,6 +177,20 @@ inner Pandoc Div because Pandoc BlockQuote has no attribute slot. The `>`
 marker itself is consumed; `quote` is not an alias and remains generic.
 Do not infer attribution, citation, pull-quote, or presentation semantics.
 
+## Emphasis
+
+Use the `*` and `**` parsed inline kinds for emphasis and strong emphasis:
+
+```plumb
+Use `*[emphasis] and `**[strong emphasis].
+Nest `*[an `**[important] detail].
+```
+
+They export as Pandoc Emph and Strong. Attributes are preserved through an
+outer Span because those Pandoc nodes have no attribute slot. `em`, `strong`,
+and `_` are not aliases and remain generic. Italic is a common presentation of
+emphasis, not a separate standard spelling.
+
 ## Tasks
 
 A task is a `-` or `.` list item carrying `.task`:
@@ -230,7 +244,8 @@ provides spacing context without entering the edit or losing indentation.
 ## Export Semantics
 
 `div` and `span` are transparent standard containers and export without a
-redundant `data-plumb-marker`. `>` exports as Pandoc BlockQuote. Verbatim
+redundant `data-plumb-marker`. `>` exports as Pandoc BlockQuote. `*` and `**`
+export as Pandoc Emph and Strong. Verbatim
 inline/block nodes carrying `.$` are
 TeX inline/display math. The math facet and optional `language=tex` are
 consumed; other attributes are preserved with Span/Div wrappers. `.$` on a
@@ -238,7 +253,7 @@ non-verbatim owner is invalid.
 
 `plumb export` emits Pandoc JSON directly. Standard lowering includes headings,
 bullet lists, definition lists, metadata, `->` links, `.->` Autolinks, `img`
-images, single-id citations, quotes, and task attributes. Generic marked blocks become Divs, generic parsed inline
+images, single-id citations, quotes, emphasis, and task attributes. Generic marked blocks become Divs, generic parsed inline
 elements become Spans, verbatim blocks become CodeBlocks, and inline verbatim
 becomes Code.
 
@@ -248,5 +263,5 @@ Pipe the result to a Pandoc writer rather than invoking a Pandoc plumb reader:
 plumb export document.plumb | pandoc -f json -t html -o document.html
 ```
 
-Do not assume table, thematic-break, or `*`/`_` emphasis semantics until
+Do not assume table, thematic-break, or presentation-only italic semantics until
 an official extension freezes them.

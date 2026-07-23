@@ -195,7 +195,23 @@ marker `[>] 产生 block quote。可选 head 作为引用中的第一个 paragra
 quote 不定义 attribution、citation、pull quote 或 presentation semantics；需要这些信息时使用普通
 children 或 opaque attributes，直到独立 extension 冻结其含义。
 
-`# 12. Math
+`# 12. Emphasis
+
+parsed inline kind `[*] 与 `[**] 分别产生 semantic emphasis 与 strong emphasis：
+
+`{language=plumb}
+  Use `*[emphasis] and `**[strong emphasis].
+  Nest `*[an `**[important] detail].
+
+export 分别产生 Pandoc `[Emph] 与 `[Strong]。两者没有原生 attribute slot；存在 attributes 时，
+export 使用外层 `[Span] 保留全部 id/classes/pairs。marker 本身被消费，不产生
+`[data-plumb-marker]。
+
+`[em]、`[strong]、`[_] 和其他 inline kinds 不作为 aliases，仍是 generic parsed inline elements。
+italic 是 emphasis 的常见 presentation，不定义独立 semantic spelling。语法不提供 delimiter-style
+emphasis；opening/closing bracket 与 introducer 仍显式标记边界。
+
+`# 13. Math
 
 verbatim inline 或 block 上的 `[.$] class 是标准 math facet：
 
@@ -212,7 +228,7 @@ TeX；可选 `[language=tex]。其他 language 产生 `[math.unsupported-languag
 record。export 消费 `[.$] 与 `[language=tex]；其余 id/classes/pairs 分别通过 `[Span] 或 `[Div]
 wrapper 保留。普通 dollar characters 和 dollar-delimited math 没有特殊 syntax。
 
-`# 13. Tasks
+`# 14. Tasks
 
 只有 `[-] 或 `[.] list item 上的 `[.task] class 产生 task facet：
 
@@ -259,7 +275,7 @@ line start 的 construct completion 提供 Task、Autolink 与 Link；Task skele
 timestamp 创建 `[created]。其他 ordinary inline context 提供 Autolink 与 Link。heading、ordinary
 list item 与 inline verbatim 不提供 construct candidates。
 
-`# 14. Generic export
+`# 15. Generic export
 
 不具有标准语义的 valid structures 仍可 portable export：generic marked block 变为 Pandoc `[Div]，
 generic parsed inline element 变为 `[Span]，verbatim block 变为 `[CodeBlock]，inline verbatim 变为

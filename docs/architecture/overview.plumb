@@ -44,7 +44,7 @@ extension 是对 typed syntax view 或其他 extension outputs 的语言无关 a
 Rust module 是当前 host implementation，不是 extension contract 的一部分。
 
 官方 bundle 包括 outline、anchors/references、target resolution、lists、definitions、metadata、
-citations、quotes、tasks 和 export。core 不维护 semantic registry，也不校验 class 或 marker spelling。
+citations、quotes、emphasis、tasks 和 export。core 不维护 semantic registry，也不校验 class 或 marker spelling。
 
 `# 4. Workspace
 
