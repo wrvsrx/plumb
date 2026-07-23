@@ -286,6 +286,10 @@
    `note 同时说明推荐的 `[contrib/nvim] wrapper、底层 method/params/result schema、buffer/client selection、Location jump、empty result 与 error handling，使用户无需阅读实现代码即可接入 native UI 或自选 picker。
    `note 以 Neovim 0.12 验证所有示例，并让文档示例进入 regression checks，防止 Lua API、request schema 或 command arguments 漂移。
 
+`-{
+   .task #check-workspace-from-cli created="2026-07-23T22:59:57+08:00"
+  } 允许检查整个 workspace（基于 cli）
+
 `# Neovim plugin
 
 `-{.task #neovim-plugin depends="#neovim-search-integration"} 开发完整的 Neovim plugin
