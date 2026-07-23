@@ -255,3 +255,16 @@
    `note Live picker adapter 负责 debounce、request cancellation、preview 与 incomplete result 提示；server contract 不依赖 Telescope、Snacks 或 fzf-lua。
    `note 提供 capabilities/version detection、keymap 示例和失败提示，并以 Neovim 0.12 做端到端验证。
    `note 只有 LSP setup、tree-sitter setup、pickers 与 task actions 的 public configuration surface 稳定后，才评估抽离独立 plumb.nvim。
+
+`# Neovim plugin
+
+`-{.task #neovim-plugin depends="#neovim-search-integration"} 开发完整的 Neovim plugin
+
+   `note 将 `[contrib/nvim] 整理为标准 `[plugin/]、`[lua/plumb/] 与 `[doc/] runtime layout，提供单一 `[setup()] entry point；默认配置可直接启动，不要求 plugin manager-specific glue。
+   `note 统一 LSP lifecycle、root detection、client capabilities、workspace watching、commands、CodeLens refresh 与 buffer attach/detach；支持多个 buffers、多个 workspace roots 和重复 setup，不能泄漏 autocmds、commands 或 clients。
+   `note 提供 tree-sitter parser/query setup、local development parser override、安装状态检查与 `[checkhealth]；strict diagnostics 仍完全来自 `[plumb lsp]，plugin 不复制 parser 或 semantic recognition。
+   `note 暴露 formatting、rename、references、metadata/anchor/task code actions、note/task search 和 task status workflows；默认使用 Neovim native UI，并为 Snacks picker 提供 optional adapter，不让 server contract 依赖具体 picker。
+   `note 冻结 public configuration、commands、Lua API、default-free keymap examples 与 failure messages；用户配置可以分别关闭 LSP、tree-sitter、CodeLens、search 或 picker integration。
+   `note 补齐 lazy.nvim 等常见 plugin manager、手动 runtimepath 与 Nix 安装说明；bundled plugin 与 `[plumb] binary/tree-sitter grammar 的 version compatibility 必须明确且可检查。
+   `note 使用 Neovim 0.12 headless E2E 覆盖真实 LSP initialize/attach、diagnostics、completion、format、CodeLens native/Snacks UI、search cancellation、task actions 与 shutdown；Lua unit tests 覆盖 setup idempotence 和 degraded dependencies。
+   `note 初版继续随本仓库与 Nix package 发布；只有 configuration/API 稳定且独立 release 能保证 binary/grammar compatibility 后，才迁移为单独 `[plumb.nvim] repository。
