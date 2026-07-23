@@ -925,13 +925,12 @@ impl LanguageServer for ServerState {
                     } else {
                         format!("{count} references")
                     };
-                    reference_code_lens(
-                        &entry.parsed.source,
-                        &uri,
-                        &anchor.id.range,
-                        title,
-                        locations,
-                    )
+                    let lens_range = if anchor.kind == AnchorKind::Inline {
+                        anchor.id.range.clone()
+                    } else {
+                        anchor.range.start..anchor.range.start
+                    };
+                    reference_code_lens(&entry.parsed.source, &uri, &lens_range, title, locations)
                 }));
                 Some(lenses)
             });

@@ -1616,6 +1616,60 @@ fn code_lenses_count_anchor_references_and_ignore_last_valid_output() {
 }
 
 #[test]
+fn block_reference_code_lenses_use_block_openers() {
+    let root = unique_temp_dir();
+    std::fs::create_dir_all(&root).unwrap();
+    let document = root.join("positions.plumb");
+    let source = "`#{#heading} Heading\n`-{.task #task} Task\n`node{#block} Block\n`-{\n   .task #multiline\n  } Multiline\n`outer\n  `node{#nested} Nested\nParagraph `span[text]{#inline}.\n`{#raw}\n  payload\n";
+    std::fs::write(&document, source).unwrap();
+    let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
+    let document_uri = lsp_types::Url::from_file_path(&document).unwrap();
+    let messages = [
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {
+                "processId": null,
+                "rootUri": root_uri,
+                "workspaceFolders": [{ "uri": root_uri, "name": "test" }],
+                "capabilities": {}
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": {
+                "uri": document_uri, "languageId": "plumb", "version": 1, "text": source
+            }}
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 2, "method": "textDocument/codeLens",
+            "params": { "textDocument": { "uri": document_uri } }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 3, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+
+    let output = run_server(&messages);
+    let lenses = response(&output, 2)["result"].as_array().unwrap();
+    assert_eq!(lenses.len(), 7);
+    for (lens, expected_line, expected_character) in [
+        (&lenses[0], 0, 0),
+        (&lenses[1], 1, 0),
+        (&lenses[2], 2, 0),
+        (&lenses[3], 3, 0),
+        (&lenses[4], 7, 2),
+        (&lenses[6], 9, 0),
+    ] {
+        assert_eq!(lens["range"]["start"]["line"], expected_line);
+        assert_eq!(lens["range"]["start"]["character"], expected_character);
+        assert_eq!(lens["range"]["end"], lens["range"]["start"]);
+    }
+    assert_eq!(lenses[5]["range"]["start"]["line"], 8);
+    assert!(lenses[5]["range"]["start"]["character"].as_u64().unwrap() > 0);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn completes_links_by_document_metadata_title() {
     let root = unique_temp_dir();
     std::fs::create_dir_all(&root).unwrap();
