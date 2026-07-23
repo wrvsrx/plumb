@@ -142,10 +142,10 @@
    `note LSP 在 src value 中补全相对本地图片文件，初版覆盖 PNG、JPEG、WebP、GIF、SVG 和 AVIF，插入 URI-encoded path；hover/definition 使用 resolved file location。
    `note Core parser 不增加 image special case；补齐 extension、export、metadata、LSP、guide、playground 和 bundled skill tests/docs。Figure、caption、numbering 与 cross-reference 继续 deferred。
 
-`-{.task #verify-image-export} 确认并补齐 `[img] export
+`-{.task #verify-image-export done="2026-07-23T23:15:48+08:00"} 确认并补齐 `[img] export
 
-   `note 检查 `[plumb export] 是否将 `[img[alt]{src="target"}] lower 为 Pandoc Image，并覆盖 inline image、image-only paragraph、empty alt 与保留未消费 attributes。
-   `note 如果当前实现缺失或不完整，则补齐 extension export lowering；如果已经支持，则保留 focused regression tests 作为验收结果。
+   `note 已确认 `[plumb export] 将 `[img[alt]{src="target"}] lower 为 Pandoc Image，并覆盖 metadata、inline image、image-only paragraph、empty alt 与 raw relative src。
+   `note 现有 lowering 已完整；focused regression tests 固定 parsed alt inlines、消费 `[src]、保留 explicit id/classes/key-value attributes、empty target title 与 image-only paragraph 不增加 wrapper。
 
 `-{
    .task #raw-image-src-completion done="2026-07-23T21:19:55+08:00"
