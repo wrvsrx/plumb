@@ -9,6 +9,7 @@ plumb-core = { path = "../plumb-core" }
 plumb-export = { path = "../plumb-export" }
 plumb-extensions = { path = "../plumb-extensions" }
 plumb-format = { path = "../plumb-format" }
+plumb-import = { path = "../plumb-import" }
 plumb-notes = { path = "../plumb-notes" }
 plumb-workspace = { path = "../plumb-workspace" }
 async-lsp = { version = "0.2.4", features = ["tokio"] }

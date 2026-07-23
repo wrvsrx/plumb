@@ -20,6 +20,14 @@ fn main() -> ExitCode {
                 plumb_export::run_cli(delegated_args("plumb export", rest))
             }
         }
+        Some("import") => {
+            if wants_help(&rest) {
+                println!("Usage: plumb import [PATH]\n\nRead a Pandoc JSON document and emit canonical plumb. Reads stdin when PATH is omitted.");
+                ExitCode::SUCCESS
+            } else {
+                plumb_import::run_cli(delegated_args("plumb import", rest))
+            }
+        }
         Some("note" | "task") => {
             let mut delegated = vec![OsString::from("plumb"), command];
             delegated.extend(rest);
@@ -67,6 +75,6 @@ fn wants_help(args: &[OsString]) -> bool {
 
 fn print_help() {
     println!(
-        "Strict plumb markup language and tooling\n\nUsage: plumb <COMMAND>\n\nCommands:\n  fmt     Format documents\n  export  Emit Pandoc JSON\n  note    Query notes\n  task    Query or update tasks\n  lsp     Run the language server\n  help    Print this help"
+        "Strict plumb markup language and tooling\n\nUsage: plumb <COMMAND>\n\nCommands:\n  fmt     Format documents\n  export  Emit Pandoc JSON\n  import  Read Pandoc JSON\n  note    Query notes\n  task    Query or update tasks\n  lsp     Run the language server\n  help    Print this help"
     );
 }

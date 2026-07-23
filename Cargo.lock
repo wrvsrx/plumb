@@ -1113,6 +1113,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e2355d85b9a3786f481747ced0e0ff2ba35213a1f9bd406ed906554d7af805a1"
 
 [[package]]
+name = "pandoc_types"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "16172f24b8ad7f0ded9947f3d33f0344bc4d4e7c4937a2a0c405447403211434"
+dependencies = [
+ "serde",
+ "serde_tuple",
+]
+
+[[package]]
 name = "parking_lot"
 version = "0.12.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1171,6 +1181,7 @@ dependencies = [
  "plumb-export",
  "plumb-extensions",
  "plumb-format",
+ "plumb-import",
  "plumb-notes",
  "plumb-workspace",
  "serde",
@@ -1223,6 +1234,16 @@ dependencies = [
  "clap 4.6.2",
  "plumb-core",
  "unicode-width 0.2.2",
+]
+
+[[package]]
+name = "plumb-import"
+version = "0.11.1-dev"
+dependencies = [
+ "pandoc_types",
+ "plumb-core",
+ "plumb-format",
+ "serde_json",
 ]
 
 [[package]]
@@ -1542,6 +1563,27 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.119",
+]
+
+[[package]]
+name = "serde_tuple"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f4f025b91216f15a2a32aa39669329a475733590a015835d1783549a56d09427"
+dependencies = [
+ "serde",
+ "serde_tuple_macros",
+]
+
+[[package]]
+name = "serde_tuple_macros"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4076151d1a2b688e25aaf236997933c66e18b870d0369f8b248b8ab2be630d7e"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 1.0.109",
 ]
 
 [[package]]
