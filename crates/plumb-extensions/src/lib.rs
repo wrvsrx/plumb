@@ -5,6 +5,7 @@ mod lists;
 mod math;
 mod metadata;
 mod queries;
+mod quotes;
 mod tasks;
 
 pub use citations::{analyze_citations, CitationOutput, CitationRecord};
@@ -23,6 +24,7 @@ pub use queries::{
     construct_completion_context, image_completion_context, link_completion_context,
     ConstructCompletionContext, ImageCompletionContext, LinkCompletionContext,
 };
+pub use quotes::{analyze_quotes, QuoteOutput, QuoteRecord};
 pub use tasks::{
     analyze_tasks, next_task_datetime, parse_task_reference_target, valid_task_datetime,
     TaskDependency, TaskField, TaskOutput, TaskRecord, TaskReferenceTarget, TaskState, TaskStatus,

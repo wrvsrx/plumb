@@ -273,6 +273,27 @@ fn lower_parsed_block(block: &ParsedBlock, analysis: &DocumentOutput, output: &m
         return;
     }
 
+    if analysis
+        .quotes
+        .quote_at_node_start(block.range.start)
+        .is_some()
+    {
+        let mark = block.mark.as_ref().expect("a quote has a mark");
+        let mut contents = Vec::new();
+        if !block.head.items.is_empty() {
+            contents.push(json!({ "t": "Para", "c": lower_inlines(&block.head, analysis) }));
+        }
+        contents.extend(lower_blocks(&block.children, analysis));
+        if !mark.attrs.items.is_empty() {
+            contents = vec![json!({
+                "t": "Div",
+                "c": [lower_attrs(&mark.attrs, None), contents],
+            })];
+        }
+        output.push(json!({ "t": "BlockQuote", "c": contents }));
+        return;
+    }
+
     if let Some(mark) = &block.mark {
         let mut contents = Vec::new();
         if !block.head.items.is_empty() {
@@ -501,6 +522,39 @@ mod tests {
         assert_eq!(blocks.len(), 1);
         assert_eq!(blocks[0]["t"], "Div");
         assert_eq!(blocks[0]["c"][0][2], json!([["data-plumb-marker", "item"]]));
+    }
+
+    #[test]
+    fn exports_quote_head_children_nesting_and_attributes() {
+        let source = "`> Quoted head\n\n  Quoted body.\n\n  `>{#nested .source cite=book} Nested quote\n`quote Generic\n";
+        let document = export(source).unwrap();
+        let blocks = document["blocks"].as_array().unwrap();
+
+        assert_eq!(blocks.len(), 2);
+        assert_eq!(blocks[0]["t"], "BlockQuote");
+        assert_eq!(blocks[0]["c"][0]["t"], "Para");
+        assert_eq!(blocks[0]["c"][0]["c"][0]["c"], "Quoted");
+        assert_eq!(blocks[0]["c"][1]["t"], "Para");
+
+        let nested = &blocks[0]["c"][2];
+        assert_eq!(nested["t"], "BlockQuote");
+        assert_eq!(nested["c"][0]["t"], "Div");
+        assert_eq!(nested["c"][0]["c"][0][0], "nested");
+        assert_eq!(nested["c"][0]["c"][0][1], json!(["source"]));
+        assert_eq!(nested["c"][0]["c"][0][2], json!([["cite", "book"]]));
+        assert_eq!(nested["c"][0]["c"][1][0]["t"], "Para");
+
+        assert_eq!(blocks[1]["t"], "Div");
+        assert_eq!(
+            blocks[1]["c"][0][2],
+            json!([["data-plumb-marker", "quote"]])
+        );
+    }
+
+    #[test]
+    fn exports_empty_quote() {
+        let document = export("`>\n").unwrap();
+        assert_eq!(document["blocks"], json!([{"t": "BlockQuote", "c": []}]));
     }
 
     #[test]

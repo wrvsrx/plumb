@@ -9,8 +9,8 @@ use url::Url;
 
 use crate::{
     analyze_citations, analyze_headings, analyze_lists, analyze_math, analyze_metadata,
-    analyze_tasks, CitationOutput, HeadingOutput, ListOutput, MathOutput, MetadataOutput,
-    TaskOutput,
+    analyze_quotes, analyze_tasks, CitationOutput, HeadingOutput, ListOutput, MathOutput,
+    MetadataOutput, QuoteOutput, TaskOutput,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -103,6 +103,7 @@ pub struct DocumentOutput {
     pub citations: CitationOutput,
     pub lists: ListOutput,
     pub math: MathOutput,
+    pub quotes: QuoteOutput,
     pub tasks: TaskOutput,
     pub anchors: Vec<AnchorRecord>,
     pub links: Vec<LinkRecord>,
@@ -126,6 +127,7 @@ pub fn analyze_document(source: &str, document: &Document) -> DocumentOutput {
     let citations = analyze_citations(document);
     let lists = analyze_lists(document);
     let math = analyze_math(document);
+    let quotes = analyze_quotes(document);
     let tasks = analyze_tasks(source, document);
     let mut output = DocumentOutput {
         headings,
@@ -133,6 +135,7 @@ pub fn analyze_document(source: &str, document: &Document) -> DocumentOutput {
         citations,
         lists,
         math,
+        quotes,
         tasks,
         ..DocumentOutput::default()
     };
