@@ -1171,7 +1171,7 @@ checksum = "8b870d8c151b6f2fb93e84a13146138f05d02ed11c7e7c54f8826aaaf7c9f184"
 
 [[package]]
 name = "plumb"
-version = "0.12.0"
+version = "0.12.1-dev"
 dependencies = [
  "async-lsp",
  "chrono",
@@ -1194,7 +1194,7 @@ dependencies = [
 
 [[package]]
 name = "plumb-core"
-version = "0.12.0"
+version = "0.12.1-dev"
 dependencies = [
  "proptest",
  "serde",
@@ -1203,7 +1203,7 @@ dependencies = [
 
 [[package]]
 name = "plumb-edit"
-version = "0.12.0"
+version = "0.12.1-dev"
 dependencies = [
  "plumb-core",
  "plumb-format",
@@ -1211,7 +1211,7 @@ dependencies = [
 
 [[package]]
 name = "plumb-export"
-version = "0.12.0"
+version = "0.12.1-dev"
 dependencies = [
  "plumb-core",
  "plumb-extensions",
@@ -1220,7 +1220,7 @@ dependencies = [
 
 [[package]]
 name = "plumb-extensions"
-version = "0.12.0"
+version = "0.12.1-dev"
 dependencies = [
  "chrono",
  "plumb-core",
@@ -1229,7 +1229,7 @@ dependencies = [
 
 [[package]]
 name = "plumb-format"
-version = "0.12.0"
+version = "0.12.1-dev"
 dependencies = [
  "clap 4.6.2",
  "plumb-core",
@@ -1238,7 +1238,7 @@ dependencies = [
 
 [[package]]
 name = "plumb-import"
-version = "0.12.0"
+version = "0.12.1-dev"
 dependencies = [
  "pandoc_types",
  "plumb-core",
@@ -1248,7 +1248,7 @@ dependencies = [
 
 [[package]]
 name = "plumb-notes"
-version = "0.12.0"
+version = "0.12.1-dev"
 dependencies = [
  "cel",
  "chrono",
@@ -1264,7 +1264,7 @@ dependencies = [
 
 [[package]]
 name = "plumb-workspace"
-version = "0.12.0"
+version = "0.12.1-dev"
 dependencies = [
  "cel",
  "chrono",
