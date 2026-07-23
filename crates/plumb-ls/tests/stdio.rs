@@ -1802,7 +1802,7 @@ fn completes_and_navigates_relative_autolinks_files_and_images() {
     let unicode_target = root.join("中文笔记 [草稿].plumb");
     let image = static_dir.join("image one.PNG");
     let attachment = static_dir.join("manual draft.pdf");
-    let source = "`[tar]{.->}\n`\"[target note.plumb#an]\"{.->}\n`img[Query]{src=\"static/im\"}\n`img[Missing]{src=\"static/missing.png\"}\n`[target note.plumb]{.->}\n`img[Result]{src=\"static/image%20one.PNG\"}\n`[中文]{.->}\n`[static/manual draft.pdf]{.->}\n`->[manual]{to=\"static/manual draft.pdf\"}\n`[static/missing guide.pdf]{.->}\n";
+    let source = "`[tar]{.->}\n`\"[target note.plumb#an]\"{.->}\n`img[Query]{src=\"static/im\"}\n`img[Missing]{src=\"static/missing.png\"}\n`[target note.plumb]{.->}\n`img[Result]{src=\"static/image one.PNG\"}\n`[中文]{.->}\n`[static/manual draft.pdf]{.->}\n`->[manual]{to=\"static/manual draft.pdf\"}\n`[static/missing guide.pdf]{.->}\n";
     std::fs::write(&current, source).unwrap();
     std::fs::write(
         &target,
@@ -1941,12 +1941,12 @@ fn completes_and_navigates_relative_autolinks_files_and_images() {
         .as_array()
         .unwrap()
         .iter()
-        .find(|item| item["label"] == "static/image%20one.PNG")
+        .find(|item| item["label"] == "static/image one.PNG")
         .expect("image path completion");
     assert_eq!(image_completion["kind"], 17);
     assert_eq!(
         image_completion["textEdit"]["newText"],
-        "static/image%20one.PNG"
+        "static/image one.PNG"
     );
 
     assert!(response(&output, 5)["result"]["contents"]["value"]

@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::ops::Range;
+use std::path::Path;
 
 use plumb_core::{
     AttrItem, AttrValue, Attributes, Block, Diagnostic, DiagnosticSeverity, Document, Inline,
@@ -391,6 +392,14 @@ fn valid_autolink_target(target: &str) -> bool {
     true
 }
 
+fn valid_relative_file_path(target: &str) -> bool {
+    !target.is_empty()
+        && !Path::new(target).is_absolute()
+        && !target
+            .chars()
+            .any(|character| character.is_control() || character == '\\')
+}
+
 fn collect_image(
     source: &str,
     range: Range<usize>,
@@ -405,7 +414,7 @@ fn collect_image(
         output.diagnostics.push(Diagnostic {
             code: "image.missing-source",
             severity: DiagnosticSeverity::Warning,
-            message: "image requires a nonempty 'src' URI reference".to_string(),
+            message: "image requires a nonempty 'src' target".to_string(),
             range,
             related: Vec::new(),
         });
@@ -416,41 +425,40 @@ fn collect_image(
         output.diagnostics.push(Diagnostic {
             code: "image.missing-source",
             severity: DiagnosticSeverity::Warning,
-            message: "image requires a nonempty 'src' URI reference".to_string(),
+            message: "image requires a nonempty 'src' target".to_string(),
             range: source_value.range,
             related: Vec::new(),
         });
         return;
     }
-    if !valid_uri_reference(&source_value.value) {
-        output.diagnostics.push(Diagnostic {
-            code: "image.invalid-source",
-            severity: DiagnosticSeverity::Warning,
-            message: "image 'src' must be a valid URI reference".to_string(),
-            range: source_value.range,
-            related: Vec::new(),
-        });
-        return;
-    }
-    let target_kind =
-        if Url::parse(&source_value.value).is_ok() || source_value.value.starts_with("//") {
-            ImageTarget::External
-        } else {
-            let path = uri_reference_path(&source_value.value);
-            if path.is_empty() {
-                output.diagnostics.push(Diagnostic {
-                    code: "image.invalid-source",
-                    severity: DiagnosticSeverity::Warning,
-                    message: "relative image 'src' must contain a file path".to_string(),
-                    range: source_value.range,
-                    related: Vec::new(),
-                });
-                return;
-            }
-            ImageTarget::File {
-                path: path.to_string(),
-            }
-        };
+    let target_kind = if has_uri_scheme(&source_value.value) || source_value.value.starts_with("//")
+    {
+        if !valid_uri_reference(&source_value.value) {
+            output.diagnostics.push(Diagnostic {
+                code: "image.invalid-source",
+                severity: DiagnosticSeverity::Warning,
+                message: "absolute image 'src' must be a valid URI reference".to_string(),
+                range: source_value.range,
+                related: Vec::new(),
+            });
+            return;
+        }
+        ImageTarget::External
+    } else {
+        if !valid_relative_file_path(&source_value.value) {
+            output.diagnostics.push(Diagnostic {
+                code: "image.invalid-source",
+                severity: DiagnosticSeverity::Warning,
+                message: "relative image 'src' must be a valid raw file path".to_string(),
+                range: source_value.range,
+                related: Vec::new(),
+            });
+            return;
+        }
+        ImageTarget::File {
+            path: source_value.value.clone(),
+        }
+    };
     output.images.push(ImageRecord {
         range,
         selection_range,
@@ -809,17 +817,17 @@ mod tests {
 
     #[test]
     fn recognizes_standard_images_and_diagnoses_invalid_sources() {
-        let source = "`img[Alt `em[text]]{src=\"static/a%20b.png\" #figure .wide loading=lazy}\n`img[]{src=\"https://example.test/a.png\"}\n`img[Missing]\n`img[Empty]{src=\"\"}\n`img[Invalid]{src=\"bad path.png\"}\n";
+        let source = "`img[Alt `em[text]]{src=\"static/图 像(100%).png\" #figure .wide loading=lazy}\n`img[]{src=\"https://example.test/a.png\"}\n`img[Missing]\n`img[Empty]{src=\"\"}\n`img[Invalid URI]{src=\"https://example.test/bad path.png\"}\n`img[Invalid path]{src=\"bad\\\\path.png\"}\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
         let output = analyze_document(&parsed.source, &parsed.syntax);
         assert_eq!(output.images.len(), 2);
-        assert_eq!(output.images[0].source.value, "static/a%20b.png");
+        assert_eq!(output.images[0].source.value, "static/图 像(100%).png");
         assert_eq!(
             output.images[0].target_kind,
             ImageTarget::File {
-                path: "static/a%20b.png".to_string()
+                path: "static/图 像(100%).png".to_string()
             }
         );
         assert_eq!(output.images[1].target_kind, ImageTarget::External);
@@ -832,6 +840,7 @@ mod tests {
             [
                 "image.missing-source",
                 "image.missing-source",
+                "image.invalid-source",
                 "image.invalid-source"
             ]
         );

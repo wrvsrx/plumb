@@ -37,6 +37,7 @@ pub enum LinkCompletionContext {
 pub struct ImageCompletionContext {
     pub replace: Range<usize>,
     pub query: String,
+    pub quoted: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -223,6 +224,7 @@ pub fn image_completion_context(
     Some(ImageCompletionContext {
         replace: value_start..value_end,
         query: query.to_string(),
+        quoted,
     })
 }
 
@@ -586,6 +588,7 @@ mod tests {
             Some(ImageCompletionContext {
                 replace: value_start..value_start + "static/image.png".len(),
                 query: "static/im".to_string(),
+                quoted: true,
             })
         );
 
@@ -595,6 +598,7 @@ mod tests {
             Some(ImageCompletionContext {
                 replace: recovered.find("static/im").unwrap()..cursor,
                 query: "static/im".to_string(),
+                quoted: true,
             })
         );
 

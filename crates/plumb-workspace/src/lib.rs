@@ -457,7 +457,7 @@ impl Workspace {
         match &image.target_kind {
             ImageTarget::External => ResolvedTarget::External,
             ImageTarget::File { path } => {
-                let target = resolve_relative(from.as_ref(), &percent_decode_path(path));
+                let target = resolve_relative(from.as_ref(), path);
                 if target.is_file() {
                     ResolvedTarget::File { path: target }
                 } else {
@@ -1874,14 +1874,14 @@ impl Workspace {
         context: &ImageCompletionContext,
     ) -> Vec<CompletionCandidate> {
         let from = normalize(from.as_ref());
-        let decoded_query = percent_decode_path(&context.query);
-        if Path::new(&decoded_query).is_absolute() {
+        if Path::new(&context.query).is_absolute() {
             return Vec::new();
         }
-        let (directory_prefix, name_query) = decoded_query
+        let (directory_prefix, name_query) = context
+            .query
             .rsplit_once('/')
-            .map_or(("", decoded_query.as_str()), |(directory, name)| {
-                (&decoded_query[..directory.len() + 1], name)
+            .map_or(("", context.query.as_str()), |(directory, name)| {
+                (&context.query[..directory.len() + 1], name)
             });
         let directory = normalize(
             &from
@@ -1907,12 +1907,25 @@ impl Workspace {
                 } else {
                     return None;
                 };
-                let decoded = format!("{directory_prefix}{name}{suffix}");
-                let encoded = percent_encode_path(&decoded);
+                let path = format!("{directory_prefix}{name}{suffix}");
+                if path
+                    .chars()
+                    .any(|character| character.is_control() || character == '\\')
+                {
+                    return None;
+                }
+                if !context.quoted && !valid_bare_attribute_value(&path) {
+                    return None;
+                }
+                let new_text = if context.quoted {
+                    escape_quoted_value(&path)
+                } else {
+                    path.clone()
+                };
                 Some(CompletionCandidate {
-                    label: encoded.clone(),
+                    label: path,
                     detail: detail.to_string(),
-                    new_text: encoded,
+                    new_text,
                     replace: context.replace.clone(),
                 })
             })
@@ -2673,6 +2686,18 @@ fn escape_quoted_value(value: &str) -> String {
     value.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
+fn valid_bare_attribute_value(value: &str) -> bool {
+    !value.is_empty()
+        && value.chars().all(|character| {
+            !character.is_whitespace()
+                && !character.is_control()
+                && !matches!(
+                    character,
+                    '`' | '"' | '[' | ']' | '{' | '}' | '#' | '.' | '='
+                )
+        })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2997,10 +3022,13 @@ mod tests {
         let static_dir = root.join("static");
         std::fs::create_dir_all(static_dir.join("nested")).unwrap();
         std::fs::write(static_dir.join("image one.PNG"), b"png").unwrap();
+        std::fs::write(static_dir.join("图 像(100%).PNG"), b"png").unwrap();
+        std::fs::write(static_dir.join("literal%20name.PNG"), b"png").unwrap();
+        std::fs::write(static_dir.join("quote\"image.PNG"), b"png").unwrap();
         std::fs::write(static_dir.join("literal%20name.txt"), b"text").unwrap();
         std::fs::write(static_dir.join("ignored.txt"), b"text").unwrap();
         let source_path = root.join("current.plumb");
-        let source = "`[static/image one.PNG]{.->}\n`img[Result]{src=\"static/image%20one.PNG\"}\n`[static/literal%20name.txt]{.->}\n";
+        let source = "`[static/image one.PNG]{.->}\n`img[Result]{src=\"static/image one.PNG\"}\n`img[Literal percent]{src=\"static/literal%20name.PNG\"}\n`[static/literal%20name.txt]{.->}\n";
         let mut workspace = Workspace::new();
         workspace.insert(&source_path, 3, source);
 
@@ -3009,18 +3037,47 @@ mod tests {
             &ImageCompletionContext {
                 replace: 18..25,
                 query: "static/im".to_string(),
+                quoted: true,
             },
         );
-        assert_eq!(candidates.len(), 1);
-        assert_eq!(candidates[0].label, "static/image%20one.PNG");
-        assert_eq!(candidates[0].detail, "image file");
-        assert_eq!(candidates[0].replace, 18..25);
+        let image_with_space = candidates
+            .iter()
+            .find(|candidate| candidate.label == "static/image one.PNG")
+            .unwrap();
+        assert_eq!(image_with_space.new_text, "static/image one.PNG");
+        assert_eq!(image_with_space.detail, "image file");
+        assert_eq!(image_with_space.replace, 18..25);
+
+        let unicode = workspace.complete_image_path(
+            &source_path,
+            &ImageCompletionContext {
+                replace: 0..0,
+                query: "static/图".to_string(),
+                quoted: true,
+            },
+        );
+        assert_eq!(unicode.len(), 1);
+        assert_eq!(unicode[0].label, "static/图 像(100%).PNG");
+        assert_eq!(unicode[0].new_text, "static/图 像(100%).PNG");
+
+        let quoted = workspace.complete_image_path(
+            &source_path,
+            &ImageCompletionContext {
+                replace: 0..0,
+                query: "static/quote".to_string(),
+                quoted: true,
+            },
+        );
+        assert_eq!(quoted.len(), 1);
+        assert_eq!(quoted[0].label, "static/quote\"image.PNG");
+        assert_eq!(quoted[0].new_text, "static/quote\\\"image.PNG");
 
         let directories = workspace.complete_image_path(
             &source_path,
             &ImageCompletionContext {
                 replace: 0..0,
                 query: "static/ne".to_string(),
+                quoted: true,
             },
         );
         assert!(directories
@@ -3037,7 +3094,7 @@ mod tests {
             }
         );
         let literal_percent = workspace
-            .link_at(&source_path, source.find("literal%20name").unwrap())
+            .link_at(&source_path, source.rfind("literal%20name").unwrap())
             .unwrap();
         assert_eq!(
             workspace.resolve_link(&source_path, literal_percent),
@@ -3054,14 +3111,30 @@ mod tests {
                 path: static_dir.join("image one.PNG")
             }
         );
+        let literal_percent_image = workspace
+            .image_at(&source_path, source.find("Literal percent").unwrap())
+            .unwrap();
+        assert_eq!(
+            workspace.resolve_image(&source_path, literal_percent_image),
+            ResolvedTarget::File {
+                path: static_dir.join("literal%20name.PNG")
+            }
+        );
         assert!(workspace.diagnostics(&source_path).is_empty());
 
         std::fs::remove_file(static_dir.join("image one.PNG")).unwrap();
+        std::fs::remove_file(static_dir.join("图 像(100%).PNG")).unwrap();
+        std::fs::remove_file(static_dir.join("literal%20name.PNG")).unwrap();
+        std::fs::remove_file(static_dir.join("quote\"image.PNG")).unwrap();
         std::fs::remove_file(static_dir.join("literal%20name.txt")).unwrap();
-        assert!(workspace
+        let unresolved = workspace
             .diagnostics(&source_path)
-            .iter()
-            .any(|diagnostic| diagnostic.code == "image.unresolved-file"));
+            .into_iter()
+            .find(|diagnostic| diagnostic.code == "image.unresolved-file")
+            .unwrap();
+        assert!(unresolved
+            .message
+            .contains(&static_dir.join("image one.PNG").display().to_string()));
         std::fs::remove_dir_all(root).unwrap();
     }
 
