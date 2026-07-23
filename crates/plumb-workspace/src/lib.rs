@@ -717,10 +717,9 @@ impl Workspace {
     ) -> ResolvedTarget {
         let (path, id) = match target {
             TaskReferenceTarget::Internal { id } => (normalize(from), id.clone()),
-            TaskReferenceTarget::External { path, id } => (
-                resolve_relative(from, &percent_decode_path(path)),
-                id.clone(),
-            ),
+            TaskReferenceTarget::External { path, id } => {
+                (resolve_relative(from, path), id.clone())
+            }
             TaskReferenceTarget::Invalid => return ResolvedTarget::Other,
         };
         let Some(output) = self.current_output(&path) else {
@@ -1148,10 +1147,9 @@ impl Workspace {
     ) -> TaskTargetResolution {
         let (path, id) = match target {
             TaskReferenceTarget::Internal { id } => (normalize(from), id.clone()),
-            TaskReferenceTarget::External { path, id } => (
-                resolve_relative(from, &percent_decode_path(path)),
-                id.clone(),
-            ),
+            TaskReferenceTarget::External { path, id } => {
+                (resolve_relative(from, path), id.clone())
+            }
             TaskReferenceTarget::Invalid => return TaskTargetResolution::Invalid,
         };
         let Some(output) = self.current_output(&path) else {
@@ -1629,11 +1627,7 @@ impl Workspace {
                     grouped
                         .entry(entry.path.clone())
                         .or_default()
-                        .push(validated_token_edit(
-                            entry,
-                            path_range,
-                            percent_encode_path(&replacement),
-                        )?);
+                        .push(validated_token_edit(entry, path_range, replacement)?);
                 }
             }
         }
@@ -2220,37 +2214,6 @@ fn unique_id(base: &str, reserved: &HashSet<String>) -> String {
     unreachable!()
 }
 
-fn percent_decode_path(path: &str) -> String {
-    let mut decoded = Vec::with_capacity(path.len());
-    let bytes = path.as_bytes();
-    let mut cursor = 0;
-    while cursor < bytes.len() {
-        if bytes[cursor] == b'%' && cursor + 2 < bytes.len() {
-            if let Some(byte) = hex_byte(bytes[cursor + 1], bytes[cursor + 2]) {
-                decoded.push(byte);
-                cursor += 3;
-                continue;
-            }
-        }
-        decoded.push(bytes[cursor]);
-        cursor += 1;
-    }
-    String::from_utf8(decoded).unwrap_or_else(|_| path.to_string())
-}
-
-fn percent_encode_path(path: &str) -> String {
-    let mut encoded = String::with_capacity(path.len());
-    for byte in path.bytes() {
-        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~' | b'/') {
-            encoded.push(char::from(byte));
-        } else {
-            use std::fmt::Write as _;
-            write!(&mut encoded, "%{byte:02X}").expect("writing to String cannot fail");
-        }
-    }
-    encoded
-}
-
 fn valid_autolink_completion_path(path: &str) -> bool {
     !path.contains('#')
         && !path
@@ -2304,19 +2267,6 @@ fn is_image_path(path: &Path) -> bool {
                 "png" | "jpg" | "jpeg" | "webp" | "gif" | "svg" | "avif"
             )
         })
-}
-
-fn hex_byte(high: u8, low: u8) -> Option<u8> {
-    Some(hex_digit(high)? * 16 + hex_digit(low)?)
-}
-
-fn hex_digit(byte: u8) -> Option<u8> {
-    match byte {
-        b'0'..=b'9' => Some(byte - b'0'),
-        b'a'..=b'f' => Some(byte - b'a' + 10),
-        b'A'..=b'F' => Some(byte - b'A' + 10),
-        _ => None,
-    }
 }
 
 fn contains_inclusive(range: &std::ops::Range<usize>, offset: usize) -> bool {
@@ -2817,9 +2767,10 @@ mod tests {
     #[test]
     fn task_fields_participate_in_navigation_references_and_anchor_rename() {
         let target_source = "`-{.task #draft} Draft\n`node{#note} Note\n";
-        let reference_source = "`-{.task #review prev=\"Project%20Plan.plumb#draft\" depends=\"Project%20Plan.plumb#draft Project%20Plan.plumb#note\"} Review\nSee `->[draft]{to=\"Project Plan.plumb#draft\"}.\n";
+        let reference_source = "`-{.task #review prev=\"Project Plan.plumb#draft\" depends=\"Project Plan.plumb#draft Project Plan.plumb#note Project%20Plan.plumb#literal\"} Review\nSee `->[draft]{to=\"Project Plan.plumb#draft\"}.\n";
         let mut workspace = Workspace::new();
         workspace.insert("Project Plan.plumb", 4, target_source);
+        workspace.insert("Project%20Plan.plumb", 4, "`node{#literal} Literal\n");
         workspace.insert("review.plumb", 7, reference_source);
 
         let depends_attribute = reference_source.find("depends=").unwrap();
@@ -2847,6 +2798,15 @@ mod tests {
             "note"
         );
 
+        let literal = reference_source.find("#literal").unwrap() + 1;
+        assert_eq!(
+            workspace
+                .anchor_reference_at("review.plumb", literal)
+                .unwrap()
+                .target_path,
+            PathBuf::from("Project%20Plan.plumb")
+        );
+
         let target = workspace
             .anchor_rename_target_at("review.plumb", depends)
             .unwrap();
@@ -2863,14 +2823,14 @@ mod tests {
     }
 
     #[test]
-    fn document_rename_rewrites_percent_encoded_task_reference_paths() {
+    fn document_rename_rewrites_raw_task_reference_paths() {
         let target_source = "`-{.task #draft} Draft\n";
-        let reference_source = "`-{.task prev=\"Project%20Plan.plumb#draft\" depends=\"Project%20Plan.plumb#draft\"} Review\nSee `->[draft]{to=\"Project Plan.plumb#draft\"}.\n";
+        let reference_source = "`-{.task prev=\"Project Plan.plumb#draft\" depends=\"Project Plan.plumb#draft\"} Review\nSee `->[draft]{to=\"Project Plan.plumb#draft\"}.\n";
         let mut workspace = Workspace::new();
         workspace.insert("Project Plan.plumb", 4, target_source);
         workspace.insert("review.plumb", 7, reference_source);
 
-        let path_offset = reference_source.find("Project%20Plan.plumb").unwrap();
+        let path_offset = reference_source.find("Project Plan.plumb").unwrap();
         let target = workspace
             .path_rename_target_at("review.plumb", path_offset)
             .unwrap();
@@ -2886,13 +2846,10 @@ mod tests {
         assert_eq!(
             reference_edits
                 .iter()
-                .filter(|edit| edit.new_text == "Archived%20Plan.plumb")
+                .filter(|edit| edit.new_text == "Archived Plan.plumb")
                 .count(),
-            2
+            3
         );
-        assert!(reference_edits
-            .iter()
-            .any(|edit| edit.new_text == "Archived Plan.plumb"));
         assert_eq!(
             edit.resource_operations,
             vec![ResourceOperation::Rename {
@@ -3315,7 +3272,7 @@ mod tests {
         workspace.insert(
             "notes/review.plumb",
             2,
-            "`-{.task #review depends=\"Project%20Plan.plumb#draft Project%20Plan.plumb#done\"} Review\n",
+            "`-{.task #review depends=\"Project Plan.plumb#draft Project Plan.plumb#done\"} Review\n",
         );
 
         let task = &workspace
@@ -3357,7 +3314,7 @@ mod tests {
         workspace.insert(
             "tasks.plumb",
             1,
-            "`node{#plain} Plain anchor\n`-{.task #a depends=\"#b\"} A\n`-{.task #b depends=\"#a\"} B\n`-{.task #self depends=\"#self\"} Self\n`-{.task prev=\"#plain\" depends=\"#plain #missing bare missing.plumb#x\"} Invalid targets\n",
+            "`node{#plain} Plain anchor\n`-{.task #a depends=\"#b\"} A\n`-{.task #b depends=\"#a\"} B\n`-{.task #self depends=\"#self\"} Self\n`-{.task prev=\"#plain\" depends=\"#plain #missing bare#invalid missing.plumb#x\"} Invalid targets\n",
         );
 
         let diagnostics = workspace.diagnostics("tasks.plumb");

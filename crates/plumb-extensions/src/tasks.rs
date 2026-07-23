@@ -1,4 +1,5 @@
 use std::ops::Range;
+use std::path::Path;
 
 use chrono::{DateTime, Datelike, Duration, FixedOffset, SecondsFormat, TimeZone, Timelike};
 use plumb_core::{
@@ -238,29 +239,45 @@ fn dependency_fields(source: &str, items: &[AttrItem]) -> Vec<TaskDependency> {
 
 fn dependency_tokens(value: &str) -> Vec<(&str, Range<usize>)> {
     let mut output = Vec::new();
-    let mut start = None;
-    for (offset, character) in value.char_indices() {
-        if character.is_whitespace() {
-            if let Some(start) = start.take() {
-                output.push((&value[start..offset], start..offset));
-            }
-        } else if start.is_none() {
-            start = Some(offset);
+    let mut cursor = 0;
+    while cursor < value.len() {
+        cursor += value[cursor..]
+            .chars()
+            .take_while(|character| character.is_whitespace())
+            .map(char::len_utf8)
+            .sum::<usize>();
+        if cursor == value.len() {
+            break;
         }
-    }
-    if let Some(start) = start {
-        output.push((&value[start..], start..value.len()));
+        let start = cursor;
+        let id_start = if value[start..].starts_with('#') {
+            start + 1
+        } else if let Some(separator) = value[start..]
+            .find(".plumb#")
+            .filter(|separator| !value[start..start + separator].contains('#'))
+        {
+            start + separator + ".plumb#".len()
+        } else {
+            start
+        };
+        let end = value[id_start..]
+            .find(char::is_whitespace)
+            .map_or(value.len(), |offset| id_start + offset);
+        output.push((&value[start..end], start..end));
+        cursor = end;
     }
     output
 }
 
 pub fn parse_task_reference_target(source: &str) -> TaskReferenceTarget {
-    if let Some(id) = source.strip_prefix('#').filter(|id| !id.is_empty()) {
-        TaskReferenceTarget::Internal { id: id.to_string() }
-    } else if let Some((path, id)) = source
-        .split_once('#')
-        .filter(|(path, id)| path.ends_with(".plumb") && !id.is_empty())
+    if let Some(id) = source
+        .strip_prefix('#')
+        .filter(|id| valid_task_reference_id(id))
     {
+        TaskReferenceTarget::Internal { id: id.to_string() }
+    } else if let Some((path, id)) = source.split_once('#').filter(|(path, id)| {
+        path.ends_with(".plumb") && valid_task_reference_path(path) && valid_task_reference_id(id)
+    }) {
         TaskReferenceTarget::External {
             path: path.to_string(),
             id: id.to_string(),
@@ -268,6 +285,26 @@ pub fn parse_task_reference_target(source: &str) -> TaskReferenceTarget {
     } else {
         TaskReferenceTarget::Invalid
     }
+}
+
+fn valid_task_reference_path(path: &str) -> bool {
+    !path.is_empty()
+        && !Path::new(path).is_absolute()
+        && !path
+            .chars()
+            .any(|character| character.is_control() || matches!(character, '\\' | '#'))
+}
+
+fn valid_task_reference_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.chars().all(|character| {
+            !character.is_whitespace()
+                && !character.is_control()
+                && !matches!(
+                    character,
+                    '`' | '"' | '[' | ']' | '{' | '}' | '#' | '.' | '='
+                )
+        })
 }
 
 fn collect_task_diagnostics(task: &TaskRecord, attrs: &[AttrItem], output: &mut TaskOutput) {
@@ -402,7 +439,7 @@ mod tests {
 
     #[test]
     fn collects_task_facets_fields_dependencies_and_nesting() {
-        let source = "`-{.task #write created=\"2026-07-20T09:00:00+08:00\" due=\"2026-07-21T09:00:00+08:00\" wait=\"2026-07-20T12:00:00+08:00\" recur=P1W prev=\"#old\" depends=\"#draft other.plumb#review\"} Write parser\n  `note Details\n  `-{.task done=\"2026-07-20T10:00:00+08:00\"} Nested task\n";
+        let source = "`-{.task #write created=\"2026-07-20T09:00:00+08:00\" due=\"2026-07-21T09:00:00+08:00\" wait=\"2026-07-20T12:00:00+08:00\" recur=P1W prev=\"#old\" depends=\"#draft other notes.plumb#review third.plumb#done\"} Write parser\n  `note Details\n  `-{.task done=\"2026-07-20T10:00:00+08:00\"} Nested task\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
@@ -418,15 +455,71 @@ mod tests {
         );
         assert_eq!(task.id.as_ref().unwrap().value, "write");
         assert_eq!(task.state(), TaskState::Open);
-        assert_eq!(task.depends.len(), 2);
+        assert_eq!(task.depends.len(), 3);
         assert_eq!(&source[task.depends[0].range.clone()], "#draft");
         assert!(matches!(
             task.depends[1].target,
             TaskReferenceTarget::External { ref path, ref id }
-                if path == "other.plumb" && id == "review"
+                if path == "other notes.plumb" && id == "review"
+        ));
+        assert_eq!(
+            &source[task.depends[1].range.clone()],
+            "other notes.plumb#review"
+        );
+        assert!(matches!(
+            task.depends[2].target,
+            TaskReferenceTarget::External { ref path, ref id }
+                if path == "third.plumb" && id == "done"
         ));
         assert_eq!(output.tasks[1].depth, 1);
         assert_eq!(output.tasks[1].state(), TaskState::Done);
+    }
+
+    #[test]
+    fn parses_raw_task_reference_paths_and_reserves_hash_for_the_anchor() {
+        let dependencies = dependency_tokens(
+            "#local Project A.plumb#build Project%20A.plumb#literal third.plumb#done",
+        );
+        assert_eq!(
+            dependencies
+                .iter()
+                .map(|(source, _)| *source)
+                .collect::<Vec<_>>(),
+            [
+                "#local",
+                "Project A.plumb#build",
+                "Project%20A.plumb#literal",
+                "third.plumb#done"
+            ]
+        );
+        assert_eq!(
+            dependency_tokens("bare#invalid missing.plumb#x")
+                .iter()
+                .map(|(source, _)| *source)
+                .collect::<Vec<_>>(),
+            ["bare#invalid", "missing.plumb#x"]
+        );
+        assert!(matches!(
+            parse_task_reference_target("Project A.plumb#build"),
+            TaskReferenceTarget::External { ref path, ref id }
+                if path == "Project A.plumb" && id == "build"
+        ));
+        assert!(matches!(
+            parse_task_reference_target("Project%20A.plumb#literal"),
+            TaskReferenceTarget::External { ref path, ref id }
+                if path == "Project%20A.plumb" && id == "literal"
+        ));
+        for invalid in [
+            "Project#A.plumb#build",
+            "/Project A.plumb#build",
+            "Project A.plumb#bad.id",
+            "Project A.plumb#",
+        ] {
+            assert_eq!(
+                parse_task_reference_target(invalid),
+                TaskReferenceTarget::Invalid
+            );
+        }
     }
 
     #[test]

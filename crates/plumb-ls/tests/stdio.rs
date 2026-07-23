@@ -2525,7 +2525,7 @@ fn task_references_support_navigation_and_rename() {
     let target = root.join("Project Plan.plumb");
     let source = root.join("review.plumb");
     let target_text = "`-{.task #draft} Draft\n";
-    let source_text = "`-{.task #review prev=\"Project%20Plan.plumb#draft\" depends=\"Project%20Plan.plumb#draft\"} Review\n";
+    let source_text = "`-{.task #review prev=\"Project Plan.plumb#draft\" depends=\"Project Plan.plumb#draft\"} Review\n";
     std::fs::write(&target, target_text).unwrap();
     std::fs::write(&source, source_text).unwrap();
     let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
@@ -2535,7 +2535,7 @@ fn task_references_support_navigation_and_rename() {
     let prev_id = source_text.find("#draft").unwrap() + 1;
     let depends_start = source_text.find("depends=").unwrap();
     let depends_id = depends_start + source_text[depends_start..].find("#draft").unwrap() + 1;
-    let task_path = source_text.find("Project%20Plan.plumb").unwrap();
+    let task_path = source_text.find("Project Plan.plumb").unwrap();
     let messages = [
         json!({
             "jsonrpc": "2.0", "id": 1, "method": "initialize",
@@ -2628,7 +2628,7 @@ fn task_references_support_navigation_and_rename() {
             .iter()
             .skip(1)
             .flat_map(|change| change["edits"].as_array().into_iter().flatten())
-            .filter(|edit| edit["newText"] == "Archived%20Plan.plumb")
+            .filter(|edit| edit["newText"] == "Archived Plan.plumb")
             .count(),
         2
     );
@@ -2945,7 +2945,7 @@ fn definition_and_hover_lazily_load_targets_without_a_workspace_root() {
     let link_target = root.join("link target.plumb");
     let hover_target = root.join("hover target.plumb");
     let file_target = root.join("file target.plumb");
-    let source_text = "`-{.task depends=\"task%20target.plumb#draft\"} Review\nSee `->[note]{to=\"link target.plumb#note\"}.\nSee `->[hover]{to=\"hover target.plumb#hover\"}.\nSee `->[file]{to=\"file target.plumb\"}.\n";
+    let source_text = "`-{.task depends=\"task target.plumb#draft\"} Review\nSee `->[note]{to=\"link target.plumb#note\"}.\nSee `->[hover]{to=\"hover target.plumb#hover\"}.\nSee `->[file]{to=\"file target.plumb\"}.\n";
     std::fs::write(&source, source_text).unwrap();
     std::fs::write(&task_target, "`-{.task #draft} Draft\n").unwrap();
     std::fs::write(&link_target, "`node{#note} Note\n").unwrap();
