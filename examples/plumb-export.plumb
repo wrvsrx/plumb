@@ -30,7 +30,8 @@ This document exercises the successfully exportable semantic profile.
 
 `# Inline content
 
-This paragraph contains `*[emphasis with `**[strong content]],
+This paragraph contains `*[emphasis with `![strong content]], `=[marked content],
+`~[obsolete content], `^[superscript], and `_[subscript],
 inline verbatim `[cargo test], a `kbd[Ctrl+C]{.shortcut} element, and a
 `->[link back to the index]{to="index.plumb"}.
 

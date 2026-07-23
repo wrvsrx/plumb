@@ -121,8 +121,8 @@ syntax error、无效 metadata 或其他阻止 authoritative semantics 的错误
 
 importer 覆盖 `[plumb export] 当前产生的标准 profile，并保证受支持 AST 的
 `[export -> import -> export] semantic round-trip。包括 metadata、paragraph、heading、bullet/decimal
-ordered list、definition、quote、Div、CodeBlock，以及 text、emphasis、strong、Code、Link、Image、
-simple citation、inline math 和 Span。
+ordered list、definition、quote、Div、CodeBlock，以及 text、inline styles、Code、Link、Image、simple
+citation、inline math 和 Span。
 
 Pandoc 中不存在标准 plumb 表示的 node 会明确失败，不会静默丢失内容。例如 table、figure、raw
 HTML、horizontal rule、line block、footnote、复杂 citation、非 decimal 或非 1 起始 ordered list

@@ -177,19 +177,25 @@ inner Pandoc Div because Pandoc BlockQuote has no attribute slot. The `>`
 marker itself is consumed; `quote` is not an alias and remains generic.
 Do not infer attribution, citation, pull-quote, or presentation semantics.
 
-## Emphasis
+## Inline Styles
 
-Use the `*` and `**` parsed inline kinds for emphasis and strong emphasis:
+Six single-character parsed inline kinds have standard style semantics:
 
 ```plumb
-Use `*[emphasis] and `**[strong emphasis].
-Nest `*[an `**[important] detail].
+`*[emphasis]
+`![strong]
+`=[mark]
+`~[strikeout]
+`^[superscript]
+`_[subscript]
 ```
 
-They export as Pandoc Emph and Strong. Attributes are preserved through an
-outer Span because those Pandoc nodes have no attribute slot. `em`, `strong`,
-and `_` are not aliases and remain generic. Italic is a common presentation of
-emphasis, not a separate standard spelling.
+They export as Pandoc Emph, Strong, a Span carrying `.mark`, Strikeout,
+Superscript, and Subscript. Attributes on native Pandoc nodes are preserved
+through an outer Span. Import consumes the first `.mark` class as the standard
+`=` spelling and preserves remaining attributes. `**`, `em`, `strong`, and
+`mark` are not aliases and remain generic. Italic and bold are common
+presentations of emphasis and strong, not separate standard spellings.
 
 ## Tasks
 
@@ -244,8 +250,8 @@ provides spacing context without entering the edit or losing indentation.
 ## Export Semantics
 
 `div` and `span` are transparent standard containers and export without a
-redundant `data-plumb-marker`. `>` exports as Pandoc BlockQuote. `*` and `**`
-export as Pandoc Emph and Strong. Verbatim
+redundant `data-plumb-marker`. `>` exports as Pandoc BlockQuote. `*`, `!`, `=`,
+`~`, `^`, and `_` export as the standard inline styles. Verbatim
 inline/block nodes carrying `.$` are
 TeX inline/display math. The math facet and optional `language=tex` are
 consumed; other attributes are preserved with Span/Div wrappers. `.$` on a
@@ -253,7 +259,7 @@ non-verbatim owner is invalid.
 
 `plumb export` emits Pandoc JSON directly. Standard lowering includes headings,
 bullet lists, definition lists, metadata, `->` links, `.->` Autolinks, `img`
-images, single-id citations, quotes, emphasis, and task attributes. Generic marked blocks become Divs, generic parsed inline
+images, single-id citations, quotes, inline styles, and task attributes. Generic marked blocks become Divs, generic parsed inline
 elements become Spans, verbatim blocks become CodeBlocks, and inline verbatim
 becomes Code.
 

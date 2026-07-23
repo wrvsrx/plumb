@@ -1,6 +1,6 @@
 ---
 name: plumb-markup
-description: Write, edit, review, or convert strict plumb (.plumb) documents using the released core syntax and standard extensions. Use for plumb blocks, inline elements, attributes, raw content, headings, lists, definitions, metadata, links, images, citations, quotes, emphasis, tasks, references, or documents consumed by the plumb toolchain.
+description: Write, edit, review, or convert strict plumb (.plumb) documents using the released core syntax and standard extensions. Use for plumb blocks, inline elements, attributes, raw content, headings, lists, definitions, metadata, links, images, citations, quotes, inline styles, tasks, references, or documents consumed by the plumb toolchain.
 ---
 
 # Plumb Markup
@@ -14,7 +14,7 @@ text.
 1. Read `references/core-syntax.md` completely before creating or changing
    plumb source.
 2. Read `references/standard-extensions.md` completely when the document uses
-   headings, lists, definitions, metadata, links, images, citations, quotes, emphasis, tasks, anchors, or
+   headings, lists, definitions, metadata, links, images, citations, quotes, inline styles, tasks, anchors, or
    export semantics.
 3. Preserve nearby source style, indentation, attributes, explicit ids, and
    reference spelling unless the requested change requires modifying them.
@@ -66,7 +66,7 @@ it. Inside the plumb source repository, prefer
 
 `div{.notice} Transparent block container
 `> A quoted paragraph
-Use `*[emphasis] and `**[strong emphasis].
+Use `*[emphasis], `![strong], `=[mark], `~[strikeout], `^[superscript], and `_[subscript].
 Inline `span[container]{.notice} and `[x^2]{.$} math.
 
 `: Term
@@ -88,7 +88,8 @@ link inline kind. Use `.->` for a verbatim absolute URI or raw relative path
 whose payload is both label and target; relative `.plumb` targets resolve as
 documents and other relative targets resolve as files. Use
 `img[alt]{src="target"}` for images.
-`item`, `link`, `em`, and `strong` remain syntactically valid generic names but
+`item`, `link`, `**`, `em`, and `strong` remain syntactically valid generic names but
 have no list or link semantics. Only `-` and `.` items may carry the standard
 `.task` facet. `div` and `span` are transparent containers; `>` is a block
-quote; `*` and `**` are emphasis; `.$` on verbatim inline/block nodes is TeX math.
+quote; `*`, `!`, `=`, `~`, `^`, and `_` are inline styles; `.$` on verbatim
+inline/block nodes is TeX math.

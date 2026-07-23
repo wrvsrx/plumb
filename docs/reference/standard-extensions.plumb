@@ -195,21 +195,30 @@ marker `[>] 产生 block quote。可选 head 作为引用中的第一个 paragra
 quote 不定义 attribution、citation、pull quote 或 presentation semantics；需要这些信息时使用普通
 children 或 opaque attributes，直到独立 extension 冻结其含义。
 
-`# 12. Emphasis
+`# 12. Inline styles
 
-parsed inline kind `[*] 与 `[**] 分别产生 semantic emphasis 与 strong emphasis：
+六个单字符 parsed inline kinds 产生标准 inline style semantics：
 
 `{language=plumb}
-  Use `*[emphasis] and `**[strong emphasis].
-  Nest `*[an `**[important] detail].
+  `*[emphasis]
+  `![strong]
+  `=[mark]
+  `~[strikeout]
+  `^[superscript]
+  `_[subscript]
 
-export 分别产生 Pandoc `[Emph] 与 `[Strong]。两者没有原生 attribute slot；存在 attributes 时，
-export 使用外层 `[Span] 保留全部 id/classes/pairs。marker 本身被消费，不产生
-`[data-plumb-marker]。
+`[*]、`[!]、`[~]、`[^] 与 `[_] 分别 lower 为 Pandoc `[Emph]、`[Strong]、`[Strikeout]、
+`[Superscript] 与 `[Subscript]。这些 Pandoc nodes 没有原生 attribute slot；存在 attributes 时，
+export 使用外层 `[Span] 保留全部 id/classes/pairs。
 
-`[em]、`[strong]、`[_] 和其他 inline kinds 不作为 aliases，仍是 generic parsed inline elements。
-italic 是 emphasis 的常见 presentation，不定义独立 semantic spelling。语法不提供 delimiter-style
-emphasis；opening/closing bracket 与 introducer 仍显式标记边界。
+Pandoc 没有原生 Mark node；`[=] lower 为带 `[.mark] class 的 `[Span]，并在其后保留 source 中的
+其他 classes。Pandoc import 将第一个 `[.mark] class 消费为 `[=] semantic spelling，其余 attributes
+保持不变。六个 inline kind 本身都被消费，不产生 `[data-plumb-marker]。
+
+`[**]、`[em]、`[strong]、`[mark] 和其他 inline kinds 不作为 aliases，仍是 generic parsed inline
+elements。italic/bold 是 emphasis/strong 的常见 presentation，不定义独立 semantic spellings。
+`[^] 与 `[_] 通过上下位置形成一组；符号数量不编码强度，也不隐式产生其他组合。opening/closing
+bracket 与 introducer 始终显式标记 content boundary。
 
 `# 13. Math
 

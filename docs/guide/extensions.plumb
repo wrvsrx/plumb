@@ -155,16 +155,21 @@ LSP 在 src 中补全常见本地图片文件，并为存在的文件提供 hove
 export 产生 Pandoc BlockQuote。quote attributes 通过内部 Div 保留；`[quote] 不是 alias，仍按
 generic block 导出。quote 不隐式解释 attribution 或 citation。
 
-`# Emphasis
+`# Inline styles
 
-`[*] 与 `[**] parsed inline kinds 分别表示 emphasis 与 strong emphasis：
+常用 inline styles 都使用单字符 kind：
 
 `{language=plumb}
-  Use `*[emphasis] and `**[strong emphasis].
-  Nest `*[an `**[important] detail].
+  `*[emphasis]
+  `![strong]
+  `=[mark]
+  `~[strikeout]
+  `^[superscript]
+  `_[subscript]
 
-export 分别产生 Pandoc Emph 与 Strong。attributes 通过外层 Span 保留。`[em]、`[strong]、`[_]
-不是 aliases；italic 是 emphasis 的常见渲染，不需要独立 spelling。
+除 mark 使用 Pandoc `[Span.mark] 外，其余分别产生 Pandoc Emph、Strong、Strikeout、Superscript 与
+Subscript。attributes 通过 Span 保存。`[**]、`[em]、`[strong]、`[mark] 不是 aliases；italic/bold
+是 emphasis/strong 的常见渲染，不需要独立 spelling。
 
 `# Math
 
