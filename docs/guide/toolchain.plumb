@@ -18,6 +18,16 @@ tree-sitter grammar 使用独立 shell 生成和测试：
 
 generated parser sources 不属于 repository source，不应提交。
 
+`# Check
+
+`[plumb check --root DIR] 递归检查 workspace 中的 `[..plumb] files；省略 `[--root] 时使用当前
+目录。它复用与 LSP 相同的 strict syntax、extension 和 cross-document diagnostics，并且不进入
+directory symlink。
+
+diagnostics 按 relative path 和 source range 稳定排序，输出 `[path:line:column]、severity、code 与
+message。Error 或 Warning 令 command 返回 nonzero；Hint 仍会显示，但不会单独令检查失败。无
+diagnostic 时不输出内容并返回成功。
+
 `# Playground
 
 `[examples/index.plumb] 及同目录文档覆盖 core syntax 和标准 extensions，可用于 editor、

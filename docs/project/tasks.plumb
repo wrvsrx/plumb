@@ -290,7 +290,13 @@
 
 `-{
    .task #check-workspace-from-cli created="2026-07-23T22:59:57+08:00"
+   done="2026-07-23T23:29:11+08:00"
   } 允许检查整个 workspace（基于 cli）
+
+   `note 提供 `[plumb check --root DIR]，省略 root 时检查当前目录；复用 note/task scanner，不递归进入 directory symlink。
+   `note 复用 `[Workspace::diagnostics] 汇总 strict syntax、extension 与 cross-document diagnostics，不在 CLI adapter 重复分析逻辑。
+   `note 按 relative path、range、severity、code 与 message 稳定排序，输出 1-based line/column；related ranges 作为 note locations 输出。
+   `note Error/Warning 返回 nonzero，Hint 只报告；覆盖 clean workspace、nested file、syntax error、unresolved reference、blocked-task hint、Unicode position 与 unified binary help/exit tests。
 
 `# Neovim plugin
 
