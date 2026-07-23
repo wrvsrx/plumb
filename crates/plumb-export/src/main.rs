@@ -50,7 +50,7 @@ fn read_input(path: Option<&OsStr>) -> Result<String, String> {
     }
 }
 
-fn export(source: &str) -> Result<Value, String> {
+pub fn export(source: &str) -> Result<Value, String> {
     let parsed = parse(source);
     if !parsed.is_valid() {
         let summary = parsed

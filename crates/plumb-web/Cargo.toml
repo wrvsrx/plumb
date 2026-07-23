@@ -1,0 +1,23 @@
+[package]
+name = "plumb-web"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+axum.workspace = true
+chrono.workspace = true
+clap.workspace = true
+mime_guess.workspace = true
+notify.workspace = true
+percent-encoding.workspace = true
+plumb-export = { path = "../plumb-export" }
+plumb-extensions = { path = "../plumb-extensions" }
+plumb-workspace = { path = "../plumb-workspace" }
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+tokio = { version = "1", features = ["macros", "net", "process", "rt-multi-thread", "sync", "time"] }
+tokio-stream = { version = "0.1", features = ["sync"] }
+url.workspace = true
+webbrowser.workspace = true

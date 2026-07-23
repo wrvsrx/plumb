@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>plumb workspace</title>
+  <link rel="stylesheet" href="__ASSET_PREFIX__styles.css">
+</head>
+<body data-plumb-config="__PLUMB_CONFIG__">
+  <header class="toolbar">
+    <a class="brand" href="__ROOT_PREFIX__">plumb</a>
+    <div class="mode" role="group" aria-label="Graph scope">
+      <button id="global-mode" class="active" type="button">Workspace</button>
+      <button id="local-mode" type="button">Local</button>
+    </div>
+    <label class="search">
+      <span>Search</span>
+      <input id="search" type="search" autocomplete="off" placeholder="Title or path">
+    </label>
+    <label>
+      <span>Direction</span>
+      <select id="direction">
+        <option value="both">Both</option>
+        <option value="outgoing">Outgoing</option>
+        <option value="incoming">Incoming</option>
+      </select>
+    </label>
+    <label>
+      <span>Depth</span>
+      <input id="depth" type="number" min="0" max="8" value="1">
+    </label>
+    <button id="fit" type="button">Fit graph</button>
+  </header>
+  <div class="filters" aria-label="Edge filters">
+    <label><input type="checkbox" value="link" checked> Named links</label>
+    <label><input type="checkbox" value="autolink" checked> Autolinks</label>
+    <label><input type="checkbox" value="task-prev" checked> Task history</label>
+    <label><input type="checkbox" value="task-depends" checked> Dependencies</label>
+    <span id="summary" role="status"></span>
+  </div>
+  <main class="workspace">
+    <section class="graph-stage" aria-label="Workspace graph">
+      <div id="graph"></div>
+      <div id="graph-empty" class="empty" hidden>No matching notes</div>
+    </section>
+    <aside id="note-panel" class="note-panel" aria-live="polite">
+      <div class="note-empty">
+        <h1>Workspace graph</h1>
+        <p>Select a note to inspect its content and backlinks.</p>
+      </div>
+    </aside>
+  </main>
+  <script src="__ASSET_PREFIX__vendor/cytoscape.min.js"></script>
+  <script src="__ASSET_PREFIX__app.js"></script>
+</body>
+</html>
