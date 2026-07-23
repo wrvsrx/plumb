@@ -651,13 +651,19 @@ mod tests {
 
     #[test]
     fn exports_standard_images_in_body_and_metadata() {
-        let source = "`meta\n `: cover\n\n    `img[Cover]{src=\"static/cover.png\"}\n\nBefore `img[Rich `em[alt]]{src=\"static/a%20b.webp\" #image .wide loading=lazy} after.\n\n`img[]{src=\"https://example.test/decorative.svg\"}\n";
+        let source = "`meta\n `: cover\n\n    `img[Cover]{src=\"static/cover.png\"}\n\nBefore `img[Rich `em[alt]]{src=\"static/a b.webp\" #image .wide loading=lazy} after.\n\n`img[]{src=\"https://example.test/decorative.svg\"}\n";
         let document = export(source).unwrap();
 
         let metadata_image = &document["meta"]["cover"]["c"][0];
         assert_eq!(metadata_image["t"], "Image");
+        assert_eq!(
+            metadata_image["c"][1],
+            json!([{ "t": "Str", "c": "Cover" }])
+        );
         assert_eq!(metadata_image["c"][2][0], "static/cover.png");
+        assert_eq!(metadata_image["c"][2][1], "");
 
+        assert_eq!(document["blocks"].as_array().unwrap().len(), 2);
         let body_image = &document["blocks"][0]["c"][2];
         assert_eq!(body_image["t"], "Image");
         assert_eq!(
@@ -666,15 +672,19 @@ mod tests {
         );
         assert_eq!(body_image["c"][1][0]["c"], "Rich");
         assert_eq!(body_image["c"][1][2]["t"], "Span");
-        assert_eq!(body_image["c"][2][0], "static/a%20b.webp");
+        assert_eq!(body_image["c"][2], json!(["static/a b.webp", ""]));
 
         let image_only_paragraph = &document["blocks"][1];
         assert_eq!(image_only_paragraph["t"], "Para");
-        assert_eq!(image_only_paragraph["c"][0]["t"], "Image");
-        assert!(image_only_paragraph["c"][0]["c"][1]
-            .as_array()
-            .unwrap()
-            .is_empty());
+        assert_eq!(image_only_paragraph["c"].as_array().unwrap().len(), 1);
+        let decorative = &image_only_paragraph["c"][0];
+        assert_eq!(decorative["t"], "Image");
+        assert_eq!(decorative["c"][0], json!(["", [], []]));
+        assert_eq!(decorative["c"][1], json!([]));
+        assert_eq!(
+            decorative["c"][2],
+            json!(["https://example.test/decorative.svg", ""])
+        );
     }
 
     #[test]
