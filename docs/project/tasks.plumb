@@ -302,13 +302,18 @@
 
 `-{
    .task #workspace-graph-visualization created="2026-07-23T23:46:33+08:00"
-  } 提供类似 Obsidian 的 workspace 连接图
+  } 提供浏览器中的 workspace 连接图与只读笔记视图
 
-   `note 在 protocol-neutral shared layer 从 current valid snapshots 投影 graph records；document node 包含 title、relative path 与 Location，edge 覆盖 named Link、Autolink、task prev 和 task depends，并保留 kind 与 source range。
-   `note 同时支持整个 workspace graph 与当前 document 的 bounded neighborhood；定义 direction、depth、node/edge kind filter、deterministic ordering、limit、truncated/incomplete 和 unresolved target contract，open buffer 继续覆盖 disk snapshot。
-   `note 通过 versioned custom LSP request 暴露 graph snapshot，并在 initialize experimental capability 中声明 schema；request 支持 cancellation，不能复用 workspace/symbol 或把 layout 坐标固化进 server contract。
-   `note 提供类似 Obsidian graph view 的 Neovim integration，至少支持 pan、zoom、选择 node 跳转、当前 node 高亮、全局/局部模式切换和按 edge kind 过滤；render/layout backend 保持可替换，不成为 language semantics。
-   `note 覆盖 duplicate links、self edge、cross-file explicit anchor、missing target、invalid revision、open-buffer precedence、large workspace truncation、request cancellation 与 node navigation tests，并记录大 workspace 的时间和内存基线。
+   `note 建立 shared Web document model：从 plumb-workspace current valid snapshots 投影 graph records 与只读 document records；document node 包含 opaque id、title、relative path 和 source location，edge 覆盖 named Link、Autolink、task prev 与 task depends，并保留 kind 和 source range。
+   `note Graph model 同时支持整个 workspace 与当前 document 的 bounded neighborhood；定义 direction、depth、node/edge kind filter、deterministic ordering、limit、truncated/incomplete 和 unresolved target contract。Layout coordinates 属于 frontend state，不进入 language、workspace 或 LSP semantics。
+   `note 添加 `[plumb graph --root DIR] 本地 server，默认只监听 `[127.0.0.1] 的随机端口并打开浏览器；binary 内嵌 HTML、JavaScript 和 CSS，监听 workspace changes，并通过 SSE 通知 frontend 重新获取 revisioned graph/document snapshot。
+   `note 浏览器使用成熟 graph library 提供 force-directed layout、pan、zoom、search、node/edge kind filter、当前 node 高亮和全局/局部模式。单击 node 在不丢失 graph state 的侧栏预览笔记，显式操作进入完整 note page；两种视图都能跳到 explicit anchor。
+   `note 笔记正文不在 JavaScript 中重新解释 plumb：server 复用标准 exporter 产生 Pandoc AST，在 AST 层把 document、anchor 与 local resource target adaptation 为 Web target，再交给 Pandoc HTML writer 生成 fragment。Web UI 负责 page shell、navigation、metadata、backlinks、theme 和 fragment placement。
+   `note Dynamic routes 使用 server 生成的 opaque ids，例如 `[/note/ID]、`[/api/note/ID] 和 `[/resource/ID]；不得接受任意 filesystem path。Internal document links、cross-file anchors 和 image/resource links 必须在 Pandoc AST 中改写，不能对生成后的 HTML 做 string replacement；external URL 保持外部 target。
+   `note 按 document revision 缓存 Pandoc HTML fragment，初版可以调用 packaged Pandoc writer；测量后再决定是否需要常驻 converter 或内置 HTML writer。Raw HTML 不进入 Web output，server 保持 read-only，并设置 strict CSP；resource route 只服务索引确认且 canonical path 位于允许 root 内的文件。
+   `note Shared Web document model、target adaptation、templates 和 frontend assets 同时支持 `[plumb site build --root DIR --output DIR]。静态构建预先写出 note pages、resources、graph JSON、search index 与 assets；逻辑 target 先表示为 `[Document(id, anchor)] 或 `[Resource(id)]，再分别 lower 为 server routes 或 relative static URLs。
+   `note LSP 不是 Web viewer 的运行前提。Neovim integration 只提供启动 `[plumb graph] 并传递 current workspace/document 的 command；只有其他 editor feature 确有 graph data consumer 时才增加 versioned custom LSP request，不让 server protocol 与 LSP schema 相互依赖。
+   `note 覆盖 duplicate links、self edge、cross-file explicit anchor、missing target、invalid revision、open-buffer precedence、workspace refresh、HTML cache invalidation、URL adaptation、resource traversal rejection、large workspace truncation、static/dynamic link parity 与 graph node navigation tests，并记录大 workspace 的启动时间、更新延迟和内存基线。
 
 `# Neovim plugin
 
