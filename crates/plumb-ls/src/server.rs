@@ -886,47 +886,54 @@ impl LanguageServer for ServerState {
                 let entry = self.workspace.get(&path)?;
                 let output = entry.current.as_ref()?;
                 let uri = Url::from_file_path(&entry.path).ok()?;
-                Some(
-                    output
-                        .output
-                        .anchors
-                        .iter()
-                        .map(|anchor| {
-                            let locations = self
-                                .workspace
-                                .references_to(&entry.path, &anchor.id.value)
-                                .into_iter()
-                                .filter_map(|(source_path, reference)| {
-                                    location_for(
-                                        &self.workspace,
-                                        source_path,
-                                        &reference.source_range,
-                                    )
-                                })
-                                .collect::<Vec<_>>();
-                            let count = locations.len();
-                            let range = byte_range_to_lsp(&entry.parsed.source, &anchor.id.range);
-                            let title = if count == 1 {
-                                "1 reference".to_string()
-                            } else {
-                                format!("{count} references")
-                            };
-                            CodeLens {
-                                range,
-                                command: Some(Command::new(
-                                    title,
-                                    "plumb.showReferences".to_string(),
-                                    Some(vec![
-                                        serde_json::json!(uri),
-                                        serde_json::json!(range.start),
-                                        serde_json::json!(locations),
-                                    ]),
-                                )),
-                                data: None,
-                            }
+                let mut lenses = Vec::new();
+                if let Some(metadata) = &output.output.metadata.metadata {
+                    let locations = self
+                        .workspace
+                        .references_to_document(&entry.path)
+                        .into_iter()
+                        .filter_map(|(source_path, reference)| {
+                            location_for(&self.workspace, source_path, &reference.source_range)
                         })
-                        .collect(),
-                )
+                        .collect::<Vec<_>>();
+                    let count = locations.len();
+                    let title = if count == 1 {
+                        "1 file reference".to_string()
+                    } else {
+                        format!("{count} file references")
+                    };
+                    lenses.push(reference_code_lens(
+                        &entry.parsed.source,
+                        &uri,
+                        &metadata.selection_range,
+                        title,
+                        locations,
+                    ));
+                }
+                lenses.extend(output.output.anchors.iter().map(|anchor| {
+                    let locations = self
+                        .workspace
+                        .references_to(&entry.path, &anchor.id.value)
+                        .into_iter()
+                        .filter_map(|(source_path, reference)| {
+                            location_for(&self.workspace, source_path, &reference.source_range)
+                        })
+                        .collect::<Vec<_>>();
+                    let count = locations.len();
+                    let title = if count == 1 {
+                        "1 reference".to_string()
+                    } else {
+                        format!("{count} references")
+                    };
+                    reference_code_lens(
+                        &entry.parsed.source,
+                        &uri,
+                        &anchor.id.range,
+                        title,
+                        locations,
+                    )
+                }));
+                Some(lenses)
             });
         Box::pin(async move { Ok(lenses) })
     }
@@ -1822,6 +1829,29 @@ fn location_for(
         uri,
         byte_range_to_lsp(&entry.parsed.source, range),
     ))
+}
+
+fn reference_code_lens(
+    source: &str,
+    uri: &Url,
+    source_range: &std::ops::Range<usize>,
+    title: String,
+    locations: Vec<Location>,
+) -> CodeLens {
+    let range = byte_range_to_lsp(source, source_range);
+    CodeLens {
+        range,
+        command: Some(Command::new(
+            title,
+            "plumb.showReferences".to_string(),
+            Some(vec![
+                serde_json::json!(uri),
+                serde_json::json!(range.start),
+                serde_json::json!(locations),
+            ]),
+        )),
+        data: None,
+    }
 }
 
 fn workspace_edit_to_lsp(workspace: &Workspace, edit: WorkspaceEdit) -> Option<LspWorkspaceEdit> {

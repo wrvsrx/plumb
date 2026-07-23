@@ -1545,7 +1545,7 @@ fn code_lenses_count_anchor_references_and_ignore_last_valid_output() {
     std::fs::create_dir_all(&root).unwrap();
     let target = root.join("target.plumb");
     let source = root.join("source.plumb");
-    let target_text = "`#{#used} Used\n`##{#unused} Unused\n";
+    let target_text = "`meta\n `: title\n\n    Target\n\n`#{#used} Used\n`##{#unused} Unused\n";
     let source_text = "See `->[used]{to=\"target.plumb#used\"}.\n`-{.task depends=\"target.plumb#used\"} Review\n";
     std::fs::write(&target, target_text).unwrap();
     std::fs::write(&source, source_text).unwrap();
@@ -1595,8 +1595,8 @@ fn code_lenses_count_anchor_references_and_ignore_last_valid_output() {
         json!({ "resolveProvider": false })
     );
     let lenses = response(&output, 2)["result"].as_array().unwrap();
-    assert_eq!(lenses.len(), 2);
-    assert_eq!(lenses[0]["command"]["title"], "2 references");
+    assert_eq!(lenses.len(), 3);
+    assert_eq!(lenses[0]["command"]["title"], "2 file references");
     assert_eq!(lenses[0]["command"]["command"], "plumb.showReferences");
     assert_eq!(lenses[0]["command"]["arguments"][0], target_uri.as_str());
     assert_eq!(
@@ -1606,7 +1606,8 @@ fn code_lenses_count_anchor_references_and_ignore_last_valid_output() {
             .len(),
         2
     );
-    assert_eq!(lenses[1]["command"]["title"], "0 references");
+    assert_eq!(lenses[1]["command"]["title"], "2 references");
+    assert_eq!(lenses[2]["command"]["title"], "0 references");
     assert!(response(&output, 3)["result"].is_null());
     assert!(output
         .iter()

@@ -180,6 +180,12 @@ pub struct AnchorReference {
     pub anchor: AnchorRecord,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DocumentReference {
+    pub source_range: std::ops::Range<usize>,
+    pub target_path: PathBuf,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct TaskRef {
     pub path: PathBuf,
@@ -569,6 +575,59 @@ impl Workspace {
                         {
                             references.push((entry.path.as_path(), reference));
                         }
+                    }
+                }
+            }
+        }
+        references.sort_by(|left, right| {
+            left.0
+                .cmp(right.0)
+                .then(left.1.source_range.start.cmp(&right.1.source_range.start))
+        });
+        references
+    }
+
+    pub fn references_to_document(
+        &self,
+        target_path: impl AsRef<Path>,
+    ) -> Vec<(&Path, DocumentReference)> {
+        let target_path = normalize(target_path.as_ref());
+        let mut references = Vec::new();
+        for entry in self.documents.values() {
+            let Some(current) = &entry.current else {
+                continue;
+            };
+            if entry.path == target_path {
+                continue;
+            }
+            for link in &current.output.links {
+                if resolved_document_path(self.resolve_link(&entry.path, link)).as_ref()
+                    == Some(&target_path)
+                {
+                    references.push((
+                        entry.path.as_path(),
+                        DocumentReference {
+                            source_range: link.selection_range.clone(),
+                            target_path: target_path.clone(),
+                        },
+                    ));
+                }
+            }
+            for task in &current.output.tasks.tasks {
+                for (_, range, target) in task_reference_fields(task) {
+                    if resolved_document_path(
+                        self.resolve_task_reference_target(&entry.path, &target),
+                    )
+                    .as_ref()
+                        == Some(&target_path)
+                    {
+                        references.push((
+                            entry.path.as_path(),
+                            DocumentReference {
+                                source_range: range.clone(),
+                                target_path: target_path.clone(),
+                            },
+                        ));
                     }
                 }
             }
@@ -2688,7 +2747,28 @@ mod tests {
             1,
             "`-{.task depends=\"a.plumb#missing\"} Task\n",
         );
+        workspace.insert("document.plumb", 1, "`->[a]{to=\"a.plumb\"}\n");
+        workspace.insert(
+            "a-local.plumb",
+            1,
+            "`#{#local} Local\n`->[x]{to=\"#local\"}\n",
+        );
         assert_eq!(workspace.references_to("a.plumb", "target").len(), 1);
+        let document_references = workspace.references_to_document("a.plumb");
+        assert_eq!(document_references.len(), 4);
+        assert_eq!(
+            document_references
+                .iter()
+                .map(|(path, _)| path.to_path_buf())
+                .collect::<Vec<_>>(),
+            vec![
+                PathBuf::from("b.plumb"),
+                PathBuf::from("document.plumb"),
+                PathBuf::from("missing.plumb"),
+                PathBuf::from("task.plumb"),
+            ]
+        );
+        assert!(workspace.references_to_document("a-local.plumb").is_empty());
         assert_eq!(
             workspace.referenced_documents_from("missing.plumb"),
             vec![PathBuf::from("a.plumb")]
