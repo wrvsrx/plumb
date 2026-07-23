@@ -5,6 +5,7 @@ use std::process::ExitCode;
 
 use chrono::Local;
 use clap::{Args, Parser, Subcommand};
+use plumb_core::DiagnosticSeverity;
 use plumb_workspace::{normalize, SearchRecordKind, Workspace};
 
 mod interactive;
@@ -23,6 +24,37 @@ pub fn run_cli(args: impl IntoIterator<Item = OsString>) -> ExitCode {
     };
     match run(config) {
         Ok(()) => ExitCode::SUCCESS,
+        Err(error) => {
+            eprintln!("plumb: {error}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+pub fn run_check_cli(args: impl IntoIterator<Item = OsString>) -> ExitCode {
+    let config = match CheckConfig::try_parse_from(args) {
+        Ok(config) => config,
+        Err(error) => {
+            let _ = error.print();
+            return ExitCode::from(error.exit_code() as u8);
+        }
+    };
+    let result = (|| {
+        let root = config
+            .root
+            .unwrap_or(std::env::current_dir().map_err(|error| error.to_string())?);
+        let loaded = load_workspace(&root)?;
+        Ok::<_, String>(render_workspace_diagnostics(&root, &loaded))
+    })();
+    match result {
+        Ok((output, has_failures)) => {
+            print!("{output}");
+            if has_failures {
+                ExitCode::FAILURE
+            } else {
+                ExitCode::SUCCESS
+            }
+        }
         Err(error) => {
             eprintln!("plumb: {error}");
             ExitCode::FAILURE
@@ -96,6 +128,14 @@ struct Config {
 
     #[command(subcommand)]
     command: Command,
+}
+
+#[derive(Debug, Parser)]
+#[command(name = "plumb check", about = "Check a plumb workspace")]
+struct CheckConfig {
+    /// Directory to scan recursively. Defaults to the current directory.
+    #[arg(long, value_name = "DIR")]
+    root: Option<PathBuf>,
 }
 
 #[derive(Debug, Subcommand)]
@@ -192,6 +232,86 @@ fn display_path(root: &Path, path: &Path) -> String {
         .to_string()
 }
 
+fn render_workspace_diagnostics(root: &Path, loaded: &LoadedWorkspace) -> (String, bool) {
+    use std::fmt::Write as _;
+
+    let root = normalize(root);
+    let mut paths = loaded.texts.keys().collect::<Vec<_>>();
+    paths.sort();
+    let mut output = String::new();
+    let mut has_failures = false;
+    for path in paths {
+        let source = &loaded.texts[path];
+        let mut diagnostics = loaded.workspace.diagnostics(path);
+        diagnostics.sort_by(|left, right| {
+            (
+                left.range.start,
+                left.range.end,
+                severity_rank(&left.severity),
+                left.code,
+                left.message.as_str(),
+            )
+                .cmp(&(
+                    right.range.start,
+                    right.range.end,
+                    severity_rank(&right.severity),
+                    right.code,
+                    right.message.as_str(),
+                ))
+        });
+        let displayed_path = display_path(&root, path);
+        for diagnostic in diagnostics {
+            let (line, column) = line_column(source, diagnostic.range.start);
+            let severity = severity_name(&diagnostic.severity);
+            writeln!(
+                output,
+                "{displayed_path}:{line}:{column}: {severity}[{}]: {}",
+                diagnostic.code, diagnostic.message
+            )
+            .expect("writing to String cannot fail");
+            has_failures |= !matches!(diagnostic.severity, DiagnosticSeverity::Hint);
+            for related in diagnostic.related {
+                let (line, column) = line_column(source, related.start);
+                writeln!(
+                    output,
+                    "{displayed_path}:{line}:{column}: note[{}.related]: related location",
+                    diagnostic.code
+                )
+                .expect("writing to String cannot fail");
+            }
+        }
+    }
+    (output, has_failures)
+}
+
+fn line_column(source: &str, offset: usize) -> (usize, usize) {
+    let offset = offset.min(source.len());
+    let line_start = source[..offset].rfind('\n').map_or(0, |index| index + 1);
+    let line = source[..line_start]
+        .bytes()
+        .filter(|byte| *byte == b'\n')
+        .count()
+        + 1;
+    let column = source[line_start..offset].chars().count() + 1;
+    (line, column)
+}
+
+fn severity_name(severity: &DiagnosticSeverity) -> &'static str {
+    match severity {
+        DiagnosticSeverity::Error => "error",
+        DiagnosticSeverity::Warning => "warning",
+        DiagnosticSeverity::Hint => "hint",
+    }
+}
+
+fn severity_rank(severity: &DiagnosticSeverity) -> u8 {
+    match severity {
+        DiagnosticSeverity::Error => 0,
+        DiagnosticSeverity::Warning => 1,
+        DiagnosticSeverity::Hint => 2,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::{AtomicU64, Ordering};
@@ -216,6 +336,52 @@ mod tests {
             .unwrap();
         let task_help = task.render_long_help().to_string();
         assert!(task_help.contains("path.plumb#task-id"));
+
+        let check_help = CheckConfig::command().render_long_help().to_string();
+        assert!(check_help.contains("Check a plumb workspace"));
+        assert!(check_help.contains("Directory to scan recursively"));
+    }
+
+    #[test]
+    fn renders_workspace_diagnostics_with_stable_locations_and_hint_status() {
+        let root = unique_temp_dir();
+        std::fs::create_dir_all(root.join("nested")).unwrap();
+        std::fs::write(
+            root.join("a.plumb"),
+            "中文\n`node{key=a key=b} Duplicate key\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("nested/b.plumb"),
+            "See `->[missing]{to=\"missing.plumb#id\"}.\n",
+        )
+        .unwrap();
+        let loaded = load_workspace(&root).unwrap();
+        let (output, has_failures) = render_workspace_diagnostics(&root, &loaded);
+        assert!(has_failures);
+        let lines = output.lines().collect::<Vec<_>>();
+        assert!(lines[0].starts_with("a.plumb:2:"), "{output}");
+        assert!(lines[0].contains("error[syntax.duplicate-key]"), "{output}");
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.starts_with("nested/b.plumb:1:")
+                    && line.contains("warning[link.unresolved-path]")),
+            "{output}"
+        );
+
+        std::fs::remove_file(root.join("a.plumb")).unwrap();
+        std::fs::remove_file(root.join("nested/b.plumb")).unwrap();
+        std::fs::write(
+            root.join("tasks.plumb"),
+            "`-{.task #draft} Draft\n`-{.task #review depends=\"#draft\"} Review\n",
+        )
+        .unwrap();
+        let loaded = load_workspace(&root).unwrap();
+        let (output, has_failures) = render_workspace_diagnostics(&root, &loaded);
+        assert!(!has_failures, "{output}");
+        assert!(output.contains("hint[task.blocked]"), "{output}");
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

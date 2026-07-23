@@ -1255,6 +1255,7 @@ dependencies = [
  "clap 4.6.2",
  "comfy-table",
  "crossterm",
+ "plumb-core",
  "plumb-extensions",
  "plumb-workspace",
  "shlex 1.3.0",
