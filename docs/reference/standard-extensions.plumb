@@ -133,22 +133,26 @@ workspace 使用 open buffer 覆盖 disk snapshot。document target 已确定但
 
 `# 8. Images
 
-parsed inline kind `[img] 是标准 image；content 是 alt content，`[src] pair 是非空 URI
-reference：
+parsed inline kind `[img] 是标准 image；content 是 alt content，`[src] pair 是非空 target：
 
 `{language=plumb}
   Inline `img[status icon]{src="static/status.png"} image.
   `img[]{src="https://example.test/decorative.svg"}
 
-empty alt 合法。缺失或空 src 产生 `[image.missing-source]；非法 URI reference 产生
-`[image.invalid-source]。relative src 仍是 URI reference：以 source document directory 为基准，spaces
-与 unsafe path bytes 使用 percent encoding；缺失本地文件产生 `[image.unresolved-file] warning。
+empty alt 合法。缺失或空 src 产生 `[image.missing-source]。带 scheme 或 `[..//] prefix 的 src 是
+absolute/network URI，继续按 URI reference 校验；其他 src 是相对 source document directory 的 raw
+filesystem path。relative src 不进行 percent encode、percent decode 或 normalization；UTF-8、spaces、
+parentheses、`[%]、`[?] 与 `[#] 都是 literal filename characters，control characters、backslash 与
+absolute filesystem path 产生 `[image.invalid-source]。缺失本地文件产生 `[image.unresolved-file]
+warning。
 
 export lower 为 Pandoc `[Image]，消费 `[src] 并保留 alt inlines 与其他 id/classes/pairs。
 image-only paragraph 仍是只含 Image 的 paragraph；不存在独立 block-image spelling。Figure、
 caption、numbering 和 cross-reference deferred。LSP src completion 列出相对 directories 和
-PNG/JPEG/WebP/GIF/SVG/AVIF files，插入 URI-encoded path；本地 image 支持 hover 和
-go-to-definition。
+PNG/JPEG/WebP/GIF/SVG/AVIF files，并按 filesystem spelling 原样插入 path；只有 quoted attribute
+value 自身需要的 quote/backslash syntax escapes 会写入 source。本地 image 支持 hover 和
+go-to-definition，completion、resolution、hover、definition 与 unresolved-file diagnostic 使用同一
+raw relative path。
 
 `# 9. Citations
 

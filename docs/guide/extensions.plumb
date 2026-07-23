@@ -115,7 +115,9 @@ bare 或 unclosed inline verbatim 不提供 Autolink candidates。
   `img[]{src="https://example.test/decorative.svg"}
 
 empty alt 用于 decorative image。image 单独占一个 paragraph 时不需要另一种 block syntax。
-LSP 在 src 中补全常见本地图片文件，并为存在的文件提供 hover 和 go-to-definition。image 的
+相对 src 是 raw filesystem path，中文、spaces、parentheses 和 percent characters 都按字面保留，
+不做 URL encode/decode。LSP 在 src 中补全常见本地图片文件，并为存在的文件提供 hover 和
+go-to-definition。image 的
 标准 profile 边界见 `->[standard extensions reference]{to="../reference/standard-extensions.plumb"}。
 
 `# Citation

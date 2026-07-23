@@ -147,12 +147,14 @@
    `note 检查 `[plumb export] 是否将 `[img[alt]{src="target"}] lower 为 Pandoc Image，并覆盖 inline image、image-only paragraph、empty alt 与保留未消费 attributes。
    `note 如果当前实现缺失或不完整，则补齐 extension export lowering；如果已经支持，则保留 focused regression tests 作为验收结果。
 
-`-{.task #raw-image-src-completion} Image src completion 原样插入相对路径
+`-{
+   .task #raw-image-src-completion done="2026-07-23T21:19:55+08:00"
+  } Image src completion 原样插入相对路径
 
-   `note Cursor 位于 `[img] 的 `[src] value 时，图片文件 completion 原样插入相对 source document 的 UTF-8 path，不做 percent encode、percent decode 或 backslash escaping。
+   `note Cursor 位于 `[img] 的 `[src] value 时，图片文件 completion 原样插入相对 source document 的 UTF-8 path，不做 percent encode、percent decode 或 filesystem path escaping；仍生成 quoted attribute value 必需的 quote/backslash syntax escapes。
    `note 保留 absolute URI 的现有 URI validity rules；覆盖中文、空格、括号、percent character 与 quoted attribute value 必需的 quote/backslash handling。
 
-`-{.task #raw-image-src-resolution} Image 文件检查使用原始相对路径
+`-{.task #raw-image-src-resolution done="2026-07-23T21:19:55+08:00"} Image 文件检查使用原始相对路径
 
    `note 解析 `[img] 的相对 `[src] 并检查目标文件是否存在时，直接按 source spelling 相对 document directory 查找，不先做 percent encode、percent decode 或额外 escaping。
    `note Hover、definition 与 missing-file diagnostic 复用同一 resolved target；覆盖中文、空格、括号、percent character、存在与不存在的文件。

@@ -40,7 +40,7 @@ An identical label and target can use an Autolink without duplication:
 
 A relative file Autolink uses the same form: `[static/plumb-pipeline.svg]{.->}.
 
-Images use parsed alt content and a src URI reference:
+Images use parsed alt content and an absolute URI or raw relative src target:
 
 `img[plumb processing pipeline]{src="static/plumb-pipeline.svg" #pipeline .diagram loading=lazy}
 

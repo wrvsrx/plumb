@@ -134,7 +134,7 @@ Autolink candidates.
 ## Images
 
 Use the `img` parsed inline kind. Its content is alt content and `src` is a
-required nonempty URI reference:
+required nonempty target:
 
 ```plumb
 Text with `img[status icon]{src="static/status.png"} inline.
@@ -142,11 +142,15 @@ Text with `img[status icon]{src="static/status.png"} inline.
 `img[]{src="https://example.test/decorative.svg"}
 ```
 
-Empty alt is valid for a decorative image. Relative sources remain URI
-references resolved from the source document directory; encode spaces and
-unsafe path bytes. There is no separate block-image spelling: an image-only
-paragraph is still a paragraph containing one image. Figure, caption, numbering,
-and cross-reference semantics are deferred.
+Empty alt is valid for a decorative image. Sources with a scheme or `//` prefix
+remain URI references. Other sources are raw relative filesystem paths resolved
+from the source document directory: do not percent-encode, percent-decode, or
+normalize them. UTF-8, spaces, parentheses, `%`, `?`, and `#` are literal;
+control characters, backslashes, and absolute filesystem paths are invalid.
+Completion inserts filesystem spelling verbatim, apart from the quote/backslash
+escapes required by a quoted attribute value. There is no separate block-image
+spelling: an image-only paragraph is still a paragraph containing one image.
+Figure, caption, numbering, and cross-reference semantics are deferred.
 
 ## Citations
 
