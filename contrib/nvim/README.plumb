@@ -25,8 +25,9 @@ cancellation, stale-result suppression, locations and incomplete-result state.
 
 `# Reference CodeLens
 
-`[plumb lsp] 在每个 explicit anchor 上显示 `[N references] CodeLens。command id 是
-`[plumb.showReferences]，arguments 是 target URI、target position 和完整 reference locations。
+`[plumb lsp] 在顶层 metadata 上显示 `[N file references]，并在每个 explicit anchor 上显示
+`[N references] CodeLens。前者统计其他 documents 中指向当前文件的 reference occurrences。
+command id 是 `[plumb.showReferences]，arguments 是 target URI、target position 和完整 reference locations。
 `[plumb.codelens.setup()] 为 Neovim 注册 client-side command：执行 lens 时把 locations 放入 quickfix
 list 并打开 quickfix window；0 references 时只显示提示。其他 editor 可以使用同一 arguments contract
 接入自己的 references UI。
