@@ -79,6 +79,12 @@ citation profile currently accepts one plain id, such as `cite[smith2004].
 
 `div{#transparent .notice} Standard div containers omit the generic marker pair.
 
+`>{#quoted .source cite=smith2004} A quote head becomes its first paragraph.
+
+  Quote children remain inside the Pandoc BlockQuote.
+
+  `> Nested quotes use the same marker.
+
 `{language=rust #hello-rust}
   fn main() {
       println!("hello from plumb-export");

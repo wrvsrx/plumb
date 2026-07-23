@@ -24,7 +24,7 @@
 
 `- 只有具体需求出现后再设计 structured citation cluster、locator、affix 和 citation modes。
 `- event semantics 继续 deferred；不得从 task fields 隐式推断 event。
-`- table、thematic break、quote、emphasis 和其他 presentation semantics 需要独立 proposal，不进入
+`- table、thematic break、emphasis 和其他 presentation semantics 需要独立 proposal，不进入
    core reserved syntax。
 `- normalized AST 只在 typed views 无法满足 concrete consumer 时引入。
 
