@@ -1620,9 +1620,9 @@ fn completes_links_by_document_metadata_title() {
     let root = unique_temp_dir();
     std::fs::create_dir_all(&root).unwrap();
     let source = root.join("current.plumb");
-    let target = root.join("usage.plumb");
+    let target = root.join("Usage Guide.plumb");
     let closed_path = "`->[x]{to=\"usXXX\"}";
-    let closed_anchor = "`->[x]{to=\"usage.plumb#usXXX\"}";
+    let closed_anchor = "`->[x]{to=\"Usage Guide.plumb#usXXX\"}";
     let raw = "`\"[raw `->[x]{to=\"us\"}]\"";
     let source_text =
         format!("`->[Us\n\n`->[x]{{to=\"Guide\n\n{closed_path}\n{closed_anchor}\n{raw}\n");
@@ -1701,17 +1701,17 @@ fn completes_links_by_document_metadata_title() {
     let output = run_server(&messages);
     let label = &response(&output, 2)["result"][0];
     assert_eq!(label["label"], "Usage Guide");
-    assert_eq!(label["detail"], "usage.plumb");
+    assert_eq!(label["detail"], "Usage Guide.plumb");
     assert_eq!(
         label["textEdit"]["newText"],
-        "`->[Usage Guide]{to=\"usage.plumb\"}"
+        "`->[Usage Guide]{to=\"Usage Guide.plumb\"}"
     );
     let path = &response(&output, 3)["result"][0];
-    assert_eq!(path["label"], "usage.plumb");
+    assert_eq!(path["label"], "Usage Guide.plumb");
     assert_eq!(path["detail"], "Usage Guide");
-    assert_eq!(path["textEdit"]["newText"], "usage.plumb");
+    assert_eq!(path["textEdit"]["newText"], "Usage Guide.plumb");
     let closed_path_item = &response(&output, 4)["result"][0];
-    assert_eq!(closed_path_item["textEdit"]["newText"], "usage.plumb");
+    assert_eq!(closed_path_item["textEdit"]["newText"], "Usage Guide.plumb");
     assert_eq!(
         closed_path_item["textEdit"]["range"],
         json!({

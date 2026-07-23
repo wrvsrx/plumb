@@ -13,6 +13,7 @@ pub enum LinkCompletionContext {
     Path {
         replace: Range<usize>,
         query: String,
+        quoted: bool,
     },
     AutolinkPath {
         replace: Range<usize>,
@@ -166,6 +167,7 @@ pub fn link_completion_context(
         Some(LinkCompletionContext::Path {
             replace: value_start..path_end,
             query: query.to_string(),
+            quoted,
         })
     }
 }
@@ -476,6 +478,7 @@ mod tests {
             Some(LinkCompletionContext::Path {
                 replace: 15..18,
                 query: "doc".to_string(),
+                quoted: true,
             })
         );
         let anchor = "See `->[x]{to=\"doc.plumb#tar";
@@ -499,6 +502,7 @@ mod tests {
             Some(LinkCompletionContext::Path {
                 replace: value_start..separator,
                 query: "do".to_string(),
+                quoted: true,
             })
         );
 
@@ -519,6 +523,7 @@ mod tests {
             Some(LinkCompletionContext::Path {
                 replace: cursor..cursor,
                 query: String::new(),
+                quoted: true,
             })
         );
     }

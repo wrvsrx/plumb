@@ -396,7 +396,7 @@ impl Workspace {
         match &link.target_kind {
             LinkTarget::External => ResolvedTarget::External,
             LinkTarget::File { path } => {
-                let target = resolve_relative(&from, &link_filesystem_path(link, path));
+                let target = resolve_relative(&from, path);
                 if target.is_file() {
                     ResolvedTarget::File { path: target }
                 } else {
@@ -405,7 +405,7 @@ impl Workspace {
             }
             LinkTarget::Other => ResolvedTarget::Other,
             LinkTarget::Document { path } => {
-                let target = resolve_relative(&from, &link_filesystem_path(link, path));
+                let target = resolve_relative(&from, path);
                 if self.current_output(&target).is_some() {
                     ResolvedTarget::Document { path: target }
                 } else {
@@ -413,10 +413,9 @@ impl Workspace {
                 }
             }
             LinkTarget::Anchor { path, fragment } => {
-                let target = path.as_deref().map_or_else(
-                    || from.clone(),
-                    |path| resolve_relative(&from, &link_filesystem_path(link, path)),
-                );
+                let target = path
+                    .as_deref()
+                    .map_or_else(|| from.clone(), |path| resolve_relative(&from, path));
                 let Some(output) = self.current_output(&target) else {
                     return ResolvedTarget::UnresolvedPath { path: target };
                 };
@@ -1725,21 +1724,24 @@ impl Workspace {
                         .filter(|title| !title.is_empty())
                         .unwrap_or_else(|| relative.clone());
                     (fuzzy_match(&relative, query) || fuzzy_match(&title, query)).then(|| {
-                        let encoded = percent_encode_path(&relative);
                         CompletionCandidate {
                             label: title.clone(),
                             detail: relative.clone(),
                             new_text: format!(
                                 "`->[{}]{{to=\"{}\"}}",
                                 escape_inline_text(&title),
-                                escape_quoted_value(&encoded)
+                                escape_quoted_value(&relative)
                             ),
                             replace: replace.clone(),
                         }
                     })
                 })
                 .collect(),
-            LinkCompletionContext::Path { replace, query } => self
+            LinkCompletionContext::Path {
+                replace,
+                query,
+                quoted,
+            } => self
                 .documents
                 .values()
                 .filter_map(|entry| {
@@ -1754,13 +1756,21 @@ impl Workspace {
                         .document_title()
                         .filter(|title| !title.is_empty())
                         .unwrap_or_else(|| relative.clone());
-                    (fuzzy_match(&relative, query) || fuzzy_match(&title, query)).then(|| {
-                        CompletionCandidate {
-                            label: relative.clone(),
-                            detail: title,
-                            new_text: percent_encode_path(&relative),
-                            replace: replace.clone(),
-                        }
+                    if !fuzzy_match(&relative, query) && !fuzzy_match(&title, query) {
+                        return None;
+                    }
+                    if !*quoted && !valid_bare_attribute_value(&relative) {
+                        return None;
+                    }
+                    Some(CompletionCandidate {
+                        label: relative.clone(),
+                        detail: title,
+                        new_text: if *quoted {
+                            escape_quoted_value(&relative)
+                        } else {
+                            relative
+                        },
+                        replace: replace.clone(),
                     })
                 })
                 .collect(),
@@ -1813,7 +1823,7 @@ impl Workspace {
                 let target_path = if path.is_empty() {
                     from.clone()
                 } else {
-                    resolve_relative(&from, &percent_decode_path(path))
+                    resolve_relative(&from, path)
                 };
                 self.documents
                     .get(&target_path)
@@ -2226,13 +2236,6 @@ fn percent_decode_path(path: &str) -> String {
         cursor += 1;
     }
     String::from_utf8(decoded).unwrap_or_else(|_| path.to_string())
-}
-
-fn link_filesystem_path(link: &LinkRecord, path: &str) -> String {
-    match &link.spelling {
-        LinkSpelling::Explicit => percent_decode_path(path),
-        LinkSpelling::Verbatim { .. } => path.to_string(),
-    }
 }
 
 fn percent_encode_path(path: &str) -> String {
@@ -2715,23 +2718,30 @@ mod tests {
     fn resolves_same_and_cross_file_explicit_anchors() {
         let mut workspace = Workspace::new();
         workspace.insert("notes/a note.plumb", 1, "`#{#local} Local\n");
+        workspace.insert("notes/a%20note.plumb", 1, "`#{#literal} Literal\n");
         workspace.insert(
             "notes/b.plumb",
             1,
-            "See `->[local]{to=\"a%20note.plumb#local\"}.\n",
+            "See `->[local]{to=\"a note.plumb#local\"}.\nSee `->[literal]{to=\"a%20note.plumb#literal\"}.\n",
         );
-        let link = &workspace
+        let links = &workspace
             .get("notes/b.plumb")
             .unwrap()
             .current
             .as_ref()
             .unwrap()
             .output
-            .links[0];
-        assert!(matches!(
-            workspace.resolve_link("notes/b.plumb", link),
-            ResolvedTarget::Anchor { ref id, .. } if id == "local"
-        ));
+            .links;
+        for (link, expected_path, expected_id) in [
+            (&links[0], "notes/a note.plumb", "local"),
+            (&links[1], "notes/a%20note.plumb", "literal"),
+        ] {
+            assert!(matches!(
+                workspace.resolve_link("notes/b.plumb", link),
+                ResolvedTarget::Anchor { ref path, ref id, .. }
+                    if path == Path::new(expected_path) && id == expected_id
+            ));
+        }
     }
 
     #[test]
@@ -2950,6 +2960,7 @@ mod tests {
         workspace.insert("notes/中文笔记.plumb", 1, "`#{#内容} 中文内容\n");
         workspace.insert("notes/方案 (草稿).plumb", 1, "`# 草稿\n");
         workspace.insert("notes/方案]终稿.plumb", 1, "`# 终稿\n");
+        workspace.insert("notes/quote\"name.plumb", 1, "`# Quote\n");
         let paths = workspace.complete_link("notes/current.plumb", &autolink_path(10..13, "guide"));
         assert_eq!(paths[0].label, "design.plumb");
         assert_eq!(paths[0].detail, "Design Guide");
@@ -2964,10 +2975,40 @@ mod tests {
         assert_eq!(labels[0].label, "Design Guide");
         assert_eq!(labels[0].detail, "design.plumb");
         assert_eq!(labels[0].new_text, "`->[Design Guide]{to=\"design.plumb\"}");
-        let encoded =
+        let spaced_label = workspace.complete_link(
+            "notes/current.plumb",
+            &LinkCompletionContext::Label {
+                replace: 0..0,
+                query: "project".to_string(),
+            },
+        );
+        assert_eq!(
+            spaced_label[0].new_text,
+            "`->[Project Plan]{to=\"Project Plan.plumb\"}"
+        );
+        let spaced_path = workspace.complete_link(
+            "notes/current.plumb",
+            &LinkCompletionContext::Path {
+                replace: 0..0,
+                query: "project".to_string(),
+                quoted: true,
+            },
+        );
+        assert_eq!(spaced_path[0].new_text, "Project Plan.plumb");
+        let quote_path = workspace.complete_link(
+            "notes/current.plumb",
+            &LinkCompletionContext::Path {
+                replace: 0..0,
+                query: "quote".to_string(),
+                quoted: true,
+            },
+        );
+        assert_eq!(quote_path[0].label, "quote\"name.plumb");
+        assert_eq!(quote_path[0].new_text, "quote\\\"name.plumb");
+        let spaced_autolink =
             workspace.complete_link("notes/current.plumb", &autolink_path(0..0, "project"));
-        assert_eq!(encoded[0].label, "Project Plan.plumb");
-        assert_eq!(encoded[0].new_text, "Project Plan.plumb");
+        assert_eq!(spaced_autolink[0].label, "Project Plan.plumb");
+        assert_eq!(spaced_autolink[0].new_text, "Project Plan.plumb");
         let unicode = workspace.complete_link("notes/current.plumb", &autolink_path(0..0, "中文"));
         assert_eq!(unicode[0].label, "中文笔记.plumb");
         assert_eq!(unicode[0].new_text, "中文笔记.plumb");
@@ -2988,7 +3029,7 @@ mod tests {
         assert_eq!(closing_bracket[0].label, "方案]终稿.plumb");
         assert_eq!(closing_bracket[0].new_text, "`\"[方案]终稿.plumb]\"");
         assert_eq!(closing_bracket[0].replace, 0..5);
-        let encoded_anchor = workspace.complete_link(
+        let spaced_anchor = workspace.complete_link(
             "notes/current.plumb",
             &LinkCompletionContext::AutolinkAnchor {
                 path: "Project Plan.plumb".to_string(),
@@ -2996,7 +3037,7 @@ mod tests {
                 query: "road".to_string(),
             },
         );
-        assert_eq!(encoded_anchor[0].new_text, "roadmap");
+        assert_eq!(spaced_anchor[0].new_text, "roadmap");
         let anchors = workspace.complete_link(
             "notes/current.plumb",
             &LinkCompletionContext::Anchor {
