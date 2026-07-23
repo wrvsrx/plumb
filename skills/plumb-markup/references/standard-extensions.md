@@ -96,8 +96,12 @@ Use `->` as the only link inline kind and put the target in `to`:
 ```
 
 `link` is a generic inline kind, not a link alias. Local and cross-file anchors
-must be explicit. Use relative `.plumb` paths. When a task reference path
-contains spaces or unsafe bytes, URI-percent-encode the path segment.
+must be explicit. A target with a scheme or `//` prefix is an absolute/network
+URI. Other `to` values are raw relative filesystem paths resolved from the
+source document directory. Do not percent-encode, percent-decode, or normalize
+them; only apply the quote/backslash escapes required by a quoted attribute
+value. When a task reference path contains spaces or unsafe bytes,
+URI-percent-encode the path segment.
 
 When label and target are identical, inline verbatim with `.->` is the standard
 Autolink; its payload is both label and target:
@@ -109,21 +113,21 @@ Autolink; its payload is both label and target:
 `[../assets/manual draft.pdf]{.->}
 ```
 
-The payload must be nonempty. A target with a scheme or `//` prefix is an
-absolute/network URI: validate it as a URI but preserve its source spelling.
-Other targets are raw relative filesystem paths resolved from the source
-document directory. Relative `.plumb` paths and fragments use
-document/explicit-anchor resolution; other relative targets are files.
+The payload must be nonempty and uses the same target classification as a named
+Link. Validate absolute/network URIs but preserve their source spelling.
+Relative `.plumb` paths and fragments use document/explicit-anchor resolution;
+other relative targets are files.
 
 Do not percent-encode, percent-decode, or normalize raw relative paths. UTF-8,
 spaces, `%`, `?`, and other path characters are literal. `#` is the sole
 structure separator for an explicit anchor, so a relative filename cannot
 contain `#`. Control characters and backslashes remain invalid. Use verbatim
 quote strength, rather than payload escaping, when `]` conflicts with the
-delimiter. Completion inserts the path verbatim and strengthens the envelope
-when needed. Use explicit `->` links for custom labels. `.->` is valid only on
-inline verbatim and cannot be combined with `to` or `.$`; other attributes are
-preserved.
+delimiter. Completion inserts named Link and Autolink paths verbatim; named
+Links only add quoted-value syntax escapes, while Autolinks strengthen the
+envelope when needed. Use explicit `->` links for custom labels. `.->` is valid
+only on inline verbatim and cannot be combined with `to` or `.$`; other
+attributes are preserved.
 
 To create an Autolink, type one backtick in ordinary inline content and choose
 `Autolink` from construct completion. Once the `.->` facet exists,

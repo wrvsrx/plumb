@@ -83,7 +83,9 @@ block。metadata sequence 只使用 `[-]；它表示数据顺序，不带正文 
   `->[another anchor]{to="guide.plumb#intro"}
   `->[website]{to="https://example.test"}
 
-本地 anchor 必须显式存在。跨文件 target 使用相对 `[..plumb] path。
+本地 anchor 必须显式存在。跨文件 target 使用相对 `[..plumb] path。named Link 的相对 `[to] value
+是 raw filesystem path；中文、spaces、parentheses 与 percent characters 都按字面保留，不进行 URL
+encode/decode。quoted attribute value 仍使用 plumb syntax 必需的 quote/backslash escapes。
 
 label 与 target 相同时，可以改用 Autolink：
 
@@ -93,8 +95,9 @@ label 与 target 相同时，可以改用 Autolink：
   `[guide.plumb#intro]{.->}
   `[../assets/manual draft.pdf]{.->}
 
-payload 同时作为 label 与 target，并保留原始 spelling。absolute/network target 按 URI 检查；
-relative target 是当前 document 目录下的 raw filesystem path，不进行 percent encode/decode。
+payload 同时作为 label 与 target，并保留原始 spelling。它与 named Link 使用相同 target
+classification：absolute/network target 按 URI 检查，relative target 是当前 document 目录下的 raw
+filesystem path。
 `[#] 分隔 explicit anchor；与 `[]] delimiter 冲突时增加 inline verbatim quote strength。`[..plumb]
 path 与 explicit anchor 可以由 LSP 补全，补全原样插入 path，并在需要时自动增强 delimiter。自定义
 label 继续使用显式 `[->]。
