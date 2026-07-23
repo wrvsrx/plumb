@@ -199,7 +199,13 @@ strength。普通 dollar characters 和 dollar-delimited math 不具有特殊含
 head 是 title，children 是 details。另一个 task 需要引用它时才添加 id。
 
 标准字段包括 `[created]、`[due]、`[wait]、`[done]、`[canceled]、`[recur]、`[prev] 和
-`[depends]。时间使用 quoted RFC 3339；`[depends] 是 whitespace-separated references；
+`[depends]。时间使用 quoted RFC 3339。Task reference 使用 raw relative path，不做 URL
+encode/decode；`[.plumb#] 分隔 path 与 explicit id，path 本身不能包含 `[#]。`[depends] 中每条
+reference 在 id 后由 whitespace 分隔，因此 path 可以直接包含 spaces：
+
+`{language=plumb}
+  `-{.task depends="#local Project A.plumb#build Project B.plumb#test"} Review
+
 `[recur] 接受正整数 `[`PnD]、`[`PnW]、`[`PnM] 或 `[`PnY]，并要求 `[due]。
 
 task state 由 closure timestamps 推导：没有 `[done]/[canceled] 是 open；只有 `[done] 是

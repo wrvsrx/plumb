@@ -100,8 +100,7 @@ must be explicit. A target with a scheme or `//` prefix is an absolute/network
 URI. Other `to` values are raw relative filesystem paths resolved from the
 source document directory. Do not percent-encode, percent-decode, or normalize
 them; only apply the quote/backslash escapes required by a quoted attribute
-value. When a task reference path contains spaces or unsafe bytes,
-URI-percent-encode the path segment.
+value.
 
 When label and target are identical, inline verbatim with `.->` is the standard
 Autolink; its payload is both label and target:
@@ -231,7 +230,18 @@ Defined fields:
 - `created`, `due`, `wait`, `done`, and `canceled`: quoted RFC 3339 timestamps.
 - `recur`: one positive `PnD`, `PnW`, `PnM`, or `PnY` rule; requires `due`.
 - `prev`: one same-file `#id` or cross-file `path.plumb#id` reference.
-- `depends`: whitespace-separated references in one quoted value.
+- `depends`: references in one quoted value. Whitespace after each reference id
+  separates entries; whitespace before `.plumb#id` belongs to the path.
+
+Task references use raw relative paths. Do not percent-encode, percent-decode,
+or normalize them. UTF-8, spaces, parentheses, `%`, and ordinary path
+characters are literal. Control characters, backslashes, absolute paths, and
+`#` inside a path are invalid. The `.plumb#` sequence separates a cross-file
+path from its explicit id:
+
+```plumb
+`-{.task depends="#local Project A.plumb#build Project B.plumb#test"} Review
+```
 
 Datetime fields must use quoted RFC 3339 values. An unquoted or unparseable
 value produces `task.invalid-datetime` and does not participate in task state,
