@@ -8,9 +8,9 @@ use plumb_core::{
 use url::Url;
 
 use crate::{
-    analyze_citations, analyze_headings, analyze_lists, analyze_math, analyze_metadata,
-    analyze_quotes, analyze_tasks, CitationOutput, HeadingOutput, ListOutput, MathOutput,
-    MetadataOutput, QuoteOutput, TaskOutput,
+    analyze_citations, analyze_emphasis, analyze_headings, analyze_lists, analyze_math,
+    analyze_metadata, analyze_quotes, analyze_tasks, CitationOutput, EmphasisOutput, HeadingOutput,
+    ListOutput, MathOutput, MetadataOutput, QuoteOutput, TaskOutput,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -101,6 +101,7 @@ pub struct DocumentOutput {
     pub headings: HeadingOutput,
     pub metadata: MetadataOutput,
     pub citations: CitationOutput,
+    pub emphasis: EmphasisOutput,
     pub lists: ListOutput,
     pub math: MathOutput,
     pub quotes: QuoteOutput,
@@ -125,6 +126,7 @@ pub fn analyze_document(source: &str, document: &Document) -> DocumentOutput {
     let headings = analyze_headings(document);
     let metadata = analyze_metadata(document);
     let citations = analyze_citations(document);
+    let emphasis = analyze_emphasis(document);
     let lists = analyze_lists(document);
     let math = analyze_math(document);
     let quotes = analyze_quotes(document);
@@ -133,6 +135,7 @@ pub fn analyze_document(source: &str, document: &Document) -> DocumentOutput {
         headings,
         metadata,
         citations,
+        emphasis,
         lists,
         math,
         quotes,

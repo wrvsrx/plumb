@@ -5,8 +5,8 @@ use std::process::ExitCode;
 
 use plumb_core::{parse, AttrItem, Attributes, Block, Inline, InlineContent, ParsedBlock};
 use plumb_extensions::{
-    analyze_document, CitationRecord, DocumentOutput, ListGroup, ListKind, MetadataBlock,
-    MetadataEntry, MetadataValue,
+    analyze_document, CitationRecord, DocumentOutput, EmphasisKind, ListGroup, ListKind,
+    MetadataBlock, MetadataEntry, MetadataValue,
 };
 use serde_json::{json, Map, Value};
 
@@ -350,7 +350,25 @@ fn lower_inlines(content: &InlineContent, analysis: &DocumentOutput) -> Vec<Valu
                 attrs,
                 ..
             } => {
-                if let Some(citation) = analysis.citations.citation_at_node_start(range.start) {
+                if let Some(emphasis) = analysis.emphasis.emphasis_at_node_start(range.start) {
+                    let semantic = json!({
+                        "t": match emphasis.kind {
+                            EmphasisKind::Emphasis => "Emph",
+                            EmphasisKind::Strong => "Strong",
+                        },
+                        "c": lower_inlines(content, analysis),
+                    });
+                    if attrs.items.is_empty() {
+                        output.push(semantic);
+                    } else {
+                        output.push(json!({
+                            "t": "Span",
+                            "c": [lower_attrs(attrs, None), [semantic]],
+                        }));
+                    }
+                } else if let Some(citation) =
+                    analysis.citations.citation_at_node_start(range.start)
+                {
                     output.push(lower_citation(citation));
                 } else if let Some(image) = analysis.image_at_node_start(range.start) {
                     output.push(json!({
@@ -668,6 +686,25 @@ mod tests {
         assert_eq!(div_attrs, &json!(["box", ["note"], []]));
         let span_attrs = &document["blocks"][1]["c"][0]["c"][0];
         assert_eq!(span_attrs, &json!(["", ["mark"], []]));
+    }
+
+    #[test]
+    fn exports_symbolic_emphasis_and_preserves_attributes() {
+        let document =
+            export("Plain `*[emphasis with `**[strong]] and `**[attributed]{#id .keep}.\n")
+                .unwrap();
+        let inlines = document["blocks"][0]["c"].as_array().unwrap();
+
+        let emphasis = inlines.iter().find(|inline| inline["t"] == "Emph").unwrap();
+        assert!(emphasis["c"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|inline| inline["t"] == "Strong"));
+        let wrapper = inlines.iter().find(|inline| inline["t"] == "Span").unwrap();
+        assert_eq!(wrapper["t"], "Span");
+        assert_eq!(wrapper["c"][0], json!(["id", ["keep"], []]));
+        assert_eq!(wrapper["c"][1][0]["t"], "Strong");
     }
 
     #[test]

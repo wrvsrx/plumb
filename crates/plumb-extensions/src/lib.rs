@@ -1,5 +1,6 @@
 mod citations;
 mod document;
+mod emphasis;
 mod headings;
 mod lists;
 mod math;
@@ -13,6 +14,7 @@ pub use document::{
     analyze_document, AnchorKind, AnchorRecord, DocumentOutput, ImageRecord, ImageTarget,
     LinkRecord, LinkSpelling, LinkTarget, SourceBacked,
 };
+pub use emphasis::{analyze_emphasis, EmphasisKind, EmphasisOutput, EmphasisRecord};
 pub use headings::{analyze_headings, Heading, HeadingOutput};
 pub use lists::{analyze_lists, ListGroup, ListItemRecord, ListKind, ListOutput};
 pub use math::{analyze_math, MathKind, MathOutput, MathRecord};
