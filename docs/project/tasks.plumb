@@ -298,6 +298,18 @@
    `note 按 relative path、range、severity、code 与 message 稳定排序，输出 1-based line/column；related ranges 作为 note locations 输出。
    `note Error/Warning 返回 nonzero，Hint 只报告；覆盖 clean workspace、nested file、syntax error、unresolved reference、blocked-task hint、Unicode position 与 unified binary help/exit tests。
 
+`# Workspace visualization
+
+`-{
+   .task #workspace-graph-visualization created="2026-07-23T23:46:33+08:00"
+  } 提供类似 Obsidian 的 workspace 连接图
+
+   `note 在 protocol-neutral shared layer 从 current valid snapshots 投影 graph records；document node 包含 title、relative path 与 Location，edge 覆盖 named Link、Autolink、task prev 和 task depends，并保留 kind 与 source range。
+   `note 同时支持整个 workspace graph 与当前 document 的 bounded neighborhood；定义 direction、depth、node/edge kind filter、deterministic ordering、limit、truncated/incomplete 和 unresolved target contract，open buffer 继续覆盖 disk snapshot。
+   `note 通过 versioned custom LSP request 暴露 graph snapshot，并在 initialize experimental capability 中声明 schema；request 支持 cancellation，不能复用 workspace/symbol 或把 layout 坐标固化进 server contract。
+   `note 提供类似 Obsidian graph view 的 Neovim integration，至少支持 pan、zoom、选择 node 跳转、当前 node 高亮、全局/局部模式切换和按 edge kind 过滤；render/layout backend 保持可替换，不成为 language semantics。
+   `note 覆盖 duplicate links、self edge、cross-file explicit anchor、missing target、invalid revision、open-buffer precedence、large workspace truncation、request cancellation 与 node navigation tests，并记录大 workspace 的时间和内存基线。
+
 `# Neovim plugin
 
 `-{.task #neovim-plugin depends="#neovim-search-integration"} 开发完整的 Neovim plugin
