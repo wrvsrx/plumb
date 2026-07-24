@@ -18,11 +18,27 @@ tree-sitter grammar 使用独立 shell 生成和测试：
 
 generated parser sources 不属于 repository source，不应提交。
 
+`# Workspace discovery and ignore
+
+`[.plumb/] directory 标记一个 plumb workspace root。省略 `[--root] 的 workspace commands 从当前
+directory 向上选择最近的 marker；找不到 marker 时使用当前 directory。显式 `[--root DIR] 始终优先，
+不会继续向上 discovery。LSP protocol 由 editor 选择 workspace folders，因此 client integration 应将
+`[.plumb] 放在比 `[.git] 更高优先级的 root markers 中；server 只消费 client 传入的 roots。
+
+每个 workspace root 使用 gitignore-style `[.ignore] 控制 index。规则从 root 向下分层生效，但不读取
+root parent、`[.gitignore]、Git global ignore 或 `[.git/info/exclude]。dot files 和 dot directories
+没有内置特殊处理，需要排除时显式写入 `[.ignore]。scanner 不进入 directory symlink，扩展名为
+`[..plumb] 的 file symlink 仍可索引。
+
+ignored documents 不进入 check、note/task、LSP workspace index、graph 或 site。editor 直接打开一个
+ignored document 时，LSP 仍分析该 buffer；关闭后不保留在 index。将 ignored subtree 作为显式 root
+或在其中放置更近的 `[.plumb/] marker，可以建立不继承 parent `[.ignore] 的独立 workspace。`[.ignore]
+是 discovery policy，不是 filesystem security boundary。
+
 `# Check
 
-`[plumb check --root DIR] 递归检查 workspace 中的 `[..plumb] files；省略 `[--root] 时使用当前
-目录。它复用与 LSP 相同的 strict syntax、extension 和 cross-document diagnostics，并且不进入
-directory symlink。
+`[plumb check --root DIR] 检查 workspace index 中的 `[..plumb] files；省略 `[--root] 时使用上述
+marker discovery。它复用与 LSP 相同的 strict syntax、extension 和 cross-document diagnostics。
 
 diagnostics 按 relative path 和 source range 稳定排序，输出 `[path:line:column]、severity、code 与
 message。Error 或 Warning 令 command 返回 nonzero；Hint 仍会显示，但不会单独令检查失败。无
@@ -68,8 +84,8 @@ diagnostics 和 export smoke test。
 hover、completion、anchor/document rename、metadata insertion、task conversion/created/status actions、
 metadata document-reference 与 explicit-anchor CodeLens、task semantic tokens 和 whole-document
 formatting。server 会扫描 workspace，并在 editor 支持时
-监听 `[..plumb] file changes。递归扫描不进入 directory symlink，避免 workspace snapshot、Nix
-store 或 symlink cycle 产生重复 records；扩展名为 `[..plumb] 的单文件 symlink 仍会被索引。
+监听 `[..plumb] 与 `[.ignore] file changes。ignore rule 变化会 resynchronize disk index；ignored
+document 若作为 open buffer 存在，仍由 open-buffer snapshot 覆盖 disk index。
 
 标准 `[workspace/symbol] 支持 `[note QUERY]、`[task QUERY] 和无 prefix 的混合 note/task 搜索，
 结果包含可跳转 Location。`[plumb/search] custom request 提供 schema version 1 的 typed records：

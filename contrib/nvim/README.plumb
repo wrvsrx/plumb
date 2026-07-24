@@ -9,6 +9,14 @@ Add contrib/nvim from the source checkout, or share/plumb/contrib/nvim from the 
 to runtimepath. Register the reference CodeLens command, then map the native note and task pickers:
 
 `{language=lua}
+  vim.lsp.config.plumb = {
+    cmd = { 'plumb', 'lsp' },
+    filetypes = { 'plumb' },
+    root_markers = { '.plumb', '.git' },
+  }
+  vim.lsp.enable('plumb')
+
+`{language=lua}
   require('plumb.codelens').setup({ picker = 'snacks' })
   require('plumb.graph').setup()
 

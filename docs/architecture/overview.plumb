@@ -52,6 +52,12 @@ citations、quotes、inline styles、tasks 和 export。core 不维护 semantic 
 和 guarded edit preconditions。open buffer 优先于 disk source；create/change/remove 只使相关
 documents 与 dependents invalidated。
 
+workspace boundary 由显式 root 或 consumer 的 `[.plumb/] discovery 决定。protocol-neutral scanner
+使用 root-scoped `[.ignore] 做 traversal pruning，不读取 parent 或 Git ignore sources，也不默认排除
+dot paths。CLI、LSP、Web 与 static site 共享同一 scanner；LSP root 仍由 client 的
+`[workspaceFolders]/`[rootUri] 决定，server 不重新向上 discovery。ignored open document 可以作为
+ephemeral buffer snapshot 参与 document features，关闭后不属于 disk index。
+
 reference CodeLens 是 workspace reverse-reference query 的 LSP projection。`[references_to_document]
 聚合其他 current-valid documents 中的 document/anchor links 与 task references，并排除 same-document
 edges；`[references_to] 继续查询单个 explicit anchor。server 只为 current-valid metadata 与 anchors
