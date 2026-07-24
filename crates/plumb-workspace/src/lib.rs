@@ -3,6 +3,7 @@ use std::path::{Component, Path, PathBuf};
 
 use cel::{Context, ExecutionError, Program, Value};
 use chrono::{DateTime, FixedOffset};
+use ignore::WalkBuilder;
 use plumb_core::{
     parse, Attributes, Block, Diagnostic, DiagnosticSeverity, ParsedBlock, ParsedDocument,
 };
@@ -14,6 +15,81 @@ use plumb_extensions::{
     LinkCompletionContext, LinkRecord, LinkSpelling, LinkTarget, MetadataValue, TaskRecord,
     TaskReferenceTarget, TaskState, TaskStatus,
 };
+
+pub const WORKSPACE_MARKER: &str = ".plumb";
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct WorkspaceScan {
+    pub files: Vec<PathBuf>,
+    pub errors: Vec<String>,
+}
+
+impl WorkspaceScan {
+    pub fn is_complete(&self) -> bool {
+        self.errors.is_empty()
+    }
+
+    pub fn into_result(self) -> Result<Vec<PathBuf>, String> {
+        if self.errors.is_empty() {
+            Ok(self.files)
+        } else {
+            Err(self.errors.join("\n"))
+        }
+    }
+}
+
+pub fn discover_workspace_root(start: impl AsRef<Path>) -> PathBuf {
+    let start = normalize(start.as_ref());
+    let directory = if start.is_file() {
+        start.parent().unwrap_or(&start)
+    } else {
+        &start
+    };
+    directory
+        .ancestors()
+        .find(|directory| directory.join(WORKSPACE_MARKER).is_dir())
+        .map(normalize)
+        .unwrap_or_else(|| normalize(directory))
+}
+
+pub fn scan_workspace_files(root: impl AsRef<Path>) -> WorkspaceScan {
+    let root = normalize(root.as_ref());
+    let mut builder = WalkBuilder::new(&root);
+    builder
+        .hidden(false)
+        .parents(false)
+        .ignore(true)
+        .git_ignore(false)
+        .git_global(false)
+        .git_exclude(false)
+        .follow_links(false);
+
+    let mut scan = WorkspaceScan::default();
+    for result in builder.build() {
+        match result {
+            Ok(entry) if is_scannable_plumb_file(&entry) => {
+                scan.files.push(normalize(entry.path()));
+            }
+            Ok(_) => {}
+            Err(error) => scan.errors.push(error.to_string()),
+        }
+    }
+    scan.files.sort();
+    scan.files.dedup();
+    scan.errors.sort();
+    scan
+}
+
+fn is_scannable_plumb_file(entry: &ignore::DirEntry) -> bool {
+    entry
+        .path()
+        .extension()
+        .is_some_and(|extension| extension == "plumb")
+        && entry
+            .file_type()
+            .is_some_and(|file_type| file_type.is_file() || file_type.is_symlink())
+        && entry.path().is_file()
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DocumentEdit {
@@ -2653,7 +2729,60 @@ fn valid_bare_attribute_value(value: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{AtomicU64, Ordering};
+
     use super::*;
+
+    fn temp_workspace() -> PathBuf {
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        std::env::temp_dir().join(format!(
+            "plumb-workspace-scan-{}-{}",
+            std::process::id(),
+            COUNTER.fetch_add(1, Ordering::Relaxed)
+        ))
+    }
+
+    #[test]
+    fn discovers_the_nearest_plumb_workspace_marker() {
+        let root = temp_workspace();
+        let nested = root.join("notes/private/deep");
+        std::fs::create_dir_all(root.join(".plumb")).unwrap();
+        std::fs::create_dir_all(root.join("notes/private/.plumb")).unwrap();
+        std::fs::create_dir_all(&nested).unwrap();
+
+        assert_eq!(
+            discover_workspace_root(&nested),
+            normalize(&root.join("notes/private"))
+        );
+
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn scans_dot_directories_and_applies_only_workspace_ignore_files() {
+        let parent = temp_workspace();
+        let root = parent.join("workspace");
+        std::fs::create_dir_all(root.join(".plumb")).unwrap();
+        std::fs::create_dir_all(root.join(".hidden")).unwrap();
+        std::fs::create_dir_all(root.join("private")).unwrap();
+        std::fs::write(parent.join(".ignore"), "workspace/\n").unwrap();
+        std::fs::write(root.join(".ignore"), "private/\n").unwrap();
+        std::fs::write(root.join("visible.plumb"), "Visible\n").unwrap();
+        std::fs::write(root.join(".hidden/note.plumb"), "Hidden\n").unwrap();
+        std::fs::write(root.join("private/note.plumb"), "Private\n").unwrap();
+
+        let scan = scan_workspace_files(&root);
+        assert!(scan.is_complete(), "{:?}", scan.errors);
+        assert_eq!(
+            scan.files,
+            vec![
+                normalize(&root.join(".hidden/note.plumb")),
+                normalize(&root.join("visible.plumb")),
+            ]
+        );
+
+        std::fs::remove_dir_all(parent).unwrap();
+    }
 
     fn apply_single_edit(source: &str, operation: &WorkspaceEdit) -> String {
         assert_eq!(operation.document_changes.len(), 1);
