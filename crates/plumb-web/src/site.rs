@@ -205,7 +205,10 @@ mod tests {
         .unwrap();
         assert!(output.join("index.html").is_file());
         assert!(output.join("graph.json").is_file());
-        assert!(output.join("assets/vendor/cytoscape.min.js").is_file());
+        assert!(output.join("assets/vendor/force-graph.min.js").is_file());
+        assert!(output
+            .join("assets/vendor/FORCE-GRAPH-LICENSE.txt")
+            .is_file());
         let note =
             std::fs::read_to_string(output.join("notes").join(&a_id).join("note.json")).unwrap();
         assert!(note.contains(&format!("../../notes/{b_id}/#b")), "{note}");

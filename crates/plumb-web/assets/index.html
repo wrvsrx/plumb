@@ -37,11 +37,13 @@
     <label><input type="checkbox" value="autolink" checked> Autolinks</label>
     <label><input type="checkbox" value="task-prev" checked> Task history</label>
     <label><input type="checkbox" value="task-depends" checked> Dependencies</label>
+    <label><input id="all-labels" type="checkbox"> All labels</label>
     <span id="summary" role="status"></span>
   </div>
   <main class="workspace">
     <section class="graph-stage" aria-label="Workspace graph">
       <div id="graph"></div>
+      <div id="graph-tooltip" class="graph-tooltip" hidden></div>
       <div id="graph-empty" class="empty" hidden>No matching notes</div>
     </section>
     <aside id="note-panel" class="note-panel" aria-live="polite">
@@ -51,7 +53,7 @@
       </div>
     </aside>
   </main>
-  <script src="__ASSET_PREFIX__vendor/cytoscape.min.js"></script>
+  <script src="__ASSET_PREFIX__vendor/force-graph.min.js"></script>
   <script src="__ASSET_PREFIX__app.js"></script>
 </body>
 </html>

@@ -70,11 +70,33 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
 .workspace { height: calc(100% - 100px); display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, 32vw); }
 .graph-stage { position: relative; min-width: 0; background: #f7f7f5; }
 #graph { position: absolute; inset: 0; }
+.graph-tooltip {
+  position: absolute;
+  z-index: 2;
+  max-width: min(320px, calc(100% - 24px));
+  padding: 5px 8px;
+  transform: translate(-50%, calc(-100% - 10px));
+  border: 1px solid var(--ink);
+  border-radius: 3px;
+  background: var(--paper);
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 650;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+}
+.graph-tooltip[hidden] { display: none; }
 .empty { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); }
 .empty[hidden] { display: none; }
 .note-panel { overflow: auto; border-left: 1px solid var(--border); background: var(--paper); padding: 24px; }
 .note-empty { max-width: 34rem; color: var(--muted); }
 .note-empty h1 { color: var(--ink); font-size: 24px; margin: 0 0 8px; }
+.note-empty h2 { color: var(--ink); font-size: 14px; margin: 28px 0 8px; }
+.hub-list { list-style: none; margin: 0; padding: 0; }
+.hub-list li { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px; border-top: 1px solid var(--border); }
+.hub-list button { min-width: 0; border: 0; padding: 9px 0; text-align: left; overflow-wrap: anywhere; }
+.hub-list button:hover { color: var(--teal); }
+.hub-list span { color: var(--muted); font-size: 12px; white-space: nowrap; }
 
 .document-header { border-bottom: 2px solid var(--ink); margin-bottom: 24px; }
 .document-header h1 { font-size: 30px; line-height: 1.15; margin: 0 0 16px; overflow-wrap: anywhere; }

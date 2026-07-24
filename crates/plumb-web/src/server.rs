@@ -25,7 +25,8 @@ const INDEX_HTML: &str = include_str!("../assets/index.html");
 const NOTE_HTML: &str = include_str!("../assets/note.html");
 const APP_JS: &str = include_str!("../assets/app.js");
 const STYLES_CSS: &str = include_str!("../assets/styles.css");
-const CYTOSCAPE_JS: &str = include_str!("../assets/vendor/cytoscape.min.js");
+const FORCE_GRAPH_JS: &str = include_str!("../assets/vendor/force-graph.min.js");
+const FORCE_GRAPH_LICENSE: &str = include_str!("../assets/vendor/FORCE-GRAPH-LICENSE.txt");
 
 #[derive(Debug, Parser)]
 #[command(name = "plumb graph", about = "Browse a plumb workspace graph")]
@@ -140,7 +141,8 @@ fn router(state: AppState) -> Router {
         .route("/favicon.ico", get(favicon))
         .route("/app.js", get(app_js))
         .route("/styles.css", get(styles_css))
-        .route("/vendor/cytoscape.min.js", get(cytoscape_js))
+        .route("/vendor/force-graph.min.js", get(force_graph_js))
+        .route("/vendor/FORCE-GRAPH-LICENSE.txt", get(force_graph_license))
         .with_state(state)
 }
 
@@ -329,8 +331,12 @@ async fn styles_css() -> Response {
     asset("text/css; charset=utf-8", STYLES_CSS)
 }
 
-async fn cytoscape_js() -> Response {
-    asset("application/javascript; charset=utf-8", CYTOSCAPE_JS)
+async fn force_graph_js() -> Response {
+    asset("application/javascript; charset=utf-8", FORCE_GRAPH_JS)
+}
+
+async fn force_graph_license() -> Response {
+    asset("text/plain; charset=utf-8", FORCE_GRAPH_LICENSE)
 }
 
 async fn favicon() -> StatusCode {
@@ -484,7 +490,12 @@ pub(crate) fn write_assets(output: &Path) -> Result<(), String> {
         .map_err(|error| format!("cannot write app.js: {error}"))?;
     std::fs::write(output.join("styles.css"), STYLES_CSS)
         .map_err(|error| format!("cannot write styles.css: {error}"))?;
-    std::fs::write(output.join("vendor/cytoscape.min.js"), CYTOSCAPE_JS)
-        .map_err(|error| format!("cannot write Cytoscape.js: {error}"))?;
+    std::fs::write(output.join("vendor/force-graph.min.js"), FORCE_GRAPH_JS)
+        .map_err(|error| format!("cannot write Force Graph: {error}"))?;
+    std::fs::write(
+        output.join("vendor/FORCE-GRAPH-LICENSE.txt"),
+        FORCE_GRAPH_LICENSE,
+    )
+    .map_err(|error| format!("cannot write Force Graph license: {error}"))?;
     Ok(())
 }
