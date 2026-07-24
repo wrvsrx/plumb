@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use clap::{Args, Parser, Subcommand};
+use plumb_workspace::resolve_workspace_root;
 use serde_json::json;
 
 use crate::server::{render_backlinks, render_index, render_note_page, write_assets};
@@ -23,7 +24,7 @@ enum SiteCommand {
 
 #[derive(Debug, Args)]
 struct BuildConfig {
-    /// Directory to scan recursively. Defaults to the current directory.
+    /// Workspace root. Defaults to the nearest ancestor containing .plumb/.
     #[arg(long, value_name = "DIR")]
     root: Option<PathBuf>,
 
@@ -53,9 +54,7 @@ pub fn run_site_cli(args: impl IntoIterator<Item = OsString>) -> ExitCode {
 }
 
 fn build(config: BuildConfig) -> Result<(), String> {
-    let root = config
-        .root
-        .unwrap_or(std::env::current_dir().map_err(|error| error.to_string())?);
+    let root = resolve_workspace_root(config.root.as_deref())?;
     ensure_empty_output(&config.output)?;
     let workspace = WebWorkspace::load(root)?;
     std::fs::create_dir_all(&config.output)

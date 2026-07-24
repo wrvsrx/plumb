@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::ops::ControlFlow;
 use std::path::{Path, PathBuf};
@@ -37,8 +37,8 @@ use plumb_extensions::{
     TaskRecord, TaskState, TaskStatus,
 };
 use plumb_workspace::{
-    normalize, RenameError, ResolvedTarget, ResourceOperation, SearchRecord, SearchRecordKind,
-    Workspace, WorkspaceEdit,
+    normalize, scan_workspace_files, RenameError, ResolvedTarget, ResourceOperation, SearchRecord,
+    SearchRecordKind, Workspace, WorkspaceEdit,
 };
 
 use crate::position::{byte_range_to_lsp, position_to_offset};
@@ -126,13 +126,38 @@ impl ServerState {
             message: Some("Scanning .plumb files".to_string()),
             percentage: None,
         }));
-        let roots = self.roots.clone();
+        let (files, mut complete) = self.scanned_files();
+        let retained = files.iter().cloned().collect::<HashSet<_>>();
+        let open = self
+            .open_documents
+            .values()
+            .cloned()
+            .collect::<HashSet<_>>();
+        let stale = self
+            .workspace
+            .documents()
+            .map(|entry| entry.path.clone())
+            .filter(|path| {
+                self.roots.iter().any(|root| path.starts_with(root))
+                    && !open.contains(path)
+                    && !retained.contains(path)
+            })
+            .collect::<Vec<_>>();
+        for path in stale {
+            self.workspace.remove(path);
+        }
+
         let mut indexed = 0;
-        let mut complete = true;
-        for root in roots {
-            let (root_indexed, root_complete) = self.index_directory(&root);
-            indexed += root_indexed;
-            complete &= root_complete;
+        for path in files {
+            if open.contains(&path) {
+                continue;
+            }
+            if let Ok(text) = fs::read_to_string(&path) {
+                self.workspace.insert(path, 0, text);
+                indexed += 1;
+            } else {
+                complete = false;
+            }
         }
         self.notify_index_progress(WorkDoneProgress::Report(WorkDoneProgressReport {
             cancellable: Some(false),
@@ -145,38 +170,17 @@ impl ServerState {
         (indexed, complete)
     }
 
-    fn index_directory(&mut self, directory: &Path) -> (usize, bool) {
-        let Ok(entries) = fs::read_dir(directory) else {
-            return (0, false);
-        };
-        let mut indexed = 0;
+    fn scanned_files(&self) -> (Vec<PathBuf>, bool) {
+        let mut files = Vec::new();
         let mut complete = true;
-        for entry in entries {
-            let Ok(entry) = entry else {
-                complete = false;
-                continue;
-            };
-            let path = entry.path();
-            let Ok(file_type) = entry.file_type() else {
-                complete = false;
-                continue;
-            };
-            if file_type.is_dir() {
-                let (child_indexed, child_complete) = self.index_directory(&path);
-                indexed += child_indexed;
-                complete &= child_complete;
-            } else if is_plumb_file(&path)
-                && !self.open_documents.values().any(|open| open == &path)
-            {
-                if let Ok(text) = fs::read_to_string(&path) {
-                    self.workspace.insert(path, 0, text);
-                    indexed += 1;
-                } else {
-                    complete = false;
-                }
-            }
+        for root in &self.roots {
+            let scan = scan_workspace_files(root);
+            complete &= scan.is_complete();
+            files.extend(scan.files);
         }
-        (indexed, complete)
+        files.sort();
+        files.dedup();
+        (files, complete)
     }
 
     fn notify_index_progress(&self, progress: WorkDoneProgress) {
@@ -198,10 +202,20 @@ impl ServerState {
                 method: "workspace/didChangeWatchedFiles".to_string(),
                 register_options: Some(
                     serde_json::to_value(lsp_types::DidChangeWatchedFilesRegistrationOptions {
-                        watchers: vec![FileSystemWatcher {
-                            glob_pattern: GlobPattern::String("**/*.plumb".to_string()),
-                            kind: Some(WatchKind::Create | WatchKind::Change | WatchKind::Delete),
-                        }],
+                        watchers: vec![
+                            FileSystemWatcher {
+                                glob_pattern: GlobPattern::String("**/*.plumb".to_string()),
+                                kind: Some(
+                                    WatchKind::Create | WatchKind::Change | WatchKind::Delete,
+                                ),
+                            },
+                            FileSystemWatcher {
+                                glob_pattern: GlobPattern::String("**/.ignore".to_string()),
+                                kind: Some(
+                                    WatchKind::Create | WatchKind::Change | WatchKind::Delete,
+                                ),
+                            },
+                        ],
                     })
                     .expect("watch registration is serializable"),
                 ),
@@ -569,7 +583,9 @@ impl LanguageServer for ServerState {
     fn did_close(&mut self, params: DidCloseTextDocumentParams) -> Self::NotifyResult {
         let uri = params.text_document.uri;
         if let Some(path) = self.open_documents.remove(&uri) {
-            if self.roots.iter().any(|root| path.starts_with(root)) {
+            let (files, complete) = self.scanned_files();
+            self.index_complete &= complete;
+            if files.binary_search(&path).is_ok() {
                 if let Ok(text) = fs::read_to_string(&path) {
                     self.workspace.insert(&path, 0, text);
                 } else {
@@ -606,28 +622,45 @@ impl LanguageServer for ServerState {
         &mut self,
         params: DidChangeWatchedFilesParams,
     ) -> Self::NotifyResult {
-        for change in params.changes {
-            let Ok(path) = change.uri.to_file_path() else {
-                continue;
-            };
-            let path = normalize(&path);
-            if !is_plumb_file(&path) {
-                continue;
-            }
-            self.confirm_pending_path_rename(&path);
-            if self.open_documents.values().any(|open| open == &path) {
-                continue;
-            }
-            match change.typ {
-                FileChangeType::CREATED | FileChangeType::CHANGED => {
-                    if let Ok(text) = fs::read_to_string(&path) {
-                        self.workspace.insert(path, 0, text);
+        let changes = params
+            .changes
+            .into_iter()
+            .filter_map(|change| {
+                let path = normalize(&change.uri.to_file_path().ok()?);
+                Some((path, change.typ))
+            })
+            .collect::<Vec<_>>();
+        if changes
+            .iter()
+            .any(|(path, _)| path.file_name().is_some_and(|name| name == ".ignore"))
+        {
+            let (_, complete) = self.index_roots();
+            self.index_complete = complete;
+        } else {
+            let (files, complete) = self.scanned_files();
+            self.index_complete &= complete;
+            let indexed = files.into_iter().collect::<HashSet<_>>();
+            for (path, change_type) in changes {
+                if !is_plumb_file(&path) {
+                    continue;
+                }
+                self.confirm_pending_path_rename(&path);
+                if self.open_documents.values().any(|open| open == &path) {
+                    continue;
+                }
+                match change_type {
+                    FileChangeType::CREATED | FileChangeType::CHANGED
+                        if indexed.contains(&path) =>
+                    {
+                        if let Ok(text) = fs::read_to_string(&path) {
+                            self.workspace.insert(path, 0, text);
+                        }
                     }
+                    FileChangeType::CREATED | FileChangeType::CHANGED | FileChangeType::DELETED => {
+                        self.workspace.remove(path);
+                    }
+                    _ => {}
                 }
-                FileChangeType::DELETED => {
-                    self.workspace.remove(path);
-                }
-                _ => {}
             }
         }
         self.publish_all_open_diagnostics();

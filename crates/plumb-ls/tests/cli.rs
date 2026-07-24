@@ -1,5 +1,5 @@
 use std::io::{BufRead, BufReader, Read, Write};
-use std::net::TcpStream;
+use std::net::{TcpListener, TcpStream};
 use std::path::PathBuf;
 use std::process::{Command, Output, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -78,6 +78,31 @@ fn checks_a_workspace_recursively_and_sets_the_exit_status() {
 }
 
 #[test]
+fn discovers_workspace_markers_and_applies_ignore_files() {
+    let root = unique_temp_dir();
+    std::fs::create_dir_all(root.join(".plumb")).unwrap();
+    std::fs::create_dir_all(root.join("nested")).unwrap();
+    std::fs::create_dir_all(root.join("private")).unwrap();
+    std::fs::write(root.join(".ignore"), "private/\n").unwrap();
+    std::fs::write(root.join("visible.plumb"), "Visible\n").unwrap();
+    std::fs::write(root.join("private/note.plumb"), "Private\n").unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_plumb"))
+        .arg("note")
+        .current_dir(root.join("nested"))
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(String::from_utf8(output.stdout).unwrap(), "visible.plumb\n");
+
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn round_trips_the_exported_standard_profile_through_import() {
     let source = "`meta\n `: title\n\n    Import test\n\n`#{#intro} Intro\nParagraph with `*[emphasis], `![strong], `=[mark], `~[strike], `^[super], `_[sub], and `->[a link]{to=\"other.plumb#id\"}.\n\n`>{#quote .source} Quoted\n\n`-{.task #task created=\"2026-07-23T17:00:00+08:00\"} Item\n\n`{language=rust #code}\n  fn main() {}\n";
     let first = run_with_stdin(&["export"], source);
@@ -118,7 +143,10 @@ fn builds_and_serves_the_workspace_graph_with_rendered_notes() {
     let root = unique_temp_dir();
     let output = unique_temp_dir();
     std::fs::create_dir_all(root.join("assets")).unwrap();
+    std::fs::create_dir_all(root.join("private")).unwrap();
+    std::fs::write(root.join(".ignore"), "private/\n").unwrap();
     std::fs::write(root.join("assets/icon.png"), b"png").unwrap();
+    std::fs::write(root.join("private/note.plumb"), "Private note.\n").unwrap();
     std::fs::write(
         root.join("a.plumb"),
         "`meta\n `: title\n\n    Alpha\n\nSee `->[Beta]{to=\"b.plumb#beta\"}.\n\n`img[icon]{src=\"assets/icon.png\"}\n",
@@ -145,11 +173,17 @@ fn builds_and_serves_the_workspace_graph_with_rendered_notes() {
     );
     assert!(output.join("index.html").is_file());
     assert!(output.join("graph.json").is_file());
+    let static_graph: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(output.join("graph.json")).unwrap()).unwrap();
+    assert_eq!(static_graph["nodes"].as_array().unwrap().len(), 3);
 
+    let port = available_port();
     let mut child = Command::new(env!("CARGO_BIN_EXE_plumb"))
         .args(["graph", "--root"])
         .arg(&root)
         .arg("--no-open")
+        .arg("--port")
+        .arg(port.to_string())
         .args(["--exclude", "path == 'hidden.plumb'"])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -177,6 +211,14 @@ fn builds_and_serves_the_workspace_graph_with_rendered_notes() {
         .unwrap()["id"]
         .as_str()
         .unwrap();
+    let revision = graph["revision"].as_u64().unwrap();
+    std::fs::write(root.join("private/note.plumb"), "Changed private note.\n").unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(400));
+    let (_, _, unchanged) = http_get(address, "/api/graph");
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&unchanged).unwrap()["revision"],
+        revision
+    );
     let (status, _, note) = http_get(address, &format!("/api/note/{alpha}"));
     assert_eq!(status, 200, "{note}");
     let note: serde_json::Value = serde_json::from_str(&note).unwrap();
@@ -271,4 +313,12 @@ fn unique_temp_dir() -> PathBuf {
         std::process::id(),
         COUNTER.fetch_add(1, Ordering::Relaxed)
     ))
+}
+
+fn available_port() -> u16 {
+    TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port()
 }

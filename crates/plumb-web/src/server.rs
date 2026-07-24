@@ -14,6 +14,7 @@ use axum::routing::get;
 use axum::{Json, Router};
 use clap::Parser;
 use notify::{RecursiveMode, Watcher};
+use plumb_workspace::resolve_workspace_root;
 use serde_json::json;
 use tokio::sync::{broadcast, mpsc, Mutex, RwLock};
 use tokio_stream::wrappers::BroadcastStream;
@@ -31,7 +32,7 @@ const FORCE_GRAPH_LICENSE: &str = include_str!("../assets/vendor/FORCE-GRAPH-LIC
 #[derive(Debug, Parser)]
 #[command(name = "plumb graph", about = "Browse a plumb workspace graph")]
 struct GraphConfig {
-    /// Directory to scan recursively. Defaults to the current directory.
+    /// Workspace root. Defaults to the nearest ancestor containing .plumb/.
     #[arg(long, value_name = "DIR")]
     root: Option<PathBuf>,
 
@@ -94,9 +95,7 @@ pub fn run_graph_cli(args: impl IntoIterator<Item = OsString>) -> ExitCode {
 }
 
 async fn run(config: GraphConfig) -> Result<(), String> {
-    let root = config
-        .root
-        .unwrap_or(std::env::current_dir().map_err(|error| error.to_string())?);
+    let root = resolve_workspace_root(config.root.as_deref())?;
     let workspace = WebWorkspace::load(&root)?;
     workspace.graph_excluding(&GraphQuery::default(), config.exclude.as_deref())?;
     let current = config.current.as_ref().and_then(|path| {
@@ -426,6 +425,9 @@ fn spawn_watcher(state: AppState) {
                         eprintln!("plumb graph: cannot apply graph exclusion: {error}");
                         continue;
                     }
+                    if state.workspace.read().await.has_same_documents(&workspace) {
+                        continue;
+                    }
                     *state.workspace.write().await = workspace;
                     state.html_cache.lock().await.clear();
                     let _ = state.changes.send(revision);
@@ -443,6 +445,7 @@ fn watch_event_affects_workspace(event: &notify::Event) -> bool {
     ) && event.paths.iter().any(|path| {
         path.extension()
             .is_some_and(|extension| extension == "plumb")
+            || path.file_name().is_some_and(|name| name == ".ignore")
     })
 }
 
@@ -474,6 +477,8 @@ mod tests {
         ];
 
         assert!(events.iter().all(watch_event_affects_workspace));
+        let ignore = Event::new(EventKind::Modify(ModifyKind::Any)).add_path(".ignore".into());
+        assert!(watch_event_affects_workspace(&ignore));
     }
 }
 

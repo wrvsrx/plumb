@@ -11,7 +11,7 @@ end
 function M.open(opts)
   opts = opts or {}
   local bufnr = opts.bufnr or vim.api.nvim_get_current_buf()
-  local root = opts.root or attached_root(bufnr) or vim.fs.root(bufnr, { '.git' }) or vim.fn.getcwd()
+  local root = opts.root or attached_root(bufnr) or vim.fs.root(bufnr, { '.plumb', '.git' }) or vim.fn.getcwd()
   local command = { opts.command or 'plumb', 'graph', '--root', root }
   if opts.current ~= false then
     local current = vim.api.nvim_buf_get_name(bufnr)

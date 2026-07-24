@@ -4,7 +4,9 @@ use std::path::{Path, PathBuf};
 
 use chrono::Local;
 use plumb_extensions::LinkSpelling;
-use plumb_workspace::{normalize, ResolvedTarget, SearchRecordKind, Workspace};
+use plumb_workspace::{
+    normalize, scan_workspace_files, ResolvedTarget, SearchRecordKind, Workspace,
+};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -124,9 +126,7 @@ impl WebWorkspace {
                 root.display()
             ));
         }
-        let mut paths = Vec::new();
-        collect_plumb_files(&root, &mut paths)?;
-        paths.sort();
+        let paths = scan_workspace_files(&root).into_result()?;
         let mut workspace = Workspace::new();
         for path in &paths {
             let source = std::fs::read_to_string(path)
@@ -221,6 +221,24 @@ impl WebWorkspace {
 
     pub fn resources(&self) -> impl Iterator<Item = &ResourceRecord> {
         self.resources.values()
+    }
+
+    pub fn has_same_documents(&self, other: &Self) -> bool {
+        let documents = |workspace: &Workspace| {
+            let mut documents = workspace
+                .documents()
+                .map(|entry| {
+                    (
+                        entry.path.clone(),
+                        entry.revision,
+                        entry.parsed.source.clone(),
+                    )
+                })
+                .collect::<Vec<_>>();
+            documents.sort_by(|left, right| left.0.cmp(&right.0));
+            documents
+        };
+        documents(&self.workspace) == documents(&other.workspace)
     }
 
     pub fn note(&self, id: &str) -> Option<NoteDocument> {
@@ -544,28 +562,6 @@ impl WebWorkspace {
     }
 }
 
-fn collect_plumb_files(path: &Path, output: &mut Vec<PathBuf>) -> Result<(), String> {
-    let entries = std::fs::read_dir(path)
-        .map_err(|error| format!("cannot read directory {}: {error}", path.display()))?;
-    for entry in entries {
-        let entry = entry.map_err(|error| format!("cannot read directory entry: {error}"))?;
-        let path = entry.path();
-        let file_type = entry
-            .file_type()
-            .map_err(|error| format!("cannot stat {}: {error}", path.display()))?;
-        if file_type.is_dir() {
-            collect_plumb_files(&path, output)?;
-        } else if (file_type.is_file() || file_type.is_symlink())
-            && path
-                .extension()
-                .is_some_and(|extension| extension == "plumb")
-        {
-            output.push(normalize(&path));
-        }
-    }
-    Ok(())
-}
-
 fn file_revision(path: &Path) -> Option<i64> {
     let metadata = path.metadata().ok()?;
     let modified = metadata.modified().ok()?;
@@ -675,6 +671,23 @@ mod tests {
         let graph = web.graph(&GraphQuery::default());
         assert_eq!(graph.revision, 4);
         assert_eq!(graph.nodes[0].title, "Open buffer title");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn web_workspace_uses_workspace_ignore_files() {
+        let root = temp_dir();
+        std::fs::create_dir_all(root.join("private")).unwrap();
+        std::fs::write(root.join(".ignore"), "private/\n").unwrap();
+        std::fs::write(root.join("public.plumb"), "Public\n").unwrap();
+        std::fs::write(root.join("private/note.plumb"), "Private\n").unwrap();
+
+        let first = WebWorkspace::load(&root).unwrap();
+        assert_eq!(first.graph(&GraphQuery::default()).nodes.len(), 1);
+        std::fs::write(root.join("private/note.plumb"), "Changed private\n").unwrap();
+        let second = WebWorkspace::load_with_revision(&root, 2).unwrap();
+        assert!(first.has_same_documents(&second));
+
         std::fs::remove_dir_all(root).unwrap();
     }
 

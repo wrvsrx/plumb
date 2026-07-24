@@ -6,7 +6,9 @@ use std::process::ExitCode;
 use chrono::Local;
 use clap::{Args, Parser, Subcommand};
 use plumb_core::DiagnosticSeverity;
-use plumb_workspace::{normalize, SearchRecordKind, Workspace};
+use plumb_workspace::{
+    normalize, resolve_workspace_root, scan_workspace_files, SearchRecordKind, Workspace,
+};
 
 mod interactive;
 mod tasks;
@@ -40,9 +42,7 @@ pub fn run_check_cli(args: impl IntoIterator<Item = OsString>) -> ExitCode {
         }
     };
     let result = (|| {
-        let root = config
-            .root
-            .unwrap_or(std::env::current_dir().map_err(|error| error.to_string())?);
+        let root = resolve_workspace_root(config.root.as_deref())?;
         let loaded = load_workspace(&root)?;
         Ok::<_, String>(render_workspace_diagnostics(&root, &loaded))
     })();
@@ -63,9 +63,7 @@ pub fn run_check_cli(args: impl IntoIterator<Item = OsString>) -> ExitCode {
 }
 
 fn run(config: Config) -> Result<(), String> {
-    let root = config
-        .root
-        .unwrap_or(std::env::current_dir().map_err(|error| error.to_string())?);
+    let root = resolve_workspace_root(config.root.as_deref())?;
     let loaded = load_workspace(&root)?;
     match config.command {
         Command::Note(note) => {
@@ -118,7 +116,7 @@ fn run(config: Config) -> Result<(), String> {
 #[derive(Debug, Parser)]
 #[command(name = "plumb", about = "Query plumb documents")]
 struct Config {
-    /// Directory to scan recursively. Defaults to the current directory.
+    /// Workspace root. Defaults to the nearest ancestor containing .plumb/.
     #[arg(long, global = true, value_name = "DIR")]
     root: Option<PathBuf>,
 
@@ -133,7 +131,7 @@ struct Config {
 #[derive(Debug, Parser)]
 #[command(name = "plumb check", about = "Check a plumb workspace")]
 struct CheckConfig {
-    /// Directory to scan recursively. Defaults to the current directory.
+    /// Workspace root. Defaults to the nearest ancestor containing .plumb/.
     #[arg(long, value_name = "DIR")]
     root: Option<PathBuf>,
 }
@@ -189,9 +187,7 @@ struct LoadedWorkspace {
 
 fn load_workspace(root: &Path) -> Result<LoadedWorkspace, String> {
     let root = normalize(root);
-    let mut paths = Vec::new();
-    collect_plumb_files(&root, &mut paths)?;
-    paths.sort();
+    let paths = scan_workspace_files(&root).into_result()?;
     let mut workspace = Workspace::new();
     let mut texts = HashMap::new();
     for path in &paths {
@@ -201,28 +197,6 @@ fn load_workspace(root: &Path) -> Result<LoadedWorkspace, String> {
         texts.insert(path.clone(), text);
     }
     Ok(LoadedWorkspace { workspace, texts })
-}
-
-fn collect_plumb_files(path: &Path, output: &mut Vec<PathBuf>) -> Result<(), String> {
-    let entries = std::fs::read_dir(path)
-        .map_err(|error| format!("cannot read directory {}: {error}", path.display()))?;
-    for entry in entries {
-        let entry = entry.map_err(|error| format!("cannot read directory entry: {error}"))?;
-        let path = entry.path();
-        let file_type = entry
-            .file_type()
-            .map_err(|error| format!("cannot stat {}: {error}", path.display()))?;
-        if file_type.is_dir() {
-            collect_plumb_files(&path, output)?;
-        } else if (file_type.is_file() || file_type.is_symlink())
-            && path
-                .extension()
-                .is_some_and(|extension| extension == "plumb")
-        {
-            output.push(normalize(&path));
-        }
-    }
-    Ok(())
 }
 
 fn display_path(root: &Path, path: &Path) -> String {
@@ -325,7 +299,7 @@ mod tests {
         let root_help = Config::command().render_long_help().to_string();
         assert!(root_help.contains("Filter plumb note files"));
         assert!(root_help.contains("Print tasks found"));
-        assert!(root_help.contains("Directory to scan recursively"));
+        assert!(root_help.contains("nearest ancestor containing .plumb/"));
         assert!(root_help.contains("CEL predicate"));
 
         let mut command = Config::command();
@@ -339,7 +313,7 @@ mod tests {
 
         let check_help = CheckConfig::command().render_long_help().to_string();
         assert!(check_help.contains("Check a plumb workspace"));
-        assert!(check_help.contains("Directory to scan recursively"));
+        assert!(check_help.contains("nearest ancestor containing .plumb/"));
     }
 
     #[test]
@@ -568,6 +542,21 @@ mod tests {
 
         std::fs::remove_dir_all(root).unwrap();
         std::fs::remove_dir_all(snapshot).unwrap();
+    }
+
+    #[test]
+    fn workspace_scan_applies_ignore_files() {
+        let root = unique_temp_dir();
+        std::fs::create_dir_all(root.join("private")).unwrap();
+        std::fs::write(root.join(".ignore"), "private/\n").unwrap();
+        std::fs::write(root.join("public.plumb"), "Public\n").unwrap();
+        std::fs::write(root.join("private/note.plumb"), "Private\n").unwrap();
+
+        let loaded = load_workspace(&root).unwrap();
+        assert!(loaded.workspace.contains(root.join("public.plumb")));
+        assert!(!loaded.workspace.contains(root.join("private/note.plumb")));
+
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     fn unique_temp_dir() -> PathBuf {

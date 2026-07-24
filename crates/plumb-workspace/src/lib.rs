@@ -52,6 +52,25 @@ pub fn discover_workspace_root(start: impl AsRef<Path>) -> PathBuf {
         .unwrap_or_else(|| normalize(directory))
 }
 
+pub fn resolve_workspace_root(explicit: Option<&Path>) -> Result<PathBuf, String> {
+    let root = match explicit {
+        Some(root) => normalize(root),
+        None => {
+            let current = std::env::current_dir()
+                .map_err(|error| format!("cannot read current directory: {error}"))?;
+            discover_workspace_root(current)
+        }
+    };
+    if root.is_dir() {
+        Ok(root)
+    } else {
+        Err(format!(
+            "workspace root is not a directory: {}",
+            root.display()
+        ))
+    }
+}
+
 pub fn scan_workspace_files(root: impl AsRef<Path>) -> WorkspaceScan {
     let root = normalize(root.as_ref());
     let mut builder = WalkBuilder::new(&root);
