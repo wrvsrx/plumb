@@ -82,7 +82,14 @@
         { selector: 'edge[kind = "task-prev"]', style: { 'line-color': '#d7a522', 'line-style': 'dashed' } },
         { selector: 'edge[kind = "autolink"]', style: { 'line-color': '#188578' } },
       ],
-      layout: { name: 'cose', animate: false, randomize: true, nodeRepulsion: 500000, idealEdgeLength: 90, edgeElasticity: 90, gravity: 0.22, numIter: 800 },
+      layout: {
+        name: 'circle',
+        animate: false,
+        avoidOverlap: true,
+        nodeDimensionsIncludeLabels: true,
+        padding: 48,
+        sort: (left, right) => left.data('title').localeCompare(right.data('title')),
+      },
     });
     window.plumbGraph = state.cy;
     state.cy.on('tap', 'node', (event) => selectNode(event.target.data()));
