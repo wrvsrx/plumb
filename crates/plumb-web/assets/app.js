@@ -15,7 +15,6 @@
   };
 
   const graphElement = document.getElementById('graph');
-  const graphTooltip = document.getElementById('graph-tooltip');
   const panel = document.getElementById('note-panel');
   const summary = document.getElementById('summary');
   const empty = document.getElementById('graph-empty');
@@ -193,15 +192,6 @@
 
   function handleNodeHover(node) {
     state.hovered = node ? node.id : null;
-    if (node) {
-      const position = state.graphView.graph2ScreenCoords(node.x, node.y);
-      graphTooltip.textContent = node.title;
-      graphTooltip.style.left = `${Math.max(80, Math.min(graphElement.clientWidth - 80, position.x))}px`;
-      graphTooltip.style.top = `${Math.max(40, position.y)}px`;
-      graphTooltip.hidden = false;
-    } else {
-      graphTooltip.hidden = true;
-    }
     refreshStyles();
   }
 

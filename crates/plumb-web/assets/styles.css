@@ -70,22 +70,6 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
 .workspace { height: calc(100% - 100px); display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, 32vw); }
 .graph-stage { position: relative; min-width: 0; background: #f7f7f5; }
 #graph { position: absolute; inset: 0; }
-.graph-tooltip {
-  position: absolute;
-  z-index: 2;
-  max-width: min(320px, calc(100% - 24px));
-  padding: 5px 8px;
-  transform: translate(-50%, calc(-100% - 10px));
-  border: 1px solid var(--ink);
-  border-radius: 3px;
-  background: var(--paper);
-  color: var(--ink);
-  font-size: 13px;
-  font-weight: 650;
-  overflow-wrap: anywhere;
-  pointer-events: none;
-}
-.graph-tooltip[hidden] { display: none; }
 .empty { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); }
 .empty[hidden] { display: none; }
 .note-panel { overflow: auto; border-left: 1px solid var(--border); background: var(--paper); padding: 24px; }
