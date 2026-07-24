@@ -167,6 +167,18 @@ method to `impl LanguageServer` — even as a no-op `ControlFlow::Continue(())` 
 or the server crashes in real editors. A catch-all does not cover these.
 (`$/`-prefixed notifications, `exit`, and `initialized` are exempt.)
 
+## Workspace graph demo workflow
+
+When running `plumb graph` for development, browser checks, or a user-facing demo,
+always pass an explicit dedicated test port with `--port`. Do not rely on the
+random-port default, reuse a port occupied by another instance, or stop a graph
+server that the user started independently. Track and stop only the process
+started for the current test, by its PID or its exact test port.
+
+Use the same explicit port in browser automation and health checks so restarting
+the demo never requires rewriting test scripts and cannot collide with the user's
+own `plumb graph` instance.
+
 ## Commit workflow
 
 Start from `main` and create a short-lived topic branch (`feat/…`, `fix/…`)
