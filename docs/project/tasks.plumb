@@ -314,7 +314,7 @@
    `note 按 document revision 缓存 Pandoc HTML fragment，初版可以调用 packaged Pandoc writer；测量后再决定是否需要常驻 converter 或内置 HTML writer。Raw HTML 不进入 Web output，server 保持 read-only，并设置 strict CSP；resource route 只服务索引确认且 canonical path 位于允许 root 内的文件。
    `note Shared Web document model、target adaptation、templates 和 frontend assets 同时支持 `[plumb site build --root DIR --output DIR]。静态构建预先写出 note pages、resources、graph JSON、search index 与 assets；逻辑 target 先表示为 `[Document(id, anchor)] 或 `[Resource(id)]，再分别 lower 为 server routes 或 relative static URLs。
    `note LSP 不是 Web viewer 的运行前提。Neovim integration 只提供启动 `[plumb graph] 并传递 current workspace/document 的 command；只有其他 editor feature 确有 graph data consumer 时才增加 versioned custom LSP request，不让 server protocol 与 LSP schema 相互依赖。
-   `note 覆盖 duplicate links、self edge、cross-file explicit anchor、missing target、invalid revision、open-buffer precedence、workspace refresh、HTML cache invalidation、URL adaptation、resource traversal rejection、large workspace truncation、static/dynamic link parity 与 graph node navigation tests，并记录大 workspace 的启动时间、更新延迟和内存基线。
+   `note 覆盖 duplicate links、self-edge omission、cross-file explicit anchor、missing target、invalid revision、open-buffer precedence、workspace refresh、HTML cache invalidation、URL adaptation、resource traversal rejection、large workspace truncation、static/dynamic link parity 与 graph node navigation tests，并记录大 workspace 的启动时间、更新延迟和内存基线。
    `note 2026-07-24 本机 debug build 使用 1000 个互链 documents 测得首次 server ready 126 ms、单文件更新发布新 revision 429 ms、ready-state RSS 29144 KiB；baseline fixture 从 `[note-000.plumb] 到 `[note-999.plumb]，每篇含 metadata title 与一条指向下一篇的 Link。
 
 `# Neovim plugin

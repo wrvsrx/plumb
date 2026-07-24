@@ -36,8 +36,9 @@ diagnostic 时不输出内容并返回成功。
 
 浏览器提供 workspace/local graph、incoming/outgoing direction、depth、edge-kind filters、search、
 pan、zoom、node selection 与 note preview。edge 覆盖 named Link、Autolink 和 task `[prev]/[depends]；
-unresolved document targets 显示为独立 node。node 使用由 root-relative path 派生的稳定 opaque id，
-layout coordinates 只保存在 frontend。
+同一 document 内的 references 不产生 self-edge，避免 recurring task `[prev] 等内部关系淹没
+document topology。unresolved document targets 显示为独立 node。node 使用由 root-relative path
+派生的稳定 opaque id，layout coordinates 只保存在 frontend。
 
 选择 note 时，plumb 将标准 exporter 的 Pandoc AST 中 document、anchor 与 local resource targets
 改写为受控 Web routes，再调用 packaged Pandoc HTML writer。JavaScript 不解析 plumb。server 只允许

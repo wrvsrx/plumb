@@ -424,6 +424,9 @@ impl WebWorkspace {
                 let next_id = format!("u{:06}", ghost_ids.len() + 1);
                 ghost_ids.entry(key.clone()).or_insert(next_id).clone()
             });
+        if target_id == source_id {
+            return;
+        }
         if unresolved && !nodes.contains_key(&target_id) {
             nodes.insert(
                 target_id.clone(),
@@ -560,10 +563,10 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(
             root.join("a.plumb"),
-            "`meta\n `: title\n\n    Alpha\n\n`-{.task #old} Old\n`-{.task #a prev=\"#old\" depends=\"b.plumb#b\"} A\nSee `->[B]{to=\"b.plumb#b\"}, `[b.plumb#b]{.->}, `->[self]{to=\"#a\"}, `->[self again]{to=\"#a\"}, and `->[missing]{to=\"missing.plumb\"}.\n",
+            "`meta\n `: title\n\n    Alpha\n\n`-{.task #old} Old\n`-{.task #a prev=\"b.plumb#b\" depends=\"b.plumb#b\"} A\n`-{.task #recur prev=\"#old\"} Recurring instance\nSee `->[B]{to=\"b.plumb#b\"}, `[b.plumb#b]{.->}, `->[self]{to=\"#a\"}, `->[self again]{to=\"#a\"}, and `->[missing]{to=\"missing.plumb\"}.\n",
         )
         .unwrap();
-        std::fs::write(root.join("b.plumb"), "`#{#b} Beta\n").unwrap();
+        std::fs::write(root.join("b.plumb"), "`-{.task #b} Beta\n").unwrap();
         std::fs::write(root.join("broken.plumb"), "`node{key=a key=b} Broken\n").unwrap();
         let workspace = WebWorkspace::load(&root).unwrap();
         let graph = workspace.graph(&GraphQuery::default());
@@ -578,7 +581,7 @@ mod tests {
                 .iter()
                 .filter(|edge| edge.kind == "link")
                 .count(),
-            4
+            2
         );
         assert!(graph.edges.iter().any(|edge| edge.kind == "autolink"));
         assert!(graph.edges.iter().any(|edge| edge.kind == "task-prev"));
@@ -600,8 +603,7 @@ mod tests {
             ..GraphQuery::default()
         });
         assert_eq!(local.nodes.len(), 1);
-        assert_eq!(local.edges.len(), 3);
-        assert!(local.edges.iter().all(|edge| edge.source == edge.target));
+        assert!(local.edges.is_empty());
         std::fs::remove_dir_all(root).unwrap();
     }
 
