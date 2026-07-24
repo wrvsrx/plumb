@@ -6,6 +6,7 @@
     graph: null,
     graphView: null,
     renderedNodes: [],
+    labelBounds: [],
     current: config.current || new URLSearchParams(location.search).get('current'),
     hovered: null,
     local: Boolean(config.current || new URLSearchParams(location.search).get('current')),
@@ -71,6 +72,7 @@
       byId.get(edge.source).degree += 1;
       byId.get(edge.target).degree += 1;
     });
+    nodes.sort((left, right) => right.degree - left.degree || left.title.localeCompare(right.title));
     const hubs = nodes
       .slice()
       .sort((left, right) => right.degree - left.degree || left.title.localeCompare(right.title))
@@ -115,6 +117,7 @@
       .nodeLabel(() => '')
       .nodeCanvasObjectMode(() => 'after')
       .nodeCanvasObject(drawNodeLabel)
+      .onRenderFramePre(() => { state.labelBounds = []; })
       .linkColor(linkColor)
       .linkWidth(linkWidth)
       .linkDirectionalArrowLength((link) => link.kind === 'task-depends' ? 4 : 0)
@@ -159,6 +162,18 @@
     const width = context.measureText(node.title).width;
     const x = node.x - width / 2 - padding;
     const y = node.y + 7 / globalScale;
+    const bounds = {
+      left: x - padding,
+      right: x + width + padding * 3,
+      top: y - padding,
+      bottom: y + fontSize + padding * 3,
+    };
+    const required = node.id === state.current || node.id === state.hovered || state.query;
+    if (!required && state.labelBounds.some((other) =>
+      bounds.left < other.right && bounds.right > other.left &&
+      bounds.top < other.bottom && bounds.bottom > other.top
+    )) return;
+    state.labelBounds.push(bounds);
     context.fillStyle = 'rgba(247, 247, 245, 0.92)';
     context.fillRect(x, y, width + padding * 2, fontSize + padding * 2);
     context.fillStyle = '#202124';
