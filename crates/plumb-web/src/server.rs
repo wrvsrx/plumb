@@ -383,7 +383,13 @@ fn spawn_watcher(state: AppState) {
         let root = state.workspace.read().await.root().to_path_buf();
         let (sender, mut receiver) = mpsc::unbounded_channel();
         let mut watcher = match notify::recommended_watcher(move |event| {
-            let _ = sender.send(event);
+            match event {
+                Ok(event) if watch_event_affects_workspace(&event) => {
+                    let _ = sender.send(());
+                }
+                Ok(_) => {}
+                Err(error) => eprintln!("plumb graph: workspace watcher failed: {error}"),
+            }
         }) {
             Ok(watcher) => watcher,
             Err(error) => {
@@ -409,6 +415,49 @@ fn spawn_watcher(state: AppState) {
             }
         }
     });
+}
+
+fn watch_event_affects_workspace(event: &notify::Event) -> bool {
+    matches!(
+        event.kind,
+        notify::EventKind::Create(_)
+            | notify::EventKind::Modify(_)
+            | notify::EventKind::Remove(_)
+    ) && event
+        .paths
+        .iter()
+        .any(|path| path.extension().is_some_and(|extension| extension == "plumb"))
+}
+
+#[cfg(test)]
+mod tests {
+    use notify::event::{AccessKind, CreateKind, ModifyKind, RemoveKind};
+    use notify::{Event, EventKind};
+
+    use super::watch_event_affects_workspace;
+
+    #[test]
+    fn workspace_watcher_ignores_reads_and_unrelated_files() {
+        let read = Event::new(EventKind::Access(AccessKind::Read)).add_path("note.plumb".into());
+        let rust = Event::new(EventKind::Modify(ModifyKind::Data(
+            notify::event::DataChange::Any,
+        )))
+        .add_path("main.rs".into());
+
+        assert!(!watch_event_affects_workspace(&read));
+        assert!(!watch_event_affects_workspace(&rust));
+    }
+
+    #[test]
+    fn workspace_watcher_accepts_plumb_content_changes() {
+        let events = [
+            Event::new(EventKind::Create(CreateKind::File)).add_path("new.plumb".into()),
+            Event::new(EventKind::Modify(ModifyKind::Any)).add_path("note.plumb".into()),
+            Event::new(EventKind::Remove(RemoveKind::File)).add_path("old.plumb".into()),
+        ];
+
+        assert!(events.iter().all(watch_event_affects_workspace));
+    }
 }
 
 pub(crate) fn render_note_page(
