@@ -54,6 +54,10 @@ struct GraphConfig {
     /// Disable workspace file watching.
     #[arg(long)]
     no_watch: bool,
+
+    /// Hide notes whose CEL predicate evaluates to true.
+    #[arg(long, value_name = "EXPR")]
+    exclude: Option<String>,
 }
 
 #[derive(Clone)]
@@ -62,6 +66,7 @@ struct AppState {
     html_cache: Arc<Mutex<HashMap<(String, i64), String>>>,
     changes: broadcast::Sender<u64>,
     current: Option<String>,
+    exclude: Option<Arc<str>>,
 }
 
 pub fn run_graph_cli(args: impl IntoIterator<Item = OsString>) -> ExitCode {
@@ -93,6 +98,7 @@ async fn run(config: GraphConfig) -> Result<(), String> {
         .root
         .unwrap_or(std::env::current_dir().map_err(|error| error.to_string())?);
     let workspace = WebWorkspace::load(&root)?;
+    workspace.graph_excluding(&GraphQuery::default(), config.exclude.as_deref())?;
     let current = config.current.as_ref().and_then(|path| {
         let path = if path.is_absolute() {
             path.clone()
@@ -107,6 +113,7 @@ async fn run(config: GraphConfig) -> Result<(), String> {
         html_cache: Arc::new(Mutex::new(HashMap::new())),
         changes,
         current,
+        exclude: config.exclude.map(Arc::from),
     };
     if !config.no_watch {
         spawn_watcher(state.clone());
@@ -172,7 +179,15 @@ async fn graph(State(state): State<AppState>, RawQuery(raw_query): RawQuery) -> 
         Ok(query) => query,
         Err(error) => return (StatusCode::BAD_REQUEST, error).into_response(),
     };
-    Json(state.workspace.read().await.graph(&query)).into_response()
+    match state
+        .workspace
+        .read()
+        .await
+        .graph_excluding(&query, state.exclude.as_deref())
+    {
+        Ok(graph) => Json(graph).into_response(),
+        Err(error) => (StatusCode::INTERNAL_SERVER_ERROR, error).into_response(),
+    }
 }
 
 fn parse_graph_query(raw: &str) -> Result<GraphQuery, String> {
@@ -382,14 +397,12 @@ fn spawn_watcher(state: AppState) {
     tokio::spawn(async move {
         let root = state.workspace.read().await.root().to_path_buf();
         let (sender, mut receiver) = mpsc::unbounded_channel();
-        let mut watcher = match notify::recommended_watcher(move |event| {
-            match event {
-                Ok(event) if watch_event_affects_workspace(&event) => {
-                    let _ = sender.send(());
-                }
-                Ok(_) => {}
-                Err(error) => eprintln!("plumb graph: workspace watcher failed: {error}"),
+        let mut watcher = match notify::recommended_watcher(move |event| match event {
+            Ok(event) if watch_event_affects_workspace(&event) => {
+                let _ = sender.send(());
             }
+            Ok(_) => {}
+            Err(error) => eprintln!("plumb graph: workspace watcher failed: {error}"),
         }) {
             Ok(watcher) => watcher,
             Err(error) => {
@@ -407,6 +420,12 @@ fn spawn_watcher(state: AppState) {
             let revision = state.workspace.read().await.revision() + 1;
             match WebWorkspace::load_with_revision(&root, revision) {
                 Ok(workspace) => {
+                    if let Err(error) =
+                        workspace.graph_excluding(&GraphQuery::default(), state.exclude.as_deref())
+                    {
+                        eprintln!("plumb graph: cannot apply graph exclusion: {error}");
+                        continue;
+                    }
                     *state.workspace.write().await = workspace;
                     state.html_cache.lock().await.clear();
                     let _ = state.changes.send(revision);
@@ -420,13 +439,11 @@ fn spawn_watcher(state: AppState) {
 fn watch_event_affects_workspace(event: &notify::Event) -> bool {
     matches!(
         event.kind,
-        notify::EventKind::Create(_)
-            | notify::EventKind::Modify(_)
-            | notify::EventKind::Remove(_)
-    ) && event
-        .paths
-        .iter()
-        .any(|path| path.extension().is_some_and(|extension| extension == "plumb"))
+        notify::EventKind::Create(_) | notify::EventKind::Modify(_) | notify::EventKind::Remove(_)
+    ) && event.paths.iter().any(|path| {
+        path.extension()
+            .is_some_and(|extension| extension == "plumb")
+    })
 }
 
 #[cfg(test)]

@@ -125,6 +125,11 @@ fn builds_and_serves_the_workspace_graph_with_rendered_notes() {
     )
     .unwrap();
     std::fs::write(root.join("b.plumb"), "`#{#beta} Beta\n").unwrap();
+    std::fs::write(
+        root.join("hidden.plumb"),
+        "Hidden index. `->[Alpha]{to=\"a.plumb\"}.\n",
+    )
+    .unwrap();
 
     let built = Command::new(env!("CARGO_BIN_EXE_plumb"))
         .args(["site", "build", "--root"])
@@ -145,6 +150,7 @@ fn builds_and_serves_the_workspace_graph_with_rendered_notes() {
         .args(["graph", "--root"])
         .arg(&root)
         .arg("--no-open")
+        .args(["--exclude", "path == 'hidden.plumb'"])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()

@@ -33,6 +33,9 @@ diagnostic 时不输出内容并返回成功。
 `[plumb graph --root DIR] 启动只监听 `[127.0.0.1] 的本地只读 Web server，选择随机可用 port 并
 打开浏览器。`[--current path.plumb] 初始选择一个 note；`[--no-open] 不自动打开浏览器，`[--port]
 可以指定 port。server 递归扫描 workspace、监听变化并通过 SSE 刷新 graph 与 revision cache。
+`[--exclude EXPR] 使用与 `[plumb note --query] 相同的 note CEL fields 隐藏 predicate 为 true 的 node
+及其 connections，例如 `[--exclude 'path in ["closed.plumb", "diary.plumb"]']。过滤发生在 graph
+projection 阶段，因此隐藏 node 不参与 degree、local traversal 或 force layout。
 
 浏览器提供 workspace/local graph、incoming/outgoing direction、depth、edge-kind filters、search、
 pan、zoom、node selection 与 note preview。edge 覆盖 named Link、Autolink 和 task `[prev]/[depends]；

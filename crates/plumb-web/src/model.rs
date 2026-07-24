@@ -247,7 +247,47 @@ impl WebWorkspace {
     }
 
     pub fn graph(&self, query: &GraphQuery) -> GraphSnapshot {
+        self.graph_with_excluded(query, &BTreeSet::new())
+    }
+
+    pub fn graph_excluding(
+        &self,
+        query: &GraphQuery,
+        predicate: Option<&str>,
+    ) -> Result<GraphSnapshot, String> {
+        let excluded = match predicate {
+            Some(predicate) => self
+                .workspace
+                .search_records_filtered(
+                    &self.root,
+                    Some(SearchRecordKind::Note),
+                    "",
+                    usize::MAX,
+                    Local::now().fixed_offset(),
+                    Some(predicate),
+                )?
+                .items
+                .into_iter()
+                .filter_map(|record| self.document_ids.get(&record.path).cloned())
+                .collect(),
+            None => BTreeSet::new(),
+        };
+        Ok(self.graph_with_excluded(query, &excluded))
+    }
+
+    fn graph_with_excluded(
+        &self,
+        query: &GraphQuery,
+        excluded: &BTreeSet<String>,
+    ) -> GraphSnapshot {
         let (mut nodes, mut edges) = self.full_graph();
+        nodes.retain(|id, _| !excluded.contains(id));
+        edges.retain(|edge| nodes.contains_key(&edge.source) && nodes.contains_key(&edge.target));
+        let connected = edges
+            .iter()
+            .flat_map(|edge| [&edge.source, &edge.target])
+            .collect::<BTreeSet<_>>();
+        nodes.retain(|id, node| !node.unresolved || connected.contains(id));
         if !query.kinds.is_empty() {
             let kinds = query
                 .kinds
@@ -604,6 +644,22 @@ mod tests {
         });
         assert_eq!(local.nodes.len(), 1);
         assert!(local.edges.is_empty());
+
+        let filtered = workspace
+            .graph_excluding(&GraphQuery::default(), Some("path == 'a.plumb'"))
+            .unwrap();
+        assert!(filtered
+            .nodes
+            .iter()
+            .all(|node| node.path.as_deref() != Some("a.plumb")));
+        assert!(filtered.edges.iter().all(|edge| {
+            filtered.nodes.iter().any(|node| node.id == edge.source)
+                && filtered.nodes.iter().any(|node| node.id == edge.target)
+        }));
+        let error = workspace
+            .graph_excluding(&GraphQuery::default(), Some("path"))
+            .unwrap_err();
+        assert!(error.contains("must return bool"), "{error}");
         std::fs::remove_dir_all(root).unwrap();
     }
 
