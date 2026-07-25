@@ -127,6 +127,11 @@
       return current;
     });
     if (Array.from(previousEdges.values()).some((matches) => matches.length > 0)) topologyChanged = true;
+    const directions = new Set(edges.map((edge) => `${endpointId(edge.source)}\u0000${endpointId(edge.target)}`));
+    edges.forEach((edge) => {
+      const reverse = `${endpointId(edge.target)}\u0000${endpointId(edge.source)}`;
+      edge.curvature = directions.has(reverse) ? 0.12 : 0;
+    });
     return { nodes, edges, topologyChanged };
   }
 
@@ -164,8 +169,10 @@
       .onRenderFramePre(() => { state.labelBounds = []; })
       .linkColor(linkColor)
       .linkWidth(linkWidth)
-      .linkDirectionalArrowLength((link) => link.kind === 'task-depends' ? 4 : 0)
-      .linkDirectionalArrowColor(() => '#d94b3d')
+      .linkCurvature('curvature')
+      .linkDirectionalArrowLength((link) => link.kind === 'task-depends' ? 4 : 3)
+      .linkDirectionalArrowRelPos(0.68)
+      .linkDirectionalArrowColor(linkColor)
       .graphData({ nodes, links: edges });
     state.graphConfigured = true;
     state.graphView.d3Force('charge').strength(nodes.length > 250 ? -45 : -85);
@@ -233,7 +240,8 @@
       .nodeColor(nodeColor)
       .nodeCanvasObject(drawNodeLabel)
       .linkColor(linkColor)
-      .linkWidth(linkWidth);
+      .linkWidth(linkWidth)
+      .linkDirectionalArrowColor(linkColor);
   }
 
   function handleNodeHover(node) {
