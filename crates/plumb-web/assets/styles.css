@@ -137,6 +137,12 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
 .task-fields dt, .task-fields dd { margin: 0; padding: 9px 0; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
 .task-fields dt { color: var(--muted); font-size: 13px; }
 .task-fields dd { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
+.notification {
+  position: fixed; right: 18px; bottom: 18px; z-index: 20; max-width: min(440px, calc(100vw - 36px));
+  padding: 10px 14px; border: 1px solid #276b45; border-radius: 4px; background: #edf7f0;
+  color: #214c32; box-shadow: 0 4px 18px rgba(32, 33, 36, .16);
+}
+.notification.error { border-color: var(--red); background: #fff0ed; color: #8b2f25; }
 
 .note-page { min-height: 100%; height: auto; overflow: auto; }
 .document-layout { width: min(1180px, calc(100% - 40px)); margin: 38px auto 80px; display: grid; grid-template-columns: minmax(0, 1fr) 260px; gap: 56px; }

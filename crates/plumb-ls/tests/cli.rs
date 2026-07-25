@@ -260,6 +260,7 @@ fn builds_and_serves_the_workspace_site_with_notes_and_tasks() {
     let task = &tasks["tasks"][0];
     assert_eq!(task["title"], "Ship release");
     assert_eq!(task["state"], "open");
+    assert!(task["revision"].is_string());
     let action_path = format!(
         "/api/task/{}/ship/complete",
         task["documentId"].as_str().unwrap()

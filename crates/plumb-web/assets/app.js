@@ -41,6 +41,16 @@
   const taskList = document.getElementById('task-list');
   const taskEmpty = document.getElementById('task-empty');
   const taskPanel = document.getElementById('task-panel');
+  const notification = document.getElementById('notification');
+  let notificationTimer;
+
+  function notify(message, error = false) {
+    clearTimeout(notificationTimer);
+    notification.textContent = message;
+    notification.classList.toggle('error', error);
+    notification.hidden = false;
+    notificationTimer = setTimeout(() => { notification.hidden = true; }, error ? 8000 : 4000);
+  }
 
   function selectedKinds() {
     return Array.from(document.querySelectorAll('.filters input[value]:checked')).map((input) => input.value);
@@ -522,9 +532,10 @@
       if (!response.ok) throw new Error(await response.text());
       state.tasks = await response.json();
       renderTasks();
+      notify(`${verb}d task.`);
     } catch (error) {
-      clearTaskDetail('Cannot update task', String(error));
       await loadTasks();
+      notify(String(error), true);
     }
   }
 

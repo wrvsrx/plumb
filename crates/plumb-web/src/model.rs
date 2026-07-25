@@ -102,7 +102,7 @@ pub struct WebTask {
     pub document_id: String,
     pub title: String,
     pub path: String,
-    pub revision: i64,
+    pub revision: String,
     pub id: Option<String>,
     pub state: String,
     pub created: Option<String>,
@@ -292,7 +292,7 @@ impl WebWorkspace {
                     document_id,
                     title: record.title,
                     path: record.relative_path,
-                    revision: record.revision,
+                    revision: record.revision.to_string(),
                     id: record.id,
                     state: state.to_string(),
                     created: task.created.as_ref().map(|field| field.value.clone()),
@@ -321,7 +321,7 @@ impl WebWorkspace {
         &self,
         document_id: &str,
         task_id: &str,
-        revision: i64,
+        revision: &str,
         status: TaskStatus,
     ) -> Result<(), String> {
         let path = self
@@ -333,7 +333,7 @@ impl WebWorkspace {
             .find(|entry| entry.path == path)
             .filter(|entry| entry.current.is_some())
             .ok_or_else(|| "task document is invalid".to_string())?;
-        if entry.revision != revision {
+        if entry.revision.to_string() != revision {
             return Err("task document changed; refresh before retrying".to_string());
         }
         let disk_source = std::fs::read_to_string(path)
@@ -859,7 +859,7 @@ mod tests {
             .set_task_status(
                 &task.document_id,
                 task.id.as_deref().unwrap(),
-                task.revision,
+                &task.revision,
                 TaskStatus::Done,
             )
             .unwrap();

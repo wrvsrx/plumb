@@ -183,7 +183,7 @@ async fn tasks(State(state): State<AppState>) -> Response {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct TaskActionRequest {
-    revision: i64,
+    revision: String,
 }
 
 async fn update_task(
@@ -206,8 +206,11 @@ async fn update_task(
     let (root, revision) = {
         let workspace = state.workspace.read().await;
         if let Err(error) =
-            workspace.set_task_status(&document_id, &task_id, request.revision, status)
+            workspace.set_task_status(&document_id, &task_id, &request.revision, status)
         {
+            eprintln!(
+                "plumb site serve: task {action} rejected for {document_id}#{task_id}: {error}"
+            );
             return (StatusCode::CONFLICT, error).into_response();
         }
         (workspace.root().to_path_buf(), workspace.revision() + 1)
@@ -220,6 +223,7 @@ async fn update_task(
     *state.workspace.write().await = refreshed;
     state.html_cache.lock().await.clear();
     let _ = state.changes.send(revision);
+    eprintln!("plumb site serve: task {action} completed for {document_id}#{task_id}");
     Json(tasks).into_response()
 }
 
