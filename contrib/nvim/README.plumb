@@ -13,7 +13,7 @@ modules 的调用接口。
 
 `{language=lua}
   require('plumb.codelens').setup({ picker = 'snacks' })
-  require('plumb.graph').setup()
+  require('plumb.web').setup()
 
   vim.keymap.set('n', '<leader>pn', function()
     require('plumb.search').search_notes()
@@ -27,12 +27,12 @@ modules 要求 Neovim 0.12。`[plumb.search] 还要求 attached plumb LSP 声明
 接受 picker adapter，并负责 debounce、request cancellation、stale-result suppression、locations 和
 incomplete-result state。
 
-`# Workspace graph
+`# Workspace Web app
 
-`[:PlumbGraph] starts `[plumb graph] for the attached plumb client's workspace and selects the current
-plumb document in the browser. `[:PlumbGraph!] opens the whole workspace graph without a current-note
+`[:PlumbWeb] starts `[plumb site serve] for the attached plumb client's workspace and selects the current
+plumb document in the browser. `[:PlumbWeb!] opens the whole workspace without a current-note
 selection. The browser process is independent of LSP; the integration only discovers the workspace root
-and starts the unified binary. Lua callers can use `[require('plumb.graph').open({ root = path })] directly.
+and starts the unified binary. Lua callers can use `[require('plumb.web').open({ root = path })] directly.
 
 `# Reference CodeLens
 

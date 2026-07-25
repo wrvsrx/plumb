@@ -24,15 +24,15 @@ vim.system = function(command, opts, callback)
   return { pid = 1 }
 end
 
-local graph = require('plumb.graph')
-graph.setup({ command = repo .. '/target/debug/plumb' })
-vim.cmd('PlumbGraph')
+local web = require('plumb.web')
+web.setup({ command = repo .. '/target/debug/plumb' })
+vim.cmd('PlumbWeb')
 assert(vim.deep_equal(commands[1], {
-  repo .. '/target/debug/plumb', 'graph', '--root', root, '--current', current,
+  repo .. '/target/debug/plumb', 'site', 'serve', '--root', root, '--current', current,
 }))
-vim.cmd('PlumbGraph!')
+vim.cmd('PlumbWeb!')
 assert(vim.deep_equal(commands[2], {
-  repo .. '/target/debug/plumb', 'graph', '--root', root,
+  repo .. '/target/debug/plumb', 'site', 'serve', '--root', root,
 }))
 
 vim.lsp.get_clients = original_get_clients

@@ -55,9 +55,9 @@ workspace features，应显式将其作为 root，或在其中创建 `[.plumb/]�
 task output 默认是 nested table；`[--flat] 省略 nesting indentation，`[--no-heading] 适合脚本。
 complete/cancel 使用带 revision guard 的 shared operation 修改文件。
 
-`# Graph
+`# Web app
 
-`[plumb graph --root DIR] 启动只监听 `[127.0.0.1] 的本地只读 Web server，并默认打开浏览器。
+`[plumb site serve --root DIR] 启动只监听 `[127.0.0.1] 的本地只读 Web server，并默认打开浏览器。
 `[--current path.plumb] 初始选择一个 note；`[--no-open] 禁止自动打开，`[--port] 指定 port。server
 监听 `[..plumb] 与 `[.ignore] changes，并通过 SSE 更新 graph；ignored document 的内容变化不会发布
 workspace revision。
@@ -69,7 +69,7 @@ unresolved document targets 显示为独立 node。
 `[--exclude EXPR] 使用 note CEL fields 隐藏 predicate 为 true 的 node 及其 connections：
 
 `{language=text}
-  plumb graph --exclude 'path in ["closed.plumb", "diary.plumb"]'
+  plumb site serve --exclude 'path in ["closed.plumb", "diary.plumb"]'
 
 `[.ignore] 与 graph CEL 的职责不同：前者阻止 document 进入整个 workspace index；后者保留 document
 的其它工具能力，只从 graph projection 移除 node、degree、local traversal 和 force layout effects。

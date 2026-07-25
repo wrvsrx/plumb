@@ -6,11 +6,13 @@ use clap::{Args, Parser, Subcommand};
 use plumb_workspace::resolve_workspace_root;
 use serde_json::json;
 
-use crate::server::{render_backlinks, render_index, render_note_page, write_assets};
+use crate::server::{
+    render_backlinks, render_index, render_note_page, serve, write_assets, ServeConfig,
+};
 use crate::{render_note_html, GraphQuery, WebTargetMode, WebWorkspace};
 
 #[derive(Debug, Parser)]
-#[command(name = "plumb site", about = "Build a static plumb workspace site")]
+#[command(name = "plumb site", about = "Build or serve a plumb workspace site")]
 struct SiteConfig {
     #[command(subcommand)]
     command: SiteCommand,
@@ -20,6 +22,9 @@ struct SiteConfig {
 enum SiteCommand {
     /// Build a static site containing notes and the workspace graph.
     Build(BuildConfig),
+
+    /// Serve the workspace as a dynamic local Web app.
+    Serve(ServeConfig),
 }
 
 #[derive(Debug, Args)]
@@ -41,9 +46,13 @@ pub fn run_site_cli(args: impl IntoIterator<Item = OsString>) -> ExitCode {
             return ExitCode::from(error.exit_code() as u8);
         }
     };
-    let result = match config.command {
-        SiteCommand::Build(config) => build(config),
-    };
+    match config.command {
+        SiteCommand::Build(config) => exit(build(config)),
+        SiteCommand::Serve(config) => serve(config),
+    }
+}
+
+fn exit(result: Result<(), String>) -> ExitCode {
     match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {

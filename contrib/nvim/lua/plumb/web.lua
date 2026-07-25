@@ -12,7 +12,7 @@ function M.open(opts)
   opts = opts or {}
   local bufnr = opts.bufnr or vim.api.nvim_get_current_buf()
   local root = opts.root or attached_root(bufnr) or vim.fs.root(bufnr, { '.plumb', '.git' }) or vim.fn.getcwd()
-  local command = { opts.command or 'plumb', 'graph', '--root', root }
+  local command = { opts.command or 'plumb', 'site', 'serve', '--root', root }
   if opts.current ~= false then
     local current = vim.api.nvim_buf_get_name(bufnr)
     if current ~= '' and vim.bo[bufnr].filetype == 'plumb' then
@@ -22,7 +22,7 @@ function M.open(opts)
   return vim.system(command, { detach = true }, function(result)
     if result.code ~= 0 then
       vim.schedule(function()
-        local message = result.stderr ~= '' and result.stderr or 'graph process exited unexpectedly'
+        local message = result.stderr ~= '' and result.stderr or 'web process exited unexpectedly'
         vim.notify('plumb: ' .. vim.trim(message), vim.log.levels.ERROR)
       end)
     end
@@ -31,7 +31,7 @@ end
 
 function M.setup(opts)
   opts = opts or {}
-  vim.api.nvim_create_user_command('PlumbGraph', function(command)
+  vim.api.nvim_create_user_command('PlumbWeb', function(command)
     M.open({
       command = opts.command,
       root = opts.root,
@@ -39,7 +39,7 @@ function M.setup(opts)
     })
   end, {
     bang = true,
-    desc = 'Open the plumb workspace graph; use ! to omit the current note',
+    desc = 'Open the plumb workspace Web app; use ! to omit the current note',
   })
 end
 

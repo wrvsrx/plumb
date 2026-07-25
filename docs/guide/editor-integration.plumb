@@ -39,7 +39,7 @@ directory 加入 `[runtimepath]。最小配置是：
   }
 
   require('plumb.codelens').setup({ picker = 'quickfix' })
-  require('plumb.graph').setup()
+  require('plumb.web').setup()
   vim.lsp.enable('plumb')
 
 Linux 上 Neovim 默认可能不启用 dynamic file watching；上述 capability 允许 client 注册
@@ -108,13 +108,13 @@ metadata 与 explicit anchors 的 CodeLens 返回 `[plumb.showReferences] client
 `[plumb.codelens.setup()] 将 locations 显示在 quickfix；`[picker = 'snacks'] 使用 Snacks picker，并在
 Snacks 不可用时回退 quickfix。
 
-`# Workspace graph
+`# Workspace Web app
 
-`[require('plumb.graph').setup()] 注册 `[:PlumbGraph]。普通调用使用 attached LSP workspace，并在
-browser 中选择 current note；`[:PlumbGraph!] 打开整个 workspace。Lua caller 可以显式传入 root：
+`[require('plumb.web').setup()] 注册 `[:PlumbWeb]。普通调用使用 attached LSP workspace，并在
+browser 中选择 current note；`[:PlumbWeb!] 打开整个 workspace。Lua caller 可以显式传入 root：
 
 `{language=lua}
-  require('plumb.graph').open({ root = '/path/to/workspace' })
+  require('plumb.web').open({ root = '/path/to/workspace' })
 
 Web viewer 独立于 LSP process；Neovim module 只负责 root discovery 与启动统一 `[plumb] binary。
 

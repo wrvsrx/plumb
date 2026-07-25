@@ -13,7 +13,7 @@ fn exposes_the_unified_command_surface() {
     assert!(help.status.success());
     let help = String::from_utf8(help.stdout).unwrap();
     for command in [
-        "check", "fmt", "export", "graph", "import", "note", "site", "task", "lsp",
+        "check", "fmt", "export", "import", "note", "site", "task", "lsp",
     ] {
         assert!(help.contains(command));
     }
@@ -194,7 +194,7 @@ fn builds_and_serves_the_workspace_graph_with_rendered_notes() {
 
     let port = available_port();
     let mut child = Command::new(env!("CARGO_BIN_EXE_plumb"))
-        .args(["graph", "--root"])
+        .args(["site", "serve", "--root"])
         .arg(&root)
         .arg("--no-open")
         .arg("--port")

@@ -63,7 +63,7 @@ facts。result 包含 items、Location、revision provenance 和 complete；limi
 Location 等内部 invariant 失败使用 InternalError，cancellation 使用 RequestCancelled。initialize response
 的 `[experimental.plumb.search] 声明 method 与 schemaVersion。
 
-client configuration、completion、CodeAction、CodeLens、search 与 graph integration 见
+client configuration、completion、CodeAction、CodeLens、search 与 Web app integration 见
 `->[editor integration 指南]{to="editor-integration.plumb"}。
 
 `# Format

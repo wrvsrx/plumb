@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::ffi::OsString;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -12,7 +11,7 @@ use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{Html, IntoResponse, Response};
 use axum::routing::get;
 use axum::{Json, Router};
-use clap::Parser;
+use clap::Args;
 use notify::{RecursiveMode, Watcher};
 use plumb_workspace::resolve_workspace_root;
 use serde_json::json;
@@ -29,9 +28,8 @@ const STYLES_CSS: &str = include_str!("../assets/styles.css");
 const FORCE_GRAPH_JS: &str = include_str!("../assets/vendor/force-graph.min.js");
 const FORCE_GRAPH_LICENSE: &str = include_str!("../assets/vendor/FORCE-GRAPH-LICENSE.txt");
 
-#[derive(Debug, Parser)]
-#[command(name = "plumb graph", about = "Browse a plumb workspace graph")]
-struct GraphConfig {
+#[derive(Debug, Args)]
+pub(crate) struct ServeConfig {
     /// Workspace root. Defaults to the nearest ancestor containing .plumb/.
     #[arg(long, value_name = "DIR")]
     root: Option<PathBuf>,
@@ -48,7 +46,7 @@ struct GraphConfig {
     #[arg(long, default_value_t = 0)]
     port: u16,
 
-    /// Do not open the graph in the default browser.
+    /// Do not open the Web app in the default browser.
     #[arg(long)]
     no_open: bool,
 
@@ -70,31 +68,24 @@ struct AppState {
     exclude: Option<Arc<str>>,
 }
 
-pub fn run_graph_cli(args: impl IntoIterator<Item = OsString>) -> ExitCode {
-    let config = match GraphConfig::try_parse_from(args) {
-        Ok(config) => config,
-        Err(error) => {
-            let _ = error.print();
-            return ExitCode::from(error.exit_code() as u8);
-        }
-    };
+pub(crate) fn serve(config: ServeConfig) -> ExitCode {
     let runtime = match tokio::runtime::Runtime::new() {
         Ok(runtime) => runtime,
         Err(error) => {
-            eprintln!("plumb graph: cannot start runtime: {error}");
+            eprintln!("plumb site serve: cannot start runtime: {error}");
             return ExitCode::FAILURE;
         }
     };
     match runtime.block_on(run(config)) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            eprintln!("plumb graph: {error}");
+            eprintln!("plumb site serve: {error}");
             ExitCode::FAILURE
         }
     }
 }
 
-async fn run(config: GraphConfig) -> Result<(), String> {
+async fn run(config: ServeConfig) -> Result<(), String> {
     let root = resolve_workspace_root(config.root.as_deref())?;
     let workspace = WebWorkspace::load(&root)?;
     workspace.graph_excluding(&GraphQuery::default(), config.exclude.as_deref())?;
@@ -128,7 +119,7 @@ async fn run(config: GraphConfig) -> Result<(), String> {
     println!("{url}");
     if !config.no_open {
         if let Err(error) = webbrowser::open(&url) {
-            eprintln!("plumb graph: cannot open browser: {error}");
+            eprintln!("plumb site serve: cannot open browser: {error}");
         }
     }
     axum::serve(listener, router)
@@ -401,16 +392,16 @@ fn spawn_watcher(state: AppState) {
                 let _ = sender.send(());
             }
             Ok(_) => {}
-            Err(error) => eprintln!("plumb graph: workspace watcher failed: {error}"),
+            Err(error) => eprintln!("plumb site serve: workspace watcher failed: {error}"),
         }) {
             Ok(watcher) => watcher,
             Err(error) => {
-                eprintln!("plumb graph: cannot create workspace watcher: {error}");
+                eprintln!("plumb site serve: cannot create workspace watcher: {error}");
                 return;
             }
         };
         if let Err(error) = watcher.watch(&root, RecursiveMode::Recursive) {
-            eprintln!("plumb graph: cannot watch workspace: {error}");
+            eprintln!("plumb site serve: cannot watch workspace: {error}");
             return;
         }
         while receiver.recv().await.is_some() {
@@ -422,7 +413,7 @@ fn spawn_watcher(state: AppState) {
                     if let Err(error) =
                         workspace.graph_excluding(&GraphQuery::default(), state.exclude.as_deref())
                     {
-                        eprintln!("plumb graph: cannot apply graph exclusion: {error}");
+                        eprintln!("plumb site serve: cannot apply graph exclusion: {error}");
                         continue;
                     }
                     if state.workspace.read().await.has_same_documents(&workspace) {
@@ -432,7 +423,7 @@ fn spawn_watcher(state: AppState) {
                     state.html_cache.lock().await.clear();
                     let _ = state.changes.send(revision);
                 }
-                Err(error) => eprintln!("plumb graph: cannot refresh workspace: {error}"),
+                Err(error) => eprintln!("plumb site serve: cannot refresh workspace: {error}"),
             }
         }
     });
