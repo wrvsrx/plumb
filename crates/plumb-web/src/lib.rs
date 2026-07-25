@@ -5,7 +5,7 @@ mod site;
 
 pub use model::{
     GraphDirection, GraphEdge, GraphNode, GraphQuery, GraphSnapshot, NoteDocument, ResourceRecord,
-    SourceLocation, WebWorkspace,
+    SourceLocation, TaskSnapshot, WebTask, WebWorkspace,
 };
 pub use pandoc::{adapt_pandoc_targets, render_note_html, WebTargetMode};
 pub use site::run_site_cli;

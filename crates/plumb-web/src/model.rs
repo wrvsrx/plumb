@@ -2,10 +2,11 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 
-use chrono::Local;
-use plumb_extensions::LinkSpelling;
+use chrono::{Local, SecondsFormat};
+use plumb_extensions::{LinkSpelling, TaskState, TaskStatus};
 use plumb_workspace::{
-    normalize, scan_workspace_files, ResolvedTarget, SearchRecordKind, Workspace,
+    normalize, scan_workspace_files, ResolvedTarget, SearchRecordKind, TaskEditError, TextEdit,
+    Workspace,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -92,6 +93,34 @@ pub struct NoteDocument {
     pub location: SourceLocation,
     pub source: String,
     pub backlinks: Vec<SourceLocation>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WebTask {
+    pub key: String,
+    pub document_id: String,
+    pub title: String,
+    pub path: String,
+    pub revision: i64,
+    pub id: Option<String>,
+    pub state: String,
+    pub created: Option<String>,
+    pub due: Option<String>,
+    pub wait: Option<String>,
+    pub recur: Option<String>,
+    pub depends: Vec<String>,
+    pub blocked: bool,
+    pub actionable: bool,
+    pub depth: usize,
+    pub location: SourceLocation,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskSnapshot {
+    pub revision: u64,
+    pub tasks: Vec<WebTask>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -221,6 +250,112 @@ impl WebWorkspace {
 
     pub fn resources(&self) -> impl Iterator<Item = &ResourceRecord> {
         self.resources.values()
+    }
+
+    pub fn tasks(&self) -> TaskSnapshot {
+        let now = Local::now().fixed_offset();
+        let records = self.workspace.search_records(
+            &self.root,
+            Some(SearchRecordKind::Task),
+            "",
+            usize::MAX,
+            now,
+        );
+        let tasks = records
+            .items
+            .into_iter()
+            .filter_map(|record| {
+                let document_id = self.document_id(&record.path)?.to_string();
+                let state = match record.task_state? {
+                    TaskState::Open => "open",
+                    TaskState::Done => "done",
+                    TaskState::Canceled => "canceled",
+                    TaskState::Conflicted => "conflicted",
+                };
+                let task = self
+                    .workspace
+                    .documents()
+                    .find(|entry| entry.path == record.path)?
+                    .current
+                    .as_ref()?
+                    .output
+                    .tasks
+                    .tasks
+                    .iter()
+                    .find(|task| task.selection_range == record.range)?;
+                let key = record.id.as_ref().map_or_else(
+                    || format!("{document_id}:{}", record.range.start),
+                    |id| format!("{document_id}:{id}"),
+                );
+                Some(WebTask {
+                    key,
+                    document_id,
+                    title: record.title,
+                    path: record.relative_path,
+                    revision: record.revision,
+                    id: record.id,
+                    state: state.to_string(),
+                    created: task.created.as_ref().map(|field| field.value.clone()),
+                    due: task.due.as_ref().map(|field| field.value.clone()),
+                    wait: task.wait.as_ref().map(|field| field.value.clone()),
+                    recur: task.recur.as_ref().map(|field| field.value.clone()),
+                    depends: task
+                        .depends
+                        .iter()
+                        .map(|item| item.source.clone())
+                        .collect(),
+                    blocked: record.blocked.unwrap_or(false),
+                    actionable: record.actionable.unwrap_or(false),
+                    depth: record.depth.unwrap_or_default(),
+                    location: SourceLocation::new(&self.root, &record.path, record.range),
+                })
+            })
+            .collect();
+        TaskSnapshot {
+            revision: self.revision,
+            tasks,
+        }
+    }
+
+    pub fn set_task_status(
+        &self,
+        document_id: &str,
+        task_id: &str,
+        revision: i64,
+        status: TaskStatus,
+    ) -> Result<(), String> {
+        let path = self
+            .document_path(document_id)
+            .ok_or_else(|| "unknown task document".to_string())?;
+        let entry = self
+            .workspace
+            .documents()
+            .find(|entry| entry.path == path)
+            .filter(|entry| entry.current.is_some())
+            .ok_or_else(|| "task document is invalid".to_string())?;
+        if entry.revision != revision {
+            return Err("task document changed; refresh before retrying".to_string());
+        }
+        let disk_source = std::fs::read_to_string(path)
+            .map_err(|error| format!("cannot read {}: {error}", path.display()))?;
+        if disk_source != entry.parsed.source {
+            return Err("task document changed on disk; refresh before retrying".to_string());
+        }
+        let timestamp = Local::now()
+            .fixed_offset()
+            .to_rfc3339_opts(SecondsFormat::Secs, false);
+        let edit = self
+            .workspace
+            .set_task_status_by_id(path, task_id, status, &timestamp)
+            .map_err(task_edit_error)?;
+        let document = edit
+            .document_changes
+            .into_iter()
+            .find(|document| document.path == path)
+            .ok_or_else(|| "task operation produced no document edit".to_string())?;
+        let updated = apply_text_edits(disk_source, document.edits)?;
+        std::fs::write(path, updated)
+            .map_err(|error| format!("cannot write {}: {error}", path.display()))
     }
 
     pub fn has_same_documents(&self, other: &Self) -> bool {
@@ -576,6 +711,35 @@ fn display_path(root: &Path, path: &Path) -> String {
         .replace(std::path::MAIN_SEPARATOR, "/")
 }
 
+fn apply_text_edits(mut source: String, mut edits: Vec<TextEdit>) -> Result<String, String> {
+    edits.sort_by_key(|edit| std::cmp::Reverse(edit.range.start));
+    let mut previous_start = source.len();
+    for edit in edits {
+        if edit.range.end > previous_start || edit.range.end > source.len() {
+            return Err("task edits overlap or fall outside the document".to_string());
+        }
+        previous_start = edit.range.start;
+        source.replace_range(edit.range, &edit.new_text);
+    }
+    Ok(source)
+}
+
+fn task_edit_error(error: TaskEditError) -> String {
+    match error {
+        TaskEditError::StaleOrInvalidDocument => "task document is invalid",
+        TaskEditError::TaskNotFound => "task id was not found",
+        TaskEditError::TaskAlreadyClosed => "task is already closed",
+        TaskEditError::TaskBlocked => "task is blocked by open dependencies",
+        TaskEditError::InvalidRecurrence => "task recurrence is invalid",
+        TaskEditError::InvalidTimestamp => "operation timestamp is invalid",
+        TaskEditError::ListItemNotFound => "task list item was not found",
+        TaskEditError::TaskAlreadyExists => "the list item is already a task",
+        TaskEditError::CreatedAlreadyExists => "the task already has a created timestamp",
+        TaskEditError::GeneratedInvalid => "the generated task edit is invalid",
+    }
+    .to_string()
+}
+
 fn opaque_id(prefix: &str, value: &str) -> String {
     let digest = Sha256::digest(value.as_bytes());
     let mut id = String::with_capacity(prefix.len() + 24);
@@ -671,6 +835,36 @@ mod tests {
         let graph = web.graph(&GraphQuery::default());
         assert_eq!(graph.revision, 4);
         assert_eq!(graph.nodes[0].title, "Open buffer title");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn task_snapshots_expose_workspace_facts_and_status_edits() {
+        let root = temp_dir();
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join("tasks.plumb");
+        std::fs::write(
+            &path,
+            "`-{.task #ship created=\"2026-07-25T10:00:00+08:00\" due=\"2026-07-26T10:00:00+08:00\"} Ship release\n",
+        )
+        .unwrap();
+        let workspace = WebWorkspace::load(&root).unwrap();
+        let snapshot = workspace.tasks();
+        assert_eq!(snapshot.tasks.len(), 1);
+        let task = &snapshot.tasks[0];
+        assert_eq!(task.id.as_deref(), Some("ship"));
+        assert_eq!(task.state, "open");
+        assert!(task.actionable);
+        workspace
+            .set_task_status(
+                &task.document_id,
+                task.id.as_deref().unwrap(),
+                task.revision,
+                TaskStatus::Done,
+            )
+            .unwrap();
+        let updated = std::fs::read_to_string(&path).unwrap();
+        assert!(updated.contains("done=\"2026-"), "{updated}");
         std::fs::remove_dir_all(root).unwrap();
     }
 

@@ -14,6 +14,11 @@
     local: Boolean(config.current || new URLSearchParams(location.search).get('current')),
     query: '',
     searchTimer: null,
+    view: new URLSearchParams(location.search).get('view') === 'tasks' ? 'tasks' : 'graph',
+    tasks: null,
+    taskQuery: '',
+    taskState: 'open',
+    selectedTask: null,
   };
 
   const graphElement = document.getElementById('graph');
@@ -26,6 +31,16 @@
   const allLabels = document.getElementById('all-labels');
   const globalMode = document.getElementById('global-mode');
   const localMode = document.getElementById('local-mode');
+  const graphWorkspace = document.querySelector('.workspace');
+  const taskWorkspace = document.querySelector('.task-workspace');
+  const graphViewButton = document.getElementById('graph-view');
+  const tasksViewButton = document.getElementById('tasks-view');
+  const taskSearch = document.getElementById('task-search');
+  const taskState = document.getElementById('task-state');
+  const taskSummary = document.getElementById('task-summary');
+  const taskList = document.getElementById('task-list');
+  const taskEmpty = document.getElementById('task-empty');
+  const taskPanel = document.getElementById('task-panel');
 
   function selectedKinds() {
     return Array.from(document.querySelectorAll('.filters input[value]:checked')).map((input) => input.value);
@@ -343,7 +358,7 @@
 
   async function refreshWorkspace() {
     const current = state.current;
-    await loadGraph();
+    await Promise.all([loadGraph(), config.tasksUrl ? loadTasks() : Promise.resolve()]);
     if (!current || state.current !== current) return;
     const node = state.graph?.nodes.find((candidate) => candidate.id === current);
     if (node) {
@@ -353,11 +368,181 @@
     panel.innerHTML = '<div class="note-empty"><h1>Note unavailable</h1><p>This note is no longer in the workspace.</p></div>';
   }
 
+  function showView(view) {
+    state.view = view;
+    const graphActive = view === 'graph';
+    graphWorkspace.hidden = !graphActive;
+    taskWorkspace.hidden = graphActive;
+    document.querySelectorAll('.graph-control, .graph-filters').forEach((element) => { element.hidden = !graphActive; });
+    document.querySelectorAll('.task-control, .task-filters').forEach((element) => { element.hidden = graphActive; });
+    graphViewButton.classList.toggle('active', graphActive);
+    tasksViewButton.classList.toggle('active', !graphActive);
+    graphViewButton.setAttribute('aria-selected', String(graphActive));
+    tasksViewButton.setAttribute('aria-selected', String(!graphActive));
+    if (graphActive) {
+      state.graphView?.width(graphElement.clientWidth).height(graphElement.clientHeight);
+    } else if (!state.tasks) {
+      loadTasks();
+    }
+  }
+
+  async function loadTasks() {
+    if (!config.tasksUrl) return;
+    try {
+      const response = await fetch(config.tasksUrl, { cache: 'no-store' });
+      if (!response.ok) throw new Error(await response.text());
+      state.tasks = await response.json();
+      renderTasks();
+    } catch (error) {
+      taskSummary.textContent = 'Tasks unavailable';
+      taskPanel.innerHTML = '<div class="note-empty"><h1>Tasks unavailable</h1><p></p></div>';
+      taskPanel.querySelector('p').textContent = String(error);
+    }
+  }
+
+  function filteredTasks() {
+    const query = state.taskQuery.trim().toLocaleLowerCase();
+    return state.tasks.tasks
+      .filter((task) => {
+        if (state.taskState === 'open' && task.state !== 'open') return false;
+        if (state.taskState === 'actionable' && !task.actionable) return false;
+        if (!['all', 'open', 'actionable'].includes(state.taskState) && task.state !== state.taskState) return false;
+        return !query || [task.title, task.id || '', task.path]
+          .some((value) => value.toLocaleLowerCase().includes(query));
+      })
+      .sort((left, right) => {
+        const leftDue = left.due || '9999';
+        const rightDue = right.due || '9999';
+        return leftDue.localeCompare(rightDue) || left.path.localeCompare(right.path) || left.location.start - right.location.start;
+      });
+  }
+
+  function taskStateLabel(task) {
+    if (task.state === 'open' && task.blocked) return 'Blocked';
+    if (task.state === 'open' && !task.actionable) return 'Waiting';
+    return task.state.charAt(0).toUpperCase() + task.state.slice(1);
+  }
+
+  function renderTasks() {
+    if (!state.tasks) return;
+    const tasks = filteredTasks();
+    taskList.replaceChildren();
+    taskEmpty.hidden = tasks.length > 0;
+    taskSummary.textContent = `${tasks.length} of ${state.tasks.tasks.length} tasks`;
+    tasks.forEach((task) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'task-row';
+      button.classList.toggle('selected', task.key === state.selectedTask);
+      button.style.setProperty('--task-depth', Math.min(task.depth, 5));
+      const stateLabel = document.createElement('span');
+      stateLabel.className = `task-state state-${task.state}${task.blocked ? ' blocked' : ''}`;
+      stateLabel.textContent = taskStateLabel(task);
+      const identity = document.createElement('span');
+      identity.className = 'task-identity';
+      const title = document.createElement('strong');
+      title.textContent = task.title || '(untitled task)';
+      const source = document.createElement('small');
+      source.textContent = task.id ? `${task.path}#${task.id}` : task.path;
+      identity.append(title, source);
+      const due = document.createElement('time');
+      due.textContent = task.due ? task.due.slice(0, 10) : 'No due date';
+      if (task.due) due.dateTime = task.due;
+      button.append(stateLabel, identity, due);
+      button.addEventListener('click', () => selectTask(task));
+      taskList.append(button);
+    });
+    if (state.selectedTask) {
+      const selected = state.tasks.tasks.find((task) => task.key === state.selectedTask);
+      if (selected) renderTaskDetail(selected);
+      else clearTaskDetail('Task unavailable', 'This task is no longer in the workspace.');
+    }
+  }
+
+  function selectTask(task) {
+    state.selectedTask = task.key;
+    renderTasks();
+    renderTaskDetail(task);
+  }
+
+  function clearTaskDetail(title, message) {
+    taskPanel.innerHTML = '<div class="note-empty"><h1></h1><p></p></div>';
+    taskPanel.querySelector('h1').textContent = title;
+    taskPanel.querySelector('p').textContent = message;
+  }
+
+  function addTaskField(list, label, value) {
+    if (!value || (Array.isArray(value) && value.length === 0)) return;
+    const term = document.createElement('dt');
+    const detail = document.createElement('dd');
+    term.textContent = label;
+    detail.textContent = Array.isArray(value) ? value.join(', ') : value;
+    list.append(term, detail);
+  }
+
+  function renderTaskDetail(task) {
+    taskPanel.innerHTML = `
+      <article class="task-detail">
+        <header><p class="document-path"></p><h1></h1><span class="task-detail-state"></span></header>
+        <div class="task-actions"><button class="complete-task" type="button">Complete</button><button class="cancel-task" type="button">Cancel</button><button class="open-note" type="button">Open note</button></div>
+        <dl class="task-fields"></dl>
+      </article>`;
+    taskPanel.querySelector('.document-path').textContent = task.id ? `${task.path}#${task.id}` : task.path;
+    taskPanel.querySelector('h1').textContent = task.title || '(untitled task)';
+    const stateLabel = taskPanel.querySelector('.task-detail-state');
+    stateLabel.textContent = taskStateLabel(task);
+    stateLabel.className = `task-detail-state state-${task.state}`;
+    const fields = taskPanel.querySelector('.task-fields');
+    addTaskField(fields, 'Created', task.created);
+    addTaskField(fields, 'Due', task.due);
+    addTaskField(fields, 'Wait', task.wait);
+    addTaskField(fields, 'Recurrence', task.recur);
+    addTaskField(fields, 'Dependencies', task.depends);
+    const mutable = Boolean(config.taskMutations && task.id && task.state === 'open');
+    taskPanel.querySelector('.complete-task').disabled = !mutable || task.blocked;
+    taskPanel.querySelector('.cancel-task').disabled = !mutable;
+    taskPanel.querySelector('.complete-task').addEventListener('click', () => updateTask(task, 'complete'));
+    taskPanel.querySelector('.cancel-task').addEventListener('click', () => updateTask(task, 'cancel'));
+    taskPanel.querySelector('.open-note').addEventListener('click', () => {
+      showView('graph');
+      selectDocument(task.documentId, '');
+    });
+  }
+
+  async function updateTask(task, action) {
+    const verb = action === 'complete' ? 'Complete' : 'Cancel';
+    if (!window.confirm(`${verb} “${task.title}”?`)) return;
+    const url = `${config.taskActionBase}${encodeURIComponent(task.documentId)}/${encodeURIComponent(task.id)}/${action}`;
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ revision: task.revision }),
+      });
+      if (!response.ok) throw new Error(await response.text());
+      state.tasks = await response.json();
+      renderTasks();
+    } catch (error) {
+      clearTaskDetail('Cannot update task', String(error));
+      await loadTasks();
+    }
+  }
+
   search.addEventListener('input', () => {
     state.query = search.value;
     clearTimeout(state.searchTimer);
     state.searchTimer = setTimeout(renderGraph, 140);
   });
+  taskSearch.addEventListener('input', () => {
+    state.taskQuery = taskSearch.value;
+    renderTasks();
+  });
+  taskState.addEventListener('change', () => {
+    state.taskState = taskState.value;
+    renderTasks();
+  });
+  graphViewButton.addEventListener('click', () => showView('graph'));
+  tasksViewButton.addEventListener('click', () => showView('tasks'));
   document.querySelectorAll('.filters input[value]').forEach((input) => input.addEventListener('change', loadGraph));
   allLabels.addEventListener('change', refreshStyles);
   depth.addEventListener('change', loadGraph);
@@ -377,6 +562,8 @@
     const events = new EventSource(config.eventsUrl);
     events.addEventListener('workspace', refreshWorkspace);
   }
+  if (!config.tasksUrl) tasksViewButton.hidden = true;
+  if (state.view === 'tasks' && config.tasksUrl) showView('tasks');
   const initialLoad = setLocal(state.local);
   if (state.current) {
     initialLoad.then(() => {

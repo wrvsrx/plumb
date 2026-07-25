@@ -9,11 +9,13 @@ use axum::extract::{Path as AxumPath, RawQuery, State};
 use axum::http::{header, HeaderValue, StatusCode};
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{Html, IntoResponse, Response};
-use axum::routing::get;
+use axum::routing::{get, post};
 use axum::{Json, Router};
 use clap::Args;
 use notify::{RecursiveMode, Watcher};
+use plumb_extensions::TaskStatus;
 use plumb_workspace::resolve_workspace_root;
+use serde::Deserialize;
 use serde_json::json;
 use tokio::sync::{broadcast, mpsc, Mutex, RwLock};
 use tokio_stream::wrappers::BroadcastStream;
@@ -66,6 +68,7 @@ struct AppState {
     changes: broadcast::Sender<u64>,
     current: Option<String>,
     exclude: Option<Arc<str>>,
+    allow_mutations: bool,
 }
 
 pub(crate) fn serve(config: ServeConfig) -> ExitCode {
@@ -104,6 +107,7 @@ async fn run(config: ServeConfig) -> Result<(), String> {
         changes,
         current,
         exclude: config.exclude.map(Arc::from),
+        allow_mutations: config.host.is_loopback(),
     };
     if !config.no_watch {
         spawn_watcher(state.clone());
@@ -131,6 +135,11 @@ fn router(state: AppState) -> Router {
     Router::new()
         .route("/", get(index))
         .route("/api/graph", get(graph))
+        .route("/api/tasks", get(tasks))
+        .route(
+            "/api/task/{document_id}/{task_id}/{action}",
+            post(update_task),
+        )
         .route("/api/note/{id}", get(note_api))
         .route("/note/{id}", get(note_page))
         .route("/resource/{id}/{name}", get(resource))
@@ -152,6 +161,9 @@ async fn index(State(state): State<AppState>) -> Response {
         "notePageBase": "/note/",
         "notePageSuffix": "",
         "eventsUrl": "/events",
+        "tasksUrl": "/api/tasks",
+        "taskActionBase": "/api/task/",
+        "taskMutations": state.allow_mutations,
         "current": state.current,
     });
     let html = INDEX_HTML
@@ -162,6 +174,53 @@ async fn index(State(state): State<AppState>) -> Response {
             &escape_html_attribute(&config.to_string()),
         );
     secure_html(html)
+}
+
+async fn tasks(State(state): State<AppState>) -> Response {
+    Json(state.workspace.read().await.tasks()).into_response()
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TaskActionRequest {
+    revision: i64,
+}
+
+async fn update_task(
+    State(state): State<AppState>,
+    AxumPath((document_id, task_id, action)): AxumPath<(String, String, String)>,
+    Json(request): Json<TaskActionRequest>,
+) -> Response {
+    if !state.allow_mutations {
+        return (
+            StatusCode::FORBIDDEN,
+            "task mutations are disabled for non-loopback servers",
+        )
+            .into_response();
+    }
+    let status = match action.as_str() {
+        "complete" => TaskStatus::Done,
+        "cancel" => TaskStatus::Canceled,
+        _ => return (StatusCode::NOT_FOUND, "unknown task action").into_response(),
+    };
+    let (root, revision) = {
+        let workspace = state.workspace.read().await;
+        if let Err(error) =
+            workspace.set_task_status(&document_id, &task_id, request.revision, status)
+        {
+            return (StatusCode::CONFLICT, error).into_response();
+        }
+        (workspace.root().to_path_buf(), workspace.revision() + 1)
+    };
+    let refreshed = match WebWorkspace::load_with_revision(root, revision) {
+        Ok(workspace) => workspace,
+        Err(error) => return (StatusCode::INTERNAL_SERVER_ERROR, error).into_response(),
+    };
+    let tasks = refreshed.tasks();
+    *state.workspace.write().await = refreshed;
+    state.html_cache.lock().await.clear();
+    let _ = state.changes.send(revision);
+    Json(tasks).into_response()
 }
 
 async fn graph(State(state): State<AppState>, RawQuery(raw_query): RawQuery) -> Response {

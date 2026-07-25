@@ -91,6 +91,9 @@ fn build(config: BuildConfig) -> Result<(), String> {
         "notePageBase": "notes/",
         "notePageSuffix": "/",
         "eventsUrl": null,
+        "tasksUrl": null,
+        "taskActionBase": null,
+        "taskMutations": false,
         "current": null,
     });
     std::fs::write(

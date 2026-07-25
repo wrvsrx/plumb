@@ -51,6 +51,10 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
 .mode button:first-child { border-radius: 4px 0 0 4px; margin-left: 0; }
 .mode button:last-child { border-radius: 0 4px 4px 0; }
 .mode button.active { background: var(--ink); color: #fff; border-color: var(--ink); }
+.view-tabs { display: inline-flex; border-right: 1px solid var(--border); padding-right: 12px; }
+.view-tabs button { border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; padding-inline: 10px; }
+.view-tabs button.active { border-bottom-color: var(--teal); color: var(--teal); font-weight: 700; }
+[hidden] { display: none !important; }
 
 .filters {
   height: 42px;
@@ -66,6 +70,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
 .filters label { display: flex; align-items: center; gap: 5px; }
 .filters input { accent-color: var(--teal); }
 #summary { margin-left: auto; }
+.task-filter-note { margin-left: auto; }
 
 .workspace { height: calc(100% - 100px); display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, 32vw); }
 .graph-stage { position: relative; min-width: 0; background: #f7f7f5; }
@@ -102,6 +107,37 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
 .backlink-list li { border-top: 1px solid var(--border); padding: 8px 0; }
 .backlink-list a { color: var(--ink); text-decoration: none; }
 
+.task-workspace { height: calc(100% - 100px); display: grid; grid-template-columns: minmax(440px, 1fr) minmax(340px, 34vw); }
+.task-list-pane { position: relative; min-width: 0; overflow: auto; background: #f7f7f5; }
+.task-list { width: 100%; }
+.task-row {
+  --task-depth: 0;
+  width: 100%; min-height: 64px; display: grid; grid-template-columns: 86px minmax(0, 1fr) 100px;
+  align-items: center; gap: 14px; border: 0; border-bottom: 1px solid var(--border); border-radius: 0;
+  padding: 9px 16px 9px calc(16px + var(--task-depth) * 14px); text-align: left; background: transparent;
+}
+.task-row:hover { background: #efefec; }
+.task-row.selected { background: #e5efed; box-shadow: inset 3px 0 var(--teal); }
+.task-state, .task-detail-state { font-size: 12px; font-weight: 700; text-transform: uppercase; color: var(--muted); }
+.state-open { color: var(--teal); }
+.state-done { color: #3d7046; }
+.state-canceled { color: var(--muted); }
+.state-conflicted, .task-state.blocked { color: var(--red); }
+.task-identity { min-width: 0; display: grid; gap: 3px; }
+.task-identity strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.task-identity small, .task-row time { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.task-row time { font-size: 12px; text-align: right; }
+.task-empty { padding: 48px 24px; text-align: center; color: var(--muted); }
+.task-panel { overflow: auto; border-left: 1px solid var(--border); background: var(--paper); padding: 24px; }
+.task-detail header { border-bottom: 2px solid var(--ink); padding-bottom: 16px; }
+.task-detail h1 { font-size: 25px; line-height: 1.2; margin: 0 0 12px; overflow-wrap: anywhere; }
+.task-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 20px 0 24px; }
+.task-actions button:disabled { cursor: not-allowed; opacity: .48; }
+.task-fields { display: grid; grid-template-columns: 110px minmax(0, 1fr); margin: 0; border-top: 1px solid var(--border); }
+.task-fields dt, .task-fields dd { margin: 0; padding: 9px 0; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
+.task-fields dt { color: var(--muted); font-size: 13px; }
+.task-fields dd { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
+
 .note-page { min-height: 100%; height: auto; overflow: auto; }
 .document-layout { width: min(1180px, calc(100% - 40px)); margin: 38px auto 80px; display: grid; grid-template-columns: minmax(0, 1fr) 260px; gap: 56px; }
 .document-layout > .document { min-width: 0; }
@@ -118,4 +154,8 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
   .note-panel { border-left: 0; border-top: 1px solid var(--border); }
   .document-layout { grid-template-columns: 1fr; gap: 32px; }
   .backlinks { border-left: 0; border-top: 1px solid var(--border); padding: 20px 0 0; }
+  .task-workspace { height: calc(100% - 193px); grid-template-columns: 1fr; grid-template-rows: minmax(260px, 48vh) minmax(0, 1fr); }
+  .task-panel { border-left: 0; border-top: 1px solid var(--border); }
+  .task-row { grid-template-columns: 72px minmax(0, 1fr); }
+  .task-row time { display: none; }
 }

@@ -151,7 +151,7 @@ fn round_trips_the_exported_standard_profile_through_import() {
 }
 
 #[test]
-fn builds_and_serves_the_workspace_graph_with_rendered_notes() {
+fn builds_and_serves_the_workspace_site_with_notes_and_tasks() {
     if Command::new("pandoc").arg("--version").output().is_err() {
         return;
     }
@@ -164,7 +164,7 @@ fn builds_and_serves_the_workspace_graph_with_rendered_notes() {
     std::fs::write(root.join("private/note.plumb"), "Private note.\n").unwrap();
     std::fs::write(
         root.join("a.plumb"),
-        "`meta\n `: title\n\n    Alpha\n\nSee `->[Beta]{to=\"b.plumb#beta\"}.\n\n`img[icon]{src=\"assets/icon.png\"}\n",
+        "`meta\n `: title\n\n    Alpha\n\nSee `->[Beta]{to=\"b.plumb#beta\"}.\n\n`img[icon]{src=\"assets/icon.png\"}\n\n`-{.task #ship created=\"2026-07-25T10:00:00+08:00\"} Ship release\n",
     )
     .unwrap();
     std::fs::write(root.join("b.plumb"), "`#{#beta} Beta\n").unwrap();
@@ -254,6 +254,30 @@ fn builds_and_serves_the_workspace_graph_with_rendered_notes() {
     let (status, _, _) = http_get(address, "/resource/../../Cargo.toml");
     assert_eq!(status, 404);
 
+    let (status, _, tasks) = http_get(address, "/api/tasks");
+    assert_eq!(status, 200, "{tasks}");
+    let tasks: serde_json::Value = serde_json::from_str(&tasks).unwrap();
+    let task = &tasks["tasks"][0];
+    assert_eq!(task["title"], "Ship release");
+    assert_eq!(task["state"], "open");
+    let action_path = format!(
+        "/api/task/{}/ship/complete",
+        task["documentId"].as_str().unwrap()
+    );
+    let (status, _, updated_tasks) = http_post_json(
+        address,
+        &action_path,
+        &format!("{{\"revision\":{}}}", task["revision"]),
+    );
+    assert_eq!(status, 200, "{updated_tasks}");
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&updated_tasks).unwrap()["tasks"][0]["state"],
+        "done"
+    );
+    assert!(std::fs::read_to_string(root.join("a.plumb"))
+        .unwrap()
+        .contains("done=\"2026-"));
+
     std::fs::write(
         root.join("a.plumb"),
         "`meta\n `: title\n\n    Alpha updated\n\nSee `->[Beta]{to=\"b.plumb#beta\"}.\n",
@@ -287,6 +311,29 @@ fn http_get(address: &str, path: &str) -> (u16, String, String) {
     write!(
         stream,
         "GET {path} HTTP/1.0\r\nHost: {address}\r\nConnection: close\r\n\r\n"
+    )
+    .unwrap();
+    let mut response = String::new();
+    stream.read_to_string(&mut response).unwrap();
+    let (headers, body) = response.split_once("\r\n\r\n").unwrap();
+    let status = headers
+        .lines()
+        .next()
+        .unwrap()
+        .split_whitespace()
+        .nth(1)
+        .unwrap()
+        .parse()
+        .unwrap();
+    (status, headers.to_ascii_lowercase(), body.to_string())
+}
+
+fn http_post_json(address: &str, path: &str, body: &str) -> (u16, String, String) {
+    let mut stream = TcpStream::connect(address).unwrap();
+    write!(
+        stream,
+        "POST {path} HTTP/1.0\r\nHost: {address}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        body.len()
     )
     .unwrap();
     let mut response = String::new();
