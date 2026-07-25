@@ -5,7 +5,9 @@
   const state = {
     graph: null,
     graphView: null,
+    graphConfigured: false,
     renderedNodes: [],
+    renderedEdges: [],
     labelBounds: [],
     current: config.current || new URLSearchParams(location.search).get('current'),
     hovered: null,
@@ -60,16 +62,13 @@
         .filter((node) => !query || node.title.toLocaleLowerCase().includes(query) || (node.path || '').toLocaleLowerCase().includes(query))
         .map((node) => node.id)
     );
-    const nodes = state.graph.nodes
-      .filter((node) => matched.has(node.id))
-      .map((node) => ({ ...node, degree: 0 }));
-    const edges = state.graph.edges
-      .filter((edge) => matched.has(edge.source) && matched.has(edge.target))
-      .map((edge) => ({ ...edge }));
+    const nextNodes = state.graph.nodes.filter((node) => matched.has(node.id));
+    const nextEdges = state.graph.edges.filter((edge) => matched.has(edge.source) && matched.has(edge.target));
+    const { nodes, edges, topologyChanged } = reconcileGraph(nextNodes, nextEdges);
     const byId = new Map(nodes.map((node) => [node.id, node]));
     edges.forEach((edge) => {
-      byId.get(edge.source).degree += 1;
-      byId.get(edge.target).degree += 1;
+      byId.get(endpointId(edge.source)).degree += 1;
+      byId.get(endpointId(edge.target)).degree += 1;
     });
     nodes.sort((left, right) => right.degree - left.degree || left.title.localeCompare(right.title));
     const hubs = nodes
@@ -80,9 +79,55 @@
     empty.hidden = nodes.length > 0;
     summary.textContent = `${nodes.length} notes, ${edges.length} connections${state.graph.complete ? '' : ' (truncated)'}`;
     state.renderedNodes = nodes;
+    state.renderedEdges = edges;
     ensureGraphView();
-    configureGraphView(nodes, edges);
+    if (!state.graphConfigured || topologyChanged) {
+      configureGraphView(nodes, edges, !state.graphConfigured);
+    } else {
+      refreshStyles();
+    }
     renderOverview(hubs);
+  }
+
+  function edgeTopologyKey(edge) {
+    return [endpointId(edge.source), endpointId(edge.target), edge.kind, edge.targetFragment || ''].join('\u0000');
+  }
+
+  function reconcileGraph(nextNodes, nextEdges) {
+    const previousNodes = new Map(state.renderedNodes.map((node) => [node.id, node]));
+    let topologyChanged = nextNodes.length !== state.renderedNodes.length;
+    const nodes = nextNodes.map((next) => {
+      const current = previousNodes.get(next.id);
+      if (!current) {
+        topologyChanged = true;
+        return { ...next, degree: 0 };
+      }
+      previousNodes.delete(next.id);
+      Object.assign(current, next, { degree: 0 });
+      return current;
+    });
+    if (previousNodes.size > 0) topologyChanged = true;
+
+    const previousEdges = new Map();
+    state.renderedEdges.forEach((edge) => {
+      const key = edgeTopologyKey(edge);
+      if (!previousEdges.has(key)) previousEdges.set(key, []);
+      previousEdges.get(key).push(edge);
+    });
+    const edges = nextEdges.map((next) => {
+      const matches = previousEdges.get(edgeTopologyKey(next));
+      const current = matches?.shift();
+      if (!current) {
+        topologyChanged = true;
+        return { ...next };
+      }
+      const source = current.source;
+      const target = current.target;
+      Object.assign(current, next, { source, target });
+      return current;
+    });
+    if (Array.from(previousEdges.values()).some((matches) => matches.length > 0)) topologyChanged = true;
+    return { nodes, edges, topologyChanged };
   }
 
   function ensureGraphView() {
@@ -103,8 +148,8 @@
     }).observe(graphElement);
   }
 
-  function configureGraphView(nodes, edges) {
-    const warmup = nodes.length > 500 ? 100 : 260;
+  function configureGraphView(nodes, edges, initial) {
+    const warmup = initial ? (nodes.length > 500 ? 100 : 260) : 0;
     state.graphView
       .width(graphElement.clientWidth)
       .height(graphElement.clientHeight)
@@ -122,6 +167,7 @@
       .linkDirectionalArrowLength((link) => link.kind === 'task-depends' ? 4 : 0)
       .linkDirectionalArrowColor(() => '#d94b3d')
       .graphData({ nodes, links: edges });
+    state.graphConfigured = true;
     state.graphView.d3Force('charge').strength(nodes.length > 250 ? -45 : -85);
     state.graphView.d3Force('link').distance(nodes.length > 250 ? 32 : 48);
   }
