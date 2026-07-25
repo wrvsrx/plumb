@@ -6,7 +6,7 @@ use std::process::ExitCode;
 use plumb_core::{parse, AttrItem, Attributes, Block, Inline, InlineContent, ParsedBlock};
 use plumb_extensions::{
     analyze_document, CitationRecord, DocumentOutput, InlineStyleKind, ListGroup, ListKind,
-    MetadataBlock, MetadataEntry, MetadataValue,
+    MetadataBlock, MetadataEntry, MetadataValue, TaskState,
 };
 use serde_json::{json, Map, Value};
 
@@ -231,11 +231,27 @@ fn lower_list_group(blocks: &[Block], group: &ListGroup, analysis: &DocumentOutp
             };
             let mark = block.mark.as_ref().expect("a list item has a mark");
             let mut contents = Vec::new();
-            if !block.head.items.is_empty() {
+            let task = analysis
+                .tasks
+                .tasks
+                .iter()
+                .find(|task| task.range.start == block.range.start);
+            if let Some(task) = task {
+                let mut title = vec![json!({ "t": "Str", "c": task_state_marker(task.state()) })];
+                let inlines = lower_inlines(&block.head, analysis);
+                if !inlines.is_empty() {
+                    title.push(json!({ "t": "Space" }));
+                }
+                title.push(json!({
+                    "t": "Span",
+                    "c": [lower_attrs(&mark.attrs, None), inlines],
+                }));
+                contents.push(json!({ "t": "Para", "c": title }));
+            } else if !block.head.items.is_empty() {
                 contents.push(json!({ "t": "Para", "c": lower_inlines(&block.head, analysis) }));
             }
             contents.extend(lower_blocks(&block.children, analysis));
-            if mark.attrs.items.is_empty() {
+            if task.is_some() || mark.attrs.items.is_empty() {
                 contents
             } else {
                 vec![json!({
@@ -251,6 +267,15 @@ fn lower_list_group(blocks: &[Block], group: &ListGroup, analysis: &DocumentOutp
             "t": "OrderedList",
             "c": [[1, { "t": "Decimal" }, { "t": "Period" }], items],
         }),
+    }
+}
+
+fn task_state_marker(state: TaskState) -> &'static str {
+    match state {
+        TaskState::Open => "☐",
+        TaskState::Done => "☒",
+        TaskState::Canceled => "⊘",
+        TaskState::Conflicted => "⚠",
     }
 }
 
@@ -523,14 +548,28 @@ mod tests {
         assert_eq!(items[0][0]["c"][0]["c"], "One");
 
         let attributed = &items[1][0];
-        assert_eq!(attributed["t"], "Div");
-        assert_eq!(attributed["c"][0][0], "two");
-        assert_eq!(attributed["c"][0][1], json!(["task"]));
-        assert_eq!(attributed["c"][0][2], json!([["priority", "high"]]));
-        assert_eq!(attributed["c"][1][0]["t"], "Para");
-        assert_eq!(attributed["c"][1][1]["t"], "BulletList");
-        assert_eq!(attributed["c"][1][1]["c"][0][0]["c"][0]["c"], "Nested");
+        assert_eq!(attributed["t"], "Para");
+        assert_eq!(attributed["c"][0]["c"], "☐");
+        assert_eq!(attributed["c"][2]["t"], "Span");
+        assert_eq!(attributed["c"][2]["c"][0][0], "two");
+        assert_eq!(attributed["c"][2]["c"][0][1], json!(["task"]));
+        assert_eq!(attributed["c"][2]["c"][0][2], json!([["priority", "high"]]));
+        assert_eq!(items[1][1]["t"], "BulletList");
+        assert_eq!(items[1][1]["c"][0][0]["c"][0]["c"], "Nested");
         assert_eq!(blocks[1]["t"], "Para");
+    }
+
+    #[test]
+    fn exports_visible_task_state_markers() {
+        let source = "`-{.task} Open\n`-{.task done=\"2026-07-25T15:00:00+08:00\"} Done\n`-{.task canceled=\"2026-07-25T15:00:00+08:00\"} Canceled\n`-{.task done=\"2026-07-25T15:00:00+08:00\" canceled=\"2026-07-25T15:01:00+08:00\"} Conflicted\n";
+        let document = export(source).unwrap();
+        let items = document["blocks"][0]["c"].as_array().unwrap();
+        let markers = items
+            .iter()
+            .map(|item| item[0]["c"][0]["c"].as_str().unwrap())
+            .collect::<Vec<_>>();
+
+        assert_eq!(markers, vec!["☐", "☒", "⊘", "⚠"]);
     }
 
     #[test]

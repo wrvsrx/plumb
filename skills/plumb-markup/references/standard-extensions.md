@@ -265,6 +265,12 @@ advancing `due` and `wait`, assigning a unique id, and setting `prev`.
 Status operations format only the complete task subtree; a following sibling
 provides spacing context without entering the edit or losing indentation.
 
+Export prefixes the first task paragraph with a visible state marker: `☐` for
+open, `☒` for done, `⊘` for canceled, and `⚠` for conflicted. `☐` and `☒`
+follow Pandoc's task-list convention so supporting writers produce checkboxes.
+The task id, `.task` class, and fields remain on a Span around the title; child
+blocks remain subsequent blocks in the same list item.
+
 ## Export Semantics
 
 `div` and `span` are transparent standard containers and export without a
@@ -277,7 +283,8 @@ non-verbatim owner is invalid.
 
 `plumb export` emits Pandoc JSON directly. Standard lowering includes headings,
 bullet lists, definition lists, metadata, `->` links, `.->` Autolinks, `img`
-images, single-id citations, quotes, inline styles, and task attributes. Generic marked blocks become Divs, generic parsed inline
+images, single-id citations, quotes, inline styles, and visible task states with
+task attributes. Generic marked blocks become Divs, generic parsed inline
 elements become Spans, verbatim blocks become CodeBlocks, and inline verbatim
 becomes Code.
 
