@@ -5,8 +5,9 @@ use std::process::ExitCode;
 use std::sync::Arc;
 use std::time::Duration;
 
-use axum::extract::{Path as AxumPath, RawQuery, State};
-use axum::http::{header, HeaderValue, StatusCode};
+use axum::extract::{Path as AxumPath, RawQuery, Request, State};
+use axum::http::{header, HeaderValue, Method, StatusCode};
+use axum::middleware::{self, Next};
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{Html, IntoResponse, Response};
 use axum::routing::{get, post};
@@ -112,6 +113,7 @@ async fn run(config: ServeConfig) -> Result<(), String> {
     if !config.no_watch {
         spawn_watcher(state.clone());
     }
+    let mutations_enabled = state.allow_mutations;
     let router = router(state);
     let listener = tokio::net::TcpListener::bind(SocketAddr::new(config.host, config.port))
         .await
@@ -121,6 +123,14 @@ async fn run(config: ServeConfig) -> Result<(), String> {
         .map_err(|error| format!("cannot read server address: {error}"))?;
     let url = format!("http://{address}/");
     println!("{url}");
+    eprintln!(
+        "plumb site serve: listening on {url} (task mutations {})",
+        if mutations_enabled {
+            "enabled"
+        } else {
+            "disabled"
+        }
+    );
     if !config.no_open {
         if let Err(error) = webbrowser::open(&url) {
             eprintln!("plumb site serve: cannot open browser: {error}");
@@ -149,7 +159,24 @@ fn router(state: AppState) -> Router {
         .route("/styles.css", get(styles_css))
         .route("/vendor/force-graph.min.js", get(force_graph_js))
         .route("/vendor/FORCE-GRAPH-LICENSE.txt", get(force_graph_license))
+        .layer(middleware::from_fn(log_requests))
         .with_state(state)
+}
+
+async fn log_requests(request: Request, next: Next) -> Response {
+    let method = request.method().clone();
+    let path = request.uri().path().to_string();
+    let response = next.run(request).await;
+    if method != Method::GET
+        || response.status().is_client_error()
+        || response.status().is_server_error()
+    {
+        eprintln!(
+            "plumb site serve: {method} {path} -> {}",
+            response.status().as_u16()
+        );
+    }
+    response
 }
 
 async fn index(State(state): State<AppState>) -> Response {
@@ -203,6 +230,7 @@ async fn update_task(
         "cancel" => TaskStatus::Canceled,
         _ => return (StatusCode::NOT_FOUND, "unknown task action").into_response(),
     };
+    eprintln!("plumb site serve: received task {action} for {document_id}#{task_id}");
     let (root, revision) = {
         let workspace = state.workspace.read().await;
         if let Err(error) =
@@ -443,6 +471,7 @@ fn secure_html(html: String) -> Response {
         header::REFERRER_POLICY,
         HeaderValue::from_static("no-referrer"),
     );
+    headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
     response
 }
 

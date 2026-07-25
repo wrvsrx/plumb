@@ -205,6 +205,7 @@ fn builds_and_serves_the_workspace_site_with_notes_and_tasks() {
         .spawn()
         .unwrap();
     let mut output_reader = BufReader::new(child.stdout.take().unwrap());
+    let mut error_reader = BufReader::new(child.stderr.take().unwrap());
     let mut url = String::new();
     output_reader.read_line(&mut url).unwrap();
     let address = url
@@ -300,9 +301,24 @@ fn builds_and_serves_the_workspace_site_with_notes_and_tasks() {
     let (status, headers, index) = http_get(address, "/");
     assert_eq!(status, 200, "{index}");
     assert!(headers.contains("content-security-policy"), "{headers}");
+    assert!(headers.contains("cache-control: no-store"), "{headers}");
     assert!(index.contains("Workspace graph"));
     child.kill().unwrap();
     child.wait().unwrap();
+    let mut server_log = String::new();
+    error_reader.read_to_string(&mut server_log).unwrap();
+    assert!(
+        server_log.contains("task mutations enabled"),
+        "{server_log}"
+    );
+    assert!(
+        server_log.contains(&format!("POST {action_path} -> 200")),
+        "{server_log}"
+    );
+    assert!(
+        server_log.contains("task complete completed"),
+        "{server_log}"
+    );
     std::fs::remove_dir_all(root).unwrap();
     std::fs::remove_dir_all(output).unwrap();
 }

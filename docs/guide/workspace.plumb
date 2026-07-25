@@ -57,7 +57,7 @@ complete/cancel 使用带 revision guard 的 shared operation 修改文件。
 
 `# Web app
 
-`[plumb site serve --root DIR] 启动只监听 `[127.0.0.1] 的本地只读 Web server，并默认打开浏览器。
+`[plumb site serve --root DIR] 启动默认只监听 `[127.0.0.1] 的本地 Web server，并打开浏览器。
 `[--current path.plumb] 初始选择一个 note；`[--no-open] 禁止自动打开，`[--port] 指定 port。server
 监听 `[..plumb] 与 `[.ignore] changes，并通过 SSE 更新 graph；ignored document 的内容变化不会发布
 workspace revision。
@@ -71,6 +71,13 @@ unresolved document targets 显示为独立 node。
 due，详情显示 created、wait、recur 与 depends。具有 explicit id 的 open task 可以在页面中 complete 或
 cancel；blocked task 不能 complete。operation 携带 document revision guard 并复用 shared task edit，
 因此 recurring completion 仍生成下一实例。非-loopback `[--host] 默认禁用 task mutations。
+
+server URL 单独写入 stdout；启动状态、task mutation、所有 non-GET requests 和任何 HTTP 4xx/5xx
+responses 写入 stderr。task operation 同时记录 received、rejected reason 或 completed，例如：
+
+`{language=text}
+  plumb site serve: received task complete for DOCUMENT#TASK
+  plumb site serve: POST /api/task/DOCUMENT/TASK/complete -> 409
 
 `[--exclude EXPR] 使用 note CEL fields 隐藏 predicate 为 true 的 node 及其 connections：
 

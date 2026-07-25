@@ -138,7 +138,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
 .task-fields dt { color: var(--muted); font-size: 13px; }
 .task-fields dd { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
 .notification {
-  position: fixed; right: 18px; bottom: 18px; z-index: 20; max-width: min(440px, calc(100vw - 36px));
+  position: fixed; right: 18px; top: 76px; z-index: 20; max-width: min(440px, calc(100vw - 36px));
   padding: 10px 14px; border: 1px solid #276b45; border-radius: 4px; background: #edf7f0;
   color: #214c32; box-shadow: 0 4px 18px rgba(32, 33, 36, .16);
 }

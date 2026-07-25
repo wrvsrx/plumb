@@ -529,8 +529,9 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ revision: task.revision }),
       });
-      if (!response.ok) throw new Error(await response.text());
-      state.tasks = await response.json();
+      const body = await response.text();
+      if (!response.ok) throw new Error(body || `HTTP ${response.status}`);
+      state.tasks = JSON.parse(body);
       renderTasks();
       notify(`${verb}d task.`);
     } catch (error) {
