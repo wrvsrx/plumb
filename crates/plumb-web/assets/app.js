@@ -287,6 +287,18 @@
     return loadGraph();
   }
 
+  async function refreshWorkspace() {
+    const current = state.current;
+    await loadGraph();
+    if (!current || state.current !== current) return;
+    const node = state.graph?.nodes.find((candidate) => candidate.id === current);
+    if (node) {
+      selectNode(node);
+      return;
+    }
+    panel.innerHTML = '<div class="note-empty"><h1>Note unavailable</h1><p>This note is no longer in the workspace.</p></div>';
+  }
+
   search.addEventListener('input', () => {
     state.query = search.value;
     clearTimeout(state.searchTimer);
@@ -309,7 +321,7 @@
 
   if (config.eventsUrl && window.EventSource) {
     const events = new EventSource(config.eventsUrl);
-    events.addEventListener('workspace', loadGraph);
+    events.addEventListener('workspace', refreshWorkspace);
   }
   const initialLoad = setLocal(state.local);
   if (state.current) {
