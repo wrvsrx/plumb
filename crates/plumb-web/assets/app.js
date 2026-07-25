@@ -94,7 +94,7 @@
       .linkTarget('target')
       .minZoom(0.1)
       .maxZoom(8)
-      .onNodeClick(selectNode)
+      .onNodeClick((node) => selectNode(node))
       .onNodeHover(handleNodeHover)
       .onBackgroundClick(() => handleNodeHover(null));
     window.plumbGraph = state.graphView;
@@ -229,7 +229,7 @@
     if (target) requestAnimationFrame(() => target.scrollIntoView({ block: 'start' }));
   }
 
-  async function selectNode(node, fragment = '') {
+  async function selectNode(node, { fragment = '' } = {}) {
     state.current = node.id;
     refreshStyles();
     if (node.unresolved) {
@@ -276,7 +276,7 @@
     }
     if (!node) return;
     state.graphView.centerAt(node.x, node.y, 300);
-    selectNode(node, fragment);
+    selectNode(node, { fragment });
   }
 
   function setLocal(local) {
