@@ -1,0 +1,122 @@
+`meta
+ `: title
+
+    plumb editor integration 指南
+
+`# LSP boundary
+
+`[plumb lsp] 提供 diagnostics、document symbols、definition、references、hover、completion、rename、
+CodeAction、CodeLens、semantic tokens、formatting、range formatting 和 workspace search。
+
+LSP protocol 由 editor client 选择 `[rootUri]/`[workspaceFolders]。plumb server 不向上查找 marker，也
+不向 client 声明 marker；client integration 应优先使用 `[.plumb]，再 fallback 到 editor 自己的
+project marker。workspace 与 ignore 行为见 `->[workspace 指南]{to="workspace.plumb"}。
+
+当前官方 editor integration 只覆盖 Neovim 0.12。未来其它 editor 应复用相同的 LSP 与 workspace
+contract，并在本文增加同级章节。
+
+`# Neovim setup
+
+确保 `[plumb] binary 可从 `[PATH] 启动，并将 packaged `[contrib/nvim] 或 source checkout 中的同名
+directory 加入 `[runtimepath]。最小配置是：
+
+`{language=lua}
+  vim.filetype.add({ extension = { plumb = 'plumb' } })
+
+  local capabilities = vim.lsp.protocol.make_client_capabilities()
+  capabilities.workspace.workspaceEdit.documentChanges = true
+  capabilities.workspace.workspaceEdit.resourceOperations = { 'rename' }
+  capabilities.workspace.didChangeWatchedFiles =
+    capabilities.workspace.didChangeWatchedFiles or {}
+  capabilities.workspace.didChangeWatchedFiles.dynamicRegistration = true
+  capabilities.workspace.didChangeWatchedFiles.relativePatternSupport = true
+
+  vim.lsp.config.plumb = {
+    cmd = { 'plumb', 'lsp' },
+    filetypes = { 'plumb' },
+    root_markers = { '.plumb', '.git' },
+    capabilities = capabilities,
+  }
+
+  require('plumb.codelens').setup({ picker = 'quickfix' })
+  require('plumb.graph').setup()
+  vim.lsp.enable('plumb')
+
+Linux 上 Neovim 默认可能不启用 dynamic file watching；上述 capability 允许 client 注册
+`[..plumb] 与 `[.ignore] watchers，系统还需要可用的 watch backend。
+
+`# Tree-sitter
+
+tree-sitter parser 只负责 highlight、fold、indent、text object 和 injection，不负责 strict
+diagnostics。安装 parser 后为 `[plumb] filetype 启动它：
+
+`{language=lua}
+  vim.api.nvim_create_autocmd('FileType', {
+    pattern = 'plumb',
+    callback = function(args)
+      vim.treesitter.start(args.buf, 'plumb')
+    end,
+  })
+
+repository development 使用 `[dev/nvim.lua] 加载当前 checkout 的 parser 与 queries。先运行：
+
+`{language=text}
+  ./tree-sitter-plumb/build-parser.sh
+  nvim -u dev/nvim.lua document.plumb
+
+`# Authoring workflow
+
+普通 Neovim LSP mappings 可以直接调用 plumb 标准功能：
+
+`{language=lua}
+  vim.keymap.set('n', 'gd', vim.lsp.buf.definition)
+  vim.keymap.set('n', 'gr', vim.lsp.buf.references)
+  vim.keymap.set('n', '<leader>rn', vim.lsp.buf.rename)
+  vim.keymap.set({ 'n', 'x' }, '<leader>ca', vim.lsp.buf.code_action)
+  vim.keymap.set('n', '<leader>f', function()
+    vim.lsp.buf.format({ name = 'plumb' })
+  end)
+
+single-backtick construct completion 提供 Task、Autolink 和 Link，并在 snippet-capable client 中使用
+tab stops。CodeAction 包括 metadata insertion、explicit id、task conversion、created insertion 和 task
+status operations。whole-document 与 range formatting 使用同一个 canonical formatter。
+
+`# Note and task search
+
+`[plumb.search] 使用 `[plumb/search] custom request。native picker 基于 `[vim.ui.input/select]：
+
+`{language=lua}
+  vim.keymap.set('n', '<leader>pn', function()
+    require('plumb.search').search_notes()
+  end)
+
+  vim.keymap.set('n', '<leader>pt', function()
+    require('plumb.search').search_tasks({ filter = 'actionable' })
+  end)
+
+`[live_search] 允许 picker adapter 提供 debounce、cancellation、preview 和 incomplete-result UI；Lua API
+见 `[contrib/nvim/README.plumb]。
+
+`# Reference CodeLens
+
+metadata 与 explicit anchors 的 CodeLens 返回 `[plumb.showReferences] client command。
+`[plumb.codelens.setup()] 将 locations 显示在 quickfix；`[picker = 'snacks'] 使用 Snacks picker，并在
+Snacks 不可用时回退 quickfix。
+
+`# Workspace graph
+
+`[require('plumb.graph').setup()] 注册 `[:PlumbGraph]。普通调用使用 attached LSP workspace，并在
+browser 中选择 current note；`[:PlumbGraph!] 打开整个 workspace。Lua caller 可以显式传入 root：
+
+`{language=lua}
+  require('plumb.graph').open({ root = '/path/to/workspace' })
+
+Web viewer 独立于 LSP process；Neovim module 只负责 root discovery 与启动统一 `[plumb] binary。
+
+`# Troubleshooting
+
+`- `[:checkhealth vim.treesitter] 检查 parser 是否注册；highlight 正常不代表 strict parser 接受文档。
+`- `[:LspInfo] 检查 `[plumb] client、root directory 与 attached buffers。
+`- nested workspace 未生效时，确认 marker 是 `[.plumb/] directory，并在重新打开 buffer 后检查 root。
+`- ignored note 意外出现在 search 或 graph 时，检查生效 workspace root 及其 root-scoped `[.ignore]。
+`- repository-local parser 或 LSP 需要调试时，以 `[dev/nvim.lua] 作为可运行参考配置。

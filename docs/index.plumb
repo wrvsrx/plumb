@@ -9,7 +9,11 @@ heading、list、metadata、link、citation 和 task 等含义由标准 extensio
 `# 阅读路径
 
 `- 第一次使用 plumb：从 `->[语法指南]{to="guide/syntax.plumb"} 开始，再阅读
-   `->[标准扩展指南]{to="guide/extensions.plumb"} 和
+   `->[标准扩展指南]{to="guide/extensions.plumb"}。
+`- 管理 notes workspace：阅读 `->[workspace 指南]{to="guide/workspace.plumb"}。
+`- 配置 editor：阅读 `->[editor integration 指南]{to="guide/editor-integration.plumb"}；当前实现
+   覆盖 Neovim 0.12。
+`- 使用 build、check、format 与 import/export：阅读
    `->[工具链指南]{to="guide/toolchain.plumb"}。
 `- 查询精确规则：阅读 `->[core syntax reference]{to="reference/core-syntax.plumb"}、
    `->[standard extensions reference]{to="reference/standard-extensions.plumb"} 和

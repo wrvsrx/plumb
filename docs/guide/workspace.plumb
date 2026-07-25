@@ -1,0 +1,82 @@
+`meta
+ `: title
+
+    plumb workspace 指南
+
+`# Workspace root
+
+`[.plumb/] directory 标记一个 plumb workspace root。省略 `[--root] 的 workspace commands 从当前
+directory 向上选择最近的 marker；找不到 marker 时使用当前 directory。显式 `[--root DIR] 始终优先，
+不会继续向上 discovery。
+
+一个较大的 notes directory 可以包含 nested workspace：
+
+`{language=text}
+  notes/
+    .plumb/
+    .ignore
+    public.plumb
+    private/
+      .plumb/
+      note.plumb
+
+从 `[notes/] 工作时，parent workspace 的 ignore policy 生效；从 `[notes/private/] 工作时，更近的
+marker 建立独立 root，不读取 parent ignore rules。
+
+`# Ignore
+
+每个 workspace root 使用 gitignore-style `[.ignore] 控制 index。规则从 root 向下分层生效，但不读取
+root parent、`[.gitignore]、Git global ignore 或 `[.git/info/exclude]。dot files 和 dot directories
+没有内置特殊处理，需要排除时显式声明：
+
+`{language=gitignore}
+  .git/
+  .obsidian/
+  private/
+
+scanner 不进入 directory symlink；扩展名为 `[..plumb] 的 file symlink 仍可索引。ignored documents
+不进入 check、note/task、LSP workspace index、graph 或 site。editor 直接打开 ignored document 时，
+LSP 仍分析当前 buffer；关闭后不保留在 index。
+
+`[.ignore] 是 discovery policy，不是 filesystem security boundary。若某个 ignored subtree 仍需要完整
+workspace features，应显式将其作为 root，或在其中创建 `[.plumb/]。
+
+`# Note and task queries
+
+`[plumb note] 与 `[plumb task] 提供 document/task CEL query、interactive picker 和 task operations：
+
+`{language=text}
+  plumb note --query 'title.contains("parser")'
+  plumb note --interactive
+  plumb task --query 'actionable && due < now'
+  plumb task complete notes/tasks.plumb#write-parser
+  plumb task cancel notes/tasks.plumb#obsolete-task
+
+task output 默认是 nested table；`[--flat] 省略 nesting indentation，`[--no-heading] 适合脚本。
+complete/cancel 使用带 revision guard 的 shared operation 修改文件。
+
+`# Graph
+
+`[plumb graph --root DIR] 启动只监听 `[127.0.0.1] 的本地只读 Web server，并默认打开浏览器。
+`[--current path.plumb] 初始选择一个 note；`[--no-open] 禁止自动打开，`[--port] 指定 port。server
+监听 `[..plumb] 与 `[.ignore] changes，并通过 SSE 更新 graph；ignored document 的内容变化不会发布
+workspace revision。
+
+浏览器提供 workspace/local graph、incoming/outgoing direction、depth、edge-kind filters、search、pan、
+zoom、node labels、node selection 与 note preview。同一 document 内的 references 不产生 self-edge。
+unresolved document targets 显示为独立 node。
+
+`[--exclude EXPR] 使用 note CEL fields 隐藏 predicate 为 true 的 node 及其 connections：
+
+`{language=text}
+  plumb graph --exclude 'path in ["closed.plumb", "diary.plumb"]'
+
+`[.ignore] 与 graph CEL 的职责不同：前者阻止 document 进入整个 workspace index；后者保留 document
+的其它工具能力，只从 graph projection 移除 node、degree、local traversal 和 force layout effects。
+
+`# Static site
+
+`[plumb site build --root DIR --output DIR] 使用同一 workspace、Web document model 和 frontend assets
+生成静态站点。output 必须不存在或为空；结果包含 `[index.html]、`[graph.json]、
+`[search-index.json]、note pages、note JSON、local resources 与 embedded assets。静态页面不需要运行
+plumb server，并遵守相同的 `[.ignore] rules。

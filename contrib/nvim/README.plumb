@@ -1,20 +1,15 @@
 `meta
  `: title
 
-    plumb Neovim integration
+    plumb Neovim Lua modules
 
-`# Setup
+`# User guide
 
-Add contrib/nvim from the source checkout, or share/plumb/contrib/nvim from the installed package,
-to runtimepath. Register the reference CodeLens command, then map the native note and task pickers:
+完整的 Neovim 0.12、LSP、tree-sitter、workspace 与 authoring setup 见
+`->[editor integration 指南]{to="../../docs/guide/editor-integration.plumb"}。本文只记录 packaged Lua
+modules 的调用接口。
 
-`{language=lua}
-  vim.lsp.config.plumb = {
-    cmd = { 'plumb', 'lsp' },
-    filetypes = { 'plumb' },
-    root_markers = { '.plumb', '.git' },
-  }
-  vim.lsp.enable('plumb')
+`# Module setup
 
 `{language=lua}
   require('plumb.codelens').setup({ picker = 'snacks' })
@@ -27,10 +22,10 @@ to runtimepath. Register the reference CodeLens command, then map the native not
     require('plumb.search').search_tasks({ filter = 'actionable' })
   end)
 
-The module requires Neovim 0.12 and an attached plumb LSP advertising
-experimental.plumb.search schema version 1. Native search uses vim.ui.input and
-vim.ui.select. live_search accepts a picker adapter and owns debounce, request
-cancellation, stale-result suppression, locations and incomplete-result state.
+modules 要求 Neovim 0.12。`[plumb.search] 还要求 attached plumb LSP 声明
+`[experimental.plumb.search] schema version 1。native search 使用 `[vim.ui.input/select]；`[live_search]
+接受 picker adapter，并负责 debounce、request cancellation、stale-result suppression、locations 和
+incomplete-result state。
 
 `# Workspace graph
 
