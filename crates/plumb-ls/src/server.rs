@@ -1280,7 +1280,7 @@ impl LanguageServer for ServerState {
                     .map(|target| (target.range, target.id))
                     .or_else(|_| {
                         self.workspace
-                            .path_rename_target_at(&path, offset)
+                            .document_rename_target_at(&path, offset)
                             .map(|target| {
                                 let placeholder = target
                                     .old_path
@@ -1338,7 +1338,7 @@ impl LanguageServer for ServerState {
                     .ok_or_else(|| rename_request_error("cannot map anchor rename edit"))?;
                 return Ok(Some(edit));
             }
-            let Ok(target) = self.workspace.path_rename_target_at(&path, offset) else {
+            let Ok(target) = self.workspace.document_rename_target_at(&path, offset) else {
                 return Ok(None);
             };
             if !self.supports_resource_rename {

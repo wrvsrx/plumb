@@ -81,6 +81,11 @@ single-backtick construct completion 提供 Task、Autolink 和 Link，并在 sn
 tab stops。CodeAction 包括 metadata insertion、explicit id、task conversion、created insertion 和 task
 status operations。whole-document 与 range formatting 使用同一个 canonical formatter。
 
+光标位于顶层 `[meta] marker 时，`[vim.lsp.buf.rename()] 重命名当前 document file，并更新 workspace
+内指向它的 links、Autolinks 和 task references。new name 必须是 `[.plumb] 文件名或相对路径；operation
+不修改 metadata `[title]。client 必须支持 `[workspaceEdit.documentChanges] 与 `[RenameFile] resource
+operation。
+
 `# Note and task search
 
 `[plumb.search] 使用 `[plumb/search] custom request。native picker 基于 `[vim.ui.input/select]：

@@ -1638,6 +1638,25 @@ impl Workspace {
         })
     }
 
+    pub fn document_rename_target_at(
+        &self,
+        path: impl AsRef<Path>,
+        offset: usize,
+    ) -> Result<PathRenameTarget, RenameError> {
+        let path = normalize(path.as_ref());
+        if let Some(metadata) = self
+            .current_output(&path)
+            .and_then(|output| output.metadata.metadata.as_ref())
+            .filter(|metadata| contains_inclusive(&metadata.selection_range, offset))
+        {
+            return Ok(PathRenameTarget {
+                old_path: path,
+                range: metadata.selection_range.clone(),
+            });
+        }
+        self.path_rename_target_at(path, offset)
+    }
+
     pub fn rename_document(
         &self,
         target: &PathRenameTarget,
@@ -3023,6 +3042,34 @@ mod tests {
             vec![ResourceOperation::Rename {
                 old_path: PathBuf::from("Project Plan.plumb"),
                 new_path: PathBuf::from("Archived Plan.plumb"),
+            }]
+        );
+    }
+
+    #[test]
+    fn metadata_marker_targets_the_current_document_without_editing_title() {
+        let source = "`meta\n `: title\n\n    Stable title\n";
+        let mut workspace = Workspace::new();
+        workspace.insert("current.plumb", 4, source);
+        workspace.insert("incoming.plumb", 7, "`->[current]{to=\"current.plumb\"}\n");
+
+        let target = workspace
+            .document_rename_target_at("current.plumb", source.find("meta").unwrap())
+            .unwrap();
+        assert_eq!(target.old_path, Path::new("current.plumb"));
+        assert_eq!(&source[target.range.clone()], "meta");
+
+        let edit = workspace.rename_document(&target, "renamed.plumb").unwrap();
+        assert!(edit
+            .document_changes
+            .iter()
+            .all(|document| document.path != Path::new("current.plumb")));
+        assert_eq!(edit.document_changes[0].edits[0].new_text, "renamed.plumb");
+        assert_eq!(
+            edit.resource_operations,
+            vec![ResourceOperation::Rename {
+                old_path: PathBuf::from("current.plumb"),
+                new_path: PathBuf::from("renamed.plumb"),
             }]
         );
     }
