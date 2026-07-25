@@ -53,14 +53,9 @@ pub fn discover_workspace_root(start: impl AsRef<Path>) -> PathBuf {
 }
 
 pub fn resolve_workspace_root(explicit: Option<&Path>) -> Result<PathBuf, String> {
-    let root = match explicit {
-        Some(root) => normalize(root),
-        None => {
-            let current = std::env::current_dir()
-                .map_err(|error| format!("cannot read current directory: {error}"))?;
-            discover_workspace_root(current)
-        }
-    };
+    let current = std::env::current_dir()
+        .map_err(|error| format!("cannot read current directory: {error}"))?;
+    let root = resolve_workspace_root_from(explicit, &current);
     if root.is_dir() {
         Ok(root)
     } else {
@@ -68,6 +63,14 @@ pub fn resolve_workspace_root(explicit: Option<&Path>) -> Result<PathBuf, String
             "workspace root is not a directory: {}",
             root.display()
         ))
+    }
+}
+
+fn resolve_workspace_root_from(explicit: Option<&Path>, current: &Path) -> PathBuf {
+    match explicit {
+        Some(root) if root.is_absolute() => normalize(root),
+        Some(root) => normalize(&current.join(root)),
+        None => discover_workspace_root(current),
     }
 }
 
@@ -2772,6 +2775,23 @@ mod tests {
         assert_eq!(
             discover_workspace_root(&nested),
             normalize(&root.join("notes/private"))
+        );
+
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn resolves_relative_explicit_workspace_roots_from_the_current_directory() {
+        let root = temp_workspace();
+        std::fs::create_dir_all(&root).unwrap();
+
+        assert_eq!(
+            resolve_workspace_root_from(Some(Path::new(".")), &root),
+            normalize(&root)
+        );
+        assert_eq!(
+            resolve_workspace_root_from(Some(Path::new("notes")), &root),
+            normalize(&root.join("notes"))
         );
 
         std::fs::remove_dir_all(root).unwrap();

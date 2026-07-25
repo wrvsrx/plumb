@@ -99,6 +99,21 @@ fn discovers_workspace_markers_and_applies_ignore_files() {
     );
     assert_eq!(String::from_utf8(output.stdout).unwrap(), "visible.plumb\n");
 
+    let explicit = Command::new(env!("CARGO_BIN_EXE_plumb"))
+        .args(["note", "--root", "."])
+        .current_dir(&root)
+        .output()
+        .unwrap();
+    assert!(
+        explicit.status.success(),
+        "{}",
+        String::from_utf8_lossy(&explicit.stderr)
+    );
+    assert_eq!(
+        String::from_utf8(explicit.stdout).unwrap(),
+        "visible.plumb\n"
+    );
+
     std::fs::remove_dir_all(root).unwrap();
 }
 
