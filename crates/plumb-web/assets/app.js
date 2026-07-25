@@ -217,7 +217,19 @@
     });
   }
 
-  async function selectNode(node) {
+  function scrollPreviewToFragment(fragment) {
+    if (!fragment) return;
+    let id;
+    try {
+      id = decodeURIComponent(fragment.replace(/^#/, ''));
+    } catch (_) {
+      id = fragment.replace(/^#/, '');
+    }
+    const target = panel.querySelector('.note-content')?.querySelector(`#${CSS.escape(id)}`);
+    if (target) requestAnimationFrame(() => target.scrollIntoView({ block: 'start' }));
+  }
+
+  async function selectNode(node, fragment = '') {
     state.current = node.id;
     refreshStyles();
     if (node.unresolved) {
@@ -241,10 +253,30 @@
       panel.querySelector('.note-content').innerHTML = note.html;
       panel.querySelector('.full-note').href = `${config.notePageBase}${encodeURIComponent(node.id)}${config.notePageSuffix}`;
       panel.querySelector('.local-note').addEventListener('click', () => { setLocal(true); });
+      scrollPreviewToFragment(fragment);
     } catch (error) {
       panel.innerHTML = '<div class="note-empty"><h1>Cannot render note</h1><p></p></div>';
       panel.querySelector('p').textContent = String(error);
     }
+  }
+
+  async function selectDocument(documentId, fragment) {
+    let node = state.renderedNodes.find((candidate) => candidate.id === documentId);
+    if (!node && state.query) {
+      state.query = '';
+      search.value = '';
+      renderGraph();
+      node = state.renderedNodes.find((candidate) => candidate.id === documentId);
+    }
+    if (!node) {
+      state.current = documentId;
+      state.local = true;
+      await setLocal(true);
+      node = state.renderedNodes.find((candidate) => candidate.id === documentId);
+    }
+    if (!node) return;
+    state.graphView.centerAt(node.x, node.y, 300);
+    selectNode(node, fragment);
   }
 
   function setLocal(local) {
@@ -267,6 +299,13 @@
   globalMode.addEventListener('click', () => setLocal(false));
   localMode.addEventListener('click', () => setLocal(true));
   document.getElementById('fit').addEventListener('click', () => state.graphView && state.graphView.zoomToFit(0, 48));
+  panel.addEventListener('click', (event) => {
+    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    const link = event.target.closest('.note-content a[data-plumb-document]');
+    if (!link || link.download || (link.target && link.target !== '_self')) return;
+    event.preventDefault();
+    selectDocument(link.dataset.plumbDocument, new URL(link.href, location.href).hash);
+  });
 
   if (config.eventsUrl && window.EventSource) {
     const events = new EventSource(config.eventsUrl);

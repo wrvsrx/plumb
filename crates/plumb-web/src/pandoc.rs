@@ -84,8 +84,11 @@ fn adapt_value(
                     .and_then(Value::as_str)
                     .map(str::to_string)
                 {
-                    let adapted = if node_kind.as_deref() == Some("Image") {
-                        adapt_resource_target(workspace, source_path, mode, &target)
+                    let (adapted, document_id) = if node_kind.as_deref() == Some("Image") {
+                        (
+                            adapt_resource_target(workspace, source_path, mode, &target),
+                            None,
+                        )
                     } else {
                         adapt_link_target(workspace, source_path, mode, &target)
                     };
@@ -97,6 +100,9 @@ fn adapt_value(
                         .and_then(|target| target.get_mut(0))
                     {
                         *target_value = Value::String(adapted);
+                    }
+                    if let Some(document_id) = document_id {
+                        add_link_document_attribute(object, &document_id);
                     }
                 }
             }
@@ -113,12 +119,12 @@ fn adapt_link_target(
     source_path: &Path,
     mode: WebTargetMode,
     target: &str,
-) -> String {
+) -> (String, Option<String>) {
     if is_external(target) {
-        return target.to_string();
+        return (target.to_string(), None);
     }
     if let Some(fragment) = target.strip_prefix('#') {
-        return format!("#{}", encode_fragment(fragment));
+        return (format!("#{}", encode_fragment(fragment)), None);
     }
     let (path, fragment) = target
         .split_once('#')
@@ -126,11 +132,31 @@ fn adapt_link_target(
     let resolved = resolve_relative(source_path, path);
     if path.ends_with(".plumb") {
         if let Some(id) = workspace.document_id(&resolved) {
-            return document_url(mode, id, fragment);
+            return (document_url(mode, id, fragment), Some(id.to_string()));
         }
-        return target.to_string();
+        return (target.to_string(), None);
     }
-    adapt_resource_target(workspace, source_path, mode, target)
+    (
+        adapt_resource_target(workspace, source_path, mode, target),
+        None,
+    )
+}
+
+fn add_link_document_attribute(object: &mut serde_json::Map<String, Value>, document_id: &str) {
+    let Some(attributes) = object
+        .get_mut("c")
+        .and_then(Value::as_array_mut)
+        .and_then(|contents| contents.first_mut())
+        .and_then(Value::as_array_mut)
+        .and_then(|attributes| attributes.get_mut(2))
+        .and_then(Value::as_array_mut)
+    else {
+        return;
+    };
+    attributes.push(Value::Array(vec![
+        Value::String("data-plumb-document".to_string()),
+        Value::String(document_id.to_string()),
+    ]));
 }
 
 fn adapt_resource_target(
@@ -210,6 +236,15 @@ mod tests {
         let link = &document["blocks"][0]["c"][0];
         assert!(link["c"][2][0].as_str().unwrap().starts_with("/note/d"));
         assert!(link["c"][2][0].as_str().unwrap().ends_with("#section"));
+        let attributes = link["c"][0][2].as_array().unwrap();
+        let document_attribute = attributes
+            .iter()
+            .find(|attribute| attribute[0] == "data-plumb-document")
+            .unwrap();
+        assert_eq!(
+            document_attribute[1].as_str(),
+            workspace.document_id(root.join("b.plumb"))
+        );
         let image = &document["blocks"][1]["c"][0];
         let image_target = image["c"][2][0].as_str().unwrap();
         assert!(image_target.starts_with("/resource/r"), "{image_target}");
