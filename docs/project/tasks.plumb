@@ -322,7 +322,8 @@
    `note 提供 task list、document grouping、text search，以及 state、actionable、due、wait 和 dependency filters；复用 plumb-notes 的 task facts 与 CEL query，不在 frontend 重建 task semantics。
    `note task detail 显示 source document、title、derived state、timestamps、dependencies 和 child tasks，并能在 graph、note preview 与 task view 之间保持当前 document context。
    `note complete 与 cancel 调用 shared task operations，携带 document revision guard；server 只接受已索引 task identity，不接受任意 filesystem path，并在 conflict 后刷新 task snapshot 而不覆盖外部修改。
-   `note Web server 由只读 viewer 扩展为 loopback-only workspace tool 时，需要为 mutation routes 定义 method、same-origin protection、request validation、error response 和 browser confirmation；`[--host] 指向非 loopback address 时默认禁用 mutations，除非用户显式启用并承担访问控制。
+   `note Complete 与 Cancel 是 one-click actions，不显示 browser confirmation dialog。request pending 时禁用当前 task 的 mutation buttons，防止重复提交；成功或失败使用 non-blocking notification，失败后刷新 task snapshot 并保留 server CLI error log。
+   `note Web server 由只读 viewer 扩展为 loopback-only workspace tool 时，需要为 mutation routes 定义 method、same-origin protection、request validation 和 error response；`[--host] 指向非 loopback address 时默认禁用 mutations，除非用户显式启用并承担访问控制。
    `note workspace watcher 更新时增量刷新 task list 与当前 task detail，不重置 graph layout、active filters 或 selection；覆盖 recurring completion、dependency waiting、invalid state、stale revision、deleted task 和 ignored document tests。
 
 `-{.task #web-query-pipeline created="2026-07-27T00:28:45+08:00"} 统一 Graph 与 Tasks 的 Web query pipeline
