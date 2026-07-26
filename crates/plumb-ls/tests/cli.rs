@@ -298,7 +298,10 @@ fn builds_and_serves_the_workspace_site_with_notes_and_tasks() {
         refreshed,
         "workspace watcher did not invalidate the note cache"
     );
-    let (status, headers, index) = http_get(address, "/");
+    let (status, headers, _) = http_get(address, "/");
+    assert_eq!(status, 308);
+    assert!(headers.contains("location: /graph"), "{headers}");
+    let (status, headers, index) = http_get(address, "/graph");
     assert_eq!(status, 200, "{index}");
     assert!(headers.contains("content-security-policy"), "{headers}");
     assert!(headers.contains("cache-control: no-store"), "{headers}");
