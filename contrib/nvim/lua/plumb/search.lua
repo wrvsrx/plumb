@@ -50,6 +50,17 @@ local function item_label(item)
   return table.concat(parts, '  ')
 end
 
+local function select_item(items, options, callback)
+  if options.picker == 'snacks' then
+    local ok, error = require('plumb.picker.snacks').select(items, options, callback)
+    if ok then
+      return
+    end
+    notify(error .. '; using native picker', vim.log.levels.WARN)
+  end
+  vim.ui.select(items, options, callback)
+end
+
 local function request(client, bufnr, params, callback)
   local success, request_id = client:request(METHOD, params, function(err, result)
     vim.schedule(function()
@@ -93,9 +104,10 @@ local function native_search(kind, opts)
       if not result.complete then
         notify('results were truncated', vim.log.levels.WARN)
       end
-      vim.ui.select(result.items, {
+      select_item(result.items, {
         prompt = opts.select_prompt or ('Select ' .. kind .. ':'),
         format_item = item_label,
+        picker = opts.picker,
       }, function(item)
         if item then
           open_location(client, item.location)

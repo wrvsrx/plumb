@@ -40,6 +40,48 @@ fn exposes_the_unified_command_surface() {
 }
 
 #[test]
+fn bundled_neovim_plugin_matches_the_binary_version() {
+    let version = include_str!("../../../contrib/nvim/lua/plumb/version.lua");
+    assert!(
+        version.contains(&format!("version = '{}'", env!("CARGO_PKG_VERSION"))),
+        "{version}"
+    );
+}
+
+#[test]
+fn bundled_neovim_queries_match_the_tree_sitter_sources() {
+    for (name, source, bundled) in [
+        (
+            "folds.scm",
+            include_str!("../../../tree-sitter-plumb/queries/folds.scm"),
+            include_str!("../../../contrib/nvim/queries/plumb/folds.scm"),
+        ),
+        (
+            "highlights.scm",
+            include_str!("../../../tree-sitter-plumb/queries/highlights.scm"),
+            include_str!("../../../contrib/nvim/queries/plumb/highlights.scm"),
+        ),
+        (
+            "indents.scm",
+            include_str!("../../../tree-sitter-plumb/queries/indents.scm"),
+            include_str!("../../../contrib/nvim/queries/plumb/indents.scm"),
+        ),
+        (
+            "injections.scm",
+            include_str!("../../../tree-sitter-plumb/queries/injections.scm"),
+            include_str!("../../../contrib/nvim/queries/plumb/injections.scm"),
+        ),
+        (
+            "textobjects.scm",
+            include_str!("../../../tree-sitter-plumb/queries/textobjects.scm"),
+            include_str!("../../../contrib/nvim/queries/plumb/textobjects.scm"),
+        ),
+    ] {
+        assert_eq!(bundled, source, "bundled Neovim query drifted: {name}");
+    }
+}
+
+#[test]
 fn checks_a_workspace_recursively_and_sets_the_exit_status() {
     let root = unique_temp_dir();
     std::fs::create_dir_all(root.join("nested")).unwrap();

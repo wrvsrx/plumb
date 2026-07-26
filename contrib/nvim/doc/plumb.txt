@@ -1,0 +1,69 @@
+*plumb.txt*                 plumb.nvim                 Last change: 2026-07-27
+
+=============================================================================
+CONTENTS                                                        *plumb-contents*
+
+1. Setup ......................................................... |plumb-setup|
+2. Commands ................................................... |plumb-commands|
+3. Lua API ......................................................... |plumb-api|
+4. Health ....................................................... |plumb-health|
+
+=============================================================================
+SETUP                                                            *plumb-setup*
+
+plumb.nvim requires Neovim 0.12 and a `plumb` binary. Add contrib/nvim to
+'runtimepath', then call:
+>
+  require('plumb').setup()
+<
+No mappings are installed. The defaults enable LSP, tree-sitter, CodeLens,
+search, and the workspace Web command. Features can be disabled independently:
+>
+  require('plumb').setup({
+    command = 'plumb',
+    lsp = { enabled = true, root_markers = { '.plumb', '.git' } },
+    treesitter = { enabled = true, parser_path = nil },
+    codelens = { enabled = true, picker = 'quickfix' },
+    search = { enabled = true, picker = 'native' },
+    web = { enabled = true },
+  })
+<
+Use picker = 'snacks' when snacks.nvim is installed. Repeated setup calls are
+safe and replace the plugin's commands and autocmds.
+
+=============================================================================
+COMMANDS                                                      *plumb-commands*
+
+:PlumbFormat          Format the current buffer.
+:PlumbRename          Rename an anchor or the document at metadata.
+:PlumbCodeAction      Select a metadata, anchor, or task action.
+:PlumbTaskComplete    Complete the task at the cursor.
+:PlumbTaskCancel      Cancel the task at the cursor.
+:PlumbNotes           Search workspace notes.
+:PlumbTasks           Search ready workspace tasks.
+:PlumbReferences      Run the reference CodeLens at the cursor.
+:PlumbWeb[!]          Open the workspace Web app; ! omits current note.
+
+=============================================================================
+LUA API                                                            *plumb-api*
+
+require('plumb').setup(opts)                  Configure the complete plugin.
+require('plumb').config()                     Return effective configuration.
+require('plumb.actions').format(opts)         Format through attached LSP.
+require('plumb.actions').rename()             Run LSP rename.
+require('plumb.actions').code_action()        Run LSP code actions.
+require('plumb.actions').references()         Run current reference CodeLens.
+require('plumb.actions').task(action)         Complete or cancel current task.
+require('plumb.search').search_notes(opts)    Search notes.
+require('plumb.search').search_tasks(opts)    Search tasks.
+require('plumb.search').live_search(...)      Adapter-driven cancellable search.
+require('plumb.web').open(opts)               Start `plumb site serve`.
+
+=============================================================================
+HEALTH                                                          *plumb-health*
+
+Run :checkhealth plumb. It checks Neovim, the binary, tree-sitter parser and
+queries, and active plumb LSP clients. Strict diagnostics always come from
+`plumb lsp`; tree-sitter is editor ergonomics only.
+
+vim:tw=78:ts=8:noet:ft=help:norl:

@@ -62,6 +62,26 @@ assert(vim.wait(5000, function()
   return command_selections == 2
 end), 'execute documented search user commands')
 
+local warning
+local notify = vim.notify
+local snacks = package.loaded.snacks
+local snacks_preload = package.preload.snacks
+package.loaded.snacks = nil
+package.preload.snacks = function() error('disabled for degraded dependency test') end
+vim.notify = function(message, level)
+  if level == vim.log.levels.WARN then
+    warning = message
+  end
+end
+search.search_notes({ bufnr = bufnr, picker = 'snacks' })
+assert(vim.wait(5000, function()
+  return command_selections == 3
+end), 'fall back from unavailable Snacks picker')
+assert(warning and warning:match('Snacks picker is unavailable'))
+vim.notify = notify
+package.loaded.snacks = snacks
+package.preload.snacks = snacks_preload
+
 local live_callbacks
 local live_done = false
 local updates = 0

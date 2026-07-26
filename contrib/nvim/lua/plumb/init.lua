@@ -1,0 +1,92 @@
+local M = {}
+
+local defaults = {
+  command = 'plumb',
+  lsp = { enabled = true, root_markers = { '.plumb', '.git' } },
+  treesitter = { enabled = true },
+  codelens = { enabled = true, picker = 'quickfix' },
+  search = { enabled = true, picker = 'native', task_filter = 'state == "ready"' },
+  web = { enabled = true },
+}
+
+local config = vim.deepcopy(defaults)
+local commands = {
+  'PlumbCodeAction',
+  'PlumbFormat',
+  'PlumbNotes',
+  'PlumbReferences',
+  'PlumbRename',
+  'PlumbTaskCancel',
+  'PlumbTaskComplete',
+  'PlumbTasks',
+  'PlumbWeb',
+}
+
+local function command(name, callback, desc)
+  pcall(vim.api.nvim_del_user_command, name)
+  vim.api.nvim_create_user_command(name, callback, { desc = desc })
+end
+
+local function clear_commands()
+  for _, name in ipairs(commands) do
+    pcall(vim.api.nvim_del_user_command, name)
+  end
+end
+
+function M.setup(opts)
+  if vim.fn.has('nvim-0.12') ~= 1 then
+    error('plumb.nvim requires Neovim 0.12 or newer')
+  end
+  config = vim.tbl_deep_extend('force', vim.deepcopy(defaults), opts or {})
+  local group = vim.api.nvim_create_augroup('PlumbNvim', { clear = true })
+  clear_commands()
+  vim.filetype.add({ extension = { plumb = 'plumb' } })
+
+  local lsp = vim.tbl_deep_extend('force', {
+    command = config.command,
+    codelens = config.codelens.enabled,
+  }, config.lsp)
+  require('plumb.lsp').setup(lsp, group)
+  require('plumb.treesitter').setup(config.treesitter, group)
+
+  if config.codelens.enabled then
+    require('plumb.codelens').setup({ picker = config.codelens.picker })
+  end
+  if config.web.enabled then
+    require('plumb.web').setup({ command = config.command, root = config.web.root })
+  end
+
+  local actions = require('plumb.actions')
+  if config.lsp.enabled then
+    command('PlumbFormat', actions.format, 'Format the current plumb buffer')
+    command('PlumbRename', actions.rename, 'Rename the current plumb target')
+    command('PlumbCodeAction', actions.code_action, 'Select a plumb code action')
+    command('PlumbTaskComplete', function() actions.task('complete') end, 'Complete the current plumb task')
+    command('PlumbTaskCancel', function() actions.task('cancel') end, 'Cancel the current plumb task')
+  end
+  if config.codelens.enabled then
+    command('PlumbReferences', actions.references, 'Show references from the current plumb CodeLens')
+  end
+  if config.search.enabled then
+    command('PlumbNotes', function()
+      require('plumb.search').search_notes({ picker = config.search.picker })
+    end, 'Search plumb notes')
+    command('PlumbTasks', function()
+      require('plumb.search').search_tasks({
+        picker = config.search.picker,
+        filter = config.search.task_filter,
+      })
+    end, 'Search plumb tasks')
+  end
+  return M
+end
+
+function M.config()
+  return vim.deepcopy(config)
+end
+
+function M.health()
+  require('plumb.health').check()
+end
+
+return M

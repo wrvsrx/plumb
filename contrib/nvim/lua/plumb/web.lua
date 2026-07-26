@@ -31,6 +31,7 @@ end
 
 function M.setup(opts)
   opts = opts or {}
+  pcall(vim.api.nvim_del_user_command, 'PlumbWeb')
   vim.api.nvim_create_user_command('PlumbWeb', function(command)
     M.open({
       command = opts.command,
