@@ -33,6 +33,8 @@ const APP_JS: &str = include_str!("../assets/app.js");
 const STYLES_CSS: &str = include_str!("../assets/styles.css");
 const FORCE_GRAPH_JS: &str = include_str!("../assets/vendor/force-graph.min.js");
 const FORCE_GRAPH_LICENSE: &str = include_str!("../assets/vendor/FORCE-GRAPH-LICENSE.txt");
+const CEL_JS: &str = include_str!("../assets/vendor/cel-js.min.js");
+const CEL_JS_LICENSE: &str = include_str!("../assets/vendor/CEL-JS-LICENSE.txt");
 
 #[derive(Debug, Args)]
 pub(crate) struct ServeConfig {
@@ -166,6 +168,8 @@ fn router(state: AppState) -> Router {
         .route("/styles.css", get(styles_css))
         .route("/vendor/force-graph.min.js", get(force_graph_js))
         .route("/vendor/FORCE-GRAPH-LICENSE.txt", get(force_graph_license))
+        .route("/vendor/cel-js.min.js", get(cel_js))
+        .route("/vendor/CEL-JS-LICENSE.txt", get(cel_js_license))
         .layer(middleware::from_fn(log_requests))
         .with_state(state)
 }
@@ -192,6 +196,8 @@ async fn index(State(state): State<AppState>) -> Response {
         "graphUrl": "/api/graph",
         "queryUrl": "/api/query",
         "presetsUrl": "/api/query-presets",
+        "graphRoute": "/graph",
+        "tasksRoute": "/tasks",
         "noteApiBase": "/api/note/",
         "noteApiSuffix": "",
         "notePageBase": "/note/",
@@ -377,7 +383,7 @@ async fn note_page(State(state): State<AppState>, AxumPath(id): AxumPath<String>
         &html,
         &backlinks,
         "/",
-        "/",
+        "/graph",
     ))
 }
 
@@ -462,6 +468,14 @@ async fn force_graph_js() -> Response {
 
 async fn force_graph_license() -> Response {
     asset("text/plain; charset=utf-8", FORCE_GRAPH_LICENSE)
+}
+
+async fn cel_js() -> Response {
+    asset("application/javascript; charset=utf-8", CEL_JS)
+}
+
+async fn cel_js_license() -> Response {
+    asset("text/plain; charset=utf-8", CEL_JS_LICENSE)
 }
 
 async fn favicon() -> StatusCode {
@@ -563,10 +577,16 @@ fn watch_event_affects_workspace(event: &notify::Event) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    use axum::body::{to_bytes, Body};
+    use axum::http::{header, Request, StatusCode};
     use notify::event::{AccessKind, CreateKind, ModifyKind, RemoveKind};
     use notify::{Event, EventKind};
+    use tokio::sync::{broadcast, Mutex, RwLock};
+    use tower::ServiceExt;
 
-    use super::watch_event_affects_workspace;
+    use super::*;
 
     #[test]
     fn workspace_watcher_ignores_reads_and_unrelated_files() {
@@ -591,6 +611,77 @@ mod tests {
         assert!(events.iter().all(watch_event_affects_workspace));
         let ignore = Event::new(EventKind::Modify(ModifyKind::Any)).add_path(".ignore".into());
         assert!(watch_event_affects_workspace(&ignore));
+    }
+
+    #[tokio::test]
+    async fn web_routes_restore_views_and_execute_structured_queries() {
+        let root = temp_dir();
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("tasks.plumb"), "`-{.task #ready} Ready task\n").unwrap();
+        let (changes, _) = broadcast::channel(2);
+        let state = AppState {
+            workspace: Arc::new(RwLock::new(WebWorkspace::load(&root).unwrap())),
+            html_cache: Arc::new(Mutex::new(HashMap::new())),
+            changes,
+            current: None,
+            exclude: None,
+            allow_mutations: true,
+        };
+        let app = router(state);
+
+        let root_response = app
+            .clone()
+            .oneshot(Request::get("/").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(root_response.status(), StatusCode::PERMANENT_REDIRECT);
+        assert_eq!(root_response.headers()[header::LOCATION], "/graph");
+        for path in ["/graph?preset=connected", "/tasks?preset=ready"] {
+            let response = app
+                .clone()
+                .oneshot(Request::get(path).body(Body::empty()).unwrap())
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK, "{path}");
+        }
+
+        let response = app.clone().oneshot(
+            Request::post("/api/query")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(r#"{"view":"tasks","presets":["ready"],"query":"Ready","sort":"source","traversal":{}}"#))
+                .unwrap(),
+        ).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(value["view"], "tasks");
+        assert_eq!(value["tasks"]["tasks"].as_array().unwrap().len(), 1);
+
+        let response = app
+            .oneshot(
+                Request::post("/api/query")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        r#"{"view":"tasks","filter":"title","traversal":{}}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(value["source"], "custom");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    fn temp_dir() -> PathBuf {
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        std::env::temp_dir().join(format!(
+            "plumb-web-server-{}-{}",
+            std::process::id(),
+            COUNTER.fetch_add(1, Ordering::Relaxed)
+        ))
     }
 }
 
@@ -680,5 +771,9 @@ pub(crate) fn write_assets(output: &Path) -> Result<(), String> {
         FORCE_GRAPH_LICENSE,
     )
     .map_err(|error| format!("cannot write Force Graph license: {error}"))?;
+    std::fs::write(output.join("vendor/cel-js.min.js"), CEL_JS)
+        .map_err(|error| format!("cannot write CEL JS: {error}"))?;
+    std::fs::write(output.join("vendor/CEL-JS-LICENSE.txt"), CEL_JS_LICENSE)
+        .map_err(|error| format!("cannot write CEL JS license: {error}"))?;
     Ok(())
 }

@@ -7,7 +7,7 @@ use chrono::{Local, SecondsFormat};
 use plumb_extensions::{LinkSpelling, TaskStatus};
 use plumb_workspace::{
     normalize, scan_workspace_files, search_score, ResolvedTarget, SearchRecordKind, TaskEditError,
-    TextEdit, Workspace,
+    TaskRef, TextEdit, Workspace,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -109,8 +109,13 @@ pub struct WebTask {
     pub created: Option<String>,
     pub due: Option<String>,
     pub wait: Option<String>,
+    pub done: Option<String>,
+    pub canceled: Option<String>,
     pub recur: Option<String>,
+    pub prev: Option<String>,
     pub depends: Vec<String>,
+    pub depends_on: Vec<String>,
+    pub directly_blocking: Vec<String>,
     pub blocked: bool,
     pub actionable: bool,
     pub wait_reasons: Vec<String>,
@@ -421,6 +426,23 @@ impl WebWorkspace {
                     || format!("{document_id}:{}", record.range.start),
                     |id| format!("{document_id}:{id}"),
                 );
+                let depends_on = self
+                    .workspace
+                    .task_dependencies(&record.path, task)
+                    .into_iter()
+                    .map(|dependency| display_task_ref(&self.root, &dependency.target))
+                    .collect();
+                let directly_blocking = record
+                    .id
+                    .as_deref()
+                    .map(|id| {
+                        self.workspace
+                            .directly_blocking_tasks(&record.path, id)
+                            .into_iter()
+                            .map(|target| display_task_ref(&self.root, &target))
+                            .collect()
+                    })
+                    .unwrap_or_default();
                 Some(WebTask {
                     key,
                     document_id,
@@ -432,12 +454,17 @@ impl WebWorkspace {
                     created: task.created.as_ref().map(|field| field.value.clone()),
                     due: task.due.as_ref().map(|field| field.value.clone()),
                     wait: task.wait.as_ref().map(|field| field.value.clone()),
+                    done: task.done.as_ref().map(|field| field.value.clone()),
+                    canceled: task.canceled.as_ref().map(|field| field.value.clone()),
                     recur: task.recur.as_ref().map(|field| field.value.clone()),
+                    prev: task.prev.as_ref().map(|field| field.value.clone()),
                     depends: task
                         .depends
                         .iter()
                         .map(|item| item.source.clone())
                         .collect(),
+                    depends_on,
+                    directly_blocking,
                     blocked: record.blocked.unwrap_or(false),
                     actionable: record.actionable.unwrap_or(false),
                     wait_reasons: record
@@ -526,14 +553,13 @@ impl WebWorkspace {
         query: &WebQuery,
         excluded: Option<&str>,
     ) -> Result<GraphSnapshot, QueryFailure> {
-        let mut traversal = query.traversal.clone();
-        traversal.limit = Some(MAX_GRAPH_LIMIT);
-        let mut graph = self
-            .graph_excluding(&traversal, excluded)
+        let excluded = self
+            .excluded_documents(excluded)
             .map_err(|message| QueryFailure {
                 source: "exclude".to_string(),
                 message,
             })?;
+        let mut graph = self.graph_with_excluded(&query.traversal, &excluded, false);
         let expressions = resolve_presets(&query.presets, GRAPH_PRESETS)?;
         let programs = expressions
             .into_iter()
@@ -719,7 +745,7 @@ impl WebWorkspace {
     }
 
     pub fn graph(&self, query: &GraphQuery) -> GraphSnapshot {
-        self.graph_with_excluded(query, &BTreeSet::new())
+        self.graph_with_excluded(query, &BTreeSet::new(), true)
     }
 
     pub fn graph_excluding(
@@ -727,7 +753,12 @@ impl WebWorkspace {
         query: &GraphQuery,
         predicate: Option<&str>,
     ) -> Result<GraphSnapshot, String> {
-        let excluded = match predicate {
+        let excluded = self.excluded_documents(predicate)?;
+        Ok(self.graph_with_excluded(query, &excluded, true))
+    }
+
+    fn excluded_documents(&self, predicate: Option<&str>) -> Result<BTreeSet<String>, String> {
+        Ok(match predicate {
             Some(predicate) => self
                 .workspace
                 .search_records_filtered(
@@ -743,14 +774,14 @@ impl WebWorkspace {
                 .filter_map(|record| self.document_ids.get(&record.path).cloned())
                 .collect(),
             None => BTreeSet::new(),
-        };
-        Ok(self.graph_with_excluded(query, &excluded))
+        })
     }
 
     fn graph_with_excluded(
         &self,
         query: &GraphQuery,
         excluded: &BTreeSet<String>,
+        apply_limit: bool,
     ) -> GraphSnapshot {
         let (mut nodes, mut edges) = self.full_graph();
         nodes.retain(|id, _| !excluded.contains(id));
@@ -795,14 +826,21 @@ impl WebWorkspace {
             edges.retain(|edge| included.contains(&edge.source) && included.contains(&edge.target));
         }
 
-        let limit = query
-            .limit
-            .unwrap_or(DEFAULT_GRAPH_LIMIT)
-            .min(MAX_GRAPH_LIMIT);
-        let complete = nodes.len() <= limit;
-        let retained = nodes.keys().take(limit).cloned().collect::<BTreeSet<_>>();
-        nodes.retain(|id, _| retained.contains(id));
-        edges.retain(|edge| retained.contains(&edge.source) && retained.contains(&edge.target));
+        let complete = !apply_limit
+            || nodes.len()
+                <= query
+                    .limit
+                    .unwrap_or(DEFAULT_GRAPH_LIMIT)
+                    .min(MAX_GRAPH_LIMIT);
+        if apply_limit {
+            let limit = query
+                .limit
+                .unwrap_or(DEFAULT_GRAPH_LIMIT)
+                .min(MAX_GRAPH_LIMIT);
+            let retained = nodes.keys().take(limit).cloned().collect::<BTreeSet<_>>();
+            nodes.retain(|id, _| retained.contains(id));
+            edges.retain(|edge| retained.contains(&edge.source) && retained.contains(&edge.target));
+        }
         GraphSnapshot {
             revision: self.revision,
             nodes: nodes.into_values().collect(),
@@ -1222,6 +1260,10 @@ fn display_path(root: &Path, path: &Path) -> String {
         .unwrap_or(path)
         .to_string_lossy()
         .replace(std::path::MAIN_SEPARATOR, "/")
+}
+
+fn display_task_ref(root: &Path, target: &TaskRef) -> String {
+    format!("{}#{}", display_path(root, &target.path), target.id)
 }
 
 fn apply_text_edits(mut source: String, mut edits: Vec<TextEdit>) -> Result<String, String> {

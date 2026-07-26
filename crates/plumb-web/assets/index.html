@@ -39,29 +39,35 @@
       <span>Search</span>
       <input id="task-search" type="search" autocomplete="off" placeholder="Task, id, or source">
     </label>
-    <label class="task-control" hidden>
-      <span>State</span>
-      <select id="task-state">
-        <option value="ready">Ready</option>
-        <option value="waiting">Waiting</option>
-        <option value="all">All</option>
-        <option value="done">Done</option>
-        <option value="canceled">Canceled</option>
-        <option value="invalid">Invalid</option>
-      </select>
-    </label>
   </header>
-  <div class="filters graph-filters" aria-label="Edge filters">
-    <label><input type="checkbox" value="link" checked> Named links</label>
-    <label><input type="checkbox" value="autolink" checked> Autolinks</label>
-    <label><input type="checkbox" value="task-prev" checked> Task history</label>
-    <label><input type="checkbox" value="task-depends" checked> Dependencies</label>
+  <div class="filters graph-filters" aria-label="Graph filters">
+    <div class="preset-picker">
+      <button class="preset-add" type="button" aria-label="Add graph filter" title="Add filter">+</button>
+      <div class="preset-menu" role="menu" hidden></div>
+    </div>
+    <div class="preset-chips" aria-label="Selected graph filters"></div>
+    <label class="cel-filter"><span>CEL</span><input type="text" autocomplete="off" placeholder="Custom expression"></label>
+    <label><span>Sort</span><select class="query-sort"><option value="source">Source</option><option value="relevance">Relevance</option></select></label>
+    <details class="edge-options"><summary>Edges</summary>
+      <label><input type="checkbox" value="link" checked> Named links</label>
+      <label><input type="checkbox" value="autolink" checked> Autolinks</label>
+      <label><input type="checkbox" value="task-prev" checked> Task history</label>
+      <label><input type="checkbox" value="task-depends" checked> Dependencies</label>
+    </details>
     <label><input id="all-labels" type="checkbox" checked> Labels</label>
+    <span class="query-error" role="alert"></span>
     <span id="summary" role="status"></span>
   </div>
   <div class="filters task-filters" aria-label="Task summary" hidden>
+    <div class="preset-picker">
+      <button class="preset-add" type="button" aria-label="Add task filter" title="Add filter">+</button>
+      <div class="preset-menu" role="menu" hidden></div>
+    </div>
+    <div class="preset-chips" aria-label="Selected task filters"></div>
+    <label class="cel-filter"><span>CEL</span><input type="text" autocomplete="off" placeholder="Custom expression"></label>
+    <label><span>Sort</span><select class="query-sort"><option value="source">Source</option><option value="due">Due</option><option value="relevance">Relevance</option></select></label>
+    <span class="query-error" role="alert"></span>
     <span id="task-summary" role="status"></span>
-    <span class="task-filter-note">Hierarchy-aware due order</span>
   </div>
   <main class="workspace">
     <section class="graph-stage" aria-label="Workspace graph">
@@ -89,6 +95,6 @@
   </main>
   <div id="notification" class="notification" role="status" hidden></div>
   <script src="__ASSET_PREFIX__vendor/force-graph.min.js"></script>
-  <script src="__ASSET_PREFIX__app.js"></script>
+  <script type="module" src="__ASSET_PREFIX__app.js"></script>
 </body>
 </html>

@@ -9,7 +9,10 @@ use serde_json::json;
 use crate::server::{
     render_backlinks, render_index, render_note_page, serve, write_assets, ServeConfig,
 };
-use crate::{render_note_html, GraphQuery, WebTargetMode, WebWorkspace};
+use crate::{
+    render_note_html, GraphQuery, WebQuery, WebTargetMode, WebView, WebWorkspace, GRAPH_PRESETS,
+    TASK_PRESETS,
+};
 
 #[derive(Debug, Parser)]
 #[command(name = "plumb site", about = "Build or serve a plumb workspace site")]
@@ -75,6 +78,13 @@ fn build(config: BuildConfig) -> Result<(), String> {
         ..GraphQuery::default()
     });
     write_json(config.output.join("graph.json"), &graph)?;
+    let tasks = workspace
+        .query_tasks(&WebQuery {
+            view: WebView::Tasks,
+            ..WebQuery::default()
+        })
+        .map_err(|error| format!("cannot build task query: {}", error.message))?;
+    write_json(config.output.join("tasks.json"), &tasks)?;
     let search = graph
         .nodes
         .iter()
@@ -83,22 +93,37 @@ fn build(config: BuildConfig) -> Result<(), String> {
         .collect::<Vec<_>>();
     write_json(config.output.join("search-index.json"), &search)?;
 
-    let index_config = json!({
+    let app_config = json!({
         "mode": "static",
-        "graphUrl": "graph.json",
-        "noteApiBase": "notes/",
+        "graphUrl": "../graph.json",
+        "queryUrl": null,
+        "presetsUrl": null,
+        "presets": { "graph": GRAPH_PRESETS, "tasks": TASK_PRESETS },
+        "graphRoute": "../graph/",
+        "tasksRoute": "../tasks/",
+        "noteApiBase": "../notes/",
         "noteApiSuffix": "/note.json",
-        "notePageBase": "notes/",
+        "notePageBase": "../notes/",
         "notePageSuffix": "/",
         "eventsUrl": null,
-        "tasksUrl": null,
+        "tasksUrl": "../tasks.json",
         "taskActionBase": null,
         "taskMutations": false,
         "current": null,
     });
+    for route in ["graph", "tasks"] {
+        let directory = config.output.join(route);
+        std::fs::create_dir_all(&directory)
+            .map_err(|error| format!("cannot create {}: {error}", directory.display()))?;
+        std::fs::write(
+            directory.join("index.html"),
+            render_index(&app_config, "../assets/", "../graph/"),
+        )
+        .map_err(|error| format!("cannot write {route}/index.html: {error}"))?;
+    }
     std::fs::write(
         config.output.join("index.html"),
-        render_index(&index_config, "assets/", "./"),
+        "<!doctype html><meta charset=\"utf-8\"><meta http-equiv=\"refresh\" content=\"0;url=graph/\"><title>plumb workspace</title><a href=\"graph/\">Open graph</a>\n",
     )
     .map_err(|error| format!("cannot write index.html: {error}"))?;
 
@@ -130,7 +155,7 @@ fn build(config: BuildConfig) -> Result<(), String> {
             &html,
             &backlinks,
             "../../assets/",
-            "../../",
+            "../../graph/",
         );
         std::fs::write(directory.join("index.html"), page)
             .map_err(|error| format!("cannot write note page: {error}"))?;
@@ -215,11 +240,16 @@ mod tests {
         })
         .unwrap();
         assert!(output.join("index.html").is_file());
+        assert!(output.join("graph/index.html").is_file());
+        assert!(output.join("tasks/index.html").is_file());
         assert!(output.join("graph.json").is_file());
+        assert!(output.join("tasks.json").is_file());
         assert!(output.join("assets/vendor/force-graph.min.js").is_file());
         assert!(output
             .join("assets/vendor/FORCE-GRAPH-LICENSE.txt")
             .is_file());
+        assert!(output.join("assets/vendor/cel-js.min.js").is_file());
+        assert!(output.join("assets/vendor/CEL-JS-LICENSE.txt").is_file());
         let note =
             std::fs::read_to_string(output.join("notes").join(&a_id).join("note.json")).unwrap();
         assert!(note.contains(&format!("../../notes/{b_id}/#b")), "{note}");
