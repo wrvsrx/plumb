@@ -335,7 +335,10 @@
    `note 默认 sort 是 source order。Task source order 定义为 normalized relative path 后接 source position，parent/subtask subtree 必须保持 source order；切换 preset、custom CEL 或 fuzzy query 只能移除不匹配 records，不能重排剩余 records。Graph note/search records 的 source order 使用 normalized relative path。
    `note optional Due 与 Relevance sort 以完整 task subtree 为单位：分别使用 root task due 与 subtree maximum fuzzy score 排列 subtrees，subtree 内仍保持 source order。fuzzy query 为空时 Relevance 禁用或退化为 source order。
    `note Graph 先执行 current/direction/depth/edge-kind traversal，再执行 node preset/custom CEL 与 fuzzy match，最后移除任一 endpoint 不可见的 edges；traversal parameters、layout coordinates、sort 与 limit 不进入 CEL facts。
-   `note URL query parameters 与 JSON request 能无损往返 filters、query 和 sort，使 refresh、history 与 shared URL 保持同一 query state。CEL 错误保留 last successful result；覆盖互斥 preset replacement、多个 preset AND、custom error provenance、empty query、stable source order、subtree sorting、Graph filtered endpoints 与 revision refresh tests。
+   `note 主视图使用同级 sub-URLs：`[/graph]、`[/tasks] 与 `[/note/DOCUMENT]；root route redirect 或 canonicalize 到 `[/graph]。pathname 表示 view/resource，query parameters 表示该 view 的 presets、custom CEL、fuzzy query、sort、selection 与 traversal state，hash 只表示 note explicit anchor；不使用 hash routing。
+   `note Graph/Tasks tab 使用 `[history.pushState]；逐字 fuzzy/CEL input 等高频临时变化使用 `[history.replaceState]；`[popstate] 从 URL 完整恢复 view 和 query controls。刷新、前进、后退、bookmark 与 shared URL 不得丢失当前 Tasks/Graph view 或 filters。
+   `note dynamic server 为 `[/graph] 与 `[/tasks] 返回同一 app shell 并按 pathname 初始化；static build 生成 `[graph/index.html] 与 `[tasks/index.html]，保持 asset、note/resource links 和 query semantics 与 dynamic routes 一致。
+   `note URL query parameters、JSON request 与 UI state 能无损往返 filters、query 和 sort。CEL 错误保留 last successful result；覆盖互斥 preset replacement、多个 preset AND、custom error provenance、empty query、stable source order、subtree sorting、Graph filtered endpoints、direct route load、refresh、back/forward、static/dynamic parity 与 revision refresh tests。
 
 `# Neovim plugin
 
