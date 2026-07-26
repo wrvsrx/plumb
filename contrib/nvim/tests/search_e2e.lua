@@ -7,7 +7,7 @@ vim.fn.mkdir(root, 'p')
 local current = root .. '/current.plumb'
 local target = root .. '/target.plumb'
 vim.fn.writefile({ '`->[' }, current)
-vim.fn.writefile({ '`meta', ' `: title', '', '    Target note', '' }, target)
+vim.fn.writefile({ '`meta', ' `: title', '', '    Target note', '', '`-{.task} Target task' }, target)
 
 local bufnr = vim.fn.bufadd(current)
 vim.fn.bufload(bufnr)
@@ -40,6 +40,27 @@ search.search_notes({ bufnr = bufnr })
 assert(vim.wait(5000, function()
   return native_done
 end), 'complete native note search')
+
+local command_selections = 0
+vim.ui.input = function(_, callback)
+  callback('target')
+end
+vim.ui.select = function(items, _, callback)
+  assert(#items == 1)
+  command_selections = command_selections + 1
+  callback(nil)
+end
+vim.api.nvim_create_user_command('PlumbNotes', function()
+  require('plumb.search').search_notes({ bufnr = bufnr })
+end, {})
+vim.api.nvim_create_user_command('PlumbTasks', function()
+  require('plumb.search').search_tasks({ bufnr = bufnr, filter = 'state == "ready"' })
+end, {})
+vim.cmd.PlumbNotes()
+vim.cmd.PlumbTasks()
+assert(vim.wait(5000, function()
+  return command_selections == 2
+end), 'execute documented search user commands')
 
 local live_callbacks
 local live_done = false
@@ -79,4 +100,6 @@ assert(response.result.items[1].title == 'Target note')
 assert(response.result.items[1].location.uri:match('target%.plumb$'))
 
 client:stop(true)
+vim.api.nvim_del_user_command('PlumbNotes')
+vim.api.nvim_del_user_command('PlumbTasks')
 vim.fn.delete(root, 'rf')
