@@ -254,6 +254,15 @@ import { addPreset, readQueryParameters, viewFromPath, writeQueryParameters } fr
     return scores.length ? Math.max(...scores) : null;
   }
 
+  function compileBrowserCel(source) {
+    const evaluate = parseCel(source);
+    return (facts) => {
+      const value = evaluate(facts);
+      if (typeof value !== 'boolean') throw new Error(`CEL query must return bool, got ${typeof value}`);
+      return value;
+    };
+  }
+
   function queryPredicates(view) {
     const registry = state.presetRegistry[view] || [];
     const predicates = state.presets[view].map((id) => {
