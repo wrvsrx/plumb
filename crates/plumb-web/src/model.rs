@@ -262,7 +262,7 @@ impl WebWorkspace {
             usize::MAX,
             now,
         );
-        let tasks = records
+        let mut tasks = records
             .items
             .into_iter()
             .filter_map(|record| {
@@ -312,7 +312,8 @@ impl WebWorkspace {
                     location: SourceLocation::new(&self.root, &record.path, record.range),
                 })
             })
-            .collect();
+            .collect::<Vec<_>>();
+        sort_task_subtrees(&mut tasks);
         TaskSnapshot {
             revision: self.revision,
             tasks,
@@ -699,6 +700,39 @@ impl WebWorkspace {
     }
 }
 
+fn sort_task_subtrees(tasks: &mut Vec<WebTask>) {
+    tasks.sort_by(|left, right| {
+        left.path
+            .cmp(&right.path)
+            .then(left.location.start.cmp(&right.location.start))
+            .then(left.key.cmp(&right.key))
+    });
+    let mut groups = Vec::<Vec<WebTask>>::new();
+    for task in std::mem::take(tasks) {
+        let starts_group = task.depth == 0
+            || groups
+                .last()
+                .and_then(|group| group.first())
+                .is_none_or(|root| root.path != task.path);
+        if starts_group {
+            groups.push(vec![task]);
+        } else {
+            groups.last_mut().expect("task group exists").push(task);
+        }
+    }
+    groups.sort_by(|left, right| {
+        let left = left.first().expect("task group is nonempty");
+        let right = right.first().expect("task group is nonempty");
+        left.due
+            .as_deref()
+            .unwrap_or("9999")
+            .cmp(right.due.as_deref().unwrap_or("9999"))
+            .then(left.path.cmp(&right.path))
+            .then(left.location.start.cmp(&right.location.start))
+    });
+    tasks.extend(groups.into_iter().flatten());
+}
+
 fn file_revision(path: &Path) -> Option<i64> {
     let metadata = path.metadata().ok()?;
     let modified = metadata.modified().ok()?;
@@ -847,12 +881,20 @@ mod tests {
         let path = root.join("tasks.plumb");
         std::fs::write(
             &path,
-            "`-{.task #ship created=\"2026-07-25T10:00:00+08:00\" due=\"2026-07-26T10:00:00+08:00\"} Ship release\n`-{.task #later wait=\"2099-01-01T00:00:00+08:00\"} Later\n`-{.task #broken done=\"2026-07-25T11:00:00+08:00\" canceled=\"2026-07-25T12:00:00+08:00\"} Broken\n",
+            "`-{.task #ship created=\"2026-07-25T10:00:00+08:00\" due=\"2099-02-01T10:00:00+08:00\"} Ship release\n  `-{.task #child due=\"2099-01-01T10:00:00+08:00\"} Child stays with ship\n`-{.task #later wait=\"2099-01-10T00:00:00+08:00\" due=\"2099-01-15T00:00:00+08:00\"} Later\n`-{.task #broken done=\"2026-07-25T11:00:00+08:00\" canceled=\"2026-07-25T12:00:00+08:00\"} Broken\n",
         )
         .unwrap();
         let workspace = WebWorkspace::load(&root).unwrap();
         let snapshot = workspace.tasks();
-        assert_eq!(snapshot.tasks.len(), 3);
+        assert_eq!(snapshot.tasks.len(), 4);
+        assert_eq!(
+            snapshot
+                .tasks
+                .iter()
+                .map(|task| task.id.as_deref().unwrap())
+                .collect::<Vec<_>>(),
+            ["later", "ship", "child", "broken"]
+        );
         let task = snapshot
             .tasks
             .iter()

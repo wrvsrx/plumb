@@ -417,11 +417,6 @@
         if (state.taskState !== 'all' && task.state !== state.taskState) return false;
         return !query || [task.title, task.id || '', task.path]
           .some((value) => value.toLocaleLowerCase().includes(query));
-      })
-      .sort((left, right) => {
-        const leftDue = left.due || '9999';
-        const rightDue = right.due || '9999';
-        return leftDue.localeCompare(rightDue) || left.path.localeCompare(right.path) || left.location.start - right.location.start;
       });
   }
 
