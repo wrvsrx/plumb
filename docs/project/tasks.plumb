@@ -326,7 +326,7 @@
    `note Web server 由只读 viewer 扩展为 loopback-only workspace tool 时，需要为 mutation routes 定义 method、same-origin protection、request validation 和 error response；`[--host] 指向非 loopback address 时默认禁用 mutations，除非用户显式启用并承担访问控制。
    `note workspace watcher 更新时增量刷新 task list 与当前 task detail，不重置 graph layout、active filters 或 selection；覆盖 recurring completion、dependency waiting、invalid state、stale revision、deleted task 和 ignored document tests。
 
-`-{.task #web-query-pipeline created="2026-07-27T00:28:45+08:00"} 统一 Graph 与 Tasks 的 Web query pipeline
+`-{.task #web-query-pipeline created="2026-07-27T00:28:45+08:00" done="2026-07-27T01:13:41+08:00"} 统一 Graph 与 Tasks 的 Web query pipeline
 
    `note UI 使用可追加的 filter chips：`[+] 打开服务端注册的 preset menu，选中后显示可移除 chip。Preset 包含稳定 id、label、CEL expression 与 optional group；同 group（例如 task state）只能保留一个，新选择替换旧 chip，不同 groups 与 ungrouped presets 使用 logical AND。
    `note custom CEL 使用独立输入框。每个 selected preset 与 custom expression 分别 compile、分别报告 source/position error，再逐项 AND evaluate；不要拼接生成 CEL source。没有 preset 等价于 `[true]，不提供 `[All] chip。
