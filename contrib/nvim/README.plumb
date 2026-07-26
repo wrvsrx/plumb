@@ -23,7 +23,7 @@ modules 的调用接口。
   end)
 
 modules 要求 Neovim 0.12。`[plumb.search] 还要求 attached plumb LSP 声明
-`[experimental.plumb.search] schema version 1。native search 使用 `[vim.ui.input/select]；`[live_search]
+`[experimental.plumb.search] schema version 2。native search 使用 `[vim.ui.input/select]；`[live_search]
 接受 picker adapter，并负责 debounce、request cancellation、stale-result suppression、locations 和
 incomplete-result state。
 

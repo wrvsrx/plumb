@@ -96,7 +96,7 @@ operation。
   end)
 
   vim.keymap.set('n', '<leader>pt', function()
-    require('plumb.search').search_tasks({ filter = 'actionable' })
+    require('plumb.search').search_tasks({ filter = 'state == "ready"' })
   end)
 
 `[live_search] 允许 picker adapter 提供 debounce、cancellation、preview 和 incomplete-result UI；Lua API

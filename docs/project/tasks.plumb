@@ -323,7 +323,7 @@
    `note task detail 显示 source document、title、derived state、timestamps、dependencies 和 child tasks，并能在 graph、note preview 与 task view 之间保持当前 document context。
    `note complete 与 cancel 调用 shared task operations，携带 document revision guard；server 只接受已索引 task identity，不接受任意 filesystem path，并在 conflict 后刷新 task snapshot 而不覆盖外部修改。
    `note Web server 由只读 viewer 扩展为 loopback-only workspace tool 时，需要为 mutation routes 定义 method、same-origin protection、request validation、error response 和 browser confirmation；`[--host] 指向非 loopback address 时默认禁用 mutations，除非用户显式启用并承担访问控制。
-   `note workspace watcher 更新时增量刷新 task list 与当前 task detail，不重置 graph layout、active filters 或 selection；覆盖 recurring completion、blocked dependency、conflicted state、stale revision、deleted task 和 ignored document tests。
+   `note workspace watcher 更新时增量刷新 task list 与当前 task detail，不重置 graph layout、active filters 或 selection；覆盖 recurring completion、dependency waiting、invalid state、stale revision、deleted task 和 ignored document tests。
 
 `# Neovim plugin
 

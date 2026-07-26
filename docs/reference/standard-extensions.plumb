@@ -271,7 +271,7 @@ reference 的 id 结束后的 whitespace 才分隔下一条 reference；path 内
 `{language=plumb}
   `-{.task depends="#local Project A.plumb#build Project B.plumb#test"} Review
 
-state：
+document-local closure state：
 
 `- 没有 `[done] 或 `[canceled]：open。
 `- 只有 `[done]：done。
@@ -279,6 +279,19 @@ state：
 `- 两者同时存在：conflicted。
 
 `[state]、`[status]、`[priority]、`[scheduled] 和 checkbox spelling 没有标准 task semantics。
+
+workspace query、LSP hover 与 Web task view 在 closure state 之上推导互斥 workflow state：
+
+`- open closure 且没有 future wait 或 open dependency：ready。
+`- open closure 且 `[wait] 晚于 query 的 `[now]，或至少一个 dependency 仍 open：waiting。
+`- done closure：done。
+`- canceled closure：canceled。
+`- conflicted closure：invalid。
+
+waiting 同时产生 `[wait_reasons] list，值按 `[time]、`[dependency] 顺序出现；一个 task 可以同时具有
+两个 reason。初版 invalid 只表示 conflicted closure，不吞并其他 task diagnostics。CEL task context
+提供 `[state] 与 `[wait_reasons]；`[actionable] 等价于 `[state == "ready"]，`[blocked] 等价于
+`[wait_reasons] 包含 `[dependency]，两者暂时作为兼容 facts 保留。
 
 datetime fields 必须使用 quoted RFC 3339 value；unquoted 或无法解析的值发布
 `[task.invalid-datetime] warning，并且不参与 task state、query 或 operations。recur 只有在 `[due]
@@ -301,7 +314,7 @@ line start 的 construct completion 提供 Task、Autolink 与 Link；Task skele
 timestamp 创建 `[created]。其他 ordinary inline context 提供 Autolink 与 Link。heading、ordinary
 list item 与 inline verbatim 不提供 construct candidates。
 
-export 在 task item 的首个 paragraph 添加可见 state marker：open 为 `[☐]，done 为 `[☒]，canceled
+export 按 document-local closure state 在 task item 的首个 paragraph 添加可见 marker：open 为 `[☐]，done 为 `[☒]，canceled
 为 `[⊘]，conflicted 为 `[⚠]。其中 `[☐]/[☒] 使用 Pandoc task-list 约定，使支持该约定的 writer
 生成 checkbox；task 的 id、`[.task] class 与 fields 保留在包裹 title 的 Pandoc `[Span] attributes 中，
 children 继续作为同一 list item 的后续 blocks。

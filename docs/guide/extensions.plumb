@@ -208,8 +208,12 @@ reference 在 id 后由 whitespace 分隔，因此 path 可以直接包含 space
 
 `[recur] 接受正整数 `[`PnD]、`[`PnW]、`[`PnM] 或 `[`PnY]，并要求 `[due]。
 
-task state 由 closure timestamps 推导：没有 `[done]/[canceled] 是 open；只有 `[done] 是
+document-local closure state 由 closure timestamps 推导：没有 `[done]/[canceled] 是 open；只有 `[done] 是
 done；只有 `[canceled] 是 canceled；两者同时存在是 conflicted。
+
+workspace 工具在 closure state 上推导 workflow state：可以立即处理的 open task 是 ready；future
+`[wait] 或 open dependency 存在时是 waiting；其余依次是 done、canceled，以及表示 conflicted closure
+的 invalid。waiting reasons 分为 time 与 dependency。
 
 关闭 recurring task 会保留当前 instance，并紧接着创建下一个 sibling instance。新 instance 使用
 canonical formatter layout，不在两个 task 之间添加空行，并保留当前 nesting 与 LF/CRLF style。
