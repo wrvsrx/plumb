@@ -342,7 +342,7 @@
 
 `# Neovim plugin
 
-`-{.task #neovim-plugin depends="#neovim-search-integration"} 开发完整的 Neovim plugin
+`-{.task #neovim-plugin depends="#neovim-search-integration" done="2026-07-27T02:00:53+08:00"} 开发完整的 Neovim plugin
 
    `note 将 `[contrib/nvim] 整理为标准 `[plugin/]、`[lua/plumb/] 与 `[doc/] runtime layout，提供单一 `[setup()] entry point；默认配置可直接启动，不要求 plugin manager-specific glue。
    `note 统一 LSP lifecycle、root detection、client capabilities、workspace watching、commands、CodeLens refresh 与 buffer attach/detach；支持多个 buffers、多个 workspace roots 和重复 setup，不能泄漏 autocmds、commands 或 clients。
