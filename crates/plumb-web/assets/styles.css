@@ -128,6 +128,11 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
 .task-workspace { height: calc(100% - 108px); display: grid; grid-template-columns: minmax(440px, 1fr) minmax(340px, 34vw); }
 .task-list-pane { position: relative; min-width: 0; overflow: auto; background: #f7f7f5; }
 .task-list { width: 100%; }
+.task-document-group {
+  position: sticky; top: 0; z-index: 2; padding: 6px 16px; border-bottom: 1px solid var(--border);
+  background: #e7e8e4; color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px; font-weight: 700; overflow-wrap: anywhere;
+}
 .task-row {
   --task-depth: 0;
   width: 100%; min-height: 64px; display: grid; grid-template-columns: 86px minmax(0, 1fr) 100px;
@@ -156,6 +161,10 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
 .task-fields dt, .task-fields dd { margin: 0; padding: 9px 0; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
 .task-fields dt { color: var(--muted); font-size: 13px; }
 .task-fields dd { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
+.task-children { margin-top: 26px; }
+.task-children h2 { font-size: 15px; margin: 0 0 8px; }
+.task-children > div { display: grid; }
+.task-children button { border: 0; border-top: 1px solid var(--border); border-radius: 0; text-align: left; }
 .notification {
   position: fixed; right: 18px; top: 76px; z-index: 20; max-width: min(440px, calc(100vw - 36px));
   padding: 10px 14px; border: 1px solid #276b45; border-radius: 4px; background: #edf7f0;

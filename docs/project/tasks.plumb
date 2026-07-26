@@ -317,7 +317,7 @@
    `note 覆盖 duplicate links、self-edge omission、cross-file explicit anchor、missing target、invalid revision、open-buffer precedence、workspace refresh、HTML cache invalidation、URL adaptation、resource traversal rejection、large workspace truncation、static/dynamic link parity 与 graph node navigation tests，并记录大 workspace 的启动时间、更新延迟和内存基线。
    `note 2026-07-24 本机 debug build 使用 1000 个互链 documents 测得首次 server ready 126 ms、单文件更新发布新 revision 429 ms、ready-state RSS 29144 KiB；baseline fixture 从 `[note-000.plumb] 到 `[note-999.plumb]，每篇含 metadata title 与一条指向下一篇的 Link。
 
-`-{.task #web-task-management created="2026-07-25T21:51:56+08:00"} 在 Web app 中管理 workspace tasks
+`-{.task #web-task-management created="2026-07-25T21:51:56+08:00" done="2026-07-27T01:43:15+08:00"} 在 Web app 中管理 workspace tasks
 
    `note 提供 task list、document grouping、text search，以及 state、actionable、due、wait 和 dependency filters；复用 plumb-notes 的 task facts 与 CEL query，不在 frontend 重建 task semantics。
    `note task detail 显示 source document、title、derived state、timestamps、dependencies 和 child tasks，并能在 graph、note preview 与 task view 之间保持当前 document context。

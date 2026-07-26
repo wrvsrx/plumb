@@ -26,6 +26,7 @@ import { addPreset, readQueryParameters, viewFromPath, writeQueryParameters } fr
     sort: { graph: 'source', tasks: 'source' },
     presetRegistry: { graph: [], tasks: [] },
     selectedGraph: null,
+    pendingTask: null,
   };
 
   const graphElement = document.getElementById('graph');
@@ -736,7 +737,15 @@ import { addPreset, readQueryParameters, viewFromPath, writeQueryParameters } fr
     taskList.replaceChildren();
     taskEmpty.hidden = tasks.length > 0;
     taskSummary.textContent = `${tasks.length} tasks${state.tasks.complete ? '' : ' (truncated)'}`;
+    let previousPath = null;
     tasks.forEach((task) => {
+      if (task.path !== previousPath) {
+        const heading = document.createElement('div');
+        heading.className = 'task-document-group';
+        heading.textContent = task.path;
+        taskList.append(heading);
+        previousPath = task.path;
+      }
       const button = document.createElement('button');
       button.type = 'button';
       button.className = 'task-row';
@@ -794,6 +803,7 @@ import { addPreset, readQueryParameters, viewFromPath, writeQueryParameters } fr
         <header><p class="document-path"></p><h1></h1><span class="task-detail-state"></span></header>
         <div class="task-actions"><button class="complete-task" type="button">Complete</button><button class="cancel-task" type="button">Cancel</button><button class="open-note" type="button">Open note</button></div>
         <dl class="task-fields"></dl>
+        <section class="task-children" hidden><h2>Child tasks</h2><div></div></section>
       </article>`;
     taskPanel.querySelector('.document-path').textContent = task.id ? `${task.path}#${task.id}` : task.path;
     taskPanel.querySelector('h1').textContent = task.title || '(untitled task)';
@@ -808,20 +818,37 @@ import { addPreset, readQueryParameters, viewFromPath, writeQueryParameters } fr
     addTaskField(fields, 'Dependencies', task.depends);
     addTaskField(fields, 'Waiting for', task.waitReasons);
     const mutable = Boolean(config.taskMutations && task.id && ['ready', 'waiting'].includes(task.state));
-    taskPanel.querySelector('.complete-task').disabled = !mutable || task.blocked;
-    taskPanel.querySelector('.cancel-task').disabled = !mutable;
+    const pending = state.pendingTask === task.key;
+    taskPanel.querySelector('.complete-task').disabled = !mutable || task.blocked || pending;
+    taskPanel.querySelector('.cancel-task').disabled = !mutable || pending;
     taskPanel.querySelector('.complete-task').addEventListener('click', () => updateTask(task, 'complete'));
     taskPanel.querySelector('.cancel-task').addEventListener('click', () => updateTask(task, 'cancel'));
     taskPanel.querySelector('.open-note').addEventListener('click', () => {
-      showView('graph');
+      showView('graph', { historyMode: 'push' });
       selectDocument(task.documentId, '');
     });
+    const children = (state.tasks.allTasks || state.tasks.tasks)
+      .filter((candidate) => candidate.parentKey === task.key);
+    if (children.length) {
+      const section = taskPanel.querySelector('.task-children');
+      const list = section.querySelector('div');
+      section.hidden = false;
+      children.forEach((child) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.textContent = `${taskStateLabel(child)}  ${child.title || '(untitled task)'}`;
+        button.addEventListener('click', () => selectTask(child));
+        list.append(button);
+      });
+    }
   }
 
   async function updateTask(task, action) {
     const verb = action === 'complete' ? 'Complete' : 'Cancel';
-    if (!window.confirm(`${verb} “${task.title}”?`)) return;
+    if (state.pendingTask) return;
     const url = `${config.taskActionBase}${encodeURIComponent(task.documentId)}/${encodeURIComponent(task.id)}/${action}`;
+    state.pendingTask = task.key;
+    renderTaskDetail(task);
     try {
       const response = await fetch(url, {
         method: 'POST',
@@ -835,6 +862,11 @@ import { addPreset, readQueryParameters, viewFromPath, writeQueryParameters } fr
     } catch (error) {
       await loadTasks();
       notify(String(error), true);
+    } finally {
+      state.pendingTask = null;
+      const selected = (state.tasks?.allTasks || state.tasks?.tasks || [])
+        .find((candidate) => candidate.key === state.selectedTask);
+      if (selected) renderTaskDetail(selected);
     }
   }
 

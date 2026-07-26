@@ -66,11 +66,20 @@ workspace revision。
 zoom、node labels、node selection 与 note preview。同一 document 内的 references 不产生 self-edge。
 unresolved document targets 显示为独立 node。
 
-顶部 `[Graph] 与 `[Tasks] tabs 在连接图和任务工作台之间切换。Tasks view 支持按 title、id 或 source
-搜索，并按 ready、waiting、done、canceled、invalid state 筛选；列表显示 derived state、source 和
-due，详情显示 created、wait、recur 与 depends。具有 explicit id 的 open task 可以在页面中 complete 或
-cancel；dependency-waiting task 不能 complete。operation 携带 document revision guard 并复用 shared task edit，
-因此 recurring completion 仍生成下一实例。非-loopback `[--host] 默认禁用 task mutations。
+`[/graph] 与 `[/tasks] 在连接图和任务工作台之间切换，并把 fuzzy query、CEL、preset chips、sort、
+selection 与 graph traversal 写入 URL。`[+] menu 的 server-registered presets 覆盖 task state、actionable、
+due、wait/dependency 和 graph connectivity/task counts；custom CEL 与 presets 分别验证后使用 logical AND。
+Tasks 默认按 document/source order 分组，Due 与 Relevance sort 保持 parent/subtask subtree；详情显示 derived
+state、timestamps、dependencies 与 child tasks。
+
+具有 explicit id 的 open task 可以一键 complete 或 cancel，不弹 confirmation dialog；request pending 时
+当前 task 的 mutation buttons disabled。dependency-waiting task 不能 complete。operation 携带 document
+revision guard 并复用 shared task edit，因此 recurring completion 仍生成下一实例；success/error 使用
+non-blocking notification，conflict 后重新读取 snapshot。
+
+非-loopback `[--host] 默认禁用 task mutations；只有显式添加 `[--allow-mutations] 才启用。browser mutation
+必须是 same-origin JSON POST，server route 只接受已索引的 opaque document id 与 task id，不接受 filesystem
+path。把 server 暴露到非-loopback network 前需要自行提供访问控制。
 
 server URL 单独写入 stdout；启动状态、task mutation、所有 non-GET requests 和任何 HTTP 4xx/5xx
 responses 写入 stderr。task operation 同时记录 received、rejected reason 或 completed，例如：
@@ -90,6 +99,7 @@ responses 写入 stderr。task operation 同时记录 received、rejected reason
 `# Static site
 
 `[plumb site build --root DIR --output DIR] 使用同一 workspace、Web document model 和 frontend assets
-生成静态站点。output 必须不存在或为空；结果包含 `[index.html]、`[graph.json]、
-`[search-index.json]、note pages、note JSON、local resources 与 embedded assets。静态页面不需要运行
-plumb server，并遵守相同的 `[.ignore] rules。
+生成静态站点。output 必须不存在或为空；root page canonicalize 到 `[graph/]，并生成 `[graph/index.html]、
+`[tasks/index.html]、`[graph.json]、`[tasks.json]、`[search-index.json]、note pages、note JSON、local
+resources 与 embedded assets。静态页面使用 bundled browser CEL evaluator 保持 query semantics，但 task
+mutations disabled；它不需要运行 plumb server，并遵守相同的 `[.ignore] rules。

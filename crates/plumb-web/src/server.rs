@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::extract::{Path as AxumPath, RawQuery, Request, State};
-use axum::http::{header, HeaderValue, Method, StatusCode};
+use axum::http::{header, HeaderMap, HeaderValue, Method, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{Html, IntoResponse, Redirect, Response};
@@ -63,6 +63,10 @@ pub(crate) struct ServeConfig {
     #[arg(long)]
     no_watch: bool,
 
+    /// Enable task mutations when binding to a non-loopback address.
+    #[arg(long)]
+    allow_mutations: bool,
+
     /// Hide notes whose CEL predicate evaluates to true.
     #[arg(long, value_name = "EXPR")]
     exclude: Option<String>,
@@ -114,7 +118,7 @@ async fn run(config: ServeConfig) -> Result<(), String> {
         changes,
         current,
         exclude: config.exclude.map(Arc::from),
-        allow_mutations: config.host.is_loopback(),
+        allow_mutations: mutations_enabled(config.host, config.allow_mutations),
     };
     if !config.no_watch {
         spawn_watcher(state.clone());
@@ -145,6 +149,10 @@ async fn run(config: ServeConfig) -> Result<(), String> {
     axum::serve(listener, router)
         .await
         .map_err(|error| format!("server failed: {error}"))
+}
+
+fn mutations_enabled(host: IpAddr, explicitly_allowed: bool) -> bool {
+    host.is_loopback() || explicitly_allowed
 }
 
 fn router(state: AppState) -> Router {
@@ -253,12 +261,20 @@ struct TaskActionRequest {
 async fn update_task(
     State(state): State<AppState>,
     AxumPath((document_id, task_id, action)): AxumPath<(String, String, String)>,
+    headers: HeaderMap,
     Json(request): Json<TaskActionRequest>,
 ) -> Response {
     if !state.allow_mutations {
         return (
             StatusCode::FORBIDDEN,
             "task mutations are disabled for non-loopback servers",
+        )
+            .into_response();
+    }
+    if !same_origin(&headers) {
+        return (
+            StatusCode::FORBIDDEN,
+            "cross-origin task mutations are forbidden",
         )
             .into_response();
     }
@@ -290,6 +306,26 @@ async fn update_task(
     let _ = state.changes.send(revision);
     eprintln!("plumb site serve: task {action} completed for {document_id}#{task_id}");
     Json(tasks).into_response()
+}
+
+fn same_origin(headers: &HeaderMap) -> bool {
+    let Some(origin) = headers.get(header::ORIGIN) else {
+        return true;
+    };
+    let (Ok(origin), Some(host)) = (
+        origin
+            .to_str()
+            .ok()
+            .and_then(|origin| url::Url::parse(origin).ok())
+            .ok_or(()),
+        headers
+            .get(header::HOST)
+            .and_then(|host| host.to_str().ok()),
+    ) else {
+        return false;
+    };
+    let authority = &origin[url::Position::BeforeHost..url::Position::AfterPort];
+    origin.scheme() == "http" && authority.eq_ignore_ascii_case(host)
 }
 
 async fn graph(State(state): State<AppState>, RawQuery(raw_query): RawQuery) -> Response {
@@ -617,6 +653,26 @@ mod tests {
         assert!(events.iter().all(watch_event_affects_workspace));
         let ignore = Event::new(EventKind::Modify(ModifyKind::Any)).add_path(".ignore".into());
         assert!(watch_event_affects_workspace(&ignore));
+    }
+
+    #[test]
+    fn task_mutations_reject_cross_origin_browser_requests() {
+        let mut headers = HeaderMap::new();
+        headers.insert(header::HOST, HeaderValue::from_static("127.0.0.1:4242"));
+        assert!(same_origin(&headers));
+        headers.insert(
+            header::ORIGIN,
+            HeaderValue::from_static("http://127.0.0.1:4242"),
+        );
+        assert!(same_origin(&headers));
+        headers.insert(
+            header::ORIGIN,
+            HeaderValue::from_static("https://example.test"),
+        );
+        assert!(!same_origin(&headers));
+        assert!(mutations_enabled(IpAddr::V4(Ipv4Addr::LOCALHOST), false));
+        assert!(!mutations_enabled(IpAddr::V4(Ipv4Addr::UNSPECIFIED), false));
+        assert!(mutations_enabled(IpAddr::V4(Ipv4Addr::UNSPECIFIED), true));
     }
 
     #[tokio::test]

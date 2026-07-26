@@ -120,6 +120,7 @@ pub struct WebTask {
     pub actionable: bool,
     pub wait_reasons: Vec<String>,
     pub depth: usize,
+    pub parent_key: Option<String>,
     pub location: SourceLocation,
 }
 
@@ -186,6 +187,7 @@ pub struct QueryFailure {
 pub struct TaskQuerySnapshot {
     pub revision: u64,
     pub tasks: Vec<WebTask>,
+    pub all_tasks: Vec<WebTask>,
     pub complete: bool,
 }
 
@@ -231,6 +233,24 @@ pub const TASK_PRESETS: &[QueryPreset] = &[
         label: "Waiting for dependency",
         expression: "'dependency' in wait_reasons",
         group: Some("wait"),
+    },
+    QueryPreset {
+        id: "actionable",
+        label: "Actionable",
+        expression: "actionable",
+        group: Some("state"),
+    },
+    QueryPreset {
+        id: "has-due",
+        label: "Has due date",
+        expression: "due != null",
+        group: None,
+    },
+    QueryPreset {
+        id: "has-wait",
+        label: "Has wait date",
+        expression: "wait != null",
+        group: None,
     },
 ];
 
@@ -474,10 +494,13 @@ impl WebWorkspace {
                         .map(|reason| reason.as_str().to_string())
                         .collect(),
                     depth: record.depth.unwrap_or_default(),
+                    parent_key: None,
                     location: SourceLocation::new(&self.root, &record.path, record.range),
                 })
             })
             .collect::<Vec<_>>();
+        tasks.sort_by(task_source_order);
+        assign_task_parents(&mut tasks);
         sort_task_subtrees(&mut tasks);
         TaskSnapshot {
             revision: self.revision,
@@ -513,7 +536,8 @@ impl WebWorkspace {
             );
         }
 
-        let mut tasks = self.tasks().tasks;
+        let all_tasks = self.tasks().tasks;
+        let mut tasks = all_tasks.clone();
         tasks.sort_by(task_source_order);
         let roots = task_subtree_roots(&tasks);
         let mut scores = HashMap::new();
@@ -544,6 +568,7 @@ impl WebWorkspace {
         Ok(TaskQuerySnapshot {
             revision: self.revision,
             tasks,
+            all_tasks,
             complete,
         })
     }
@@ -1153,6 +1178,24 @@ fn task_source_order(left: &WebTask, right: &WebTask) -> std::cmp::Ordering {
         .then(left.key.cmp(&right.key))
 }
 
+fn assign_task_parents(tasks: &mut [WebTask]) {
+    let mut path = None::<String>;
+    let mut ancestors = Vec::<String>::new();
+    for task in tasks {
+        if path.as_deref() != Some(task.path.as_str()) {
+            path = Some(task.path.clone());
+            ancestors.clear();
+        }
+        ancestors.truncate(task.depth);
+        ancestors.resize(task.depth, String::new());
+        task.parent_key = task
+            .depth
+            .checked_sub(1)
+            .and_then(|depth| ancestors.get(depth).filter(|key| !key.is_empty()).cloned());
+        ancestors.push(task.key.clone());
+    }
+}
+
 fn task_subtree_roots(tasks: &[WebTask]) -> HashMap<String, TaskRoot> {
     let mut roots = HashMap::new();
     let mut current: Option<TaskRoot> = None;
@@ -1466,6 +1509,20 @@ mod tests {
                 ..WebQuery::default()
             })
             .unwrap();
+        assert_eq!(source.all_tasks.len(), 4);
+        let matching = source
+            .all_tasks
+            .iter()
+            .find(|task| task.id.as_deref() == Some("matching"))
+            .unwrap();
+        assert_eq!(
+            source
+                .all_tasks
+                .iter()
+                .find(|task| Some(task.key.as_str()) == matching.parent_key.as_deref())
+                .and_then(|task| task.id.as_deref()),
+            Some("parent")
+        );
         assert_eq!(
             source
                 .tasks
@@ -1578,6 +1635,79 @@ mod tests {
         let second = WebWorkspace::load_with_revision(&root, 2).unwrap();
         assert!(first.has_same_documents(&second));
 
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn web_task_snapshots_cover_dependencies_recurrence_staleness_and_removal() {
+        let root = temp_dir();
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join("tasks.plumb");
+        std::fs::write(
+            &path,
+            "`-{.task #blocker} Blocker\n`-{.task #dependent depends=\"#blocker\"} Dependent\n`-{.task #recurring due=\"2026-07-20T09:00:00+08:00\" recur=P1D} Recurring\n`-{.task #invalid done=\"2026-07-20T10:00:00+08:00\" canceled=\"2026-07-20T11:00:00+08:00\"} Invalid\n",
+        )
+        .unwrap();
+        let workspace = WebWorkspace::load(&root).unwrap();
+        let snapshot = workspace.tasks();
+        let dependent = snapshot
+            .tasks
+            .iter()
+            .find(|task| task.id.as_deref() == Some("dependent"))
+            .unwrap();
+        assert_eq!(dependent.state, "waiting");
+        assert_eq!(dependent.wait_reasons, ["dependency"]);
+        assert_eq!(
+            snapshot
+                .tasks
+                .iter()
+                .find(|task| task.id.as_deref() == Some("invalid"))
+                .unwrap()
+                .state,
+            "invalid"
+        );
+        let recurring = snapshot
+            .tasks
+            .iter()
+            .find(|task| task.id.as_deref() == Some("recurring"))
+            .unwrap();
+        let stale = workspace
+            .set_task_status(
+                &recurring.document_id,
+                "recurring",
+                "stale-revision",
+                TaskStatus::Done,
+            )
+            .unwrap_err();
+        assert!(stale.contains("changed"), "{stale}");
+        workspace
+            .set_task_status(
+                &recurring.document_id,
+                "recurring",
+                &recurring.revision,
+                TaskStatus::Done,
+            )
+            .unwrap();
+        let refreshed = WebWorkspace::load_with_revision(&root, 2).unwrap();
+        assert!(refreshed
+            .tasks()
+            .tasks
+            .iter()
+            .any(|task| { task.prev.as_deref() == Some("#recurring") && task.state == "ready" }));
+
+        std::fs::remove_file(&path).unwrap();
+        assert!(WebWorkspace::load_with_revision(&root, 3)
+            .unwrap()
+            .tasks()
+            .tasks
+            .is_empty());
+        std::fs::write(&path, "`-{.task} Ignored\n").unwrap();
+        std::fs::write(root.join(".ignore"), "tasks.plumb\n").unwrap();
+        assert!(WebWorkspace::load_with_revision(&root, 4)
+            .unwrap()
+            .tasks()
+            .tasks
+            .is_empty());
         std::fs::remove_dir_all(root).unwrap();
     }
 
