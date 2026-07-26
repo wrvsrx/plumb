@@ -244,6 +244,7 @@ mod tests {
         assert!(output.join("tasks/index.html").is_file());
         assert!(output.join("graph.json").is_file());
         assert!(output.join("tasks.json").is_file());
+        assert!(output.join("assets/query-state.js").is_file());
         assert!(output.join("assets/vendor/force-graph.min.js").is_file());
         assert!(output
             .join("assets/vendor/FORCE-GRAPH-LICENSE.txt")

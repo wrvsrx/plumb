@@ -30,6 +30,7 @@ use crate::{
 const INDEX_HTML: &str = include_str!("../assets/index.html");
 const NOTE_HTML: &str = include_str!("../assets/note.html");
 const APP_JS: &str = include_str!("../assets/app.js");
+const QUERY_STATE_JS: &str = include_str!("../assets/query-state.js");
 const STYLES_CSS: &str = include_str!("../assets/styles.css");
 const FORCE_GRAPH_JS: &str = include_str!("../assets/vendor/force-graph.min.js");
 const FORCE_GRAPH_LICENSE: &str = include_str!("../assets/vendor/FORCE-GRAPH-LICENSE.txt");
@@ -165,6 +166,7 @@ fn router(state: AppState) -> Router {
         .route("/events", get(events))
         .route("/favicon.ico", get(favicon))
         .route("/app.js", get(app_js))
+        .route("/query-state.js", get(query_state_js))
         .route("/styles.css", get(styles_css))
         .route("/vendor/force-graph.min.js", get(force_graph_js))
         .route("/vendor/FORCE-GRAPH-LICENSE.txt", get(force_graph_license))
@@ -456,6 +458,10 @@ async fn events(
 
 async fn app_js() -> Response {
     asset("application/javascript; charset=utf-8", APP_JS)
+}
+
+async fn query_state_js() -> Response {
+    asset("application/javascript; charset=utf-8", QUERY_STATE_JS)
 }
 
 async fn styles_css() -> Response {
@@ -762,6 +768,8 @@ pub(crate) fn write_assets(output: &Path) -> Result<(), String> {
         .map_err(|error| format!("cannot create assets directory: {error}"))?;
     std::fs::write(output.join("app.js"), APP_JS)
         .map_err(|error| format!("cannot write app.js: {error}"))?;
+    std::fs::write(output.join("query-state.js"), QUERY_STATE_JS)
+        .map_err(|error| format!("cannot write query-state.js: {error}"))?;
     std::fs::write(output.join("styles.css"), STYLES_CSS)
         .map_err(|error| format!("cannot write styles.css: {error}"))?;
     std::fs::write(output.join("vendor/force-graph.min.js"), FORCE_GRAPH_JS)

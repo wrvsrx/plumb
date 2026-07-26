@@ -1,11 +1,11 @@
 import { parse as parseCel } from './vendor/cel-js.min.js';
+import { addPreset, readQueryParameters, viewFromPath, writeQueryParameters } from './query-state.js';
 
 (function () {
   'use strict';
 
   const config = JSON.parse(document.body.dataset.plumbConfig);
-  const viewFromPath = () => /\/tasks(?:\/index\.html)?\/?$/.test(location.pathname) ? 'tasks' : 'graph';
-  const initialView = viewFromPath();
+  const initialView = viewFromPath(location.pathname);
   const state = {
     graph: null,
     graphView: null,
@@ -51,23 +51,22 @@ import { parse as parseCel } from './vendor/cel-js.min.js';
   let notificationTimer;
 
   function readUrlState() {
-    const params = new URLSearchParams(location.search);
-    state.view = viewFromPath();
-    state.presets[state.view] = params.getAll('preset');
-    state.query[state.view] = params.get('q') || '';
-    state.filter[state.view] = params.get('cel') || '';
-    state.sort[state.view] = params.get('sort') || 'source';
-    state.current = params.get('current') || config.current || null;
-    state.local = Boolean(params.get('current'));
-    state.selectedTask = params.get('selected');
-    state.selectedGraph = state.view === 'graph' ? params.get('selected') : state.selectedGraph;
+    const query = readQueryParameters(location.search);
+    state.view = viewFromPath(location.pathname);
+    state.presets[state.view] = query.presets;
+    state.query[state.view] = query.query;
+    state.filter[state.view] = query.filter;
+    state.sort[state.view] = query.sort;
+    state.current = query.current || config.current || null;
+    state.local = Boolean(query.current);
+    state.selectedTask = query.selected;
+    state.selectedGraph = state.view === 'graph' ? query.selected : state.selectedGraph;
     if (state.view === 'graph') {
-      depth.value = params.get('depth') || '1';
-      direction.value = params.get('direction') || 'both';
-      const kinds = params.getAll('kind');
-      if (kinds.length) {
+      depth.value = query.depth;
+      direction.value = query.direction;
+      if (query.kinds.length) {
         document.querySelectorAll('.graph-filters .edge-options input[value]').forEach((input) => {
-          input.checked = kinds.includes(input.value);
+          input.checked = query.kinds.includes(input.value);
         });
       }
     }
@@ -79,20 +78,17 @@ import { parse as parseCel } from './vendor/cel-js.min.js';
 
   function updateUrl(mode = 'replace') {
     const url = routeFor(state.view);
-    state.presets[state.view].forEach((preset) => url.searchParams.append('preset', preset));
-    if (state.query[state.view]) url.searchParams.set('q', state.query[state.view]);
-    if (state.filter[state.view]) url.searchParams.set('cel', state.filter[state.view]);
-    if (state.sort[state.view] !== 'source') url.searchParams.set('sort', state.sort[state.view]);
-    if (state.view === 'graph' && state.local && state.current) {
-      url.searchParams.set('current', state.current);
-      url.searchParams.set('depth', depth.value);
-      url.searchParams.set('direction', direction.value);
-    }
-    if (state.view === 'graph') {
-      selectedKinds().forEach((kind) => url.searchParams.append('kind', kind));
-      if (state.selectedGraph) url.searchParams.set('selected', state.selectedGraph);
-    }
-    if (state.view === 'tasks' && state.selectedTask) url.searchParams.set('selected', state.selectedTask);
+    url.search = writeQueryParameters({
+      presets: state.presets[state.view],
+      query: state.query[state.view],
+      filter: state.filter[state.view],
+      sort: state.sort[state.view],
+      selected: state.view === 'graph' ? state.selectedGraph : state.selectedTask,
+      current: state.view === 'graph' && state.local ? state.current : null,
+      depth: depth.value,
+      direction: direction.value,
+      kinds: state.view === 'graph' ? selectedKinds() : [],
+    });
     history[mode === 'push' ? 'pushState' : 'replaceState']({}, '', url);
   }
 
@@ -135,11 +131,7 @@ import { parse as parseCel } from './vendor/cel-js.min.js';
       button.textContent = preset.label;
       button.title = preset.expression;
       button.addEventListener('click', () => {
-        if (preset.group) {
-          const grouped = new Set(registry.filter((item) => item.group === preset.group).map((item) => item.id));
-          state.presets[view] = state.presets[view].filter((id) => !grouped.has(id));
-        }
-        state.presets[view].push(preset.id);
+        state.presets[view] = addPreset(state.presets[view], preset, registry);
         menu.hidden = true;
         renderPresetControls(view);
         updateUrl();
