@@ -11,9 +11,22 @@ modules 的调用接口。
 
 `# Module setup
 
+把该 directory 加入 Neovim `[runtimepath] 后调用唯一 entry point：
+
 `{language=lua}
-  require('plumb.codelens').setup({ picker = 'snacks' })
-  require('plumb.web').setup()
+  require('plumb').setup()
+
+它默认启用 LSP、tree-sitter、CodeLens、search 与 Web command，不创建 keymaps。重复调用是幂等的；
+`[lsp]、`[treesitter]、`[codelens]、`[search] 与 `[web] 都可用 `[enabled = false] 单独关闭：
+
+`{language=lua}
+  require('plumb').setup({
+    command = 'plumb',
+    lsp = { root_markers = { '.plumb', '.git' } },
+    treesitter = { parser_path = '/path/to/plumb.so' },
+    codelens = { picker = 'snacks' },
+    search = { picker = 'snacks', task_filter = 'state == "ready"' },
+  })
 
   vim.keymap.set('n', '<leader>pn', function()
     require('plumb.search').search_notes()
@@ -26,6 +39,37 @@ modules 要求 Neovim 0.12。`[plumb.search] 还要求 attached plumb LSP 声明
 `[experimental.plumb.search] schema version 2。native search 使用 `[vim.ui.input/select]；`[live_search]
 接受 picker adapter，并负责 debounce、request cancellation、stale-result suppression、locations 和
 incomplete-result state。
+
+`# Installation
+
+Nix 提供 `[packages.plumb-nvim] 与 `[plumb.passthru.neovim-plugin]，可直接加入
+`[programs.neovim.plugins]；主 package 也把源码安装在 `[share/plumb/contrib/nvim]。binary、Lua runtime
+与 bundled syntax profile 来自同一 package version。`[:checkhealth plumb] 会检查 binary、parser、queries
+与 active client。tree-sitter parser 由 `[plumb.passthru.tree-sitter-plumb] 提供。
+plugin 与 binary 要求 exact release version match；tree-sitter 要求 ABI 15，bundled queries 必须与同一
+checkout 的 grammar queries 一致。Cargo regression test 强制 `[version.lua] 跟 workspace version 同步，
+query drift test 强制两份 runtime query 相同。
+
+lazy.nvim 使用 source checkout 时：
+
+`{language=lua}
+  {
+    dir = '/path/to/plumb/contrib/nvim',
+    ft = 'plumb',
+    config = function()
+      require('plumb').setup()
+    end,
+  }
+
+不用 plugin manager 时执行 `[vim.opt.runtimepath:prepend('/path/to/plumb/contrib/nvim')] 后调用 setup。
+`[parser_path] 只用于 local development override；普通安装应让 Neovim 从 parser package 注册 language。
+runtime 内的 `[queries/plumb] 与 `[tree-sitter-plumb/queries] 有 drift regression test。
+
+`# Commands and API
+
+setup 注册 `[PlumbFormat]、`[PlumbRename]、`[PlumbCodeAction]、`[PlumbTaskComplete]、
+`[PlumbTaskCancel]、`[PlumbNotes]、`[PlumbTasks]、`[PlumbReferences] 与 `[PlumbWeb]。完整 public Lua
+API 和 default-free keymap examples 见 editor integration guide 与 `[doc/plumb.txt]。
 
 `# Workspace Web app
 

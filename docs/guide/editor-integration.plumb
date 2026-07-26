@@ -18,7 +18,25 @@ contract，并在本文增加同级章节。
 `# Neovim setup
 
 确保 `[plumb] binary 可从 `[PATH] 启动，并将 packaged `[contrib/nvim] 或 source checkout 中的同名
-directory 加入 `[runtimepath]。最小配置是：
+directory 加入 `[runtimepath]。推荐使用完整 plugin entry point：
+
+`{language=lua}
+  require('plumb').setup()
+
+setup 默认启用 LSP、tree-sitter、CodeLens、search 与 Web command，不创建 keymaps；重复调用不会重复
+commands、autocmds 或 clients。可以分别配置或关闭 features：
+
+`{language=lua}
+  require('plumb').setup({
+    command = 'plumb',
+    lsp = { root_markers = { '.plumb', '.git' } },
+    treesitter = { enabled = true },
+    codelens = { picker = 'quickfix' },
+    search = { picker = 'native', task_filter = 'state == "ready"' },
+    web = { enabled = true },
+  })
+
+底层等价的 Neovim native LSP 配置是：
 
 `{language=lua}
   vim.filetype.add({ extension = { plumb = 'plumb' } })
@@ -48,7 +66,7 @@ Linux 上 Neovim 默认可能不启用 dynamic file watching；上述 capability
 `# Tree-sitter
 
 tree-sitter parser 只负责 highlight、fold、indent、text object 和 injection，不负责 strict
-diagnostics。安装 parser 后为 `[plumb] filetype 启动它：
+diagnostics。完整 plugin 自动为 `[plumb] filetype 启动已注册 parser；手工配置对应：
 
 `{language=lua}
   vim.api.nvim_create_autocmd('FileType', {
@@ -63,6 +81,13 @@ repository development 使用 `[dev/nvim.lua] 加载当前 checkout 的 parser �
 `{language=text}
   ./tree-sitter-plumb/build-parser.sh
   nvim -u dev/nvim.lua document.plumb
+
+也可以把 local parser 显式交给 plugin：
+
+`{language=lua}
+  require('plumb').setup({
+    treesitter = { parser_path = '/absolute/path/to/plumb.so' },
+  })
 
 `# Authoring workflow
 

@@ -20,6 +20,11 @@
           let
             cargoToml = builtins.fromTOML (builtins.readFile ./Cargo.toml);
             tree-sitter-plumb = pkgs.callPackage ./tree-sitter-plumb/default.nix { };
+            plumb-nvim = pkgs.vimUtils.buildVimPlugin {
+              pname = "plumb.nvim";
+              version = cargoToml.workspace.package.version;
+              src = ./contrib/nvim;
+            };
             plumb = pkgs.rustPlatform.buildRustPackage {
               pname = "plumb";
               version = cargoToml.workspace.package.version;
@@ -45,6 +50,7 @@
 
               passthru = {
                 "tree-sitter-plumb" = tree-sitter-plumb;
+                "neovim-plugin" = plumb-nvim;
               };
 
               meta = {
@@ -67,7 +73,7 @@
               '';
             };
             packages = {
-              inherit plumb;
+              inherit plumb plumb-nvim;
               default = plumb;
             };
             formatter = pkgs.nixfmt;
