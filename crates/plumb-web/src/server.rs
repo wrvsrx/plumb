@@ -9,7 +9,7 @@ use axum::extract::{Path as AxumPath, RawQuery, Request, State};
 use axum::http::{header, HeaderValue, Method, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::sse::{Event, KeepAlive, Sse};
-use axum::response::{Html, IntoResponse, Response};
+use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use clap::Args;
@@ -22,7 +22,10 @@ use tokio::sync::{broadcast, mpsc, Mutex, RwLock};
 use tokio_stream::wrappers::BroadcastStream;
 use tokio_stream::StreamExt;
 
-use crate::{render_note_html, GraphDirection, GraphQuery, WebTargetMode, WebWorkspace};
+use crate::{
+    render_note_html, GraphDirection, GraphQuery, WebQuery, WebTargetMode, WebView, WebWorkspace,
+    GRAPH_PRESETS, TASK_PRESETS,
+};
 
 const INDEX_HTML: &str = include_str!("../assets/index.html");
 const NOTE_HTML: &str = include_str!("../assets/note.html");
@@ -143,7 +146,11 @@ async fn run(config: ServeConfig) -> Result<(), String> {
 
 fn router(state: AppState) -> Router {
     Router::new()
-        .route("/", get(index))
+        .route("/", get(|| async { Redirect::permanent("/graph") }))
+        .route("/graph", get(index))
+        .route("/tasks", get(index))
+        .route("/api/query", post(query))
+        .route("/api/query-presets", get(query_presets))
         .route("/api/graph", get(graph))
         .route("/api/tasks", get(tasks))
         .route(
@@ -183,6 +190,8 @@ async fn index(State(state): State<AppState>) -> Response {
     let config = json!({
         "mode": "dynamic",
         "graphUrl": "/api/graph",
+        "queryUrl": "/api/query",
+        "presetsUrl": "/api/query-presets",
         "noteApiBase": "/api/note/",
         "noteApiSuffix": "",
         "notePageBase": "/note/",
@@ -205,6 +214,26 @@ async fn index(State(state): State<AppState>) -> Response {
 
 async fn tasks(State(state): State<AppState>) -> Response {
     Json(state.workspace.read().await.tasks()).into_response()
+}
+
+async fn query(State(state): State<AppState>, Json(query): Json<WebQuery>) -> Response {
+    let workspace = state.workspace.read().await;
+    let result = match query.view {
+        WebView::Graph => workspace
+            .query_graph(&query, state.exclude.as_deref())
+            .map(|snapshot| json!({ "view": "graph", "graph": snapshot })),
+        WebView::Tasks => workspace
+            .query_tasks(&query)
+            .map(|snapshot| json!({ "view": "tasks", "tasks": snapshot })),
+    };
+    match result {
+        Ok(result) => Json(result).into_response(),
+        Err(error) => (StatusCode::BAD_REQUEST, Json(error)).into_response(),
+    }
+}
+
+async fn query_presets() -> Response {
+    Json(json!({ "graph": GRAPH_PRESETS, "tasks": TASK_PRESETS })).into_response()
 }
 
 #[derive(Debug, Deserialize)]

@@ -2,11 +2,12 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 
+use cel::{Context, Program, Value};
 use chrono::{Local, SecondsFormat};
 use plumb_extensions::{LinkSpelling, TaskStatus};
 use plumb_workspace::{
-    normalize, scan_workspace_files, ResolvedTarget, SearchRecordKind, TaskEditError, TextEdit,
-    Workspace,
+    normalize, scan_workspace_files, search_score, ResolvedTarget, SearchRecordKind, TaskEditError,
+    TextEdit, Workspace,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -123,6 +124,143 @@ pub struct TaskSnapshot {
     pub revision: u64,
     pub tasks: Vec<WebTask>,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum WebView {
+    #[default]
+    Graph,
+    Tasks,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum QuerySort {
+    #[default]
+    Source,
+    Due,
+    Relevance,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QueryPreset {
+    pub id: &'static str,
+    pub label: &'static str,
+    pub expression: &'static str,
+    pub group: Option<&'static str>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct WebQuery {
+    #[serde(default)]
+    pub view: WebView,
+    #[serde(default)]
+    pub query: String,
+    #[serde(default)]
+    pub presets: Vec<String>,
+    #[serde(default)]
+    pub filter: String,
+    #[serde(default)]
+    pub sort: QuerySort,
+    pub limit: Option<usize>,
+    #[serde(default)]
+    pub traversal: GraphQuery,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QueryFailure {
+    pub source: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskQuerySnapshot {
+    pub revision: u64,
+    pub tasks: Vec<WebTask>,
+    pub complete: bool,
+}
+
+pub const TASK_PRESETS: &[QueryPreset] = &[
+    QueryPreset {
+        id: "ready",
+        label: "Ready",
+        expression: "state == 'ready'",
+        group: Some("state"),
+    },
+    QueryPreset {
+        id: "waiting",
+        label: "Waiting",
+        expression: "state == 'waiting'",
+        group: Some("state"),
+    },
+    QueryPreset {
+        id: "done",
+        label: "Done",
+        expression: "state == 'done'",
+        group: Some("state"),
+    },
+    QueryPreset {
+        id: "canceled",
+        label: "Canceled",
+        expression: "state == 'canceled'",
+        group: Some("state"),
+    },
+    QueryPreset {
+        id: "invalid",
+        label: "Invalid",
+        expression: "state == 'invalid'",
+        group: Some("state"),
+    },
+    QueryPreset {
+        id: "wait-time",
+        label: "Waiting for time",
+        expression: "'time' in wait_reasons",
+        group: Some("wait"),
+    },
+    QueryPreset {
+        id: "wait-dependency",
+        label: "Waiting for dependency",
+        expression: "'dependency' in wait_reasons",
+        group: Some("wait"),
+    },
+];
+
+pub const GRAPH_PRESETS: &[QueryPreset] = &[
+    QueryPreset {
+        id: "connected",
+        label: "Connected",
+        expression: "degree > 0",
+        group: Some("connection"),
+    },
+    QueryPreset {
+        id: "orphans",
+        label: "Orphans",
+        expression: "degree == 0 && !unresolved",
+        group: Some("connection"),
+    },
+    QueryPreset {
+        id: "unresolved",
+        label: "Unresolved",
+        expression: "unresolved",
+        group: Some("connection"),
+    },
+    QueryPreset {
+        id: "has-tasks",
+        label: "Has tasks",
+        expression: "task_count > 0",
+        group: None,
+    },
+    QueryPreset {
+        id: "has-open-tasks",
+        label: "Has open tasks",
+        expression: "open_task_count > 0",
+        group: None,
+    },
+];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResourceRecord {
@@ -318,6 +456,184 @@ impl WebWorkspace {
             revision: self.revision,
             tasks,
         }
+    }
+
+    pub fn query_tasks(&self, query: &WebQuery) -> Result<TaskQuerySnapshot, QueryFailure> {
+        let now = Local::now().fixed_offset();
+        let expressions = resolve_presets(&query.presets, TASK_PRESETS)?;
+        let mut retained: Option<BTreeSet<(String, usize)>> = None;
+        for (source, expression) in expressions.into_iter().chain(
+            (!query.filter.trim().is_empty())
+                .then(|| ("custom".to_string(), query.filter.as_str())),
+        ) {
+            let records = self
+                .workspace
+                .search_records_filtered(
+                    &self.root,
+                    Some(SearchRecordKind::Task),
+                    "",
+                    usize::MAX,
+                    now,
+                    Some(expression),
+                )
+                .map_err(|message| QueryFailure { source, message })?;
+            intersect_keys(
+                &mut retained,
+                records
+                    .items
+                    .into_iter()
+                    .map(|record| (record.relative_path, record.range.start)),
+            );
+        }
+
+        let mut tasks = self.tasks().tasks;
+        tasks.sort_by(task_source_order);
+        let roots = task_subtree_roots(&tasks);
+        let mut scores = HashMap::new();
+        tasks.retain(|task| {
+            let key = (task.path.clone(), task.location.start);
+            if retained.as_ref().is_some_and(|items| !items.contains(&key)) {
+                return false;
+            }
+            let score = search_score(
+                &query.query,
+                &[
+                    &task.title,
+                    task.id.as_deref().unwrap_or_default(),
+                    &task.path,
+                ],
+            );
+            if let Some(score) = score {
+                scores.insert(task.key.clone(), score);
+                true
+            } else {
+                false
+            }
+        });
+        sort_task_query_subtrees(&mut tasks, query.sort, &scores, &roots);
+        let limit = query.limit.unwrap_or(usize::MAX);
+        let complete = tasks.len() <= limit;
+        tasks.truncate(limit);
+        Ok(TaskQuerySnapshot {
+            revision: self.revision,
+            tasks,
+            complete,
+        })
+    }
+
+    pub fn query_graph(
+        &self,
+        query: &WebQuery,
+        excluded: Option<&str>,
+    ) -> Result<GraphSnapshot, QueryFailure> {
+        let mut traversal = query.traversal.clone();
+        traversal.limit = Some(MAX_GRAPH_LIMIT);
+        let mut graph = self
+            .graph_excluding(&traversal, excluded)
+            .map_err(|message| QueryFailure {
+                source: "exclude".to_string(),
+                message,
+            })?;
+        let expressions = resolve_presets(&query.presets, GRAPH_PRESETS)?;
+        let programs = expressions
+            .into_iter()
+            .chain(
+                (!query.filter.trim().is_empty())
+                    .then(|| ("custom".to_string(), query.filter.as_str())),
+            )
+            .map(|(source, expression)| {
+                Program::compile(expression)
+                    .map(|program| (source.clone(), program))
+                    .map_err(|error| QueryFailure {
+                        source,
+                        message: format!("invalid CEL query: {error}"),
+                    })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let metrics = self.graph_metrics(&graph);
+        let mut scores = HashMap::new();
+        let mut retained = Vec::new();
+        'nodes: for node in std::mem::take(&mut graph.nodes) {
+            let Some(score) = search_score(
+                &query.query,
+                &[&node.title, node.path.as_deref().unwrap_or_default()],
+            ) else {
+                continue;
+            };
+            let metric = metrics.get(&node.id).expect("every graph node has metrics");
+            for (source, program) in &programs {
+                match graph_node_matches(program, &node, metric) {
+                    Ok(true) => {}
+                    Ok(false) => continue 'nodes,
+                    Err(message) => {
+                        return Err(QueryFailure {
+                            source: source.clone(),
+                            message,
+                        })
+                    }
+                }
+            }
+            scores.insert(node.id.clone(), score);
+            retained.push(node);
+        }
+        graph.nodes = retained;
+        let visible = graph
+            .nodes
+            .iter()
+            .map(|node| node.id.as_str())
+            .collect::<BTreeSet<_>>();
+        graph.edges.retain(|edge| {
+            visible.contains(edge.source.as_str()) && visible.contains(edge.target.as_str())
+        });
+        graph.nodes.sort_by(|left, right| match query.sort {
+            QuerySort::Relevance if !query.query.is_empty() => scores
+                .get(&right.id)
+                .cmp(&scores.get(&left.id))
+                .then_with(|| graph_source_order(left, right)),
+            _ => graph_source_order(left, right),
+        });
+        let limit = query
+            .limit
+            .unwrap_or(DEFAULT_GRAPH_LIMIT)
+            .min(MAX_GRAPH_LIMIT);
+        graph.complete &= graph.nodes.len() <= limit;
+        graph.nodes.truncate(limit);
+        let visible = graph
+            .nodes
+            .iter()
+            .map(|node| node.id.as_str())
+            .collect::<BTreeSet<_>>();
+        graph.edges.retain(|edge| {
+            visible.contains(edge.source.as_str()) && visible.contains(edge.target.as_str())
+        });
+        Ok(graph)
+    }
+
+    fn graph_metrics(&self, graph: &GraphSnapshot) -> HashMap<String, GraphMetric> {
+        let mut metrics = graph
+            .nodes
+            .iter()
+            .map(|node| (node.id.clone(), GraphMetric::default()))
+            .collect::<HashMap<_, _>>();
+        for edge in &graph.edges {
+            if let Some(metric) = metrics.get_mut(&edge.source) {
+                metric.outgoing += 1;
+                metric.degree += 1;
+            }
+            if let Some(metric) = metrics.get_mut(&edge.target) {
+                metric.incoming += 1;
+                metric.degree += 1;
+            }
+        }
+        for task in self.tasks().tasks {
+            if let Some(metric) = metrics.get_mut(&task.document_id) {
+                metric.task_count += 1;
+                if matches!(task.state.as_str(), "ready" | "waiting") {
+                    metric.open_task_count += 1;
+                }
+            }
+        }
+        metrics
     }
 
     pub fn set_task_status(
@@ -700,6 +1016,167 @@ impl WebWorkspace {
     }
 }
 
+#[derive(Debug, Clone, Default)]
+struct GraphMetric {
+    degree: usize,
+    incoming: usize,
+    outgoing: usize,
+    task_count: usize,
+    open_task_count: usize,
+}
+
+#[derive(Debug, Clone)]
+struct TaskRoot {
+    key: String,
+    path: String,
+    start: usize,
+    due: Option<String>,
+}
+
+fn resolve_presets<'a>(
+    ids: &[String],
+    registry: &'a [QueryPreset],
+) -> Result<Vec<(String, &'a str)>, QueryFailure> {
+    ids.iter()
+        .map(|id| {
+            registry
+                .iter()
+                .find(|preset| preset.id == id)
+                .map(|preset| (format!("preset:{id}"), preset.expression))
+                .ok_or_else(|| QueryFailure {
+                    source: format!("preset:{id}"),
+                    message: format!("unknown query preset '{id}'"),
+                })
+        })
+        .collect()
+}
+
+fn intersect_keys<T: Ord>(retained: &mut Option<BTreeSet<T>>, values: impl IntoIterator<Item = T>) {
+    let values = values.into_iter().collect::<BTreeSet<_>>();
+    match retained {
+        Some(retained) => retained.retain(|value| values.contains(value)),
+        None => *retained = Some(values),
+    }
+}
+
+fn graph_node_matches(
+    program: &Program,
+    node: &GraphNode,
+    metric: &GraphMetric,
+) -> Result<bool, String> {
+    let mut context = Context::default();
+    context.add_variable_from_value(
+        "path",
+        node.path
+            .clone()
+            .map_or(Value::Null, |value| Value::String(value.into())),
+    );
+    context.add_variable_from_value("title", node.title.clone());
+    context.add_variable_from_value("unresolved", node.unresolved);
+    context.add_variable_from_value("degree", i64::try_from(metric.degree).unwrap_or(i64::MAX));
+    context.add_variable_from_value(
+        "incoming",
+        i64::try_from(metric.incoming).unwrap_or(i64::MAX),
+    );
+    context.add_variable_from_value(
+        "outgoing",
+        i64::try_from(metric.outgoing).unwrap_or(i64::MAX),
+    );
+    context.add_variable_from_value(
+        "task_count",
+        i64::try_from(metric.task_count).unwrap_or(i64::MAX),
+    );
+    context.add_variable_from_value(
+        "open_task_count",
+        i64::try_from(metric.open_task_count).unwrap_or(i64::MAX),
+    );
+    match program.execute(&context) {
+        Ok(Value::Bool(value)) => Ok(value),
+        Ok(value) => Err(format!("CEL query must return bool, got {value:?}")),
+        Err(error) => Err(format!(
+            "cannot evaluate CEL query for '{}': {error}",
+            node.title
+        )),
+    }
+}
+
+fn graph_source_order(left: &GraphNode, right: &GraphNode) -> std::cmp::Ordering {
+    left.path
+        .as_deref()
+        .unwrap_or("\u{10ffff}")
+        .cmp(right.path.as_deref().unwrap_or("\u{10ffff}"))
+        .then(left.id.cmp(&right.id))
+}
+
+fn task_source_order(left: &WebTask, right: &WebTask) -> std::cmp::Ordering {
+    left.path
+        .cmp(&right.path)
+        .then(left.location.start.cmp(&right.location.start))
+        .then(left.key.cmp(&right.key))
+}
+
+fn task_subtree_roots(tasks: &[WebTask]) -> HashMap<String, TaskRoot> {
+    let mut roots = HashMap::new();
+    let mut current: Option<TaskRoot> = None;
+    for task in tasks {
+        if task.depth == 0 || current.as_ref().is_none_or(|root| root.path != task.path) {
+            current = Some(TaskRoot {
+                key: task.key.clone(),
+                path: task.path.clone(),
+                start: task.location.start,
+                due: task.due.clone(),
+            });
+        }
+        roots.insert(task.key.clone(), current.clone().expect("task root exists"));
+    }
+    roots
+}
+
+fn sort_task_query_subtrees(
+    tasks: &mut Vec<WebTask>,
+    sort: QuerySort,
+    scores: &HashMap<String, i64>,
+    roots: &HashMap<String, TaskRoot>,
+) {
+    tasks.sort_by(task_source_order);
+    let mut groups = BTreeMap::<String, (TaskRoot, Vec<WebTask>)>::new();
+    for task in std::mem::take(tasks) {
+        let root = roots.get(&task.key).cloned().unwrap_or_else(|| TaskRoot {
+            key: task.key.clone(),
+            path: task.path.clone(),
+            start: task.location.start,
+            due: task.due.clone(),
+        });
+        groups
+            .entry(root.key.clone())
+            .or_insert_with(|| (root, Vec::new()))
+            .1
+            .push(task);
+    }
+    let mut groups = groups.into_values().collect::<Vec<_>>();
+    groups.sort_by(|(left_root, left), (right_root, right)| {
+        let source = left_root
+            .path
+            .cmp(&right_root.path)
+            .then(left_root.start.cmp(&right_root.start));
+        match sort {
+            QuerySort::Due => left_root
+                .due
+                .as_deref()
+                .unwrap_or("9999")
+                .cmp(right_root.due.as_deref().unwrap_or("9999"))
+                .then(source),
+            QuerySort::Relevance => {
+                let left_score = left.iter().filter_map(|task| scores.get(&task.key)).max();
+                let right_score = right.iter().filter_map(|task| scores.get(&task.key)).max();
+                right_score.cmp(&left_score).then(source)
+            }
+            QuerySort::Source => source,
+        }
+    });
+    tasks.extend(groups.into_iter().flat_map(|(_, tasks)| tasks));
+}
+
 fn sort_task_subtrees(tasks: &mut Vec<WebTask>) {
     tasks.sort_by(|left, right| {
         left.path
@@ -926,6 +1403,122 @@ mod tests {
             .unwrap();
         let updated = std::fs::read_to_string(&path).unwrap();
         assert!(updated.contains("done=\"2026-"), "{updated}");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn web_queries_compose_filters_and_preserve_task_subtrees() {
+        let root = temp_dir();
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(
+            root.join("a.plumb"),
+            "`-{.task #parent due=\"2099-02-01T00:00:00Z\"} Parent\n  `-{.task #matching due=\"2099-01-01T00:00:00Z\"} Needle child\n`-{.task #first due=\"2099-01-15T00:00:00Z\"} Needle first\n`-{.task #done done=\"2026-07-27T00:00:00Z\"} Needle done\n",
+        )
+        .unwrap();
+        let workspace = WebWorkspace::load(&root).unwrap();
+
+        let source = workspace
+            .query_tasks(&WebQuery {
+                view: WebView::Tasks,
+                query: "needle".to_string(),
+                ..WebQuery::default()
+            })
+            .unwrap();
+        assert_eq!(
+            source
+                .tasks
+                .iter()
+                .map(|task| task.id.as_deref().unwrap())
+                .collect::<Vec<_>>(),
+            ["matching", "first", "done"]
+        );
+        let due = workspace
+            .query_tasks(&WebQuery {
+                view: WebView::Tasks,
+                query: "needle".to_string(),
+                sort: QuerySort::Due,
+                ..WebQuery::default()
+            })
+            .unwrap();
+        assert_eq!(
+            due.tasks
+                .iter()
+                .map(|task| task.id.as_deref().unwrap())
+                .collect::<Vec<_>>(),
+            ["first", "matching", "done"]
+        );
+        let ready = workspace
+            .query_tasks(&WebQuery {
+                view: WebView::Tasks,
+                presets: vec!["ready".to_string()],
+                filter: "title.contains('Needle')".to_string(),
+                ..WebQuery::default()
+            })
+            .unwrap();
+        assert_eq!(ready.tasks.len(), 2);
+        let error = workspace
+            .query_tasks(&WebQuery {
+                view: WebView::Tasks,
+                filter: "title".to_string(),
+                ..WebQuery::default()
+            })
+            .unwrap_err();
+        assert_eq!(error.source, "custom");
+        assert!(
+            error.message.contains("must return bool"),
+            "{}",
+            error.message
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn graph_queries_filter_after_traversal_and_remove_hidden_endpoints() {
+        let root = temp_dir();
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("a.plumb"), "`->[B]{to=\"b.plumb\"}\n").unwrap();
+        std::fs::write(
+            root.join("b.plumb"),
+            "`->[C]{to=\"c.plumb\"}\n`-{.task} Work\n",
+        )
+        .unwrap();
+        std::fs::write(root.join("c.plumb"), "C\n").unwrap();
+        std::fs::write(root.join("orphan.plumb"), "Orphan\n").unwrap();
+        let workspace = WebWorkspace::load(&root).unwrap();
+        let a = workspace
+            .document_id(root.join("a.plumb"))
+            .unwrap()
+            .to_string();
+        let graph = workspace
+            .query_graph(
+                &WebQuery {
+                    presets: vec!["has-tasks".to_string()],
+                    traversal: GraphQuery {
+                        current: Some(a),
+                        depth: Some(2),
+                        direction: GraphDirection::Outgoing,
+                        ..GraphQuery::default()
+                    },
+                    ..WebQuery::default()
+                },
+                None,
+            )
+            .unwrap();
+        assert_eq!(graph.nodes.len(), 1);
+        assert_eq!(graph.nodes[0].path.as_deref(), Some("b.plumb"));
+        assert!(graph.edges.is_empty());
+
+        let orphans = workspace
+            .query_graph(
+                &WebQuery {
+                    presets: vec!["orphans".to_string()],
+                    ..WebQuery::default()
+                },
+                None,
+            )
+            .unwrap();
+        assert_eq!(orphans.nodes.len(), 1);
+        assert_eq!(orphans.nodes[0].path.as_deref(), Some("orphan.plumb"));
         std::fs::remove_dir_all(root).unwrap();
     }
 

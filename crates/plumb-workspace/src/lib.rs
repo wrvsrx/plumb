@@ -2727,7 +2727,7 @@ fn search_kind_order(kind: SearchRecordKind) -> u8 {
     }
 }
 
-fn search_score(query: &str, fields: &[&str]) -> Option<i64> {
+pub fn search_score(query: &str, fields: &[&str]) -> Option<i64> {
     if query.is_empty() {
         return Some(0);
     }

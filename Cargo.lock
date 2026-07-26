@@ -1691,6 +1691,7 @@ name = "plumb-web"
 version = "0.12.1-dev"
 dependencies = [
  "axum",
+ "cel",
  "chrono",
  "clap 4.6.2",
  "mime_guess",
