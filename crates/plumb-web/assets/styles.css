@@ -119,10 +119,11 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
 .task-row:hover { background: #efefec; }
 .task-row.selected { background: #e5efed; box-shadow: inset 3px 0 var(--teal); }
 .task-state, .task-detail-state { font-size: 12px; font-weight: 700; text-transform: uppercase; color: var(--muted); }
-.state-open { color: var(--teal); }
+.state-ready { color: var(--teal); }
+.state-waiting { color: var(--yellow); }
 .state-done { color: #3d7046; }
 .state-canceled { color: var(--muted); }
-.state-conflicted, .task-state.blocked { color: var(--red); }
+.state-invalid, .task-state.blocked { color: var(--red); }
 .task-identity { min-width: 0; display: grid; gap: 3px; }
 .task-identity strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .task-identity small, .task-row time { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

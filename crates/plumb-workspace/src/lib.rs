@@ -200,6 +200,42 @@ pub enum SearchRecordKind {
     Task,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TaskWorkflowState {
+    Ready,
+    Waiting,
+    Done,
+    Canceled,
+    Invalid,
+}
+
+impl TaskWorkflowState {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Ready => "ready",
+            Self::Waiting => "waiting",
+            Self::Done => "done",
+            Self::Canceled => "canceled",
+            Self::Invalid => "invalid",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TaskWaitReason {
+    Time,
+    Dependency,
+}
+
+impl TaskWaitReason {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Time => "time",
+            Self::Dependency => "dependency",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SearchRecord {
     pub kind: SearchRecordKind,
@@ -209,7 +245,8 @@ pub struct SearchRecord {
     pub range: std::ops::Range<usize>,
     pub revision: i64,
     pub id: Option<String>,
-    pub task_state: Option<TaskState>,
+    pub task_state: Option<TaskWorkflowState>,
+    pub wait_reasons: Option<Vec<TaskWaitReason>>,
     pub due: Option<String>,
     pub blocked: Option<bool>,
     pub actionable: Option<bool>,
@@ -421,6 +458,7 @@ impl Workspace {
                                 revision: current.revision,
                                 id: None,
                                 task_state: None,
+                                wait_reasons: None,
                                 due: None,
                                 blocked: None,
                                 actionable: None,
@@ -442,15 +480,19 @@ impl Workspace {
                         continue;
                     };
                     let blocked = self.is_task_blocked(&entry.path, task);
-                    let actionable = task.state() == TaskState::Open
-                        && !blocked
-                        && task
-                            .wait
-                            .as_ref()
-                            .and_then(|wait| DateTime::parse_from_rfc3339(&wait.value).ok())
-                            .is_none_or(|wait| wait <= now);
+                    let (task_state, wait_reasons) = derive_task_workflow_state(task, blocked, now);
+                    let actionable = task_state == TaskWorkflowState::Ready;
                     if let Some(filter) = &filter {
-                        if !filter.task_matches(&root, entry, task, self, blocked, actionable)? {
+                        if !filter.task_matches(
+                            &root,
+                            entry,
+                            task,
+                            self,
+                            task_state,
+                            &wait_reasons,
+                            blocked,
+                            actionable,
+                        )? {
                             continue;
                         }
                     }
@@ -464,7 +506,8 @@ impl Workspace {
                             range: task.selection_range.clone(),
                             revision: current.revision,
                             id,
-                            task_state: Some(task.state()),
+                            task_state: Some(task_state),
+                            wait_reasons: Some(wait_reasons),
                             due: task.due.as_ref().map(|due| due.value.clone()),
                             blocked: Some(blocked),
                             actionable: Some(actionable),
@@ -923,6 +966,15 @@ impl Workspace {
 
     pub fn is_task_blocked(&self, path: impl AsRef<Path>, task: &TaskRecord) -> bool {
         !self.open_task_dependencies(path, task).is_empty()
+    }
+
+    pub fn task_workflow_state(
+        &self,
+        path: impl AsRef<Path>,
+        task: &TaskRecord,
+        now: DateTime<FixedOffset>,
+    ) -> (TaskWorkflowState, Vec<TaskWaitReason>) {
+        derive_task_workflow_state(task, self.is_task_blocked(path, task), now)
     }
 
     pub fn set_task_status(
@@ -2497,6 +2549,8 @@ impl SemanticSearchFilter {
         entry: &DocumentEntry,
         task: &TaskRecord,
         workspace: &Workspace,
+        state: TaskWorkflowState,
+        wait_reasons: &[TaskWaitReason],
         blocked: bool,
         actionable: bool,
     ) -> Result<bool, String> {
@@ -2538,10 +2592,50 @@ impl SemanticSearchFilter {
         );
         context.add_variable_from_value("depends_on", depends_on);
         context.add_variable_from_value("directly_blocking", directly_blocking);
+        context.add_variable_from_value("state", state.as_str());
+        context.add_variable_from_value(
+            "wait_reasons",
+            wait_reasons
+                .iter()
+                .map(|reason| reason.as_str())
+                .collect::<Vec<_>>(),
+        );
         context.add_variable_from_value("blocked", blocked);
         context.add_variable_from_value("actionable", actionable);
         context.add_variable_from_value("now", Value::Timestamp(self.now));
         execute_search_filter(&self.program, &context, &entry.path)
+    }
+}
+
+fn derive_task_workflow_state(
+    task: &TaskRecord,
+    blocked: bool,
+    now: DateTime<FixedOffset>,
+) -> (TaskWorkflowState, Vec<TaskWaitReason>) {
+    match task.state() {
+        TaskState::Done => (TaskWorkflowState::Done, Vec::new()),
+        TaskState::Canceled => (TaskWorkflowState::Canceled, Vec::new()),
+        TaskState::Conflicted => (TaskWorkflowState::Invalid, Vec::new()),
+        TaskState::Open => {
+            let mut reasons = Vec::new();
+            if task
+                .wait
+                .as_ref()
+                .and_then(|wait| DateTime::parse_from_rfc3339(&wait.value).ok())
+                .is_some_and(|wait| wait > now)
+            {
+                reasons.push(TaskWaitReason::Time);
+            }
+            if blocked {
+                reasons.push(TaskWaitReason::Dependency);
+            }
+            let state = if reasons.is_empty() {
+                TaskWorkflowState::Ready
+            } else {
+                TaskWorkflowState::Waiting
+            };
+            (state, reasons)
+        }
     }
 }
 
@@ -3373,13 +3467,78 @@ mod tests {
         let tasks = workspace.search_records(root, Some(SearchRecordKind::Task), "review", 20, now);
         assert_eq!(tasks.items.len(), 1);
         assert_eq!(tasks.items[0].id.as_deref(), Some("review"));
-        assert_eq!(tasks.items[0].task_state, Some(TaskState::Open));
+        assert_eq!(tasks.items[0].task_state, Some(TaskWorkflowState::Ready));
+        assert_eq!(tasks.items[0].wait_reasons, Some(Vec::new()));
         assert_eq!(tasks.items[0].blocked, Some(false));
         assert_eq!(tasks.items[0].actionable, Some(true));
 
         let fallback =
             workspace.search_records(root, Some(SearchRecordKind::Note), "fallback", 20, now);
         assert_eq!(fallback.items[0].title, "fallback");
+    }
+
+    #[test]
+    fn derives_mutually_exclusive_task_workflow_states_for_search_and_cel() {
+        let root = Path::new("notes");
+        let now = DateTime::parse_from_rfc3339("2026-07-22T12:00:00+08:00").unwrap();
+        let mut workspace = Workspace::new();
+        workspace.insert(
+            "notes/tasks.plumb",
+            1,
+            "`-{.task #blocker} Blocker\n`-{.task #ready} Ready\n`-{.task #time wait=\"2026-07-23T12:00:00+08:00\"} Time wait\n`-{.task #dependency depends=\"#blocker\"} Dependency wait\n`-{.task #both wait=\"2026-07-23T12:00:00+08:00\" depends=\"#blocker\"} Both waits\n`-{.task #done done=\"2026-07-21T12:00:00+08:00\"} Done\n`-{.task #canceled canceled=\"2026-07-21T12:00:00+08:00\"} Canceled\n`-{.task #invalid done=\"2026-07-21T12:00:00+08:00\" canceled=\"2026-07-21T13:00:00+08:00\"} Invalid\n",
+        );
+
+        let results = workspace.search_records(root, Some(SearchRecordKind::Task), "", 20, now);
+        let by_id = |id: &str| {
+            results
+                .items
+                .iter()
+                .find(|record| record.id.as_deref() == Some(id))
+                .unwrap()
+        };
+        assert_eq!(by_id("ready").task_state, Some(TaskWorkflowState::Ready));
+        assert_eq!(by_id("time").task_state, Some(TaskWorkflowState::Waiting));
+        assert_eq!(by_id("time").wait_reasons, Some(vec![TaskWaitReason::Time]));
+        assert_eq!(
+            by_id("dependency").wait_reasons,
+            Some(vec![TaskWaitReason::Dependency])
+        );
+        assert_eq!(
+            by_id("both").wait_reasons,
+            Some(vec![TaskWaitReason::Time, TaskWaitReason::Dependency])
+        );
+        assert_eq!(by_id("done").task_state, Some(TaskWorkflowState::Done));
+        assert_eq!(
+            by_id("canceled").task_state,
+            Some(TaskWorkflowState::Canceled)
+        );
+        assert_eq!(
+            by_id("invalid").task_state,
+            Some(TaskWorkflowState::Invalid)
+        );
+
+        let waiting = workspace
+            .search_records_filtered(
+                root,
+                Some(SearchRecordKind::Task),
+                "",
+                20,
+                now,
+                Some("state == 'waiting'"),
+            )
+            .unwrap();
+        assert_eq!(waiting.items.len(), 3);
+        let time_waiting = workspace
+            .search_records_filtered(
+                root,
+                Some(SearchRecordKind::Task),
+                "",
+                20,
+                now,
+                Some("wait_reasons.exists(reason, reason == 'time')"),
+            )
+            .unwrap();
+        assert_eq!(time_waiting.items.len(), 2);
     }
 
     #[test]

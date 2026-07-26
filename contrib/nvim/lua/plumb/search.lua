@@ -1,6 +1,6 @@
 local M = {}
 
-local SCHEMA_VERSION = 1
+local SCHEMA_VERSION = 2
 local METHOD = 'plumb/search'
 
 local function notify(message, level)

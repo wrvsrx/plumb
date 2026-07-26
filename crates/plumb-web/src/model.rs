@@ -3,7 +3,7 @@ use std::ops::Range;
 use std::path::{Path, PathBuf};
 
 use chrono::{Local, SecondsFormat};
-use plumb_extensions::{LinkSpelling, TaskState, TaskStatus};
+use plumb_extensions::{LinkSpelling, TaskStatus};
 use plumb_workspace::{
     normalize, scan_workspace_files, ResolvedTarget, SearchRecordKind, TaskEditError, TextEdit,
     Workspace,
@@ -112,6 +112,7 @@ pub struct WebTask {
     pub depends: Vec<String>,
     pub blocked: bool,
     pub actionable: bool,
+    pub wait_reasons: Vec<String>,
     pub depth: usize,
     pub location: SourceLocation,
 }
@@ -266,12 +267,7 @@ impl WebWorkspace {
             .into_iter()
             .filter_map(|record| {
                 let document_id = self.document_id(&record.path)?.to_string();
-                let state = match record.task_state? {
-                    TaskState::Open => "open",
-                    TaskState::Done => "done",
-                    TaskState::Canceled => "canceled",
-                    TaskState::Conflicted => "conflicted",
-                };
+                let state = record.task_state?.as_str();
                 let task = self
                     .workspace
                     .documents()
@@ -306,6 +302,12 @@ impl WebWorkspace {
                         .collect(),
                     blocked: record.blocked.unwrap_or(false),
                     actionable: record.actionable.unwrap_or(false),
+                    wait_reasons: record
+                        .wait_reasons
+                        .unwrap_or_default()
+                        .into_iter()
+                        .map(|reason| reason.as_str().to_string())
+                        .collect(),
                     depth: record.depth.unwrap_or_default(),
                     location: SourceLocation::new(&self.root, &record.path, record.range),
                 })
@@ -845,16 +847,33 @@ mod tests {
         let path = root.join("tasks.plumb");
         std::fs::write(
             &path,
-            "`-{.task #ship created=\"2026-07-25T10:00:00+08:00\" due=\"2026-07-26T10:00:00+08:00\"} Ship release\n",
+            "`-{.task #ship created=\"2026-07-25T10:00:00+08:00\" due=\"2026-07-26T10:00:00+08:00\"} Ship release\n`-{.task #later wait=\"2099-01-01T00:00:00+08:00\"} Later\n`-{.task #broken done=\"2026-07-25T11:00:00+08:00\" canceled=\"2026-07-25T12:00:00+08:00\"} Broken\n",
         )
         .unwrap();
         let workspace = WebWorkspace::load(&root).unwrap();
         let snapshot = workspace.tasks();
-        assert_eq!(snapshot.tasks.len(), 1);
-        let task = &snapshot.tasks[0];
+        assert_eq!(snapshot.tasks.len(), 3);
+        let task = snapshot
+            .tasks
+            .iter()
+            .find(|task| task.id.as_deref() == Some("ship"))
+            .unwrap();
         assert_eq!(task.id.as_deref(), Some("ship"));
-        assert_eq!(task.state, "open");
+        assert_eq!(task.state, "ready");
         assert!(task.actionable);
+        let later = snapshot
+            .tasks
+            .iter()
+            .find(|task| task.id.as_deref() == Some("later"))
+            .unwrap();
+        assert_eq!(later.state, "waiting");
+        assert_eq!(later.wait_reasons, ["time"]);
+        let broken = snapshot
+            .tasks
+            .iter()
+            .find(|task| task.id.as_deref() == Some("broken"))
+            .unwrap();
+        assert_eq!(broken.state, "invalid");
         workspace
             .set_task_status(
                 &task.document_id,

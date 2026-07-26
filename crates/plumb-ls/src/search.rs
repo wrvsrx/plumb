@@ -51,6 +51,8 @@ pub(crate) struct SearchItem {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub state: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub wait_reasons: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub due: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub blocked: Option<bool>,

@@ -2,8 +2,8 @@ use std::path::{Path, PathBuf};
 
 use chrono::{Local, SecondsFormat};
 use comfy_table::{presets::NOTHING, ContentArrangement, Table};
-use plumb_extensions::{TaskState, TaskStatus};
-use plumb_workspace::{normalize, SearchRecordKind, TaskEditError, TextEdit};
+use plumb_extensions::TaskStatus;
+use plumb_workspace::{normalize, SearchRecordKind, TaskEditError, TaskWorkflowState, TextEdit};
 
 use crate::{load_workspace, LoadedWorkspace, TaskAction};
 
@@ -47,9 +47,9 @@ fn task_records(
         .into_iter()
         .map(|record| {
             let status = match record.task_state.expect("task search record has state") {
-                TaskState::Done => "o",
-                TaskState::Canceled | TaskState::Conflicted => "x",
-                TaskState::Open => "-",
+                TaskWorkflowState::Done => "o",
+                TaskWorkflowState::Canceled | TaskWorkflowState::Invalid => "x",
+                TaskWorkflowState::Ready | TaskWorkflowState::Waiting => "-",
             };
             let depth = record.depth.unwrap_or_default();
             let title = if tree && depth > 0 {

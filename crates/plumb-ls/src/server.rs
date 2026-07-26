@@ -398,7 +398,7 @@ fn search_workspace(
         .map(|record| search_item(workspace, record))
         .collect::<Result<Vec<_>, _>>()?;
     Ok(SearchResult {
-        schema_version: 1,
+        schema_version: 2,
         items,
         complete: index_complete && results.complete,
     })
@@ -433,7 +433,13 @@ fn search_item(workspace: &Workspace, record: SearchRecord) -> Result<SearchItem
             revision: record.revision,
         },
         id: record.id,
-        state: record.task_state.map(task_state_name).map(str::to_string),
+        state: record.task_state.map(|state| state.as_str().to_string()),
+        wait_reasons: record.wait_reasons.map(|reasons| {
+            reasons
+                .into_iter()
+                .map(|reason| reason.as_str().to_string())
+                .collect()
+        }),
         due: record.due,
         blocked: record.blocked,
         actionable: record.actionable,
@@ -542,7 +548,7 @@ impl LanguageServer for ServerState {
                     experimental: Some(serde_json::json!({
                         "plumb": {
                             "search": {
-                                "schemaVersion": 1,
+                                "schemaVersion": 2,
                                 "method": "plumb/search"
                             }
                         }
@@ -1781,14 +1787,22 @@ fn lsp_position_key(position: lsp_types::Position) -> (u32, u32) {
 }
 
 fn task_hover(workspace: &Workspace, path: &Path, task: &TaskRecord) -> String {
-    let state = match task.state() {
-        TaskState::Open if workspace.is_task_blocked(path, task) => "blocked",
-        state => task_state_name(state),
-    };
+    let (state, wait_reasons) =
+        workspace.task_workflow_state(path, task, Local::now().fixed_offset());
     let mut lines = vec![
         format!("**Task:** {}", task.title),
-        format!("**State:** {state}"),
+        format!("**State:** {}", state.as_str()),
     ];
+    if !wait_reasons.is_empty() {
+        lines.push(format!(
+            "**Waiting for:** {}",
+            wait_reasons
+                .iter()
+                .map(|reason| reason.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+    }
     if let Some(id) = &task.id {
         lines.push(format!("**ID:** `#{}`", id.value));
     }

@@ -24,7 +24,7 @@ end), 'initialize plumb LSP')
 
 local capability, capability_error = search.capabilities(bufnr)
 assert(capability, capability_error)
-assert(capability.schema_version == 1)
+assert(capability.schema_version == 2)
 
 local native_done = false
 vim.ui.input = function(_, callback)
@@ -72,7 +72,7 @@ local response = client:request_sync('plumb/search', {
   limit = 20,
 }, 5000, bufnr)
 assert(response and not response.err, response and vim.inspect(response.err) or 'no response')
-assert(response.result.schemaVersion == 1)
+assert(response.result.schemaVersion == 2)
 assert(response.result.complete == true)
 assert(#response.result.items == 1)
 assert(response.result.items[1].title == 'Target note')

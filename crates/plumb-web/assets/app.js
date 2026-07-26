@@ -17,7 +17,7 @@
     view: new URLSearchParams(location.search).get('view') === 'tasks' ? 'tasks' : 'graph',
     tasks: null,
     taskQuery: '',
-    taskState: 'open',
+    taskState: 'ready',
     selectedTask: null,
   };
 
@@ -414,9 +414,7 @@
     const query = state.taskQuery.trim().toLocaleLowerCase();
     return state.tasks.tasks
       .filter((task) => {
-        if (state.taskState === 'open' && task.state !== 'open') return false;
-        if (state.taskState === 'actionable' && !task.actionable) return false;
-        if (!['all', 'open', 'actionable'].includes(state.taskState) && task.state !== state.taskState) return false;
+        if (state.taskState !== 'all' && task.state !== state.taskState) return false;
         return !query || [task.title, task.id || '', task.path]
           .some((value) => value.toLocaleLowerCase().includes(query));
       })
@@ -428,8 +426,6 @@
   }
 
   function taskStateLabel(task) {
-    if (task.state === 'open' && task.blocked) return 'Blocked';
-    if (task.state === 'open' && !task.actionable) return 'Waiting';
     return task.state.charAt(0).toUpperCase() + task.state.slice(1);
   }
 
@@ -508,7 +504,8 @@
     addTaskField(fields, 'Wait', task.wait);
     addTaskField(fields, 'Recurrence', task.recur);
     addTaskField(fields, 'Dependencies', task.depends);
-    const mutable = Boolean(config.taskMutations && task.id && task.state === 'open');
+    addTaskField(fields, 'Waiting for', task.waitReasons);
+    const mutable = Boolean(config.taskMutations && task.id && ['ready', 'waiting'].includes(task.state));
     taskPanel.querySelector('.complete-task').disabled = !mutable || task.blocked;
     taskPanel.querySelector('.cancel-task').disabled = !mutable;
     taskPanel.querySelector('.complete-task').addEventListener('click', () => updateTask(task, 'complete'));

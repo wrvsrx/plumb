@@ -1446,7 +1446,8 @@ fn publishes_task_symbols_hover_and_workspace_diagnostics() {
     let hover = response(&output, 3)["result"]["contents"]["value"]
         .as_str()
         .unwrap();
-    assert!(hover.contains("**State:** blocked"));
+    assert!(hover.contains("**State:** waiting"));
+    assert!(hover.contains("**Waiting for:** dependency"));
     assert!(hover.contains("**Recur:** `P1M1D`"));
     assert!(hover.contains("**Depends:** `blockers.plumb#draft`"));
     assert!(hover.contains("**Open blockers:** `blockers.plumb#draft`"));
@@ -2551,7 +2552,7 @@ fn searches_workspace_symbols_and_structured_records_over_stdio() {
     assert_eq!(capabilities["workspaceSymbolProvider"], true);
     assert_eq!(
         capabilities["experimental"]["plumb"]["search"]["schemaVersion"],
-        1
+        2
     );
     assert_eq!(
         capabilities["experimental"]["plumb"]["search"]["method"],
@@ -2568,11 +2569,12 @@ fn searches_workspace_symbols_and_structured_records_over_stdio() {
     assert_eq!(task_symbols[0]["name"], "Review parser");
 
     let structured = &response(&output, 4)["result"];
-    assert_eq!(structured["schemaVersion"], 1);
+    assert_eq!(structured["schemaVersion"], 2);
     assert_eq!(structured["complete"], true);
     assert_eq!(structured["items"][0]["kind"], "task");
     assert_eq!(structured["items"][0]["id"], "review");
-    assert_eq!(structured["items"][0]["state"], "open");
+    assert_eq!(structured["items"][0]["state"], "ready");
+    assert_eq!(structured["items"][0]["waitReasons"], json!([]));
     assert_eq!(structured["items"][0]["blocked"], false);
     assert_eq!(structured["items"][0]["provenance"]["source"], "current");
     assert_eq!(structured["items"][0]["provenance"]["revision"], 0);
