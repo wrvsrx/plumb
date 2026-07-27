@@ -16,13 +16,13 @@ modules 的调用接口。
 `{language=lua}
   require('plumb').setup()
 
-它默认启用 LSP、LSP folding、CodeLens、search 与 Web command，不创建 keymaps。重复调用是幂等的；
-`[lsp]、`[codelens]、`[search] 与 `[web] 都可用 `[enabled = false] 单独关闭：
+它默认启用 LSP、CodeLens 与 search，不创建 keymaps。重复调用是幂等的；`[lsp]、`[codelens] 与
+`[search] 都可用 `[enabled = false] 单独关闭：
 
 `{language=lua}
   require('plumb').setup({
     command = 'plumb',
-    lsp = { folding = true, root_markers = { '.plumb', '.git' } },
+    lsp = { root_markers = { '.plumb', '.git' } },
     codelens = { picker = 'snacks' },
     search = { picker = 'snacks', task_filter = 'state == "ready"' },
   })
@@ -39,11 +39,8 @@ modules 要求 Neovim 0.12。`[plumb.search] 还要求 attached plumb LSP 声明
 接受 picker adapter，并负责 debounce、request cancellation、stale-result suppression、locations 和
 incomplete-result state。
 
-LSP attach 后 plugin 使用 `[vim.lsp.foldexpr()] 与 `[vim.lsp.foldtext()]，初始 `[foldlevel] 是 99；
-`[lsp.folding = false] 保留用户自己的 window-local fold settings。fold 范围覆盖 heading sections 与跨行
-marked/verbatim blocks；task fold text 显示 READY、WAITING、DONE、CANCELED 或 INVALID 与 title。未连接
-LSP 时仍可由独立安装的 tree-sitter parser 与 `[folds.scm] 提供 fallback。Nested task label 保留 source block indentation，
-让 indent guide 占用缩进区域而不覆盖状态文本。
+plugin 不修改 window-local folding settings。`[plumb lsp] 仍提供 folding ranges 与 task
+`[collapsedText]；editor configuration 决定是否使用 `[vim.lsp.foldexpr()] 与 `[vim.lsp.foldtext()]。
 
 plugin 默认把 `[task + completed] 与 `[task + canceled] semantic tokens 链接到 `[Comment]，淡化完整
 closed task block。自定义 `[@lsp.typemod.task.completed.plumb] 与
@@ -76,16 +73,9 @@ repository-local parser override 只属于 `[dev/nvim.lua]，不进入正式 plu
 
 `# Commands and API
 
-setup 注册 `[PlumbFormat]、`[PlumbRename]、`[PlumbCodeAction]、`[PlumbTaskComplete]、
-`[PlumbTaskCancel]、`[PlumbNotes]、`[PlumbTasks]、`[PlumbReferences] 与 `[PlumbWeb]。完整 public Lua
-API 和 default-free keymap examples 见 editor integration guide 与 `[doc/plumb.txt]。
-
-`# Workspace Web app
-
-`[:PlumbWeb] starts `[plumb site serve] for the attached plumb client's workspace and selects the current
-plumb document in the browser. `[:PlumbWeb!] opens the whole workspace without a current-note
-selection. The browser process is independent of LSP; the integration only discovers the workspace root
-and starts the unified binary. Lua callers can use `[require('plumb.web').open({ root = path })] directly.
+setup 只注册 `[PlumbNotes]、`[PlumbTasks] 与 `[PlumbReferences]。Formatting、rename、CodeAction 与 task
+operations 使用 Neovim 原生 LSP API；Web app 通过 `[plumb site serve] CLI 启动。完整 public Lua API 和
+default-free keymap examples 见 editor integration guide 与 `[doc/plumb.txt]。
 
 `# Reference CodeLens
 

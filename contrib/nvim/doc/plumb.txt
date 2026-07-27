@@ -16,31 +16,25 @@ plumb.nvim requires Neovim 0.12 and a `plumb` binary. Add contrib/nvim to
 >
   require('plumb').setup()
 <
-No mappings are installed. The defaults enable LSP, LSP folding, CodeLens,
-search, and the workspace Web command. Features can be disabled
-independently:
+No mappings are installed. The defaults enable LSP, CodeLens, and search.
+Features can be disabled independently:
 >
   require('plumb').setup({
     command = 'plumb',
     lsp = {
       enabled = true,
-      folding = true,
       root_markers = { '.plumb', '.git' },
     },
     codelens = { enabled = true, picker = 'quickfix' },
     search = { enabled = true, picker = 'native' },
-    web = { enabled = true },
   })
 <
 Use picker = 'snacks' when snacks.nvim is installed. Repeated setup calls are
 safe and replace the plugin's commands and autocmds.
 
-When lsp.folding is enabled and the server supports textDocument/foldingRange,
-the plugin configures vim.lsp.foldexpr() and vim.lsp.foldtext() with an initial
-'foldlevel' of 99. Use normal Neovim fold commands such as za, zc, zo, zM, and
-zR. Task fold text includes its READY, WAITING, DONE, CANCELED, or INVALID
-workflow state and title while preserving the source block indentation. Set
-lsp.folding = false to preserve custom window-local fold settings.
+The plugin does not modify window-local folding options. `plumb lsp` provides
+folding ranges and task collapsedText; configure vim.lsp.foldexpr() and
+vim.lsp.foldtext() in the editor when desired.
 
 Completed and canceled task semantic tokens cover the complete task block and
 default to the Comment highlight. Override these groups to customize them:
@@ -52,30 +46,18 @@ default to the Comment highlight. Override these groups to customize them:
 =============================================================================
 COMMANDS                                                      *plumb-commands*
 
-:PlumbFormat          Format the current buffer.
-:PlumbRename          Rename an anchor or the document at metadata.
-:PlumbCodeAction      Select a metadata, anchor, or task action.
-:PlumbTaskComplete    Complete the task at the cursor.
-:PlumbTaskCancel      Cancel the task at the cursor.
 :PlumbNotes           Search workspace notes.
 :PlumbTasks           Search ready workspace tasks.
 :PlumbReferences      Run the reference CodeLens at the cursor.
-:PlumbWeb[!]          Open the workspace Web app; ! omits current note.
 
 =============================================================================
 LUA API                                                            *plumb-api*
 
 require('plumb').setup(opts)                  Configure the complete plugin.
 require('plumb').config()                     Return effective configuration.
-require('plumb.actions').format(opts)         Format through attached LSP.
-require('plumb.actions').rename()             Run LSP rename.
-require('plumb.actions').code_action()        Run LSP code actions.
-require('plumb.actions').references()         Run current reference CodeLens.
-require('plumb.actions').task(action)         Complete or cancel current task.
 require('plumb.search').search_notes(opts)    Search notes.
 require('plumb.search').search_tasks(opts)    Search tasks.
 require('plumb.search').live_search(...)      Adapter-driven cancellable search.
-require('plumb.web').open(opts)               Start `plumb site serve`.
 
 =============================================================================
 HEALTH                                                          *plumb-health*

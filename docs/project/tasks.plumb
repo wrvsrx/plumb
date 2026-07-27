@@ -313,7 +313,7 @@
    `note Dynamic routes 使用 server 生成的 opaque ids，例如 `[/note/ID]、`[/api/note/ID] 和 `[/resource/ID]；不得接受任意 filesystem path。Internal document links、cross-file anchors 和 image/resource links 必须在 Pandoc AST 中改写，不能对生成后的 HTML 做 string replacement；external URL 保持外部 target。
    `note 按 document revision 缓存 Pandoc HTML fragment，初版可以调用 packaged Pandoc writer；测量后再决定是否需要常驻 converter 或内置 HTML writer。Raw HTML 不进入 Web output，server 保持 read-only，并设置 strict CSP；resource route 只服务索引确认且 canonical path 位于允许 root 内的文件。
    `note Shared Web document model、target adaptation、templates 和 frontend assets 同时支持 `[plumb site build --root DIR --output DIR]。静态构建预先写出 note pages、resources、graph JSON、search index 与 assets；逻辑 target 先表示为 `[Document(id, anchor)] 或 `[Resource(id)]，再分别 lower 为 server routes 或 relative static URLs。
-   `note LSP 不是 Web viewer 的运行前提。Neovim integration 只提供启动 `[plumb site serve] 并传递 current workspace/document 的 command；只有其他 editor feature 确有 graph data consumer 时才增加 versioned custom LSP request，不让 server protocol 与 LSP schema 相互依赖。
+   `note LSP 不是 Web viewer 的运行前提；Neovim plugin 不启动或管理 Web process，用户直接调用 `[plumb site serve]。只有其他 editor feature 确有 graph data consumer 时才增加 versioned custom LSP request，不让 server protocol 与 LSP schema 相互依赖。
    `note 覆盖 duplicate links、self-edge omission、cross-file explicit anchor、missing target、invalid revision、open-buffer precedence、workspace refresh、HTML cache invalidation、URL adaptation、resource traversal rejection、large workspace truncation、static/dynamic link parity 与 graph node navigation tests，并记录大 workspace 的启动时间、更新延迟和内存基线。
    `note 2026-07-24 本机 debug build 使用 1000 个互链 documents 测得首次 server ready 126 ms、单文件更新发布新 revision 429 ms、ready-state RSS 29144 KiB；baseline fixture 从 `[note-000.plumb] 到 `[note-999.plumb]，每篇含 metadata title 与一条指向下一篇的 Link。
 
@@ -347,8 +347,8 @@
    `note 将 `[contrib/nvim] 整理为标准 `[plugin/]、`[lua/plumb/] 与 `[doc/] runtime layout，提供单一 `[setup()] entry point；默认配置可直接启动，不要求 plugin manager-specific glue。
    `note 统一 LSP lifecycle、root detection、client capabilities、workspace watching、commands、CodeLens refresh 与 buffer attach/detach；支持多个 buffers、多个 workspace roots 和重复 setup，不能泄漏 autocmds、commands 或 clients。
    `note tree-sitter parser 与 queries 独立发行；plugin 不注册、启动或检查 parser，不携带 queries，也不提供 local parser override。strict diagnostics 仍完全来自 `[plumb lsp]。
-   `note 暴露 formatting、rename、references、metadata/anchor/task code actions、note/task search 和 task status workflows；默认使用 Neovim native UI，并为 Snacks picker 提供 optional adapter，不让 server contract 依赖具体 picker。
+   `note plugin 只为标准 LSP UI 未覆盖的 references CodeLens command 与 note/task search 提供 adapter；formatting、rename、CodeAction 与 task operations 直接使用 Neovim 原生 LSP API。
    `note 冻结 public configuration、commands、Lua API、default-free keymap examples 与 failure messages；用户配置可以分别关闭 LSP、CodeLens、search 或 picker integration。
    `note 补齐 lazy.nvim 等常见 plugin manager、手动 runtimepath 与 Nix 安装说明；bundled plugin 与 `[plumb] binary 的 version compatibility 必须明确且可检查，tree-sitter compatibility 由独立 parser package 负责。
-   `note 使用 Neovim 0.12 headless E2E 覆盖真实 LSP initialize/attach、diagnostics、completion、format、CodeLens native/Snacks UI、search cancellation、task actions 与 shutdown；Lua unit tests 覆盖 setup idempotence 和 degraded dependencies。
+   `note 使用 Neovim 0.12 headless E2E 覆盖真实 LSP initialize/attach、diagnostics、completion、CodeLens native/Snacks UI、search cancellation 与 shutdown；Lua unit tests 覆盖 setup idempotence 和 degraded dependencies。
    `note 初版继续随本仓库与 Nix package 发布；只有 configuration/API 稳定且独立 release 能保证 binary/grammar compatibility 后，才迁移为单独 `[plumb.nvim] repository。
