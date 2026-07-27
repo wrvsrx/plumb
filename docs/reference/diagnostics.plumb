@@ -60,11 +60,16 @@ recovery 的目标是报告后续独立错误并保留 source，不是把 malfor
 `- image：missing/invalid src 或 unresolved local file。
 `- citation：空 id、nested 或 unsupported citation shape。
 `- task：invalid owner、`[task.invalid-datetime]、无效 recur/reference、互斥 closure state、
-   self dependency、cycle、blocked completion。
+   self dependency、cycle、blocked completion、`[task.done-with-open-dependency] 和
+   `[task.done-with-open-descendant] closure consistency warnings。
 `- math：invalid owner 或 unsupported input language。
 
 semantic diagnostic 应指向最小 source-backed field range。由多个 documents 共同形成的问题可以
 携带 related locations。
+
+两条 task closure consistency warnings 的 primary range 是 parent `[done] value；同文件 open
+dependency/descendant 使用 related ranges。跨文件 open dependency 计入 message 数量，但当前
+protocol-neutral related range 不携带 path，因此不伪造到 source document。
 
 `# 6. Stability
 

@@ -305,6 +305,13 @@ complete 为 open task 添加 `[done]；open dependency 存在时拒绝 complete
 普通 status operation 格式化完整 owner subtree；following sibling 只提供 spacing context，其 source
 与 structural indentation 不得进入 edit range。
 
+syntax-valid document 中，done task 仍解析到 open dependency 时发布
+`[task.done-with-open-dependency] warning；done task 仍包含 open descendant task 时发布
+`[task.done-with-open-descendant] warning。若同一个 open descendant 同时是显式 dependency，只发布更明确
+的 dependency warning，不重复计入 descendant warning。done/canceled descendants 都视为 closed；
+conflicted descendant 由 `[task.conflicting-closed-state] 负责。canceled parent 不触发这两条 warnings，
+diagnostics 也不改变 nesting 只形成 display tree、只有 `[depends] 建立 dependency edge 的语义。
+
 authoring operations 使用执行时的本地 RFC 3339 timestamp：`[Convert to task] 把 cursor 命中的最深
 普通 `[-]/[.] item 转为 task，同时添加 `[.task] 与 `[created]；`[Add task created timestamp] 为
 缺少 `[created] 的最深 enclosing task 补录时间。后者不受 task state、dependency 或 recurrence

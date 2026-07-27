@@ -226,5 +226,9 @@ RFC 3339 timestamp。
 `[task.invalid-datetime] warning，不参与 state 或 operations。完成或取消 nested task 时只格式化该
 task subtree，不改变 following sibling 的层级。
 
+done task 仍有 open dependency 时发布 `[task.done-with-open-dependency] warning；仍有 open descendant
+时发布 `[task.done-with-open-descendant] warning。同一个 child 同时是 descendant 与显式 dependency 时
+只报告 dependency inconsistency。warnings 不阻止 operation，canceled parent 不受此检查。
+
 精确 recognition、diagnostics 和 export semantics 见
 `->[standard extensions reference]{to="../reference/standard-extensions.plumb"}。
