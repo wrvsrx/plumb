@@ -1,5 +1,16 @@
 local M = {}
 
+local function configure_task_highlights()
+  vim.api.nvim_set_hl(0, '@lsp.typemod.task.completed.plumb', {
+    default = true,
+    link = 'Comment',
+  })
+  vim.api.nvim_set_hl(0, '@lsp.typemod.task.canceled.plumb', {
+    default = true,
+    link = 'Comment',
+  })
+end
+
 local function configure_folding(bufnr, winid)
   if vim.api.nvim_win_get_buf(winid) ~= bufnr then
     return
@@ -31,6 +42,11 @@ function M.setup(opts, group)
     vim.lsp.enable('plumb', false)
     return
   end
+  configure_task_highlights()
+  vim.api.nvim_create_autocmd('ColorScheme', {
+    group = group,
+    callback = configure_task_highlights,
+  })
   local config = {
     cmd = opts.cmd or { opts.command or 'plumb', 'lsp' },
     filetypes = { 'plumb' },

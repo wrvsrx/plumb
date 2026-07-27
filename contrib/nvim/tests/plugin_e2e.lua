@@ -28,6 +28,14 @@ assert(vim.wait(5000, function()
 end), 'attach plumb LSP through native root markers')
 local client = assert(vim.lsp.get_clients({ bufnr = 0, name = 'plumb' })[1])
 assert(vim.fs.normalize(client.config.root_dir) == vim.fs.normalize(root))
+assert(
+  vim.api.nvim_get_hl(0, { name = '@lsp.typemod.task.completed.plumb' }).link == 'Comment',
+  'dim completed task tokens'
+)
+assert(
+  vim.api.nvim_get_hl(0, { name = '@lsp.typemod.task.canceled.plumb' }).link == 'Comment',
+  'dim canceled task tokens'
+)
 assert(vim.wo.foldmethod == 'expr', 'configure LSP folding method')
 assert(vim.wo.foldexpr == 'v:lua.vim.lsp.foldexpr()', 'configure LSP folding expression')
 assert(vim.wo.foldtext == 'v:lua.vim.lsp.foldtext()', 'configure LSP folding text')
