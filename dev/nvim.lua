@@ -4,7 +4,21 @@ local grammar_dir = repo_root .. "/tree-sitter-plumb"
 local parser_path = grammar_dir .. "/build/plumb.so"
 
 vim.opt.runtimepath:prepend(repo_root .. "/contrib/nvim")
-require("plumb.codelens").setup()
+
+-- The user's init may have loaded the packaged plugin before this exrc. Reload
+-- the modules after prepending the checkout so setup uses the local sources.
+for name in pairs(package.loaded) do
+  if name == "plumb" or vim.startswith(name, "plumb.") then
+    package.loaded[name] = nil
+  end
+end
+
+vim.g.plumb_nvim_auto_setup = false
+require("plumb").setup({
+  command = repo_root .. "/target/debug/plumb",
+  codelens = { picker = "snacks" },
+  search = { picker = "snacks" },
+})
 
 if vim.uv.fs_stat(parser_path) then
   vim.treesitter.language.add("plumb", { path = parser_path })
@@ -27,35 +41,3 @@ else
 end
 
 vim.filetype.add({ extension = { plumb = "plumb" } })
-
-local capabilities = vim.lsp.protocol.make_client_capabilities()
-capabilities.workspace.workspaceEdit.documentChanges = true
-capabilities.workspace.workspaceEdit.resourceOperations = { "rename" }
--- Neovim disables workspace/didChangeWatchedFiles by default on Linux. Opt in
--- for local `plumb lsp` testing; install inotify-tools for the inotify backend.
-capabilities.workspace.didChangeWatchedFiles =
-  capabilities.workspace.didChangeWatchedFiles or {}
-capabilities.workspace.didChangeWatchedFiles.dynamicRegistration = true
-capabilities.workspace.didChangeWatchedFiles.relativePatternSupport = true
-
-vim.lsp.config["plumb"] = {
-  cmd = { repo_root .. "/target/debug/plumb", "lsp" },
-  filetypes = { "plumb" },
-  root_markers = { ".plumb", ".git" },
-  capabilities = capabilities,
-}
-
-local function set_plumb_semantic_highlights()
-  vim.api.nvim_set_hl(0, "@lsp.typemod.task.completed.plumb", {
-    link = "Comment",
-    default = true,
-  })
-end
-
-set_plumb_semantic_highlights()
-
-vim.api.nvim_create_autocmd("ColorScheme", {
-  callback = set_plumb_semantic_highlights,
-})
-
-vim.lsp.enable("plumb")
