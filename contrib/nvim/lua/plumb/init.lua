@@ -2,23 +2,16 @@ local M = {}
 
 local defaults = {
   command = 'plumb',
-  lsp = { enabled = true, folding = true, root_markers = { '.plumb', '.git' } },
+  lsp = { enabled = true, root_markers = { '.plumb', '.git' } },
   codelens = { enabled = true, picker = 'quickfix' },
   search = { enabled = true, picker = 'native', task_filter = 'state == "ready"' },
-  web = { enabled = true },
 }
 
 local config = vim.deepcopy(defaults)
 local commands = {
-  'PlumbCodeAction',
-  'PlumbFormat',
   'PlumbNotes',
   'PlumbReferences',
-  'PlumbRename',
-  'PlumbTaskCancel',
-  'PlumbTaskComplete',
   'PlumbTasks',
-  'PlumbWeb',
 }
 
 local function command(name, callback, desc)
@@ -49,20 +42,8 @@ function M.setup(opts)
   if config.codelens.enabled then
     require('plumb.codelens').setup({ picker = config.codelens.picker })
   end
-  if config.web.enabled then
-    require('plumb.web').setup({ command = config.command, root = config.web.root })
-  end
-
-  local actions = require('plumb.actions')
-  if config.lsp.enabled then
-    command('PlumbFormat', actions.format, 'Format the current plumb buffer')
-    command('PlumbRename', actions.rename, 'Rename the current plumb target')
-    command('PlumbCodeAction', actions.code_action, 'Select a plumb code action')
-    command('PlumbTaskComplete', function() actions.task('complete') end, 'Complete the current plumb task')
-    command('PlumbTaskCancel', function() actions.task('cancel') end, 'Cancel the current plumb task')
-  end
   if config.codelens.enabled then
-    command('PlumbReferences', actions.references, 'Show references from the current plumb CodeLens')
+    command('PlumbReferences', vim.lsp.codelens.run, 'Show references from the current plumb CodeLens')
   end
   if config.search.enabled then
     command('PlumbNotes', function()

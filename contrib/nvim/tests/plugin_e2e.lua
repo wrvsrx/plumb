@@ -19,7 +19,6 @@ require('plumb').setup({
   command = repo .. '/target/debug/plumb',
   codelens = { enabled = true, picker = 'quickfix' },
   search = { enabled = true },
-  web = { enabled = false },
 })
 vim.cmd.edit(vim.fn.fnameescape(path))
 assert(vim.bo.filetype == 'plumb')
@@ -36,10 +35,6 @@ assert(
   vim.api.nvim_get_hl(0, { name = '@lsp.typemod.task.canceled.plumb' }).link == 'Comment',
   'dim canceled task tokens'
 )
-assert(vim.wo.foldmethod == 'expr', 'configure LSP folding method')
-assert(vim.wo.foldexpr == 'v:lua.vim.lsp.foldexpr()', 'configure LSP folding expression')
-assert(vim.wo.foldtext == 'v:lua.vim.lsp.foldtext()', 'configure LSP folding text')
-assert(vim.wo.foldlevel == 99, 'keep folds initially open')
 
 local completion_path = root .. '/completion.plumb'
 vim.fn.writefile({ '`' }, completion_path)
@@ -57,26 +52,10 @@ local items = completion.result.items or completion.result
 assert(vim.iter(items):any(function(item) return item.label == 'Task' end), 'Task completion missing')
 
 vim.cmd.edit(vim.fn.fnameescape(path))
-vim.cmd.PlumbFormat()
-assert(vim.api.nvim_buf_get_lines(0, 0, 4, false)[2] == ' `: title', 'format command did not apply')
 vim.api.nvim_win_set_cursor(0, { 6, 0 })
 assert(vim.wait(5000, function()
   return #vim.lsp.codelens.get({ bufnr = 0, client_id = client.id }) > 0
 end), 'receive plumb CodeLens')
-
-vim.cmd.PlumbTaskComplete()
-assert(vim.wait(5000, function()
-  return table.concat(vim.api.nvim_buf_get_lines(0, 0, -1, false), '\n'):match('done="') ~= nil
-end), 'complete task through documented command')
-local folds
-assert(vim.wait(5000, function()
-  folds = client:request_sync('textDocument/foldingRange', {
-    textDocument = { uri = vim.uri_from_bufnr(0) },
-  }, 1000, 0)
-  return folds and not folds.err and vim.iter(folds.result):any(function(range)
-    return range.collapsedText == 'DONE  Do work'
-  end)
-end), 'label completed task fold: ' .. vim.inspect(folds))
 
 vim.api.nvim_buf_set_lines(0, -1, -1, false, { '`node{key=a key=b} Invalid' })
 assert(vim.wait(5000, function()
