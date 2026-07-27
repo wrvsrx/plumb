@@ -15,26 +15,26 @@ use lsp_types::{
     DidChangeTextDocumentParams, DidChangeWatchedFilesParams, DidCloseTextDocumentParams,
     DidOpenTextDocumentParams, DidSaveTextDocumentParams, DocumentChangeOperation, DocumentChanges,
     DocumentFormattingParams, DocumentRangeFormattingParams, DocumentSymbol, DocumentSymbolParams,
-    DocumentSymbolResponse, FileChangeType, FileSystemWatcher, GlobPattern, GotoDefinitionParams,
-    GotoDefinitionResponse, Hover, HoverContents, HoverParams, HoverProviderCapability,
-    InitializeParams, InitializeResult, InitializedParams, InsertTextFormat, Location,
-    MarkupContent, MarkupKind, NumberOrString, OneOf, OptionalVersionedTextDocumentIdentifier,
-    PrepareRenameResponse, ProgressParams, ProgressParamsValue, PublishDiagnosticsParams,
-    ReferenceParams, Registration, RegistrationParams, RenameFile, RenameFileOptions,
-    RenameOptions, RenameParams, ResourceOp, ResourceOperationKind, SemanticToken,
-    SemanticTokenModifier, SemanticTokenType, SemanticTokens, SemanticTokensFullOptions,
-    SemanticTokensLegend, SemanticTokensOptions, SemanticTokensParams, SemanticTokensResult,
-    SemanticTokensServerCapabilities, ServerCapabilities, SymbolInformation, SymbolKind,
-    TextDocumentEdit, TextDocumentSyncCapability, TextDocumentSyncKind, TextEdit as LspTextEdit,
-    Url, WatchKind, WorkDoneProgress, WorkDoneProgressBegin, WorkDoneProgressEnd,
-    WorkDoneProgressOptions, WorkDoneProgressReport, WorkspaceEdit as LspWorkspaceEdit,
-    WorkspaceSymbolParams, WorkspaceSymbolResponse,
+    DocumentSymbolResponse, FileChangeType, FileSystemWatcher, FoldingRange, FoldingRangeParams,
+    FoldingRangeProviderCapability, GlobPattern, GotoDefinitionParams, GotoDefinitionResponse,
+    Hover, HoverContents, HoverParams, HoverProviderCapability, InitializeParams, InitializeResult,
+    InitializedParams, InsertTextFormat, Location, MarkupContent, MarkupKind, NumberOrString,
+    OneOf, OptionalVersionedTextDocumentIdentifier, PrepareRenameResponse, ProgressParams,
+    ProgressParamsValue, PublishDiagnosticsParams, ReferenceParams, Registration,
+    RegistrationParams, RenameFile, RenameFileOptions, RenameOptions, RenameParams, ResourceOp,
+    ResourceOperationKind, SemanticToken, SemanticTokenModifier, SemanticTokenType, SemanticTokens,
+    SemanticTokensFullOptions, SemanticTokensLegend, SemanticTokensOptions, SemanticTokensParams,
+    SemanticTokensResult, SemanticTokensServerCapabilities, ServerCapabilities, SymbolInformation,
+    SymbolKind, TextDocumentEdit, TextDocumentSyncCapability, TextDocumentSyncKind,
+    TextEdit as LspTextEdit, Url, WatchKind, WorkDoneProgress, WorkDoneProgressBegin,
+    WorkDoneProgressEnd, WorkDoneProgressOptions, WorkDoneProgressReport,
+    WorkspaceEdit as LspWorkspaceEdit, WorkspaceSymbolParams, WorkspaceSymbolResponse,
 };
-use plumb_core::Diagnostic;
+use plumb_core::{Block, Diagnostic, Document};
 use plumb_extensions::{
-    construct_completion_context, image_completion_context, link_completion_context, AnchorKind,
-    AnchorRecord, ConstructCompletionContext, Heading, MetadataBlock, MetadataEntry, MetadataValue,
-    TaskRecord, TaskState, TaskStatus,
+    analyze_headings, construct_completion_context, image_completion_context,
+    link_completion_context, AnchorKind, AnchorRecord, ConstructCompletionContext, Heading,
+    MetadataBlock, MetadataEntry, MetadataValue, TaskRecord, TaskState, TaskStatus,
 };
 use plumb_workspace::{
     normalize, scan_workspace_files, RenameError, ResolvedTarget, ResourceOperation, SearchRecord,
@@ -54,6 +54,7 @@ pub(crate) struct ServerState {
     supports_dynamic_watching: bool,
     supports_completion_snippets: bool,
     supports_code_lens_refresh: bool,
+    folding_range_limit: Option<usize>,
     index_complete: bool,
     pending_path_renames: Vec<PendingPathRename>,
 }
@@ -77,6 +78,7 @@ impl ServerState {
             supports_dynamic_watching: false,
             supports_completion_snippets: false,
             supports_code_lens_refresh: false,
+            folding_range_limit: None,
             index_complete: false,
             pending_path_renames: Vec::new(),
         }
@@ -491,6 +493,13 @@ impl LanguageServer for ServerState {
             .and_then(|workspace| workspace.code_lens.as_ref())
             .and_then(|code_lens| code_lens.refresh_support)
             .unwrap_or(false);
+        self.folding_range_limit = params
+            .capabilities
+            .text_document
+            .as_ref()
+            .and_then(|text_document| text_document.folding_range.as_ref())
+            .and_then(|folding| folding.range_limit)
+            .map(|limit| limit as usize);
         Box::pin(async {
             Ok(InitializeResult {
                 capabilities: ServerCapabilities {
@@ -498,6 +507,7 @@ impl LanguageServer for ServerState {
                         TextDocumentSyncKind::FULL,
                     )),
                     document_symbol_provider: Some(OneOf::Left(true)),
+                    folding_range_provider: Some(FoldingRangeProviderCapability::Simple(true)),
                     document_formatting_provider: Some(OneOf::Left(true)),
                     document_range_formatting_provider: Some(OneOf::Left(true)),
                     code_lens_provider: Some(CodeLensOptions {
@@ -739,6 +749,26 @@ impl LanguageServer for ServerState {
                 symbols
             });
         Box::pin(async move { Ok(symbols.map(DocumentSymbolResponse::Nested)) })
+    }
+
+    fn folding_range(
+        &mut self,
+        params: FoldingRangeParams,
+    ) -> BoxFuture<'static, Result<Option<Vec<FoldingRange>>, Self::Error>> {
+        let ranges = params
+            .text_document
+            .uri
+            .to_file_path()
+            .ok()
+            .and_then(|path| self.workspace.get(path))
+            .map(|entry| {
+                folding_ranges(
+                    &entry.parsed.source,
+                    entry.parsed.recovered_syntax(),
+                    self.folding_range_limit,
+                )
+            });
+        Box::pin(async move { Ok(ranges) })
     }
 
     fn symbol(
@@ -1625,6 +1655,58 @@ fn escape_markdown_code(source: &str) -> String {
     source.replace('`', "\\`")
 }
 
+fn folding_ranges(source: &str, document: &Document, limit: Option<usize>) -> Vec<FoldingRange> {
+    let headings = analyze_headings(document);
+    let mut byte_ranges = Vec::new();
+    let mut pending_headings = headings.headings.iter().collect::<Vec<_>>();
+    while let Some(heading) = pending_headings.pop() {
+        byte_ranges.push(heading.section_range.clone());
+        pending_headings.extend(heading.children.iter().rev());
+    }
+
+    let mut pending_blocks = document.blocks.iter().rev().collect::<Vec<_>>();
+    while let Some(block) = pending_blocks.pop() {
+        match block {
+            Block::Parsed(parsed) => {
+                if parsed.mark.is_some() {
+                    byte_ranges.push(parsed.range.clone());
+                }
+                pending_blocks.extend(parsed.children.iter().rev());
+            }
+            Block::Verbatim(verbatim) => byte_ranges.push(verbatim.range.clone()),
+        }
+    }
+
+    byte_ranges.sort_by_key(|range| (range.start, std::cmp::Reverse(range.end)));
+    byte_ranges.dedup();
+    let mut ranges = byte_ranges
+        .into_iter()
+        .filter_map(|range| line_folding_range(source, &range))
+        .collect::<Vec<_>>();
+    ranges.dedup();
+    if let Some(limit) = limit {
+        ranges.truncate(limit);
+    }
+    ranges
+}
+
+fn line_folding_range(source: &str, range: &std::ops::Range<usize>) -> Option<FoldingRange> {
+    let range = byte_range_to_lsp(source, range);
+    let end_line = if range.end.character == 0 && range.end.line > range.start.line {
+        range.end.line - 1
+    } else {
+        range.end.line
+    };
+    (end_line > range.start.line).then_some(FoldingRange {
+        start_line: range.start.line,
+        start_character: None,
+        end_line,
+        end_character: None,
+        kind: None,
+        collapsed_text: None,
+    })
+}
+
 fn heading_symbol(source: &str, heading: &Heading) -> DocumentSymbol {
     #[allow(deprecated)]
     DocumentSymbol {
@@ -2042,6 +2124,45 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(symbols[0].name, "One");
         assert_eq!(symbols[0].children.as_ref().unwrap()[0].name, "Two");
+    }
+
+    #[test]
+    fn folds_heading_sections_and_multiline_syntax_blocks() {
+        let parsed = parse(
+            "`# Top\nIntro.\n`## Child\n`div Details\n\n  body\n  `{language=text}\n    raw\n`# Next\nTail.\n",
+        );
+        assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
+        let ranges = folding_ranges(&parsed.source, &parsed.syntax, None);
+        assert_eq!(
+            ranges
+                .iter()
+                .map(|range| (range.start_line, range.end_line))
+                .collect::<Vec<_>>(),
+            [(0, 7), (2, 7), (3, 7), (6, 7), (8, 9)]
+        );
+        assert!(ranges.iter().all(|range| {
+            range.start_character.is_none()
+                && range.end_character.is_none()
+                && range.kind.is_none()
+                && range.collapsed_text.is_none()
+        }));
+        assert_eq!(
+            folding_ranges(&parsed.source, &parsed.syntax, Some(2)).len(),
+            2
+        );
+    }
+
+    #[test]
+    fn folds_recovered_marked_blocks_but_not_multiline_paragraphs() {
+        let parsed = parse("`node Parent\n  `child Child\nordinary\ncontinued `span[open\n");
+        assert!(!parsed.is_valid());
+        assert_eq!(
+            folding_ranges(&parsed.source, &parsed.syntax, None)
+                .iter()
+                .map(|range| (range.start_line, range.end_line))
+                .collect::<Vec<_>>(),
+            [(0, 1)]
+        );
     }
 
     #[test]

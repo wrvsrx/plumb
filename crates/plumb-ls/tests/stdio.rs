@@ -6,6 +6,70 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use serde_json::{json, Value};
 
 #[test]
+fn provides_structural_folding_for_valid_and_recovered_documents() {
+    let uri = "file:///tmp/folding.plumb";
+    let source = "`# Top\nIntro.\n`## Child\n`div Details\n\n  body\n  `{language=text}\n    raw\n`# Next\nTail.\n";
+    let messages = [
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {
+                "processId": null,
+                "rootUri": null,
+                "capabilities": {
+                    "textDocument": {
+                        "foldingRange": { "lineFoldingOnly": true, "rangeLimit": 3 }
+                    }
+                }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": {
+                "uri": uri, "languageId": "plumb", "version": 1, "text": source
+            }}
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 2, "method": "textDocument/foldingRange",
+            "params": { "textDocument": { "uri": uri } }
+        }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didChange",
+            "params": {
+                "textDocument": { "uri": uri, "version": 2 },
+                "contentChanges": [{
+                    "text": "`node Parent\n  `child Child\nordinary `span[open\n"
+                }]
+            }
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 3, "method": "textDocument/foldingRange",
+            "params": { "textDocument": { "uri": uri } }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 4, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+
+    let output = run_server(&messages);
+    assert_eq!(
+        response(&output, 1)["result"]["capabilities"]["foldingRangeProvider"],
+        true
+    );
+    assert_eq!(
+        response(&output, 2)["result"],
+        json!([
+            { "startLine": 0, "endLine": 7 },
+            { "startLine": 2, "endLine": 7 },
+            { "startLine": 3, "endLine": 7 }
+        ])
+    );
+    assert_eq!(
+        response(&output, 3)["result"],
+        json!([{ "startLine": 0, "endLine": 1 }])
+    );
+}
+
+#[test]
 fn formats_valid_documents_and_declines_invalid_revisions() {
     let uri = "file:///tmp/format.plumb";
     let source = "`meta\n   `: title\n\n      Example\n";
