@@ -96,6 +96,13 @@ pub struct NoteDocument {
     pub backlinks: Vec<SourceLocation>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "lowercase")]
+pub enum WebTaskLocator {
+    Id { id: String },
+    Offset { offset: usize },
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WebTask {
@@ -105,6 +112,7 @@ pub struct WebTask {
     pub path: String,
     pub revision: String,
     pub id: Option<String>,
+    pub locator: WebTaskLocator,
     pub state: String,
     pub created: Option<String>,
     pub due: Option<String>,
@@ -446,6 +454,12 @@ impl WebWorkspace {
                     || format!("{document_id}:{}", record.range.start),
                     |id| format!("{document_id}:{id}"),
                 );
+                let locator = record.id.as_ref().map_or_else(
+                    || WebTaskLocator::Offset {
+                        offset: record.range.start,
+                    },
+                    |id| WebTaskLocator::Id { id: id.clone() },
+                );
                 let depends_on = self
                     .workspace
                     .task_dependencies(&record.path, task)
@@ -470,6 +484,7 @@ impl WebWorkspace {
                     path: record.relative_path,
                     revision: record.revision.to_string(),
                     id: record.id,
+                    locator,
                     state: state.to_string(),
                     created: task.created.as_ref().map(|field| field.value.clone()),
                     due: task.due.as_ref().map(|field| field.value.clone()),
@@ -690,7 +705,7 @@ impl WebWorkspace {
     pub fn set_task_status(
         &self,
         document_id: &str,
-        task_id: &str,
+        locator: &WebTaskLocator,
         revision: &str,
         status: TaskStatus,
     ) -> Result<(), String> {
@@ -714,10 +729,28 @@ impl WebWorkspace {
         let timestamp = Local::now()
             .fixed_offset()
             .to_rfc3339_opts(SecondsFormat::Secs, false);
-        let edit = self
-            .workspace
-            .set_task_status_by_id(path, task_id, status, &timestamp)
-            .map_err(task_edit_error)?;
+        let edit = match locator {
+            WebTaskLocator::Id { id } => self
+                .workspace
+                .set_task_status_by_id(path, id, status, &timestamp),
+            WebTaskLocator::Offset { offset } => {
+                let indexed = entry
+                    .current
+                    .as_ref()
+                    .expect("current output checked")
+                    .output
+                    .tasks
+                    .tasks
+                    .iter()
+                    .any(|task| task.selection_range.start == *offset);
+                if !indexed {
+                    return Err("task position changed; refresh before retrying".to_string());
+                }
+                self.workspace
+                    .set_task_status(path, *offset, status, &timestamp)
+            }
+        }
+        .map_err(task_edit_error)?;
         let document = edit
             .document_changes
             .into_iter()
@@ -1481,7 +1514,44 @@ mod tests {
         workspace
             .set_task_status(
                 &task.document_id,
-                task.id.as_deref().unwrap(),
+                &task.locator,
+                &task.revision,
+                TaskStatus::Done,
+            )
+            .unwrap();
+        let updated = std::fs::read_to_string(&path).unwrap();
+        assert!(updated.contains("done=\"2026-"), "{updated}");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn idless_tasks_use_exact_indexed_offsets_for_status_edits() {
+        let root = temp_dir();
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join("tasks.plumb");
+        let source = "`-{.task created=\"2026-07-25T10:00:00+08:00\"} Ship release\n";
+        std::fs::write(&path, source).unwrap();
+        let workspace = WebWorkspace::load(&root).unwrap();
+        let task = workspace.tasks().tasks.into_iter().next().unwrap();
+        let WebTaskLocator::Offset { offset } = task.locator else {
+            panic!("idless task must use an offset locator");
+        };
+
+        let error = workspace
+            .set_task_status(
+                &task.document_id,
+                &WebTaskLocator::Offset { offset: offset + 1 },
+                &task.revision,
+                TaskStatus::Done,
+            )
+            .unwrap_err();
+        assert!(error.contains("position changed"), "{error}");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), source);
+
+        workspace
+            .set_task_status(
+                &task.document_id,
+                &WebTaskLocator::Offset { offset },
                 &task.revision,
                 TaskStatus::Done,
             )
@@ -1674,7 +1744,7 @@ mod tests {
         let stale = workspace
             .set_task_status(
                 &recurring.document_id,
-                "recurring",
+                &recurring.locator,
                 "stale-revision",
                 TaskStatus::Done,
             )
@@ -1683,7 +1753,7 @@ mod tests {
         workspace
             .set_task_status(
                 &recurring.document_id,
-                "recurring",
+                &recurring.locator,
                 &recurring.revision,
                 TaskStatus::Done,
             )

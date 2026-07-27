@@ -206,7 +206,7 @@ fn builds_and_serves_the_workspace_site_with_notes_and_tasks() {
     std::fs::write(root.join("private/note.plumb"), "Private note.\n").unwrap();
     std::fs::write(
         root.join("a.plumb"),
-        "`meta\n `: title\n\n    Alpha\n\nSee `->[Beta]{to=\"b.plumb#beta\"}.\n\n`img[icon]{src=\"assets/icon.png\"}\n\n`-{.task #ship created=\"2026-07-25T10:00:00+08:00\"} Ship release\n",
+        "`meta\n `: title\n\n    Alpha\n\nSee `->[Beta]{to=\"b.plumb#beta\"}.\n\n`img[icon]{src=\"assets/icon.png\"}\n\n`-{.task created=\"2026-07-25T10:00:00+08:00\"} Ship release\n",
     )
     .unwrap();
     std::fs::write(root.join("b.plumb"), "`#{#beta} Beta\n").unwrap();
@@ -303,15 +303,20 @@ fn builds_and_serves_the_workspace_site_with_notes_and_tasks() {
     let task = &tasks["tasks"][0];
     assert_eq!(task["title"], "Ship release");
     assert_eq!(task["state"], "ready");
+    assert_eq!(task["locator"]["kind"], "offset");
     assert!(task["revision"].is_string());
     let action_path = format!(
-        "/api/task/{}/ship/complete",
+        "/api/task/{}/complete",
         task["documentId"].as_str().unwrap()
     );
     let (status, _, updated_tasks) = http_post_json(
         address,
         &action_path,
-        &format!("{{\"revision\":{}}}", task["revision"]),
+        &serde_json::json!({
+            "revision": task["revision"],
+            "locator": task["locator"],
+        })
+        .to_string(),
     );
     assert_eq!(status, 200, "{updated_tasks}");
     assert_eq!(

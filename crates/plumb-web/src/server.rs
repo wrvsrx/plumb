@@ -23,8 +23,8 @@ use tokio_stream::wrappers::BroadcastStream;
 use tokio_stream::StreamExt;
 
 use crate::{
-    render_note_html, GraphDirection, GraphQuery, WebQuery, WebTargetMode, WebView, WebWorkspace,
-    GRAPH_PRESETS, TASK_PRESETS,
+    render_note_html, GraphDirection, GraphQuery, WebQuery, WebTargetMode, WebTaskLocator, WebView,
+    WebWorkspace, GRAPH_PRESETS, TASK_PRESETS,
 };
 
 const INDEX_HTML: &str = include_str!("../assets/index.html");
@@ -164,10 +164,7 @@ fn router(state: AppState) -> Router {
         .route("/api/query-presets", get(query_presets))
         .route("/api/graph", get(graph))
         .route("/api/tasks", get(tasks))
-        .route(
-            "/api/task/{document_id}/{task_id}/{action}",
-            post(update_task),
-        )
+        .route("/api/task/{document_id}/{action}", post(update_task))
         .route("/api/note/{id}", get(note_api))
         .route("/note/{id}", get(note_page))
         .route("/resource/{id}/{name}", get(resource))
@@ -256,11 +253,12 @@ async fn query_presets() -> Response {
 #[serde(rename_all = "camelCase")]
 struct TaskActionRequest {
     revision: String,
+    locator: WebTaskLocator,
 }
 
 async fn update_task(
     State(state): State<AppState>,
-    AxumPath((document_id, task_id, action)): AxumPath<(String, String, String)>,
+    AxumPath((document_id, action)): AxumPath<(String, String)>,
     headers: HeaderMap,
     Json(request): Json<TaskActionRequest>,
 ) -> Response {
@@ -283,14 +281,18 @@ async fn update_task(
         "cancel" => TaskStatus::Canceled,
         _ => return (StatusCode::NOT_FOUND, "unknown task action").into_response(),
     };
-    eprintln!("plumb site serve: received task {action} for {document_id}#{task_id}");
+    eprintln!(
+        "plumb site serve: received task {action} for {document_id} ({:?})",
+        request.locator
+    );
     let (root, revision) = {
         let workspace = state.workspace.read().await;
         if let Err(error) =
-            workspace.set_task_status(&document_id, &task_id, &request.revision, status)
+            workspace.set_task_status(&document_id, &request.locator, &request.revision, status)
         {
             eprintln!(
-                "plumb site serve: task {action} rejected for {document_id}#{task_id}: {error}"
+                "plumb site serve: task {action} rejected for {document_id} ({:?}): {error}",
+                request.locator
             );
             return (StatusCode::CONFLICT, error).into_response();
         }
@@ -304,7 +306,10 @@ async fn update_task(
     *state.workspace.write().await = refreshed;
     state.html_cache.lock().await.clear();
     let _ = state.changes.send(revision);
-    eprintln!("plumb site serve: task {action} completed for {document_id}#{task_id}");
+    eprintln!(
+        "plumb site serve: task {action} completed for {document_id} ({:?})",
+        request.locator
+    );
     Json(tasks).into_response()
 }
 

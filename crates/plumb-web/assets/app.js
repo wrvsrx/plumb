@@ -817,7 +817,7 @@ import { addPreset, readQueryParameters, viewFromPath, writeQueryParameters } fr
     addTaskField(fields, 'Recurrence', task.recur);
     addTaskField(fields, 'Dependencies', task.depends);
     addTaskField(fields, 'Waiting for', task.waitReasons);
-    const mutable = Boolean(config.taskMutations && task.id && ['ready', 'waiting'].includes(task.state));
+    const mutable = Boolean(config.taskMutations && task.locator && ['ready', 'waiting'].includes(task.state));
     const pending = state.pendingTask === task.key;
     taskPanel.querySelector('.complete-task').disabled = !mutable || task.blocked || pending;
     taskPanel.querySelector('.cancel-task').disabled = !mutable || pending;
@@ -846,14 +846,14 @@ import { addPreset, readQueryParameters, viewFromPath, writeQueryParameters } fr
   async function updateTask(task, action) {
     const verb = action === 'complete' ? 'Complete' : 'Cancel';
     if (state.pendingTask) return;
-    const url = `${config.taskActionBase}${encodeURIComponent(task.documentId)}/${encodeURIComponent(task.id)}/${action}`;
+    const url = `${config.taskActionBase}${encodeURIComponent(task.documentId)}/${action}`;
     state.pendingTask = task.key;
     renderTaskDetail(task);
     try {
       const response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ revision: task.revision }),
+        body: JSON.stringify({ revision: task.revision, locator: task.locator }),
       });
       const body = await response.text();
       if (!response.ok) throw new Error(body || `HTTP ${response.status}`);
