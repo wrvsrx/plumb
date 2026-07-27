@@ -177,6 +177,8 @@ pub struct WebQuery {
     #[serde(default)]
     pub filter: String,
     #[serde(default)]
+    pub filters: Vec<String>,
+    #[serde(default)]
     pub sort: QuerySort,
     pub limit: Option<usize>,
     #[serde(default)]
@@ -527,10 +529,7 @@ impl WebWorkspace {
         let now = Local::now().fixed_offset();
         let expressions = resolve_presets(&query.presets, TASK_PRESETS)?;
         let mut retained: Option<BTreeSet<(String, usize)>> = None;
-        for (source, expression) in expressions.into_iter().chain(
-            (!query.filter.trim().is_empty())
-                .then(|| ("custom".to_string(), query.filter.as_str())),
-        ) {
+        for (source, expression) in expressions.into_iter().chain(custom_filters(query)) {
             let records = self
                 .workspace
                 .search_records_filtered(
@@ -603,10 +602,7 @@ impl WebWorkspace {
         let expressions = resolve_presets(&query.presets, GRAPH_PRESETS)?;
         let programs = expressions
             .into_iter()
-            .chain(
-                (!query.filter.trim().is_empty())
-                    .then(|| ("custom".to_string(), query.filter.as_str())),
-            )
+            .chain(custom_filters(query))
             .map(|(source, expression)| {
                 Program::compile(expression)
                     .map(|program| (source.clone(), program))
@@ -1110,6 +1106,21 @@ impl WebWorkspace {
             self.resources.insert(canonical, record);
         }
     }
+}
+
+fn custom_filters(query: &WebQuery) -> impl Iterator<Item = (String, &str)> {
+    let mut filters = query
+        .filters
+        .iter()
+        .map(String::as_str)
+        .filter(|expression| !expression.trim().is_empty())
+        .enumerate()
+        .map(|(index, expression)| (format!("custom:{}", index + 1), expression))
+        .collect::<Vec<_>>();
+    if !query.filter.trim().is_empty() {
+        filters.push(("custom".to_string(), query.filter.as_str()));
+    }
+    filters.into_iter()
 }
 
 #[derive(Debug, Clone, Default)]
@@ -1630,6 +1641,25 @@ mod tests {
             })
             .unwrap();
         assert_eq!(ready.tasks.len(), 2);
+        let multiple_custom = workspace
+            .query_tasks(&WebQuery {
+                view: WebView::Tasks,
+                filters: vec![
+                    "title.contains('Needle')".to_string(),
+                    "state == 'ready'".to_string(),
+                ],
+                ..WebQuery::default()
+            })
+            .unwrap();
+        assert_eq!(multiple_custom.tasks.len(), 2);
+        let numbered_error = workspace
+            .query_tasks(&WebQuery {
+                view: WebView::Tasks,
+                filters: vec!["actionable".to_string(), "title".to_string()],
+                ..WebQuery::default()
+            })
+            .unwrap_err();
+        assert_eq!(numbered_error.source, "custom:2");
         let error = workspace
             .query_tasks(&WebQuery {
                 view: WebView::Tasks,

@@ -35,10 +35,6 @@
       <input id="depth" type="number" min="0" max="8" value="1">
     </label>
     <button id="fit" class="graph-control" type="button">Fit graph</button>
-    <label class="search task-control" hidden>
-      <span>Search</span>
-      <input id="task-search" type="search" autocomplete="off" placeholder="Task, id, or source">
-    </label>
   </header>
   <div class="filters graph-filters" aria-label="Graph filters">
     <div class="preset-picker">
@@ -64,7 +60,10 @@
       <div class="preset-menu" role="menu" hidden></div>
     </div>
     <div class="preset-chips" aria-label="Selected task filters"></div>
-    <label class="cel-filter"><span>CEL</span><input type="text" autocomplete="off" placeholder="Custom expression"></label>
+    <div class="query-clauses" aria-label="Task query conditions">
+      <label class="query-clause fuzzy-clause"><span>Fuzzy</span><input id="task-search" type="search" autocomplete="off" placeholder="Task, id, or source"></label>
+      <div class="cel-clauses"></div>
+    </div>
     <label><span>Sort</span><select class="query-sort"><option value="source">Source</option><option value="due">Due</option><option value="relevance">Relevance</option></select></label>
     <span class="query-error" role="alert"></span>
     <span id="task-summary" role="status"></span>

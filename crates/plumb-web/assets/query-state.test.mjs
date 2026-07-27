@@ -20,7 +20,7 @@ test('query parameters round trip repeated filters and traversal state', () => {
   const original = {
     presets: ['ready', 'wait-time'],
     query: 'release notes',
-    filter: 'due < now',
+    filters: ['due < now', 'actionable'],
     sort: 'relevance',
     selected: 'task-key',
     current: 'document-id',

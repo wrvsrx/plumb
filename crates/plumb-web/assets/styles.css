@@ -82,6 +82,13 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
 .preset-chips { display: flex; gap: 5px; min-width: 0; }
 .preset-chip { display: inline-flex; align-items: center; gap: 5px; min-height: 30px; padding: 3px 5px 3px 9px; border: 1px solid var(--border); border-radius: 4px; background: var(--paper); color: var(--ink); white-space: nowrap; }
 .preset-chip button { width: 22px; min-height: 22px; padding: 0; border: 0; background: transparent; }
+.query-clauses { display: flex; align-items: center; gap: 7px; flex: 1; min-width: 180px; overflow-x: auto; }
+.cel-clauses { display: contents; }
+.query-clause { display: inline-flex; align-items: stretch !important; flex: 1 1 210px; min-width: 170px; max-width: 360px; min-height: 32px; border: 1px solid var(--border); border-radius: 4px; background: var(--paper); overflow: hidden; }
+.query-clause > span { display: flex; align-items: center; padding: 0 8px; border-right: 1px solid var(--border); color: var(--muted); font-size: 11px; font-weight: 700; text-transform: uppercase; }
+.query-clause input { width: 100%; min-width: 100px; min-height: 30px; padding: 5px 8px; border: 0; outline: 0; background: transparent; color: var(--ink); }
+.query-clause:focus-within { border-color: var(--teal); box-shadow: 0 0 0 1px var(--teal); }
+.query-clause .remove-clause { min-height: 30px; width: 30px; padding: 0; border: 0; border-left: 1px solid var(--border); border-radius: 0; background: transparent; }
 .cel-filter { flex: 1; max-width: 360px; }
 .cel-filter input { width: 100%; min-width: 100px; padding: 5px 8px; }
 .filters select { min-height: 32px; padding: 4px 7px; }

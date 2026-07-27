@@ -7,7 +7,7 @@ export function readQueryParameters(search) {
   return {
     presets: params.getAll('preset'),
     query: params.get('q') || '',
-    filter: params.get('cel') || '',
+    filters: params.getAll('cel'),
     sort: params.get('sort') || 'source',
     selected: params.get('selected'),
     current: params.get('current'),
@@ -21,7 +21,7 @@ export function writeQueryParameters(query) {
   const params = new URLSearchParams();
   query.presets.forEach((preset) => params.append('preset', preset));
   if (query.query) params.set('q', query.query);
-  if (query.filter) params.set('cel', query.filter);
+  (query.filters || []).filter(Boolean).forEach((filter) => params.append('cel', filter));
   if (query.sort !== 'source') params.set('sort', query.sort);
   if (query.selected) params.set('selected', query.selected);
   if (query.current) {

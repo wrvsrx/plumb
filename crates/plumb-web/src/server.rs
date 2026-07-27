@@ -724,6 +724,17 @@ mod tests {
         assert_eq!(value["view"], "tasks");
         assert_eq!(value["tasks"]["tasks"].as_array().unwrap().len(), 1);
 
+        let response = app.clone().oneshot(
+            Request::post("/api/query")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(r#"{"view":"tasks","filters":["title.contains('Ready')","state == 'ready'"],"traversal":{}}"#))
+                .unwrap(),
+        ).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(value["tasks"]["tasks"].as_array().unwrap().len(), 1);
+
         let response = app
             .oneshot(
                 Request::post("/api/query")
