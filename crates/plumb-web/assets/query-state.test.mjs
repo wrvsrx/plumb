@@ -31,15 +31,16 @@ test('query parameters round trip repeated filters and traversal state', () => {
   assert.deepEqual(readQueryParameters(writeQueryParameters(original)), original);
 });
 
-test('a grouped preset replaces its peer while ungrouped presets accumulate', () => {
+test('grouped and ungrouped preset selections accumulate without duplicates', () => {
   const registry = [
     { id: 'ready', group: 'state' },
     { id: 'waiting', group: 'state' },
     { id: 'wait-time', group: 'wait' },
     { id: 'has-due', group: null },
   ];
-  assert.deepEqual(addPreset(['ready', 'wait-time'], registry[1], registry), ['wait-time', 'waiting']);
-  assert.deepEqual(addPreset(['waiting'], registry[3], registry), ['waiting', 'has-due']);
+  assert.deepEqual(addPreset(['ready', 'wait-time'], registry[1]), ['ready', 'wait-time', 'waiting']);
+  assert.deepEqual(addPreset(['waiting'], registry[3]), ['waiting', 'has-due']);
+  assert.deepEqual(addPreset(['waiting'], registry[1]), ['waiting']);
 });
 
 test('selected task details survive when a query no longer retains the task', () => {

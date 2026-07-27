@@ -328,7 +328,7 @@
 
 `-{.task #web-query-pipeline created="2026-07-27T00:28:45+08:00" done="2026-07-27T01:13:41+08:00"} 统一 Graph 与 Tasks 的 Web query pipeline
 
-   `note UI 使用可追加的 filter chips：`[+] 打开服务端注册的 preset menu，选中后显示可移除 chip。Preset 包含稳定 id、label、CEL expression 与 optional group；同 group（例如 task state）只能保留一个，新选择替换旧 chip，不同 groups 与 ungrouped presets 使用 logical AND。
+   `note UI 使用可追加的 filter chips：`[+] 打开服务端注册的 preset menu，选中后显示可移除 chip。Preset 包含稳定 id、label、CEL expression 与 optional group；同 group（例如 task state）的选项合并为一个多选 filter 并使用 logical OR，不同 groups 与 ungrouped presets 使用 logical AND。
    `note custom CEL 使用可追加、可移除的独立条件输入。Fuzzy 与 CEL 显示为同形 query clauses，但 fuzzy 不伪装成 CEL predicate。每个 selected preset 与每条 custom expression 分别 compile、分别报告 source/position error，再逐项 AND evaluate；不要拼接生成 CEL source。没有 preset 等价于 `[true]，不提供 `[All] chip。
    `note fuzzy text query 与 CEL 进入同一个 structured request 和 execution pipeline，但不伪装成 CEL predicate：CEL 负责 candidate filtering，fuzzy engine 负责 match 与 relevance score。request 显式携带 view kind、query、preset ids、custom filter、sort、limit，以及 Graph traversal parameters。
    `note Tasks presets 初版覆盖 Ready、Waiting、Done、Canceled、Invalid、waiting for time 与 waiting for dependency；Graph presets 初版覆盖 All notes、Connected、Orphans、Unresolved 与 task-count conditions。Preset expression 由 server 根据 id 解析，不信任 client 提交的 expression。

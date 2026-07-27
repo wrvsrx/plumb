@@ -33,11 +33,8 @@ export function writeQueryParameters(query) {
   return params;
 }
 
-export function addPreset(selected, added, registry) {
-  const replaced = added.group
-    ? new Set(registry.filter((preset) => preset.group === added.group).map((preset) => preset.id))
-    : new Set();
-  return [...selected.filter((id) => !replaced.has(id) && id !== added.id), added.id];
+export function addPreset(selected, added) {
+  return selected.includes(added.id) ? selected : [...selected, added.id];
 }
 
 export function taskByKey(snapshot, key) {

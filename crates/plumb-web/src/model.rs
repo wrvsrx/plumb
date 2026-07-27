@@ -527,9 +527,32 @@ impl WebWorkspace {
 
     pub fn query_tasks(&self, query: &WebQuery) -> Result<TaskQuerySnapshot, QueryFailure> {
         let now = Local::now().fixed_offset();
-        let expressions = resolve_presets(&query.presets, TASK_PRESETS)?;
+        let preset_groups = resolve_presets(&query.presets, TASK_PRESETS)?;
         let mut retained: Option<BTreeSet<(String, usize)>> = None;
-        for (source, expression) in expressions.into_iter().chain(custom_filters(query)) {
+        for group in preset_groups {
+            let mut matching = BTreeSet::new();
+            for (source, expression) in group.expressions {
+                let records = self
+                    .workspace
+                    .search_records_filtered(
+                        &self.root,
+                        Some(SearchRecordKind::Task),
+                        "",
+                        usize::MAX,
+                        now,
+                        Some(expression),
+                    )
+                    .map_err(|message| QueryFailure { source, message })?;
+                matching.extend(
+                    records
+                        .items
+                        .into_iter()
+                        .map(|record| (record.relative_path, record.range.start)),
+                );
+            }
+            intersect_keys(&mut retained, matching);
+        }
+        for (source, expression) in custom_filters(query) {
             let records = self
                 .workspace
                 .search_records_filtered(
@@ -599,19 +622,15 @@ impl WebWorkspace {
                 message,
             })?;
         let mut graph = self.graph_with_excluded(&query.traversal, &excluded, false);
-        let expressions = resolve_presets(&query.presets, GRAPH_PRESETS)?;
-        let programs = expressions
+        let mut program_groups = resolve_presets(&query.presets, GRAPH_PRESETS)?
             .into_iter()
-            .chain(custom_filters(query))
-            .map(|(source, expression)| {
-                Program::compile(expression)
-                    .map(|program| (source.clone(), program))
-                    .map_err(|error| QueryFailure {
-                        source,
-                        message: format!("invalid CEL query: {error}"),
-                    })
-            })
+            .map(|group| compile_program_group(group.expressions))
             .collect::<Result<Vec<_>, _>>()?;
+        program_groups.extend(
+            custom_filters(query)
+                .map(|expression| compile_program_group(vec![expression]))
+                .collect::<Result<Vec<_>, _>>()?,
+        );
         let metrics = self.graph_metrics(&graph);
         let mut scores = HashMap::new();
         let mut retained = Vec::new();
@@ -623,16 +642,22 @@ impl WebWorkspace {
                 continue;
             };
             let metric = metrics.get(&node.id).expect("every graph node has metrics");
-            for (source, program) in &programs {
-                match graph_node_matches(program, &node, metric) {
-                    Ok(true) => {}
-                    Ok(false) => continue 'nodes,
-                    Err(message) => {
-                        return Err(QueryFailure {
-                            source: source.clone(),
-                            message,
-                        })
+            for group in &program_groups {
+                let mut matches = false;
+                for (source, program) in group {
+                    match graph_node_matches(program, &node, metric) {
+                        Ok(true) => matches = true,
+                        Ok(false) => {}
+                        Err(message) => {
+                            return Err(QueryFailure {
+                                source: source.clone(),
+                                message,
+                            })
+                        }
                     }
+                }
+                if !matches {
+                    continue 'nodes;
                 }
             }
             scores.insert(node.id.clone(), score);
@@ -1140,19 +1165,49 @@ struct TaskRoot {
     due: Option<String>,
 }
 
+struct ResolvedPresetGroup<'a> {
+    key: String,
+    expressions: Vec<(String, &'a str)>,
+}
+
 fn resolve_presets<'a>(
     ids: &[String],
     registry: &'a [QueryPreset],
-) -> Result<Vec<(String, &'a str)>, QueryFailure> {
-    ids.iter()
-        .map(|id| {
-            registry
-                .iter()
-                .find(|preset| preset.id == id)
-                .map(|preset| (format!("preset:{id}"), preset.expression))
-                .ok_or_else(|| QueryFailure {
-                    source: format!("preset:{id}"),
-                    message: format!("unknown query preset '{id}'"),
+) -> Result<Vec<ResolvedPresetGroup<'a>>, QueryFailure> {
+    let mut groups = Vec::<ResolvedPresetGroup<'a>>::new();
+    for id in ids {
+        let preset = registry
+            .iter()
+            .find(|preset| preset.id == id)
+            .ok_or_else(|| QueryFailure {
+                source: format!("preset:{id}"),
+                message: format!("unknown query preset '{id}'"),
+            })?;
+        let key = preset.group.unwrap_or(preset.id).to_string();
+        let expression = (format!("preset:{id}"), preset.expression);
+        if let Some(group) = groups.iter_mut().find(|group| group.key == key) {
+            group.expressions.push(expression);
+        } else {
+            groups.push(ResolvedPresetGroup {
+                key,
+                expressions: vec![expression],
+            });
+        }
+    }
+    Ok(groups)
+}
+
+fn compile_program_group<'a>(
+    expressions: Vec<(String, &'a str)>,
+) -> Result<Vec<(String, Program)>, QueryFailure> {
+    expressions
+        .into_iter()
+        .map(|(source, expression)| {
+            Program::compile(expression)
+                .map(|program| (source.clone(), program))
+                .map_err(|error| QueryFailure {
+                    source,
+                    message: format!("invalid CEL query: {error}"),
                 })
         })
         .collect()
@@ -1641,6 +1696,14 @@ mod tests {
             })
             .unwrap();
         assert_eq!(ready.tasks.len(), 2);
+        let ready_or_done = workspace
+            .query_tasks(&WebQuery {
+                view: WebView::Tasks,
+                presets: vec!["ready".to_string(), "done".to_string()],
+                ..WebQuery::default()
+            })
+            .unwrap();
+        assert_eq!(ready_or_done.tasks.len(), 4);
         let multiple_custom = workspace
             .query_tasks(&WebQuery {
                 view: WebView::Tasks,

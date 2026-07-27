@@ -131,15 +131,20 @@ import {
     const chips = container.querySelector('.preset-chips');
     const registry = state.presetRegistry[view] || [];
     menu.replaceChildren();
-    registry.filter((preset) => !state.presets[view].includes(preset.id)).forEach((preset) => {
+    registry.forEach((preset) => {
       const button = document.createElement('button');
       button.type = 'button';
-      button.role = 'menuitem';
-      button.textContent = preset.label;
+      const selected = state.presets[view].includes(preset.id);
+      button.role = preset.group ? 'menuitemcheckbox' : 'menuitem';
+      if (preset.group) button.setAttribute('aria-checked', String(selected));
+      const group = preset.group ? `${preset.group.charAt(0).toUpperCase()}${preset.group.slice(1)}: ` : '';
+      button.textContent = `${selected ? '✓ ' : ''}${group}${preset.label}`;
       button.title = preset.expression;
       button.addEventListener('click', () => {
-        state.presets[view] = addPreset(state.presets[view], preset, registry);
-        menu.hidden = true;
+        state.presets[view] = selected
+          ? state.presets[view].filter((id) => id !== preset.id)
+          : addPreset(state.presets[view], preset);
+        menu.hidden = !preset.group;
         renderPresetControls(view);
         updateUrl();
         runViewQuery(view);
@@ -158,19 +163,29 @@ import {
     });
     menu.append(addCel);
     chips.replaceChildren();
-    state.presets[view].forEach((id) => {
-      const preset = registry.find((item) => item.id === id);
-      if (!preset) return;
+    const selectedPresets = state.presets[view]
+      .map((id) => registry.find((item) => item.id === id))
+      .filter(Boolean);
+    const groups = new Map();
+    selectedPresets.forEach((preset) => {
+      const key = preset.group || `preset:${preset.id}`;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(preset);
+    });
+    groups.forEach((presets, key) => {
       const chip = document.createElement('span');
       chip.className = 'preset-chip';
-      chip.textContent = preset.label;
+      const grouped = presets[0].group;
+      const label = grouped ? `${grouped.charAt(0).toUpperCase()}${grouped.slice(1)}: ${presets.map((preset) => preset.label).join(', ')}` : presets[0].label;
+      chip.textContent = label;
       const remove = document.createElement('button');
       remove.type = 'button';
       remove.textContent = '×';
-      remove.title = `Remove ${preset.label}`;
-      remove.setAttribute('aria-label', `Remove ${preset.label}`);
+      remove.title = `Remove ${label}`;
+      remove.setAttribute('aria-label', `Remove ${label}`);
       remove.addEventListener('click', () => {
-        state.presets[view] = state.presets[view].filter((selected) => selected !== id);
+        const ids = new Set(presets.map((preset) => preset.id));
+        state.presets[view] = state.presets[view].filter((id) => !ids.has(id));
         renderPresetControls(view);
         updateUrl();
         runViewQuery(view);
@@ -321,11 +336,15 @@ import {
 
   function queryPredicates(view) {
     const registry = state.presetRegistry[view] || [];
-    const predicates = state.presets[view].map((id) => {
+    const groups = new Map();
+    state.presets[view].forEach((id) => {
       const preset = registry.find((item) => item.id === id);
       if (!preset) { const error = new Error(`unknown query preset '${id}'`); error.source = `preset:${id}`; throw error; }
-      try { return compileBrowserCel(preset.expression); } catch (failure) { failure.source = `preset:${id}`; throw failure; }
+      const key = preset.group || `preset:${id}`;
+      if (!groups.has(key)) groups.set(key, []);
+      try { groups.get(key).push(compileBrowserCel(preset.expression)); } catch (failure) { failure.source = `preset:${id}`; throw failure; }
     });
+    const predicates = Array.from(groups.values()).map((group) => (facts) => group.some((predicate) => predicate(facts)));
     state.filters[view].forEach((source, index) => {
       if (!source.trim()) return;
       try { predicates.push(compileBrowserCel(source)); } catch (failure) { failure.source = `custom:${index + 1}`; throw failure; }
