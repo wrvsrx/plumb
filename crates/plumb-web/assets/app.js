@@ -146,19 +146,17 @@ import {
       });
       menu.append(button);
     });
-    if (view === 'tasks') {
-      const addCel = document.createElement('button');
-      addCel.type = 'button';
-      addCel.role = 'menuitem';
-      addCel.textContent = 'Custom CEL';
-      addCel.title = 'Add a CEL condition';
-      addCel.addEventListener('click', () => {
-        state.filters.tasks.push('');
-        menu.hidden = true;
-        renderTaskCelClauses({ focusLast: true });
-      });
-      menu.append(addCel);
-    }
+    const addCel = document.createElement('button');
+    addCel.type = 'button';
+    addCel.role = 'menuitem';
+    addCel.textContent = 'Custom CEL';
+    addCel.title = 'Add a CEL condition';
+    addCel.addEventListener('click', () => {
+      state.filters[view].push('');
+      menu.hidden = true;
+      renderCelClauses(view, { focusLast: true });
+    });
+    menu.append(addCel);
     chips.replaceChildren();
     state.presets[view].forEach((id) => {
       const preset = registry.find((item) => item.id === id);
@@ -186,17 +184,15 @@ import {
     search.value = state.query.graph;
     taskSearch.value = state.query.tasks;
     const container = document.querySelector(`.${view === 'graph' ? 'graph' : 'task'}-filters`);
-    const graphCel = container.querySelector('.cel-filter input');
-    if (graphCel) graphCel.value = state.filters[view][0] || '';
-    if (view === 'tasks') renderTaskCelClauses();
+    renderCelClauses(view);
     container.querySelector('.query-sort').value = state.sort[view];
     renderPresetControls(view);
   }
 
-  function renderTaskCelClauses({ focusLast = false } = {}) {
-    const container = document.querySelector('.task-filters .cel-clauses');
+  function renderCelClauses(view, { focusLast = false } = {}) {
+    const container = document.querySelector(`.${view === 'graph' ? 'graph' : 'task'}-filters .cel-clauses`);
     container.replaceChildren();
-    state.filters.tasks.forEach((value, index) => {
+    state.filters[view].forEach((value, index) => {
       const clause = document.createElement('label');
       clause.className = 'query-clause cel-clause';
       const kind = document.createElement('span');
@@ -208,10 +204,10 @@ import {
       input.value = value;
       input.setAttribute('aria-label', `CEL condition ${index + 1}`);
       input.addEventListener('input', () => {
-        state.filters.tasks[index] = input.value;
+        state.filters[view][index] = input.value;
         updateUrl();
         clearTimeout(state.searchTimer);
-        state.searchTimer = setTimeout(loadTasks, 250);
+        state.searchTimer = setTimeout(() => runViewQuery(view), 250);
       });
       const remove = document.createElement('button');
       remove.type = 'button';
@@ -220,10 +216,10 @@ import {
       remove.title = 'Remove CEL condition';
       remove.setAttribute('aria-label', `Remove CEL condition ${index + 1}`);
       remove.addEventListener('click', () => {
-        state.filters.tasks.splice(index, 1);
-        renderTaskCelClauses();
+        state.filters[view].splice(index, 1);
+        renderCelClauses(view);
         updateUrl();
-        loadTasks();
+        runViewQuery(view);
       });
       clause.append(kind, input, remove);
       container.append(clause);
@@ -953,13 +949,6 @@ import {
     const view = container.classList.contains('graph-filters') ? 'graph' : 'tasks';
     const menu = container.querySelector('.preset-menu');
     container.querySelector('.preset-add').addEventListener('click', () => { menu.hidden = !menu.hidden; });
-    const celInput = container.querySelector('.cel-filter input');
-    celInput?.addEventListener('input', (event) => {
-      state.filters[view] = event.target.value ? [event.target.value] : [];
-      updateUrl();
-      clearTimeout(state.searchTimer);
-      state.searchTimer = setTimeout(() => runViewQuery(view), 250);
-    });
     container.querySelector('.query-sort').addEventListener('change', (event) => {
       state.sort[view] = event.target.value;
       updateUrl();

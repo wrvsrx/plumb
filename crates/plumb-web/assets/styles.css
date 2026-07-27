@@ -89,8 +89,6 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
 .query-clause input { width: 100%; min-width: 100px; min-height: 30px; padding: 5px 8px; border: 0; outline: 0; background: transparent; color: var(--ink); }
 .query-clause:focus-within { border-color: var(--teal); box-shadow: 0 0 0 1px var(--teal); }
 .query-clause .remove-clause { min-height: 30px; width: 30px; padding: 0; border: 0; border-left: 1px solid var(--border); border-radius: 0; background: transparent; }
-.cel-filter { flex: 1; max-width: 360px; }
-.cel-filter input { width: 100%; min-width: 100px; padding: 5px 8px; }
 .filters select { min-height: 32px; padding: 4px 7px; }
 .query-error { color: var(--red); max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .edge-options { position: relative; }
@@ -191,8 +189,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
   .search { order: 5; flex-basis: 100%; max-width: none; }
   .filters { height: auto; min-height: 78px; flex-wrap: wrap; align-content: center; overflow: visible; gap: 6px 8px; }
   .filters label { white-space: nowrap; }
-  .filters .cel-filter { flex: 1; min-width: 145px; }
-  .filters .cel-filter > span, .filters label:has(.query-sort) > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); }
+  .filters label:has(.query-sort) > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); }
   .preset-chips { max-width: 140px; overflow: hidden; }
   .preset-chip { max-width: 140px; overflow: hidden; text-overflow: ellipsis; }
   .query-error { order: 10; flex-basis: 100%; max-width: none; }

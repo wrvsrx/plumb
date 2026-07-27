@@ -18,10 +18,6 @@
       <button id="global-mode" class="active" type="button">Workspace</button>
       <button id="local-mode" type="button">Local</button>
     </div>
-    <label class="search graph-control">
-      <span>Search</span>
-      <input id="search" type="search" autocomplete="off" placeholder="Title or path">
-    </label>
     <label class="graph-control">
       <span>Direction</span>
       <select id="direction">
@@ -42,7 +38,10 @@
       <div class="preset-menu" role="menu" hidden></div>
     </div>
     <div class="preset-chips" aria-label="Selected graph filters"></div>
-    <label class="cel-filter"><span>CEL</span><input type="text" autocomplete="off" placeholder="Custom expression"></label>
+    <div class="query-clauses" aria-label="Graph query conditions">
+      <label class="query-clause fuzzy-clause"><span>Fuzzy</span><input id="search" type="search" autocomplete="off" placeholder="Title or path"></label>
+      <div class="cel-clauses"></div>
+    </div>
     <label><span>Sort</span><select class="query-sort"><option value="source">Source</option><option value="relevance">Relevance</option></select></label>
     <details class="edge-options"><summary>Edges</summary>
       <label><input type="checkbox" value="link" checked> Named links</label>
