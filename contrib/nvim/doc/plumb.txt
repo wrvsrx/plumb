@@ -16,8 +16,8 @@ plumb.nvim requires Neovim 0.12 and a `plumb` binary. Add contrib/nvim to
 >
   require('plumb').setup()
 <
-No mappings are installed. The defaults enable LSP, LSP folding, tree-sitter,
-CodeLens, search, and the workspace Web command. Features can be disabled
+No mappings are installed. The defaults enable LSP, LSP folding, CodeLens,
+search, and the workspace Web command. Features can be disabled
 independently:
 >
   require('plumb').setup({
@@ -27,7 +27,6 @@ independently:
       folding = true,
       root_markers = { '.plumb', '.git' },
     },
-    treesitter = { enabled = true, parser_path = nil },
     codelens = { enabled = true, picker = 'quickfix' },
     search = { enabled = true, picker = 'native' },
     web = { enabled = true },
@@ -81,8 +80,8 @@ require('plumb.web').open(opts)               Start `plumb site serve`.
 =============================================================================
 HEALTH                                                          *plumb-health*
 
-Run :checkhealth plumb. It checks Neovim, the binary, tree-sitter parser and
-queries, and active plumb LSP clients. Strict diagnostics always come from
-`plumb lsp`; tree-sitter is editor ergonomics only.
+Run :checkhealth plumb. It checks Neovim, the binary version, and active plumb
+LSP clients. Tree-sitter parsers and queries are installed and configured
+separately from plumb.nvim.
 
 vim:tw=78:ts=8:noet:ft=help:norl:

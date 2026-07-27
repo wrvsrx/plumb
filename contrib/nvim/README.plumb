@@ -16,14 +16,13 @@ modules 的调用接口。
 `{language=lua}
   require('plumb').setup()
 
-它默认启用 LSP、LSP folding、tree-sitter、CodeLens、search 与 Web command，不创建 keymaps。重复调用是幂等的；
-`[lsp]、`[treesitter]、`[codelens]、`[search] 与 `[web] 都可用 `[enabled = false] 单独关闭：
+它默认启用 LSP、LSP folding、CodeLens、search 与 Web command，不创建 keymaps。重复调用是幂等的；
+`[lsp]、`[codelens]、`[search] 与 `[web] 都可用 `[enabled = false] 单独关闭：
 
 `{language=lua}
   require('plumb').setup({
     command = 'plumb',
     lsp = { folding = true, root_markers = { '.plumb', '.git' } },
-    treesitter = { parser_path = '/path/to/plumb.so' },
     codelens = { picker = 'snacks' },
     search = { picker = 'snacks', task_filter = 'state == "ready"' },
   })
@@ -43,7 +42,7 @@ incomplete-result state。
 LSP attach 后 plugin 使用 `[vim.lsp.foldexpr()] 与 `[vim.lsp.foldtext()]，初始 `[foldlevel] 是 99；
 `[lsp.folding = false] 保留用户自己的 window-local fold settings。fold 范围覆盖 heading sections 与跨行
 marked/verbatim blocks；task fold text 显示 READY、WAITING、DONE、CANCELED 或 INVALID 与 title。未连接
-LSP 时仍可自行使用 bundled tree-sitter `[folds.scm]。Nested task label 保留 source block indentation，
+LSP 时仍可由独立安装的 tree-sitter parser 与 `[folds.scm] 提供 fallback。Nested task label 保留 source block indentation，
 让 indent guide 占用缩进区域而不覆盖状态文本。
 
 plugin 默认把 `[task + completed] 与 `[task + canceled] semantic tokens 链接到 `[Comment]，淡化完整
@@ -52,13 +51,14 @@ closed task block。自定义 `[@lsp.typemod.task.completed.plumb] 与
 
 `# Installation
 
-Nix 提供 `[packages.plumb-nvim] 与 `[plumb.passthru.neovim-plugin]，可直接加入
-`[programs.neovim.plugins]；主 package 也把源码安装在 `[share/plumb/contrib/nvim]。binary、Lua runtime
-与 bundled syntax profile 来自同一 package version。`[:checkhealth plumb] 会检查 binary、parser、queries
-与 active client。tree-sitter parser 由 `[plumb.passthru.tree-sitter-plumb] 提供。
-plugin 与 binary 要求 exact release version match；tree-sitter 要求 ABI 15，bundled queries 必须与同一
-checkout 的 grammar queries 一致。Cargo regression test 强制 `[version.lua] 跟 workspace version 同步，
-query drift test 强制两份 runtime query 相同。
+Nix 提供 `[plumb.passthru.neovim-plugin]，可直接加入 `[programs.neovim.plugins]；主 package 也把源码
+安装在 `[share/plumb/contrib/nvim]。binary 与 Lua runtime 来自同一 package version。
+`[:checkhealth plumb] 会检查 binary version 与 active client。plugin 与 binary 要求 exact release version
+match；Cargo regression test 强制 `[version.lua] 跟 workspace version 同步。
+
+tree-sitter parser 与 queries 独立发行，不属于 plugin runtime 或 setup API。Nix 通过
+`[plumb.passthru.tree-sitter-plumb] 提供 parser；editor configuration 负责安装并调用
+`[vim.treesitter.start()]。
 
 lazy.nvim 使用 source checkout 时：
 
@@ -72,8 +72,7 @@ lazy.nvim 使用 source checkout 时：
   }
 
 不用 plugin manager 时执行 `[vim.opt.runtimepath:prepend('/path/to/plumb/contrib/nvim')] 后调用 setup。
-`[parser_path] 只用于 local development override；普通安装应让 Neovim 从 parser package 注册 language。
-runtime 内的 `[queries/plumb] 与 `[tree-sitter-plumb/queries] 有 drift regression test。
+repository-local parser override 只属于 `[dev/nvim.lua]，不进入正式 plugin API。
 
 `# Commands and API
 

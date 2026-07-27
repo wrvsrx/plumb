@@ -23,14 +23,13 @@ directory 加入 `[runtimepath]。推荐使用完整 plugin entry point：
 `{language=lua}
   require('plumb').setup()
 
-setup 默认启用 LSP、tree-sitter、CodeLens、search 与 Web command，不创建 keymaps；重复调用不会重复
+setup 默认启用 LSP、CodeLens、search 与 Web command，不创建 keymaps；重复调用不会重复
 commands、autocmds 或 clients。可以分别配置或关闭 features：
 
 `{language=lua}
   require('plumb').setup({
     command = 'plumb',
     lsp = { folding = true, root_markers = { '.plumb', '.git' } },
-    treesitter = { enabled = true },
     codelens = { picker = 'quickfix' },
     search = { picker = 'native', task_filter = 'state == "ready"' },
     web = { enabled = true },
@@ -66,7 +65,8 @@ Linux 上 Neovim 默认可能不启用 dynamic file watching；上述 capability
 `# Tree-sitter
 
 tree-sitter parser 只负责 highlight、fold、indent、text object 和 injection，不负责 strict
-diagnostics。完整 plugin 自动为 `[plumb] filetype 启动已注册 parser；手工配置对应：
+diagnostics。parser 与 queries 独立于 `[plumb.nvim] 安装；plugin 不注册 parser、不携带 queries，也不调用
+`[vim.treesitter.start()]。editor configuration 可以统一启动已注册 parser：
 
 `{language=lua}
   vim.api.nvim_create_autocmd('FileType', {
@@ -81,13 +81,6 @@ repository development 使用 `[dev/nvim.lua] 加载当前 checkout 的 parser �
 `{language=text}
   ./tree-sitter-plumb/build-parser.sh
   nvim -u dev/nvim.lua document.plumb
-
-也可以把 local parser 显式交给 plugin：
-
-`{language=lua}
-  require('plumb').setup({
-    treesitter = { parser_path = '/absolute/path/to/plumb.so' },
-  })
 
 `# Folding
 
@@ -126,8 +119,8 @@ window-local folding 设置：
     end,
   })
 
-tree-sitter `[folds.scm] 仍作为没有 LSP client 时的 lenient fallback；完整 plugin 在 plumb LSP 支持
-folding 时优先使用 LSP ranges。
+独立 tree-sitter package 的 `[folds.scm] 可以作为没有 LSP client 时的 lenient fallback；完整 plugin 在
+plumb LSP 支持 folding 时优先使用 LSP ranges。
 
 `# Closed task highlighting
 
