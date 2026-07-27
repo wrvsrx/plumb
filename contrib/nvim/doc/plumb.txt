@@ -48,7 +48,6 @@ COMMANDS                                                      *plumb-commands*
 
 :PlumbNotes           Search workspace notes.
 :PlumbTasks           Search ready workspace tasks.
-:PlumbReferences      Run the reference CodeLens at the cursor.
 
 =============================================================================
 LUA API                                                            *plumb-api*

@@ -234,13 +234,10 @@ position 与完整 `[Location list]；wrapper 直接使用第三个 argument，�
 `{language=text}
   :lua vim.lsp.codelens.run()
 
-推荐注册 command 与 keymap：
+推荐直接注册 keymap：
 
 `{language=lua}
-  vim.api.nvim_create_user_command('PlumbReferences', function()
-    vim.lsp.codelens.run()
-  end, {})
-  vim.keymap.set('n', '<leader>pr', '<cmd>PlumbReferences<cr>')
+  vim.keymap.set('n', '<leader>pr', vim.lsp.codelens.run)
 
 这要求当前 buffer attached 到提供 CodeLens 的 plumb client，并且已调用
 `[require('plumb.codelens').setup()] 注册 `[plumb.showReferences]。0 references 显示 info notification；

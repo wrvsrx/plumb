@@ -73,9 +73,10 @@ repository-local parser override 只属于 `[dev/nvim.lua]，不进入正式 plu
 
 `# Commands and API
 
-setup 只注册 `[PlumbNotes]、`[PlumbTasks] 与 `[PlumbReferences]。Formatting、rename、CodeAction 与 task
-operations 使用 Neovim 原生 LSP API；Web app 通过 `[plumb site serve] CLI 启动。完整 public Lua API 和
-default-free keymap examples 见 editor integration guide 与 `[doc/plumb.txt]。
+setup 只注册 `[PlumbNotes] 与 `[PlumbTasks]。References CodeLens 使用 `[vim.lsp.codelens.run()]；
+formatting、rename、CodeAction 与 task operations 使用 Neovim 原生 LSP API；Web app 通过
+`[plumb site serve] CLI 启动。完整 public Lua API 和 default-free keymap examples 见 editor integration
+guide 与 `[doc/plumb.txt]。
 
 `# Reference CodeLens
 

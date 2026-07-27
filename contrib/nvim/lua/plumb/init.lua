@@ -10,7 +10,6 @@ local defaults = {
 local config = vim.deepcopy(defaults)
 local commands = {
   'PlumbNotes',
-  'PlumbReferences',
   'PlumbTasks',
 }
 
@@ -41,9 +40,6 @@ function M.setup(opts)
   require('plumb.lsp').setup(lsp, group)
   if config.codelens.enabled then
     require('plumb.codelens').setup({ picker = config.codelens.picker })
-  end
-  if config.codelens.enabled then
-    command('PlumbReferences', vim.lsp.codelens.run, 'Show references from the current plumb CodeLens')
   end
   if config.search.enabled then
     command('PlumbNotes', function()

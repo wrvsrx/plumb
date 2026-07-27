@@ -7,7 +7,7 @@ assert(vim.filetype.match({ filename = 'note.plumb' }) == 'plumb')
 local plumb = require('plumb')
 local opts = {
   command = repo .. '/target/debug/plumb',
-  codelens = { enabled = false },
+  codelens = { enabled = true, picker = 'quickfix' },
   search = { enabled = false },
 }
 plumb.setup(opts)
@@ -20,6 +20,7 @@ for _, name in ipairs({ 'PlumbFormat', 'PlumbRename', 'PlumbCodeAction', 'PlumbT
 end
 assert(vim.fn.exists(':PlumbNotes') == 0)
 assert(vim.fn.exists(':PlumbReferences') == 0)
+assert(type(vim.lsp.commands['plumb.showReferences']) == 'function')
 assert(vim.fn.exists(':PlumbWeb') == 0)
 
 plumb.setup({

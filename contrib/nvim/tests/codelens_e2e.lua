@@ -25,12 +25,8 @@ local codelens_run = vim.lsp.codelens.run
 vim.lsp.codelens.run = function()
   codelens_runs = codelens_runs + 1
 end
-vim.api.nvim_create_user_command('PlumbReferences', function()
-  vim.lsp.codelens.run()
-end, {})
-vim.cmd.PlumbReferences()
-assert(codelens_runs == 1, 'execute documented references user command')
-vim.api.nvim_del_user_command('PlumbReferences')
+vim.lsp.codelens.run()
+assert(codelens_runs == 1, 'execute references with the native CodeLens API')
 vim.lsp.codelens.run = codelens_run
 vim.lsp.commands['plumb.showReferences']({
   title = '1 file reference',
