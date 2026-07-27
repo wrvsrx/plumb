@@ -44,6 +44,10 @@ LSP attach 后 plugin 使用 `[vim.lsp.foldexpr()] 与 `[vim.lsp.foldtext()]，�
 `[lsp.folding = false] 保留用户自己的 window-local fold settings。fold 范围覆盖 heading sections 与跨行
 marked/verbatim blocks，未连接 LSP 时仍可自行使用 bundled tree-sitter `[folds.scm]。
 
+plugin 默认把 `[task + completed] 与 `[task + canceled] semantic tokens 链接到 `[Comment]，淡化完整
+closed task block。自定义 `[@lsp.typemod.task.completed.plumb] 与
+`[@lsp.typemod.task.canceled.plumb] highlight groups 可以覆盖该默认值。
+
 `# Installation
 
 Nix 提供 `[packages.plumb-nvim] 与 `[plumb.passthru.neovim-plugin]，可直接加入

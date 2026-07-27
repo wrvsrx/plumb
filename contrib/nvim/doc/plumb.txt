@@ -41,6 +41,13 @@ the plugin configures vim.lsp.foldexpr() and vim.lsp.foldtext() with an initial
 'foldlevel' of 99. Use normal Neovim fold commands such as za, zc, zo, zM, and
 zR. Set lsp.folding = false to preserve custom window-local fold settings.
 
+Completed and canceled task semantic tokens cover the complete task block and
+default to the Comment highlight. Override these groups to customize them:
+>
+  @lsp.typemod.task.completed.plumb
+  @lsp.typemod.task.canceled.plumb
+<
+
 =============================================================================
 COMMANDS                                                      *plumb-commands*
 

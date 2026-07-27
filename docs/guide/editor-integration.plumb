@@ -124,6 +124,26 @@ window-local folding 设置：
 tree-sitter `[folds.scm] 仍作为没有 LSP client 时的 lenient fallback；完整 plugin 在 plumb LSP 支持
 folding 时优先使用 LSP ranges。
 
+`# Closed task highlighting
+
+LSP semantic tokens 将 done task 的完整 block 标为 `[task + completed]，将 canceled task 标为
+`[task + canceled]；同时具有两个 closure fields 的 conflicted task 携带两个 modifiers。父 task 的
+range 会扣除 nested task blocks，child task 始终按自身状态着色。空行不产生 token。
+
+完整 plugin 默认把两种 token 链接到 `[Comment] highlight，因此 closed task 保持可读但降低对比度。
+不使用 plugin 时可以直接配置 Neovim 0.12：
+
+`{language=lua}
+  vim.api.nvim_set_hl(0, '@lsp.typemod.task.completed.plumb', {
+    link = 'Comment',
+  })
+  vim.api.nvim_set_hl(0, '@lsp.typemod.task.canceled.plumb', {
+    link = 'Comment',
+  })
+
+颜色方案或用户配置可以把这两个 groups 改成任意颜色、italic 或 strikethrough；semantic token 只提供
+状态与 source ranges，不 conceal 文本，也不自动关闭 fold。
+
 `# Authoring workflow
 
 普通 Neovim LSP mappings 可以直接调用 plumb 标准功能：
