@@ -34,27 +34,6 @@ function M.check()
     vim.health.error(command .. ' is not executable')
   end
 
-  local parser_ok, parser = pcall(vim.treesitter.language.inspect, 'plumb')
-  if parser_ok and parser then
-    local abi = parser._abi_version or parser.abi_version
-    if abi == expected.tree_sitter_abi then
-      vim.health.ok(string.format('tree-sitter plumb ABI %s', abi))
-    else
-      vim.health.warn(string.format(
-        'tree-sitter plumb ABI %s; plugin expects ABI %s',
-        tostring(abi or 'unknown'),
-        expected.tree_sitter_abi
-      ))
-    end
-  else
-    vim.health.warn('tree-sitter plumb parser is not registered')
-  end
-  if #vim.api.nvim_get_runtime_file('queries/plumb/highlights.scm', true) > 0 then
-    vim.health.ok('tree-sitter highlight queries found')
-  else
-    vim.health.warn('tree-sitter highlight queries are missing')
-  end
-
   local clients = vim.lsp.get_clients({ name = 'plumb' })
   if #clients > 0 then
     vim.health.ok(string.format('%d plumb LSP client(s) active', #clients))

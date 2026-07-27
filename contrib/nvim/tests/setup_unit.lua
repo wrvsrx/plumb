@@ -7,7 +7,6 @@ assert(vim.filetype.match({ filename = 'note.plumb' }) == 'plumb')
 local plumb = require('plumb')
 local opts = {
   command = repo .. '/target/debug/plumb',
-  treesitter = { enabled = false },
   codelens = { enabled = false },
   search = { enabled = false },
   web = { enabled = false },
@@ -32,15 +31,8 @@ assert(vim.fn.exists(':PlumbWeb') == 0)
 
 plumb.setup({
   lsp = { enabled = false },
-  treesitter = { enabled = false },
   codelens = { enabled = false },
   search = { enabled = false },
   web = { enabled = false },
 })
 assert(vim.fn.exists(':PlumbFormat') == 0, 'disabled LSP commands were retained')
-
-for _, name in ipairs({ 'folds.scm', 'highlights.scm', 'indents.scm', 'injections.scm', 'textobjects.scm' }) do
-  local source = vim.fn.readfile(repo .. '/tree-sitter-plumb/queries/' .. name)
-  local bundled = vim.fn.readfile(runtime .. '/queries/plumb/' .. name)
-  assert(vim.deep_equal(source, bundled), name .. ' drifted from tree-sitter source')
-end

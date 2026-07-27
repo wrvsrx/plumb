@@ -17,7 +17,6 @@ vim.fn.writefile({
 
 require('plumb').setup({
   command = repo .. '/target/debug/plumb',
-  treesitter = { enabled = false },
   codelens = { enabled = true, picker = 'quickfix' },
   search = { enabled = true },
   web = { enabled = false },

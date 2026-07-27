@@ -3,7 +3,6 @@ local M = {}
 local defaults = {
   command = 'plumb',
   lsp = { enabled = true, folding = true, root_markers = { '.plumb', '.git' } },
-  treesitter = { enabled = true },
   codelens = { enabled = true, picker = 'quickfix' },
   search = { enabled = true, picker = 'native', task_filter = 'state == "ready"' },
   web = { enabled = true },
@@ -47,8 +46,6 @@ function M.setup(opts)
     codelens = config.codelens.enabled,
   }, config.lsp)
   require('plumb.lsp').setup(lsp, group)
-  require('plumb.treesitter').setup(config.treesitter, group)
-
   if config.codelens.enabled then
     require('plumb.codelens').setup({ picker = config.codelens.picker })
   end
