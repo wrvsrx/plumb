@@ -1647,6 +1647,54 @@ fn highlights_closed_tasks_with_multiline_attributes() {
 }
 
 #[test]
+fn publishes_completed_task_consistency_diagnostics() {
+    let uri = "file:///tmp/completed-task-consistency.plumb";
+    let source = "`-{.task #dependency-parent done=\"2026-07-27T10:00:00Z\" depends=\"#child\"} Dependency parent\n  `-{.task #child} Open explicit child\n`-{.task done=\"2026-07-27T10:01:00Z\"} Descendant parent\n  `-{.task} Open implicit child\n";
+    let messages = [
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": { "processId": null, "rootUri": null, "capabilities": {} }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": {
+                "uri": uri, "languageId": "plumb", "version": 1, "text": source
+            }}
+        }),
+        json!({ "jsonrpc": "2.0", "id": 2, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+
+    let output = run_server(&messages);
+    let diagnostics = output
+        .iter()
+        .filter(|message| message.get("method") == Some(&json!("textDocument/publishDiagnostics")))
+        .last()
+        .unwrap()["params"]["diagnostics"]
+        .as_array()
+        .unwrap();
+    let dependency = diagnostics
+        .iter()
+        .find(|diagnostic| diagnostic["code"] == "task.done-with-open-dependency")
+        .unwrap();
+    assert_eq!(dependency["severity"], 2);
+    assert_eq!(
+        dependency["relatedInformation"].as_array().unwrap().len(),
+        1
+    );
+    let descendant = diagnostics
+        .iter()
+        .find(|diagnostic| diagnostic["code"] == "task.done-with-open-descendant")
+        .unwrap();
+    assert_eq!(descendant["severity"], 2);
+    assert_eq!(
+        descendant["relatedInformation"].as_array().unwrap().len(),
+        1
+    );
+}
+
+#[test]
 fn hovers_verbatim_autolinks_with_the_original_uri() {
     let uri = "file:///tmp/verbatim-autolink.plumb";
     let source = "Visit `[https://example.test/a%20b]{.->}.\n";

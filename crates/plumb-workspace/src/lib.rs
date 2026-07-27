@@ -1429,7 +1429,8 @@ impl Workspace {
     ) -> Vec<Diagnostic> {
         let graph = self.task_dependency_graph();
         let mut diagnostics = Vec::new();
-        for task in &current.output.tasks.tasks {
+        let tasks = &current.output.tasks.tasks;
+        for (task_index, task) in tasks.iter().enumerate() {
             let own_ref = task.id.as_ref().map(|id| TaskRef {
                 path: path.to_path_buf(),
                 id: id.value.clone(),
@@ -1481,6 +1482,75 @@ impl Workspace {
                         ),
                         range: task.selection_range.clone(),
                         related: Vec::new(),
+                    });
+                }
+            }
+            if task.state() == TaskState::Done {
+                let blockers = self.open_task_dependencies(path, task);
+                let blocker_targets = blockers
+                    .iter()
+                    .map(|dependency| dependency.target.clone())
+                    .collect::<HashSet<_>>();
+                if !blockers.is_empty() {
+                    diagnostics.push(Diagnostic {
+                        code: "task.done-with-open-dependency",
+                        severity: DiagnosticSeverity::Warning,
+                        message: format!(
+                            "completed task still depends on {} open {}",
+                            blockers.len(),
+                            if blockers.len() == 1 { "task" } else { "tasks" }
+                        ),
+                        range: task
+                            .done
+                            .as_ref()
+                            .expect("done task has a done field")
+                            .range
+                            .clone(),
+                        related: blockers
+                            .iter()
+                            .filter(|dependency| dependency.target.path == path)
+                            .map(|dependency| dependency.task.selection_range.clone())
+                            .collect(),
+                    });
+                }
+
+                let open_descendants = tasks
+                    .iter()
+                    .skip(task_index + 1)
+                    .take_while(|descendant| descendant.depth > task.depth)
+                    .filter(|descendant| descendant.state() == TaskState::Open)
+                    .filter(|descendant| {
+                        descendant.id.as_ref().is_none_or(|id| {
+                            !blocker_targets.contains(&TaskRef {
+                                path: path.to_path_buf(),
+                                id: id.value.clone(),
+                            })
+                        })
+                    })
+                    .collect::<Vec<_>>();
+                if !open_descendants.is_empty() {
+                    diagnostics.push(Diagnostic {
+                        code: "task.done-with-open-descendant",
+                        severity: DiagnosticSeverity::Warning,
+                        message: format!(
+                            "completed task still contains {} open {}",
+                            open_descendants.len(),
+                            if open_descendants.len() == 1 {
+                                "descendant"
+                            } else {
+                                "descendants"
+                            }
+                        ),
+                        range: task
+                            .done
+                            .as_ref()
+                            .expect("done task has a done field")
+                            .range
+                            .clone(),
+                        related: open_descendants
+                            .iter()
+                            .map(|descendant| descendant.selection_range.clone())
+                            .collect(),
                     });
                 }
             }
@@ -3680,6 +3750,47 @@ mod tests {
             .find(|diagnostic| diagnostic.code == "task.blocked")
             .unwrap();
         assert_eq!(blocked.severity, DiagnosticSeverity::Hint);
+    }
+
+    #[test]
+    fn diagnoses_completed_tasks_with_open_dependencies_and_descendants() {
+        let mut workspace = Workspace::new();
+        workspace.insert("remote.plumb", 1, "`-{.task #remote} Remote blocker\n");
+        workspace.insert(
+            "tasks.plumb",
+            2,
+            "`-{.task #parent done=\"2026-07-27T10:00:00Z\" depends=\"#explicit remote.plumb#remote\"} Completed parent\n  `-{.task #explicit} Explicit child\n  `-{.task} Implicit child\n  `-{.task canceled=\"2026-07-27T10:01:00Z\"} Canceled child\n`-{.task canceled=\"2026-07-27T10:02:00Z\"} Canceled parent\n  `-{.task} Open child is allowed\n`-{.task done=\"2026-07-27T10:03:00Z\"} Completed tree\n  `-{.task done=\"2026-07-27T10:04:00Z\"} Completed child\n",
+        );
+
+        let diagnostics = workspace.diagnostics("tasks.plumb");
+        let dependency = diagnostics
+            .iter()
+            .find(|diagnostic| diagnostic.code == "task.done-with-open-dependency")
+            .unwrap();
+        assert_eq!(dependency.severity, DiagnosticSeverity::Warning);
+        assert_eq!(
+            dependency.message,
+            "completed task still depends on 2 open tasks"
+        );
+        assert_eq!(dependency.related.len(), 1);
+
+        let descendant = diagnostics
+            .iter()
+            .find(|diagnostic| diagnostic.code == "task.done-with-open-descendant")
+            .unwrap();
+        assert_eq!(descendant.severity, DiagnosticSeverity::Warning);
+        assert_eq!(
+            descendant.message,
+            "completed task still contains 1 open descendant"
+        );
+        assert_eq!(descendant.related.len(), 1);
+        assert_eq!(
+            diagnostics
+                .iter()
+                .filter(|diagnostic| diagnostic.code.starts_with("task.done-with-open-"))
+                .count(),
+            2
+        );
     }
 
     #[test]
