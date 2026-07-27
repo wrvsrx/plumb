@@ -1,5 +1,11 @@
 import { parse as parseCel } from './vendor/cel-js.min.js';
-import { addPreset, readQueryParameters, viewFromPath, writeQueryParameters } from './query-state.js';
+import {
+  addPreset,
+  readQueryParameters,
+  taskByKey,
+  viewFromPath,
+  writeQueryParameters,
+} from './query-state.js';
 
 (function () {
   'use strict';
@@ -769,7 +775,7 @@ import { addPreset, readQueryParameters, viewFromPath, writeQueryParameters } fr
       taskList.append(button);
     });
     if (state.selectedTask) {
-      const selected = state.tasks.tasks.find((task) => task.key === state.selectedTask);
+      const selected = taskByKey(state.tasks, state.selectedTask);
       if (selected) renderTaskDetail(selected);
       else clearTaskDetail('Task unavailable', 'This task is no longer in the workspace.');
     }
@@ -864,8 +870,7 @@ import { addPreset, readQueryParameters, viewFromPath, writeQueryParameters } fr
       notify(String(error), true);
     } finally {
       state.pendingTask = null;
-      const selected = (state.tasks?.allTasks || state.tasks?.tasks || [])
-        .find((candidate) => candidate.key === state.selectedTask);
+      const selected = taskByKey(state.tasks, state.selectedTask);
       if (selected) renderTaskDetail(selected);
     }
   }

@@ -39,3 +39,8 @@ export function addPreset(selected, added, registry) {
     : new Set();
   return [...selected.filter((id) => !replaced.has(id) && id !== added.id), added.id];
 }
+
+export function taskByKey(snapshot, key) {
+  if (!snapshot || !key) return null;
+  return (snapshot.allTasks || snapshot.tasks || []).find((task) => task.key === key) || null;
+}

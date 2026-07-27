@@ -1,7 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { addPreset, readQueryParameters, viewFromPath, writeQueryParameters } from './query-state.js';
+import {
+  addPreset,
+  readQueryParameters,
+  taskByKey,
+  viewFromPath,
+  writeQueryParameters,
+} from './query-state.js';
 
 test('view paths cover dynamic and static entry points', () => {
   assert.equal(viewFromPath('/tasks'), 'tasks');
@@ -34,4 +40,15 @@ test('a grouped preset replaces its peer while ungrouped presets accumulate', ()
   ];
   assert.deepEqual(addPreset(['ready', 'wait-time'], registry[1], registry), ['wait-time', 'waiting']);
   assert.deepEqual(addPreset(['waiting'], registry[3], registry), ['waiting', 'has-due']);
+});
+
+test('selected task details survive when a query no longer retains the task', () => {
+  const completed = { key: 'notes.plumb:ship', state: 'done' };
+  const snapshot = {
+    tasks: [{ key: 'notes.plumb:next', state: 'ready' }],
+    allTasks: [completed, { key: 'notes.plumb:next', state: 'ready' }],
+  };
+
+  assert.equal(taskByKey(snapshot, completed.key), completed);
+  assert.equal(taskByKey(snapshot, 'missing'), null);
 });
