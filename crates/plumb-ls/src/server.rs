@@ -1742,6 +1742,10 @@ fn task_fold_labels(
         .iter()
         .map(|task| {
             let (state, _) = workspace.task_workflow_state(path, task, now);
+            let line_start = entry.parsed.source[..task.range.start]
+                .rfind('\n')
+                .map_or(0, |newline| newline + 1);
+            let indent = &entry.parsed.source[line_start..task.range.start];
             let title = if task.title.is_empty() {
                 "Untitled task"
             } else {
@@ -1749,7 +1753,7 @@ fn task_fold_labels(
             };
             (
                 (task.range.start, task.range.end),
-                format!("{}  {title}", state.as_str().to_ascii_uppercase()),
+                format!("{indent}{}  {title}", state.as_str().to_ascii_uppercase()),
             )
         })
         .collect()
