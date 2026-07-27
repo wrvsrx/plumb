@@ -16,7 +16,7 @@
 `# Editor ergonomics
 
 `- 补全 marker 与通用 attributes completion。
-`- 增加 folding、selection ranges 和更多 syntax-aware refactors。
+`- 增加 selection ranges 和更多 syntax-aware refactors。
 `- 为 inline verbatim 提供独立 tree-sitter raw-content node 与 language injection。
 `- 在 tree-sitter 独立发布前补齐 bindings、release artifacts 和 consumer instructions。
 

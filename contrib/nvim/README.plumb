@@ -16,13 +16,13 @@ modules 的调用接口。
 `{language=lua}
   require('plumb').setup()
 
-它默认启用 LSP、tree-sitter、CodeLens、search 与 Web command，不创建 keymaps。重复调用是幂等的；
+它默认启用 LSP、LSP folding、tree-sitter、CodeLens、search 与 Web command，不创建 keymaps。重复调用是幂等的；
 `[lsp]、`[treesitter]、`[codelens]、`[search] 与 `[web] 都可用 `[enabled = false] 单独关闭：
 
 `{language=lua}
   require('plumb').setup({
     command = 'plumb',
-    lsp = { root_markers = { '.plumb', '.git' } },
+    lsp = { folding = true, root_markers = { '.plumb', '.git' } },
     treesitter = { parser_path = '/path/to/plumb.so' },
     codelens = { picker = 'snacks' },
     search = { picker = 'snacks', task_filter = 'state == "ready"' },
@@ -39,6 +39,10 @@ modules 要求 Neovim 0.12。`[plumb.search] 还要求 attached plumb LSP 声明
 `[experimental.plumb.search] schema version 2。native search 使用 `[vim.ui.input/select]；`[live_search]
 接受 picker adapter，并负责 debounce、request cancellation、stale-result suppression、locations 和
 incomplete-result state。
+
+LSP attach 后 plugin 使用 `[vim.lsp.foldexpr()] 与 `[vim.lsp.foldtext()]，初始 `[foldlevel] 是 99；
+`[lsp.folding = false] 保留用户自己的 window-local fold settings。fold 范围覆盖 heading sections 与跨行
+marked/verbatim blocks，未连接 LSP 时仍可自行使用 bundled tree-sitter `[folds.scm]。
 
 `# Installation
 

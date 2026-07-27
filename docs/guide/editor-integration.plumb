@@ -6,7 +6,7 @@
 `# LSP boundary
 
 `[plumb lsp] 提供 diagnostics、document symbols、definition、references、hover、completion、rename、
-CodeAction、CodeLens、semantic tokens、formatting、range formatting 和 workspace search。
+CodeAction、CodeLens、semantic tokens、folding ranges、formatting、range formatting 和 workspace search。
 
 LSP protocol 由 editor client 选择 `[rootUri]/`[workspaceFolders]。plumb server 不向上查找 marker，也
 不向 client 声明 marker；client integration 应优先使用 `[.plumb]，再 fallback 到 editor 自己的
@@ -29,7 +29,7 @@ commands、autocmds 或 clients。可以分别配置或关闭 features：
 `{language=lua}
   require('plumb').setup({
     command = 'plumb',
-    lsp = { root_markers = { '.plumb', '.git' } },
+    lsp = { folding = true, root_markers = { '.plumb', '.git' } },
     treesitter = { enabled = true },
     codelens = { picker = 'quickfix' },
     search = { picker = 'native', task_filter = 'state == "ready"' },
@@ -88,6 +88,41 @@ repository development 使用 `[dev/nvim.lua] 加载当前 checkout 的 parser �
   require('plumb').setup({
     treesitter = { parser_path = '/absolute/path/to/plumb.so' },
   })
+
+`# Folding
+
+`[textDocument/foldingRange] 使用 recovered strict syntax，并返回两类整行 fold：heading fold 覆盖完整
+section，跨行 marked/verbatim block fold 覆盖自身 subtree 或 raw body。普通多行 paragraph 与 inline
+element 不单独折叠。即使 document 存在 syntax error，未受错误影响的 recovered blocks 仍可折叠；server
+遵守 client 声明的 `[rangeLimit]，按 source order 保留外层范围。
+
+完整 plugin 默认在 plumb LSP attach 后设置 Neovim 0.12 原生 `[vim.lsp.foldexpr()] 与
+`[vim.lsp.foldtext()]，并用 `[foldlevel=99] 保持初始全部展开。之后使用 `[za]、`[zc]、`[zo]、`[zM]
+和 `[zR] 等原生命令；新 window 再次显示同一 plumb buffer 时会恢复 LSP fold options。禁止 plugin 修改
+window-local folding 设置：
+
+`{language=lua}
+  require('plumb').setup({
+    lsp = { folding = false },
+  })
+
+手工 LSP 配置可以在 `[LspAttach] 中仅对支持该 method 的 client 启用：
+
+`{language=lua}
+  vim.api.nvim_create_autocmd('LspAttach', {
+    callback = function(args)
+      local client = vim.lsp.get_client_by_id(args.data.client_id)
+      if client and client:supports_method('textDocument/foldingRange') then
+        vim.wo.foldmethod = 'expr'
+        vim.wo.foldexpr = 'v:lua.vim.lsp.foldexpr()'
+        vim.wo.foldtext = 'v:lua.vim.lsp.foldtext()'
+        vim.wo.foldlevel = 99
+      end
+    end,
+  })
+
+tree-sitter `[folds.scm] 仍作为没有 LSP client 时的 lenient fallback；完整 plugin 在 plumb LSP 支持
+folding 时优先使用 LSP ranges。
 
 `# Authoring workflow
 
