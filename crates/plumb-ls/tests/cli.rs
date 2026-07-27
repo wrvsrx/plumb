@@ -319,10 +319,11 @@ fn builds_and_serves_the_workspace_site_with_notes_and_tasks() {
         .to_string(),
     );
     assert_eq!(status, 200, "{updated_tasks}");
-    assert_eq!(
-        serde_json::from_str::<serde_json::Value>(&updated_tasks).unwrap()["tasks"][0]["state"],
-        "done"
-    );
+    let updated_tasks = serde_json::from_str::<serde_json::Value>(&updated_tasks).unwrap();
+    assert_eq!(updated_tasks["tasks"][0]["state"], "done");
+    assert!(updated_tasks["tasks"][0]["done"]
+        .as_str()
+        .is_some_and(|timestamp| timestamp.starts_with("2026-")));
     assert!(std::fs::read_to_string(root.join("a.plumb"))
         .unwrap()
         .contains("done=\"2026-"));

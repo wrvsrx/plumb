@@ -820,6 +820,8 @@ import {
     addTaskField(fields, 'Created', task.created);
     addTaskField(fields, 'Due', task.due);
     addTaskField(fields, 'Wait', task.wait);
+    addTaskField(fields, 'Done', task.done);
+    addTaskField(fields, 'Canceled', task.canceled);
     addTaskField(fields, 'Recurrence', task.recur);
     addTaskField(fields, 'Dependencies', task.depends);
     addTaskField(fields, 'Waiting for', task.waitReasons);
