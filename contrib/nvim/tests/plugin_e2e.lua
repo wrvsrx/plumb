@@ -12,6 +12,7 @@ vim.fn.writefile({
   '      Plugin E2E',
   '',
   '`-{.task #work} Do work',
+  '  `note Task detail',
 }, path)
 
 require('plumb').setup({
@@ -68,6 +69,15 @@ vim.cmd.PlumbTaskComplete()
 assert(vim.wait(5000, function()
   return table.concat(vim.api.nvim_buf_get_lines(0, 0, -1, false), '\n'):match('done="') ~= nil
 end), 'complete task through documented command')
+local folds
+assert(vim.wait(5000, function()
+  folds = client:request_sync('textDocument/foldingRange', {
+    textDocument = { uri = vim.uri_from_bufnr(0) },
+  }, 1000, 0)
+  return folds and not folds.err and vim.iter(folds.result):any(function(range)
+    return range.collapsedText == 'DONE  Do work'
+  end)
+end), 'label completed task fold: ' .. vim.inspect(folds))
 
 vim.api.nvim_buf_set_lines(0, -1, -1, false, { '`node{key=a key=b} Invalid' })
 assert(vim.wait(5000, function()
