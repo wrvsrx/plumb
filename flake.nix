@@ -73,7 +73,7 @@
               '';
             };
             packages = {
-              inherit plumb plumb-nvim;
+              inherit plumb;
               default = plumb;
             };
             formatter = pkgs.nixfmt;
