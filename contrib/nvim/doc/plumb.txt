@@ -1,4 +1,4 @@
-*plumb.txt*                 plumb.nvim                 Last change: 2026-07-27
+*plumb.txt*                 plumb.nvim                 Last change: 2026-07-28
 
 =============================================================================
 CONTENTS                                                        *plumb-contents*
@@ -12,14 +12,11 @@ CONTENTS                                                        *plumb-contents*
 SETUP                                                            *plumb-setup*
 
 plumb.nvim requires Neovim 0.12 and a `plumb` binary. Add contrib/nvim to
-'runtimepath', then call:
+'runtimepath'. The first plumb FileType loads and configures the plugin; other
+filetypes do not load its Lua modules. Configure it before the first plumb
+buffer with:
 >
-  require('plumb').setup()
-<
-No mappings are installed. The defaults enable LSP, CodeLens, and search.
-Features can be disabled independently:
->
-  require('plumb').setup({
+  vim.g.plumb_nvim_config = {
     command = 'plumb',
     lsp = {
       enabled = true,
@@ -27,8 +24,12 @@ Features can be disabled independently:
     },
     codelens = { enabled = true, picker = 'quickfix' },
     search = { enabled = true, picker = 'native' },
-  })
+  }
 <
+No mappings are installed. The defaults enable LSP, CodeLens, and search.
+Features can be disabled independently. Set g:plumb_nvim_auto_setup to false
+and call require('plumb').setup(opts) explicitly for function-valued options.
+
 Use picker = 'snacks' when snacks.nvim is installed. Repeated setup calls are
 safe and replace the plugin's commands and autocmds.
 

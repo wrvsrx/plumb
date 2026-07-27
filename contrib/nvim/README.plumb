@@ -9,23 +9,21 @@
 `->[editor integration 指南]{to="../../docs/guide/editor-integration.plumb"}。本文只记录 packaged Lua
 modules 的调用接口。
 
-`# Module setup
+`# Filetype activation
 
-把该 directory 加入 Neovim `[runtimepath] 后调用唯一 entry point：
+把该 directory 加入 Neovim `[runtimepath] 后，plugin 只注册 `[.plumb] filetype。首次进入 plumb buffer
+时 `[ftplugin/plumb.lua] 自动调用 setup；其他 filetypes 不加载 `[plumb] Lua modules，也不配置 LSP 或
+commands。无需在全局 init 中调用 `[require('plumb').setup()]。
 
-`{language=lua}
-  require('plumb').setup()
-
-它默认启用 LSP、CodeLens 与 search，不创建 keymaps。重复调用是幂等的；`[lsp]、`[codelens] 与
-`[search] 都可用 `[enabled = false] 单独关闭：
+在首次 plumb buffer 前可以提供不含 Lua function 的配置：
 
 `{language=lua}
-  require('plumb').setup({
+  vim.g.plumb_nvim_config = {
     command = 'plumb',
     lsp = { root_markers = { '.plumb', '.git' } },
     codelens = { picker = 'snacks' },
     search = { picker = 'snacks', task_filter = 'state == "ready"' },
-  })
+  }
 
   vim.keymap.set('n', '<leader>pn', function()
     require('plumb.search').search_notes()
@@ -33,6 +31,15 @@ modules 的调用接口。
   vim.keymap.set('n', '<leader>pt', function()
     require('plumb.search').search_tasks({ filter = 'actionable' })
   end)
+
+自动 setup 默认启用 LSP、CodeLens 与 search，不创建 keymaps；`[lsp]、`[codelens] 与 `[search] 都可用
+`[enabled = false] 单独关闭。需要 `[on_attach] 等 function-valued options 时可以选择显式 setup：
+
+`{language=lua}
+  vim.g.plumb_nvim_auto_setup = false
+  require('plumb').setup({
+    lsp = { on_attach = function(client, bufnr) end },
+  })
 
 modules 要求 Neovim 0.12。`[plumb.search] 还要求 attached plumb LSP 声明
 `[experimental.plumb.search] schema version 2。native search 使用 `[vim.ui.input/select]；`[live_search]
@@ -63,12 +70,10 @@ lazy.nvim 使用 source checkout 时：
   {
     dir = '/path/to/plumb/contrib/nvim',
     ft = 'plumb',
-    config = function()
-      require('plumb').setup()
-    end,
   }
 
-不用 plugin manager 时执行 `[vim.opt.runtimepath:prepend('/path/to/plumb/contrib/nvim')] 后调用 setup。
+不用 plugin manager 时，在打开首个 plumb buffer 前执行
+`[vim.opt.runtimepath:prepend('/path/to/plumb/contrib/nvim')]。
 repository-local parser override 只属于 `[dev/nvim.lua]，不进入正式 plugin API。
 
 `# Commands and API
