@@ -1809,7 +1809,11 @@ fn line_folding_range(
     range: &std::ops::Range<usize>,
     collapsed_text: Option<String>,
 ) -> Option<FoldingRange> {
-    let range = byte_range_to_lsp(source, range);
+    let content_end = range.start
+        + source[range.clone()]
+            .trim_end_matches(char::is_whitespace)
+            .len();
+    let range = byte_range_to_lsp(source, &(range.start..content_end));
     let end_line = if range.end.character == 0 && range.end.line > range.start.line {
         range.end.line - 1
     } else {
@@ -2280,6 +2284,19 @@ mod tests {
                 .map(|range| (range.start_line, range.end_line))
                 .collect::<Vec<_>>(),
             [(0, 1)]
+        );
+    }
+
+    #[test]
+    fn does_not_fold_a_leaf_block_over_trailing_blank_lines() {
+        let parsed = parse("`-{.task} Parent\n\n   `-{.task} Leaf\n\n`- Next\n");
+        assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
+        assert_eq!(
+            folding_ranges(&parsed.source, &parsed.syntax, None, None)
+                .iter()
+                .map(|range| (range.start_line, range.end_line))
+                .collect::<Vec<_>>(),
+            [(0, 2)]
         );
     }
 
