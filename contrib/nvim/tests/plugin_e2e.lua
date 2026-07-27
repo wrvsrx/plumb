@@ -28,6 +28,10 @@ assert(vim.wait(5000, function()
 end), 'attach plumb LSP through native root markers')
 local client = assert(vim.lsp.get_clients({ bufnr = 0, name = 'plumb' })[1])
 assert(vim.fs.normalize(client.config.root_dir) == vim.fs.normalize(root))
+assert(vim.wo.foldmethod == 'expr', 'configure LSP folding method')
+assert(vim.wo.foldexpr == 'v:lua.vim.lsp.foldexpr()', 'configure LSP folding expression')
+assert(vim.wo.foldtext == 'v:lua.vim.lsp.foldtext()', 'configure LSP folding text')
+assert(vim.wo.foldlevel == 99, 'keep folds initially open')
 
 local completion_path = root .. '/completion.plumb'
 vim.fn.writefile({ '`' }, completion_path)

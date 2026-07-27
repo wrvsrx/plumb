@@ -1,5 +1,21 @@
 local M = {}
 
+local function configure_folding(bufnr, winid)
+  if vim.api.nvim_win_get_buf(winid) ~= bufnr then
+    return
+  end
+  vim.wo[winid][0].foldmethod = 'expr'
+  vim.wo[winid][0].foldexpr = 'v:lua.vim.lsp.foldexpr()'
+  vim.wo[winid][0].foldtext = 'v:lua.vim.lsp.foldtext()'
+  vim.wo[winid][0].foldlevel = 99
+end
+
+local function has_folding_client(bufnr)
+  return vim.iter(vim.lsp.get_clients({ bufnr = bufnr, name = 'plumb' })):any(function(client)
+    return client:supports_method('textDocument/foldingRange')
+  end)
+end
+
 function M.capabilities()
   local capabilities = vim.lsp.protocol.make_client_capabilities()
   capabilities.workspace.workspaceEdit.documentChanges = true
@@ -38,8 +54,24 @@ function M.setup(opts, group)
       if opts.codelens ~= false and client:supports_method('textDocument/codeLens') then
         vim.lsp.codelens.enable(true, { bufnr = args.buf, client_id = client.id })
       end
+      if opts.folding ~= false and client:supports_method('textDocument/foldingRange') then
+        for _, winid in ipairs(vim.fn.win_findbuf(args.buf)) do
+          configure_folding(args.buf, winid)
+        end
+      end
     end,
   })
+  if opts.folding ~= false then
+    vim.api.nvim_create_autocmd('BufWinEnter', {
+      group = group,
+      pattern = '*.plumb',
+      callback = function(args)
+        if has_folding_client(args.buf) then
+          configure_folding(args.buf, vim.api.nvim_get_current_win())
+        end
+      end,
+    })
+  end
   vim.lsp.enable('plumb')
 end
 

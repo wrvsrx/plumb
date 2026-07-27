@@ -2,7 +2,7 @@ local M = {}
 
 local defaults = {
   command = 'plumb',
-  lsp = { enabled = true, root_markers = { '.plumb', '.git' } },
+  lsp = { enabled = true, folding = true, root_markers = { '.plumb', '.git' } },
   treesitter = { enabled = true },
   codelens = { enabled = true, picker = 'quickfix' },
   search = { enabled = true, picker = 'native', task_filter = 'state == "ready"' },
