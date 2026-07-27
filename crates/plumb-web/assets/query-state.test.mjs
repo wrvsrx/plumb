@@ -20,7 +20,7 @@ test('view paths cover dynamic and static entry points', () => {
 
 test('query parameters round trip repeated filters and traversal state', () => {
   const original = {
-    presets: ['ready', 'wait-time'],
+    presets: ['ready', 'done'],
     query: 'release notes',
     filters: ['due < now', 'actionable'],
     sort: 'relevance',
@@ -37,11 +37,11 @@ test('grouped and ungrouped preset selections accumulate without duplicates', ()
   const registry = [
     { id: 'ready', group: 'state' },
     { id: 'waiting', group: 'state' },
-    { id: 'wait-time', group: 'wait' },
-    { id: 'has-due', group: null },
+    { id: 'connected', group: 'connection' },
+    { id: 'has-tasks', group: null },
   ];
-  assert.deepEqual(addPreset(['ready', 'wait-time'], registry[1]), ['ready', 'wait-time', 'waiting']);
-  assert.deepEqual(addPreset(['waiting'], registry[3]), ['waiting', 'has-due']);
+  assert.deepEqual(addPreset(['ready', 'connected'], registry[1]), ['ready', 'connected', 'waiting']);
+  assert.deepEqual(addPreset(['waiting'], registry[3]), ['waiting', 'has-tasks']);
   assert.deepEqual(addPreset(['waiting'], registry[1]), ['waiting']);
   assert.deepEqual(addPresetGroup([], 'state', registry), ['ready']);
   assert.deepEqual(addPresetGroup(['waiting'], 'state', registry), ['waiting']);

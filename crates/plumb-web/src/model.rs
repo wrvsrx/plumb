@@ -232,36 +232,6 @@ pub const TASK_PRESETS: &[QueryPreset] = &[
         expression: "state == 'invalid'",
         group: Some("state"),
     },
-    QueryPreset {
-        id: "wait-time",
-        label: "Waiting for time",
-        expression: "'time' in wait_reasons",
-        group: Some("wait"),
-    },
-    QueryPreset {
-        id: "wait-dependency",
-        label: "Waiting for dependency",
-        expression: "'dependency' in wait_reasons",
-        group: Some("wait"),
-    },
-    QueryPreset {
-        id: "actionable",
-        label: "Actionable",
-        expression: "actionable",
-        group: None,
-    },
-    QueryPreset {
-        id: "has-due",
-        label: "Has due date",
-        expression: "due != null",
-        group: None,
-    },
-    QueryPreset {
-        id: "has-wait",
-        label: "Has wait date",
-        expression: "wait != null",
-        group: None,
-    },
 ];
 
 pub const GRAPH_PRESETS: &[QueryPreset] = &[
@@ -1704,14 +1674,6 @@ mod tests {
             })
             .unwrap();
         assert_eq!(ready_or_done.tasks.len(), 4);
-        let ready_and_actionable = workspace
-            .query_tasks(&WebQuery {
-                view: WebView::Tasks,
-                presets: vec!["ready".to_string(), "actionable".to_string()],
-                ..WebQuery::default()
-            })
-            .unwrap();
-        assert_eq!(ready_and_actionable.tasks.len(), 3);
         let multiple_custom = workspace
             .query_tasks(&WebQuery {
                 view: WebView::Tasks,
