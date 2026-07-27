@@ -1,8 +1,10 @@
 import { parse as parseCel } from './vendor/cel-js.min.js';
 import {
   addPreset,
+  addPresetGroup,
   readQueryParameters,
   taskByKey,
+  togglePresetValue,
   viewFromPath,
   writeQueryParameters,
 } from './query-state.js';
@@ -125,26 +127,42 @@ import {
     renderPresetControls('tasks');
   }
 
-  function renderPresetControls(view) {
+  function groupLabel(group) {
+    return `${group.charAt(0).toUpperCase()}${group.slice(1)}`;
+  }
+
+  function renderPresetControls(view, { openGroup = null } = {}) {
     const container = document.querySelector(`.${view === 'graph' ? 'graph' : 'task'}-filters`);
     const menu = container.querySelector('.preset-menu');
     const chips = container.querySelector('.preset-chips');
     const registry = state.presetRegistry[view] || [];
     menu.replaceChildren();
-    registry.forEach((preset) => {
+    const registeredGroups = Array.from(new Set(registry.map((preset) => preset.group).filter(Boolean)));
+    registeredGroups
+      .filter((group) => !registry.some((preset) => preset.group === group && state.presets[view].includes(preset.id)))
+      .forEach((group) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.role = 'menuitem';
+        button.textContent = groupLabel(group);
+        button.addEventListener('click', () => {
+          state.presets[view] = addPresetGroup(state.presets[view], group, registry);
+          menu.hidden = true;
+          renderPresetControls(view);
+          updateUrl();
+          runViewQuery(view);
+        });
+        menu.append(button);
+      });
+    registry.filter((preset) => !preset.group && !state.presets[view].includes(preset.id)).forEach((preset) => {
       const button = document.createElement('button');
       button.type = 'button';
-      const selected = state.presets[view].includes(preset.id);
-      button.role = preset.group ? 'menuitemcheckbox' : 'menuitem';
-      if (preset.group) button.setAttribute('aria-checked', String(selected));
-      const group = preset.group ? `${preset.group.charAt(0).toUpperCase()}${preset.group.slice(1)}: ` : '';
-      button.textContent = `${selected ? '✓ ' : ''}${group}${preset.label}`;
+      button.role = 'menuitem';
+      button.textContent = preset.label;
       button.title = preset.expression;
       button.addEventListener('click', () => {
-        state.presets[view] = selected
-          ? state.presets[view].filter((id) => id !== preset.id)
-          : addPreset(state.presets[view], preset);
-        menu.hidden = !preset.group;
+        state.presets[view] = addPreset(state.presets[view], preset);
+        menu.hidden = true;
         renderPresetControls(view);
         updateUrl();
         runViewQuery(view);
@@ -173,13 +191,52 @@ import {
       groups.get(key).push(preset);
     });
     groups.forEach((presets, key) => {
-      const chip = document.createElement('span');
+      const chip = document.createElement('div');
       chip.className = 'preset-chip';
       const grouped = presets[0].group;
-      const label = grouped ? `${grouped.charAt(0).toUpperCase()}${grouped.slice(1)}: ${presets.map((preset) => preset.label).join(', ')}` : presets[0].label;
-      chip.textContent = label;
+      const label = grouped ? `${groupLabel(grouped)}: ${presets.map((preset) => preset.label).join(', ')}` : presets[0].label;
+      if (grouped) {
+        chip.dataset.group = grouped;
+        const configure = document.createElement('button');
+        configure.type = 'button';
+        configure.className = 'preset-chip-label';
+        configure.textContent = label;
+        configure.setAttribute('aria-expanded', String(openGroup === grouped));
+        configure.addEventListener('click', () => {
+          const values = chip.querySelector('.preset-values');
+          values.hidden = !values.hidden;
+          configure.setAttribute('aria-expanded', String(!values.hidden));
+        });
+        const values = document.createElement('div');
+        values.className = 'preset-values';
+        values.setAttribute('role', 'menu');
+        values.hidden = openGroup !== grouped;
+        registry.filter((preset) => preset.group === grouped).forEach((preset) => {
+          const option = document.createElement('button');
+          const selected = state.presets[view].includes(preset.id);
+          const onlySelected = selected && presets.length === 1;
+          option.type = 'button';
+          option.role = 'menuitemcheckbox';
+          option.setAttribute('aria-checked', String(selected));
+          option.textContent = `${selected ? '✓ ' : ''}${preset.label}`;
+          option.disabled = onlySelected;
+          option.addEventListener('click', () => {
+            state.presets[view] = togglePresetValue(state.presets[view], preset, registry);
+            renderPresetControls(view, { openGroup: grouped });
+            updateUrl();
+            runViewQuery(view);
+          });
+          values.append(option);
+        });
+        chip.append(configure, values);
+      } else {
+        const text = document.createElement('span');
+        text.textContent = label;
+        chip.append(text);
+      }
       const remove = document.createElement('button');
       remove.type = 'button';
+      remove.className = 'remove-filter';
       remove.textContent = '×';
       remove.title = `Remove ${label}`;
       remove.setAttribute('aria-label', `Remove ${label}`);

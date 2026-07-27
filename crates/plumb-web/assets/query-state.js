@@ -37,6 +37,19 @@ export function addPreset(selected, added) {
   return selected.includes(added.id) ? selected : [...selected, added.id];
 }
 
+export function addPresetGroup(selected, group, registry) {
+  if (registry.some((preset) => preset.group === group && selected.includes(preset.id))) return selected;
+  const initial = registry.find((preset) => preset.group === group);
+  return initial ? [...selected, initial.id] : selected;
+}
+
+export function togglePresetValue(selected, preset, registry) {
+  if (!preset.group) return addPreset(selected, preset);
+  if (!selected.includes(preset.id)) return [...selected, preset.id];
+  const selectedInGroup = registry.filter((item) => item.group === preset.group && selected.includes(item.id));
+  return selectedInGroup.length === 1 ? selected : selected.filter((id) => id !== preset.id);
+}
+
 export function taskByKey(snapshot, key) {
   if (!snapshot || !key) return null;
   return (snapshot.allTasks || snapshot.tasks || []).find((task) => task.key === key) || null;

@@ -248,7 +248,7 @@ pub const TASK_PRESETS: &[QueryPreset] = &[
         id: "actionable",
         label: "Actionable",
         expression: "actionable",
-        group: Some("state"),
+        group: None,
     },
     QueryPreset {
         id: "has-due",
@@ -1704,6 +1704,14 @@ mod tests {
             })
             .unwrap();
         assert_eq!(ready_or_done.tasks.len(), 4);
+        let ready_and_actionable = workspace
+            .query_tasks(&WebQuery {
+                view: WebView::Tasks,
+                presets: vec!["ready".to_string(), "actionable".to_string()],
+                ..WebQuery::default()
+            })
+            .unwrap();
+        assert_eq!(ready_and_actionable.tasks.len(), 3);
         let multiple_custom = workspace
             .query_tasks(&WebQuery {
                 view: WebView::Tasks,

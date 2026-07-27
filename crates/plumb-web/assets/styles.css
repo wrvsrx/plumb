@@ -80,8 +80,12 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
 .preset-menu button { width: 100%; border: 0; text-align: left; }
 .preset-menu button:hover { background: #efefec; }
 .preset-chips { display: flex; gap: 5px; min-width: 0; }
-.preset-chip { display: inline-flex; align-items: center; gap: 5px; min-height: 30px; padding: 3px 5px 3px 9px; border: 1px solid var(--border); border-radius: 4px; background: var(--paper); color: var(--ink); white-space: nowrap; }
-.preset-chip button { width: 22px; min-height: 22px; padding: 0; border: 0; background: transparent; }
+.preset-chip { position: relative; display: inline-flex; align-items: center; gap: 5px; min-height: 30px; padding: 3px 5px 3px 9px; border: 1px solid var(--border); border-radius: 4px; background: var(--paper); color: var(--ink); white-space: nowrap; }
+.preset-chip > .preset-chip-label { min-height: 22px; padding: 0; border: 0; background: transparent; }
+.preset-chip > .remove-filter { width: 22px; min-height: 22px; padding: 0; border: 0; background: transparent; }
+.preset-values { position: absolute; z-index: 31; top: calc(100% + 6px); left: 0; min-width: 190px; padding: 5px; border: 1px solid var(--border); border-radius: 4px; background: var(--paper); box-shadow: 0 8px 24px rgba(32, 33, 36, .16); }
+.preset-values button { display: block; width: 100%; border: 0; text-align: left; }
+.preset-values button:hover:not(:disabled) { background: #efefec; }
 .query-clauses { display: flex; align-items: center; gap: 7px; flex: 1; min-width: 180px; overflow-x: auto; }
 .cel-clauses { display: contents; }
 .query-clause { display: inline-flex; align-items: stretch !important; flex: 1 1 210px; min-width: 170px; max-width: 360px; min-height: 32px; border: 1px solid var(--border); border-radius: 4px; background: var(--paper); overflow: hidden; }
@@ -190,8 +194,9 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
   .filters { height: auto; min-height: 78px; flex-wrap: wrap; align-content: center; overflow: visible; gap: 6px 8px; }
   .filters label { white-space: nowrap; }
   .filters label:has(.query-sort) > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); }
-  .preset-chips { max-width: 140px; overflow: hidden; }
-  .preset-chip { max-width: 140px; overflow: hidden; text-overflow: ellipsis; }
+  .preset-chips { max-width: 140px; }
+  .preset-chip { max-width: 140px; }
+  .preset-chip > span, .preset-chip-label { overflow: hidden; text-overflow: ellipsis; }
   .query-error { order: 10; flex-basis: 100%; max-width: none; }
   #summary, #task-summary { margin-left: auto; }
   .workspace { height: calc(100% - 178px); grid-template-columns: 1fr; grid-template-rows: minmax(280px, 52vh) minmax(0, 1fr); }

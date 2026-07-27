@@ -3,8 +3,10 @@ import test from 'node:test';
 
 import {
   addPreset,
+  addPresetGroup,
   readQueryParameters,
   taskByKey,
+  togglePresetValue,
   viewFromPath,
   writeQueryParameters,
 } from './query-state.js';
@@ -41,6 +43,11 @@ test('grouped and ungrouped preset selections accumulate without duplicates', ()
   assert.deepEqual(addPreset(['ready', 'wait-time'], registry[1]), ['ready', 'wait-time', 'waiting']);
   assert.deepEqual(addPreset(['waiting'], registry[3]), ['waiting', 'has-due']);
   assert.deepEqual(addPreset(['waiting'], registry[1]), ['waiting']);
+  assert.deepEqual(addPresetGroup([], 'state', registry), ['ready']);
+  assert.deepEqual(addPresetGroup(['waiting'], 'state', registry), ['waiting']);
+  assert.deepEqual(togglePresetValue(['ready'], registry[1], registry), ['ready', 'waiting']);
+  assert.deepEqual(togglePresetValue(['ready', 'waiting'], registry[0], registry), ['waiting']);
+  assert.deepEqual(togglePresetValue(['waiting'], registry[1], registry), ['waiting']);
 });
 
 test('selected task details survive when a query no longer retains the task', () => {
