@@ -1,5 +1,5 @@
 return {
-  version = '0.12.1-dev',
+  version = '0.13.0',
   search_schema = 2,
   tree_sitter_abi = 15,
 }
