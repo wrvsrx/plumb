@@ -1500,6 +1500,11 @@ fn publishes_task_symbols_hover_and_workspace_diagnostics() {
             ["tokenTypes"][0],
         "task"
     );
+    assert_eq!(
+        response(&output, 1)["result"]["capabilities"]["semanticTokensProvider"]["legend"]
+            ["tokenModifiers"],
+        json!(["completed", "canceled"])
+    );
     let symbols = response(&output, 2)["result"].as_array().unwrap();
     assert_eq!(symbols.len(), 1);
     assert_eq!(symbols[0]["name"], "Review task");
@@ -1587,8 +1592,8 @@ fn highlights_closed_tasks_with_multiline_attributes() {
     assert_eq!(
         response(&run_server(&messages), 2)["result"]["data"],
         json!([
-            0, 0, 3, 0, 1, 1, 3, 5, 0, 1, 1, 3, 27, 0, 1, 1, 2, 1, 0, 1, 1, 0, 3, 0, 1, 1, 3, 5, 0,
-            1, 1, 3, 31, 0, 1, 1, 2, 1, 0, 1
+            0, 0, 3, 0, 1, 1, 3, 5, 0, 1, 1, 3, 27, 0, 1, 1, 2, 6, 0, 1, 1, 0, 3, 0, 2, 1, 3, 5, 0,
+            2, 1, 3, 31, 0, 2, 1, 2, 10, 0, 2
         ])
     );
 }

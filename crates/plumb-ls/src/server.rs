@@ -529,7 +529,10 @@ impl LanguageServer for ServerState {
                                 work_done_progress_options: WorkDoneProgressOptions::default(),
                                 legend: SemanticTokensLegend {
                                     token_types: vec![SemanticTokenType::new("task")],
-                                    token_modifiers: vec![SemanticTokenModifier::new("completed")],
+                                    token_modifiers: vec![
+                                        SemanticTokenModifier::new("completed"),
+                                        SemanticTokenModifier::new("canceled"),
+                                    ],
                                 },
                                 range: Some(false),
                                 full: Some(SemanticTokensFullOptions::Bool(true)),
@@ -1264,14 +1267,14 @@ impl LanguageServer for ServerState {
             .map(|(entry, current)| {
                 let mut previous_line = 0;
                 let mut previous_start = 0;
-                let data = current
-                    .output
-                    .tasks
-                    .tasks
-                    .iter()
-                    .filter(|task| task.state() != TaskState::Open)
-                    .flat_map(|task| physical_line_ranges(&entry.parsed.source, &task.marker_range))
-                    .map(|byte_range| {
+                let data = closed_task_token_ranges(&current.output.tasks.tasks)
+                    .into_iter()
+                    .flat_map(|(byte_range, modifiers)| {
+                        physical_line_ranges(&entry.parsed.source, &byte_range)
+                            .into_iter()
+                            .map(move |range| (range, modifiers))
+                    })
+                    .map(|(byte_range, token_modifiers_bitset)| {
                         let range = byte_range_to_lsp(&entry.parsed.source, &byte_range);
                         let delta_line = range.start.line - previous_line;
                         let delta_start = if delta_line == 0 {
@@ -1286,7 +1289,7 @@ impl LanguageServer for ServerState {
                             delta_start,
                             length: range.end.character - range.start.character,
                             token_type: 0,
-                            token_modifiers_bitset: 1,
+                            token_modifiers_bitset,
                         }
                     })
                     .collect();
@@ -1440,6 +1443,60 @@ fn physical_line_ranges(
         start = newline + 1;
     }
     ranges
+}
+
+fn closed_task_token_ranges(tasks: &[TaskRecord]) -> Vec<(std::ops::Range<usize>, u32)> {
+    let mut children = vec![Vec::new(); tasks.len()];
+    let mut ancestors: Vec<usize> = Vec::new();
+    for (index, task) in tasks.iter().enumerate() {
+        while ancestors
+            .last()
+            .is_some_and(|ancestor| tasks[*ancestor].depth >= task.depth)
+        {
+            ancestors.pop();
+        }
+        if let Some(parent) = ancestors.last() {
+            children[*parent].push(task.range.clone());
+        }
+        ancestors.push(index);
+    }
+
+    let mut output = Vec::new();
+    for (index, task) in tasks.iter().enumerate() {
+        let modifiers = match task.state() {
+            TaskState::Open => continue,
+            TaskState::Done => 1,
+            TaskState::Canceled => 2,
+            TaskState::Conflicted => 3,
+        };
+        let mut owned = vec![task.range.clone()];
+        for child in &children[index] {
+            owned = owned
+                .into_iter()
+                .flat_map(|range| subtract_range(range, child))
+                .collect();
+        }
+        output.extend(owned.into_iter().map(|range| (range, modifiers)));
+    }
+    output.sort_by_key(|(range, _)| range.start);
+    output
+}
+
+fn subtract_range(
+    range: std::ops::Range<usize>,
+    excluded: &std::ops::Range<usize>,
+) -> Vec<std::ops::Range<usize>> {
+    if excluded.end <= range.start || excluded.start >= range.end {
+        return vec![range];
+    }
+    let mut output = Vec::with_capacity(2);
+    if range.start < excluded.start {
+        output.push(range.start..excluded.start);
+    }
+    if excluded.end < range.end {
+        output.push(excluded.end..range.end);
+    }
+    output
 }
 
 fn rename_request_error(message: impl Into<String>) -> ResponseError {
@@ -2109,7 +2166,7 @@ fn to_lsp_diagnostic(source: &str, uri: &Url, diagnostic: Diagnostic) -> LspDiag
 #[cfg(test)]
 mod tests {
     use plumb_core::parse;
-    use plumb_extensions::{analyze_headings, analyze_metadata};
+    use plumb_extensions::{analyze_headings, analyze_metadata, analyze_tasks};
 
     use super::*;
 
@@ -2163,6 +2220,23 @@ mod tests {
                 .collect::<Vec<_>>(),
             [(0, 1)]
         );
+    }
+
+    #[test]
+    fn closed_task_tokens_preserve_nested_task_states() {
+        let parsed = parse(
+            "`-{.task done=\"2026-07-27T10:00:00+08:00\"} Closed parent\n  `note Parent detail\n  `-{.task} Open child\n  `note Parent tail\n`-{.task canceled=\"2026-07-27T10:01:00+08:00\"} Canceled\n`-{.task done=\"2026-07-27T10:02:00+08:00\" canceled=\"2026-07-27T10:03:00+08:00\"} Conflicted\n",
+        );
+        assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
+        let tasks = analyze_tasks(&parsed.source, &parsed.syntax).tasks;
+        let ranges = closed_task_token_ranges(&tasks);
+        let open_child = &tasks[1].range;
+        assert!(ranges
+            .iter()
+            .all(|(range, _)| { range.end <= open_child.start || range.start >= open_child.end }));
+        assert!(ranges.iter().any(|(_, modifiers)| *modifiers == 1));
+        assert!(ranges.iter().any(|(_, modifiers)| *modifiers == 2));
+        assert!(ranges.iter().any(|(_, modifiers)| *modifiers == 3));
     }
 
     #[test]
