@@ -451,12 +451,12 @@ impl WebWorkspace {
                     .iter()
                     .find(|task| task.selection_range == record.range)?;
                 let key = record.id.as_ref().map_or_else(
-                    || format!("{document_id}:{}", record.range.start),
+                    || format!("{document_id}:{}", task.range.start),
                     |id| format!("{document_id}:{id}"),
                 );
                 let locator = record.id.as_ref().map_or_else(
                     || WebTaskLocator::Offset {
-                        offset: record.range.start,
+                        offset: task.range.start,
                     },
                     |id| WebTaskLocator::Id { id: id.clone() },
                 );
@@ -742,7 +742,7 @@ impl WebWorkspace {
                     .tasks
                     .tasks
                     .iter()
-                    .any(|task| task.selection_range.start == *offset);
+                    .any(|task| task.range.start == *offset);
                 if !indexed {
                     return Err("task position changed; refresh before retrying".to_string());
                 }
@@ -1529,7 +1529,8 @@ mod tests {
         let root = temp_dir();
         std::fs::create_dir_all(&root).unwrap();
         let path = root.join("tasks.plumb");
-        let source = "`-{.task created=\"2026-07-25T10:00:00+08:00\"} Ship release\n";
+        let source =
+            "`-{.task created=\"2026-07-25T10:00:00+08:00\"} 完成任务后查看修改后任务的内容\n";
         std::fs::write(&path, source).unwrap();
         let workspace = WebWorkspace::load(&root).unwrap();
         let task = workspace.tasks().tasks.into_iter().next().unwrap();
@@ -1558,6 +1559,10 @@ mod tests {
             .unwrap();
         let updated = std::fs::read_to_string(&path).unwrap();
         assert!(updated.contains("done=\"2026-"), "{updated}");
+        let refreshed = WebWorkspace::load_with_revision(&root, 2).unwrap();
+        let completed = refreshed.tasks().tasks.into_iter().next().unwrap();
+        assert_eq!(completed.key, task.key);
+        assert_eq!(completed.state, "done");
         std::fs::remove_dir_all(root).unwrap();
     }
 

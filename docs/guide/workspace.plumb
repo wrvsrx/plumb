@@ -80,8 +80,8 @@ snapshot。
 
 非-loopback `[--host] 默认禁用 task mutations；只有显式添加 `[--allow-mutations] 才启用。browser mutation
 必须是 same-origin JSON POST，server route 只接受已索引的 opaque document id 与 server-issued task
-locator，不接受 filesystem path；source-offset locator 还必须精确匹配当前 revision 中 task 的 selection
-start。把 server 暴露到非-loopback network 前需要自行提供访问控制。
+locator，不接受 filesystem path；source-offset locator 还必须精确匹配当前 revision 中 task block 的
+opener start。把 server 暴露到非-loopback network 前需要自行提供访问控制。
 
 server URL 单独写入 stdout；启动状态、task mutation、所有 non-GET requests 和任何 HTTP 4xx/5xx
 responses 写入 stderr。task operation 同时记录 received、rejected reason 或 completed，例如：
