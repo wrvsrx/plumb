@@ -55,6 +55,7 @@ pub(crate) struct ServerState {
     supports_completion_snippets: bool,
     supports_code_lens_refresh: bool,
     folding_range_limit: Option<usize>,
+    supports_folding_collapsed_text: bool,
     index_complete: bool,
     pending_path_renames: Vec<PendingPathRename>,
 }
@@ -79,6 +80,7 @@ impl ServerState {
             supports_completion_snippets: false,
             supports_code_lens_refresh: false,
             folding_range_limit: None,
+            supports_folding_collapsed_text: false,
             index_complete: false,
             pending_path_renames: Vec::new(),
         }
@@ -500,6 +502,14 @@ impl LanguageServer for ServerState {
             .and_then(|text_document| text_document.folding_range.as_ref())
             .and_then(|folding| folding.range_limit)
             .map(|limit| limit as usize);
+        self.supports_folding_collapsed_text = params
+            .capabilities
+            .text_document
+            .as_ref()
+            .and_then(|text_document| text_document.folding_range.as_ref())
+            .and_then(|folding| folding.folding_range.as_ref())
+            .and_then(|folding| folding.collapsed_text)
+            .unwrap_or(false);
         Box::pin(async {
             Ok(InitializeResult {
                 capabilities: ServerCapabilities {
@@ -765,10 +775,14 @@ impl LanguageServer for ServerState {
             .ok()
             .and_then(|path| self.workspace.get(path))
             .map(|entry| {
+                let task_labels = self
+                    .supports_folding_collapsed_text
+                    .then(|| task_fold_labels(&self.workspace, &entry.path, entry));
                 folding_ranges(
                     &entry.parsed.source,
                     entry.parsed.recovered_syntax(),
                     self.folding_range_limit,
+                    task_labels.as_ref(),
                 )
             });
         Box::pin(async move { Ok(ranges) })
@@ -1712,7 +1726,41 @@ fn escape_markdown_code(source: &str) -> String {
     source.replace('`', "\\`")
 }
 
-fn folding_ranges(source: &str, document: &Document, limit: Option<usize>) -> Vec<FoldingRange> {
+fn task_fold_labels(
+    workspace: &Workspace,
+    path: &Path,
+    entry: &plumb_workspace::DocumentEntry,
+) -> HashMap<(usize, usize), String> {
+    let Some(current) = &entry.current else {
+        return HashMap::new();
+    };
+    let now = Local::now().fixed_offset();
+    current
+        .output
+        .tasks
+        .tasks
+        .iter()
+        .map(|task| {
+            let (state, _) = workspace.task_workflow_state(path, task, now);
+            let title = if task.title.is_empty() {
+                "Untitled task"
+            } else {
+                &task.title
+            };
+            (
+                (task.range.start, task.range.end),
+                format!("{}  {title}", state.as_str().to_ascii_uppercase()),
+            )
+        })
+        .collect()
+}
+
+fn folding_ranges(
+    source: &str,
+    document: &Document,
+    limit: Option<usize>,
+    task_labels: Option<&HashMap<(usize, usize), String>>,
+) -> Vec<FoldingRange> {
     let headings = analyze_headings(document);
     let mut byte_ranges = Vec::new();
     let mut pending_headings = headings.headings.iter().collect::<Vec<_>>();
@@ -1738,7 +1786,12 @@ fn folding_ranges(source: &str, document: &Document, limit: Option<usize>) -> Ve
     byte_ranges.dedup();
     let mut ranges = byte_ranges
         .into_iter()
-        .filter_map(|range| line_folding_range(source, &range))
+        .filter_map(|range| {
+            let collapsed_text = task_labels
+                .and_then(|labels| labels.get(&(range.start, range.end)))
+                .cloned();
+            line_folding_range(source, &range, collapsed_text)
+        })
         .collect::<Vec<_>>();
     ranges.dedup();
     if let Some(limit) = limit {
@@ -1747,7 +1800,11 @@ fn folding_ranges(source: &str, document: &Document, limit: Option<usize>) -> Ve
     ranges
 }
 
-fn line_folding_range(source: &str, range: &std::ops::Range<usize>) -> Option<FoldingRange> {
+fn line_folding_range(
+    source: &str,
+    range: &std::ops::Range<usize>,
+    collapsed_text: Option<String>,
+) -> Option<FoldingRange> {
     let range = byte_range_to_lsp(source, range);
     let end_line = if range.end.character == 0 && range.end.line > range.start.line {
         range.end.line - 1
@@ -1760,7 +1817,7 @@ fn line_folding_range(source: &str, range: &std::ops::Range<usize>) -> Option<Fo
         end_line,
         end_character: None,
         kind: None,
-        collapsed_text: None,
+        collapsed_text,
     })
 }
 
@@ -2189,7 +2246,7 @@ mod tests {
             "`# Top\nIntro.\n`## Child\n`div Details\n\n  body\n  `{language=text}\n    raw\n`# Next\nTail.\n",
         );
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
-        let ranges = folding_ranges(&parsed.source, &parsed.syntax, None);
+        let ranges = folding_ranges(&parsed.source, &parsed.syntax, None, None);
         assert_eq!(
             ranges
                 .iter()
@@ -2204,7 +2261,7 @@ mod tests {
                 && range.collapsed_text.is_none()
         }));
         assert_eq!(
-            folding_ranges(&parsed.source, &parsed.syntax, Some(2)).len(),
+            folding_ranges(&parsed.source, &parsed.syntax, Some(2), None).len(),
             2
         );
     }
@@ -2214,7 +2271,7 @@ mod tests {
         let parsed = parse("`node Parent\n  `child Child\nordinary\ncontinued `span[open\n");
         assert!(!parsed.is_valid());
         assert_eq!(
-            folding_ranges(&parsed.source, &parsed.syntax, None)
+            folding_ranges(&parsed.source, &parsed.syntax, None, None)
                 .iter()
                 .map(|range| (range.start_line, range.end_line))
                 .collect::<Vec<_>>(),

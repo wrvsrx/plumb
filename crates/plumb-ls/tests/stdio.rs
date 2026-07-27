@@ -70,6 +70,52 @@ fn provides_structural_folding_for_valid_and_recovered_documents() {
 }
 
 #[test]
+fn labels_task_folds_with_derived_workflow_states() {
+    let uri = "file:///tmp/task-fold-labels.plumb";
+    let source = "`-{.task} Ready task\n  `note Detail\n`-{.task wait=\"2099-01-01T00:00:00Z\"} Waiting task\n  `note Detail\n`-{.task done=\"2026-07-27T10:00:00Z\"} Done task\n  `note Detail\n`-{.task canceled=\"2026-07-27T10:00:00Z\"} Canceled task\n  `note Detail\n`-{.task done=\"2026-07-27T10:00:00Z\" canceled=\"2026-07-27T10:01:00Z\"} Invalid task\n  `note Detail\n";
+    let messages = [
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {
+                "processId": null,
+                "rootUri": null,
+                "capabilities": {
+                    "textDocument": {
+                        "foldingRange": {
+                            "foldingRange": { "collapsedText": true }
+                        }
+                    }
+                }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": {
+                "uri": uri, "languageId": "plumb", "version": 1, "text": source
+            }}
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 2, "method": "textDocument/foldingRange",
+            "params": { "textDocument": { "uri": uri } }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 3, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+
+    assert_eq!(
+        response(&run_server(&messages), 2)["result"],
+        json!([
+            { "startLine": 0, "endLine": 1, "collapsedText": "READY  Ready task" },
+            { "startLine": 2, "endLine": 3, "collapsedText": "WAITING  Waiting task" },
+            { "startLine": 4, "endLine": 5, "collapsedText": "DONE  Done task" },
+            { "startLine": 6, "endLine": 7, "collapsedText": "CANCELED  Canceled task" },
+            { "startLine": 8, "endLine": 9, "collapsedText": "INVALID  Invalid task" }
+        ])
+    );
+}
+
+#[test]
 fn formats_valid_documents_and_declines_invalid_revisions() {
     let uri = "file:///tmp/format.plumb";
     let source = "`meta\n   `: title\n\n      Example\n";
