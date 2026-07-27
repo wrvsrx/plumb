@@ -40,8 +40,8 @@ When lsp.folding is enabled and the server supports textDocument/foldingRange,
 the plugin configures vim.lsp.foldexpr() and vim.lsp.foldtext() with an initial
 'foldlevel' of 99. Use normal Neovim fold commands such as za, zc, zo, zM, and
 zR. Task fold text includes its READY, WAITING, DONE, CANCELED, or INVALID
-workflow state and title. Set lsp.folding = false to preserve custom
-window-local fold settings.
+workflow state and title while preserving the source block indentation. Set
+lsp.folding = false to preserve custom window-local fold settings.
 
 Completed and canceled task semantic tokens cover the complete task block and
 default to the Comment highlight. Override these groups to customize them:
