@@ -96,6 +96,10 @@ section，跨行 marked/verbatim block fold 覆盖自身 subtree 或 raw body。
 element 不单独折叠。即使 document 存在 syntax error，未受错误影响的 recovered blocks 仍可折叠；server
 遵守 client 声明的 `[rangeLimit]，按 source order 保留外层范围。
 
+客户端声明 `[foldingRange.foldingRange.collapsedText] support 时，task fold 使用 derived workflow state
+和 title 生成 `[READY  Title]、`[WAITING  Title]、`[DONE  Title]、`[CANCELED  Title] 或
+`[INVALID  Title]。没有该 capability、无可靠 valid task facts 或不是 task 的 fold 不携带 custom label。
+
 完整 plugin 默认在 plumb LSP attach 后设置 Neovim 0.12 原生 `[vim.lsp.foldexpr()] 与
 `[vim.lsp.foldtext()]，并用 `[foldlevel=99] 保持初始全部展开。之后使用 `[za]、`[zc]、`[zo]、`[zM]
 和 `[zR] 等原生命令；新 window 再次显示同一 plumb buffer 时会恢复 LSP fold options。禁止 plugin 修改
