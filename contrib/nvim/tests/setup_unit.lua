@@ -1,8 +1,13 @@
 local repo = vim.fn.getcwd()
 local runtime = repo .. '/contrib/nvim'
 vim.opt.runtimepath:prepend(runtime)
-dofile(runtime .. '/plugin/plumb.lua')
+dofile(runtime .. '/ftdetect/plumb.lua')
 assert(vim.filetype.match({ filename = 'note.plumb' }) == 'plumb')
+
+vim.g.plumb_nvim_auto_setup = false
+dofile(runtime .. '/ftplugin/plumb.lua')
+assert(package.loaded.plumb == nil, 'honor automatic setup opt-out')
+vim.g.plumb_nvim_auto_setup = nil
 
 local plumb = require('plumb')
 local opts = {

@@ -1,6 +1,7 @@
 local repo = vim.fn.getcwd()
 vim.opt.runtimepath:prepend(repo .. '/contrib/nvim')
 vim.cmd.filetype('on')
+dofile(repo .. '/contrib/nvim/ftdetect/plumb.lua')
 
 local root = vim.fn.tempname()
 vim.fn.mkdir(root .. '/.plumb', 'p')
@@ -15,13 +16,15 @@ vim.fn.writefile({
   '  `note Task detail',
 }, path)
 
-require('plumb').setup({
+vim.g.plumb_nvim_config = {
   command = repo .. '/target/debug/plumb',
   codelens = { enabled = true, picker = 'quickfix' },
   search = { enabled = true },
-})
+}
+assert(package.loaded.plumb == nil, 'load plumb.nvim only for the plumb filetype')
 vim.cmd.edit(vim.fn.fnameescape(path))
 assert(vim.bo.filetype == 'plumb')
+assert(vim.g.plumb_nvim_setup == true, 'set up plumb.nvim from ftplugin')
 assert(vim.wait(5000, function()
   return #vim.lsp.get_clients({ bufnr = 0, name = 'plumb' }) == 1
 end), 'attach plumb LSP through native root markers')
