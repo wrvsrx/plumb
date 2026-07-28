@@ -30,6 +30,30 @@ User-facing material lives in `docs/guide/`; project direction lives in
 `docs/project/`; completed design discussion lives in `docs/history/` and does
 not override the references above.
 
+## Project tasks
+
+`docs/project/tasks.plumb` is the actionable task list. Before starting new
+implementation work, query its open tasks through the project toolchain instead
+of scanning the complete source document:
+
+```sh
+plumb task --root docs/project \
+  --query 'path == "tasks.plumb" && (state == "ready" || state == "waiting")'
+```
+
+Query a known task by its explicit id when the request names or implies one:
+
+```sh
+plumb task --root docs/project \
+  --query 'path == "tasks.plumb" && id == "TASK-ID"'
+```
+
+Use `plumb task --root docs/project --query 'path == "tasks.plumb"'` only when
+all task states are relevant. Open `docs/project/tasks.plumb` directly when
+editing task descriptions or when surrounding document structure is needed.
+Read `docs/project/roadmap.plumb` directly; roadmap entries are not task
+records.
+
 ## Current status
 
 **Runnable 0.3 development line.** The repository contains the frozen core
