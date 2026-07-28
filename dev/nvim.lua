@@ -13,7 +13,6 @@ for name in pairs(package.loaded) do
   end
 end
 
-vim.g.plumb_nvim_auto_setup = false
 require("plumb").setup({
   command = repo_root .. "/target/debug/plumb",
   codelens = { picker = "snacks" },
