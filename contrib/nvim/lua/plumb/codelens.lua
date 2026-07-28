@@ -37,7 +37,7 @@ local function open_snacks(items, title)
     format = 'file',
     preview = 'file',
     confirm = 'jump',
-    auto_confirm = true,
+    auto_confirm = false,
     jump = { tagstack = true, reuse_win = true },
   })
 end
