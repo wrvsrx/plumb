@@ -1061,6 +1061,10 @@ impl WebWorkspace {
 
     fn index_resources(&mut self) {
         let mut paths = BTreeSet::new();
+        let canonical_root = self
+            .root
+            .canonicalize()
+            .unwrap_or_else(|_| self.root.clone());
         for entry in self.workspace.documents() {
             let Some(current) = &entry.current else {
                 continue;
@@ -1084,7 +1088,7 @@ impl WebWorkspace {
             let Ok(canonical) = path.canonicalize() else {
                 continue;
             };
-            if !canonical.starts_with(&self.root) || !canonical.is_file() {
+            if !canonical.starts_with(&canonical_root) || !canonical.is_file() {
                 continue;
             }
             let id = opaque_id("r", &display_path(&self.root, &canonical));
@@ -1774,6 +1778,32 @@ mod tests {
         assert!(first.has_same_documents(&second));
 
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn indexes_resources_when_workspace_root_contains_a_symlink() {
+        use std::os::unix::fs::symlink;
+
+        let target = temp_dir();
+        let parent = temp_dir();
+        let root = parent.join("workspace");
+        std::fs::create_dir_all(target.join("static")).unwrap();
+        std::fs::create_dir_all(&parent).unwrap();
+        std::fs::write(target.join("static/image.jpg"), b"image").unwrap();
+        std::fs::write(
+            target.join("note.plumb"),
+            "`img[]{src=\"static/image.jpg\"}\n",
+        )
+        .unwrap();
+        symlink(&target, &root).unwrap();
+
+        let workspace = WebWorkspace::load(&root).unwrap();
+        let resource = workspace.resources().next().expect("indexed image");
+        assert_eq!(resource.path, target.join("static/image.jpg"));
+
+        std::fs::remove_dir_all(parent).unwrap();
+        std::fs::remove_dir_all(target).unwrap();
     }
 
     #[test]
