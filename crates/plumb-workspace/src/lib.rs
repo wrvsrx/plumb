@@ -615,6 +615,78 @@ impl Workspace {
             .max_by_key(|image| image.range.start)
     }
 
+    pub fn reference_target_at(
+        &self,
+        path: impl AsRef<Path>,
+        offset: usize,
+    ) -> Option<ResolvedTarget> {
+        let path = normalize(path.as_ref());
+        let output = self.current_output(&path)?;
+        if let Some(link) = output
+            .links
+            .iter()
+            .filter(|link| contains_inclusive(&link.range, offset))
+            .max_by_key(|link| link.range.start)
+        {
+            let target = self.resolve_link(&path, link);
+            if link
+                .path_range
+                .as_ref()
+                .is_some_and(|range| contains_component(range, offset))
+            {
+                return Some(self.document_component_target(target));
+            }
+            return Some(target);
+        }
+        for task in &output.tasks.tasks {
+            for (source, range, target) in task_reference_fields(task) {
+                if !contains_inclusive(range, offset) {
+                    continue;
+                }
+                let resolved = self.resolve_task_reference_target(&path, &target);
+                let target_id = match &target {
+                    TaskReferenceTarget::Internal { id }
+                    | TaskReferenceTarget::External { id, .. } => id,
+                    TaskReferenceTarget::Invalid => return Some(resolved),
+                };
+                if task_reference_ranges(source, range, target_id)
+                    .and_then(|(path_range, _)| path_range)
+                    .as_ref()
+                    .is_some_and(|range| contains_component(range, offset))
+                {
+                    return Some(self.document_component_target(resolved));
+                }
+                return Some(resolved);
+            }
+        }
+        if let Some(image) = self.image_at(&path, offset) {
+            return Some(self.resolve_image(&path, image));
+        }
+        None
+    }
+
+    pub fn target_at(&self, path: impl AsRef<Path>, offset: usize) -> Option<ResolvedTarget> {
+        let path = normalize(path.as_ref());
+        if self
+            .current_output(&path)?
+            .metadata
+            .metadata
+            .as_ref()
+            .is_some_and(|metadata| contains_inclusive(&metadata.selection_range, offset))
+        {
+            return Some(ResolvedTarget::Document { path });
+        }
+        if let Some(target) = self.reference_target_at(&path, offset) {
+            return Some(target);
+        }
+        self.anchor_at(&path, offset)
+            .map(|anchor| ResolvedTarget::Anchor {
+                path,
+                id: anchor.id.value.clone(),
+                anchor: anchor.clone(),
+            })
+    }
+
     pub fn anchor_at(&self, path: impl AsRef<Path>, offset: usize) -> Option<&AnchorRecord> {
         self.current_output(path.as_ref())?
             .anchors
@@ -737,9 +809,6 @@ impl Workspace {
             let Some(current) = &entry.current else {
                 continue;
             };
-            if entry.path == target_path {
-                continue;
-            }
             for link in &current.output.links {
                 if resolved_document_path(self.resolve_link(&entry.path, link)).as_ref()
                     == Some(&target_path)
@@ -874,6 +943,22 @@ impl Workspace {
             return ResolvedTarget::AmbiguousAnchor { path, id };
         }
         ResolvedTarget::Anchor { path, id, anchor }
+    }
+
+    fn document_component_target(&self, target: ResolvedTarget) -> ResolvedTarget {
+        let path = match target {
+            ResolvedTarget::Anchor { path, .. }
+            | ResolvedTarget::Document { path }
+            | ResolvedTarget::UnresolvedAnchor { path, .. }
+            | ResolvedTarget::AmbiguousAnchor { path, .. }
+            | ResolvedTarget::UnresolvedPath { path } => path,
+            other => return other,
+        };
+        if self.current_output(&path).is_some() {
+            ResolvedTarget::Document { path }
+        } else {
+            ResolvedTarget::UnresolvedPath { path }
+        }
     }
 
     pub fn task_at(&self, path: impl AsRef<Path>, offset: usize) -> Option<&TaskRecord> {
@@ -2512,6 +2597,10 @@ fn contains_inclusive(range: &std::ops::Range<usize>, offset: usize) -> bool {
     range.start <= offset && offset <= range.end
 }
 
+fn contains_component(range: &std::ops::Range<usize>, offset: usize) -> bool {
+    range.start <= offset && offset < range.end
+}
+
 fn valid_anchor_id(value: &str) -> bool {
     !value.is_empty()
         && value.chars().all(|character| {
@@ -3104,7 +3193,7 @@ mod tests {
                 PathBuf::from("task.plumb"),
             ]
         );
-        assert!(workspace.references_to_document("a-local.plumb").is_empty());
+        assert_eq!(workspace.references_to_document("a-local.plumb").len(), 1);
         assert_eq!(
             workspace.referenced_documents_from("missing.plumb"),
             vec![PathBuf::from("a.plumb")]
@@ -3113,6 +3202,69 @@ mod tests {
             workspace.referenced_documents_from("task.plumb"),
             vec![PathBuf::from("a.plumb")]
         );
+    }
+
+    #[test]
+    fn resolves_document_and_anchor_targets_from_declarations_and_reference_components() {
+        let target_source = "`meta\n `: title\n\n    Target\n\n`#{#section} Section\n";
+        let reference_source = "See `->[named]{to=\"target.plumb#section\"} and `[target.plumb#section]{.->}.\n`-{.task prev=\"target.plumb#section\" depends=\"target.plumb#section\"} Review\n";
+        let mut workspace = Workspace::new();
+        workspace.insert("target.plumb", 1, target_source);
+        workspace.insert("reference.plumb", 1, reference_source);
+
+        assert!(matches!(
+            workspace.target_at("target.plumb", target_source.find("meta").unwrap()),
+            Some(ResolvedTarget::Document { path }) if path == PathBuf::from("target.plumb")
+        ));
+        assert!(workspace
+            .target_at("target.plumb", target_source.find("Target").unwrap())
+            .is_none());
+        assert!(matches!(
+            workspace.target_at("target.plumb", target_source.find("section").unwrap()),
+            Some(ResolvedTarget::Anchor { path, id, .. })
+                if path == PathBuf::from("target.plumb") && id == "section"
+        ));
+
+        for path_offset in reference_source
+            .match_indices("target.plumb")
+            .map(|(offset, _)| offset)
+        {
+            assert!(matches!(
+                workspace.target_at("reference.plumb", path_offset),
+                Some(ResolvedTarget::Document { path })
+                    if path == PathBuf::from("target.plumb")
+            ));
+        }
+        for fragment_offset in reference_source
+            .match_indices("#section")
+            .map(|(offset, _)| offset + 1)
+        {
+            assert!(matches!(
+                workspace.target_at("reference.plumb", fragment_offset),
+                Some(ResolvedTarget::Anchor { path, id, .. })
+                    if path == PathBuf::from("target.plumb") && id == "section"
+            ));
+        }
+        let separator_offset = reference_source.find("#section").unwrap();
+        assert!(matches!(
+            workspace.target_at("reference.plumb", separator_offset),
+            Some(ResolvedTarget::Anchor { id, .. }) if id == "section"
+        ));
+        assert!(matches!(
+            workspace.target_at("reference.plumb", reference_source.find("named").unwrap()),
+            Some(ResolvedTarget::Anchor { id, .. }) if id == "section"
+        ));
+
+        let lonely_source = "`meta\n `: title\n\n    Lonely\n";
+        workspace.insert("lonely.plumb", 1, lonely_source);
+        assert!(matches!(
+            workspace.target_at("lonely.plumb", lonely_source.find("meta").unwrap()),
+            Some(ResolvedTarget::Document { path }) if path == PathBuf::from("lonely.plumb")
+        ));
+        assert!(workspace.references_to_document("lonely.plumb").is_empty());
+
+        workspace.insert("target.plumb", 2, "`node{key=a key=b} Invalid\n");
+        assert!(workspace.target_at("target.plumb", 1).is_none());
     }
 
     #[test]
