@@ -165,7 +165,27 @@ value 自身需要的 quote/backslash syntax escapes 会写入 source。本地 i
 go-to-definition，completion、resolution、hover、definition 与 unresolved-file diagnostic 使用同一
 raw relative path。
 
-`# 9. Citations
+`# 9. File attachments
+
+parsed inline kind `[file] 是标准 file attachment；content 是 fallback label，`[src] pair 是非空 target：
+
+`{language=plumb}
+  `file[Demo video]{src="static/demo.mp4"}
+  `file[Download report]{src="reports/final.pdf"}
+
+src 使用与 image src 相同的 URI/raw relative filesystem path classification 和 validity rules，但不限制
+本地文件扩展名。缺失或空 src 产生 `[file.missing-source]，非法 URI 或 relative path 产生
+`[file.invalid-source]，缺失本地文件产生 `[file.unresolved-file] warning。LSP src completion 列出
+directories 与任意 local files，并为 attachment 提供 hover 和 go-to-definition。
+
+portable export lower 为 Pandoc `[Link]：content 保持 link label，src 成为 target，并用
+`[data-plumb-marker=file] 保留 attachment identity。因此不支持 inline preview 的 writer 至少产生可点击
+fallback，import 可以恢复原 spelling。Web 对已索引、位于 workspace root 内且 MIME type 是 video 的
+local attachment 增强为带 controls 的 HTML video；video element 内仍包含指向同一 resource 的 fallback
+link。未知或不支持 preview 的 MIME type 保持普通 attachment link。MIME 只决定 renderer capability，
+不改变 `[file] 的语言语义，也不把普通 Link 隐式提升为 media。
+
+`# 10. Citations
 
 标准 citation 是 kind `[cite] 的 parsed inline element，content 必须是一个非空 plain id，且不能
 包含 nested markup：
@@ -176,7 +196,7 @@ raw relative path。
 export 产生一个 `[NormalCitation] mode 的 Pandoc `[Cite]。cluster、locator、prefix、suffix、
 suppress-author 和 author-in-text deferred；Pandoc Markdown `[`@key] spelling 不受支持。
 
-`# 10. Transparent containers
+`# 11. Transparent containers
 
 marker `[div] 与 parsed inline kind `[span] 是标准 transparent containers：
 
@@ -191,7 +211,7 @@ marker `[div] 与 parsed inline kind `[span] 是标准 transparent containers：
 二者不增加 presentation、section、warning 或其他隐式 semantics。export 直接产生 Pandoc `[Div] /
 `[Span]，不添加冗余 `[data-plumb-marker]；其他 generic spellings 仍保留 marker/kind pair。
 
-`# 11. Quote
+`# 12. Quote
 
 marker `[>] 产生 block quote。可选 head 作为引用中的第一个 paragraph，children 按原顺序形成
 后续 blocks：
@@ -210,7 +230,7 @@ marker `[>] 产生 block quote。可选 head 作为引用中的第一个 paragra
 quote 不定义 attribution、citation、pull quote 或 presentation semantics；需要这些信息时使用普通
 children 或 opaque attributes，直到独立 extension 冻结其含义。
 
-`# 12. Inline styles
+`# 13. Inline styles
 
 六个单字符 parsed inline kinds 产生标准 inline style semantics：
 
@@ -235,7 +255,7 @@ elements。italic/bold 是 emphasis/strong 的常见 presentation，不定义独
 `[^] 与 `[_] 通过上下位置形成一组；符号数量不编码强度，也不隐式产生其他组合。opening/closing
 bracket 与 introducer 始终显式标记 content boundary。
 
-`# 13. Math
+`# 14. Math
 
 verbatim inline 或 block 上的 `[.$] class 是标准 math facet：
 
@@ -252,7 +272,7 @@ TeX；可选 `[language=tex]。其他 language 产生 `[math.unsupported-languag
 record。export 消费 `[.$] 与 `[language=tex]；其余 id/classes/pairs 分别通过 `[Span] 或 `[Div]
 wrapper 保留。普通 dollar characters 和 dollar-delimited math 没有特殊 syntax。
 
-`# 14. Tasks
+`# 15. Tasks
 
 只有 `[-] 或 `[.] list item 上的 `[.task] class 产生 task facet：
 
@@ -334,7 +354,7 @@ export 按 document-local closure state 在 task item 的首个 paragraph 添加
 生成 checkbox；task 的 id、`[.task] class 与 fields 保留在包裹 title 的 Pandoc `[Span] attributes 中，
 children 继续作为同一 list item 的后续 blocks。
 
-`# 15. Generic export
+`# 16. Generic export
 
 不具有标准语义的 valid structures 仍可 portable export：generic marked block 变为 Pandoc `[Div]，
 generic parsed inline element 变为 `[Span]，verbatim block 变为 `[CodeBlock]，inline verbatim 变为

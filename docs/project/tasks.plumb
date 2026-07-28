@@ -142,6 +142,15 @@
    `note LSP 在 src value 中补全相对本地图片文件，初版覆盖 PNG、JPEG、WebP、GIF、SVG 和 AVIF，插入 URI-encoded path；hover/definition 使用 resolved file location。
    `note Core parser 不增加 image special case；补齐 extension、export、metadata、LSP、guide、playground 和 bundled skill tests/docs。Figure、caption、numbering 与 cross-reference 继续 deferred。
 
+`-{
+   .task #standard-file-attachment done="2026-07-28T21:45:09+08:00"
+  } 支持 `[file] standard attachment extension
+
+   `note `"[file[label]{src="target"}]" 使用 parsed content 作为 portable fallback label，`[src] 是必需且非空的 absolute URI 或 raw relative file target；缺失、无效与 unresolved local target 分别发布稳定 semantic/workspace diagnostics。
+   `note Export lower 为带 `[data-plumb-marker=file] 的 Pandoc Link，import 恢复原 spelling；不支持 preview 的 writer 与 MIME 始终保留可点击 fallback。
+   `note Workspace 复用受控 file resolution、hover、definition 与任意文件 completion；Web 只把已索引且 MIME 为 video 的 local attachment 增强为带 controls 和 fallback link 的播放器，普通 Link 不按 MIME 隐式提升。
+   `note 覆盖 extension、workspace、export/import、dynamic/static Web target、resource copy、symlink-root containment、guide、reference 与 bundled skill tests/docs。
+
 `-{.task #verify-image-export done="2026-07-23T23:15:48+08:00"} 确认并补齐 `[img] export
 
    `note 已确认 `[plumb export] 将 `[img[alt]{src="target"}] lower 为 Pandoc Image，并覆盖 metadata、inline image、image-only paragraph、empty alt 与 raw relative src。

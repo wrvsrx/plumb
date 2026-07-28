@@ -1,6 +1,6 @@
 ---
 name: plumb-markup
-description: Write, edit, review, or convert strict plumb (.plumb) documents using the released core syntax and standard extensions. Use for plumb blocks, inline elements, attributes, raw content, headings, lists, definitions, metadata, links, images, citations, quotes, inline styles, tasks, references, or documents consumed by the plumb toolchain.
+description: Write, edit, review, or convert strict plumb (.plumb) documents using the released core syntax and standard extensions. Use for plumb blocks, inline elements, attributes, raw content, headings, lists, definitions, metadata, links, images, file attachments, citations, quotes, inline styles, tasks, references, or documents consumed by the plumb toolchain.
 ---
 
 # Plumb Markup
@@ -76,6 +76,7 @@ Inline `span[container]{.notice} and `[x^2]{.$} math.
 See `->[guide]{to="guide.plumb#intro"}, `[guide.plumb#intro]{.->}, and `cite[smith2004].
 
 Use `img[status icon]{src="static/status.png"} for an image.
+Use `file[Demo video]{src="static/demo.mp4"} for a file attachment with fallback content.
 
 Use `[cargo test] for inline raw text.
 
@@ -87,7 +88,7 @@ Use `-` for bullet-list items, `.` for ordered-list items, and `->` as the sole
 link inline kind. Use `.->` for a verbatim absolute URI or raw relative path
 whose payload is both label and target; relative `.plumb` targets resolve as
 documents and other relative targets resolve as files. Use
-`img[alt]{src="target"}` for images.
+`img[alt]{src="target"}` for images and `file[label]{src="target"}` for attachments.
 `item`, `link`, `**`, `em`, and `strong` remain syntactically valid generic names but
 have no list or link semantics. Only `-` and `.` items may carry the standard
 `.task` facet. `div` and `span` are transparent containers; `>` is a block

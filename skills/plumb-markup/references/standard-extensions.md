@@ -155,6 +155,22 @@ escapes required by a quoted attribute value. There is no separate block-image
 spelling: an image-only paragraph is still a paragraph containing one image.
 Figure, caption, numbering, and cross-reference semantics are deferred.
 
+## File Attachments
+
+Use the `file` parsed inline kind. Its content is the portable fallback label
+and `src` is a required nonempty URI or raw relative filesystem target:
+
+```plumb
+`file[Demo video]{src="static/demo.mp4"}
+`file[Download report]{src="reports/final.pdf"}
+```
+
+Export lowers a file attachment to a Pandoc Link so every writer retains a
+clickable fallback. The Web viewer enhances indexed local video MIME types with
+controls while keeping the fallback link. Other file types remain links. MIME
+controls renderer capability only; it does not change file semantics or turn
+ordinary Links into media.
+
 ## Citations
 
 The current citation profile accepts exactly one plain id:
@@ -291,7 +307,7 @@ non-verbatim owner is invalid.
 
 `plumb export` emits Pandoc JSON directly. Standard lowering includes headings,
 bullet lists, definition lists, metadata, `->` links, `.->` Autolinks, `img`
-images, single-id citations, quotes, inline styles, and visible task states with
+images, `file` attachments, single-id citations, quotes, inline styles, and visible task states with
 task attributes. Generic marked blocks become Divs, generic parsed inline
 elements become Spans, verbatim blocks become CodeBlocks, and inline verbatim
 becomes Code.

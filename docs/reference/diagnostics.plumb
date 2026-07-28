@@ -58,6 +58,7 @@ recovery 的目标是报告后续独立错误并保留 source，不是把 malfor
 `- link/reference：缺失或无效 target、invalid autolink owner/facet、missing document/anchor、
    ambiguous anchor 或 unresolved file。
 `- image：missing/invalid src 或 unresolved local file。
+`- file：missing/invalid src 或 unresolved local attachment。
 `- citation：空 id、nested 或 unsupported citation shape。
 `- task：invalid owner、`[task.invalid-datetime]、无效 recur/reference、互斥 closure state、
    self dependency、cycle、blocked completion、`[task.done-with-open-dependency] 和

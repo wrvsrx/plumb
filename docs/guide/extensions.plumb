@@ -123,6 +123,19 @@ empty alt 用于 decorative image。image 单独占一个 paragraph 时不需要
 go-to-definition。image 的
 标准 profile 边界见 `->[standard extensions reference]{to="../reference/standard-extensions.plumb"}。
 
+`# File attachment
+
+`[file] content 是始终可用的 fallback label，`[src] 指向 absolute URI 或相对当前 document 的文件：
+
+`{language=plumb}
+  `file[Demo video]{src="static/demo.mp4"}
+  `file[Download report]{src="reports/final.pdf"}
+
+普通 exporter 把 attachment 写成可点击 Link。Web viewer 会把 workspace 内能识别为 video 的本地文件
+显示为带 controls 的播放器，同时保留下载链接作为浏览器不支持该格式时的 fallback；PDF、archive 或
+未知类型继续显示为普通附件链接。MIME 不改变 `[file] 语义，普通 `[->] Link 也不会自动变成播放器。
+LSP 在 src 中补全任意本地文件，并提供 hover、go-to-definition 和 unresolved-file diagnostic。
+
 `# Citation
 
 标准 citation 接受一个 plain id：
