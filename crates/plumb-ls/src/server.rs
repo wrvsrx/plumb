@@ -32,9 +32,10 @@ use lsp_types::{
 };
 use plumb_core::{Block, Diagnostic, Document};
 use plumb_extensions::{
-    analyze_headings, construct_completion_context, image_completion_context,
-    link_completion_context, AnchorKind, AnchorRecord, ConstructCompletionContext, Heading,
-    MetadataBlock, MetadataEntry, MetadataValue, TaskRecord, TaskState, TaskStatus,
+    analyze_headings, construct_completion_context, file_completion_context,
+    image_completion_context, link_completion_context, AnchorKind, AnchorRecord,
+    ConstructCompletionContext, Heading, MetadataBlock, MetadataEntry, MetadataValue, TaskRecord,
+    TaskState, TaskStatus,
 };
 use plumb_workspace::{
     normalize, scan_workspace_files, RenameError, ResolvedTarget, ResourceOperation, SearchRecord,
@@ -1042,6 +1043,20 @@ impl LanguageServer for ServerState {
                     let entry = self.workspace.get(&path)?;
                     position_to_offset(&entry.parsed.source, position.position)
                 };
+                if let Some(file) = self.workspace.file_at(&path, offset).cloned() {
+                    let target = self.workspace.resolve_file(&path, &file);
+                    let entry = self.workspace.get(&path)?;
+                    return Some(Hover {
+                        contents: HoverContents::Markup(MarkupContent {
+                            kind: MarkupKind::Markdown,
+                            value: file_hover(&target, &file),
+                        }),
+                        range: Some(byte_range_to_lsp(
+                            &entry.parsed.source,
+                            &file.selection_range,
+                        )),
+                    });
+                }
                 if let Some(image) = self.workspace.image_at(&path, offset).cloned() {
                     let target = self.workspace.resolve_image(&path, &image);
                     let entry = self.workspace.get(&path)?;
@@ -1146,6 +1161,11 @@ impl LanguageServer for ServerState {
                     } else if let Some(context) = image_completion_context(&entry.parsed, offset) {
                         (
                             self.workspace.complete_image_path(&path, &context),
+                            CompletionItemKind::FILE,
+                        )
+                    } else if let Some(context) = file_completion_context(&entry.parsed, offset) {
+                        (
+                            self.workspace.complete_file_path(&path, &context),
                             CompletionItemKind::FILE,
                         )
                     } else {
@@ -1666,6 +1686,24 @@ fn image_hover(target: &ResolvedTarget, image: &plumb_extensions::ImageRecord) -
             escape_markdown_code(&path.display().to_string())
         ),
         _ => "Image".to_string(),
+    }
+}
+
+fn file_hover(target: &ResolvedTarget, file: &plumb_extensions::FileRecord) -> String {
+    match target {
+        ResolvedTarget::External => format!(
+            "**External file attachment**\n\n`{}`",
+            escape_markdown_code(&file.source.value)
+        ),
+        ResolvedTarget::File { path } => format!(
+            "**File attachment**\n\n`{}`",
+            escape_markdown_code(&path.display().to_string())
+        ),
+        ResolvedTarget::UnresolvedFile { path } => format!(
+            "**Unresolved file attachment**\n\n`{}`",
+            escape_markdown_code(&path.display().to_string())
+        ),
+        _ => "File attachment".to_string(),
     }
 }
 

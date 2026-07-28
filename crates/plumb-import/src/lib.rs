@@ -323,8 +323,13 @@ fn render_inlines(inlines: &[Inline], bracketed: bool) -> Result<String, String>
             Inline::Code(attrs, text) => output.push_str(&render_verbatim(text, attrs)?),
             Inline::Link(attrs, label, target) => {
                 let mut attrs = attrs.clone();
-                set_semantic_pair(&mut attrs, "to", &target.url)?;
-                output.push_str(&render_element("->", &attrs, label)?);
+                if attr_pair(&attrs, "data-plumb-marker") == Some("file") {
+                    set_semantic_pair(&mut attrs, "src", &target.url)?;
+                    output.push_str(&render_element("file", &attrs, label)?);
+                } else {
+                    set_semantic_pair(&mut attrs, "to", &target.url)?;
+                    output.push_str(&render_element("->", &attrs, label)?);
+                }
             }
             Inline::Image(attrs, alt, target) => {
                 let mut attrs = attrs.clone();
@@ -621,7 +626,9 @@ mod tests {
                     {"t": "Space"},
                     {"t": "Subscript", "c": [{"t": "Str", "c": "sub"}]},
                     {"t": "Space"},
-                    {"t": "Link", "c": [["", [], []], [{"t": "Str", "c": "target"}], ["other.plumb#id", ""]]}
+                    {"t": "Link", "c": [["", [], []], [{"t": "Str", "c": "target"}], ["other.plumb#id", ""]]},
+                    {"t": "Space"},
+                    {"t": "Link", "c": [["demo", ["wide"], [["download", "yes"], ["data-plumb-marker", "file"]]], [{"t": "Str", "c": "video"}], ["static/demo.mp4", ""]]}
                 ]},
                 {"t": "BlockQuote", "c": [{"t": "Para", "c": [{"t": "Str", "c": "quoted"}]}]},
                 {"t": "BulletList", "c": [[{"t": "Para", "c": [{"t": "Str", "c": "item"}]}]]},
@@ -634,6 +641,10 @@ mod tests {
         assert!(source.contains("`*[em] `![strong] `=[marked]{#marked .keep}"));
         assert!(source.contains("`~[strike] `^[super] `_[sub]"));
         assert!(source.contains("`->[target]{to=\"other.plumb#id\"}"));
+        assert!(
+            source.contains("`file[video]{#demo .wide download=\"yes\" src=\"static/demo.mp4\"}"),
+            "{source}"
+        );
         assert!(source.contains("`> quoted"));
         assert!(source.contains("`- item"));
         assert!(source.contains("`{#code .rust}"));

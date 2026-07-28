@@ -11,9 +11,10 @@ pub use plumb_edit::TextEdit;
 use plumb_edit::{AttributePosition, EditSession, OwnedAttribute, OwnedBlock};
 use plumb_extensions::{
     analyze_document, next_task_datetime, parse_task_reference_target, valid_task_datetime,
-    AnchorRecord, DocumentOutput, FileRecord, FileTarget, ImageCompletionContext, ImageRecord,
-    ImageTarget, LinkCompletionContext, LinkRecord, LinkSpelling, LinkTarget, MetadataValue,
-    TaskRecord, TaskReferenceTarget, TaskState, TaskStatus,
+    AnchorRecord, DocumentOutput, FileCompletionContext, FileRecord, FileTarget,
+    ImageCompletionContext, ImageRecord, ImageTarget, LinkCompletionContext, LinkRecord,
+    LinkSpelling, LinkTarget, MetadataValue, TaskRecord, TaskReferenceTarget, TaskState,
+    TaskStatus,
 };
 
 pub const WORKSPACE_MARKER: &str = ".plumb";
@@ -2239,7 +2240,24 @@ impl Workspace {
         from: impl AsRef<Path>,
         context: &ImageCompletionContext,
     ) -> Vec<CompletionCandidate> {
-        let from = normalize(from.as_ref());
+        self.complete_resource_path(from.as_ref(), context, true)
+    }
+
+    pub fn complete_file_path(
+        &self,
+        from: impl AsRef<Path>,
+        context: &FileCompletionContext,
+    ) -> Vec<CompletionCandidate> {
+        self.complete_resource_path(from.as_ref(), context, false)
+    }
+
+    fn complete_resource_path(
+        &self,
+        from: &Path,
+        context: &ImageCompletionContext,
+        images_only: bool,
+    ) -> Vec<CompletionCandidate> {
+        let from = normalize(from);
         if Path::new(&context.query).is_absolute() {
             return Vec::new();
         }
@@ -2267,9 +2285,23 @@ impl Workspace {
                 }
                 let path = entry.path();
                 let (suffix, detail) = if path.is_dir() {
-                    ("/", "image directory")
-                } else if path.is_file() && is_image_path(&path) {
-                    ("", "image file")
+                    (
+                        "/",
+                        if images_only {
+                            "image directory"
+                        } else {
+                            "file directory"
+                        },
+                    )
+                } else if path.is_file() && (!images_only || is_image_path(&path)) {
+                    (
+                        "",
+                        if images_only {
+                            "image file"
+                        } else {
+                            "file attachment"
+                        },
+                    )
                 } else {
                     return None;
                 };
@@ -3717,6 +3749,7 @@ mod tests {
         ));
         std::fs::create_dir_all(root.join("static")).unwrap();
         std::fs::write(root.join("static/demo.mp4"), b"video").unwrap();
+        std::fs::write(root.join("static/manual.pdf"), b"pdf").unwrap();
         let source_path = root.join("note.plumb");
         let source =
             "`file[Demo]{src=\"static/demo.mp4\"}\n`file[Missing]{src=\"static/missing.pdf\"}\n";
@@ -3738,6 +3771,17 @@ mod tests {
                 path: root.join("static/demo.mp4")
             })
         );
+        let completions = workspace.complete_file_path(
+            &source_path,
+            &FileCompletionContext {
+                replace: 0..0,
+                query: "static/ma".to_string(),
+                quoted: true,
+            },
+        );
+        assert_eq!(completions.len(), 1);
+        assert_eq!(completions[0].new_text, "static/manual.pdf");
+        assert_eq!(completions[0].detail, "file attachment");
         let diagnostics = workspace.diagnostics(&source_path);
         assert_eq!(
             diagnostics

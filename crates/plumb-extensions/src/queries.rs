@@ -41,6 +41,8 @@ pub struct ImageCompletionContext {
     pub quoted: bool,
 }
 
+pub type FileCompletionContext = ImageCompletionContext;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConstructCompletionContext {
     Block { replace: Range<usize> },
@@ -176,14 +178,29 @@ pub fn image_completion_context(
     document: &ParsedDocument,
     offset: usize,
 ) -> Option<ImageCompletionContext> {
+    resource_completion_context(document, offset, "img")
+}
+
+pub fn file_completion_context(
+    document: &ParsedDocument,
+    offset: usize,
+) -> Option<FileCompletionContext> {
+    resource_completion_context(document, offset, "file")
+}
+
+fn resource_completion_context(
+    document: &ParsedDocument,
+    offset: usize,
+    kind: &str,
+) -> Option<ImageCompletionContext> {
     let source = &document.source;
     if offset > source.len() || !source.is_char_boundary(offset) || verbatim_at(document, offset) {
         return None;
     }
     let line_start = source[..offset].rfind('\n').map_or(0, |index| index + 1);
     let prefix = &source[line_start..offset];
-    let image_start = prefix.rfind("`img[")? + line_start;
-    let escaped_introducers = source[..image_start]
+    let element_start = prefix.rfind(&format!("`{kind}["))? + line_start;
+    let escaped_introducers = source[..element_start]
         .chars()
         .rev()
         .take_while(|character| *character == '`')
@@ -191,7 +208,7 @@ pub fn image_completion_context(
     if escaped_introducers % 2 == 1 {
         return None;
     }
-    let after_alt = source[image_start..offset].rfind("]{")? + image_start + 2;
+    let after_alt = source[element_start..offset].rfind("]{")? + element_start + 2;
     let attrs = &source[after_alt..offset];
     let src = attrs.rfind("src=")? + after_alt;
     if src > after_alt {
@@ -609,6 +626,21 @@ mod tests {
 
         let (external, cursor) = strip_cursor("`img[Alt]{src=\"https:|//example.test/a.png\"}");
         assert_eq!(image_completion(&external, cursor), None);
+    }
+
+    #[test]
+    fn completes_file_source_values_without_confusing_images() {
+        let (file, cursor) = strip_cursor("`file[Demo]{src=\"static/de|mo.mp4\"}");
+        let value_start = file.find("static/demo.mp4").unwrap();
+        assert_eq!(
+            file_completion_context(&parse(&file), cursor),
+            Some(FileCompletionContext {
+                replace: value_start..value_start + "static/demo.mp4".len(),
+                query: "static/de".to_string(),
+                quoted: true,
+            })
+        );
+        assert_eq!(image_completion_context(&parse(&file), cursor), None);
     }
 
     fn completion_context(source: &str, offset: usize) -> Option<LinkCompletionContext> {

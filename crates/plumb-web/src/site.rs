@@ -218,9 +218,10 @@ mod tests {
         let output = temp_dir("output");
         std::fs::create_dir_all(root.join("assets")).unwrap();
         std::fs::write(root.join("assets/image.png"), b"png").unwrap();
+        std::fs::write(root.join("assets/demo.mp4"), b"video").unwrap();
         std::fs::write(
             root.join("a.plumb"),
-            "See `->[B]{to=\"b.plumb#b\"}.\n`img[x]{src=\"assets/image.png\"}\n",
+            "See `->[B]{to=\"b.plumb#b\"}.\n`img[x]{src=\"assets/image.png\"}\n`file[Demo]{src=\"assets/demo.mp4\"}\n",
         )
         .unwrap();
         std::fs::write(root.join("b.plumb"), "`#{#b} B\n").unwrap();
@@ -233,7 +234,16 @@ mod tests {
             .document_id(root.join("b.plumb"))
             .unwrap()
             .to_string();
-        let resource = workspace.resources().next().unwrap().clone();
+        let image = workspace
+            .resources()
+            .find(|resource| resource.name == "image.png")
+            .unwrap()
+            .clone();
+        let video = workspace
+            .resources()
+            .find(|resource| resource.name == "demo.mp4")
+            .unwrap()
+            .clone();
         build(BuildConfig {
             root: Some(root.clone()),
             output: output.clone(),
@@ -255,13 +265,23 @@ mod tests {
             std::fs::read_to_string(output.join("notes").join(&a_id).join("note.json")).unwrap();
         assert!(note.contains(&format!("../../notes/{b_id}/#b")), "{note}");
         assert!(
-            note.contains(&format!("../../resources/{}/image%2Epng", resource.id)),
+            note.contains(&format!("../../resources/{}/image%2Epng", image.id)),
+            "{note}"
+        );
+        assert!(note.contains("<video controls"), "{note}");
+        assert!(
+            note.contains(&format!("../../resources/{}/demo%2Emp4", video.id)),
             "{note}"
         );
         assert!(output
             .join("resources")
-            .join(&resource.id)
+            .join(&image.id)
             .join("image.png")
+            .is_file());
+        assert!(output
+            .join("resources")
+            .join(&video.id)
+            .join("demo.mp4")
             .is_file());
         std::fs::remove_dir_all(root).unwrap();
         std::fs::remove_dir_all(output).unwrap();

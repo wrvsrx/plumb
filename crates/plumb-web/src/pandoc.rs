@@ -93,9 +93,11 @@ fn adapt_value(
                         adapt_link_target(workspace, source_path, mode, &target)
                     };
                     if node_kind.as_deref() == Some("Link")
+                        && is_file_node(object)
                         && is_local_video(workspace, source_path, &target)
                     {
-                        *object = video_inline(&adapted, &target);
+                        let video = video_inline(object, &adapted);
+                        *object = video;
                         return;
                     }
                     if let Some(target_value) = object
@@ -120,6 +122,24 @@ fn adapt_value(
     }
 }
 
+fn is_file_node(object: &serde_json::Map<String, Value>) -> bool {
+    object
+        .get("c")
+        .and_then(Value::as_array)
+        .and_then(|contents| contents.first())
+        .and_then(Value::as_array)
+        .and_then(|attrs| attrs.get(2))
+        .and_then(Value::as_array)
+        .is_some_and(|pairs| {
+            pairs.iter().any(|pair| {
+                pair.as_array().is_some_and(|pair| {
+                    pair.first().and_then(Value::as_str) == Some("data-plumb-marker")
+                        && pair.get(1).and_then(Value::as_str) == Some("file")
+                })
+            })
+        })
+}
+
 fn is_local_video(workspace: &WebWorkspace, source_path: &Path, target: &str) -> bool {
     if is_external(target) || target.contains('#') {
         return false;
@@ -135,33 +155,67 @@ fn is_local_video(workspace: &WebWorkspace, source_path: &Path, target: &str) ->
         })
 }
 
-fn video_inline(target: &str, label: &str) -> serde_json::Map<String, Value> {
-    let target = escape_html_attribute(target);
-    let label = escape_html(label);
+fn video_inline(
+    link: &serde_json::Map<String, Value>,
+    target: &str,
+) -> serde_json::Map<String, Value> {
+    let escaped_target = escape_html_attribute(target);
+    let contents = link.get("c").and_then(Value::as_array);
+    let mut attrs = contents
+        .and_then(|contents| contents.first())
+        .cloned()
+        .unwrap_or_else(|| serde_json::json!(["", [], []]));
+    remove_file_marker(&mut attrs);
+    let label = contents
+        .and_then(|contents| contents.get(1))
+        .cloned()
+        .unwrap_or_else(|| Value::Array(Vec::new()));
+    let fallback = serde_json::json!({
+        "t": "Link",
+        "c": [["", [], []], label, [target, ""]],
+    });
     serde_json::Map::from_iter([
-        ("t".to_string(), Value::String("RawInline".to_string())),
+        ("t".to_string(), Value::String("Span".to_string())),
         (
             "c".to_string(),
             Value::Array(vec![
-                Value::String("html".to_string()),
-                Value::String(format!(
-                    "<video controls preload=\"metadata\" src=\"{target}\"><a href=\"{target}\">{label}</a></video>"
-                )),
+                attrs,
+                Value::Array(vec![
+                    serde_json::json!({
+                        "t": "RawInline",
+                        "c": ["html", format!("<video controls preload=\"metadata\" src=\"{escaped_target}\">")],
+                    }),
+                    fallback,
+                    serde_json::json!({"t": "RawInline", "c": ["html", "</video>"]}),
+                ]),
             ]),
         ),
     ])
 }
 
-fn escape_html(value: &str) -> String {
+fn remove_file_marker(attrs: &mut Value) {
+    let Some(pairs) = attrs
+        .as_array_mut()
+        .and_then(|attrs| attrs.get_mut(2))
+        .and_then(Value::as_array_mut)
+    else {
+        return;
+    };
+    pairs.retain(|pair| {
+        !pair.as_array().is_some_and(|pair| {
+            pair.first().and_then(Value::as_str) == Some("data-plumb-marker")
+                && pair.get(1).and_then(Value::as_str) == Some("file")
+        })
+    });
+}
+
+fn escape_html_attribute(value: &str) -> String {
     value
         .replace('&', "&amp;")
         .replace('<', "&lt;")
         .replace('>', "&gt;")
         .replace('"', "&quot;")
-}
-
-fn escape_html_attribute(value: &str) -> String {
-    escape_html(value).replace('\'', "&#39;")
+        .replace('\'', "&#39;")
 }
 
 fn adapt_link_target(
@@ -303,13 +357,14 @@ mod tests {
     }
 
     #[test]
-    fn renders_local_video_links_as_media_with_dynamic_and_static_targets() {
+    fn renders_local_video_files_as_media_with_dynamic_and_static_targets() {
         let root = temp_dir();
         std::fs::create_dir_all(root.join("assets")).unwrap();
         std::fs::write(root.join("assets/demo video.mp4"), b"video").unwrap();
+        std::fs::write(root.join("assets/manual.pdf"), b"pdf").unwrap();
         std::fs::write(
             root.join("a.plumb"),
-            "`->[Demo video]{to=\"assets/demo video.mp4\"}\n",
+            "`file[Demo video]{src=\"assets/demo video.mp4\"}\n\n`file[Manual]{src=\"assets/manual.pdf\"}\n\n`->[Video link]{to=\"assets/demo video.mp4\"}\n",
         )
         .unwrap();
         let workspace = WebWorkspace::load(&root).unwrap();
@@ -323,11 +378,19 @@ mod tests {
             &mut dynamic,
         );
         let video = &dynamic["blocks"][0]["c"][0];
-        assert_eq!(video["t"], "RawInline");
-        let html = video["c"][1].as_str().unwrap();
+        assert_eq!(video["t"], "Span");
+        let html = video["c"][1][0]["c"][1].as_str().unwrap();
         assert!(html.starts_with("<video controls"), "{html}");
         assert!(html.contains("src=\"/resource/r"), "{html}");
         assert!(html.contains("demo%20video%2Emp4"), "{html}");
+        assert_eq!(video["c"][1][1]["c"][1][0]["c"], "Demo");
+        let fallback_file = &dynamic["blocks"][1]["c"][0];
+        assert_eq!(fallback_file["t"], "Link");
+        assert!(fallback_file["c"][2][0]
+            .as_str()
+            .unwrap()
+            .starts_with("/resource/r"));
+        assert_eq!(dynamic["blocks"][2]["c"][0]["t"], "Link");
 
         let mut static_note = workspace.pandoc_document(document_id).unwrap();
         adapt_pandoc_targets(
@@ -336,7 +399,9 @@ mod tests {
             WebTargetMode::StaticNote,
             &mut static_note,
         );
-        let html = static_note["blocks"][0]["c"][0]["c"][1].as_str().unwrap();
+        let html = static_note["blocks"][0]["c"][0]["c"][1][0]["c"][1]
+            .as_str()
+            .unwrap();
         assert!(html.contains("src=\"../../resources/r"), "{html}");
 
         let rendered = render_note_html(&workspace, document_id, WebTargetMode::Dynamic).unwrap();

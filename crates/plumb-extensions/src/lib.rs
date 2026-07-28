@@ -25,8 +25,9 @@ pub use metadata::{
     MetadataListItem, MetadataOutput, MetadataValue,
 };
 pub use queries::{
-    construct_completion_context, image_completion_context, link_completion_context,
-    ConstructCompletionContext, ImageCompletionContext, LinkCompletionContext,
+    construct_completion_context, file_completion_context, image_completion_context,
+    link_completion_context, ConstructCompletionContext, FileCompletionContext,
+    ImageCompletionContext, LinkCompletionContext,
 };
 pub use quotes::{analyze_quotes, QuoteOutput, QuoteRecord};
 pub use tasks::{

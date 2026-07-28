@@ -412,6 +412,11 @@ fn lower_inlines(content: &InlineContent, analysis: &DocumentOutput) -> Vec<Valu
                         "t": "Image",
                         "c": [lower_image_attrs(attrs), lower_inlines(content, analysis), [&image.source.value, ""]],
                     }));
+                } else if let Some(file) = analysis.file_at_node_start(range.start) {
+                    output.push(json!({
+                        "t": "Link",
+                        "c": [lower_file_attrs(attrs), lower_inlines(content, analysis), [&file.source.value, ""]],
+                    }));
                 } else if let Some(link) = analysis.link_at_node_start(range.start) {
                     output.push(json!({
                         "t": "Link",
@@ -474,6 +479,10 @@ fn lower_autolink_attrs(attrs: &Attributes) -> Value {
 
 fn lower_image_attrs(attrs: &Attributes) -> Value {
     lower_attrs_filtered(attrs, None, |_| false, |key| key == "src")
+}
+
+fn lower_file_attrs(attrs: &Attributes) -> Value {
+    lower_attrs_filtered(attrs, Some("file"), |_| false, |key| key == "src")
 }
 
 fn lower_mark_attrs(attrs: &Attributes) -> Value {
@@ -724,6 +733,27 @@ mod tests {
             decorative["c"][2],
             json!(["https://example.test/decorative.svg", ""])
         );
+    }
+
+    #[test]
+    fn exports_file_attachments_as_portable_links_with_fallback_content() {
+        let document = export(
+            "Watch `file[Demo `![video]]{src=\"static/demo video.mp4\" #demo .wide download=yes}.\n",
+        )
+        .unwrap();
+        let file = &document["blocks"][0]["c"][2];
+        assert_eq!(file["t"], "Link");
+        assert_eq!(
+            file["c"][0],
+            json!([
+                "demo",
+                ["wide"],
+                [["download", "yes"], ["data-plumb-marker", "file"]]
+            ])
+        );
+        assert_eq!(file["c"][1][0]["c"], "Demo");
+        assert_eq!(file["c"][1][2]["t"], "Strong");
+        assert_eq!(file["c"][2], json!(["static/demo video.mp4", ""]));
     }
 
     #[test]
