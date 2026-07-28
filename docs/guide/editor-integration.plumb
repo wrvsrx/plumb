@@ -18,22 +18,20 @@ contract，并在本文增加同级章节。
 `# Neovim setup
 
 确保 `[plumb] binary 可从 `[PATH] 启动，并将 packaged `[contrib/nvim] 或 source checkout 中的同名
-directory 加入 `[runtimepath]。plugin 只在首次进入 plumb filetype 时加载 Lua modules 并自动 setup；
-其他 filetypes 不配置 plumb LSP 或 commands。简单配置在首个 plumb buffer 前写入：
+directory 加入 `[runtimepath]。在打开首个 plumb buffer 前显式调用 setup：
 
 `{language=lua}
-  vim.g.plumb_nvim_config = {
+  require('plumb').setup({
     command = 'plumb',
     lsp = { root_markers = { '.plumb', '.git' } },
     codelens = { picker = 'quickfix' },
     search = { picker = 'native', task_filter = 'state == "ready"' },
-  }
+  })
 
-自动 setup 默认启用 LSP、CodeLens 与 search，不创建 keymaps；重复 setup 不会重复 commands、autocmds 或
-clients。需要 function-valued options 时，禁用自动 setup 后显式调用：
+setup 默认启用 LSP、CodeLens 与 search，不创建 keymaps；重复 setup 不会重复 commands、autocmds 或
+clients，并可直接接受 function-valued options：
 
 `{language=lua}
-  vim.g.plumb_nvim_auto_setup = false
   require('plumb').setup({
     lsp = { on_attach = function(client, bufnr) end },
   })

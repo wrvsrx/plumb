@@ -43,7 +43,6 @@ function M.setup(opts)
   if vim.fn.has('nvim-0.12') ~= 1 then
     error('plumb.nvim requires Neovim 0.12 or newer')
   end
-  vim.g.plumb_nvim_setup = true
   config = vim.tbl_deep_extend('force', vim.deepcopy(defaults), opts or {})
   local group = vim.api.nvim_create_augroup('PlumbNvim', { clear = true })
   clear_commands()

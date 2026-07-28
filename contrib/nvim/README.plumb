@@ -9,21 +9,17 @@
 `->[editor integration 指南]{to="../../docs/guide/editor-integration.plumb"}。本文只记录 packaged Lua
 modules 的调用接口。
 
-`# Filetype activation
+`# Setup
 
-把该 directory 加入 Neovim `[runtimepath] 后，plugin 只注册 `[.plumb] filetype。首次进入 plumb buffer
-时 `[ftplugin/plumb.lua] 自动调用 setup；其他 filetypes 不加载 `[plumb] Lua modules，也不配置 LSP 或
-commands。无需在全局 init 中调用 `[require('plumb').setup()]。
-
-在首次 plumb buffer 前可以提供不含 Lua function 的配置：
+把该 directory 加入 Neovim `[runtimepath] 后，在打开首个 plumb buffer 前显式调用 setup：
 
 `{language=lua}
-  vim.g.plumb_nvim_config = {
+  require('plumb').setup({
     command = 'plumb',
     lsp = { root_markers = { '.plumb', '.git' } },
     codelens = { picker = 'snacks' },
     search = { picker = 'snacks', task_filter = 'state == "ready"' },
-  }
+  })
 
   vim.keymap.set('n', '<leader>pn', function()
     require('plumb.search').search_notes()
@@ -32,11 +28,10 @@ commands。无需在全局 init 中调用 `[require('plumb').setup()]。
     require('plumb.search').search_tasks({ filter = 'actionable' })
   end)
 
-自动 setup 默认启用 LSP、CodeLens 与 search，不创建 keymaps；`[lsp]、`[codelens] 与 `[search] 都可用
-`[enabled = false] 单独关闭。需要 `[on_attach] 等 function-valued options 时可以选择显式 setup：
+setup 默认启用 LSP、CodeLens 与 search，不创建 keymaps；`[lsp]、`[codelens] 与 `[search] 都可用
+`[enabled = false] 单独关闭，并可直接传入 `[on_attach] 等 function-valued options：
 
 `{language=lua}
-  vim.g.plumb_nvim_auto_setup = false
   require('plumb').setup({
     lsp = { on_attach = function(client, bufnr) end },
   })
@@ -69,9 +64,12 @@ lazy.nvim 使用 source checkout 时：
 `{language=lua}
   {
     dir = '/path/to/plumb/contrib/nvim',
+    ft = 'plumb',
+    opts = {},
   }
 
-plugin 自己通过 `[ftdetect] 与 `[ftplugin] 延迟初始化，不要求 plugin manager 重复声明 filetype trigger。
+不配置 plugin manager lazy loading 时，setup 仍只直接加载轻量入口与 LSP 配置；search 和 CodeLens
+implementation modules 在对应 command 实际执行时才加载。
 
 不用 plugin manager 时，在打开首个 plumb buffer 前执行
 `[vim.opt.runtimepath:prepend('/path/to/plumb/contrib/nvim')]。
@@ -89,7 +87,7 @@ guide 与 `[doc/plumb.txt]。
 `[plumb lsp] 在顶层 metadata 上显示 `[N file references]，并在每个 explicit anchor 上显示
 `[N references] CodeLens。前者统计其他 documents 中指向当前文件的 reference occurrences。
 command id 是 `[plumb.showReferences]，arguments 是 target URI、target position 和完整 reference locations。
-自动 setup 为 Neovim 注册一个轻量 client-side command handler，首次执行时才加载 `[plumb.codelens]。
+setup 为 Neovim 注册一个轻量 client-side command handler，首次执行时才加载 `[plumb.codelens]。
 `[plumb.codelens.setup({ picker = 'snacks' })] 可用于独立配置 handler，并把 CodeLens 已
 携带的 locations 直接转换为 Snacks file picker items；它不会重复发送 LSP references request。picker
 提供 file preview、jump、tagstack 和 single-result auto-confirm。
