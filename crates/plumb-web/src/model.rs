@@ -1083,6 +1083,13 @@ impl WebWorkspace {
                     paths.insert(path);
                 }
             }
+            for file in &current.output.files {
+                if let ResolvedTarget::File { path } =
+                    self.workspace.resolve_file(&entry.path, file)
+                {
+                    paths.insert(path);
+                }
+            }
         }
         for path in paths {
             let Ok(canonical) = path.canonicalize() else {

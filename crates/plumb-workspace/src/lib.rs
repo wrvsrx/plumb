@@ -11,9 +11,9 @@ pub use plumb_edit::TextEdit;
 use plumb_edit::{AttributePosition, EditSession, OwnedAttribute, OwnedBlock};
 use plumb_extensions::{
     analyze_document, next_task_datetime, parse_task_reference_target, valid_task_datetime,
-    AnchorRecord, DocumentOutput, ImageCompletionContext, ImageRecord, ImageTarget,
-    LinkCompletionContext, LinkRecord, LinkSpelling, LinkTarget, MetadataValue, TaskRecord,
-    TaskReferenceTarget, TaskState, TaskStatus,
+    AnchorRecord, DocumentOutput, FileRecord, FileTarget, ImageCompletionContext, ImageRecord,
+    ImageTarget, LinkCompletionContext, LinkRecord, LinkSpelling, LinkTarget, MetadataValue,
+    TaskRecord, TaskReferenceTarget, TaskState, TaskStatus,
 };
 
 pub const WORKSPACE_MARKER: &str = ".plumb";
@@ -615,6 +615,28 @@ impl Workspace {
             .max_by_key(|image| image.range.start)
     }
 
+    pub fn resolve_file(&self, from: impl AsRef<Path>, file: &FileRecord) -> ResolvedTarget {
+        match &file.target_kind {
+            FileTarget::External => ResolvedTarget::External,
+            FileTarget::File { path } => {
+                let target = resolve_relative(from.as_ref(), path);
+                if target.is_file() {
+                    ResolvedTarget::File { path: target }
+                } else {
+                    ResolvedTarget::UnresolvedFile { path: target }
+                }
+            }
+        }
+    }
+
+    pub fn file_at(&self, path: impl AsRef<Path>, offset: usize) -> Option<&FileRecord> {
+        self.current_output(path.as_ref())?
+            .files
+            .iter()
+            .filter(|file| contains_inclusive(&file.range, offset))
+            .max_by_key(|file| file.range.start)
+    }
+
     pub fn reference_target_at(
         &self,
         path: impl AsRef<Path>,
@@ -661,6 +683,9 @@ impl Workspace {
         }
         if let Some(image) = self.image_at(&path, offset) {
             return Some(self.resolve_image(&path, image));
+        }
+        if let Some(file) = self.file_at(&path, offset) {
+            return Some(self.resolve_file(&path, file));
         }
         None
     }
@@ -1500,6 +1525,19 @@ impl Workspace {
                 severity: DiagnosticSeverity::Warning,
                 message: format!("unresolved image file '{}'", target.display()),
                 range: image.source.range.clone(),
+                related: Vec::new(),
+            });
+        }
+        for file in &current.output.files {
+            let ResolvedTarget::UnresolvedFile { path: target } = self.resolve_file(&path, file)
+            else {
+                continue;
+            };
+            diagnostics.push(Diagnostic {
+                code: "file.unresolved-file",
+                severity: DiagnosticSeverity::Warning,
+                message: format!("unresolved file attachment '{}'", target.display()),
+                range: file.source.range.clone(),
                 related: Vec::new(),
             });
         }
@@ -3664,6 +3702,54 @@ mod tests {
         assert!(unresolved
             .message
             .contains(&static_dir.join("image one.PNG").display().to_string()));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn resolves_file_attachments_and_reports_missing_targets() {
+        use std::sync::atomic::{AtomicU64, Ordering};
+
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let root = std::env::temp_dir().join(format!(
+            "plumb-file-resolution-{}-{}",
+            std::process::id(),
+            COUNTER.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::create_dir_all(root.join("static")).unwrap();
+        std::fs::write(root.join("static/demo.mp4"), b"video").unwrap();
+        let source_path = root.join("note.plumb");
+        let source =
+            "`file[Demo]{src=\"static/demo.mp4\"}\n`file[Missing]{src=\"static/missing.pdf\"}\n";
+        let mut workspace = Workspace::new();
+        workspace.insert(&source_path, 1, source);
+
+        let file = workspace
+            .file_at(&source_path, source.find("Demo").unwrap())
+            .unwrap();
+        assert_eq!(
+            workspace.resolve_file(&source_path, file),
+            ResolvedTarget::File {
+                path: root.join("static/demo.mp4")
+            }
+        );
+        assert_eq!(
+            workspace.target_at(&source_path, source.find("demo.mp4").unwrap()),
+            Some(ResolvedTarget::File {
+                path: root.join("static/demo.mp4")
+            })
+        );
+        let diagnostics = workspace.diagnostics(&source_path);
+        assert_eq!(
+            diagnostics
+                .iter()
+                .filter(|diagnostic| diagnostic.code == "file.unresolved-file")
+                .count(),
+            1
+        );
+        assert!(diagnostics.iter().any(|diagnostic| diagnostic
+            .message
+            .contains(&root.join("static/missing.pdf").display().to_string())));
+
         std::fs::remove_dir_all(root).unwrap();
     }
 
