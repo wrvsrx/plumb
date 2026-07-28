@@ -16,6 +16,8 @@ local opts = {
   search = { enabled = false },
 }
 plumb.setup(opts)
+assert(package.loaded['plumb.codelens'] == nil, 'defer the CodeLens implementation')
+assert(package.loaded['plumb.search'] == nil, 'defer the search implementation')
 local first = #vim.api.nvim_get_autocmds({ group = 'PlumbNvim' })
 plumb.setup(opts)
 local second = #vim.api.nvim_get_autocmds({ group = 'PlumbNvim' })
@@ -27,9 +29,12 @@ assert(vim.fn.exists(':PlumbNotes') == 0)
 assert(vim.fn.exists(':PlumbReferences') == 0)
 assert(type(vim.lsp.commands['plumb.showReferences']) == 'function')
 assert(vim.fn.exists(':PlumbWeb') == 0)
+vim.lsp.commands['plumb.showReferences']({ arguments = { '', {}, {} } }, {})
+assert(package.loaded['plumb.codelens'] ~= nil, 'load CodeLens on first execution')
 
 plumb.setup({
   lsp = { enabled = false },
   codelens = { enabled = false },
   search = { enabled = false },
 })
+assert(vim.lsp.commands['plumb.showReferences'] == nil, 'remove a disabled CodeLens handler')

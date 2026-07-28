@@ -29,6 +29,8 @@ buffer with:
 No mappings are installed. The defaults enable LSP, CodeLens, and search.
 Features can be disabled independently. Set g:plumb_nvim_auto_setup to false
 and call require('plumb').setup(opts) explicitly for function-valued options.
+Search and CodeLens implementation modules are required only when their
+commands are executed; plugin managers do not need a separate filetype trigger.
 
 Use picker = 'snacks' when snacks.nvim is installed. Repeated setup calls are
 safe and replace the plugin's commands and autocmds.

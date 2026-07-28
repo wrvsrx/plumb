@@ -69,8 +69,9 @@ lazy.nvim 使用 source checkout 时：
 `{language=lua}
   {
     dir = '/path/to/plumb/contrib/nvim',
-    ft = 'plumb',
   }
+
+plugin 自己通过 `[ftdetect] 与 `[ftplugin] 延迟初始化，不要求 plugin manager 重复声明 filetype trigger。
 
 不用 plugin manager 时，在打开首个 plumb buffer 前执行
 `[vim.opt.runtimepath:prepend('/path/to/plumb/contrib/nvim')]。
@@ -88,7 +89,8 @@ guide 与 `[doc/plumb.txt]。
 `[plumb lsp] 在顶层 metadata 上显示 `[N file references]，并在每个 explicit anchor 上显示
 `[N references] CodeLens。前者统计其他 documents 中指向当前文件的 reference occurrences。
 command id 是 `[plumb.showReferences]，arguments 是 target URI、target position 和完整 reference locations。
-`[plumb.codelens.setup({ picker = 'snacks' })] 为 Neovim 注册 client-side command，并把 CodeLens 已
+自动 setup 为 Neovim 注册一个轻量 client-side command handler，首次执行时才加载 `[plumb.codelens]。
+`[plumb.codelens.setup({ picker = 'snacks' })] 可用于独立配置 handler，并把 CodeLens 已
 携带的 locations 直接转换为 Snacks file picker items；它不会重复发送 LSP references request。picker
 提供 file preview、jump、tagstack 和 single-result auto-confirm。
 

@@ -1,7 +1,14 @@
 local M = {}
 
 local COMMAND = 'plumb.showReferences'
-local config = { picker = 'quickfix' }
+
+local function picker(opts)
+  local value = (opts or {}).picker or 'quickfix'
+  if value ~= 'quickfix' and value ~= 'snacks' then
+    error("picker must be 'quickfix' or 'snacks'")
+  end
+  return value
+end
 
 local function open_quickfix(items, title)
   vim.fn.setqflist({}, ' ', { title = title, items = items })
@@ -35,7 +42,7 @@ local function open_snacks(items, title)
   })
 end
 
-local function show_references(command, ctx)
+function M.execute(command, ctx, opts)
   local arguments = command.arguments or {}
   local locations = arguments[3]
   if type(locations) ~= 'table' then
@@ -53,7 +60,7 @@ local function show_references(command, ctx)
   end
   local items = vim.lsp.util.locations_to_items(locations, client.offset_encoding)
   local title = command.title or 'plumb references'
-  if config.picker == 'snacks' then
+  if picker(opts) == 'snacks' then
     open_snacks(items, title)
   else
     open_quickfix(items, title)
@@ -61,13 +68,10 @@ local function show_references(command, ctx)
 end
 
 function M.setup(opts)
-  opts = opts or {}
-  local picker = opts.picker or 'quickfix'
-  if picker ~= 'quickfix' and picker ~= 'snacks' then
-    error("picker must be 'quickfix' or 'snacks'")
+  local configured_picker = picker(opts)
+  vim.lsp.commands[COMMAND] = function(command, ctx)
+    M.execute(command, ctx, { picker = configured_picker })
   end
-  config = { picker = picker }
-  vim.lsp.commands[COMMAND] = show_references
 end
 
 return M

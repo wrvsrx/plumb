@@ -12,6 +12,7 @@ local commands = {
   'PlumbNotes',
   'PlumbTasks',
 }
+local codelens_command = 'plumb.showReferences'
 
 local function command(name, callback, desc)
   pcall(vim.api.nvim_del_user_command, name)
@@ -21,6 +22,20 @@ end
 local function clear_commands()
   for _, name in ipairs(commands) do
     pcall(vim.api.nvim_del_user_command, name)
+  end
+end
+
+local function configure_codelens(opts)
+  if not opts.enabled then
+    vim.lsp.commands[codelens_command] = nil
+    return
+  end
+  if opts.picker ~= 'quickfix' and opts.picker ~= 'snacks' then
+    error("picker must be 'quickfix' or 'snacks'")
+  end
+  local picker = opts.picker
+  vim.lsp.commands[codelens_command] = function(command_value, ctx)
+    require('plumb.codelens').execute(command_value, ctx, { picker = picker })
   end
 end
 
@@ -39,9 +54,7 @@ function M.setup(opts)
     codelens = config.codelens.enabled,
   }, config.lsp)
   require('plumb.lsp').setup(lsp, group)
-  if config.codelens.enabled then
-    require('plumb.codelens').setup({ picker = config.codelens.picker })
-  end
+  configure_codelens(config.codelens)
   if config.search.enabled then
     command('PlumbNotes', function()
       require('plumb.search').search_notes({ picker = config.search.picker })
