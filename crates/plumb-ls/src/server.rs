@@ -293,35 +293,11 @@ impl ServerState {
     }
 
     fn reference_target_at(&self, path: &Path, offset: usize) -> Option<ResolvedTarget> {
-        if let Some(reference) = self.workspace.anchor_reference_at(path, offset) {
-            return Some(ResolvedTarget::Anchor {
-                path: reference.target_path,
-                id: reference.target_id,
-                anchor: reference.anchor,
-            });
-        }
-        if let Some(target) = self.workspace.resolve_task_reference_at(path, offset) {
-            return Some(target);
-        }
-        if let Some(image) = self.workspace.image_at(path, offset) {
-            return Some(self.workspace.resolve_image(path, image));
-        }
-        let link = self.workspace.link_at(path, offset)?;
-        Some(self.workspace.resolve_link(path, link))
+        self.workspace.reference_target_at(path, offset)
     }
 
     fn target_at(&self, path: &Path, offset: usize) -> Option<ResolvedTarget> {
-        if let Some(target) = self.reference_target_at(path, offset) {
-            return Some(target);
-        }
-        if let Some(anchor) = self.workspace.anchor_at(path, offset) {
-            return Some(ResolvedTarget::Anchor {
-                path: normalize(path),
-                id: anchor.id.value.clone(),
-                anchor: anchor.clone(),
-            });
-        }
-        None
+        self.workspace.target_at(path, offset)
     }
 
     fn target_at_with_lazy_load(&mut self, path: &Path, offset: usize) -> Option<ResolvedTarget> {
@@ -931,30 +907,58 @@ impl LanguageServer for ServerState {
             .and_then(|path| {
                 let entry = self.workspace.get(&path)?;
                 let offset = position_to_offset(&entry.parsed.source, position.position);
-                let ResolvedTarget::Anchor {
-                    path: target_path,
-                    id,
-                    anchor,
-                } = self.target_at(&path, offset)?
-                else {
-                    return None;
-                };
-                let mut locations = self
-                    .workspace
-                    .references_to(&target_path, &id)
-                    .into_iter()
-                    .filter_map(|(source_path, reference)| {
-                        location_for(&self.workspace, source_path, &reference.source_range)
-                    })
-                    .collect::<Vec<_>>();
-                if params.context.include_declaration {
-                    if let Some(declaration) =
-                        location_for(&self.workspace, &target_path, &anchor.selection_range)
-                    {
-                        locations.insert(0, declaration);
+                match self.target_at_with_lazy_load(&path, offset)? {
+                    ResolvedTarget::Anchor {
+                        path: target_path,
+                        id,
+                        anchor,
+                    } => {
+                        let mut locations = self
+                            .workspace
+                            .references_to(&target_path, &id)
+                            .into_iter()
+                            .filter_map(|(source_path, reference)| {
+                                location_for(&self.workspace, source_path, &reference.source_range)
+                            })
+                            .collect::<Vec<_>>();
+                        if params.context.include_declaration {
+                            if let Some(declaration) =
+                                location_for(&self.workspace, &target_path, &anchor.selection_range)
+                            {
+                                locations.insert(0, declaration);
+                            }
+                        }
+                        Some(locations)
                     }
+                    ResolvedTarget::Document { path: target_path } => {
+                        let mut locations = self
+                            .workspace
+                            .references_to_document(&target_path)
+                            .into_iter()
+                            .filter_map(|(source_path, reference)| {
+                                location_for(&self.workspace, source_path, &reference.source_range)
+                            })
+                            .collect::<Vec<_>>();
+                        if params.context.include_declaration {
+                            if let Some(metadata) = self
+                                .workspace
+                                .get(&target_path)
+                                .and_then(|entry| entry.current.as_ref())
+                                .and_then(|current| current.output.metadata.metadata.as_ref())
+                            {
+                                if let Some(declaration) = location_for(
+                                    &self.workspace,
+                                    &target_path,
+                                    &metadata.selection_range,
+                                ) {
+                                    locations.insert(0, declaration);
+                                }
+                            }
+                        }
+                        Some(locations)
+                    }
+                    _ => None,
                 }
-                Some(locations)
             });
         Box::pin(async move { Ok(locations) })
     }

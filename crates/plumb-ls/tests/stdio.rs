@@ -2886,6 +2886,103 @@ fn definition_resolves_a_file_name_containing_spaces() {
 }
 
 #[test]
+fn document_references_resolve_metadata_and_reference_components() {
+    let root = unique_temp_dir();
+    std::fs::create_dir_all(&root).unwrap();
+    let target = root.join("target.plumb");
+    let source = root.join("source.plumb");
+    let lonely = root.join("lonely.plumb");
+    let target_text = "`meta\n `: title\n\n    Target\n\n`#{#section} Section\nSee `->[self]{to=\"target.plumb\"}.\n";
+    let source_text = "See `->[document]{to=\"target.plumb\"}.\nSee `->[section]{to=\"target.plumb#section\"}.\n`-{.task prev=\"target.plumb#section\" depends=\"target.plumb#section\"} Review\n";
+    let lonely_text = "`meta\n `: title\n\n    Lonely\n";
+    std::fs::write(&target, target_text).unwrap();
+    std::fs::write(&source, source_text).unwrap();
+    std::fs::write(&lonely, lonely_text).unwrap();
+    let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
+    let target_uri = lsp_types::Url::from_file_path(&target).unwrap();
+    let source_uri = lsp_types::Url::from_file_path(&source).unwrap();
+    let lonely_uri = lsp_types::Url::from_file_path(&lonely).unwrap();
+    let source_lines = source_text.lines().collect::<Vec<_>>();
+    let document_path = source_lines[0].find("target.plumb").unwrap();
+    let anchor_path = source_lines[1].find("target.plumb").unwrap();
+    let anchor_fragment = source_lines[1].find("#section").unwrap() + 1;
+    let task_prev_path = source_lines[2].find("target.plumb").unwrap();
+    let depends_start = source_lines[2].find("depends=").unwrap();
+    let task_depends_path = depends_start
+        + source_lines[2][depends_start..]
+            .find("target.plumb")
+            .unwrap();
+    let reference_request = |id, uri: &lsp_types::Url, line, character, include_declaration| {
+        json!({
+            "jsonrpc": "2.0", "id": id, "method": "textDocument/references",
+            "params": {
+                "textDocument": { "uri": uri },
+                "position": { "line": line, "character": character },
+                "context": { "includeDeclaration": include_declaration }
+            }
+        })
+    };
+    let messages = [
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {
+                "processId": null,
+                "rootUri": root_uri,
+                "workspaceFolders": [{ "uri": root_uri, "name": "test" }],
+                "capabilities": {}
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        reference_request(2, &target_uri, 0, 1, false),
+        reference_request(3, &source_uri, 0, document_path, false),
+        reference_request(4, &source_uri, 1, anchor_path, false),
+        reference_request(5, &source_uri, 2, task_prev_path, false),
+        reference_request(6, &source_uri, 2, task_depends_path, false),
+        reference_request(7, &source_uri, 1, anchor_fragment, false),
+        reference_request(8, &target_uri, 0, 1, true),
+        reference_request(9, &source_uri, 1, anchor_fragment, true),
+        reference_request(10, &lonely_uri, 0, 1, false),
+        reference_request(11, &lonely_uri, 0, 1, true),
+        json!({
+            "jsonrpc": "2.0", "id": 12, "method": "textDocument/codeLens",
+            "params": { "textDocument": { "uri": target_uri } }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 13, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+
+    let output = run_server(&messages);
+    let metadata_references = &response(&output, 2)["result"];
+    assert_eq!(metadata_references.as_array().unwrap().len(), 5);
+    assert_eq!(response(&output, 3)["result"], *metadata_references);
+    assert_eq!(response(&output, 4)["result"], *metadata_references);
+    assert_eq!(response(&output, 5)["result"], *metadata_references);
+    assert_eq!(response(&output, 6)["result"], *metadata_references);
+
+    let anchor_references = &response(&output, 7)["result"];
+    assert_eq!(anchor_references.as_array().unwrap().len(), 3);
+    let document_with_declaration = response(&output, 8)["result"].as_array().unwrap();
+    assert_eq!(document_with_declaration.len(), 6);
+    assert_eq!(document_with_declaration[0]["uri"], target_uri.as_str());
+    assert_eq!(document_with_declaration[0]["range"]["start"]["line"], 0);
+    let anchor_with_declaration = response(&output, 9)["result"].as_array().unwrap();
+    assert_eq!(anchor_with_declaration.len(), 4);
+    assert_eq!(anchor_with_declaration[0]["uri"], target_uri.as_str());
+    assert_eq!(anchor_with_declaration[0]["range"]["start"]["line"], 5);
+    assert!(response(&output, 10)["result"]
+        .as_array()
+        .unwrap()
+        .is_empty());
+    let lonely_with_declaration = response(&output, 11)["result"].as_array().unwrap();
+    assert_eq!(lonely_with_declaration.len(), 1);
+    assert_eq!(lonely_with_declaration[0]["uri"], lonely_uri.as_str());
+    let lenses = response(&output, 12)["result"].as_array().unwrap();
+    assert_eq!(lenses[0]["command"]["arguments"][2], *metadata_references);
+
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn task_references_support_navigation_and_rename() {
     let root = unique_temp_dir();
     std::fs::create_dir_all(&root).unwrap();
