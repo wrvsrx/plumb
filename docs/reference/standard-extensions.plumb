@@ -134,6 +134,14 @@ completion。bare 或尚未关闭的 inline verbatim 始终保持普通 verbatim
 workspace 使用 open buffer 覆盖 disk snapshot。document target 已确定但 fragment missing 时，
 仍保留 document-level reverse edge。
 
+editor cursor target resolution 将顶层有效 `[meta] opener 视为 document declaration；metadata title
+value 不定义 document identity。named Link、Autolink 与 task reference 中的 `[..plumb] path component
+解析为 document target，`[#id] fragment component 解析为 explicit anchor target；因此 references query
+可以从 declaration 或任意 reference occurrence 发起。跨文件 `[`path.plumb#id] 的 path 与 fragment
+按 cursor 所在 component 分别查询 document 与 anchor references。`[includeDeclaration] 只控制结果中
+是否额外包含 `[meta] opener 或 explicit anchor declaration，不因 request position 改变 occurrence 集合。
+document reverse references 保留真实 same-document occurrences；Graph 等 consumer 可以独立隐藏 self-edge。
+
 `# 8. Images
 
 parsed inline kind `[img] 是标准 image；content 是 alt content，`[src] pair 是非空 target：

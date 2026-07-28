@@ -283,6 +283,7 @@
 
 `-{
    .task #metadata-document-references created="2026-07-28T17:02:27+08:00"
+   done="2026-07-28T17:33:38+08:00"
   } 支持从 document declaration 与 reference occurrences 查找 references
 
    `note 顶层有效 `[meta] opener 是当前 document 的声明位置；cursor target resolution 应将它映射为 document target，并与 metadata 上的 document rename、file-reference CodeLens 和 workspace reverse-reference index 共用同一身份模型，不在 LSP adapter 添加独立特判。
