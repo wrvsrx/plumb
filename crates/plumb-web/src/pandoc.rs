@@ -92,6 +92,12 @@ fn adapt_value(
                     } else {
                         adapt_link_target(workspace, source_path, mode, &target)
                     };
+                    if node_kind.as_deref() == Some("Link")
+                        && is_local_video(workspace, source_path, &target)
+                    {
+                        *object = video_inline(&adapted, &target);
+                        return;
+                    }
                     if let Some(target_value) = object
                         .get_mut("c")
                         .and_then(Value::as_array_mut)
@@ -112,6 +118,50 @@ fn adapt_value(
         }
         _ => {}
     }
+}
+
+fn is_local_video(workspace: &WebWorkspace, source_path: &Path, target: &str) -> bool {
+    if is_external(target) || target.contains('#') {
+        return false;
+    }
+    let resolved = resolve_relative(source_path, target);
+    let canonical = resolved.canonicalize().unwrap_or(resolved);
+    workspace
+        .resource_for_path(&canonical)
+        .is_some_and(|resource| {
+            mime_guess::from_path(&resource.path)
+                .first()
+                .is_some_and(|mime| mime.type_() == mime_guess::mime::VIDEO)
+        })
+}
+
+fn video_inline(target: &str, label: &str) -> serde_json::Map<String, Value> {
+    let target = escape_html_attribute(target);
+    let label = escape_html(label);
+    serde_json::Map::from_iter([
+        ("t".to_string(), Value::String("RawInline".to_string())),
+        (
+            "c".to_string(),
+            Value::Array(vec![
+                Value::String("html".to_string()),
+                Value::String(format!(
+                    "<video controls preload=\"metadata\" src=\"{target}\"><a href=\"{target}\">{label}</a></video>"
+                )),
+            ]),
+        ),
+    ])
+}
+
+fn escape_html(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
+
+fn escape_html_attribute(value: &str) -> String {
+    escape_html(value).replace('\'', "&#39;")
 }
 
 fn adapt_link_target(
@@ -249,6 +299,49 @@ mod tests {
         let image_target = image["c"][2][0].as_str().unwrap();
         assert!(image_target.starts_with("/resource/r"), "{image_target}");
         assert!(image_target.ends_with("/a%20b%2Epng"), "{image_target}");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn renders_local_video_links_as_media_with_dynamic_and_static_targets() {
+        let root = temp_dir();
+        std::fs::create_dir_all(root.join("assets")).unwrap();
+        std::fs::write(root.join("assets/demo video.mp4"), b"video").unwrap();
+        std::fs::write(
+            root.join("a.plumb"),
+            "`->[Demo video]{to=\"assets/demo video.mp4\"}\n",
+        )
+        .unwrap();
+        let workspace = WebWorkspace::load(&root).unwrap();
+        let document_id = workspace.document_id(root.join("a.plumb")).unwrap();
+
+        let mut dynamic = workspace.pandoc_document(document_id).unwrap();
+        adapt_pandoc_targets(
+            &workspace,
+            &root.join("a.plumb"),
+            WebTargetMode::Dynamic,
+            &mut dynamic,
+        );
+        let video = &dynamic["blocks"][0]["c"][0];
+        assert_eq!(video["t"], "RawInline");
+        let html = video["c"][1].as_str().unwrap();
+        assert!(html.starts_with("<video controls"), "{html}");
+        assert!(html.contains("src=\"/resource/r"), "{html}");
+        assert!(html.contains("demo%20video%2Emp4"), "{html}");
+
+        let mut static_note = workspace.pandoc_document(document_id).unwrap();
+        adapt_pandoc_targets(
+            &workspace,
+            &root.join("a.plumb"),
+            WebTargetMode::StaticNote,
+            &mut static_note,
+        );
+        let html = static_note["blocks"][0]["c"][0]["c"][1].as_str().unwrap();
+        assert!(html.contains("src=\"../../resources/r"), "{html}");
+
+        let rendered = render_note_html(&workspace, document_id, WebTargetMode::Dynamic).unwrap();
+        assert!(rendered.contains("<video controls"), "{rendered}");
+        assert!(rendered.contains("src=\"/resource/r"), "{rendered}");
         std::fs::remove_dir_all(root).unwrap();
     }
 

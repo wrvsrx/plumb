@@ -124,7 +124,8 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
 .document h3 { font-size: 18px; }
 .document p, .document ul, .document ol, .document blockquote, .document pre { margin: 0 0 1em; }
 .document a { color: #0d7066; text-underline-offset: 3px; }
-.document img { max-width: 100%; height: auto; }
+.document img, .document video { display: block; max-width: 100%; height: auto; }
+.document video { width: min(100%, 60rem); background: #111; }
 .document code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; background: #eeeeeb; padding: 1px 4px; border-radius: 3px; overflow-wrap: anywhere; }
 .document pre { overflow: auto; padding: 14px; border-left: 3px solid var(--yellow); background: #f1f1ee; }
 .document pre code { padding: 0; background: transparent; }
