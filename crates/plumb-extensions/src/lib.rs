@@ -11,8 +11,8 @@ mod tasks;
 
 pub use citations::{analyze_citations, CitationOutput, CitationRecord};
 pub use document::{
-    analyze_document, AnchorKind, AnchorRecord, DocumentOutput, ImageRecord, ImageTarget,
-    LinkRecord, LinkSpelling, LinkTarget, SourceBacked,
+    analyze_document, AnchorKind, AnchorRecord, DocumentOutput, FileRecord, FileTarget,
+    ImageRecord, ImageTarget, LinkRecord, LinkSpelling, LinkTarget, SourceBacked,
 };
 pub use headings::{analyze_headings, Heading, HeadingOutput};
 pub use inline_styles::{

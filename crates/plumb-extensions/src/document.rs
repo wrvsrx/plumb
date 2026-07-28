@@ -97,6 +97,20 @@ pub struct ImageRecord {
     pub target_kind: ImageTarget,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FileTarget {
+    External,
+    File { path: String },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileRecord {
+    pub range: Range<usize>,
+    pub selection_range: Range<usize>,
+    pub source: SourceBacked<String>,
+    pub target_kind: FileTarget,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct DocumentOutput {
     pub headings: HeadingOutput,
@@ -110,6 +124,7 @@ pub struct DocumentOutput {
     pub anchors: Vec<AnchorRecord>,
     pub links: Vec<LinkRecord>,
     pub images: Vec<ImageRecord>,
+    pub files: Vec<FileRecord>,
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -120,6 +135,10 @@ impl DocumentOutput {
 
     pub fn image_at_node_start(&self, start: usize) -> Option<&ImageRecord> {
         self.images.iter().find(|image| image.range.start == start)
+    }
+
+    pub fn file_at_node_start(&self, start: usize) -> Option<&FileRecord> {
+        self.files.iter().find(|file| file.range.start == start)
     }
 }
 
@@ -226,6 +245,8 @@ fn collect_inlines(
                     collect_link(source, range.clone(), content.range.clone(), attrs, output);
                 } else if kind == "img" {
                     collect_image(source, range.clone(), content.range.clone(), attrs, output);
+                } else if kind == "file" {
+                    collect_file(source, range.clone(), content.range.clone(), attrs, output);
                 }
                 collect_inlines(source, content, first_ids, output);
             }
@@ -460,6 +481,73 @@ fn collect_image(
         }
     };
     output.images.push(ImageRecord {
+        range,
+        selection_range,
+        source: source_value,
+        target_kind,
+    });
+}
+
+fn collect_file(
+    source: &str,
+    range: Range<usize>,
+    selection_range: Range<usize>,
+    attrs: &Attributes,
+    output: &mut DocumentOutput,
+) {
+    let Some(value) = attrs.items.iter().find_map(|item| match item {
+        AttrItem::Pair { key, value, .. } if key == "src" => Some(value),
+        _ => None,
+    }) else {
+        output.diagnostics.push(Diagnostic {
+            code: "file.missing-source",
+            severity: DiagnosticSeverity::Warning,
+            message: "file requires a nonempty 'src' target".to_string(),
+            range,
+            related: Vec::new(),
+        });
+        return;
+    };
+    let source_value = attr_source_backed(source, value);
+    if source_value.value.is_empty() {
+        output.diagnostics.push(Diagnostic {
+            code: "file.missing-source",
+            severity: DiagnosticSeverity::Warning,
+            message: "file requires a nonempty 'src' target".to_string(),
+            range: source_value.range,
+            related: Vec::new(),
+        });
+        return;
+    }
+    let target_kind = if has_uri_scheme(&source_value.value) || source_value.value.starts_with("//")
+    {
+        if !valid_uri_reference(&source_value.value) {
+            output.diagnostics.push(Diagnostic {
+                code: "file.invalid-source",
+                severity: DiagnosticSeverity::Warning,
+                message: "absolute file 'src' must be a valid URI reference".to_string(),
+                range: source_value.range,
+                related: Vec::new(),
+            });
+            return;
+        }
+        FileTarget::External
+    } else {
+        if !valid_relative_file_path(&source_value.value) {
+            output.diagnostics.push(Diagnostic {
+                code: "file.invalid-source",
+                severity: DiagnosticSeverity::Warning,
+                message: "relative file 'src' must be a valid raw file path".to_string(),
+                range: source_value.range,
+                related: Vec::new(),
+            });
+            return;
+        }
+        FileTarget::File {
+            path: source_value.value.clone(),
+        }
+    };
+    output.files.push(FileRecord {
         range,
         selection_range,
         source: source_value,
@@ -842,6 +930,37 @@ mod tests {
                 "image.missing-source",
                 "image.invalid-source",
                 "image.invalid-source"
+            ]
+        );
+    }
+
+    #[test]
+    fn recognizes_standard_files_and_diagnoses_invalid_sources() {
+        let source = "`file[Demo]{src=\"static/demo video.mp4\" #demo .wide}\n`file[Remote]{src=\"https://example.test/demo.mp4\"}\n`file[Missing]\n`file[Empty]{src=\"\"}\n`file[Invalid URI]{src=\"https://example.test/bad path.mp4\"}\n`file[Invalid path]{src=\"bad\\\\path.mp4\"}\n";
+        let parsed = parse(source);
+        assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
+
+        let output = analyze_document(&parsed.source, &parsed.syntax);
+        assert_eq!(output.files.len(), 2);
+        assert_eq!(output.files[0].source.value, "static/demo video.mp4");
+        assert_eq!(
+            output.files[0].target_kind,
+            FileTarget::File {
+                path: "static/demo video.mp4".to_string()
+            }
+        );
+        assert_eq!(output.files[1].target_kind, FileTarget::External);
+        assert_eq!(
+            output
+                .diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.code)
+                .collect::<Vec<_>>(),
+            [
+                "file.missing-source",
+                "file.missing-source",
+                "file.invalid-source",
+                "file.invalid-source"
             ]
         );
     }
