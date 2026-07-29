@@ -1614,6 +1614,69 @@ fn publishes_task_symbols_hover_and_workspace_diagnostics() {
 }
 
 #[test]
+fn publishes_event_symbols_hover_references_and_diagnostics() {
+    let root = unique_temp_dir();
+    std::fs::create_dir_all(&root).unwrap();
+    let path = root.join("agenda.plumb");
+    let source = "`-{.task #write} Write\n`-{.event #review uid=\"review@example\" start=\"2026-07-30T14:00:00+08:00\" end=\"2026-07-30T15:00:00+08:00\" tasks=\"#write\"} Review\n`-{.event .task start=\"2026-07-30T16:00:00+08:00\"} Conflict\n";
+    std::fs::write(&path, source).unwrap();
+    let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
+    let uri = lsp_types::Url::from_file_path(&path).unwrap();
+    let messages = [
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": { "processId": null, "rootUri": root_uri, "capabilities": {} }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": {
+                "uri": uri, "languageId": "plumb", "version": 1, "text": source
+            }}
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 2, "method": "textDocument/documentSymbol",
+            "params": { "textDocument": { "uri": uri } }
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 3, "method": "textDocument/hover",
+            "params": { "textDocument": { "uri": uri }, "position": { "line": 1, "character": 12 } }
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 4, "method": "textDocument/references",
+            "params": { "textDocument": { "uri": uri }, "position": { "line": 0, "character": 11 }, "context": { "includeDeclaration": false } }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 5, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+    let output = run_server(&messages);
+    let symbols = response(&output, 2)["result"].as_array().unwrap();
+    assert_eq!(symbols.len(), 3);
+    assert_eq!(symbols[1]["name"], "Review");
+    assert!(symbols[1]["detail"]
+        .as_str()
+        .unwrap()
+        .contains("2026-07-30T14:00:00+08:00 #review"));
+    let hover = response(&output, 3)["result"]["contents"]["value"]
+        .as_str()
+        .unwrap();
+    assert!(hover.contains("**Event:** Review"), "{hover}");
+    assert!(hover.contains("**Tasks:** `#write`"), "{hover}");
+    assert_eq!(response(&output, 4)["result"].as_array().unwrap().len(), 1);
+    let diagnostics = output
+        .iter()
+        .filter(|message| message.get("method") == Some(&json!("textDocument/publishDiagnostics")))
+        .last()
+        .unwrap()["params"]["diagnostics"]
+        .as_array()
+        .unwrap();
+    assert!(diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic["code"] == "event.conflicting-task-facet"));
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn highlights_closed_tasks_with_multiline_attributes() {
     let uri = "file:///tmp/multiline-closed-tasks.plumb";
     let source = "`-{\n   .task\n   done=\"2026-07-20T10:00:00Z\"\n  } Done\n`-{\n   .task\n   canceled=\"2026-07-20T11:00:00Z\"\n  } Canceled\n";
@@ -2426,13 +2489,18 @@ fn completes_constructs_after_a_single_backtick() {
             .iter()
             .map(|item| item["label"].as_str().unwrap())
             .collect::<Vec<_>>(),
-        ["Task", "Autolink", "Link"]
+        ["Task", "Event", "Autolink", "Link"]
     );
     let task = block[0]["textEdit"]["newText"].as_str().unwrap();
     assert!(task.starts_with("`-{.task created=\""));
     assert!(task.ends_with("\"} ${1:Task}"));
     chrono::DateTime::parse_from_rfc3339(attribute_value(task, "created")).unwrap();
     assert_eq!(block[0]["insertTextFormat"], 2);
+    let event = block[1]["textEdit"]["newText"].as_str().unwrap();
+    assert!(event.starts_with("`-{.event uid=\""));
+    assert!(event.ends_with("${1:Event}"));
+    chrono::DateTime::parse_from_rfc3339(attribute_value(event, "start")).unwrap();
+    assert!(attribute_value(event, "uid").ends_with("@plumb.local"));
 
     let inline = response(&output, 3)["result"].as_array().unwrap();
     assert_eq!(
@@ -2497,7 +2565,7 @@ fn completes_constructs_after_a_single_backtick() {
             .iter()
             .map(|item| item["label"].as_str().unwrap())
             .collect::<Vec<_>>(),
-        ["Task", "Autolink", "Link"]
+        ["Task", "Event", "Autolink", "Link"]
     );
     let fallback_task = fallback_block
         .iter()
@@ -2508,6 +2576,14 @@ fn completes_constructs_after_a_single_backtick() {
     assert!(fallback_task.starts_with("`-{.task created=\""));
     assert!(fallback_task.ends_with("\"} "));
     chrono::DateTime::parse_from_rfc3339(attribute_value(fallback_task, "created")).unwrap();
+    let fallback_event = fallback_block
+        .iter()
+        .find(|item| item["label"] == "Event")
+        .unwrap()["textEdit"]["newText"]
+        .as_str()
+        .unwrap();
+    assert!(fallback_event.starts_with("`-{.event uid=\""));
+    assert!(fallback_event.ends_with("\"} "));
     assert_eq!(fallback_block[0]["insertTextFormat"], 1);
     std::fs::remove_dir_all(root).unwrap();
 }
@@ -2636,10 +2712,16 @@ fn searches_workspace_symbols_and_structured_records_over_stdio() {
     std::fs::create_dir_all(&root).unwrap();
     let note = root.join("note.plumb");
     let tasks = root.join("tasks.plumb");
+    let events = root.join("events.plumb");
     std::fs::write(&note, "`meta\n `: title\n\n    Disk title\n").unwrap();
     std::fs::write(
         &tasks,
         "`-{.task #review due=\"2026-07-23T12:00:00+08:00\"} Review parser\n",
+    )
+    .unwrap();
+    std::fs::write(
+        &events,
+        "`-{.event #review-event uid=\"review-event@example\" start=\"2026-07-30T14:00:00+08:00\" end=\"2026-07-30T15:00:00+08:00\" tasks=\"tasks.plumb#review\"} Review meeting\n",
     )
     .unwrap();
     for index in 0..105 {
@@ -2687,6 +2769,13 @@ fn searches_workspace_symbols_and_structured_records_over_stdio() {
             "params": { "query": "", "limit": 1 }
         }),
         json!({
+            "jsonrpc": "2.0", "id": 10, "method": "plumb/search",
+            "params": {
+                "kind": "event", "query": "meeting",
+                "filter": "start < timestamp('2026-07-30T07:00:00Z')", "limit": 20
+            }
+        }),
+        json!({
             "jsonrpc": "2.0", "id": 9, "method": "workspace/symbol",
             "params": { "query": "" }
         }),
@@ -2717,7 +2806,7 @@ fn searches_workspace_symbols_and_structured_records_over_stdio() {
     assert_eq!(capabilities["workspaceSymbolProvider"], true);
     assert_eq!(
         capabilities["experimental"]["plumb"]["search"]["schemaVersion"],
-        2
+        3
     );
     assert_eq!(
         capabilities["experimental"]["plumb"]["search"]["method"],
@@ -2734,7 +2823,7 @@ fn searches_workspace_symbols_and_structured_records_over_stdio() {
     assert_eq!(task_symbols[0]["name"], "Review parser");
 
     let structured = &response(&output, 4)["result"];
-    assert_eq!(structured["schemaVersion"], 2);
+    assert_eq!(structured["schemaVersion"], 3);
     assert_eq!(structured["complete"], true);
     assert_eq!(structured["items"][0]["kind"], "task");
     assert_eq!(structured["items"][0]["id"], "review");
@@ -2744,6 +2833,12 @@ fn searches_workspace_symbols_and_structured_records_over_stdio() {
     assert_eq!(structured["items"][0]["provenance"]["source"], "current");
     assert_eq!(structured["items"][0]["provenance"]["revision"], 0);
     assert_eq!(response(&output, 5)["result"]["complete"], false);
+    let event = &response(&output, 10)["result"]["items"][0];
+    assert_eq!(event["kind"], "event");
+    assert_eq!(event["id"], "review-event");
+    assert_eq!(event["start"], "2026-07-30T14:00:00+08:00");
+    assert_eq!(event["end"], "2026-07-30T15:00:00+08:00");
+    assert_eq!(event["tasks"], json!(["tasks.plumb#review"]));
     assert_eq!(
         response(&output, 9)["result"].as_array().unwrap().len(),
         100

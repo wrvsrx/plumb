@@ -17,5 +17,7 @@ crossterm.workspace = true
 plumb-core = { path = "../plumb-core" }
 plumb-extensions = { path = "../plumb-extensions" }
 plumb-workspace = { path = "../plumb-workspace" }
+sha2.workspace = true
 shlex.workspace = true
 skim.workspace = true
+uuid.workspace = true

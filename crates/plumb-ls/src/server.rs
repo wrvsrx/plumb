@@ -34,8 +34,8 @@ use plumb_core::{Block, Diagnostic, Document};
 use plumb_extensions::{
     analyze_headings, construct_completion_context, file_completion_context,
     image_completion_context, link_completion_context, AnchorKind, AnchorRecord,
-    ConstructCompletionContext, Heading, MetadataBlock, MetadataEntry, MetadataValue, TaskRecord,
-    TaskState, TaskStatus,
+    ConstructCompletionContext, EventRecord, Heading, MetadataBlock, MetadataEntry, MetadataValue,
+    TaskRecord, TaskState, TaskStatus,
 };
 use plumb_workspace::{
     normalize, scan_workspace_files, RenameError, ResolvedTarget, ResourceOperation, SearchRecord,
@@ -358,6 +358,7 @@ fn search_workspace(
     let kind = params.kind.map(|kind| match kind {
         SearchKind::Note => SearchRecordKind::Note,
         SearchKind::Task => SearchRecordKind::Task,
+        SearchKind::Event => SearchRecordKind::Event,
     });
     let limit = params.limit.unwrap_or(100).min(200) as usize;
     let root = roots
@@ -379,7 +380,7 @@ fn search_workspace(
         .map(|record| search_item(workspace, record))
         .collect::<Result<Vec<_>, _>>()?;
     Ok(SearchResult {
-        schema_version: 2,
+        schema_version: 3,
         items,
         complete: index_complete && results.complete,
     })
@@ -405,6 +406,7 @@ fn search_item(workspace: &Workspace, record: SearchRecord) -> Result<SearchItem
         kind: match record.kind {
             SearchRecordKind::Note => SearchKind::Note,
             SearchRecordKind::Task => SearchKind::Task,
+            SearchRecordKind::Event => SearchKind::Event,
         },
         title: record.title,
         path: record.relative_path,
@@ -424,6 +426,9 @@ fn search_item(workspace: &Workspace, record: SearchRecord) -> Result<SearchItem
         due: record.due,
         blocked: record.blocked,
         actionable: record.actionable,
+        start: record.start,
+        end: record.end,
+        tasks: record.tasks,
     })
 }
 
@@ -548,7 +553,7 @@ impl LanguageServer for ServerState {
                     experimental: Some(serde_json::json!({
                         "plumb": {
                             "search": {
-                                "schemaVersion": 2,
+                                "schemaVersion": 3,
                                 "method": "plumb/search"
                             }
                         }
@@ -704,7 +709,13 @@ impl LanguageServer for ServerState {
                                 .tasks
                                 .tasks
                                 .iter()
-                                .any(|task| task.range == anchor.range))
+                                .any(|task| task.range == anchor.range)
+                            && !current
+                                .output
+                                .events
+                                .events
+                                .iter()
+                                .any(|event| event.range == anchor.range))
                         .then(|| {
                             (
                                 anchor.range.start,
@@ -730,6 +741,19 @@ impl LanguageServer for ServerState {
                         .zip(task_symbols(
                             &entry.parsed.source,
                             &current.output.tasks.tasks,
+                        )),
+                );
+                additional.extend(
+                    current
+                        .output
+                        .events
+                        .events
+                        .iter()
+                        .filter(|event| event.depth == 0)
+                        .map(|event| event.range.start)
+                        .zip(event_symbols(
+                            &entry.parsed.source,
+                            &current.output.events.events,
                         )),
                 );
                 additional.sort_by_key(|(start, _)| *start);
@@ -794,6 +818,13 @@ impl LanguageServer for ServerState {
                             }
                             parts.join(" · ")
                         }
+                        SearchKind::Event => {
+                            let mut parts = vec![item.path];
+                            if let Some(start) = item.start {
+                                parts.push(start);
+                            }
+                            parts.join(" · ")
+                        }
                     };
                     #[allow(deprecated)]
                     SymbolInformation {
@@ -801,6 +832,7 @@ impl LanguageServer for ServerState {
                         kind: match item.kind {
                             SearchKind::Note => SymbolKind::FILE,
                             SearchKind::Task => SymbolKind::EVENT,
+                            SearchKind::Event => SymbolKind::EVENT,
                         },
                         tags: None,
                         deprecated: None,
@@ -1110,6 +1142,19 @@ impl LanguageServer for ServerState {
                         )),
                     });
                 }
+                if let Some(event) = self.workspace.event_at(&path, offset).cloned() {
+                    let entry = self.workspace.get(&path)?;
+                    return Some(Hover {
+                        contents: HoverContents::Markup(MarkupContent {
+                            kind: MarkupKind::Markdown,
+                            value: event_hover(&event),
+                        }),
+                        range: Some(byte_range_to_lsp(
+                            &entry.parsed.source,
+                            &event.selection_range,
+                        )),
+                    });
+                }
                 let target = self.target_at(&path, offset)?;
                 let message = target_hover(&self.workspace, &target);
                 Some(Hover {
@@ -1143,6 +1188,7 @@ impl LanguageServer for ServerState {
                         context,
                         self.supports_completion_snippets,
                         &timestamp,
+                        &format!("{}@plumb.local", uuid::Uuid::new_v4()),
                     ));
                 }
                 let (candidates, kind) =
@@ -1561,16 +1607,27 @@ fn construct_completion_items(
     context: ConstructCompletionContext,
     snippets: bool,
     timestamp: &str,
+    uid: &str,
 ) -> Vec<CompletionItem> {
     let (replace, mut templates) = match context {
         ConstructCompletionContext::Block { replace } => (
             replace,
-            vec![ConstructTemplate {
-                label: "Task",
-                detail: "plumb task list item",
-                snippet: format!("`-{{.task created=\"{timestamp}\"}} ${{1:Task}}"),
-                plain: format!("`-{{.task created=\"{timestamp}\"}} "),
-            }],
+            vec![
+                ConstructTemplate {
+                    label: "Task",
+                    detail: "plumb task list item",
+                    snippet: format!("`-{{.task created=\"{timestamp}\"}} ${{1:Task}}"),
+                    plain: format!("`-{{.task created=\"{timestamp}\"}} "),
+                },
+                ConstructTemplate {
+                    label: "Event",
+                    detail: "plumb calendar event",
+                    snippet: format!(
+                        "`-{{.event uid=\"{uid}\" start=\"{timestamp}\"}} ${{1:Event}}"
+                    ),
+                    plain: format!("`-{{.event uid=\"{uid}\" start=\"{timestamp}\"}} "),
+                },
+            ],
         ),
         ConstructCompletionContext::Inline { replace } => (replace, Vec::new()),
     };
@@ -1996,6 +2053,48 @@ fn task_symbol(source: &str, task: &TaskRecord) -> DocumentSymbol {
     }
 }
 
+fn event_symbols(source: &str, events: &[EventRecord]) -> Vec<DocumentSymbol> {
+    let mut roots = Vec::new();
+    let mut path = Vec::new();
+    for event in events {
+        while path.len() > event.depth {
+            path.pop();
+        }
+        let siblings = task_symbol_children_mut(&mut roots, &path);
+        siblings.push(event_symbol(source, event));
+        path.push(siblings.len() - 1);
+    }
+    roots
+}
+
+fn event_symbol(source: &str, event: &EventRecord) -> DocumentSymbol {
+    let id = event
+        .id
+        .as_ref()
+        .map(|id| format!(" #{}", id.value))
+        .unwrap_or_default();
+    let start = event
+        .start
+        .as_ref()
+        .map(|start| start.value.as_str())
+        .unwrap_or("invalid start");
+    #[allow(deprecated)]
+    DocumentSymbol {
+        name: if event.title.is_empty() {
+            "Untitled event".to_string()
+        } else {
+            event.title.clone()
+        },
+        detail: Some(format!("{start}{id}")),
+        kind: SymbolKind::EVENT,
+        tags: None,
+        deprecated: None,
+        range: byte_range_to_lsp(source, &event.range),
+        selection_range: byte_range_to_lsp(source, &event.selection_range),
+        children: None,
+    }
+}
+
 fn task_symbol_children_mut<'a>(
     roots: &'a mut Vec<DocumentSymbol>,
     path: &[usize],
@@ -2087,6 +2186,34 @@ fn task_hover(workspace: &Workspace, path: &Path, task: &TaskRecord) -> String {
         ));
     }
     lines.join("\n\n")
+}
+
+fn event_hover(event: &EventRecord) -> String {
+    let mut lines = vec![format!("**Event:** {}", event.title)];
+    if let Some(id) = &event.id {
+        lines.push(format!("**ID:** `#{}`", id.value));
+    }
+    for (label, field) in [
+        ("Start", &event.start),
+        ("End", &event.end),
+        ("UID", &event.uid),
+    ] {
+        if let Some(field) = field {
+            lines.push(format!("**{label}:** `{}`", field.value));
+        }
+    }
+    if !event.tasks.is_empty() {
+        lines.push(format!(
+            "**Tasks:** {}",
+            event
+                .tasks
+                .iter()
+                .map(|reference| format!("`{}`", reference.source))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+    }
+    lines.join("  \n")
 }
 
 fn task_state_name(state: TaskState) -> &'static str {
@@ -2223,7 +2350,11 @@ fn workspace_roots(params: &InitializeParams) -> Vec<PathBuf> {
 
 fn workspace_symbol_query(query: &str) -> (Option<SearchKind>, String) {
     let query = query.trim();
-    for (prefix, kind) in [("note", SearchKind::Note), ("task", SearchKind::Task)] {
+    for (prefix, kind) in [
+        ("note", SearchKind::Note),
+        ("task", SearchKind::Task),
+        ("event", SearchKind::Event),
+    ] {
         if query == prefix {
             return (Some(kind), String::new());
         }

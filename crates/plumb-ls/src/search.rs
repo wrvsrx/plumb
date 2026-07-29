@@ -15,6 +15,7 @@ impl Request for PlumbSearchRequest {
 pub(crate) enum SearchKind {
     Note,
     Task,
+    Event,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -58,6 +59,12 @@ pub(crate) struct SearchItem {
     pub blocked: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub actionable: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub start: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub end: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tasks: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

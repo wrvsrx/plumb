@@ -10,6 +10,7 @@ use plumb_workspace::{
     normalize, resolve_workspace_root, scan_workspace_files, SearchRecordKind, Workspace,
 };
 
+mod events;
 mod interactive;
 mod tasks;
 
@@ -109,6 +110,36 @@ fn run(config: Config) -> Result<(), String> {
                 )?;
             }
         }
+        Command::Event(event) => match event.command {
+            Some(EventCommand::ExportVdir(export)) => {
+                if config.query.is_some() {
+                    return Err("event export-vdir does not support --query".to_string());
+                }
+                events::export_vdir(&loaded, &export.output, chrono::Utc::now())?;
+            }
+            None => {
+                let records = loaded.workspace.search_records_filtered(
+                    &root,
+                    Some(SearchRecordKind::Event),
+                    "",
+                    usize::MAX,
+                    Local::now().fixed_offset(),
+                    config.query.as_deref(),
+                )?;
+                for event in records.items {
+                    println!(
+                        "{}\t{}\t{}\t{}",
+                        event.start.as_deref().unwrap_or("-"),
+                        event.end.as_deref().unwrap_or("-"),
+                        event.title,
+                        event.id.map_or_else(
+                            || display_path(&root, &event.path),
+                            |id| format!("{}#{id}", display_path(&root, &event.path)),
+                        )
+                    );
+                }
+            }
+        },
     }
     Ok(())
 }
@@ -142,6 +173,27 @@ enum Command {
     Note(NoteConfig),
     /// Print tasks found in scanned plumb files.
     Task(TaskConfig),
+    /// Export events for calendar clients.
+    Event(EventConfig),
+}
+
+#[derive(Debug, Args)]
+struct EventConfig {
+    #[command(subcommand)]
+    command: Option<EventCommand>,
+}
+
+#[derive(Debug, Subcommand)]
+enum EventCommand {
+    /// Generate a managed read-only vdir calendar.
+    ExportVdir(EventExportConfig),
+}
+
+#[derive(Debug, Args)]
+struct EventExportConfig {
+    /// Managed vdir output directory.
+    #[arg(long, value_name = "DIR", required = true)]
+    output: PathBuf,
 }
 
 #[derive(Debug, Args)]

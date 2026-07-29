@@ -13,7 +13,7 @@ fn exposes_the_unified_command_surface() {
     assert!(help.status.success());
     let help = String::from_utf8(help.stdout).unwrap();
     for command in [
-        "check", "fmt", "export", "import", "note", "site", "task", "lsp",
+        "check", "event", "fmt", "export", "import", "note", "site", "task", "lsp",
     ] {
         assert!(help.contains(command));
     }
@@ -55,6 +55,70 @@ fn exposes_the_unified_command_surface() {
         String::from_utf8_lossy(&imported.stderr)
     );
     assert_eq!(String::from_utf8(imported.stdout).unwrap(), "Paragraph.\n");
+}
+
+#[test]
+fn exports_events_as_a_khal_readonly_vdir() {
+    let root = unique_temp_dir();
+    let output = unique_temp_dir();
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(
+        root.join("agenda.plumb"),
+        "`-{.event #review uid=\"review@example\" start=\"2026-07-30T14:00:00+08:00\" end=\"2026-07-30T15:00:00+08:00\" tasks=\"#write\"} Parser review\n",
+    )
+    .unwrap();
+    let exported = Command::new(env!("CARGO_BIN_EXE_plumb"))
+        .args(["event", "--root"])
+        .arg(&root)
+        .arg("export-vdir")
+        .arg("--output")
+        .arg(&output)
+        .output()
+        .unwrap();
+    assert!(
+        exported.status.success(),
+        "{}",
+        String::from_utf8_lossy(&exported.stderr)
+    );
+    assert!(output.join(".plumb-vdir").is_file());
+    assert_eq!(
+        std::fs::read_dir(&output)
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "ics"))
+            .count(),
+        1
+    );
+
+    if Command::new("khal").arg("--version").output().is_ok() {
+        let config = root.join("khal.conf");
+        std::fs::write(
+            &config,
+            format!(
+                "[calendars]\n[[plumb]]\npath = {}\ntype = calendar\nreadonly = true\n\n[locale]\ntimeformat = %H:%M\ndateformat = %Y-%m-%d\nlongdateformat = %Y-%m-%d\ndatetimeformat = %Y-%m-%d %H:%M\nlongdatetimeformat = %Y-%m-%d %H:%M\ndefault_timezone = UTC\nlocal_timezone = UTC\n",
+                output.display()
+            ),
+        )
+        .unwrap();
+        let listed = Command::new("khal")
+            .args(["--no-color", "--config"])
+            .arg(config)
+            .args(["list", "2026-07-30", "2026-07-31"])
+            .output()
+            .unwrap();
+        assert!(
+            listed.status.success(),
+            "{}",
+            String::from_utf8_lossy(&listed.stderr)
+        );
+        assert!(
+            String::from_utf8_lossy(&listed.stdout).contains("Parser review"),
+            "{}",
+            String::from_utf8_lossy(&listed.stdout)
+        );
+    }
+    std::fs::remove_dir_all(root).unwrap();
+    std::fs::remove_dir_all(output).unwrap();
 }
 
 #[test]
