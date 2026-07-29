@@ -21,7 +21,6 @@ sha2.workspace = true
 tokio = { version = "1", features = ["macros", "net", "process", "rt-multi-thread", "sync", "time"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
 url.workspace = true
-webbrowser.workspace = true
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }

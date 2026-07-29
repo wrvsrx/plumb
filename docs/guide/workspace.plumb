@@ -57,8 +57,8 @@ complete/cancel 使用带 revision guard 的 shared operation 修改文件。
 
 `# Web app
 
-`[plumb site serve --root DIR] 启动默认只监听 `[127.0.0.1] 的本地 Web server，并打开浏览器。
-`[--current path.plumb] 初始选择一个 note；`[--no-open] 禁止自动打开，`[--port] 指定 port。server
+`[plumb site serve --root DIR] 启动默认只监听 `[127.0.0.1] 的本地 Web server，并在 stdout 输出 ready
+URL；进程不主动打开浏览器。`[--current path.plumb] 初始选择一个 note，`[--port] 指定 port。server
 监听 `[..plumb] 与 `[.ignore] changes，并通过 SSE 更新 graph；ignored document 的内容变化不会发布
 workspace revision。
 

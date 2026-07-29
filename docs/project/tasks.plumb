@@ -343,7 +343,7 @@
 
    `note 建立 shared Web document model：从 plumb-workspace current valid snapshots 投影 graph records 与只读 document records；document node 包含 opaque id、title、relative path 和 source location，edge 覆盖 named Link、Autolink、task prev 与 task depends，并保留 kind 和 source range。
    `note Graph model 同时支持整个 workspace 与当前 document 的 bounded neighborhood；定义 direction、depth、node/edge kind filter、deterministic ordering、limit、truncated/incomplete 和 unresolved target contract。Layout coordinates 属于 frontend state，不进入 language、workspace 或 LSP semantics。
-   `note 添加 `[plumb site serve --root DIR] 本地 server，默认只监听 `[127.0.0.1] 的随机端口并打开浏览器；binary 内嵌 HTML、JavaScript 和 CSS，监听 workspace changes，并通过 SSE 通知 frontend 重新获取 revisioned graph/document snapshot。
+   `note 添加 `[plumb site serve --root DIR] 本地 server，默认只监听 `[127.0.0.1] 的随机端口并输出 ready URL；binary 内嵌 HTML、JavaScript 和 CSS，监听 workspace changes，并通过 SSE 通知 frontend 重新获取 revisioned graph/document snapshot。
    `note 浏览器使用成熟 graph library 提供 force-directed layout、pan、zoom、search、node/edge kind filter、当前 node 高亮和全局/局部模式。单击 node 在不丢失 graph state 的侧栏预览笔记，显式操作进入完整 note page；两种视图都能跳到 explicit anchor。
    `note 笔记正文不在 JavaScript 中重新解释 plumb：server 复用标准 exporter 产生 Pandoc AST，在 AST 层把 document、anchor 与 local resource target adaptation 为 Web target，再交给 Pandoc HTML writer 生成 fragment。Web UI 负责 page shell、navigation、metadata、backlinks、theme 和 fragment placement。
    `note Dynamic routes 使用 server 生成的 opaque ids，例如 `[/note/ID]、`[/api/note/ID] 和 `[/resource/ID]；不得接受任意 filesystem path。Internal document links、cross-file anchors 和 image/resource links 必须在 Pandoc AST 中改写，不能对生成后的 HTML 做 string replacement；external URL 保持外部 target。

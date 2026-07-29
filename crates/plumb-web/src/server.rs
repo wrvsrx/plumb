@@ -55,10 +55,6 @@ pub(crate) struct ServeConfig {
     #[arg(long, default_value_t = 0)]
     port: u16,
 
-    /// Do not open the Web app in the default browser.
-    #[arg(long)]
-    no_open: bool,
-
     /// Disable workspace file watching.
     #[arg(long)]
     no_watch: bool,
@@ -141,11 +137,6 @@ async fn run(config: ServeConfig) -> Result<(), String> {
             "disabled"
         }
     );
-    if !config.no_open {
-        if let Err(error) = webbrowser::open(&url) {
-            eprintln!("plumb site serve: cannot open browser: {error}");
-        }
-    }
     axum::serve(listener, router)
         .await
         .map_err(|error| format!("server failed: {error}"))

@@ -18,6 +18,24 @@ fn exposes_the_unified_command_surface() {
         assert!(help.contains(command));
     }
 
+    let serve_help = Command::new(env!("CARGO_BIN_EXE_plumb"))
+        .args(["site", "serve", "--help"])
+        .output()
+        .unwrap();
+    assert!(serve_help.status.success());
+    assert!(!String::from_utf8(serve_help.stdout)
+        .unwrap()
+        .contains("--no-open"));
+
+    let obsolete_option = Command::new(env!("CARGO_BIN_EXE_plumb"))
+        .args(["site", "serve", "--no-open"])
+        .output()
+        .unwrap();
+    assert!(!obsolete_option.status.success());
+    assert!(String::from_utf8(obsolete_option.stderr)
+        .unwrap()
+        .contains("unexpected argument '--no-open'"));
+
     let formatted = run_with_stdin(&["fmt"], "`meta\n   `: title\n\n      Unified command\n");
     assert!(formatted.status.success());
     assert_eq!(
@@ -205,7 +223,6 @@ fn builds_and_serves_the_workspace_site_with_notes_and_tasks() {
     let mut child = Command::new(env!("CARGO_BIN_EXE_plumb"))
         .args(["site", "serve", "--root"])
         .arg(&root)
-        .arg("--no-open")
         .arg("--port")
         .arg(port.to_string())
         .args(["--exclude", "path == 'hidden.plumb'"])
