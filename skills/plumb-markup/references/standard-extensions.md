@@ -295,6 +295,31 @@ follow Pandoc's task-list convention so supporting writers produce checkboxes.
 The task id, `.task` class, and fields remain on a Span around the title; child
 blocks remain subsequent blocks in the same list item.
 
+## Events
+
+An event is a `-` or `.` list item carrying `.event`:
+
+```plumb
+`-{.event #review uid="review-skill-reference@example" start="2026-07-30T14:00:00+08:00" end="2026-07-30T15:00:00+08:00" tasks="#write-parser"} Parser review
+```
+
+The head is the title and children are details. `start` is a required quoted
+RFC 3339 timestamp. `end` is optional: without it the event is a point; with it
+the event uses the half-open `[start, end)` interval and end must be later than
+start. `tasks` uses the same raw same-file/cross-file reference-list spelling as
+task `depends`, but creates associations rather than dependencies. Targets must
+be explicit task ids. Never infer events from task timestamps.
+
+`.event` on a non-list-item owner is invalid. Combining `.event` and `.task` on
+one owner is invalid and produces no event record. `uid` is an optional nonempty
+quoted iCalendar identity; calendar projection requires a workspace-unique UID.
+The initial profile has no all-day, floating-time, recurrence, reminder,
+attendee, alarm, external-iCalendar import, or CalDAV semantics.
+
+`plumb event export-vdir --output DIR` writes a managed read-only vdir with one
+VEVENT per file. Plumb source remains authoritative; khal should configure the
+generated calendar with `readonly = true`.
+
 ## Export Semantics
 
 `div` and `span` are transparent standard containers and export without a

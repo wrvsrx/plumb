@@ -272,7 +272,41 @@ TeX；可选 `[language=tex]。其他 language 产生 `[math.unsupported-languag
 record。export 消费 `[.$] 与 `[language=tex]；其余 id/classes/pairs 分别通过 `[Span] 或 `[Div]
 wrapper 保留。普通 dollar characters 和 dollar-delimited math 没有特殊 syntax。
 
-`# 15. Tasks
+`# 15. Events
+
+只有 `[-] 或 `[.] list item 上的 `[.event] class 产生 event facet：
+
+`{language=plumb}
+  `-{
+     .event #parser-review uid="parser-review-reference@example" start="2026-07-30T14:00:00+08:00"
+     end="2026-07-30T15:30:00+08:00" tasks="#write-parser Project A.plumb#docs"
+    } Parser review
+
+head 是 title，children 是 details；nested events 只形成 display tree，不表示时间包含关系。`[start] 是
+必填 quoted RFC 3339 timestamp；`[end] 是可选 quoted RFC 3339 timestamp。没有 `[end] 的 event 是
+point event；存在 `[end] 时使用 half-open `[[start, end)] interval，并要求 end 晚于 start。Agenda 和
+workspace range query 按 start、path、source position 稳定排序。首版不定义 all-day、floating time、
+recurrence、reminder、attendee 或 alarm semantics。
+
+`[tasks] 使用与 task `[depends] 相同的 reference-list spelling，只建立 event-to-task association，不建立
+dependency，也不改变 task state。Target 必须解析到具有 `[.task] facet 的 explicit id；workspace 提供
+task-to-event reverse query。不得从 task 的 created、due、wait、done 或 canceled fields 隐式生成 event。
+
+同一 owner 同时具有 `[.event] 与 `[.task] 时发布 `[event.conflicting-task-facet]，task record 继续产生，
+但 event record 不产生。`[.event] 出现在非 list item owner 上发布 `[event.invalid-owner]。
+
+`[uid] 是 optional nonempty quoted iCalendar identity，与 source-backed `[#id] 分离。普通 event query 不
+要求 UID；calendar authoring operation 为新 event 生成稳定 UID，后续移动、改标题或编辑时间不改变它。
+只读 vdir projection 要求每个 event 具有 workspace-unique UID，每个 event 原子生成一个含单个 VEVENT
+的 `[..ics] file，并 lower SUMMARY、DESCRIPTION、DTSTART、optional DTEND、UID、DTSTAMP 与重复的
+`[X-PLUMB-TASK] properties。输出使用 RFC 5545 escaping、75-octet folding 与 CRLF。`[.plumb] source
+始终是唯一 writable source；初版不导入外部 iCalendar 修改，也不实现 CalDAV client。
+
+Event CEL context 提供 `[path]、`[id]、`[uid]、`[title]、`[start]、`[end]、`[tasks] 与 `[now]。
+Web Agenda 通过 revision-guarded operations 创建、编辑和删除 event；首版只支持 online mutations。
+Pandoc export 不消费 event facet：它仍作为普通 list item 导出并保留 `[.event] 与 fields。
+
+`# 16. Tasks
 
 只有 `[-] 或 `[.] list item 上的 `[.task] class 产生 task facet：
 
@@ -354,7 +388,7 @@ export 按 document-local closure state 在 task item 的首个 paragraph 添加
 生成 checkbox；task 的 id、`[.task] class 与 fields 保留在包裹 title 的 Pandoc `[Span] attributes 中，
 children 继续作为同一 list item 的后续 blocks。
 
-`# 16. Generic export
+`# 17. Generic export
 
 不具有标准语义的 valid structures 仍可 portable export：generic marked block 变为 Pandoc `[Div]，
 generic parsed inline element 变为 `[Span]，verbatim block 变为 `[CodeBlock]，inline verbatim 变为

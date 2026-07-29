@@ -66,11 +66,20 @@ workspace revision。
 zoom、node labels、node selection 与 note preview。同一 document 内的 references 不产生 self-edge。
 unresolved document targets 显示为独立 node。
 
-`[/graph] 与 `[/tasks] 在连接图和任务工作台之间切换，并把 fuzzy query、CEL、preset chips、sort、
+`[/graph]、`[/tasks] 与 `[/agenda] 在连接图、任务工作台和日程之间切换，并把 fuzzy query、CEL、preset chips、sort、
 selection 与 graph traversal 写入 URL。`[+] menu 的 server-registered presets 覆盖 task state、actionable、
 due、wait/dependency 和 graph connectivity/task counts；custom CEL 与 presets 分别验证后使用 logical AND。
-Tasks 默认按 document/source order 分组，Due 与 Relevance sort 保持 parent/subtask subtree；详情显示 derived
+Tasks 在 URL 没有显式 preset state 时默认启用 `[State: Ready]，并按 document/source order 分组；
+Due 与 Relevance sort 保持 parent/subtask subtree；详情显示 derived
 state、timestamps、dependencies 与 child tasks。
+
+Agenda 按 start、path 和 source position 显示 point/range events。Loopback server 上可以从已索引 document
+创建 event，或通过 revision-guarded operation 编辑、删除已有 event；static build 只读。Event detail
+显示 start/end、UID、details 与 task references。Mobile Web mutation 初版要求在线，不缓存待提交 edits。
+
+`[plumb event --root DIR export-vdir --output DIR] 将 workspace events 原子投影到受管理 vdir，每个 event
+对应一个 `[..ics] file。khal calendar 配置使用该目录并设置 `[readonly = true]；`[.plumb] 仍是唯一
+writable source，Calendar 修改不会回写。
 
 open task 无论是否具有 explicit id 都可以一键 complete 或 cancel，不弹 confirmation dialog；request
 pending 时当前 task 的 mutation buttons disabled。dependency-waiting task 不能 complete。operation 使用

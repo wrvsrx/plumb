@@ -44,7 +44,7 @@ extension 是对 typed syntax view 或其他 extension outputs 的语言无关 a
 Rust module 是当前 host implementation，不是 extension contract 的一部分。
 
 官方 bundle 包括 outline、anchors/references、target resolution、lists、definitions、metadata、
-citations、quotes、inline styles、tasks 和 export。core 不维护 semantic registry，也不校验 class 或 marker spelling。
+citations、quotes、inline styles、tasks、events 和 export。core 不维护 semantic registry，也不校验 class 或 marker spelling。
 
 `# 4. Workspace
 
@@ -69,7 +69,7 @@ completeness；不能把 partial result 表示成 complete negative result。
 
 `# 5. Consumers
 
-`- `[plumb] 是唯一 user-facing binary；`[lsp]、`[fmt]、`[export]、`[import]、`[note]、`[task]、
+`- `[plumb] 是唯一 user-facing binary；`[lsp]、`[fmt]、`[export]、`[import]、`[note]、`[task]、`[event]、
    `[site serve] 和 `[site build]
    subcommands 分别适配 editor protocol、file/stdin、Pandoc JSON、CEL 和 task operations。
 `- `[tree-sitter-plumb] 是 lenient editor mirror，只负责 highlight、fold、indent、text object 和

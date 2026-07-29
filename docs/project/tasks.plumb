@@ -231,6 +231,7 @@
 
 `-{
    .task #standard-event-extension created="2026-07-30T00:40:49+08:00"
+   done="2026-07-30T01:59:31+08:00"
   } 支持可关联 task 的标准 event 与只读 calendar projection
 
    `note 只有 `[-] 或 `[.] list item 上的 `[.event] class 产生 EventRecord；head 是 title，children 是 details，source nesting 只形成 display tree，不表示时间包含或排序。
@@ -356,6 +357,7 @@
 `-{
    .task #site-serve-never-opens-browser depends="#workspace-graph-visualization"
    created="2026-07-30T00:44:31+08:00"
+   done="2026-07-30T01:59:31+08:00"
   } Web serve 不主动打开浏览器
 
    `note `[plumb site serve] 只负责启动 server，并在 stdout 输出 ready URL、在 stderr 输出 lifecycle log；进程不得调用 platform browser launcher，是否以及如何打开 URL 始终由调用者、editor integration 或用户决定。
@@ -392,6 +394,7 @@
 `-{
    .task #default-ready-task-filter depends="#web-query-pipeline"
    created="2026-07-30T00:40:49+08:00"
+   done="2026-07-30T01:59:31+08:00"
   } Tasks 页面默认启用 State: Ready filter
 
    `note 首次进入 `[/tasks] 且 URL 没有显式 filter state 时预选 State grouped filter 的 Ready preset，使默认结果只包含 ready tasks；这不同于用户手动添加 State filter 时选择 registry 第一个 option 的现有行为。

@@ -202,6 +202,28 @@ Subscript。attributes 通过 Span 保存。`[**]、`[em]、`[strong]、`[mark] 
 inline 与 display 由 envelope 决定，input 默认是 TeX。内容出现 closing bracket 时使用现有 quote
 strength。普通 dollar characters 和 dollar-delimited math 不具有特殊含义。
 
+`# Event
+
+只有 `[-] 或 `[.] item 上的 `[.event] class 是 event：
+
+`{language=plumb}
+  `-{
+     .event #parser-review uid="parser-review-guide@example" start="2026-07-30T14:00:00+08:00"
+     end="2026-07-30T15:30:00+08:00" tasks="#write-parser"
+    } Parser review
+
+`[start] 必填，`[end] 可选，均使用 quoted RFC 3339。没有 end 表示 point event；有 end 时表示
+`[[start, end)] 时间区间。`[tasks] 显式关联同文件或跨文件 task id，不产生 dependency，也不从 task
+timestamps 猜测 event。`[.event .task] 复合与非 list-item owner 都无效。
+
+`[plumb event --root DIR] 列出 events，并支持使用 `[--query] 对 path、id、uid、title、start、end、tasks
+与 now 执行 CEL。`[plumb event --root DIR export-vdir --output DIR] 生成受管理的只读 vdir；输出目录
+可以作为 khal 的 `[type = calendar]、`[readonly = true] calendar。每次导出原子替换旧 projection 并
+清理 stale items；不要在该目录手工维护 events。
+
+Web Agenda 提供在线创建、编辑和删除；Calendar/khal 只读取 projection。首版不支持 recurrence、全天
+event、reminder、外部 iCalendar 回写或 CalDAV client。
+
 `# Task
 
 只有 `[-] 或 `[.] item 上的 `[.task] class 是 task：

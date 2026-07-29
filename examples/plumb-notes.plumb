@@ -7,8 +7,8 @@
 
     examples
 
-This file provides records for document queries, reverse references, task
-queries, nesting, dependencies, recurrence, and task actions.
+This file provides records for document queries, reverse references, task and event
+queries, nesting, dependencies, recurrence, and guarded actions.
 
 `# Document queries
 
@@ -38,6 +38,8 @@ The picker supports fuzzy matching, source previews, multiple selections,
   cargo run -q -p plumb -- task --root examples --query 'blocked'
   cargo run -q -p plumb -- task --root examples --query 'done != null'
   cargo run -q -p plumb -- task --root examples --query 'canceled != null'
+  cargo run -q -p plumb -- event --root examples --query 'start >= timestamp("2026-07-30T00:00:00Z")'
+  cargo run -q -p plumb -- event --root examples export-vdir --output /tmp/plumb-calendar
 
 `-{.task #try-task-query created="2026-07-20T09:00:00+08:00" wait="2026-07-20T18:00:00+08:00"} Try a task query
   `note This open task becomes actionable when `[wait <= now].
@@ -51,6 +53,13 @@ The picker supports fuzzy matching, source previews, multiple selections,
 `-{.task #blocked-query depends="#try-task-query"} Inspect a blocked task
 
 `-{.task #weekly-review due="2026-07-27T17:00:00+08:00" wait="2026-07-27T09:00:00+08:00" recur=P1W} Review recurring task advancement
+
+`-{
+   .event #query-review uid="query-review@example" start="2026-07-30T14:00:00+08:00"
+   end="2026-07-30T15:00:00+08:00" tasks="#try-task-query"
+  } Review task query behavior
+
+   `note This event appears in event CEL queries, Web Agenda, and the read-only vdir projection.
 
 Complete or cancel copies of these tasks with an explicit target:
 

@@ -27,6 +27,7 @@ exercise the implemented language server, exporter, and notes features.
   cargo run -q -p plumb -- task --root examples --flat
   cargo run -q -p plumb -- task --root examples --query 'actionable'
   cargo run -q -p plumb -- task --root examples --query 'blocked'
+  cargo run -q -p plumb -- event --root examples
 
 The linked files intentionally reference each other so workspace navigation and
 reverse-reference queries return useful results.
