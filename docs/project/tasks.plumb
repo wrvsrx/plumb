@@ -354,6 +354,15 @@
    `note 2026-07-24 本机 debug build 使用 1000 个互链 documents 测得首次 server ready 126 ms、单文件更新发布新 revision 429 ms、ready-state RSS 29144 KiB；baseline fixture 从 `[note-000.plumb] 到 `[note-999.plumb]，每篇含 metadata title 与一条指向下一篇的 Link。
 
 `-{
+   .task #site-serve-never-opens-browser depends="#workspace-graph-visualization"
+   created="2026-07-30T00:44:31+08:00"
+  } Web serve 不主动打开浏览器
+
+   `note `[plumb site serve] 只负责启动 server，并在 stdout 输出 ready URL、在 stderr 输出 lifecycle log；进程不得调用 platform browser launcher，是否以及如何打开 URL 始终由调用者、editor integration 或用户决定。
+   `note 删除 `[--no-open] CLI option、ServeConfig field、browser-launch branch 与不再使用的 dependency；`[--help] 不再列出该 option，传入旧 option 按普通 unknown argument 失败，不保留反向 flag 或 deprecated alias。
+   `note 更新 workspace guide 与已完成 Web viewer task 中关于自动打开浏览器的旧表述，并覆盖 default invocation 不启动 browser、stdout URL contract、help/unknown-option behavior 和现有 explicit test-port server tests。
+
+`-{
    .task #web-task-management created="2026-07-25T21:51:56+08:00" done="2026-07-27T01:43:15+08:00"
   } 在 Web app 中管理 workspace tasks
 
