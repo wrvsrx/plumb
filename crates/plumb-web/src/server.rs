@@ -23,8 +23,8 @@ use tokio_stream::wrappers::BroadcastStream;
 use tokio_stream::StreamExt;
 
 use crate::{
-    render_note_html, GraphDirection, GraphQuery, WebQuery, WebTargetMode, WebTaskLocator, WebView,
-    WebWorkspace, GRAPH_PRESETS, TASK_PRESETS,
+    render_note_html, GraphDirection, GraphQuery, WebEventInput, WebEventLocator, WebQuery,
+    WebTargetMode, WebTaskLocator, WebView, WebWorkspace, GRAPH_PRESETS, TASK_PRESETS,
 };
 
 const INDEX_HTML: &str = include_str!("../assets/index.html");
@@ -151,11 +151,14 @@ fn router(state: AppState) -> Router {
         .route("/", get(|| async { Redirect::permanent("/graph") }))
         .route("/graph", get(index))
         .route("/tasks", get(index))
+        .route("/agenda", get(index))
         .route("/api/query", post(query))
         .route("/api/query-presets", get(query_presets))
         .route("/api/graph", get(graph))
         .route("/api/tasks", get(tasks))
         .route("/api/task/{document_id}/{action}", post(update_task))
+        .route("/api/events", get(event_snapshot))
+        .route("/api/event/{document_id}/{action}", post(update_event))
         .route("/api/note/{id}", get(note_api))
         .route("/note/{id}", get(note_page))
         .route("/resource/{id}/{name}", get(resource))
@@ -196,14 +199,18 @@ async fn index(State(state): State<AppState>) -> Response {
         "presetsUrl": "/api/query-presets",
         "graphRoute": "/graph",
         "tasksRoute": "/tasks",
+        "agendaRoute": "/agenda",
         "noteApiBase": "/api/note/",
         "noteApiSuffix": "",
         "notePageBase": "/note/",
         "notePageSuffix": "",
         "eventsUrl": "/events",
+        "eventSnapshotUrl": "/api/events",
+        "eventActionBase": "/api/event/",
         "tasksUrl": "/api/tasks",
         "taskActionBase": "/api/task/",
         "taskMutations": state.allow_mutations,
+        "eventMutations": state.allow_mutations,
         "current": state.current,
     });
     let html = INDEX_HTML
@@ -218,6 +225,10 @@ async fn index(State(state): State<AppState>) -> Response {
 
 async fn tasks(State(state): State<AppState>) -> Response {
     Json(state.workspace.read().await.tasks()).into_response()
+}
+
+async fn event_snapshot(State(state): State<AppState>) -> Response {
+    Json(state.workspace.read().await.events()).into_response()
 }
 
 async fn query(State(state): State<AppState>, Json(query): Json<WebQuery>) -> Response {
@@ -302,6 +313,78 @@ async fn update_task(
         request.locator
     );
     Json(tasks).into_response()
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct EventActionRequest {
+    revision: String,
+    locator: Option<WebEventLocator>,
+    event: Option<WebEventInput>,
+}
+
+async fn update_event(
+    State(state): State<AppState>,
+    AxumPath((document_id, action)): AxumPath<(String, String)>,
+    headers: HeaderMap,
+    Json(request): Json<EventActionRequest>,
+) -> Response {
+    if !state.allow_mutations {
+        return (
+            StatusCode::FORBIDDEN,
+            "event mutations are disabled for non-loopback servers",
+        )
+            .into_response();
+    }
+    if !same_origin(&headers) {
+        return (
+            StatusCode::FORBIDDEN,
+            "cross-origin event mutations are forbidden",
+        )
+            .into_response();
+    }
+    let result = {
+        let workspace = state.workspace.read().await;
+        match action.as_str() {
+            "create" => request
+                .event
+                .as_ref()
+                .ok_or_else(|| "create requires event fields".to_string())
+                .and_then(|event| workspace.create_event(&document_id, &request.revision, event)),
+            "update" => request
+                .locator
+                .as_ref()
+                .zip(request.event.as_ref())
+                .ok_or_else(|| "update requires locator and event fields".to_string())
+                .and_then(|(locator, event)| {
+                    workspace.update_event(&document_id, locator, &request.revision, event)
+                }),
+            "delete" => request
+                .locator
+                .as_ref()
+                .ok_or_else(|| "delete requires an event locator".to_string())
+                .and_then(|locator| {
+                    workspace.delete_event(&document_id, locator, &request.revision)
+                }),
+            _ => return (StatusCode::NOT_FOUND, "unknown event action").into_response(),
+        }
+    };
+    if let Err(error) = result {
+        return (StatusCode::CONFLICT, error).into_response();
+    }
+    let (root, revision) = {
+        let workspace = state.workspace.read().await;
+        (workspace.root().to_path_buf(), workspace.revision() + 1)
+    };
+    let refreshed = match WebWorkspace::load_with_revision(root, revision) {
+        Ok(workspace) => workspace,
+        Err(error) => return (StatusCode::INTERNAL_SERVER_ERROR, error).into_response(),
+    };
+    let events = refreshed.events();
+    *state.workspace.write().await = refreshed;
+    state.html_cache.lock().await.clear();
+    let _ = state.changes.send(revision);
+    Json(events).into_response()
 }
 
 fn same_origin(headers: &HeaderMap) -> bool {
@@ -694,7 +777,7 @@ mod tests {
             .unwrap();
         assert_eq!(root_response.status(), StatusCode::PERMANENT_REDIRECT);
         assert_eq!(root_response.headers()[header::LOCATION], "/graph");
-        for path in ["/graph?preset=connected", "/tasks?preset=ready"] {
+        for path in ["/graph?preset=connected", "/tasks?preset=ready", "/agenda"] {
             let response = app
                 .clone()
                 .oneshot(Request::get(path).body(Body::empty()).unwrap())
@@ -702,6 +785,17 @@ mod tests {
                 .unwrap();
             assert_eq!(response.status(), StatusCode::OK, "{path}");
         }
+
+        let response = app
+            .clone()
+            .oneshot(Request::get("/api/events").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(value["events"].as_array().unwrap().len(), 0);
+        assert_eq!(value["documents"].as_array().unwrap().len(), 1);
 
         let response = app.clone().oneshot(
             Request::post("/api/query")

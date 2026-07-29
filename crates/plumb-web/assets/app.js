@@ -4,6 +4,8 @@ import {
   addPresetGroup,
   initialPresets,
   readQueryParameters,
+  readyTaskQueryRequest,
+  readyTasksFromSnapshot,
   taskByKey,
   togglePresetValue,
   viewFromPath,
@@ -29,14 +31,17 @@ import {
     view: initialView,
     tasks: null,
     selectedTask: null,
-    presets: { graph: [], tasks: ['ready'] },
-    presetsSpecified: { graph: false, tasks: false },
-    query: { graph: '', tasks: '' },
-    filters: { graph: [], tasks: [] },
-    sort: { graph: 'source', tasks: 'source' },
+    presets: { graph: [], tasks: ['ready'], agenda: [] },
+    presetsSpecified: { graph: false, tasks: false, agenda: false },
+    query: { graph: '', tasks: '', agenda: '' },
+    filters: { graph: [], tasks: [], agenda: [] },
+    sort: { graph: 'source', tasks: 'source', agenda: 'source' },
     presetRegistry: { graph: [], tasks: [] },
     selectedGraph: null,
     pendingTask: null,
+    events: null,
+    selectedEvent: null,
+    pendingEvent: false,
   };
 
   const graphElement = document.getElementById('graph');
@@ -53,12 +58,17 @@ import {
   const taskWorkspace = document.querySelector('.task-workspace');
   const graphViewButton = document.getElementById('graph-view');
   const tasksViewButton = document.getElementById('tasks-view');
+  const agendaViewButton = document.getElementById('agenda-view');
   const taskSearch = document.getElementById('task-search');
   const taskSummary = document.getElementById('task-summary');
   const taskList = document.getElementById('task-list');
   const taskEmpty = document.getElementById('task-empty');
   const taskPanel = document.getElementById('task-panel');
   const notification = document.getElementById('notification');
+  const agendaWorkspace = document.querySelector('.agenda-workspace');
+  const eventList = document.getElementById('event-list');
+  const eventEmpty = document.getElementById('event-empty');
+  const eventPanel = document.getElementById('event-panel');
   let notificationTimer;
 
   function readUrlState() {
@@ -71,7 +81,8 @@ import {
     state.sort[state.view] = query.sort;
     state.current = query.current || config.current || null;
     state.local = Boolean(query.current);
-    state.selectedTask = query.selected;
+    if (state.view === 'tasks') state.selectedTask = query.selected;
+    if (state.view === 'agenda') state.selectedEvent = query.selected;
     state.selectedGraph = state.view === 'graph' ? query.selected : state.selectedGraph;
     if (state.view === 'graph') {
       depth.value = query.depth;
@@ -85,7 +96,8 @@ import {
   }
 
   function routeFor(view) {
-    return new URL(view === 'graph' ? config.graphRoute : config.tasksRoute, location.href);
+    const route = view === 'graph' ? config.graphRoute : (view === 'tasks' ? config.tasksRoute : config.agendaRoute);
+    return new URL(route, location.href);
   }
 
   function updateUrl(mode = 'replace') {
@@ -96,7 +108,7 @@ import {
       query: state.query[state.view],
       filters: state.filters[state.view],
       sort: state.sort[state.view],
-      selected: state.view === 'graph' ? state.selectedGraph : state.selectedTask,
+      selected: state.view === 'graph' ? state.selectedGraph : (state.view === 'tasks' ? state.selectedTask : state.selectedEvent),
       current: state.view === 'graph' && state.local ? state.current : null,
       depth: depth.value,
       direction: direction.value,
@@ -308,7 +320,9 @@ import {
   }
 
   function runViewQuery(view) {
-    return view === 'graph' ? loadGraph() : loadTasks();
+    if (view === 'graph') return loadGraph();
+    if (view === 'tasks') return loadTasks();
+    return loadEvents();
   }
 
   function selectedKinds() {
@@ -823,7 +837,7 @@ import {
 
   async function refreshWorkspace() {
     const current = state.current;
-    await Promise.all([loadGraph(), loadTasks()]);
+    await Promise.all([loadGraph(), loadTasks(), loadEvents()]);
     if (!current || state.current !== current) return;
     const node = state.graph?.nodes.find((candidate) => candidate.id === current);
     if (node) {
@@ -836,22 +850,28 @@ import {
   function showView(view, { historyMode = null, load = true } = {}) {
     state.view = view;
     const graphActive = view === 'graph';
+    const tasksActive = view === 'tasks';
+    const agendaActive = view === 'agenda';
     graphWorkspace.hidden = !graphActive;
-    taskWorkspace.hidden = graphActive;
+    taskWorkspace.hidden = !tasksActive;
+    agendaWorkspace.hidden = !agendaActive;
     document.querySelectorAll('.graph-control, .graph-filters').forEach((element) => { element.hidden = !graphActive; });
-    document.querySelectorAll('.task-control, .task-filters').forEach((element) => { element.hidden = graphActive; });
+    document.querySelectorAll('.task-control, .task-filters').forEach((element) => { element.hidden = !tasksActive; });
     graphViewButton.classList.toggle('active', graphActive);
-    tasksViewButton.classList.toggle('active', !graphActive);
+    tasksViewButton.classList.toggle('active', tasksActive);
+    agendaViewButton.classList.toggle('active', agendaActive);
     graphViewButton.setAttribute('aria-selected', String(graphActive));
-    tasksViewButton.setAttribute('aria-selected', String(!graphActive));
+    tasksViewButton.setAttribute('aria-selected', String(tasksActive));
+    agendaViewButton.setAttribute('aria-selected', String(agendaActive));
     if (graphActive) {
       state.graphView?.width(graphElement.clientWidth).height(graphElement.clientHeight);
     }
-    syncQueryControls(view);
+    if (!agendaActive) syncQueryControls(view);
     if (historyMode) updateUrl(historyMode);
     if (load) {
       if (graphActive) loadGraph();
-      else loadTasks();
+      else if (tasksActive) loadTasks();
+      else loadEvents();
     }
   }
 
@@ -864,6 +884,232 @@ import {
     } catch (error) {
       setQueryError('tasks', error);
       if (!state.tasks) taskSummary.textContent = 'Tasks unavailable';
+    }
+  }
+
+  async function loadEvents() {
+    if (!config.eventSnapshotUrl) return;
+    try {
+      const [response, tasks] = await Promise.all([
+        fetch(config.eventSnapshotUrl, { cache: 'no-store' }),
+        loadAgendaTasks(),
+      ]);
+      if (!response.ok) throw new Error(await response.text());
+      state.events = await response.json();
+      state.tasks = tasks.tasks;
+      renderEvents();
+    } catch (error) {
+      if (!state.events) eventPanel.innerHTML = '<div class="note-empty"><h1>Agenda unavailable</h1></div>';
+      notify(String(error), true);
+    }
+  }
+
+  async function loadAgendaTasks() {
+    if (!config.queryUrl) return readyTasksFromSnapshot(await staticSnapshot('tasks'));
+    const response = await fetch(config.queryUrl, {
+      method: 'POST',
+      cache: 'no-store',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(readyTaskQueryRequest()),
+    });
+    if (!response.ok) throw new Error(await response.text());
+    return response.json();
+  }
+
+  function renderEvents() {
+    if (!state.events) return;
+    eventList.replaceChildren();
+    eventEmpty.hidden = state.events.events.length > 0 || Boolean(state.tasks?.tasks?.length);
+    let previousDate = null;
+    state.events.events.forEach((event) => {
+      const parsedStart = event.start ? new Date(event.start) : null;
+      const date = parsedStart && !Number.isNaN(parsedStart.getTime())
+        ? parsedStart.toLocaleDateString()
+        : 'Invalid date';
+      if (date !== previousDate) {
+        const heading = document.createElement('div');
+        heading.className = 'task-document-group';
+        heading.textContent = date;
+        eventList.append(heading);
+        previousDate = date;
+      }
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'event-row';
+      button.classList.toggle('selected', event.key === state.selectedEvent);
+      const time = document.createElement('time');
+      time.textContent = eventTimeLabel(event);
+      const identity = document.createElement('span');
+      identity.className = 'task-identity';
+      const title = document.createElement('strong');
+      title.textContent = event.title || '(untitled event)';
+      const source = document.createElement('small');
+      source.textContent = event.path;
+      identity.append(title, source);
+      button.append(time, identity);
+      button.addEventListener('click', () => selectEvent(event));
+      eventList.append(button);
+    });
+    if (state.tasks?.tasks?.length) {
+      const heading = document.createElement('div');
+      heading.className = 'task-document-group';
+      heading.textContent = 'Ready tasks';
+      eventList.append(heading);
+      state.tasks.tasks.forEach((task) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'event-row agenda-task-row';
+        const stateLabel = document.createElement('span');
+        stateLabel.className = 'task-state state-ready';
+        stateLabel.textContent = 'Ready';
+        const identity = document.createElement('span');
+        identity.className = 'task-identity';
+        const title = document.createElement('strong');
+        title.textContent = task.title || '(untitled task)';
+        const source = document.createElement('small');
+        source.textContent = task.id ? `${task.path}#${task.id}` : task.path;
+        identity.append(title, source);
+        button.append(stateLabel, identity);
+        button.addEventListener('click', () => {
+          state.selectedTask = task.key;
+          showView('tasks', { historyMode: 'push' });
+          renderTasks();
+        });
+        eventList.append(button);
+      });
+    }
+    const selected = state.events.events.find((event) => event.key === state.selectedEvent);
+    if (selected) renderEventDetail(selected);
+    else renderNewEventPrompt();
+  }
+
+  function eventTimeLabel(event) {
+    if (!event.start) return 'Invalid';
+    const start = new Date(event.start);
+    const startLabel = start.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    if (!event.end) return startLabel;
+    const end = new Date(event.end);
+    return `${startLabel}-${end.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+  }
+
+  function selectEvent(event) {
+    state.selectedEvent = event.key;
+    updateUrl();
+    renderEvents();
+  }
+
+  function renderNewEventPrompt() {
+    eventPanel.innerHTML = '<div class="note-empty"><h1>Workspace agenda</h1><p>Select an event or create a new one.</p><button id="new-event" type="button">New event</button></div>';
+    eventPanel.querySelector('#new-event').disabled = !config.eventMutations || !state.events.documents.length;
+    eventPanel.querySelector('#new-event').addEventListener('click', () => renderEventForm());
+  }
+
+  function localDateTimeValue(value) {
+    if (!value) return '';
+    const date = new Date(value);
+    const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+    return local.toISOString().slice(0, 16);
+  }
+
+  function renderEventDetail(event) {
+    eventPanel.innerHTML = `
+      <article class="event-detail">
+        <header><p class="document-path"></p><h1></h1></header>
+        <div class="task-actions"><button class="edit-event" type="button">Edit</button><button class="delete-event" type="button">Delete</button><button class="new-event" type="button">New event</button></div>
+        <dl class="task-fields"></dl>
+        <p class="event-details"></p>
+      </article>`;
+    eventPanel.querySelector('.document-path').textContent = event.path;
+    eventPanel.querySelector('h1').textContent = event.title || '(untitled event)';
+    const fields = eventPanel.querySelector('.task-fields');
+    addTaskField(fields, 'Start', event.start);
+    addTaskField(fields, 'End', event.end || 'Point event');
+    addTaskField(fields, 'Tasks', event.tasks);
+    addTaskField(fields, 'UID', event.uid);
+    eventPanel.querySelector('.event-details').textContent = event.details;
+    eventPanel.querySelector('.edit-event').disabled = !config.eventMutations || state.pendingEvent;
+    eventPanel.querySelector('.delete-event').disabled = !config.eventMutations || state.pendingEvent;
+    eventPanel.querySelector('.new-event').disabled = !config.eventMutations || !state.events.documents.length;
+    eventPanel.querySelector('.edit-event').addEventListener('click', () => renderEventForm(event));
+    eventPanel.querySelector('.delete-event').addEventListener('click', () => mutateEvent('delete', event));
+    eventPanel.querySelector('.new-event').addEventListener('click', () => renderEventForm());
+  }
+
+  function renderEventForm(event = null) {
+    const documents = state.events.documents.map((document) => `<option value="${document.id}"></option>`).join('');
+    eventPanel.innerHTML = `
+      <form class="event-form">
+        <h1>${event ? 'Edit event' : 'New event'}</h1>
+        <label>Document<select name="document">${documents}</select></label>
+        <label>Title<input name="title" type="text" required></label>
+        <label>Start<input name="start" type="datetime-local" required></label>
+        <label>End<input name="end" type="datetime-local"></label>
+        <label>Task references<textarea name="tasks" rows="4" placeholder="One reference per line"></textarea></label>
+        <div class="task-actions"><button type="submit">Save</button><button class="cancel-event" type="button">Cancel</button></div>
+      </form>`;
+    const form = eventPanel.querySelector('form');
+    const select = form.elements.document;
+    state.events.documents.forEach((document, index) => {
+      select.options[index].textContent = document.path;
+    });
+    if (event) {
+      select.value = event.documentId;
+      select.disabled = true;
+      form.elements.title.value = event.title;
+      form.elements.start.value = localDateTimeValue(event.start);
+      form.elements.end.value = localDateTimeValue(event.end);
+      form.elements.tasks.value = event.tasks.join('\n');
+    }
+    form.addEventListener('submit', (submit) => {
+      submit.preventDefault();
+      mutateEvent(event ? 'update' : 'create', event, form);
+    });
+    form.querySelector('.cancel-event').addEventListener('click', () => event ? renderEventDetail(event) : renderNewEventPrompt());
+  }
+
+  async function mutateEvent(action, event = null, form = null) {
+    if (state.pendingEvent) return;
+    const document = event
+      ? state.events.documents.find((item) => item.id === event.documentId)
+      : state.events.documents.find((item) => item.id === form.elements.document.value);
+    if (!document) return;
+    const fields = form ? {
+      title: form.elements.title.value,
+      start: new Date(form.elements.start.value).toISOString(),
+      end: form.elements.end.value ? new Date(form.elements.end.value).toISOString() : null,
+      tasks: form.elements.tasks.value.split('\n').map((value) => value.trim()).filter(Boolean),
+    } : null;
+    state.pendingEvent = true;
+    try {
+      const response = await fetch(`${config.eventActionBase}${encodeURIComponent(document.id)}/${action}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          revision: event ? event.revision : document.revision,
+          locator: event?.locator || null,
+          event: fields,
+        }),
+      });
+      const body = await response.text();
+      if (!response.ok) throw new Error(body || `HTTP ${response.status}`);
+      state.events = JSON.parse(body);
+      if (action === 'delete') state.selectedEvent = null;
+      if (action === 'create') {
+        const created = state.events.events.find((candidate) => (
+          candidate.documentId === document.id
+          && candidate.title === fields.title
+          && candidate.start === fields.start
+        ));
+        state.selectedEvent = created?.key || null;
+      }
+      renderEvents();
+      updateUrl();
+      notify(`Event ${action}d.`);
+    } catch (error) {
+      await loadEvents();
+      notify(String(error), true);
+    } finally {
+      state.pendingEvent = false;
     }
   }
 
@@ -1025,6 +1271,7 @@ import {
   });
   graphViewButton.addEventListener('click', () => showView('graph', { historyMode: 'push' }));
   tasksViewButton.addEventListener('click', () => showView('tasks', { historyMode: 'push' }));
+  agendaViewButton.addEventListener('click', () => showView('agenda', { historyMode: 'push' }));
   document.querySelectorAll('.graph-filters .edge-options input[value]').forEach((input) => input.addEventListener('change', () => {
     updateUrl();
     loadGraph();

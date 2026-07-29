@@ -85,6 +85,7 @@ fn build(config: BuildConfig) -> Result<(), String> {
         })
         .map_err(|error| format!("cannot build task query: {}", error.message))?;
     write_json(config.output.join("tasks.json"), &tasks)?;
+    write_json(config.output.join("events.json"), &workspace.events())?;
     let search = graph
         .nodes
         .iter()
@@ -101,17 +102,21 @@ fn build(config: BuildConfig) -> Result<(), String> {
         "presets": { "graph": GRAPH_PRESETS, "tasks": TASK_PRESETS },
         "graphRoute": "../graph/",
         "tasksRoute": "../tasks/",
+        "agendaRoute": "../agenda/",
         "noteApiBase": "../notes/",
         "noteApiSuffix": "/note.json",
         "notePageBase": "../notes/",
         "notePageSuffix": "/",
         "eventsUrl": null,
+        "eventSnapshotUrl": "../events.json",
+        "eventActionBase": null,
         "tasksUrl": "../tasks.json",
         "taskActionBase": null,
         "taskMutations": false,
+        "eventMutations": false,
         "current": null,
     });
-    for route in ["graph", "tasks"] {
+    for route in ["graph", "tasks", "agenda"] {
         let directory = config.output.join(route);
         std::fs::create_dir_all(&directory)
             .map_err(|error| format!("cannot create {}: {error}", directory.display()))?;
@@ -252,8 +257,10 @@ mod tests {
         assert!(output.join("index.html").is_file());
         assert!(output.join("graph/index.html").is_file());
         assert!(output.join("tasks/index.html").is_file());
+        assert!(output.join("agenda/index.html").is_file());
         assert!(output.join("graph.json").is_file());
         assert!(output.join("tasks.json").is_file());
+        assert!(output.join("events.json").is_file());
         assert!(output.join("assets/query-state.js").is_file());
         assert!(output.join("assets/vendor/force-graph.min.js").is_file());
         assert!(output

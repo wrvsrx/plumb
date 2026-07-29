@@ -13,6 +13,7 @@
     <div class="view-tabs" role="tablist" aria-label="Workspace view">
       <button id="graph-view" class="active" type="button" role="tab" aria-selected="true">Graph</button>
       <button id="tasks-view" type="button" role="tab" aria-selected="false">Tasks</button>
+      <button id="agenda-view" type="button" role="tab" aria-selected="false">Agenda</button>
     </div>
     <div class="mode graph-control" role="group" aria-label="Graph scope">
       <button id="global-mode" class="active" type="button">Workspace</button>
@@ -88,6 +89,19 @@
       <div class="note-empty">
         <h1>Workspace tasks</h1>
         <p>Select a task to inspect its fields and dependencies.</p>
+      </div>
+    </aside>
+  </main>
+  <main class="agenda-workspace" hidden>
+    <section class="event-list-pane" aria-label="Workspace events">
+      <div id="event-list" class="event-list"></div>
+      <div id="event-empty" class="task-empty" hidden>No events</div>
+    </section>
+    <aside id="event-panel" class="event-panel" aria-live="polite">
+      <div class="note-empty">
+        <h1>Workspace agenda</h1>
+        <p>Select an event or create a new one.</p>
+        <button id="new-event" type="button">New event</button>
       </div>
     </aside>
   </main>

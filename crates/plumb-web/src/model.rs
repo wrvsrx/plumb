@@ -6,8 +6,8 @@ use cel::{Context, Program, Value};
 use chrono::{Local, SecondsFormat};
 use plumb_extensions::{LinkSpelling, TaskStatus};
 use plumb_workspace::{
-    normalize, scan_workspace_files, search_score, ResolvedTarget, SearchRecordKind, TaskEditError,
-    TaskRef, TextEdit, Workspace,
+    normalize, scan_workspace_files, search_score, EventEditError, EventInput, ResolvedTarget,
+    SearchRecordKind, TaskEditError, TaskRef, TextEdit, Workspace,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -137,6 +137,58 @@ pub struct WebTask {
 pub struct TaskSnapshot {
     pub revision: u64,
     pub tasks: Vec<WebTask>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WebEventLocator {
+    pub start: usize,
+    pub end: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WebEvent {
+    pub key: String,
+    pub document_id: String,
+    pub path: String,
+    pub revision: String,
+    pub title: String,
+    pub details: String,
+    pub id: Option<String>,
+    pub uid: Option<String>,
+    pub start: Option<String>,
+    pub end: Option<String>,
+    pub tasks: Vec<String>,
+    pub depth: usize,
+    pub locator: WebEventLocator,
+    pub location: SourceLocation,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EventSnapshot {
+    pub revision: u64,
+    pub events: Vec<WebEvent>,
+    pub documents: Vec<WebEventDocument>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WebEventDocument {
+    pub id: String,
+    pub path: String,
+    pub revision: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WebEventInput {
+    pub title: String,
+    pub start: String,
+    pub end: Option<String>,
+    #[serde(default)]
+    pub tasks: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -495,6 +547,85 @@ impl WebWorkspace {
         }
     }
 
+    pub fn events(&self) -> EventSnapshot {
+        let mut events = self
+            .workspace
+            .documents()
+            .filter_map(|entry| entry.current.as_ref().map(|current| (entry, current)))
+            .flat_map(|(entry, current)| {
+                let document_id = self.document_id(&entry.path).map(str::to_string);
+                current
+                    .output
+                    .events
+                    .events
+                    .iter()
+                    .filter_map(move |event| {
+                        let document_id = document_id.clone()?;
+                        let uid = event.uid.as_ref().map(|field| field.value.clone());
+                        Some(WebEvent {
+                            key: uid
+                                .clone()
+                                .unwrap_or_else(|| format!("{document_id}:{}", event.range.start)),
+                            document_id,
+                            path: display_path(&self.root, &entry.path),
+                            revision: current.revision.to_string(),
+                            title: event.title.clone(),
+                            details: event.details.clone(),
+                            id: event.id.as_ref().map(|field| field.value.clone()),
+                            uid,
+                            start: event.start.as_ref().map(|field| field.value.clone()),
+                            end: event.end.as_ref().map(|field| field.value.clone()),
+                            tasks: event
+                                .tasks
+                                .iter()
+                                .map(|reference| reference.source.clone())
+                                .collect(),
+                            depth: event.depth,
+                            locator: WebEventLocator {
+                                start: event.range.start,
+                                end: event.range.end,
+                            },
+                            location: SourceLocation::new(
+                                &self.root,
+                                &entry.path,
+                                event.selection_range.clone(),
+                            ),
+                        })
+                    })
+            })
+            .collect::<Vec<_>>();
+        events.sort_by(|left, right| {
+            left.start
+                .as_deref()
+                .and_then(|start| chrono::DateTime::parse_from_rfc3339(start).ok())
+                .cmp(
+                    &right
+                        .start
+                        .as_deref()
+                        .and_then(|start| chrono::DateTime::parse_from_rfc3339(start).ok()),
+                )
+                .then(left.path.cmp(&right.path))
+                .then(left.locator.start.cmp(&right.locator.start))
+        });
+        EventSnapshot {
+            revision: self.revision,
+            events,
+            documents: self
+                .document_ids
+                .iter()
+                .filter_map(|(path, id)| {
+                    let entry = self.workspace.get(path)?;
+                    entry.current.as_ref()?;
+                    Some(WebEventDocument {
+                        id: id.clone(),
+                        path: display_path(&self.root, path),
+                        revision: entry.revision.to_string(),
+                    })
+                })
+                .collect(),
+        }
+    }
+
     pub fn query_tasks(&self, query: &WebQuery) -> Result<TaskQuerySnapshot, QueryFailure> {
         let now = Local::now().fixed_offset();
         let preset_groups = resolve_presets(&query.presets, TASK_PRESETS)?;
@@ -748,6 +879,100 @@ impl WebWorkspace {
             .find(|document| document.path == path)
             .ok_or_else(|| "task operation produced no document edit".to_string())?;
         let updated = apply_text_edits(disk_source, document.edits)?;
+        std::fs::write(path, updated)
+            .map_err(|error| format!("cannot write {}: {error}", path.display()))
+    }
+
+    pub fn create_event(
+        &self,
+        document_id: &str,
+        revision: &str,
+        input: &WebEventInput,
+    ) -> Result<(), String> {
+        let path = self.guarded_document(document_id, revision, "event")?;
+        let source = std::fs::read_to_string(path)
+            .map_err(|error| format!("cannot read {}: {error}", path.display()))?;
+        let edit = self
+            .workspace
+            .create_event(path, &event_input(input))
+            .map_err(event_edit_error)?;
+        self.write_workspace_edit(path, source, edit, "event")
+    }
+
+    pub fn update_event(
+        &self,
+        document_id: &str,
+        locator: &WebEventLocator,
+        revision: &str,
+        input: &WebEventInput,
+    ) -> Result<(), String> {
+        let path = self.guarded_document(document_id, revision, "event")?;
+        let source = std::fs::read_to_string(path)
+            .map_err(|error| format!("cannot read {}: {error}", path.display()))?;
+        let edit = self
+            .workspace
+            .update_event(path, locator.start..locator.end, &event_input(input))
+            .map_err(event_edit_error)?;
+        self.write_workspace_edit(path, source, edit, "event")
+    }
+
+    pub fn delete_event(
+        &self,
+        document_id: &str,
+        locator: &WebEventLocator,
+        revision: &str,
+    ) -> Result<(), String> {
+        let path = self.guarded_document(document_id, revision, "event")?;
+        let source = std::fs::read_to_string(path)
+            .map_err(|error| format!("cannot read {}: {error}", path.display()))?;
+        let edit = self
+            .workspace
+            .delete_event(path, locator.start..locator.end)
+            .map_err(event_edit_error)?;
+        self.write_workspace_edit(path, source, edit, "event")
+    }
+
+    fn guarded_document<'a>(
+        &'a self,
+        document_id: &str,
+        revision: &str,
+        kind: &str,
+    ) -> Result<&'a Path, String> {
+        let path = self
+            .document_path(document_id)
+            .ok_or_else(|| format!("unknown {kind} document"))?;
+        let entry = self
+            .workspace
+            .documents()
+            .find(|entry| entry.path == path)
+            .filter(|entry| entry.current.is_some())
+            .ok_or_else(|| format!("{kind} document is invalid"))?;
+        if entry.revision.to_string() != revision {
+            return Err(format!("{kind} document changed; refresh before retrying"));
+        }
+        let disk_source = std::fs::read_to_string(path)
+            .map_err(|error| format!("cannot read {}: {error}", path.display()))?;
+        if disk_source != entry.parsed.source {
+            return Err(format!(
+                "{kind} document changed on disk; refresh before retrying"
+            ));
+        }
+        Ok(path)
+    }
+
+    fn write_workspace_edit(
+        &self,
+        path: &Path,
+        source: String,
+        edit: plumb_workspace::WorkspaceEdit,
+        kind: &str,
+    ) -> Result<(), String> {
+        let document = edit
+            .document_changes
+            .into_iter()
+            .find(|document| document.path == path)
+            .ok_or_else(|| format!("{kind} operation produced no document edit"))?;
+        let updated = apply_text_edits(source, document.edits)?;
         std::fs::write(path, updated)
             .map_err(|error| format!("cannot write {}: {error}", path.display()))
     }
@@ -1418,6 +1643,26 @@ fn task_edit_error(error: TaskEditError) -> String {
     .to_string()
 }
 
+fn event_input(input: &WebEventInput) -> EventInput {
+    EventInput {
+        title: input.title.clone(),
+        start: input.start.clone(),
+        end: input.end.clone().filter(|end| !end.is_empty()),
+        tasks: input.tasks.clone(),
+    }
+}
+
+fn event_edit_error(error: EventEditError) -> String {
+    match error {
+        EventEditError::StaleOrInvalidDocument => "event document is stale or invalid",
+        EventEditError::EventNotFound => "event is no longer available",
+        EventEditError::InvalidDatetime => "event start and end must be RFC 3339 timestamps",
+        EventEditError::InvalidInterval => "event end must be later than start",
+        EventEditError::GeneratedInvalid => "event edit produced invalid plumb source",
+    }
+    .to_string()
+}
+
 fn opaque_id(prefix: &str, value: &str) -> String {
     let digest = Sha256::digest(value.as_bytes());
     let mut id = String::with_capacity(prefix.len() + 24);
@@ -1568,6 +1813,94 @@ mod tests {
             .unwrap();
         let updated = std::fs::read_to_string(&path).unwrap();
         assert!(updated.contains("done=\"2026-"), "{updated}");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn event_snapshots_and_guarded_mutations_preserve_uid() {
+        let root = temp_dir();
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join("agenda.plumb");
+        std::fs::write(&path, "`# Agenda\n").unwrap();
+        let workspace = WebWorkspace::load(&root).unwrap();
+        let document = workspace.events().documents[0].clone();
+        workspace
+            .create_event(
+                &document.id,
+                &document.revision,
+                &WebEventInput {
+                    title: "Review".to_string(),
+                    start: "2026-07-30T06:00:00Z".to_string(),
+                    end: Some("2026-07-30T07:00:00Z".to_string()),
+                    tasks: vec!["#write".to_string()],
+                },
+            )
+            .unwrap();
+        let workspace = WebWorkspace::load(&root).unwrap();
+        let event = workspace.events().events[0].clone();
+        let uid = event.uid.clone().unwrap();
+        workspace
+            .update_event(
+                &event.document_id,
+                &event.locator,
+                &event.revision,
+                &WebEventInput {
+                    title: "Updated".to_string(),
+                    start: "2026-07-30T08:00:00Z".to_string(),
+                    end: None,
+                    tasks: Vec::new(),
+                },
+            )
+            .unwrap();
+        let workspace = WebWorkspace::load(&root).unwrap();
+        let updated = workspace.events().events[0].clone();
+        assert_eq!(updated.uid.as_deref(), Some(uid.as_str()));
+        assert_eq!(updated.title, "Updated");
+        assert_eq!(updated.end, None);
+        assert_eq!(
+            workspace.update_event(
+                &updated.document_id,
+                &updated.locator,
+                "stale",
+                &WebEventInput {
+                    title: "Conflict".to_string(),
+                    start: "2026-07-30T08:00:00Z".to_string(),
+                    end: None,
+                    tasks: Vec::new(),
+                },
+            ),
+            Err("event document changed; refresh before retrying".to_string())
+        );
+        workspace
+            .delete_event(&updated.document_id, &updated.locator, &updated.revision)
+            .unwrap();
+        assert!(WebWorkspace::load(&root)
+            .unwrap()
+            .events()
+            .events
+            .is_empty());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn event_snapshots_sort_rfc3339_values_by_instant() {
+        let root = temp_dir();
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(
+            root.join("agenda.plumb"),
+            "`-{.event start=\"2026-07-30T10:30:00+05:00\"} Early\n`-{.event start=\"2026-07-30T06:00:00Z\"} Later\n",
+        )
+        .unwrap();
+        let workspace = WebWorkspace::load(&root).unwrap();
+        assert_eq!(
+            workspace
+                .events()
+                .events
+                .iter()
+                .map(|event| event.title.as_str())
+                .collect::<Vec<_>>(),
+            ["Early", "Later"]
+        );
         std::fs::remove_dir_all(root).unwrap();
     }
 

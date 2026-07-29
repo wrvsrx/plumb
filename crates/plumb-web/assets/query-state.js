@@ -1,5 +1,7 @@
 export function viewFromPath(pathname) {
-  return /\/tasks(?:\/index\.html)?\/?$/.test(pathname) ? 'tasks' : 'graph';
+  if (/\/tasks(?:\/index\.html)?\/?$/.test(pathname)) return 'tasks';
+  if (/\/agenda(?:\/index\.html)?\/?$/.test(pathname)) return 'agenda';
+  return 'graph';
 }
 
 export function readQueryParameters(search) {
@@ -59,4 +61,23 @@ export function togglePresetValue(selected, preset, registry) {
 export function taskByKey(snapshot, key) {
   if (!snapshot || !key) return null;
   return (snapshot.allTasks || snapshot.tasks || []).find((task) => task.key === key) || null;
+}
+
+export function readyTaskQueryRequest() {
+  return {
+    view: 'tasks',
+    query: '',
+    presets: ['ready'],
+    filters: [],
+    sort: 'source',
+    limit: null,
+    traversal: {},
+  };
+}
+
+export function readyTasksFromSnapshot(snapshot) {
+  return {
+    ...snapshot,
+    tasks: (snapshot.tasks || []).filter((task) => task.state === 'ready'),
+  };
 }

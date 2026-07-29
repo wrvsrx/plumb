@@ -6,6 +6,8 @@ import {
   addPresetGroup,
   initialPresets,
   readQueryParameters,
+  readyTaskQueryRequest,
+  readyTasksFromSnapshot,
   taskByKey,
   togglePresetValue,
   viewFromPath,
@@ -16,7 +18,30 @@ test('view paths cover dynamic and static entry points', () => {
   assert.equal(viewFromPath('/tasks'), 'tasks');
   assert.equal(viewFromPath('/site/tasks/'), 'tasks');
   assert.equal(viewFromPath('/site/tasks/index.html'), 'tasks');
+  assert.equal(viewFromPath('/agenda'), 'agenda');
   assert.equal(viewFromPath('/graph'), 'graph');
+});
+
+test('agenda ready tasks ignore task-page query state', () => {
+  assert.deepEqual(readyTaskQueryRequest(), {
+    view: 'tasks',
+    query: '',
+    presets: ['ready'],
+    filters: [],
+    sort: 'source',
+    limit: null,
+    traversal: {},
+  });
+  assert.deepEqual(readyTasksFromSnapshot({
+    tasks: [
+      { key: 'ready', state: 'ready' },
+      { key: 'done', state: 'done' },
+    ],
+    complete: true,
+  }), {
+    tasks: [{ key: 'ready', state: 'ready' }],
+    complete: true,
+  });
 });
 
 test('query parameters round trip repeated filters and traversal state', () => {
