@@ -2,6 +2,7 @@ import { parse as parseCel } from './vendor/cel-js.min.js';
 import {
   addPreset,
   addPresetGroup,
+  initialPresets,
   readQueryParameters,
   taskByKey,
   togglePresetValue,
@@ -28,7 +29,8 @@ import {
     view: initialView,
     tasks: null,
     selectedTask: null,
-    presets: { graph: [], tasks: [] },
+    presets: { graph: [], tasks: ['ready'] },
+    presetsSpecified: { graph: false, tasks: false },
     query: { graph: '', tasks: '' },
     filters: { graph: [], tasks: [] },
     sort: { graph: 'source', tasks: 'source' },
@@ -62,7 +64,8 @@ import {
   function readUrlState() {
     const query = readQueryParameters(location.search);
     state.view = viewFromPath(location.pathname);
-    state.presets[state.view] = query.presets;
+    state.presets[state.view] = initialPresets(state.view, query);
+    state.presetsSpecified[state.view] = query.presetsSpecified;
     state.query[state.view] = query.query;
     state.filters[state.view] = query.filters;
     state.sort[state.view] = query.sort;
@@ -89,6 +92,7 @@ import {
     const url = routeFor(state.view);
     url.search = writeQueryParameters({
       presets: state.presets[state.view],
+      presetsSpecified: state.presetsSpecified[state.view],
       query: state.query[state.view],
       filters: state.filters[state.view],
       sort: state.sort[state.view],
@@ -146,6 +150,7 @@ import {
         button.role = 'menuitem';
         button.textContent = groupLabel(group);
         button.addEventListener('click', () => {
+          state.presetsSpecified[view] = true;
           state.presets[view] = addPresetGroup(state.presets[view], group, registry);
           menu.hidden = true;
           renderPresetControls(view);
@@ -161,6 +166,7 @@ import {
       button.textContent = preset.label;
       button.title = preset.expression;
       button.addEventListener('click', () => {
+        state.presetsSpecified[view] = true;
         state.presets[view] = addPreset(state.presets[view], preset);
         menu.hidden = true;
         renderPresetControls(view);
@@ -221,6 +227,7 @@ import {
           option.textContent = `${selected ? '✓ ' : ''}${preset.label}`;
           option.disabled = onlySelected;
           option.addEventListener('click', () => {
+            state.presetsSpecified[view] = true;
             state.presets[view] = togglePresetValue(state.presets[view], preset, registry);
             renderPresetControls(view, { openGroup: grouped });
             updateUrl();
@@ -241,6 +248,7 @@ import {
       remove.title = `Remove ${label}`;
       remove.setAttribute('aria-label', `Remove ${label}`);
       remove.addEventListener('click', () => {
+        state.presetsSpecified[view] = true;
         const ids = new Set(presets.map((preset) => preset.id));
         state.presets[view] = state.presets[view].filter((id) => !ids.has(id));
         renderPresetControls(view);

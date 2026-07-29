@@ -5,7 +5,8 @@ export function viewFromPath(pathname) {
 export function readQueryParameters(search) {
   const params = new URLSearchParams(search);
   return {
-    presets: params.getAll('preset'),
+    presets: params.getAll('preset').filter(Boolean),
+    presetsSpecified: params.has('preset'),
     query: params.get('q') || '',
     filters: params.getAll('cel'),
     sort: params.get('sort') || 'source',
@@ -17,9 +18,14 @@ export function readQueryParameters(search) {
   };
 }
 
+export function initialPresets(view, query) {
+  return view === 'tasks' && !query.presetsSpecified ? ['ready'] : query.presets;
+}
+
 export function writeQueryParameters(query) {
   const params = new URLSearchParams();
   query.presets.forEach((preset) => params.append('preset', preset));
+  if (query.presetsSpecified && query.presets.length === 0) params.set('preset', '');
   if (query.query) params.set('q', query.query);
   (query.filters || []).filter(Boolean).forEach((filter) => params.append('cel', filter));
   if (query.sort !== 'source') params.set('sort', query.sort);
