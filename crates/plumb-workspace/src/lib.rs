@@ -11,7 +11,7 @@ pub use plumb_edit::TextEdit;
 use plumb_edit::{AttributePosition, EditSession, OwnedAttribute, OwnedBlock};
 use plumb_extensions::{
     analyze_document, next_task_datetime, parse_task_reference_target, valid_task_datetime,
-    AnchorRecord, DocumentOutput, FileCompletionContext, FileRecord, FileTarget,
+    AnchorRecord, DocumentOutput, EventRecord, FileCompletionContext, FileRecord, FileTarget,
     ImageCompletionContext, ImageRecord, ImageTarget, LinkCompletionContext, LinkRecord,
     LinkSpelling, LinkTarget, MetadataValue, TaskRecord, TaskReferenceTarget, TaskState,
     TaskStatus,
@@ -182,6 +182,23 @@ pub enum TaskEditError {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EventInput {
+    pub title: String,
+    pub start: String,
+    pub end: Option<String>,
+    pub tasks: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EventEditError {
+    StaleOrInvalidDocument,
+    EventNotFound,
+    InvalidDatetime,
+    InvalidInterval,
+    GeneratedInvalid,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PathRenameTarget {
     pub old_path: PathBuf,
     pub range: std::ops::Range<usize>,
@@ -199,6 +216,7 @@ pub struct CompletionCandidate {
 pub enum SearchRecordKind {
     Note,
     Task,
+    Event,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -252,6 +270,9 @@ pub struct SearchRecord {
     pub blocked: Option<bool>,
     pub actionable: Option<bool>,
     pub depth: Option<usize>,
+    pub start: Option<String>,
+    pub end: Option<String>,
+    pub tasks: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -326,6 +347,13 @@ pub struct DocumentReference {
 pub struct TaskRef {
     pub path: PathBuf,
     pub id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkspaceEvent {
+    pub path: PathBuf,
+    pub revision: i64,
+    pub event: EventRecord,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -464,6 +492,9 @@ impl Workspace {
                                 blocked: None,
                                 actionable: None,
                                 depth: None,
+                                start: None,
+                                end: None,
+                                tasks: None,
                             },
                         ));
                     }
@@ -513,6 +544,59 @@ impl Workspace {
                             blocked: Some(blocked),
                             actionable: Some(actionable),
                             depth: Some(task.depth),
+                            start: None,
+                            end: None,
+                            tasks: None,
+                        },
+                    ));
+                }
+            }
+            if kind.is_none_or(|kind| kind == SearchRecordKind::Event) {
+                for event in &current.output.events.events {
+                    let id = event.id.as_ref().map(|id| id.value.clone());
+                    let fields = [
+                        event.title.as_str(),
+                        id.as_deref().unwrap_or_default(),
+                        event
+                            .uid
+                            .as_ref()
+                            .map(|uid| uid.value.as_str())
+                            .unwrap_or_default(),
+                        relative_path.as_str(),
+                    ];
+                    let Some(score) = search_score(query, &fields) else {
+                        continue;
+                    };
+                    if let Some(filter) = &filter {
+                        if !filter.event_matches(&root, entry, event)? {
+                            continue;
+                        }
+                    }
+                    matches.push((
+                        score,
+                        SearchRecord {
+                            kind: SearchRecordKind::Event,
+                            title: event.title.clone(),
+                            path: entry.path.clone(),
+                            relative_path: relative_path.clone(),
+                            range: event.selection_range.clone(),
+                            revision: current.revision,
+                            id,
+                            task_state: None,
+                            wait_reasons: None,
+                            due: None,
+                            blocked: None,
+                            actionable: None,
+                            depth: Some(event.depth),
+                            start: event.start.as_ref().map(|field| field.value.clone()),
+                            end: event.end.as_ref().map(|field| field.value.clone()),
+                            tasks: Some(
+                                event
+                                    .tasks
+                                    .iter()
+                                    .map(|reference| reference.source.clone())
+                                    .collect(),
+                            ),
                         },
                     ));
                 }
@@ -682,6 +766,27 @@ impl Workspace {
                 return Some(resolved);
             }
         }
+        for event in &output.events.events {
+            for reference in &event.tasks {
+                if !contains_inclusive(&reference.range, offset) {
+                    continue;
+                }
+                let resolved = self.resolve_task_reference_target(&path, &reference.target);
+                let target_id = match &reference.target {
+                    TaskReferenceTarget::Internal { id }
+                    | TaskReferenceTarget::External { id, .. } => id,
+                    TaskReferenceTarget::Invalid => return Some(resolved),
+                };
+                if task_reference_ranges(&reference.source, &reference.range, target_id)
+                    .and_then(|(path_range, _)| path_range)
+                    .as_ref()
+                    .is_some_and(|range| contains_component(range, offset))
+                {
+                    return Some(self.document_component_target(resolved));
+                }
+                return Some(resolved);
+            }
+        }
         if let Some(image) = self.image_at(&path, offset) {
             return Some(self.resolve_image(&path, image));
         }
@@ -756,6 +861,20 @@ impl Workspace {
                 );
             }
         }
+        for event in &output.events.events {
+            if let Some(reference) = event
+                .tasks
+                .iter()
+                .find(|reference| contains_inclusive(&reference.range, offset))
+            {
+                return self.task_anchor_reference(
+                    &path,
+                    &reference.source,
+                    &reference.range,
+                    &reference.target,
+                );
+            }
+        }
         None
     }
 
@@ -781,6 +900,15 @@ impl Workspace {
                 .find(|dependency| contains_inclusive(&dependency.range, offset))
             {
                 return Some(self.resolve_task_reference_target(&path, &dependency.target));
+            }
+        }
+        for event in &output.events.events {
+            if let Some(reference) = event
+                .tasks
+                .iter()
+                .find(|reference| contains_inclusive(&reference.range, offset))
+            {
+                return Some(self.resolve_task_reference_target(&path, &reference.target));
             }
         }
         None
@@ -809,6 +937,21 @@ impl Workspace {
                     if let Some(reference) =
                         self.task_anchor_reference(&entry.path, source, range, &target)
                     {
+                        if reference.target_path == target_path && reference.target_id == target_id
+                        {
+                            references.push((entry.path.as_path(), reference));
+                        }
+                    }
+                }
+            }
+            for event in &current.output.events.events {
+                for reference in &event.tasks {
+                    if let Some(reference) = self.task_anchor_reference(
+                        &entry.path,
+                        &reference.source,
+                        &reference.range,
+                        &reference.target,
+                    ) {
                         if reference.target_path == target_path && reference.target_id == target_id
                         {
                             references.push((entry.path.as_path(), reference));
@@ -866,6 +1009,24 @@ impl Workspace {
                     }
                 }
             }
+            for event in &current.output.events.events {
+                for reference in &event.tasks {
+                    if resolved_document_path(
+                        self.resolve_task_reference_target(&entry.path, &reference.target),
+                    )
+                    .as_ref()
+                        == Some(&target_path)
+                    {
+                        references.push((
+                            entry.path.as_path(),
+                            DocumentReference {
+                                source_range: reference.range.clone(),
+                                target_path: target_path.clone(),
+                            },
+                        ));
+                    }
+                }
+            }
         }
         references.sort_by(|left, right| {
             left.0
@@ -890,6 +1051,15 @@ impl Workspace {
             for (_, _, target) in task_reference_fields(task) {
                 if let Some(path) = resolved_document_path(
                     self.resolve_task_reference_target(&source_path, &target),
+                ) {
+                    targets.insert(path);
+                }
+            }
+        }
+        for event in &output.events.events {
+            for reference in &event.tasks {
+                if let Some(path) = resolved_document_path(
+                    self.resolve_task_reference_target(&source_path, &reference.target),
                 ) {
                     targets.insert(path);
                 }
@@ -994,6 +1164,83 @@ impl Workspace {
             .iter()
             .filter(|task| task.range.start <= offset && offset <= task.range.end)
             .max_by_key(|task| task.range.start)
+    }
+
+    pub fn event_at(&self, path: impl AsRef<Path>, offset: usize) -> Option<&EventRecord> {
+        self.current_output(path.as_ref())?
+            .events
+            .events
+            .iter()
+            .filter(|event| event.range.start <= offset && offset <= event.range.end)
+            .max_by_key(|event| event.range.start)
+    }
+
+    pub fn events_overlapping(
+        &self,
+        start: DateTime<FixedOffset>,
+        end: DateTime<FixedOffset>,
+    ) -> Vec<WorkspaceEvent> {
+        if end <= start {
+            return Vec::new();
+        }
+        let mut events = self
+            .documents
+            .values()
+            .filter_map(|entry| entry.current.as_ref().map(|current| (entry, current)))
+            .flat_map(|(entry, current)| {
+                current
+                    .output
+                    .events
+                    .events
+                    .iter()
+                    .filter(|event| event.overlaps(start, end))
+                    .cloned()
+                    .map(|event| WorkspaceEvent {
+                        path: entry.path.clone(),
+                        revision: current.revision,
+                        event,
+                    })
+            })
+            .collect::<Vec<_>>();
+        events.sort_by(|left, right| {
+            left.event
+                .start_datetime()
+                .cmp(&right.event.start_datetime())
+                .then(left.path.cmp(&right.path))
+                .then(left.event.range.start.cmp(&right.event.range.start))
+        });
+        events
+    }
+
+    pub fn events_for_task(&self, target: &TaskRef) -> Vec<WorkspaceEvent> {
+        let mut events = Vec::new();
+        for entry in self.documents.values() {
+            let Some(current) = &entry.current else {
+                continue;
+            };
+            for event in &current.output.events.events {
+                if event.tasks.iter().any(|reference| {
+                    matches!(
+                        self.resolve_task_target(&entry.path, &reference.target),
+                        TaskTargetResolution::Task { target: ref resolved, .. } if resolved == target
+                    )
+                }) {
+                    events.push(WorkspaceEvent {
+                        path: entry.path.clone(),
+                        revision: current.revision,
+                        event: event.clone(),
+                    });
+                }
+            }
+        }
+        events.sort_by(|left, right| {
+            left.event
+                .start_datetime()
+                .cmp(&right.event.start_datetime())
+                .then(left.path.cmp(&right.path))
+                .then(left.event.range.start.cmp(&right.event.range.start))
+        });
+        events
     }
 
     pub fn open_task_dependencies(
@@ -1487,6 +1734,7 @@ impl Workspace {
         diagnostics.extend(current.output.citations.diagnostics.clone());
         diagnostics.extend(current.output.math.diagnostics.clone());
         diagnostics.extend(current.output.tasks.diagnostics.clone());
+        diagnostics.extend(current.output.events.diagnostics.clone());
         diagnostics.extend(current.output.diagnostics.clone());
         for link in &current.output.links {
             let (code, message) = match self.resolve_link(&path, link) {
@@ -1543,6 +1791,61 @@ impl Workspace {
             });
         }
         diagnostics.extend(self.task_workspace_diagnostics(&path, current));
+        diagnostics.extend(self.event_workspace_diagnostics(&path, current));
+        diagnostics
+    }
+
+    fn event_workspace_diagnostics(
+        &self,
+        path: &Path,
+        current: &VersionedDocumentOutput,
+    ) -> Vec<Diagnostic> {
+        let mut diagnostics = Vec::new();
+        for event in &current.output.events.events {
+            for reference in &event.tasks {
+                if let Some(mut diagnostic) = self.task_target_diagnostic(
+                    path,
+                    &reference.source,
+                    &reference.range,
+                    &reference.target,
+                    "association",
+                ) {
+                    diagnostic.code = match diagnostic.code {
+                        "task.invalid-target" => "event.invalid-task-reference",
+                        "task.unresolved-path" => "event.unresolved-task-path",
+                        "task.unresolved-anchor" => "event.unresolved-task",
+                        "task.ambiguous-anchor" => "event.ambiguous-task",
+                        "task.non-task-target" => "event.target-not-task",
+                        code => code,
+                    };
+                    diagnostics.push(diagnostic);
+                }
+            }
+            let Some(uid) = &event.uid else {
+                continue;
+            };
+            let occurrences = self
+                .documents
+                .values()
+                .filter_map(|entry| entry.current.as_ref())
+                .flat_map(|current| current.output.events.events.iter())
+                .filter(|candidate| {
+                    candidate
+                        .uid
+                        .as_ref()
+                        .is_some_and(|candidate_uid| candidate_uid.value == uid.value)
+                })
+                .count();
+            if occurrences > 1 {
+                diagnostics.push(Diagnostic {
+                    code: "event.duplicate-uid",
+                    severity: DiagnosticSeverity::Warning,
+                    message: format!("event UID '{}' is not unique in the workspace", uid.value),
+                    range: uid.range.clone(),
+                    related: Vec::new(),
+                });
+            }
+        }
         diagnostics
     }
 
@@ -2058,6 +2361,127 @@ impl Workspace {
         Ok(single_document_edit(entry, path, edit))
     }
 
+    pub fn create_event(
+        &self,
+        path: impl AsRef<Path>,
+        input: &EventInput,
+    ) -> Result<WorkspaceEdit, EventEditError> {
+        validate_event_input(input)?;
+        let path = normalize(path.as_ref());
+        let entry = self
+            .documents
+            .get(&path)
+            .filter(|entry| entry.current.is_some())
+            .ok_or(EventEditError::StaleOrInvalidDocument)?;
+        let uid = format!("{}@plumb.local", uuid::Uuid::new_v4());
+        let event = owned_event(input, &uid);
+        let (affected, after) = entry
+            .parsed
+            .syntax
+            .blocks
+            .last()
+            .map(|block| (block.range().clone(), Some(block.range().clone())))
+            .unwrap_or_else(|| (0..entry.parsed.source.len(), None));
+        let mut edit = EditSession::new(&entry.parsed, affected)
+            .map_err(|_| EventEditError::GeneratedInvalid)?;
+        if let Some(after) = after {
+            edit.insert_sibling_blocks(&after, &[event])
+                .map_err(|_| EventEditError::GeneratedInvalid)?;
+        } else {
+            edit.insert_blocks(0, &[event])
+                .map_err(|_| EventEditError::GeneratedInvalid)?;
+        }
+        let edit = edit
+            .finish()
+            .map_err(|_| EventEditError::GeneratedInvalid)?;
+        Ok(single_document_edit(entry, path, edit))
+    }
+
+    pub fn update_event(
+        &self,
+        path: impl AsRef<Path>,
+        event_range: std::ops::Range<usize>,
+        input: &EventInput,
+    ) -> Result<WorkspaceEdit, EventEditError> {
+        validate_event_input(input)?;
+        let path = normalize(path.as_ref());
+        let entry = self
+            .documents
+            .get(&path)
+            .ok_or(EventEditError::StaleOrInvalidDocument)?;
+        let current = entry
+            .current
+            .as_ref()
+            .ok_or(EventEditError::StaleOrInvalidDocument)?;
+        let event = current
+            .output
+            .events
+            .events
+            .iter()
+            .find(|event| event.range == event_range)
+            .ok_or(EventEditError::EventNotFound)?;
+        let block = parsed_block_with_range(&entry.parsed.syntax.blocks, &event.range)
+            .ok_or(EventEditError::EventNotFound)?;
+        let mut owned = OwnedBlock::from_parsed(&entry.parsed.source, block);
+        owned.set_head_text(&input.title);
+        let attributes = owned.attributes_mut();
+        attributes.retain(|attribute| {
+            !matches!(attribute, OwnedAttribute::Pair { key, .. } if matches!(key.as_str(), "uid" | "start" | "end" | "tasks"))
+        });
+        let uid = event
+            .uid
+            .as_ref()
+            .map(|field| field.value.clone())
+            .unwrap_or_else(|| format!("{}@plumb.local", uuid::Uuid::new_v4()));
+        attributes.push(OwnedAttribute::quoted("uid", uid));
+        attributes.push(OwnedAttribute::quoted("start", &input.start));
+        if let Some(end) = &input.end {
+            attributes.push(OwnedAttribute::quoted("end", end));
+        }
+        if !input.tasks.is_empty() {
+            attributes.push(OwnedAttribute::quoted("tasks", input.tasks.join(" ")));
+        }
+        let mut edit = EditSession::new(&entry.parsed, event.range.clone())
+            .map_err(|_| EventEditError::GeneratedInvalid)?;
+        edit.replace_block(event.range.clone(), &owned)
+            .map_err(|_| EventEditError::GeneratedInvalid)?;
+        let edit = edit
+            .finish()
+            .map_err(|_| EventEditError::GeneratedInvalid)?;
+        Ok(single_document_edit(entry, path, edit))
+    }
+
+    pub fn delete_event(
+        &self,
+        path: impl AsRef<Path>,
+        event_range: std::ops::Range<usize>,
+    ) -> Result<WorkspaceEdit, EventEditError> {
+        let path = normalize(path.as_ref());
+        let entry = self
+            .documents
+            .get(&path)
+            .ok_or(EventEditError::StaleOrInvalidDocument)?;
+        let current = entry
+            .current
+            .as_ref()
+            .ok_or(EventEditError::StaleOrInvalidDocument)?;
+        let event = current
+            .output
+            .events
+            .events
+            .iter()
+            .find(|event| event.range == event_range)
+            .ok_or(EventEditError::EventNotFound)?;
+        let mut edit = EditSession::new(&entry.parsed, event.range.clone())
+            .map_err(|_| EventEditError::GeneratedInvalid)?;
+        edit.remove_block(event.range.clone())
+            .map_err(|_| EventEditError::GeneratedInvalid)?;
+        let edit = edit
+            .finish()
+            .map_err(|_| EventEditError::GeneratedInvalid)?;
+        Ok(single_document_edit(entry, path, edit))
+    }
+
     pub fn complete_link(
         &self,
         from: impl AsRef<Path>,
@@ -2448,6 +2872,33 @@ fn single_document_edit(entry: &DocumentEntry, path: PathBuf, edit: TextEdit) ->
     }
 }
 
+fn validate_event_input(input: &EventInput) -> Result<(), EventEditError> {
+    let start =
+        DateTime::parse_from_rfc3339(&input.start).map_err(|_| EventEditError::InvalidDatetime)?;
+    if let Some(end) = &input.end {
+        let end = DateTime::parse_from_rfc3339(end).map_err(|_| EventEditError::InvalidDatetime)?;
+        if end <= start {
+            return Err(EventEditError::InvalidInterval);
+        }
+    }
+    Ok(())
+}
+
+fn owned_event(input: &EventInput, uid: &str) -> OwnedBlock {
+    let mut attributes = vec![
+        OwnedAttribute::class("event"),
+        OwnedAttribute::quoted("uid", uid),
+        OwnedAttribute::quoted("start", &input.start),
+    ];
+    if let Some(end) = &input.end {
+        attributes.push(OwnedAttribute::quoted("end", end));
+    }
+    if !input.tasks.is_empty() {
+        attributes.push(OwnedAttribute::quoted("tasks", input.tasks.join(" ")));
+    }
+    OwnedBlock::marked("-", &input.title).with_attributes(attributes)
+}
+
 fn validated_token_edit(
     entry: &DocumentEntry,
     range: std::ops::Range<usize>,
@@ -2834,6 +3285,37 @@ impl SemanticSearchFilter {
         context.add_variable_from_value("now", Value::Timestamp(self.now));
         execute_search_filter(&self.program, &context, &entry.path)
     }
+
+    fn event_matches(
+        &self,
+        root: &Path,
+        entry: &DocumentEntry,
+        event: &EventRecord,
+    ) -> Result<bool, String> {
+        let mut context = Context::default();
+        context.add_variable_from_value("path", display_search_path(root, &entry.path));
+        context.add_variable_from_value(
+            "id",
+            optional_search_string(event.id.as_ref().map(|id| &id.value)),
+        );
+        context.add_variable_from_value(
+            "uid",
+            optional_search_string(event.uid.as_ref().map(|uid| &uid.value)),
+        );
+        context.add_variable_from_value("title", event.title.clone());
+        context.add_variable_from_value("start", event_search_datetime_value(&event.start));
+        context.add_variable_from_value("end", event_search_datetime_value(&event.end));
+        context.add_variable_from_value(
+            "tasks",
+            event
+                .tasks
+                .iter()
+                .map(|reference| reference.source.clone())
+                .collect::<Vec<_>>(),
+        );
+        context.add_variable_from_value("now", Value::Timestamp(self.now));
+        execute_search_filter(&self.program, &context, &entry.path)
+    }
 }
 
 fn derive_task_workflow_state(
@@ -2896,6 +3378,13 @@ fn search_datetime_value(field: Option<&plumb_extensions::TaskField>) -> Value {
         .map_or(Value::Null, Value::Timestamp)
 }
 
+fn event_search_datetime_value(field: &Option<plumb_extensions::EventField>) -> Value {
+    field
+        .as_ref()
+        .and_then(|field| DateTime::parse_from_rfc3339(&field.value).ok())
+        .map_or(Value::Null, Value::Timestamp)
+}
+
 fn display_search_task_ref(root: &Path, task_ref: &TaskRef) -> String {
     format!(
         "{}#{}",
@@ -2953,6 +3442,7 @@ fn search_kind_order(kind: SearchRecordKind) -> u8 {
     match kind {
         SearchRecordKind::Note => 0,
         SearchRecordKind::Task => 1,
+        SearchRecordKind::Event => 2,
     }
 }
 
@@ -4638,6 +5128,172 @@ mod tests {
         assert_eq!(
             workspace.insert_metadata("missing.plumb", "missing", "created"),
             Err(MetadataInsertError::StaleOrInvalidDocument)
+        );
+    }
+
+    #[test]
+    fn resolves_event_task_associations_and_queries_time_ranges() {
+        let mut workspace = Workspace::new();
+        workspace.insert(
+            "tasks.plumb",
+            1,
+            "`-{.task #write} Write\n`node{#plain} Plain\n",
+        );
+        let events = "`-{.event start=\"2026-07-30T10:30:00+05:00\"} Early\n`-{.event #review uid=\"same@example\" start=\"2026-07-30T14:00:00+08:00\" end=\"2026-07-30T15:00:00+08:00\" tasks=\"tasks.plumb#write\"} Review\n`-{.event uid=\"same@example\" start=\"2026-07-30T15:00:00+08:00\" tasks=\"tasks.plumb#plain missing.plumb#task bad\"} Point\n";
+        workspace.insert("events.plumb", 2, events);
+
+        let target = TaskRef {
+            path: PathBuf::from("tasks.plumb"),
+            id: "write".to_string(),
+        };
+        let associated = workspace.events_for_task(&target);
+        assert_eq!(associated.len(), 1);
+        assert_eq!(associated[0].event.title, "Review");
+
+        let day_start = DateTime::parse_from_rfc3339("2026-07-30T05:00:00Z").unwrap();
+        let day_end = DateTime::parse_from_rfc3339("2026-07-30T08:00:00Z").unwrap();
+        assert_eq!(
+            workspace
+                .events_overlapping(day_start, day_end)
+                .iter()
+                .map(|event| event.event.title.as_str())
+                .collect::<Vec<_>>(),
+            ["Early", "Review", "Point"]
+        );
+
+        let start = DateTime::parse_from_rfc3339("2026-07-30T14:30:00+08:00").unwrap();
+        let end = DateTime::parse_from_rfc3339("2026-07-30T15:01:00+08:00").unwrap();
+        assert_eq!(
+            workspace
+                .events_overlapping(start, end)
+                .iter()
+                .map(|event| event.event.title.as_str())
+                .collect::<Vec<_>>(),
+            ["Review", "Point"]
+        );
+
+        let reference_offset = events.find("tasks.plumb#write").unwrap();
+        assert!(matches!(
+            workspace.reference_target_at("events.plumb", reference_offset),
+            Some(ResolvedTarget::Document { ref path }) if path == Path::new("tasks.plumb")
+        ));
+        assert_eq!(workspace.references_to("tasks.plumb", "write").len(), 1);
+        assert_eq!(
+            workspace.referenced_documents_from("events.plumb"),
+            [PathBuf::from("tasks.plumb")]
+        );
+
+        let codes = workspace
+            .diagnostics("events.plumb")
+            .iter()
+            .map(|diagnostic| diagnostic.code)
+            .collect::<Vec<_>>();
+        assert!(codes.contains(&"event.duplicate-uid"), "{codes:?}");
+        assert!(codes.contains(&"event.target-not-task"), "{codes:?}");
+        assert!(codes.contains(&"event.unresolved-task-path"), "{codes:?}");
+        assert!(codes.contains(&"event.invalid-task-reference"), "{codes:?}");
+
+        let filtered = workspace
+            .search_records_filtered(
+                Path::new(""),
+                Some(SearchRecordKind::Event),
+                "review",
+                20,
+                DateTime::parse_from_rfc3339("2026-07-30T00:00:00Z").unwrap(),
+                Some("uid == 'same@example' && start < timestamp('2026-07-30T07:00:00Z')"),
+            )
+            .unwrap();
+        assert_eq!(filtered.items.len(), 1);
+        assert_eq!(filtered.items[0].kind, SearchRecordKind::Event);
+        assert_eq!(filtered.items[0].title, "Review");
+        assert_eq!(
+            filtered.items[0]
+                .tasks
+                .as_ref()
+                .unwrap()
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+            ["tasks.plumb#write"]
+        );
+    }
+
+    #[test]
+    fn creates_updates_and_deletes_events_with_guarded_canonical_edits() {
+        let mut workspace = Workspace::new();
+        let source = "`# Agenda\n";
+        workspace.insert("agenda.plumb", 7, source);
+        let created = workspace
+            .create_event(
+                "agenda.plumb",
+                &EventInput {
+                    title: "Review".to_string(),
+                    start: "2026-07-30T14:00:00+08:00".to_string(),
+                    end: Some("2026-07-30T15:00:00+08:00".to_string()),
+                    tasks: vec!["tasks.plumb#write".to_string()],
+                },
+            )
+            .unwrap();
+        assert_eq!(created.document_changes[0].expected_revision, 7);
+        let created_source = apply_single_edit(source, &created);
+        assert!(created_source.contains(".event"), "{created_source}");
+        assert!(created_source.contains("uid=\""), "{created_source}");
+        assert_eq!(
+            plumb_format::format(&created_source).unwrap(),
+            created_source
+        );
+
+        workspace.insert("agenda.plumb", 8, created_source.clone());
+        let event = workspace
+            .current_output(Path::new("agenda.plumb"))
+            .unwrap()
+            .events
+            .events[0]
+            .clone();
+        let uid = event.uid.as_ref().unwrap().value.clone();
+        let updated = workspace
+            .update_event(
+                "agenda.plumb",
+                event.range.clone(),
+                &EventInput {
+                    title: "Updated review".to_string(),
+                    start: "2026-07-30T16:00:00+08:00".to_string(),
+                    end: None,
+                    tasks: Vec::new(),
+                },
+            )
+            .unwrap();
+        let updated_source = apply_single_edit(&created_source, &updated);
+        assert!(updated_source.contains("Updated review"));
+        assert!(updated_source.contains(&format!("uid=\"{uid}\"")));
+        assert!(!updated_source.contains("tasks.plumb#write"));
+
+        workspace.insert("agenda.plumb", 9, updated_source.clone());
+        let updated_event = workspace
+            .current_output(Path::new("agenda.plumb"))
+            .unwrap()
+            .events
+            .events[0]
+            .clone();
+        let deleted = workspace
+            .delete_event("agenda.plumb", updated_event.range)
+            .unwrap();
+        assert_eq!(
+            apply_single_edit(&updated_source, &deleted),
+            "`# Agenda\n\n"
+        );
+
+        assert_eq!(
+            workspace.create_event(
+                "agenda.plumb",
+                &EventInput {
+                    title: "Bad".to_string(),
+                    start: "2026-07-30T16:00:00+08:00".to_string(),
+                    end: Some("2026-07-30T15:00:00+08:00".to_string()),
+                    tasks: Vec::new(),
+                },
+            ),
+            Err(EventEditError::InvalidInterval)
         );
     }
 }

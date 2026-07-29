@@ -1,5 +1,6 @@
 mod citations;
 mod document;
+mod events;
 mod headings;
 mod inline_styles;
 mod lists;
@@ -14,6 +15,7 @@ pub use document::{
     analyze_document, AnchorKind, AnchorRecord, DocumentOutput, FileRecord, FileTarget,
     ImageRecord, ImageTarget, LinkRecord, LinkSpelling, LinkTarget, SourceBacked,
 };
+pub use events::{analyze_events, EventField, EventOutput, EventRecord};
 pub use headings::{analyze_headings, Heading, HeadingOutput};
 pub use inline_styles::{
     analyze_inline_styles, InlineStyleKind, InlineStyleOutput, InlineStyleRecord,

@@ -186,6 +186,12 @@ impl OwnedBlock {
         }
     }
 
+    pub fn set_head_text(&mut self, text: impl Into<String>) {
+        if let Self::Parsed { head, .. } = self {
+            *head = vec![OwnedInline::Text(text.into())];
+        }
+    }
+
     pub fn children_mut(&mut self) -> Option<&mut Vec<OwnedBlock>> {
         match self {
             Self::Parsed { children, .. } => Some(children),

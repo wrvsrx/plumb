@@ -9,9 +9,10 @@ use plumb_core::{
 use url::Url;
 
 use crate::{
-    analyze_citations, analyze_headings, analyze_inline_styles, analyze_lists, analyze_math,
-    analyze_metadata, analyze_quotes, analyze_tasks, CitationOutput, HeadingOutput,
-    InlineStyleOutput, ListOutput, MathOutput, MetadataOutput, QuoteOutput, TaskOutput,
+    analyze_citations, analyze_events, analyze_headings, analyze_inline_styles, analyze_lists,
+    analyze_math, analyze_metadata, analyze_quotes, analyze_tasks, CitationOutput, EventOutput,
+    HeadingOutput, InlineStyleOutput, ListOutput, MathOutput, MetadataOutput, QuoteOutput,
+    TaskOutput,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -121,6 +122,7 @@ pub struct DocumentOutput {
     pub math: MathOutput,
     pub quotes: QuoteOutput,
     pub tasks: TaskOutput,
+    pub events: EventOutput,
     pub anchors: Vec<AnchorRecord>,
     pub links: Vec<LinkRecord>,
     pub images: Vec<ImageRecord>,
@@ -151,6 +153,7 @@ pub fn analyze_document(source: &str, document: &Document) -> DocumentOutput {
     let math = analyze_math(document);
     let quotes = analyze_quotes(document);
     let tasks = analyze_tasks(source, document);
+    let events = analyze_events(source, document);
     let mut output = DocumentOutput {
         headings,
         metadata,
@@ -160,6 +163,7 @@ pub fn analyze_document(source: &str, document: &Document) -> DocumentOutput {
         math,
         quotes,
         tasks,
+        events,
         ..DocumentOutput::default()
     };
     let mut first_ids: HashMap<String, Range<usize>> = HashMap::new();

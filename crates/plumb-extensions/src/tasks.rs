@@ -221,7 +221,15 @@ fn transient_task_attribute(item: &AttrItem) -> bool {
 }
 
 fn dependency_fields(source: &str, items: &[AttrItem]) -> Vec<TaskDependency> {
-    let Some(value) = pair_value(items, "depends") else {
+    task_reference_fields(source, items, "depends")
+}
+
+pub(crate) fn task_reference_fields(
+    source: &str,
+    items: &[AttrItem],
+    key: &str,
+) -> Vec<TaskDependency> {
+    let Some(value) = pair_value(items, key) else {
         return Vec::new();
     };
     let source_backed = attr_source_backed(source, value);
