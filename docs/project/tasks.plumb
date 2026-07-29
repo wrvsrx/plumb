@@ -229,6 +229,19 @@
    `note 格式化 fragment 后只添加一次 owner base indentation，并保留 LF/CRLF line ending。
    `note 覆盖 top-level、nested task、long attributes、children、CRLF、strict parse 与 LSP edits。
 
+`-{
+   .task #standard-event-extension created="2026-07-30T00:40:49+08:00"
+  } 支持可关联 task 的标准 event 与只读 calendar projection
+
+   `note 只有 `[-] 或 `[.] list item 上的 `[.event] class 产生 EventRecord；head 是 title，children 是 details，source nesting 只形成 display tree，不表示时间包含或排序。
+   `note `[start] 是必填的 quoted RFC 3339 timestamp，`[end] 是可选的 quoted RFC 3339 timestamp；没有 `[end] 表示 point event，有 `[end] 时使用 half-open `[[start, end)] interval 并要求 end 晚于 start。首版不支持 all-day、floating time、recurrence、reminder 或 attendee semantics。
+   `note `[tasks] 使用与 task `[depends] 相同的 same-file `[#id] 和 cross-file `[`path.plumb#id] reference-list spelling，但只建立 event-to-task association，不产生 dependency、task state 或隐式 task lifecycle event。Target 必须解析到 TaskRecord；workspace 建立 task-to-event reverse index，并提供 deterministic range/overlap queries。
+   `note 同一 owner 同时具有 `[.task] 与 `[.event] 时由 event extension 发布 `[event.conflicting-task-facet] 且不生成 EventRecord；task extension 继续按现有规则生成 TaskRecord。`[.event] 出现在非 list-item owner 上发布 `[event.invalid-owner]。
+   `note Event identity 保持 source-backed `[#id] 与 iCalendar `[UID] 分离；event authoring operation 为 calendar projection 创建稳定 UID，移动、改名或修改标题不得改变既有 UID。Diagnostics 覆盖 missing/invalid start、invalid interval、invalid/conflicting owner、invalid/unresolved/non-task reference 与 duplicate UID。
+   `note 扩展 workspace/notes query facts、search records、LSP symbols/hover/completion/references 和 Web shared model；Web Agenda 按时间组合 events 与 tasks 但不把 task 推断为 event，并通过 revision-guarded operations 创建、编辑、删除 event 及维护 task associations。首版 mobile Web mutation 只支持 online operation，不增加 offline write queue。
+   `note 提供只读 vdir projection：每个 event 原子生成一个含单个 VEVENT 的 `[.ics] file，以 UID 派生 filename，稳定 lower SUMMARY、DESCRIPTION、DTSTART、optional DTEND、UID 与 DTSTAMP，并用 `[X-PLUMB-TASK] 保留 task references；删除 source event 时清理对应 generated item。输出目录可作为 khal `[readonly = true] calendar 使用。
+   `note `[.plumb] 始终是唯一 writable source；首版不导入外部 iCalendar 修改、不实现 CalDAV client、不让 vdirsyncer 或 Calendar 回写 source。覆盖 strict extension/workspace tests、Web guarded-edit tests、RFC 5545 escaping/folding/CRLF fixtures、真实 khal read-only discovery，以及 reference、guide、roadmap、playground 和 bundled skill 更新。
+
 `# Workspace indexing
 
 `-{
@@ -366,6 +379,15 @@
    `note Graph/Tasks tab 使用 `[history.pushState]；逐字 fuzzy/CEL input 等高频临时变化使用 `[history.replaceState]；`[popstate] 从 URL 完整恢复 view 和 query controls。刷新、前进、后退、bookmark 与 shared URL 不得丢失当前 Tasks/Graph view 或 filters。
    `note dynamic server 为 `[/graph] 与 `[/tasks] 返回同一 app shell 并按 pathname 初始化；static build 生成 `[graph/index.html] 与 `[tasks/index.html]，保持 asset、note/resource links 和 query semantics 与 dynamic routes 一致。
    `note URL query parameters、JSON request 与 UI state 能无损往返 filters、query 和 sort。CEL 错误保留 last successful result；覆盖互斥 preset replacement、多个 preset AND、custom error provenance、empty query、stable source order、subtree sorting、Graph filtered endpoints、direct route load、refresh、back/forward、static/dynamic parity 与 revision refresh tests。
+
+`-{
+   .task #default-ready-task-filter depends="#web-query-pipeline"
+   created="2026-07-30T00:40:49+08:00"
+  } Tasks 页面默认启用 State: Ready filter
+
+   `note 首次进入 `[/tasks] 且 URL 没有显式 filter state 时预选 State grouped filter 的 Ready preset，使默认结果只包含 ready tasks；这不同于用户手动添加 State filter 时选择 registry 第一个 option 的现有行为。
+   `note URL 中显式存在 filters 时必须完整恢复该状态，包括非 Ready state、多个 state、已移除全部 presets 或 shared/bookmarked query；默认值不能覆盖 refresh、back/forward、popstate 或用户在当前 session 的选择。
+   `note Dynamic server 与 static build 使用相同初始化规则，并覆盖 direct Tasks navigation、Graph-to-Tasks navigation、empty/explicit URL state、filter removal、refresh、history navigation 和 URL round-trip frontend tests。
 
 `# Neovim plugin
 
