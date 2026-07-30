@@ -417,7 +417,9 @@
 
    `note 将标准 `[priority] field 从非负整数调整为有符号整数；数值越大越优先，缺失值按 `[0] 处理，因此正数提前、负数延后，显式 `[priority=0] 与缺失值具有相同排序权重。
    `note 共享 task model 使用明确的有符号整数范围，超出范围或非整数继续发布 `[task.invalid-priority]，且非法值不进入 CEL facts；recurring task clone 与 export 必须原样保留合法 priority attribute。
-   `note CLI、dynamic/static Web Priority sort 与 nested sibling subtree sorting 使用同一比较规则，并覆盖正数、零、缺失、负数、极值、非法值、stable tie-break 和 descendant preservation tests；同步更新 reference、guide 与 bundled skill。
+   `note Web task query projection 将每个 document 建模为 workspace task forest 中的虚拟结构节点；document node 不进入 plumb language semantics，也不产生可编辑的 file-level priority attribute。排序始终只重排同一 parent 下的完整 sibling subtrees，因此同一 document 及任意 task subtree 在所有 sort modes 下保持连续。
+   `note 每个 task 与虚拟 document node 的 own priority 默认都是 `[0]；effective priority 递归取 own priority 与所有直接 children effective priorities 的最大值。正 priority 可以逐层提升 task ancestors 与 document，负 priority 只让对应节点在本层 siblings 中延后，不能降低 ancestor 或 document 的 effective priority。
+   `note CLI、dynamic/static Web Priority sort 与 nested sibling subtree sorting 使用同一 effective-priority 比较规则，并覆盖正数、零、缺失、负数、deep descendant promotion、negative descendant non-demotion、document aggregation、极值、非法值、stable tie-break 和 subtree continuity tests；同步更新 reference、guide 与 bundled skill。
 
 `# Neovim plugin
 
