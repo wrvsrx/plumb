@@ -246,7 +246,7 @@ Defined fields:
 - `created`, `due`, `wait`, `done`, and `canceled`: quoted RFC 3339 timestamps.
 - `recur`: one positive `PnD`, `PnW`, `PnM`, or `PnY` rule; requires `due`.
 - `prev`: one same-file `#id` or cross-file `path.plumb#id` reference.
-- `priority`: a non-negative integer; larger values have higher priority.
+- `priority`: a signed 32-bit integer; larger values have higher priority.
 - `depends`: references in one quoted value. Whitespace after each reference id
   separates entries; whitespace before `.plumb#id` belongs to the path.
 
@@ -265,7 +265,8 @@ value produces `task.invalid-datetime` and does not participate in task state,
 queries, or operations. `task.missing-due-for-recur` applies only when the
 `due` attribute is absent, not when it is present but invalid.
 An invalid `priority` produces `task.invalid-priority` and does not participate
-in sorting or task CEL facts.
+in sorting or task CEL facts. Valid priorities are CEL integers; missing or
+invalid priorities are CEL null rather than the sorting default below.
 
 Document-local closure state is derived from closure timestamps:
 
@@ -277,11 +278,20 @@ Document-local closure state is derived from closure timestamps:
 Do not invent `state`, `status`, `scheduled`, or checkbox syntax as
 task semantics. Other attributes remain opaque custom data.
 
-`plumb task` and the Web task view sort sibling task subtrees recursively by
-descending priority, ascending due time, then stable source order. Missing
-priority is lowest and missing due sorts after a valid due. Each task moves
-with all of its descendants, so sorting never breaks the display tree. The Web
-task view also offers explicit source, priority, due, and relevance sorts.
+`plumb task` and the Web task view project each document as a virtual structural
+node in the workspace task forest. It has no language syntax or editable
+file-level priority. Every task and document node has a default own priority of
+zero; its effective priority is the maximum of its own priority and the
+effective priorities of its direct children. Positive descendants can promote
+ancestors, while negative descendants cannot demote them.
+
+Sorting recursively reorders only complete sibling subtrees, so documents and
+task subtrees remain contiguous. `plumb task` sorts by descending effective
+priority, earliest subtree due, then source order. The Web view offers source,
+priority, due, and relevance sorts, aggregating the maximum effective priority,
+earliest RFC 3339 due instant, or maximum fuzzy score through each subtree.
+Filtering removes records after sorting the complete forest. A task query limit
+extends through the current document rather than splitting its tree.
 
 Workspace queries, LSP hover, and the Web task view derive one mutually
 exclusive workflow state: `ready` for an open task with no future wait or

@@ -413,6 +413,7 @@
 `-{
    .task #signed-task-priority depends="#task-priority-sorting"
    created="2026-07-30T17:36:54+08:00"
+   done="2026-07-31T02:41:18+08:00"
   } 允许 task priority 使用负数
 
    `note 将标准 `[priority] field 从非负整数调整为有符号整数；数值越大越优先，缺失值按 `[0] 处理，因此正数提前、负数延后，显式 `[priority=0] 与缺失值具有相同排序权重。
