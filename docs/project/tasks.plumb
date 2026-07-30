@@ -410,6 +410,15 @@
    `note `[plumb task] 与 Web task snapshot 默认按 priority 降序、due 升序和 source order 递归排列 sibling subtrees；排序必须保持 parent/descendant layout 和 subtree 连续性。
    `note Web structured query 增加 Priority sort，dynamic server 与 static build 使用同一 payload、CEL facts 和排序规则，并覆盖根任务、nested sibling 与 descendant preservation tests。
 
+`-{
+   .task #signed-task-priority depends="#task-priority-sorting"
+   created="2026-07-30T17:36:54+08:00"
+  } 允许 task priority 使用负数
+
+   `note 将标准 `[priority] field 从非负整数调整为有符号整数；数值越大越优先，缺失值按 `[0] 处理，因此正数提前、负数延后，显式 `[priority=0] 与缺失值具有相同排序权重。
+   `note 共享 task model 使用明确的有符号整数范围，超出范围或非整数继续发布 `[task.invalid-priority]，且非法值不进入 CEL facts；recurring task clone 与 export 必须原样保留合法 priority attribute。
+   `note CLI、dynamic/static Web Priority sort 与 nested sibling subtree sorting 使用同一比较规则，并覆盖正数、零、缺失、负数、极值、非法值、stable tie-break 和 descendant preservation tests；同步更新 reference、guide 与 bundled skill。
+
 `# Neovim plugin
 
 `-{
