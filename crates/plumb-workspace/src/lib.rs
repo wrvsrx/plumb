@@ -17,6 +17,12 @@ use plumb_extensions::{
     TaskStatus,
 };
 
+mod task_sort;
+
+pub use task_sort::{
+    sort_task_records, truncate_complete_task_documents, TaskSortFacts, TaskSortOrder,
+};
+
 pub const WORKSPACE_MARKER: &str = ".plumb";
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]

@@ -1,10 +1,13 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use chrono::{DateTime, FixedOffset, Local, SecondsFormat};
+use chrono::{Local, SecondsFormat};
 use comfy_table::{presets::NOTHING, ContentArrangement, Table};
 use plumb_extensions::TaskStatus;
-use plumb_workspace::{normalize, SearchRecordKind, TaskEditError, TaskWorkflowState, TextEdit};
+use plumb_workspace::{
+    normalize, sort_task_records, SearchRecordKind, TaskEditError, TaskSortFacts, TaskSortOrder,
+    TaskWorkflowState, TextEdit,
+};
 
 use crate::{load_workspace, LoadedWorkspace, TaskAction};
 
@@ -100,125 +103,17 @@ fn task_records(
 }
 
 fn sort_task_subtrees(records: &mut Vec<plumb_workspace::SearchRecord>) {
-    records.sort_by(|left, right| {
-        left.relative_path
-            .cmp(&right.relative_path)
-            .then(left.range.start.cmp(&right.range.start))
+    sort_task_records(records, TaskSortOrder::Priority, |record| TaskSortFacts {
+        document: record.relative_path.clone(),
+        source_start: record.range.start,
+        depth: record.depth.unwrap_or_default(),
+        priority: record.priority,
+        due: record
+            .due
+            .as_deref()
+            .and_then(|due| chrono::DateTime::parse_from_rfc3339(due).ok()),
+        relevance: None,
     });
-    let mut documents = BTreeMap::<String, Vec<plumb_workspace::SearchRecord>>::new();
-    for record in std::mem::take(records) {
-        documents
-            .entry(record.relative_path.clone())
-            .or_default()
-            .push(record);
-    }
-    let mut documents = documents
-        .into_iter()
-        .map(|(path, records)| {
-            let mut children = task_forest(&records);
-            sort_task_forest(&mut children);
-            let priority = children
-                .iter()
-                .map(|child| child.effective_priority)
-                .max()
-                .unwrap_or_default()
-                .max(0);
-            let due = children.iter().filter_map(|child| child.earliest_due).min();
-            (path, priority, due, children)
-        })
-        .collect::<Vec<_>>();
-    documents.sort_by(|left, right| {
-        right
-            .1
-            .cmp(&left.1)
-            .then_with(|| optional_due_order(left.2.as_ref(), right.2.as_ref()))
-            .then(left.0.cmp(&right.0))
-    });
-    records.extend(
-        documents
-            .into_iter()
-            .flat_map(|(_, _, _, children)| children.into_iter().flat_map(flatten_task_tree)),
-    );
-}
-
-struct TaskTree {
-    root: plumb_workspace::SearchRecord,
-    children: Vec<TaskTree>,
-    effective_priority: i32,
-    earliest_due: Option<DateTime<FixedOffset>>,
-}
-
-fn task_forest(records: &[plumb_workspace::SearchRecord]) -> Vec<TaskTree> {
-    let mut forest = Vec::new();
-    let mut index = 0;
-    while index < records.len() {
-        let root = records[index].clone();
-        let root_depth = root.depth.unwrap_or_default();
-        let mut end = index + 1;
-        while end < records.len()
-            && records[end].relative_path == root.relative_path
-            && records[end].depth.unwrap_or_default() > root_depth
-        {
-            end += 1;
-        }
-        let children = task_forest(&records[index + 1..end]);
-        let effective_priority = children
-            .iter()
-            .map(|child| child.effective_priority)
-            .chain(std::iter::once(root.priority.unwrap_or_default()))
-            .max()
-            .unwrap_or_default();
-        let earliest_due = children
-            .iter()
-            .filter_map(|child| child.earliest_due)
-            .chain(
-                root.due
-                    .as_deref()
-                    .and_then(|due| DateTime::parse_from_rfc3339(due).ok()),
-            )
-            .min();
-        forest.push(TaskTree {
-            root,
-            children,
-            effective_priority,
-            earliest_due,
-        });
-        index = end;
-    }
-    forest
-}
-
-fn sort_task_forest(forest: &mut [TaskTree]) {
-    for tree in forest.iter_mut() {
-        sort_task_forest(&mut tree.children);
-    }
-    forest.sort_by(|left, right| {
-        right
-            .effective_priority
-            .cmp(&left.effective_priority)
-            .then_with(|| {
-                optional_due_order(left.earliest_due.as_ref(), right.earliest_due.as_ref())
-            })
-            .then(left.root.range.start.cmp(&right.root.range.start))
-    });
-}
-
-fn optional_due_order(
-    left: Option<&DateTime<FixedOffset>>,
-    right: Option<&DateTime<FixedOffset>>,
-) -> std::cmp::Ordering {
-    match (left, right) {
-        (Some(left), Some(right)) => left.cmp(right),
-        (Some(_), None) => std::cmp::Ordering::Less,
-        (None, Some(_)) => std::cmp::Ordering::Greater,
-        (None, None) => std::cmp::Ordering::Equal,
-    }
-}
-
-fn flatten_task_tree(tree: TaskTree) -> Vec<plumb_workspace::SearchRecord> {
-    std::iter::once(tree.root)
-        .chain(tree.children.into_iter().flat_map(flatten_task_tree))
-        .collect()
 }
 
 fn render_task_table(records: &[TaskOutputRecord], heading: bool) -> String {

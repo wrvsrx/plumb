@@ -3,11 +3,12 @@ use std::ops::Range;
 use std::path::{Path, PathBuf};
 
 use cel::{Context, Program, Value};
-use chrono::{DateTime, FixedOffset, Local, SecondsFormat};
+use chrono::{Local, SecondsFormat};
 use plumb_extensions::{LinkSpelling, TaskStatus};
 use plumb_workspace::{
-    normalize, scan_workspace_files, search_score, EventEditError, EventInput, ResolvedTarget,
-    SearchRecordKind, TaskEditError, TaskRef, TextEdit, Workspace,
+    normalize, scan_workspace_files, search_score, sort_task_records,
+    truncate_complete_task_documents, EventEditError, EventInput, ResolvedTarget, SearchRecordKind,
+    TaskEditError, TaskRef, TaskSortFacts, TaskSortOrder, TextEdit, Workspace,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -707,7 +708,7 @@ impl WebWorkspace {
         tasks.retain(|task| retained.contains(&task.key));
         let limit = query.limit.unwrap_or(usize::MAX);
         let complete = tasks.len() <= limit;
-        truncate_complete_task_documents(&mut tasks, limit);
+        truncate_complete_task_documents(&mut tasks, limit, |task| &task.path);
         Ok(TaskQuerySnapshot {
             revision: self.revision,
             tasks,
@@ -1344,22 +1345,6 @@ impl WebWorkspace {
     }
 }
 
-fn truncate_complete_task_documents(tasks: &mut Vec<WebTask>, limit: usize) {
-    if tasks.len() <= limit {
-        return;
-    }
-    if limit == 0 {
-        tasks.clear();
-        return;
-    }
-    let path = tasks[limit - 1].path.clone();
-    let end = tasks[limit..]
-        .iter()
-        .position(|task| task.path != path)
-        .map_or(tasks.len(), |offset| limit + offset);
-    tasks.truncate(end);
-}
-
 fn custom_filters(query: &WebQuery) -> impl Iterator<Item = (String, &str)> {
     let mut filters = query
         .filters
@@ -1382,24 +1367,6 @@ struct GraphMetric {
     outgoing: usize,
     task_count: usize,
     open_task_count: usize,
-}
-
-#[derive(Debug)]
-struct TaskTree {
-    root: WebTask,
-    children: Vec<TaskTree>,
-    effective_priority: i32,
-    earliest_due: Option<DateTime<FixedOffset>>,
-    relevance: Option<i64>,
-}
-
-#[derive(Debug)]
-struct TaskDocumentTree {
-    path: String,
-    children: Vec<TaskTree>,
-    effective_priority: i32,
-    earliest_due: Option<DateTime<FixedOffset>>,
-    relevance: Option<i64>,
 }
 
 struct ResolvedPresetGroup<'a> {
@@ -1533,151 +1500,23 @@ fn assign_task_parents(tasks: &mut [WebTask]) {
 }
 
 fn sort_task_tree(tasks: &mut Vec<WebTask>, sort: QuerySort, scores: &HashMap<String, i64>) {
-    tasks.sort_by(task_source_order);
-    let mut documents = BTreeMap::<String, Vec<WebTask>>::new();
-    for task in std::mem::take(tasks) {
-        documents.entry(task.path.clone()).or_default().push(task);
-    }
-    let mut documents = documents
-        .into_iter()
-        .map(|(path, tasks)| {
-            let mut children = task_forest(&tasks, scores);
-            sort_task_forest(&mut children, sort);
-            TaskDocumentTree {
-                path,
-                effective_priority: children
-                    .iter()
-                    .map(|child| child.effective_priority)
-                    .max()
-                    .unwrap_or_default()
-                    .max(0),
-                earliest_due: children.iter().filter_map(|child| child.earliest_due).min(),
-                relevance: children.iter().filter_map(|child| child.relevance).max(),
-                children,
-            }
-        })
-        .collect::<Vec<_>>();
-    documents.sort_by(|left, right| task_document_order(left, right, sort));
-    tasks.extend(
-        documents
-            .into_iter()
-            .flat_map(|document| document.children.into_iter().flat_map(flatten_task_tree)),
-    );
-}
-
-fn task_document_order(
-    left: &TaskDocumentTree,
-    right: &TaskDocumentTree,
-    sort: QuerySort,
-) -> std::cmp::Ordering {
-    let source = left.path.cmp(&right.path);
-    task_aggregate_order(
-        left.effective_priority,
-        right.effective_priority,
-        left.earliest_due.as_ref(),
-        right.earliest_due.as_ref(),
-        left.relevance,
-        right.relevance,
-        sort,
-    )
-    .then(source)
-}
-
-fn task_forest(tasks: &[WebTask], scores: &HashMap<String, i64>) -> Vec<TaskTree> {
-    let mut forest = Vec::new();
-    let mut index = 0;
-    while index < tasks.len() {
-        let root = tasks[index].clone();
-        let mut end = index + 1;
-        while end < tasks.len() && tasks[end].path == root.path && tasks[end].depth > root.depth {
-            end += 1;
-        }
-        let children = task_forest(&tasks[index + 1..end], scores);
-        let effective_priority = children
-            .iter()
-            .map(|child| child.effective_priority)
-            .chain(std::iter::once(root.priority.unwrap_or_default()))
-            .max()
-            .unwrap_or_default();
-        let earliest_due = children
-            .iter()
-            .filter_map(|child| child.earliest_due)
-            .chain(
-                root.due
-                    .as_deref()
-                    .and_then(|due| DateTime::parse_from_rfc3339(due).ok()),
-            )
-            .min();
-        let relevance = children
-            .iter()
-            .filter_map(|child| child.relevance)
-            .chain(scores.get(&root.key).copied())
-            .max();
-        forest.push(TaskTree {
-            root,
-            children,
-            effective_priority,
-            earliest_due,
-            relevance,
-        });
-        index = end;
-    }
-    forest
-}
-
-fn sort_task_forest(forest: &mut [TaskTree], sort: QuerySort) {
-    for tree in forest.iter_mut() {
-        sort_task_forest(&mut tree.children, sort);
-    }
-    forest.sort_by(|left, right| {
-        task_aggregate_order(
-            left.effective_priority,
-            right.effective_priority,
-            left.earliest_due.as_ref(),
-            right.earliest_due.as_ref(),
-            left.relevance,
-            right.relevance,
-            sort,
-        )
-        .then_with(|| task_source_order(&left.root, &right.root))
+    let order = match sort {
+        QuerySort::Source => TaskSortOrder::Source,
+        QuerySort::Priority => TaskSortOrder::Priority,
+        QuerySort::Due => TaskSortOrder::Due,
+        QuerySort::Relevance => TaskSortOrder::Relevance,
+    };
+    sort_task_records(tasks, order, |task| TaskSortFacts {
+        document: task.path.clone(),
+        source_start: task.location.start,
+        depth: task.depth,
+        priority: task.priority,
+        due: task
+            .due
+            .as_deref()
+            .and_then(|due| chrono::DateTime::parse_from_rfc3339(due).ok()),
+        relevance: scores.get(&task.key).copied(),
     });
-}
-
-fn task_aggregate_order(
-    left_priority: i32,
-    right_priority: i32,
-    left_due: Option<&DateTime<FixedOffset>>,
-    right_due: Option<&DateTime<FixedOffset>>,
-    left_relevance: Option<i64>,
-    right_relevance: Option<i64>,
-    sort: QuerySort,
-) -> std::cmp::Ordering {
-    match sort {
-        QuerySort::Priority => right_priority
-            .cmp(&left_priority)
-            .then_with(|| optional_due_order(left_due, right_due)),
-        QuerySort::Due => optional_due_order(left_due, right_due),
-        QuerySort::Relevance => right_relevance.cmp(&left_relevance),
-        QuerySort::Source => std::cmp::Ordering::Equal,
-    }
-}
-
-fn optional_due_order(
-    left: Option<&DateTime<FixedOffset>>,
-    right: Option<&DateTime<FixedOffset>>,
-) -> std::cmp::Ordering {
-    match (left, right) {
-        (Some(left), Some(right)) => left.cmp(right),
-        (Some(_), None) => std::cmp::Ordering::Less,
-        (None, Some(_)) => std::cmp::Ordering::Greater,
-        (None, None) => std::cmp::Ordering::Equal,
-    }
-}
-
-fn flatten_task_tree(tree: TaskTree) -> Vec<WebTask> {
-    std::iter::once(tree.root)
-        .chain(tree.children.into_iter().flat_map(flatten_task_tree))
-        .collect()
 }
 
 fn file_revision(path: &Path) -> Option<i64> {
