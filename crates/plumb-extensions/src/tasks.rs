@@ -69,7 +69,7 @@ pub struct TaskRecord {
     pub canceled: Option<TaskField>,
     pub recur: Option<TaskField>,
     pub prev: Option<TaskField>,
-    pub priority: Option<u32>,
+    pub priority: Option<i32>,
     pub depends: Vec<TaskDependency>,
 }
 
@@ -197,7 +197,7 @@ fn string_field(items: &[AttrItem], key: &str) -> Option<TaskField> {
     pair_value(items, key).map(task_field)
 }
 
-fn priority_field(items: &[AttrItem]) -> Option<u32> {
+fn priority_field(items: &[AttrItem]) -> Option<i32> {
     pair_value(items, "priority")?.decoded.parse().ok()
 }
 
@@ -338,11 +338,11 @@ fn collect_task_diagnostics(task: &TaskRecord, attrs: &[AttrItem], output: &mut 
     }
 
     if let Some(value) = pair_value(attrs, "priority") {
-        if value.decoded.parse::<u32>().is_err() {
+        if value.decoded.parse::<i32>().is_err() {
             output.diagnostics.push(Diagnostic {
                 code: "task.invalid-priority",
                 severity: DiagnosticSeverity::Warning,
-                message: "'priority' must be a non-negative integer".to_string(),
+                message: "'priority' must be a signed 32-bit integer".to_string(),
                 range: value.range.clone(),
                 related: Vec::new(),
             });
@@ -579,16 +579,30 @@ mod tests {
     }
 
     #[test]
-    fn parses_non_negative_task_priority_and_rejects_other_values() {
-        let source = "`-{.task priority=12} Important\n`-{.task priority=-1} Invalid\n";
+    fn parses_signed_task_priority_and_rejects_out_of_range_values() {
+        let source = "`-{.task priority=2147483647} Maximum\n`-{.task priority=-12} Deferred\n`-{.task priority=-2147483648} Minimum\n`-{.task priority=2147483648} Too large\n`-{.task priority=-2147483649} Too small\n`-{.task priority=soon} Invalid\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
         let output = analyze_tasks(source, &parsed.syntax);
-        assert_eq!(output.tasks[0].priority, Some(12));
-        assert_eq!(output.tasks[1].priority, None);
-        assert_eq!(output.diagnostics.len(), 1);
-        assert_eq!(output.diagnostics[0].code, "task.invalid-priority");
+        assert_eq!(output.tasks[0].priority, Some(i32::MAX));
+        assert_eq!(output.tasks[1].priority, Some(-12));
+        assert_eq!(output.tasks[2].priority, Some(i32::MIN));
+        assert_eq!(output.tasks[3].priority, None);
+        assert_eq!(output.tasks[4].priority, None);
+        assert_eq!(output.tasks[5].priority, None);
+        assert_eq!(
+            output
+                .diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.code)
+                .collect::<Vec<_>>(),
+            [
+                "task.invalid-priority",
+                "task.invalid-priority",
+                "task.invalid-priority"
+            ]
+        );
     }
 
     #[test]

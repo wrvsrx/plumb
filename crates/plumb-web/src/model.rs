@@ -116,7 +116,7 @@ pub struct WebTask {
     pub state: String,
     pub created: Option<String>,
     pub due: Option<String>,
-    pub priority: Option<u32>,
+    pub priority: Option<i32>,
     pub wait: Option<String>,
     pub done: Option<String>,
     pub canceled: Option<String>,
@@ -1372,7 +1372,7 @@ struct TaskRoot {
     path: String,
     start: usize,
     due: Option<String>,
-    priority: Option<u32>,
+    priority: Option<i32>,
 }
 
 struct ResolvedPresetGroup<'a> {

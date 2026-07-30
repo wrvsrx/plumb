@@ -267,7 +267,7 @@ pub struct SearchRecord {
     pub task_state: Option<TaskWorkflowState>,
     pub wait_reasons: Option<Vec<TaskWaitReason>>,
     pub due: Option<String>,
-    pub priority: Option<u32>,
+    pub priority: Option<i32>,
     pub blocked: Option<bool>,
     pub actionable: Option<bool>,
     pub depth: Option<usize>,
@@ -3266,7 +3266,7 @@ impl SemanticSearchFilter {
         context.add_variable_from_value(
             "priority",
             task.priority
-                .map_or(Value::Null, |value| Value::Int(value as i64)),
+                .map_or(Value::Null, |value| Value::Int(i64::from(value))),
         );
         context.add_variable_from_value("wait", search_datetime_value(task.wait.as_ref()));
         context.add_variable_from_value("done", search_datetime_value(task.done.as_ref()));
