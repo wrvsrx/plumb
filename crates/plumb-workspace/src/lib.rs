@@ -5049,7 +5049,7 @@ mod tests {
 
     #[test]
     fn recurring_task_completion_preserves_canonical_layout() {
-        let source = "`# 饮食相关任务\n\n`-{\n   #控制饮食-2026-07-20 .task created=\"2026-07-20T01:06:48+08:00\" due=\"2026-07-20T23:59:59+08:00\"\n   wait=\"2026-07-20T00:00:00+08:00\" recur=\"P1D\" prev=\"#控制饮食-2026-07-19\"\n  } 控制饮食\n\n`# 锻炼相关任务\n";
+        let source = "`# 饮食相关任务\n\n`-{\n   #控制饮食-2026-07-20 .task priority=-5 created=\"2026-07-20T01:06:48+08:00\"\n   due=\"2026-07-20T23:59:59+08:00\" wait=\"2026-07-20T00:00:00+08:00\" recur=\"P1D\"\n   prev=\"#控制饮食-2026-07-19\"\n  } 控制饮食\n\n`# 锻炼相关任务\n";
         assert_eq!(plumb_format::format(source).unwrap(), source);
         let mut workspace = Workspace::new();
         workspace.insert("减肥.plumb", 6, source);
@@ -5069,6 +5069,7 @@ mod tests {
 
         assert!(edited.contains("done=\"2026-07-21T18:01:12+08:00\"\n  } 控制饮食\n`-{"));
         assert!(edited.contains("prev=\"#控制饮食-2026-07-20\"\n  } 控制饮食\n\n`# 锻炼相关任务"));
+        assert_eq!(edited.matches("priority=-5").count(), 2);
         assert_eq!(plumb_format::format(&edited).unwrap(), edited);
     }
 

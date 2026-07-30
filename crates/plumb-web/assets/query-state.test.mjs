@@ -8,6 +8,7 @@ import {
   readQueryParameters,
   readyTaskQueryRequest,
   readyTasksFromSnapshot,
+  sortTaskTrees,
   taskByKey,
   togglePresetValue,
   viewFromPath,
@@ -108,4 +109,28 @@ test('selected task details survive when a query no longer retains the task', ()
 
   assert.equal(taskByKey(snapshot, completed.key), completed);
   assert.equal(taskByKey(snapshot, 'missing'), null);
+});
+
+test('task sorting aggregates descendants and keeps document trees contiguous', () => {
+  const task = (key, path, start, depth, priority = null, due = null) => ({
+    key, path, depth, priority, due, location: { start },
+  });
+  const tasks = [
+    task('a-deferred', 'a.plumb', 0, 0, -5, '2099-03-01T00:00:00Z'),
+    task('a-promoted', 'a.plumb', 10, 0, -10),
+    task('a-urgent', 'a.plumb', 20, 1, 30),
+    task('a-early', 'a.plumb', 30, 0, null, '2099-01-01T00:15:00-01:00'),
+    task('b-high', 'b.plumb', 0, 0, 20, '2099-01-01T01:00:00+02:00'),
+    task('b-other', 'b.plumb', 10, 0, 15),
+    task('c-negative', 'c.plumb', 0, 0, -1),
+    task('d-default', 'd.plumb', 0, 0),
+  ];
+  assert.deepEqual(
+    sortTaskTrees(tasks, 'priority').map((item) => item.key),
+    ['a-promoted', 'a-urgent', 'a-early', 'a-deferred', 'b-high', 'b-other', 'c-negative', 'd-default'],
+  );
+  assert.deepEqual(
+    sortTaskTrees(tasks, 'due').map((item) => item.key),
+    ['b-high', 'b-other', 'a-early', 'a-deferred', 'a-promoted', 'a-urgent', 'c-negative', 'd-default'],
+  );
 });

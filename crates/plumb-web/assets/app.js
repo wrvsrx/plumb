@@ -6,6 +6,7 @@ import {
   readQueryParameters,
   readyTaskQueryRequest,
   readyTasksFromSnapshot,
+  sortTaskTrees,
   taskByKey,
   togglePresetValue,
   viewFromPath,
@@ -444,40 +445,19 @@ import {
 
   function staticTaskQuery(snapshot) {
     const predicates = queryPredicates('tasks');
-    const roots = new Map();
-    let root = null;
-    snapshot.tasks.forEach((task) => {
-      if (task.depth === 0 || !root || root.path !== task.path) root = task;
-      roots.set(task.key, root);
-    });
     const scores = new Map();
-    const tasks = snapshot.tasks.filter((task) => {
+    const retained = new Set();
+    snapshot.tasks.forEach((task) => {
       try { if (!predicates.every((predicate) => predicate(taskFacts(task)))) return false; }
       catch (failure) { failure.source ||= 'custom'; throw failure; }
       const score = bestFuzzyScore([task.title, task.id || '', task.path], state.query.tasks);
       if (score === null) return false;
       scores.set(task.key, score);
-      return true;
+      retained.add(task.key);
     });
-    const groups = new Map();
-    tasks.forEach((task) => {
-      const taskRoot = roots.get(task.key) || task;
-      if (!groups.has(taskRoot.key)) groups.set(taskRoot.key, { root: taskRoot, tasks: [] });
-      groups.get(taskRoot.key).tasks.push(task);
-    });
-    const grouped = Array.from(groups.values());
-    grouped.sort((left, right) => {
-      const source = left.root.path.localeCompare(right.root.path) || left.root.location.start - right.root.location.start;
-      if (state.sort.tasks === 'priority') return (right.root.priority || 0) - (left.root.priority || 0) || (left.root.due || '9999').localeCompare(right.root.due || '9999') || source;
-      if (state.sort.tasks === 'due') return (left.root.due || '9999').localeCompare(right.root.due || '9999') || source;
-      if (state.sort.tasks === 'relevance' && state.query.tasks) {
-        const leftScore = Math.max(...left.tasks.map((task) => scores.get(task.key)));
-        const rightScore = Math.max(...right.tasks.map((task) => scores.get(task.key)));
-        return rightScore - leftScore || source;
-      }
-      return source;
-    });
-    return { ...snapshot, tasks: grouped.flatMap((group) => group.tasks), complete: true };
+    const tasks = sortTaskTrees(snapshot.tasks, state.sort.tasks, scores)
+      .filter((task) => retained.has(task.key));
+    return { ...snapshot, tasks, complete: true };
   }
 
   function staticGraphQuery(snapshot, tasks) {
@@ -1176,7 +1156,7 @@ import {
   }
 
   function addTaskField(list, label, value) {
-    if (!value || (Array.isArray(value) && value.length === 0)) return;
+    if (value === null || value === undefined || value === '' || (Array.isArray(value) && value.length === 0)) return;
     const term = document.createElement('dt');
     const detail = document.createElement('dd');
     term.textContent = label;

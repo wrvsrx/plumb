@@ -545,7 +545,7 @@ mod tests {
 
     #[test]
     fn exports_adjacent_and_nested_items_as_bullet_lists() {
-        let source = "`- One\n`-{.task #two priority=high} Two\n  `- Nested\nParagraph.\n";
+        let source = "`- One\n`-{.task #two priority=-5} Two\n  `- Nested\nParagraph.\n";
         let document = export(source).unwrap();
         let blocks = document["blocks"].as_array().unwrap();
 
@@ -562,7 +562,7 @@ mod tests {
         assert_eq!(attributed["c"][2]["t"], "Span");
         assert_eq!(attributed["c"][2]["c"][0][0], "two");
         assert_eq!(attributed["c"][2]["c"][0][1], json!(["task"]));
-        assert_eq!(attributed["c"][2]["c"][0][2], json!([["priority", "high"]]));
+        assert_eq!(attributed["c"][2]["c"][0][2], json!([["priority", "-5"]]));
         assert_eq!(items[1][1]["t"], "BulletList");
         assert_eq!(items[1][1]["c"][0][0]["c"][0]["c"], "Nested");
         assert_eq!(blocks[1]["t"], "Para");
