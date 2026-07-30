@@ -1401,8 +1401,8 @@ fn resolve_presets<'a>(
     Ok(groups)
 }
 
-fn compile_program_group<'a>(
-    expressions: Vec<(String, &'a str)>,
+fn compile_program_group(
+    expressions: Vec<(String, &str)>,
 ) -> Result<Vec<(String, Program)>, QueryFailure> {
     expressions
         .into_iter()

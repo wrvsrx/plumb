@@ -38,7 +38,7 @@ pub fn run_cli(args: impl IntoIterator<Item = OsString>) -> ExitCode {
 
 fn read_input(path: Option<&OsStr>) -> Result<String, String> {
     match path {
-        Some(path) => fs::read_to_string(&path)
+        Some(path) => fs::read_to_string(path)
             .map_err(|error| format!("cannot read {}: {error}", path.to_string_lossy())),
         None => {
             let mut input = String::new();

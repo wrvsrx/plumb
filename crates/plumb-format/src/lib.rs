@@ -377,9 +377,11 @@ impl Formatter {
             self.output.push('`');
             self.output.push_str(&mark.marker);
             let hanging_indent = hanging_indent(indent, &mark.marker);
-            let head_width = (!block.head.items.is_empty())
-                .then(|| 1 + inline_first_line_width(&block.head))
-                .unwrap_or(0);
+            let head_width = if block.head.items.is_empty() {
+                0
+            } else {
+                1 + inline_first_line_width(&block.head)
+            };
             self.block_attributes(
                 &mark.attrs,
                 indent + 1 + UnicodeWidthStr::width(mark.marker.as_str()),

@@ -215,7 +215,7 @@ fn render_list(marker: &str, items: &[Vec<Block>]) -> Result<String, String> {
         if let Some((head, children)) = split_head(blocks)? {
             let mut rendered = format!("`{marker}{attrs} {head}");
             if !children.is_empty() {
-                rendered.push_str("\n");
+                rendered.push('\n');
                 rendered.push_str(&indent(&render_blocks(children)?, 2));
             }
             output.push(rendered);
@@ -223,7 +223,7 @@ fn render_list(marker: &str, items: &[Vec<Block>]) -> Result<String, String> {
             let children = render_blocks(blocks)?;
             let mut rendered = format!("`{marker}{attrs}");
             if !children.is_empty() {
-                rendered.push_str("\n");
+                rendered.push('\n');
                 rendered.push_str(&indent(&children, 2));
             }
             output.push(rendered);

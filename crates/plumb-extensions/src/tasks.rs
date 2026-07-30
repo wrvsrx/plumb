@@ -395,16 +395,11 @@ enum RepeatRule {
 }
 
 fn parse_repeat_rule(value: &str) -> Option<RepeatRule> {
-    let Some(value) = value.strip_prefix('P') else {
-        return None;
-    };
-    let Some((unit, digits)) = value
+    let value = value.strip_prefix('P')?;
+    let (unit, digits) = value
         .chars()
         .last()
-        .map(|unit| (unit, &value[..value.len() - unit.len_utf8()]))
-    else {
-        return None;
-    };
+        .map(|unit| (unit, &value[..value.len() - unit.len_utf8()]))?;
     if digits.is_empty() || !digits.bytes().all(|byte| byte.is_ascii_digit()) {
         return None;
     }

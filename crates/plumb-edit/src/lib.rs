@@ -222,7 +222,7 @@ impl OwnedBlock {
                 .head
                 .items
                 .iter()
-                .map(|inline| OwnedInline::from_syntax(source, inline))
+                .map(OwnedInline::from_syntax)
                 .collect(),
             children: block
                 .children
@@ -238,7 +238,7 @@ impl OwnedBlock {
 }
 
 impl OwnedInline {
-    fn from_syntax(source: &str, inline: &Inline) -> Self {
+    fn from_syntax(inline: &Inline) -> Self {
         match inline {
             Inline::Text { text, .. } => Self::Text(text.clone()),
             Inline::SoftBreak { .. } => Self::SoftBreak,
@@ -249,11 +249,7 @@ impl OwnedInline {
                 ..
             } => Self::Element {
                 kind: kind.clone(),
-                content: content
-                    .items
-                    .iter()
-                    .map(|inline| Self::from_syntax(source, inline))
-                    .collect(),
+                content: content.items.iter().map(Self::from_syntax).collect(),
                 attributes: owned_attributes(attrs),
             },
             Inline::Verbatim { text, attrs, .. } => Self::Verbatim {

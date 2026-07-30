@@ -372,12 +372,26 @@ pub struct ResolvedTaskDependency {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum TaskTargetResolution {
-    Task { target: TaskRef, task: TaskRecord },
+    Task {
+        target: TaskRef,
+        task: Box<TaskRecord>,
+    },
     Invalid,
-    UnresolvedPath { path: PathBuf },
-    UnresolvedAnchor { path: PathBuf, id: String },
-    AmbiguousAnchor { path: PathBuf, id: String },
-    NotTask { path: PathBuf, id: String },
+    UnresolvedPath {
+        path: PathBuf,
+    },
+    UnresolvedAnchor {
+        path: PathBuf,
+        id: String,
+    },
+    AmbiguousAnchor {
+        path: PathBuf,
+        id: String,
+    },
+    NotTask {
+        path: PathBuf,
+        id: String,
+    },
 }
 
 #[derive(Debug, Default, Clone)]
@@ -523,16 +537,13 @@ impl Workspace {
                     let (task_state, wait_reasons) = derive_task_workflow_state(task, blocked, now);
                     let actionable = task_state == TaskWorkflowState::Ready;
                     if let Some(filter) = &filter {
-                        if !filter.task_matches(
-                            &root,
-                            entry,
-                            task,
-                            self,
-                            task_state,
-                            &wait_reasons,
+                        let facts = TaskMatchFacts {
+                            state: task_state,
+                            wait_reasons: &wait_reasons,
                             blocked,
                             actionable,
-                        )? {
+                        };
+                        if !filter.task_matches(&root, entry, task, self, facts)? {
                             continue;
                         }
                     }
@@ -1285,7 +1296,7 @@ impl Workspace {
                 Some(ResolvedTaskDependency {
                     source: dependency.source.clone(),
                     target,
-                    task: target_task,
+                    task: *target_task,
                 })
             })
             .collect::<Vec<_>>();
@@ -1527,12 +1538,12 @@ impl Workspace {
             return Err(TaskEditError::TaskAlreadyClosed);
         }
         if task.recur.is_some() && task.due.is_some() {
-            if status == TaskStatus::Done && self.is_task_blocked(&path, task) {
+            if status == TaskStatus::Done && self.is_task_blocked(path, task) {
                 return Err(TaskEditError::TaskBlocked);
             }
             return self.recurring_task_status_edit(entry, task, status, timestamp);
         }
-        if status == TaskStatus::Done && self.is_task_blocked(&path, task) {
+        if status == TaskStatus::Done && self.is_task_blocked(path, task) {
             return Err(TaskEditError::TaskBlocked);
         }
         let block = parsed_block_with_range(&entry.parsed.syntax.blocks, &task.range)
@@ -1627,18 +1638,17 @@ impl Workspace {
             .ok_or(TaskEditError::TaskNotFound)?;
         let mark = block.mark.as_ref().ok_or(TaskEditError::TaskNotFound)?;
         let mut next = OwnedBlock::from_parsed(source, block);
-        prepare_recurring_task_clone(
-            &mut next,
-            block,
-            &current.output.tasks.tasks,
-            task,
-            &next_id,
+        let clone_context = RecurringTaskCloneContext {
+            tasks: &current.output.tasks.tasks,
+            root: task,
+            next_id: &next_id,
             timestamp,
-            &next_due,
-            next_wait.as_deref(),
-            &recur.value,
-            &current_id,
-        );
+            next_due: &next_due,
+            next_wait: next_wait.as_deref(),
+            recur: &recur.value,
+            current_id: &current_id,
+        };
+        prepare_recurring_task_clone(&mut next, block, &clone_context);
 
         let mut additions = Vec::new();
         if task.id.is_none() {
@@ -1694,7 +1704,7 @@ impl Workspace {
         };
         TaskTargetResolution::Task {
             target: TaskRef { path, id },
-            task: task.clone(),
+            task: Box::new(task.clone()),
         }
     }
 
@@ -2963,30 +2973,37 @@ fn dependency_cycle_contains(graph: &HashMap<TaskRef, Vec<TaskRef>>, start: &Tas
     visit(graph, start, start, &mut HashSet::new())
 }
 
+struct RecurringTaskCloneContext<'a> {
+    tasks: &'a [TaskRecord],
+    root: &'a TaskRecord,
+    next_id: &'a str,
+    timestamp: &'a str,
+    next_due: &'a str,
+    next_wait: Option<&'a str>,
+    recur: &'a str,
+    current_id: &'a str,
+}
+
 fn prepare_recurring_task_clone(
     owned: &mut OwnedBlock,
     block: &ParsedBlock,
-    tasks: &[TaskRecord],
-    root: &TaskRecord,
-    next_id: &str,
-    timestamp: &str,
-    next_due: &str,
-    next_wait: Option<&str>,
-    recur: &str,
-    current_id: &str,
+    context: &RecurringTaskCloneContext<'_>,
 ) {
-    if let Some(task) = tasks.iter().find(|task| task.range == block.range) {
+    if let Some(task) = context.tasks.iter().find(|task| task.range == block.range) {
         owned.attributes_mut().retain(persistent_task_attribute);
-        if task.range == root.range {
+        if task.range == context.root.range {
             let attributes = owned.attributes_mut();
-            attributes.push(OwnedAttribute::id(next_id));
-            attributes.push(OwnedAttribute::quoted("created", timestamp));
-            attributes.push(OwnedAttribute::quoted("due", next_due));
-            if let Some(wait) = next_wait {
+            attributes.push(OwnedAttribute::id(context.next_id));
+            attributes.push(OwnedAttribute::quoted("created", context.timestamp));
+            attributes.push(OwnedAttribute::quoted("due", context.next_due));
+            if let Some(wait) = context.next_wait {
                 attributes.push(OwnedAttribute::quoted("wait", wait));
             }
-            attributes.push(OwnedAttribute::quoted("recur", recur));
-            attributes.push(OwnedAttribute::quoted("prev", format!("#{current_id}")));
+            attributes.push(OwnedAttribute::quoted("recur", context.recur));
+            attributes.push(OwnedAttribute::quoted(
+                "prev",
+                format!("#{}", context.current_id),
+            ));
         }
     }
 
@@ -2997,18 +3014,7 @@ fn prepare_recurring_task_clone(
         let Block::Parsed(syntax_child) = syntax_child else {
             continue;
         };
-        prepare_recurring_task_clone(
-            owned_child,
-            syntax_child,
-            tasks,
-            root,
-            next_id,
-            timestamp,
-            next_due,
-            next_wait,
-            recur,
-            current_id,
-        );
+        prepare_recurring_task_clone(owned_child, syntax_child, context);
     }
 }
 
@@ -3195,6 +3201,13 @@ struct SemanticSearchFilter {
     now: DateTime<FixedOffset>,
 }
 
+struct TaskMatchFacts<'a> {
+    state: TaskWorkflowState,
+    wait_reasons: &'a [TaskWaitReason],
+    blocked: bool,
+    actionable: bool,
+}
+
 impl SemanticSearchFilter {
     fn compile(source: &str, now: DateTime<FixedOffset>) -> Result<Self, String> {
         Ok(Self {
@@ -3239,10 +3252,7 @@ impl SemanticSearchFilter {
         entry: &DocumentEntry,
         task: &TaskRecord,
         workspace: &Workspace,
-        state: TaskWorkflowState,
-        wait_reasons: &[TaskWaitReason],
-        blocked: bool,
-        actionable: bool,
+        facts: TaskMatchFacts<'_>,
     ) -> Result<bool, String> {
         let depends_on = workspace
             .task_dependencies(&entry.path, task)
@@ -3287,16 +3297,17 @@ impl SemanticSearchFilter {
         );
         context.add_variable_from_value("depends_on", depends_on);
         context.add_variable_from_value("directly_blocking", directly_blocking);
-        context.add_variable_from_value("state", state.as_str());
+        context.add_variable_from_value("state", facts.state.as_str());
         context.add_variable_from_value(
             "wait_reasons",
-            wait_reasons
+            facts
+                .wait_reasons
                 .iter()
                 .map(|reason| reason.as_str())
                 .collect::<Vec<_>>(),
         );
-        context.add_variable_from_value("blocked", blocked);
-        context.add_variable_from_value("actionable", actionable);
+        context.add_variable_from_value("blocked", facts.blocked);
+        context.add_variable_from_value("actionable", facts.actionable);
         context.add_variable_from_value("now", Value::Timestamp(self.now));
         execute_search_filter(&self.program, &context, &entry.path)
     }
@@ -3789,7 +3800,7 @@ mod tests {
 
         assert!(matches!(
             workspace.target_at("target.plumb", target_source.find("meta").unwrap()),
-            Some(ResolvedTarget::Document { path }) if path == PathBuf::from("target.plumb")
+            Some(ResolvedTarget::Document { path }) if path == Path::new("target.plumb")
         ));
         assert!(workspace
             .target_at("target.plumb", target_source.find("Target").unwrap())
@@ -3797,7 +3808,7 @@ mod tests {
         assert!(matches!(
             workspace.target_at("target.plumb", target_source.find("section").unwrap()),
             Some(ResolvedTarget::Anchor { path, id, .. })
-                if path == PathBuf::from("target.plumb") && id == "section"
+                if path == Path::new("target.plumb") && id == "section"
         ));
 
         for path_offset in reference_source
@@ -3807,7 +3818,7 @@ mod tests {
             assert!(matches!(
                 workspace.target_at("reference.plumb", path_offset),
                 Some(ResolvedTarget::Document { path })
-                    if path == PathBuf::from("target.plumb")
+                    if path == Path::new("target.plumb")
             ));
         }
         for fragment_offset in reference_source
@@ -3817,7 +3828,7 @@ mod tests {
             assert!(matches!(
                 workspace.target_at("reference.plumb", fragment_offset),
                 Some(ResolvedTarget::Anchor { path, id, .. })
-                    if path == PathBuf::from("target.plumb") && id == "section"
+                    if path == Path::new("target.plumb") && id == "section"
             ));
         }
         let separator_offset = reference_source.find("#section").unwrap();
@@ -3834,7 +3845,7 @@ mod tests {
         workspace.insert("lonely.plumb", 1, lonely_source);
         assert!(matches!(
             workspace.target_at("lonely.plumb", lonely_source.find("meta").unwrap()),
-            Some(ResolvedTarget::Document { path }) if path == PathBuf::from("lonely.plumb")
+            Some(ResolvedTarget::Document { path }) if path == Path::new("lonely.plumb")
         ));
         assert!(workspace.references_to_document("lonely.plumb").is_empty());
 
@@ -3918,7 +3929,7 @@ mod tests {
         let reference_edits = &edit
             .document_changes
             .iter()
-            .find(|document| document.path == PathBuf::from("review.plumb"))
+            .find(|document| document.path == Path::new("review.plumb"))
             .unwrap()
             .edits;
         assert_eq!(
