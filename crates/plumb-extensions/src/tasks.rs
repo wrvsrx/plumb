@@ -69,6 +69,7 @@ pub struct TaskRecord {
     pub canceled: Option<TaskField>,
     pub recur: Option<TaskField>,
     pub prev: Option<TaskField>,
+    pub priority: Option<u32>,
     pub depends: Vec<TaskDependency>,
 }
 
@@ -178,6 +179,7 @@ fn task_record(source: &str, block: &ParsedBlock, depth: usize) -> TaskRecord {
         canceled: datetime_field(attrs.items.as_slice(), "canceled"),
         recur: string_field(attrs.items.as_slice(), "recur"),
         prev: string_field(attrs.items.as_slice(), "prev"),
+        priority: priority_field(attrs.items.as_slice()),
         depends: dependency_fields(source, attrs.items.as_slice()),
     }
 }
@@ -193,6 +195,10 @@ pub fn valid_task_datetime(value: &str) -> bool {
 
 fn string_field(items: &[AttrItem], key: &str) -> Option<TaskField> {
     pair_value(items, key).map(task_field)
+}
+
+fn priority_field(items: &[AttrItem]) -> Option<u32> {
+    pair_value(items, "priority")?.decoded.parse().ok()
 }
 
 fn pair_value<'a>(items: &'a [AttrItem], wanted: &str) -> Option<&'a AttrValue> {
@@ -325,6 +331,18 @@ fn collect_task_diagnostics(task: &TaskRecord, attrs: &[AttrItem], output: &mut 
                 code: "task.invalid-datetime",
                 severity: DiagnosticSeverity::Warning,
                 message: format!("'{key}' must be a quoted RFC 3339 timestamp"),
+                range: value.range.clone(),
+                related: Vec::new(),
+            });
+        }
+    }
+
+    if let Some(value) = pair_value(attrs, "priority") {
+        if value.decoded.parse::<u32>().is_err() {
+            output.diagnostics.push(Diagnostic {
+                code: "task.invalid-priority",
+                severity: DiagnosticSeverity::Warning,
+                message: "'priority' must be a non-negative integer".to_string(),
                 range: value.range.clone(),
                 related: Vec::new(),
             });
@@ -558,6 +576,19 @@ mod tests {
         assert_eq!(output.tasks[1].due, None);
         assert_eq!(output.tasks[2].created, None);
         assert_eq!(output.tasks[2].state(), TaskState::Open);
+    }
+
+    #[test]
+    fn parses_non_negative_task_priority_and_rejects_other_values() {
+        let source = "`-{.task priority=12} Important\n`-{.task priority=-1} Invalid\n";
+        let parsed = parse(source);
+        assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
+
+        let output = analyze_tasks(source, &parsed.syntax);
+        assert_eq!(output.tasks[0].priority, Some(12));
+        assert_eq!(output.tasks[1].priority, None);
+        assert_eq!(output.diagnostics.len(), 1);
+        assert_eq!(output.diagnostics[0].code, "task.invalid-priority");
     }
 
     #[test]

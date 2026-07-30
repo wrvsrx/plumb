@@ -35,7 +35,7 @@ import {
     presetsSpecified: { graph: false, tasks: false, agenda: false },
     query: { graph: '', tasks: '', agenda: '' },
     filters: { graph: [], tasks: [], agenda: [] },
-    sort: { graph: 'source', tasks: 'source', agenda: 'source' },
+    sort: { graph: 'source', tasks: 'priority', agenda: 'source' },
     presetRegistry: { graph: [], tasks: [] },
     selectedGraph: null,
     pendingTask: null,
@@ -72,8 +72,8 @@ import {
   let notificationTimer;
 
   function readUrlState() {
-    const query = readQueryParameters(location.search);
     state.view = viewFromPath(location.pathname);
+    const query = readQueryParameters(location.search, state.view);
     state.presets[state.view] = initialPresets(state.view, query);
     state.presetsSpecified[state.view] = query.presetsSpecified;
     state.query[state.view] = query.query;
@@ -434,7 +434,7 @@ import {
   function taskFacts(task) {
     const timestamp = (value) => value ? new Date(value) : null;
     return {
-      path: task.path, id: task.id, title: task.title, created: timestamp(task.created), due: timestamp(task.due),
+      path: task.path, id: task.id, title: task.title, created: timestamp(task.created), due: timestamp(task.due), priority: task.priority,
       wait: timestamp(task.wait), done: timestamp(task.done), canceled: timestamp(task.canceled),
       recur: task.recur, prev: task.prev, depends_on: task.dependsOn,
       directly_blocking: task.directlyBlocking, state: task.state, wait_reasons: task.waitReasons,
@@ -468,6 +468,7 @@ import {
     const grouped = Array.from(groups.values());
     grouped.sort((left, right) => {
       const source = left.root.path.localeCompare(right.root.path) || left.root.location.start - right.root.location.start;
+      if (state.sort.tasks === 'priority') return (right.root.priority || 0) - (left.root.priority || 0) || (left.root.due || '9999').localeCompare(right.root.due || '9999') || source;
       if (state.sort.tasks === 'due') return (left.root.due || '9999').localeCompare(right.root.due || '9999') || source;
       if (state.sort.tasks === 'relevance' && state.query.tasks) {
         const leftScore = Math.max(...left.tasks.map((task) => scores.get(task.key)));
@@ -1199,6 +1200,7 @@ import {
     const fields = taskPanel.querySelector('.task-fields');
     addTaskField(fields, 'Created', task.created);
     addTaskField(fields, 'Due', task.due);
+    addTaskField(fields, 'Priority', task.priority);
     addTaskField(fields, 'Wait', task.wait);
     addTaskField(fields, 'Done', task.done);
     addTaskField(fields, 'Canceled', task.canceled);

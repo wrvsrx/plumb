@@ -34,16 +34,19 @@ fn task_records(
     query: Option<&str>,
     tree: bool,
 ) -> Result<Vec<TaskOutputRecord>, String> {
-    let results = loaded.workspace.search_records_filtered(
-        root,
-        Some(SearchRecordKind::Task),
-        "",
-        usize::MAX,
-        Local::now().fixed_offset(),
-        query,
-    )?;
-    Ok(results
-        .items
+    let mut records = loaded
+        .workspace
+        .search_records_filtered(
+            root,
+            Some(SearchRecordKind::Task),
+            "",
+            usize::MAX,
+            Local::now().fixed_offset(),
+            query,
+        )?
+        .items;
+    sort_task_subtrees(&mut records);
+    Ok(records
         .into_iter()
         .map(|record| {
             let status = match record.task_state.expect("task search record has state") {
@@ -68,6 +71,56 @@ fn task_records(
             }
         })
         .collect())
+}
+
+fn sort_task_subtrees(records: &mut Vec<plumb_workspace::SearchRecord>) {
+    records.sort_by(|left, right| {
+        left.relative_path
+            .cmp(&right.relative_path)
+            .then(left.range.start.cmp(&right.range.start))
+    });
+    *records = sorted_task_forest(records);
+}
+
+fn sorted_task_forest(
+    records: &[plumb_workspace::SearchRecord],
+) -> Vec<plumb_workspace::SearchRecord> {
+    let mut subtrees = Vec::<(
+        plumb_workspace::SearchRecord,
+        Vec<plumb_workspace::SearchRecord>,
+    )>::new();
+    let mut index = 0;
+    while index < records.len() {
+        let root = records[index].clone();
+        let root_depth = root.depth.unwrap_or_default();
+        let mut end = index + 1;
+        while end < records.len()
+            && records[end].relative_path == root.relative_path
+            && records[end].depth.unwrap_or_default() > root_depth
+        {
+            end += 1;
+        }
+        subtrees.push((root, sorted_task_forest(&records[index + 1..end])));
+        index = end;
+    }
+    subtrees.sort_by(|(left, _), (right, _)| {
+        right
+            .priority
+            .unwrap_or_default()
+            .cmp(&left.priority.unwrap_or_default())
+            .then_with(|| {
+                left.due
+                    .as_deref()
+                    .unwrap_or("9999")
+                    .cmp(right.due.as_deref().unwrap_or("9999"))
+            })
+            .then(left.relative_path.cmp(&right.relative_path))
+            .then(left.range.start.cmp(&right.range.start))
+    });
+    subtrees
+        .into_iter()
+        .flat_map(|(root, children)| std::iter::once(root).chain(children))
+        .collect()
 }
 
 fn render_task_table(records: &[TaskOutputRecord], heading: bool) -> String {
@@ -238,6 +291,35 @@ mod tests {
         assert!(rendered.contains('S'));
         assert!(rendered.contains("Task"));
         assert!(rendered.contains("Source"));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn task_output_sorts_priority_subtrees_without_detaching_descendants() {
+        let root = unique_temp_dir();
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(
+            root.join("tasks.plumb"),
+            "`-{.task #low priority=1} Low\n  `-{.task #low-child priority=99} Low child\n`-{.task #high priority=10} High\n  `-{.task #later-child priority=2} Later child\n    `-{.task #grandchild} Grandchild\n  `-{.task #first-child priority=8} First child\n",
+        )
+        .unwrap();
+
+        let loaded = load_workspace(&root).unwrap();
+        let records = task_records(&root, &loaded, None, true).unwrap();
+        assert_eq!(
+            records
+                .iter()
+                .map(|record| record.source.as_str())
+                .collect::<Vec<_>>(),
+            [
+                "tasks.plumb#high",
+                "tasks.plumb#first-child",
+                "tasks.plumb#later-child",
+                "tasks.plumb#grandchild",
+                "tasks.plumb#low",
+                "tasks.plumb#low-child",
+            ]
+        );
         std::fs::remove_dir_all(root).unwrap();
     }
 

@@ -116,6 +116,7 @@ pub struct WebTask {
     pub state: String,
     pub created: Option<String>,
     pub due: Option<String>,
+    pub priority: Option<u32>,
     pub wait: Option<String>,
     pub done: Option<String>,
     pub canceled: Option<String>,
@@ -204,6 +205,7 @@ pub enum WebView {
 pub enum QuerySort {
     #[default]
     Source,
+    Priority,
     Due,
     Relevance,
 }
@@ -512,6 +514,7 @@ impl WebWorkspace {
                     state: state.to_string(),
                     created: task.created.as_ref().map(|field| field.value.clone()),
                     due: task.due.as_ref().map(|field| field.value.clone()),
+                    priority: task.priority,
                     wait: task.wait.as_ref().map(|field| field.value.clone()),
                     done: task.done.as_ref().map(|field| field.value.clone()),
                     canceled: task.canceled.as_ref().map(|field| field.value.clone()),
@@ -1369,6 +1372,7 @@ struct TaskRoot {
     path: String,
     start: usize,
     due: Option<String>,
+    priority: Option<u32>,
 }
 
 struct ResolvedPresetGroup<'a> {
@@ -1511,6 +1515,7 @@ fn task_subtree_roots(tasks: &[WebTask]) -> HashMap<String, TaskRoot> {
                 path: task.path.clone(),
                 start: task.location.start,
                 due: task.due.clone(),
+                priority: task.priority,
             });
         }
         roots.insert(task.key.clone(), current.clone().expect("task root exists"));
@@ -1532,6 +1537,7 @@ fn sort_task_query_subtrees(
             path: task.path.clone(),
             start: task.location.start,
             due: task.due.clone(),
+            priority: task.priority,
         });
         groups
             .entry(root.key.clone())
@@ -1546,6 +1552,18 @@ fn sort_task_query_subtrees(
             .cmp(&right_root.path)
             .then(left_root.start.cmp(&right_root.start));
         match sort {
+            QuerySort::Priority => right_root
+                .priority
+                .unwrap_or_default()
+                .cmp(&left_root.priority.unwrap_or_default())
+                .then_with(|| {
+                    left_root
+                        .due
+                        .as_deref()
+                        .unwrap_or("9999")
+                        .cmp(right_root.due.as_deref().unwrap_or("9999"))
+                })
+                .then(source),
             QuerySort::Due => left_root
                 .due
                 .as_deref()
@@ -1560,40 +1578,50 @@ fn sort_task_query_subtrees(
             QuerySort::Source => source,
         }
     });
-    tasks.extend(groups.into_iter().flat_map(|(_, tasks)| tasks));
+    tasks.extend(groups.into_iter().flat_map(|(_, tasks)| {
+        if sort == QuerySort::Priority {
+            sorted_task_forest(&tasks)
+        } else {
+            tasks
+        }
+    }));
 }
 
 fn sort_task_subtrees(tasks: &mut Vec<WebTask>) {
-    tasks.sort_by(|left, right| {
-        left.path
-            .cmp(&right.path)
-            .then(left.location.start.cmp(&right.location.start))
-            .then(left.key.cmp(&right.key))
-    });
-    let mut groups = Vec::<Vec<WebTask>>::new();
-    for task in std::mem::take(tasks) {
-        let starts_group = task.depth == 0
-            || groups
-                .last()
-                .and_then(|group| group.first())
-                .is_none_or(|root| root.path != task.path);
-        if starts_group {
-            groups.push(vec![task]);
-        } else {
-            groups.last_mut().expect("task group exists").push(task);
+    tasks.sort_by(task_source_order);
+    *tasks = sorted_task_forest(tasks);
+}
+
+fn sorted_task_forest(tasks: &[WebTask]) -> Vec<WebTask> {
+    let mut subtrees = Vec::<(WebTask, Vec<WebTask>)>::new();
+    let mut index = 0;
+    while index < tasks.len() {
+        let root = tasks[index].clone();
+        let mut end = index + 1;
+        while end < tasks.len() && tasks[end].path == root.path && tasks[end].depth > root.depth {
+            end += 1;
         }
+        subtrees.push((root, sorted_task_forest(&tasks[index + 1..end])));
+        index = end;
     }
-    groups.sort_by(|left, right| {
-        let left = left.first().expect("task group is nonempty");
-        let right = right.first().expect("task group is nonempty");
-        left.due
-            .as_deref()
-            .unwrap_or("9999")
-            .cmp(right.due.as_deref().unwrap_or("9999"))
+    subtrees.sort_by(|(left, _), (right, _)| {
+        right
+            .priority
+            .unwrap_or_default()
+            .cmp(&left.priority.unwrap_or_default())
+            .then_with(|| {
+                left.due
+                    .as_deref()
+                    .unwrap_or("9999")
+                    .cmp(right.due.as_deref().unwrap_or("9999"))
+            })
             .then(left.path.cmp(&right.path))
             .then(left.location.start.cmp(&right.location.start))
     });
-    tasks.extend(groups.into_iter().flatten());
+    subtrees
+        .into_iter()
+        .flat_map(|(root, children)| std::iter::once(root).chain(children))
+        .collect()
 }
 
 fn file_revision(path: &Path) -> Option<i64> {
@@ -1768,19 +1796,19 @@ mod tests {
         let path = root.join("tasks.plumb");
         std::fs::write(
             &path,
-            "`-{.task #ship created=\"2026-07-25T10:00:00+08:00\" due=\"2099-02-01T10:00:00+08:00\"} Ship release\n  `-{.task #child due=\"2099-01-01T10:00:00+08:00\"} Child stays with ship\n`-{.task #later wait=\"2099-01-10T00:00:00+08:00\" due=\"2099-01-15T00:00:00+08:00\"} Later\n`-{.task #broken done=\"2026-07-25T11:00:00+08:00\" canceled=\"2026-07-25T12:00:00+08:00\"} Broken\n",
+            "`-{.task #ship priority=8 created=\"2026-07-25T10:00:00+08:00\" due=\"2099-02-01T10:00:00+08:00\"} Ship release\n  `-{.task #child priority=2 due=\"2099-01-01T10:00:00+08:00\"} Child stays with ship\n  `-{.task #urgent-child priority=9} Urgent child\n`-{.task #later priority=3 wait=\"2099-01-10T00:00:00+08:00\" due=\"2099-01-15T00:00:00+08:00\"} Later\n`-{.task #broken done=\"2026-07-25T11:00:00+08:00\" canceled=\"2026-07-25T12:00:00+08:00\"} Broken\n",
         )
         .unwrap();
         let workspace = WebWorkspace::load(&root).unwrap();
         let snapshot = workspace.tasks();
-        assert_eq!(snapshot.tasks.len(), 4);
+        assert_eq!(snapshot.tasks.len(), 5);
         assert_eq!(
             snapshot
                 .tasks
                 .iter()
                 .map(|task| task.id.as_deref().unwrap())
                 .collect::<Vec<_>>(),
-            ["later", "ship", "child", "broken"]
+            ["ship", "urgent-child", "child", "later", "broken"]
         );
         let task = snapshot
             .tasks
@@ -1952,7 +1980,7 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(
             root.join("a.plumb"),
-            "`-{.task #parent due=\"2099-02-01T00:00:00Z\"} Parent\n  `-{.task #matching due=\"2099-01-01T00:00:00Z\"} Needle child\n`-{.task #first due=\"2099-01-15T00:00:00Z\"} Needle first\n`-{.task #done done=\"2026-07-27T00:00:00Z\"} Needle done\n",
+            "`-{.task #parent priority=3 due=\"2099-02-01T00:00:00Z\"} Parent\n  `-{.task #matching priority=20 due=\"2099-01-01T00:00:00Z\"} Needle child\n  `-{.task #quiet priority=30} Quiet child\n`-{.task #first priority=8 due=\"2099-01-15T00:00:00Z\"} Needle first\n`-{.task #done done=\"2026-07-27T00:00:00Z\"} Needle done\n",
         )
         .unwrap();
         let workspace = WebWorkspace::load(&root).unwrap();
@@ -1964,7 +1992,7 @@ mod tests {
                 ..WebQuery::default()
             })
             .unwrap();
-        assert_eq!(source.all_tasks.len(), 4);
+        assert_eq!(source.all_tasks.len(), 5);
         let matching = source
             .all_tasks
             .iter()
@@ -2001,6 +2029,45 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["first", "matching", "done"]
         );
+        let priority = workspace
+            .query_tasks(&WebQuery {
+                view: WebView::Tasks,
+                query: "needle".to_string(),
+                sort: QuerySort::Priority,
+                ..WebQuery::default()
+            })
+            .unwrap();
+        assert_eq!(
+            priority
+                .tasks
+                .iter()
+                .map(|task| task.id.as_deref().unwrap())
+                .collect::<Vec<_>>(),
+            ["first", "matching", "done"]
+        );
+        let all_by_priority = workspace
+            .query_tasks(&WebQuery {
+                view: WebView::Tasks,
+                sort: QuerySort::Priority,
+                ..WebQuery::default()
+            })
+            .unwrap();
+        assert_eq!(
+            all_by_priority
+                .tasks
+                .iter()
+                .map(|task| task.id.as_deref().unwrap())
+                .collect::<Vec<_>>(),
+            ["first", "parent", "quiet", "matching", "done"]
+        );
+        let priority_filter = workspace
+            .query_tasks(&WebQuery {
+                view: WebView::Tasks,
+                filters: vec!["priority != null && priority >= 8".to_string()],
+                ..WebQuery::default()
+            })
+            .unwrap();
+        assert_eq!(priority_filter.tasks.len(), 3);
         let ready = workspace
             .query_tasks(&WebQuery {
                 view: WebView::Tasks,
@@ -2017,7 +2084,7 @@ mod tests {
                 ..WebQuery::default()
             })
             .unwrap();
-        assert_eq!(ready_or_done.tasks.len(), 4);
+        assert_eq!(ready_or_done.tasks.len(), 5);
         let multiple_custom = workspace
             .query_tasks(&WebQuery {
                 view: WebView::Tasks,

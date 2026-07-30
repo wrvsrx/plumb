@@ -4,14 +4,14 @@ export function viewFromPath(pathname) {
   return 'graph';
 }
 
-export function readQueryParameters(search) {
+export function readQueryParameters(search, view = 'graph') {
   const params = new URLSearchParams(search);
   return {
     presets: params.getAll('preset').filter(Boolean),
     presetsSpecified: params.has('preset'),
     query: params.get('q') || '',
     filters: params.getAll('cel'),
-    sort: params.get('sort') || 'source',
+    sort: params.get('sort') || (view === 'tasks' ? 'priority' : 'source'),
     selected: params.get('selected'),
     current: params.get('current'),
     depth: params.get('depth') || '1',

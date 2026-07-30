@@ -60,6 +60,12 @@ test('query parameters round trip repeated filters and traversal state', () => {
   assert.deepEqual(readQueryParameters(writeQueryParameters(original)), original);
 });
 
+test('priority sort round trips through task URLs', () => {
+  const query = readQueryParameters('', 'tasks');
+  assert.equal(query.sort, 'priority');
+  assert.equal(writeQueryParameters(query).get('sort'), 'priority');
+});
+
 test('query parameters distinguish default presets from an explicit empty selection', () => {
   const defaults = readQueryParameters('');
   assert.deepEqual(defaults.presets, []);

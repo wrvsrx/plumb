@@ -267,6 +267,7 @@ pub struct SearchRecord {
     pub task_state: Option<TaskWorkflowState>,
     pub wait_reasons: Option<Vec<TaskWaitReason>>,
     pub due: Option<String>,
+    pub priority: Option<u32>,
     pub blocked: Option<bool>,
     pub actionable: Option<bool>,
     pub depth: Option<usize>,
@@ -489,6 +490,7 @@ impl Workspace {
                                 task_state: None,
                                 wait_reasons: None,
                                 due: None,
+                                priority: None,
                                 blocked: None,
                                 actionable: None,
                                 depth: None,
@@ -541,6 +543,7 @@ impl Workspace {
                             task_state: Some(task_state),
                             wait_reasons: Some(wait_reasons),
                             due: task.due.as_ref().map(|due| due.value.clone()),
+                            priority: task.priority,
                             blocked: Some(blocked),
                             actionable: Some(actionable),
                             depth: Some(task.depth),
@@ -585,6 +588,7 @@ impl Workspace {
                             task_state: None,
                             wait_reasons: None,
                             due: None,
+                            priority: None,
                             blocked: None,
                             actionable: None,
                             depth: Some(event.depth),
@@ -3259,6 +3263,11 @@ impl SemanticSearchFilter {
         context.add_variable_from_value("title", task.title.clone());
         context.add_variable_from_value("created", search_datetime_value(task.created.as_ref()));
         context.add_variable_from_value("due", search_datetime_value(task.due.as_ref()));
+        context.add_variable_from_value(
+            "priority",
+            task.priority
+                .map_or(Value::Null, |value| Value::Int(value as i64)),
+        );
         context.add_variable_from_value("wait", search_datetime_value(task.wait.as_ref()));
         context.add_variable_from_value("done", search_datetime_value(task.done.as_ref()));
         context.add_variable_from_value("canceled", search_datetime_value(task.canceled.as_ref()));
@@ -4327,7 +4336,7 @@ mod tests {
         workspace.insert(
             "notes/tasks.plumb",
             1,
-            "`-{.task #blocker} Blocker\n`-{.task #ready} Ready\n`-{.task #time wait=\"2026-07-23T12:00:00+08:00\"} Time wait\n`-{.task #dependency depends=\"#blocker\"} Dependency wait\n`-{.task #both wait=\"2026-07-23T12:00:00+08:00\" depends=\"#blocker\"} Both waits\n`-{.task #done done=\"2026-07-21T12:00:00+08:00\"} Done\n`-{.task #canceled canceled=\"2026-07-21T12:00:00+08:00\"} Canceled\n`-{.task #invalid done=\"2026-07-21T12:00:00+08:00\" canceled=\"2026-07-21T13:00:00+08:00\"} Invalid\n",
+            "`-{.task #blocker} Blocker\n`-{.task #ready priority=7} Ready\n`-{.task #time wait=\"2026-07-23T12:00:00+08:00\"} Time wait\n`-{.task #dependency depends=\"#blocker\"} Dependency wait\n`-{.task #both wait=\"2026-07-23T12:00:00+08:00\" depends=\"#blocker\"} Both waits\n`-{.task #done done=\"2026-07-21T12:00:00+08:00\"} Done\n`-{.task #canceled canceled=\"2026-07-21T12:00:00+08:00\"} Canceled\n`-{.task #invalid done=\"2026-07-21T12:00:00+08:00\" canceled=\"2026-07-21T13:00:00+08:00\"} Invalid\n",
         );
 
         let results = workspace.search_records(root, Some(SearchRecordKind::Task), "", 20, now);
@@ -4339,6 +4348,7 @@ mod tests {
                 .unwrap()
         };
         assert_eq!(by_id("ready").task_state, Some(TaskWorkflowState::Ready));
+        assert_eq!(by_id("ready").priority, Some(7));
         assert_eq!(by_id("time").task_state, Some(TaskWorkflowState::Waiting));
         assert_eq!(by_id("time").wait_reasons, Some(vec![TaskWaitReason::Time]));
         assert_eq!(
@@ -4381,6 +4391,18 @@ mod tests {
             )
             .unwrap();
         assert_eq!(time_waiting.items.len(), 2);
+        let prioritized = workspace
+            .search_records_filtered(
+                root,
+                Some(SearchRecordKind::Task),
+                "",
+                20,
+                now,
+                Some("priority != null && priority >= 7"),
+            )
+            .unwrap();
+        assert_eq!(prioritized.items.len(), 1);
+        assert_eq!(prioritized.items[0].id.as_deref(), Some("ready"));
     }
 
     #[test]
