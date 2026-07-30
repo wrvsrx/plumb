@@ -383,7 +383,7 @@
    `note custom CEL 使用可追加、可移除的独立条件输入。Fuzzy 与 CEL 显示为同形 query clauses，但 fuzzy 不伪装成 CEL predicate。每个 selected preset 与每条 custom expression 分别 compile、分别报告 source/position error，再逐项 AND evaluate；不要拼接生成 CEL source。没有 preset 等价于 `[true]，不提供 `[All] chip。
    `note fuzzy text query 与 CEL 进入同一个 structured request 和 execution pipeline，但不伪装成 CEL predicate：CEL 负责 candidate filtering，fuzzy engine 负责 match 与 relevance score。request 显式携带 view kind、query、preset ids、custom filter、sort、limit，以及 Graph traversal parameters。
    `note Tasks presets 初版只提供 State filter，覆盖 Ready、Waiting、Done、Canceled 与 Invalid；Graph presets 初版覆盖 All notes、Connected、Orphans、Unresolved 与 task-count conditions。Preset expression 由 server 根据 id 解析，不信任 client 提交的 expression。
-   `note 默认 sort 是 source order。Task source order 定义为 normalized relative path 后接 source position，parent/subtask subtree 必须保持 source order；切换 preset、custom CEL 或 fuzzy query 只能移除不匹配 records，不能重排剩余 records。Graph note/search records 的 source order 使用 normalized relative path。
+   `note Graph 默认 sort 是 source order；Tasks 原始版本也默认 source，`[#task-priority-sorting] 完成后默认 priority。Task source order 定义为 normalized relative path 后接 source position，parent/subtask subtree 必须保持连续；切换 preset、custom CEL 或 fuzzy query 只能移除不匹配 records，不能打散 subtree。Graph note/search records 的 source order 使用 normalized relative path。
    `note optional Due 与 Relevance sort 以完整 task subtree 为单位：分别使用 root task due 与 subtree maximum fuzzy score 排列 subtrees，subtree 内仍保持 source order。fuzzy query 为空时 Relevance 禁用或退化为 source order。
    `note Graph 先执行 current/direction/depth/edge-kind traversal，再执行 node preset/custom CEL 与 fuzzy match，最后移除任一 endpoint 不可见的 edges；traversal parameters、layout coordinates、sort 与 limit 不进入 CEL facts。
    `note 主视图使用同级 sub-URLs：`[/graph]、`[/tasks] 与 `[/note/DOCUMENT]；root route redirect 或 canonicalize 到 `[/graph]。pathname 表示 view/resource，query parameters 表示该 view 的 presets、custom CEL、fuzzy query、sort、selection 与 traversal state，hash 只表示 note explicit anchor；不使用 hash routing。
@@ -400,6 +400,15 @@
    `note 首次进入 `[/tasks] 且 URL 没有显式 filter state 时预选 State grouped filter 的 Ready preset，使默认结果只包含 ready tasks；这不同于用户手动添加 State filter 时选择 registry 第一个 option 的现有行为。
    `note URL 中显式存在 filters 时必须完整恢复该状态，包括非 Ready state、多个 state、已移除全部 presets 或 shared/bookmarked query；默认值不能覆盖 refresh、back/forward、popstate 或用户在当前 session 的选择。
    `note Dynamic server 与 static build 使用相同初始化规则，并覆盖 direct Tasks navigation、Graph-to-Tasks navigation、empty/explicit URL state、filter removal、refresh、history navigation 和 URL round-trip frontend tests。
+
+`-{
+   .task #task-priority-sorting created="2026-07-30T17:23:47+08:00"
+   done="2026-07-30T17:32:21+08:00"
+  } 按显式优先级排序 CLI 与 Web tasks
+
+   `note 标准 task `[priority] field 是非负整数，数值越大越优先；非法值产生 extension diagnostic，且不参与排序或 CEL facts。
+   `note `[plumb task] 与 Web task snapshot 默认按 priority 降序、due 升序和 source order 递归排列 sibling subtrees；排序必须保持 parent/descendant layout 和 subtree 连续性。
+   `note Web structured query 增加 Priority sort，dynamic server 与 static build 使用同一 payload、CEL facts 和排序规则，并覆盖根任务、nested sibling 与 descendant preservation tests。
 
 `# Neovim plugin
 

@@ -69,8 +69,9 @@ unresolved document targets 显示为独立 node。
 `[/graph]、`[/tasks] 与 `[/agenda] 在连接图、任务工作台和日程之间切换，并把 fuzzy query、CEL、preset chips、sort、
 selection 与 graph traversal 写入 URL。`[+] menu 的 server-registered presets 覆盖 task state、actionable、
 due、wait/dependency 和 graph connectivity/task counts；custom CEL 与 presets 分别验证后使用 logical AND。
-Tasks 在 URL 没有显式 preset state 时默认启用 `[State: Ready]，并按 document/source order 分组；
-Due 与 Relevance sort 保持 parent/subtask subtree；详情显示 derived
+Tasks 在 URL 没有显式 preset state 时默认启用 `[State: Ready]，并按 priority、due 与 source order
+递归排序 sibling task subtrees；
+Source、Priority、Due 与 Relevance sort 都保持 parent/subtask subtree；详情显示 derived
 state、timestamps、dependencies 与 child tasks。
 
 Agenda 按 start、path 和 source position 显示 point/range events。Loopback server 上可以从已索引 document

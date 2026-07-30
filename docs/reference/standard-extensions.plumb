@@ -321,6 +321,7 @@ edge。`[.task] 出现在其他 marker 上时产生 `[task.invalid-owner]，且�
 `- `[created]、`[due]、`[wait]、`[done] 和 `[canceled] 是 quoted RFC 3339 timestamps。
 `- `[recur] 是正整数 `[`PnD]、`[`PnW]、`[`PnM] 或 `[`PnY]，并要求 `[due]。
 `- `[prev] 是一个 same-file `[#id] 或 cross-file `[`path.plumb#id] reference。
+`- `[priority] 是非负整数；数值越大，优先级越高。
 `- `[depends] 是一个 quoted reference list；same-file reference 使用 `[#id]，cross-file reference
    使用 raw `[`path.plumb#id]。
 
@@ -340,7 +341,13 @@ document-local closure state：
 `- 只有 `[canceled]：canceled。
 `- 两者同时存在：conflicted。
 
-`[state]、`[status]、`[priority]、`[scheduled] 和 checkbox spelling 没有标准 task semantics。
+`[state]、`[status]、`[scheduled] 和 checkbox spelling 没有标准 task semantics。
+
+`[plumb task] 与 Web task view 默认递归排序 task display tree：同一 parent 下的 sibling task
+subtrees 先按有效 `[priority] 降序，再按有效 `[due] 升序，最后按 normalized relative path 与 source
+position 稳定排序。缺失或非法 priority 作为最低优先级，缺失或非法 due 排在具有有效 due 的 sibling
+之后。排序移动完整 subtree，不能让 descendant 脱离 parent，也不能改变非 sibling 的 nesting。
+Web query 仍可显式选择 source、priority、due 或 relevance sort；这些 sort 都以 task subtree 为单位。
 
 workspace query、LSP hover 与 Web task view 在 closure state 之上推导互斥 workflow state：
 
@@ -358,6 +365,7 @@ waiting 同时产生 `[wait_reasons] list，值按 `[time]、`[dependency] 顺�
 datetime fields 必须使用 quoted RFC 3339 value；unquoted 或无法解析的值发布
 `[task.invalid-datetime] warning，并且不参与 task state、query 或 operations。recur 只有在 `[due]
 attribute 确实缺失时发布 `[task.missing-due-for-recur]；存在但非法的 due 只发布 invalid-datetime。
+priority 不是非负整数时发布 `[task.invalid-priority] warning，并且不参与 sorting 或 CEL facts。
 
 complete 为 open task 添加 `[done]；open dependency 存在时拒绝 complete。cancel 添加 `[canceled]
 且不受 blocker 限制。关闭 recurring task 时保留 closed instance，并追加下一 instance：推进 due/wait、

@@ -246,6 +246,7 @@ Defined fields:
 - `created`, `due`, `wait`, `done`, and `canceled`: quoted RFC 3339 timestamps.
 - `recur`: one positive `PnD`, `PnW`, `PnM`, or `PnY` rule; requires `due`.
 - `prev`: one same-file `#id` or cross-file `path.plumb#id` reference.
+- `priority`: a non-negative integer; larger values have higher priority.
 - `depends`: references in one quoted value. Whitespace after each reference id
   separates entries; whitespace before `.plumb#id` belongs to the path.
 
@@ -263,6 +264,8 @@ Datetime fields must use quoted RFC 3339 values. An unquoted or unparseable
 value produces `task.invalid-datetime` and does not participate in task state,
 queries, or operations. `task.missing-due-for-recur` applies only when the
 `due` attribute is absent, not when it is present but invalid.
+An invalid `priority` produces `task.invalid-priority` and does not participate
+in sorting or task CEL facts.
 
 Document-local closure state is derived from closure timestamps:
 
@@ -271,8 +274,14 @@ Document-local closure state is derived from closure timestamps:
 - Only `canceled`: canceled.
 - Both: conflicted and invalid for normal operations.
 
-Do not invent `state`, `status`, `priority`, `scheduled`, or checkbox syntax as
+Do not invent `state`, `status`, `scheduled`, or checkbox syntax as
 task semantics. Other attributes remain opaque custom data.
+
+`plumb task` and the Web task view sort sibling task subtrees recursively by
+descending priority, ascending due time, then stable source order. Missing
+priority is lowest and missing due sorts after a valid due. Each task moves
+with all of its descendants, so sorting never breaks the display tree. The Web
+task view also offers explicit source, priority, due, and relevance sorts.
 
 Workspace queries, LSP hover, and the Web task view derive one mutually
 exclusive workflow state: `ready` for an open task with no future wait or

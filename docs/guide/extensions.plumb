@@ -229,12 +229,13 @@ event、reminder、外部 iCalendar 回写或 CalDAV client。
 只有 `[-] 或 `[.] item 上的 `[.task] class 是 task：
 
 `{language=plumb}
-  `-{.task #write-parser created="2026-07-20T09:00:00+08:00" due="2026-07-21T09:00:00+08:00"} Implement parser
+  `-{.task #write-parser priority=10 created="2026-07-20T09:00:00+08:00" due="2026-07-21T09:00:00+08:00"} Implement parser
 
 head 是 title，children 是 details。另一个 task 需要引用它时才添加 id。
 
-标准字段包括 `[created]、`[due]、`[wait]、`[done]、`[canceled]、`[recur]、`[prev] 和
-`[depends]。时间使用 quoted RFC 3339。Task reference 使用 raw relative path，不做 URL
+标准字段包括 `[created]、`[due]、`[wait]、`[done]、`[canceled]、`[recur]、`[prev]、
+`[priority] 和 `[depends]。priority 是非负整数，数值越大越优先。时间使用 quoted RFC 3339。
+Task reference 使用 raw relative path，不做 URL
 encode/decode；`[.plumb#] 分隔 path 与 explicit id，path 本身不能包含 `[#]。`[depends] 中每条
 reference 在 id 后由 whitespace 分隔，因此 path 可以直接包含 spaces：
 
