@@ -389,6 +389,7 @@
 `-{
    .task #web-structured-task-editing depends="#web-task-management"
    created="2026-07-31T16:43:38+08:00"
+   done="2026-07-31T19:23:23+08:00"
   } 在 Web UI 中结构化创建和编辑 tasks
 
    `note Tasks view 提供结构化 create/edit UI，覆盖 title、source document、parent task/list position，以及标准 `[created]、`[due]、`[wait]、`[recur]、`[prev]、`[depends] 和 `[priority] fields；state 是派生值，关闭继续通过既有 Complete/Cancel operations，不能直接编辑 `[state] 或伪造 closure state。
