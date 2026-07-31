@@ -33,8 +33,7 @@ use lsp_types::{
 use plumb_core::Diagnostic;
 use plumb_extensions::{
     construct_completion_context, file_completion_context, image_completion_context,
-    link_completion_context, AnchorKind, ConstructCompletionContext, TaskRecord, TaskState,
-    TaskStatus,
+    link_completion_context, AnchorKind, ConstructCompletionContext, TaskStatus,
 };
 use plumb_workspace::{
     normalize, scan_workspace_files, RenameError, ResolvedTarget, ResourceOperation, SearchRecord,
@@ -50,6 +49,7 @@ use crate::hover::{
 };
 use crate::position::{byte_range_to_lsp, position_to_offset};
 use crate::search::{SearchItem, SearchKind, SearchParams, SearchProvenance, SearchResult};
+use crate::semantic_tokens::{closed_task_token_ranges, physical_line_ranges};
 use crate::symbols::{
     anchor as anchor_symbol, events as event_symbols, heading as heading_symbol,
     insert as insert_document_symbol, metadata as metadata_symbol, tasks as task_symbols,
@@ -1511,85 +1511,6 @@ impl LanguageServer for ServerState {
         })();
         Box::pin(async move { result })
     }
-}
-
-fn physical_line_ranges(
-    source: &str,
-    range: &std::ops::Range<usize>,
-) -> Vec<std::ops::Range<usize>> {
-    let mut ranges = Vec::new();
-    let mut start = range.start;
-    while start < range.end {
-        let newline = source[start..range.end]
-            .find('\n')
-            .map(|offset| start + offset);
-        let end = newline.unwrap_or(range.end);
-        let line = &source[start..end];
-        let leading = line.len() - line.trim_start_matches([' ', '\t']).len();
-        let trailing = line.len() - line.trim_end_matches([' ', '\t', '\r']).len();
-        if start + leading < end.saturating_sub(trailing) {
-            ranges.push(start + leading..end - trailing);
-        }
-        let Some(newline) = newline else {
-            break;
-        };
-        start = newline + 1;
-    }
-    ranges
-}
-
-fn closed_task_token_ranges(tasks: &[TaskRecord]) -> Vec<(std::ops::Range<usize>, u32)> {
-    let mut children = vec![Vec::new(); tasks.len()];
-    let mut ancestors: Vec<usize> = Vec::new();
-    for (index, task) in tasks.iter().enumerate() {
-        while ancestors
-            .last()
-            .is_some_and(|ancestor| tasks[*ancestor].depth >= task.depth)
-        {
-            ancestors.pop();
-        }
-        if let Some(parent) = ancestors.last() {
-            children[*parent].push(task.range.clone());
-        }
-        ancestors.push(index);
-    }
-
-    let mut output = Vec::new();
-    for (index, task) in tasks.iter().enumerate() {
-        let modifiers = match task.state() {
-            TaskState::Open => continue,
-            TaskState::Done => 1,
-            TaskState::Canceled => 2,
-            TaskState::Conflicted => 3,
-        };
-        let mut owned = vec![task.range.clone()];
-        for child in &children[index] {
-            owned = owned
-                .into_iter()
-                .flat_map(|range| subtract_range(range, child))
-                .collect();
-        }
-        output.extend(owned.into_iter().map(|range| (range, modifiers)));
-    }
-    output.sort_by_key(|(range, _)| range.start);
-    output
-}
-
-fn subtract_range(
-    range: std::ops::Range<usize>,
-    excluded: &std::ops::Range<usize>,
-) -> Vec<std::ops::Range<usize>> {
-    if excluded.end <= range.start || excluded.start >= range.end {
-        return vec![range];
-    }
-    let mut output = Vec::with_capacity(2);
-    if range.start < excluded.start {
-        output.push(range.start..excluded.start);
-    }
-    if excluded.end < range.end {
-        output.push(excluded.end..range.end);
-    }
-    output
 }
 
 fn rename_request_error(message: impl Into<String>) -> ResponseError {

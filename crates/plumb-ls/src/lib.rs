@@ -2,6 +2,7 @@ mod folding;
 mod hover;
 mod position;
 mod search;
+mod semantic_tokens;
 mod server;
 mod symbols;
 
