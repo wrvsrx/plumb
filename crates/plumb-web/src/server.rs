@@ -772,7 +772,7 @@ mod tests {
         let response = app.clone().oneshot(
             Request::post("/api/query")
                 .header(header::CONTENT_TYPE, "application/json")
-                .body(Body::from(r#"{"view":"tasks","presets":["ready"],"query":"Ready","sort":"source","traversal":{}}"#))
+                .body(Body::from(r#"{"view":"tasks","presets":["ready"],"query":"Ready","sort":["source"],"traversal":{}}"#))
                 .unwrap(),
         ).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);

@@ -7,7 +7,7 @@ use chrono::{Local, SecondsFormat};
 use plumb_extensions::{LinkSpelling, TaskStatus};
 use plumb_workspace::{
     apply_document_edit, display_workspace_path as display_path, normalize, scan_workspace_files,
-    search_score, sort_task_records, truncate_complete_task_documents, ApplyDocumentEditError,
+    search_score, sort_task_records_by, truncate_complete_task_documents, ApplyDocumentEditError,
     EventEditError, EventInput, ResolvedTarget, SearchRecordKind, TaskRef, TaskSortFacts,
     TaskSortOrder, Workspace,
 };
@@ -238,11 +238,27 @@ pub struct WebQuery {
     pub filter: String,
     #[serde(default)]
     pub filters: Vec<String>,
-    #[serde(default)]
-    pub sort: QuerySort,
+    #[serde(default, deserialize_with = "deserialize_sort_keys")]
+    pub sort: Vec<QuerySort>,
     pub limit: Option<usize>,
     #[serde(default)]
     pub traversal: GraphQuery,
+}
+
+fn deserialize_sort_keys<'de, D>(deserializer: D) -> Result<Vec<QuerySort>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum SortInput {
+        One(QuerySort),
+        Many(Vec<QuerySort>),
+    }
+    Ok(match SortInput::deserialize(deserializer)? {
+        SortInput::One(sort) => vec![sort],
+        SortInput::Many(sorts) => sorts,
+    })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -549,7 +565,11 @@ impl WebWorkspace {
             .collect::<Vec<_>>();
         tasks.sort_by(task_source_order);
         assign_task_parents(&mut tasks);
-        sort_task_tree(&mut tasks, QuerySort::Priority, &HashMap::new());
+        sort_task_tree(
+            &mut tasks,
+            &[QuerySort::Priority, QuerySort::Due],
+            &HashMap::new(),
+        );
         TaskSnapshot {
             revision: self.revision,
             tasks,
@@ -1486,6 +1506,8 @@ mod tests {
 
     #[test]
     fn web_queries_compose_filters_and_preserve_task_subtrees() {
+        let legacy: WebQuery = serde_json::from_str(r#"{"sort":"priority"}"#).unwrap();
+        assert_eq!(legacy.sort, [QuerySort::Priority]);
         let root = temp_dir();
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(
@@ -1528,7 +1550,7 @@ mod tests {
             .query_tasks(&WebQuery {
                 view: WebView::Tasks,
                 query: "needle".to_string(),
-                sort: QuerySort::Due,
+                sort: vec![QuerySort::Due],
                 ..WebQuery::default()
             })
             .unwrap();
@@ -1543,7 +1565,7 @@ mod tests {
             .query_tasks(&WebQuery {
                 view: WebView::Tasks,
                 query: "needle".to_string(),
-                sort: QuerySort::Priority,
+                sort: vec![QuerySort::Priority],
                 ..WebQuery::default()
             })
             .unwrap();
@@ -1558,7 +1580,7 @@ mod tests {
         let all_by_priority = workspace
             .query_tasks(&WebQuery {
                 view: WebView::Tasks,
-                sort: QuerySort::Priority,
+                sort: vec![QuerySort::Priority],
                 ..WebQuery::default()
             })
             .unwrap();
@@ -1655,7 +1677,7 @@ mod tests {
         let priority = workspace
             .query_tasks(&WebQuery {
                 view: WebView::Tasks,
-                sort: QuerySort::Priority,
+                sort: vec![QuerySort::Priority],
                 ..WebQuery::default()
             })
             .unwrap();
@@ -1680,7 +1702,7 @@ mod tests {
         let due = workspace
             .query_tasks(&WebQuery {
                 view: WebView::Tasks,
-                sort: QuerySort::Due,
+                sort: vec![QuerySort::Due],
                 ..WebQuery::default()
             })
             .unwrap();
@@ -1717,7 +1739,7 @@ mod tests {
         let limited = workspace
             .query_tasks(&WebQuery {
                 view: WebView::Tasks,
-                sort: QuerySort::Priority,
+                sort: vec![QuerySort::Priority],
                 limit: Some(1),
                 ..WebQuery::default()
             })
@@ -1725,6 +1747,55 @@ mod tests {
         assert!(!limited.complete);
         assert_eq!(limited.tasks.len(), 4);
         assert!(limited.tasks.iter().all(|task| task.path == "a.plumb"));
+
+        let due_then_priority = workspace
+            .query_tasks(&WebQuery {
+                view: WebView::Tasks,
+                sort: vec![QuerySort::Due, QuerySort::Priority, QuerySort::Due],
+                ..WebQuery::default()
+            })
+            .unwrap();
+        assert_eq!(
+            due_then_priority
+                .tasks
+                .iter()
+                .map(|task| task.id.as_deref().unwrap())
+                .collect::<Vec<_>>(),
+            [
+                "b-high",
+                "b-other",
+                "a-early",
+                "a-late",
+                "a-promoted",
+                "a-urgent",
+                "c-negative",
+                "d-default",
+            ]
+        );
+        let empty_source = workspace
+            .query_tasks(&WebQuery {
+                view: WebView::Tasks,
+                sort: Vec::new(),
+                ..WebQuery::default()
+            })
+            .unwrap();
+        assert_eq!(
+            empty_source
+                .tasks
+                .iter()
+                .map(|task| task.id.as_deref().unwrap())
+                .collect::<Vec<_>>(),
+            [
+                "a-late",
+                "a-promoted",
+                "a-urgent",
+                "a-early",
+                "b-high",
+                "b-other",
+                "c-negative",
+                "d-default",
+            ]
+        );
         std::fs::remove_dir_all(root).unwrap();
     }
 
@@ -1748,7 +1819,7 @@ mod tests {
             .query_tasks(&WebQuery {
                 view: WebView::Tasks,
                 presets: vec!["ready".to_string()],
-                sort: QuerySort::Priority,
+                sort: vec![QuerySort::Priority],
                 ..WebQuery::default()
             })
             .unwrap();

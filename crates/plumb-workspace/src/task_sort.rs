@@ -43,6 +43,18 @@ pub fn sort_task_records<T>(
     order: TaskSortOrder,
     facts: impl Fn(&T) -> TaskSortFacts,
 ) {
+    let orders = match order {
+        TaskSortOrder::Priority => vec![TaskSortOrder::Priority, TaskSortOrder::Due],
+        order => vec![order],
+    };
+    sort_task_records_by(records, &orders, facts);
+}
+
+pub fn sort_task_records_by<T>(
+    records: &mut Vec<T>,
+    orders: &[TaskSortOrder],
+    facts: impl Fn(&T) -> TaskSortFacts,
+) {
     records.sort_by_key(|record| {
         let facts = facts(record);
         (facts.document, facts.source_start)
@@ -61,7 +73,7 @@ pub fn sort_task_records<T>(
         .into_iter()
         .map(|(path, records)| {
             let mut children = task_forest(records);
-            sort_forest(&mut children, order);
+            sort_forest(&mut children, orders);
             TaskDocument {
                 path,
                 priority: children
@@ -84,7 +96,7 @@ pub fn sort_task_records<T>(
             right.due.as_ref(),
             left.relevance,
             right.relevance,
-            order,
+            orders,
         )
         .then_with(|| left.path.cmp(&right.path))
     });
@@ -155,9 +167,9 @@ fn task_forest<T>(records: Vec<(T, TaskSortFacts)>) -> Vec<TaskTree<T>> {
     forest
 }
 
-fn sort_forest<T>(forest: &mut [TaskTree<T>], order: TaskSortOrder) {
+fn sort_forest<T>(forest: &mut [TaskTree<T>], orders: &[TaskSortOrder]) {
     for tree in forest.iter_mut() {
-        sort_forest(&mut tree.children, order);
+        sort_forest(&mut tree.children, orders);
     }
     forest.sort_by(|left, right| {
         aggregate_order(
@@ -167,7 +179,7 @@ fn sort_forest<T>(forest: &mut [TaskTree<T>], order: TaskSortOrder) {
             right.due.as_ref(),
             left.relevance,
             right.relevance,
-            order,
+            orders,
         )
         .then_with(|| left.facts.source_start.cmp(&right.facts.source_start))
     });
@@ -180,16 +192,23 @@ fn aggregate_order(
     right_due: Option<&DateTime<FixedOffset>>,
     left_relevance: Option<i64>,
     right_relevance: Option<i64>,
-    order: TaskSortOrder,
+    orders: &[TaskSortOrder],
 ) -> Ordering {
-    match order {
-        TaskSortOrder::Priority => right_priority
-            .cmp(&left_priority)
-            .then_with(|| optional_order(left_due, right_due)),
-        TaskSortOrder::Due => optional_order(left_due, right_due),
-        TaskSortOrder::Relevance => right_relevance.cmp(&left_relevance),
-        TaskSortOrder::Source => Ordering::Equal,
+    for order in orders {
+        let ordering = match order {
+            TaskSortOrder::Priority => right_priority.cmp(&left_priority),
+            TaskSortOrder::Due => optional_order(left_due, right_due),
+            TaskSortOrder::Relevance => match (left_relevance, right_relevance) {
+                (Some(left), Some(right)) => right.cmp(&left),
+                _ => Ordering::Equal,
+            },
+            TaskSortOrder::Source => Ordering::Equal,
+        };
+        if ordering != Ordering::Equal {
+            return ordering;
+        }
     }
+    Ordering::Equal
 }
 
 fn optional_order<T: Ord>(left: Option<&T>, right: Option<&T>) -> Ordering {

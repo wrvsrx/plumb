@@ -446,6 +446,7 @@
 `-{
    .task #multi-key-task-sorting depends="#signed-task-priority"
    created="2026-07-31T16:42:17+08:00"
+   done="2026-07-31T17:37:23+08:00"
   } 支持 Web tasks 多键排序
 
    `note Web Tasks sort state 从单个 mode 改为有序 sort-key 列表；初次进入且 URL 没有 `[sort] parameter 时默认显示一个可删除的 Priority key，行为类似默认 State: Ready filter。用户可以添加 Priority、Due 或 Relevance key、删除 key，并通过 drag-and-drop 调整优先顺序；同时提供 keyboard 与上移/下移 controls，保证移动端和无障碍操作可用，并提供恢复默认 Priority 的 action。

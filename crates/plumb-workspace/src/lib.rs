@@ -32,7 +32,8 @@ pub use search::{
     search_score, SearchRecord, SearchRecordKind, SearchResults, TaskWaitReason, TaskWorkflowState,
 };
 pub use task_sort::{
-    sort_task_records, truncate_complete_task_documents, TaskSortFacts, TaskSortOrder,
+    sort_task_records, sort_task_records_by, truncate_complete_task_documents, TaskSortFacts,
+    TaskSortOrder,
 };
 use tasks::TaskTargetResolution;
 pub use tasks::{ResolvedTaskDependency, TaskEditError, TaskRef};

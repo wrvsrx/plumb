@@ -1,7 +1,10 @@
 import {
   addPreset,
   addPresetGroup,
+  addSortKey,
   initialPresets,
+  normalizeSortKeys,
+  moveSortKey,
   readQueryParameters,
   readyTaskQueryRequest,
   readyTasksFromSnapshot,
@@ -34,7 +37,8 @@ import {
     presetsSpecified: { graph: false, tasks: false, agenda: false },
     query: { graph: '', tasks: '', agenda: '' },
     filters: { graph: [], tasks: [], agenda: [] },
-    sort: { graph: 'source', tasks: 'priority', agenda: 'source' },
+    sort: { graph: ['source'], tasks: ['priority'], agenda: ['source'] },
+    sortsSpecified: { graph: false, tasks: false, agenda: false },
     presetRegistry: { graph: [], tasks: [] },
     selectedGraph: null,
     pendingTask: null,
@@ -78,6 +82,7 @@ import {
     state.query[state.view] = query.query;
     state.filters[state.view] = query.filters;
     state.sort[state.view] = query.sort;
+    state.sortsSpecified[state.view] = query.sortsSpecified;
     state.current = query.current || config.current || null;
     state.local = Boolean(query.current);
     if (state.view === 'tasks') state.selectedTask = query.selected;
@@ -107,6 +112,7 @@ import {
       query: state.query[state.view],
       filters: state.filters[state.view],
       sort: state.sort[state.view],
+      sortsSpecified: state.sortsSpecified[state.view],
       selected: state.view === 'graph' ? state.selectedGraph : (state.view === 'tasks' ? state.selectedTask : state.selectedEvent),
       current: state.view === 'graph' && state.local ? state.current : null,
       depth: depth.value,
@@ -272,8 +278,59 @@ import {
     taskSearch.value = state.query.tasks;
     const container = document.querySelector(`.${view === 'graph' ? 'graph' : 'task'}-filters`);
     renderCelClauses(view);
-    container.querySelector('.query-sort').value = state.sort[view];
+    const sort = container.querySelector('.query-sort');
+    if (sort) sort.value = state.sort[view][0] || 'source';
+    if (view === 'tasks') renderTaskSortKeys();
     renderPresetControls(view);
+  }
+
+  function changeTaskSort(keys) {
+    state.sort.tasks = normalizeSortKeys(keys);
+    state.sortsSpecified.tasks = true;
+    renderTaskSortKeys();
+    updateUrl();
+    loadTasks();
+  }
+
+  function renderTaskSortKeys() {
+    const container = document.querySelector('.task-sort-keys');
+    if (!container) return;
+    container.replaceChildren();
+    const labels = { priority: 'Priority ↓', due: 'Due ↑', relevance: 'Relevance ↓' };
+    state.sort.tasks.forEach((key, index) => {
+      if (key === 'source') return;
+      const row = document.createElement('div');
+      row.className = 'task-sort-key';
+      row.draggable = true;
+      row.dataset.key = key;
+      const grip = document.createElement('button');
+      grip.type = 'button'; grip.className = 'sort-grip'; grip.textContent = '↕';
+      grip.title = `Drag ${labels[key]}`; grip.setAttribute('aria-label', grip.title);
+      const label = document.createElement('span'); label.textContent = labels[key];
+      const up = document.createElement('button'); up.type = 'button'; up.textContent = '↑'; up.title = 'Move up'; up.disabled = index === 0;
+      const down = document.createElement('button'); down.type = 'button'; down.textContent = '↓'; down.title = 'Move down'; down.disabled = index === state.sort.tasks.length - 1;
+      const remove = document.createElement('button'); remove.type = 'button'; remove.textContent = '×'; remove.title = `Remove ${labels[key]}`;
+      up.addEventListener('click', () => { const keys = [...state.sort.tasks]; [keys[index - 1], keys[index]] = [keys[index], keys[index - 1]]; changeTaskSort(keys); });
+      down.addEventListener('click', () => { const keys = [...state.sort.tasks]; [keys[index], keys[index + 1]] = [keys[index + 1], keys[index]]; changeTaskSort(keys); });
+      remove.addEventListener('click', () => changeTaskSort(state.sort.tasks.filter((item) => item !== key)));
+      row.addEventListener('keydown', (event) => {
+        if (event.altKey && event.key === 'ArrowUp' && index > 0) { event.preventDefault(); up.click(); }
+        if (event.altKey && event.key === 'ArrowDown' && index + 1 < state.sort.tasks.length) { event.preventDefault(); down.click(); }
+      });
+      row.addEventListener('dragstart', (event) => { row.classList.add('dragging'); event.dataTransfer.setData('text/plain', key); });
+      row.addEventListener('dragend', () => row.classList.remove('dragging'));
+      row.addEventListener('dragover', (event) => event.preventDefault());
+      row.addEventListener('drop', (event) => {
+        event.preventDefault();
+        const moved = event.dataTransfer.getData('text/plain');
+        if (!moved || moved === key) return;
+        changeTaskSort(moveSortKey(state.sort.tasks, moved, key));
+      });
+      row.append(grip, label, up, down, remove);
+      container.append(row);
+    });
+    const add = document.querySelector('.task-sort-add');
+    Array.from(add.options).forEach((option) => { option.disabled = state.sort.tasks.includes(option.value); });
   }
 
   function renderCelClauses(view, { focusLast = false } = {}) {
@@ -1098,12 +1155,18 @@ import {
     const view = container.classList.contains('graph-filters') ? 'graph' : 'tasks';
     const menu = container.querySelector('.preset-menu');
     container.querySelector('.preset-add').addEventListener('click', () => { menu.hidden = !menu.hidden; });
-    container.querySelector('.query-sort').addEventListener('change', (event) => {
-      state.sort[view] = event.target.value;
-      updateUrl();
-      runViewQuery(view);
+    const sort = container.querySelector('.query-sort');
+    if (sort) sort.addEventListener('change', (event) => {
+      state.sort[view] = [event.target.value];
+      state.sortsSpecified[view] = true;
+      updateUrl(); runViewQuery(view);
     });
   });
+  document.querySelector('.task-sort-add').addEventListener('change', (event) => {
+    if (event.target.value) changeTaskSort(addSortKey(state.sort.tasks, event.target.value));
+    event.target.value = '';
+  });
+  document.querySelector('.task-sort-reset').addEventListener('click', () => changeTaskSort(['priority']));
   allLabels.addEventListener('change', refreshStyles);
   depth.addEventListener('change', () => { updateUrl(); loadGraph(); });
   direction.addEventListener('change', () => { updateUrl(); loadGraph(); });

@@ -70,9 +70,11 @@ unresolved document targets 显示为独立 node。
 selection 与 graph traversal 写入 URL。`[+] menu 的 server-registered presets 覆盖 task state、actionable、
 due、wait/dependency 和 graph connectivity/task counts；custom CEL 与 presets 分别验证后使用 logical AND。
 Tasks 在 URL 没有显式 preset state 时默认启用 `[State: Ready]。每个 document 是 task forest 的
-虚拟结构节点；Source、Priority、Due 与 Relevance 都只递归排序同一 parent 下的 sibling subtrees，
-因此 document 和 parent/subtask subtree 始终连续。Priority 取 subtree 最大 effective priority，Due
-取 subtree 最早 due，Relevance 取 subtree 最大 fuzzy score。过滤先确定当前结果集合，未显示的 task
+虚拟结构节点。Tasks sort 是可增删和重排的 Priority、Due、Relevance keys；无显式 URL state 时
+默认为 Priority，显式空列表只使用固定 Source tie-break。Priority 降序，Due 升序且缺失值最后，
+Relevance 降序；无 fuzzy query 时 Relevance 不改变顺序。所有 keys 只递归排序同一 parent 下的
+sibling subtrees，因此 document 和 parent/subtask subtree 始终连续。Priority 取 subtree 最大
+effective priority，Due 取 subtree 最早 due，Relevance 取 subtree 最大 fuzzy score。过滤先确定当前结果集合，未显示的 task
 不会参与这些聚合；详情显示 derived
 state、timestamps、dependencies 与 child tasks。
 

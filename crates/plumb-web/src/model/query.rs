@@ -76,7 +76,7 @@ impl WebWorkspace {
             })
             .collect::<BTreeSet<_>>();
         tasks.retain(|task| retained.contains(&task.key));
-        sort_task_tree(&mut tasks, query.sort, &scores);
+        sort_task_tree(&mut tasks, &query.sort, &scores);
         let limit = query.limit.unwrap_or(usize::MAX);
         let complete = tasks.len() <= limit;
         truncate_complete_task_documents(&mut tasks, limit, |task| &task.path);
@@ -150,13 +150,15 @@ impl WebWorkspace {
         graph.edges.retain(|edge| {
             visible.contains(edge.source.as_str()) && visible.contains(edge.target.as_str())
         });
-        graph.nodes.sort_by(|left, right| match query.sort {
-            QuerySort::Relevance if !query.query.is_empty() => scores
-                .get(&right.id)
-                .cmp(&scores.get(&left.id))
-                .then_with(|| graph_source_order(left, right)),
-            _ => graph_source_order(left, right),
-        });
+        graph.nodes.sort_by(
+            |left, right| match query.sort.first().copied().unwrap_or_default() {
+                QuerySort::Relevance if !query.query.is_empty() => scores
+                    .get(&right.id)
+                    .cmp(&scores.get(&left.id))
+                    .then_with(|| graph_source_order(left, right)),
+                _ => graph_source_order(left, right),
+            },
+        );
         let limit = query
             .limit
             .unwrap_or(DEFAULT_GRAPH_LIMIT)
@@ -358,16 +360,22 @@ pub(super) fn assign_task_parents(tasks: &mut [WebTask]) {
 
 pub(super) fn sort_task_tree(
     tasks: &mut Vec<WebTask>,
-    sort: QuerySort,
+    sorts: &[QuerySort],
     scores: &HashMap<String, i64>,
 ) {
-    let order = match sort {
-        QuerySort::Source => TaskSortOrder::Source,
-        QuerySort::Priority => TaskSortOrder::Priority,
-        QuerySort::Due => TaskSortOrder::Due,
-        QuerySort::Relevance => TaskSortOrder::Relevance,
-    };
-    sort_task_records(tasks, order, |task| TaskSortFacts {
+    let mut orders = Vec::new();
+    for sort in sorts {
+        let order = match sort {
+            QuerySort::Source => TaskSortOrder::Source,
+            QuerySort::Priority => TaskSortOrder::Priority,
+            QuerySort::Due => TaskSortOrder::Due,
+            QuerySort::Relevance => TaskSortOrder::Relevance,
+        };
+        if !orders.contains(&order) {
+            orders.push(order);
+        }
+    }
+    sort_task_records_by(tasks, &orders, |task| TaskSortFacts {
         document: task.path.clone(),
         source_start: task.location.start,
         depth: task.depth,

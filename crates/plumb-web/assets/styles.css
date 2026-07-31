@@ -163,6 +163,15 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
 .task-row time { font-size: 12px; text-align: right; }
 .task-empty { padding: 48px 24px; text-align: center; color: var(--muted); }
 .task-panel { overflow: auto; border-left: 1px solid var(--border); background: var(--paper); padding: 24px; }
+.task-sort { display: grid; gap: 5px; }
+.task-sort-keys { display: flex; flex-wrap: wrap; gap: 5px; min-height: 30px; }
+.task-sort-key { display: grid; grid-template-columns: 24px auto 24px 24px 24px; align-items: center; border: 1px solid var(--border); border-radius: 4px; background: var(--paper); }
+.task-sort-key > span { padding: 0 6px; font-size: 12px; font-weight: 700; }
+.task-sort-key button { min-width: 24px; min-height: 28px; padding: 2px; border: 0; border-left: 1px solid var(--border); border-radius: 0; }
+.task-sort-key .sort-grip { cursor: grab; border-left: 0; color: var(--muted); }
+.task-sort-key.dragging { opacity: .45; }
+.task-sort-actions { display: flex; gap: 5px; }
+.task-sort-actions select, .task-sort-actions button { min-height: 30px; }
 .agenda-workspace { height: calc(100% - 58px); display: grid; grid-template-columns: minmax(420px, 1fr) minmax(340px, 34vw); }
 .event-list-pane { min-width: 0; overflow: auto; background: #f7f7f5; }
 .event-list { width: 100%; }

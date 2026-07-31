@@ -6,12 +6,15 @@ export function viewFromPath(pathname) {
 
 export function readQueryParameters(search, view = 'graph') {
   const params = new URLSearchParams(search);
+  const sortsSpecified = params.has('sort');
+  const sort = normalizeSortKeys(params.getAll('sort'));
   return {
     presets: params.getAll('preset').filter(Boolean),
     presetsSpecified: params.has('preset'),
     query: params.get('q') || '',
     filters: params.getAll('cel'),
-    sort: params.get('sort') || (view === 'tasks' ? 'priority' : 'source'),
+    sort: sortsSpecified ? sort : [view === 'tasks' ? 'priority' : 'source'],
+    sortsSpecified,
     selected: params.get('selected'),
     current: params.get('current'),
     depth: params.get('depth') || '1',
@@ -30,7 +33,8 @@ export function writeQueryParameters(query) {
   if (query.presetsSpecified && query.presets.length === 0) params.set('preset', '');
   if (query.query) params.set('q', query.query);
   (query.filters || []).filter(Boolean).forEach((filter) => params.append('cel', filter));
-  if (query.sort !== 'source') params.set('sort', query.sort);
+  (query.sort || []).forEach((sort) => params.append('sort', sort));
+  if (query.sortsSpecified && query.sort.length === 0) params.set('sort', '');
   if (query.selected) params.set('selected', query.selected);
   if (query.current) {
     params.set('current', query.current);
@@ -39,6 +43,22 @@ export function writeQueryParameters(query) {
   }
   query.kinds.forEach((kind) => params.append('kind', kind));
   return params;
+}
+
+export function normalizeSortKeys(keys) {
+  const valid = new Set(['source', 'priority', 'due', 'relevance']);
+  return keys.filter((key, index) => key && valid.has(key) && keys.indexOf(key) === index);
+}
+
+export function addSortKey(keys, key) {
+  return normalizeSortKeys([...keys, key]);
+}
+
+export function moveSortKey(keys, key, target) {
+  if (key === target || !keys.includes(key) || !keys.includes(target)) return [...keys];
+  const moved = keys.filter((item) => item !== key);
+  moved.splice(moved.indexOf(target), 0, key);
+  return moved;
 }
 
 export function addPreset(selected, added) {
@@ -69,7 +89,7 @@ export function readyTaskQueryRequest() {
     query: '',
     presets: ['ready'],
     filters: [],
-    sort: 'source',
+    sort: ['source'],
     limit: null,
     traversal: {},
   };
