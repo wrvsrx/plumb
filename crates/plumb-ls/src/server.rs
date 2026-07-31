@@ -14,7 +14,7 @@ use lsp_types::{
     DiagnosticRelatedInformation, DiagnosticSeverity, DidChangeConfigurationParams,
     DidChangeTextDocumentParams, DidChangeWatchedFilesParams, DidCloseTextDocumentParams,
     DidOpenTextDocumentParams, DidSaveTextDocumentParams, DocumentChangeOperation, DocumentChanges,
-    DocumentFormattingParams, DocumentRangeFormattingParams, DocumentSymbol, DocumentSymbolParams,
+    DocumentFormattingParams, DocumentRangeFormattingParams, DocumentSymbolParams,
     DocumentSymbolResponse, FileChangeType, FileSystemWatcher, FoldingRange, FoldingRangeParams,
     FoldingRangeProviderCapability, GlobPattern, GotoDefinitionParams, GotoDefinitionResponse,
     Hover, HoverContents, HoverParams, HoverProviderCapability, InitializeParams, InitializeResult,
@@ -33,9 +33,8 @@ use lsp_types::{
 use plumb_core::{Block, Diagnostic, Document};
 use plumb_extensions::{
     analyze_headings, construct_completion_context, file_completion_context,
-    image_completion_context, link_completion_context, AnchorKind, AnchorRecord,
-    ConstructCompletionContext, EventRecord, Heading, MetadataBlock, MetadataEntry, MetadataValue,
-    TaskRecord, TaskState, TaskStatus,
+    image_completion_context, link_completion_context, AnchorKind, ConstructCompletionContext,
+    EventRecord, TaskRecord, TaskState, TaskStatus,
 };
 use plumb_workspace::{
     normalize, scan_workspace_files, RenameError, ResolvedTarget, ResourceOperation, SearchRecord,
@@ -44,6 +43,10 @@ use plumb_workspace::{
 
 use crate::position::{byte_range_to_lsp, position_to_offset};
 use crate::search::{SearchItem, SearchKind, SearchParams, SearchProvenance, SearchResult};
+use crate::symbols::{
+    anchor as anchor_symbol, events as event_symbols, heading as heading_symbol,
+    insert as insert_document_symbol, metadata as metadata_symbol, tasks as task_symbols,
+};
 
 pub(crate) struct ServerState {
     client: ClientSocket,
@@ -1927,209 +1930,6 @@ fn line_folding_range(
     })
 }
 
-fn heading_symbol(source: &str, heading: &Heading) -> DocumentSymbol {
-    #[allow(deprecated)]
-    DocumentSymbol {
-        name: if heading.title.is_empty() {
-            format!("Heading {}", heading.level)
-        } else {
-            heading.title.clone()
-        },
-        detail: Some(format!("level {}", heading.level)),
-        kind: SymbolKind::STRING,
-        tags: None,
-        deprecated: None,
-        range: byte_range_to_lsp(source, &heading.section_range),
-        selection_range: byte_range_to_lsp(source, &heading.selection_range),
-        children: (!heading.children.is_empty()).then(|| {
-            heading
-                .children
-                .iter()
-                .map(|child| heading_symbol(source, child))
-                .collect()
-        }),
-    }
-}
-
-fn anchor_symbol(source: &str, anchor: &AnchorRecord) -> DocumentSymbol {
-    #[allow(deprecated)]
-    DocumentSymbol {
-        name: format!("#{}", anchor.id.value),
-        detail: Some("explicit anchor".to_string()),
-        kind: SymbolKind::KEY,
-        tags: None,
-        deprecated: None,
-        range: byte_range_to_lsp(source, &anchor.range),
-        selection_range: byte_range_to_lsp(source, &anchor.id.range),
-        children: None,
-    }
-}
-
-fn metadata_symbol(source: &str, metadata: &MetadataBlock) -> DocumentSymbol {
-    #[allow(deprecated)]
-    DocumentSymbol {
-        name: "metadata".to_string(),
-        detail: Some("document metadata".to_string()),
-        kind: SymbolKind::OBJECT,
-        tags: None,
-        deprecated: None,
-        range: byte_range_to_lsp(source, &metadata.range),
-        selection_range: byte_range_to_lsp(source, &metadata.selection_range),
-        children: (!metadata.entries.is_empty()).then(|| {
-            metadata
-                .entries
-                .iter()
-                .map(|entry| metadata_entry_symbol(source, entry))
-                .collect()
-        }),
-    }
-}
-
-fn metadata_entry_symbol(source: &str, entry: &MetadataEntry) -> DocumentSymbol {
-    let (detail, children) = match &entry.value {
-        MetadataValue::Null { .. } => ("null".to_string(), None),
-        MetadataValue::Scalar { content, .. } => (content.plain_text(), None),
-        MetadataValue::List { items, .. } => (format!("list ({} items)", items.len()), None),
-        MetadataValue::Map { entries, .. } => (
-            "map".to_string(),
-            (!entries.is_empty()).then(|| {
-                entries
-                    .iter()
-                    .map(|entry| metadata_entry_symbol(source, entry))
-                    .collect()
-            }),
-        ),
-        MetadataValue::Verbatim { .. } => ("verbatim".to_string(), None),
-        MetadataValue::Unsupported { .. } => ("unsupported value".to_string(), None),
-    };
-    #[allow(deprecated)]
-    DocumentSymbol {
-        name: entry.key.clone(),
-        detail: Some(detail),
-        kind: SymbolKind::PROPERTY,
-        tags: None,
-        deprecated: None,
-        range: byte_range_to_lsp(source, &entry.range),
-        selection_range: byte_range_to_lsp(source, &entry.key_range),
-        children,
-    }
-}
-
-fn task_symbols(source: &str, tasks: &[TaskRecord]) -> Vec<DocumentSymbol> {
-    let mut roots = Vec::new();
-    let mut path = Vec::new();
-    for task in tasks {
-        while path.len() > task.depth {
-            path.pop();
-        }
-        let siblings = task_symbol_children_mut(&mut roots, &path);
-        siblings.push(task_symbol(source, task));
-        path.push(siblings.len() - 1);
-    }
-    roots
-}
-
-fn task_symbol(source: &str, task: &TaskRecord) -> DocumentSymbol {
-    let id = task
-        .id
-        .as_ref()
-        .map(|id| format!(" #{}", id.value))
-        .unwrap_or_default();
-    #[allow(deprecated)]
-    DocumentSymbol {
-        name: if task.title.is_empty() {
-            "Untitled task".to_string()
-        } else {
-            task.title.clone()
-        },
-        detail: Some(format!("{}{}", task_state_name(task.state()), id)),
-        kind: SymbolKind::EVENT,
-        tags: None,
-        deprecated: None,
-        range: byte_range_to_lsp(source, &task.range),
-        selection_range: byte_range_to_lsp(source, &task.selection_range),
-        children: None,
-    }
-}
-
-fn event_symbols(source: &str, events: &[EventRecord]) -> Vec<DocumentSymbol> {
-    let mut roots = Vec::new();
-    let mut path = Vec::new();
-    for event in events {
-        while path.len() > event.depth {
-            path.pop();
-        }
-        let siblings = task_symbol_children_mut(&mut roots, &path);
-        siblings.push(event_symbol(source, event));
-        path.push(siblings.len() - 1);
-    }
-    roots
-}
-
-fn event_symbol(source: &str, event: &EventRecord) -> DocumentSymbol {
-    let id = event
-        .id
-        .as_ref()
-        .map(|id| format!(" #{}", id.value))
-        .unwrap_or_default();
-    let start = event
-        .start
-        .as_ref()
-        .map(|start| start.value.as_str())
-        .unwrap_or("invalid start");
-    #[allow(deprecated)]
-    DocumentSymbol {
-        name: if event.title.is_empty() {
-            "Untitled event".to_string()
-        } else {
-            event.title.clone()
-        },
-        detail: Some(format!("{start}{id}")),
-        kind: SymbolKind::EVENT,
-        tags: None,
-        deprecated: None,
-        range: byte_range_to_lsp(source, &event.range),
-        selection_range: byte_range_to_lsp(source, &event.selection_range),
-        children: None,
-    }
-}
-
-fn task_symbol_children_mut<'a>(
-    roots: &'a mut Vec<DocumentSymbol>,
-    path: &[usize],
-) -> &'a mut Vec<DocumentSymbol> {
-    let mut children = roots;
-    for index in path {
-        children = children[*index].children.get_or_insert_with(Vec::new);
-    }
-    children
-}
-
-fn insert_document_symbol(symbols: &mut Vec<DocumentSymbol>, symbol: DocumentSymbol) {
-    let containing_heading = symbols.iter().position(|candidate| {
-        candidate.kind == SymbolKind::STRING && lsp_range_contains(&candidate.range, &symbol.range)
-    });
-    if let Some(index) = containing_heading {
-        insert_document_symbol(symbols[index].children.get_or_insert_with(Vec::new), symbol);
-        return;
-    }
-    let start = symbol.range.start;
-    let index = symbols
-        .iter()
-        .position(|candidate| lsp_position_key(candidate.range.start) > lsp_position_key(start))
-        .unwrap_or(symbols.len());
-    symbols.insert(index, symbol);
-}
-
-fn lsp_range_contains(outer: &lsp_types::Range, inner: &lsp_types::Range) -> bool {
-    lsp_position_key(outer.start) <= lsp_position_key(inner.start)
-        && lsp_position_key(inner.end) <= lsp_position_key(outer.end)
-}
-
-fn lsp_position_key(position: lsp_types::Position) -> (u32, u32) {
-    (position.line, position.character)
-}
-
 fn task_hover(workspace: &Workspace, path: &Path, task: &TaskRecord) -> String {
     let (state, wait_reasons) =
         workspace.task_workflow_state(path, task, Local::now().fixed_offset());
@@ -2213,15 +2013,6 @@ fn event_hover(event: &EventRecord) -> String {
         ));
     }
     lines.join("  \n")
-}
-
-fn task_state_name(state: TaskState) -> &'static str {
-    match state {
-        TaskState::Open => "open",
-        TaskState::Done => "done",
-        TaskState::Canceled => "canceled",
-        TaskState::Conflicted => "conflicted",
-    }
 }
 
 fn code_action_kind_requested(only: Option<&[CodeActionKind]>, candidate: &CodeActionKind) -> bool {

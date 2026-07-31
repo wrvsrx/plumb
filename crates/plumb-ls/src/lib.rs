@@ -1,6 +1,7 @@
 mod position;
 mod search;
 mod server;
+mod symbols;
 
 use async_lsp::client_monitor::ClientProcessMonitorLayer;
 use async_lsp::concurrency::ConcurrencyLayer;
