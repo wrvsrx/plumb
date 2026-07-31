@@ -8,8 +8,8 @@ use plumb_extensions::{LinkSpelling, TaskStatus};
 use plumb_workspace::{
     apply_document_edit, display_workspace_path as display_path, normalize, scan_workspace_files,
     search_score, sort_task_records_by, truncate_complete_task_documents, ApplyDocumentEditError,
-    EventEditError, EventInput, ResolvedTarget, SearchRecordKind, TaskRef, TaskSortFacts,
-    TaskSortOrder, Workspace,
+    EventEditError, EventInput, ResolvedTarget, SearchRecordKind, TaskAuthoringError,
+    TaskAuthoringInput, TaskPlacement, TaskRef, TaskSortFacts, TaskSortOrder, Workspace,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -128,6 +128,7 @@ pub struct WebTask {
     pub canceled: Option<String>,
     pub recur: Option<String>,
     pub prev: Option<String>,
+    pub prev_on: Option<String>,
     pub depends: Vec<String>,
     pub depends_on: Vec<String>,
     pub directly_blocking: Vec<String>,
@@ -144,6 +145,43 @@ pub struct WebTask {
 pub struct TaskSnapshot {
     pub revision: u64,
     pub tasks: Vec<WebTask>,
+    pub documents: Vec<WebTaskDocument>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WebTaskDocument {
+    pub id: String,
+    pub path: String,
+    pub revision: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WebTaskInput {
+    pub title: String,
+    pub created: Option<String>,
+    pub due: Option<String>,
+    pub wait: Option<String>,
+    pub recur: Option<String>,
+    pub prev: Option<WebTaskReferenceInput>,
+    #[serde(default)]
+    pub depends: Vec<WebTaskReferenceInput>,
+    pub priority: Option<i32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WebTaskReferenceInput {
+    pub document_id: String,
+    pub locator: WebTaskLocator,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct WebTaskPlacement {
+    pub parent: Option<WebTaskLocator>,
+    pub after: Option<WebTaskLocator>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -275,6 +313,7 @@ pub struct TaskQuerySnapshot {
     pub tasks: Vec<WebTask>,
     pub all_tasks: Vec<WebTask>,
     pub complete: bool,
+    pub documents: Vec<WebTaskDocument>,
 }
 
 pub const TASK_PRESETS: &[QueryPreset] = &[
@@ -542,6 +581,10 @@ impl WebWorkspace {
                     canceled: task.canceled.as_ref().map(|field| field.value.clone()),
                     recur: task.recur.as_ref().map(|field| field.value.clone()),
                     prev: task.prev.as_ref().map(|field| field.value.clone()),
+                    prev_on: self
+                        .workspace
+                        .task_previous(&record.path, task)
+                        .map(|target| display_task_ref(&self.root, &target)),
                     depends: task
                         .depends
                         .iter()
@@ -573,7 +616,23 @@ impl WebWorkspace {
         TaskSnapshot {
             revision: self.revision,
             tasks,
+            documents: self.task_documents(),
         }
+    }
+
+    fn task_documents(&self) -> Vec<WebTaskDocument> {
+        self.document_ids
+            .iter()
+            .filter_map(|(path, id)| {
+                let entry = self.workspace.get(path)?;
+                entry.current.as_ref()?;
+                Some(WebTaskDocument {
+                    id: id.clone(),
+                    path: display_path(&self.root, path),
+                    revision: entry.revision.to_string(),
+                })
+            })
+            .collect()
     }
 
     pub fn events(&self) -> EventSnapshot {
@@ -705,8 +764,164 @@ impl WebWorkspace {
         }
         .map_err(|error| error.to_string())?;
         let updated = apply_guarded_edit(disk_source, path, entry.revision, edit, "task")?;
+        validate_generated_source(path, entry.revision, &updated, "task")?;
         std::fs::write(path, updated)
             .map_err(|error| format!("cannot write {}: {error}", path.display()))
+    }
+
+    pub fn create_task(
+        &self,
+        document_id: &str,
+        revision: &str,
+        input: &WebTaskInput,
+        placement: &WebTaskPlacement,
+    ) -> Result<(), String> {
+        let path = self.guarded_document(document_id, revision, "task")?;
+        let source = std::fs::read_to_string(path)
+            .map_err(|error| format!("cannot read {}: {error}", path.display()))?;
+        let input = self.task_authoring_input(path, input)?;
+        let placement = self.task_placement(&self.workspace, path, placement)?;
+        let timestamp = Local::now()
+            .fixed_offset()
+            .to_rfc3339_opts(SecondsFormat::Secs, false);
+        let edit = self
+            .workspace
+            .create_task(path, &input, &placement, &timestamp)
+            .map_err(task_authoring_error)?;
+        self.write_workspace_edit(path, source, edit, "task")
+    }
+
+    pub fn update_task_fields(
+        &self,
+        document_id: &str,
+        locator: &WebTaskLocator,
+        revision: &str,
+        input: &WebTaskInput,
+        placement: Option<&WebTaskPlacement>,
+    ) -> Result<(), String> {
+        let path = self.guarded_document(document_id, revision, "task")?;
+        let mut source = std::fs::read_to_string(path)
+            .map_err(|error| format!("cannot read {}: {error}", path.display()))?;
+        let timestamp = Local::now()
+            .fixed_offset()
+            .to_rfc3339_opts(SecondsFormat::Secs, false);
+        let original_range = task_range_in(&self.workspace, path, locator)?;
+        if let Some(placement) = placement {
+            let placement = self.task_placement(&self.workspace, path, placement)?;
+            let edit = self
+                .workspace
+                .move_task(path, original_range.clone(), &placement)
+                .map_err(task_authoring_error)?;
+            source = apply_guarded_edit(
+                source,
+                path,
+                self.workspace.get(path).unwrap().revision,
+                edit,
+                "task",
+            )?;
+        }
+        let mut updated_workspace = Workspace::new();
+        for entry in self.workspace.documents() {
+            updated_workspace.insert(
+                entry.path.clone(),
+                entry.revision,
+                if entry.path == path {
+                    source.clone()
+                } else {
+                    entry.parsed.source.clone()
+                },
+            );
+        }
+        let range = task_range_after_move(&updated_workspace, path, locator, &input.title)?;
+        let input = self.task_authoring_input(path, input)?;
+        let edit = updated_workspace
+            .update_task(path, range, &input, &timestamp)
+            .map_err(task_authoring_error)?;
+        let revision = updated_workspace.get(path).unwrap().revision;
+        let updated = apply_guarded_edit(source, path, revision, edit, "task")?;
+        validate_generated_source(path, revision, &updated, "task")?;
+        std::fs::write(path, updated)
+            .map_err(|error| format!("cannot write {}: {error}", path.display()))
+    }
+
+    fn task_placement(
+        &self,
+        workspace: &Workspace,
+        path: &Path,
+        placement: &WebTaskPlacement,
+    ) -> Result<TaskPlacement, String> {
+        Ok(TaskPlacement {
+            parent: placement
+                .parent
+                .as_ref()
+                .map(|locator| task_range_in(workspace, path, locator))
+                .transpose()?,
+            after: placement
+                .after
+                .as_ref()
+                .map(|locator| task_range_in(workspace, path, locator))
+                .transpose()?,
+        })
+    }
+
+    fn task_authoring_input(
+        &self,
+        source_path: &Path,
+        input: &WebTaskInput,
+    ) -> Result<TaskAuthoringInput, String> {
+        Ok(TaskAuthoringInput {
+            title: input.title.clone(),
+            created: input.created.clone().filter(|value| !value.is_empty()),
+            due: input.due.clone().filter(|value| !value.is_empty()),
+            wait: input.wait.clone().filter(|value| !value.is_empty()),
+            recur: input.recur.clone().filter(|value| !value.is_empty()),
+            prev: input
+                .prev
+                .as_ref()
+                .map(|reference| self.task_reference_input(source_path, reference))
+                .transpose()?,
+            depends: input
+                .depends
+                .iter()
+                .map(|reference| self.task_reference_input(source_path, reference))
+                .collect::<Result<Vec<_>, _>>()?,
+            priority: input.priority,
+        })
+    }
+
+    fn task_reference_input(
+        &self,
+        source_path: &Path,
+        reference: &WebTaskReferenceInput,
+    ) -> Result<String, String> {
+        let target_path = self
+            .document_path(&reference.document_id)
+            .ok_or_else(|| "unknown task reference document".to_string())?;
+        let range = task_range_in(&self.workspace, target_path, &reference.locator)?;
+        let task = self
+            .workspace
+            .get(target_path)
+            .and_then(|entry| entry.current.as_ref())
+            .and_then(|current| {
+                current
+                    .output
+                    .tasks
+                    .tasks
+                    .iter()
+                    .find(|task| task.range == range)
+            })
+            .ok_or_else(|| "task reference is no longer available".to_string())?;
+        let id = task
+            .id
+            .as_ref()
+            .ok_or_else(|| "task references require an explicit id".to_string())?;
+        if target_path == source_path {
+            Ok(format!("#{}", id.value))
+        } else {
+            let relative = relative_web_path(source_path, target_path)
+                .ok_or_else(|| "task reference path is not valid UTF-8".to_string())?;
+            Ok(format!("{relative}#{}", id.value))
+        }
     }
 
     pub fn create_event(
@@ -804,6 +1019,7 @@ impl WebWorkspace {
             .ok_or_else(|| format!("{kind} document is no longer indexed"))?
             .revision;
         let updated = apply_guarded_edit(source, path, revision, edit, kind)?;
+        validate_generated_source(path, revision, &updated, kind)?;
         std::fs::write(path, updated)
             .map_err(|error| format!("cannot write {}: {error}", path.display()))
     }
@@ -1201,6 +1417,24 @@ fn apply_guarded_edit(
     })
 }
 
+fn validate_generated_source(
+    path: &Path,
+    revision: i64,
+    source: &str,
+    kind: &str,
+) -> Result<(), String> {
+    let mut verification = Workspace::new();
+    verification.insert(path, revision, source);
+    if verification
+        .get(path)
+        .is_some_and(|entry| entry.current.is_some())
+    {
+        Ok(())
+    } else {
+        Err(format!("{kind} edit produced invalid plumb source"))
+    }
+}
+
 fn event_input(input: &WebEventInput) -> EventInput {
     EventInput {
         title: input.title.clone(),
@@ -1208,6 +1442,88 @@ fn event_input(input: &WebEventInput) -> EventInput {
         end: input.end.clone().filter(|end| !end.is_empty()),
         tasks: input.tasks.clone(),
     }
+}
+
+fn relative_web_path(from: &Path, target: &Path) -> Option<String> {
+    let from = from.parent().unwrap_or_else(|| Path::new(""));
+    let from = from.components().collect::<Vec<_>>();
+    let target = target.components().collect::<Vec<_>>();
+    let common = from
+        .iter()
+        .zip(&target)
+        .take_while(|(left, right)| left == right)
+        .count();
+    let mut relative = PathBuf::new();
+    for _ in common..from.len() {
+        relative.push("..");
+    }
+    for component in &target[common..] {
+        relative.push(component.as_os_str());
+    }
+    relative.to_str().map(str::to_string)
+}
+
+fn task_range_in(
+    workspace: &Workspace,
+    path: &Path,
+    locator: &WebTaskLocator,
+) -> Result<std::ops::Range<usize>, String> {
+    let output = workspace
+        .get(path)
+        .and_then(|entry| entry.current.as_ref())
+        .map(|current| &current.output)
+        .ok_or_else(|| "task document is invalid".to_string())?;
+    output
+        .tasks
+        .tasks
+        .iter()
+        .find(|task| match locator {
+            WebTaskLocator::Id { id } => task.id.as_ref().is_some_and(|field| field.value == *id),
+            WebTaskLocator::Offset { offset } => task.range.start == *offset,
+        })
+        .map(|task| task.range.clone())
+        .ok_or_else(|| "task is no longer available".to_string())
+}
+
+fn task_range_after_move(
+    workspace: &Workspace,
+    path: &Path,
+    locator: &WebTaskLocator,
+    title: &str,
+) -> Result<std::ops::Range<usize>, String> {
+    task_range_in(workspace, path, locator).or_else(|_| {
+        let output = workspace
+            .get(path)
+            .and_then(|entry| entry.current.as_ref())
+            .map(|current| &current.output)
+            .ok_or_else(|| "task document is invalid".to_string())?;
+        let matches = output
+            .tasks
+            .tasks
+            .iter()
+            .filter(|task| task.title == title)
+            .collect::<Vec<_>>();
+        (matches.len() == 1)
+            .then(|| matches[0].range.clone())
+            .ok_or_else(|| "moved idless task cannot be identified; add an explicit id".to_string())
+    })
+}
+
+fn task_authoring_error(error: TaskAuthoringError) -> String {
+    match error {
+        TaskAuthoringError::StaleOrInvalidDocument => "task document is stale or invalid",
+        TaskAuthoringError::TaskNotFound => "task is no longer available",
+        TaskAuthoringError::InvalidPlacement => "task parent or position is invalid",
+        TaskAuthoringError::InvalidDatetime => "created, due, and wait must be RFC 3339 timestamps",
+        TaskAuthoringError::InvalidRecurrence => "recur must be PnD, PnW, PnM, or PnY",
+        TaskAuthoringError::InvalidReference => "task references must use #id or path#id",
+        TaskAuthoringError::UnresolvedReference => {
+            "task reference does not resolve to an indexed task"
+        }
+        TaskAuthoringError::DependencyCycle => "task dependencies would create a cycle",
+        TaskAuthoringError::GeneratedInvalid => "task edit produced invalid plumb source",
+    }
+    .to_string()
 }
 
 fn event_edit_error(error: EventEditError) -> String {
@@ -1501,6 +1817,249 @@ mod tests {
         let completed = refreshed.tasks().tasks.into_iter().next().unwrap();
         assert_eq!(completed.key, task.key);
         assert_eq!(completed.state, "done");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn structured_task_authoring_is_guarded_and_supports_reparenting() {
+        let root = temp_dir();
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join("tasks.plumb");
+        std::fs::write(&path, "`-{.task #parent custom=keep} Parent\n").unwrap();
+        let workspace = WebWorkspace::load(&root).unwrap();
+        let snapshot = workspace.tasks();
+        let document = &snapshot.documents[0];
+        let parent = &snapshot.tasks[0];
+        workspace
+            .create_task(
+                &document.id,
+                &document.revision,
+                &WebTaskInput {
+                    title: "Created child".to_string(),
+                    created: None,
+                    due: Some("2026-08-01T10:00:00Z".to_string()),
+                    wait: None,
+                    recur: None,
+                    prev: None,
+                    depends: Vec::new(),
+                    priority: Some(4),
+                },
+                &WebTaskPlacement {
+                    parent: Some(parent.locator.clone()),
+                    after: None,
+                },
+            )
+            .unwrap();
+        let refreshed = WebWorkspace::load_with_revision(&root, 2).unwrap();
+        let snapshot = refreshed.tasks();
+        let child = snapshot
+            .tasks
+            .iter()
+            .find(|task| task.title == "Created child")
+            .unwrap();
+        assert_eq!(child.depth, 1);
+        assert!(child.id.is_some());
+        let parent = snapshot
+            .tasks
+            .iter()
+            .find(|task| task.id.as_deref() == Some("parent"))
+            .unwrap();
+        refreshed
+            .update_task_fields(
+                &child.document_id,
+                &child.locator,
+                &child.revision,
+                &WebTaskInput {
+                    title: "Updated child".to_string(),
+                    created: child.created.clone(),
+                    due: None,
+                    wait: None,
+                    recur: None,
+                    prev: None,
+                    depends: Vec::new(),
+                    priority: Some(-1),
+                },
+                Some(&WebTaskPlacement {
+                    parent: None,
+                    after: Some(parent.locator.clone()),
+                }),
+            )
+            .unwrap();
+        let final_workspace = WebWorkspace::load_with_revision(&root, 3).unwrap();
+        let updated = final_workspace
+            .tasks()
+            .tasks
+            .into_iter()
+            .find(|task| task.title == "Updated child")
+            .unwrap();
+        assert_eq!(updated.depth, 0);
+        assert_eq!(updated.priority, Some(-1));
+        assert!(updated.due.is_none());
+        assert!(updated.recur.is_none());
+        let source = std::fs::read_to_string(&path).unwrap();
+        assert!(source.contains("custom=keep"));
+        assert!(refreshed
+            .create_task(
+                &document.id,
+                &document.revision,
+                &WebTaskInput {
+                    title: "Stale".to_string(),
+                    created: None,
+                    due: None,
+                    wait: None,
+                    recur: None,
+                    prev: None,
+                    depends: Vec::new(),
+                    priority: None,
+                },
+                &WebTaskPlacement::default(),
+            )
+            .unwrap_err()
+            .contains("changed"));
+
+        let externally_changed = WebWorkspace::load_with_revision(&root, 4).unwrap();
+        let snapshot = externally_changed.tasks();
+        let document = &snapshot.documents[0];
+        let external = format!(
+            "{}\n`note External edit\n",
+            std::fs::read_to_string(&path).unwrap()
+        );
+        std::fs::write(&path, &external).unwrap();
+        let error = externally_changed
+            .create_task(
+                &document.id,
+                &document.revision,
+                &WebTaskInput {
+                    title: "Must not overwrite".to_string(),
+                    created: None,
+                    due: None,
+                    wait: None,
+                    recur: None,
+                    prev: None,
+                    depends: Vec::new(),
+                    priority: None,
+                },
+                &WebTaskPlacement::default(),
+            )
+            .unwrap_err();
+        assert!(error.contains("changed on disk"), "{error}");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), external);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn structured_task_authoring_resolves_indexed_dependencies_and_rejects_bad_fields() {
+        let root = temp_dir();
+        std::fs::create_dir_all(&root).unwrap();
+        let a_path = root.join("a.plumb");
+        let b_path = root.join("b.plumb");
+        std::fs::write(&a_path, "`-{.task #a} A\n").unwrap();
+        std::fs::write(&b_path, "`-{.task #b} B\n").unwrap();
+        let workspace = WebWorkspace::load(&root).unwrap();
+        let snapshot = workspace.tasks();
+        let a = snapshot
+            .tasks
+            .iter()
+            .find(|task| task.id.as_deref() == Some("a"))
+            .unwrap();
+        let b = snapshot
+            .tasks
+            .iter()
+            .find(|task| task.id.as_deref() == Some("b"))
+            .unwrap();
+        let a_document = snapshot
+            .documents
+            .iter()
+            .find(|document| document.id == a.document_id)
+            .unwrap();
+        let dependency = WebTaskReferenceInput {
+            document_id: b.document_id.clone(),
+            locator: b.locator.clone(),
+        };
+        workspace
+            .update_task_fields(
+                &a.document_id,
+                &a.locator,
+                &a.revision,
+                &WebTaskInput {
+                    title: a.title.clone(),
+                    created: a.created.clone(),
+                    due: None,
+                    wait: None,
+                    recur: None,
+                    prev: Some(dependency.clone()),
+                    depends: vec![dependency],
+                    priority: None,
+                },
+                None,
+            )
+            .unwrap();
+        let source = std::fs::read_to_string(&a_path).unwrap();
+        assert!(source.contains("prev=\"b.plumb#b\""), "{source}");
+        assert!(source.contains("depends=\"b.plumb#b\""), "{source}");
+
+        let refreshed = WebWorkspace::load_with_revision(&root, 2).unwrap();
+        let snapshot = refreshed.tasks();
+        let b = snapshot
+            .tasks
+            .iter()
+            .find(|task| task.id.as_deref() == Some("b"))
+            .unwrap();
+        let a = snapshot
+            .tasks
+            .iter()
+            .find(|task| task.id.as_deref() == Some("a"))
+            .unwrap();
+        assert_eq!(a.prev_on.as_deref(), Some("b.plumb#b"));
+        let original_b = std::fs::read_to_string(&b_path).unwrap();
+        let cycle = refreshed
+            .update_task_fields(
+                &b.document_id,
+                &b.locator,
+                &b.revision,
+                &WebTaskInput {
+                    title: b.title.clone(),
+                    created: b.created.clone(),
+                    due: None,
+                    wait: None,
+                    recur: None,
+                    prev: None,
+                    depends: vec![WebTaskReferenceInput {
+                        document_id: a.document_id.clone(),
+                        locator: a.locator.clone(),
+                    }],
+                    priority: None,
+                },
+                None,
+            )
+            .unwrap_err();
+        assert!(cycle.contains("cycle"), "{cycle}");
+        assert_eq!(std::fs::read_to_string(&b_path).unwrap(), original_b);
+
+        let bad_datetime = refreshed
+            .create_task(
+                &a_document.id,
+                &refreshed
+                    .tasks()
+                    .documents
+                    .iter()
+                    .find(|document| document.id == a_document.id)
+                    .unwrap()
+                    .revision,
+                &WebTaskInput {
+                    title: "Bad date".to_string(),
+                    created: None,
+                    due: Some("tomorrow".to_string()),
+                    wait: None,
+                    recur: None,
+                    prev: None,
+                    depends: Vec::new(),
+                    priority: None,
+                },
+                &WebTaskPlacement::default(),
+            )
+            .unwrap_err();
+        assert!(bad_datetime.contains("RFC 3339"), "{bad_datetime}");
         std::fs::remove_dir_all(root).unwrap();
     }
 

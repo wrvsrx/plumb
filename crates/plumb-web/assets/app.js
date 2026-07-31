@@ -67,6 +67,7 @@ import {
   const taskList = document.getElementById('task-list');
   const taskEmpty = document.getElementById('task-empty');
   const taskPanel = document.getElementById('task-panel');
+  const newTaskButton = document.getElementById('new-task');
   const notification = document.getElementById('notification');
   const agendaWorkspace = document.querySelector('.agenda-workspace');
   const eventList = document.getElementById('event-list');
@@ -1061,7 +1062,7 @@ import {
     taskPanel.innerHTML = `
       <article class="task-detail">
         <header><p class="document-path"></p><h1></h1><span class="task-detail-state"></span></header>
-        <div class="task-actions"><button class="complete-task" type="button">Complete</button><button class="cancel-task" type="button">Cancel</button><button class="open-note" type="button">Open note</button></div>
+        <div class="task-actions"><button class="complete-task" type="button">Complete</button><button class="cancel-task" type="button">Cancel</button><button class="edit-task" type="button">Edit</button><button class="new-task" type="button">New task</button><button class="open-note" type="button">Open note</button></div>
         <dl class="task-fields"></dl>
         <section class="task-children" hidden><h2>Child tasks</h2><div></div></section>
       </article>`;
@@ -1084,8 +1085,12 @@ import {
     const pending = state.pendingTask === task.key;
     taskPanel.querySelector('.complete-task').disabled = !mutable || task.blocked || pending;
     taskPanel.querySelector('.cancel-task').disabled = !mutable || pending;
+    taskPanel.querySelector('.edit-task').disabled = !config.taskMutations || pending;
+    taskPanel.querySelector('.new-task').disabled = !config.taskMutations || !state.tasks.documents?.length;
     taskPanel.querySelector('.complete-task').addEventListener('click', () => updateTask(task, 'complete'));
     taskPanel.querySelector('.cancel-task').addEventListener('click', () => updateTask(task, 'cancel'));
+    taskPanel.querySelector('.edit-task').addEventListener('click', () => renderTaskForm(task));
+    taskPanel.querySelector('.new-task').addEventListener('click', () => renderTaskForm());
     taskPanel.querySelector('.open-note').addEventListener('click', () => {
       showView('graph', { historyMode: 'push' });
       selectDocument(task.documentId, '');
@@ -1103,6 +1108,173 @@ import {
         button.addEventListener('click', () => selectTask(child));
         list.append(button);
       });
+    }
+  }
+
+  function taskIdentity(task) {
+    return { documentId: task.documentId, locator: task.locator };
+  }
+
+  function taskOptionLabel(task) {
+    return `${task.title || '(untitled)'} — ${task.path}${task.id ? `#${task.id}` : ''}`;
+  }
+
+  function renderTaskForm(task = null) {
+    const documents = state.tasks.documents || [];
+    if (!documents.length) return clearTaskDetail('Tasks unavailable', 'No valid task document is writable.');
+    taskPanel.innerHTML = `
+      <form class="task-form" novalidate>
+        <h1>${task ? 'Edit task' : 'New task'}</h1>
+        <label>Document<select name="document"></select><span class="field-error" data-field="document"></span></label>
+        <label>Title<input name="title" type="text" required><span class="field-error" data-field="title"></span></label>
+        <div class="task-form-grid">
+          <label>Parent<select name="parent"></select></label>
+          <label>Position<select name="after"></select></label>
+        </div>
+        <div class="task-form-grid">
+          <label>Created<input name="created" type="datetime-local"></label>
+          <label>Due<input name="due" type="datetime-local"><span class="field-error" data-field="due"></span></label>
+          <label>Wait until<input name="wait" type="datetime-local"></label>
+          <label>Priority<input name="priority" type="number" step="1" min="-2147483648" max="2147483647"></label>
+        </div>
+        <label>Recurrence<select name="recur"><option value="">None</option><option value="P1D">Daily</option><option value="P1W">Weekly</option><option value="P1M">Monthly</option><option value="P1Y">Yearly</option></select><span class="field-error" data-field="recur"></span></label>
+        <label>Previous task<select name="prev"><option value="">None</option></select></label>
+        <label>Dependencies<select name="depends" multiple size="6"></select><span class="field-error" data-field="depends"></span></label>
+        <p class="form-error" role="alert"></p>
+        <div class="task-actions"><button type="submit">Save</button><button class="cancel-task-form" type="button">Cancel</button></div>
+      </form>`;
+    const form = taskPanel.querySelector('form');
+    documents.forEach((document) => form.elements.document.add(new Option(document.path, document.id)));
+    if (task) { form.elements.document.value = task.documentId; form.elements.document.disabled = true; }
+    const all = state.tasks.allTasks || state.tasks.tasks;
+    const updatePlacement = () => {
+      const documentId = form.elements.document.value;
+      const parentValue = form.elements.parent.value;
+      const isDescendant = (candidate) => {
+        let current = candidate;
+        while (current?.parentKey) {
+          if (current.parentKey === task?.key) return true;
+          current = taskByKey(state.tasks, current.parentKey);
+        }
+        return false;
+      };
+      const candidates = all.filter((candidate) => candidate.documentId === documentId && candidate.key !== task?.key && !isDescendant(candidate));
+      form.elements.after.replaceChildren(new Option('End of list', ''));
+      candidates.filter((candidate) => (candidate.parentKey || '') === parentValue).forEach((candidate) => {
+        form.elements.after.add(new Option(`After ${candidate.title || '(untitled)'}`, candidate.key));
+      });
+    };
+    const updateParents = () => {
+      const documentId = form.elements.document.value;
+      form.elements.parent.replaceChildren(new Option('Top level', ''));
+      all.filter((candidate) => candidate.documentId === documentId && candidate.key !== task?.key).forEach((candidate) => {
+        form.elements.parent.add(new Option(taskOptionLabel(candidate), candidate.key));
+      });
+      updatePlacement();
+    };
+    updateParents();
+    const references = all.filter((candidate) => candidate.id && candidate.key !== task?.key);
+    references.forEach((candidate) => {
+      form.elements.prev.add(new Option(taskOptionLabel(candidate), candidate.key));
+      form.elements.depends.add(new Option(taskOptionLabel(candidate), candidate.key));
+    });
+    if (task) {
+      form.elements.title.value = task.title;
+      form.elements.created.value = localDateTimeValue(task.created);
+      form.elements.due.value = localDateTimeValue(task.due);
+      form.elements.wait.value = localDateTimeValue(task.wait);
+      form.elements.priority.value = task.priority ?? '';
+      form.elements.recur.value = task.recur || '';
+      form.elements.parent.value = task.parentKey || '';
+      updatePlacement();
+      const siblings = all.filter((candidate) => candidate.parentKey === task.parentKey && candidate.path === task.path);
+      const ownIndex = siblings.findIndex((candidate) => candidate.key === task.key);
+      const previous = ownIndex > 0 ? siblings[ownIndex - 1] : null;
+      form.elements.after.value = previous?.key || '';
+      form.dataset.originalParent = task.parentKey || '';
+      form.dataset.originalAfter = previous?.key || '';
+      const resolved = new Set(task.dependsOn || []);
+      Array.from(form.elements.depends.options).forEach((option) => {
+        const candidate = taskByKey(state.tasks, option.value);
+        option.selected = resolved.has(`${candidate.path}#${candidate.id}`);
+      });
+      const prev = references.find((candidate) => (
+        task.prevOn === `${candidate.path}#${candidate.id}`
+      ));
+      if (prev) form.elements.prev.value = prev.key;
+    }
+    form.elements.document.addEventListener('change', updateParents);
+    form.elements.parent.addEventListener('change', updatePlacement);
+    form.addEventListener('submit', (event) => { event.preventDefault(); mutateTaskForm(task, form); });
+    form.querySelector('.cancel-task-form').addEventListener('click', () => task ? renderTaskDetail(task) : clearTaskDetail('Workspace tasks', 'Select a task to inspect its fields and dependencies.'));
+  }
+
+  function formDate(value) {
+    return value ? new Date(value).toISOString() : null;
+  }
+
+  async function mutateTaskForm(task, form) {
+    form.querySelectorAll('.field-error').forEach((field) => { field.textContent = ''; });
+    form.querySelector('.form-error').textContent = '';
+    if (!form.elements.title.value.trim()) {
+      form.querySelector('[data-field="title"]').textContent = 'Title is required.';
+      return;
+    }
+    if (form.elements.recur.value && !form.elements.due.value) {
+      form.querySelector('[data-field="recur"]').textContent = 'Recurring tasks require a due date.';
+      return;
+    }
+    const document = state.tasks.documents.find((item) => item.id === (task?.documentId || form.elements.document.value));
+    if (!document || state.pendingTask) return;
+    const identity = (key) => { const candidate = taskByKey(state.tasks, key); return candidate ? taskIdentity(candidate) : null; };
+    const fields = {
+      title: form.elements.title.value.trim(), created: formDate(form.elements.created.value),
+      due: formDate(form.elements.due.value), wait: formDate(form.elements.wait.value),
+      recur: form.elements.recur.value || null,
+      prev: identity(form.elements.prev.value),
+      depends: Array.from(form.elements.depends.selectedOptions).map((option) => identity(option.value)).filter(Boolean),
+      priority: form.elements.priority.value === '' ? null : Number(form.elements.priority.value),
+    };
+    const parent = identity(form.elements.parent.value);
+    const after = identity(form.elements.after.value);
+    const changedPlacement = !task
+      || form.elements.parent.value !== (form.dataset.originalParent || '')
+      || form.elements.after.value !== (form.dataset.originalAfter || '');
+    const placement = changedPlacement ? { parent: parent?.locator || null, after: after?.locator || null } : null;
+    const action = task ? 'update' : 'create';
+    state.pendingTask = task?.key || 'create';
+    form.querySelectorAll('button, input, select').forEach((control) => { control.disabled = true; });
+    try {
+      const response = await fetch(`${config.taskActionBase}${encodeURIComponent(document.id)}/${action}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ revision: task?.revision || document.revision, locator: task?.locator || null, task: fields, placement }),
+      });
+      const body = await response.text();
+      if (!response.ok) throw new Error(body || `HTTP ${response.status}`);
+      await loadTasks();
+      const selected = (state.tasks.allTasks || state.tasks.tasks).find((candidate) => candidate.title === fields.title && candidate.documentId === document.id);
+      state.selectedTask = selected?.key || task?.key || null;
+      renderTasks(); updateUrl(); notify(`Task ${action}d.`);
+    } catch (error) {
+      await loadTasks();
+      const latest = task ? taskByKey(state.tasks, task.key) : null;
+      renderTaskForm(latest);
+      const activeForm = taskPanel.querySelector('.task-form');
+      const message = String(error);
+      const field = message.includes('RFC 3339') ? 'due'
+        : (message.includes('recur') ? 'recur'
+          : (message.includes('reference') || message.includes('cycle') ? 'depends'
+            : (message.includes('parent') || message.includes('position') ? 'document' : null)));
+      (field ? activeForm.querySelector(`[data-field="${field}"]`) : activeForm.querySelector('.form-error')).textContent = message;
+      notify(String(error), true);
+    } finally {
+      state.pendingTask = null;
+      if (form.isConnected) {
+        form.querySelectorAll('button, input, select').forEach((control) => { control.disabled = false; });
+      } else {
+        const selected = taskByKey(state.tasks, state.selectedTask);
+        if (selected) renderTaskDetail(selected);
+      }
     }
   }
 
@@ -1146,6 +1318,7 @@ import {
   });
   graphViewButton.addEventListener('click', () => showView('graph', { historyMode: 'push' }));
   tasksViewButton.addEventListener('click', () => showView('tasks', { historyMode: 'push' }));
+  newTaskButton.addEventListener('click', () => renderTaskForm());
   agendaViewButton.addEventListener('click', () => showView('agenda', { historyMode: 'push' }));
   document.querySelectorAll('.graph-filters .edge-options input[value]').forEach((input) => input.addEventListener('change', () => {
     updateUrl();

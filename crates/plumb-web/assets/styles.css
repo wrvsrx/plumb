@@ -191,6 +191,13 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
 .event-form label { display: grid; gap: 5px; color: var(--muted); font-size: 13px; }
 .event-form input, .event-form select, .event-form textarea { width: 100%; min-height: 38px; padding: 7px 9px; border: 1px solid var(--border); border-radius: 4px; background: var(--paper); color: var(--ink); font: inherit; letter-spacing: 0; }
 .event-form textarea { resize: vertical; }
+.task-form { display: grid; gap: 14px; }
+.task-form h1 { margin: 0; font-size: 25px; line-height: 1.2; }
+.task-form label { min-width: 0; display: grid; gap: 5px; color: var(--muted); font-size: 13px; }
+.task-form input, .task-form select { width: 100%; min-width: 0; max-width: 100%; min-height: 38px; padding: 7px 9px; border: 1px solid var(--border); border-radius: 4px; background: var(--paper); color: var(--ink); font: inherit; letter-spacing: 0; }
+.task-form select[multiple] { min-height: 132px; }
+.task-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.field-error, .form-error { min-height: 18px; margin: 0; color: var(--red); font-size: 12px; }
 .task-detail header { border-bottom: 2px solid var(--ink); padding-bottom: 16px; }
 .task-detail h1 { font-size: 25px; line-height: 1.2; margin: 0 0 12px; overflow-wrap: anywhere; }
 .task-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 20px 0 24px; }
@@ -236,6 +243,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
   .task-panel { border-left: 0; border-top: 1px solid var(--border); }
   .task-row { grid-template-columns: 72px minmax(0, 1fr); }
   .task-row time { display: none; }
+  .task-form-grid { grid-template-columns: 1fr; }
   .agenda-workspace { height: calc(100% - 112px); grid-template-columns: 1fr; grid-template-rows: minmax(260px, 48vh) minmax(0, 1fr); }
   .event-panel { border-left: 0; border-top: 1px solid var(--border); }
   .event-row { grid-template-columns: 96px minmax(0, 1fr); }

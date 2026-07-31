@@ -28,7 +28,8 @@ use crate::presentation::{
 };
 use crate::{
     render_note_html, GraphDirection, GraphQuery, WebEventInput, WebEventLocator, WebQuery,
-    WebTaskLocator, WebView, WebWorkspace, GRAPH_PRESETS, TASK_PRESETS,
+    WebTaskInput, WebTaskLocator, WebTaskPlacement, WebView, WebWorkspace, GRAPH_PRESETS,
+    TASK_PRESETS,
 };
 
 #[derive(Debug, Args)]
@@ -237,7 +238,9 @@ async fn query_presets() -> Response {
 #[serde(rename_all = "camelCase")]
 struct TaskActionRequest {
     revision: String,
-    locator: WebTaskLocator,
+    locator: Option<WebTaskLocator>,
+    task: Option<WebTaskInput>,
+    placement: Option<WebTaskPlacement>,
 }
 
 async fn update_task(
@@ -260,20 +263,54 @@ async fn update_task(
         )
             .into_response();
     }
-    let status = match action.as_str() {
-        "complete" => TaskStatus::Done,
-        "cancel" => TaskStatus::Canceled,
-        _ => return (StatusCode::NOT_FOUND, "unknown task action").into_response(),
-    };
     eprintln!(
         "plumb site serve: received task {action} for {document_id} ({:?})",
         request.locator
     );
     let (root, revision) = {
         let workspace = state.workspace.read().await;
-        if let Err(error) =
-            workspace.set_task_status(&document_id, &request.locator, &request.revision, status)
-        {
+        let result = match action.as_str() {
+            "complete" | "cancel" => request
+                .locator
+                .as_ref()
+                .ok_or_else(|| "task status action requires a locator".to_string())
+                .and_then(|locator| {
+                    workspace.set_task_status(
+                        &document_id,
+                        locator,
+                        &request.revision,
+                        if action == "complete" {
+                            TaskStatus::Done
+                        } else {
+                            TaskStatus::Canceled
+                        },
+                    )
+                }),
+            "create" => request
+                .task
+                .as_ref()
+                .ok_or_else(|| "task create requires fields".to_string())
+                .and_then(|task| {
+                    let placement = request.placement.clone().unwrap_or_default();
+                    workspace.create_task(&document_id, &request.revision, task, &placement)
+                }),
+            "update" => request
+                .locator
+                .as_ref()
+                .zip(request.task.as_ref())
+                .ok_or_else(|| "task update requires locator and fields".to_string())
+                .and_then(|(locator, task)| {
+                    workspace.update_task_fields(
+                        &document_id,
+                        locator,
+                        &request.revision,
+                        task,
+                        request.placement.as_ref(),
+                    )
+                }),
+            _ => return (StatusCode::NOT_FOUND, "unknown task action").into_response(),
+        };
+        if let Err(error) = result {
             eprintln!(
                 "plumb site serve: task {action} rejected for {document_id} ({:?}): {error}",
                 request.locator
@@ -791,6 +828,42 @@ mod tests {
         let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
         let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(value["tasks"]["tasks"].as_array().unwrap().len(), 1);
+
+        let response = app
+            .clone()
+            .oneshot(Request::get("/api/tasks").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let tasks: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let document = &tasks["documents"][0];
+        let request = json!({
+            "revision": document["revision"],
+            "task": {
+                "title": "Created from API", "created": null, "due": null,
+                "wait": null, "recur": null, "prev": null, "depends": [], "priority": 3
+            },
+            "placement": { "parent": null, "after": null }
+        });
+        let response = app
+            .clone()
+            .oneshot(
+                Request::post(format!(
+                    "/api/task/{}/create",
+                    document["id"].as_str().unwrap()
+                ))
+                .header(header::CONTENT_TYPE, "application/json")
+                .header(header::HOST, "127.0.0.1:4242")
+                .header(header::ORIGIN, "http://127.0.0.1:4242")
+                .body(Body::from(request.to_string()))
+                .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let source = std::fs::read_to_string(root.join("tasks.plumb")).unwrap();
+        assert!(source.contains("Created from API"));
+        assert!(source.contains("priority=3"));
 
         let response = app
             .oneshot(

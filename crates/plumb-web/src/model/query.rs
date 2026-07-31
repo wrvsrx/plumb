@@ -49,7 +49,8 @@ impl WebWorkspace {
             );
         }
 
-        let all_tasks = self.tasks().tasks;
+        let snapshot = self.tasks();
+        let all_tasks = snapshot.tasks;
         let mut tasks = all_tasks.clone();
         let mut scores = HashMap::new();
         let retained = tasks
@@ -85,6 +86,7 @@ impl WebWorkspace {
             tasks,
             all_tasks,
             complete,
+            documents: snapshot.documents,
         })
     }
 
