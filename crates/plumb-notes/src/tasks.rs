@@ -5,8 +5,8 @@ use chrono::{Local, SecondsFormat};
 use comfy_table::{presets::NOTHING, ContentArrangement, Table};
 use plumb_extensions::TaskStatus;
 use plumb_workspace::{
-    normalize, sort_task_records, SearchRecordKind, TaskEditError, TaskSortFacts, TaskSortOrder,
-    TaskWorkflowState, TextEdit,
+    apply_text_edits, normalize, sort_task_records, SearchRecordKind, TaskEditError, TaskSortFacts,
+    TaskSortOrder, TaskWorkflowState,
 };
 
 use crate::{load_workspace, LoadedWorkspace, TaskAction};
@@ -191,7 +191,8 @@ fn set_task_status_target(
         .get(&path)
         .cloned()
         .ok_or_else(|| format!("task document is not loaded: {}", path.display()))?;
-    let updated = apply_text_edits(source, document.edits)?;
+    let updated = apply_text_edits(source, document.edits)
+        .map_err(|_| "task edits overlap or fall outside the document".to_string())?;
     std::fs::write(&path, updated)
         .map_err(|error| format!("cannot write {}: {error}", path.display()))
 }
@@ -213,19 +214,6 @@ fn parse_task_target(root: &Path, target: &str) -> Result<(PathBuf, String), Str
         return Err(format!("task target is not a .plumb file: {target}"));
     }
     Ok((path, id.to_string()))
-}
-
-fn apply_text_edits(mut source: String, mut edits: Vec<TextEdit>) -> Result<String, String> {
-    edits.sort_by_key(|edit| std::cmp::Reverse(edit.range.start));
-    let mut previous_start = source.len();
-    for edit in edits {
-        if edit.range.end > previous_start || edit.range.end > source.len() {
-            return Err("task edits overlap or fall outside the document".to_string());
-        }
-        previous_start = edit.range.start;
-        source.replace_range(edit.range, &edit.new_text);
-    }
-    Ok(source)
 }
 
 fn task_edit_error(error: TaskEditError) -> String {

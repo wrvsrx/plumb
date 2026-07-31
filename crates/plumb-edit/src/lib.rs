@@ -22,6 +22,27 @@ impl TextEdit {
     }
 }
 
+pub fn apply_text_edits(mut source: String, mut edits: Vec<TextEdit>) -> Result<String, EditError> {
+    if edits.iter().any(|edit| {
+        edit.range.start > edit.range.end
+            || edit.range.end > source.len()
+            || !source.is_char_boundary(edit.range.start)
+            || !source.is_char_boundary(edit.range.end)
+    }) {
+        return Err(EditError::InvalidRange);
+    }
+    edits.sort_by_key(|edit| std::cmp::Reverse(edit.range.start));
+    let mut previous_start = source.len();
+    for edit in edits {
+        if edit.range.end > previous_start {
+            return Err(EditError::OverlappingEdits);
+        }
+        previous_start = edit.range.start;
+        source.replace_range(edit.range, &edit.new_text);
+    }
+    Ok(source)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EditError {
     InvalidRange,
@@ -926,5 +947,54 @@ mod tests {
         let removal = remove.finish().unwrap();
         assert_eq!(removal.range, first);
         assert!(removal.new_text.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod apply_tests {
+    use super::*;
+
+    #[test]
+    fn applies_valid_edits_back_to_front_and_rejects_invalid_sets() {
+        let edits = vec![
+            TextEdit {
+                range: 0..1,
+                new_text: "A".to_string(),
+            },
+            TextEdit {
+                range: 2..3,
+                new_text: "C".to_string(),
+            },
+        ];
+        assert_eq!(
+            apply_text_edits("abc".to_string(), edits),
+            Ok("AbC".to_string())
+        );
+        assert_eq!(
+            apply_text_edits(
+                "abc".to_string(),
+                vec![
+                    TextEdit {
+                        range: 0..2,
+                        new_text: String::new()
+                    },
+                    TextEdit {
+                        range: 1..3,
+                        new_text: String::new()
+                    },
+                ],
+            ),
+            Err(EditError::OverlappingEdits)
+        );
+        assert_eq!(
+            apply_text_edits(
+                "é".to_string(),
+                vec![TextEdit {
+                    range: 1..2,
+                    new_text: String::new()
+                }],
+            ),
+            Err(EditError::InvalidRange)
+        );
     }
 }

@@ -6,9 +6,9 @@ use cel::{Context, Program, Value};
 use chrono::{Local, SecondsFormat};
 use plumb_extensions::{LinkSpelling, TaskStatus};
 use plumb_workspace::{
-    normalize, scan_workspace_files, search_score, sort_task_records,
+    apply_text_edits, normalize, scan_workspace_files, search_score, sort_task_records,
     truncate_complete_task_documents, EventEditError, EventInput, ResolvedTarget, SearchRecordKind,
-    TaskEditError, TaskRef, TaskSortFacts, TaskSortOrder, TextEdit, Workspace,
+    TaskEditError, TaskRef, TaskSortFacts, TaskSortOrder, Workspace,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -884,7 +884,8 @@ impl WebWorkspace {
             .into_iter()
             .find(|document| document.path == path)
             .ok_or_else(|| "task operation produced no document edit".to_string())?;
-        let updated = apply_text_edits(disk_source, document.edits)?;
+        let updated = apply_text_edits(disk_source, document.edits)
+            .map_err(|_| "task edits overlap or fall outside the document".to_string())?;
         std::fs::write(path, updated)
             .map_err(|error| format!("cannot write {}: {error}", path.display()))
     }
@@ -978,7 +979,8 @@ impl WebWorkspace {
             .into_iter()
             .find(|document| document.path == path)
             .ok_or_else(|| format!("{kind} operation produced no document edit"))?;
-        let updated = apply_text_edits(source, document.edits)?;
+        let updated = apply_text_edits(source, document.edits)
+            .map_err(|_| "task edits overlap or fall outside the document".to_string())?;
         std::fs::write(path, updated)
             .map_err(|error| format!("cannot write {}: {error}", path.display()))
     }
@@ -1535,19 +1537,6 @@ fn display_path(root: &Path, path: &Path) -> String {
 
 fn display_task_ref(root: &Path, target: &TaskRef) -> String {
     format!("{}#{}", display_path(root, &target.path), target.id)
-}
-
-fn apply_text_edits(mut source: String, mut edits: Vec<TextEdit>) -> Result<String, String> {
-    edits.sort_by_key(|edit| std::cmp::Reverse(edit.range.start));
-    let mut previous_start = source.len();
-    for edit in edits {
-        if edit.range.end > previous_start || edit.range.end > source.len() {
-            return Err("task edits overlap or fall outside the document".to_string());
-        }
-        previous_start = edit.range.start;
-        source.replace_range(edit.range, &edit.new_text);
-    }
-    Ok(source)
 }
 
 fn task_edit_error(error: TaskEditError) -> String {

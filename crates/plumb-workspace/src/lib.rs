@@ -6,7 +6,7 @@ use chrono::{DateTime, FixedOffset};
 use plumb_core::{
     parse, Attributes, Block, Diagnostic, DiagnosticSeverity, ParsedBlock, ParsedDocument,
 };
-pub use plumb_edit::TextEdit;
+pub use plumb_edit::{apply_text_edits, TextEdit};
 use plumb_edit::{AttributePosition, EditSession, OwnedAttribute, OwnedBlock};
 use plumb_extensions::{
     analyze_document, next_task_datetime, parse_task_reference_target, valid_task_datetime,
