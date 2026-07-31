@@ -33,8 +33,8 @@ use lsp_types::{
 use plumb_core::Diagnostic;
 use plumb_extensions::{
     construct_completion_context, file_completion_context, image_completion_context,
-    link_completion_context, AnchorKind, ConstructCompletionContext, EventRecord, TaskRecord,
-    TaskState, TaskStatus,
+    link_completion_context, AnchorKind, ConstructCompletionContext, TaskRecord, TaskState,
+    TaskStatus,
 };
 use plumb_workspace::{
     normalize, scan_workspace_files, RenameError, ResolvedTarget, ResourceOperation, SearchRecord,
@@ -42,6 +42,12 @@ use plumb_workspace::{
 };
 
 use crate::folding::{ranges as folding_ranges, task_labels as task_fold_labels};
+#[cfg(test)]
+use crate::hover::fenced_plumb;
+use crate::hover::{
+    event as event_hover, file as file_hover, image as image_hover, link as link_hover,
+    target as target_hover, task as task_hover,
+};
 use crate::position::{byte_range_to_lsp, position_to_offset};
 use crate::search::{SearchItem, SearchKind, SearchParams, SearchProvenance, SearchResult};
 use crate::symbols::{
@@ -1670,247 +1676,6 @@ fn construct_completion_items(
             ..CompletionItem::default()
         })
         .collect()
-}
-
-fn target_hover(workspace: &Workspace, target: &ResolvedTarget) -> String {
-    match target {
-        ResolvedTarget::Anchor { path, id, anchor } => {
-            let Some(entry) = workspace.get(path) else {
-                return format!("Explicit anchor `#{id}` in `{}`", path.display());
-            };
-            let kind = if anchor.kind == AnchorKind::Heading {
-                "Heading"
-            } else {
-                "Anchor"
-            };
-            let line = line_number(&entry.parsed.source, anchor.range.start);
-            let preview = preview_from_offset(&entry.parsed.source, anchor.range.start, 5);
-            format!(
-                "**{kind}** `#{}`\n\n`{}:{line}`\n\n{}",
-                escape_markdown_code(id),
-                escape_markdown_code(&path.display().to_string()),
-                fenced_plumb(&preview)
-            )
-        }
-        ResolvedTarget::Document { path } => {
-            let Some(entry) = workspace.get(path) else {
-                return format!("Plumb document `{}`", path.display());
-            };
-            let (line, offset) = first_preview_offset(&entry.parsed.source);
-            let preview = preview_from_offset(&entry.parsed.source, offset, 5);
-            let location = format!("{}:{line}", path.display());
-            if preview.is_empty() {
-                format!("**File**\n\n`{}`", escape_markdown_code(&location))
-            } else {
-                format!(
-                    "**File**\n\n`{}`\n\n{}",
-                    escape_markdown_code(&location),
-                    fenced_plumb(&preview)
-                )
-            }
-        }
-        ResolvedTarget::External => "External link".to_string(),
-        ResolvedTarget::File { path } => format!(
-            "**File**\n\n`{}`",
-            escape_markdown_code(&path.display().to_string())
-        ),
-        ResolvedTarget::UnresolvedFile { path } => format!(
-            "**Unresolved file**\n\n`{}`",
-            escape_markdown_code(&path.display().to_string())
-        ),
-        ResolvedTarget::Other => "Non-plumb link".to_string(),
-        ResolvedTarget::UnresolvedPath { path } => {
-            format!("Unresolved plumb document `{}`", path.display())
-        }
-        ResolvedTarget::UnresolvedAnchor { path, id } => {
-            format!("Unresolved explicit anchor `#{id}` in `{}`", path.display())
-        }
-        ResolvedTarget::AmbiguousAnchor { path, id } => {
-            format!("Ambiguous explicit anchor `#{id}` in `{}`", path.display())
-        }
-    }
-}
-
-fn image_hover(target: &ResolvedTarget, image: &plumb_extensions::ImageRecord) -> String {
-    match target {
-        ResolvedTarget::External => format!(
-            "**External image**\n\n`{}`",
-            escape_markdown_code(&image.source.value)
-        ),
-        ResolvedTarget::File { path } => format!(
-            "**Image file**\n\n`{}`",
-            escape_markdown_code(&path.display().to_string())
-        ),
-        ResolvedTarget::UnresolvedFile { path } => format!(
-            "**Unresolved image file**\n\n`{}`",
-            escape_markdown_code(&path.display().to_string())
-        ),
-        _ => "Image".to_string(),
-    }
-}
-
-fn file_hover(target: &ResolvedTarget, file: &plumb_extensions::FileRecord) -> String {
-    match target {
-        ResolvedTarget::External => format!(
-            "**External file attachment**\n\n`{}`",
-            escape_markdown_code(&file.source.value)
-        ),
-        ResolvedTarget::File { path } => format!(
-            "**File attachment**\n\n`{}`",
-            escape_markdown_code(&path.display().to_string())
-        ),
-        ResolvedTarget::UnresolvedFile { path } => format!(
-            "**Unresolved file attachment**\n\n`{}`",
-            escape_markdown_code(&path.display().to_string())
-        ),
-        _ => "File attachment".to_string(),
-    }
-}
-
-fn link_hover(target: &ResolvedTarget, link: &plumb_extensions::LinkRecord) -> String {
-    match target {
-        ResolvedTarget::External => format!(
-            "**External link**\n\n`{}`",
-            escape_markdown_code(&link.target.value)
-        ),
-        ResolvedTarget::Other => format!(
-            "**Non-plumb link**\n\n`{}`",
-            escape_markdown_code(&link.target.value)
-        ),
-        _ => unreachable!("only external and non-plumb links use the direct link hover"),
-    }
-}
-
-fn first_preview_offset(source: &str) -> (usize, usize) {
-    source
-        .lines()
-        .scan(0usize, |offset, line| {
-            let current = *offset;
-            *offset += line.len() + 1;
-            Some((current, line))
-        })
-        .enumerate()
-        .find(|(_, (_, line))| !line.trim().is_empty())
-        .map(|(line, (offset, _))| (line + 1, offset))
-        .unwrap_or((1, 0))
-}
-
-fn preview_from_offset(source: &str, offset: usize, max_lines: usize) -> String {
-    let start = source[..offset].rfind('\n').map_or(0, |index| index + 1);
-    source[start..]
-        .lines()
-        .take(max_lines)
-        .collect::<Vec<_>>()
-        .join("\n")
-        .trim_end()
-        .to_string()
-}
-
-fn line_number(source: &str, offset: usize) -> usize {
-    source[..offset]
-        .bytes()
-        .filter(|byte| *byte == b'\n')
-        .count()
-        + 1
-}
-
-fn fenced_plumb(source: &str) -> String {
-    let longest_run = source
-        .split(|character| character != '`')
-        .map(str::len)
-        .max()
-        .unwrap_or(0);
-    let fence = "`".repeat((longest_run + 1).max(3));
-    format!("{fence}plumb\n{source}\n{fence}")
-}
-
-fn escape_markdown_code(source: &str) -> String {
-    source.replace('`', "\\`")
-}
-
-fn task_hover(workspace: &Workspace, path: &Path, task: &TaskRecord) -> String {
-    let (state, wait_reasons) =
-        workspace.task_workflow_state(path, task, Local::now().fixed_offset());
-    let mut lines = vec![
-        format!("**Task:** {}", task.title),
-        format!("**State:** {}", state.as_str()),
-    ];
-    if !wait_reasons.is_empty() {
-        lines.push(format!(
-            "**Waiting for:** {}",
-            wait_reasons
-                .iter()
-                .map(|reason| reason.as_str())
-                .collect::<Vec<_>>()
-                .join(", ")
-        ));
-    }
-    if let Some(id) = &task.id {
-        lines.push(format!("**ID:** `#{}`", id.value));
-    }
-    for (label, field) in [
-        ("Created", &task.created),
-        ("Due", &task.due),
-        ("Wait", &task.wait),
-        ("Done", &task.done),
-        ("Canceled", &task.canceled),
-        ("Recur", &task.recur),
-        ("Previous", &task.prev),
-    ] {
-        if let Some(field) = field {
-            lines.push(format!("**{label}:** `{}`", field.value));
-        }
-    }
-    if !task.depends.is_empty() {
-        lines.push(format!(
-            "**Depends:** {}",
-            task.depends
-                .iter()
-                .map(|dependency| format!("`{}`", dependency.source))
-                .collect::<Vec<_>>()
-                .join(", ")
-        ));
-    }
-    let blockers = workspace.open_task_dependencies(path, task);
-    if !blockers.is_empty() {
-        lines.push(format!(
-            "**Open blockers:** {}",
-            blockers
-                .iter()
-                .map(|dependency| format!("`{}`", dependency.source))
-                .collect::<Vec<_>>()
-                .join(", ")
-        ));
-    }
-    lines.join("\n\n")
-}
-
-fn event_hover(event: &EventRecord) -> String {
-    let mut lines = vec![format!("**Event:** {}", event.title)];
-    if let Some(id) = &event.id {
-        lines.push(format!("**ID:** `#{}`", id.value));
-    }
-    for (label, field) in [
-        ("Start", &event.start),
-        ("End", &event.end),
-        ("UID", &event.uid),
-    ] {
-        if let Some(field) = field {
-            lines.push(format!("**{label}:** `{}`", field.value));
-        }
-    }
-    if !event.tasks.is_empty() {
-        lines.push(format!(
-            "**Tasks:** {}",
-            event
-                .tasks
-                .iter()
-                .map(|reference| format!("`{}`", reference.source))
-                .collect::<Vec<_>>()
-                .join(", ")
-        ));
-    }
-    lines.join("  \n")
 }
 
 fn code_action_kind_requested(only: Option<&[CodeActionKind]>, candidate: &CodeActionKind) -> bool {

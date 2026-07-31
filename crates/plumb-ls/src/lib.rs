@@ -1,4 +1,5 @@
 mod folding;
+mod hover;
 mod position;
 mod search;
 mod server;
