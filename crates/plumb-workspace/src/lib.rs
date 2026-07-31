@@ -1835,13 +1835,7 @@ impl Workspace {
                 .as_ref()
                 .map_or(timestamp, |created| created.value.as_str()),
         );
-        let mut edit = EditSession::new(&entry.parsed, task.range.clone())
-            .map_err(|_| TaskAuthoringError::GeneratedInvalid)?;
-        edit.replace_block(task.range.clone(), &owned)
-            .map_err(|_| TaskAuthoringError::GeneratedInvalid)?;
-        let edit = edit
-            .finish()
-            .map_err(|_| TaskAuthoringError::GeneratedInvalid)?;
+        let edit = exact_owned_block_edit(&entry.parsed, task.range.clone(), &owned)?;
         Ok(single_document_edit(entry, path, edit))
     }
 
@@ -1890,11 +1884,49 @@ impl Workspace {
                 );
             }
         }
-        let removal_start = entry.parsed.source[..task.range.start]
-            .rfind('\n')
-            .map_or(0, |index| index + 1);
-        let remove = TextEdit::replace(&entry.parsed, removal_start..task.range.end, "")
-            .map_err(|_| TaskAuthoringError::GeneratedInvalid)?;
+        if placement.parent.is_none()
+            && placement
+                .after
+                .as_ref()
+                .is_some_and(|after| after.start <= task.range.start && task.range.end <= after.end)
+        {
+            let after = placement.after.as_ref().expect("checked after");
+            let ancestor = parsed_block_with_range(&entry.parsed.syntax.blocks, after)
+                .ok_or(TaskAuthoringError::InvalidPlacement)?;
+            let mut owned_ancestor = OwnedBlock::from_parsed(&entry.parsed.source, ancestor);
+            if !remove_owned_descendant(ancestor, &mut owned_ancestor, &task.range) {
+                return Err(TaskAuthoringError::InvalidPlacement);
+            }
+            let edit =
+                exact_owned_blocks_edit(&entry.parsed, after.clone(), &[owned_ancestor, moved])?;
+            return Ok(single_document_edit(entry, path, edit));
+        }
+        let target_parent = placement.parent.as_ref();
+        let remove = if let Some(parent_range) = source_parent.as_ref().filter(|source_parent| {
+            target_parent.is_none_or(|target_parent| {
+                source_parent.end <= target_parent.start || target_parent.end <= source_parent.start
+            })
+        }) {
+            let parent = parsed_block_with_range(&entry.parsed.syntax.blocks, parent_range)
+                .ok_or(TaskAuthoringError::InvalidPlacement)?;
+            let source_index = parent
+                .children
+                .iter()
+                .position(|child| child.range() == &task.range)
+                .ok_or(TaskAuthoringError::InvalidPlacement)?;
+            let mut owned_parent = OwnedBlock::from_parsed(&entry.parsed.source, parent);
+            owned_parent
+                .children_mut()
+                .expect("parsed parent")
+                .remove(source_index);
+            exact_owned_block_edit(&entry.parsed, parent_range.clone(), &owned_parent)?
+        } else {
+            let removal_start = entry.parsed.source[..task.range.start]
+                .rfind('\n')
+                .map_or(0, |index| index + 1);
+            TextEdit::replace(&entry.parsed, removal_start..task.range.end, "")
+                .map_err(|_| TaskAuthoringError::GeneratedInvalid)?
+        };
         let target_edit = if let Some(parent_range) = &placement.parent {
             let parent = parsed_block_with_range(&entry.parsed.syntax.blocks, parent_range)
                 .ok_or(TaskAuthoringError::InvalidPlacement)?;
@@ -2559,6 +2591,9 @@ fn validate_task_authoring_input(
     }) {
         return Err(TaskAuthoringError::InvalidRecurrence);
     }
+    if input.recur.is_some() && input.due.is_none() {
+        return Err(TaskAuthoringError::InvalidRecurrence);
+    }
     for reference in input.prev.iter().chain(&input.depends) {
         if matches!(
             parse_task_reference_target(reference),
@@ -2622,6 +2657,14 @@ fn exact_owned_block_edit(
     range: std::ops::Range<usize>,
     block: &OwnedBlock,
 ) -> Result<TextEdit, TaskAuthoringError> {
+    exact_owned_blocks_edit(parsed, range, std::slice::from_ref(block))
+}
+
+fn exact_owned_blocks_edit(
+    parsed: &ParsedDocument,
+    range: std::ops::Range<usize>,
+    blocks: &[OwnedBlock],
+) -> Result<TextEdit, TaskAuthoringError> {
     let line_start = parsed.source[..range.start]
         .rfind('\n')
         .map_or(0, |index| index + 1);
@@ -2629,9 +2672,20 @@ fn exact_owned_block_edit(
     if !indent.chars().all(|character| character == ' ') {
         return Err(TaskAuthoringError::GeneratedInvalid);
     }
-    let formatted = block
-        .format()
-        .map_err(|_| TaskAuthoringError::GeneratedInvalid)?;
+    let mut formatted = String::new();
+    for (index, block) in blocks.iter().enumerate() {
+        if index > 0 && !formatted.ends_with("\n\n") {
+            if !formatted.ends_with('\n') {
+                formatted.push('\n');
+            }
+            formatted.push('\n');
+        }
+        formatted.push_str(
+            &block
+                .format()
+                .map_err(|_| TaskAuthoringError::GeneratedInvalid)?,
+        );
+    }
     let newline = if parsed.source.contains("\r\n") {
         "\r\n"
     } else {
@@ -2643,17 +2697,69 @@ fn exact_owned_block_edit(
         formatted
     };
     let mut replacement = String::new();
-    for line in formatted.split_inclusive(newline) {
+    for (index, line) in formatted.split_inclusive(newline).enumerate() {
         let content = line.strip_suffix(newline).unwrap_or(line);
         if !content.is_empty() {
-            replacement.push_str(indent);
+            // The syntax range starts after the first line's structural indent,
+            // which remains outside the edit. Continuation lines need it added.
+            if index > 0 {
+                replacement.push_str(indent);
+            }
             replacement.push_str(content);
         }
         if line.ends_with(newline) {
             replacement.push_str(newline);
         }
     }
+    let original = &parsed.source[range.clone()];
+    let original_breaks = original
+        .as_bytes()
+        .iter()
+        .rev()
+        .take_while(|byte| **byte == b'\n' || **byte == b'\r')
+        .filter(|byte| **byte == b'\n')
+        .count();
+    let replacement_breaks = replacement
+        .as_bytes()
+        .iter()
+        .rev()
+        .take_while(|byte| **byte == b'\n' || **byte == b'\r')
+        .filter(|byte| **byte == b'\n')
+        .count();
+    for _ in replacement_breaks..original_breaks {
+        replacement.push_str(newline);
+    }
     TextEdit::replace(parsed, range, replacement).map_err(|_| TaskAuthoringError::GeneratedInvalid)
+}
+
+fn remove_owned_descendant(
+    syntax: &ParsedBlock,
+    owned: &mut OwnedBlock,
+    target: &std::ops::Range<usize>,
+) -> bool {
+    let Some(children) = owned.children_mut() else {
+        return false;
+    };
+    if let Some(index) = syntax
+        .children
+        .iter()
+        .position(|child| child.range() == target)
+    {
+        children.remove(index);
+        return true;
+    }
+    for (index, syntax_child) in syntax.children.iter().enumerate() {
+        let Block::Parsed(syntax_child) = syntax_child else {
+            continue;
+        };
+        if syntax_child.range.start <= target.start
+            && target.end <= syntax_child.range.end
+            && remove_owned_descendant(syntax_child, &mut children[index], target)
+        {
+            return true;
+        }
+    }
+    false
 }
 
 fn owned_event(input: &EventInput, uid: &str) -> OwnedBlock {
@@ -4924,8 +5030,11 @@ mod tests {
     #[test]
     fn moves_task_subtrees_within_and_between_parents() {
         let mut workspace = Workspace::new();
-        let source = "`-{.task #left} Left\n  `-{.task #a} A\n    `note A details\n  `-{.task #b} B\n`-{.task #right} Right\n";
-        workspace.insert("tasks.plumb", 1, source);
+        let source = plumb_format::format(
+            "`-{.task #left} Left\n  `-{.task #a} A\n    `note A details\n  `-{.task #b} B\n`-{.task #right} Right\n",
+        )
+        .unwrap();
+        workspace.insert("tasks.plumb", 1, &source);
         let tasks = &workspace
             .current_output(Path::new("tasks.plumb"))
             .unwrap()
@@ -4956,8 +5065,7 @@ mod tests {
                 },
             )
             .unwrap();
-        let reordered_source =
-            apply_document_edit(source.to_string(), "tasks.plumb", 1, reordered).unwrap();
+        let reordered_source = apply_document_edit(source, "tasks.plumb", 1, reordered).unwrap();
         assert!(reordered_source.find("#b").unwrap() < reordered_source.find("#a").unwrap());
         assert!(reordered_source.contains("`note A details"));
         assert!(parse(&reordered_source).is_valid(), "{reordered_source}");
@@ -5008,5 +5116,28 @@ mod tests {
             .unwrap();
         assert_eq!(a.depth, right.depth + 1, "{reparented_source}");
         assert!(reparented_source.contains("`note A details"));
+
+        let updated = workspace
+            .update_task_patch(
+                "tasks.plumb",
+                a.range.clone(),
+                &TaskAuthoringPatch {
+                    due: Some(Some("2026-08-15T02:30:00Z".to_string())),
+                    priority: Some(Some(-7)),
+                    ..TaskAuthoringPatch::default()
+                },
+                "2026-07-31T10:00:00Z",
+            )
+            .unwrap();
+        let updated_source =
+            apply_document_edit(reparented_source, "tasks.plumb", 3, updated).unwrap();
+        let parsed = parse(&updated_source);
+        assert!(
+            parsed.is_valid(),
+            "{updated_source}\n{:?}",
+            parsed.diagnostics
+        );
+        let formatted = plumb_format::format(&updated_source).expect("updated task source formats");
+        assert_eq!(formatted, updated_source);
     }
 }
