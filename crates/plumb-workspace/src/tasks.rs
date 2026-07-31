@@ -4,7 +4,8 @@ use std::path::{Path, PathBuf};
 use chrono::{DateTime, FixedOffset};
 use plumb_edit::{AttributePosition, EditSession, OwnedAttribute, OwnedBlock};
 use plumb_extensions::{
-    next_task_datetime, valid_task_datetime, TaskRecord, TaskReferenceTarget, TaskState, TaskStatus,
+    next_task_datetime, parse_task_reference_target, valid_task_datetime, TaskRecord,
+    TaskReferenceTarget, TaskState, TaskStatus,
 };
 
 use super::{
@@ -137,6 +138,17 @@ impl Workspace {
                 .then(left.target.id.cmp(&right.target.id))
         });
         dependencies
+    }
+
+    pub fn task_previous(&self, path: impl AsRef<Path>, task: &TaskRecord) -> Option<TaskRef> {
+        let path = normalize(path.as_ref());
+        let previous = task.prev.as_ref()?;
+        let target = parse_task_reference_target(&previous.value);
+        let TaskTargetResolution::Task { target, .. } = self.resolve_task_target(&path, &target)
+        else {
+            return None;
+        };
+        Some(target)
     }
 
     pub fn directly_blocking_tasks(
