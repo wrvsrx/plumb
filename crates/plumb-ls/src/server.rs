@@ -30,17 +30,18 @@ use lsp_types::{
     WorkDoneProgressEnd, WorkDoneProgressOptions, WorkDoneProgressReport,
     WorkspaceEdit as LspWorkspaceEdit, WorkspaceSymbolParams, WorkspaceSymbolResponse,
 };
-use plumb_core::{Block, Diagnostic, Document};
+use plumb_core::Diagnostic;
 use plumb_extensions::{
-    analyze_headings, construct_completion_context, file_completion_context,
-    image_completion_context, link_completion_context, AnchorKind, ConstructCompletionContext,
-    EventRecord, TaskRecord, TaskState, TaskStatus,
+    construct_completion_context, file_completion_context, image_completion_context,
+    link_completion_context, AnchorKind, ConstructCompletionContext, EventRecord, TaskRecord,
+    TaskState, TaskStatus,
 };
 use plumb_workspace::{
     normalize, scan_workspace_files, RenameError, ResolvedTarget, ResourceOperation, SearchRecord,
     SearchRecordKind, Workspace, WorkspaceEdit,
 };
 
+use crate::folding::{ranges as folding_ranges, task_labels as task_fold_labels};
 use crate::position::{byte_range_to_lsp, position_to_offset};
 use crate::search::{SearchItem, SearchKind, SearchParams, SearchProvenance, SearchResult};
 use crate::symbols::{
@@ -1825,109 +1826,6 @@ fn fenced_plumb(source: &str) -> String {
 
 fn escape_markdown_code(source: &str) -> String {
     source.replace('`', "\\`")
-}
-
-fn task_fold_labels(
-    workspace: &Workspace,
-    path: &Path,
-    entry: &plumb_workspace::DocumentEntry,
-) -> HashMap<(usize, usize), String> {
-    let Some(current) = &entry.current else {
-        return HashMap::new();
-    };
-    let now = Local::now().fixed_offset();
-    current
-        .output
-        .tasks
-        .tasks
-        .iter()
-        .map(|task| {
-            let (state, _) = workspace.task_workflow_state(path, task, now);
-            let line_start = entry.parsed.source[..task.range.start]
-                .rfind('\n')
-                .map_or(0, |newline| newline + 1);
-            let indent = &entry.parsed.source[line_start..task.range.start];
-            let title = if task.title.is_empty() {
-                "Untitled task"
-            } else {
-                &task.title
-            };
-            (
-                (task.range.start, task.range.end),
-                format!("{indent}{}  {title}", state.as_str().to_ascii_uppercase()),
-            )
-        })
-        .collect()
-}
-
-fn folding_ranges(
-    source: &str,
-    document: &Document,
-    limit: Option<usize>,
-    task_labels: Option<&HashMap<(usize, usize), String>>,
-) -> Vec<FoldingRange> {
-    let headings = analyze_headings(document);
-    let mut byte_ranges = Vec::new();
-    let mut pending_headings = headings.headings.iter().collect::<Vec<_>>();
-    while let Some(heading) = pending_headings.pop() {
-        byte_ranges.push(heading.section_range.clone());
-        pending_headings.extend(heading.children.iter().rev());
-    }
-
-    let mut pending_blocks = document.blocks.iter().rev().collect::<Vec<_>>();
-    while let Some(block) = pending_blocks.pop() {
-        match block {
-            Block::Parsed(parsed) => {
-                if parsed.mark.is_some() {
-                    byte_ranges.push(parsed.range.clone());
-                }
-                pending_blocks.extend(parsed.children.iter().rev());
-            }
-            Block::Verbatim(verbatim) => byte_ranges.push(verbatim.range.clone()),
-        }
-    }
-
-    byte_ranges.sort_by_key(|range| (range.start, std::cmp::Reverse(range.end)));
-    byte_ranges.dedup();
-    let mut ranges = byte_ranges
-        .into_iter()
-        .filter_map(|range| {
-            let collapsed_text = task_labels
-                .and_then(|labels| labels.get(&(range.start, range.end)))
-                .cloned();
-            line_folding_range(source, &range, collapsed_text)
-        })
-        .collect::<Vec<_>>();
-    ranges.dedup();
-    if let Some(limit) = limit {
-        ranges.truncate(limit);
-    }
-    ranges
-}
-
-fn line_folding_range(
-    source: &str,
-    range: &std::ops::Range<usize>,
-    collapsed_text: Option<String>,
-) -> Option<FoldingRange> {
-    let content_end = range.start
-        + source[range.clone()]
-            .trim_end_matches(char::is_whitespace)
-            .len();
-    let range = byte_range_to_lsp(source, &(range.start..content_end));
-    let end_line = if range.end.character == 0 && range.end.line > range.start.line {
-        range.end.line - 1
-    } else {
-        range.end.line
-    };
-    (end_line > range.start.line).then_some(FoldingRange {
-        start_line: range.start.line,
-        start_character: None,
-        end_line,
-        end_character: None,
-        kind: None,
-        collapsed_text,
-    })
 }
 
 fn task_hover(workspace: &Workspace, path: &Path, task: &TaskRecord) -> String {

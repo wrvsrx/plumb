@@ -1,3 +1,4 @@
+mod folding;
 mod position;
 mod search;
 mod server;
