@@ -69,12 +69,12 @@ fn task_records(
     } else {
         None
     };
-    sort_task_subtrees(&mut records);
     if let Some(retained) = retained {
         records.retain(|record| {
             retained.contains(&(record.relative_path.clone(), record.range.start))
         });
     }
+    sort_task_subtrees(&mut records);
     Ok(records
         .into_iter()
         .map(|record| {
@@ -322,6 +322,33 @@ mod tests {
                 "a.plumb#deferred",
                 "a.plumb#more-deferred",
             ]
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn filtered_tasks_do_not_contribute_to_cli_priority_order() {
+        let root = unique_temp_dir();
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(
+            root.join("a.plumb"),
+            "`-{.task #closed priority=100 done=\"2026-07-31T10:00:00Z\"} Closed\n`-{.task #low priority=1} Low active\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("b.plumb"),
+            "`-{.task #important priority=10} Important active\n",
+        )
+        .unwrap();
+
+        let loaded = load_workspace(&root).unwrap();
+        let records = task_records(&root, &loaded, Some("state == 'ready'"), true).unwrap();
+        assert_eq!(
+            records
+                .iter()
+                .map(|record| record.source.as_str())
+                .collect::<Vec<_>>(),
+            ["b.plumb#important", "a.plumb#low"]
         );
         std::fs::remove_dir_all(root).unwrap();
     }

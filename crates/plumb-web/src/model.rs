@@ -1729,6 +1729,41 @@ mod tests {
     }
 
     #[test]
+    fn filtered_tasks_do_not_contribute_to_effective_priority() {
+        let root = temp_dir();
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(
+            root.join("a.plumb"),
+            "`-{.task #closed priority=100 done=\"2026-07-31T10:00:00Z\"} Closed\n`-{.task #low priority=1} Low active\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("b.plumb"),
+            "`-{.task #important priority=10} Important active\n",
+        )
+        .unwrap();
+        let workspace = WebWorkspace::load(&root).unwrap();
+
+        let ready = workspace
+            .query_tasks(&WebQuery {
+                view: WebView::Tasks,
+                presets: vec!["ready".to_string()],
+                sort: QuerySort::Priority,
+                ..WebQuery::default()
+            })
+            .unwrap();
+        assert_eq!(
+            ready
+                .tasks
+                .iter()
+                .map(|task| task.id.as_deref().unwrap())
+                .collect::<Vec<_>>(),
+            ["important", "low"]
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn graph_queries_filter_after_traversal_and_remove_hidden_endpoints() {
         let root = temp_dir();
         std::fs::create_dir_all(&root).unwrap();

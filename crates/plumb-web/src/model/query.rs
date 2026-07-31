@@ -75,8 +75,8 @@ impl WebWorkspace {
                 }
             })
             .collect::<BTreeSet<_>>();
-        sort_task_tree(&mut tasks, query.sort, &scores);
         tasks.retain(|task| retained.contains(&task.key));
+        sort_task_tree(&mut tasks, query.sort, &scores);
         let limit = query.limit.unwrap_or(usize::MAX);
         let complete = tasks.len() <= limit;
         truncate_complete_task_documents(&mut tasks, limit, |task| &task.path);

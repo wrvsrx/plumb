@@ -134,3 +134,19 @@ test('task sorting aggregates descendants and keeps document trees contiguous', 
     ['b-high', 'b-other', 'a-early', 'a-deferred', 'a-promoted', 'a-urgent', 'c-negative', 'd-default'],
   );
 });
+
+test('filtered tasks alone determine effective priority', () => {
+  const task = (key, path, start, priority, state) => ({
+    key, path, depth: 0, priority, state, due: null, location: { start },
+  });
+  const tasks = [
+    task('closed', 'a.plumb', 0, 100, 'done'),
+    task('low', 'a.plumb', 10, 1, 'ready'),
+    task('important', 'b.plumb', 0, 10, 'ready'),
+  ];
+  const retained = tasks.filter((candidate) => candidate.state === 'ready');
+  assert.deepEqual(
+    sortTaskTrees(retained, 'priority').map((candidate) => candidate.key),
+    ['important', 'low'],
+  );
+});

@@ -455,8 +455,11 @@ import {
       scores.set(task.key, score);
       retained.add(task.key);
     });
-    const tasks = sortTaskTrees(snapshot.tasks, state.sort.tasks, scores)
-      .filter((task) => retained.has(task.key));
+    const tasks = sortTaskTrees(
+      snapshot.tasks.filter((task) => retained.has(task.key)),
+      state.sort.tasks,
+      scores,
+    );
     return { ...snapshot, tasks, complete: true };
   }
 
