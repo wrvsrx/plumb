@@ -67,6 +67,11 @@ Location 等内部 invariant 失败使用 InternalError，cancellation 使用 Re
 client configuration、completion、CodeAction、CodeLens、search 与 Web app integration 见
 `->[editor integration 指南]{to="editor-integration.plumb"}。
 
+attribute slot 内的 completion 由 recovered syntax owner 决定：标准 task/event facets、task/event
+fields、Link 的 `[to]、Image 的 `[src]，以及 verbatim math/language 会按上下文提供。已经存在的
+唯一 pair 不会重复建议；未声明的 custom attributes 仍可直接输入。未闭合和 multiline slot 也能
+补全，Link/Image path、anchor 等 value 继续使用相应的 workspace-aware candidates。
+
 `# Format
 
 `[plumb fmt] 对 syntax-valid document 进行 canonical formatting。空 head block 的 children 比 owner

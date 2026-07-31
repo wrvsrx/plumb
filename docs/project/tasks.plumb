@@ -178,6 +178,7 @@
 `-{
    .task #attribute-completion depends="#construct-completion"
    created="2026-07-31T16:43:38+08:00"
+   done="2026-07-31T17:28:15+08:00"
   } 补全输入中的 attributes
 
    `note Cursor 位于 marked block、parsed inline、inline verbatim 或 verbatim block 的完整或未闭合 attribute slot 时提供 context-aware completion；protocol-neutral completion context 必须从 recovered syntax view 判断 owner、已有 id/classes/pairs 与当前输入位置，LSP 只负责 UTF-16 range、trigger 和 completion item 映射。

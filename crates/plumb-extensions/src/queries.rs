@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use plumb_core::{Block, Inline, InlineContent, ParsedDocument};
+use plumb_core::{AttrItem, Attributes, Block, Inline, InlineContent, ParsedDocument};
 
 const LINK_OPEN: &str = "`->[";
 
@@ -47,6 +47,341 @@ pub type FileCompletionContext = ImageCompletionContext;
 pub enum ConstructCompletionContext {
     Block { replace: Range<usize> },
     Inline { replace: Range<usize> },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AttributeCompletion {
+    pub label: &'static str,
+    pub new_text: &'static str,
+    pub detail: &'static str,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AttributeCompletionContext {
+    pub replace: Range<usize>,
+    pub completions: Vec<AttributeCompletion>,
+}
+
+#[derive(Clone, Copy)]
+enum AttributeOwner<'a> {
+    Marked(&'a str),
+    ParsedInline(&'a str),
+    VerbatimInline,
+    VerbatimBlock,
+}
+
+pub fn attribute_completion_context(
+    document: &ParsedDocument,
+    offset: usize,
+) -> Option<AttributeCompletionContext> {
+    if offset > document.source.len() || !document.source.is_char_boundary(offset) {
+        return None;
+    }
+    attribute_context_in_blocks(&document.syntax.blocks, &document.source, offset)
+}
+
+fn attribute_context_in_blocks(
+    blocks: &[Block],
+    source: &str,
+    offset: usize,
+) -> Option<AttributeCompletionContext> {
+    for block in blocks {
+        match block {
+            Block::Verbatim(block) => {
+                if let Some(context) =
+                    attribute_context(source, offset, &block.attrs, AttributeOwner::VerbatimBlock)
+                {
+                    return Some(context);
+                }
+            }
+            Block::Parsed(block) => {
+                if let Some(mark) = &block.mark {
+                    if let Some(context) = attribute_context(
+                        source,
+                        offset,
+                        &mark.attrs,
+                        AttributeOwner::Marked(&mark.marker),
+                    ) {
+                        return Some(context);
+                    }
+                }
+                if let Some(context) = attribute_context_in_inlines(&block.head, source, offset) {
+                    return Some(context);
+                }
+                if let Some(context) = attribute_context_in_blocks(&block.children, source, offset)
+                {
+                    return Some(context);
+                }
+            }
+        }
+    }
+    None
+}
+
+fn attribute_context_in_inlines(
+    content: &InlineContent,
+    source: &str,
+    offset: usize,
+) -> Option<AttributeCompletionContext> {
+    for inline in &content.items {
+        match inline {
+            Inline::Element {
+                kind,
+                content,
+                attrs,
+                ..
+            } => {
+                if let Some(context) =
+                    attribute_context(source, offset, attrs, AttributeOwner::ParsedInline(kind))
+                {
+                    return Some(context);
+                }
+                if let Some(context) = attribute_context_in_inlines(content, source, offset) {
+                    return Some(context);
+                }
+            }
+            Inline::Verbatim { attrs, .. } => {
+                if let Some(context) =
+                    attribute_context(source, offset, attrs, AttributeOwner::VerbatimInline)
+                {
+                    return Some(context);
+                }
+            }
+            Inline::Text { .. } | Inline::SoftBreak { .. } => {}
+        }
+    }
+    None
+}
+
+fn attribute_context(
+    source: &str,
+    offset: usize,
+    attrs: &Attributes,
+    owner: AttributeOwner<'_>,
+) -> Option<AttributeCompletionContext> {
+    let range = attrs.range.as_ref()?;
+    if offset <= range.start || offset > range.end {
+        return None;
+    }
+    let content_end = if source.as_bytes().get(range.end.saturating_sub(1)) == Some(&b'}') {
+        range.end - 1
+    } else {
+        range.end
+    };
+    if offset > content_end {
+        return None;
+    }
+    let mut start = offset;
+    while start > range.start + 1 {
+        let previous = source[..start].char_indices().next_back()?.0;
+        let character = source[previous..start].chars().next()?;
+        if character.is_whitespace() || character == '{' {
+            break;
+        }
+        start = previous;
+    }
+    let typed = &source[start..offset];
+    if typed.contains('=') {
+        return value_completions(attrs, owner, start..offset, typed);
+    }
+    let has_id = attrs
+        .items
+        .iter()
+        .any(|item| matches!(item, AttrItem::Id { .. }));
+    let existing_pairs = |wanted: &str| {
+        attrs
+            .items
+            .iter()
+            .any(|item| matches!(item, AttrItem::Pair { key, .. } if key == wanted))
+    };
+    let existing_class = |wanted: &str| {
+        attrs
+            .items
+            .iter()
+            .any(|item| matches!(item, AttrItem::Class { value, .. } if value == wanted))
+    };
+    let mut candidates = Vec::new();
+    match owner {
+        AttributeOwner::Marked("-" | ".") => {
+            push_completion(
+                &mut candidates,
+                !existing_class("task"),
+                ".task",
+                "standard task facet",
+            );
+            push_completion(
+                &mut candidates,
+                !existing_class("event"),
+                ".event",
+                "standard event facet",
+            );
+            if attrs.has_class("task") {
+                for (key, detail) in task_attribute_pairs() {
+                    push_pair_completion(&mut candidates, !existing_pairs(key), key, detail);
+                }
+            }
+            if attrs.has_class("event") {
+                for (key, detail) in event_attribute_pairs() {
+                    push_pair_completion(&mut candidates, !existing_pairs(key), key, detail);
+                }
+            }
+        }
+        AttributeOwner::ParsedInline("->") => {
+            push_pair_completion(&mut candidates, !existing_pairs("to"), "to", "link target")
+        }
+        AttributeOwner::ParsedInline("img") => push_pair_completion(
+            &mut candidates,
+            !existing_pairs("src"),
+            "src",
+            "image source",
+        ),
+        AttributeOwner::VerbatimInline => {
+            push_completion(
+                &mut candidates,
+                !existing_class("->"),
+                ".->",
+                "standard autolink facet",
+            );
+            push_completion(
+                &mut candidates,
+                !existing_class("$"),
+                ".$",
+                "standard math facet",
+            );
+            push_pair_completion(
+                &mut candidates,
+                !existing_pairs("language"),
+                "language",
+                "raw content language",
+            );
+        }
+        AttributeOwner::VerbatimBlock => {
+            push_completion(
+                &mut candidates,
+                !existing_class("$"),
+                ".$",
+                "standard math facet",
+            );
+            push_pair_completion(
+                &mut candidates,
+                !existing_pairs("language"),
+                "language",
+                "raw content language",
+            );
+        }
+        AttributeOwner::Marked(_) | AttributeOwner::ParsedInline(_) => {}
+    }
+    if typed.starts_with('#') && !has_id {
+        candidates.clear();
+    } else if typed.starts_with('.') {
+        candidates.retain(|candidate| candidate.new_text.starts_with('.'));
+    } else if !typed.is_empty() {
+        candidates.retain(|candidate| candidate.new_text.starts_with(typed));
+    }
+    Some(AttributeCompletionContext {
+        replace: start..offset,
+        completions: candidates,
+    })
+}
+
+fn push_completion(
+    candidates: &mut Vec<AttributeCompletion>,
+    include: bool,
+    spelling: &'static str,
+    detail: &'static str,
+) {
+    if include {
+        candidates.push(AttributeCompletion {
+            label: spelling,
+            new_text: spelling,
+            detail,
+        });
+    }
+}
+
+fn push_pair_completion(
+    candidates: &mut Vec<AttributeCompletion>,
+    include: bool,
+    key: &'static str,
+    detail: &'static str,
+) {
+    if !include {
+        return;
+    }
+    let new_text = match key {
+        "created" => "created=\"\"",
+        "due" => "due=\"\"",
+        "wait" => "wait=\"\"",
+        "recur" => "recur=\"\"",
+        "prev" => "prev=\"\"",
+        "depends" => "depends=\"\"",
+        "priority" => "priority=0",
+        "uid" => "uid=\"\"",
+        "start" => "start=\"\"",
+        "end" => "end=\"\"",
+        "tasks" => "tasks=\"\"",
+        "to" => "to=\"\"",
+        "src" => "src=\"\"",
+        "language" => "language=\"\"",
+        _ => return,
+    };
+    candidates.push(AttributeCompletion {
+        label: key,
+        new_text,
+        detail,
+    });
+}
+
+fn task_attribute_pairs() -> [(&'static str, &'static str); 7] {
+    [
+        ("created", "task creation datetime"),
+        ("due", "task due datetime"),
+        ("wait", "task wait datetime"),
+        ("recur", "task recurrence"),
+        ("prev", "previous task reference"),
+        ("depends", "task dependencies"),
+        ("priority", "task priority"),
+    ]
+}
+
+fn event_attribute_pairs() -> [(&'static str, &'static str); 4] {
+    [
+        ("uid", "event UID"),
+        ("start", "event start datetime"),
+        ("end", "event end datetime"),
+        ("tasks", "related task references"),
+    ]
+}
+
+fn value_completions(
+    attrs: &Attributes,
+    owner: AttributeOwner<'_>,
+    replace: Range<usize>,
+    typed: &str,
+) -> Option<AttributeCompletionContext> {
+    let (key, value) = typed.split_once('=')?;
+    let quoted = value.starts_with('"');
+    let value = value.trim_start_matches('"');
+    let replacement = (replace.start + key.len() + 1 + usize::from(quoted))..replace.end;
+    let mut completions = Vec::new();
+    if key == "language"
+        && matches!(
+            owner,
+            AttributeOwner::VerbatimInline | AttributeOwner::VerbatimBlock
+        )
+        && attrs.has_class("$")
+        && "tex".starts_with(value)
+    {
+        completions.push(AttributeCompletion {
+            label: "tex",
+            new_text: "tex",
+            detail: "standard TeX math language",
+        });
+    }
+    (!completions.is_empty()).then_some(AttributeCompletionContext {
+        replace: replacement,
+        completions,
+    })
 }
 
 pub fn construct_completion_context(
@@ -460,6 +795,48 @@ mod tests {
             construct_completion_context(&attribute, attribute_offset),
             None
         );
+    }
+
+    #[test]
+    fn completes_standard_attributes_from_recovered_owner_context() {
+        let (task, cursor) = strip_cursor("`-{.task created=now pr|} Work");
+        let context = attribute_completion_context(&parse(&task), cursor).unwrap();
+        assert_eq!(context.replace, task.find("pr}").unwrap()..cursor);
+        assert_eq!(
+            context
+                .completions
+                .iter()
+                .map(|item| item.label)
+                .collect::<Vec<_>>(),
+            ["prev", "priority"]
+        );
+        assert_eq!(context.completions[1].new_text, "priority=0");
+
+        let (recovered, cursor) = strip_cursor("`img[Alt]{s|");
+        let context = attribute_completion_context(&parse(&recovered), cursor).unwrap();
+        assert_eq!(context.completions[0].new_text, "src=\"\"");
+
+        let (nested, cursor) = strip_cursor("Text `span[x `img[y]{s|}]{.outer}");
+        let context = attribute_completion_context(&parse(&nested), cursor).unwrap();
+        assert_eq!(context.completions[0].label, "src");
+    }
+
+    #[test]
+    fn suppresses_duplicate_attributes_and_completes_enum_values() {
+        let (task, cursor) = strip_cursor("`-{.task priority=2 |} Work");
+        let context = attribute_completion_context(&parse(&task), cursor).unwrap();
+        assert!(!context
+            .completions
+            .iter()
+            .any(|item| item.label == "priority"));
+
+        let (math, cursor) = strip_cursor("`[x]{.$ language=\"t|\"}");
+        let context = attribute_completion_context(&parse(&math), cursor).unwrap();
+        assert_eq!(context.completions[0].label, "tex");
+        assert_eq!(context.completions[0].new_text, "tex");
+
+        let (quoted, cursor) = strip_cursor("`-{.task due=\"2026-|\"} Work");
+        assert_eq!(attribute_completion_context(&parse(&quoted), cursor), None);
     }
 
     #[test]

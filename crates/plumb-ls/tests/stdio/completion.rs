@@ -544,3 +544,67 @@ fn completes_constructs_after_a_single_backtick() {
     assert_eq!(fallback_block[0]["insertTextFormat"], 1);
     std::fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn completes_attributes_with_protocol_ranges_and_snippets() {
+    let root = unique_temp_dir();
+    std::fs::create_dir_all(&root).unwrap();
+    let document = root.join("attributes.plumb");
+    let source = "`-{.task created=now pr} Work\n`img[Alt]{s\n`[x]{.$ language=\"t\"}\n";
+    std::fs::write(&document, source).unwrap();
+    let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
+    let document_uri = lsp_types::Url::from_file_path(&document).unwrap();
+    let messages = [
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {
+                "processId": null, "rootUri": root_uri,
+                "workspaceFolders": [{ "uri": root_uri, "name": "test" }],
+                "capabilities": { "textDocument": { "completion": {
+                    "completionItem": { "snippetSupport": true }
+                } } }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": {
+                "uri": document_uri, "languageId": "plumb", "version": 1, "text": source
+            }}
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 2, "method": "textDocument/completion",
+            "params": { "textDocument": { "uri": document_uri },
+                "position": { "line": 0, "character": 23 } }
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 3, "method": "textDocument/completion",
+            "params": { "textDocument": { "uri": document_uri },
+                "position": { "line": 1, "character": 11 } }
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 4, "method": "textDocument/completion",
+            "params": { "textDocument": { "uri": document_uri },
+                "position": { "line": 2, "character": 19 } }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 5, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+    let output = run_server(&messages);
+    let priority = response(&output, 2)["result"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["label"] == "priority")
+        .unwrap();
+    assert_eq!(priority["textEdit"]["newText"], "priority=${1:0}");
+    assert_eq!(priority["textEdit"]["range"]["start"]["character"], 21);
+    assert_eq!(priority["insertTextFormat"], 2);
+    let image = &response(&output, 3)["result"][0];
+    assert_eq!(image["label"], "src");
+    assert_eq!(image["textEdit"]["newText"], "src=\"${1}\"");
+    let language = &response(&output, 4)["result"][0];
+    assert_eq!(language["label"], "tex");
+    assert_eq!(language["textEdit"]["newText"], "tex");
+    std::fs::remove_dir_all(root).unwrap();
+}

@@ -32,8 +32,9 @@ use lsp_types::{
 };
 use plumb_core::Diagnostic;
 use plumb_extensions::{
-    construct_completion_context, file_completion_context, image_completion_context,
-    link_completion_context, AnchorKind, ConstructCompletionContext, TaskStatus,
+    attribute_completion_context, construct_completion_context, file_completion_context,
+    image_completion_context, link_completion_context, AnchorKind, ConstructCompletionContext,
+    TaskStatus,
 };
 use plumb_workspace::{
     normalize, scan_workspace_files, RenameError, ResolvedTarget, ResourceOperation, SearchRecord,
@@ -552,6 +553,10 @@ impl LanguageServer for ServerState {
                             "\"".to_string(),
                             "/".to_string(),
                             "#".to_string(),
+                            "{".to_string(),
+                            " ".to_string(),
+                            ".".to_string(),
+                            "=".to_string(),
                         ]),
                         ..CompletionOptions::default()
                     }),
@@ -1201,6 +1206,36 @@ impl LanguageServer for ServerState {
                         &format!("{}@plumb.local", uuid::Uuid::new_v4()),
                     ));
                 }
+                if let Some(context) = attribute_completion_context(&entry.parsed, offset) {
+                    if !context.completions.is_empty() {
+                        return Some(
+                            context
+                                .completions
+                                .into_iter()
+                                .map(|candidate| CompletionItem {
+                                    label: candidate.label.to_string(),
+                                    kind: Some(CompletionItemKind::PROPERTY),
+                                    detail: Some(candidate.detail.to_string()),
+                                    insert_text_format: Some(
+                                        if self.supports_completion_snippets {
+                                            InsertTextFormat::SNIPPET
+                                        } else {
+                                            InsertTextFormat::PLAIN_TEXT
+                                        },
+                                    ),
+                                    text_edit: Some(CompletionTextEdit::Edit(LspTextEdit::new(
+                                        byte_range_to_lsp(&entry.parsed.source, &context.replace),
+                                        attribute_completion_text(
+                                            candidate.new_text,
+                                            self.supports_completion_snippets,
+                                        ),
+                                    ))),
+                                    ..CompletionItem::default()
+                                })
+                                .collect(),
+                        );
+                    }
+                }
                 let (candidates, kind) =
                     if let Some(context) = link_completion_context(&entry.parsed, offset) {
                         let kind = if matches!(
@@ -1510,6 +1545,19 @@ impl LanguageServer for ServerState {
             Ok(Some(lsp_edit))
         })();
         Box::pin(async move { result })
+    }
+}
+
+fn attribute_completion_text(text: &str, snippets: bool) -> String {
+    if !snippets {
+        return text.to_string();
+    }
+    if let Some(key) = text.strip_suffix("=\"\"") {
+        format!("{key}=\"${{1}}\"")
+    } else if text == "priority=0" {
+        "priority=${1:0}".to_string()
+    } else {
+        text.to_string()
     }
 }
 

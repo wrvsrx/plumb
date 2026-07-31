@@ -34,6 +34,11 @@ offers Task, Autolink, and Link. The Task skeleton includes a current local RFC
 Link. Heading, ordinary list-item, and inline-verbatim spellings are typed
 directly. Snippet-capable clients receive tab stops.
 
+Inside complete or recovered attribute slots, completion follows the syntax
+owner and offers declared standard facets, pair keys, and finite values while
+suppressing unique keys already present. Custom attributes remain allowed.
+Link/Image paths and anchors continue to use workspace-aware value completion.
+
 ## Authority
 
 Treat this bundled skill as the portable guide for the release that shipped
