@@ -1,5 +1,6 @@
 mod model;
 mod pandoc;
+mod presentation;
 mod server;
 mod site;
 

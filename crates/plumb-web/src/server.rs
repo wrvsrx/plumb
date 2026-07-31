@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::ExitCode;
 use std::sync::Arc;
 use std::time::Duration;
@@ -22,20 +22,14 @@ use tokio::sync::{broadcast, mpsc, Mutex, RwLock};
 use tokio_stream::wrappers::BroadcastStream;
 use tokio_stream::StreamExt;
 
+use crate::presentation::{
+    render_backlinks, render_index, render_note_page, APP_JS, CEL_JS, CEL_JS_LICENSE,
+    FORCE_GRAPH_JS, FORCE_GRAPH_LICENSE, QUERY_STATE_JS, STYLES_CSS,
+};
 use crate::{
     render_note_html, GraphDirection, GraphQuery, WebEventInput, WebEventLocator, WebQuery,
     WebTargetMode, WebTaskLocator, WebView, WebWorkspace, GRAPH_PRESETS, TASK_PRESETS,
 };
-
-const INDEX_HTML: &str = include_str!("../assets/index.html");
-const NOTE_HTML: &str = include_str!("../assets/note.html");
-const APP_JS: &str = include_str!("../assets/app.js");
-const QUERY_STATE_JS: &str = include_str!("../assets/query-state.js");
-const STYLES_CSS: &str = include_str!("../assets/styles.css");
-const FORCE_GRAPH_JS: &str = include_str!("../assets/vendor/force-graph.min.js");
-const FORCE_GRAPH_LICENSE: &str = include_str!("../assets/vendor/FORCE-GRAPH-LICENSE.txt");
-const CEL_JS: &str = include_str!("../assets/vendor/cel-js.min.js");
-const CEL_JS_LICENSE: &str = include_str!("../assets/vendor/CEL-JS-LICENSE.txt");
 
 #[derive(Debug, Args)]
 pub(crate) struct ServeConfig {
@@ -213,14 +207,7 @@ async fn index(State(state): State<AppState>) -> Response {
         "eventMutations": state.allow_mutations,
         "current": state.current,
     });
-    let html = INDEX_HTML
-        .replace("__ASSET_PREFIX__", "/")
-        .replace("__ROOT_PREFIX__", "/")
-        .replace(
-            "__PLUMB_CONFIG__",
-            &escape_html_attribute(&config.to_string()),
-        );
-    secure_html(html)
+    secure_html(render_index(&config, "/", "/"))
 }
 
 async fn tasks(State(state): State<AppState>) -> Response {
@@ -846,99 +833,4 @@ mod tests {
             COUNTER.fetch_add(1, Ordering::Relaxed)
         ))
     }
-}
-
-pub(crate) fn render_note_page(
-    title: &str,
-    path: &str,
-    id: &str,
-    content: &str,
-    backlinks: &str,
-    asset_prefix: &str,
-    root_prefix: &str,
-) -> String {
-    NOTE_HTML
-        .replace("__TITLE__", &escape_html(title))
-        .replace("__PATH__", &escape_html(path))
-        .replace("__DOCUMENT_ID__", &escape_html_attribute(id))
-        .replace("__CONTENT__", content)
-        .replace("__BACKLINKS__", backlinks)
-        .replace("__ASSET_PREFIX__", asset_prefix)
-        .replace("__ROOT_PREFIX__", root_prefix)
-}
-
-pub(crate) fn render_backlinks(
-    workspace: &WebWorkspace,
-    locations: &[crate::SourceLocation],
-    prefix: &str,
-    suffix: &str,
-) -> String {
-    if locations.is_empty() {
-        return "<p>No backlinks</p>".to_string();
-    }
-    let mut output = String::from("<ul class=\"backlink-list\">");
-    for location in locations {
-        let path = workspace.root().join(&location.path);
-        let href = workspace
-            .document_id(path)
-            .map(|id| format!("{prefix}{id}{suffix}"))
-            .unwrap_or_else(|| "#".to_string());
-        output.push_str(&format!(
-            "<li><a href=\"{}\">{}</a></li>",
-            escape_html_attribute(&href),
-            escape_html(&location.path)
-        ));
-    }
-    output.push_str("</ul>");
-    output
-}
-
-pub(crate) fn render_index(
-    config: &serde_json::Value,
-    asset_prefix: &str,
-    root_prefix: &str,
-) -> String {
-    INDEX_HTML
-        .replace("__ASSET_PREFIX__", asset_prefix)
-        .replace("__ROOT_PREFIX__", root_prefix)
-        .replace(
-            "__PLUMB_CONFIG__",
-            &escape_html_attribute(&config.to_string()),
-        )
-}
-
-fn escape_html(value: &str) -> String {
-    value
-        .replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&#39;")
-}
-
-fn escape_html_attribute(value: &str) -> String {
-    escape_html(value)
-}
-
-pub(crate) fn write_assets(output: &Path) -> Result<(), String> {
-    std::fs::create_dir_all(output.join("vendor"))
-        .map_err(|error| format!("cannot create assets directory: {error}"))?;
-    std::fs::write(output.join("app.js"), APP_JS)
-        .map_err(|error| format!("cannot write app.js: {error}"))?;
-    std::fs::write(output.join("query-state.js"), QUERY_STATE_JS)
-        .map_err(|error| format!("cannot write query-state.js: {error}"))?;
-    std::fs::write(output.join("styles.css"), STYLES_CSS)
-        .map_err(|error| format!("cannot write styles.css: {error}"))?;
-    std::fs::write(output.join("vendor/force-graph.min.js"), FORCE_GRAPH_JS)
-        .map_err(|error| format!("cannot write Force Graph: {error}"))?;
-    std::fs::write(
-        output.join("vendor/FORCE-GRAPH-LICENSE.txt"),
-        FORCE_GRAPH_LICENSE,
-    )
-    .map_err(|error| format!("cannot write Force Graph license: {error}"))?;
-    std::fs::write(output.join("vendor/cel-js.min.js"), CEL_JS)
-        .map_err(|error| format!("cannot write CEL JS: {error}"))?;
-    std::fs::write(output.join("vendor/CEL-JS-LICENSE.txt"), CEL_JS_LICENSE)
-        .map_err(|error| format!("cannot write CEL JS license: {error}"))?;
-    Ok(())
 }

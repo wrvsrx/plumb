@@ -6,9 +6,8 @@ use clap::{Args, Parser, Subcommand};
 use plumb_workspace::resolve_workspace_root;
 use serde_json::json;
 
-use crate::server::{
-    render_backlinks, render_index, render_note_page, serve, write_assets, ServeConfig,
-};
+use crate::presentation::{render_backlinks, render_index, render_note_page, write_assets};
+use crate::server::{serve, ServeConfig};
 use crate::{
     render_note_html, GraphQuery, WebQuery, WebTargetMode, WebView, WebWorkspace, GRAPH_PRESETS,
     TASK_PRESETS,
