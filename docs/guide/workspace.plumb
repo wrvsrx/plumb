@@ -78,9 +78,10 @@ effective priority，Due 取 subtree 最早 due，Relevance 取 subtree 最大 f
 不会参与这些聚合；详情显示 derived
 state、timestamps、dependencies 与 child tasks。
 
-Agenda 按 start、path 和 source position 显示 point/range events。Loopback server 上可以从已索引 document
+Agenda 按 at 或 start、path 和 source position 显示 point/closed/running events。Loopback server 上可以从已索引 document
 创建 event，或通过 revision-guarded operation 编辑、删除已有 event。Event detail
-显示 start/end、UID、details 与 task references。Mobile Web mutation 初版要求在线，不缓存待提交 edits。
+显示 at/start/end、UID、details 与 task references。Event form 显式选择 Point 或 Interval，空 interval
+end 表示 running，不能再用空 end 表示 point。Mobile Web mutation 初版要求在线，不缓存待提交 edits。
 
 `[plumb event --root DIR export-vdir --output DIR] 将 workspace events 原子投影到受管理 vdir，每个 event
 对应一个 `[..ics] file。khal calendar 配置使用该目录并设置 `[readonly = true]；`[.plumb] 仍是唯一

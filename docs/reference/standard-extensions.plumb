@@ -282,10 +282,11 @@ wrapper 保留。普通 dollar characters 和 dollar-delimited math 没有特殊
      end="2026-07-30T15:30:00+08:00" tasks="#write-parser Project A.plumb#docs"
     } Parser review
 
-head 是 title，children 是 details；nested events 只形成 display tree，不表示时间包含关系。`[start] 是
-必填 quoted RFC 3339 timestamp；`[end] 是可选 quoted RFC 3339 timestamp。没有 `[end] 的 event 是
-point event；存在 `[end] 时使用 half-open `[[start, end)] interval，并要求 end 晚于 start。Agenda 和
-workspace range query 按 start、path、source position 稳定排序。首版不定义 all-day、floating time、
+head 是 title，children 是 details；nested events 只形成 display tree，不表示时间包含关系。Event time
+使用三种互斥 shape，所有时间字段都是 quoted RFC 3339 timestamp：只有 `[at] 是 point event；`[start]
+与 `[end] 同时存在时使用 half-open `[[start, end)] closed interval，并要求 end 晚于 start；只有
+`[start] 是 running interval。`[at] 不能与 `[start] 或 `[end] 共存，`[end] 不能单独存在。Agenda 和
+workspace range query 按 `[at ?? start]、path、source position 稳定排序。首版不定义 all-day、floating time、
 recurrence、reminder、attendee 或 alarm semantics。
 
 `[tasks] 使用与 task `[depends] 相同的 reference-list spelling，只建立 event-to-task association，不建立
@@ -297,12 +298,13 @@ task-to-event reverse query。不得从 task 的 created、due、wait、done 或
 
 `[uid] 是 optional nonempty quoted iCalendar identity，与 source-backed `[#id] 分离。普通 event query 不
 要求 UID；calendar authoring operation 为新 event 生成稳定 UID，后续移动、改标题或编辑时间不改变它。
-只读 vdir projection 要求每个 event 具有 workspace-unique UID，每个 event 原子生成一个含单个 VEVENT
+只读 vdir projection 要求每个 event 具有 workspace-unique UID，且 running interval 必须先关闭；每个
+event 原子生成一个含单个 VEVENT
 的 `[..ics] file，并 lower SUMMARY、DESCRIPTION、DTSTART、optional DTEND、UID、DTSTAMP 与重复的
 `[X-PLUMB-TASK] properties。输出使用 RFC 5545 escaping、75-octet folding 与 CRLF。`[.plumb] source
 始终是唯一 writable source；初版不导入外部 iCalendar 修改，也不实现 CalDAV client。
 
-Event CEL context 提供 `[path]、`[id]、`[uid]、`[title]、`[start]、`[end]、`[tasks] 与 `[now]。
+Event CEL context 提供 `[path]、`[id]、`[uid]、`[title]、`[at]、`[start]、`[end]、`[tasks] 与 `[now]。
 Web Agenda 通过 revision-guarded operations 创建、编辑和删除 event；首版只支持 online mutations。
 Pandoc export 不消费 event facet：它仍作为普通 list item 导出并保留 `[.event] 与 fields。
 

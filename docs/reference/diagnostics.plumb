@@ -63,7 +63,8 @@ recovery 的目标是报告后续独立错误并保留 source，不是把 malfor
 `- task：invalid owner、`[task.invalid-datetime]、`[task.invalid-priority]、无效 recur/reference、互斥 closure state、
    self dependency、cycle、blocked completion、`[task.done-with-open-dependency] 和
    `[task.done-with-open-descendant] closure consistency warnings。
-`- event：invalid/conflicting owner、missing/invalid datetime、invalid interval/UID、invalid/unresolved/
+`- event：invalid/conflicting owner、missing/invalid datetime、conflicting time shape、end without start、
+   invalid interval/UID、invalid/unresolved/
    ambiguous/non-task reference 和 workspace-duplicate UID。
 `- math：invalid owner 或 unsupported input language。
 
