@@ -4,6 +4,13 @@ use ignore::WalkBuilder;
 
 use crate::{normalize, WORKSPACE_MARKER};
 
+pub fn display_workspace_path(root: &Path, path: &Path) -> String {
+    path.strip_prefix(root)
+        .unwrap_or(path)
+        .to_string_lossy()
+        .replace(std::path::MAIN_SEPARATOR, "/")
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct WorkspaceScan {
     pub files: Vec<PathBuf>,

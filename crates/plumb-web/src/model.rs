@@ -6,9 +6,10 @@ use cel::{Context, Program, Value};
 use chrono::{Local, SecondsFormat};
 use plumb_extensions::{LinkSpelling, TaskStatus};
 use plumb_workspace::{
-    apply_text_edits, normalize, scan_workspace_files, search_score, sort_task_records,
-    truncate_complete_task_documents, EventEditError, EventInput, ResolvedTarget, SearchRecordKind,
-    TaskEditError, TaskRef, TaskSortFacts, TaskSortOrder, Workspace,
+    apply_text_edits, display_workspace_path as display_path, normalize, scan_workspace_files,
+    search_score, sort_task_records, truncate_complete_task_documents, EventEditError, EventInput,
+    ResolvedTarget, SearchRecordKind, TaskEditError, TaskRef, TaskSortFacts, TaskSortOrder,
+    Workspace,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -1526,13 +1527,6 @@ fn file_revision(path: &Path) -> Option<i64> {
     let modified = metadata.modified().ok()?;
     let duration = modified.duration_since(std::time::UNIX_EPOCH).ok()?;
     Some(duration.as_nanos().min(i64::MAX as u128) as i64)
-}
-
-fn display_path(root: &Path, path: &Path) -> String {
-    path.strip_prefix(root)
-        .unwrap_or(path)
-        .to_string_lossy()
-        .replace(std::path::MAIN_SEPARATOR, "/")
 }
 
 fn display_task_ref(root: &Path, target: &TaskRef) -> String {

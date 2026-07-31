@@ -7,7 +7,8 @@ use chrono::Local;
 use clap::{Args, Parser, Subcommand};
 use plumb_core::DiagnosticSeverity;
 use plumb_workspace::{
-    normalize, resolve_workspace_root, scan_workspace_files, SearchRecordKind, Workspace,
+    display_workspace_path as display_path, normalize, resolve_workspace_root,
+    scan_workspace_files, SearchRecordKind, Workspace,
 };
 
 mod events;
@@ -249,13 +250,6 @@ fn load_workspace(root: &Path) -> Result<LoadedWorkspace, String> {
         texts.insert(path.clone(), text);
     }
     Ok(LoadedWorkspace { workspace, texts })
-}
-
-fn display_path(root: &Path, path: &Path) -> String {
-    path.strip_prefix(root)
-        .unwrap_or(path)
-        .display()
-        .to_string()
 }
 
 fn render_workspace_diagnostics(root: &Path, loaded: &LoadedWorkspace) -> (String, bool) {

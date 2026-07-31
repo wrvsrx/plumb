@@ -22,7 +22,8 @@ mod task_sort;
 #[cfg(test)]
 use scan::resolve_workspace_root_from;
 pub use scan::{
-    discover_workspace_root, resolve_workspace_root, scan_workspace_files, WorkspaceScan,
+    discover_workspace_root, display_workspace_path, resolve_workspace_root, scan_workspace_files,
+    WorkspaceScan,
 };
 pub use task_sort::{
     sort_task_records, truncate_complete_task_documents, TaskSortFacts, TaskSortOrder,
@@ -3135,14 +3136,14 @@ impl SemanticSearchFilter {
         reverse: &ReverseReferences,
     ) -> Result<bool, String> {
         let mut context = Context::default();
-        context.add_variable_from_value("path", display_search_path(root, &entry.path));
+        context.add_variable_from_value("path", display_workspace_path(root, &entry.path));
         context.add_variable_from_value("title", title.to_string());
         context.add_variable_from_value(
             "directly_referenced_by",
             reverse
                 .direct(&entry.path)
                 .iter()
-                .map(|path| display_search_path(root, path))
+                .map(|path| display_workspace_path(root, path))
                 .collect::<Vec<_>>(),
         );
         context.add_variable_from_value(
@@ -3150,7 +3151,7 @@ impl SemanticSearchFilter {
             reverse
                 .transitive(&entry.path)
                 .iter()
-                .map(|path| display_search_path(root, path))
+                .map(|path| display_workspace_path(root, path))
                 .collect::<Vec<_>>(),
         );
         execute_search_filter(&self.program, &context, &entry.path)
@@ -3181,7 +3182,7 @@ impl SemanticSearchFilter {
             })
             .unwrap_or_default();
         let mut context = Context::default();
-        context.add_variable_from_value("path", display_search_path(root, &entry.path));
+        context.add_variable_from_value("path", display_workspace_path(root, &entry.path));
         context.add_variable_from_value(
             "id",
             optional_search_string(task.id.as_ref().map(|id| &id.value)),
@@ -3229,7 +3230,7 @@ impl SemanticSearchFilter {
         event: &EventRecord,
     ) -> Result<bool, String> {
         let mut context = Context::default();
-        context.add_variable_from_value("path", display_search_path(root, &entry.path));
+        context.add_variable_from_value("path", display_workspace_path(root, &entry.path));
         context.add_variable_from_value(
             "id",
             optional_search_string(event.id.as_ref().map(|id| &id.value)),
@@ -3324,16 +3325,9 @@ fn event_search_datetime_value(field: &Option<plumb_extensions::EventField>) -> 
 fn display_search_task_ref(root: &Path, task_ref: &TaskRef) -> String {
     format!(
         "{}#{}",
-        display_search_path(root, &task_ref.path),
+        display_workspace_path(root, &task_ref.path),
         task_ref.id
     )
-}
-
-fn display_search_path(root: &Path, path: &Path) -> String {
-    path.strip_prefix(root)
-        .unwrap_or(path)
-        .display()
-        .to_string()
 }
 
 struct ReverseReferences {
