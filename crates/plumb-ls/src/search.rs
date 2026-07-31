@@ -60,6 +60,8 @@ pub(crate) struct SearchItem {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub actionable: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub start: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub end: Option<String>,

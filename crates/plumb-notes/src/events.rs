@@ -50,10 +50,17 @@ pub(super) fn export_vdir(
         })
         .collect::<Vec<_>>();
     events.sort_by(|(left_entry, left), (right_entry, right)| {
-        left.start
+        left.at
             .as_ref()
+            .or(left.start.as_ref())
             .map(|field| field.value.as_str())
-            .cmp(&right.start.as_ref().map(|field| field.value.as_str()))
+            .cmp(
+                &right
+                    .at
+                    .as_ref()
+                    .or(right.start.as_ref())
+                    .map(|field| field.value.as_str()),
+            )
             .then(left_entry.path.cmp(&right_entry.path))
             .then(left.range.start.cmp(&right.range.start))
     });
@@ -73,14 +80,21 @@ pub(super) fn export_vdir(
         if !uids.insert(uid.value.clone()) {
             return Err(format!("duplicate event UID '{}'", uid.value));
         }
-        let start = event.start_datetime().ok_or_else(|| {
+        let start = event.sort_datetime().ok_or_else(|| {
             format!(
-                "event '{}' in {} has no valid start",
+                "event '{}' in {} has no valid time",
                 event.title,
                 entry.path.display()
             )
         })?;
         let end = event.end_datetime();
+        if event.is_running() {
+            return Err(format!(
+                "event '{}' in {} is still running",
+                event.title,
+                entry.path.display()
+            ));
+        }
         if end.is_some_and(|end| end <= start) {
             return Err(format!(
                 "event '{}' in {} has an invalid interval",
@@ -265,6 +279,53 @@ mod tests {
         std::fs::write(output.join("stale.ics"), "stale").unwrap();
         export_vdir(&loaded, &output, now).unwrap();
         assert!(!output.join("stale.ics").exists());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn exports_point_events_and_rejects_running_intervals() {
+        let root = std::env::temp_dir().join(format!(
+            "plumb-event-time-shape-test-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let now = Utc.with_ymd_and_hms(2026, 7, 30, 0, 0, 0).unwrap();
+
+        let mut workspace = Workspace::new();
+        workspace.insert(
+            root.join("point.plumb"),
+            1,
+            "`-{.event uid=\"point@example\" at=\"2026-07-30T14:00:00+08:00\"} Reminder\n",
+        );
+        let loaded = LoadedWorkspace {
+            workspace,
+            texts: HashMap::new(),
+        };
+        let point_output = root.join("point-calendar");
+        export_vdir(&loaded, &point_output, now).unwrap();
+        let point = std::fs::read_dir(&point_output)
+            .unwrap()
+            .filter_map(Result::ok)
+            .find(|entry| entry.path().extension().is_some_and(|value| value == "ics"))
+            .map(|entry| std::fs::read_to_string(entry.path()).unwrap())
+            .unwrap();
+        assert!(point.contains("DTSTART:20260730T060000Z\r\n"));
+        assert!(!point.contains("DTEND:"));
+
+        let mut workspace = Workspace::new();
+        workspace.insert(
+            root.join("running.plumb"),
+            1,
+            "`-{.event uid=\"running@example\" start=\"2026-07-30T14:00:00+08:00\"} Work\n",
+        );
+        let loaded = LoadedWorkspace {
+            workspace,
+            texts: HashMap::new(),
+        };
+        assert!(export_vdir(&loaded, &root.join("running-calendar"), now)
+            .unwrap_err()
+            .contains("is still running"));
         std::fs::remove_dir_all(root).unwrap();
     }
 }

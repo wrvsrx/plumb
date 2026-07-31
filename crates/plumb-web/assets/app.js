@@ -797,7 +797,8 @@ import {
     eventEmpty.hidden = state.events.events.length > 0 || Boolean(state.tasks?.tasks?.length);
     let previousDate = null;
     state.events.events.forEach((event) => {
-      const parsedStart = event.start ? new Date(event.start) : null;
+      const eventTime = event.at || event.start;
+      const parsedStart = eventTime ? new Date(eventTime) : null;
       const date = parsedStart && !Number.isNaN(parsedStart.getTime())
         ? parsedStart.toLocaleDateString()
         : 'Invalid date';
@@ -859,10 +860,12 @@ import {
   }
 
   function eventTimeLabel(event) {
-    if (!event.start) return 'Invalid';
-    const start = new Date(event.start);
+    const value = event.at || event.start;
+    if (!value) return 'Invalid';
+    const start = new Date(value);
     const startLabel = start.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    if (!event.end) return startLabel;
+    if (event.at) return startLabel;
+    if (!event.end) return `${startLabel}-running`;
     const end = new Date(event.end);
     return `${startLabel}-${end.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
   }
@@ -897,8 +900,9 @@ import {
     eventPanel.querySelector('.document-path').textContent = event.path;
     eventPanel.querySelector('h1').textContent = event.title || '(untitled event)';
     const fields = eventPanel.querySelector('.task-fields');
+    addTaskField(fields, 'At', event.at);
     addTaskField(fields, 'Start', event.start);
-    addTaskField(fields, 'End', event.end || 'Point event');
+    addTaskField(fields, 'End', event.end || (event.start ? 'Running' : null));
     addTaskField(fields, 'Tasks', event.tasks);
     addTaskField(fields, 'UID', event.uid);
     eventPanel.querySelector('.event-details').textContent = event.details;
@@ -917,8 +921,10 @@ import {
         <h1>${event ? 'Edit event' : 'New event'}</h1>
         <label>Document<select name="document">${documents}</select></label>
         <label>Title<input name="title" type="text" required></label>
-        <label>Start<input name="start" type="datetime-local" required></label>
-        <label>End<input name="end" type="datetime-local"></label>
+        <label>Time shape<select name="timeShape"><option value="point">Point</option><option value="interval">Interval</option></select></label>
+        <label class="event-at">At<input name="at" type="datetime-local"></label>
+        <label class="event-start" hidden>Start<input name="start" type="datetime-local"></label>
+        <label class="event-end" hidden>End<input name="end" type="datetime-local"></label>
         <label>Task references<textarea name="tasks" rows="4" placeholder="One reference per line"></textarea></label>
         <div class="task-actions"><button type="submit">Save</button><button class="cancel-event" type="button">Cancel</button></div>
       </form>`;
@@ -927,14 +933,26 @@ import {
     state.events.documents.forEach((document, index) => {
       select.options[index].textContent = document.path;
     });
+    const setTimeShape = (shape) => {
+      const point = shape === 'point';
+      form.querySelector('.event-at').hidden = !point;
+      form.querySelector('.event-start').hidden = point;
+      form.querySelector('.event-end').hidden = point;
+      form.elements.at.required = point;
+      form.elements.start.required = !point;
+    };
+    form.elements.timeShape.addEventListener('change', () => setTimeShape(form.elements.timeShape.value));
     if (event) {
       select.value = event.documentId;
       select.disabled = true;
       form.elements.title.value = event.title;
+      form.elements.timeShape.value = event.at ? 'point' : 'interval';
+      form.elements.at.value = localDateTimeValue(event.at);
       form.elements.start.value = localDateTimeValue(event.start);
       form.elements.end.value = localDateTimeValue(event.end);
       form.elements.tasks.value = event.tasks.join('\n');
     }
+    setTimeShape(form.elements.timeShape.value);
     form.addEventListener('submit', (submit) => {
       submit.preventDefault();
       mutateEvent(event ? 'update' : 'create', event, form);
@@ -950,8 +968,9 @@ import {
     if (!document) return;
     const fields = form ? {
       title: form.elements.title.value,
-      start: new Date(form.elements.start.value).toISOString(),
-      end: form.elements.end.value ? new Date(form.elements.end.value).toISOString() : null,
+      at: form.elements.timeShape.value === 'point' ? new Date(form.elements.at.value).toISOString() : null,
+      start: form.elements.timeShape.value === 'interval' ? new Date(form.elements.start.value).toISOString() : null,
+      end: form.elements.timeShape.value === 'interval' && form.elements.end.value ? new Date(form.elements.end.value).toISOString() : null,
       tasks: form.elements.tasks.value.split('\n').map((value) => value.trim()).filter(Boolean),
     } : null;
     state.pendingEvent = true;
@@ -973,6 +992,7 @@ import {
         const created = state.events.events.find((candidate) => (
           candidate.documentId === document.id
           && candidate.title === fields.title
+          && candidate.at === fields.at
           && candidate.start === fields.start
         ));
         state.selectedEvent = created?.key || null;

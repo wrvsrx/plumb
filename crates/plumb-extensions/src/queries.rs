@@ -317,6 +317,7 @@ fn push_pair_completion(
         "depends" => "depends=\"\"",
         "priority" => "priority=0",
         "uid" => "uid=\"\"",
+        "at" => "at=\"\"",
         "start" => "start=\"\"",
         "end" => "end=\"\"",
         "tasks" => "tasks=\"\"",
@@ -344,9 +345,10 @@ fn task_attribute_pairs() -> [(&'static str, &'static str); 7] {
     ]
 }
 
-fn event_attribute_pairs() -> [(&'static str, &'static str); 4] {
+fn event_attribute_pairs() -> [(&'static str, &'static str); 5] {
     [
         ("uid", "event UID"),
+        ("at", "event point datetime"),
         ("start", "event start datetime"),
         ("end", "event end datetime"),
         ("tasks", "related task references"),

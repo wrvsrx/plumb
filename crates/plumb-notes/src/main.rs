@@ -129,7 +129,8 @@ fn run(config: Config) -> Result<(), String> {
                 )?;
                 for event in records.items {
                     println!(
-                        "{}\t{}\t{}\t{}",
+                        "{}\t{}\t{}\t{}\t{}",
+                        event.at.as_deref().unwrap_or("-"),
                         event.start.as_deref().unwrap_or("-"),
                         event.end.as_deref().unwrap_or("-"),
                         event.title,

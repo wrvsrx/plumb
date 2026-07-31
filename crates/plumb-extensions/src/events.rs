@@ -23,12 +23,17 @@ pub struct EventRecord {
     pub depth: usize,
     pub id: Option<EventField>,
     pub uid: Option<EventField>,
+    pub at: Option<EventField>,
     pub start: Option<EventField>,
     pub end: Option<EventField>,
     pub tasks: Vec<TaskDependency>,
 }
 
 impl EventRecord {
+    pub fn at_datetime(&self) -> Option<DateTime<FixedOffset>> {
+        DateTime::parse_from_rfc3339(&self.at.as_ref()?.value).ok()
+    }
+
     pub fn start_datetime(&self) -> Option<DateTime<FixedOffset>> {
         DateTime::parse_from_rfc3339(&self.start.as_ref()?.value).ok()
     }
@@ -37,14 +42,29 @@ impl EventRecord {
         DateTime::parse_from_rfc3339(&self.end.as_ref()?.value).ok()
     }
 
+    pub fn sort_datetime(&self) -> Option<DateTime<FixedOffset>> {
+        self.at_datetime().or_else(|| self.start_datetime())
+    }
+
+    pub fn is_point(&self) -> bool {
+        self.at.is_some() && self.start.is_none() && self.end.is_none()
+    }
+
+    pub fn is_running(&self) -> bool {
+        self.at.is_none() && self.start.is_some() && self.end.is_none()
+    }
+
     pub fn overlaps(&self, start: DateTime<FixedOffset>, end: DateTime<FixedOffset>) -> bool {
+        if let Some(at) = self.at_datetime() {
+            return at >= start && at < end;
+        }
         let Some(event_start) = self.start_datetime() else {
             return false;
         };
         match self.end_datetime() {
             Some(event_end) if event_end > event_start => event_start < end && event_end > start,
             Some(_) => false,
-            None => event_start >= start && event_start < end,
+            None => event_start < end,
         }
     }
 }
@@ -134,6 +154,7 @@ fn event_record(source: &str, block: &ParsedBlock, depth: usize) -> EventRecord 
             _ => None,
         }),
         uid: uid_field(&mark.attrs.items),
+        at: datetime_field(&mark.attrs.items, "at"),
         start: datetime_field(&mark.attrs.items, "start"),
         end: datetime_field(&mark.attrs.items, "end"),
         tasks: task_reference_fields(source, &mark.attrs.items, "tasks"),
@@ -198,7 +219,7 @@ fn event_field(value: &AttrValue) -> EventField {
 }
 
 fn collect_event_diagnostics(event: &EventRecord, attrs: &[AttrItem], output: &mut EventOutput) {
-    for key in ["start", "end"] {
+    for key in ["at", "start", "end"] {
         match pair_value(attrs, key) {
             Some(value)
                 if !value.quoted || DateTime::parse_from_rfc3339(&value.decoded).is_err() =>
@@ -211,15 +232,41 @@ fn collect_event_diagnostics(event: &EventRecord, attrs: &[AttrItem], output: &m
                     related: Vec::new(),
                 });
             }
-            None if key == "start" => output.diagnostics.push(Diagnostic {
-                code: "event.missing-start",
-                severity: DiagnosticSeverity::Warning,
-                message: "an event requires a 'start' timestamp".to_string(),
-                range: event.selection_range.clone(),
-                related: Vec::new(),
-            }),
             _ => {}
         }
+    }
+
+    let at = pair_value(attrs, "at");
+    let start = pair_value(attrs, "start");
+    let end = pair_value(attrs, "end");
+    if let (Some(end), None, None) = (end, start, at) {
+        output.diagnostics.push(Diagnostic {
+            code: "event.missing-start",
+            severity: DiagnosticSeverity::Warning,
+            message: "an event with 'end' also requires 'start'".to_string(),
+            range: end.range.clone(),
+            related: Vec::new(),
+        });
+    } else if at.is_none() && start.is_none() {
+        output.diagnostics.push(Diagnostic {
+            code: "event.missing-time",
+            severity: DiagnosticSeverity::Warning,
+            message: "an event requires either 'at' or 'start'".to_string(),
+            range: event.selection_range.clone(),
+            related: Vec::new(),
+        });
+    } else if let (Some(at), true) = (at, start.is_some() || end.is_some()) {
+        output.diagnostics.push(Diagnostic {
+            code: "event.conflicting-time-shape",
+            severity: DiagnosticSeverity::Warning,
+            message: "a point event with 'at' cannot also have 'start' or 'end'".to_string(),
+            range: at.range.clone(),
+            related: start
+                .into_iter()
+                .chain(end)
+                .map(|value| value.range.clone())
+                .collect(),
+        });
     }
 
     if let Some(uid) = pair_value(attrs, "uid") {
@@ -261,7 +308,7 @@ mod tests {
 
     #[test]
     fn collects_event_facets_ranges_and_task_references() {
-        let source = "`-{.event #review uid=\"review@example\" start=\"2026-07-30T14:00:00+08:00\" end=\"2026-07-30T15:30:00+08:00\" tasks=\"#local Project A.plumb#remote\"} Review\n  `note Details\n  `-{.event start=\"2026-07-31T09:00:00+08:00\"} Follow-up\n";
+        let source = "`-{.event #review uid=\"review@example\" start=\"2026-07-30T14:00:00+08:00\" end=\"2026-07-30T15:30:00+08:00\" tasks=\"#local Project A.plumb#remote\"} Review\n  `note Details\n  `-{.event at=\"2026-07-31T09:00:00+08:00\"} Follow-up\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let output = analyze_events(source, &parsed.syntax);
@@ -282,11 +329,11 @@ mod tests {
 
     #[test]
     fn diagnoses_invalid_owners_fields_intervals_and_conflicts() {
-        let source = "`node{.event start=\"2026-07-30T10:00:00Z\"} Wrong owner\n`-{.event .task start=\"2026-07-30T10:00:00Z\"} Conflict\n`-{.event uid=\"\"} Missing start\n`-{.event start=tomorrow end=\"invalid\"} Invalid dates\n`-{.event start=\"2026-07-30T11:00:00Z\" end=\"2026-07-30T10:00:00Z\"} Backward\n";
+        let source = "`node{.event at=\"2026-07-30T10:00:00Z\"} Wrong owner\n`-{.event .task at=\"2026-07-30T10:00:00Z\"} Conflict\n`-{.event uid=\"\"} Missing time\n`-{.event start=tomorrow end=\"invalid\"} Invalid dates\n`-{.event start=\"2026-07-30T11:00:00Z\" end=\"2026-07-30T10:00:00Z\"} Backward\n`-{.event at=\"2026-07-30T10:00:00Z\" start=\"2026-07-30T10:00:00Z\"} Conflicting shape\n`-{.event end=\"2026-07-30T10:00:00Z\"} End only\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let output = analyze_events(source, &parsed.syntax);
-        assert_eq!(output.events.len(), 3);
+        assert_eq!(output.events.len(), 5);
         assert!(output.events[0].uid.is_none());
         assert_eq!(
             output
@@ -297,18 +344,20 @@ mod tests {
             [
                 "event.invalid-owner",
                 "event.conflicting-task-facet",
-                "event.missing-start",
+                "event.missing-time",
                 "event.invalid-uid",
                 "event.invalid-datetime",
                 "event.invalid-datetime",
                 "event.invalid-interval",
+                "event.conflicting-time-shape",
+                "event.missing-start",
             ]
         );
     }
 
     #[test]
     fn excludes_unquoted_uid_from_event_records() {
-        let source = "`-{.event uid=calendar start=\"2026-07-30T10:00:00Z\"} Review\n";
+        let source = "`-{.event uid=calendar at=\"2026-07-30T10:00:00Z\"} Review\n";
         let parsed = parse(source);
         let output = analyze_events(source, &parsed.syntax);
         assert!(output.events[0].uid.is_none());
@@ -317,11 +366,14 @@ mod tests {
 
     #[test]
     fn overlap_uses_half_open_ranges_and_point_events() {
-        let parsed = parse("`-{.event start=\"2026-07-30T10:00:00Z\" end=\"2026-07-30T11:00:00Z\"} Range\n`-{.event start=\"2026-07-30T11:00:00Z\"} Point\n");
+        let parsed = parse("`-{.event start=\"2026-07-30T10:00:00Z\" end=\"2026-07-30T11:00:00Z\"} Range\n`-{.event at=\"2026-07-30T11:00:00Z\"} Point\n`-{.event start=\"2026-07-30T10:45:00Z\"} Running\n");
         let output = analyze_events(&parsed.source, &parsed.syntax);
         let start = DateTime::parse_from_rfc3339("2026-07-30T10:30:00Z").unwrap();
         let end = DateTime::parse_from_rfc3339("2026-07-30T11:00:00Z").unwrap();
         assert!(output.events[0].overlaps(start, end));
         assert!(!output.events[1].overlaps(start, end));
+        assert!(output.events[2].overlaps(start, end));
+        assert!(output.events[1].is_point());
+        assert!(output.events[2].is_running());
     }
 }

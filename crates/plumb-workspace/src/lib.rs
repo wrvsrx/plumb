@@ -121,7 +121,8 @@ pub enum ExplicitIdError {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EventInput {
     pub title: String,
-    pub start: String,
+    pub at: Option<String>,
+    pub start: Option<String>,
     pub end: Option<String>,
     pub tasks: Vec<String>,
 }
@@ -174,6 +175,7 @@ pub enum EventEditError {
     StaleOrInvalidDocument,
     EventNotFound,
     InvalidDatetime,
+    InvalidTimeShape,
     InvalidInterval,
     GeneratedInvalid,
 }
@@ -895,8 +897,8 @@ impl Workspace {
             .collect::<Vec<_>>();
         events.sort_by(|left, right| {
             left.event
-                .start_datetime()
-                .cmp(&right.event.start_datetime())
+                .sort_datetime()
+                .cmp(&right.event.sort_datetime())
                 .then(left.path.cmp(&right.path))
                 .then(left.event.range.start.cmp(&right.event.range.start))
         });
@@ -926,8 +928,8 @@ impl Workspace {
         }
         events.sort_by(|left, right| {
             left.event
-                .start_datetime()
-                .cmp(&right.event.start_datetime())
+                .sort_datetime()
+                .cmp(&right.event.sort_datetime())
                 .then(left.path.cmp(&right.path))
                 .then(left.event.range.start.cmp(&right.event.range.start))
         });
@@ -1701,7 +1703,7 @@ impl Workspace {
                 .or_else(|| entry.parsed.syntax.blocks.last().map(Block::range));
             let affected = after
                 .cloned()
-                .unwrap_or_else(|| 0..entry.parsed.source.len());
+                .unwrap_or(0..entry.parsed.source.len());
             let mut edit = EditSession::new(&entry.parsed, affected.clone())
                 .map_err(|_| TaskAuthoringError::GeneratedInvalid)?;
             if let Some(after) = after {
@@ -2082,7 +2084,7 @@ impl Workspace {
         owned.set_head_text(&input.title);
         let attributes = owned.attributes_mut();
         attributes.retain(|attribute| {
-            !matches!(attribute, OwnedAttribute::Pair { key, .. } if matches!(key.as_str(), "uid" | "start" | "end" | "tasks"))
+            !matches!(attribute, OwnedAttribute::Pair { key, .. } if matches!(key.as_str(), "uid" | "at" | "start" | "end" | "tasks"))
         });
         let uid = event
             .uid
@@ -2090,7 +2092,12 @@ impl Workspace {
             .map(|field| field.value.clone())
             .unwrap_or_else(|| format!("{}@plumb.local", uuid::Uuid::new_v4()));
         attributes.push(OwnedAttribute::quoted("uid", uid));
-        attributes.push(OwnedAttribute::quoted("start", &input.start));
+        if let Some(at) = &input.at {
+            attributes.push(OwnedAttribute::quoted("at", at));
+        }
+        if let Some(start) = &input.start {
+            attributes.push(OwnedAttribute::quoted("start", start));
+        }
         if let Some(end) = &input.end {
             attributes.push(OwnedAttribute::quoted("end", end));
         }
@@ -2553,10 +2560,29 @@ fn single_document_edit(entry: &DocumentEntry, path: PathBuf, edit: TextEdit) ->
 }
 
 fn validate_event_input(input: &EventInput) -> Result<(), EventEditError> {
-    let start =
-        DateTime::parse_from_rfc3339(&input.start).map_err(|_| EventEditError::InvalidDatetime)?;
+    let at = input
+        .at
+        .as_deref()
+        .map(DateTime::parse_from_rfc3339)
+        .transpose()
+        .map_err(|_| EventEditError::InvalidDatetime)?;
+    let start = input
+        .start
+        .as_deref()
+        .map(DateTime::parse_from_rfc3339)
+        .transpose()
+        .map_err(|_| EventEditError::InvalidDatetime)?;
+    if at.is_none() && start.is_none() {
+        return Err(EventEditError::InvalidTimeShape);
+    }
+    if at.is_some() && (start.is_some() || input.end.is_some()) {
+        return Err(EventEditError::InvalidTimeShape);
+    }
     if let Some(end) = &input.end {
         let end = DateTime::parse_from_rfc3339(end).map_err(|_| EventEditError::InvalidDatetime)?;
+        let Some(start) = start else {
+            return Err(EventEditError::InvalidTimeShape);
+        };
         if end <= start {
             return Err(EventEditError::InvalidInterval);
         }
@@ -2766,8 +2792,13 @@ fn owned_event(input: &EventInput, uid: &str) -> OwnedBlock {
     let mut attributes = vec![
         OwnedAttribute::class("event"),
         OwnedAttribute::quoted("uid", uid),
-        OwnedAttribute::quoted("start", &input.start),
     ];
+    if let Some(at) = &input.at {
+        attributes.push(OwnedAttribute::quoted("at", at));
+    }
+    if let Some(start) = &input.start {
+        attributes.push(OwnedAttribute::quoted("start", start));
+    }
     if let Some(end) = &input.end {
         attributes.push(OwnedAttribute::quoted("end", end));
     }
@@ -4712,7 +4743,7 @@ mod tests {
             1,
             "`-{.task #write} Write\n`node{#plain} Plain\n",
         );
-        let events = "`-{.event start=\"2026-07-30T10:30:00+05:00\"} Early\n`-{.event #review uid=\"same@example\" start=\"2026-07-30T14:00:00+08:00\" end=\"2026-07-30T15:00:00+08:00\" tasks=\"tasks.plumb#write\"} Review\n`-{.event uid=\"same@example\" start=\"2026-07-30T15:00:00+08:00\" tasks=\"tasks.plumb#plain missing.plumb#task bad\"} Point\n";
+        let events = "`-{.event at=\"2026-07-30T10:30:00+05:00\"} Early\n`-{.event #review uid=\"same@example\" start=\"2026-07-30T14:00:00+08:00\" end=\"2026-07-30T15:00:00+08:00\" tasks=\"tasks.plumb#write\"} Review\n`-{.event uid=\"same@example\" at=\"2026-07-30T15:00:00+08:00\" tasks=\"tasks.plumb#plain missing.plumb#task bad\"} Point\n";
         workspace.insert("events.plumb", 2, events);
 
         let target = TaskRef {
@@ -4789,6 +4820,22 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["tasks.plumb#write"]
         );
+
+        let point = workspace
+            .search_records_filtered(
+                Path::new(""),
+                Some(SearchRecordKind::Event),
+                "point",
+                20,
+                DateTime::parse_from_rfc3339("2026-07-30T00:00:00Z").unwrap(),
+                Some("at == timestamp('2026-07-30T07:00:00Z')"),
+            )
+            .unwrap();
+        assert_eq!(point.items.len(), 1);
+        assert_eq!(
+            point.items[0].at.as_deref(),
+            Some("2026-07-30T15:00:00+08:00")
+        );
     }
 
     #[test]
@@ -4801,7 +4848,8 @@ mod tests {
                 "agenda.plumb",
                 &EventInput {
                     title: "Review".to_string(),
-                    start: "2026-07-30T14:00:00+08:00".to_string(),
+                    at: None,
+                    start: Some("2026-07-30T14:00:00+08:00".to_string()),
                     end: Some("2026-07-30T15:00:00+08:00".to_string()),
                     tasks: vec!["tasks.plumb#write".to_string()],
                 },
@@ -4830,7 +4878,8 @@ mod tests {
                 event.range.clone(),
                 &EventInput {
                     title: "Updated review".to_string(),
-                    start: "2026-07-30T16:00:00+08:00".to_string(),
+                    at: Some("2026-07-30T16:00:00+08:00".to_string()),
+                    start: None,
                     end: None,
                     tasks: Vec::new(),
                 },
@@ -4861,7 +4910,8 @@ mod tests {
                 "agenda.plumb",
                 &EventInput {
                     title: "Bad".to_string(),
-                    start: "2026-07-30T16:00:00+08:00".to_string(),
+                    at: None,
+                    start: Some("2026-07-30T16:00:00+08:00".to_string()),
                     end: Some("2026-07-30T15:00:00+08:00".to_string()),
                     tasks: Vec::new(),
                 },

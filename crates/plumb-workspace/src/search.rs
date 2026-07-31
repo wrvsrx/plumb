@@ -68,6 +68,7 @@ pub struct SearchRecord {
     pub blocked: Option<bool>,
     pub actionable: Option<bool>,
     pub depth: Option<usize>,
+    pub at: Option<String>,
     pub start: Option<String>,
     pub end: Option<String>,
     pub tasks: Option<Vec<String>>,
@@ -144,6 +145,7 @@ impl Workspace {
                                 blocked: None,
                                 actionable: None,
                                 depth: None,
+                                at: None,
                                 start: None,
                                 end: None,
                                 tasks: None,
@@ -194,6 +196,7 @@ impl Workspace {
                             blocked: Some(blocked),
                             actionable: Some(actionable),
                             depth: Some(task.depth),
+                            at: None,
                             start: None,
                             end: None,
                             tasks: None,
@@ -239,6 +242,7 @@ impl Workspace {
                             blocked: None,
                             actionable: None,
                             depth: Some(event.depth),
+                            at: event.at.as_ref().map(|field| field.value.clone()),
                             start: event.start.as_ref().map(|field| field.value.clone()),
                             end: event.end.as_ref().map(|field| field.value.clone()),
                             tasks: Some(
@@ -477,6 +481,7 @@ impl SemanticSearchFilter {
             optional_search_string(event.uid.as_ref().map(|uid| &uid.value)),
         );
         context.add_variable_from_value("title", event.title.clone());
+        context.add_variable_from_value("at", event_search_datetime_value(&event.at));
         context.add_variable_from_value("start", event_search_datetime_value(&event.start));
         context.add_variable_from_value("end", event_search_datetime_value(&event.end));
         context.add_variable_from_value(

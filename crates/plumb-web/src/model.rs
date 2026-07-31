@@ -202,6 +202,7 @@ pub struct WebEvent {
     pub details: String,
     pub id: Option<String>,
     pub uid: Option<String>,
+    pub at: Option<String>,
     pub start: Option<String>,
     pub end: Option<String>,
     pub tasks: Vec<String>,
@@ -230,7 +231,8 @@ pub struct WebEventDocument {
 #[serde(rename_all = "camelCase")]
 pub struct WebEventInput {
     pub title: String,
-    pub start: String,
+    pub at: Option<String>,
+    pub start: Option<String>,
     pub end: Option<String>,
     #[serde(default)]
     pub tasks: Vec<String>,
@@ -661,6 +663,7 @@ impl WebWorkspace {
                             details: event.details.clone(),
                             id: event.id.as_ref().map(|field| field.value.clone()),
                             uid,
+                            at: event.at.as_ref().map(|field| field.value.clone()),
                             start: event.start.as_ref().map(|field| field.value.clone()),
                             end: event.end.as_ref().map(|field| field.value.clone()),
                             tasks: event
@@ -683,14 +686,16 @@ impl WebWorkspace {
             })
             .collect::<Vec<_>>();
         events.sort_by(|left, right| {
-            left.start
+            left.at
                 .as_deref()
-                .and_then(|start| chrono::DateTime::parse_from_rfc3339(start).ok())
+                .or(left.start.as_deref())
+                .and_then(|time| chrono::DateTime::parse_from_rfc3339(time).ok())
                 .cmp(
                     &right
-                        .start
+                        .at
                         .as_deref()
-                        .and_then(|start| chrono::DateTime::parse_from_rfc3339(start).ok()),
+                        .or(right.start.as_deref())
+                        .and_then(|time| chrono::DateTime::parse_from_rfc3339(time).ok()),
                 )
                 .then(left.path.cmp(&right.path))
                 .then(left.locator.start.cmp(&right.locator.start))
@@ -1438,7 +1443,8 @@ fn validate_generated_source(
 fn event_input(input: &WebEventInput) -> EventInput {
     EventInput {
         title: input.title.clone(),
-        start: input.start.clone(),
+        at: input.at.clone().filter(|at| !at.is_empty()),
+        start: input.start.clone().filter(|start| !start.is_empty()),
         end: input.end.clone().filter(|end| !end.is_empty()),
         tasks: input.tasks.clone(),
     }
@@ -1530,7 +1536,10 @@ fn event_edit_error(error: EventEditError) -> String {
     match error {
         EventEditError::StaleOrInvalidDocument => "event document is stale or invalid",
         EventEditError::EventNotFound => "event is no longer available",
-        EventEditError::InvalidDatetime => "event start and end must be RFC 3339 timestamps",
+        EventEditError::InvalidDatetime => "event at, start, and end must be RFC 3339 timestamps",
+        EventEditError::InvalidTimeShape => {
+            "point events require only at; intervals require start and optional end"
+        }
         EventEditError::InvalidInterval => "event end must be later than start",
         EventEditError::GeneratedInvalid => "event edit produced invalid plumb source",
     }
@@ -1704,7 +1713,8 @@ mod tests {
                 &document.revision,
                 &WebEventInput {
                     title: "Review".to_string(),
-                    start: "2026-07-30T06:00:00Z".to_string(),
+                    at: None,
+                    start: Some("2026-07-30T06:00:00Z".to_string()),
                     end: Some("2026-07-30T07:00:00Z".to_string()),
                     tasks: vec!["#write".to_string()],
                 },
@@ -1720,7 +1730,8 @@ mod tests {
                 &event.revision,
                 &WebEventInput {
                     title: "Updated".to_string(),
-                    start: "2026-07-30T08:00:00Z".to_string(),
+                    at: Some("2026-07-30T08:00:00Z".to_string()),
+                    start: None,
                     end: None,
                     tasks: Vec::new(),
                 },
@@ -1730,6 +1741,7 @@ mod tests {
         let updated = workspace.events().events[0].clone();
         assert_eq!(updated.uid.as_deref(), Some(uid.as_str()));
         assert_eq!(updated.title, "Updated");
+        assert_eq!(updated.at.as_deref(), Some("2026-07-30T08:00:00Z"));
         assert_eq!(updated.end, None);
         assert_eq!(
             workspace.update_event(
@@ -1738,7 +1750,8 @@ mod tests {
                 "stale",
                 &WebEventInput {
                     title: "Conflict".to_string(),
-                    start: "2026-07-30T08:00:00Z".to_string(),
+                    at: Some("2026-07-30T08:00:00Z".to_string()),
+                    start: None,
                     end: None,
                     tasks: Vec::new(),
                 },
@@ -1762,7 +1775,7 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(
             root.join("agenda.plumb"),
-            "`-{.event start=\"2026-07-30T10:30:00+05:00\"} Early\n`-{.event start=\"2026-07-30T06:00:00Z\"} Later\n",
+            "`-{.event at=\"2026-07-30T10:30:00+05:00\"} Early\n`-{.event at=\"2026-07-30T06:00:00Z\"} Later\n",
         )
         .unwrap();
         let workspace = WebWorkspace::load(&root).unwrap();

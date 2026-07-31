@@ -437,6 +437,7 @@ fn search_item(workspace: &Workspace, record: SearchRecord) -> Result<SearchItem
         due: record.due,
         blocked: record.blocked,
         actionable: record.actionable,
+        at: record.at,
         start: record.start,
         end: record.end,
         tasks: record.tasks,
@@ -1600,10 +1601,8 @@ fn construct_completion_items(
                 ConstructTemplate {
                     label: "Event",
                     detail: "plumb calendar event",
-                    snippet: format!(
-                        "`-{{.event uid=\"{uid}\" start=\"{timestamp}\"}} ${{1:Event}}"
-                    ),
-                    plain: format!("`-{{.event uid=\"{uid}\" start=\"{timestamp}\"}} "),
+                    snippet: format!("`-{{.event uid=\"{uid}\" at=\"{timestamp}\"}} ${{1:Event}}"),
+                    plain: format!("`-{{.event uid=\"{uid}\" at=\"{timestamp}\"}} "),
                 },
             ],
         ),
