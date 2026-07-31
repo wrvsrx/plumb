@@ -54,7 +54,7 @@ documents 与 dependents invalidated。
 
 workspace boundary 由显式 root 或 consumer 的 `[.plumb/] discovery 决定。protocol-neutral scanner
 使用 root-scoped `[.ignore] 做 traversal pruning，不读取 parent 或 Git ignore sources，也不默认排除
-dot paths。CLI、LSP、Web 与 static site 共享同一 scanner；LSP root 仍由 client 的
+dot paths。CLI、LSP 与 Web 共享同一 scanner；LSP root 仍由 client 的
 `[workspaceFolders]/`[rootUri] 决定，server 不重新向上 discovery。ignored open document 可以作为
 ephemeral buffer snapshot 参与 document features，关闭后不属于 disk index。
 
@@ -70,7 +70,7 @@ completeness；不能把 partial result 表示成 complete negative result。
 `# 5. Consumers
 
 `- `[plumb] 是唯一 user-facing binary；`[lsp]、`[fmt]、`[export]、`[import]、`[note]、`[task]、`[event]、
-   `[site serve] 和 `[site build]
+   `[site serve]
    subcommands 分别适配 editor protocol、file/stdin、Pandoc JSON、CEL 和 task operations。
 `- `[tree-sitter-plumb] 是 lenient editor mirror，只负责 highlight、fold、indent、text object 和
    injection。
@@ -88,8 +88,8 @@ consumer 不复制 parser、semantic recognition 或 edit logic。
 `- `[plumb-export]：Pandoc JSON lowering library。
 `- `[plumb-import]：受支持 Pandoc AST 到 canonical plumb 的 fallible conversion library。
 `- `[plumb-notes]：notes/task query 与 operation library。
-`- `[plumb-web]：workspace graph/Web document model、Pandoc Web target adaptation、本地只读 server、
-   browser assets 与 static site builder。
+`- `[plumb-web]：workspace graph/Web document model、Pandoc Web target adaptation、本地 Web server
+   与 browser assets。
 
 统一 binary 可以依赖共享 layers，但 shared libraries 不能依赖 CLI protocol types。
 

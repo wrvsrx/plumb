@@ -77,7 +77,7 @@ Tasks 在 URL 没有显式 preset state 时默认启用 `[State: Ready]。每个
 state、timestamps、dependencies 与 child tasks。
 
 Agenda 按 start、path 和 source position 显示 point/range events。Loopback server 上可以从已索引 document
-创建 event，或通过 revision-guarded operation 编辑、删除已有 event；static build 只读。Event detail
+创建 event，或通过 revision-guarded operation 编辑、删除已有 event。Event detail
 显示 start/end、UID、details 与 task references。Mobile Web mutation 初版要求在线，不缓存待提交 edits。
 
 `[plumb event --root DIR export-vdir --output DIR] 将 workspace events 原子投影到受管理 vdir，每个 event
@@ -109,11 +109,3 @@ responses 写入 stderr。task operation 同时记录 received、rejected reason
 
 `[.ignore] 与 graph CEL 的职责不同：前者阻止 document 进入整个 workspace index；后者保留 document
 的其它工具能力，只从 graph projection 移除 node、degree、local traversal 和 force layout effects。
-
-`# Static site
-
-`[plumb site build --root DIR --output DIR] 使用同一 workspace、Web document model 和 frontend assets
-生成静态站点。output 必须不存在或为空；root page canonicalize 到 `[graph/]，并生成 `[graph/index.html]、
-`[tasks/index.html]、`[graph.json]、`[tasks.json]、`[search-index.json]、note pages、note JSON、local
-resources 与 embedded assets。静态页面使用 bundled browser CEL evaluator 保持 query semantics，但 task
-mutations disabled；它不需要运行 plumb server，并遵守相同的 `[.ignore] rules。
