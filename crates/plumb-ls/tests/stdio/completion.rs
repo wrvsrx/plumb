@@ -1,0 +1,546 @@
+use serde_json::json;
+
+use crate::support::{attribute_value, response, run_server, unique_temp_dir};
+
+#[test]
+fn completes_links_by_document_metadata_title() {
+    let root = unique_temp_dir();
+    std::fs::create_dir_all(&root).unwrap();
+    let source = root.join("current.plumb");
+    let target = root.join("Usage Guide.plumb");
+    let closed_path = "`->[x]{to=\"usXXX\"}";
+    let closed_anchor = "`->[x]{to=\"Usage Guide.plumb#usXXX\"}";
+    let raw = "`\"[raw `->[x]{to=\"us\"}]\"";
+    let source_text =
+        format!("`->[Us\n\n`->[x]{{to=\"Guide\n\n{closed_path}\n{closed_anchor}\n{raw}\n");
+    std::fs::write(&source, &source_text).unwrap();
+    std::fs::write(
+        &target,
+        "`meta\n  `: title\n\n    Usage Guide\n\n`#{#usage} Usage\n",
+    )
+    .unwrap();
+    let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
+    let source_uri = lsp_types::Url::from_file_path(&source).unwrap();
+    let messages = [
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {
+                "processId": null,
+                "rootUri": root_uri,
+                "workspaceFolders": [{ "uri": root_uri, "name": "test" }],
+                "capabilities": {}
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": {
+                "uri": source_uri, "languageId": "plumb", "version": 1, "text": source_text
+            }}
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 2, "method": "textDocument/completion",
+            "params": {
+                "textDocument": { "uri": source_uri },
+                "position": { "line": 0, "character": 8 }
+            }
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 3, "method": "textDocument/completion",
+            "params": {
+                "textDocument": { "uri": source_uri },
+                "position": { "line": 2, "character": 18 }
+            }
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 4, "method": "textDocument/completion",
+            "params": {
+                "textDocument": { "uri": source_uri },
+                "position": {
+                    "line": 4,
+                    "character": closed_path.find("usXXX").unwrap() + 2
+                }
+            }
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 5, "method": "textDocument/completion",
+            "params": {
+                "textDocument": { "uri": source_uri },
+                "position": {
+                    "line": 5,
+                    "character": closed_anchor.find("usXXX").unwrap() + 2
+                }
+            }
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 6, "method": "textDocument/completion",
+            "params": {
+                "textDocument": { "uri": source_uri },
+                "position": {
+                    "line": 6,
+                    "character": raw.find("us").unwrap() + 2
+                }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 7, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+    let output = run_server(&messages);
+    let label = &response(&output, 2)["result"][0];
+    assert_eq!(label["label"], "Usage Guide");
+    assert_eq!(label["detail"], "Usage Guide.plumb");
+    assert_eq!(
+        label["textEdit"]["newText"],
+        "`->[Usage Guide]{to=\"Usage Guide.plumb\"}"
+    );
+    let path = &response(&output, 3)["result"][0];
+    assert_eq!(path["label"], "Usage Guide.plumb");
+    assert_eq!(path["detail"], "Usage Guide");
+    assert_eq!(path["textEdit"]["newText"], "Usage Guide.plumb");
+    let closed_path_item = &response(&output, 4)["result"][0];
+    assert_eq!(closed_path_item["textEdit"]["newText"], "Usage Guide.plumb");
+    assert_eq!(
+        closed_path_item["textEdit"]["range"],
+        json!({
+            "start": { "line": 4, "character": closed_path.find("usXXX").unwrap() },
+            "end": { "line": 4, "character": closed_path.find("usXXX").unwrap() + 5 }
+        })
+    );
+    let closed_anchor_item = &response(&output, 5)["result"][0];
+    assert_eq!(closed_anchor_item["textEdit"]["newText"], "usage");
+    assert_eq!(
+        closed_anchor_item["textEdit"]["range"],
+        json!({
+            "start": { "line": 5, "character": closed_anchor.find("usXXX").unwrap() },
+            "end": { "line": 5, "character": closed_anchor.find("usXXX").unwrap() + 5 }
+        })
+    );
+    assert!(response(&output, 6)["result"].is_null());
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn completion_from_a_subdirectory_inserts_a_relative_path() {
+    let root = unique_temp_dir();
+    let source_dir = root.join("b");
+    let target_dir = root.join("a");
+    std::fs::create_dir_all(&source_dir).unwrap();
+    std::fs::create_dir_all(&target_dir).unwrap();
+    let source = source_dir.join("current.plumb");
+    let target = target_dir.join("target.plumb");
+    let source_text = "`->[Target";
+    std::fs::write(&source, source_text).unwrap();
+    std::fs::write(
+        &target,
+        "`meta\n  `: title\n\n    Target A\n\n`#{#target} Target\n",
+    )
+    .unwrap();
+    let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
+    let source_uri = lsp_types::Url::from_file_path(&source).unwrap();
+    let messages = [
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {
+                "processId": null, "rootUri": root_uri,
+                "workspaceFolders": [{ "uri": root_uri, "name": "test" }],
+                "capabilities": {}
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": {
+                "uri": source_uri, "languageId": "plumb", "version": 1, "text": source_text
+            }}
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 2, "method": "textDocument/completion",
+            "params": {
+                "textDocument": { "uri": source_uri },
+                "position": { "line": 0, "character": source_text.len() }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 3, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+
+    let output = run_server(&messages);
+    let item = response(&output, 2)["result"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["label"] == "Target A")
+        .expect("Target A completion");
+    assert_eq!(item["detail"], "../a/target.plumb");
+    assert_eq!(
+        item["textEdit"]["newText"],
+        "`->[Target A]{to=\"../a/target.plumb\"}"
+    );
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn completes_and_navigates_relative_autolinks_files_and_images() {
+    let root = unique_temp_dir();
+    let static_dir = root.join("static");
+    std::fs::create_dir_all(&static_dir).unwrap();
+    let current = root.join("current.plumb");
+    let target = root.join("target note.plumb");
+    let unicode_target = root.join("中文笔记 [草稿].plumb");
+    let image = static_dir.join("image one.PNG");
+    let attachment = static_dir.join("manual draft.pdf");
+    let source = "`[tar]{.->}\n`\"[target note.plumb#an]\"{.->}\n`img[Query]{src=\"static/im\"}\n`img[Missing]{src=\"static/missing.png\"}\n`[target note.plumb]{.->}\n`img[Result]{src=\"static/image one.PNG\"}\n`[中文]{.->}\n`[static/manual draft.pdf]{.->}\n`->[manual]{to=\"static/manual draft.pdf\"}\n`[static/missing guide.pdf]{.->}\n";
+    std::fs::write(&current, source).unwrap();
+    std::fs::write(
+        &target,
+        "`meta\n `: title\n\n    Target note\n\n`#{#anchor} Anchor\n",
+    )
+    .unwrap();
+    std::fs::write(&unicode_target, "`# 中文笔记\n").unwrap();
+    std::fs::write(&image, b"png").unwrap();
+    std::fs::write(&attachment, b"pdf").unwrap();
+
+    let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
+    let current_uri = lsp_types::Url::from_file_path(&current).unwrap();
+    let target_uri = lsp_types::Url::from_file_path(&target).unwrap();
+    let image_uri = lsp_types::Url::from_file_path(&image).unwrap();
+    let attachment_uri = lsp_types::Url::from_file_path(&attachment).unwrap();
+    let lines = source.lines().collect::<Vec<_>>();
+    let autolink_path_cursor = lines[0].find("tar").unwrap() + "tar".len();
+    let autolink_anchor_cursor = lines[1].find("#an").unwrap() + "#an".len();
+    let image_query_cursor = lines[2].find("static/im").unwrap() + "static/im".len();
+    let autolink_definition = lines[4].find("target note.plumb").unwrap() + 2;
+    let image_definition = lines[5].find("static/image").unwrap() + 2;
+    let unicode_cursor = lines[6][..lines[6].find("中文").unwrap() + "中文".len()]
+        .encode_utf16()
+        .count();
+    let attachment_autolink = lines[7].find("manual draft").unwrap() + 2;
+    let attachment_link = lines[8].find("manual draft").unwrap() + 2;
+    let messages = [
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {
+                "processId": null, "rootUri": root_uri,
+                "workspaceFolders": [{ "uri": root_uri, "name": "test" }],
+                "capabilities": {}
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": {
+                "uri": current_uri, "languageId": "plumb", "version": 4, "text": source
+            }}
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 2, "method": "textDocument/completion",
+            "params": {
+                "textDocument": { "uri": current_uri },
+                "position": { "line": 0, "character": autolink_path_cursor }
+            }
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 3, "method": "textDocument/completion",
+            "params": {
+                "textDocument": { "uri": current_uri },
+                "position": { "line": 1, "character": autolink_anchor_cursor }
+            }
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 4, "method": "textDocument/completion",
+            "params": {
+                "textDocument": { "uri": current_uri },
+                "position": { "line": 2, "character": image_query_cursor }
+            }
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 5, "method": "textDocument/hover",
+            "params": {
+                "textDocument": { "uri": current_uri },
+                "position": { "line": 5, "character": image_definition }
+            }
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 6, "method": "textDocument/definition",
+            "params": {
+                "textDocument": { "uri": current_uri },
+                "position": { "line": 5, "character": image_definition }
+            }
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 7, "method": "textDocument/definition",
+            "params": {
+                "textDocument": { "uri": current_uri },
+                "position": { "line": 4, "character": autolink_definition }
+            }
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 8, "method": "textDocument/completion",
+            "params": {
+                "textDocument": { "uri": current_uri },
+                "position": { "line": 6, "character": unicode_cursor }
+            }
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 9, "method": "textDocument/hover",
+            "params": {
+                "textDocument": { "uri": current_uri },
+                "position": { "line": 7, "character": attachment_autolink }
+            }
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 10, "method": "textDocument/definition",
+            "params": {
+                "textDocument": { "uri": current_uri },
+                "position": { "line": 7, "character": attachment_autolink }
+            }
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 11, "method": "textDocument/definition",
+            "params": {
+                "textDocument": { "uri": current_uri },
+                "position": { "line": 8, "character": attachment_link }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 12, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+
+    let output = run_server(&messages);
+    let autolink_path = response(&output, 2)["result"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["label"] == "target note.plumb")
+        .expect("autolink document path completion");
+    assert_eq!(autolink_path["detail"], "Target note");
+    assert_eq!(autolink_path["textEdit"]["newText"], "target note.plumb");
+
+    let anchor = response(&output, 3)["result"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["label"] == "#anchor")
+        .expect("raw anchor completion");
+    assert_eq!(anchor["textEdit"]["newText"], "anchor");
+
+    let image_completion = response(&output, 4)["result"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["label"] == "static/image one.PNG")
+        .expect("image path completion");
+    assert_eq!(image_completion["kind"], 17);
+    assert_eq!(
+        image_completion["textEdit"]["newText"],
+        "static/image one.PNG"
+    );
+
+    assert!(response(&output, 5)["result"]["contents"]["value"]
+        .as_str()
+        .unwrap()
+        .contains("Image file"));
+    assert_eq!(response(&output, 6)["result"]["uri"], image_uri.as_str());
+    assert_eq!(response(&output, 7)["result"]["uri"], target_uri.as_str());
+
+    let unicode_completion = response(&output, 8)["result"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["label"] == "中文笔记 [草稿].plumb")
+        .expect("Unicode autolink completion");
+    assert_eq!(
+        unicode_completion["textEdit"]["newText"],
+        "`\"[中文笔记 [草稿].plumb]\""
+    );
+    assert_eq!(
+        unicode_completion["textEdit"]["range"],
+        json!({
+            "start": { "line": 6, "character": 0 },
+            "end": { "line": 6, "character": 5 }
+        })
+    );
+    assert!(response(&output, 9)["result"]["contents"]["value"]
+        .as_str()
+        .unwrap()
+        .contains("File"));
+    assert_eq!(
+        response(&output, 10)["result"]["uri"],
+        attachment_uri.as_str()
+    );
+    assert_eq!(
+        response(&output, 11)["result"]["uri"],
+        attachment_uri.as_str()
+    );
+
+    let diagnostics = output
+        .iter()
+        .rfind(|message| {
+            message["method"] == "textDocument/publishDiagnostics"
+                && message["params"]["uri"] == current_uri.as_str()
+        })
+        .expect("current diagnostics");
+    assert!(diagnostics["params"]["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|diagnostic| diagnostic["code"] == "image.unresolved-file"));
+    assert!(diagnostics["params"]["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|diagnostic| diagnostic["code"] == "link.unresolved-file"));
+
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn completes_constructs_after_a_single_backtick() {
+    let root = unique_temp_dir();
+    std::fs::create_dir_all(&root).unwrap();
+    let document = root.join("constructs.plumb");
+    let source = "`\nText `";
+    std::fs::write(&document, source).unwrap();
+    let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
+    let document_uri = lsp_types::Url::from_file_path(&document).unwrap();
+    let messages = [
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {
+                "processId": null, "rootUri": root_uri,
+                "workspaceFolders": [{ "uri": root_uri, "name": "test" }],
+                "capabilities": { "textDocument": { "completion": {
+                    "completionItem": { "snippetSupport": true }
+                } } }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": {
+                "uri": document_uri, "languageId": "plumb", "version": 1, "text": source
+            }}
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 2, "method": "textDocument/completion",
+            "params": {
+                "textDocument": { "uri": document_uri },
+                "position": { "line": 0, "character": 1 }
+            }
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 3, "method": "textDocument/completion",
+            "params": {
+                "textDocument": { "uri": document_uri },
+                "position": { "line": 1, "character": 6 }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 4, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+
+    let output = run_server(&messages);
+    let block = response(&output, 2)["result"].as_array().unwrap();
+    assert_eq!(
+        block
+            .iter()
+            .map(|item| item["label"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        ["Task", "Event", "Autolink", "Link"]
+    );
+    let task = block[0]["textEdit"]["newText"].as_str().unwrap();
+    assert!(task.starts_with("`-{.task created=\""));
+    assert!(task.ends_with("\"} ${1:Task}"));
+    chrono::DateTime::parse_from_rfc3339(attribute_value(task, "created")).unwrap();
+    assert_eq!(block[0]["insertTextFormat"], 2);
+    let event = block[1]["textEdit"]["newText"].as_str().unwrap();
+    assert!(event.starts_with("`-{.event uid=\""));
+    assert!(event.ends_with("${1:Event}"));
+    chrono::DateTime::parse_from_rfc3339(attribute_value(event, "start")).unwrap();
+    assert!(attribute_value(event, "uid").ends_with("@plumb.local"));
+
+    let inline = response(&output, 3)["result"].as_array().unwrap();
+    assert_eq!(
+        inline
+            .iter()
+            .map(|item| item["label"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        ["Autolink", "Link"]
+    );
+    let autolink = inline
+        .iter()
+        .find(|item| item["label"] == "Autolink")
+        .unwrap();
+    assert_eq!(autolink["textEdit"]["newText"], "`[${1:path}]{.->}");
+    assert_eq!(autolink["insertTextFormat"], 2);
+
+    let fallback_messages = [
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {
+                "processId": null, "rootUri": root_uri,
+                "workspaceFolders": [{ "uri": root_uri, "name": "test" }],
+                "capabilities": {}
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": {
+                "uri": document_uri, "languageId": "plumb", "version": 1, "text": source
+            }}
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 2, "method": "textDocument/completion",
+            "params": {
+                "textDocument": { "uri": document_uri },
+                "position": { "line": 1, "character": 6 }
+            }
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 3, "method": "textDocument/completion",
+            "params": {
+                "textDocument": { "uri": document_uri },
+                "position": { "line": 0, "character": 1 }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 4, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+    let fallback_output = run_server(&fallback_messages);
+    let fallback = response(&fallback_output, 2)["result"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["label"] == "Autolink")
+        .unwrap();
+    assert_eq!(fallback["textEdit"]["newText"], "`[]{.->}");
+    assert_eq!(fallback["insertTextFormat"], 1);
+    let fallback_block = response(&fallback_output, 3)["result"].as_array().unwrap();
+    assert_eq!(
+        fallback_block
+            .iter()
+            .map(|item| item["label"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        ["Task", "Event", "Autolink", "Link"]
+    );
+    let fallback_task = fallback_block
+        .iter()
+        .find(|item| item["label"] == "Task")
+        .unwrap()["textEdit"]["newText"]
+        .as_str()
+        .unwrap();
+    assert!(fallback_task.starts_with("`-{.task created=\""));
+    assert!(fallback_task.ends_with("\"} "));
+    chrono::DateTime::parse_from_rfc3339(attribute_value(fallback_task, "created")).unwrap();
+    let fallback_event = fallback_block
+        .iter()
+        .find(|item| item["label"] == "Event")
+        .unwrap()["textEdit"]["newText"]
+        .as_str()
+        .unwrap();
+    assert!(fallback_event.starts_with("`-{.event uid=\""));
+    assert!(fallback_event.ends_with("\"} "));
+    assert_eq!(fallback_block[0]["insertTextFormat"], 1);
+    std::fs::remove_dir_all(root).unwrap();
+}
