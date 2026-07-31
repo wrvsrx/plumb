@@ -28,6 +28,25 @@ pub enum TaskEditError {
     GeneratedInvalid,
 }
 
+impl std::fmt::Display for TaskEditError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(match self {
+            Self::StaleOrInvalidDocument => "task document is stale or invalid",
+            Self::TaskNotFound => "task was not found",
+            Self::TaskAlreadyClosed => "task is already closed",
+            Self::TaskBlocked => "task is blocked by open dependencies",
+            Self::InvalidRecurrence => "task recurrence is invalid",
+            Self::InvalidTimestamp => "operation timestamp is invalid",
+            Self::ListItemNotFound => "task list item was not found",
+            Self::TaskAlreadyExists => "the list item is already a task",
+            Self::CreatedAlreadyExists => "the task already has a created timestamp",
+            Self::GeneratedInvalid => "the generated task edit is invalid",
+        })
+    }
+}
+
+impl std::error::Error for TaskEditError {}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct TaskRef {
     pub path: PathBuf,

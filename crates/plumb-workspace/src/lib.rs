@@ -52,6 +52,31 @@ pub struct WorkspaceEdit {
     pub resource_operations: Vec<ResourceOperation>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ApplyDocumentEditError {
+    DocumentNotEdited,
+    RevisionMismatch,
+    InvalidEdits,
+}
+
+pub fn apply_document_edit(
+    source: String,
+    path: impl AsRef<Path>,
+    revision: i64,
+    edit: WorkspaceEdit,
+) -> Result<String, ApplyDocumentEditError> {
+    let path = path.as_ref();
+    let document = edit
+        .document_changes
+        .into_iter()
+        .find(|document| document.path == path)
+        .ok_or(ApplyDocumentEditError::DocumentNotEdited)?;
+    if document.expected_revision != revision {
+        return Err(ApplyDocumentEditError::RevisionMismatch);
+    }
+    apply_text_edits(source, document.edits).map_err(|_| ApplyDocumentEditError::InvalidEdits)
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ResourceOperation {
     Rename {
@@ -2436,6 +2461,33 @@ mod tests {
             std::process::id(),
             COUNTER.fetch_add(1, Ordering::Relaxed)
         ))
+    }
+
+    #[test]
+    fn applies_one_guarded_document_edit_with_revision_validation() {
+        let edit = WorkspaceEdit {
+            document_changes: vec![DocumentEdit {
+                path: PathBuf::from("note.plumb"),
+                expected_revision: 7,
+                edits: vec![TextEdit {
+                    range: 0..4,
+                    new_text: "Task".to_string(),
+                }],
+            }],
+            resource_operations: Vec::new(),
+        };
+        assert_eq!(
+            apply_document_edit("Note\n".to_string(), "note.plumb", 7, edit.clone()),
+            Ok("Task\n".to_string())
+        );
+        assert_eq!(
+            apply_document_edit("Note\n".to_string(), "note.plumb", 8, edit.clone()),
+            Err(ApplyDocumentEditError::RevisionMismatch)
+        );
+        assert_eq!(
+            apply_document_edit("Note\n".to_string(), "other.plumb", 7, edit),
+            Err(ApplyDocumentEditError::DocumentNotEdited)
+        );
     }
 
     #[test]

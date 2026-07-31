@@ -6,10 +6,10 @@ use cel::{Context, Program, Value};
 use chrono::{Local, SecondsFormat};
 use plumb_extensions::{LinkSpelling, TaskStatus};
 use plumb_workspace::{
-    apply_text_edits, display_workspace_path as display_path, normalize, scan_workspace_files,
-    search_score, sort_task_records, truncate_complete_task_documents, EventEditError, EventInput,
-    ResolvedTarget, SearchRecordKind, TaskEditError, TaskRef, TaskSortFacts, TaskSortOrder,
-    Workspace,
+    apply_document_edit, display_workspace_path as display_path, normalize, scan_workspace_files,
+    search_score, sort_task_records, truncate_complete_task_documents, ApplyDocumentEditError,
+    EventEditError, EventInput, ResolvedTarget, SearchRecordKind, TaskRef, TaskSortFacts,
+    TaskSortOrder, Workspace,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -683,14 +683,8 @@ impl WebWorkspace {
                     .set_task_status(path, *offset, status, &timestamp)
             }
         }
-        .map_err(task_edit_error)?;
-        let document = edit
-            .document_changes
-            .into_iter()
-            .find(|document| document.path == path)
-            .ok_or_else(|| "task operation produced no document edit".to_string())?;
-        let updated = apply_text_edits(disk_source, document.edits)
-            .map_err(|_| "task edits overlap or fall outside the document".to_string())?;
+        .map_err(|error| error.to_string())?;
+        let updated = apply_guarded_edit(disk_source, path, entry.revision, edit, "task")?;
         std::fs::write(path, updated)
             .map_err(|error| format!("cannot write {}: {error}", path.display()))
     }
@@ -701,14 +695,10 @@ impl WebWorkspace {
         revision: &str,
         input: &WebEventInput,
     ) -> Result<(), String> {
-        let path = self.guarded_document(document_id, revision, "event")?;
-        let source = std::fs::read_to_string(path)
-            .map_err(|error| format!("cannot read {}: {error}", path.display()))?;
-        let edit = self
-            .workspace
-            .create_event(path, &event_input(input))
-            .map_err(event_edit_error)?;
-        self.write_workspace_edit(path, source, edit, "event")
+        let input = event_input(input);
+        self.mutate_event(document_id, revision, |workspace, path| {
+            workspace.create_event(path, &input)
+        })
     }
 
     pub fn update_event(
@@ -718,14 +708,11 @@ impl WebWorkspace {
         revision: &str,
         input: &WebEventInput,
     ) -> Result<(), String> {
-        let path = self.guarded_document(document_id, revision, "event")?;
-        let source = std::fs::read_to_string(path)
-            .map_err(|error| format!("cannot read {}: {error}", path.display()))?;
-        let edit = self
-            .workspace
-            .update_event(path, locator.start..locator.end, &event_input(input))
-            .map_err(event_edit_error)?;
-        self.write_workspace_edit(path, source, edit, "event")
+        let range = locator.start..locator.end;
+        let input = event_input(input);
+        self.mutate_event(document_id, revision, |workspace, path| {
+            workspace.update_event(path, range, &input)
+        })
     }
 
     pub fn delete_event(
@@ -734,13 +721,25 @@ impl WebWorkspace {
         locator: &WebEventLocator,
         revision: &str,
     ) -> Result<(), String> {
+        let range = locator.start..locator.end;
+        self.mutate_event(document_id, revision, |workspace, path| {
+            workspace.delete_event(path, range)
+        })
+    }
+
+    fn mutate_event(
+        &self,
+        document_id: &str,
+        revision: &str,
+        mutation: impl FnOnce(
+            &Workspace,
+            &Path,
+        ) -> Result<plumb_workspace::WorkspaceEdit, EventEditError>,
+    ) -> Result<(), String> {
         let path = self.guarded_document(document_id, revision, "event")?;
         let source = std::fs::read_to_string(path)
             .map_err(|error| format!("cannot read {}: {error}", path.display()))?;
-        let edit = self
-            .workspace
-            .delete_event(path, locator.start..locator.end)
-            .map_err(event_edit_error)?;
+        let edit = mutation(&self.workspace, path).map_err(event_edit_error)?;
         self.write_workspace_edit(path, source, edit, "event")
     }
 
@@ -779,13 +778,12 @@ impl WebWorkspace {
         edit: plumb_workspace::WorkspaceEdit,
         kind: &str,
     ) -> Result<(), String> {
-        let document = edit
-            .document_changes
-            .into_iter()
-            .find(|document| document.path == path)
-            .ok_or_else(|| format!("{kind} operation produced no document edit"))?;
-        let updated = apply_text_edits(source, document.edits)
-            .map_err(|_| "task edits overlap or fall outside the document".to_string())?;
+        let revision = self
+            .workspace
+            .get(path)
+            .ok_or_else(|| format!("{kind} document is no longer indexed"))?
+            .revision;
+        let updated = apply_guarded_edit(source, path, revision, edit, kind)?;
         std::fs::write(path, updated)
             .map_err(|error| format!("cannot write {}: {error}", path.display()))
     }
@@ -1163,20 +1161,24 @@ fn display_task_ref(root: &Path, target: &TaskRef) -> String {
     format!("{}#{}", display_path(root, &target.path), target.id)
 }
 
-fn task_edit_error(error: TaskEditError) -> String {
-    match error {
-        TaskEditError::StaleOrInvalidDocument => "task document is invalid",
-        TaskEditError::TaskNotFound => "task id was not found",
-        TaskEditError::TaskAlreadyClosed => "task is already closed",
-        TaskEditError::TaskBlocked => "task is blocked by open dependencies",
-        TaskEditError::InvalidRecurrence => "task recurrence is invalid",
-        TaskEditError::InvalidTimestamp => "operation timestamp is invalid",
-        TaskEditError::ListItemNotFound => "task list item was not found",
-        TaskEditError::TaskAlreadyExists => "the list item is already a task",
-        TaskEditError::CreatedAlreadyExists => "the task already has a created timestamp",
-        TaskEditError::GeneratedInvalid => "the generated task edit is invalid",
-    }
-    .to_string()
+fn apply_guarded_edit(
+    source: String,
+    path: &Path,
+    revision: i64,
+    edit: plumb_workspace::WorkspaceEdit,
+    kind: &str,
+) -> Result<String, String> {
+    apply_document_edit(source, path, revision, edit).map_err(|error| match error {
+        ApplyDocumentEditError::DocumentNotEdited => {
+            format!("{kind} operation produced no document edit")
+        }
+        ApplyDocumentEditError::RevisionMismatch => {
+            format!("{kind} operation used a stale document revision")
+        }
+        ApplyDocumentEditError::InvalidEdits => {
+            format!("{kind} edits overlap or fall outside the document")
+        }
+    })
 }
 
 fn event_input(input: &WebEventInput) -> EventInput {

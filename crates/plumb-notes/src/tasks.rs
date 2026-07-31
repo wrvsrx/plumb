@@ -5,7 +5,7 @@ use chrono::{Local, SecondsFormat};
 use comfy_table::{presets::NOTHING, ContentArrangement, Table};
 use plumb_extensions::TaskStatus;
 use plumb_workspace::{
-    apply_text_edits, normalize, sort_task_records, SearchRecordKind, TaskEditError, TaskSortFacts,
+    apply_document_edit, normalize, sort_task_records, SearchRecordKind, TaskSortFacts,
     TaskSortOrder, TaskWorkflowState,
 };
 
@@ -180,19 +180,19 @@ fn set_task_status_target(
     let edit = loaded
         .workspace
         .set_task_status_by_id(&path, &id, status, timestamp)
-        .map_err(task_edit_error)?;
-    let document = edit
-        .document_changes
-        .into_iter()
-        .find(|document| document.path == path)
-        .ok_or_else(|| "task operation did not edit its target document".to_string())?;
+        .map_err(|error| error.to_string())?;
     let source = loaded
         .texts
         .get(&path)
         .cloned()
         .ok_or_else(|| format!("task document is not loaded: {}", path.display()))?;
-    let updated = apply_text_edits(source, document.edits)
-        .map_err(|_| "task edits overlap or fall outside the document".to_string())?;
+    let revision = loaded
+        .workspace
+        .get(&path)
+        .ok_or_else(|| format!("task document is not indexed: {}", path.display()))?
+        .revision;
+    let updated = apply_document_edit(source, &path, revision, edit)
+        .map_err(|error| format!("cannot apply task edit: {error:?}"))?;
     std::fs::write(&path, updated)
         .map_err(|error| format!("cannot write {}: {error}", path.display()))
 }
@@ -214,23 +214,6 @@ fn parse_task_target(root: &Path, target: &str) -> Result<(PathBuf, String), Str
         return Err(format!("task target is not a .plumb file: {target}"));
     }
     Ok((path, id.to_string()))
-}
-
-fn task_edit_error(error: TaskEditError) -> String {
-    match error {
-        TaskEditError::StaleOrInvalidDocument => "task document is invalid".to_string(),
-        TaskEditError::TaskNotFound => "task id not found".to_string(),
-        TaskEditError::TaskAlreadyClosed => "task is already closed".to_string(),
-        TaskEditError::TaskBlocked => "task is blocked by open dependencies".to_string(),
-        TaskEditError::InvalidRecurrence => "task recurrence is invalid".to_string(),
-        TaskEditError::InvalidTimestamp => "operation timestamp is invalid".to_string(),
-        TaskEditError::ListItemNotFound => "no list item exists at the target".to_string(),
-        TaskEditError::TaskAlreadyExists => "the list item is already a task".to_string(),
-        TaskEditError::CreatedAlreadyExists => {
-            "the task already has a created timestamp".to_string()
-        }
-        TaskEditError::GeneratedInvalid => "the generated task edit is invalid".to_string(),
-    }
 }
 
 #[cfg(test)]
