@@ -72,7 +72,8 @@ due、wait/dependency 和 graph connectivity/task counts；custom CEL 与 preset
 Tasks 在 URL 没有显式 preset state 时默认启用 `[State: Ready]。每个 document 是 task forest 的
 虚拟结构节点；Source、Priority、Due 与 Relevance 都只递归排序同一 parent 下的 sibling subtrees，
 因此 document 和 parent/subtask subtree 始终连续。Priority 取 subtree 最大 effective priority，Due
-取 subtree 最早 due，Relevance 取 subtree 最大 fuzzy score；详情显示 derived
+取 subtree 最早 due，Relevance 取 subtree 最大 fuzzy score。过滤先确定当前结果集合，未显示的 task
+不会参与这些聚合；详情显示 derived
 state、timestamps、dependencies 与 child tasks。
 
 Agenda 按 start、path 和 source position 显示 point/range events。Loopback server 上可以从已索引 document

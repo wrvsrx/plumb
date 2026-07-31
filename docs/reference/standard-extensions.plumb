@@ -353,9 +353,10 @@ siblings 中延后，不能降低 ancestor 或 document 的 effective priority�
 保持连续。`[plumb task] 默认按 effective priority 降序、subtree 最早有效 due 升序和 source order
 排序。Web query 可选择 source、priority、due 或 relevance：priority 使用 effective priority，due
 使用 subtree 最早有效 due，relevance 使用 subtree 最大 fuzzy score，source 使用 normalized path 与
-source position；due 按 RFC 3339 instant 比较。过滤在完整 forest 排序后只删除不匹配 records，不能
-重排剩余 records。Task query limit 不得截断 document subtree；必要时返回超过 limit 的完整首个或末尾
-document group，并用 `[complete=false] 表示仍有结果。
+source position；due 按 RFC 3339 instant 比较。query 先过滤 records，再从保留 records 投影用于排序的
+forest；只有保留 task 的 priority、due 与 relevance 参与 ancestor 和 document 聚合，未匹配或因 state
+被排除的 task 不得改变结果顺序。Task query limit 不得截断 document subtree；必要时返回超过 limit 的
+完整首个或末尾 document group，并用 `[complete=false] 表示仍有结果。
 
 workspace query、LSP hover 与 Web task view 在 closure state 之上推导互斥 workflow state：
 

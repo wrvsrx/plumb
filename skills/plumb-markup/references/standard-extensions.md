@@ -290,8 +290,10 @@ task subtrees remain contiguous. `plumb task` sorts by descending effective
 priority, earliest subtree due, then source order. The Web view offers source,
 priority, due, and relevance sorts, aggregating the maximum effective priority,
 earliest RFC 3339 due instant, or maximum fuzzy score through each subtree.
-Filtering removes records after sorting the complete forest. A task query limit
-extends through the current document rather than splitting its tree.
+Filtering first defines the projected result forest. Only retained tasks
+contribute priority, due, and relevance to ancestor and document aggregates;
+hidden tasks cannot change the result order. A task query limit extends through
+the current document rather than splitting its tree.
 
 Workspace queries, LSP hover, and the Web task view derive one mutually
 exclusive workflow state: `ready` for an open task with no future wait or
