@@ -9,8 +9,6 @@ import {
   normalizeSortKeys,
   moveSortKey,
   readQueryParameters,
-  readyTaskQueryRequest,
-  readyTasksFromSnapshot,
   taskByKey,
   togglePresetValue,
   viewFromPath,
@@ -29,28 +27,6 @@ test('task sort keys add and reorder without duplication', () => {
   assert.deepEqual(addSortKey(['priority', 'due'], 'priority'), ['priority', 'due']);
   assert.deepEqual(moveSortKey(['priority', 'due', 'relevance'], 'relevance', 'priority'), ['relevance', 'priority', 'due']);
   assert.deepEqual(moveSortKey(['priority'], 'missing', 'priority'), ['priority']);
-});
-
-test('agenda ready tasks ignore task-page query state', () => {
-  assert.deepEqual(readyTaskQueryRequest(), {
-    view: 'tasks',
-    query: '',
-    presets: ['ready'],
-    filters: [],
-    sort: ['source'],
-    limit: null,
-    traversal: {},
-  });
-  assert.deepEqual(readyTasksFromSnapshot({
-    tasks: [
-      { key: 'ready', state: 'ready' },
-      { key: 'done', state: 'done' },
-    ],
-    complete: true,
-  }), {
-    tasks: [{ key: 'ready', state: 'ready' }],
-    complete: true,
-  });
 });
 
 test('query parameters round trip repeated filters and traversal state', () => {

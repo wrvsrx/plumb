@@ -6,8 +6,6 @@ import {
   normalizeSortKeys,
   moveSortKey,
   readQueryParameters,
-  readyTaskQueryRequest,
-  readyTasksFromSnapshot,
   taskByKey,
   togglePresetValue,
   viewFromPath,
@@ -766,13 +764,9 @@ import {
   async function loadEvents() {
     if (!config.eventSnapshotUrl) return;
     try {
-      const [response, tasks] = await Promise.all([
-        fetch(config.eventSnapshotUrl, { cache: 'no-store' }),
-        loadAgendaTasks(),
-      ]);
+      const response = await fetch(config.eventSnapshotUrl, { cache: 'no-store' });
       if (!response.ok) throw new Error(await response.text());
       state.events = await response.json();
-      state.tasks = tasks.tasks;
       renderEvents();
     } catch (error) {
       if (!state.events) eventPanel.innerHTML = '<div class="note-empty"><h1>Agenda unavailable</h1></div>';
@@ -780,21 +774,10 @@ import {
     }
   }
 
-  async function loadAgendaTasks() {
-    const response = await fetch(config.queryUrl, {
-      method: 'POST',
-      cache: 'no-store',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(readyTaskQueryRequest()),
-    });
-    if (!response.ok) throw new Error(await response.text());
-    return response.json();
-  }
-
   function renderEvents() {
     if (!state.events) return;
     eventList.replaceChildren();
-    eventEmpty.hidden = state.events.events.length > 0 || Boolean(state.tasks?.tasks?.length);
+    eventEmpty.hidden = state.events.events.length > 0;
     let previousDate = null;
     state.events.events.forEach((event) => {
       const eventTime = event.at || event.start;
@@ -826,34 +809,6 @@ import {
       button.addEventListener('click', () => selectEvent(event));
       eventList.append(button);
     });
-    if (state.tasks?.tasks?.length) {
-      const heading = document.createElement('div');
-      heading.className = 'task-document-group';
-      heading.textContent = 'Ready tasks';
-      eventList.append(heading);
-      state.tasks.tasks.forEach((task) => {
-        const button = document.createElement('button');
-        button.type = 'button';
-        button.className = 'event-row agenda-task-row';
-        const stateLabel = document.createElement('span');
-        stateLabel.className = 'task-state state-ready';
-        stateLabel.textContent = 'Ready';
-        const identity = document.createElement('span');
-        identity.className = 'task-identity';
-        const title = document.createElement('strong');
-        title.textContent = task.title || '(untitled task)';
-        const source = document.createElement('small');
-        source.textContent = task.id ? `${task.path}#${task.id}` : task.path;
-        identity.append(title, source);
-        button.append(stateLabel, identity);
-        button.addEventListener('click', () => {
-          state.selectedTask = task.key;
-          showView('tasks', { historyMode: 'push' });
-          renderTasks();
-        });
-        eventList.append(button);
-      });
-    }
     const selected = state.events.events.find((event) => event.key === state.selectedEvent);
     if (selected) renderEventDetail(selected);
     else renderNewEventPrompt();
