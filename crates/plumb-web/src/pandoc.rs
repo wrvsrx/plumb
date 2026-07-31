@@ -7,22 +7,12 @@ use serde_json::Value;
 
 use crate::WebWorkspace;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum WebTargetMode {
-    Dynamic,
-    StaticNote,
-}
-
-pub fn render_note_html(
-    workspace: &WebWorkspace,
-    document_id: &str,
-    mode: WebTargetMode,
-) -> Result<String, String> {
+pub fn render_note_html(workspace: &WebWorkspace, document_id: &str) -> Result<String, String> {
     let source_path = workspace
         .document_path(document_id)
         .ok_or_else(|| format!("unknown document id '{document_id}'"))?;
     let mut document = workspace.pandoc_document(document_id)?;
-    adapt_pandoc_targets(workspace, source_path, mode, &mut document);
+    adapt_pandoc_targets(workspace, source_path, &mut document);
     let input = serde_json::to_vec(&document)
         .map_err(|error| format!("cannot encode Pandoc document: {error}"))?;
     let mut child = Command::new("pandoc")
@@ -51,25 +41,15 @@ pub fn render_note_html(
         .map_err(|error| format!("Pandoc returned invalid UTF-8: {error}"))
 }
 
-pub fn adapt_pandoc_targets(
-    workspace: &WebWorkspace,
-    source_path: &Path,
-    mode: WebTargetMode,
-    document: &mut Value,
-) {
-    adapt_value(workspace, source_path, mode, document);
+pub fn adapt_pandoc_targets(workspace: &WebWorkspace, source_path: &Path, document: &mut Value) {
+    adapt_value(workspace, source_path, document);
 }
 
-fn adapt_value(
-    workspace: &WebWorkspace,
-    source_path: &Path,
-    mode: WebTargetMode,
-    value: &mut Value,
-) {
+fn adapt_value(workspace: &WebWorkspace, source_path: &Path, value: &mut Value) {
     match value {
         Value::Array(values) => {
             for value in values {
-                adapt_value(workspace, source_path, mode, value);
+                adapt_value(workspace, source_path, value);
             }
         }
         Value::Object(object) => {
@@ -85,12 +65,9 @@ fn adapt_value(
                     .map(str::to_string)
                 {
                     let (adapted, document_id) = if node_kind.as_deref() == Some("Image") {
-                        (
-                            adapt_resource_target(workspace, source_path, mode, &target),
-                            None,
-                        )
+                        (adapt_resource_target(workspace, source_path, &target), None)
                     } else {
-                        adapt_link_target(workspace, source_path, mode, &target)
+                        adapt_link_target(workspace, source_path, &target)
                     };
                     if node_kind.as_deref() == Some("Link")
                         && is_file_node(object)
@@ -115,7 +92,7 @@ fn adapt_value(
                 }
             }
             for child in object.values_mut() {
-                adapt_value(workspace, source_path, mode, child);
+                adapt_value(workspace, source_path, child);
             }
         }
         _ => {}
@@ -221,7 +198,6 @@ fn escape_html_attribute(value: &str) -> String {
 fn adapt_link_target(
     workspace: &WebWorkspace,
     source_path: &Path,
-    mode: WebTargetMode,
     target: &str,
 ) -> (String, Option<String>) {
     if is_external(target) {
@@ -236,14 +212,11 @@ fn adapt_link_target(
     let resolved = resolve_relative(source_path, path);
     if path.ends_with(".plumb") {
         if let Some(id) = workspace.document_id(&resolved) {
-            return (document_url(mode, id, fragment), Some(id.to_string()));
+            return (document_url(id, fragment), Some(id.to_string()));
         }
         return (target.to_string(), None);
     }
-    (
-        adapt_resource_target(workspace, source_path, mode, target),
-        None,
-    )
+    (adapt_resource_target(workspace, source_path, target), None)
 }
 
 fn add_link_document_attribute(object: &mut serde_json::Map<String, Value>, document_id: &str) {
@@ -263,12 +236,7 @@ fn add_link_document_attribute(object: &mut serde_json::Map<String, Value>, docu
     ]));
 }
 
-fn adapt_resource_target(
-    workspace: &WebWorkspace,
-    source_path: &Path,
-    mode: WebTargetMode,
-    target: &str,
-) -> String {
+fn adapt_resource_target(workspace: &WebWorkspace, source_path: &Path, target: &str) -> String {
     if is_external(target) {
         return target.to_string();
     }
@@ -278,17 +246,11 @@ fn adapt_resource_target(
         return target.to_string();
     };
     let name = utf8_percent_encode(&resource.name, NON_ALPHANUMERIC).to_string();
-    match mode {
-        WebTargetMode::Dynamic => format!("/resource/{}/{}", resource.id, name),
-        WebTargetMode::StaticNote => format!("../../resources/{}/{name}", resource.id),
-    }
+    format!("/resource/{}/{}", resource.id, name)
 }
 
-fn document_url(mode: WebTargetMode, id: &str, fragment: Option<&str>) -> String {
-    let base = match mode {
-        WebTargetMode::Dynamic => format!("/note/{id}"),
-        WebTargetMode::StaticNote => format!("../../notes/{id}/"),
-    };
+fn document_url(id: &str, fragment: Option<&str>) -> String {
+    let base = format!("/note/{id}");
     fragment.map_or(base.clone(), |fragment| {
         format!("{base}#{}", encode_fragment(fragment))
     })
@@ -331,12 +293,7 @@ mod tests {
         let mut document = workspace
             .pandoc_document(workspace.document_id(root.join("a.plumb")).unwrap())
             .unwrap();
-        adapt_pandoc_targets(
-            &workspace,
-            &root.join("a.plumb"),
-            WebTargetMode::Dynamic,
-            &mut document,
-        );
+        adapt_pandoc_targets(&workspace, &root.join("a.plumb"), &mut document);
         let link = &document["blocks"][0]["c"][0];
         assert!(link["c"][2][0].as_str().unwrap().starts_with("/note/d"));
         assert!(link["c"][2][0].as_str().unwrap().ends_with("#section"));
@@ -357,7 +314,7 @@ mod tests {
     }
 
     #[test]
-    fn renders_local_video_files_as_media_with_dynamic_and_static_targets() {
+    fn renders_local_video_files_as_media() {
         let root = temp_dir();
         std::fs::create_dir_all(root.join("assets")).unwrap();
         std::fs::write(root.join("assets/demo video.mp4"), b"video").unwrap();
@@ -370,41 +327,24 @@ mod tests {
         let workspace = WebWorkspace::load(&root).unwrap();
         let document_id = workspace.document_id(root.join("a.plumb")).unwrap();
 
-        let mut dynamic = workspace.pandoc_document(document_id).unwrap();
-        adapt_pandoc_targets(
-            &workspace,
-            &root.join("a.plumb"),
-            WebTargetMode::Dynamic,
-            &mut dynamic,
-        );
-        let video = &dynamic["blocks"][0]["c"][0];
+        let mut document = workspace.pandoc_document(document_id).unwrap();
+        adapt_pandoc_targets(&workspace, &root.join("a.plumb"), &mut document);
+        let video = &document["blocks"][0]["c"][0];
         assert_eq!(video["t"], "Span");
         let html = video["c"][1][0]["c"][1].as_str().unwrap();
         assert!(html.starts_with("<video controls"), "{html}");
         assert!(html.contains("src=\"/resource/r"), "{html}");
         assert!(html.contains("demo%20video%2Emp4"), "{html}");
         assert_eq!(video["c"][1][1]["c"][1][0]["c"], "Demo");
-        let fallback_file = &dynamic["blocks"][1]["c"][0];
+        let fallback_file = &document["blocks"][1]["c"][0];
         assert_eq!(fallback_file["t"], "Link");
         assert!(fallback_file["c"][2][0]
             .as_str()
             .unwrap()
             .starts_with("/resource/r"));
-        assert_eq!(dynamic["blocks"][2]["c"][0]["t"], "Link");
+        assert_eq!(document["blocks"][2]["c"][0]["t"], "Link");
 
-        let mut static_note = workspace.pandoc_document(document_id).unwrap();
-        adapt_pandoc_targets(
-            &workspace,
-            &root.join("a.plumb"),
-            WebTargetMode::StaticNote,
-            &mut static_note,
-        );
-        let html = static_note["blocks"][0]["c"][0]["c"][1][0]["c"][1]
-            .as_str()
-            .unwrap();
-        assert!(html.contains("src=\"../../resources/r"), "{html}");
-
-        let rendered = render_note_html(&workspace, document_id, WebTargetMode::Dynamic).unwrap();
+        let rendered = render_note_html(&workspace, document_id).unwrap();
         assert!(rendered.contains("<video controls"), "{rendered}");
         assert!(rendered.contains("src=\"/resource/r"), "{rendered}");
         std::fs::remove_dir_all(root).unwrap();

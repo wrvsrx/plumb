@@ -242,12 +242,11 @@ fn round_trips_the_exported_standard_profile_through_import() {
 }
 
 #[test]
-fn builds_and_serves_the_workspace_site_with_notes_and_tasks() {
+fn serves_the_workspace_site_with_notes_and_tasks() {
     if Command::new("pandoc").arg("--version").output().is_err() {
         return;
     }
     let root = unique_temp_dir();
-    let output = unique_temp_dir();
     std::fs::create_dir_all(root.join("assets")).unwrap();
     std::fs::create_dir_all(root.join("private")).unwrap();
     std::fs::write(root.join(".ignore"), "private/\n").unwrap();
@@ -264,24 +263,6 @@ fn builds_and_serves_the_workspace_site_with_notes_and_tasks() {
         "Hidden index. `->[Alpha]{to=\"a.plumb\"}.\n",
     )
     .unwrap();
-
-    let built = Command::new(env!("CARGO_BIN_EXE_plumb"))
-        .args(["site", "build", "--root"])
-        .arg(&root)
-        .arg("--output")
-        .arg(&output)
-        .output()
-        .unwrap();
-    assert!(
-        built.status.success(),
-        "{}",
-        String::from_utf8_lossy(&built.stderr)
-    );
-    assert!(output.join("index.html").is_file());
-    assert!(output.join("graph.json").is_file());
-    let static_graph: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(output.join("graph.json")).unwrap()).unwrap();
-    assert_eq!(static_graph["nodes"].as_array().unwrap().len(), 3);
 
     let port = available_port();
     let mut child = Command::new(env!("CARGO_BIN_EXE_plumb"))
@@ -419,7 +400,16 @@ fn builds_and_serves_the_workspace_site_with_notes_and_tasks() {
         "{server_log}"
     );
     std::fs::remove_dir_all(root).unwrap();
-    std::fs::remove_dir_all(output).unwrap();
+}
+
+#[test]
+fn site_build_is_not_a_supported_subcommand() {
+    let output = Command::new(env!("CARGO_BIN_EXE_plumb"))
+        .args(["site", "build"])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("unrecognized subcommand 'build'"));
 }
 
 fn http_get(address: &str, path: &str) -> (u16, String, String) {

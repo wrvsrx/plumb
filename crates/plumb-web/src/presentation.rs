@@ -1,5 +1,3 @@
-use std::path::Path;
-
 use crate::{SourceLocation, WebWorkspace};
 
 const INDEX_HTML: &str = include_str!("../assets/index.html");
@@ -10,8 +8,6 @@ pub(crate) const STYLES_CSS: &str = include_str!("../assets/styles.css");
 pub(crate) const FORCE_GRAPH_JS: &str = include_str!("../assets/vendor/force-graph.min.js");
 pub(crate) const FORCE_GRAPH_LICENSE: &str =
     include_str!("../assets/vendor/FORCE-GRAPH-LICENSE.txt");
-pub(crate) const CEL_JS: &str = include_str!("../assets/vendor/cel-js.min.js");
-pub(crate) const CEL_JS_LICENSE: &str = include_str!("../assets/vendor/CEL-JS-LICENSE.txt");
 
 pub(crate) fn render_note_page(
     title: &str,
@@ -76,22 +72,4 @@ fn escape_html(value: &str) -> String {
         .replace('>', "&gt;")
         .replace('"', "&quot;")
         .replace('\'', "&#39;")
-}
-
-pub(crate) fn write_assets(output: &Path) -> Result<(), String> {
-    std::fs::create_dir_all(output.join("vendor"))
-        .map_err(|error| format!("cannot create assets directory: {error}"))?;
-    for (path, contents) in [
-        ("app.js", APP_JS),
-        ("query-state.js", QUERY_STATE_JS),
-        ("styles.css", STYLES_CSS),
-        ("vendor/force-graph.min.js", FORCE_GRAPH_JS),
-        ("vendor/FORCE-GRAPH-LICENSE.txt", FORCE_GRAPH_LICENSE),
-        ("vendor/cel-js.min.js", CEL_JS),
-        ("vendor/CEL-JS-LICENSE.txt", CEL_JS_LICENSE),
-    ] {
-        std::fs::write(output.join(path), contents)
-            .map_err(|error| format!("cannot write {path}: {error}"))?;
-    }
-    Ok(())
 }

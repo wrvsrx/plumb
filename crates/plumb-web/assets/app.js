@@ -1,4 +1,3 @@
-import { parse as parseCel } from './vendor/cel-js.min.js';
 import {
   addPreset,
   addPresetGroup,
@@ -6,7 +5,6 @@ import {
   readQueryParameters,
   readyTaskQueryRequest,
   readyTasksFromSnapshot,
-  sortTaskTrees,
   taskByKey,
   togglePresetValue,
   viewFromPath,
@@ -133,13 +131,9 @@ import {
   }
 
   async function loadPresetRegistry() {
-    if (config.presets) {
-      state.presetRegistry = config.presets;
-    } else {
-      const response = await fetch(config.presetsUrl, { cache: 'no-store' });
-      if (!response.ok) throw new Error(await response.text());
-      state.presetRegistry = await response.json();
-    }
+    const response = await fetch(config.presetsUrl, { cache: 'no-store' });
+    if (!response.ok) throw new Error(await response.text());
+    state.presetRegistry = await response.json();
     renderPresetControls('graph');
     renderPresetControls('tasks');
   }
@@ -349,7 +343,6 @@ import {
   }
 
   async function executeQuery(view) {
-    if (!config.queryUrl) return executeStaticQuery(view);
     const response = await fetch(config.queryUrl, {
       method: 'POST',
       cache: 'no-store',
@@ -366,165 +359,6 @@ import {
     return response.json();
   }
 
-  const staticData = {};
-
-  async function staticSnapshot(kind) {
-    if (!staticData[kind]) {
-      const response = await fetch(kind === 'graph' ? config.graphUrl : config.tasksUrl, { cache: 'no-store' });
-      if (!response.ok) throw new Error(await response.text());
-      staticData[kind] = await response.json();
-    }
-    return staticData[kind];
-  }
-
-  function fuzzyScore(candidate, query) {
-    const source = Array.from(candidate.toLocaleLowerCase());
-    const wanted = Array.from(query.toLocaleLowerCase());
-    if (!wanted.length) return 0;
-    let position = 0;
-    let previous = -2;
-    let score = 0;
-    for (const character of wanted) {
-      const relative = source.slice(position).indexOf(character);
-      if (relative < 0) return null;
-      const found = position + relative;
-      score += 20 - Math.min(relative, 20);
-      if (previous + 1 === found) score += 15;
-      if (found === 0 || /[\s/_-]/.test(source[found - 1])) score += 10;
-      previous = found;
-      position = found + 1;
-    }
-    if (source.length === wanted.length && source.every((character, index) => character === wanted[index])) score += 1000;
-    else if (wanted.every((character, index) => source[index] === character)) score += 500;
-    return score;
-  }
-
-  function bestFuzzyScore(fields, query) {
-    if (!query) return 0;
-    const scores = fields.map((field) => fuzzyScore(field || '', query)).filter((score) => score !== null);
-    return scores.length ? Math.max(...scores) : null;
-  }
-
-  function compileBrowserCel(source) {
-    const evaluate = parseCel(source);
-    return (facts) => {
-      const value = evaluate(facts);
-      if (typeof value !== 'boolean') throw new Error(`CEL query must return bool, got ${typeof value}`);
-      return value;
-    };
-  }
-
-  function queryPredicates(view) {
-    const registry = state.presetRegistry[view] || [];
-    const groups = new Map();
-    state.presets[view].forEach((id) => {
-      const preset = registry.find((item) => item.id === id);
-      if (!preset) { const error = new Error(`unknown query preset '${id}'`); error.source = `preset:${id}`; throw error; }
-      const key = preset.group || `preset:${id}`;
-      if (!groups.has(key)) groups.set(key, []);
-      try { groups.get(key).push(compileBrowserCel(preset.expression)); } catch (failure) { failure.source = `preset:${id}`; throw failure; }
-    });
-    const predicates = Array.from(groups.values()).map((group) => (facts) => group.some((predicate) => predicate(facts)));
-    state.filters[view].forEach((source, index) => {
-      if (!source.trim()) return;
-      try { predicates.push(compileBrowserCel(source)); } catch (failure) { failure.source = `custom:${index + 1}`; throw failure; }
-    });
-    return predicates;
-  }
-
-  function taskFacts(task) {
-    const timestamp = (value) => value ? new Date(value) : null;
-    return {
-      path: task.path, id: task.id, title: task.title, created: timestamp(task.created), due: timestamp(task.due), priority: task.priority,
-      wait: timestamp(task.wait), done: timestamp(task.done), canceled: timestamp(task.canceled),
-      recur: task.recur, prev: task.prev, depends_on: task.dependsOn,
-      directly_blocking: task.directlyBlocking, state: task.state, wait_reasons: task.waitReasons,
-      blocked: task.blocked, actionable: task.actionable, now: new Date(),
-    };
-  }
-
-  function staticTaskQuery(snapshot) {
-    const predicates = queryPredicates('tasks');
-    const scores = new Map();
-    const retained = new Set();
-    snapshot.tasks.forEach((task) => {
-      try { if (!predicates.every((predicate) => predicate(taskFacts(task)))) return false; }
-      catch (failure) { failure.source ||= 'custom'; throw failure; }
-      const score = bestFuzzyScore([task.title, task.id || '', task.path], state.query.tasks);
-      if (score === null) return false;
-      scores.set(task.key, score);
-      retained.add(task.key);
-    });
-    const tasks = sortTaskTrees(
-      snapshot.tasks.filter((task) => retained.has(task.key)),
-      state.sort.tasks,
-      scores,
-    );
-    return { ...snapshot, tasks, complete: true };
-  }
-
-  function staticGraphQuery(snapshot, tasks) {
-    let nodes = snapshot.nodes.slice();
-    let edges = snapshot.edges.filter((edge) => selectedKinds().includes(edge.kind));
-    if (state.local && state.current && nodes.some((node) => node.id === state.current)) {
-      const included = new Set([state.current]);
-      let frontier = [state.current];
-      for (let distance = 0; distance < Number(depth.value); distance += 1) {
-        const next = [];
-        frontier.forEach((id) => edges.forEach((edge) => {
-          const source = endpointId(edge.source); const target = endpointId(edge.target);
-          let neighbor = null;
-          if (direction.value !== 'incoming' && source === id) neighbor = target;
-          if (direction.value !== 'outgoing' && target === id) neighbor = source;
-          if (neighbor && !included.has(neighbor)) { included.add(neighbor); next.push(neighbor); }
-        }));
-        frontier = next;
-      }
-      nodes = nodes.filter((node) => included.has(node.id));
-      edges = edges.filter((edge) => included.has(endpointId(edge.source)) && included.has(endpointId(edge.target)));
-    }
-    const metrics = new Map(nodes.map((node) => [node.id, { degree: 0, incoming: 0, outgoing: 0, task_count: 0, open_task_count: 0 }]));
-    edges.forEach((edge) => {
-      const source = metrics.get(endpointId(edge.source)); const target = metrics.get(endpointId(edge.target));
-      if (source) { source.degree += 1; source.outgoing += 1; }
-      if (target) { target.degree += 1; target.incoming += 1; }
-    });
-    tasks.tasks.forEach((task) => {
-      const metric = metrics.get(task.documentId);
-      if (metric) { metric.task_count += 1; if (['ready', 'waiting'].includes(task.state)) metric.open_task_count += 1; }
-    });
-    const predicates = queryPredicates('graph');
-    const scores = new Map();
-    nodes = nodes.filter((node) => {
-      const metric = metrics.get(node.id);
-      const facts = {
-        path: node.path, title: node.title, unresolved: node.unresolved,
-        degree: BigInt(metric.degree), incoming: BigInt(metric.incoming), outgoing: BigInt(metric.outgoing),
-        task_count: BigInt(metric.task_count), open_task_count: BigInt(metric.open_task_count),
-      };
-      try { if (!predicates.every((predicate) => predicate(facts))) return false; }
-      catch (failure) { failure.source ||= 'custom'; throw failure; }
-      const score = bestFuzzyScore([node.title, node.path || ''], state.query.graph);
-      if (score === null) return false;
-      scores.set(node.id, score); return true;
-    });
-    const visible = new Set(nodes.map((node) => node.id));
-    edges = edges.filter((edge) => visible.has(endpointId(edge.source)) && visible.has(endpointId(edge.target)));
-    nodes.sort((left, right) => {
-      if (state.sort.graph === 'relevance' && state.query.graph) {
-        const relevance = scores.get(right.id) - scores.get(left.id);
-        if (relevance) return relevance;
-      }
-      return (left.path || '\uffff').localeCompare(right.path || '\uffff') || left.id.localeCompare(right.id);
-    });
-    return { ...snapshot, nodes, edges, complete: true };
-  }
-
-  async function executeStaticQuery(view) {
-    if (view === 'tasks') return { view, tasks: staticTaskQuery(await staticSnapshot('tasks')) };
-    const [graph, tasks] = await Promise.all([staticSnapshot('graph'), staticSnapshot('tasks')]);
-    return { view, graph: staticGraphQuery(graph, tasks) };
-  }
 
   async function loadGraph() {
     try {
@@ -889,7 +723,6 @@ import {
   }
 
   async function loadAgendaTasks() {
-    if (!config.queryUrl) return readyTasksFromSnapshot(await staticSnapshot('tasks'));
     const response = await fetch(config.queryUrl, {
       method: 'POST',
       cache: 'no-store',

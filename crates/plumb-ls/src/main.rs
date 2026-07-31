@@ -77,6 +77,6 @@ fn wants_help(args: &[OsString]) -> bool {
 
 fn print_help() {
     println!(
-        "Strict plumb markup language and tooling\n\nUsage: plumb <COMMAND>\n\nCommands:\n  check   Check a workspace\n  event   Export calendar events\n  fmt     Format documents\n  export  Emit Pandoc JSON\n  import  Read Pandoc JSON\n  note    Query notes\n  site    Build or serve a workspace site\n  task    Query or update tasks\n  lsp     Run the language server\n  help    Print this help"
+        "Strict plumb markup language and tooling\n\nUsage: plumb <COMMAND>\n\nCommands:\n  check   Check a workspace\n  event   Export calendar events\n  fmt     Format documents\n  export  Emit Pandoc JSON\n  import  Read Pandoc JSON\n  note    Query notes\n  site    Serve a workspace Web app\n  task    Query or update tasks\n  lsp     Run the language server\n  help    Print this help"
     );
 }

@@ -1,6 +1,6 @@
 export function viewFromPath(pathname) {
-  if (/\/tasks(?:\/index\.html)?\/?$/.test(pathname)) return 'tasks';
-  if (/\/agenda(?:\/index\.html)?\/?$/.test(pathname)) return 'agenda';
+  if (/\/tasks\/?$/.test(pathname)) return 'tasks';
+  if (/\/agenda\/?$/.test(pathname)) return 'agenda';
   return 'graph';
 }
 
@@ -61,84 +61,6 @@ export function togglePresetValue(selected, preset, registry) {
 export function taskByKey(snapshot, key) {
   if (!snapshot || !key) return null;
   return (snapshot.allTasks || snapshot.tasks || []).find((task) => task.key === key) || null;
-}
-
-export function sortTaskTrees(tasks, sort, scores = new Map()) {
-  const source = tasks.slice().sort(taskSourceOrder);
-  const byDocument = new Map();
-  source.forEach((task) => {
-    if (!byDocument.has(task.path)) byDocument.set(task.path, []);
-    byDocument.get(task.path).push(task);
-  });
-  const documents = Array.from(byDocument, ([path, items]) => {
-    const children = taskForest(items, scores);
-    sortTaskForest(children, sort);
-    return {
-      path,
-      children,
-      priority: Math.max(0, ...children.map((child) => child.priority)),
-      due: minimum(children.map((child) => child.due)),
-      relevance: maximum(children.map((child) => child.relevance)),
-    };
-  });
-  documents.sort((left, right) => aggregateOrder(left, right, sort) || left.path.localeCompare(right.path));
-  return documents.flatMap((document) => document.children.flatMap(flattenTaskTree));
-}
-
-function taskForest(tasks, scores) {
-  const forest = [];
-  for (let index = 0; index < tasks.length;) {
-    const root = tasks[index];
-    let end = index + 1;
-    while (end < tasks.length && tasks[end].path === root.path && tasks[end].depth > root.depth) end += 1;
-    const children = taskForest(tasks.slice(index + 1, end), scores);
-    forest.push({
-      root,
-      children,
-      priority: Math.max(root.priority ?? 0, ...children.map((child) => child.priority)),
-      due: minimum([root.due, ...children.map((child) => child.due)]),
-      relevance: maximum([scores.get(root.key), ...children.map((child) => child.relevance)]),
-    });
-    index = end;
-  }
-  return forest;
-}
-
-function sortTaskForest(forest, sort) {
-  forest.forEach((tree) => sortTaskForest(tree.children, sort));
-  forest.sort((left, right) => aggregateOrder(left, right, sort) || taskSourceOrder(left.root, right.root));
-}
-
-function aggregateOrder(left, right, sort) {
-  if (sort === 'priority') return right.priority - left.priority || compareDue(left.due, right.due);
-  if (sort === 'due') return compareDue(left.due, right.due);
-  if (sort === 'relevance') return (right.relevance ?? Number.NEGATIVE_INFINITY) - (left.relevance ?? Number.NEGATIVE_INFINITY);
-  return 0;
-}
-
-function taskSourceOrder(left, right) {
-  return left.path.localeCompare(right.path) || left.location.start - right.location.start || left.key.localeCompare(right.key);
-}
-
-function compareDue(left, right) {
-  if (left && right) return Date.parse(left) - Date.parse(right);
-  if (left) return -1;
-  if (right) return 1;
-  return 0;
-}
-
-function minimum(values) {
-  const present = values.filter((value) => value !== null && value !== undefined);
-  return present.length ? present.reduce((left, right) => compareDue(left, right) <= 0 ? left : right) : null;
-}
-
-function maximum(values) {
-  const present = values.filter((value) => value !== null && value !== undefined);
-  return present.length ? Math.max(...present) : null;
-}
-
-function flattenTaskTree(tree) {
-  return [tree.root, ...tree.children.flatMap(flattenTaskTree)];
 }
 
 export function readyTaskQueryRequest() {

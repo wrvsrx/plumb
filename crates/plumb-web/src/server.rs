@@ -23,12 +23,12 @@ use tokio_stream::wrappers::BroadcastStream;
 use tokio_stream::StreamExt;
 
 use crate::presentation::{
-    render_backlinks, render_index, render_note_page, APP_JS, CEL_JS, CEL_JS_LICENSE,
-    FORCE_GRAPH_JS, FORCE_GRAPH_LICENSE, QUERY_STATE_JS, STYLES_CSS,
+    render_backlinks, render_index, render_note_page, APP_JS, FORCE_GRAPH_JS, FORCE_GRAPH_LICENSE,
+    QUERY_STATE_JS, STYLES_CSS,
 };
 use crate::{
     render_note_html, GraphDirection, GraphQuery, WebEventInput, WebEventLocator, WebQuery,
-    WebTargetMode, WebTaskLocator, WebView, WebWorkspace, GRAPH_PRESETS, TASK_PRESETS,
+    WebTaskLocator, WebView, WebWorkspace, GRAPH_PRESETS, TASK_PRESETS,
 };
 
 #[derive(Debug, Args)]
@@ -163,8 +163,6 @@ fn router(state: AppState) -> Router {
         .route("/styles.css", get(styles_css))
         .route("/vendor/force-graph.min.js", get(force_graph_js))
         .route("/vendor/FORCE-GRAPH-LICENSE.txt", get(force_graph_license))
-        .route("/vendor/cel-js.min.js", get(cel_js))
-        .route("/vendor/CEL-JS-LICENSE.txt", get(cel_js_license))
         .layer(middleware::from_fn(log_requests))
         .with_state(state)
 }
@@ -187,8 +185,6 @@ async fn log_requests(request: Request, next: Next) -> Response {
 
 async fn index(State(state): State<AppState>) -> Response {
     let config = json!({
-        "mode": "dynamic",
-        "graphUrl": "/api/graph",
         "queryUrl": "/api/query",
         "presetsUrl": "/api/query-presets",
         "graphRoute": "/graph",
@@ -201,7 +197,6 @@ async fn index(State(state): State<AppState>) -> Response {
         "eventsUrl": "/events",
         "eventSnapshotUrl": "/api/events",
         "eventActionBase": "/api/event/",
-        "tasksUrl": "/api/tasks",
         "taskActionBase": "/api/task/",
         "taskMutations": state.allow_mutations,
         "eventMutations": state.allow_mutations,
@@ -503,11 +498,9 @@ async fn cached_html(
     }
     let workspace = workspace.clone();
     let id = id.to_string();
-    let html = tokio::task::spawn_blocking(move || {
-        render_note_html(&workspace, &id, WebTargetMode::Dynamic)
-    })
-    .await
-    .map_err(|error| format!("HTML render task failed: {error}"))??;
+    let html = tokio::task::spawn_blocking(move || render_note_html(&workspace, &id))
+        .await
+        .map_err(|error| format!("HTML render task failed: {error}"))??;
     state.html_cache.lock().await.insert(key, html.clone());
     Ok(html)
 }
@@ -576,14 +569,6 @@ async fn force_graph_js() -> Response {
 
 async fn force_graph_license() -> Response {
     asset("text/plain; charset=utf-8", FORCE_GRAPH_LICENSE)
-}
-
-async fn cel_js() -> Response {
-    asset("application/javascript; charset=utf-8", CEL_JS)
-}
-
-async fn cel_js_license() -> Response {
-    asset("text/plain; charset=utf-8", CEL_JS_LICENSE)
 }
 
 async fn favicon() -> StatusCode {
