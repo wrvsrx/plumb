@@ -422,6 +422,16 @@
    `note 每个 task 与虚拟 document node 的 own priority 默认都是 `[0]；effective priority 递归取 own priority 与所有直接 children effective priorities 的最大值。正 priority 可以逐层提升 task ancestors 与 document，负 priority 只让对应节点在本层 siblings 中延后，不能降低 ancestor 或 document 的 effective priority。
    `note CLI、dynamic/static Web Priority sort 与 nested sibling subtree sorting 使用同一 effective-priority 比较规则，并覆盖正数、零、缺失、负数、deep descendant promotion、negative descendant non-demotion、document aggregation、极值、非法值、stable tie-break 和 subtree continuity tests；同步更新 reference、guide 与 bundled skill。
 
+`-{
+   .task #multi-key-task-sorting depends="#signed-task-priority"
+   created="2026-07-31T16:42:17+08:00"
+  } 支持 Web tasks 多键排序
+
+   `note Web Tasks sort state 从单个 mode 改为有序 sort-key 列表；初次进入且 URL 没有 `[sort] parameter 时默认显示一个可删除的 Priority key，行为类似默认 State: Ready filter。用户可以添加 Priority、Due 或 Relevance key、删除 key，并通过 drag-and-drop 调整优先顺序；同时提供 keyboard 与上移/下移 controls，保证移动端和无障碍操作可用，并提供恢复默认 Priority 的 action。
+   `note Priority 固定按 effective priority 降序，Due 固定升序且缺失值最后，Relevance 固定降序；重复 key 在 URL、request 与 UI normalization 时只保留第一次出现。没有 fuzzy input 时 Relevance 不改变顺序，直接交给下一个 key。
+   `note 用户显式 keys 按列表顺序逐项比较；所有显式 keys 相等或列表为空时，始终使用隐式、稳定且不可删除的 Source final tie-break。document Source 是 normalized relative path，task sibling Source 是 source position；排序继续只重排 filtered projected task forest 中同一 parent 的完整 sibling subtrees，保持 document grouping、parent/descendant layout 与 subtree continuity。
+   `note URL 必须区分无 `[sort] parameter、显式空 `[?sort=] 和重复参数：无 parameter 初始化默认 `[priority]，显式空值恢复空列表并只使用 Source fallback，`[?sort=due&sort=priority] 按 Due、Priority 顺序恢复。structured request 与 history round-trip 保留相同语义，覆盖 direct load、refresh、back/forward、shared URL、key add/remove/reorder、duplicate normalization、empty fuzzy relevance、filtered aggregation 与 stable Source fallback tests。
+
 `# Neovim plugin
 
 `-{
