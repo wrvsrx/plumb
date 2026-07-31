@@ -1,0 +1,629 @@
+use serde_json::json;
+
+use crate::support::{attribute_value, response, run_server};
+
+#[test]
+fn inserts_metadata_code_action_only_for_valid_documents_without_metadata() {
+    let uri = "file:///tmp/metadata-action.plumb";
+    let messages = [
+        json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "processId": null,
+                "rootUri": null,
+                "capabilities": {
+                    "workspace": { "workspaceEdit": { "documentChanges": true } }
+                }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({
+            "jsonrpc": "2.0",
+            "method": "textDocument/didOpen",
+            "params": { "textDocument": {
+                "uri": uri, "languageId": "plumb", "version": 3, "text": "`# Section\n"
+            }}
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 2, "method": "textDocument/codeAction",
+            "params": {
+                "textDocument": { "uri": uri },
+                "range": {
+                    "start": { "line": 0, "character": 0 },
+                    "end": { "line": 0, "character": 0 }
+                },
+                "context": { "diagnostics": [], "only": ["refactor"] }
+            }
+        }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didChange",
+            "params": {
+                "textDocument": { "uri": uri, "version": 4 },
+                "contentChanges": [{
+                    "text": "`meta\n  `: title\n\n    Existing\n\n`# Section\n"
+                }]
+            }
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 3, "method": "textDocument/codeAction",
+            "params": {
+                "textDocument": { "uri": uri },
+                "range": {
+                    "start": { "line": 0, "character": 0 },
+                    "end": { "line": 0, "character": 0 }
+                },
+                "context": { "diagnostics": [] }
+            }
+        }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didChange",
+            "params": {
+                "textDocument": { "uri": uri, "version": 5 },
+                "contentChanges": [{ "text": "`node{key=a key=b} Broken\n" }]
+            }
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 4, "method": "textDocument/codeAction",
+            "params": {
+                "textDocument": { "uri": uri },
+                "range": {
+                    "start": { "line": 0, "character": 0 },
+                    "end": { "line": 0, "character": 0 }
+                },
+                "context": { "diagnostics": [] }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 5, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+
+    let output = run_server(&messages);
+    assert!(
+        response(&output, 1)["result"]["capabilities"]["codeActionProvider"]["codeActionKinds"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("refactor.rewrite"))
+    );
+    let actions = response(&output, 2)["result"].as_array().unwrap();
+    let metadata = actions
+        .iter()
+        .find(|action| action["title"] == "Insert document metadata")
+        .unwrap();
+    assert_eq!(metadata["kind"], "refactor.rewrite");
+    let change = &metadata["edit"]["documentChanges"][0];
+    assert_eq!(change["textDocument"]["version"], 3);
+    assert_eq!(change["edits"][0]["range"]["start"]["line"], 0);
+    assert_eq!(change["edits"][0]["range"]["start"]["character"], 0);
+    let new_text = change["edits"][0]["newText"].as_str().unwrap();
+    let prefix = "`meta\n `: title\n\n    metadata-action\n\n `: created\n\n    ";
+    let created = new_text
+        .strip_prefix(prefix)
+        .and_then(|suffix| suffix.strip_suffix("\n\n"))
+        .expect("metadata contains created after title");
+    chrono::DateTime::parse_from_rfc3339(created).expect("created is an RFC 3339 timestamp");
+    assert!(response(&output, 3)["result"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|action| action["title"] != "Insert document metadata"));
+    assert!(response(&output, 4)["result"].is_null());
+}
+
+#[test]
+fn inserts_metadata_into_an_empty_document_over_stdio() {
+    let uri = "file:///tmp/empty-note.plumb";
+    let messages = [
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {
+                "processId": null, "rootUri": null,
+                "capabilities": {
+                    "workspace": { "workspaceEdit": { "documentChanges": true } }
+                }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": {
+                "uri": uri, "languageId": "plumb", "version": 7, "text": ""
+            }}
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 2, "method": "textDocument/codeAction",
+            "params": {
+                "textDocument": { "uri": uri },
+                "range": {
+                    "start": { "line": 0, "character": 0 },
+                    "end": { "line": 0, "character": 0 }
+                },
+                "context": { "diagnostics": [], "only": ["refactor.rewrite"] }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 3, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+
+    let output = run_server(&messages);
+    let metadata = response(&output, 2)["result"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|action| action["title"] == "Insert document metadata")
+        .expect("metadata action");
+    let change = &metadata["edit"]["documentChanges"][0];
+    assert_eq!(change["textDocument"]["version"], 7);
+    assert_eq!(
+        change["edits"][0]["range"]["start"],
+        json!({ "line": 0, "character": 0 })
+    );
+    assert_eq!(
+        change["edits"][0]["range"]["end"],
+        json!({ "line": 0, "character": 0 })
+    );
+    let generated = change["edits"][0]["newText"].as_str().unwrap();
+    assert!(generated.starts_with("`meta\n `: title\n\n    empty-note\n"));
+    assert_eq!(plumb_format::format(generated).unwrap(), generated);
+}
+
+#[test]
+fn omits_metadata_code_action_without_guarded_edit_support() {
+    let uri = "file:///tmp/no-guarded-edits.plumb";
+    let messages = [
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": { "processId": null, "rootUri": null, "capabilities": {} }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": {
+                "uri": uri, "languageId": "plumb", "version": 1, "text": "Content\n"
+            }}
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 2, "method": "textDocument/codeAction",
+            "params": {
+                "textDocument": { "uri": uri },
+                "range": {
+                    "start": { "line": 0, "character": 0 },
+                    "end": { "line": 0, "character": 0 }
+                },
+                "context": { "diagnostics": [] }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 3, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+
+    let output = run_server(&messages);
+    assert!(response(&output, 2)["result"].is_null());
+}
+
+#[test]
+fn offers_add_explicit_id_for_the_deepest_unanchored_block() {
+    let uri = "file:///tmp/add-explicit-id.plumb";
+    let messages = [
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {
+                "processId": null, "rootUri": null,
+                "capabilities": {
+                    "workspace": { "workspaceEdit": { "documentChanges": true } }
+                }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": {
+                "uri": uri, "languageId": "plumb", "version": 4,
+                "text": "`#{#same-title} Existing\n`node Parent\n  `child 😀 Same title\n"
+            }}
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 2, "method": "textDocument/codeAction",
+            "params": {
+                "textDocument": { "uri": uri },
+                "range": {
+                    "start": { "line": 2, "character": 14 },
+                    "end": { "line": 2, "character": 14 }
+                },
+                "context": { "diagnostics": [], "only": ["refactor.rewrite"] }
+            }
+        }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didChange",
+            "params": {
+                "textDocument": { "uri": uri, "version": 5 },
+                "contentChanges": [{
+                    "text": "`#{#same-title} Existing\n`node Parent\n  `child{#nested} 😀 Same title\n"
+                }]
+            }
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 3, "method": "textDocument/codeAction",
+            "params": {
+                "textDocument": { "uri": uri },
+                "range": {
+                    "start": { "line": 2, "character": 23 },
+                    "end": { "line": 2, "character": 23 }
+                },
+                "context": { "diagnostics": [], "only": ["refactor.rewrite"] }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 4, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+
+    let output = run_server(&messages);
+    let action = response(&output, 2)["result"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|action| action["title"] == "Add explicit id")
+        .unwrap();
+    assert_eq!(action["kind"], "refactor.rewrite");
+    assert_eq!(action["isPreferred"], true);
+    let change = &action["edit"]["documentChanges"][0];
+    assert_eq!(change["textDocument"]["version"], 4);
+    assert!(change["edits"][0]["newText"]
+        .as_str()
+        .unwrap()
+        .contains("`child{#same-title-2} 😀 Same title"));
+    assert_eq!(change["edits"][0]["range"]["start"]["line"], 2);
+    assert_eq!(change["edits"][0]["range"]["start"]["character"], 0);
+
+    assert!(response(&output, 3)["result"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|action| action["title"] != "Add explicit id"));
+}
+
+#[test]
+fn offers_task_authoring_refactor_actions() {
+    let uri = "file:///tmp/task-authoring.plumb";
+    let messages = [
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {
+                "processId": null, "rootUri": null,
+                "capabilities": {
+                    "workspace": { "workspaceEdit": { "documentChanges": true } }
+                }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": {
+                "uri": uri, "languageId": "plumb", "version": 1,
+                "text": "`-{#keep .kind} List item\n"
+            }}
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 2, "method": "textDocument/codeAction",
+            "params": {
+                "textDocument": { "uri": uri },
+                "range": {
+                    "start": { "line": 0, "character": 20 },
+                    "end": { "line": 0, "character": 20 }
+                },
+                "context": { "diagnostics": [], "only": ["refactor.rewrite"] }
+            }
+        }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didChange",
+            "params": {
+                "textDocument": { "uri": uri, "version": 2 },
+                "contentChanges": [{
+                    "text": "`.{.task #closed done=\"2026-07-20T09:00:00Z\"} Closed\n"
+                }]
+            }
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 3, "method": "textDocument/codeAction",
+            "params": {
+                "textDocument": { "uri": uri },
+                "range": {
+                    "start": { "line": 0, "character": 55 },
+                    "end": { "line": 0, "character": 55 }
+                },
+                "context": { "diagnostics": [], "only": ["refactor.rewrite"] }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 4, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+
+    let output = run_server(&messages);
+    let conversion = response(&output, 2)["result"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|action| action["title"] == "Convert to task")
+        .unwrap();
+    assert_eq!(conversion["kind"], "refactor.rewrite");
+    let inserted = conversion["edit"]["documentChanges"][0]["edits"][0]["newText"]
+        .as_str()
+        .unwrap();
+    assert!(inserted.contains(".task"));
+    chrono::DateTime::parse_from_rfc3339(attribute_value(inserted, "created")).unwrap();
+
+    let created = response(&output, 3)["result"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|action| action["title"] == "Add task created timestamp")
+        .unwrap();
+    assert_eq!(created["kind"], "refactor.rewrite");
+    let created_text = created["edit"]["documentChanges"][0]["edits"][0]["newText"]
+        .as_str()
+        .unwrap();
+    chrono::DateTime::parse_from_rfc3339(attribute_value(created_text, "created")).unwrap();
+}
+
+#[test]
+fn offers_guarded_task_status_code_actions() {
+    let uri = "file:///tmp/task-actions.plumb";
+    let source = "`-{#task-f81deb18 .task created=\"2026-05-24T02:35:50Z\"} MJCF in, USD out solver\n   `-{#task-c2cf5756 .task created=\"2026-05-27T13:03:04Z\"} parse MJCF\n   `-{#task-99e28dad .task created=\"2026-05-27T13:02:45Z\"} solver with passive joint\n";
+    let character = source.lines().nth(1).unwrap().find("parse MJCF").unwrap();
+    let messages = [
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {
+                "processId": null,
+                "rootUri": null,
+                "capabilities": {
+                    "workspace": { "workspaceEdit": { "documentChanges": true } }
+                }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": {
+                "uri": uri, "languageId": "plumb", "version": 3, "text": source
+            }}
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 2, "method": "textDocument/codeAction",
+            "params": {
+                "textDocument": { "uri": uri },
+                "range": {
+                    "start": { "line": 1, "character": character },
+                    "end": { "line": 1, "character": character }
+                },
+                "context": { "diagnostics": [], "only": ["quickfix"] }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 3, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+
+    let output = run_server(&messages);
+    let actions = response(&output, 2)["result"].as_array().unwrap();
+    assert_eq!(actions.len(), 2);
+    assert_eq!(actions[0]["title"], "Complete task");
+    assert_eq!(actions[1]["title"], "Cancel task");
+    for (action, attribute) in actions.iter().zip(["done", "canceled"]) {
+        assert_eq!(action["kind"], "quickfix");
+        let change = &action["edit"]["documentChanges"][0];
+        assert_eq!(change["textDocument"]["version"], 3);
+        let new_text = change["edits"][0]["newText"].as_str().unwrap();
+        assert!(new_text.contains("#task-c2cf5756"));
+        assert!(!new_text.contains("#task-f81deb18"));
+        assert!(!new_text.contains("#task-99e28dad"));
+        let timestamp = attribute_value(new_text, attribute);
+        chrono::DateTime::parse_from_rfc3339(timestamp).unwrap();
+    }
+}
+
+#[test]
+fn recurring_task_action_closes_current_and_appends_next_instance() {
+    let uri = "file:///tmp/recurring-task.plumb";
+    let source = "`-{.task due=\"2026-07-20T09:00:00+08:00\" recur=P1W} Weekly review\n";
+    let messages = [
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {
+                "processId": null, "rootUri": null,
+                "capabilities": {
+                    "workspace": { "workspaceEdit": { "documentChanges": true } }
+                }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": {
+                "uri": uri, "languageId": "plumb", "version": 2, "text": source
+            }}
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 2, "method": "textDocument/codeAction",
+            "params": {
+                "textDocument": { "uri": uri },
+                "range": {
+                    "start": { "line": 0, "character": 68 },
+                    "end": { "line": 0, "character": 68 }
+                },
+                "context": { "diagnostics": [], "only": ["quickfix"] }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 3, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+
+    let output = run_server(&messages);
+    let actions = response(&output, 2)["result"].as_array().unwrap();
+    let complete = actions
+        .iter()
+        .find(|action| action["title"] == "Complete task")
+        .unwrap();
+    let edits = complete["edit"]["documentChanges"][0]["edits"]
+        .as_array()
+        .unwrap();
+    assert_eq!(edits.len(), 1);
+    let replacement = edits[0]["newText"].as_str().unwrap();
+    assert!(replacement.contains("#weekly-review-2026-07-20"));
+    assert!(replacement.contains("done="));
+    assert!(replacement.contains("#weekly-review-2026-07-27"));
+    assert!(replacement.contains("due=\"2026-07-27T09:00:00+08:00\""));
+    assert!(replacement.contains("prev=\"#weekly-review-2026-07-20\""));
+}
+
+#[test]
+fn blocked_task_offers_cancel_but_not_complete() {
+    let uri = "file:///tmp/blocked-task-actions.plumb";
+    let source = "`-{.task #draft} Draft\n`-{.task #review depends=\"#draft\"} Review\n";
+    let cursor = source.find("Review").unwrap();
+    let line_start = source.find('\n').unwrap() + 1;
+    let messages = [
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {
+                "processId": null, "rootUri": null,
+                "capabilities": {
+                    "workspace": { "workspaceEdit": { "documentChanges": true } }
+                }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": {
+                "uri": uri, "languageId": "plumb", "version": 1, "text": source
+            }}
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 2, "method": "textDocument/codeAction",
+            "params": {
+                "textDocument": { "uri": uri },
+                "range": {
+                    "start": { "line": 1, "character": cursor - line_start },
+                    "end": { "line": 1, "character": cursor - line_start }
+                },
+                "context": { "diagnostics": [], "only": ["quickfix"] }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 3, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+
+    let output = run_server(&messages);
+    let actions = response(&output, 2)["result"].as_array().unwrap();
+    assert_eq!(actions.len(), 1);
+    assert_eq!(actions[0]["title"], "Cancel task");
+    let new_text = actions[0]["edit"]["documentChanges"][0]["edits"][0]["newText"]
+        .as_str()
+        .unwrap();
+    chrono::DateTime::parse_from_rfc3339(attribute_value(new_text, "canceled")).unwrap();
+}
+
+#[test]
+fn canceling_a_recurring_task_appends_the_next_instance() {
+    let uri = "file:///tmp/cancel-recurring-task.plumb";
+    let source = "`-{.task due=\"2026-07-20T09:00:00+08:00\" recur=P1W} Weekly review\n";
+    let cursor = source.find("Weekly review").unwrap();
+    let messages = [
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {
+                "processId": null, "rootUri": null,
+                "capabilities": {
+                    "workspace": { "workspaceEdit": { "documentChanges": true } }
+                }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": {
+                "uri": uri, "languageId": "plumb", "version": 4, "text": source
+            }}
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 2, "method": "textDocument/codeAction",
+            "params": {
+                "textDocument": { "uri": uri },
+                "range": {
+                    "start": { "line": 0, "character": cursor },
+                    "end": { "line": 0, "character": cursor }
+                },
+                "context": { "diagnostics": [], "only": ["quickfix"] }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 3, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+
+    let output = run_server(&messages);
+    let cancel = response(&output, 2)["result"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|action| action["title"] == "Cancel task")
+        .expect("Cancel task action");
+    let edits = cancel["edit"]["documentChanges"][0]["edits"]
+        .as_array()
+        .unwrap();
+    assert_eq!(edits.len(), 1);
+    let replacement = edits[0]["newText"].as_str().unwrap();
+    assert!(replacement.contains("#weekly-review-2026-07-20"));
+    assert!(replacement.contains("canceled="));
+    assert!(replacement.contains("#weekly-review-2026-07-27"));
+    assert!(replacement.contains("due=\"2026-07-27T09:00:00+08:00\""));
+    assert!(replacement.contains("prev=\"#weekly-review-2026-07-20\""));
+}
+
+#[test]
+fn task_actions_fall_back_from_closed_child_to_open_parent() {
+    let uri = "file:///tmp/nested-task-actions.plumb";
+    let source = "`-{.task #outer} Outer\n  `-{.task #inner done=\"2026-07-20T09:00:00Z\"} Inner\n";
+    let cursor = source.find("Inner").unwrap();
+    let line_start = source.find('\n').unwrap() + 1;
+    let character = cursor - line_start;
+    let messages = [
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {
+                "processId": null, "rootUri": null,
+                "capabilities": {
+                    "workspace": { "workspaceEdit": { "documentChanges": true } }
+                }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": {
+                "uri": uri, "languageId": "plumb", "version": 1, "text": source
+            }}
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 2, "method": "textDocument/codeAction",
+            "params": {
+                "textDocument": { "uri": uri },
+                "range": {
+                    "start": { "line": 1, "character": character },
+                    "end": { "line": 1, "character": character }
+                },
+                "context": { "diagnostics": [], "only": ["quickfix"] }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 3, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+    let output = run_server(&messages);
+    let actions = response(&output, 2)["result"].as_array().unwrap();
+    assert_eq!(actions.len(), 2);
+    for action in actions {
+        let edit = &action["edit"]["documentChanges"][0]["edits"][0];
+        assert_eq!(edit["range"]["start"]["line"], 0);
+        assert!(edit["newText"].as_str().unwrap().contains("2026-"));
+    }
+}
