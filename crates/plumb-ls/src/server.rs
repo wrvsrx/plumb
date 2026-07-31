@@ -702,8 +702,8 @@ impl LanguageServer for ServerState {
                     .output
                     .anchors
                     .iter()
-                    .filter_map(|anchor| {
-                        (anchor.kind != AnchorKind::Heading
+                    .filter(|anchor| {
+                        anchor.kind != AnchorKind::Heading
                             && !current
                                 .output
                                 .tasks
@@ -715,13 +715,13 @@ impl LanguageServer for ServerState {
                                 .events
                                 .events
                                 .iter()
-                                .any(|event| event.range == anchor.range))
-                        .then(|| {
-                            (
-                                anchor.range.start,
-                                anchor_symbol(&entry.parsed.source, anchor),
-                            )
-                        })
+                                .any(|event| event.range == anchor.range)
+                    })
+                    .map(|anchor| {
+                        (
+                            anchor.range.start,
+                            anchor_symbol(&entry.parsed.source, anchor),
+                        )
                     })
                     .collect::<Vec<_>>();
                 if let Some(metadata) = &current.output.metadata.metadata {
@@ -1209,13 +1209,12 @@ impl LanguageServer for ServerState {
                             self.workspace.complete_image_path(&path, &context),
                             CompletionItemKind::FILE,
                         )
-                    } else if let Some(context) = file_completion_context(&entry.parsed, offset) {
+                    } else {
+                        let context = file_completion_context(&entry.parsed, offset)?;
                         (
                             self.workspace.complete_file_path(&path, &context),
                             CompletionItemKind::FILE,
                         )
-                    } else {
-                        return None;
                     };
                 Some(
                     candidates

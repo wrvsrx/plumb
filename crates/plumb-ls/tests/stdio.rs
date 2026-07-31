@@ -748,8 +748,7 @@ fn publishes_diagnostics_and_returns_heading_symbols_over_stdio() {
 
     let diagnostics = messages
         .iter()
-        .filter(|message| message.get("method") == Some(&json!("textDocument/publishDiagnostics")))
-        .last()
+        .rfind(|message| message.get("method") == Some(&json!("textDocument/publishDiagnostics")))
         .expect("diagnostics notification");
     assert_eq!(diagnostics["params"]["version"], 2);
     assert_eq!(
@@ -842,8 +841,7 @@ fn publishes_metadata_diagnostics_and_nested_symbols_over_stdio() {
 
     let diagnostics = output
         .iter()
-        .filter(|message| message.get("method") == Some(&json!("textDocument/publishDiagnostics")))
-        .last()
+        .rfind(|message| message.get("method") == Some(&json!("textDocument/publishDiagnostics")))
         .expect("diagnostics notification");
     assert!(diagnostics["params"]["diagnostics"]
         .as_array()
@@ -1576,8 +1574,7 @@ fn publishes_task_symbols_hover_and_workspace_diagnostics() {
 
     let diagnostics = output
         .iter()
-        .filter(|message| message.get("method") == Some(&json!("textDocument/publishDiagnostics")))
-        .last()
+        .rfind(|message| message.get("method") == Some(&json!("textDocument/publishDiagnostics")))
         .unwrap();
     let diagnostics = diagnostics["params"]["diagnostics"].as_array().unwrap();
     assert!(diagnostics
@@ -1665,8 +1662,7 @@ fn publishes_event_symbols_hover_references_and_diagnostics() {
     assert_eq!(response(&output, 4)["result"].as_array().unwrap().len(), 1);
     let diagnostics = output
         .iter()
-        .filter(|message| message.get("method") == Some(&json!("textDocument/publishDiagnostics")))
-        .last()
+        .rfind(|message| message.get("method") == Some(&json!("textDocument/publishDiagnostics")))
         .unwrap()["params"]["diagnostics"]
         .as_array()
         .unwrap();
@@ -1732,8 +1728,7 @@ fn publishes_completed_task_consistency_diagnostics() {
     let output = run_server(&messages);
     let diagnostics = output
         .iter()
-        .filter(|message| message.get("method") == Some(&json!("textDocument/publishDiagnostics")))
-        .last()
+        .rfind(|message| message.get("method") == Some(&json!("textDocument/publishDiagnostics")))
         .unwrap()["params"]["diagnostics"]
         .as_array()
         .unwrap();
@@ -2417,11 +2412,10 @@ fn completes_and_navigates_relative_autolinks_files_and_images() {
 
     let diagnostics = output
         .iter()
-        .filter(|message| {
+        .rfind(|message| {
             message["method"] == "textDocument/publishDiagnostics"
                 && message["params"]["uri"] == current_uri.as_str()
         })
-        .last()
         .expect("current diagnostics");
     assert!(diagnostics["params"]["diagnostics"]
         .as_array()

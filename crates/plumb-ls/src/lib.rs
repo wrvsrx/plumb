@@ -16,10 +16,7 @@ use tracing::Level;
 pub async fn run_lsp() {
     let (server, _) = async_lsp::MainLoop::new_server(|client| {
         let mut router = Router::from_language_server(ServerState::new(client.clone()));
-        router.request::<search::PlumbSearchRequest, _>(|state, params| {
-            let future = state.search(params);
-            async move { future.await.map_err(Into::into) }
-        });
+        router.request::<search::PlumbSearchRequest, _>(|state, params| state.search(params));
         ServiceBuilder::new()
             .layer(TracingLayer::default())
             .layer(LifecycleLayer::default())
