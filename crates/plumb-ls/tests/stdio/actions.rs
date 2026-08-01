@@ -284,6 +284,89 @@ fn offers_add_explicit_id_for_the_deepest_unanchored_block() {
 }
 
 #[test]
+fn converts_event_shorthand_with_a_refactor_action() {
+    let uri = "file:///tmp/event-shorthand.plumb";
+    let messages = [
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {
+                "processId": null, "rootUri": null,
+                "capabilities": {
+                    "workspace": { "workspaceEdit": { "documentChanges": true } }
+                }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": {
+                "uri": uri, "languageId": "plumb", "version": 3,
+                "text": "2026-05-21T11:10--11:20 relax: phone\n"
+            }}
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 2, "method": "textDocument/codeAction",
+            "params": {
+                "textDocument": { "uri": uri },
+                "range": {
+                    "start": { "line": 0, "character": 28 },
+                    "end": { "line": 0, "character": 28 }
+                },
+                "context": { "diagnostics": [], "only": ["refactor.rewrite"] }
+            }
+        }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didChange",
+            "params": {
+                "textDocument": { "uri": uri, "version": 4 },
+                "contentChanges": [{ "text": "Meeting at 11\n" }]
+            }
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 3, "method": "textDocument/codeAction",
+            "params": {
+                "textDocument": { "uri": uri },
+                "range": {
+                    "start": { "line": 0, "character": 5 },
+                    "end": { "line": 0, "character": 5 }
+                },
+                "context": { "diagnostics": [], "only": ["refactor.rewrite"] }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 4, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+
+    let output = run_server(&messages);
+    let action = response(&output, 2)["result"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|action| action["title"] == "Convert to event")
+        .unwrap();
+    assert_eq!(action["kind"], "refactor.rewrite");
+    assert_eq!(action["isPreferred"], true);
+    let change = &action["edit"]["documentChanges"][0];
+    assert_eq!(change["textDocument"]["version"], 3);
+    let replacement = change["edits"][0]["newText"].as_str().unwrap();
+    assert!(replacement.contains(".event"), "{replacement}");
+    assert!(replacement.ends_with("relax: phone\n"), "{replacement}");
+    let start = attribute_value(replacement, "start");
+    let end = attribute_value(replacement, "end");
+    assert!(start.starts_with("2026-05-21T11:10:00"), "{start}");
+    assert!(end.starts_with("2026-05-21T11:20:00"), "{end}");
+    chrono::DateTime::parse_from_rfc3339(start).unwrap();
+    chrono::DateTime::parse_from_rfc3339(end).unwrap();
+    assert!(!attribute_value(replacement, "uid").is_empty());
+
+    assert!(response(&output, 3)["result"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|action| action["title"] != "Convert to event"));
+}
+
+#[test]
 fn offers_task_authoring_refactor_actions() {
     let uri = "file:///tmp/task-authoring.plumb";
     let messages = [

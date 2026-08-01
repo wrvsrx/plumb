@@ -1291,7 +1291,8 @@ impl LanguageServer for ServerState {
         let Some(path) = params.text_document.uri.to_file_path().ok() else {
             return Box::pin(async { Ok(None) });
         };
-        let timestamp = Local::now().to_rfc3339_opts(SecondsFormat::Secs, false);
+        let now = Local::now();
+        let timestamp = now.to_rfc3339_opts(SecondsFormat::Secs, false);
         let mut actions = Vec::new();
         if code_action_kind_requested(
             params.context.only.as_deref(),
@@ -1323,6 +1324,20 @@ impl LanguageServer for ServerState {
                 {
                     actions.push(CodeActionOrCommand::CodeAction(CodeAction {
                         title: "Add explicit id".to_string(),
+                        kind: Some(CodeActionKind::REFACTOR_REWRITE),
+                        edit: Some(edit),
+                        is_preferred: Some(true),
+                        ..CodeAction::default()
+                    }));
+                }
+                if let Some(edit) = self
+                    .workspace
+                    .convert_event_shorthand(&path, offset, now.fixed_offset())
+                    .ok()
+                    .and_then(|edit| workspace_edit_to_lsp(&self.workspace, edit))
+                {
+                    actions.push(CodeActionOrCommand::CodeAction(CodeAction {
+                        title: "Convert to event".to_string(),
                         kind: Some(CodeActionKind::REFACTOR_REWRITE),
                         edit: Some(edit),
                         is_preferred: Some(true),
