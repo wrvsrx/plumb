@@ -1298,24 +1298,24 @@ impl LanguageServer for ServerState {
             params.context.only.as_deref(),
             &CodeActionKind::REFACTOR_REWRITE,
         ) {
-            if let Some(title) = path.file_stem().and_then(|stem| stem.to_str()) {
-                if let Some(edit) = self
-                    .workspace
-                    .insert_metadata(&path, title, &timestamp)
-                    .ok()
-                    .and_then(|edit| workspace_edit_to_lsp(&self.workspace, edit))
-                {
-                    actions.push(CodeActionOrCommand::CodeAction(CodeAction {
-                        title: "Insert document metadata".to_string(),
-                        kind: Some(CodeActionKind::REFACTOR_REWRITE),
-                        edit: Some(edit),
-                        is_preferred: Some(true),
-                        ..CodeAction::default()
-                    }));
-                }
-            }
             if let Some(entry) = self.workspace.get(&path) {
                 let offset = position_to_offset(&entry.parsed.source, params.range.start);
+                if let Some(title) = path.file_stem().and_then(|stem| stem.to_str()) {
+                    if let Some(edit) = self
+                        .workspace
+                        .insert_metadata(&path, offset, title, &timestamp)
+                        .ok()
+                        .and_then(|edit| workspace_edit_to_lsp(&self.workspace, edit))
+                    {
+                        actions.push(CodeActionOrCommand::CodeAction(CodeAction {
+                            title: "Insert document metadata".to_string(),
+                            kind: Some(CodeActionKind::REFACTOR_REWRITE),
+                            edit: Some(edit),
+                            is_preferred: Some(true),
+                            ..CodeAction::default()
+                        }));
+                    }
+                }
                 if let Some(edit) = self
                     .workspace
                     .add_explicit_id(&path, offset)

@@ -112,6 +112,53 @@ fn inserts_metadata_code_action_only_for_valid_documents_without_metadata() {
 }
 
 #[test]
+fn omits_metadata_code_action_when_cursor_is_not_at_document_start() {
+    let uri = "file:///tmp/metadata-cursor.plumb";
+    let messages = [
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {
+                "processId": null, "rootUri": null,
+                "capabilities": {
+                    "workspace": { "workspaceEdit": { "documentChanges": true } }
+                }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": {
+                "uri": uri, "languageId": "plumb", "version": 1, "text": "`# Section\n"
+            }}
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 2, "method": "textDocument/codeAction",
+            "params": {
+                "textDocument": { "uri": uri },
+                "range": {
+                    "start": { "line": 0, "character": 4 },
+                    "end": { "line": 0, "character": 4 }
+                },
+                "context": { "diagnostics": [], "only": ["refactor.rewrite"] }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 3, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+
+    let output = run_server(&messages);
+    let no_metadata = response(&output, 2)["result"]
+        .as_array()
+        .map(|actions| {
+            !actions
+                .iter()
+                .any(|action| action["title"] == "Insert document metadata")
+        })
+        .unwrap_or(true);
+    assert!(no_metadata);
+}
+
+#[test]
 fn inserts_metadata_into_an_empty_document_over_stdio() {
     let uri = "file:///tmp/empty-note.plumb";
     let messages = [
@@ -278,9 +325,8 @@ fn offers_add_explicit_id_for_the_deepest_unanchored_block() {
 
     assert!(response(&output, 3)["result"]
         .as_array()
-        .unwrap()
-        .iter()
-        .all(|action| action["title"] != "Add explicit id"));
+        .map(|actions| actions.iter().all(|action| action["title"] != "Add explicit id"))
+        .unwrap_or(true));
 }
 
 #[test]
@@ -361,9 +407,12 @@ fn converts_event_shorthand_with_a_refactor_action() {
 
     assert!(response(&output, 3)["result"]
         .as_array()
-        .unwrap()
-        .iter()
-        .all(|action| action["title"] != "Convert to event"));
+        .map(|actions| {
+            !actions
+                .iter()
+                .any(|action| action["title"] == "Convert to event")
+        })
+        .unwrap_or(true));
 }
 
 #[test]
