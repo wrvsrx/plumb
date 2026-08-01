@@ -308,14 +308,14 @@ Event CEL context 提供 `[path]、`[id]、`[uid]、`[title]、`[at]、`[start]�
 Web Agenda 通过 revision-guarded operations 创建、编辑和删除 event；首版只支持 online mutations。
 Pandoc export 不消费 event facet：它仍作为普通 list item 导出并保留 `[.event] 与 fields。
 
-editor authoring operation `[Convert to event] 只在 cursor 命中的单个 plain-text paragraph 完整匹配
-event shorthand 时提供：
+editor authoring operation `[Convert to event] 只在 cursor 命中的单个 list item（head 为 plain
+text）完整匹配 event shorthand 时提供：
 
 `{language=text}
-  TIME TITLE
-  TIME--TIME TITLE
-  YYYY-MM-DDTTIME TITLE
-  YYYY-MM-DDTTIME--TIME TITLE
+  `- TIME TITLE
+  `- TIME--TIME TITLE
+  `- YYYY-MM-DDTTIME TITLE
+  `- YYYY-MM-DDTTIME--TIME TITLE
 
 `[TIME] 是 ISO 8601-derived reduced-precision local time，只接受两位字段的 `[HH]、`[HH:MM] 或
 `[HH:MM:SS]；hour 范围是 `[00..23]，minute/second 是 `[00..59]。缺失低位补零；省略 date 时使用
@@ -324,9 +324,10 @@ operation 执行时的本地日期，显式 date 必须是合法 `[YYYY-MM-DD] �
 schedule 与非空 title；inline markup、单数字段、basic time、offset、`[Z]、`[am/pm] 和自然语言日期不
 进入 shorthand。
 
-operation 原位用带稳定 `[uid] 的 `[.event] owned block 替换 paragraph：point 写入 `[at]，区间写入
-`[start]/`[end]，并将完整 owner subtree canonicalize 后返回 revision-guarded edit。shorthand 只是
-显式 authoring convention，不改变普通 paragraph syntax，也不从任意 prose 隐式生成 event。
+operation 原位在 list item 上追加 `[.event] class 与稳定 `[uid]：point 写入 `[at]，区间写入
+`[start]/`[end]，将 head 缩减为 title，并把完整 owner subtree canonicalize 后返回 revision-guarded
+edit。已是 `[.event] 的 item 不再提供该 action。shorthand 只是显式 authoring convention，不改变
+list item syntax，也不从任意 prose 隐式生成 event。
 
 `# 16. Tasks
 

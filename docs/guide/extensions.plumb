@@ -217,19 +217,20 @@ strength。普通 dollar characters 和 dollar-delimited math 不具有特殊含
 存在。`[tasks] 显式关联同文件或跨文件 task id，不产生 dependency，也不从 task
 timestamps 猜测 event。`[.event .task] 复合与非 list-item owner 都无效。
 
-快速创建 event 时，先输入一个只含 plain text 的普通 paragraph，再在该行执行 `[Convert to event]
+快速创建 event 时，先输入一个 head 只含 plain text 的 list item，再在该行执行 `[Convert to event]
 CodeAction：
 
 `{language=text}
-  11 relax: phone
-  11:10:24 precise reminder
-  11:00--11:20 relax: phone
-  2026-05-21T11:10--11:20 parser review
+  `- 11 relax: phone
+  `- 11:10:24 precise reminder
+  `- 11:00--11:20 relax: phone
+  `- 2026-05-21T11:10--11:20 parser review
 
 time 使用两位 `[HH]、`[HH:MM] 或 `[HH:MM:SS]；省略分钟/秒时补零，省略 date 时使用执行操作当天的
 本地日期。显式 date 使用 `[YYYY-MM-DDT] prefix。`[--] 只表示同日 closed interval，end 必须晚于
-start。转换会原位生成 UID 与 RFC 3339 `[at] 或 `[start]/`[end] fields；不匹配的 paragraph 不提供
-该 action。
+start。转换会在该 list item 上原位追加 `[.event] class、稳定 UID 与 RFC 3339 `[at] 或
+`[start]/`[end] fields，并将 head 缩减为 title；head 不匹配 shorthand 或已是 event 的 list item
+不提供该 action。
 
 `[plumb event --root DIR] 列出 events，并支持使用 `[--query] 对 path、id、uid、title、at、start、end、tasks
 与 now 执行 CEL。`[plumb event --root DIR export-vdir --output DIR] 生成受管理的只读 vdir；输出目录
