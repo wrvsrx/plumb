@@ -214,7 +214,9 @@ black-box tests after the shared behavior exists, docs/roadmap updates last.
 Before each commit, check `git status --short` and `git diff` so unrelated
 changes are not included, and run the warning gate
 (`cargo check --workspace --all-targets`) once there is a workspace. Use
-conventional-style messages: `feat(core): …`, `fix(ls): …`, `docs: …`.
+conventional-style messages: `feat(core): …`, `fix(ls): …`, `docs: …`. Keep
+`main` linear: integrate topic branches by rebasing them onto `main` (or
+cherry-picking their commits) and fast-forwarding, never with merge commits.
 
 ## Release workflow
 
