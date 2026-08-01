@@ -5064,18 +5064,9 @@ mod tests {
         for (source, at) in [
             ("11 relax: phone", "2026-08-01T11:00:00+08:00"),
             ("11:10 relax: phone", "2026-08-01T11:10:00+08:00"),
-            (
-                "11:10:24 relax: phone",
-                "2026-08-01T11:10:24+08:00",
-            ),
-            (
-                "2026-05-21T11 relax: phone",
-                "2026-05-21T11:00:00+08:00",
-            ),
-            (
-                "2026-05-21T11:10 relax: phone",
-                "2026-05-21T11:10:00+08:00",
-            ),
+            ("11:10:24 relax: phone", "2026-08-01T11:10:24+08:00"),
+            ("2026-05-21T11 relax: phone", "2026-05-21T11:00:00+08:00"),
+            ("2026-05-21T11:10 relax: phone", "2026-05-21T11:10:00+08:00"),
             (
                 "2026-05-21T11:10:24 relax: phone",
                 "2026-05-21T11:10:24+08:00",
@@ -5088,16 +5079,9 @@ mod tests {
             assert!(input.end.is_none());
         }
 
-        let interval =
-            parse_event_shorthand("2026-05-21T11--11:20 review", now).unwrap();
-        assert_eq!(
-            interval.start.as_deref(),
-            Some("2026-05-21T11:00:00+08:00")
-        );
-        assert_eq!(
-            interval.end.as_deref(),
-            Some("2026-05-21T11:20:00+08:00")
-        );
+        let interval = parse_event_shorthand("2026-05-21T11--11:20 review", now).unwrap();
+        assert_eq!(interval.start.as_deref(), Some("2026-05-21T11:00:00+08:00"));
+        assert_eq!(interval.end.as_deref(), Some("2026-05-21T11:20:00+08:00"));
         assert!(interval.at.is_none());
     }
 
@@ -5138,11 +5122,7 @@ mod tests {
         workspace.insert("agenda.plumb", 7, source);
         let now = DateTime::parse_from_rfc3339("2026-08-01T08:00:00+08:00").unwrap();
         let operation = workspace
-            .convert_event_shorthand(
-                "agenda.plumb",
-                source.find("relax").unwrap(),
-                now,
-            )
+            .convert_event_shorthand("agenda.plumb", source.find("relax").unwrap(), now)
             .unwrap();
         assert_eq!(operation.document_changes[0].expected_revision, 7);
         let converted = apply_single_edit(source, &operation);
