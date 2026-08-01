@@ -814,15 +814,17 @@ import {
     else renderNewEventPrompt();
   }
 
+  const EVENT_TIME_OPTIONS = { hour: '2-digit', minute: '2-digit', hour12: false };
+
   function eventTimeLabel(event) {
     const value = event.at || event.start;
     if (!value) return 'Invalid';
     const start = new Date(value);
-    const startLabel = start.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const startLabel = start.toLocaleTimeString([], EVENT_TIME_OPTIONS);
     if (event.at) return startLabel;
     if (!event.end) return `${startLabel}-running`;
     const end = new Date(event.end);
-    return `${startLabel}-${end.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+    return `${startLabel}-${end.toLocaleTimeString([], EVENT_TIME_OPTIONS)}`;
   }
 
   function selectEvent(event) {
