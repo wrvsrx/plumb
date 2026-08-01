@@ -41,7 +41,7 @@ use plumb_workspace::{
     SearchRecordKind, Workspace, WorkspaceEdit,
 };
 
-use crate::folding::{ranges as folding_ranges, task_labels as task_fold_labels};
+use crate::folding::{ranges as folding_ranges, collapsed_text_labels as fold_labels};
 #[cfg(test)]
 use crate::hover::fenced_plumb;
 use crate::hover::{
@@ -792,14 +792,14 @@ impl LanguageServer for ServerState {
             .ok()
             .and_then(|path| self.workspace.get(path))
             .map(|entry| {
-                let task_labels = self
+                let labels = self
                     .supports_folding_collapsed_text
-                    .then(|| task_fold_labels(&self.workspace, &entry.path, entry));
+                    .then(|| fold_labels(&self.workspace, &entry.path, entry));
                 folding_ranges(
                     &entry.parsed.source,
                     entry.parsed.recovered_syntax(),
                     self.folding_range_limit,
-                    task_labels.as_ref(),
+                    labels.as_ref(),
                 )
             });
         Box::pin(async move { Ok(ranges) })

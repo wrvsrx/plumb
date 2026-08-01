@@ -1,13 +1,23 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use chrono::Local;
+use chrono::{DateTime, FixedOffset, Local};
 use lsp_types::FoldingRange;
 use plumb_core::{Block, Document};
-use plumb_extensions::analyze_headings;
+use plumb_extensions::{analyze_headings, EventRecord};
 use plumb_workspace::{DocumentEntry, Workspace};
 
 use crate::position::byte_range_to_lsp;
+
+pub(crate) fn collapsed_text_labels(
+    workspace: &Workspace,
+    path: &Path,
+    entry: &DocumentEntry,
+) -> HashMap<(usize, usize), String> {
+    let mut labels = task_labels(workspace, path, entry);
+    labels.extend(event_labels(entry));
+    labels
+}
 
 pub(crate) fn task_labels(
     workspace: &Workspace,
@@ -25,10 +35,7 @@ pub(crate) fn task_labels(
         .iter()
         .map(|task| {
             let (state, _) = workspace.task_workflow_state(path, task, now);
-            let line_start = entry.parsed.source[..task.range.start]
-                .rfind('\n')
-                .map_or(0, |newline| newline + 1);
-            let indent = &entry.parsed.source[line_start..task.range.start];
+            let indent = line_indent(&entry.parsed.source, task.range.start);
             let title = if task.title.is_empty() {
                 "Untitled task"
             } else {
@@ -42,11 +49,79 @@ pub(crate) fn task_labels(
         .collect()
 }
 
+pub(crate) fn event_labels(entry: &DocumentEntry) -> HashMap<(usize, usize), String> {
+    let Some(current) = &entry.current else {
+        return HashMap::new();
+    };
+    current
+        .output
+        .events
+        .events
+        .iter()
+        .filter_map(|event| {
+            let time = event_time_label(event)?;
+            let indent = line_indent(&entry.parsed.source, event.range.start);
+            let title = if event.title.is_empty() {
+                "Untitled event"
+            } else {
+                &event.title
+            };
+            Some((
+                (event.range.start, event.range.end),
+                format!("{indent}{time}  {title}"),
+            ))
+        })
+        .collect()
+}
+
+const SECONDS_PER_DAY: i64 = 24 * 60 * 60;
+
+/// Abbreviates an event's time shape into a compact, RFC 3339-derived label
+/// evaluated in the event's own declared offset (seconds and offset dropped). A
+/// point `at` event renders its datetime alone; an interval renders
+/// `start--end`, where `end` keeps only `HH:MM` while it is within 24 hours of
+/// `start` (the cutoff beyond which a bare end time would point to the wrong
+/// day) and expands to the full datetime once it spans further; a `start`-only
+/// event renders `start-running`. Events without a usable time yield `None`.
+fn event_time_label(event: &EventRecord) -> Option<String> {
+    if let Some(at) = event.at_datetime() {
+        return Some(format_datetime(&at));
+    }
+    let start = event.start_datetime()?;
+    let start_label = format_datetime(&start);
+    Some(match event.end_datetime() {
+        Some(end) => {
+            let end_label = if end.signed_duration_since(start).num_seconds() <= SECONDS_PER_DAY {
+                format_time(&end)
+            } else {
+                format_datetime(&end)
+            };
+            format!("{start_label}--{end_label}")
+        }
+        None => format!("{start_label}-running"),
+    })
+}
+
+fn format_datetime(datetime: &DateTime<FixedOffset>) -> String {
+    datetime.format("%Y-%m-%dT%H:%M").to_string()
+}
+
+fn format_time(datetime: &DateTime<FixedOffset>) -> String {
+    datetime.format("%H:%M").to_string()
+}
+
+fn line_indent<'a>(source: &'a str, range_start: usize) -> &'a str {
+    let line_start = source[..range_start]
+        .rfind('\n')
+        .map_or(0, |newline| newline + 1);
+    &source[line_start..range_start]
+}
+
 pub(crate) fn ranges(
     source: &str,
     document: &Document,
     limit: Option<usize>,
-    task_labels: Option<&HashMap<(usize, usize), String>>,
+    labels: Option<&HashMap<(usize, usize), String>>,
 ) -> Vec<FoldingRange> {
     let headings = analyze_headings(document);
     let mut byte_ranges = Vec::new();
@@ -74,8 +149,8 @@ pub(crate) fn ranges(
     let mut ranges = byte_ranges
         .into_iter()
         .filter_map(|range| {
-            let collapsed_text = task_labels
-                .and_then(|labels| labels.get(&(range.start, range.end)))
+            let collapsed_text = labels
+                .and_then(|table| table.get(&(range.start, range.end)))
                 .cloned();
             line_range(source, &range, collapsed_text)
         })
