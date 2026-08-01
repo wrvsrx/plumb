@@ -107,6 +107,7 @@ pub enum RenameError {
 pub enum MetadataInsertError {
     StaleOrInvalidDocument,
     MetadataAlreadyExists,
+    CursorNotAtDocumentStart,
     GeneratedInvalid,
 }
 
@@ -1595,6 +1596,7 @@ impl Workspace {
     pub fn insert_metadata(
         &self,
         path: impl AsRef<Path>,
+        offset: usize,
         title: &str,
         created: &str,
     ) -> Result<WorkspaceEdit, MetadataInsertError> {
@@ -1609,6 +1611,14 @@ impl Workspace {
             .ok_or(MetadataInsertError::StaleOrInvalidDocument)?;
         if current.output.metadata.metadata.is_some() {
             return Err(MetadataInsertError::MetadataAlreadyExists);
+        }
+        if !entry
+            .parsed
+            .source
+            .get(..offset)
+            .is_some_and(|prefix| prefix.bytes().all(|byte| matches!(byte, b' ' | b'\t' | b'\n' | b'\r')))
+        {
+            return Err(MetadataInsertError::CursorNotAtDocumentStart);
         }
 
         let metadata = OwnedBlock::marked("meta", "").with_children(vec![
@@ -4530,7 +4540,7 @@ mod tests {
         let mut metadata_workspace = Workspace::new();
         metadata_workspace.insert("metadata.plumb", 4, metadata_source);
         let metadata = metadata_workspace
-            .insert_metadata("metadata.plumb", "metadata", timestamp)
+            .insert_metadata("metadata.plumb", 0, "metadata", timestamp)
             .unwrap();
         let with_metadata = apply_single_edit(metadata_source, &metadata);
         assert_eq!(plumb_format::format(&with_metadata).unwrap(), with_metadata);
@@ -4821,6 +4831,7 @@ mod tests {
         let edit = workspace
             .insert_metadata(
                 "notes/my`note.plumb",
+                0,
                 "my`note",
                 "2026-07-19T12:34:56+08:00",
             )
@@ -4843,7 +4854,7 @@ mod tests {
         workspace.insert("notes/empty.plumb", 11, "");
 
         let edit = workspace
-            .insert_metadata("notes/empty.plumb", "empty", "2026-07-22T12:34:56+08:00")
+            .insert_metadata("notes/empty.plumb", 0, "empty", "2026-07-22T12:34:56+08:00")
             .unwrap();
 
         let document = &edit.document_changes[0];
@@ -4865,7 +4876,7 @@ mod tests {
         workspace.insert("note.plumb", 1, "First\r\nSecond\r\n");
 
         let edit = workspace
-            .insert_metadata("note.plumb", "note", "2026-07-19T12:34:56+08:00")
+            .insert_metadata("note.plumb", 0, "note", "2026-07-19T12:34:56+08:00")
             .unwrap();
 
         assert_eq!(
@@ -4879,19 +4890,40 @@ mod tests {
         let mut workspace = Workspace::new();
         workspace.insert("existing.plumb", 1, "`meta\n  `: title\n\n    Existing\n");
         assert_eq!(
-            workspace.insert_metadata("existing.plumb", "existing", "created"),
+            workspace.insert_metadata("existing.plumb", 0, "existing", "created"),
             Err(MetadataInsertError::MetadataAlreadyExists)
         );
 
         workspace.insert("invalid.plumb", 2, "`node{key=a key=b} Broken\n");
         assert_eq!(
-            workspace.insert_metadata("invalid.plumb", "invalid", "created"),
+            workspace.insert_metadata("invalid.plumb", 0, "invalid", "created"),
             Err(MetadataInsertError::StaleOrInvalidDocument)
         );
         assert_eq!(
-            workspace.insert_metadata("missing.plumb", "missing", "created"),
+            workspace.insert_metadata("missing.plumb", 0, "missing", "created"),
             Err(MetadataInsertError::StaleOrInvalidDocument)
         );
+    }
+
+    #[test]
+    fn metadata_insertion_requires_cursor_at_document_start() {
+        let mut workspace = Workspace::new();
+        workspace.insert("doc.plumb", 1, "`# Section\n");
+        // Cursor at the very first byte: offered.
+        assert!(workspace
+            .insert_metadata("doc.plumb", 0, "doc", "2026-07-19T12:34:56+08:00")
+            .is_ok());
+        // Cursor past the first non-whitespace byte: rejected.
+        assert_eq!(
+            workspace.insert_metadata("doc.plumb", 3, "doc", "2026-07-19T12:34:56+08:00"),
+            Err(MetadataInsertError::CursorNotAtDocumentStart)
+        );
+
+        // A cursor inside leading blank lines still counts as the document start.
+        workspace.insert("blank.plumb", 2, "\n\n`# Section\n");
+        assert!(workspace
+            .insert_metadata("blank.plumb", 2, "blank", "2026-07-19T12:34:56+08:00")
+            .is_ok());
     }
 
     #[test]
