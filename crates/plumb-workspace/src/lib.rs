@@ -183,8 +183,9 @@ pub enum EventEditError {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EventShorthandError {
     StaleOrInvalidDocument,
-    ParagraphNotFound,
+    ListItemNotFound,
     NotPlainText,
+    EventAlreadyExists,
     InvalidShorthand,
     InvalidInterval,
     GeneratedInvalid,
@@ -1677,9 +1678,13 @@ impl Workspace {
             .get(&path)
             .filter(|entry| entry.current.is_some())
             .ok_or(EventShorthandError::StaleOrInvalidDocument)?;
-        let paragraph = deepest_plain_paragraph(&entry.parsed.syntax.blocks, offset)
-            .ok_or(EventShorthandError::ParagraphNotFound)?;
-        if paragraph
+        let item = deepest_list_item(&entry.parsed.syntax.blocks, offset)
+            .ok_or(EventShorthandError::ListItemNotFound)?;
+        let mark = item.mark.as_ref().expect("list item has a mark");
+        if mark.attrs.has_class("event") {
+            return Err(EventShorthandError::EventAlreadyExists);
+        }
+        if item
             .head
             .items
             .iter()
@@ -1687,22 +1692,15 @@ impl Workspace {
         {
             return Err(EventShorthandError::NotPlainText);
         }
-        let shorthand = &entry.parsed.source[paragraph.head.range.clone()];
+        let shorthand = &entry.parsed.source[item.head.range.clone()];
         let input = parse_event_shorthand(shorthand, now)?;
         let uid = format!("{}@plumb.local", uuid::Uuid::new_v4());
-        let event = owned_event(&input, &uid);
-        let ancestor = top_level_parsed_containing(&entry.parsed.syntax.blocks, &paragraph.range)
-            .ok_or(EventShorthandError::ParagraphNotFound)?;
-        let (affected, replacement) = if ancestor.range == paragraph.range {
-            (paragraph.range.clone(), event)
-        } else {
-            let mut owned = OwnedBlock::from_parsed(&entry.parsed.source, ancestor);
-            if !replace_owned_descendant(ancestor, &mut owned, &paragraph.range, &event) {
-                return Err(EventShorthandError::ParagraphNotFound);
-            }
-            (ancestor.range.clone(), owned)
-        };
-        let edit = exact_owned_block_edit(&entry.parsed, affected, &replacement)
+        let mut owned = OwnedBlock::from_parsed(&entry.parsed.source, item);
+        owned.set_head_text(&input.title);
+        let mut attributes = owned.attributes().to_vec();
+        attributes.extend(event_attributes(&input, &uid));
+        let owned = owned.with_attributes(attributes);
+        let edit = exact_owned_block_edit(&entry.parsed, item.range.clone(), &owned)
             .map_err(|_| EventShorthandError::GeneratedInvalid)?;
         Ok(single_document_edit(entry, path, edit))
     }
@@ -2502,24 +2500,6 @@ fn deepest_list_item(blocks: &[Block], offset: usize) -> Option<&ParsedBlock> {
     result
 }
 
-fn deepest_plain_paragraph(blocks: &[Block], offset: usize) -> Option<&ParsedBlock> {
-    let mut result = None;
-    for block in blocks {
-        let Block::Parsed(block) = block else {
-            continue;
-        };
-        if block.range.start <= offset && offset <= block.range.end {
-            if block.mark.is_none() {
-                result = Some(block);
-            }
-            if let Some(child) = deepest_plain_paragraph(&block.children, offset) {
-                result = Some(child);
-            }
-        }
-    }
-    result
-}
-
 fn parsed_block_with_range<'a>(
     blocks: &'a [Block],
     range: &std::ops::Range<usize>,
@@ -2538,20 +2518,6 @@ fn parsed_block_with_range<'a>(
         }
     }
     None
-}
-
-fn top_level_parsed_containing<'a>(
-    blocks: &'a [Block],
-    range: &std::ops::Range<usize>,
-) -> Option<&'a ParsedBlock> {
-    blocks.iter().find_map(|block| match block {
-        Block::Parsed(block)
-            if block.range.start <= range.start && range.end <= block.range.end =>
-        {
-            Some(block)
-        }
-        Block::Parsed(_) | Block::Verbatim(_) => None,
-    })
 }
 
 fn direct_parent_range(
@@ -2977,38 +2943,7 @@ fn remove_owned_descendant(
     false
 }
 
-fn replace_owned_descendant(
-    syntax: &ParsedBlock,
-    owned: &mut OwnedBlock,
-    target: &std::ops::Range<usize>,
-    replacement: &OwnedBlock,
-) -> bool {
-    let Some(children) = owned.children_mut() else {
-        return false;
-    };
-    if let Some(index) = syntax
-        .children
-        .iter()
-        .position(|child| child.range() == target)
-    {
-        children[index] = replacement.clone();
-        return true;
-    }
-    for (index, syntax_child) in syntax.children.iter().enumerate() {
-        let Block::Parsed(syntax_child) = syntax_child else {
-            continue;
-        };
-        if syntax_child.range.start <= target.start
-            && target.end <= syntax_child.range.end
-            && replace_owned_descendant(syntax_child, &mut children[index], target, replacement)
-        {
-            return true;
-        }
-    }
-    false
-}
-
-fn owned_event(input: &EventInput, uid: &str) -> OwnedBlock {
+fn event_attributes(input: &EventInput, uid: &str) -> Vec<OwnedAttribute> {
     let mut attributes = vec![
         OwnedAttribute::class("event"),
         OwnedAttribute::quoted("uid", uid),
@@ -3025,7 +2960,11 @@ fn owned_event(input: &EventInput, uid: &str) -> OwnedBlock {
     if !input.tasks.is_empty() {
         attributes.push(OwnedAttribute::quoted("tasks", input.tasks.join(" ")));
     }
-    OwnedBlock::marked("-", &input.title).with_attributes(attributes)
+    attributes
+}
+
+fn owned_event(input: &EventInput, uid: &str) -> OwnedBlock {
+    OwnedBlock::marked("-", &input.title).with_attributes(event_attributes(input, uid))
 }
 
 fn validated_token_edit(
@@ -5116,8 +5055,8 @@ mod tests {
     }
 
     #[test]
-    fn converts_event_shorthand_paragraph_in_place() {
-        let source = "`note Schedule\n\n 2026-05-21T11:10--11:20 relax: phone\n\n`# Following\n";
+    fn converts_event_shorthand_list_item_in_place() {
+        let source = "`- 2026-05-21T11:10--11:20 relax: phone\n";
         let mut workspace = Workspace::new();
         workspace.insert("agenda.plumb", 7, source);
         let now = DateTime::parse_from_rfc3339("2026-08-01T08:00:00+08:00").unwrap();
@@ -5128,16 +5067,47 @@ mod tests {
         let converted = apply_single_edit(source, &operation);
         assert!(converted.contains("`-{\n"), "{converted}");
         assert!(converted.contains(".event uid=\""), "{converted}");
-        assert!(converted.contains("uid=\""), "{converted}");
         assert!(converted.contains("start=\"2026-05-21T11:10:00+08:00\""));
         assert!(converted.contains("end=\"2026-05-21T11:20:00+08:00\""));
-        assert!(converted.contains("} relax: phone\n\n`# Following"));
+        assert!(converted.contains("} relax: phone\n"), "{converted}");
         assert_eq!(plumb_format::format(&converted).unwrap(), converted);
 
-        workspace.insert("markup.plumb", 8, "11 `*[meeting]\n");
+        // Existing id/classes are preserved; the schedule prefix is stripped from the head.
+        let kept_source = "`-{#mine .kind} 11:00--11:20 review\n";
+        workspace.insert("keep.plumb", 8, kept_source);
+        let kept = apply_single_edit(
+            kept_source,
+            &workspace.convert_event_shorthand("keep.plumb", 5, now).unwrap(),
+        );
+        assert!(kept.contains("#mine"), "{kept}");
+        assert!(kept.contains(".kind"), "{kept}");
+        assert!(kept.contains(".event"), "{kept}");
+        assert!(kept.contains("start=\"2026-08-01T11:00:00+08:00\""));
+        assert!(kept.contains("} review\n"), "{kept}");
+
+        // Inline markup in the head is rejected.
+        workspace.insert("markup.plumb", 9, "`- 11 `*[meeting]\n");
         assert_eq!(
-            workspace.convert_event_shorthand("markup.plumb", 0, now),
+            workspace.convert_event_shorthand("markup.plumb", 3, now),
             Err(EventShorthandError::NotPlainText)
+        );
+
+        // A list item that is already an event is left alone.
+        workspace.insert(
+            "done.plumb",
+            10,
+            "`-{.event start=\"2026-08-01T11:00:00+08:00\"} 11:00--11:20 review\n",
+        );
+        assert_eq!(
+            workspace.convert_event_shorthand("done.plumb", 5, now),
+            Err(EventShorthandError::EventAlreadyExists)
+        );
+
+        // A plain paragraph (no list marker) no longer offers the action.
+        workspace.insert("plain.plumb", 11, "11:00--11:20 review\n");
+        assert_eq!(
+            workspace.convert_event_shorthand("plain.plumb", 3, now),
+            Err(EventShorthandError::ListItemNotFound)
         );
     }
 
