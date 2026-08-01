@@ -465,6 +465,15 @@
    `note 用户显式 keys 按列表顺序逐项比较；所有显式 keys 相等或列表为空时，始终使用隐式、稳定且不可删除的 Source final tie-break。document Source 是 normalized relative path，task sibling Source 是 source position；排序继续只重排 filtered projected task forest 中同一 parent 的完整 sibling subtrees，保持 document grouping、parent/descendant layout 与 subtree continuity。
    `note URL 必须区分无 `[sort] parameter、显式空 `[?sort=] 和重复参数：无 parameter 初始化默认 `[priority]，显式空值恢复空列表并只使用 Source fallback，`[?sort=due&sort=priority] 按 Due、Priority 顺序恢复。structured request 与 history round-trip 保留相同语义，覆盖 direct load、refresh、back/forward、shared URL、key add/remove/reorder、duplicate normalization、empty fuzzy relevance、filtered aggregation 与 stable Source fallback tests。
 
+`-{
+   .task #fix-task-sort-key-overflow depends="#multi-key-task-sorting"
+   created="2026-08-01T11:26:18+08:00"
+  } 修复 Tasks 页面排序 key 越界
+
+   `note 排序 key 必须受 Tasks filter panel 可用宽度约束；标签、拖拽柄、上移、下移与删除 controls 不得撑破容器、遮挡相邻内容或造成页面级横向滚动。
+   `note 在窄侧栏与移动端保留完整 label 和可操作 controls；需要时让单个 key 内部换行或调整 responsive layout，不能依靠裁掉文字或隐藏 keyboard controls 掩盖越界。
+   `note 增加覆盖全部 sort keys、长标签、最窄支持 viewport 和 desktop sidebar 的 frontend layout regression test，并确认 add/reset actions 与排序 key 列表之间没有重叠。
+
 `# Neovim plugin
 
 `-{
