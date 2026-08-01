@@ -74,8 +74,9 @@ metadata sequence 只接受 `[-]。它是有序数据，不表达 bullet/ordered
 export 将 scalar、sequence、map、verbatim、null 映射为 Pandoc `[MetaInlines]、`[MetaList]、
 `[MetaMap]、`[MetaString] 和空 `[MetaString]。metadata block 不进入 document body。
 
-metadata insertion operation 只用于尚无 metadata 的 syntax-valid document，在 byte offset 0
-插入 `[title] 与 `[created]。title 默认取 filename stem；created 使用 operation 时刻的本地
+metadata insertion operation 只用于尚无 metadata 的 syntax-valid document，且只在 cursor 位于
+document start（cursor 之前只有空白字节）时提供；edit 仍在 byte offset 0 插入 `[title] 与
+`[created]。title 默认取 filename stem；created 使用 operation 时刻的本地
 RFC 3339 timestamp。生成布局与 formatter 一致：definitions 比空 head `[meta] 深一列，value
 paragraph 与 definition head 对齐。
 

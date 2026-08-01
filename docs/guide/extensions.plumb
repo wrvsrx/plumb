@@ -71,7 +71,8 @@ block。metadata sequence 只使用 `[-]；它表示数据顺序，不带正文 
 
 `[created] 使用带 timezone 的完整 RFC 3339 timestamp。非法值会产生
 `[metadata.invalid-created] warning，但不使 core syntax 无效。空文档也可以通过
-`[Insert document metadata] code action 创建带默认 filename title 与当前 created 的 metadata。
+`[Insert document metadata] code action 创建带默认 filename title 与当前 created 的 metadata；
+该 action 只在 cursor 位于 document start（第一个非空白字节之前）时提供。
 
 `# Link
 
