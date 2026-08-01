@@ -301,7 +301,7 @@ fn converts_event_shorthand_with_a_refactor_action() {
             "jsonrpc": "2.0", "method": "textDocument/didOpen",
             "params": { "textDocument": {
                 "uri": uri, "languageId": "plumb", "version": 3,
-                "text": "2026-05-21T11:10--11:20 relax: phone\n"
+                "text": "`- 2026-05-21T11:10--11:20 relax: phone\n"
             }}
         }),
         json!({
@@ -319,7 +319,7 @@ fn converts_event_shorthand_with_a_refactor_action() {
             "jsonrpc": "2.0", "method": "textDocument/didChange",
             "params": {
                 "textDocument": { "uri": uri, "version": 4 },
-                "contentChanges": [{ "text": "Meeting at 11\n" }]
+                "contentChanges": [{ "text": "`- Meeting at 11\n" }]
             }
         }),
         json!({
