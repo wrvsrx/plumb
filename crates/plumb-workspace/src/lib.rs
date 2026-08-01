@@ -1,9 +1,9 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Component, Path, PathBuf};
 
-use chrono::{DateTime, FixedOffset};
+use chrono::{DateTime, FixedOffset, NaiveDate, NaiveTime, SecondsFormat, TimeZone};
 use plumb_core::{
-    parse, Attributes, Block, Diagnostic, DiagnosticSeverity, ParsedBlock, ParsedDocument,
+    parse, Attributes, Block, Diagnostic, DiagnosticSeverity, Inline, ParsedBlock, ParsedDocument,
 };
 pub use plumb_edit::{apply_text_edits, TextEdit};
 use plumb_edit::{AttributePosition, EditSession, OwnedAttribute, OwnedBlock};
@@ -176,6 +176,16 @@ pub enum EventEditError {
     EventNotFound,
     InvalidDatetime,
     InvalidTimeShape,
+    InvalidInterval,
+    GeneratedInvalid,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EventShorthandError {
+    StaleOrInvalidDocument,
+    ParagraphNotFound,
+    NotPlainText,
+    InvalidShorthand,
     InvalidInterval,
     GeneratedInvalid,
 }
@@ -1655,6 +1665,48 @@ impl Workspace {
         Ok(single_document_edit(entry, path, edit))
     }
 
+    pub fn convert_event_shorthand(
+        &self,
+        path: impl AsRef<Path>,
+        offset: usize,
+        now: DateTime<FixedOffset>,
+    ) -> Result<WorkspaceEdit, EventShorthandError> {
+        let path = normalize(path.as_ref());
+        let entry = self
+            .documents
+            .get(&path)
+            .filter(|entry| entry.current.is_some())
+            .ok_or(EventShorthandError::StaleOrInvalidDocument)?;
+        let paragraph = deepest_plain_paragraph(&entry.parsed.syntax.blocks, offset)
+            .ok_or(EventShorthandError::ParagraphNotFound)?;
+        if paragraph
+            .head
+            .items
+            .iter()
+            .any(|inline| !matches!(inline, Inline::Text { .. }))
+        {
+            return Err(EventShorthandError::NotPlainText);
+        }
+        let shorthand = &entry.parsed.source[paragraph.head.range.clone()];
+        let input = parse_event_shorthand(shorthand, now)?;
+        let uid = format!("{}@plumb.local", uuid::Uuid::new_v4());
+        let event = owned_event(&input, &uid);
+        let ancestor = top_level_parsed_containing(&entry.parsed.syntax.blocks, &paragraph.range)
+            .ok_or(EventShorthandError::ParagraphNotFound)?;
+        let (affected, replacement) = if ancestor.range == paragraph.range {
+            (paragraph.range.clone(), event)
+        } else {
+            let mut owned = OwnedBlock::from_parsed(&entry.parsed.source, ancestor);
+            if !replace_owned_descendant(ancestor, &mut owned, &paragraph.range, &event) {
+                return Err(EventShorthandError::ParagraphNotFound);
+            }
+            (ancestor.range.clone(), owned)
+        };
+        let edit = exact_owned_block_edit(&entry.parsed, affected, &replacement)
+            .map_err(|_| EventShorthandError::GeneratedInvalid)?;
+        Ok(single_document_edit(entry, path, edit))
+    }
+
     pub fn create_task(
         &self,
         path: impl AsRef<Path>,
@@ -2450,6 +2502,24 @@ fn deepest_list_item(blocks: &[Block], offset: usize) -> Option<&ParsedBlock> {
     result
 }
 
+fn deepest_plain_paragraph(blocks: &[Block], offset: usize) -> Option<&ParsedBlock> {
+    let mut result = None;
+    for block in blocks {
+        let Block::Parsed(block) = block else {
+            continue;
+        };
+        if block.range.start <= offset && offset <= block.range.end {
+            if block.mark.is_none() {
+                result = Some(block);
+            }
+            if let Some(child) = deepest_plain_paragraph(&block.children, offset) {
+                result = Some(child);
+            }
+        }
+    }
+    result
+}
+
 fn parsed_block_with_range<'a>(
     blocks: &'a [Block],
     range: &std::ops::Range<usize>,
@@ -2468,6 +2538,20 @@ fn parsed_block_with_range<'a>(
         }
     }
     None
+}
+
+fn top_level_parsed_containing<'a>(
+    blocks: &'a [Block],
+    range: &std::ops::Range<usize>,
+) -> Option<&'a ParsedBlock> {
+    blocks.iter().find_map(|block| match block {
+        Block::Parsed(block)
+            if block.range.start <= range.start && range.end <= block.range.end =>
+        {
+            Some(block)
+        }
+        Block::Parsed(_) | Block::Verbatim(_) => None,
+    })
 }
 
 fn direct_parent_range(
@@ -2588,6 +2672,111 @@ fn validate_event_input(input: &EventInput) -> Result<(), EventEditError> {
         }
     }
     Ok(())
+}
+
+fn parse_event_shorthand(
+    input: &str,
+    now: DateTime<FixedOffset>,
+) -> Result<EventInput, EventShorthandError> {
+    let separator = input
+        .char_indices()
+        .find_map(|(index, character)| matches!(character, ' ' | '\t').then_some(index))
+        .ok_or(EventShorthandError::InvalidShorthand)?;
+    let schedule = &input[..separator];
+    let title = input[separator..].trim();
+    if title.is_empty() {
+        return Err(EventShorthandError::InvalidShorthand);
+    }
+    let (start, end) = match schedule.split_once("--") {
+        Some((start, end)) if !start.is_empty() && !end.is_empty() && !end.contains("--") => {
+            (start, Some(end))
+        }
+        Some(_) => return Err(EventShorthandError::InvalidShorthand),
+        None => (schedule, None),
+    };
+    let date = now.date_naive();
+    let offset = *now.offset();
+    let start = parse_shorthand_datetime(start, date, offset)?;
+    if let Some(end) = end {
+        if end.contains('T') {
+            return Err(EventShorthandError::InvalidShorthand);
+        }
+        let end = shorthand_datetime(start.date_naive(), parse_shorthand_time(end)?, offset)?;
+        if end <= start {
+            return Err(EventShorthandError::InvalidInterval);
+        }
+        Ok(EventInput {
+            title: title.to_string(),
+            at: None,
+            start: Some(event_datetime(start)),
+            end: Some(event_datetime(end)),
+            tasks: Vec::new(),
+        })
+    } else {
+        Ok(EventInput {
+            title: title.to_string(),
+            at: Some(event_datetime(start)),
+            start: None,
+            end: None,
+            tasks: Vec::new(),
+        })
+    }
+}
+
+fn parse_shorthand_datetime(
+    input: &str,
+    default_date: NaiveDate,
+    offset: FixedOffset,
+) -> Result<DateTime<FixedOffset>, EventShorthandError> {
+    let (date, time) = if let Some((date, time)) = input.split_once('T') {
+        if time.contains('T') {
+            return Err(EventShorthandError::InvalidShorthand);
+        }
+        let date = NaiveDate::parse_from_str(date, "%Y-%m-%d")
+            .map_err(|_| EventShorthandError::InvalidShorthand)?;
+        (date, time)
+    } else {
+        (default_date, input)
+    };
+    shorthand_datetime(date, parse_shorthand_time(time)?, offset)
+}
+
+fn parse_shorthand_time(input: &str) -> Result<NaiveTime, EventShorthandError> {
+    let parts = input.split(':').collect::<Vec<_>>();
+    if !(1..=3).contains(&parts.len())
+        || parts
+            .iter()
+            .any(|part| part.len() != 2 || !part.bytes().all(|byte| byte.is_ascii_digit()))
+    {
+        return Err(EventShorthandError::InvalidShorthand);
+    }
+    let hour = parts[0]
+        .parse::<u32>()
+        .map_err(|_| EventShorthandError::InvalidShorthand)?;
+    let minute = parts
+        .get(1)
+        .map_or(Ok(0), |part| part.parse::<u32>())
+        .map_err(|_| EventShorthandError::InvalidShorthand)?;
+    let second = parts
+        .get(2)
+        .map_or(Ok(0), |part| part.parse::<u32>())
+        .map_err(|_| EventShorthandError::InvalidShorthand)?;
+    NaiveTime::from_hms_opt(hour, minute, second).ok_or(EventShorthandError::InvalidShorthand)
+}
+
+fn shorthand_datetime(
+    date: NaiveDate,
+    time: NaiveTime,
+    offset: FixedOffset,
+) -> Result<DateTime<FixedOffset>, EventShorthandError> {
+    offset
+        .from_local_datetime(&date.and_time(time))
+        .single()
+        .ok_or(EventShorthandError::InvalidShorthand)
+}
+
+fn event_datetime(datetime: DateTime<FixedOffset>) -> String {
+    datetime.to_rfc3339_opts(SecondsFormat::Secs, false)
 }
 
 fn validate_task_authoring_input(
@@ -2781,6 +2970,37 @@ fn remove_owned_descendant(
         if syntax_child.range.start <= target.start
             && target.end <= syntax_child.range.end
             && remove_owned_descendant(syntax_child, &mut children[index], target)
+        {
+            return true;
+        }
+    }
+    false
+}
+
+fn replace_owned_descendant(
+    syntax: &ParsedBlock,
+    owned: &mut OwnedBlock,
+    target: &std::ops::Range<usize>,
+    replacement: &OwnedBlock,
+) -> bool {
+    let Some(children) = owned.children_mut() else {
+        return false;
+    };
+    if let Some(index) = syntax
+        .children
+        .iter()
+        .position(|child| child.range() == target)
+    {
+        children[index] = replacement.clone();
+        return true;
+    }
+    for (index, syntax_child) in syntax.children.iter().enumerate() {
+        let Block::Parsed(syntax_child) = syntax_child else {
+            continue;
+        };
+        if syntax_child.range.start <= target.start
+            && target.end <= syntax_child.range.end
+            && replace_owned_descendant(syntax_child, &mut children[index], target, replacement)
         {
             return true;
         }
@@ -4835,6 +5055,109 @@ mod tests {
         assert_eq!(
             point.items[0].at.as_deref(),
             Some("2026-07-30T15:00:00+08:00")
+        );
+    }
+
+    #[test]
+    fn parses_reduced_precision_event_shorthand() {
+        let now = DateTime::parse_from_rfc3339("2026-08-01T08:00:00+08:00").unwrap();
+        for (source, at) in [
+            ("11 relax: phone", "2026-08-01T11:00:00+08:00"),
+            ("11:10 relax: phone", "2026-08-01T11:10:00+08:00"),
+            (
+                "11:10:24 relax: phone",
+                "2026-08-01T11:10:24+08:00",
+            ),
+            (
+                "2026-05-21T11 relax: phone",
+                "2026-05-21T11:00:00+08:00",
+            ),
+            (
+                "2026-05-21T11:10 relax: phone",
+                "2026-05-21T11:10:00+08:00",
+            ),
+            (
+                "2026-05-21T11:10:24 relax: phone",
+                "2026-05-21T11:10:24+08:00",
+            ),
+        ] {
+            let input = parse_event_shorthand(source, now).unwrap();
+            assert_eq!(input.title, "relax: phone");
+            assert_eq!(input.at.as_deref(), Some(at), "{source}");
+            assert!(input.start.is_none());
+            assert!(input.end.is_none());
+        }
+
+        let interval =
+            parse_event_shorthand("2026-05-21T11--11:20 review", now).unwrap();
+        assert_eq!(
+            interval.start.as_deref(),
+            Some("2026-05-21T11:00:00+08:00")
+        );
+        assert_eq!(
+            interval.end.as_deref(),
+            Some("2026-05-21T11:20:00+08:00")
+        );
+        assert!(interval.at.is_none());
+    }
+
+    #[test]
+    fn rejects_ambiguous_or_invalid_event_shorthand() {
+        let now = DateTime::parse_from_rfc3339("2026-08-01T08:00:00+08:00").unwrap();
+        for source in [
+            "11",
+            "9 meeting",
+            "09:5 meeting",
+            "09:05:7 meeting",
+            "24 meeting",
+            "2026-02-30T11 meeting",
+            "2026-05-21 11 meeting",
+            "11am meeting",
+            "11--2026-08-01T12 meeting",
+        ] {
+            assert_eq!(
+                parse_event_shorthand(source, now),
+                Err(EventShorthandError::InvalidShorthand),
+                "{source}"
+            );
+        }
+        assert_eq!(
+            parse_event_shorthand("11:20--11:20 meeting", now),
+            Err(EventShorthandError::InvalidInterval)
+        );
+        assert_eq!(
+            parse_event_shorthand("11:20--11:00 meeting", now),
+            Err(EventShorthandError::InvalidInterval)
+        );
+    }
+
+    #[test]
+    fn converts_event_shorthand_paragraph_in_place() {
+        let source = "`note Schedule\n\n 2026-05-21T11:10--11:20 relax: phone\n\n`# Following\n";
+        let mut workspace = Workspace::new();
+        workspace.insert("agenda.plumb", 7, source);
+        let now = DateTime::parse_from_rfc3339("2026-08-01T08:00:00+08:00").unwrap();
+        let operation = workspace
+            .convert_event_shorthand(
+                "agenda.plumb",
+                source.find("relax").unwrap(),
+                now,
+            )
+            .unwrap();
+        assert_eq!(operation.document_changes[0].expected_revision, 7);
+        let converted = apply_single_edit(source, &operation);
+        assert!(converted.contains("`-{\n"), "{converted}");
+        assert!(converted.contains(".event uid=\""), "{converted}");
+        assert!(converted.contains("uid=\""), "{converted}");
+        assert!(converted.contains("start=\"2026-05-21T11:10:00+08:00\""));
+        assert!(converted.contains("end=\"2026-05-21T11:20:00+08:00\""));
+        assert!(converted.contains("} relax: phone\n\n`# Following"));
+        assert_eq!(plumb_format::format(&converted).unwrap(), converted);
+
+        workspace.insert("markup.plumb", 8, "11 `*[meeting]\n");
+        assert_eq!(
+            workspace.convert_event_shorthand("markup.plumb", 0, now),
+            Err(EventShorthandError::NotPlainText)
         );
     }
 
