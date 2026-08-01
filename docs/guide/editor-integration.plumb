@@ -147,8 +147,9 @@ range 会扣除 nested task blocks，child task 始终按自身状态着色。�
   end)
 
 single-backtick construct completion 提供 Task、Autolink 和 Link，并在 snippet-capable client 中使用
-tab stops。CodeAction 包括 metadata insertion、explicit id、task conversion、created insertion 和 task
-status operations。whole-document 与 range formatting 使用同一个 canonical formatter。
+tab stops。CodeAction 包括 metadata insertion、explicit id、event shorthand conversion、task conversion、
+created insertion 和 task status operations。event shorthand 的具体格式见
+`->[Event]{to="extensions.plumb"}。whole-document 与 range formatting 使用同一个 canonical formatter。
 
 光标位于顶层 `[meta] marker 时，`[vim.lsp.buf.rename()] 重命名当前 document file，并更新 workspace
 内指向它的 links、Autolinks 和 task references。new name 必须是 `[.plumb] 文件名或相对路径；operation

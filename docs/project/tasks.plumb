@@ -254,6 +254,16 @@
    `note 提供只读 vdir projection：每个 event 原子生成一个含单个 VEVENT 的 `[.ics] file，以 UID 派生 filename，稳定 lower SUMMARY、DESCRIPTION、DTSTART、optional DTEND、UID 与 DTSTAMP，并用 `[X-PLUMB-TASK] 保留 task references；删除 source event 时清理对应 generated item。输出目录可作为 khal `[readonly = true] calendar 使用。
    `note `[.plumb] 始终是唯一 writable source；首版不导入外部 iCalendar 修改、不实现 CalDAV client、不让 vdirsyncer 或 Calendar 回写 source。覆盖 strict extension/workspace tests、Web guarded-edit tests、RFC 5545 escaping/folding/CRLF fixtures、真实 khal read-only discovery，以及 reference、guide、roadmap、playground 和 bundled skill 更新。
 
+`-{
+   .task #event-shorthand-code-action depends="#standard-event-extension"
+   created="2026-08-01T12:38:58+08:00" done="2026-08-01T12:38:58+08:00"
+  } 将 event shorthand 转换为 event
+
+   `note `[Convert to event] refactor CodeAction 只转换 cursor 命中的单个 plain-text paragraph；shorthand 使用 `[TIME TITLE] 或 `[TIME--TIME TITLE]，并允许 start 具有 `[YYYY-MM-DDT] prefix。
+   `note `[TIME] 支持两位 `[HH]、`[HH:MM] 与 `[HH:MM:SS] reduced precision；缺失低位补零，缺失 date 使用 operation 本地日期，区间 end 继承 start date 且必须晚于 start。
+   `note protocol-neutral workspace operation 生成稳定 UID 与 RFC 3339 `[at] 或 `[start]/`[end]，在 owned tree 中原位替换 paragraph、canonicalize 完整 owner subtree，并返回 revision-guarded edit；LSP adapter 不解析或拼接 source。
+   `note 覆盖带/不带 date 的全部 time precision、point/interval、nested paragraph、invalid/ambiguous spelling、inline markup rejection、formatter fixed point 和 stdio CodeAction availability tests；同步 reference 与 guides。
+
 `# Workspace indexing
 
 `-{

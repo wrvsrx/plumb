@@ -308,6 +308,26 @@ Event CEL context 提供 `[path]、`[id]、`[uid]、`[title]、`[at]、`[start]�
 Web Agenda 通过 revision-guarded operations 创建、编辑和删除 event；首版只支持 online mutations。
 Pandoc export 不消费 event facet：它仍作为普通 list item 导出并保留 `[.event] 与 fields。
 
+editor authoring operation `[Convert to event] 只在 cursor 命中的单个 plain-text paragraph 完整匹配
+event shorthand 时提供：
+
+`{language=text}
+  TIME TITLE
+  TIME--TIME TITLE
+  YYYY-MM-DDTTIME TITLE
+  YYYY-MM-DDTTIME--TIME TITLE
+
+`[TIME] 是 ISO 8601-derived reduced-precision local time，只接受两位字段的 `[HH]、`[HH:MM] 或
+`[HH:MM:SS]；hour 范围是 `[00..23]，minute/second 是 `[00..59]。缺失低位补零；省略 date 时使用
+operation 执行时的本地日期，显式 date 必须是合法 `[YYYY-MM-DD] 并直接以 `[T] 连接 time。区间 end
+继承 start date，必须晚于 start，不能再次携带 date，也不自动跨日。至少一个 ASCII space/tab 分隔
+schedule 与非空 title；inline markup、单数字段、basic time、offset、`[Z]、`[am/pm] 和自然语言日期不
+进入 shorthand。
+
+operation 原位用带稳定 `[uid] 的 `[.event] owned block 替换 paragraph：point 写入 `[at]，区间写入
+`[start]/`[end]，并将完整 owner subtree canonicalize 后返回 revision-guarded edit。shorthand 只是
+显式 authoring convention，不改变普通 paragraph syntax，也不从任意 prose 隐式生成 event。
+
 `# 16. Tasks
 
 只有 `[-] 或 `[.] list item 上的 `[.task] class 产生 task facet：
