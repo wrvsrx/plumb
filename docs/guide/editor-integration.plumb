@@ -91,8 +91,12 @@ element 不单独折叠。即使 document 存在 syntax error，未受错误影�
 
 客户端声明 `[foldingRange.foldingRange.collapsedText] support 时，task fold 使用 derived workflow state
 和 title 生成 `[READY  Title]、`[WAITING  Title]、`[DONE  Title]、`[CANCELED  Title] 或
-`[INVALID  Title]，并保留 task block opener 的原始结构缩进。没有该 capability、无可靠 valid task facts
-或不是 task 的 fold 不携带 custom label。
+`[INVALID  Title]，并保留 task block opener 的原始结构缩进。event fold 把 event 声明时区的 RFC 3339
+时间（省秒、省偏移）与 title 拼成缩写：point（`[at]）写成 `[YYYY-MM-DDTHH:MM  Title]；interval
+（`[start]/`[end]）写成 `[YYYY-MM-DDTHH:MM--END  Title]，其中 END 在距 start 不超过 24 小时时仅为
+`[HH:MM]（含跨零点），超过 24 小时才展开为完整的 `[YYYY-MM-DDTHH:MM]；running（仅有 `[start]）写成
+`[YYYY-MM-DDTHH:MM-running  Title]。同样保留原始结构缩进。没有该 capability、无可靠 valid task facts
+或无可用时间的 event fold 不携带 custom label。
 
 plugin 不修改 window-local folding 设置。editor configuration 可以在 `[LspAttach] 中仅对支持该 method
 的 client 启用：
