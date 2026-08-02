@@ -249,10 +249,10 @@ attributes 原样保留。用户无需在 event 正文填写 UID：
     `- `->[parser-review-guide@example]{to="#e0001"}
 
 缺少 explicit id 时，authoring 默认按文件分配 `[e0001]、`[e0002]……；固定四位便于正文排版对齐，
-超过四位后自然扩展。metadata `[event-id-sequence] 保存已分配的最大序号，所以删除 event 后不会复用
-旧编号；已有 explicit id 保持不变。
+超过四位后自然扩展。下一个编号来自当前 events 中最大 `[eNNNN] id；已有 explicit id 保持不变。
 
-显式 date 写入 event override，否则继承 metadata。选中多行时可执行 `[Convert selected items to events]
+显式 date 写入 event override；省略 date/timezone 时优先继承 document metadata，缺少对应 metadata 时
+才使用 operation 当前本地日期/offset。选中多行时可执行 `[Convert selected items to events]
 批量转换范围内匹配 shorthand 的 list items；不匹配或已是 event 的 item 保持不变。
 
 `[plumb event --root DIR] 列出 events，并支持使用 `[--query] 对 path、id、uid、title、date、timezone、when、

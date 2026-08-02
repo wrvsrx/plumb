@@ -343,8 +343,9 @@ shorthand 开头时提供：
   `- YYYY-MM-DDTTIME--TIME TITLE
 
 `[TIME] 是 ISO 8601-derived reduced-precision local time，只接受两位字段的 `[HH]、`[HH:MM] 或
-`[HH:MM:SS]；hour 范围是 `[00..23]，minute/second 是 `[00..59]。缺失低位补零；省略 date 时使用
-operation 执行时的本地日期，显式 date 必须是合法 `[YYYY-MM-DD] 并直接以 `[T] 连接 time。区间 end
+`[HH:MM:SS]；hour 范围是 `[00..23]，minute/second 是 `[00..59]。缺失低位补零；省略 date/timezone
+时先继承有效 document metadata，缺失对应 metadata 时分别使用 operation 执行时的本地日期/offset。
+显式 date 必须是合法 `[YYYY-MM-DD] 并直接以 `[T] 连接 time。区间 end
 默认继承 start date，不能再次携带 date；end local time 早于 start 时解释为次日，相等无效。至少一个 ASCII space/tab 分隔
 schedule 与非空 title。Schedule prefix 必须位于首个 plain text inline；title 可混合 text、parsed inline、
 verbatim inline 与其 attributes。Operation 只移除 schedule 与分隔 whitespace，保留其余 inline tree。
@@ -357,12 +358,11 @@ revision-guarded edit。非空 editor selection 还提供批量转换 action，�
 完整匹配 shorthand 的 plain list-item heads，其他 items 保持不变。已是 `[.event] 的 item 不再提供该
 action。shorthand 只是显式 authoring convention，不改变 list item syntax，也不从任意 prose 隐式生成 event。
 
-event authoring 为缺少 explicit id 的新 event 分配 document-local `[eNNNN] id，从 `[e0001] 开始且至少
-四位十进制补零；超过 `[e9999] 后自然扩展。metadata scalar `[event-id-sequence] 记录已经分配的最大
-序号。分配时取该值与所有现存 `[eNNNN] anchor 的最大值，再选择下一个未被任意 anchor 占用的编号；
-batch conversion 按 source order 连续分配。删除 event 不删除或回退 sequence，因此旧 id 不被自动复用。
-用户已有的 explicit id 原样保留，也不推进 sequence。UID mapping 仍是 calendar identity，sequence 只服务
-于紧凑、对齐且 rename-independent 的 authored anchor。
+event authoring 为缺少 explicit id 的新 event 分配 document-local `[eNNNN] id，从当前所有 event 的
+`[eNNNN] explicit ids 取得最大序号再加一，并避开任意现存 anchor 冲突；没有匹配 id 时从 `[e0001]
+开始。编号至少四位十进制补零，超过 `[e9999] 后自然扩展；batch conversion 按 source order 连续分配。
+用户已有的 explicit id 原样保留。UID mapping 仍是 calendar identity，编号只服务于紧凑、对齐且
+rename-independent 的 authored anchor。
 
 `# 16. Tasks
 

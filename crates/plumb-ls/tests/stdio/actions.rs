@@ -404,7 +404,6 @@ fn converts_event_shorthand_with_a_refactor_action() {
     assert!(replacement.contains("#e0001 .event"), "{replacement}");
     assert!(replacement.contains("`: event-uids"), "{replacement}");
     assert!(replacement.contains("@plumb.local]{to=\"#e0001\"}"));
-    assert!(replacement.contains("`: event-id-sequence\n\n    1"));
     assert!(!replacement.contains(" uid=\""), "{replacement}");
 
     assert!(response(&output, 3)["result"]

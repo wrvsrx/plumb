@@ -363,10 +363,11 @@ start of a list-item head. The title after its separating whitespace may contain
 parsed or verbatim inline markup; conversion removes only the leading schedule
 and preserves the remaining inline tree and attributes.
 Event authoring assigns missing explicit ids as document-local `eNNNN` decimal
-sequences, starting at `e0001`. Metadata `event-id-sequence` preserves the
-largest allocated number so deletion does not cause automatic id reuse. Existing
-explicit ids remain unchanged; stable calendar identity still comes from the UID
-mapping rather than from the sequence.
+sequences, starting after the largest matching id among current events or at
+`e0001` when none exists. Existing explicit ids remain unchanged; stable calendar
+identity still comes from the UID mapping rather than from the sequence. A
+shorthand without an explicit date or timezone inherits valid document metadata
+before falling back to the operation's local date and offset.
 `.event` on a non-list-item owner is invalid. Combining `.event` and `.task` on
 one owner is invalid and produces no event record. Calendar projection requires
 a workspace-unique UID.
