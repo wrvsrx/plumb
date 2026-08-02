@@ -339,6 +339,7 @@
 
 `-{
    .task #metadata-rename-hide-extension created="2026-08-02T20:31:52+08:00"
+   done="2026-08-02T21:34:21+08:00"
   } 从 metadata 重命名文件时隐藏扩展名
 
    `note 从顶层有效 `[meta] opener 发起 document rename 时，`[prepareRename] placeholder 与编辑器 rename input 只显示当前 filename stem，不显示 `[.plumb] extension。
