@@ -76,7 +76,8 @@ Relevance 降序；无 fuzzy query 时 Relevance 不改变顺序。所有 keys �
 sibling subtrees，因此 document 和 parent/subtask subtree 始终连续。Priority 取 subtree 最大
 effective priority，Due 取 subtree 最早 due，Relevance 取 subtree 最大 fuzzy score。过滤先确定当前结果集合，未显示的 task
 不会参与这些聚合；详情显示 derived
-state、timestamps、dependencies 与 child tasks。`[New Task] 固定在 task list toolbar，不随 detail selection 移动。
+state、timestamps、dependencies 与 child tasks。`[New Task] 是主 toolbar 的 Tasks-only action：切到 Tasks 时显示，
+切到 Graph 或 Agenda 时隐藏，并且不随 detail selection 移动。
 点击 detail 中已有的 editable property 会原位打开对应 control；`[Add property] 列出当前缺失的标准 editable fields。
 两种操作都复用 revision-guarded task authoring，derived state 与 closure fields 保持只读。
 
