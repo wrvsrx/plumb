@@ -209,7 +209,7 @@ strength。普通 dollar characters 和 dollar-delimited math 不具有特殊含
 
 `{language=plumb}
   `-{
-     .event #parser-review uid="parser-review-guide@example" date=2026-07-30 timezone="+08:00"
+     #parser-review .event date=2026-07-30 timezone="+08:00"
      when="14:00--15:30" tasks="#write-parser"
     } Parser review
 
@@ -239,8 +239,14 @@ CodeAction：
 
 time 使用两位 `[HH]、`[HH:MM] 或 `[HH:MM:SS]；省略分钟/秒时补零，省略 date 时使用执行操作当天的
 本地日期。显式 date 使用 `[YYYY-MM-DDT] prefix。end local time 早于 start 时解释为次日，相等无效。
-转换会在该 list item 上原位追加 `[.event] class、稳定 UID 与紧凑 `[when]，并将 head 缩减为
-title；显式 date 写入 event override，否则继承 metadata。选中多行时可执行 `[Convert selected items to events]
+转换会在该 list item 上原位追加 explicit id、`[.event] class 与紧凑 `[when]，并将稳定 UID 作为
+`[event-uids] Link 写入 metadata；head 缩减为 title。用户无需在 event 正文填写 UID：
+
+`{language=plumb}
+  `: event-uids
+    `- `->[parser-review-guide@example]{to="#parser-review"}
+
+显式 date 写入 event override，否则继承 metadata。选中多行时可执行 `[Convert selected items to events]
 批量转换范围内匹配 shorthand 的 list items；不匹配或已是 event 的 item 保持不变。
 
 `[plumb event --root DIR] 列出 events，并支持使用 `[--query] 对 path、id、uid、title、date、timezone、when、

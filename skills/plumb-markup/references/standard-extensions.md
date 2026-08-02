@@ -321,7 +321,7 @@ blocks remain subsequent blocks in the same list item.
 An event is a `-` or `.` list item carrying `.event`:
 
 ```plumb
-`-{.event #review uid="review-skill-reference@example" date=2026-07-30 timezone="+08:00" when="14:00--15:00" tasks="#write-parser"} Parser review
+`-{#review .event date=2026-07-30 timezone="+08:00" when="14:00--15:00" tasks="#write-parser"} Parser review
 ```
 
 The head is the title and children are details. A quoted `when` start may be
@@ -345,9 +345,22 @@ subtree; the nearest ancestor wins, and dedenting restores the parent context.
 An event's own overrides therefore also propagate to nested events. An invalid
 explicit override never falls back to an ancestor value.
 
+Metadata `event-uids` is a list of standard Links whose nonempty plain labels
+are iCalendar UIDs and whose targets are same-file event `#id` values:
+
+```plumb
+`meta
+  `: event-uids
+    `- `->[review-skill-reference@example]{to="#review"}
+```
+
+This mapping is the default identity source and takes precedence over a legacy
+quoted inline `uid`, which remains a compatibility fallback. Authoring creates
+an explicit event id and mapping together. Anchor rename updates the Link target;
+editing or moving the event preserves the UID; deleting it removes the mapping.
 `.event` on a non-list-item owner is invalid. Combining `.event` and `.task` on
-one owner is invalid and produces no event record. `uid` is an optional nonempty
-quoted iCalendar identity; calendar projection requires a workspace-unique UID.
+one owner is invalid and produces no event record. Calendar projection requires
+a workspace-unique UID.
 The initial profile has no all-day, floating-time, recurrence, reminder,
 attendee, alarm, external-iCalendar import, or CalDAV semantics.
 

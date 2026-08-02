@@ -280,7 +280,7 @@ wrapper 保留。普通 dollar characters 和 dollar-delimited math 没有特殊
 
 `{language=plumb}
   `-{
-     .event #parser-review uid="parser-review-reference@example" date=2026-07-30 timezone="+08:00"
+     #parser-review .event date=2026-07-30 timezone="+08:00"
      when="14:00--15:30"
      tasks="#write-parser Project A.plumb#docs"
     } Parser review
@@ -309,8 +309,19 @@ task-to-event reverse query。不得从 task 的 created、due、wait、done 或
 同一 owner 同时具有 `[.event] 与 `[.task] 时发布 `[event.conflicting-task-facet]，task record 继续产生，
 但 event record 不产生。`[.event] 出现在非 list item owner 上发布 `[event.invalid-owner]。
 
-`[uid] 是 optional nonempty quoted iCalendar identity，与 source-backed `[#id] 分离。普通 event query 不
-要求 UID；calendar authoring operation 为新 event 生成稳定 UID，后续移动、改标题或编辑时间不改变它。
+metadata `[event-uids] 是 UID Link list；每个 item 必须只包含一个 label 为 nonempty UID、target 为同文件
+event explicit id 的标准 Link：
+
+`{language=plumb}
+  `meta
+    `: event-uids
+      `- `->[parser-review-reference@example]{to="#parser-review"}
+
+映射是 event 的默认 iCalendar identity source，要求 target 在 list 内唯一；metadata 映射优先于 owner 上
+legacy quoted `[uid] pair，后者只保留作 source compatibility。普通 event query 不要求 UID。Calendar
+authoring operation 为新 event 生成 explicit id 与稳定 UID mapping；修改标题、时间或移动 owner 不改变
+已有 UID，anchor rename 作为普通 Link reference rename 同步更新 target。删除 event 同时删除其 mapping，
+之后重建默认产生新 identity。
 只读 vdir projection 要求每个 event 具有 workspace-unique UID 与有效 time；每个
 event 原子生成一个含单个 VEVENT
 的 `[..ics] file，并 lower SUMMARY、DESCRIPTION、DTSTART、optional DTEND、UID、DTSTAMP 与重复的
