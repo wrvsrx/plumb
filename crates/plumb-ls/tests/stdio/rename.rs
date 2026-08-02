@@ -394,7 +394,7 @@ fn metadata_marker_renames_the_current_document_without_changing_title() {
             "params": {
                 "textDocument": { "uri": current_uri },
                 "position": { "line": 0, "character": 2 },
-                "newName": "renamed.plumb"
+                "newName": "renamed"
             }
         }),
         json!({ "jsonrpc": "2.0", "id": 4, "method": "shutdown", "params": null }),
@@ -403,7 +403,7 @@ fn metadata_marker_renames_the_current_document_without_changing_title() {
 
     let output = run_server(&messages);
     let prepare = response(&output, 2);
-    assert_eq!(prepare["result"]["placeholder"], "current.plumb");
+    assert_eq!(prepare["result"]["placeholder"], "current");
     assert_eq!(
         prepare["result"]["range"],
         json!({

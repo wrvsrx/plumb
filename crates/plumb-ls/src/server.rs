@@ -37,8 +37,8 @@ use plumb_extensions::{
     TaskStatus,
 };
 use plumb_workspace::{
-    normalize, scan_workspace_files, RenameError, ResolvedTarget, ResourceOperation, SearchRecord,
-    SearchRecordKind, Workspace, WorkspaceEdit,
+    normalize, scan_workspace_files, PathRenameInput, RenameError, ResolvedTarget,
+    ResourceOperation, SearchRecord, SearchRecordKind, Workspace, WorkspaceEdit,
 };
 
 use crate::folding::{ranges as folding_ranges, collapsed_text_labels as fold_labels};
@@ -1465,11 +1465,17 @@ impl LanguageServer for ServerState {
                         self.workspace
                             .document_rename_target_at(&path, offset)
                             .map(|target| {
-                                let placeholder = target
-                                    .old_path
-                                    .file_name()
+                                let (name, fallback) = match target.input {
+                                    PathRenameInput::Path => {
+                                        (target.old_path.file_name(), "document.plumb")
+                                    }
+                                    PathRenameInput::FileStem => {
+                                        (target.old_path.file_stem(), "document")
+                                    }
+                                };
+                                let placeholder = name
                                     .and_then(|name| name.to_str())
-                                    .unwrap_or("document.plumb")
+                                    .unwrap_or(fallback)
                                     .to_string();
                                 (target.range, placeholder)
                             })

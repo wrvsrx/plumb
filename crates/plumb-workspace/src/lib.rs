@@ -196,6 +196,13 @@ pub enum EventShorthandError {
 pub struct PathRenameTarget {
     pub old_path: PathBuf,
     pub range: std::ops::Range<usize>,
+    pub input: PathRenameInput,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PathRenameInput {
+    Path,
+    FileStem,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1440,6 +1447,7 @@ impl Workspace {
             return Ok(PathRenameTarget {
                 old_path,
                 range: link.path_range.clone().ok_or(RenameError::NotRenameable)?,
+                input: PathRenameInput::Path,
             });
         }
         let reference = self
@@ -1454,6 +1462,7 @@ impl Workspace {
         Ok(PathRenameTarget {
             old_path: reference.target_path,
             range: reference.path_range.ok_or(RenameError::NotRenameable)?,
+            input: PathRenameInput::Path,
         })
     }
 
@@ -1471,6 +1480,7 @@ impl Workspace {
             return Ok(PathRenameTarget {
                 old_path: path,
                 range: metadata.selection_range.clone(),
+                input: PathRenameInput::FileStem,
             });
         }
         self.path_rename_target_at(path, offset)
@@ -1482,15 +1492,44 @@ impl Workspace {
         new_path: impl AsRef<Path>,
     ) -> Result<WorkspaceEdit, RenameError> {
         let old_path = normalize(&target.old_path);
-        let new_path = if new_path.as_ref().is_absolute() {
-            normalize(new_path.as_ref())
-        } else {
-            normalize(
-                &old_path
-                    .parent()
-                    .unwrap_or_else(|| Path::new(""))
-                    .join(new_path),
-            )
+        let requested_path = new_path.as_ref();
+        let new_path = match target.input {
+            PathRenameInput::Path => {
+                if requested_path.is_absolute() {
+                    normalize(requested_path)
+                } else {
+                    normalize(
+                        &old_path
+                            .parent()
+                            .unwrap_or_else(|| Path::new(""))
+                            .join(requested_path),
+                    )
+                }
+            }
+            PathRenameInput::FileStem => {
+                if requested_path.is_absolute()
+                    || requested_path.file_name().is_none()
+                    || requested_path
+                        .parent()
+                        .is_some_and(|parent| !parent.as_os_str().is_empty())
+                    || requested_path
+                        .extension()
+                        .is_some_and(|extension| extension != "plumb")
+                {
+                    return Err(RenameError::InvalidPath);
+                }
+                let file_name = if requested_path.extension().is_some() {
+                    requested_path.to_path_buf()
+                } else {
+                    requested_path.with_extension("plumb")
+                };
+                normalize(
+                    &old_path
+                        .parent()
+                        .unwrap_or_else(|| Path::new(""))
+                        .join(file_name),
+                )
+            }
         };
         if new_path
             .extension()
@@ -3694,8 +3733,17 @@ mod tests {
             .unwrap();
         assert_eq!(target.old_path, Path::new("current.plumb"));
         assert_eq!(&source[target.range.clone()], "meta");
+        assert_eq!(target.input, PathRenameInput::FileStem);
+        assert_eq!(
+            workspace.rename_document(&target, "archive/renamed"),
+            Err(RenameError::InvalidPath)
+        );
+        assert_eq!(
+            workspace.rename_document(&target, "renamed.md"),
+            Err(RenameError::InvalidPath)
+        );
 
-        let edit = workspace.rename_document(&target, "renamed.plumb").unwrap();
+        let edit = workspace.rename_document(&target, "renamed").unwrap();
         assert!(edit
             .document_changes
             .iter()
@@ -4199,6 +4247,7 @@ mod tests {
         let target = workspace
             .path_rename_target_at("notes/b.plumb", offset)
             .unwrap();
+        assert_eq!(target.input, PathRenameInput::Path);
         let edit = workspace
             .rename_document(&target, "archive/a.plumb")
             .unwrap();
