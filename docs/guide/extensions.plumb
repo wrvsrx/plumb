@@ -213,7 +213,9 @@ strength。普通 dollar characters 和 dollar-delimited math 不具有特殊含
      when="14:00--15:30" tasks="#write-parser"
     } Parser review
 
-quoted `[when] 使用 `[HH]、`[HH:MM]、`[HH:MM:SS] point 或同日 `[TIME--TIME] interval。
+quoted `[when] 使用 `[HH]、`[HH:MM]、`[HH:MM:SS] point 或 `[START--TIME] interval。start 也可写
+`[YYYY-MM-DDTTIME] 来覆盖 date 并继承 timezone；若指定 offset 或 `[Z]，则必须写包含秒的完整 RFC 3339
+timestamp，例如 `[2026-05-02T08:22:31+08:00--09:20]。end 从 start 继承 date 与 offset。
 event 默认继承 metadata `[date] 与 numeric-offset `[timezone]；RFC 3339 metadata date 也提供自身 offset。
 同名 event pairs 可逐条覆盖。end 不能与 start 相等；end local time 早于 start 时解释为次日。
 旧 `[at]、`[start]、`[end] 不具有 event semantics。`[tasks] 显式关联同文件或跨文件 task id，不产生 dependency，也不从 task

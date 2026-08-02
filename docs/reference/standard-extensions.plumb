@@ -286,9 +286,12 @@ wrapper 保留。普通 dollar characters 和 dollar-delimited math 没有特殊
     } Parser review
 
 head 是 title，children 是 details；nested events 只形成 display tree，不表示时间包含关系。quoted `[when]
-使用与 event shorthand 相同的 reduced-precision local-time spelling：`[HH]、`[HH:MM] 或 `[HH:MM:SS]
-表示 point event，`[TIME--TIME] 表示同日 half-open `[[start, end)] closed interval。end 继承 start date
-且不能相等；end local time 早于 start 时解释为次日。event `[date]、`[timezone] 分别覆盖 metadata 中的同名 scalar/literal；`[date]
+的 start 接受 event shorthand 的 reduced-precision local-time `[TIME]、带显式日期但继承 timezone 的
+`[YYYY-MM-DDTTIME]，或自包含的完整 RFC 3339 timestamp。`[TIME] 是 `[HH]、`[HH:MM] 或
+`[HH:MM:SS]；一旦 start 指定 offset 或 `[Z]，就必须使用包含秒的完整 RFC 3339 spelling，不能把 offset
+附在 reduced-precision time 后。point 只包含 start；interval 写成 `[START--TIME]，end 继承解析后 start
+的 date 与 offset 且不能相等。end local time 早于 start 时解释为次日。`[when] 内显式 date/offset 只覆盖
+当前 event 的解析 context，不沿 subtree 传播。event `[date]、`[timezone] 分别覆盖 metadata 中的同名 scalar/literal；`[date]
 使用 `[YYYY-MM-DD]，metadata date 也可用 RFC 3339 timestamp 并同时提供其 offset；`[timezone] 使用 numeric UTC offset。缺少有效 date/timezone context 或 `[when]
 时不产生有效 time。旧 `[at]、`[start]、`[end] pairs 不具有 event semantics。Agenda 和 workspace range
 query 按解析后的 point/start、path、source position 稳定排序。首版不定义 running、all-day、floating time、

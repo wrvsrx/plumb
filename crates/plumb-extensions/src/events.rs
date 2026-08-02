@@ -322,7 +322,7 @@ fn collect_event_diagnostics(
         output.diagnostics.push(Diagnostic {
             code: "event.invalid-when",
             severity: DiagnosticSeverity::Warning,
-            message: "'when' must be a quoted reduced-precision time or interval".to_string(),
+            message: "'when' must be a quoted event time or interval".to_string(),
             range: when.range.clone(),
             related: Vec::new(),
         });
@@ -389,22 +389,6 @@ fn resolve_when(
     timezone: Option<&str>,
 ) -> Result<ResolvedWhen, EventWhenError> {
     let when = when.ok_or(EventWhenError::InvalidWhen)?;
-    let date = date.ok_or(EventWhenError::MissingDate)?;
-    let (date, inherited_offset) = match NaiveDate::parse_from_str(date, "%Y-%m-%d") {
-        Ok(date) => (date, None),
-        Err(_) => {
-            let datetime =
-                DateTime::parse_from_rfc3339(date).map_err(|_| EventWhenError::InvalidDate)?;
-            (datetime.date_naive(), Some(*datetime.offset()))
-        }
-    };
-    let offset = match timezone {
-        Some(timezone) => DateTime::parse_from_rfc3339(&format!("2000-01-01T00:00:00{timezone}"))
-            .map_err(|_| EventWhenError::InvalidTimezone)?
-            .offset()
-            .to_owned(),
-        None => inherited_offset.ok_or(EventWhenError::MissingTimezone)?,
-    };
     let (start, end) = match when.value.split_once("--") {
         Some((start, end)) if !start.is_empty() && !end.is_empty() && !end.contains("--") => {
             (start, Some(end))
@@ -412,7 +396,7 @@ fn resolve_when(
         Some(_) => return Err(EventWhenError::InvalidWhen),
         None => (when.value.as_str(), None),
     };
-    let start = local_datetime(date, parse_time(start)?, offset)?;
+    let start = resolve_start(start, date, timezone)?;
     let Some(end) = end else {
         return Ok(ResolvedWhen::Point(start));
     };
@@ -421,12 +405,86 @@ fn resolve_when(
         return Err(EventWhenError::InvalidInterval);
     }
     let end_date = if end_time < start.time() {
-        date.succ_opt().ok_or(EventWhenError::InvalidInterval)?
+        start
+            .date_naive()
+            .succ_opt()
+            .ok_or(EventWhenError::InvalidInterval)?
     } else {
-        date
+        start.date_naive()
     };
-    let end = local_datetime(end_date, end_time, offset)?;
+    let end = local_datetime(end_date, end_time, *start.offset())?;
     Ok(ResolvedWhen::Interval(start, end))
+}
+
+fn resolve_start(
+    value: &str,
+    inherited_date: Option<&str>,
+    inherited_timezone: Option<&str>,
+) -> Result<DateTime<FixedOffset>, EventWhenError> {
+    if let Some((date, time)) = value.split_once('T') {
+        let date = parse_date(date).map_err(|_| EventWhenError::InvalidWhen)?;
+        if let Ok(time) = parse_time(time) {
+            return local_datetime(date, time, inherited_offset(inherited_timezone, None)?);
+        }
+        return parse_full_rfc3339(value);
+    }
+
+    let date = inherited_date.ok_or(EventWhenError::MissingDate)?;
+    let (date, date_offset) = match parse_date(date) {
+        Ok(date) => (date, None),
+        Err(_) => {
+            let datetime =
+                DateTime::parse_from_rfc3339(date).map_err(|_| EventWhenError::InvalidDate)?;
+            (datetime.date_naive(), Some(*datetime.offset()))
+        }
+    };
+    local_datetime(
+        date,
+        parse_time(value)?,
+        inherited_offset(inherited_timezone, date_offset)?,
+    )
+}
+
+fn parse_date(value: &str) -> Result<NaiveDate, EventWhenError> {
+    let bytes = value.as_bytes();
+    if bytes.len() != 10
+        || bytes.get(4) != Some(&b'-')
+        || bytes.get(7) != Some(&b'-')
+        || !bytes[..4].iter().all(u8::is_ascii_digit)
+        || !bytes[5..7].iter().all(u8::is_ascii_digit)
+        || !bytes[8..].iter().all(u8::is_ascii_digit)
+    {
+        return Err(EventWhenError::InvalidWhen);
+    }
+    NaiveDate::parse_from_str(value, "%Y-%m-%d").map_err(|_| EventWhenError::InvalidWhen)
+}
+
+fn inherited_offset(
+    timezone: Option<&str>,
+    fallback: Option<FixedOffset>,
+) -> Result<FixedOffset, EventWhenError> {
+    match timezone {
+        Some(timezone) => DateTime::parse_from_rfc3339(&format!("2000-01-01T00:00:00{timezone}"))
+            .map_err(|_| EventWhenError::InvalidTimezone)
+            .map(|datetime| *datetime.offset()),
+        None => fallback.ok_or(EventWhenError::MissingTimezone),
+    }
+}
+
+fn parse_full_rfc3339(value: &str) -> Result<DateTime<FixedOffset>, EventWhenError> {
+    let (_, time_and_offset) = value.split_once('T').ok_or(EventWhenError::InvalidWhen)?;
+    let bytes = time_and_offset.as_bytes();
+    if bytes.len() < 9
+        || bytes.get(2) != Some(&b':')
+        || bytes.get(5) != Some(&b':')
+        || !bytes[..2].iter().all(u8::is_ascii_digit)
+        || !bytes[3..5].iter().all(u8::is_ascii_digit)
+        || !bytes[6..8].iter().all(u8::is_ascii_digit)
+        || !matches!(bytes[8], b'Z' | b'+' | b'-' | b'.')
+    {
+        return Err(EventWhenError::InvalidWhen);
+    }
+    DateTime::parse_from_rfc3339(value).map_err(|_| EventWhenError::InvalidWhen)
 }
 
 fn parse_time(value: &str) -> Result<NaiveTime, EventWhenError> {
@@ -594,6 +652,66 @@ mod tests {
                 "2026-07-31T11:00:00+09:00",
                 "2026-07-30T12:00:00+08:00",
             ]
+        );
+    }
+
+    #[test]
+    fn when_start_can_override_date_or_complete_datetime() {
+        let source = "`meta\n  `: timezone\n\n    +08:00\n\n`-{.event when=\"2026-05-02T08--09:20\"} Local hour\n`-{.event when=\"2026-05-02T08:22--09:20\"} Local minute\n`-{.event when=\"2026-05-02T08:22:31+08:00--09:20\"} Zoned\n`-{.event timezone=invalid when=\"2026-05-02T23:22:31Z--09:20\"} Zoned overnight\n";
+        let output = analyze(source);
+        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+        assert_eq!(
+            output
+                .events
+                .iter()
+                .map(|event| (
+                    event.start_datetime().unwrap().to_rfc3339(),
+                    event.end_datetime().unwrap().to_rfc3339(),
+                ))
+                .collect::<Vec<_>>(),
+            [
+                (
+                    "2026-05-02T08:00:00+08:00".to_string(),
+                    "2026-05-02T09:20:00+08:00".to_string(),
+                ),
+                (
+                    "2026-05-02T08:22:00+08:00".to_string(),
+                    "2026-05-02T09:20:00+08:00".to_string(),
+                ),
+                (
+                    "2026-05-02T08:22:31+08:00".to_string(),
+                    "2026-05-02T09:20:00+08:00".to_string(),
+                ),
+                (
+                    "2026-05-02T23:22:31+00:00".to_string(),
+                    "2026-05-03T09:20:00+00:00".to_string(),
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn zoned_when_start_requires_full_rfc3339_time() {
+        let source = "`-{.event when=\"2026-05-02T08+08:00\"} Hour\n`-{.event when=\"2026-05-02T08:22+08:00\"} Minute\n";
+        let output = analyze(source);
+        assert_eq!(
+            output
+                .diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.code)
+                .collect::<Vec<_>>(),
+            ["event.invalid-when", "event.invalid-when"]
+        );
+        assert!(output.events.iter().all(|event| event.at.is_none()));
+    }
+
+    #[test]
+    fn complete_when_point_needs_no_inherited_context() {
+        let output = analyze("`-{.event when=\"2026-05-02T08:22:31+08:00\"} Point\n");
+        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+        assert_eq!(
+            output.events[0].at_datetime().unwrap().to_rfc3339(),
+            "2026-05-02T08:22:31+08:00"
         );
     }
 }

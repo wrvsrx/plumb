@@ -324,12 +324,17 @@ An event is a `-` or `.` list item carrying `.event`:
 `-{.event #review uid="review-skill-reference@example" date=2026-07-30 timezone="+08:00" when="14:00--15:00" tasks="#write-parser"} Parser review
 ```
 
-The head is the title and children are details. Quoted `when` uses reduced
-precision `HH`, `HH:MM`, or `HH:MM:SS` for a point and `TIME--TIME` for a
-half-open interval. The end local time crossing below the start advances to
-the next day; equal times are invalid. Event `date` and numeric-offset
-`timezone` override same-named metadata scalar/literal values; an RFC 3339
-metadata date also supplies its offset. Old `at`, `start`, and `end`
+The head is the title and children are details. A quoted `when` start may be
+reduced-precision `HH`, `HH:MM`, or `HH:MM:SS`; `YYYY-MM-DDTIME`, which
+overrides the date and inherits the timezone; or a self-contained full RFC 3339
+timestamp. A start with an offset or `Z` must include seconds and cannot append
+an offset to a reduced-precision time. A point contains only the start;
+`START--TIME` is a half-open interval whose end inherits the resolved start date
+and offset. An end local time crossing below the start advances to the next day;
+equal times are invalid. A date or offset inside `when` applies only to that
+event and does not propagate to descendants. Event `date` and numeric-offset
+`timezone` otherwise override same-named metadata scalar/literal values; an RFC
+3339 metadata date also supplies its offset. Old `at`, `start`, and `end`
 pairs have no event semantics. `tasks` uses the same raw same-file/cross-file reference-list spelling as
 task `depends`, but creates associations rather than dependencies. Targets must
 be explicit task ids. Never infer events from task timestamps.
