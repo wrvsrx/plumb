@@ -209,13 +209,14 @@ strength。普通 dollar characters 和 dollar-delimited math 不具有特殊含
 
 `{language=plumb}
   `-{
-     .event #parser-review uid="parser-review-guide@example" start="2026-07-30T14:00:00+08:00"
-     end="2026-07-30T15:30:00+08:00" tasks="#write-parser"
+     .event #parser-review uid="parser-review-guide@example" date=2026-07-30 timezone="+08:00"
+     when="14:00--15:30" tasks="#write-parser"
     } Parser review
 
-`[at]、`[start] 与 `[end] 使用 quoted RFC 3339。只有 at 表示 point event；start/end 表示
-`[[start, end)] closed interval；只有 start 表示 running interval。at 与 start/end 互斥，end 不能单独
-存在。`[tasks] 显式关联同文件或跨文件 task id，不产生 dependency，也不从 task
+quoted `[when] 使用 `[HH]、`[HH:MM]、`[HH:MM:SS] point 或同日 `[TIME--TIME] interval。
+event 默认继承 metadata `[date] 与 numeric-offset `[timezone]；RFC 3339 metadata date 也提供自身 offset。
+同名 event pairs 可逐条覆盖。end 不能与 start 相等；end local time 早于 start 时解释为次日。
+旧 `[at]、`[start]、`[end] 不具有 event semantics。`[tasks] 显式关联同文件或跨文件 task id，不产生 dependency，也不从 task
 timestamps 猜测 event。`[.event .task] 复合与非 list-item owner 都无效。
 
 快速创建 event 时，先输入一个 head 只含 plain text 的 list item，再在该行执行 `[Convert to event]
@@ -228,15 +229,16 @@ CodeAction：
   `- 2026-05-21T11:10--11:20 parser review
 
 time 使用两位 `[HH]、`[HH:MM] 或 `[HH:MM:SS]；省略分钟/秒时补零，省略 date 时使用执行操作当天的
-本地日期。显式 date 使用 `[YYYY-MM-DDT] prefix。`[--] 只表示同日 closed interval，end 必须晚于
-start。转换会在该 list item 上原位追加 `[.event] class、稳定 UID 与 RFC 3339 `[at] 或
-`[start]/`[end] fields，并将 head 缩减为 title；head 不匹配 shorthand 或已是 event 的 list item
-不提供该 action。
+本地日期。显式 date 使用 `[YYYY-MM-DDT] prefix。end local time 早于 start 时解释为次日，相等无效。
+转换会在该 list item 上原位追加 `[.event] class、稳定 UID 与紧凑 `[when]，并将 head 缩减为
+title；显式 date 写入 event override，否则继承 metadata。选中多行时可执行 `[Convert selected items to events]
+批量转换范围内匹配 shorthand 的 list items；不匹配或已是 event 的 item 保持不变。
 
-`[plumb event --root DIR] 列出 events，并支持使用 `[--query] 对 path、id、uid、title、at、start、end、tasks
+`[plumb event --root DIR] 列出 events，并支持使用 `[--query] 对 path、id、uid、title、date、timezone、when、
+解析后的 at/start/end、tasks
 与 now 执行 CEL。`[plumb event --root DIR export-vdir --output DIR] 生成受管理的只读 vdir；输出目录
 可以作为 khal 的 `[type = calendar]、`[readonly = true] calendar。每次导出原子替换旧 projection 并
-清理 stale items；running interval 必须 Stop 后才能 export，不要在该目录手工维护 events。
+清理 stale items；缺少有效 time 的 event 不能 export，不要在该目录手工维护 events。
 
 Web Agenda 提供在线创建、编辑和删除；Calendar/khal 只读取 projection。首版不支持 recurrence、全天
 event、reminder、外部 iCalendar 回写或 CalDAV client。

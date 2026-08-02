@@ -246,10 +246,10 @@
   } 支持可关联 task 的标准 event 与只读 calendar projection
 
    `note 只有 `[-] 或 `[.] list item 上的 `[.event] class 产生 EventRecord；head 是 title，children 是 details，source nesting 只形成 display tree，不表示时间包含或排序。
-   `note Event time 后续细化为三种互斥 shape：`[at] 表示 point，`[start/end] 表示 closed interval，只有 `[start] 表示 running interval；最初版本的 start-only point spelling 已迁移。首版不支持 all-day、floating time、recurrence、reminder 或 attendee semantics。
+   `note Event time 使用继承 metadata context 的 quoted `[when]：reduced-precision `[TIME] 表示 point，`[TIME--TIME] 表示 closed interval；end local time 早于 start 时解释为次日。event `[date]/`[timezone] 可逐条覆盖。旧 `[at]/`[start]/`[end] 不具有 event semantics。首版不支持 running、all-day、floating time、recurrence、reminder 或 attendee semantics。
    `note `[tasks] 使用与 task `[depends] 相同的 same-file `[#id] 和 cross-file `[`path.plumb#id] reference-list spelling，但只建立 event-to-task association，不产生 dependency、task state 或隐式 task lifecycle event。Target 必须解析到 TaskRecord；workspace 建立 task-to-event reverse index，并提供 deterministic range/overlap queries。
    `note 同一 owner 同时具有 `[.task] 与 `[.event] 时由 event extension 发布 `[event.conflicting-task-facet] 且不生成 EventRecord；task extension 继续按现有规则生成 TaskRecord。`[.event] 出现在非 list-item owner 上发布 `[event.invalid-owner]。
-   `note Event identity 保持 source-backed `[#id] 与 iCalendar `[UID] 分离；event authoring operation 为 calendar projection 创建稳定 UID，移动、改名或修改标题不得改变既有 UID。Diagnostics 覆盖 missing/invalid time、conflicting time shape、invalid interval、invalid/conflicting owner、invalid/unresolved/non-task reference 与 duplicate UID。
+   `note Event identity 保持 source-backed `[#id] 与 iCalendar `[UID] 分离；event authoring operation 为 calendar projection 创建稳定 UID，移动、改名或修改标题不得改变既有 UID。Diagnostics 覆盖 missing/invalid time context、invalid interval、invalid/conflicting owner、invalid/unresolved/non-task reference 与 duplicate UID。
    `note 扩展 workspace/notes query facts、search records、LSP symbols/hover/completion/references 和 Web shared model；Web Agenda 按时间组合 events 与 tasks 但不把 task 推断为 event，并通过 revision-guarded operations 创建、编辑、删除 event 及维护 task associations。首版 mobile Web mutation 只支持 online operation，不增加 offline write queue。
    `note 提供只读 vdir projection：每个 event 原子生成一个含单个 VEVENT 的 `[.ics] file，以 UID 派生 filename，稳定 lower SUMMARY、DESCRIPTION、DTSTART、optional DTEND、UID 与 DTSTAMP，并用 `[X-PLUMB-TASK] 保留 task references；删除 source event 时清理对应 generated item。输出目录可作为 khal `[readonly = true] calendar 使用。
    `note `[.plumb] 始终是唯一 writable source；首版不导入外部 iCalendar 修改、不实现 CalDAV client、不让 vdirsyncer 或 Calendar 回写 source。覆盖 strict extension/workspace tests、Web guarded-edit tests、RFC 5545 escaping/folding/CRLF fixtures、真实 khal read-only discovery，以及 reference、guide、roadmap、playground 和 bundled skill 更新。
@@ -260,8 +260,8 @@
   } 将 event shorthand 转换为 event
 
    `note `[Convert to event] refactor CodeAction 只转换 cursor 命中的单个 list item（head 为 plain text）；shorthand 使用 `[TIME TITLE] 或 `[TIME--TIME TITLE]，并允许 start 具有 `[YYYY-MM-DDT] prefix。
-   `note `[TIME] 支持两位 `[HH]、`[HH:MM] 与 `[HH:MM:SS] reduced precision；缺失低位补零，缺失 date 使用 operation 本地日期，区间 end 继承 start date 且必须晚于 start。
-   `note protocol-neutral workspace operation 生成稳定 UID 与 RFC 3339 `[at] 或 `[start]/`[end]，在 owned tree 中原位在 list item 上追加 `[.event] 与 scheduling fields、将 head 缩减为 title 并 canonicalize 完整 owner subtree，返回 revision-guarded edit；LSP adapter 不解析或拼接 source。
+   `note `[TIME] 支持两位 `[HH]、`[HH:MM] 与 `[HH:MM:SS] reduced precision；缺失低位补零，缺失 date 使用 operation 本地日期，区间 end local time 早于 start 时解释为次日，相等无效。
+   `note protocol-neutral workspace operation 生成稳定 UID 与紧凑 `[when]，在 owned tree 中原位在 list item 上追加 `[.event] 与 scheduling fields、将 head 缩减为 title 并 canonicalize 完整 owner subtree，返回 revision-guarded edit；非空 selection 可批量转换范围内匹配的 list items，LSP adapter 不解析或拼接 source。
    `note 覆盖带/不带 date 的全部 time precision、point/interval、nested list item、已有 attributes/id 保留、已是 event 的 item 拒绝、invalid/ambiguous spelling、inline markup rejection、formatter fixed point 和 stdio CodeAction availability tests；同步 reference 与 guides。
 
 `# Workspace indexing

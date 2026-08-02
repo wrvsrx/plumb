@@ -68,7 +68,7 @@ it. Inside the plumb source repository, prefer
 `- List item
 `. Ordered item
 `-{.task #write-parser} Implement parser
-`-{.event #review uid="review-skill@example" start="2026-07-30T14:00:00+08:00" end="2026-07-30T15:00:00+08:00" tasks="#write-parser"} Parser review
+`-{.event #review uid="review-skill@example" date=2026-07-30 timezone="+08:00" when="14:00--15:00" tasks="#write-parser"} Parser review
 
 `div{.notice} Transparent block container
 `> A quoted paragraph

@@ -77,8 +77,9 @@ export 将 scalar、sequence、map、verbatim、null 映射为 Pandoc `[MetaInli
 metadata insertion operation 只用于尚无 metadata 的 syntax-valid document，且只在 cursor 位于
 document start（cursor 之前只有空白字节）时提供；edit 仍在 byte offset 0 插入 `[title] 与
 `[created]。title 默认取 filename stem；created 使用 operation 时刻的本地
-RFC 3339 timestamp。生成布局与 formatter 一致：definitions 比空 head `[meta] 深一列，value
-paragraph 与 definition head 对齐。
+RFC 3339 timestamp。标准 `[date] scalar 使用 `[YYYY-MM-DD]；标准 `[timezone] scalar 使用 numeric
+UTC offset（例如 `[+08:00]），为 event 提供默认 local-time context。生成布局与 formatter 一致：
+definitions 比空 head `[meta] 深一列，value paragraph 与 definition head 对齐。
 
 标准 `[created] metadata value 必须是 scalar，并且是带 timezone 的完整 RFC 3339 timestamp。
 非法值发布 `[metadata.invalid-created] warning；它不改变 core syntax validity，依赖时间的 query、
@@ -279,15 +280,18 @@ wrapper 保留。普通 dollar characters 和 dollar-delimited math 没有特殊
 
 `{language=plumb}
   `-{
-     .event #parser-review uid="parser-review-reference@example" start="2026-07-30T14:00:00+08:00"
-     end="2026-07-30T15:30:00+08:00" tasks="#write-parser Project A.plumb#docs"
+     .event #parser-review uid="parser-review-reference@example" date=2026-07-30 timezone="+08:00"
+     when="14:00--15:30"
+     tasks="#write-parser Project A.plumb#docs"
     } Parser review
 
-head 是 title，children 是 details；nested events 只形成 display tree，不表示时间包含关系。Event time
-使用三种互斥 shape，所有时间字段都是 quoted RFC 3339 timestamp：只有 `[at] 是 point event；`[start]
-与 `[end] 同时存在时使用 half-open `[[start, end)] closed interval，并要求 end 晚于 start；只有
-`[start] 是 running interval。`[at] 不能与 `[start] 或 `[end] 共存，`[end] 不能单独存在。Agenda 和
-workspace range query 按 `[at ?? start]、path、source position 稳定排序。首版不定义 all-day、floating time、
+head 是 title，children 是 details；nested events 只形成 display tree，不表示时间包含关系。quoted `[when]
+使用与 event shorthand 相同的 reduced-precision local-time spelling：`[HH]、`[HH:MM] 或 `[HH:MM:SS]
+表示 point event，`[TIME--TIME] 表示同日 half-open `[[start, end)] closed interval。end 继承 start date
+且不能相等；end local time 早于 start 时解释为次日。event `[date]、`[timezone] 分别覆盖 metadata 中的同名 scalar/literal；`[date]
+使用 `[YYYY-MM-DD]，metadata date 也可用 RFC 3339 timestamp 并同时提供其 offset；`[timezone] 使用 numeric UTC offset。缺少有效 date/timezone context 或 `[when]
+时不产生有效 time。旧 `[at]、`[start]、`[end] pairs 不具有 event semantics。Agenda 和 workspace range
+query 按解析后的 point/start、path、source position 稳定排序。首版不定义 running、all-day、floating time、
 recurrence、reminder、attendee 或 alarm semantics。
 
 `[tasks] 使用与 task `[depends] 相同的 reference-list spelling，只建立 event-to-task association，不建立
@@ -299,13 +303,14 @@ task-to-event reverse query。不得从 task 的 created、due、wait、done 或
 
 `[uid] 是 optional nonempty quoted iCalendar identity，与 source-backed `[#id] 分离。普通 event query 不
 要求 UID；calendar authoring operation 为新 event 生成稳定 UID，后续移动、改标题或编辑时间不改变它。
-只读 vdir projection 要求每个 event 具有 workspace-unique UID，且 running interval 必须先关闭；每个
+只读 vdir projection 要求每个 event 具有 workspace-unique UID 与有效 time；每个
 event 原子生成一个含单个 VEVENT
 的 `[..ics] file，并 lower SUMMARY、DESCRIPTION、DTSTART、optional DTEND、UID、DTSTAMP 与重复的
 `[X-PLUMB-TASK] properties。输出使用 RFC 5545 escaping、75-octet folding 与 CRLF。`[.plumb] source
 始终是唯一 writable source；初版不导入外部 iCalendar 修改，也不实现 CalDAV client。
 
-Event CEL context 提供 `[path]、`[id]、`[uid]、`[title]、`[at]、`[start]、`[end]、`[tasks] 与 `[now]。
+Event CEL context 提供 `[path]、`[id]、`[uid]、`[title]、source-backed `[date]、`[timezone]、`[when]、
+解析后的 `[at]、`[start]、`[end]、`[tasks] 与 `[now]。
 Web Agenda 通过 revision-guarded operations 创建、编辑和删除 event；首版只支持 online mutations。
 Pandoc export 不消费 event facet：它仍作为普通 list item 导出并保留 `[.event] 与 fields。
 
@@ -321,14 +326,15 @@ text）完整匹配 event shorthand 时提供：
 `[TIME] 是 ISO 8601-derived reduced-precision local time，只接受两位字段的 `[HH]、`[HH:MM] 或
 `[HH:MM:SS]；hour 范围是 `[00..23]，minute/second 是 `[00..59]。缺失低位补零；省略 date 时使用
 operation 执行时的本地日期，显式 date 必须是合法 `[YYYY-MM-DD] 并直接以 `[T] 连接 time。区间 end
-继承 start date，必须晚于 start，不能再次携带 date，也不自动跨日。至少一个 ASCII space/tab 分隔
+默认继承 start date，不能再次携带 date；end local time 早于 start 时解释为次日，相等无效。至少一个 ASCII space/tab 分隔
 schedule 与非空 title；inline markup、单数字段、basic time、offset、`[Z]、`[am/pm] 和自然语言日期不
 进入 shorthand。
 
-operation 原位在 list item 上追加 `[.event] class 与稳定 `[uid]：point 写入 `[at]，区间写入
-`[start]/`[end]，将 head 缩减为 title，并把完整 owner subtree canonicalize 后返回 revision-guarded
-edit。已是 `[.event] 的 item 不再提供该 action。shorthand 只是显式 authoring convention，不改变
-list item syntax，也不从任意 prose 隐式生成 event。
+operation 原位在 list item 上追加 `[.event] class、稳定 `[uid] 与紧凑 `[when]；显式 shorthand date
+写入 event `[date] override，否则继承 metadata context。它将 head 缩减为 title，并把完整 owner subtree
+canonicalize 后返回 revision-guarded edit。非空 editor selection 还提供批量转换 action，仅转换范围内
+完整匹配 shorthand 的 plain list-item heads，其他 items 保持不变。已是 `[.event] 的 item 不再提供该
+action。shorthand 只是显式 authoring convention，不改变 list item syntax，也不从任意 prose 隐式生成 event。
 
 `# 16. Tasks
 

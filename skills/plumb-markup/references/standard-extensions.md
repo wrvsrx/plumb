@@ -321,14 +321,16 @@ blocks remain subsequent blocks in the same list item.
 An event is a `-` or `.` list item carrying `.event`:
 
 ```plumb
-`-{.event #review uid="review-skill-reference@example" start="2026-07-30T14:00:00+08:00" end="2026-07-30T15:00:00+08:00" tasks="#write-parser"} Parser review
+`-{.event #review uid="review-skill-reference@example" date=2026-07-30 timezone="+08:00" when="14:00--15:00" tasks="#write-parser"} Parser review
 ```
 
-The head is the title and children are details. Event time has three exclusive
-shapes using quoted RFC 3339 fields: `at` alone is a point; `start` plus `end`
-is the half-open `[start, end)` closed interval and end must be later than
-start; `start` alone is a running interval. `at` cannot coexist with `start` or
-`end`, and `end` cannot appear alone. `tasks` uses the same raw same-file/cross-file reference-list spelling as
+The head is the title and children are details. Quoted `when` uses reduced
+precision `HH`, `HH:MM`, or `HH:MM:SS` for a point and `TIME--TIME` for a
+half-open interval. The end local time crossing below the start advances to
+the next day; equal times are invalid. Event `date` and numeric-offset
+`timezone` override same-named metadata scalar/literal values; an RFC 3339
+metadata date also supplies its offset. Old `at`, `start`, and `end`
+pairs have no event semantics. `tasks` uses the same raw same-file/cross-file reference-list spelling as
 task `depends`, but creates associations rather than dependencies. Targets must
 be explicit task ids. Never infer events from task timestamps.
 
@@ -339,7 +341,7 @@ The initial profile has no all-day, floating-time, recurrence, reminder,
 attendee, alarm, external-iCalendar import, or CalDAV semantics.
 
 `plumb event export-vdir --output DIR` writes a managed read-only vdir with one
-VEVENT per file. Running intervals must be stopped before export. Plumb source
+VEVENT per file. Events without a valid resolved time cannot export. Plumb source
 remains authoritative; khal should configure the generated calendar with
 `readonly = true`.
 
