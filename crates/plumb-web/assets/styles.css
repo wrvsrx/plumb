@@ -15,7 +15,7 @@
 
 * { box-sizing: border-box; }
 html, body { height: 100%; margin: 0; }
-body { overflow: hidden; }
+body { display: flex; flex-direction: column; overflow: hidden; }
 button, input, select { font: inherit; letter-spacing: 0; }
 button, select, input[type="search"], input[type="number"], .command {
   min-height: 34px;
@@ -67,6 +67,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
   color: var(--muted);
   font-size: 13px;
 }
+.task-filters { height: auto; min-height: 50px; flex-wrap: wrap; align-content: center; }
 .filters label { display: flex; align-items: center; gap: 5px; }
 .filters input { accent-color: var(--teal); }
 #summary { margin-left: auto; }
@@ -99,7 +100,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
 .edge-options summary { cursor: pointer; color: var(--ink); }
 .edge-options[open] { position: absolute; right: 150px; top: 64px; z-index: 25; display: grid; gap: 8px; padding: 10px; border: 1px solid var(--border); border-radius: 4px; background: var(--paper); box-shadow: 0 8px 24px rgba(32, 33, 36, .16); }
 
-.workspace { height: calc(100% - 108px); display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, 32vw); }
+.workspace { height: auto; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, 32vw); flex: 1 1 0; }
 .graph-stage { position: relative; min-width: 0; background: #f7f7f5; }
 #graph { position: absolute; inset: 0; }
 .empty { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); }
@@ -135,7 +136,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
 .backlink-list li { border-top: 1px solid var(--border); padding: 8px 0; }
 .backlink-list a { color: var(--ink); text-decoration: none; }
 
-.task-workspace { height: calc(100% - 108px); display: grid; grid-template-columns: minmax(440px, 1fr) minmax(340px, 34vw); }
+.task-workspace { height: auto; min-height: 0; display: grid; grid-template-columns: minmax(440px, 1fr) minmax(340px, 34vw); flex: 1 1 0; }
 .task-list-pane { position: relative; min-width: 0; overflow: auto; background: #f7f7f5; }
 .task-list { width: 100%; }
 .task-document-group {
@@ -163,7 +164,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
 .task-row time { font-size: 12px; text-align: right; }
 .task-empty { padding: 48px 24px; text-align: center; color: var(--muted); }
 .task-panel { overflow: auto; border-left: 1px solid var(--border); background: var(--paper); padding: 24px; }
-.task-sort { min-width: 0; max-width: 100%; display: grid; gap: 5px; flex: 1 1 260px; }
+.task-sort { min-width: 0; max-width: 100%; display: flex; align-items: center; flex-wrap: wrap; gap: 5px; flex: 2 1 420px; }
 .task-sort-keys { min-width: 0; max-width: 100%; display: flex; flex-wrap: wrap; gap: 5px; min-height: 30px; }
 .task-sort-key { min-width: 0; max-width: 100%; display: grid; grid-template-columns: 24px minmax(0, 1fr) repeat(3, 24px); align-items: center; flex: 0 1 auto; border: 1px solid var(--border); border-radius: 4px; background: var(--paper); }
 .task-sort-key > span { min-width: 0; padding: 0 6px; font-size: 12px; font-weight: 700; white-space: normal; overflow-wrap: anywhere; }
@@ -172,7 +173,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
 .task-sort-key.dragging { opacity: .45; }
 .task-sort-actions { min-width: 0; display: flex; flex-wrap: wrap; gap: 5px; }
 .task-sort-actions select, .task-sort-actions button { min-height: 30px; }
-.agenda-workspace { height: calc(100% - 58px); display: grid; grid-template-columns: minmax(420px, 1fr) minmax(340px, 34vw); }
+.agenda-workspace { height: auto; min-height: 0; display: grid; grid-template-columns: minmax(420px, 1fr) minmax(340px, 34vw); flex: 1 1 0; }
 .event-list-pane { min-width: 0; overflow: auto; background: #f7f7f5; }
 .agenda-actions {
   position: sticky; top: 0; z-index: 4; display: flex; justify-content: flex-end;

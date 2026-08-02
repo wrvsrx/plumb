@@ -28,5 +28,7 @@ test('task creation uses a view toolbar control and sort keys shrink responsivel
   assert.doesNotMatch(detailPanel, /id="new-task"/);
   assert.match(css, /\.task-sort-key \{ min-width: 0; max-width: 100%;/);
   assert.match(css, /grid-template-columns: 24px minmax\(0, 1fr\) repeat\(3, 24px\)/);
+  assert.match(css, /\.task-filters \{ height: auto; min-height: 50px; flex-wrap: wrap;/);
+  assert.match(css, /body \{ display: flex; flex-direction: column; overflow: hidden; \}/);
   assert.match(css, /\.task-filters \.task-sort \{ flex-basis: 100%; \}/);
 });
