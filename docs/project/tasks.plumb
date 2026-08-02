@@ -410,6 +410,7 @@
 `-{
    .task #improve-web-task-edit-ui depends="#web-structured-task-editing"
    created="2026-08-02T20:51:07+08:00"
+   done="2026-08-02T21:06:01+08:00"
   } 优化 Web Tasks 任务编辑 UI
 
    `note `[New Task] 是 Tasks workspace-level action，放在 task list toolbar 或等价的固定创建入口；选中 task 后的 detail sidebar 不再显示该 action，避免把创建新 task 误解为当前 task 的操作。
@@ -478,6 +479,7 @@
 `-{
    .task #fix-task-sort-key-overflow depends="#multi-key-task-sorting"
    created="2026-08-01T11:26:18+08:00"
+   done="2026-08-02T21:06:01+08:00"
   } 修复 Tasks 页面排序 key 越界
 
    `note 排序 key 必须受 Tasks filter panel 可用宽度约束；标签、拖拽柄、上移、下移与删除 controls 不得撑破容器、遮挡相邻内容或造成页面级横向滚动。
