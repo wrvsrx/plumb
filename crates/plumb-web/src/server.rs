@@ -23,8 +23,8 @@ use tokio_stream::wrappers::BroadcastStream;
 use tokio_stream::StreamExt;
 
 use crate::presentation::{
-    render_backlinks, render_index, render_note_page, APP_JS, FORCE_GRAPH_JS, FORCE_GRAPH_LICENSE,
-    QUERY_STATE_JS, STYLES_CSS,
+    render_backlinks, render_index, render_note_page, AGENDA_STATE_JS, APP_JS, FORCE_GRAPH_JS,
+    FORCE_GRAPH_LICENSE, QUERY_STATE_JS, STYLES_CSS,
 };
 use crate::{
     render_note_html, GraphDirection, GraphQuery, WebEventInput, WebEventLocator, WebQuery,
@@ -160,6 +160,7 @@ fn router(state: AppState) -> Router {
         .route("/events", get(events))
         .route("/favicon.ico", get(favicon))
         .route("/app.js", get(app_js))
+        .route("/agenda-state.js", get(agenda_state_js))
         .route("/query-state.js", get(query_state_js))
         .route("/styles.css", get(styles_css))
         .route("/vendor/force-graph.min.js", get(force_graph_js))
@@ -592,6 +593,10 @@ async fn app_js() -> Response {
     asset("application/javascript; charset=utf-8", APP_JS)
 }
 
+async fn agenda_state_js() -> Response {
+    asset("application/javascript; charset=utf-8", AGENDA_STATE_JS)
+}
+
 async fn query_state_js() -> Response {
     asset("application/javascript; charset=utf-8", QUERY_STATE_JS)
 }
@@ -786,7 +791,12 @@ mod tests {
             .unwrap();
         assert_eq!(root_response.status(), StatusCode::PERMANENT_REDIRECT);
         assert_eq!(root_response.headers()[header::LOCATION], "/graph");
-        for path in ["/graph?preset=connected", "/tasks?preset=ready", "/agenda"] {
+        for path in [
+            "/graph?preset=connected",
+            "/tasks?preset=ready",
+            "/agenda",
+            "/agenda-state.js",
+        ] {
             let response = app
                 .clone()
                 .oneshot(Request::get(path).body(Body::empty()).unwrap())

@@ -11,6 +11,7 @@ import {
   viewFromPath,
   writeQueryParameters,
 } from './query-state.js';
+import { currentTimeInsertionIndex, localDateKey } from './agenda-state.js';
 
 (function () {
   'use strict';
@@ -43,6 +44,7 @@ import {
     events: null,
     selectedEvent: null,
     pendingEvent: false,
+    agendaPositioned: false,
   };
 
   const graphElement = document.getElementById('graph');
@@ -69,6 +71,7 @@ import {
   const notification = document.getElementById('notification');
   const agendaWorkspace = document.querySelector('.agenda-workspace');
   const eventList = document.getElementById('event-list');
+  const agendaNowButton = document.getElementById('agenda-now');
   const eventEmpty = document.getElementById('event-empty');
   const eventPanel = document.getElementById('event-panel');
   let notificationTimer;
@@ -767,30 +770,57 @@ import {
       const response = await fetch(config.eventSnapshotUrl, { cache: 'no-store' });
       if (!response.ok) throw new Error(await response.text());
       state.events = await response.json();
-      renderEvents();
+      const positionNow = state.view === 'agenda' && !state.agendaPositioned;
+      if (positionNow) state.agendaPositioned = true;
+      renderEvents({ positionNow });
     } catch (error) {
       if (!state.events) eventPanel.innerHTML = '<div class="note-empty"><h1>Agenda unavailable</h1></div>';
       notify(String(error), true);
     }
   }
 
-  function renderEvents() {
+  function renderEvents({ positionNow = false } = {}) {
     if (!state.events) return;
     eventList.replaceChildren();
     eventEmpty.hidden = state.events.events.length > 0;
-    let previousDate = null;
-    state.events.events.forEach((event) => {
+    const now = new Date();
+    const nowIndex = currentTimeInsertionIndex(state.events.events, now);
+    const todayKey = localDateKey(now);
+    let previousDateKey = null;
+
+    function appendDateHeading(date, dateKey) {
+      const heading = document.createElement('div');
+      heading.className = 'task-document-group agenda-date-heading';
+      heading.textContent = date.toLocaleDateString();
+      eventList.append(heading);
+      previousDateKey = dateKey;
+    }
+
+    function appendCurrentTime() {
+      if (previousDateKey !== todayKey) appendDateHeading(now, todayKey);
+      const marker = document.createElement('div');
+      marker.id = 'agenda-current-time';
+      marker.className = 'agenda-current-time';
+      const label = document.createElement('time');
+      label.dateTime = now.toISOString();
+      label.textContent = now.toLocaleTimeString([], EVENT_TIME_OPTIONS);
+      const rule = document.createElement('span');
+      rule.setAttribute('aria-hidden', 'true');
+      marker.append(label, rule);
+      eventList.append(marker);
+    }
+
+    state.events.events.forEach((event, index) => {
+      if (index === nowIndex) appendCurrentTime();
       const eventTime = event.at || event.start;
       const parsedStart = eventTime ? new Date(eventTime) : null;
-      const date = parsedStart && !Number.isNaN(parsedStart.getTime())
-        ? parsedStart.toLocaleDateString()
-        : 'Invalid date';
-      if (date !== previousDate) {
+      const dateKey = parsedStart ? localDateKey(parsedStart) : null;
+      if (dateKey !== previousDateKey) {
         const heading = document.createElement('div');
-        heading.className = 'task-document-group';
-        heading.textContent = date;
+        heading.className = 'task-document-group agenda-date-heading';
+        heading.textContent = dateKey ? parsedStart.toLocaleDateString() : 'Invalid date';
         eventList.append(heading);
-        previousDate = date;
+        previousDateKey = dateKey;
       }
       const button = document.createElement('button');
       button.type = 'button';
@@ -809,12 +839,18 @@ import {
       button.addEventListener('click', () => selectEvent(event));
       eventList.append(button);
     });
+    if (nowIndex === state.events.events.length) appendCurrentTime();
     const selected = state.events.events.find((event) => event.key === state.selectedEvent);
     if (selected) renderEventDetail(selected);
     else renderNewEventPrompt();
+    if (positionNow) requestAnimationFrame(() => scrollAgendaToNow());
   }
 
   const EVENT_TIME_OPTIONS = { hour: '2-digit', minute: '2-digit', hour12: false };
+
+  function scrollAgendaToNow(behavior = 'auto') {
+    document.getElementById('agenda-current-time')?.scrollIntoView({ behavior, block: 'center' });
+  }
 
   function eventTimeLabel(event) {
     const value = event.at || event.start;
@@ -1297,6 +1333,10 @@ import {
   tasksViewButton.addEventListener('click', () => showView('tasks', { historyMode: 'push' }));
   newTaskButton.addEventListener('click', () => renderTaskForm());
   agendaViewButton.addEventListener('click', () => showView('agenda', { historyMode: 'push' }));
+  agendaNowButton.addEventListener('click', () => {
+    renderEvents();
+    requestAnimationFrame(() => scrollAgendaToNow('smooth'));
+  });
   document.querySelectorAll('.graph-filters .edge-options input[value]').forEach((input) => input.addEventListener('change', () => {
     updateUrl();
     loadGraph();

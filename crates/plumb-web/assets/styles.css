@@ -174,7 +174,15 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
 .task-sort-actions select, .task-sort-actions button { min-height: 30px; }
 .agenda-workspace { height: calc(100% - 58px); display: grid; grid-template-columns: minmax(420px, 1fr) minmax(340px, 34vw); }
 .event-list-pane { min-width: 0; overflow: auto; background: #f7f7f5; }
+.agenda-actions {
+  position: sticky; top: 0; z-index: 4; display: flex; justify-content: flex-end;
+  min-height: 49px; padding: 7px 16px; border-bottom: 1px solid var(--border); background: #efefec;
+}
+.agenda-date-heading { top: 49px; }
 .event-list { width: 100%; }
+.agenda-current-time { display: grid; grid-template-columns: 120px minmax(0, 1fr); align-items: center; gap: 14px; padding: 5px 16px; color: var(--red); }
+.agenda-current-time time { font-size: 12px; font-weight: 700; }
+.agenda-current-time span { height: 2px; background: var(--red); }
 .event-row {
   width: 100%; min-height: 62px; display: grid; grid-template-columns: 120px minmax(0, 1fr);
   align-items: center; gap: 14px; padding: 9px 16px; border: 0; border-bottom: 1px solid var(--border);
