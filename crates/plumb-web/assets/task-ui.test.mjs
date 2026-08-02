@@ -15,14 +15,16 @@ test('task properties distinguish editable values from missing fields', () => {
   );
 });
 
-test('task workspace keeps creation outside details and sort keys shrink responsively', async () => {
+test('task creation uses a view toolbar control and sort keys shrink responsively', async () => {
   const [html, css] = await Promise.all([
     readFile(new URL('./index.html', import.meta.url), 'utf8'),
     readFile(new URL('./styles.css', import.meta.url), 'utf8'),
   ]);
+  const toolbar = html.slice(html.indexOf('<header class="toolbar">'), html.indexOf('</header>'));
   const listPane = html.slice(html.indexOf('<section class="task-list-pane"'), html.indexOf('</section>', html.indexOf('<section class="task-list-pane"')));
   const detailPanel = html.slice(html.indexOf('<aside id="task-panel"'), html.indexOf('</aside>', html.indexOf('<aside id="task-panel"')));
-  assert.match(listPane, /id="new-task"/);
+  assert.match(toolbar, /id="new-task" class="task-control"/);
+  assert.doesNotMatch(listPane, /id="new-task"/);
   assert.doesNotMatch(detailPanel, /id="new-task"/);
   assert.match(css, /\.task-sort-key \{ min-width: 0; max-width: 100%;/);
   assert.match(css, /grid-template-columns: 24px minmax\(0, 1fr\) repeat\(3, 24px\)/);
