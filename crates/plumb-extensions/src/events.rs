@@ -1,8 +1,9 @@
+use std::collections::HashMap;
 use std::ops::Range;
 
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveTime, TimeZone};
 use plumb_core::{
-    AttrItem, AttrValue, Block, Diagnostic, DiagnosticSeverity, Document, ParsedBlock,
+    AttrItem, AttrValue, Block, Diagnostic, DiagnosticSeverity, Document, Inline, ParsedBlock,
 };
 
 use crate::tasks::{task_reference_fields, TaskDependency};
@@ -82,8 +83,38 @@ pub struct EventOutput {
 pub fn analyze_events(source: &str, document: &Document, metadata: &MetadataOutput) -> EventOutput {
     let mut output = EventOutput::default();
     let context = EventContext::from_metadata(metadata);
-    collect_blocks(source, &document.blocks, 0, &context, &mut output);
+    let uid_mappings = collect_uid_mappings(metadata, &mut output);
+    collect_blocks(
+        source,
+        &document.blocks,
+        0,
+        &context,
+        &uid_mappings,
+        &mut output,
+    );
+    for (id, mapping) in &uid_mappings {
+        if !output.events.iter().any(|event| {
+            event
+                .id
+                .as_ref()
+                .is_some_and(|event_id| event_id.value == *id)
+        }) {
+            output.diagnostics.push(Diagnostic {
+                code: "event.uid-target-not-event",
+                severity: DiagnosticSeverity::Warning,
+                message: format!("UID mapping target '#{id}' does not identify an event"),
+                range: mapping.target_range.clone(),
+                related: Vec::new(),
+            });
+        }
+    }
     output
+}
+
+#[derive(Clone)]
+struct EventUidMapping {
+    uid: EventField,
+    target_range: Range<usize>,
 }
 
 #[derive(Clone, Default)]
@@ -130,6 +161,7 @@ fn collect_blocks(
     blocks: &[Block],
     event_depth: usize,
     context: &EventContext,
+    uid_mappings: &HashMap<String, EventUidMapping>,
     output: &mut EventOutput,
 ) {
     for block in blocks {
@@ -137,7 +169,14 @@ fn collect_blocks(
             continue;
         };
         let Some(mark) = &block.mark else {
-            collect_blocks(source, &block.children, event_depth, context, output);
+            collect_blocks(
+                source,
+                &block.children,
+                event_depth,
+                context,
+                uid_mappings,
+                output,
+            );
             continue;
         };
         let scoped_context = context.with_attributes(&mark.attrs.items);
@@ -175,7 +214,7 @@ fn collect_blocks(
         }
 
         if is_event {
-            let event = event_record(source, block, event_depth, &scoped_context);
+            let event = event_record(source, block, event_depth, &scoped_context, uid_mappings);
             collect_event_diagnostics(&event, &mark.attrs.items, &scoped_context, output);
             output.events.push(event);
         }
@@ -184,6 +223,7 @@ fn collect_blocks(
             &block.children,
             event_depth + usize::from(is_event),
             &scoped_context,
+            uid_mappings,
             output,
         );
     }
@@ -194,6 +234,7 @@ fn event_record(
     block: &ParsedBlock,
     depth: usize,
     context: &EventContext,
+    uid_mappings: &HashMap<String, EventUidMapping>,
 ) -> EventRecord {
     let mark = block.mark.as_ref().expect("event is a marked block");
     let date = text_field(&mark.attrs.items, "date");
@@ -216,6 +257,18 @@ fn event_record(
         ),
         Err(_) => (None, None, None),
     };
+    let id = mark.attrs.items.iter().find_map(|item| match item {
+        AttrItem::Id { value, range } => Some(EventField {
+            value: value.clone(),
+            range: range.start + 1..range.end,
+        }),
+        _ => None,
+    });
+    let uid = id
+        .as_ref()
+        .and_then(|id| uid_mappings.get(&id.value))
+        .map(|mapping| mapping.uid.clone())
+        .or_else(|| uid_field(&mark.attrs.items));
     EventRecord {
         range: block.range.clone(),
         marker_range: mark.range.clone(),
@@ -223,14 +276,8 @@ fn event_record(
         title: block.head.plain_text().trim().to_string(),
         details: event_details(&block.children),
         depth,
-        id: mark.attrs.items.iter().find_map(|item| match item {
-            AttrItem::Id { value, range } => Some(EventField {
-                value: value.clone(),
-                range: range.start + 1..range.end,
-            }),
-            _ => None,
-        }),
-        uid: uid_field(&mark.attrs.items),
+        id,
+        uid,
         date,
         timezone,
         when,
@@ -239,6 +286,94 @@ fn event_record(
         end,
         tasks: task_reference_fields(source, &mark.attrs.items, "tasks"),
     }
+}
+
+fn collect_uid_mappings(
+    metadata: &MetadataOutput,
+    output: &mut EventOutput,
+) -> HashMap<String, EventUidMapping> {
+    let Some(entry) = metadata.metadata.as_ref().and_then(|metadata| {
+        metadata
+            .entries
+            .iter()
+            .find(|entry| entry.key == "event-uids")
+    }) else {
+        return HashMap::new();
+    };
+    let MetadataValue::List { items, .. } = &entry.value else {
+        output.diagnostics.push(Diagnostic {
+            code: "event.invalid-uid-mapping",
+            severity: DiagnosticSeverity::Warning,
+            message: "metadata 'event-uids' must be a list of UID links".to_string(),
+            range: entry.value.range().clone(),
+            related: Vec::new(),
+        });
+        return HashMap::new();
+    };
+
+    let mut mappings: HashMap<String, EventUidMapping> = HashMap::new();
+    for item in items {
+        let MetadataValue::Scalar { content, .. } = &item.value else {
+            push_invalid_uid_mapping(output, item.range.clone());
+            continue;
+        };
+        let [Inline::Element {
+            kind,
+            content: label,
+            attrs,
+            ..
+        }] = content.items.as_slice()
+        else {
+            push_invalid_uid_mapping(output, item.range.clone());
+            continue;
+        };
+        let uid = label.plain_text();
+        let label_is_plain = label
+            .items
+            .iter()
+            .all(|inline| matches!(inline, Inline::Text { .. }));
+        let target = pair_value(&attrs.items, "to");
+        let id = target.and_then(|target| {
+            target
+                .decoded
+                .strip_prefix('#')
+                .filter(|id| !id.is_empty() && !id.contains('#'))
+        });
+        if kind != "->" || uid.is_empty() || !label_is_plain || id.is_none() {
+            push_invalid_uid_mapping(output, item.range.clone());
+            continue;
+        }
+        let id = id.expect("validated mapping target").to_string();
+        let mapping = EventUidMapping {
+            uid: EventField {
+                value: uid,
+                range: label.range.clone(),
+            },
+            target_range: target.expect("validated mapping target").range.clone(),
+        };
+        if let Some(first) = mappings.get(&id) {
+            output.diagnostics.push(Diagnostic {
+                code: "event.duplicate-uid-mapping",
+                severity: DiagnosticSeverity::Warning,
+                message: format!("event '#{id}' has more than one metadata UID mapping"),
+                range: item.range.clone(),
+                related: vec![first.uid.range.clone()],
+            });
+        } else {
+            mappings.insert(id, mapping);
+        }
+    }
+    mappings
+}
+
+fn push_invalid_uid_mapping(output: &mut EventOutput, range: Range<usize>) {
+    output.diagnostics.push(Diagnostic {
+        code: "event.invalid-uid-mapping",
+        severity: DiagnosticSeverity::Warning,
+        message: "each 'event-uids' item must be one plain UID link targeting '#id'".to_string(),
+        range,
+        related: Vec::new(),
+    });
 }
 
 fn event_details(blocks: &[Block]) -> String {
@@ -713,5 +848,41 @@ mod tests {
             output.events[0].at_datetime().unwrap().to_rfc3339(),
             "2026-05-02T08:22:31+08:00"
         );
+    }
+
+    #[test]
+    fn metadata_uid_links_resolve_events_and_override_inline_uid() {
+        let source = "`meta\n  `: date\n\n    2026-07-30\n\n  `: timezone\n\n    +08:00\n\n  `: event-uids\n    `- `->[mapped@example]{to=\"#review\"}\n\n`-{.event #review uid=\"inline@example\" when=\"09:00\"} Review\n";
+        let output = analyze(source);
+        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+        let uid = output.events[0].uid.as_ref().unwrap();
+        assert_eq!(uid.value, "mapped@example");
+        assert_eq!(&source[uid.range.clone()], "mapped@example");
+    }
+
+    #[test]
+    fn diagnoses_invalid_and_duplicate_metadata_uid_links() {
+        let source = "`meta\n  `: event-uids\n    `- plain\n    `- `->[first@example]{to=\"#review\"}\n    `- `->[second@example]{to=\"#review\"}\n\n`-{.event #review date=2026-07-30 timezone=\"+08:00\" when=\"09:00\"} Review\n";
+        let output = analyze(source);
+        assert_eq!(
+            output
+                .diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.code)
+                .collect::<Vec<_>>(),
+            ["event.invalid-uid-mapping", "event.duplicate-uid-mapping"]
+        );
+        assert_eq!(
+            output.events[0].uid.as_ref().unwrap().value,
+            "first@example"
+        );
+    }
+
+    #[test]
+    fn diagnoses_uid_mapping_targets_that_are_not_events() {
+        let source = "`meta\n  `: event-uids\n    `- `->[wrong@example]{to=\"#heading\"}\n\n`#{#heading} Heading\n";
+        let output = analyze(source);
+        assert_eq!(output.diagnostics.len(), 1);
+        assert_eq!(output.diagnostics[0].code, "event.uid-target-not-event");
     }
 }
