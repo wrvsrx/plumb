@@ -338,6 +338,13 @@
    `note references 结果与 metadata CodeLens count 必须来自相同 latest-valid/open-buffer-precedence index，并覆盖 declaration/reference query parity、path/fragment component ranges、same-file self-reference、cross-file links、task prev/depends、invalid revision、zero references、includeDeclaration 和 CodeLens parity 的 workspace 与 stdio LSP regression tests。
 
 `-{
+   .task #metadata-rename-hide-extension created="2026-08-02T20:31:52+08:00"
+  } 从 metadata 重命名文件时隐藏扩展名
+
+   `note 从顶层有效 `[meta] opener 发起 document rename 时，`[prepareRename] placeholder 与编辑器 rename input 只显示当前 filename stem，不显示 `[.plumb] extension。
+   `note 用户提交不带 extension 的新名称后，resource rename target 与所有 document reference edits 必须自动保留 `[.plumb]；覆盖 prepare/rename stdio regression tests，并继续拒绝已有 target 与 workspace 外 target。
+
+`-{
    .task #document-neovim-lsp-entrypoints done="2026-07-27T01:32:33+08:00"
   } 说明 Neovim 如何列出 notes、tasks 与 references
 
