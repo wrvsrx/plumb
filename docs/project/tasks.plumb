@@ -246,7 +246,7 @@
   } 支持可关联 task 的标准 event 与只读 calendar projection
 
    `note 只有 `[-] 或 `[.] list item 上的 `[.event] class 产生 EventRecord；head 是 title，children 是 details，source nesting 只形成 display tree，不表示时间包含或排序。
-   `note Event time 使用继承 metadata context 的 quoted `[when]：reduced-precision `[TIME] 表示 point，`[TIME--TIME] 表示 closed interval；end local time 早于 start 时解释为次日。event `[date]/`[timezone] 可逐条覆盖。旧 `[at]/`[start]/`[end] 不具有 event semantics。首版不支持 running、all-day、floating time、recurrence、reminder 或 attendee semantics。
+   `note Event time 使用继承 metadata root context 的 quoted `[when]：reduced-precision `[TIME] 表示 point，`[TIME--TIME] 表示 closed interval；end local time 早于 start 时解释为次日。任意 marked block 的 `[date]/`[timezone] 沿 subtree scoped inheritance，最近 ancestor 优先且 dedent 后恢复 parent context。旧 `[at]/`[start]/`[end] 不具有 event semantics。首版不支持 running、all-day、floating time、recurrence、reminder 或 attendee semantics。
    `note `[tasks] 使用与 task `[depends] 相同的 same-file `[#id] 和 cross-file `[`path.plumb#id] reference-list spelling，但只建立 event-to-task association，不产生 dependency、task state 或隐式 task lifecycle event。Target 必须解析到 TaskRecord；workspace 建立 task-to-event reverse index，并提供 deterministic range/overlap queries。
    `note 同一 owner 同时具有 `[.task] 与 `[.event] 时由 event extension 发布 `[event.conflicting-task-facet] 且不生成 EventRecord；task extension 继续按现有规则生成 TaskRecord。`[.event] 出现在非 list-item owner 上发布 `[event.invalid-owner]。
    `note Event identity 保持 source-backed `[#id] 与 iCalendar `[UID] 分离；event authoring operation 为 calendar projection 创建稳定 UID，移动、改名或修改标题不得改变既有 UID。Diagnostics 覆盖 missing/invalid time context、invalid interval、invalid/conflicting owner、invalid/unresolved/non-task reference 与 duplicate UID。

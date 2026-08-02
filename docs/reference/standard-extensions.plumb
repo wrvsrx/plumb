@@ -294,6 +294,11 @@ head 是 title，children 是 details；nested events 只形成 display tree，�
 query 按解析后的 point/start、path、source position 稳定排序。首版不定义 running、all-day、floating time、
 recurrence、reminder、attendee 或 alarm semantics。
 
+metadata `[date]/`[timezone] 建立 document root event context。任意 marked block 上的同名 pairs 覆盖该
+block 与整个 descendant subtree，最近 ancestor 优先；离开 subtree 后恢复 parent context，不影响后续
+siblings。event 自身的 override 因此同时用于自身 time，并成为 nested events 的 inherited context。
+invalid explicit override 不回退到 ancestor value。
+
 `[tasks] 使用与 task `[depends] 相同的 reference-list spelling，只建立 event-to-task association，不建立
 dependency，也不改变 task state。Target 必须解析到具有 `[.task] facet 的 explicit id；workspace 提供
 task-to-event reverse query。不得从 task 的 created、due、wait、done 或 canceled fields 隐式生成 event。

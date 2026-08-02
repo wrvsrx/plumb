@@ -86,7 +86,7 @@ pub fn analyze_events(source: &str, document: &Document, metadata: &MetadataOutp
     output
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 struct EventContext {
     date: Option<String>,
     timezone: Option<String>,
@@ -112,6 +112,17 @@ impl EventContext {
             timezone: scalar("timezone"),
         }
     }
+
+    fn with_attributes(&self, attrs: &[AttrItem]) -> Self {
+        Self {
+            date: pair_value(attrs, "date")
+                .map_or_else(|| self.date.clone(), |value| Some(value.decoded.clone())),
+            timezone: pair_value(attrs, "timezone").map_or_else(
+                || self.timezone.clone(),
+                |value| Some(value.decoded.clone()),
+            ),
+        }
+    }
 }
 
 fn collect_blocks(
@@ -129,6 +140,7 @@ fn collect_blocks(
             collect_blocks(source, &block.children, event_depth, context, output);
             continue;
         };
+        let scoped_context = context.with_attributes(&mark.attrs.items);
         let event_class = mark.attrs.items.iter().find_map(|item| match item {
             AttrItem::Class { value, range } if value == "event" => Some(range.clone()),
             _ => None,
@@ -163,15 +175,15 @@ fn collect_blocks(
         }
 
         if is_event {
-            let event = event_record(source, block, event_depth, context);
-            collect_event_diagnostics(&event, &mark.attrs.items, context, output);
+            let event = event_record(source, block, event_depth, &scoped_context);
+            collect_event_diagnostics(&event, &mark.attrs.items, &scoped_context, output);
             output.events.push(event);
         }
         collect_blocks(
             source,
             &block.children,
             event_depth + usize::from(is_event),
-            context,
+            &scoped_context,
             output,
         );
     }
@@ -562,6 +574,26 @@ mod tests {
         assert_eq!(
             output.events[0].end_datetime().unwrap().to_rfc3339(),
             "2026-07-31T00:00:00+08:00"
+        );
+    }
+
+    #[test]
+    fn date_and_timezone_context_follow_tree_scope() {
+        let source = "`meta\n  `: date\n\n    2026-07-30\n\n  `: timezone\n\n    +08:00\n\n`div{date=2026-07-31}\n  `-{.event when=\"09:00\"} Inherited date\n  `-{.event timezone=\"+09:00\" when=\"10:00\"} Timezone override\n    `-{.event when=\"11:00\"} Nested inheritance\n`-{.event when=\"12:00\"} Root sibling\n";
+        let output = analyze(source);
+        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+        assert_eq!(
+            output
+                .events
+                .iter()
+                .map(|event| event.sort_datetime().unwrap().to_rfc3339())
+                .collect::<Vec<_>>(),
+            [
+                "2026-07-31T09:00:00+08:00",
+                "2026-07-31T10:00:00+09:00",
+                "2026-07-31T11:00:00+09:00",
+                "2026-07-30T12:00:00+08:00",
+            ]
         );
     }
 }

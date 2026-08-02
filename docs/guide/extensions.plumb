@@ -219,6 +219,13 @@ event 默认继承 metadata `[date] 与 numeric-offset `[timezone]；RFC 3339 me
 旧 `[at]、`[start]、`[end] 不具有 event semantics。`[tasks] 显式关联同文件或跨文件 task id，不产生 dependency，也不从 task
 timestamps 猜测 event。`[.event .task] 复合与非 list-item owner 都无效。
 
+`[date]/`[timezone] 沿 marked-block subtree 继承，最近的 override 优先，dedent 后恢复 parent context：
+
+`{language=plumb}
+  `div{date=2026-07-31}
+    `-{.event when="09:00"} 使用 7 月 31 日
+  `-{.event when="09:00"} 恢复 document metadata date
+
 快速创建 event 时，先输入一个 head 只含 plain text 的 list item，再在该行执行 `[Convert to event]
 CodeAction：
 

@@ -334,6 +334,12 @@ pairs have no event semantics. `tasks` uses the same raw same-file/cross-file re
 task `depends`, but creates associations rather than dependencies. Targets must
 be explicit task ids. Never infer events from task timestamps.
 
+Metadata `date` and `timezone` establish the document-root event context.
+Same-named pairs on any marked block override that block and its descendant
+subtree; the nearest ancestor wins, and dedenting restores the parent context.
+An event's own overrides therefore also propagate to nested events. An invalid
+explicit override never falls back to an ancestor value.
+
 `.event` on a non-list-item owner is invalid. Combining `.event` and `.task` on
 one owner is invalid and produces no event record. `uid` is an optional nonempty
 quoted iCalendar identity; calendar projection requires a workspace-unique UID.
