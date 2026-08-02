@@ -357,6 +357,13 @@ revision-guarded edit。非空 editor selection 还提供批量转换 action，�
 完整匹配 shorthand 的 plain list-item heads，其他 items 保持不变。已是 `[.event] 的 item 不再提供该
 action。shorthand 只是显式 authoring convention，不改变 list item syntax，也不从任意 prose 隐式生成 event。
 
+event authoring 为缺少 explicit id 的新 event 分配 document-local `[eNNNN] id，从 `[e0001] 开始且至少
+四位十进制补零；超过 `[e9999] 后自然扩展。metadata scalar `[event-id-sequence] 记录已经分配的最大
+序号。分配时取该值与所有现存 `[eNNNN] anchor 的最大值，再选择下一个未被任意 anchor 占用的编号；
+batch conversion 按 source order 连续分配。删除 event 不删除或回退 sequence，因此旧 id 不被自动复用。
+用户已有的 explicit id 原样保留，也不推进 sequence。UID mapping 仍是 calendar identity，sequence 只服务
+于紧凑、对齐且 rename-independent 的 authored anchor。
+
 `# 16. Tasks
 
 只有 `[-] 或 `[.] list item 上的 `[.task] class 产生 task facet：
