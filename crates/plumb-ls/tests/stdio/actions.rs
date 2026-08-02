@@ -401,7 +401,10 @@ fn converts_event_shorthand_with_a_refactor_action() {
     assert!(replacement.ends_with("relax: phone\n"), "{replacement}");
     assert!(replacement.contains("date=2026-05-21"), "{replacement}");
     assert_eq!(attribute_value(replacement, "when"), "11:10--11:20");
-    assert!(!attribute_value(replacement, "uid").is_empty());
+    assert!(replacement.contains("#relax-phone .event"), "{replacement}");
+    assert!(replacement.contains("`: event-uids"), "{replacement}");
+    assert!(replacement.contains("@plumb.local]{to=\"#relax-phone\"}"));
+    assert!(!replacement.contains(" uid=\""), "{replacement}");
 
     assert!(response(&output, 3)["result"]
         .as_array()
@@ -459,12 +462,13 @@ fn converts_selected_event_shorthands_with_a_refactor_action() {
     let edits = action["edit"]["documentChanges"][0]["edits"]
         .as_array()
         .unwrap();
-    assert_eq!(edits.len(), 2);
+    assert_eq!(edits.len(), 3);
     let replacements = edits
         .iter()
         .map(|edit| edit["newText"].as_str().unwrap())
         .collect::<String>();
     assert_eq!(replacements.matches(".event").count(), 2);
+    assert_eq!(replacements.matches("@plumb.local]{to=").count(), 2);
     assert!(replacements.contains("when=\"10:00--10:20\""));
     assert!(replacements.contains("when=\"10:20--10:30\""));
 }

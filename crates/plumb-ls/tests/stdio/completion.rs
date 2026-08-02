@@ -446,21 +446,13 @@ fn completes_constructs_after_a_single_backtick() {
             .iter()
             .map(|item| item["label"].as_str().unwrap())
             .collect::<Vec<_>>(),
-        ["Task", "Event", "Autolink", "Link"]
+        ["Task", "Autolink", "Link"]
     );
     let task = block[0]["textEdit"]["newText"].as_str().unwrap();
     assert!(task.starts_with("`-{.task created=\""));
     assert!(task.ends_with("\"} ${1:Task}"));
     chrono::DateTime::parse_from_rfc3339(attribute_value(task, "created")).unwrap();
     assert_eq!(block[0]["insertTextFormat"], 2);
-    let event = block[1]["textEdit"]["newText"].as_str().unwrap();
-    assert!(event.starts_with("`-{.event uid=\""));
-    assert!(event.ends_with("${1:Event}"));
-    assert!(!attribute_value(event, "when").is_empty());
-    assert!(!attribute_value(event, "timezone").is_empty());
-    assert!(event.contains(" date="));
-    assert!(attribute_value(event, "uid").ends_with("@plumb.local"));
-
     let inline = response(&output, 3)["result"].as_array().unwrap();
     assert_eq!(
         inline
@@ -524,7 +516,7 @@ fn completes_constructs_after_a_single_backtick() {
             .iter()
             .map(|item| item["label"].as_str().unwrap())
             .collect::<Vec<_>>(),
-        ["Task", "Event", "Autolink", "Link"]
+        ["Task", "Autolink", "Link"]
     );
     let fallback_task = fallback_block
         .iter()
@@ -535,17 +527,6 @@ fn completes_constructs_after_a_single_backtick() {
     assert!(fallback_task.starts_with("`-{.task created=\""));
     assert!(fallback_task.ends_with("\"} "));
     chrono::DateTime::parse_from_rfc3339(attribute_value(fallback_task, "created")).unwrap();
-    let fallback_event = fallback_block
-        .iter()
-        .find(|item| item["label"] == "Event")
-        .unwrap()["textEdit"]["newText"]
-        .as_str()
-        .unwrap();
-    assert!(fallback_event.starts_with("`-{.event uid=\""));
-    assert!(fallback_event.ends_with("\"} "));
-    assert!(!attribute_value(fallback_event, "when").is_empty());
-    assert!(!attribute_value(fallback_event, "timezone").is_empty());
-    assert!(fallback_event.contains(" date="));
     assert_eq!(fallback_block[0]["insertTextFormat"], 1);
     std::fs::remove_dir_all(root).unwrap();
 }

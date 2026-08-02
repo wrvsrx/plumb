@@ -4,7 +4,7 @@ use std::ops::ControlFlow;
 use std::path::{Path, PathBuf};
 
 use async_lsp::{ClientSocket, ErrorCode, LanguageClient, LanguageServer, ResponseError};
-use chrono::{DateTime, Local, SecondsFormat};
+use chrono::{Local, SecondsFormat};
 use futures::future::BoxFuture;
 use lsp_types::{
     CodeAction, CodeActionKind, CodeActionOptions, CodeActionOrCommand, CodeActionParams,
@@ -1204,7 +1204,6 @@ impl LanguageServer for ServerState {
                         context,
                         self.supports_completion_snippets,
                         &timestamp,
-                        &format!("{}@plumb.local", uuid::Uuid::new_v4()),
                     ));
                 }
                 if let Some(context) = attribute_completion_context(&entry.parsed, offset) {
@@ -1624,40 +1623,16 @@ fn construct_completion_items(
     context: ConstructCompletionContext,
     snippets: bool,
     timestamp: &str,
-    uid: &str,
 ) -> Vec<CompletionItem> {
-    let event_schedule = DateTime::parse_from_rfc3339(timestamp)
-        .ok()
-        .map(|datetime| {
-            (
-                datetime.format("%Y-%m-%d").to_string(),
-                datetime.offset().to_string(),
-                datetime.format("%H:%M:%S").to_string(),
-            )
-        });
     let (replace, mut templates) = match context {
         ConstructCompletionContext::Block { replace } => (
             replace,
-            vec![
-                ConstructTemplate {
-                    label: "Task",
-                    detail: "plumb task list item",
-                    snippet: format!("`-{{.task created=\"{timestamp}\"}} ${{1:Task}}"),
-                    plain: format!("`-{{.task created=\"{timestamp}\"}} "),
-                },
-                ConstructTemplate {
-                    label: "Event",
-                    detail: "plumb calendar event",
-                    snippet: event_schedule.as_ref().map_or_else(
-                        || format!("`-{{.event uid=\"{uid}\"}} ${{1:Event}}"),
-                        |(date, timezone, when)| format!("`-{{.event uid=\"{uid}\" date={date} timezone=\"{timezone}\" when=\"{when}\"}} ${{1:Event}}"),
-                    ),
-                    plain: event_schedule.as_ref().map_or_else(
-                        || format!("`-{{.event uid=\"{uid}\"}} "),
-                        |(date, timezone, when)| format!("`-{{.event uid=\"{uid}\" date={date} timezone=\"{timezone}\" when=\"{when}\"}} "),
-                    ),
-                },
-            ],
+            vec![ConstructTemplate {
+                label: "Task",
+                detail: "plumb task list item",
+                snippet: format!("`-{{.task created=\"{timestamp}\"}} ${{1:Task}}"),
+                plain: format!("`-{{.task created=\"{timestamp}\"}} "),
+            }],
         ),
         ConstructCompletionContext::Inline { replace } => (replace, Vec::new()),
     };
