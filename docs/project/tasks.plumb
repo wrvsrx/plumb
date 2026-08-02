@@ -408,6 +408,16 @@
    `note 创建成功后选中新 task，编辑成功后原位刷新且保留 filters、sort 和 document context；stale revision、external edit、parse/semantic invalid document 或 operation failure 不覆盖 source，返回可操作的 field/global error 并刷新最新 snapshot。覆盖 top-level/nested create、reparent/position change、partial field update、custom attribute preservation、multiline layout、concurrent edit、mobile controls、mutation security 与 browser E2E tests。
 
 `-{
+   .task #improve-web-task-edit-ui depends="#web-structured-task-editing"
+   created="2026-08-02T20:51:07+08:00"
+  } 优化 Web Tasks 任务编辑 UI
+
+   `note `[New Task] 是 Tasks workspace-level action，放在 task list toolbar 或等价的固定创建入口；选中 task 后的 detail sidebar 不再显示该 action，避免把创建新 task 误解为当前 task 的操作。
+   `note task detail 中可编辑的现有 properties 可直接点击进入匹配类型的 inline control，或打开已聚焦该 property 的 editor；保存与取消必须保留当前 selection、filters、sort、scroll position 和 keyboard focus，不能要求先进入独立的完整 Edit form 才能修改单个 property。
+   `note detail sidebar 提供 `[Add property] action，列出当前 task 尚未设置且允许编辑的标准 fields，并直接打开对应 control；derived `[state]、closure timestamps 和其他只读 facts 不得作为可添加 property，Complete/Cancel 继续使用既有 operations。
+   `note 所有 inline add/edit 继续提交 typed intent、task identity 与 expected revision，复用 shared guarded authoring operations 和 field-level validation；覆盖无 selection/有 selection、空与已有 property、keyboard/mobile interaction、save/cancel、stale revision、mutation pending 和 browser E2E regression tests。
+
+`-{
    .task #web-query-pipeline created="2026-07-27T00:28:45+08:00" done="2026-07-27T01:13:41+08:00"
   } 统一 Graph 与 Tasks 的 Web query pipeline
 
