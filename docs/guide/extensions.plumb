@@ -228,19 +228,21 @@ timestamps 猜测 event。`[.event .task] 复合与非 list-item owner 都无效
     `-{.event when="09:00"} 使用 7 月 31 日
   `-{.event when="09:00"} 恢复 document metadata date
 
-快速创建 event 时，先输入一个 head 只含 plain text 的 list item，再在该行执行 `[Convert to event]
-CodeAction：
+快速创建 event 时，在 list item head 开头输入 shorthand，再在该行执行 `[Convert to event] CodeAction；
+title 可以包含 inline markup：
 
 `{language=text}
   `- 11 relax: phone
   `- 11:10:24 precise reminder
   `- 11:00--11:20 relax: phone
   `- 2026-05-21T11:10--11:20 parser review
+  `- 00:05--00:15 wheel: distinguish `[nix develop] and normal shell
 
 time 使用两位 `[HH]、`[HH:MM] 或 `[HH:MM:SS]；省略分钟/秒时补零，省略 date 时使用执行操作当天的
 本地日期。显式 date 使用 `[YYYY-MM-DDT] prefix。end local time 早于 start 时解释为次日，相等无效。
 转换会在该 list item 上原位追加 explicit id、`[.event] class 与紧凑 `[when]，并将稳定 UID 作为
-`[event-uids] Link 写入 metadata；head 缩减为 title。用户无需在 event 正文填写 UID：
+`[event-uids] Link 写入 metadata；head 只移除 schedule prefix，title 中的 parsed/verbatim inline 及其
+attributes 原样保留。用户无需在 event 正文填写 UID：
 
 `{language=plumb}
   `: event-uids

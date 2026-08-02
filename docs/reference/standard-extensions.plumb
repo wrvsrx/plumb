@@ -333,8 +333,8 @@ Event CEL context 提供 `[path]、`[id]、`[uid]、`[title]、source-backed `[d
 Web Agenda 通过 revision-guarded operations 创建、编辑和删除 event；首版只支持 online mutations。
 Pandoc export 不消费 event facet：它仍作为普通 list item 导出并保留 `[.event] 与 fields。
 
-editor authoring operation `[Convert to event] 只在 cursor 命中的单个 list item（head 为 plain
-text）完整匹配 event shorthand 时提供：
+editor authoring operation `[Convert to event] 只在 cursor 命中的单个 list item head 以完整 event
+shorthand 开头时提供：
 
 `{language=text}
   `- TIME TITLE
@@ -346,12 +346,14 @@ text）完整匹配 event shorthand 时提供：
 `[HH:MM:SS]；hour 范围是 `[00..23]，minute/second 是 `[00..59]。缺失低位补零；省略 date 时使用
 operation 执行时的本地日期，显式 date 必须是合法 `[YYYY-MM-DD] 并直接以 `[T] 连接 time。区间 end
 默认继承 start date，不能再次携带 date；end local time 早于 start 时解释为次日，相等无效。至少一个 ASCII space/tab 分隔
-schedule 与非空 title；inline markup、单数字段、basic time、offset、`[Z]、`[am/pm] 和自然语言日期不
-进入 shorthand。
+schedule 与非空 title。Schedule prefix 必须位于首个 plain text inline；title 可混合 text、parsed inline、
+verbatim inline 与其 attributes。Operation 只移除 schedule 与分隔 whitespace，保留其余 inline tree。
+单数字段、basic time、offset、`[Z]、`[am/pm] 和自然语言日期不进入 shorthand。
 
-operation 原位在 list item 上追加 `[.event] class、稳定 `[uid] 与紧凑 `[when]；显式 shorthand date
-写入 event `[date] override，否则继承 metadata context。它将 head 缩减为 title，并把完整 owner subtree
-canonicalize 后返回 revision-guarded edit。非空 editor selection 还提供批量转换 action，仅转换范围内
+operation 原位在 list item 上追加 explicit id、`[.event] class 与紧凑 `[when]，并向 metadata
+`[event-uids] 追加稳定 mapping；显式 shorthand date 写入 event `[date] override，否则继承 metadata
+context。它将 head 缩减为保留原 inline structure 的 title，并把完整 owner subtree canonicalize 后返回
+revision-guarded edit。非空 editor selection 还提供批量转换 action，仅转换范围内
 完整匹配 shorthand 的 plain list-item heads，其他 items 保持不变。已是 `[.event] 的 item 不再提供该
 action。shorthand 只是显式 authoring convention，不改变 list item syntax，也不从任意 prose 隐式生成 event。
 

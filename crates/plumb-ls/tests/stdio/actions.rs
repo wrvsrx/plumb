@@ -349,7 +349,7 @@ fn converts_event_shorthand_with_a_refactor_action() {
             "jsonrpc": "2.0", "method": "textDocument/didOpen",
             "params": { "textDocument": {
                 "uri": uri, "languageId": "plumb", "version": 3,
-                "text": "`- 2026-05-21T11:10--11:20 relax: phone\n"
+                "text": "`- 2026-05-21T11:10--11:20 relax: `[phone]\n"
             }}
         }),
         json!({
@@ -398,7 +398,7 @@ fn converts_event_shorthand_with_a_refactor_action() {
     assert_eq!(change["textDocument"]["version"], 3);
     let replacement = change["edits"][0]["newText"].as_str().unwrap();
     assert!(replacement.contains(".event"), "{replacement}");
-    assert!(replacement.ends_with("relax: phone\n"), "{replacement}");
+    assert!(replacement.ends_with("relax: `[phone]\n"), "{replacement}");
     assert!(replacement.contains("date=2026-05-21"), "{replacement}");
     assert_eq!(attribute_value(replacement, "when"), "11:10--11:20");
     assert!(replacement.contains("#relax-phone .event"), "{replacement}");

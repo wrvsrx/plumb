@@ -187,7 +187,6 @@ pub enum EventEditError {
 pub enum EventShorthandError {
     StaleOrInvalidDocument,
     ListItemNotFound,
-    NotPlainText,
     EventAlreadyExists,
     InvalidShorthand,
     InvalidInterval,
@@ -1745,19 +1744,10 @@ impl Workspace {
         if mark.attrs.has_class("event") {
             return Err(EventShorthandError::EventAlreadyExists);
         }
-        if item
-            .head
-            .items
-            .iter()
-            .any(|inline| !matches!(inline, Inline::Text { .. }))
-        {
-            return Err(EventShorthandError::NotPlainText);
-        }
-        let shorthand = &entry.parsed.source[item.head.range.clone()];
-        let input = parse_event_shorthand(shorthand, now)?;
+        let (input, title_start) = parse_event_shorthand_head(&entry.parsed.source, item, now)?;
         let uid = new_event_uid();
         let mut owned = OwnedBlock::from_parsed(&entry.parsed.source, item);
-        owned.set_head_text(&input.title);
+        strip_event_shorthand_prefix(&mut owned, title_start)?;
         let mut attributes = owned.attributes().to_vec();
         let current = entry.current.as_ref().expect("current output checked");
         let id = mark.attrs.id().map_or_else(
@@ -2842,19 +2832,29 @@ fn validate_event_input(input: &EventInput) -> Result<(), EventEditError> {
     Ok(())
 }
 
+#[cfg(test)]
 fn parse_event_shorthand(
     input: &str,
     now: DateTime<FixedOffset>,
 ) -> Result<EventInput, EventShorthandError> {
+    parse_event_shorthand_with_title_start(input, now).map(|(input, _)| input)
+}
+
+fn parse_event_shorthand_with_title_start(
+    input: &str,
+    now: DateTime<FixedOffset>,
+) -> Result<(EventInput, usize), EventShorthandError> {
     let separator = input
         .char_indices()
         .find_map(|(index, character)| matches!(character, ' ' | '\t').then_some(index))
         .ok_or(EventShorthandError::InvalidShorthand)?;
     let schedule = &input[..separator];
-    let title = input[separator..].trim();
+    let untrimmed_title = &input[separator..];
+    let title = untrimmed_title.trim_start();
     if title.is_empty() {
         return Err(EventShorthandError::InvalidShorthand);
     }
+    let title_start = input.len() - title.len();
     let (start, end) = match schedule.split_once("--") {
         Some((start, end)) if !start.is_empty() && !end.is_empty() && !end.contains("--") => {
             (start, Some(end))
@@ -2882,22 +2882,65 @@ fn parse_event_shorthand(
             start.date_naive()
         };
         let end = shorthand_datetime(end_date, end_time, offset)?;
-        Ok(EventInput {
-            title: title.to_string(),
-            at: None,
-            start: Some(event_datetime(start)),
-            end: Some(event_datetime(end)),
-            tasks: Vec::new(),
-        })
+        Ok((
+            EventInput {
+                title: title.trim_end().to_string(),
+                at: None,
+                start: Some(event_datetime(start)),
+                end: Some(event_datetime(end)),
+                tasks: Vec::new(),
+            },
+            title_start,
+        ))
     } else {
-        Ok(EventInput {
-            title: title.to_string(),
-            at: Some(event_datetime(start)),
-            start: None,
-            end: None,
-            tasks: Vec::new(),
-        })
+        Ok((
+            EventInput {
+                title: title.trim_end().to_string(),
+                at: Some(event_datetime(start)),
+                start: None,
+                end: None,
+                tasks: Vec::new(),
+            },
+            title_start,
+        ))
     }
+}
+
+fn parse_event_shorthand_head(
+    source: &str,
+    syntax: &ParsedBlock,
+    now: DateTime<FixedOffset>,
+) -> Result<(EventInput, usize), EventShorthandError> {
+    let shorthand = &source[syntax.head.range.clone()];
+    let (mut input, title_start) = parse_event_shorthand_with_title_start(shorthand, now)?;
+    let plain = syntax.head.plain_text();
+    let title = plain
+        .get(title_start..)
+        .map(str::trim)
+        .filter(|title| !title.is_empty())
+        .ok_or(EventShorthandError::InvalidShorthand)?;
+    input.title = title.to_string();
+    Ok((input, title_start))
+}
+
+fn strip_event_shorthand_prefix(
+    owned: &mut OwnedBlock,
+    title_start: usize,
+) -> Result<(), EventShorthandError> {
+    let OwnedBlock::Parsed { head, .. } = owned else {
+        return Err(EventShorthandError::GeneratedInvalid);
+    };
+    let Some(OwnedInline::Text(text)) = head.first_mut() else {
+        return Err(EventShorthandError::InvalidShorthand);
+    };
+    if title_start > text.len() || !text.is_char_boundary(title_start) {
+        return Err(EventShorthandError::InvalidShorthand);
+    }
+    text.replace_range(..title_start, "");
+    if text.is_empty() {
+        head.remove(0);
+    }
+    Ok(())
 }
 
 fn parse_shorthand_datetime(
@@ -3349,14 +3392,11 @@ fn convert_shorthands_in_block(
         && syntax.mark.as_ref().is_some_and(|mark| {
             matches!(mark.marker.as_str(), "-" | ".") && !mark.attrs.has_class("event")
         })
-        && syntax
-            .head
-            .items
-            .iter()
-            .all(|inline| matches!(inline, Inline::Text { .. }))
     {
-        let shorthand = &source[syntax.head.range.clone()];
-        if let Ok(input) = parse_event_shorthand(shorthand, now) {
+        if let Ok((input, title_start)) = parse_event_shorthand_head(source, syntax, now) {
+            if strip_event_shorthand_prefix(owned, title_start).is_err() {
+                return converted;
+            }
             let id = syntax
                 .mark
                 .as_ref()
@@ -3371,7 +3411,6 @@ fn convert_shorthands_in_block(
                     str::to_string,
                 );
             let uid = new_event_uid();
-            owned.set_head_text(&input.title);
             owned
                 .attributes_mut()
                 .extend(event_attributes(&input, metadata));
@@ -5615,11 +5654,19 @@ mod tests {
         assert!(kept.contains("when=\"11:00--11:20\""));
         assert!(kept.contains("} review\n"), "{kept}");
 
-        // Inline markup in the head is rejected.
-        workspace.insert("markup.plumb", 9, "`- 11 `*[meeting]\n");
-        assert_eq!(
-            workspace.convert_event_shorthand("markup.plumb", 3, now),
-            Err(EventShorthandError::NotPlainText)
+        // Parsed and verbatim inline structure survives prefix removal.
+        let rich_source =
+            "`- 11 wheel: distinguish `[nix develop]{language=sh} and `*[normal] shell\n";
+        workspace.insert("markup.plumb", 9, rich_source);
+        let rich = apply_single_edit(
+            rich_source,
+            &workspace
+                .convert_event_shorthand("markup.plumb", 3, now)
+                .unwrap(),
+        );
+        assert!(
+            rich.contains("} wheel: distinguish `[nix develop]{language=sh} and `*[normal] shell"),
+            "{rich}"
         );
 
         // A list item that is already an event is left alone.
@@ -5643,7 +5690,7 @@ mod tests {
 
     #[test]
     fn converts_selected_event_shorthands_in_one_edit() {
-        let source = "`meta\n  `: date\n\n    2026-08-01\n\n  `: timezone\n\n    +08:00\n\n`- 10:00--10:20 first\n`- ordinary item\n`- 10:20--10:30 second\n";
+        let source = "`meta\n  `: date\n\n    2026-08-01\n\n  `: timezone\n\n    +08:00\n\n`- 10:00--10:20 first\n`- ordinary item\n`- 10:20--10:30 second `[code]\n";
         let mut workspace = Workspace::new();
         workspace.insert("agenda.plumb", 9, source);
         let now = DateTime::parse_from_rfc3339("2026-08-01T08:00:00+08:00").unwrap();
@@ -5665,6 +5712,7 @@ mod tests {
         );
         assert!(converted.contains("when=\"10:00--10:20\""));
         assert!(converted.contains("when=\"10:20--10:30\""));
+        assert!(converted.contains("} second `[code]"), "{converted}");
         assert!(converted.contains("`- ordinary item"));
         assert!(!converted.contains("date=2026-08-01"));
         assert!(!converted.contains("timezone=\"+08:00\""));

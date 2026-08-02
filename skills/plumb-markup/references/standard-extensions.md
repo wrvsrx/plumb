@@ -358,6 +358,10 @@ This mapping is the default identity source and takes precedence over a legacy
 quoted inline `uid`, which remains a compatibility fallback. Authoring creates
 an explicit event id and mapping together. Anchor rename updates the Link target;
 editing or moving the event preserves the UID; deleting it removes the mapping.
+The `Convert to event` action recognizes a reduced-precision schedule at the
+start of a list-item head. The title after its separating whitespace may contain
+parsed or verbatim inline markup; conversion removes only the leading schedule
+and preserves the remaining inline tree and attributes.
 `.event` on a non-list-item owner is invalid. Combining `.event` and `.task` on
 one owner is invalid and produces no event record. Calendar projection requires
 a workspace-unique UID.

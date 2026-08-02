@@ -259,10 +259,10 @@
    created="2026-08-01T12:38:58+08:00" done="2026-08-01T12:38:58+08:00"
   } 将 event shorthand 转换为 event
 
-   `note `[Convert to event] refactor CodeAction 只转换 cursor 命中的单个 list item（head 为 plain text）；shorthand 使用 `[TIME TITLE] 或 `[TIME--TIME TITLE]，并允许 start 具有 `[YYYY-MM-DDT] prefix。
+   `note `[Convert to event] refactor CodeAction 只转换 cursor 命中的单个 list item；head 以 `[TIME TITLE] 或 `[TIME--TIME TITLE] shorthand 开头，并允许 start 具有 `[YYYY-MM-DDT] prefix；title 可含任意合法 parsed/verbatim inline。
    `note `[TIME] 支持两位 `[HH]、`[HH:MM] 与 `[HH:MM:SS] reduced precision；缺失低位补零，缺失 date 使用 operation 本地日期，区间 end local time 早于 start 时解释为次日，相等无效。
    `note protocol-neutral workspace operation 生成 explicit id、metadata UID mapping 与紧凑 `[when]，在 owned tree 中原位在 list item 上追加 `[.event] 与 scheduling fields、将 head 缩减为 title 并 canonicalize 完整 owner subtree，返回 revision-guarded edit；非空 selection 可批量转换范围内匹配的 list items，LSP adapter 不解析或拼接 source。
-   `note 覆盖带/不带 date 的全部 time precision、point/interval、nested list item、已有 attributes/id 保留、已是 event 的 item 拒绝、invalid/ambiguous spelling、inline markup rejection、formatter fixed point 和 stdio CodeAction availability tests；同步 reference 与 guides。
+   `note 覆盖带/不带 date 的全部 time precision、point/interval、nested list item、已有 attributes/id 保留、已是 event 的 item 拒绝、invalid/ambiguous spelling、rich inline structure/attributes preservation、formatter fixed point 和 stdio CodeAction availability tests；同步 reference 与 guides。
 
 `# Workspace indexing
 
