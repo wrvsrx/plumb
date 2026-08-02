@@ -12,6 +12,7 @@ import {
   writeQueryParameters,
 } from './query-state.js';
 import { currentTimeInsertionIndex, localDateKey } from './agenda-state.js';
+import { EDITABLE_TASK_PROPERTIES, missingTaskProperties } from './task-ui.js';
 
 (function () {
   'use strict';
@@ -1010,6 +1011,7 @@ import { currentTimeInsertionIndex, localDateKey } from './agenda-state.js';
     const tasks = state.tasks.tasks;
     taskList.replaceChildren();
     taskEmpty.hidden = tasks.length > 0;
+    newTaskButton.disabled = !config.taskMutations || !state.tasks.documents?.length || Boolean(state.pendingTask);
     taskSummary.textContent = `${tasks.length} tasks${state.tasks.complete ? '' : ' (truncated)'}`;
     let previousPath = null;
     tasks.forEach((task) => {
@@ -1062,12 +1064,23 @@ import { currentTimeInsertionIndex, localDateKey } from './agenda-state.js';
     taskPanel.querySelector('p').textContent = message;
   }
 
-  function addTaskField(list, label, value) {
+  function addTaskField(list, label, value, { editable = false, property = null, task = null } = {}) {
     if (value === null || value === undefined || value === '' || (Array.isArray(value) && value.length === 0)) return;
     const term = document.createElement('dt');
     const detail = document.createElement('dd');
     term.textContent = label;
-    detail.textContent = Array.isArray(value) ? value.join(', ') : value;
+    if (editable) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'task-property-value';
+      button.dataset.property = property;
+      button.textContent = Array.isArray(value) ? value.join(', ') : value;
+      button.title = `Edit ${label}`;
+      button.addEventListener('click', () => renderTaskPropertyEditor(task, property));
+      detail.append(button);
+    } else {
+      detail.textContent = Array.isArray(value) ? value.join(', ') : value;
+    }
     list.append(term, detail);
   }
 
@@ -1075,8 +1088,9 @@ import { currentTimeInsertionIndex, localDateKey } from './agenda-state.js';
     taskPanel.innerHTML = `
       <article class="task-detail">
         <header><p class="document-path"></p><h1></h1><span class="task-detail-state"></span></header>
-        <div class="task-actions"><button class="complete-task" type="button">Complete</button><button class="cancel-task" type="button">Cancel</button><button class="edit-task" type="button">Edit</button><button class="new-task" type="button">New task</button><button class="open-note" type="button">Open note</button></div>
+        <div class="task-actions"><button class="complete-task" type="button">Complete</button><button class="cancel-task" type="button">Cancel</button><button class="edit-task" type="button">Edit</button><button class="open-note" type="button">Open note</button></div>
         <dl class="task-fields"></dl>
+        <div class="task-property-actions"><button class="add-task-property" type="button">Add property</button><select class="task-property-picker" aria-label="Property to add" hidden></select></div>
         <section class="task-children" hidden><h2>Child tasks</h2><div></div></section>
       </article>`;
     taskPanel.querySelector('.document-path').textContent = task.id ? `${task.path}#${task.id}` : task.path;
@@ -1085,28 +1099,44 @@ import { currentTimeInsertionIndex, localDateKey } from './agenda-state.js';
     stateLabel.textContent = taskStateLabel(task);
     stateLabel.className = `task-detail-state state-${task.state}`;
     const fields = taskPanel.querySelector('.task-fields');
-    addTaskField(fields, 'Created', task.created);
-    addTaskField(fields, 'Due', task.due);
-    addTaskField(fields, 'Priority', task.priority);
-    addTaskField(fields, 'Wait', task.wait);
+    addTaskField(fields, 'Created', task.created, { editable: true, property: 'created', task });
+    addTaskField(fields, 'Due', task.due, { editable: true, property: 'due', task });
+    addTaskField(fields, 'Priority', task.priority, { editable: true, property: 'priority', task });
+    addTaskField(fields, 'Wait', task.wait, { editable: true, property: 'wait', task });
     addTaskField(fields, 'Done', task.done);
     addTaskField(fields, 'Canceled', task.canceled);
-    addTaskField(fields, 'Recurrence', task.recur);
-    addTaskField(fields, 'Dependencies', task.depends);
+    addTaskField(fields, 'Recurrence', task.recur, { editable: true, property: 'recur', task });
+    addTaskField(fields, 'Previous task', task.prev, { editable: true, property: 'prev', task });
+    addTaskField(fields, 'Dependencies', task.depends, { editable: true, property: 'depends', task });
     addTaskField(fields, 'Waiting for', task.waitReasons);
     const mutable = Boolean(config.taskMutations && task.locator && ['ready', 'waiting'].includes(task.state));
     const pending = state.pendingTask === task.key;
     taskPanel.querySelector('.complete-task').disabled = !mutable || task.blocked || pending;
     taskPanel.querySelector('.cancel-task').disabled = !mutable || pending;
     taskPanel.querySelector('.edit-task').disabled = !config.taskMutations || pending;
-    taskPanel.querySelector('.new-task').disabled = !config.taskMutations || !state.tasks.documents?.length;
     taskPanel.querySelector('.complete-task').addEventListener('click', () => updateTask(task, 'complete'));
     taskPanel.querySelector('.cancel-task').addEventListener('click', () => updateTask(task, 'cancel'));
     taskPanel.querySelector('.edit-task').addEventListener('click', () => renderTaskForm(task));
-    taskPanel.querySelector('.new-task').addEventListener('click', () => renderTaskForm());
     taskPanel.querySelector('.open-note').addEventListener('click', () => {
       showView('graph', { historyMode: 'push' });
       selectDocument(task.documentId, '');
+    });
+    const missing = missingTaskProperties(task);
+    const addProperty = taskPanel.querySelector('.add-task-property');
+    const propertyPicker = taskPanel.querySelector('.task-property-picker');
+    addProperty.disabled = !config.taskMutations || pending || missing.length === 0;
+    missing.forEach(({ key, label }) => propertyPicker.add(new Option(label, key)));
+    addProperty.addEventListener('click', () => {
+      propertyPicker.hidden = false;
+      addProperty.hidden = true;
+      propertyPicker.focus();
+    });
+    propertyPicker.addEventListener('change', () => renderTaskPropertyEditor(task, propertyPicker.value));
+    propertyPicker.addEventListener('blur', () => {
+      if (!propertyPicker.value) {
+        propertyPicker.hidden = true;
+        addProperty.hidden = false;
+      }
     });
     const children = (state.tasks.allTasks || state.tasks.tasks)
       .filter((candidate) => candidate.parentKey === task.key);
@@ -1121,6 +1151,132 @@ import { currentTimeInsertionIndex, localDateKey } from './agenda-state.js';
         button.addEventListener('click', () => selectTask(child));
         list.append(button);
       });
+    }
+  }
+
+  function taskReferenceByIdentity(identity) {
+    return (state.tasks.allTasks || state.tasks.tasks).find((candidate) => (
+      candidate.id && `${candidate.path}#${candidate.id}` === identity
+    ));
+  }
+
+  function renderTaskPropertyEditor(task, property) {
+    const definition = EDITABLE_TASK_PROPERTIES.find((candidate) => candidate.key === property);
+    if (!definition || state.pendingTask) return;
+    const detail = taskPanel.querySelector(`.task-property-value[data-property="${property}"]`)?.closest('dd');
+    const host = detail || taskPanel.querySelector('.task-property-actions');
+    const form = document.createElement('form');
+    form.className = 'task-property-editor';
+    form.dataset.property = property;
+    const label = document.createElement('label');
+    label.textContent = definition.label;
+    let control;
+    if (['created', 'due', 'wait'].includes(property)) {
+      control = document.createElement('input');
+      control.type = 'datetime-local';
+      control.value = localDateTimeValue(task[property]);
+    } else if (property === 'priority') {
+      control = document.createElement('input');
+      control.type = 'number'; control.step = '1'; control.min = '-2147483648'; control.max = '2147483647';
+      control.value = task.priority ?? '';
+    } else if (property === 'recur') {
+      control = document.createElement('select');
+      [['', 'None'], ['P1D', 'Daily'], ['P1W', 'Weekly'], ['P1M', 'Monthly'], ['P1Y', 'Yearly']]
+        .forEach(([value, text]) => control.add(new Option(text, value)));
+      control.value = task.recur || '';
+    } else {
+      control = document.createElement('select');
+      control.multiple = property === 'depends';
+      if (!control.multiple) control.add(new Option('None', ''));
+      (state.tasks.allTasks || state.tasks.tasks)
+        .filter((candidate) => candidate.id && candidate.key !== task.key)
+        .forEach((candidate) => control.add(new Option(taskOptionLabel(candidate), candidate.key)));
+      if (property === 'prev') {
+        const previous = taskReferenceByIdentity(task.prevOn);
+        control.value = previous?.key || '';
+      } else {
+        const selected = new Set(task.dependsOn || []);
+        Array.from(control.options).forEach((option) => {
+          const candidate = taskByKey(state.tasks, option.value);
+          option.selected = candidate ? selected.has(`${candidate.path}#${candidate.id}`) : false;
+        });
+      }
+    }
+    control.name = 'value';
+    label.append(control);
+    const error = document.createElement('span'); error.className = 'field-error'; error.setAttribute('role', 'alert');
+    const actions = document.createElement('span'); actions.className = 'task-property-editor-actions';
+    const save = document.createElement('button'); save.type = 'submit'; save.textContent = 'Save';
+    const cancel = document.createElement('button'); cancel.type = 'button'; cancel.textContent = 'Cancel';
+    actions.append(save, cancel); form.append(label, error, actions);
+    host.replaceChildren(form);
+    control.focus();
+    cancel.addEventListener('click', () => renderTaskDetail(task));
+    form.addEventListener('submit', (event) => {
+      event.preventDefault();
+      mutateTaskProperty(task, property, control, form);
+    });
+  }
+
+  function taskFields(task) {
+    const previous = taskReferenceByIdentity(task.prevOn);
+    return {
+      title: task.title,
+      created: task.created,
+      due: task.due,
+      wait: task.wait,
+      recur: task.recur,
+      prev: previous ? taskIdentity(previous) : null,
+      depends: (task.dependsOn || []).map(taskReferenceByIdentity).filter(Boolean).map(taskIdentity),
+      priority: task.priority,
+    };
+  }
+
+  async function mutateTaskProperty(task, property, control, form) {
+    if (state.pendingTask) return;
+    const fields = taskFields(task);
+    if (['created', 'due', 'wait'].includes(property)) fields[property] = formDate(control.value);
+    else if (property === 'priority') fields.priority = control.value === '' ? null : Number(control.value);
+    else if (property === 'recur') fields.recur = control.value || null;
+    else if (property === 'prev') {
+      const previous = taskByKey(state.tasks, control.value);
+      fields.prev = previous ? taskIdentity(previous) : null;
+    } else if (property === 'depends') {
+      fields.depends = Array.from(control.selectedOptions)
+        .map((option) => taskByKey(state.tasks, option.value)).filter(Boolean).map(taskIdentity);
+    }
+    if (fields.recur && !fields.due) {
+      form.querySelector('.field-error').textContent = 'Recurring tasks require a due date.';
+      return;
+    }
+    const listScroll = taskList.parentElement.scrollTop;
+    const panelScroll = taskPanel.scrollTop;
+    state.pendingTask = task.key;
+    form.querySelectorAll('button, input, select').forEach((element) => { element.disabled = true; });
+    try {
+      const response = await fetch(`${config.taskActionBase}${encodeURIComponent(task.documentId)}/update`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ revision: task.revision, locator: task.locator, task: fields, placement: null }),
+      });
+      const body = await response.text();
+      if (!response.ok) throw new Error(body || `HTTP ${response.status}`);
+      state.pendingTask = null;
+      await loadTasks();
+      const latest = taskByKey(state.tasks, task.key);
+      if (latest) renderTaskDetail(latest);
+      taskList.parentElement.scrollTop = listScroll;
+      taskPanel.scrollTop = panelScroll;
+      taskPanel.querySelector(`.task-property-value[data-property="${property}"]`)?.focus();
+      notify(`${EDITABLE_TASK_PROPERTIES.find((candidate) => candidate.key === property).label} updated.`);
+    } catch (error) {
+      state.pendingTask = null;
+      await loadTasks();
+      const latest = taskByKey(state.tasks, task.key);
+      if (latest) renderTaskPropertyEditor(latest, property);
+      taskPanel.querySelector('.task-property-editor .field-error').textContent = String(error);
+      notify(String(error), true);
+    } finally {
+      state.pendingTask = null;
     }
   }
 

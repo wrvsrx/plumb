@@ -5,6 +5,7 @@ const NOTE_HTML: &str = include_str!("../assets/note.html");
 pub(crate) const APP_JS: &str = include_str!("../assets/app.js");
 pub(crate) const AGENDA_STATE_JS: &str = include_str!("../assets/agenda-state.js");
 pub(crate) const QUERY_STATE_JS: &str = include_str!("../assets/query-state.js");
+pub(crate) const TASK_UI_JS: &str = include_str!("../assets/task-ui.js");
 pub(crate) const STYLES_CSS: &str = include_str!("../assets/styles.css");
 pub(crate) const FORCE_GRAPH_JS: &str = include_str!("../assets/vendor/force-graph.min.js");
 pub(crate) const FORCE_GRAPH_LICENSE: &str =

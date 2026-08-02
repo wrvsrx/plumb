@@ -24,7 +24,7 @@ use tokio_stream::StreamExt;
 
 use crate::presentation::{
     render_backlinks, render_index, render_note_page, AGENDA_STATE_JS, APP_JS, FORCE_GRAPH_JS,
-    FORCE_GRAPH_LICENSE, QUERY_STATE_JS, STYLES_CSS,
+    FORCE_GRAPH_LICENSE, QUERY_STATE_JS, STYLES_CSS, TASK_UI_JS,
 };
 use crate::{
     render_note_html, GraphDirection, GraphQuery, WebEventInput, WebEventLocator, WebQuery,
@@ -162,6 +162,7 @@ fn router(state: AppState) -> Router {
         .route("/app.js", get(app_js))
         .route("/agenda-state.js", get(agenda_state_js))
         .route("/query-state.js", get(query_state_js))
+        .route("/task-ui.js", get(task_ui_js))
         .route("/styles.css", get(styles_css))
         .route("/vendor/force-graph.min.js", get(force_graph_js))
         .route("/vendor/FORCE-GRAPH-LICENSE.txt", get(force_graph_license))
@@ -601,6 +602,10 @@ async fn query_state_js() -> Response {
     asset("application/javascript; charset=utf-8", QUERY_STATE_JS)
 }
 
+async fn task_ui_js() -> Response {
+    asset("application/javascript; charset=utf-8", TASK_UI_JS)
+}
+
 async fn styles_css() -> Response {
     asset("text/css; charset=utf-8", STYLES_CSS)
 }
@@ -796,6 +801,7 @@ mod tests {
             "/tasks?preset=ready",
             "/agenda",
             "/agenda-state.js",
+            "/task-ui.js",
         ] {
             let response = app
                 .clone()
