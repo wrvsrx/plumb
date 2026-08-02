@@ -202,6 +202,7 @@ impl OwnedBlock {
     pub fn attributes_mut(&mut self) -> &mut Vec<OwnedAttribute> {
         match self {
             Self::Parsed { attributes, .. } | Self::Verbatim { attributes, .. } => {
+                attributes.present = true;
                 &mut attributes.items
             }
         }
@@ -790,6 +791,15 @@ mod tests {
             edit.new_text,
             "`-{created=\"2026-07-23T03:00:00+08:00\"} Work\n"
         );
+    }
+
+    #[test]
+    fn mutable_attributes_create_a_missing_slot() {
+        let mut block = OwnedBlock::marked("-", "Work");
+        block.attributes_mut().push(OwnedAttribute::class("event"));
+        let mut output = String::new();
+        render_owned_blocks(&[block], 0, &mut output);
+        assert_eq!(output, "`-{.event} Work");
     }
 
     #[test]
