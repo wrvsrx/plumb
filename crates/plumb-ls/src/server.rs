@@ -4,7 +4,7 @@ use std::ops::ControlFlow;
 use std::path::{Path, PathBuf};
 
 use async_lsp::{ClientSocket, ErrorCode, LanguageClient, LanguageServer, ResponseError};
-use chrono::{Local, SecondsFormat};
+use chrono::{DateTime, Local, SecondsFormat};
 use futures::future::BoxFuture;
 use lsp_types::{
     CodeAction, CodeActionKind, CodeActionOptions, CodeActionOrCommand, CodeActionParams,
@@ -41,7 +41,7 @@ use plumb_workspace::{
     ResourceOperation, SearchRecord, SearchRecordKind, Workspace, WorkspaceEdit,
 };
 
-use crate::folding::{ranges as folding_ranges, collapsed_text_labels as fold_labels};
+use crate::folding::{collapsed_text_labels as fold_labels, ranges as folding_ranges};
 #[cfg(test)]
 use crate::hover::fenced_plumb;
 use crate::hover::{
@@ -1300,6 +1300,7 @@ impl LanguageServer for ServerState {
         ) {
             if let Some(entry) = self.workspace.get(&path) {
                 let offset = position_to_offset(&entry.parsed.source, params.range.start);
+                let selection_end = position_to_offset(&entry.parsed.source, params.range.end);
                 if let Some(title) = path.file_stem().and_then(|stem| stem.to_str()) {
                     if let Some(edit) = self
                         .workspace
@@ -1343,6 +1344,22 @@ impl LanguageServer for ServerState {
                         is_preferred: Some(true),
                         ..CodeAction::default()
                     }));
+                }
+                if selection_end > offset {
+                    if let Some(edit) = self
+                        .workspace
+                        .convert_event_shorthands(&path, offset..selection_end, now.fixed_offset())
+                        .ok()
+                        .and_then(|edit| workspace_edit_to_lsp(&self.workspace, edit))
+                    {
+                        actions.push(CodeActionOrCommand::CodeAction(CodeAction {
+                            title: "Convert selected items to events".to_string(),
+                            kind: Some(CodeActionKind::REFACTOR_REWRITE),
+                            edit: Some(edit),
+                            is_preferred: Some(true),
+                            ..CodeAction::default()
+                        }));
+                    }
                 }
                 for (title, edit) in [
                     (
@@ -1609,6 +1626,15 @@ fn construct_completion_items(
     timestamp: &str,
     uid: &str,
 ) -> Vec<CompletionItem> {
+    let event_schedule = DateTime::parse_from_rfc3339(timestamp)
+        .ok()
+        .map(|datetime| {
+            (
+                datetime.format("%Y-%m-%d").to_string(),
+                datetime.offset().to_string(),
+                datetime.format("%H:%M:%S").to_string(),
+            )
+        });
     let (replace, mut templates) = match context {
         ConstructCompletionContext::Block { replace } => (
             replace,
@@ -1622,8 +1648,14 @@ fn construct_completion_items(
                 ConstructTemplate {
                     label: "Event",
                     detail: "plumb calendar event",
-                    snippet: format!("`-{{.event uid=\"{uid}\" at=\"{timestamp}\"}} ${{1:Event}}"),
-                    plain: format!("`-{{.event uid=\"{uid}\" at=\"{timestamp}\"}} "),
+                    snippet: event_schedule.as_ref().map_or_else(
+                        || format!("`-{{.event uid=\"{uid}\"}} ${{1:Event}}"),
+                        |(date, timezone, when)| format!("`-{{.event uid=\"{uid}\" date={date} timezone=\"{timezone}\" when=\"{when}\"}} ${{1:Event}}"),
+                    ),
+                    plain: event_schedule.as_ref().map_or_else(
+                        || format!("`-{{.event uid=\"{uid}\"}} "),
+                        |(date, timezone, when)| format!("`-{{.event uid=\"{uid}\" date={date} timezone=\"{timezone}\" when=\"{when}\"}} "),
+                    ),
                 },
             ],
         ),

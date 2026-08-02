@@ -176,9 +176,9 @@ pub(crate) fn event(event: &EventRecord) -> String {
         lines.push(format!("**ID:** `#{}`", id.value));
     }
     for (label, field) in [
-        ("At", &event.at),
-        ("Start", &event.start),
-        ("End", &event.end),
+        ("Date", &event.date),
+        ("Timezone", &event.timezone),
+        ("When", &event.when),
         ("UID", &event.uid),
     ] {
         if let Some(field) = field {

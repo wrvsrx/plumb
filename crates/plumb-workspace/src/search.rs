@@ -481,6 +481,18 @@ impl SemanticSearchFilter {
             optional_search_string(event.uid.as_ref().map(|uid| &uid.value)),
         );
         context.add_variable_from_value("title", event.title.clone());
+        context.add_variable_from_value(
+            "date",
+            optional_search_string(event.date.as_ref().map(|field| &field.value)),
+        );
+        context.add_variable_from_value(
+            "timezone",
+            optional_search_string(event.timezone.as_ref().map(|field| &field.value)),
+        );
+        context.add_variable_from_value(
+            "when",
+            optional_search_string(event.when.as_ref().map(|field| &field.value)),
+        );
         context.add_variable_from_value("at", event_search_datetime_value(&event.at));
         context.add_variable_from_value("start", event_search_datetime_value(&event.start));
         context.add_variable_from_value("end", event_search_datetime_value(&event.end));

@@ -153,7 +153,7 @@ pub fn analyze_document(source: &str, document: &Document) -> DocumentOutput {
     let math = analyze_math(document);
     let quotes = analyze_quotes(document);
     let tasks = analyze_tasks(source, document);
-    let events = analyze_events(source, document);
+    let events = analyze_events(source, document, &metadata);
     let mut output = DocumentOutput {
         headings,
         metadata,

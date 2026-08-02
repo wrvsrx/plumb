@@ -64,7 +64,7 @@ fn exports_events_as_a_khal_readonly_vdir() {
     std::fs::create_dir_all(&root).unwrap();
     std::fs::write(
         root.join("agenda.plumb"),
-        "`-{.event #review uid=\"review@example\" start=\"2026-07-30T14:00:00+08:00\" end=\"2026-07-30T15:00:00+08:00\" tasks=\"#write\"} Parser review\n",
+        "`meta\n  `: date\n\n    2026-07-30\n\n  `: timezone\n\n    +08:00\n\n`-{.event #review uid=\"review@example\" when=\"14:00--15:00\" tasks=\"#write\"} Parser review\n",
     )
     .unwrap();
     let exported = Command::new(env!("CARGO_BIN_EXE_plumb"))

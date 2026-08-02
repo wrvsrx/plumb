@@ -251,7 +251,7 @@ mod tests {
         ));
         let output = root.join("calendar");
         std::fs::create_dir_all(&root).unwrap();
-        let source = "`-{.event uid=\"review@example\" start=\"2026-07-30T14:00:00+08:00\" end=\"2026-07-30T15:30:00+08:00\" tasks=\"#write\"} Review, parser; semantics with a deliberately long summary that must be folded safely\n  `note First line\n";
+        let source = "`meta\n  `: date\n\n    2026-07-30\n\n  `: timezone\n\n    +08:00\n\n`-{.event uid=\"review@example\" when=\"14:00--15:30\" tasks=\"#write\"} Review, parser; semantics with a deliberately long summary that must be folded safely\n  `note First line\n";
         let mut workspace = Workspace::new();
         workspace.insert(root.join("events.plumb"), 1, source);
         let loaded = LoadedWorkspace {
@@ -283,7 +283,7 @@ mod tests {
     }
 
     #[test]
-    fn exports_point_events_and_rejects_running_intervals() {
+    fn exports_point_events_and_rejects_missing_times() {
         let root = std::env::temp_dir().join(format!(
             "plumb-event-time-shape-test-{}-{}",
             std::process::id(),
@@ -296,7 +296,7 @@ mod tests {
         workspace.insert(
             root.join("point.plumb"),
             1,
-            "`-{.event uid=\"point@example\" at=\"2026-07-30T14:00:00+08:00\"} Reminder\n",
+            "`meta\n  `: date\n\n    2026-07-30\n\n  `: timezone\n\n    +08:00\n\n`-{.event uid=\"point@example\" when=\"14:00\"} Reminder\n",
         );
         let loaded = LoadedWorkspace {
             workspace,
@@ -317,7 +317,7 @@ mod tests {
         workspace.insert(
             root.join("running.plumb"),
             1,
-            "`-{.event uid=\"running@example\" start=\"2026-07-30T14:00:00+08:00\"} Work\n",
+            "`meta\n  `: date\n\n    2026-07-30\n\n  `: timezone\n\n    +08:00\n\n`-{.event uid=\"running@example\"} Work\n",
         );
         let loaded = LoadedWorkspace {
             workspace,
@@ -325,7 +325,7 @@ mod tests {
         };
         assert!(export_vdir(&loaded, &root.join("running-calendar"), now)
             .unwrap_err()
-            .contains("is still running"));
+            .contains("has no valid time"));
         std::fs::remove_dir_all(root).unwrap();
     }
 }

@@ -202,6 +202,9 @@ pub struct WebEvent {
     pub details: String,
     pub id: Option<String>,
     pub uid: Option<String>,
+    pub date: Option<String>,
+    pub timezone: Option<String>,
+    pub when: Option<String>,
     pub at: Option<String>,
     pub start: Option<String>,
     pub end: Option<String>,
@@ -663,6 +666,9 @@ impl WebWorkspace {
                             details: event.details.clone(),
                             id: event.id.as_ref().map(|field| field.value.clone()),
                             uid,
+                            date: event.date.as_ref().map(|field| field.value.clone()),
+                            timezone: event.timezone.as_ref().map(|field| field.value.clone()),
+                            when: event.when.as_ref().map(|field| field.value.clone()),
                             at: event.at.as_ref().map(|field| field.value.clone()),
                             start: event.start.as_ref().map(|field| field.value.clone()),
                             end: event.end.as_ref().map(|field| field.value.clone()),
@@ -1741,7 +1747,7 @@ mod tests {
         let updated = workspace.events().events[0].clone();
         assert_eq!(updated.uid.as_deref(), Some(uid.as_str()));
         assert_eq!(updated.title, "Updated");
-        assert_eq!(updated.at.as_deref(), Some("2026-07-30T08:00:00Z"));
+        assert_eq!(updated.at.as_deref(), Some("2026-07-30T08:00:00+00:00"));
         assert_eq!(updated.end, None);
         assert_eq!(
             workspace.update_event(
@@ -1775,7 +1781,7 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(
             root.join("agenda.plumb"),
-            "`-{.event at=\"2026-07-30T10:30:00+05:00\"} Early\n`-{.event at=\"2026-07-30T06:00:00Z\"} Later\n",
+            "`meta\n  `: date\n\n    2026-07-30\n\n  `: timezone\n\n    +00:00\n\n`-{.event timezone=\"+05:00\" when=\"10:30\"} Early\n`-{.event when=\"06:00\"} Later\n",
         )
         .unwrap();
         let workspace = WebWorkspace::load(&root).unwrap();

@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Component, Path, PathBuf};
 
-use chrono::{DateTime, FixedOffset, NaiveDate, NaiveTime, SecondsFormat, TimeZone};
+use chrono::{DateTime, FixedOffset, NaiveDate, NaiveTime, SecondsFormat, TimeZone, Timelike};
 use plumb_core::{
     parse, Attributes, Block, Diagnostic, DiagnosticSeverity, Inline, ParsedBlock, ParsedDocument,
 };
@@ -12,8 +12,8 @@ use plumb_extensions::TaskStatus;
 use plumb_extensions::{
     analyze_document, parse_task_reference_target, AnchorRecord, DocumentOutput, EventRecord,
     FileCompletionContext, FileRecord, FileTarget, ImageCompletionContext, ImageRecord,
-    ImageTarget, LinkCompletionContext, LinkRecord, LinkSpelling, LinkTarget, TaskRecord,
-    TaskReferenceTarget, TaskState,
+    ImageTarget, LinkCompletionContext, LinkRecord, LinkSpelling, LinkTarget, MetadataOutput,
+    MetadataValue, TaskRecord, TaskReferenceTarget, TaskState,
 };
 
 mod scan;
@@ -1651,12 +1651,11 @@ impl Workspace {
         if current.output.metadata.metadata.is_some() {
             return Err(MetadataInsertError::MetadataAlreadyExists);
         }
-        if !entry
-            .parsed
-            .source
-            .get(..offset)
-            .is_some_and(|prefix| prefix.bytes().all(|byte| matches!(byte, b' ' | b'\t' | b'\n' | b'\r')))
-        {
+        if !entry.parsed.source.get(..offset).is_some_and(|prefix| {
+            prefix
+                .bytes()
+                .all(|byte| matches!(byte, b' ' | b'\t' | b'\n' | b'\r'))
+        }) {
             return Err(MetadataInsertError::CursorNotAtDocumentStart);
         }
 
@@ -1692,7 +1691,13 @@ impl Workspace {
             .filter(|entry| entry.current.is_some())
             .ok_or(EventEditError::StaleOrInvalidDocument)?;
         let uid = format!("{}@plumb.local", uuid::Uuid::new_v4());
-        let event = owned_event(input, &uid);
+        let metadata = &entry
+            .current
+            .as_ref()
+            .expect("current output checked")
+            .output
+            .metadata;
+        let event = owned_event(input, &uid, metadata);
         let (affected, after) = entry
             .parsed
             .syntax
@@ -1747,11 +1752,75 @@ impl Workspace {
         let mut owned = OwnedBlock::from_parsed(&entry.parsed.source, item);
         owned.set_head_text(&input.title);
         let mut attributes = owned.attributes().to_vec();
-        attributes.extend(event_attributes(&input, &uid));
+        attributes.extend(event_attributes(
+            &input,
+            &uid,
+            &entry
+                .current
+                .as_ref()
+                .expect("current output checked")
+                .output
+                .metadata,
+        ));
         let owned = owned.with_attributes(attributes);
         let edit = exact_owned_block_edit(&entry.parsed, item.range.clone(), &owned)
             .map_err(|_| EventShorthandError::GeneratedInvalid)?;
         Ok(single_document_edit(entry, path, edit))
+    }
+
+    pub fn convert_event_shorthands(
+        &self,
+        path: impl AsRef<Path>,
+        selection: std::ops::Range<usize>,
+        now: DateTime<FixedOffset>,
+    ) -> Result<WorkspaceEdit, EventShorthandError> {
+        let path = normalize(path.as_ref());
+        let entry = self
+            .documents
+            .get(&path)
+            .filter(|entry| entry.current.is_some())
+            .ok_or(EventShorthandError::StaleOrInvalidDocument)?;
+        let metadata = &entry
+            .current
+            .as_ref()
+            .expect("current output checked")
+            .output
+            .metadata;
+        let mut edits = Vec::new();
+        let mut converted = 0;
+        for block in &entry.parsed.syntax.blocks {
+            let Block::Parsed(parsed) = block else {
+                continue;
+            };
+            let mut owned = OwnedBlock::from_parsed(&entry.parsed.source, parsed);
+            let count = convert_shorthands_in_block(
+                &entry.parsed.source,
+                parsed,
+                &mut owned,
+                &selection,
+                now,
+                metadata,
+            );
+            if count == 0 {
+                continue;
+            }
+            converted += count;
+            edits.push(
+                exact_owned_block_edit(&entry.parsed, parsed.range.clone(), &owned)
+                    .map_err(|_| EventShorthandError::GeneratedInvalid)?,
+            );
+        }
+        if converted == 0 {
+            return Err(EventShorthandError::ListItemNotFound);
+        }
+        Ok(WorkspaceEdit {
+            document_changes: vec![DocumentEdit {
+                path,
+                expected_revision: entry.revision,
+                edits,
+            }],
+            resource_operations: Vec::new(),
+        })
     }
 
     pub fn create_task(
@@ -1800,9 +1869,7 @@ impl Workspace {
                 .after
                 .as_ref()
                 .or_else(|| entry.parsed.syntax.blocks.last().map(Block::range));
-            let affected = after
-                .cloned()
-                .unwrap_or(0..entry.parsed.source.len());
+            let affected = after.cloned().unwrap_or(0..entry.parsed.source.len());
             let mut edit = EditSession::new(&entry.parsed, affected.clone())
                 .map_err(|_| TaskAuthoringError::GeneratedInvalid)?;
             if let Some(after) = after {
@@ -2183,26 +2250,19 @@ impl Workspace {
         owned.set_head_text(&input.title);
         let attributes = owned.attributes_mut();
         attributes.retain(|attribute| {
-            !matches!(attribute, OwnedAttribute::Pair { key, .. } if matches!(key.as_str(), "uid" | "at" | "start" | "end" | "tasks"))
+            !matches!(attribute, OwnedAttribute::Pair { key, .. } if matches!(key.as_str(), "uid" | "when" | "date" | "timezone" | "at" | "start" | "end" | "tasks"))
         });
         let uid = event
             .uid
             .as_ref()
             .map(|field| field.value.clone())
             .unwrap_or_else(|| format!("{}@plumb.local", uuid::Uuid::new_v4()));
-        attributes.push(OwnedAttribute::quoted("uid", uid));
-        if let Some(at) = &input.at {
-            attributes.push(OwnedAttribute::quoted("at", at));
-        }
-        if let Some(start) = &input.start {
-            attributes.push(OwnedAttribute::quoted("start", start));
-        }
-        if let Some(end) = &input.end {
-            attributes.push(OwnedAttribute::quoted("end", end));
-        }
-        if !input.tasks.is_empty() {
-            attributes.push(OwnedAttribute::quoted("tasks", input.tasks.join(" ")));
-        }
+        attributes.push(OwnedAttribute::quoted("uid", &uid));
+        attributes.extend(
+            event_attributes(input, &uid, &current.output.metadata)
+                .into_iter()
+                .skip(2),
+        );
         let mut edit = EditSession::new(&entry.parsed, event.range.clone())
             .map_err(|_| EventEditError::GeneratedInvalid)?;
         edit.replace_block(event.range.clone(), &owned)
@@ -2685,6 +2745,14 @@ fn validate_event_input(input: &EventInput) -> Result<(), EventEditError> {
         if end <= start {
             return Err(EventEditError::InvalidInterval);
         }
+        let same_day = end.date_naive() == start.date_naive();
+        let next_day =
+            start.date_naive().succ_opt() == Some(end.date_naive()) && end.time() < start.time();
+        if (!same_day && !next_day) || end.offset() != start.offset() {
+            return Err(EventEditError::InvalidInterval);
+        }
+    } else if start.is_some() {
+        return Err(EventEditError::InvalidTimeShape);
     }
     Ok(())
 }
@@ -2716,10 +2784,19 @@ fn parse_event_shorthand(
         if end.contains('T') {
             return Err(EventShorthandError::InvalidShorthand);
         }
-        let end = shorthand_datetime(start.date_naive(), parse_shorthand_time(end)?, offset)?;
-        if end <= start {
+        let end_time = parse_shorthand_time(end)?;
+        if end_time == start.time() {
             return Err(EventShorthandError::InvalidInterval);
         }
+        let end_date = if end_time < start.time() {
+            start
+                .date_naive()
+                .succ_opt()
+                .ok_or(EventShorthandError::InvalidInterval)?
+        } else {
+            start.date_naive()
+        };
+        let end = shorthand_datetime(end_date, end_time, offset)?;
         Ok(EventInput {
             title: title.to_string(),
             at: None,
@@ -2992,28 +3069,133 @@ fn remove_owned_descendant(
     false
 }
 
-fn event_attributes(input: &EventInput, uid: &str) -> Vec<OwnedAttribute> {
+fn event_attributes(
+    input: &EventInput,
+    uid: &str,
+    metadata: &MetadataOutput,
+) -> Vec<OwnedAttribute> {
     let mut attributes = vec![
         OwnedAttribute::class("event"),
         OwnedAttribute::quoted("uid", uid),
     ];
-    if let Some(at) = &input.at {
-        attributes.push(OwnedAttribute::quoted("at", at));
+    let (date, timezone, when) =
+        compact_event_schedule(input).expect("event input is validated before authoring");
+    if metadata_scalar(metadata, "date").as_deref() != Some(&date) {
+        attributes.push(OwnedAttribute::bare("date", date));
     }
-    if let Some(start) = &input.start {
-        attributes.push(OwnedAttribute::quoted("start", start));
+    if metadata_scalar(metadata, "timezone").as_deref() != Some(&timezone) {
+        attributes.push(OwnedAttribute::quoted("timezone", timezone));
     }
-    if let Some(end) = &input.end {
-        attributes.push(OwnedAttribute::quoted("end", end));
-    }
+    attributes.push(OwnedAttribute::quoted("when", when));
     if !input.tasks.is_empty() {
         attributes.push(OwnedAttribute::quoted("tasks", input.tasks.join(" ")));
     }
     attributes
 }
 
-fn owned_event(input: &EventInput, uid: &str) -> OwnedBlock {
-    OwnedBlock::marked("-", &input.title).with_attributes(event_attributes(input, uid))
+fn owned_event(input: &EventInput, uid: &str, metadata: &MetadataOutput) -> OwnedBlock {
+    OwnedBlock::marked("-", &input.title).with_attributes(event_attributes(input, uid, metadata))
+}
+
+fn convert_shorthands_in_block(
+    source: &str,
+    syntax: &ParsedBlock,
+    owned: &mut OwnedBlock,
+    selection: &std::ops::Range<usize>,
+    now: DateTime<FixedOffset>,
+    metadata: &MetadataOutput,
+) -> usize {
+    let mut converted = 0;
+    if syntax.head.range.start < selection.end
+        && selection.start < syntax.head.range.end
+        && syntax.mark.as_ref().is_some_and(|mark| {
+            matches!(mark.marker.as_str(), "-" | ".") && !mark.attrs.has_class("event")
+        })
+        && syntax
+            .head
+            .items
+            .iter()
+            .all(|inline| matches!(inline, Inline::Text { .. }))
+    {
+        let shorthand = &source[syntax.head.range.clone()];
+        if let Ok(input) = parse_event_shorthand(shorthand, now) {
+            let uid = format!("{}@plumb.local", uuid::Uuid::new_v4());
+            owned.set_head_text(&input.title);
+            owned
+                .attributes_mut()
+                .extend(event_attributes(&input, &uid, metadata));
+            converted += 1;
+        }
+    }
+    let OwnedBlock::Parsed { children, .. } = owned else {
+        return converted;
+    };
+    for (syntax_child, owned_child) in syntax.children.iter().zip(children) {
+        let Block::Parsed(syntax_child) = syntax_child else {
+            continue;
+        };
+        converted += convert_shorthands_in_block(
+            source,
+            syntax_child,
+            owned_child,
+            selection,
+            now,
+            metadata,
+        );
+    }
+    converted
+}
+
+fn compact_event_schedule(input: &EventInput) -> Result<(String, String, String), EventEditError> {
+    let (start, end) = if let Some(at) = &input.at {
+        (
+            DateTime::parse_from_rfc3339(at).map_err(|_| EventEditError::InvalidDatetime)?,
+            None,
+        )
+    } else {
+        let start = input
+            .start
+            .as_deref()
+            .ok_or(EventEditError::InvalidTimeShape)?;
+        let start =
+            DateTime::parse_from_rfc3339(start).map_err(|_| EventEditError::InvalidDatetime)?;
+        let end = input
+            .end
+            .as_deref()
+            .ok_or(EventEditError::InvalidTimeShape)?;
+        let end = DateTime::parse_from_rfc3339(end).map_err(|_| EventEditError::InvalidDatetime)?;
+        (start, Some(end))
+    };
+    let time = |value: DateTime<FixedOffset>| {
+        if value.second() == 0 {
+            value.format("%H:%M").to_string()
+        } else {
+            value.format("%H:%M:%S").to_string()
+        }
+    };
+    let when = end.map_or_else(
+        || time(start),
+        |end| format!("{}--{}", time(start), time(end)),
+    );
+    Ok((
+        start.date_naive().format("%Y-%m-%d").to_string(),
+        start.offset().to_string(),
+        when,
+    ))
+}
+
+fn metadata_scalar(metadata: &MetadataOutput, key: &str) -> Option<String> {
+    let entry = metadata
+        .metadata
+        .as_ref()?
+        .entries
+        .iter()
+        .find(|entry| entry.key == key)?;
+    match &entry.value {
+        MetadataValue::Scalar { content, .. } => Some(content.plain_text()),
+        MetadataValue::Verbatim { text, .. } => Some(text.clone()),
+        _ => None,
+    }
 }
 
 fn validated_token_edit(
@@ -4983,7 +5165,7 @@ mod tests {
             1,
             "`-{.task #write} Write\n`node{#plain} Plain\n",
         );
-        let events = "`-{.event at=\"2026-07-30T10:30:00+05:00\"} Early\n`-{.event #review uid=\"same@example\" start=\"2026-07-30T14:00:00+08:00\" end=\"2026-07-30T15:00:00+08:00\" tasks=\"tasks.plumb#write\"} Review\n`-{.event uid=\"same@example\" at=\"2026-07-30T15:00:00+08:00\" tasks=\"tasks.plumb#plain missing.plumb#task bad\"} Point\n";
+        let events = "`meta\n  `: date\n\n    2026-07-30\n\n  `: timezone\n\n    +08:00\n\n`-{.event timezone=\"+05:00\" when=\"10:30\"} Early\n`-{.event #review uid=\"same@example\" when=\"14:00--15:00\" tasks=\"tasks.plumb#write\"} Review\n`-{.event uid=\"same@example\" when=\"15:00\" tasks=\"tasks.plumb#plain missing.plumb#task bad\"} Point\n";
         workspace.insert("events.plumb", 2, events);
 
         let target = TaskRef {
@@ -5044,7 +5226,7 @@ mod tests {
                 "review",
                 20,
                 DateTime::parse_from_rfc3339("2026-07-30T00:00:00Z").unwrap(),
-                Some("uid == 'same@example' && start < timestamp('2026-07-30T07:00:00Z')"),
+                Some("uid == 'same@example' && when == '14:00--15:00' && start < timestamp('2026-07-30T07:00:00Z')"),
             )
             .unwrap();
         assert_eq!(filtered.items.len(), 1);
@@ -5129,9 +5311,10 @@ mod tests {
             parse_event_shorthand("11:20--11:20 meeting", now),
             Err(EventShorthandError::InvalidInterval)
         );
+        let cross_midnight = parse_event_shorthand("23:40--00:00 meeting", now).unwrap();
         assert_eq!(
-            parse_event_shorthand("11:20--11:00 meeting", now),
-            Err(EventShorthandError::InvalidInterval)
+            cross_midnight.end.as_deref(),
+            Some("2026-08-02T00:00:00+08:00")
         );
     }
 
@@ -5145,11 +5328,18 @@ mod tests {
             .convert_event_shorthand("agenda.plumb", source.find("relax").unwrap(), now)
             .unwrap();
         assert_eq!(operation.document_changes[0].expected_revision, 7);
-        let converted = apply_single_edit(source, &operation);
+        let converted = apply_text_edits(
+            source.to_string(),
+            operation.document_changes[0].edits.clone(),
+        )
+        .unwrap();
         assert!(converted.contains("`-{\n"), "{converted}");
         assert!(converted.contains(".event uid=\""), "{converted}");
-        assert!(converted.contains("start=\"2026-05-21T11:10:00+08:00\""));
-        assert!(converted.contains("end=\"2026-05-21T11:20:00+08:00\""));
+        assert!(converted.contains("date=2026-05-21"));
+        assert!(converted.contains("timezone=\"+08:00\""));
+        assert!(converted.contains("when=\"11:10--11:20\""));
+        assert!(!converted.contains("start="));
+        assert!(!converted.contains("end="));
         assert!(converted.contains("} relax: phone\n"), "{converted}");
         assert_eq!(plumb_format::format(&converted).unwrap(), converted);
 
@@ -5158,12 +5348,14 @@ mod tests {
         workspace.insert("keep.plumb", 8, kept_source);
         let kept = apply_single_edit(
             kept_source,
-            &workspace.convert_event_shorthand("keep.plumb", 5, now).unwrap(),
+            &workspace
+                .convert_event_shorthand("keep.plumb", 5, now)
+                .unwrap(),
         );
         assert!(kept.contains("#mine"), "{kept}");
         assert!(kept.contains(".kind"), "{kept}");
         assert!(kept.contains(".event"), "{kept}");
-        assert!(kept.contains("start=\"2026-08-01T11:00:00+08:00\""));
+        assert!(kept.contains("when=\"11:00--11:20\""));
         assert!(kept.contains("} review\n"), "{kept}");
 
         // Inline markup in the head is rejected.
@@ -5190,6 +5382,30 @@ mod tests {
             workspace.convert_event_shorthand("plain.plumb", 3, now),
             Err(EventShorthandError::ListItemNotFound)
         );
+    }
+
+    #[test]
+    fn converts_selected_event_shorthands_in_one_edit() {
+        let source = "`meta\n  `: date\n\n    2026-08-01\n\n  `: timezone\n\n    +08:00\n\n`- 10:00--10:20 first\n`- ordinary item\n`- 10:20--10:30 second\n";
+        let mut workspace = Workspace::new();
+        workspace.insert("agenda.plumb", 9, source);
+        let now = DateTime::parse_from_rfc3339("2026-08-01T08:00:00+08:00").unwrap();
+        let start = source.find("10:00").unwrap();
+        let end = source.len();
+        let operation = workspace
+            .convert_event_shorthands("agenda.plumb", start..end, now)
+            .unwrap();
+        let converted = apply_text_edits(
+            source.to_string(),
+            operation.document_changes[0].edits.clone(),
+        )
+        .unwrap();
+        assert_eq!(converted.matches(".event").count(), 2, "{converted}");
+        assert!(converted.contains("when=\"10:00--10:20\""));
+        assert!(converted.contains("when=\"10:20--10:30\""));
+        assert!(converted.contains("`- ordinary item"));
+        assert!(!converted.contains("date=2026-08-01"));
+        assert!(!converted.contains("timezone=\"+08:00\""));
     }
 
     #[test]

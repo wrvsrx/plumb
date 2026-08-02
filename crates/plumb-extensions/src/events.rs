@@ -1,11 +1,12 @@
 use std::ops::Range;
 
-use chrono::{DateTime, FixedOffset};
+use chrono::{DateTime, FixedOffset, NaiveDate, NaiveTime, TimeZone};
 use plumb_core::{
     AttrItem, AttrValue, Block, Diagnostic, DiagnosticSeverity, Document, ParsedBlock,
 };
 
 use crate::tasks::{task_reference_fields, TaskDependency};
+use crate::{MetadataOutput, MetadataValue};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EventField {
@@ -23,6 +24,9 @@ pub struct EventRecord {
     pub depth: usize,
     pub id: Option<EventField>,
     pub uid: Option<EventField>,
+    pub date: Option<EventField>,
+    pub timezone: Option<EventField>,
+    pub when: Option<EventField>,
     pub at: Option<EventField>,
     pub start: Option<EventField>,
     pub end: Option<EventField>,
@@ -75,19 +79,54 @@ pub struct EventOutput {
     pub diagnostics: Vec<Diagnostic>,
 }
 
-pub fn analyze_events(source: &str, document: &Document) -> EventOutput {
+pub fn analyze_events(source: &str, document: &Document, metadata: &MetadataOutput) -> EventOutput {
     let mut output = EventOutput::default();
-    collect_blocks(source, &document.blocks, 0, &mut output);
+    let context = EventContext::from_metadata(metadata);
+    collect_blocks(source, &document.blocks, 0, &context, &mut output);
     output
 }
 
-fn collect_blocks(source: &str, blocks: &[Block], event_depth: usize, output: &mut EventOutput) {
+#[derive(Default)]
+struct EventContext {
+    date: Option<String>,
+    timezone: Option<String>,
+}
+
+impl EventContext {
+    fn from_metadata(metadata: &MetadataOutput) -> Self {
+        let scalar = |key: &str| {
+            let entry = metadata
+                .metadata
+                .as_ref()?
+                .entries
+                .iter()
+                .find(|entry| entry.key == key)?;
+            match &entry.value {
+                MetadataValue::Scalar { content, .. } => Some(content.plain_text()),
+                MetadataValue::Verbatim { text, .. } => Some(text.clone()),
+                _ => None,
+            }
+        };
+        Self {
+            date: scalar("date"),
+            timezone: scalar("timezone"),
+        }
+    }
+}
+
+fn collect_blocks(
+    source: &str,
+    blocks: &[Block],
+    event_depth: usize,
+    context: &EventContext,
+    output: &mut EventOutput,
+) {
     for block in blocks {
         let Block::Parsed(block) = block else {
             continue;
         };
         let Some(mark) = &block.mark else {
-            collect_blocks(source, &block.children, event_depth, output);
+            collect_blocks(source, &block.children, event_depth, context, output);
             continue;
         };
         let event_class = mark.attrs.items.iter().find_map(|item| match item {
@@ -124,21 +163,47 @@ fn collect_blocks(source: &str, blocks: &[Block], event_depth: usize, output: &m
         }
 
         if is_event {
-            let event = event_record(source, block, event_depth);
-            collect_event_diagnostics(&event, &mark.attrs.items, output);
+            let event = event_record(source, block, event_depth, context);
+            collect_event_diagnostics(&event, &mark.attrs.items, context, output);
             output.events.push(event);
         }
         collect_blocks(
             source,
             &block.children,
             event_depth + usize::from(is_event),
+            context,
             output,
         );
     }
 }
 
-fn event_record(source: &str, block: &ParsedBlock, depth: usize) -> EventRecord {
+fn event_record(
+    source: &str,
+    block: &ParsedBlock,
+    depth: usize,
+    context: &EventContext,
+) -> EventRecord {
     let mark = block.mark.as_ref().expect("event is a marked block");
+    let date = text_field(&mark.attrs.items, "date");
+    let timezone = text_field(&mark.attrs.items, "timezone");
+    let when = quoted_field(&mark.attrs.items, "when");
+    let resolved = resolve_when(
+        when.as_ref(),
+        date.as_ref()
+            .map_or(context.date.as_deref(), |field| Some(&field.value)),
+        timezone
+            .as_ref()
+            .map_or(context.timezone.as_deref(), |field| Some(&field.value)),
+    );
+    let (at, start, end) = match resolved {
+        Ok(ResolvedWhen::Point(value)) => (Some(resolved_field(value, &when)), None, None),
+        Ok(ResolvedWhen::Interval(start, end)) => (
+            None,
+            Some(resolved_field(start, &when)),
+            Some(resolved_field(end, &when)),
+        ),
+        Err(_) => (None, None, None),
+    };
     EventRecord {
         range: block.range.clone(),
         marker_range: mark.range.clone(),
@@ -154,9 +219,12 @@ fn event_record(source: &str, block: &ParsedBlock, depth: usize) -> EventRecord 
             _ => None,
         }),
         uid: uid_field(&mark.attrs.items),
-        at: datetime_field(&mark.attrs.items, "at"),
-        start: datetime_field(&mark.attrs.items, "start"),
-        end: datetime_field(&mark.attrs.items, "end"),
+        date,
+        timezone,
+        when,
+        at,
+        start,
+        end,
         tasks: task_reference_fields(source, &mark.attrs.items, "tasks"),
     }
 }
@@ -205,10 +273,13 @@ fn uid_field(items: &[AttrItem]) -> Option<EventField> {
     (value.quoted && !value.decoded.is_empty()).then(|| event_field(value))
 }
 
-fn datetime_field(items: &[AttrItem], key: &str) -> Option<EventField> {
+fn quoted_field(items: &[AttrItem], key: &str) -> Option<EventField> {
     let value = pair_value(items, key)?;
-    (value.quoted && DateTime::parse_from_rfc3339(&value.decoded).is_ok())
-        .then(|| event_field(value))
+    value.quoted.then(|| event_field(value))
+}
+
+fn text_field(items: &[AttrItem], key: &str) -> Option<EventField> {
+    pair_value(items, key).map(event_field)
 }
 
 fn event_field(value: &AttrValue) -> EventField {
@@ -218,54 +289,30 @@ fn event_field(value: &AttrValue) -> EventField {
     }
 }
 
-fn collect_event_diagnostics(event: &EventRecord, attrs: &[AttrItem], output: &mut EventOutput) {
-    for key in ["at", "start", "end"] {
-        match pair_value(attrs, key) {
-            Some(value)
-                if !value.quoted || DateTime::parse_from_rfc3339(&value.decoded).is_err() =>
-            {
-                output.diagnostics.push(Diagnostic {
-                    code: "event.invalid-datetime",
-                    severity: DiagnosticSeverity::Warning,
-                    message: format!("'{key}' must be a quoted RFC 3339 timestamp"),
-                    range: value.range.clone(),
-                    related: Vec::new(),
-                });
-            }
-            _ => {}
-        }
-    }
-
-    let at = pair_value(attrs, "at");
-    let start = pair_value(attrs, "start");
-    let end = pair_value(attrs, "end");
-    if let (Some(end), None, None) = (end, start, at) {
-        output.diagnostics.push(Diagnostic {
-            code: "event.missing-start",
-            severity: DiagnosticSeverity::Warning,
-            message: "an event with 'end' also requires 'start'".to_string(),
-            range: end.range.clone(),
-            related: Vec::new(),
-        });
-    } else if at.is_none() && start.is_none() {
+fn collect_event_diagnostics(
+    event: &EventRecord,
+    attrs: &[AttrItem],
+    context: &EventContext,
+    output: &mut EventOutput,
+) {
+    let when = pair_value(attrs, "when");
+    if when.is_none() {
         output.diagnostics.push(Diagnostic {
             code: "event.missing-time",
             severity: DiagnosticSeverity::Warning,
-            message: "an event requires either 'at' or 'start'".to_string(),
+            message: "an event requires a quoted 'when' schedule".to_string(),
             range: event.selection_range.clone(),
             related: Vec::new(),
         });
-    } else if let (Some(at), true) = (at, start.is_some() || end.is_some()) {
+    }
+    if when.is_some_and(|when| !when.quoted) {
+        let when = when.expect("unquoted when exists");
         output.diagnostics.push(Diagnostic {
-            code: "event.conflicting-time-shape",
+            code: "event.invalid-when",
             severity: DiagnosticSeverity::Warning,
-            message: "a point event with 'at' cannot also have 'start' or 'end'".to_string(),
-            range: at.range.clone(),
-            related: start
-                .into_iter()
-                .chain(end)
-                .map(|value| value.range.clone())
-                .collect(),
+            message: "'when' must be a quoted reduced-precision time or interval".to_string(),
+            range: when.range.clone(),
+            related: Vec::new(),
         });
     }
 
@@ -281,21 +328,129 @@ fn collect_event_diagnostics(event: &EventRecord, attrs: &[AttrItem], output: &m
         }
     }
 
-    if let (Some(start), Some(end)) = (event.start_datetime(), event.end_datetime()) {
-        if end <= start {
-            output.diagnostics.push(Diagnostic {
-                code: "event.invalid-interval",
-                severity: DiagnosticSeverity::Warning,
-                message: "event 'end' must be later than 'start'".to_string(),
-                range: event.end.as_ref().expect("parsed end exists").range.clone(),
-                related: vec![event
-                    .start
-                    .as_ref()
-                    .expect("parsed start exists")
-                    .range
-                    .clone()],
-            });
+    let date = event.date.as_ref().map(|field| field.value.as_str());
+    let timezone = event.timezone.as_ref().map(|field| field.value.as_str());
+    let result = resolve_when(
+        event.when.as_ref(),
+        date.or(context.date.as_deref()),
+        timezone.or(context.timezone.as_deref()),
+    );
+    if event.at.is_none() && event.start.is_none() && when.is_some_and(|when| when.quoted) {
+        let when = when.expect("quoted when exists");
+        let code = match result {
+            Err(EventWhenError::MissingDate) => "event.missing-date-context",
+            Err(EventWhenError::InvalidDate) => "event.invalid-date",
+            Err(EventWhenError::MissingTimezone) => "event.missing-timezone-context",
+            Err(EventWhenError::InvalidTimezone) => "event.invalid-timezone",
+            Err(EventWhenError::InvalidInterval) => "event.invalid-interval",
+            Err(EventWhenError::InvalidWhen) | Ok(_) => "event.invalid-when",
+        };
+        output.diagnostics.push(Diagnostic {
+            code,
+            severity: DiagnosticSeverity::Warning,
+            message: "event schedule cannot be resolved from 'when', date, and timezone"
+                .to_string(),
+            range: when.range.clone(),
+            related: Vec::new(),
+        });
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum EventWhenError {
+    MissingDate,
+    InvalidDate,
+    MissingTimezone,
+    InvalidTimezone,
+    InvalidWhen,
+    InvalidInterval,
+}
+
+enum ResolvedWhen {
+    Point(DateTime<FixedOffset>),
+    Interval(DateTime<FixedOffset>, DateTime<FixedOffset>),
+}
+
+fn resolve_when(
+    when: Option<&EventField>,
+    date: Option<&str>,
+    timezone: Option<&str>,
+) -> Result<ResolvedWhen, EventWhenError> {
+    let when = when.ok_or(EventWhenError::InvalidWhen)?;
+    let date = date.ok_or(EventWhenError::MissingDate)?;
+    let (date, inherited_offset) = match NaiveDate::parse_from_str(date, "%Y-%m-%d") {
+        Ok(date) => (date, None),
+        Err(_) => {
+            let datetime =
+                DateTime::parse_from_rfc3339(date).map_err(|_| EventWhenError::InvalidDate)?;
+            (datetime.date_naive(), Some(*datetime.offset()))
         }
+    };
+    let offset = match timezone {
+        Some(timezone) => DateTime::parse_from_rfc3339(&format!("2000-01-01T00:00:00{timezone}"))
+            .map_err(|_| EventWhenError::InvalidTimezone)?
+            .offset()
+            .to_owned(),
+        None => inherited_offset.ok_or(EventWhenError::MissingTimezone)?,
+    };
+    let (start, end) = match when.value.split_once("--") {
+        Some((start, end)) if !start.is_empty() && !end.is_empty() && !end.contains("--") => {
+            (start, Some(end))
+        }
+        Some(_) => return Err(EventWhenError::InvalidWhen),
+        None => (when.value.as_str(), None),
+    };
+    let start = local_datetime(date, parse_time(start)?, offset)?;
+    let Some(end) = end else {
+        return Ok(ResolvedWhen::Point(start));
+    };
+    let end_time = parse_time(end)?;
+    if end_time == start.time() {
+        return Err(EventWhenError::InvalidInterval);
+    }
+    let end_date = if end_time < start.time() {
+        date.succ_opt().ok_or(EventWhenError::InvalidInterval)?
+    } else {
+        date
+    };
+    let end = local_datetime(end_date, end_time, offset)?;
+    Ok(ResolvedWhen::Interval(start, end))
+}
+
+fn parse_time(value: &str) -> Result<NaiveTime, EventWhenError> {
+    let parts = value.split(':').collect::<Vec<_>>();
+    if !(1..=3).contains(&parts.len())
+        || parts
+            .iter()
+            .any(|part| part.len() != 2 || !part.bytes().all(|byte| byte.is_ascii_digit()))
+    {
+        return Err(EventWhenError::InvalidWhen);
+    }
+    let component = |index: usize| {
+        parts
+            .get(index)
+            .map_or(Ok(0), |part| part.parse::<u32>())
+            .map_err(|_| EventWhenError::InvalidWhen)
+    };
+    NaiveTime::from_hms_opt(component(0)?, component(1)?, component(2)?)
+        .ok_or(EventWhenError::InvalidWhen)
+}
+
+fn local_datetime(
+    date: NaiveDate,
+    time: NaiveTime,
+    offset: FixedOffset,
+) -> Result<DateTime<FixedOffset>, EventWhenError> {
+    offset
+        .from_local_datetime(&date.and_time(time))
+        .single()
+        .ok_or(EventWhenError::InvalidWhen)
+}
+
+fn resolved_field(value: DateTime<FixedOffset>, when: &Option<EventField>) -> EventField {
+    EventField {
+        value: value.to_rfc3339_opts(chrono::SecondsFormat::Secs, false),
+        range: when.as_ref().expect("resolved when exists").range.clone(),
     }
 }
 
@@ -306,12 +461,17 @@ mod tests {
 
     use super::*;
 
-    #[test]
-    fn collects_event_facets_ranges_and_task_references() {
-        let source = "`-{.event #review uid=\"review@example\" start=\"2026-07-30T14:00:00+08:00\" end=\"2026-07-30T15:30:00+08:00\" tasks=\"#local Project A.plumb#remote\"} Review\n  `note Details\n  `-{.event at=\"2026-07-31T09:00:00+08:00\"} Follow-up\n";
+    fn analyze(source: &str) -> EventOutput {
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
-        let output = analyze_events(source, &parsed.syntax);
+        let metadata = crate::analyze_metadata(&parsed.syntax);
+        analyze_events(source, &parsed.syntax, &metadata)
+    }
+
+    #[test]
+    fn collects_event_facets_ranges_and_task_references() {
+        let source = "`meta\n  `: date\n\n    2026-07-30\n\n  `: timezone\n\n    +08:00\n\n`-{.event #review uid=\"review@example\" when=\"14:00--15:30\" tasks=\"#local Project A.plumb#remote\"} Review\n  `note Details\n  `-{.event date=2026-07-31 when=\"09:00\"} Follow-up\n";
+        let output = analyze(source);
         assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
         assert_eq!(output.events.len(), 2);
         let event = &output.events[0];
@@ -319,6 +479,14 @@ mod tests {
         assert_eq!(event.details, "Details");
         assert_eq!(event.id.as_ref().unwrap().value, "review");
         assert_eq!(event.uid.as_ref().unwrap().value, "review@example");
+        assert_eq!(
+            event.start_datetime().unwrap().to_rfc3339(),
+            "2026-07-30T14:00:00+08:00"
+        );
+        assert_eq!(
+            output.events[1].at_datetime().unwrap().to_rfc3339(),
+            "2026-07-31T09:00:00+08:00"
+        );
         assert_eq!(event.tasks.len(), 2);
         assert_eq!(
             &source[event.tasks[1].range.clone()],
@@ -329,11 +497,9 @@ mod tests {
 
     #[test]
     fn diagnoses_invalid_owners_fields_intervals_and_conflicts() {
-        let source = "`node{.event at=\"2026-07-30T10:00:00Z\"} Wrong owner\n`-{.event .task at=\"2026-07-30T10:00:00Z\"} Conflict\n`-{.event uid=\"\"} Missing time\n`-{.event start=tomorrow end=\"invalid\"} Invalid dates\n`-{.event start=\"2026-07-30T11:00:00Z\" end=\"2026-07-30T10:00:00Z\"} Backward\n`-{.event at=\"2026-07-30T10:00:00Z\" start=\"2026-07-30T10:00:00Z\"} Conflicting shape\n`-{.event end=\"2026-07-30T10:00:00Z\"} End only\n";
-        let parsed = parse(source);
-        assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
-        let output = analyze_events(source, &parsed.syntax);
-        assert_eq!(output.events.len(), 5);
+        let source = "`meta\n  `: date\n\n    2026-07-30\n\n  `: timezone\n\n    +08:00\n\n`node{.event when=\"10:00\"} Wrong owner\n`-{.event .task when=\"10:00\"} Conflict\n`-{.event uid=\"\"} Missing time\n`-{.event when=tomorrow} Invalid when\n`-{.event when=\"11:00--11:00\"} Empty interval\n";
+        let output = analyze(source);
+        assert_eq!(output.events.len(), 3);
         assert!(output.events[0].uid.is_none());
         assert_eq!(
             output
@@ -346,34 +512,56 @@ mod tests {
                 "event.conflicting-task-facet",
                 "event.missing-time",
                 "event.invalid-uid",
-                "event.invalid-datetime",
-                "event.invalid-datetime",
+                "event.invalid-when",
                 "event.invalid-interval",
-                "event.conflicting-time-shape",
-                "event.missing-start",
             ]
         );
     }
 
     #[test]
     fn excludes_unquoted_uid_from_event_records() {
-        let source = "`-{.event uid=calendar at=\"2026-07-30T10:00:00Z\"} Review\n";
-        let parsed = parse(source);
-        let output = analyze_events(source, &parsed.syntax);
+        let source = "`meta\n  `: date\n\n    2026-07-30\n\n  `: timezone\n\n    +00:00\n\n`-{.event uid=calendar when=\"10:00\"} Review\n";
+        let output = analyze(source);
         assert!(output.events[0].uid.is_none());
         assert_eq!(output.diagnostics[0].code, "event.invalid-uid");
     }
 
     #[test]
     fn overlap_uses_half_open_ranges_and_point_events() {
-        let parsed = parse("`-{.event start=\"2026-07-30T10:00:00Z\" end=\"2026-07-30T11:00:00Z\"} Range\n`-{.event at=\"2026-07-30T11:00:00Z\"} Point\n`-{.event start=\"2026-07-30T10:45:00Z\"} Running\n");
-        let output = analyze_events(&parsed.source, &parsed.syntax);
+        let source = "`meta\n  `: date\n\n    2026-07-30\n\n  `: timezone\n\n    +00:00\n\n`-{.event when=\"10:00--11:00\"} Range\n`-{.event when=\"11:00\"} Point\n`-{.event when=\"23:40--00:00\"} Cross midnight\n";
+        let output = analyze(source);
         let start = DateTime::parse_from_rfc3339("2026-07-30T10:30:00Z").unwrap();
         let end = DateTime::parse_from_rfc3339("2026-07-30T11:00:00Z").unwrap();
         assert!(output.events[0].overlaps(start, end));
         assert!(!output.events[1].overlaps(start, end));
-        assert!(output.events[2].overlaps(start, end));
         assert!(output.events[1].is_point());
-        assert!(output.events[2].is_running());
+        assert!(!output.events[0].is_running());
+        assert_eq!(
+            output.events[2].end_datetime().unwrap().to_rfc3339(),
+            "2026-07-31T00:00:00+00:00"
+        );
+    }
+
+    #[test]
+    fn old_datetime_fields_do_not_define_event_time() {
+        let source = "`-{.event at=\"2026-07-30T10:00:00Z\"} Old\n";
+        let output = analyze(source);
+        assert!(output.events[0].sort_datetime().is_none());
+        assert_eq!(output.diagnostics[0].code, "event.missing-time");
+    }
+
+    #[test]
+    fn rfc3339_metadata_date_supplies_date_and_offset() {
+        let source = "`meta\n  `: date\n\n    `[2026-07-30T09:15:00+08:00]\n\n`-{.event when=\"23:40--00:00\"} Cross midnight\n";
+        let output = analyze(source);
+        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+        assert_eq!(
+            output.events[0].start_datetime().unwrap().to_rfc3339(),
+            "2026-07-30T23:40:00+08:00"
+        );
+        assert_eq!(
+            output.events[0].end_datetime().unwrap().to_rfc3339(),
+            "2026-07-31T00:00:00+08:00"
+        );
     }
 }

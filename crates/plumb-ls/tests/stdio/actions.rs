@@ -325,7 +325,9 @@ fn offers_add_explicit_id_for_the_deepest_unanchored_block() {
 
     assert!(response(&output, 3)["result"]
         .as_array()
-        .map(|actions| actions.iter().all(|action| action["title"] != "Add explicit id"))
+        .map(|actions| actions
+            .iter()
+            .all(|action| action["title"] != "Add explicit id"))
         .unwrap_or(true));
 }
 
@@ -397,12 +399,8 @@ fn converts_event_shorthand_with_a_refactor_action() {
     let replacement = change["edits"][0]["newText"].as_str().unwrap();
     assert!(replacement.contains(".event"), "{replacement}");
     assert!(replacement.ends_with("relax: phone\n"), "{replacement}");
-    let start = attribute_value(replacement, "start");
-    let end = attribute_value(replacement, "end");
-    assert!(start.starts_with("2026-05-21T11:10:00"), "{start}");
-    assert!(end.starts_with("2026-05-21T11:20:00"), "{end}");
-    chrono::DateTime::parse_from_rfc3339(start).unwrap();
-    chrono::DateTime::parse_from_rfc3339(end).unwrap();
+    assert!(replacement.contains("date=2026-05-21"), "{replacement}");
+    assert_eq!(attribute_value(replacement, "when"), "11:10--11:20");
     assert!(!attribute_value(replacement, "uid").is_empty());
 
     assert!(response(&output, 3)["result"]
@@ -413,6 +411,62 @@ fn converts_event_shorthand_with_a_refactor_action() {
                 .any(|action| action["title"] == "Convert to event")
         })
         .unwrap_or(true));
+}
+
+#[test]
+fn converts_selected_event_shorthands_with_a_refactor_action() {
+    let uri = "file:///tmp/event-shorthands.plumb";
+    let source = "`meta\n  `: date\n\n    2026-08-01\n\n  `: timezone\n\n    +08:00\n\n`- 10:00--10:20 first\n`- ordinary\n`- 10:20--10:30 second\n";
+    let messages = [
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {
+                "processId": null, "rootUri": null,
+                "capabilities": {
+                    "workspace": { "workspaceEdit": { "documentChanges": true } }
+                }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": {
+                "uri": uri, "languageId": "plumb", "version": 3, "text": source
+            }}
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 2, "method": "textDocument/codeAction",
+            "params": {
+                "textDocument": { "uri": uri },
+                "range": {
+                    "start": { "line": 9, "character": 0 },
+                    "end": { "line": 12, "character": 0 }
+                },
+                "context": { "diagnostics": [], "only": ["refactor.rewrite"] }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 3, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+
+    let output = run_server(&messages);
+    let action = response(&output, 2)["result"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|action| action["title"] == "Convert selected items to events")
+        .unwrap();
+    let edits = action["edit"]["documentChanges"][0]["edits"]
+        .as_array()
+        .unwrap();
+    assert_eq!(edits.len(), 2);
+    let replacements = edits
+        .iter()
+        .map(|edit| edit["newText"].as_str().unwrap())
+        .collect::<String>();
+    assert_eq!(replacements.matches(".event").count(), 2);
+    assert!(replacements.contains("when=\"10:00--10:20\""));
+    assert!(replacements.contains("when=\"10:20--10:30\""));
 }
 
 #[test]

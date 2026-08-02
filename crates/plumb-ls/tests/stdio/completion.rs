@@ -456,7 +456,9 @@ fn completes_constructs_after_a_single_backtick() {
     let event = block[1]["textEdit"]["newText"].as_str().unwrap();
     assert!(event.starts_with("`-{.event uid=\""));
     assert!(event.ends_with("${1:Event}"));
-    chrono::DateTime::parse_from_rfc3339(attribute_value(event, "at")).unwrap();
+    assert!(!attribute_value(event, "when").is_empty());
+    assert!(!attribute_value(event, "timezone").is_empty());
+    assert!(event.contains(" date="));
     assert!(attribute_value(event, "uid").ends_with("@plumb.local"));
 
     let inline = response(&output, 3)["result"].as_array().unwrap();
@@ -541,7 +543,9 @@ fn completes_constructs_after_a_single_backtick() {
         .unwrap();
     assert!(fallback_event.starts_with("`-{.event uid=\""));
     assert!(fallback_event.ends_with("\"} "));
-    chrono::DateTime::parse_from_rfc3339(attribute_value(fallback_event, "at")).unwrap();
+    assert!(!attribute_value(fallback_event, "when").is_empty());
+    assert!(!attribute_value(fallback_event, "timezone").is_empty());
+    assert!(fallback_event.contains(" date="));
     assert_eq!(fallback_block[0]["insertTextFormat"], 1);
     std::fs::remove_dir_all(root).unwrap();
 }

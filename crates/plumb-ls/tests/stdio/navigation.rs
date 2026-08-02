@@ -125,7 +125,7 @@ fn publishes_event_symbols_hover_references_and_diagnostics() {
     let root = unique_temp_dir();
     std::fs::create_dir_all(&root).unwrap();
     let path = root.join("agenda.plumb");
-    let source = "`-{.task #write} Write\n`-{.event #review uid=\"review@example\" start=\"2026-07-30T14:00:00+08:00\" end=\"2026-07-30T15:00:00+08:00\" tasks=\"#write\"} Review\n`-{.event .task start=\"2026-07-30T16:00:00+08:00\"} Conflict\n";
+    let source = "`-{.task #write} Write\n`-{.event #review uid=\"review@example\" date=2026-07-30 timezone=\"+08:00\" when=\"14:00--15:00\" tasks=\"#write\"} Review\n`-{.event .task date=2026-07-30 timezone=\"+08:00\" when=\"16:00\"} Conflict\n";
     std::fs::write(&path, source).unwrap();
     let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
     let uri = lsp_types::Url::from_file_path(&path).unwrap();
