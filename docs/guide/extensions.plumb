@@ -237,9 +237,13 @@ title 可以包含 inline markup：
   `- 11:00--11:20 relax: phone
   `- 2026-05-21T11:10--11:20 parser review
   `- 00:05--00:15 wheel: distinguish `[nix develop] and normal shell
+  `- 18:00-- event 1
+  `- 18:30-- event 2
+  `- 19:00--20:00 event 3
 
-time 使用两位 `[HH]、`[HH:MM] 或 `[HH:MM:SS]；省略分钟/秒时补零，省略 date 时使用执行操作当天的
-本地日期。显式 date 使用 `[YYYY-MM-DDT] prefix。end local time 早于 start 时解释为次日，相等无效。
+time 使用两位 `[HH]、`[HH:MM] 或 `[HH:MM:SS]；省略分钟/秒时补零，省略 date/timezone 时优先继承
+document metadata，缺少时使用执行操作的本地日期/offset。显式 date 使用 `[YYYY-MM-DDT] prefix。
+end local time 早于 start 时解释为次日，相等无效。
 转换会在该 list item 上原位追加 explicit id、`[.event] class 与紧凑 `[when]，并将稳定 UID 作为
 `[event-uids] Link 写入 metadata；head 只移除 schedule prefix，title 中的 parsed/verbatim inline 及其
 attributes 原样保留。用户无需在 event 正文填写 UID：
@@ -254,6 +258,9 @@ attributes 原样保留。用户无需在 event 正文填写 UID：
 显式 date 写入 event override；省略 date/timezone 时优先继承 document metadata，缺少对应 metadata 时
 才使用 operation 当前本地日期/offset。选中多行时可执行 `[Convert selected items to events]
 批量转换范围内匹配 shorthand 的 list items；不匹配或已是 event 的 item 保持不变。
+只写 trailing `[--] 时，结束时间取紧邻的下一条 sibling shorthand start；转换会把结果固化为完整
+`[when]。没有下一条的 chain 末项暂不转换，普通 item 或其他 block 会中断推断；给末项写显式 end 后即可
+一次转换整条 chain。
 
 `[plumb event --root DIR] 列出 events，并支持使用 `[--query] 对 path、id、uid、title、date、timezone、when、
 解析后的 at/start/end、tasks

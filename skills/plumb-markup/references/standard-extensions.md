@@ -368,6 +368,12 @@ sequences, starting after the largest matching id among current events or at
 identity still comes from the UID mapping rather than from the sequence. A
 shorthand without an explicit date or timezone inherits valid document metadata
 before falling back to the operation's local date and offset.
+Trailing `--` is an authoring-only inferred end. Conversion takes the start of
+the immediately following sibling list-item shorthand and writes an explicit
+interval `when`. Batch inference requires both siblings in the selection; a
+single-item conversion may inspect its unselected next sibling. An intervening
+block breaks the chain, and a final trailing-`--` item remains unconverted until
+it has a following shorthand or an explicit end.
 `.event` on a non-list-item owner is invalid. Combining `.event` and `.task` on
 one owner is invalid and produces no event record. Calendar projection requires
 a workspace-unique UID.

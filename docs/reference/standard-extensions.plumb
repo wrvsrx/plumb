@@ -339,8 +339,10 @@ shorthand 开头时提供：
 `{language=text}
   `- TIME TITLE
   `- TIME--TIME TITLE
+  `- TIME-- TITLE
   `- YYYY-MM-DDTTIME TITLE
   `- YYYY-MM-DDTTIME--TIME TITLE
+  `- YYYY-MM-DDTTIME-- TITLE
 
 `[TIME] 是 ISO 8601-derived reduced-precision local time，只接受两位字段的 `[HH]、`[HH:MM] 或
 `[HH:MM:SS]；hour 范围是 `[00..23]，minute/second 是 `[00..59]。缺失低位补零；省略 date/timezone
@@ -350,6 +352,13 @@ shorthand 开头时提供：
 schedule 与非空 title。Schedule prefix 必须位于首个 plain text inline；title 可混合 text、parsed inline、
 verbatim inline 与其 attributes。Operation 只移除 schedule 与分隔 whitespace，保留其余 inline tree。
 单数字段、basic time、offset、`[Z]、`[am/pm] 和自然语言日期不进入 shorthand。
+
+trailing `[--] 是仅供 authoring 的 inferred-end spelling。它从紧邻的下一个 sibling list item shorthand
+取得 start，并在转换时固化为普通 `[START--TIME] when；下一项必须与当前项属于同一 parent、位于当前
+batch selection 内（单项转换不要求 selection），且中间不能出现其他 block。下一项自身可以是 point、
+explicit interval 或 inferred-end shorthand。省略 date 的 next start 早于当前 start 时按次日解释；相等、
+不同 offset、超过次日或无可用下一项时当前 item 不转换。因而 chain 的最后一个 trailing `[--] 保持原文，
+除非后面还有 shorthand；显式 `[TIME--TIME] 始终优先且不依赖 sibling。
 
 operation 原位在 list item 上追加 explicit id、`[.event] class 与紧凑 `[when]，并向 metadata
 `[event-uids] 追加稳定 mapping；显式 shorthand date 写入 event `[date] override，否则继承 metadata

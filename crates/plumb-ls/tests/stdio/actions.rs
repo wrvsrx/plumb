@@ -419,7 +419,7 @@ fn converts_event_shorthand_with_a_refactor_action() {
 #[test]
 fn converts_selected_event_shorthands_with_a_refactor_action() {
     let uri = "file:///tmp/event-shorthands.plumb";
-    let source = "`meta\n  `: date\n\n    2026-08-01\n\n  `: timezone\n\n    +08:00\n\n`- 10:00--10:20 first\n`- ordinary\n`- 10:20--10:30 second\n";
+    let source = "`meta\n  `: date\n\n    2026-08-01\n\n  `: timezone\n\n    +08:00\n\n`- 10:00-- first\n`- 10:20-- second\n`- 10:30--10:40 third\n";
     let messages = [
         json!({
             "jsonrpc": "2.0", "id": 1, "method": "initialize",
@@ -462,15 +462,16 @@ fn converts_selected_event_shorthands_with_a_refactor_action() {
     let edits = action["edit"]["documentChanges"][0]["edits"]
         .as_array()
         .unwrap();
-    assert_eq!(edits.len(), 3);
+    assert_eq!(edits.len(), 4);
     let replacements = edits
         .iter()
         .map(|edit| edit["newText"].as_str().unwrap())
         .collect::<String>();
-    assert_eq!(replacements.matches(".event").count(), 2);
-    assert_eq!(replacements.matches("@plumb.local]{to=").count(), 2);
+    assert_eq!(replacements.matches(".event").count(), 3);
+    assert_eq!(replacements.matches("@plumb.local]{to=").count(), 3);
     assert!(replacements.contains("when=\"10:00--10:20\""));
     assert!(replacements.contains("when=\"10:20--10:30\""));
+    assert!(replacements.contains("when=\"10:30--10:40\""));
 }
 
 #[test]

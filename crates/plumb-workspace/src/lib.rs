@@ -1746,8 +1746,17 @@ impl Workspace {
             return Err(EventShorthandError::EventAlreadyExists);
         }
         let current = entry.current.as_ref().expect("current output checked");
-        let (input, title_start) =
-            parse_event_shorthand_head(&entry.parsed.source, item, now, &current.output.metadata)?;
+        let next = next_parsed_sibling(&entry.parsed.syntax.blocks, &item.range);
+        let inferred_end = next.and_then(|next| {
+            inferred_end_from_sibling(&entry.parsed.source, next, now, &current.output.metadata)
+        });
+        let (input, title_start) = parse_event_shorthand_head(
+            &entry.parsed.source,
+            item,
+            now,
+            &current.output.metadata,
+            inferred_end,
+        )?;
         let uid = new_event_uid();
         let mut owned = OwnedBlock::from_parsed(&entry.parsed.source, item);
         strip_event_shorthand_prefix(&mut owned, title_start)?;
@@ -1814,14 +1823,21 @@ impl Workspace {
         let mut edits = Vec::new();
         let mut uid_mappings = Vec::new();
         let mut converted = 0;
-        for block in &entry.parsed.syntax.blocks {
+        for (index, block) in entry.parsed.syntax.blocks.iter().enumerate() {
             let Block::Parsed(parsed) = block else {
                 continue;
             };
+            let next_sibling = entry
+                .parsed
+                .syntax
+                .blocks
+                .get(index + 1)
+                .and_then(parsed_block);
             let mut owned = OwnedBlock::from_parsed(&entry.parsed.source, parsed);
             let count = convert_shorthands_in_block(
                 &entry.parsed.source,
                 parsed,
+                next_sibling,
                 &mut owned,
                 &selection,
                 now,
@@ -2704,6 +2720,31 @@ fn parsed_block_with_range<'a>(
     None
 }
 
+fn parsed_block(block: &Block) -> Option<&ParsedBlock> {
+    match block {
+        Block::Parsed(block) => Some(block),
+        Block::Verbatim(_) => None,
+    }
+}
+
+fn next_parsed_sibling<'a>(
+    blocks: &'a [Block],
+    target: &std::ops::Range<usize>,
+) -> Option<&'a ParsedBlock> {
+    for (index, block) in blocks.iter().enumerate() {
+        let Block::Parsed(block) = block else {
+            continue;
+        };
+        if &block.range == target {
+            return blocks.get(index + 1).and_then(parsed_block);
+        }
+        if block.range.start <= target.start && target.end <= block.range.end {
+            return next_parsed_sibling(&block.children, target);
+        }
+    }
+    None
+}
+
 fn direct_parent_range(
     blocks: &[Block],
     child_range: &std::ops::Range<usize>,
@@ -2845,13 +2886,20 @@ fn parse_event_shorthand(
     input: &str,
     now: DateTime<FixedOffset>,
 ) -> Result<EventInput, EventShorthandError> {
-    parse_event_shorthand_with_title_start(input, now, None).map(|(input, _)| input)
+    parse_event_shorthand_with_title_start(input, now, None, None).map(|(input, _)| input)
+}
+
+#[derive(Clone, Copy)]
+struct ShorthandStart {
+    datetime: DateTime<FixedOffset>,
+    explicit_date: bool,
 }
 
 fn parse_event_shorthand_with_title_start(
     input: &str,
     now: DateTime<FixedOffset>,
     metadata: Option<&MetadataOutput>,
+    inferred_end: Option<ShorthandStart>,
 ) -> Result<(EventInput, usize), EventShorthandError> {
     let separator = input
         .char_indices()
@@ -2865,36 +2913,62 @@ fn parse_event_shorthand_with_title_start(
     }
     let title_start = input.len() - title.len();
     let (start, end) = match schedule.split_once("--") {
-        Some((start, end)) if !start.is_empty() && !end.is_empty() && !end.contains("--") => {
-            (start, Some(end))
-        }
+        Some((start, end)) if !start.is_empty() && !end.contains("--") => (start, Some(end)),
         Some(_) => return Err(EventShorthandError::InvalidShorthand),
         None => (schedule, None),
     };
     let (date, offset) = shorthand_context(now, metadata);
-    let start = parse_shorthand_datetime(start, date, offset)?;
+    let start = parse_shorthand_start(start, date, offset)?;
     if let Some(end) = end {
-        if end.contains('T') {
-            return Err(EventShorthandError::InvalidShorthand);
-        }
-        let end_time = parse_shorthand_time(end)?;
-        if end_time == start.time() {
+        let end = if end.is_empty() {
+            let inferred = inferred_end.ok_or(EventShorthandError::InvalidShorthand)?;
+            if inferred.datetime.offset() != start.datetime.offset() {
+                return Err(EventShorthandError::InvalidInterval);
+            }
+            if !inferred.explicit_date && inferred.datetime.time() < start.datetime.time() {
+                shorthand_datetime(
+                    start
+                        .datetime
+                        .date_naive()
+                        .succ_opt()
+                        .ok_or(EventShorthandError::InvalidInterval)?,
+                    inferred.datetime.time(),
+                    *start.datetime.offset(),
+                )?
+            } else {
+                inferred.datetime
+            }
+        } else {
+            if end.contains('T') {
+                return Err(EventShorthandError::InvalidShorthand);
+            }
+            let end_time = parse_shorthand_time(end)?;
+            let end_date = if end_time < start.datetime.time() {
+                start
+                    .datetime
+                    .date_naive()
+                    .succ_opt()
+                    .ok_or(EventShorthandError::InvalidInterval)?
+            } else {
+                start.datetime.date_naive()
+            };
+            shorthand_datetime(end_date, end_time, *start.datetime.offset())?
+        };
+        let next_date = start
+            .datetime
+            .date_naive()
+            .succ_opt()
+            .ok_or(EventShorthandError::InvalidInterval)?;
+        if end <= start.datetime
+            || !matches!(end.date_naive(), date if date == start.datetime.date_naive() || date == next_date)
+        {
             return Err(EventShorthandError::InvalidInterval);
         }
-        let end_date = if end_time < start.time() {
-            start
-                .date_naive()
-                .succ_opt()
-                .ok_or(EventShorthandError::InvalidInterval)?
-        } else {
-            start.date_naive()
-        };
-        let end = shorthand_datetime(end_date, end_time, offset)?;
         Ok((
             EventInput {
                 title: title.trim_end().to_string(),
                 at: None,
-                start: Some(event_datetime(start)),
+                start: Some(event_datetime(start.datetime)),
                 end: Some(event_datetime(end)),
                 tasks: Vec::new(),
             },
@@ -2904,7 +2978,7 @@ fn parse_event_shorthand_with_title_start(
         Ok((
             EventInput {
                 title: title.trim_end().to_string(),
-                at: Some(event_datetime(start)),
+                at: Some(event_datetime(start.datetime)),
                 start: None,
                 end: None,
                 tasks: Vec::new(),
@@ -2919,10 +2993,11 @@ fn parse_event_shorthand_head(
     syntax: &ParsedBlock,
     now: DateTime<FixedOffset>,
     metadata: &MetadataOutput,
+    inferred_end: Option<ShorthandStart>,
 ) -> Result<(EventInput, usize), EventShorthandError> {
     let shorthand = &source[syntax.head.range.clone()];
     let (mut input, title_start) =
-        parse_event_shorthand_with_title_start(shorthand, now, Some(metadata))?;
+        parse_event_shorthand_with_title_start(shorthand, now, Some(metadata), inferred_end)?;
     let plain = syntax.head.plain_text();
     let title = plain
         .get(title_start..)
@@ -2931,6 +3006,40 @@ fn parse_event_shorthand_head(
         .ok_or(EventShorthandError::InvalidShorthand)?;
     input.title = title.to_string();
     Ok((input, title_start))
+}
+
+fn inferred_end_from_sibling(
+    source: &str,
+    sibling: &ParsedBlock,
+    now: DateTime<FixedOffset>,
+    metadata: &MetadataOutput,
+) -> Option<ShorthandStart> {
+    let mark = sibling.mark.as_ref()?;
+    if !matches!(mark.marker.as_str(), "-" | ".") || mark.attrs.has_class("event") {
+        return None;
+    }
+    let shorthand = &source[sibling.head.range.clone()];
+    let separator = shorthand
+        .char_indices()
+        .find_map(|(index, character)| matches!(character, ' ' | '\t').then_some(index))?;
+    if shorthand[separator..].trim().is_empty() {
+        return None;
+    }
+    let schedule = &shorthand[..separator];
+    let start = match schedule.split_once("--") {
+        Some((start, end))
+            if !start.is_empty()
+                && !end.contains("--")
+                && (end.is_empty()
+                    || (!end.contains('T') && parse_shorthand_time(end).is_ok())) =>
+        {
+            start
+        }
+        Some(_) => return None,
+        None => schedule,
+    };
+    let (date, offset) = shorthand_context(now, Some(metadata));
+    parse_shorthand_start(start, date, offset).ok()
 }
 
 fn shorthand_context(
@@ -2980,22 +3089,25 @@ fn strip_event_shorthand_prefix(
     Ok(())
 }
 
-fn parse_shorthand_datetime(
+fn parse_shorthand_start(
     input: &str,
     default_date: NaiveDate,
     offset: FixedOffset,
-) -> Result<DateTime<FixedOffset>, EventShorthandError> {
-    let (date, time) = if let Some((date, time)) = input.split_once('T') {
+) -> Result<ShorthandStart, EventShorthandError> {
+    let (date, time, explicit_date) = if let Some((date, time)) = input.split_once('T') {
         if time.contains('T') {
             return Err(EventShorthandError::InvalidShorthand);
         }
         let date = NaiveDate::parse_from_str(date, "%Y-%m-%d")
             .map_err(|_| EventShorthandError::InvalidShorthand)?;
-        (date, time)
+        (date, time, true)
     } else {
-        (default_date, input)
+        (default_date, input, false)
     };
-    shorthand_datetime(date, parse_shorthand_time(time)?, offset)
+    Ok(ShorthandStart {
+        datetime: shorthand_datetime(date, parse_shorthand_time(time)?, offset)?,
+        explicit_date,
+    })
 }
 
 fn parse_shorthand_time(input: &str) -> Result<NaiveTime, EventShorthandError> {
@@ -3416,6 +3528,7 @@ fn owned_event(input: &EventInput, id: &str, metadata: &MetadataOutput) -> Owned
 fn convert_shorthands_in_block(
     source: &str,
     syntax: &ParsedBlock,
+    next_sibling: Option<&ParsedBlock>,
     owned: &mut OwnedBlock,
     selection: &std::ops::Range<usize>,
     now: DateTime<FixedOffset>,
@@ -3430,7 +3543,13 @@ fn convert_shorthands_in_block(
             matches!(mark.marker.as_str(), "-" | ".") && !mark.attrs.has_class("event")
         })
     {
-        if let Ok((input, title_start)) = parse_event_shorthand_head(source, syntax, now, metadata)
+        let inferred_end = next_sibling
+            .filter(|next| {
+                next.head.range.start < selection.end && selection.start < next.head.range.end
+            })
+            .and_then(|next| inferred_end_from_sibling(source, next, now, metadata));
+        if let Ok((input, title_start)) =
+            parse_event_shorthand_head(source, syntax, now, metadata, inferred_end)
         {
             if strip_event_shorthand_prefix(owned, title_start).is_err() {
                 return converted;
@@ -3458,13 +3577,15 @@ fn convert_shorthands_in_block(
     let OwnedBlock::Parsed { children, .. } = owned else {
         return converted;
     };
-    for (syntax_child, owned_child) in syntax.children.iter().zip(children) {
+    for (index, (syntax_child, owned_child)) in syntax.children.iter().zip(children).enumerate() {
         let Block::Parsed(syntax_child) = syntax_child else {
             continue;
         };
+        let next_sibling = syntax.children.get(index + 1).and_then(parsed_block);
         converted += convert_shorthands_in_block(
             source,
             syntax_child,
+            next_sibling,
             owned_child,
             selection,
             now,
@@ -5802,6 +5923,76 @@ mod tests {
         assert_eq!(
             events[1].start.as_ref().unwrap().value,
             "2026-08-01T10:00:00+08:00"
+        );
+    }
+
+    #[test]
+    fn infers_open_event_ends_from_adjacent_selected_siblings() {
+        let source = "`meta\n  `: date\n\n    2026-08-01\n\n  `: timezone\n\n    +08:00\n\n`- 18:00-- 事件 1\n`- 18:30-- 事件 2\n";
+        let mut workspace = Workspace::new();
+        workspace.insert("agenda.plumb", 1, source);
+        let now = DateTime::parse_from_rfc3339("2026-08-03T08:00:00+09:00").unwrap();
+        let operation = workspace
+            .convert_event_shorthands(
+                "agenda.plumb",
+                source.find("18:00").unwrap()..source.len(),
+                now,
+            )
+            .unwrap();
+        let converted = apply_text_edits(
+            source.to_string(),
+            operation.document_changes[0].edits.clone(),
+        )
+        .unwrap();
+        assert!(converted.contains("when=\"18:00--18:30\""), "{converted}");
+        assert!(converted.contains("`- 18:30-- 事件 2"), "{converted}");
+        assert_eq!(converted.matches(".event").count(), 1, "{converted}");
+
+        workspace.insert("agenda.plumb", 2, source);
+        let first = workspace
+            .convert_event_shorthand("agenda.plumb", source.find("事件 1").unwrap(), now)
+            .unwrap();
+        let first_converted =
+            apply_text_edits(source.to_string(), first.document_changes[0].edits.clone()).unwrap();
+        assert!(
+            first_converted.contains("when=\"18:00--18:30\""),
+            "{first_converted}"
+        );
+        assert_eq!(
+            workspace.convert_event_shorthand("agenda.plumb", source.find("事件 2").unwrap(), now,),
+            Err(EventShorthandError::InvalidShorthand)
+        );
+
+        let chain = "`meta\n  `: date\n\n    2026-08-01\n\n  `: timezone\n\n    +08:00\n\n`- 18:00-- first\n`- 18:30-- second\n`- 19:00--20:00 third\n";
+        workspace.insert("chain.plumb", 3, chain);
+        let chained = apply_text_edits(
+            chain.to_string(),
+            workspace
+                .convert_event_shorthands(
+                    "chain.plumb",
+                    chain.find("18:00").unwrap()..chain.len(),
+                    now,
+                )
+                .unwrap()
+                .document_changes[0]
+                .edits
+                .clone(),
+        )
+        .unwrap();
+        assert!(chained.contains("when=\"18:00--18:30\""), "{chained}");
+        assert!(chained.contains("when=\"18:30--19:00\""), "{chained}");
+        assert!(chained.contains("when=\"19:00--20:00\""), "{chained}");
+        assert_eq!(chained.matches(".event").count(), 3, "{chained}");
+
+        let interrupted = "`- 18:00-- first\n`- ordinary\n`- 18:30 next\n";
+        workspace.insert("interrupted.plumb", 4, interrupted);
+        assert_eq!(
+            workspace.convert_event_shorthand(
+                "interrupted.plumb",
+                interrupted.find("first").unwrap(),
+                now,
+            ),
+            Err(EventShorthandError::InvalidShorthand)
         );
     }
 
