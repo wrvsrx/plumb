@@ -215,15 +215,15 @@ fn line_range(
     } else {
         range.end.line
     };
-    if end_line == range.start.line && (line_folding_only || collapsed_text.is_none()) {
+    if end_line == range.start.line && collapsed_text.is_none() {
         return None;
     }
     let same_line = end_line == range.start.line;
     Some(FoldingRange {
         start_line: range.start.line,
-        start_character: same_line.then_some(range.start.character),
+        start_character: (same_line && !line_folding_only).then_some(range.start.character),
         end_line,
-        end_character: same_line.then_some(range.end.character),
+        end_character: (same_line && !line_folding_only).then_some(range.end.character),
         kind: None,
         collapsed_text,
     })

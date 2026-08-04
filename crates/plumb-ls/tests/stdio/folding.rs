@@ -78,7 +78,7 @@ fn labels_metadata_folds_with_the_document_title() {
 }
 
 #[test]
-fn exposes_single_line_semantic_folds_only_to_character_range_clients() {
+fn exposes_single_line_semantic_folds_to_line_and_character_range_clients() {
     let uri = "file:///tmp/single-line-folds.plumb";
     let source =
         "`-{.task} Ready\n`-{.event date=2026-08-02 timezone=\"+08:00\" when=\"14:00\"} Standup\n";
@@ -132,7 +132,18 @@ fn exposes_single_line_semantic_folds_only_to_character_range_clients() {
     );
     assert_eq!(
         response(&run_server(&requests(true)), 2)["result"],
-        json!([])
+        json!([
+            {
+                "startLine": 0,
+                "endLine": 0,
+                "collapsedText": "READY  Ready"
+            },
+            {
+                "startLine": 1,
+                "endLine": 1,
+                "collapsedText": "2026-08-02T14:00  Standup"
+            }
+        ])
     );
 }
 
