@@ -76,4 +76,8 @@ function M.health()
   require('plumb.health').check()
 end
 
+function M.foldtext()
+  return require('plumb.folding').foldtext()
+end
+
 return M

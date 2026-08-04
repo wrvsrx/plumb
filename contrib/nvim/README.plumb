@@ -42,7 +42,9 @@ modules 要求 Neovim 0.12。`[plumb.search] 还要求 attached plumb LSP 声明
 incomplete-result state。
 
 plugin 不修改 window-local folding settings。`[plumb lsp] 仍提供 folding ranges 与 task
-`[collapsedText]；editor configuration 决定是否使用 `[vim.lsp.foldexpr()] 与 `[vim.lsp.foldtext()]。
+`[collapsedText]；editor configuration 决定是否使用 `[vim.lsp.foldexpr()] 与
+`[require('plumb').foldtext()]。后者包装原生 `[vim.lsp.foldtext()]，并用 closed-task semantic highlight
+groups 渲染 `[DONE] 与 `[CANCELED] labels；LSP protocol 自身不传递 fold label highlight。
 LSP formatting 只返回 changed-line edits，因此原生 `[vim.lsp.buf.format()] 和 format-on-save 不会用整篇
 replacement 重置未变化 blocks 的 window-local fold overrides。Neovim 的 `[lineFoldingOnly] capability
 不支持只占一行的 task/event fold；server 不会为此吞入 following line。
