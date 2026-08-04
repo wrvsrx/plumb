@@ -66,6 +66,12 @@ fn labels_metadata_folds_with_the_document_title() {
             "collapsedText": "METADATA  项目 Overview"
         })
     );
+    assert!(ranges
+        .iter()
+        .any(|range| range["collapsedText"] == "  title  项目 Overview"));
+    assert!(ranges
+        .iter()
+        .any(|range| range["collapsedText"] == "  tags"));
     assert_eq!(
         response(&run_server(&messages), 3)["result"][0],
         json!({ "startLine": 0, "endLine": 2, "collapsedText": "METADATA" })
@@ -119,7 +125,7 @@ fn exposes_single_line_semantic_folds_to_line_and_character_range_clients() {
                 "startCharacter": 0,
                 "endLine": 0,
                 "endCharacter": source.lines().next().unwrap().len(),
-                "collapsedText": "READY  Ready"
+                "collapsedText": "-   Ready"
             },
             {
                 "startLine": 1,
@@ -136,13 +142,53 @@ fn exposes_single_line_semantic_folds_to_line_and_character_range_clients() {
             {
                 "startLine": 0,
                 "endLine": 0,
-                "collapsedText": "READY  Ready"
+                "collapsedText": "-   Ready"
             },
             {
                 "startLine": 1,
                 "endLine": 1,
                 "collapsedText": "2026-08-02T14:00  Standup"
             }
+        ])
+    );
+}
+
+#[test]
+fn task_fold_includes_one_trailing_separator_line() {
+    let uri = "file:///tmp/task-trailing-blank-fold.plumb";
+    let source = "`-{.task} aaa\n\n  bbb\n\n`-{.task} ccc\n";
+    let messages = [
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {
+                "processId": null,
+                "rootUri": null,
+                "capabilities": { "textDocument": { "foldingRange": {
+                    "lineFoldingOnly": true,
+                    "foldingRange": { "collapsedText": true }
+                }}}
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": {
+                "uri": uri, "languageId": "plumb", "version": 1, "text": source
+            }}
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 2, "method": "textDocument/foldingRange",
+            "params": { "textDocument": { "uri": uri } }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 3, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+
+    assert_eq!(
+        response(&run_server(&messages), 2)["result"],
+        json!([
+            { "startLine": 0, "endLine": 3, "collapsedText": "-   aaa" },
+            { "startLine": 4, "endLine": 4, "collapsedText": "-   ccc" }
         ])
     );
 }
@@ -248,14 +294,14 @@ fn labels_task_folds_with_derived_workflow_states() {
     assert_eq!(
         response(&run_server(&messages), 2)["result"],
         json!([
-            { "startLine": 0, "endLine": 1, "collapsedText": "READY  Ready task" },
-            { "startLine": 2, "endLine": 3, "collapsedText": "WAITING  Waiting task" },
-            { "startLine": 4, "endLine": 5, "collapsedText": "DONE  Done task" },
-            { "startLine": 6, "endLine": 7, "collapsedText": "CANCELED  Canceled task" },
-            { "startLine": 8, "endLine": 9, "collapsedText": "CONFLICTED  Conflicted task" },
-            { "startLine": 10, "endLine": 11, "collapsedText": "BLOCKED  Blocked task" },
+            { "startLine": 0, "endLine": 1, "collapsedText": "-   Ready task" },
+            { "startLine": 2, "endLine": 3, "collapsedText": "~   Waiting task" },
+            { "startLine": 4, "endLine": 5, "collapsedText": "+   Done task" },
+            { "startLine": 6, "endLine": 7, "collapsedText": "x   Canceled task" },
+            { "startLine": 8, "endLine": 9, "collapsedText": "+x  Conflicted task" },
+            { "startLine": 10, "endLine": 11, "collapsedText": "!   Blocked task" },
             { "startLine": 12, "endLine": 14 },
-            { "startLine": 13, "endLine": 14, "collapsedText": "  DONE  Nested task" }
+            { "startLine": 13, "endLine": 14, "collapsedText": "  +   Nested task" }
         ])
     );
 }

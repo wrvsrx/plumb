@@ -11,17 +11,20 @@ local function render(text)
   return folding.foldtext()
 end
 
-assert(vim.deep_equal(render('  DONE  Ship it'), {
-  { '  DONE  Ship it', '@lsp.typemod.task.completed.plumb' },
+assert(vim.deep_equal(render('  +   Ship it'), {
+  { '  +   Ship it', '@lsp.typemod.task.completed.plumb' },
 }), 'highlight a completed task fold')
-assert(vim.deep_equal(render('CANCELED  Superseded'), {
-  { 'CANCELED  Superseded', '@lsp.typemod.task.canceled.plumb' },
+assert(vim.deep_equal(render('x   Superseded'), {
+  { 'x   Superseded', '@lsp.typemod.task.canceled.plumb' },
 }), 'highlight a canceled task fold')
+assert(vim.deep_equal(render('+x  Conflicted'), {
+  { '+x  Conflicted', '@lsp.typemod.task.completed.plumb' },
+}), 'highlight a conflicted task fold')
 
 for _, text in ipairs({
-  'READY  Ship it',
-  'WAITING  Ship it',
-  'INVALID  Ship it',
+  '-   Ship it',
+  '~   Ship it',
+  '!   Ship it',
   'METADATA  Project',
   '2026-08-04T09:30  Meeting',
   '`note Details',

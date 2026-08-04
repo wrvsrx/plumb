@@ -4,23 +4,29 @@ use std::path::Path;
 use chrono::{DateTime, FixedOffset, Local};
 use lsp_types::FoldingRange;
 use plumb_core::{Block, Document};
-use plumb_extensions::{analyze_headings, EventRecord};
-use plumb_workspace::{DocumentEntry, Workspace};
+use plumb_extensions::{analyze_headings, EventRecord, MetadataValue};
+use plumb_workspace::{DocumentEntry, TaskWorkflowState, Workspace};
 
 use crate::position::byte_range_to_lsp;
+
+#[derive(Clone)]
+pub(crate) struct FoldLabel {
+    text: String,
+    include_trailing_blank: bool,
+}
 
 pub(crate) fn collapsed_text_labels(
     workspace: &Workspace,
     path: &Path,
     entry: &DocumentEntry,
-) -> HashMap<(usize, usize), String> {
+) -> HashMap<(usize, usize), FoldLabel> {
     let mut labels = task_labels(workspace, path, entry);
     labels.extend(event_labels(entry));
     labels.extend(metadata_labels(entry));
     labels
 }
 
-pub(crate) fn metadata_labels(entry: &DocumentEntry) -> HashMap<(usize, usize), String> {
+pub(crate) fn metadata_labels(entry: &DocumentEntry) -> HashMap<(usize, usize), FoldLabel> {
     let Some(metadata) = entry
         .current
         .as_ref()
@@ -39,7 +45,39 @@ pub(crate) fn metadata_labels(entry: &DocumentEntry) -> HashMap<(usize, usize), 
         || format!("{indent}METADATA"),
         |title| format!("{indent}METADATA  {title}"),
     );
-    HashMap::from([((metadata.range.start, metadata.range.end), label)])
+    let mut labels = HashMap::from([(
+        (metadata.range.start, metadata.range.end),
+        FoldLabel {
+            text: label,
+            include_trailing_blank: false,
+        },
+    )]);
+    let source = &entry.parsed.source;
+    labels.extend(metadata.entries.iter().map(|entry| {
+        let indent = line_indent(source, entry.range.start);
+        let value = match &entry.value {
+            MetadataValue::Scalar { content, .. } => content.plain_text(),
+            MetadataValue::Verbatim { text, .. } => text.clone(),
+            MetadataValue::Null { .. }
+            | MetadataValue::List { .. }
+            | MetadataValue::Map { .. }
+            | MetadataValue::Unsupported { .. } => String::new(),
+        };
+        let value = single_line_label(&value, 80);
+        let label = if value.is_empty() {
+            format!("{indent}{}", entry.key)
+        } else {
+            format!("{indent}{}  {value}", entry.key)
+        };
+        (
+            (entry.range.start, entry.range.end),
+            FoldLabel {
+                text: label,
+                include_trailing_blank: false,
+            },
+        )
+    }));
+    labels
 }
 
 fn single_line_label(value: &str, max_chars: usize) -> String {
@@ -59,7 +97,7 @@ pub(crate) fn task_labels(
     workspace: &Workspace,
     path: &Path,
     entry: &DocumentEntry,
-) -> HashMap<(usize, usize), String> {
+) -> HashMap<(usize, usize), FoldLabel> {
     let Some(current) = &entry.current else {
         return HashMap::new();
     };
@@ -79,13 +117,27 @@ pub(crate) fn task_labels(
             };
             (
                 (task.range.start, task.range.end),
-                format!("{indent}{}  {title}", state.as_str().to_ascii_uppercase()),
+                FoldLabel {
+                    text: format!("{indent}{:<2}  {title}", task_state_symbol(state)),
+                    include_trailing_blank: true,
+                },
             )
         })
         .collect()
 }
 
-pub(crate) fn event_labels(entry: &DocumentEntry) -> HashMap<(usize, usize), String> {
+fn task_state_symbol(state: TaskWorkflowState) -> &'static str {
+    match state {
+        TaskWorkflowState::Ready => "-",
+        TaskWorkflowState::Waiting => "~",
+        TaskWorkflowState::Blocked => "!",
+        TaskWorkflowState::Done => "+",
+        TaskWorkflowState::Canceled => "x",
+        TaskWorkflowState::Conflicted => "+x",
+    }
+}
+
+pub(crate) fn event_labels(entry: &DocumentEntry) -> HashMap<(usize, usize), FoldLabel> {
     let Some(current) = &entry.current else {
         return HashMap::new();
     };
@@ -104,7 +156,10 @@ pub(crate) fn event_labels(entry: &DocumentEntry) -> HashMap<(usize, usize), Str
             };
             Some((
                 (event.range.start, event.range.end),
-                format!("{indent}{time}  {title}"),
+                FoldLabel {
+                    text: format!("{indent}{time}  {title}"),
+                    include_trailing_blank: false,
+                },
             ))
         })
         .collect()
@@ -157,7 +212,7 @@ pub(crate) fn ranges(
     source: &str,
     document: &Document,
     limit: Option<usize>,
-    labels: Option<&HashMap<(usize, usize), String>>,
+    labels: Option<&HashMap<(usize, usize), FoldLabel>>,
     line_folding_only: bool,
 ) -> Vec<FoldingRange> {
     let headings = analyze_headings(document);
@@ -186,10 +241,8 @@ pub(crate) fn ranges(
     let mut ranges = byte_ranges
         .into_iter()
         .filter_map(|range| {
-            let collapsed_text = labels
-                .and_then(|table| table.get(&(range.start, range.end)))
-                .cloned();
-            line_range(source, &range, collapsed_text, line_folding_only)
+            let label = labels.and_then(|table| table.get(&(range.start, range.end)));
+            line_range(source, &range, label, line_folding_only)
         })
         .collect::<Vec<_>>();
     ranges.dedup();
@@ -202,20 +255,25 @@ pub(crate) fn ranges(
 fn line_range(
     source: &str,
     range: &std::ops::Range<usize>,
-    collapsed_text: Option<String>,
+    label: Option<&FoldLabel>,
     line_folding_only: bool,
 ) -> Option<FoldingRange> {
-    let content_end = range.start
+    let trimmed_end = range.start
         + source[range.clone()]
             .trim_end_matches(char::is_whitespace)
             .len();
+    let content_end = if label.is_some_and(|label| label.include_trailing_blank) {
+        include_one_trailing_blank_line(source, trimmed_end)
+    } else {
+        trimmed_end
+    };
     let range = byte_range_to_lsp(source, &(range.start..content_end));
     let end_line = if range.end.character == 0 && range.end.line > range.start.line {
         range.end.line - 1
     } else {
         range.end.line
     };
-    if end_line == range.start.line && collapsed_text.is_none() {
+    if end_line == range.start.line && label.is_none() {
         return None;
     }
     let same_line = end_line == range.start.line;
@@ -225,8 +283,32 @@ fn line_range(
         end_line,
         end_character: (same_line && !line_folding_only).then_some(range.end.character),
         kind: None,
-        collapsed_text,
+        collapsed_text: label.map(|label| label.text.clone()),
     })
+}
+
+fn include_one_trailing_blank_line(source: &str, mut end: usize) -> usize {
+    let content_end = end;
+    let mut line_endings = 0;
+    for _ in 0..2 {
+        if end >= source.len() {
+            break;
+        }
+        if source[end..].starts_with("\r\n") {
+            end += 2;
+            line_endings += 1;
+        } else if source.as_bytes().get(end) == Some(&b'\n') {
+            end += 1;
+            line_endings += 1;
+        } else {
+            break;
+        }
+    }
+    if line_endings == 2 {
+        end
+    } else {
+        content_end
+    }
 }
 
 #[cfg(test)]
