@@ -197,7 +197,7 @@ impl WebWorkspace {
         for task in self.tasks().tasks {
             if let Some(metric) = metrics.get_mut(&task.document_id) {
                 metric.task_count += 1;
-                if matches!(task.state.as_str(), "ready" | "waiting") {
+                if matches!(task.state.as_str(), "ready" | "waiting" | "blocked") {
                     metric.open_task_count += 1;
                 }
             }

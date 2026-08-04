@@ -80,8 +80,10 @@ fn task_records(
         .map(|record| {
             let status = match record.task_state.expect("task search record has state") {
                 TaskWorkflowState::Done => "o",
-                TaskWorkflowState::Canceled | TaskWorkflowState::Invalid => "x",
-                TaskWorkflowState::Ready | TaskWorkflowState::Waiting => "-",
+                TaskWorkflowState::Canceled | TaskWorkflowState::Conflicted => "x",
+                TaskWorkflowState::Ready
+                | TaskWorkflowState::Waiting
+                | TaskWorkflowState::Blocked => "-",
             };
             let depth = record.depth.unwrap_or_default();
             let title = if tree && depth > 0 {

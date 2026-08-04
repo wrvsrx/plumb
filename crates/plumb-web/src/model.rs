@@ -335,6 +335,12 @@ pub const TASK_PRESETS: &[QueryPreset] = &[
         group: Some("state"),
     },
     QueryPreset {
+        id: "blocked",
+        label: "Blocked",
+        expression: "state == 'blocked'",
+        group: Some("state"),
+    },
+    QueryPreset {
         id: "done",
         label: "Done",
         expression: "state == 'done'",
@@ -347,9 +353,9 @@ pub const TASK_PRESETS: &[QueryPreset] = &[
         group: Some("state"),
     },
     QueryPreset {
-        id: "invalid",
-        label: "Invalid",
-        expression: "state == 'invalid'",
+        id: "conflicted",
+        label: "Conflicted",
+        expression: "state == 'conflicted'",
         group: Some("state"),
     },
 ];
@@ -1691,7 +1697,7 @@ mod tests {
             .iter()
             .find(|task| task.id.as_deref() == Some("broken"))
             .unwrap();
-        assert_eq!(broken.state, "invalid");
+        assert_eq!(broken.state, "conflicted");
         workspace
             .set_task_status(
                 &task.document_id,
@@ -2512,7 +2518,7 @@ mod tests {
         let path = root.join("tasks.plumb");
         std::fs::write(
             &path,
-            "`-{.task #blocker} Blocker\n`-{.task #dependent depends=\"#blocker\"} Dependent\n`-{.task #recurring due=\"2026-07-20T09:00:00+08:00\" recur=P1D} Recurring\n`-{.task #invalid done=\"2026-07-20T10:00:00+08:00\" canceled=\"2026-07-20T11:00:00+08:00\"} Invalid\n",
+            "`-{.task #blocker} Blocker\n`-{.task #dependent depends=\"#blocker\"} Dependent\n`-{.task #recurring due=\"2026-07-20T09:00:00+08:00\" recur=P1D} Recurring\n`-{.task #conflicted done=\"2026-07-20T10:00:00+08:00\" canceled=\"2026-07-20T11:00:00+08:00\"} Conflicted\n",
         )
         .unwrap();
         let workspace = WebWorkspace::load(&root).unwrap();
@@ -2522,16 +2528,16 @@ mod tests {
             .iter()
             .find(|task| task.id.as_deref() == Some("dependent"))
             .unwrap();
-        assert_eq!(dependent.state, "waiting");
+        assert_eq!(dependent.state, "blocked");
         assert_eq!(dependent.wait_reasons, ["dependency"]);
         assert_eq!(
             snapshot
                 .tasks
                 .iter()
-                .find(|task| task.id.as_deref() == Some("invalid"))
+                .find(|task| task.id.as_deref() == Some("conflicted"))
                 .unwrap()
                 .state,
-            "invalid"
+            "conflicted"
         );
         let recurring = snapshot
             .tasks

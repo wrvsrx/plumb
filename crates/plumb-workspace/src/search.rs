@@ -20,9 +20,10 @@ pub enum SearchRecordKind {
 pub enum TaskWorkflowState {
     Ready,
     Waiting,
+    Blocked,
     Done,
     Canceled,
-    Invalid,
+    Conflicted,
 }
 
 impl TaskWorkflowState {
@@ -30,9 +31,10 @@ impl TaskWorkflowState {
         match self {
             Self::Ready => "ready",
             Self::Waiting => "waiting",
+            Self::Blocked => "blocked",
             Self::Done => "done",
             Self::Canceled => "canceled",
-            Self::Invalid => "invalid",
+            Self::Conflicted => "conflicted",
         }
     }
 }
@@ -517,24 +519,26 @@ pub(crate) fn derive_task_workflow_state(
     match task.state() {
         TaskState::Done => (TaskWorkflowState::Done, Vec::new()),
         TaskState::Canceled => (TaskWorkflowState::Canceled, Vec::new()),
-        TaskState::Conflicted => (TaskWorkflowState::Invalid, Vec::new()),
+        TaskState::Conflicted => (TaskWorkflowState::Conflicted, Vec::new()),
         TaskState::Open => {
             let mut reasons = Vec::new();
-            if task
+            let waiting = task
                 .wait
                 .as_ref()
                 .and_then(|wait| DateTime::parse_from_rfc3339(&wait.value).ok())
-                .is_some_and(|wait| wait > now)
-            {
+                .is_some_and(|wait| wait > now);
+            if waiting {
                 reasons.push(TaskWaitReason::Time);
             }
             if blocked {
                 reasons.push(TaskWaitReason::Dependency);
             }
-            let state = if reasons.is_empty() {
-                TaskWorkflowState::Ready
-            } else {
+            let state = if waiting {
                 TaskWorkflowState::Waiting
+            } else if blocked {
+                TaskWorkflowState::Blocked
+            } else {
+                TaskWorkflowState::Ready
             };
             (state, reasons)
         }

@@ -71,7 +71,7 @@ fn publishes_task_symbols_hover_and_workspace_diagnostics() {
     let hover = response(&output, 3)["result"]["contents"]["value"]
         .as_str()
         .unwrap();
-    assert!(hover.contains("**State:** waiting"));
+    assert!(hover.contains("**State:** blocked"));
     assert!(hover.contains("**Waiting for:** dependency"));
     assert!(hover.contains("**Recur:** `P1M1D`"));
     assert!(hover.contains("**Depends:** `blockers.plumb#draft`"));

@@ -214,7 +214,7 @@ fn provides_structural_folding_for_valid_and_recovered_documents() {
 #[test]
 fn labels_task_folds_with_derived_workflow_states() {
     let uri = "file:///tmp/task-fold-labels.plumb";
-    let source = "`-{.task} Ready task\n  `note Detail\n`-{.task wait=\"2099-01-01T00:00:00Z\"} Waiting task\n  `note Detail\n`-{.task done=\"2026-07-27T10:00:00Z\"} Done task\n  `note Detail\n`-{.task canceled=\"2026-07-27T10:00:00Z\"} Canceled task\n  `note Detail\n`-{.task done=\"2026-07-27T10:00:00Z\" canceled=\"2026-07-27T10:01:00Z\"} Invalid task\n  `note Detail\n`node Parent\n  `-{.task done=\"2026-07-27T10:02:00Z\"} Nested task\n    `note Detail\n";
+    let source = "`-{.task #blocker} Ready task\n  `note Detail\n`-{.task wait=\"2099-01-01T00:00:00Z\" depends=\"#blocker\"} Waiting task\n  `note Detail\n`-{.task done=\"2026-07-27T10:00:00Z\"} Done task\n  `note Detail\n`-{.task canceled=\"2026-07-27T10:00:00Z\"} Canceled task\n  `note Detail\n`-{.task done=\"2026-07-27T10:00:00Z\" canceled=\"2026-07-27T10:01:00Z\"} Conflicted task\n  `note Detail\n`-{.task depends=\"#blocker\"} Blocked task\n  `note Detail\n`node Parent\n  `-{.task done=\"2026-07-27T10:02:00Z\"} Nested task\n    `note Detail\n";
     let messages = [
         json!({
             "jsonrpc": "2.0", "id": 1, "method": "initialize",
@@ -252,9 +252,10 @@ fn labels_task_folds_with_derived_workflow_states() {
             { "startLine": 2, "endLine": 3, "collapsedText": "WAITING  Waiting task" },
             { "startLine": 4, "endLine": 5, "collapsedText": "DONE  Done task" },
             { "startLine": 6, "endLine": 7, "collapsedText": "CANCELED  Canceled task" },
-            { "startLine": 8, "endLine": 9, "collapsedText": "INVALID  Invalid task" },
-            { "startLine": 10, "endLine": 12 },
-            { "startLine": 11, "endLine": 12, "collapsedText": "  DONE  Nested task" }
+            { "startLine": 8, "endLine": 9, "collapsedText": "CONFLICTED  Conflicted task" },
+            { "startLine": 10, "endLine": 11, "collapsedText": "BLOCKED  Blocked task" },
+            { "startLine": 12, "endLine": 14 },
+            { "startLine": 13, "endLine": 14, "collapsedText": "  DONE  Nested task" }
         ])
     );
 }

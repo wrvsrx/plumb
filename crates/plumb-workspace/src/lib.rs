@@ -4890,7 +4890,7 @@ mod tests {
         workspace.insert(
             "notes/tasks.plumb",
             1,
-            "`-{.task #blocker} Blocker\n`-{.task #ready priority=7} Ready\n`-{.task #time wait=\"2026-07-23T12:00:00+08:00\"} Time wait\n`-{.task #dependency depends=\"#blocker\"} Dependency wait\n`-{.task #both wait=\"2026-07-23T12:00:00+08:00\" depends=\"#blocker\"} Both waits\n`-{.task #done done=\"2026-07-21T12:00:00+08:00\"} Done\n`-{.task #canceled canceled=\"2026-07-21T12:00:00+08:00\"} Canceled\n`-{.task #invalid done=\"2026-07-21T12:00:00+08:00\" canceled=\"2026-07-21T13:00:00+08:00\"} Invalid\n",
+            "`-{.task #blocker} Blocker\n`-{.task #ready priority=7} Ready\n`-{.task #time wait=\"2026-07-23T12:00:00+08:00\"} Time wait\n`-{.task #dependency depends=\"#blocker\"} Dependency blocked\n`-{.task #both wait=\"2026-07-23T12:00:00+08:00\" depends=\"#blocker\"} Both reasons\n`-{.task #done done=\"2026-07-21T12:00:00+08:00\"} Done\n`-{.task #canceled canceled=\"2026-07-21T12:00:00+08:00\"} Canceled\n`-{.task #conflicted done=\"2026-07-21T12:00:00+08:00\" canceled=\"2026-07-21T13:00:00+08:00\"} Conflicted\n",
         );
 
         let results = workspace.search_records(root, Some(SearchRecordKind::Task), "", 20, now);
@@ -4906,6 +4906,10 @@ mod tests {
         assert_eq!(by_id("time").task_state, Some(TaskWorkflowState::Waiting));
         assert_eq!(by_id("time").wait_reasons, Some(vec![TaskWaitReason::Time]));
         assert_eq!(
+            by_id("dependency").task_state,
+            Some(TaskWorkflowState::Blocked)
+        );
+        assert_eq!(
             by_id("dependency").wait_reasons,
             Some(vec![TaskWaitReason::Dependency])
         );
@@ -4919,8 +4923,8 @@ mod tests {
             Some(TaskWorkflowState::Canceled)
         );
         assert_eq!(
-            by_id("invalid").task_state,
-            Some(TaskWorkflowState::Invalid)
+            by_id("conflicted").task_state,
+            Some(TaskWorkflowState::Conflicted)
         );
 
         let waiting = workspace
@@ -4933,7 +4937,30 @@ mod tests {
                 Some("state == 'waiting'"),
             )
             .unwrap();
-        assert_eq!(waiting.items.len(), 3);
+        assert_eq!(waiting.items.len(), 2);
+        let blocked = workspace
+            .search_records_filtered(
+                root,
+                Some(SearchRecordKind::Task),
+                "",
+                20,
+                now,
+                Some("state == 'blocked'"),
+            )
+            .unwrap();
+        assert_eq!(blocked.items.len(), 1);
+        assert_eq!(blocked.items[0].id.as_deref(), Some("dependency"));
+        let conflicted = workspace
+            .search_records_filtered(
+                root,
+                Some(SearchRecordKind::Task),
+                "",
+                20,
+                now,
+                Some("state == 'conflicted'"),
+            )
+            .unwrap();
+        assert_eq!(conflicted.items.len(), 1);
         let time_waiting = workspace
             .search_records_filtered(
                 root,
