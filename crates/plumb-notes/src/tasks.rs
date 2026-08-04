@@ -109,7 +109,7 @@ fn sort_task_subtrees(records: &mut Vec<plumb_workspace::SearchRecord>) {
         document: record.relative_path.clone(),
         source_start: record.range.start,
         depth: record.depth.unwrap_or_default(),
-        priority: record.priority,
+        priority: record.effective_priority,
         due: record
             .due
             .as_deref()
@@ -284,6 +284,32 @@ mod tests {
                 "tasks.plumb#first-child",
                 "tasks.plumb#later-child",
                 "tasks.plumb#grandchild",
+            ]
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn task_output_propagates_priority_to_open_dependencies() {
+        let root = unique_temp_dir();
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(
+            root.join("tasks.plumb"),
+            "`-{.task #medium priority=20} Medium\n`-{.task #blocker priority=-5} Blocker\n`-{.task #urgent priority=50 depends=\"#blocker\"} Urgent\n",
+        )
+        .unwrap();
+
+        let loaded = load_workspace(&root).unwrap();
+        let records = task_records(&root, &loaded, None, true).unwrap();
+        assert_eq!(
+            records
+                .iter()
+                .map(|record| record.source.as_str())
+                .collect::<Vec<_>>(),
+            [
+                "tasks.plumb#blocker",
+                "tasks.plumb#urgent",
+                "tasks.plumb#medium",
             ]
         );
         std::fs::remove_dir_all(root).unwrap();

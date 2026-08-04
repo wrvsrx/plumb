@@ -60,10 +60,7 @@ fn completes_task_dependencies_from_workspace_tasks() {
         .as_str()
         .unwrap()
         .contains("READY  Draft task"));
-    assert_eq!(
-        path_items[0]["textEdit"]["newText"],
-        "draft"
-    );
+    assert_eq!(path_items[0]["textEdit"]["newText"], "draft");
     assert_eq!(
         path_items[0]["textEdit"]["range"],
         json!({

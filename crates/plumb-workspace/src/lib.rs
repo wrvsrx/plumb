@@ -5029,6 +5029,39 @@ mod tests {
     }
 
     #[test]
+    fn propagates_effective_priority_through_open_dependencies_and_ancestors() {
+        let root = Path::new("notes");
+        let now = DateTime::parse_from_rfc3339("2026-08-05T12:00:00+08:00").unwrap();
+        let mut workspace = Workspace::new();
+        workspace.insert(
+            "notes/a.plumb",
+            1,
+            "`-{.task #parent priority=-10} Parent\n  `-{.task #urgent priority=40 depends=\"b.plumb#middle #closed\"} Urgent\n`-{.task #closed priority=-20 done=\"2026-08-04T12:00:00+08:00\"} Closed\n",
+        );
+        workspace.insert(
+            "notes/b.plumb",
+            1,
+            "`-{.task #middle priority=1 depends=\"c.plumb#base\"} Middle\n",
+        );
+        workspace.insert("notes/c.plumb", 1, "`-{.task #base} Base\n");
+
+        let results = workspace.search_records(root, Some(SearchRecordKind::Task), "", 20, now);
+        let priority = |id: &str| {
+            results
+                .items
+                .iter()
+                .find(|record| record.id.as_deref() == Some(id))
+                .unwrap()
+                .effective_priority
+        };
+        assert_eq!(priority("urgent"), Some(40));
+        assert_eq!(priority("parent"), Some(40));
+        assert_eq!(priority("middle"), Some(40));
+        assert_eq!(priority("base"), Some(40));
+        assert_eq!(priority("closed"), Some(-20));
+    }
+
+    #[test]
     fn search_records_use_current_valid_snapshots_and_report_truncation() {
         let now = DateTime::parse_from_rfc3339("2026-07-22T12:00:00Z").unwrap();
         let mut workspace = Workspace::new();

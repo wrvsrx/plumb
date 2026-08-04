@@ -67,6 +67,7 @@ pub struct SearchRecord {
     pub wait_reasons: Option<Vec<TaskWaitReason>>,
     pub due: Option<String>,
     pub priority: Option<i32>,
+    pub effective_priority: Option<i32>,
     pub blocked: Option<bool>,
     pub actionable: Option<bool>,
     pub depth: Option<usize>,
@@ -144,6 +145,7 @@ impl Workspace {
                                 wait_reasons: None,
                                 due: None,
                                 priority: None,
+                                effective_priority: None,
                                 blocked: None,
                                 actionable: None,
                                 depth: None,
@@ -195,6 +197,7 @@ impl Workspace {
                             wait_reasons: Some(wait_reasons),
                             due: task.due.as_ref().map(|due| due.value.clone()),
                             priority: task.priority,
+                            effective_priority: None,
                             blocked: Some(blocked),
                             actionable: Some(actionable),
                             depth: Some(task.depth),
@@ -241,6 +244,7 @@ impl Workspace {
                             wait_reasons: None,
                             due: None,
                             priority: None,
+                            effective_priority: None,
                             blocked: None,
                             actionable: None,
                             depth: Some(event.depth),
@@ -259,6 +263,7 @@ impl Workspace {
                 }
             }
         }
+        self.propagate_task_priorities(&mut matches);
         matches.sort_by(|(left_score, left), (right_score, right)| {
             right_score
                 .cmp(left_score)
@@ -272,6 +277,98 @@ impl Workspace {
             items: matches.into_iter().map(|(_, record)| record).collect(),
             complete,
         })
+    }
+
+    fn propagate_task_priorities(&self, matches: &mut [(i64, SearchRecord)]) {
+        let mut task_indexes = matches
+            .iter()
+            .enumerate()
+            .filter(|(_, (_, record))| record.kind == SearchRecordKind::Task)
+            .map(|(index, _)| index)
+            .collect::<Vec<_>>();
+        task_indexes.sort_by_key(|index| {
+            let record = &matches[*index].1;
+            (record.path.clone(), record.range.start)
+        });
+        let node_by_record = task_indexes
+            .iter()
+            .enumerate()
+            .map(|(node, record)| (*record, node))
+            .collect::<HashMap<_, _>>();
+        let mut node_by_ref = HashMap::new();
+        for (node, record_index) in task_indexes.iter().copied().enumerate() {
+            let record = &matches[record_index].1;
+            if let Some(id) = &record.id {
+                node_by_ref.insert(
+                    TaskRef {
+                        path: record.path.clone(),
+                        id: id.clone(),
+                    },
+                    node,
+                );
+            }
+        }
+
+        let mut edges = Vec::new();
+        let mut ancestors = Vec::<(usize, usize)>::new();
+        let mut previous_path = None;
+        for record_index in task_indexes.iter().copied() {
+            let record = &matches[record_index].1;
+            if previous_path.as_ref() != Some(&record.path) {
+                ancestors.clear();
+                previous_path = Some(record.path.clone());
+            }
+            let depth = record.depth.unwrap_or_default();
+            while ancestors
+                .last()
+                .is_some_and(|(ancestor_depth, _)| *ancestor_depth >= depth)
+            {
+                ancestors.pop();
+            }
+            let node = node_by_record[&record_index];
+            if let Some((_, parent)) = ancestors.last() {
+                edges.push((node, *parent));
+            }
+            ancestors.push((depth, node));
+
+            let Some(task) = self.get(&record.path).and_then(|entry| {
+                entry
+                    .current
+                    .as_ref()?
+                    .output
+                    .tasks
+                    .tasks
+                    .iter()
+                    .find(|task| task.selection_range == record.range)
+            }) else {
+                continue;
+            };
+            for dependency in self.open_task_dependencies(&record.path, task) {
+                if let Some(target) = node_by_ref.get(&dependency.target) {
+                    edges.push((node, *target));
+                }
+            }
+        }
+
+        let mut priorities = task_indexes
+            .iter()
+            .map(|index| matches[*index].1.priority.unwrap_or_default())
+            .collect::<Vec<_>>();
+        loop {
+            let mut changed = false;
+            for &(source, target) in &edges {
+                if priorities[source] > priorities[target] {
+                    priorities[target] = priorities[source];
+                    changed = true;
+                }
+            }
+            if !changed {
+                break;
+            }
+        }
+        for (node, record_index) in task_indexes.into_iter().enumerate() {
+            matches[record_index].1.effective_priority = Some(priorities[node]);
+        }
     }
 }
 

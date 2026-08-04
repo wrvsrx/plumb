@@ -381,7 +381,7 @@ pub(super) fn sort_task_tree(
         document: task.path.clone(),
         source_start: task.location.start,
         depth: task.depth,
-        priority: task.priority,
+        priority: Some(task.effective_priority),
         due: task
             .due
             .as_deref()
