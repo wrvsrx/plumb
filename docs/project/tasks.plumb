@@ -458,9 +458,9 @@
    created="2026-08-04T15:11:23+08:00"
   } 重新设计互斥 task workflow states 与默认可见性
 
-   `note 共享 task model 将每个 task 投影为且仅为 `[ready]、`[blocked]、`[waiting]、`[done]、`[canceled] 或 `[conflicted] 之一：open 且有 open dependency 是 blocked；open、没有 open dependency 且有 future wait 是 waiting；其余 open task 是 ready；closure states 分别映射到 done、canceled 与 conflicted。Dependency 优先于 time，因此同时具备两种条件的 task 仍是 blocked，但保留 dependency 与 time 两项 reason。
+   `note 共享 task model 将每个 task 投影为且仅为 `[ready]、`[blocked]、`[waiting]、`[done]、`[canceled] 或 `[conflicted] 之一：同时有 done 与 canceled 是 conflicted；只有 done 是 done；只有 canceled 是 canceled；其余 task 中，有 future wait 是 waiting，没有 future wait 但有 open dependency 是 blocked，既没有 future wait 也没有 open dependency 才是 ready。Closure state 优先于 open workflow conditions，time waiting 优先于 dependency block；同时有 future wait 与 open dependency 的 task 是 waiting，但仍保留 time 与 dependency 两项 reason。
    `note State Filter 的 canonical 单值选项只使用上述六种互斥 state；`[Open] 是 ready、blocked 与 waiting 的组合 preset，`[Closed] 是 done 与 canceled 的组合 preset，不把 Open、Closed 或 All 伪装成额外 state。首次进入 `[/tasks] 且 URL 没有显式 filter state 时默认选择 Open，而显式 filters、空 filters、refresh、history navigation 与 shared URL 继续无损恢复，不能被默认值覆盖。
-   `note CEL `[state]、`[actionable]、`[blocked] 与 reason facts、workspace query、CLI、LSP hover、dynamic/static Web snapshot 和 UI labels 必须来自同一 shared derivation；`[actionable] 仅等价于 ready，`[blocked] 仅等价于 blocked。完成操作仍只被 open dependency 拒绝，future wait 不伪装成 dependency block；conflicted 继续发布既有 closure diagnostic 并拒绝 normal operations。
+   `note CEL `[state]、`[actionable]、`[blocked] 与 reason facts、workspace query、CLI、LSP hover、dynamic/static Web snapshot 和 UI labels 必须来自同一 shared derivation；`[actionable] 仅等价于 state ready，`[blocked] 继续表示存在 open dependency，因此 waiting task 可以同时具有 `[blocked=true]，但只由 `[state == "blocked"] 进入 Blocked State Filter。完成操作仍只被 open dependency 拒绝，future wait 不伪装成 dependency block；conflicted 继续发布既有 closure diagnostic 并拒绝 normal operations。
    `note 同步更新 reference、guide 与 bundled skill，并覆盖六种 partition、dependency/time overlap precedence、多个 dependency、expired wait、closed task fields、Open/Closed preset composition、默认 Open、显式 URL state、CEL parity、hover 与 dynamic/static Web regression tests。
 
 `-{
