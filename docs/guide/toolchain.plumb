@@ -58,7 +58,7 @@ document 若作为 open buffer 存在，仍由 open-buffer snapshot 覆盖 disk 
   }
 
 `[kind]、`[query] 和 `[filter] 可省略；filter 使用与 `[plumb note/task --query] 相同的 shared CEL
-facts。task result 的 `[state] 是 ready、waiting、done、canceled 或 invalid，并用 `[waitReasons]
+facts。task result 的 `[state] 是 ready、waiting、blocked、done、canceled 或 conflicted，并用 `[waitReasons]
 报告 time/dependency reasons。result 还包含 items、Location、revision provenance 和 complete；limit 上限为 200。invalid CEL
 使用 InvalidParams，initial index 前使用 ServerNotInitialized，workspace scan 不完整时 complete 为 false，
 Location 等内部 invariant 失败使用 InternalError，cancellation 使用 RequestCancelled。initialize response

@@ -430,7 +430,7 @@
    `note complete 与 cancel 调用 shared task operations，携带 document revision guard；server 只接受已索引 task identity，不接受任意 filesystem path，并在 conflict 后刷新 task snapshot 而不覆盖外部修改。
    `note Complete 与 Cancel 是 one-click actions，不显示 browser confirmation dialog。request pending 时禁用当前 task 的 mutation buttons，防止重复提交；成功或失败使用 non-blocking notification，失败后刷新 task snapshot 并保留 server CLI error log。
    `note Web server 由只读 viewer 扩展为 loopback-only workspace tool 时，需要为 mutation routes 定义 method、same-origin protection、request validation 和 error response；`[--host] 指向非 loopback address 时默认禁用 mutations，除非用户显式启用并承担访问控制。
-   `note workspace watcher 更新时增量刷新 task list 与当前 task detail，不重置 graph layout、active filters 或 selection；覆盖 recurring completion、dependency waiting、invalid state、stale revision、deleted task 和 ignored document tests。
+   `note workspace watcher 更新时增量刷新 task list 与当前 task detail，不重置 graph layout、active filters 或 selection；覆盖 recurring completion、dependency blocked、conflicted state、stale revision、deleted task 和 ignored document tests。
 
 `-{
    .task #web-structured-task-editing depends="#web-task-management"
@@ -461,7 +461,7 @@
    `note UI 使用可追加的 filter chips：`[+] 打开服务端注册的 filter-type menu，选中后显示可移除 chip。添加 grouped filter 时使用 registry 中的第一个选项作为默认值，例如 State 默认为 Ready；点击已添加的 grouped filter 打开多选 popover，且至少保留一个选项。Preset 包含稳定 id、label、CEL expression 与 optional group；同 group（例如 task state）的选项合并为一个多选 filter 并使用 logical OR，不同 groups 与 ungrouped presets 使用 logical AND。
    `note custom CEL 使用可追加、可移除的独立条件输入。Fuzzy 与 CEL 显示为同形 query clauses，但 fuzzy 不伪装成 CEL predicate。每个 selected preset 与每条 custom expression 分别 compile、分别报告 source/position error，再逐项 AND evaluate；不要拼接生成 CEL source。没有 preset 等价于 `[true]，不提供 `[All] chip。
    `note fuzzy text query 与 CEL 进入同一个 structured request 和 execution pipeline，但不伪装成 CEL predicate：CEL 负责 candidate filtering，fuzzy engine 负责 match 与 relevance score。request 显式携带 view kind、query、preset ids、custom filter、sort、limit，以及 Graph traversal parameters。
-   `note Tasks presets 初版只提供 State filter，覆盖 Ready、Waiting、Done、Canceled 与 Invalid；Graph presets 初版覆盖 All notes、Connected、Orphans、Unresolved 与 task-count conditions。Preset expression 由 server 根据 id 解析，不信任 client 提交的 expression。
+   `note Tasks presets 初版只提供 State filter，覆盖 Ready、Waiting、Blocked、Done、Canceled 与 Conflicted；Graph presets 初版覆盖 All notes、Connected、Orphans、Unresolved 与 task-count conditions。Preset expression 由 server 根据 id 解析，不信任 client 提交的 expression。
    `note Graph 默认 sort 是 source order；Tasks 原始版本也默认 source，`[#task-priority-sorting] 完成后默认 priority。Task source order 定义为 normalized relative path 后接 source position，parent/subtask subtree 必须保持连续；切换 preset、custom CEL 或 fuzzy query 只能移除不匹配 records，不能打散 subtree。Graph note/search records 的 source order 使用 normalized relative path。
    `note optional Due 与 Relevance sort 以完整 task subtree 为单位：分别使用 root task due 与 subtree maximum fuzzy score 排列 subtrees，subtree 内仍保持 source order。fuzzy query 为空时 Relevance 禁用或退化为 source order。
    `note Graph 先执行 current/direction/depth/edge-kind traversal，再执行 node preset/custom CEL 与 fuzzy match，最后移除任一 endpoint 不可见的 edges；traversal parameters、layout coordinates、sort 与 limit 不进入 CEL facts。
@@ -481,14 +481,14 @@
    `note Dynamic server 覆盖 direct Tasks navigation、Graph-to-Tasks navigation、empty/explicit URL state、filter removal、refresh、history navigation 和 URL round-trip frontend tests。
 
 `-{
-   .task #boolean-task-status-filters depends="#default-ready-task-filter"
-   created="2026-08-04T15:11:23+08:00"
-  } 使用独立布尔 task filters 取代 State Filter
+   .task #disjoint-task-workflow-states depends="#default-ready-task-filter"
+   created="2026-08-04T15:11:23+08:00" done="2026-08-05T03:19:04+08:00"
+  } 定义互斥 task workflow states
 
-   `note 删除互斥枚举式 State grouped filter，改为 `[Waiting]、`[Blocked]、`[Done] 与 `[Canceled] 四种互相独立的 boolean filter type；每种 filter 只有 Yes 与 No 两个值，同一 type 最多存在一个 chip。没有该 type 的 chip 就是不约束该 fact，不提供或序列化 Any 值；删除 chip 恢复不约束，切换 Yes/No 更新原 chip，不能同时产生矛盾条件。
-   `note facts 保持正交：waiting 表示 valid future wait，blocked 表示至少一个 open dependency，done 与 canceled 分别表示存在对应的 valid closure timestamp；同一 task 可以同时 waiting 与 blocked，也可以同时 done 与 canceled。Filter 只测试对应 boolean fact，不用 precedence 将 task 压成单一 workflow state；invalid datetime 不产生对应 fact，既有 diagnostics 与 normal operation eligibility 保持不变。
-   `note 首次进入 `[/tasks] 且 URL 没有显式 filters 时默认创建 `[Waiting: No]、`[Done: No] 与 `[Canceled: No] 三个 chips，Blocked 不受约束，因此显示 dependency-blocked task、隐藏 future-waiting task 与 closed/conflicted task。显式 filters、显式空 filters、refresh、history navigation 与 shared URL 必须无损恢复，不能被 defaults 覆盖；删除最后一个 chip 表示无过滤，不显示 All chip。
-   `note structured request、URL、server registry 与 dynamic/static Web UI 使用稳定的 boolean filter ids 和 Yes/No values；CEL facts、workspace task records 与 filter evaluation 对 waiting、blocked、done、canceled 使用同一 shared derivation。同步更新 reference、guide 与 bundled skill，并覆盖四个 facts 的全部组合、缺省/Yes/No、chip add/update/remove、默认三个 No filters、blocked visibility、waiting-and-blocked exclusion、conflicted exclusion、explicit empty URL、refresh/history/shared URL 与 dynamic/static Web regression tests。
+   `note shared task model 按固定 precedence 推导唯一 state：同时存在 valid done/canceled 是 conflicted；只有 done 是 done；只有 canceled 是 canceled；其余先判断 valid future wait 为 waiting，再判断 open dependency 为 blocked，否则为 ready。invalid datetime 不参与推导。
+   `note waiting 优先于 blocked，但 wait_reasons 仍按 time、dependency 记录全部成立的 reasons，blocked fact 在任何 open dependency 存在时仍为 true；actionable 仅等价于 state 为 ready。State 是 derived read-only fact，不成为可写 task attribute。
+   `note Web 保留 State grouped filter，依次提供 Ready、Waiting、Blocked、Done、Canceled 与 Conflicted presets；workspace CEL、CLI、LSP hover、fold text 与 Web 使用同一 shared derivation 和稳定的小写协议值。
+   `note 覆盖全部六种 states、future wait 与 open dependency 同时存在时的 precedence、overlap facts、CEL filters、Web snapshots 和 LSP fold labels，并同步 reference 与 guides。
 
 `-{
    .task #task-priority-sorting created="2026-07-30T17:23:47+08:00"

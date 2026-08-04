@@ -427,16 +427,18 @@ forest；只有保留 task 的 priority、due 与 relevance 参与 ancestor 和 
 
 workspace query、LSP hover 与 Web task view 在 closure state 之上推导互斥 workflow state：
 
-`- open closure 且没有 future wait 或 open dependency：ready。
-`- open closure 且 `[wait] 晚于 query 的 `[now]，或至少一个 dependency 仍 open：waiting。
-`- done closure：done。
-`- canceled closure：canceled。
-`- conflicted closure：invalid。
+`- 同时存在 valid `[done] 与 `[canceled]：conflicted。
+`- 只存在 valid `[done]：done。
+`- 只存在 valid `[canceled]：canceled。
+`- closure open 且 `[wait] 晚于 query 的 `[now]：waiting。
+`- closure open、没有 future wait 且至少一个 dependency 仍 open：blocked。
+`- closure open、没有 future wait 且没有 open dependency：ready。
 
-waiting 同时产生 `[wait_reasons] list，值按 `[time]、`[dependency] 顺序出现；一个 task 可以同时具有
-两个 reason。初版 invalid 只表示 conflicted closure，不吞并其他 task diagnostics。CEL task context
-提供 `[state] 与 `[wait_reasons]；`[actionable] 等价于 `[state == "ready"]，`[blocked] 等价于
-`[wait_reasons] 包含 `[dependency]，两者暂时作为兼容 facts 保留。
+以上 precedence 保证 `[state] 恰有一个值；future wait 与 open dependency 同时存在时 state 是 waiting。
+`[wait_reasons] 仍按 `[time]、`[dependency] 顺序记录全部成立的 reason，因此该 task 可以同时具有两个
+reason。`[blocked] 独立 fact 在任何 open dependency 存在时均为 true，包括 state 为 waiting 时；
+`[actionable] 等价于 `[state == "ready"]。conflicted 只表示 closure timestamps 冲突，不吞并其他 task
+diagnostics。CEL task context 提供 `[state]、`[wait_reasons]、`[blocked] 与 `[actionable]。
 
 datetime fields 必须使用 quoted RFC 3339 value；unquoted 或无法解析的值发布
 `[task.invalid-datetime] warning，并且不参与 task state、query 或 operations。recur 只有在 `[due]

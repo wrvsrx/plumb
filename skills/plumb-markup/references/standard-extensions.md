@@ -296,12 +296,14 @@ hidden tasks cannot change the result order. A task query limit extends through
 the current document rather than splitting its tree.
 
 Workspace queries, LSP hover, and the Web task view derive one mutually
-exclusive workflow state: `ready` for an open task with no future wait or
-open dependency; `waiting` for an open task with either condition; `done` and
-`canceled` for their respective closure states; and `invalid` for a conflicted
-closure. Waiting tasks expose ordered `wait_reasons` values `time` and/or
-`dependency`. In task CEL, `actionable` remains equivalent to
-`state == "ready"`, and `blocked` means the reasons contain `dependency`.
+exclusive workflow state with this precedence: `conflicted` when both closure
+timestamps exist; `done` or `canceled` when only the corresponding timestamp
+exists; `waiting` for an open task with a future wait; `blocked` for an open
+task with no future wait and an open dependency; otherwise `ready`. A task with
+both a future wait and an open dependency is `waiting`, while ordered
+`wait_reasons` still contains both `time` and `dependency` and the independent
+`blocked` fact remains true. In task CEL, `actionable` is equivalent to
+`state == "ready"`.
 
 Completing an open task adds `done`; canceling adds `canceled`. Completion is
 rejected while an open dependency blocks the task. Cancel remains allowed.

@@ -300,9 +300,10 @@ document path 和 derived workflow state；same-file target 插入 `[#id]，cros
 document-local closure state 由 closure timestamps 推导：没有 `[done]/[canceled] 是 open；只有 `[done] 是
 done；只有 `[canceled] 是 canceled；两者同时存在是 conflicted。
 
-workspace 工具在 closure state 上推导 workflow state：可以立即处理的 open task 是 ready；future
-`[wait] 或 open dependency 存在时是 waiting；其余依次是 done、canceled，以及表示 conflicted closure
-的 invalid。waiting reasons 分为 time 与 dependency。
+workspace 工具在 closure state 上推导互斥 workflow state：同时关闭是 conflicted；仅完成是 done；
+仅取消是 canceled；open task 依次按 future `[wait]、open dependency 判断为 waiting、blocked，否则为
+ready。future wait 与 open dependency 同时存在时 state 是 waiting，但 blocked fact 仍为 true，waiting
+reasons 同时包含 time 与 dependency。
 
 关闭 recurring task 会保留当前 instance，并紧接着创建下一个 sibling instance。新 instance 使用
 canonical formatter layout，不在两个 task 之间添加空行，并保留当前 nesting 与 LF/CRLF style。
