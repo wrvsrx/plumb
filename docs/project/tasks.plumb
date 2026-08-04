@@ -188,6 +188,7 @@
 
 `-{
    .task #task-depends-completion created="2026-08-04T15:37:31+08:00"
+   done="2026-08-04T16:02:15+08:00"
   } 在 LSP 中补全 task `[depends] references
 
    `note Cursor 位于有效 task 的 quoted `[depends] value 时，补全 same-file `[#id] 与 cross-file `[`path.plumb#id] task references；候选显示 task title、relative document path 与 derived workflow state，并复用 workspace 的 latest-valid/open-buffer-precedence index。
@@ -196,6 +197,7 @@
 
 `-{
    .task #metadata-fold-text created="2026-08-04T15:37:31+08:00"
+   done="2026-08-04T16:02:15+08:00"
   } 优化 metadata fold text
 
    `note Client 支持 `[foldingRange.foldingRange.collapsedText] 时，顶层有效 metadata fold 使用 document title 生成紧凑且可区分的 label，并保留 block opener 的原始结构缩进；title 缺失或不可用时使用稳定的 metadata fallback，不从 recovered invalid metadata 猜测内容。
@@ -204,6 +206,7 @@
 
 `-{
    .task #single-line-task-event-folds created="2026-08-04T15:37:31+08:00"
+   done="2026-08-04T16:02:15+08:00"
   } 允许折叠单行 event 与 task
 
    `note 即使 task 或 event owner 只占一条 physical line，也提供语义 fold，使它与带 children 的同类 block 使用一致的 collapsed text；range 不能包含 trailing blank 或 following sibling，也不能为制造多行范围而吞入相邻 source。
@@ -533,11 +536,12 @@
 
 `-{
    .task #preserve-neovim-fold-state-after-format created="2026-08-04T15:37:31+08:00"
+   done="2026-08-04T16:02:15+08:00"
   } 避免 format 后重置 Neovim fold 状态
 
    `note 复现并定位 Neovim 使用 `[vim.lsp.foldexpr()] 时 formatting edits 触发 fold ranges 重算后的状态丢失：执行 `[zM]、用 `[zo] 打开特定 block、修改并 format 后，该 block 必须保持用户选择的打开状态，而不是随新的全局 fold level 再次关闭。
-   `note 优先使用稳定的 semantic block identity 与 source position mapping 在 format 前后保存并恢复 window-local open/closed overrides；不得依赖易漂移的绝对行号，不改变其他 windows 的 fold state，也不把 editor state 放入 LSP server 或 formatter semantics。
-   `note 明确 native `[vim.lsp.buf.format()]、plugin command、format-on-save、多 buffer/window、插入或删除 preceding blocks 与失效 identity 的降级行为；增加 Neovim 0.12 headless E2E，并在 integration docs 说明支持边界。
+   `note 已定位根因为 whole-document formatting 使用覆盖完整 source 的单个 edit；LSP adapter 现对 canonical output 做 line diff，只返回 source-ordered、non-overlapping changed-line edits，未变化 blocks 不再被 Neovim 当作重写，且 formatter semantics 保持不变。
+   `note Native `[vim.lsp.buf.format()] 与 format-on-save 共用该 handler；Neovim 0.12 headless E2E 覆盖 `[zM] 后用 `[zo] 打开特定 task、format 修改该 task 内缩进后，closed sibling 与 manually opened task 各自保持状态。Integration docs 已说明机制与 single-line fold 边界。
 
 `-{
    .task #neovim-plugin depends="#neovim-search-integration" done="2026-07-27T02:00:53+08:00"

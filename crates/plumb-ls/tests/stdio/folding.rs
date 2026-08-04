@@ -28,7 +28,29 @@ fn labels_metadata_folds_with_the_document_title() {
             "jsonrpc": "2.0", "id": 2, "method": "textDocument/foldingRange",
             "params": { "textDocument": { "uri": uri } }
         }),
-        json!({ "jsonrpc": "2.0", "id": 3, "method": "shutdown", "params": null }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didChange",
+            "params": {
+                "textDocument": { "uri": uri, "version": 2 },
+                "contentChanges": [{ "text": "`meta\n  `: tags\n    `- plumb\n" }]
+            }
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 3, "method": "textDocument/foldingRange",
+            "params": { "textDocument": { "uri": uri } }
+        }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didChange",
+            "params": {
+                "textDocument": { "uri": uri, "version": 3 },
+                "contentChanges": [{ "text": "`node Parent\n  `meta\n    `: title\n\n      Nested\n" }]
+            }
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 4, "method": "textDocument/foldingRange",
+            "params": { "textDocument": { "uri": uri } }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 5, "method": "shutdown", "params": null }),
         json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
     ];
 
@@ -44,6 +66,15 @@ fn labels_metadata_folds_with_the_document_title() {
             "collapsedText": "METADATA  项目 Overview"
         })
     );
+    assert_eq!(
+        response(&run_server(&messages), 3)["result"][0],
+        json!({ "startLine": 0, "endLine": 2, "collapsedText": "METADATA" })
+    );
+    assert!(response(&run_server(&messages), 4)["result"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|range| range.get("collapsedText").is_none()));
 }
 
 #[test]

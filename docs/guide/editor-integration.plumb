@@ -93,8 +93,15 @@ element 不单独折叠。即使 document 存在 syntax error，未受错误影�
 和 title 生成 `[READY  Title]、`[WAITING  Title]、`[DONE  Title]、`[CANCELED  Title] 或
 `[INVALID  Title]，并保留 task block opener 的原始结构缩进。event fold 把 `[date]/`[timezone]/`[when]
 解析出的时间（省秒、省偏移）与 title 拼成缩写：point 写成 `[YYYY-MM-DDTHH:MM  Title]；interval 写成
-`[YYYY-MM-DDTHH:MM--HH:MM  Title]。同样保留原始结构缩进。没有该 capability、无可靠 valid task facts
-或无可用时间的 event fold 不携带 custom label。
+`[YYYY-MM-DDTHH:MM--HH:MM  Title]。顶层有效 metadata 使用 `[METADATA  Document title]，缺少可用 title
+时回退为 `[METADATA]；label 规范为空格分隔的单行并在 80 characters 后截断。三者都保留原始结构
+缩进。没有该 capability、无可靠 valid task/metadata facts 或无可用时间的 event fold 不携带 custom
+label。
+
+Task/event 只有一条 physical line 时，server 只向允许 character-range folding 的 client 返回同一行的
+semantic fold；声明 `[lineFoldingOnly = true] 的 client 不会收到伪造的跨行范围。Neovim 0.12 声明该
+capability 并忽略 zero-length line folds，因此原生 `[vim.lsp.foldexpr()] 无法显示单行 fold text；带
+children 的跨行 task/event 正常折叠。
 
 plugin 不修改 window-local folding 设置。editor configuration 可以在 `[LspAttach] 中仅对支持该 method
 的 client 启用：
@@ -153,6 +160,9 @@ tab stops。CodeAction 包括 metadata insertion、explicit id、event shorthand
 created insertion 和 task status operations。metadata insertion 只在 cursor 位于 document start（cursor
 之前仅有空白）时提供；event shorthand 的具体格式见
 `->[Event]{to="extensions.plumb"}。whole-document 与 range formatting 使用同一个 canonical formatter。
+Whole-document formatting 以 non-overlapping line-diff edits 返回，只替换实际变化的行；Neovim 使用
+`[vim.lsp.foldexpr()] 时，`[zM] 后用 `[zo] 手动打开的 block 不会因为未变化 source 被整篇 replacement
+重置。Format-on-save 通过同一 `[textDocument/formatting] handler 获得相同行为。
 
 光标位于顶层 `[meta] marker 时，`[vim.lsp.buf.rename()] 重命名当前 document file，并更新 workspace
 内指向它的 links、Autolinks 和 task references。rename input 只显示当前 filename stem；输入同目录的新
