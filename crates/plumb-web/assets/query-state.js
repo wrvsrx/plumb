@@ -24,7 +24,7 @@ export function readQueryParameters(search, view = 'graph') {
 }
 
 export function initialPresets(view, query) {
-  return view === 'tasks' && !query.presetsSpecified ? ['ready'] : query.presets;
+  return view === 'tasks' && !query.presetsSpecified ? ['ready', 'blocked'] : query.presets;
 }
 
 export function writeQueryParameters(query) {

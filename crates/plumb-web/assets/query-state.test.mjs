@@ -62,7 +62,7 @@ test('query parameters distinguish default presets from an explicit empty select
   const defaults = readQueryParameters('');
   assert.deepEqual(defaults.presets, []);
   assert.equal(defaults.presetsSpecified, false);
-  assert.deepEqual(initialPresets('tasks', defaults), ['ready']);
+  assert.deepEqual(initialPresets('tasks', defaults), ['ready', 'blocked']);
   assert.deepEqual(initialPresets('graph', defaults), []);
 
   const explicitEmpty = readQueryParameters(writeQueryParameters({

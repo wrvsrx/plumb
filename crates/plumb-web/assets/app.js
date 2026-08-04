@@ -33,7 +33,7 @@ import { EDITABLE_TASK_PROPERTIES, missingTaskProperties } from './task-ui.js';
     view: initialView,
     tasks: null,
     selectedTask: null,
-    presets: { graph: [], tasks: ['ready'], agenda: [] },
+    presets: { graph: [], tasks: ['ready', 'blocked'], agenda: [] },
     presetsSpecified: { graph: false, tasks: false, agenda: false },
     query: { graph: '', tasks: '', agenda: '' },
     filters: { graph: [], tasks: [], agenda: [] },
