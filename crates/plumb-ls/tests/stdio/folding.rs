@@ -3,6 +3,109 @@ use serde_json::json;
 use crate::support::{response, run_server};
 
 #[test]
+fn labels_metadata_folds_with_the_document_title() {
+    let uri = "file:///tmp/metadata-fold-label.plumb";
+    let source = "`meta\n  `: title\n\n    项目 Overview\n\n  `: tags\n    `- plumb\n";
+    let messages = [
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {
+                "processId": null,
+                "rootUri": null,
+                "capabilities": { "textDocument": { "foldingRange": {
+                    "foldingRange": { "collapsedText": true }
+                }}}
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": {
+                "uri": uri, "languageId": "plumb", "version": 1, "text": source
+            }}
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 2, "method": "textDocument/foldingRange",
+            "params": { "textDocument": { "uri": uri } }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 3, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+
+    let ranges = response(&run_server(&messages), 2)["result"]
+        .as_array()
+        .unwrap()
+        .to_vec();
+    assert_eq!(
+        ranges[0],
+        json!({
+            "startLine": 0,
+            "endLine": 6,
+            "collapsedText": "METADATA  项目 Overview"
+        })
+    );
+}
+
+#[test]
+fn exposes_single_line_semantic_folds_only_to_character_range_clients() {
+    let uri = "file:///tmp/single-line-folds.plumb";
+    let source =
+        "`-{.task} Ready\n`-{.event date=2026-08-02 timezone=\"+08:00\" when=\"14:00\"} Standup\n";
+    let requests = |line_folding_only| {
+        [
+            json!({
+                "jsonrpc": "2.0", "id": 1, "method": "initialize",
+                "params": {
+                    "processId": null,
+                    "rootUri": null,
+                    "capabilities": { "textDocument": { "foldingRange": {
+                        "lineFoldingOnly": line_folding_only,
+                        "foldingRange": { "collapsedText": true }
+                    }}}
+                }
+            }),
+            json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+            json!({
+                "jsonrpc": "2.0", "method": "textDocument/didOpen",
+                "params": { "textDocument": {
+                    "uri": uri, "languageId": "plumb", "version": 1, "text": source
+                }}
+            }),
+            json!({
+                "jsonrpc": "2.0", "id": 2, "method": "textDocument/foldingRange",
+                "params": { "textDocument": { "uri": uri } }
+            }),
+            json!({ "jsonrpc": "2.0", "id": 3, "method": "shutdown", "params": null }),
+            json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+        ]
+    };
+
+    assert_eq!(
+        response(&run_server(&requests(false)), 2)["result"],
+        json!([
+            {
+                "startLine": 0,
+                "startCharacter": 0,
+                "endLine": 0,
+                "endCharacter": source.lines().next().unwrap().len(),
+                "collapsedText": "READY  Ready"
+            },
+            {
+                "startLine": 1,
+                "startCharacter": 0,
+                "endLine": 1,
+                "endCharacter": source.lines().nth(1).unwrap().len(),
+                "collapsedText": "2026-08-02T14:00  Standup"
+            }
+        ])
+    );
+    assert_eq!(
+        response(&run_server(&requests(true)), 2)["result"],
+        json!([])
+    );
+}
+
+#[test]
 fn provides_structural_folding_for_valid_and_recovered_documents() {
     let uri = "file:///tmp/folding.plumb";
     let source = "`# Top\nIntro.\n`## Child\n`div Details\n\n  body\n  `{language=text}\n    raw\n`# Next\nTail.\n";

@@ -68,6 +68,7 @@ pub(crate) struct ServerState {
     supports_code_lens_refresh: bool,
     folding_range_limit: Option<usize>,
     supports_folding_collapsed_text: bool,
+    line_folding_only: bool,
     index_complete: bool,
     pending_path_renames: Vec<PendingPathRename>,
 }
@@ -93,6 +94,7 @@ impl ServerState {
             supports_code_lens_refresh: false,
             folding_range_limit: None,
             supports_folding_collapsed_text: false,
+            line_folding_only: false,
             index_complete: false,
             pending_path_renames: Vec::new(),
         }
@@ -504,6 +506,13 @@ impl LanguageServer for ServerState {
             .and_then(|folding| folding.folding_range.as_ref())
             .and_then(|folding| folding.collapsed_text)
             .unwrap_or(false);
+        self.line_folding_only = params
+            .capabilities
+            .text_document
+            .as_ref()
+            .and_then(|text_document| text_document.folding_range.as_ref())
+            .and_then(|folding| folding.line_folding_only)
+            .unwrap_or(false);
         Box::pin(async {
             Ok(InitializeResult {
                 capabilities: ServerCapabilities {
@@ -800,6 +809,7 @@ impl LanguageServer for ServerState {
                     entry.parsed.recovered_syntax(),
                     self.folding_range_limit,
                     labels.as_ref(),
+                    self.line_folding_only,
                 )
             });
         Box::pin(async move { Ok(ranges) })
@@ -1894,7 +1904,7 @@ mod tests {
             "`# Top\nIntro.\n`## Child\n`div Details\n\n  body\n  `{language=text}\n    raw\n`# Next\nTail.\n",
         );
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
-        let ranges = folding_ranges(&parsed.source, &parsed.syntax, None, None);
+        let ranges = folding_ranges(&parsed.source, &parsed.syntax, None, None, false);
         assert_eq!(
             ranges
                 .iter()
@@ -1909,7 +1919,7 @@ mod tests {
                 && range.collapsed_text.is_none()
         }));
         assert_eq!(
-            folding_ranges(&parsed.source, &parsed.syntax, Some(2), None).len(),
+            folding_ranges(&parsed.source, &parsed.syntax, Some(2), None, false).len(),
             2
         );
     }
@@ -1919,7 +1929,7 @@ mod tests {
         let parsed = parse("`node Parent\n  `child Child\nordinary\ncontinued `span[open\n");
         assert!(!parsed.is_valid());
         assert_eq!(
-            folding_ranges(&parsed.source, &parsed.syntax, None, None)
+            folding_ranges(&parsed.source, &parsed.syntax, None, None, false)
                 .iter()
                 .map(|range| (range.start_line, range.end_line))
                 .collect::<Vec<_>>(),
@@ -1932,7 +1942,7 @@ mod tests {
         let parsed = parse("`-{.task} Parent\n\n   `-{.task} Leaf\n\n`- Next\n");
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         assert_eq!(
-            folding_ranges(&parsed.source, &parsed.syntax, None, None)
+            folding_ranges(&parsed.source, &parsed.syntax, None, None, false)
                 .iter()
                 .map(|range| (range.start_line, range.end_line))
                 .collect::<Vec<_>>(),

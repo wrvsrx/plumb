@@ -16,7 +16,43 @@ pub(crate) fn collapsed_text_labels(
 ) -> HashMap<(usize, usize), String> {
     let mut labels = task_labels(workspace, path, entry);
     labels.extend(event_labels(entry));
+    labels.extend(metadata_labels(entry));
     labels
+}
+
+pub(crate) fn metadata_labels(entry: &DocumentEntry) -> HashMap<(usize, usize), String> {
+    let Some(metadata) = entry
+        .current
+        .as_ref()
+        .and_then(|current| current.output.metadata.metadata.as_ref())
+    else {
+        return HashMap::new();
+    };
+    let indent = line_indent(&entry.parsed.source, metadata.range.start);
+    let title = entry
+        .current
+        .as_ref()
+        .and_then(|current| current.output.metadata.document_title())
+        .map(|title| single_line_label(&title, 80))
+        .filter(|title| !title.is_empty());
+    let label = title.map_or_else(
+        || format!("{indent}METADATA"),
+        |title| format!("{indent}METADATA  {title}"),
+    );
+    HashMap::from([((metadata.range.start, metadata.range.end), label)])
+}
+
+fn single_line_label(value: &str, max_chars: usize) -> String {
+    let normalized = value.split_whitespace().collect::<Vec<_>>().join(" ");
+    if normalized.chars().count() <= max_chars {
+        return normalized;
+    }
+    let mut truncated = normalized
+        .chars()
+        .take(max_chars.saturating_sub(3))
+        .collect::<String>();
+    truncated.push_str("...");
+    truncated
 }
 
 pub(crate) fn task_labels(
@@ -122,6 +158,7 @@ pub(crate) fn ranges(
     document: &Document,
     limit: Option<usize>,
     labels: Option<&HashMap<(usize, usize), String>>,
+    line_folding_only: bool,
 ) -> Vec<FoldingRange> {
     let headings = analyze_headings(document);
     let mut byte_ranges = Vec::new();
@@ -152,7 +189,7 @@ pub(crate) fn ranges(
             let collapsed_text = labels
                 .and_then(|table| table.get(&(range.start, range.end)))
                 .cloned();
-            line_range(source, &range, collapsed_text)
+            line_range(source, &range, collapsed_text, line_folding_only)
         })
         .collect::<Vec<_>>();
     ranges.dedup();
@@ -166,6 +203,7 @@ fn line_range(
     source: &str,
     range: &std::ops::Range<usize>,
     collapsed_text: Option<String>,
+    line_folding_only: bool,
 ) -> Option<FoldingRange> {
     let content_end = range.start
         + source[range.clone()]
@@ -177,12 +215,30 @@ fn line_range(
     } else {
         range.end.line
     };
-    (end_line > range.start.line).then_some(FoldingRange {
+    if end_line == range.start.line && (line_folding_only || collapsed_text.is_none()) {
+        return None;
+    }
+    let same_line = end_line == range.start.line;
+    Some(FoldingRange {
         start_line: range.start.line,
-        start_character: None,
+        start_character: same_line.then_some(range.start.character),
         end_line,
-        end_character: None,
+        end_character: same_line.then_some(range.end.character),
         kind: None,
         collapsed_text,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::single_line_label;
+
+    #[test]
+    fn normalizes_and_truncates_fold_labels_on_character_boundaries() {
+        assert_eq!(
+            single_line_label("  Project\n  Overview  ", 80),
+            "Project Overview"
+        );
+        assert_eq!(single_line_label("项目项目项目项目", 6), "项目项...");
+    }
 }
