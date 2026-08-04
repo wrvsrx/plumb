@@ -3,6 +3,46 @@ use serde_json::json;
 use crate::support::{response, run_server};
 
 #[test]
+fn whole_document_formatting_keeps_unchanged_blocks_out_of_edits() {
+    let uri = "file:///tmp/minimal-format.plumb";
+    let source = "`node One\n\n       `child A\n\n`node Stable\n\n      `child B\n\n`node Three\n\n       `child C\n";
+    let messages = [
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": { "processId": null, "rootUri": null, "capabilities": {} }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": {
+                "uri": uri, "languageId": "plumb", "version": 1, "text": source
+            }}
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 2, "method": "textDocument/formatting",
+            "params": {
+                "textDocument": { "uri": uri },
+                "options": { "tabSize": 2, "insertSpaces": true }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 3, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+
+    let edits = response(&run_server(&messages), 2)["result"]
+        .as_array()
+        .unwrap()
+        .to_vec();
+    assert_eq!(edits.len(), 2);
+    assert_eq!(edits[0]["range"]["start"]["line"], 2);
+    assert_eq!(edits[0]["range"]["end"]["line"], 3);
+    assert_eq!(edits[0]["newText"], "      `child A\n");
+    assert_eq!(edits[1]["range"]["start"]["line"], 10);
+    assert_eq!(edits[1]["range"]["end"]["line"], 11);
+    assert_eq!(edits[1]["newText"], "      `child C\n");
+}
+
+#[test]
 fn formats_valid_documents_and_declines_invalid_revisions() {
     let uri = "file:///tmp/format.plumb";
     let source = "`meta\n   `: title\n\n      Example\n";
@@ -49,14 +89,43 @@ fn formats_valid_documents_and_declines_invalid_revisions() {
         true
     );
     assert_eq!(
-        response(&output, 2)["result"][0]["newText"],
+        apply_ascii_lsp_edits(source, response(&output, 2)["result"].as_array().unwrap()),
         "`meta\n `: title\n\n    Example\n"
     );
-    assert_eq!(
-        response(&output, 2)["result"][0]["range"]["end"],
-        json!({ "line": 4, "character": 0 })
-    );
     assert!(response(&output, 3)["result"].is_null());
+}
+
+fn apply_ascii_lsp_edits(source: &str, edits: &[serde_json::Value]) -> String {
+    let mut edits = edits
+        .iter()
+        .map(|edit| {
+            let range = &edit["range"];
+            let offset = |position: &serde_json::Value| {
+                let line = position["line"].as_u64().unwrap() as usize;
+                let character = position["character"].as_u64().unwrap() as usize;
+                let line_start = if line == 0 {
+                    0
+                } else {
+                    source
+                        .match_indices('\n')
+                        .map(|(offset, _)| offset + 1)
+                        .nth(line - 1)
+                        .unwrap()
+                };
+                line_start + character
+            };
+            (
+                offset(&range["start"])..offset(&range["end"]),
+                edit["newText"].as_str().unwrap().to_string(),
+            )
+        })
+        .collect::<Vec<_>>();
+    edits.sort_by_key(|(range, _)| std::cmp::Reverse(range.start));
+    let mut output = source.to_string();
+    for (range, new_text) in edits {
+        output.replace_range(range, &new_text);
+    }
+    output
 }
 
 #[test]
