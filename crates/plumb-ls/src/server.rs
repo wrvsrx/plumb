@@ -1220,8 +1220,12 @@ impl LanguageServer for ServerState {
                         candidates
                             .into_iter()
                             .map(|candidate| CompletionItem {
+                                kind: Some(if candidate.new_text.ends_with('#') {
+                                    CompletionItemKind::FILE
+                                } else {
+                                    CompletionItemKind::REFERENCE
+                                }),
                                 label: candidate.label,
-                                kind: Some(CompletionItemKind::REFERENCE),
                                 detail: Some(candidate.detail),
                                 text_edit: Some(CompletionTextEdit::Edit(LspTextEdit::new(
                                     byte_range_to_lsp(&entry.parsed.source, &candidate.replace),

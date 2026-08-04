@@ -2599,56 +2599,98 @@ impl Workspace {
                 _ => None,
             })
             .collect::<HashSet<_>>();
-        let now = chrono::Local::now().fixed_offset();
-        let mut candidates = self
-            .documents
-            .values()
-            .filter_map(|entry| {
-                let versioned = entry.current.as_ref().or(entry.last_valid.as_ref())?;
-                let relative = relative_path(&from, &entry.path)?;
-                Some((entry, versioned, relative))
-            })
-            .flat_map(|(entry, versioned, relative)| {
-                let from = &from;
-                let owner_ref = &owner_ref;
-                let existing = &existing;
-                let query = &context.query;
-                versioned.output.tasks.tasks.iter().filter_map(move |task| {
-                    let id = task.id.as_ref()?;
-                    let target = TaskRef {
-                        path: entry.path.clone(),
-                        id: id.value.clone(),
-                    };
-                    if owner_ref.as_ref() == Some(&target) || existing.contains(&target) {
-                        return None;
-                    }
-                    let reference = if entry.path == *from {
-                        format!("#{}", id.value)
-                    } else {
-                        format!("{relative}#{}", id.value)
-                    };
-                    if !fuzzy_match(&reference, query)
-                        && !fuzzy_match(&id.value, query.trim_start_matches('#'))
-                        && !fuzzy_match(&task.title, query)
+        let eligible = |path: &Path, task: &TaskRecord| {
+            let Some(id) = &task.id else {
+                return false;
+            };
+            let target = TaskRef {
+                path: path.to_path_buf(),
+                id: id.value.clone(),
+            };
+            owner_ref.as_ref() != Some(&target) && !existing.contains(&target)
+        };
+        let Some((path_query, id_query)) = context.query.rsplit_once('#') else {
+            let mut candidates = self
+                .documents
+                .values()
+                .filter_map(|entry| {
+                    let versioned = entry.current.as_ref().or(entry.last_valid.as_ref())?;
+                    if !versioned
+                        .output
+                        .tasks
+                        .tasks
+                        .iter()
+                        .any(|task| eligible(&entry.path, task))
                     {
                         return None;
                     }
-                    let (state, _) = self.task_workflow_state(&entry.path, task, now);
-                    let title = if task.title.is_empty() {
-                        "Untitled task"
+                    let relative = relative_path(&from, &entry.path)?;
+                    let reference = if entry.path == from {
+                        "#".to_string()
                     } else {
-                        &task.title
+                        format!("{relative}#")
                     };
+                    if !fuzzy_match(reference.trim_end_matches('#'), &context.query) {
+                        return None;
+                    }
                     Some(CompletionCandidate {
                         label: reference.clone(),
-                        detail: format!(
-                            "{}  {} ({relative})",
-                            state.as_str().to_ascii_uppercase(),
-                            title
-                        ),
+                        detail: format!("task document ({relative})"),
                         new_text: reference,
                         replace: context.replace.clone(),
                     })
+                })
+                .collect::<Vec<_>>();
+            candidates.sort_by(|left, right| left.label.cmp(&right.label));
+            return candidates;
+        };
+
+        let target_path = if path_query.is_empty() {
+            from.clone()
+        } else {
+            normalize(
+                &from
+                    .parent()
+                    .unwrap_or_else(|| Path::new(""))
+                    .join(path_query),
+            )
+        };
+        let Some(entry) = self.documents.get(&target_path) else {
+            return Vec::new();
+        };
+        let Some(versioned) = entry.current.as_ref().or(entry.last_valid.as_ref()) else {
+            return Vec::new();
+        };
+        let now = chrono::Local::now().fixed_offset();
+        let id_replace_start = context.replace.start + path_query.len() + 1;
+        let id_replace = id_replace_start..context.replace.end;
+        let relative = relative_path(&from, &entry.path).unwrap_or_else(|| path_query.to_string());
+        let mut candidates = versioned
+            .output
+            .tasks
+            .tasks
+            .iter()
+            .filter(|task| eligible(&entry.path, task))
+            .filter_map(|task| {
+                let id = task.id.as_ref()?;
+                if !fuzzy_match(&id.value, id_query) && !fuzzy_match(&task.title, id_query) {
+                    return None;
+                }
+                let (state, _) = self.task_workflow_state(&entry.path, task, now);
+                let title = if task.title.is_empty() {
+                    "Untitled task"
+                } else {
+                    &task.title
+                };
+                Some(CompletionCandidate {
+                    label: id.value.clone(),
+                    detail: format!(
+                        "{}  {} ({relative})",
+                        state.as_str().to_ascii_uppercase(),
+                        title
+                    ),
+                    new_text: id.value.clone(),
+                    replace: id_replace.clone(),
                 })
             })
             .collect::<Vec<_>>();

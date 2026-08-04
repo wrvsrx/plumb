@@ -54,7 +54,7 @@ fn completes_task_dependencies_from_workspace_tasks() {
     let output = run_server(&messages);
     let path_items = response(&output, 2)["result"].as_array().unwrap();
     assert_eq!(path_items.len(), 1);
-    assert_eq!(path_items[0]["label"], "Project Plan.plumb#draft");
+    assert_eq!(path_items[0]["label"], "draft");
     assert_eq!(path_items[0]["kind"], 18);
     assert!(path_items[0]["detail"]
         .as_str()
@@ -62,16 +62,18 @@ fn completes_task_dependencies_from_workspace_tasks() {
         .contains("READY  Draft task"));
     assert_eq!(
         path_items[0]["textEdit"]["newText"],
-        "Project Plan.plumb#draft"
+        "draft"
     );
     assert_eq!(
         path_items[0]["textEdit"]["range"],
         json!({
-            "start": { "line": 3, "character": lines[3].find("Project Plan").unwrap() },
+            "start": {
+                "line": 3,
+                "character": lines[3].find("#dr").unwrap() + 1
+            },
             "end": {
                 "line": 3,
-                "character": lines[3].find("Project Plan.plumb#dr").unwrap()
-                    + "Project Plan.plumb#dr".len()
+                "character": lines[3].find("#dr").unwrap() + "#dr".len()
             }
         })
     );
@@ -81,11 +83,8 @@ fn completes_task_dependencies_from_workspace_tasks() {
         .iter()
         .map(|item| item["label"].as_str().unwrap())
         .collect::<Vec<_>>();
-    assert!(labels.contains(&"#local"), "labels: {labels:?}");
-    assert!(labels.contains(&"Project Plan.plumb#closed"));
-    assert!(!labels.contains(&"#done"));
-    assert!(!labels.contains(&"#review-two"));
-    assert!(!labels.iter().any(|label| label.ends_with("#note")));
+    assert_eq!(labels, ["#", "Project Plan.plumb#"]);
+    assert!(all_items.iter().all(|item| item["kind"] == 17));
     std::fs::remove_dir_all(root).unwrap();
 }
 
