@@ -1,6 +1,8 @@
 use std::ops::Range;
 
-use plumb_core::{AttrItem, Attributes, Block, Inline, InlineContent, ParsedDocument};
+use plumb_core::{AttrItem, AttrValue, Attributes, Block, Inline, InlineContent, ParsedDocument};
+
+use crate::{parse_task_reference_target, TaskReferenceTarget};
 
 const LINK_OPEN: &str = "`->[";
 
@@ -42,6 +44,14 @@ pub struct ImageCompletionContext {
 }
 
 pub type FileCompletionContext = ImageCompletionContext;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TaskDependencyCompletionContext {
+    pub replace: Range<usize>,
+    pub query: String,
+    pub task_range: Range<usize>,
+    pub existing: Vec<TaskReferenceTarget>,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConstructCompletionContext {
@@ -414,6 +424,133 @@ pub fn construct_completion_context(
     } else {
         Some(ConstructCompletionContext::Inline { replace })
     }
+}
+
+pub fn task_dependency_completion_context(
+    document: &ParsedDocument,
+    offset: usize,
+) -> Option<TaskDependencyCompletionContext> {
+    if offset > document.source.len() || !document.source.is_char_boundary(offset) {
+        return None;
+    }
+    task_dependency_context_in_blocks(&document.syntax.blocks, &document.source, offset)
+}
+
+fn task_dependency_context_in_blocks(
+    blocks: &[Block],
+    source: &str,
+    offset: usize,
+) -> Option<TaskDependencyCompletionContext> {
+    for block in blocks {
+        let Block::Parsed(block) = block else {
+            continue;
+        };
+        if let Some(mark) = &block.mark {
+            if matches!(mark.marker.as_str(), "-" | ".") && mark.attrs.has_class("task") {
+                let value = mark.attrs.items.iter().find_map(|item| match item {
+                    AttrItem::Pair { key, value, .. } if key == "depends" => Some(value),
+                    _ => None,
+                });
+                if let Some(value) = value.filter(|value| value.quoted) {
+                    if let Some(context) =
+                        task_dependency_context(source, offset, value, block.range.clone())
+                    {
+                        return Some(context);
+                    }
+                }
+            }
+        }
+        if let Some(context) = task_dependency_context_in_blocks(&block.children, source, offset) {
+            return Some(context);
+        }
+    }
+    None
+}
+
+fn task_dependency_context(
+    source: &str,
+    offset: usize,
+    value: &AttrValue,
+    task_range: Range<usize>,
+) -> Option<TaskDependencyCompletionContext> {
+    let content_start = value.range.start + 1;
+    let content_end = if source.as_bytes().get(value.range.end.saturating_sub(1)) == Some(&b'"') {
+        value.range.end - 1
+    } else {
+        value.range.end
+    };
+    let content_range = content_start..content_end;
+    if offset < content_range.start || offset > content_range.end {
+        return None;
+    }
+    if source[content_range.clone()].contains('\\') {
+        return None;
+    }
+    let tokens = task_dependency_tokens(source, content_range.clone());
+    let current = tokens
+        .iter()
+        .find(|(_, range)| range.start <= offset && offset <= range.end);
+    let replace = if let Some((_, range)) = current {
+        range.clone()
+    } else {
+        let start = tokens
+            .iter()
+            .filter(|(_, range)| range.end <= offset)
+            .map(|(_, range)| range.end)
+            .max()
+            .unwrap_or(content_range.start);
+        let start = source[start..offset]
+            .char_indices()
+            .find(|(_, character)| !character.is_whitespace())
+            .map_or(offset, |(relative, _)| start + relative);
+        start..offset
+    };
+    let query = source[replace.start..offset].to_string();
+    let current_range = current.map(|(_, range)| range.clone());
+    let existing = tokens
+        .iter()
+        .filter(|(_, range)| Some(range.clone()) != current_range)
+        .map(|(token, _)| parse_task_reference_target(token))
+        .collect();
+    Some(TaskDependencyCompletionContext {
+        replace,
+        query,
+        task_range,
+        existing,
+    })
+}
+
+fn task_dependency_tokens(source: &str, range: Range<usize>) -> Vec<(&str, Range<usize>)> {
+    let value = &source[range.clone()];
+    let mut output = Vec::new();
+    let mut cursor = 0;
+    while cursor < value.len() {
+        cursor += value[cursor..]
+            .chars()
+            .take_while(|character| character.is_whitespace())
+            .map(char::len_utf8)
+            .sum::<usize>();
+        if cursor == value.len() {
+            break;
+        }
+        let start = cursor;
+        let id_start = if value[start..].starts_with('#') {
+            start + 1
+        } else if let Some(separator) = value[start..]
+            .find(".plumb#")
+            .filter(|separator| !value[start..start + separator].contains('#'))
+        {
+            start + separator + ".plumb#".len()
+        } else {
+            start
+        };
+        let end = value[id_start..]
+            .find(char::is_whitespace)
+            .map_or(value.len(), |relative| id_start + relative);
+        output.push((&value[start..end], range.start + start..range.start + end));
+        cursor = end;
+    }
+    output
 }
 
 pub fn link_completion_context(
@@ -821,6 +958,53 @@ mod tests {
         let (nested, cursor) = strip_cursor("Text `span[x `img[y]{s|}]{.outer}");
         let context = attribute_completion_context(&parse(&nested), cursor).unwrap();
         assert_eq!(context.completions[0].label, "src");
+    }
+
+    #[test]
+    fn identifies_task_dependency_tokens_and_preserves_other_references() {
+        let (source, cursor) = strip_cursor(
+            "`-{.task #review depends=\"#done Project Plan.plumb#dr|aft #later\"} Review",
+        );
+        let current_start = source.find("Project Plan.plumb#draft").unwrap();
+        let context = task_dependency_completion_context(&parse(&source), cursor).unwrap();
+        assert_eq!(
+            context.replace,
+            current_start..current_start + "Project Plan.plumb#draft".len()
+        );
+        assert_eq!(context.query, "Project Plan.plumb#dr");
+        assert_eq!(
+            context.existing,
+            vec![
+                TaskReferenceTarget::Internal {
+                    id: "done".to_string()
+                },
+                TaskReferenceTarget::Internal {
+                    id: "later".to_string()
+                }
+            ]
+        );
+
+        let (empty, cursor) = strip_cursor("`-{.task depends=\"#done |\"} Review");
+        let context = task_dependency_completion_context(&parse(&empty), cursor).unwrap();
+        assert_eq!(context.replace, cursor..cursor);
+        assert_eq!(context.query, "");
+        assert_eq!(
+            context.existing,
+            vec![TaskReferenceTarget::Internal {
+                id: "done".to_string()
+            }]
+        );
+
+        let (non_task, cursor) = strip_cursor("`-{depends=\"#dr|aft\"} Plain item");
+        assert_eq!(
+            task_dependency_completion_context(&parse(&non_task), cursor),
+            None
+        );
+
+        let (recovered, cursor) = strip_cursor("`-{.task depends=\"#dr|aft");
+        let context = task_dependency_completion_context(&parse(&recovered), cursor).unwrap();
+        assert_eq!(context.query, "#dr");
+        assert_eq!(&recovered[context.replace], "#draft");
     }
 
     #[test]

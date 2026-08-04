@@ -33,8 +33,8 @@ use lsp_types::{
 use plumb_core::Diagnostic;
 use plumb_extensions::{
     attribute_completion_context, construct_completion_context, file_completion_context,
-    image_completion_context, link_completion_context, AnchorKind, ConstructCompletionContext,
-    TaskStatus,
+    image_completion_context, link_completion_context, task_dependency_completion_context,
+    AnchorKind, ConstructCompletionContext, TaskStatus,
 };
 use plumb_workspace::{
     normalize, scan_workspace_files, PathRenameInput, RenameError, ResolvedTarget,
@@ -1205,6 +1205,24 @@ impl LanguageServer for ServerState {
                         self.supports_completion_snippets,
                         &timestamp,
                     ));
+                }
+                if let Some(context) = task_dependency_completion_context(&entry.parsed, offset) {
+                    let candidates = self.workspace.complete_task_dependency(&path, &context);
+                    return Some(
+                        candidates
+                            .into_iter()
+                            .map(|candidate| CompletionItem {
+                                label: candidate.label,
+                                kind: Some(CompletionItemKind::REFERENCE),
+                                detail: Some(candidate.detail),
+                                text_edit: Some(CompletionTextEdit::Edit(LspTextEdit::new(
+                                    byte_range_to_lsp(&entry.parsed.source, &candidate.replace),
+                                    candidate.new_text,
+                                ))),
+                                ..CompletionItem::default()
+                            })
+                            .collect(),
+                    );
                 }
                 if let Some(context) = attribute_completion_context(&entry.parsed, offset) {
                     if !context.completions.is_empty() {

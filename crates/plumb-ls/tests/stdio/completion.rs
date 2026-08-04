@@ -3,6 +3,93 @@ use serde_json::json;
 use crate::support::{attribute_value, response, run_server, unique_temp_dir};
 
 #[test]
+fn completes_task_dependencies_from_workspace_tasks() {
+    let root = unique_temp_dir();
+    std::fs::create_dir_all(&root).unwrap();
+    let source_path = root.join("current.plumb");
+    let target_path = root.join("Project Plan.plumb");
+    let source = "`-{.task #done} Existing dependency\n`-{.task #local} Local task\n`node{#plain} Plain anchor\n`-{.task #review depends=\"#done Project Plan.plumb#dr\"} Review\n`-{.task #review-two depends=\"#done \"} Review two\n";
+    let target = "`-{.task #draft} Draft task\n`-{.task #closed done=\"2026-08-04T12:00:00+08:00\"} Closed task\n`node{#note} Not a task\n";
+    std::fs::write(&source_path, source).unwrap();
+    std::fs::write(&target_path, target).unwrap();
+    let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
+    let source_uri = lsp_types::Url::from_file_path(&source_path).unwrap();
+    let lines = source.lines().collect::<Vec<_>>();
+    let path_cursor = lines[3].find("#dr").unwrap() + "#dr".len();
+    let empty_cursor = lines[4].find("#done ").unwrap() + "#done ".len();
+    let messages = [
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {
+                "processId": null, "rootUri": root_uri,
+                "workspaceFolders": [{ "uri": root_uri, "name": "test" }],
+                "capabilities": {}
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": {
+                "uri": source_uri, "languageId": "plumb", "version": 1, "text": source
+            }}
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 2, "method": "textDocument/completion",
+            "params": {
+                "textDocument": { "uri": source_uri },
+                "position": { "line": 3, "character": path_cursor }
+            }
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 3, "method": "textDocument/completion",
+            "params": {
+                "textDocument": { "uri": source_uri },
+                "position": { "line": 4, "character": empty_cursor }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 4, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+
+    let output = run_server(&messages);
+    let path_items = response(&output, 2)["result"].as_array().unwrap();
+    assert_eq!(path_items.len(), 1);
+    assert_eq!(path_items[0]["label"], "Project Plan.plumb#draft");
+    assert_eq!(path_items[0]["kind"], 18);
+    assert!(path_items[0]["detail"]
+        .as_str()
+        .unwrap()
+        .contains("READY  Draft task"));
+    assert_eq!(
+        path_items[0]["textEdit"]["newText"],
+        "Project Plan.plumb#draft"
+    );
+    assert_eq!(
+        path_items[0]["textEdit"]["range"],
+        json!({
+            "start": { "line": 3, "character": lines[3].find("Project Plan").unwrap() },
+            "end": {
+                "line": 3,
+                "character": lines[3].find("Project Plan.plumb#dr").unwrap()
+                    + "Project Plan.plumb#dr".len()
+            }
+        })
+    );
+
+    let all_items = response(&output, 3)["result"].as_array().unwrap();
+    let labels = all_items
+        .iter()
+        .map(|item| item["label"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert!(labels.contains(&"#local"), "labels: {labels:?}");
+    assert!(labels.contains(&"Project Plan.plumb#closed"));
+    assert!(!labels.contains(&"#done"));
+    assert!(!labels.contains(&"#review-two"));
+    assert!(!labels.iter().any(|label| label.ends_with("#note")));
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn completes_links_by_document_metadata_title() {
     let root = unique_temp_dir();
     std::fs::create_dir_all(&root).unwrap();

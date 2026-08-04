@@ -28,9 +28,10 @@ pub use metadata::{
 };
 pub use queries::{
     attribute_completion_context, construct_completion_context, file_completion_context,
-    image_completion_context, link_completion_context, AttributeCompletion,
-    AttributeCompletionContext, ConstructCompletionContext, FileCompletionContext,
-    ImageCompletionContext, LinkCompletionContext,
+    image_completion_context, link_completion_context, task_dependency_completion_context,
+    AttributeCompletion, AttributeCompletionContext, ConstructCompletionContext,
+    FileCompletionContext, ImageCompletionContext, LinkCompletionContext,
+    TaskDependencyCompletionContext,
 };
 pub use quotes::{analyze_quotes, QuoteOutput, QuoteRecord};
 pub use tasks::{

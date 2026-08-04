@@ -15,7 +15,7 @@ use plumb_extensions::{
     analyze_document, parse_task_reference_target, AnchorRecord, DocumentOutput, EventRecord,
     FileCompletionContext, FileRecord, FileTarget, ImageCompletionContext, ImageRecord,
     ImageTarget, LinkCompletionContext, LinkRecord, LinkSpelling, LinkTarget, MetadataOutput,
-    MetadataValue, TaskRecord, TaskReferenceTarget, TaskState,
+    MetadataValue, TaskDependencyCompletionContext, TaskRecord, TaskReferenceTarget, TaskState,
 };
 
 mod scan;
@@ -2568,6 +2568,90 @@ impl Workspace {
                     .unwrap_or_default()
             }
         };
+        candidates.sort_by(|left, right| left.label.cmp(&right.label));
+        candidates
+    }
+
+    pub fn complete_task_dependency(
+        &self,
+        from: impl AsRef<Path>,
+        context: &TaskDependencyCompletionContext,
+    ) -> Vec<CompletionCandidate> {
+        let from = normalize(from.as_ref());
+        let Some(owner) = self.current_output(&from).and_then(|output| {
+            output
+                .tasks
+                .tasks
+                .iter()
+                .find(|task| task.range == context.task_range)
+        }) else {
+            return Vec::new();
+        };
+        let owner_ref = owner.id.as_ref().map(|id| TaskRef {
+            path: from.clone(),
+            id: id.value.clone(),
+        });
+        let existing = context
+            .existing
+            .iter()
+            .filter_map(|target| match self.resolve_task_target(&from, target) {
+                TaskTargetResolution::Task { target, .. } => Some(target),
+                _ => None,
+            })
+            .collect::<HashSet<_>>();
+        let now = chrono::Local::now().fixed_offset();
+        let mut candidates = self
+            .documents
+            .values()
+            .filter_map(|entry| {
+                let versioned = entry.current.as_ref().or(entry.last_valid.as_ref())?;
+                let relative = relative_path(&from, &entry.path)?;
+                Some((entry, versioned, relative))
+            })
+            .flat_map(|(entry, versioned, relative)| {
+                let from = &from;
+                let owner_ref = &owner_ref;
+                let existing = &existing;
+                let query = &context.query;
+                versioned.output.tasks.tasks.iter().filter_map(move |task| {
+                    let id = task.id.as_ref()?;
+                    let target = TaskRef {
+                        path: entry.path.clone(),
+                        id: id.value.clone(),
+                    };
+                    if owner_ref.as_ref() == Some(&target) || existing.contains(&target) {
+                        return None;
+                    }
+                    let reference = if entry.path == *from {
+                        format!("#{}", id.value)
+                    } else {
+                        format!("{relative}#{}", id.value)
+                    };
+                    if !fuzzy_match(&reference, query)
+                        && !fuzzy_match(&id.value, query.trim_start_matches('#'))
+                        && !fuzzy_match(&task.title, query)
+                    {
+                        return None;
+                    }
+                    let (state, _) = self.task_workflow_state(&entry.path, task, now);
+                    let title = if task.title.is_empty() {
+                        "Untitled task"
+                    } else {
+                        &task.title
+                    };
+                    Some(CompletionCandidate {
+                        label: reference.clone(),
+                        detail: format!(
+                            "{}  {} ({relative})",
+                            state.as_str().to_ascii_uppercase(),
+                            title
+                        ),
+                        new_text: reference,
+                        replace: context.replace.clone(),
+                    })
+                })
+            })
+            .collect::<Vec<_>>();
         candidates.sort_by(|left, right| left.label.cmp(&right.label));
         candidates
     }
