@@ -5044,6 +5044,11 @@ mod tests {
             "`-{.task #middle priority=1 depends=\"c.plumb#base\"} Middle\n",
         );
         workspace.insert("notes/c.plumb", 1, "`-{.task #base} Base\n");
+        workspace.insert(
+            "notes/cycle.plumb",
+            1,
+            "`-{.task #cycle-high priority=30 depends=\"#cycle-low\"} Cycle high\n`-{.task #cycle-low priority=-10 depends=\"#cycle-high\"} Cycle low\n",
+        );
 
         let results = workspace.search_records(root, Some(SearchRecordKind::Task), "", 20, now);
         let priority = |id: &str| {
@@ -5059,6 +5064,8 @@ mod tests {
         assert_eq!(priority("middle"), Some(40));
         assert_eq!(priority("base"), Some(40));
         assert_eq!(priority("closed"), Some(-20));
+        assert_eq!(priority("cycle-high"), Some(30));
+        assert_eq!(priority("cycle-low"), Some(30));
     }
 
     #[test]

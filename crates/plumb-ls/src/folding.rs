@@ -313,7 +313,7 @@ fn include_one_trailing_blank_line(source: &str, mut end: usize) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use super::single_line_label;
+    use super::{include_one_trailing_blank_line, single_line_label};
 
     #[test]
     fn normalizes_and_truncates_fold_labels_on_character_boundaries() {
@@ -322,5 +322,14 @@ mod tests {
             "Project Overview"
         );
         assert_eq!(single_line_label("项目项目项目项目", 6), "项目项...");
+    }
+
+    #[test]
+    fn includes_exactly_one_trailing_blank_line_for_lf_and_crlf() {
+        assert_eq!(include_one_trailing_blank_line("body\nnext", 4), 4);
+        assert_eq!(include_one_trailing_blank_line("body\n\nnext", 4), 6);
+        assert_eq!(include_one_trailing_blank_line("body\n\n\nnext", 4), 6);
+        assert_eq!(include_one_trailing_blank_line("body\r\n\r\nnext", 4), 8);
+        assert_eq!(include_one_trailing_blank_line("body", 4), 4);
     }
 }
