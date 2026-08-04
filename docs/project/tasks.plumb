@@ -186,6 +186,30 @@
    `note 已存在的唯一 id 或 pair key 不重复建议；可重复 classes 按其扩展约束处理。插入必须生成合法 attribute token 或 quoted value，复用 path、anchor、datetime、task reference 等现有专项 completion，并保留用户已输入的其他 attributes 与 multiline layout。
    `note 明确 `[{]、whitespace、`[.]、`[#]、`[=] 与 quoted-value 内的触发和 replacement ranges；覆盖空/部分输入、owner-specific filtering、duplicate suppression、invalid/recovered syntax、nested inline、multiline attributes、snippet capability 与 stdio LSP tests，并同步 guide 和 bundled skill。
 
+`-{
+   .task #task-depends-completion created="2026-08-04T15:37:31+08:00"
+  } 在 LSP 中补全 task `[depends] references
+
+   `note Cursor 位于有效 task 的 quoted `[depends] value 时，补全 same-file `[#id] 与 cross-file `[`path.plumb#id] task references；候选显示 task title、relative document path 与 derived workflow state，并复用 workspace 的 latest-valid/open-buffer-precedence index。
+   `note 根据当前 reference token 与 `[.plumb#] separator 计算 replacement range，保留 raw relative path spelling 与 value 中其他 references；不得建议当前 task 自身或同一 value 中已经存在的 target，且只建议可解析为 TaskRecord 的 explicit anchors。
+   `note 补齐空值、多个 references、含空格 path、UTF-16 range、未闭合 quoted value、invalid/recovered owner、cross-file completion ordering 与 stdio LSP regression tests，并同步 editor guide。
+
+`-{
+   .task #metadata-fold-text created="2026-08-04T15:37:31+08:00"
+  } 优化 metadata fold text
+
+   `note Client 支持 `[foldingRange.foldingRange.collapsedText] 时，顶层有效 metadata fold 使用 document title 生成紧凑且可区分的 label，并保留 block opener 的原始结构缩进；title 缺失或不可用时使用稳定的 metadata fallback，不从 recovered invalid metadata 猜测内容。
+   `note Label 必须保持单行，正确处理 Unicode、inline-verbatim scalar、空 title 与过长 title；metadata facts、document symbols、rename identity 和 source range authority 不因展示文本改变。
+   `note 覆盖 valid/invalid metadata、title fallback、nested non-metadata `[meta] block、capability disabled、UTF-16 与 stdio LSP tests，并更新 editor guide。
+
+`-{
+   .task #single-line-task-event-folds created="2026-08-04T15:37:31+08:00"
+  } 允许折叠单行 event 与 task
+
+   `note 即使 task 或 event owner 只占一条 physical line，也提供语义 fold，使它与带 children 的同类 block 使用一致的 collapsed text；range 不能包含 trailing blank 或 following sibling，也不能为制造多行范围而吞入相邻 source。
+   `note 按 client 的 line-folding capability 选择合法 range 表达；协议或 client 无法显示单行 fold 时保持 source range authority 并明确降级行为，不发布伪造范围。
+   `note 覆盖 top-level/nested task、event、相邻 single-line siblings、document EOF、range limit、collapsed-text capability 与 Neovim 0.12 展示的 regression tests，并更新 editor guide。
+
 `-{.task #standard-div-span done="2026-07-20T13:00:12+08:00"} 支持标准 div 与 span 透明容器
 
    `note 将 `[div] marked block 与 `[span] parsed inline kind 冻结为 standard extension spellings。
@@ -506,6 +530,14 @@
    `note 增加覆盖全部 sort keys、长标签、最窄支持 viewport 和 desktop sidebar 的 frontend layout regression test，并确认 add/reset actions 与排序 key 列表之间没有重叠。
 
 `# Neovim plugin
+
+`-{
+   .task #preserve-neovim-fold-state-after-format created="2026-08-04T15:37:31+08:00"
+  } 避免 format 后重置 Neovim fold 状态
+
+   `note 复现并定位 Neovim 使用 `[vim.lsp.foldexpr()] 时 formatting edits 触发 fold ranges 重算后的状态丢失：执行 `[zM]、用 `[zo] 打开特定 block、修改并 format 后，该 block 必须保持用户选择的打开状态，而不是随新的全局 fold level 再次关闭。
+   `note 优先使用稳定的 semantic block identity 与 source position mapping 在 format 前后保存并恢复 window-local open/closed overrides；不得依赖易漂移的绝对行号，不改变其他 windows 的 fold state，也不把 editor state 放入 LSP server 或 formatter semantics。
+   `note 明确 native `[vim.lsp.buf.format()]、plugin command、format-on-save、多 buffer/window、插入或删除 preceding blocks 与失效 identity 的降级行为；增加 Neovim 0.12 headless E2E，并在 integration docs 说明支持边界。
 
 `-{
    .task #neovim-plugin depends="#neovim-search-integration" done="2026-07-27T02:00:53+08:00"
