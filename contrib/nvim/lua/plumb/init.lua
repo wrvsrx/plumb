@@ -80,8 +80,4 @@ function M.foldtext()
   return require('plumb.folding').foldtext()
 end
 
-function M.foldexpr(lnum)
-  return require('plumb.folding').foldexpr(lnum)
-end
-
 return M

@@ -28,9 +28,8 @@ end), 'attach plumb LSP')
 local client = assert(vim.lsp.get_clients({ bufnr = 0, name = 'plumb' })[1])
 
 vim.wo.foldmethod = 'expr'
-vim.wo.foldexpr = "v:lua.require'plumb'.foldexpr()"
-vim.wo.foldtext = "v:lua.require'plumb'.foldtext()"
-vim.wo.foldminlines = 0
+vim.wo.foldexpr = 'v:lua.vim.lsp.foldexpr()'
+vim.wo.foldtext = 'v:lua.vim.lsp.foldtext()'
 vim.wo.foldlevel = 99
 vim.cmd('normal! zx')
 assert(vim.wait(5000, function()

@@ -42,13 +42,14 @@ modules 要求 Neovim 0.12。`[plumb.search] 还要求 attached plumb LSP 声明
 incomplete-result state。
 
 plugin 不修改 window-local folding settings。`[plumb lsp] 仍提供 folding ranges 与 task
-`[collapsedText]；editor configuration 决定是否使用 plugin 的 `[foldexpr()] 与 `[foldtext()] adapter。
-adapter 委托 Neovim 原生 LSP folding 处理多行 ranges，只补充其忽略的单行 ranges；window 必须设置
-`[foldminlines = 0]。foldtext 用 closed-task semantic highlight groups 渲染 `[DONE] 与 `[CANCELED]
-labels；LSP protocol 自身不传递 fold label highlight。
+`[collapsedText]；editor configuration 决定是否使用 `[vim.lsp.foldexpr()] 与
+`[require('plumb').foldtext()]。后者包装原生 `[vim.lsp.foldtext()]，并用 closed-task semantic highlight
+groups 渲染 `[DONE] 与 `[CANCELED] labels；LSP protocol 自身不传递 fold label highlight。
 LSP formatting 只返回 changed-line edits，因此原生 `[vim.lsp.buf.format()] 和 format-on-save 不会用整篇
-replacement 重置未变化 blocks 的 window-local fold overrides。`[lineFoldingOnly] 只把 folding boundary
-限制为整行；单行 task/event 使用同一 start/end line，server 不会吞入 following line。
+replacement 重置未变化 blocks 的 window-local fold overrides。server 会向
+`[lineFoldingOnly] client 返回 `[startLine == endLine] 的单行 task/event range；支持这类 range
+的 editor 还需要 `[foldminlines = 0] 才能关闭只占一个 screen line 的 fold。上游
+Neovim 0.12 的 LSP fold adapter 会忽略这类 range；plugin 不提供额外的 folding-range adapter。
 
 plugin 默认把 `[task + completed] 与 `[task + canceled] semantic tokens 链接到 `[Comment]，淡化完整
 closed task block。自定义 `[@lsp.typemod.task.completed.plumb] 与
