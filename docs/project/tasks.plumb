@@ -454,14 +454,14 @@
    `note Dynamic server 覆盖 direct Tasks navigation、Graph-to-Tasks navigation、empty/explicit URL state、filter removal、refresh、history navigation 和 URL round-trip frontend tests。
 
 `-{
-   .task #disjoint-task-workflow-states depends="#default-ready-task-filter"
+   .task #boolean-task-status-filters depends="#default-ready-task-filter"
    created="2026-08-04T15:11:23+08:00"
-  } 重新设计互斥 task workflow states 与默认可见性
+  } 使用独立布尔 task filters 取代 State Filter
 
-   `note 共享 task model 将每个 task 投影为且仅为 `[ready]、`[blocked]、`[waiting]、`[done]、`[canceled] 或 `[conflicted] 之一：同时有 done 与 canceled 是 conflicted；只有 done 是 done；只有 canceled 是 canceled；其余 task 中，有 future wait 是 waiting，没有 future wait 但有 open dependency 是 blocked，既没有 future wait 也没有 open dependency 才是 ready。Closure state 优先于 open workflow conditions，time waiting 优先于 dependency block；同时有 future wait 与 open dependency 的 task 是 waiting，但仍保留 time 与 dependency 两项 reason。
-   `note State Filter 的 canonical 单值选项只使用上述六种互斥 state；`[Open] 是 ready、blocked 与 waiting 的组合 preset，`[Closed] 是 done 与 canceled 的组合 preset，不把 Open、Closed 或 All 伪装成额外 state。首次进入 `[/tasks] 且 URL 没有显式 filter state 时默认选择 Open，而显式 filters、空 filters、refresh、history navigation 与 shared URL 继续无损恢复，不能被默认值覆盖。
-   `note CEL `[state]、`[actionable]、`[blocked] 与 reason facts、workspace query、CLI、LSP hover、dynamic/static Web snapshot 和 UI labels 必须来自同一 shared derivation；`[actionable] 仅等价于 state ready，`[blocked] 继续表示存在 open dependency，因此 waiting task 可以同时具有 `[blocked=true]，但只由 `[state == "blocked"] 进入 Blocked State Filter。完成操作仍只被 open dependency 拒绝，future wait 不伪装成 dependency block；conflicted 继续发布既有 closure diagnostic 并拒绝 normal operations。
-   `note 同步更新 reference、guide 与 bundled skill，并覆盖六种 partition、dependency/time overlap precedence、多个 dependency、expired wait、closed task fields、Open/Closed preset composition、默认 Open、显式 URL state、CEL parity、hover 与 dynamic/static Web regression tests。
+   `note 删除互斥枚举式 State grouped filter，改为 `[Waiting]、`[Blocked]、`[Done] 与 `[Canceled] 四种互相独立的 boolean filter type；每种 filter 只有 Yes 与 No 两个值，同一 type 最多存在一个 chip。没有该 type 的 chip 就是不约束该 fact，不提供或序列化 Any 值；删除 chip 恢复不约束，切换 Yes/No 更新原 chip，不能同时产生矛盾条件。
+   `note facts 保持正交：waiting 表示 valid future wait，blocked 表示至少一个 open dependency，done 与 canceled 分别表示存在对应的 valid closure timestamp；同一 task 可以同时 waiting 与 blocked，也可以同时 done 与 canceled。Filter 只测试对应 boolean fact，不用 precedence 将 task 压成单一 workflow state；invalid datetime 不产生对应 fact，既有 diagnostics 与 normal operation eligibility 保持不变。
+   `note 首次进入 `[/tasks] 且 URL 没有显式 filters 时默认创建 `[Waiting: No]、`[Done: No] 与 `[Canceled: No] 三个 chips，Blocked 不受约束，因此显示 dependency-blocked task、隐藏 future-waiting task 与 closed/conflicted task。显式 filters、显式空 filters、refresh、history navigation 与 shared URL 必须无损恢复，不能被 defaults 覆盖；删除最后一个 chip 表示无过滤，不显示 All chip。
+   `note structured request、URL、server registry 与 dynamic/static Web UI 使用稳定的 boolean filter ids 和 Yes/No values；CEL facts、workspace task records 与 filter evaluation 对 waiting、blocked、done、canceled 使用同一 shared derivation。同步更新 reference、guide 与 bundled skill，并覆盖四个 facts 的全部组合、缺省/Yes/No、chip add/update/remove、默认三个 No filters、blocked visibility、waiting-and-blocked exclusion、conflicted exclusion、explicit empty URL、refresh/history/shared URL 与 dynamic/static Web regression tests。
 
 `-{
    .task #task-priority-sorting created="2026-07-30T17:23:47+08:00"
