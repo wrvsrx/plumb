@@ -90,13 +90,19 @@ element 不单独折叠。即使 document 存在 syntax error，未受错误影�
 遵守 client 声明的 `[rangeLimit]，按 source order 保留外层范围。
 
 客户端声明 `[foldingRange.foldingRange.collapsedText] support 时，task fold 使用 derived workflow state
-和 title 生成 `[READY  Title]、`[WAITING  Title]、`[DONE  Title]、`[CANCELED  Title] 或
-`[INVALID  Title]，并保留 task block opener 的原始结构缩进。event fold 把 `[date]/`[timezone]/`[when]
+和 title 生成固定两列 state slot：ready 是 `[-]、waiting 是 `[~]、blocked 是 `[!]、done 是 `[+]、
+canceled 是 `[x]；conflicted 组合 done/canceled 为 `[+x]。单字符 symbol 补齐一列，因此同级 task title
+保持对齐，并保留 task block opener 的原始结构缩进。event fold 把 `[date]/`[timezone]/`[when]
 解析出的时间（省秒、省偏移）与 title 拼成缩写：point 写成 `[YYYY-MM-DDTHH:MM  Title]；interval 写成
 `[YYYY-MM-DDTHH:MM--HH:MM  Title]。顶层有效 metadata 使用 `[METADATA  Document title]，缺少可用 title
-时回退为 `[METADATA]；label 规范为空格分隔的单行并在 80 characters 后截断。三者都保留原始结构
+时回退为 `[METADATA]；第一层 metadata entry fold 使用 `[key  scalar value]，list、map、null 或不可展示
+value 只使用 `[key]。label 规范为空格分隔的单行并在 80 characters 后截断。三者都保留原始结构
 缩进。没有该 capability、无可靠 valid task/metadata facts 或无可用时间的 event fold 不携带 custom
 label。
+
+Task subtree 后紧邻 sibling 前的一个空白分隔行包含在 task fold range 中，使关闭后的 task 不遗留孤立
+空行；只消费一个直接相邻的空白行，不跨过下一条非空内容。其他 block 与 heading fold 继续遵守自身的
+source range，不扩张到 trailing layout。
 
 Task/event 只有一条 physical line 时，server 也会向声明 `[lineFoldingOnly = true] 的 client
 返回 `[startLine == endLine] 的 semantic fold，且省略 character boundaries。该 capability 只要求
@@ -125,7 +131,7 @@ plugin 不修改 window-local folding 设置。editor configuration 可以在 `[
 plumb LSP 支持 folding 时优先使用 LSP ranges。
 
 `[require('plumb').foldtext()] 包装原生 `[vim.lsp.foldtext()]，并使用下述 closed-task semantic highlight
-groups 渲染 `[DONE] 与 `[CANCELED] fold labels；其他 task states、event、metadata 与 fallback labels
+groups 渲染 `[+]、`[x] 与 `[+x] fold labels；其他 task states、event、metadata 与 fallback labels
 保持原样。LSP `[collapsedText] 本身只携带文字，highlight chunks 由 plugin 在 editor 端补充。
 
 `# Closed task highlighting

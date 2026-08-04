@@ -213,6 +213,46 @@
    `note 按 client 的 line-folding capability 选择合法 range 表达；协议或 client 无法显示单行 fold 时保持 source range authority 并明确降级行为，不发布伪造范围。
    `note 覆盖 top-level/nested task、event、相邻 single-line siblings、document EOF、range limit、collapsed-text capability 与 Neovim 0.12 展示的 regression tests，并更新 editor guide。
 
+`-{
+   .task #aligned-task-fold-symbols depends="#disjoint-task-workflow-states"
+   created="2026-08-05T03:46:54+08:00" done="2026-08-05T03:46:54+08:00"
+  } 使用固定宽度 state symbols 对齐 task fold text
+
+   `note 使用五个 ASCII symbols：ready `[-]、waiting `[~]、blocked `[!]、done `[+]、canceled `[x]；conflicted 组合为 `[+x]。state slot 固定为两列，后接两个分隔空格，使同级 task title 对齐且不依赖 Unicode display width。
+   `note 保留原始结构缩进，Neovim foldtext wrapper 按 `[+]、`[x] 与 `[+x] 继续应用 closed-task semantic highlight；覆盖六种 workflow states 与 nested task alignment。
+
+`-{
+   .task #staged-task-depends-completion depends="#task-depends-completion"
+   created="2026-08-05T03:46:54+08:00" done="2026-08-05T03:46:54+08:00"
+  } 将 task depends completion 拆分为 path 与 id 两阶段
+
+   `note 当前 reference 尚无 `[#] 时只列出包含可选 explicit task id 的 documents，插入 same-file `[#] 或 cross-file `[`path.plumb#]；已有 `[#] 时只列出所选 document 的 task ids，并只替换 id fragment。`[#] 作为 LSP trigger character 触发第二阶段。
+   `note 两阶段均保留同一 value 中其他 references，排除 owner 自身、已存在 dependencies、idless tasks 与 non-task anchors，并覆盖 path/id replacement ranges、spaces、same-file、cross-file、ordering 和 stdio LSP tests。
+
+`-{
+   .task #dependency-priority-propagation depends="#signed-task-priority"
+   created="2026-08-05T03:46:54+08:00" done="2026-08-05T03:46:54+08:00"
+  } 沿 depends 传播 task effective priority
+
+   `note effective priority 从 dependent 传播给仍 open 的 dependency，并沿多级 dependency chains 继续传播；传播后的 priority 再提升 dependency ancestors 与 virtual document node。closed dependency 不传播，cycles 使用单调 maximum 收敛。
+   `note source `[priority] 与 CEL own-priority fact 保持原值；共享 workspace search projection 另行发布 effective priority，CLI 与 Web Priority sort 共用该值。过滤后只有 retained tasks 参与传播，覆盖 cross-file、transitive、ancestor、closed target、negative values、cycles 与 stable sorting tests。
+
+`-{
+   .task #metadata-entry-fold-text depends="#metadata-fold-text"
+   created="2026-08-05T03:46:54+08:00" done="2026-08-05T03:46:54+08:00"
+  } 为第一层 metadata entries 提供 fold text
+
+   `note 顶层有效 metadata 的第一层 entry fold 使用 `[key  scalar value]；inline scalar 与 verbatim value 规范为单行并截断，list、map、null 或不可展示 value 稳定回退为 `[key]。不为 nested invalid metadata 猜测 labels。
+   `note 覆盖 title 等常规 scalar fields、Unicode、empty/complex values、indent、outer metadata label、capability disabled 与 stdio LSP tests。
+
+`-{
+   .task #task-fold-trailing-blank depends="#single-line-task-event-folds"
+   created="2026-08-05T03:46:54+08:00" done="2026-08-05T03:46:54+08:00"
+  } 将 task 后的一个空白分隔行包含进 fold
+
+   `note task subtree 与下一 non-empty sibling 之间紧邻的一个 blank line 纳入 semantic fold range，使关闭 task 时不遗留孤立空行；adapter 最多向 authority range 后消费两个 line endings，不跨越下一条非空内容，不改变 parser block ownership。
+   `note 仅 task semantic folds 扩张 trailing layout；event、metadata、generic block 与 heading ranges 保持原规则。覆盖 LF/CRLF、无 blank、一个/多个 blanks、nested task、EOF 与相邻 sibling regression tests。
+
 `-{.task #standard-div-span done="2026-07-20T13:00:12+08:00"} 支持标准 div 与 span 透明容器
 
    `note 将 `[div] marked block 与 `[span] parsed inline kind 冻结为 standard extension spellings。

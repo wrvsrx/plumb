@@ -284,6 +284,11 @@ file-level priority. Every task and document node has a default own priority of
 zero; its effective priority is the maximum of its own priority and the
 effective priorities of its direct children. Positive descendants can promote
 ancestors, while negative descendants cannot demote them.
+Effective priority also propagates from a dependent task to each still-open
+dependency, transitively. The propagated value then promotes the dependency's
+ancestors and document through the same maximum rule. Closed dependencies do
+not receive propagated priority, and cycles converge because propagation only
+raises values to a maximum already present in the projected task set.
 
 Sorting recursively reorders only complete sibling subtrees, so documents and
 task subtrees remain contiguous. `plumb task` sorts by descending effective

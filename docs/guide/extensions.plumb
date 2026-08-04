@@ -282,7 +282,9 @@ head 是 title，children 是 details。另一个 task 需要引用它时才添�
 
 标准字段包括 `[created]、`[due]、`[wait]、`[done]、`[canceled]、`[recur]、`[prev]、
 `[priority] 和 `[depends]。priority 是 32-bit signed integer，数值越大越优先；缺失时排序权重
-默认为 `[0]，因此正数提前、负数延后。时间使用 quoted RFC 3339。
+默认为 `[0]，因此正数提前、负数延后。effective priority 除了从 children 提升 ancestors，也沿
+`[depends] 提升仍 open 的 dependencies；多级 dependency chain 继续传播，closed dependency 不传播。
+时间使用 quoted RFC 3339。
 Task reference 使用 raw relative path，不做 URL
 encode/decode；`[.plumb#] 分隔 path 与 explicit id，path 本身不能包含 `[#]。`[depends] 中每条
 reference 在 id 后由 whitespace 分隔，因此 path 可以直接包含 spaces：
@@ -290,10 +292,11 @@ reference 在 id 后由 whitespace 分隔，因此 path 可以直接包含 space
 `{language=plumb}
   `-{.task depends="#local Project A.plumb#build Project B.plumb#test"} Review
 
-LSP 在 quoted `[depends] value 内补全 workspace tasks。候选显示 reference spelling、task title、relative
-document path 和 derived workflow state；same-file target 插入 `[#id]，cross-file target 插入
-`[`path.plumb#id]。补全只替换 cursor 所在 reference，保留同一 value 中其他 references，并排除当前 task、
-已经列出的 dependencies 与 non-task anchors。
+LSP 在 quoted `[depends] value 内分两阶段补全 workspace tasks：当前 reference 尚无 `[#] 时只列出含有
+可选 task 的 document，选择后插入 same-file `[#] 或 cross-file `[`path.plumb#]；`[#] 后只列出已选
+document 中的 explicit task ids，并仅替换 id fragment。task id 候选显示 title、relative document path 和
+derived workflow state。补全保留同一 value 中其他 references，并排除当前 task、已经列出的 dependencies
+与 non-task anchors。
 
 `[recur] 接受正整数 `[`PnD]、`[`PnW]、`[`PnM] 或 `[`PnY]，并要求 `[due]。
 

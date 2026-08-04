@@ -413,8 +413,11 @@ document-local closure state：
 `[plumb task] 与 Web task view 将每个 document 投影为 workspace task forest 的虚拟结构节点；该节点
 不进入 language semantics，也没有可编辑的 file-level priority attribute。每个 task 与 document node
 的 own priority 默认为 `[0]，effective priority 是 own priority 与所有直接 children effective
-priorities 的最大值。因此正 priority 可以逐层提升 ancestors，负 priority 只让对应 task 在本层
-siblings 中延后，不能降低 ancestor 或 document 的 effective priority。
+priorities 的最大值。每个 task 的 effective priority 还沿 `[depends] 反向传播给仍 open 的 dependency，
+并传递经过多级 dependency chain；dependency 获得的 priority 再按相同规则提升其 ancestors 与 document。
+closed dependency 不接受传播。整个投影取所有可达来源 priority 的最大值，因此 dependency cycle 也稳定
+收敛。正 priority 可以逐层提升 ancestors 与 dependencies，负 priority 只让对应 task 在本层 siblings
+中延后，不能降低任何已有 effective priority。
 
 排序只重排同一 parent 下的完整 sibling subtrees，并递归应用到每一层；document 与 task subtree 始终
 保持连续。`[plumb task] 默认按 effective priority 降序、subtree 最早有效 due 升序和 source order
