@@ -2386,6 +2386,35 @@ mod tests {
     }
 
     #[test]
+    fn priority_sort_promotes_open_dependencies() {
+        let root = temp_dir();
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(
+            root.join("tasks.plumb"),
+            "`-{.task #medium priority=20} Medium\n`-{.task #blocker priority=-5} Blocker\n`-{.task #urgent priority=50 depends=\"#blocker\"} Urgent\n",
+        )
+        .unwrap();
+        let workspace = WebWorkspace::load(&root).unwrap();
+
+        let snapshot = workspace
+            .query_tasks(&WebQuery {
+                view: WebView::Tasks,
+                sort: vec![QuerySort::Priority],
+                ..WebQuery::default()
+            })
+            .unwrap();
+        assert_eq!(
+            snapshot
+                .tasks
+                .iter()
+                .map(|task| (task.id.as_deref().unwrap(), task.effective_priority))
+                .collect::<Vec<_>>(),
+            [("blocker", 50), ("urgent", 50), ("medium", 20)]
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn filtered_tasks_do_not_contribute_to_effective_priority() {
         let root = temp_dir();
         std::fs::create_dir_all(&root).unwrap();

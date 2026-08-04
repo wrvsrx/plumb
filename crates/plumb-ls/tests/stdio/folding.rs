@@ -5,7 +5,7 @@ use crate::support::{response, run_server};
 #[test]
 fn labels_metadata_folds_with_the_document_title() {
     let uri = "file:///tmp/metadata-fold-label.plumb";
-    let source = "`meta\n  `: title\n\n    项目 Overview\n\n  `: tags\n    `- plumb\n";
+    let source = "`meta\n  `: title\n\n    项目 Overview\n\n  `: created\n\n    2026-08-05T03:46:54+08:00\n\n  `: tags\n    `- plumb\n";
     let messages = [
         json!({
             "jsonrpc": "2.0", "id": 1, "method": "initialize",
@@ -62,13 +62,16 @@ fn labels_metadata_folds_with_the_document_title() {
         ranges[0],
         json!({
             "startLine": 0,
-            "endLine": 6,
+            "endLine": 10,
             "collapsedText": "METADATA  项目 Overview"
         })
     );
     assert!(ranges
         .iter()
         .any(|range| range["collapsedText"] == "  title  项目 Overview"));
+    assert!(ranges
+        .iter()
+        .any(|range| range["collapsedText"] == "  created  2026-08-05T03:46:54+08:00"));
     assert!(ranges
         .iter()
         .any(|range| range["collapsedText"] == "  tags"));
