@@ -48,11 +48,29 @@ function M.setup(opts, group)
       if not client or client.name ~= 'plumb' then
         return
       end
+      require('plumb.folding').attach(client, args.buf)
       if opts.on_attach then
         opts.on_attach(client, args.buf)
       end
       if opts.codelens ~= false and client:supports_method('textDocument/codeLens') then
         vim.lsp.codelens.enable(true, { bufnr = args.buf, client_id = client.id })
+      end
+    end,
+  })
+  vim.api.nvim_create_autocmd('LspDetach', {
+    group = group,
+    callback = function(args)
+      require('plumb.folding').detach(args.data.client_id, args.buf)
+    end,
+  })
+  vim.api.nvim_create_autocmd('LspNotify', {
+    group = group,
+    callback = function(args)
+      if
+        args.data.method == 'textDocument/didOpen'
+        or args.data.method == 'textDocument/didChange'
+      then
+        require('plumb.folding').refresh(args.buf)
       end
     end,
   })

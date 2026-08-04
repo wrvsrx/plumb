@@ -98,10 +98,9 @@ element 不单独折叠。即使 document 存在 syntax error，未受错误影�
 缩进。没有该 capability、无可靠 valid task/metadata facts 或无可用时间的 event fold 不携带 custom
 label。
 
-Task/event 只有一条 physical line 时，server 只向允许 character-range folding 的 client 返回同一行的
-semantic fold；声明 `[lineFoldingOnly = true] 的 client 不会收到伪造的跨行范围。Neovim 0.12 声明该
-capability 并忽略 zero-length line folds，因此原生 `[vim.lsp.foldexpr()] 无法显示单行 fold text；带
-children 的跨行 task/event 正常折叠。
+Task/event 只有一条 physical line 时，server 返回 `[startLine == endLine] 的 semantic fold。
+`[lineFoldingOnly = true] 表示 range 省略 character boundaries、折叠完整行，并不排除单行 range。
+Neovim 0.12 原生 `[vim.lsp.foldexpr()] 会忽略这类 range；plugin adapter 保留它们。
 
 plugin 不修改 window-local folding 设置。editor configuration 可以在 `[LspAttach] 中仅对支持该 method
 的 client 启用：
@@ -112,8 +111,9 @@ plugin 不修改 window-local folding 设置。editor configuration 可以在 `[
       local client = vim.lsp.get_client_by_id(args.data.client_id)
       if client and client:supports_method('textDocument/foldingRange') then
         vim.wo.foldmethod = 'expr'
-        vim.wo.foldexpr = 'v:lua.vim.lsp.foldexpr()'
+        vim.wo.foldexpr = "v:lua.require'plumb'.foldexpr()"
         vim.wo.foldtext = "v:lua.require'plumb'.foldtext()"
+        vim.wo.foldminlines = 0
         vim.wo.foldlevel = 99
       end
     end,
@@ -122,9 +122,10 @@ plugin 不修改 window-local folding 设置。editor configuration 可以在 `[
 独立 tree-sitter package 的 `[folds.scm] 可以作为没有 LSP client 时的 lenient fallback；editor 可以在
 plumb LSP 支持 folding 时优先使用 LSP ranges。
 
-`[require('plumb').foldtext()] 包装原生 `[vim.lsp.foldtext()]，并使用下述 closed-task semantic highlight
-groups 渲染 `[DONE] 与 `[CANCELED] fold labels；其他 task states、event、metadata 与 fallback labels
-保持原样。LSP `[collapsedText] 本身只携带文字，highlight chunks 由 plugin 在 editor 端补充。
+`[require('plumb').foldexpr()] 委托原生 `[vim.lsp.foldexpr()] 处理多行 ranges，只缓存并叠加原生 adapter
+忽略的单行 ranges，将其叠加为 Neovim fold level；`[foldminlines = 0] 允许 fold engine 关闭
+只占一个 screen line 的 fold。`[require('plumb').foldtext()] 同样优先补充单行 `[collapsedText]，其他
+ranges 回退到原生 `[vim.lsp.foldtext()]，并用下述 groups 渲染 `[DONE] 与 `[CANCELED] labels。
 
 `# Closed task highlighting
 
