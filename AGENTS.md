@@ -200,6 +200,20 @@ method to `impl LanguageServer` — even as a no-op `ControlFlow::Continue(())` 
 or the server crashes in real editors. A catch-all does not cover these.
 (`$/`-prefixed notifications, `exit`, and `initialized` are exempt.)
 
+## Patched Neovim development environment
+
+The primary development environment uses a patched Neovim from
+`~/Documents/nur-packages`, backed by the fork in `~/Documents/neovim`. The
+patch extends Neovim's LSP folding support for whole-line, single-physical-line
+folds and preserves their open state across relevant text edits. This behavior
+is not available in an unpatched upstream Neovim build.
+
+When investigating folding behavior, first reproduce it with the configured
+patched package and distinguish problems in plumb's folding ranges from problems
+in Neovim's fold engine or LSP folding adapter. Keep Neovim fixes in the fork,
+publish them under a semantic patch tag, and reference the aggregate GitHub
+compare `.diff` from `pkgs/neovim-unwrapped/default.nix` in `nur-packages`.
+
 ## Workspace Web app demo workflow
 
 When running `plumb site serve` for development, browser checks, or a user-facing demo,
