@@ -40,7 +40,6 @@ use plumb_workspace::{
     normalize, scan_workspace_files, PathRenameInput, RenameError, ResolvedTarget,
     ResourceOperation, SearchRecord, SearchRecordKind, Workspace, WorkspaceEdit,
 };
-use similar::{DiffOp, TextDiff};
 
 use crate::folding::{collapsed_text_labels as fold_labels, ranges as folding_ranges};
 #[cfg(test)]
@@ -884,12 +883,15 @@ impl LanguageServer for ServerState {
             .and_then(|path| self.workspace.get(path))
             .and_then(|entry| {
                 let source = &entry.parsed.source;
-                let formatted = plumb_format::format(source).ok()?;
-                Some(if formatted == *source {
-                    Vec::new()
-                } else {
-                    minimal_formatting_edits(source, &formatted)
-                })
+                let edits = plumb_format::format_edits(source).ok()?;
+                Some(
+                    edits
+                        .into_iter()
+                        .map(|edit| {
+                            LspTextEdit::new(byte_range_to_lsp(source, &edit.range), edit.new_text)
+                        })
+                        .collect(),
+                )
             });
         Box::pin(async move { Ok(edits) })
     }
@@ -1614,38 +1616,6 @@ impl LanguageServer for ServerState {
         })();
         Box::pin(async move { result })
     }
-}
-
-fn minimal_formatting_edits(source: &str, formatted: &str) -> Vec<LspTextEdit> {
-    let source_offsets = line_offsets(source);
-    let formatted_offsets = line_offsets(formatted);
-    TextDiff::from_lines(source, formatted)
-        .ops()
-        .iter()
-        .filter_map(|operation| {
-            if matches!(operation, DiffOp::Equal { .. }) {
-                return None;
-            }
-            let old = operation.old_range();
-            let new = operation.new_range();
-            let old_range = source_offsets[old.start]..source_offsets[old.end];
-            let new_text =
-                formatted[formatted_offsets[new.start]..formatted_offsets[new.end]].to_string();
-            Some(LspTextEdit::new(
-                byte_range_to_lsp(source, &old_range),
-                new_text,
-            ))
-        })
-        .collect()
-}
-
-fn line_offsets(source: &str) -> Vec<usize> {
-    let mut offsets = vec![0];
-    offsets.extend(source.match_indices('\n').map(|(offset, _)| offset + 1));
-    if offsets.last().copied() != Some(source.len()) {
-        offsets.push(source.len());
-    }
-    offsets
 }
 
 fn attribute_completion_text(text: &str, snippets: bool) -> String {

@@ -98,8 +98,9 @@ formatter 为 inline verbatim 选择最小安全 quote count，不重排普通�
 
 `[--check] 不写文件；任一输入需要重新格式化时返回非零状态。LSP 使用同一个 formatter 实现
 `[textDocument/formatting] 与 `[textDocument/rangeFormatting]，editor 的 tab size 不改变
-canonical alignment policy。Whole-document LSP formatting 对 canonical output 做 line diff，并返回按
-source order 排列、互不重叠的最小 changed-line edits，不把 unchanged blocks 包含在 replacement 中。
+canonical alignment policy。protocol-neutral formatter 对 whole-document canonical output 做 line diff，
+并返回按 source order 排列、互不重叠的最小 changed-line edits；LSP 只转换 byte ranges，不把 unchanged
+blocks 包含在 replacement 中。
 
 range formatting 不把 selection 扩展到只被部分命中的 structure：空 selection 或只包含 block
 局部内容时返回空 edits；完整包含一个 owner block 时格式化其完整 subtree；完整包含多个 blocks 时

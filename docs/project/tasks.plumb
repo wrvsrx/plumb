@@ -580,7 +580,7 @@
   } 避免 format 后重置 Neovim fold 状态
 
    `note 复现并定位 Neovim 使用 `[vim.lsp.foldexpr()] 时 formatting edits 触发 fold ranges 重算后的状态丢失：执行 `[zM]、用 `[zo] 打开特定 block、修改并 format 后，该 block 必须保持用户选择的打开状态，而不是随新的全局 fold level 再次关闭。
-   `note 已定位根因为 whole-document formatting 使用覆盖完整 source 的单个 edit；LSP adapter 现对 canonical output 做 line diff，只返回 source-ordered、non-overlapping changed-line edits，未变化 blocks 不再被 Neovim 当作重写，且 formatter semantics 保持不变。
+   `note 已定位根因为 whole-document formatting 使用覆盖完整 source 的单个 edit；protocol-neutral formatter 现对 canonical output 做 line diff，只返回 source-ordered、non-overlapping changed-line edits，LSP adapter 只映射 protocol positions，未变化 blocks 不再被 Neovim 当作重写，且 formatter semantics 保持不变。
    `note Native `[vim.lsp.buf.format()] 与 format-on-save 共用该 handler；Neovim 0.12 headless E2E 覆盖 `[zM] 后用 `[zo] 打开特定 task、format 修改该 task 内缩进后，closed sibling 与 manually opened task 各自保持状态。Integration docs 已说明机制与 single-line fold 边界。
 
 `-{

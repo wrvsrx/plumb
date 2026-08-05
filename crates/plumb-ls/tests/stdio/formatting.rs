@@ -43,6 +43,41 @@ fn whole_document_formatting_keeps_unchanged_blocks_out_of_edits() {
 }
 
 #[test]
+fn whole_document_formatting_handles_repeated_marker_lines() {
+    let uri = "file:///tmp/repeated-marker-format.plumb";
+    let source = "`-{.task created=now} aaa bbb ccc ddd eee fff ggg hhh iii jjj kkk lll mmm nnn ooo ppp\n`-{\n   .task created=later\n  } Following\n";
+    let messages = [
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": { "processId": null, "rootUri": null, "capabilities": {} }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": {
+                "uri": uri, "languageId": "plumb", "version": 1, "text": source
+            }}
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 2, "method": "textDocument/formatting",
+            "params": {
+                "textDocument": { "uri": uri },
+                "options": { "tabSize": 2, "insertSpaces": true }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 3, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+
+    let output = run_server(&messages);
+    let edits = response(&output, 2)["result"].as_array().unwrap();
+    assert_eq!(edits.len(), 1);
+    let formatted = apply_ascii_lsp_edits(source, edits);
+    assert!(plumb_core::parse(&formatted).is_valid(), "{formatted}");
+    assert_eq!(plumb_format::format(&formatted).unwrap(), formatted);
+}
+
+#[test]
 fn formats_valid_documents_and_declines_invalid_revisions() {
     let uri = "file:///tmp/format.plumb";
     let source = "`meta\n   `: title\n\n      Example\n";

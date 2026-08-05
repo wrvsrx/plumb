@@ -1510,7 +1510,6 @@ dependencies = [
  "plumb-workspace",
  "serde",
  "serde_json",
- "similar",
  "tokio",
  "tower",
  "tracing",
@@ -1558,6 +1557,7 @@ version = "0.16.1-dev"
 dependencies = [
  "clap 4.6.2",
  "plumb-core",
+ "similar",
  "unicode-width 0.2.2",
 ]
 

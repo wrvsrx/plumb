@@ -8,6 +8,7 @@ use std::process::ExitCode;
 
 use clap::Parser;
 use plumb_core::{parse, AttrItem, Attributes, Block, Inline, InlineContent, ParsedBlock};
+use similar::{DiffOp, TextDiff};
 use unicode_width::UnicodeWidthStr;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -99,6 +100,74 @@ pub fn format(source: &str) -> Result<String, FormatError> {
         formatter.output.push('\n');
     }
     Ok(formatter.output)
+}
+
+pub fn format_edits(source: &str) -> Result<Vec<FormatEdit>, FormatError> {
+    let formatted = format(source)?;
+    if formatted == source {
+        return Ok(Vec::new());
+    }
+
+    let source_offsets = line_offsets(source);
+    let formatted_offsets = line_offsets(&formatted);
+    let diff = TextDiff::from_lines(source, &formatted);
+    let operations = diff.ops();
+    let mut edits = Vec::new();
+    let mut index = 0;
+    while index < operations.len() {
+        if matches!(operations[index], DiffOp::Equal { .. }) {
+            index += 1;
+            continue;
+        }
+        let mut old_start = usize::MAX;
+        let mut old_end = 0;
+        let mut new_start = usize::MAX;
+        let mut new_end = 0;
+        while index < operations.len() {
+            let operation = &operations[index];
+            if matches!(operation, DiffOp::Equal { .. }) {
+                let equal = operation.old_range();
+                if equal.len() > 1
+                    || index + 1 == operations.len()
+                    || matches!(operations[index + 1], DiffOp::Equal { .. })
+                {
+                    break;
+                }
+            }
+            let old = operation.old_range();
+            let new = operation.new_range();
+            old_start = old_start.min(old.start);
+            old_end = old_end.max(old.end);
+            new_start = new_start.min(new.start);
+            new_end = new_end.max(new.end);
+            index += 1;
+        }
+        edits.push(FormatEdit {
+            range: source_offsets[old_start]..source_offsets[old_end],
+            new_text: formatted[formatted_offsets[new_start]..formatted_offsets[new_end]]
+                .to_string(),
+        });
+    }
+    let mut applied = source.to_string();
+    for edit in edits.iter().rev() {
+        applied.replace_range(edit.range.clone(), &edit.new_text);
+    }
+    if applied != formatted {
+        return Ok(vec![FormatEdit {
+            range: 0..source.len(),
+            new_text: formatted,
+        }]);
+    }
+    Ok(edits)
+}
+
+fn line_offsets(source: &str) -> Vec<usize> {
+    let mut offsets = vec![0];
+    offsets.extend(source.match_indices('\n').map(|(offset, _)| offset + 1));
+    if offsets.last().copied() != Some(source.len()) {
+        offsets.push(source.len());
+    }
+    offsets
 }
 
 /// Formats complete sibling blocks covered by `range`. The following sibling
@@ -688,6 +757,22 @@ mod tests {
             "`meta\n   `: title\n\n      Example\n\n`-{.task\n   #write\n   created=now\n   } Work\n",
             "`meta\n `: title\n\n    Example\n\n`-{.task #write created=now} Work\n",
         );
+    }
+
+    #[test]
+    fn whole_document_edits_preserve_a_task_before_a_repeated_marker() {
+        let source = "`-{.task created=one} Before\n`-{.task created=\"2026-08-05T03:25:50+08:00\"} 实现 task snippet 的时候有问题 aaa aaa aaa aaa aaa aaa aaa\n`-{\n   .task created=\"2026-08-05T03:26:23+08:00\" done=\"2026-08-05T04:03:22+08:00\"\n  } task fold 的时候没包含最后一行\n`-{\n   .task created=\"2026-08-05T03:43:34+08:00\" done=\"2026-08-05T04:32:23+08:00\"\n  } state 默认显示 ready 跟 blocked\n";
+        let canonical = format(source).unwrap();
+        let edits = format_edits(source).unwrap();
+        let mut edited = source.to_string();
+        for edit in edits.iter().rev() {
+            edited.replace_range(edit.range.clone(), &edit.new_text);
+        }
+
+        assert_eq!(edited, canonical);
+        assert!(edited.contains("created=\"2026-08-05T03:25:50+08:00\""));
+        assert!(edited.contains("aaa aaa aaa"));
+        assert!(parse(&edited).is_valid());
     }
 
     #[test]

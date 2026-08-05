@@ -8,6 +8,7 @@ autobins = false
 [dependencies]
 clap.workspace = true
 plumb-core = { path = "../plumb-core" }
+similar.workspace = true
 unicode-width.workspace = true
 
 [lib]

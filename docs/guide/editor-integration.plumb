@@ -172,7 +172,8 @@ tab stops。CodeAction 包括 metadata insertion、explicit id、event shorthand
 created insertion 和 task status operations。metadata insertion 只在 cursor 位于 document start（cursor
 之前仅有空白）时提供；event shorthand 的具体格式见
 `->[Event]{to="extensions.plumb"}。whole-document 与 range formatting 使用同一个 canonical formatter。
-Whole-document formatting 以 non-overlapping line-diff edits 返回，只替换实际变化的行；Neovim 使用
+Whole-document formatting 由 protocol-neutral formatter 产生 non-overlapping line-diff edits，LSP 只做
+position mapping，并只替换实际变化的行；Neovim 使用
 `[vim.lsp.foldexpr()] 时，`[zM] 后用 `[zo] 手动打开的 block 不会因为未变化 source 被整篇 replacement
 重置。Format-on-save 通过同一 `[textDocument/formatting] handler 获得相同行为。
 
