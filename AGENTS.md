@@ -51,6 +51,15 @@ plumb task --root docs/project \
 Use `plumb task --root docs/project --query 'path == "tasks.plumb"'` only when
 all task states are relevant. Open `docs/project/tasks.plumb` directly when
 editing task descriptions or when surrounding document structure is needed.
+Completed task records are archived in `docs/project/completed-tasks.plumb` and
+should not be scanned for routine implementation work. Query or open that file
+only when completed-task history or a known archived id is relevant:
+
+```sh
+plumb task --root docs/project \
+  --query 'path == "completed-tasks.plumb" && id == "TASK-ID"'
+```
+
 Read `docs/project/roadmap.plumb` directly; roadmap entries are not task
 records.
 
