@@ -17,7 +17,6 @@ import { EDITABLE_TASK_PROPERTIES, missingTaskProperties } from './task-ui.js';
 (function () {
   'use strict';
 
-  const NODE_SCREEN_REL_SIZE = 3;
   const config = JSON.parse(document.body.dataset.plumbConfig);
   const initialView = viewFromPath(location.pathname);
   const state = {
@@ -27,6 +26,7 @@ import { EDITABLE_TASK_PROPERTIES, missingTaskProperties } from './task-ui.js';
     graphScope: null,
     graphFitRevision: 0,
     graphLoadRevision: 0,
+    graphCameras: new Map(),
     renderedNodes: [],
     renderedEdges: [],
     labelBounds: [],
@@ -426,7 +426,7 @@ import { EDITABLE_TASK_PROPERTIES, missingTaskProperties } from './task-ui.js';
 
   async function loadGraph() {
     const loadRevision = ++state.graphLoadRevision;
-    const graphScope = state.local ? `local\u0000${state.current}` : 'workspace';
+    const graphScope = currentGraphScope();
     try {
       const result = await executeQuery('graph');
       if (loadRevision !== state.graphLoadRevision) return;
@@ -442,6 +442,7 @@ import { EDITABLE_TASK_PROPERTIES, missingTaskProperties } from './task-ui.js';
 
   function renderGraph(graphScope) {
     const scopeChanged = graphScope !== state.graphScope;
+    const savedCamera = scopeChanged ? state.graphCameras.get(graphScope) : null;
     const { nodes, edges, topologyChanged } = reconcileGraph(state.graph.nodes, state.graph.edges);
     const byId = new Map(nodes.map((node) => [node.id, node]));
     edges.forEach((edge) => {
@@ -461,7 +462,7 @@ import { EDITABLE_TASK_PROPERTIES, missingTaskProperties } from './task-ui.js';
     state.graphScope = graphScope;
     ensureGraphView();
     if (!state.graphConfigured || topologyChanged || scopeChanged) {
-      configureGraphView(nodes, edges, !state.graphConfigured, scopeChanged);
+      configureGraphView(nodes, edges, !state.graphConfigured, scopeChanged, savedCamera);
     } else {
       refreshStyles();
     }
@@ -525,16 +526,14 @@ import { EDITABLE_TASK_PROPERTIES, missingTaskProperties } from './task-ui.js';
       .maxZoom(8)
       .onNodeClick((node) => selectNode(node))
       .onNodeHover(handleNodeHover)
-      .onZoom(({ k }) => state.graphView.nodeRelSize(NODE_SCREEN_REL_SIZE / k))
       .onBackgroundClick(() => handleNodeHover(null));
-    state.graphView.nodeRelSize(NODE_SCREEN_REL_SIZE / state.graphView.zoom());
     window.plumbGraph = state.graphView;
     new ResizeObserver(() => {
       state.graphView.width(graphElement.clientWidth).height(graphElement.clientHeight);
     }).observe(graphElement);
   }
 
-  function configureGraphView(nodes, edges, initial, fitScope) {
+  function configureGraphView(nodes, edges, initial, fitScope, savedCamera) {
     const warmup = initial ? (nodes.length > 500 ? 100 : 260) : 0;
     const fitRevision = ++state.graphFitRevision;
     let shouldFitScope = fitScope;
@@ -559,7 +558,12 @@ import { EDITABLE_TASK_PROPERTIES, missingTaskProperties } from './task-ui.js';
       .onEngineStop(() => {
         if (!shouldFitScope || fitRevision !== state.graphFitRevision) return;
         shouldFitScope = false;
-        state.graphView.zoomToFit(250, 48);
+        if (savedCamera) {
+          state.graphView.centerAt(savedCamera.x, savedCamera.y, 0);
+          state.graphView.zoom(savedCamera.zoom, 0);
+        } else {
+          state.graphView.zoomToFit(0, 48);
+        }
       })
       .graphData({ nodes, links: edges });
     state.graphConfigured = true;
@@ -569,6 +573,16 @@ import { EDITABLE_TASK_PROPERTIES, missingTaskProperties } from './task-ui.js';
 
   function endpointId(endpoint) {
     return typeof endpoint === 'object' ? endpoint.id : endpoint;
+  }
+
+  function currentGraphScope() {
+    return state.local ? `local\u0000${state.current}` : 'workspace';
+  }
+
+  function saveGraphCamera() {
+    if (!state.graphView || !state.graphScope) return;
+    const center = state.graphView.centerAt();
+    state.graphCameras.set(state.graphScope, { ...center, zoom: state.graphView.zoom() });
   }
 
   function isHighlightedLink(link) {
@@ -714,7 +728,6 @@ import { EDITABLE_TASK_PROPERTIES, missingTaskProperties } from './task-ui.js';
     }
     if (!node) {
       state.current = documentId;
-      state.local = true;
       await setLocal(true);
       node = state.renderedNodes.find((candidate) => candidate.id === documentId);
     }
@@ -724,6 +737,7 @@ import { EDITABLE_TASK_PROPERTIES, missingTaskProperties } from './task-ui.js';
   }
 
   function setLocal(local) {
+    saveGraphCamera();
     state.local = local && Boolean(state.current);
     globalMode.classList.toggle('active', !state.local);
     localMode.classList.toggle('active', state.local);
