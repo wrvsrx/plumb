@@ -26,7 +26,7 @@ import { EDITABLE_TASK_PROPERTIES, missingTaskProperties } from './task-ui.js';
     graphScope: null,
     graphFitRevision: 0,
     graphLoadRevision: 0,
-    graphCameras: new Map(),
+    graphViewStates: new Map(),
     renderedNodes: [],
     renderedEdges: [],
     labelBounds: [],
@@ -442,8 +442,14 @@ import { EDITABLE_TASK_PROPERTIES, missingTaskProperties } from './task-ui.js';
 
   function renderGraph(graphScope) {
     const scopeChanged = graphScope !== state.graphScope;
-    const savedCamera = scopeChanged ? state.graphCameras.get(graphScope) : null;
+    const savedViewState = scopeChanged ? state.graphViewStates.get(graphScope) : null;
     const { nodes, edges, topologyChanged } = reconcileGraph(state.graph.nodes, state.graph.edges);
+    if (savedViewState) {
+      nodes.forEach((node) => {
+        const position = savedViewState.nodes.get(node.id);
+        if (position) Object.assign(node, position, { vx: 0, vy: 0 });
+      });
+    }
     const byId = new Map(nodes.map((node) => [node.id, node]));
     edges.forEach((edge) => {
       byId.get(endpointId(edge.source)).degree += 1;
@@ -462,7 +468,7 @@ import { EDITABLE_TASK_PROPERTIES, missingTaskProperties } from './task-ui.js';
     state.graphScope = graphScope;
     ensureGraphView();
     if (!state.graphConfigured || topologyChanged || scopeChanged) {
-      configureGraphView(nodes, edges, !state.graphConfigured, scopeChanged, savedCamera);
+      configureGraphView(nodes, edges, !state.graphConfigured, scopeChanged, savedViewState?.camera);
     } else {
       refreshStyles();
     }
@@ -579,10 +585,19 @@ import { EDITABLE_TASK_PROPERTIES, missingTaskProperties } from './task-ui.js';
     return state.local ? `local\u0000${state.current}` : 'workspace';
   }
 
-  function saveGraphCamera() {
+  function saveGraphViewState() {
     if (!state.graphView || !state.graphScope) return;
     const center = state.graphView.centerAt();
-    state.graphCameras.set(state.graphScope, { ...center, zoom: state.graphView.zoom() });
+    const nodes = new Map(state.renderedNodes.map((node) => [node.id, {
+      x: node.x,
+      y: node.y,
+      fx: node.fx,
+      fy: node.fy,
+    }]));
+    state.graphViewStates.set(state.graphScope, {
+      camera: { ...center, zoom: state.graphView.zoom() },
+      nodes,
+    });
   }
 
   function isHighlightedLink(link) {
@@ -737,7 +752,7 @@ import { EDITABLE_TASK_PROPERTIES, missingTaskProperties } from './task-ui.js';
   }
 
   function setLocal(local) {
-    saveGraphCamera();
+    saveGraphViewState();
     state.local = local && Boolean(state.current);
     globalMode.classList.toggle('active', !state.local);
     localMode.classList.toggle('active', state.local);
