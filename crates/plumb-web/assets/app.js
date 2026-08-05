@@ -23,6 +23,9 @@ import { EDITABLE_TASK_PROPERTIES, missingTaskProperties } from './task-ui.js';
     graph: null,
     graphView: null,
     graphConfigured: false,
+    graphScope: null,
+    graphFitRevision: 0,
+    graphLoadRevision: 0,
     renderedNodes: [],
     renderedEdges: [],
     labelBounds: [],
@@ -421,18 +424,23 @@ import { EDITABLE_TASK_PROPERTIES, missingTaskProperties } from './task-ui.js';
 
 
   async function loadGraph() {
+    const loadRevision = ++state.graphLoadRevision;
+    const graphScope = state.local ? `local\u0000${state.current}` : 'workspace';
     try {
       const result = await executeQuery('graph');
+      if (loadRevision !== state.graphLoadRevision) return;
       state.graph = result.graph;
       setQueryError('graph', null);
-      renderGraph();
+      renderGraph(graphScope);
     } catch (error) {
+      if (loadRevision !== state.graphLoadRevision) return;
       setQueryError('graph', error);
       if (!state.graph) summary.textContent = 'Graph unavailable';
     }
   }
 
-  function renderGraph() {
+  function renderGraph(graphScope) {
+    const scopeChanged = graphScope !== state.graphScope;
     const { nodes, edges, topologyChanged } = reconcileGraph(state.graph.nodes, state.graph.edges);
     const byId = new Map(nodes.map((node) => [node.id, node]));
     edges.forEach((edge) => {
@@ -449,9 +457,10 @@ import { EDITABLE_TASK_PROPERTIES, missingTaskProperties } from './task-ui.js';
     summary.textContent = `${nodes.length} notes, ${edges.length} connections${state.graph.complete ? '' : ' (truncated)'}`;
     state.renderedNodes = nodes;
     state.renderedEdges = edges;
+    state.graphScope = graphScope;
     ensureGraphView();
-    if (!state.graphConfigured || topologyChanged) {
-      configureGraphView(nodes, edges, !state.graphConfigured);
+    if (!state.graphConfigured || topologyChanged || scopeChanged) {
+      configureGraphView(nodes, edges, !state.graphConfigured, scopeChanged);
     } else {
       refreshStyles();
     }
@@ -522,8 +531,10 @@ import { EDITABLE_TASK_PROPERTIES, missingTaskProperties } from './task-ui.js';
     }).observe(graphElement);
   }
 
-  function configureGraphView(nodes, edges, initial) {
+  function configureGraphView(nodes, edges, initial, fitScope) {
     const warmup = initial ? (nodes.length > 500 ? 100 : 260) : 0;
+    const fitRevision = ++state.graphFitRevision;
+    let shouldFitScope = fitScope;
     state.graphView
       .width(graphElement.clientWidth)
       .height(graphElement.clientHeight)
@@ -542,6 +553,11 @@ import { EDITABLE_TASK_PROPERTIES, missingTaskProperties } from './task-ui.js';
       .linkDirectionalArrowLength((link) => link.kind === 'task-depends' ? 4 : 3)
       .linkDirectionalArrowRelPos(0.68)
       .linkDirectionalArrowColor(linkColor)
+      .onEngineStop(() => {
+        if (!shouldFitScope || fitRevision !== state.graphFitRevision) return;
+        shouldFitScope = false;
+        state.graphView.zoomToFit(250, 48);
+      })
       .graphData({ nodes, links: edges });
     state.graphConfigured = true;
     state.graphView.d3Force('charge').strength(nodes.length > 250 ? -45 : -85);
