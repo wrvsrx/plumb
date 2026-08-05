@@ -17,6 +17,7 @@ import { EDITABLE_TASK_PROPERTIES, missingTaskProperties } from './task-ui.js';
 (function () {
   'use strict';
 
+  const NODE_SCREEN_REL_SIZE = 3;
   const config = JSON.parse(document.body.dataset.plumbConfig);
   const initialView = viewFromPath(location.pathname);
   const state = {
@@ -524,7 +525,9 @@ import { EDITABLE_TASK_PROPERTIES, missingTaskProperties } from './task-ui.js';
       .maxZoom(8)
       .onNodeClick((node) => selectNode(node))
       .onNodeHover(handleNodeHover)
+      .onZoom(({ k }) => state.graphView.nodeRelSize(NODE_SCREEN_REL_SIZE / k))
       .onBackgroundClick(() => handleNodeHover(null));
+    state.graphView.nodeRelSize(NODE_SCREEN_REL_SIZE / state.graphView.zoom());
     window.plumbGraph = state.graphView;
     new ResizeObserver(() => {
       state.graphView.width(graphElement.clientWidth).height(graphElement.clientHeight);
