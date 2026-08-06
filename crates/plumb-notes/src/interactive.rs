@@ -175,7 +175,8 @@ fn preview_text(path: &str, source: &str) -> String {
 fn highlight_plumb(source: &str) -> String {
     let mut verbatim_margin = None;
     let mut lines = Vec::new();
-    for line in source.lines() {
+    let metadata_line = source.lines().position(|line| !line.trim().is_empty());
+    for (index, line) in source.lines().enumerate() {
         let trimmed = line.trim_start();
         let indent = line.len() - trimmed.len();
         if let Some(margin) = verbatim_margin {
@@ -189,10 +190,10 @@ fn highlight_plumb(source: &str) -> String {
             }
             verbatim_margin = None;
         }
-        if trimmed.starts_with("`{") {
+        if verbatim_block_opener(trimmed) {
             verbatim_margin = Some(indent + 2);
             lines.push(ansi(line, "36"));
-        } else if marked_kind(trimmed, "meta") {
+        } else if Some(index) == metadata_line && trimmed == "{" {
             lines.push(ansi(line, "35"));
         } else if trimmed.starts_with("`#") {
             lines.push(ansi(line, "1;34"));
@@ -205,15 +206,14 @@ fn highlight_plumb(source: &str) -> String {
     lines.join("\n")
 }
 
-fn marked_kind(source: &str, kind: &str) -> bool {
-    source
-        .strip_prefix('`')
-        .and_then(|source| source.strip_prefix(kind))
-        .is_some_and(|rest| {
-            rest.is_empty()
-                || rest.starts_with('{')
-                || rest.chars().next().is_some_and(char::is_whitespace)
-        })
+fn verbatim_block_opener(source: &str) -> bool {
+    let Some(rest) = source.strip_prefix('`') else {
+        return false;
+    };
+    let Some((kind, suffix)) = rest.split_once('"') else {
+        return false;
+    };
+    !kind.chars().any(char::is_whitespace) && (suffix.is_empty() || suffix.starts_with('{'))
 }
 
 fn ansi(text: &str, code: &str) -> String {
@@ -242,7 +242,10 @@ mod tests {
             editor_command("'code editor' --wait").unwrap(),
             ("code editor".to_string(), vec!["--wait".to_string()])
         );
-        let preview = preview_text("topic.plumb", "`#{#topic} Topic\nSee `->[x]{to=\"x\"}.\n");
+        let preview = preview_text(
+            "topic.plumb",
+            "`# Topic\n   {\n     `@ topic\n   }\n\nSee `->[x]{`:[to x]}.\n",
+        );
         assert!(preview.contains("topic.plumb"));
         assert!(preview.contains("\x1b[1;34m"));
         assert!(preview.contains("\x1b[32m"));
@@ -250,11 +253,10 @@ mod tests {
 
     #[test]
     fn preview_highlights_metadata_and_verbatim_blocks() {
-        let preview = highlight_plumb(
-            "`meta\n  `: title\n\n    Preview\n\n`{language=rust}\n  fn main() {}\n\n`# Heading\n",
-        );
-        assert!(preview.contains("\x1b[35m`meta\x1b[0m"));
-        assert!(preview.contains("\x1b[36m`{language=rust}\x1b[0m"));
+        let preview =
+            highlight_plumb("{\n  `: title Preview\n}\n\n`rust\"\n  fn main() {}\n\n`# Heading\n");
+        assert!(preview.contains("\x1b[35m{\x1b[0m"));
+        assert!(preview.contains("\x1b[36m`rust\"\x1b[0m"));
         assert!(preview.contains("\x1b[90m  fn main() {}\x1b[0m"));
         assert!(preview.contains("\x1b[1;34m`# Heading\x1b[0m"));
     }

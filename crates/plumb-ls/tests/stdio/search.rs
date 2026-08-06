@@ -14,11 +14,11 @@ fn workspace_index_does_not_follow_directory_symlinks() {
     let source = root.join("current.plumb");
     let target = root.join("target.plumb");
     let target_source =
-        "`meta\n `: title\n\n    Target\n\n`#{#anchor} Target\n`-{.task #work} Target work\n";
+        "{\n  `: title Target\n}\n\n`# Target\n   {\n     `@ anchor\n   }\n\n`- Target work\n   {\n     `- task\n     `@ work\n   }\n";
     std::fs::write(&source, "`->[").unwrap();
     std::fs::write(&target, target_source).unwrap();
     std::fs::write(snapshot.join("target.plumb"), target_source).unwrap();
-    let reference_source = "`->[Target]{to=\"target.plumb#anchor\"}\n";
+    let reference_source = "`->[Target]{`:[to target.plumb#anchor]}\n";
     std::fs::write(root.join("reference.plumb"), reference_source).unwrap();
     std::fs::write(snapshot.join("reference.plumb"), reference_source).unwrap();
     std::fs::write(
@@ -130,12 +130,12 @@ fn searches_workspace_symbols_and_structured_records_over_stdio() {
     std::fs::write(&note, "`meta\n `: title\n\n    Disk title\n").unwrap();
     std::fs::write(
         &tasks,
-        "`-{.task #review due=\"2026-07-23T12:00:00+08:00\"} Review parser\n",
+        "`- Review parser\n   {\n     `- task\n     `@ review\n     `: due 2026-07-23T12:00:00+08:00\n   }\n",
     )
     .unwrap();
     std::fs::write(
         &events,
-        "`meta\n  `: date\n\n    2026-07-30\n\n  `: timezone\n\n    +08:00\n\n`-{.event #review-event tasks=\"tasks.plumb#review\"} 14:00--15:00 Review meeting\n",
+        "{\n  `: date 2026-07-30\n  `: timezone +08:00\n}\n\n`- 14:00--15:00 Review meeting\n   {\n     `- event\n     `@ review-event\n     `: tasks tasks.plumb#review\n   }\n",
     )
     .unwrap();
     for index in 0..105 {

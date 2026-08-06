@@ -777,7 +777,11 @@ mod tests {
     async fn web_routes_restore_views_and_execute_structured_queries() {
         let root = temp_dir();
         std::fs::create_dir_all(&root).unwrap();
-        std::fs::write(root.join("tasks.plumb"), "`-{.task #ready} Ready task\n").unwrap();
+        std::fs::write(
+            root.join("tasks.plumb"),
+            "`- Ready task\n   {\n     `- task\n     `@ ready\n   }\n",
+        )
+        .unwrap();
         let (changes, _) = broadcast::channel(2);
         let state = AppState {
             workspace: Arc::new(RwLock::new(WebWorkspace::load(&root).unwrap())),
@@ -879,7 +883,7 @@ mod tests {
         assert_eq!(response.status(), StatusCode::OK);
         let source = std::fs::read_to_string(root.join("tasks.plumb")).unwrap();
         assert!(source.contains("Created from API"));
-        assert!(source.contains("`priority 3"), "{source}");
+        assert!(source.contains("`: priority 3"), "{source}");
 
         let response = app
             .oneshot(

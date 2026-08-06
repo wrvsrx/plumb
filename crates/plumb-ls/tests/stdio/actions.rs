@@ -43,7 +43,7 @@ fn inserts_metadata_code_action_only_for_valid_documents_without_metadata() {
             "params": {
                 "textDocument": { "uri": uri, "version": 4 },
                 "contentChanges": [{
-                    "text": "`meta\n  `: title\n\n    Existing\n\n`# Section\n"
+                    "text": "{\n  `: title Existing\n}\n\n`# Section\n"
                 }]
             }
         }),
@@ -98,7 +98,7 @@ fn inserts_metadata_code_action_only_for_valid_documents_without_metadata() {
     assert_eq!(change["edits"][0]["range"]["start"]["line"], 0);
     assert_eq!(change["edits"][0]["range"]["start"]["character"], 0);
     let new_text = change["edits"][0]["newText"].as_str().unwrap();
-    let prefix = "{\n  `title metadata-action\n  `created ";
+    let prefix = "{\n  `: title metadata-action\n  `: created ";
     let created = new_text
         .strip_prefix(prefix)
         .and_then(|suffix| suffix.strip_suffix("\n}\n\n"))
@@ -106,9 +106,10 @@ fn inserts_metadata_code_action_only_for_valid_documents_without_metadata() {
     chrono::DateTime::parse_from_rfc3339(created).expect("created is an RFC 3339 timestamp");
     assert!(response(&output, 3)["result"]
         .as_array()
-        .unwrap()
-        .iter()
-        .all(|action| action["title"] != "Insert document metadata"));
+        .map(|actions| actions
+            .iter()
+            .all(|action| action["title"] != "Insert document metadata"))
+        .unwrap_or(true));
     assert!(response(&output, 4)["result"].is_null());
 }
 
@@ -212,7 +213,7 @@ fn inserts_metadata_into_an_empty_document_over_stdio() {
         json!({ "line": 0, "character": 0 })
     );
     let generated = change["edits"][0]["newText"].as_str().unwrap();
-    assert!(generated.starts_with("{\n  `title empty-note\n  `created "));
+    assert!(generated.starts_with("{\n  `: title empty-note\n  `: created "));
     assert_eq!(plumb_format::format(generated).unwrap(), generated);
 }
 
@@ -268,7 +269,7 @@ fn offers_add_explicit_id_for_the_deepest_unanchored_block() {
             "jsonrpc": "2.0", "method": "textDocument/didOpen",
             "params": { "textDocument": {
                 "uri": uri, "languageId": "plumb", "version": 4,
-                "text": "`#{#same-title} Existing\n`node Parent\n  `child 😀 Same title\n"
+                "text": "`# Existing\n   {\n     `@ same-title\n   }\n\n`node Parent\n\n      `child 😀 Same title\n"
             }}
         }),
         json!({
@@ -276,8 +277,8 @@ fn offers_add_explicit_id_for_the_deepest_unanchored_block() {
             "params": {
                 "textDocument": { "uri": uri },
                 "range": {
-                    "start": { "line": 2, "character": 14 },
-                    "end": { "line": 2, "character": 14 }
+                    "start": { "line": 7, "character": 20 },
+                    "end": { "line": 7, "character": 20 }
                 },
                 "context": { "diagnostics": [], "only": ["refactor.rewrite"] }
             }
@@ -287,7 +288,7 @@ fn offers_add_explicit_id_for_the_deepest_unanchored_block() {
             "params": {
                 "textDocument": { "uri": uri, "version": 5 },
                 "contentChanges": [{
-                    "text": "`#{#same-title} Existing\n`node Parent\n  `child{#nested} 😀 Same title\n"
+                    "text": "`# Existing\n   {\n     `@ same-title\n   }\n\n`node Parent\n\n      `child 😀 Same title\n             {\n               `@ nested\n             }\n"
                 }]
             }
         }),
@@ -296,8 +297,8 @@ fn offers_add_explicit_id_for_the_deepest_unanchored_block() {
             "params": {
                 "textDocument": { "uri": uri },
                 "range": {
-                    "start": { "line": 2, "character": 23 },
-                    "end": { "line": 2, "character": 23 }
+                    "start": { "line": 7, "character": 20 },
+                    "end": { "line": 7, "character": 20 }
                 },
                 "context": { "diagnostics": [], "only": ["refactor.rewrite"] }
             }
@@ -317,11 +318,14 @@ fn offers_add_explicit_id_for_the_deepest_unanchored_block() {
     assert_eq!(action["isPreferred"], true);
     let change = &action["edit"]["documentChanges"][0];
     assert_eq!(change["textDocument"]["version"], 4);
-    assert!(change["edits"][0]["newText"]
-        .as_str()
-        .unwrap()
-        .contains("`child{#same-title-2} 😀 Same title"));
-    assert_eq!(change["edits"][0]["range"]["start"]["line"], 2);
+    assert!(
+        change["edits"][0]["newText"]
+            .as_str()
+            .unwrap()
+            .contains("`@ same-title-2"),
+        "{change:#}"
+    );
+    assert_eq!(change["edits"][0]["range"]["start"]["line"], 7);
     assert_eq!(change["edits"][0]["range"]["start"]["character"], 0);
 
     assert!(response(&output, 3)["result"]
@@ -350,7 +354,7 @@ fn converts_event_shorthand_with_a_refactor_action() {
             "jsonrpc": "2.0", "method": "textDocument/didOpen",
             "params": { "textDocument": {
                 "uri": uri, "languageId": "plumb", "version": 3,
-                "text": "`- 2026-05-21T11:10--11:20 relax: `[phone]\n"
+                "text": "`- 2026-05-21T11:10--11:20 relax: `\"phone\"\n"
             }}
         }),
         json!({
@@ -399,17 +403,17 @@ fn converts_event_shorthand_with_a_refactor_action() {
     assert_eq!(change["textDocument"]["version"], 3);
     let replacement = change["edits"][0]["newText"].as_str().unwrap();
     assert!(
-        replacement.starts_with("`- 11:10--11:20 relax: `[phone]\n"),
+        replacement.starts_with("`- 11:10--11:20 relax: `\"phone\"\n"),
         "{replacement}"
     );
-    assert!(replacement.contains("     `event\n"), "{replacement}");
+    assert!(replacement.contains("     `- event\n"), "{replacement}");
     assert!(
-        replacement.contains("     `date 2026-05-21\n"),
+        replacement.contains("     `: date 2026-05-21\n"),
         "{replacement}"
     );
     let timezone = Local::now().fixed_offset().format("%:z").to_string();
     assert!(
-        replacement.contains(&format!("     `timezone {timezone}\n")),
+        replacement.contains(&format!("     `: timezone {timezone}\n")),
         "{replacement}"
     );
     assert!(!replacement.contains("#e0001"), "{replacement}");
@@ -429,7 +433,7 @@ fn converts_event_shorthand_with_a_refactor_action() {
 #[test]
 fn converts_selected_event_shorthands_with_a_refactor_action() {
     let uri = "file:///tmp/event-shorthands.plumb";
-    let source = "`meta\n  `: date\n\n    2026-08-01\n\n  `: timezone\n\n    +08:00\n\n`- 10:00-- first\n`- 10:20-- second\n`- 10:30--10:40 third\n";
+    let source = "{\n  `: date 2026-08-01\n  `: timezone +08:00\n}\n\n`- 10:00-- first\n`- 10:20-- second\n`- 10:30--10:40 third\n";
     let messages = [
         json!({
             "jsonrpc": "2.0", "id": 1, "method": "initialize",
@@ -452,8 +456,8 @@ fn converts_selected_event_shorthands_with_a_refactor_action() {
             "params": {
                 "textDocument": { "uri": uri },
                 "range": {
-                    "start": { "line": 9, "character": 0 },
-                    "end": { "line": 12, "character": 0 }
+                    "start": { "line": 5, "character": 0 },
+                    "end": { "line": 8, "character": 0 }
                 },
                 "context": { "diagnostics": [], "only": ["refactor.rewrite"] }
             }
@@ -477,7 +481,7 @@ fn converts_selected_event_shorthands_with_a_refactor_action() {
         .iter()
         .map(|edit| edit["newText"].as_str().unwrap())
         .collect::<String>();
-    assert_eq!(replacements.matches("`event").count(), 3);
+    assert_eq!(replacements.matches("`- event").count(), 3);
     assert!(!replacements.contains("@plumb.local"));
     assert!(replacements.contains("`- 10:00--10:20 first\n"));
     assert!(replacements.contains("`- 10:20--10:30 second\n"));
@@ -502,7 +506,7 @@ fn offers_task_authoring_refactor_actions() {
             "jsonrpc": "2.0", "method": "textDocument/didOpen",
             "params": { "textDocument": {
                 "uri": uri, "languageId": "plumb", "version": 1,
-                "text": "`-{#keep .kind} List item\n"
+                "text": "`- List item\n   {\n     `@ keep\n     `- kind\n   }\n"
             }}
         }),
         json!({
@@ -510,8 +514,8 @@ fn offers_task_authoring_refactor_actions() {
             "params": {
                 "textDocument": { "uri": uri },
                 "range": {
-                    "start": { "line": 0, "character": 20 },
-                    "end": { "line": 0, "character": 20 }
+                    "start": { "line": 0, "character": 5 },
+                    "end": { "line": 0, "character": 5 }
                 },
                 "context": { "diagnostics": [], "only": ["refactor.rewrite"] }
             }
@@ -521,7 +525,7 @@ fn offers_task_authoring_refactor_actions() {
             "params": {
                 "textDocument": { "uri": uri, "version": 2 },
                 "contentChanges": [{
-                    "text": "`.{.task #closed done=\"2026-07-20T09:00:00Z\"} Closed\n"
+                    "text": "`. Closed\n   {\n     `- task\n     `@ closed\n     `: done 2026-07-20T09:00:00Z\n   }\n"
                 }]
             }
         }),
@@ -530,8 +534,8 @@ fn offers_task_authoring_refactor_actions() {
             "params": {
                 "textDocument": { "uri": uri },
                 "range": {
-                    "start": { "line": 0, "character": 55 },
-                    "end": { "line": 0, "character": 55 }
+                    "start": { "line": 0, "character": 5 },
+                    "end": { "line": 0, "character": 5 }
                 },
                 "context": { "diagnostics": [], "only": ["refactor.rewrite"] }
             }
@@ -551,7 +555,7 @@ fn offers_task_authoring_refactor_actions() {
     let inserted = conversion["edit"]["documentChanges"][0]["edits"][0]["newText"]
         .as_str()
         .unwrap();
-    assert!(inserted.contains(".task"));
+    assert!(inserted.contains("`- task"));
     chrono::DateTime::parse_from_rfc3339(attribute_value(inserted, "created")).unwrap();
 
     let created = response(&output, 3)["result"]
@@ -570,8 +574,17 @@ fn offers_task_authoring_refactor_actions() {
 #[test]
 fn offers_guarded_task_status_code_actions() {
     let uri = "file:///tmp/task-actions.plumb";
-    let source = "`-{#task-f81deb18 .task created=\"2026-05-24T02:35:50Z\"} MJCF in, USD out solver\n   `-{#task-c2cf5756 .task created=\"2026-05-27T13:03:04Z\"} parse MJCF\n   `-{#task-99e28dad .task created=\"2026-05-27T13:02:45Z\"} solver with passive joint\n";
-    let character = source.lines().nth(1).unwrap().find("parse MJCF").unwrap();
+    let source = "`- MJCF in, USD out solver\n   {\n     `@ task-f81deb18\n     `- task\n     `: created 2026-05-24T02:35:50Z\n   }\n\n   `- parse MJCF\n      {\n        `@ task-c2cf5756\n        `- task\n        `: created 2026-05-27T13:03:04Z\n      }\n   `- solver with passive joint\n      {\n        `@ task-99e28dad\n        `- task\n        `: created 2026-05-27T13:02:45Z\n      }\n";
+    let line = source
+        .lines()
+        .position(|line| line.contains("parse MJCF"))
+        .unwrap();
+    let character = source
+        .lines()
+        .nth(line)
+        .unwrap()
+        .find("parse MJCF")
+        .unwrap();
     let messages = [
         json!({
             "jsonrpc": "2.0", "id": 1, "method": "initialize",
@@ -595,8 +608,8 @@ fn offers_guarded_task_status_code_actions() {
             "params": {
                 "textDocument": { "uri": uri },
                 "range": {
-                    "start": { "line": 1, "character": character },
-                    "end": { "line": 1, "character": character }
+                    "start": { "line": line, "character": character },
+                    "end": { "line": line, "character": character }
                 },
                 "context": { "diagnostics": [], "only": ["quickfix"] }
             }
@@ -615,9 +628,9 @@ fn offers_guarded_task_status_code_actions() {
         let change = &action["edit"]["documentChanges"][0];
         assert_eq!(change["textDocument"]["version"], 3);
         let new_text = change["edits"][0]["newText"].as_str().unwrap();
-        assert!(new_text.contains("#task-c2cf5756"));
-        assert!(!new_text.contains("#task-f81deb18"));
-        assert!(!new_text.contains("#task-99e28dad"));
+        assert!(new_text.contains("`@ task-c2cf5756"));
+        assert!(!new_text.contains("`@ task-f81deb18"));
+        assert!(!new_text.contains("`@ task-99e28dad"));
         let timestamp = attribute_value(new_text, attribute);
         chrono::DateTime::parse_from_rfc3339(timestamp).unwrap();
     }
@@ -626,7 +639,7 @@ fn offers_guarded_task_status_code_actions() {
 #[test]
 fn recurring_task_action_closes_current_and_appends_next_instance() {
     let uri = "file:///tmp/recurring-task.plumb";
-    let source = "`-{.task due=\"2026-07-20T09:00:00+08:00\" recur=P1W} Weekly review\n";
+    let source = "`- Weekly review\n   {\n     `- task\n     `: due 2026-07-20T09:00:00+08:00\n     `: recur P1W\n   }\n";
     let messages = [
         json!({
             "jsonrpc": "2.0", "id": 1, "method": "initialize",
@@ -649,8 +662,8 @@ fn recurring_task_action_closes_current_and_appends_next_instance() {
             "params": {
                 "textDocument": { "uri": uri },
                 "range": {
-                    "start": { "line": 0, "character": 68 },
-                    "end": { "line": 0, "character": 68 }
+                    "start": { "line": 0, "character": 5 },
+                    "end": { "line": 0, "character": 5 }
                 },
                 "context": { "diagnostics": [], "only": ["quickfix"] }
             }
@@ -670,19 +683,22 @@ fn recurring_task_action_closes_current_and_appends_next_instance() {
         .unwrap();
     assert_eq!(edits.len(), 1);
     let replacement = edits[0]["newText"].as_str().unwrap();
-    assert!(replacement.contains("#weekly-review-2026-07-20"));
-    assert!(replacement.contains("done=\""));
-    assert!(replacement.contains("`id weekly-review-2026-07-27"));
-    assert!(replacement.contains("`due 2026-07-27T09:00:00+08:00"));
-    assert!(replacement.contains("`prev #weekly-review-2026-07-20"));
+    assert!(replacement.contains("`@ weekly-review-2026-07-20"));
+    assert!(replacement.contains("`: done "));
+    assert!(replacement.contains("`@ weekly-review-2026-07-27"));
+    assert!(replacement.contains("`: due 2026-07-27T09:00:00+08:00"));
+    assert!(replacement.contains("`: prev #weekly-review-2026-07-20"));
 }
 
 #[test]
 fn blocked_task_offers_cancel_but_not_complete() {
     let uri = "file:///tmp/blocked-task-actions.plumb";
-    let source = "`-{.task #draft} Draft\n`-{.task #review depends=\"#draft\"} Review\n";
-    let cursor = source.find("Review").unwrap();
-    let line_start = source.find('\n').unwrap() + 1;
+    let source = "`- Draft\n   {\n     `- task\n     `@ draft\n   }\n`- Review\n   {\n     `- task\n     `@ review\n     `: depends #draft\n   }\n";
+    let line = source
+        .lines()
+        .position(|line| line.contains("Review"))
+        .unwrap();
+    let character = source.lines().nth(line).unwrap().find("Review").unwrap();
     let messages = [
         json!({
             "jsonrpc": "2.0", "id": 1, "method": "initialize",
@@ -705,8 +721,8 @@ fn blocked_task_offers_cancel_but_not_complete() {
             "params": {
                 "textDocument": { "uri": uri },
                 "range": {
-                    "start": { "line": 1, "character": cursor - line_start },
-                    "end": { "line": 1, "character": cursor - line_start }
+                    "start": { "line": line, "character": character },
+                    "end": { "line": line, "character": character }
                 },
                 "context": { "diagnostics": [], "only": ["quickfix"] }
             }
@@ -728,7 +744,7 @@ fn blocked_task_offers_cancel_but_not_complete() {
 #[test]
 fn canceling_a_recurring_task_appends_the_next_instance() {
     let uri = "file:///tmp/cancel-recurring-task.plumb";
-    let source = "`-{.task due=\"2026-07-20T09:00:00+08:00\" recur=P1W} Weekly review\n";
+    let source = "`- Weekly review\n   {\n     `- task\n     `: due 2026-07-20T09:00:00+08:00\n     `: recur P1W\n   }\n";
     let cursor = source.find("Weekly review").unwrap();
     let messages = [
         json!({
@@ -774,17 +790,17 @@ fn canceling_a_recurring_task_appends_the_next_instance() {
         .unwrap();
     assert_eq!(edits.len(), 1);
     let replacement = edits[0]["newText"].as_str().unwrap();
-    assert!(replacement.contains("#weekly-review-2026-07-20"));
-    assert!(replacement.contains("canceled=\""));
-    assert!(replacement.contains("`id weekly-review-2026-07-27"));
-    assert!(replacement.contains("`due 2026-07-27T09:00:00+08:00"));
-    assert!(replacement.contains("`prev #weekly-review-2026-07-20"));
+    assert!(replacement.contains("`@ weekly-review-2026-07-20"));
+    assert!(replacement.contains("`: canceled "));
+    assert!(replacement.contains("`@ weekly-review-2026-07-27"));
+    assert!(replacement.contains("`: due 2026-07-27T09:00:00+08:00"));
+    assert!(replacement.contains("`: prev #weekly-review-2026-07-20"));
 }
 
 #[test]
 fn task_actions_fall_back_from_closed_child_to_open_parent() {
     let uri = "file:///tmp/nested-task-actions.plumb";
-    let source = "`-{.task #outer} Outer\n  `-{.task #inner done=\"2026-07-20T09:00:00Z\"} Inner\n";
+    let source = "`- Outer\n   {\n     `- task\n     `@ outer\n   }\n\n   `- Inner\n      {\n        `- task\n        `@ inner\n        `: done 2026-07-20T09:00:00Z\n      }\n";
     let cursor = source.find("Inner").unwrap();
     let line_start = source.find('\n').unwrap() + 1;
     let character = cursor - line_start;

@@ -1697,9 +1697,9 @@ impl Workspace {
             return Err(MetadataInsertError::CursorNotAtDocumentStart);
         }
 
-        let metadata = OwnedBlock::marked("meta", "").with_children(vec![
-            OwnedBlock::marked(":", "title").with_children(vec![OwnedBlock::paragraph(title)]),
-            OwnedBlock::marked(":", "created").with_children(vec![OwnedBlock::paragraph(created)]),
+        let metadata = OwnedBlock::document(vec![
+            OwnedAttribute::bare("title", title),
+            OwnedAttribute::bare("created", created),
         ]);
         let affected = 0..if entry.parsed.syntax.blocks.is_empty() {
             entry.parsed.source.len()
@@ -2283,7 +2283,7 @@ impl Workspace {
         let attributes = owned.attributes_mut();
         attributes.retain(|attribute| {
             !matches!(attribute, OwnedAttribute::Class(value) if value == "event")
-                && !matches!(attribute, OwnedAttribute::Pair { key, .. } if matches!(key.as_str(), "uid" | "when" | "date" | "timezone" | "at" | "start" | "end" | "tasks"))
+                && !matches!(attribute, OwnedAttribute::Pair { key, .. } if matches!(key.as_str(), "date" | "timezone" | "at" | "start" | "end" | "tasks"))
         });
         attributes.extend(event_attributes(input, &current.output.metadata));
         let mut edit = EditSession::new(&entry.parsed, event.range.clone())
@@ -2354,7 +2354,7 @@ impl Workspace {
                             label: title.clone(),
                             detail: relative.clone(),
                             new_text: format!(
-                                "`->[{}]{{`to[{}]}}",
+                                "`->[{}]{{`:[to {}]}}",
                                 escape_inline_text(&title),
                                 escape_inline_text(&relative)
                             ),
@@ -4007,12 +4007,20 @@ mod tests {
     #[test]
     fn resolves_same_and_cross_file_explicit_anchors() {
         let mut workspace = Workspace::new();
-        workspace.insert("notes/a note.plumb", 1, "`#{#local} Local\n");
-        workspace.insert("notes/a%20note.plumb", 1, "`#{#literal} Literal\n");
+        workspace.insert(
+            "notes/a note.plumb",
+            1,
+            "`# Local\n   {\n     `@ local\n   }\n",
+        );
+        workspace.insert(
+            "notes/a%20note.plumb",
+            1,
+            "`# Literal\n   {\n     `@ literal\n   }\n",
+        );
         workspace.insert(
             "notes/b.plumb",
             1,
-            "See `->[local]{to=\"a note.plumb#local\"}.\nSee `->[literal]{to=\"a%20note.plumb#literal\"}.\n",
+            "See `->[local]{`:[to a note.plumb#local]}.\nSee `->[literal]{`:[to a%20note.plumb#literal]}.\n",
         );
         let links = &workspace
             .get("notes/b.plumb")
@@ -4040,7 +4048,7 @@ mod tests {
         workspace.insert(
             "a.plumb",
             1,
-            "`# No anchor\nSee `->[x]{to=\"#No-anchor\"}.\n",
+            "`# No anchor\n\nSee `->[x]{`:[to #No-anchor]}.\n",
         );
         let entry = workspace.get("a.plumb").unwrap();
         let link = &entry.current.as_ref().unwrap().output.links[0];
@@ -4053,7 +4061,7 @@ mod tests {
     #[test]
     fn invalid_revision_keeps_but_does_not_publish_last_valid_output() {
         let mut workspace = Workspace::new();
-        workspace.insert("a.plumb", 1, "`#{#ok} Valid\n");
+        workspace.insert("a.plumb", 1, "`# Valid\n   {\n     `@ ok\n   }\n");
         workspace.insert("a.plumb", 2, "`node{key=a key=b} Invalid\n");
         let entry = workspace.get("a.plumb").unwrap();
         assert!(entry.current.is_none());
@@ -4064,19 +4072,19 @@ mod tests {
     #[test]
     fn returns_reverse_references() {
         let mut workspace = Workspace::new();
-        workspace.insert("a.plumb", 1, "`#{#target} Target\n");
-        workspace.insert("b.plumb", 1, "`->[x]{to=\"a.plumb#target\"}\n");
-        workspace.insert("missing.plumb", 1, "`->[x]{to=\"a.plumb#missing\"}\n");
+        workspace.insert("a.plumb", 1, "`# Target\n   {\n     `@ target\n   }\n");
+        workspace.insert("b.plumb", 1, "`->[x]{`:[to a.plumb#target]}\n");
+        workspace.insert("missing.plumb", 1, "`->[x]{`:[to a.plumb#missing]}\n");
         workspace.insert(
             "task.plumb",
             1,
-            "`-{.task depends=\"a.plumb#missing\"} Task\n",
+            "`- Task\n   {\n     `- task\n     `: depends a.plumb#missing\n   }\n",
         );
-        workspace.insert("document.plumb", 1, "`->[a]{to=\"a.plumb\"}\n");
+        workspace.insert("document.plumb", 1, "`->[a]{`:[to a.plumb]}\n");
         workspace.insert(
             "a-local.plumb",
             1,
-            "`#{#local} Local\n`->[x]{to=\"#local\"}\n",
+            "`# Local\n   {\n     `@ local\n   }\n\n`->[x]{`:[to #local]}\n",
         );
         assert_eq!(workspace.references_to("a.plumb", "target").len(), 1);
         let document_references = workspace.references_to_document("a.plumb");
@@ -4106,14 +4114,14 @@ mod tests {
 
     #[test]
     fn resolves_document_and_anchor_targets_from_declarations_and_reference_components() {
-        let target_source = "`meta\n `: title\n\n    Target\n\n`#{#section} Section\n";
-        let reference_source = "See `->[named]{to=\"target.plumb#section\"} and `[target.plumb#section]{.->}.\n`-{.task prev=\"target.plumb#section\" depends=\"target.plumb#section\"} Review\n";
+        let target_source = "{\n  `: title Target\n}\n\n`# Section\n   {\n     `@ section\n   }\n";
+        let reference_source = "See `->[named]{`:[to target.plumb#section]} and `->\"target.plumb#section\".\n\n`- Review\n   {\n     `- task\n     `: prev target.plumb#section\n     `: depends target.plumb#section\n   }\n";
         let mut workspace = Workspace::new();
         workspace.insert("target.plumb", 1, target_source);
         workspace.insert("reference.plumb", 1, reference_source);
 
         assert!(matches!(
-            workspace.target_at("target.plumb", target_source.find("meta").unwrap()),
+            workspace.target_at("target.plumb", target_source.find('{').unwrap()),
             Some(ResolvedTarget::Document { path }) if path == Path::new("target.plumb")
         ));
         assert!(workspace
@@ -4155,10 +4163,10 @@ mod tests {
             Some(ResolvedTarget::Anchor { id, .. }) if id == "section"
         ));
 
-        let lonely_source = "`meta\n `: title\n\n    Lonely\n";
+        let lonely_source = "{\n  `: title\n\n    Lonely\n}\n";
         workspace.insert("lonely.plumb", 1, lonely_source);
         assert!(matches!(
-            workspace.target_at("lonely.plumb", lonely_source.find("meta").unwrap()),
+            workspace.target_at("lonely.plumb", lonely_source.find('{').unwrap()),
             Some(ResolvedTarget::Document { path }) if path == Path::new("lonely.plumb")
         ));
         assert!(workspace.references_to_document("lonely.plumb").is_empty());
@@ -4169,14 +4177,18 @@ mod tests {
 
     #[test]
     fn task_fields_participate_in_navigation_references_and_anchor_rename() {
-        let target_source = "`-{.task #draft} Draft\n`node{#note} Note\n";
-        let reference_source = "`-{.task #review prev=\"Project Plan.plumb#draft\" depends=\"Project Plan.plumb#draft Project Plan.plumb#note Project%20Plan.plumb#literal\"} Review\nSee `->[draft]{to=\"Project Plan.plumb#draft\"}.\n";
+        let target_source = "`- Draft\n   {\n     `- task\n     `@ draft\n   }\n\n`node Note\n      {\n        `@ note\n      }\n";
+        let reference_source = "`- Review\n   {\n     `- task\n     `@ review\n     `: prev Project Plan.plumb#draft\n     `: depends Project Plan.plumb#draft Project Plan.plumb#note Project%20Plan.plumb#literal\n   }\n\nSee `->[draft]{`:[to Project Plan.plumb#draft]}.\n";
         let mut workspace = Workspace::new();
         workspace.insert("Project Plan.plumb", 4, target_source);
-        workspace.insert("Project%20Plan.plumb", 4, "`node{#literal} Literal\n");
+        workspace.insert(
+            "Project%20Plan.plumb",
+            4,
+            "`node Literal\n      {\n        `@ literal\n      }\n",
+        );
         workspace.insert("review.plumb", 7, reference_source);
 
-        let depends_attribute = reference_source.find("depends=").unwrap();
+        let depends_attribute = reference_source.find("`: depends").unwrap();
         let depends = depends_attribute
             + reference_source[depends_attribute..]
                 .find("#draft")
@@ -4227,8 +4239,8 @@ mod tests {
 
     #[test]
     fn document_rename_rewrites_raw_task_reference_paths() {
-        let target_source = "`-{.task #draft} Draft\n";
-        let reference_source = "`-{.task prev=\"Project Plan.plumb#draft\" depends=\"Project Plan.plumb#draft\"} Review\nSee `->[draft]{to=\"Project Plan.plumb#draft\"}.\n";
+        let target_source = "`- Draft\n   {\n     `- task\n     `@ draft\n   }\n";
+        let reference_source = "`- Review\n   {\n     `- task\n     `: prev Project Plan.plumb#draft\n     `: depends Project Plan.plumb#draft\n   }\n\nSee `->[draft]{`:[to Project Plan.plumb#draft]}.\n";
         let mut workspace = Workspace::new();
         workspace.insert("Project Plan.plumb", 4, target_source);
         workspace.insert("review.plumb", 7, reference_source);
@@ -4264,16 +4276,16 @@ mod tests {
 
     #[test]
     fn metadata_marker_targets_the_current_document_without_editing_title() {
-        let source = "`meta\n `: title\n\n    Stable title\n";
+        let source = "{\n  `: title Stable title\n}\n";
         let mut workspace = Workspace::new();
         workspace.insert("current.plumb", 4, source);
-        workspace.insert("incoming.plumb", 7, "`->[current]{to=\"current.plumb\"}\n");
+        workspace.insert("incoming.plumb", 7, "`->[current]{`:[to current.plumb]}\n");
 
         let target = workspace
-            .document_rename_target_at("current.plumb", source.find("meta").unwrap())
+            .document_rename_target_at("current.plumb", source.find('{').unwrap())
             .unwrap();
         assert_eq!(target.old_path, Path::new("current.plumb"));
-        assert_eq!(&source[target.range.clone()], "meta");
+        assert_eq!(&source[target.range.clone()], "{");
         assert_eq!(target.input, PathRenameInput::FileStem);
         assert_eq!(
             workspace.rename_document(&target, "archive/renamed"),
@@ -4302,9 +4314,20 @@ mod tests {
     #[test]
     fn rename_updates_declaration_and_cross_file_fragments() {
         let mut workspace = Workspace::new();
-        workspace.insert("a.plumb", 4, "`#{#target} Target\n");
-        workspace.insert("b.plumb", 7, "`->[x]{to=\"a.plumb#target\"}\n");
-        let target = workspace.anchor_rename_target_at("a.plumb", 5).unwrap();
+        workspace.insert("a.plumb", 4, "`# Target\n   {\n     `@ target\n   }\n");
+        workspace.insert("b.plumb", 7, "`->[x]{`:[to a.plumb#target]}\n");
+        let target = workspace
+            .anchor_rename_target_at(
+                "a.plumb",
+                workspace
+                    .get("a.plumb")
+                    .unwrap()
+                    .parsed
+                    .source
+                    .find("target")
+                    .unwrap(),
+            )
+            .unwrap();
         let edit = workspace.rename_anchor(&target, "renamed").unwrap();
         assert_eq!(edit.document_changes.len(), 2);
         assert_eq!(edit.document_changes[0].expected_revision, 4);
@@ -4319,13 +4342,28 @@ mod tests {
     #[test]
     fn rename_rejects_pair_style_or_invalid_ids() {
         let mut workspace = Workspace::new();
-        workspace.insert("a.plumb", 1, "`#{id=pair} Not an anchor\n");
+        workspace.insert(
+            "a.plumb",
+            1,
+            "`# Not an anchor\n   {\n     `: id pair\n   }\n",
+        );
         assert_eq!(
             workspace.anchor_rename_target_at("a.plumb", 6),
             Err(RenameError::NotRenameable)
         );
-        workspace.insert("a.plumb", 2, "`#{#real} Anchor\n");
-        let target = workspace.anchor_rename_target_at("a.plumb", 5).unwrap();
+        workspace.insert("a.plumb", 2, "`# Anchor\n   {\n     `@ real\n   }\n");
+        let target = workspace
+            .anchor_rename_target_at(
+                "a.plumb",
+                workspace
+                    .get("a.plumb")
+                    .unwrap()
+                    .parsed
+                    .source
+                    .find("real")
+                    .unwrap(),
+            )
+            .unwrap();
         assert_eq!(
             workspace.rename_anchor(&target, "has space"),
             Err(RenameError::InvalidId)
@@ -4347,14 +4385,18 @@ mod tests {
         workspace.insert(
             "notes/design.plumb",
             1,
-            "`meta\n  `: title\n\n    Design Guide\n\n`# No id\n`##{#api} API\n",
+            "{\n  `: title Design Guide\n}\n\n`# No id\n\n`## API\n    {\n      `@ api\n    }\n",
         );
         workspace.insert(
             "notes/Project Plan.plumb",
             1,
-            "`meta\n `: title\n\n    Project Plan\n\n`#{#roadmap} Roadmap\n",
+            "{\n  `: title Project Plan\n}\n\n`# Roadmap\n   {\n     `@ roadmap\n   }\n",
         );
-        workspace.insert("notes/中文笔记.plumb", 1, "`#{#内容} 中文内容\n");
+        workspace.insert(
+            "notes/中文笔记.plumb",
+            1,
+            "`# 中文内容\n   {\n     `@ 内容\n   }\n",
+        );
         workspace.insert("notes/方案 (草稿).plumb", 1, "`# 草稿\n");
         workspace.insert("notes/方案]终稿.plumb", 1, "`# 终稿\n");
         workspace.insert("notes/quote\"name.plumb", 1, "`# Quote\n");
@@ -4371,7 +4413,7 @@ mod tests {
         );
         assert_eq!(labels[0].label, "Design Guide");
         assert_eq!(labels[0].detail, "design.plumb");
-        assert_eq!(labels[0].new_text, "`->[Design Guide]{`to[design.plumb]}");
+        assert_eq!(labels[0].new_text, "`->[Design Guide]{`:[to design.plumb]}");
         let spaced_label = workspace.complete_link(
             "notes/current.plumb",
             &LinkCompletionContext::Label {
@@ -4381,7 +4423,7 @@ mod tests {
         );
         assert_eq!(
             spaced_label[0].new_text,
-            "`->[Project Plan]{`to[Project Plan.plumb]}"
+            "`->[Project Plan]{`:[to Project Plan.plumb]}"
         );
         let spaced_path = workspace.complete_link(
             "notes/current.plumb",
@@ -4466,7 +4508,7 @@ mod tests {
         std::fs::write(static_dir.join("literal%20name.txt"), b"text").unwrap();
         std::fs::write(static_dir.join("ignored.txt"), b"text").unwrap();
         let source_path = root.join("current.plumb");
-        let source = "`[static/image one.PNG]{.->}\n`img[Result]{src=\"static/image one.PNG\"}\n`img[Literal percent]{src=\"static/literal%20name.PNG\"}\n`[static/literal%20name.txt]{.->}\n";
+        let source = "`->\"static/image one.PNG\"\n`img[Result]{`:[src static/image one.PNG]}\n`img[Literal percent]{`:[src static/literal%20name.PNG]}\n`->\"static/literal%20name.txt\"\n";
         let mut workspace = Workspace::new();
         workspace.insert(&source_path, 3, source);
 
@@ -4591,7 +4633,7 @@ mod tests {
         std::fs::write(root.join("static/manual.pdf"), b"pdf").unwrap();
         let source_path = root.join("note.plumb");
         let source =
-            "`file[Demo]{src=\"static/demo.mp4\"}\n`file[Missing]{src=\"static/missing.pdf\"}\n";
+            "`file[Demo]{`:[src static/demo.mp4]}\n`file[Missing]{`:[src static/missing.pdf]}\n";
         let mut workspace = Workspace::new();
         workspace.insert(&source_path, 1, source);
 
@@ -4644,7 +4686,7 @@ mod tests {
         workspace.insert(
             "notes/design.plumb",
             4,
-            "`meta\n `: title\n\n    Design Guide\n\n`-{.task #review due=\"2026-07-23T12:00:00+08:00\"} Review parser\n",
+            "{\n  `: title Design Guide\n}\n\n`- Review parser\n   {\n     `- task\n     `@ review\n     `: due 2026-07-23T12:00:00+08:00\n   }\n",
         );
         workspace.insert("notes/fallback.plumb", 2, "Fallback body\n");
 
@@ -4676,7 +4718,7 @@ mod tests {
         workspace.insert(
             "notes/tasks.plumb",
             1,
-            "`-{.task #blocker} Blocker\n`-{.task #ready priority=7} Ready\n`-{.task #time wait=\"2026-07-23T12:00:00+08:00\"} Time wait\n`-{.task #dependency depends=\"#blocker\"} Dependency blocked\n`-{.task #both wait=\"2026-07-23T12:00:00+08:00\" depends=\"#blocker\"} Both reasons\n`-{.task #done done=\"2026-07-21T12:00:00+08:00\"} Done\n`-{.task #canceled canceled=\"2026-07-21T12:00:00+08:00\"} Canceled\n`-{.task #conflicted done=\"2026-07-21T12:00:00+08:00\" canceled=\"2026-07-21T13:00:00+08:00\"} Conflicted\n",
+            "`- Blocker\n   {\n     `- task\n     `@ blocker\n   }\n`- Ready\n   {\n     `- task\n     `@ ready\n     `: priority 7\n   }\n`- Time wait\n   {\n     `- task\n     `@ time\n     `: wait 2026-07-23T12:00:00+08:00\n   }\n`- Dependency blocked\n   {\n     `- task\n     `@ dependency\n     `: depends #blocker\n   }\n`- Both reasons\n   {\n     `- task\n     `@ both\n     `: wait 2026-07-23T12:00:00+08:00\n     `: depends #blocker\n   }\n`- Done\n   {\n     `- task\n     `@ done\n     `: done 2026-07-21T12:00:00+08:00\n   }\n`- Canceled\n   {\n     `- task\n     `@ canceled\n     `: canceled 2026-07-21T12:00:00+08:00\n   }\n`- Conflicted\n   {\n     `- task\n     `@ conflicted\n     `: done 2026-07-21T12:00:00+08:00\n     `: canceled 2026-07-21T13:00:00+08:00\n   }\n",
         );
 
         let results = workspace.search_records(root, Some(SearchRecordKind::Task), "", 20, now);
@@ -4780,18 +4822,22 @@ mod tests {
         workspace.insert(
             "notes/a.plumb",
             1,
-            "`-{.task #parent priority=-10} Parent\n  `-{.task #urgent priority=40 depends=\"b.plumb#middle #closed\"} Urgent\n`-{.task #closed priority=-20 done=\"2026-08-04T12:00:00+08:00\"} Closed\n",
+            "`- Parent\n   {\n     `- task\n     `@ parent\n     `: priority -10\n   }\n\n   `- Urgent\n      {\n        `- task\n        `@ urgent\n        `: priority 40\n        `: depends b.plumb#middle #closed\n      }\n\n`- Closed\n   {\n     `- task\n     `@ closed\n     `: priority -20\n     `: done 2026-08-04T12:00:00+08:00\n   }\n",
         );
         workspace.insert(
             "notes/b.plumb",
             1,
-            "`-{.task #middle priority=1 depends=\"c.plumb#base\"} Middle\n",
+            "`- Middle\n   {\n     `- task\n     `@ middle\n     `: priority 1\n     `: depends c.plumb#base\n   }\n",
         );
-        workspace.insert("notes/c.plumb", 1, "`-{.task #base} Base\n");
+        workspace.insert(
+            "notes/c.plumb",
+            1,
+            "`- Base\n   {\n     `- task\n     `@ base\n   }\n",
+        );
         workspace.insert(
             "notes/cycle.plumb",
             1,
-            "`-{.task #cycle-high priority=30 depends=\"#cycle-low\"} Cycle high\n`-{.task #cycle-low priority=-10 depends=\"#cycle-high\"} Cycle low\n",
+            "`- Cycle high\n   {\n     `- task\n     `@ cycle-high\n     `: priority 30\n     `: depends #cycle-low\n   }\n`- Cycle low\n   {\n     `- task\n     `@ cycle-low\n     `: priority -10\n     `: depends #cycle-high\n   }\n",
         );
 
         let results = workspace.search_records(root, Some(SearchRecordKind::Task), "", 20, now);
@@ -4839,10 +4885,10 @@ mod tests {
         workspace.insert(
             "notes/a.plumb",
             1,
-            "`#{#a} A\n`->[c]{to=\"../shared/c.plumb#c\"}\n",
+            "`# A\n   {\n     `@ a\n   }\n\n`->[c]{`:[to ../shared/c.plumb#c]}\n",
         );
-        workspace.insert("notes/b.plumb", 2, "`->[a]{to=\"a.plumb#a\"}\n");
-        workspace.insert("shared/c.plumb", 3, "`#{#c} C\n");
+        workspace.insert("notes/b.plumb", 2, "`->[a]{`:[to a.plumb#a]}\n");
+        workspace.insert("shared/c.plumb", 3, "`# C\n   {\n     `@ c\n   }\n");
         let link = &workspace
             .get("notes/b.plumb")
             .unwrap()
@@ -4877,8 +4923,8 @@ mod tests {
     #[test]
     fn document_rename_strengthens_autolink_delimiters() {
         let mut workspace = Workspace::new();
-        workspace.insert("notes/a.plumb", 1, "`#{#a} A\n");
-        let reference = "`[a.plumb#a]{.->}\n";
+        workspace.insert("notes/a.plumb", 1, "`# A\n   {\n     `@ a\n   }\n");
+        let reference = "`->\"a.plumb#a\"\n";
         workspace.insert("notes/b.plumb", 2, reference);
         let link = &workspace
             .get("notes/b.plumb")
@@ -4903,7 +4949,7 @@ mod tests {
         for text_edit in incoming.edits.iter().rev() {
             edited.replace_range(text_edit.range.clone(), &text_edit.new_text);
         }
-        assert_eq!(edited, "`\"[archive/a] final.plumb#a]\"{.->}\n");
+        assert_eq!(edited, "`->\"archive/a] final.plumb#a\"\n");
         assert!(parse(edited).is_valid());
     }
 
@@ -4913,12 +4959,12 @@ mod tests {
         workspace.insert(
             "notes/Project Plan.plumb",
             1,
-            "`-{.task #draft} Draft\n`-{.task #done done=\"2026-07-20T09:00:00Z\"} Done\n",
+            "`- Draft\n   {\n     `- task\n     `@ draft\n   }\n`- Done\n   {\n     `- task\n     `@ done\n     `: done 2026-07-20T09:00:00Z\n   }\n",
         );
         workspace.insert(
             "notes/review.plumb",
             2,
-            "`-{.task #review depends=\"Project Plan.plumb#draft Project Plan.plumb#done\"} Review\n",
+            "`- Review\n   {\n     `- task\n     `@ review\n     `: depends Project Plan.plumb#draft Project Plan.plumb#done\n   }\n",
         );
 
         let task = &workspace
@@ -4957,11 +5003,15 @@ mod tests {
     #[test]
     fn diagnoses_completed_tasks_with_open_dependencies_and_descendants() {
         let mut workspace = Workspace::new();
-        workspace.insert("remote.plumb", 1, "`-{.task #remote} Remote blocker\n");
+        workspace.insert(
+            "remote.plumb",
+            1,
+            "`- Remote blocker\n   {\n     `- task\n     `@ remote\n   }\n",
+        );
         workspace.insert(
             "tasks.plumb",
             2,
-            "`-{.task #parent done=\"2026-07-27T10:00:00Z\" depends=\"#explicit remote.plumb#remote\"} Completed parent\n  `-{.task #explicit} Explicit child\n  `-{.task} Implicit child\n  `-{.task canceled=\"2026-07-27T10:01:00Z\"} Canceled child\n`-{.task canceled=\"2026-07-27T10:02:00Z\"} Canceled parent\n  `-{.task} Open child is allowed\n`-{.task done=\"2026-07-27T10:03:00Z\"} Completed tree\n  `-{.task done=\"2026-07-27T10:04:00Z\"} Completed child\n",
+            "`- Completed parent\n   {\n     `- task\n     `@ parent\n     `: done 2026-07-27T10:00:00Z\n     `: depends #explicit remote.plumb#remote\n   }\n\n   `- Explicit child\n      {\n        `- task\n        `@ explicit\n      }\n   `- Implicit child\n      {\n        `- task\n      }\n   `- Canceled child\n      {\n        `- task\n        `: canceled 2026-07-27T10:01:00Z\n      }\n\n`- Canceled parent\n   {\n     `- task\n     `: canceled 2026-07-27T10:02:00Z\n   }\n\n   `- Open child is allowed\n      {\n        `- task\n      }\n\n`- Completed tree\n   {\n     `- task\n     `: done 2026-07-27T10:03:00Z\n   }\n\n   `- Completed child\n      {\n        `- task\n        `: done 2026-07-27T10:04:00Z\n      }\n",
         );
 
         let diagnostics = workspace.diagnostics("tasks.plumb");
@@ -5001,7 +5051,7 @@ mod tests {
         workspace.insert(
             "tasks.plumb",
             1,
-            "`node{#plain} Plain anchor\n`-{.task #a depends=\"#b\"} A\n`-{.task #b depends=\"#a\"} B\n`-{.task #self depends=\"#self\"} Self\n`-{.task prev=\"#plain\" depends=\"#plain #missing bare#invalid missing.plumb#x\"} Invalid targets\n",
+            "`node Plain anchor\n      {\n        `@ plain\n      }\n\n`- A\n   {\n     `- task\n     `@ a\n     `: depends #b\n   }\n`- B\n   {\n     `- task\n     `@ b\n     `: depends #a\n   }\n`- Self\n   {\n     `- task\n     `@ self\n     `: depends #self\n   }\n`- Invalid targets\n   {\n     `- task\n     `: prev #plain\n     `: depends #plain #missing bare#invalid missing.plumb#x\n   }\n",
         );
 
         let diagnostics = workspace.diagnostics("tasks.plumb");
@@ -5020,7 +5070,7 @@ mod tests {
     #[test]
     fn task_status_operation_is_guarded_and_formats_the_affected_block() {
         let mut workspace = Workspace::new();
-        let source = "`-{.task #write due=\"2026-07-21T09:00:00Z\"} Write parser\n";
+        let source = "`- Write parser\n   {\n     `- task\n     `@ write\n     `: due 2026-07-21T09:00:00Z\n   }\n";
         workspace.insert("tasks.plumb", 7, source);
 
         let edit = workspace
@@ -5037,14 +5087,15 @@ mod tests {
         let operation = &document.edits[0];
         let mut edited = source.to_string();
         edited.replace_range(operation.range.clone(), &operation.new_text);
-        assert!(edited
-            .contains("#write due=\"2026-07-21T09:00:00Z\" done=\"2026-07-20T12:00:00+08:00\""));
+        assert!(edited.contains("`@ write"));
+        assert!(edited.contains("`: due 2026-07-21T09:00:00Z"));
+        assert!(edited.contains("`: done 2026-07-20T12:00:00+08:00"));
         assert_eq!(plumb_format::format(&edited).unwrap(), edited);
     }
 
     #[test]
     fn task_status_targets_an_explicitly_anchored_nested_task() {
-        let source = "`-{#task-f81deb18 .task created=\"2026-05-24T02:35:50Z\"} MJCF in, USD out solver\n\n   `-{#task-9d49eb30 .task created=\"2026-05-24T02:35:32Z\" done=\"2026-05-26T01:43:39Z\"} 刚体版本\n   `-{#task-c2cf5756 .task created=\"2026-05-27T13:03:04Z\"} parse MJCF\n   `-{#task-99e28dad .task created=\"2026-05-27T13:02:45Z\"} solver with passive joint\n";
+        let source = "`- MJCF in, USD out solver\n   {\n     `@ task-f81deb18\n     `- task\n     `: created 2026-05-24T02:35:50Z\n   }\n\n   `- 刚体版本\n      {\n        `@ task-9d49eb30\n        `- task\n        `: created 2026-05-24T02:35:32Z\n        `: done 2026-05-26T01:43:39Z\n      }\n   `- parse MJCF\n      {\n        `@ task-c2cf5756\n        `- task\n        `: created 2026-05-27T13:03:04Z\n      }\n   `- solver with passive joint\n      {\n        `@ task-99e28dad\n        `- task\n        `: created 2026-05-27T13:02:45Z\n      }\n";
         let mut workspace = Workspace::new();
         workspace.insert("embodied-intelligence.plumb", 12, source);
 
@@ -5060,15 +5111,18 @@ mod tests {
         let mut edited = source.to_string();
         edited.replace_range(edit.range.clone(), &edit.new_text);
 
-        assert!(edited.contains("#task-c2cf5756 .task created=\"2026-05-27T13:03:04Z\" done=\"2026-07-22T22:41:21+08:00\""));
-        assert!(!edited.contains("#task-f81deb18 .task created=\"2026-05-24T02:35:50Z\" done="));
-        assert!(!edited.contains("#task-99e28dad .task created=\"2026-05-27T13:02:45Z\" done="));
+        assert!(edited.contains("`@ task-c2cf5756"));
+        assert!(edited.contains("`: done 2026-07-22T22:41:21+08:00"));
+        assert_eq!(
+            edited.matches("`: done 2026-07-22T22:41:21+08:00").count(),
+            1
+        );
         assert_eq!(plumb_format::format(&edited).unwrap(), edited);
     }
 
     #[test]
     fn task_status_formats_multiline_attributes_with_a_long_head() {
-        let source = "`-{\n   .task created=\"2026-07-21T14:37:59+08:00\"\n  } `->[如何在 nix 中检查 IFD]{to=\"如何在 nix 中检查 IFD.plumb\"}\n";
+        let source = "`- `->[如何在 nix 中检查 IFD]{`:[to 如何在 nix 中检查 IFD.plumb]}\n   {\n     `- task\n     `: created 2026-07-21T14:37:59+08:00\n   }\n";
         assert_eq!(plumb_format::format(source).unwrap(), source);
         let mut workspace = Workspace::new();
         workspace.insert("closed.plumb", 8, source);
@@ -5087,14 +5141,15 @@ mod tests {
 
         assert_eq!(
             edited,
-            "`-{\n   .task created=\"2026-07-21T14:37:59+08:00\" done=\"2026-07-21T21:52:24+08:00\"\n  } `->[如何在 nix 中检查 IFD]{to=\"如何在 nix 中检查 IFD.plumb\"}\n"
+            "`- `->[如何在 nix 中检查 IFD]{`:[to 如何在 nix 中检查 IFD.plumb]}\n   {\n     `- task\n     `: created 2026-07-21T14:37:59+08:00\n     `: done 2026-07-21T21:52:24+08:00\n   }\n"
         );
         assert_eq!(plumb_format::format(&edited).unwrap(), edited);
     }
 
     #[test]
     fn task_status_formats_the_complete_owner_subtree() {
-        let source = "`-{.task #parent} Parent\n       `- Child\n\n`# Following\n";
+        let source =
+            "`- Parent\n   {\n     `- task\n     `@ parent\n   }\n\n   `- Child\n\n`# Following\n";
         let mut workspace = Workspace::new();
         workspace.insert("tasks.plumb", 9, source);
 
@@ -5108,14 +5163,15 @@ mod tests {
             .unwrap();
         let edited = apply_single_edit(source, &operation);
 
-        assert!(edited.contains("#parent done=\"2026-07-21T22:00:00+08:00\""));
+        assert!(edited.contains("`@ parent"));
+        assert!(edited.contains("`: done 2026-07-21T22:00:00+08:00"));
         assert!(edited.contains("\n   `- Child\n\n`# Following"));
         assert_eq!(plumb_format::format(&edited).unwrap(), edited);
     }
 
     #[test]
     fn task_authoring_operations_convert_items_and_add_created() {
-        let source = "`-{#outer .keep} Outer\n  `- Nested\n`.{.task #closed done=\"2026-07-20T09:00:00Z\"} Closed\n`-{.task #existing created=\"2026-07-19T09:00:00Z\"} Existing\n";
+        let source = "`- Outer\n   {\n     `@ outer\n     `- keep\n   }\n\n   `- Nested\n\n`. Closed\n   {\n     `- task\n     `@ closed\n     `: done 2026-07-20T09:00:00Z\n   }\n\n`- Existing\n   {\n     `- task\n     `@ existing\n     `: created 2026-07-19T09:00:00Z\n   }\n";
         let mut workspace = Workspace::new();
         workspace.insert("tasks.plumb", 7, source);
         let timestamp = "2026-07-20T10:00:00+08:00";
@@ -5128,22 +5184,24 @@ mod tests {
         let edit = &conversion.document_changes[0].edits[0];
         let mut converted = source.to_string();
         converted.replace_range(edit.range.clone(), &edit.new_text);
-        assert!(converted.contains("  `-{.task created=\"2026-07-20T10:00:00+08:00\"} Nested"));
+        assert!(converted.contains(
+            "   `- Nested\n      {\n        `- task\n        `: created 2026-07-20T10:00:00+08:00\n      }"
+        ));
 
         let outer_conversion = workspace
             .convert_list_item_to_task("tasks.plumb", source.find("Outer").unwrap(), timestamp)
             .unwrap();
         assert!(outer_conversion.document_changes[0].edits[0]
             .new_text
-            .contains("`-{#outer .keep .task created=\"2026-07-20T10:00:00+08:00\"} Outer"));
+            .contains("`- Outer\n   {\n     `@ outer\n     `- keep\n     `- task\n     `: created 2026-07-20T10:00:00+08:00\n   }\n"));
 
         let closed_offset = source.find("Closed").unwrap();
         let created = workspace
             .add_task_created("tasks.plumb", closed_offset, timestamp)
             .unwrap();
-        assert!(created.document_changes[0].edits[0].new_text.contains(
-            "#closed done=\"2026-07-20T09:00:00Z\" created=\"2026-07-20T10:00:00+08:00\""
-        ));
+        assert!(created.document_changes[0].edits[0]
+            .new_text
+            .contains("`: created 2026-07-20T10:00:00+08:00"));
         assert_eq!(
             workspace.add_task_created("tasks.plumb", nested_offset, timestamp),
             Err(TaskEditError::TaskNotFound)
@@ -5158,7 +5216,7 @@ mod tests {
     fn authoring_operations_preserve_formatter_fixed_points() {
         let timestamp = "2026-07-21T21:52:24+08:00";
 
-        let conversion_source = "`-{#item .kind} Convert me\n";
+        let conversion_source = "`- Convert me\n   {\n     `@ item\n     `- kind\n   }\n";
         let mut conversion_workspace = Workspace::new();
         conversion_workspace.insert("conversion.plumb", 1, conversion_source);
         let conversion = conversion_workspace
@@ -5171,7 +5229,7 @@ mod tests {
         let converted = apply_single_edit(conversion_source, &conversion);
         assert_eq!(plumb_format::format(&converted).unwrap(), converted);
 
-        let created_source = "`-{.task #created} Add created\n";
+        let created_source = "`- Add created\n   {\n     `- task\n     `@ created\n   }\n";
         let mut created_workspace = Workspace::new();
         created_workspace.insert("created.plumb", 2, created_source);
         let created = created_workspace
@@ -5184,7 +5242,7 @@ mod tests {
         let with_created = apply_single_edit(created_source, &created);
         assert_eq!(plumb_format::format(&with_created).unwrap(), with_created);
 
-        let id_source = "`note{.class key=value} Add an explicit identifier\n";
+        let id_source = "`note Add an explicit identifier\n      {\n        `- class\n        `: key value\n      }\n";
         let mut id_workspace = Workspace::new();
         id_workspace.insert("id.plumb", 3, id_source);
         let id = id_workspace
@@ -5205,7 +5263,7 @@ mod tests {
 
     #[test]
     fn add_explicit_id_targets_the_deepest_block_and_generates_unique_slugs() {
-        let source = "`#{.keep} Hello, World!\n`node Outer\n  `child Nested title\n`{language=text}\n  raw\n`note{\n  .keep\n } Multiline attrs\n`other{#hello-world} Existing\n`# Hello, World!\n";
+        let source = "`# Hello, World!\n   {\n     `- keep\n   }\n\n`node Outer\n\n      `child Nested title\n\n`text\"\n  raw\n`note Multiline attrs\n      {\n        `- keep\n      }\n\n`other Existing\n       {\n         `@ hello-world\n       }\n\n`# Hello, World!\n";
         let mut workspace = Workspace::new();
         workspace.insert("note.plumb", 7, source);
 
@@ -5216,35 +5274,39 @@ mod tests {
         let edit = &heading.document_changes[0].edits[0];
         assert!(edit
             .new_text
-            .contains("`#{#hello-world-2 .keep} Hello, World!"));
+            .contains("`# Hello, World!\n   {\n     `@ hello-world-2\n     `- keep\n   }\n"));
 
         let nested = workspace
             .add_explicit_id("note.plumb", source.find("Nested title").unwrap())
             .unwrap();
-        assert!(nested.document_changes[0].edits[0]
-            .new_text
-            .contains("`child{#nested-title} Nested title"));
+        assert!(
+            nested.document_changes[0].edits[0].new_text.contains(
+                "`child Nested title\n             {\n               `@ nested-title\n             }\n"
+            ),
+            "{}",
+            nested.document_changes[0].edits[0].new_text
+        );
 
         let sibling_boundary = workspace
             .add_explicit_id("note.plumb", source.find("`node").unwrap())
             .unwrap();
         assert!(sibling_boundary.document_changes[0].edits[0]
             .new_text
-            .contains("`node{#outer} Outer"));
+            .contains("`node Outer\n      {\n        `@ outer\n      }\n"));
 
         let raw = workspace
             .add_explicit_id("note.plumb", source.find("raw").unwrap())
             .unwrap();
         assert!(raw.document_changes[0].edits[0]
             .new_text
-            .contains("`{#block language=text}"));
+            .contains("`text\"{`@[block]}"));
 
         let multiline = workspace
             .add_explicit_id("note.plumb", source.find("Multiline attrs").unwrap())
             .unwrap();
         assert!(multiline.document_changes[0].edits[0]
             .new_text
-            .contains("`note{#multiline-attrs .keep} Multiline attrs"));
+            .contains("`note Multiline attrs\n      {\n        `@ multiline-attrs\n        `- keep\n      }\n"));
 
         for operation in [&heading, &nested, &sibling_boundary, &raw, &multiline] {
             let edit = &operation.document_changes[0].edits[0];
@@ -5287,7 +5349,7 @@ mod tests {
     fn task_status_cursor_falls_back_from_closed_child_to_open_parent() {
         let mut workspace = Workspace::new();
         let source =
-            "`-{.task #outer} Outer\n  `-{.task #inner done=\"2026-07-20T09:00:00Z\"} Inner\n";
+            "`- Outer\n   {\n     `- task\n     `@ outer\n   }\n\n   `- Inner\n      {\n        `- task\n        `@ inner\n        `: done 2026-07-20T09:00:00Z\n      }\n";
         workspace.insert("tasks.plumb", 3, source);
         let tasks = &workspace
             .get("tasks.plumb")
@@ -5313,8 +5375,9 @@ mod tests {
         assert_ne!(operation.range.start, tasks[1].attribute_insert);
         let mut edited = source.to_string();
         edited.replace_range(operation.range.clone(), &operation.new_text);
-        assert!(edited.contains("#outer done=\"2026-07-20T12:00:00Z\""));
-        assert_eq!(edited.matches("#inner done=").count(), 1);
+        assert!(edited.contains("`@ outer"));
+        assert!(edited.contains("`: done 2026-07-20T12:00:00Z"));
+        assert_eq!(edited.matches("`: done 2026-07-20T09:00:00Z").count(), 1);
         assert_eq!(
             workspace.set_task_status_by_id(
                 "tasks.plumb",
@@ -5332,7 +5395,7 @@ mod tests {
         workspace.insert(
             "tasks.plumb",
             1,
-            "`-{.task #blocker} Blocker\n`-{.task #blocked depends=\"#blocker\"} Blocked\n`-{.task #closed done=\"2026-07-20T09:00:00Z\"} Closed\n`-{.task #recur due=\"2026-07-21T09:00:00Z\" recur=P1D} Recurring\n",
+            "`- Blocker\n   {\n     `- task\n     `@ blocker\n   }\n`- Blocked\n   {\n     `- task\n     `@ blocked\n     `: depends #blocker\n   }\n`- Closed\n   {\n     `- task\n     `@ closed\n     `: done 2026-07-20T09:00:00Z\n   }\n`- Recurring\n   {\n     `- task\n     `@ recur\n     `: due 2026-07-21T09:00:00Z\n     `: recur P1D\n   }\n",
         );
         let timestamp = "2026-07-20T12:00:00Z";
         let source = &workspace.get("tasks.plumb").unwrap().parsed.source;
@@ -5375,7 +5438,7 @@ mod tests {
     #[test]
     fn recurring_task_status_advances_and_clones_the_task_losslessly() {
         let mut workspace = Workspace::new();
-        let source = "`-{.task .daily due=\"2026-01-31T09:00:00+08:00\" wait=\"2026-01-30T09:00:00+08:00\" recur=P1M} Monthly review\n  `note Keep details\n  `-{.task #nested done=\"2026-01-20T09:00:00+08:00\"} Nested\n";
+        let source = "`- Monthly review\n   {\n     `- task\n     `- daily\n     `: due 2026-01-31T09:00:00+08:00\n     `: wait 2026-01-30T09:00:00+08:00\n     `: recur P1M\n   }\n\n   `note Keep details\n\n   `- Nested\n      {\n        `- task\n        `@ nested\n        `: done 2026-01-20T09:00:00+08:00\n      }\n";
         workspace.insert("tasks.plumb", 4, source);
 
         let edit = workspace
@@ -5394,15 +5457,15 @@ mod tests {
             edited.replace_range(edit.range, &edit.new_text);
         }
 
-        assert!(edited.contains("#monthly-review-2026-01-31"));
-        assert!(edited.contains("done=\"2026-01-31T10:00:00+08:00\""));
-        assert!(edited.contains("`id monthly-review-2026-02-28"));
-        assert!(edited.contains("`created 2026-01-31T10:00:00+08:00"));
-        assert!(edited.contains("`due 2026-02-28T09:00:00+08:00"));
-        assert!(edited.contains("`wait 2026-02-28T09:00:00+08:00"));
-        assert!(edited.contains("`prev #monthly-review-2026-01-31"));
+        assert!(edited.contains("`@ monthly-review-2026-01-31"));
+        assert!(edited.contains("`: done 2026-01-31T10:00:00+08:00"));
+        assert!(edited.contains("`@ monthly-review-2026-02-28"));
+        assert!(edited.contains("`: created 2026-01-31T10:00:00+08:00"));
+        assert!(edited.contains("`: due 2026-02-28T09:00:00+08:00"));
+        assert!(edited.contains("`: wait 2026-02-28T09:00:00+08:00"));
+        assert!(edited.contains("`: prev #monthly-review-2026-01-31"));
         assert_eq!(edited.matches("nested").count(), 1);
-        assert_eq!(edited.matches("done=\"2026-01-20").count(), 1);
+        assert_eq!(edited.matches("`: done 2026-01-20").count(), 1);
         let parsed = parse(&edited);
         assert!(parsed.is_valid(), "{}\n{:?}", edited, parsed.diagnostics);
         let output = analyze_document(&parsed.source, &parsed.syntax);
@@ -5412,7 +5475,7 @@ mod tests {
 
     #[test]
     fn recurring_task_clone_preserves_crlf_and_nested_base_indent() {
-        let source = "`node Parent\r\n  `-{.task due=\"2026-07-20T09:00:00+08:00\" recur=P1W} Weekly review\r\n";
+        let source = "`node Parent\r\n\r\n      `- Weekly review\r\n         {\r\n           `- task\r\n           `: due 2026-07-20T09:00:00+08:00\r\n           `: recur P1W\r\n         }\r\n";
         let mut workspace = Workspace::new();
         workspace.insert("tasks.plumb", 5, source);
         let task = &workspace
@@ -5427,7 +5490,7 @@ mod tests {
         let line_start = source[..task.range.start]
             .rfind('\n')
             .map_or(0, |offset| offset + 1);
-        assert_eq!(&source[line_start..task.range.start], "  ");
+        assert_eq!(&source[line_start..task.range.start], "      ");
 
         let edit = workspace
             .set_task_status(
@@ -5439,7 +5502,7 @@ mod tests {
             .unwrap();
         assert_eq!(edit.document_changes[0].edits.len(), 1);
         let replacement = &edit.document_changes[0].edits[0].new_text;
-        assert!(replacement.starts_with("  `-"), "{replacement:?}");
+        assert!(replacement.starts_with("      `-"), "{replacement:?}");
         assert!(!replacement.starts_with("\r\n"));
         assert!(!replacement.replace("\r\n", "").contains('\n'));
 
@@ -5451,12 +5514,12 @@ mod tests {
         }
         let parsed = parse(&edited);
         assert!(parsed.is_valid(), "{edited:?}\n{:?}", parsed.diagnostics);
-        assert!(!edited.contains("\r\n\r\n  `-{.task"));
+        assert!(!edited.contains("\r\n\r\n      `-{.task"));
     }
 
     #[test]
     fn recurring_task_completion_preserves_canonical_layout() {
-        let source = "`# 饮食相关任务\n\n`-{\n   #控制饮食-2026-07-20 .task priority=-5 created=\"2026-07-20T01:06:48+08:00\"\n   due=\"2026-07-20T23:59:59+08:00\" wait=\"2026-07-20T00:00:00+08:00\" recur=\"P1D\"\n   prev=\"#控制饮食-2026-07-19\"\n  } 控制饮食\n\n`# 锻炼相关任务\n";
+        let source = "`# 饮食相关任务\n\n`- 控制饮食\n   {\n     `@ 控制饮食-2026-07-20\n     `- task\n     `: priority -5\n     `: created 2026-07-20T01:06:48+08:00\n     `: due 2026-07-20T23:59:59+08:00\n     `: wait 2026-07-20T00:00:00+08:00\n     `: recur P1D\n     `: prev #控制饮食-2026-07-19\n   }\n\n`# 锻炼相关任务\n";
         assert_eq!(plumb_format::format(source).unwrap(), source);
         let mut workspace = Workspace::new();
         workspace.insert("减肥.plumb", 6, source);
@@ -5474,11 +5537,10 @@ mod tests {
         let mut edited = source.to_string();
         edited.replace_range(edit.range.clone(), &edit.new_text);
 
-        assert!(edited.contains("done=\"2026-07-21T18:01:12+08:00\""));
-        assert!(edited.contains("`prev #控制饮食-2026-07-20"));
+        assert!(edited.contains("`: done 2026-07-21T18:01:12+08:00"));
+        assert!(edited.contains("`: prev #控制饮食-2026-07-20"));
         assert!(edited.contains("`# 锻炼相关任务"));
-        assert_eq!(edited.matches("priority=-5").count(), 1);
-        assert_eq!(edited.matches("`priority -5").count(), 1);
+        assert_eq!(edited.matches("`: priority -5").count(), 2);
         assert_eq!(plumb_format::format(&edited).unwrap(), edited);
     }
 
@@ -5503,7 +5565,7 @@ mod tests {
         assert_eq!(document.edits[0].range, 0..0);
         assert_eq!(
             document.edits[0].new_text,
-            "{\n  `title my``note\n  `created 2026-07-19T12:34:56+08:00\n}\n\n"
+            "{\n  `: title my``note\n  `: created 2026-07-19T12:34:56+08:00\n}\n\n"
         );
     }
 
@@ -5521,7 +5583,7 @@ mod tests {
         assert_eq!(document.edits[0].range, 0..0);
         assert_eq!(
             document.edits[0].new_text,
-            "{\n  `title empty\n  `created 2026-07-22T12:34:56+08:00\n}\n"
+            "{\n  `: title empty\n  `: created 2026-07-22T12:34:56+08:00\n}\n"
         );
         assert_eq!(
             plumb_format::format(&document.edits[0].new_text).unwrap(),
@@ -5540,14 +5602,14 @@ mod tests {
 
         assert_eq!(
             edit.document_changes[0].edits[0].new_text,
-            "{\r\n  `title note\r\n  `created 2026-07-19T12:34:56+08:00\r\n}\r\n\r\n"
+            "{\r\n  `: title note\r\n  `: created 2026-07-19T12:34:56+08:00\r\n}\r\n\r\n"
         );
     }
 
     #[test]
     fn metadata_insertion_rejects_existing_or_invalid_metadata_target() {
         let mut workspace = Workspace::new();
-        workspace.insert("existing.plumb", 1, "`meta\n  `: title\n\n    Existing\n");
+        workspace.insert("existing.plumb", 1, "{\n  `: title Existing\n}\n");
         assert_eq!(
             workspace.insert_metadata("existing.plumb", 0, "existing", "created"),
             Err(MetadataInsertError::MetadataAlreadyExists)
@@ -5591,9 +5653,9 @@ mod tests {
         workspace.insert(
             "tasks.plumb",
             1,
-            "`-{.task #write} Write\n`node{#plain} Plain\n",
+            "`- Write\n   {\n     `- task\n     `@ write\n   }\n\n`node Plain\n      {\n        `@ plain\n      }\n",
         );
-        let events = "`meta\n  `: date\n\n    2026-07-30\n\n  `: timezone\n\n    +08:00\n\n`-{.event timezone=\"+05:00\"} 10:30 Early\n`-{.event} 11:00 `->[Write]{to=\"tasks.plumb#write\"}\n`-{.event tasks=\"\"} 12:00 `->[Write]{to=\"tasks.plumb#write\"}\n`-{.event #review tasks=\"tasks.plumb#write\"} 14:00--15:00 Review\n`-{.event tasks=\"tasks.plumb#plain missing.plumb#task bad\"} 15:00 Point\n";
+        let events = "{\n  `: date 2026-07-30\n  `: timezone +08:00\n}\n\n`- 10:30 Early\n   {\n     `- event\n     `: timezone +05:00\n   }\n`- 11:00 `->[Write]{`:[to tasks.plumb#write]}\n   {\n     `- event\n   }\n`- 12:00 `->[Write]{`:[to tasks.plumb#write]}\n   {\n     `- event\n     `: tasks \n   }\n`- 14:00--15:00 Review\n   {\n     `- event\n     `@ review\n     `: tasks tasks.plumb#write\n   }\n`- 15:00 Point\n   {\n     `- event\n     `: tasks tasks.plumb#plain missing.plumb#task bad\n   }\n";
         workspace.insert("events.plumb", 2, events);
 
         let target = TaskRef {
@@ -5601,13 +5663,13 @@ mod tests {
             id: "write".to_string(),
         };
         let associated = workspace.events_for_task(&target);
-        assert_eq!(associated.len(), 2);
+        assert_eq!(associated.len(), 3);
         assert_eq!(
             associated
                 .iter()
                 .map(|event| event.event.title.as_str())
                 .collect::<Vec<_>>(),
-            ["Write", "Review"]
+            ["Write", "Write", "Review"]
         );
 
         let day_start = DateTime::parse_from_rfc3339("2026-07-30T05:00:00Z").unwrap();
@@ -5637,7 +5699,7 @@ mod tests {
             workspace.reference_target_at("events.plumb", reference_offset),
             Some(ResolvedTarget::Document { ref path }) if path == Path::new("tasks.plumb")
         ));
-        assert_eq!(workspace.references_to("tasks.plumb", "write").len(), 4);
+        assert_eq!(workspace.references_to("tasks.plumb", "write").len(), 5);
         assert_eq!(
             workspace.referenced_documents_from("events.plumb"),
             [PathBuf::from("tasks.plumb")]
@@ -5766,18 +5828,18 @@ mod tests {
             operation.document_changes[0].edits.clone(),
         )
         .unwrap();
-        assert!(converted.contains("`event"), "{converted}");
+        assert!(converted.contains("`- event"), "{converted}");
         assert!(!converted.contains("#e0001"), "{converted}");
         assert!(!converted.contains("event-uids"), "{converted}");
-        assert!(converted.contains("`date 2026-05-21"));
-        assert!(converted.contains("`timezone +08:00"));
+        assert!(converted.contains("`: date 2026-05-21"));
+        assert!(converted.contains("`: timezone +08:00"));
         assert!(converted.contains("`- 11:10--11:20 relax: phone"));
         assert!(!converted.contains("start="));
         assert!(!converted.contains("end="));
         assert_eq!(plumb_format::format(&converted).unwrap(), converted);
 
         // Existing id/classes are preserved and the schedule remains the first head argument.
-        let kept_source = "`-{#mine .kind} 11:00--11:20 review\n";
+        let kept_source = "`- 11:00--11:20 review\n   {\n     `@ mine\n     `- kind\n   }\n";
         workspace.insert("keep.plumb", 8, kept_source);
         let kept = apply_single_edit(
             kept_source,
@@ -5785,14 +5847,14 @@ mod tests {
                 .convert_event_shorthand("keep.plumb", 5, now)
                 .unwrap(),
         );
-        assert!(kept.contains("`id mine"), "{kept}");
-        assert!(kept.contains("`kind"), "{kept}");
-        assert!(kept.contains("`event"), "{kept}");
+        assert!(kept.contains("`@ mine"), "{kept}");
+        assert!(kept.contains("`- kind"), "{kept}");
+        assert!(kept.contains("`- event"), "{kept}");
         assert!(kept.contains("`- 11:00--11:20 review\n"), "{kept}");
 
         // Parsed and verbatim inline structure survives prefix removal.
         let rich_source =
-            "`- 11 wheel: distinguish `[nix develop]{language=sh} and `*[normal] shell\n";
+            "`- 11 wheel: distinguish `\"nix develop\"{`:[language sh]} and `*[normal] shell\n";
         workspace.insert("markup.plumb", 9, rich_source);
         let rich = apply_single_edit(
             rich_source,
@@ -5801,14 +5863,16 @@ mod tests {
                 .unwrap(),
         );
         assert!(
-            rich.contains(
-                "`- 11:00 wheel: distinguish `[nix develop]{`language[sh]} and `*[normal] shell"
-            ),
+            rich.contains("`- 11:00 wheel: distinguish `\"nix develop\"{`:[language sh]} and `*[normal] shell"),
             "{rich}"
         );
 
         // A list item that is already an event is left alone.
-        workspace.insert("done.plumb", 10, "`-{.event} 11:00--11:20 review\n");
+        workspace.insert(
+            "done.plumb",
+            10,
+            "`- 11:00--11:20 review\n   {\n     `- event\n   }\n",
+        );
         assert_eq!(
             workspace.convert_event_shorthand("done.plumb", 5, now),
             Err(EventShorthandError::EventAlreadyExists)
@@ -5824,7 +5888,7 @@ mod tests {
 
     #[test]
     fn converts_selected_event_shorthands_in_one_edit() {
-        let source = "`meta\n  `: date\n\n    2026-08-01\n\n  `: timezone\n\n    +08:00\n\n`-{#e0015 .event} 09:00 Existing\n\n`- 10:00--10:20 first\n`- ordinary item\n`- 10:20--10:30 second `[code]\n";
+        let source = "{\n  `: date 2026-08-01\n  `: timezone +08:00\n}\n\n`- 09:00 Existing\n   {\n     `@ e0015\n     `- event\n   }\n`- 10:00--10:20 first\n`- ordinary item\n`- 10:20--10:30 second `\"code\"\n";
         let mut workspace = Workspace::new();
         workspace.insert("agenda.plumb", 9, source);
         let now = DateTime::parse_from_rfc3339("2026-08-03T08:00:00+09:00").unwrap();
@@ -5838,10 +5902,10 @@ mod tests {
             operation.document_changes[0].edits.clone(),
         )
         .unwrap();
-        assert_eq!(converted.matches("`event").count(), 2, "{converted}");
+        assert_eq!(converted.matches("`- event").count(), 3, "{converted}");
         assert!(!converted.contains("event-uids"), "{converted}");
         assert!(converted.contains("`- 10:00--10:20 first"));
-        assert!(converted.contains("`- 10:20--10:30 second `[code]"));
+        assert!(converted.contains("`- 10:20--10:30 second `\"code\""));
         assert!(converted.contains("`- ordinary item"));
         assert!(!converted.contains("date=2026-08-01"));
         assert!(!converted.contains("timezone=\"+08:00\""));
@@ -5859,7 +5923,7 @@ mod tests {
 
     #[test]
     fn infers_open_event_ends_from_adjacent_selected_siblings() {
-        let source = "`meta\n  `: date\n\n    2026-08-01\n\n  `: timezone\n\n    +08:00\n\n`- 18:00-- 事件 1\n`- 18:30-- 事件 2\n";
+        let source = "{\n  `: date 2026-08-01\n  `: timezone +08:00\n}\n\n`- 18:00-- 事件 1\n`- 18:30-- 事件 2\n";
         let mut workspace = Workspace::new();
         workspace.insert("agenda.plumb", 1, source);
         let now = DateTime::parse_from_rfc3339("2026-08-03T08:00:00+09:00").unwrap();
@@ -5877,7 +5941,7 @@ mod tests {
         .unwrap();
         assert!(converted.contains("`- 18:00--18:30 事件 1"), "{converted}");
         assert!(converted.contains("`- 18:30-- 事件 2"), "{converted}");
-        assert_eq!(converted.matches("`event").count(), 1, "{converted}");
+        assert_eq!(converted.matches("`- event").count(), 1, "{converted}");
 
         workspace.insert("agenda.plumb", 2, source);
         let first = workspace
@@ -5894,7 +5958,7 @@ mod tests {
             Err(EventShorthandError::InvalidShorthand)
         );
 
-        let chain = "`meta\n  `: date\n\n    2026-08-01\n\n  `: timezone\n\n    +08:00\n\n`- 18:00-- first\n`- 18:30-- second\n`- 19:00--20:00 third\n";
+        let chain = "{\n  `: date 2026-08-01\n  `: timezone +08:00\n}\n\n`- 18:00-- first\n`- 18:30-- second\n`- 19:00--20:00 third\n";
         workspace.insert("chain.plumb", 3, chain);
         let chained = apply_text_edits(
             chain.to_string(),
@@ -5913,7 +5977,7 @@ mod tests {
         assert!(chained.contains("`- 18:00--18:30 first"), "{chained}");
         assert!(chained.contains("`- 18:30--19:00 second"), "{chained}");
         assert!(chained.contains("`- 19:00--20:00 third"), "{chained}");
-        assert_eq!(chained.matches("`event").count(), 3, "{chained}");
+        assert_eq!(chained.matches("`- event").count(), 3, "{chained}");
 
         let interrupted = "`- 18:00-- first\n`- ordinary\n`- 18:30 next\n";
         workspace.insert("interrupted.plumb", 4, interrupted);
@@ -5946,7 +6010,7 @@ mod tests {
             .unwrap();
         assert_eq!(created.document_changes[0].expected_revision, 7);
         let created_source = apply_single_edit(source, &created);
-        assert!(created_source.contains("`event"), "{created_source}");
+        assert!(created_source.contains("`- event"), "{created_source}");
         assert!(!created_source.contains("#e0001"), "{created_source}");
         assert!(!created_source.contains("event-uids"), "{created_source}");
         assert!(
@@ -6023,7 +6087,7 @@ mod tests {
             recreated.document_changes[0].edits.clone(),
         )
         .unwrap();
-        assert!(recreated_source.contains("`event"), "{recreated_source}");
+        assert!(recreated_source.contains("`- event"), "{recreated_source}");
         assert!(
             recreated_source.contains("`- 17:00 Next"),
             "{recreated_source}"
@@ -6045,8 +6109,8 @@ mod tests {
     }
 
     #[test]
-    fn updating_legacy_event_removes_obsolete_time_and_uid_fields() {
-        let source = "`meta\n  `: date\n\n    2026-07-30\n\n  `: timezone\n\n    +08:00\n\n`-{#review .event uid=\"legacy@example\" when=\"14:00\"} 14:00 Review\n";
+    fn updating_an_event_preserves_opaque_uid_and_when_properties() {
+        let source = "{\n  `: date 2026-07-30\n  `: timezone +08:00\n}\n\n`- 14:00 Review\n   {\n     `@ review\n     `- event\n     `: uid legacy@example\n     `: when 14:00\n   }\n";
         let mut workspace = Workspace::new();
         workspace.insert("agenda.plumb", 1, source);
         let event = workspace
@@ -6073,17 +6137,17 @@ mod tests {
             operation.document_changes[0].edits.clone(),
         )
         .unwrap();
-        assert!(updated.contains("`id review"), "{updated}");
-        assert_eq!(updated.matches("`event").count(), 1, "{updated}");
-        assert!(!updated.contains(" uid=\""), "{updated}");
-        assert!(!updated.contains(" when=\""), "{updated}");
+        assert!(updated.contains("`@ review"), "{updated}");
+        assert_eq!(updated.matches("`- event").count(), 1, "{updated}");
+        assert!(updated.contains("`: uid legacy@example"), "{updated}");
+        assert!(updated.contains("`: when 14:00"), "{updated}");
         assert!(updated.contains("`- 15:00 Updated"), "{updated}");
     }
 
     #[test]
     fn creates_nested_tasks_and_updates_fields_without_losing_owned_content() {
         let mut workspace = Workspace::new();
-        let source = "`-{.task #parent custom=keep created=\"2026-07-01T09:00:00Z\"}\n  Parent\n\n  `note Keep details\n`-{.task #other} Other\n`# Following\n";
+        let source = "`- Parent\n   {\n     `- task\n     `@ parent\n     `: custom keep\n     `: created 2026-07-01T09:00:00Z\n   }\n\n   `note Keep details\n\n`- Other\n   {\n     `- task\n     `@ other\n   }\n\n`# Following\n";
         workspace.insert("tasks.plumb", 4, source);
         let parent = workspace
             .current_output(Path::new("tasks.plumb"))
@@ -6109,9 +6173,9 @@ mod tests {
             .unwrap();
         assert_eq!(created.document_changes[0].expected_revision, 4);
         let created_source = apply_single_edit(source, &created);
-        assert!(created_source.contains("`task"), "{created_source}");
-        assert!(created_source.contains("`id task-"), "{created_source}");
-        assert!(created_source.contains("`priority -2"));
+        assert!(created_source.contains("`- task"), "{created_source}");
+        assert!(created_source.contains("`@ task-"), "{created_source}");
+        assert!(created_source.contains("`: priority -2"));
         assert!(created_source.contains("`note Keep details"));
 
         workspace.insert("tasks.plumb", 5, created_source.clone());
@@ -6135,9 +6199,9 @@ mod tests {
             )
             .unwrap();
         let updated_source = apply_single_edit(&created_source, &updated);
-        assert!(updated_source.contains("`custom keep"));
-        assert!(updated_source.contains("`id parent"));
-        assert!(updated_source.contains("`created 2026-07-01T09:00:00Z"));
+        assert!(updated_source.contains("`: custom keep"));
+        assert!(updated_source.contains("`@ parent"));
+        assert!(updated_source.contains("`: created 2026-07-01T09:00:00Z"));
         assert!(updated_source.contains("`note Keep details"));
         assert!(updated_source.contains("Nested"));
         assert!(updated_source.contains("Renamed parent"));
@@ -6162,8 +6226,8 @@ mod tests {
             )
             .unwrap();
         let patched_source = apply_single_edit(&updated_source, &patched);
-        assert!(patched_source.contains("`priority 9"));
-        assert!(patched_source.contains("`due 2026-09-01T10:00:00Z"));
+        assert!(patched_source.contains("`: priority 9"));
+        assert!(patched_source.contains("`: due 2026-09-01T10:00:00Z"));
         assert!(patched_source.contains("#other"), "{patched_source}");
     }
 
@@ -6215,7 +6279,7 @@ mod tests {
         workspace.insert(
             "tasks.plumb",
             2,
-            "`-{.task #a depends=\"#b\"} A\n`-{.task #b} B\n",
+            "`- A\n   {\n     `- task\n     `@ a\n     `: depends #b\n   }\n`- B\n   {\n     `- task\n     `@ b\n   }\n",
         );
         let b = workspace
             .current_output(Path::new("tasks.plumb"))
@@ -6241,7 +6305,7 @@ mod tests {
     fn moves_task_subtrees_within_and_between_parents() {
         let mut workspace = Workspace::new();
         let source = plumb_format::format(
-            "`-{.task #left} Left\n  `-{.task #a} A\n    `note A details\n  `-{.task #b} B\n`-{.task #right} Right\n",
+            "`- Left\n   {\n     `- task\n     `@ left\n   }\n\n   `- A\n      {\n        `- task\n        `@ a\n      }\n\n      `note A details\n\n   `- B\n      {\n        `- task\n        `@ b\n      }\n\n`- Right\n   {\n     `- task\n     `@ right\n   }\n",
         )
         .unwrap();
         workspace.insert("tasks.plumb", 1, &source);
@@ -6276,11 +6340,11 @@ mod tests {
             )
             .unwrap();
         let reordered_source = apply_document_edit(source, "tasks.plumb", 1, reordered).unwrap();
-        assert!(reordered_source.find("`id b").unwrap() < reordered_source.find("`id a").unwrap());
+        assert!(reordered_source.find("`@ b").unwrap() < reordered_source.find("`@ a").unwrap());
         assert!(reordered_source.contains("`note A details"));
         assert!(parse(&reordered_source).is_valid(), "{reordered_source}");
         assert!(
-            reordered_source.contains("\n`-{.task #right} Right"),
+            reordered_source.contains("`- Right\n   {\n     `- task\n     `@ right\n   }\n"),
             "{reordered_source}"
         );
 

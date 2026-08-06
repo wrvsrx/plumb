@@ -1,7 +1,8 @@
 use std::ops::Range;
 
 use plumb_core::{
-    AttrItem, Attributes, Block, Diagnostic, DiagnosticSeverity, Document, Inline, InlineContent,
+    AttachedContent, AttrItem, Attributes, Block, Diagnostic, DiagnosticSeverity, Document, Inline,
+    InlineContent,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -32,6 +33,12 @@ impl MathOutput {
 
 pub fn analyze_math(document: &Document) -> MathOutput {
     let mut output = MathOutput::default();
+    if let Some(attached) = document.attrs.attached.as_deref() {
+        match &attached.content {
+            AttachedContent::Blocks(blocks) => collect_blocks(blocks, &mut output),
+            AttachedContent::Inlines(content) => collect_inlines(content, &mut output),
+        }
+    }
     collect_blocks(&document.blocks, &mut output);
     output
 }
@@ -39,23 +46,14 @@ pub fn analyze_math(document: &Document) -> MathOutput {
 fn collect_blocks(blocks: &[Block], output: &mut MathOutput) {
     for block in blocks {
         match block {
-            Block::Verbatim(block) => recognize(
+            Block::Verbatim(block) => recognize_verbatim(
+                &block.kind,
                 &block.attrs,
                 block.range.clone(),
                 MathKind::Display,
-                true,
                 output,
             ),
             Block::Parsed(block) => {
-                if let Some(mark) = &block.mark {
-                    recognize(
-                        &mark.attrs,
-                        block.range.clone(),
-                        MathKind::Display,
-                        false,
-                        output,
-                    );
-                }
                 collect_inlines(&block.head, output);
                 collect_blocks(&block.children, output);
             }
@@ -66,16 +64,16 @@ fn collect_blocks(blocks: &[Block], output: &mut MathOutput) {
 fn collect_inlines(content: &InlineContent, output: &mut MathOutput) {
     for inline in &content.items {
         match inline {
-            Inline::Verbatim { range, attrs, .. } => {
-                recognize(attrs, range.clone(), MathKind::Inline, true, output)
-            }
+            Inline::Verbatim {
+                range, kind, attrs, ..
+            } => recognize_verbatim(kind, attrs, range.clone(), MathKind::Inline, output),
             Inline::Element {
                 range,
                 attrs,
                 content,
                 ..
             } => {
-                recognize(attrs, range.clone(), MathKind::Inline, false, output);
+                let _ = (range, attrs);
                 collect_inlines(content, output);
             }
             Inline::Text { .. } | Inline::Space { .. } | Inline::SoftBreak { .. } => {}
@@ -83,25 +81,14 @@ fn collect_inlines(content: &InlineContent, output: &mut MathOutput) {
     }
 }
 
-fn recognize(
+fn recognize_verbatim(
+    verbatim_kind: &str,
     attrs: &Attributes,
     range: Range<usize>,
     kind: MathKind,
-    valid_owner: bool,
     output: &mut MathOutput,
 ) {
-    let Some(math_range) = class_range(attrs, "$") else {
-        return;
-    };
-    if !valid_owner {
-        output.diagnostics.push(Diagnostic {
-            code: "math.invalid-owner",
-            severity: DiagnosticSeverity::Warning,
-            message: "the '.$' math facet is only valid on verbatim inline and block nodes"
-                .to_string(),
-            range: math_range,
-            related: Vec::new(),
-        });
+    if verbatim_kind != "$" {
         return;
     }
     if let Some((language, language_range)) = pair(attrs, "language") {
@@ -117,13 +104,6 @@ fn recognize(
         }
     }
     output.records.push(MathRecord { range, kind });
-}
-
-fn class_range(attrs: &Attributes, wanted: &str) -> Option<Range<usize>> {
-    attrs.items.iter().find_map(|item| match item {
-        AttrItem::Class { value, range } if value == wanted => Some(range.clone()),
-        _ => None,
-    })
 }
 
 fn pair<'a>(attrs: &'a Attributes, wanted: &str) -> Option<(&'a str, Range<usize>)> {
@@ -143,7 +123,7 @@ mod tests {
 
     #[test]
     fn recognizes_verbatim_math_and_rejects_other_owners() {
-        let source = "Inline `[x^2]{.$}.\n`{.$ #display}\n  x^2\n`div{.$} Not raw\n`span[x]{.$}\n`{.$ language=mathml}\n  <math/>\n";
+        let source = "Inline `$\"x^2\".\n\n`$\"{`@[display]}\n  x^2\n\n`$\"{`:[language mathml]}\n  <math/>\n\n`div Not raw\n     {\n       `- $\n     }\n\n`span[x]{`-[$]}\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let output = analyze_math(&parsed.syntax);
@@ -161,11 +141,7 @@ mod tests {
                 .iter()
                 .map(|diagnostic| diagnostic.code)
                 .collect::<Vec<_>>(),
-            [
-                "math.invalid-owner",
-                "math.invalid-owner",
-                "math.unsupported-language"
-            ]
+            ["math.unsupported-language"]
         );
     }
 }

@@ -8,15 +8,20 @@ fn completes_task_dependencies_from_workspace_tasks() {
     std::fs::create_dir_all(&root).unwrap();
     let source_path = root.join("current.plumb");
     let target_path = root.join("Project Plan.plumb");
-    let source = "`-{.task #done} Existing dependency\n`-{.task #local} Local task\n`node{#plain} Plain anchor\n`-{.task #review depends=\"#done Project Plan.plumb#dr\"} Review\n`-{.task #review-two depends=\"#done \"} Review two\n";
-    let target = "`-{.task #draft} Draft task\n`-{.task #closed done=\"2026-08-04T12:00:00+08:00\"} Closed task\n`node{#note} Not a task\n";
+    let source = "`- Existing dependency\n   {\n     `- task\n     `@ done\n   }\n`- Local task\n   {\n     `- task\n     `@ local\n   }\n\n`node Plain anchor\n      {\n        `@ plain\n      }\n\n`- Review\n   {\n     `- task\n     `@ review\n     `: depends #done Project Plan.plumb#dr\n   }\n`- Review two\n   {\n     `- task\n     `@ review-two\n     `: depends #done \n   }\n";
+    let target = "`- Draft task\n   {\n     `- task\n     `@ draft\n   }\n`- Closed task\n   {\n     `- task\n     `@ closed\n     `: done 2026-08-04T12:00:00+08:00\n   }\n\n`node Not a task\n      {\n        `@ note\n      }\n";
     std::fs::write(&source_path, source).unwrap();
     std::fs::write(&target_path, target).unwrap();
     let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
     let source_uri = lsp_types::Url::from_file_path(&source_path).unwrap();
     let lines = source.lines().collect::<Vec<_>>();
-    let path_cursor = lines[3].find("#dr").unwrap() + "#dr".len();
-    let empty_cursor = lines[4].find("#done ").unwrap() + "#done ".len();
+    let path_line = lines.iter().position(|line| line.contains("#dr")).unwrap();
+    let empty_line = lines
+        .iter()
+        .position(|line| line.contains("#done "))
+        .unwrap();
+    let path_cursor = lines[path_line].find("#dr").unwrap() + "#dr".len();
+    let empty_cursor = lines[empty_line].find("#done ").unwrap() + "#done ".len();
     let messages = [
         json!({
             "jsonrpc": "2.0", "id": 1, "method": "initialize",
@@ -39,14 +44,14 @@ fn completes_task_dependencies_from_workspace_tasks() {
             "jsonrpc": "2.0", "id": 2, "method": "textDocument/completion",
             "params": {
                 "textDocument": { "uri": source_uri },
-                "position": { "line": 3, "character": path_cursor }
+                "position": { "line": path_line, "character": path_cursor }
             }
         }),
         json!({
             "jsonrpc": "2.0", "id": 3, "method": "textDocument/completion",
             "params": {
                 "textDocument": { "uri": source_uri },
-                "position": { "line": 4, "character": empty_cursor }
+                "position": { "line": empty_line, "character": empty_cursor }
             }
         }),
         json!({ "jsonrpc": "2.0", "id": 4, "method": "shutdown", "params": null }),
@@ -67,12 +72,12 @@ fn completes_task_dependencies_from_workspace_tasks() {
         path_items[0]["textEdit"]["range"],
         json!({
             "start": {
-                "line": 3,
-                "character": lines[3].find("#dr").unwrap() + 1
+                "line": path_line,
+                "character": lines[path_line].find("#dr").unwrap() + 1
             },
             "end": {
-                "line": 3,
-                "character": lines[3].find("#dr").unwrap() + "#dr".len()
+                "line": path_line,
+                "character": lines[path_line].find("#dr").unwrap() + "#dr".len()
             }
         })
     );
@@ -93,15 +98,15 @@ fn completes_links_by_document_metadata_title() {
     std::fs::create_dir_all(&root).unwrap();
     let source = root.join("current.plumb");
     let target = root.join("Usage Guide.plumb");
-    let closed_path = "`->[x]{to=\"usXXX\"}";
-    let closed_anchor = "`->[x]{to=\"Usage Guide.plumb#usXXX\"}";
+    let closed_path = "`->[x]{`:[to usXXX]}\n";
+    let closed_anchor = "`->[x]{`:[to Usage Guide.plumb#usXXX]}\n";
     let raw = "`\"[raw `->[x]{to=\"us\"}]\"";
     let source_text =
-        format!("`->[Us\n\n`->[x]{{to=\"Guide\n\n{closed_path}\n{closed_anchor}\n{raw}\n");
+        format!("`->[Us\n\n`->[x]{{`:[to Guide\n\n{closed_path}\n{closed_anchor}\n{raw}\n");
     std::fs::write(&source, &source_text).unwrap();
     std::fs::write(
         &target,
-        "`meta\n  `: title\n\n    Usage Guide\n\n`#{#usage} Usage\n",
+        "{\n  `: title Usage Guide\n}\n\n`# Usage\n   {\n     `@ usage\n   }\n",
     )
     .unwrap();
     let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
@@ -152,7 +157,7 @@ fn completes_links_by_document_metadata_title() {
             "params": {
                 "textDocument": { "uri": source_uri },
                 "position": {
-                    "line": 5,
+                    "line": 6,
                     "character": closed_anchor.find("usXXX").unwrap() + 2
                 }
             }
@@ -162,7 +167,7 @@ fn completes_links_by_document_metadata_title() {
             "params": {
                 "textDocument": { "uri": source_uri },
                 "position": {
-                    "line": 6,
+                    "line": 8,
                     "character": raw.find("us").unwrap() + 2
                 }
             }
@@ -176,7 +181,7 @@ fn completes_links_by_document_metadata_title() {
     assert_eq!(label["detail"], "Usage Guide.plumb");
     assert_eq!(
         label["textEdit"]["newText"],
-        "`->[Usage Guide]{`to[Usage Guide.plumb]}"
+        "`->[Usage Guide]{`:[to Usage Guide.plumb]}"
     );
     let path = &response(&output, 3)["result"][0];
     assert_eq!(path["label"], "Usage Guide.plumb");
@@ -196,8 +201,8 @@ fn completes_links_by_document_metadata_title() {
     assert_eq!(
         closed_anchor_item["textEdit"]["range"],
         json!({
-            "start": { "line": 5, "character": closed_anchor.find("usXXX").unwrap() },
-            "end": { "line": 5, "character": closed_anchor.find("usXXX").unwrap() + 5 }
+            "start": { "line": 6, "character": closed_anchor.find("usXXX").unwrap() },
+            "end": { "line": 6, "character": closed_anchor.find("usXXX").unwrap() + 5 }
         })
     );
     assert!(response(&output, 6)["result"].is_null());
@@ -217,7 +222,7 @@ fn completion_from_a_subdirectory_inserts_a_relative_path() {
     std::fs::write(&source, source_text).unwrap();
     std::fs::write(
         &target,
-        "`meta\n  `: title\n\n    Target A\n\n`#{#target} Target\n",
+        "{\n  `: title Target A\n}\n\n`# Target\n   {\n     `@ target\n   }\n",
     )
     .unwrap();
     let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
@@ -259,7 +264,7 @@ fn completion_from_a_subdirectory_inserts_a_relative_path() {
     assert_eq!(item["detail"], "../a/target.plumb");
     assert_eq!(
         item["textEdit"]["newText"],
-        "`->[Target A]{`to[../a/target.plumb]}"
+        "`->[Target A]{`:[to ../a/target.plumb]}"
     );
     std::fs::remove_dir_all(root).unwrap();
 }
@@ -274,11 +279,11 @@ fn completes_and_navigates_relative_autolinks_files_and_images() {
     let unicode_target = root.join("中文笔记 [草稿].plumb");
     let image = static_dir.join("image one.PNG");
     let attachment = static_dir.join("manual draft.pdf");
-    let source = "`[tar]{.->}\n`\"[target note.plumb#an]\"{.->}\n`img[Query]{src=\"static/im\"}\n`img[Missing]{src=\"static/missing.png\"}\n`[target note.plumb]{.->}\n`img[Result]{src=\"static/image one.PNG\"}\n`[中文]{.->}\n`[static/manual draft.pdf]{.->}\n`->[manual]{to=\"static/manual draft.pdf\"}\n`[static/missing guide.pdf]{.->}\n";
+    let source = "`->\"tar\"\n`->\"target note.plumb#an\"\n`img[Query]{`:[src static/im]}\n`img[Missing]{`:[src static/missing.png]}\n`->\"target note.plumb\"\n`img[Result]{`:[src static/image one.PNG]}\n`->\"中文\"\n`->\"static/manual draft.pdf\"\n`->[manual]{`:[to static/manual draft.pdf]}\n`->\"static/missing guide.pdf\"\n";
     std::fs::write(&current, source).unwrap();
     std::fs::write(
         &target,
-        "`meta\n `: title\n\n    Target note\n\n`#{#anchor} Anchor\n",
+        "{\n  `: title Target note\n}\n\n`# Anchor\n   {\n     `@ anchor\n   }\n",
     )
     .unwrap();
     std::fs::write(&unicode_target, "`# 中文笔记\n").unwrap();
@@ -436,13 +441,13 @@ fn completes_and_navigates_relative_autolinks_files_and_images() {
         .expect("Unicode autolink completion");
     assert_eq!(
         unicode_completion["textEdit"]["newText"],
-        "`\"[中文笔记 [草稿].plumb]\""
+        "中文笔记 [草稿].plumb"
     );
     assert_eq!(
         unicode_completion["textEdit"]["range"],
         json!({
-            "start": { "line": 6, "character": 0 },
-            "end": { "line": 6, "character": 5 }
+            "start": { "line": 6, "character": 4 },
+            "end": { "line": 6, "character": 6 }
         })
     );
     assert!(response(&output, 9)["result"]["contents"]["value"]
@@ -534,13 +539,13 @@ fn completes_constructs_after_a_single_backtick() {
         ["Task", "Event", "Link"]
     );
     let task = block[0]["textEdit"]["newText"].as_str().unwrap();
-    assert!(task.starts_with("`- ${1:Task}\n   {\n     `task\n     `created "));
+    assert!(task.starts_with("`- ${1:Task}\n   {\n     `- task\n     `: created "));
     assert!(task.ends_with("\n   }"));
     assert_eq!(block[0]["insertTextFormat"], 2);
     let event = block.iter().find(|item| item["label"] == "Event").unwrap();
     assert_eq!(
         event["textEdit"]["newText"],
-        "`- ${1:09:00} ${2:Event}\n   {\n     `event\n   }"
+        "`- ${1:09:00} ${2:Event}\n   {\n     `- event\n   }"
     );
     assert_eq!(event["insertTextFormat"], 2);
     assert!(response(&output, 3)["result"].is_null());
@@ -594,7 +599,7 @@ fn completes_constructs_after_a_single_backtick() {
         .unwrap()["textEdit"]["newText"]
         .as_str()
         .unwrap();
-    assert!(fallback_task.starts_with("`- \n   {\n     `task\n     `created "));
+    assert!(fallback_task.starts_with("`- \n   {\n     `- task\n     `: created "));
     assert!(fallback_task.ends_with("\n   }"));
     assert_eq!(fallback_block[0]["insertTextFormat"], 1);
     std::fs::remove_dir_all(root).unwrap();
@@ -656,7 +661,7 @@ fn completes_construct_facets_from_marker_prefixes() {
     let autolink = response(&output, 2)["result"].as_array().unwrap();
     assert_eq!(autolink.len(), 1);
     assert_eq!(autolink[0]["label"], "Autolink");
-    assert_eq!(autolink[0]["textEdit"]["newText"], "`[${1:path}]{`->[]}");
+    assert_eq!(autolink[0]["textEdit"]["newText"], "`->\"${1:path}\"");
     assert_eq!(
         autolink[0]["textEdit"]["range"],
         json!({ "start": { "line": 0, "character": 5 }, "end": { "line": 0, "character": 7 } })
@@ -668,7 +673,7 @@ fn completes_construct_facets_from_marker_prefixes() {
         assert_eq!(items[0]["label"], "Link");
         assert_eq!(
             items[0]["textEdit"]["newText"],
-            "`->[${1:label}]{`to[${2:target}]}"
+            "`->[${1:label}]{`:[to ${2:target}]}"
         );
     }
     std::fs::remove_dir_all(root).unwrap();
@@ -679,7 +684,7 @@ fn completes_attributes_with_protocol_ranges_and_snippets() {
     let root = unique_temp_dir();
     std::fs::create_dir_all(&root).unwrap();
     let document = root.join("attributes.plumb");
-    let source = "`-{.task created=now pr} Work\n`img[Alt]{s\n`[x]{.$ language=\"t\"}\n";
+    let source = "`- Work\n   {\n     `- task\n     `: created now\n     `: pr\n   }\n`img[Alt]{`: s}\n`$\"x\"{`:[language t]}\n";
     std::fs::write(&document, source).unwrap();
     let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
     let document_uri = lsp_types::Url::from_file_path(&document).unwrap();
@@ -704,17 +709,17 @@ fn completes_attributes_with_protocol_ranges_and_snippets() {
         json!({
             "jsonrpc": "2.0", "id": 2, "method": "textDocument/completion",
             "params": { "textDocument": { "uri": document_uri },
-                "position": { "line": 0, "character": 23 } }
+                "position": { "line": 4, "character": 10 } }
         }),
         json!({
             "jsonrpc": "2.0", "id": 3, "method": "textDocument/completion",
             "params": { "textDocument": { "uri": document_uri },
-                "position": { "line": 1, "character": 11 } }
+                "position": { "line": 6, "character": 14 } }
         }),
         json!({
             "jsonrpc": "2.0", "id": 4, "method": "textDocument/completion",
             "params": { "textDocument": { "uri": document_uri },
-                "position": { "line": 2, "character": 19 } }
+                "position": { "line": 7, "character": 19 } }
         }),
         json!({ "jsonrpc": "2.0", "id": 5, "method": "shutdown", "params": null }),
         json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
@@ -726,12 +731,12 @@ fn completes_attributes_with_protocol_ranges_and_snippets() {
         .iter()
         .find(|item| item["label"] == "priority")
         .unwrap();
-    assert_eq!(priority["textEdit"]["newText"], "priority=${1:0}");
-    assert_eq!(priority["textEdit"]["range"]["start"]["character"], 21);
+    assert_eq!(priority["textEdit"]["newText"], "`: priority ${1:0}");
+    assert_eq!(priority["textEdit"]["range"]["start"]["character"], 5);
     assert_eq!(priority["insertTextFormat"], 2);
     let image = &response(&output, 3)["result"][0];
     assert_eq!(image["label"], "src");
-    assert_eq!(image["textEdit"]["newText"], "src=\"${1}\"");
+    assert_eq!(image["textEdit"]["newText"], "`:[src ${1}]");
     let language = &response(&output, 4)["result"][0];
     assert_eq!(language["label"], "tex");
     assert_eq!(language["textEdit"]["newText"], "tex");
@@ -743,7 +748,7 @@ fn completes_recursive_attached_elements() {
     let root = unique_temp_dir();
     std::fs::create_dir_all(&root).unwrap();
     let document = root.join("attached-completion.plumb");
-    let source = "`- Work\n   {\n     `task\n     `pr\n   }\n`->[x]{`t}\n";
+    let source = "`- Work\n   {\n     `- task\n     `: pr\n   }\n`->[x]{`: t}\n";
     std::fs::write(&document, source).unwrap();
     let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
     let document_uri = lsp_types::Url::from_file_path(&document).unwrap();
@@ -769,14 +774,14 @@ fn completes_recursive_attached_elements() {
             "jsonrpc": "2.0", "id": 2, "method": "textDocument/completion",
             "params": {
                 "textDocument": { "uri": document_uri },
-                "position": { "line": 3, "character": 8 }
+                "position": { "line": 3, "character": 10 }
             }
         }),
         json!({
             "jsonrpc": "2.0", "id": 3, "method": "textDocument/completion",
             "params": {
                 "textDocument": { "uri": document_uri },
-                "position": { "line": 5, "character": 9 }
+                "position": { "line": 5, "character": 11 }
             }
         }),
         json!({ "jsonrpc": "2.0", "id": 4, "method": "shutdown", "params": null }),
@@ -790,10 +795,10 @@ fn completes_recursive_attached_elements() {
         .iter()
         .find(|item| item["label"] == "priority")
         .unwrap();
-    assert_eq!(priority["textEdit"]["newText"], "`priority ${1:0}");
+    assert_eq!(priority["textEdit"]["newText"], "`: priority ${1:0}");
     let inline = response(&output, 3)["result"].as_array().unwrap();
     assert_eq!(inline.len(), 1);
     assert_eq!(inline[0]["label"], "to");
-    assert_eq!(inline[0]["textEdit"]["newText"], "`to[${1}]");
+    assert_eq!(inline[0]["textEdit"]["newText"], "`:[to ${1}]");
     std::fs::remove_dir_all(root).unwrap();
 }

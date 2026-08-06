@@ -15,7 +15,7 @@ fn diagnostics_clear_after_a_link_is_fixed() {
             "jsonrpc": "2.0", "method": "textDocument/didOpen",
             "params": { "textDocument": {
                 "uri": uri, "languageId": "plumb", "version": 1,
-                "text": "See `->[missing]{to=\"#missing\"}.\n"
+                "text": "See `->[missing]{`:[to #missing]}.\n"
             }}
         }),
         json!({
@@ -23,7 +23,7 @@ fn diagnostics_clear_after_a_link_is_fixed() {
             "params": {
                 "textDocument": { "uri": uri, "version": 2 },
                 "contentChanges": [{
-                    "text": "`node{#target} Target\nSee `->[target]{to=\"#target\"}.\n"
+                    "text": "`node Target\n      {\n        `@ target\n      }\n\nSee `->[target]{`:[to #target]}.\n"
                 }]
             }
         }),
@@ -48,7 +48,7 @@ fn diagnostics_refresh_when_a_target_document_changes() {
             "jsonrpc": "2.0", "method": "textDocument/didOpen",
             "params": { "textDocument": {
                 "uri": source_uri, "languageId": "plumb", "version": 1,
-                "text": "See `->[target]{to=\"diagnostic-target.plumb#target\"}.\n"
+                "text": "See `->[target]{`:[to diagnostic-target.plumb#target]}.\n"
             }}
         }),
         json!({
@@ -62,7 +62,7 @@ fn diagnostics_refresh_when_a_target_document_changes() {
             "jsonrpc": "2.0", "method": "textDocument/didChange",
             "params": {
                 "textDocument": { "uri": target_uri, "version": 2 },
-                "contentChanges": [{ "text": "`node{#target} Target\n" }]
+                "contentChanges": [{ "text": "`node Target\n      {\n        `@ target\n      }\n" }]
             }
         }),
         json!({ "jsonrpc": "2.0", "id": 2, "method": "shutdown", "params": null }),
@@ -108,7 +108,7 @@ fn publishes_diagnostics_and_returns_heading_symbols_over_stdio() {
             "method": "textDocument/didChange",
             "params": {
                 "textDocument": { "uri": "file:///tmp/first.plumb", "version": 2 },
-                "contentChanges": [{ "text": "`node{key=a key=b} Broken\n" }]
+                "contentChanges": [{ "text": "`node Broken {`:[key a]\n" }]
             }
         }),
         json!({ "jsonrpc": "2.0", "id": 3, "method": "shutdown", "params": null }),
@@ -143,14 +143,14 @@ fn publishes_diagnostics_and_returns_heading_symbols_over_stdio() {
     assert_eq!(diagnostics["params"]["version"], 2);
     assert_eq!(
         diagnostics["params"]["diagnostics"][0]["code"],
-        "syntax.duplicate-key"
+        "syntax.unclosed-attached-group"
     );
 }
 
 #[test]
 fn nests_anchors_and_tasks_under_their_containing_headings() {
     let uri = "file:///tmp/symbol-containment.plumb";
-    let source = "`# Project\n`node{#note} Note\n`-{.task #write} Write parser\n`## Section\n`node{#inside} Inside\n";
+    let source = "`# Project\n\n`node Note\n      {\n        `@ note\n      }\n\n`- Write parser\n   {\n     `- task\n     `@ write\n   }\n\n`## Section\n\n`node Inside\n      {\n        `@ inside\n      }\n";
     let messages = [
         json!({
             "jsonrpc": "2.0", "id": 1, "method": "initialize",

@@ -3,8 +3,8 @@ use std::ops::Range;
 use std::path::Path;
 
 use plumb_core::{
-    AttrItem, AttrValue, Attributes, Block, Diagnostic, DiagnosticSeverity, Document, Inline,
-    InlineContent,
+    AttachedContent, AttrItem, AttrValue, Attributes, Block, Diagnostic, DiagnosticSeverity,
+    Document, Inline, InlineContent,
 };
 use url::Url;
 
@@ -167,6 +167,16 @@ pub fn analyze_document(source: &str, document: &Document) -> DocumentOutput {
         ..DocumentOutput::default()
     };
     let mut first_ids: HashMap<String, Range<usize>> = HashMap::new();
+    if let Some(attached) = document.attrs.attached.as_deref() {
+        match &attached.content {
+            AttachedContent::Blocks(blocks) => {
+                collect_blocks(source, blocks, &mut first_ids, &mut output)
+            }
+            AttachedContent::Inlines(content) => {
+                collect_inlines(source, content, &mut first_ids, &mut output)
+            }
+        }
+    }
     collect_blocks(source, &document.blocks, &mut first_ids, &mut output);
     output
 }
@@ -256,10 +266,13 @@ fn collect_inlines(
             }
             Inline::Verbatim {
                 range,
+                kind,
+                kind_range,
                 text,
                 text_range,
                 quote_count,
                 attrs,
+                ..
             } => {
                 collect_anchor(
                     source,
@@ -270,15 +283,18 @@ fn collect_inlines(
                     first_ids,
                     output,
                 );
-                collect_verbatim_autolink(
-                    source,
-                    range.clone(),
-                    text,
-                    text_range.clone(),
-                    *quote_count,
-                    attrs,
-                    output,
-                );
+                if kind == "->" {
+                    collect_verbatim_autolink(
+                        source,
+                        range.clone(),
+                        kind_range.clone(),
+                        text,
+                        text_range.clone(),
+                        *quote_count,
+                        attrs,
+                        output,
+                    );
+                }
             }
             Inline::Text { .. } | Inline::Space { .. } | Inline::SoftBreak { .. } => {}
         }
@@ -303,21 +319,15 @@ fn diagnose_autolink_owner(attrs: &Attributes, output: &mut DocumentOutput) {
 fn collect_verbatim_autolink(
     source: &str,
     range: Range<usize>,
+    kind_range: Range<usize>,
     text: &str,
     text_range: Range<usize>,
     quote_count: usize,
     attrs: &Attributes,
     output: &mut DocumentOutput,
 ) {
-    let Some(class_range) = attrs.items.iter().find_map(|item| match item {
-        AttrItem::Class { value, range } if value == "->" => Some(range.clone()),
-        _ => None,
-    }) else {
-        return;
-    };
     if let Some(conflict) = attrs.items.iter().find_map(|item| match item {
         AttrItem::Pair { key, range, .. } if key == "to" => Some(range.clone()),
-        AttrItem::Class { value, range } if value == "$" => Some(range.clone()),
         _ => None,
     }) {
         output.diagnostics.push(Diagnostic {
@@ -325,7 +335,7 @@ fn collect_verbatim_autolink(
             severity: DiagnosticSeverity::Warning,
             message: "the '.->' facet cannot be combined with 'to' or '.$'".to_string(),
             range: conflict,
-            related: vec![class_range],
+            related: vec![kind_range],
         });
         return;
     }
@@ -793,7 +803,7 @@ mod tests {
 
     #[test]
     fn only_shorthand_ids_create_anchors() {
-        let parsed = parse("`#{#intro} Heading\n`##{id=pair} Pair only\n");
+        let parsed = parse("`# Heading\n   {\n     `@ intro\n   }\n\n`## Pair only\n    {\n      `: id pair\n    }\n");
         let output = analyze_document(&parsed.source, &parsed.syntax);
         assert_eq!(output.anchors.len(), 1);
         assert_eq!(output.anchors[0].id.value, "intro");
@@ -802,7 +812,7 @@ mod tests {
 
     #[test]
     fn verbatim_blocks_create_syntax_neutral_anchors() {
-        let parsed = parse("`{#example language=text}\n  raw text\n");
+        let parsed = parse("`text\"{`@[example]}\n  raw text\n");
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let output = analyze_document(&parsed.source, &parsed.syntax);
         assert_eq!(output.anchors.len(), 1);
@@ -811,7 +821,7 @@ mod tests {
 
     #[test]
     fn links_keep_component_source_ranges_through_quotes() {
-        let parsed = parse("See `->[target]{to=\"docs/a.plumb#intro\"}.\n");
+        let parsed = parse("See `->[target]{`:[to docs/a.plumb#intro]}.\n");
         let output = analyze_document(&parsed.source, &parsed.syntax);
         let link = &output.links[0];
         assert_eq!(link.spelling, LinkSpelling::Explicit);
@@ -834,7 +844,7 @@ mod tests {
 
     #[test]
     fn link_kind_is_not_a_standard_link() {
-        let parsed = parse("`link[generic]{to=\"other.plumb#target\"}\n");
+        let parsed = parse("`link[generic]{`:[to other.plumb#target]}\n");
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
         let output = analyze_document(&parsed.source, &parsed.syntax);
@@ -843,7 +853,7 @@ mod tests {
 
     #[test]
     fn recognizes_inline_verbatim_autolinks_without_normalizing_the_target() {
-        let source = "Visit `[https://example.test/a%20b]{.-> #site .keep rel=nofollow} or `\"[https://[::1]/]\"{.->}.\n";
+        let source = "Visit `->\"https://example.test/a%20b\"{`@[site] `-[keep] `:[rel nofollow]} or `->\"https://[::1]/\".\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
@@ -858,7 +868,7 @@ mod tests {
 
     #[test]
     fn recognizes_relative_autolink_targets() {
-        let source = "`[other.plumb]{.->}\n`[other notes.plumb#section]{.->}\n`[../assets/a b.pdf]{.->}\n`[../assets/100% done?.pdf]{.->}\n`[#local]{.->}\n";
+        let source = "`->\"other.plumb\"\n`->\"other notes.plumb#section\"\n`->\"../assets/a b.pdf\"\n`->\"../assets/100% done?.pdf\"\n`->\"#local\"\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
@@ -909,7 +919,7 @@ mod tests {
 
     #[test]
     fn recognizes_standard_images_and_diagnoses_invalid_sources() {
-        let source = "`img[Alt `em[text]]{src=\"static/图 像(100%).png\" #figure .wide loading=lazy}\n`img[]{src=\"https://example.test/a.png\"}\n`img[Missing]\n`img[Empty]{src=\"\"}\n`img[Invalid URI]{src=\"https://example.test/bad path.png\"}\n`img[Invalid path]{src=\"bad\\\\path.png\"}\n";
+        let source = "`img[Alt `em[text]]{`:[src static/图 像(100%).png] `@[figure] `-[wide] `:[loading lazy]}\n`img[]{`:[src https://example.test/a.png]}\n`img[Missing]\n`img[Empty]{`:[src ]}\n`img[Invalid URI]{`:[src https://example.test/bad path.png]}\n`img[Invalid path]{`:[src bad\\path.png]}\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
@@ -940,7 +950,7 @@ mod tests {
 
     #[test]
     fn recognizes_standard_files_and_diagnoses_invalid_sources() {
-        let source = "`file[Demo]{src=\"static/demo video.mp4\" #demo .wide}\n`file[Remote]{src=\"https://example.test/demo.mp4\"}\n`file[Missing]\n`file[Empty]{src=\"\"}\n`file[Invalid URI]{src=\"https://example.test/bad path.mp4\"}\n`file[Invalid path]{src=\"bad\\\\path.mp4\"}\n";
+        let source = "`file[Demo]{`:[src static/demo video.mp4] `@[demo] `-[wide]}\n`file[Remote]{`:[src https://example.test/demo.mp4]}\n`file[Missing]\n`file[Empty]{`:[src ]}\n`file[Invalid URI]{`:[src https://example.test/bad path.mp4]}\n`file[Invalid path]{`:[src bad\\path.mp4]}\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
@@ -971,12 +981,12 @@ mod tests {
 
     #[test]
     fn diagnoses_invalid_autolink_targets_owners_and_conflicts() {
-        let source = "`[]{.->}\n`[https://example.test/bad path]{.->}\n`[https://example.test/%zz]{.->}\n`[doc.plumb#one#two]{.->}\n`[https://example.test]{.-> to=other}\n`[https://example.test]{.-> .$}\n`span[text]{.->}\n`note{.->} head\n`{.->}\n  raw\n";
+        let source = "`->\"\"\n`->\"https://example.test/bad path\"\n`->\"https://example.test/%zz\"\n`->\"doc.plumb#one#two\"\n`->\"https://example.test\"{`:[to other]}\n`->\"https://example.test\"{`-[$]}\n`span[text]{`-[->]}\n\n`note head\n      {\n        `- ->\n      }\n\n`\"{`-[->]}\n  raw\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
         let output = analyze_document(&parsed.source, &parsed.syntax);
-        assert!(output.links.is_empty());
+        assert_eq!(output.links.len(), 1);
         let codes = output
             .diagnostics
             .iter()
@@ -990,7 +1000,6 @@ mod tests {
                 "link.invalid-autolink-target",
                 "link.invalid-autolink-target",
                 "link.conflicting-facet",
-                "link.conflicting-facet",
                 "link.invalid-owner",
                 "link.invalid-owner",
                 "link.invalid-owner",
@@ -1000,7 +1009,7 @@ mod tests {
 
     #[test]
     fn duplicate_ids_are_semantic_diagnostics() {
-        let parsed = parse("`node{#same} One\n`other{#same} Two\n");
+        let parsed = parse("`node One\n      {\n        `@ same\n      }\n\n`other Two\n       {\n         `@ same\n       }\n");
         assert!(parsed.is_valid());
         let output = analyze_document(&parsed.source, &parsed.syntax);
         assert_eq!(output.diagnostics[0].code, "anchor.duplicate-id");

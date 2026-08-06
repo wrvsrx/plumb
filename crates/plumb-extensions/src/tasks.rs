@@ -145,12 +145,17 @@ fn task_record(source: &str, block: &ParsedBlock, depth: usize) -> TaskRecord {
         selection_range: block.head.range.clone(),
         title: block.head.plain_text().trim().to_string(),
         depth,
-        attribute_insert: attrs
-            .range
-            .as_ref()
-            .expect("task class is inside an attribute slot")
-            .end
-            .saturating_sub(1),
+        attribute_insert: attrs.attached.as_deref().map_or_else(
+            || {
+                attrs
+                    .range
+                    .as_ref()
+                    .expect("task class is inside an attribute slot")
+                    .end
+                    .saturating_sub(1)
+            },
+            |attached| attached.close_range.start,
+        ),
         attribute_range: attrs
             .range
             .clone()
@@ -462,7 +467,7 @@ mod tests {
 
     #[test]
     fn collects_task_facets_fields_dependencies_and_nesting() {
-        let source = "`-{.task #write created=\"2026-07-20T09:00:00+08:00\" due=\"2026-07-21T09:00:00+08:00\" wait=\"2026-07-20T12:00:00+08:00\" recur=P1W prev=\"#old\" depends=\"#draft other notes.plumb#review third.plumb#done\"} Write parser\n  `note Details\n  `-{.task done=\"2026-07-20T10:00:00+08:00\"} Nested task\n";
+        let source = "`- Write parser\n   {\n     `- task\n     `@ write\n     `: created 2026-07-20T09:00:00+08:00\n     `: due 2026-07-21T09:00:00+08:00\n     `: wait 2026-07-20T12:00:00+08:00\n     `: recur P1W\n     `: prev #old\n     `: depends #draft other notes.plumb#review third.plumb#done\n   }\n\n   `note Details\n\n   `- Nested task\n      {\n        `- task\n        `: done 2026-07-20T10:00:00+08:00\n      }\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
@@ -547,7 +552,7 @@ mod tests {
 
     #[test]
     fn attached_dependency_values_keep_exact_source_ranges() {
-        let source = "`- Review\n   {\n     `task\n     `id review\n     `depends Project Plan.plumb#build #local\n   }\n";
+        let source = "`- Review\n   {\n     `- task\n     `@ review\n     `: depends Project Plan.plumb#build #local\n   }\n";
         let parsed = plumb_core::parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let output = analyze_tasks(source, &parsed.syntax);
@@ -562,7 +567,7 @@ mod tests {
 
     #[test]
     fn reports_local_task_state_and_recurrence_diagnostics() {
-        let source = "`-{.task done=\"2026-07-20T09:00:00Z\" canceled=\"2026-07-20T10:00:00Z\"} Conflict\n`-{.task due=\"not-a-date\" recur=P1M1D} Invalid recurrence\n`-{.task created=2026-07-20T09:00:00Z wait=tomorrow done=later canceled=never} Invalid datetimes\n";
+        let source = "`- Conflict\n   {\n     `- task\n     `: done 2026-07-20T09:00:00Z\n     `: canceled 2026-07-20T10:00:00Z\n   }\n`- Invalid recurrence\n   {\n     `- task\n     `: due not-a-date\n     `: recur P1M1D\n   }\n`- Invalid datetimes\n   {\n     `- task\n     `: created 2026-07-20T09:00:00Z\n     `: wait tomorrow\n     `: done later\n     `: canceled never\n   }\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
@@ -582,17 +587,22 @@ mod tests {
                 "task.invalid-datetime",
                 "task.invalid-datetime",
                 "task.invalid-datetime",
-                "task.invalid-datetime",
             ]
         );
         assert_eq!(output.tasks[1].due, None);
-        assert_eq!(output.tasks[2].created, None);
+        assert_eq!(
+            output.tasks[2]
+                .created
+                .as_ref()
+                .map(|field| field.value.as_str()),
+            Some("2026-07-20T09:00:00Z")
+        );
         assert_eq!(output.tasks[2].state(), TaskState::Open);
     }
 
     #[test]
     fn parses_signed_task_priority_and_rejects_out_of_range_values() {
-        let source = "`-{.task priority=2147483647} Maximum\n`-{.task priority=-12} Deferred\n`-{.task priority=-2147483648} Minimum\n`-{.task priority=2147483648} Too large\n`-{.task priority=-2147483649} Too small\n`-{.task priority=soon} Invalid\n";
+        let source = "`- Maximum\n   {\n     `- task\n     `: priority 2147483647\n   }\n`- Deferred\n   {\n     `- task\n     `: priority -12\n   }\n`- Minimum\n   {\n     `- task\n     `: priority -2147483648\n   }\n`- Too large\n   {\n     `- task\n     `: priority 2147483648\n   }\n`- Too small\n   {\n     `- task\n     `: priority -2147483649\n   }\n`- Invalid\n   {\n     `- task\n     `: priority soon\n   }\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
@@ -620,7 +630,7 @@ mod tests {
     #[test]
     fn reports_missing_due_only_when_the_attribute_is_absent() {
         let source =
-            "`-{.task recur=P1W} Missing due\n`-{.task due=\"invalid\" recur=P1W} Invalid due\n";
+            "`- Missing due\n   {\n     `- task\n     `: recur P1W\n   }\n`- Invalid due\n   {\n     `- task\n     `: due invalid\n     `: recur P1W\n   }\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
@@ -655,7 +665,7 @@ mod tests {
 
     #[test]
     fn task_facet_requires_a_list_item_owner() {
-        let source = "`note{.task} Not a task\n`-{.task} Bullet\n`.{.task} Ordered\n";
+        let source = "`note Not a task\n      {\n        `- task\n      }\n\n`- Bullet\n   {\n     `- task\n   }\n\n`. Ordered\n   {\n     `- task\n   }\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 

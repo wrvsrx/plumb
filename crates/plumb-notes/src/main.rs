@@ -374,20 +374,23 @@ mod tests {
         std::fs::create_dir_all(root.join("nested")).unwrap();
         std::fs::write(
             root.join("a.plumb"),
-            "中文\n`node{key=a key=b} Duplicate key\n",
+            "{\n  `: title First\n  `: title Second\n}\n\n中文\n",
         )
         .unwrap();
         std::fs::write(
             root.join("nested/b.plumb"),
-            "See `->[missing]{to=\"missing.plumb#id\"}.\n",
+            "See `->[missing]{`:[to missing.plumb#id]}.\n",
         )
         .unwrap();
         let loaded = load_workspace(&root).unwrap();
         let (output, has_failures) = render_workspace_diagnostics(&root, &loaded);
         assert!(has_failures);
         let lines = output.lines().collect::<Vec<_>>();
-        assert!(lines[0].starts_with("a.plumb:2:"), "{output}");
-        assert!(lines[0].contains("error[syntax.duplicate-key]"), "{output}");
+        assert!(lines[0].starts_with("a.plumb:3:"), "{output}");
+        assert!(
+            lines[0].contains("warning[metadata.duplicate-key]"),
+            "{output}"
+        );
         assert!(
             lines
                 .iter()
@@ -400,7 +403,7 @@ mod tests {
         std::fs::remove_file(root.join("nested/b.plumb")).unwrap();
         std::fs::write(
             root.join("tasks.plumb"),
-            "`-{.task #draft} Draft\n`-{.task #review depends=\"#draft\"} Review\n",
+            "`- Draft\n   {\n     `- task\n     `@ draft\n   }\n`- Review\n   {\n     `- task\n     `@ review\n     `: depends #draft\n   }\n",
         )
         .unwrap();
         let loaded = load_workspace(&root).unwrap();
@@ -472,8 +475,8 @@ mod tests {
     fn queries_transitive_referrers() {
         let root = unique_temp_dir();
         std::fs::create_dir_all(&root).unwrap();
-        std::fs::write(root.join("index.plumb"), "`->[topic]{to=\"topic.plumb\"}\n").unwrap();
-        std::fs::write(root.join("topic.plumb"), "`->[leaf]{to=\"leaf.plumb\"}\n").unwrap();
+        std::fs::write(root.join("index.plumb"), "`->[topic]{`:[to topic.plumb]}\n").unwrap();
+        std::fs::write(root.join("topic.plumb"), "`->[leaf]{`:[to leaf.plumb]}\n").unwrap();
         std::fs::write(root.join("leaf.plumb"), "Leaf note.\n").unwrap();
         let loaded = load_workspace(&root).unwrap();
         let leaf = normalize(&root.join("leaf.plumb"));
@@ -498,15 +501,19 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(
             root.join("index.plumb"),
-            "`-{.task #index prev=\"topic.plumb#topic\"} Index\n",
+            "`- Index\n   {\n     `- task\n     `@ index\n     `: prev topic.plumb#topic\n   }\n",
         )
         .unwrap();
         std::fs::write(
             root.join("topic.plumb"),
-            "`-{.task #topic depends=\"leaf.plumb#leaf\"} Topic\n",
+            "`- Topic\n   {\n     `- task\n     `@ topic\n     `: depends leaf.plumb#leaf\n   }\n",
         )
         .unwrap();
-        std::fs::write(root.join("leaf.plumb"), "`-{.task #leaf} Leaf\n").unwrap();
+        std::fs::write(
+            root.join("leaf.plumb"),
+            "`- Leaf\n   {\n     `- task\n     `@ leaf\n   }\n",
+        )
+        .unwrap();
         let loaded = load_workspace(&root).unwrap();
         let leaf = normalize(&root.join("leaf.plumb"));
         let results = loaded
@@ -530,7 +537,7 @@ mod tests {
         std::fs::create_dir_all(root.join("docs")).unwrap();
         std::fs::write(
             root.join("docs/semantics.plumb"),
-            "`meta\n  `: title\n\n    Semantics `em[Guide]\n\n`# Heading\n",
+            "{\n  `: title Semantics `em[Guide]\n}\n\n`# Heading\n",
         )
         .unwrap();
         std::fs::write(root.join("notes.plumb"), "`# Notes\n").unwrap();

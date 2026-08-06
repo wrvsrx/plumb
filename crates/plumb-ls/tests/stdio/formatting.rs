@@ -45,7 +45,7 @@ fn whole_document_formatting_keeps_unchanged_blocks_out_of_edits() {
 #[test]
 fn whole_document_formatting_handles_repeated_marker_lines() {
     let uri = "file:///tmp/repeated-marker-format.plumb";
-    let source = "`-{.task created=now} aaa bbb ccc ddd eee fff ggg hhh iii jjj kkk lll mmm nnn ooo ppp\n`-{\n   .task created=later\n  } Following\n";
+    let source = "`- aaa bbb ccc ddd eee fff ggg hhh iii jjj kkk lll mmm nnn ooo ppp\n   {\n     `- task\n     `: created now\n   }\n\n    `note Detail\n\n`- Following\n   {\n     `- task\n     `: created later\n   }\n";
     let messages = [
         json!({
             "jsonrpc": "2.0", "id": 1, "method": "initialize",
@@ -80,7 +80,7 @@ fn whole_document_formatting_handles_repeated_marker_lines() {
 #[test]
 fn formats_valid_documents_and_declines_invalid_revisions() {
     let uri = "file:///tmp/format.plumb";
-    let source = "`meta\n   `: title\n\n      Example\n";
+    let source = "`node Parent\n\n       `child Example\n";
     let messages = [
         json!({
             "jsonrpc": "2.0", "id": 1, "method": "initialize",
@@ -125,7 +125,7 @@ fn formats_valid_documents_and_declines_invalid_revisions() {
     );
     assert_eq!(
         apply_ascii_lsp_edits(source, response(&output, 2)["result"].as_array().unwrap()),
-        "`meta\n `: title\n\n    Example\n"
+        "`node Parent\n\n      `child Example\n"
     );
     assert!(response(&output, 3)["result"].is_null());
 }
@@ -166,8 +166,7 @@ fn apply_ascii_lsp_edits(source: &str, edits: &[serde_json::Value]) -> String {
 #[test]
 fn range_formatting_formats_only_complete_contained_blocks() {
     let uri = "file:///tmp/range-format.plumb";
-    let source = "`node Parent\r\n       `-{.task\r\n          #一\r\n        } One\r\n\r\n       `-{.task #二} Two\r\n\r\n`# Following\r\n";
-    let child_end = source.lines().nth(5).unwrap().encode_utf16().count() as u32;
+    let source = "`node Parent\n\n      `- One\n         {\n           `- task\n           `@ 一\n         }\n      `- Two\n         {\n           `- task\n           `@ 二\n         }\n\n`# Following\n";
     let messages = [
         json!({
             "jsonrpc": "2.0", "id": 1, "method": "initialize",
@@ -185,8 +184,8 @@ fn range_formatting_formats_only_complete_contained_blocks() {
             "params": {
                 "textDocument": { "uri": uri },
                 "range": {
-                    "start": { "line": 1, "character": 7 },
-                    "end": { "line": 5, "character": child_end }
+                    "start": { "line": 2, "character": 6 },
+                    "end": { "line": 7, "character": 0 }
                 },
                 "options": { "tabSize": 2, "insertSpaces": true }
             }
@@ -244,11 +243,11 @@ fn range_formatting_formats_only_complete_contained_blocks() {
     assert_eq!(edits.len(), 1);
     assert_eq!(
         edits[0]["range"]["start"],
-        json!({ "line": 1, "character": 7 })
+        json!({ "line": 2, "character": 6 })
     );
     assert_eq!(
         edits[0]["newText"],
-        "`-{.task #一} One\r\n       `-{.task #二} Two"
+        "`- One\n   {\n     `- task\n     `@ 一\n   }"
     );
     assert_eq!(response(&output, 3)["result"], json!([]));
     assert_eq!(response(&output, 4)["result"], json!([]));
@@ -258,8 +257,7 @@ fn range_formatting_formats_only_complete_contained_blocks() {
 #[test]
 fn range_formatting_returns_multiple_maximal_groups() {
     let uri = "file:///tmp/range-format-groups.plumb";
-    let source = "`node First\n  `-{.task\n      #one\n    } One\n`node Second\n  `-{.task\n      #two\n    } Two\n";
-    let end_character = source.lines().nth(7).unwrap().encode_utf16().count() as u32;
+    let source = "`node First\n\n      `- One\n         {\n           `- task\n           `@ one\n         }\n\n`node Second\n\n       `- Two\n          {\n            `- task\n            `@ two\n          }\n";
     let messages = [
         json!({
             "jsonrpc": "2.0", "id": 1, "method": "initialize",
@@ -278,7 +276,7 @@ fn range_formatting_returns_multiple_maximal_groups() {
                 "textDocument": { "uri": uri },
                 "range": {
                     "start": { "line": 1, "character": 2 },
-                    "end": { "line": 7, "character": end_character }
+                    "end": { "line": 16, "character": 0 }
                 },
                 "options": { "tabSize": 4, "insertSpaces": true }
             }
@@ -292,12 +290,15 @@ fn range_formatting_returns_multiple_maximal_groups() {
     assert_eq!(edits.len(), 2);
     assert_eq!(
         edits[0]["range"]["start"],
-        json!({ "line": 1, "character": 2 })
+        json!({ "line": 2, "character": 6 })
     );
-    assert_eq!(edits[0]["newText"], "`-{.task #one} One");
+    assert_eq!(
+        edits[0]["newText"],
+        "`- One\n   {\n     `- task\n     `@ one\n   }"
+    );
     assert_eq!(
         edits[1]["range"]["start"],
-        json!({ "line": 4, "character": 0 })
+        json!({ "line": 8, "character": 0 })
     );
     assert!(edits[1]["newText"]
         .as_str()

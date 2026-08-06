@@ -68,7 +68,7 @@ fn exposes_the_unified_command_surface() {
 
 #[test]
 fn migrates_legacy_attributes_from_stdin_and_files_atomically() {
-    let legacy = "`meta\n `: title\n\n    Migration\n\n`-{.task #write due=tomorrow} Work\n\nSee `->[guide]{to=\"guide.plumb#intro\"}.\n\n`{language=rust}\n  fn main() {}\n";
+    let legacy = "`meta\n  `: title\n\n    Migration\n\n`-{.task #write due=tomorrow} Work\n\nSee `->[guide]{to=\"guide.plumb#intro\"}.\n\n`{language=rust}\n  fn main() {}\n";
     let migrated = run_with_stdin(&["migrate-attributes"], legacy);
     assert!(
         migrated.status.success(),
@@ -77,19 +77,16 @@ fn migrates_legacy_attributes_from_stdin_and_files_atomically() {
     );
     let migrated = String::from_utf8(migrated.stdout).unwrap();
     assert!(
-        migrated.starts_with("{\n  `title Migration\n}\n"),
+        migrated.starts_with("{\n  `: title Migration\n}\n"),
         "{migrated}"
     );
-    assert!(migrated.contains("`task\n"), "{migrated}");
-    assert!(migrated.contains("`id write\n"), "{migrated}");
+    assert!(migrated.contains("`- task\n"), "{migrated}");
+    assert!(migrated.contains("`@ write\n"), "{migrated}");
     assert!(
-        migrated.contains("`->[guide]{`to[guide.plumb#intro]}"),
+        migrated.contains("`->[guide]{`:[to guide.plumb#intro]}"),
         "{migrated}"
     );
-    assert!(
-        migrated.contains("`{\n  `language rust\n}\n  fn main() {}"),
-        "{migrated}"
-    );
+    assert!(migrated.contains("`rust\"\n  fn main() {}"), "{migrated}");
 
     let idempotent = run_with_stdin(&["migrate-attributes"], &migrated);
     assert!(idempotent.status.success());
@@ -122,7 +119,7 @@ fn exports_events_as_a_khal_readonly_vdir() {
     std::fs::create_dir_all(&root).unwrap();
     std::fs::write(
         root.join("agenda.plumb"),
-        "`meta\n  `: date\n\n    2026-07-30\n\n  `: timezone\n\n    +08:00\n\n`-{.event #review tasks=\"#write\"} 14:00--15:00 Parser review\n",
+        "{\n  `: date 2026-07-30\n  `: timezone +08:00\n}\n\n`- 14:00--15:00 Parser review\n   {\n     `- event\n     `@ review\n     `: tasks #write\n   }\n",
     )
     .unwrap();
     let exported = Command::new(env!("CARGO_BIN_EXE_plumb"))
@@ -207,7 +204,7 @@ fn checks_a_workspace_recursively_and_sets_the_exit_status() {
 
     std::fs::write(
         root.join("nested/broken.plumb"),
-        "See `->[missing]{to=\"missing.plumb#id\"}.\n",
+        "See `->[missing]{`:[to missing.plumb#id]}.\n",
     )
     .unwrap();
     let broken = Command::new(env!("CARGO_BIN_EXE_plumb"))
@@ -268,7 +265,7 @@ fn discovers_workspace_markers_and_applies_ignore_files() {
 
 #[test]
 fn round_trips_the_exported_standard_profile_through_import() {
-    let source = "`meta\n `: title\n\n    Import test\n\n`#{#intro} Intro\nParagraph with `*[emphasis], `![strong], `=[mark], `~[strike], `^[super], `_[sub], and `->[a link]{to=\"other.plumb#id\"}.\n\n`>{#quote .source} Quoted\n\n`-{.task #task created=\"2026-07-23T17:00:00+08:00\"} Item\n\n`{language=rust #code}\n  fn main() {}\n";
+    let source = "{\n  `: title Import test\n}\n\n`# Intro\n   {\n     `@ intro\n   }\n\nParagraph with `*[emphasis], `![strong], `=[mark], `~[strike], `^[super], `_[sub], and `->[a link]{`:[to other.plumb#id]}.\n\n`> Quoted\n   {\n     `@ quote\n     `- source\n   }\n\n`- Item\n   {\n     `- task\n     `@ task\n     `: created 2026-07-23T17:00:00+08:00\n   }\n\n`rust\"{`@[code]}\n  fn main() {}\n";
     let first = run_with_stdin(&["export"], source);
     assert!(
         first.status.success(),
@@ -312,13 +309,13 @@ fn serves_the_workspace_site_with_notes_and_tasks() {
     std::fs::write(root.join("private/note.plumb"), "Private note.\n").unwrap();
     std::fs::write(
         root.join("a.plumb"),
-        "`meta\n `: title\n\n    Alpha\n\nSee `->[Beta]{to=\"b.plumb#beta\"}.\n\n`img[icon]{src=\"assets/icon.png\"}\n\n`-{.task created=\"2026-07-25T10:00:00+08:00\"} Ship release\n",
+        "{\n  `: title Alpha\n}\n\nSee `->[Beta]{`:[to b.plumb#beta]}.\n\n`img[icon]{`:[src assets/icon.png]}\n\n`- Ship release\n   {\n     `- task\n     `: created 2026-07-25T10:00:00+08:00\n   }\n",
     )
     .unwrap();
-    std::fs::write(root.join("b.plumb"), "`#{#beta} Beta\n").unwrap();
+    std::fs::write(root.join("b.plumb"), "`# Beta\n   {\n     `@ beta\n   }\n").unwrap();
     std::fs::write(
         root.join("hidden.plumb"),
-        "Hidden index. `->[Alpha]{to=\"a.plumb\"}.\n",
+        "Hidden index. `->[Alpha]{`:[to a.plumb]}.\n",
     )
     .unwrap();
 
@@ -413,11 +410,11 @@ fn serves_the_workspace_site_with_notes_and_tasks() {
         .is_some_and(|timestamp| timestamp.starts_with("2026-")));
     assert!(std::fs::read_to_string(root.join("a.plumb"))
         .unwrap()
-        .contains("done=\"2026-"));
+        .contains("`: done 2026-"));
 
     std::fs::write(
         root.join("a.plumb"),
-        "`meta\n `: title\n\n    Alpha updated\n\nSee `->[Beta]{to=\"b.plumb#beta\"}.\n",
+        "{\n  `: title Alpha updated\n}\n\nSee `->[Beta]{`:[to b.plumb#beta]}.\n",
     )
     .unwrap();
     let mut refreshed = false;

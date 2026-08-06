@@ -86,7 +86,7 @@ pub fn import(document: &Pandoc) -> Result<String, String> {
             .join("; ");
         return Err(format!("generated plumb is invalid: {diagnostics}"));
     }
-    let formatted = plumb_format::migrate_attributes(&source)
+    let formatted = plumb_format::format(&source)
         .map_err(|_| "generated plumb failed strict validation".to_string())?;
     let parsed = plumb_core::parse(&formatted);
     if !parsed.is_valid() {
@@ -109,14 +109,14 @@ fn render_metadata(meta: &HashMap<String, MetaValue>) -> Result<String, String> 
 fn render_metadata_entry(key: &str, value: &MetaValue) -> Result<String, String> {
     let value_source = render_metadata_value(value)?;
     if value_source.is_empty() {
-        return Ok(format!("`{key}"));
+        return Ok(format!("`: {key}"));
     }
     if matches!(value, MetaValue::MetaString(value) if !value.contains(['\n', '\r']))
         || matches!(value, MetaValue::MetaInlines(_))
     {
-        return Ok(format!("`{key} {value_source}"));
+        return Ok(format!("`: {key} {value_source}"));
     }
-    Ok(format!("`{key}\n{}", indent(&value_source, 1)))
+    Ok(format!("`: {key}\n{}", indent(&value_source, 2)))
 }
 
 fn render_metadata_value(value: &MetaValue) -> Result<String, String> {
@@ -164,12 +164,15 @@ fn render_metadata_value(value: &MetaValue) -> Result<String, String> {
 fn render_block(block: &Block) -> Result<Option<String>, String> {
     match block {
         Block::Plain(inlines) | Block::Para(inlines) => Ok(Some(render_inlines(inlines, false)?)),
-        Block::Header(level, attrs, inlines) if (1..=6).contains(level) => Ok(Some(format!(
-            "`{}{} {}",
-            "#".repeat(*level as usize),
-            render_attrs(attrs, None)?,
-            render_inlines(inlines, false)?
-        ))),
+        Block::Header(level, attrs, inlines) if (1..=6).contains(level) => {
+            let mut output = format!(
+                "`{} {}",
+                "#".repeat(*level as usize),
+                render_inlines(inlines, false)?
+            );
+            append_block_attrs(&mut output, &render_attrs(attrs, None)?);
+            Ok(Some(output))
+        }
         Block::Header(level, ..) => Err(format!("heading level {level} is outside 1..=6")),
         Block::CodeBlock(attrs, text) => Ok(Some(render_verbatim_block(attrs, text)?)),
         Block::BlockQuote(blocks) => {
@@ -215,7 +218,8 @@ fn render_list(marker: &str, items: &[Vec<Block>]) -> Result<String, String> {
         let (attrs, blocks) = unwrap_attributed_blocks(item);
         let attrs = render_attrs(attrs, None)?;
         if let Some((head, children)) = split_head(blocks)? {
-            let mut rendered = format!("`{marker}{attrs} {head}");
+            let mut rendered = format!("`{marker} {head}");
+            append_block_attrs(&mut rendered, &attrs);
             if !children.is_empty() {
                 rendered.push('\n');
                 rendered.push_str(&indent(&render_blocks(children)?, 2));
@@ -223,7 +227,8 @@ fn render_list(marker: &str, items: &[Vec<Block>]) -> Result<String, String> {
             output.push(rendered);
         } else {
             let children = render_blocks(blocks)?;
-            let mut rendered = format!("`{marker}{attrs}");
+            let mut rendered = format!("`{marker}");
+            append_block_attrs(&mut rendered, &attrs);
             if !children.is_empty() {
                 rendered.push('\n');
                 rendered.push_str(&indent(&children, 2));
@@ -243,11 +248,8 @@ fn render_definitions(entries: &[(Vec<Inline>, Vec<Vec<Block>>)]) -> Result<Stri
             );
         }
         let (attrs, blocks) = unwrap_attributed_blocks(&definitions[0]);
-        let mut entry = format!(
-            "`:{} {}",
-            render_attrs(attrs, None)?,
-            render_inlines(term, false)?
-        );
+        let mut entry = format!("`: {}", render_inlines(term, false)?);
+        append_block_attrs(&mut entry, &render_attrs(attrs, None)?);
         let body = render_blocks(blocks)?;
         if !body.is_empty() {
             entry.push_str("\n\n");
@@ -261,7 +263,8 @@ fn render_definitions(entries: &[(Vec<Inline>, Vec<Vec<Block>>)]) -> Result<Stri
 fn render_container(marker: &str, attrs: &Attr, blocks: &[Block]) -> Result<String, String> {
     let attrs = render_attrs(attrs, Some("data-plumb-marker"))?;
     if let Some((head, children)) = split_head(blocks)? {
-        let mut output = format!("`{marker}{attrs} {head}");
+        let mut output = format!("`{marker} {head}");
+        append_block_attrs(&mut output, &attrs);
         if !children.is_empty() {
             output.push_str("\n\n");
             output.push_str(&indent(&render_blocks(children)?, 2));
@@ -270,9 +273,15 @@ fn render_container(marker: &str, attrs: &Attr, blocks: &[Block]) -> Result<Stri
     } else {
         let body = render_blocks(blocks)?;
         if body.is_empty() {
-            Ok(format!("`{marker}{attrs}"))
+            let mut output = format!("`{marker}");
+            append_block_attrs(&mut output, &attrs);
+            Ok(output)
         } else {
-            Ok(format!("`{marker}{attrs}\n{}", indent(&body, 2)))
+            let mut output = format!("`{marker}");
+            append_block_attrs(&mut output, &attrs);
+            output.push('\n');
+            output.push_str(&indent(&body, 2));
+            Ok(output)
         }
     }
 }
@@ -434,32 +443,34 @@ fn render_verbatim(text: &str, attrs: &Attr) -> Result<String, String> {
     if text.contains(['\n', '\r']) {
         return Err("inline verbatim content cannot contain a line ending".into());
     }
-    let quotes = minimum_quote_count(text);
+    let (kind, attrs) = promoted_verbatim_attrs(attrs, false);
+    let attached = render_attrs(&attrs, None)?;
+    if !text.contains('"') {
+        return Ok(format!("`{kind}\"{text}\"{attached}"));
+    }
+    let quotes = minimum_quote_count(text).max(1);
     Ok(format!(
-        "`{}[{}]{}{}",
+        "`{kind}{}[{}]{}{}",
         "\"".repeat(quotes),
         text,
         "\"".repeat(quotes),
-        render_attrs(attrs, None)?
+        attached
     ))
 }
 
 fn render_verbatim_block(attrs: &Attr, text: &str) -> Result<String, String> {
-    let attrs = render_attrs(attrs, None)?;
-    let attrs = attrs
-        .strip_prefix('{')
-        .and_then(|attrs| attrs.strip_suffix('}'))
-        .unwrap_or("");
+    let (kind, attrs) = promoted_verbatim_attrs(attrs, true);
+    let attrs = render_attrs(&attrs, None)?;
     let payload = text
         .lines()
         .map(|line| format!("  {line}"))
         .collect::<Vec<_>>()
         .join("\n");
-    let mut output = if payload.is_empty() {
-        format!("`{{{attrs}}}")
-    } else {
-        format!("`{{{attrs}}}\n{payload}")
-    };
+    let mut output = format!("`{kind}\"{attrs}");
+    if !payload.is_empty() {
+        output.push('\n');
+        output.push_str(&payload);
+    }
     if text.ends_with('\n') {
         output.push('\n');
     }
@@ -470,24 +481,65 @@ fn render_attrs(attrs: &Attr, consumed_pair: Option<&str>) -> Result<String, Str
     let mut items = Vec::new();
     if !attrs.identifier.is_empty() {
         require_attr_name(&attrs.identifier, "attribute id")?;
-        items.push(format!("#{}", attrs.identifier));
+        items.push(format!("`@[{}]", escape_attached_text(&attrs.identifier)));
     }
     for class in &attrs.classes {
         require_attr_name(class, "attribute class")?;
-        items.push(format!(".{class}"));
+        items.push(format!("`-[{}]", escape_attached_text(class)));
     }
     for (key, value) in &attrs.attributes {
         if consumed_pair == Some(key.as_str()) {
             continue;
         }
         require_attr_name(key, "attribute key")?;
-        items.push(format!("{key}=\"{}\"", escape_attr_value(value)));
+        items.push(format!(
+            "`:[{} {}]",
+            escape_attached_text(key),
+            escape_attached_text(value)
+        ));
     }
     Ok(if items.is_empty() {
         String::new()
     } else {
         format!("{{{}}}", items.join(" "))
     })
+}
+
+fn append_block_attrs(output: &mut String, attrs: &str) {
+    if !attrs.is_empty() {
+        output.push(' ');
+        output.push_str(attrs);
+    }
+}
+
+fn escape_attached_text(value: &str) -> String {
+    value.replace('`', "``").replace(']', "`]")
+}
+
+fn promoted_verbatim_attrs(attrs: &Attr, block: bool) -> (String, Attr) {
+    let mut remaining = attrs.clone();
+    let kind = if let Some(index) = remaining.classes.iter().position(|class| class == "->") {
+        remaining.classes.remove(index);
+        "->".to_string()
+    } else if let Some(index) = remaining.classes.iter().position(|class| class == "$") {
+        remaining.classes.remove(index);
+        "$".to_string()
+    } else if block {
+        let language = remaining
+            .attributes
+            .iter()
+            .position(|(key, _)| key == "language")
+            .map(|index| remaining.attributes.remove(index).1)
+            .unwrap_or_default();
+        if language.is_empty() && !remaining.classes.is_empty() {
+            remaining.classes.remove(0)
+        } else {
+            language
+        }
+    } else {
+        String::new()
+    };
+    (kind, remaining)
 }
 
 fn unwrap_attributed_blocks(blocks: &[Block]) -> (&Attr, &[Block]) {
@@ -583,10 +635,6 @@ fn escape_text(text: &str, bracketed: bool) -> String {
     }
 }
 
-fn escape_attr_value(value: &str) -> String {
-    value.replace('\\', "\\\\").replace('"', "\\\"")
-}
-
 fn indent(source: &str, columns: usize) -> String {
     let prefix = " ".repeat(columns);
     source
@@ -639,18 +687,20 @@ mod tests {
         });
 
         let source = import_json(&document.to_string()).unwrap();
-        assert!(source.starts_with("{\n  `title Example\n}\n"), "{source}");
-        assert!(source.contains("`# Intro\n   {\n     `id intro\n   }"));
-        assert!(source.contains("`*[em] `![strong] `=[marked]{`id[marked] `keep[]}"));
+        assert!(source.starts_with("{\n  `: title Example\n}\n"), "{source}");
+        assert!(source.contains("`# Intro {`@[intro]}"));
+        assert!(source.contains("`*[em] `![strong] `=[marked]{`@[marked] `-[keep]}"));
         assert!(source.contains("`~[strike] `^[super] `_[sub]"));
-        assert!(source.contains("`->[target]{`to[other.plumb#id]}"));
+        assert!(source.contains("`->[target]{`:[to other.plumb#id]}"));
         assert!(
-            source.contains("`file[video]{`id[demo] `wide[] `download[yes] `src[static/demo.mp4]}"),
+            source.contains(
+                "`file[video]{`@[demo] `-[wide] `:[download yes] `:[src static/demo.mp4]}"
+            ),
             "{source}"
         );
         assert!(source.contains("`> quoted"));
         assert!(source.contains("`- item"));
-        assert!(source.contains("`{\n  `id code\n  `rust\n}"));
+        assert!(source.contains("`rust\"{`@[code]}"));
         assert!(plumb_core::parse(&source).is_valid());
     }
 
@@ -671,7 +721,7 @@ mod tests {
     }
 
     #[test]
-    fn imports_empty_code_attributes_and_strengthens_verbatim_delimiters() {
+    fn imports_empty_code_attributes_and_chooses_verbatim_delimiters() {
         let document = Pandoc {
             blocks: vec![
                 Block::Para(vec![Inline::Code(Attr::default(), "a]b".into())]),
@@ -680,8 +730,8 @@ mod tests {
             meta: HashMap::new(),
         };
         let source = import(&document).unwrap();
-        assert!(source.contains("`\"[a]b]\""));
-        assert!(source.contains("`{\n}\n  raw"), "{source}");
+        assert!(source.contains("`\"a]b\""));
+        assert!(source.contains("`\"\n  raw"), "{source}");
         assert!(plumb_core::parse(&source).is_valid());
     }
 }

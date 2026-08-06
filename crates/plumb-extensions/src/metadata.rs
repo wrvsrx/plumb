@@ -111,6 +111,14 @@ impl MetadataOutput {
 
 pub fn analyze_metadata(document: &Document) -> MetadataOutput {
     let mut output = MetadataOutput::default();
+    if let Some(AttachedContent::Blocks(blocks)) = document
+        .attrs
+        .attached
+        .as_deref()
+        .map(|attached| &attached.content)
+    {
+        collect_definition_lists(blocks, &mut output.definition_lists);
+    }
     collect_definition_lists(&document.blocks, &mut output.definition_lists);
     output
         .definition_lists
@@ -156,23 +164,38 @@ fn parse_attached_entries(
             ));
             continue;
         };
-        let key = mark.marker.clone();
+        if mark.marker != ":" {
+            diagnostics.push(warning(
+                "metadata.expected-property",
+                "root metadata children must use the ':' association marker",
+                mark.marker_range.clone(),
+            ));
+            continue;
+        }
+        let Some((key, key_range, scalar)) = attached_property_parts(&property.head) else {
+            diagnostics.push(warning(
+                "metadata.invalid-key",
+                "metadata keys must be nonempty plain text without whitespace",
+                property.head.range.clone(),
+            ));
+            continue;
+        };
         if let Some(first) = keys.get(&key) {
             let mut diagnostic = warning(
                 "metadata.duplicate-key",
                 format!("metadata key '{key}' appears more than once"),
-                mark.marker_range.clone(),
+                key_range.clone(),
             );
             diagnostic.related.push(first.clone());
             diagnostics.push(diagnostic);
         } else {
-            keys.insert(key.clone(), mark.marker_range.clone());
+            keys.insert(key.clone(), key_range.clone());
         }
         entries.push(MetadataEntry {
             range: property.range.clone(),
             key,
-            key_range: mark.marker_range.clone(),
-            value: parse_attached_value(property, diagnostics),
+            key_range,
+            value: parse_attached_value(property, scalar, diagnostics),
         });
     }
     entries
@@ -180,9 +203,10 @@ fn parse_attached_entries(
 
 fn parse_attached_value(
     property: &ParsedBlock,
+    scalar: Option<InlineContent>,
     diagnostics: &mut Vec<Diagnostic>,
 ) -> MetadataValue {
-    if !property.head.items.is_empty() {
+    if let Some(scalar) = scalar {
         if !property.children.is_empty() {
             diagnostics.push(warning(
                 "metadata.unsupported-value",
@@ -193,18 +217,58 @@ fn parse_attached_value(
                 range: property.range.clone(),
             };
         }
-        return match inline_verbatim(&property.head) {
+        return match inline_verbatim(&scalar) {
             Some(text) => MetadataValue::Verbatim {
                 text: text.to_string(),
-                range: property.head.range.clone(),
+                range: scalar.range.clone(),
             },
             None => MetadataValue::Scalar {
-                content: property.head.clone(),
-                range: property.head.range.clone(),
+                range: scalar.range.clone(),
+                content: scalar,
             },
         };
     }
     parse_attached_children(&property.children, body_range(property), diagnostics)
+}
+
+fn attached_property_parts(
+    head: &InlineContent,
+) -> Option<(String, Range<usize>, Option<InlineContent>)> {
+    let first = head.items.first()?;
+    let (key, key_range) = match first {
+        Inline::Text { text, range }
+            if !text.is_empty() && !text.chars().any(char::is_whitespace) =>
+        {
+            (text.clone(), range.clone())
+        }
+        _ => return None,
+    };
+    match head.items.as_slice() {
+        [_] => Some((key, key_range, None)),
+        [_, Inline::Space { .. }, value @ ..] if !value.is_empty() => {
+            let start = inline_source_range(value.first()?).start;
+            let end = inline_source_range(value.last()?).end;
+            Some((
+                key,
+                key_range,
+                Some(InlineContent {
+                    range: start..end,
+                    items: value.to_vec(),
+                }),
+            ))
+        }
+        _ => None,
+    }
+}
+
+fn inline_source_range(inline: &Inline) -> &Range<usize> {
+    match inline {
+        Inline::Text { range, .. }
+        | Inline::Space { range, .. }
+        | Inline::SoftBreak { range }
+        | Inline::Element { range, .. }
+        | Inline::Verbatim { range, .. } => range,
+    }
 }
 
 fn parse_attached_children(
@@ -525,10 +589,13 @@ fn parse_value(block: &ParsedBlock, diagnostics: &mut Vec<Diagnostic>) -> Metada
 }
 
 fn inline_verbatim(content: &InlineContent) -> Option<&str> {
-    let [Inline::Verbatim { text, attrs, .. }] = content.items.as_slice() else {
+    let [Inline::Verbatim {
+        kind, text, attrs, ..
+    }] = content.items.as_slice()
+    else {
         return None;
     };
-    attrs.items.is_empty().then_some(text)
+    (kind.is_empty() && attrs.items.is_empty()).then_some(text)
 }
 
 fn metadata_key(block: &ParsedBlock) -> Option<String> {
@@ -592,7 +659,7 @@ mod tests {
     #[test]
     fn groups_definition_lists_and_projects_metadata_values() {
         let parsed = parse(
-            "`: term\n\n  Definition.\n\n`meta\n  `: title\n\n    Document `em[title]\n\n  `: tags\n    `- plumb\n    `- parser\n\n  `: macros\n    `-\n      `- `[name]\n      `- `[expansion]\n      `- 1\n\n  `: author\n    `: name\n\n      Alice\n\n  `: source\n    `{language=text}\n      raw\n",
+            "{\n  `: title Document `em[title]\n  `: tags\n\n     `- plumb\n     `- parser\n  `: macros\n\n     `-\n      `- `\"name\"\n      `- `\"expansion\"\n      `- 1\n  `: author\n\n     `: name Alice\n  `: source\n\n     `text\"\n       raw\n}\n\n`: term\n\n   Definition.\n",
         );
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let output = analyze_metadata(&parsed.syntax);
@@ -627,7 +694,7 @@ mod tests {
     #[test]
     fn projects_recursive_root_metadata() {
         let parsed = parse(
-            "{\n  `title Document `em[title]\n  `tags\n   `- plumb\n   `- parser\n  `macros\n   `-\n    `- `[name]\n    `- `[expansion]\n  `author\n   `name Alice\n  `empty\n}\n\nBody.\n",
+            "{\n  `: title Document `em[title]\n  `: tags\n   `- plumb\n   `- parser\n  `: macros\n   `-\n    `- `\"name\"\n    `- `\"expansion\"\n  `: author\n   `: name Alice\n  `: empty\n}\n\nBody.\n",
         );
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let output = analyze_metadata(&parsed.syntax);
@@ -660,7 +727,7 @@ mod tests {
 
     #[test]
     fn root_and_legacy_metadata_are_diagnosed_as_duplicates() {
-        let parsed = parse("{\n  `title Root\n}\n\n`meta\n `: title\n\n    Legacy\n");
+        let parsed = parse("{\n  `: title Root\n}\n\n`meta\n `: title\n\n    Legacy\n");
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let output = analyze_metadata(&parsed.syntax);
         assert_eq!(output.document_title().as_deref(), Some("Root"));

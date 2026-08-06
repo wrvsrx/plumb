@@ -8,8 +8,8 @@ use std::process::ExitCode;
 
 use clap::Parser;
 use plumb_core::{
-    parse, AttachedContent, AttachedGroup, AttrItem, Attributes, Block, Inline, InlineContent,
-    ParsedBlock,
+    parse, parse_legacy_017, AttachedContent, AttachedGroup, AttrItem, Attributes, Block, Inline,
+    InlineContent, ParsedBlock,
 };
 use similar::{DiffOp, TextDiff};
 use unicode_width::UnicodeWidthStr;
@@ -149,7 +149,11 @@ pub fn migrate_attributes(source: &str) -> Result<String, FormatError> {
 }
 
 fn render(source: &str, migrate_legacy: bool) -> Result<String, FormatError> {
-    let parsed = parse(source);
+    let parsed = if migrate_legacy {
+        parse_legacy_017(source)
+    } else {
+        parse(source)
+    };
     if !parsed.is_valid() {
         return Err(FormatError::InvalidSyntax);
     }
@@ -253,23 +257,21 @@ fn convert_legacy_metadata_blocks(blocks: &[Block]) -> Vec<Block> {
             Block::Parsed(mut block) => {
                 block.children = convert_legacy_metadata_blocks(&block.children);
                 if block.mark.as_ref().is_some_and(|mark| mark.marker == ":") {
-                    let key = block.head.plain_text();
-                    let key_range = block.head.range.clone();
                     let scalar = match block.children.as_slice() {
                         [Block::Parsed(value)] if value.mark.is_none() => Some(value.head.clone()),
                         _ => None,
                     };
-                    let mark = block.mark.as_mut().expect("definition has a mark");
-                    mark.marker = key;
-                    mark.marker_range = key_range;
-                    if let Some(scalar) = scalar {
-                        block.head = scalar;
+                    if let Some(mut scalar) = scalar {
+                        let mut items = std::mem::take(&mut block.head.items);
+                        let separator = block.head.range.end..block.head.range.end;
+                        items.push(Inline::Space {
+                            text: " ".to_string(),
+                            range: separator,
+                        });
+                        items.append(&mut scalar.items);
+                        block.head.items = items;
+                        block.head.range.end = scalar.range.end;
                         block.children.clear();
-                    } else {
-                        block.head = InlineContent {
-                            range: block.head.range.start..block.head.range.start,
-                            items: Vec::new(),
-                        };
                     }
                 }
                 Block::Parsed(block)
@@ -413,9 +415,9 @@ fn format_contained_group(source: &str, blocks: &[Block], first: usize, last: us
     let prefix = " ".repeat(indent);
     let mut new_text = formatter
         .output
-        .strip_prefix(&prefix)
-        .unwrap_or(&formatter.output)
-        .to_string();
+        .split_inclusive('\n')
+        .map(|line| line.strip_prefix(&prefix).unwrap_or(line))
+        .collect::<String>();
     if source.contains("\r\n") {
         new_text = new_text.replace('\n', "\r\n");
     }
@@ -506,7 +508,12 @@ fn block_content_range(block: &Block) -> Range<usize> {
     match block {
         Block::Parsed(block) => {
             let own_end = block.mark.as_ref().map_or(block.head.range.end, |mark| {
-                mark.range.end.max(block.head.range.end)
+                let attached_end = mark
+                    .attrs
+                    .attached
+                    .as_deref()
+                    .map_or(mark.range.end, |attached| attached.close_range.end);
+                mark.range.end.max(block.head.range.end).max(attached_end)
             });
             let end = block
                 .children
@@ -593,12 +600,21 @@ impl Formatter {
             Block::Verbatim(block) => {
                 self.indent(indent);
                 self.output.push('`');
-                if block.attrs.attached.is_some() {
-                    self.block_attached(&block.attrs, indent, true);
-                } else if self.migrate_legacy && block.attrs.range.is_some() {
-                    self.legacy_block_attached(&block.attrs, indent, true);
-                } else {
-                    self.block_attributes(&block.attrs, indent + 1, 0);
+                let promoted_language = block
+                    .kind
+                    .is_empty()
+                    .then(|| block.attrs.value("language"))
+                    .flatten();
+                self.output
+                    .push_str(promoted_language.unwrap_or(block.kind.as_str()));
+                self.output.push('"');
+                if matches!(
+                    block.attrs.attached.as_deref().map(|group| &group.content),
+                    Some(AttachedContent::Inlines(_))
+                ) {
+                    self.inline_attributes(&block.attrs, indent + 2);
+                } else if !block.attrs.items.is_empty() {
+                    self.projected_inline_attached(&block.attrs, promoted_language.is_some(), None);
                 }
                 if !block.text.is_empty() {
                     self.output.push('\n');
@@ -651,11 +667,25 @@ impl Formatter {
         };
         self.inlines(&block.head, continuation_indent, false);
 
+        let compact_attached = block.mark.as_ref().is_some_and(|mark| {
+            matches!(
+                mark.attrs.attached.as_deref().map(|group| &group.content),
+                Some(AttachedContent::Inlines(_))
+            )
+        });
+        if compact_attached {
+            self.output.push(' ');
+            self.inline_attributes(
+                &block.mark.as_ref().expect("marked block").attrs,
+                continuation_indent,
+            );
+        }
+
         let has_attached = block.mark.as_ref().is_some_and(|mark| {
             mark.attrs.attached.is_some() || (self.migrate_legacy && mark.attrs.range.is_some())
         });
         if let Some(mark) = &block.mark {
-            if mark.attrs.attached.is_some() {
+            if mark.attrs.attached.is_some() && !compact_attached {
                 self.output.push('\n');
                 self.block_attached(&mark.attrs, continuation_indent, false);
             } else if self.migrate_legacy && mark.attrs.range.is_some() {
@@ -703,19 +733,45 @@ impl Formatter {
                     self.output.push(']');
                     self.inline_attributes(attrs, continuation_indent);
                 }
-                Inline::Verbatim { text, attrs, .. } => {
-                    let quotes = minimum_quote_count(text);
+                Inline::Verbatim {
+                    kind, text, attrs, ..
+                } => {
+                    let promoted_kind = self
+                        .migrate_legacy
+                        .then(|| {
+                            attrs.items.iter().find_map(|item| match item {
+                                AttrItem::Class { value, .. }
+                                    if matches!(value.as_str(), "->" | "$") =>
+                                {
+                                    Some(value.as_str())
+                                }
+                                _ => None,
+                            })
+                        })
+                        .flatten();
                     self.output.push('`');
-                    for _ in 0..quotes {
+                    self.output.push_str(promoted_kind.unwrap_or(kind));
+                    if !text.contains('"') {
                         self.output.push('"');
-                    }
-                    self.output.push('[');
-                    self.output.push_str(text);
-                    self.output.push(']');
-                    for _ in 0..quotes {
+                        self.output.push_str(text);
                         self.output.push('"');
+                    } else {
+                        let quotes = minimum_quote_count(text).max(1);
+                        for _ in 0..quotes {
+                            self.output.push('"');
+                        }
+                        self.output.push('[');
+                        self.output.push_str(text);
+                        self.output.push(']');
+                        for _ in 0..quotes {
+                            self.output.push('"');
+                        }
                     }
-                    self.inline_attributes(attrs, continuation_indent);
+                    if let Some(promoted) = promoted_kind {
+                        self.inline_attributes_skipping_class(attrs, continuation_indent, promoted);
+                    } else {
+                        self.inline_attributes(attrs, continuation_indent);
+                    }
                 }
             }
         }
@@ -752,6 +808,40 @@ impl Formatter {
             self.inlines(content, continuation_indent, true);
         }
         self.output.push('}');
+    }
+
+    fn inline_attributes_skipping_class(
+        &mut self,
+        attrs: &Attributes,
+        continuation_indent: usize,
+        skipped: &str,
+    ) {
+        if attrs.attached.is_none() {
+            self.projected_inline_attached(attrs, false, Some(skipped));
+            return;
+        }
+        let retained = attrs
+            .items
+            .iter()
+            .filter(|item| !matches!(item, AttrItem::Class { value, .. } if value == skipped))
+            .count();
+        if retained == 0 {
+            return;
+        }
+        self.output.push('{');
+        let mut wrote = false;
+        for item in &attrs.items {
+            if matches!(item, AttrItem::Class { value, .. } if value == skipped) {
+                continue;
+            }
+            if wrote {
+                self.output.push(' ');
+            }
+            wrote = true;
+            self.write_projected_inline_item(item);
+        }
+        self.output.push('}');
+        let _ = continuation_indent;
     }
 
     fn block_attached(&mut self, attrs: &Attributes, indent: usize, opener_after_tick: bool) {
@@ -796,13 +886,17 @@ impl Formatter {
             self.indent(indent + 2);
             self.output.push('`');
             match item {
-                AttrItem::Class { value, .. } => self.output.push_str(value),
+                AttrItem::Class { value, .. } => {
+                    self.output.push_str("- ");
+                    self.text(value, false);
+                }
                 AttrItem::Id { value, .. } => {
-                    self.output.push_str("id ");
+                    self.output.push_str("@ ");
                     self.text(value, false);
                 }
                 AttrItem::Pair { key, value, .. } => {
-                    self.output.push_str(key);
+                    self.output.push_str(": ");
+                    self.text(key, false);
                     self.output.push(' ');
                     self.text(&value.decoded, false);
                 }
@@ -814,31 +908,60 @@ impl Formatter {
     }
 
     fn legacy_inline_attached(&mut self, attrs: &Attributes) {
+        self.projected_inline_attached(attrs, false, None);
+    }
+
+    fn projected_inline_attached(
+        &mut self,
+        attrs: &Attributes,
+        skip_language: bool,
+        skip_class: Option<&str>,
+    ) {
+        if attrs.items.iter().all(|item| {
+            (skip_language && matches!(item, AttrItem::Pair { key, .. } if key == "language"))
+                || matches!(item, AttrItem::Class { value, .. } if skip_class == Some(value))
+        }) {
+            return;
+        }
         self.output.push('{');
-        for (index, item) in attrs.items.iter().enumerate() {
-            if index > 0 {
+        let mut wrote_item = false;
+        for item in &attrs.items {
+            if skip_language && matches!(item, AttrItem::Pair { key, .. } if key == "language") {
+                continue;
+            }
+            if matches!(item, AttrItem::Class { value, .. } if skip_class == Some(value)) {
+                continue;
+            }
+            if wrote_item {
                 self.output.push(' ');
             }
-            self.output.push('`');
-            match item {
-                AttrItem::Class { value, .. } => {
-                    self.output.push_str(value);
-                    self.output.push_str("[]");
-                }
-                AttrItem::Id { value, .. } => {
-                    self.output.push_str("id[");
-                    self.text(value, true);
-                    self.output.push(']');
-                }
-                AttrItem::Pair { key, value, .. } => {
-                    self.output.push_str(key);
-                    self.output.push('[');
-                    self.text(&value.decoded, true);
-                    self.output.push(']');
-                }
-            }
+            wrote_item = true;
+            self.write_projected_inline_item(item);
         }
         self.output.push('}');
+    }
+
+    fn write_projected_inline_item(&mut self, item: &AttrItem) {
+        self.output.push('`');
+        match item {
+            AttrItem::Class { value, .. } => {
+                self.output.push_str("-[");
+                self.text(value, true);
+                self.output.push(']');
+            }
+            AttrItem::Id { value, .. } => {
+                self.output.push_str("@[");
+                self.text(value, true);
+                self.output.push(']');
+            }
+            AttrItem::Pair { key, value, .. } => {
+                self.output.push_str(":[");
+                self.text(key, true);
+                self.output.push(' ');
+                self.text(&value.decoded, true);
+                self.output.push(']');
+            }
+        }
     }
 
     fn block_attributes(&mut self, attrs: &Attributes, prefix_width: usize, suffix_width: usize) {
@@ -1069,27 +1192,27 @@ mod tests {
     #[test]
     fn formats_recursive_attached_groups() {
         assert_formats(
-            "{\n  `title   Document title\n\n  `tags\n       `- plumb\n}\n\n`-   Buy milk\n   {\n     `task\n     `id   shopping\n   }\n\n   Details.\n",
-            "{\n  `title Document title\n  `tags\n   `- plumb\n}\n\n`- Buy milk\n   {\n     `task\n     `id shopping\n   }\n\n   Details.\n",
+            "{\n  `:   title Document title\n\n  `: tags plumb\n}\n\n`-   Buy milk\n   {\n     `-   task\n     `@   shopping\n   }\n\n   Details.\n",
+            "{\n  `: title Document title\n  `: tags plumb\n}\n\n`- Buy milk\n   {\n     `- task\n     `@ shopping\n   }\n\n   Details.\n",
         );
         assert_formats("{\n}\n", "{\n}\n");
-        assert_formats("`{\n}\n  payload\n", "`{\n}\n  payload\n");
+        assert_formats("`\"\n  payload\n", "`\"\n  payload\n");
         assert_formats(
-            "See `->[guide]{`id[main] `external[] `to[guide.plumb]}.\n",
-            "See `->[guide]{`id[main] `external[] `to[guide.plumb]}.\n",
+            "See `->[guide]{`@[main] `-[external] `:[to guide.plumb]}.\n",
+            "See `->[guide]{`@[main] `-[external] `:[to guide.plumb]}.\n",
         );
     }
 
     #[test]
     fn migrates_legacy_attributes_for_every_owner_category() {
         let source = "`-{.task #shopping due=\"2026-08-07\"} Buy milk\n\nSee `->[guide]{.external #main to=\"guide.plumb#intro\"}.\n\n`{language=rust #example}\n  fn main() {}\n";
-        let expected = "`- Buy milk\n   {\n     `task\n     `id shopping\n     `due 2026-08-07\n   }\n\nSee `->[guide]{`external[] `id[main] `to[guide.plumb#intro]}.\n\n`{\n  `language rust\n  `id example\n}\n  fn main() {}\n";
+        let expected = "`- Buy milk\n   {\n     `- task\n     `@ shopping\n     `: due 2026-08-07\n   }\n\nSee `->[guide]{`-[external] `@[main] `:[to guide.plumb#intro]}.\n\n`rust\"{`@[example]}\n  fn main() {}\n";
 
         let migrated = migrate_attributes(source).unwrap();
         assert_eq!(migrated, expected);
         assert!(parse(&migrated).is_valid());
         assert_eq!(migrate_attributes(&migrated).unwrap(), migrated);
-        assert_eq!(format(source).unwrap(), source);
+        assert_eq!(format(source), Err(FormatError::InvalidSyntax));
     }
 
     #[test]
@@ -1103,7 +1226,7 @@ mod tests {
     #[test]
     fn migration_lifts_legacy_metadata_to_the_document_owner() {
         let source = "`meta\n `: title\n\n    Document `em[title]\n\n `: tags\n  `- plumb\n  `- parser\n\n `: author\n  `: name\n\n     Alice\n\nBody.\n";
-        let expected = "{\n  `title Document `em[title]\n  `tags\n   `- plumb\n   `- parser\n  `author\n   `name Alice\n}\n\nBody.\n";
+        let expected = "{\n  `: title Document `em[title]\n  `: tags\n\n     `- plumb\n     `- parser\n  `: author\n\n     `: name Alice\n}\n\nBody.\n";
 
         let migrated = migrate_attributes(source).unwrap();
         assert_eq!(migrated, expected);
@@ -1114,14 +1237,14 @@ mod tests {
     #[test]
     fn formats_blocks_attributes_and_indentation() {
         assert_formats(
-            "`meta\n   `: title\n\n      Example\n\n`-{.task\n   #write\n   created=now\n   } Work\n",
-            "`meta\n `: title\n\n    Example\n\n`-{.task #write created=now} Work\n",
+            "`node\n   `: title Example\n\n`- Work\n   {\n     `- task\n     `@ write\n     `: created now\n   }\n",
+            "`node\n `: title Example\n\n`- Work\n   {\n     `- task\n     `@ write\n     `: created now\n   }\n",
         );
     }
 
     #[test]
     fn whole_document_edits_preserve_a_task_before_a_repeated_marker() {
-        let source = "`-{.task created=one} Before\n`-{.task created=\"2026-08-05T03:25:50+08:00\"} 实现 task snippet 的时候有问题 aaa aaa aaa aaa aaa aaa aaa\n`-{\n   .task created=\"2026-08-05T03:26:23+08:00\" done=\"2026-08-05T04:03:22+08:00\"\n  } task fold 的时候没包含最后一行\n`-{\n   .task created=\"2026-08-05T03:43:34+08:00\" done=\"2026-08-05T04:32:23+08:00\"\n  } state 默认显示 ready 跟 blocked\n";
+        let source = "`- Before {`-[task] `:[created one]}\n`- 实现 task snippet 的时候有问题 aaa aaa aaa aaa aaa aaa aaa {`-[task] `:[created 2026-08-05T03:25:50+08:00]}\n`- task fold 的时候没包含最后一行\n   {\n     `- task\n     `: created 2026-08-05T03:26:23+08:00\n     `: done 2026-08-05T04:03:22+08:00\n   }\n`- state 默认显示 ready 跟 blocked {`-[task] `:[created 2026-08-05T03:43:34+08:00] `:[done 2026-08-05T04:32:23+08:00]}\n";
         let canonical = format(source).unwrap();
         let edits = format_edits(source).unwrap();
         let mut edited = source.to_string();
@@ -1130,7 +1253,7 @@ mod tests {
         }
 
         assert_eq!(edited, canonical);
-        assert!(edited.contains("created=\"2026-08-05T03:25:50+08:00\""));
+        assert!(edited.contains("`:[created 2026-08-05T03:25:50+08:00]"));
         assert!(edited.contains("aaa aaa aaa"));
         assert!(parse(&edited).is_valid());
     }
@@ -1146,7 +1269,7 @@ mod tests {
     #[test]
     fn formats_a_complete_block_range_with_following_sibling_context() {
         let source =
-            "`-{.task #old done=now} Work\n\n`-{.task #next} Work\n`# Following\n\nUnrelated\n";
+            "`- Work {`-[task] `@[old] `:[done now]}\n\n`- Work {`-[task] `@[next]}\n`# Following\n\nUnrelated\n";
         let parsed = parse(source);
         let first = parsed.syntax.blocks[0].range().clone();
         let second = parsed.syntax.blocks[1].range().clone();
@@ -1154,11 +1277,11 @@ mod tests {
 
         assert_eq!(
             &source[edit.range.clone()],
-            "`-{.task #old done=now} Work\n\n`-{.task #next} Work\n"
+            "`- Work {`-[task] `@[old] `:[done now]}\n\n`- Work {`-[task] `@[next]}\n"
         );
         assert_eq!(
             edit.new_text,
-            "`-{.task #old done=now} Work\n`-{.task #next} Work\n\n"
+            "`- Work {`-[task] `@[old] `:[done now]}\n`- Work {`-[task] `@[next]}\n\n"
         );
         assert_eq!(&source[edit.range.end..], "`# Following\n\nUnrelated\n");
     }
@@ -1174,7 +1297,7 @@ mod tests {
 
     #[test]
     fn formats_a_nested_block_range_and_preserves_crlf() {
-        let source = "`node Parent\r\n  `-{.task #old done=now} Work\r\n\r\n  `-{.task #next} Work\r\n  `note Following\r\n";
+        let source = "`node Parent\r\n  `- Work {`-[task] `@[old] `:[done now]}\r\n\r\n  `- Work {`-[task] `@[next]}\r\n  `note Following\r\n";
         let parsed = parse(source);
         let children = parsed.syntax.blocks[0].children();
         let edit =
@@ -1182,14 +1305,14 @@ mod tests {
 
         assert_eq!(
             edit.new_text,
-            "  `-{.task #old done=now} Work\r\n  `-{.task #next} Work\r\n\r\n"
+            "  `- Work {`-[task] `@[old] `:[done now]}\r\n  `- Work {`-[task] `@[next]}\r\n\r\n"
         );
         assert_eq!(&source[edit.range.end..], "  `note Following\r\n");
     }
 
     #[test]
     fn nested_block_range_preserves_the_following_sibling_indent() {
-        let source = "`node Parent\n   `-{.task #old} Old\n   `-{.task #next} Next\n";
+        let source = "`node Parent\n   `- Old {`-[task] `@[old]}\n   `- Next {`-[task] `@[next]}\n";
         let parsed = parse(source);
         let first = &parsed.syntax.blocks[0].children()[0];
         let edit = format_block_range(source, first.range().clone()).unwrap();
@@ -1201,7 +1324,7 @@ mod tests {
 
     #[test]
     fn contained_range_formats_only_complete_maximal_blocks() {
-        let source = "`node Parent\n       `-{.task\n          #one\n        } One\n\n       `-{.task #two} Two\n\n`# Following\n";
+        let source = "`node Parent\n       `- One\n          {\n            `- task\n            `@ one\n          }\n\n       `- Two {`-[task] `@[two]}\n\n`# Following\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let parent = &parsed.syntax.blocks[0];
@@ -1215,7 +1338,7 @@ mod tests {
         assert_eq!(edits[0].range.end, block_content_range(&children[1]).end);
         assert_eq!(
             edits[0].new_text,
-            "`-{.task #one} One\n       `-{.task #two} Two"
+            "`- One\n   {\n     `- task\n     `@ one\n   }\n`- Two {`-[task] `@[two]}"
         );
         assert_eq!(&source[edits[0].range.end..], "\n\n`# Following\n");
         assert!(!edits[0].new_text.contains("`node Parent"));
@@ -1224,7 +1347,7 @@ mod tests {
     #[test]
     fn contained_range_formats_a_complete_parent_subtree() {
         let source =
-            "`node Parent\n       `-{.task\n          #one\n        } One\n\n`# Following\n";
+            "`node Parent\n       `- One\n          {\n            `- task\n            `@ one\n          }\n\n`# Following\n";
         let parsed = parse(source);
         let parent_range = block_content_range(&parsed.syntax.blocks[0]);
         let edits = format_contained_blocks(source, parent_range).unwrap();
@@ -1234,7 +1357,7 @@ mod tests {
         formatted.replace_range(edits[0].range.clone(), &edits[0].new_text);
         assert_eq!(
             formatted,
-            "`node Parent\n\n      `-{.task #one} One\n\n`# Following\n"
+            "`node Parent\n\n      `- One\n         {\n           `- task\n           `@ one\n         }\n\n`# Following\n"
         );
         assert_eq!(format(&formatted).unwrap(), formatted);
         let reparsed = parse(&formatted);
@@ -1248,7 +1371,7 @@ mod tests {
 
     #[test]
     fn contained_range_returns_non_overlapping_maximal_groups() {
-        let source = "`node First\n  `-{.task\n      #one\n    } One\n`node Second\n  `-{.task\n      #two\n    } Two\n";
+        let source = "`node First\n  `-   One {`-[task] `@[one]}\n`node   Second\n  `- Two {`-[task] `@[two]}\n";
         let parsed = parse(source);
         let first_child = &parsed.syntax.blocks[0].children()[0];
         let second_parent = &parsed.syntax.blocks[1];
@@ -1260,13 +1383,13 @@ mod tests {
         assert!(edits[0].range.end <= edits[1].range.start);
         assert!(!edits[0].new_text.contains("`node First"));
         assert!(edits[1].new_text.starts_with("`node Second"));
-        assert!(edits[0].new_text.contains("`-{.task #one} One"));
-        assert!(edits[1].new_text.contains("`-{.task #two} Two"));
+        assert!(edits[0].new_text.contains("`- One {`-[task] `@[one]}"));
+        assert!(edits[1].new_text.contains("`- Two {`-[task] `@[two]}"));
     }
 
     #[test]
     fn contained_range_ignores_partial_and_empty_selections() {
-        let source = "`-{.task #one} One\n";
+        let source = "`- One {`-[task] `@[one]}\n";
         let head = source.find("One").unwrap();
         assert!(format_contained_blocks(source, head..head + 3)
             .unwrap()
@@ -1278,33 +1401,35 @@ mod tests {
 
     #[test]
     fn contained_range_preserves_crlf_and_external_layout() {
-        let source =
-            "`node Parent\r\n  `-{.task\r\n      #one\r\n    } One\r\n\r\n`# Following\r\n";
+        let source = "`node Parent\r\n  `-   One {`-[task] `@[one]}\r\n\r\n`# Following\r\n";
         let parsed = parse(source);
         let child = &parsed.syntax.blocks[0].children()[0];
         let edits = format_contained_blocks(source, block_content_range(child)).unwrap();
 
         assert_eq!(edits.len(), 1);
-        assert_eq!(edits[0].new_text, "`-{.task #one} One");
+        assert_eq!(edits[0].new_text, "`- One {`-[task] `@[one]}");
         assert_eq!(&source[edits[0].range.end..], "\r\n\r\n`# Following\r\n");
     }
 
     #[test]
     fn contained_range_ending_at_the_next_block_excludes_it() {
-        let source = "`-{.task\n    #one\n  } One\n`-{.task #two} Two\n";
+        let source = "`-   One {`-[task] `@[one]}\n`- Two {`-[task] `@[two]}\n";
         let parsed = parse(source);
         let second_start = parsed.syntax.blocks[1].range().start;
         let edits = format_contained_blocks(source, 0..second_start).unwrap();
 
         assert_eq!(edits.len(), 1);
-        assert_eq!(edits[0].new_text, "`-{.task #one} One");
+        assert_eq!(edits[0].new_text, "`- One {`-[task] `@[one]}");
         assert!(!edits[0].new_text.contains("Two"));
-        assert_eq!(&source[edits[0].range.end..], "\n`-{.task #two} Two\n");
+        assert_eq!(
+            &source[edits[0].range.end..],
+            "\n`- Two {`-[task] `@[two]}\n"
+        );
     }
 
     #[test]
     fn contained_range_supports_verbatim_blocks_and_paragraphs() {
-        let source = "`{\n  language=text\n  source=test\n }\n  payload\n\nParagraph `\"\"\"[a ]\" b]\"\"\".\n\n`# Following\n";
+        let source = "`text\"{`:[source test]}\n  payload\n\nParagraph `\"\"\"[a ]\" b]\"\"\".\n\n`# Following\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let selection = block_content_range(&parsed.syntax.blocks[0]).start
@@ -1314,7 +1439,7 @@ mod tests {
         assert_eq!(edits.len(), 1);
         assert_eq!(
             edits[0].new_text,
-            "`{language=text source=test}\n  payload\n\nParagraph `\"\"[a ]\" b]\"\"."
+            "`text\"{`:[source test]}\n  payload\n\nParagraph `\"\"[a ]\" b]\"\"."
         );
         assert_eq!(&source[edits[0].range.end..], "\n\n`# Following\n");
     }
@@ -1331,31 +1456,31 @@ mod tests {
     #[test]
     fn attributes_do_not_shift_the_conceptual_head_column() {
         assert_formats(
-            "`-{.task #write created=now} Work\n  Details\n",
-            "`-{.task #write created=now} Work\n   Details\n",
+            "`- Work {`-[task] `@[write] `:[created now]}\n  `note Details\n",
+            "`- Work {`-[task] `@[write] `:[created now]}\n\n   `note Details\n",
         );
     }
 
     #[test]
     fn packs_long_block_attributes_within_one_hundred_display_columns() {
         assert_formats(
-            "`-{.task #write created=\"2026-07-20T12:00:00+08:00\" due=\"2026-07-21T12:00:00+08:00\" depends=\"notes/project.plumb#prepare\"} Work\n",
-            "`-{\n   .task #write created=\"2026-07-20T12:00:00+08:00\" due=\"2026-07-21T12:00:00+08:00\"\n   depends=\"notes/project.plumb#prepare\"\n  } Work\n",
+            "`- Work {`-[task] `@[write] `:[created 2026-07-20T12:00:00+08:00] `:[due 2026-07-21T12:00:00+08:00] `:[depends notes/project.plumb#prepare]}\n",
+            "`- Work {`-[task] `@[write] `:[created 2026-07-20T12:00:00+08:00] `:[due 2026-07-21T12:00:00+08:00] `:[depends notes/project.plumb#prepare]}\n",
         );
         assert_formats(
-            "`{language=text source=generated-with-a-deliberately-long-identifier-that-exceeds-the-limit-by-itself another=value}\n  payload\n",
-            "`{\n  language=text\n  source=generated-with-a-deliberately-long-identifier-that-exceeds-the-limit-by-itself\n  another=value\n }\n  payload\n",
+            "`text\"{`:[source generated-with-a-deliberately-long-identifier-that-exceeds-the-limit-by-itself] `:[another value]}\n  payload\n",
+            "`text\"{`:[source generated-with-a-deliberately-long-identifier-that-exceeds-the-limit-by-itself] `:[another value]}\n  payload\n",
         );
 
         assert_formats(
-            "`-{.task\r\n    #crlf\r\n  key=value} Work\r\n",
-            "`-{.task #crlf key=value} Work\n",
+            "`- Work {`-[task] `@[crlf] `:[key value]}\r\n",
+            "`- Work {`-[task] `@[crlf] `:[key value]}\n",
         );
 
         let value = "界".repeat(45);
         assert_formats(
-            &format!("`-{{.task label=\"{value}\"}} Work\n"),
-            &format!("`-{{\n   .task\n   label=\"{value}\"\n  }} Work\n"),
+            &format!("`- Work {{`-[task] `:[label {value}]}}\n"),
+            &format!("`- Work {{`-[task] `:[label {value}]}}\n"),
         );
     }
 
@@ -1374,21 +1499,15 @@ mod tests {
 
     #[test]
     fn preserves_verbatim_payload_and_its_final_newline() {
-        assert_formats(
-            "`{language=text}\n  a\nnext\n",
-            "`{language=text}\n  a\nnext\n",
-        );
-        assert_formats(
-            "`{language=text}\n    a\n\nnext\n",
-            "`{language=text}\n    a\n\nnext\n",
-        );
-        assert_formats("`{}\n  final newline\n", "`{}\n  final newline\n");
-        assert_formats("`{}\n  no newline", "`{}\n  no newline");
+        assert_formats("`text\"\n  a\nnext\n", "`text\"\n  a\nnext\n");
+        assert_formats("`text\"\n    a\n\nnext\n", "`text\"\n    a\n\nnext\n");
+        assert_formats("`\"\n  final newline\n", "`\"\n  final newline\n");
+        assert_formats("`\"\n  no newline", "`\"\n  no newline");
     }
 
     #[test]
     fn terminal_verbatim_descendants_do_not_accumulate_sibling_spacing() {
-        let source = "`. config\n\n   `{.json}\n     {\"enabled\": true}\n\n\n`# Following\n";
+        let source = "`. config\n\n   `json\"\n     {\"enabled\": true}\n\n\n`# Following\n";
         let formatted = format(source).unwrap();
         assert_eq!(format(&formatted).unwrap(), formatted);
         assert_eq!(formatted.matches("\n\n\n`# Following").count(), 1);

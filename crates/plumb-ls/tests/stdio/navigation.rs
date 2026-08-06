@@ -8,8 +8,8 @@ fn publishes_task_symbols_hover_and_workspace_diagnostics() {
     std::fs::create_dir_all(&root).unwrap();
     let blockers_path = root.join("blockers.plumb");
     let tasks_path = root.join("tasks.plumb");
-    let blocker_source = "`-{.task #draft} Draft dependency\n";
-    let task_source = "`-{.task #review due=\"not-a-date\" recur=P1M1D depends=\"blockers.plumb#draft\"} Review task\n  `-{.task #nested done=\"2026-07-20T10:00:00Z\"} Nested task\n`note{.task} Invalid owner\n`span[not raw]{.$}\n";
+    let blocker_source = "`- Draft dependency\n   {\n     `- task\n     `@ draft\n   }\n";
+    let task_source = "`- Review task\n   {\n     `- task\n     `@ review\n     `: due not-a-date\n     `: recur P1M1D\n     `: depends blockers.plumb#draft\n   }\n\n   `- Nested task\n      {\n        `- task\n        `@ nested\n        `: done 2026-07-20T10:00:00Z\n      }\n\n`note Invalid owner\n      {\n        `- task\n      }\n\n`span[not raw]{`-[$]}\n";
     std::fs::write(&blockers_path, blocker_source).unwrap();
     std::fs::write(&tasks_path, task_source).unwrap();
     let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
@@ -78,9 +78,10 @@ fn publishes_task_symbols_hover_and_workspace_diagnostics() {
     assert!(hover.contains("**Open blockers:** `blockers.plumb#draft`"));
 
     let semantic_data = response(&output, 4)["result"]["data"].as_array().unwrap();
-    assert_eq!(semantic_data.len(), 5);
-    assert_eq!(semantic_data[3], 0);
-    assert_eq!(semantic_data[4], 1);
+    assert_eq!(semantic_data.len(), 30);
+    assert!(semantic_data
+        .chunks_exact(5)
+        .all(|token| token[3] == 0 && token[4] == 1));
 
     let diagnostics = output
         .iter()
@@ -94,12 +95,21 @@ fn publishes_task_symbols_hover_and_workspace_diagnostics() {
         .iter()
         .find(|diagnostic| diagnostic["code"] == "task.invalid-datetime")
         .unwrap();
-    let invalid_due_start = task_source.find("\"not-a-date\"").unwrap();
+    let invalid_due_line = task_source
+        .lines()
+        .position(|line| line.contains("not-a-date"))
+        .unwrap();
+    let invalid_due_start = task_source
+        .lines()
+        .nth(invalid_due_line)
+        .unwrap()
+        .find("not-a-date")
+        .unwrap();
     assert_eq!(
         invalid_due["range"],
         json!({
-            "start": { "line": 0, "character": invalid_due_start },
-            "end": { "line": 0, "character": invalid_due_start + "\"not-a-date\"".len() }
+            "start": { "line": invalid_due_line, "character": invalid_due_start },
+            "end": { "line": invalid_due_line, "character": invalid_due_start + "not-a-date".len() }
         })
     );
     assert!(!diagnostics
@@ -108,9 +118,6 @@ fn publishes_task_symbols_hover_and_workspace_diagnostics() {
     assert!(diagnostics
         .iter()
         .any(|diagnostic| diagnostic["code"] == "task.invalid-owner"));
-    assert!(diagnostics
-        .iter()
-        .any(|diagnostic| diagnostic["code"] == "math.invalid-owner"));
     let blocked = diagnostics
         .iter()
         .find(|diagnostic| diagnostic["code"] == "task.blocked")
@@ -125,7 +132,7 @@ fn publishes_event_symbols_hover_references_and_diagnostics() {
     let root = unique_temp_dir();
     std::fs::create_dir_all(&root).unwrap();
     let path = root.join("agenda.plumb");
-    let source = "`-{.task #write} Write\n`-{.event #review date=2026-07-30 timezone=\"+08:00\" tasks=\"#write\"} 14:00--15:00 Review\n`-{.event .task date=2026-07-30 timezone=\"+08:00\"} 16:00 Conflict\n";
+    let source = "`- Write\n   {\n     `- task\n     `@ write\n   }\n`- 14:00--15:00 Review\n   {\n     `- event\n     `@ review\n     `: date 2026-07-30\n     `: timezone +08:00\n     `: tasks #write\n   }\n`- 16:00 Conflict\n   {\n     `- event\n     `- task\n     `: date 2026-07-30\n     `: timezone +08:00\n   }\n";
     std::fs::write(&path, source).unwrap();
     let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
     let uri = lsp_types::Url::from_file_path(&path).unwrap();
@@ -147,7 +154,7 @@ fn publishes_event_symbols_hover_references_and_diagnostics() {
         }),
         json!({
             "jsonrpc": "2.0", "id": 3, "method": "textDocument/hover",
-            "params": { "textDocument": { "uri": uri }, "position": { "line": 1, "character": 12 } }
+            "params": { "textDocument": { "uri": uri }, "position": { "line": 5, "character": 5 } }
         }),
         json!({
             "jsonrpc": "2.0", "id": 4, "method": "textDocument/references",
@@ -185,7 +192,7 @@ fn publishes_event_symbols_hover_references_and_diagnostics() {
 #[test]
 fn highlights_closed_tasks_with_multiline_attributes() {
     let uri = "file:///tmp/multiline-closed-tasks.plumb";
-    let source = "`-{\n   .task\n   done=\"2026-07-20T10:00:00Z\"\n  } Done\n`-{\n   .task\n   canceled=\"2026-07-20T11:00:00Z\"\n  } Canceled\n";
+    let source = "`- Done\n   {\n     `- task\n     `: done 2026-07-20T10:00:00Z\n   }\n`- Canceled\n   {\n     `- task\n     `: canceled 2026-07-20T11:00:00Z\n   }\n";
     let messages = [
         json!({
             "jsonrpc": "2.0", "id": 1, "method": "initialize",
@@ -209,8 +216,8 @@ fn highlights_closed_tasks_with_multiline_attributes() {
     assert_eq!(
         response(&run_server(&messages), 2)["result"]["data"],
         json!([
-            0, 0, 3, 0, 1, 1, 3, 5, 0, 1, 1, 3, 27, 0, 1, 1, 2, 6, 0, 1, 1, 0, 3, 0, 2, 1, 3, 5, 0,
-            2, 1, 3, 31, 0, 2, 1, 2, 10, 0, 2
+            0, 0, 7, 0, 1, 1, 3, 1, 0, 1, 1, 5, 7, 0, 1, 1, 5, 28, 0, 1, 1, 3, 1, 0, 1, 1, 0, 11,
+            0, 2, 1, 3, 1, 0, 2, 1, 5, 7, 0, 2, 1, 5, 32, 0, 2, 1, 3, 1, 0, 2
         ])
     );
 }
@@ -218,7 +225,7 @@ fn highlights_closed_tasks_with_multiline_attributes() {
 #[test]
 fn publishes_completed_task_consistency_diagnostics() {
     let uri = "file:///tmp/completed-task-consistency.plumb";
-    let source = "`-{.task #dependency-parent done=\"2026-07-27T10:00:00Z\" depends=\"#child\"} Dependency parent\n  `-{.task #child} Open explicit child\n`-{.task done=\"2026-07-27T10:01:00Z\"} Descendant parent\n  `-{.task} Open implicit child\n";
+    let source = "`- Dependency parent\n   {\n     `- task\n     `@ dependency-parent\n     `: done 2026-07-27T10:00:00Z\n     `: depends #child\n   }\n\n   `- Open explicit child\n      {\n        `- task\n        `@ child\n      }\n\n`- Descendant parent\n   {\n     `- task\n     `: done 2026-07-27T10:01:00Z\n   }\n\n   `- Open implicit child\n      {\n        `- task\n      }\n";
     let messages = [
         json!({
             "jsonrpc": "2.0", "id": 1, "method": "initialize",
@@ -265,7 +272,7 @@ fn publishes_completed_task_consistency_diagnostics() {
 #[test]
 fn hovers_verbatim_autolinks_with_the_original_uri() {
     let uri = "file:///tmp/verbatim-autolink.plumb";
-    let source = "Visit `[https://example.test/a%20b]{.->}.\n";
+    let source = "Visit `->\"https://example.test/a%20b\".\n";
     let messages = [
         json!({
             "jsonrpc": "2.0", "id": 1, "method": "initialize",
@@ -298,8 +305,8 @@ fn hovers_verbatim_autolinks_with_the_original_uri() {
     assert_eq!(
         hover["range"],
         json!({
-            "start": { "line": 0, "character": 8 },
-            "end": { "line": 0, "character": 34 }
+            "start": { "line": 0, "character": 10 },
+            "end": { "line": 0, "character": 36 }
         })
     );
 }
@@ -310,8 +317,8 @@ fn resolves_cross_file_navigation_over_stdio() {
     std::fs::create_dir_all(&root).unwrap();
     let target = root.join("a.plumb");
     let source = root.join("b.plumb");
-    std::fs::write(&target, "`#{#target} Target\n").unwrap();
-    let source_text = "See `->[target]{to=\"a.plumb#target\"}.\n";
+    std::fs::write(&target, "`# Target\n   {\n     `@ target\n   }\n").unwrap();
+    let source_text = "See `->[target]{`:[to a.plumb#target]}.\n";
     std::fs::write(&source, source_text).unwrap();
     let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
     let target_uri = lsp_types::Url::from_file_path(&target).unwrap();
@@ -425,8 +432,8 @@ fn code_lenses_count_anchor_references_and_ignore_last_valid_output() {
     std::fs::create_dir_all(&root).unwrap();
     let target = root.join("target.plumb");
     let source = root.join("source.plumb");
-    let target_text = "`meta\n `: title\n\n    Target\n\n`#{#used} Used\n`##{#unused} Unused\n";
-    let source_text = "See `->[used]{to=\"target.plumb#used\"}.\n`-{.task depends=\"target.plumb#used\"} Review\n";
+    let target_text = "{\n  `: title Target\n}\n\n`# Used\n   {\n     `@ used\n   }\n\n`## Unused\n    {\n      `@ unused\n    }\n";
+    let source_text = "See `->[used]{`:[to target.plumb#used]}.\n\n`- Review\n   {\n     `- task\n     `: depends target.plumb#used\n   }\n";
     std::fs::write(&target, target_text).unwrap();
     std::fs::write(&source, source_text).unwrap();
     let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
@@ -500,7 +507,7 @@ fn block_reference_code_lenses_use_block_openers() {
     let root = unique_temp_dir();
     std::fs::create_dir_all(&root).unwrap();
     let document = root.join("positions.plumb");
-    let source = "`#{#heading} Heading\n`-{.task #task} Task\n`node{#block} Block\n`-{\n   .task #multiline\n  } Multiline\n`outer\n  `node{#nested} Nested\nParagraph `span[text]{#inline}.\n`{#raw}\n  payload\n";
+    let source = "`# Heading\n   {\n     `@ heading\n   }\n\n`- Task\n   {\n     `- task\n     `@ task\n   }\n\n`node Block\n      {\n        `@ block\n      }\n\n`- Multiline\n   {\n     `- task\n     `@ multiline\n   }\n\n`outer\n `node Nested\n       {\n         `@ nested\n       }\n\nParagraph `span[text]{`@[inline]}.\n\n`\"{`@[raw]}\n  payload\n";
     std::fs::write(&document, source).unwrap();
     let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
     let document_uri = lsp_types::Url::from_file_path(&document).unwrap();
@@ -534,17 +541,17 @@ fn block_reference_code_lenses_use_block_openers() {
     assert_eq!(lenses.len(), 7);
     for (lens, expected_line, expected_character) in [
         (&lenses[0], 0, 0),
-        (&lenses[1], 1, 0),
-        (&lenses[2], 2, 0),
-        (&lenses[3], 3, 0),
-        (&lenses[4], 7, 2),
-        (&lenses[6], 9, 0),
+        (&lenses[1], 5, 0),
+        (&lenses[2], 11, 0),
+        (&lenses[3], 16, 0),
+        (&lenses[4], 23, 1),
+        (&lenses[6], 30, 0),
     ] {
         assert_eq!(lens["range"]["start"]["line"], expected_line);
         assert_eq!(lens["range"]["start"]["character"], expected_character);
         assert_eq!(lens["range"]["end"], lens["range"]["start"]);
     }
-    assert_eq!(lenses[5]["range"]["start"]["line"], 8);
+    assert_eq!(lenses[5]["range"]["start"]["line"], 28);
     assert!(lenses[5]["range"]["start"]["character"].as_u64().unwrap() > 0);
     std::fs::remove_dir_all(root).unwrap();
 }

@@ -1624,14 +1624,12 @@ fn attribute_completion_text(text: &str, snippets: bool) -> String {
     if !snippets {
         return text.to_string();
     }
-    if let Some(key) = text.strip_suffix("=\"\"") {
-        format!("{key}=\"${{1}}\"")
-    } else if text == "priority=0" {
-        "priority=${1:0}".to_string()
+    if let Some(prefix) = text.strip_suffix(" ]") {
+        format!("{prefix} ${{1}}]")
     } else if let Some(prefix) = text.strip_suffix("[]") {
         format!("{prefix}[${{1}}]")
-    } else if text == "`priority 0" {
-        "`priority ${1:0}".to_string()
+    } else if text == "`: priority 0" {
+        "`: priority ${1:0}".to_string()
     } else if text.ends_with(' ') {
         format!("{text}${{1}}")
     } else {
@@ -1683,27 +1681,27 @@ fn construct_completion_items(
                     label: "Task",
                     detail: "plumb task list item",
                     snippet: format!(
-                        "`- ${{1:Task}}\n{block_indent}   {{\n{block_indent}     `task\n{block_indent}     `created {timestamp}\n{block_indent}   }}"
+                        "`- ${{1:Task}}\n{block_indent}   {{\n{block_indent}     `- task\n{block_indent}     `: created {timestamp}\n{block_indent}   }}"
                     ),
                     plain: format!(
-                        "`- \n{block_indent}   {{\n{block_indent}     `task\n{block_indent}     `created {timestamp}\n{block_indent}   }}"
+                        "`- \n{block_indent}   {{\n{block_indent}     `- task\n{block_indent}     `: created {timestamp}\n{block_indent}   }}"
                     ),
                 },
                 ConstructTemplate {
                     label: "Event",
                     detail: "plumb event list item",
                     snippet: format!(
-                        "`- ${{1:09:00}} ${{2:Event}}\n{block_indent}   {{\n{block_indent}     `event\n{block_indent}   }}"
+                        "`- ${{1:09:00}} ${{2:Event}}\n{block_indent}   {{\n{block_indent}     `- event\n{block_indent}   }}"
                     ),
                     plain: format!(
-                        "`- \n{block_indent}   {{\n{block_indent}     `event\n{block_indent}   }}"
+                        "`- \n{block_indent}   {{\n{block_indent}     `- event\n{block_indent}   }}"
                     ),
                 },
                 ConstructTemplate {
                     label: "Link",
                     detail: "plumb link",
-                    snippet: "`->[${1:label}]{`to[${2:target}]}".to_string(),
-                    plain: "`->[]{`to[]}".to_string(),
+                    snippet: "`->[${1:label}]{`:[to ${2:target}]}".to_string(),
+                    plain: "`->[]{`:[to ]}".to_string(),
                 },
             ],
         ),
@@ -1712,8 +1710,8 @@ fn construct_completion_items(
             vec![ConstructTemplate {
                 label: "Autolink",
                 detail: "plumb autolink",
-                snippet: "`[${1:path}]{`->[]}".to_string(),
-                plain: "`[]{`->[]}".to_string(),
+                snippet: "`->\"${1:path}\"".to_string(),
+                plain: "`->\"\"".to_string(),
             }],
         ),
         ConstructCompletionContext::Link { replace } => (
@@ -1721,8 +1719,8 @@ fn construct_completion_items(
             vec![ConstructTemplate {
                 label: "Link",
                 detail: "plumb link",
-                snippet: "`->[${1:label}]{`to[${2:target}]}".to_string(),
-                plain: "`->[]{`to[]}".to_string(),
+                snippet: "`->[${1:label}]{`:[to ${2:target}]}".to_string(),
+                plain: "`->[]{`:[to ]}".to_string(),
             }],
         ),
     };
@@ -1949,7 +1947,7 @@ mod tests {
     #[test]
     fn folds_heading_sections_and_multiline_syntax_blocks() {
         let parsed = parse(
-            "`# Top\nIntro.\n`## Child\n`div Details\n\n  body\n  `{language=text}\n    raw\n`# Next\nTail.\n",
+            "`# Top\n\nIntro.\n\n`## Child\n\n`div Details\n\n     body\n\n     `text\"\n       raw\n`# Next\n\nTail.\n",
         );
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let ranges = folding_ranges(&parsed.source, &parsed.syntax, None, None, false);
@@ -1958,7 +1956,7 @@ mod tests {
                 .iter()
                 .map(|range| (range.start_line, range.end_line))
                 .collect::<Vec<_>>(),
-            [(0, 7), (2, 7), (3, 7), (6, 7), (8, 9)]
+            [(0, 11), (4, 11), (6, 11), (10, 11), (12, 14)]
         );
         assert!(ranges.iter().all(|range| {
             range.start_character.is_none()
@@ -1987,21 +1985,21 @@ mod tests {
 
     #[test]
     fn does_not_fold_a_leaf_block_over_trailing_blank_lines() {
-        let parsed = parse("`-{.task} Parent\n\n   `-{.task} Leaf\n\n`- Next\n");
+        let parsed = parse("`- Parent\n   {\n     `- task\n   }\n\n   `- Leaf\n      {\n        `- task\n      }\n\n`- Next\n");
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         assert_eq!(
             folding_ranges(&parsed.source, &parsed.syntax, None, None, false)
                 .iter()
                 .map(|range| (range.start_line, range.end_line))
                 .collect::<Vec<_>>(),
-            [(0, 2)]
+            [(0, 8), (5, 8)]
         );
     }
 
     #[test]
     fn closed_task_tokens_preserve_nested_task_states() {
         let parsed = parse(
-            "`-{.task done=\"2026-07-27T10:00:00+08:00\"} Closed parent\n  `note Parent detail\n  `-{.task} Open child\n  `note Parent tail\n`-{.task canceled=\"2026-07-27T10:01:00+08:00\"} Canceled\n`-{.task done=\"2026-07-27T10:02:00+08:00\" canceled=\"2026-07-27T10:03:00+08:00\"} Conflicted\n",
+            "`- Closed parent\n   {\n     `- task\n     `: done 2026-07-27T10:00:00+08:00\n   }\n\n   `note Parent detail\n\n   `- Open child\n      {\n        `- task\n      }\n\n   `note Parent tail\n\n`- Canceled\n   {\n     `- task\n     `: canceled 2026-07-27T10:01:00+08:00\n   }\n`- Conflicted\n   {\n     `- task\n     `: done 2026-07-27T10:02:00+08:00\n     `: canceled 2026-07-27T10:03:00+08:00\n   }\n",
         );
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let tasks = analyze_tasks(&parsed.source, &parsed.syntax).tasks;
