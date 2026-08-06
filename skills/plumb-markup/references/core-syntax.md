@@ -2,30 +2,23 @@
 
 Read this file completely before authoring plumb source. Core is strict and
 semantics-neutral: it recognizes source structure but does not assign meaning
-to marker names, inline kinds, attributes, or raw payloads.
+to marker names, inline kinds, attached elements, legacy attributes, or raw payloads.
 
 ## Blocks
 
 Ordinary text forms paragraphs. A marked block starts with one backtick, a
-nonempty marker, optional adjacent attributes, and an optional head:
+nonempty marker, and an optional head:
 
 ```plumb
 Paragraph text.
 
 `marker Head text
-`marker{#id .class key=value} Head text
+`marker Another head
 ```
 
 The marker may contain any non-whitespace, non-control Unicode scalar except
 backtick, double quote, brackets, and braces. It is case-sensitive and kept
 losslessly.
-
-Attributes must touch the marker:
-
-```plumb
-`note{.warning} Valid attributed block
-`note {.warning} The braces are head text, not block attributes
-```
 
 A block can have indented children. The first child establishes the child
 column; sibling children use exactly that column. Use two additional spaces as
@@ -58,49 +51,58 @@ Two backticks escape the introducer and produce a literal backtick:
 ``kind[content] is literal text
 ```
 
-## Attributes
+## Attached Groups
 
-The shared attribute form is `{#id .class key=value}`.
-
-- Allow at most one `#id` in an attribute slot.
-- Allow repeated classes, including repeated identical classes.
-- Allow each pair key at most once.
-- Use a bare value only for the narrow attribute-name character set.
-- Quote values containing whitespace, dots, hashes, equals signs, brackets, or
-  other complex characters.
-- Inside quoted values, allow only `\"` and `\\` escapes. Do not use `\n`,
-  `\t`, or unknown escapes.
-- Allow `{}` and `key=""`.
-
-Attributes may cross physical lines. Each nonblank continuation must be
-indented beyond the owner's structural column, but attribute items and the
-closing brace need not align. Newlines act as attribute whitespace, and the
-closing brace may follow the last item directly. Quoted values stay on one
-physical line. Blank lines, owner-level dedents, block-only entries, structural
-tabs, and EOF end an unclosed slot.
+Every document, marked/verbatim block, parsed inline, or inline verbatim owner
+may have one attached group. This is a postfix ownership structure, not an
+attribute sublanguage. Document and block groups contain ordinary blocks;
+inline groups contain ordinary inline elements.
 
 ```plumb
-`node{#intro .note level=2 url="https://example.test/a#part"} Head
+{
+  `title Document title
+}
+
+`node Head
+  {
+    `id intro
+    `note
+    `level 2
+  }
+
+`span[text]{`id[intro] `note[] `level[2]}
 ```
+
+A block group uses its owner's first structural child position. An inline group
+must touch the complete closing delimiter. Groups may recursively contain
+owners with their own groups. Core does not assign id, facet, property, class,
+or key-value meaning to their content.
+
+The old `{#id .class key=value}` slot remains readable only as a migration
+source family. Do not author it. `plumb fmt` preserves the source family;
+`plumb migrate-attributes` explicitly converts a valid document.
 
 ## Parsed Inline Elements
 
 A parsed inline element has a nonempty kind and parsed content:
 
 ```plumb
-`kind[content]{#id .class key=value}
+`kind[content]{`id[stable] `class[] `key[value]}
 `outer[before `inner[nested] after]
 ```
 
 An opening bracket inside parsed content is ordinary text. An unescaped closing
 bracket closes the current element; write a literal closing bracket as `` `] ``.
-Attributes must touch the complete closing delimiter. Parsed inline elements
+Attached groups must touch the complete closing delimiter. Parsed inline elements
 may cross continuation lines belonging to the same paragraph/head; those
 boundaries become soft breaks. Blank lines, dedents, block-only entries, and
 EOF remain hard boundaries.
 
 Core does not interpret kinds. For example, `*[text]` and `_[text]` are generic
 inline elements unless an extension explicitly defines them.
+
+The opening `[` is mandatory. Even an empty inline element is written as
+`kind[]`; a bare `` `kind`` is invalid.
 
 ## Inline Verbatim
 
@@ -115,20 +117,23 @@ of quotes:
 ```
 
 Increase the quote count only when the raw content contains a closing-like
-sequence. Raw content stays on one physical line and is not parsed. Attributes
-may follow the complete closing delimiter:
+sequence. Raw content stays on one physical line and is not parsed. An attached
+inline group may follow the complete closing delimiter:
 
 ```plumb
-`[let x = 1;]{language=rust}
+`[let x = 1;]{`language[rust]}
 ```
 
 ## Verbatim Blocks
 
-A verbatim block starts with a backtick immediately followed by attributes and
+A verbatim block starts with a backtick immediately followed by an attached block group and
 has no head. Its raw body uses a fixed two-space margin relative to the opener:
 
 ```plumb
-`{language=rust #example}
+`{
+  `language rust
+  `id example
+}
   fn main() {
       println!("hello");
   }
@@ -144,5 +149,5 @@ valid.
 - Do not write `# heading`, `- item`, fenced code blocks, or Markdown links
   without the plumb backtick introducer and envelopes.
 - Do not assume punctuation is globally special.
-- Do not add backslash escapes outside quoted attribute values.
+- Do not add backslash escapes.
 - Do not turn a syntax error into literal text. Repair the intended structure.

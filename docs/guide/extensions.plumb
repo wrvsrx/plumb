@@ -3,7 +3,7 @@
 
     plumb 标准扩展指南
 
-core 只识别结构；本页介绍官方工具链赋予常用 marker、inline kind 和 attributes 的语义。
+core 只识别结构；本页介绍官方工具链赋予常用 marker、inline kind 和 attached elements 的语义。
 
 `# Heading
 
@@ -16,11 +16,14 @@ core 只识别结构；本页介绍官方工具链赋予常用 marker、inline k
 heading 默认只有 outline identity。需要成为 link 或 rename target 时才添加显式 id：
 
 `{language=plumb}
-  `#{#intro} 可引用的标题
+  `# 可引用的标题
+     {
+       `id intro
+     }
 
 cursor 位于尚无 id 的 heading、generic marked block 或 verbatim block 时，`[Add explicit id] code
 action 根据 head 生成 document-unique id。空 head 使用 marker，verbatim block 使用 `[block]；已有
-attributes 会保留。
+attached elements 会保留。
 
 `# List 与 definition
 
@@ -45,26 +48,18 @@ ordered list 固定从 1 开始。
 
 `# Metadata
 
-文档 metadata 是唯一的顶层、无 head `[`meta] block，其中只包含 definitions：
+文档 metadata 是文件开头的 document attached group，其中每个 marked block 的 marker 是 key：
 
 `{language=plumb}
-  `meta
-    `: title
-
-      Document title
-
-    `: created
-
-      2026-07-20T09:00:00+08:00
-
-    `: tags
+  {
+    `title Document title
+    `created 2026-07-20T09:00:00+08:00
+    `tags
       `- plumb
       `- notes
-
-    `: author
-      `: name
-
-        Alice
+    `author
+      `name Alice
+  }
 
 value 可以是 null、一个 paragraph scalar、`[-] sequence、nested `[:] map 或一个 verbatim
 block。metadata sequence 只使用 `[-]；它表示数据顺序，不带正文 list style。
@@ -76,25 +71,25 @@ block。metadata sequence 只使用 `[-]；它表示数据顺序，不带正文 
 
 `# Link
 
-自定义 label、相对文档与 anchor 使用 `[->]，target 放在 `[to] attribute：
+自定义 label、相对文档与 anchor 使用 `[->]，target 放在 attached `[to] property：
 
 `{language=plumb}
-  `->[same document]{to="#intro"}
-  `->[another document]{to="guide.plumb"}
-  `->[another anchor]{to="guide.plumb#intro"}
-  `->[website]{to="https://example.test"}
+  `->[same document]{`to[#intro]}
+  `->[another document]{`to[guide.plumb]}
+  `->[another anchor]{`to[guide.plumb#intro]}
+  `->[website]{`to[https://example.test]}
 
 本地 anchor 必须显式存在。跨文件 target 使用相对 `[..plumb] path。named Link 的相对 `[to] value
 是 raw filesystem path；中文、spaces、parentheses 与 percent characters 都按字面保留，不进行 URL
-encode/decode。quoted attribute value 仍使用 plumb syntax 必需的 quote/backslash escapes。
+encode/decode。
 
 label 与 target 相同时，可以改用 Autolink：
 
 `{language=plumb}
-  `[https://example.test/a%20b]{.->}
-  `"[https://[2001:db8::1]/]"{.->}
-  `[guide.plumb#intro]{.->}
-  `[../assets/manual draft.pdf]{.->}
+  `[https://example.test/a%20b]{`->[]}
+  `"[https://[2001:db8::1]/]"{`->[]}
+  `[guide.plumb#intro]{`->[]}
+  `[../assets/manual draft.pdf]{`->[]}
 
 payload 同时作为 label 与 target，并保留原始 spelling。它与 named Link 使用相同 target
 classification：absolute/network target 按 URI 检查，relative target 是当前 document 目录下的 raw
@@ -102,11 +97,10 @@ filesystem path。
 `[#] 分隔 explicit anchor；与 `[]] delimiter 冲突时增加 inline verbatim quote strength。`[..plumb]
 path 与 explicit anchor 可以由 LSP 补全，补全原样插入 path，并在需要时自动增强 delimiter。自定义
 label 继续使用显式 `[->]。
-`[.->] 不能用于其他 owner，也不能与 `[to] 或
-`[.$] 组合。
+`[->] facet 不能用于其他 owner，也不能与 `[to] 或 `[$] facet 组合。
 
 创建 Autolink 时，在 ordinary inline context 输入反引号后接 opening bracket 的 marker prefix，并从 construct completion
-选择 Autolink。生成 `[{.->}] 后，LSP 才在 payload 中提供 path 与 explicit-anchor completion；
+选择 Autolink。生成 attached `[->] facet 后，LSP 才在 payload 中提供 path 与 explicit-anchor completion；
 bare backtick、未完成 marker 或 unclosed inline verbatim 不提供 construct candidates。
 
 `# Image
@@ -114,9 +108,9 @@ bare backtick、未完成 marker 或 unclosed inline verbatim 不提供 construc
 `[img] content 是 alt text，`[src] 是 absolute URI 或相对当前 document 的 file reference：
 
 `{language=plumb}
-  Text with `img[status icon]{src="static/status.png"} inline.
+  Text with `img[status icon]{`src[static/status.png]} inline.
 
-  `img[]{src="https://example.test/decorative.svg"}
+  `img[]{`src[https://example.test/decorative.svg]}
 
 empty alt 用于 decorative image。image 单独占一个 paragraph 时不需要另一种 block syntax。
 相对 src 是 raw filesystem path，中文、spaces、parentheses 和 percent characters 都按字面保留，
@@ -129,8 +123,8 @@ go-to-definition。image 的
 `[file] content 是始终可用的 fallback label，`[src] 指向 absolute URI 或相对当前 document 的文件：
 
 `{language=plumb}
-  `file[Demo video]{src="static/demo.mp4"}
-  `file[Download report]{src="reports/final.pdf"}
+  `file[Demo video]{`src[static/demo.mp4]}
+  `file[Download report]{`src[reports/final.pdf]}
 
 普通 exporter 把 attachment 写成可点击 Link。Web viewer 会把 workspace 内能识别为 video 的本地文件
 显示为带 controls 的播放器，同时保留下载链接作为浏览器不支持该格式时的 fallback；PDF、archive 或
@@ -152,11 +146,15 @@ LSP 在 src 中补全任意本地文件，并提供 hover、go-to-definition 和
 `[div] 和 `[span] 是没有隐式 presentation semantics 的透明 containers：
 
 `{language=plumb}
-  `div{#notice .warning} Warning
+  `div Warning
+    {
+      `id notice
+      `warning
+    }
 
     More details.
 
-  This is `span[important]{.warning}.
+  This is `span[important]{`warning[]}.
 
 它们直接导出为 Pandoc Div/Span；其他 generic marker/kind 仍保留 `[data-plumb-marker]。
 
@@ -171,7 +169,7 @@ LSP 在 src 中补全任意本地文件，并提供 hover、go-to-definition 和
 
     `> A nested quote.
 
-export 产生 Pandoc BlockQuote。quote attributes 通过内部 Div 保留；`[quote] 不是 alias，仍按
+export 产生 Pandoc BlockQuote。quote 上未消费的 attached elements 通过内部 Div 保留；`[quote] 不是 alias，仍按
 generic block 导出。quote 不隐式解释 attribution 或 citation。
 
 `# Inline styles
@@ -187,17 +185,20 @@ generic block 导出。quote 不隐式解释 attribution 或 citation。
   `_[subscript]
 
 除 mark 使用 Pandoc `[Span.mark] 外，其余分别产生 Pandoc Emph、Strong、Strikeout、Superscript 与
-Subscript。attributes 通过 Span 保存。`[**]、`[em]、`[strong]、`[mark] 不是 aliases；italic/bold
+Subscript。未消费的 attached elements 通过 Span 保存。`[**]、`[em]、`[strong]、`[mark] 不是 aliases；italic/bold
 是 emphasis/strong 的常见渲染，不需要独立 spelling。
 
 `# Math
 
-在 verbatim envelope 上添加 `[.$]：
+在 verbatim envelope 上添加 `[$] facet：
 
 `{language=plumb}
-  Inline `[\pi r^2]{.$}.
+  Inline `[\pi r^2]{`$[]}.
 
-  `{.$ #energy}
+  `{
+    `$
+    `id energy
+  }
     E = mc^2
 
 inline 与 display 由 envelope 决定，input 默认是 TeX。内容出现 closing bracket 时使用现有 quote
@@ -205,13 +206,17 @@ strength。普通 dollar characters 和 dollar-delimited math 不具有特殊含
 
 `# Event
 
-只有 `[-] 或 `[.] item 上的 `[.event] class 是 event：
+只有 `[-] 或 `[.] item 上的 `[event] attached facet 是 event：
 
 `{language=plumb}
-  `-{
-     #parser-review .event date=2026-07-30 timezone="+08:00"
-     tasks="#write-parser"
-    } 14:00--15:30 Parser review
+  `- 14:00--15:30 Parser review
+     {
+       `id parser-review
+       `event
+       `date 2026-07-30
+       `timezone +08:00
+       `tasks #write-parser
+     }
 
 head 的第一个 positional argument 是 schedule，后接 whitespace 与 title。schedule 使用 `[HH]、`[HH:MM]、`[HH:MM:SS] point 或 `[START--TIME] interval。start 也可写
 `[YYYY-MM-DDTTIME] 来覆盖 date 并继承 timezone；若指定 offset 或 `[Z]，则必须写包含秒的完整 RFC 3339
@@ -219,14 +224,23 @@ timestamp，例如 `[2026-05-02T08:22:31+08:00--09:20]。end 从 start 继承 da
 event 默认继承 metadata `[date] 与 numeric-offset `[timezone]；RFC 3339 metadata date 也提供自身 offset。
 同名 event pairs 可逐条覆盖。end 不能与 start 相等；end local time 早于 start 时解释为次日。
 旧 `[at]、`[start]、`[end] 不具有 event semantics。`[tasks] 显式关联同文件或跨文件 task id，不产生 dependency，也不从 task
-timestamps 猜测 event。`[.event .task] 复合与非 list-item owner 都无效。
+timestamps 猜测 event。`[event] 与 `[task] facets 复合及非 list-item owner 都无效。
 
 `[date]/`[timezone] 沿 marked-block subtree 继承，最近的 override 优先，dedent 后恢复 parent context：
 
 `{language=plumb}
-  `div{date=2026-07-31}
-    `-{.event} 09:00 使用 7 月 31 日
-  `-{.event} 09:00 恢复 document metadata date
+  `div
+    {
+      `date 2026-07-31
+    }
+    `- 09:00 使用 7 月 31 日
+       {
+         `event
+       }
+  `- 09:00 恢复 document metadata date
+     {
+       `event
+     }
 
 快速创建 event 时，在 list item head 开头输入 shorthand，再在该行执行 `[Convert to event] CodeAction；
 title 可以包含 inline markup：
@@ -244,8 +258,8 @@ title 可以包含 inline markup：
 time 使用两位 `[HH]、`[HH:MM] 或 `[HH:MM:SS]；省略分钟/秒时补零，省略 date/timezone 时优先继承
 document metadata，缺少时使用执行操作的本地日期/offset。显式 date 使用 `[YYYY-MM-DDT] prefix。
 end local time 早于 start 时解释为次日，相等无效。
-转换会在该 list item 上原位追加 `[.event] class，并把规范化 schedule 留在 head 开头；title 中的
-parsed/verbatim inline 及其 attributes 原样保留。它不生成 explicit id 或 UID metadata；只有需要引用
+转换会在该 list item 上原位追加 `[event] facet，并把规范化 schedule 留在 head 开头；title 中的
+parsed/verbatim inline 及其 attached data 原样保留。它不生成 explicit id 或 UID metadata；只有需要引用
 event 时才用通用操作添加 id。vdir exporter 会从 workspace-relative path、schedule 与 title 确定性派生
 iCalendar UID，因此同一 workspace 在不同设备上产生相同的 calendar files。
 
@@ -267,10 +281,17 @@ event、reminder、外部 iCalendar 回写或 CalDAV client。
 
 `# Task
 
-只有 `[-] 或 `[.] item 上的 `[.task] class 是 task：
+只有 `[-] 或 `[.] item 上的 `[task] attached facet 是 task：
 
 `{language=plumb}
-  `-{.task #write-parser priority=10 created="2026-07-20T09:00:00+08:00" due="2026-07-21T09:00:00+08:00"} Implement parser
+  `- Implement parser
+     {
+       `task
+       `id write-parser
+       `priority 10
+       `created 2026-07-20T09:00:00+08:00
+       `due 2026-07-21T09:00:00+08:00
+     }
 
 head 是 title，children 是 details。另一个 task 需要引用它时才添加 id。
 
@@ -278,15 +299,19 @@ head 是 title，children 是 details。另一个 task 需要引用它时才添�
 `[priority] 和 `[depends]。priority 是 32-bit signed integer，数值越大越优先；缺失时排序权重
 默认为 `[0]，因此正数提前、负数延后。effective priority 除了从 children 提升 ancestors，也沿
 `[depends] 提升仍 open 的 dependencies；多级 dependency chain 继续传播，closed dependency 不传播。
-时间使用 quoted RFC 3339。
+时间 property 使用 RFC 3339；migration-only legacy pair 必须 quoted。
 Task reference 使用 raw relative path，不做 URL
 encode/decode；`[.plumb#] 分隔 path 与 explicit id，path 本身不能包含 `[#]。`[depends] 中每条
 reference 在 id 后由 whitespace 分隔，因此 path 可以直接包含 spaces：
 
 `{language=plumb}
-  `-{.task depends="#local Project A.plumb#build Project B.plumb#test"} Review
+  `- Review
+     {
+       `task
+       `depends #local Project A.plumb#build Project B.plumb#test
+     }
 
-LSP 在 quoted `[depends] value 内分两阶段补全 workspace tasks：当前 reference 尚无 `[#] 时只列出含有
+LSP 在 `[depends] scalar value 内分两阶段补全 workspace tasks：当前 reference 尚无 `[#] 时只列出含有
 可选 task 的 document，选择后插入 same-file `[#] 或 cross-file `[`path.plumb#]；`[#] 后只列出已选
 document 中的 explicit task ids，并仅替换 id fragment。task id 候选显示 title、relative document path 和
 derived workflow state。补全保留同一 value 中其他 references，并排除当前 task、已经列出的 dependencies
@@ -305,11 +330,12 @@ reasons 同时包含 time 与 dependency。
 关闭 recurring task 会保留当前 instance，并紧接着创建下一个 sibling instance。新 instance 使用
 canonical formatter layout，不在两个 task 之间添加空行，并保留当前 nesting 与 LF/CRLF style。
 
-cursor 位于普通 list item 时，`[Convert to task] code action 同时添加 `[.task] 和 `[created]；
+cursor 位于普通 list item 时，`[Convert to task] code action 同时添加 `[task] facet 和 `[created] property；
 已有 task 缺少 `[created] 时，`[Add task created timestamp] 可以补录。两者使用执行时的本地
 RFC 3339 timestamp。
 
-`[created]、`[due]、`[wait]、`[done] 与 `[canceled] 必须是 quoted RFC 3339 timestamp；非法值发布
+`[created]、`[due]、`[wait]、`[done] 与 `[canceled] 必须是 RFC 3339 timestamp property；legacy pair
+必须 quoted。非法值发布
 `[task.invalid-datetime] warning，不参与 state 或 operations。完成或取消 nested task 时只格式化该
 task subtree，不改变 following sibling 的层级。
 

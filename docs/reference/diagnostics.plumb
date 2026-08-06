@@ -25,7 +25,8 @@ syntax diagnostics 分为：
 
 `- structural：indentation、partial dedent、非法 structural tab、verbatim margin。
 `- lexical：非法 marker/kind/attribute token、control character、非法 quoted escape。
-`- delimiter/dispatch：非法 introducer entry、unclosed attributes、inline 或 verbatim。
+`- delimiter/dispatch：非法 introducer entry、unclosed legacy attributes、attached group、inline 或 verbatim。
+`- ownership：unattached group、unexpected group close 或同一 owner 混用 legacy/attached forms。
 `- cardinality：duplicate id、duplicate attribute key。
 
 同一 source range 和根因只发布最具体的错误。structural error 优先于由错误结构派生的 generic
@@ -40,8 +41,10 @@ delimiter error。
 `# 4. Recovery boundaries
 
 `- block-start error：当前 physical line。
-`- attribute item error：下一个 attribute whitespace 或 closing brace；multiline slot 不跨越 blank、
+`- legacy attribute item error：下一个 attribute whitespace 或 closing brace；multiline slot 不跨越 blank、
    dedent 到 owner boundary、block-only entry、structural tab 或 EOF。
+`- attached block group：matching owner boundary 或 dedent；attached inline group：当前 enclosing inline boundary。
+`- unattached group/unexpected close：当前 structural line 或 enclosing inline boundary。
 `- parsed inline error：blank、dedent、block-only entry 或 EOF 前。
 `- inline verbatim error：当前 physical line ending 或 EOF。
 `- partial dedent：补到最接近的合法 outer column 后继续当前 line。
@@ -96,6 +99,10 @@ precedence、ordering、recovery 与 lossless token coverage；lenient tree-sitt
   syntax.unknown-quoted-escape
   syntax.unclosed-quoted-value
   syntax.unclosed-attributes
+  syntax.multiple-attribute-forms
+  syntax.unclosed-attached-group
+  syntax.unattached-group
+  syntax.unexpected-group-close
   syntax.duplicate-id
   syntax.duplicate-key
   syntax.unclosed-inline

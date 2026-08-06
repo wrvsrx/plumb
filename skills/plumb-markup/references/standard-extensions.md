@@ -10,12 +10,15 @@ Use one through six `#` characters as the marker. The count is the heading
 level. Add an explicit id when the heading must be a link or rename target:
 
 ```plumb
-`#{#intro} Introduction
+`# Introduction
+   {
+     `id intro
+   }
 `## Details
 ```
 
-Headings without `{#id}` appear in the outline but are not link targets. Only
-the `#id` shorthand creates an anchor; `id=value` does not.
+Headings without an attached `id` element appear in the outline but are not
+link targets.
 
 ## Lists And Definitions
 
@@ -46,26 +49,19 @@ definition body. Adjacent sibling definitions form a definition list:
 
 ## Document Metadata
 
-Use one headless document-level `meta` block containing only `:` definitions:
+Use one attached group at the start of the file. Its marked children are
+metadata properties:
 
 ```plumb
-`meta
-  `: title
-
-    Document title
-
-  `: created
-
-    2026-07-20T09:00:00+08:00
-
-  `: tags
+{
+  `title Document title
+  `created 2026-07-20T09:00:00+08:00
+  `tags
     `- plumb
     `- notes
-
-  `: author
-    `: name
-
-      Alice
+  `author
+    `name Alice
+}
 ```
 
 Keys must be nonempty plain text without whitespace or inline markup. Values
@@ -86,30 +82,31 @@ The metadata insertion action creates `title` from the filename stem and
 
 ## Links
 
-Use `->` as the only link inline kind and put the target in `to`:
+Use `->` as the only link inline kind and put the target in an attached `to`
+property:
 
 ```plumb
-`->[same-file target]{to="#intro"}
-`->[other document]{to="guide.plumb"}
-`->[cross-file target]{to="guide.plumb#intro"}
-`->[external target]{to="https://example.test"}
+`->[same-file target]{`to[#intro]}
+`->[other document]{`to[guide.plumb]}
+`->[cross-file target]{`to[guide.plumb#intro]}
+`->[external target]{`to[https://example.test]}
 ```
 
 `link` is a generic inline kind, not a link alias. Local and cross-file anchors
 must be explicit. A target with a scheme or `//` prefix is an absolute/network
 URI. Other `to` values are raw relative filesystem paths resolved from the
 source document directory. Do not percent-encode, percent-decode, or normalize
-them; only apply the quote/backslash escapes required by a quoted attribute
-value.
+them; escape only a closing bracket that would end the attached inline property.
 
-When label and target are identical, inline verbatim with `.->` is the standard
+When label and target are identical, inline verbatim with an attached `->`
+facet is the standard
 Autolink; its payload is both label and target:
 
 ```plumb
-`[https://example.test/a%20b]{.->}
-`"[https://[2001:db8::1]/]"{.->}
-`[guide.plumb#intro]{.->}
-`[../assets/manual draft.pdf]{.->}
+`[https://example.test/a%20b]{`->[]}
+`"[https://[2001:db8::1]/]"{`->[]}
+`[guide.plumb#intro]{`->[]}
+`[../assets/manual draft.pdf]{`->[]}
 ```
 
 The payload must be nonempty and uses the same target classification as a named
@@ -123,13 +120,13 @@ structure separator for an explicit anchor, so a relative filename cannot
 contain `#`. Control characters and backslashes remain invalid. Use verbatim
 quote strength, rather than payload escaping, when `]` conflicts with the
 delimiter. Completion inserts named Link and Autolink paths verbatim; named
-Links only add quoted-value syntax escapes, while Autolinks strengthen the
-envelope when needed. Use explicit `->` links for custom labels. `.->` is valid
-only on inline verbatim and cannot be combined with `to` or `.$`; other
-attributes are preserved.
+Links only add inline-delimiter escapes, while Autolinks strengthen the envelope
+when needed. Use explicit `->` links for custom labels. The `->` facet
+is valid only on inline verbatim and cannot be combined with `to` or `$`; other
+attached elements are preserved.
 
 To create an Autolink, type one backtick in ordinary inline content and choose
-`Autolink` from construct completion. Once the `.->` facet exists,
+`Autolink` from construct completion. Once the `->` facet exists,
 the LSP completes document paths and explicit anchors inside its payload. Bare
 or unclosed inline verbatim remains ordinary verbatim and does not offer
 Autolink candidates.
@@ -140,9 +137,9 @@ Use the `img` parsed inline kind. Its content is alt content and `src` is a
 required nonempty target:
 
 ```plumb
-Text with `img[status icon]{src="static/status.png"} inline.
+Text with `img[status icon]{`src[static/status.png]} inline.
 
-`img[]{src="https://example.test/decorative.svg"}
+`img[]{`src[https://example.test/decorative.svg]}
 ```
 
 Empty alt is valid for a decorative image. Sources with a scheme or `//` prefix
@@ -150,8 +147,8 @@ remain URI references. Other sources are raw relative filesystem paths resolved
 from the source document directory: do not percent-encode, percent-decode, or
 normalize them. UTF-8, spaces, parentheses, `%`, `?`, and `#` are literal;
 control characters, backslashes, and absolute filesystem paths are invalid.
-Completion inserts filesystem spelling verbatim, apart from the quote/backslash
-escapes required by a quoted attribute value. There is no separate block-image
+Completion inserts filesystem spelling verbatim, apart from an inline-delimiter
+escape when required. There is no separate block-image
 spelling: an image-only paragraph is still a paragraph containing one image.
 Figure, caption, numbering, and cross-reference semantics are deferred.
 
@@ -161,8 +158,8 @@ Use the `file` parsed inline kind. Its content is the portable fallback label
 and `src` is a required nonempty URI or raw relative filesystem target:
 
 ```plumb
-`file[Demo video]{src="static/demo.mp4"}
-`file[Download report]{src="reports/final.pdf"}
+`file[Demo video]{`src[static/demo.mp4]}
+`file[Download report]{`src[reports/final.pdf]}
 ```
 
 Export lowers a file attachment to a Pandoc Link so every writer retains a
@@ -195,7 +192,7 @@ the quote, and its children become the remaining quoted blocks:
   `> A nested quote.
 ```
 
-Empty and nested quotes are valid. Quote attributes are preserved through an
+Empty and nested quotes are valid. Unconsumed attached elements are preserved through an
 inner Pandoc Div because Pandoc BlockQuote has no attribute slot. The `>`
 marker itself is consumed; `quote` is not an alias and remains generic.
 Do not infer attribution, citation, pull-quote, or presentation semantics.
@@ -215,25 +212,32 @@ Six single-character parsed inline kinds have standard style semantics:
 
 They export as Pandoc Emph, Strong, a Span carrying `.mark`, Strikeout,
 Superscript, and Subscript. Attributes on native Pandoc nodes are preserved
-through an outer Span. Import consumes the first `.mark` class as the standard
-`=` spelling and preserves remaining attributes. `**`, `em`, `strong`, and
+through an outer Span. Import consumes the first Pandoc `.mark` class as the standard
+`=` spelling and preserves remaining attached data. `**`, `em`, `strong`, and
 `mark` are not aliases and remain generic. Italic and bold are common
 presentations of emphasis and strong, not separate standard spellings.
 
 ## Tasks
 
-A task is a `-` or `.` list item carrying `.task`:
+A task is a `-` or `.` list item carrying the `task` attached facet:
 
 ```plumb
-`-{.task #write-parser created="2026-07-20T09:00:00+08:00" due="2026-07-21T09:00:00+08:00" depends="#design"} Implement parser
+`- Implement parser
+   {
+     `task
+     `id write-parser
+     `created 2026-07-20T09:00:00+08:00
+     `due 2026-07-21T09:00:00+08:00
+     `depends #design
+   }
   `note Optional details
 ```
 
-The block head is the title and child blocks are details. Nested `.task` blocks
+The block head is the title and child blocks are details. Nested task blocks
 form the display tree, but only `depends` creates a dependency edge. Add an
 explicit id when another task must reference it.
 
-`.task` on another marker is `task.invalid-owner`. The LSP can convert an
+The `task` facet on another marker is `task.invalid-owner`. The LSP can convert an
 ordinary list item to a task while adding `created`, or add `created` to an
 existing task; both use the operation's local RFC 3339 timestamp.
 Construct completion is prefix-sensitive. A bare backtick offers no candidates.
@@ -247,11 +251,11 @@ ordinary list-item, and inline-verbatim constructs are typed directly.
 
 Defined fields:
 
-- `created`, `due`, `wait`, `done`, and `canceled`: quoted RFC 3339 timestamps.
+- `created`, `due`, `wait`, `done`, and `canceled`: RFC 3339 timestamp properties.
 - `recur`: one positive `PnD`, `PnW`, `PnM`, or `PnY` rule; requires `due`.
 - `prev`: one same-file `#id` or cross-file `path.plumb#id` reference.
 - `priority`: a signed 32-bit integer; larger values have higher priority.
-- `depends`: references in one quoted value. Whitespace after each reference id
+- `depends`: references in one scalar value. Whitespace after each reference id
   separates entries; whitespace before `.plumb#id` belongs to the path.
 
 Task references use raw relative paths. Do not percent-encode, percent-decode,
@@ -261,13 +265,17 @@ characters are literal. Control characters, backslashes, absolute paths, and
 path from its explicit id:
 
 ```plumb
-`-{.task depends="#local Project A.plumb#build Project B.plumb#test"} Review
+`- Review
+   {
+     `task
+     `depends #local Project A.plumb#build Project B.plumb#test
+   }
 ```
 
-Datetime fields must use quoted RFC 3339 values. An unquoted or unparseable
-value produces `task.invalid-datetime` and does not participate in task state,
+Datetime fields must use RFC 3339 property values; migration-only legacy pairs
+must remain quoted. An invalid value produces `task.invalid-datetime` and does not participate in task state,
 queries, or operations. `task.missing-due-for-recur` applies only when the
-`due` attribute is absent, not when it is present but invalid.
+`due` property is absent, not when it is present but invalid.
 An invalid `priority` produces `task.invalid-priority` and does not participate
 in sorting or task CEL facts. Valid priorities are CEL integers; missing or
 invalid priorities are CEL null rather than the sorting default below.
@@ -280,7 +288,7 @@ Document-local closure state is derived from closure timestamps:
 - Both: conflicted and invalid for normal operations.
 
 Do not invent `state`, `status`, `scheduled`, or checkbox syntax as
-task semantics. Other attributes remain opaque custom data.
+task semantics. Other attached elements remain opaque custom data.
 
 `plumb task` and the Web task view project each document as a virtual structural
 node in the workspace task forest. It has no language syntax or editable
@@ -324,18 +332,26 @@ provides spacing context without entering the edit or losing indentation.
 Export prefixes the first task paragraph with a visible closure marker: `☐` for
 open, `☒` for done, `⊘` for canceled, and `⚠` for conflicted. `☐` and `☒`
 follow Pandoc's task-list convention so supporting writers produce checkboxes.
-The task id, `.task` class, and fields remain on a Span around the title; child
+The task id, `task` facet, and fields remain on a Span around the title; child
 blocks remain subsequent blocks in the same list item.
 
 ## Events
 
-An event is a `-` or `.` list item carrying `.event`:
+An event is a `-` or `.` list item carrying the `event` attached facet:
 
 ```plumb
-`-{#review .event date=2026-07-30 timezone="+08:00" when="14:00--15:00" tasks="#write-parser"} Parser review
+`- Parser review
+   {
+     `event
+     `id review
+     `date 2026-07-30
+     `timezone +08:00
+     `when 14:00--15:00
+     `tasks #write-parser
+   }
 ```
 
-The head is the title and children are details. A quoted `when` start may be
+The head is the title and children are details. A `when` start may be
 reduced-precision `HH`, `HH:MM`, or `HH:MM:SS`; `YYYY-MM-DDTIME`, which
 overrides the date and inherits the timezone; or a self-contained full RFC 3339
 timestamp. A start with an offset or `Z` must include seconds and cannot append
@@ -346,12 +362,12 @@ equal times are invalid. A date or offset inside `when` applies only to that
 event and does not propagate to descendants. Event `date` and numeric-offset
 `timezone` otherwise override same-named metadata scalar/literal values; an RFC
 3339 metadata date also supplies its offset. Old `at`, `start`, and `end`
-pairs have no event semantics. `tasks` uses the same raw same-file/cross-file reference-list spelling as
+properties have no event semantics. `tasks` uses the same raw same-file/cross-file reference-list spelling as
 task `depends`, but creates associations rather than dependencies. Targets must
 be explicit task ids. Never infer events from task timestamps.
 
 Metadata `date` and `timezone` establish the document-root event context.
-Same-named pairs on any marked block override that block and its descendant
+Same-named properties on any marked block override that block and its descendant
 subtree; the nearest ancestor wins, and dedenting restores the parent context.
 An event's own overrides therefore also propagate to nested events. An invalid
 explicit override never falls back to an ancestor value.
@@ -360,19 +376,20 @@ Metadata `event-uids` is a list of standard Links whose nonempty plain labels
 are iCalendar UIDs and whose targets are same-file event `#id` values:
 
 ```plumb
-`meta
-  `: event-uids
-    `- `->[review-skill-reference@example]{to="#review"}
+{
+  `event-uids
+    `- `->[review-skill-reference@example]{`to[#review]}
+}
 ```
 
 This mapping is the default identity source and takes precedence over a legacy
-quoted inline `uid`, which remains a compatibility fallback. Authoring creates
+legacy quoted `uid` pair, which remains a compatibility fallback. Authoring creates
 an explicit event id and mapping together. Anchor rename updates the Link target;
 editing or moving the event preserves the UID; deleting it removes the mapping.
 The `Convert to event` action recognizes a reduced-precision schedule at the
 start of a list-item head. The title after its separating whitespace may contain
 parsed or verbatim inline markup; conversion removes only the leading schedule
-and preserves the remaining inline tree and attributes.
+and preserves the remaining inline tree and attached elements.
 Event authoring assigns missing explicit ids as document-local `eNNNN` decimal
 sequences, starting after the largest matching id among current events or at
 `e0001` when none exists. Existing explicit ids remain unchanged; stable calendar
@@ -385,7 +402,7 @@ interval `when`. Batch inference requires both siblings in the selection; a
 single-item conversion may inspect its unselected next sibling. An intervening
 block breaks the chain, and a final trailing-`--` item remains unconverted until
 it has a following shorthand or an explicit end.
-`.event` on a non-list-item owner is invalid. Combining `.event` and `.task` on
+The `event` facet on a non-list-item owner is invalid. Combining `event` and `task` on
 one owner is invalid and produces no event record. Calendar projection requires
 a workspace-unique UID.
 The initial profile has no all-day, floating-time, recurrence, reminder,
@@ -401,15 +418,15 @@ remains authoritative; khal should configure the generated calendar with
 `div` and `span` are transparent standard containers and export without a
 redundant `data-plumb-marker`. `>` exports as Pandoc BlockQuote. `*`, `!`, `=`,
 `~`, `^`, and `_` export as the standard inline styles. Verbatim
-inline/block nodes carrying `.$` are
+inline/block nodes carrying the `$` attached facet are
 TeX inline/display math. The math facet and optional `language=tex` are
-consumed; other attributes are preserved with Span/Div wrappers. `.$` on a
+consumed; other attached elements are preserved with Span/Div wrappers. `$` on a
 non-verbatim owner is invalid.
 
 `plumb export` emits Pandoc JSON directly. Standard lowering includes headings,
-bullet lists, definition lists, metadata, `->` links, `.->` Autolinks, `img`
+bullet lists, definition lists, metadata, `->` links, attached-facet Autolinks, `img`
 images, `file` attachments, single-id citations, quotes, inline styles, and visible task states with
-task attributes. Generic marked blocks become Divs, generic parsed inline
+task data. Generic marked blocks become Divs, generic parsed inline
 elements become Spans, verbatim blocks become CodeBlocks, and inline verbatim
 becomes Code.
 

@@ -14,21 +14,23 @@ source ranges、canonicalize affected complete block subtree，并产生针对�
 `# 2. Owned syntax
 
 新增内容使用 semantics-neutral `[OwnedBlock]、`[OwnedInline]、`[OwnedAttribute] 和 `[OwnedValue]。
-owned nodes 表达 marker、attributes、head、children、verbatim payload 与 inline structure，不携带 source
+owned nodes 表达 marker、attached elements、migration-only legacy attributes、head、children、verbatim payload 与 inline structure，不携带 source
 ranges，也不识别 metadata、task、link 或其他 extension semantics。
 
 owned nodes 可以从 strict typed syntax view detach，也可以由 operation 构造。serializer 只负责生成
 valid intermediate source；最终 layout 始终由 `[plumb-format] canonicalize。operation 不拼接完整 CST
 block、手工计算 multiline attribute layout 或复制 subtree indentation。
 
-`# 3. Attribute mutations
+`# 3. Attached-property mutations
 
-attribute API 将 insert、replace 与 remove 分开。insert 必须显式给出 `[First]、`[Last]、`[Before(index)]
-或 `[After(index)]；不存在隐式 append policy。一次 transaction 可以依次应用多个显式 insertion，最后
-只替换一次 attribute slot。
+统一 property API 将 insert、replace 与 remove 分开。insert 必须显式给出 `[First]、`[Last]、`[Before(index)]
+或 `[After(index)]；不存在隐式 append policy。一次 transaction 可以依次应用多个显式 insertion。
+attached owner 以 ordinary block/inline element 表达 id、facet 与 named property；legacy owner 在最小
+编辑时继续修改原 slot，避免无关 source churn。新 owner、whole-owner rewrite 与 generated source 一律
+写 recursive attached syntax。
 
 replace 与 remove 使用明确 item index。edit layer 不按 semantic name 猜测顺序，也不重新排列 opaque
-attributes；formatter 只处理 whitespace、wrapping 和 indentation。
+elements；formatter 只处理 whitespace、wrapping 和 indentation。
 
 `# 4. Block mutations
 
@@ -37,7 +39,7 @@ block。sibling insertion 从 revision snapshot 的 owner column 推导 base ind
 再由 formatter 使用相邻 sibling 作为 read-only spacing context。
 
 metadata insertion 与 recurring-task clone 都使用 owned block insertion。recurring task operation 在
-owned attributes 上移除旧 instance state、设置 next instance fields，不再对 source slice 做相对 range
+owned attached properties 上移除旧 instance state、设置 next instance fields，不再对 source slice 做相对 range
 replacement。
 
 `# 5. Finalization

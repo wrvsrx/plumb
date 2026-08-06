@@ -19,7 +19,7 @@ observable contract 包括：
 `# 2. Typed views
 
 core 为同一 recovered tree 提供 typed recovered/valid views。view 负责安全遍历、source ranges、
-marker/head/children/attributes 访问，不增加 semantic meaning。
+marker/head/children/attached group/legacy attributes 访问，不增加 semantic meaning。
 
 `[Recovered] view 可用于 completion、selection 和 syntax-aware fixes。`[Valid] view 只有 syntax
 diagnostics 为空时存在，用于 authoritative analysis、indexes、rename 和 export。
@@ -45,11 +45,16 @@ identity 时才允许。
 
 `# 5. Facet composition
 
-同一个 syntax node 可以被多个 extensions 识别。例如 `[-{.task}] 同时具有 list-item 与 task
-facets。extensions 不取得 node ownership，也不能删除其他 facet 所需的数据。
+同一个 syntax node 可以被多个 extensions 识别。例如 list item attached group 中的 `[`task]
+使该 node 同时具有 list-item 与 task facets。marker-only attached block 或 empty attached inline
+element 投影为 facet；`[`id VALUE] 或 `[`id[VALUE]] 投影为 id；其他 named element 的 head/content
+投影为同名 property。这个 projection 属于 extension profile，不是 core grammar。
+
+extensions 不取得 node ownership，也不能删除其他 facet 所需的数据。
 
 composition 冲突必须通过显式 diagnostic 或 documented priority 解决，不能依赖 registration order。
-generic export 在标准 facet lower 后仍保留未消费 attributes。
+generic export 在标准 facet lower 后仍保留未消费 attached elements；legacy attributes 使用相同的
+semantic projection，以支持显式迁移前的文档。
 
 `# 6. Dependencies
 
@@ -87,7 +92,7 @@ multi-document operation 必须 atomic，或在协议不能保证 atomic 时明�
 add explicit id、task complete/cancel、metadata insertion、anchor rename 和 document rename 都复用
 这套 contract。
 
-official workspace host 将 valid-tree authoring intent 交给 `[plumb-edit]：attribute insert/replace/remove
+official workspace host 将 valid-tree authoring intent 交给 `[plumb-edit]：property insert/replace/remove
 必须指定 target 与 insertion position；新增 block 使用 semantics-neutral owned syntax node。edit session
 先在 revision snapshot 的内存副本应用 mutations，再使用相邻 sibling 作为 layout context canonicalize
 完整 owner subtree，最后映射为针对原 revision 的单个连续 text edit。children 即使未被 mutation 直接

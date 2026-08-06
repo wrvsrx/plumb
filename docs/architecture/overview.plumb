@@ -35,7 +35,7 @@ reconstruction、range boundary 和 deterministic output invariants。
 `[plumb-format] 消费 valid syntax tree 并产生 canonical source。formatting policy 不属于 core syntax
 validity，也不依赖 semantic extensions；invalid recovered tree 不进入 formatter。
 
-`[plumb-edit] 在 valid revision 上执行 syntax-level attribute/block mutations、owned syntax insertion、
+`[plumb-edit] 在 valid revision 上执行 syntax-level attached-property/block mutations、owned syntax insertion、
 token rewrites 和 authoring finalization。详细 contract 见 `->[syntax editing]{to="editing.plumb"}。
 
 `# 3. Extensions
@@ -44,7 +44,8 @@ extension 是对 typed syntax view 或其他 extension outputs 的语言无关 a
 Rust module 是当前 host implementation，不是 extension contract 的一部分。
 
 官方 bundle 包括 outline、anchors/references、target resolution、lists、definitions、metadata、
-citations、quotes、inline styles、tasks、events 和 export。core 不维护 semantic registry，也不校验 class 或 marker spelling。
+citations、quotes、inline styles、tasks、events 和 export。extensions 将普通 attached elements 投影为
+id、facets 与 named properties；core 不维护 semantic registry，也不校验 element 或 marker spelling。
 
 `# 4. Workspace
 

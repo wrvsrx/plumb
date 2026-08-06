@@ -8,14 +8,19 @@ plumb 使用反引号引入特殊结构。特殊 spelling 一旦开始就必须�
 
 `# Paragraph 与 marked block
 
-普通文本组成 paragraph。marked block 由一个反引号、非空 marker、可选 attributes 和可选
+普通文本组成 paragraph。marked block 由一个反引号、非空 marker 和可选
 head 构成：
 
 `{language=plumb}
   普通 paragraph。
 
   `note 一条有 head 的 block
-  `note{#stable .warning level=2} 带 attributes
+  `note 带 attached group
+    {
+      `id stable
+      `warning
+      `level 2
+    }
 
 block 可以拥有缩进 children。第一个 child 建立 sibling column；formatter 对空 head 使用 owner
 column 加一，对非空 head 将 children 与 conceptual head column 对齐：
@@ -48,10 +53,15 @@ element 可以跨属于同一 paragraph/head 的 continuation lines：
   See `term[first line
   second line].
 
-attributes 必须紧跟完整 closing delimiter：
+attached inline group 必须紧跟完整 closing delimiter，并继续使用普通 inline syntax：
 
 `{language=plumb}
-  `term[value]{#id .class key=value}
+  `term[value]{`id[stable] `warning[] `level[2]}
+
+inline element 即使 content 为空也必须写出 `[[ ]] delimiter；不存在裸 `[`warning] shorthand：
+
+`{language=plumb}
+  `warning[]
 
 需要字面 closing bracket 时写两个反引号再跟 closing bracket。
 
@@ -66,41 +76,45 @@ inline verbatim 适合 code、路径和其他不需要 inline parsing 的内容�
 引号数量决定 closing delimiter 的强度。只有 payload 中出现较短 closing spelling 时才增加
 引号。
 
-verbatim block 以紧跟反引号的 attributes 开始，payload 固定比 opener 多缩进两个空格；这是
+verbatim block 以紧跟反引号的 attached block group 开始，payload 固定比 opener 多缩进两个空格；这是
 core syntax rule，不使用 marked block 的 hanging alignment：
 
 `{language=plumb}
-  `{language=rust}
+  `{
+    `language rust
+  }
     fn main() {
         println!("hello");
     }
 
 结构缩进后的 payload bytes 会原样保留。verbatim block 没有 closing fence。
 
-`# Attributes
+`# Attached groups
 
-attribute slot 使用 `[{#id .class key=value}]：
-
-`{language=plumb}
-  `node{#intro .note level=2 url="https://example.test/a#part"} Head
-
-每个 slot 最多有一个 id；class 可以重复；同一个 key 不能重复。包含 whitespace 或复杂标点
-的 value 必须使用双引号，quoted value 只支持 `[`\"] 和 `[`\\] 两种 escape。
-
-attribute items 较多时可以跨行。非空 continuation 只需缩进到 owner structural column 右侧；
-items 和 closing brace 不必互相对齐，closing brace 也可以紧跟最后一个 item。quoted value 仍保持
-单行：
+每个 document、marked/verbatim block 或 inline element 都可以拥有一个 attached group。group 是
+postfix ownership structure，不是另一套 attribute parser：block owner 的 group 递归包含普通 blocks，
+inline owner 的 group 递归包含普通 inline elements。
 
 `{language=plumb}
-  `-{.task
-     #write
-     created="2026-07-20T09:00:00+08:00"
-    } Write parser
+  {
+    `title Document title
+  }
 
-formatter 在完整 block opener 超过 100 display columns 时采用 canonical multiline layout；宽度
-从 physical line 第 0 列开始按 Unicode display width 绝对计算。items 从 opening brace 右侧一列
-开始，在不超过 100 列时尽量放在同一行；closing brace 与 opening brace 对齐。单个 item 超长时
-保持完整并允许超过上限。inline attributes 不自动换行。
+  `node Head
+    {
+      `id intro
+      `note
+      `level 2
+    }
+
+  `span[text]{`id[intro] `note[] `level[2]}
+
+core 不解释 `[`id]、`[`note] 或 `[`level]。标准 extension profile 才将 marker-only block 或
+empty inline element 投影为 facet，将 `[`id VALUE] / `[`id[VALUE]] 投影为 id，将其他带内容的
+named element 投影为 property。
+
+旧的 `[{#id .class key=value}] slot 仍可读取，但只用于迁移。`[plumb fmt] 保留输入所用的 source
+family；使用 `[plumb migrate-attributes] 显式把整个 valid document 转为 recursive attached syntax。
 
 `# Escape
 

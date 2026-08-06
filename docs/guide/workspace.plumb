@@ -106,7 +106,7 @@ Complete 或 Cancel。
 Parent 与 position 只列出目标 document 中已索引的 tasks。Previous task 和 dependencies 显示可读 title、
 source path 与 explicit id，并向 server 提交 opaque document identity 和 task locator；same-file 或
 cross-file reference spelling 由 shared authoring operation 生成。创建操作生成 explicit id 与 created
-timestamp；编辑保留不属于标准表单的 attributes、nested tasks 和其它 child blocks。
+timestamp；编辑保留不属于标准表单的 attached elements、nested tasks 和其它 child blocks。
 
 所有 create/edit requests 携带 document revision。server 在写入前再次比较 indexed source 与 disk source，
 应用 owned syntax edit，并验证结果仍是严格有效的 plumb；stale revision、external edit、invalid field、
