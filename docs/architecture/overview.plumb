@@ -1,13 +1,12 @@
-`meta
- `: title
-
-    plumb architecture overview
+{
+  `: title plumb architecture overview
+}
 
 `# 1. Data flow
 
 官方工具链的数据流是：
 
-`{language=text}
+`text"
   UTF-8 source
       -> plumb-core recovered lossless tree + syntax diagnostics
       -> typed recovered/valid views
@@ -22,7 +21,7 @@
 
 `# 2. Strict parser
 
-`[plumb-core] 是 syntax 的唯一权威。它无文件 I/O，只使用 byte offsets，并对 valid 或 invalid
+`"plumb-core" 是 syntax 的唯一权威。它无文件 I/O，只使用 byte offsets，并对 valid 或 invalid
 input 都产生 lossless tree 与 diagnostics。它不解释 heading、list、metadata、link、task 或 id。
 
 parser 使用 reject-but-recover。当前 revision 有 syntax error 时，authoritative semantic analysis
@@ -32,11 +31,11 @@ block 与 parsed-inline nesting 使用 explicit stacks。parser 对 source 生�
 sequence，并从同一次 parse 暴露 typed recovered/valid views；arbitrary UTF-8 property tests 固定
 reconstruction、range boundary 和 deterministic output invariants。
 
-`[plumb-format] 消费 valid syntax tree 并产生 canonical source。formatting policy 不属于 core syntax
+`"plumb-format" 消费 valid syntax tree 并产生 canonical source。formatting policy 不属于 core syntax
 validity，也不依赖 semantic extensions；invalid recovered tree 不进入 formatter。
 
-`[plumb-edit] 在 valid revision 上执行 syntax-level attached-property/block mutations、owned syntax insertion、
-token rewrites 和 authoring finalization。详细 contract 见 `->[syntax editing]{to="editing.plumb"}。
+`"plumb-edit" 在 valid revision 上执行 syntax-level attached-property/block mutations、owned syntax insertion、
+token rewrites 和 authoring finalization。详细 contract 见 `->[syntax editing]{`:[to editing.plumb]}。
 
 `# 3. Extensions
 
@@ -49,47 +48,47 @@ id、facets 与 named properties；core 不维护 semantic registry，也不校�
 
 `# 4. Workspace
 
-`[plumb-workspace] 保存 document snapshots、revision、last-valid extension outputs、dependency indexes
+`"plumb-workspace" 保存 document snapshots、revision、last-valid extension outputs、dependency indexes
 和 guarded edit preconditions。open buffer 优先于 disk source；create/change/remove 只使相关
 documents 与 dependents invalidated。
 
-workspace boundary 由显式 root 或 consumer 的 `[.plumb/] discovery 决定。protocol-neutral scanner
-使用 root-scoped `[.ignore] 做 traversal pruning，不读取 parent 或 Git ignore sources，也不默认排除
+workspace boundary 由显式 root 或 consumer 的 `".plumb/" discovery 决定。protocol-neutral scanner
+使用 root-scoped `".ignore" 做 traversal pruning，不读取 parent 或 Git ignore sources，也不默认排除
 dot paths。CLI、LSP 与 Web 共享同一 scanner；LSP root 仍由 client 的
-`[workspaceFolders]/`[rootUri] 决定，server 不重新向上 discovery。ignored open document 可以作为
+`"workspaceFolders"/`"rootUri" 决定，server 不重新向上 discovery。ignored open document 可以作为
 ephemeral buffer snapshot 参与 document features，关闭后不属于 disk index。
 
-reference CodeLens 是 workspace reverse-reference query 的 LSP projection。`[references_to_document]
+reference CodeLens 是 workspace reverse-reference query 的 LSP projection。`"references_to_document"
 聚合 current-valid documents 中的 document/anchor links 与 task references，并保留真实 same-document
-occurrences；Graph 等 consumer 可以按自己的 edge policy 隐藏 self-edge。`[references_to] 继续查询单个 explicit anchor。server 只为 current-valid metadata 与 anchors
+occurrences；Graph 等 consumer 可以按自己的 edge policy 隐藏 self-edge。`"references_to" 继续查询单个 explicit anchor。server 只为 current-valid metadata 与 anchors
 生成 lenses，count 与 command locations 来自同一次 query，避免 UI title 与执行结果偏移。
-`[plumb.showReferences] 是 client-side command，不把 editor UI 行为放入 protocol-neutral workspace。
+`"plumb.showReferences" 是 client-side command，不把 editor UI 行为放入 protocol-neutral workspace。
 
 workspace identity 使用 normalized document path/URI boundary。跨文件 query 必须说明 index
 completeness；不能把 partial result 表示成 complete negative result。
 
 `# 5. Consumers
 
-`- `[plumb] 是唯一 user-facing binary；`[lsp]、`[fmt]、`[export]、`[import]、`[note]、`[task]、`[event]、
-   `[site serve]
+`- `"plumb" 是唯一 user-facing binary；`"lsp"、`"fmt"、`"export"、`"import"、`"note"、`"task"、`"event"、
+   `"site serve"
    subcommands 分别适配 editor protocol、file/stdin、Pandoc JSON、CEL 和 task operations。
-`- `[tree-sitter-plumb] 是 lenient editor mirror，只负责 highlight、fold、indent、text object 和
+`- `"tree-sitter-plumb" 是 lenient editor mirror，只负责 highlight、fold、indent、text object 和
    injection。
 
 consumer 不复制 parser、semantic recognition 或 edit logic。
 
 `# 6. Crate boundaries
 
-`- `[plumb-core]：strict syntax tree、diagnostics、typed views。
-`- `[plumb-format]：syntax-valid document 的 protocol-neutral canonical formatter library。
-`- `[plumb-edit]：owned syntax、valid-tree mutations、format-aware finalization 与 validated token edits。
-`- `[plumb-extensions]：protocol-neutral semantic records、analyses、queries、operations、export model。
-`- `[plumb-workspace]：snapshots、indexes、cross-file invalidation 和 guarded edits。
-`- `[plumb]：统一 CLI、LSP adapter 以及各 library entry point 的 subcommand dispatch。
-`- `[plumb-export]：Pandoc JSON lowering library。
-`- `[plumb-import]：受支持 Pandoc AST 到 canonical plumb 的 fallible conversion library。
-`- `[plumb-notes]：notes/task query 与 operation library。
-`- `[plumb-web]：workspace graph/Web document model、Pandoc Web target adaptation、本地 Web server
+`- `"plumb-core"：strict syntax tree、diagnostics、typed views。
+`- `"plumb-format"：syntax-valid document 的 protocol-neutral canonical formatter library。
+`- `"plumb-edit"：owned syntax、valid-tree mutations、format-aware finalization 与 validated token edits。
+`- `"plumb-extensions"：protocol-neutral semantic records、analyses、queries、operations、export model。
+`- `"plumb-workspace"：snapshots、indexes、cross-file invalidation 和 guarded edits。
+`- `"plumb"：统一 CLI、LSP adapter 以及各 library entry point 的 subcommand dispatch。
+`- `"plumb-export"：Pandoc JSON lowering library。
+`- `"plumb-import"：受支持 Pandoc AST 到 canonical plumb 的 fallible conversion library。
+`- `"plumb-notes"：notes/task query 与 operation library。
+`- `"plumb-web"：workspace graph/Web document model、Pandoc Web target adaptation、本地 Web server
    与 browser assets。
 
 统一 binary 可以依赖共享 layers，但 shared libraries 不能依赖 CLI protocol types。
@@ -99,7 +98,7 @@ consumer 不复制 parser、semantic recognition 或 edit logic。
 tree-sitter grammar 与 strict core 覆盖相同的纯 syntax surface，但容错目标不同。grammar 不能定义
 validity，也不能迫使语言设计适应 CFG。
 
-`[grammar.js] 和 `[tree-sitter.json] 是 source of truth。generated parser files 是 build/release
+`"grammar.js" 和 `"tree-sitter.json" 是 source of truth。generated parser files 是 build/release
 artifacts；修改 grammar 后必须在 locked Nix environment 中 regenerate 并测试。
 
 `# 8. Export boundary
@@ -108,7 +107,7 @@ portability 由 export 保证。plumb 自己充当 Pandoc reader：标准 semant
 Pandoc nodes，generic structures lower 为 Div/Span/CodeBlock/Code 并保留 opaque data。Pandoc 只
 负责目标 writer。
 
-import 是 portability boundary 的反向 consumer，而不是 syntax authority。`[plumb-import] 使用 typed
+import 是 portability boundary 的反向 consumer，而不是 syntax authority。`"plumb-import" 使用 typed
 Pandoc AST，拒绝没有标准 plumb 表示的 nodes 与冲突 attributes；生成 source 必须经过 strict parser
 与 protocol-neutral formatter。它保证官方 exporter profile 内的 semantic round-trip，不把任意 Pandoc
 presentation surface 变成 core syntax 或隐式 extensions。

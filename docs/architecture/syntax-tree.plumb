@@ -1,7 +1,6 @@
-`meta
- `: title
-
-    plumb lossless syntax tree
+{
+  `: title plumb lossless syntax tree
+}
 
 `# 1. Purpose
 
@@ -14,26 +13,26 @@ queries、source-preserving edits 和 extensions；它不是已经解释语义�
 覆盖输入。拼接 leaf bytes 必须逐字节等于 source。
 
 tree 保留 trivia、structural indentation、line endings、delimiters、attached groups、legacy attributes、payload 和 malformed
-source。非空 source 的 leaf token 非空；空 source 产生 range `[[0, 0)] 的 document root。
+source。非空 source 的 leaf token 非空；空 source 产生 range `""[[0, 0)]"" 的 document root。
 
 missing token 不作为 synthetic leaf 插入，由 diagnostic 和 insertion fix 表达。node range 从其
 source-backed descendants 推导。
 
 `# 3. Public representation
 
-`[ParsedDocument] 同时持有原始 source、`[LosslessTree]、typed `[Document] 与 diagnostics。
-`[LosslessTree] 当前是 range 加按 source order 排列的 `[SyntaxToken] sequence；每个 token 暴露 kind、
+`"ParsedDocument" 同时持有原始 source、`"LosslessTree"、typed `"Document" 与 diagnostics。
+`"LosslessTree" 当前是 range 加按 source order 排列的 `"SyntaxToken" sequence；每个 token 暴露 kind、
 range，以及从同一 source 取 text 的方法。token kinds 包括 text、whitespace、indentation、line ending、
 introducer、escape、marker、inline kind、group/inline delimiter、legacy attribute punctuation/name/value/escape、raw payload
 和 error。
 
-typed `[Document] 表达 paragraph、marked block、verbatim block、attached group、legacy attributes、inline element、inline
-verbatim、text、space 和 soft break。head 内容中的连续 ASCII space/tab 产生独立 `[Inline::Space]；
-legacy attributes 与 head 之间的结构性 separator 仍只作为 lossless whitespace token，不进入 `[head.items]。
+typed `"Document" 表达 paragraph、marked block、verbatim block、attached group、legacy attributes、inline element、inline
+verbatim、text、space 和 soft break。head 内容中的连续 ASCII space/tab 产生独立 `"Inline::Space"；
+legacy attributes 与 head 之间的结构性 separator 仍只作为 lossless whitespace token，不进入 `"head.items"。
 普通 marker/kind 保持原始 spelling；typed tree 不区分 heading、list、
 link 或 task。它与 token sequence 在同一次 parse 中产生，不是第二套 parser。
 
-document、marked block、verbatim block、parsed inline 与 inline verbatim 都通过统一 `[Attributes] view
+document、marked block、verbatim block、parsed inline 与 inline verbatim 都通过统一 `"Attributes" view
 暴露可选 recursive attached group 与可选 migration-only legacy slot。attached group 的 content 按
 owner category 直接复用 ordinary block 或 ordinary inline nodes，不产生专门的 property/facet node kind。
 marked block 另暴露 marker、head 和 children；paragraph 只有 inline content。verbatim block 另暴露
@@ -41,8 +40,8 @@ marked block 另暴露 marker、head 和 children；paragraph 只有 inline cont
 
 `# 4. Recovered and valid views
 
-lossless token stream 与 typed recovered tree 始终存在。`[recovered_syntax()] 返回 recovered typed
-view；`[valid_syntax()] 只在没有 error diagnostics 时返回同一 `[Document] reference，保证 extensions
+lossless token stream 与 typed recovered tree 始终存在。`"recovered_syntax()" 返回 recovered typed
+view；`"valid_syntax()" 只在没有 error diagnostics 时返回同一 `"Document" reference，保证 extensions
 不会误把 recovery choice 当作 author intent。
 
 访问两种 view 不会重新 parse。typed nodes 可以保存 marker、decoded legacy attribute value 和 inline text，
@@ -62,17 +61,17 @@ plain-text traversal 也使用 iterative walk。语言不从 Rust call stack 获
 
 `# 6. Future normalized AST
 
-可能的 normalized model 会包含 parsed block、verbatim block，以及 `[Text]、`[SoftBreak]、`[Span]
-和 `[Verbatim] inline variants。它只在 exporter 或其他 concrete consumer 证明 typed views 不足时加入。
+可能的 normalized model 会包含 parsed block、verbatim block，以及 `"Text"、`"SoftBreak"、`"Span"
+和 `"Verbatim" inline variants。它只在 exporter 或其他 concrete consumer 证明 typed views 不足时加入。
 
 normalized model 不取代 lossless tree，不改变 syntax validity，也不把 extension semantics 放回
 core。
 
-`[plumb-edit] 的 owned syntax nodes 不是 normalized semantic AST。它们只是 typed syntax view 的
+`"plumb-edit" 的 owned syntax nodes 不是 normalized semantic AST。它们只是 typed syntax view 的
 source-independent、可构造 counterpart，用于插入或替换 generic blocks、inlines 和 attached/legacy ownership data；最终
 source layout 仍由 formatter 决定。
 
 `# 7. Incremental identity
 
-当前 contract 不承诺跨 revision `[NodeId] reuse。incremental parsing、source-map identity 和 text
+当前 contract 不承诺跨 revision `"NodeId" reuse。incremental parsing、source-map identity 和 text
 canonicalization 必须作为同一设计问题解决；实现优化不能泄漏为不稳定的 public identity。

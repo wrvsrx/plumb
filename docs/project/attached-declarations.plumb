@@ -1,34 +1,32 @@
 {
-  `title Attached declarations redesign
+  `: title Attached declarations redesign
 }
 
-本文记录下一版 attached semantic profile 的已选方向。它尚未覆盖当前 release，因此不覆盖
-`->[core syntax reference]{`to[../reference/core-syntax.plumb]} 或
-`->[standard extensions reference]{`to[../reference/standard-extensions.plumb]}。实施任务见
-`->[current tasks]{`to[tasks.plumb]}。
+本文保存 attached declarations 最终设计及其取舍。该设计已经进入 current development line；validity
+与标准语义分别以 `->[core syntax reference]{`:[to ../reference/core-syntax.plumb]} 和
+`->[standard extensions reference]{`:[to ../reference/standard-extensions.plumb]} 为准。本页中的候选
+比较用于解释决定，不覆盖 references。
 
 `# 目标
 
-`- `[{}] 继续按照 owner level 递归包含普通 blocks 或普通 inline elements，不建立 attribute
+`- `"{}" 继续按照 owner level 递归包含普通 blocks 或普通 inline elements，不建立 attribute
    mini-language。
 `- attached data 不再让任意 property key 占用 marker/kind namespace。
 `- 正文与 attached scope 中的 list item、definition entry 保持同一种基础语义，而不是仅因 parent
    不同就把同一 spelling 重新解释成无关结构。
-`- definition key 与 value 可以同行；包含 spaces 或 rich inline 的 key 不要求使用冗长的 `[span]
+`- definition key 与 value 可以同行；包含 spaces 或 rich inline 的 key 不要求使用冗长的 `"span"
    spelling。
-`- identity 使用独立的 `[@] declaration；它与 collection member、association 并列，而不是伪装成
-   `[id] property 或让 `[#] 在 attached scope 中获得第二种含义。
+`- identity 使用独立的 `"@" declaration；它与 collection member、association 并列，而不是伪装成
+   `"id" property 或让 `"#" 在 attached scope 中获得第二种含义。
 `- verbatim 的高频主要解释不再绕行 attached facet/property；可选 kind 与 double quote 共同提供
    compact inline/block envelope，复杂 inline payload 才回退到 strengthened bracket envelope。
 
 `# Collection 与 association
 
-marker `[-] 始终表示 collection member；marker `[:] 始终表示 key/value association。它们在不同
+marker `"-" 始终表示 collection member；marker `":" 始终表示 key/value association。它们在不同
 container 中的 projection 不同，但节点自身的抽象不变：
 
-`{
-  `language text
-}
+`"
   body collection     attached collection
   - list item         - facet member
 
@@ -37,9 +35,7 @@ container 中的 projection 不同，但节点自身的抽象不变：
 
 block attached scope 使用：
 
-`{
-  `language plumb
-}
+`"
   `- Buy milk
      {
        `- task
@@ -49,36 +45,30 @@ block attached scope 使用：
 
 inline attached scope 使用相同 carriers：
 
-`{
-  `language plumb
-}
+`"
   `span[text]{`-[task] `@[shopping] `:[created 2026-08-09T00:00:00+08:00]}
 
-direct `[-] child 提供 facet view。标准 facet 必须能从该 item 的 content 投影为一个非空 plain
+direct `"-" child 提供 facet view。标准 facet 必须能从该 item 的 content 投影为一个非空 plain
 name；rich、empty 或带 children 的 item 仍是合法 collection member，但不自动产生标准 facet。
 
-direct `[:] child 提供 property view。direct `[@] child 提供 identity view：block form 的 head 或 inline
+direct `":" child 提供 property view。direct `"@" child 提供 identity view：block form 的 head 或 inline
 form 的 content 必须可投影为一个非空 plain scalar，且每个 owner 最多拥有一个 direct identity。
-正文中的 standalone `[@] declaration 表示当前位置的显式 anchor；attached scope 中同一 declaration
-命名 enclosing owner。`[#] 只保留 heading marker 的标准含义，不在 attached scope 中获得另一套 id
+正文中的 standalone `"@" declaration 表示当前位置的显式 anchor；attached scope 中同一 declaration
+命名 enclosing owner。`"#" 只保留 heading marker 的标准含义，不在 attached scope 中获得另一套 id
 semantics。
 
 `# 同行 definition
 
 definition entry 的统一形状是：
 
-`{
-  `language text
-}
+`"
   : KEY VALUE
 
 marker separator 后的第一个 inline atom 是 key。紧随 key 的一个或多个 ASCII spaces/tabs 是
 key/value separator；余下 head 是 value 的首个 inline paragraph。没有同行 value 时，children 提供
 block value；同时存在同行 value 与 children 时，同行部分是首个 paragraph，children 是后续 blocks。
 
-`{
-  `language plumb
-}
+`"
   `: created 2026-08-09T00:00:00+08:00
   `: city A short inline value.
 
@@ -88,52 +78,42 @@ block value；同时存在同行 value 与 children 时，同行部分是首个 
 
 simple key 使用第一个 plain text atom。inline verbatim 继续提供不可解析的多词原子：
 
-`{
-  `language plumb
-}
-  `: `[created at] 2026-08-09T00:00:00+08:00
+`"
+  `: `"created at" 2026-08-09T00:00:00+08:00
 
-这里 key 是 plain string `[created at]；verbatim payload 内的 introducer spelling 不产生 nested
+这里 key 是 plain string `"created at"；verbatim payload 内的 introducer spelling 不产生 nested
 inline structure。
 
 `# Transparent inline group
 
-标准 inline kind `[()] 是透明 parsed group：
+标准 inline kind `"()" 是透明 parsed group：
 
-`{
-  `language plumb
-}
+`"
   `()[New `*[York]]
 
-它使用现有 generic parsed-inline grammar，不改变 `` `[...]`` 的 inline-verbatim 含义，也不增加 core
-dispatch branch。标准 lowering 消费 `[()] kind 并保留其 parsed children；存在未消费 attached data 时，
-export 使用必要的 Pandoc `[Span] wrapper 保存它们。
+它使用现有 generic parsed-inline grammar，不改变 `` `"..."`` 的 inline-verbatim 含义，也不增加 core
+dispatch branch。标准 lowering 消费 `"()" kind 并保留其 parsed children；存在未消费 attached data 时，
+export 使用必要的 Pandoc `"Span" wrapper 保存它们。
 
-`[()] 让完整 rich key 仍然是 definition head 的第一个 atom：
+`"()" 让完整 rich key 仍然是 definition head 的第一个 atom：
 
-`{
-  `language plumb
-}
+`"
   `: `()[New `*[York]] A city in the United States.
 
 对应 inline association：
 
-`{
-  `language plumb
-}
+`"
   `:[`()[display `*[name]] Alice]
 
 因此三种 key spelling 分别是：
 
-`{
-  `language plumb
-}
+`"
   `: simple-key Value
-  `: `[multi word key] Value
+  `: `"multi word key" Value
   `: `()[rich `*[key]] Value
 
 plain-key view 只在 key 可无损投影为 plain text 时存在。standard extensions 按 plain-key view 查询
-`[created]、`[to]、`[src] 等已声明 properties；rich key 仍是合法 definition key，但不会偶然
+`"created"、`"to"、`"src" 等已声明 properties；rich key 仍是合法 definition key，但不会偶然
 命中这些 machine-readable names。definition 本身不因位于 body 或 attached scope 而改变结构。
 
 `# Verbatim envelope
@@ -141,17 +121,13 @@ plain-key view 只在 key 可无损投影为 plain text 时存在。standard ext
 double quote 统一选择 verbatim mode，并同时承担常见 inline raw payload 的 boundary。kind 始终位于
 opening quote 之前且可以省略：
 
-`{
-  `language text
-}
+`"
   compact inline    = ` KIND? " RAW "
   compact block     = ` KIND? " ATTACHED? newline indented-raw
 
 常见 inline verbatim 不再需要 bracket envelope：
 
-`{
-  `language plumb
-}
+`"
   `"cargo test"
   `rust"let x = 1;"
   `$"x^2"
@@ -161,9 +137,7 @@ opening quote 精确建立 payload 起点，因此 empty payload、一个或多�
 区分。compact payload 不能包含 double quote；需要 quote 或其他 closing-like sequence 时使用 general
 strengthened envelope：
 
-`{
-  `language plumb
-}
+`"
   `"[raw containing " safely]"
   `rust""[raw containing ]" safely]""
 
@@ -171,12 +145,10 @@ opening quote 后紧接 opening bracket 时进入 strengthened envelope；否则
 matching closing quote。两种 source family 产生同一个 inline-verbatim typed view，kind 保持 opaque，
 quote strength 与 raw payload 保持 lossless。
 
-block verbatim 使用同一个 `[KIND?"] opener。opening quote 后直接 line ending，或只跟一个 attached
+block verbatim 使用同一个 `"[KIND?"]" opener。opening quote 后直接 line ending，或只跟一个 attached
 group 再 line ending，即 dispatch 为 block verbatim；raw body 继续由 indentation boundary 管理：
 
-`{
-  `language plumb
-}
+`"
   `"
     anonymous raw
 
@@ -186,57 +158,42 @@ group 再 line ending，即 dispatch 为 block verbatim；raw body 继续由 ind
   `rust"{`@[example] `:[generated true]}
     fn generated() {}
 
-double quote 只选择 syntax mode；core 不解释 `[rust]、`[$] 或 `[->]。standard extensions 可以把
-`[$] kind 投影为 math、`[->] kind 投影为 Autolink、language kind 投影为 code language。kind 表示
+double quote 只选择 syntax mode；core 不解释 `"rust"、`"$" 或 `"->"。standard extensions 可以把
+`"$" kind 投影为 math、`"->" kind 投影为 Autolink、language kind 投影为 code language。kind 表示
 payload 的主要解释方式；identity、正交 facets 与 properties 仍进入 attached group。
 
-采用该方向后，`[`{}] 不再是 canonical verbatim opener；`[{}] 只承担 attached ownership。旧的
+采用该方向后，`"`{}" 不再是 canonical verbatim opener；`"{}" 只承担 attached ownership。旧的
 attribute-only 与 recursive-group verbatim openers 进入显式 migration source family，而不是与
-`[KIND?"] 长期并存为两个等价入口。
+`"[KIND?"]" 长期并存为两个等价入口。
 
 `# Compact block attached group
 
-inline owner 的 attached group 已由紧贴 closing delimiter 的 `[{}] 明确拥有。verbatim block header 也可
+inline owner 的 attached group 已由紧贴 closing delimiter 的 `"{}" 明确拥有。verbatim block header 也可
 在 opening quote 后紧跟 compact inline group：
 
-`{
-  `language plumb
-}
+`"
   `rust"{`@[example] `:[generated true]}
     fn generated() {}
 
-普通 marked block 的 compact attached layout 尚未冻结。候选 trailing form 是：
+普通 marked block 的 compact attached layout 使用 trailing form：
 
-`{
-  `language plumb
-}
+`"
   `- Buy milk {`-[task] `@[shopping] `:[created 2026-08-09]}
 
-它要求 whitespace 将 group 与最后一个 inline owner 分开、group 是 head line 的最后一个结构，并把
-compact group 内的 ordinary inline declarations 投影为与 expanded group 中 ordinary block declarations
-相同的 collection/association/identity views。这里仍需厘清：
+它要求至少一个 ASCII space/tab 将 group 与 head 分开，separator 只建立 ownership、不进入 head；group
+必须是 physical head line 的最后一个结构。compact group 内的 ordinary inline declarations 与 expanded
+group 中 ordinary block declarations 共享 collection/association/identity typed projection。formatter
+保留 expanded/compact source family，不把二者任意互换；每个 owner 最多拥有一个 group。
 
-`- trailing group 前的 whitespace 是否只负责 ownership，是否属于 block head。
-`- literal opening brace 在 block head 中何时仍是 text，以及 incomplete group 的 strict recovery boundary。
-`- compact inline declaration 与 expanded block declaration 是同一个 typed declaration，还是只共享
-   semantic projection；不能让 extensions 各自实现两套规则。
-`- 一个 group 是否允许 compact 与 expanded layout 混合，formatter 是否可以跨 source family 自动改写。
-`- empty head、continued head、行末 comments（若未来存在）以及多个 postfix owners 的结合优先级。
+`# 已冻结的边界
 
-这些问题冻结前，expanded block group 仍是唯一无歧义的普通 block attached layout；verbatim header 的
-compact group 不自动证明 trailing marked-block group 已经成立。
+attached data 不是 JSON replacement，当前 profile 冻结以下边界：
 
-`# 保持开放的边界
-
-本设计尚未把 attached data 扩张为 JSON replacement。实施前仍需冻结以下边界：
-
-`- definition entry 自身的 attached group 是 entry annotations，还是 structured property value；二者不能
-   依赖 extension 猜测。
-`- repeated property keys 是有序 multi-map、profile-specific sequence，还是 standard duplicate
-   diagnostic。
-`- facet member 是否只接受一个 plain atom；若允许 richer member，facet identity 必须保持可比较。
-`- compact marked-block attached group 的 ownership、typed shape、recovery 与 formatting policy。
-`- legacy `[{#id .class key=value}] 与当前 named attached elements 到新 `[-]/[:] projection 的迁移顺序、
-   identity/verbatim source migration、idempotence 和 source-family policy。
-
-在这些边界冻结并完成实现前，reference、guide、bundled skill 与 formatter 继续描述当前 release。
+`- definition association 的 key 是第一个 inline atom；同行 remainder 是首个 value paragraph，children
+   是后续 block value。
+`- property duplicate policy 由声明它的 extension 决定；core 保留 source order 与重复项。
+`- standard facet identity 使用 direct member 的 plain scalar；不满足 profile 约束的 richer member 仍是
+   generic collection data。
+`- compact marked-block group 的 ownership、recovery 与 formatting 以 core syntax reference 为准。
+`- legacy `"{#id .class key=value}" 仅由冻结 0.17 reader 接受，并按 source order转换为 direct
+   `"-"、`"@" 与 `":" declarations；转换是 idempotent，普通 parser 不保留兼容入口。

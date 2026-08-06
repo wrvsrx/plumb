@@ -1,23 +1,22 @@
-`meta
-  `: title
-
-    plumb core syntax reference
+{
+  `: title plumb core syntax reference
+}
 
 `# 1. Scope
 
-本文定义 core syntax validity。core 识别 source structure，不解释 marker、inline kind、attached
-element 或 legacy attribute item 的语义。任意语法错误都使文档不能进入 authoritative semantic analysis 或 export；
+本文定义 core syntax validity。core 识别 source structure，不解释 marker、inline kind 或 attached
+content 的语义。任意语法错误都使文档不能进入 authoritative semantic analysis 或 export；
 parser 仍必须恢复并产生 lossless tree 与全部可报告 diagnostics。
 
-输入是 UTF-8 bytes。offset 和 range 使用 UTF-8 half-open byte range。除 quoted attribute value
-中明确允许的 escape 外，不做 Unicode normalization 或 backslash processing。
+输入是 UTF-8 bytes。offset 和 range 使用 UTF-8 half-open byte range。不做 Unicode normalization
+或 backslash processing。
 
 `# 2. Introducer grouping
 
 反引号是唯一 introducer。连续 run 从左到右每两个反引号组成一个 literal backtick；奇数 run
 最后剩余的一个作为 introducer。scanner 不回溯。
 
-`{language=plumb}
+`plumb"
   ``node is literal text.
   ```node introduces one literal backtick, then a node.
 
@@ -25,32 +24,35 @@ escape 已经产生 inline text 时，当前位置不再是 block start。
 
 `# 3. Block dispatch
 
-block start 的 introducer 按紧接字符 dispatch：
+block start 的 introducer 先读取可选 kind，再按 delimiter dispatch：
 
-`- opening bracket：零 quote inline verbatim，属于 paragraph/head inline content。
-`- 一个或多个 double quote 后接 opening bracket：对应强度的 inline verbatim。
-`- opening brace：verbatim block。
+`- `"KIND?\"" 后立即 line ending，或只跟一个完整 inline attached group 再 line ending：verbatim block。
+`- `"KIND?QUOTES["：strengthened inline verbatim，属于 paragraph/head inline content。
+`- `"KIND?\"RAW\""：compact inline verbatim，属于 paragraph/head inline content。
 `- 非空 marker token：marked block；紧接 opening bracket 时改为 parsed inline element。
 
 非法入口产生 syntax diagnostic，不退化为 ordinary text。
 
 `# 4. Marker 与 marked block
 
-`[MarkerToken] 是一个或多个非-whitespace、非-control Unicode scalar values，且不能包含反引号、
+`"MarkerToken" 是一个或多个非-whitespace、非-control Unicode scalar values，且不能包含反引号、
 double quote、bracket 或 brace。token 使用 maximal match，大小写敏感，按 source 原样保存。
 
 marked block 形状为：
 
-`{language=plumb}
+`plumb"
   `marker
   `marker Head
-  `marker Head
-    {
-      `facet
-      `property value
-    }
+    `marker Head
+      {
+        `- facet
+        `@ identity
+        `: property value
+      }
 
-marker 后只能紧接 legacy attributes、一个分隔 head 的 ASCII space 或 line ending。普通 marker 允许空
+    `marker Head {`-[facet] `@[identity] `:[property value]}
+
+marker 后只能紧接一个分隔 head 的 ASCII space/tab 或 line ending。普通 marker 允许空
 head 和空 children；marker-specific constraint 属于 extension。
 
 `# 5. Head 与 paragraph
@@ -67,13 +69,13 @@ marked block 的 marker line 在第一个 ASCII space 后开始 head。marker li
 head 仍为空时，head separator 后的 block-only entry 可以在同一 physical line 开始 first child。
 first child 的 introducer column 建立 body column，后续 children 必须从同一 column 开始：
 
-`{language=plumb}
+`plumb"
   `- `- a
      `- b
 
 这与换行布局产生相同 tree：
 
-`{language=plumb}
+`plumb"
   `-
      `- a
      `- b
@@ -103,111 +105,121 @@ attached group 是 postfix ownership operator，不是 attribute sublanguage。�
 
 `- document group 必须是文件第一个结构，包含 ordinary blocks。
 `- marked block group 是 owner body 中紧邻 owner 的第一个 block，包含 ordinary blocks。
-`- verbatim block opener group 紧跟 block introducer，包含 ordinary blocks。
+`- verbatim block opener group 紧跟 opening quote，包含 ordinary inline elements。
 `- parsed inline 或 inline verbatim group 紧跟完整 closing delimiter，包含 ordinary inline elements。
 
 block group 的 opening brace 独占一条 structural line，内容建立更深的 child column，closing brace
 回到 group column。其内容使用第 3 至 6 节的普通 block parser，因此可以递归包含拥有 group 的 blocks：
 
-`{language=plumb}
+`plumb"
   {
-    `title Document title
-    `tags
+    `: title Document title
+    `: tags
       `- plumb
   }
 
   `- Buy milk
      {
-       `task
-       `id shopping
-       `due 2026-08-07
+       `- task
+       `@ shopping
+       `: due 2026-08-07
      }
 
 inline group 与 owner 同行，内容使用第 8、9 节的普通 inline parser，因此 inline element 可以递归
 包含 inline element；group 本身不建立新的 marker、property 或 raw-content grammar：
 
-`{language=plumb}
-  `->[guide]{`id[main] `external[] `to[guide.plumb]}
+`plumb"
+  `->[guide]{`@[main] `-[external] `:[to guide.plumb]}
 
-空 group 合法。group 必须紧贴 inline owner；whitespace 结束 ownership。block group 由 structural
-position 与 indentation 建立 ownership，不允许作为任意独立 sibling。core 原样保留 attached content，
-不把其中的 spelling 固定解释为 class、id 或 key-value pair。
+普通 marked block 还允许 compact trailing group：它必须由至少一个 ASCII space/tab 与 head 分开，
+是该 physical head line 的最后一个结构，且包含 ordinary inline elements。separator 只建立 ownership，
+不进入 head。紧贴 inline closing delimiter 的 group 仍归 inline owner。
 
-`# 8. Legacy attributes
+空 group 合法。inline owner 的 group 必须紧贴 owner；whitespace 结束该 ownership。expanded block group
+由 structural position 与 indentation 建立 ownership，不允许作为任意独立 sibling。core 原样保留
+attached content，不把其中 spelling 固定解释为 facet、identity 或 property。
 
-为了读取和显式迁移旧文档，block mark、parsed inline 与 verbatim element 仍接受紧贴 owner 的
-`[{#id .class key=value}] slot。它是 migration-only source family，不是新文档的 authoring syntax。
-一个 owner 不得同时具有 legacy slot 与 attached group；`[fmt] 保留 source family，
-`[plumb migrate-attributes] 才把 legacy slot 转为 attached group。
+`# 8. 0.17 migration reader
+
+本节不属于 current core syntax validity。普通 `"parse"、`"fmt"、LSP、extensions 与 export 不接受
+`"{#id .class key=value}"。只有显式 `"parse_legacy_017" / `"plumb migrate-attributes" 路径启用冻结的
+0.17 reader，并在完整输入通过旧语法验证后一次性转换为 current syntax。
 
 legacy slot 的 lexical grammar、multiline continuation、quoted escape 与 id/key cardinality 保留
 0.17 之前的定义。完整 legacy slot 优先于 recursive group 判定；若 brace content 不能构成完整
 legacy slot，则按第 7 节解析 attached group。legacy items 的精确形状为：
 
-`{language=text}
+`text"
   Attr        = "{" (AttrItem (Whitespace+ AttrItem)*)? "}"
   AttrItem    = "#" AttrName | "." AttrName | AttrName "=" Value
   Value       = AttrName | QuotedValue
 
-`[#name]、`[.name] 与 `[name=value] 只作为 legacy projection 输入。quoted value 不能跨 physical
+迁移映射是 `".name" 到 direct `"-" declaration、`"#name" 到 `"@" declaration、`"name=value"
+到 direct `":" association。verbatim owner 的 `"language=value" 提升为 opaque verbatim kind。
+quoted value 不能跨 physical
 line，只允许 quote 与 backslash escape。blank、owner-level dedent、block-only entry、structural tab
 或 EOF 是 unclosed legacy slot 的 hard boundary。
 
 `# 9. Parsed inline element
 
-parsed inline element 由 introducer、非空 `[InlineKind]、opening bracket、parsed content 和 closing
+parsed inline element 由 introducer、非空 `"InlineKind"、opening bracket、parsed content 和 closing
 bracket 构成：
 
-`{language=plumb}
+`plumb"
   `kind[content]
   `outer[before `inner[nested] after]{`class[example]}
 
-`[InlineKind] 使用与 marker 相同的 lexical character set 和 maximal-match rule。core 不保留 kind
+`"InlineKind" 使用与 marker 相同的 lexical character set 和 maximal-match rule。core 不保留 kind
 集合。
 
 parsed content 中 ordinary opening bracket 是 text。未转义 closing bracket 关闭当前 element；
 字面 closing bracket 写作两个反引号再跟 closing bracket。空 content 合法。
 
-inline kind 后必须出现 opening bracket；不存在裸 `[`kind] inline shorthand。没有 ordinary content
-的 element 写作 `[`kind[]]，从而让 element boundary、递归 nesting 与 attached ownership 始终显式。
+inline kind 后必须出现 opening bracket；不存在裸 `"`kind" inline shorthand。没有 ordinary content
+的 element 写作 `"`kind["]，从而让 element boundary、递归 nesting 与 attached ownership 始终显式。
 
 element 可以跨属于同一 enclosing inline content 的 continuation line。结构 indentation 被移除，
-额外 spaces 保留为 text，合法 newline 产生 `[SoftBreak]。element 不得跨 blank line、enclosing
+额外 spaces 保留为 text，合法 newline 产生 `"SoftBreak"。element 不得跨 blank line、enclosing
 dedent 或 block-only entry。parser 使用 explicit stack，语言不设置 inline nesting depth limit。
 
-attached inline group 可以紧跟完整 closing delimiter，并使用第 7 节的递归 ordinary-inline grammar；
-第 8 节 legacy slot 仅为迁移读取保留。
+attached inline group 可以紧跟完整 closing delimiter，并使用第 7 节的递归 ordinary-inline grammar。
 
 `# 10. Inline verbatim
 
-inline verbatim opening 是 introducer、零个或多个 double quote 和 opening bracket。closing 是
-closing bracket 后接数量相同的 double quote：
+inline verbatim 有 compact 与 strengthened 两种 envelope。compact form 是 introducer、可选 opaque
+kind、opening quote、raw payload 和 closing quote：
 
-`{language=plumb}
-  `[raw]
-  `"[raw ] content]"
-  `""[raw ]" content]""
+`plumb"
+  `"raw"
+  `rust"let x = 1;"
+  `$"x^2"
+  `->"guide.plumb#intro"
+
+compact payload 不能包含 double quote。需要 quote 或 closing-like sequence 时使用 strengthened form：
+
+`plumb"
+  `"[raw containing " safely]"
+  `rust""[raw containing ]" safely]""
 
 payload 仅限一条 physical line，按 UTF-8 bytes 原样保存，不解析 nested inline。更长 closing
 quote run 中多出的 quotes 属于后续 inline text。空 payload 合法。找不到 closing delimiter 时，
 在 line ending/EOF 报错并从下一 physical line 恢复。
 
-attached inline group 可以紧跟完整 closing delimiter，并使用第 7 节 grammar；legacy slot 仍按第 8 节读取。verbatim
-payload 自身仍只占一条 physical line。
+opening quote 后紧接 opening bracket 时进入 strengthened form；quote run 数量必须与 closing bracket
+后的 quote run 相同。两种 form 产生同一个 typed verbatim view，kind 保持 opaque。attached inline group
+可以紧跟完整 closing delimiter；payload 自身仍只占一条 physical line。
 
 `# 11. Verbatim block
 
-verbatim block 在 block start 使用 introducer 紧跟 attached block group，并且不能有 head：
+verbatim block 使用 introducer、可选 opaque kind 与 opening quote，并且不能有 head：
 
-`{language=plumb}
-  `{
-    `language rust
-    `id example
-  }
+`plumb"
+  `rust"{`@[example] `:[generated true]}
     fn main() {}
 
-closing brace 后必须立即结束所在 physical line，不允许 head。group content 使用普通 block grammar。
-旧的 `[`{language=rust #example}] opener 继续按第 8 节作为 migration-only syntax 读取。
+opening quote 后必须立即 line ending，或只跟一个完整 inline attached group再结束 physical line；不允许
+raw head。group content 使用 ordinary inline grammar。旧的 `"`{language=rust #example}" 只由第 8 节
+migration reader 读取。
 body 的每条非空 line 必须带
 parent column 加两个 ASCII spaces 的固定 structural margin。移除该
 margin 后，其余 spaces、tabs、line endings 和 syntax-like bytes 都属于 payload。完全空行可以
@@ -220,7 +232,6 @@ margin 后，其余 spaces、tabs、line endings 和 syntax-like bytes 都属于
 parser 使用 reject-but-recover：
 
 `- malformed block entry 恢复到下一 physical line。
-`- malformed legacy attribute item 恢复到下一个 attribute whitespace 或 closing brace。
 `- unclosed attached group 在 matching owner boundary、dedent、line ending 或 EOF 前停止。
 `- unattached group 与 unexpected closing brace 在当前 structural boundary 恢复。
 `- unclosed parsed inline 在 blank、dedent、block-only entry 或 EOF 前停止，不消费边界。
@@ -228,7 +239,7 @@ parser 使用 reject-but-recover：
 `- partial dedent 虚拟补到严格大于实际 column 的最小已有 column，并继续解析当前行。
 
 同一根因只发布最具体 diagnostic。详细错误类别见
-`->[diagnostics reference]{to="diagnostics.plumb"}。
+`->[diagnostics reference]{`:[to diagnostics.plumb]}。
 
 `# 13. Deferred surface
 

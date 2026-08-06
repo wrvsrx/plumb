@@ -1,7 +1,6 @@
-`meta
-  `: title
-
-    plumb vision
+{
+  `: title plumb vision
+}
 
 `# 为什么存在
 
@@ -29,7 +28,7 @@ plumb 不让某个 punctuation 在所有位置全局 special。反引号是显�
 
 `# Core 与 semantics
 
-core 只回答 source 由哪些 blocks、inline elements、attributes 和 raw payload 构成。heading level、
+core 只回答 source 由哪些 blocks、inline elements、attached groups 和 raw payload 构成。heading level、
 list grouping、metadata shape、link resolution、task state 和 export mapping 全部属于 extensions。
 
 这条边界允许同一 syntax tree 服务不同 semantic profiles，也避免 parser 随每个新 workflow 膨胀。
@@ -44,7 +43,7 @@ list grouping、metadata shape、link resolution、task state 和 export mapping
 
 `# 生态与退出路径
 
-plumb 不要求通用工具原生理解其 source。`[plumb export] 直接构造 Pandoc JSON AST，再交给 Pandoc
+plumb 不要求通用工具原生理解其 source。`"plumb export" 直接构造 Pandoc JSON AST，再交给 Pandoc
 writers 输出 HTML、PDF 和其他格式。generic structures 仍以 Div/Span/CodeBlock/Code 保留。
 
 因此 plumb 可以为个人 workflow 保持严格和小型，同时始终保留清晰的迁移路径。

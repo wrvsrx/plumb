@@ -60,17 +60,17 @@ inline groups contain ordinary inline elements.
 
 ```plumb
 {
-  `title Document title
+  `: title Document title
 }
 
 `node Head
   {
-    `id intro
-    `note
-    `level 2
+    `@ intro
+    `- note
+    `: level 2
   }
 
-`span[text]{`id[intro] `note[] `level[2]}
+`span[text]{`@[intro] `-[note] `:[level 2]}
 ```
 
 A block group uses its owner's first structural child position. An inline group
@@ -78,16 +78,16 @@ must touch the complete closing delimiter. Groups may recursively contain
 owners with their own groups. Core does not assign id, facet, property, class,
 or key-value meaning to their content.
 
-The old `{#id .class key=value}` slot remains readable only as a migration
-source family. Do not author it. `plumb fmt` preserves the source family;
-`plumb migrate-attributes` explicitly converts a valid document.
+The old `{#id .class key=value}` slot is accepted only by the frozen migration
+reader. Do not author it. Ordinary parsing and `plumb fmt` reject it;
+`plumb migrate-attributes` explicitly converts a valid legacy document.
 
 ## Parsed Inline Elements
 
 A parsed inline element has a nonempty kind and parsed content:
 
 ```plumb
-`kind[content]{`id[stable] `class[] `key[value]}
+`kind[content]{`@[stable] `-[class] `:[key value]}
 `outer[before `inner[nested] after]
 ```
 
@@ -106,34 +106,34 @@ The opening `[` is mandatory. Even an empty inline element is written as
 
 ## Inline Verbatim
 
-Inline verbatim starts with a backtick followed by zero or more double quotes
-and an opening bracket. The closing bracket must be followed by the same number
-of quotes:
+Compact inline verbatim starts with a backtick, an optional opaque kind, and a
+double-quoted raw payload:
 
 ```plumb
-`[cargo test]
-`"[contains ] safely]"
-`""[contains ]" safely]""
+`"cargo test"
+`rust"let x = 1;"
+`$"x^2"
 ```
 
-Increase the quote count only when the raw content contains a closing-like
-sequence. Raw content stays on one physical line and is not parsed. An attached
-inline group may follow the complete closing delimiter:
+When the payload contains a quote, use a strengthened quote-and-bracket envelope;
+the closing bracket must be followed by the same quote count:
 
 ```plumb
-`[let x = 1;]{`language[rust]}
+`"[contains " safely]"
+`rust""[contains ]" safely]""
 ```
+
+Raw content stays on one physical line and is not parsed. An attached inline
+group may follow the complete closing delimiter.
 
 ## Verbatim Blocks
 
-A verbatim block starts with a backtick immediately followed by an attached block group and
-has no head. Its raw body uses a fixed two-space margin relative to the opener:
+A verbatim block uses the same backtick, optional opaque kind, and opening quote,
+then ends the opener line immediately or after one inline attached group. It has
+no raw head. Its body uses a fixed two-space margin relative to the opener:
 
 ```plumb
-`{
-  `language rust
-  `id example
-}
+`rust"{`@[example]}
   fn main() {
       println!("hello");
   }

@@ -1,7 +1,6 @@
-`meta
-  `: title
-
-    plumb 语法指南
+{
+  `: title plumb 语法指南
+}
 
 plumb 使用反引号引入特殊结构。特殊 spelling 一旦开始就必须完整合法；错误不会静默退化为
 普通文本。
@@ -11,21 +10,21 @@ plumb 使用反引号引入特殊结构。特殊 spelling 一旦开始就必须�
 普通文本组成 paragraph。marked block 由一个反引号、非空 marker 和可选
 head 构成：
 
-`{language=plumb}
+`plumb"
   普通 paragraph。
 
   `note 一条有 head 的 block
   `note 带 attached group
     {
-      `id stable
-      `warning
-      `level 2
+      `@ stable
+      `- warning
+      `: level 2
     }
 
 block 可以拥有缩进 children。第一个 child 建立 sibling column；formatter 对空 head 使用 owner
 column 加一，对非空 head 将 children 与 conceptual head column 对齐：
 
-`{language=plumb}
+`plumb"
   `- Parent
 
      Child paragraph.
@@ -36,32 +35,32 @@ column 加一，对非空 head 将 children 与 conceptual head column 对齐：
 
 空 head 的 first child 也可以与 parent 写在同一行；child introducer column 决定后续对齐：
 
-`{language=plumb}
+`plumb"
   `- `- a
      `- b
 
 `# Inline element
 
-具名 inline element 使用 `[`kind[content]]，content 会继续解析 nested inline：
+具名 inline element 使用 `"`kind[content"]，content 会继续解析 nested inline：
 
-`{language=plumb}
+`plumb"
   See `term[outer `term[inner] text].
 
 element 可以跨属于同一 paragraph/head 的 continuation lines：
 
-`{language=plumb}
+`plumb"
   See `term[first line
   second line].
 
 attached inline group 必须紧跟完整 closing delimiter，并继续使用普通 inline syntax：
 
-`{language=plumb}
-  `term[value]{`id[stable] `warning[] `level[2]}
+`plumb"
+  `term[value]{`@[stable] `-[warning] `:[level 2]}
 
-inline element 即使 content 为空也必须写出 `[[ ]] delimiter；不存在裸 `[`warning] shorthand：
+inline element 即使 content 为空也必须写出 `""[[]]"" delimiter；不存在裸 `"warning" shorthand：
 
-`{language=plumb}
-  `warning[]
+`plumb"
+  `-[warning]
 
 需要字面 closing bracket 时写两个反引号再跟 closing bracket。
 
@@ -69,20 +68,18 @@ inline element 即使 content 为空也必须写出 `[[ ]] delimiter；不存在
 
 inline verbatim 适合 code、路径和其他不需要 inline parsing 的内容：
 
-`{language=plumb}
-  Run `[cargo test].
-  A literal closing bracket: `"[a ] b]".
+`plumb"
+  Run `"cargo test".
+  A literal quote: `"[say "hello"]".
 
 引号数量决定 closing delimiter 的强度。只有 payload 中出现较短 closing spelling 时才增加
 引号。
 
-verbatim block 以紧跟反引号的 attached block group 开始，payload 固定比 opener 多缩进两个空格；这是
+verbatim block 以可选 kind 与 opening quote 开始，payload 固定比 opener 多缩进两个空格；这是
 core syntax rule，不使用 marked block 的 hanging alignment：
 
-`{language=plumb}
-  `{
-    `language rust
-  }
+`plumb"
+  `rust"
     fn main() {
         println!("hello");
     }
@@ -95,35 +92,35 @@ core syntax rule，不使用 marked block 的 hanging alignment：
 postfix ownership structure，不是另一套 attribute parser：block owner 的 group 递归包含普通 blocks，
 inline owner 的 group 递归包含普通 inline elements。
 
-`{language=plumb}
+`plumb"
   {
-    `title Document title
+    `: title Document title
   }
 
   `node Head
     {
-      `id intro
-      `note
-      `level 2
+      `@ intro
+      `- note
+      `: level 2
     }
 
-  `span[text]{`id[intro] `note[] `level[2]}
+  `span[text]{`@[intro] `-[note] `:[level 2]}
 
-core 不解释 `[`id]、`[`note] 或 `[`level]。标准 extension profile 才将 marker-only block 或
-empty inline element 投影为 facet，将 `[`id VALUE] / `[`id[VALUE]] 投影为 id，将其他带内容的
-named element 投影为 property。
+core 不解释 `"-"、`"@" 或 `":"。标准 extension profile 将 direct `"-" member 投影为 facet，
+将 direct `"@" declaration 投影为 identity，将 direct `":" association 投影为 property；正文中
+相同节点仍保持 collection member、identity declaration 与 definition relation。
 
-旧的 `[{#id .class key=value}] slot 仍可读取，但只用于迁移。`[plumb fmt] 保留输入所用的 source
-family；使用 `[plumb migrate-attributes] 显式把整个 valid document 转为 recursive attached syntax。
+旧的 `"{#id .class key=value}" slot 不属于 current syntax；使用 `"plumb migrate-attributes" 通过
+隔离的 0.17 reader 显式转换。普通 parser 与 `"plumb fmt" 会拒绝旧 slot。
 
 `# Escape
 
 两个连续反引号产生一个字面反引号：
 
-`{language=plumb}
+`plumb"
   ``note is text, not a block.
 
 不要使用 Markdown 的 backslash escape，也不要假设某个标点在所有位置都有特殊含义。
 
 完整 grammar、indentation 与 recovery 规则见
-`->[core syntax reference]{to="../reference/core-syntax.plumb"}。
+`->[core syntax reference]{`:[to ../reference/core-syntax.plumb]}。

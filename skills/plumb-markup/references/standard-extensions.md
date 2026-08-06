@@ -12,12 +12,12 @@ level. Add an explicit id when the heading must be a link or rename target:
 ```plumb
 `# Introduction
    {
-     `id intro
+     `@ intro
    }
 `## Details
 ```
 
-Headings without an attached `id` element appear in the outline but are not
+Headings without a direct `@` declaration appear in the outline but are not
 link targets.
 
 ## Lists And Definitions
@@ -54,13 +54,13 @@ metadata properties:
 
 ```plumb
 {
-  `title Document title
-  `created 2026-07-20T09:00:00+08:00
-  `tags
+  `: title Document title
+  `: created 2026-07-20T09:00:00+08:00
+  `: tags
     `- plumb
     `- notes
-  `author
-    `name Alice
+  `: author
+    `: name Alice
 }
 ```
 
@@ -69,13 +69,12 @@ may be empty/null, one paragraph scalar, a `-` list, a nested `:` map, or one
 verbatim block. A paragraph or list-item head containing exactly one inline
 verbatim value becomes a literal string. A list item with an empty head may use
 children to hold another list, map, scalar, or verbatim value. Do not combine a
-nonempty item head with children or mix incompatible child shapes. Only the first valid
-top-level `meta` block is document metadata; ordinary definitions remain body
-content.
+nonempty item head with children or mix incompatible child shapes. The first
+document root group is metadata; ordinary definitions remain body content.
 
 Metadata uses only `-` for list values. A metadata list is an ordered data
 sequence rather than a rendered bullet or numbered list, so `.` is unsupported
-inside `meta`.
+inside metadata.
 
 The metadata insertion action creates `title` from the filename stem and
 `created` from the current local RFC 3339 timestamp.
@@ -86,27 +85,26 @@ Use `->` as the only link inline kind and put the target in an attached `to`
 property:
 
 ```plumb
-`->[same-file target]{`to[#intro]}
-`->[other document]{`to[guide.plumb]}
-`->[cross-file target]{`to[guide.plumb#intro]}
-`->[external target]{`to[https://example.test]}
+`->[same-file target]{`:[to #intro]}
+`->[other document]{`:[to guide.plumb]}
+`->[cross-file target]{`:[to guide.plumb#intro]}
+`->[external target]{`:[to https://example.test]}
 ```
 
 `link` is a generic inline kind, not a link alias. Local and cross-file anchors
 must be explicit. A target with a scheme or `//` prefix is an absolute/network
 URI. Other `to` values are raw relative filesystem paths resolved from the
 source document directory. Do not percent-encode, percent-decode, or normalize
-them; escape only a closing bracket that would end the attached inline property.
+them.
 
-When label and target are identical, inline verbatim with an attached `->`
-facet is the standard
-Autolink; its payload is both label and target:
+When label and target are identical, inline verbatim with opaque kind `->` is
+the standard Autolink; its payload is both label and target:
 
 ```plumb
-`[https://example.test/a%20b]{`->[]}
-`"[https://[2001:db8::1]/]"{`->[]}
-`[guide.plumb#intro]{`->[]}
-`[../assets/manual draft.pdf]{`->[]}
+`->"https://example.test/a%20b"
+`->"[https://[2001:db8::1]/]"
+`->"guide.plumb#intro"
+`->"../assets/manual draft.pdf"
 ```
 
 The payload must be nonempty and uses the same target classification as a named
@@ -120,13 +118,13 @@ structure separator for an explicit anchor, so a relative filename cannot
 contain `#`. Control characters and backslashes remain invalid. Use verbatim
 quote strength, rather than payload escaping, when `]` conflicts with the
 delimiter. Completion inserts named Link and Autolink paths verbatim; named
-Links only add inline-delimiter escapes, while Autolinks strengthen the envelope
-when needed. Use explicit `->` links for custom labels. The `->` facet
+Links preserve parsed content, while Autolinks strengthen the envelope when
+needed. Use explicit `->` links for custom labels. The `->` kind
 is valid only on inline verbatim and cannot be combined with `to` or `$`; other
 attached elements are preserved.
 
-To create an Autolink, type one backtick in ordinary inline content and choose
-`Autolink` from construct completion. Once the `->` facet exists,
+To create an Autolink, type the `->` verbatim prefix or choose `Autolink` from
+construct completion. Once the `->` kind exists,
 the LSP completes document paths and explicit anchors inside its payload. Bare
 or unclosed inline verbatim remains ordinary verbatim and does not offer
 Autolink candidates.
@@ -137,9 +135,9 @@ Use the `img` parsed inline kind. Its content is alt content and `src` is a
 required nonempty target:
 
 ```plumb
-Text with `img[status icon]{`src[static/status.png]} inline.
+Text with `img[status icon]{`:[src static/status.png]} inline.
 
-`img[]{`src[https://example.test/decorative.svg]}
+`img[]{`:[src https://example.test/decorative.svg]}
 ```
 
 Empty alt is valid for a decorative image. Sources with a scheme or `//` prefix
@@ -158,8 +156,8 @@ Use the `file` parsed inline kind. Its content is the portable fallback label
 and `src` is a required nonempty URI or raw relative filesystem target:
 
 ```plumb
-`file[Demo video]{`src[static/demo.mp4]}
-`file[Download report]{`src[reports/final.pdf]}
+`file[Demo video]{`:[src static/demo.mp4]}
+`file[Download report]{`:[src reports/final.pdf]}
 ```
 
 Export lowers a file attachment to a Pandoc Link so every writer retains a
@@ -224,11 +222,11 @@ A task is a `-` or `.` list item carrying the `task` attached facet:
 ```plumb
 `- Implement parser
    {
-     `task
-     `id write-parser
-     `created 2026-07-20T09:00:00+08:00
-     `due 2026-07-21T09:00:00+08:00
-     `depends #design
+     `- task
+     `@ write-parser
+     `: created 2026-07-20T09:00:00+08:00
+     `: due 2026-07-21T09:00:00+08:00
+     `: depends #design
    }
   `note Optional details
 ```
@@ -244,10 +242,9 @@ Construct completion is prefix-sensitive. A bare backtick offers no candidates.
 At line start, a backtick followed by a hyphen offers Task and Event facets plus
 the Link candidate sharing that short prefix; continuing with an arrow narrows
 the candidates to Link. It creates the Task `created` field from the current
-local RFC 3339 timestamp. A
-backtick followed by an opening bracket offers the Autolink facet; a backtick
-followed by a hyphen or arrow in ordinary inline contexts offers Link. Heading,
-ordinary list-item, and inline-verbatim constructs are typed directly.
+local RFC 3339 timestamp. A backtick followed by a hyphen or arrow in ordinary
+inline contexts offers Link or Autolink according to the completed prefix.
+Heading, ordinary list-item, and other inline-verbatim constructs are typed directly.
 
 Defined fields:
 
@@ -267,8 +264,8 @@ path from its explicit id:
 ```plumb
 `- Review
    {
-     `task
-     `depends #local Project A.plumb#build Project B.plumb#test
+     `- task
+     `: depends #local Project A.plumb#build Project B.plumb#test
    }
 ```
 
@@ -340,25 +337,25 @@ blocks remain subsequent blocks in the same list item.
 An event is a `-` or `.` list item carrying the `event` attached facet:
 
 ```plumb
-`- Parser review
+`- 14:00--15:00 Parser review
    {
-     `event
-     `id review
-     `date 2026-07-30
-     `timezone +08:00
-     `when 14:00--15:00
-     `tasks #write-parser
+     `- event
+     `@ review
+     `: date 2026-07-30
+     `: timezone +08:00
+     `: tasks #write-parser
    }
 ```
 
-The head is the title and children are details. A `when` start may be
+The first inline text in the head is the schedule; ASCII whitespace separates it
+from the nonempty title. Children are details. A schedule start may be
 reduced-precision `HH`, `HH:MM`, or `HH:MM:SS`; `YYYY-MM-DDTIME`, which
 overrides the date and inherits the timezone; or a self-contained full RFC 3339
 timestamp. A start with an offset or `Z` must include seconds and cannot append
 an offset to a reduced-precision time. A point contains only the start;
 `START--TIME` is a half-open interval whose end inherits the resolved start date
 and offset. An end local time crossing below the start advances to the next day;
-equal times are invalid. A date or offset inside `when` applies only to that
+equal times are invalid. A date or offset inside the schedule applies only to that
 event and does not propagate to descendants. Event `date` and numeric-offset
 `timezone` otherwise override same-named metadata scalar/literal values; an RFC
 3339 metadata date also supplies its offset. Old `at`, `start`, and `end`
@@ -372,59 +369,44 @@ subtree; the nearest ancestor wins, and dedenting restores the parent context.
 An event's own overrides therefore also propagate to nested events. An invalid
 explicit override never falls back to an ancestor value.
 
-Metadata `event-uids` is a list of standard Links whose nonempty plain labels
-are iCalendar UIDs and whose targets are same-file event `#id` values:
+Source `uid` and `when` properties and metadata `event-uids` have no event
+semantics; they remain opaque attached data. Event authoring does not generate
+an explicit id or write UID data.
 
-```plumb
-{
-  `event-uids
-    `- `->[review-skill-reference@example]{`to[#review]}
-}
-```
-
-This mapping is the default identity source and takes precedence over a legacy
-legacy quoted `uid` pair, which remains a compatibility fallback. Authoring creates
-an explicit event id and mapping together. Anchor rename updates the Link target;
-editing or moving the event preserves the UID; deleting it removes the mapping.
 The `Convert to event` action recognizes a reduced-precision schedule at the
 start of a list-item head. The title after its separating whitespace may contain
 parsed or verbatim inline markup; conversion removes only the leading schedule
 and preserves the remaining inline tree and attached elements.
-Event authoring assigns missing explicit ids as document-local `eNNNN` decimal
-sequences, starting after the largest matching id among current events or at
-`e0001` when none exists. Existing explicit ids remain unchanged; stable calendar
-identity still comes from the UID mapping rather than from the sequence. A
-shorthand without an explicit date or timezone inherits valid document metadata
+An event needs an explicit id only when referenced. A shorthand without an
+explicit date or timezone inherits valid document metadata
 before falling back to the operation's local date and offset.
 Trailing `--` is an authoring-only inferred end. Conversion takes the start of
 the immediately following sibling list-item shorthand and writes an explicit
-interval `when`. Batch inference requires both siblings in the selection; a
+interval schedule. Batch inference requires both siblings in the selection; a
 single-item conversion may inspect its unselected next sibling. An intervening
 block breaks the chain, and a final trailing-`--` item remains unconverted until
 it has a following shorthand or an explicit end.
 The `event` facet on a non-list-item owner is invalid. Combining `event` and `task` on
-one owner is invalid and produces no event record. Calendar projection requires
-a workspace-unique UID.
+one owner is invalid and produces no event record.
 The initial profile has no all-day, floating-time, recurrence, reminder,
 attendee, alarm, external-iCalendar import, or CalDAV semantics.
 
 `plumb event export-vdir --output DIR` writes a managed read-only vdir with one
-VEVENT per file. Events without a valid resolved time cannot export. Plumb source
-remains authoritative; khal should configure the generated calendar with
-`readonly = true`.
+VEVENT per file. Events without a valid resolved time cannot export. The UID is
+derived deterministically from workspace-relative path, schedule, and title.
+Plumb source remains authoritative; khal should configure the generated calendar
+with `readonly = true`.
 
 ## Export Semantics
 
 `div` and `span` are transparent standard containers and export without a
 redundant `data-plumb-marker`. `>` exports as Pandoc BlockQuote. `*`, `!`, `=`,
 `~`, `^`, and `_` export as the standard inline styles. Verbatim
-inline/block nodes carrying the `$` attached facet are
-TeX inline/display math. The math facet and optional `language=tex` are
-consumed; other attached elements are preserved with Span/Div wrappers. `$` on a
-non-verbatim owner is invalid.
+inline/block nodes with opaque kind `$` are TeX inline/display math. Other
+attached elements are preserved with Span/Div wrappers.
 
 `plumb export` emits Pandoc JSON directly. Standard lowering includes headings,
-bullet lists, definition lists, metadata, `->` links, attached-facet Autolinks, `img`
+bullet lists, definition lists, metadata, `->` links and Autolinks, `img`
 images, `file` attachments, single-id citations, quotes, inline styles, and visible task states with
 task data. Generic marked blocks become Divs, generic parsed inline
 elements become Spans, verbatim blocks become CodeBlocks, and inline verbatim

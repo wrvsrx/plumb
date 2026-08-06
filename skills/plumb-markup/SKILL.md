@@ -32,10 +32,10 @@ In an editor using `plumb lsp`, construct completion is prefix-sensitive: a bare
 backtick offers no candidates. At line start, a backtick followed by a hyphen
 offers Task and Event facets plus the Link candidate sharing that short prefix;
 continuing with an arrow narrows the candidates to Link. Task includes a current
-local RFC 3339 `created` timestamp. A backtick followed by an opening bracket offers the Autolink facet,
-while a backtick followed by a hyphen or arrow in ordinary inline content offers
-Link. Heading, ordinary list-item, and inline-verbatim spellings are typed
-directly. Snippet-capable clients receive tab stops.
+local RFC 3339 `created` timestamp. A backtick followed by a hyphen or arrow in
+ordinary inline content offers Link or Autolink according to the completed
+prefix. Heading, ordinary list-item, and other inline-verbatim spellings are
+typed directly. Snippet-capable clients receive tab stops.
 
 Inside complete or recovered attached groups, completion follows the syntax
 owner and offers declared standard facets, property names, and finite values while
@@ -57,10 +57,10 @@ it. Inside the plumb source repository, prefer
 - Use spaces for structural indentation. Do not use tabs in indentation.
 - Put block attached groups in the owner's first structural child position;
   attach inline groups directly to the complete inline delimiter.
-- Use explicit `id` attached elements. Headings do not generate implicit ids.
+- Use direct `@` declarations for explicit ids. Headings do not generate implicit ids.
 - Always write `[]` on inline elements, including empty facets.
 - Treat `{#id .class key=value}` as migration-only input. Use
-  `plumb migrate-attributes` to convert it; `plumb fmt` preserves its family.
+  `plumb migrate-attributes` to convert it; ordinary parsing and formatting reject it.
 - Parsed inline elements may cross valid paragraph/head continuation lines;
   inline verbatim payloads remain on one physical line.
 - Do not invent table, thematic-break, presentation-only italic, or nonstandard quote
@@ -70,60 +70,59 @@ it. Inside the plumb source repository, prefer
 
 ```plumb
 {
-  `title Example
+  `: title Example
 }
 
 `# Heading
    {
-     `id intro
+     `@ intro
    }
 
 `- List item
 `. Ordered item
 `- Implement parser
    {
-     `task
-     `id write-parser
+     `- task
+     `@ write-parser
+     `: created 2026-07-20T09:00:00+08:00
    }
 `- 14:00--15:00 Parser review
    {
-     `event
-     `id review
-     `date 2026-07-30
-     `timezone +08:00
-     `tasks #write-parser
+     `- event
+     `@ review
+     `: date 2026-07-30
+     `: timezone +08:00
+     `: tasks #write-parser
    }
 
 `div Transparent block container
     {
-      `notice
+      `- notice
     }
 `> A quoted paragraph
 Use `*[emphasis], `![strong], `=[mark], `~[strikeout], `^[superscript], and `_[subscript].
-Inline `span[container]{`notice[]} and `[x^2]{`$[]} math.
+Inline `span[container]{`-[notice]} and `$"x^2" math.
 
 `: Term
 
   Definition body.
 
-See `->[guide]{`to[guide.plumb#intro]}, `[guide.plumb#intro]{`->[]}, and `cite[smith2004].
+See `->[guide]{`:[to guide.plumb#intro]}, `->"guide.plumb#intro", and `cite[smith2004].
 
-Use `img[status icon]{`src[static/status.png]} for an image.
-Use `file[Demo video]{`src[static/demo.mp4]} for a file attachment with fallback content.
+Use `img[status icon]{`:[src static/status.png]} for an image.
+Use `file[Demo video]{`:[src static/demo.mp4]} for a file attachment with fallback content.
 
-Use `[cargo test] for inline raw text.
+Use `"cargo test" for inline raw text.
 
-`{
-  `language rust
-}
+`rust"
   fn main() {}
 ```
 
 Use `-` for bullet-list items, `.` for ordered-list items, and `->` as the sole
-link inline kind. Use its `->` attached facet for a verbatim absolute URI or raw relative path
+link inline kind. Use the `->` verbatim kind for an absolute URI or raw relative path
 whose payload is both label and target; relative `.plumb` targets resolve as
 documents and other relative targets resolve as files. Use
-`img[alt]{`src[target]}` for images and `file[label]{`src[target]}` for attachments.
+`img[alt]{`:[src target]}` for images and `file[label]{`:[src target]}` for attachments.
 `item`, `link`, `**`, `em`, and `strong` remain syntactically valid generic names but
 have no list or link semantics. Only `-` and `.` items may carry the standard
 `task` or `event` facet. Do not combine `task` and `event` on one item.

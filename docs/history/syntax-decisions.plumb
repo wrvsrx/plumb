@@ -1,10 +1,9 @@
-`meta
-  `: title
-
-    plumb syntax decision record
+{
+  `: title plumb syntax decision record
+}
 
 本页保存已经影响当前语言形状的设计理由。当前 validity 只以
-`->[core syntax reference]{to="../reference/core-syntax.plumb"} 为准；本页不重复充当规范。
+`->[core syntax reference]{`:[to ../reference/core-syntax.plumb]} 为准；本页不重复充当规范。
 
 `# Introducer
 
@@ -26,15 +25,16 @@ block/inline scanner 使用同一规则，并给 malformed entry 稳定 range。
 heading、list、link 等 spelling 由 extensions 解释。这个决定避免 core semantics 与 plugin/profile
 演进耦合。
 
-`## Inline code 使用无名 verbatim envelope
+`## Verbatim 使用 quote envelope
 
-高频 raw inline 使用 `[`[...]]，而不是名为 Code 或 Verbatim 的 kind。double-quote run 增强 closing
-delimiter，使 payload 不需要通用 escape language。
+高频 raw inline 使用 `"`"raw""，而不是名为 Code 或 Verbatim 的 kind。可选 opaque kind 位于 opening
+quote 前；payload 含 quote 时使用 quote-strengthened bracket envelope，使 raw content 不需要通用
+escape language。
 
-`## Raw block 使用 attribute-only opener
+`## Raw block 使用同一个 quote opener
 
-verbatim block 通过 introducer 紧跟 attributes 进入，body 使用 indentation boundary。它不需要
-closing fence，payload language 通过 opaque attribute 表达。
+verbatim block 使用与 compact inline verbatim 相同的 introducer、可选 opaque kind 与 opening quote，
+并由 line ending dispatch 到 block。它不需要 closing fence，payload language 直接通过 opaque kind 表达。
 
 `# Inline parsing
 
@@ -52,13 +52,13 @@ marked block 是唯一能拥有 children 的 core node。第一个 child 建立 
 structural indentation 只允许 ASCII spaces，避免 tab width 依赖 editor。verbatim payload 在固定
 structural margin 之后仍完整保留 tabs 和 spaces。
 
-`# Attributes
+`# Attached groups
 
-block、inline 和 verbatim 共用一个 attribute grammar。id/class shorthand 与 key-value pair 只是
-lossless syntax；core 只约束 slot 内 cardinality 和 lexical shape。
+block、inline 与 verbatim 共用递归 attached ownership，而不是 attribute mini-language。group content
+复用 ordinary block/inline grammar；标准 profile 把 direct `"-"、`"@" 与 `":" 分别投影为 facet、id
+与 property，core 只保留结构。
 
-quoted value 只允许 quote 与 backslash escape。拒绝 `[`\n] 等 abstract escape 可以保持 source
-value 与视觉内容的关系清楚。
+冻结的 0.17 `"{#id .class key=value}" 只由 migration reader 接受，并显式转换为 attached declarations。
 
 `# Recovery
 
@@ -71,28 +71,29 @@ recovery node 永远不使 document 重新变成 valid，它只服务多错误�
 
 `## Heading
 
-标准 heading 使用一至六个 `[#] marker。heading title 不生成 implicit id；显式 id 只在需要引用
+标准 heading 使用一至六个 `"#" marker。heading title 不生成 implicit id；显式 id 只在需要引用
 时出现，避免 rename title 隐式改变 links。
 
 `## List
 
-bullet/ordered items 分别使用 `[-] 与 `[.]。长名 `[item] 和额外 ordered/start attributes 被移除，
+bullet/ordered items 分别使用 `"-" 与 `"."。长名 `"item" 和额外 ordered/start attributes 被移除，
 因为 list marker 本身已经提供足够信息。
 
 `## Metadata
 
-metadata 使用 `[meta] + definition entries，而不是 raw TOML。这样 keys、scalar/list/map 与 source
-ranges 都能由同一个 parser 和 extension model 处理。
+metadata 使用文件开头的 document root group + definition entries，而不是 raw TOML。这样 keys、
+scalar/list/map 与 source ranges 都能由同一个 parser 和 extension model 处理。
 
 `## Citation
 
-首个 profile 只冻结 `[`cite[id]]。复杂 citation model 延后，避免把 Pandoc Markdown mini-language
+首个 profile 只冻结 `"`cite[id"]。复杂 citation model 延后，避免把 Pandoc Markdown mini-language
 嵌入 plumb。
 
 `## Task
 
-task 是 `[.task] facet，标准形状为 `[-{.task}]。状态由 closure timestamps 派生，不增加 status
-field 或 checkbox syntax；nested display 与 explicit dependency edge 保持独立。
+task 是 direct `"-" declaration 产生的 `"task" facet，标准 expanded 形状是在 list item 的 attached
+group 中写 `"`- task"。状态由 closure timestamps 派生，不增加 status field 或 checkbox syntax；
+nested display 与 explicit dependency edge 保持独立。
 
 `# Deferred decisions
 

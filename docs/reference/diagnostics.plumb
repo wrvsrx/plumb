@@ -1,7 +1,6 @@
-`meta
- `: title
-
-    plumb diagnostics reference
+{
+  `: title plumb diagnostics reference
+}
 
 `# 1. Diagnostic ownership
 
@@ -24,24 +23,28 @@ export 只接受 valid authoritative view。LSP completion 等 editor assist 可
 syntax diagnostics 分为：
 
 `- structural：indentation、partial dedent、非法 structural tab、verbatim margin。
-`- lexical：非法 marker/kind/attribute token、control character、非法 quoted escape。
-`- delimiter/dispatch：非法 introducer entry、unclosed legacy attributes、attached group、inline 或 verbatim。
-`- ownership：unattached group、unexpected group close 或同一 owner 混用 legacy/attached forms。
-`- cardinality：duplicate id、duplicate attribute key。
+`- lexical：非法 marker/kind token 或 control character。
+`- delimiter/dispatch：非法 introducer entry、attached group、inline 或 verbatim。
+`- ownership：legacy attribute slot、unattached group 或 unexpected group close。
+`- migration reader：非法 legacy attribute token/quoted escape、unclosed slot、同一 owner 混用
+   legacy/attached forms、duplicate id 或 duplicate key。
 
 同一 source range 和根因只发布最具体的错误。structural error 优先于由错误结构派生的 generic
 delimiter error。
 
-当前固定 precedence 包括：孤立 block introducer 的 `[syntax.incomplete-introducer] 优先于同 range
-的 `[syntax.invalid-inline-dispatch]；`[syntax.invalid-marker] 优先于派生的
-`[syntax.invalid-block-dispatch]；verbatim payload margin 的 `[syntax.short-verbatim-indent] 优先于
-同 range 的 `[syntax.partial-indent]；`[syntax.unclosed-quoted-value] 优先于包住它的派生
-`[syntax.unclosed-attributes]。独立根因继续按 source/recovery order 发布。
+冻结的 0.17 reader 额外固定：`"syntax.unclosed-quoted-value" 优先于包住它的
+`"syntax.unclosed-attributes"。Current parser 只用 `"syntax.legacy-attributes" 拒绝识别出的完整旧 slot；
+legacy lexical、cardinality 与 recovery diagnostics 不意味着旧 slot 属于 current syntax。
+
+当前固定 precedence 包括：孤立 block introducer 的 `"syntax.incomplete-introducer" 优先于同 range
+的 `"syntax.invalid-inline-dispatch"；`"syntax.invalid-marker" 优先于派生的
+`"syntax.invalid-block-dispatch"；verbatim payload margin 的 `"syntax.short-verbatim-indent" 优先于
+同 range 的 `"syntax.partial-indent"。独立根因继续按 source/recovery order 发布。
 
 `# 4. Recovery boundaries
 
 `- block-start error：当前 physical line。
-`- legacy attribute item error：下一个 attribute whitespace 或 closing brace；multiline slot 不跨越 blank、
+`- 0.17 migration reader 的 legacy attribute item error：下一个 attribute whitespace 或 closing brace；multiline slot 不跨越 blank、
    dedent 到 owner boundary、block-only entry、structural tab 或 EOF。
 `- attached block group：matching owner boundary 或 dedent；attached inline group：当前 enclosing inline boundary。
 `- unattached group/unexpected close：当前 structural line 或 enclosing inline boundary。
@@ -57,15 +60,15 @@ recovery 的目标是报告后续独立错误并保留 source，不是把 malfor
 
 `- heading/anchor：非法 heading level、duplicate anchor。
 `- metadata：duplicate/invalid key、invalid location、unsupported 或 mixed value shape，以及
-   `[metadata.invalid-created] RFC 3339 timestamp warning。
+   `"metadata.invalid-created" RFC 3339 timestamp warning。
 `- link/reference：缺失或无效 target、invalid autolink owner/facet、missing document/anchor、
    ambiguous anchor 或 unresolved file。
 `- image：missing/invalid src 或 unresolved local file。
 `- file：missing/invalid src 或 unresolved local attachment。
 `- citation：空 id、nested 或 unsupported citation shape。
-`- task：invalid owner、`[task.invalid-datetime]、`[task.invalid-priority]、无效 recur/reference、互斥 closure state、
-   self dependency、cycle、blocked completion、`[task.done-with-open-dependency] 和
-   `[task.done-with-open-descendant] closure consistency warnings。
+`- task：invalid owner、`"task.invalid-datetime"、`"task.invalid-priority"、无效 recur/reference、互斥 closure state、
+   self dependency、cycle、blocked completion、`"task.done-with-open-dependency" 和
+   `"task.done-with-open-descendant" closure consistency warnings。
 `- event：invalid/conflicting owner、missing/invalid title/time/date/timezone、invalid interval，以及
    invalid/unresolved/ambiguous/non-task reference。
 `- math：invalid owner 或 unsupported input language。
@@ -73,7 +76,7 @@ recovery 的目标是报告后续独立错误并保留 source，不是把 malfor
 semantic diagnostic 应指向最小 source-backed field range。由多个 documents 共同形成的问题可以
 携带 related locations。
 
-两条 task closure consistency warnings 的 primary range 是 parent `[done] value；同文件 open
+两条 task closure consistency warnings 的 primary range 是 parent `"done" value；同文件 open
 dependency/descendant 使用 related ranges。跨文件 open dependency 计入 message 数量，但当前
 protocol-neutral related range 不携带 path，因此不伪造到 source document。
 
@@ -87,12 +90,25 @@ precedence、ordering、recovery 与 lossless token coverage；lenient tree-sitt
 
 当前 core codes：
 
-`{language=text}
+`text"
   syntax.incomplete-introducer
   syntax.invalid-block-dispatch
   syntax.invalid-inline-dispatch
   syntax.invalid-verbatim-block-dispatch
   syntax.invalid-marker
+  syntax.legacy-attributes
+  syntax.unclosed-attached-group
+  syntax.unattached-group
+  syntax.unexpected-group-close
+  syntax.unclosed-inline
+  syntax.unclosed-verbatim
+  syntax.tab-indentation
+  syntax.partial-indent
+  syntax.short-verbatim-indent
+
+冻结的 0.17 migration reader 还可能发布：
+
+`text"
   syntax.malformed-attribute-item
   syntax.empty-attribute-name
   syntax.empty-attribute-value
@@ -100,13 +116,5 @@ precedence、ordering、recovery 与 lossless token coverage；lenient tree-sitt
   syntax.unclosed-quoted-value
   syntax.unclosed-attributes
   syntax.multiple-attribute-forms
-  syntax.unclosed-attached-group
-  syntax.unattached-group
-  syntax.unexpected-group-close
   syntax.duplicate-id
   syntax.duplicate-key
-  syntax.unclosed-inline
-  syntax.unclosed-verbatim
-  syntax.tab-indentation
-  syntax.partial-indent
-  syntax.short-verbatim-indent

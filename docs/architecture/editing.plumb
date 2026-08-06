@@ -1,30 +1,29 @@
-`meta
- `: title
-
-    plumb syntax editing
+{
+  `: title plumb syntax editing
+}
 
 `# 1. Boundary
 
-`[plumb-edit] 是 valid strict syntax tree 上的 protocol-neutral mutation 与 finalization layer。它依赖
-`[plumb-core] 和 `[plumb-format]，不依赖 semantic extensions、workspace、LSP 或 filesystem。
+`"plumb-edit" 是 valid strict syntax tree 上的 protocol-neutral mutation 与 finalization layer。它依赖
+`"plumb-core" 和 `"plumb-format"，不依赖 semantic extensions、workspace、LSP 或 filesystem。
 
 extensions 与 workspace 决定 operation intent 和 target；edit layer 只执行 syntax mutation、验证
 source ranges、canonicalize affected complete block subtree，并产生针对原 revision 的 text edit。
 
 `# 2. Owned syntax
 
-新增内容使用 semantics-neutral `[OwnedBlock]、`[OwnedInline]、`[OwnedAttribute] 和 `[OwnedValue]。
+新增内容使用 semantics-neutral `"OwnedBlock"、`"OwnedInline"、`"OwnedAttribute" 和 `"OwnedValue"。
 owned nodes 表达 marker、attached elements、migration-only legacy attributes、head、children、verbatim payload 与 inline structure，不携带 source
 ranges，也不识别 metadata、task、link 或其他 extension semantics。
 
 owned nodes 可以从 strict typed syntax view detach，也可以由 operation 构造。serializer 只负责生成
-valid intermediate source；最终 layout 始终由 `[plumb-format] canonicalize。operation 不拼接完整 CST
+valid intermediate source；最终 layout 始终由 `"plumb-format" canonicalize。operation 不拼接完整 CST
 block、手工计算 multiline attribute layout 或复制 subtree indentation。
 
 `# 3. Attached-property mutations
 
-统一 property API 将 insert、replace 与 remove 分开。insert 必须显式给出 `[First]、`[Last]、`[Before(index)]
-或 `[After(index)]；不存在隐式 append policy。一次 transaction 可以依次应用多个显式 insertion。
+统一 property API 将 insert、replace 与 remove 分开。insert 必须显式给出 `"First"、`"Last"、`"Before(index)"
+或 `"After(index)"；不存在隐式 append policy。一次 transaction 可以依次应用多个显式 insertion。
 attached owner 以 ordinary block/inline element 表达 id、facet 与 named property；legacy owner 在最小
 编辑时继续修改原 slot，避免无关 source churn。新 owner、whole-owner rewrite 与 generated source 一律
 写 recursive attached syntax。
@@ -44,20 +43,20 @@ replacement。
 
 `# 5. Finalization
 
-`[EditSession] 绑定一个 valid `[ParsedDocument] revision 和 affected complete block range。commit：
+`"EditSession" 绑定一个 valid `"ParsedDocument" revision 和 affected complete block range。commit：
 
 `. 验证所有 logical mutation ranges 位于 UTF-8 boundaries 和 affected range 内。
 `. 拒绝 overlapping 或 ambiguous logical edits。
 `. 在内存副本应用 logical mutations。
-`. 使用 strict parser 与 `[plumb-format] canonicalize affected complete subtree。
-`. 将 modified ranges 映射回原 revision，产生一个连续 `[TextEdit]。
+`. 使用 strict parser 与 `"plumb-format" canonicalize affected complete subtree。
+`. 将 modified ranges 映射回原 revision，产生一个连续 `"TextEdit"。
 
 format scope 外 source 必须逐字节不变。children 随 owner subtree canonicalize；相邻 sibling 只提供
 spacing context，不进入 editable scope。empty document insertion format 整个新文档。
 
 `# 6. Token rewrites
 
-anchor/document rename 是 valid revision 上的机械 token rewrite。它们通过 `[plumb-edit] 验证 source
+anchor/document rename 是 valid revision 上的机械 token rewrite。它们通过 `"plumb-edit" 验证 source
 range 并产生 ordered minimal edits，但不触发 subtree formatting。workspace 继续负责 multi-document
 grouping、expected revisions、resource operations 与 atomicity requirements。
 
