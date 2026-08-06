@@ -28,7 +28,9 @@ introducer、escape、marker、inline kind、delimiter、attribute punctuation/n
 和 error。
 
 typed `[Document] 表达 paragraph、marked block、verbatim block、attributes、inline element、inline
-verbatim、text 和 soft break。普通 marker/kind 保持原始 spelling；typed tree 不区分 heading、list、
+verbatim、text、space 和 soft break。head 内容中的连续 ASCII space/tab 产生独立 `[Inline::Space]；
+attributes 与 head 之间的结构性 separator 仍只作为 lossless whitespace token，不进入 `[head.items]。
+普通 marker/kind 保持原始 spelling；typed tree 不区分 heading、list、
 link 或 task。它与 token sequence 在同一次 parse 中产生，不是第二套 parser。
 
 marked block 暴露 marker、attributes、head 和 children。paragraph 只有 inline content。verbatim

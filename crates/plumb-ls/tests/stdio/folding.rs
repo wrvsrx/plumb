@@ -89,8 +89,7 @@ fn labels_metadata_folds_with_the_document_title() {
 #[test]
 fn exposes_single_line_semantic_folds_to_line_and_character_range_clients() {
     let uri = "file:///tmp/single-line-folds.plumb";
-    let source =
-        "`-{.task} Ready\n`-{.event date=2026-08-02 timezone=\"+08:00\" when=\"14:00\"} Standup\n";
+    let source = "`-{.task} Ready\n`-{.event date=2026-08-02 timezone=\"+08:00\"} 14:00 Standup\n";
     let requests = |line_folding_only| {
         [
             json!({
@@ -312,7 +311,7 @@ fn labels_task_folds_with_derived_workflow_states() {
 #[test]
 fn labels_event_folds_with_abbreviated_times() {
     let uri = "file:///tmp/event-fold-labels.plumb";
-    let source = "`-{.event date=2026-08-02 timezone=\"+08:00\" when=\"14:00\"} Standup\n  `note Detail\n`-{.event date=2026-08-02 timezone=\"+08:00\" when=\"09:00--10:30\"} Review\n  `note Detail\n`-{.event date=2026-08-02 timezone=\"+08:00\" when=\"11:00\"} Parent\n  `note Detail\n  `-{.event date=2026-08-02 timezone=\"+08:00\" when=\"12:00\"} Nested\n    `note Detail\n`-{.event} Untimed\n  `note Detail\n";
+    let source = "`-{.event date=2026-08-02 timezone=\"+08:00\"} 14:00 Standup\n  `note Detail\n`-{.event date=2026-08-02 timezone=\"+08:00\"} 09:00--10:30 Review\n  `note Detail\n`-{.event date=2026-08-02 timezone=\"+08:00\"} 11:00 Parent\n  `note Detail\n  `-{.event date=2026-08-02 timezone=\"+08:00\"} 12:00 Nested\n    `note Detail\n`-{.event} Untimed\n  `note Detail\n";
     let messages = [
         json!({
             "jsonrpc": "2.0", "id": 1, "method": "initialize",

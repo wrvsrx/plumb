@@ -83,7 +83,7 @@ state、timestamps、dependencies 与 child tasks。`[New Task] 是主 toolbar �
 
 Agenda 按 at 或 start、path 和 source position 显示 point/closed/running events。Loopback server 上可以从已索引 document
 创建 event，或通过 revision-guarded operation 编辑、删除已有 event。Event detail
-显示 at/start/end、UID、details 与 task references。Event form 显式选择 Point 或 Interval，空 interval
+显示 at/start/end、details 与 task references。Event form 显式选择 Point 或 Interval，空 interval
 end 表示 running，不能再用空 end 表示 point。Agenda 初次打开时定位到当前时间；`[Now] button 随时跳回
 当前时间，即使当天没有 event 也显示当天和当前时间 marker。Mobile Web mutation 初版要求在线，不缓存待提交 edits。
 

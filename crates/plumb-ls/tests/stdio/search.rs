@@ -135,7 +135,7 @@ fn searches_workspace_symbols_and_structured_records_over_stdio() {
     .unwrap();
     std::fs::write(
         &events,
-        "`meta\n  `: date\n\n    2026-07-30\n\n  `: timezone\n\n    +08:00\n\n`-{.event #review-event uid=\"review-event@example\" when=\"14:00--15:00\" tasks=\"tasks.plumb#review\"} Review meeting\n",
+        "`meta\n  `: date\n\n    2026-07-30\n\n  `: timezone\n\n    +08:00\n\n`-{.event #review-event tasks=\"tasks.plumb#review\"} 14:00--15:00 Review meeting\n",
     )
     .unwrap();
     for index in 0..105 {

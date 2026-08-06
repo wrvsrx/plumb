@@ -1,9 +1,9 @@
-use std::collections::HashMap;
 use std::ops::Range;
 
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveTime, TimeZone};
 use plumb_core::{
-    AttrItem, AttrValue, Block, Diagnostic, DiagnosticSeverity, Document, Inline, ParsedBlock,
+    AttrItem, AttrValue, Block, Diagnostic, DiagnosticSeverity, Document, Inline, InlineContent,
+    ParsedBlock,
 };
 
 use crate::tasks::{task_reference_fields, TaskDependency};
@@ -24,7 +24,6 @@ pub struct EventRecord {
     pub details: String,
     pub depth: usize,
     pub id: Option<EventField>,
-    pub uid: Option<EventField>,
     pub date: Option<EventField>,
     pub timezone: Option<EventField>,
     pub when: Option<EventField>,
@@ -83,38 +82,8 @@ pub struct EventOutput {
 pub fn analyze_events(source: &str, document: &Document, metadata: &MetadataOutput) -> EventOutput {
     let mut output = EventOutput::default();
     let context = EventContext::from_metadata(metadata);
-    let uid_mappings = collect_uid_mappings(metadata, &mut output);
-    collect_blocks(
-        source,
-        &document.blocks,
-        0,
-        &context,
-        &uid_mappings,
-        &mut output,
-    );
-    for (id, mapping) in &uid_mappings {
-        if !output.events.iter().any(|event| {
-            event
-                .id
-                .as_ref()
-                .is_some_and(|event_id| event_id.value == *id)
-        }) {
-            output.diagnostics.push(Diagnostic {
-                code: "event.uid-target-not-event",
-                severity: DiagnosticSeverity::Warning,
-                message: format!("UID mapping target '#{id}' does not identify an event"),
-                range: mapping.target_range.clone(),
-                related: Vec::new(),
-            });
-        }
-    }
+    collect_blocks(source, &document.blocks, 0, &context, &mut output);
     output
-}
-
-#[derive(Clone)]
-struct EventUidMapping {
-    uid: EventField,
-    target_range: Range<usize>,
 }
 
 #[derive(Clone, Default)]
@@ -161,7 +130,6 @@ fn collect_blocks(
     blocks: &[Block],
     event_depth: usize,
     context: &EventContext,
-    uid_mappings: &HashMap<String, EventUidMapping>,
     output: &mut EventOutput,
 ) {
     for block in blocks {
@@ -169,14 +137,7 @@ fn collect_blocks(
             continue;
         };
         let Some(mark) = &block.mark else {
-            collect_blocks(
-                source,
-                &block.children,
-                event_depth,
-                context,
-                uid_mappings,
-                output,
-            );
+            collect_blocks(source, &block.children, event_depth, context, output);
             continue;
         };
         let scoped_context = context.with_attributes(&mark.attrs.items);
@@ -214,8 +175,8 @@ fn collect_blocks(
         }
 
         if is_event {
-            let event = event_record(source, block, event_depth, &scoped_context, uid_mappings);
-            collect_event_diagnostics(&event, &mark.attrs.items, &scoped_context, output);
+            let event = event_record(source, block, event_depth, &scoped_context);
+            collect_event_diagnostics(&event, &scoped_context, output);
             output.events.push(event);
         }
         collect_blocks(
@@ -223,7 +184,6 @@ fn collect_blocks(
             &block.children,
             event_depth + usize::from(is_event),
             &scoped_context,
-            uid_mappings,
             output,
         );
     }
@@ -234,12 +194,11 @@ fn event_record(
     block: &ParsedBlock,
     depth: usize,
     context: &EventContext,
-    uid_mappings: &HashMap<String, EventUidMapping>,
 ) -> EventRecord {
     let mark = block.mark.as_ref().expect("event is a marked block");
     let date = text_field(&mark.attrs.items, "date");
     let timezone = text_field(&mark.attrs.items, "timezone");
-    let when = quoted_field(&mark.attrs.items, "when");
+    let (when, title, selection_range) = event_head(block);
     let resolved = resolve_when(
         when.as_ref(),
         date.as_ref()
@@ -264,20 +223,14 @@ fn event_record(
         }),
         _ => None,
     });
-    let uid = id
-        .as_ref()
-        .and_then(|id| uid_mappings.get(&id.value))
-        .map(|mapping| mapping.uid.clone())
-        .or_else(|| uid_field(&mark.attrs.items));
     EventRecord {
         range: block.range.clone(),
         marker_range: mark.range.clone(),
-        selection_range: block.head.range.clone(),
-        title: block.head.plain_text().trim().to_string(),
+        selection_range,
+        title,
         details: event_details(&block.children),
         depth,
         id,
-        uid,
         date,
         timezone,
         when,
@@ -288,92 +241,47 @@ fn event_record(
     }
 }
 
-fn collect_uid_mappings(
-    metadata: &MetadataOutput,
-    output: &mut EventOutput,
-) -> HashMap<String, EventUidMapping> {
-    let Some(entry) = metadata.metadata.as_ref().and_then(|metadata| {
-        metadata
-            .entries
-            .iter()
-            .find(|entry| entry.key == "event-uids")
-    }) else {
-        return HashMap::new();
+fn event_head(block: &ParsedBlock) -> (Option<EventField>, String, Range<usize>) {
+    let Some(Inline::Text { text, range }) = block.head.items.first() else {
+        return (
+            None,
+            block.head.plain_text().trim().to_string(),
+            block.head.range.clone(),
+        );
     };
-    let MetadataValue::List { items, .. } = &entry.value else {
-        output.diagnostics.push(Diagnostic {
-            code: "event.invalid-uid-mapping",
-            severity: DiagnosticSeverity::Warning,
-            message: "metadata 'event-uids' must be a list of UID links".to_string(),
-            range: entry.value.range().clone(),
-            related: Vec::new(),
-        });
-        return HashMap::new();
+    let title_items = match block.head.items.get(1) {
+        Some(Inline::Space { .. }) => &block.head.items[2..],
+        _ => &[],
     };
-
-    let mut mappings: HashMap<String, EventUidMapping> = HashMap::new();
-    for item in items {
-        let MetadataValue::Scalar { content, .. } = &item.value else {
-            push_invalid_uid_mapping(output, item.range.clone());
-            continue;
-        };
-        let [Inline::Element {
-            kind,
-            content: label,
-            attrs,
-            ..
-        }] = content.items.as_slice()
-        else {
-            push_invalid_uid_mapping(output, item.range.clone());
-            continue;
-        };
-        let uid = label.plain_text();
-        let label_is_plain = label
-            .items
-            .iter()
-            .all(|inline| matches!(inline, Inline::Text { .. }));
-        let target = pair_value(&attrs.items, "to");
-        let id = target.and_then(|target| {
-            target
-                .decoded
-                .strip_prefix('#')
-                .filter(|id| !id.is_empty() && !id.contains('#'))
-        });
-        if kind != "->" || uid.is_empty() || !label_is_plain || id.is_none() {
-            push_invalid_uid_mapping(output, item.range.clone());
-            continue;
-        }
-        let id = id.expect("validated mapping target").to_string();
-        let mapping = EventUidMapping {
-            uid: EventField {
-                value: uid,
-                range: label.range.clone(),
-            },
-            target_range: target.expect("validated mapping target").range.clone(),
-        };
-        if let Some(first) = mappings.get(&id) {
-            output.diagnostics.push(Diagnostic {
-                code: "event.duplicate-uid-mapping",
-                severity: DiagnosticSeverity::Warning,
-                message: format!("event '#{id}' has more than one metadata UID mapping"),
-                range: item.range.clone(),
-                related: vec![first.uid.range.clone()],
-            });
-        } else {
-            mappings.insert(id, mapping);
-        }
+    let title_range = title_items.first().zip(title_items.last()).map_or(
+        block.head.range.end..block.head.range.end,
+        |(first, last)| inline_range(first).start..inline_range(last).end,
+    );
+    let title = InlineContent {
+        range: title_range.clone(),
+        items: title_items.to_vec(),
     }
-    mappings
+    .plain_text()
+    .trim()
+    .to_string();
+    (
+        Some(EventField {
+            value: text.clone(),
+            range: range.clone(),
+        }),
+        title,
+        title_range,
+    )
 }
 
-fn push_invalid_uid_mapping(output: &mut EventOutput, range: Range<usize>) {
-    output.diagnostics.push(Diagnostic {
-        code: "event.invalid-uid-mapping",
-        severity: DiagnosticSeverity::Warning,
-        message: "each 'event-uids' item must be one plain UID link targeting '#id'".to_string(),
-        range,
-        related: Vec::new(),
-    });
+fn inline_range(inline: &Inline) -> &Range<usize> {
+    match inline {
+        Inline::Text { range, .. }
+        | Inline::Space { range, .. }
+        | Inline::SoftBreak { range }
+        | Inline::Element { range, .. }
+        | Inline::Verbatim { range, .. } => range,
+    }
 }
 
 fn event_details(blocks: &[Block]) -> String {
@@ -415,16 +323,6 @@ fn pair_value<'a>(items: &'a [AttrItem], wanted: &str) -> Option<&'a AttrValue> 
     })
 }
 
-fn uid_field(items: &[AttrItem]) -> Option<EventField> {
-    let value = pair_value(items, "uid")?;
-    (value.quoted && !value.decoded.is_empty()).then(|| event_field(value))
-}
-
-fn quoted_field(items: &[AttrItem], key: &str) -> Option<EventField> {
-    let value = pair_value(items, key)?;
-    value.quoted.then(|| event_field(value))
-}
-
 fn text_field(items: &[AttrItem], key: &str) -> Option<EventField> {
     pair_value(items, key).map(event_field)
 }
@@ -438,41 +336,26 @@ fn event_field(value: &AttrValue) -> EventField {
 
 fn collect_event_diagnostics(
     event: &EventRecord,
-    attrs: &[AttrItem],
     context: &EventContext,
     output: &mut EventOutput,
 ) {
-    let when = pair_value(attrs, "when");
-    if when.is_none() {
+    if event.when.is_none() {
         output.diagnostics.push(Diagnostic {
             code: "event.missing-time",
             severity: DiagnosticSeverity::Warning,
-            message: "an event requires a quoted 'when' schedule".to_string(),
+            message: "an event requires a schedule as its first head argument".to_string(),
             range: event.selection_range.clone(),
             related: Vec::new(),
         });
     }
-    if when.is_some_and(|when| !when.quoted) {
-        let when = when.expect("unquoted when exists");
+    if event.title.is_empty() {
         output.diagnostics.push(Diagnostic {
-            code: "event.invalid-when",
+            code: "event.missing-title",
             severity: DiagnosticSeverity::Warning,
-            message: "'when' must be a quoted event time or interval".to_string(),
-            range: when.range.clone(),
+            message: "an event requires a title after its schedule".to_string(),
+            range: event.selection_range.clone(),
             related: Vec::new(),
         });
-    }
-
-    if let Some(uid) = pair_value(attrs, "uid") {
-        if !uid.quoted || uid.decoded.is_empty() {
-            output.diagnostics.push(Diagnostic {
-                code: "event.invalid-uid",
-                severity: DiagnosticSeverity::Warning,
-                message: "'uid' must be a nonempty quoted value".to_string(),
-                range: uid.range.clone(),
-                related: Vec::new(),
-            });
-        }
     }
 
     let date = event.date.as_ref().map(|field| field.value.as_str());
@@ -482,8 +365,8 @@ fn collect_event_diagnostics(
         date.or(context.date.as_deref()),
         timezone.or(context.timezone.as_deref()),
     );
-    if event.at.is_none() && event.start.is_none() && when.is_some_and(|when| when.quoted) {
-        let when = when.expect("quoted when exists");
+    if event.at.is_none() && event.start.is_none() && event.when.is_some() {
+        let when = event.when.as_ref().expect("schedule exists");
         let code = match result {
             Err(EventWhenError::MissingDate) => "event.missing-date-context",
             Err(EventWhenError::InvalidDate) => "event.invalid-date",
@@ -495,7 +378,7 @@ fn collect_event_diagnostics(
         output.diagnostics.push(Diagnostic {
             code,
             severity: DiagnosticSeverity::Warning,
-            message: "event schedule cannot be resolved from 'when', date, and timezone"
+            message: "event schedule cannot be resolved from its head, date, and timezone"
                 .to_string(),
             range: when.range.clone(),
             related: Vec::new(),
@@ -675,7 +558,7 @@ mod tests {
 
     #[test]
     fn collects_event_facets_ranges_and_task_references() {
-        let source = "`meta\n  `: date\n\n    2026-07-30\n\n  `: timezone\n\n    +08:00\n\n`-{.event #review uid=\"review@example\" when=\"14:00--15:30\" tasks=\"#local Project A.plumb#remote\"} Review\n  `note Details\n  `-{.event date=2026-07-31 when=\"09:00\"} Follow-up\n";
+        let source = "`meta\n  `: date\n\n    2026-07-30\n\n  `: timezone\n\n    +08:00\n\n`-{.event #review tasks=\"#local Project A.plumb#remote\"} 14:00--15:30 Review\n  `note Details\n  `-{.event date=2026-07-31} 09:00 Follow-up\n";
         let output = analyze(source);
         assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
         assert_eq!(output.events.len(), 2);
@@ -683,7 +566,6 @@ mod tests {
         assert_eq!(event.title, "Review");
         assert_eq!(event.details, "Details");
         assert_eq!(event.id.as_ref().unwrap().value, "review");
-        assert_eq!(event.uid.as_ref().unwrap().value, "review@example");
         assert_eq!(
             event.start_datetime().unwrap().to_rfc3339(),
             "2026-07-30T14:00:00+08:00"
@@ -702,10 +584,9 @@ mod tests {
 
     #[test]
     fn diagnoses_invalid_owners_fields_intervals_and_conflicts() {
-        let source = "`meta\n  `: date\n\n    2026-07-30\n\n  `: timezone\n\n    +08:00\n\n`node{.event when=\"10:00\"} Wrong owner\n`-{.event .task when=\"10:00\"} Conflict\n`-{.event uid=\"\"} Missing time\n`-{.event when=tomorrow} Invalid when\n`-{.event when=\"11:00--11:00\"} Empty interval\n";
+        let source = "`meta\n  `: date\n\n    2026-07-30\n\n  `: timezone\n\n    +08:00\n\n`node{.event} 10:00 Wrong owner\n`-{.event .task} 10:00 Conflict\n`-{.event}\n`-{.event} tomorrow Invalid when\n`-{.event} 11:00--11:00 Empty interval\n";
         let output = analyze(source);
         assert_eq!(output.events.len(), 3);
-        assert!(output.events[0].uid.is_none());
         assert_eq!(
             output
                 .diagnostics
@@ -716,7 +597,7 @@ mod tests {
                 "event.invalid-owner",
                 "event.conflicting-task-facet",
                 "event.missing-time",
-                "event.invalid-uid",
+                "event.missing-title",
                 "event.invalid-when",
                 "event.invalid-interval",
             ]
@@ -724,16 +605,16 @@ mod tests {
     }
 
     #[test]
-    fn excludes_unquoted_uid_from_event_records() {
-        let source = "`meta\n  `: date\n\n    2026-07-30\n\n  `: timezone\n\n    +00:00\n\n`-{.event uid=calendar when=\"10:00\"} Review\n";
+    fn legacy_uid_fields_are_opaque_event_attributes() {
+        let source = "`meta\n  `: date\n\n    2026-07-30\n\n  `: timezone\n\n    +00:00\n\n`-{.event uid=calendar} 10:00 Review\n";
         let output = analyze(source);
-        assert!(output.events[0].uid.is_none());
-        assert_eq!(output.diagnostics[0].code, "event.invalid-uid");
+        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+        assert_eq!(output.events[0].title, "Review");
     }
 
     #[test]
     fn overlap_uses_half_open_ranges_and_point_events() {
-        let source = "`meta\n  `: date\n\n    2026-07-30\n\n  `: timezone\n\n    +00:00\n\n`-{.event when=\"10:00--11:00\"} Range\n`-{.event when=\"11:00\"} Point\n`-{.event when=\"23:40--00:00\"} Cross midnight\n";
+        let source = "`meta\n  `: date\n\n    2026-07-30\n\n  `: timezone\n\n    +00:00\n\n`-{.event} 10:00--11:00 Range\n`-{.event} 11:00 Point\n`-{.event} 23:40--00:00 Cross midnight\n";
         let output = analyze(source);
         let start = DateTime::parse_from_rfc3339("2026-07-30T10:30:00Z").unwrap();
         let end = DateTime::parse_from_rfc3339("2026-07-30T11:00:00Z").unwrap();
@@ -749,15 +630,15 @@ mod tests {
 
     #[test]
     fn old_datetime_fields_do_not_define_event_time() {
-        let source = "`-{.event at=\"2026-07-30T10:00:00Z\"} Old\n";
+        let source = "`-{.event at=\"2026-07-30T10:00:00Z\"} Old title\n";
         let output = analyze(source);
         assert!(output.events[0].sort_datetime().is_none());
-        assert_eq!(output.diagnostics[0].code, "event.missing-time");
+        assert_eq!(output.diagnostics[0].code, "event.missing-date-context");
     }
 
     #[test]
     fn rfc3339_metadata_date_supplies_date_and_offset() {
-        let source = "`meta\n  `: date\n\n    `[2026-07-30T09:15:00+08:00]\n\n`-{.event when=\"23:40--00:00\"} Cross midnight\n";
+        let source = "`meta\n  `: date\n\n    `[2026-07-30T09:15:00+08:00]\n\n`-{.event} 23:40--00:00 Cross midnight\n";
         let output = analyze(source);
         assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
         assert_eq!(
@@ -772,7 +653,7 @@ mod tests {
 
     #[test]
     fn date_and_timezone_context_follow_tree_scope() {
-        let source = "`meta\n  `: date\n\n    2026-07-30\n\n  `: timezone\n\n    +08:00\n\n`div{date=2026-07-31}\n  `-{.event when=\"09:00\"} Inherited date\n  `-{.event timezone=\"+09:00\" when=\"10:00\"} Timezone override\n    `-{.event when=\"11:00\"} Nested inheritance\n`-{.event when=\"12:00\"} Root sibling\n";
+        let source = "`meta\n  `: date\n\n    2026-07-30\n\n  `: timezone\n\n    +08:00\n\n`div{date=2026-07-31}\n  `-{.event} 09:00 Inherited date\n  `-{.event timezone=\"+09:00\"} 10:00 Timezone override\n    `-{.event} 11:00 Nested inheritance\n`-{.event} 12:00 Root sibling\n";
         let output = analyze(source);
         assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
         assert_eq!(
@@ -792,7 +673,7 @@ mod tests {
 
     #[test]
     fn when_start_can_override_date_or_complete_datetime() {
-        let source = "`meta\n  `: timezone\n\n    +08:00\n\n`-{.event when=\"2026-05-02T08--09:20\"} Local hour\n`-{.event when=\"2026-05-02T08:22--09:20\"} Local minute\n`-{.event when=\"2026-05-02T08:22:31+08:00--09:20\"} Zoned\n`-{.event timezone=invalid when=\"2026-05-02T23:22:31Z--09:20\"} Zoned overnight\n";
+        let source = "`meta\n  `: timezone\n\n    +08:00\n\n`-{.event} 2026-05-02T08--09:20 Local hour\n`-{.event} 2026-05-02T08:22--09:20 Local minute\n`-{.event} 2026-05-02T08:22:31+08:00--09:20 Zoned\n`-{.event timezone=invalid} 2026-05-02T23:22:31Z--09:20 Zoned overnight\n";
         let output = analyze(source);
         assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
         assert_eq!(
@@ -827,7 +708,8 @@ mod tests {
 
     #[test]
     fn zoned_when_start_requires_full_rfc3339_time() {
-        let source = "`-{.event when=\"2026-05-02T08+08:00\"} Hour\n`-{.event when=\"2026-05-02T08:22+08:00\"} Minute\n";
+        let source =
+            "`-{.event} 2026-05-02T08+08:00 Hour\n`-{.event} 2026-05-02T08:22+08:00 Minute\n";
         let output = analyze(source);
         assert_eq!(
             output
@@ -842,7 +724,7 @@ mod tests {
 
     #[test]
     fn complete_when_point_needs_no_inherited_context() {
-        let output = analyze("`-{.event when=\"2026-05-02T08:22:31+08:00\"} Point\n");
+        let output = analyze("`-{.event} 2026-05-02T08:22:31+08:00 Point\n");
         assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
         assert_eq!(
             output.events[0].at_datetime().unwrap().to_rfc3339(),
@@ -851,38 +733,10 @@ mod tests {
     }
 
     #[test]
-    fn metadata_uid_links_resolve_events_and_override_inline_uid() {
-        let source = "`meta\n  `: date\n\n    2026-07-30\n\n  `: timezone\n\n    +08:00\n\n  `: event-uids\n    `- `->[mapped@example]{to=\"#review\"}\n\n`-{.event #review uid=\"inline@example\" when=\"09:00\"} Review\n";
+    fn metadata_uid_links_have_no_event_semantics() {
+        let source = "`meta\n  `: date\n\n    2026-07-30\n\n  `: timezone\n\n    +08:00\n\n  `: event-uids\n    `- `->[mapped@example]{to=\"#review\"}\n\n`-{.event #review uid=\"inline@example\"} 09:00 Review\n";
         let output = analyze(source);
         assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
-        let uid = output.events[0].uid.as_ref().unwrap();
-        assert_eq!(uid.value, "mapped@example");
-        assert_eq!(&source[uid.range.clone()], "mapped@example");
-    }
-
-    #[test]
-    fn diagnoses_invalid_and_duplicate_metadata_uid_links() {
-        let source = "`meta\n  `: event-uids\n    `- plain\n    `- `->[first@example]{to=\"#review\"}\n    `- `->[second@example]{to=\"#review\"}\n\n`-{.event #review date=2026-07-30 timezone=\"+08:00\" when=\"09:00\"} Review\n";
-        let output = analyze(source);
-        assert_eq!(
-            output
-                .diagnostics
-                .iter()
-                .map(|diagnostic| diagnostic.code)
-                .collect::<Vec<_>>(),
-            ["event.invalid-uid-mapping", "event.duplicate-uid-mapping"]
-        );
-        assert_eq!(
-            output.events[0].uid.as_ref().unwrap().value,
-            "first@example"
-        );
-    }
-
-    #[test]
-    fn diagnoses_uid_mapping_targets_that_are_not_events() {
-        let source = "`meta\n  `: event-uids\n    `- `->[wrong@example]{to=\"#heading\"}\n\n`#{#heading} Heading\n";
-        let output = analyze(source);
-        assert_eq!(output.diagnostics.len(), 1);
-        assert_eq!(output.diagnostics[0].code, "event.uid-target-not-event");
+        assert_eq!(output.events[0].title, "Review");
     }
 }

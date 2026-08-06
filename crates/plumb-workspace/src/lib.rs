@@ -3,12 +3,10 @@ use std::path::{Component, Path, PathBuf};
 
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveTime, SecondsFormat, TimeZone, Timelike};
 use plumb_core::{
-    parse, Attributes, Block, Diagnostic, DiagnosticSeverity, Inline, ParsedBlock, ParsedDocument,
+    parse, Attributes, Block, Diagnostic, DiagnosticSeverity, ParsedBlock, ParsedDocument,
 };
 pub use plumb_edit::{apply_text_edits, TextEdit};
-use plumb_edit::{
-    AttributePosition, EditSession, OwnedAttribute, OwnedAttributes, OwnedBlock, OwnedInline,
-};
+use plumb_edit::{AttributePosition, EditSession, OwnedAttribute, OwnedBlock, OwnedInline};
 #[cfg(test)]
 use plumb_extensions::TaskStatus;
 use plumb_extensions::{
@@ -1099,30 +1097,6 @@ impl Workspace {
                     diagnostics.push(diagnostic);
                 }
             }
-            let Some(uid) = &event.uid else {
-                continue;
-            };
-            let occurrences = self
-                .documents
-                .values()
-                .filter_map(|entry| entry.current.as_ref())
-                .flat_map(|current| current.output.events.events.iter())
-                .filter(|candidate| {
-                    candidate
-                        .uid
-                        .as_ref()
-                        .is_some_and(|candidate_uid| candidate_uid.value == uid.value)
-                })
-                .count();
-            if occurrences > 1 {
-                diagnostics.push(Diagnostic {
-                    code: "event.duplicate-uid",
-                    severity: DiagnosticSeverity::Warning,
-                    message: format!("event UID '{}' is not unique in the workspace", uid.value),
-                    range: uid.range.clone(),
-                    related: Vec::new(),
-                });
-            }
         }
         diagnostics
     }
@@ -1691,17 +1665,8 @@ impl Workspace {
             .get(&path)
             .filter(|entry| entry.current.is_some())
             .ok_or(EventEditError::StaleOrInvalidDocument)?;
-        let uid = new_event_uid();
         let current = entry.current.as_ref().expect("current output checked");
-        let reserved = current
-            .output
-            .anchors
-            .iter()
-            .map(|anchor| anchor.id.value.clone())
-            .collect::<HashSet<_>>();
-        let mut ids = EventIdAllocator::new(&current.output.events.events, reserved);
-        let id = ids.allocate();
-        let event = owned_event(input, &id, &current.output.metadata);
+        let event = owned_event(input, &current.output.metadata);
         let (affected, after) = entry
             .parsed
             .syntax
@@ -1718,13 +1683,10 @@ impl Workspace {
             edit.insert_blocks(0, &[event])
                 .map_err(|_| EventEditError::GeneratedInvalid)?;
         }
-        let event_edit = edit
+        let edit = edit
             .finish()
             .map_err(|_| EventEditError::GeneratedInvalid)?;
-        let mut edits = vec![event_edit];
-        append_event_uid_mapping_edit(entry, &mut edits, &[(id, uid)])
-            .map_err(|_| EventEditError::GeneratedInvalid)?;
-        Ok(single_document_edits(entry, path, edits))
+        Ok(single_document_edit(entry, path, edit))
     }
 
     pub fn convert_event_shorthand(
@@ -1757,32 +1719,15 @@ impl Workspace {
             &current.output.metadata,
             inferred_end,
         )?;
-        let uid = new_event_uid();
         let mut owned = OwnedBlock::from_parsed(&entry.parsed.source, item);
         strip_event_shorthand_prefix(&mut owned, title_start)?;
         let mut attributes = owned.attributes().to_vec();
-        let reserved = current
-            .output
-            .anchors
-            .iter()
-            .map(|anchor| anchor.id.value.clone())
-            .collect::<HashSet<_>>();
-        let mut ids = EventIdAllocator::new(&current.output.events.events, reserved);
-        let id = mark
-            .attrs
-            .id()
-            .map_or_else(|| ids.allocate(), str::to_string);
-        if mark.attrs.id().is_none() {
-            attributes.insert(0, OwnedAttribute::id(&id));
-        }
         attributes.extend(event_attributes(&input, &current.output.metadata));
-        let owned = owned.with_attributes(attributes);
+        let mut owned = owned.with_attributes(attributes);
+        prepend_event_schedule(&mut owned, &input);
         let event_edit = exact_owned_block_edit(&entry.parsed, item.range.clone(), &owned)
             .map_err(|_| EventShorthandError::GeneratedInvalid)?;
-        let mut edits = vec![event_edit];
-        append_event_uid_mapping_edit(entry, &mut edits, &[(id, uid)])
-            .map_err(|_| EventShorthandError::GeneratedInvalid)?;
-        Ok(single_document_edits(entry, path, edits))
+        Ok(single_document_edit(entry, path, event_edit))
     }
 
     pub fn convert_event_shorthands(
@@ -1803,25 +1748,7 @@ impl Workspace {
             .expect("current output checked")
             .output
             .metadata;
-        let reserved = entry
-            .current
-            .as_ref()
-            .expect("current output checked")
-            .output
-            .anchors
-            .iter()
-            .map(|anchor| anchor.id.value.clone())
-            .collect::<HashSet<_>>();
-        let events = &entry
-            .current
-            .as_ref()
-            .expect("current output checked")
-            .output
-            .events
-            .events;
-        let mut ids = EventIdAllocator::new(events, reserved);
         let mut edits = Vec::new();
-        let mut uid_mappings = Vec::new();
         let mut converted = 0;
         for (index, block) in entry.parsed.syntax.blocks.iter().enumerate() {
             let Block::Parsed(parsed) = block else {
@@ -1842,8 +1769,6 @@ impl Workspace {
                 &selection,
                 now,
                 metadata,
-                &mut ids,
-                &mut uid_mappings,
             );
             if count == 0 {
                 continue;
@@ -1857,8 +1782,6 @@ impl Workspace {
         if converted == 0 {
             return Err(EventShorthandError::ListItemNotFound);
         }
-        append_event_uid_mapping_edit(entry, &mut edits, &uid_mappings)
-            .map_err(|_| EventShorthandError::GeneratedInvalid)?;
         Ok(WorkspaceEdit {
             document_changes: vec![DocumentEdit {
                 path,
@@ -2293,54 +2216,20 @@ impl Workspace {
         let block = parsed_block_with_range(&entry.parsed.syntax.blocks, &event.range)
             .ok_or(EventEditError::EventNotFound)?;
         let mut owned = OwnedBlock::from_parsed(&entry.parsed.source, block);
-        owned.set_head_text(&input.title);
+        set_event_head(&mut owned, input);
         let attributes = owned.attributes_mut();
         attributes.retain(|attribute| {
             !matches!(attribute, OwnedAttribute::Pair { key, .. } if matches!(key.as_str(), "uid" | "when" | "date" | "timezone" | "at" | "start" | "end" | "tasks"))
         });
-        let uid = event
-            .uid
-            .as_ref()
-            .map(|field| field.value.clone())
-            .unwrap_or_else(new_event_uid);
-        let reserved = current
-            .output
-            .anchors
-            .iter()
-            .map(|anchor| anchor.id.value.clone())
-            .collect::<HashSet<_>>();
-        let mut ids = EventIdAllocator::new(&current.output.events.events, reserved);
-        let id = event
-            .id
-            .as_ref()
-            .map_or_else(|| ids.allocate(), |id| id.value.clone());
-        if event.id.is_none() {
-            attributes.insert(0, OwnedAttribute::id(&id));
-        }
         attributes.extend(event_attributes(input, &current.output.metadata));
         let mut edit = EditSession::new(&entry.parsed, event.range.clone())
             .map_err(|_| EventEditError::GeneratedInvalid)?;
         edit.replace_block(event.range.clone(), &owned)
             .map_err(|_| EventEditError::GeneratedInvalid)?;
-        let event_edit = edit
+        let edit = edit
             .finish()
             .map_err(|_| EventEditError::GeneratedInvalid)?;
-        let uid_is_mapped = event.uid.as_ref().is_some_and(|uid| {
-            current
-                .output
-                .metadata
-                .metadata
-                .as_ref()
-                .is_some_and(|metadata| {
-                    metadata.range.start <= uid.range.start && uid.range.end <= metadata.range.end
-                })
-        });
-        let mut edits = vec![event_edit];
-        if !uid_is_mapped {
-            append_event_uid_mapping_edit(entry, &mut edits, &[(id, uid)])
-                .map_err(|_| EventEditError::GeneratedInvalid)?;
-        }
-        Ok(single_document_edits(entry, path, edits))
+        Ok(single_document_edit(entry, path, edit))
     }
 
     pub fn delete_event(
@@ -2364,35 +2253,14 @@ impl Workspace {
             .iter()
             .find(|event| event.range == event_range)
             .ok_or(EventEditError::EventNotFound)?;
-        let mapping_id = event.id.as_ref().and_then(|id| {
-            event.uid.as_ref().and_then(|uid| {
-                current
-                    .output
-                    .metadata
-                    .metadata
-                    .as_ref()
-                    .is_some_and(|metadata| {
-                        metadata.range.start <= uid.range.start
-                            && uid.range.end <= metadata.range.end
-                    })
-                    .then(|| id.value.clone())
-            })
-        });
         let mut edit = EditSession::new(&entry.parsed, event.range.clone())
             .map_err(|_| EventEditError::GeneratedInvalid)?;
         edit.remove_block(event.range.clone())
             .map_err(|_| EventEditError::GeneratedInvalid)?;
-        let event_edit = edit
+        let edit = edit
             .finish()
             .map_err(|_| EventEditError::GeneratedInvalid)?;
-        let mut edits = vec![event_edit];
-        if let Some(id) = mapping_id {
-            edits.push(
-                event_uid_mapping_removal_edit(entry, &id)
-                    .map_err(|_| EventEditError::GeneratedInvalid)?,
-            );
-        }
-        Ok(single_document_edits(entry, path, edits))
+        Ok(single_document_edit(entry, path, edit))
     }
 
     pub fn complete_link(
@@ -3197,21 +3065,17 @@ fn shorthand_context(
 
 fn strip_event_shorthand_prefix(
     owned: &mut OwnedBlock,
-    title_start: usize,
+    _title_start: usize,
 ) -> Result<(), EventShorthandError> {
     let OwnedBlock::Parsed { head, .. } = owned else {
         return Err(EventShorthandError::GeneratedInvalid);
     };
-    let Some(OwnedInline::Text(text)) = head.first_mut() else {
-        return Err(EventShorthandError::InvalidShorthand);
-    };
-    if title_start > text.len() || !text.is_char_boundary(title_start) {
+    if !matches!(head.first(), Some(OwnedInline::Text(_)))
+        || !matches!(head.get(1), Some(OwnedInline::Space(_)))
+    {
         return Err(EventShorthandError::InvalidShorthand);
     }
-    text.replace_range(..title_start, "");
-    if text.is_empty() {
-        head.remove(0);
-    }
+    head.drain(..2);
     Ok(())
 }
 
@@ -3474,7 +3338,7 @@ fn remove_owned_descendant(
 
 fn event_attributes(input: &EventInput, metadata: &MetadataOutput) -> Vec<OwnedAttribute> {
     let mut attributes = vec![OwnedAttribute::class("event")];
-    let (date, timezone, when) =
+    let (date, timezone, _) =
         compact_event_schedule(input).expect("event input is validated before authoring");
     if metadata_scalar(metadata, "date").as_deref() != Some(&date) {
         attributes.push(OwnedAttribute::bare("date", date));
@@ -3482,173 +3346,44 @@ fn event_attributes(input: &EventInput, metadata: &MetadataOutput) -> Vec<OwnedA
     if metadata_scalar(metadata, "timezone").as_deref() != Some(&timezone) {
         attributes.push(OwnedAttribute::quoted("timezone", timezone));
     }
-    attributes.push(OwnedAttribute::quoted("when", when));
     if !input.tasks.is_empty() {
         attributes.push(OwnedAttribute::quoted("tasks", input.tasks.join(" ")));
     }
     attributes
 }
 
-fn new_event_uid() -> String {
-    format!("{}@plumb.local", uuid::Uuid::new_v4())
-}
-
-fn event_uid_mapping_item(id: &str, uid: &str) -> OwnedBlock {
-    OwnedBlock::Parsed {
-        marker: Some("-".to_string()),
-        attributes: OwnedAttributes::default(),
-        head: vec![OwnedInline::Element {
-            kind: "->".to_string(),
-            content: vec![OwnedInline::Text(uid.to_string())],
-            attributes: OwnedAttributes {
-                present: true,
-                items: vec![OwnedAttribute::quoted("to", format!("#{id}"))],
-            },
-        }],
-        children: Vec::new(),
-    }
-}
-
-fn append_event_uid_mapping_edit(
-    entry: &DocumentEntry,
-    edits: &mut Vec<TextEdit>,
-    mappings: &[(String, String)],
-) -> Result<(), ()> {
-    if mappings.is_empty() {
-        return Ok(());
-    }
-    let mapping_edit = event_uid_mapping_edit(entry, mappings)?;
-    if mapping_edit.range.is_empty() && mapping_edit.range.start == 0 {
-        if let Some(edit) = edits.iter_mut().find(|edit| edit.range.start == 0) {
-            edit.new_text.insert_str(0, &mapping_edit.new_text);
-            return Ok(());
-        }
-    }
-    edits.push(mapping_edit);
-    Ok(())
-}
-
-fn event_uid_mapping_edit(
-    entry: &DocumentEntry,
-    mappings: &[(String, String)],
-) -> Result<TextEdit, ()> {
-    let metadata = entry
-        .current
-        .as_ref()
-        .expect("authoring requires current output")
-        .output
-        .metadata
-        .metadata
-        .as_ref();
-    if let Some(metadata) = metadata {
-        let block =
-            parsed_block_with_range(&entry.parsed.syntax.blocks, &metadata.range).ok_or(())?;
-        let mut owned = OwnedBlock::from_parsed(&entry.parsed.source, block);
-        let definition_index = block.children.iter().position(|child| {
-            let Block::Parsed(child) = child else {
-                return false;
-            };
-            child.mark.as_ref().is_some_and(|mark| mark.marker == ":")
-                && child.head.plain_text() == "event-uids"
-        });
-        let mapping_items = mappings
-            .iter()
-            .map(|(id, uid)| event_uid_mapping_item(id, uid))
-            .collect::<Vec<_>>();
-        let children = owned.children_mut().ok_or(())?;
-        if let Some(index) = definition_index {
-            let Block::Parsed(definition) = &block.children[index] else {
-                return Err(());
-            };
-            if !definition.children.iter().all(|child| {
-                matches!(child, Block::Parsed(item) if item.mark.as_ref().is_some_and(|mark| mark.marker == "-"))
-            }) {
-                return Err(());
-            }
-            children[index]
-                .children_mut()
-                .ok_or(())?
-                .extend(mapping_items);
-        } else {
-            children.push(OwnedBlock::marked(":", "event-uids").with_children(mapping_items));
-        }
-        return exact_owned_block_edit(&entry.parsed, metadata.range.clone(), &owned)
-            .map_err(|_| ());
-    }
-
-    let metadata =
-        OwnedBlock::marked("meta", "").with_children(vec![OwnedBlock::marked(":", "event-uids")
-            .with_children(
-                mappings
-                    .iter()
-                    .map(|(id, uid)| event_uid_mapping_item(id, uid))
-                    .collect(),
-            )]);
-    let mut edit = EditSession::new(&entry.parsed, 0..0).map_err(|_| ())?;
-    edit.insert_blocks(0, &[metadata]).map_err(|_| ())?;
-    edit.finish().map_err(|_| ())
-}
-
-fn event_uid_mapping_removal_edit(entry: &DocumentEntry, id: &str) -> Result<TextEdit, ()> {
-    let metadata = entry
-        .current
-        .as_ref()
-        .expect("authoring requires current output")
-        .output
-        .metadata
-        .metadata
-        .as_ref()
-        .ok_or(())?;
-    let entry_value = metadata
-        .entries
-        .iter()
-        .find(|entry| entry.key == "event-uids")
-        .ok_or(())?;
-    let MetadataValue::List { items, .. } = &entry_value.value else {
-        return Err(());
+fn set_event_head(owned: &mut OwnedBlock, input: &EventInput) {
+    let (_, _, schedule) =
+        compact_event_schedule(input).expect("event input is validated before authoring");
+    let OwnedBlock::Parsed { head, .. } = owned else {
+        return;
     };
-    let mapping_index = items
-        .iter()
-        .position(|item| metadata_uid_mapping_target(&item.value) == Some(id))
-        .ok_or(())?;
-    let block = parsed_block_with_range(&entry.parsed.syntax.blocks, &metadata.range).ok_or(())?;
-    let definition_index = block
-        .children
-        .iter()
-        .position(|child| child.range() == &entry_value.range)
-        .ok_or(())?;
-    let mut owned = OwnedBlock::from_parsed(&entry.parsed.source, block);
-    let children = owned.children_mut().ok_or(())?;
-    let definition_children = children[definition_index].children_mut().ok_or(())?;
-    definition_children.remove(mapping_index);
-    if definition_children.is_empty() {
-        children.remove(definition_index);
-    }
-    exact_owned_block_edit(&entry.parsed, metadata.range.clone(), &owned).map_err(|_| ())
+    *head = vec![
+        OwnedInline::Text(schedule),
+        OwnedInline::Space(" ".to_string()),
+        OwnedInline::Text(input.title.clone()),
+    ];
 }
 
-fn metadata_uid_mapping_target(value: &MetadataValue) -> Option<&str> {
-    let MetadataValue::Scalar { content, .. } = value else {
-        return None;
+fn prepend_event_schedule(owned: &mut OwnedBlock, input: &EventInput) {
+    let (_, _, schedule) =
+        compact_event_schedule(input).expect("event input is validated before authoring");
+    let OwnedBlock::Parsed { head, .. } = owned else {
+        return;
     };
-    let [Inline::Element { kind, attrs, .. }] = content.items.as_slice() else {
-        return None;
-    };
-    if kind != "->" {
-        return None;
-    }
-    attrs.items.iter().find_map(|item| match item {
-        plumb_core::AttrItem::Pair { key, value, .. } if key == "to" => {
-            value.decoded.strip_prefix('#')
-        }
-        _ => None,
-    })
+    head.splice(
+        0..0,
+        [
+            OwnedInline::Text(schedule),
+            OwnedInline::Space(" ".to_string()),
+        ],
+    );
 }
 
-fn owned_event(input: &EventInput, id: &str, metadata: &MetadataOutput) -> OwnedBlock {
-    let mut attributes = vec![OwnedAttribute::id(id)];
-    attributes.extend(event_attributes(input, metadata));
-    OwnedBlock::marked("-", &input.title).with_attributes(attributes)
+fn owned_event(input: &EventInput, metadata: &MetadataOutput) -> OwnedBlock {
+    let mut event = OwnedBlock::marked("-", "").with_attributes(event_attributes(input, metadata));
+    set_event_head(&mut event, input);
+    event
 }
 
 fn convert_shorthands_in_block(
@@ -3659,8 +3394,6 @@ fn convert_shorthands_in_block(
     selection: &std::ops::Range<usize>,
     now: DateTime<FixedOffset>,
     metadata: &MetadataOutput,
-    ids: &mut EventIdAllocator,
-    uid_mappings: &mut Vec<(String, String)>,
 ) -> usize {
     let mut converted = 0;
     if syntax.head.range.start < selection.end
@@ -3680,23 +3413,10 @@ fn convert_shorthands_in_block(
             if strip_event_shorthand_prefix(owned, title_start).is_err() {
                 return converted;
             }
-            let id = syntax
-                .mark
-                .as_ref()
-                .and_then(|mark| mark.attrs.id())
-                .map_or_else(
-                    || {
-                        let id = ids.allocate();
-                        owned.attributes_mut().insert(0, OwnedAttribute::id(&id));
-                        id
-                    },
-                    str::to_string,
-                );
-            let uid = new_event_uid();
             owned
                 .attributes_mut()
                 .extend(event_attributes(&input, metadata));
-            uid_mappings.push((id, uid));
+            prepend_event_schedule(owned, &input);
             converted += 1;
         }
     }
@@ -3716,8 +3436,6 @@ fn convert_shorthands_in_block(
             selection,
             now,
             metadata,
-            ids,
-            uid_mappings,
         );
     }
     converted
@@ -3889,44 +3607,6 @@ fn unique_task_instance_id(title: &str, datetime: &str, reserved: &HashSet<Strin
     let slug = slugify(title, "task");
     let date = datetime.get(..10).unwrap_or("instance");
     unique_id(&format!("{slug}-{date}"), reserved)
-}
-
-struct EventIdAllocator {
-    next: u64,
-    reserved: HashSet<String>,
-}
-
-impl EventIdAllocator {
-    fn new(events: &[EventRecord], reserved: HashSet<String>) -> Self {
-        let existing = events
-            .iter()
-            .filter_map(|event| event.id.as_ref())
-            .filter_map(|id| event_id_number(&id.value))
-            .max()
-            .unwrap_or(0);
-        Self {
-            next: existing.saturating_add(1),
-            reserved,
-        }
-    }
-
-    fn allocate(&mut self) -> String {
-        loop {
-            let number = self.next;
-            self.next = self.next.saturating_add(1);
-            let id = format!("e{number:04}");
-            if self.reserved.insert(id.clone()) {
-                return id;
-            }
-        }
-    }
-}
-
-fn event_id_number(id: &str) -> Option<u64> {
-    let number = id.strip_prefix('e')?;
-    (number.len() >= 4 && number.bytes().all(|byte| byte.is_ascii_digit()))
-        .then(|| number.parse().ok())
-        .flatten()
 }
 
 fn unique_anchor_id(seed: &str, reserved: &HashSet<String>) -> String {
@@ -5847,7 +5527,7 @@ mod tests {
             1,
             "`-{.task #write} Write\n`node{#plain} Plain\n",
         );
-        let events = "`meta\n  `: date\n\n    2026-07-30\n\n  `: timezone\n\n    +08:00\n\n`-{.event timezone=\"+05:00\" when=\"10:30\"} Early\n`-{.event #review uid=\"same@example\" when=\"14:00--15:00\" tasks=\"tasks.plumb#write\"} Review\n`-{.event uid=\"same@example\" when=\"15:00\" tasks=\"tasks.plumb#plain missing.plumb#task bad\"} Point\n";
+        let events = "`meta\n  `: date\n\n    2026-07-30\n\n  `: timezone\n\n    +08:00\n\n`-{.event timezone=\"+05:00\"} 10:30 Early\n`-{.event #review tasks=\"tasks.plumb#write\"} 14:00--15:00 Review\n`-{.event tasks=\"tasks.plumb#plain missing.plumb#task bad\"} 15:00 Point\n";
         workspace.insert("events.plumb", 2, events);
 
         let target = TaskRef {
@@ -5896,7 +5576,6 @@ mod tests {
             .iter()
             .map(|diagnostic| diagnostic.code)
             .collect::<Vec<_>>();
-        assert!(codes.contains(&"event.duplicate-uid"), "{codes:?}");
         assert!(codes.contains(&"event.target-not-task"), "{codes:?}");
         assert!(codes.contains(&"event.unresolved-task-path"), "{codes:?}");
         assert!(codes.contains(&"event.invalid-task-reference"), "{codes:?}");
@@ -5908,7 +5587,7 @@ mod tests {
                 "review",
                 20,
                 DateTime::parse_from_rfc3339("2026-07-30T00:00:00Z").unwrap(),
-                Some("uid == 'same@example' && when == '14:00--15:00' && start < timestamp('2026-07-30T07:00:00Z')"),
+                Some("when == '14:00--15:00' && start < timestamp('2026-07-30T07:00:00Z')"),
             )
             .unwrap();
         assert_eq!(filtered.items.len(), 1);
@@ -6015,20 +5694,17 @@ mod tests {
             operation.document_changes[0].edits.clone(),
         )
         .unwrap();
-        assert!(converted.contains("`-{#e0001"), "{converted}");
-        assert!(converted.contains("#e0001 .event"), "{converted}");
-        assert!(converted.contains("`: event-uids"), "{converted}");
-        assert!(converted.contains("@plumb.local]{to=\"#e0001\"}"));
-        assert!(!converted.contains(" uid=\""), "{converted}");
+        assert!(converted.contains("`-{.event"), "{converted}");
+        assert!(!converted.contains("#e0001"), "{converted}");
+        assert!(!converted.contains("event-uids"), "{converted}");
         assert!(converted.contains("date=2026-05-21"));
         assert!(converted.contains("timezone=\"+08:00\""));
-        assert!(converted.contains("when=\"11:10--11:20\""));
+        assert!(converted.contains("} 11:10--11:20 relax: phone"));
         assert!(!converted.contains("start="));
         assert!(!converted.contains("end="));
-        assert!(converted.contains("} relax: phone\n"), "{converted}");
         assert_eq!(plumb_format::format(&converted).unwrap(), converted);
 
-        // Existing id/classes are preserved; the schedule prefix is stripped from the head.
+        // Existing id/classes are preserved and the schedule remains the first head argument.
         let kept_source = "`-{#mine .kind} 11:00--11:20 review\n";
         workspace.insert("keep.plumb", 8, kept_source);
         let kept = apply_single_edit(
@@ -6040,8 +5716,7 @@ mod tests {
         assert!(kept.contains("#mine"), "{kept}");
         assert!(kept.contains(".kind"), "{kept}");
         assert!(kept.contains(".event"), "{kept}");
-        assert!(kept.contains("when=\"11:00--11:20\""));
-        assert!(kept.contains("} review\n"), "{kept}");
+        assert!(kept.contains("} 11:00--11:20 review\n"), "{kept}");
 
         // Parsed and verbatim inline structure survives prefix removal.
         let rich_source =
@@ -6054,16 +5729,14 @@ mod tests {
                 .unwrap(),
         );
         assert!(
-            rich.contains("} wheel: distinguish `[nix develop]{language=sh} and `*[normal] shell"),
+            rich.contains(
+                "} 11:00 wheel: distinguish `[nix develop]{language=sh} and `*[normal] shell"
+            ),
             "{rich}"
         );
 
         // A list item that is already an event is left alone.
-        workspace.insert(
-            "done.plumb",
-            10,
-            "`-{.event start=\"2026-08-01T11:00:00+08:00\"} 11:00--11:20 review\n",
-        );
+        workspace.insert("done.plumb", 10, "`-{.event} 11:00--11:20 review\n");
         assert_eq!(
             workspace.convert_event_shorthand("done.plumb", 5, now),
             Err(EventShorthandError::EventAlreadyExists)
@@ -6079,7 +5752,7 @@ mod tests {
 
     #[test]
     fn converts_selected_event_shorthands_in_one_edit() {
-        let source = "`meta\n  `: date\n\n    2026-08-01\n\n  `: timezone\n\n    +08:00\n\n`-{#e0015 .event when=09:00} Existing\n\n`- 10:00--10:20 first\n`- ordinary item\n`- 10:20--10:30 second `[code]\n";
+        let source = "`meta\n  `: date\n\n    2026-08-01\n\n  `: timezone\n\n    +08:00\n\n`-{#e0015 .event} 09:00 Existing\n\n`- 10:00--10:20 first\n`- ordinary item\n`- 10:20--10:30 second `[code]\n";
         let mut workspace = Workspace::new();
         workspace.insert("agenda.plumb", 9, source);
         let now = DateTime::parse_from_rfc3339("2026-08-03T08:00:00+09:00").unwrap();
@@ -6094,16 +5767,9 @@ mod tests {
         )
         .unwrap();
         assert_eq!(converted.matches(".event").count(), 3, "{converted}");
-        assert_eq!(
-            converted.matches("@plumb.local]{to=").count(),
-            2,
-            "{converted}"
-        );
-        assert!(converted.contains("when=\"10:00--10:20\""));
-        assert!(converted.contains("when=\"10:20--10:30\""));
-        assert!(converted.contains("#e0016 .event"), "{converted}");
-        assert!(converted.contains("#e0017 .event"), "{converted}");
-        assert!(converted.contains("} second `[code]"), "{converted}");
+        assert!(!converted.contains("event-uids"), "{converted}");
+        assert!(converted.contains("`-{.event} 10:00--10:20 first"));
+        assert!(converted.contains("`-{.event} 10:20--10:30 second `[code]"));
         assert!(converted.contains("`- ordinary item"));
         assert!(!converted.contains("date=2026-08-01"));
         assert!(!converted.contains("timezone=\"+08:00\""));
@@ -6137,7 +5803,10 @@ mod tests {
             operation.document_changes[0].edits.clone(),
         )
         .unwrap();
-        assert!(converted.contains("when=\"18:00--18:30\""), "{converted}");
+        assert!(
+            converted.contains("`-{.event} 18:00--18:30 事件 1"),
+            "{converted}"
+        );
         assert!(converted.contains("`- 18:30-- 事件 2"), "{converted}");
         assert_eq!(converted.matches(".event").count(), 1, "{converted}");
 
@@ -6148,7 +5817,7 @@ mod tests {
         let first_converted =
             apply_text_edits(source.to_string(), first.document_changes[0].edits.clone()).unwrap();
         assert!(
-            first_converted.contains("when=\"18:00--18:30\""),
+            first_converted.contains("`-{.event} 18:00--18:30 事件 1"),
             "{first_converted}"
         );
         assert_eq!(
@@ -6172,9 +5841,18 @@ mod tests {
                 .clone(),
         )
         .unwrap();
-        assert!(chained.contains("when=\"18:00--18:30\""), "{chained}");
-        assert!(chained.contains("when=\"18:30--19:00\""), "{chained}");
-        assert!(chained.contains("when=\"19:00--20:00\""), "{chained}");
+        assert!(
+            chained.contains("`-{.event} 18:00--18:30 first"),
+            "{chained}"
+        );
+        assert!(
+            chained.contains("`-{.event} 18:30--19:00 second"),
+            "{chained}"
+        );
+        assert!(
+            chained.contains("`-{.event} 19:00--20:00 third"),
+            "{chained}"
+        );
         assert_eq!(chained.matches(".event").count(), 3, "{chained}");
 
         let interrupted = "`- 18:00-- first\n`- ordinary\n`- 18:30 next\n";
@@ -6209,10 +5887,12 @@ mod tests {
         assert_eq!(created.document_changes[0].expected_revision, 7);
         let created_source = apply_single_edit(source, &created);
         assert!(created_source.contains(".event"), "{created_source}");
-        assert!(created_source.contains("#e0001 .event"), "{created_source}");
-        assert!(created_source.contains("`: event-uids"), "{created_source}");
-        assert!(created_source.contains("@plumb.local]{to=\"#e0001\"}"));
-        assert!(!created_source.contains(" uid=\""), "{created_source}");
+        assert!(!created_source.contains("#e0001"), "{created_source}");
+        assert!(!created_source.contains("event-uids"), "{created_source}");
+        assert!(
+            created_source.contains("} 14:00--15:00 Review"),
+            "{created_source}"
+        );
         assert_eq!(
             plumb_format::format(&created_source).unwrap(),
             created_source
@@ -6225,7 +5905,6 @@ mod tests {
             .events
             .events[0]
             .clone();
-        let uid = event.uid.as_ref().unwrap().value.clone();
         let updated = workspace
             .update_event(
                 "agenda.plumb",
@@ -6241,8 +5920,10 @@ mod tests {
             .unwrap();
         let updated_source = apply_single_edit(&created_source, &updated);
         assert!(updated_source.contains("Updated review"));
-        assert!(updated_source.contains(&format!("`->[{uid}]{{to=\"#e0001\"}}")));
-        assert!(!updated_source.contains(" uid=\""), "{updated_source}");
+        assert!(
+            updated_source.contains("} 16:00 Updated review"),
+            "{updated_source}"
+        );
         assert!(!updated_source.contains("tasks.plumb#write"));
 
         workspace.insert("agenda.plumb", 9, updated_source.clone());
@@ -6260,7 +5941,6 @@ mod tests {
             deleted.document_changes[0].edits.clone(),
         )
         .unwrap();
-        assert!(!deleted_source.contains(&uid));
         assert!(!deleted_source.contains("event-uids"));
         assert!(deleted_source.contains("`# Agenda"));
         assert!(!deleted_source.contains("Updated review"));
@@ -6283,8 +5963,9 @@ mod tests {
             recreated.document_changes[0].edits.clone(),
         )
         .unwrap();
+        assert!(recreated_source.contains("`-{.event"), "{recreated_source}");
         assert!(
-            recreated_source.contains("#e0001 .event"),
+            recreated_source.contains("} 17:00 Next"),
             "{recreated_source}"
         );
 
@@ -6304,8 +5985,8 @@ mod tests {
     }
 
     #[test]
-    fn updating_legacy_inline_uid_moves_it_to_metadata() {
-        let source = "`meta\n  `: date\n\n    2026-07-30\n\n  `: timezone\n\n    +08:00\n\n`-{#review .event uid=\"legacy@example\" when=\"14:00\"} Review\n";
+    fn updating_legacy_event_removes_obsolete_time_and_uid_fields() {
+        let source = "`meta\n  `: date\n\n    2026-07-30\n\n  `: timezone\n\n    +08:00\n\n`-{#review .event uid=\"legacy@example\" when=\"14:00\"} 14:00 Review\n";
         let mut workspace = Workspace::new();
         workspace.insert("agenda.plumb", 1, source);
         let event = workspace
@@ -6332,22 +6013,10 @@ mod tests {
             operation.document_changes[0].edits.clone(),
         )
         .unwrap();
-        assert!(updated.contains("`->[legacy@example]{to=\"#review\"}"));
+        assert!(updated.contains("#review .event"), "{updated}");
         assert!(!updated.contains(" uid=\""), "{updated}");
-
-        workspace.insert("agenda.plumb", 2, updated);
-        assert_eq!(
-            workspace
-                .current_output(Path::new("agenda.plumb"))
-                .unwrap()
-                .events
-                .events[0]
-                .uid
-                .as_ref()
-                .unwrap()
-                .value,
-            "legacy@example"
-        );
+        assert!(!updated.contains(" when=\""), "{updated}");
+        assert!(updated.contains("} 15:00 Updated"), "{updated}");
     }
 
     #[test]

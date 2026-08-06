@@ -281,18 +281,17 @@ wrapper 保留。普通 dollar characters 和 dollar-delimited math 没有特殊
 `{language=plumb}
   `-{
      #parser-review .event date=2026-07-30 timezone="+08:00"
-     when="14:00--15:30"
      tasks="#write-parser Project A.plumb#docs"
-    } Parser review
+    } 14:00--15:30 Parser review
 
-head 是 title，children 是 details；nested events 只形成 display tree，不表示时间包含关系。quoted `[when]
-的 start 接受 event shorthand 的 reduced-precision local-time `[TIME]、带显式日期但继承 timezone 的
+head 的第一个 inline text 是 schedule，随后必须有 ASCII space/tab 与非空 title 分隔；children 是 details。
+nested events 只形成 display tree，不表示时间包含关系。schedule start 接受 reduced-precision local-time `[TIME]、带显式日期但继承 timezone 的
 `[YYYY-MM-DDTTIME]，或自包含的完整 RFC 3339 timestamp。`[TIME] 是 `[HH]、`[HH:MM] 或
 `[HH:MM:SS]；一旦 start 指定 offset 或 `[Z]，就必须使用包含秒的完整 RFC 3339 spelling，不能把 offset
 附在 reduced-precision time 后。point 只包含 start；interval 写成 `[START--TIME]，end 继承解析后 start
-的 date 与 offset 且不能相等。end local time 早于 start 时解释为次日。`[when] 内显式 date/offset 只覆盖
+的 date 与 offset 且不能相等。end local time 早于 start 时解释为次日。schedule 内显式 date/offset 只覆盖
 当前 event 的解析 context，不沿 subtree 传播。event `[date]、`[timezone] 分别覆盖 metadata 中的同名 scalar/literal；`[date]
-使用 `[YYYY-MM-DD]，metadata date 也可用 RFC 3339 timestamp 并同时提供其 offset；`[timezone] 使用 numeric UTC offset。缺少有效 date/timezone context 或 `[when]
+使用 `[YYYY-MM-DD]，metadata date 也可用 RFC 3339 timestamp 并同时提供其 offset；`[timezone] 使用 numeric UTC offset。缺少有效 date/timezone context 或 schedule
 时不产生有效 time。旧 `[at]、`[start]、`[end] pairs 不具有 event semantics。Agenda 和 workspace range
 query 按解析后的 point/start、path、source position 稳定排序。首版不定义 running、all-day、floating time、
 recurrence、reminder、attendee 或 alarm semantics。
@@ -309,26 +308,16 @@ task-to-event reverse query。不得从 task 的 created、due、wait、done 或
 同一 owner 同时具有 `[.event] 与 `[.task] 时发布 `[event.conflicting-task-facet]，task record 继续产生，
 但 event record 不产生。`[.event] 出现在非 list item owner 上发布 `[event.invalid-owner]。
 
-metadata `[event-uids] 是 UID Link list；每个 item 必须只包含一个 label 为 nonempty UID、target 为同文件
-event explicit id 的标准 Link：
-
-`{language=plumb}
-  `meta
-    `: event-uids
-      `- `->[parser-review-reference@example]{to="#parser-review"}
-
-映射是 event 的默认 iCalendar identity source，要求 target 在 list 内唯一；metadata 映射优先于 owner 上
-legacy quoted `[uid] pair，后者只保留作 source compatibility。普通 event query 不要求 UID。Calendar
-authoring operation 为新 event 生成 explicit id 与稳定 UID mapping；修改标题、时间或移动 owner 不改变
-已有 UID，anchor rename 作为普通 Link reference rename 同步更新 target。删除 event 同时删除其 mapping，
-之后重建默认产生新 identity。
-只读 vdir projection 要求每个 event 具有 workspace-unique UID 与有效 time；每个
+`[uid]、`[when] pairs 与 metadata `[event-uids] 没有 event semantics，只作为 opaque attributes/metadata
+保留。Event 只有被引用时才需要 explicit id；authoring operation 不自动生成 id。
+只读 vdir projection 要求每个 event 具有有效 time；exporter 从 workspace-relative path、source range、
+schedule 与 title 确定性派生 iCalendar UID。source 编辑或移动可以在 projection 中表现为删除后新增。每个
 event 原子生成一个含单个 VEVENT
 的 `[..ics] file，并 lower SUMMARY、DESCRIPTION、DTSTART、optional DTEND、UID、DTSTAMP 与重复的
 `[X-PLUMB-TASK] properties。输出使用 RFC 5545 escaping、75-octet folding 与 CRLF。`[.plumb] source
 始终是唯一 writable source；初版不导入外部 iCalendar 修改，也不实现 CalDAV client。
 
-Event CEL context 提供 `[path]、`[id]、`[uid]、`[title]、source-backed `[date]、`[timezone]、`[when]、
+Event CEL context 提供 `[path]、`[id]、`[title]、source-backed `[date]、`[timezone]、`[when]、
 解析后的 `[at]、`[start]、`[end]、`[tasks] 与 `[now]。
 Web Agenda 通过 revision-guarded operations 创建、编辑和删除 event；首版只支持 online mutations。
 Pandoc export 不消费 event facet：它仍作为普通 list item 导出并保留 `[.event] 与 fields。
@@ -354,24 +343,21 @@ verbatim inline 与其 attributes。Operation 只移除 schedule 与分隔 white
 单数字段、basic time、offset、`[Z]、`[am/pm] 和自然语言日期不进入 shorthand。
 
 trailing `[--] 是仅供 authoring 的 inferred-end spelling。它从紧邻的下一个 sibling list item shorthand
-取得 start，并在转换时固化为普通 `[START--TIME] when；下一项必须与当前项属于同一 parent、位于当前
+取得 start，并在转换时固化为普通 `[START--TIME] schedule；下一项必须与当前项属于同一 parent、位于当前
 batch selection 内（单项转换不要求 selection），且中间不能出现其他 block。下一项自身可以是 point、
 explicit interval 或 inferred-end shorthand。省略 date 的 next start 早于当前 start 时按次日解释；相等、
 不同 offset、超过次日或无可用下一项时当前 item 不转换。因而 chain 的最后一个 trailing `[--] 保持原文，
 除非后面还有 shorthand；显式 `[TIME--TIME] 始终优先且不依赖 sibling。
 
-operation 原位在 list item 上追加 explicit id、`[.event] class 与紧凑 `[when]，并向 metadata
-`[event-uids] 追加稳定 mapping；显式 shorthand date 写入 event `[date] override，否则继承 metadata
-context。它将 head 缩减为保留原 inline structure 的 title，并把完整 owner subtree canonicalize 后返回
+operation 原位在 list item 上追加 `[.event] class，并把规范化 schedule 保留为 head 的第一个 positional
+argument；不生成 explicit id 或 UID metadata。显式 shorthand date 写入 event `[date] override，否则继承 metadata
+context。它保留 title 的原 inline structure，并把完整 owner subtree canonicalize 后返回
 revision-guarded edit。非空 editor selection 还提供批量转换 action，仅转换范围内
 完整匹配 shorthand 的 plain list-item heads，其他 items 保持不变。已是 `[.event] 的 item 不再提供该
 action。shorthand 只是显式 authoring convention，不改变 list item syntax，也不从任意 prose 隐式生成 event。
 
-event authoring 为缺少 explicit id 的新 event 分配 document-local `[eNNNN] id，从当前所有 event 的
-`[eNNNN] explicit ids 取得最大序号再加一，并避开任意现存 anchor 冲突；没有匹配 id 时从 `[e0001]
-开始。编号至少四位十进制补零，超过 `[e9999] 后自然扩展；batch conversion 按 source order 连续分配。
-用户已有的 explicit id 原样保留。UID mapping 仍是 calendar identity，编号只服务于紧凑、对齐且
-rename-independent 的 authored anchor。
+event authoring 保留用户已有的 explicit id；新 event 默认不生成 id。需要被 link、task association 或其他
+reference 定位时，再使用通用 explicit-id authoring operation 添加 id。
 
 `# 16. Tasks
 

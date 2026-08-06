@@ -202,7 +202,6 @@ pub struct WebEvent {
     pub title: String,
     pub details: String,
     pub id: Option<String>,
-    pub uid: Option<String>,
     pub date: Option<String>,
     pub timezone: Option<String>,
     pub when: Option<String>,
@@ -662,18 +661,14 @@ impl WebWorkspace {
                     .iter()
                     .filter_map(move |event| {
                         let document_id = document_id.clone()?;
-                        let uid = event.uid.as_ref().map(|field| field.value.clone());
                         Some(WebEvent {
-                            key: uid
-                                .clone()
-                                .unwrap_or_else(|| format!("{document_id}:{}", event.range.start)),
+                            key: format!("{document_id}:{}", event.range.start),
                             document_id,
                             path: display_path(&self.root, &entry.path),
                             revision: current.revision.to_string(),
                             title: event.title.clone(),
                             details: event.details.clone(),
                             id: event.id.as_ref().map(|field| field.value.clone()),
-                            uid,
                             date: event.date.as_ref().map(|field| field.value.clone()),
                             timezone: event.timezone.as_ref().map(|field| field.value.clone()),
                             when: event.when.as_ref().map(|field| field.value.clone()),
@@ -1714,7 +1709,7 @@ mod tests {
     }
 
     #[test]
-    fn event_snapshots_and_guarded_mutations_preserve_uid() {
+    fn event_snapshots_and_guarded_mutations_use_source_keys() {
         let root = temp_dir();
         std::fs::create_dir_all(&root).unwrap();
         let path = root.join("agenda.plumb");
@@ -1736,7 +1731,7 @@ mod tests {
             .unwrap();
         let workspace = WebWorkspace::load(&root).unwrap();
         let event = workspace.events().events[0].clone();
-        let uid = event.uid.clone().unwrap();
+        assert!(event.id.is_none());
         workspace
             .update_event(
                 &event.document_id,
@@ -1753,7 +1748,7 @@ mod tests {
             .unwrap();
         let workspace = WebWorkspace::load(&root).unwrap();
         let updated = workspace.events().events[0].clone();
-        assert_eq!(updated.uid.as_deref(), Some(uid.as_str()));
+        assert!(updated.id.is_none());
         assert_eq!(updated.title, "Updated");
         assert_eq!(updated.at.as_deref(), Some("2026-07-30T08:00:00+00:00"));
         assert_eq!(updated.end, None);
@@ -1789,7 +1784,7 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(
             root.join("agenda.plumb"),
-            "`meta\n  `: date\n\n    2026-07-30\n\n  `: timezone\n\n    +00:00\n\n`-{.event timezone=\"+05:00\" when=\"10:30\"} Early\n`-{.event when=\"06:00\"} Later\n",
+            "`meta\n  `: date\n\n    2026-07-30\n\n  `: timezone\n\n    +00:00\n\n`-{.event timezone=\"+05:00\"} 10:30 Early\n`-{.event} 06:00 Later\n",
         )
         .unwrap();
         let workspace = WebWorkspace::load(&root).unwrap();

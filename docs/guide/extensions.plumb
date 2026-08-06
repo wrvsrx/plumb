@@ -210,10 +210,10 @@ strength。普通 dollar characters 和 dollar-delimited math 不具有特殊含
 `{language=plumb}
   `-{
      #parser-review .event date=2026-07-30 timezone="+08:00"
-     when="14:00--15:30" tasks="#write-parser"
-    } Parser review
+     tasks="#write-parser"
+    } 14:00--15:30 Parser review
 
-quoted `[when] 使用 `[HH]、`[HH:MM]、`[HH:MM:SS] point 或 `[START--TIME] interval。start 也可写
+head 的第一个 positional argument 是 schedule，后接 whitespace 与 title。schedule 使用 `[HH]、`[HH:MM]、`[HH:MM:SS] point 或 `[START--TIME] interval。start 也可写
 `[YYYY-MM-DDTTIME] 来覆盖 date 并继承 timezone；若指定 offset 或 `[Z]，则必须写包含秒的完整 RFC 3339
 timestamp，例如 `[2026-05-02T08:22:31+08:00--09:20]。end 从 start 继承 date 与 offset。
 event 默认继承 metadata `[date] 与 numeric-offset `[timezone]；RFC 3339 metadata date 也提供自身 offset。
@@ -225,8 +225,8 @@ timestamps 猜测 event。`[.event .task] 复合与非 list-item owner 都无效
 
 `{language=plumb}
   `div{date=2026-07-31}
-    `-{.event when="09:00"} 使用 7 月 31 日
-  `-{.event when="09:00"} 恢复 document metadata date
+    `-{.event} 09:00 使用 7 月 31 日
+  `-{.event} 09:00 恢复 document metadata date
 
 快速创建 event 时，在 list item head 开头输入 shorthand，再在该行执行 `[Convert to event] CodeAction；
 title 可以包含 inline markup：
@@ -244,25 +244,18 @@ title 可以包含 inline markup：
 time 使用两位 `[HH]、`[HH:MM] 或 `[HH:MM:SS]；省略分钟/秒时补零，省略 date/timezone 时优先继承
 document metadata，缺少时使用执行操作的本地日期/offset。显式 date 使用 `[YYYY-MM-DDT] prefix。
 end local time 早于 start 时解释为次日，相等无效。
-转换会在该 list item 上原位追加 explicit id、`[.event] class 与紧凑 `[when]，并将稳定 UID 作为
-`[event-uids] Link 写入 metadata；head 只移除 schedule prefix，title 中的 parsed/verbatim inline 及其
-attributes 原样保留。用户无需在 event 正文填写 UID：
-
-`{language=plumb}
-  `: event-uids
-    `- `->[parser-review-guide@example]{to="#e0001"}
-
-缺少 explicit id 时，authoring 默认按文件分配 `[e0001]、`[e0002]……；固定四位便于正文排版对齐，
-超过四位后自然扩展。下一个编号来自当前 events 中最大 `[eNNNN] id；已有 explicit id 保持不变。
+转换会在该 list item 上原位追加 `[.event] class，并把规范化 schedule 留在 head 开头；title 中的
+parsed/verbatim inline 及其 attributes 原样保留。它不生成 explicit id 或 UID metadata；只有需要引用
+event 时才用通用操作添加 id。vdir exporter 会从 source identity 确定性派生 iCalendar UID。
 
 显式 date 写入 event override；省略 date/timezone 时优先继承 document metadata，缺少对应 metadata 时
 才使用 operation 当前本地日期/offset。选中多行时可执行 `[Convert selected items to events]
 批量转换范围内匹配 shorthand 的 list items；不匹配或已是 event 的 item 保持不变。
 只写 trailing `[--] 时，结束时间取紧邻的下一条 sibling shorthand start；转换会把结果固化为完整
-`[when]。没有下一条的 chain 末项暂不转换，普通 item 或其他 block 会中断推断；给末项写显式 end 后即可
+schedule。没有下一条的 chain 末项暂不转换，普通 item 或其他 block 会中断推断；给末项写显式 end 后即可
 一次转换整条 chain。
 
-`[plumb event --root DIR] 列出 events，并支持使用 `[--query] 对 path、id、uid、title、date、timezone、when、
+`[plumb event --root DIR] 列出 events，并支持使用 `[--query] 对 path、id、title、date、timezone、when、
 解析后的 at/start/end、tasks
 与 now 执行 CEL。`[plumb event --root DIR export-vdir --output DIR] 生成受管理的只读 vdir；输出目录
 可以作为 khal 的 `[type = calendar]、`[readonly = true] calendar。每次导出原子替换旧 projection 并

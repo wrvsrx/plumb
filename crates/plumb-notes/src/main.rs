@@ -235,6 +235,7 @@ struct TaskTargetsConfig {
 }
 
 struct LoadedWorkspace {
+    root: PathBuf,
     workspace: Workspace,
     texts: HashMap<PathBuf, String>,
 }
@@ -250,7 +251,11 @@ fn load_workspace(root: &Path) -> Result<LoadedWorkspace, String> {
         workspace.insert(path, 0, text.clone());
         texts.insert(path.clone(), text);
     }
-    Ok(LoadedWorkspace { workspace, texts })
+    Ok(LoadedWorkspace {
+        root,
+        workspace,
+        texts,
+    })
 }
 
 fn render_workspace_diagnostics(root: &Path, loaded: &LoadedWorkspace) -> (String, bool) {

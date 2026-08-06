@@ -215,11 +215,6 @@ impl Workspace {
                     let fields = [
                         event.title.as_str(),
                         id.as_deref().unwrap_or_default(),
-                        event
-                            .uid
-                            .as_ref()
-                            .map(|uid| uid.value.as_str())
-                            .unwrap_or_default(),
                         relative_path.as_str(),
                     ];
                     let Some(score) = search_score(query, &fields) else {
@@ -574,10 +569,6 @@ impl SemanticSearchFilter {
         context.add_variable_from_value(
             "id",
             optional_search_string(event.id.as_ref().map(|id| &id.value)),
-        );
-        context.add_variable_from_value(
-            "uid",
-            optional_search_string(event.uid.as_ref().map(|uid| &uid.value)),
         );
         context.add_variable_from_value("title", event.title.clone());
         context.add_variable_from_value(

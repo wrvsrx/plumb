@@ -946,7 +946,6 @@ import { EDITABLE_TASK_PROPERTIES, missingTaskProperties } from './task-ui.js';
     addTaskField(fields, 'Start', event.start);
     addTaskField(fields, 'End', event.end || (event.start ? 'Running' : null));
     addTaskField(fields, 'Tasks', event.tasks);
-    addTaskField(fields, 'UID', event.uid);
     eventPanel.querySelector('.event-details').textContent = event.details;
     eventPanel.querySelector('.edit-event').disabled = !config.eventMutations || state.pendingEvent;
     eventPanel.querySelector('.delete-event').disabled = !config.eventMutations || state.pendingEvent;
