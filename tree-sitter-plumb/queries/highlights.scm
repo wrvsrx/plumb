@@ -10,6 +10,19 @@
   "[" @punctuation.bracket
   "]" @punctuation.bracket)
 
+(attached_block_group
+  "}" @punctuation.bracket)
+
+(block_group_open) @punctuation.bracket
+
+(verbatim_block
+  (block_group_open)
+  "}" @punctuation.bracket)
+
+(attached_inline_group
+  "{" @punctuation.bracket
+  "}" @punctuation.bracket)
+
 ; Attributes and their local punctuation.
 (attributes
   "{" @punctuation.bracket

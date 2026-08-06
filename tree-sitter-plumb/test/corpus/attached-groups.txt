@@ -1,0 +1,97 @@
+==================
+Root and nested block groups
+==================
+
+{
+  `title Example
+}
+
+`- Work
+   {
+     `task
+   }
+
+---
+
+(document
+  (blank_line)
+  (attached_block_group
+    (block_group_open)
+    (marked_block
+      (introducer)
+      (marker)
+      (head_separator)
+      (inline_content
+        (text))))
+  (blank_line)
+  (marked_block
+    (introducer)
+    (marker)
+    (head_separator)
+    (inline_content
+      (text))
+    (block_body
+      (attached_block_group
+        (block_group_open)
+        (marked_block
+          (introducer)
+          (marker))))))
+
+==================
+Recursive inline group
+==================
+
+`->[guide]{`id[main] `external[] `to[guide.plumb]}
+
+---
+
+(document
+  (blank_line)
+  (paragraph
+    (inline_content
+      (inline_element
+        (introducer)
+        (inline_kind)
+        (parsed_inline_content
+          (inline_text))
+        (attached_inline_group
+          (attached_inline_content
+            (inline_element
+              (introducer)
+              (inline_kind)
+              (parsed_inline_content
+                (inline_text)))
+            (attached_inline_text)
+            (inline_element
+              (introducer)
+              (inline_kind))
+            (attached_inline_text)
+            (inline_element
+              (introducer)
+              (inline_kind)
+              (parsed_inline_content
+                (inline_text)))))))))
+
+==================
+Structural verbatim opener
+==================
+
+`{
+  `language rust
+}
+  fn main() {}
+
+---
+
+(document
+  (blank_line)
+  (verbatim_block
+    (introducer)
+    (block_group_open)
+    (marked_block
+      (introducer)
+      (marker)
+      (head_separator)
+      (inline_content
+        (text)))
+    (raw_text)))

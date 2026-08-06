@@ -1,0 +1,19 @@
+{
+  `title Example
+  `tags
+    `- plumb
+}
+
+`- Buy milk
+   {
+     `task
+     `id shopping
+     `due 2026-08-07
+   }
+
+See `->[guide]{`id[main] `external[] `to[guide.plumb]}.
+
+`{
+  `language rust
+}
+  fn main() {}

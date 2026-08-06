@@ -1,6 +1,7 @@
 [
   (marked_block)
   (verbatim_block)
+  (attached_block_group)
   (paragraph)
 ] @block.outer
 
@@ -12,6 +13,8 @@
 [
   (inline_element)
   (inline_verbatim)
+  (attached_inline_group)
 ] @inline.outer
 
 (parsed_inline_content) @inline.inner
+(attached_inline_content) @inline.inner

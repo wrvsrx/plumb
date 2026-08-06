@@ -21,10 +21,19 @@ module.exports = grammar({
 
   extras: _ => [/[ \t\r]/],
 
+  conflicts: $ => [[$.document]],
+
   word: $ => $.attribute_name,
 
   rules: {
-    document: $ => repeat(choice($._block, $.blank_line)),
+    document: $ => choice(
+      seq(
+        repeat($.blank_line),
+        field('attached', $.attached_block_group),
+        repeat(choice($._block, $.blank_line)),
+      ),
+      repeat(choice($._block, $.blank_line)),
+    ),
 
     _block: $ => choice($.verbatim_block, $.marked_block, $.paragraph),
 
@@ -94,20 +103,51 @@ module.exports = grammar({
 
     block_body: $ => prec.dynamic(1, prec.right(seq(
       choice($._indent, $._indent_after_blank),
-      field('child', $._block),
+      field('child', choice($._block, $.attached_block_group)),
       repeat(choice(
         $.blank_line,
-        seq($._same_indent, field('child', $._block)),
+        seq($._same_indent, field('child', choice($._block, $.attached_block_group))),
       )),
       $._dedent,
     ))),
 
-    verbatim_block: $ => seq(
-      field('introducer', $.introducer),
-      field('attributes', $.attributes),
-      $._line_end,
-      field('body', repeat(alias($.raw_code_line, $.raw_text))),
+    verbatim_block: $ => choice(
+      seq(
+        field('introducer', $.introducer),
+        field('attributes', $.attributes),
+        $._line_end,
+        field('body', repeat(alias($.raw_code_line, $.raw_text))),
+      ),
+      prec(3, seq(
+        field('introducer', $.introducer),
+        $.block_group_open,
+        $._indent,
+        field('attached_content', $._block),
+        repeat(choice(
+          $.blank_line,
+          seq($._same_indent, field('attached_content', $._block)),
+        )),
+        $._dedent,
+        '}',
+        $._line_end,
+        field('body', repeat(alias($.raw_code_line, $.raw_text))),
+      )),
     ),
+
+    attached_block_group: $ => prec.right(seq(
+      $.block_group_open,
+      optional(seq(
+        $._indent,
+        field('content', $._block),
+        repeat(choice(
+          $.blank_line,
+          seq($._same_indent, field('content', $._block)),
+        )),
+        $._dedent,
+      )),
+      '}',
+      $._line_end,
+    )),
 
     paragraph: $ => seq(
       field('content', $.inline_content),
@@ -135,13 +175,25 @@ module.exports = grammar({
       $.inline_text,
     ))),
 
+    attached_inline_content: $ => prec.right(repeat1(choice(
+      $.introducer_escape,
+      $.bracket_escape,
+      $.inline_verbatim,
+      $.inline_element,
+      $.soft_break,
+      $.attached_inline_text,
+    ))),
+
     inline_element: $ => prec.right(2, seq(
       field('introducer', $.introducer),
       field('kind', $.inline_kind),
       '[',
       optional(field('content', $.parsed_inline_content)),
       ']',
-      optional(field('attributes', choice($.attributes, $.incomplete_attributes))),
+      optional(choice(
+        prec(2, field('attributes', choice($.attributes, $.incomplete_attributes))),
+        field('attached', $.attached_inline_group),
+      )),
     )),
 
     incomplete_inline_element: $ => prec.right(-1, seq(
@@ -154,19 +206,40 @@ module.exports = grammar({
 
     inline_verbatim: $ => seq(
       field('source', $._inline_verbatim_token),
-      optional(field('attributes', choice($.attributes, $.incomplete_attributes))),
+      optional(choice(
+        prec(2, field('attributes', choice($.attributes, $.incomplete_attributes))),
+        field('attached', $.attached_inline_group),
+      )),
     ),
 
-    attributes: $ => seq(
+    attached_inline_group: $ => prec(-1, seq(
       $._attribute_open,
-      repeat(choice(
-        $._attribute_newline,
-        field('id', $.attribute_id),
-        field('class', $.attribute_class),
-        field('pair', $.attribute_pair),
-      )),
+      optional(field('content', $.attached_inline_content)),
       '}',
-    ),
+    )),
+
+    attributes: $ => prec(2, choice(
+      seq(
+        $._attribute_open,
+        repeat(choice(
+          $._attribute_newline,
+          field('id', $.attribute_id),
+          field('class', $.attribute_class),
+          field('pair', $.attribute_pair),
+        )),
+        '}',
+      ),
+      seq(
+        $._multiline_attribute_open,
+        repeat(choice(
+          $._attribute_newline,
+          field('id', $.attribute_id),
+          field('class', $.attribute_class),
+          field('pair', $.attribute_pair),
+        )),
+        '}',
+      ),
+    )),
 
     incomplete_attributes: $ => prec.right(-1, seq(
       $._attribute_open,
@@ -201,8 +274,11 @@ module.exports = grammar({
     head_separator: _ => token(prec(2, /[ \t]+/)),
     _attribute_open: _ => token(prec(2, '{')),
     _attribute_newline: _ => /\n[ ]*/,
+    block_group_open: _ => token(prec(3, /\{\n/)),
+    _multiline_attribute_open: _ => token(prec(3, /\{\n/)),
     text: _ => /[^`\n]+/,
     inline_text: _ => /[^`\]\n]+/,
+    attached_inline_text: _ => /[^`}\n.#=]+/,
     _line_end: $ => choice('\n', $._eof),
   },
 });
