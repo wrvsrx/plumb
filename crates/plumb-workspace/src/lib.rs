@@ -13,7 +13,8 @@ use plumb_extensions::{
     analyze_document, parse_task_reference_target, AnchorRecord, DocumentOutput, EventRecord,
     FileCompletionContext, FileRecord, FileTarget, ImageCompletionContext, ImageRecord,
     ImageTarget, LinkCompletionContext, LinkRecord, LinkSpelling, LinkTarget, MetadataOutput,
-    MetadataValue, TaskDependencyCompletionContext, TaskRecord, TaskReferenceTarget, TaskState,
+    MetadataValue, TaskDependency, TaskDependencyCompletionContext, TaskRecord,
+    TaskReferenceTarget, TaskState,
 };
 
 mod scan;
@@ -487,7 +488,7 @@ impl Workspace {
             }
         }
         for event in &output.events.events {
-            for reference in &event.tasks {
+            for reference in &self.event_task_references(&path, event) {
                 if !contains_inclusive(&reference.range, offset) {
                     continue;
                 }
@@ -665,7 +666,7 @@ impl Workspace {
                 }
             }
             for event in &current.output.events.events {
-                for reference in &event.tasks {
+                for reference in &self.event_task_references(&entry.path, event) {
                     if let Some(reference) = self.task_anchor_reference(
                         &entry.path,
                         &reference.source,
@@ -730,7 +731,7 @@ impl Workspace {
                 }
             }
             for event in &current.output.events.events {
-                for reference in &event.tasks {
+                for reference in &self.event_task_references(&entry.path, event) {
                     if resolved_document_path(
                         self.resolve_task_reference_target(&entry.path, &reference.target),
                     )
@@ -777,7 +778,7 @@ impl Workspace {
             }
         }
         for event in &output.events.events {
-            for reference in &event.tasks {
+            for reference in &self.event_task_references(&source_path, event) {
                 if let Some(path) = resolved_document_path(
                     self.resolve_task_reference_target(&source_path, &reference.target),
                 ) {
@@ -930,7 +931,7 @@ impl Workspace {
                 continue;
             };
             for event in &current.output.events.events {
-                if event.tasks.iter().any(|reference| {
+                if self.event_task_references(&entry.path, event).iter().any(|reference| {
                     matches!(
                         self.resolve_task_target(&entry.path, &reference.target),
                         TaskTargetResolution::Task { target: ref resolved, .. } if resolved == target
@@ -952,6 +953,57 @@ impl Workspace {
                 .then(left.event.range.start.cmp(&right.event.range.start))
         });
         events
+    }
+
+    pub fn event_task_references(
+        &self,
+        path: impl AsRef<Path>,
+        event: &EventRecord,
+    ) -> Vec<TaskDependency> {
+        if event.tasks_override {
+            return event.tasks.clone();
+        }
+        let path = normalize(path.as_ref());
+        let Some(current) = self.current_output(&path) else {
+            return Vec::new();
+        };
+        current
+            .links
+            .iter()
+            .filter(|link| {
+                event.range.start <= link.range.start && link.range.end <= event.range.end
+            })
+            .filter_map(|link| {
+                let LinkTarget::Anchor { path: target_path, fragment } = &link.target_kind else {
+                    return None;
+                };
+                let resolved = self.resolve_link(&path, link);
+                let ResolvedTarget::Anchor { path: resolved_path, id, .. } = resolved else {
+                    return None;
+                };
+                let target_output = self.current_output(&resolved_path)?;
+                let is_task = target_output.tasks.tasks.iter().any(|task| {
+                    task.id.as_ref().is_some_and(|field| field.value == id)
+                });
+                if !is_task {
+                    return None;
+                }
+                let target = match target_path {
+                    Some(target_path) => TaskReferenceTarget::External {
+                        path: target_path.clone(),
+                        id: fragment.clone(),
+                    },
+                    None => TaskReferenceTarget::Internal {
+                        id: fragment.clone(),
+                    },
+                };
+                Some(TaskDependency {
+                    source: link.target.value.clone(),
+                    range: link.target.range.clone(),
+                    target,
+                })
+            })
+            .collect()
     }
 
     pub fn add_explicit_id(
@@ -1078,7 +1130,7 @@ impl Workspace {
     ) -> Vec<Diagnostic> {
         let mut diagnostics = Vec::new();
         for event in &current.output.events.events {
-            for reference in &event.tasks {
+            for reference in &self.event_task_references(path, event) {
                 if let Some(mut diagnostic) = self.task_target_diagnostic(
                     path,
                     &reference.source,
@@ -5527,7 +5579,7 @@ mod tests {
             1,
             "`-{.task #write} Write\n`node{#plain} Plain\n",
         );
-        let events = "`meta\n  `: date\n\n    2026-07-30\n\n  `: timezone\n\n    +08:00\n\n`-{.event timezone=\"+05:00\"} 10:30 Early\n`-{.event #review tasks=\"tasks.plumb#write\"} 14:00--15:00 Review\n`-{.event tasks=\"tasks.plumb#plain missing.plumb#task bad\"} 15:00 Point\n";
+        let events = "`meta\n  `: date\n\n    2026-07-30\n\n  `: timezone\n\n    +08:00\n\n`-{.event timezone=\"+05:00\"} 10:30 Early\n`-{.event} 11:00 `->[Write]{to=\"tasks.plumb#write\"}\n`-{.event tasks=\"\"} 12:00 `->[Write]{to=\"tasks.plumb#write\"}\n`-{.event #review tasks=\"tasks.plumb#write\"} 14:00--15:00 Review\n`-{.event tasks=\"tasks.plumb#plain missing.plumb#task bad\"} 15:00 Point\n";
         workspace.insert("events.plumb", 2, events);
 
         let target = TaskRef {
@@ -5535,8 +5587,8 @@ mod tests {
             id: "write".to_string(),
         };
         let associated = workspace.events_for_task(&target);
-        assert_eq!(associated.len(), 1);
-        assert_eq!(associated[0].event.title, "Review");
+        assert_eq!(associated.len(), 2);
+        assert_eq!(associated.iter().map(|event| event.event.title.as_str()).collect::<Vec<_>>(), ["Write", "Review"]);
 
         let day_start = DateTime::parse_from_rfc3339("2026-07-30T05:00:00Z").unwrap();
         let day_end = DateTime::parse_from_rfc3339("2026-07-30T08:00:00Z").unwrap();
@@ -5565,7 +5617,7 @@ mod tests {
             workspace.reference_target_at("events.plumb", reference_offset),
             Some(ResolvedTarget::Document { ref path }) if path == Path::new("tasks.plumb")
         ));
-        assert_eq!(workspace.references_to("tasks.plumb", "write").len(), 1);
+        assert_eq!(workspace.references_to("tasks.plumb", "write").len(), 4);
         assert_eq!(
             workspace.referenced_documents_from("events.plumb"),
             [PathBuf::from("tasks.plumb")]

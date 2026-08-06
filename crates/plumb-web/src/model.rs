@@ -675,8 +675,9 @@ impl WebWorkspace {
                             at: event.at.as_ref().map(|field| field.value.clone()),
                             start: event.start.as_ref().map(|field| field.value.clone()),
                             end: event.end.as_ref().map(|field| field.value.clone()),
-                            tasks: event
-                                .tasks
+                            tasks: self
+                                .workspace
+                                .event_task_references(&entry.path, event)
                                 .iter()
                                 .map(|reference| reference.source.clone())
                                 .collect(),

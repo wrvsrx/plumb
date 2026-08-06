@@ -31,6 +31,7 @@ pub struct EventRecord {
     pub start: Option<EventField>,
     pub end: Option<EventField>,
     pub tasks: Vec<TaskDependency>,
+    pub tasks_override: bool,
 }
 
 impl EventRecord {
@@ -238,6 +239,9 @@ fn event_record(
         start,
         end,
         tasks: task_reference_fields(source, &mark.attrs.items, "tasks"),
+        tasks_override: mark.attrs.items.iter().any(|item| {
+            matches!(item, AttrItem::Pair { key, .. } if key == "tasks")
+        }),
     }
 }
 

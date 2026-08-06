@@ -71,7 +71,13 @@ fn desired_events(loaded: &LoadedWorkspace) -> Result<BTreeMap<String, String>, 
             ));
         }
         let start = start.with_timezone(&Utc);
-        let ical = render_event(event, &uid, start, end.map(|end| end.with_timezone(&Utc)));
+        let tasks = loaded
+            .workspace
+            .event_task_references(&entry.path, event)
+            .into_iter()
+            .map(|task| task.source)
+            .collect::<Vec<_>>();
+        let ical = render_event(event, &uid, start, end.map(|end| end.with_timezone(&Utc)), &tasks);
         let filename = format!("{uid}.ics");
         if desired.insert(filename, ical).is_some() {
             return Err(format!(
@@ -173,6 +179,7 @@ fn render_event(
     uid: &str,
     start: DateTime<Utc>,
     end: Option<DateTime<Utc>>,
+    tasks: &[String],
 ) -> String {
     let mut lines = vec![
         "BEGIN:VCALENDAR".to_string(),
@@ -189,8 +196,8 @@ fn render_event(
     }
     lines.push(format!("SUMMARY:{}", escape_text(&event.title)));
     lines.push(format!("DESCRIPTION:{}", escape_text(&event.details)));
-    for task in &event.tasks {
-        lines.push(format!("X-PLUMB-TASK:{}", escape_text(&task.source)));
+    for task in tasks {
+        lines.push(format!("X-PLUMB-TASK:{}", escape_text(task)));
     }
     lines.extend(["END:VEVENT".to_string(), "END:VCALENDAR".to_string()]);
     let mut output = String::new();
