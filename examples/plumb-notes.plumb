@@ -55,9 +55,8 @@ The picker supports fuzzy matching, source previews, multiple selections,
 `-{.task #weekly-review due="2026-07-27T17:00:00+08:00" wait="2026-07-27T09:00:00+08:00" recur=P1W} Review recurring task advancement
 
 `-{
-   .event #query-review uid="query-review@example" start="2026-07-30T14:00:00+08:00"
-   end="2026-07-30T15:00:00+08:00" tasks="#try-task-query"
-  } Review task query behavior
+   .event #query-review tasks="#try-task-query"
+  } 2026-07-30T14:00:00+08:00--15:00 Review task query behavior
 
    `note This event appears in event CEL queries, Web Agenda, and the read-only vdir projection.
 
