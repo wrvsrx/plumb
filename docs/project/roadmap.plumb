@@ -23,8 +23,9 @@
 `# Semantic extensions
 
 `- 按 `->[attached declarations redesign]{to="attached-declarations.plumb"} 将 attached facet/property
-   projection 收敛为 collection members 与 definition associations，并增加 `[()] transparent inline
-   group；实施前先冻结 structured value、duplicate key 与迁移边界。
+   projection 收敛为 collection members、definition associations 与 identity declarations，增加 `[()]
+   transparent inline group，并以 `[KIND?"] 统一 compact inline/block verbatim；实施前先冻结 compact
+   block ownership、structured value、duplicate key 与迁移边界。
 `- 只有具体需求出现后再设计 structured citation cluster、locator、affix 和 citation modes。
 `- table、thematic break 和其他 presentation semantics 需要独立 proposal，不进入
    core reserved syntax。
