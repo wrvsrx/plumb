@@ -1,3 +1,4 @@
+use chrono::Local;
 use serde_json::json;
 
 use crate::support::{attribute_value, response, run_server};
@@ -400,8 +401,9 @@ fn converts_event_shorthand_with_a_refactor_action() {
     assert!(replacement.contains(".event"), "{replacement}");
     assert!(replacement.ends_with("relax: `[phone]\n"), "{replacement}");
     assert!(replacement.contains("date=2026-05-21"), "{replacement}");
+    let timezone = Local::now().fixed_offset().format("%:z").to_string();
     assert!(
-        replacement.contains("timezone=\"+08:00\"} 11:10--11:20 "),
+        replacement.contains(&format!("timezone=\"{timezone}\"}} 11:10--11:20 ")),
         "{replacement}"
     );
     assert!(!replacement.contains("#e0001"), "{replacement}");

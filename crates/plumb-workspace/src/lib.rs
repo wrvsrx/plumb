@@ -974,17 +974,28 @@ impl Workspace {
                 event.range.start <= link.range.start && link.range.end <= event.range.end
             })
             .filter_map(|link| {
-                let LinkTarget::Anchor { path: target_path, fragment } = &link.target_kind else {
+                let LinkTarget::Anchor {
+                    path: target_path,
+                    fragment,
+                } = &link.target_kind
+                else {
                     return None;
                 };
                 let resolved = self.resolve_link(&path, link);
-                let ResolvedTarget::Anchor { path: resolved_path, id, .. } = resolved else {
+                let ResolvedTarget::Anchor {
+                    path: resolved_path,
+                    id,
+                    ..
+                } = resolved
+                else {
                     return None;
                 };
                 let target_output = self.current_output(&resolved_path)?;
-                let is_task = target_output.tasks.tasks.iter().any(|task| {
-                    task.id.as_ref().is_some_and(|field| field.value == id)
-                });
+                let is_task = target_output
+                    .tasks
+                    .tasks
+                    .iter()
+                    .any(|task| task.id.as_ref().is_some_and(|field| field.value == id));
                 if !is_task {
                     return None;
                 }
@@ -5588,7 +5599,13 @@ mod tests {
         };
         let associated = workspace.events_for_task(&target);
         assert_eq!(associated.len(), 2);
-        assert_eq!(associated.iter().map(|event| event.event.title.as_str()).collect::<Vec<_>>(), ["Write", "Review"]);
+        assert_eq!(
+            associated
+                .iter()
+                .map(|event| event.event.title.as_str())
+                .collect::<Vec<_>>(),
+            ["Write", "Review"]
+        );
 
         let day_start = DateTime::parse_from_rfc3339("2026-07-30T05:00:00Z").unwrap();
         let day_end = DateTime::parse_from_rfc3339("2026-07-30T08:00:00Z").unwrap();

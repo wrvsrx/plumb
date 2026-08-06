@@ -239,9 +239,11 @@ fn event_record(
         start,
         end,
         tasks: task_reference_fields(source, &mark.attrs.items, "tasks"),
-        tasks_override: mark.attrs.items.iter().any(|item| {
-            matches!(item, AttrItem::Pair { key, .. } if key == "tasks")
-        }),
+        tasks_override: mark
+            .attrs
+            .items
+            .iter()
+            .any(|item| matches!(item, AttrItem::Pair { key, .. } if key == "tasks")),
     }
 }
 

@@ -77,7 +77,13 @@ fn desired_events(loaded: &LoadedWorkspace) -> Result<BTreeMap<String, String>, 
             .into_iter()
             .map(|task| task.source)
             .collect::<Vec<_>>();
-        let ical = render_event(event, &uid, start, end.map(|end| end.with_timezone(&Utc)), &tasks);
+        let ical = render_event(
+            event,
+            &uid,
+            start,
+            end.map(|end| end.with_timezone(&Utc)),
+            &tasks,
+        );
         let filename = format!("{uid}.ics");
         if desired.insert(filename, ical).is_some() {
             return Err(format!(
