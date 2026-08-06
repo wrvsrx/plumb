@@ -1,0 +1,134 @@
+`# Neovim LSP folding patch 总结
+
+本文记录 `[~/Documents/neovim] 中 `[fix/lsp-fold-reconciliation] 分支上的实验性 patch，供继续推动
+Neovim folding 开发和准备 upstream change 使用。它描述的是 2026-08-06 时 fork 中已经存在的实现，
+不是 plumb 的 normative contract。
+
+`## 基线与交付物
+
+patch 基于 Neovim `[v0.12.4]，最终 commit 是 `[9d1f449a52]，发布 tag 是
+`[lsp-single-line-folds-nvim-0.12.4-v6]。完整 diff 可由以下地址取得：
+
+`raw
+  https://github.com/wrvsrx/neovim/compare/v0.12.4...lsp-single-line-folds-nvim-0.12.4-v6.diff
+
+NUR package 已通过 `[pkgs/neovim-unwrapped/default.nix] 引用这个 aggregate diff。patch 只修改两个文件：
+
+`* `[runtime/lua/vim/lsp/_folding_range.lua]
+`* `[test/functional/plugin/lsp/folding_range_spec.lua]
+
+相对 `[v0.12.4]，最终 diff 是 654 insertions、24 deletions，其中 runtime 328 行、tests 350 行。
+
+`## 要解决的问题
+
+上游 LSP folding adapter 原先只接受 `[startLine < endLine] 的 range，因此合法的 whole-line
+single-physical-line `[FoldingRange] 会被直接忽略。即使 adapter 接受这种 range，编辑期间仍有第二组问题：
+
+`* buffer edit 到新的 server response 之间存在异步窗口，旧 range 的行号已经失效；
+`* 原实现只平移 `[row_level]，无法表达 range identity，也无法可靠保留用户手动打开的 fold；
+`* line join、range expansion/shrink、nested range boundary 变化会使 opener 暂时消失或重新建立；
+`* `[foldupdate()] 重建 fold 后会按全局 `[foldlevel] 重新决定状态，覆盖用户对局部 fold 的 `[zo] 选择；
+`* insert mode 中 `[foldUpdate()] 受保护，更新必须延迟到 `[InsertLeave]，状态恢复也必须跟着延迟。
+
+目标不是让 LSP server 伪造多行 range，而是让 Neovim 正确消费协议允许的 range，并在正常编辑和
+server refresh 中保持每个 window 的用户 fold state。
+
+`## Commit 链
+
+`* `[2435abd1fb] `[fix(lsp): support single-line folding ranges]
+
+  接受 `[startLine == endLine]。计算 fold levels 时先分别收集 row starts 和 row ends，再统一决定
+  opener/closer，避免相邻 single-line folds、同一行上的 start/end 和 EOF range 相互覆盖。
+
+`* `[e1f13122e3] `[fix(lsp): preserve folds across line joins]
+
+  开始使用 `[on_bytes] 提供的 column 和 old/new extent 信息。line join 删除后续行时保留仍然存活的
+  start row，避免 fold opener 在新 response 到达前消失。覆盖 multi-line fold shrink 成 single-line
+  fold 的情况。
+
+`* `[ec298cdb49] `[fix(lsp): preserve open folds across expansion]
+
+  在 range 因编辑扩大时保存手动 open state，使原本打开的 single-line fold 扩大后不会按全局
+  `[foldlevel] 自动关闭。
+
+`* `[9d1f449a52] `[fix(lsp): reconcile fold state across edits]
+
+  将前面的局部修补整理成完整 reconciliation：缓存 range 随 buffer edit 映射，记录每个 client、
+  range 和 window 的 open state；新 server response 到达后按 overlap 与 nesting depth 匹配 old/new
+  ranges；执行 `[foldupdate()] 后恢复 matched folds，并为新出现且包含可见 cursor 的 fold 保持打开。
+
+`## 最终实现模型
+
+每个 buffer 的 folding state 新增三类状态：
+
+`* `[pending_edit] 和 `[edit_tick] 标识缓存是否经过尚未被 server response 确认的 edit；
+`* `[open_folds] 以 client、range index、window id 三层索引保存 edit 前的 open folds；
+`* `[scheduled_open_rows] 保存 insert mode 下等待 `[InsertLeave] 执行的 per-window restore actions。
+
+一次 edit 的处理顺序是：
+
+`1 capture 当前每个 window 中打开的 cached ranges；
+`2 使用 `[on_bytes] 的 start row/column 和 old/new row extents 映射 cached range boundaries；
+`3 删除被 edit 完全移除、没有 provisional successor 的 range；
+`4 立即重新 evaluate foldexpr rows，并 schedule 恢复映射后的 open rows；
+`5 等待 LSP 返回 fresh folding ranges；
+`6 按 nesting depth 相等且 line overlap 最大的一对一规则匹配 new range 与 mapped old range；
+`7 执行 `[foldupdate()]，再恢复 matched open folds；
+`8 对没有 predecessor 的新增 range，若它包含某个 window 中仍然可见的 cursor，则保持打开，否则按
+   window fold settings 关闭；
+`9 仅当 response 对应的 `[edit_tick] 仍是最新值时清除 pending state，避免旧 response 清除新 edit
+   的 reconciliation context。
+
+fold restore 只作用于仍然有效、显示该 buffer 且 `[foldmethod=expr] 的 window。它先执行需要关闭的
+actions，再执行需要打开的 actions，以便 nested folds 的最终状态不受遍历顺序影响。
+
+`## Functional test 覆盖
+
+新增测试覆盖：
+
+`* adjacent single-line ranges 与 document EOF single-line range 保持为独立 folds；
+`* manually opened multi-line fold 经 line join shrink 成 single-line 后仍打开；
+`* opened single-line fold 经 edit expansion 后仍打开；
+`* nested folds 的 boundaries grow/shrink 时分别保留状态；
+`* 离开并返回 buffer 后 fold state 不丢失；
+`* edit 后新增、包含 visible cursor 的 fold 不会突然关闭。
+
+对应 Neovim functional test 文件是
+`[test/functional/plugin/lsp/folding_range_spec.lua]。准备提交 upstream 前应至少在目标基线上运行：
+
+`raw
+  make functionaltest TEST_FILE=test/functional/plugin/lsp/folding_range_spec.lua
+
+还应补做 multi-window、multi-client、rapid consecutive edits、out-of-order responses、insert-mode edits 和
+large range sets 的压力验证。
+
+`## 当前风险与待讨论点
+
+`* `[reconcile_ranges] 通过 nesting depth 和最大 line overlap 推断 identity。它不依赖
+  `[collapsedText] 或 kind，避免 presentation change 破坏匹配，但 repeated siblings 在大范围 rewrite
+  后可能匹配到错误 predecessor。
+`* `[range_depths] 和 matching 都是 nested loops，整体最坏为 range 数量的平方。普通文档可接受，
+  large generated files 需要 benchmark 或更好的 interval/index strategy。
+`* state 以 range index 关联 client response。多个 client 提供重叠 ranges 时，foldexpr 合并后的 UI fold
+  与单个 client range 不总是一一对应，需要明确 conflict semantics。
+`* restore 使用 Ex `[foldopen] 和 `[foldclose!]。需要确认 window-local manual fold state、foldenable、
+  foldlevel、foldnestmax 以及 closed outer fold 下的 inner state 是否都符合 Neovim 的既有约定。
+`* 当前 patch 同时解决 protocol acceptance、edit mapping 和 UI state reconciliation，最终 runtime diff 较大。
+  upstream review 更适合拆成可以独立论证和测试的 changes。
+`* branch 基于 release tag `[v0.12.4]，提交 upstream 前必须 rebase 到当前 Neovim master，并检查
+  `[vim.lsp._folding_range] 已发生的并行修改。
+
+`## 建议的 upstream 拆分
+
+`1 单独提交 single-line `[FoldingRange] support，只包含 evaluate 算法和 adjacent/EOF tests。这个 change
+   最小，直接对应 LSP protocol behavior。
+`2 单独提交 cached ranges through `[on_bytes] edit mapping，先保证等待 server response 时 foldexpr 不使用
+   stale rows，并覆盖 insertion、deletion、join 和 split。
+`3 单独提交 per-window manual open-state preservation，明确它与 foldlevel、cursor visibility、insert mode
+   和 multiple windows 的交互。
+`4 最后提交 old/new range reconciliation；在 commit message 或 design discussion 中明确 identity heuristic、
+   complexity 和 unmatched ranges 的 policy。
+
+正式发 PR 前，建议先开 issue 或 discussion，用最小 reproduction 展示两个相互独立的现象：上游忽略
+single-line LSP range，以及异步 refresh 后手动 open fold 被关闭。这样 protocol correctness 与 state
+preservation 不会在 review 中被当成同一个不可拆分问题。
