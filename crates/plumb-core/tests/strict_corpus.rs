@@ -214,6 +214,7 @@ fn inline_shape(content: &InlineContent) -> String {
         stack.push((items, index + 1, closes_element));
         match &items[index] {
             Inline::Text { text, .. } => output.push_str(&format!("T{text:?}")),
+            Inline::Space { text, .. } => output.push_str(&format!("W{text:?}")),
             Inline::SoftBreak { .. } => output.push('S'),
             Inline::Verbatim {
                 text,

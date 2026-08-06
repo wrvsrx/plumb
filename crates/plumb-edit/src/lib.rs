@@ -89,6 +89,7 @@ pub enum OwnedBlock {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OwnedInline {
     Text(String),
+    Space(String),
     SoftBreak,
     Element {
         kind: String,
@@ -263,6 +264,7 @@ impl OwnedInline {
     fn from_syntax(inline: &Inline) -> Self {
         match inline {
             Inline::Text { text, .. } => Self::Text(text.clone()),
+            Inline::Space { text, .. } => Self::Space(text.clone()),
             Inline::SoftBreak { .. } => Self::SoftBreak,
             Inline::Element {
                 kind,
@@ -597,6 +599,7 @@ fn render_owned_inlines(
                     }
                 }
             }
+            OwnedInline::Space(space) => output.push_str(space),
             OwnedInline::SoftBreak => {
                 output.push('\n');
                 output.extend(std::iter::repeat_n(' ', continuation_indent));

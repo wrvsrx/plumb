@@ -78,7 +78,7 @@ fn collect_inlines(content: &InlineContent, output: &mut MathOutput) {
                 recognize(attrs, range.clone(), MathKind::Inline, false, output);
                 collect_inlines(content, output);
             }
-            Inline::Text { .. } | Inline::SoftBreak { .. } => {}
+            Inline::Text { .. } | Inline::Space { .. } | Inline::SoftBreak { .. } => {}
         }
     }
 }

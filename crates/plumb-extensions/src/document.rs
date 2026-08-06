@@ -280,7 +280,7 @@ fn collect_inlines(
                     output,
                 );
             }
-            Inline::Text { .. } | Inline::SoftBreak { .. } => {}
+            Inline::Text { .. } | Inline::Space { .. } | Inline::SoftBreak { .. } => {}
         }
     }
 }

@@ -22,7 +22,7 @@
     "name": "deferred head and paragraph child",
     "source": "`node Head\n  continuation\n\n  child paragraph\n",
     "valid": true,
-    "blocks": [{"kind":"marked","marker":"node","attrs":[],"head":"Head continuation","inline":"T\"Head\"ST\"continuation\"","children":[{"kind":"paragraph","head":"child paragraph","inline":"T\"child paragraph\""}]}],
+    "blocks": [{"kind":"marked","marker":"node","attrs":[],"head":"Head continuation","inline":"T\"Head\"ST\"continuation\"","children":[{"kind":"paragraph","head":"child paragraph","inline":"T\"child\"W\" \"T\"paragraph\""}]}],
     "diagnostics": [],
     "required_tokens": ["Indentation","LineEnding","Text"]
   },
@@ -46,7 +46,7 @@
     "name": "nested parsed inline and escapes",
     "source": "before `span[a `em[b] `` `] c]{.x} after\n",
     "valid": true,
-    "blocks": [{"kind":"paragraph","head":"before a b ` ] c after","inline":"T\"before \"Espan[\".x\"][T\"a \"Eem[][T\"b\"]T\" \"T\"`\"T\" \"T\"]\"T\" c\"]T\" after\""}],
+    "blocks": [{"kind":"paragraph","head":"before a b ` ] c after","inline":"T\"before\"W\" \"Espan[\".x\"][T\"a\"W\" \"Eem[][T\"b\"]W\" \"T\"`\"W\" \"T\"]\"W\" \"T\"c\"]W\" \"T\"after\""}],
     "diagnostics": [],
     "required_tokens": ["InlineKind","Escape","Delimiter"]
   },
@@ -54,7 +54,7 @@
     "name": "multiline parsed inline soft break",
     "source": "before `span[a\nb] after\n",
     "valid": true,
-    "blocks": [{"kind":"paragraph","head":"before a b after","inline":"T\"before \"Espan[][T\"a\"ST\"b\"]T\" after\""}],
+    "blocks": [{"kind":"paragraph","head":"before a b after","inline":"T\"before\"W\" \"Espan[][T\"a\"ST\"b\"]W\" \"T\"after\""}],
     "diagnostics": [],
     "required_tokens": ["InlineKind","LineEnding"]
   },
@@ -62,7 +62,7 @@
     "name": "strengthened inline verbatim",
     "source": "Raw `\"[a ] b]\"{language=text}\n",
     "valid": true,
-    "blocks": [{"kind":"paragraph","head":"Raw a ] b","inline":"T\"Raw \"V1[\"language=text\"]\"a ] b\""}],
+    "blocks": [{"kind":"paragraph","head":"Raw a ] b","inline":"T\"Raw\"W\" \"V1[\"language=text\"]\"a ] b\""}],
     "diagnostics": [],
     "required_tokens": ["RawPayload","AttributeName","AttributeValue"]
   },
@@ -106,7 +106,7 @@
     "name": "unclosed parsed inline recovers at blank",
     "source": "before `span[open\n\nnext\n",
     "valid": false,
-    "blocks": [{"kind":"paragraph","head":"before ","inline":"T\"before \""},{"kind":"paragraph","head":"next","inline":"T\"next\""}],
+    "blocks": [{"kind":"paragraph","head":"before ","inline":"T\"before\"W\" \""},{"kind":"paragraph","head":"next","inline":"T\"next\""}],
     "diagnostics": [{"code":"syntax.unclosed-inline","range":{"text":"`span[open"}}],
     "required_tokens": ["Error","LineEnding","Text"]
   },
@@ -114,7 +114,7 @@
     "name": "unclosed inline verbatim stays on physical line",
     "source": "before `[raw\nnext\n",
     "valid": false,
-    "blocks": [{"kind":"paragraph","head":"before  next","inline":"T\"before \"ST\"next\""}],
+    "blocks": [{"kind":"paragraph","head":"before  next","inline":"T\"before\"W\" \"ST\"next\""}],
     "diagnostics": [{"code":"syntax.unclosed-verbatim","range":{"text":"`[raw"}}],
     "required_tokens": ["Error","LineEnding"]
   },
@@ -130,7 +130,7 @@
     "name": "structural tab is diagnosed and recovered",
     "source": "`parent\n\t`child\nnext\n",
     "valid": false,
-    "blocks": [{"kind":"marked","marker":"parent","attrs":[],"head":"","inline":"","children":[]},{"kind":"paragraph","head":"\t next","inline":"T\"\\t\"ST\"next\""}],
+    "blocks": [{"kind":"marked","marker":"parent","attrs":[],"head":"","inline":"","children":[]},{"kind":"paragraph","head":"\t next","inline":"W\"\\t\"ST\"next\""}],
     "diagnostics": [{"code":"syntax.tab-indentation","range":{"text":"\t"}},{"code":"syntax.invalid-inline-dispatch","range":{"text":"`child"}}],
     "required_tokens": ["Error"]
   },
@@ -155,7 +155,7 @@
     "source": "``literal `custom[value]\n`mystery Head\n",
     "valid": true,
     "blocks": [
-      {"kind":"paragraph","head":"`literal value","inline":"T\"`\"T\"literal \"Ecustom[][T\"value\"]"},
+      {"kind":"paragraph","head":"`literal value","inline":"T\"`\"T\"literal\"W\" \"Ecustom[][T\"value\"]"},
       {"kind":"marked","marker":"mystery","attrs":[],"head":"Head","inline":"T\"Head\"","children":[]}
     ],
     "diagnostics": [],
@@ -208,7 +208,7 @@
     "name": "invalid inline dispatch recovers to following line",
     "source": "before `oops\nnext\n",
     "valid": false,
-    "blocks": [{"kind":"paragraph","head":"before  next","inline":"T\"before \"ST\"next\""}],
+    "blocks": [{"kind":"paragraph","head":"before  next","inline":"T\"before\"W\" \"ST\"next\""}],
     "diagnostics": [{"code":"syntax.invalid-inline-dispatch","range":{"text":"`oops"}}],
     "required_tokens": ["Error","LineEnding"]
   },
@@ -284,7 +284,7 @@
     "valid": false,
     "blocks": [
       {"kind":"marked","marker":"node","attrs":[],"head":"}bad","inline":"T\"}bad\"","children":[]},
-      {"kind":"paragraph","head":"before ","inline":"T\"before \""}
+      {"kind":"paragraph","head":"before ","inline":"T\"before\"W\" \""}
     ],
     "diagnostics": [
       {"code":"syntax.invalid-block-dispatch","range":{"text":"`node}"}},

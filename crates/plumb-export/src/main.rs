@@ -339,6 +339,7 @@ fn lower_inlines(content: &InlineContent, analysis: &DocumentOutput) -> Vec<Valu
     for inline in &content.items {
         match inline {
             Inline::Text { text, .. } => lower_text(text, &mut output),
+            Inline::Space { text, .. } => lower_text(text, &mut output),
             Inline::SoftBreak { .. } => output.push(json!({ "t": "SoftBreak" })),
             Inline::Verbatim {
                 range, text, attrs, ..

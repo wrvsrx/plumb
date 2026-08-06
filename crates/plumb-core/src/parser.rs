@@ -1090,11 +1090,25 @@ fn next_token_end(source: &str, mut cursor: usize, limit: usize) -> usize {
 }
 
 fn flush_inline_text(source: &str, frame: &mut InlineFrame, end: usize) {
-    if frame.text_start < end {
-        frame.items.push(Inline::Text {
-            text: source[frame.text_start..end].to_string(),
-            range: frame.text_start..end,
-        });
+    let mut cursor = frame.text_start;
+    while cursor < end {
+        let is_space = matches!(source.as_bytes()[cursor], b' ' | b'\t');
+        let start = cursor;
+        while cursor < end && matches!(source.as_bytes()[cursor], b' ' | b'\t') == is_space {
+            cursor = next_char_end(source, cursor);
+        }
+        let text = source[start..cursor].to_string();
+        if is_space {
+            frame.items.push(Inline::Space {
+                text,
+                range: start..cursor,
+            });
+        } else {
+            frame.items.push(Inline::Text {
+                text,
+                range: start..cursor,
+            });
+        }
     }
     frame.text_start = end;
 }
@@ -1201,7 +1215,12 @@ mod tests {
         let Block::Parsed(first) = &parsed.syntax.blocks[0] else {
             panic!("expected first paragraph");
         };
-        let Inline::Element { attrs, .. } = &first.head.items[1] else {
+        let Some(Inline::Element { attrs, .. }) = first
+            .head
+            .items
+            .iter()
+            .find(|inline| matches!(inline, Inline::Element { .. }))
+        else {
             panic!("expected span");
         };
         assert_eq!(attrs.id(), Some("inline"));
@@ -1215,7 +1234,12 @@ mod tests {
         let Block::Parsed(second) = &parsed.syntax.blocks[1] else {
             panic!("expected second paragraph");
         };
-        let Inline::Verbatim { attrs, .. } = &second.head.items[1] else {
+        let Some(Inline::Verbatim { attrs, .. }) = second
+            .head
+            .items
+            .iter()
+            .find(|inline| matches!(inline, Inline::Verbatim { .. }))
+        else {
             panic!("expected verbatim inline");
         };
         assert!(attrs.has_class("$"));
@@ -1321,6 +1345,26 @@ mod tests {
     }
 
     #[test]
+    fn exposes_horizontal_whitespace_as_typed_inline_space() {
+        let parsed = parse("`node one   two\tthree\n");
+        assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
+        let Block::Parsed(block) = &parsed.syntax.blocks[0] else {
+            panic!("expected marked block");
+        };
+        assert!(matches!(
+            block.head.items.as_slice(),
+            [
+                Inline::Text { text: one, .. },
+                Inline::Space { text: spaces, .. },
+                Inline::Text { text: two, .. },
+                Inline::Space { text: tab, .. },
+                Inline::Text { text: three, .. },
+            ] if one == "one" && spaces == "   " && two == "two" && tab == "\t" && three == "three"
+        ));
+        assert_eq!(block.head.plain_text(), "one   two\tthree");
+    }
+
+    #[test]
     fn parses_multiline_elements_in_paragraphs_and_marked_heads() {
         let source = "Before `span[first\nsecond `em[嵌套]\nthird] after\n`note Head `span[one\n  two] tail\n";
         let parsed = parse(source);
@@ -1333,7 +1377,12 @@ mod tests {
             paragraph.head.plain_text(),
             "Before first second 嵌套 third after"
         );
-        let Inline::Element { content, .. } = &paragraph.head.items[1] else {
+        let Some(Inline::Element { content, .. }) = paragraph
+            .head
+            .items
+            .iter()
+            .find(|inline| matches!(inline, Inline::Element { .. }))
+        else {
             panic!("expected multiline span");
         };
         assert_eq!(

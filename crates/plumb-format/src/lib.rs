@@ -486,6 +486,7 @@ impl Formatter {
         for inline in &content.items {
             match inline {
                 Inline::Text { text, .. } => self.text(text, nested),
+                Inline::Space { text, .. } => self.output.push_str(text),
                 Inline::SoftBreak { .. } => {
                     self.output.push('\n');
                     self.indent(continuation_indent);
@@ -707,6 +708,9 @@ mod tests {
             match inline {
                 Inline::Text { text, .. } => {
                     let _ = write!(output, "T{text:?}");
+                }
+                Inline::Space { text, .. } => {
+                    let _ = write!(output, "W{text:?}");
                 }
                 Inline::SoftBreak { .. } => output.push('S'),
                 Inline::Element {

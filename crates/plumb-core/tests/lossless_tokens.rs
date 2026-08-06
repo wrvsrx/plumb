@@ -53,7 +53,8 @@ fn parsed_and_verbatim_inlines_expose_their_delimiters() {
     assert_eq!(
         tokens(source),
         vec![
-            (SyntaxKind::Text, "A "),
+            (SyntaxKind::Text, "A"),
+            (SyntaxKind::Whitespace, " "),
             (SyntaxKind::Introducer, "`"),
             (SyntaxKind::InlineKind, "span"),
             (SyntaxKind::Delimiter, "["),
@@ -63,12 +64,13 @@ fn parsed_and_verbatim_inlines_expose_their_delimiters() {
             (SyntaxKind::AttributePunctuation, "."),
             (SyntaxKind::AttributeName, "c"),
             (SyntaxKind::Delimiter, "}"),
-            (SyntaxKind::Text, " "),
+            (SyntaxKind::Whitespace, " "),
             (SyntaxKind::Introducer, "`"),
             (SyntaxKind::Delimiter, "["),
             (SyntaxKind::RawPayload, "raw"),
             (SyntaxKind::Delimiter, "]"),
-            (SyntaxKind::Text, " Z"),
+            (SyntaxKind::Whitespace, " "),
+            (SyntaxKind::Text, "Z"),
             (SyntaxKind::LineEnding, "\n"),
         ]
     );

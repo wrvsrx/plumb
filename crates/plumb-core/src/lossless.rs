@@ -140,6 +140,9 @@ impl<'a> TokenBuilder<'a> {
                         };
                         self.assign(range.clone(), kind, TYPED_PRIORITY);
                     }
+                    Inline::Space { range, .. } => {
+                        self.assign(range.clone(), SyntaxKind::Whitespace, TYPED_PRIORITY);
+                    }
                     Inline::SoftBreak { .. } => {}
                     Inline::Element {
                         range,

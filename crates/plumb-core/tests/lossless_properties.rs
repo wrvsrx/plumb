@@ -83,7 +83,9 @@ fn assert_typed_ranges(parsed: &ParsedDocument) {
         assert_range(&parsed.source, &content.range);
         for inline in &content.items {
             match inline {
-                Inline::Text { range, .. } | Inline::SoftBreak { range } => {
+                Inline::Text { range, .. }
+                | Inline::Space { range, .. }
+                | Inline::SoftBreak { range } => {
                     assert_range(&parsed.source, range);
                 }
                 Inline::Element {

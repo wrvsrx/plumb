@@ -261,6 +261,7 @@ fn append_plain_text(items: &[Inline], output: &mut String) {
         stack.push((items, index + 1));
         match &items[index] {
             Inline::Text { text, .. } | Inline::Verbatim { text, .. } => output.push_str(text),
+            Inline::Space { text, .. } => output.push_str(text),
             Inline::SoftBreak { .. } => output.push(' '),
             Inline::Element { content, .. } => stack.push((&content.items, 0)),
         }
@@ -270,6 +271,10 @@ fn append_plain_text(items: &[Inline], output: &mut String) {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Inline {
     Text {
+        text: String,
+        range: SourceRange,
+    },
+    Space {
         text: String,
         range: SourceRange,
     },

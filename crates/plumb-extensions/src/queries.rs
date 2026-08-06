@@ -157,7 +157,7 @@ fn attribute_context_in_inlines(
                     return Some(context);
                 }
             }
-            Inline::Text { .. } | Inline::SoftBreak { .. } => {}
+            Inline::Text { .. } | Inline::Space { .. } | Inline::SoftBreak { .. } => {}
         }
     }
     None
@@ -768,7 +768,10 @@ fn inlines_find_autolink(
             )
         }
         Inline::Element { content, .. } => inlines_find_autolink(source, content, offset),
-        Inline::Verbatim { .. } | Inline::Text { .. } | Inline::SoftBreak { .. } => None,
+        Inline::Verbatim { .. }
+        | Inline::Text { .. }
+        | Inline::Space { .. }
+        | Inline::SoftBreak { .. } => None,
     })
 }
 
@@ -858,7 +861,7 @@ fn inlines_attributes_contain(content: &InlineContent, offset: usize) -> bool {
             .range
             .as_ref()
             .is_some_and(|range| range.start <= offset && offset <= range.end),
-        Inline::Text { .. } | Inline::SoftBreak { .. } => false,
+        Inline::Text { .. } | Inline::Space { .. } | Inline::SoftBreak { .. } => false,
     })
 }
 
@@ -868,7 +871,7 @@ fn inlines_contain_verbatim(content: &InlineContent, offset: usize) -> bool {
             text_range.start <= offset && offset <= text_range.end
         }
         Inline::Element { content, .. } => inlines_contain_verbatim(content, offset),
-        Inline::Text { .. } | Inline::SoftBreak { .. } => false,
+        Inline::Text { .. } | Inline::Space { .. } | Inline::SoftBreak { .. } => false,
     })
 }
 
