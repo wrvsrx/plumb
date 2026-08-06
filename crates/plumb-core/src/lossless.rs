@@ -1,6 +1,6 @@
 use crate::syntax::{
-    AttrItem, AttrValue, Attributes, Block, Diagnostic, Document, Inline, InlineContent,
-    LosslessTree, SourceRange, SyntaxKind, SyntaxToken, VerbatimBlock,
+    AttachedContent, AttrItem, AttrValue, Attributes, Block, Diagnostic, Document, Inline,
+    InlineContent, LosslessTree, SourceRange, SyntaxKind, SyntaxToken, VerbatimBlock,
 };
 
 const BASELINE_PRIORITY: u8 = 10;
@@ -93,6 +93,7 @@ impl<'a> TokenBuilder<'a> {
 
     fn annotate_document(&mut self, document: &Document) {
         let mut blocks = document.blocks.iter().rev().collect::<Vec<_>>();
+        self.annotate_block_attributes(&document.attrs, &mut blocks);
         while let Some(block) = blocks.pop() {
             match block {
                 Block::Parsed(block) => {
@@ -107,7 +108,7 @@ impl<'a> TokenBuilder<'a> {
                             SyntaxKind::Marker,
                             TYPED_PRIORITY,
                         );
-                        self.annotate_attributes(&mark.attrs);
+                        self.annotate_block_attributes(&mark.attrs, &mut blocks);
                     }
                     self.annotate_inlines(&block.head);
                     blocks.extend(block.children.iter().rev());
@@ -118,7 +119,7 @@ impl<'a> TokenBuilder<'a> {
                         SyntaxKind::Introducer,
                         TYPED_PRIORITY,
                     );
-                    self.annotate_attributes(&block.attrs);
+                    self.annotate_block_attributes(&block.attrs, &mut blocks);
                     self.annotate_raw_block(block);
                 }
             }
@@ -167,7 +168,7 @@ impl<'a> TokenBuilder<'a> {
                             SyntaxKind::Delimiter,
                             TYPED_PRIORITY,
                         );
-                        self.annotate_attributes(attrs);
+                        self.annotate_inline_attributes(attrs, &mut contents);
                         contents.push(content);
                     }
                     Inline::Verbatim {
@@ -191,7 +192,7 @@ impl<'a> TokenBuilder<'a> {
                             SyntaxKind::Delimiter,
                             TYPED_PRIORITY,
                         );
-                        self.annotate_attributes(attrs);
+                        self.annotate_inline_attributes(attrs, &mut contents);
                     }
                 }
             }
@@ -243,6 +244,49 @@ impl<'a> TokenBuilder<'a> {
                 }
             }
         }
+    }
+
+    fn annotate_block_attributes<'b>(
+        &mut self,
+        attrs: &'b Attributes,
+        blocks: &mut Vec<&'b Block>,
+    ) {
+        let Some(attached) = attrs.attached.as_deref() else {
+            self.annotate_attributes(attrs);
+            return;
+        };
+        self.annotate_attached_delimiters(attached);
+        if let AttachedContent::Blocks(content) = &attached.content {
+            blocks.extend(content.iter().rev());
+        }
+    }
+
+    fn annotate_inline_attributes<'b>(
+        &mut self,
+        attrs: &'b Attributes,
+        contents: &mut Vec<&'b InlineContent>,
+    ) {
+        let Some(attached) = attrs.attached.as_deref() else {
+            self.annotate_attributes(attrs);
+            return;
+        };
+        self.annotate_attached_delimiters(attached);
+        if let AttachedContent::Inlines(content) = &attached.content {
+            contents.push(content);
+        }
+    }
+
+    fn annotate_attached_delimiters(&mut self, attached: &crate::syntax::AttachedGroup) {
+        self.assign(
+            attached.open_range.clone(),
+            SyntaxKind::Delimiter,
+            TYPED_PRIORITY,
+        );
+        self.assign(
+            attached.close_range.clone(),
+            SyntaxKind::Delimiter,
+            TYPED_PRIORITY,
+        );
     }
 
     fn annotate_attribute_value(&mut self, value: &AttrValue) {
