@@ -879,7 +879,7 @@ mod tests {
         assert_eq!(response.status(), StatusCode::OK);
         let source = std::fs::read_to_string(root.join("tasks.plumb")).unwrap();
         assert!(source.contains("Created from API"));
-        assert!(source.contains("priority=3"));
+        assert!(source.contains("`priority 3"), "{source}");
 
         let response = app
             .oneshot(

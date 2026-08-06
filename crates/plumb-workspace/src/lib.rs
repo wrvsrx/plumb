@@ -2282,7 +2282,8 @@ impl Workspace {
         set_event_head(&mut owned, input);
         let attributes = owned.attributes_mut();
         attributes.retain(|attribute| {
-            !matches!(attribute, OwnedAttribute::Pair { key, .. } if matches!(key.as_str(), "uid" | "when" | "date" | "timezone" | "at" | "start" | "end" | "tasks"))
+            !matches!(attribute, OwnedAttribute::Class(value) if value == "event")
+                && !matches!(attribute, OwnedAttribute::Pair { key, .. } if matches!(key.as_str(), "uid" | "when" | "date" | "timezone" | "at" | "start" | "end" | "tasks"))
         });
         attributes.extend(event_attributes(input, &current.output.metadata));
         let mut edit = EditSession::new(&entry.parsed, event.range.clone())
@@ -2353,9 +2354,9 @@ impl Workspace {
                             label: title.clone(),
                             detail: relative.clone(),
                             new_text: format!(
-                                "`->[{}]{{to=\"{}\"}}",
+                                "`->[{}]{{`to[{}]}}",
                                 escape_inline_text(&title),
-                                escape_quoted_value(&relative)
+                                escape_inline_text(&relative)
                             ),
                             replace: replace.clone(),
                         }
@@ -4370,7 +4371,7 @@ mod tests {
         );
         assert_eq!(labels[0].label, "Design Guide");
         assert_eq!(labels[0].detail, "design.plumb");
-        assert_eq!(labels[0].new_text, "`->[Design Guide]{to=\"design.plumb\"}");
+        assert_eq!(labels[0].new_text, "`->[Design Guide]{`to[design.plumb]}");
         let spaced_label = workspace.complete_link(
             "notes/current.plumb",
             &LinkCompletionContext::Label {
@@ -4380,7 +4381,7 @@ mod tests {
         );
         assert_eq!(
             spaced_label[0].new_text,
-            "`->[Project Plan]{to=\"Project Plan.plumb\"}"
+            "`->[Project Plan]{`to[Project Plan.plumb]}"
         );
         let spaced_path = workspace.complete_link(
             "notes/current.plumb",
@@ -5393,14 +5394,14 @@ mod tests {
             edited.replace_range(edit.range, &edit.new_text);
         }
 
-        assert!(!edited.contains("\n\n`-{.task"));
-        assert!(edited.contains("#monthly-review-2026-01-31 done=\"2026-01-31T10:00:00+08:00\""));
-        assert!(edited.contains("#monthly-review-2026-02-28"));
-        assert!(edited.contains("created=\"2026-01-31T10:00:00+08:00\""));
-        assert!(edited.contains("due=\"2026-02-28T09:00:00+08:00\""));
-        assert!(edited.contains("wait=\"2026-02-28T09:00:00+08:00\""));
-        assert!(edited.contains("prev=\"#monthly-review-2026-01-31\""));
-        assert_eq!(edited.matches("#nested").count(), 1);
+        assert!(edited.contains("#monthly-review-2026-01-31"));
+        assert!(edited.contains("done=\"2026-01-31T10:00:00+08:00\""));
+        assert!(edited.contains("`id monthly-review-2026-02-28"));
+        assert!(edited.contains("`created 2026-01-31T10:00:00+08:00"));
+        assert!(edited.contains("`due 2026-02-28T09:00:00+08:00"));
+        assert!(edited.contains("`wait 2026-02-28T09:00:00+08:00"));
+        assert!(edited.contains("`prev #monthly-review-2026-01-31"));
+        assert_eq!(edited.matches("nested").count(), 1);
         assert_eq!(edited.matches("done=\"2026-01-20").count(), 1);
         let parsed = parse(&edited);
         assert!(parsed.is_valid(), "{}\n{:?}", edited, parsed.diagnostics);
@@ -5473,9 +5474,11 @@ mod tests {
         let mut edited = source.to_string();
         edited.replace_range(edit.range.clone(), &edit.new_text);
 
-        assert!(edited.contains("done=\"2026-07-21T18:01:12+08:00\"\n  } 控制饮食\n`-{"));
-        assert!(edited.contains("prev=\"#控制饮食-2026-07-20\"\n  } 控制饮食\n\n`# 锻炼相关任务"));
-        assert_eq!(edited.matches("priority=-5").count(), 2);
+        assert!(edited.contains("done=\"2026-07-21T18:01:12+08:00\""));
+        assert!(edited.contains("`prev #控制饮食-2026-07-20"));
+        assert!(edited.contains("`# 锻炼相关任务"));
+        assert_eq!(edited.matches("priority=-5").count(), 1);
+        assert_eq!(edited.matches("`priority -5").count(), 1);
         assert_eq!(plumb_format::format(&edited).unwrap(), edited);
     }
 
@@ -5500,7 +5503,7 @@ mod tests {
         assert_eq!(document.edits[0].range, 0..0);
         assert_eq!(
             document.edits[0].new_text,
-            "`meta\n `: title\n\n    my``note\n\n `: created\n\n    2026-07-19T12:34:56+08:00\n\n"
+            "{\n  `title my``note\n  `created 2026-07-19T12:34:56+08:00\n}\n\n"
         );
     }
 
@@ -5518,7 +5521,7 @@ mod tests {
         assert_eq!(document.edits[0].range, 0..0);
         assert_eq!(
             document.edits[0].new_text,
-            "`meta\n `: title\n\n    empty\n\n `: created\n\n    2026-07-22T12:34:56+08:00\n"
+            "{\n  `title empty\n  `created 2026-07-22T12:34:56+08:00\n}\n"
         );
         assert_eq!(
             plumb_format::format(&document.edits[0].new_text).unwrap(),
@@ -5537,7 +5540,7 @@ mod tests {
 
         assert_eq!(
             edit.document_changes[0].edits[0].new_text,
-            "`meta\r\n `: title\r\n\r\n    note\r\n\r\n `: created\r\n\r\n    2026-07-19T12:34:56+08:00\r\n\r\n"
+            "{\r\n  `title note\r\n  `created 2026-07-19T12:34:56+08:00\r\n}\r\n\r\n"
         );
     }
 
@@ -5763,12 +5766,12 @@ mod tests {
             operation.document_changes[0].edits.clone(),
         )
         .unwrap();
-        assert!(converted.contains("`-{.event"), "{converted}");
+        assert!(converted.contains("`event"), "{converted}");
         assert!(!converted.contains("#e0001"), "{converted}");
         assert!(!converted.contains("event-uids"), "{converted}");
-        assert!(converted.contains("date=2026-05-21"));
-        assert!(converted.contains("timezone=\"+08:00\""));
-        assert!(converted.contains("} 11:10--11:20 relax: phone"));
+        assert!(converted.contains("`date 2026-05-21"));
+        assert!(converted.contains("`timezone +08:00"));
+        assert!(converted.contains("`- 11:10--11:20 relax: phone"));
         assert!(!converted.contains("start="));
         assert!(!converted.contains("end="));
         assert_eq!(plumb_format::format(&converted).unwrap(), converted);
@@ -5782,10 +5785,10 @@ mod tests {
                 .convert_event_shorthand("keep.plumb", 5, now)
                 .unwrap(),
         );
-        assert!(kept.contains("#mine"), "{kept}");
-        assert!(kept.contains(".kind"), "{kept}");
-        assert!(kept.contains(".event"), "{kept}");
-        assert!(kept.contains("} 11:00--11:20 review\n"), "{kept}");
+        assert!(kept.contains("`id mine"), "{kept}");
+        assert!(kept.contains("`kind"), "{kept}");
+        assert!(kept.contains("`event"), "{kept}");
+        assert!(kept.contains("`- 11:00--11:20 review\n"), "{kept}");
 
         // Parsed and verbatim inline structure survives prefix removal.
         let rich_source =
@@ -5799,7 +5802,7 @@ mod tests {
         );
         assert!(
             rich.contains(
-                "} 11:00 wheel: distinguish `[nix develop]{language=sh} and `*[normal] shell"
+                "`- 11:00 wheel: distinguish `[nix develop]{`language[sh]} and `*[normal] shell"
             ),
             "{rich}"
         );
@@ -5835,10 +5838,10 @@ mod tests {
             operation.document_changes[0].edits.clone(),
         )
         .unwrap();
-        assert_eq!(converted.matches(".event").count(), 3, "{converted}");
+        assert_eq!(converted.matches("`event").count(), 2, "{converted}");
         assert!(!converted.contains("event-uids"), "{converted}");
-        assert!(converted.contains("`-{.event} 10:00--10:20 first"));
-        assert!(converted.contains("`-{.event} 10:20--10:30 second `[code]"));
+        assert!(converted.contains("`- 10:00--10:20 first"));
+        assert!(converted.contains("`- 10:20--10:30 second `[code]"));
         assert!(converted.contains("`- ordinary item"));
         assert!(!converted.contains("date=2026-08-01"));
         assert!(!converted.contains("timezone=\"+08:00\""));
@@ -5872,12 +5875,9 @@ mod tests {
             operation.document_changes[0].edits.clone(),
         )
         .unwrap();
-        assert!(
-            converted.contains("`-{.event} 18:00--18:30 事件 1"),
-            "{converted}"
-        );
+        assert!(converted.contains("`- 18:00--18:30 事件 1"), "{converted}");
         assert!(converted.contains("`- 18:30-- 事件 2"), "{converted}");
-        assert_eq!(converted.matches(".event").count(), 1, "{converted}");
+        assert_eq!(converted.matches("`event").count(), 1, "{converted}");
 
         workspace.insert("agenda.plumb", 2, source);
         let first = workspace
@@ -5886,7 +5886,7 @@ mod tests {
         let first_converted =
             apply_text_edits(source.to_string(), first.document_changes[0].edits.clone()).unwrap();
         assert!(
-            first_converted.contains("`-{.event} 18:00--18:30 事件 1"),
+            first_converted.contains("`- 18:00--18:30 事件 1"),
             "{first_converted}"
         );
         assert_eq!(
@@ -5910,19 +5910,10 @@ mod tests {
                 .clone(),
         )
         .unwrap();
-        assert!(
-            chained.contains("`-{.event} 18:00--18:30 first"),
-            "{chained}"
-        );
-        assert!(
-            chained.contains("`-{.event} 18:30--19:00 second"),
-            "{chained}"
-        );
-        assert!(
-            chained.contains("`-{.event} 19:00--20:00 third"),
-            "{chained}"
-        );
-        assert_eq!(chained.matches(".event").count(), 3, "{chained}");
+        assert!(chained.contains("`- 18:00--18:30 first"), "{chained}");
+        assert!(chained.contains("`- 18:30--19:00 second"), "{chained}");
+        assert!(chained.contains("`- 19:00--20:00 third"), "{chained}");
+        assert_eq!(chained.matches("`event").count(), 3, "{chained}");
 
         let interrupted = "`- 18:00-- first\n`- ordinary\n`- 18:30 next\n";
         workspace.insert("interrupted.plumb", 4, interrupted);
@@ -5955,11 +5946,11 @@ mod tests {
             .unwrap();
         assert_eq!(created.document_changes[0].expected_revision, 7);
         let created_source = apply_single_edit(source, &created);
-        assert!(created_source.contains(".event"), "{created_source}");
+        assert!(created_source.contains("`event"), "{created_source}");
         assert!(!created_source.contains("#e0001"), "{created_source}");
         assert!(!created_source.contains("event-uids"), "{created_source}");
         assert!(
-            created_source.contains("} 14:00--15:00 Review"),
+            created_source.contains("`- 14:00--15:00 Review"),
             "{created_source}"
         );
         assert_eq!(
@@ -5990,7 +5981,7 @@ mod tests {
         let updated_source = apply_single_edit(&created_source, &updated);
         assert!(updated_source.contains("Updated review"));
         assert!(
-            updated_source.contains("} 16:00 Updated review"),
+            updated_source.contains("`- 16:00 Updated review"),
             "{updated_source}"
         );
         assert!(!updated_source.contains("tasks.plumb#write"));
@@ -6032,9 +6023,9 @@ mod tests {
             recreated.document_changes[0].edits.clone(),
         )
         .unwrap();
-        assert!(recreated_source.contains("`-{.event"), "{recreated_source}");
+        assert!(recreated_source.contains("`event"), "{recreated_source}");
         assert!(
-            recreated_source.contains("} 17:00 Next"),
+            recreated_source.contains("`- 17:00 Next"),
             "{recreated_source}"
         );
 
@@ -6082,10 +6073,11 @@ mod tests {
             operation.document_changes[0].edits.clone(),
         )
         .unwrap();
-        assert!(updated.contains("#review .event"), "{updated}");
+        assert!(updated.contains("`id review"), "{updated}");
+        assert_eq!(updated.matches("`event").count(), 1, "{updated}");
         assert!(!updated.contains(" uid=\""), "{updated}");
         assert!(!updated.contains(" when=\""), "{updated}");
-        assert!(updated.contains("} 15:00 Updated"), "{updated}");
+        assert!(updated.contains("`- 15:00 Updated"), "{updated}");
     }
 
     #[test]
@@ -6117,9 +6109,9 @@ mod tests {
             .unwrap();
         assert_eq!(created.document_changes[0].expected_revision, 4);
         let created_source = apply_single_edit(source, &created);
-        assert!(created_source.contains(".task"), "{created_source}");
-        assert!(created_source.contains("#task-"), "{created_source}");
-        assert!(created_source.contains("priority=-2"));
+        assert!(created_source.contains("`task"), "{created_source}");
+        assert!(created_source.contains("`id task-"), "{created_source}");
+        assert!(created_source.contains("`priority -2"));
         assert!(created_source.contains("`note Keep details"));
 
         workspace.insert("tasks.plumb", 5, created_source.clone());
@@ -6143,9 +6135,9 @@ mod tests {
             )
             .unwrap();
         let updated_source = apply_single_edit(&created_source, &updated);
-        assert!(updated_source.contains("custom=keep"));
-        assert!(updated_source.contains("#parent"));
-        assert!(updated_source.contains("created=\"2026-07-01T09:00:00Z\""));
+        assert!(updated_source.contains("`custom keep"));
+        assert!(updated_source.contains("`id parent"));
+        assert!(updated_source.contains("`created 2026-07-01T09:00:00Z"));
         assert!(updated_source.contains("`note Keep details"));
         assert!(updated_source.contains("Nested"));
         assert!(updated_source.contains("Renamed parent"));
@@ -6170,9 +6162,9 @@ mod tests {
             )
             .unwrap();
         let patched_source = apply_single_edit(&updated_source, &patched);
-        assert!(patched_source.contains("priority=9"));
-        assert!(patched_source.contains("due=\"2026-09-01T10:00:00Z\""));
-        assert!(patched_source.contains("depends=\"#other\""));
+        assert!(patched_source.contains("`priority 9"));
+        assert!(patched_source.contains("`due 2026-09-01T10:00:00Z"));
+        assert!(patched_source.contains("#other"), "{patched_source}");
     }
 
     #[test]
@@ -6284,11 +6276,11 @@ mod tests {
             )
             .unwrap();
         let reordered_source = apply_document_edit(source, "tasks.plumb", 1, reordered).unwrap();
-        assert!(reordered_source.find("#b").unwrap() < reordered_source.find("#a").unwrap());
+        assert!(reordered_source.find("`id b").unwrap() < reordered_source.find("`id a").unwrap());
         assert!(reordered_source.contains("`note A details"));
         assert!(parse(&reordered_source).is_valid(), "{reordered_source}");
         assert!(
-            reordered_source.contains("\n`-{.task #right}"),
+            reordered_source.contains("\n`-{.task #right} Right"),
             "{reordered_source}"
         );
 

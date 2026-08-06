@@ -1920,7 +1920,7 @@ mod tests {
         assert!(updated.due.is_none());
         assert!(updated.recur.is_none());
         let source = std::fs::read_to_string(&path).unwrap();
-        assert!(source.contains("custom=keep"));
+        assert!(source.contains("`custom keep"), "{source}");
         assert!(refreshed
             .create_task(
                 &document.id,
@@ -2018,8 +2018,8 @@ mod tests {
             )
             .unwrap();
         let source = std::fs::read_to_string(&a_path).unwrap();
-        assert!(source.contains("prev=\"b.plumb#b\""), "{source}");
-        assert!(source.contains("depends=\"b.plumb#b\""), "{source}");
+        assert!(source.contains("`prev b.plumb#b"), "{source}");
+        assert!(source.contains("`depends b.plumb#b"), "{source}");
 
         let refreshed = WebWorkspace::load_with_revision(&root, 2).unwrap();
         let snapshot = refreshed.tasks();
