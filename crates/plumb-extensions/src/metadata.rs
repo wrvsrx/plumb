@@ -3,7 +3,8 @@ use std::ops::Range;
 
 use chrono::DateTime;
 use plumb_core::{
-    Block, Diagnostic, DiagnosticSeverity, Document, Inline, InlineContent, ParsedBlock,
+    AttachedContent, Block, Diagnostic, DiagnosticSeverity, Document, Inline, InlineContent,
+    ParsedBlock,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -116,8 +117,177 @@ pub fn analyze_metadata(document: &Document) -> MetadataOutput {
         .sort_by_key(|definitions| definitions.range.start);
 
     let mut first_meta = None;
+    if let Some(attached) = document.attrs.attached.as_deref() {
+        if let AttachedContent::Blocks(blocks) = &attached.content {
+            let entries = parse_attached_entries(blocks, &mut output.diagnostics);
+            lint_standard_entries(&entries, &mut output.diagnostics);
+            first_meta = Some(attached.range.clone());
+            output.metadata = Some(MetadataBlock {
+                range: attached.range.clone(),
+                selection_range: attached.open_range.clone(),
+                entries,
+            });
+        }
+    }
     collect_metadata_blocks(&document.blocks, 0, &mut first_meta, &mut output);
     output
+}
+
+fn parse_attached_entries(
+    blocks: &[Block],
+    diagnostics: &mut Vec<Diagnostic>,
+) -> Vec<MetadataEntry> {
+    let mut entries = Vec::new();
+    let mut keys: HashMap<String, Range<usize>> = HashMap::new();
+    for block in blocks {
+        let Block::Parsed(property) = block else {
+            diagnostics.push(warning(
+                "metadata.expected-property",
+                "root metadata children must be named block elements",
+                block.range().clone(),
+            ));
+            continue;
+        };
+        let Some(mark) = property.mark.as_ref() else {
+            diagnostics.push(warning(
+                "metadata.expected-property",
+                "root metadata children must be named block elements",
+                block.range().clone(),
+            ));
+            continue;
+        };
+        let key = mark.marker.clone();
+        if let Some(first) = keys.get(&key) {
+            let mut diagnostic = warning(
+                "metadata.duplicate-key",
+                format!("metadata key '{key}' appears more than once"),
+                mark.marker_range.clone(),
+            );
+            diagnostic.related.push(first.clone());
+            diagnostics.push(diagnostic);
+        } else {
+            keys.insert(key.clone(), mark.marker_range.clone());
+        }
+        entries.push(MetadataEntry {
+            range: property.range.clone(),
+            key,
+            key_range: mark.marker_range.clone(),
+            value: parse_attached_value(property, diagnostics),
+        });
+    }
+    entries
+}
+
+fn parse_attached_value(
+    property: &ParsedBlock,
+    diagnostics: &mut Vec<Diagnostic>,
+) -> MetadataValue {
+    if !property.head.items.is_empty() {
+        if !property.children.is_empty() {
+            diagnostics.push(warning(
+                "metadata.unsupported-value",
+                "metadata properties with scalar content cannot also have child blocks",
+                property.range.clone(),
+            ));
+            return MetadataValue::Unsupported {
+                range: property.range.clone(),
+            };
+        }
+        return match inline_verbatim(&property.head) {
+            Some(text) => MetadataValue::Verbatim {
+                text: text.to_string(),
+                range: property.head.range.clone(),
+            },
+            None => MetadataValue::Scalar {
+                content: property.head.clone(),
+                range: property.head.range.clone(),
+            },
+        };
+    }
+    parse_attached_children(&property.children, body_range(property), diagnostics)
+}
+
+fn parse_attached_children(
+    blocks: &[Block],
+    range: Range<usize>,
+    diagnostics: &mut Vec<Diagnostic>,
+) -> MetadataValue {
+    if blocks.is_empty() {
+        return MetadataValue::Null { range };
+    }
+    if let [Block::Verbatim(block)] = blocks {
+        return MetadataValue::Verbatim {
+            text: block.text.clone(),
+            range,
+        };
+    }
+    if let [Block::Parsed(block)] = blocks {
+        if block.mark.is_none() && block.children.is_empty() {
+            return match inline_verbatim(&block.head) {
+                Some(text) => MetadataValue::Verbatim {
+                    text: text.to_string(),
+                    range,
+                },
+                None => MetadataValue::Scalar {
+                    content: block.head.clone(),
+                    range,
+                },
+            };
+        }
+    }
+    if blocks.iter().all(|block| parsed_marker(block) == Some("-")) {
+        let items = blocks
+            .iter()
+            .map(|block| {
+                let Block::Parsed(item) = block else {
+                    unreachable!("dash marker implies parsed block");
+                };
+                let value = if item.children.is_empty() {
+                    match inline_verbatim(&item.head) {
+                        Some(text) => MetadataValue::Verbatim {
+                            text: text.to_string(),
+                            range: item.head.range.clone(),
+                        },
+                        None => MetadataValue::Scalar {
+                            content: item.head.clone(),
+                            range: item.head.range.clone(),
+                        },
+                    }
+                } else if item.head.items.is_empty() {
+                    parse_attached_children(&item.children, body_range(item), diagnostics)
+                } else {
+                    diagnostics.push(warning(
+                        "metadata.invalid-list-item",
+                        "metadata list items with child blocks must have an empty head",
+                        item.range.clone(),
+                    ));
+                    MetadataValue::Unsupported {
+                        range: item.range.clone(),
+                    }
+                };
+                MetadataListItem {
+                    value,
+                    range: item.range.clone(),
+                }
+            })
+            .collect();
+        return MetadataValue::List { items, range };
+    }
+    if blocks
+        .iter()
+        .all(|block| matches!(block, Block::Parsed(parsed) if parsed.mark.is_some()))
+    {
+        return MetadataValue::Map {
+            entries: parse_attached_entries(blocks, diagnostics),
+            range,
+        };
+    }
+    diagnostics.push(warning(
+        "metadata.unsupported-value",
+        "metadata values must be scalar content, a sequence, map, verbatim block, or empty",
+        range.clone(),
+    ));
+    MetadataValue::Unsupported { range }
 }
 
 fn collect_definition_lists(blocks: &[Block], output: &mut Vec<DefinitionList>) {
@@ -452,6 +622,52 @@ mod tests {
             metadata.entries[4].value,
             MetadataValue::Verbatim { .. }
         ));
+    }
+
+    #[test]
+    fn projects_recursive_root_metadata() {
+        let parsed = parse(
+            "{\n  `title Document `em[title]\n  `tags\n   `- plumb\n   `- parser\n  `macros\n   `-\n    `- `[name]\n    `- `[expansion]\n  `author\n   `name Alice\n  `empty\n}\n\nBody.\n",
+        );
+        assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
+        let output = analyze_metadata(&parsed.syntax);
+        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+        assert_eq!(output.document_title().as_deref(), Some("Document title"));
+        let metadata = output.metadata.unwrap();
+        assert_eq!(metadata.entries.len(), 5);
+        assert!(matches!(
+            metadata.entries[0].value,
+            MetadataValue::Scalar { .. }
+        ));
+        assert!(matches!(
+            metadata.entries[1].value,
+            MetadataValue::List { .. }
+        ));
+        assert!(matches!(
+            metadata.entries[2].value,
+            MetadataValue::List { ref items, .. }
+                if matches!(items[0].value, MetadataValue::List { .. })
+        ));
+        assert!(matches!(
+            metadata.entries[3].value,
+            MetadataValue::Map { .. }
+        ));
+        assert!(matches!(
+            metadata.entries[4].value,
+            MetadataValue::Null { .. }
+        ));
+    }
+
+    #[test]
+    fn root_and_legacy_metadata_are_diagnosed_as_duplicates() {
+        let parsed = parse("{\n  `title Root\n}\n\n`meta\n `: title\n\n    Legacy\n");
+        assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
+        let output = analyze_metadata(&parsed.syntax);
+        assert_eq!(output.document_title().as_deref(), Some("Root"));
+        assert!(output
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == "metadata.multiple-blocks"));
     }
 
     #[test]

@@ -756,7 +756,7 @@ fn direct_source_backed(source: &str, value: String, range: Range<usize>) -> Sou
 }
 
 pub(crate) fn attr_source_backed(source: &str, value: &AttrValue) -> SourceBacked<String> {
-    if !value.quoted {
+    if !value.quoted || !(value.raw.starts_with('"') && value.raw.ends_with('"')) {
         return direct_source_backed(source, value.decoded.clone(), value.range.clone());
     }
     let mut decoded_boundaries = Vec::with_capacity(value.decoded.len() + 1);

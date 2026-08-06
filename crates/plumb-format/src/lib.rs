@@ -8,7 +8,8 @@ use std::process::ExitCode;
 
 use clap::Parser;
 use plumb_core::{
-    parse, AttachedContent, AttrItem, Attributes, Block, Inline, InlineContent, ParsedBlock,
+    parse, AttachedContent, AttachedGroup, AttrItem, Attributes, Block, Inline, InlineContent,
+    ParsedBlock,
 };
 use similar::{DiffOp, TextDiff};
 use unicode_width::UnicodeWidthStr;
@@ -157,17 +158,124 @@ fn render(source: &str, migrate_legacy: bool) -> Result<String, FormatError> {
         output: String::new(),
         migrate_legacy,
     };
+    let legacy_metadata = (migrate_legacy && parsed.syntax.attrs.attached.is_none())
+        .then(|| {
+            parsed
+                .syntax
+                .blocks
+                .iter()
+                .position(convertible_legacy_metadata)
+        })
+        .flatten();
+    let migrated_metadata = legacy_metadata.map(|index| Attributes {
+        range: Some(0..0),
+        items: Vec::new(),
+        attached: Some(Box::new(AttachedGroup {
+            range: 0..0,
+            open_range: 0..0,
+            close_range: 0..0,
+            content: AttachedContent::Blocks(convert_legacy_metadata_blocks(
+                &parsed.syntax.blocks[index].children()[..],
+            )),
+        })),
+    });
     if parsed.syntax.attrs.attached.is_some() {
         formatter.block_attached(&parsed.syntax.attrs, 0, false);
         if !parsed.syntax.blocks.is_empty() {
             formatter.output.push_str("\n\n");
         }
+    } else if let Some(metadata) = migrated_metadata.as_ref() {
+        formatter.block_attached(metadata, 0, false);
+        if parsed.syntax.blocks.len() > 1 {
+            formatter.output.push_str("\n\n");
+        }
     }
-    formatter.blocks(&parsed.syntax.blocks, 0);
-    if terminal_verbatim(&parsed.syntax.blocks).is_none() && !formatter.output.is_empty() {
+    let body = legacy_metadata.map_or_else(
+        || parsed.syntax.blocks.clone(),
+        |metadata| {
+            parsed
+                .syntax
+                .blocks
+                .iter()
+                .enumerate()
+                .filter(|(index, _)| *index != metadata)
+                .map(|(_, block)| block.clone())
+                .collect()
+        },
+    );
+    formatter.blocks(&body, 0);
+    if terminal_verbatim(&body).is_none() && !formatter.output.is_empty() {
         formatter.output.push('\n');
     }
     Ok(formatter.output)
+}
+
+fn convertible_legacy_metadata(block: &Block) -> bool {
+    let Block::Parsed(block) = block else {
+        return false;
+    };
+    block
+        .mark
+        .as_ref()
+        .is_some_and(|mark| mark.marker == "meta")
+        && block.head.items.is_empty()
+        && legacy_metadata_keys_are_convertible(&block.children)
+}
+
+fn legacy_metadata_keys_are_convertible(blocks: &[Block]) -> bool {
+    blocks.iter().all(|block| match block {
+        Block::Verbatim(_) => true,
+        Block::Parsed(block) => {
+            let valid = block
+                .mark
+                .as_ref()
+                .is_none_or(|mark| mark.marker != ":" || valid_marker(&block.head.plain_text()));
+            valid && legacy_metadata_keys_are_convertible(&block.children)
+        }
+    })
+}
+
+fn valid_marker(marker: &str) -> bool {
+    !marker.is_empty()
+        && marker.chars().all(|character| {
+            !character.is_whitespace()
+                && !character.is_control()
+                && !matches!(character, '`' | '"' | '[' | ']' | '{' | '}')
+        })
+}
+
+fn convert_legacy_metadata_blocks(blocks: &[Block]) -> Vec<Block> {
+    blocks
+        .iter()
+        .cloned()
+        .map(|block| match block {
+            Block::Verbatim(block) => Block::Verbatim(block),
+            Block::Parsed(mut block) => {
+                block.children = convert_legacy_metadata_blocks(&block.children);
+                if block.mark.as_ref().is_some_and(|mark| mark.marker == ":") {
+                    let key = block.head.plain_text();
+                    let key_range = block.head.range.clone();
+                    let scalar = match block.children.as_slice() {
+                        [Block::Parsed(value)] if value.mark.is_none() => Some(value.head.clone()),
+                        _ => None,
+                    };
+                    let mark = block.mark.as_mut().expect("definition has a mark");
+                    mark.marker = key;
+                    mark.marker_range = key_range;
+                    if let Some(scalar) = scalar {
+                        block.head = scalar;
+                        block.children.clear();
+                    } else {
+                        block.head = InlineContent {
+                            range: block.head.range.start..block.head.range.start,
+                            items: Vec::new(),
+                        };
+                    }
+                }
+                Block::Parsed(block)
+            }
+        })
+        .collect()
 }
 
 pub fn format_edits(source: &str) -> Result<Vec<FormatEdit>, FormatError> {
@@ -990,6 +1098,17 @@ mod tests {
             migrate_attributes("`span[unclosed\n"),
             Err(FormatError::InvalidSyntax)
         );
+    }
+
+    #[test]
+    fn migration_lifts_legacy_metadata_to_the_document_owner() {
+        let source = "`meta\n `: title\n\n    Document `em[title]\n\n `: tags\n  `- plumb\n  `- parser\n\n `: author\n  `: name\n\n     Alice\n\nBody.\n";
+        let expected = "{\n  `title Document `em[title]\n  `tags\n   `- plumb\n   `- parser\n  `author\n   `name Alice\n}\n\nBody.\n";
+
+        let migrated = migrate_attributes(source).unwrap();
+        assert_eq!(migrated, expected);
+        assert!(parse(&migrated).is_valid());
+        assert_eq!(migrate_attributes(&migrated).unwrap(), migrated);
     }
 
     #[test]

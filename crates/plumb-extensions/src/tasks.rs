@@ -330,7 +330,9 @@ fn collect_task_diagnostics(task: &TaskRecord, attrs: &[AttrItem], output: &mut 
             output.diagnostics.push(Diagnostic {
                 code: "task.invalid-datetime",
                 severity: DiagnosticSeverity::Warning,
-                message: format!("'{key}' must be a quoted RFC 3339 timestamp"),
+                message: format!(
+                    "'{key}' must be an RFC 3339 timestamp property or quoted legacy value"
+                ),
                 range: value.range.clone(),
                 related: Vec::new(),
             });
@@ -541,6 +543,21 @@ mod tests {
                 TaskReferenceTarget::Invalid
             );
         }
+    }
+
+    #[test]
+    fn attached_dependency_values_keep_exact_source_ranges() {
+        let source = "`- Review\n   {\n     `task\n     `id review\n     `depends Project Plan.plumb#build #local\n   }\n";
+        let parsed = plumb_core::parse(source);
+        assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
+        let output = analyze_tasks(source, &parsed.syntax);
+        let task = &output.tasks[0];
+        assert_eq!(task.depends.len(), 2);
+        assert_eq!(
+            &source[task.depends[0].range.clone()],
+            "Project Plan.plumb#build"
+        );
+        assert_eq!(&source[task.depends[1].range.clone()], "#local");
     }
 
     #[test]

@@ -86,7 +86,7 @@ pub fn import(document: &Pandoc) -> Result<String, String> {
             .join("; ");
         return Err(format!("generated plumb is invalid: {diagnostics}"));
     }
-    let formatted = plumb_format::format(&source)
+    let formatted = plumb_format::migrate_attributes(&source)
         .map_err(|_| "generated plumb failed strict validation".to_string())?;
     let parsed = plumb_core::parse(&formatted);
     if !parsed.is_valid() {
@@ -101,15 +101,22 @@ fn render_metadata(meta: &HashMap<String, MetaValue>) -> Result<String, String> 
     let mut entries = Vec::new();
     for key in keys {
         require_attr_name(key, "metadata key")?;
-        let value = render_metadata_value(&meta[key])?;
-        let mut entry = format!("`: {key}");
-        if !value.is_empty() {
-            entry.push_str("\n\n");
-            entry.push_str(&indent(&value, 2));
-        }
-        entries.push(entry);
+        entries.push(render_metadata_entry(key, &meta[key])?);
     }
-    Ok(format!("`meta\n{}", indent(&entries.join("\n\n"), 1)))
+    Ok(format!("{{\n{}\n}}", indent(&entries.join("\n"), 2)))
+}
+
+fn render_metadata_entry(key: &str, value: &MetaValue) -> Result<String, String> {
+    let value_source = render_metadata_value(value)?;
+    if value_source.is_empty() {
+        return Ok(format!("`{key}"));
+    }
+    if matches!(value, MetaValue::MetaString(value) if !value.contains(['\n', '\r']))
+        || matches!(value, MetaValue::MetaInlines(_))
+    {
+        return Ok(format!("`{key} {value_source}"));
+    }
+    Ok(format!("`{key}\n{}", indent(&value_source, 1)))
 }
 
 fn render_metadata_value(value: &MetaValue) -> Result<String, String> {
@@ -139,14 +146,9 @@ fn render_metadata_value(value: &MetaValue) -> Result<String, String> {
             let mut entries = Vec::new();
             for key in keys {
                 require_attr_name(key, "metadata key")?;
-                let value = render_metadata_value(&values[key])?;
-                entries.push(if value.is_empty() {
-                    format!("`: {key}")
-                } else {
-                    format!("`: {key}\n\n{}", indent(&value, 2))
-                });
+                entries.push(render_metadata_entry(key, &values[key])?);
             }
-            Ok(entries.join("\n\n"))
+            Ok(entries.join("\n"))
         }
         MetaValue::MetaBlocks(blocks) if blocks.len() == 1 => render_block(&blocks[0])?
             .ok_or_else(|| "metadata MetaBlocks cannot contain Null".to_string()),
@@ -637,17 +639,18 @@ mod tests {
         });
 
         let source = import_json(&document.to_string()).unwrap();
-        assert!(source.contains("`#{#intro} Intro"));
-        assert!(source.contains("`*[em] `![strong] `=[marked]{#marked .keep}"));
+        assert!(source.starts_with("{\n  `title Example\n}\n"), "{source}");
+        assert!(source.contains("`# Intro\n   {\n     `id intro\n   }"));
+        assert!(source.contains("`*[em] `![strong] `=[marked]{`id[marked] `keep[]}"));
         assert!(source.contains("`~[strike] `^[super] `_[sub]"));
-        assert!(source.contains("`->[target]{to=\"other.plumb#id\"}"));
+        assert!(source.contains("`->[target]{`to[other.plumb#id]}"));
         assert!(
-            source.contains("`file[video]{#demo .wide download=\"yes\" src=\"static/demo.mp4\"}"),
+            source.contains("`file[video]{`id[demo] `wide[] `download[yes] `src[static/demo.mp4]}"),
             "{source}"
         );
         assert!(source.contains("`> quoted"));
         assert!(source.contains("`- item"));
-        assert!(source.contains("`{#code .rust}"));
+        assert!(source.contains("`{\n  `id code\n  `rust\n}"));
         assert!(plumb_core::parse(&source).is_valid());
     }
 
@@ -678,7 +681,7 @@ mod tests {
         };
         let source = import(&document).unwrap();
         assert!(source.contains("`\"[a]b]\""));
-        assert!(source.contains("`{}\n  raw"));
+        assert!(source.contains("`{\n}\n  raw"), "{source}");
         assert!(plumb_core::parse(&source).is_valid());
     }
 }
