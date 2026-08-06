@@ -98,10 +98,10 @@ fn inserts_metadata_code_action_only_for_valid_documents_without_metadata() {
     assert_eq!(change["edits"][0]["range"]["start"]["line"], 0);
     assert_eq!(change["edits"][0]["range"]["start"]["character"], 0);
     let new_text = change["edits"][0]["newText"].as_str().unwrap();
-    let prefix = "`meta\n `: title\n\n    metadata-action\n\n `: created\n\n    ";
+    let prefix = "{\n  `title metadata-action\n  `created ";
     let created = new_text
         .strip_prefix(prefix)
-        .and_then(|suffix| suffix.strip_suffix("\n\n"))
+        .and_then(|suffix| suffix.strip_suffix("\n}\n\n"))
         .expect("metadata contains created after title");
     chrono::DateTime::parse_from_rfc3339(created).expect("created is an RFC 3339 timestamp");
     assert!(response(&output, 3)["result"]
@@ -212,7 +212,7 @@ fn inserts_metadata_into_an_empty_document_over_stdio() {
         json!({ "line": 0, "character": 0 })
     );
     let generated = change["edits"][0]["newText"].as_str().unwrap();
-    assert!(generated.starts_with("`meta\n `: title\n\n    empty-note\n"));
+    assert!(generated.starts_with("{\n  `title empty-note\n  `created "));
     assert_eq!(plumb_format::format(generated).unwrap(), generated);
 }
 
@@ -398,17 +398,23 @@ fn converts_event_shorthand_with_a_refactor_action() {
     let change = &action["edit"]["documentChanges"][0];
     assert_eq!(change["textDocument"]["version"], 3);
     let replacement = change["edits"][0]["newText"].as_str().unwrap();
-    assert!(replacement.contains(".event"), "{replacement}");
-    assert!(replacement.ends_with("relax: `[phone]\n"), "{replacement}");
-    assert!(replacement.contains("date=2026-05-21"), "{replacement}");
+    assert!(
+        replacement.starts_with("`- 11:10--11:20 relax: `[phone]\n"),
+        "{replacement}"
+    );
+    assert!(replacement.contains("     `event\n"), "{replacement}");
+    assert!(
+        replacement.contains("     `date 2026-05-21\n"),
+        "{replacement}"
+    );
     let timezone = Local::now().fixed_offset().format("%:z").to_string();
     assert!(
-        replacement.contains(&format!("timezone=\"{timezone}\"}} 11:10--11:20 ")),
+        replacement.contains(&format!("     `timezone {timezone}\n")),
         "{replacement}"
     );
     assert!(!replacement.contains("#e0001"), "{replacement}");
     assert!(!replacement.contains("event-uids"), "{replacement}");
-    assert!(!replacement.contains(" uid=\""), "{replacement}");
+    assert!(!replacement.contains("`uid "), "{replacement}");
 
     assert!(response(&output, 3)["result"]
         .as_array()
@@ -466,16 +472,16 @@ fn converts_selected_event_shorthands_with_a_refactor_action() {
     let edits = action["edit"]["documentChanges"][0]["edits"]
         .as_array()
         .unwrap();
-    assert_eq!(edits.len(), 3);
+    assert_eq!(edits.len(), 3, "{action:#}");
     let replacements = edits
         .iter()
         .map(|edit| edit["newText"].as_str().unwrap())
         .collect::<String>();
-    assert_eq!(replacements.matches(".event").count(), 3);
+    assert_eq!(replacements.matches("`event").count(), 3);
     assert!(!replacements.contains("@plumb.local"));
-    assert!(replacements.contains("{.event} 10:00--10:20 first"));
-    assert!(replacements.contains("{.event} 10:20--10:30 second"));
-    assert!(replacements.contains("{.event} 10:30--10:40 third"));
+    assert!(replacements.contains("`- 10:00--10:20 first\n"));
+    assert!(replacements.contains("`- 10:20--10:30 second\n"));
+    assert!(replacements.contains("`- 10:30--10:40 third\n"));
 }
 
 #[test]
@@ -665,10 +671,10 @@ fn recurring_task_action_closes_current_and_appends_next_instance() {
     assert_eq!(edits.len(), 1);
     let replacement = edits[0]["newText"].as_str().unwrap();
     assert!(replacement.contains("#weekly-review-2026-07-20"));
-    assert!(replacement.contains("done="));
-    assert!(replacement.contains("#weekly-review-2026-07-27"));
-    assert!(replacement.contains("due=\"2026-07-27T09:00:00+08:00\""));
-    assert!(replacement.contains("prev=\"#weekly-review-2026-07-20\""));
+    assert!(replacement.contains("done=\""));
+    assert!(replacement.contains("`id weekly-review-2026-07-27"));
+    assert!(replacement.contains("`due 2026-07-27T09:00:00+08:00"));
+    assert!(replacement.contains("`prev #weekly-review-2026-07-20"));
 }
 
 #[test]
@@ -769,10 +775,10 @@ fn canceling_a_recurring_task_appends_the_next_instance() {
     assert_eq!(edits.len(), 1);
     let replacement = edits[0]["newText"].as_str().unwrap();
     assert!(replacement.contains("#weekly-review-2026-07-20"));
-    assert!(replacement.contains("canceled="));
-    assert!(replacement.contains("#weekly-review-2026-07-27"));
-    assert!(replacement.contains("due=\"2026-07-27T09:00:00+08:00\""));
-    assert!(replacement.contains("prev=\"#weekly-review-2026-07-20\""));
+    assert!(replacement.contains("canceled=\""));
+    assert!(replacement.contains("`id weekly-review-2026-07-27"));
+    assert!(replacement.contains("`due 2026-07-27T09:00:00+08:00"));
+    assert!(replacement.contains("`prev #weekly-review-2026-07-20"));
 }
 
 #[test]

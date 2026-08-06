@@ -1628,6 +1628,12 @@ fn attribute_completion_text(text: &str, snippets: bool) -> String {
         format!("{key}=\"${{1}}\"")
     } else if text == "priority=0" {
         "priority=${1:0}".to_string()
+    } else if let Some(prefix) = text.strip_suffix("[]") {
+        format!("{prefix}[${{1}}]")
+    } else if text == "`priority 0" {
+        "`priority ${1:0}".to_string()
+    } else if text.ends_with(' ') {
+        format!("{text}${{1}}")
     } else {
         text.to_string()
     }
@@ -1658,6 +1664,17 @@ fn construct_completion_items(
     snippets: bool,
     timestamp: &str,
 ) -> Vec<CompletionItem> {
+    let block_indent = match &context {
+        ConstructCompletionContext::Block { replace } => {
+            let line_start = source[..replace.start]
+                .rfind('\n')
+                .map_or(0, |index| index + 1);
+            source[line_start..replace.start].to_string()
+        }
+        ConstructCompletionContext::Autolink { .. } | ConstructCompletionContext::Link { .. } => {
+            String::new()
+        }
+    };
     let (replace, templates) = match context {
         ConstructCompletionContext::Block { replace } => (
             replace,
@@ -1665,20 +1682,28 @@ fn construct_completion_items(
                 ConstructTemplate {
                     label: "Task",
                     detail: "plumb task list item",
-                    snippet: format!("`-{{.task created=\"{timestamp}\"}} ${{1:Task}}"),
-                    plain: format!("`-{{.task created=\"{timestamp}\"}} "),
+                    snippet: format!(
+                        "`- ${{1:Task}}\n{block_indent}   {{\n{block_indent}     `task\n{block_indent}     `created {timestamp}\n{block_indent}   }}"
+                    ),
+                    plain: format!(
+                        "`- \n{block_indent}   {{\n{block_indent}     `task\n{block_indent}     `created {timestamp}\n{block_indent}   }}"
+                    ),
                 },
                 ConstructTemplate {
                     label: "Event",
                     detail: "plumb event list item",
-                    snippet: "`-{.event} ${1:09:00} ${2:Event}".to_string(),
-                    plain: "`-{.event} ".to_string(),
+                    snippet: format!(
+                        "`- ${{1:09:00}} ${{2:Event}}\n{block_indent}   {{\n{block_indent}     `event\n{block_indent}   }}"
+                    ),
+                    plain: format!(
+                        "`- \n{block_indent}   {{\n{block_indent}     `event\n{block_indent}   }}"
+                    ),
                 },
                 ConstructTemplate {
                     label: "Link",
                     detail: "plumb link",
-                    snippet: "`->[${1:label}]{to=\"${2:target}\"}".to_string(),
-                    plain: "`->[]{to=\"\"}".to_string(),
+                    snippet: "`->[${1:label}]{`to[${2:target}]}".to_string(),
+                    plain: "`->[]{`to[]}".to_string(),
                 },
             ],
         ),
@@ -1687,8 +1712,8 @@ fn construct_completion_items(
             vec![ConstructTemplate {
                 label: "Autolink",
                 detail: "plumb autolink",
-                snippet: "`[${1:path}]{.->}".to_string(),
-                plain: "`[]{.->}".to_string(),
+                snippet: "`[${1:path}]{`->[]}".to_string(),
+                plain: "`[]{`->[]}".to_string(),
             }],
         ),
         ConstructCompletionContext::Link { replace } => (
@@ -1696,8 +1721,8 @@ fn construct_completion_items(
             vec![ConstructTemplate {
                 label: "Link",
                 detail: "plumb link",
-                snippet: "`->[${1:label}]{to=\"${2:target}\"}".to_string(),
-                plain: "`->[]{to=\"\"}".to_string(),
+                snippet: "`->[${1:label}]{`to[${2:target}]}".to_string(),
+                plain: "`->[]{`to[]}".to_string(),
             }],
         ),
     };

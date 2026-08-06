@@ -1,6 +1,6 @@
 use serde_json::json;
 
-use crate::support::{attribute_value, response, run_server, unique_temp_dir};
+use crate::support::{response, run_server, unique_temp_dir};
 
 #[test]
 fn completes_task_dependencies_from_workspace_tasks() {
@@ -176,7 +176,7 @@ fn completes_links_by_document_metadata_title() {
     assert_eq!(label["detail"], "Usage Guide.plumb");
     assert_eq!(
         label["textEdit"]["newText"],
-        "`->[Usage Guide]{to=\"Usage Guide.plumb\"}"
+        "`->[Usage Guide]{`to[Usage Guide.plumb]}"
     );
     let path = &response(&output, 3)["result"][0];
     assert_eq!(path["label"], "Usage Guide.plumb");
@@ -259,7 +259,7 @@ fn completion_from_a_subdirectory_inserts_a_relative_path() {
     assert_eq!(item["detail"], "../a/target.plumb");
     assert_eq!(
         item["textEdit"]["newText"],
-        "`->[Target A]{to=\"../a/target.plumb\"}"
+        "`->[Target A]{`to[../a/target.plumb]}"
     );
     std::fs::remove_dir_all(root).unwrap();
 }
@@ -534,14 +534,13 @@ fn completes_constructs_after_a_single_backtick() {
         ["Task", "Event", "Link"]
     );
     let task = block[0]["textEdit"]["newText"].as_str().unwrap();
-    assert!(task.starts_with("`-{.task created=\""));
-    assert!(task.ends_with("\"} ${1:Task}"));
-    chrono::DateTime::parse_from_rfc3339(attribute_value(task, "created")).unwrap();
+    assert!(task.starts_with("`- ${1:Task}\n   {\n     `task\n     `created "));
+    assert!(task.ends_with("\n   }"));
     assert_eq!(block[0]["insertTextFormat"], 2);
     let event = block.iter().find(|item| item["label"] == "Event").unwrap();
     assert_eq!(
         event["textEdit"]["newText"],
-        "`-{.event} ${1:09:00} ${2:Event}"
+        "`- ${1:09:00} ${2:Event}\n   {\n     `event\n   }"
     );
     assert_eq!(event["insertTextFormat"], 2);
     assert!(response(&output, 3)["result"].is_null());
@@ -595,9 +594,8 @@ fn completes_constructs_after_a_single_backtick() {
         .unwrap()["textEdit"]["newText"]
         .as_str()
         .unwrap();
-    assert!(fallback_task.starts_with("`-{.task created=\""));
-    assert!(fallback_task.ends_with("\"} "));
-    chrono::DateTime::parse_from_rfc3339(attribute_value(fallback_task, "created")).unwrap();
+    assert!(fallback_task.starts_with("`- \n   {\n     `task\n     `created "));
+    assert!(fallback_task.ends_with("\n   }"));
     assert_eq!(fallback_block[0]["insertTextFormat"], 1);
     std::fs::remove_dir_all(root).unwrap();
 }
@@ -658,7 +656,7 @@ fn completes_construct_facets_from_marker_prefixes() {
     let autolink = response(&output, 2)["result"].as_array().unwrap();
     assert_eq!(autolink.len(), 1);
     assert_eq!(autolink[0]["label"], "Autolink");
-    assert_eq!(autolink[0]["textEdit"]["newText"], "`[${1:path}]{.->}");
+    assert_eq!(autolink[0]["textEdit"]["newText"], "`[${1:path}]{`->[]}");
     assert_eq!(
         autolink[0]["textEdit"]["range"],
         json!({ "start": { "line": 0, "character": 5 }, "end": { "line": 0, "character": 7 } })
@@ -670,7 +668,7 @@ fn completes_construct_facets_from_marker_prefixes() {
         assert_eq!(items[0]["label"], "Link");
         assert_eq!(
             items[0]["textEdit"]["newText"],
-            "`->[${1:label}]{to=\"${2:target}\"}"
+            "`->[${1:label}]{`to[${2:target}]}"
         );
     }
     std::fs::remove_dir_all(root).unwrap();
@@ -737,5 +735,65 @@ fn completes_attributes_with_protocol_ranges_and_snippets() {
     let language = &response(&output, 4)["result"][0];
     assert_eq!(language["label"], "tex");
     assert_eq!(language["textEdit"]["newText"], "tex");
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn completes_recursive_attached_elements() {
+    let root = unique_temp_dir();
+    std::fs::create_dir_all(&root).unwrap();
+    let document = root.join("attached-completion.plumb");
+    let source = "`- Work\n   {\n     `task\n     `pr\n   }\n`->[x]{`t}\n";
+    std::fs::write(&document, source).unwrap();
+    let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
+    let document_uri = lsp_types::Url::from_file_path(&document).unwrap();
+    let messages = [
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {
+                "processId": null, "rootUri": root_uri,
+                "workspaceFolders": [{ "uri": root_uri, "name": "test" }],
+                "capabilities": { "textDocument": { "completion": {
+                    "completionItem": { "snippetSupport": true }
+                } } }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": {
+                "uri": document_uri, "languageId": "plumb", "version": 1, "text": source
+            }}
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 2, "method": "textDocument/completion",
+            "params": {
+                "textDocument": { "uri": document_uri },
+                "position": { "line": 3, "character": 8 }
+            }
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 3, "method": "textDocument/completion",
+            "params": {
+                "textDocument": { "uri": document_uri },
+                "position": { "line": 5, "character": 9 }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 4, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+
+    let output = run_server(&messages);
+    let properties = response(&output, 2)["result"].as_array().unwrap();
+    assert_eq!(properties.len(), 2);
+    let priority = properties
+        .iter()
+        .find(|item| item["label"] == "priority")
+        .unwrap();
+    assert_eq!(priority["textEdit"]["newText"], "`priority ${1:0}");
+    let inline = response(&output, 3)["result"].as_array().unwrap();
+    assert_eq!(inline.len(), 1);
+    assert_eq!(inline[0]["label"], "to");
+    assert_eq!(inline[0]["textEdit"]["newText"], "`to[${1}]");
     std::fs::remove_dir_all(root).unwrap();
 }
