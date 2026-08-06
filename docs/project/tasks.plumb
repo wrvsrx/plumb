@@ -6,3 +6,22 @@
 本页只记录可以直接实施和验收的工作。方向、约束和 deferred design 继续放在
 `->[roadmap]{to="roadmap.plumb"}；已经结束的任务及其验收记录保存在
 `->[completed tasks]{to="completed-tasks.plumb"}。
+
+`- 实现 attached collection/association projection
+   {
+     `task
+     `id attached-declarations
+   }
+
+   `note 以 `->[attached declarations proposal]{to="attached-declarations.plumb"} 为设计输入；先冻结
+         structured property value、repeated keys 与 facet identity，不能让 extension 通过猜测区分同形结构。
+   `note 正文与 attached scope 共用 `[-] collection-member 和 `[:] key/value-association typed view；
+         definition 支持第一个 inline atom 作为 key、同行 remainder 作为首个 value paragraph、children
+         作为后续 block value。
+   `note 标准 attached projection 使用 direct `[-] member 产生 facet、direct `[:] association 产生
+         property，explicit id 改为 `[id] property；`[#] 不获得 attached-only 语义。
+   `note 冻结 `[()] transparent parsed-inline kind，并覆盖 plain、verbatim multiword 与 rich grouped key；
+         `` `[...]`` 继续是 verbatim inline。
+   `note 同步 strict typed views、standard extensions、owned edits、formatter、migration CLI、LSP completion、
+         tree-sitter queries/corpus、reference、guide 与 bundled skill，并提供 current named attached syntax 的
+         无损显式迁移。

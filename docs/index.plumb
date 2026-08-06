@@ -24,7 +24,8 @@ heading、list、metadata、link、citation、task 和 event 等含义由标准 
    `->[syntax editing]{to="architecture/editing.plumb"}。
 `- 了解项目方向：阅读 `->[愿景]{to="project/vision.plumb"}、
    `->[路线图]{to="project/roadmap.plumb"}、`->[当前任务]{to="project/tasks.plumb"} 和
-   `->[已完成任务]{to="project/completed-tasks.plumb"}。
+   `->[已完成任务]{to="project/completed-tasks.plumb"}；下一版 attached data 方向见
+   `->[attached declarations proposal]{to="project/attached-declarations.plumb"}。
 `- 追溯设计理由：阅读 `->[语法决策记录]{to="history/syntax-decisions.plumb"} 和
    `->[djot-tools 能力审计]{to="history/djot-tools-audit.plumb"}。
 

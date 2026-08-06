@@ -1,0 +1,145 @@
+{
+  `title Attached declarations redesign
+}
+
+本文记录下一版 attached semantic profile 的已选方向。它尚未覆盖当前 release，因此不覆盖
+`->[core syntax reference]{`to[../reference/core-syntax.plumb]} 或
+`->[standard extensions reference]{`to[../reference/standard-extensions.plumb]}。实施任务见
+`->[current tasks]{`to[tasks.plumb]}。
+
+`# 目标
+
+`- `[{}] 继续按照 owner level 递归包含普通 blocks 或普通 inline elements，不建立 attribute
+   mini-language。
+`- attached data 不再让任意 property key 占用 marker/kind namespace。
+`- 正文与 attached scope 中的 list item、definition entry 保持同一种基础语义，而不是仅因 parent
+   不同就把同一 spelling 重新解释成无关结构。
+`- definition key 与 value 可以同行；包含 spaces 或 rich inline 的 key 不要求使用冗长的 `[span]
+   spelling。
+`- `[id] 不再需要独立的 attached declaration 形状，而是一个受标准约束的普通 property。
+
+`# Collection 与 association
+
+marker `[-] 始终表示 collection member；marker `[:] 始终表示 key/value association。它们在不同
+container 中的 projection 不同，但节点自身的抽象不变：
+
+`{
+  `language text
+}
+  body collection     attached collection
+  - list item         - facet member
+
+  body associations  attached associations
+  - definition entry - property entry
+
+block attached scope 使用：
+
+`{
+  `language plumb
+}
+  `- Buy milk
+     {
+       `- task
+       `: id shopping
+       `: created 2026-08-09T00:00:00+08:00
+     }
+
+inline attached scope 使用相同 carriers：
+
+`{
+  `language plumb
+}
+  `span[text]{`-[task] `:[id shopping] `:[created 2026-08-09T00:00:00+08:00]}
+
+direct `[-] child 提供 facet view。标准 facet 必须能从该 item 的 content 投影为一个非空 plain
+name；rich、empty 或带 children 的 item 仍是合法 collection member，但不自动产生标准 facet。
+
+direct `[:] child 提供 property view。key `[id] 的 plain scalar value 产生 explicit identity；`[#]
+只保留 heading marker 的标准含义，不在 attached scope 中获得另一套 id semantics。
+
+`# 同行 definition
+
+definition entry 的统一形状是：
+
+`{
+  `language text
+}
+  : KEY VALUE
+
+marker separator 后的第一个 inline atom 是 key。紧随 key 的一个或多个 ASCII spaces/tabs 是
+key/value separator；余下 head 是 value 的首个 inline paragraph。没有同行 value 时，children 提供
+block value；同时存在同行 value 与 children 时，同行部分是首个 paragraph，children 是后续 blocks。
+
+`{
+  `language plumb
+}
+  `: created 2026-08-09T00:00:00+08:00
+  `: city A short inline value.
+
+  `: project Introductory paragraph.
+
+    A later paragraph in the same value.
+
+simple key 使用第一个 plain text atom。inline verbatim 继续提供不可解析的多词原子：
+
+`{
+  `language plumb
+}
+  `: `[created at] 2026-08-09T00:00:00+08:00
+
+这里 key 是 plain string `[created at]；verbatim payload 内的 introducer spelling 不产生 nested
+inline structure。
+
+`# Transparent inline group
+
+标准 inline kind `[()] 是透明 parsed group：
+
+`{
+  `language plumb
+}
+  `()[New `*[York]]
+
+它使用现有 generic parsed-inline grammar，不改变 `` `[...]`` 的 inline-verbatim 含义，也不增加 core
+dispatch branch。标准 lowering 消费 `[()] kind 并保留其 parsed children；存在未消费 attached data 时，
+export 使用必要的 Pandoc `[Span] wrapper 保存它们。
+
+`[()] 让完整 rich key 仍然是 definition head 的第一个 atom：
+
+`{
+  `language plumb
+}
+  `: `()[New `*[York]] A city in the United States.
+
+对应 inline association：
+
+`{
+  `language plumb
+}
+  `:[`()[display `*[name]] Alice]
+
+因此三种 key spelling 分别是：
+
+`{
+  `language plumb
+}
+  `: simple-key Value
+  `: `[multi word key] Value
+  `: `()[rich `*[key]] Value
+
+plain-key view 只在 key 可无损投影为 plain text 时存在。standard extensions 按 plain-key view 查询
+`[id]、`[created]、`[to]、`[src] 等已声明 properties；rich key 仍是合法 definition key，但不会偶然
+命中这些 machine-readable names。definition 本身不因位于 body 或 attached scope 而改变结构。
+
+`# 保持开放的边界
+
+本设计尚未把 attached data 扩张为 JSON replacement。实施前仍需冻结以下边界：
+
+`- definition entry 自身的 attached group 是 entry annotations，还是 structured property value；二者不能
+   依赖 extension 猜测。
+`- repeated property keys 是有序 multi-map、profile-specific sequence，还是 standard duplicate
+   diagnostic。
+`- facet member 是否只接受一个 plain atom；若允许 richer member，facet identity 必须保持可比较。
+`- legacy `[{#id .class key=value}] 与当前 named attached elements 到新 `[-]/[:] projection 的迁移顺序、
+   idempotence 和 source-family policy。
+
+在这些边界冻结并完成实现前，reference、guide、bundled skill 与 formatter 继续描述当前 release。
