@@ -169,6 +169,8 @@ pub struct ParsedBlock {
 pub struct VerbatimBlock {
     pub range: SourceRange,
     pub opener_range: SourceRange,
+    pub kind: String,
+    pub kind_range: SourceRange,
     pub attrs: Attributes,
     pub text: String,
     pub text_range: SourceRange,
@@ -347,9 +349,12 @@ pub enum Inline {
     },
     Verbatim {
         range: SourceRange,
+        kind: String,
+        kind_range: SourceRange,
         text: String,
         text_range: SourceRange,
         quote_count: usize,
+        bracketed: bool,
         attrs: Attributes,
     },
 }

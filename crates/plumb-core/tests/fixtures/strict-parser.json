@@ -1,22 +1,22 @@
 [
   {
-    "name": "marked block and complete attributes",
-    "source": "`node{#id .class key=\"complex value\"} Head\n",
+    "name": "marked block and complete attached declarations",
+    "source": "`node Head {`@[id] `-[class] `:[key complex value]}\n",
     "valid": true,
     "blocks": [{"kind":"marked","marker":"node","attrs":["#id",".class","key=complex value"],"head":"Head","inline":"T\"Head\"","children":[]}],
     "diagnostics": [],
-    "required_tokens": ["Introducer","Marker","AttributePunctuation","AttributeName","AttributeValue","Delimiter","LineEnding"]
+    "required_tokens": ["Introducer","Marker","Delimiter","Text","LineEnding"]
   },
   {
-    "name": "empty attribute slot value and valid quoted escapes",
-    "source": "`node{} Empty\n`node{empty=\"\" escaped=\"quote\\\" slash\\\\\"} Escaped\n",
+    "name": "empty attached group and empty association value",
+    "source": "`node Empty {}\n`node Escaped {`:[empty `\"\"] `:[value quote slash]}\n",
     "valid": true,
     "blocks": [
       {"kind":"marked","marker":"node","attrs":[],"head":"Empty","inline":"T\"Empty\"","children":[]},
-      {"kind":"marked","marker":"node","attrs":["empty=","escaped=quote\" slash\\"],"head":"Escaped","inline":"T\"Escaped\"","children":[]}
+      {"kind":"marked","marker":"node","attrs":["empty=","value=quote slash"],"head":"Escaped","inline":"T\"Escaped\"","children":[]}
     ],
     "diagnostics": [],
-    "required_tokens": ["AttributeEscape","AttributeValue","Delimiter"]
+    "required_tokens": ["Introducer","Text","Delimiter"]
   },
   {
     "name": "deferred head and paragraph child",
@@ -35,16 +35,16 @@
     "required_tokens": ["Introducer","Marker","Indentation"]
   },
   {
-    "name": "multiline attributes with compact close",
-    "source": "`node{.one\n    #two\n  key=value} Head\n",
+    "name": "expanded attached declarations",
+    "source": "`node Head\n      {\n        `- one\n        `@ two\n        `: key value\n      }\n",
     "valid": true,
     "blocks": [{"kind":"marked","marker":"node","attrs":[".one","#two","key=value"],"head":"Head","inline":"T\"Head\"","children":[]}],
     "diagnostics": [],
-    "required_tokens": ["AttributePunctuation","AttributeName","AttributeValue","Indentation"]
+    "required_tokens": ["Introducer","Marker","Text","Indentation"]
   },
   {
     "name": "nested parsed inline and escapes",
-    "source": "before `span[a `em[b] `` `] c]{.x} after\n",
+    "source": "before `span[a `em[b] `` `] c]{`-[x]} after\n",
     "valid": true,
     "blocks": [{"kind":"paragraph","head":"before a b ` ] c after","inline":"T\"before\"W\" \"Espan[\".x\"][T\"a\"W\" \"Eem[][T\"b\"]W\" \"T\"`\"W\" \"T\"]\"W\" \"T\"c\"]W\" \"T\"after\""}],
     "diagnostics": [],
@@ -60,17 +60,17 @@
   },
   {
     "name": "strengthened inline verbatim",
-    "source": "Raw `\"[a ] b]\"{language=text}\n",
+    "source": "Raw `text\"[a ] b]\"\n",
     "valid": true,
-    "blocks": [{"kind":"paragraph","head":"Raw a ] b","inline":"T\"Raw\"W\" \"V1[\"language=text\"]\"a ] b\""}],
+    "blocks": [{"kind":"paragraph","head":"Raw a ] b","inline":"T\"Raw\"W\" \"V1[]\"a ] b\""}],
     "diagnostics": [],
-    "required_tokens": ["RawPayload","AttributeName","AttributeValue"]
+    "required_tokens": ["RawPayload","InlineKind","Delimiter"]
   },
   {
     "name": "verbatim block preserves CRLF payload",
-    "source": "`{language=text}\r\n  raw\r\n\r\nnext\r\n",
+    "source": "`text\"\r\n  raw\r\n\r\nnext\r\n",
     "valid": true,
-    "blocks": [{"kind":"verbatim","attrs":["language=text"],"text":"raw\r\n\r\n"},{"kind":"paragraph","head":"next","inline":"T\"next\""}],
+    "blocks": [{"kind":"verbatim","attrs":[],"text":"raw\r\n\r\n"},{"kind":"paragraph","head":"next","inline":"T\"next\""}],
     "diagnostics": [],
     "required_tokens": ["RawPayload","LineEnding","Indentation"]
   },
@@ -84,6 +84,7 @@
   },
   {
     "name": "duplicate attribute cardinality and escape ordering",
+    "legacy_017": true,
     "source": "`node{#one #two key=a key=b escaped=\"bad\\q\"} Head\n",
     "valid": false,
     "blocks": [{"kind":"marked","marker":"node","attrs":["#one","#two","key=a","key=b","escaped=bad\\q"],"head":"Head","inline":"T\"Head\"","children":[]}],
@@ -96,6 +97,7 @@
   },
   {
     "name": "unclosed attributes recover before sibling block",
+    "legacy_017": true,
     "source": "`node{.x\n  key=value\n`next Sibling\n",
     "valid": false,
     "blocks": [{"kind":"marked","marker":"node","attrs":[".x","key=value"],"head":"","inline":"","children":[]},{"kind":"marked","marker":"next","attrs":[],"head":"Sibling","inline":"T\"Sibling\"","children":[]}],
@@ -112,10 +114,10 @@
   },
   {
     "name": "unclosed inline verbatim stays on physical line",
-    "source": "before `[raw\nnext\n",
+    "source": "before `\"raw\nnext\n",
     "valid": false,
     "blocks": [{"kind":"paragraph","head":"before  next","inline":"T\"before\"W\" \"ST\"next\""}],
-    "diagnostics": [{"code":"syntax.unclosed-verbatim","range":{"text":"`[raw"}}],
+    "diagnostics": [{"code":"syntax.unclosed-verbatim","range":{"text":"`\"raw"}}],
     "required_tokens": ["Error","LineEnding"]
   },
   {
@@ -171,17 +173,18 @@
   },
   {
     "name": "invalid verbatim block head recovers at next line",
-    "source": "`{} forbidden\nnext\n",
+    "source": "`\"{`-[example]} forbidden\nnext\n",
     "valid": false,
     "blocks": [
-      {"kind":"verbatim","attrs":[],"text":""},
+      {"kind":"verbatim","attrs":[".example"],"text":""},
       {"kind":"paragraph","head":"next","inline":"T\"next\""}
     ],
-    "diagnostics": [{"code":"syntax.invalid-verbatim-block-dispatch","range":{"text":"`{} forbidden"}}],
+    "diagnostics": [{"code":"syntax.invalid-verbatim-block-dispatch","range":{"text":"`\"{`-[example]} forbidden"}}],
     "required_tokens": ["Error","Text"]
   },
   {
     "name": "malformed attribute item recovers at closing brace",
+    "legacy_017": true,
     "source": "`node{bad} Head\n",
     "valid": false,
     "blocks": [{"kind":"marked","marker":"node","attrs":[],"head":"Head","inline":"T\"Head\"","children":[]}],
@@ -190,6 +193,7 @@
   },
   {
     "name": "empty attribute shorthand name",
+    "legacy_017": true,
     "source": "`node{#} Head\n",
     "valid": false,
     "blocks": [{"kind":"marked","marker":"node","attrs":[],"head":"Head","inline":"T\"Head\"","children":[]}],
@@ -198,6 +202,7 @@
   },
   {
     "name": "empty bare attribute value has a missing-token range",
+    "legacy_017": true,
     "source": "`node{key=} Head\n",
     "valid": false,
     "blocks": [{"kind":"marked","marker":"node","attrs":["key="],"head":"Head","inline":"T\"Head\"","children":[]}],
@@ -214,7 +219,7 @@
   },
   {
     "name": "short verbatim margin outranks partial indent",
-    "source": "`{}\n x\nnext\n",
+    "source": "`\"\n x\nnext\n",
     "valid": false,
     "blocks": [
       {"kind":"verbatim","attrs":[],"text":""},
@@ -226,6 +231,7 @@
   },
   {
     "name": "unclosed quoted value outranks enclosing attributes",
+    "legacy_017": true,
     "source": "`node{key=\"open\nnext\n",
     "valid": false,
     "blocks": [
@@ -237,9 +243,9 @@
   },
   {
     "name": "odd quote run emits a literal tick before an inline node",
-    "source": "```[raw]\n",
+    "source": "```\"raw\"\n",
     "valid": true,
-    "blocks": [{"kind":"paragraph","head":"`raw","inline":"T\"`\"V0[]\"raw\""}],
+    "blocks": [{"kind":"paragraph","head":"`raw","inline":"T\"`\"V1[]\"raw\""}],
     "diagnostics": [],
     "required_tokens": ["Escape","Introducer","RawPayload"]
   },
@@ -253,6 +259,7 @@
   },
   {
     "name": "malformed attribute item recovers to later item",
+    "legacy_017": true,
     "source": "`node{bad .ok} Head\n",
     "valid": false,
     "blocks": [{"kind":"marked","marker":"node","attrs":[".ok"],"head":"Head","inline":"T\"Head\"","children":[]}],

@@ -119,6 +119,20 @@ impl<'a> TokenBuilder<'a> {
                         SyntaxKind::Introducer,
                         TYPED_PRIORITY,
                     );
+                    self.assign(
+                        block.kind_range.clone(),
+                        SyntaxKind::InlineKind,
+                        TYPED_PRIORITY,
+                    );
+                    if !block.kind.is_empty()
+                        || self.source.as_bytes().get(block.kind_range.end) == Some(&b'"')
+                    {
+                        self.assign(
+                            block.kind_range.end..block.kind_range.end + 1,
+                            SyntaxKind::Delimiter,
+                            TYPED_PRIORITY,
+                        );
+                    }
                     self.annotate_block_attributes(&block.attrs, &mut blocks);
                     self.annotate_raw_block(block);
                 }
@@ -173,22 +187,42 @@ impl<'a> TokenBuilder<'a> {
                     }
                     Inline::Verbatim {
                         range,
+                        kind_range,
                         text_range,
                         quote_count,
+                        bracketed,
                         attrs,
                         ..
                     } => {
-                        let open = range.start + 1 + quote_count;
                         self.assign(
                             range.start..range.start + 1,
                             SyntaxKind::Introducer,
                             TYPED_PRIORITY,
                         );
-                        self.assign(range.start + 1..open, SyntaxKind::Delimiter, TYPED_PRIORITY);
-                        self.assign(open..open + 1, SyntaxKind::Delimiter, TYPED_PRIORITY);
+                        self.assign(kind_range.clone(), SyntaxKind::InlineKind, TYPED_PRIORITY);
+                        let delimiter_start = kind_range.end;
+                        if *bracketed {
+                            self.assign(
+                                delimiter_start..delimiter_start + quote_count,
+                                SyntaxKind::Delimiter,
+                                TYPED_PRIORITY,
+                            );
+                            self.assign(
+                                delimiter_start + quote_count..delimiter_start + quote_count + 1,
+                                SyntaxKind::Delimiter,
+                                TYPED_PRIORITY,
+                            );
+                        } else {
+                            self.assign(
+                                delimiter_start..delimiter_start + 1,
+                                SyntaxKind::Delimiter,
+                                TYPED_PRIORITY,
+                            );
+                        }
                         self.assign(text_range.clone(), SyntaxKind::RawPayload, TYPED_PRIORITY);
+                        let close_width = if *bracketed { 1 + quote_count } else { 1 };
                         self.assign(
-                            text_range.end..text_range.end + 1 + quote_count,
+                            text_range.end..text_range.end + close_width,
                             SyntaxKind::Delimiter,
                             TYPED_PRIORITY,
                         );

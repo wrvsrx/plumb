@@ -6,3 +6,5 @@
 # everyone who runs the test benefits from these saved cases.
 cc 904b01c539a1e9b3b45ebe6fd0e0dabbaf3274da5eb76d589b6579367bafcf95 # shrinks to source = "¡`¡\n"
 cc 22f9c7143b5fc52c64f5c73fae693e1922e01993fc33521fbf5c254cff1bc1fa # shrinks to source = "`{\"\\¡"
+cc 8e73bf1badedc3d85882f5cfcda376a4bffc692b625cc187ed69d6a8176a6806 # shrinks to source = " `!\"{\"\\¡"
+cc 8f41a0973f2852c647fb50a5cc32db49ac61a96505e3bdf8319d698960434ad9 # shrinks to source = "`node{.one`text\"`node{key=\"bad\\q\"}`node\n      {\n        `: key quote\" slash\\\n      }\n\n"

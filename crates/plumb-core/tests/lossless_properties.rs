@@ -155,15 +155,15 @@ fn structural_source() -> impl Strategy<Value = String> {
         Just("text".to_string()),
         Just("多字节 π".to_string()),
         Just("`node head".to_string()),
-        Just("`-{.task #id key=value} item".to_string()),
+        Just("`- item\n   {\n     `- task\n     `@ id\n     `: key value\n   }\n".to_string()),
         Just("`span[nested `em[value]]".to_string()),
         Just("`\"[raw ] safely]\"".to_string()),
         Just("```[escaped run]".to_string()),
-        Just("`node{key=\"quote\\\" slash\\\\\"}".to_string()),
+        Just("`node\n      {\n        `: key quote\" slash\\\n      }\n".to_string()),
         Just("`node{key=\"bad\\q\"}".to_string()),
         Just("`node{.one".to_string()),
         Just("`kind[unclosed".to_string()),
-        Just("`{language=text}".to_string()),
+        Just("`text\"".to_string()),
     ];
     let indentation = prop_oneof![
         (0usize..12).prop_map(|count| " ".repeat(count)),

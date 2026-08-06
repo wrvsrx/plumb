@@ -19,37 +19,49 @@ fn empty_source_has_an_empty_lossless_root() {
 
 #[test]
 fn marked_block_attributes_have_token_granularity() {
-    let source = "`node{#id .class key=\"a\\\"b\"} Head\r\n";
+    let source =
+        "`node Head\n      {\n        `@ id\n        `- class\n        `: key a\"b\n      }\n";
     assert_eq!(
         tokens(source),
         vec![
             (SyntaxKind::Introducer, "`"),
             (SyntaxKind::Marker, "node"),
-            (SyntaxKind::Delimiter, "{"),
-            (SyntaxKind::AttributePunctuation, "#"),
-            (SyntaxKind::AttributeName, "id"),
-            (SyntaxKind::Whitespace, " "),
-            (SyntaxKind::AttributePunctuation, "."),
-            (SyntaxKind::AttributeName, "class"),
-            (SyntaxKind::Whitespace, " "),
-            (SyntaxKind::AttributeName, "key"),
-            (SyntaxKind::AttributePunctuation, "="),
-            (SyntaxKind::Delimiter, "\""),
-            (SyntaxKind::AttributeValue, "a"),
-            (SyntaxKind::AttributeEscape, "\\\""),
-            (SyntaxKind::AttributeValue, "b"),
-            (SyntaxKind::Delimiter, "\""),
-            (SyntaxKind::Delimiter, "}"),
             (SyntaxKind::Whitespace, " "),
             (SyntaxKind::Text, "Head"),
-            (SyntaxKind::LineEnding, "\r\n"),
+            (SyntaxKind::LineEnding, "\n"),
+            (SyntaxKind::Indentation, "      "),
+            (SyntaxKind::Delimiter, "{"),
+            (SyntaxKind::LineEnding, "\n"),
+            (SyntaxKind::Indentation, "        "),
+            (SyntaxKind::Introducer, "`"),
+            (SyntaxKind::Marker, "@"),
+            (SyntaxKind::Whitespace, " "),
+            (SyntaxKind::Text, "id"),
+            (SyntaxKind::LineEnding, "\n"),
+            (SyntaxKind::Indentation, "        "),
+            (SyntaxKind::Introducer, "`"),
+            (SyntaxKind::Marker, "-"),
+            (SyntaxKind::Whitespace, " "),
+            (SyntaxKind::Text, "class"),
+            (SyntaxKind::LineEnding, "\n"),
+            (SyntaxKind::Indentation, "        "),
+            (SyntaxKind::Introducer, "`"),
+            (SyntaxKind::Marker, ":"),
+            (SyntaxKind::Whitespace, " "),
+            (SyntaxKind::Text, "key"),
+            (SyntaxKind::Whitespace, " "),
+            (SyntaxKind::Text, "a\"b"),
+            (SyntaxKind::LineEnding, "\n"),
+            (SyntaxKind::Indentation, "      "),
+            (SyntaxKind::Delimiter, "}"),
+            (SyntaxKind::LineEnding, "\n"),
         ]
     );
 }
 
 #[test]
 fn parsed_and_verbatim_inlines_expose_their_delimiters() {
-    let source = "A `span[x]{.c} `[raw] Z\n";
+    let source = "A `span[x]{`-[c]} `\"raw\" Z\n";
     assert_eq!(
         tokens(source),
         vec![
@@ -61,14 +73,17 @@ fn parsed_and_verbatim_inlines_expose_their_delimiters() {
             (SyntaxKind::Text, "x"),
             (SyntaxKind::Delimiter, "]"),
             (SyntaxKind::Delimiter, "{"),
-            (SyntaxKind::AttributePunctuation, "."),
-            (SyntaxKind::AttributeName, "c"),
+            (SyntaxKind::Introducer, "`"),
+            (SyntaxKind::InlineKind, "-"),
+            (SyntaxKind::Delimiter, "["),
+            (SyntaxKind::Text, "c"),
+            (SyntaxKind::Delimiter, "]"),
             (SyntaxKind::Delimiter, "}"),
             (SyntaxKind::Whitespace, " "),
             (SyntaxKind::Introducer, "`"),
-            (SyntaxKind::Delimiter, "["),
+            (SyntaxKind::Delimiter, "\""),
             (SyntaxKind::RawPayload, "raw"),
-            (SyntaxKind::Delimiter, "]"),
+            (SyntaxKind::Delimiter, "\""),
             (SyntaxKind::Whitespace, " "),
             (SyntaxKind::Text, "Z"),
             (SyntaxKind::LineEnding, "\n"),
@@ -97,20 +112,18 @@ fn strengthened_verbatim_quotes_are_individual_delimiters() {
 
 #[test]
 fn raw_block_separates_structural_prefix_payload_and_crlf() {
-    let source = "`{language=text}\r\n  raw\r\n\r\n";
+    let source = "`text\"\n  raw\r\n  \r\n";
     assert_eq!(
         tokens(source),
         vec![
             (SyntaxKind::Introducer, "`"),
-            (SyntaxKind::Delimiter, "{"),
-            (SyntaxKind::AttributeName, "language"),
-            (SyntaxKind::AttributePunctuation, "="),
-            (SyntaxKind::AttributeValue, "text"),
-            (SyntaxKind::Delimiter, "}"),
-            (SyntaxKind::LineEnding, "\r\n"),
+            (SyntaxKind::InlineKind, "text"),
+            (SyntaxKind::Delimiter, "\""),
+            (SyntaxKind::LineEnding, "\n"),
             (SyntaxKind::Indentation, "  "),
             (SyntaxKind::RawPayload, "raw"),
             (SyntaxKind::LineEnding, "\r\n"),
+            (SyntaxKind::Indentation, "  "),
             (SyntaxKind::LineEnding, "\r\n"),
         ]
     );
