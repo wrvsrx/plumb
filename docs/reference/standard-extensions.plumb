@@ -310,12 +310,14 @@ task-to-event reverse query。不得从 task 的 created、due、wait、done 或
 
 `[uid]、`[when] pairs 与 metadata `[event-uids] 没有 event semantics，只作为 opaque attributes/metadata
 保留。Event 只有被引用时才需要 explicit id；authoring operation 不自动生成 id。
-只读 vdir projection 要求每个 event 具有有效 time；exporter 从 workspace-relative path、source range、
-schedule 与 title 确定性派生 iCalendar UID。source 编辑或移动可以在 projection 中表现为删除后新增。每个
-event 原子生成一个含单个 VEVENT
+只读 vdir projection 要求每个 event 具有有效 time；exporter 从使用正斜线分隔的 workspace-relative path、
+schedule 与 title 确定性派生 iCalendar UID。不同设备上的同一 workspace 因而产生相同 filename 与内容；
+同一路径内 schedule 和 title 都相同的 events 是 identity conflict。每个 event 生成一个含单个 VEVENT
 的 `[..ics] file，并 lower SUMMARY、DESCRIPTION、DTSTART、optional DTEND、UID、DTSTAMP 与重复的
 `[X-PLUMB-TASK] properties。输出使用 RFC 5545 escaping、75-octet folding 与 CRLF。`[.plumb] source
-始终是唯一 writable source；初版不导入外部 iCalendar 修改，也不实现 CalDAV client。
+始终是唯一 writable source；UID 直接作为 `[..ics] filename，`[DTSTAMP] 确定性取 UTC `[DTSTART]。
+export 先构造完整期望集合，再对受管理目录新增、更新或删除对应 files；初版不导入外部 iCalendar 修改，
+也不实现 CalDAV client。
 
 Event CEL context 提供 `[path]、`[id]、`[title]、source-backed `[date]、`[timezone]、`[when]、
 解析后的 `[at]、`[start]、`[end]、`[tasks] 与 `[now]。

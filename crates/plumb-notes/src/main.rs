@@ -116,7 +116,7 @@ fn run(config: Config) -> Result<(), String> {
                 if config.query.is_some() {
                     return Err("event export-vdir does not support --query".to_string());
                 }
-                events::export_vdir(&loaded, &export.output, chrono::Utc::now())?;
+                events::export_vdir(&loaded, &export.output)?;
             }
             None => {
                 let records = loaded.workspace.search_records_filtered(

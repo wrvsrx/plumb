@@ -246,7 +246,8 @@ document metadata，缺少时使用执行操作的本地日期/offset。显式 d
 end local time 早于 start 时解释为次日，相等无效。
 转换会在该 list item 上原位追加 `[.event] class，并把规范化 schedule 留在 head 开头；title 中的
 parsed/verbatim inline 及其 attributes 原样保留。它不生成 explicit id 或 UID metadata；只有需要引用
-event 时才用通用操作添加 id。vdir exporter 会从 source identity 确定性派生 iCalendar UID。
+event 时才用通用操作添加 id。vdir exporter 会从 workspace-relative path、schedule 与 title 确定性派生
+iCalendar UID，因此同一 workspace 在不同设备上产生相同的 calendar files。
 
 显式 date 写入 event override；省略 date/timezone 时优先继承 document metadata，缺少对应 metadata 时
 才使用 operation 当前本地日期/offset。选中多行时可执行 `[Convert selected items to events]
