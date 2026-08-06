@@ -2,9 +2,8 @@
 Paragraphs
 ==================
 
-# punctuation is ordinary text
+one line
 two physical lines
-belong to one paragraph
 
 another paragraph
 
@@ -16,8 +15,6 @@ another paragraph
     (inline_content
       (text))
     (inline_content
-      (text))
-    (inline_content
       (text)))
   (blank_line)
   (paragraph
@@ -25,84 +22,16 @@ another paragraph
       (text))))
 
 ==================
-Empty verbatim block
+Marked blocks and children
 ==================
 
-`{}
-`after
+`parent Head
+  continued head
 
----
+  child paragraph
 
-(document
-  (blank_line)
-  (verbatim_block
-    (introducer)
-    (attributes))
-  (marked_block
-    (introducer)
-    (marker)))
-
-==================
-Explicit leading blank verbatim line
-==================
-
-`{}
-
-  code after leading blank
-
-`after-code
-
----
-
-(document
-  (blank_line)
-  (verbatim_block
-    (introducer)
-    (attributes)
-    (raw_text)
-    (raw_text)
-    (raw_text))
-  (marked_block
-    (introducer)
-    (marker)))
-
-==================
-Verbatim blocks
-==================
-
-`{.container}
-  raw child
-
-`{}
-  `child remains raw
-
----
-
-(document
-  (blank_line)
-  (verbatim_block
-    (introducer)
-    (attributes
-      (attribute_class
-        (attribute_name)))
-    (raw_text)
-    (raw_text))
-  (verbatim_block
-    (introducer)
-    (attributes)
-    (raw_text)))
-
-==================
-Head continuation and children
-==================
-
-`marker first head line
-   second head line
-   third head line
-
-   paragraph child
-
-   `child marked child
+  `child Nested
+`sibling Done
 
 ---
 
@@ -117,8 +46,6 @@ Head continuation and children
     (headed_body
       (head_continuation
         (inline_content
-          (text))
-        (inline_content
           (text)))
       (blank_line)
       (paragraph
@@ -130,374 +57,10 @@ Head continuation and children
         (marker)
         (head_separator)
         (inline_content
-          (text))))))
-
-==================
-Dynamic indentation and dedent
-==================
-
-`parent
-
-   first child
-
-   `nested
-
-      grandchild
-
-   sibling child
-
-`top-level-sibling
-
----
-
-(document
-  (blank_line)
+          (text)))))
   (marked_block
     (introducer)
     (marker)
-    (block_body
-      (paragraph
-        (inline_content
-          (text)))
-      (blank_line)
-      (marked_block
-        (introducer)
-        (marker)
-        (block_body
-          (paragraph
-            (inline_content
-              (text)))
-          (blank_line)))
-      (paragraph
-        (inline_content
-          (text)))
-      (blank_line)))
-  (marked_block
-    (introducer)
-    (marker)))
-
-==================
-Raw verbatim margin
-==================
-
-`{language=text}
-  first raw line
-    two preserved leading spaces
-
-`after code
-
----
-
-(document
-  (blank_line)
-  (verbatim_block
-    (introducer)
-    (attributes
-      (attribute_pair
-        (attribute_name)
-        (attribute_value)))
-    (raw_text)
-    (raw_text)
-    (raw_text))
-  (marked_block
-    (introducer)
-    (marker)
-    (head_separator)
-    (inline_content
-      (text))))
-
-==================
-Raw tab after the structural prefix
-==================
-
-`{}
-  x	payload tab is preserved
-
-`after-code
-
----
-
-(document
-  (blank_line)
-  (verbatim_block
-    (introducer)
-    (attributes)
-    (raw_text)
-    (raw_text))
-  (marked_block
-    (introducer)
-    (marker)))
-
-==================
-Empty and escaped attributes
-==================
-
-`empty{} head
-`escaped{quote="say \"hi\"" path="c:\\tmp"} head
-
----
-
-(document
-  (blank_line)
-  (marked_block
-    (introducer)
-    (marker)
-    (attributes)
-    (head_separator)
-    (inline_content
-      (text)))
-  (marked_block
-    (introducer)
-    (marker)
-    (attributes
-      (attribute_pair
-        (attribute_name)
-        (attribute_value))
-      (attribute_pair
-        (attribute_name)
-        (attribute_value)))
-    (head_separator)
-    (inline_content
-      (text))))
-
-==================
-Duplicate attributes retained in the CST
-==================
-
-`duplicates{#first #second key=one key=two .note .note} head
-
----
-
-(document
-  (blank_line)
-  (marked_block
-    (introducer)
-    (marker)
-    (attributes
-      (attribute_id
-        (attribute_name))
-      (attribute_id
-        (attribute_name))
-      (attribute_pair
-        (attribute_name)
-        (attribute_value))
-      (attribute_pair
-        (attribute_name)
-        (attribute_value))
-      (attribute_class
-        (attribute_name))
-      (attribute_class
-        (attribute_name)))
-    (head_separator)
-    (inline_content
-      (text))))
-
-==================
-Dedent after direct marked child
-==================
-
-`parent
-  `child
-
-`top-level-sibling
-
----
-
-(document
-  (blank_line)
-  (marked_block
-    (introducer)
-    (marker)
-    (block_body
-      (marked_block
-        (introducer)
-        (marker))))
-  (blank_line)
-  (marked_block
-    (introducer)
-    (marker)))
-
-==================
-Empty head dispatch
-==================
-
-`direct-parent
-  `direct-marked-child
-
----
-
-(document
-  (blank_line)
-  (marked_block
-    (introducer)
-    (marker)
-    (block_body
-      (marked_block
-        (introducer)
-        (marker)))))
-
-==================
-Empty head before paragraph child
-==================
-
-`paragraph-parent
-
-  paragraph child after blank
-
----
-
-(document
-  (blank_line)
-  (marked_block
-    (introducer)
-    (marker)
-    (block_body
-      (paragraph
-        (inline_content
-          (text))))))
-
-==================
-Nested multiline paragraph
-==================
-
-`parent
-
-    first physical line
-    second physical line
-    third physical line
-
-    `sibling
-
----
-
-(document
-  (blank_line)
-  (marked_block
-    (introducer)
-    (marker)
-    (block_body
-      (paragraph
-        (inline_content
-          (text))
-        (inline_content
-          (text))
-        (inline_content
-          (text)))
-      (blank_line)
-      (marked_block
-        (introducer)
-        (marker)))))
-
-==================
-Nested verbatim margin
-==================
-
-`parent
-   `{}
-     raw at absolute column five
-
-   `sibling
-
----
-
-(document
-  (blank_line)
-  (marked_block
-    (introducer)
-    (marker)
-    (block_body
-      (verbatim_block
-        (introducer)
-        (attributes)
-        (raw_text)
-        (raw_text))
-      (marked_block
-        (introducer)
-        (marker)))))
-
-==================
-Opaque marked blocks
-==================
-
-`symbol# punctuation head
-`任务 Unicode head
-`note! punctuation head
-`aside{.note} attributed head
-`custom extension marker
-
----
-
-(document
-  (blank_line)
-  (marked_block
-    (introducer)
-    (marker)
-    (head_separator)
-    (inline_content
-      (text)))
-  (marked_block
-    (introducer)
-    (marker)
-    (head_separator)
-    (inline_content
-      (text)))
-  (marked_block
-    (introducer)
-    (marker)
-    (head_separator)
-    (inline_content
-      (text)))
-  (marked_block
-    (introducer)
-    (marker)
-    (attributes
-      (attribute_class
-        (attribute_name)))
-    (head_separator)
-    (inline_content
-      (text)))
-  (marked_block
-    (introducer)
-    (marker)
-    (head_separator)
-    (inline_content
-      (text))))
-
-==================
-Block attributes
-==================
-
-`marker{#intro .note .note key=value url="https://example.test/a?q=x#part" pattern="[a-z]=value" quoted="two words" empty=""} head
-
----
-
-(document
-  (blank_line)
-  (marked_block
-    (introducer)
-    (marker)
-    (attributes
-      (attribute_id
-        (attribute_name))
-      (attribute_class
-        (attribute_name))
-      (attribute_class
-        (attribute_name))
-      (attribute_pair
-        (attribute_name)
-        (attribute_value))
-      (attribute_pair
-        (attribute_name)
-        (attribute_value))
-      (attribute_pair
-        (attribute_name)
-        (attribute_value))
-      (attribute_pair
-        (attribute_name)
-        (attribute_value))
-      (attribute_pair
-        (attribute_name)
-        (attribute_value)))
     (head_separator)
     (inline_content
       (text))))
@@ -506,9 +69,8 @@ Block attributes
 Same-line first child
 ==================
 
-`- `- a
-   `- b
-   `- c
+`- `- First
+   `- Second
 
 ---
 
@@ -518,12 +80,6 @@ Same-line first child
     (introducer)
     (marker)
     (head_separator)
-    (marked_block
-      (introducer)
-      (marker)
-      (head_separator)
-      (inline_content
-        (text)))
     (marked_block
       (introducer)
       (marker)
@@ -538,12 +94,15 @@ Same-line first child
         (text)))))
 
 ==================
-Multiline block attributes
+Expanded attached group
 ==================
 
-`-{.task
-    #write
-  created="2026-07-20T09:00:00+08:00"} Work
+`- Buy milk
+   {
+     `- task
+     `@ shopping
+     `: due 2026-08-07
+   }
 
 ---
 
@@ -552,14 +111,167 @@ Multiline block attributes
   (marked_block
     (introducer)
     (marker)
-    (attributes
-      (attribute_class
-        (attribute_name))
-      (attribute_id
-        (attribute_name))
-      (attribute_pair
-        (attribute_name)
-        (attribute_value)))
+    (head_separator)
+    (inline_content
+      (text))
+    (block_body
+      (attached_block_group
+        (block_group_open)
+        (marked_block
+          (introducer)
+          (marker)
+          (head_separator)
+          (inline_content
+            (text)))
+        (marked_block
+          (introducer)
+          (marker)
+          (head_separator)
+          (inline_content
+            (text)))
+        (marked_block
+          (introducer)
+          (marker)
+          (head_separator)
+          (inline_content
+            (text)))))))
+
+==================
+Compact trailing group
+==================
+
+`- Buy milk {`-[task] `@[shopping] `:[due 2026-08-07]}
+
+---
+
+(document
+  (blank_line)
+  (marked_block
+    (introducer)
+    (marker)
+    (head_separator)
+    (inline_content
+      (text))
+    (attached_inline_group
+      (attached_inline_content
+        (inline_element
+          (introducer)
+          (inline_kind)
+          (parsed_inline_content
+            (inline_text)))
+        (attached_inline_text)
+        (inline_element
+          (introducer)
+          (inline_kind)
+          (parsed_inline_content
+            (inline_text)))
+        (attached_inline_text)
+        (inline_element
+          (introducer)
+          (inline_kind)
+          (parsed_inline_content
+            (inline_text)))))))
+
+==================
+Verbatim blocks
+==================
+
+`rust"{`@[example] `:[generated true]}
+  fn main() {
+      println!("hello");
+  }
+
+`"
+`after Done
+
+---
+
+(document
+  (blank_line)
+  (verbatim_block
+    (introducer)
+    (verbatim_kind)
+    (attached_inline_group
+      (attached_inline_content
+        (inline_element
+          (introducer)
+          (inline_kind)
+          (parsed_inline_content
+            (inline_text)))
+        (attached_inline_text)
+        (inline_element
+          (introducer)
+          (inline_kind)
+          (parsed_inline_content
+            (inline_text)))))
+    (raw_text)
+    (raw_text)
+    (raw_text)
+    (raw_text))
+  (verbatim_block
+    (introducer))
+  (marked_block
+    (introducer)
+    (marker)
     (head_separator)
     (inline_content
       (text))))
+
+==================
+Nested verbatim margin
+==================
+
+`parent
+  `text"
+    one
+    \ttwo
+  `after
+
+---
+
+(document
+  (blank_line)
+  (marked_block
+    (introducer)
+    (marker)
+    (block_body
+      (verbatim_block
+        (introducer)
+        (verbatim_kind)
+        (raw_text)
+        (raw_text))
+      (marked_block
+        (introducer)
+        (marker)))))
+
+==================
+Dynamic indentation and dedent
+==================
+
+`a
+   `b
+      `c
+   `d
+`e
+
+---
+
+(document
+  (blank_line)
+  (marked_block
+    (introducer)
+    (marker)
+    (block_body
+      (marked_block
+        (introducer)
+        (marker)
+        (block_body
+          (marked_block
+            (introducer)
+            (marker))))
+      (marked_block
+        (introducer)
+        (marker))))
+  (marked_block
+    (introducer)
+    (marker)))

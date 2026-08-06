@@ -1,9 +1,9 @@
 ==================
-Recover after unclosed inline
+Recover after unclosed parsed inline
 ==================
 
 broken `kind[unfinished
-`valid recovered
+`next block
 
 ---
 
@@ -26,13 +26,12 @@ broken `kind[unfinished
       (text))))
 
 ==================
-Reject parsed inline across a blank line
+Reject parsed inline across blank line
 ==================
 
 broken `kind[first line
 
 second line]
-`valid recovered
 
 ---
 
@@ -50,43 +49,25 @@ second line]
   (blank_line)
   (paragraph
     (inline_content
-      (text)))
-  (marked_block
-    (introducer)
-    (marker)
-    (head_separator)
-    (inline_content
       (text))))
 
 ==================
-Reject parsed inline across an enclosing dedent
+Recover after unclosed compact verbatim
 ==================
 
-`parent
-  paragraph `kind[first line
-outside]
-`valid recovered
+broken `rust"unfinished
+`next block
 
 ---
 
 (document
   (blank_line)
-  (marked_block
-    (introducer)
-    (marker)
-    (headed_body
-      (head_continuation
-        (inline_content
-          (text)
-          (inline_element
-            (introducer)
-            (inline_kind)
-            (parsed_inline_content
-              (inline_text))
-            (MISSING "]"))))))
   (paragraph
     (inline_content
-      (text)))
+      (text))
+    (ERROR
+      (introducer)
+      (inline_kind)))
   (marked_block
     (introducer)
     (marker)
@@ -95,14 +76,53 @@ outside]
       (text))))
 
 ==================
+Recover after unclosed strengthened verbatim
+==================
+
+broken `"[unfinished
+`next block
+
+---
+
+(document
+  (blank_line)
+  (paragraph
+    (inline_content
+      (text))
+    (ERROR
+      (introducer)
+      (ERROR)
+      (inline_kind)))
+  (marked_block
+    (introducer)
+    (marker)
+    (head_separator)
+    (inline_content
+      (text))))
+
+==================
+Reject verbatim block head
+==================
+
+`rust" unexpected head
+
+---
+
+(document
+  (blank_line)
+  (verbatim_block
+    (introducer)
+    (verbatim_kind)
+    (ERROR)))
+
+==================
 Reject partial dedent
 ==================
 
-`parent
-  `child
-    content
+`outer
+    `inner
    partial
-`valid recovered
+`next
 
 ---
 
@@ -114,246 +134,10 @@ Reject partial dedent
     (block_body
       (marked_block
         (introducer)
-        (marker)
-        (headed_body
-          (head_continuation
-            (inline_content
-              (text)))))
-      (ERROR
-        (attribute_name))
-      (blank_line)))
-  (marked_block
-    (introducer)
-    (marker)
-    (head_separator)
-    (inline_content
-      (text))))
-
-==================
-Recover after unclosed inline verbatim
-==================
-
-broken `"[unfinished
-`valid recovered
-
----
-
-(document
-  (blank_line)
+        (marker))))
   (paragraph
-    (inline_content
-      (text))
-    (ERROR
-      (introducer)
-      (UNEXPECTED '\n')))
-  (marked_block
-    (introducer)
-    (marker)
-    (head_separator)
-    (inline_content
-      (text))))
-
-==================
-Reject multiline inline verbatim
-==================
-
-broken `"[first line
-second line]"
-`valid recovered
-
----
-
-(document
-  (blank_line)
-  (paragraph
-    (inline_content
-      (text))
-    (ERROR
-      (introducer)
-      (UNEXPECTED '\n'))
     (inline_content
       (text)))
   (marked_block
     (introducer)
-    (marker)
-    (head_separator)
-    (inline_content
-      (text))))
-
-==================
-Reject bare complex attribute values
-==================
-
-`marker{url=https://example.test pattern=[a-z]} head
-
----
-
-(document
-  (blank_line)
-  (marked_block
-    (introducer)
-    (marker)
-    (attributes
-      (attribute_pair
-        (attribute_name)
-        (attribute_value))
-      (attribute_class
-        (attribute_name))
-      (ERROR
-        (attribute_name)
-        (attribute_name)))
-    (head_separator)
-    (inline_content
-      (text))))
-
-==================
-Reject bare attribute tags
-==================
-
-`marker{aside state=todo .note} head
-
----
-
-(document
-  (blank_line)
-  (marked_block
-    (introducer)
-    (marker)
-    (attributes
-      (ERROR
-        (attribute_name))
-      (attribute_pair
-        (attribute_name)
-        (attribute_value))
-      (attribute_class
-        (attribute_name)))
-    (head_separator)
-    (inline_content
-      (text))))
-
-==================
-Reject unknown quoted escapes
-==================
-
-`marker{key="bad\q"} head
-
----
-
-(document
-  (blank_line)
-  (marked_block
-    (introducer)
-    (marker)
-    (ERROR
-      (attribute_name)
-      (UNEXPECTED 'q')
-      (attribute_name)
-      (UNEXPECTED '\n'))))
-
-==================
-Reject block-only dispatch after an escape
-==================
-
-```node head
-
----
-
-(document
-  (blank_line)
-  (paragraph
-    (inline_content
-      (introducer_escape))
-    (ERROR
-      (introducer)
-      (inline_kind)
-      (attribute_name))))
-
-==================
-Reject block-only dispatch in inline context
-==================
-
-text `node head
-
----
-
-(document
-  (blank_line)
-  (paragraph
-    (inline_content
-      (text))
-    (ERROR
-      (introducer)
-      (inline_kind)
-      (attribute_name))))
-
-==================
-Reject verbatim block head
-==================
-
-`{} code head
-
----
-
-(document
-  (blank_line)
-  (verbatim_block
-    (introducer)
-    (attributes)
-    (ERROR
-      (attribute_name)
-      (attribute_name))))
-
-==================
-Recover after unclosed attributes
-==================
-
-`marker{key=value
-`valid recovered
-
----
-
-(document
-  (blank_line)
-  (marked_block
-    (introducer)
-    (marker)
-    (incomplete_attributes
-      (attribute_pair
-        (attribute_name)
-        (attribute_value))))
-  (marked_block
-    (introducer)
-    (marker)
-    (head_separator)
-    (inline_content
-      (text))))
-
-==================
-Recover incomplete inline attributes
-==================
-
-broken `kind[content]{key=value
-`valid recovered
-
----
-
-(document
-  (blank_line)
-  (paragraph
-    (inline_content
-      (text)
-      (inline_element
-        (introducer)
-        (inline_kind)
-        (parsed_inline_content
-          (inline_text))
-        (incomplete_attributes
-          (attribute_pair
-            (attribute_name)
-            (attribute_value))))))
-  (marked_block
-    (introducer)
-    (marker)
-    (head_separator)
-    (inline_content
-      (text))))
+    (marker)))

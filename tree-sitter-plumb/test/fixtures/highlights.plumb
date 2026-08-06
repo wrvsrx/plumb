@@ -1,11 +1,11 @@
-`marker{aside #intro .note key="value"} head with `->[link]{to="guide.plumb"}
+`marker head {`-[aside] `@[intro] `-[note] `:[key value]} with `->[link]{`:[to guide.plumb]}
 
-Paragraph with `[raw text]{language=text} and ``escaped introducer.
+Paragraph with `text"raw text" and ``escaped introducer.
 
-`{language=rust}
+`rust"
   fn main() {}
 
-`{.$}
+`$"
   E = mc^2
 
 Broken `kind[inline

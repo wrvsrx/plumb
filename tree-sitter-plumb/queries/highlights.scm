@@ -15,34 +15,14 @@
 
 (block_group_open) @punctuation.bracket
 
-(verbatim_block
-  (block_group_open)
-  "}" @punctuation.bracket)
-
 (attached_inline_group
   "{" @punctuation.bracket
   "}" @punctuation.bracket)
 
-; Attributes and their local punctuation.
-(attributes
-  "{" @punctuation.bracket
-  "}" @punctuation.bracket)
+(verbatim_block
+  open: "\"" @punctuation.delimiter)
 
-(incomplete_attributes
-  "{" @punctuation.bracket)
-
-(attribute_id
-  "#" @punctuation.special
-  (attribute_name) @attribute)
-
-(attribute_class
-  "." @punctuation.special
-  (attribute_name) @attribute)
-
-(attribute_pair
-  key: (attribute_name) @property
-  "=" @operator
-  value: (attribute_value) @string)
+(verbatim_kind) @label
 
 ; Raw payloads are syntax nodes because they change the lexical mode.
 ((inline_verbatim) @markup.raw
@@ -52,5 +32,4 @@
 ; Recovery nodes represent incomplete editor input, not valid strict syntax.
 [
   (incomplete_inline_element)
-  (incomplete_attributes)
 ] @error

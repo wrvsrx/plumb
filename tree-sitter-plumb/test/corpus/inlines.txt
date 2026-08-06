@@ -2,8 +2,7 @@
 Parsed inline elements
 ==================
 
-Text with `*[emphasis-like content] and `kbd[Ctrl+C]{.shortcut}.
-Nested `outer[before `inner[nested] after]{role=example}.
+Text with `*[emphasis] and `outer[before `inner[nested] after].
 
 ---
 
@@ -22,35 +21,20 @@ Nested `outer[before `inner[nested] after]{role=example}.
         (introducer)
         (inline_kind)
         (parsed_inline_content
-          (inline_text))
-        (attributes
-          (attribute_class
-            (attribute_name))))
-      (text))
-    (inline_content
-      (text)
-      (inline_element
-        (introducer)
-        (inline_kind)
-        (parsed_inline_content
           (inline_text)
           (inline_element
             (introducer)
             (inline_kind)
             (parsed_inline_content
               (inline_text)))
-          (inline_text))
-        (attributes
-          (attribute_pair
-            (attribute_name)
-            (attribute_value))))
+          (inline_text)))
       (text))))
 
 ==================
-Punctuation inline kind
+Recursive inline group
 ==================
 
-See `->[target]{to="guide.plumb#intro"}.
+See `->[guide]{`@[main] `-[external] `:[to guide.plumb]}.
 
 ---
 
@@ -64,17 +48,32 @@ See `->[target]{to="guide.plumb#intro"}.
         (inline_kind)
         (parsed_inline_content
           (inline_text))
-        (attributes
-          (attribute_pair
-            (attribute_name)
-            (attribute_value))))
+        (attached_inline_group
+          (attached_inline_content
+            (inline_element
+              (introducer)
+              (inline_kind)
+              (parsed_inline_content
+                (inline_text)))
+            (attached_inline_text)
+            (inline_element
+              (introducer)
+              (inline_kind)
+              (parsed_inline_content
+                (inline_text)))
+            (attached_inline_text)
+            (inline_element
+              (introducer)
+              (inline_kind)
+              (parsed_inline_content
+                (inline_text))))))
       (text))))
 
 ==================
-Empty inline attributes
+Empty parsed inline and group
 ==================
 
-Text with `kind[content]{} attached.
+An empty `kind[]{} element.
 
 ---
 
@@ -86,34 +85,14 @@ Text with `kind[content]{} attached.
       (inline_element
         (introducer)
         (inline_kind)
-        (parsed_inline_content
-          (inline_text))
-        (attributes))
+        (attached_inline_group))
       (text))))
 
 ==================
-Empty parsed inline
+Opening bracket and closing escape
 ==================
 
-An empty `kind[] element.
-
----
-
-(document
-  (blank_line)
-  (paragraph
-    (inline_content
-      (text)
-      (inline_element
-        (introducer)
-        (inline_kind))
-      (text))))
-
-==================
-Opening bracket text and closing bracket escape
-==================
-
-Use `kind[literal [ and `]] brackets.
+Use `kind[literal [ and ``] brackets].
 
 ---
 
@@ -127,16 +106,56 @@ Use `kind[literal [ and `]] brackets.
         (inline_kind)
         (parsed_inline_content
           (inline_text)
-          (bracket_escape)))
+          (introducer_escape)))
       (text))))
 
 ==================
-Zero-quote inline verbatim
+Compact inline verbatim
 ==================
 
-Text with `[raw content]{.highlight}.
-Opening brackets `[before [inner]{.example}.
-Empty `[]{} verbatim.
+Use `"raw", `rust"let x = 1;", `$"x^2", `->"guide.plumb#intro", and `"{}".
+
+---
+
+(document
+  (blank_line)
+  (paragraph
+    (inline_content
+      (text)
+      (inline_verbatim)
+      (text)
+      (inline_verbatim)
+      (text)
+      (inline_verbatim)
+      (text)
+      (inline_verbatim)
+      (text)
+      (inline_verbatim)
+      (text))))
+
+==================
+Strengthened inline verbatim
+==================
+
+Use `"[raw containing " safely]" and `rust""[raw containing ]" safely]"".
+
+---
+
+(document
+  (blank_line)
+  (paragraph
+    (inline_content
+      (text)
+      (inline_verbatim)
+      (text)
+      (inline_verbatim)
+      (text))))
+
+==================
+Attached inline verbatim
+==================
+
+Use `rust"let x = 1;"{`@[example] `:[generated true]}.
 
 ---
 
@@ -146,33 +165,28 @@ Empty `[]{} verbatim.
     (inline_content
       (text)
       (inline_verbatim
-        (attributes
-          (attribute_class
-            (attribute_name))))
-      (text))
-    (inline_content
-      (text)
-      (inline_verbatim
-        (attributes
-          (attribute_class
-            (attribute_name))))
-      (text))
-    (inline_content
-      (text)
-      (inline_verbatim
-        (attributes))
+        (attached_inline_group
+          (attached_inline_content
+            (inline_element
+              (introducer)
+              (inline_kind)
+              (parsed_inline_content
+                (inline_text)))
+            (attached_inline_text)
+            (inline_element
+              (introducer)
+              (inline_kind)
+              (parsed_inline_content
+                (inline_text))))))
       (text))))
 
 ==================
-Multiline parsed inline content
+Multiline parsed inline
 ==================
 
 Paragraph `kind[first line
 second line] tail.
 
-`node head `kind[first line
-  second line]
-
 ---
 
 (document
@@ -187,53 +201,13 @@ second line] tail.
           (inline_text)
           (soft_break)
           (inline_text)))
-      (text)))
-  (blank_line)
-  (marked_block
-    (introducer)
-    (marker)
-    (head_separator)
-    (inline_content
-      (text)
-      (inline_element
-        (introducer)
-        (inline_kind)
-        (parsed_inline_content
-          (inline_text)
-          (soft_break)
-          (inline_text))))))
-
-==================
-Inline verbatim
-==================
-
-Use `"[raw]"{language=text} here.
-Use `""""[contains ]""" safely]"""" here.
-
----
-
-(document
-  (blank_line)
-  (paragraph
-    (inline_content
-      (text)
-      (inline_verbatim
-        (attributes
-          (attribute_pair
-            (attribute_name)
-            (attribute_value))))
-      (text))
-    (inline_content
-      (text)
-      (inline_verbatim)
       (text))))
 
 ==================
-Introducer escape
+Introducer runs
 ==================
 
-``# literal introducer
-continued with ``inline escape
+``literal and ```kind[value].
 
 ---
 
@@ -242,68 +216,20 @@ continued with ``inline escape
   (paragraph
     (inline_content
       (introducer_escape)
-      (text))
-    (inline_content
       (text)
-      (introducer_escape)
-      (text))))
-
-==================
-Introducer runs one through six
-==================
-
-`kind[one]
-``literal-two
-```kind[three]
-````literal-four
-`````kind[five]
-``````literal-six
-
----
-
-(document
-  (blank_line)
-  (paragraph
-    (inline_content
-      (inline_element
-        (introducer)
-        (inline_kind)
-        (parsed_inline_content
-          (inline_text))))
-    (inline_content
-      (introducer_escape)
-      (text))
-    (inline_content
       (introducer_escape)
       (inline_element
         (introducer)
         (inline_kind)
         (parsed_inline_content
-          (inline_text))))
-    (inline_content
-      (introducer_escape)
-      (introducer_escape)
-      (text))
-    (inline_content
-      (introducer_escape)
-      (introducer_escape)
-      (inline_element
-        (introducer)
-        (inline_kind)
-        (parsed_inline_content
-          (inline_text))))
-    (inline_content
-      (introducer_escape)
-      (introducer_escape)
-      (introducer_escape)
+          (inline_text)))
       (text))))
 
 ==================
-Introducer runs in parsed content and before verbatim
+Ordinary brackets
 ==================
 
-`outer[before ```inner[nested] and `````` literal]
-Use ```"[raw]" after a literal introducer.
+Plain [brackets] and closing ] remain text.
 
 ---
 
@@ -311,172 +237,4 @@ Use ```"[raw]" after a literal introducer.
   (blank_line)
   (paragraph
     (inline_content
-      (inline_element
-        (introducer)
-        (inline_kind)
-        (parsed_inline_content
-          (inline_text)
-          (introducer_escape)
-          (inline_element
-            (introducer)
-            (inline_kind)
-            (parsed_inline_content
-              (inline_text)))
-          (inline_text)
-          (introducer_escape)
-          (introducer_escape)
-          (introducer_escape)
-          (inline_text))))
-    (inline_content
-      (text)
-      (introducer_escape)
-      (inline_verbatim)
-      (text))))
-
-==================
-Inline at physical line start
-==================
-
-first line
-`kind[second inline line]
-`"[third verbatim line]"
-third line
-
----
-
-(document
-  (blank_line)
-  (paragraph
-    (inline_content
-      (text))
-    (inline_content
-      (inline_element
-        (introducer)
-        (inline_kind)
-        (parsed_inline_content
-          (inline_text))))
-    (inline_content
-      (inline_verbatim))
-    (inline_content
-      (text))))
-
-==================
-Inline verbatim in marked block head
-==================
-
-`-{#anki} `[anki.plumb]{.->}
-`- `[learn workflow.plumb]{.->}
-
----
-
-(document
-  (blank_line)
-  (marked_block
-    (introducer)
-    (marker)
-    (attributes
-      (attribute_id
-        (attribute_name)))
-    (head_separator)
-    (inline_content
-      (inline_verbatim
-        (attributes
-          (attribute_class
-            (attribute_name))))))
-  (marked_block
-    (introducer)
-    (marker)
-    (head_separator)
-    (inline_content
-      (inline_verbatim
-        (attributes
-          (attribute_class
-            (attribute_name)))))))
-
-==================
-Ordinary brackets and braces
-==================
-
-Plain [brackets], closing ], and {braces} remain text.
-
----
-
-(document
-  (blank_line)
-  (paragraph
-    (inline_content
-      (text))))
-
-==================
-Verbatim consumes the required closing prefix
-==================
-
-Use `""[content]"""tail after the closing delimiter.
-Use `""[content]""{.note} with attached attributes.
-Use `""[content]"""{.note} with attributes separated by the extra quote.
-
----
-
-(document
-  (blank_line)
-  (paragraph
-    (inline_content
-      (text)
-      (inline_verbatim)
-      (text))
-    (inline_content
-      (text)
-      (inline_verbatim
-        (attributes
-          (attribute_class
-            (attribute_name))))
-      (text))
-    (inline_content
-      (text)
-      (inline_verbatim)
-      (text))))
-
-==================
-Multiline inline attributes
-==================
-
-Text `span[value]{
-    #inline
- .mark
-   key=value} tail.
-Raw `[x]{
-  .$
-  language=tex
-  } end.
-
----
-
-(document
-  (blank_line)
-  (paragraph
-    (inline_content
-      (text)
-      (inline_element
-        (introducer)
-        (inline_kind)
-        (parsed_inline_content
-          (inline_text))
-        (attributes
-          (attribute_id
-            (attribute_name))
-          (attribute_class
-            (attribute_name))
-          (attribute_pair
-            (attribute_name)
-            (attribute_value))))
-      (text))
-    (inline_content
-      (text)
-      (inline_verbatim
-        (attributes
-          (attribute_class
-            (attribute_name))
-          (attribute_pair
-            (attribute_name)
-            (attribute_value))))
       (text))))

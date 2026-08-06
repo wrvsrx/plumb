@@ -1,9 +1,9 @@
 ==================
-Deferred head after attributes
+Deferred head
 ==================
 
-`-{.todo}
-  something
+`-
+   continued head
 
 ---
 
@@ -12,9 +12,6 @@ Deferred head after attributes
   (marked_block
     (introducer)
     (marker)
-    (attributes
-      (attribute_class
-        (attribute_name)))
     (headed_body
       (head_continuation
         (inline_content
@@ -24,10 +21,10 @@ Deferred head after attributes
 Hanging head continuation
 ==================
 
-`-{.todo} something
-          kkk
+`- first
+   second
 
-          child paragraph
+   child
 
 ---
 
@@ -36,9 +33,6 @@ Hanging head continuation
   (marked_block
     (introducer)
     (marker)
-    (attributes
-      (attribute_class
-        (attribute_name)))
     (head_separator)
     (inline_content
       (text))
@@ -55,10 +49,8 @@ Hanging head continuation
 Short head continuation
 ==================
 
-`-{.todo} something
-  kkk
-
-  child paragraph
+`- first
+ second
 
 ---
 
@@ -67,18 +59,11 @@ Short head continuation
   (marked_block
     (introducer)
     (marker)
-    (attributes
-      (attribute_class
-        (attribute_name)))
     (head_separator)
     (inline_content
       (text))
     (headed_body
       (head_continuation
-        (inline_content
-          (text)))
-      (blank_line)
-      (paragraph
         (inline_content
           (text))))))
 
@@ -86,7 +71,7 @@ Short head continuation
 Unindented sibling paragraph
 ==================
 
-`# something
+`- item
 something
 
 ---

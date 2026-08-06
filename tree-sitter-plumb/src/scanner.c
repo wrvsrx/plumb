@@ -15,7 +15,6 @@ enum TokenType {
   RAW_CODE_LINE,
   INLINE_VERBATIM_TOKEN,
   INCOMPLETE_INLINE_END,
-  INCOMPLETE_ATTRIBUTES_END,
   END_OF_FILE,
 };
 
@@ -116,8 +115,7 @@ static bool scan_raw_code_line(Scanner *scanner, TSLexer *lexer,
   return true;
 }
 
-static bool finish_inline_verbatim(TSLexer *lexer, uint16_t quotes) {
-  if (lexer->lookahead != '[') return false;
+static bool finish_strengthened_verbatim(TSLexer *lexer, uint16_t quotes) {
   take(lexer);
 
   while (lexer->lookahead != 0 && lexer->lookahead != '\n') {
@@ -142,29 +140,50 @@ static bool finish_inline_verbatim(TSLexer *lexer, uint16_t quotes) {
   return false;
 }
 
-static bool scan_inline_verbatim(TSLexer *lexer) {
-  if (lexer->lookahead != '`') return false;
-  take(lexer);
+static bool scan_inline_verbatim_after_introducer(TSLexer *lexer) {
+  while (lexer->lookahead != 0 && lexer->lookahead != '\n' &&
+         lexer->lookahead != ' ' && lexer->lookahead != '\t' &&
+         lexer->lookahead != '[' && lexer->lookahead != '{' &&
+         lexer->lookahead != '`' && lexer->lookahead != '"') {
+    take(lexer);
+  }
 
+  if (lexer->lookahead != '"') return false;
   uint16_t quotes = 0;
   while (lexer->lookahead == '"') {
     take(lexer);
     quotes++;
   }
-  return finish_inline_verbatim(lexer, quotes);
+  if (lexer->lookahead == '[') {
+    return finish_strengthened_verbatim(lexer, quotes);
+  }
+  if (quotes != 1 || lexer->lookahead == '\n' || lexer->lookahead == 0) {
+    return false;
+  }
+  while (lexer->lookahead != 0 && lexer->lookahead != '\n') {
+    if (lexer->lookahead == '"') {
+      take(lexer);
+      lexer->mark_end(lexer);
+      lexer->result_symbol = INLINE_VERBATIM_TOKEN;
+      return true;
+    }
+    take(lexer);
+  }
+  return false;
+}
+
+static bool scan_inline_verbatim(TSLexer *lexer) {
+  if (lexer->lookahead != '`') return false;
+  take(lexer);
+  return scan_inline_verbatim_after_introducer(lexer);
 }
 
 static bool backtick_starts_inline(TSLexer *lexer) {
   take(lexer);
   if (lexer->lookahead == '`') return true;
-  if (lexer->lookahead == '[') return true;
+  if (lexer->lookahead == '"') return scan_inline_verbatim_after_introducer(lexer);
 
   bool has_kind = false;
-  if (lexer->lookahead == '"') {
-    while (lexer->lookahead == '"') take(lexer);
-    return lexer->lookahead == '[';
-  }
-
   while (lexer->lookahead != 0 && lexer->lookahead != '\n' &&
          lexer->lookahead != ' ' && lexer->lookahead != '\t' &&
          lexer->lookahead != '[' && lexer->lookahead != '{' &&
@@ -172,7 +191,23 @@ static bool backtick_starts_inline(TSLexer *lexer) {
     take(lexer);
     has_kind = true;
   }
-  return has_kind && lexer->lookahead == '[';
+  if (!has_kind) return false;
+  if (lexer->lookahead == '[') return true;
+  if (lexer->lookahead == '"') {
+    uint16_t quotes = 0;
+    while (lexer->lookahead == '"') {
+      take(lexer);
+      quotes++;
+    }
+    if (lexer->lookahead == '[') return true;
+    if (quotes != 1 || lexer->lookahead == '\n' || lexer->lookahead == 0 ||
+        lexer->lookahead == '{') return false;
+    while (lexer->lookahead != 0 && lexer->lookahead != '\n') {
+      if (lexer->lookahead == '"') return true;
+      take(lexer);
+    }
+  }
+  return false;
 }
 
 static bool scan_paragraph_continue(Scanner *scanner, TSLexer *lexer) {
@@ -290,18 +325,6 @@ static bool scan_same_line_child_indent(Scanner *scanner, TSLexer *lexer,
   take(lexer);
 
   if (lexer->lookahead == '`') return false;
-  if (lexer->lookahead == '[' || lexer->lookahead == '"') {
-    uint16_t quotes = 0;
-    while (lexer->lookahead == '"') {
-      take(lexer);
-      quotes++;
-    }
-    if (lexer->lookahead == '[' && valid_symbols[INLINE_VERBATIM_TOKEN]) {
-      return finish_inline_verbatim(lexer, quotes);
-    }
-    return false;
-  }
-
   bool has_marker = false;
   while (lexer->lookahead != 0 && lexer->lookahead != '\n' &&
          lexer->lookahead != ' ' && lexer->lookahead != '\t' &&
@@ -311,23 +334,14 @@ static bool scan_same_line_child_indent(Scanner *scanner, TSLexer *lexer,
     has_marker = true;
   }
   if (has_marker && lexer->lookahead == '[') return false;
+  if (lexer->lookahead == '"' && valid_symbols[INLINE_VERBATIM_TOKEN]) {
+    return scan_inline_verbatim_after_introducer(lexer);
+  }
 
   scanner->depth++;
   scanner->indents[scanner->depth] = column;
   lexer->result_symbol = SAME_LINE_CHILD_INDENT;
   return true;
-}
-
-static bool attribute_continues(Scanner *scanner, TSLexer *lexer) {
-  if (lexer->lookahead != '\n') return false;
-  take(lexer);
-  uint16_t column = 0;
-  while (lexer->lookahead == ' ') {
-    take(lexer);
-    column++;
-  }
-  return column > scanner->indents[scanner->depth] &&
-         lexer->lookahead != '\n' && lexer->lookahead != 0;
 }
 
 bool tree_sitter_plumb_external_scanner_scan(void *payload, TSLexer *lexer,
@@ -353,13 +367,6 @@ bool tree_sitter_plumb_external_scanner_scan(void *payload, TSLexer *lexer,
   if (valid_symbols[INCOMPLETE_INLINE_END] &&
       (lexer->lookahead == '\n' || lexer->lookahead == 0)) {
     lexer->result_symbol = INCOMPLETE_INLINE_END;
-    return true;
-  }
-  if (valid_symbols[INCOMPLETE_ATTRIBUTES_END] &&
-      (lexer->lookahead == '\n' || lexer->lookahead == 0)) {
-    lexer->mark_end(lexer);
-    if (attribute_continues(scanner, lexer)) return false;
-    lexer->result_symbol = INCOMPLETE_ATTRIBUTES_END;
     return true;
   }
   if (valid_symbols[END_OF_FILE] && lexer->lookahead == 0) {

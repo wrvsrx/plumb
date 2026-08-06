@@ -15,15 +15,12 @@ module.exports = grammar({
     $.raw_code_line,
     $._inline_verbatim_token,
     $._incomplete_inline_end,
-    $._incomplete_attributes_end,
     $._eof,
   ],
 
   extras: _ => [/[ \t\r]/],
 
   conflicts: $ => [[$.document]],
-
-  word: $ => $.attribute_name,
 
   rules: {
     document: $ => choice(
@@ -42,7 +39,6 @@ module.exports = grammar({
     marked_block: $ => prec.right(seq(
       field('introducer', $.introducer),
       field('marker', $.marker),
-      optional(field('attributes', choice($.attributes, $.incomplete_attributes))),
       choice(
         seq(
           $.head_separator,
@@ -55,7 +51,11 @@ module.exports = grammar({
           $._dedent,
         ),
         seq(
-          optional(seq($.head_separator, field('head', $.inline_content))),
+          optional(seq(
+            $.head_separator,
+            optional(field('head', $.inline_content)),
+            optional(field('attached', $.attached_inline_group)),
+          )),
           $._line_end,
           optional(choice(
             field('continued_head', $.headed_body),
@@ -111,28 +111,14 @@ module.exports = grammar({
       $._dedent,
     ))),
 
-    verbatim_block: $ => choice(
-      seq(
-        field('introducer', $.introducer),
-        field('attributes', $.attributes),
-        $._line_end,
-        field('body', repeat(alias($.raw_code_line, $.raw_text))),
-      ),
-      prec(3, seq(
-        field('introducer', $.introducer),
-        $.block_group_open,
-        $._indent,
-        field('attached_content', $._block),
-        repeat(choice(
-          $.blank_line,
-          seq($._same_indent, field('attached_content', $._block)),
-        )),
-        $._dedent,
-        '}',
-        $._line_end,
-        field('body', repeat(alias($.raw_code_line, $.raw_text))),
-      )),
-    ),
+    verbatim_block: $ => prec(3, seq(
+      field('introducer', $.introducer),
+      optional(field('kind', $.verbatim_kind)),
+      field('open', '"'),
+      optional(field('attached', $.attached_inline_group)),
+      $._line_end,
+      field('body', repeat(alias($.raw_code_line, $.raw_text))),
+    )),
 
     attached_block_group: $ => prec.right(seq(
       $.block_group_open,
@@ -158,13 +144,13 @@ module.exports = grammar({
       $._line_end,
     ),
 
-    inline_content: $ => repeat1(choice(
+    inline_content: $ => prec.right(repeat1(choice(
       $.introducer_escape,
       $.inline_verbatim,
       $.inline_element,
       $.incomplete_inline_element,
       $.text,
-    )),
+    ))),
 
     parsed_inline_content: $ => prec.right(repeat1(choice(
       $.introducer_escape,
@@ -172,6 +158,7 @@ module.exports = grammar({
       $.inline_verbatim,
       $.inline_element,
       $.soft_break,
+      $.open_brace_text,
       $.inline_text,
     ))),
 
@@ -181,6 +168,7 @@ module.exports = grammar({
       $.inline_verbatim,
       $.inline_element,
       $.soft_break,
+      $.open_brace_text,
       $.attached_inline_text,
     ))),
 
@@ -190,10 +178,7 @@ module.exports = grammar({
       '[',
       optional(field('content', $.parsed_inline_content)),
       ']',
-      optional(choice(
-        prec(2, field('attributes', choice($.attributes, $.incomplete_attributes))),
-        field('attached', $.attached_inline_group),
-      )),
+      optional(field('attached', $.attached_inline_group)),
     )),
 
     incomplete_inline_element: $ => prec.right(-1, seq(
@@ -204,65 +189,15 @@ module.exports = grammar({
       $._incomplete_inline_end,
     )),
 
-    inline_verbatim: $ => seq(
+    inline_verbatim: $ => prec.right(2, seq(
       field('source', $._inline_verbatim_token),
-      optional(choice(
-        prec(2, field('attributes', choice($.attributes, $.incomplete_attributes))),
-        field('attached', $.attached_inline_group),
-      )),
-    ),
+      optional(field('attached', $.attached_inline_group)),
+    )),
 
-    attached_inline_group: $ => prec(-1, seq(
-      $._attribute_open,
+    attached_inline_group: $ => prec(3, seq(
+      '{',
       optional(field('content', $.attached_inline_content)),
       '}',
-    )),
-
-    attributes: $ => prec(2, choice(
-      seq(
-        $._attribute_open,
-        repeat(choice(
-          $._attribute_newline,
-          field('id', $.attribute_id),
-          field('class', $.attribute_class),
-          field('pair', $.attribute_pair),
-        )),
-        '}',
-      ),
-      seq(
-        $._multiline_attribute_open,
-        repeat(choice(
-          $._attribute_newline,
-          field('id', $.attribute_id),
-          field('class', $.attribute_class),
-          field('pair', $.attribute_pair),
-        )),
-        '}',
-      ),
-    )),
-
-    incomplete_attributes: $ => prec.right(-1, seq(
-      $._attribute_open,
-      repeat(choice(
-        $._attribute_newline,
-        field('id', $.attribute_id),
-        field('class', $.attribute_class),
-        field('pair', $.attribute_pair),
-      )),
-      $._incomplete_attributes_end,
-    )),
-
-    attribute_id: $ => seq('#', $.attribute_name),
-    attribute_class: $ => seq('.', $.attribute_name),
-    attribute_pair: $ => seq(
-      field('key', $.attribute_name),
-      '=',
-      field('value', $.attribute_value),
-    ),
-    attribute_name: _ => token(/[^\s\x00-\x1f\x7f-\x9f\[\]{}`"#.=]+/),
-    attribute_value: _ => token(choice(
-      /[^\s\x00-\x1f\x7f-\x9f\[\]{}`"#.=]+/,
-      /"([^"\\\x00-\x1f\x7f-\x9f]|\\["\\])*"/,
     )),
 
     introducer_escape: _ => prec(3, '``'),
@@ -271,14 +206,13 @@ module.exports = grammar({
     introducer: _ => '`',
     marker: _ => /[^\s\x00-\x1f\x7f-\x9f\[\]{}`"]+/,
     inline_kind: _ => /[^\s\x00-\x1f\x7f-\x9f\[\]{}`"]+/,
+    verbatim_kind: _ => /[^\s\x00-\x1f\x7f-\x9f\[\]{}`"]+/,
     head_separator: _ => token(prec(2, /[ \t]+/)),
-    _attribute_open: _ => token(prec(2, '{')),
-    _attribute_newline: _ => /\n[ ]*/,
     block_group_open: _ => token(prec(3, /\{\n/)),
-    _multiline_attribute_open: _ => token(prec(3, /\{\n/)),
-    text: _ => /[^`\n]+/,
-    inline_text: _ => /[^`\]\n]+/,
-    attached_inline_text: _ => /[^`}\n.#=]+/,
+    open_brace_text: _ => prec(-1, '{'),
+    text: _ => /[^`{\n]+/,
+    inline_text: _ => /[^`\]{\n]+/,
+    attached_inline_text: _ => /[^`}\n]+/,
     _line_end: $ => choice('\n', $._eof),
   },
 });
