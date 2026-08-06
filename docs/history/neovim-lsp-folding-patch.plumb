@@ -4,6 +4,12 @@
 Neovim folding 开发和准备 upstream change 使用。它描述的是 2026-08-06 时 fork 中已经存在的实现，
 不是 plumb 的 normative contract。
 
+当前 plumb development 使用原生 Neovim，而不是这条 patched fork。本文中的 single-line range support、
+cached range mapping 和 per-window fold-state reconciliation 都是历史实验，不是官方 integration 的
+运行前提；现行用户指南按原生 Neovim 的实际行为描述 folding。该实验保留在 history 中，用来记录
+原生 fold engine 的限制、已验证的 failure modes，以及推动 Neovim 获得现代 identity-aware folding
+机制的设计背景。
+
 `## 基线与交付物
 
 patch 基于 Neovim `[v0.12.4]，最终 commit 是 `[9d1f449a52]，发布 tag 是
