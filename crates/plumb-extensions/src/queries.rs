@@ -56,7 +56,8 @@ pub struct TaskDependencyCompletionContext {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConstructCompletionContext {
     Block { replace: Range<usize> },
-    Inline { replace: Range<usize> },
+    Autolink { replace: Range<usize> },
+    Link { replace: Range<usize> },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -400,10 +401,18 @@ pub fn construct_completion_context(
     if offset == 0 || offset > source.len() || !source.is_char_boundary(offset) {
         return None;
     }
-    let introducer = source[..offset].char_indices().next_back()?.0;
-    if &source[introducer..offset] != "`"
-        || source[..introducer].ends_with('`')
-        || verbatim_at(document, introducer)
+    let introducer = source[..offset]
+        .char_indices()
+        .rev()
+        .find_map(|(index, character)| (character == '`').then_some(index))?;
+    let prefix = &source[introducer..offset];
+    if source[..introducer].ends_with('`')
+        || blocks_contain_verbatim(&document.syntax.blocks, introducer)
+        || document.diagnostics.iter().any(|diagnostic| {
+            diagnostic.code == "syntax.unclosed-verbatim"
+                && diagnostic.range.start < introducer
+                && introducer <= diagnostic.range.end
+        })
         || blocks_attributes_contain(&document.syntax.blocks, introducer)
     {
         return None;
@@ -412,13 +421,14 @@ pub fn construct_completion_context(
     let line_start = source[..introducer]
         .rfind('\n')
         .map_or(0, |index| index + 1);
-    if source[line_start..introducer]
+    let block_position = source[line_start..introducer]
         .chars()
-        .all(|character| character == ' ')
-    {
-        Some(ConstructCompletionContext::Block { replace })
-    } else {
-        Some(ConstructCompletionContext::Inline { replace })
+        .all(|character| character == ' ');
+    match (prefix, block_position) {
+        ("`-", true) => Some(ConstructCompletionContext::Block { replace }),
+        ("`[", _) => Some(ConstructCompletionContext::Autolink { replace }),
+        ("`-", false) | ("`->", _) => Some(ConstructCompletionContext::Link { replace }),
+        _ => None,
     }
 }
 
@@ -904,19 +914,35 @@ mod tests {
     #[test]
     fn classifies_construct_completion_by_source_context() {
         let block = parse("`");
+        assert_eq!(construct_completion_context(&block, 1), None);
+        let block_marker = parse("`-");
         assert_eq!(
-            construct_completion_context(&block, 1),
-            Some(ConstructCompletionContext::Block { replace: 0..1 })
+            construct_completion_context(&block_marker, 2),
+            Some(ConstructCompletionContext::Block { replace: 0..2 })
         );
         let nested = parse("  `");
+        assert_eq!(construct_completion_context(&nested, 3), None);
+        let nested_marker = parse("  `-");
         assert_eq!(
-            construct_completion_context(&nested, 3),
-            Some(ConstructCompletionContext::Block { replace: 2..3 })
+            construct_completion_context(&nested_marker, 4),
+            Some(ConstructCompletionContext::Block { replace: 2..4 })
         );
         let inline = parse("Text `");
+        assert_eq!(construct_completion_context(&inline, 6), None);
+        let autolink = parse("Text `[");
         assert_eq!(
-            construct_completion_context(&inline, 6),
-            Some(ConstructCompletionContext::Inline { replace: 5..6 })
+            construct_completion_context(&autolink, 7),
+            Some(ConstructCompletionContext::Autolink { replace: 5..7 })
+        );
+        let link = parse("Text `->");
+        assert_eq!(
+            construct_completion_context(&link, 8),
+            Some(ConstructCompletionContext::Link { replace: 5..8 })
+        );
+        let short_link = parse("Text `-");
+        assert_eq!(
+            construct_completion_context(&short_link, 7),
+            Some(ConstructCompletionContext::Link { replace: 5..7 })
         );
 
         let escaped = parse("Text ``");

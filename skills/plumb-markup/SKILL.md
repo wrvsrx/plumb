@@ -28,9 +28,12 @@ For Pandoc JSON input, `plumb import FILE.json` emits canonical strict plumb.
 It supports the official exported profile and rejects Pandoc nodes that have no
 standard plumb representation instead of dropping them.
 
-In an editor using `plumb lsp`, completion after a single backtick at line start
-offers Task, Autolink, and Link. The Task skeleton includes a current local RFC
-3339 `created` timestamp. Other ordinary inline contexts offer Autolink and
+In an editor using `plumb lsp`, construct completion is prefix-sensitive: a bare
+backtick offers no candidates. At line start, a backtick followed by a hyphen
+offers Task and Event facets plus the Link candidate sharing that short prefix;
+continuing with an arrow narrows the candidates to Link. Task includes a current
+local RFC 3339 `created` timestamp. A backtick followed by an opening bracket offers the Autolink facet,
+while a backtick followed by a hyphen or arrow in ordinary inline content offers
 Link. Heading, ordinary list-item, and inline-verbatim spellings are typed
 directly. Snippet-capable clients receive tab stops.
 

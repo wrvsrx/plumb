@@ -559,6 +559,8 @@ impl LanguageServer for ServerState {
                         resolve_provider: Some(false),
                         trigger_characters: Some(vec![
                             "`".to_string(),
+                            "-".to_string(),
+                            ">".to_string(),
                             "[".to_string(),
                             "\"".to_string(),
                             "/".to_string(),
@@ -1656,32 +1658,49 @@ fn construct_completion_items(
     snippets: bool,
     timestamp: &str,
 ) -> Vec<CompletionItem> {
-    let (replace, mut templates) = match context {
+    let (replace, templates) = match context {
         ConstructCompletionContext::Block { replace } => (
             replace,
+            vec![
+                ConstructTemplate {
+                    label: "Task",
+                    detail: "plumb task list item",
+                    snippet: format!("`-{{.task created=\"{timestamp}\"}} ${{1:Task}}"),
+                    plain: format!("`-{{.task created=\"{timestamp}\"}} "),
+                },
+                ConstructTemplate {
+                    label: "Event",
+                    detail: "plumb event list item",
+                    snippet: "`-{.event} ${1:09:00} ${2:Event}".to_string(),
+                    plain: "`-{.event} ".to_string(),
+                },
+                ConstructTemplate {
+                    label: "Link",
+                    detail: "plumb link",
+                    snippet: "`->[${1:label}]{to=\"${2:target}\"}".to_string(),
+                    plain: "`->[]{to=\"\"}".to_string(),
+                },
+            ],
+        ),
+        ConstructCompletionContext::Autolink { replace } => (
+            replace,
             vec![ConstructTemplate {
-                label: "Task",
-                detail: "plumb task list item",
-                snippet: format!("`-{{.task created=\"{timestamp}\"}} ${{1:Task}}"),
-                plain: format!("`-{{.task created=\"{timestamp}\"}} "),
+                label: "Autolink",
+                detail: "plumb autolink",
+                snippet: "`[${1:path}]{.->}".to_string(),
+                plain: "`[]{.->}".to_string(),
             }],
         ),
-        ConstructCompletionContext::Inline { replace } => (replace, Vec::new()),
+        ConstructCompletionContext::Link { replace } => (
+            replace,
+            vec![ConstructTemplate {
+                label: "Link",
+                detail: "plumb link",
+                snippet: "`->[${1:label}]{to=\"${2:target}\"}".to_string(),
+                plain: "`->[]{to=\"\"}".to_string(),
+            }],
+        ),
     };
-    templates.extend([
-        ConstructTemplate {
-            label: "Autolink",
-            detail: "plumb autolink",
-            snippet: "`[${1:path}]{.->}".to_string(),
-            plain: "`[]{.->}".to_string(),
-        },
-        ConstructTemplate {
-            label: "Link",
-            detail: "plumb link",
-            snippet: "`->[${1:label}]{to=\"${2:target}\"}".to_string(),
-            plain: "`->[]{to=\"\"}".to_string(),
-        },
-    ]);
     templates
         .into_iter()
         .map(|template| CompletionItem {

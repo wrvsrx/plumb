@@ -129,9 +129,10 @@ LSP 为 named Link 与 Autolink 复用 document title/path 与 explicit-anchor c
 安全 quote count。存在的普通 file target 可 hover 和 go-to-definition；缺失 file 发布
 `[link.unresolved-file] warning。
 
-为了创建 Autolink，在 ordinary inline context 输入单个 backtick，并从 construct completion
+为了创建 Autolink，在 ordinary inline context 输入反引号后接 opening bracket 的 marker prefix，并从 construct completion
 选择 Autolink。生成 `[.->] facet 后，LSP 才在 payload 中提供 document path 与 explicit-anchor
-completion。bare 或尚未关闭的 inline verbatim 始终保持普通 verbatim，不推测 Autolink 意图。
+completion。bare backtick、未完成 marker 或尚未关闭的 inline verbatim 不提供 construct candidates，
+也不推测 Autolink 意图。
 
 workspace 使用 open buffer 覆盖 disk snapshot。document target 已确定但 fragment missing 时，
 仍保留 document-level reverse edge。
@@ -458,9 +459,14 @@ authoring operations 使用执行时的本地 RFC 3339 timestamp：`[Convert to 
 缺少 `[created] 的最深 enclosing task 补录时间。后者不受 task state、dependency 或 recurrence
 限制。两者都保留已有 attributes，并返回 revision-guarded edits。
 
-line start 的 construct completion 提供 Task、Autolink 与 Link；Task skeleton 用当前本地 RFC 3339
-timestamp 创建 `[created]。其他 ordinary inline context 提供 Autolink 与 Link。heading、ordinary
-list item 与 inline verbatim 不提供 construct candidates。
+construct completion 是 prefix-sensitive 的 extension-neutral authoring interface。裸 introducer 不触发
+候选；已输入至少一个 marker character 后，completion 根据 syntax owner、marker prefix 与 source position
+只提供已声明的 semantic facets。line start 的反引号加连字符 prefix 提供 list-item owner 的 Task 与 Event
+facets，并用当前本地 RFC 3339 timestamp 为 Task skeleton 创建 `[created]；同一连字符 prefix 也可触发
+Link completion，继续输入箭头后候选收窄为 Link。ordinary inline context 的反引号加连字符或箭头 prefix
+提供 Link，反引号加 opening bracket prefix 提供 inline-verbatim owner 的 Autolink facet。
+longest recognized prefix 优先；heading、ordinary list item 与 inline-verbatim 本身不声明额外 construct
+candidate 时保持可直接输入。候选 edit 替换完整的已输入 marker prefix。
 
 export 按 document-local closure state 在 task item 的首个 paragraph 添加可见 marker：open 为 `[☐]，done 为 `[☒]，canceled
 为 `[⊘]，conflicted 为 `[⚠]。其中 `[☐]/[☒] 使用 Pandoc task-list 约定，使支持该约定的 writer

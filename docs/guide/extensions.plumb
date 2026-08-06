@@ -105,9 +105,9 @@ label 继续使用显式 `[->]。
 `[.->] 不能用于其他 owner，也不能与 `[to] 或
 `[.$] 组合。
 
-创建 Autolink 时，在 ordinary inline context 输入单个 backtick，并从 construct completion
+创建 Autolink 时，在 ordinary inline context 输入反引号后接 opening bracket 的 marker prefix，并从 construct completion
 选择 Autolink。生成 `[{.->}] 后，LSP 才在 payload 中提供 path 与 explicit-anchor completion；
-bare 或 unclosed inline verbatim 不提供 Autolink candidates。
+bare backtick、未完成 marker 或 unclosed inline verbatim 不提供 construct candidates。
 
 `# Image
 
