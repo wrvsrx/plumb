@@ -180,9 +180,10 @@ range 会扣除 nested task blocks，child task 始终按自身状态着色。�
   end)
 
 construct completion 按 marker prefix 与 syntax owner 触发：裸 introducer 不提供候选；line start 的反引号加
-`"t" prefix 提供 Task，`"e" prefix 提供 Event，并在继续输入完整 marker 时保持对应候选；反引号加连字符或
-箭头 prefix 只提供 Link。ordinary inline context 的反引号加连字符或箭头 prefix 提供 Link，反引号加
-opening bracket prefix 提供 Autolink，并在 snippet-capable client 中使用 tab stops。
+`"t" prefix 提供 Task，`"e" prefix 提供 Event，并在继续输入完整 marker 时保持对应候选。line start 与
+ordinary inline context 都以反引号加连字符或箭头 prefix 同时提供 Link 与 Autolink；继续输入 `"->[" 时只
+提供 Link，输入 `"->\"" 时只提供 Autolink。单独 opening bracket prefix 不提供候选。snippet-capable client
+使用 tab stops。
 CodeAction 包括 metadata insertion、explicit id、event shorthand conversion、task conversion、
 created insertion 和 task status operations。metadata insertion 只在 cursor 位于 document start（cursor
 之前仅有空白）时提供；event shorthand 的具体格式见

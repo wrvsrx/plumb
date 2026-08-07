@@ -123,11 +123,11 @@ needed. Use explicit `->` links for custom labels. The `->` kind
 is valid only on inline verbatim and cannot be combined with `to` or `$`; other
 attached elements are preserved.
 
-To create an Autolink, type the `->` verbatim prefix or choose `Autolink` from
-construct completion. Once the `->` kind exists,
-the LSP completes document paths and explicit anchors inside its payload. Bare
-or unclosed inline verbatim remains ordinary verbatim and does not offer
-Autolink candidates.
+To create an Autolink, type a backtick followed by `-` or `->` and choose
+`Autolink` from construct completion; continuing with `->"` narrows the
+candidate to Autolink. Once the `->` kind exists, the LSP completes document
+paths and explicit anchors inside its payload. A bare backtick, standalone `[`,
+or unclosed inline verbatim offers no construct candidates.
 
 ## Images
 
@@ -240,10 +240,11 @@ RFC 3339 timestamp.
 Construct completion is prefix-sensitive. A bare backtick offers no candidates.
 At line start, a backtick followed by a nonempty prefix of `task` offers Task,
 while a prefix of `event` offers Event. It creates the Task `created` field from
-the current local RFC 3339 timestamp. A backtick followed by a hyphen or arrow
-offers Link; an opening bracket in ordinary inline content offers Autolink.
-Heading, ordinary list-item, and other inline-verbatim constructs are typed
-directly.
+the current local RFC 3339 timestamp. At line start and in ordinary inline
+content, a backtick followed by a hyphen or arrow offers Link and Autolink;
+continuing with `->[` narrows to Link, while `->"` narrows to Autolink. A
+standalone opening bracket offers neither. Heading, ordinary list-item, and
+other inline-verbatim constructs are typed directly.
 
 Defined fields:
 

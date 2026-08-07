@@ -133,10 +133,10 @@ LSP 为 named Link 与 Autolink 复用 document title/path 与 explicit-anchor c
 安全 quote count。存在的普通 file target 可 hover 和 go-to-definition；缺失 file 发布
 `"link.unresolved-file" warning。
 
-为了创建 Autolink，在 ordinary inline context 输入反引号后接 opening bracket 的 marker prefix，并从 construct completion
-选择 Autolink。生成 `"->" kind 后，LSP 才在 payload 中提供 document path 与 explicit-anchor
-completion。bare backtick、未完成 marker 或尚未关闭的 inline verbatim 不提供 construct candidates，
-也不推测 Autolink 意图。
+为了创建 Autolink，输入 `"`-" 或 `"`->" marker prefix，并从 construct completion 选择 Autolink；继续输入
+`"`->\"" 时 candidate 收窄为 Autolink。生成 `"->" kind 后，LSP 才在 payload 中提供 document path 与
+explicit-anchor completion。bare backtick、单独 `"`[" 或尚未关闭的 inline verbatim 不提供 construct
+candidates，也不推测 Autolink 意图。
 
 workspace 使用 open buffer 覆盖 disk snapshot。document target 已确定但 fragment missing 时，
 仍保留 document-level reverse edge。
@@ -493,9 +493,6 @@ Link 与 Autolink 共享 `"->" inline kind，opening envelope 负责收窄 candi
 line start 与 ordinary inline context 使用同一规则。`"task" 与 `"event" 不是 inline construct。Task skeleton
 使用 `"task" marker 并以当前本地 RFC 3339 timestamp 创建 `"created"，Event skeleton 使用 `"event"
 marker。heading、ordinary list item 与其他 inline-verbatim spelling 本身没有额外声明时保持可直接输入。
-
-`note Implementation status: 尚未实现；当前 implementation 仍将 `"`-"/[->] 只映射为 Link，并使用不属于
-最终 Autolink spelling 的 `"`[" prefix 触发 Autolink。
 
 export 按 document-local closure state 在 task item 的首个 paragraph 添加可见 marker：open 为 `"☐"，done 为 `"☒"，canceled
 为 `"⊘"，conflicted 为 `"⚠"。其中 `"☐"/[☒] 使用 Pandoc task-list 约定，使支持该约定的 writer
