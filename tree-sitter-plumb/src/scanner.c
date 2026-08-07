@@ -84,9 +84,9 @@ void tree_sitter_plumb_external_scanner_deserialize(void *payload,
 static bool scan_raw_code_line(Scanner *scanner, TSLexer *lexer,
                                const bool *valid_symbols) {
   lexer->mark_end(lexer);
-  uint16_t verbatim_indent = scanner->indents[scanner->depth] +
+  uint32_t verbatim_indent = (uint32_t)scanner->indents[scanner->depth] +
                              scanner->verbatim_margin;
-  uint16_t spaces = 0;
+  uint32_t spaces = 0;
   while (lexer->lookahead == ' ' && spaces < verbatim_indent) {
     skip(lexer);
     spaces++;
