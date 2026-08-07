@@ -522,22 +522,22 @@ impl<'a> EditSession<'a> {
                     0,
                     newline,
                 );
-                return self.replace(owner_insert..owner_insert, group);
+                return self.replace(owner_insert..owner_insert, format!(" {group}"));
             }
             let line_start = self.parsed.source[..owner_insert]
                 .rfind('\n')
                 .map_or(0, |index| index + 1);
-            let group_indent = owner_insert - line_start + 1;
+            let group_indent = self.parsed.source[line_start..owner_insert]
+                .bytes()
+                .take_while(|byte| *byte == b' ')
+                .count();
             let group = render_attached_attribute_slot(
                 &items,
                 &AttachedContent::Blocks(Vec::new()),
                 group_indent,
                 newline,
             );
-            (
-                line_end..line_end,
-                format!("{newline}{}{group}", " ".repeat(group_indent)),
-            )
+            (line_end..line_end, format!(" {group}"))
         };
         self.replace(range, new_text)
     }
@@ -692,13 +692,11 @@ fn render_owned_block(block: &OwnedBlock, indent: usize, output: &mut String) {
             let continuation_indent = if marker.is_some() { indent + 2 } else { indent };
             render_owned_inlines(head, marker.is_some(), continuation_indent, output);
             if attributes.present {
-                let group_indent = indent + 3;
-                output.push('\n');
-                output.extend(std::iter::repeat_n(' ', group_indent));
+                output.push(' ');
                 output.push_str(&render_attached_attribute_slot(
                     &attributes.items,
                     &AttachedContent::Blocks(Vec::new()),
-                    group_indent,
+                    indent,
                     "\n",
                 ));
             }
@@ -719,6 +717,9 @@ fn render_owned_block(block: &OwnedBlock, indent: usize, output: &mut String) {
             output.push('`');
             output.push_str(kind);
             output.push('"');
+            if attributes.present {
+                output.push(' ');
+            }
             render_owned_attached(attributes, output);
             if !text.is_empty() {
                 output.push('\n');
@@ -991,7 +992,7 @@ mod tests {
 
     #[test]
     fn inserts_attributes_at_explicit_positions() {
-        let source = "`task Work\n      {\n        `@ id\n        `: created now\n      }\n";
+        let source = "`task Work {\n  `@ id\n  `: created now\n}\n";
         let parsed = parse(source);
         let Block::Parsed(block) = &parsed.syntax.blocks[0] else {
             panic!("expected parsed block");
@@ -1008,7 +1009,7 @@ mod tests {
         let edit = edit.finish().unwrap();
         assert_eq!(
             edit.new_text,
-            "`task Work\n      {\n        `- next\n        `@ id\n        `: created now\n      }\n"
+            "`task Work {\n  `- next\n  `@ id\n  `: created now\n}\n"
         );
     }
 
@@ -1031,7 +1032,7 @@ mod tests {
         let edit = edit.finish().unwrap();
         assert_eq!(
             edit.new_text,
-            "`- Work\n   {\n     `: created 2026-07-23T03:00:00+08:00\n   }\n"
+            "`- Work {\n  `: created 2026-07-23T03:00:00+08:00\n}\n"
         );
     }
 
@@ -1062,13 +1063,13 @@ mod tests {
         let edit = edit.finish().unwrap();
         assert_eq!(
             edit.new_text,
-            "   `- Nested\n      {\n        `- kind\n        `: created 2026-07-20T10:00:00+08:00\n      }\n"
+            "   `- Nested {\n     `- kind\n     `: created 2026-07-20T10:00:00+08:00\n   }\n"
         );
     }
 
     #[test]
     fn creates_a_nested_slot_before_a_top_level_sibling() {
-        let source = "`- Outer\n   {\n     `@ outer\n     `- keep\n   }\n\n   `- Nested\n\n`task Closed\n      {\n        `@ closed\n        `: done 2026-07-20T09:00:00Z\n      }\n";
+        let source = "`- Outer {\n  `@ outer\n  `- keep\n}\n\n   `- Nested\n\n`task Closed {\n  `@ closed\n  `: done 2026-07-20T09:00:00Z\n}\n";
         let parsed = parse(source);
         let Block::Parsed(outer) = &parsed.syntax.blocks[0] else {
             unreachable!();
@@ -1093,15 +1094,12 @@ mod tests {
         let edit = edit.finish().unwrap();
         let edited = apply_text_edits(source.to_string(), vec![edit]).unwrap();
         assert!(parse(&edited).is_valid(), "{edited}");
-        assert!(
-            edited.contains("`- Nested\n      {\n        `- kind"),
-            "{edited}"
-        );
+        assert!(edited.contains("`- Nested {\n     `- kind"), "{edited}");
     }
 
     #[test]
     fn inserts_an_id_first_in_an_existing_attached_group() {
-        let source = "`# Hello, World!\n   {\n     `- keep\n   }\n";
+        let source = "`# Hello, World! {\n  `- keep\n}\n";
         let parsed = parse(source);
         let Block::Parsed(block) = &parsed.syntax.blocks[0] else {
             unreachable!();
@@ -1118,13 +1116,13 @@ mod tests {
         let edit = edit.finish().unwrap();
         assert_eq!(
             edit.new_text,
-            "`# Hello, World!\n   {\n     `@ hello-world\n     `- keep\n   }\n"
+            "`# Hello, World! {\n  `@ hello-world\n  `- keep\n}\n"
         );
     }
 
     #[test]
     fn inserts_an_id_before_unrelated_following_blocks() {
-        let source = "`# Hello, World!\n   {\n     `- keep\n   }\n\n`node Outer\n\n      `child Nested title\n\n`text\"\n  raw\n`note Multiline attrs\n      {\n        `- keep\n      }\n\n`other Existing\n       {\n         `@ hello-world\n       }\n\n`# Hello, World!\n";
+        let source = "`# Hello, World! {\n  `- keep\n}\n\n`node Outer\n\n      `child Nested title\n\n`text\"\n  raw\n`note Multiline attrs {\n  `- keep\n}\n\n`other Existing {\n  `@ hello-world\n}\n\n`# Hello, World!\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let Block::Parsed(block) = &parsed.syntax.blocks[0] else {
@@ -1172,12 +1170,12 @@ mod tests {
         )
         .unwrap();
         let edit = edit.finish().unwrap();
-        assert_eq!(edit.new_text, "`rust\"{`@[example]}\n  fn main() {}\n");
+        assert_eq!(edit.new_text, "`rust\" {`@[example]}\n  fn main() {}\n");
     }
 
     #[test]
     fn inserts_a_status_between_compact_top_level_siblings() {
-        let source = "`task Blocker\n      {\n        `@ blocker\n      }\n`task Blocked\n      {\n        `@ blocked\n        `: depends #blocker\n      }\n`task Closed\n      {\n        `@ closed\n      }\n";
+        let source = "`task Blocker {\n  `@ blocker\n}\n`task Blocked {\n  `@ blocked\n  `: depends #blocker\n}\n`task Closed {\n  `@ closed\n}\n";
         let parsed = parse(source);
         let Block::Parsed(block) = &parsed.syntax.blocks[1] else {
             unreachable!();
@@ -1199,7 +1197,7 @@ mod tests {
 
     #[test]
     fn updates_and_clones_a_recurring_task_before_a_heading() {
-        let source = "`task Repeat\n      {\n        `@ repeat\n        `: due 2026-07-20T23:59:59+08:00\n        `: recur P1D\n      }\n\n`# Following\n";
+        let source = "`task Repeat {\n  `@ repeat\n  `: due 2026-07-20T23:59:59+08:00\n  `: recur P1D\n}\n\n`# Following\n";
         let parsed = parse(source);
         let Block::Parsed(block) = &parsed.syntax.blocks[0] else {
             unreachable!();
@@ -1234,12 +1232,12 @@ mod tests {
         block.attributes_mut().push(OwnedAttribute::class("event"));
         let mut output = String::new();
         render_owned_blocks(&[block], 0, &mut output);
-        assert_eq!(output, "`- Work\n   {\n     `- event\n   }");
+        assert_eq!(output, "`- Work {\n  `- event\n}");
     }
 
     #[test]
     fn rejects_implicit_or_out_of_bounds_positions() {
-        let source = "`task Work\n      {\n      }\n";
+        let source = "`task Work {\n}\n";
         let parsed = parse(source);
         let Block::Parsed(block) = &parsed.syntax.blocks[0] else {
             unreachable!();
@@ -1309,7 +1307,7 @@ mod tests {
 
     #[test]
     fn round_trips_owned_syntax_without_extension_knowledge() {
-        let source = "`node Head `span[text] and `\"raw\"\n      {\n        `@ id\n        `- opaque\n        `: key bare\n      }\n\n      `child Body\n";
+        let source = "`node Head `span[text] and `\"raw\" {\n  `@ id\n  `- opaque\n  `: key bare\n}\n\n      `child Body\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let owned = OwnedBlock::from_syntax(source, &parsed.syntax.blocks[0]);
@@ -1328,7 +1326,7 @@ mod tests {
 
     #[test]
     fn preserves_empty_attribute_slots_and_soft_breaks() {
-        let source = "`node Head `span[first\n      second] and `\"raw\"{}\n      {\n      }\n";
+        let source = "`node Head `span[first\n      second] and `\"raw\"{}\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let owned = OwnedBlock::from_syntax(source, &parsed.syntax.blocks[0]);
@@ -1340,27 +1338,25 @@ mod tests {
             reparsed.diagnostics
         );
         assert!(formatted.contains("`node Head"));
-        assert!(formatted.contains("{\n"));
         assert!(formatted.contains("`span[first\n"));
         assert!(formatted.contains("`\"raw\"{}"));
     }
 
     #[test]
     fn preserves_verbatim_payload_when_detaching_a_block() {
-        let source = "`text\"{`@[raw]}\n  first\n    second\n";
+        let source = "`text\" {`@[raw]}\n  first\n    second\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let owned = OwnedBlock::from_syntax(source, &parsed.syntax.blocks[0]);
         assert_eq!(
             owned.format().unwrap(),
-            "`text\"{`@[raw]}\n  first\n    second\n"
+            "`text\" {`@[raw]}\n  first\n    second\n"
         );
     }
 
     #[test]
     fn replaces_and_removes_attributes_by_explicit_index() {
-        let source =
-            "`node Head\n      {\n        `@ old\n        `- keep\n        `: key value\n      }\n";
+        let source = "`node Head {\n  `@ old\n  `- keep\n  `: key value\n}\n";
         let parsed = parse(source);
         let Block::Parsed(block) = &parsed.syntax.blocks[0] else {
             unreachable!();
@@ -1373,21 +1369,18 @@ mod tests {
         let replacement = replace.finish().unwrap();
         assert_eq!(
             replacement.new_text,
-            "`node Head\n      {\n        `@ new\n        `- keep\n        `: key value\n      }\n"
+            "`node Head {\n  `@ new\n  `- keep\n  `: key value\n}\n"
         );
 
         let mut remove = EditSession::new(&parsed, block.range.clone()).unwrap();
         remove.remove_attribute(&mark.attrs, 2).unwrap();
         let removal = remove.finish().unwrap();
-        assert_eq!(
-            removal.new_text,
-            "`node Head\n      {\n        `@ old\n        `- keep\n      }\n"
-        );
+        assert_eq!(removal.new_text, "`node Head {\n  `@ old\n  `- keep\n}\n");
     }
 
     #[test]
     fn edits_block_attached_elements_without_reintroducing_legacy_attributes() {
-        let source = "`task Work\n      {\n        `@ old\n      }\n";
+        let source = "`task Work {\n  `@ old\n}\n";
         let parsed = parse(source);
         let Block::Parsed(block) = &parsed.syntax.blocks[0] else {
             unreachable!();

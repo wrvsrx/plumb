@@ -341,18 +341,54 @@ impl Parser<'_> {
         let Some(index) = self.lines.0.iter().position(|line| !line.blank) else {
             return (Attributes::default(), 0);
         };
+        let line = &self.lines.0[index];
+        let content = self.source[line.start + line.indent..line.content_end].trim_end();
+        if line.indent == 0 && content == "{}" {
+            self.diagnostics.push(Diagnostic::error(
+                "syntax.invalid-document-group",
+                "document attached group must use expanded form",
+                line.start..line.start + 2,
+            ));
+            return (Attributes::default(), 0);
+        }
         if !self.is_group_delimiter(index, 0, b'{') {
             return (Attributes::default(), 0);
         }
-        self.parse_block_attached(index, 0)
+        self.parse_expanded_attached(index, line.start, 0, true)
     }
 
-    fn parse_block_attached(&mut self, opener_index: usize, indent: usize) -> (Attributes, usize) {
-        let open = self.lines.0[opener_index].start + indent;
-        let (blocks, next) = self.parse_blocks(opener_index + 1, indent + 2);
-        let (close_range, after, range_end) = if self.is_group_delimiter(next, indent, b'}') {
+    fn parse_expanded_attached(
+        &mut self,
+        opener_index: usize,
+        open: usize,
+        owner_indent: usize,
+        opener_is_structural_line: bool,
+    ) -> (Attributes, usize) {
+        let mut content_start = opener_index + 1;
+        while self
+            .lines
+            .0
+            .get(content_start)
+            .is_some_and(|line| line.blank)
+        {
+            content_start += 1;
+        }
+        let (blocks, next) = if self.is_group_delimiter(content_start, owner_indent, b'}') {
+            (Vec::new(), content_start)
+        } else if self
+            .lines
+            .0
+            .get(content_start)
+            .is_some_and(|line| line.indent > owner_indent)
+        {
+            let content_indent = self.lines.0[content_start].indent;
+            self.parse_blocks(content_start, content_indent)
+        } else {
+            (Vec::new(), content_start)
+        };
+        let (close_range, after, range_end) = if self.is_group_delimiter(next, owner_indent, b'}') {
             let line = &self.lines.0[next];
-            let start = line.start + indent;
+            let start = line.start + owner_indent;
             (start..start + 1, next + 1, line.end)
         } else {
             let end = self
@@ -362,12 +398,17 @@ impl Parser<'_> {
                 .map_or(self.source.len(), |line| line.start + line.indent);
             self.diagnostics.push(Diagnostic::error(
                 "syntax.unclosed-attached-group",
-                "attached group must close with '}' at the opener indentation",
+                "expanded attached group must close with '}' at the owner indentation",
                 open..end,
             ));
             (end..end, next, end)
         };
-        let range = open..range_end;
+        let range_start = if opener_is_structural_line {
+            self.lines.0[opener_index].start + owner_indent
+        } else {
+            open
+        };
+        let range = range_start..range_end;
         let items = project_block_attributes(self.source, &blocks);
         (
             Attributes {
@@ -506,12 +547,18 @@ impl Parser<'_> {
         let kind_end = take_name_like(self.source, after, line.content_end, marker_char);
         if kind_end < line.content_end && self.source.as_bytes()[kind_end] == b'"' {
             let tail = kind_end + 1;
-            return (tail == line.content_end
-                || (self.source.as_bytes().get(tail) == Some(&b'{')
-                    && find_inline_group_close(self.source, tail + 1, line.content_end)
-                        .is_some_and(|close| {
-                            self.source.as_bytes().get(close + 1) != Some(&b'"')
-                        })))
+            if tail == line.content_end {
+                return Some(BlockDispatch::Verbatim);
+            }
+            let mut group_start = tail;
+            while group_start < line.content_end
+                && matches!(self.source.as_bytes()[group_start], b' ' | b'\t')
+            {
+                group_start += 1;
+            }
+            return (group_start > tail
+                && (self.source.as_bytes().get(group_start) == Some(&b'{')
+                    || !self.source[tail..line.content_end].contains('"')))
             .then_some(BlockDispatch::Verbatim);
         }
         if kind_end < line.content_end && self.source.as_bytes()[kind_end] == b'[' {
@@ -601,9 +648,8 @@ impl Parser<'_> {
             }
         }
 
-        let compact_attached =
-            trailing_block_attached_start(self.source, head_start, line.content_end);
-        let head_end = compact_attached.map_or(line.content_end, |(separator, _)| separator);
+        let header_attached = block_attached_start(self.source, head_start, line.content_end);
+        let head_end = header_attached.map_or(line.content_end, |(separator, _)| separator);
         let mut head_segments = vec![InlineSegment {
             start: head_start,
             end: head_end,
@@ -611,9 +657,8 @@ impl Parser<'_> {
         let mut next = header_index + 1;
         let mut saw_blank = false;
         let mut body_indent = None;
-        let mut attached = None;
 
-        while next < self.lines.0.len() {
+        while header_attached.is_none() && next < self.lines.0.len() {
             let candidate = self.lines.0[next].clone();
             if candidate.blank {
                 saw_blank = true;
@@ -621,10 +666,6 @@ impl Parser<'_> {
                 continue;
             }
             if candidate.indent <= indent {
-                break;
-            }
-            if !saw_blank && self.is_group_delimiter(next, candidate.indent, b'{') {
-                attached = Some((next, candidate.indent));
                 break;
             }
             body_indent.get_or_insert(candidate.indent);
@@ -641,24 +682,37 @@ impl Parser<'_> {
             }
             break;
         }
-        let head = self.parse_inline_segments(&mut head_segments);
-        if let Some((_, group_start)) = compact_attached {
-            let mut position = InlinePosition {
-                segment: 0,
-                offset: group_start,
-            };
-            let (group, _) =
-                self.parse_inline_attached(&mut position, group_start, line.content_end);
-            attrs = group;
+        let head = self.parse_inline_segments(&mut head_segments, false);
+        if let Some((_, group_start)) = header_attached {
+            if find_inline_group_close(self.source, group_start + 1, line.content_end).is_some() {
+                let mut position = InlinePosition {
+                    segment: 0,
+                    offset: group_start,
+                };
+                let (group, after_group) =
+                    self.parse_inline_attached(&mut position, group_start, line.content_end);
+                self.diagnose_block_group_trailer(group_start, after_group, line.content_end);
+                attrs = group;
+            } else if self.source[group_start + 1..line.content_end]
+                .trim_matches([' ', '\t'])
+                .is_empty()
+            {
+                let (group, after_group) =
+                    self.parse_expanded_attached(header_index, group_start, indent, false);
+                attrs = group;
+                next = after_group;
+            } else {
+                let mut position = InlinePosition {
+                    segment: 0,
+                    offset: group_start,
+                };
+                let (group, _) =
+                    self.parse_inline_attached(&mut position, group_start, line.content_end);
+                attrs = group;
+            }
         }
         if let Some(consumed) = self.line_index_at_offset(head.range.end.saturating_sub(1)) {
             next = next.max(consumed + 1);
-        }
-
-        if let Some((attached_index, attached_indent)) = attached {
-            let (group, after_group) = self.parse_block_attached(attached_index, attached_indent);
-            attrs = group;
-            next = after_group;
         }
 
         let mut child_start = next;
@@ -690,39 +744,51 @@ impl Parser<'_> {
     }
 
     fn parse_verbatim(&mut self, index: usize, indent: usize) -> (VerbatimBlock, usize) {
-        let mut line = self.lines.0[index].clone();
+        let line = self.lines.0[index].clone();
         let introducer = line.start + indent;
         let attr_start = introducer + 1;
         let kind_end = take_name_like(self.source, attr_start, line.content_end, marker_char);
         let kind_range = attr_start..kind_end;
         let after_quote = kind_end + 1;
-        let (attrs, after_attrs) =
-            if after_quote < line.content_end && self.source.as_bytes()[after_quote] == b'{' {
-                let mut position = InlinePosition {
-                    segment: 0,
-                    offset: after_quote,
-                };
-                self.parse_inline_attached(&mut position, after_quote, line.content_end)
-            } else {
-                (Attributes::default(), after_quote)
+        let mut group_start = after_quote;
+        while group_start < line.content_end
+            && matches!(self.source.as_bytes()[group_start], b' ' | b'\t')
+        {
+            group_start += 1;
+        }
+        let (attrs, body_start) = if group_start < line.content_end
+            && group_start > after_quote
+            && self.source.as_bytes()[group_start] == b'{'
+            && find_inline_group_close(self.source, group_start + 1, line.content_end).is_some()
+        {
+            let mut position = InlinePosition {
+                segment: 0,
+                offset: group_start,
             };
-        let (kind, kind_range, attrs, header_index, opener_end) = (
-            self.source[kind_range.clone()].to_string(),
-            kind_range,
-            attrs,
-            index,
-            after_quote,
-        );
-        line = self.lines.0[header_index].clone();
-        if after_attrs != line.content_end {
+            let (attrs, after_group) =
+                self.parse_inline_attached(&mut position, group_start, line.content_end);
+            self.diagnose_block_group_trailer(group_start, after_group, line.content_end);
+            (attrs, index + 1)
+        } else if group_start < line.content_end
+            && group_start > after_quote
+            && self.source.as_bytes()[group_start] == b'{'
+            && self.source[group_start + 1..line.content_end]
+                .trim_matches([' ', '\t'])
+                .is_empty()
+        {
+            self.parse_expanded_attached(index, group_start, indent, false)
+        } else {
+            (Attributes::default(), index + 1)
+        };
+        if group_start < line.content_end && self.source.as_bytes()[group_start] != b'{' {
             self.diagnostics.push(Diagnostic::error(
                 "syntax.invalid-verbatim-block-dispatch",
-                "verbatim block attributes must be followed by end of line",
+                "verbatim block header must end after its attached group",
                 introducer..line.content_end,
             ));
         }
         let body_indent = indent + 2;
-        let mut next = header_index + 1;
+        let mut next = body_start;
         let mut text = String::new();
         let text_start = self.lines.0.get(next).map_or(line.end, |next| next.start);
         let mut text_end = text_start;
@@ -759,8 +825,8 @@ impl Parser<'_> {
         (
             VerbatimBlock {
                 range: introducer..text_end.max(line.end),
-                opener_range: introducer..opener_end,
-                kind,
+                opener_range: introducer..after_quote,
+                kind: self.source[kind_range.clone()].to_string(),
                 kind_range,
                 attrs,
                 text,
@@ -768,6 +834,31 @@ impl Parser<'_> {
             },
             next,
         )
+    }
+
+    fn diagnose_block_group_trailer(&mut self, open: usize, after: usize, limit: usize) {
+        let mut cursor = after;
+        while cursor < limit && matches!(self.source.as_bytes()[cursor], b' ' | b'\t') {
+            cursor += 1;
+        }
+        if cursor == limit {
+            return;
+        }
+        if self.source.as_bytes()[cursor] == b'{' {
+            let mut diagnostic = Diagnostic::error(
+                "syntax.duplicate-attached-group",
+                "an owner may have at most one attached group",
+                cursor..cursor + 1,
+            );
+            diagnostic.related.push(open..open + 1);
+            self.diagnostics.push(diagnostic);
+        } else {
+            self.diagnostics.push(Diagnostic::error(
+                "syntax.trailing-after-attached-group",
+                "only horizontal whitespace may follow a compact block attached group",
+                cursor..limit,
+            ));
+        }
     }
 
     fn parse_paragraph(&mut self, index: usize, indent: usize) -> (ParsedBlock, usize) {
@@ -809,7 +900,7 @@ impl Parser<'_> {
         }
         let diagnostic_start = self.diagnostics.len();
         let head = loop {
-            let head = self.parse_inline_segments(&mut head_segments);
+            let head = self.parse_inline_segments(&mut head_segments, false);
             let Some(consumed) = self.line_index_at_offset(head.range.end.saturating_sub(1)) else {
                 break head;
             };
@@ -851,7 +942,11 @@ impl Parser<'_> {
         )
     }
 
-    fn parse_inline_segments(&mut self, segments: &mut Vec<InlineSegment>) -> InlineContent {
+    fn parse_inline_segments(
+        &mut self,
+        segments: &mut Vec<InlineSegment>,
+        group_content: bool,
+    ) -> InlineContent {
         let start = segments.first().map_or(0, |segment| segment.start);
         let mut position = InlinePosition {
             segment: 0,
@@ -888,6 +983,17 @@ impl Parser<'_> {
             let end = segment.end;
             let cursor = position.offset;
             let byte = self.source.as_bytes()[cursor];
+            if group_content && byte == b'{' {
+                flush_inline_text(self.source, frames.last_mut().unwrap(), cursor);
+                self.diagnostics.push(Diagnostic::error(
+                    "syntax.unattached-group",
+                    "an opening brace inside attached content must be escaped or owned",
+                    cursor..cursor + 1,
+                ));
+                position.offset += 1;
+                frames.last_mut().unwrap().text_start = position.offset;
+                continue;
+            }
             if frames.len() > 1 && byte == b']' {
                 flush_inline_text(self.source, frames.last_mut().unwrap(), cursor);
                 position.offset += 1;
@@ -940,6 +1046,17 @@ impl Parser<'_> {
 
             let introducer = position.offset;
             position.offset += 1;
+            if position.offset < end
+                && matches!(self.source.as_bytes()[position.offset], b'{' | b'}')
+            {
+                frames.last_mut().unwrap().items.push(Inline::Text {
+                    text: self.source[position.offset..position.offset + 1].to_string(),
+                    range: introducer..position.offset + 1,
+                });
+                position.offset += 1;
+                frames.last_mut().unwrap().text_start = position.offset;
+                continue;
+            }
             if frames.len() > 1
                 && position.offset < end
                 && self.source.as_bytes()[position.offset] == b']'
@@ -1155,23 +1272,11 @@ impl Parser<'_> {
                 limit,
             );
         };
-        let diagnostics = self.diagnostics.len();
-        let (legacy, after) = self.parse_attributes(start, close + 1);
-        let legacy_valid =
-            after == close + 1 && !legacy.items.is_empty() && self.diagnostics.len() == diagnostics;
-        self.diagnostics.truncate(diagnostics);
-        if legacy_valid {
-            self.diagnostics.push(Diagnostic::error(
-                "syntax.legacy-attributes",
-                "legacy attribute slots are not part of the current syntax",
-                start..close + 1,
-            ));
-        }
         let mut inner = vec![InlineSegment {
             start: start + 1,
             end: close,
         }];
-        let content = self.parse_inline_segments(&mut inner);
+        let content = self.parse_inline_segments(&mut inner, true);
         let items = project_inline_attributes(self.source, &content);
         let end = close + 1;
         position.offset = end;
@@ -1452,22 +1557,69 @@ fn next_token_end(source: &str, mut cursor: usize, limit: usize) -> usize {
     cursor
 }
 
-fn trailing_block_attached_start(source: &str, start: usize, end: usize) -> Option<(usize, usize)> {
+fn block_attached_start(source: &str, start: usize, end: usize) -> Option<(usize, usize)> {
     let mut cursor = start;
-    let mut candidate = None;
+    let mut inline_depth = 0usize;
     while cursor < end {
-        if source.as_bytes()[cursor] == b'{' && cursor > start {
+        if source.as_bytes()[cursor] == b'`' {
+            let ticks = source[cursor..end]
+                .bytes()
+                .take_while(|byte| *byte == b'`')
+                .count();
+            cursor += ticks;
+            if ticks % 2 == 0 || cursor >= end {
+                continue;
+            }
+            if matches!(source.as_bytes()[cursor], b'{' | b'}') {
+                cursor += 1;
+                continue;
+            }
+            let kind_end = take_name_like(source, cursor, end, marker_char);
+            let quote_count = source[kind_end..end]
+                .bytes()
+                .take_while(|byte| *byte == b'"')
+                .count();
+            let delimiter = kind_end + quote_count;
+            if quote_count > 0 && delimiter < end && source.as_bytes()[delimiter] == b'[' {
+                if let Some((_, after)) =
+                    find_verbatim_close(source, delimiter + 1, end, quote_count)
+                {
+                    cursor = after;
+                    continue;
+                }
+            } else if quote_count == 1 {
+                if let Some(close) = source[delimiter..end].find('"') {
+                    cursor = delimiter + close + 1;
+                    continue;
+                }
+            } else if delimiter < end && source.as_bytes()[delimiter] == b'[' {
+                inline_depth += 1;
+                cursor = delimiter + 1;
+                continue;
+            }
+            cursor = delimiter.max(cursor);
+            continue;
+        }
+        if source.as_bytes()[cursor] == b']' && inline_depth > 0 {
+            inline_depth -= 1;
+            cursor += 1;
+            continue;
+        }
+        if inline_depth == 0 && source.as_bytes()[cursor] == b'{' {
+            if cursor == start {
+                return Some((start, cursor));
+            }
             let mut separator = cursor;
             while separator > start && matches!(source.as_bytes()[separator - 1], b' ' | b'\t') {
                 separator -= 1;
             }
             if separator < cursor {
-                candidate = Some((separator, cursor));
+                return Some((separator, cursor));
             }
         }
         cursor = next_char_end(source, cursor);
     }
-    candidate
+    None
 }
 
 fn flush_inline_text(source: &str, frame: &mut InlineFrame, end: usize) {
@@ -1517,7 +1669,6 @@ fn find_verbatim_close(
 }
 
 fn find_inline_group_close(source: &str, mut cursor: usize, limit: usize) -> Option<usize> {
-    let mut depth = 1usize;
     let mut quoted = false;
     while cursor < limit {
         match source.as_bytes()[cursor] {
@@ -1530,6 +1681,10 @@ fn find_inline_group_close(source: &str, mut cursor: usize, limit: usize) -> Opt
             }
             b'`' if !quoted => {
                 let after_tick = cursor + 1;
+                if after_tick < limit && matches!(source.as_bytes()[after_tick], b'{' | b'}') {
+                    cursor = after_tick + 1;
+                    continue;
+                }
                 let quotes = source[after_tick..limit]
                     .bytes()
                     .take_while(|candidate| *candidate == b'"')
@@ -1547,17 +1702,7 @@ fn find_inline_group_close(source: &str, mut cursor: usize, limit: usize) -> Opt
                     cursor += 1;
                 }
             }
-            b'{' if !quoted => {
-                depth += 1;
-                cursor += 1;
-            }
-            b'}' if !quoted => {
-                depth -= 1;
-                if depth == 0 {
-                    return Some(cursor);
-                }
-                cursor += 1;
-            }
+            b'}' if !quoted => return Some(cursor),
             _ => cursor = next_char_end(source, cursor),
         }
     }
@@ -1591,7 +1736,7 @@ mod tests {
 
     #[test]
     fn parses_root_and_marked_block_attached_groups_with_ordinary_blocks() {
-        let source = "{\n  `: title Document title\n  `: tags plumb\n}\n\n`- Buy milk\n  {\n    `- task\n    `@ shopping\n    `: due 2026-08-07\n  }\n\n  Details.\n";
+        let source = "{\n  `: title Document title\n  `: tags plumb\n}\n\n`- Buy milk {\n  `- task\n  `@ shopping\n  `: due 2026-08-07\n}\n\n  Details.\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         assert_eq!(parsed.syntax.attrs.value("title"), Some("Document title"));
@@ -1640,7 +1785,7 @@ mod tests {
 
     #[test]
     fn parses_verbatim_block_with_structural_attached_opener() {
-        let source = "`rust\"{`@[example]}\n  fn main() {\n      println!(\"hi\");\n  }\n";
+        let source = "`rust\" {`@[example]}\n  fn main() {\n      println!(\"hi\");\n  }\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let Block::Verbatim(block) = &parsed.syntax.blocks[0] else {
@@ -1669,13 +1814,13 @@ mod tests {
         let Block::Parsed(heading) = &parsed.syntax.blocks[0] else {
             panic!("expected heading");
         };
-        assert_eq!(heading.head.plain_text(), "Intro child text");
-        assert_eq!(heading.children.len(), 1);
+        assert_eq!(heading.head.plain_text(), "Intro");
+        assert_eq!(heading.children.len(), 2);
     }
 
     #[test]
     fn parses_attached_groups_on_marked_and_verbatim_blocks() {
-        let source = "`- Work\n   {\n     `- task\n     `@ write\n     `: created 2026-07-20T09:00:00+08:00\n   }\n\n`tex\"{`-[$] `@[equation]}\n  E = mc^2\n";
+        let source = "`- Work {\n  `- task\n  `@ write\n  `: created 2026-07-20T09:00:00+08:00\n}\n\n`tex\" {`-[$] `@[equation]}\n  E = mc^2\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
@@ -1698,7 +1843,7 @@ mod tests {
 
     #[test]
     fn block_attached_groups_allow_compact_and_brace_aligned_closing_delimiters() {
-        let source = "`- Work\n   {\n     `- task\n     `@ write\n   }\n\n`text\"\n  payload\n`x\n   {\n     `- class\n   }\n\n `child Nested\n";
+        let source = "`- Work {\n  `- task\n  `@ write\n}\n\n`text\"\n  payload\n`x {\n  `- class\n}\n\n  `child Nested\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
@@ -1722,13 +1867,13 @@ mod tests {
         assert!(container.mark.as_ref().unwrap().attrs.has_class("class"));
         assert_eq!(container.children.len(), 1);
 
-        let old_layout = parse("`- Work\n   {\n     `- task\n     `@ write\n   }\n");
-        assert!(old_layout.is_valid(), "{:?}", old_layout.diagnostics);
+        let old_layout = parse("`- Work\n  {\n    `- task\n  }\n");
+        assert!(!old_layout.is_valid());
 
-        let compact = parse("`- Something\n   {\n     `- task\n     `@ id\n   }\n");
+        let compact = parse("`- Something {`-[task] `@[id]}\n");
         assert!(compact.is_valid(), "{:?}", compact.diagnostics);
 
-        let crlf = parse("`- Work\n   {\n     `- task\n     `@ crlf\n     `: key value\n   }\n");
+        let crlf = parse("`- Work {\r\n  `- task\r\n  `@ crlf\r\n  `: key value\r\n}\r\n");
         assert!(crlf.is_valid(), "{:?}", crlf.diagnostics);
         let Block::Parsed(task) = &crlf.syntax.blocks[0] else {
             panic!("expected CRLF task block");
@@ -1979,7 +2124,7 @@ mod tests {
         };
         assert!(matches!(paragraph.head.items[0], Inline::Verbatim { .. }));
 
-        let block = parse("`\"{`-[note]}\n  raw `em[not parsed]\n");
+        let block = parse("`\" {`-[note]}\n  raw `em[not parsed]\n");
         assert!(matches!(block.syntax.blocks[0], Block::Verbatim(_)));
 
         let quote_block = parse("`\"\n  code block\n");
@@ -1998,6 +2143,44 @@ mod tests {
             source.is_char_boundary(diagnostic.range.start)
                 && source.is_char_boundary(diagnostic.range.end)
         }));
+    }
+
+    #[test]
+    fn enforces_block_group_ownership_and_trailers() {
+        let duplicate = parse("`x Head {} {}\n");
+        assert_eq!(
+            duplicate.diagnostics[0].code,
+            "syntax.duplicate-attached-group"
+        );
+        assert_eq!(duplicate.diagnostics[0].related, vec![8..9]);
+
+        let trailing = parse("`x Head {} tail\n");
+        assert_eq!(
+            trailing.diagnostics[0].code,
+            "syntax.trailing-after-attached-group"
+        );
+
+        let document = parse("{}\n");
+        assert!(document
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == "syntax.invalid-document-group"));
+
+        let tight_verbatim = parse("`rust\"{`@[id]}\n  payload\n");
+        assert!(!tight_verbatim.is_valid());
+    }
+
+    #[test]
+    fn parses_empty_and_verbatim_expanded_groups_and_brace_escapes() {
+        let parsed = parse(
+            "`x {}\n`x Head {\n}\n`rust\" {\n  `@ code\n}\n\n  payload\nText `span[x]{literal `{ and `} braces}\n",
+        );
+        assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
+        let Block::Verbatim(verbatim) = &parsed.syntax.blocks[2] else {
+            panic!("expected verbatim block");
+        };
+        assert_eq!(verbatim.attrs.id(), Some("code"));
+        assert_eq!(verbatim.text, "\npayload\n");
     }
 
     #[test]

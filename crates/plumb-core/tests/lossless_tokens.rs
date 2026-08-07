@@ -19,8 +19,7 @@ fn empty_source_has_an_empty_lossless_root() {
 
 #[test]
 fn marked_block_attributes_have_token_granularity() {
-    let source =
-        "`node Head\n      {\n        `@ id\n        `- class\n        `: key a\"b\n      }\n";
+    let source = "`node Head {\n  `@ id\n  `- class\n  `: key a\"b\n}\n";
     assert_eq!(
         tokens(source),
         vec![
@@ -28,23 +27,22 @@ fn marked_block_attributes_have_token_granularity() {
             (SyntaxKind::Marker, "node"),
             (SyntaxKind::Whitespace, " "),
             (SyntaxKind::Text, "Head"),
-            (SyntaxKind::LineEnding, "\n"),
-            (SyntaxKind::Indentation, "      "),
+            (SyntaxKind::Whitespace, " "),
             (SyntaxKind::Delimiter, "{"),
             (SyntaxKind::LineEnding, "\n"),
-            (SyntaxKind::Indentation, "        "),
+            (SyntaxKind::Indentation, "  "),
             (SyntaxKind::Introducer, "`"),
             (SyntaxKind::Marker, "@"),
             (SyntaxKind::Whitespace, " "),
             (SyntaxKind::Text, "id"),
             (SyntaxKind::LineEnding, "\n"),
-            (SyntaxKind::Indentation, "        "),
+            (SyntaxKind::Indentation, "  "),
             (SyntaxKind::Introducer, "`"),
             (SyntaxKind::Marker, "-"),
             (SyntaxKind::Whitespace, " "),
             (SyntaxKind::Text, "class"),
             (SyntaxKind::LineEnding, "\n"),
-            (SyntaxKind::Indentation, "        "),
+            (SyntaxKind::Indentation, "  "),
             (SyntaxKind::Introducer, "`"),
             (SyntaxKind::Marker, ":"),
             (SyntaxKind::Whitespace, " "),
@@ -52,7 +50,6 @@ fn marked_block_attributes_have_token_granularity() {
             (SyntaxKind::Whitespace, " "),
             (SyntaxKind::Text, "a\"b"),
             (SyntaxKind::LineEnding, "\n"),
-            (SyntaxKind::Indentation, "      "),
             (SyntaxKind::Delimiter, "}"),
             (SyntaxKind::LineEnding, "\n"),
         ]
