@@ -23,6 +23,22 @@ local parser = vim.treesitter.get_parser(bufnr, 'plumb')
 local root = parser:parse()[1]:root()
 assert(not root:has_error(), 'valid next-line attached group must not produce an error node')
 
+local crlf_source = table.concat({
+  '`- crlf',
+  ' {',
+  '  `: value nested',
+  ' }',
+  '',
+  '',
+  '`# top',
+  '',
+}, '\r\n')
+local crlf_root = vim.treesitter.get_string_parser(crlf_source, 'plumb'):parse()[1]:root()
+assert(
+  not crlf_root:has_error(),
+  'next-line attached group must dedent across CRLF blank lines: ' .. crlf_root:sexpr()
+)
+
 local query_source = table.concat(vim.fn.readfile(grammar .. '/queries/highlights.scm'), '\n')
 local query = vim.treesitter.query.parse('plumb', query_source)
 local captures = {}

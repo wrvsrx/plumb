@@ -248,15 +248,18 @@ static bool scan_layout(Scanner *scanner, TSLexer *lexer,
       skip(lexer);
       column++;
     }
-    if (lexer->lookahead != '\n' ||
-        (!valid_symbols[INDENT_AFTER_BLANK] && !valid_symbols[DEDENT])) {
+    bool can_scan_blank =
+        valid_symbols[INDENT_AFTER_BLANK] || valid_symbols[DEDENT];
+    if (!can_scan_blank) break;
+    if (lexer->lookahead == '\r') skip(lexer);
+    if (lexer->lookahead != '\n') {
       break;
     }
     skip(lexer);
     column = 0;
     after_blank = true;
   }
-  if (lexer->lookahead == '\n') return false;
+  if (lexer->lookahead == '\n' || lexer->lookahead == '\r') return false;
 
   uint16_t current = scanner->indents[scanner->depth];
   if (after_blank && !valid_symbols[INDENT_AFTER_BLANK] && column >= current) {

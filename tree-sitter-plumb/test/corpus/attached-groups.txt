@@ -126,6 +126,52 @@ Next-line group dedents before a following top-level block
       (text))))
 
 ==================
+Nested next-line groups dedent across multiple blank lines
+==================
+
+`outer
+ {
+  `inner
+   {
+    `: value nested
+   }
+ }
+
+
+`# top
+
+---
+
+(document
+  (blank_line)
+  (marked_block
+    (introducer)
+    (marker)
+    (next_line_attached_body
+      (attached_block_group
+        (block_group_open)
+        (marked_block
+          (introducer)
+          (marker)
+          (next_line_attached_body
+            (attached_block_group
+              (block_group_open)
+              (marked_block
+                (introducer)
+                (marker)
+                (head_separator)
+                (inline_content
+                  (text)))))))))
+  (blank_line)
+  (blank_line)
+  (marked_block
+    (introducer)
+    (marker)
+    (head_separator)
+    (inline_content
+      (text))))
+
+==================
 Recursive inline group
 ==================
 
