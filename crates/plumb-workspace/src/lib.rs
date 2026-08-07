@@ -5107,7 +5107,7 @@ mod tests {
 
     #[test]
     fn task_status_targets_an_explicitly_anchored_nested_task() {
-        let source = "`task MJCF in, USD out solver {\n  `@ task-f81deb18\n  `: created 2026-05-24T02:35:50Z\n}\n\n      `task 刚体版本 {\n        `@ task-9d49eb30\n        `: created 2026-05-24T02:35:32Z\n        `: done 2026-05-26T01:43:39Z\n      }\n      `task parse MJCF {\n        `@ task-c2cf5756\n        `: created 2026-05-27T13:03:04Z\n      }\n      `task solver with passive joint {\n        `@ task-99e28dad\n        `: created 2026-05-27T13:02:45Z\n      }\n";
+        let source = "`task MJCF in, USD out solver {\n `@ task-f81deb18\n `: created 2026-05-24T02:35:50Z\n}\n\n `task 刚体版本 {\n  `@ task-9d49eb30\n  `: created 2026-05-24T02:35:32Z\n  `: done 2026-05-26T01:43:39Z\n }\n `task parse MJCF {\n  `@ task-c2cf5756\n  `: created 2026-05-27T13:03:04Z\n }\n `task solver with passive joint {\n  `@ task-99e28dad\n  `: created 2026-05-27T13:02:45Z\n }\n";
         let mut workspace = Workspace::new();
         workspace.insert("embodied-intelligence.plumb", 12, source);
 
@@ -5134,7 +5134,7 @@ mod tests {
 
     #[test]
     fn task_status_formats_multiline_attributes_with_a_long_head() {
-        let source = "`task `->[如何在 nix 中检查 IFD]{`:[to 如何在 nix 中检查 IFD.plumb]} {\n  `: created 2026-07-21T14:37:59+08:00\n}\n";
+        let source = "`task `->[如何在 nix 中检查 IFD]{`:[to 如何在 nix 中检查 IFD.plumb]} {\n `: created 2026-07-21T14:37:59+08:00\n}\n";
         assert_eq!(plumb_format::format(source).unwrap(), source);
         let mut workspace = Workspace::new();
         workspace.insert("closed.plumb", 8, source);
@@ -5153,7 +5153,7 @@ mod tests {
 
         assert_eq!(
             edited,
-            "`task `->[如何在 nix 中检查 IFD]{`:[to 如何在 nix 中检查 IFD.plumb]} {\n  `: created 2026-07-21T14:37:59+08:00\n  `: done 2026-07-21T21:52:24+08:00\n}\n"
+            "`task `->[如何在 nix 中检查 IFD]{`:[to 如何在 nix 中检查 IFD.plumb]} {\n `: created 2026-07-21T14:37:59+08:00\n `: done 2026-07-21T21:52:24+08:00\n}\n"
         );
         assert_eq!(plumb_format::format(&edited).unwrap(), edited);
     }
@@ -5176,7 +5176,7 @@ mod tests {
 
         assert!(edited.contains("`@ parent"));
         assert!(edited.contains("`: done 2026-07-21T22:00:00+08:00"));
-        assert!(edited.contains("\n      `- Child\n\n`# Following"));
+        assert!(edited.contains("\n `- Child\n\n`# Following"));
         assert_eq!(plumb_format::format(&edited).unwrap(), edited);
     }
 
@@ -5196,7 +5196,7 @@ mod tests {
         let mut converted = source.to_string();
         converted.replace_range(edit.range.clone(), &edit.new_text);
         assert!(converted
-            .contains("   `task Nested {\n     `: created 2026-07-20T10:00:00+08:00\n   }"));
+            .contains("   `task Nested {\n    `: created 2026-07-20T10:00:00+08:00\n   }"));
 
         let outer_conversion = workspace
             .convert_list_item_to_task("tasks.plumb", source.find("Outer").unwrap(), timestamp)
@@ -5204,7 +5204,7 @@ mod tests {
         assert!(outer_conversion.document_changes[0].edits[0]
             .new_text
             .contains(
-                "`task Outer {\n  `@ outer\n  `- keep\n  `: created 2026-07-20T10:00:00+08:00\n}\n"
+                "`task Outer {\n `@ outer\n `- keep\n `: created 2026-07-20T10:00:00+08:00\n}\n"
             ));
 
         let closed_offset = source.find("Closed").unwrap();
@@ -5286,7 +5286,7 @@ mod tests {
         let edit = &heading.document_changes[0].edits[0];
         assert!(edit
             .new_text
-            .contains("`# Hello, World! {\n  `@ hello-world-2\n  `- keep\n}\n"));
+            .contains("`# Hello, World! {\n `@ hello-world-2\n `- keep\n}\n"));
 
         let nested = workspace
             .add_explicit_id("note.plumb", source.find("Nested title").unwrap())
@@ -5294,7 +5294,7 @@ mod tests {
         assert!(
             nested.document_changes[0].edits[0]
                 .new_text
-                .contains("`child Nested title {\n        `@ nested-title\n      }\n"),
+                .contains("`child Nested title {\n       `@ nested-title\n      }\n"),
             "{}",
             nested.document_changes[0].edits[0].new_text
         );
@@ -5304,7 +5304,7 @@ mod tests {
             .unwrap();
         assert!(sibling_boundary.document_changes[0].edits[0]
             .new_text
-            .contains("`node Outer {\n  `@ outer\n}\n"));
+            .contains("`node Outer {\n `@ outer\n}\n"));
 
         let raw = workspace
             .add_explicit_id("note.plumb", source.find("raw").unwrap())
@@ -5318,7 +5318,7 @@ mod tests {
             .unwrap();
         assert!(multiline.document_changes[0].edits[0]
             .new_text
-            .contains("`note Multiline attrs {\n  `@ multiline-attrs\n  `- keep\n}\n"));
+            .contains("`note Multiline attrs {\n `@ multiline-attrs\n `- keep\n}\n"));
 
         for operation in [&heading, &nested, &sibling_boundary, &raw, &multiline] {
             let edit = &operation.document_changes[0].edits[0];
@@ -5531,7 +5531,7 @@ mod tests {
 
     #[test]
     fn recurring_task_completion_preserves_canonical_layout() {
-        let source = "`# 饮食相关任务\n\n`task 控制饮食 {\n  `@ 控制饮食-2026-07-20\n  `: priority -5\n  `: created 2026-07-20T01:06:48+08:00\n  `: due 2026-07-20T23:59:59+08:00\n  `: wait 2026-07-20T00:00:00+08:00\n  `: recur P1D\n  `: prev #控制饮食-2026-07-19\n}\n\n`# 锻炼相关任务\n";
+        let source = "`# 饮食相关任务\n\n`task 控制饮食 {\n `@ 控制饮食-2026-07-20\n `: priority -5\n `: created 2026-07-20T01:06:48+08:00\n `: due 2026-07-20T23:59:59+08:00\n `: wait 2026-07-20T00:00:00+08:00\n `: recur P1D\n `: prev #控制饮食-2026-07-19\n}\n\n`# 锻炼相关任务\n";
         assert_eq!(plumb_format::format(source).unwrap(), source);
         let mut workspace = Workspace::new();
         workspace.insert("减肥.plumb", 6, source);
@@ -5577,7 +5577,7 @@ mod tests {
         assert_eq!(document.edits[0].range, 0..0);
         assert_eq!(
             document.edits[0].new_text,
-            "{\n  `: title my``note\n  `: created 2026-07-19T12:34:56+08:00\n}\n\n"
+            "{\n `: title my``note\n `: created 2026-07-19T12:34:56+08:00\n}\n\n"
         );
     }
 
@@ -5595,7 +5595,7 @@ mod tests {
         assert_eq!(document.edits[0].range, 0..0);
         assert_eq!(
             document.edits[0].new_text,
-            "{\n  `: title empty\n  `: created 2026-07-22T12:34:56+08:00\n}\n"
+            "{\n `: title empty\n `: created 2026-07-22T12:34:56+08:00\n}\n"
         );
         assert_eq!(
             plumb_format::format(&document.edits[0].new_text).unwrap(),
@@ -5614,7 +5614,7 @@ mod tests {
 
         assert_eq!(
             edit.document_changes[0].edits[0].new_text,
-            "{\r\n  `: title note\r\n  `: created 2026-07-19T12:34:56+08:00\r\n}\r\n\r\n"
+            "{\r\n `: title note\r\n `: created 2026-07-19T12:34:56+08:00\r\n}\r\n\r\n"
         );
     }
 
@@ -6355,7 +6355,7 @@ mod tests {
         assert!(reordered_source.contains("`note A details"));
         assert!(parse(&reordered_source).is_valid(), "{reordered_source}");
         assert!(
-            reordered_source.contains("`task Right {\n  `@ right\n}\n"),
+            reordered_source.contains("`task Right {\n `@ right\n}\n"),
             "{reordered_source}"
         );
 

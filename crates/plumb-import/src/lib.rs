@@ -703,7 +703,7 @@ mod tests {
         });
 
         let source = import_json(&document.to_string()).unwrap();
-        assert!(source.starts_with("{\n  `: title Example\n}\n"), "{source}");
+        assert!(source.starts_with("{\n `: title Example\n}\n"), "{source}");
         assert!(source.contains("`# Intro {`@[intro]}"));
         assert!(source.contains("`*[em] `![strong] `=[marked]{`@[marked] `-[keep]}"));
         assert!(source.contains("`~[strike] `^[super] `_[sub]"));
@@ -757,7 +757,7 @@ mod tests {
         assert!(source.contains("`*[a`]b]"), "{source}");
         assert!(source.contains("`\"a]b\""));
         assert!(source.contains("{`:[data value`]/`{draft`}]}"), "{source}");
-        assert!(source.contains("`\"\n  raw"), "{source}");
+        assert!(source.contains("`\"\n raw"), "{source}");
         let parsed = plumb_core::parse(&source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let plumb_core::Block::Parsed(paragraph) = &parsed.syntax.blocks[0] else {

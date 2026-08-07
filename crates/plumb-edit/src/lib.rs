@@ -1012,7 +1012,7 @@ mod tests {
         let edit = edit.finish().unwrap();
         assert_eq!(
             edit.new_text,
-            "`task Work {\n  `- next\n  `@ id\n  `: created now\n}\n"
+            "`task Work {\n `- next\n `@ id\n `: created now\n}\n"
         );
     }
 
@@ -1035,7 +1035,7 @@ mod tests {
         let edit = edit.finish().unwrap();
         assert_eq!(
             edit.new_text,
-            "`- Work {\n  `: created 2026-07-23T03:00:00+08:00\n}\n"
+            "`- Work {\n `: created 2026-07-23T03:00:00+08:00\n}\n"
         );
     }
 
@@ -1066,7 +1066,7 @@ mod tests {
         let edit = edit.finish().unwrap();
         assert_eq!(
             edit.new_text,
-            "   `- Nested {\n     `- kind\n     `: created 2026-07-20T10:00:00+08:00\n   }\n"
+            "   `- Nested {\n    `- kind\n    `: created 2026-07-20T10:00:00+08:00\n   }\n"
         );
     }
 
@@ -1097,7 +1097,7 @@ mod tests {
         let edit = edit.finish().unwrap();
         let edited = apply_text_edits(source.to_string(), vec![edit]).unwrap();
         assert!(parse(&edited).is_valid(), "{edited}");
-        assert!(edited.contains("`- Nested {\n     `- kind"), "{edited}");
+        assert!(edited.contains("`- Nested {\n    `- kind"), "{edited}");
     }
 
     #[test]
@@ -1119,7 +1119,7 @@ mod tests {
         let edit = edit.finish().unwrap();
         assert_eq!(
             edit.new_text,
-            "`# Hello, World! {\n  `@ hello-world\n  `- keep\n}\n"
+            "`# Hello, World! {\n `@ hello-world\n `- keep\n}\n"
         );
     }
 
@@ -1235,7 +1235,7 @@ mod tests {
         block.attributes_mut().push(OwnedAttribute::class("event"));
         let mut output = String::new();
         render_owned_blocks(&[block], 0, &mut output);
-        assert_eq!(output, "`- Work {\n  `- event\n}");
+        assert_eq!(output, "`- Work {\n `- event\n}");
     }
 
     #[test]
@@ -1304,7 +1304,7 @@ mod tests {
         assert_eq!(edit.range, 0..0);
         assert_eq!(
             edit.new_text,
-            "{\n  `: title Example\n  `: created 2026-07-23T03:00:00+08:00\n}\n\n"
+            "{\n `: title Example\n `: created 2026-07-23T03:00:00+08:00\n}\n\n"
         );
     }
 
@@ -1372,13 +1372,13 @@ mod tests {
         let replacement = replace.finish().unwrap();
         assert_eq!(
             replacement.new_text,
-            "`node Head {\n  `@ new\n  `- keep\n  `: key value\n}\n"
+            "`node Head {\n `@ new\n `- keep\n `: key value\n}\n"
         );
 
         let mut remove = EditSession::new(&parsed, block.range.clone()).unwrap();
         remove.remove_attribute(&mark.attrs, 2).unwrap();
         let removal = remove.finish().unwrap();
-        assert_eq!(removal.new_text, "`node Head {\n  `@ old\n  `- keep\n}\n");
+        assert_eq!(removal.new_text, "`node Head {\n `@ old\n `- keep\n}\n");
     }
 
     #[test]
@@ -1399,7 +1399,7 @@ mod tests {
     }
 
     #[test]
-    fn edits_next_line_block_attached_elements_without_changing_layout() {
+    fn edits_next_line_block_attached_elements_with_canonical_layout() {
         let source = "`task Work\n      {\n        `@ old\n      }\n";
         let parsed = parse(source);
         let Block::Parsed(block) = &parsed.syntax.blocks[0] else {
@@ -1412,7 +1412,7 @@ mod tests {
         let edit = edit.finish().unwrap();
         assert_eq!(
             edit.new_text,
-            "`task Work\n      {\n        `@ new\n      }\n"
+            "`task Work\n {\n  `@ new\n }\n"
         );
         assert!(parse(&edit.new_text).is_valid());
     }

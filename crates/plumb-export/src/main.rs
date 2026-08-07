@@ -777,7 +777,7 @@ mod tests {
     #[test]
     fn exports_verbatim_envelopes_as_pandoc_code() {
         let document =
-            export("Use `\"cargo check\"{`:[language sh]}.\n\n`rust\"\n  fn main() {}\n").unwrap();
+            export("Use `\"cargo check\"{`:[language sh]}.\n\n`rust\"\n fn main() {}\n").unwrap();
         assert_eq!(document["blocks"][0]["c"][2]["t"], "Code");
         assert_eq!(document["blocks"][0]["c"][2]["c"][1], "cargo check");
         assert_eq!(document["blocks"][1]["t"], "CodeBlock");
@@ -874,7 +874,7 @@ mod tests {
 
     #[test]
     fn lifts_typed_metadata_out_of_the_document_body() {
-        let source = "{\n  `: title Rich `*[title]\n  `: tags\n\n     `- plumb\n     `- tools\n  `: macros\n\n     `-\n      `- `\"nearSet\"\n      `- `\"\\mathscr{C}\"\n      `- 0\n  `: author\n\n     `: name Alice\n  `: source\n\n     `text\"\n       raw\n\n\n  `: empty\n}\n\n`# Section\n";
+        let source = "{\n  `: title Rich `*[title]\n  `: tags\n\n     `- plumb\n     `- tools\n  `: macros\n\n     `-\n      `- `\"nearSet\"\n      `- `\"\\mathscr{C}\"\n      `- 0\n  `: author\n\n     `: name Alice\n  `: source\n\n     `text\"\n      raw\n      \n      \n  `: empty\n}\n\n`# Section\n";
         let document = export(source).unwrap();
 
         assert_eq!(document["blocks"].as_array().unwrap().len(), 1);
