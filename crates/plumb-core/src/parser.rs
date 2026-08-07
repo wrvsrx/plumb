@@ -541,6 +541,11 @@ impl Parser<'_> {
             return None;
         }
         let byte = self.source.as_bytes()[after];
+        if byte == b'}'
+            || (byte == b'{' && self.source.as_bytes().get(after + 1).copied() != Some(b'}'))
+        {
+            return None;
+        }
         if byte == b'[' {
             return None;
         }
@@ -2181,6 +2186,32 @@ mod tests {
         };
         assert_eq!(verbatim.attrs.id(), Some("code"));
         assert_eq!(verbatim.text, "\npayload\n");
+    }
+
+    #[test]
+    fn delimiter_escapes_apply_only_at_active_structural_sites() {
+        let escaped = parse(
+            "`{ starts a paragraph\n\n`span[text]`{ stays text and `} also stays text\n\n`span[x]{literal `{ and `} braces}\n",
+        );
+        assert!(escaped.is_valid(), "{:?}", escaped.diagnostics);
+        assert_eq!(escaped.syntax.blocks.len(), 3);
+        let Block::Parsed(block_start) = &escaped.syntax.blocks[0] else {
+            panic!("expected paragraph from escaped block-start brace");
+        };
+        assert_eq!(block_start.head.plain_text(), "{ starts a paragraph");
+        let Block::Parsed(attachment_site) = &escaped.syntax.blocks[1] else {
+            panic!("expected paragraph with escaped attachment-site braces");
+        };
+        assert_eq!(
+            attachment_site.head.plain_text(),
+            "text{ stays text and } also stays text"
+        );
+
+        let incomplete_dispatch = parse("Text `q ordinary dispatch remains strict\n");
+        assert!(incomplete_dispatch
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == "syntax.invalid-inline-dispatch"));
     }
 
     #[test]

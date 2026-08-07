@@ -146,8 +146,10 @@ impl<'a> TokenBuilder<'a> {
             for inline in &content.items {
                 match inline {
                     Inline::Text { text, range } => {
-                        let kind = if matches!(self.source.get(range.clone()), Some("``" | "`]"))
-                            && matches!(text.as_str(), "`" | "]")
+                        let kind = if matches!(
+                            self.source.get(range.clone()),
+                            Some("``" | "`]" | "`{" | "`}")
+                        ) && matches!(text.as_str(), "`" | "]" | "{" | "}")
                         {
                             SyntaxKind::Escape
                         } else {

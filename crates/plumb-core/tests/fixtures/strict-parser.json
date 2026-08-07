@@ -150,11 +150,22 @@
     "required_tokens": ["Escape","InlineKind","Marker"]
   },
   {
-    "name": "invalid marker outranks derived block dispatch",
+    "name": "closing brace escape can start a paragraph",
     "source": "`}bad\n",
+    "valid": true,
+    "blocks": [{"kind":"paragraph","head":"}bad","inline":"T\"}\"T\"bad\""}],
+    "diagnostics": [],
+    "required_tokens": ["Escape"]
+  },
+  {
+    "name": "ownerless empty group after an introducer remains invalid",
+    "source": "`{} head\n",
     "valid": false,
-    "blocks": [{"kind":"marked","marker":"","attrs":[],"head":"}bad","inline":"T\"}bad\"","children":[]}],
-    "diagnostics": [{"code":"syntax.invalid-marker","range":{"text":"`}"}}],
+    "blocks": [{"kind":"marked","marker":"","attrs":[],"head":"head","inline":"T\"head\"","children":[]}],
+    "diagnostics": [
+      {"code":"syntax.invalid-marker","range":{"text":"`{"}},
+      {"code":"syntax.legacy-attributes","range":{"text":"{} head"}}
+    ],
     "required_tokens": ["Error"]
   },
   {
