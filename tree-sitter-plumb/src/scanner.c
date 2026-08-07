@@ -352,8 +352,7 @@ static bool scan_layout(Scanner *scanner, TSLexer *lexer,
   return false;
 }
 
-static bool scan_same_line_child_indent(Scanner *scanner, TSLexer *lexer,
-                                        const bool *valid_symbols) {
+static bool scan_same_line_child_indent(Scanner *scanner, TSLexer *lexer) {
   uint16_t column = lexer->get_column(lexer);
   uint16_t current = scanner->indents[scanner->depth];
   if (column <= current || scanner->depth + 1 >= MAX_INDENT_DEPTH) return false;
@@ -371,8 +370,8 @@ static bool scan_same_line_child_indent(Scanner *scanner, TSLexer *lexer,
     has_marker = true;
   }
   if (has_marker && lexer->lookahead == '[') return false;
-  if (lexer->lookahead == '"' && valid_symbols[INLINE_VERBATIM_TOKEN]) {
-    return scan_inline_verbatim_body(lexer);
+  if (lexer->lookahead == '"') {
+    if (scan_inline_verbatim_body(lexer)) return false;
   }
 
   scanner->depth++;
@@ -384,9 +383,11 @@ static bool scan_same_line_child_indent(Scanner *scanner, TSLexer *lexer,
 bool tree_sitter_plumb_external_scanner_scan(void *payload, TSLexer *lexer,
                                               const bool *valid_symbols) {
   Scanner *scanner = payload;
-  if (valid_symbols[SAME_LINE_CHILD_INDENT] &&
-      scan_same_line_child_indent(scanner, lexer, valid_symbols)) {
-    return true;
+  uint16_t column = lexer->get_column(lexer);
+  if (valid_symbols[SAME_LINE_CHILD_INDENT] && lexer->lookahead == '`' &&
+      column > scanner->indents[scanner->depth] &&
+      scanner->depth + 1 < MAX_INDENT_DEPTH) {
+    return scan_same_line_child_indent(scanner, lexer);
   }
   if (valid_symbols[VERBATIM_BLOCK_OPEN] && lexer->lookahead == '"') {
     return scan_verbatim_block_open(scanner, lexer, valid_symbols);

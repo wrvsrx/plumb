@@ -16,7 +16,7 @@ vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, {
   '',
   '`# some',
   '',
-  '`->"something.plumb"',
+  '`- `->"something.plumb"',
 })
 
 local parser = vim.treesitter.get_parser(bufnr, 'plumb')
