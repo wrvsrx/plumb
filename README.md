@@ -1,0 +1,49 @@
+# plumb
+
+plumb 是一门严格、语义中立的 markup language，也是一套围绕它构建的个人文档工具链。与 Markdown 和 Djot 的容错取向不同，plumb 将不完整或畸形的特殊 syntax 视为 parse error，不会静默退化为普通文本。
+
+当前工具链包括 strict parser、formatter、Pandoc JSON import/export、notes 与 task workspace、Web app、LSP 和 Neovim plugin。核心只判断 syntax validity；heading、link、metadata、task 等含义由 extensions 提供。tree-sitter grammar 只服务 editor ergonomics，不参与权威解析。
+
+# 开始使用
+
+在 Nix development shell 中构建并运行测试：
+
+``` sh
+cargo build
+cargo test --workspace
+cargo check --workspace --all-targets
+```
+
+检查、格式化和导出 `.plumb` document：
+
+``` sh
+cargo run -- check --root docs
+cargo run -- fmt document.plumb
+cargo run -- export document.plumb | pandoc --from=json --to=gfm
+```
+
+# 文档
+
+- [语法指南](docs/guide/syntax.plumb)
+
+- [标准扩展指南](docs/guide/extensions.plumb)
+
+- [工具链指南](docs/guide/toolchain.plumb)
+
+- [Editor integration 指南](docs/guide/editor-integration.plumb)
+
+- [Core syntax reference](docs/reference/core-syntax.plumb)
+
+- [架构总览](docs/architecture/overview.plumb)
+
+- [完整文档索引](docs/index.plumb)
+
+# 开发约定
+
+`docs/reference/` 定义权威 syntax 与 semantic profile，`docs/architecture/` 定义工具边界，`docs/guide/` 只描述当前 release 已提供的行为。实现 behavior change 前先更新对应权威规范，再同步实现、测试和 user-facing documentation。完整的 agent 开发与 release 规则见 [AGENTS.md](AGENTS.md)。
+
+本文件是 repository README 的权威源。根目录的 `README.md` 由它导出，不应直接编辑：
+
+``` sh
+plumb export README.plumb | pandoc --from=json --to=gfm --wrap=none --lua-filter=scripts/readme.lua --output=README.md
+```

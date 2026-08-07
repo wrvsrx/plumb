@@ -138,6 +138,51 @@ fn bundled_neovim_plugin_matches_the_binary_version() {
 }
 
 #[test]
+fn generated_readme_matches_its_plumb_source() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let exported = Command::new(env!("CARGO_BIN_EXE_plumb"))
+        .arg("export")
+        .arg(root.join("README.plumb"))
+        .output()
+        .unwrap();
+    assert!(
+        exported.status.success(),
+        "{}",
+        String::from_utf8_lossy(&exported.stderr)
+    );
+
+    let mut pandoc = Command::new("pandoc")
+        .args(["--from=json", "--to=gfm", "--wrap=none"])
+        .arg(format!(
+            "--lua-filter={}",
+            root.join("scripts/readme.lua").display()
+        ))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("pandoc is required to verify the generated README");
+    pandoc
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(&exported.stdout)
+        .unwrap();
+    let markdown = pandoc.wait_with_output().unwrap();
+    assert!(
+        markdown.status.success(),
+        "{}",
+        String::from_utf8_lossy(&markdown.stderr)
+    );
+
+    let committed = std::fs::read(root.join("README.md")).unwrap();
+    assert_eq!(
+        markdown.stdout, committed,
+        "README.md is stale; regenerate it with the command documented in AGENTS.md"
+    );
+}
+
+#[test]
 fn checks_a_workspace_with_configurable_severity_and_error_exit_status() {
     let root = unique_temp_dir();
     std::fs::create_dir_all(root.join("nested")).unwrap();

@@ -310,3 +310,19 @@ implementation progress, TODOs, or "not yet implemented" lists into
 `cargo test -p plumb-core --test project_documents` enforces this ownership and
 also verifies all project `.plumb` documents plus bundled-skill plumb examples
 with the strict parser.
+
+## Generated README
+
+`README.plumb` is the authoritative repository README source. The root
+`README.md` is generated output for hosts and tools that expect Markdown; never
+edit it directly. After changing `README.plumb` or the export pipeline, regenerate
+it from the repository root with:
+
+```sh
+plumb export README.plumb | pandoc --from=json --to=gfm --wrap=none \
+  --lua-filter=scripts/readme.lua --output=README.md
+```
+
+Commit `README.plumb` and `README.md` together. The CLI integration test compares
+the committed Markdown byte-for-byte with a fresh export, so the generation must
+remain deterministic and the consistency check must pass before committing.
