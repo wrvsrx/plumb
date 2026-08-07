@@ -104,3 +104,56 @@ Structural verbatim opener
           (parsed_inline_content
             (inline_text)))))
     (raw_text)))
+
+==================
+Expanded verbatim group
+==================
+
+`rust" {
+  `@ example
+}
+  fn main() {}
+
+---
+
+(document
+  (blank_line)
+  (verbatim_block
+    (introducer)
+    (verbatim_kind)
+    (head_separator)
+    (attached_block_group
+      (block_group_open)
+      (marked_block
+        (introducer)
+        (marker)
+        (head_separator)
+        (inline_content
+          (text))))
+    (raw_text)))
+
+==================
+Brace escapes at structural attachment sites
+==================
+
+`{ starts a paragraph
+`span[text]`{ stays text and `} also stays text
+
+---
+
+(document
+  (blank_line)
+  (paragraph
+    (inline_content
+      (brace_escape)
+      (text))
+    (inline_content
+      (inline_element
+        (introducer)
+        (inline_kind)
+        (parsed_inline_content
+          (inline_text)))
+      (brace_escape)
+      (text)
+      (brace_escape)
+      (text))))

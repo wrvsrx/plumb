@@ -152,6 +152,7 @@ module.exports = grammar({
 
     inline_content: $ => prec.right(repeat1(choice(
       $.introducer_escape,
+      $.brace_escape,
       $.inline_verbatim,
       $.inline_element,
       $.incomplete_inline_element,
