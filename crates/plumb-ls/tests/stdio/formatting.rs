@@ -74,7 +74,12 @@ fn whole_document_formatting_handles_repeated_marker_lines() {
     assert_eq!(edits.len(), 1);
     let formatted = apply_ascii_lsp_edits(source, edits);
     assert!(plumb_core::parse(&formatted).is_valid(), "{formatted}");
-    assert_eq!(plumb_format::format(&formatted).unwrap(), formatted);
+    let parsed = plumb_core::parse(&formatted);
+    assert!(
+        plumb_edit::format(&parsed, plumb_edit::FormatScope::Document)
+            .unwrap()
+            .is_empty()
+    );
 }
 
 #[test]

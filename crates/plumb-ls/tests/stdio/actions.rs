@@ -214,7 +214,12 @@ fn inserts_metadata_into_an_empty_document_over_stdio() {
     );
     let generated = change["edits"][0]["newText"].as_str().unwrap();
     assert!(generated.starts_with("{\n `: title empty-note\n `: created "));
-    assert_eq!(plumb_format::format(generated).unwrap(), generated);
+    let parsed = plumb_core::parse(generated);
+    assert!(
+        plumb_edit::format(&parsed, plumb_edit::FormatScope::Document)
+            .unwrap()
+            .is_empty()
+    );
 }
 
 #[test]
