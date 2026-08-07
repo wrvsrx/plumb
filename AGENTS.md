@@ -52,6 +52,28 @@ check. Resolve every mismatch, update guides and bundled skills only after the
 behavior is available, and remove any "not implemented" status from the
 authoritative specification only after the required verification passes.
 
+## Unified editing boundary
+
+All authoritative source changes go through `plumb-edit`. `plumb-core` remains
+the parse/lossless-tree authority and does not own mutations; `plumb-format` is
+canonical rendering policy behind the edit layer, not an editing adapter API.
+
+- LSP, CLI, Web, workspace, and extension adapters must not call
+  `plumb-format` directly for editing or reparse a revision already represented
+  by `ParsedDocument`. They pass the existing parsed revision plus a format or
+  mutation intent to `plumb-edit` and only translate/apply its byte edits.
+- Structural insert/replace/remove/move and conversions use owned syntax or
+  another syntax-aware `plumb-edit` API. Do not render owned nodes, calculate
+  subtree indentation/line endings, or construct CST replacement text outside
+  `plumb-edit`.
+- Raw token replacement is limited to typed, validated mechanical rewrites
+  such as anchor/document rename. Recovered-source assists such as completion
+  may return local text replacements but are not authoritative valid-tree
+  mutations.
+- Tests for editing behavior must exercise the protocol-neutral edit result
+  before adapter projection. Dependency checks should prevent editing adapters
+  from regaining a direct `plumb-format` dependency.
+
 ## Project tasks
 
 `docs/project/tasks.plumb` is the actionable task list. Before starting new

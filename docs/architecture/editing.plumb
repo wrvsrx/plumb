@@ -10,6 +10,11 @@
 extensions 与 workspace 决定 operation intent 和 target；edit layer 只执行 syntax mutation、验证
 source ranges、canonicalize affected complete block subtree，并产生针对原 revision 的 text edit。
 
+`"plumb-core" 继续只负责 parse 与 lossless/typed tree，不接收 mutation。本文所称统一 core editing
+boundary 是 `"plumb-edit"：LSP、CLI、Web 和 workspace 等 adapter/host 不直接调用 formatter，也不自行
+serialize CST replacement。`"plumb-format" 是 edit layer 使用的 canonical rendering policy，不是 editing
+consumer 的入口。
+
 `# 2. Owned syntax
 
 新增内容使用 semantics-neutral `"OwnedBlock"、`"OwnedInline"、`"OwnedAttribute" 和 `"OwnedValue"。
@@ -19,6 +24,10 @@ ranges，也不识别 metadata、task、link 或其他 extension semantics。
 owned nodes 可以从 strict typed syntax view detach，也可以由 operation 构造。serializer 只负责生成
 valid intermediate source；最终 layout 始终由 `"plumb-format" canonicalize。operation 不拼接完整 CST
 block、手工计算 multiline attribute layout 或复制 subtree indentation。
+
+owned syntax 是 mutation intent 的 data model，不是预先渲染的 replacement text。Host 可以按 extension
+语义修改 detached owned tree，但只有 edit layer 可以把它映射回 source ranges、indentation、line endings
+与 text edits。
 
 `# 3. Attached-property mutations
 
@@ -75,13 +84,34 @@ replacement。
 format scope 外 source 必须逐字节不变。children 随 owner subtree canonicalize；相邻 sibling 只提供
 spacing context，不进入 editable scope。empty document insertion format 整个新文档。
 
-`# 6. Token rewrites
+`# 6. Formatting intent
+
+formatting 与 mutation 共用同一 revision-bound edit boundary。Protocol-neutral format request 绑定已有
+`"ParsedDocument"，scope 只有：
+
+`- `"Document"：format 当前 revision 的完整 document。
+`- `"ContainedBlocks(selection)"：由 edit layer 在现有 valid tree 中解析 selection，选择其中 maximal
+   complete block subtrees；空 selection 不隐式选择 cursor owner。
+
+consumer 不传 source string 让 formatter 重新 parse，也不传预先计算的 replacement。edit layer 把 scope
+解析为 syntax nodes，调用 canonical renderer，并返回 source-ordered、non-overlapping `"TextEdit" list。
+同一 revision 只使用 workspace/CLI 已持有的 `"ParsedDocument"；formatter 不重新 parse。LSP 只负责
+byte range 到 protocol position 的转换，CLI/Web 只负责 revision validation、应用 edits 与 I/O。
+
+whole-document format 可以产生 changed-line minimal edits；range format 只编辑 scope 选中的 complete
+subtrees。无论 adapter 如何应用，使用同一 request 必须得到相同 byte edits。
+
+`# 7. Token rewrites
 
 anchor/document rename 是 valid revision 上的机械 token rewrite。它们通过 `"plumb-edit" 验证 source
 range 并产生 ordered minimal edits，但不触发 subtree formatting。workspace 继续负责 multi-document
 grouping、expected revisions、resource operations 与 atomicity requirements。
 
-`# 7. Recovered-source assists
+raw replacement 只对这种已有 typed token ownership 的机械 rewrite 开放。Block insert/replace/remove/move、
+attached mutation、conversion 与 formatting 不得使用 raw `"TextEdit::replace" 绕过 owned syntax 或 edit
+session。
+
+`# 8. Recovered-source assists
 
 completion、delimiter closure 等 assists 可能运行在 incomplete recovered source 上，此时不存在可安全
 mutation 的 valid owner node。它们可以返回局部 recovery text replacement，但不得伪装成 authoritative

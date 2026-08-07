@@ -105,10 +105,18 @@ official workspace host 将 valid-tree authoring intent 交给 `"plumb-edit"：p
 完整 owner subtree，最后映射为针对原 revision 的单个连续 text edit。children 即使未被 mutation 直接
 触及也随 owner canonicalize；相邻 sibling 不被格式化。
 
+Host 不渲染 owned nodes、不计算 subtree indentation/line-ending replacement，也不把结构删除或移动降级为
+raw token replacement。跨 parent/document move 可以组合多个 revision-guarded edit-layer results，但每个
+source removal 与 target insertion 都必须由 syntax-aware API 生成。
+
 task complete/cancel、task conversion、created insertion、add explicit id、metadata insertion 与 recurring
 task sibling insertion 复用这条 pipeline。anchor/document rename 也通过 `"plumb-edit" 验证 token ranges，
 但作为跨位置机械重写保持 ordered minimal edits，不触发无关 block formatting。incomplete-source
 completion 属于 recovery assist，不要求构造不存在的 valid syntax node。
+
+Formatting 是同一 contract 的 syntax-only operation：host 传入当前 `"ParsedDocument" 和 document/contained-
+blocks scope，`"plumb-edit" 返回 byte edits；LSP/CLI/Web adapter 不直接依赖 `"plumb-format" 或重新 parse
+revision source。
 
 `# 10. Diagnostics and failure
 
