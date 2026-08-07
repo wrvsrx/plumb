@@ -16,6 +16,12 @@ parser 仍必须恢复并产生 lossless tree 与全部可报告 diagnostics。
 反引号是唯一 introducer。连续 run 从左到右每两个反引号组成一个 literal backtick；奇数 run
 最后剩余的一个作为 introducer。scanner 不回溯。
 
+在 parsed position 中，单个 introducer 后直接跟一个原本会在当前位置充当 opening/closing delimiter 的
+character，表示该 character 的 literal escape，不产生 literal backtick，也不启动或关闭 structure。这一
+规则同样适用于 block start、attachment site 与 active group content。ordinary opening bracket 在 parsed
+inline content 中不是 delimiter，不需要 escape。inline/block verbatim payload 是 raw bytes，不识别 delimiter
+escape。
+
 `plumb"
   ``node is literal text.
   ```node introduces one literal backtick, then a node.
@@ -26,8 +32,8 @@ escape 已经产生 inline text 时，当前位置不再是 block start。
 
 block start 的 introducer 先读取可选 kind，再按 delimiter dispatch：
 
-`- `"KIND?\"" 后立即 line ending，或跟 horizontal whitespace、一个完整 compact attached group 再
-   line ending：verbatim block。
+`- `"KIND?\"" 后立即 line ending/EOF，或跟 horizontal whitespace 与 compact/expanded attached group
+   opener：verbatim block。
 `- `"KIND?QUOTES["：strengthened inline verbatim，属于 paragraph/head inline content。
 `- `"KIND?\"RAW\""：compact inline verbatim，属于 paragraph/head inline content。
 `- 非空 marker token：marked block；紧接 opening bracket 时改为 parsed inline element。
@@ -44,14 +50,13 @@ marked block 形状为：
 `plumb"
   `marker
   `marker Head
-    `marker Head
-      {
-        `- facet
-        `@ identity
-        `: property value
-      }
+  `marker Head {
+    `- facet
+    `@ identity
+    `: property value
+  }
 
-    `marker Head {`-[facet] `@[identity] `:[property value]}
+  `marker Head {`-[facet] `@[identity] `:[property value]}
 
 marker 后只能紧接一个分隔 head 的 ASCII space/tab 或 line ending。普通 marker 允许空
 head 和空 children；marker-specific constraint 属于 extension。
@@ -71,8 +76,9 @@ marked block 的 marker line 在第一个 ASCII space 后开始 head。marker li
 缩进 marked block 则无需前置空行，直接结束 head 并开始 children。一旦开始 children 就不能
 恢复 head。
 
-head 仍为空时，head separator 后的 block-only entry 可以在同一 physical line 开始 first child。
-first child 的 introducer column 建立 body column，后续 children 必须从同一 column 开始：
+head 仍为空时，head separator 后任何能完成 block dispatch 的 marked/verbatim block entry 可以在同一
+physical line 开始 first child；group delimiter 不属于 block entry。first child 的 introducer column
+建立 body column，后续 children 必须从同一 column 开始：
 
 `plumb"
   `- `- a
@@ -107,23 +113,23 @@ columns 之间是 partial dedent error。结构 indentation 只能使用 ASCII s
 `# 7. Attached groups
 
 attached group 是 postfix ownership operator，不是 attribute sublanguage。group 只在 owner 声明的
-attachment site 被识别；普通 punctuation 不因出现在其他位置而全局获得 attachment semantics。每个
-owner 最多有一个 group：
+attachment site 被识别；ordinary opening brace 在其他 ordinary inline/head position 是 text。每个 owner
+最多有一个 group：
 
 `- document group 必须是文件第一个结构，包含 ordinary blocks。
-`- marked block group 是 owner body 中紧邻 owner 的第一个 block，包含 ordinary blocks。
-`- verbatim block opener group 由 horizontal whitespace 与 opening quote 分开，包含 ordinary inline
-  elements。
+`- marked/verbatim block group 由 horizontal whitespace 与完整 block header 分开；compact form 包含
+  ordinary inline elements，expanded form 包含 ordinary blocks。
 `- parsed inline 或 inline verbatim group 紧跟完整 closing delimiter，包含 ordinary inline elements。
 
 compact attachment separator 由 owner category 统一决定：inline owner 使用 tight attachment，group 必须
 紧贴完整 closing delimiter；marked/verbatim block header owner 使用 spaced attachment，group 前必须至少有
-一个 ASCII space/tab。expanded attachment 一律使用 structural form；document 只允许该 form。separator
-不属于 head 或 raw payload。compact group 必须在一条 physical line 完成；block-header compact group 后只能
-出现 line ending/EOF。inline group 结束后回到 enclosing inline content。
+一个 ASCII space/tab。separator 不属于 head 或 raw payload。
 
-block group 的 opening brace 独占一条 structural line，内容建立更深的 child column，closing brace
-回到 group column。其内容使用第 3 至 6 节的普通 block parser，因此可以递归包含拥有 group 的 blocks：
+block-header attachment 的 opening brace 是 header 的最后一个结构。opening brace 后在同一 physical line
+出现 content 时必须以同一行 closing brace 完成 compact form；opening brace 后只剩 horizontal whitespace
+与 line ending/EOF 时进入 expanded form。expanded content 建立比 owner 更深的 structural column，closing
+brace 回到 owner column。其内容使用第 3 至 6 节的普通 block parser，因此可以递归包含拥有 group 的 blocks。
+document 没有 header，只允许 opening brace 独占文件第一条 structural line 的 expanded form：
 
 `plumb"
   {
@@ -132,12 +138,11 @@ block group 的 opening brace 独占一条 structural line，内容建立更深�
       `- plumb
   }
 
-  `- Buy milk
-     {
-       `- shopping
-       `@ shopping
-       `: due 2026-08-07
-     }
+  `- Buy milk {
+    `- shopping
+    `@ shopping
+    `: due 2026-08-07
+  }
 
 inline group 与 owner 同行，内容使用第 8、9 节的普通 inline parser，因此 inline element 可以递归
 包含 inline element；group 本身不建立新的 marker、property 或 raw-content grammar：
@@ -145,18 +150,31 @@ inline group 与 owner 同行，内容使用第 8、9 节的普通 inline parser
 `plumb"
   `->[guide]{`@[main] `-[external] `:[to guide.plumb]}
 
-普通 marked block 还允许 compact trailing group：它位于 head attachment site，是该 physical head line
-的最后一个结构，且包含 ordinary inline elements。空 head 与非空 head 使用同一规则。紧贴 inline closing
-delimiter 的 group 仍归 inline owner；只有与 block head 分隔的 group 才归 marked block。
+空 head 与非空 head 使用同一 block-header attachment rule。紧贴 inline closing delimiter 的 group 仍归
+inline owner；只有与 block head 分隔的 group 才归 marked block。expanded group 一出现就结束 deferred
+head；group close 后的缩进 ordinary text 只能开始 child paragraph，不能恢复 head。
 
 空 group 合法。inline owner 的 group 必须紧贴 owner；whitespace 结束该 ownership。expanded block group
-由 structural position 与 indentation 建立 ownership，不允许作为任意独立 sibling。core 原样保留
-attached content，不把其中 spelling 固定解释为 facet、identity 或 property。
+由 header attachment site 与 indentation 建立 ownership，不允许作为任意独立 sibling。单行 document
+`"{}" 非法，因为 document group 只允许 expanded form。core 原样保留 attached content，不把其中
+spelling 固定解释为 facet、identity 或 property。
 
 compact form 的 content 一律使用 ordinary inline grammar；expanded form 的 content 一律使用 ordinary
-block grammar。两种 form 即使为空也保留各自的 source layout 与 typed content category。第一个 group
-之后再次出现在同一 owner attachment position 的 group 是 syntax error，不能覆盖或合并第一个 group。
-compact block group 后的任何 non-whitespace source 也是 syntax error，不得静默丢弃或重新解释为 head。
+block grammar。两种 form 即使为空也保留各自的 source layout 与 typed content category；group presence
+可由 syntax consumer 观察，但空 group 的 direct declaration projection 为空。formatter 与 syntax edit
+不能把显式空 group 自动改成 absent group。
+
+在 active group content 中，unescaped closing brace 关闭当前 group；单个 introducer 再跟 closing brace
+表示 literal closing brace，与 parsed inline content 的 literal closing bracket rule 一致。bare opening
+brace 不能建立没有 owner 的 nested group，在 active group content 中是 syntax error；literal opening brace
+也写作单个 introducer 再跟 opening brace。group content 需要包含任意 brace-rich source 时应使用 inline
+verbatim。在 attachment site 或 structural brace position，单个 introducer 加 opening brace 阻止 group
+开始；单个 introducer 加无匹配 owner 的 closing brace 阻止 ownership error，并产生 ordinary literal text。
+
+第一个 group 之后再次出现在同一 owner attachment position 的 group 发布
+`"syntax.duplicate-attached-group"，不能覆盖或合并第一个 group。compact block group close 后允许 trailing
+horizontal whitespace；其他 source 发布 `"syntax.trailing-after-attached-group"，不得静默丢弃或重新解释为
+head。单行 document `"{}" 发布 `"syntax.invalid-document-group"。
 
 `# 8. Parsed inline element
 
@@ -171,7 +189,7 @@ bracket 构成：
 集合。
 
 parsed content 中 ordinary opening bracket 是 text。未转义 closing bracket 关闭当前 element；
-字面 closing bracket 写作两个反引号再跟 closing bracket。空 content 合法。
+字面 closing bracket 写作单个 introducer 再跟 closing bracket。空 content 合法。
 
 inline kind 后必须出现 opening bracket；不存在裸 `"`kind" inline shorthand。没有 ordinary content
 的 element 写作 `"`kind["]，从而让 element boundary、递归 nesting 与 attached ownership 始终显式。
@@ -215,10 +233,16 @@ verbatim block 使用 introducer、可选 opaque kind 与 opening quote，并且
   `rust" {`@[example] `:[generated true]}
     fn main() {}
 
-opening quote 后必须立即 line ending，或跟至少一个 ASCII space/tab、一个完整 compact attached group
-再结束 physical line；不允许 raw head。group content 使用 ordinary inline grammar。`"`rust\"{}\"" 是
-payload 为 `"{}" 的 compact inline verbatim；`"`rust\" {}" 才是带空 group 的 verbatim block。opening
-quote 与 group 紧贴、group 后还有 source 或出现第二个 group 都是 syntax error。旧的
+  `rust" {
+    `@ example
+    `: generated true
+  }
+    fn main() {}
+
+opening quote 后必须立即 line ending/EOF，或跟至少一个 ASCII space/tab 与一个完整 compact/expanded
+attached group；不允许 raw head。`"`rust\"{}\"" 是 payload 为 `"{}" 的 compact inline verbatim；
+`"`rust\" {}" 才是带空 compact group 的 verbatim block。expanded group 在 header line 打开并先于 raw
+body 关闭，因此 raw payload 中满足 structural margin 的 brace 仍全部是原始 bytes。旧的
 `"`{language=rust #example}" 只由第 8 节 migration reader 读取。
 body 的每条非空 line 必须带
 parent column 加两个 ASCII spaces 的固定 structural margin。移除该
@@ -227,8 +251,10 @@ margin 后，其余 spaces、tabs、line endings 和 syntax-like bytes 都属于
 
 第一条缩进不足的非空 line 结束 block；partial dedent 或 structural tab 按 structural error 处理。
 
-`note Implementation status: spaced verbatim-block attachment 尚未实现；当前 parser 仍接受
-      `"`rust\"{...}" tight opener group。marked-block empty-head compact group 已按以上规则解析。
+`note Implementation status: unified block-header attachment 尚未实现；当前 parser 仍接受
+      `"`rust\"{...}" tight verbatim opener group，以及在 owner 后续独立 structural line 打开的 marked-block
+      expanded group。brace escapes、专用 duplicate/trailing/document diagnostics 与 verbatim expanded group
+      也尚未实现；marked-block empty-head compact group 已按以上规则解析。
 
 `# 11. Recovery
 
