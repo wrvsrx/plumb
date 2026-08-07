@@ -2,7 +2,7 @@
 
 Read this file completely before authoring plumb source. Core is strict and
 semantics-neutral: it recognizes source structure but does not assign meaning
-to marker names, inline kinds, attached elements, legacy attributes, or raw payloads.
+to marker names, inline kinds, attached elements, or raw payloads.
 
 ## Blocks
 
@@ -78,9 +78,8 @@ must touch the complete closing delimiter. Groups may recursively contain
 owners with their own groups. Core does not assign id, facet, property, class,
 or key-value meaning to their content.
 
-The old `{#id .class key=value}` slot is accepted only by the frozen migration
-reader. Do not author it. Ordinary parsing and `plumb fmt` reject it;
-`plumb migrate-attributes` explicitly converts a valid legacy document.
+The removed `{#id .class key=value}` spelling is not part of current syntax.
+Do not author it. Ordinary parsing and `plumb fmt` reject it.
 
 ## Parsed Inline Elements
 

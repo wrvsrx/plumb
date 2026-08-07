@@ -59,7 +59,7 @@ marker `":" 产生 definition record。head 是 term，children 是 definition b
 `# 6. Metadata
 
 文件起始的 document attached group 是 document metadata；它的 direct `":" associations 是 entries。
-旧的 document-level `"meta" block 只由 0.17 migration reader 提升，不具有 current metadata semantics。
+document-level `"meta" block 不具有 metadata semantics。
 
 metadata key 是 association head 的第一个 plain atom。同行 value 或 children 表达 value shapes：
 
@@ -449,8 +449,8 @@ reason。`"blocked" 独立 fact 在任何 open dependency 存在时均为 true�
 `"actionable" 等价于 `"[state == "ready"]"。conflicted 只表示 closure timestamps 冲突，不吞并其他 task
 diagnostics。CEL task context 提供 `"state"、`"wait_reasons"、`"blocked" 与 `"actionable"。
 
-datetime fields 必须使用 RFC 3339 property value；migration-only legacy pair 必须 quoted。无法解析或
-legacy unquoted 的值发布 `"task.invalid-datetime" warning，并且不参与 task state、query 或 operations。
+datetime fields 必须使用 RFC 3339 property value。无法解析的值发布 `"task.invalid-datetime" warning，
+并且不参与 task state、query 或 operations。
 recur 只有在 `"due" property 确实缺失时发布 `"task.missing-due-for-recur"；存在但非法的 due 只发布 invalid-datetime。
 priority 不是 32-bit signed integer 时发布 `"task.invalid-priority" warning，并且不参与 sorting 或
 CEL facts。合法 priority 在 CEL 中是 integer；缺失或非法 priority 是 null。CEL facts 不使用排序投影

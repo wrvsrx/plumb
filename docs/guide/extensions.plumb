@@ -288,7 +288,7 @@ head 是 title，children 是 details。另一个 task 需要引用它时才添�
 `"priority" 和 `"depends"。priority 是 32-bit signed integer，数值越大越优先；缺失时排序权重
 默认为 `"0"，因此正数提前、负数延后。effective priority 除了从 children 提升 ancestors，也沿
 `"depends" 提升仍 open 的 dependencies；多级 dependency chain 继续传播，closed dependency 不传播。
-时间 property 使用 RFC 3339；migration-only legacy pair 必须 quoted。
+时间 property 使用 RFC 3339。
 Task reference 使用 raw relative path，不做 URL
 encode/decode；`".plumb#" 分隔 path 与 explicit id，path 本身不能包含 `"#"。`"depends" 中每条
 reference 在 id 后由 whitespace 分隔，因此 path 可以直接包含 spaces：

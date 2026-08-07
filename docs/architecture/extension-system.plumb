@@ -45,8 +45,8 @@ identity 时才允许。
 
 `# 5. Facet composition
 
-同一个 syntax node 可以被多个 extensions 识别。例如 list item attached group 中的 direct `"-"
-member `"task" 使该 node 同时具有 list-item 与 task facets。direct `"-" member 投影为 facet，
+同一个 syntax node 可以被多个 extensions 识别。例如 generic node attached group 中的 direct `"-"
+member `"note" 可以使两个独立 extensions 同时识别该 node。direct `"-" member 投影为 facet，
 direct `"@" declaration 投影为 id，direct `":" association 投影为 property。这个 projection 属于
 extension profile，不是 core grammar；正文中的 collection member、identity declaration 与 association
 使用同一关系语义。
@@ -54,8 +54,7 @@ extension profile，不是 core grammar；正文中的 collection member、ident
 extensions 不取得 node ownership，也不能删除其他 facet 所需的数据。
 
 composition 冲突必须通过显式 diagnostic 或 documented priority 解决，不能依赖 registration order。
-generic export 在标准 facet lower 后仍保留未消费 attached elements。legacy attributes 只在
-`"migrate-attributes" 中转换为上述 current projection，普通 extensions 不读取它们。
+generic export 在标准 facet lower 后仍保留未消费 attached elements。
 
 `# 6. Dependencies
 

@@ -110,8 +110,7 @@ core 不解释 `"-"、`"@" 或 `":"。标准 extension profile 将 direct `"-" m
 将 direct `"@" declaration 投影为 identity，将 direct `":" association 投影为 property；正文中
 相同节点仍保持 collection member、identity declaration 与 definition relation。
 
-旧的 `"{#id .class key=value}" slot 不属于 current syntax；使用 `"plumb migrate-attributes" 通过
-隔离的 0.17 reader 显式转换。普通 parser 与 `"plumb fmt" 会拒绝旧 slot。
+旧的 `"{#id .class key=value}" slot 不属于 current syntax；parser 与 `"plumb fmt" 会拒绝它。
 
 `# Escape
 

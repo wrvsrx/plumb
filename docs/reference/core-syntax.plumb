@@ -139,28 +139,7 @@ inline group 与 owner 同行，内容使用第 8、9 节的普通 inline parser
 由 structural position 与 indentation 建立 ownership，不允许作为任意独立 sibling。core 原样保留
 attached content，不把其中 spelling 固定解释为 facet、identity 或 property。
 
-`# 8. 0.17 migration reader
-
-本节不属于 current core syntax validity。普通 `"parse"、`"fmt"、LSP、extensions 与 export 不接受
-`"{#id .class key=value}"。只有显式 `"parse_legacy_017" / `"plumb migrate-attributes" 路径启用冻结的
-0.17 reader，并在完整输入通过旧语法验证后一次性转换为 current syntax。
-
-legacy slot 的 lexical grammar、multiline continuation、quoted escape 与 id/key cardinality 保留
-0.17 之前的定义。完整 legacy slot 优先于 recursive group 判定；若 brace content 不能构成完整
-legacy slot，则按第 7 节解析 attached group。legacy items 的精确形状为：
-
-`text"
-  Attr        = "{" (AttrItem (Whitespace+ AttrItem)*)? "}"
-  AttrItem    = "#" AttrName | "." AttrName | AttrName "=" Value
-  Value       = AttrName | QuotedValue
-
-迁移映射是 `".name" 到 direct `"-" declaration、`"#name" 到 `"@" declaration、`"name=value"
-到 direct `":" association。verbatim owner 的 `"language=value" 提升为 opaque verbatim kind。
-quoted value 不能跨 physical
-line，只允许 quote 与 backslash escape。blank、owner-level dedent、block-only entry、structural tab
-或 EOF 是 unclosed legacy slot 的 hard boundary。
-
-`# 9. Parsed inline element
+`# 8. Parsed inline element
 
 parsed inline element 由 introducer、非空 `"InlineKind"、opening bracket、parsed content 和 closing
 bracket 构成：
@@ -184,7 +163,7 @@ dedent 或 block-only entry。parser 使用 explicit stack，语言不设置 inl
 
 attached inline group 可以紧跟完整 closing delimiter，并使用第 7 节的递归 ordinary-inline grammar。
 
-`# 10. Inline verbatim
+`# 9. Inline verbatim
 
 inline verbatim 有 compact 与 strengthened 两种 envelope。compact form 是 introducer、可选 opaque
 kind、opening quote、raw payload 和 closing quote：
@@ -209,7 +188,7 @@ opening quote 后紧接 opening bracket 时进入 strengthened form；quote run 
 后的 quote run 相同。两种 form 产生同一个 typed verbatim view，kind 保持 opaque。attached inline group
 可以紧跟完整 closing delimiter；payload 自身仍只占一条 physical line。
 
-`# 11. Verbatim block
+`# 10. Verbatim block
 
 verbatim block 使用 introducer、可选 opaque kind 与 opening quote，并且不能有 head：
 
@@ -227,7 +206,7 @@ margin 后，其余 spaces、tabs、line endings 和 syntax-like bytes 都属于
 
 第一条缩进不足的非空 line 结束 block；partial dedent 或 structural tab 按 structural error 处理。
 
-`# 12. Recovery
+`# 11. Recovery
 
 parser 使用 reject-but-recover：
 
@@ -241,7 +220,7 @@ parser 使用 reject-but-recover：
 同一根因只发布最具体 diagnostic。详细错误类别见
 `->[diagnostics reference]{`:[to diagnostics.plumb]}。
 
-`# 13. Deferred surface
+`# 12. Deferred surface
 
 core 不定义 emphasis、strong、quote、thematic break、table、HTML、automatic link 或 implicit
 heading id。formatter policy、normalized AST 和 incremental node identity 也不属于 syntax

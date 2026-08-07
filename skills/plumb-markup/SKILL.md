@@ -1,6 +1,6 @@
 ---
 name: plumb-markup
-description: Write, edit, review, or convert strict plumb (.plumb) documents using the released core syntax and standard extensions. Use for plumb blocks, inline elements, attached groups, legacy attribute migration, raw content, headings, lists, definitions, metadata, links, images, file attachments, citations, quotes, inline styles, tasks, events, references, or documents consumed by the plumb toolchain.
+description: Write, edit, review, or convert strict plumb (.plumb) documents using the released core syntax and standard extensions. Use for plumb blocks, inline elements, attached groups, raw content, headings, lists, definitions, metadata, links, images, file attachments, citations, quotes, inline styles, tasks, events, references, or documents consumed by the plumb toolchain.
 ---
 
 # Plumb Markup
@@ -59,8 +59,8 @@ it. Inside the plumb source repository, prefer
   attach inline groups directly to the complete inline delimiter.
 - Use direct `@` declarations for explicit ids. Headings do not generate implicit ids.
 - Always write `[]` on inline elements, including empty facets.
-- Treat `{#id .class key=value}` as migration-only input. Use
-  `plumb migrate-attributes` to convert it; ordinary parsing and formatting reject it.
+- Do not author the removed `{#id .class key=value}` spelling; parsing and
+  formatting reject it.
 - Parsed inline elements may cross valid paragraph/head continuation lines;
   inline verbatim payloads remain on one physical line.
 - Do not invent table, thematic-break, presentation-only italic, or nonstandard quote

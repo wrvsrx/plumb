@@ -70,8 +70,7 @@ attached group 内的 completion 由 recovered syntax owner 决定：task/event 
 `"to"、Image 的 `"src"，以及 verbatim math/language 会按上下文提供。block owner
 生成普通 marked children，inline owner 生成始终带 `""[[]]"" content delimiter 的 inline elements；已存在
 的唯一 property 不会重复建议。Link/Image path、anchor 等 content 继续使用 workspace-aware candidates。
-legacy attribute slot 不属于 current editor grammar，因此不提供普通 completion；先运行
-`"plumb migrate-attributes" 再继续编辑。
+旧 attribute slot spelling 不属于 current editor grammar，也不提供 completion。
 
 `# Format
 
@@ -82,11 +81,11 @@ legacy attribute slot 不属于 current editor grammar，因此不提供普通 c
 紧凑。verbatim payload 仍使用 core 要求的 opener column 加两个 ASCII spaces。
 
 block attached group 总是使用独立 structural lines 并格式化其中的普通 blocks；inline attached group
-保持单行并格式化其中的普通 inline elements。migration-only legacy attributes 继续使用旧的 100-column
-layout，以便 `"fmt" 保持 source family。
+保持单行并格式化其中的普通 inline elements。
 
 formatter 为 inline verbatim 选择最小安全 quote count，不重排普通文本，不改变 attached element
-顺序，也不解释 heading、list、metadata 或 task semantics。包含 syntax error 的 document会被拒绝。
+顺序，也不解释 marker、facet、property、heading、list、metadata 或 task semantics。相同 syntax tree 的
+输出不依赖启用哪些 extensions；包含 syntax error 的 document会被拒绝。
 
 不带 path 时从 stdin 读取并写到 stdout；带 path 时原地更新：
 
@@ -105,20 +104,6 @@ range formatting 不把 selection 扩展到只被部分命中的 structure：空
 局部内容时返回空 edits；完整包含一个 owner block 时格式化其完整 subtree；完整包含多个 blocks 时
 只选择其中 maximal blocks，并把相邻同级 blocks 合并为连续 group。每个 group 只替换 block content
 及 group 内部 layout，不改变 selection 外的前后分隔空白；syntax-invalid document 返回 `"null"。
-
-`# Migrate legacy attributes
-
-`"plumb migrate-attributes" 将 valid document 中所有 legacy `"{#id .class key=value}" slots 显式转换为
-recursive attached groups，并把旧的顶层、无 head `"meta" block 提升为 document root group。转换保持
-item 顺序与值文本，输出 canonical 新语法；再次运行不会继续改变结果。
-
-不带 path 时从 stdin 读取；带 path 时读取该文件。两种形式都只把结果写到 stdout：
-
-`text"
-  plumb migrate-attributes old.plumb > new.plumb
-  cat old.plumb | plumb migrate-attributes > new.plumb
-
-输入有 syntax error 时命令返回 nonzero，不产生 stdout。命令从不原地改写输入 path；`"fmt" 也不执行这项迁移。
 
 `# Export
 

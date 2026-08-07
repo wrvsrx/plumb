@@ -25,16 +25,13 @@ syntax diagnostics 分为：
 `- structural：indentation、partial dedent、非法 structural tab、verbatim margin。
 `- lexical：非法 marker/kind token 或 control character。
 `- delimiter/dispatch：非法 introducer entry、attached group、inline 或 verbatim。
-`- ownership：legacy attribute slot、unattached group 或 unexpected group close。
-`- migration reader：非法 legacy attribute token/quoted escape、unclosed slot、同一 owner 混用
-   legacy/attached forms、duplicate id 或 duplicate key。
+`- ownership：旧 attribute slot spelling、unattached group 或 unexpected group close。
 
 同一 source range 和根因只发布最具体的错误。structural error 优先于由错误结构派生的 generic
 delimiter error。
 
-冻结的 0.17 reader 额外固定：`"syntax.unclosed-quoted-value" 优先于包住它的
-`"syntax.unclosed-attributes"。Current parser 只用 `"syntax.legacy-attributes" 拒绝识别出的完整旧 slot；
-legacy lexical、cardinality 与 recovery diagnostics 不意味着旧 slot 属于 current syntax。
+Current parser 用 `"syntax.legacy-attributes" 拒绝识别出的旧 attribute slot spelling；该识别只用于
+精确指出不合法范围，不产生 legacy syntax view，也不验证旧 spelling 的内部词法或 cardinality。
 
 当前固定 precedence 包括：孤立 block introducer 的 `"syntax.incomplete-introducer" 优先于同 range
 的 `"syntax.invalid-inline-dispatch"；`"syntax.invalid-marker" 优先于派生的
@@ -44,8 +41,6 @@ legacy lexical、cardinality 与 recovery diagnostics 不意味着旧 slot 属�
 `# 4. Recovery boundaries
 
 `- block-start error：当前 physical line。
-`- 0.17 migration reader 的 legacy attribute item error：下一个 attribute whitespace 或 closing brace；multiline slot 不跨越 blank、
-   dedent 到 owner boundary、block-only entry、structural tab 或 EOF。
 `- attached block group：matching owner boundary 或 dedent；attached inline group：当前 enclosing inline boundary。
 `- unattached group/unexpected close：当前 structural line 或 enclosing inline boundary。
 `- parsed inline error：blank、dedent、block-only entry 或 EOF 前。
@@ -105,16 +100,3 @@ precedence、ordering、recovery 与 lossless token coverage；lenient tree-sitt
   syntax.tab-indentation
   syntax.partial-indent
   syntax.short-verbatim-indent
-
-冻结的 0.17 migration reader 还可能发布：
-
-`text"
-  syntax.malformed-attribute-item
-  syntax.empty-attribute-name
-  syntax.empty-attribute-value
-  syntax.unknown-quoted-escape
-  syntax.unclosed-quoted-value
-  syntax.unclosed-attributes
-  syntax.multiple-attribute-forms
-  syntax.duplicate-id
-  syntax.duplicate-key

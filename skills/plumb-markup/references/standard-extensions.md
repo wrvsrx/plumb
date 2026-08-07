@@ -269,8 +269,8 @@ path from its explicit id:
    }
 ```
 
-Datetime fields must use RFC 3339 property values; migration-only legacy pairs
-must remain quoted. An invalid value produces `task.invalid-datetime` and does not participate in task state,
+Datetime fields must use RFC 3339 property values. An invalid value produces
+`task.invalid-datetime` and does not participate in task state,
 queries, or operations. `task.missing-due-for-recur` applies only when the
 `due` property is absent, not when it is present but invalid.
 An invalid `priority` produces `task.invalid-priority` and does not participate
