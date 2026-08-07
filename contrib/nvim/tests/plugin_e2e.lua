@@ -7,13 +7,13 @@ local root = vim.fn.tempname()
 vim.fn.mkdir(root .. '/.plumb', 'p')
 local path = root .. '/plugin.plumb'
 vim.fn.writefile({
-  '`meta',
-  '   `: title',
+  '{',
+  ' `: title Plugin E2E',
+  '}',
   '',
-  '      Plugin E2E',
+  '`task Do work {`@[work]}',
   '',
-  '`-{.task #work} Do work',
-  '  `note Task detail',
+  ' `note Task detail',
 }, path)
 
 require('plumb').setup({
@@ -38,7 +38,7 @@ assert(
 )
 
 local completion_path = root .. '/completion.plumb'
-vim.fn.writefile({ '`' }, completion_path)
+vim.fn.writefile({ '`t' }, completion_path)
 vim.cmd.edit(vim.fn.fnameescape(completion_path))
 assert(vim.wait(5000, function()
   return #vim.lsp.get_clients({ bufnr = 0, name = 'plumb' }) == 1
@@ -46,14 +46,14 @@ end), 'attach completion buffer')
 client = assert(vim.lsp.get_clients({ bufnr = 0, name = 'plumb' })[1])
 local completion = client:request_sync('textDocument/completion', {
   textDocument = { uri = vim.uri_from_bufnr(0) },
-  position = { line = 0, character = 1 },
+  position = { line = 0, character = 2 },
 }, 5000, 0)
 assert(completion and not completion.err)
 local items = completion.result.items or completion.result
 assert(vim.iter(items):any(function(item) return item.label == 'Task' end), 'Task completion missing')
 
 vim.cmd.edit(vim.fn.fnameescape(path))
-vim.api.nvim_win_set_cursor(0, { 6, 0 })
+vim.api.nvim_win_set_cursor(0, { 7, 0 })
 assert(vim.wait(5000, function()
   return #vim.lsp.codelens.get({ bufnr = 0, client_id = client.id }) > 0
 end), 'receive plumb CodeLens')

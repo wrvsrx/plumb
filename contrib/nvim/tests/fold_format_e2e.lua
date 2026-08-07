@@ -7,11 +7,11 @@ local root = vim.fn.tempname()
 vim.fn.mkdir(root .. '/.plumb', 'p')
 local path = root .. '/fold-format.plumb'
 vim.fn.writefile({
-  '`-{.task #first} First',
+  '`task First {`@[first]}',
   '',
   '   `note Detail',
   '',
-  '`-{.task #second} Second',
+  '`task Second {`@[second]}',
   '',
   '  `note Detail',
 }, path)
@@ -44,7 +44,7 @@ assert(vim.fn.foldclosed(5) == -1, 'second task should be manually open')
 
 vim.lsp.buf.format({ name = 'plumb', async = false, timeout_ms = 5000 })
 assert(vim.wait(5000, function()
-  return vim.api.nvim_buf_get_lines(0, 6, 7, false)[1] == '   `note Detail'
+  return vim.api.nvim_buf_get_lines(0, 6, 7, false)[1] == ' `note Detail'
 end), 'format the manually opened task')
 assert(vim.wait(5000, function()
   return vim.fn.foldlevel(1) > 0 and vim.fn.foldlevel(5) > 0

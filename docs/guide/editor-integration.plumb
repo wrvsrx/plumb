@@ -222,7 +222,7 @@ stem 时不写 `".plumb" extension，server 会自动保留它。operation 不�
 
 `"plumb.search.search_notes(opts)" 与 `"search_tasks(opts)" 使用当前 buffer，或者显式的 `"opts.bufnr"，
 选择 attached clients 中声明 `"experimental.plumb.search"、`"[method = "plumb/search"]" 与
-`"schemaVersion = 2" 的一个。没有兼容 client、schema 不匹配、request error 与 malformed response 都通过
+`"schemaVersion = 3" 的一个。没有兼容 client、schema 不匹配、request error 与 malformed response 都通过
 `"vim.notify" 报告；空结果交给 `"vim.ui.select"，选择结果后使用对应 client 的 `"offset_encoding"
 调用 `"vim.lsp.util.show_document" 跳转到 `"Location"。
 
@@ -265,10 +265,11 @@ stem 时不写 `".plumb" extension，server 会自动保留它。operation 不�
     vim.lsp.util.show_document(result.items[1].location, client.offset_encoding, { focus = true })
   end, 0)
 
-params 的 `"kind" 是 `"note" 或 `"task"；`"query" 是 fuzzy text，`"filter" 是 CEL，`"limit" 最大
-200。result 是 `"schemaVersion = 2"、`"complete" 与 `"items"。每个 item 都有 `"kind"、`"title"、
+params 的 `"kind" 是 `"note"、`"task" 或 `"event"；`"query" 是 fuzzy text，`"filter" 是 CEL，`"limit" 最大
+200。result 是 `"schemaVersion = 3"、`"complete" 与 `"items"。每个 item 都有 `"kind"、`"title"、
 workspace-relative `"path"、LSP `"location" 和 `"provenance = { source, revision }"；task item 还可有
-`"id"、`"state"、`"waitReasons"、`"due"、`"blocked" 与 `"actionable"。`"complete = false" 表示 index
+`"id"、`"state"、`"waitReasons"、`"due"、`"blocked" 与 `"actionable"；event item 还可有 `"id"、
+`"start"、`"end" 与 `"tasks"。`"complete = false" 表示 index
 或 limit 导致结果不完整。推荐 wrapper 已处理 capability、buffer/client selection、空结果、错误、Location
 jump 与 cancellation；自选 picker 应复用同一 schema，而不是解析 display label。
 

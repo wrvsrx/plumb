@@ -3,16 +3,24 @@ local root = vim.fn.tempname()
 vim.fn.mkdir(root, 'p')
 local path = root .. '/positions.plumb'
 vim.fn.writefile({
-  '`#{#heading} Heading',
-  '`-{.task #task} Task',
-  '`node{#block} Block',
-  '`-{',
-  '   .task #multiline',
-  '  } Multiline',
+  '`# Heading {',
+  '  `@ heading',
+  '}',
+  '`task Task {',
+  '  `@ task',
+  '}',
+  '`node Block {',
+  '  `@ block',
+  '}',
+  '`task Multiline {',
+  '  `@ multiline',
+  '}',
   '`outer',
-  '  `node{#nested} Nested',
-  'Paragraph `span[text]{#inline}.',
-  '`{#raw}',
+  ' `node Nested {',
+  '   `@ nested',
+  ' }',
+  'Paragraph `span[text]{`@[inline]}.',
+  '`" {`@[raw]}',
   '  payload',
 }, path)
 
@@ -43,12 +51,12 @@ table.sort(positions, function(left, right)
 end)
 assert(vim.deep_equal(positions, {
   { 0, 0 },
-  { 1, 0 },
-  { 2, 0 },
   { 3, 0 },
-  { 7, 2 },
-  { 8, 23 },
+  { 6, 0 },
   { 9, 0 },
+  { 13, 1 },
+  { 16, 23 },
+  { 17, 0 },
 }), vim.inspect(positions))
 
 vim.api.nvim_set_current_buf(bufnr)
@@ -60,7 +68,7 @@ local rows = vim.tbl_map(function(mark)
   return mark[2]
 end, extmarks)
 table.sort(rows)
-assert(vim.deep_equal(rows, { 0, 1, 2, 3, 7, 8, 9 }), vim.inspect(rows))
+assert(vim.deep_equal(rows, { 0, 3, 6, 9, 13, 16, 17 }), vim.inspect(rows))
 
 local client = assert(vim.lsp.get_client_by_id(client_id))
 client:stop(true)

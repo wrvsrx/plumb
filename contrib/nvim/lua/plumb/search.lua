@@ -1,6 +1,6 @@
 local M = {}
 
-local SCHEMA_VERSION = 2
+local SCHEMA_VERSION = require('plumb.version').search_schema
 local METHOD = 'plumb/search'
 
 local function notify(message, level)

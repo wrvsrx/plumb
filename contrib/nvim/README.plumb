@@ -40,7 +40,7 @@ standard ftplugin 对 plumb buffers 设置 buffer-local `"expandtab"、`"shiftwi
 中真实 tab bytes 的显示宽度。
 
 modules 要求 Neovim 0.12。`"plumb.search" 还要求 attached plumb LSP 声明
-`"experimental.plumb.search" schema version 2。native search 使用 `"vim.ui.input/select"；`"live_search"
+`"experimental.plumb.search" schema version 3。native search 使用 `"vim.ui.input/select"；`"live_search"
 接受 picker adapter，并负责 debounce、request cancellation、stale-result suppression、locations 和
 incomplete-result state。
 
