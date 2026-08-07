@@ -6,10 +6,9 @@ Root and nested block groups
   `: title Example
 }
 
-`- Work
-   {
-     `- task
-   }
+`- Work {
+  `- task
+}
 
 ---
 
@@ -30,15 +29,14 @@ Root and nested block groups
     (head_separator)
     (inline_content
       (text))
-    (block_body
-      (attached_block_group
-        (block_group_open)
-        (marked_block
-          (introducer)
-          (marker)
-          (head_separator)
-          (inline_content
-            (text)))))))
+    (attached_block_group
+      (block_group_open)
+      (marked_block
+        (introducer)
+        (marker)
+        (head_separator)
+        (inline_content
+          (text))))))
 
 ==================
 Recursive inline group
@@ -81,7 +79,7 @@ Recursive inline group
 Structural verbatim opener
 ==================
 
-`rust"{`@[example] `:[generated true]}
+`rust" {`@[example] `:[generated true]}
   fn main() {}
 
 ---
@@ -91,6 +89,7 @@ Structural verbatim opener
   (verbatim_block
     (introducer)
     (verbatim_kind)
+    (head_separator)
     (attached_inline_group
       (attached_inline_content
         (inline_element

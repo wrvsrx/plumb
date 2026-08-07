@@ -27,6 +27,7 @@ module.exports = grammar({
       seq(
         repeat($.blank_line),
         field('attached', $.attached_block_group),
+        $._line_end,
         repeat(choice($._block, $.blank_line)),
       ),
       repeat(choice($._block, $.blank_line)),
@@ -54,7 +55,10 @@ module.exports = grammar({
           optional(seq(
             $.head_separator,
             optional(field('head', $.inline_content)),
-            optional(field('attached', $.attached_inline_group)),
+            optional(field('attached', choice(
+              $.attached_inline_group,
+              $.attached_block_group,
+            ))),
           )),
           $._line_end,
           optional(choice(
@@ -103,10 +107,10 @@ module.exports = grammar({
 
     block_body: $ => prec.dynamic(1, prec.right(seq(
       choice($._indent, $._indent_after_blank),
-      field('child', choice($._block, $.attached_block_group)),
+      field('child', $._block),
       repeat(choice(
         $.blank_line,
-        seq($._same_indent, field('child', choice($._block, $.attached_block_group))),
+        seq($._same_indent, field('child', $._block)),
       )),
       $._dedent,
     ))),
@@ -115,7 +119,10 @@ module.exports = grammar({
       field('introducer', $.introducer),
       optional(field('kind', $.verbatim_kind)),
       field('open', '"'),
-      optional(field('attached', $.attached_inline_group)),
+      optional(seq(
+        $.head_separator,
+        field('attached', choice($.attached_inline_group, $.attached_block_group)),
+      )),
       $._line_end,
       field('body', repeat(alias($.raw_code_line, $.raw_text))),
     )),
@@ -132,7 +139,6 @@ module.exports = grammar({
         $._dedent,
       )),
       '}',
-      $._line_end,
     )),
 
     paragraph: $ => seq(
@@ -155,6 +161,7 @@ module.exports = grammar({
     parsed_inline_content: $ => prec.right(repeat1(choice(
       $.introducer_escape,
       $.bracket_escape,
+      $.brace_escape,
       $.inline_verbatim,
       $.inline_element,
       $.soft_break,
@@ -165,6 +172,7 @@ module.exports = grammar({
     attached_inline_content: $ => prec.right(repeat1(choice(
       $.introducer_escape,
       $.bracket_escape,
+      $.brace_escape,
       $.inline_verbatim,
       $.inline_element,
       $.soft_break,
@@ -202,6 +210,7 @@ module.exports = grammar({
 
     introducer_escape: _ => prec(3, '``'),
     bracket_escape: _ => prec(4, '`]'),
+    brace_escape: _ => prec(4, choice('`{', '`}')),
     soft_break: $ => $._inline_continue,
     introducer: _ => '`',
     marker: _ => /[^\s\x00-\x1f\x7f-\x9f\[\]{}`"]+/,

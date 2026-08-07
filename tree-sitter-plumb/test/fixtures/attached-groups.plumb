@@ -4,12 +4,11 @@
    `- plumb
 }
 
-`- Buy milk
-   {
-     `- task
-     `@ shopping
-     `: due 2026-08-07
-   }
+`- Buy milk {
+  `- task
+  `@ shopping
+  `: due 2026-08-07
+}
 
 See `->[guide]{`@[main] `-[external] `:[to guide.plumb]}.
 

@@ -97,12 +97,11 @@ Same-line first child
 Expanded attached group
 ==================
 
-`- Buy milk
-   {
-     `- task
-     `@ shopping
-     `: due 2026-08-07
-   }
+`- Buy milk {
+  `- task
+  `@ shopping
+  `: due 2026-08-07
+}
 
 ---
 
@@ -114,27 +113,26 @@ Expanded attached group
     (head_separator)
     (inline_content
       (text))
-    (block_body
-      (attached_block_group
-        (block_group_open)
-        (marked_block
-          (introducer)
-          (marker)
-          (head_separator)
-          (inline_content
-            (text)))
-        (marked_block
-          (introducer)
-          (marker)
-          (head_separator)
-          (inline_content
-            (text)))
-        (marked_block
-          (introducer)
-          (marker)
-          (head_separator)
-          (inline_content
-            (text)))))))
+    (attached_block_group
+      (block_group_open)
+      (marked_block
+        (introducer)
+        (marker)
+        (head_separator)
+        (inline_content
+          (text)))
+      (marked_block
+        (introducer)
+        (marker)
+        (head_separator)
+        (inline_content
+          (text)))
+      (marked_block
+        (introducer)
+        (marker)
+        (head_separator)
+        (inline_content
+          (text))))))
 
 ==================
 Compact trailing group
@@ -176,7 +174,7 @@ Compact trailing group
 Verbatim blocks
 ==================
 
-`rust"{`@[example] `:[generated true]}
+`rust" {`@[example] `:[generated true]}
   fn main() {
       println!("hello");
   }
@@ -191,6 +189,7 @@ Verbatim blocks
   (verbatim_block
     (introducer)
     (verbatim_kind)
+    (head_separator)
     (attached_inline_group
       (attached_inline_content
         (inline_element

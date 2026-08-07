@@ -113,7 +113,8 @@ Reject verbatim block head
   (verbatim_block
     (introducer)
     (verbatim_kind)
-    (ERROR)))
+    (ERROR
+      (head_separator))))
 
 ==================
 Reject partial dedent
