@@ -476,11 +476,25 @@ authoring operations 使用执行时的本地 RFC 3339 timestamp：`"Convert to 
 缺少 `"created" 的最深 enclosing task 补录时间。后者不受 task state、dependency 或 recurrence
 限制。两者都保留已有 attached elements，并返回 revision-guarded edits。
 
-construct completion 是 prefix-sensitive 的 extension-neutral authoring interface。已输入至少一个 marker
-character 后，completion 根据 syntax owner、marker prefix 与 source position 提供 extension 声明的结构。
-line start 的单个反引号提供 Task、Event 与 Link；Task skeleton 使用 `"task" marker 并以当前本地 RFC 3339
-timestamp 创建 `"created"，Event skeleton 使用 `"event" marker。ordinary inline context 提供 Link 与
-Autolink。heading、ordinary list item 与 inline-verbatim 本身没有额外声明时保持可直接输入。
+construct completion 是 prefix-sensitive 的 extension-neutral authoring interface。bare backtick 不提供
+candidate；已输入至少一个 marker character 后，completion 根据 syntax owner、source position 与 extension
+声明的完整 marker spelling 过滤 candidate。已输入 marker prefix 必须是 candidate marker spelling 的
+prefix；继续输入时 candidate 只能保持或收窄，不能切换到不共享该 prefix 的 construct。candidate edit
+替换从 backtick 到 cursor 的完整 prefix。
+
+line start 的标准 construct prefixes 为：
+
+`- `"`t"、`"`ta" 直到完整 `"`task" 只提供 Task。
+`- `"`e"、`"`ev" 直到完整 `"`event" 只提供 Event。
+`- `"`-" 与 `"`->" 只提供 Link。
+
+ordinary inline context 的 `"`-" 与 `"`->" 只提供 Link，`"`[" 只提供 Autolink；`"task" 与 `"event"
+不是 inline construct。Task skeleton 使用 `"task" marker 并以当前本地 RFC 3339 timestamp 创建
+`"created"，Event skeleton 使用 `"event" marker。heading、ordinary list item 与 inline-verbatim 本身没有
+额外声明时保持可直接输入。
+
+`note Implementation status: 尚未实现；0.18.0 implementation 仍错误地在 line start 的 `"`-" prefix
+提供 Task、Event 与 Link，并且尚未为 `"t"/[e] 注册 completion trigger。
 
 export 按 document-local closure state 在 task item 的首个 paragraph 添加可见 marker：open 为 `"☐"，done 为 `"☒"，canceled
 为 `"⊘"，conflicted 为 `"⚠"。其中 `"☐"/[☒] 使用 Pandoc task-list 约定，使支持该约定的 writer

@@ -30,6 +30,28 @@ User-facing material lives in `docs/guide/`; project direction lives in
 `docs/project/`; completed design discussion lives in `docs/history/` and does
 not override the references above.
 
+## Specification-driven development
+
+For every behavior change, update the authoritative specification before
+changing the implementation. Turn the requirement into explicit, testable
+rules and examples in the appropriate `docs/reference/` or `docs/architecture/`
+source of truth. When the specification intentionally describes behavior that
+the current implementation does not provide yet, label that status clearly in
+the authoritative document; do not present unfinished behavior as available in
+`docs/guide/`.
+
+Implement and test against the updated specification, including protocol-neutral
+behavior before adapter-specific integration where the architecture separates
+them. Tests should name and exercise the same rule the specification states;
+passing tests with stale names, inputs, or assertions are not evidence of
+conformance.
+
+Before completing the change, compare the implementation, tests, authoritative
+specification, and affected user-facing documentation as a single consistency
+check. Resolve every mismatch, update guides and bundled skills only after the
+behavior is available, and remove any "not implemented" status from the
+authoritative specification only after the required verification passes.
+
 ## Project tasks
 
 `docs/project/tasks.plumb` is the actionable task list. Before starting new
