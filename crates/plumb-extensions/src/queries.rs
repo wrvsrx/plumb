@@ -59,6 +59,7 @@ pub struct TaskDependencyCompletionContext {
 pub enum ConstructCompletionContext {
     Task { replace: Range<usize> },
     Event { replace: Range<usize> },
+    LinkAndAutolink { replace: Range<usize> },
     Autolink { replace: Range<usize> },
     Link { replace: Range<usize> },
 }
@@ -693,8 +694,10 @@ pub fn construct_completion_context(
         .rev()
         .find_map(|(index, character)| (character == '`').then_some(index))?;
     let prefix = &source[introducer..offset];
+    let marker_prefix = prefix.strip_prefix('`')?;
+    let autolink_opener = marker_prefix == "->\"";
     if source[..introducer].ends_with('`')
-        || blocks_contain_verbatim(&document.syntax.blocks, introducer)
+        || (!autolink_opener && blocks_contain_verbatim(&document.syntax.blocks, introducer))
         || document.diagnostics.iter().any(|diagnostic| {
             diagnostic.code == "syntax.unclosed-verbatim"
                 && diagnostic.range.start < introducer
@@ -711,7 +714,6 @@ pub fn construct_completion_context(
     let block_position = source[line_start..introducer]
         .chars()
         .all(|character| character == ' ');
-    let marker_prefix = prefix.strip_prefix('`')?;
     if marker_prefix.is_empty() {
         return None;
     }
@@ -721,8 +723,9 @@ pub fn construct_completion_context(
         Some(ConstructCompletionContext::Event { replace })
     } else {
         match marker_prefix {
-            "[" if !block_position => Some(ConstructCompletionContext::Autolink { replace }),
-            "-" | "->" => Some(ConstructCompletionContext::Link { replace }),
+            "-" | "->" => Some(ConstructCompletionContext::LinkAndAutolink { replace }),
+            "->[" => Some(ConstructCompletionContext::Link { replace }),
+            "->\"" => Some(ConstructCompletionContext::Autolink { replace }),
             _ => None,
         }
     }
@@ -1264,27 +1267,32 @@ mod tests {
             );
         }
 
-        let block_link = parse("`-");
-        assert_eq!(
-            construct_completion_context(&block_link, 2),
-            Some(ConstructCompletionContext::Link { replace: 0..2 })
-        );
+        for source in ["`-", "`->", "Text `-", "Text `->"] {
+            let parsed = parse(source);
+            let start = source.rfind('`').unwrap();
+            assert_eq!(
+                construct_completion_context(&parsed, source.len()),
+                Some(ConstructCompletionContext::LinkAndAutolink {
+                    replace: start..source.len()
+                })
+            );
+        }
         let block_autolink = parse("`[");
         assert_eq!(construct_completion_context(&block_autolink, 2), None);
-        let autolink = parse("Text `[");
+        let old_autolink = parse("Text `[");
         assert_eq!(
-            construct_completion_context(&autolink, 7),
-            Some(ConstructCompletionContext::Autolink { replace: 5..7 })
+            construct_completion_context(&old_autolink, old_autolink.source.len()),
+            None
         );
-        let link = parse("Text `->");
+        let link = parse("Text `->[");
         assert_eq!(
-            construct_completion_context(&link, 8),
-            Some(ConstructCompletionContext::Link { replace: 5..8 })
+            construct_completion_context(&link, link.source.len()),
+            Some(ConstructCompletionContext::Link { replace: 5..9 })
         );
-        let short_link = parse("Text `-");
+        let autolink = parse("Text `->\"");
         assert_eq!(
-            construct_completion_context(&short_link, 7),
-            Some(ConstructCompletionContext::Link { replace: 5..7 })
+            construct_completion_context(&autolink, autolink.source.len()),
+            Some(ConstructCompletionContext::Autolink { replace: 5..9 })
         );
         for source in ["Text `t", "Text `e", "`tx", "`eventual"] {
             let parsed = parse(source);

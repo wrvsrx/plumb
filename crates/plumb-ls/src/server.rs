@@ -1672,9 +1672,9 @@ fn construct_completion_items(
                 .map_or(0, |index| index + 1);
             source[line_start..replace.start].to_string()
         }
-        ConstructCompletionContext::Autolink { .. } | ConstructCompletionContext::Link { .. } => {
-            String::new()
-        }
+        ConstructCompletionContext::LinkAndAutolink { .. }
+        | ConstructCompletionContext::Autolink { .. }
+        | ConstructCompletionContext::Link { .. } => String::new(),
     };
     let (replace, templates) = match context {
         ConstructCompletionContext::Task { replace } => (
@@ -1699,23 +1699,17 @@ fn construct_completion_items(
                 plain: "`event ".to_string(),
             }],
         ),
+        ConstructCompletionContext::LinkAndAutolink { replace } => (
+            replace,
+            vec![link_construct_template(), autolink_construct_template()],
+        ),
         ConstructCompletionContext::Autolink { replace } => (
             replace,
-            vec![ConstructTemplate {
-                label: "Autolink",
-                detail: "plumb autolink",
-                snippet: "`->\"${1:path}\"".to_string(),
-                plain: "`->\"\"".to_string(),
-            }],
+            vec![autolink_construct_template()],
         ),
         ConstructCompletionContext::Link { replace } => (
             replace,
-            vec![ConstructTemplate {
-                label: "Link",
-                detail: "plumb link",
-                snippet: "`->[${1:label}]{`:[to ${2:target}]}".to_string(),
-                plain: "`->[]{`:[to ]}".to_string(),
-            }],
+            vec![link_construct_template()],
         ),
     };
     templates
@@ -1740,6 +1734,24 @@ fn construct_completion_items(
             ..CompletionItem::default()
         })
         .collect()
+}
+
+fn link_construct_template() -> ConstructTemplate {
+    ConstructTemplate {
+        label: "Link",
+        detail: "plumb link",
+        snippet: "`->[${1:label}]{`:[to ${2:target}]}".to_string(),
+        plain: "`->[]{`:[to ]}".to_string(),
+    }
+}
+
+fn autolink_construct_template() -> ConstructTemplate {
+    ConstructTemplate {
+        label: "Autolink",
+        detail: "plumb autolink",
+        snippet: "`->\"${1:path}\"".to_string(),
+        plain: "`->\"\"".to_string(),
+    }
 }
 
 fn code_action_kind_requested(only: Option<&[CodeActionKind]>, candidate: &CodeActionKind) -> bool {

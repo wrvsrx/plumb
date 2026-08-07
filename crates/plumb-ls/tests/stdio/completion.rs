@@ -571,8 +571,9 @@ fn completes_block_constructs_from_their_marker_prefixes() {
     assert_eq!(event["insertTextFormat"], 2);
 
     let link_items = response(&output, 4)["result"].as_array().unwrap();
-    assert_eq!(link_items.len(), 1);
+    assert_eq!(link_items.len(), 2);
     assert_eq!(link_items[0]["label"], "Link");
+    assert_eq!(link_items[1]["label"], "Autolink");
     assert!(response(&output, 5)["result"].is_null());
 
     let fallback_messages = [
@@ -613,11 +614,11 @@ fn completes_block_constructs_from_their_marker_prefixes() {
 }
 
 #[test]
-fn completes_construct_facets_from_marker_prefixes() {
+fn narrows_link_constructs_from_the_shared_marker_prefix() {
     let root = unique_temp_dir();
     std::fs::create_dir_all(&root).unwrap();
     let document = root.join("construct-prefixes.plumb");
-    let source = "Text `[\nText `-\nText `->\n";
+    let source = "Text `[\nText `-\nText `->\nText `->[\nText `->\"\n";
     std::fs::write(&document, source).unwrap();
     let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
     let document_uri = lsp_types::Url::from_file_path(&document).unwrap();
@@ -660,29 +661,55 @@ fn completes_construct_facets_from_marker_prefixes() {
                 "position": { "line": 2, "character": 8 }
             }
         }),
-        json!({ "jsonrpc": "2.0", "id": 5, "method": "shutdown", "params": null }),
+        json!({
+            "jsonrpc": "2.0", "id": 5, "method": "textDocument/completion",
+            "params": {
+                "textDocument": { "uri": document_uri },
+                "position": { "line": 3, "character": 9 }
+            }
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 6, "method": "textDocument/completion",
+            "params": {
+                "textDocument": { "uri": document_uri },
+                "position": { "line": 4, "character": 9 }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 7, "method": "shutdown", "params": null }),
         json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
     ];
 
     let output = run_server(&messages);
-    let autolink = response(&output, 2)["result"].as_array().unwrap();
+    assert!(response(&output, 2)["result"].is_null());
+
+    for id in [3, 4] {
+        let items = response(&output, id)["result"].as_array().unwrap();
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0]["label"], "Link");
+        assert_eq!(items[1]["label"], "Autolink");
+        assert_eq!(
+            items[0]["textEdit"]["newText"],
+            "`->[${1:label}]{`:[to ${2:target}]}"
+        );
+        assert_eq!(items[1]["textEdit"]["newText"], "`->\"${1:path}\"");
+    }
+
+    let link = response(&output, 5)["result"].as_array().unwrap();
+    assert_eq!(link.len(), 1);
+    assert_eq!(link[0]["label"], "Link");
+    assert_eq!(
+        link[0]["textEdit"]["range"],
+        json!({ "start": { "line": 3, "character": 5 }, "end": { "line": 3, "character": 9 } })
+    );
+
+    let autolink = response(&output, 6)["result"].as_array().unwrap();
     assert_eq!(autolink.len(), 1);
     assert_eq!(autolink[0]["label"], "Autolink");
     assert_eq!(autolink[0]["textEdit"]["newText"], "`->\"${1:path}\"");
     assert_eq!(
         autolink[0]["textEdit"]["range"],
-        json!({ "start": { "line": 0, "character": 5 }, "end": { "line": 0, "character": 7 } })
+        json!({ "start": { "line": 4, "character": 5 }, "end": { "line": 4, "character": 9 } })
     );
-
-    for id in [3, 4] {
-        let items = response(&output, id)["result"].as_array().unwrap();
-        assert_eq!(items.len(), 1);
-        assert_eq!(items[0]["label"], "Link");
-        assert_eq!(
-            items[0]["textEdit"]["newText"],
-            "`->[${1:label}]{`:[to ${2:target}]}"
-        );
-    }
     std::fs::remove_dir_all(root).unwrap();
 }
 
