@@ -486,12 +486,16 @@ line start 的标准 construct prefixes 为：
 
 `- `"`t"、`"`ta" 直到完整 `"`task" 只提供 Task。
 `- `"`e"、`"`ev" 直到完整 `"`event" 只提供 Event。
-`- `"`-" 与 `"`->" 只提供 Link。
+`- `"`-" 与 `"`->" 同时提供 Link 与 Autolink。
 
-ordinary inline context 的 `"`-" 与 `"`->" 只提供 Link，`"`[" 只提供 Autolink；`"task" 与 `"event"
-不是 inline construct。Task skeleton 使用 `"task" marker 并以当前本地 RFC 3339 timestamp 创建
-`"created"，Event skeleton 使用 `"event" marker。heading、ordinary list item 与 inline-verbatim 本身没有
-额外声明时保持可直接输入。
+Link 与 Autolink 共享 `"->" inline kind，opening envelope 负责收窄 candidate：`"`->[" 只提供 Link，
+`"`->\"" 只提供 Autolink。单独 `"`[" 不是 construct prefix，不提供 candidate。以上 link constructs 在
+line start 与 ordinary inline context 使用同一规则。`"task" 与 `"event" 不是 inline construct。Task skeleton
+使用 `"task" marker 并以当前本地 RFC 3339 timestamp 创建 `"created"，Event skeleton 使用 `"event"
+marker。heading、ordinary list item 与其他 inline-verbatim spelling 本身没有额外声明时保持可直接输入。
+
+`note Implementation status: 尚未实现；当前 implementation 仍将 `"`-"/[->] 只映射为 Link，并使用不属于
+最终 Autolink spelling 的 `"`[" prefix 触发 Autolink。
 
 export 按 document-local closure state 在 task item 的首个 paragraph 添加可见 marker：open 为 `"☐"，done 为 `"☒"，canceled
 为 `"⊘"，conflicted 为 `"⚠"。其中 `"☐"/[☒] 使用 Pandoc task-list 约定，使支持该约定的 writer
