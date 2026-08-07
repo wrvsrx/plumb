@@ -31,7 +31,8 @@ Edit and commit grammar sources such as:
 `- `"grammar.js"
 `- `"tree-sitter.json"
 `- corpus tests and queries
-`- `"check-strict-valid.sh" strict-valid differential check
+`- `"check-strict-valid.sh" strict-valid structural alignment check
+`- `"test/strict-alignment/" normalized structural CST comparison harness
 `- the hand-written `"src/scanner.c" and future bindings
 
 Do not edit or commit files generated under `"src/"：
@@ -115,8 +116,9 @@ The highlight query can be checked outside Neovim with the tracked fixture:
     tree-sitter-plumb/queries/highlights.scm \
     tree-sitter-plumb/test/fixtures/highlights.plumb
 
-The strict-valid differential check extracts every valid case from the strict parser's normative
-corpus and requires tree-sitter to parse it without an error or missing node:
+The strict-valid alignment check extracts every valid case from the strict parser's normative
+corpus, projects the strict syntax tree into normalized tree-sitter structural CST form, and
+compares it with the real generated parser's node kinds, nesting, and stable byte ranges:
 
 `sh"
   nix develop .#tree-sitter-plumb -c tree-sitter-plumb/check-strict-valid.sh
