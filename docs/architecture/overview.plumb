@@ -77,6 +77,12 @@ completeness；不能把 partial result 表示成 complete negative result。
 
 consumer 不复制 parser、semantic recognition 或 edit logic。
 
+editor integration 可以把 core/formatter 的 structural indentation policy 映射为 filetype-local editing
+options。官方 Neovim plugin 通过标准 `"ftplugin/plumb.lua" 设置 buffer-local `"expandtab"、
+`"shiftwidth=1" 与跟随 `"shiftwidth" 的 `"softtabstop"，并提供 `"b:undo_ftplugin" 以在 filetype
+变化时恢复先前设置。它不覆盖 `"tabstop"：该选项决定 source 中真实 tab bytes 的显示宽度，而 verbatim
+payload 可以合法保留 tabs，其展示应继续服从用户配置。
+
 `# 6. Crate boundaries
 
 `- `"plumb-core"：strict syntax tree、diagnostics、typed views。
