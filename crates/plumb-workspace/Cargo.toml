@@ -11,5 +11,7 @@ ignore.workspace = true
 plumb-core = { path = "../plumb-core" }
 plumb-edit = { path = "../plumb-edit" }
 plumb-extensions = { path = "../plumb-extensions" }
-plumb-format = { path = "../plumb-format" }
 uuid.workspace = true
+
+[dev-dependencies]
+plumb-format = { path = "../plumb-format" }

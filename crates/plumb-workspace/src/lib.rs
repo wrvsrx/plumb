@@ -6,7 +6,10 @@ use plumb_core::{
     parse, Attributes, Block, Diagnostic, DiagnosticSeverity, ParsedBlock, ParsedDocument,
 };
 pub use plumb_edit::{apply_text_edits, TextEdit};
-use plumb_edit::{AttributePosition, EditSession, OwnedAttribute, OwnedBlock, OwnedInline};
+use plumb_edit::{
+    remove_block as remove_syntax_block, replace_owned_block, replace_owned_blocks,
+    AttributePosition, EditSession, OwnedAttribute, OwnedBlock, OwnedInline,
+};
 #[cfg(test)]
 use plumb_extensions::TaskStatus;
 use plumb_extensions::{
@@ -1794,7 +1797,7 @@ impl Workspace {
             owned = owned.with_attributes(attributes);
         }
         prepend_event_schedule(&mut owned, &input);
-        let event_edit = exact_owned_block_edit(&entry.parsed, item.range.clone(), &owned)
+        let event_edit = replace_owned_block(&entry.parsed, item.range.clone(), &owned)
             .map_err(|_| EventShorthandError::GeneratedInvalid)?;
         Ok(single_document_edit(entry, path, event_edit))
     }
@@ -1844,7 +1847,7 @@ impl Workspace {
             }
             converted += count;
             edits.push(
-                exact_owned_block_edit(&entry.parsed, parsed.range.clone(), &owned)
+                replace_owned_block(&entry.parsed, parsed.range.clone(), &owned)
                     .map_err(|_| EventShorthandError::GeneratedInvalid)?,
             );
         }
@@ -2041,7 +2044,8 @@ impl Workspace {
                 .as_ref()
                 .map_or(timestamp, |created| created.value.as_str()),
         );
-        let edit = exact_owned_block_edit(&entry.parsed, task.range.clone(), &owned)?;
+        let edit = replace_owned_block(&entry.parsed, task.range.clone(), &owned)
+            .map_err(|_| TaskAuthoringError::GeneratedInvalid)?;
         Ok(single_document_edit(entry, path, edit))
     }
 
@@ -2103,8 +2107,8 @@ impl Workspace {
             if !remove_owned_descendant(ancestor, &mut owned_ancestor, &task.range) {
                 return Err(TaskAuthoringError::InvalidPlacement);
             }
-            let edit =
-                exact_owned_blocks_edit(&entry.parsed, after.clone(), &[owned_ancestor, moved])?;
+            let edit = replace_owned_blocks(&entry.parsed, after.clone(), &[owned_ancestor, moved])
+                .map_err(|_| TaskAuthoringError::GeneratedInvalid)?;
             return Ok(single_document_edit(entry, path, edit));
         }
         let target_parent = placement.parent.as_ref();
@@ -2125,12 +2129,10 @@ impl Workspace {
                 .children_mut()
                 .expect("parsed parent")
                 .remove(source_index);
-            exact_owned_block_edit(&entry.parsed, parent_range.clone(), &owned_parent)?
+            replace_owned_block(&entry.parsed, parent_range.clone(), &owned_parent)
+                .map_err(|_| TaskAuthoringError::GeneratedInvalid)?
         } else {
-            let removal_start = entry.parsed.source[..task.range.start]
-                .rfind('\n')
-                .map_or(0, |index| index + 1);
-            TextEdit::replace(&entry.parsed, removal_start..task.range.end, "")
+            remove_syntax_block(&entry.parsed, task.range.clone())
                 .map_err(|_| TaskAuthoringError::GeneratedInvalid)?
         };
         let target_edit = if let Some(parent_range) = &placement.parent {
@@ -2154,7 +2156,8 @@ impl Workspace {
                 .children_mut()
                 .expect("parsed parent")
                 .insert(index, moved);
-            exact_owned_block_edit(&entry.parsed, parent_range.clone(), &owned)?
+            replace_owned_block(&entry.parsed, parent_range.clone(), &owned)
+                .map_err(|_| TaskAuthoringError::GeneratedInvalid)?
         } else {
             let after = placement.after.as_ref().or_else(|| {
                 entry
@@ -2220,7 +2223,8 @@ impl Workspace {
             target_index -= 1;
         }
         children.insert(target_index, moved);
-        let edit = exact_owned_block_edit(&entry.parsed, parent_range, &owned)?;
+        let edit = replace_owned_block(&entry.parsed, parent_range, &owned)
+            .map_err(|_| TaskAuthoringError::GeneratedInvalid)?;
         Ok(single_document_edit(entry, path, edit))
     }
 
@@ -3294,86 +3298,6 @@ fn child_insertion_index(
         .position(|child| child.range() == after)
         .map(|index| index + 1)
         .ok_or(TaskAuthoringError::InvalidPlacement)
-}
-
-fn exact_owned_block_edit(
-    parsed: &ParsedDocument,
-    range: std::ops::Range<usize>,
-    block: &OwnedBlock,
-) -> Result<TextEdit, TaskAuthoringError> {
-    exact_owned_blocks_edit(parsed, range, std::slice::from_ref(block))
-}
-
-fn exact_owned_blocks_edit(
-    parsed: &ParsedDocument,
-    range: std::ops::Range<usize>,
-    blocks: &[OwnedBlock],
-) -> Result<TextEdit, TaskAuthoringError> {
-    let line_start = parsed.source[..range.start]
-        .rfind('\n')
-        .map_or(0, |index| index + 1);
-    let indent = &parsed.source[line_start..range.start];
-    if !indent.chars().all(|character| character == ' ') {
-        return Err(TaskAuthoringError::GeneratedInvalid);
-    }
-    let mut formatted = String::new();
-    for (index, block) in blocks.iter().enumerate() {
-        if index > 0 && !formatted.ends_with("\n\n") {
-            if !formatted.ends_with('\n') {
-                formatted.push('\n');
-            }
-            formatted.push('\n');
-        }
-        formatted.push_str(
-            &block
-                .format()
-                .map_err(|_| TaskAuthoringError::GeneratedInvalid)?,
-        );
-    }
-    let newline = if parsed.source.contains("\r\n") {
-        "\r\n"
-    } else {
-        "\n"
-    };
-    let formatted = if newline == "\r\n" {
-        formatted.replace('\n', newline)
-    } else {
-        formatted
-    };
-    let mut replacement = String::new();
-    for (index, line) in formatted.split_inclusive(newline).enumerate() {
-        let content = line.strip_suffix(newline).unwrap_or(line);
-        if !content.is_empty() {
-            // The syntax range starts after the first line's structural indent,
-            // which remains outside the edit. Continuation lines need it added.
-            if index > 0 {
-                replacement.push_str(indent);
-            }
-            replacement.push_str(content);
-        }
-        if line.ends_with(newline) {
-            replacement.push_str(newline);
-        }
-    }
-    let original = &parsed.source[range.clone()];
-    let original_breaks = original
-        .as_bytes()
-        .iter()
-        .rev()
-        .take_while(|byte| **byte == b'\n' || **byte == b'\r')
-        .filter(|byte| **byte == b'\n')
-        .count();
-    let replacement_breaks = replacement
-        .as_bytes()
-        .iter()
-        .rev()
-        .take_while(|byte| **byte == b'\n' || **byte == b'\r')
-        .filter(|byte| **byte == b'\n')
-        .count();
-    for _ in replacement_breaks..original_breaks {
-        replacement.push_str(newline);
-    }
-    TextEdit::replace(parsed, range, replacement).map_err(|_| TaskAuthoringError::GeneratedInvalid)
 }
 
 fn remove_owned_descendant(
@@ -5195,8 +5119,9 @@ mod tests {
         let edit = &conversion.document_changes[0].edits[0];
         let mut converted = source.to_string();
         converted.replace_range(edit.range.clone(), &edit.new_text);
-        assert!(converted
-            .contains("   `task Nested {\n    `: created 2026-07-20T10:00:00+08:00\n   }"));
+        assert!(
+            converted.contains("   `task Nested {\n    `: created 2026-07-20T10:00:00+08:00\n   }")
+        );
 
         let outer_conversion = workspace
             .convert_list_item_to_task("tasks.plumb", source.find("Outer").unwrap(), timestamp)

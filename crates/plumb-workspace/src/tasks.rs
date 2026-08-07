@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, FixedOffset};
-use plumb_edit::{AttributePosition, EditSession, OwnedAttribute, OwnedBlock};
+use plumb_edit::{replace_owned_block, AttributePosition, EditSession, OwnedAttribute, OwnedBlock};
 use plumb_extensions::{
     next_task_datetime, parse_task_reference_target, valid_task_datetime, TaskRecord,
     TaskReferenceTarget, TaskState, TaskStatus,
@@ -271,7 +271,7 @@ impl Workspace {
         owned
             .attributes_mut()
             .push(OwnedAttribute::quoted("created", timestamp));
-        let edit = super::exact_owned_block_edit(&entry.parsed, item.range.clone(), &owned)
+        let edit = replace_owned_block(&entry.parsed, item.range.clone(), &owned)
             .map_err(|_| TaskEditError::GeneratedInvalid)?;
         Ok(single_document_edit(entry, path, edit))
     }

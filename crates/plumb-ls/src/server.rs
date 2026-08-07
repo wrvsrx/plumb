@@ -887,7 +887,8 @@ impl LanguageServer for ServerState {
             .and_then(|path| self.workspace.get(path))
             .and_then(|entry| {
                 let source = &entry.parsed.source;
-                let edits = plumb_format::format_edits(source).ok()?;
+                let edits =
+                    plumb_edit::format(&entry.parsed, plumb_edit::FormatScope::Document).ok()?;
                 Some(
                     edits
                         .into_iter()
@@ -914,7 +915,11 @@ impl LanguageServer for ServerState {
                 let source = &entry.parsed.source;
                 let selection = position_to_offset(source, params.range.start)
                     ..position_to_offset(source, params.range.end);
-                let edits = plumb_format::format_contained_blocks(source, selection).ok()?;
+                let edits = plumb_edit::format(
+                    &entry.parsed,
+                    plumb_edit::FormatScope::ContainedBlocks(selection),
+                )
+                .ok()?;
                 Some(
                     edits
                         .into_iter()

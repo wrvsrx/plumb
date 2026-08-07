@@ -1,4 +1,5 @@
 mod folding;
+pub mod format_cli;
 mod hover;
 mod position;
 mod search;

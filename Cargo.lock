@@ -1498,12 +1498,13 @@ version = "0.19.2-dev"
 dependencies = [
  "async-lsp",
  "chrono",
+ "clap 4.6.2",
  "futures",
  "lsp-types",
  "plumb-core",
+ "plumb-edit",
  "plumb-export",
  "plumb-extensions",
- "plumb-format",
  "plumb-import",
  "plumb-notes",
  "plumb-web",
@@ -1555,7 +1556,6 @@ dependencies = [
 name = "plumb-format"
 version = "0.19.2-dev"
 dependencies = [
- "clap 4.6.2",
  "plumb-core",
  "similar",
 ]

@@ -45,6 +45,32 @@ pub fn apply_text_edits(mut source: String, mut edits: Vec<TextEdit>) -> Result<
     Ok(source)
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FormatScope {
+    Document,
+    ContainedBlocks(Range<usize>),
+}
+
+pub fn format(parsed: &ParsedDocument, scope: FormatScope) -> Result<Vec<TextEdit>, EditError> {
+    let edits = match scope {
+        FormatScope::Document => plumb_format::format_parsed_edits(parsed),
+        FormatScope::ContainedBlocks(selection) => {
+            plumb_format::format_parsed_contained_blocks(parsed, selection)
+        }
+    }
+    .map_err(|error| match error {
+        plumb_format::FormatError::InvalidBlockRange => EditError::InvalidRange,
+        plumb_format::FormatError::InvalidSyntax => EditError::GeneratedInvalid,
+    })?;
+    Ok(edits
+        .into_iter()
+        .map(|edit| TextEdit {
+            range: edit.range,
+            new_text: edit.new_text,
+        })
+        .collect())
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EditError {
     InvalidRange,
@@ -318,6 +344,63 @@ impl OwnedBlock {
     pub fn format(&self) -> Result<String, EditError> {
         format_owned_blocks(std::slice::from_ref(self), "\n")
     }
+}
+
+pub fn replace_owned_block(
+    parsed: &ParsedDocument,
+    range: Range<usize>,
+    block: &OwnedBlock,
+) -> Result<TextEdit, EditError> {
+    replace_owned_blocks(parsed, range, std::slice::from_ref(block))
+}
+
+pub fn replace_owned_blocks(
+    parsed: &ParsedDocument,
+    range: Range<usize>,
+    blocks: &[OwnedBlock],
+) -> Result<TextEdit, EditError> {
+    validate_range(&parsed.source, &range)?;
+    if !has_block_range(&parsed.syntax.blocks, &range) {
+        return Err(EditError::InvalidRange);
+    }
+    let line_start = parsed.source[..range.start]
+        .rfind('\n')
+        .map_or(0, |index| index + 1);
+    let indent = &parsed.source[line_start..range.start];
+    if !indent.chars().all(|character| character == ' ') {
+        return Err(EditError::InvalidRange);
+    }
+    let newline = line_ending(&parsed.source);
+    let formatted = format_owned_blocks(blocks, newline)?;
+    let mut replacement = String::new();
+    for (index, line) in formatted.split_inclusive(newline).enumerate() {
+        let content = line.strip_suffix(newline).unwrap_or(line);
+        if !content.is_empty() {
+            if index > 0 {
+                replacement.push_str(indent);
+            }
+            replacement.push_str(content);
+        }
+        if line.ends_with(newline) {
+            replacement.push_str(newline);
+        }
+    }
+    let original = &parsed.source[range.clone()];
+    let original_breaks = trailing_line_breaks(original);
+    let replacement_breaks = trailing_line_breaks(&replacement);
+    for _ in replacement_breaks..original_breaks {
+        replacement.push_str(newline);
+    }
+    TextEdit::replace(parsed, range, replacement)
+}
+
+pub fn remove_block(parsed: &ParsedDocument, range: Range<usize>) -> Result<TextEdit, EditError> {
+    if !has_block_range(&parsed.syntax.blocks, &range) {
+        return Err(EditError::InvalidRange);
+    }
+    let mut edit = EditSession::new(parsed, range.clone())?;
+    edit.remove_block(range)?;
+    edit.finish()
 }
 
 impl OwnedInline {
@@ -830,6 +913,22 @@ fn line_ending(source: &str) -> &str {
     }
 }
 
+fn has_block_range(blocks: &[Block], target: &Range<usize>) -> bool {
+    blocks
+        .iter()
+        .any(|block| block.range() == target || has_block_range(block.children(), target))
+}
+
+fn trailing_line_breaks(source: &str) -> usize {
+    source
+        .as_bytes()
+        .iter()
+        .rev()
+        .take_while(|byte| **byte == b'\n' || **byte == b'\r')
+        .filter(|byte| **byte == b'\n')
+        .count()
+}
+
 fn indent_fragment(formatted: &str, indent: &str, newline: &str) -> String {
     let mut output = String::with_capacity(formatted.len() + indent.len());
     for line in formatted.split_inclusive(newline) {
@@ -896,17 +995,18 @@ pub fn finalize(
     for edit in logical_edits.iter().rev() {
         modified.replace_range(edit.range.clone(), &edit.new_text);
     }
+    let modified_parsed = plumb_core::parse(&modified);
     if parsed.syntax.blocks.is_empty() {
-        let new_text = plumb_format::format(&modified).map_err(|_| EditError::GeneratedInvalid)?;
+        let new_text = plumb_format::format_parsed(&modified_parsed)
+            .map_err(|_| EditError::GeneratedInvalid)?;
         return Ok(TextEdit {
             range: affected,
             new_text,
         });
     }
-    let modified_parsed = plumb_core::parse(&modified);
     if affected.start == 0 && modified_parsed.syntax.attrs.attached.is_some() {
-        let mut formatted =
-            plumb_format::format(&modified).map_err(|_| EditError::GeneratedInvalid)?;
+        let mut formatted = plumb_format::format_parsed(&modified_parsed)
+            .map_err(|_| EditError::GeneratedInvalid)?;
         if line_ending(source) == "\r\n" {
             formatted = formatted.replace('\n', "\r\n");
         }
@@ -927,8 +1027,10 @@ pub fn finalize(
             new_text: String::new(),
         });
     }
-    let formatted = match plumb_format::format_block_range(&modified, affected.start..modified_end)
-    {
+    let formatted = match plumb_format::format_parsed_block_range(
+        &modified_parsed,
+        affected.start..modified_end,
+    ) {
         Ok(formatted) => formatted,
         Err(plumb_format::FormatError::InvalidBlockRange) => {
             let block_end = block_end_with_start(&modified_parsed.syntax.blocks, affected.start)
@@ -940,7 +1042,7 @@ pub fn finalize(
             {
                 return Err(EditError::GeneratedInvalid);
             }
-            plumb_format::format_block_range(&modified, affected.start..block_end)
+            plumb_format::format_parsed_block_range(&modified_parsed, affected.start..block_end)
                 .map_err(|_| EditError::GeneratedInvalid)?
         }
         Err(plumb_format::FormatError::InvalidSyntax) => {
@@ -983,6 +1085,71 @@ fn block_end_with_start(blocks: &[Block], start: usize) -> Option<usize> {
 mod tests {
     use super::*;
     use plumb_core::{parse, Block};
+
+    #[test]
+    fn formats_a_parsed_revision_through_the_edit_boundary() {
+        let source = "`meta\n   `: title\n\n      Unified command\n";
+        let parsed = parse(source);
+        let edits = format(&parsed, FormatScope::Document).unwrap();
+        let formatted = apply_text_edits(source.to_string(), edits).unwrap();
+        assert_eq!(formatted, "`meta\n `: title\n\n  Unified command\n");
+        assert!(format(&parse(&formatted), FormatScope::Document)
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn formats_only_complete_blocks_contained_by_a_selection() {
+        let source = "`first One\n\n      Child\n\n`second Two\n";
+        let parsed = parse(source);
+        let first = parsed.syntax.blocks[0].range().clone();
+        let edits = format(&parsed, FormatScope::ContainedBlocks(first.clone())).unwrap();
+        let formatted = apply_text_edits(source.to_string(), edits).unwrap();
+        assert_eq!(formatted, "`first One\n\n Child\n\n`second Two\n");
+        assert!(format(
+            &parsed,
+            FormatScope::ContainedBlocks(first.start..first.start)
+        )
+        .unwrap()
+        .is_empty());
+    }
+
+    #[test]
+    fn formatting_rejects_invalid_revisions_and_ranges() {
+        assert_eq!(
+            format(&parse("`broken[\n"), FormatScope::Document),
+            Err(EditError::GeneratedInvalid)
+        );
+        let parsed = parse("Paragraph.\n");
+        assert_eq!(
+            format(
+                &parsed,
+                FormatScope::ContainedBlocks(0..parsed.source.len() + 1)
+            ),
+            Err(EditError::InvalidRange)
+        );
+    }
+
+    #[test]
+    fn owned_replacement_preserves_nested_crlf_layout() {
+        let source = "`outer Parent\r\n\r\n   `old Child\r\n\r\n`next Keep\r\n";
+        let parsed = parse(source);
+        let Block::Parsed(outer) = &parsed.syntax.blocks[0] else {
+            unreachable!();
+        };
+        let nested = outer.children[0].range().clone();
+        let edit = replace_owned_block(&parsed, nested, &OwnedBlock::marked("new", "Replacement"))
+            .unwrap();
+        assert_eq!(edit.new_text, "`new Replacement\r\n\r\n");
+        let edited = apply_text_edits(source.to_string(), vec![edit]).unwrap();
+        assert!(edited.contains("   `new Replacement\r\n\r\n`next Keep"));
+    }
+
+    #[test]
+    fn structural_removal_rejects_non_block_ranges() {
+        let parsed = parse("`item Keep\n");
+        assert_eq!(remove_block(&parsed, 0..5), Err(EditError::InvalidRange));
+    }
 
     fn first_mark(source: &str) -> (ParsedDocument, Range<usize>, usize) {
         let parsed = parse(source);
@@ -1410,10 +1577,7 @@ mod tests {
         edit.replace_attribute(attrs, 0, OwnedAttribute::id("new"))
             .unwrap();
         let edit = edit.finish().unwrap();
-        assert_eq!(
-            edit.new_text,
-            "`task Work\n {\n  `@ new\n }\n"
-        );
+        assert_eq!(edit.new_text, "`task Work\n {\n  `@ new\n }\n");
         assert!(parse(&edit.new_text).is_valid());
     }
 

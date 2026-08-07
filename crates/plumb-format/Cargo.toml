@@ -6,7 +6,6 @@ license.workspace = true
 autobins = false
 
 [dependencies]
-clap.workspace = true
 plumb-core = { path = "../plumb-core" }
 similar.workspace = true
 

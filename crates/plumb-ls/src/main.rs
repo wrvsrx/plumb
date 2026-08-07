@@ -11,7 +11,7 @@ fn main() -> ExitCode {
     let rest = args.collect::<Vec<_>>();
 
     match command.to_str() {
-        Some("fmt") => plumb_format::run_cli(delegated_args("plumb fmt", rest)),
+        Some("fmt") => plumb::format_cli::run(delegated_args("plumb fmt", rest)),
         Some("export") => {
             if wants_help(&rest) {
                 println!("Usage: plumb export [PATH]\n\nEmit a Pandoc JSON document. Reads stdin when PATH is omitted.");

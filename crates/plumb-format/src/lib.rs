@@ -1,16 +1,12 @@
-use std::ffi::OsString;
 #[cfg(test)]
 use std::fmt::Write;
-use std::fs;
-use std::io::{self, Read};
 use std::ops::Range;
-use std::path::PathBuf;
-use std::process::ExitCode;
 
-use clap::Parser;
 #[cfg(test)]
 use plumb_core::AttrItem;
-use plumb_core::{parse, AttachedContent, Attributes, Block, Inline, InlineContent, ParsedBlock};
+use plumb_core::{
+    parse, AttachedContent, Attributes, Block, Inline, InlineContent, ParsedBlock, ParsedDocument,
+};
 use similar::{DiffOp, TextDiff};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -25,71 +21,12 @@ pub struct FormatEdit {
     pub new_text: String,
 }
 
-#[derive(Debug, Parser)]
-#[command(name = "plumb fmt", about = "Format plumb documents")]
-struct Args {
-    #[arg(long)]
-    check: bool,
-    paths: Vec<PathBuf>,
-}
-
-pub fn run_cli(args: impl IntoIterator<Item = OsString>) -> ExitCode {
-    let args = match Args::try_parse_from(args) {
-        Ok(args) => args,
-        Err(error) => {
-            let _ = error.print();
-            return ExitCode::from(error.exit_code() as u8);
-        }
-    };
-    match run(args) {
-        Ok(true) => ExitCode::SUCCESS,
-        Ok(false) => ExitCode::from(1),
-        Err(error) => {
-            eprintln!("plumb fmt: {error}");
-            ExitCode::FAILURE
-        }
-    }
-}
-
-fn run(args: Args) -> Result<bool, String> {
-    if args.paths.is_empty() {
-        let mut source = String::new();
-        io::stdin()
-            .read_to_string(&mut source)
-            .map_err(|error| format!("cannot read stdin: {error}"))?;
-        let formatted = format_source(&source, "stdin")?;
-        if args.check {
-            return Ok(source == formatted);
-        }
-        print!("{formatted}");
-        return Ok(true);
-    }
-
-    let mut unchanged = true;
-    for path in args.paths {
-        let source = fs::read_to_string(&path)
-            .map_err(|error| format!("cannot read {}: {error}", path.display()))?;
-        let formatted = format_source(&source, &path.display().to_string())?;
-        if source == formatted {
-            continue;
-        }
-        unchanged = false;
-        if args.check {
-            eprintln!("would reformat {}", path.display());
-        } else {
-            fs::write(&path, formatted)
-                .map_err(|error| format!("cannot write {}: {error}", path.display()))?;
-        }
-    }
-    Ok(!args.check || unchanged)
-}
-
-fn format_source(source: &str, name: &str) -> Result<String, String> {
-    format(source).map_err(|_| format!("{name} has syntax errors"))
-}
-
 pub fn format(source: &str) -> Result<String, FormatError> {
     let parsed = parse(source);
+    format_parsed(&parsed)
+}
+
+pub fn format_parsed(parsed: &ParsedDocument) -> Result<String, FormatError> {
     if !parsed.is_valid() {
         return Err(FormatError::InvalidSyntax);
     }
@@ -110,7 +47,13 @@ pub fn format(source: &str) -> Result<String, FormatError> {
 }
 
 pub fn format_edits(source: &str) -> Result<Vec<FormatEdit>, FormatError> {
-    let formatted = format(source)?;
+    let parsed = parse(source);
+    format_parsed_edits(&parsed)
+}
+
+pub fn format_parsed_edits(parsed: &ParsedDocument) -> Result<Vec<FormatEdit>, FormatError> {
+    let source = parsed.source.as_str();
+    let formatted = format_parsed(parsed)?;
     if formatted == source {
         return Ok(Vec::new());
     }
@@ -181,9 +124,17 @@ fn line_offsets(source: &str) -> Vec<usize> {
 /// is used as read-only spacing context and is not itself reformatted.
 pub fn format_block_range(source: &str, range: Range<usize>) -> Result<FormatEdit, FormatError> {
     let parsed = parse(source);
+    format_parsed_block_range(&parsed, range)
+}
+
+pub fn format_parsed_block_range(
+    parsed: &ParsedDocument,
+    range: Range<usize>,
+) -> Result<FormatEdit, FormatError> {
     if !parsed.is_valid() {
         return Err(FormatError::InvalidSyntax);
     }
+    let source = parsed.source.as_str();
     if range.start > range.end || range.end > source.len() {
         return Err(FormatError::InvalidBlockRange);
     }
@@ -199,9 +150,17 @@ pub fn format_contained_blocks(
     selection: Range<usize>,
 ) -> Result<Vec<FormatEdit>, FormatError> {
     let parsed = parse(source);
+    format_parsed_contained_blocks(&parsed, selection)
+}
+
+pub fn format_parsed_contained_blocks(
+    parsed: &ParsedDocument,
+    selection: Range<usize>,
+) -> Result<Vec<FormatEdit>, FormatError> {
     if !parsed.is_valid() {
         return Err(FormatError::InvalidSyntax);
     }
+    let source = parsed.source.as_str();
     if selection.start > selection.end
         || selection.end > source.len()
         || !source.is_char_boundary(selection.start)
