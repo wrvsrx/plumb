@@ -122,7 +122,8 @@ attachment site 被识别；ordinary opening brace 在其他 ordinary inline/hea
 
 `- document group 必须是文件第一个结构，包含 ordinary blocks。
 `- marked/verbatim block group 由 horizontal whitespace 与完整 block header 分开；compact form 包含
-  ordinary inline elements，expanded form 包含 ordinary blocks。
+  ordinary inline elements，expanded form 包含 ordinary blocks。marked block 还允许在紧邻 header 的
+  下一 structural line 打开 expanded group。
 `- parsed inline 或 inline verbatim group 紧跟完整 closing delimiter，包含 ordinary inline elements。
 
 compact attachment separator 由 owner category 统一决定：inline owner 使用 tight attachment，group 必须
@@ -149,6 +150,22 @@ document 没有 header，只允许 opening brace 独占文件第一条 structura
     `: due 2026-08-07
   }
 
+marked block 的 expanded group 也可以在下一 structural line 打开：
+
+`plumb"
+  `task Buy milk
+        {
+          `- shopping
+          `@ shopping
+          `: due 2026-08-07
+        }
+
+next-line opener 必须紧邻 owner header，中间不能有 blank line，且必须位于深于 owner 的 structural
+column；该 column 同时是 group close column。若 deferred head continuation 已建立 column，opener 必须位于
+同一 column。opener line 除 opening brace 与 trailing horizontal whitespace 外不能包含其他 source。
+识别 next-line opener 会结束 deferred head，group close 后才可以开始 children。verbatim block 不允许
+next-line group，因为 opening quote 后的 line ending 已经开始 raw payload。
+
 inline group 与 owner 同行，内容使用第 8、9 节的普通 inline parser，因此 inline element 可以递归
 包含 inline element；group 本身不建立新的 marker、property 或 raw-content grammar：
 
@@ -160,7 +177,8 @@ inline owner；只有与 block head 分隔的 group 才归 marked block。expand
 head；group close 后的缩进 ordinary text 只能开始 child paragraph，不能恢复 head。
 
 空 group 合法。inline owner 的 group 必须紧贴 owner；whitespace 结束该 ownership。expanded block group
-由 header attachment site 与 indentation 建立 ownership，不允许作为任意独立 sibling。单行 document
+由 header attachment site 或 marked block 的紧邻 next-line attachment site 与 indentation 建立 ownership，
+不允许作为任意独立 sibling。单行 document
 `"{}" 非法，因为 document group 只允许 expanded form。core 原样保留 attached content，不把其中
 spelling 固定解释为 facet、identity 或 property。
 

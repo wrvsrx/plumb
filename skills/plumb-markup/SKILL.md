@@ -58,8 +58,10 @@ it. Inside the plumb source repository, prefer
 - Use spaces for structural indentation. Do not use tabs in indentation.
 - Separate marked/verbatim block attached groups from the complete header with
   whitespace; attach inline groups directly to the complete inline delimiter.
-- Open expanded block groups at the end of the owner header and close them at
-  the owner column. Document groups remain structural and expanded.
+- Open expanded block groups at the end of the owner header. A marked block may
+  instead use an immediately following, deeper opener at its continuation
+  column. Close at the opener column. Verbatim groups remain on the opener line;
+  document groups remain structural and expanded.
 - Use direct `@` declarations for explicit ids. Headings do not generate implicit ids.
 - Always write `[]` on inline elements, including empty facets.
 - Do not author the removed `{#id .class key=value}` spelling; parsing and

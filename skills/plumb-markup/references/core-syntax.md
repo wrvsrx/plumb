@@ -69,13 +69,23 @@ compact block and inline groups contain ordinary inline elements.
   `: level 2
 }
 
+`task Next-line layout
+      {
+        `: created 2026-08-07T09:00:00+08:00
+      }
+
 `span[text]{`@[intro] `-[note] `:[level 2]}
 ```
 
 A marked/verbatim block group is separated from its complete header by
 horizontal whitespace. A same-line close selects compact form; an opener at
 the end of the header selects expanded form, whose close returns to the owner
-column. An inline group must touch the complete closing delimiter. Groups may
+column. A marked block may instead open an expanded group on the immediately
+following structural line. That opener must be deeper than the owner and use
+the established continuation column when the head spans lines; its close
+returns to the opener column. A blank line breaks this ownership. Verbatim
+blocks cannot use the next-line form because their line ending begins raw
+payload. An inline group must touch the complete closing delimiter. Groups may
 recursively contain owners with their own groups. Core does not assign id,
 facet, property, class, or key-value meaning to their content.
 

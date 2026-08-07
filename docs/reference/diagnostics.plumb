@@ -47,7 +47,9 @@ Current parser 用 `"syntax.legacy-attributes" 拒绝识别出的旧 attribute s
 `# 4. Recovery boundaries
 
 `- block-start error：当前 physical line。
-`- attached block group：matching owner boundary 或 dedent；attached inline group：当前 enclosing inline boundary。
+`- attached block group：matching owner boundary 或 dedent；marked block 的 next-line opener 在 blank、
+  owner-level dedent、children start 或不匹配的 continuation column 前停止建立 ownership；attached inline
+  group：当前 enclosing inline boundary。
 `- unattached group/unexpected close：当前 structural line 或 enclosing inline boundary。
 `- parsed inline error：blank、dedent、block-only entry 或 EOF 前。
 `- inline verbatim error：当前 physical line ending 或 EOF。
