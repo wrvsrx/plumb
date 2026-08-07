@@ -156,7 +156,10 @@ impl OwnedAttribute {
         let escape = |value: &str| {
             let value = value.replace('`', "``");
             if inline {
-                value.replace(']', "`]")
+                value
+                    .replace(']', "`]")
+                    .replace('{', "`{")
+                    .replace('}', "`}")
             } else {
                 value
             }
@@ -1406,16 +1409,24 @@ mod tests {
             panic!("expected link inline");
         };
         let mut edit = EditSession::new(&parsed, block.range.clone()).unwrap();
-        edit.replace_attribute(attrs, 0, OwnedAttribute::quoted("to", "new.plumb"))
+        edit.replace_attribute(attrs, 0, OwnedAttribute::quoted("to", "new]/{draft}.plumb"))
             .unwrap();
         let edit = edit.finish().unwrap();
         assert!(
-            edit.new_text.contains("{`:[to new.plumb]}"),
+            edit.new_text.contains("{`:[to new`]/`{draft`}.plumb]}"),
             "{}",
             edit.new_text
         );
         assert!(!edit.new_text.contains("to="), "{}", edit.new_text);
-        assert!(parse(&edit.new_text).is_valid());
+        let reparsed = parse(&edit.new_text);
+        assert!(reparsed.is_valid(), "{:?}", reparsed.diagnostics);
+        let Block::Parsed(block) = &reparsed.syntax.blocks[0] else {
+            unreachable!();
+        };
+        let Inline::Element { attrs, .. } = &block.head.items[2] else {
+            unreachable!();
+        };
+        assert_eq!(attrs.value("to"), Some("new]/{draft}.plumb"));
     }
 
     #[test]

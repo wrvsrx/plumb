@@ -2361,8 +2361,8 @@ impl Workspace {
                             detail: relative.clone(),
                             new_text: format!(
                                 "`->[{}]{{`:[to {}]}}",
-                                escape_inline_text(&title),
-                                escape_inline_text(&relative)
+                                escape_parsed_text(&title),
+                                escape_attached_text(&relative)
                             ),
                             replace: replace.clone(),
                         }
@@ -3887,8 +3887,14 @@ fn task_reference_fields(
         .collect()
 }
 
-fn escape_inline_text(value: &str) -> String {
-    value.replace('`', "``").replace(']', "]]")
+fn escape_parsed_text(value: &str) -> String {
+    value.replace('`', "``").replace(']', "`]")
+}
+
+fn escape_attached_text(value: &str) -> String {
+    escape_parsed_text(value)
+        .replace('{', "`{")
+        .replace('}', "`}")
 }
 
 fn escape_quoted_value(value: &str) -> String {
@@ -4396,6 +4402,7 @@ mod tests {
         workspace.insert("notes/中文笔记.plumb", 1, "`# 中文内容 {\n  `@ 内容\n}\n");
         workspace.insert("notes/方案 (草稿).plumb", 1, "`# 草稿\n");
         workspace.insert("notes/方案]终稿.plumb", 1, "`# 终稿\n");
+        workspace.insert("notes/brace{draft}].plumb", 1, "`# Braces\n");
         workspace.insert("notes/quote\"name.plumb", 1, "`# Quote\n");
         let paths = workspace.complete_link("notes/current.plumb", &autolink_path(10..13, "guide"));
         assert_eq!(paths[0].label, "design.plumb");
@@ -4465,6 +4472,18 @@ mod tests {
         assert_eq!(closing_bracket[0].label, "方案]终稿.plumb");
         assert_eq!(closing_bracket[0].new_text, "`\"[方案]终稿.plumb]\"");
         assert_eq!(closing_bracket[0].replace, 0..5);
+        let structural_delimiters = workspace.complete_link(
+            "notes/current.plumb",
+            &LinkCompletionContext::Label {
+                replace: 0..0,
+                query: "brace".to_string(),
+            },
+        );
+        assert_eq!(
+            structural_delimiters[0].new_text,
+            "`->[brace{draft}`].plumb]{`:[to brace`{draft`}`].plumb]}"
+        );
+        assert!(parse(&structural_delimiters[0].new_text).is_valid());
         let spaced_anchor = workspace.complete_link(
             "notes/current.plumb",
             &LinkCompletionContext::AutolinkAnchor {

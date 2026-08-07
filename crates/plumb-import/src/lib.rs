@@ -514,7 +514,11 @@ fn append_block_attrs(output: &mut String, attrs: &str) {
 }
 
 fn escape_attached_text(value: &str) -> String {
-    value.replace('`', "``").replace(']', "`]")
+    value
+        .replace('`', "``")
+        .replace(']', "`]")
+        .replace('{', "`{")
+        .replace('}', "`}")
 }
 
 fn promoted_verbatim_attrs(attrs: &Attr, block: bool) -> (String, Attr) {
@@ -630,7 +634,7 @@ fn minimum_quote_count(text: &str) -> usize {
 fn escape_text(text: &str, bracketed: bool) -> String {
     let text = text.replace('`', "``");
     if bracketed {
-        text.replace(']', "``]")
+        text.replace(']', "`]")
     } else {
         text
     }
@@ -723,16 +727,34 @@ mod tests {
 
     #[test]
     fn imports_empty_code_attributes_and_chooses_verbatim_delimiters() {
+        let mut attrs = Attr::default();
+        attrs
+            .attributes
+            .push(("data".into(), "value]/{draft}".into()));
         let document = Pandoc {
             blocks: vec![
-                Block::Para(vec![Inline::Code(Attr::default(), "a]b".into())]),
+                Block::Para(vec![
+                    Inline::Emph(vec![Inline::Str("a]b".into())]),
+                    Inline::Space,
+                    Inline::Code(attrs, "a]b".into()),
+                ]),
                 Block::CodeBlock(Attr::default(), "raw\n".into()),
             ],
             meta: HashMap::new(),
         };
         let source = import(&document).unwrap();
+        assert!(source.contains("`*[a`]b]"), "{source}");
         assert!(source.contains("`\"a]b\""));
+        assert!(source.contains("{`:[data value`]/`{draft`}]}"), "{source}");
         assert!(source.contains("`\"\n  raw"), "{source}");
-        assert!(plumb_core::parse(&source).is_valid());
+        let parsed = plumb_core::parse(&source);
+        assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
+        let plumb_core::Block::Parsed(paragraph) = &parsed.syntax.blocks[0] else {
+            unreachable!();
+        };
+        let plumb_core::Inline::Verbatim { attrs, .. } = &paragraph.head.items[2] else {
+            unreachable!();
+        };
+        assert_eq!(attrs.value("data"), Some("value]/{draft}"));
     }
 }
