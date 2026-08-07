@@ -10,7 +10,7 @@
     }
   ],
   "metadata": {
-    "version": "0.20.2",
+    "version": "0.20.3-dev",
     "license": "MIT",
     "description": "Plumb grammar for tree-sitter"
   },
