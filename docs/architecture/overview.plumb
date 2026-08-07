@@ -124,6 +124,12 @@ dispatch classifier；classifier 只区分 escape、parsed inline、inline verba
 verbatim block，不能在 lookahead 时调用 `"mark_end" 或发射 token。strict parser normative corpus 中
 所有 valid case 经 tree-sitter parser 解析后都不得包含 `"ERROR" 或 missing node；该差分检查补充而
 不替代按 dispatch position 与 spelling kind 展开的 tree-sitter corpus matrix。
+更强的 strict-alignment test 将 strict valid syntax 投影为 normalized tree-sitter structural CST，并
+与真实 tree-sitter parse tree 比较 node kind、nesting 和稳定 byte range。投影保留 `"document"、block、
+attached group、inline envelope、`"introducer"、`"marker"、`"inline_kind" 与 `"verbatim_kind"；忽略
+layout-only wrapper、ordinary text leaf 与 anonymous delimiter。document/block container range 会因 blank
+layout ownership 不同而忽略；token 与 delimiter-owned inline/attached envelope range 必须一致。recovered
+invalid tree 不做同构比较，因为 strict diagnostics recovery 与 editor-oriented lenient recovery 的边界不同。
 
 `"grammar.js" 和 `"tree-sitter.json" 是 source of truth。generated parser files 是 build/release
 artifacts；修改 grammar 后必须在 locked Nix environment 中 regenerate 并测试。
