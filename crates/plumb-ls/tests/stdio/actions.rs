@@ -269,7 +269,7 @@ fn offers_add_explicit_id_for_the_deepest_unanchored_block() {
             "jsonrpc": "2.0", "method": "textDocument/didOpen",
             "params": { "textDocument": {
                 "uri": uri, "languageId": "plumb", "version": 4,
-                "text": "`# Existing\n   {\n     `@ same-title\n   }\n\n`node Parent\n\n      `child 😀 Same title\n"
+                "text": "`# Existing {\n  `@ same-title\n}\n\n`node Parent\n\n      `child 😀 Same title\n"
             }}
         }),
         json!({
@@ -277,8 +277,8 @@ fn offers_add_explicit_id_for_the_deepest_unanchored_block() {
             "params": {
                 "textDocument": { "uri": uri },
                 "range": {
-                    "start": { "line": 7, "character": 20 },
-                    "end": { "line": 7, "character": 20 }
+                    "start": { "line": 6, "character": 20 },
+                    "end": { "line": 6, "character": 20 }
                 },
                 "context": { "diagnostics": [], "only": ["refactor.rewrite"] }
             }
@@ -288,7 +288,7 @@ fn offers_add_explicit_id_for_the_deepest_unanchored_block() {
             "params": {
                 "textDocument": { "uri": uri, "version": 5 },
                 "contentChanges": [{
-                    "text": "`# Existing\n   {\n     `@ same-title\n   }\n\n`node Parent\n\n      `child 😀 Same title\n             {\n               `@ nested\n             }\n"
+                    "text": "`# Existing {\n  `@ same-title\n}\n\n`node Parent\n\n      `child 😀 Same title {\n        `@ nested\n      }\n"
                 }]
             }
         }),
@@ -297,8 +297,8 @@ fn offers_add_explicit_id_for_the_deepest_unanchored_block() {
             "params": {
                 "textDocument": { "uri": uri },
                 "range": {
-                    "start": { "line": 7, "character": 20 },
-                    "end": { "line": 7, "character": 20 }
+                    "start": { "line": 6, "character": 20 },
+                    "end": { "line": 6, "character": 20 }
                 },
                 "context": { "diagnostics": [], "only": ["refactor.rewrite"] }
             }
@@ -325,7 +325,7 @@ fn offers_add_explicit_id_for_the_deepest_unanchored_block() {
             .contains("`@ same-title-2"),
         "{change:#}"
     );
-    assert_eq!(change["edits"][0]["range"]["start"]["line"], 7);
+    assert_eq!(change["edits"][0]["range"]["start"]["line"], 6);
     assert_eq!(change["edits"][0]["range"]["start"]["character"], 0);
 
     assert!(response(&output, 3)["result"]
@@ -403,17 +403,17 @@ fn converts_event_shorthand_with_a_refactor_action() {
     assert_eq!(change["textDocument"]["version"], 3);
     let replacement = change["edits"][0]["newText"].as_str().unwrap();
     assert!(
-        replacement.starts_with("`event 11:10--11:20 relax: `\"phone\"\n"),
+        replacement.starts_with("`event 11:10--11:20 relax: `\"phone\" {\n"),
         "{replacement}"
     );
     assert!(!replacement.contains("`- event"), "{replacement}");
     assert!(
-        replacement.contains("         `: date 2026-05-21\n"),
+        replacement.contains("  `: date 2026-05-21\n"),
         "{replacement}"
     );
     let timezone = Local::now().fixed_offset().format("%:z").to_string();
     assert!(
-        replacement.contains(&format!("         `: timezone {timezone}\n")),
+        replacement.contains(&format!("  `: timezone {timezone}\n")),
         "{replacement}"
     );
     assert!(!replacement.contains("#e0001"), "{replacement}");
@@ -506,7 +506,7 @@ fn offers_task_authoring_refactor_actions() {
             "jsonrpc": "2.0", "method": "textDocument/didOpen",
             "params": { "textDocument": {
                 "uri": uri, "languageId": "plumb", "version": 1,
-                "text": "`- List item\n   {\n     `@ keep\n     `- kind\n   }\n"
+                "text": "`- List item {\n  `@ keep\n  `- kind\n}\n"
             }}
         }),
         json!({
@@ -525,7 +525,7 @@ fn offers_task_authoring_refactor_actions() {
             "params": {
                 "textDocument": { "uri": uri, "version": 2 },
                 "contentChanges": [{
-                    "text": "`task Closed\n      {\n        `@ closed\n        `: done 2026-07-20T09:00:00Z\n      }\n"
+                    "text": "`task Closed {\n  `@ closed\n  `: done 2026-07-20T09:00:00Z\n}\n"
                 }]
             }
         }),
@@ -574,7 +574,7 @@ fn offers_task_authoring_refactor_actions() {
 #[test]
 fn offers_guarded_task_status_code_actions() {
     let uri = "file:///tmp/task-actions.plumb";
-    let source = "`task MJCF in, USD out solver\n      {\n        `@ task-f81deb18\n        `: created 2026-05-24T02:35:50Z\n      }\n\n      `task parse MJCF\n            {\n              `@ task-c2cf5756\n              `: created 2026-05-27T13:03:04Z\n            }\n      `task solver with passive joint\n            {\n              `@ task-99e28dad\n              `: created 2026-05-27T13:02:45Z\n            }\n";
+    let source = "`task MJCF in, USD out solver {\n  `@ task-f81deb18\n  `: created 2026-05-24T02:35:50Z\n}\n\n      `task parse MJCF {\n        `@ task-c2cf5756\n        `: created 2026-05-27T13:03:04Z\n      }\n      `task solver with passive joint {\n        `@ task-99e28dad\n        `: created 2026-05-27T13:02:45Z\n      }\n";
     let line = source
         .lines()
         .position(|line| line.contains("parse MJCF"))
@@ -639,7 +639,7 @@ fn offers_guarded_task_status_code_actions() {
 #[test]
 fn recurring_task_action_closes_current_and_appends_next_instance() {
     let uri = "file:///tmp/recurring-task.plumb";
-    let source = "`task Weekly review\n      {\n        `: due 2026-07-20T09:00:00+08:00\n        `: recur P1W\n      }\n";
+    let source = "`task Weekly review {\n  `: due 2026-07-20T09:00:00+08:00\n  `: recur P1W\n}\n";
     let messages = [
         json!({
             "jsonrpc": "2.0", "id": 1, "method": "initialize",
@@ -693,7 +693,8 @@ fn recurring_task_action_closes_current_and_appends_next_instance() {
 #[test]
 fn blocked_task_offers_cancel_but_not_complete() {
     let uri = "file:///tmp/blocked-task-actions.plumb";
-    let source = "`task Draft\n      {\n        `@ draft\n      }\n`task Review\n      {\n        `@ review\n        `: depends #draft\n      }\n";
+    let source =
+        "`task Draft {\n  `@ draft\n}\n`task Review {\n  `@ review\n  `: depends #draft\n}\n";
     let line = source
         .lines()
         .position(|line| line.contains("Review"))
@@ -744,7 +745,7 @@ fn blocked_task_offers_cancel_but_not_complete() {
 #[test]
 fn canceling_a_recurring_task_appends_the_next_instance() {
     let uri = "file:///tmp/cancel-recurring-task.plumb";
-    let source = "`task Weekly review\n      {\n        `: due 2026-07-20T09:00:00+08:00\n        `: recur P1W\n      }\n";
+    let source = "`task Weekly review {\n  `: due 2026-07-20T09:00:00+08:00\n  `: recur P1W\n}\n";
     let cursor = source.find("Weekly review").unwrap();
     let messages = [
         json!({
@@ -800,7 +801,7 @@ fn canceling_a_recurring_task_appends_the_next_instance() {
 #[test]
 fn task_actions_fall_back_from_closed_child_to_open_parent() {
     let uri = "file:///tmp/nested-task-actions.plumb";
-    let source = "`task Outer\n      {\n        `@ outer\n      }\n\n      `task Inner\n            {\n              `@ inner\n              `: done 2026-07-20T09:00:00Z\n            }\n";
+    let source = "`task Outer {\n  `@ outer\n}\n\n      `task Inner {\n        `@ inner\n        `: done 2026-07-20T09:00:00Z\n      }\n";
     let cursor = source.find("Inner").unwrap();
     let line_start = source.find('\n').unwrap() + 1;
     let character = cursor - line_start;

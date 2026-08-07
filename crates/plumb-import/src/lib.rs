@@ -466,7 +466,8 @@ fn render_verbatim_block(attrs: &Attr, text: &str) -> Result<String, String> {
         .map(|line| format!("  {line}"))
         .collect::<Vec<_>>()
         .join("\n");
-    let mut output = format!("`{kind}\"{attrs}");
+    let separator = if attrs.is_empty() { "" } else { " " };
+    let mut output = format!("`{kind}\"{separator}{attrs}");
     if !payload.is_empty() {
         output.push('\n');
         output.push_str(&payload);
@@ -700,7 +701,7 @@ mod tests {
         );
         assert!(source.contains("`> quoted"));
         assert!(source.contains("`- item"));
-        assert!(source.contains("`rust\"{`@[code]}"));
+        assert!(source.contains("`rust\" {`@[code]}"));
         assert!(plumb_core::parse(&source).is_valid());
     }
 

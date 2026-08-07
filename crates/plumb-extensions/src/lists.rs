@@ -94,7 +94,7 @@ mod tests {
     #[test]
     fn groups_adjacent_sibling_items_and_nested_items() {
         let parsed = parse(
-            "`task One\n      {\n      }\n\n      `- Nested one\n      `- Nested two\n\n`- Two\n\nParagraph.\n\n`- Three\n",
+            "`task One {\n}\n\n      `- Nested one\n      `- Nested two\n\n`- Two\n\nParagraph.\n\n`- Three\n",
         );
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 

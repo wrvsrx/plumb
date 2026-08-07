@@ -23,7 +23,7 @@ fn diagnostics_clear_after_a_link_is_fixed() {
             "params": {
                 "textDocument": { "uri": uri, "version": 2 },
                 "contentChanges": [{
-                    "text": "`node Target\n      {\n        `@ target\n      }\n\nSee `->[target]{`:[to #target]}.\n"
+                    "text": "`node Target {\n  `@ target\n}\n\nSee `->[target]{`:[to #target]}.\n"
                 }]
             }
         }),
@@ -62,7 +62,7 @@ fn diagnostics_refresh_when_a_target_document_changes() {
             "jsonrpc": "2.0", "method": "textDocument/didChange",
             "params": {
                 "textDocument": { "uri": target_uri, "version": 2 },
-                "contentChanges": [{ "text": "`node Target\n      {\n        `@ target\n      }\n" }]
+                "contentChanges": [{ "text": "`node Target {\n  `@ target\n}\n" }]
             }
         }),
         json!({ "jsonrpc": "2.0", "id": 2, "method": "shutdown", "params": null }),
@@ -150,7 +150,7 @@ fn publishes_diagnostics_and_returns_heading_symbols_over_stdio() {
 #[test]
 fn nests_anchors_and_tasks_under_their_containing_headings() {
     let uri = "file:///tmp/symbol-containment.plumb";
-    let source = "`# Project\n\n`node Note\n      {\n        `@ note\n      }\n\n`task Write parser\n      {\n        `@ write\n      }\n\n`## Section\n\n`node Inside\n      {\n        `@ inside\n      }\n";
+    let source = "`# Project\n\n`node Note {\n  `@ note\n}\n\n`task Write parser {\n  `@ write\n}\n\n`## Section\n\n`node Inside {\n  `@ inside\n}\n";
     let messages = [
         json!({
             "jsonrpc": "2.0", "id": 1, "method": "initialize",

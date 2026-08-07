@@ -444,7 +444,7 @@ mod tests {
 
     #[test]
     fn collects_task_facets_fields_dependencies_and_nesting() {
-        let source = "`task Write parser\n   {\n     `@ write\n     `: created 2026-07-20T09:00:00+08:00\n     `: due 2026-07-21T09:00:00+08:00\n     `: wait 2026-07-20T12:00:00+08:00\n     `: recur P1W\n     `: prev #old\n     `: depends #draft other notes.plumb#review third.plumb#done\n   }\n\n   `note Details\n\n   `task Nested task\n      {\n        `: done 2026-07-20T10:00:00+08:00\n      }\n";
+        let source = "`task Write parser {\n  `@ write\n  `: created 2026-07-20T09:00:00+08:00\n  `: due 2026-07-21T09:00:00+08:00\n  `: wait 2026-07-20T12:00:00+08:00\n  `: recur P1W\n  `: prev #old\n  `: depends #draft other notes.plumb#review third.plumb#done\n}\n\n   `note Details\n\n   `task Nested task {\n     `: done 2026-07-20T10:00:00+08:00\n   }\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
@@ -529,7 +529,8 @@ mod tests {
 
     #[test]
     fn attached_dependency_values_keep_exact_source_ranges() {
-        let source = "`task Review\n   {\n     `@ review\n     `: depends Project Plan.plumb#build #local\n   }\n";
+        let source =
+            "`task Review {\n  `@ review\n  `: depends Project Plan.plumb#build #local\n}\n";
         let parsed = plumb_core::parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let output = analyze_tasks(source, &parsed.syntax);
@@ -544,7 +545,7 @@ mod tests {
 
     #[test]
     fn reports_local_task_state_and_recurrence_diagnostics() {
-        let source = "`task Conflict\n   {\n     `: done 2026-07-20T09:00:00Z\n     `: canceled 2026-07-20T10:00:00Z\n   }\n`task Invalid recurrence\n   {\n     `: due not-a-date\n     `: recur P1M1D\n   }\n`task Invalid datetimes\n   {\n     `: created 2026-07-20T09:00:00Z\n     `: wait tomorrow\n     `: done later\n     `: canceled never\n   }\n";
+        let source = "`task Conflict {\n  `: done 2026-07-20T09:00:00Z\n  `: canceled 2026-07-20T10:00:00Z\n}\n`task Invalid recurrence {\n  `: due not-a-date\n  `: recur P1M1D\n}\n`task Invalid datetimes {\n  `: created 2026-07-20T09:00:00Z\n  `: wait tomorrow\n  `: done later\n  `: canceled never\n}\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
@@ -579,7 +580,7 @@ mod tests {
 
     #[test]
     fn parses_signed_task_priority_and_rejects_out_of_range_values() {
-        let source = "`task Maximum\n   {\n     `: priority 2147483647\n   }\n`task Deferred\n   {\n     `: priority -12\n   }\n`task Minimum\n   {\n     `: priority -2147483648\n   }\n`task Too large\n   {\n     `: priority 2147483648\n   }\n`task Too small\n   {\n     `: priority -2147483649\n   }\n`task Invalid\n   {\n     `: priority soon\n   }\n";
+        let source = "`task Maximum {\n  `: priority 2147483647\n}\n`task Deferred {\n  `: priority -12\n}\n`task Minimum {\n  `: priority -2147483648\n}\n`task Too large {\n  `: priority 2147483648\n}\n`task Too small {\n  `: priority -2147483649\n}\n`task Invalid {\n  `: priority soon\n}\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
@@ -607,7 +608,7 @@ mod tests {
     #[test]
     fn reports_missing_due_only_when_the_attribute_is_absent() {
         let source =
-            "`task Missing due\n   {\n     `: recur P1W\n   }\n`task Invalid due\n   {\n     `: due invalid\n     `: recur P1W\n   }\n";
+            "`task Missing due {\n  `: recur P1W\n}\n`task Invalid due {\n  `: due invalid\n  `: recur P1W\n}\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
@@ -642,7 +643,7 @@ mod tests {
 
     #[test]
     fn only_the_task_marker_creates_tasks() {
-        let source = "`note Not a task\n      {\n        `- task\n      }\n\n`task Work\n";
+        let source = "`note Not a task {\n  `- task\n}\n\n`task Work\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 

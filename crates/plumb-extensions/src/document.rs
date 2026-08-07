@@ -803,7 +803,7 @@ mod tests {
 
     #[test]
     fn only_shorthand_ids_create_anchors() {
-        let parsed = parse("`# Heading\n   {\n     `@ intro\n   }\n\n`## Pair only\n    {\n      `: id pair\n    }\n");
+        let parsed = parse("`# Heading {\n  `@ intro\n}\n\n`## Pair only {\n  `: id pair\n}\n");
         let output = analyze_document(&parsed.source, &parsed.syntax);
         assert_eq!(output.anchors.len(), 1);
         assert_eq!(output.anchors[0].id.value, "intro");
@@ -812,7 +812,7 @@ mod tests {
 
     #[test]
     fn verbatim_blocks_create_syntax_neutral_anchors() {
-        let parsed = parse("`text\"{`@[example]}\n  raw text\n");
+        let parsed = parse("`text\" {`@[example]}\n  raw text\n");
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let output = analyze_document(&parsed.source, &parsed.syntax);
         assert_eq!(output.anchors.len(), 1);
@@ -981,7 +981,7 @@ mod tests {
 
     #[test]
     fn diagnoses_invalid_autolink_targets_owners_and_conflicts() {
-        let source = "`->\"\"\n`->\"https://example.test/bad path\"\n`->\"https://example.test/%zz\"\n`->\"doc.plumb#one#two\"\n`->\"https://example.test\"{`:[to other]}\n`->\"https://example.test\"{`-[$]}\n`span[text]{`-[->]}\n\n`note head\n      {\n        `- ->\n      }\n\n`\"{`-[->]}\n  raw\n";
+        let source = "`->\"\"\n`->\"https://example.test/bad path\"\n`->\"https://example.test/%zz\"\n`->\"doc.plumb#one#two\"\n`->\"https://example.test\"{`:[to other]}\n`->\"https://example.test\"{`-[$]}\n`span[text]{`-[->]}\n\n`note head {\n  `- ->\n}\n\n`\" {`-[->]}\n  raw\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
@@ -1009,7 +1009,7 @@ mod tests {
 
     #[test]
     fn duplicate_ids_are_semantic_diagnostics() {
-        let parsed = parse("`node One\n      {\n        `@ same\n      }\n\n`other Two\n       {\n         `@ same\n       }\n");
+        let parsed = parse("`node One {\n  `@ same\n}\n\n`other Two {\n  `@ same\n}\n");
         assert!(parsed.is_valid());
         let output = analyze_document(&parsed.source, &parsed.syntax);
         assert_eq!(output.diagnostics[0].code, "anchor.duplicate-id");

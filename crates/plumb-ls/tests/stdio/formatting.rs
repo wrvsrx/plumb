@@ -45,7 +45,7 @@ fn whole_document_formatting_keeps_unchanged_blocks_out_of_edits() {
 #[test]
 fn whole_document_formatting_handles_repeated_marker_lines() {
     let uri = "file:///tmp/repeated-marker-format.plumb";
-    let source = "`task aaa bbb ccc ddd eee fff ggg hhh iii jjj kkk lll mmm nnn ooo ppp\n      {\n        `: created now\n      }\n\n       `note Detail\n\n`task Following\n      {\n        `: created later\n      }\n";
+    let source = "`task aaa bbb ccc ddd eee fff ggg hhh iii jjj kkk lll mmm nnn ooo ppp {\n  `: created now\n}\n\n       `note Detail\n\n`task Following {\n  `: created later\n}\n";
     let messages = [
         json!({
             "jsonrpc": "2.0", "id": 1, "method": "initialize",
@@ -166,7 +166,7 @@ fn apply_ascii_lsp_edits(source: &str, edits: &[serde_json::Value]) -> String {
 #[test]
 fn range_formatting_formats_only_complete_contained_blocks() {
     let uri = "file:///tmp/range-format.plumb";
-    let source = "`node Parent\n\n      `task One\n            {\n              `@ 一\n            }\n      `task Two\n            {\n              `@ 二\n            }\n\n`# Following\n";
+    let source = "`node Parent\n\n      `task One {\n        `@ 一\n      }\n      `task Two {\n        `@ 二\n      }\n\n`# Following\n";
     let messages = [
         json!({
             "jsonrpc": "2.0", "id": 1, "method": "initialize",
@@ -245,10 +245,7 @@ fn range_formatting_formats_only_complete_contained_blocks() {
         edits[0]["range"]["start"],
         json!({ "line": 2, "character": 6 })
     );
-    assert_eq!(
-        edits[0]["newText"],
-        "`task One\n      {\n        `@ 一\n      }"
-    );
+    assert_eq!(edits[0]["newText"], "`task One {\n  `@ 一\n}");
     assert_eq!(response(&output, 3)["result"], json!([]));
     assert_eq!(response(&output, 4)["result"], json!([]));
     assert!(response(&output, 5)["result"].is_null());
@@ -257,7 +254,7 @@ fn range_formatting_formats_only_complete_contained_blocks() {
 #[test]
 fn range_formatting_returns_multiple_maximal_groups() {
     let uri = "file:///tmp/range-format-groups.plumb";
-    let source = "`node First\n\n       `task One\n             {\n               `@ one\n             }\n\n`node Second\n\n       `task Two\n             {\n               `@ two\n             }\n";
+    let source = "`node First\n\n       `task One {\n         `@ one\n       }\n\n`node Second\n\n       `task Two {\n         `@ two\n       }\n";
     let messages = [
         json!({
             "jsonrpc": "2.0", "id": 1, "method": "initialize",
@@ -292,13 +289,10 @@ fn range_formatting_returns_multiple_maximal_groups() {
         edits[0]["range"]["start"],
         json!({ "line": 2, "character": 7 })
     );
-    assert_eq!(
-        edits[0]["newText"],
-        "`task One\n      {\n        `@ one\n      }"
-    );
+    assert_eq!(edits[0]["newText"], "`task One {\n  `@ one\n}");
     assert_eq!(
         edits[1]["range"]["start"],
-        json!({ "line": 7, "character": 0 })
+        json!({ "line": 6, "character": 0 })
     );
     assert!(edits[1]["newText"]
         .as_str()

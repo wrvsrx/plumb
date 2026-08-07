@@ -540,8 +540,10 @@ mod tests {
 
     #[test]
     fn exports_heading_paragraph_and_generic_block() {
-        let document =
-            export("`# Intro\n   {\n     `@ intro\n   }\n\nParagraph text.\n\n`note Remember this.\n      {\n        `- tip\n      }\n").unwrap();
+        let document = export(
+            "`# Intro {\n  `@ intro\n}\n\nParagraph text.\n\n`note Remember this. {\n  `- tip\n}\n",
+        )
+        .unwrap();
         let blocks = document["blocks"].as_array().unwrap();
         assert_eq!(blocks[0]["t"], "Header");
         assert_eq!(blocks[1]["t"], "Para");
@@ -550,7 +552,7 @@ mod tests {
 
     #[test]
     fn exports_adjacent_and_nested_items_as_bullet_lists() {
-        let source = "`- One\n\n`task Two\n      {\n        `@ two\n        `: priority -5\n      }\n\n      `- Nested\n\nParagraph.\n";
+        let source = "`- One\n\n`task Two {\n  `@ two\n  `: priority -5\n}\n\n      `- Nested\n\nParagraph.\n";
         let document = export(source).unwrap();
         let blocks = document["blocks"].as_array().unwrap();
 
@@ -575,7 +577,7 @@ mod tests {
 
     #[test]
     fn exports_visible_task_state_markers() {
-        let source = "`task Open\n      {\n      }\n`task Done\n      {\n        `: done 2026-07-25T15:00:00+08:00\n      }\n`task Canceled\n      {\n        `: canceled 2026-07-25T15:00:00+08:00\n      }\n`task Conflicted\n      {\n        `: done 2026-07-25T15:00:00+08:00\n        `: canceled 2026-07-25T15:01:00+08:00\n      }\n";
+        let source = "`task Open {\n}\n`task Done {\n  `: done 2026-07-25T15:00:00+08:00\n}\n`task Canceled {\n  `: canceled 2026-07-25T15:00:00+08:00\n}\n`task Conflicted {\n  `: done 2026-07-25T15:00:00+08:00\n  `: canceled 2026-07-25T15:01:00+08:00\n}\n";
         let document = export(source).unwrap();
         let items = document["blocks"][0]["c"].as_array().unwrap();
         let markers = items
@@ -618,7 +620,7 @@ mod tests {
 
     #[test]
     fn exports_quote_head_children_nesting_and_attributes() {
-        let source = "`> Quoted head\n\n   Quoted body.\n\n   `> Nested quote\n      {\n        `@ nested\n        `- source\n        `: cite book\n      }\n\n`quote Generic\n";
+        let source = "`> Quoted head\n\n   Quoted body.\n\n   `> Nested quote {\n     `@ nested\n     `- source\n     `: cite book\n   }\n\n`quote Generic\n";
         let document = export(source).unwrap();
         let blocks = document["blocks"].as_array().unwrap();
 
@@ -651,7 +653,7 @@ mod tests {
 
     #[test]
     fn exports_adjacent_definitions_and_preserves_definition_attributes() {
-        let source = "`: Term\n\n   Definition.\n\n`: Tagged\n   {\n     `@ tag\n     `- kind\n     `: key value\n   }\n\n   `- First\n   `- Second\n";
+        let source = "`: Term\n\n   Definition.\n\n`: Tagged {\n  `@ tag\n  `- kind\n  `: key value\n}\n\n   `- First\n   `- Second\n";
         let document = export(source).unwrap();
         let blocks = document["blocks"].as_array().unwrap();
 
@@ -784,10 +786,8 @@ mod tests {
 
     #[test]
     fn exports_standard_div_and_span_without_redundant_markers() {
-        let document = export(
-            "`div Body\n     {\n       `@ box\n       `- note\n     }\n\n`span[text]{`-[mark]}\n",
-        )
-        .unwrap();
+        let document =
+            export("`div Body {\n  `@ box\n  `- note\n}\n\n`span[text]{`-[mark]}\n").unwrap();
         let div_attrs = &document["blocks"][0]["c"][0];
         assert_eq!(div_attrs, &json!(["box", ["note"], []]));
         let span_attrs = &document["blocks"][1]["c"][0]["c"][0];
@@ -827,7 +827,7 @@ mod tests {
 
     #[test]
     fn exports_inline_and_display_math_with_attribute_wrappers() {
-        let source = "Inline `$\"x^2\". Wrapped `$\"y\"{`@[inline] `-[keep] `:[key value]}.\n\n`$\"\n  E = mc^2\n`$\"{`@[display] `-[numbered]}\n  a = b\n";
+        let source = "Inline `$\"x^2\". Wrapped `$\"y\"{`@[inline] `-[keep] `:[key value]}.\n\n`$\"\n  E = mc^2\n`$\" {`@[display] `-[numbered]}\n  a = b\n";
         let document = export(source).unwrap();
         assert_eq!(document["blocks"][0]["c"][2]["t"], "Math");
         assert_eq!(document["blocks"][0]["c"][2]["c"][0]["t"], "InlineMath");

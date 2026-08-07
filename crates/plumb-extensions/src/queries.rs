@@ -1307,7 +1307,7 @@ mod tests {
             construct_completion_context(&verbatim, verbatim_offset),
             None
         );
-        let attribute = parse("`node Head\n      {\n        `: key ``\n      }\n");
+        let attribute = parse("`node Head {\n  `: key ``\n}\n");
         let attribute_offset = attribute.source.rfind("``").unwrap() + 1;
         assert_eq!(
             construct_completion_context(&attribute, attribute_offset),
@@ -1317,8 +1317,7 @@ mod tests {
 
     #[test]
     fn completes_standard_attributes_from_recovered_owner_context() {
-        let (task, cursor) =
-            strip_cursor("`task Work\n      {\n        `: created now\n        `: pr|\n      }\n");
+        let (task, cursor) = strip_cursor("`task Work {\n  `: created now\n  `: pr|\n}\n");
         let context = attribute_completion_context(&parse(&task), cursor).unwrap();
         assert_eq!(context.replace, task.find("`: pr").unwrap()..cursor);
         assert_eq!(
@@ -1342,7 +1341,7 @@ mod tests {
 
     #[test]
     fn completes_attached_elements_with_the_owners_ordinary_syntax() {
-        let (task, cursor) = strip_cursor("`task Work\n      {\n        `: pr|\n      }\n");
+        let (task, cursor) = strip_cursor("`task Work {\n  `: pr|\n}\n");
         let context = attribute_completion_context(&parse(&task), cursor).unwrap();
         assert_eq!(context.replace, task.find("`: pr").unwrap()..cursor);
         assert_eq!(
@@ -1367,7 +1366,7 @@ mod tests {
     #[test]
     fn identifies_task_dependency_tokens_and_preserves_other_references() {
         let (source, cursor) = strip_cursor(
-            "`task Review\n      {\n        `@ review\n        `: depends #done Project Plan.plumb#dr|aft #later\n      }\n",
+            "`task Review {\n  `@ review\n  `: depends #done Project Plan.plumb#dr|aft #later\n}\n",
         );
         let current_start = source.find("Project Plan.plumb#draft").unwrap();
         let context = task_dependency_completion_context(&parse(&source), cursor).unwrap();
@@ -1388,8 +1387,7 @@ mod tests {
             ]
         );
 
-        let (empty, cursor) =
-            strip_cursor("`task Review\n      {\n        `: depends #done |\n      }\n");
+        let (empty, cursor) = strip_cursor("`task Review {\n  `: depends #done |\n}\n");
         let context = task_dependency_completion_context(&parse(&empty), cursor).unwrap();
         assert_eq!(context.replace, cursor..cursor);
         assert_eq!(context.query, "");
@@ -1400,15 +1398,13 @@ mod tests {
             }]
         );
 
-        let (non_task, cursor) =
-            strip_cursor("`- Plain item\n   {\n     `: depends #dr|aft\n   }\n");
+        let (non_task, cursor) = strip_cursor("`- Plain item {\n  `: depends #dr|aft\n}\n");
         assert_eq!(
             task_dependency_completion_context(&parse(&non_task), cursor),
             None
         );
 
-        let (recovered, cursor) =
-            strip_cursor("`task Review\n      {\n        `: depends #dr|aft\n");
+        let (recovered, cursor) = strip_cursor("`task Review {\n  `: depends #dr|aft\n");
         let context = task_dependency_completion_context(&parse(&recovered), cursor).unwrap();
         assert_eq!(context.query, "#dr");
         assert_eq!(&recovered[context.replace], "#draft");
@@ -1428,8 +1424,7 @@ mod tests {
         assert_eq!(context.completions[0].label, "tex");
         assert_eq!(context.completions[0].new_text, "tex");
 
-        let (quoted, cursor) =
-            strip_cursor("`task Work\n      {\n        `: due 2026-|\n      }\n");
+        let (quoted, cursor) = strip_cursor("`task Work\n{\n  `: due 2026-|\n}\n");
         assert_eq!(attribute_completion_context(&parse(&quoted), cursor), None);
     }
 
