@@ -1213,12 +1213,39 @@ impl LanguageServer for ServerState {
                 let offset = position_to_offset(&entry.parsed.source, position.position);
                 if let Some(context) = construct_completion_context(&entry.parsed, offset) {
                     let timestamp = Local::now().to_rfc3339_opts(SecondsFormat::Secs, false);
-                    return Some(construct_completion_items(
+                    let include_link_labels =
+                        matches!(context, ConstructCompletionContext::Link { .. });
+                    let mut items = construct_completion_items(
                         &entry.parsed.source,
                         context,
                         self.supports_completion_snippets,
                         &timestamp,
-                    ));
+                    );
+                    if include_link_labels {
+                        if let Some(context) = link_completion_context(&entry.parsed, offset) {
+                            items.extend(
+                                self.workspace
+                                    .complete_link(&path, &context)
+                                    .into_iter()
+                                    .map(|candidate| CompletionItem {
+                                        label: candidate.label,
+                                        kind: Some(CompletionItemKind::FILE),
+                                        detail: Some(candidate.detail),
+                                        text_edit: Some(CompletionTextEdit::Edit(
+                                            LspTextEdit::new(
+                                                byte_range_to_lsp(
+                                                    &entry.parsed.source,
+                                                    &candidate.replace,
+                                                ),
+                                                candidate.new_text,
+                                            ),
+                                        )),
+                                        ..CompletionItem::default()
+                                    }),
+                            );
+                        }
+                    }
+                    return Some(items);
                 }
                 if let Some(context) = task_dependency_completion_context(&entry.parsed, offset) {
                     let candidates = self.workspace.complete_task_dependency(&path, &context);

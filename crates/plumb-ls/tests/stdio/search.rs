@@ -78,6 +78,10 @@ fn workspace_index_does_not_follow_directory_symlinks() {
     );
     let items = response(&output, 2)["result"].as_array().unwrap();
     assert_eq!(
+        items.iter().filter(|item| item["label"] == "Link").count(),
+        1
+    );
+    assert_eq!(
         items
             .iter()
             .filter(|item| item["label"] == "Target")
