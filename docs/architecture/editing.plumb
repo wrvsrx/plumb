@@ -47,8 +47,10 @@ group 保留其 form，formatter 不删除 group。closing brace line 只允许 
 
 verbatim block source 可以用 `"N" 个 opening quotes 声明 `"N" 个 ASCII-space structural margin，但
 canonical formatter 一律输出 `"N = 1"。formatter 同步重写每条非空 raw-body line 的 structural prefix，
-不得改变 typed raw payload 的任何 byte；完全空行仍不添加 structural margin。quote count 不作为需要保留的
-delimiter strength，因为 verbatim block 没有 closing-delimiter collision。
+不得改变 typed raw payload 的任何 byte。内部 empty payload line 保持无缩进；trailing empty payload line
+加一个 structural space，以免被解析为 layout。非终端 verbatim 与后续 block 之间输出一个无缩进 blank
+separator；终端 verbatim 在 EOF 不添加 layout blank，并保留 payload 是否带 final newline。quote count
+不作为需要保留的 delimiter strength，因为 verbatim block 没有 closing-delimiter collision。
 
 `# 4. Block mutations
 

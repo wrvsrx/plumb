@@ -1773,7 +1773,7 @@ fn autolink_construct_template() -> ConstructTemplate {
         label: "Autolink",
         detail: "plumb autolink",
         snippet: "`->\"${1:path}\"".to_string(),
-        plain: "`->\"\"".to_string(),
+        plain: "`->\"[]\"".to_string(),
     }
 }
 

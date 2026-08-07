@@ -5,19 +5,3 @@
 本页只记录可以直接实施和验收的工作。方向、约束和 deferred design 继续放在
 `->[roadmap]{`:[to roadmap.plumb]}；已经结束的任务及其验收记录保存在
 `->[completed tasks]{`:[to completed-tasks.plumb]}。
-
-`task 实现统一 body indentation 与 quote-count verbatim margin {
- `@ unified-body-indentation
-}
-
- `note 更新 strict parser，使 next-line attached-group opener 建立 owner body column，后续 children 必须
-       与 opener/close 同列；保持 syntax 接受任意更深的合法 body column，并补齐 mismatch、partial dedent、
-       deferred-head continuation 与 group-content 独立 column 的 normative corpus。
- `note 将 verbatim block dispatch 改为读取完整 quote run，以 quote count 作为 ASCII-space raw-body margin；
-       multiple quotes 后只有 bracket envelope 可以形成 inline verbatim，single-quote compact inline 只保留
-       nonempty payload sugar，并覆盖空 inline、空 block、attached group、tabs 与不足 margin 的 recovery。
- `note 更新 formatter，将普通 body、deferred head、next-line group opener/close/children 和同行 expanded
-       group content canonicalize 为每层加一；verbatim block canonicalize 为一个 opening quote 和一个
-       structural space，同时保证 typed raw payload 逐 byte 不变与 formatter fixed point。
- `note 同步 tree-sitter grammar、typed/lossless views、guide、playground、bundled skill 和迁移示例；运行
-       strict corpus、formatter、project documents、LSP/CLI regressions 与 workspace full gate。

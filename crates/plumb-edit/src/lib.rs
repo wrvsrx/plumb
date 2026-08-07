@@ -619,7 +619,7 @@ fn render_attached_attribute_slot(
                 .join(" ")
         ),
         AttachedContent::Blocks(_) => {
-            let item_indent = " ".repeat(indent + 2);
+            let item_indent = " ".repeat(indent + 1);
             let close_indent = " ".repeat(indent);
             if items.is_empty() {
                 format!("{{{newline}{close_indent}}}")
@@ -692,7 +692,7 @@ fn render_owned_block(block: &OwnedBlock, indent: usize, output: &mut String) {
                     output.push(' ');
                 }
             }
-            let continuation_indent = if marker.is_some() { indent + 2 } else { indent };
+            let continuation_indent = if marker.is_some() { indent + 1 } else { indent };
             render_owned_inlines(head, marker.is_some(), continuation_indent, output);
             if attributes.present {
                 output.push(' ');
@@ -709,7 +709,7 @@ fn render_owned_block(block: &OwnedBlock, indent: usize, output: &mut String) {
                 } else {
                     output.push_str("\n\n");
                 }
-                render_owned_blocks(children, indent + 2, output);
+                render_owned_blocks(children, indent + 1, output);
             }
         }
         OwnedBlock::Verbatim {
@@ -731,7 +731,7 @@ fn render_owned_block(block: &OwnedBlock, indent: usize, output: &mut String) {
                         output.push('\n');
                     }
                     if !line.is_empty() {
-                        output.extend(std::iter::repeat_n(' ', indent + 2));
+                        output.extend(std::iter::repeat_n(' ', indent + 1));
                         output.push_str(line);
                     }
                 }

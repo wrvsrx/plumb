@@ -98,7 +98,7 @@ fn inserts_metadata_code_action_only_for_valid_documents_without_metadata() {
     assert_eq!(change["edits"][0]["range"]["start"]["line"], 0);
     assert_eq!(change["edits"][0]["range"]["start"]["character"], 0);
     let new_text = change["edits"][0]["newText"].as_str().unwrap();
-    let prefix = "{\n  `: title metadata-action\n  `: created ";
+    let prefix = "{\n `: title metadata-action\n `: created ";
     let created = new_text
         .strip_prefix(prefix)
         .and_then(|suffix| suffix.strip_suffix("\n}\n\n"))
@@ -213,7 +213,7 @@ fn inserts_metadata_into_an_empty_document_over_stdio() {
         json!({ "line": 0, "character": 0 })
     );
     let generated = change["edits"][0]["newText"].as_str().unwrap();
-    assert!(generated.starts_with("{\n  `: title empty-note\n  `: created "));
+    assert!(generated.starts_with("{\n `: title empty-note\n `: created "));
     assert_eq!(plumb_format::format(generated).unwrap(), generated);
 }
 
@@ -408,12 +408,12 @@ fn converts_event_shorthand_with_a_refactor_action() {
     );
     assert!(!replacement.contains("`- event"), "{replacement}");
     assert!(
-        replacement.contains("  `: date 2026-05-21\n"),
+        replacement.contains(" `: date 2026-05-21\n"),
         "{replacement}"
     );
     let timezone = Local::now().fixed_offset().format("%:z").to_string();
     assert!(
-        replacement.contains(&format!("  `: timezone {timezone}\n")),
+        replacement.contains(&format!(" `: timezone {timezone}\n")),
         "{replacement}"
     );
     assert!(!replacement.contains("#e0001"), "{replacement}");

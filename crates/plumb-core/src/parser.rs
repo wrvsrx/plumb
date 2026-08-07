@@ -555,9 +555,16 @@ impl Parser<'_> {
         }
         let kind_end = take_name_like(self.source, after, line.content_end, marker_char);
         if kind_end < line.content_end && self.source.as_bytes()[kind_end] == b'"' {
-            let tail = kind_end + 1;
+            let quote_count = self.source[kind_end..line.content_end]
+                .bytes()
+                .take_while(|byte| *byte == b'"')
+                .count();
+            let tail = kind_end + quote_count;
             if tail == line.content_end {
                 return Some(BlockDispatch::Verbatim);
+            }
+            if self.source.as_bytes()[tail] == b'[' {
+                return None;
             }
             let mut group_start = tail;
             while group_start < line.content_end
@@ -565,10 +572,13 @@ impl Parser<'_> {
             {
                 group_start += 1;
             }
-            return (group_start > tail
-                && (self.source.as_bytes().get(group_start) == Some(&b'{')
-                    || !self.source[tail..line.content_end].contains('"')))
-            .then_some(BlockDispatch::Verbatim);
+            if group_start > tail && self.source.as_bytes().get(group_start) == Some(&b'{') {
+                return Some(BlockDispatch::Verbatim);
+            }
+            if quote_count == 1 && self.source[tail..line.content_end].contains('"') {
+                return None;
+            }
+            return Some(BlockDispatch::Verbatim);
         }
         if kind_end < line.content_end && self.source.as_bytes()[kind_end] == b'[' {
             return None;
@@ -667,6 +677,7 @@ impl Parser<'_> {
         let mut saw_blank = false;
         let mut body_indent = None;
         let mut next_line_attached = None;
+        let mut attached_body_indent = None;
 
         while header_attached.is_none() && next < self.lines.0.len() {
             let candidate = self.lines.0[next].clone();
@@ -741,6 +752,7 @@ impl Parser<'_> {
                 self.parse_expanded_attached(opener_index, group_start, group_indent, true);
             attrs = group;
             next = after_group;
+            attached_body_indent = Some(group_indent);
         }
         if let Some(consumed) = self.line_index_at_offset(head.range.end.saturating_sub(1)) {
             next = next.max(consumed + 1);
@@ -751,7 +763,13 @@ impl Parser<'_> {
             child_start += 1;
         }
         let child = (child_start < self.lines.0.len() && self.lines.0[child_start].indent > indent)
-            .then(|| (child_start, self.lines.0[child_start].indent, false));
+            .then(|| {
+                (
+                    child_start,
+                    attached_body_indent.unwrap_or(self.lines.0[child_start].indent),
+                    false,
+                )
+            });
         let end = next
             .checked_sub(1)
             .and_then(|i| self.lines.0.get(i).map(|line| line.end))
@@ -780,7 +798,12 @@ impl Parser<'_> {
         let attr_start = introducer + 1;
         let kind_end = take_name_like(self.source, attr_start, line.content_end, marker_char);
         let kind_range = attr_start..kind_end;
-        let after_quote = kind_end + 1;
+        let quote_count = self.source[kind_end..line.content_end]
+            .bytes()
+            .take_while(|byte| *byte == b'"')
+            .count();
+        debug_assert!(quote_count > 0);
+        let after_quote = kind_end + quote_count;
         let mut group_start = after_quote;
         while group_start < line.content_end
             && matches!(self.source.as_bytes()[group_start], b' ' | b'\t')
@@ -811,44 +834,80 @@ impl Parser<'_> {
         } else {
             (Attributes::default(), index + 1)
         };
-        if group_start < line.content_end && self.source.as_bytes()[group_start] != b'{' {
+        if group_start < line.content_end
+            && (group_start == after_quote || self.source.as_bytes()[group_start] != b'{')
+        {
             self.diagnostics.push(Diagnostic::error(
                 "syntax.invalid-verbatim-block-dispatch",
                 "verbatim block header must end after its attached group",
                 introducer..line.content_end,
             ));
         }
-        let body_indent = indent + 2;
+        let body_indent = indent + quote_count;
         let mut next = body_start;
         let mut text = String::new();
         let text_start = self.lines.0.get(next).map_or(line.end, |next| next.start);
         let mut text_end = text_start;
         while next < self.lines.0.len() {
             let candidate = &self.lines.0[next];
+            if candidate.blank {
+                let mut after_blank = next;
+                while self.lines.0.get(after_blank).is_some_and(|line| line.blank) {
+                    after_blank += 1;
+                }
+                let blank_run_is_internal = self
+                    .lines
+                    .0
+                    .get(after_blank)
+                    .is_some_and(|line| line.indent >= body_indent);
+                if blank_run_is_internal {
+                    while next < after_blank {
+                        let blank = &self.lines.0[next];
+                        text.push_str(&self.source[blank.content_end..blank.end]);
+                        text_end = blank.end;
+                        next += 1;
+                    }
+                    continue;
+                }
+                while next < after_blank {
+                    let blank = &self.lines.0[next];
+                    if !has_space_prefix(self.source, blank.start, body_indent) {
+                        break;
+                    }
+                    text.push_str(&self.source[blank.start + body_indent..blank.content_end]);
+                    text.push_str(&self.source[blank.content_end..blank.end]);
+                    text_end = blank.end;
+                    next += 1;
+                }
+                if next < after_blank {
+                    break;
+                }
+                continue;
+            }
             if !candidate.blank && candidate.indent < body_indent {
                 if candidate.indent > indent {
                     self.diagnostics.push(Diagnostic::error(
                         "syntax.short-verbatim-indent",
-                        format!("verbatim payload requires at least {body_indent} spaces"),
+                        format!(
+                            "verbatim payload requires {quote_count} structural spaces after the owner indentation"
+                        ),
                         candidate.start..candidate.start + candidate.indent,
                     ));
                 }
                 break;
             }
-            if candidate.blank {
-                text.push_str(&self.source[candidate.content_end..candidate.end]);
+            let content = candidate.start + body_indent;
+            if content > candidate.content_end {
+                self.diagnostics.push(Diagnostic::error(
+                    "syntax.short-verbatim-indent",
+                    format!(
+                        "verbatim payload requires {quote_count} structural spaces after the owner indentation"
+                    ),
+                    candidate.start..candidate.content_end,
+                ));
             } else {
-                let content = candidate.start + body_indent;
-                if content > candidate.content_end {
-                    self.diagnostics.push(Diagnostic::error(
-                        "syntax.short-verbatim-indent",
-                        format!("verbatim payload requires at least {body_indent} spaces"),
-                        candidate.start..candidate.content_end,
-                    ));
-                } else {
-                    text.push_str(&self.source[content..candidate.content_end]);
-                    text.push_str(&self.source[candidate.content_end..candidate.end]);
-                }
+                text.push_str(&self.source[content..candidate.content_end]);
+                text.push_str(&self.source[candidate.content_end..candidate.end]);
             }
             text_end = candidate.end;
             next += 1;
@@ -859,6 +918,7 @@ impl Parser<'_> {
                 opener_range: introducer..after_quote,
                 kind: self.source[kind_range.clone()].to_string(),
                 kind_range,
+                quote_count,
                 attrs,
                 text,
                 text_range: text_start..text_end,
@@ -1146,11 +1206,21 @@ impl Parser<'_> {
                 continue;
             }
 
-            if quote_count > 0 {
+            if quote_count == 1 {
                 let payload_start = position.offset + 1;
                 if let Some(relative_close) = self.source[payload_start..end].find('"') {
                     let close = payload_start + relative_close;
                     let after_close = close + 1;
+                    if close == payload_start {
+                        self.diagnostics.push(Diagnostic::error(
+                            "syntax.invalid-inline-dispatch",
+                            "empty inline verbatim must use a bracket envelope",
+                            introducer..after_close,
+                        ));
+                        position.offset = after_close;
+                        frames.last_mut().unwrap().text_start = after_close;
+                        continue;
+                    }
                     let (attrs, after_attrs) =
                         if after_close < end && self.source.as_bytes()[after_close] == b'{' {
                             self.parse_inline_postfix(segments, &mut position, after_close, end)
@@ -1590,6 +1660,13 @@ fn next_token_end(source: &str, mut cursor: usize, limit: usize) -> usize {
     cursor
 }
 
+fn has_space_prefix(source: &str, start: usize, width: usize) -> bool {
+    source
+        .as_bytes()
+        .get(start..start.saturating_add(width))
+        .is_some_and(|prefix| prefix.iter().all(|byte| *byte == b' '))
+}
+
 fn block_attached_start(source: &str, start: usize, end: usize) -> Option<(usize, usize)> {
     let mut cursor = start;
     let mut inline_depth = 0usize;
@@ -1818,7 +1895,7 @@ mod tests {
 
     #[test]
     fn parses_verbatim_block_with_structural_attached_opener() {
-        let source = "`rust\" {`@[example]}\n  fn main() {\n      println!(\"hi\");\n  }\n";
+        let source = "`rust\" {`@[example]}\n fn main() {\n     println!(\"hi\");\n }\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let Block::Verbatim(block) = &parsed.syntax.blocks[0] else {
@@ -1853,7 +1930,7 @@ mod tests {
 
     #[test]
     fn parses_attached_groups_on_marked_and_verbatim_blocks() {
-        let source = "`- Work {\n  `- task\n  `@ write\n  `: created 2026-07-20T09:00:00+08:00\n}\n\n`tex\" {`-[$] `@[equation]}\n  E = mc^2\n";
+        let source = "`- Work {\n  `- task\n  `@ write\n  `: created 2026-07-20T09:00:00+08:00\n}\n\n`tex\" {`-[$] `@[equation]}\n E = mc^2\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
@@ -1876,7 +1953,7 @@ mod tests {
 
     #[test]
     fn block_attached_groups_allow_compact_and_brace_aligned_closing_delimiters() {
-        let source = "`- Work {\n  `- task\n  `@ write\n}\n\n`text\"\n  payload\n`x {\n  `- class\n}\n\n  `child Nested\n";
+        let source = "`- Work {\n  `- task\n  `@ write\n}\n\n`text\"\n payload\n`x {\n  `- class\n}\n\n  `child Nested\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
@@ -2072,13 +2149,14 @@ mod tests {
     }
 
     #[test]
-    fn parses_verbatim_block_with_fixed_two_column_margin() {
-        let parsed = parse("`rust\"\n  fn main() {}\n    indented\nnext\n");
+    fn quote_count_declares_the_verbatim_block_margin() {
+        let parsed = parse("`rust\"\"\n  fn main() {}\n    indented\nnext\n");
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let Block::Verbatim(block) = &parsed.syntax.blocks[0] else {
             panic!("expected verbatim block");
         };
         assert_eq!(block.kind, "rust");
+        assert_eq!(block.quote_count, 2);
         assert_eq!(block.text, "fn main() {}\n  indented\n");
         assert!(matches!(parsed.syntax.blocks[1], Block::Parsed(_)));
     }
@@ -2219,7 +2297,7 @@ mod tests {
     #[test]
     fn parses_empty_and_verbatim_expanded_groups_and_brace_escapes() {
         let parsed = parse(
-            "`x {}\n`x Head {\n}\n`rust\" {\n  `@ code\n}\n\n  payload\nText `span[x]{literal `{ and `} braces}\n",
+            "`x {}\n`x Head {\n}\n`rust\" {\n  `@ code\n}\n\n payload\nText `span[x]{literal `{ and `} braces}\n",
         );
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let Block::Verbatim(verbatim) = &parsed.syntax.blocks[2] else {
@@ -2271,7 +2349,7 @@ mod tests {
             }));
         }
 
-        let verbatim = parse("`rust\"\n  {\n  raw\n");
+        let verbatim = parse("`rust\"\n {\n raw\n");
         assert!(verbatim.is_valid(), "{:?}", verbatim.diagnostics);
         let Block::Verbatim(verbatim) = &verbatim.syntax.blocks[0] else {
             panic!("expected verbatim block");
@@ -2292,6 +2370,36 @@ mod tests {
             task.mark.as_ref().unwrap().attrs.value("created"),
             Some("now")
         );
+    }
+
+    #[test]
+    fn trailing_verbatim_blank_lines_require_the_declared_margin() {
+        let parsed = parse("`text\"\"\n  code\n  \n\n`note Next\n");
+        assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
+        let Block::Verbatim(verbatim) = &parsed.syntax.blocks[0] else {
+            panic!("expected verbatim block");
+        };
+        assert_eq!(verbatim.text, "code\n\n");
+        assert_eq!(parsed.syntax.blocks.len(), 2);
+
+        let internal = parse("`text\"\"\n  first\n\n  second\n");
+        let Block::Verbatim(verbatim) = &internal.syntax.blocks[0] else {
+            panic!("expected verbatim block");
+        };
+        assert_eq!(verbatim.text, "first\n\nsecond\n");
+    }
+
+    #[test]
+    fn next_line_group_column_is_the_following_child_column() {
+        let valid = parse("`task Work\n {\n  `@ work\n }\n `note Child\n");
+        assert!(valid.is_valid(), "{:?}", valid.diagnostics);
+
+        let invalid = parse("`task Work\n  {\n   `@ work\n  }\n `note Child\n");
+        assert!(!invalid.is_valid());
+        assert!(invalid
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == "syntax.partial-indent"));
     }
 
     #[test]

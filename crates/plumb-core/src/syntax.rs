@@ -171,6 +171,7 @@ pub struct VerbatimBlock {
     pub opener_range: SourceRange,
     pub kind: String,
     pub kind_range: SourceRange,
+    pub quote_count: usize,
     pub attrs: Attributes,
     pub text: String,
     pub text_range: SourceRange,

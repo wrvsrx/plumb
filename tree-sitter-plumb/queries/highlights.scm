@@ -19,8 +19,7 @@
   "{" @punctuation.bracket
   "}" @punctuation.bracket)
 
-(verbatim_block
-  open: "\"" @punctuation.delimiter)
+(verbatim_open) @punctuation.delimiter
 
 (verbatim_kind) @label
 

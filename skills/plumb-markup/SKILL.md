@@ -114,7 +114,7 @@ Use `file[Demo video]{`:[src static/demo.mp4]} for a file attachment with fallba
 Use `"cargo test" for inline raw text.
 
 `rust"
-  fn main() {}
+ fn main() {}
 ```
 
 Use `-` for bullet-list items, `.` for ordered-list items, `task` and `event`

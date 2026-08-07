@@ -47,7 +47,7 @@ fn exposes_the_unified_command_surface() {
     assert!(formatted.status.success());
     assert_eq!(
         String::from_utf8(formatted.stdout).unwrap(),
-        "`meta\n `: title\n\n    Unified command\n"
+        "`meta\n `: title\n\n  Unified command\n"
     );
 
     let exported = run_with_stdin(&["export"], "Paragraph.\n");
@@ -259,7 +259,7 @@ fn discovers_workspace_markers_and_applies_ignore_files() {
 
 #[test]
 fn round_trips_the_exported_standard_profile_through_import() {
-    let source = "{\n  `: title Import test\n}\n\n`# Intro {\n  `@ intro\n}\n\nParagraph with `*[emphasis], `![strong], `=[mark], `~[strike], `^[super], `_[sub], and `->[a link]{`:[to other.plumb#id]}.\n\n`> Quoted {\n  `@ quote\n  `- source\n}\n\n`task Item {\n  `@ task\n  `: created 2026-07-23T17:00:00+08:00\n}\n\n`rust\" {`@[code]}\n  fn main() {}\n";
+    let source = "{\n  `: title Import test\n}\n\n`# Intro {\n  `@ intro\n}\n\nParagraph with `*[emphasis], `![strong], `=[mark], `~[strike], `^[super], `_[sub], and `->[a link]{`:[to other.plumb#id]}.\n\n`> Quoted {\n  `@ quote\n  `- source\n}\n\n`task Item {\n  `@ task\n  `: created 2026-07-23T17:00:00+08:00\n}\n\n`rust\"\" {`@[code]}\n  fn main() {}\n";
     let first = run_with_stdin(&["export"], source);
     assert!(
         first.status.success(),

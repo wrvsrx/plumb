@@ -74,16 +74,17 @@ inline verbatim 适合 code、路径和其他不需要 inline parsing 的内容�
 引号数量决定 closing delimiter 的强度。只有 payload 中出现较短 closing spelling 时才增加
 引号。
 
-verbatim block 以可选 kind 与 opening quote 开始，payload 固定比 opener 多缩进两个空格；这是
-core syntax rule，不使用 marked block 的 hanging alignment：
+verbatim block 以可选 kind 与一个或多个 opening quotes 开始；quote count 声明 raw payload 的
+ASCII-space structural margin。通常只写一个 quote 和一个空格：
 
 `plumb"
   `rust"
-    fn main() {
-        println!("hello");
-    }
+   fn main() {
+       println!("hello");
+   }
 
-结构缩进后的 payload bytes 会原样保留。verbatim block 没有 closing fence。
+结构缩进后的 payload bytes 会原样保留。内部空行可以完全空白；尾部空行只有带完整 structural margin
+才属于 payload，否则它是 block layout。verbatim block 没有 closing fence。
 
 `# Attached groups
 

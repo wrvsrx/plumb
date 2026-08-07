@@ -190,8 +190,8 @@ fn highlight_plumb(source: &str) -> String {
             }
             verbatim_margin = None;
         }
-        if verbatim_block_opener(trimmed) {
-            verbatim_margin = Some(indent + 2);
+        if let Some(quote_count) = verbatim_block_quote_count(trimmed) {
+            verbatim_margin = Some(indent + quote_count);
             lines.push(ansi(line, "36"));
         } else if Some(index) == metadata_line && trimmed == "{" {
             lines.push(ansi(line, "35"));
@@ -206,14 +206,23 @@ fn highlight_plumb(source: &str) -> String {
     lines.join("\n")
 }
 
-fn verbatim_block_opener(source: &str) -> bool {
+fn verbatim_block_quote_count(source: &str) -> Option<usize> {
     let Some(rest) = source.strip_prefix('`') else {
-        return false;
+        return None;
     };
     let Some((kind, suffix)) = rest.split_once('"') else {
-        return false;
+        return None;
     };
-    !kind.chars().any(char::is_whitespace) && (suffix.is_empty() || suffix.starts_with('{'))
+    if kind.chars().any(char::is_whitespace) {
+        return None;
+    }
+    let quote_count = 1 + suffix.bytes().take_while(|byte| *byte == b'"').count();
+    let suffix = &suffix[quote_count - 1..];
+    (suffix.is_empty()
+        || suffix
+            .strip_prefix([' ', '\t'])
+            .is_some_and(|tail| tail.trim_start_matches([' ', '\t']).starts_with('{')))
+    .then_some(quote_count)
 }
 
 fn ansi(text: &str, code: &str) -> String {

@@ -981,7 +981,7 @@ mod tests {
 
     #[test]
     fn diagnoses_invalid_autolink_targets_owners_and_conflicts() {
-        let source = "`->\"\"\n`->\"https://example.test/bad path\"\n`->\"https://example.test/%zz\"\n`->\"doc.plumb#one#two\"\n`->\"https://example.test\"{`:[to other]}\n`->\"https://example.test\"{`-[$]}\n`span[text]{`-[->]}\n\n`note head {\n  `- ->\n}\n\n`\" {`-[->]}\n  raw\n";
+        let source = "`->\"[]\"\n`->\"https://example.test/bad path\"\n`->\"https://example.test/%zz\"\n`->\"doc.plumb#one#two\"\n`->\"https://example.test\"{`:[to other]}\n`->\"https://example.test\"{`-[$]}\n`span[text]{`-[->]}\n\n`note head {\n  `- ->\n}\n\n`\" {`-[->]}\n raw\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 

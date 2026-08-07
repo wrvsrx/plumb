@@ -278,8 +278,14 @@ verbatim；`"`rust\" {}" 才是带空 compact group 的 verbatim block。expande
 opening quote count `"N" 显式声明 raw body 的 structural margin。body 的每条非空 line 必须在 parent
 column 后带恰好可供移除的 `"N" 个 ASCII spaces；移除这些 structural spaces 后，其余 spaces、tabs、line
 endings 和 syntax-like bytes 都属于 payload。`"N" 可以是任意正整数，因此 source 可以显式选择任意
-margin，而 parser 不从第一条 payload line 或共同缩进反推边界。完全空行可以
-省略 margin。首个显式空 raw line 产生 leading newline；EOF 不补 final newline。空 block 合法。
+margin，而 parser 不从第一条 payload line 或共同缩进反推边界。
+
+连续 blank run 需要延迟到下一条非空 line 或 EOF 才能分类。若其后仍有满足 structural margin 的非空
+payload line，则整个 run 是内部 payload，完全空行不要求 margin。若该 run 位于 payload 尾部，则 blank
+line 只有在 line start 包含完整的 `"N" 个 ASCII-space margin 时才属于 payload；首条缺少 margin 的
+trailing blank line 结束 payload，并与其余 blank lines 一同作为 block layout。这个特判使无缩进的布局
+空行不会被 raw block 吞入，而作者仍可用显式 spaces 保留 trailing empty payload lines。首个显式空 raw
+line 产生 leading newline；EOF 不补 final newline。空 block 合法。
 
 compact/expanded group 都可以为空，group close 后直接 EOF 时 verbatim payload 也为空。expanded group
 close 后立即进入 raw-body phase；其后的 blank physical line 属于 payload 并产生 leading newline，不是
@@ -288,6 +294,9 @@ close 后立即进入 raw-body phase；其后的 blank physical line 属于 payl
 第一条不足 `"N" 个 structural spaces 的非空 line 结束 block；structural margin 中的 tab、partial dedent
 或 structural tab 按 structural error 处理。官方 formatter 将所有 verbatim block canonicalize 为一个
 opening quote 与一个 structural space，并在调整 source envelope 时保持 typed raw payload 逐 byte 不变。
+内部 empty payload lines 保持无缩进；trailing empty payload lines 输出一个 structural space。非终端
+verbatim block 与后续 block 之间输出一个无缩进 blank separator；位于 EOF 的 verbatim 不添加 layout
+blank line，并保留 payload 是否带 final newline。
 
 `note 以上两种旧 block attachment spelling 在 unified grammar 中直接非法；strict parser 不保留兼容分支，
       toolchain 也不提供针对它们的 migration reader 或 migrator。

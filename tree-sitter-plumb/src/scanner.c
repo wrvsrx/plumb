@@ -75,7 +75,9 @@ void tree_sitter_plumb_external_scanner_deserialize(void *payload,
 static bool scan_raw_code_line(Scanner *scanner, TSLexer *lexer,
                                const bool *valid_symbols) {
   lexer->mark_end(lexer);
-  uint16_t verbatim_indent = scanner->indents[scanner->depth] + 2;
+  // The strict parser validates the quote-count margin. The lenient mirror
+  // keeps the raw body attached when it is at least one column deeper.
+  uint16_t verbatim_indent = scanner->indents[scanner->depth] + 1;
   uint16_t spaces = 0;
   while (lexer->lookahead == ' ' && spaces < verbatim_indent) {
     take(lexer);

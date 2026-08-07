@@ -5,7 +5,7 @@ use crate::support::{response, run_server};
 #[test]
 fn whole_document_formatting_keeps_unchanged_blocks_out_of_edits() {
     let uri = "file:///tmp/minimal-format.plumb";
-    let source = "`node One\n\n       `child A\n\n`node Stable\n\n      `child B\n\n`node Three\n\n       `child C\n";
+    let source = "`node One\n\n       `child A\n\n`node Stable\n\n `child B\n\n`node Three\n\n       `child C\n";
     let messages = [
         json!({
             "jsonrpc": "2.0", "id": 1, "method": "initialize",
@@ -36,16 +36,16 @@ fn whole_document_formatting_keeps_unchanged_blocks_out_of_edits() {
     assert_eq!(edits.len(), 2);
     assert_eq!(edits[0]["range"]["start"]["line"], 2);
     assert_eq!(edits[0]["range"]["end"]["line"], 3);
-    assert_eq!(edits[0]["newText"], "      `child A\n");
+    assert_eq!(edits[0]["newText"], " `child A\n");
     assert_eq!(edits[1]["range"]["start"]["line"], 10);
     assert_eq!(edits[1]["range"]["end"]["line"], 11);
-    assert_eq!(edits[1]["newText"], "      `child C\n");
+    assert_eq!(edits[1]["newText"], " `child C\n");
 }
 
 #[test]
 fn whole_document_formatting_handles_repeated_marker_lines() {
     let uri = "file:///tmp/repeated-marker-format.plumb";
-    let source = "`task aaa bbb ccc ddd eee fff ggg hhh iii jjj kkk lll mmm nnn ooo ppp {\n  `: created now\n}\n\n       `note Detail\n\n`task Following {\n  `: created later\n}\n";
+    let source = "`task aaa bbb ccc ddd eee fff ggg hhh iii jjj kkk lll mmm nnn ooo ppp {\n `: created now\n}\n\n       `note Detail\n\n`task Following {\n `: created later\n}\n";
     let messages = [
         json!({
             "jsonrpc": "2.0", "id": 1, "method": "initialize",
@@ -125,7 +125,7 @@ fn formats_valid_documents_and_declines_invalid_revisions() {
     );
     assert_eq!(
         apply_ascii_lsp_edits(source, response(&output, 2)["result"].as_array().unwrap()),
-        "`node Parent\n\n      `child Example\n"
+        "`node Parent\n\n `child Example\n"
     );
     assert!(response(&output, 3)["result"].is_null());
 }
@@ -245,7 +245,7 @@ fn range_formatting_formats_only_complete_contained_blocks() {
         edits[0]["range"]["start"],
         json!({ "line": 2, "character": 6 })
     );
-    assert_eq!(edits[0]["newText"], "`task One {\n  `@ 一\n}");
+    assert_eq!(edits[0]["newText"], "`task One {\n `@ 一\n}");
     assert_eq!(response(&output, 3)["result"], json!([]));
     assert_eq!(response(&output, 4)["result"], json!([]));
     assert!(response(&output, 5)["result"].is_null());
@@ -289,7 +289,7 @@ fn range_formatting_returns_multiple_maximal_groups() {
         edits[0]["range"]["start"],
         json!({ "line": 2, "character": 7 })
     );
-    assert_eq!(edits[0]["newText"], "`task One {\n  `@ one\n}");
+    assert_eq!(edits[0]["newText"], "`task One {\n `@ one\n}");
     assert_eq!(
         edits[1]["range"]["start"],
         json!({ "line": 6, "character": 0 })

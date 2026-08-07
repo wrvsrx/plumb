@@ -174,7 +174,7 @@ Compact trailing group
 Verbatim blocks
 ==================
 
-`rust" {`@[example] `:[generated true]}
+`rust"" {`@[example] `:[generated true]}
   fn main() {
       println!("hello");
   }
@@ -189,6 +189,7 @@ Verbatim blocks
   (verbatim_block
     (introducer)
     (verbatim_kind)
+    (verbatim_open)
     (head_separator)
     (attached_inline_group
       (attached_inline_content
@@ -208,7 +209,8 @@ Verbatim blocks
     (raw_text)
     (raw_text))
   (verbatim_block
-    (introducer))
+    (introducer)
+    (verbatim_open))
   (marked_block
     (introducer)
     (marker)
@@ -237,6 +239,7 @@ Nested verbatim margin
       (verbatim_block
         (introducer)
         (verbatim_kind)
+        (verbatim_open)
         (raw_text)
         (raw_text))
       (marked_block

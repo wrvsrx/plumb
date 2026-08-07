@@ -1563,7 +1563,7 @@ mod tests {
 
         let closed_code = "See `\"doc\"";
         assert_eq!(completion_context(closed_code, closed_code.len() - 1), None);
-        let empty = "See `\"\"";
+        let empty = "See `\"[]\"";
         assert_eq!(completion_context(empty, empty.len() - 1), None);
     }
 

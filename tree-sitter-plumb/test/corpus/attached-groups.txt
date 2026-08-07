@@ -124,6 +124,7 @@ Structural verbatim opener
   (verbatim_block
     (introducer)
     (verbatim_kind)
+    (verbatim_open)
     (head_separator)
     (attached_inline_group
       (attached_inline_content
@@ -156,6 +157,7 @@ Expanded verbatim group
   (verbatim_block
     (introducer)
     (verbatim_kind)
+    (verbatim_open)
     (head_separator)
     (attached_block_group
       (block_group_open)

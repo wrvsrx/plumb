@@ -21,13 +21,13 @@ backtick, double quote, brackets, and braces. It is case-sensitive and kept
 losslessly.
 
 A block can have indented children. The first child establishes the child
-column; sibling children use exactly that column. Use two additional spaces as
-the normal style. Dedent returns to an existing outer indentation level.
+column; sibling children use exactly that column. Canonical formatting uses one
+additional space. Dedent returns to an existing outer indentation level.
 
 ```plumb
 `parent Head
-  `child One
-  `child Two
+ `child One
+ `child Two
 `grandchild Three
 ```
 
@@ -64,15 +64,15 @@ compact block and inline groups contain ordinary inline elements.
 }
 
 `node Head {
-  `@ intro
-  `- note
-  `: level 2
+ `@ intro
+ `- note
+ `: level 2
 }
 
 `task Next-line layout
-      {
-        `: created 2026-08-07T09:00:00+08:00
-      }
+ {
+  `: created 2026-08-07T09:00:00+08:00
+ }
 
 `span[text]{`@[intro] `-[note] `:[level 2]}
 ```
@@ -117,7 +117,7 @@ The opening `[` is mandatory. Even an empty inline element is written as
 ## Inline Verbatim
 
 Compact inline verbatim starts with a backtick, an optional opaque kind, and a
-double-quoted raw payload:
+single double-quoted nonempty raw payload:
 
 ```plumb
 `"cargo test"
@@ -125,7 +125,8 @@ double-quoted raw payload:
 `$"x^2"
 ```
 
-When the payload contains a quote, use a strengthened quote-and-bracket envelope;
+For an empty payload, multiple opening quotes, or a payload containing a quote,
+use a strengthened quote-and-bracket envelope;
 the closing bracket must be followed by the same quote count:
 
 ```plumb
@@ -138,22 +139,25 @@ group may follow the complete closing delimiter.
 
 ## Verbatim Blocks
 
-A verbatim block uses the same backtick, optional opaque kind, and opening quote,
+A verbatim block uses the same backtick, optional opaque kind, and one or more opening quotes,
 then ends the opener line immediately or after one spaced compact/expanded
-attached group. It has no raw head. Its body uses a fixed two-space margin
-relative to the opener:
+attached group. It has no raw head. The opening quote count declares the number
+of ASCII structural spaces on each nonempty raw-body line:
 
 ```plumb
 `rust" {`@[example]}
-  fn main() {
-      println!("hello");
-  }
+ fn main() {
+     println!("hello");
+ }
 ```
 
 The body ends at the first nonblank line indented less than that margin. After
-the two structural spaces, preserve payload spaces, tabs, line endings, and
-syntax-like text exactly. There is no closing fence. An empty verbatim block is
-valid.
+the structural spaces, preserve payload spaces, tabs, line endings, and
+syntax-like text exactly. Internal blank lines need no margin. A trailing blank
+line belongs to the payload only when it carries the complete declared margin;
+the first marginless trailing blank ends the payload and becomes block layout.
+There is no closing fence. An empty verbatim block is valid. Canonical formatting
+uses one quote and one structural space without changing raw payload bytes.
 
 ## Avoid Markdown And Djot Assumptions
 

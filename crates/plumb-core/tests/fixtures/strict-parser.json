@@ -9,7 +9,7 @@
   },
   {
     "name": "empty attached group and empty association value",
-    "source": "`node Empty {}\n`node Escaped {`:[empty `\"\"] `:[value quote slash]}\n",
+    "source": "`node Empty {}\n`node Escaped {`:[empty `\"[]\"] `:[value quote slash]}\n",
     "valid": true,
     "blocks": [
       {"kind":"marked","marker":"node","attrs":[],"head":"Empty","inline":"T\"Empty\"","children":[]},
@@ -68,7 +68,7 @@
   },
   {
     "name": "verbatim block preserves CRLF payload",
-    "source": "`text\"\r\n  raw\r\n\r\nnext\r\n",
+    "source": "`text\"\r\n raw\r\n \r\n\r\nnext\r\n",
     "valid": true,
     "blocks": [{"kind":"verbatim","attrs":[],"text":"raw\r\n\r\n"},{"kind":"paragraph","head":"next","inline":"T\"next\""}],
     "diagnostics": [],
@@ -189,7 +189,7 @@
   },
   {
     "name": "short verbatim margin outranks partial indent",
-    "source": "`\"\n x\nnext\n",
+    "source": "`\"\"\n x\nnext\n",
     "valid": false,
     "blocks": [
       {"kind":"verbatim","attrs":[],"text":""},

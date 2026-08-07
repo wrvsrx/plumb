@@ -461,19 +461,30 @@ fn render_verbatim(text: &str, attrs: &Attr) -> Result<String, String> {
 fn render_verbatim_block(attrs: &Attr, text: &str) -> Result<String, String> {
     let (kind, attrs) = promoted_verbatim_attrs(attrs, true);
     let attrs = render_attrs(&attrs, None)?;
-    let payload = text
-        .lines()
-        .map(|line| format!("  {line}"))
-        .collect::<Vec<_>>()
-        .join("\n");
     let separator = if attrs.is_empty() { "" } else { " " };
     let mut output = format!("`{kind}\"{separator}{attrs}");
-    if !payload.is_empty() {
+    if !text.is_empty() {
         output.push('\n');
-        output.push_str(&payload);
-    }
-    if text.ends_with('\n') {
-        output.push('\n');
+        let mut lines = text.split('\n').collect::<Vec<_>>();
+        let has_final_newline = text.ends_with('\n');
+        if has_final_newline {
+            lines.pop();
+        }
+        let last_content = lines.iter().rposition(|line| !line.is_empty());
+        for (index, line) in lines.iter().enumerate() {
+            if index > 0 {
+                output.push('\n');
+            }
+            if !line.is_empty() {
+                output.push(' ');
+                output.push_str(line);
+            } else if last_content.is_none_or(|last| index > last) {
+                output.push(' ');
+            }
+        }
+        if has_final_newline {
+            output.push('\n');
+        }
     }
     Ok(output)
 }

@@ -9,7 +9,6 @@ autobins = false
 clap.workspace = true
 plumb-core = { path = "../plumb-core" }
 similar.workspace = true
-unicode-width.workspace = true
 
 [lib]
 name = "plumb_format"

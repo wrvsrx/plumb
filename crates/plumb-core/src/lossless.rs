@@ -124,11 +124,9 @@ impl<'a> TokenBuilder<'a> {
                         SyntaxKind::InlineKind,
                         TYPED_PRIORITY,
                     );
-                    if !block.kind.is_empty()
-                        || self.source.as_bytes().get(block.kind_range.end) == Some(&b'"')
-                    {
+                    if block.quote_count > 0 {
                         self.assign(
-                            block.kind_range.end..block.kind_range.end + 1,
+                            block.kind_range.end..block.kind_range.end + block.quote_count,
                             SyntaxKind::Delimiter,
                             TYPED_PRIORITY,
                         );

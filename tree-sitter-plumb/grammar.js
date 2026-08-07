@@ -143,7 +143,7 @@ module.exports = grammar({
     verbatim_block: $ => prec(3, seq(
       field('introducer', $.introducer),
       optional(field('kind', $.verbatim_kind)),
-      field('open', '"'),
+      field('open', $.verbatim_open),
       optional(seq(
         $.head_separator,
         field('attached', choice($.attached_inline_group, $.attached_block_group)),
@@ -235,6 +235,7 @@ module.exports = grammar({
     )),
 
     introducer_escape: _ => prec(3, '``'),
+    verbatim_open: _ => token(/"+/),
     bracket_escape: _ => prec(4, '`]'),
     brace_escape: _ => prec(4, choice('`{', '`}')),
     soft_break: $ => $._inline_continue,

@@ -8,6 +8,24 @@
 
 `# Core syntax
 
+`- 实现统一 body indentation 与 quote-count verbatim margin {
+  `- task
+  `@ unified-body-indentation
+  `: done 2026-08-07T18:00:00+08:00
+}
+
+   `note strict parser 统一 ordinary body、deferred head、next-line attached-group 与 expanded group 的
+   canonical body column 为 owner column 加一；next-line opener 建立后续 children 的 sibling column，同时
+   继续接受合法的更深 structural columns。
+   `note verbatim block 读取完整 opening quote run，quote count 声明 ASCII-space raw-body margin；single-quote
+   compact inline 仅是 nonempty payload sugar，空 payload、多 quote 或 quote collision 使用 bracket envelope。
+   `note trailing blank run 延迟到下一条非空 line/EOF 分类：内部 blank 不需要 margin；尾部 blank 只有带完整
+   声明 margin 才属于 payload，首条缺 margin 的 blank 结束 payload 并成为 layout separation。
+   `note formatter、owned edit/import serializer、LSP completion、notes preview、tree-sitter mirror、guide 与
+   bundled skill 已同步；formatter canonicalize verbatim 为 N=1，非终端 block 加一个无缩进 separator，EOF
+   terminal block 不添加 layout blank。strict corpus、formatter、LSP/CLI、project documents 与 workspace gates
+   全部通过。
+
 `- 建立 strict parser normative corpus {
   `- task
   `@ strict-parser-corpus
@@ -208,7 +226,7 @@
    `note Relative path 以 source document 所在目录为基准；raw spelling 不做 percent encode/decode 或 normalization，`"#" 只用于 explicit anchor，仍拒绝 backslash 与 control。
    `note `"..plumb" 与 `"..plumb#id" targets 继续进入 document/explicit-anchor resolution；其他 relative paths 分类为 file resources，缺失文件最多发布 semantic warning。
    `note Cursor 位于带 `".->" facet 的 inline verbatim payload 时，补全 metadata title、filename 或 relative path 匹配的 workspace `"..plumb" documents。
-   `note Completion 显示 metadata title 与 relative-path detail，原样插入 relative path；`""] 冲突时增强 verbatim delimiter，输入 `"#" 后继续补全 target document 的 explicit anchors。
+   `note Completion 显示 metadata title 与 relative-path detail，原样插入 relative path；closing bracket 冲突时增强 verbatim delimiter，输入 `"#" 后继续补全 target document 的 explicit anchors。
    `note Autolink completion 只在 `".->" 已显式存在时补全 payload；普通 bare 或尚未关闭的 inline verbatim 不推测 link 意图。
    `note 复用现有 link completion context、workspace candidate ordering 和 last-valid cross-document index；补齐 resolution、hover、definition、export、LSP completion、guide、playground 与 bundled skill tests/docs。
 

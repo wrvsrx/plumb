@@ -123,7 +123,7 @@ resources。
 raw relative path 不进行 percent encode、percent decode 或 normalization；UTF-8、spaces、`"%"、`"?"
 和其他 path characters 都保持字面值。`"#" 是唯一 structure separator，用于 explicit anchor，因此
 relative filename 本身不能包含 `"#"。control characters 与 backslash 不合法。payload 中与 closing
-delimiter 冲突的 `""] 不转义，使用 inline verbatim quote strength 表达。absolute/network URI 中的
+delimiter 冲突的 closing bracket 不转义，使用 inline verbatim quote strength 表达。absolute/network URI 中的
 whitespace、control、backslash 与 invalid percent escape 仍不合法。其他 id、facets 与 properties 作为
 Pandoc Link attributes 保留，`"->" kind 本身被 semantic lowering 消费。
 
