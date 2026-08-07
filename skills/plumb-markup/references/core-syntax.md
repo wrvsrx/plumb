@@ -55,28 +55,29 @@ Two backticks escape the introducer and produce a literal backtick:
 
 Every document, marked/verbatim block, parsed inline, or inline verbatim owner
 may have one attached group. This is a postfix ownership structure, not an
-attribute sublanguage. Document and block groups contain ordinary blocks;
-inline groups contain ordinary inline elements.
+attribute sublanguage. Expanded document/block groups contain ordinary blocks;
+compact block and inline groups contain ordinary inline elements.
 
 ```plumb
 {
   `: title Document title
 }
 
-`node Head
-  {
-    `@ intro
-    `- note
-    `: level 2
-  }
+`node Head {
+  `@ intro
+  `- note
+  `: level 2
+}
 
 `span[text]{`@[intro] `-[note] `:[level 2]}
 ```
 
-A block group uses its owner's first structural child position. An inline group
-must touch the complete closing delimiter. Groups may recursively contain
-owners with their own groups. Core does not assign id, facet, property, class,
-or key-value meaning to their content.
+A marked/verbatim block group is separated from its complete header by
+horizontal whitespace. A same-line close selects compact form; an opener at
+the end of the header selects expanded form, whose close returns to the owner
+column. An inline group must touch the complete closing delimiter. Groups may
+recursively contain owners with their own groups. Core does not assign id,
+facet, property, class, or key-value meaning to their content.
 
 The removed `{#id .class key=value}` spelling is not part of current syntax.
 Do not author it. Ordinary parsing and `plumb fmt` reject it.
@@ -128,11 +129,12 @@ group may follow the complete closing delimiter.
 ## Verbatim Blocks
 
 A verbatim block uses the same backtick, optional opaque kind, and opening quote,
-then ends the opener line immediately or after one inline attached group. It has
-no raw head. Its body uses a fixed two-space margin relative to the opener:
+then ends the opener line immediately or after one spaced compact/expanded
+attached group. It has no raw head. Its body uses a fixed two-space margin
+relative to the opener:
 
 ```plumb
-`rust"{`@[example]}
+`rust" {`@[example]}
   fn main() {
       println!("hello");
   }
@@ -148,5 +150,6 @@ valid.
 - Do not write `# heading`, `- item`, fenced code blocks, or Markdown links
   without the plumb backtick introducer and envelopes.
 - Do not assume punctuation is globally special.
-- Do not add backslash escapes.
+- Use a single backtick for active `]`, `{`, or `}` delimiter escapes; there is
+  no general backslash escape language.
 - Do not turn a syntax error into literal text. Repair the intended structure.

@@ -15,10 +15,9 @@ core 只识别结构；本页介绍官方工具链赋予常用 marker、inline k
 heading 默认只有 outline identity。需要成为 link 或 rename target 时才添加显式 id：
 
 `plumb"
-  `# 可引用的标题
-     {
-       `@ intro
-     }
+  `# 可引用的标题 {
+    `@ intro
+  }
 
 cursor 位于尚无 id 的 heading、generic marked block 或 verbatim block 时，`"Add explicit id" code
 action 根据 head 生成 document-unique id。空 head 使用 marker，verbatim block 使用 `"block"；已有
@@ -145,11 +144,10 @@ LSP 在 src 中补全任意本地文件，并提供 hover、go-to-definition 和
 `"div" 和 `"span" 是没有隐式 presentation semantics 的透明 containers：
 
 `plumb"
-  `div Warning
-    {
-      `@ notice
-      `warning
-    }
+  `div Warning {
+    `@ notice
+    `warning
+  }
 
     More details.
 
@@ -194,7 +192,7 @@ Subscript。未消费的 attached elements 通过 Span 保存。`"**"、`"em"、
 `plumb"
   Inline `$"\pi r^2".
 
-  `$"{`@[energy]}
+  `$" {`@[energy]}
     E = mc^2
 
 inline 与 display 由 envelope 决定，input 默认是 TeX。内容出现 closing bracket 时使用现有 quote
@@ -205,13 +203,12 @@ strength。普通 dollar characters 和 dollar-delimited math 不具有特殊含
 `"event" marker 是 specialized bullet list item：
 
 `plumb"
-  `event 14:00--15:30 Parser review
-     {
-       `@ parser-review
-       `: date 2026-07-30
-       `: timezone +08:00
-       `: tasks #write-parser
-     }
+  `event 14:00--15:30 Parser review {
+    `@ parser-review
+    `: date 2026-07-30
+    `: timezone +08:00
+    `: tasks #write-parser
+  }
 
 head 的第一个 positional argument 是 schedule，后接 whitespace 与 title。schedule 使用 `"HH"、`"HH:MM"、`"HH:MM:SS" point 或 `"START--TIME" interval。start 也可写
 `"YYYY-MM-DDTTIME" 来覆盖 date 并继承 timezone；若指定 offset 或 `"Z"，则必须写包含秒的完整 RFC 3339
@@ -225,10 +222,9 @@ facets 只是 opaque data。
 `"date"/`"timezone" 沿 marked-block subtree 继承，最近的 override 优先，dedent 后恢复 parent context：
 
 `plumb"
-  `div
-    {
-      `: date 2026-07-31
-    }
+  `div {
+    `: date 2026-07-31
+  }
     `event 09:00 使用 7 月 31 日
   `event 09:00 恢复 document metadata date
 
@@ -274,13 +270,12 @@ event、reminder、外部 iCalendar 回写或 CalDAV client。
 `"task" marker 是 specialized bullet list item：
 
 `plumb"
-  `task Implement parser
-     {
-       `@ write-parser
-       `: priority 10
-       `: created 2026-07-20T09:00:00+08:00
-       `: due 2026-07-21T09:00:00+08:00
-     }
+  `task Implement parser {
+    `@ write-parser
+    `: priority 10
+    `: created 2026-07-20T09:00:00+08:00
+    `: due 2026-07-21T09:00:00+08:00
+  }
 
 head 是 title，children 是 details。另一个 task 需要引用它时才添加 id。
 
@@ -294,10 +289,9 @@ encode/decode；`".plumb#" 分隔 path 与 explicit id，path 本身不能包含
 reference 在 id 后由 whitespace 分隔，因此 path 可以直接包含 spaces：
 
 `plumb"
-  `task Review
-        {
-          `: depends #local Project A.plumb#build Project B.plumb#test
-        }
+  `task Review {
+    `: depends #local Project A.plumb#build Project B.plumb#test
+  }
 
 LSP 在 `"depends" scalar value 内分两阶段补全 workspace tasks：当前 reference 尚无 `"#" 时只列出含有
 可选 task 的 document，选择后插入 same-file `"#" 或 cross-file `"`path.plumb#"；`"#" 后只列出已选

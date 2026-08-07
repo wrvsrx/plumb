@@ -56,8 +56,10 @@ it. Inside the plumb source repository, prefer
 - Preserve strict syntax; never silently rewrite malformed input as ordinary
   text.
 - Use spaces for structural indentation. Do not use tabs in indentation.
-- Put block attached groups in the owner's first structural child position;
-  attach inline groups directly to the complete inline delimiter.
+- Separate marked/verbatim block attached groups from the complete header with
+  whitespace; attach inline groups directly to the complete inline delimiter.
+- Open expanded block groups at the end of the owner header and close them at
+  the owner column. Document groups remain structural and expanded.
 - Use direct `@` declarations for explicit ids. Headings do not generate implicit ids.
 - Always write `[]` on inline elements, including empty facets.
 - Do not author the removed `{#id .class key=value}` spelling; parsing and
@@ -74,30 +76,26 @@ it. Inside the plumb source repository, prefer
   `: title Example
 }
 
-`# Heading
-   {
-     `@ intro
-   }
+`# Heading {
+  `@ intro
+}
 
 `- List item
 `. Ordered item
-`task Implement parser
-   {
-     `@ write-parser
-     `: created 2026-07-20T09:00:00+08:00
-   }
-`event 14:00--15:00 Parser review
-   {
-     `@ review
-     `: date 2026-07-30
-     `: timezone +08:00
-     `: tasks #write-parser
-   }
+`task Implement parser {
+  `@ write-parser
+  `: created 2026-07-20T09:00:00+08:00
+}
+`event 14:00--15:00 Parser review {
+  `@ review
+  `: date 2026-07-30
+  `: timezone +08:00
+  `: tasks #write-parser
+}
 
-`div Transparent block container
-    {
-      `- notice
-    }
+`div Transparent block container {
+  `- notice
+}
 `> A quoted paragraph
 Use `*[emphasis], `![strong], `=[mark], `~[strikeout], `^[superscript], and `_[subscript].
 Inline `span[container]{`-[notice]} and `$"x^2" math.

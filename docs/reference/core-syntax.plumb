@@ -260,11 +260,6 @@ close 后立即进入 raw-body phase；其后的 blank physical line 属于 payl
 
 第一条缩进不足的非空 line 结束 block；partial dedent 或 structural tab 按 structural error 处理。
 
-`note Implementation status: unified block-header attachment 尚未实现；当前 parser 仍接受
-      `"`rust\"{...}" tight verbatim opener group，以及在 owner 后续独立 structural line 打开的 marked-block
-      expanded group。brace escapes、专用 duplicate/trailing/document diagnostics 与 verbatim expanded group
-      也尚未实现；marked-block empty-head compact group 已按以上规则解析。
-
 `note 以上两种旧 block attachment spelling 在 unified grammar 中直接非法；strict parser 不保留兼容分支，
       toolchain 也不提供针对它们的 migration reader 或 migrator。
 

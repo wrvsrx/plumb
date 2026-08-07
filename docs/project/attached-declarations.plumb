@@ -36,12 +36,11 @@ container 中的 projection 不同，但节点自身的抽象不变：
 block attached scope 使用：
 
 `"
-  `- Buy milk
-     {
-       `- shopping
-       `@ shopping
-       `: created 2026-08-09T00:00:00+08:00
-     }
+  `- Buy milk {
+    `- shopping
+    `@ shopping
+    `: created 2026-08-09T00:00:00+08:00
+  }
 
 inline attached scope 使用相同 carriers：
 
@@ -155,7 +154,7 @@ group 再 line ending，即 dispatch 为 block verbatim；raw body 继续由 ind
   `rust"
     fn main() {}
 
-  `rust"{`@[example] `:[generated true]}
+  `rust" {`@[example] `:[generated true]}
     fn generated() {}
 
 double quote 只选择 syntax mode；core 不解释 `"rust"、`"$" 或 `"->"。standard extensions 可以把
@@ -172,7 +171,7 @@ inline owner 的 attached group 已由紧贴 closing delimiter 的 `"{}" 明确�
 在 opening quote 后紧跟 compact inline group：
 
 `"
-  `rust"{`@[example] `:[generated true]}
+  `rust" {`@[example] `:[generated true]}
     fn generated() {}
 
 普通 marked block 的 compact attached layout 使用 trailing form：

@@ -5,21 +5,3 @@
 本页只记录可以直接实施和验收的工作。方向、约束和 deferred design 继续放在
 `->[roadmap]{`:[to roadmap.plumb]}；已经结束的任务及其验收记录保存在
 `->[completed tasks]{`:[to completed-tasks.plumb]}。
-
-`task 实现统一 attached group attachment sites
-   {
-     `- task
-     `@ unified-attached-group-sites
-   }
-
-   `note strict parser 按 owner category 实现 inline tight、block-header spaced 与 document structural
-         attachment；marked/verbatim block 同时支持 compact inline group 和 expanded block group。
-   `note 空 head、空 group、verbatim expanded group 后的 raw payload、brace escapes、单 owner 单 group、
-         compact trailing source 与 document 单行 group 必须按 core syntax reference 解析和恢复。
-   `note 发布并固定 `"syntax.duplicate-attached-group"、`"syntax.trailing-after-attached-group" 与
-         `"syntax.invalid-document-group" 的 ranges、precedence、recovery 和 lossless coverage。
-   `note 旧 tight verbatim opener group 与 owner 后续独立 structural-line group 直接非法；不得增加
-         compatibility parser、migration reader 或 migrator。
-   `note 同步 typed/lossless tree、formatter/edit、extensions/workspace/LSP consumers、tree-sitter
-         grammar/queries/corpus、references、guides、examples与 bundled skill，并通过 workspace warning gate、
-         strict/lossless/property tests、project document checks 与 tree-sitter corpus。

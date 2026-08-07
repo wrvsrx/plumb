@@ -1,7 +1,6 @@
-`# Event planning and actual records
-   {
-     `@ event-planning-and-actuals
-   }
+`# Event planning and actual records {
+  `@ event-planning-and-actuals
+}
 
 本文是 event、planned event、clock operations 与 task 边界的设计草案，不是当前 standard extension
 reference。实现并迁移现有行为后，稳定语义应进入
@@ -40,25 +39,23 @@ Cancel task 只写入 `"canceled"，不同于取消一次 planned event。Stop c
 普通 `".event" 默认是 actual。它可以是不关联 task 的生活流水：
 
 `plumb"
-  `- Sleep
-     {
-       `- event
-       `: kind sleep
-       `: start 2026-07-31T03:10:00+08:00
-       `: end 2026-07-31T10:30:00+08:00
-     }
+  `- Sleep {
+    `- event
+    `: kind sleep
+    `: start 2026-07-31T03:10:00+08:00
+    `: end 2026-07-31T10:30:00+08:00
+  }
 
 也可以是关联 task 的实际工作区间：
 
 `plumb"
-  `- Implement parser
-     {
-       `- event
-       `: kind work
-       `: tasks #write-parser
-       `: start 2026-07-31T14:25:00+08:00
-       `: end 2026-07-31T14:45:00+08:00
-     }
+  `- Implement parser {
+    `- event
+    `: kind work
+    `: tasks #write-parser
+    `: start 2026-07-31T14:25:00+08:00
+    `: end 2026-07-31T14:45:00+08:00
+  }
 
 Actual event 只有 `"at" 时表示已经发生的 point event。具有 `"start" 和 `"end" 时表示 closed actual
 interval，只有 `"start" 时表示 running actual interval。`"at" 与 `"start/end" 互斥，`"end" 不能单独
@@ -70,15 +67,14 @@ interval，只有 `"start" 时表示 running actual interval。`"at" 与 `"start
 计划通过 `".planned" facet 显式表达：
 
 `plumb"
-  `- Implement parser
-     {
-       `- event
-       `- planned
-       `@ parser-session
-       `: tasks #write-parser
-       `: start 2026-08-01T14:00:00+08:00
-       `: end 2026-08-01T16:00:00+08:00
-     }
+  `- Implement parser {
+    `- event
+    `- planned
+    `@ parser-session
+    `: tasks #write-parser
+    `: start 2026-08-01T14:00:00+08:00
+    `: end 2026-08-01T16:00:00+08:00
+  }
 
 Planned event 可以用 `"at" 表示 point，或用完整 `"start/end" 表示 interval；planned start-only shape
 非法，因为 running 是 actual operation state。时间过去后，它仍是 planned；如果没有 actual 或明确 outcome，
@@ -94,25 +90,23 @@ Clock 是围绕 actual interval event 的 operation protocol，不是独立 exte
 Start 创建只有 `"start" 的 actual interval：
 
 `plumb"
-  `- Implement parser
-     {
-       `- event
-       `: kind work
-       `: tasks #write-parser
-       `: start 2026-08-01T14:20:00+08:00
-     }
+  `- Implement parser {
+    `- event
+    `: kind work
+    `: tasks #write-parser
+    `: start 2026-08-01T14:20:00+08:00
+  }
 
 Stop 写入 `"end"：
 
 `plumb"
-  `- Implement parser
-     {
-       `- event
-       `: kind work
-       `: tasks #write-parser
-       `: start 2026-08-01T14:20:00+08:00
-       `: end 2026-08-01T16:35:00+08:00
-     }
+  `- Implement parser {
+    `- event
+    `: kind work
+    `: tasks #write-parser
+    `: start 2026-08-01T14:20:00+08:00
+    `: end 2026-08-01T16:35:00+08:00
+  }
 
 独立的 `"at" 解决缺失 `"end" 的歧义：
 
@@ -130,22 +124,20 @@ Actual event 可以通过 `"plan" 引用具有 explicit id 的 planned event。�
 是“按计划发生”的最短表达：
 
 `plumb"
-  `- Implement parser
-     {
-       `- event
-       `- planned
-       `@ parser-session
-       `: tasks #write-parser
-       `: kind work
-       `: start 2026-08-01T14:00:00+08:00
-       `: end 2026-08-01T16:00:00+08:00
-     }
+  `- Implement parser {
+    `- event
+    `- planned
+    `@ parser-session
+    `: tasks #write-parser
+    `: kind work
+    `: start 2026-08-01T14:00:00+08:00
+    `: end 2026-08-01T16:00:00+08:00
+  }
 
-  `-
-     {
-       `- event
-       `: plan #parser-session
-     }
+  `- {
+    `- event
+    `: plan #parser-session
+  }
 
 第二个 event 是独立 actual record。它从 plan 继承 title、完整 interval、tasks 与 kind，因此参与 actual
 activity 和 task duration projection，但 source 不重复这些 fields。

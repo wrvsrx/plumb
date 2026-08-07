@@ -5,10 +5,9 @@
 Use this file with `"plumb lsp" attached. The final diagnostics section contains
 intentional semantic errors; the entire file remains syntactically valid.
 
-`# Document symbols
-   {
-     `@ symbols
-   }
+`# Document symbols {
+  `@ symbols
+}
 
 This heading, its explicit anchor, and the task below should appear in the
 document symbol tree.
@@ -17,16 +16,14 @@ document symbol tree.
 
 This heading should be nested below `"Document symbols".
 
-`- Task symbol nested in this section
-   {
-     `- task
-     `@ symbol-task
-   }
+`- Task symbol nested in this section {
+  `- task
+  `@ symbol-task
+}
 
-`# Definition, hover, and references
-   {
-     `@ navigation
-   }
+`# Definition, hover, and references {
+  `@ navigation
+}
 
 Try go-to-definition, hover, find references, and rename on these links:
 
@@ -40,15 +37,13 @@ Try go-to-definition, hover, find references, and rename on these links:
 `- Relative file Autolink: `"static/plumb-pipeline.svg"{`-[->]}
 `- Image file hover and definition: `img[pipeline]{`:[src static/plumb-pipeline.svg]}
 
-`anchor Rename this id to update its references.
-        {
-          `@ local-anchor
-        }
+`anchor Rename this id to update its references. {
+  `@ local-anchor
+}
 
-`# Completion
-   {
-     `@ completion
-   }
+`# Completion {
+  `@ completion
+}
 
 Try completion after each relevant introducer in a temporary edit:
 
@@ -62,19 +57,17 @@ Try completion after each relevant introducer in a temporary edit:
 `- Complete a raw fragment inside ``->"plumb-export.plumb#".
 `- Complete an image path in ``img[alt]{`:[src static/]}.
 
-`# Rename
-   {
-     `@ rename
-   }
+`# Rename {
+  `@ rename
+}
 
 Rename the `"plumb-export.plumb" path in
 `->[this link]{`:[to plumb-export.plumb]}. Rename `"local-anchor" from either
 its declaration or this `->[reference]{`:[to #local-anchor]}.
 
-`# Code actions and task hover
-   {
-     `@ actions
-   }
+`# Code actions and task hover {
+  `@ actions
+}
 
 Open `->[metadata-scratch.plumb]{`:[to metadata-scratch.plumb]} to try
 `"Insert document metadata".
@@ -85,62 +78,55 @@ Place the cursor in this ordinary item and request `"Convert to task"：
 
 Place the cursor in this task and request `"Add task created timestamp"：
 
-`- Add the missing created field
-   {
-     `- task
-     `@ missing-created
-   }
+`- Add the missing created field {
+  `- task
+  `@ missing-created
+}
 
 Hover and document symbols also expose this event and its task association:
 
-`- 2026-07-30T14:00:00+08:00--15:00 Inspect event hover
-   {
-     `- event
-     `@ event-symbol
-     `: tasks #missing-created
-   }
+`- 2026-07-30T14:00:00+08:00--15:00 Inspect event hover {
+  `- event
+  `@ event-symbol
+  `: tasks #missing-created
+}
 
 Place the cursor in this task and request Complete or Cancel. Hover shows its
 state, id, and timestamps:
 
-`- Close this task from a code action
-   {
-     `- task
-     `@ action-task
-     `: created 2026-07-20T09:00:00+08:00
-     `: due 2026-07-30T17:00:00+08:00
-   }
+`- Close this task from a code action {
+  `- task
+  `@ action-task
+  `: created 2026-07-20T09:00:00+08:00
+  `: due 2026-07-30T17:00:00+08:00
+}
 
 This task is blocked while its dependency remains open, so Complete is omitted
 but Cancel remains available:
 
-`- Finish this dependency first
-   {
-     `- task
-     `@ open-dependency
-   }
-`- Try actions on a blocked task
-   {
-     `- task
-     `@ blocked-action
-     `: depends #open-dependency
-   }
+`- Finish this dependency first {
+  `- task
+  `@ open-dependency
+}
+`- Try actions on a blocked task {
+  `- task
+  `@ blocked-action
+  `: depends #open-dependency
+}
 
 Completing this recurring task closes the current instance and appends the next
 instance with an advanced due date and a `"prev" reference:
 
-`- Advance this recurring task
-   {
-     `- task
-     `@ recurring-action
-     `: due 2026-07-27T17:00:00+08:00
-     `: recur P1W
-   }
+`- Advance this recurring task {
+  `- task
+  `@ recurring-action
+  `: due 2026-07-27T17:00:00+08:00
+  `: recur P1W
+}
 
-`# Export target
-   {
-     `@ export-target
-   }
+`# Export target {
+  `@ export-target
+}
 
 The exporter playground links to this explicit anchor.
 
@@ -152,33 +138,28 @@ The following valid syntax deliberately produces semantic diagnostics:
 `- Missing file: `->[missing file]{`:[to missing-target.plumb]}
 `- Missing cross-file anchor: `->[missing heading]{`:[to plumb-export.plumb#missing-anchor]}
 
-`anchor First duplicate target.
-        {
-          `@ duplicate-anchor
-        }
-`anchor Second duplicate target.
-        {
-          `@ duplicate-anchor
-        }
+`anchor First duplicate target. {
+  `@ duplicate-anchor
+}
+`anchor Second duplicate target. {
+  `@ duplicate-anchor
+}
 
-`- Conflicting closed state
-   {
-     `- task
-     `@ conflicted-task
-     `: done 2026-07-20T09:00:00+08:00
-     `: canceled 2026-07-20T10:00:00+08:00
-   }
-`- Self dependency
-   {
-     `- task
-     `@ self-dependent
-     `: depends #self-dependent
-   }
+`- Conflicting closed state {
+  `- task
+  `@ conflicted-task
+  `: done 2026-07-20T09:00:00+08:00
+  `: canceled 2026-07-20T10:00:00+08:00
+}
+`- Self dependency {
+  `- task
+  `@ self-dependent
+  `: depends #self-dependent
+}
 
-`note Invalid task owner
-      {
-        `- task
-      }
+`note Invalid task owner {
+  `- task
+}
 
 `span[not raw]{`-[$]} Invalid math owner
 

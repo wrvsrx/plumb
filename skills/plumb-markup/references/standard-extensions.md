@@ -10,10 +10,9 @@ Use one through six `#` characters as the marker. The count is the heading
 level. Add an explicit id when the heading must be a link or rename target:
 
 ```plumb
-`# Introduction
-   {
-     `@ intro
-   }
+`# Introduction {
+  `@ intro
+}
 `## Details
 ```
 
@@ -220,13 +219,12 @@ presentations of emphasis and strong, not separate standard spellings.
 A task uses the specialized `task` marker and has bullet-list-item structure:
 
 ```plumb
-`task Implement parser
-   {
-     `@ write-parser
-     `: created 2026-07-20T09:00:00+08:00
-     `: due 2026-07-21T09:00:00+08:00
-     `: depends #design
-   }
+`task Implement parser {
+  `@ write-parser
+  `: created 2026-07-20T09:00:00+08:00
+  `: due 2026-07-21T09:00:00+08:00
+  `: depends #design
+}
   `note Optional details
 ```
 
@@ -262,10 +260,9 @@ characters are literal. Control characters, backslashes, absolute paths, and
 path from its explicit id:
 
 ```plumb
-`task Review
-   {
-     `: depends #local Project A.plumb#build Project B.plumb#test
-   }
+`task Review {
+  `: depends #local Project A.plumb#build Project B.plumb#test
+}
 ```
 
 Datetime fields must use RFC 3339 property values. An invalid value produces
@@ -336,13 +333,12 @@ blocks remain subsequent blocks in the same list item.
 An event uses the specialized `event` marker and has bullet-list-item structure:
 
 ```plumb
-`event 14:00--15:00 Parser review
-   {
-     `@ review
-     `: date 2026-07-30
-     `: timezone +08:00
-     `: tasks #write-parser
-   }
+`event 14:00--15:00 Parser review {
+  `@ review
+  `: date 2026-07-30
+  `: timezone +08:00
+  `: tasks #write-parser
+}
 ```
 
 The first inline text in the head is the schedule; ASCII whitespace separates it

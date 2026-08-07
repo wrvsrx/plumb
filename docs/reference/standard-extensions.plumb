@@ -208,11 +208,10 @@ suppress-author 和 author-in-text deferred；Pandoc Markdown `"`@key" spelling 
 marker `"div" 与 parsed inline kind `"span" 是标准 transparent containers：
 
 `plumb"
-  `div Warning
-    {
-      `@ notice
-      `warning
-    }
+  `div Warning {
+    `@ notice
+    `warning
+  }
 
     More details.
 
@@ -273,7 +272,7 @@ verbatim inline 或 block 的 `"$" kind 产生标准 math：
 `plumb"
   Inline `$"pi r^2".
 
-  `$"{`@[energy]}
+  `$" {`@[energy]}
     E = mc^2
 
 inline verbatim lower 为 Pandoc `"InlineMath"，verbatim block lower 为 `"DisplayMath"。input 默认是
@@ -288,13 +287,12 @@ wrapper 保留。普通 dollar characters 和 dollar-delimited math 没有特殊
 `"event" marker 产生 event record，并具有 bullet list-item 结构：
 
 `plumb"
-  `event 14:00--15:30 Parser review
-     {
-       `@ parser-review
-       `: date 2026-07-30
-       `: timezone +08:00
-       `: tasks #write-parser Project A.plumb#docs
-     }
+  `event 14:00--15:30 Parser review {
+    `@ parser-review
+    `: date 2026-07-30
+    `: timezone +08:00
+    `: tasks #write-parser Project A.plumb#docs
+  }
 
 head 的第一个 inline text 是 schedule，随后必须有 ASCII space/tab 与非空 title 分隔；children 是 details。
 nested events 只形成 display tree，不表示时间包含关系。schedule start 接受 reduced-precision local-time `"TIME"、带显式日期但继承 timezone 的
@@ -378,10 +376,9 @@ reference 定位时，再使用通用 explicit-id authoring operation 添加 id�
 `"task" marker 产生 task record，并具有 bullet list-item 结构：
 
 `plumb"
-  `task Implement parser
-     {
-       `@ write-parser
-     }
+  `task Implement parser {
+    `@ write-parser
+  }
 
 head 是 title，children 是 details。nested tasks 形成 display tree，但只有 `"depends" 建立 dependency
 edge。attached facet 恰好名为 `"task" 时仍是 opaque attached data，不生成 task record。
@@ -402,10 +399,9 @@ characters、backslash、absolute path 与 `"#" 不合法。`".plumb#" 是 cross
 reference 的 id 结束后的 whitespace 才分隔下一条 reference；path 内的 spaces 属于 path：
 
 `plumb"
-  `task Review
-        {
-          `: depends #local Project A.plumb#build Project B.plumb#test
-        }
+  `task Review {
+    `: depends #local Project A.plumb#build Project B.plumb#test
+  }
 
 document-local closure state：
 

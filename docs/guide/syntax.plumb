@@ -14,12 +14,11 @@ head 构成：
   普通 paragraph。
 
   `note 一条有 head 的 block
-  `note 带 attached group
-    {
-      `@ stable
-      `- warning
-      `: level 2
-    }
+  `note 带 attached group {
+    `@ stable
+    `- warning
+    `: level 2
+  }
 
 block 可以拥有缩进 children。第一个 child 建立 sibling column；formatter 对空 head 使用 owner
 column 加一，对非空 head 将 children 与 conceptual head column 对齐：
@@ -97,12 +96,11 @@ inline owner 的 group 递归包含普通 inline elements。
     `: title Document title
   }
 
-  `node Head
-    {
-      `@ intro
-      `- note
-      `: level 2
-    }
+  `node Head {
+    `@ intro
+    `- note
+    `: level 2
+  }
 
   `span[text]{`@[intro] `-[note] `:[level 2]}
 
