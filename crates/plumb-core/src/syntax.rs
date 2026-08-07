@@ -196,6 +196,7 @@ pub struct AttachedGroup {
     pub range: SourceRange,
     pub open_range: SourceRange,
     pub close_range: SourceRange,
+    pub opener_on_own_line: bool,
     pub content: AttachedContent,
 }
 

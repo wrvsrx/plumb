@@ -418,6 +418,7 @@ impl Parser<'_> {
                     range,
                     open_range: open..open + 1,
                     close_range,
+                    opener_on_own_line: opener_is_structural_line,
                     content: AttachedContent::Blocks(blocks),
                 })),
             },
@@ -429,11 +430,14 @@ impl Parser<'_> {
         let Some(line) = self.lines.0.get(index) else {
             return false;
         };
+        let delimiter_offset = line.start + indent;
         !line.blank
             && !line.has_tab_indent
             && line.indent == indent
-            && line.content_end == line.start + indent + 1
-            && self.source.as_bytes()[line.start + indent] == delimiter
+            && self.source.as_bytes()[delimiter_offset] == delimiter
+            && self.source[delimiter_offset + 1..line.content_end]
+                .bytes()
+                .all(|byte| matches!(byte, b' ' | b'\t'))
     }
 
     fn parse_blocks(&mut self, mut index: usize, indent: usize) -> (Vec<Block>, usize) {
@@ -662,6 +666,7 @@ impl Parser<'_> {
         let mut next = header_index + 1;
         let mut saw_blank = false;
         let mut body_indent = None;
+        let mut next_line_attached = None;
 
         while header_attached.is_none() && next < self.lines.0.len() {
             let candidate = self.lines.0[next].clone();
@@ -672,6 +677,21 @@ impl Parser<'_> {
             }
             if candidate.indent <= indent {
                 break;
+            }
+            if !saw_blank && body_indent.is_none_or(|column| column == candidate.indent) {
+                let group_start = candidate.start + candidate.indent;
+                if self.is_group_delimiter(next, candidate.indent, b'{') {
+                    next_line_attached = Some((next, group_start));
+                    break;
+                }
+                if self.source.as_bytes()[group_start] == b'{' {
+                    self.diagnostics.push(Diagnostic::error(
+                        "syntax.trailing-after-attached-group",
+                        "only horizontal whitespace may follow a next-line attached group opener",
+                        group_start + 1..candidate.content_end,
+                    ));
+                    break;
+                }
             }
             body_indent.get_or_insert(candidate.indent);
             if candidate.indent != body_indent.unwrap() {
@@ -715,6 +735,12 @@ impl Parser<'_> {
                     self.parse_inline_attached(&mut position, group_start, line.content_end);
                 attrs = group;
             }
+        } else if let Some((opener_index, group_start)) = next_line_attached {
+            let group_indent = self.lines.0[opener_index].indent;
+            let (group, after_group) =
+                self.parse_expanded_attached(opener_index, group_start, group_indent, true);
+            attrs = group;
+            next = after_group;
         }
         if let Some(consumed) = self.line_index_at_offset(head.range.end.saturating_sub(1)) {
             next = next.max(consumed + 1);
@@ -1268,6 +1294,7 @@ impl Parser<'_> {
                         range: start..limit,
                         open_range: start..start + 1,
                         close_range: limit..limit,
+                        opener_on_own_line: false,
                         content: AttachedContent::Inlines(InlineContent {
                             range: start + 1..limit,
                             items: Vec::new(),
@@ -1293,6 +1320,7 @@ impl Parser<'_> {
                     range: start..end,
                     open_range: start..start + 1,
                     close_range: close..end,
+                    opener_on_own_line: false,
                     content: AttachedContent::Inlines(content),
                 })),
             },
@@ -1872,8 +1900,21 @@ mod tests {
         assert!(container.mark.as_ref().unwrap().attrs.has_class("class"));
         assert_eq!(container.children.len(), 1);
 
-        let old_layout = parse("`- Work\n  {\n    `- task\n  }\n");
-        assert!(!old_layout.is_valid());
+        let next_line = parse("`- Work\n  {\n    `- task\n  }\n");
+        assert!(next_line.is_valid(), "{:?}", next_line.diagnostics);
+        let Block::Parsed(task) = &next_line.syntax.blocks[0] else {
+            panic!("expected next-line attached group");
+        };
+        assert!(
+            task.mark
+                .as_ref()
+                .unwrap()
+                .attrs
+                .attached
+                .as_ref()
+                .unwrap()
+                .opener_on_own_line
+        );
 
         let compact = parse("`- Something {`-[task] `@[id]}\n");
         assert!(compact.is_valid(), "{:?}", compact.diagnostics);
@@ -2186,6 +2227,83 @@ mod tests {
         };
         assert_eq!(verbatim.attrs.id(), Some("code"));
         assert_eq!(verbatim.text, "\npayload\n");
+    }
+
+    #[test]
+    fn parses_next_line_marked_block_groups_before_children() {
+        let parsed = parse(
+            "`task Work\n      {\n        `: created now\n      }\n\n      Details\n\n`note first\n      second\n      {\n        `- cited\n      }\n",
+        );
+        assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
+
+        let Block::Parsed(task) = &parsed.syntax.blocks[0] else {
+            panic!("expected task block");
+        };
+        let attrs = &task.mark.as_ref().unwrap().attrs;
+        assert_eq!(attrs.value("created"), Some("now"));
+        assert!(attrs.attached.as_ref().unwrap().opener_on_own_line);
+        assert_eq!(task.children.len(), 1);
+        let Block::Parsed(details) = &task.children[0] else {
+            panic!("expected child paragraph");
+        };
+        assert_eq!(details.head.plain_text(), "Details");
+
+        let Block::Parsed(note) = &parsed.syntax.blocks[1] else {
+            panic!("expected note block");
+        };
+        assert_eq!(note.head.plain_text(), "first second");
+        assert_eq!(note.mark.as_ref().unwrap().attrs.items.len(), 1);
+    }
+
+    #[test]
+    fn next_line_group_requires_adjacency_and_the_continuation_column() {
+        for source in [
+            "`task Work\n\n      {\n        `: created now\n      }\n",
+            "`note first\n      second\n    {\n      `- cited\n    }\n",
+        ] {
+            let parsed = parse(source);
+            assert!(!parsed.is_valid(), "{source}");
+            assert!(parsed.diagnostics.iter().any(|diagnostic| {
+                matches!(
+                    diagnostic.code,
+                    "syntax.unattached-group" | "syntax.partial-indent"
+                )
+            }));
+        }
+
+        let verbatim = parse("`rust\"\n  {\n  raw\n");
+        assert!(verbatim.is_valid(), "{:?}", verbatim.diagnostics);
+        let Block::Verbatim(verbatim) = &verbatim.syntax.blocks[0] else {
+            panic!("expected verbatim block");
+        };
+        assert_eq!(verbatim.text, "{\nraw\n");
+        assert!(verbatim.attrs.attached.is_none());
+    }
+
+    #[test]
+    fn next_line_group_delimiters_allow_trailing_horizontal_whitespace() {
+        let parsed = parse("`task Work\n      { \t\n        `: created now\n      }  \t\n");
+        assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
+
+        let Block::Parsed(task) = &parsed.syntax.blocks[0] else {
+            panic!("expected task block");
+        };
+        assert_eq!(
+            task.mark.as_ref().unwrap().attrs.value("created"),
+            Some("now")
+        );
+    }
+
+    #[test]
+    fn next_line_group_opener_rejects_trailing_source() {
+        for source in ["`task Work\n      { extra\n", "`task Work\n      {}\n"] {
+            let parsed = parse(source);
+            assert!(!parsed.is_valid(), "{source}");
+            assert!(parsed
+                .diagnostics
+                .iter()
+                .any(|diagnostic| { diagnostic.code == "syntax.trailing-after-attached-group" }));
+        }
     }
 
     #[test]

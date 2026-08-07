@@ -97,7 +97,7 @@ pub fn format(source: &str) -> Result<String, FormatError> {
 
     let mut formatter = Formatter::default();
     if parsed.syntax.attrs.attached.is_some() {
-        formatter.block_attached(&parsed.syntax.attrs, 0, true);
+        formatter.block_attached(&parsed.syntax.attrs, 0, true, None);
         if !parsed.syntax.blocks.is_empty() {
             formatter.output.push_str("\n\n");
         }
@@ -437,7 +437,7 @@ impl Formatter {
                         self.inline_attributes(&block.attrs, indent + 2);
                     }
                     Some(AttachedContent::Blocks(_)) => {
-                        self.block_attached(&block.attrs, indent, false);
+                        self.block_attached(&block.attrs, indent, false, None);
                     }
                     None => {}
                 }
@@ -500,7 +500,7 @@ impl Formatter {
             .is_some_and(|mark| mark.attrs.attached.is_some());
         if let Some(mark) = &block.mark {
             if mark.attrs.attached.is_some() && !compact_attached {
-                self.block_attached(&mark.attrs, indent, false);
+                self.block_attached(&mark.attrs, indent, false, Some(continuation_indent));
             }
         }
 
@@ -593,19 +593,32 @@ impl Formatter {
         self.output.push('}');
     }
 
-    fn block_attached(&mut self, attrs: &Attributes, indent: usize, document: bool) {
+    fn block_attached(
+        &mut self,
+        attrs: &Attributes,
+        indent: usize,
+        document: bool,
+        next_line_indent: Option<usize>,
+    ) {
         let Some(attached) = attrs.attached.as_deref() else {
             return;
         };
-        if document {
+        let group_indent = if attached.opener_on_own_line && !document {
+            let group_indent = next_line_indent.expect("marked next-line group has an indent");
+            self.output.push('\n');
+            self.indent(group_indent);
+            group_indent
+        } else if document {
             self.indent(indent);
+            indent
         } else {
             self.output.push(' ');
-        }
+            indent
+        };
         self.output.push('{');
         let AttachedContent::Blocks(blocks) = &attached.content else {
             self.output.push_str("\n");
-            self.indent(indent);
+            self.indent(group_indent);
             self.output.push('}');
             return;
         };
@@ -614,12 +627,12 @@ impl Formatter {
             if index > 0 {
                 self.output.push('\n');
             }
-            self.block(block, indent + 2);
+            self.block(block, group_indent + 2);
         }
         if !self.output.ends_with('\n') {
             self.output.push('\n');
         }
-        self.indent(indent);
+        self.indent(group_indent);
         self.output.push('}');
     }
 
@@ -784,6 +797,10 @@ mod tests {
         assert_formats(
             "See `->[guide]{`@[main] `-[external] `:[to guide.plumb]}.\n",
             "See `->[guide]{`@[main] `-[external] `:[to guide.plumb]}.\n",
+        );
+        assert_formats(
+            "`task Work\n   {\n     `:   created now\n   }\n\n   Details\n",
+            "`task Work\n      {\n        `: created now\n      }\n\n      Details\n",
         );
     }
 

@@ -1399,6 +1399,25 @@ mod tests {
     }
 
     #[test]
+    fn edits_next_line_block_attached_elements_without_changing_layout() {
+        let source = "`task Work\n      {\n        `@ old\n      }\n";
+        let parsed = parse(source);
+        let Block::Parsed(block) = &parsed.syntax.blocks[0] else {
+            unreachable!();
+        };
+        let attrs = &block.mark.as_ref().unwrap().attrs;
+        let mut edit = EditSession::new(&parsed, block.range.clone()).unwrap();
+        edit.replace_attribute(attrs, 0, OwnedAttribute::id("new"))
+            .unwrap();
+        let edit = edit.finish().unwrap();
+        assert_eq!(
+            edit.new_text,
+            "`task Work\n      {\n        `@ new\n      }\n"
+        );
+        assert!(parse(&edit.new_text).is_valid());
+    }
+
+    #[test]
     fn edits_inline_attached_elements_without_reintroducing_legacy_attributes() {
         let source = "See `->[label]{`:[to old]}.\n";
         let parsed = parse(source);

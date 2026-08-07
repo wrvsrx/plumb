@@ -216,6 +216,14 @@
     "required_tokens": ["Marker","Delimiter","Text"]
   },
   {
+    "name": "next-line expanded block attachment",
+    "source": "`node Head\n      {\n        `@ id\n      }\n",
+    "valid": true,
+    "blocks": [{"kind":"marked","marker":"node","attrs":["#id"],"head":"Head","inline":"T\"Head\"","children":[]}],
+    "diagnostics": [],
+    "required_tokens": ["Marker","Delimiter","Introducer"]
+  },
+  {
     "name": "duplicate block attached group keeps first",
     "source": "`node Head {} {}\n",
     "valid": false,
