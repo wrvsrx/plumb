@@ -16,7 +16,7 @@ vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, {
   '',
   '`# some',
   '',
-  'Autolink `->"inbox.plumb".',
+  '`->"something.plumb"',
 })
 
 local parser = vim.treesitter.get_parser(bufnr, 'plumb')
@@ -48,10 +48,10 @@ for id, node in query:iter_captures(root, bufnr, 0, -1) do
   captures[name .. '\0' .. text] = true
 end
 
-assert(captures['label\0->'], 'inline verbatim kind must receive the label capture')
+assert(captures['label\0->'], 'line-start inline verbatim kind must receive the label capture')
 assert(
-  captures['markup.raw\0"inbox.plumb"'],
-  'inline verbatim payload must receive a separate raw capture'
+  captures['markup.raw\0"something.plumb"'],
+  'line-start inline verbatim payload must receive a separate raw capture'
 )
 
 vim.api.nvim_buf_delete(bufnr, { force = true })

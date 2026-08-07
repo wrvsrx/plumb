@@ -147,6 +147,32 @@ Use `"raw", `rust"let x = 1;", `$"x^2", `->"guide.plumb#intro", and `"{}".
       (text))))
 
 ==================
+Line-start compact inline verbatim
+==================
+
+`->"something.plumb"
+
+`->"[https://[2001:db8::1]/]"
+
+---
+
+(document
+  (blank_line)
+  (paragraph
+    (inline_content
+      (inline_verbatim
+        (introducer)
+        (verbatim_kind)
+        (raw_text))))
+  (blank_line)
+  (paragraph
+    (inline_content
+      (inline_verbatim
+        (introducer)
+        (verbatim_kind)
+        (raw_text)))))
+
+==================
 Strengthened inline verbatim
 ==================
 

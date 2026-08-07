@@ -115,6 +115,9 @@ extension semantics，也不能让 raw payload capture 覆盖 kind。verbatim bl
 range 必须排除 parent column 与 quote count 声明的 structural margin，只覆盖移除 margin 后的 payload
 bytes 与 line ending。injection 必须组合这些 payload ranges，使 injected parser 从 payload column zero
 读取首层内容，同时逐 byte 保留 Python 等 indentation-sensitive language 的 payload indentation。
+行首 backtick-kind-quote spelling 若在同一物理行形成完整 inline verbatim envelope，必须进入 paragraph
+的 `"inline_verbatim"，不能被较早的 `"verbatim_block" dispatch 吞掉；这条消歧规则也适用于 paragraph
+只包含该 inline verbatim 的情形。
 
 `"grammar.js" 和 `"tree-sitter.json" 是 source of truth。generated parser files 是 build/release
 artifacts；修改 grammar 后必须在 locked Nix environment 中 regenerate 并测试。

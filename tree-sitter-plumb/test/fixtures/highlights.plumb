@@ -4,6 +4,8 @@ Paragraph with `text"raw text" and ``escaped introducer.
 
 Autolink `->"inbox.plumb".
 
+`->"something.plumb"
+
 `rust"
   fn main() {}
 

@@ -125,7 +125,10 @@ static bool scan_raw_code_line(Scanner *scanner, TSLexer *lexer,
   return true;
 }
 
-static bool scan_verbatim_block_open(Scanner *scanner, TSLexer *lexer) {
+static bool finish_strengthened_verbatim(TSLexer *lexer, uint16_t quotes);
+
+static bool scan_verbatim_block_open(Scanner *scanner, TSLexer *lexer,
+                                     const bool *valid_symbols) {
   if (lexer->lookahead != '"') return false;
 
   uint16_t quotes = 0;
@@ -135,6 +138,32 @@ static bool scan_verbatim_block_open(Scanner *scanner, TSLexer *lexer) {
   } while (lexer->lookahead == '"');
 
   lexer->mark_end(lexer);
+
+  if (lexer->lookahead == '[') {
+    if (valid_symbols[INLINE_VERBATIM_TOKEN] &&
+        finish_strengthened_verbatim(lexer, quotes)) {
+      return true;
+    }
+    scanner->verbatim_margin = quotes;
+    lexer->result_symbol = VERBATIM_BLOCK_OPEN;
+    return true;
+  }
+
+  if (quotes == 1 && lexer->lookahead != '\n' && lexer->lookahead != 0) {
+    while (lexer->lookahead == ' ' || lexer->lookahead == '\t') take(lexer);
+    if (lexer->lookahead != '{') {
+      while (lexer->lookahead != '\n' && lexer->lookahead != 0) {
+        if (lexer->lookahead == '"') {
+          take(lexer);
+          lexer->mark_end(lexer);
+          lexer->result_symbol = INLINE_VERBATIM_TOKEN;
+          return valid_symbols[INLINE_VERBATIM_TOKEN];
+        }
+        take(lexer);
+      }
+    }
+  }
+
   scanner->verbatim_margin = quotes;
   lexer->result_symbol = VERBATIM_BLOCK_OPEN;
   return true;
@@ -360,7 +389,7 @@ bool tree_sitter_plumb_external_scanner_scan(void *payload, TSLexer *lexer,
     return true;
   }
   if (valid_symbols[VERBATIM_BLOCK_OPEN] && lexer->lookahead == '"') {
-    return scan_verbatim_block_open(scanner, lexer);
+    return scan_verbatim_block_open(scanner, lexer, valid_symbols);
   }
   if (valid_symbols[INLINE_VERBATIM_TOKEN] && lexer->lookahead == '"') {
     return scan_inline_verbatim_body(lexer);
