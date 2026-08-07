@@ -12,6 +12,7 @@ enum TokenType {
   PARAGRAPH_CONTINUE,
   INLINE_CONTINUE,
   DEDENT,
+  VERBATIM_BLOCK_OPEN,
   RAW_CODE_LINE,
   INLINE_VERBATIM_TOKEN,
   INCOMPLETE_INLINE_END,
@@ -22,6 +23,7 @@ enum TokenType {
 
 typedef struct {
   uint16_t indents[MAX_INDENT_DEPTH];
+  uint16_t verbatim_margin;
   uint8_t depth;
   uint8_t pending_dedents;
 } Scanner;
@@ -30,7 +32,9 @@ static void skip(TSLexer *lexer) { lexer->advance(lexer, true); }
 static void take(TSLexer *lexer) { lexer->advance(lexer, false); }
 
 void *tree_sitter_plumb_external_scanner_create(void) {
-  return calloc(1, sizeof(Scanner));
+  Scanner *scanner = calloc(1, sizeof(Scanner));
+  scanner->verbatim_margin = 1;
+  return scanner;
 }
 
 void tree_sitter_plumb_external_scanner_destroy(void *payload) {
@@ -43,6 +47,8 @@ unsigned tree_sitter_plumb_external_scanner_serialize(void *payload,
   unsigned size = 0;
   buffer[size++] = (char)scanner->depth;
   buffer[size++] = (char)scanner->pending_dedents;
+  buffer[size++] = (char)(scanner->verbatim_margin & 0xff);
+  buffer[size++] = (char)(scanner->verbatim_margin >> 8);
   for (uint8_t i = 0; i <= scanner->depth; i++) {
     buffer[size++] = (char)(scanner->indents[i] & 0xff);
     buffer[size++] = (char)(scanner->indents[i] >> 8);
@@ -56,16 +62,19 @@ void tree_sitter_plumb_external_scanner_deserialize(void *payload,
   Scanner *scanner = payload;
   scanner->depth = 0;
   scanner->pending_dedents = 0;
+  scanner->verbatim_margin = 1;
   scanner->indents[0] = 0;
-  if (length < 2) return;
+  if (length < 4) return;
 
   scanner->depth = (uint8_t)buffer[0];
+  scanner->verbatim_margin = (uint8_t)buffer[2] |
+                             ((uint16_t)(uint8_t)buffer[3] << 8);
   if (scanner->depth >= MAX_INDENT_DEPTH) scanner->depth = MAX_INDENT_DEPTH - 1;
   scanner->pending_dedents = (uint8_t)buffer[1];
-  unsigned available = (length - 2) / 2;
+  unsigned available = (length - 4) / 2;
   if (available <= scanner->depth) scanner->depth = available ? available - 1 : 0;
   for (uint8_t i = 0; i <= scanner->depth; i++) {
-    unsigned offset = 2u + (unsigned)i * 2u;
+    unsigned offset = 4u + (unsigned)i * 2u;
     if (offset + 1u >= length) break;
     scanner->indents[i] = (uint8_t)buffer[offset] |
                           ((uint16_t)(uint8_t)buffer[offset + 1u] << 8);
@@ -75,12 +84,11 @@ void tree_sitter_plumb_external_scanner_deserialize(void *payload,
 static bool scan_raw_code_line(Scanner *scanner, TSLexer *lexer,
                                const bool *valid_symbols) {
   lexer->mark_end(lexer);
-  // The strict parser validates the quote-count margin. The lenient mirror
-  // keeps the raw body attached when it is at least one column deeper.
-  uint16_t verbatim_indent = scanner->indents[scanner->depth] + 1;
+  uint16_t verbatim_indent = scanner->indents[scanner->depth] +
+                             scanner->verbatim_margin;
   uint16_t spaces = 0;
   while (lexer->lookahead == ' ' && spaces < verbatim_indent) {
-    take(lexer);
+    skip(lexer);
     spaces++;
   }
 
@@ -114,6 +122,21 @@ static bool scan_raw_code_line(Scanner *scanner, TSLexer *lexer,
   if (lexer->lookahead == '\n') take(lexer);
   lexer->mark_end(lexer);
   lexer->result_symbol = RAW_CODE_LINE;
+  return true;
+}
+
+static bool scan_verbatim_block_open(Scanner *scanner, TSLexer *lexer) {
+  if (lexer->lookahead != '"') return false;
+
+  uint16_t quotes = 0;
+  do {
+    take(lexer);
+    if (quotes < UINT16_MAX) quotes++;
+  } while (lexer->lookahead == '"');
+
+  lexer->mark_end(lexer);
+  scanner->verbatim_margin = quotes;
+  lexer->result_symbol = VERBATIM_BLOCK_OPEN;
   return true;
 }
 
@@ -335,6 +358,9 @@ bool tree_sitter_plumb_external_scanner_scan(void *payload, TSLexer *lexer,
   if (valid_symbols[SAME_LINE_CHILD_INDENT] &&
       scan_same_line_child_indent(scanner, lexer, valid_symbols)) {
     return true;
+  }
+  if (valid_symbols[VERBATIM_BLOCK_OPEN] && lexer->lookahead == '"') {
+    return scan_verbatim_block_open(scanner, lexer);
   }
   if (valid_symbols[INLINE_VERBATIM_TOKEN] && lexer->lookahead == '"') {
     return scan_inline_verbatim_body(lexer);

@@ -12,6 +12,7 @@ module.exports = grammar({
     $._paragraph_continue,
     $._inline_continue,
     $._dedent,
+    $._verbatim_block_open,
     $.raw_code_line,
     $._inline_verbatim_token,
     $._incomplete_inline_end,
@@ -143,7 +144,7 @@ module.exports = grammar({
     verbatim_block: $ => prec(3, seq(
       field('introducer', $.introducer),
       optional(field('kind', $.verbatim_kind)),
-      field('open', $.verbatim_open),
+      field('open', alias($._verbatim_block_open, $.verbatim_open)),
       optional(seq(
         $.head_separator,
         field('attached', choice($.attached_inline_group, $.attached_block_group)),

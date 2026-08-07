@@ -68,6 +68,8 @@
                 tree-sitter-plumb.generatedSource
               ];
 
+              TREE_SITTER_PYTHON_PACKAGE = "${pkgs.tree-sitter-grammars.tree-sitter-python}";
+
               shellHook = ''
                 export CC="${pkgs.stdenv.cc}/bin/cc"
               '';
