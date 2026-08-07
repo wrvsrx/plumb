@@ -28,7 +28,8 @@ workspace discovery、ignore、note/task、graph 与 site 见
 和 cross-document diagnostics。
 
 diagnostics 按 relative path 和 source range 稳定排序，输出 `"path:line:column"、severity、code 与
-message。Error 或 Warning 令 command 返回 nonzero；Hint 仍会显示，但不会单独令检查失败。无
+message。`"--level error|warning|hint" 选择最低显示 severity；默认 `"warning"，因此显示 Error 与
+Warning 并省略 Hint。只有 Error 令 command 返回 nonzero，Warning 与 Hint 不改变退出状态。筛选后无
 diagnostic 时不输出内容并返回成功。
 
 `# Playground
