@@ -74,6 +74,58 @@ Next-line marked block group
           (text))))))
 
 ==================
+Next-line group dedents before a following top-level block
+==================
+
+`- xixi
+ {
+  `: test 2026-08-06T00:00:00+08:00
+  `: recur P1D
+  `: prev #take-diary-2026-08-05
+ }
+
+`# some
+
+---
+
+(document
+  (blank_line)
+  (marked_block
+    (introducer)
+    (marker)
+    (head_separator)
+    (inline_content
+      (text))
+    (next_line_attached_body
+      (attached_block_group
+        (block_group_open)
+        (marked_block
+          (introducer)
+          (marker)
+          (head_separator)
+          (inline_content
+            (text)))
+        (marked_block
+          (introducer)
+          (marker)
+          (head_separator)
+          (inline_content
+            (text)))
+        (marked_block
+          (introducer)
+          (marker)
+          (head_separator)
+          (inline_content
+            (text))))))
+  (blank_line)
+  (marked_block
+    (introducer)
+    (marker)
+    (head_separator)
+    (inline_content
+      (text))))
+
+==================
 Recursive inline group
 ==================
 

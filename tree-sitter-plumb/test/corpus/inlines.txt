@@ -122,15 +122,28 @@ Use `"raw", `rust"let x = 1;", `$"x^2", `->"guide.plumb#intro", and `"{}".
   (paragraph
     (inline_content
       (text)
-      (inline_verbatim)
+      (inline_verbatim
+        (introducer)
+        (raw_text))
       (text)
-      (inline_verbatim)
+      (inline_verbatim
+        (introducer)
+        (verbatim_kind)
+        (raw_text))
       (text)
-      (inline_verbatim)
+      (inline_verbatim
+        (introducer)
+        (verbatim_kind)
+        (raw_text))
       (text)
-      (inline_verbatim)
+      (inline_verbatim
+        (introducer)
+        (verbatim_kind)
+        (raw_text))
       (text)
-      (inline_verbatim)
+      (inline_verbatim
+        (introducer)
+        (raw_text))
       (text))))
 
 ==================
@@ -146,9 +159,14 @@ Use `"[raw containing " safely]" and `rust""[raw containing ]" safely]"".
   (paragraph
     (inline_content
       (text)
-      (inline_verbatim)
+      (inline_verbatim
+        (introducer)
+        (raw_text))
       (text)
-      (inline_verbatim)
+      (inline_verbatim
+        (introducer)
+        (verbatim_kind)
+        (raw_text))
       (text))))
 
 ==================
@@ -165,6 +183,9 @@ Use `rust"let x = 1;"{`@[example] `:[generated true]}.
     (inline_content
       (text)
       (inline_verbatim
+        (introducer)
+        (verbatim_kind)
+        (raw_text)
         (attached_inline_group
           (attached_inline_content
             (inline_element

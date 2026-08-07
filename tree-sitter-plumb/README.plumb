@@ -18,7 +18,9 @@ Those interpretations belong to extension typed views, analyses, and future
 consumer-specific lowering.
 
 `"verbatim_block" and `"inline_verbatim" are separate syntax nodes because their raw
-payloads change the lexical parsing mode. The recovery-only
+payloads change the lexical parsing mode. Both expose an optional opaque `"verbatim_kind"
+child separately from raw payload so generic editor queries can highlight or inspect the kind
+without assigning extension semantics. The recovery-only
 `"incomplete_inline_element" node keeps subsequent blocks parseable while a
 document is being edited; it does not make malformed syntax valid to the strict parser.
 
@@ -60,7 +62,9 @@ release artifact or regenerated locally.
 
 `"queries/highlights.scm" uses Neovim's standard tree-sitter capture names and
 only highlights the generic core CST. It does not interpret marker or inline
-kind values semantically.
+kind values semantically. Marker, parsed-inline kind, and verbatim kind nodes receive generic
+token captures; raw highlighting is limited to verbatim payload nodes and does not override the
+kind capture.
 
 `"queries/folds.scm" and `"queries/indents.scm" cover generic block structure。
 `"queries/textobjects.scm" publishes `"block.outer"、`"block.inner"、`"inline.outer" and

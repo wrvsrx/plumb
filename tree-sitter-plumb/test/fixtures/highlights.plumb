@@ -2,6 +2,8 @@
 
 Paragraph with `text"raw text" and ``escaped introducer.
 
+Autolink `->"inbox.plumb".
+
 `rust"
   fn main() {}
 

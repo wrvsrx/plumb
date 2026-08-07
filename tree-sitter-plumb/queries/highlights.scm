@@ -24,7 +24,7 @@
 (verbatim_kind) @label
 
 ; Raw payloads are syntax nodes because they change the lexical mode.
-((inline_verbatim) @markup.raw
+((inline_verbatim (raw_text) @markup.raw)
   (#set! priority 90))
 (verbatim_block (raw_text) @markup.raw.block)
 

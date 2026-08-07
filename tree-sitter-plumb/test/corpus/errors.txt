@@ -67,7 +67,7 @@ broken `rust"unfinished
       (text))
     (ERROR
       (introducer)
-      (inline_kind)
+      (verbatim_kind)
       (verbatim_open)))
   (marked_block
     (introducer)
@@ -89,12 +89,13 @@ broken `"[unfinished
   (blank_line)
   (paragraph
     (inline_content
-      (text))
-    (ERROR
-      (introducer)
-      (ERROR
-        (verbatim_open))
-      (inline_kind)))
+      (text)
+      (inline_verbatim
+        (introducer)
+        (ERROR
+          (verbatim_open))
+        (verbatim_kind)
+        (MISSING raw_text))))
   (marked_block
     (introducer)
     (marker)

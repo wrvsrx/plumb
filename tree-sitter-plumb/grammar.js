@@ -224,7 +224,9 @@ module.exports = grammar({
     )),
 
     inline_verbatim: $ => prec.right(2, seq(
-      field('source', $._inline_verbatim_token),
+      field('introducer', $.introducer),
+      optional(field('kind', $.verbatim_kind)),
+      field('body', alias($._inline_verbatim_token, $.raw_text)),
       optional(field('attached', $.attached_inline_group)),
     )),
 

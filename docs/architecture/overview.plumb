@@ -107,6 +107,12 @@ payload 可以合法保留 tabs，其展示应继续服从用户配置。
 tree-sitter grammar 与 strict core 覆盖相同的纯 syntax surface，但容错目标不同。grammar 不能定义
 validity，也不能迫使语言设计适应 CFG。
 
+lenient mirror 必须保持 core structural boundaries：next-line attached block group 结束后，即使随后有
+blank lines，也要在下一 nonblank line 预看并正确 dedent，不能把合法的 following top-level block 包进
+recovery error。verbatim block 与 inline verbatim 的 CST 都分别暴露 optional opaque
+`"verbatim_kind" 和 raw payload node；highlight query 可以给 kind 通用 token capture，但不能解释其
+extension semantics，也不能让 raw payload capture 覆盖 kind。
+
 `"grammar.js" 和 `"tree-sitter.json" 是 source of truth。generated parser files 是 build/release
 artifacts；修改 grammar 后必须在 locked Nix environment 中 regenerate 并测试。
 
