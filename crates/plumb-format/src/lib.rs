@@ -1,4 +1,5 @@
 use std::ffi::OsString;
+#[cfg(test)]
 use std::fmt::Write;
 use std::fs;
 use std::io::{self, Read};
@@ -7,10 +8,9 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use clap::Parser;
-use plumb_core::{
-    parse, parse_legacy_017, AttachedContent, AttachedGroup, AttrItem, Attributes, Block, Inline,
-    InlineContent, Mark, ParsedBlock,
-};
+#[cfg(test)]
+use plumb_core::AttrItem;
+use plumb_core::{parse, AttachedContent, Attributes, Block, Inline, InlineContent, ParsedBlock};
 use similar::{DiffOp, TextDiff};
 use unicode_width::UnicodeWidthStr;
 
@@ -26,23 +26,12 @@ pub struct FormatEdit {
     pub new_text: String,
 }
 
-const MAX_BLOCK_WIDTH: usize = 100;
-
 #[derive(Debug, Parser)]
 #[command(name = "plumb fmt", about = "Format plumb documents")]
 struct Args {
     #[arg(long)]
     check: bool,
     paths: Vec<PathBuf>,
-}
-
-#[derive(Debug, Parser)]
-#[command(
-    name = "plumb migrate-attributes",
-    about = "Convert legacy attribute slots to attached groups"
-)]
-struct MigrateArgs {
-    path: Option<PathBuf>,
 }
 
 pub fn run_cli(args: impl IntoIterator<Item = OsString>) -> ExitCode {
@@ -58,46 +47,6 @@ pub fn run_cli(args: impl IntoIterator<Item = OsString>) -> ExitCode {
         Ok(false) => ExitCode::from(1),
         Err(error) => {
             eprintln!("plumb fmt: {error}");
-            ExitCode::FAILURE
-        }
-    }
-}
-
-pub fn run_migrate_cli(args: impl IntoIterator<Item = OsString>) -> ExitCode {
-    let args = match MigrateArgs::try_parse_from(args) {
-        Ok(args) => args,
-        Err(error) => {
-            let _ = error.print();
-            return ExitCode::from(error.exit_code() as u8);
-        }
-    };
-    let source = match args.path {
-        Some(path) => match fs::read_to_string(&path) {
-            Ok(source) => source,
-            Err(error) => {
-                eprintln!(
-                    "plumb migrate-attributes: cannot read {}: {error}",
-                    path.display()
-                );
-                return ExitCode::FAILURE;
-            }
-        },
-        None => {
-            let mut source = String::new();
-            if let Err(error) = io::stdin().read_to_string(&mut source) {
-                eprintln!("plumb migrate-attributes: cannot read stdin: {error}");
-                return ExitCode::FAILURE;
-            }
-            source
-        }
-    };
-    match migrate_attributes(&source) {
-        Ok(migrated) => {
-            print!("{migrated}");
-            ExitCode::SUCCESS
-        }
-        Err(_) => {
-            eprintln!("plumb migrate-attributes: input has syntax errors");
             ExitCode::FAILURE
         }
     }
@@ -141,162 +90,24 @@ fn format_source(source: &str, name: &str) -> Result<String, String> {
 }
 
 pub fn format(source: &str) -> Result<String, FormatError> {
-    render(source, false)
-}
-
-pub fn migrate_attributes(source: &str) -> Result<String, FormatError> {
-    render(source, true)
-}
-
-fn render(source: &str, migrate_legacy: bool) -> Result<String, FormatError> {
-    let parsed = if migrate_legacy {
-        parse_legacy_017(source)
-    } else {
-        parse(source)
-    };
+    let parsed = parse(source);
     if !parsed.is_valid() {
         return Err(FormatError::InvalidSyntax);
     }
 
-    let mut formatter = Formatter {
-        output: String::new(),
-        migrate_legacy,
-    };
-    let legacy_metadata = (migrate_legacy && parsed.syntax.attrs.attached.is_none())
-        .then(|| {
-            parsed
-                .syntax
-                .blocks
-                .iter()
-                .position(convertible_legacy_metadata)
-        })
-        .flatten();
-    let migrated_metadata = legacy_metadata.map(|index| Attributes {
-        range: Some(0..0),
-        items: Vec::new(),
-        attached: Some(Box::new(AttachedGroup {
-            range: 0..0,
-            open_range: 0..0,
-            close_range: 0..0,
-            content: AttachedContent::Blocks(convert_legacy_metadata_blocks(
-                &parsed.syntax.blocks[index].children()[..],
-            )),
-        })),
-    });
+    let mut formatter = Formatter::default();
     if parsed.syntax.attrs.attached.is_some() {
         formatter.block_attached(&parsed.syntax.attrs, 0, false);
         if !parsed.syntax.blocks.is_empty() {
             formatter.output.push_str("\n\n");
         }
-    } else if let Some(metadata) = migrated_metadata.as_ref() {
-        formatter.block_attached(metadata, 0, false);
-        if parsed.syntax.blocks.len() > 1 {
-            formatter.output.push_str("\n\n");
-        }
     }
-    let body = legacy_metadata.map_or_else(
-        || parsed.syntax.blocks.clone(),
-        |metadata| {
-            parsed
-                .syntax
-                .blocks
-                .iter()
-                .enumerate()
-                .filter(|(index, _)| *index != metadata)
-                .map(|(_, block)| block.clone())
-                .collect()
-        },
-    );
+    let body = &parsed.syntax.blocks;
     formatter.blocks(&body, 0);
     if terminal_verbatim(&body).is_none() && !formatter.output.is_empty() {
         formatter.output.push('\n');
     }
     Ok(formatter.output)
-}
-
-fn convertible_legacy_metadata(block: &Block) -> bool {
-    let Block::Parsed(block) = block else {
-        return false;
-    };
-    block
-        .mark
-        .as_ref()
-        .is_some_and(|mark| mark.marker == "meta")
-        && block.head.items.is_empty()
-        && legacy_metadata_keys_are_convertible(&block.children)
-}
-
-fn legacy_metadata_keys_are_convertible(blocks: &[Block]) -> bool {
-    blocks.iter().all(|block| match block {
-        Block::Verbatim(_) => true,
-        Block::Parsed(block) => {
-            let valid = block
-                .mark
-                .as_ref()
-                .is_none_or(|mark| mark.marker != ":" || valid_marker(&block.head.plain_text()));
-            valid && legacy_metadata_keys_are_convertible(&block.children)
-        }
-    })
-}
-
-fn valid_marker(marker: &str) -> bool {
-    !marker.is_empty()
-        && marker.chars().all(|character| {
-            !character.is_whitespace()
-                && !character.is_control()
-                && !matches!(character, '`' | '"' | '[' | ']' | '{' | '}')
-        })
-}
-
-fn migrated_special_marker(mark: &Mark) -> Option<&str> {
-    matches!(mark.marker.as_str(), "-" | ".").then(|| {
-        mark.attrs.items.iter().find_map(|item| match item {
-            AttrItem::Class { value, .. } if matches!(value.as_str(), "task" | "event") => {
-                Some(value.as_str())
-            }
-            _ => None,
-        })
-    })?
-}
-
-fn has_migrated_attached(mark: &Mark) -> bool {
-    let skipped = migrated_special_marker(mark);
-    mark.attrs
-        .items
-        .iter()
-        .any(|item| !matches!(item, AttrItem::Class { value, .. } if skipped == Some(value)))
-}
-
-fn convert_legacy_metadata_blocks(blocks: &[Block]) -> Vec<Block> {
-    blocks
-        .iter()
-        .cloned()
-        .map(|block| match block {
-            Block::Verbatim(block) => Block::Verbatim(block),
-            Block::Parsed(mut block) => {
-                block.children = convert_legacy_metadata_blocks(&block.children);
-                if block.mark.as_ref().is_some_and(|mark| mark.marker == ":") {
-                    let scalar = match block.children.as_slice() {
-                        [Block::Parsed(value)] if value.mark.is_none() => Some(value.head.clone()),
-                        _ => None,
-                    };
-                    if let Some(mut scalar) = scalar {
-                        let mut items = std::mem::take(&mut block.head.items);
-                        let separator = block.head.range.end..block.head.range.end;
-                        items.push(Inline::Space {
-                            text: " ".to_string(),
-                            range: separator,
-                        });
-                        items.append(&mut scalar.items);
-                        block.head.items = items;
-                        block.head.range.end = scalar.range.end;
-                        block.children.clear();
-                    }
-                }
-                Block::Parsed(block)
-            }
-        })
-        .collect()
 }
 
 pub fn format_edits(source: &str) -> Result<Vec<FormatEdit>, FormatError> {
@@ -467,7 +278,7 @@ fn format_block_group(source: &str, blocks: &[Block], first: usize, last: usize)
     let mut formatter = Formatter::default();
     formatter.blocks(selected, indent);
     if let Some(following) = following {
-        if compact_siblings(selected.last().unwrap(), following, false) {
+        if compact_siblings(selected.last().unwrap(), following) {
             formatter.output.push('\n');
         } else {
             formatter.output.push_str("\n\n");
@@ -591,7 +402,6 @@ fn terminal_verbatim(blocks: &[Block]) -> Option<&plumb_core::VerbatimBlock> {
 #[derive(Default)]
 struct Formatter {
     output: String,
-    migrate_legacy: bool,
 }
 
 impl Formatter {
@@ -603,7 +413,7 @@ impl Formatter {
                     if !self.output.ends_with('\n') {
                         self.output.push('\n');
                     }
-                } else if compact_siblings(previous, block, self.migrate_legacy) {
+                } else if compact_siblings(previous, block) {
                     self.output.push('\n');
                 } else {
                     self.output.push_str("\n\n");
@@ -619,21 +429,13 @@ impl Formatter {
             Block::Verbatim(block) => {
                 self.indent(indent);
                 self.output.push('`');
-                let promoted_language = block
-                    .kind
-                    .is_empty()
-                    .then(|| block.attrs.value("language"))
-                    .flatten();
-                self.output
-                    .push_str(promoted_language.unwrap_or(block.kind.as_str()));
+                self.output.push_str(&block.kind);
                 self.output.push('"');
                 if matches!(
                     block.attrs.attached.as_deref().map(|group| &group.content),
                     Some(AttachedContent::Inlines(_))
                 ) {
                     self.inline_attributes(&block.attrs, indent + 2);
-                } else if !block.attrs.items.is_empty() {
-                    self.projected_inline_attached(&block.attrs, promoted_language.is_some(), None);
                 }
                 if !block.text.is_empty() {
                     self.output.push('\n');
@@ -661,27 +463,10 @@ impl Formatter {
     fn parsed_block(&mut self, block: &ParsedBlock, indent: usize) {
         self.indent(indent);
         let continuation_indent = if let Some(mark) = &block.mark {
-            let marker = if self.migrate_legacy {
-                migrated_special_marker(mark).unwrap_or(mark.marker.as_str())
-            } else {
-                mark.marker.as_str()
-            };
+            let marker = mark.marker.as_str();
             self.output.push('`');
             self.output.push_str(marker);
             let hanging_indent = hanging_indent(indent, marker);
-            let head_width = if block.head.items.is_empty() {
-                0
-            } else {
-                1 + inline_first_line_width(&block.head)
-            };
-            if mark.attrs.attached.is_none() && !(self.migrate_legacy && mark.attrs.range.is_some())
-            {
-                self.block_attributes(
-                    &mark.attrs,
-                    indent + 1 + UnicodeWidthStr::width(marker),
-                    head_width,
-                );
-            }
             if !block.head.items.is_empty() {
                 self.output.push(' ');
             }
@@ -705,24 +490,14 @@ impl Formatter {
             );
         }
 
-        let has_attached = block.mark.as_ref().is_some_and(|mark| {
-            mark.attrs.attached.is_some() || (self.migrate_legacy && mark.attrs.range.is_some())
-        });
+        let has_attached = block
+            .mark
+            .as_ref()
+            .is_some_and(|mark| mark.attrs.attached.is_some());
         if let Some(mark) = &block.mark {
             if mark.attrs.attached.is_some() && !compact_attached {
                 self.output.push('\n');
                 self.block_attached(&mark.attrs, continuation_indent, false);
-            } else if self.migrate_legacy
-                && mark.attrs.range.is_some()
-                && has_migrated_attached(mark)
-            {
-                self.output.push('\n');
-                self.legacy_block_attached(
-                    &mark.attrs,
-                    continuation_indent,
-                    false,
-                    migrated_special_marker(mark),
-                );
             }
         }
 
@@ -736,12 +511,7 @@ impl Formatter {
                 if block.head.items.is_empty() {
                     indent + 1
                 } else {
-                    let marker = if self.migrate_legacy {
-                        migrated_special_marker(mark).unwrap_or(mark.marker.as_str())
-                    } else {
-                        mark.marker.as_str()
-                    };
-                    hanging_indent(indent, marker)
+                    hanging_indent(indent, &mark.marker)
                 }
             });
             self.blocks(&block.children, child_indent);
@@ -773,21 +543,8 @@ impl Formatter {
                 Inline::Verbatim {
                     kind, text, attrs, ..
                 } => {
-                    let promoted_kind = self
-                        .migrate_legacy
-                        .then(|| {
-                            attrs.items.iter().find_map(|item| match item {
-                                AttrItem::Class { value, .. }
-                                    if matches!(value.as_str(), "->" | "$") =>
-                                {
-                                    Some(value.as_str())
-                                }
-                                _ => None,
-                            })
-                        })
-                        .flatten();
                     self.output.push('`');
-                    self.output.push_str(promoted_kind.unwrap_or(kind));
+                    self.output.push_str(kind);
                     if !text.contains('"') {
                         self.output.push('"');
                         self.output.push_str(text);
@@ -804,11 +561,7 @@ impl Formatter {
                             self.output.push('"');
                         }
                     }
-                    if let Some(promoted) = promoted_kind {
-                        self.inline_attributes_skipping_class(attrs, continuation_indent, promoted);
-                    } else {
-                        self.inline_attributes(attrs, continuation_indent);
-                    }
+                    self.inline_attributes(attrs, continuation_indent);
                 }
             }
         }
@@ -824,20 +577,8 @@ impl Formatter {
         }
     }
 
-    fn attributes(&mut self, attrs: &Attributes) {
-        let Some(attributes) = attributes_text(attrs) else {
-            return;
-        };
-        self.output.push_str(&attributes);
-    }
-
     fn inline_attributes(&mut self, attrs: &Attributes, continuation_indent: usize) {
         let Some(attached) = attrs.attached.as_deref() else {
-            if self.migrate_legacy && attrs.range.is_some() {
-                self.legacy_inline_attached(attrs);
-            } else {
-                self.attributes(attrs);
-            }
             return;
         };
         self.output.push('{');
@@ -845,40 +586,6 @@ impl Formatter {
             self.inlines(content, continuation_indent, true);
         }
         self.output.push('}');
-    }
-
-    fn inline_attributes_skipping_class(
-        &mut self,
-        attrs: &Attributes,
-        continuation_indent: usize,
-        skipped: &str,
-    ) {
-        if attrs.attached.is_none() {
-            self.projected_inline_attached(attrs, false, Some(skipped));
-            return;
-        }
-        let retained = attrs
-            .items
-            .iter()
-            .filter(|item| !matches!(item, AttrItem::Class { value, .. } if value == skipped))
-            .count();
-        if retained == 0 {
-            return;
-        }
-        self.output.push('{');
-        let mut wrote = false;
-        for item in &attrs.items {
-            if matches!(item, AttrItem::Class { value, .. } if value == skipped) {
-                continue;
-            }
-            if wrote {
-                self.output.push(' ');
-            }
-            wrote = true;
-            self.write_projected_inline_item(item);
-        }
-        self.output.push('}');
-        let _ = continuation_indent;
     }
 
     fn block_attached(&mut self, attrs: &Attributes, indent: usize, opener_after_tick: bool) {
@@ -909,204 +616,19 @@ impl Formatter {
         self.output.push('}');
     }
 
-    fn legacy_block_attached(
-        &mut self,
-        attrs: &Attributes,
-        indent: usize,
-        opener_after_tick: bool,
-        skipped_class: Option<&str>,
-    ) {
-        if attrs.items.iter().all(
-            |item| matches!(item, AttrItem::Class { value, .. } if skipped_class == Some(value)),
-        ) {
-            return;
-        }
-        if !opener_after_tick {
-            self.indent(indent);
-        }
-        self.output.push_str("{\n");
-        for item in &attrs.items {
-            if matches!(item, AttrItem::Class { value, .. } if skipped_class == Some(value)) {
-                continue;
-            }
-            self.indent(indent + 2);
-            self.output.push('`');
-            match item {
-                AttrItem::Class { value, .. } => {
-                    self.output.push_str("- ");
-                    self.text(value, false);
-                }
-                AttrItem::Id { value, .. } => {
-                    self.output.push_str("@ ");
-                    self.text(value, false);
-                }
-                AttrItem::Pair { key, value, .. } => {
-                    self.output.push_str(": ");
-                    self.text(key, false);
-                    self.output.push(' ');
-                    self.text(&value.decoded, false);
-                }
-            }
-            self.output.push('\n');
-        }
-        self.indent(indent);
-        self.output.push('}');
-    }
-
-    fn legacy_inline_attached(&mut self, attrs: &Attributes) {
-        self.projected_inline_attached(attrs, false, None);
-    }
-
-    fn projected_inline_attached(
-        &mut self,
-        attrs: &Attributes,
-        skip_language: bool,
-        skip_class: Option<&str>,
-    ) {
-        if attrs.items.iter().all(|item| {
-            (skip_language && matches!(item, AttrItem::Pair { key, .. } if key == "language"))
-                || matches!(item, AttrItem::Class { value, .. } if skip_class == Some(value))
-        }) {
-            return;
-        }
-        self.output.push('{');
-        let mut wrote_item = false;
-        for item in &attrs.items {
-            if skip_language && matches!(item, AttrItem::Pair { key, .. } if key == "language") {
-                continue;
-            }
-            if matches!(item, AttrItem::Class { value, .. } if skip_class == Some(value)) {
-                continue;
-            }
-            if wrote_item {
-                self.output.push(' ');
-            }
-            wrote_item = true;
-            self.write_projected_inline_item(item);
-        }
-        self.output.push('}');
-    }
-
-    fn write_projected_inline_item(&mut self, item: &AttrItem) {
-        self.output.push('`');
-        match item {
-            AttrItem::Class { value, .. } => {
-                self.output.push_str("-[");
-                self.text(value, true);
-                self.output.push(']');
-            }
-            AttrItem::Id { value, .. } => {
-                self.output.push_str("@[");
-                self.text(value, true);
-                self.output.push(']');
-            }
-            AttrItem::Pair { key, value, .. } => {
-                self.output.push_str(":[");
-                self.text(key, true);
-                self.output.push(' ');
-                self.text(&value.decoded, true);
-                self.output.push(']');
-            }
-        }
-    }
-
-    fn block_attributes(&mut self, attrs: &Attributes, prefix_width: usize, suffix_width: usize) {
-        let Some(attributes) = attributes_text(attrs) else {
-            return;
-        };
-        if attrs.items.is_empty()
-            || prefix_width + UnicodeWidthStr::width(attributes.as_str()) + suffix_width
-                <= MAX_BLOCK_WIDTH
-        {
-            self.output.push_str(&attributes);
-            return;
-        }
-
-        self.output.push('{');
-        let item_indent = prefix_width + 1;
-        let mut line_width = 0;
-        for item in &attrs.items {
-            let item = attribute_item_text(item);
-            let item_width = UnicodeWidthStr::width(item.as_str());
-            if line_width == 0 || line_width + 1 + item_width > MAX_BLOCK_WIDTH {
-                self.output.push('\n');
-                self.indent(item_indent);
-                self.output.push_str(&item);
-                line_width = item_indent + item_width;
-            } else {
-                self.output.push(' ');
-                self.output.push_str(&item);
-                line_width += 1 + item_width;
-            }
-        }
-        self.output.push('\n');
-        self.indent(prefix_width);
-        self.output.push('}');
-    }
-
     fn indent(&mut self, indent: usize) {
         self.output.extend(std::iter::repeat_n(' ', indent));
     }
 }
 
-fn attributes_text(attrs: &Attributes) -> Option<String> {
-    attrs.range.as_ref()?;
-    let mut output = String::from("{");
-    for (index, item) in attrs.items.iter().enumerate() {
-        if index > 0 {
-            output.push(' ');
-        }
-        write_attribute_item(&mut output, item);
-    }
-    output.push('}');
-    Some(output)
-}
-
-fn inline_first_line_width(content: &InlineContent) -> usize {
-    let mut formatter = Formatter::default();
-    formatter.inlines(content, 0, false);
-    UnicodeWidthStr::width(formatter.output.lines().next().unwrap_or_default())
-}
-
-fn write_attribute_item(output: &mut String, item: &AttrItem) {
-    match item {
-        AttrItem::Id { value, .. } => {
-            output.push('#');
-            output.push_str(value);
-        }
-        AttrItem::Class { value, .. } => {
-            output.push('.');
-            output.push_str(value);
-        }
-        AttrItem::Pair { key, value, .. } => {
-            let _ = write!(output, "{key}={}", value.raw);
-        }
-    }
-}
-
-fn attribute_item_text(item: &AttrItem) -> String {
-    let mut output = String::new();
-    write_attribute_item(&mut output, item);
-    output
-}
-
-fn compact_siblings(previous: &Block, current: &Block, migrate_legacy: bool) -> bool {
+fn compact_siblings(previous: &Block, current: &Block) -> bool {
     let (Block::Parsed(previous), Block::Parsed(current)) = (previous, current) else {
         return false;
     };
     let (Some(previous_mark), Some(current_mark)) = (&previous.mark, &current.mark) else {
         return false;
     };
-    previous.children.is_empty()
-        && effective_marker(previous_mark, migrate_legacy)
-            == effective_marker(current_mark, migrate_legacy)
-}
-
-fn effective_marker(mark: &Mark, migrate_legacy: bool) -> &str {
-    migrate_legacy
-        .then(|| migrated_special_marker(mark))
-        .flatten()
-        .unwrap_or(mark.marker.as_str())
+    previous.children.is_empty() && previous_mark.marker == current_mark.marker
 }
 
 fn hanging_indent(owner_indent: usize, marker: &str) -> usize {
@@ -1259,34 +781,13 @@ mod tests {
     }
 
     #[test]
-    fn migrates_legacy_attributes_for_every_owner_category() {
-        let source = "`-{.task #shopping due=\"2026-08-07\"} Buy milk\n\nSee `->[guide]{.external #main to=\"guide.plumb#intro\"}.\n\n`{language=rust #example}\n  fn main() {}\n";
-        let expected = "`task Buy milk\n      {\n        `@ shopping\n        `: due 2026-08-07\n      }\n\nSee `->[guide]{`-[external] `@[main] `:[to guide.plumb#intro]}.\n\n`rust\"{`@[example]}\n  fn main() {}\n";
-
-        let migrated = migrate_attributes(source).unwrap();
-        assert_eq!(migrated, expected);
-        assert!(parse(&migrated).is_valid());
-        assert_eq!(migrate_attributes(&migrated).unwrap(), migrated);
-        assert_eq!(format(source), Err(FormatError::InvalidSyntax));
-    }
-
-    #[test]
-    fn migration_rejects_invalid_input_without_partial_output() {
-        assert_eq!(
-            migrate_attributes("`span[unclosed\n"),
-            Err(FormatError::InvalidSyntax)
+    fn preserves_markers_and_opaque_attached_spellings() {
+        assert_formats("`- Work {`-[task]}\n", "`- Work {`-[task]}\n");
+        assert_formats("`node Meeting {`-[event]}\n", "`node Meeting {`-[event]}\n");
+        assert_formats(
+            "`task Work\n`event Meeting\n",
+            "`task Work\n\n`event Meeting\n",
         );
-    }
-
-    #[test]
-    fn migration_lifts_legacy_metadata_to_the_document_owner() {
-        let source = "`meta\n `: title\n\n    Document `em[title]\n\n `: tags\n  `- plumb\n  `- parser\n\n `: author\n  `: name\n\n     Alice\n\nBody.\n";
-        let expected = "{\n  `: title Document `em[title]\n  `: tags\n\n     `- plumb\n     `- parser\n  `: author\n\n     `: name Alice\n}\n\nBody.\n";
-
-        let migrated = migrate_attributes(source).unwrap();
-        assert_eq!(migrated, expected);
-        assert!(parse(&migrated).is_valid());
-        assert_eq!(migrate_attributes(&migrated).unwrap(), migrated);
     }
 
     #[test]
@@ -1517,7 +1018,7 @@ mod tests {
     }
 
     #[test]
-    fn packs_long_block_attributes_within_one_hundred_display_columns() {
+    fn preserves_long_attached_groups() {
         assert_formats(
             "`- Work {`-[task] `@[write] `:[created 2026-07-20T12:00:00+08:00] `:[due 2026-07-21T12:00:00+08:00] `:[depends notes/project.plumb#prepare]}\n",
             "`- Work {`-[task] `@[write] `:[created 2026-07-20T12:00:00+08:00] `:[due 2026-07-21T12:00:00+08:00] `:[depends notes/project.plumb#prepare]}\n",

@@ -13,19 +13,17 @@ fn exposes_the_unified_command_surface() {
     assert!(help.status.success());
     let help = String::from_utf8(help.stdout).unwrap();
     for command in [
-        "check",
-        "event",
-        "fmt",
-        "migrate-attributes",
-        "export",
-        "import",
-        "note",
-        "site",
-        "task",
-        "lsp",
+        "check", "event", "fmt", "export", "import", "note", "site", "task", "lsp",
     ] {
         assert!(help.contains(command));
     }
+    let removed_command = ["migrate", "attributes"].join("-");
+    let removed_migration = Command::new(env!("CARGO_BIN_EXE_plumb"))
+        .arg(&removed_command)
+        .output()
+        .unwrap();
+    assert!(!removed_migration.status.success());
+    assert!(String::from_utf8_lossy(&removed_migration.stderr).contains("unknown command"));
 
     let serve_help = Command::new(env!("CARGO_BIN_EXE_plumb"))
         .args(["site", "serve", "--help"])
@@ -64,52 +62,6 @@ fn exposes_the_unified_command_surface() {
         String::from_utf8_lossy(&imported.stderr)
     );
     assert_eq!(String::from_utf8(imported.stdout).unwrap(), "Paragraph.\n");
-}
-
-#[test]
-fn migrates_legacy_attributes_from_stdin_and_files_atomically() {
-    let legacy = "`meta\n  `: title\n\n    Migration\n\n`-{.task #write due=tomorrow} Work\n\nSee `->[guide]{to=\"guide.plumb#intro\"}.\n\n`{language=rust}\n  fn main() {}\n";
-    let migrated = run_with_stdin(&["migrate-attributes"], legacy);
-    assert!(
-        migrated.status.success(),
-        "{}",
-        String::from_utf8_lossy(&migrated.stderr)
-    );
-    let migrated = String::from_utf8(migrated.stdout).unwrap();
-    assert!(
-        migrated.starts_with("{\n  `: title Migration\n}\n"),
-        "{migrated}"
-    );
-    assert!(migrated.contains("`task Work\n"), "{migrated}");
-    assert!(migrated.contains("`@ write\n"), "{migrated}");
-    assert!(
-        migrated.contains("`->[guide]{`:[to guide.plumb#intro]}"),
-        "{migrated}"
-    );
-    assert!(migrated.contains("`rust\"\n  fn main() {}"), "{migrated}");
-
-    let idempotent = run_with_stdin(&["migrate-attributes"], &migrated);
-    assert!(idempotent.status.success());
-    assert_eq!(String::from_utf8(idempotent.stdout).unwrap(), migrated);
-
-    let root = unique_temp_dir();
-    std::fs::create_dir_all(&root).unwrap();
-    let path = root.join("legacy.plumb");
-    std::fs::write(&path, legacy).unwrap();
-    let from_path = Command::new(env!("CARGO_BIN_EXE_plumb"))
-        .arg("migrate-attributes")
-        .arg(&path)
-        .output()
-        .unwrap();
-    assert!(from_path.status.success());
-    assert_eq!(String::from_utf8(from_path.stdout).unwrap(), migrated);
-    assert_eq!(std::fs::read_to_string(&path).unwrap(), legacy);
-
-    let invalid = run_with_stdin(&["migrate-attributes"], "`span[unclosed\n");
-    assert!(!invalid.status.success());
-    assert!(invalid.stdout.is_empty());
-    assert!(String::from_utf8_lossy(&invalid.stderr).contains("syntax errors"));
-    std::fs::remove_dir_all(root).unwrap();
 }
 
 #[test]

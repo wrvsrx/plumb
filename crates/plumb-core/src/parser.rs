@@ -4,20 +4,12 @@ use crate::lossless::build_lossless;
 use crate::syntax::*;
 
 pub fn parse(source: impl Into<String>) -> ParsedDocument {
-    parse_with_legacy(source.into(), false)
-}
-
-pub fn parse_legacy_017(source: impl Into<String>) -> ParsedDocument {
-    parse_with_legacy(source.into(), true)
-}
-
-fn parse_with_legacy(source: String, legacy_017: bool) -> ParsedDocument {
+    let source = source.into();
     let lines = Lines::new(&source);
     let mut parser = Parser {
         source: &source,
         lines,
         diagnostics: Vec::new(),
-        legacy_017,
     };
     let (attrs, body_start) = parser.parse_root_attached();
     let (blocks, _) = parser.parse_blocks(body_start, 0);
@@ -43,7 +35,7 @@ fn normalize_diagnostics(mut diagnostics: Vec<Diagnostic>) -> Vec<Diagnostic> {
         .collect::<Vec<_>>();
     diagnostics.retain(|diagnostic| {
         !preferred.iter().any(|(code, range)| {
-            (range == &diagnostic.range
+            range == &diagnostic.range
                 && matches!(
                     (*code, diagnostic.code),
                     (
@@ -51,11 +43,7 @@ fn normalize_diagnostics(mut diagnostics: Vec<Diagnostic>) -> Vec<Diagnostic> {
                         "syntax.invalid-inline-dispatch"
                     ) | ("syntax.invalid-marker", "syntax.invalid-block-dispatch")
                         | ("syntax.short-verbatim-indent", "syntax.partial-indent")
-                ))
-                || (*code == "syntax.unclosed-quoted-value"
-                    && diagnostic.code == "syntax.unclosed-attributes"
-                    && diagnostic.range.start <= range.start
-                    && diagnostic.range.end >= range.end)
+                )
         })
     });
     diagnostics
@@ -346,7 +334,6 @@ struct Parser<'a> {
     source: &'a str,
     lines: Lines,
     diagnostics: Vec<Diagnostic>,
-    legacy_017: bool,
 }
 
 impl Parser<'_> {
@@ -516,9 +503,6 @@ impl Parser<'_> {
         if byte == b'[' {
             return None;
         }
-        if byte == b'{' && self.legacy_017 {
-            return Some(BlockDispatch::Verbatim);
-        }
         let kind_end = take_name_like(self.source, after, line.content_end, marker_char);
         if kind_end < line.content_end && self.source.as_bytes()[kind_end] == b'"' {
             let tail = kind_end + 1;
@@ -554,21 +538,21 @@ impl Parser<'_> {
         let marker_range = marker_start..cursor;
 
         let mut attrs = if cursor < line.content_end && self.source.as_bytes()[cursor] == b'{' {
-            if !self.legacy_017 {
-                self.diagnostics.push(Diagnostic::error(
-                    "syntax.legacy-attributes",
-                    "legacy attribute slots are only accepted by the 0.17 migration reader",
-                    cursor..line.content_end,
-                ));
-            }
+            self.diagnostics.push(Diagnostic::error(
+                "syntax.legacy-attributes",
+                "legacy attribute slots are not part of the current syntax",
+                cursor..line.content_end,
+            ));
+            let diagnostic_count = self.diagnostics.len();
             let (limit, _) = self.attribute_extent(cursor, index, indent);
-            let (attrs, next) = self.parse_attributes(cursor, limit);
+            let (_, next) = self.parse_attributes(cursor, limit);
+            self.diagnostics.truncate(diagnostic_count);
             cursor = next;
             header_index = self
                 .line_index_at_offset(cursor)
                 .expect("attribute cursor remains on a source line");
             line = self.lines.0[header_index].clone();
-            attrs
+            Attributes::default()
         } else {
             Attributes::default()
         };
@@ -672,22 +656,8 @@ impl Parser<'_> {
         }
 
         if let Some((attached_index, attached_indent)) = attached {
-            let (mut group, after_group) =
-                self.parse_block_attached(attached_index, attached_indent);
-            if attrs.range.is_some() {
-                self.diagnostics.push(Diagnostic::error(
-                    "syntax.multiple-attribute-forms",
-                    "a block cannot use both legacy attributes and an attached group",
-                    group
-                        .range
-                        .clone()
-                        .unwrap_or(attached_indent..attached_indent),
-                ));
-                attrs.items.append(&mut group.items);
-                attrs.attached = group.attached;
-            } else {
-                attrs = group;
-            }
+            let (group, after_group) = self.parse_block_attached(attached_index, attached_indent);
+            attrs = group;
             next = after_group;
         }
 
@@ -724,98 +694,25 @@ impl Parser<'_> {
         let introducer = line.start + indent;
         let attr_start = introducer + 1;
         let kind_end = take_name_like(self.source, attr_start, line.content_end, marker_char);
-        let quoted = self.source.as_bytes().get(kind_end) == Some(&b'"');
-        let (kind, kind_range, attrs, header_index, after_attrs, opener_end) = if quoted {
-            let kind_range = attr_start..kind_end;
-            let after_quote = kind_end + 1;
-            let (attrs, after_attrs) =
-                if after_quote < line.content_end && self.source.as_bytes()[after_quote] == b'{' {
-                    let mut position = InlinePosition {
-                        segment: 0,
-                        offset: after_quote,
-                    };
-                    self.parse_inline_attached(&mut position, after_quote, line.content_end)
-                } else {
-                    (Attributes::default(), after_quote)
+        let kind_range = attr_start..kind_end;
+        let after_quote = kind_end + 1;
+        let (attrs, after_attrs) =
+            if after_quote < line.content_end && self.source.as_bytes()[after_quote] == b'{' {
+                let mut position = InlinePosition {
+                    segment: 0,
+                    offset: after_quote,
                 };
-            (
-                self.source[kind_range.clone()].to_string(),
-                kind_range,
-                attrs,
-                index,
-                after_attrs,
-                after_quote,
-            )
-        } else {
-            let legacy_multiline = (attr_start + 1 == line.content_end).then(|| {
-                let (limit, header_index) = self.attribute_extent(attr_start, index, indent);
-                let diagnostics = self.diagnostics.len();
-                let (attrs, after_attrs) = self.parse_attributes(attr_start, limit);
-                let closed = attrs
-                    .range
-                    .as_ref()
-                    .is_some_and(|range| self.source.as_bytes().get(range.end - 1) == Some(&b'}'));
-                if closed {
-                    Some((attrs, header_index, after_attrs))
-                } else {
-                    self.diagnostics.truncate(diagnostics);
-                    None
-                }
-            });
-            let (attrs, header_index, after_attrs) =
-                if let Some(legacy) = legacy_multiline.flatten() {
-                    legacy
-                } else if attr_start + 1 == line.content_end {
-                    let (blocks, next) = self.parse_blocks(index + 1, indent + 2);
-                    let (close_range, header_index, after_attrs, range_end) =
-                        if self.is_group_delimiter(next, indent, b'}') {
-                            let close = &self.lines.0[next];
-                            let start = close.start + indent;
-                            (start..start + 1, next, close.content_end, close.end)
-                        } else {
-                            let end = self
-                                .lines
-                                .0
-                                .get(next)
-                                .map_or(self.source.len(), |candidate| {
-                                    candidate.start + candidate.indent
-                                });
-                            self.diagnostics.push(Diagnostic::error(
-                                "syntax.unclosed-attached-group",
-                                "verbatim block attached group must close before its raw payload",
-                                attr_start..end,
-                            ));
-                            (end..end, index, line.content_end, end)
-                        };
-                    let range = attr_start..range_end;
-                    (
-                        Attributes {
-                            range: Some(range.clone()),
-                            items: project_block_attributes(self.source, &blocks),
-                            attached: Some(Box::new(AttachedGroup {
-                                range,
-                                open_range: attr_start..attr_start + 1,
-                                close_range,
-                                content: AttachedContent::Blocks(blocks),
-                            })),
-                        },
-                        header_index,
-                        after_attrs,
-                    )
-                } else {
-                    let (limit, header_index) = self.attribute_extent(attr_start, index, indent);
-                    let (attrs, after_attrs) = self.parse_attributes(attr_start, limit);
-                    (attrs, header_index, after_attrs)
-                };
-            (
-                String::new(),
-                attr_start..attr_start,
-                attrs,
-                header_index,
-                after_attrs,
-                attr_start + 1,
-            )
-        };
+                self.parse_inline_attached(&mut position, after_quote, line.content_end)
+            } else {
+                (Attributes::default(), after_quote)
+            };
+        let (kind, kind_range, attrs, header_index, opener_end) = (
+            self.source[kind_range.clone()].to_string(),
+            kind_range,
+            attrs,
+            index,
+            after_quote,
+        );
         line = self.lines.0[header_index].clone();
         if after_attrs != line.content_end {
             self.diagnostics.push(Diagnostic::error(
@@ -1136,37 +1033,6 @@ impl Parser<'_> {
                 continue;
             }
 
-            if self.legacy_017
-                && kind.is_empty()
-                && position.offset < end
-                && self.source.as_bytes()[position.offset] == b'['
-            {
-                if let Some((close, after_close)) =
-                    find_verbatim_close(self.source, position.offset + 1, end, 0)
-                {
-                    let payload_start = position.offset + 1;
-                    let (attrs, after_attrs) =
-                        if after_close < end && self.source.as_bytes()[after_close] == b'{' {
-                            self.parse_inline_postfix(segments, &mut position, after_close, end)
-                        } else {
-                            (Attributes::default(), after_close)
-                        };
-                    frames.last_mut().unwrap().items.push(Inline::Verbatim {
-                        range: introducer..after_attrs,
-                        kind,
-                        kind_range: kind_start..kind_end,
-                        text: self.source[payload_start..close].to_string(),
-                        text_range: payload_start..close,
-                        quote_count: 0,
-                        bracketed: true,
-                        attrs,
-                    });
-                    position.offset = after_attrs;
-                    frames.last_mut().unwrap().text_start = after_attrs;
-                    continue;
-                }
-            }
-
             if position.offset < end && self.source.as_bytes()[position.offset] == b'[' {
                 position.offset += 1;
                 frames.push(InlineFrame {
@@ -1255,13 +1121,8 @@ impl Parser<'_> {
         while content_start < limit && self.source.as_bytes()[content_start].is_ascii_whitespace() {
             content_start += 1;
         }
-        if !self.legacy_017
-            || (content_start < limit
-                && matches!(self.source.as_bytes()[content_start], b'`' | b'}'))
-        {
-            return self.parse_inline_attached(position, start, limit);
-        }
-        self.parse_inline_attributes(segments, position, start)
+        let _ = (segments, content_start);
+        self.parse_inline_attached(position, start, limit)
     }
 
     fn parse_inline_attached(
@@ -1294,20 +1155,17 @@ impl Parser<'_> {
                 limit,
             );
         };
-        if !self.legacy_017 {
-            let diagnostics = self.diagnostics.len();
-            let (legacy, after) = self.parse_attributes(start, close + 1);
-            let legacy_valid = after == close + 1
-                && !legacy.items.is_empty()
-                && self.diagnostics.len() == diagnostics;
-            self.diagnostics.truncate(diagnostics);
-            if legacy_valid {
-                self.diagnostics.push(Diagnostic::error(
-                    "syntax.legacy-attributes",
-                    "legacy attribute slots are only accepted by the 0.17 migration reader",
-                    start..close + 1,
-                ));
-            }
+        let diagnostics = self.diagnostics.len();
+        let (legacy, after) = self.parse_attributes(start, close + 1);
+        let legacy_valid =
+            after == close + 1 && !legacy.items.is_empty() && self.diagnostics.len() == diagnostics;
+        self.diagnostics.truncate(diagnostics);
+        if legacy_valid {
+            self.diagnostics.push(Diagnostic::error(
+                "syntax.legacy-attributes",
+                "legacy attribute slots are not part of the current syntax",
+                start..close + 1,
+            ));
         }
         let mut inner = vec![InlineSegment {
             start: start + 1,
@@ -1332,42 +1190,6 @@ impl Parser<'_> {
         )
     }
 
-    fn parse_inline_attributes(
-        &mut self,
-        segments: &mut Vec<InlineSegment>,
-        position: &mut InlinePosition,
-        start: usize,
-    ) -> (Attributes, usize) {
-        let line_index = self
-            .line_index_at_offset(start)
-            .expect("inline attribute starts on a source line");
-        let owner_indent = self.lines.0[line_index].indent;
-        let (limit, last_line) = self.attribute_extent(start, line_index, owner_indent);
-        for line_index in line_index + 1..=last_line {
-            let line = &self.lines.0[line_index];
-            let segment = InlineSegment {
-                start: line.start + line.indent,
-                end: line.content_end,
-            };
-            if !segments
-                .iter()
-                .any(|candidate| candidate.start == segment.start)
-            {
-                segments.push(segment);
-            }
-        }
-        segments.sort_by_key(|segment| segment.start);
-        let (attrs, after_attrs) = self.parse_attributes(start, limit);
-        if let Some(segment) = segments
-            .iter()
-            .position(|segment| segment.start <= after_attrs && after_attrs <= segment.end)
-        {
-            position.segment = segment;
-        }
-        position.offset = after_attrs;
-        (attrs, after_attrs)
-    }
-
     fn line_index_at_offset(&self, offset: usize) -> Option<usize> {
         self.lines
             .0
@@ -1386,9 +1208,6 @@ impl Parser<'_> {
         let after = start + 1;
         if after >= line.content_end || self.source.as_bytes()[after] == b'[' {
             return None;
-        }
-        if self.source.as_bytes()[after] == b'{' {
-            return Some(BlockDispatch::Verbatim);
         }
         let marker_end = take_name_like(self.source, after, line.content_end, marker_char);
         (marker_end == line.content_end || self.source.as_bytes().get(marker_end) != Some(&b'['))
@@ -1855,22 +1674,9 @@ mod tests {
     }
 
     #[test]
-    fn reports_duplicate_attributes() {
-        let parsed = parse_legacy_017("`node{#one #two key=a key=b} head\n");
-        assert_eq!(
-            parsed
-                .diagnostics
-                .iter()
-                .map(|diagnostic| diagnostic.code)
-                .collect::<Vec<_>>(),
-            ["syntax.duplicate-id", "syntax.duplicate-key"]
-        );
-    }
-
-    #[test]
-    fn parses_multiline_attributes_on_marked_and_verbatim_blocks() {
+    fn parses_attached_groups_on_marked_and_verbatim_blocks() {
         let source = "`- Work\n   {\n     `- task\n     `@ write\n     `: created 2026-07-20T09:00:00+08:00\n   }\n\n`tex\"{`-[$] `@[equation]}\n  E = mc^2\n";
-        let parsed = parse_legacy_017(source);
+        let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
         let Block::Parsed(task) = &parsed.syntax.blocks[0] else {
@@ -1891,77 +1697,9 @@ mod tests {
     }
 
     #[test]
-    fn parses_multiline_attributes_on_inline_owners() {
-        let source = "Text `span[value]{\n  #inline\n  .mark\n  key=value\n  } tail\ncontinued paragraph\n\nRaw `[x]{\n  .$\n  language=tex\n  } end\n";
-        let parsed = parse_legacy_017(source);
-        assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
-
-        let Block::Parsed(first) = &parsed.syntax.blocks[0] else {
-            panic!("expected first paragraph");
-        };
-        let Some(Inline::Element { attrs, .. }) = first
-            .head
-            .items
-            .iter()
-            .find(|inline| matches!(inline, Inline::Element { .. }))
-        else {
-            panic!("expected span");
-        };
-        assert_eq!(attrs.id(), Some("inline"));
-        assert!(attrs.has_class("mark"));
-        assert_eq!(attrs.value("key"), Some("value"));
-        assert_eq!(
-            first.head.plain_text(),
-            "Text value tail continued paragraph"
-        );
-
-        let Block::Parsed(second) = &parsed.syntax.blocks[1] else {
-            panic!("expected second paragraph");
-        };
-        let Some(Inline::Verbatim { attrs, .. }) = second
-            .head
-            .items
-            .iter()
-            .find(|inline| matches!(inline, Inline::Verbatim { .. }))
-        else {
-            panic!("expected verbatim inline");
-        };
-        assert!(attrs.has_class("$"));
-        assert_eq!(attrs.value("language"), Some("tex"));
-        assert_eq!(second.head.plain_text(), "Raw x end");
-    }
-
-    #[test]
-    fn multiline_attributes_allow_variable_indentation_and_require_single_line_quotes() {
-        let varied = parse_legacy_017(
-            "`node Head\n      {\n        `- one\n        `: key value\n      }\n",
-        );
-        assert!(varied.is_valid(), "{:?}", varied.diagnostics);
-
-        let quoted = parse_legacy_017("`node{key=\"first\n  second\"\n  } Head\n");
-        assert!(!quoted.is_valid());
-        assert!(quoted
-            .diagnostics
-            .iter()
-            .any(|diagnostic| diagnostic.code == "syntax.unclosed-quoted-value"));
-
-        let duplicate = parse_legacy_017(
-            "`node{#one\n  #two\n  key=one\n  key=two\n  escaped=\"bad\\q\"\n  } Head\n",
-        );
-        let codes = duplicate
-            .diagnostics
-            .iter()
-            .map(|diagnostic| diagnostic.code)
-            .collect::<Vec<_>>();
-        assert!(codes.contains(&"syntax.duplicate-id"));
-        assert!(codes.contains(&"syntax.duplicate-key"));
-        assert!(codes.contains(&"syntax.unknown-quoted-escape"));
-    }
-
-    #[test]
-    fn multiline_attributes_allow_compact_and_brace_aligned_closing_delimiters() {
+    fn block_attached_groups_allow_compact_and_brace_aligned_closing_delimiters() {
         let source = "`- Work\n   {\n     `- task\n     `@ write\n   }\n\n`text\"\n  payload\n`x\n   {\n     `- class\n   }\n\n `child Nested\n";
-        let parsed = parse_legacy_017(source);
+        let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
         let Block::Parsed(task) = &parsed.syntax.blocks[0] else {
@@ -1984,18 +1722,13 @@ mod tests {
         assert!(container.mark.as_ref().unwrap().attrs.has_class("class"));
         assert_eq!(container.children.len(), 1);
 
-        let old_layout = parse_legacy_017("`- Work\n   {\n     `- task\n     `@ write\n   }\n");
+        let old_layout = parse("`- Work\n   {\n     `- task\n     `@ write\n   }\n");
         assert!(old_layout.is_valid(), "{:?}", old_layout.diagnostics);
 
-        let compact = parse_legacy_017("`- Something\n   {\n     `- task\n     `@ id\n   }\n");
+        let compact = parse("`- Something\n   {\n     `- task\n     `@ id\n   }\n");
         assert!(compact.is_valid(), "{:?}", compact.diagnostics);
 
-        let inline = parse_legacy_017("Text `span[value]{\n    .mark\n  key=value\n } tail\n");
-        assert!(inline.is_valid(), "{:?}", inline.diagnostics);
-
-        let crlf = parse_legacy_017(
-            "`- Work\n   {\n     `- task\n     `@ crlf\n     `: key value\n   }\n",
-        );
+        let crlf = parse("`- Work\n   {\n     `- task\n     `@ crlf\n     `: key value\n   }\n");
         assert!(crlf.is_valid(), "{:?}", crlf.diagnostics);
         let Block::Parsed(task) = &crlf.syntax.blocks[0] else {
             panic!("expected CRLF task block");
@@ -2006,22 +1739,6 @@ mod tests {
             Some("value")
         );
         assert_eq!(task.head.plain_text(), "Work");
-    }
-
-    #[test]
-    fn multiline_attributes_stop_at_structural_boundaries() {
-        for source in [
-            "`node{\n  .class\n} outside\n",
-            "`node{\n  .class\n  `child boundary\n",
-            "Text `span[value]{\n  .mark\n\ntail\n",
-        ] {
-            let parsed = parse_legacy_017(source);
-            assert!(!parsed.is_valid(), "unexpectedly valid: {source}");
-            assert!(parsed
-                .diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.code == "syntax.unclosed-attributes"));
-        }
     }
 
     #[test]
@@ -2222,14 +1939,6 @@ mod tests {
             .diagnostics
             .iter()
             .any(|diagnostic| diagnostic.code == "syntax.invalid-inline-dispatch"));
-
-        let attributed = parse_legacy_017(format!("`-{{.class}} `- a\n{}`- b\n", " ".repeat(11)));
-        assert!(attributed.is_valid(), "{:?}", attributed.diagnostics);
-        let Block::Parsed(outer) = &attributed.syntax.blocks[0] else {
-            panic!("expected attributed outer item");
-        };
-        assert!(outer.mark.as_ref().unwrap().attrs.has_class("class"));
-        assert_eq!(outer.children.len(), 2);
     }
 
     #[test]
@@ -2270,7 +1979,7 @@ mod tests {
         };
         assert!(matches!(paragraph.head.items[0], Inline::Verbatim { .. }));
 
-        let block = parse_legacy_017("`\"{`-[note]}\n  raw `em[not parsed]\n");
+        let block = parse("`\"{`-[note]}\n  raw `em[not parsed]\n");
         assert!(matches!(block.syntax.blocks[0], Block::Verbatim(_)));
 
         let quote_block = parse("`\"\n  code block\n");
@@ -2292,7 +2001,7 @@ mod tests {
     }
 
     #[test]
-    fn malformed_legacy_attributes_use_the_actual_closing_line() {
+    fn malformed_old_attribute_spelling_keeps_ranges_in_bounds() {
         let source = "`node{.one`text\"`node{key=\"bad\\q\"}`node\n      {\n        `: key quote\" slash\\\n      }\n\n";
         let parsed = parse(source);
         assert_eq!(parsed.lossless.reconstruct(&parsed.source), source);

@@ -12,9 +12,6 @@ fn main() -> ExitCode {
 
     match command.to_str() {
         Some("fmt") => plumb_format::run_cli(delegated_args("plumb fmt", rest)),
-        Some("migrate-attributes") => {
-            plumb_format::run_migrate_cli(delegated_args("plumb migrate-attributes", rest))
-        }
         Some("export") => {
             if wants_help(&rest) {
                 println!("Usage: plumb export [PATH]\n\nEmit a Pandoc JSON document. Reads stdin when PATH is omitted.");
@@ -80,6 +77,6 @@ fn wants_help(args: &[OsString]) -> bool {
 
 fn print_help() {
     println!(
-        "Strict plumb markup language and tooling\n\nUsage: plumb <COMMAND>\n\nCommands:\n  check               Check a workspace\n  event               Export calendar events\n  fmt                 Format documents\n  migrate-attributes  Convert legacy attributes to attached groups\n  export              Emit Pandoc JSON\n  import              Read Pandoc JSON\n  note                Query notes\n  site                Serve a workspace Web app\n  task                Query or update tasks\n  lsp                 Run the language server\n  help                Print this help"
+        "Strict plumb markup language and tooling\n\nUsage: plumb <COMMAND>\n\nCommands:\n  check               Check a workspace\n  event               Export calendar events\n  fmt                 Format documents\n  export              Emit Pandoc JSON\n  import              Read Pandoc JSON\n  note                Query notes\n  site                Serve a workspace Web app\n  task                Query or update tasks\n  lsp                 Run the language server\n  help                Print this help"
     );
 }

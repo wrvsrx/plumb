@@ -83,26 +83,12 @@
     "required_tokens": ["Introducer","Marker","Indentation"]
   },
   {
-    "name": "duplicate attribute cardinality and escape ordering",
-    "legacy_017": true,
-    "source": "`node{#one #two key=a key=b escaped=\"bad\\q\"} Head\n",
+    "name": "legacy attribute slot is rejected",
+    "source": "`node{#id} Head\n",
     "valid": false,
-    "blocks": [{"kind":"marked","marker":"node","attrs":["#one","#two","key=a","key=b","escaped=bad\\q"],"head":"Head","inline":"T\"Head\"","children":[]}],
-    "diagnostics": [
-      {"code":"syntax.duplicate-id","range":{"text":"#two"},"related":[{"text":"#one"}]},
-      {"code":"syntax.duplicate-key","range":{"text":"key","occurrence":1},"related":[{"text":"key"}]},
-      {"code":"syntax.unknown-quoted-escape","range":{"text":"\\q"}}
-    ],
+    "blocks": [{"kind":"marked","marker":"node","attrs":[],"head":"Head","inline":"T\"Head\"","children":[]}],
+    "diagnostics": [{"code":"syntax.legacy-attributes","range":{"text":"{#id} Head"}}],
     "required_tokens": ["Error"]
-  },
-  {
-    "name": "unclosed attributes recover before sibling block",
-    "legacy_017": true,
-    "source": "`node{.x\n  key=value\n`next Sibling\n",
-    "valid": false,
-    "blocks": [{"kind":"marked","marker":"node","attrs":[".x","key=value"],"head":"","inline":"","children":[]},{"kind":"marked","marker":"next","attrs":[],"head":"Sibling","inline":"T\"Sibling\"","children":[]}],
-    "diagnostics": [{"code":"syntax.unclosed-attributes","range":{"text":"{.x\n  key=value"}}],
-    "required_tokens": ["Error","Introducer","Marker"]
   },
   {
     "name": "unclosed parsed inline recovers at blank",
@@ -183,33 +169,6 @@
     "required_tokens": ["Error","Text"]
   },
   {
-    "name": "malformed attribute item recovers at closing brace",
-    "legacy_017": true,
-    "source": "`node{bad} Head\n",
-    "valid": false,
-    "blocks": [{"kind":"marked","marker":"node","attrs":[],"head":"Head","inline":"T\"Head\"","children":[]}],
-    "diagnostics": [{"code":"syntax.malformed-attribute-item","range":{"text":"bad"}}],
-    "required_tokens": ["Error","Delimiter"]
-  },
-  {
-    "name": "empty attribute shorthand name",
-    "legacy_017": true,
-    "source": "`node{#} Head\n",
-    "valid": false,
-    "blocks": [{"kind":"marked","marker":"node","attrs":[],"head":"Head","inline":"T\"Head\"","children":[]}],
-    "diagnostics": [{"code":"syntax.empty-attribute-name","range":{"text":"#"}}],
-    "required_tokens": ["Error"]
-  },
-  {
-    "name": "empty bare attribute value has a missing-token range",
-    "legacy_017": true,
-    "source": "`node{key=} Head\n",
-    "valid": false,
-    "blocks": [{"kind":"marked","marker":"node","attrs":["key="],"head":"Head","inline":"T\"Head\"","children":[]}],
-    "diagnostics": [{"code":"syntax.empty-attribute-value","range":{"at":10}}],
-    "required_tokens": ["AttributeName","AttributePunctuation"]
-  },
-  {
     "name": "invalid inline dispatch recovers to following line",
     "source": "before `oops\nnext\n",
     "valid": false,
@@ -230,18 +189,6 @@
     "required_tokens": ["Error","Text"]
   },
   {
-    "name": "unclosed quoted value outranks enclosing attributes",
-    "legacy_017": true,
-    "source": "`node{key=\"open\nnext\n",
-    "valid": false,
-    "blocks": [
-      {"kind":"marked","marker":"node","attrs":["key=open"],"head":"","inline":"","children":[]},
-      {"kind":"paragraph","head":"next","inline":"T\"next\""}
-    ],
-    "diagnostics": [{"code":"syntax.unclosed-quoted-value","range":{"text":"\"open"}}],
-    "required_tokens": ["Error","Text"]
-  },
-  {
     "name": "odd quote run emits a literal tick before an inline node",
     "source": "```\"raw\"\n",
     "valid": true,
@@ -256,15 +203,6 @@
     "blocks": [{"kind":"marked","marker":"node","attrs":[],"head":"{.x}","inline":"T\"{.x}\"","children":[]}],
     "diagnostics": [],
     "required_tokens": ["Marker","Text"]
-  },
-  {
-    "name": "malformed attribute item recovers to later item",
-    "legacy_017": true,
-    "source": "`node{bad .ok} Head\n",
-    "valid": false,
-    "blocks": [{"kind":"marked","marker":"node","attrs":[".ok"],"head":"Head","inline":"T\"Head\"","children":[]}],
-    "diagnostics": [{"code":"syntax.malformed-attribute-item","range":{"text":"bad"}}],
-    "required_tokens": ["Error","AttributeName"]
   },
   {
     "name": "unclosed inline stops before block-only child",

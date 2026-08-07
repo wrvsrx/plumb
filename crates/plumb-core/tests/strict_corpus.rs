@@ -1,14 +1,12 @@
 use std::{collections::BTreeSet, ops::Range};
 
-use plumb_core::{parse, parse_legacy_017, AttrItem, Attributes, Block, Inline, InlineContent};
+use plumb_core::{parse, AttrItem, Attributes, Block, Inline, InlineContent};
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
 struct Case {
     name: String,
     source: String,
-    #[serde(default)]
-    legacy_017: bool,
     valid: bool,
     blocks: Vec<ExpectedBlock>,
     diagnostics: Vec<ExpectedDiagnostic>,
@@ -72,14 +70,7 @@ fn strict_parser_normative_corpus() {
         "syntax.invalid-inline-dispatch",
         "syntax.invalid-verbatim-block-dispatch",
         "syntax.invalid-marker",
-        "syntax.malformed-attribute-item",
-        "syntax.empty-attribute-name",
-        "syntax.empty-attribute-value",
-        "syntax.unknown-quoted-escape",
-        "syntax.unclosed-quoted-value",
-        "syntax.unclosed-attributes",
-        "syntax.duplicate-id",
-        "syntax.duplicate-key",
+        "syntax.legacy-attributes",
         "syntax.unclosed-inline",
         "syntax.unclosed-verbatim",
         "syntax.tab-indentation",
@@ -87,11 +78,7 @@ fn strict_parser_normative_corpus() {
         "syntax.short-verbatim-indent",
     ];
     for case in &cases {
-        let parsed = if case.legacy_017 {
-            parse_legacy_017(case.source.clone())
-        } else {
-            parse(case.source.clone())
-        };
+        let parsed = parse(case.source.clone());
         assert_eq!(parsed.is_valid(), case.valid, "{} validity", case.name);
         assert_blocks(&parsed.syntax.blocks, &case.blocks, &case.name);
         assert_eq!(
@@ -132,11 +119,7 @@ fn strict_parser_normative_corpus() {
             );
         }
         assert_eq!(parsed.lossless.reconstruct(&case.source), case.source);
-        let repeated = if case.legacy_017 {
-            parse_legacy_017(case.source.clone())
-        } else {
-            parse(case.source.clone())
-        };
+        let repeated = parse(case.source.clone());
         assert_eq!(
             repeated.syntax, parsed.syntax,
             "{} stable syntax",
