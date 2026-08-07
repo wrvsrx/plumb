@@ -326,6 +326,11 @@ static bool scan_layout(Scanner *scanner, TSLexer *lexer,
     return true;
   }
 
+  if (lexer->lookahead == 0 && scanner->depth > 0 && valid_symbols[DEDENT]) {
+    scanner->depth--;
+    lexer->result_symbol = DEDENT;
+    return true;
+  }
   if (lexer->get_column(lexer) != 0) return false;
   lexer->mark_end(lexer);
 
@@ -352,11 +357,6 @@ static bool scan_layout(Scanner *scanner, TSLexer *lexer,
   uint16_t current = scanner->indents[scanner->depth];
   if (after_blank && !valid_symbols[INDENT_AFTER_BLANK] && column >= current) {
     return false;
-  }
-  if (lexer->lookahead == 0 && current > 0 && valid_symbols[DEDENT]) {
-    scanner->depth--;
-    lexer->result_symbol = DEDENT;
-    return true;
   }
   if (lexer->lookahead == 0) return false;
 

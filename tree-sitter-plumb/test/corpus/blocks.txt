@@ -352,3 +352,25 @@ Dynamic indentation and dedent
   (marked_block
     (introducer)
     (marker)))
+
+==================
+Nested blocks close at EOF
+==================
+
+`parent
+  `child End
+
+---
+
+(document
+  (blank_line)
+  (marked_block
+    (introducer)
+    (marker)
+    (block_body
+      (marked_block
+        (introducer)
+        (marker)
+        (head_separator)
+        (inline_content
+          (text))))))
