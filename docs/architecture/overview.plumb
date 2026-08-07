@@ -111,7 +111,10 @@ lenient mirror 必须保持 core structural boundaries：next-line attached bloc
 blank lines，也要在下一 nonblank line 预看并正确 dedent，不能把合法的 following top-level block 包进
 recovery error。verbatim block 与 inline verbatim 的 CST 都分别暴露 optional opaque
 `"verbatim_kind" 和 raw payload node；highlight query 可以给 kind 通用 token capture，但不能解释其
-extension semantics，也不能让 raw payload capture 覆盖 kind。
+extension semantics，也不能让 raw payload capture 覆盖 kind。verbatim block 的每条 raw payload node
+range 必须排除 parent column 与 quote count 声明的 structural margin，只覆盖移除 margin 后的 payload
+bytes 与 line ending。injection 必须组合这些 payload ranges，使 injected parser 从 payload column zero
+读取首层内容，同时逐 byte 保留 Python 等 indentation-sensitive language 的 payload indentation。
 
 `"grammar.js" 和 `"tree-sitter.json" 是 source of truth。generated parser files 是 build/release
 artifacts；修改 grammar 后必须在 locked Nix environment 中 regenerate 并测试。
