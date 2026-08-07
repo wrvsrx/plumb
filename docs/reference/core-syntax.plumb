@@ -248,7 +248,7 @@ opening quote 后必须立即 line ending/EOF，或跟至少一个 ASCII space/t
 attached group；不允许 raw head。`"`rust\"{}\"" 是 payload 为 `"{}" 的 compact inline verbatim；
 `"`rust\" {}" 才是带空 compact group 的 verbatim block。expanded group 在 header line 打开并先于 raw
 body 关闭，因此 raw payload 中满足 structural margin 的 brace 仍全部是原始 bytes。旧的
-`"`{language=rust #example}" 只由第 8 节 migration reader 读取。
+`"`{language=rust #example}" 在 unified grammar 中直接非法。
 body 的每条非空 line 必须带
 parent column 加两个 ASCII spaces 的固定 structural margin。移除该
 margin 后，其余 spaces、tabs、line endings 和 syntax-like bytes 都属于 payload。完全空行可以
