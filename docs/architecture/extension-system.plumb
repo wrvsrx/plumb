@@ -81,6 +81,13 @@ cancellation 和 configuration。结果必须说明 provenance；candidate order
 completion 可以读取 current recovered view 与其他 documents 的 last-valid indexes。definition、
 references、hover 和 rename 默认要求当前 target 具有 valid semantic record。
 
+官方 workspace search query 的 LSP projection 使用 `"plumb/search" schema version 3。request 的
+可选 `"kind" 是 `"note"、`"task" 或 `"event"；result item 共享 `"kind"、`"title"、workspace-relative
+`"path"、LSP `"location" 与 revision `"provenance"。Task item 还可包含 workflow fields；Event item
+还可包含 `"id"、resolved `"start"/`"end" 与 associated `"tasks"。增加 record kind 或改变 typed fields
+必须提升 schema version；client 必须按 initialize capability 中声明的 version 接受或明确拒绝，不得把
+未知 schema 猜测为旧结构。
+
 `# 9. Operations
 
 operation 返回 proposal：ordered non-overlapping text edits、resource edits、expected revisions 和
