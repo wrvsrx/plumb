@@ -57,7 +57,8 @@ pub struct TaskDependencyCompletionContext {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConstructCompletionContext {
-    Block { replace: Range<usize> },
+    Task { replace: Range<usize> },
+    Event { replace: Range<usize> },
     Autolink { replace: Range<usize> },
     Link { replace: Range<usize> },
 }
@@ -710,11 +711,20 @@ pub fn construct_completion_context(
     let block_position = source[line_start..introducer]
         .chars()
         .all(|character| character == ' ');
-    match (prefix, block_position) {
-        ("`-", true) => Some(ConstructCompletionContext::Block { replace }),
-        ("`[", _) => Some(ConstructCompletionContext::Autolink { replace }),
-        ("`-", false) | ("`->", _) => Some(ConstructCompletionContext::Link { replace }),
-        _ => None,
+    let marker_prefix = prefix.strip_prefix('`')?;
+    if marker_prefix.is_empty() {
+        return None;
+    }
+    if block_position && "task".starts_with(marker_prefix) {
+        Some(ConstructCompletionContext::Task { replace })
+    } else if block_position && "event".starts_with(marker_prefix) {
+        Some(ConstructCompletionContext::Event { replace })
+    } else {
+        match marker_prefix {
+            "[" if !block_position => Some(ConstructCompletionContext::Autolink { replace }),
+            "-" | "->" => Some(ConstructCompletionContext::Link { replace }),
+            _ => None,
+        }
     }
 }
 
@@ -1230,20 +1240,37 @@ mod tests {
     fn classifies_construct_completion_by_source_context() {
         let block = parse("`");
         assert_eq!(construct_completion_context(&block, 1), None);
-        let block_marker = parse("`-");
-        assert_eq!(
-            construct_completion_context(&block_marker, 2),
-            Some(ConstructCompletionContext::Block { replace: 0..2 })
-        );
         let nested = parse("  `");
         assert_eq!(construct_completion_context(&nested, 3), None);
-        let nested_marker = parse("  `-");
-        assert_eq!(
-            construct_completion_context(&nested_marker, 4),
-            Some(ConstructCompletionContext::Block { replace: 2..4 })
-        );
         let inline = parse("Text `");
         assert_eq!(construct_completion_context(&inline, 6), None);
+
+        for source in ["`t", "`ta", "`tas", "`task"] {
+            let parsed = parse(source);
+            assert_eq!(
+                construct_completion_context(&parsed, source.len()),
+                Some(ConstructCompletionContext::Task {
+                    replace: 0..source.len()
+                })
+            );
+        }
+        for source in ["  `e", "  `ev", "  `eve", "  `even", "  `event"] {
+            let parsed = parse(source);
+            assert_eq!(
+                construct_completion_context(&parsed, source.len()),
+                Some(ConstructCompletionContext::Event {
+                    replace: 2..source.len()
+                })
+            );
+        }
+
+        let block_link = parse("`-");
+        assert_eq!(
+            construct_completion_context(&block_link, 2),
+            Some(ConstructCompletionContext::Link { replace: 0..2 })
+        );
+        let block_autolink = parse("`[");
+        assert_eq!(construct_completion_context(&block_autolink, 2), None);
         let autolink = parse("Text `[");
         assert_eq!(
             construct_completion_context(&autolink, 7),
@@ -1259,6 +1286,10 @@ mod tests {
             construct_completion_context(&short_link, 7),
             Some(ConstructCompletionContext::Link { replace: 5..7 })
         );
+        for source in ["Text `t", "Text `e", "`tx", "`eventual"] {
+            let parsed = parse(source);
+            assert_eq!(construct_completion_context(&parsed, source.len()), None);
+        }
 
         let escaped = parse("Text ``");
         assert_eq!(construct_completion_context(&escaped, 7), None);

@@ -559,6 +559,8 @@ impl LanguageServer for ServerState {
                         resolve_provider: Some(false),
                         trigger_characters: Some(vec![
                             "`".to_string(),
+                            "t".to_string(),
+                            "e".to_string(),
                             "-".to_string(),
                             ">".to_string(),
                             "[".to_string(),
@@ -1663,7 +1665,8 @@ fn construct_completion_items(
     timestamp: &str,
 ) -> Vec<CompletionItem> {
     let block_indent = match &context {
-        ConstructCompletionContext::Block { replace } => {
+        ConstructCompletionContext::Task { replace }
+        | ConstructCompletionContext::Event { replace } => {
             let line_start = source[..replace.start]
                 .rfind('\n')
                 .map_or(0, |index| index + 1);
@@ -1674,32 +1677,27 @@ fn construct_completion_items(
         }
     };
     let (replace, templates) = match context {
-        ConstructCompletionContext::Block { replace } => (
+        ConstructCompletionContext::Task { replace } => (
             replace,
-            vec![
-                ConstructTemplate {
-                    label: "Task",
-                    detail: "plumb task list item",
-                    snippet: format!(
-                        "`task ${{1:Task}}\n{block_indent}      {{\n{block_indent}        `: created {timestamp}\n{block_indent}      }}"
-                    ),
-                    plain: format!(
-                        "`task \n{block_indent}      {{\n{block_indent}        `: created {timestamp}\n{block_indent}      }}"
-                    ),
-                },
-                ConstructTemplate {
-                    label: "Event",
-                    detail: "plumb event list item",
-                    snippet: "`event ${1:09:00} ${2:Event}".to_string(),
-                    plain: "`event ".to_string(),
-                },
-                ConstructTemplate {
-                    label: "Link",
-                    detail: "plumb link",
-                    snippet: "`->[${1:label}]{`:[to ${2:target}]}".to_string(),
-                    plain: "`->[]{`:[to ]}".to_string(),
-                },
-            ],
+            vec![ConstructTemplate {
+                label: "Task",
+                detail: "plumb task list item",
+                snippet: format!(
+                    "`task ${{1:Task}}\n{block_indent}      {{\n{block_indent}        `: created {timestamp}\n{block_indent}      }}"
+                ),
+                plain: format!(
+                    "`task \n{block_indent}      {{\n{block_indent}        `: created {timestamp}\n{block_indent}      }}"
+                ),
+            }],
+        ),
+        ConstructCompletionContext::Event { replace } => (
+            replace,
+            vec![ConstructTemplate {
+                label: "Event",
+                detail: "plumb event list item",
+                snippet: "`event ${1:09:00} ${2:Event}".to_string(),
+                plain: "`event ".to_string(),
+            }],
         ),
         ConstructCompletionContext::Autolink { replace } => (
             replace,

@@ -485,11 +485,11 @@ fn completes_and_navigates_relative_autolinks_files_and_images() {
 }
 
 #[test]
-fn completes_constructs_after_a_single_backtick() {
+fn completes_block_constructs_from_their_marker_prefixes() {
     let root = unique_temp_dir();
     std::fs::create_dir_all(&root).unwrap();
     let document = root.join("constructs.plumb");
-    let source = "`-\nText `";
+    let source = "`t\n  `ev\n`-\nText `";
     std::fs::write(&document, source).unwrap();
     let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
     let document_uri = lsp_types::Url::from_file_path(&document).unwrap();
@@ -522,30 +522,58 @@ fn completes_constructs_after_a_single_backtick() {
             "jsonrpc": "2.0", "id": 3, "method": "textDocument/completion",
             "params": {
                 "textDocument": { "uri": document_uri },
-                "position": { "line": 1, "character": 6 }
+                "position": { "line": 1, "character": 5 }
             }
         }),
-        json!({ "jsonrpc": "2.0", "id": 4, "method": "shutdown", "params": null }),
+        json!({
+            "jsonrpc": "2.0", "id": 4, "method": "textDocument/completion",
+            "params": {
+                "textDocument": { "uri": document_uri },
+                "position": { "line": 2, "character": 2 }
+            }
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 5, "method": "textDocument/completion",
+            "params": {
+                "textDocument": { "uri": document_uri },
+                "position": { "line": 3, "character": 6 }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 6, "method": "shutdown", "params": null }),
         json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
     ];
 
     let output = run_server(&messages);
-    let block = response(&output, 2)["result"].as_array().unwrap();
+    let trigger_characters = response(&output, 1)["result"]["capabilities"]["completionProvider"]
+        ["triggerCharacters"]
+        .as_array()
+        .unwrap();
+    assert!(trigger_characters.iter().any(|character| character == "t"));
+    assert!(trigger_characters.iter().any(|character| character == "e"));
+
+    let task_items = response(&output, 2)["result"].as_array().unwrap();
+    assert_eq!(task_items.len(), 1);
+    assert_eq!(task_items[0]["label"], "Task");
     assert_eq!(
-        block
-            .iter()
-            .map(|item| item["label"].as_str().unwrap())
-            .collect::<Vec<_>>(),
-        ["Task", "Event", "Link"]
+        task_items[0]["textEdit"]["range"],
+        json!({ "start": { "line": 0, "character": 0 }, "end": { "line": 0, "character": 2 } })
     );
-    let task = block[0]["textEdit"]["newText"].as_str().unwrap();
+    let task = task_items[0]["textEdit"]["newText"].as_str().unwrap();
     assert!(task.starts_with("`task ${1:Task}\n      {\n        `: created "));
     assert!(task.ends_with("\n      }"));
-    assert_eq!(block[0]["insertTextFormat"], 2);
-    let event = block.iter().find(|item| item["label"] == "Event").unwrap();
+    assert_eq!(task_items[0]["insertTextFormat"], 2);
+
+    let event_items = response(&output, 3)["result"].as_array().unwrap();
+    assert_eq!(event_items.len(), 1);
+    assert_eq!(event_items[0]["label"], "Event");
+    let event = &event_items[0];
     assert_eq!(event["textEdit"]["newText"], "`event ${1:09:00} ${2:Event}");
     assert_eq!(event["insertTextFormat"], 2);
-    assert!(response(&output, 3)["result"].is_null());
+
+    let link_items = response(&output, 4)["result"].as_array().unwrap();
+    assert_eq!(link_items.len(), 1);
+    assert_eq!(link_items[0]["label"], "Link");
+    assert!(response(&output, 5)["result"].is_null());
 
     let fallback_messages = [
         json!({
@@ -567,38 +595,20 @@ fn completes_constructs_after_a_single_backtick() {
             "jsonrpc": "2.0", "id": 2, "method": "textDocument/completion",
             "params": {
                 "textDocument": { "uri": document_uri },
-                "position": { "line": 1, "character": 6 }
-            }
-        }),
-        json!({
-            "jsonrpc": "2.0", "id": 3, "method": "textDocument/completion",
-            "params": {
-                "textDocument": { "uri": document_uri },
                 "position": { "line": 0, "character": 2 }
             }
         }),
-        json!({ "jsonrpc": "2.0", "id": 4, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "id": 3, "method": "shutdown", "params": null }),
         json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
     ];
     let fallback_output = run_server(&fallback_messages);
-    assert!(response(&fallback_output, 2)["result"].is_null());
-    let fallback_block = response(&fallback_output, 3)["result"].as_array().unwrap();
-    assert_eq!(
-        fallback_block
-            .iter()
-            .map(|item| item["label"].as_str().unwrap())
-            .collect::<Vec<_>>(),
-        ["Task", "Event", "Link"]
-    );
-    let fallback_task = fallback_block
-        .iter()
-        .find(|item| item["label"] == "Task")
-        .unwrap()["textEdit"]["newText"]
-        .as_str()
-        .unwrap();
+    let fallback_items = response(&fallback_output, 2)["result"].as_array().unwrap();
+    assert_eq!(fallback_items.len(), 1);
+    assert_eq!(fallback_items[0]["label"], "Task");
+    let fallback_task = fallback_items[0]["textEdit"]["newText"].as_str().unwrap();
     assert!(fallback_task.starts_with("`task \n      {\n        `: created "));
     assert!(fallback_task.ends_with("\n      }"));
-    assert_eq!(fallback_block[0]["insertTextFormat"], 1);
+    assert_eq!(fallback_items[0]["insertTextFormat"], 1);
     std::fs::remove_dir_all(root).unwrap();
 }
 
