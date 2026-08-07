@@ -217,12 +217,11 @@ presentations of emphasis and strong, not separate standard spellings.
 
 ## Tasks
 
-A task is a `-` or `.` list item carrying the `task` attached facet:
+A task uses the specialized `task` marker and has bullet-list-item structure:
 
 ```plumb
-`- Implement parser
+`task Implement parser
    {
-     `- task
      `@ write-parser
      `: created 2026-07-20T09:00:00+08:00
      `: due 2026-07-21T09:00:00+08:00
@@ -235,16 +234,16 @@ The block head is the title and child blocks are details. Nested task blocks
 form the display tree, but only `depends` creates a dependency edge. Add an
 explicit id when another task must reference it.
 
-The `task` facet on another marker is `task.invalid-owner`. The LSP can convert an
-ordinary list item to a task while adding `created`, or add `created` to an
-existing task; both use the operation's local RFC 3339 timestamp.
+The LSP can convert an ordinary list item to the `task` marker while adding
+`created`, or add `created` to an existing task; both use the operation's local
+RFC 3339 timestamp.
 Construct completion is prefix-sensitive. A bare backtick offers no candidates.
-At line start, a backtick followed by a hyphen offers Task and Event facets plus
-the Link candidate sharing that short prefix; continuing with an arrow narrows
-the candidates to Link. It creates the Task `created` field from the current
-local RFC 3339 timestamp. A backtick followed by a hyphen or arrow in ordinary
-inline contexts offers Link or Autolink according to the completed prefix.
-Heading, ordinary list-item, and other inline-verbatim constructs are typed directly.
+At line start, a backtick followed by a nonempty prefix of `task` offers Task,
+while a prefix of `event` offers Event. It creates the Task `created` field from
+the current local RFC 3339 timestamp. A backtick followed by a hyphen or arrow
+offers Link; an opening bracket in ordinary inline content offers Autolink.
+Heading, ordinary list-item, and other inline-verbatim constructs are typed
+directly.
 
 Defined fields:
 
@@ -262,9 +261,8 @@ characters are literal. Control characters, backslashes, absolute paths, and
 path from its explicit id:
 
 ```plumb
-`- Review
+`task Review
    {
-     `- task
      `: depends #local Project A.plumb#build Project B.plumb#test
    }
 ```
@@ -329,17 +327,16 @@ provides spacing context without entering the edit or losing indentation.
 Export prefixes the first task paragraph with a visible closure marker: `☐` for
 open, `☒` for done, `⊘` for canceled, and `⚠` for conflicted. `☐` and `☒`
 follow Pandoc's task-list convention so supporting writers produce checkboxes.
-The task id, `task` facet, and fields remain on a Span around the title; child
+The task id, marker identity, and fields remain on a Span around the title; child
 blocks remain subsequent blocks in the same list item.
 
 ## Events
 
-An event is a `-` or `.` list item carrying the `event` attached facet:
+An event uses the specialized `event` marker and has bullet-list-item structure:
 
 ```plumb
-`- 14:00--15:00 Parser review
+`event 14:00--15:00 Parser review
    {
-     `- event
      `@ review
      `: date 2026-07-30
      `: timezone +08:00
@@ -386,8 +383,8 @@ interval schedule. Batch inference requires both siblings in the selection; a
 single-item conversion may inspect its unselected next sibling. An intervening
 block breaks the chain, and a final trailing-`--` item remains unconverted until
 it has a following shorthand or an explicit end.
-The `event` facet on a non-list-item owner is invalid. Combining `event` and `task` on
-one owner is invalid and produces no event record.
+`event` and `task` are mutually exclusive specialized list-item markers and
+cannot be combined.
 The initial profile has no all-day, floating-time, recurrence, reminder,
 attendee, alarm, external-iCalendar import, or CalDAV semantics.
 

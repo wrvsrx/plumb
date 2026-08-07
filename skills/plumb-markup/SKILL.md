@@ -29,13 +29,12 @@ It supports the official exported profile and rejects Pandoc nodes that have no
 standard plumb representation instead of dropping them.
 
 In an editor using `plumb lsp`, construct completion is prefix-sensitive: a bare
-backtick offers no candidates. At line start, a backtick followed by a hyphen
-offers Task and Event facets plus the Link candidate sharing that short prefix;
-continuing with an arrow narrows the candidates to Link. Task includes a current
-local RFC 3339 `created` timestamp. A backtick followed by a hyphen or arrow in
-ordinary inline content offers Link or Autolink according to the completed
-prefix. Heading, ordinary list-item, and other inline-verbatim spellings are
-typed directly. Snippet-capable clients receive tab stops.
+backtick offers no candidates. At line start, a backtick followed by a nonempty
+prefix of `task` offers Task, while a prefix of `event` offers Event. Task
+includes a current local RFC 3339 `created` timestamp. A backtick followed by a
+hyphen or arrow offers Link; an opening bracket in ordinary inline content
+offers Autolink. Heading, ordinary list-item, and other inline-verbatim
+spellings are typed directly. Snippet-capable clients receive tab stops.
 
 Inside complete or recovered attached groups, completion follows the syntax
 owner and offers declared standard facets, property names, and finite values while
@@ -80,15 +79,13 @@ it. Inside the plumb source repository, prefer
 
 `- List item
 `. Ordered item
-`- Implement parser
+`task Implement parser
    {
-     `- task
      `@ write-parser
      `: created 2026-07-20T09:00:00+08:00
    }
-`- 14:00--15:00 Parser review
+`event 14:00--15:00 Parser review
    {
-     `- event
      `@ review
      `: date 2026-07-30
      `: timezone +08:00
@@ -118,14 +115,15 @@ Use `"cargo test" for inline raw text.
   fn main() {}
 ```
 
-Use `-` for bullet-list items, `.` for ordered-list items, and `->` as the sole
+Use `-` for bullet-list items, `.` for ordered-list items, `task` and `event`
+for their specialized bullet-list items, and `->` as the sole
 link inline kind. Use the `->` verbatim kind for an absolute URI or raw relative path
 whose payload is both label and target; relative `.plumb` targets resolve as
 documents and other relative targets resolve as files. Use
 `img[alt]{`:[src target]}` for images and `file[label]{`:[src target]}` for attachments.
 `item`, `link`, `**`, `em`, and `strong` remain syntactically valid generic names but
-have no list or link semantics. Only `-` and `.` items may carry the standard
-`task` or `event` facet. Do not combine `task` and `event` on one item.
+have no list or link semantics. `task` and `event` are mutually exclusive
+specialized list-item markers; they are not facets on `-` or `.` items.
 `div` and `span` are transparent containers; `>` is a block
 quote; `*`, `!`, `=`, `~`, `^`, and `_` are inline styles; `$` on verbatim
 inline/block nodes is TeX math.

@@ -52,8 +52,8 @@ Try go-to-definition, hover, find references, and rename on these links:
 
 Try completion after each relevant introducer in a temporary edit:
 
-`- At line start, type a backtick followed by a hyphen to choose Task, Event, or the shared Link candidate; Task includes `"created".
-`- Type a backtick followed by an opening bracket for Autolink, or a backtick followed by a hyphen/arrow for Link.
+`- At line start, type a backtick followed by `"t" for Task or `"e" for Event; Task includes `"created".
+`- Type a backtick followed by an opening bracket for Autolink, or a backtick followed by a hyphen/arrow for Link only.
 `- Start a link label with ``->[ and select a document title.
 `- Complete a path in ``->[target]{`:[to plumb-]}.
 `- Complete a fragment in ``->[target]{`:[to plumb-export.plumb#]}.

@@ -478,9 +478,9 @@ authoring operations 使用执行时的本地 RFC 3339 timestamp：`"Convert to 
 
 construct completion 是 prefix-sensitive 的 extension-neutral authoring interface。bare backtick 不提供
 candidate；已输入至少一个 marker character 后，completion 根据 syntax owner、source position 与 extension
-声明的完整 marker spelling 过滤 candidate。已输入 marker prefix 必须是 candidate marker spelling 的
-prefix；继续输入时 candidate 只能保持或收窄，不能切换到不共享该 prefix 的 construct。candidate edit
-替换从 backtick 到 cursor 的完整 prefix。
+声明的 authoring prefix 过滤 candidate。named marker construct 使用其完整 marker spelling 的非空 prefix；
+继续输入时 candidate 只能保持或收窄，不能切换到不共享该 prefix 的 construct。candidate edit 替换从
+backtick 到 cursor 的完整 prefix。
 
 line start 的标准 construct prefixes 为：
 
@@ -492,9 +492,6 @@ ordinary inline context 的 `"`-" 与 `"`->" 只提供 Link，`"`[" 只提供 Au
 不是 inline construct。Task skeleton 使用 `"task" marker 并以当前本地 RFC 3339 timestamp 创建
 `"created"，Event skeleton 使用 `"event" marker。heading、ordinary list item 与 inline-verbatim 本身没有
 额外声明时保持可直接输入。
-
-`note Implementation status: 尚未实现；0.18.0 implementation 仍错误地在 line start 的 `"`-" prefix
-提供 Task、Event 与 Link，并且尚未为 `"t"/[e] 注册 completion trigger。
 
 export 按 document-local closure state 在 task item 的首个 paragraph 添加可见 marker：open 为 `"☐"，done 为 `"☒"，canceled
 为 `"⊘"，conflicted 为 `"⚠"。其中 `"☐"/[☒] 使用 Pandoc task-list 约定，使支持该约定的 writer
