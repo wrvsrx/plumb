@@ -119,6 +119,11 @@ block dispatch position 的 backtick-kind-quote spelling 若在同一物理行�
 envelope，必须进入 owner head 或 paragraph 的 `"inline_verbatim"，不能被较早的 `"verbatim_block" 或
 same-line child dispatch 吞掉；这条消歧规则也适用于 paragraph 或 marked-block head 只包含该 inline
 verbatim 的情形。
+external scanner 中所有需要预判 backtick spelling 的入口必须复用同一个无 token-range 副作用的
+dispatch classifier；classifier 只区分 escape、parsed inline、inline verbatim、marked block 与
+verbatim block，不能在 lookahead 时调用 `"mark_end" 或发射 token。strict parser normative corpus 中
+所有 valid case 经 tree-sitter parser 解析后都不得包含 `"ERROR" 或 missing node；该差分检查补充而
+不替代按 dispatch position 与 spelling kind 展开的 tree-sitter corpus matrix。
 
 `"grammar.js" 和 `"tree-sitter.json" 是 source of truth。generated parser files 是 build/release
 artifacts；修改 grammar 后必须在 locked Nix environment 中 regenerate 并测试。

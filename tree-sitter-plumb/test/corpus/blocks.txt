@@ -97,13 +97,55 @@ Same-line first child
 Inline head is not a same-line child
 ==================
 
+`- ``literal
+
+`- `{open
+
+`- `}close
+
 `- `->"something.plumb"
+
+`- `->"[https://[2001:db8::1]/]"
 
 `- `*[something]
 
 ---
 
 (document
+  (blank_line)
+  (marked_block
+    (introducer)
+    (marker)
+    (head_separator)
+    (inline_content
+      (introducer_escape)
+      (text)))
+  (blank_line)
+  (marked_block
+    (introducer)
+    (marker)
+    (head_separator)
+    (inline_content
+      (brace_escape)
+      (text)))
+  (blank_line)
+  (marked_block
+    (introducer)
+    (marker)
+    (head_separator)
+    (inline_content
+      (brace_escape)
+      (text)))
+  (blank_line)
+  (marked_block
+    (introducer)
+    (marker)
+    (head_separator)
+    (inline_content
+      (inline_verbatim
+        (introducer)
+        (verbatim_kind)
+        (raw_text))))
   (blank_line)
   (marked_block
     (introducer)

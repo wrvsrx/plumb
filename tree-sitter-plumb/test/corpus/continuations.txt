@@ -87,3 +87,70 @@ something
   (paragraph
     (inline_content
       (text))))
+
+==================
+Inline spellings continue paragraphs and parsed content
+==================
+
+first
+``literal
+`{open
+`}close
+`span[parsed]
+`text"raw"
+`text"[strengthened]"
+
+`outer[first
+`inner[nested] `text"raw"]
+
+---
+
+(document
+  (blank_line)
+  (paragraph
+    (inline_content
+      (text))
+    (inline_content
+      (introducer_escape)
+      (text))
+    (inline_content
+      (brace_escape)
+      (text))
+    (inline_content
+      (brace_escape)
+      (text))
+    (inline_content
+      (inline_element
+        (introducer)
+        (inline_kind)
+        (parsed_inline_content
+          (inline_text))))
+    (inline_content
+      (inline_verbatim
+        (introducer)
+        (verbatim_kind)
+        (raw_text)))
+    (inline_content
+      (inline_verbatim
+        (introducer)
+        (verbatim_kind)
+        (raw_text))))
+  (blank_line)
+  (paragraph
+    (inline_content
+      (inline_element
+        (introducer)
+        (inline_kind)
+        (parsed_inline_content
+          (inline_text)
+          (soft_break)
+          (inline_element
+            (introducer)
+            (inline_kind)
+            (parsed_inline_content
+              (inline_text)))
+          (inline_text)
+          (inline_verbatim
+            (introducer)
+            (verbatim_kind)
+            (raw_text)))))))
