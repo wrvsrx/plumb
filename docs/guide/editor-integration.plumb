@@ -35,6 +35,11 @@ clients，并可直接接受 function-valued options：
     lsp = { on_attach = function(client, bufnr) end },
   })
 
+packaged runtime 的标准 `"ftplugin/plumb.lua" 会对每个 plumb buffer 启用 `"expandtab"，设置
+`"shiftwidth=1"，并让 `"softtabstop" 跟随它。这样 Tab/indent commands 产生 formatter 使用的单个
+structural space；buffer 改为其它 filetype 时这些 local options 会恢复。plugin 不修改 `"tabstop"，因此
+verbatim payload 中真实 tab bytes 的显示宽度继续服从用户配置。
+
 底层等价的 Neovim native LSP 配置是：
 
 `lua"

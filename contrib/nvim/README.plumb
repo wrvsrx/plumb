@@ -35,6 +35,10 @@ setup 默认启用 LSP、CodeLens 与 search，不创建 keymaps；`"lsp"、`"co
     lsp = { on_attach = function(client, bufnr) end },
   })
 
+standard ftplugin 对 plumb buffers 设置 buffer-local `"expandtab"、`"shiftwidth=1" 与跟随它的
+`"softtabstop"，并在 filetype 变化时恢复这些选项。它保留用户的 `"tabstop"，避免改变 verbatim payload
+中真实 tab bytes 的显示宽度。
+
 modules 要求 Neovim 0.12。`"plumb.search" 还要求 attached plumb LSP 声明
 `"experimental.plumb.search" schema version 2。native search 使用 `"vim.ui.input/select"；`"live_search"
 接受 picker adapter，并负责 debounce、request cancellation、stale-result suppression、locations 和

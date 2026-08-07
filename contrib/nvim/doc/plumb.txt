@@ -1,4 +1,4 @@
-*plumb.txt*                 plumb.nvim                 Last change: 2026-07-28
+*plumb.txt*                 plumb.nvim                 Last change: 2026-08-07
 
 =============================================================================
 CONTENTS                                                        *plumb-contents*
@@ -29,6 +29,11 @@ No mappings are installed. The defaults enable LSP, CodeLens, and search.
 Features can be disabled independently. Search and CodeLens implementation
 modules are required only when their commands are executed. Plugin managers may
 still defer the complete plugin by filetype when desired.
+
+The standard ftplugin sets buffer-local 'expandtab', 'shiftwidth'=1, and
+'softtabstop'=-1 for plumb buffers. It restores those options when the filetype
+changes. It leaves 'tabstop' unchanged so literal tabs in verbatim payloads use
+the user's display width.
 
 Use picker = 'snacks' when snacks.nvim is installed. Repeated setup calls are
 safe and replace the plugin's commands and autocmds.
