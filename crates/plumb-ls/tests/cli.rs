@@ -138,7 +138,7 @@ fn bundled_neovim_plugin_matches_the_binary_version() {
 }
 
 #[test]
-fn checks_a_workspace_recursively_and_sets_the_exit_status() {
+fn checks_a_workspace_with_configurable_severity_and_error_exit_status() {
     let root = unique_temp_dir();
     std::fs::create_dir_all(root.join("nested")).unwrap();
     std::fs::write(root.join("valid.plumb"), "Paragraph.\n").unwrap();
@@ -164,7 +164,7 @@ fn checks_a_workspace_recursively_and_sets_the_exit_status() {
         .arg(&root)
         .output()
         .unwrap();
-    assert!(!broken.status.success());
+    assert!(broken.status.success());
     assert!(broken.stderr.is_empty());
     let output = String::from_utf8(broken.stdout).unwrap();
     assert!(
@@ -172,6 +172,48 @@ fn checks_a_workspace_recursively_and_sets_the_exit_status() {
             && output.contains("warning[link.unresolved-path]"),
         "{output}"
     );
+
+    std::fs::write(
+        root.join("tasks.plumb"),
+        "`task Draft {\n  `@ draft\n}\n`task Review {\n  `@ review\n  `: depends #draft\n}\n",
+    )
+    .unwrap();
+    let default = Command::new(env!("CARGO_BIN_EXE_plumb"))
+        .args(["check", "--root"])
+        .arg(&root)
+        .output()
+        .unwrap();
+    assert!(default.status.success());
+    assert!(!String::from_utf8_lossy(&default.stdout).contains("task.blocked"));
+
+    let hints = Command::new(env!("CARGO_BIN_EXE_plumb"))
+        .args(["check", "--root"])
+        .arg(&root)
+        .args(["--level", "hint"])
+        .output()
+        .unwrap();
+    assert!(hints.status.success());
+    assert!(String::from_utf8_lossy(&hints.stdout).contains("hint[task.blocked]"));
+
+    std::fs::write(root.join("syntax-error.plumb"), "See `broken[\n").unwrap();
+    let errors = Command::new(env!("CARGO_BIN_EXE_plumb"))
+        .args(["check", "--root"])
+        .arg(&root)
+        .args(["--level", "error"])
+        .output()
+        .unwrap();
+    assert!(!errors.status.success());
+    let output = String::from_utf8(errors.stdout).unwrap();
+    assert!(output.contains("error[syntax."), "{output}");
+    assert!(!output.contains("warning["), "{output}");
+    assert!(!output.contains("hint["), "{output}");
+
+    let invalid_level = Command::new(env!("CARGO_BIN_EXE_plumb"))
+        .args(["check", "--level", "diagnostic"])
+        .output()
+        .unwrap();
+    assert!(!invalid_level.status.success());
+    assert!(String::from_utf8_lossy(&invalid_level.stderr).contains("invalid value 'diagnostic'"));
     std::fs::remove_dir_all(root).unwrap();
 }
 

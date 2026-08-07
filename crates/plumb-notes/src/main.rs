@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use chrono::Local;
-use clap::{Args, Parser, Subcommand};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 use plumb_core::DiagnosticSeverity;
 use plumb_workspace::{
     display_workspace_path as display_path, normalize, resolve_workspace_root,
@@ -46,7 +46,7 @@ pub fn run_check_cli(args: impl IntoIterator<Item = OsString>) -> ExitCode {
     let result = (|| {
         let root = resolve_workspace_root(config.root.as_deref())?;
         let loaded = load_workspace(&root)?;
-        Ok::<_, String>(render_workspace_diagnostics(&root, &loaded))
+        Ok::<_, String>(render_workspace_diagnostics(&root, &loaded, config.level))
     })();
     match result {
         Ok((output, has_failures)) => {
@@ -167,6 +167,17 @@ struct CheckConfig {
     /// Workspace root. Defaults to the nearest ancestor containing .plumb/.
     #[arg(long, value_name = "DIR")]
     root: Option<PathBuf>,
+
+    /// Lowest diagnostic severity to display.
+    #[arg(long, value_enum, default_value_t = CheckLevel::Warning)]
+    level: CheckLevel,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
+enum CheckLevel {
+    Error,
+    Warning,
+    Hint,
 }
 
 #[derive(Debug, Subcommand)]
@@ -258,7 +269,11 @@ fn load_workspace(root: &Path) -> Result<LoadedWorkspace, String> {
     })
 }
 
-fn render_workspace_diagnostics(root: &Path, loaded: &LoadedWorkspace) -> (String, bool) {
+fn render_workspace_diagnostics(
+    root: &Path,
+    loaded: &LoadedWorkspace,
+    level: CheckLevel,
+) -> (String, bool) {
     use std::fmt::Write as _;
 
     let root = normalize(root);
@@ -287,6 +302,10 @@ fn render_workspace_diagnostics(root: &Path, loaded: &LoadedWorkspace) -> (Strin
         });
         let displayed_path = display_path(&root, path);
         for diagnostic in diagnostics {
+            has_failures |= matches!(diagnostic.severity, DiagnosticSeverity::Error);
+            if severity_rank(&diagnostic.severity) > level.rank() {
+                continue;
+            }
             let (line, column) = line_column(source, diagnostic.range.start);
             let severity = severity_name(&diagnostic.severity);
             writeln!(
@@ -295,7 +314,6 @@ fn render_workspace_diagnostics(root: &Path, loaded: &LoadedWorkspace) -> (Strin
                 diagnostic.code, diagnostic.message
             )
             .expect("writing to String cannot fail");
-            has_failures |= !matches!(diagnostic.severity, DiagnosticSeverity::Hint);
             for related in diagnostic.related {
                 let (line, column) = line_column(source, related.start);
                 writeln!(
@@ -308,6 +326,16 @@ fn render_workspace_diagnostics(root: &Path, loaded: &LoadedWorkspace) -> (Strin
         }
     }
     (output, has_failures)
+}
+
+impl CheckLevel {
+    fn rank(self) -> u8 {
+        match self {
+            Self::Error => 0,
+            Self::Warning => 1,
+            Self::Hint => 2,
+        }
+    }
 }
 
 fn line_column(source: &str, offset: usize) -> (usize, usize) {
@@ -366,6 +394,8 @@ mod tests {
         let check_help = CheckConfig::command().render_long_help().to_string();
         assert!(check_help.contains("Check a plumb workspace"));
         assert!(check_help.contains("nearest ancestor containing .plumb/"));
+        assert!(check_help.contains("--level <LEVEL>"));
+        assert!(check_help.contains("[default: warning]"));
     }
 
     #[test]
@@ -383,8 +413,9 @@ mod tests {
         )
         .unwrap();
         let loaded = load_workspace(&root).unwrap();
-        let (output, has_failures) = render_workspace_diagnostics(&root, &loaded);
-        assert!(has_failures);
+        let (output, has_failures) =
+            render_workspace_diagnostics(&root, &loaded, CheckLevel::Warning);
+        assert!(!has_failures);
         let lines = output.lines().collect::<Vec<_>>();
         assert!(lines[0].starts_with("a.plumb:3:"), "{output}");
         assert!(
@@ -407,7 +438,11 @@ mod tests {
         )
         .unwrap();
         let loaded = load_workspace(&root).unwrap();
-        let (output, has_failures) = render_workspace_diagnostics(&root, &loaded);
+        let (output, has_failures) =
+            render_workspace_diagnostics(&root, &loaded, CheckLevel::Warning);
+        assert!(!has_failures, "{output}");
+        assert!(output.is_empty(), "{output}");
+        let (output, has_failures) = render_workspace_diagnostics(&root, &loaded, CheckLevel::Hint);
         assert!(!has_failures, "{output}");
         assert!(output.contains("hint[task.blocked]"), "{output}");
         std::fs::remove_dir_all(root).unwrap();
