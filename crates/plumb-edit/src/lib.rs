@@ -265,6 +265,12 @@ impl OwnedBlock {
         }
     }
 
+    pub fn set_marker(&mut self, value: impl Into<String>) {
+        if let Self::Parsed { marker, .. } = self {
+            *marker = Some(value.into());
+        }
+    }
+
     pub fn children_mut(&mut self) -> Option<&mut Vec<OwnedBlock>> {
         match self {
             Self::Parsed { children, .. } => Some(children),

@@ -9,7 +9,7 @@ use std::process::ExitCode;
 use clap::Parser;
 use plumb_core::{
     parse, parse_legacy_017, AttachedContent, AttachedGroup, AttrItem, Attributes, Block, Inline,
-    InlineContent, ParsedBlock,
+    InlineContent, Mark, ParsedBlock,
 };
 use similar::{DiffOp, TextDiff};
 use unicode_width::UnicodeWidthStr;
@@ -248,6 +248,25 @@ fn valid_marker(marker: &str) -> bool {
         })
 }
 
+fn migrated_special_marker(mark: &Mark) -> Option<&str> {
+    matches!(mark.marker.as_str(), "-" | ".").then(|| {
+        mark.attrs.items.iter().find_map(|item| match item {
+            AttrItem::Class { value, .. } if matches!(value.as_str(), "task" | "event") => {
+                Some(value.as_str())
+            }
+            _ => None,
+        })
+    })?
+}
+
+fn has_migrated_attached(mark: &Mark) -> bool {
+    let skipped = migrated_special_marker(mark);
+    mark.attrs
+        .items
+        .iter()
+        .any(|item| !matches!(item, AttrItem::Class { value, .. } if skipped == Some(value)))
+}
+
 fn convert_legacy_metadata_blocks(blocks: &[Block]) -> Vec<Block> {
     blocks
         .iter()
@@ -448,7 +467,7 @@ fn format_block_group(source: &str, blocks: &[Block], first: usize, last: usize)
     let mut formatter = Formatter::default();
     formatter.blocks(selected, indent);
     if let Some(following) = following {
-        if compact_siblings(selected.last().unwrap(), following) {
+        if compact_siblings(selected.last().unwrap(), following, false) {
             formatter.output.push('\n');
         } else {
             formatter.output.push_str("\n\n");
@@ -584,7 +603,7 @@ impl Formatter {
                     if !self.output.ends_with('\n') {
                         self.output.push('\n');
                     }
-                } else if compact_siblings(previous, block) {
+                } else if compact_siblings(previous, block, self.migrate_legacy) {
                     self.output.push('\n');
                 } else {
                     self.output.push_str("\n\n");
@@ -642,9 +661,14 @@ impl Formatter {
     fn parsed_block(&mut self, block: &ParsedBlock, indent: usize) {
         self.indent(indent);
         let continuation_indent = if let Some(mark) = &block.mark {
+            let marker = if self.migrate_legacy {
+                migrated_special_marker(mark).unwrap_or(mark.marker.as_str())
+            } else {
+                mark.marker.as_str()
+            };
             self.output.push('`');
-            self.output.push_str(&mark.marker);
-            let hanging_indent = hanging_indent(indent, &mark.marker);
+            self.output.push_str(marker);
+            let hanging_indent = hanging_indent(indent, marker);
             let head_width = if block.head.items.is_empty() {
                 0
             } else {
@@ -654,7 +678,7 @@ impl Formatter {
             {
                 self.block_attributes(
                     &mark.attrs,
-                    indent + 1 + UnicodeWidthStr::width(mark.marker.as_str()),
+                    indent + 1 + UnicodeWidthStr::width(marker),
                     head_width,
                 );
             }
@@ -688,9 +712,17 @@ impl Formatter {
             if mark.attrs.attached.is_some() && !compact_attached {
                 self.output.push('\n');
                 self.block_attached(&mark.attrs, continuation_indent, false);
-            } else if self.migrate_legacy && mark.attrs.range.is_some() {
+            } else if self.migrate_legacy
+                && mark.attrs.range.is_some()
+                && has_migrated_attached(mark)
+            {
                 self.output.push('\n');
-                self.legacy_block_attached(&mark.attrs, continuation_indent, false);
+                self.legacy_block_attached(
+                    &mark.attrs,
+                    continuation_indent,
+                    false,
+                    migrated_special_marker(mark),
+                );
             }
         }
 
@@ -704,7 +736,12 @@ impl Formatter {
                 if block.head.items.is_empty() {
                     indent + 1
                 } else {
-                    hanging_indent(indent, &mark.marker)
+                    let marker = if self.migrate_legacy {
+                        migrated_special_marker(mark).unwrap_or(mark.marker.as_str())
+                    } else {
+                        mark.marker.as_str()
+                    };
+                    hanging_indent(indent, marker)
                 }
             });
             self.blocks(&block.children, child_indent);
@@ -877,12 +914,21 @@ impl Formatter {
         attrs: &Attributes,
         indent: usize,
         opener_after_tick: bool,
+        skipped_class: Option<&str>,
     ) {
+        if attrs.items.iter().all(
+            |item| matches!(item, AttrItem::Class { value, .. } if skipped_class == Some(value)),
+        ) {
+            return;
+        }
         if !opener_after_tick {
             self.indent(indent);
         }
         self.output.push_str("{\n");
         for item in &attrs.items {
+            if matches!(item, AttrItem::Class { value, .. } if skipped_class == Some(value)) {
+                continue;
+            }
             self.indent(indent + 2);
             self.output.push('`');
             match item {
@@ -1044,14 +1090,23 @@ fn attribute_item_text(item: &AttrItem) -> String {
     output
 }
 
-fn compact_siblings(previous: &Block, current: &Block) -> bool {
+fn compact_siblings(previous: &Block, current: &Block, migrate_legacy: bool) -> bool {
     let (Block::Parsed(previous), Block::Parsed(current)) = (previous, current) else {
         return false;
     };
     let (Some(previous_mark), Some(current_mark)) = (&previous.mark, &current.mark) else {
         return false;
     };
-    previous.children.is_empty() && previous_mark.marker == current_mark.marker
+    previous.children.is_empty()
+        && effective_marker(previous_mark, migrate_legacy)
+            == effective_marker(current_mark, migrate_legacy)
+}
+
+fn effective_marker(mark: &Mark, migrate_legacy: bool) -> &str {
+    migrate_legacy
+        .then(|| migrated_special_marker(mark))
+        .flatten()
+        .unwrap_or(mark.marker.as_str())
 }
 
 fn hanging_indent(owner_indent: usize, marker: &str) -> usize {
@@ -1206,7 +1261,7 @@ mod tests {
     #[test]
     fn migrates_legacy_attributes_for_every_owner_category() {
         let source = "`-{.task #shopping due=\"2026-08-07\"} Buy milk\n\nSee `->[guide]{.external #main to=\"guide.plumb#intro\"}.\n\n`{language=rust #example}\n  fn main() {}\n";
-        let expected = "`- Buy milk\n   {\n     `- task\n     `@ shopping\n     `: due 2026-08-07\n   }\n\nSee `->[guide]{`-[external] `@[main] `:[to guide.plumb#intro]}.\n\n`rust\"{`@[example]}\n  fn main() {}\n";
+        let expected = "`task Buy milk\n      {\n        `@ shopping\n        `: due 2026-08-07\n      }\n\nSee `->[guide]{`-[external] `@[main] `:[to guide.plumb#intro]}.\n\n`rust\"{`@[example]}\n  fn main() {}\n";
 
         let migrated = migrate_attributes(source).unwrap();
         assert_eq!(migrated, expected);

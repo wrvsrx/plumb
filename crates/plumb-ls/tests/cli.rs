@@ -80,7 +80,7 @@ fn migrates_legacy_attributes_from_stdin_and_files_atomically() {
         migrated.starts_with("{\n  `: title Migration\n}\n"),
         "{migrated}"
     );
-    assert!(migrated.contains("`- task\n"), "{migrated}");
+    assert!(migrated.contains("`task Work\n"), "{migrated}");
     assert!(migrated.contains("`@ write\n"), "{migrated}");
     assert!(
         migrated.contains("`->[guide]{`:[to guide.plumb#intro]}"),

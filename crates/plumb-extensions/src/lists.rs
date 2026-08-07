@@ -78,7 +78,7 @@ fn list_item(block: &Block) -> Option<(&ParsedBlock, ListKind)> {
         return None;
     };
     let kind = match block.mark.as_ref()?.marker.as_str() {
-        "-" => ListKind::Bullet,
+        "-" | "task" | "event" => ListKind::Bullet,
         "." => ListKind::Ordered,
         _ => return None,
     };

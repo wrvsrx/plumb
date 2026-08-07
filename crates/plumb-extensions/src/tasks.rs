@@ -101,26 +101,10 @@ fn collect_blocks(source: &str, blocks: &[Block], task_depth: usize, output: &mu
         let Block::Parsed(block) = block else {
             continue;
         };
-        let task_class = block.mark.as_ref().and_then(|mark| {
-            mark.attrs.items.iter().find_map(|item| match item {
-                AttrItem::Class { value, range } if value == "task" => Some(range.clone()),
-                _ => None,
-            })
-        });
-        let is_task = task_class.is_some()
-            && block
-                .mark
-                .as_ref()
-                .is_some_and(|mark| matches!(mark.marker.as_str(), "-" | "."));
-        if let Some(range) = task_class.filter(|_| !is_task) {
-            output.diagnostics.push(Diagnostic {
-                code: "task.invalid-owner",
-                severity: DiagnosticSeverity::Warning,
-                message: "the '.task' facet is only valid on '-' and '.' list items".to_string(),
-                range,
-                related: Vec::new(),
-            });
-        }
+        let is_task = block
+            .mark
+            .as_ref()
+            .is_some_and(|mark| mark.marker == "task");
         if is_task {
             let task = task_record(source, block, task_depth);
             let attrs = &block.mark.as_ref().expect("task is a marked block").attrs;
@@ -145,21 +129,14 @@ fn task_record(source: &str, block: &ParsedBlock, depth: usize) -> TaskRecord {
         selection_range: block.head.range.clone(),
         title: block.head.plain_text().trim().to_string(),
         depth,
-        attribute_insert: attrs.attached.as_deref().map_or_else(
-            || {
-                attrs
-                    .range
-                    .as_ref()
-                    .expect("task class is inside an attribute slot")
-                    .end
-                    .saturating_sub(1)
-            },
-            |attached| attached.close_range.start,
-        ),
+        attribute_insert: attrs
+            .attached
+            .as_deref()
+            .map_or(mark.marker_range.end, |attached| attached.close_range.start),
         attribute_range: attrs
             .range
             .clone()
-            .expect("task class is inside an attribute slot"),
+            .unwrap_or(mark.marker_range.end..mark.marker_range.end),
         persistent_attributes: attrs
             .items
             .iter()
@@ -467,7 +444,7 @@ mod tests {
 
     #[test]
     fn collects_task_facets_fields_dependencies_and_nesting() {
-        let source = "`- Write parser\n   {\n     `- task\n     `@ write\n     `: created 2026-07-20T09:00:00+08:00\n     `: due 2026-07-21T09:00:00+08:00\n     `: wait 2026-07-20T12:00:00+08:00\n     `: recur P1W\n     `: prev #old\n     `: depends #draft other notes.plumb#review third.plumb#done\n   }\n\n   `note Details\n\n   `- Nested task\n      {\n        `- task\n        `: done 2026-07-20T10:00:00+08:00\n      }\n";
+        let source = "`task Write parser\n   {\n     `@ write\n     `: created 2026-07-20T09:00:00+08:00\n     `: due 2026-07-21T09:00:00+08:00\n     `: wait 2026-07-20T12:00:00+08:00\n     `: recur P1W\n     `: prev #old\n     `: depends #draft other notes.plumb#review third.plumb#done\n   }\n\n   `note Details\n\n   `task Nested task\n      {\n        `: done 2026-07-20T10:00:00+08:00\n      }\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
@@ -552,7 +529,7 @@ mod tests {
 
     #[test]
     fn attached_dependency_values_keep_exact_source_ranges() {
-        let source = "`- Review\n   {\n     `- task\n     `@ review\n     `: depends Project Plan.plumb#build #local\n   }\n";
+        let source = "`task Review\n   {\n     `@ review\n     `: depends Project Plan.plumb#build #local\n   }\n";
         let parsed = plumb_core::parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let output = analyze_tasks(source, &parsed.syntax);
@@ -567,7 +544,7 @@ mod tests {
 
     #[test]
     fn reports_local_task_state_and_recurrence_diagnostics() {
-        let source = "`- Conflict\n   {\n     `- task\n     `: done 2026-07-20T09:00:00Z\n     `: canceled 2026-07-20T10:00:00Z\n   }\n`- Invalid recurrence\n   {\n     `- task\n     `: due not-a-date\n     `: recur P1M1D\n   }\n`- Invalid datetimes\n   {\n     `- task\n     `: created 2026-07-20T09:00:00Z\n     `: wait tomorrow\n     `: done later\n     `: canceled never\n   }\n";
+        let source = "`task Conflict\n   {\n     `: done 2026-07-20T09:00:00Z\n     `: canceled 2026-07-20T10:00:00Z\n   }\n`task Invalid recurrence\n   {\n     `: due not-a-date\n     `: recur P1M1D\n   }\n`task Invalid datetimes\n   {\n     `: created 2026-07-20T09:00:00Z\n     `: wait tomorrow\n     `: done later\n     `: canceled never\n   }\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
@@ -602,7 +579,7 @@ mod tests {
 
     #[test]
     fn parses_signed_task_priority_and_rejects_out_of_range_values() {
-        let source = "`- Maximum\n   {\n     `- task\n     `: priority 2147483647\n   }\n`- Deferred\n   {\n     `- task\n     `: priority -12\n   }\n`- Minimum\n   {\n     `- task\n     `: priority -2147483648\n   }\n`- Too large\n   {\n     `- task\n     `: priority 2147483648\n   }\n`- Too small\n   {\n     `- task\n     `: priority -2147483649\n   }\n`- Invalid\n   {\n     `- task\n     `: priority soon\n   }\n";
+        let source = "`task Maximum\n   {\n     `: priority 2147483647\n   }\n`task Deferred\n   {\n     `: priority -12\n   }\n`task Minimum\n   {\n     `: priority -2147483648\n   }\n`task Too large\n   {\n     `: priority 2147483648\n   }\n`task Too small\n   {\n     `: priority -2147483649\n   }\n`task Invalid\n   {\n     `: priority soon\n   }\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
@@ -630,7 +607,7 @@ mod tests {
     #[test]
     fn reports_missing_due_only_when_the_attribute_is_absent() {
         let source =
-            "`- Missing due\n   {\n     `- task\n     `: recur P1W\n   }\n`- Invalid due\n   {\n     `- task\n     `: due invalid\n     `: recur P1W\n   }\n";
+            "`task Missing due\n   {\n     `: recur P1W\n   }\n`task Invalid due\n   {\n     `: due invalid\n     `: recur P1W\n   }\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
@@ -664,14 +641,13 @@ mod tests {
     }
 
     #[test]
-    fn task_facet_requires_a_list_item_owner() {
-        let source = "`note Not a task\n      {\n        `- task\n      }\n\n`- Bullet\n   {\n     `- task\n   }\n\n`. Ordered\n   {\n     `- task\n   }\n";
+    fn only_the_task_marker_creates_tasks() {
+        let source = "`note Not a task\n      {\n        `- task\n      }\n\n`task Work\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
         let output = analyze_tasks(source, &parsed.syntax);
-        assert_eq!(output.tasks.len(), 2);
-        assert_eq!(output.diagnostics.len(), 1);
-        assert_eq!(output.diagnostics[0].code, "task.invalid-owner");
+        assert_eq!(output.tasks.len(), 1);
+        assert!(output.diagnostics.is_empty());
     }
 }

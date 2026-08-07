@@ -260,24 +260,19 @@ impl Workspace {
         let item = deepest_list_item(&entry.parsed.syntax.blocks, offset)
             .ok_or(TaskEditError::ListItemNotFound)?;
         let mark = item.mark.as_ref().expect("list item has a mark");
-        if mark.attrs.has_class("task") {
+        if mark.marker == "task" {
             return Err(TaskEditError::TaskAlreadyExists);
         }
-        let mut edit = EditSession::new(&entry.parsed, item.range.clone())
+        let mut owned = OwnedBlock::from_parsed(&entry.parsed.source, item);
+        owned.set_marker("task");
+        owned.attributes_mut().retain(
+            |attribute| !matches!(attribute, OwnedAttribute::Class(value) if value == "task"),
+        );
+        owned
+            .attributes_mut()
+            .push(OwnedAttribute::quoted("created", timestamp));
+        let edit = super::exact_owned_block_edit(&entry.parsed, item.range.clone(), &owned)
             .map_err(|_| TaskEditError::GeneratedInvalid)?;
-        edit.insert_attributes(
-            &mark.attrs,
-            mark.marker_range.end,
-            [
-                (AttributePosition::Last, OwnedAttribute::class("task")),
-                (
-                    AttributePosition::Last,
-                    OwnedAttribute::quoted("created", timestamp),
-                ),
-            ],
-        )
-        .map_err(|_| TaskEditError::GeneratedInvalid)?;
-        let edit = edit.finish().map_err(|_| TaskEditError::GeneratedInvalid)?;
         Ok(single_document_edit(entry, path, edit))
     }
 

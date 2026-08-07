@@ -285,13 +285,12 @@ wrapper 保留。普通 dollar characters 和 dollar-delimited math 没有特殊
 
 `# 15. Events
 
-只有 `"-" 或 `"." list item 上的 `"event" attached facet 产生 event record：
+`"event" marker 产生 event record，并具有 bullet list-item 结构：
 
 `plumb"
-  `- 14:00--15:30 Parser review
+  `event 14:00--15:30 Parser review
      {
        `@ parser-review
-       `- event
        `: date 2026-07-30
        `: timezone +08:00
        `: tasks #write-parser Project A.plumb#docs
@@ -318,8 +317,7 @@ invalid explicit override 不回退到 ancestor value。
 dependency，也不改变 task state。Target 必须解析到具有 `"task" facet 的 explicit id；workspace 提供
 task-to-event reverse query。不得从 task 的 created、due、wait、done 或 canceled fields 隐式生成 event。
 
-同一 owner 同时具有 `"event" 与 `"task" facets 时发布 `"event.conflicting-task-facet"，task record 继续产生，
-但 event record 不产生。`"event" 出现在非 list item owner 上发布 `"event.invalid-owner"。
+`"event" 与 `"task" 是互斥的 specialized list-item markers，不能组合。
 
 `"uid"、`"when" properties 与 metadata `"event-uids" 没有 event semantics，只作为 opaque attached data/metadata
 保留。Event 只有被引用时才需要 explicit id；authoring operation 不自动生成 id。
@@ -377,12 +375,11 @@ reference 定位时，再使用通用 explicit-id authoring operation 添加 id�
 
 `# 16. Tasks
 
-只有 `"-" 或 `"." list item 上的 `"task" attached facet 产生 task record：
+`"task" marker 产生 task record，并具有 bullet list-item 结构：
 
 `plumb"
-  `- Implement parser
+  `task Implement parser
      {
-       `- task
        `@ write-parser
      }
 
@@ -476,7 +473,7 @@ conflicted descendant 由 `"task.conflicting-closed-state" 负责。canceled par
 diagnostics 也不改变 nesting 只形成 display tree、只有 `"depends" 建立 dependency edge 的语义。
 
 authoring operations 使用执行时的本地 RFC 3339 timestamp：`"Convert to task" 把 cursor 命中的最深
-普通 `"-"/[.] item 转为 task，同时添加 `"task" facet 与 `"created" property；`"Add task created timestamp" 为
+普通 `"-"/[.] item 转为 task 时，将 marker 改为 `"task" 并添加 `"created" property；`"Add task created timestamp" 为
 缺少 `"created" 的最深 enclosing task 补录时间。后者不受 task state、dependency 或 recurrence
 限制。两者都保留已有 attached elements，并返回 revision-guarded edits。
 

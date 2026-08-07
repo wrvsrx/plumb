@@ -1767,7 +1767,7 @@ impl Workspace {
         let item = deepest_list_item(&entry.parsed.syntax.blocks, offset)
             .ok_or(EventShorthandError::ListItemNotFound)?;
         let mark = item.mark.as_ref().expect("list item has a mark");
-        if mark.attrs.has_class("event") {
+        if mark.marker == "event" {
             return Err(EventShorthandError::EventAlreadyExists);
         }
         let current = entry.current.as_ref().expect("current output checked");
@@ -1783,10 +1783,16 @@ impl Workspace {
             inferred_end,
         )?;
         let mut owned = OwnedBlock::from_parsed(&entry.parsed.source, item);
+        owned.set_marker("event");
+        owned.attributes_mut().retain(
+            |attribute| !matches!(attribute, OwnedAttribute::Class(value) if value == "event"),
+        );
         strip_event_shorthand_prefix(&mut owned, title_start)?;
         let mut attributes = owned.attributes().to_vec();
         attributes.extend(event_attributes(&input, &current.output.metadata));
-        let mut owned = owned.with_attributes(attributes);
+        if !attributes.is_empty() {
+            owned = owned.with_attributes(attributes);
+        }
         prepend_event_schedule(&mut owned, &input);
         let event_edit = exact_owned_block_edit(&entry.parsed, item.range.clone(), &owned)
             .map_err(|_| EventShorthandError::GeneratedInvalid)?;
@@ -2746,7 +2752,7 @@ fn deepest_list_item(blocks: &[Block], offset: usize) -> Option<&ParsedBlock> {
             if block
                 .mark
                 .as_ref()
-                .is_some_and(|mark| matches!(mark.marker.as_str(), "-" | "."))
+                .is_some_and(|mark| matches!(mark.marker.as_str(), "-" | "." | "task" | "event"))
             {
                 result = Some(block);
             }
@@ -3073,7 +3079,7 @@ fn inferred_end_from_sibling(
     metadata: &MetadataOutput,
 ) -> Option<ShorthandStart> {
     let mark = sibling.mark.as_ref()?;
-    if !matches!(mark.marker.as_str(), "-" | ".") || mark.attrs.has_class("event") {
+    if !matches!(mark.marker.as_str(), "-" | "." | "task" | "event") || mark.marker == "event" {
         return None;
     }
     let shorthand = &source[sibling.head.range.clone()];
@@ -3244,9 +3250,9 @@ fn validate_task_authoring_input(
 }
 
 fn owned_authored_task(input: &TaskAuthoringInput, id: &str, timestamp: &str) -> OwnedBlock {
-    let mut attributes = vec![OwnedAttribute::class("task"), OwnedAttribute::id(id)];
+    let mut attributes = vec![OwnedAttribute::id(id)];
     append_authored_task_fields(&mut attributes, input, timestamp);
-    OwnedBlock::marked("-", &input.title).with_attributes(attributes)
+    OwnedBlock::marked("task", &input.title).with_attributes(attributes)
 }
 
 fn append_authored_task_fields(
@@ -3401,7 +3407,7 @@ fn remove_owned_descendant(
 }
 
 fn event_attributes(input: &EventInput, metadata: &MetadataOutput) -> Vec<OwnedAttribute> {
-    let mut attributes = vec![OwnedAttribute::class("event")];
+    let mut attributes = Vec::new();
     let (date, timezone, _) =
         compact_event_schedule(input).expect("event input is validated before authoring");
     if metadata_scalar(metadata, "date").as_deref() != Some(&date) {
@@ -3445,7 +3451,11 @@ fn prepend_event_schedule(owned: &mut OwnedBlock, input: &EventInput) {
 }
 
 fn owned_event(input: &EventInput, metadata: &MetadataOutput) -> OwnedBlock {
-    let mut event = OwnedBlock::marked("-", "").with_attributes(event_attributes(input, metadata));
+    let attributes = event_attributes(input, metadata);
+    let mut event = OwnedBlock::marked("event", "");
+    if !attributes.is_empty() {
+        event = event.with_attributes(attributes);
+    }
     set_event_head(&mut event, input);
     event
 }
@@ -3462,9 +3472,10 @@ fn convert_shorthands_in_block(
     let mut converted = 0;
     if syntax.head.range.start < selection.end
         && selection.start < syntax.head.range.end
-        && syntax.mark.as_ref().is_some_and(|mark| {
-            matches!(mark.marker.as_str(), "-" | ".") && !mark.attrs.has_class("event")
-        })
+        && syntax
+            .mark
+            .as_ref()
+            .is_some_and(|mark| matches!(mark.marker.as_str(), "-" | "."))
     {
         let inferred_end = next_sibling
             .filter(|next| {
@@ -3477,9 +3488,11 @@ fn convert_shorthands_in_block(
             if strip_event_shorthand_prefix(owned, title_start).is_err() {
                 return converted;
             }
-            owned
-                .attributes_mut()
-                .extend(event_attributes(&input, metadata));
+            let attributes = event_attributes(&input, metadata);
+            if !attributes.is_empty() {
+                owned.attributes_mut().extend(attributes);
+            }
+            owned.set_marker("event");
             prepend_event_schedule(owned, &input);
             converted += 1;
         }
@@ -5514,7 +5527,7 @@ mod tests {
         }
         let parsed = parse(&edited);
         assert!(parsed.is_valid(), "{edited:?}\n{:?}", parsed.diagnostics);
-        assert!(!edited.contains("\r\n\r\n      `-{.task"));
+        assert!(!edited.contains("\r\n\r\n      `task"));
     }
 
     #[test]

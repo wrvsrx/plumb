@@ -549,28 +549,14 @@ fn attribute_context(
     };
     let mut candidates = Vec::new();
     match owner {
-        AttributeOwner::Marked("-" | ".") => {
-            push_completion(
-                &mut candidates,
-                !existing_class("task"),
-                ".task",
-                "standard task facet",
-            );
-            push_completion(
-                &mut candidates,
-                !existing_class("event"),
-                ".event",
-                "standard event facet",
-            );
-            if attrs.has_class("task") {
-                for (key, detail) in task_attribute_pairs() {
-                    push_pair_completion(&mut candidates, !existing_pairs(key), key, detail);
-                }
+        AttributeOwner::Marked("task") => {
+            for (key, detail) in task_attribute_pairs() {
+                push_pair_completion(&mut candidates, !existing_pairs(key), key, detail);
             }
-            if attrs.has_class("event") {
-                for (key, detail) in event_attribute_pairs() {
-                    push_pair_completion(&mut candidates, !existing_pairs(key), key, detail);
-                }
+        }
+        AttributeOwner::Marked("event") => {
+            for (key, detail) in event_attribute_pairs() {
+                push_pair_completion(&mut candidates, !existing_pairs(key), key, detail);
             }
         }
         AttributeOwner::ParsedInline("->") => {
@@ -787,7 +773,7 @@ fn task_dependency_context_in_blocks(
             continue;
         };
         if let Some(mark) = &block.mark {
-            if matches!(mark.marker.as_str(), "-" | ".") && mark.attrs.has_class("task") {
+            if mark.marker == "task" {
                 let value = mark.attrs.items.iter().find_map(|item| match item {
                     AttrItem::Pair { key, value, .. } if key == "depends" => Some(value),
                     _ => None,
@@ -1377,7 +1363,7 @@ mod tests {
     #[test]
     fn identifies_task_dependency_tokens_and_preserves_other_references() {
         let (source, cursor) = strip_cursor(
-            "`- Review\n   {\n     `- task\n     `@ review\n     `: depends #done Project Plan.plumb#dr|aft #later\n   }\n",
+            "`task Review\n      {\n        `@ review\n        `: depends #done Project Plan.plumb#dr|aft #later\n      }\n",
         );
         let current_start = source.find("Project Plan.plumb#draft").unwrap();
         let context = task_dependency_completion_context(&parse(&source), cursor).unwrap();
@@ -1399,7 +1385,7 @@ mod tests {
         );
 
         let (empty, cursor) =
-            strip_cursor("`- Review\n   {\n     `- task\n     `: depends #done |\n   }\n");
+            strip_cursor("`task Review\n      {\n        `: depends #done |\n      }\n");
         let context = task_dependency_completion_context(&parse(&empty), cursor).unwrap();
         assert_eq!(context.replace, cursor..cursor);
         assert_eq!(context.query, "");
@@ -1418,7 +1404,7 @@ mod tests {
         );
 
         let (recovered, cursor) =
-            strip_cursor("`- Review\n   {\n     `- task\n     `: depends #dr|aft\n");
+            strip_cursor("`task Review\n      {\n        `: depends #dr|aft\n");
         let context = task_dependency_completion_context(&parse(&recovered), cursor).unwrap();
         assert_eq!(context.query, "#dr");
         assert_eq!(&recovered[context.replace], "#draft");
