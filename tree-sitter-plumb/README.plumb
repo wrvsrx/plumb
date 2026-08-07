@@ -31,6 +31,7 @@ Edit and commit grammar sources such as:
 `- `"grammar.js"
 `- `"tree-sitter.json"
 `- corpus tests and queries
+`- `"check-strict-valid.sh" strict-valid differential check
 `- the hand-written `"src/scanner.c" and future bindings
 
 Do not edit or commit files generated under `"src/"：
@@ -113,6 +114,12 @@ The highlight query can be checked outside Neovim with the tracked fixture:
     -p tree-sitter-plumb \
     tree-sitter-plumb/queries/highlights.scm \
     tree-sitter-plumb/test/fixtures/highlights.plumb
+
+The strict-valid differential check extracts every valid case from the strict parser's normative
+corpus and requires tree-sitter to parse it without an error or missing node:
+
+`sh"
+  nix develop .#tree-sitter-plumb -c tree-sitter-plumb/check-strict-valid.sh
 
 The Neovim injection regression test loads the locked Python parser and verifies both recursive
 plumb blocks and indentation-sensitive Python highlights:

@@ -67,6 +67,17 @@
     "required_tokens": ["RawPayload","InlineKind","Delimiter"]
   },
   {
+    "name": "inline verbatim at block dispatch positions",
+    "source": "`->\"something.plumb\"\n`- `->\"something.plumb\"\n",
+    "valid": true,
+    "blocks": [
+      {"kind":"paragraph","head":"something.plumb","inline":"V1[]\"something.plumb\""},
+      {"kind":"marked","marker":"-","attrs":[],"head":"something.plumb","inline":"V1[]\"something.plumb\"","children":[]}
+    ],
+    "diagnostics": [],
+    "required_tokens": ["RawPayload","InlineKind","Marker","Delimiter"]
+  },
+  {
     "name": "verbatim block preserves CRLF payload",
     "source": "`text\"\r\n raw\r\n \r\n\r\nnext\r\n",
     "valid": true,
