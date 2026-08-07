@@ -114,6 +114,13 @@ The highlight query can be checked outside Neovim with the tracked fixture:
     tree-sitter-plumb/queries/highlights.scm \
     tree-sitter-plumb/test/fixtures/highlights.plumb
 
+The Neovim injection regression test loads the locked Python parser and verifies both recursive
+plumb blocks and indentation-sensitive Python highlights:
+
+`sh"
+  nix develop .#tree-sitter-plumb -c \
+    nvim --headless --clean -l contrib/nvim/tests/treesitter_injection_e2e.lua
+
 The tracked CLI config points parser discovery at the current repository, so
 this command does not depend on global `"tree-sitter init-config" state or emit
 the unconfigured parser-directories warning.
