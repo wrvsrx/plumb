@@ -34,12 +34,21 @@ elements；formatter 只处理 whitespace、wrapping 和 indentation。
 
 syntax-preserving formatter 保留 attached group presence 与 typed content category：inline content 保持
 compact form，block content 保持 expanded form，不能只因 line width 在两者之间转换。compact group 可以
-超过 preferred width；expanded group 的 opener 保持 block header 最后一个结构，content 使用 owner 的
-deeper structural column，closing brace 回到 owner column。
+超过 preferred width。同行 expanded group 的 opener 保持 block header 最后一个结构，content 使用 owner
+column 加一，closing brace 回到 owner column。next-line expanded group 保留 own-line opener form；opener
+同时建立 owner body column，formatter 将 opener、closing brace 与后续 children 统一放在 owner column
+加一，将 group content 放在 opener column 加一。普通 children 与 deferred head continuation 同样使用
+owner column 加一，不按 marker width 对齐 conceptual head column。document group 的 content 同样从
+document owner column 加一开始。
 
 新建 owned group 尚无 source form 时，inline content 使用 compact，block content 使用 expanded；新建空
 marked/verbatim block group 默认 compact，document group 始终 expanded。已有显式 empty compact/expanded
 group 保留其 form，formatter 不删除 group。closing brace line 只允许 trailing horizontal whitespace。
+
+verbatim block source 可以用 `"N" 个 opening quotes 声明 `"N" 个 ASCII-space structural margin，但
+canonical formatter 一律输出 `"N = 1"。formatter 同步重写每条非空 raw-body line 的 structural prefix，
+不得改变 typed raw payload 的任何 byte；完全空行仍不添加 structural margin。quote count 不作为需要保留的
+delimiter strength，因为 verbatim block 没有 closing-delimiter collision。
 
 `# 4. Block mutations
 

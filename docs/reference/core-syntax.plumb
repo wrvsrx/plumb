@@ -34,12 +34,13 @@ escape 已经产生 inline text 时，当前位置不再是 block start。
 
 `# 3. Block dispatch
 
-block start 的 introducer 先读取可选 kind，再按 delimiter dispatch：
+block start 的 introducer 先读取可选 kind 与完整 quote run，再按其后的 delimiter dispatch：
 
-`- `"KIND?\"" 后立即 line ending/EOF，或跟 horizontal whitespace 与 compact/expanded attached group
-   opener：verbatim block。
+`- `"KIND?QUOTES" 后立即 line ending/EOF，或跟 horizontal whitespace 与 compact/expanded attached
+   group opener：verbatim block；quote count 同时声明 raw-body structural margin。
 `- `"KIND?QUOTES["：strengthened inline verbatim，属于 paragraph/head inline content。
-`- `"KIND?\"RAW\""：compact inline verbatim，属于 paragraph/head inline content。
+`- `"KIND?\"RAW\""：single-quote compact inline verbatim sugar，属于 paragraph/head inline content，
+   其中 `"RAW" 必须非空。
 `- 非空 marker token：marked block；紧接 opening bracket 时改为 parsed inline element。
 
 非法入口产生 syntax diagnostic，不退化为 ordinary text。
@@ -105,7 +106,8 @@ text lines 属于同一 paragraph，并以 soft break 连接；blank、dedent、
 
 只有 marked block 可以拥有 children。第一个 child 的首个非空 physical line 建立 child column；
 同级 siblings 必须从同一 column 开始。具体 column 是 formatter policy，不影响 syntax validity；
-官方 formatter 对空 head 使用 owner column 加一，对非空 head 使用 marker 的 conceptual head column。
+官方 formatter 不以 marker width 或 conceptual head column 累积结构缩进，而是统一使用 owner column
+加一作为 body column。deferred head continuation 与普通 children 都从该 canonical body column 开始。
 
 dedent 可以一次退出多个 levels，但必须落在 indentation stack 中已有的 column。落在两个已有
 columns 之间是 partial dedent error。结构 indentation 只能使用 ASCII spaces；tab 不得用于建立
@@ -139,32 +141,35 @@ document 没有 header，只允许 opening brace 独占文件第一条 structura
 
 `plumb"
   {
-    `: title Document title
-    `: tags
-      `- plumb
+   `: title Document title
+   `: tags
+    `- plumb
   }
 
   `- Buy milk {
-    `- shopping
-    `@ shopping
-    `: due 2026-08-07
+   `- shopping
+   `@ shopping
+   `: due 2026-08-07
   }
 
 marked block 的 expanded group 也可以在下一 structural line 打开：
 
 `plumb"
   `task Buy milk
-        {
-          `- shopping
-          `@ shopping
-          `: due 2026-08-07
-        }
+   {
+    `- shopping
+    `@ shopping
+    `: due 2026-08-07
+   }
+   `note Remember the coupon
 
 next-line opener 必须紧邻 owner header，中间不能有 blank line，且必须位于深于 owner 的 structural
-column；该 column 同时是 group close column。若 deferred head continuation 已建立 column，opener 必须位于
-同一 column。opener line 除 opening brace 与 trailing horizontal whitespace 外不能包含其他 source。
-识别 next-line opener 会结束 deferred head，group close 后才可以开始 children。verbatim block 不允许
-next-line group，因为 opening quote 后的 line ending 已经开始 raw payload。
+column；该 column 同时建立 owner body column，并且是 group close 与后续 child siblings 的 column。若
+deferred head continuation 已建立 body column，opener 必须位于同一 column。opener line 除 opening brace
+与 trailing horizontal whitespace 外不能包含其他 source。识别 next-line opener 会结束 deferred head，
+group close 后才可以开始 children；group content 自己建立比该 body column 更深的独立 child column。
+verbatim block 不允许 next-line group，因为 quote run 后的 line ending 已经开始 raw payload。官方 formatter
+将 opener、close 与后续 children 统一放在 owner column 加一，将 group content 放在 opener column 加一。
 
 inline group 与 owner 同行，内容使用第 8、9 节的普通 inline parser，因此 inline element 可以递归
 包含 inline element；group 本身不建立新的 marker、property 或 raw-content grammar：
@@ -226,7 +231,7 @@ attached inline group 可以紧跟完整 closing delimiter，并使用第 7 节�
 `# 9. Inline verbatim
 
 inline verbatim 有 compact 与 strengthened 两种 envelope。compact form 是 introducer、可选 opaque
-kind、opening quote、raw payload 和 closing quote：
+kind、一个 opening quote、非空 raw payload 和一个 closing quote；它只是常见单行 payload 的 sugar：
 
 `plumb"
   `"raw"
@@ -240,43 +245,49 @@ compact payload 不能包含 double quote。需要 quote 或 closing-like sequen
   `"[raw containing " safely]"
   `rust""[raw containing ]" safely]""
 
-payload 仅限一条 physical line，按 UTF-8 bytes 原样保存，不解析 nested inline。更长 closing
-quote run 中多出的 quotes 属于后续 inline text。空 payload 合法。找不到 closing delimiter 时，
-在 line ending/EOF 报错并从下一 physical line 恢复。
+payload 仅限一条 physical line，按 UTF-8 bytes 原样保存，不解析 nested inline。compact form 不能使用
+多个 opening quotes；需要 quote、空 payload 或更强 delimiter 时必须使用 bracket envelope。找不到 closing
+delimiter 时，在 line ending/EOF 报错并从下一 physical line 恢复。
 
 opening quote 后紧接 opening bracket 时进入 strengthened form；quote run 数量必须与 closing bracket
-后的 quote run 相同。两种 form 产生同一个 typed verbatim view，kind 保持 opaque。attached inline group
-可以紧跟完整 closing delimiter；payload 自身仍只占一条 physical line。
+后的 quote run 相同，空 payload 合法。两种 form 产生同一个 typed verbatim view，kind 保持 opaque。
+attached inline group 可以紧跟完整 closing delimiter；payload 自身仍只占一条 physical line。位于 block
+start 的 `"`rust\"\"" 因此是 quote count 为二的空 verbatim block；空 inline verbatim 必须写作
+`"`rust\"[]\"" 或其他完整 strengthened envelope。
 
 `# 10. Verbatim block
 
-verbatim block 使用 introducer、可选 opaque kind 与 opening quote，并且不能有 head：
+verbatim block 使用 introducer、可选 opaque kind 与一个或多个 opening quotes，并且不能有 head：
 
 `plumb"
   `rust" {`@[example] `:[generated true]}
-    fn main() {}
+   fn main() {}
 
   `rust" {
-    `@ example
-    `: generated true
+   `@ example
+   `: generated true
   }
-    fn main() {}
+   fn main() {}
 
-opening quote 后必须立即 line ending/EOF，或跟至少一个 ASCII space/tab 与一个完整 compact/expanded
-attached group；不允许 raw head。`"`rust\"{}\"" 是 payload 为 `"{}" 的 compact inline verbatim；
-`"`rust\" {}" 才是带空 compact group 的 verbatim block。expanded group 在 header line 打开并先于 raw
-body 关闭，因此 raw payload 中满足 structural margin 的 brace 仍全部是原始 bytes。旧的
+完整 quote run 后必须立即 line ending/EOF，或跟至少一个 ASCII space/tab 与一个完整 compact/expanded
+attached group；不允许 raw head。single-quote `"`rust\"{}\"" 是 payload 为 `"{}" 的 compact inline
+verbatim；`"`rust\" {}" 才是带空 compact group 的 verbatim block。expanded group 在 header line 打开并
+先于 raw body 关闭，因此 raw payload 中满足 structural margin 的 brace 仍全部是原始 bytes。旧的
 `"`{language=rust #example}" 在 unified grammar 中直接非法。
-body 的每条非空 line 必须带
-parent column 加两个 ASCII spaces 的固定 structural margin。移除该
-margin 后，其余 spaces、tabs、line endings 和 syntax-like bytes 都属于 payload。完全空行可以
+
+opening quote count `"N" 显式声明 raw body 的 structural margin。body 的每条非空 line 必须在 parent
+column 后带恰好可供移除的 `"N" 个 ASCII spaces；移除这些 structural spaces 后，其余 spaces、tabs、line
+endings 和 syntax-like bytes 都属于 payload。`"N" 可以是任意正整数，因此 source 可以显式选择任意
+margin，而 parser 不从第一条 payload line 或共同缩进反推边界。完全空行可以
 省略 margin。首个显式空 raw line 产生 leading newline；EOF 不补 final newline。空 block 合法。
 
 compact/expanded group 都可以为空，group close 后直接 EOF 时 verbatim payload 也为空。expanded group
 close 后立即进入 raw-body phase；其后的 blank physical line 属于 payload 并产生 leading newline，不是
 可忽略的 group/body separator。
 
-第一条缩进不足的非空 line 结束 block；partial dedent 或 structural tab 按 structural error 处理。
+第一条不足 `"N" 个 structural spaces 的非空 line 结束 block；structural margin 中的 tab、partial dedent
+或 structural tab 按 structural error 处理。官方 formatter 将所有 verbatim block canonicalize 为一个
+opening quote 与一个 structural space，并在调整 source envelope 时保持 typed raw payload 逐 byte 不变。
 
 `note 以上两种旧 block attachment spelling 在 unified grammar 中直接非法；strict parser 不保留兼容分支，
       toolchain 也不提供针对它们的 migration reader 或 migrator。
