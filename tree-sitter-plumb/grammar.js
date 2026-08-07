@@ -62,6 +62,7 @@ module.exports = grammar({
           )),
           $._line_end,
           optional(choice(
+            field('attached_body', $.next_line_attached_body),
             field('continued_head', $.headed_body),
             field('body', $.block_body),
           )),
@@ -73,6 +74,12 @@ module.exports = grammar({
       $._indent,
       field('continuation', $.head_continuation),
       optional(choice(
+        seq(
+          $._same_indent,
+          field('attached', $.attached_block_group),
+          $._line_end,
+          optional($._next_line_attached_children),
+        ),
         seq(
           repeat1($.blank_line),
           optional(seq(
@@ -95,6 +102,24 @@ module.exports = grammar({
       )),
       $._dedent,
     ))),
+
+    next_line_attached_body: $ => prec.dynamic(3, prec.right(seq(
+      $._indent,
+      field('attached', $.attached_block_group),
+      $._line_end,
+      optional($._next_line_attached_children),
+      $._dedent,
+    ))),
+
+    _next_line_attached_children: $ => seq(
+      repeat($.blank_line),
+      $._same_indent,
+      field('child', $._block),
+      repeat(choice(
+        $.blank_line,
+        seq($._same_indent, field('child', $._block)),
+      )),
+    ),
 
     head_continuation: $ => prec(2, seq(
       field('content', $.inline_content),

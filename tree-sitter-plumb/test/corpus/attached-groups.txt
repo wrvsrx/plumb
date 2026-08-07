@@ -39,6 +39,41 @@ Root and nested block groups
           (text))))))
 
 ==================
+Next-line marked block group
+==================
+
+`task Work
+      {
+        `: created now
+      }
+
+      Details
+
+---
+
+(document
+  (blank_line)
+  (marked_block
+    (introducer)
+    (marker)
+    (head_separator)
+    (inline_content
+      (text))
+    (next_line_attached_body
+      (attached_block_group
+        (block_group_open)
+        (marked_block
+          (introducer)
+          (marker)
+          (head_separator)
+          (inline_content
+            (text))))
+      (blank_line)
+      (paragraph
+        (inline_content
+          (text))))))
+
+==================
 Recursive inline group
 ==================
 
