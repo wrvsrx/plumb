@@ -1,5 +1,6 @@
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 use plumb_core::parse;
 
@@ -103,6 +104,42 @@ fn bundled_skill_plumb_examples_are_strictly_valid() {
         example_count > 0,
         "bundled skill must contain plumb examples"
     );
+}
+
+#[test]
+fn editing_adapters_do_not_depend_directly_on_the_formatter() {
+    let root = repository_root();
+    let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
+    let output = Command::new(cargo)
+        .args(["metadata", "--format-version", "1", "--no-deps"])
+        .current_dir(&root)
+        .output()
+        .expect("run cargo metadata");
+    assert!(
+        output.status.success(),
+        "cargo metadata failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let metadata: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("parse cargo metadata");
+    let adapters = ["plumb", "plumb-extensions", "plumb-web", "plumb-workspace"];
+    let packages = metadata["packages"].as_array().expect("metadata packages");
+
+    for name in adapters {
+        let package = packages
+            .iter()
+            .find(|package| package["name"] == name)
+            .unwrap_or_else(|| panic!("metadata must contain editing adapter {name}"));
+        let has_direct_formatter_dependency = package["dependencies"]
+            .as_array()
+            .expect("package dependencies")
+            .iter()
+            .any(|dependency| dependency["name"] == "plumb-format" && dependency["kind"].is_null());
+        assert!(
+            !has_direct_formatter_dependency,
+            "editing adapter {name} must route formatting through plumb-edit"
+        );
+    }
 }
 
 fn collect_markdown_files(directory: &Path, files: &mut Vec<PathBuf>) {
