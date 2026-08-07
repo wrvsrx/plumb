@@ -779,7 +779,7 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(
             root.join("tasks.plumb"),
-            "`- Ready task\n   {\n     `- task\n     `@ ready\n   }\n",
+            "`task Ready task\n      {\n        `@ ready\n      }\n",
         )
         .unwrap();
         let (changes, _) = broadcast::channel(2);

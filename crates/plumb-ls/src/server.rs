@@ -1681,21 +1681,17 @@ fn construct_completion_items(
                     label: "Task",
                     detail: "plumb task list item",
                     snippet: format!(
-                        "`- ${{1:Task}}\n{block_indent}   {{\n{block_indent}     `- task\n{block_indent}     `: created {timestamp}\n{block_indent}   }}"
+                        "`task ${{1:Task}}\n{block_indent}      {{\n{block_indent}        `: created {timestamp}\n{block_indent}      }}"
                     ),
                     plain: format!(
-                        "`- \n{block_indent}   {{\n{block_indent}     `- task\n{block_indent}     `: created {timestamp}\n{block_indent}   }}"
+                        "`task \n{block_indent}      {{\n{block_indent}        `: created {timestamp}\n{block_indent}      }}"
                     ),
                 },
                 ConstructTemplate {
                     label: "Event",
                     detail: "plumb event list item",
-                    snippet: format!(
-                        "`- ${{1:09:00}} ${{2:Event}}\n{block_indent}   {{\n{block_indent}     `- event\n{block_indent}   }}"
-                    ),
-                    plain: format!(
-                        "`- \n{block_indent}   {{\n{block_indent}     `- event\n{block_indent}   }}"
-                    ),
+                    snippet: "`event ${1:09:00} ${2:Event}".to_string(),
+                    plain: "`event ".to_string(),
                 },
                 ConstructTemplate {
                     label: "Link",
@@ -1985,21 +1981,21 @@ mod tests {
 
     #[test]
     fn does_not_fold_a_leaf_block_over_trailing_blank_lines() {
-        let parsed = parse("`- Parent\n   {\n     `- task\n   }\n\n   `- Leaf\n      {\n        `- task\n      }\n\n`- Next\n");
+        let parsed = parse("`task Parent\n      {\n      }\n\n      `task Leaf\n            {\n            }\n\n`- Next\n");
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         assert_eq!(
             folding_ranges(&parsed.source, &parsed.syntax, None, None, false)
                 .iter()
                 .map(|range| (range.start_line, range.end_line))
                 .collect::<Vec<_>>(),
-            [(0, 8), (5, 8)]
+            [(0, 6), (4, 6)]
         );
     }
 
     #[test]
     fn closed_task_tokens_preserve_nested_task_states() {
         let parsed = parse(
-            "`- Closed parent\n   {\n     `- task\n     `: done 2026-07-27T10:00:00+08:00\n   }\n\n   `note Parent detail\n\n   `- Open child\n      {\n        `- task\n      }\n\n   `note Parent tail\n\n`- Canceled\n   {\n     `- task\n     `: canceled 2026-07-27T10:01:00+08:00\n   }\n`- Conflicted\n   {\n     `- task\n     `: done 2026-07-27T10:02:00+08:00\n     `: canceled 2026-07-27T10:03:00+08:00\n   }\n",
+            "`task Closed parent\n      {\n        `: done 2026-07-27T10:00:00+08:00\n      }\n\n      `note Parent detail\n\n      `task Open child\n            {\n            }\n\n      `note Parent tail\n\n`task Canceled\n      {\n        `: canceled 2026-07-27T10:01:00+08:00\n      }\n`task Conflicted\n      {\n        `: done 2026-07-27T10:02:00+08:00\n        `: canceled 2026-07-27T10:03:00+08:00\n      }\n",
         );
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let tasks = analyze_tasks(&parsed.source, &parsed.syntax).tasks;

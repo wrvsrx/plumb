@@ -550,7 +550,7 @@ mod tests {
 
     #[test]
     fn exports_adjacent_and_nested_items_as_bullet_lists() {
-        let source = "`- One\n`- Two\n   {\n     `- task\n     `@ two\n     `: priority -5\n   }\n\n   `- Nested\n\nParagraph.\n";
+        let source = "`- One\n\n`task Two\n      {\n        `@ two\n        `: priority -5\n      }\n\n      `- Nested\n\nParagraph.\n";
         let document = export(source).unwrap();
         let blocks = document["blocks"].as_array().unwrap();
 
@@ -566,7 +566,7 @@ mod tests {
         assert_eq!(attributed["c"][0]["c"], "☐");
         assert_eq!(attributed["c"][2]["t"], "Span");
         assert_eq!(attributed["c"][2]["c"][0][0], "two");
-        assert_eq!(attributed["c"][2]["c"][0][1], json!(["task"]));
+        assert_eq!(attributed["c"][2]["c"][0][1], json!([]));
         assert_eq!(attributed["c"][2]["c"][0][2], json!([["priority", "-5"]]));
         assert_eq!(items[1][1]["t"], "BulletList");
         assert_eq!(items[1][1]["c"][0][0]["c"][0]["c"], "Nested");
@@ -575,7 +575,7 @@ mod tests {
 
     #[test]
     fn exports_visible_task_state_markers() {
-        let source = "`- Open\n   {\n     `- task\n   }\n`- Done\n   {\n     `- task\n     `: done 2026-07-25T15:00:00+08:00\n   }\n`- Canceled\n   {\n     `- task\n     `: canceled 2026-07-25T15:00:00+08:00\n   }\n`- Conflicted\n   {\n     `- task\n     `: done 2026-07-25T15:00:00+08:00\n     `: canceled 2026-07-25T15:01:00+08:00\n   }\n";
+        let source = "`task Open\n      {\n      }\n`task Done\n      {\n        `: done 2026-07-25T15:00:00+08:00\n      }\n`task Canceled\n      {\n        `: canceled 2026-07-25T15:00:00+08:00\n      }\n`task Conflicted\n      {\n        `: done 2026-07-25T15:00:00+08:00\n        `: canceled 2026-07-25T15:01:00+08:00\n      }\n";
         let document = export(source).unwrap();
         let items = document["blocks"][0]["c"].as_array().unwrap();
         let markers = items

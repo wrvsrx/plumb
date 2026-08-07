@@ -89,7 +89,7 @@ fn labels_metadata_folds_with_the_document_title() {
 #[test]
 fn exposes_single_line_semantic_folds_to_line_and_character_range_clients() {
     let uri = "file:///tmp/single-line-folds.plumb";
-    let source = "`- Ready {`-[task]}\n`- 14:00 Standup {`-[event] `:[date 2026-08-02] `:[timezone +08:00]}\n";
+    let source = "`task Ready\n`event 14:00 Standup {`:[date 2026-08-02] `:[timezone +08:00]}\n";
     let requests = |line_folding_only| {
         [
             json!({
@@ -158,7 +158,7 @@ fn exposes_single_line_semantic_folds_to_line_and_character_range_clients() {
 #[test]
 fn task_fold_includes_one_trailing_separator_line() {
     let uri = "file:///tmp/task-trailing-blank-fold.plumb";
-    let source = "`- aaa\n   {\n     `- task\n   }\n\n   bbb\n\n`- ccc\n   {\n     `- task\n   }\n";
+    let source = "`task aaa\n      {\n      }\n\n      bbb\n\n`task ccc\n      {\n      }\n";
     let messages = [
         json!({
             "jsonrpc": "2.0", "id": 1, "method": "initialize",
@@ -189,8 +189,8 @@ fn task_fold_includes_one_trailing_separator_line() {
     assert_eq!(
         response(&run_server(&messages), 2)["result"],
         json!([
-            { "startLine": 0, "endLine": 6, "collapsedText": "-   aaa" },
-            { "startLine": 7, "endLine": 10, "collapsedText": "-   ccc" }
+            { "startLine": 0, "endLine": 5, "collapsedText": "-   aaa" },
+            { "startLine": 6, "endLine": 8, "collapsedText": "-   ccc" }
         ])
     );
 }
@@ -262,7 +262,7 @@ fn provides_structural_folding_for_valid_and_recovered_documents() {
 #[test]
 fn labels_task_folds_with_derived_workflow_states() {
     let uri = "file:///tmp/task-fold-labels.plumb";
-    let source = "`- Ready task\n   {\n     `- task\n     `@ blocker\n   }\n\n   `note Detail\n\n`- Waiting task\n   {\n     `- task\n     `: wait 2099-01-01T00:00:00Z\n     `: depends #blocker\n   }\n\n   `note Detail\n\n`- Done task\n   {\n     `- task\n     `: done 2026-07-27T10:00:00Z\n   }\n\n   `note Detail\n\n`- Canceled task\n   {\n     `- task\n     `: canceled 2026-07-27T10:00:00Z\n   }\n\n   `note Detail\n\n`- Conflicted task\n   {\n     `- task\n     `: done 2026-07-27T10:00:00Z\n     `: canceled 2026-07-27T10:01:00Z\n   }\n\n   `note Detail\n\n`- Blocked task\n   {\n     `- task\n     `: depends #blocker\n   }\n\n   `note Detail\n\n`node Parent\n\n      `- Nested task\n         {\n           `- task\n           `: done 2026-07-27T10:02:00Z\n         }\n\n         `note Detail\n";
+    let source = "`task Ready task\n      {\n        `@ blocker\n      }\n\n      `note Detail\n\n`task Waiting task\n      {\n        `: wait 2099-01-01T00:00:00Z\n        `: depends #blocker\n      }\n\n      `note Detail\n\n`task Done task\n      {\n        `: done 2026-07-27T10:00:00Z\n      }\n\n      `note Detail\n\n`task Canceled task\n      {\n        `: canceled 2026-07-27T10:00:00Z\n      }\n\n      `note Detail\n\n`task Conflicted task\n      {\n        `: done 2026-07-27T10:00:00Z\n        `: canceled 2026-07-27T10:01:00Z\n      }\n\n      `note Detail\n\n`task Blocked task\n      {\n        `: depends #blocker\n      }\n\n      `note Detail\n\n`node Parent\n\n      `task Nested task\n            {\n              `: done 2026-07-27T10:02:00Z\n            }\n\n            `note Detail\n";
     let messages = [
         json!({
             "jsonrpc": "2.0", "id": 1, "method": "initialize",
@@ -296,14 +296,14 @@ fn labels_task_folds_with_derived_workflow_states() {
     assert_eq!(
         response(&run_server(&messages), 2)["result"],
         json!([
-            { "startLine": 0, "endLine": 7, "collapsedText": "-   Ready task" },
-            { "startLine": 8, "endLine": 16, "collapsedText": "~   Waiting task" },
-            { "startLine": 17, "endLine": 24, "collapsedText": "+   Done task" },
-            { "startLine": 25, "endLine": 32, "collapsedText": "x   Canceled task" },
-            { "startLine": 33, "endLine": 41, "collapsedText": "+x  Conflicted task" },
-            { "startLine": 42, "endLine": 49, "collapsedText": "!   Blocked task" },
-            { "startLine": 50, "endLine": 58 },
-            { "startLine": 52, "endLine": 58, "collapsedText": "      +   Nested task" }
+            { "startLine": 0, "endLine": 6, "collapsedText": "-   Ready task" },
+            { "startLine": 7, "endLine": 14, "collapsedText": "~   Waiting task" },
+            { "startLine": 15, "endLine": 21, "collapsedText": "+   Done task" },
+            { "startLine": 22, "endLine": 28, "collapsedText": "x   Canceled task" },
+            { "startLine": 29, "endLine": 36, "collapsedText": "+x  Conflicted task" },
+            { "startLine": 37, "endLine": 43, "collapsedText": "!   Blocked task" },
+            { "startLine": 44, "endLine": 51 },
+            { "startLine": 46, "endLine": 51, "collapsedText": "      +   Nested task" }
         ])
     );
 }
@@ -311,7 +311,7 @@ fn labels_task_folds_with_derived_workflow_states() {
 #[test]
 fn labels_event_folds_with_abbreviated_times() {
     let uri = "file:///tmp/event-fold-labels.plumb";
-    let source = "`- 14:00 Standup\n   {\n     `- event\n     `: date 2026-08-02\n     `: timezone +08:00\n   }\n\n   `note Detail\n\n`- 09:00--10:30 Review\n   {\n     `- event\n     `: date 2026-08-02\n     `: timezone +08:00\n   }\n\n   `note Detail\n\n`- 11:00 Parent\n   {\n     `- event\n     `: date 2026-08-02\n     `: timezone +08:00\n   }\n\n   `note Detail\n\n   `- 12:00 Nested\n      {\n        `- event\n        `: date 2026-08-02\n        `: timezone +08:00\n      }\n\n      `note Detail\n\n`- Untimed\n   {\n     `- event\n   }\n\n   `note Detail\n";
+    let source = "`event 14:00 Standup\n       {\n         `: date 2026-08-02\n         `: timezone +08:00\n       }\n\n       `note Detail\n\n`event 09:00--10:30 Review\n       {\n         `: date 2026-08-02\n         `: timezone +08:00\n       }\n\n       `note Detail\n\n`event 11:00 Parent\n       {\n         `: date 2026-08-02\n         `: timezone +08:00\n       }\n\n       `note Detail\n\n       `event 12:00 Nested\n              {\n                `: date 2026-08-02\n                `: timezone +08:00\n              }\n\n              `note Detail\n\n`event Untimed\n       {\n       }\n\n       `note Detail\n";
     let messages = [
         json!({
             "jsonrpc": "2.0", "id": 1, "method": "initialize",
@@ -345,11 +345,11 @@ fn labels_event_folds_with_abbreviated_times() {
     assert_eq!(
         response(&run_server(&messages), 2)["result"],
         json!([
-            { "startLine": 0, "endLine": 7, "collapsedText": "2026-08-02T14:00  Standup" },
-            { "startLine": 9, "endLine": 16, "collapsedText": "2026-08-02T09:00--10:30  Review" },
-            { "startLine": 18, "endLine": 34, "collapsedText": "2026-08-02T11:00  Parent" },
-            { "startLine": 27, "endLine": 34, "collapsedText": "   2026-08-02T12:00  Nested" },
-            { "startLine": 36, "endLine": 41 }
+            { "startLine": 0, "endLine": 6, "collapsedText": "2026-08-02T14:00  Standup" },
+            { "startLine": 8, "endLine": 14, "collapsedText": "2026-08-02T09:00--10:30  Review" },
+            { "startLine": 16, "endLine": 30, "collapsedText": "2026-08-02T11:00  Parent" },
+            { "startLine": 24, "endLine": 30, "collapsedText": "       2026-08-02T12:00  Nested" },
+            { "startLine": 32, "endLine": 36 }
         ])
     );
 }

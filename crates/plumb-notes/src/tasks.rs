@@ -230,12 +230,12 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(
             root.join("deps.plumb"),
-            "`- Draft\n   {\n     `- task\n     `@ draft\n   }\n",
+            "`task Draft\n      {\n        `@ draft\n      }\n",
         )
         .unwrap();
         std::fs::write(
             root.join("tasks.plumb"),
-            "`- Review\n   {\n     `- task\n     `@ review\n     `: depends deps.plumb#draft\n   }\n\n   `- Nested\n      {\n        `- task\n        `@ nested\n        `: done 2026-07-20T09:00:00Z\n      }\n",
+            "`task Review\n      {\n        `@ review\n        `: depends deps.plumb#draft\n      }\n\n      `task Nested\n            {\n              `@ nested\n              `: done 2026-07-20T09:00:00Z\n            }\n",
         )
         .unwrap();
         let loaded = load_workspace(&root).unwrap();
@@ -270,7 +270,7 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(
             root.join("tasks.plumb"),
-            "`- Low\n   {\n     `- task\n     `@ low\n     `: priority 1\n   }\n\n   `- Low child\n      {\n        `- task\n        `@ low-child\n        `: priority 99\n      }\n\n`- High\n   {\n     `- task\n     `@ high\n     `: priority 10\n   }\n\n   `- Later child\n      {\n        `- task\n        `@ later-child\n        `: priority 2\n      }\n\n      `- Grandchild\n         {\n           `- task\n           `@ grandchild\n         }\n\n   `- First child\n      {\n        `- task\n        `@ first-child\n        `: priority 8\n      }\n",
+            "`task Low\n      {\n        `@ low\n        `: priority 1\n      }\n\n      `task Low child\n            {\n              `@ low-child\n              `: priority 99\n            }\n\n`task High\n      {\n        `@ high\n        `: priority 10\n      }\n\n      `task Later child\n            {\n              `@ later-child\n              `: priority 2\n            }\n\n            `task Grandchild\n                  {\n                    `@ grandchild\n                  }\n\n      `task First child\n            {\n              `@ first-child\n              `: priority 8\n            }\n",
         )
         .unwrap();
 
@@ -299,7 +299,7 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(
             root.join("tasks.plumb"),
-            "`- Medium\n   {\n     `- task\n     `@ medium\n     `: priority 20\n   }\n`- Blocker\n   {\n     `- task\n     `@ blocker\n     `: priority -5\n   }\n`- Urgent\n   {\n     `- task\n     `@ urgent\n     `: priority 50\n     `: depends #blocker\n   }\n",
+            "`task Medium\n      {\n        `@ medium\n        `: priority 20\n      }\n`task Blocker\n      {\n        `@ blocker\n        `: priority -5\n      }\n`task Urgent\n      {\n        `@ urgent\n        `: priority 50\n        `: depends #blocker\n      }\n",
         )
         .unwrap();
 
@@ -325,17 +325,17 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(
             root.join("a.plumb"),
-            "`- Deferred\n   {\n     `- task\n     `@ deferred\n     `: priority -10\n   }\n\n   `- More deferred\n      {\n        `- task\n        `@ more-deferred\n        `: priority -20\n      }\n\n`- Normal\n   {\n     `- task\n     `@ normal\n   }\n",
+            "`task Deferred\n      {\n        `@ deferred\n        `: priority -10\n      }\n\n      `task More deferred\n            {\n              `@ more-deferred\n              `: priority -20\n            }\n\n`task Normal\n      {\n        `@ normal\n      }\n",
         )
         .unwrap();
         std::fs::write(
             root.join("b.plumb"),
-            "`- Important\n   {\n     `- task\n     `@ important\n     `: priority 10\n   }\n",
+            "`task Important\n      {\n        `@ important\n        `: priority 10\n      }\n",
         )
         .unwrap();
         std::fs::write(
             root.join("c.plumb"),
-            "`- Promoted root\n   {\n     `- task\n     `@ promoted\n     `: priority -5\n   }\n\n   `- Urgent descendant\n      {\n        `- task\n        `@ urgent\n        `: priority 50\n      }\n",
+            "`task Promoted root\n      {\n        `@ promoted\n        `: priority -5\n      }\n\n      `task Urgent descendant\n            {\n              `@ urgent\n              `: priority 50\n            }\n",
         )
         .unwrap();
 
@@ -364,12 +364,12 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(
             root.join("a.plumb"),
-            "`- Closed\n   {\n     `- task\n     `@ closed\n     `: priority 100\n     `: done 2026-07-31T10:00:00Z\n   }\n`- Low active\n   {\n     `- task\n     `@ low\n     `: priority 1\n   }\n",
+            "`task Closed\n      {\n        `@ closed\n        `: priority 100\n        `: done 2026-07-31T10:00:00Z\n      }\n`task Low active\n      {\n        `@ low\n        `: priority 1\n      }\n",
         )
         .unwrap();
         std::fs::write(
             root.join("b.plumb"),
-            "`- Important active\n   {\n     `- task\n     `@ important\n     `: priority 10\n   }\n",
+            "`task Important active\n      {\n        `@ important\n        `: priority 10\n      }\n",
         )
         .unwrap();
 
@@ -392,7 +392,7 @@ mod tests {
         let path = root.join("tasks.plumb");
         std::fs::write(
             &path,
-            "`- Write parser\n   {\n     `- task\n     `@ write\n   }\n",
+            "`task Write parser\n      {\n        `@ write\n      }\n",
         )
         .unwrap();
         set_task_status_target(
@@ -413,7 +413,7 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(
             root.join("tasks.plumb"),
-            "`note Invalid owner\n      {\n        `- task\n        `@ invalid\n      }\n\n`. Valid task\n   {\n     `- task\n     `@ valid\n   }\n",
+            "`note Invalid owner\n      {\n        `- task\n        `@ invalid\n      }\n\n`task Valid task\n      {\n        `@ valid\n      }\n",
         )
         .unwrap();
 
@@ -430,14 +430,10 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();
         let first = root.join("first.plumb");
         let second = root.join("second.plumb");
-        std::fs::write(
-            &first,
-            "`- First\n   {\n     `- task\n     `@ first\n   }\n",
-        )
-        .unwrap();
+        std::fs::write(&first, "`task First\n      {\n        `@ first\n      }\n").unwrap();
         std::fs::write(
             &second,
-            "`- Second\n   {\n     `- task\n     `@ second\n   }\n",
+            "`task Second\n      {\n        `@ second\n      }\n",
         )
         .unwrap();
 

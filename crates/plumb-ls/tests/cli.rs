@@ -119,7 +119,7 @@ fn exports_events_as_a_khal_readonly_vdir() {
     std::fs::create_dir_all(&root).unwrap();
     std::fs::write(
         root.join("agenda.plumb"),
-        "{\n  `: date 2026-07-30\n  `: timezone +08:00\n}\n\n`- 14:00--15:00 Parser review\n   {\n     `- event\n     `@ review\n     `: tasks #write\n   }\n",
+        "{\n  `: date 2026-07-30\n  `: timezone +08:00\n}\n\n`event 14:00--15:00 Parser review\n       {\n         `@ review\n         `: tasks #write\n       }\n",
     )
     .unwrap();
     let exported = Command::new(env!("CARGO_BIN_EXE_plumb"))
@@ -265,7 +265,7 @@ fn discovers_workspace_markers_and_applies_ignore_files() {
 
 #[test]
 fn round_trips_the_exported_standard_profile_through_import() {
-    let source = "{\n  `: title Import test\n}\n\n`# Intro\n   {\n     `@ intro\n   }\n\nParagraph with `*[emphasis], `![strong], `=[mark], `~[strike], `^[super], `_[sub], and `->[a link]{`:[to other.plumb#id]}.\n\n`> Quoted\n   {\n     `@ quote\n     `- source\n   }\n\n`- Item\n   {\n     `- task\n     `@ task\n     `: created 2026-07-23T17:00:00+08:00\n   }\n\n`rust\"{`@[code]}\n  fn main() {}\n";
+    let source = "{\n  `: title Import test\n}\n\n`# Intro\n   {\n     `@ intro\n   }\n\nParagraph with `*[emphasis], `![strong], `=[mark], `~[strike], `^[super], `_[sub], and `->[a link]{`:[to other.plumb#id]}.\n\n`> Quoted\n   {\n     `@ quote\n     `- source\n   }\n\n`task Item\n      {\n        `@ task\n        `: created 2026-07-23T17:00:00+08:00\n      }\n\n`rust\"{`@[code]}\n  fn main() {}\n";
     let first = run_with_stdin(&["export"], source);
     assert!(
         first.status.success(),
@@ -309,7 +309,7 @@ fn serves_the_workspace_site_with_notes_and_tasks() {
     std::fs::write(root.join("private/note.plumb"), "Private note.\n").unwrap();
     std::fs::write(
         root.join("a.plumb"),
-        "{\n  `: title Alpha\n}\n\nSee `->[Beta]{`:[to b.plumb#beta]}.\n\n`img[icon]{`:[src assets/icon.png]}\n\n`- Ship release\n   {\n     `- task\n     `: created 2026-07-25T10:00:00+08:00\n   }\n",
+        "{\n  `: title Alpha\n}\n\nSee `->[Beta]{`:[to b.plumb#beta]}.\n\n`img[icon]{`:[src assets/icon.png]}\n\n`task Ship release\n      {\n        `: created 2026-07-25T10:00:00+08:00\n      }\n",
     )
     .unwrap();
     std::fs::write(root.join("b.plumb"), "`# Beta\n   {\n     `@ beta\n   }\n").unwrap();

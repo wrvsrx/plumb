@@ -403,7 +403,7 @@ mod tests {
         std::fs::remove_file(root.join("nested/b.plumb")).unwrap();
         std::fs::write(
             root.join("tasks.plumb"),
-            "`- Draft\n   {\n     `- task\n     `@ draft\n   }\n`- Review\n   {\n     `- task\n     `@ review\n     `: depends #draft\n   }\n",
+            "`task Draft\n      {\n        `@ draft\n      }\n`task Review\n      {\n        `@ review\n        `: depends #draft\n      }\n",
         )
         .unwrap();
         let loaded = load_workspace(&root).unwrap();
@@ -501,17 +501,17 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(
             root.join("index.plumb"),
-            "`- Index\n   {\n     `- task\n     `@ index\n     `: prev topic.plumb#topic\n   }\n",
+            "`task Index\n      {\n        `@ index\n        `: prev topic.plumb#topic\n      }\n",
         )
         .unwrap();
         std::fs::write(
             root.join("topic.plumb"),
-            "`- Topic\n   {\n     `- task\n     `@ topic\n     `: depends leaf.plumb#leaf\n   }\n",
+            "`task Topic\n      {\n        `@ topic\n        `: depends leaf.plumb#leaf\n      }\n",
         )
         .unwrap();
         std::fs::write(
             root.join("leaf.plumb"),
-            "`- Leaf\n   {\n     `- task\n     `@ leaf\n   }\n",
+            "`task Leaf\n      {\n        `@ leaf\n      }\n",
         )
         .unwrap();
         let loaded = load_workspace(&root).unwrap();

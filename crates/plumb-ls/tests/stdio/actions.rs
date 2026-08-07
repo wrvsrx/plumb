@@ -403,17 +403,17 @@ fn converts_event_shorthand_with_a_refactor_action() {
     assert_eq!(change["textDocument"]["version"], 3);
     let replacement = change["edits"][0]["newText"].as_str().unwrap();
     assert!(
-        replacement.starts_with("`- 11:10--11:20 relax: `\"phone\"\n"),
+        replacement.starts_with("`event 11:10--11:20 relax: `\"phone\"\n"),
         "{replacement}"
     );
-    assert!(replacement.contains("     `- event\n"), "{replacement}");
+    assert!(!replacement.contains("`- event"), "{replacement}");
     assert!(
-        replacement.contains("     `: date 2026-05-21\n"),
+        replacement.contains("         `: date 2026-05-21\n"),
         "{replacement}"
     );
     let timezone = Local::now().fixed_offset().format("%:z").to_string();
     assert!(
-        replacement.contains(&format!("     `: timezone {timezone}\n")),
+        replacement.contains(&format!("         `: timezone {timezone}\n")),
         "{replacement}"
     );
     assert!(!replacement.contains("#e0001"), "{replacement}");
@@ -481,11 +481,11 @@ fn converts_selected_event_shorthands_with_a_refactor_action() {
         .iter()
         .map(|edit| edit["newText"].as_str().unwrap())
         .collect::<String>();
-    assert_eq!(replacements.matches("`- event").count(), 3);
+    assert_eq!(replacements.matches("`event").count(), 3);
     assert!(!replacements.contains("@plumb.local"));
-    assert!(replacements.contains("`- 10:00--10:20 first\n"));
-    assert!(replacements.contains("`- 10:20--10:30 second\n"));
-    assert!(replacements.contains("`- 10:30--10:40 third\n"));
+    assert!(replacements.contains("`event 10:00--10:20 first\n"));
+    assert!(replacements.contains("`event 10:20--10:30 second\n"));
+    assert!(replacements.contains("`event 10:30--10:40 third\n"));
 }
 
 #[test]
@@ -525,7 +525,7 @@ fn offers_task_authoring_refactor_actions() {
             "params": {
                 "textDocument": { "uri": uri, "version": 2 },
                 "contentChanges": [{
-                    "text": "`. Closed\n   {\n     `- task\n     `@ closed\n     `: done 2026-07-20T09:00:00Z\n   }\n"
+                    "text": "`task Closed\n      {\n        `@ closed\n        `: done 2026-07-20T09:00:00Z\n      }\n"
                 }]
             }
         }),
@@ -555,7 +555,7 @@ fn offers_task_authoring_refactor_actions() {
     let inserted = conversion["edit"]["documentChanges"][0]["edits"][0]["newText"]
         .as_str()
         .unwrap();
-    assert!(inserted.contains("`- task"));
+    assert!(inserted.starts_with("`task List item"), "{inserted}");
     chrono::DateTime::parse_from_rfc3339(attribute_value(inserted, "created")).unwrap();
 
     let created = response(&output, 3)["result"]
@@ -574,7 +574,7 @@ fn offers_task_authoring_refactor_actions() {
 #[test]
 fn offers_guarded_task_status_code_actions() {
     let uri = "file:///tmp/task-actions.plumb";
-    let source = "`- MJCF in, USD out solver\n   {\n     `@ task-f81deb18\n     `- task\n     `: created 2026-05-24T02:35:50Z\n   }\n\n   `- parse MJCF\n      {\n        `@ task-c2cf5756\n        `- task\n        `: created 2026-05-27T13:03:04Z\n      }\n   `- solver with passive joint\n      {\n        `@ task-99e28dad\n        `- task\n        `: created 2026-05-27T13:02:45Z\n      }\n";
+    let source = "`task MJCF in, USD out solver\n      {\n        `@ task-f81deb18\n        `: created 2026-05-24T02:35:50Z\n      }\n\n      `task parse MJCF\n            {\n              `@ task-c2cf5756\n              `: created 2026-05-27T13:03:04Z\n            }\n      `task solver with passive joint\n            {\n              `@ task-99e28dad\n              `: created 2026-05-27T13:02:45Z\n            }\n";
     let line = source
         .lines()
         .position(|line| line.contains("parse MJCF"))
@@ -639,7 +639,7 @@ fn offers_guarded_task_status_code_actions() {
 #[test]
 fn recurring_task_action_closes_current_and_appends_next_instance() {
     let uri = "file:///tmp/recurring-task.plumb";
-    let source = "`- Weekly review\n   {\n     `- task\n     `: due 2026-07-20T09:00:00+08:00\n     `: recur P1W\n   }\n";
+    let source = "`task Weekly review\n      {\n        `: due 2026-07-20T09:00:00+08:00\n        `: recur P1W\n      }\n";
     let messages = [
         json!({
             "jsonrpc": "2.0", "id": 1, "method": "initialize",
@@ -693,7 +693,7 @@ fn recurring_task_action_closes_current_and_appends_next_instance() {
 #[test]
 fn blocked_task_offers_cancel_but_not_complete() {
     let uri = "file:///tmp/blocked-task-actions.plumb";
-    let source = "`- Draft\n   {\n     `- task\n     `@ draft\n   }\n`- Review\n   {\n     `- task\n     `@ review\n     `: depends #draft\n   }\n";
+    let source = "`task Draft\n      {\n        `@ draft\n      }\n`task Review\n      {\n        `@ review\n        `: depends #draft\n      }\n";
     let line = source
         .lines()
         .position(|line| line.contains("Review"))
@@ -744,7 +744,7 @@ fn blocked_task_offers_cancel_but_not_complete() {
 #[test]
 fn canceling_a_recurring_task_appends_the_next_instance() {
     let uri = "file:///tmp/cancel-recurring-task.plumb";
-    let source = "`- Weekly review\n   {\n     `- task\n     `: due 2026-07-20T09:00:00+08:00\n     `: recur P1W\n   }\n";
+    let source = "`task Weekly review\n      {\n        `: due 2026-07-20T09:00:00+08:00\n        `: recur P1W\n      }\n";
     let cursor = source.find("Weekly review").unwrap();
     let messages = [
         json!({
@@ -800,7 +800,7 @@ fn canceling_a_recurring_task_appends_the_next_instance() {
 #[test]
 fn task_actions_fall_back_from_closed_child_to_open_parent() {
     let uri = "file:///tmp/nested-task-actions.plumb";
-    let source = "`- Outer\n   {\n     `- task\n     `@ outer\n   }\n\n   `- Inner\n      {\n        `- task\n        `@ inner\n        `: done 2026-07-20T09:00:00Z\n      }\n";
+    let source = "`task Outer\n      {\n        `@ outer\n      }\n\n      `task Inner\n            {\n              `@ inner\n              `: done 2026-07-20T09:00:00Z\n            }\n";
     let cursor = source.find("Inner").unwrap();
     let line_start = source.find('\n').unwrap() + 1;
     let character = cursor - line_start;

@@ -38,7 +38,7 @@ block attached scope 使用：
 `"
   `- Buy milk
      {
-       `- task
+       `- shopping
        `@ shopping
        `: created 2026-08-09T00:00:00+08:00
      }

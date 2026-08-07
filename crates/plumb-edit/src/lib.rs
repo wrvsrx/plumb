@@ -991,7 +991,7 @@ mod tests {
 
     #[test]
     fn inserts_attributes_at_explicit_positions() {
-        let source = "`- Work\n   {\n     `- task\n     `@ id\n     `: created now\n   }\n";
+        let source = "`task Work\n      {\n        `@ id\n        `: created now\n      }\n";
         let parsed = parse(source);
         let Block::Parsed(block) = &parsed.syntax.blocks[0] else {
             panic!("expected parsed block");
@@ -1001,14 +1001,14 @@ mod tests {
         edit.insert_attribute(
             &mark.attrs,
             mark.marker_range.end,
-            AttributePosition::Before(1),
+            AttributePosition::First,
             OwnedAttribute::class("next"),
         )
         .unwrap();
         let edit = edit.finish().unwrap();
         assert_eq!(
             edit.new_text,
-            "`- Work\n   {\n     `- task\n     `- next\n     `@ id\n     `: created now\n   }\n"
+            "`task Work\n      {\n        `- next\n        `@ id\n        `: created now\n      }\n"
         );
     }
 
@@ -1051,7 +1051,7 @@ mod tests {
             &mark.attrs,
             mark.marker_range.end,
             [
-                (AttributePosition::Last, OwnedAttribute::class("task")),
+                (AttributePosition::Last, OwnedAttribute::class("kind")),
                 (
                     AttributePosition::Last,
                     OwnedAttribute::bare("created", "2026-07-20T10:00:00+08:00"),
@@ -1062,13 +1062,13 @@ mod tests {
         let edit = edit.finish().unwrap();
         assert_eq!(
             edit.new_text,
-            "   `- Nested\n      {\n        `- task\n        `: created 2026-07-20T10:00:00+08:00\n      }\n"
+            "   `- Nested\n      {\n        `- kind\n        `: created 2026-07-20T10:00:00+08:00\n      }\n"
         );
     }
 
     #[test]
     fn creates_a_nested_slot_before_a_top_level_sibling() {
-        let source = "`- Outer\n   {\n     `@ outer\n     `- keep\n   }\n\n   `- Nested\n\n`. Closed\n   {\n     `- task\n     `@ closed\n     `: done 2026-07-20T09:00:00Z\n   }\n";
+        let source = "`- Outer\n   {\n     `@ outer\n     `- keep\n   }\n\n   `- Nested\n\n`task Closed\n      {\n        `@ closed\n        `: done 2026-07-20T09:00:00Z\n      }\n";
         let parsed = parse(source);
         let Block::Parsed(outer) = &parsed.syntax.blocks[0] else {
             unreachable!();
@@ -1082,7 +1082,7 @@ mod tests {
             &mark.attrs,
             mark.marker_range.end,
             [
-                (AttributePosition::Last, OwnedAttribute::class("task")),
+                (AttributePosition::Last, OwnedAttribute::class("kind")),
                 (
                     AttributePosition::Last,
                     OwnedAttribute::bare("created", "2026-07-20T10:00:00+08:00"),
@@ -1094,7 +1094,7 @@ mod tests {
         let edited = apply_text_edits(source.to_string(), vec![edit]).unwrap();
         assert!(parse(&edited).is_valid(), "{edited}");
         assert!(
-            edited.contains("`- Nested\n      {\n        `- task"),
+            edited.contains("`- Nested\n      {\n        `- kind"),
             "{edited}"
         );
     }
@@ -1177,7 +1177,7 @@ mod tests {
 
     #[test]
     fn inserts_a_status_between_compact_top_level_siblings() {
-        let source = "`- Blocker\n   {\n     `- task\n     `@ blocker\n   }\n`- Blocked\n   {\n     `- task\n     `@ blocked\n     `: depends #blocker\n   }\n`- Closed\n   {\n     `- task\n     `@ closed\n   }\n";
+        let source = "`task Blocker\n      {\n        `@ blocker\n      }\n`task Blocked\n      {\n        `@ blocked\n        `: depends #blocker\n      }\n`task Closed\n      {\n        `@ closed\n      }\n";
         let parsed = parse(source);
         let Block::Parsed(block) = &parsed.syntax.blocks[1] else {
             unreachable!();
@@ -1199,7 +1199,7 @@ mod tests {
 
     #[test]
     fn updates_and_clones_a_recurring_task_before_a_heading() {
-        let source = "`- Repeat\n   {\n     `@ repeat\n     `- task\n     `: due 2026-07-20T23:59:59+08:00\n     `: recur P1D\n   }\n\n`# Following\n";
+        let source = "`task Repeat\n      {\n        `@ repeat\n        `: due 2026-07-20T23:59:59+08:00\n        `: recur P1D\n      }\n\n`# Following\n";
         let parsed = parse(source);
         let Block::Parsed(block) = &parsed.syntax.blocks[0] else {
             unreachable!();
@@ -1239,7 +1239,7 @@ mod tests {
 
     #[test]
     fn rejects_implicit_or_out_of_bounds_positions() {
-        let source = "`- Work\n   {\n     `- task\n   }\n";
+        let source = "`task Work\n      {\n      }\n";
         let parsed = parse(source);
         let Block::Parsed(block) = &parsed.syntax.blocks[0] else {
             unreachable!();
@@ -1387,14 +1387,14 @@ mod tests {
 
     #[test]
     fn edits_block_attached_elements_without_reintroducing_legacy_attributes() {
-        let source = "`- Work\n   {\n     `- task\n     `@ old\n   }\n";
+        let source = "`task Work\n      {\n        `@ old\n      }\n";
         let parsed = parse(source);
         let Block::Parsed(block) = &parsed.syntax.blocks[0] else {
             unreachable!();
         };
         let attrs = &block.mark.as_ref().unwrap().attrs;
         let mut edit = EditSession::new(&parsed, block.range.clone()).unwrap();
-        edit.replace_attribute(attrs, 1, OwnedAttribute::id("new"))
+        edit.replace_attribute(attrs, 0, OwnedAttribute::id("new"))
             .unwrap();
         let edit = edit.finish().unwrap();
         assert!(edit.new_text.contains("`@ new"), "{}", edit.new_text);

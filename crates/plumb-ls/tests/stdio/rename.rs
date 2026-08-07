@@ -67,7 +67,7 @@ fn document_references_resolve_metadata_and_reference_components() {
     let source = root.join("source.plumb");
     let lonely = root.join("lonely.plumb");
     let target_text = "{\n  `: title Target\n}\n\n`# Section\n   {\n     `@ section\n   }\n\nSee `->[self]{`:[to target.plumb]}.\n";
-    let source_text = "See `->[document]{`:[to target.plumb]}.\nSee `->[section]{`:[to target.plumb#section]}.\n\n`- Review\n   {\n     `- task\n     `: prev target.plumb#section\n     `: depends target.plumb#section\n   }\n";
+    let source_text = "See `->[document]{`:[to target.plumb]}.\nSee `->[section]{`:[to target.plumb#section]}.\n\n`task Review\n      {\n        `: prev target.plumb#section\n        `: depends target.plumb#section\n      }\n";
     let lonely_text = "{\n  `: title Lonely\n}\n";
     std::fs::write(&target, target_text).unwrap();
     std::fs::write(&source, source_text).unwrap();
@@ -164,8 +164,8 @@ fn task_references_support_navigation_and_rename() {
     std::fs::create_dir_all(&root).unwrap();
     let target = root.join("Project Plan.plumb");
     let source = root.join("review.plumb");
-    let target_text = "`- Draft\n   {\n     `- task\n     `@ draft\n   }\n";
-    let source_text = "`- Review\n   {\n     `- task\n     `@ review\n     `: prev Project Plan.plumb#draft\n     `: depends Project Plan.plumb#draft\n   }\n";
+    let target_text = "`task Draft\n      {\n        `@ draft\n      }\n";
+    let source_text = "`task Review\n      {\n        `@ review\n        `: prev Project Plan.plumb#draft\n        `: depends Project Plan.plumb#draft\n      }\n";
     std::fs::write(&target, target_text).unwrap();
     std::fs::write(&source, source_text).unwrap();
     let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
@@ -668,11 +668,11 @@ fn definition_and_hover_lazily_load_targets_without_a_workspace_root() {
     let link_target = root.join("link target.plumb");
     let hover_target = root.join("hover target.plumb");
     let file_target = root.join("file target.plumb");
-    let source_text = "`- Review\n   {\n     `- task\n     `: depends task target.plumb#draft\n   }\n\nSee `->[note]{`:[to link target.plumb#note]}.\nSee `->[hover]{`:[to hover target.plumb#hover]}.\nSee `->[file]{`:[to file target.plumb]}.\n";
+    let source_text = "`task Review\n      {\n        `: depends task target.plumb#draft\n      }\n\nSee `->[note]{`:[to link target.plumb#note]}.\nSee `->[hover]{`:[to hover target.plumb#hover]}.\nSee `->[file]{`:[to file target.plumb]}.\n";
     std::fs::write(&source, source_text).unwrap();
     std::fs::write(
         &task_target,
-        "`- Draft\n   {\n     `- task\n     `@ draft\n   }\n",
+        "`task Draft\n      {\n        `@ draft\n      }\n",
     )
     .unwrap();
     std::fs::write(
@@ -759,7 +759,7 @@ fn definition_and_hover_lazily_load_targets_without_a_workspace_root() {
         .as_str()
         .unwrap();
     assert!(task_reference_hover.starts_with("**Anchor** `#draft`"));
-    assert!(task_reference_hover.contains("`- Draft\n   {\n     `- task\n     `@ draft\n   }\n"));
+    assert!(task_reference_hover.contains("`task Draft\n      {\n        `@ draft\n      }\n"));
     let file_hover = response(&output, 6)["result"]["contents"]["value"]
         .as_str()
         .unwrap();

@@ -219,7 +219,8 @@ timestamp，例如 `"2026-05-02T08:22:31+08:00--09:20"。end 从 start 继承 da
 event 默认继承 metadata `"date" 与 numeric-offset `"timezone"；RFC 3339 metadata date 也提供自身 offset。
 同名 event pairs 可逐条覆盖。end 不能与 start 相等；end local time 早于 start 时解释为次日。
 旧 `"at"、`"start"、`"end" 不具有 event semantics。`"tasks" 显式关联同文件或跨文件 task id，不产生 dependency，也不从 task
-timestamps 猜测 event。`"event" 与 `"task" facets 复合及非 list-item owner 都无效。
+timestamps 猜测 event。`"event" 与 `"task" 是互斥的 specialized list-item markers；同名 attached
+facets 只是 opaque data。
 
 `"date"/`"timezone" 沿 marked-block subtree 继承，最近的 override 优先，dedent 后恢复 parent context：
 
@@ -228,14 +229,8 @@ timestamps 猜测 event。`"event" 与 `"task" facets 复合及非 list-item own
     {
       `: date 2026-07-31
     }
-    `- 09:00 使用 7 月 31 日
-       {
-         `- event
-       }
-  `- 09:00 恢复 document metadata date
-     {
-       `- event
-     }
+    `event 09:00 使用 7 月 31 日
+  `event 09:00 恢复 document metadata date
 
 快速创建 event 时，在 list item head 开头输入 shorthand，再在该行执行 `"Convert to event" CodeAction；
 title 可以包含 inline markup：
@@ -299,11 +294,10 @@ encode/decode；`".plumb#" 分隔 path 与 explicit id，path 本身不能包含
 reference 在 id 后由 whitespace 分隔，因此 path 可以直接包含 spaces：
 
 `plumb"
-  `- Review
-     {
-       `- task
-       `: depends #local Project A.plumb#build Project B.plumb#test
-     }
+  `task Review
+        {
+          `: depends #local Project A.plumb#build Project B.plumb#test
+        }
 
 LSP 在 `"depends" scalar value 内分两阶段补全 workspace tasks：当前 reference 尚无 `"#" 时只列出含有
 可选 task 的 document，选择后插入 same-file `"#" 或 cross-file `"`path.plumb#"；`"#" 后只列出已选

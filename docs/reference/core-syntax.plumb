@@ -120,7 +120,7 @@ block group 的 opening brace 独占一条 structural line，内容建立更深�
 
   `- Buy milk
      {
-       `- task
+       `- shopping
        `@ shopping
        `: due 2026-08-07
      }

@@ -47,8 +47,8 @@ marker `"-" 产生 bullet list item；marker `"." 产生 ordered list item。`"i
 或 paragraph 结束 group。nested item groups lower 为 nested lists。ordered list 固定从 1 开始，
 不提供 start attribute semantics。
 
-export 分别产生 Pandoc `"BulletList" 和 `"OrderedList"。item attached data 通过内部 `"Div" 保存，
-因此一个 `"-" item 可以同时具有 list 与 task facets。
+export 分别产生 Pandoc `"BulletList" 和 `"OrderedList"。item attached data 通过内部 `"Div" 保存。
+specialized `"task" 与 `"event" markers 也投影为 bullet list items，但语义直接来自 marker，不来自 facet。
 
 `# 5. Definitions
 
@@ -314,7 +314,7 @@ siblings。event 自身的 override 因此同时用于自身 time，并成为 ne
 invalid explicit override 不回退到 ancestor value。
 
 `"tasks" 使用与 task `"depends" 相同的 reference-list spelling，只建立 event-to-task association，不建立
-dependency，也不改变 task state。Target 必须解析到具有 `"task" facet 的 explicit id；workspace 提供
+dependency，也不改变 task state。Target 必须解析到具有 `"task" marker 的 explicit id；workspace 提供
 task-to-event reverse query。不得从 task 的 created、due、wait、done 或 canceled fields 隐式生成 event。
 
 `"event" 与 `"task" 是互斥的 specialized list-item markers，不能组合。
@@ -334,7 +334,7 @@ Event CEL context 提供 `"path"、`"id"、`"title"、source-backed `"date"、`"
 schedule 的 `"when"、
 解析后的 `"at"、`"start"、`"end"、`"tasks" 与 `"now"。
 Web Agenda 通过 revision-guarded operations 创建、编辑和删除 event；首版只支持 online mutations。
-Pandoc export 不消费 event facet：它仍作为普通 list item 导出并保留 `"event" 与 properties。
+Pandoc export 将 event 作为普通 bullet list item 导出；event marker 不伪装成 class，attached data 保持不变。
 
 editor authoring operation `"Convert to event" 只在 cursor 命中的单个 list item head 以完整 event
 shorthand 开头时提供：
@@ -363,7 +363,7 @@ explicit interval 或 inferred-end shorthand。省略 date 的 next start 早于
 不同 offset、超过次日或无可用下一项时当前 item 不转换。因而 chain 的最后一个 trailing `"--" 保持原文，
 除非后面还有 shorthand；显式 `"TIME--TIME" 始终优先且不依赖 sibling。
 
-operation 原位在 list item 上追加 `"event" facet，并把规范化 schedule 保留为 head 的第一个 positional
+operation 原位把 list-item marker 改为 `"event"，并把规范化 schedule 保留为 head 的第一个 positional
 argument；不生成 explicit id，也不向 `".plumb" source 写入 UID。显式 shorthand date 写入 event `"date" override，否则继承 metadata
 context。它保留 title 的原 inline structure，并把完整 owner subtree canonicalize 后返回
 revision-guarded edit。非空 editor selection 还提供批量转换 action，仅转换范围内
@@ -384,7 +384,7 @@ reference 定位时，再使用通用 explicit-id authoring operation 添加 id�
      }
 
 head 是 title，children 是 details。nested tasks 形成 display tree，但只有 `"depends" 建立 dependency
-edge。`"task" facet 出现在其他 marker 上时产生 `"task.invalid-owner"，且不生成 task record。
+edge。attached facet 恰好名为 `"task" 时仍是 opaque attached data，不生成 task record。
 
 字段约束：
 
@@ -402,11 +402,10 @@ characters、backslash、absolute path 与 `"#" 不合法。`".plumb#" 是 cross
 reference 的 id 结束后的 whitespace 才分隔下一条 reference；path 内的 spaces 属于 path：
 
 `plumb"
-  `- Review
-     {
-       `- task
-       `: depends #local Project A.plumb#build Project B.plumb#test
-     }
+  `task Review
+        {
+          `: depends #local Project A.plumb#build Project B.plumb#test
+        }
 
 document-local closure state：
 
@@ -477,18 +476,15 @@ authoring operations 使用执行时的本地 RFC 3339 timestamp：`"Convert to 
 缺少 `"created" 的最深 enclosing task 补录时间。后者不受 task state、dependency 或 recurrence
 限制。两者都保留已有 attached elements，并返回 revision-guarded edits。
 
-construct completion 是 prefix-sensitive 的 extension-neutral authoring interface。裸 introducer 不触发
-候选；已输入至少一个 marker character 后，completion 根据 syntax owner、marker prefix 与 source position
-只提供已声明的 semantic facets。line start 的反引号加连字符 prefix 提供 list-item owner 的 Task 与 Event
-facets，并用当前本地 RFC 3339 timestamp 为 Task skeleton 创建 `"created"；同一连字符 prefix 也可触发
-Link completion，继续输入箭头后候选收窄为 Link。ordinary inline context 的反引号加连字符或箭头 prefix
-提供 Link，反引号加 opening bracket prefix 提供 inline-verbatim owner 的 Autolink facet。
-longest recognized prefix 优先；heading、ordinary list item 与 inline-verbatim 本身不声明额外 construct
-candidate 时保持可直接输入。候选 edit 替换完整的已输入 marker prefix。
+construct completion 是 prefix-sensitive 的 extension-neutral authoring interface。已输入至少一个 marker
+character 后，completion 根据 syntax owner、marker prefix 与 source position 提供 extension 声明的结构。
+line start 的单个反引号提供 Task、Event 与 Link；Task skeleton 使用 `"task" marker 并以当前本地 RFC 3339
+timestamp 创建 `"created"，Event skeleton 使用 `"event" marker。ordinary inline context 提供 Link 与
+Autolink。heading、ordinary list item 与 inline-verbatim 本身没有额外声明时保持可直接输入。
 
 export 按 document-local closure state 在 task item 的首个 paragraph 添加可见 marker：open 为 `"☐"，done 为 `"☒"，canceled
 为 `"⊘"，conflicted 为 `"⚠"。其中 `"☐"/[☒] 使用 Pandoc task-list 约定，使支持该约定的 writer
-生成 checkbox；task 的 id、`"task" facet 与 fields 保留在包裹 title 的 Pandoc `"Span" attributes 中，
+生成 checkbox；task 的 id 与 fields 保留在包裹 title 的 Pandoc `"Span" attributes 中，marker 不伪装为 class，
 children 继续作为同一 list item 的后续 blocks。
 
 `# 17. Generic export

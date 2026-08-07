@@ -269,13 +269,6 @@ fn attached_attribute_context(
                 .lines()
                 .any(|line| line.trim_start().starts_with(&format!("`: {key} ")))
     };
-    let has_facet = |facet: &str| {
-        attrs.has_class(facet)
-            || attached_source.contains(&format!("`-[{facet}]"))
-            || attached_source
-                .lines()
-                .any(|line| line.trim_start() == format!("`- {facet}"))
-    };
     let mut completions = Vec::new();
     match (&group.content, owner) {
         (AttachedContent::Blocks(_), AttributeOwner::Document) => {
@@ -308,44 +301,16 @@ fn attached_attribute_context(
                 "document timezone",
             );
         }
-        (AttachedContent::Blocks(_), AttributeOwner::Marked("-" | ".")) => {
-            push_attached_completion(
-                &mut completions,
-                !has_facet("task"),
-                "task",
-                "`- task",
-                "standard task facet",
-            );
-            push_attached_completion(
-                &mut completions,
-                !has_facet("event"),
-                "event",
-                "`- event",
-                "standard event facet",
-            );
-            if has_facet("task") {
-                push_attached_completion(&mut completions, !has_id, "id", "`@ ", "explicit id");
-                for (key, detail) in task_attribute_pairs() {
-                    push_attached_pair_completion(
-                        &mut completions,
-                        !has_pair(key),
-                        key,
-                        detail,
-                        false,
-                    );
-                }
+        (AttachedContent::Blocks(_), AttributeOwner::Marked("task")) => {
+            push_attached_completion(&mut completions, !has_id, "id", "`@ ", "explicit id");
+            for (key, detail) in task_attribute_pairs() {
+                push_attached_pair_completion(&mut completions, !has_pair(key), key, detail, false);
             }
-            if has_facet("event") {
-                push_attached_completion(&mut completions, !has_id, "id", "`@ ", "explicit id");
-                for (key, detail) in event_attribute_pairs() {
-                    push_attached_pair_completion(
-                        &mut completions,
-                        !has_pair(key),
-                        key,
-                        detail,
-                        false,
-                    );
-                }
+        }
+        (AttachedContent::Blocks(_), AttributeOwner::Marked("event")) => {
+            push_attached_completion(&mut completions, !has_id, "id", "`@ ", "explicit id");
+            for (key, detail) in event_attribute_pairs() {
+                push_attached_pair_completion(&mut completions, !has_pair(key), key, detail, false);
             }
         }
         (AttachedContent::Blocks(_), AttributeOwner::VerbatimBlock(_kind)) => {
@@ -1314,7 +1279,7 @@ mod tests {
     #[test]
     fn completes_standard_attributes_from_recovered_owner_context() {
         let (task, cursor) =
-            strip_cursor("`- Work\n   {\n     `- task\n     `: created now\n     `: pr|\n   }\n");
+            strip_cursor("`task Work\n      {\n        `: created now\n        `: pr|\n      }\n");
         let context = attribute_completion_context(&parse(&task), cursor).unwrap();
         assert_eq!(context.replace, task.find("`: pr").unwrap()..cursor);
         assert_eq!(
@@ -1338,7 +1303,7 @@ mod tests {
 
     #[test]
     fn completes_attached_elements_with_the_owners_ordinary_syntax() {
-        let (task, cursor) = strip_cursor("`- Work\n   {\n     `- task\n     `: pr|\n   }\n");
+        let (task, cursor) = strip_cursor("`task Work\n      {\n        `: pr|\n      }\n");
         let context = attribute_completion_context(&parse(&task), cursor).unwrap();
         assert_eq!(context.replace, task.find("`: pr").unwrap()..cursor);
         assert_eq!(
@@ -1425,7 +1390,7 @@ mod tests {
         assert_eq!(context.completions[0].new_text, "tex");
 
         let (quoted, cursor) =
-            strip_cursor("`- Work\n   {\n     `- task\n     `: due 2026-|\n   }\n");
+            strip_cursor("`task Work\n      {\n        `: due 2026-|\n      }\n");
         assert_eq!(attribute_completion_context(&parse(&quoted), cursor), None);
     }
 
