@@ -26,7 +26,8 @@ escape 已经产生 inline text 时，当前位置不再是 block start。
 
 block start 的 introducer 先读取可选 kind，再按 delimiter dispatch：
 
-`- `"KIND?\"" 后立即 line ending，或只跟一个完整 inline attached group 再 line ending：verbatim block。
+`- `"KIND?\"" 后立即 line ending，或跟 horizontal whitespace、一个完整 compact attached group 再
+   line ending：verbatim block。
 `- `"KIND?QUOTES["：strengthened inline verbatim，属于 paragraph/head inline content。
 `- `"KIND?\"RAW\""：compact inline verbatim，属于 paragraph/head inline content。
 `- 非空 marker token：marked block；紧接 opening bracket 时改为 parsed inline element。
@@ -54,6 +55,10 @@ marked block 形状为：
 
 marker 后只能紧接一个分隔 head 的 ASCII space/tab 或 line ending。普通 marker 允许空
 head 和空 children；marker-specific constraint 属于 extension。
+
+空 head 不改变 block attachment rule。`"`x {}" 是 marker `"x"、空 head 与空 compact attached
+group；marker 和 group 之间的 horizontal whitespace 只建立 ownership，不进入 head。`"`x{}" 不满足
+block attachment site，仍是非法 legacy attribute-slot spelling。
 
 `# 5. Head 与 paragraph
 
@@ -101,12 +106,21 @@ columns 之间是 partial dedent error。结构 indentation 只能使用 ASCII s
 
 `# 7. Attached groups
 
-attached group 是 postfix ownership operator，不是 attribute sublanguage。每个 owner 最多有一个 group：
+attached group 是 postfix ownership operator，不是 attribute sublanguage。group 只在 owner 声明的
+attachment site 被识别；普通 punctuation 不因出现在其他位置而全局获得 attachment semantics。每个
+owner 最多有一个 group：
 
 `- document group 必须是文件第一个结构，包含 ordinary blocks。
 `- marked block group 是 owner body 中紧邻 owner 的第一个 block，包含 ordinary blocks。
-`- verbatim block opener group 紧跟 opening quote，包含 ordinary inline elements。
+`- verbatim block opener group 由 horizontal whitespace 与 opening quote 分开，包含 ordinary inline
+  elements。
 `- parsed inline 或 inline verbatim group 紧跟完整 closing delimiter，包含 ordinary inline elements。
+
+compact attachment separator 由 owner category 统一决定：inline owner 使用 tight attachment，group 必须
+紧贴完整 closing delimiter；marked/verbatim block header owner 使用 spaced attachment，group 前必须至少有
+一个 ASCII space/tab。expanded attachment 一律使用 structural form；document 只允许该 form。separator
+不属于 head 或 raw payload。compact group 必须在一条 physical line 完成；block-header compact group 后只能
+出现 line ending/EOF。inline group 结束后回到 enclosing inline content。
 
 block group 的 opening brace 独占一条 structural line，内容建立更深的 child column，closing brace
 回到 group column。其内容使用第 3 至 6 节的普通 block parser，因此可以递归包含拥有 group 的 blocks：
@@ -131,13 +145,18 @@ inline group 与 owner 同行，内容使用第 8、9 节的普通 inline parser
 `plumb"
   `->[guide]{`@[main] `-[external] `:[to guide.plumb]}
 
-普通 marked block 还允许 compact trailing group：它必须由至少一个 ASCII space/tab 与 head 分开，
-是该 physical head line 的最后一个结构，且包含 ordinary inline elements。separator 只建立 ownership，
-不进入 head。紧贴 inline closing delimiter 的 group 仍归 inline owner。
+普通 marked block 还允许 compact trailing group：它位于 head attachment site，是该 physical head line
+的最后一个结构，且包含 ordinary inline elements。空 head 与非空 head 使用同一规则。紧贴 inline closing
+delimiter 的 group 仍归 inline owner；只有与 block head 分隔的 group 才归 marked block。
 
 空 group 合法。inline owner 的 group 必须紧贴 owner；whitespace 结束该 ownership。expanded block group
 由 structural position 与 indentation 建立 ownership，不允许作为任意独立 sibling。core 原样保留
 attached content，不把其中 spelling 固定解释为 facet、identity 或 property。
+
+compact form 的 content 一律使用 ordinary inline grammar；expanded form 的 content 一律使用 ordinary
+block grammar。两种 form 即使为空也保留各自的 source layout 与 typed content category。第一个 group
+之后再次出现在同一 owner attachment position 的 group 是 syntax error，不能覆盖或合并第一个 group。
+compact block group 后的任何 non-whitespace source 也是 syntax error，不得静默丢弃或重新解释为 head。
 
 `# 8. Parsed inline element
 
@@ -193,18 +212,23 @@ opening quote 后紧接 opening bracket 时进入 strengthened form；quote run 
 verbatim block 使用 introducer、可选 opaque kind 与 opening quote，并且不能有 head：
 
 `plumb"
-  `rust"{`@[example] `:[generated true]}
+  `rust" {`@[example] `:[generated true]}
     fn main() {}
 
-opening quote 后必须立即 line ending，或只跟一个完整 inline attached group再结束 physical line；不允许
-raw head。group content 使用 ordinary inline grammar。旧的 `"`{language=rust #example}" 只由第 8 节
-migration reader 读取。
+opening quote 后必须立即 line ending，或跟至少一个 ASCII space/tab、一个完整 compact attached group
+再结束 physical line；不允许 raw head。group content 使用 ordinary inline grammar。`"`rust\"{}\"" 是
+payload 为 `"{}" 的 compact inline verbatim；`"`rust\" {}" 才是带空 group 的 verbatim block。opening
+quote 与 group 紧贴、group 后还有 source 或出现第二个 group 都是 syntax error。旧的
+`"`{language=rust #example}" 只由第 8 节 migration reader 读取。
 body 的每条非空 line 必须带
 parent column 加两个 ASCII spaces 的固定 structural margin。移除该
 margin 后，其余 spaces、tabs、line endings 和 syntax-like bytes 都属于 payload。完全空行可以
 省略 margin。首个显式空 raw line 产生 leading newline；EOF 不补 final newline。空 block 合法。
 
 第一条缩进不足的非空 line 结束 block；partial dedent 或 structural tab 按 structural error 处理。
+
+`note Implementation status: spaced verbatim-block attachment 尚未实现；当前 parser 仍接受
+      `"`rust\"{...}" tight opener group。marked-block empty-head compact group 已按以上规则解析。
 
 `# 11. Recovery
 
