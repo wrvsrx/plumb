@@ -30,6 +30,17 @@ rewrite 与 generated source 一律写 recursive attached syntax。
 replace 与 remove 使用明确 item index。edit layer 不按 semantic name 猜测顺序，也不重新排列 opaque
 elements；formatter 只处理 whitespace、wrapping 和 indentation。
 
+`## Canonical attached-group layout
+
+syntax-preserving formatter 保留 attached group presence 与 typed content category：inline content 保持
+compact form，block content 保持 expanded form，不能只因 line width 在两者之间转换。compact group 可以
+超过 preferred width；expanded group 的 opener 保持 block header 最后一个结构，content 使用 owner 的
+deeper structural column，closing brace 回到 owner column。
+
+新建 owned group 尚无 source form 时，inline content 使用 compact，block content 使用 expanded；新建空
+marked/verbatim block group 默认 compact，document group 始终 expanded。已有显式 empty compact/expanded
+group 保留其 form，formatter 不删除 group。closing brace line 只允许 trailing horizontal whitespace。
+
 `# 4. Block mutations
 
 block API 支持插入 owned blocks、插入 sibling blocks、用 owned block 替换完整 block，以及删除完整

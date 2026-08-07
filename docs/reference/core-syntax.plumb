@@ -22,6 +22,10 @@ character，表示该 character 的 literal escape，不产生 literal backtick�
 inline content 中不是 delimiter，不需要 escape。inline/block verbatim payload 是 raw bytes，不识别 delimiter
 escape。
 
+core 不定义通用 escape language。introducer 后不是当前位置 active delimiter 的 character 继续按普通
+inline/block dispatch 解析；dispatch 不完整时发布已有 `"syntax.invalid-inline-dispatch" 或对应 block
+diagnostic，不新增 generic invalid-escape category。
+
 `plumb"
   ``node is literal text.
   ```node introduces one literal backtick, then a node.
@@ -128,7 +132,8 @@ compact attachment separator 由 owner category 统一决定：inline owner 使�
 block-header attachment 的 opening brace 是 header 的最后一个结构。opening brace 后在同一 physical line
 出现 content 时必须以同一行 closing brace 完成 compact form；opening brace 后只剩 horizontal whitespace
 与 line ending/EOF 时进入 expanded form。expanded content 建立比 owner 更深的 structural column，closing
-brace 回到 owner column。其内容使用第 3 至 6 节的普通 block parser，因此可以递归包含拥有 group 的 blocks。
+brace 回到 owner column，并且必须是该 physical line 唯一的 non-whitespace structure；trailing horizontal
+whitespace 合法。其内容使用第 3 至 6 节的普通 block parser，因此可以递归包含拥有 group 的 blocks。
 document 没有 header，只允许 opening brace 独占文件第一条 structural line 的 expanded form：
 
 `plumb"
@@ -249,12 +254,19 @@ parent column 加两个 ASCII spaces 的固定 structural margin。移除该
 margin 后，其余 spaces、tabs、line endings 和 syntax-like bytes 都属于 payload。完全空行可以
 省略 margin。首个显式空 raw line 产生 leading newline；EOF 不补 final newline。空 block 合法。
 
+compact/expanded group 都可以为空，group close 后直接 EOF 时 verbatim payload 也为空。expanded group
+close 后立即进入 raw-body phase；其后的 blank physical line 属于 payload 并产生 leading newline，不是
+可忽略的 group/body separator。
+
 第一条缩进不足的非空 line 结束 block；partial dedent 或 structural tab 按 structural error 处理。
 
 `note Implementation status: unified block-header attachment 尚未实现；当前 parser 仍接受
       `"`rust\"{...}" tight verbatim opener group，以及在 owner 后续独立 structural line 打开的 marked-block
       expanded group。brace escapes、专用 duplicate/trailing/document diagnostics 与 verbatim expanded group
       也尚未实现；marked-block empty-head compact group 已按以上规则解析。
+
+`note 以上两种旧 block attachment spelling 在 unified grammar 中直接非法；strict parser 不保留兼容分支，
+      toolchain 也不提供针对它们的 migration reader 或 migrator。
 
 `# 11. Recovery
 
