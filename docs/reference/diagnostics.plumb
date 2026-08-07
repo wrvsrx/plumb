@@ -109,6 +109,3 @@ precedence、ordering、recovery 与 lossless token coverage；lenient tree-sitt
   syntax.tab-indentation
   syntax.partial-indent
   syntax.short-verbatim-indent
-
-`note Implementation status: 三个新增 attached-group codes 随 unified block-header attachment grammar
-      一起实现；当前 parser 尚不发布它们。
