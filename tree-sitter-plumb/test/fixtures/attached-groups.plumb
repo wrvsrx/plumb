@@ -10,7 +10,7 @@
   `: due 2026-08-07
 }
 
-See `->[guide]{`@[main] `-[external] `:[to guide.plumb]}.
+See `->[guide]{`@[main] `-[external] `:[to https://example.test/guide]}.
 
 `"
   fn main() {}

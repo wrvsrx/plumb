@@ -1,7 +1,7 @@
 {
   `: title plumb export playground
   `: author plumb
-  `: created `"2026-07-20T00:00:00+08:00"
+  `: created 2026-07-20T00:00:00+08:00
   `: keywords
 
      `- strict markup
@@ -102,7 +102,9 @@ Task semantics can coexist with list-item structure and attributes:
   `: created 2026-07-20T09:00:00+08:00
 }
 
-`# Conclusion
+`# Conclusion {
+  `@ export-target
+}
 
 This heading is a target for navigation tests from the
 `->[language server playground]{`:[to plumb-ls.plumb#export-target]}.
