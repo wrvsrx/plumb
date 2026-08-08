@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use plumb_core::{
+use plumb_syntax::{
     AttachedContent, AttrItem, Attributes, Block, Diagnostic, DiagnosticSeverity, Document, Inline,
     InlineContent,
 };
@@ -117,7 +117,7 @@ fn pair<'a>(attrs: &'a Attributes, wanted: &str) -> Option<(&'a str, Range<usize
 
 #[cfg(test)]
 mod tests {
-    use plumb_core::parse;
+    use plumb_syntax::parse;
 
     use super::*;
 

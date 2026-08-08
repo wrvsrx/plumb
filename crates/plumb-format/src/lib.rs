@@ -3,8 +3,8 @@ use std::fmt::Write;
 use std::ops::Range;
 
 #[cfg(test)]
-use plumb_core::AttrItem;
-use plumb_core::{
+use plumb_syntax::AttrItem;
+use plumb_syntax::{
     parse, AttachedContent, Attributes, Block, Inline, InlineContent, ParsedBlock, ParsedDocument,
 };
 use similar::{DiffOp, TextDiff};
@@ -350,7 +350,7 @@ fn sibling_block_range<'a>(
     })
 }
 
-fn terminal_verbatim(blocks: &[Block]) -> Option<&plumb_core::VerbatimBlock> {
+fn terminal_verbatim(blocks: &[Block]) -> Option<&plumb_syntax::VerbatimBlock> {
     match blocks.last()? {
         Block::Verbatim(block) => Some(block),
         Block::Parsed(block) => terminal_verbatim(&block.children),
@@ -649,7 +649,7 @@ mod tests {
         assert_eq!(format(&formatted).unwrap(), formatted);
     }
 
-    fn shape_document(document: &plumb_core::Document) -> String {
+    fn shape_document(document: &plumb_syntax::Document) -> String {
         let mut output = String::new();
         shape_attrs(&document.attrs, &mut output);
         shape_blocks(&document.blocks, &mut output);

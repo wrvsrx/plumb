@@ -2,7 +2,7 @@ use std::ops::Range;
 use std::path::Path;
 
 use chrono::{DateTime, Datelike, Duration, FixedOffset, SecondsFormat, TimeZone, Timelike};
-use plumb_core::{
+use plumb_syntax::{
     AttrItem, AttrValue, Block, Diagnostic, DiagnosticSeverity, Document, ParsedBlock,
 };
 
@@ -438,7 +438,7 @@ fn last_day_of_month(year: i32, month: u32) -> Option<u32> {
 
 #[cfg(test)]
 mod tests {
-    use plumb_core::parse;
+    use plumb_syntax::parse;
 
     use super::*;
 
@@ -531,7 +531,7 @@ mod tests {
     fn attached_dependency_values_keep_exact_source_ranges() {
         let source =
             "`task Review {\n  `@ review\n  `: depends Project Plan.plumb#build #local\n}\n";
-        let parsed = plumb_core::parse(source);
+        let parsed = plumb_syntax::parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let output = analyze_tasks(source, &parsed.syntax);
         let task = &output.tasks[0];

@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use plumb_core::{
+use plumb_syntax::{
     AttachedContent, AttrItem, AttrValue, Attributes, Block, Inline, InlineContent, ParsedDocument,
 };
 
@@ -369,7 +369,7 @@ fn attached_attribute_context(
 }
 
 fn attached_value_completion_context(
-    group: &plumb_core::AttachedGroup,
+    group: &plumb_syntax::AttachedGroup,
     source: &str,
     offset: usize,
     owner: AttributeOwner<'_>,
@@ -1235,7 +1235,7 @@ fn closing_quote(source: &str, start: usize) -> Option<usize> {
 
 #[cfg(test)]
 mod tests {
-    use plumb_core::parse;
+    use plumb_syntax::parse;
 
     use super::*;
 

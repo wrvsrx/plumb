@@ -1,4 +1,4 @@
-use plumb_core::{parse, SyntaxKind};
+use plumb_syntax::{parse, SyntaxKind};
 
 fn tokens(source: &str) -> Vec<(SyntaxKind, &str)> {
     let parsed = parse(source.to_owned());

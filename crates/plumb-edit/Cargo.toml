@@ -5,5 +5,5 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
-plumb-core = { path = "../plumb-core" }
+plumb-syntax = { path = "../plumb-syntax" }
 plumb-format = { path = "../plumb-format" }

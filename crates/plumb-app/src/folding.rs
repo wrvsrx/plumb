@@ -3,8 +3,8 @@ use std::path::Path;
 
 use chrono::{DateTime, FixedOffset, Local};
 use lsp_types::FoldingRange;
-use plumb_core::{Block, Document};
-use plumb_extensions::{analyze_headings, EventRecord, MetadataValue};
+use plumb_semantics::{analyze_headings, EventRecord, MetadataValue};
+use plumb_syntax::{Block, Document};
 use plumb_workspace::{DocumentEntry, TaskWorkflowState, Workspace};
 
 use crate::position::byte_range_to_lsp;

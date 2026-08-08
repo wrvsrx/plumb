@@ -1,4 +1,4 @@
-use plumb_extensions::{TaskRecord, TaskState};
+use plumb_semantics::{TaskRecord, TaskState};
 
 pub(crate) fn physical_line_ranges(
     source: &str,

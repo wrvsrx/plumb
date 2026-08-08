@@ -1,7 +1,7 @@
 use std::ops::Range;
 
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveTime, TimeZone};
-use plumb_core::{
+use plumb_syntax::{
     AttrItem, AttrValue, Block, Diagnostic, DiagnosticSeverity, Document, Inline, InlineContent,
     ParsedBlock,
 };
@@ -520,7 +520,7 @@ fn resolved_field(value: DateTime<FixedOffset>, when: &Option<EventField>) -> Ev
 #[cfg(test)]
 mod tests {
     use chrono::DateTime;
-    use plumb_core::parse;
+    use plumb_syntax::parse;
 
     use super::*;
 

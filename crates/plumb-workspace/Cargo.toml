@@ -8,9 +8,9 @@ license.workspace = true
 cel.workspace = true
 chrono.workspace = true
 ignore.workspace = true
-plumb-core = { path = "../plumb-core" }
+plumb-syntax = { path = "../plumb-syntax" }
 plumb-edit = { path = "../plumb-edit" }
-plumb-extensions = { path = "../plumb-extensions" }
+plumb-semantics = { path = "../plumb-semantics" }
 uuid.workspace = true
 
 [dev-dependencies]

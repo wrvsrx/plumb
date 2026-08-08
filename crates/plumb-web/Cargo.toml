@@ -13,7 +13,7 @@ mime_guess.workspace = true
 notify.workspace = true
 percent-encoding.workspace = true
 plumb-export = { path = "../plumb-export" }
-plumb-extensions = { path = "../plumb-extensions" }
+plumb-semantics = { path = "../plumb-semantics" }
 plumb-workspace = { path = "../plumb-workspace" }
 serde.workspace = true
 serde_json.workspace = true

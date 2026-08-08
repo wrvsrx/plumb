@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::ops::Range;
 use std::path::Path;
 
-use plumb_core::{
+use plumb_syntax::{
     AttachedContent, AttrItem, AttrValue, Attributes, Block, Diagnostic, DiagnosticSeverity,
     Document, Inline, InlineContent,
 };
@@ -797,7 +797,7 @@ pub(crate) fn attr_source_backed(source: &str, value: &AttrValue) -> SourceBacke
 
 #[cfg(test)]
 mod tests {
-    use plumb_core::parse;
+    use plumb_syntax::parse;
 
     use super::*;
 

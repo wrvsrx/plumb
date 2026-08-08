@@ -1,5 +1,5 @@
 use lsp_types::{DocumentSymbol, SymbolKind};
-use plumb_extensions::{
+use plumb_semantics::{
     AnchorRecord, EventRecord, Heading, MetadataBlock, MetadataEntry, MetadataValue, TaskRecord,
     TaskState,
 };

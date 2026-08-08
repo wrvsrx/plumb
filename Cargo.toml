@@ -1,10 +1,10 @@
 [workspace]
 resolver = "2"
 members = [
-  "crates/plumb-core",
+  "crates/plumb-syntax",
   "crates/plumb-edit",
   "crates/plumb-format",
-  "crates/plumb-extensions",
+  "crates/plumb-semantics",
   "crates/plumb-workspace",
   "crates/plumb-web",
   "crates/plumb-app",

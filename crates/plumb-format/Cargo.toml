@@ -6,7 +6,7 @@ license.workspace = true
 autobins = false
 
 [dependencies]
-plumb-core = { path = "../plumb-core" }
+plumb-syntax = { path = "../plumb-syntax" }
 similar.workspace = true
 
 [lib]

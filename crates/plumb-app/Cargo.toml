@@ -5,10 +5,10 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
-plumb-core = { path = "../plumb-core" }
+plumb-syntax = { path = "../plumb-syntax" }
 plumb-edit = { path = "../plumb-edit" }
 plumb-export = { path = "../plumb-export" }
-plumb-extensions = { path = "../plumb-extensions" }
+plumb-semantics = { path = "../plumb-semantics" }
 plumb-import = { path = "../plumb-import" }
 plumb-notes = { path = "../plumb-notes" }
 plumb-workspace = { path = "../plumb-workspace" }

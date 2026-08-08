@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use plumb_core::{
+use plumb_syntax::{
     AttachedContent, AttrItem, Attributes, Block, Inline, ParsedBlock, ParsedDocument,
 };
 
@@ -601,7 +601,7 @@ impl<'a> EditSession<'a> {
             if self.parsed.source[..owner_insert].ends_with('"') {
                 let group = render_attached_attribute_slot(
                     &items,
-                    &AttachedContent::Inlines(plumb_core::InlineContent {
+                    &AttachedContent::Inlines(plumb_syntax::InlineContent {
                         range: 0..0,
                         items: Vec::new(),
                     }),
@@ -995,7 +995,7 @@ pub fn finalize(
     for edit in logical_edits.iter().rev() {
         modified.replace_range(edit.range.clone(), &edit.new_text);
     }
-    let modified_parsed = plumb_core::parse(&modified);
+    let modified_parsed = plumb_syntax::parse(&modified);
     if parsed.syntax.blocks.is_empty() {
         let new_text = plumb_format::format_parsed(&modified_parsed)
             .map_err(|_| EditError::GeneratedInvalid)?;
@@ -1084,7 +1084,7 @@ fn block_end_with_start(blocks: &[Block], start: usize) -> Option<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use plumb_core::{parse, Block};
+    use plumb_syntax::{parse, Block};
 
     #[test]
     fn formats_a_parsed_revision_through_the_edit_boundary() {

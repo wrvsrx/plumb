@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use plumb_core::{Block, Diagnostic, DiagnosticSeverity, Document, Inline, InlineContent};
+use plumb_syntax::{Block, Diagnostic, DiagnosticSeverity, Document, Inline, InlineContent};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CitationRecord {
@@ -90,7 +90,7 @@ fn citation_id(content: &InlineContent) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use plumb_core::parse;
+    use plumb_syntax::parse;
 
     use super::*;
 

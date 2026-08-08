@@ -9,6 +9,6 @@ autobins = false
 path = "src/main.rs"
 
 [dependencies]
-plumb-core = { path = "../plumb-core" }
-plumb-extensions = { path = "../plumb-extensions" }
+plumb-syntax = { path = "../plumb-syntax" }
+plumb-semantics = { path = "../plumb-semantics" }
 serde_json.workspace = true

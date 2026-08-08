@@ -3,11 +3,11 @@ use std::fs;
 use std::io::{self, Read};
 use std::process::ExitCode;
 
-use plumb_core::{parse, AttrItem, Attributes, Block, Inline, InlineContent, ParsedBlock};
-use plumb_extensions::{
+use plumb_semantics::{
     analyze_document, CitationRecord, DocumentOutput, InlineStyleKind, ListGroup, ListKind,
     MetadataBlock, MetadataEntry, MetadataValue, TaskState,
 };
+use plumb_syntax::{parse, AttrItem, Attributes, Block, Inline, InlineContent, ParsedBlock};
 use serde_json::{json, Map, Value};
 
 pub fn run_cli(args: impl IntoIterator<Item = OsString>) -> ExitCode {
@@ -198,7 +198,7 @@ fn lower_blocks(blocks: &[Block], analysis: &DocumentOutput) -> Vec<Value> {
 
 fn lower_definition_list(
     blocks: &[Block],
-    definitions: &plumb_extensions::DefinitionList,
+    definitions: &plumb_semantics::DefinitionList,
     analysis: &DocumentOutput,
 ) -> Value {
     let entries = blocks

@@ -1,6 +1,8 @@
 use std::ops::Range;
 
-use plumb_core::{parse, AttrItem, Attributes, Block, DiagnosticSeverity, Inline, ParsedDocument};
+use plumb_syntax::{
+    parse, AttrItem, Attributes, Block, DiagnosticSeverity, Inline, ParsedDocument,
+};
 use proptest::prelude::*;
 use proptest::test_runner::FileFailurePersistence;
 

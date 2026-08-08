@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use chrono::{Local, SecondsFormat};
 use comfy_table::{presets::NOTHING, ContentArrangement, Table};
-use plumb_extensions::TaskStatus;
+use plumb_semantics::TaskStatus;
 use plumb_workspace::{
     apply_document_edit, normalize, sort_task_records, SearchRecordKind, TaskSortFacts,
     TaskSortOrder, TaskWorkflowState,

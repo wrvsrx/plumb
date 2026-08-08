@@ -68,7 +68,7 @@ pub fn import(document: &Pandoc) -> Result<String, String> {
         }
     }
     let source = blocks.join("\n\n");
-    let parsed = plumb_core::parse(&source);
+    let parsed = plumb_syntax::parse(&source);
     if !parsed.is_valid() {
         let diagnostics = parsed
             .diagnostics
@@ -88,7 +88,7 @@ pub fn import(document: &Pandoc) -> Result<String, String> {
     }
     let formatted = plumb_format::format(&source)
         .map_err(|_| "generated plumb failed strict validation".to_string())?;
-    let parsed = plumb_core::parse(&formatted);
+    let parsed = plumb_syntax::parse(&formatted);
     if !parsed.is_valid() {
         return Err("generated plumb failed strict validation".to_string());
     }
@@ -717,7 +717,7 @@ mod tests {
         assert!(source.contains("`> quoted"));
         assert!(source.contains("`- item"));
         assert!(source.contains("`rust\" {`@[code]}"));
-        assert!(plumb_core::parse(&source).is_valid());
+        assert!(plumb_syntax::parse(&source).is_valid());
     }
 
     #[test]
@@ -758,12 +758,12 @@ mod tests {
         assert!(source.contains("`\"a]b\""));
         assert!(source.contains("{`:[data value`]/`{draft`}]}"), "{source}");
         assert!(source.contains("`\"\n raw"), "{source}");
-        let parsed = plumb_core::parse(&source);
+        let parsed = plumb_syntax::parse(&source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
-        let plumb_core::Block::Parsed(paragraph) = &parsed.syntax.blocks[0] else {
+        let plumb_syntax::Block::Parsed(paragraph) = &parsed.syntax.blocks[0] else {
             unreachable!();
         };
-        let plumb_core::Inline::Verbatim { attrs, .. } = &paragraph.head.items[2] else {
+        let plumb_syntax::Inline::Verbatim { attrs, .. } = &paragraph.head.items[2] else {
             unreachable!();
         };
         assert_eq!(attrs.value("data"), Some("value]/{draft}"));

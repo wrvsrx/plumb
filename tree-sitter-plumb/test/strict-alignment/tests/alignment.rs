@@ -1,6 +1,6 @@
 use std::{ops::Range, path::PathBuf};
 
-use plumb_core::{
+use plumb_syntax::{
     parse, AttachedContent, AttachedGroup, Attributes, Block, Document, Inline, InlineContent,
     ParsedBlock, VerbatimBlock,
 };
@@ -29,7 +29,7 @@ struct ProjectedNode {
 #[test]
 fn strict_valid_trees_align_with_tree_sitter() {
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let corpus = manifest.join("../../../crates/plumb-core/tests/fixtures/strict-parser.json");
+    let corpus = manifest.join("../../../crates/plumb-syntax/tests/fixtures/strict-parser.json");
     let cases: Vec<Case> =
         serde_json::from_slice(&std::fs::read(corpus).expect("read strict parser corpus"))
             .expect("parse strict parser corpus");

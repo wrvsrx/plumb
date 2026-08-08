@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use cel::{Context, ExecutionError, Program, Value};
 use chrono::{DateTime, FixedOffset};
-use plumb_extensions::{EventRecord, MetadataValue, TaskRecord, TaskState};
+use plumb_semantics::{EventRecord, MetadataValue, TaskRecord, TaskState};
 
 use crate::{
     display_workspace_path, normalize, DocumentEntry, TaskRef, VersionedDocumentOutput, Workspace,
@@ -655,13 +655,13 @@ fn optional_search_string(value: Option<&String>) -> Value {
         .map_or(Value::Null, |value| Value::String(value.into()))
 }
 
-fn search_datetime_value(field: Option<&plumb_extensions::TaskField>) -> Value {
+fn search_datetime_value(field: Option<&plumb_semantics::TaskField>) -> Value {
     field
         .and_then(|field| DateTime::parse_from_rfc3339(&field.value).ok())
         .map_or(Value::Null, Value::Timestamp)
 }
 
-fn event_search_datetime_value(field: &Option<plumb_extensions::EventField>) -> Value {
+fn event_search_datetime_value(field: &Option<plumb_semantics::EventField>) -> Value {
     field
         .as_ref()
         .and_then(|field| DateTime::parse_from_rfc3339(&field.value).ok())

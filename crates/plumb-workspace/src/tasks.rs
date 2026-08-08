@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, FixedOffset};
 use plumb_edit::{replace_owned_block, AttributePosition, EditSession, OwnedAttribute, OwnedBlock};
-use plumb_extensions::{
+use plumb_semantics::{
     next_task_datetime, parse_task_reference_target, valid_task_datetime, TaskRecord,
     TaskReferenceTarget, TaskState, TaskStatus,
 };

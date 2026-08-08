@@ -181,7 +181,7 @@ fn atomic_write(path: &Path, contents: &str) -> Result<(), String> {
 }
 
 fn render_event(
-    event: &plumb_extensions::EventRecord,
+    event: &plumb_semantics::EventRecord,
     uid: &str,
     start: DateTime<Utc>,
     end: Option<DateTime<Utc>>,
@@ -216,7 +216,7 @@ fn render_event(
 fn derived_uid(
     loaded: &LoadedWorkspace,
     path: &Path,
-    event: &plumb_extensions::EventRecord,
+    event: &plumb_semantics::EventRecord,
 ) -> String {
     let relative = path.strip_prefix(&loaded.root).unwrap_or(path);
     let relative = relative

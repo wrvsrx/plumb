@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use plumb_core::{Block, Document, Inline, InlineContent};
+use plumb_syntax::{Block, Document, Inline, InlineContent};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InlineStyleKind {
@@ -77,7 +77,7 @@ fn collect_inlines(content: &InlineContent, output: &mut InlineStyleOutput) {
 
 #[cfg(test)]
 mod tests {
-    use plumb_core::parse;
+    use plumb_syntax::parse;
 
     use super::*;
 

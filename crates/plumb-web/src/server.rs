@@ -14,7 +14,7 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use clap::Args;
 use notify::{RecursiveMode, Watcher};
-use plumb_extensions::TaskStatus;
+use plumb_semantics::TaskStatus;
 use plumb_workspace::resolve_workspace_root;
 use serde::Deserialize;
 use serde_json::json;

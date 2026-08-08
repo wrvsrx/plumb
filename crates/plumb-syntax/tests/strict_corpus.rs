@@ -1,6 +1,6 @@
 use std::{collections::BTreeSet, ops::Range};
 
-use plumb_core::{parse, AttrItem, Attributes, Block, Inline, InlineContent};
+use plumb_syntax::{parse, AttrItem, Attributes, Block, Inline, InlineContent};
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]

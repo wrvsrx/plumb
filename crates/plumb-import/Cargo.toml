@@ -10,6 +10,6 @@ path = "src/lib.rs"
 
 [dependencies]
 pandoc_types.workspace = true
-plumb-core = { path = "../plumb-core" }
+plumb-syntax = { path = "../plumb-syntax" }
 plumb-format = { path = "../plumb-format" }
 serde_json.workspace = true

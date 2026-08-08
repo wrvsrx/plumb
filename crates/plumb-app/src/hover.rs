@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use chrono::Local;
-use plumb_extensions::{AnchorKind, EventRecord, FileRecord, ImageRecord, LinkRecord, TaskRecord};
+use plumb_semantics::{AnchorKind, EventRecord, FileRecord, ImageRecord, LinkRecord, TaskRecord};
 use plumb_workspace::{ResolvedTarget, Workspace};
 
 pub(crate) fn target(workspace: &Workspace, target: &ResolvedTarget) -> String {

@@ -2,7 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use plumb_core::parse;
+use plumb_syntax::parse;
 
 fn repository_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
@@ -122,7 +122,7 @@ fn editing_adapters_do_not_depend_directly_on_the_formatter() {
     );
     let metadata: serde_json::Value =
         serde_json::from_slice(&output.stdout).expect("parse cargo metadata");
-    let adapters = ["plumb", "plumb-extensions", "plumb-web", "plumb-workspace"];
+    let adapters = ["plumb", "plumb-semantics", "plumb-web", "plumb-workspace"];
     let packages = metadata["packages"].as_array().expect("metadata packages");
 
     for name in adapters {

@@ -1,5 +1,5 @@
 [package]
-name = "plumb-core"
+name = "plumb-syntax"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

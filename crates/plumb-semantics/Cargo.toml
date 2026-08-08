@@ -1,10 +1,10 @@
 [package]
-name = "plumb-extensions"
+name = "plumb-semantics"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
 [dependencies]
-plumb-core = { path = "../plumb-core" }
+plumb-syntax = { path = "../plumb-syntax" }
 chrono.workspace = true
 url.workspace = true

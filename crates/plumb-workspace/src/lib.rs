@@ -2,22 +2,22 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Component, Path, PathBuf};
 
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveTime, SecondsFormat, TimeZone, Timelike};
-use plumb_core::{
-    parse, Attributes, Block, Diagnostic, DiagnosticSeverity, ParsedBlock, ParsedDocument,
-};
 pub use plumb_edit::{apply_text_edits, TextEdit};
 use plumb_edit::{
     remove_block as remove_syntax_block, replace_owned_block, replace_owned_blocks,
     AttributePosition, EditSession, OwnedAttribute, OwnedBlock, OwnedInline,
 };
 #[cfg(test)]
-use plumb_extensions::TaskStatus;
-use plumb_extensions::{
+use plumb_semantics::TaskStatus;
+use plumb_semantics::{
     analyze_document, parse_task_reference_target, AnchorRecord, DocumentOutput, EventRecord,
     FileCompletionContext, FileRecord, FileTarget, ImageCompletionContext, ImageRecord,
     ImageTarget, LinkCompletionContext, LinkRecord, LinkSpelling, LinkTarget, MetadataOutput,
     MetadataValue, TaskDependency, TaskDependencyCompletionContext, TaskRecord,
     TaskReferenceTarget, TaskState,
+};
+use plumb_syntax::{
+    parse, Attributes, Block, Diagnostic, DiagnosticSeverity, ParsedBlock, ParsedDocument,
 };
 
 mod scan;

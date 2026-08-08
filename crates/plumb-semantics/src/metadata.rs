@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::ops::Range;
 
 use chrono::DateTime;
-use plumb_core::{
+use plumb_syntax::{
     AttachedContent, Block, Diagnostic, DiagnosticSeverity, Document, Inline, InlineContent,
     ParsedBlock,
 };
@@ -652,7 +652,7 @@ fn warning(code: &'static str, message: impl Into<String>, range: Range<usize>) 
 
 #[cfg(test)]
 mod tests {
-    use plumb_core::parse;
+    use plumb_syntax::parse;
 
     use super::*;
 

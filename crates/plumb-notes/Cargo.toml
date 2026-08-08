@@ -14,8 +14,8 @@ chrono.workspace = true
 clap.workspace = true
 comfy-table.workspace = true
 crossterm.workspace = true
-plumb-core = { path = "../plumb-core" }
-plumb-extensions = { path = "../plumb-extensions" }
+plumb-syntax = { path = "../plumb-syntax" }
+plumb-semantics = { path = "../plumb-semantics" }
 plumb-workspace = { path = "../plumb-workspace" }
 sha2.workspace = true
 shlex.workspace = true

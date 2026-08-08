@@ -5,7 +5,7 @@ use std::process::ExitCode;
 
 use chrono::Local;
 use clap::{Args, Parser, Subcommand, ValueEnum};
-use plumb_core::DiagnosticSeverity;
+use plumb_syntax::DiagnosticSeverity;
 use plumb_workspace::{
     display_workspace_path as display_path, normalize, resolve_workspace_root,
     scan_workspace_files, SearchRecordKind, Workspace,

@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use plumb_core::{Block, Document};
+use plumb_syntax::{Block, Document};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct QuoteRecord {
@@ -40,7 +40,7 @@ fn collect_quotes(blocks: &[Block], output: &mut QuoteOutput) {
 
 #[cfg(test)]
 mod tests {
-    use plumb_core::parse;
+    use plumb_syntax::parse;
 
     use super::*;
 

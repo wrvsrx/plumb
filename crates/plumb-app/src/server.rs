@@ -30,12 +30,12 @@ use lsp_types::{
     WorkDoneProgressEnd, WorkDoneProgressOptions, WorkDoneProgressReport,
     WorkspaceEdit as LspWorkspaceEdit, WorkspaceSymbolParams, WorkspaceSymbolResponse,
 };
-use plumb_core::Diagnostic;
-use plumb_extensions::{
+use plumb_semantics::{
     attribute_completion_context, construct_completion_context, file_completion_context,
     image_completion_context, link_completion_context, task_dependency_completion_context,
     AnchorKind, ConstructCompletionContext, TaskStatus,
 };
+use plumb_syntax::Diagnostic;
 use plumb_workspace::{
     normalize, scan_workspace_files, PathRenameInput, RenameError, ResolvedTarget,
     ResourceOperation, SearchRecord, SearchRecordKind, Workspace, WorkspaceEdit,
@@ -1308,9 +1308,9 @@ impl LanguageServer for ServerState {
                     if let Some(context) = link_completion_context(&entry.parsed, offset) {
                         let kind = if matches!(
                             &context,
-                            plumb_extensions::LinkCompletionContext::Label { .. }
-                                | plumb_extensions::LinkCompletionContext::Path { .. }
-                                | plumb_extensions::LinkCompletionContext::AutolinkPath { .. }
+                            plumb_semantics::LinkCompletionContext::Label { .. }
+                                | plumb_semantics::LinkCompletionContext::Path { .. }
+                                | plumb_semantics::LinkCompletionContext::AutolinkPath { .. }
                         ) {
                             CompletionItemKind::FILE
                         } else {
@@ -1944,9 +1944,9 @@ fn to_lsp_diagnostic(source: &str, uri: &Url, diagnostic: Diagnostic) -> LspDiag
     LspDiagnostic {
         range: byte_range_to_lsp(source, &diagnostic.range),
         severity: Some(match diagnostic.severity {
-            plumb_core::DiagnosticSeverity::Error => DiagnosticSeverity::ERROR,
-            plumb_core::DiagnosticSeverity::Warning => DiagnosticSeverity::WARNING,
-            plumb_core::DiagnosticSeverity::Hint => DiagnosticSeverity::HINT,
+            plumb_syntax::DiagnosticSeverity::Error => DiagnosticSeverity::ERROR,
+            plumb_syntax::DiagnosticSeverity::Warning => DiagnosticSeverity::WARNING,
+            plumb_syntax::DiagnosticSeverity::Hint => DiagnosticSeverity::HINT,
         }),
         code: Some(NumberOrString::String(diagnostic.code.to_string())),
         code_description: None,
@@ -1960,8 +1960,8 @@ fn to_lsp_diagnostic(source: &str, uri: &Url, diagnostic: Diagnostic) -> LspDiag
 
 #[cfg(test)]
 mod tests {
-    use plumb_core::parse;
-    use plumb_extensions::{analyze_headings, analyze_metadata, analyze_tasks};
+    use plumb_semantics::{analyze_headings, analyze_metadata, analyze_tasks};
+    use plumb_syntax::parse;
 
     use super::*;
 

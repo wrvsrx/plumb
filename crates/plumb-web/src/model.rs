@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use cel::{Context, Program, Value};
 use chrono::{Local, SecondsFormat};
-use plumb_extensions::{LinkSpelling, TaskStatus};
+use plumb_semantics::{LinkSpelling, TaskStatus};
 use plumb_workspace::{
     apply_document_edit, display_workspace_path as display_path, normalize, scan_workspace_files,
     search_score, sort_task_records_by, truncate_complete_task_documents, ApplyDocumentEditError,

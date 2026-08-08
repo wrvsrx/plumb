@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use plumb_core::{Block, Diagnostic, Document, ParsedBlock};
+use plumb_syntax::{Block, Diagnostic, Document, ParsedBlock};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Heading {
@@ -131,7 +131,7 @@ fn find_heading(headings: &[Heading], start: usize) -> Option<&Heading> {
 
 #[cfg(test)]
 mod tests {
-    use plumb_core::parse;
+    use plumb_syntax::parse;
 
     use super::*;
 
