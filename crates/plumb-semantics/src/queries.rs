@@ -508,12 +508,6 @@ fn attribute_context(
             .iter()
             .any(|item| matches!(item, AttrItem::Pair { key, .. } if key == wanted))
     };
-    let existing_class = |wanted: &str| {
-        attrs
-            .items
-            .iter()
-            .any(|item| matches!(item, AttrItem::Class { value, .. } if value == wanted))
-    };
     let mut candidates = Vec::new();
     match owner {
         AttributeOwner::Marked("task") => {
@@ -536,18 +530,6 @@ fn attribute_context(
             "image source",
         ),
         AttributeOwner::VerbatimInline(_) => {
-            push_completion(
-                &mut candidates,
-                !existing_class("->"),
-                ".->",
-                "standard autolink facet",
-            );
-            push_completion(
-                &mut candidates,
-                !existing_class("$"),
-                ".$",
-                "standard math facet",
-            );
             push_pair_completion(
                 &mut candidates,
                 !existing_pairs("language"),
@@ -556,12 +538,6 @@ fn attribute_context(
             );
         }
         AttributeOwner::VerbatimBlock(_) => {
-            push_completion(
-                &mut candidates,
-                !existing_class("$"),
-                ".$",
-                "standard math facet",
-            );
             push_pair_completion(
                 &mut candidates,
                 !existing_pairs("language"),
@@ -582,21 +558,6 @@ fn attribute_context(
         replace: start..offset,
         completions: candidates,
     })
-}
-
-fn push_completion(
-    candidates: &mut Vec<AttributeCompletion>,
-    include: bool,
-    spelling: &'static str,
-    detail: &'static str,
-) {
-    if include {
-        candidates.push(AttributeCompletion {
-            label: spelling,
-            new_text: spelling,
-            detail,
-        });
-    }
 }
 
 fn push_pair_completion(

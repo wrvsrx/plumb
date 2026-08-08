@@ -191,7 +191,6 @@ fn collect_blocks(
         match block {
             Block::Parsed(parsed) => {
                 if let Some(mark) = &parsed.mark {
-                    diagnose_autolink_owner(&mark.attrs, output);
                     let kind = if output
                         .headings
                         .heading_at_node_start(parsed.range.start)
@@ -215,7 +214,6 @@ fn collect_blocks(
                 collect_blocks(source, &parsed.children, first_ids, output);
             }
             Block::Verbatim(block) => {
-                diagnose_autolink_owner(&block.attrs, output);
                 collect_anchor(
                     source,
                     &block.attrs,
@@ -245,7 +243,6 @@ fn collect_inlines(
                 attrs,
                 ..
             } => {
-                diagnose_autolink_owner(attrs, output);
                 collect_anchor(
                     source,
                     attrs,
@@ -301,21 +298,6 @@ fn collect_inlines(
     }
 }
 
-fn diagnose_autolink_owner(attrs: &Attributes, output: &mut DocumentOutput) {
-    for range in attrs.items.iter().filter_map(|item| match item {
-        AttrItem::Class { value, range } if value == "->" => Some(range.clone()),
-        _ => None,
-    }) {
-        output.diagnostics.push(Diagnostic {
-            code: "link.invalid-owner",
-            severity: DiagnosticSeverity::Warning,
-            message: "the '.->' facet is only valid on inline verbatim".to_string(),
-            range,
-            related: Vec::new(),
-        });
-    }
-}
-
 fn collect_verbatim_autolink(
     source: &str,
     range: Range<usize>,
@@ -331,9 +313,10 @@ fn collect_verbatim_autolink(
         _ => None,
     }) {
         output.diagnostics.push(Diagnostic {
-            code: "link.conflicting-facet",
+            code: "link.conflicting-property",
             severity: DiagnosticSeverity::Warning,
-            message: "the '.->' facet cannot be combined with 'to' or '.$'".to_string(),
+            message: "the '->' inline verbatim kind cannot be combined with a 'to' property"
+                .to_string(),
             range: conflict,
             related: vec![kind_range],
         });
@@ -980,7 +963,7 @@ mod tests {
     }
 
     #[test]
-    fn diagnoses_invalid_autolink_targets_owners_and_conflicts() {
+    fn diagnoses_invalid_autolink_targets_and_conflicting_properties() {
         let source = "`->\"[]\"\n`->\"https://example.test/bad path\"\n`->\"https://example.test/%zz\"\n`->\"doc.plumb#one#two\"\n`->\"https://example.test\"{`:[to other]}\n`->\"https://example.test\"{`-[$]}\n`span[text]{`-[->]}\n\n`note head {\n  `- ->\n}\n\n`\" {`-[->]}\n raw\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
@@ -999,10 +982,7 @@ mod tests {
                 "link.invalid-autolink-target",
                 "link.invalid-autolink-target",
                 "link.invalid-autolink-target",
-                "link.conflicting-facet",
-                "link.invalid-owner",
-                "link.invalid-owner",
-                "link.invalid-owner",
+                "link.conflicting-property",
             ]
         );
     }

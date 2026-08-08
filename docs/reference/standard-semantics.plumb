@@ -120,6 +120,9 @@ Link 使用相同 target classification；absolute/network URI 按 URI validity 
 `"..plumb" 和 `"..plumb#id" 进入 document/anchor resolution，其他 relative targets 是 file
 resources。
 
+attached `"->" facet 不产生 Autolink record，也不发布 Link-specific owner diagnostic；它与其他未知
+facet 一样保持 generic。Autolink 语义只由 inline verbatim kind `"->" 启动。
+
 raw relative path 不进行 percent encode、percent decode 或 normalization；UTF-8、spaces、`"%"、`"?"
 和其他 path characters 都保持字面值。`"#" 是唯一 structure separator，用于 explicit anchor，因此
 relative filename 本身不能包含 `"#"。control characters 与 backslash 不合法。payload 中与 closing
@@ -280,7 +283,8 @@ TeX；可选 `"language" property 值 `"tex"。其他 language 产生 `"math.uns
 
 `"$" 作为其他 marker、parsed inline kind 或 attached facet 时不产生 math record。export 消费 verbatim
 kind `"$" 与 `"language" property；其余 id/facets/properties 分别通过 `"Span" 或 `"Div"
-wrapper 保留。普通 dollar characters 和 dollar-delimited math 没有特殊 syntax。
+wrapper 保留，attached `"$" facet 不发布 Math-specific owner diagnostic。普通 dollar characters 和
+dollar-delimited math 没有特殊 syntax。
 
 `# 15. Events
 

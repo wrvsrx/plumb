@@ -22,15 +22,15 @@ inline verbatim `"cargo test", a `kbd[Ctrl+C]{`-[shortcut]} element, and a
 `->[link back to the index]{`:[to index.plumb]}.
 
 An identical label and target can use an Autolink without duplication:
-`"https://example.test/a%20b"{`-[->] `@[external] `-[reference] `:[rel nofollow]}.
+`->"https://example.test/a%20b"{`@[external] `-[reference] `:[rel nofollow]}.
 
-A relative file Autolink uses the same form: `"static/plumb-pipeline.svg"{`-[->]}.
+A relative file Autolink uses the same form: `->"static/plumb-pipeline.svg".
 
 Images use parsed alt content and an absolute URI or raw relative src target:
 
 `img[plumb processing pipeline]{`:[src static/plumb-pipeline.svg] `@[pipeline] `-[diagram] `:[loading lazy]}
 
-Transparent `span[inline containers]{`-[notice]} and TeX `"x^2 + y^2"{`-[$]} use standard profiles.
+Transparent `span[inline containers]{`-[notice]} and TeX `$"x^2 + y^2" use standard profiles.
 
 The exporter preserves generic inline kinds as Pandoc spans. The official
 citation profile currently accepts one plain id, such as `cite[smith2004].
@@ -89,7 +89,7 @@ citation profile currently accepts one plain id, such as `cite[smith2004].
       println!("hello from plumb-export");
   }
 
-`" {`-[$] `@[energy]}
+`$" {`@[energy]}
   E = mc^2
 
 `# Tasks in exported content
