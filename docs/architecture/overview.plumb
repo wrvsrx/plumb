@@ -110,8 +110,10 @@ validity，也不能迫使语言设计适应 CFG。
 lenient mirror 必须保持 core structural boundaries：next-line attached block group 结束后，即使随后有
 blank lines，也要在下一 nonblank line 预看并正确 dedent，不能把合法的 following top-level block 包进
 recovery error。verbatim block 与 inline verbatim 的 CST 都分别暴露 optional opaque
-`"verbatim_kind" 和 raw payload node；highlight query 可以给 kind 通用 token capture，但不能解释其
-extension semantics，也不能让 raw payload capture 覆盖 kind。verbatim block 的每条 raw payload node
+`"verbatim_kind" 和 raw payload node；highlight query 必须与 block marker、parsed inline kind 一样给
+verbatim kind 使用通用 `"@keyword" capture，不能解释其 extension semantics，也不能让 raw payload
+capture 覆盖 kind；injection query 对同一 node 使用独立的 `"@injection.language" capture。verbatim
+block 的每条 raw payload node
 range 必须排除 parent column 与 quote count 声明的 structural margin，只覆盖移除 margin 后的 payload
 bytes 与 line ending。injection 必须组合这些 payload ranges，使 injected parser 从 payload column zero
 读取首层内容，同时逐 byte 保留 Python 等 indentation-sensitive language 的 payload indentation。

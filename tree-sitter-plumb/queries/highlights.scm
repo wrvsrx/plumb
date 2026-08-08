@@ -4,6 +4,7 @@
 (bracket_escape) @string.escape
 (marker) @keyword
 (inline_kind) @keyword
+(verbatim_kind) @keyword
 
 ; Parsed inline delimiters.
 (inline_element
@@ -20,8 +21,6 @@
   "}" @punctuation.bracket)
 
 (verbatim_open) @punctuation.delimiter
-
-(verbatim_kind) @label
 
 ; Raw payloads are syntax nodes because they change the lexical mode.
 ((inline_verbatim (raw_text) @markup.raw)
