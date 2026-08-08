@@ -7,7 +7,7 @@ members = [
   "crates/plumb-extensions",
   "crates/plumb-workspace",
   "crates/plumb-web",
-  "crates/plumb-ls",
+  "crates/plumb-app",
   "crates/plumb-export",
   "crates/plumb-import",
   "crates/plumb-notes",
