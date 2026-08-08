@@ -1,4 +1,4 @@
 interface:
   display_name: "Plumb Markup"
-  short_description: "Write strict plumb syntax and standard extensions."
+  short_description: "Write strict plumb syntax and official semantics."
   default_prompt: "Use $plumb-markup to create or edit a valid plumb document."

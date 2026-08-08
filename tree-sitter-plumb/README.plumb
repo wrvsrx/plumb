@@ -3,7 +3,7 @@
 }
 
 The intentionally lenient tree-sitter grammar for plumb editor tooling. The
-hand-written `"plumb-core" parser remains the authority for syntax errors
+hand-written `"plumb-syntax" parser remains the authority for syntax errors
 and document acceptance.
 
 `# Core-only CST
@@ -14,13 +14,13 @@ The grammar represents plumb's core surface syntax with generic nodes such as
 Marker and inline kind tokens remain opaque. It deliberately does not create
 nodes such as `"heading"、`"list_item"、`"quote"、`"task"、`"emphasis" or
 `"link"。
-Those interpretations belong to extension typed views, analyses, and future
+Those interpretations belong to semantic typed views, analyses, and future
 consumer-specific lowering.
 
 `"verbatim_block" and `"inline_verbatim" are separate syntax nodes because their raw
 payloads change the lexical parsing mode. Both expose an optional opaque `"verbatim_kind"
 child separately from raw payload so generic editor queries can highlight or inspect the kind
-without assigning extension semantics. The recovery-only
+without assigning official semantic meanings. The recovery-only
 `"incomplete_inline_element" node keeps subsequent blocks parseable while a
 document is being edited; it does not make malformed syntax valid to the strict parser.
 

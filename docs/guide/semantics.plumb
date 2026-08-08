@@ -1,5 +1,5 @@
 {
-  `: title plumb 标准扩展指南
+  `: title plumb 标准语义指南
 }
 
 core 只识别结构；本页介绍官方工具链赋予常用 marker、inline kind 和 attached elements 的语义。
@@ -115,7 +115,7 @@ empty alt 用于 decorative image。image 单独占一个 paragraph 时不需要
 相对 src 是 raw filesystem path，中文、spaces、parentheses 和 percent characters 都按字面保留，
 不做 URL encode/decode。LSP 在 src 中补全常见本地图片文件，并为存在的文件提供 hover 和
 go-to-definition。image 的
-标准 profile 边界见 `->[standard extensions reference]{`:[to ../reference/standard-extensions.plumb]}。
+标准 profile 边界见 `->[standard semantics reference]{`:[to ../reference/standard-semantics.plumb]}。
 
 `# File attachment
 
@@ -138,7 +138,7 @@ LSP 在 src 中补全任意本地文件，并提供 hover、go-to-definition 和
   See `cite[smith2004].
 
 其他 citation shape 的 profile 边界见
-`->[standard extensions reference]{`:[to ../reference/standard-extensions.plumb]}。
+`->[standard semantics reference]{`:[to ../reference/standard-semantics.plumb]}。
 
 `# Div 与 span
 
@@ -327,4 +327,4 @@ done task 仍有 open dependency 时发布 `"task.done-with-open-dependency" war
 只报告 dependency inconsistency。warnings 不阻止 operation，canceled parent 不受此检查。
 
 精确 recognition、diagnostics 和 export semantics 见
-`->[standard extensions reference]{`:[to ../reference/standard-extensions.plumb]}。
+`->[standard semantics reference]{`:[to ../reference/standard-semantics.plumb]}。

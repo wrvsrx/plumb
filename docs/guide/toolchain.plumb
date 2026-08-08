@@ -24,7 +24,7 @@ workspace discovery、ignore、note/task、graph 与 site 见
 `# Check
 
 `"plumb check --root DIR" 检查 workspace index 中的 `"..plumb" files；省略 `"--root" 时使用
-`->[workspace marker discovery]{`:[to workspace.plumb]}。它复用与 LSP 相同的 strict syntax、extension
+`->[workspace marker discovery]{`:[to workspace.plumb]}。它复用与 LSP 相同的 strict syntax、semantic
 和 cross-document diagnostics。
 
 diagnostics 按 relative path 和 source range 稳定排序，输出 `"path:line:column"、severity、code 与
@@ -34,7 +34,7 @@ diagnostic 时不输出内容并返回成功。
 
 `# Playground
 
-`"examples/index.plumb" 及同目录文档覆盖 core syntax 和标准 extensions，可用于 editor、
+`"examples/index.plumb" 及同目录文档覆盖 core syntax 和 official semantics，可用于 editor、
 diagnostics 和 export smoke test。
 
 `# LSP
@@ -87,7 +87,7 @@ opener 位于 header 末尾还是紧邻下一行的 layout family。inline attac
 
 formatter 为 inline verbatim 选择最小安全 quote count，不重排普通文本，不改变 attached element
 顺序，也不解释 marker、facet、property、heading、list、metadata 或 task semantics。相同 syntax tree 的
-输出不依赖启用哪些 extensions；包含 syntax error 的 document会被拒绝。
+输出使用固定的 official semantic profile；包含 syntax error 的 document 会被拒绝。
 
 不带 path 时从 stdin 读取并写到 stdout；带 path 时原地更新：
 

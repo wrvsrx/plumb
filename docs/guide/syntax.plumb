@@ -110,7 +110,7 @@ inline owner 的 group 递归包含普通 inline elements。
 
   `span[text]{`@[intro] `-[note] `:[level 2]}
 
-core 不解释 `"-"、`"@" 或 `":"。标准 extension profile 将 direct `"-" member 投影为 facet，
+core syntax 不解释 `"-"、`"@" 或 `":"。official semantic profile 将 direct `"-" member 投影为 facet，
 将 direct `"@" declaration 投影为 identity，将 direct `":" association 投影为 property；正文中
 相同节点仍保持 collection member、identity declaration 与 definition relation。
 

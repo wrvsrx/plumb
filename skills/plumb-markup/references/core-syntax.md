@@ -109,7 +109,7 @@ boundaries become soft breaks. Blank lines, dedents, block-only entries, and
 EOF remain hard boundaries.
 
 Core does not interpret kinds. For example, `*[text]` and `_[text]` are generic
-inline elements unless an extension explicitly defines them.
+inline elements unless the official semantic profile explicitly defines them.
 
 The opening `[` is mandatory. Even an empty inline element is written as
 `kind[]`; a bare `` `kind`` is invalid.

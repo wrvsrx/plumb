@@ -2,7 +2,7 @@
 
 plumb 是一门严格、语义中立的 markup language，也是一套围绕它构建的个人文档工具链。与 Markdown 和 Djot 的容错取向不同，plumb 将不完整或畸形的特殊 syntax 视为 parse error，不会静默退化为普通文本。
 
-当前工具链包括 strict parser、formatter、Pandoc JSON import/export、notes 与 task workspace、Web app、LSP 和 Neovim plugin。核心只判断 syntax validity；heading、link、metadata、task 等含义由 extensions 提供。tree-sitter grammar 只服务 editor ergonomics，不参与权威解析。
+当前工具链包括 strict parser、formatter、Pandoc JSON import/export、notes 与 task workspace、Web app、LSP 和 Neovim plugin。syntax layer 只判断 syntax validity；heading、link、metadata、task 等含义由 official semantic profile 提供。tree-sitter grammar 只服务 editor ergonomics，不参与权威解析。
 
 # 开始使用
 
@@ -26,7 +26,7 @@ cargo run -- export document.plumb | pandoc --from=json --to=gfm
 
 - [语法指南](docs/guide/syntax.plumb)
 
-- [标准扩展指南](docs/guide/extensions.plumb)
+- [标准语义指南](docs/guide/semantics.plumb)
 
 - [工具链指南](docs/guide/toolchain.plumb)
 

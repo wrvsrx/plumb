@@ -192,7 +192,7 @@ ordinary inline context 都以反引号加连字符或箭头 prefix 同时提供
 CodeAction 包括 metadata insertion、explicit id、event shorthand conversion、task conversion、
 created insertion 和 task status operations。metadata insertion 只在 cursor 位于 document start（cursor
 之前仅有空白）时提供；event shorthand 的具体格式见
-`->[Event]{`:[to extensions.plumb]}。whole-document 与 range formatting 使用同一个 canonical formatter。
+`->[Event]{`:[to semantics.plumb]}。whole-document 与 range formatting 使用同一个 canonical formatter。
 Whole-document formatting 由 protocol-neutral formatter 产生 non-overlapping line-diff edits，LSP 只做
 position mapping，并只替换实际变化的行；Neovim 使用
 `"vim.lsp.foldexpr()" 时，这会减少未变化 source 被整篇 replacement 触发 fold 重算的机会；但原生

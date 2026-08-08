@@ -1,7 +1,7 @@
-# Standard Extensions
+# Standard Semantics
 
 Read this file completely when using official semantic structures. Core still
-stores these as generic syntax; the standard extensions assign the meanings
+stores these as generic syntax; the official semantic profile assigns the meanings
 below.
 
 ## Headings And Anchors
@@ -419,4 +419,4 @@ tables, figures, raw HTML, footnotes, and complex citations, are rejected
 rather than silently discarded.
 
 Do not assume table, thematic-break, or presentation-only italic semantics until
-an official extension freezes them.
+the official semantic profile freezes them.

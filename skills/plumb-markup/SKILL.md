@@ -1,6 +1,6 @@
 ---
 name: plumb-markup
-description: Write, edit, review, or convert strict plumb (.plumb) documents using the released core syntax and standard extensions. Use for plumb blocks, inline elements, attached groups, raw content, headings, lists, definitions, metadata, links, images, file attachments, citations, quotes, inline styles, tasks, events, references, or documents consumed by the plumb toolchain.
+description: Write, edit, review, or convert strict plumb (.plumb) documents using the released core syntax and official semantic profile. Use for plumb blocks, inline elements, attached groups, raw content, headings, lists, definitions, metadata, links, images, file attachments, citations, quotes, inline styles, tasks, events, references, or documents consumed by the plumb toolchain.
 ---
 
 # Plumb Markup
@@ -13,7 +13,7 @@ text.
 
 1. Read `references/core-syntax.md` completely before creating or changing
    plumb source.
-2. Read `references/standard-extensions.md` completely when the document uses
+2. Read `references/standard-semantics.md` completely when the document uses
    headings, lists, definitions, metadata, links, images, citations, quotes, inline styles, tasks, events, anchors, or
    export semantics.
 3. Preserve nearby source style, indentation, attached elements, explicit ids, and
@@ -48,7 +48,7 @@ Link/Image paths and anchors continue to use workspace-aware value completion.
 Treat this bundled skill as the portable guide for the release that shipped
 it. Inside the plumb source repository, prefer
 `docs/reference/core-syntax.plumb`, then
-`docs/reference/standard-extensions.plumb` and
+`docs/reference/standard-semantics.plumb` and
 `docs/reference/diagnostics.plumb` whenever they conflict with this skill.
 
 ## Core Rules
