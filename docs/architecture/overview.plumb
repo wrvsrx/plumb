@@ -75,6 +75,9 @@ completeness；不能把 partial result 表示成 complete negative result。
 `- `"plumb" 是唯一 user-facing binary；`"lsp"、`"fmt"、`"export"、`"import"、`"note"、`"task"、`"event"、
    `"site serve"
    subcommands 分别适配 editor protocol、file/stdin、Pandoc JSON、CEL 和 task operations。
+   Cargo package 与 binary 名保持为 `"plumb"；其 `"crates/plumb-app" 目录是 application composition root，
+   只负责统一 command dispatch、process I/O、exit status 与 LSP protocol adapter，不以其中任一 adapter
+   为整个 crate 命名。
 `- `"tree-sitter-plumb" 是 lenient editor mirror，只负责 highlight、fold、indent、text object 和
    injection。
 
@@ -93,7 +96,9 @@ payload 可以合法保留 tabs，其展示应继续服从用户配置。
 `- `"plumb-edit"：owned syntax、valid-tree mutations、format-aware finalization 与 validated token edits。
 `- `"plumb-extensions"：protocol-neutral semantic records、analyses、queries、operations、export model。
 `- `"plumb-workspace"：snapshots、indexes、cross-file invalidation 和 guarded edits。
-`- `"plumb"：统一 CLI、LSP adapter 以及各 library entry point 的 subcommand dispatch。
+`- `"plumb"（`"crates/plumb-app"）：application composition root、统一 CLI、LSP adapter 以及各 library
+   entry point 的 subcommand dispatch；crate 目录名表达整体 application 职责，而不是单个 `"lsp"
+   subcommand。
 `- `"plumb-export"：Pandoc JSON lowering library。
 `- `"plumb-import"：受支持 Pandoc AST 到 canonical plumb 的 fallible conversion library。
 `- `"plumb-notes"：notes/task query 与 operation library。
