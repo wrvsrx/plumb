@@ -1,0 +1,122 @@
+{
+  `: title plumb semantic analysis
+}
+
+`# 1. Scope
+
+`"plumb-semantics" 实现官方 semantic profile。它从 `"plumb-syntax" 的 immutable typed views
+产生 source-backed records 与 diagnostics，并为 workspace query、operation 和 export 提供
+protocol-neutral inputs。它是固定的 Rust analysis pipeline，不是动态 extension host，也不承诺
+第三方 registration、可替换 semantic profiles、ABI、WASM 或 external-process plugins。
+
+syntax/semantics 分层仍是强制边界：syntax 决定 source 是否构成合法结构；semantics 只解释
+syntax-valid marker、inline kind 与 attached content。未知但词法良构的 spelling 保持 generic，
+不因官方 pipeline 未识别而成为 syntax error。
+
+`# 2. Typed views
+
+`"plumb-syntax" 为同一 recovered tree 提供 typed recovered/valid views。view 负责安全遍历、source ranges、
+marker/head/children/attached group 访问，不增加 semantic meaning。冻结的 0.17 attributes 只由显式
+migration reader 暴露，不进入 current recovered/valid view。
+
+`"Recovered" view 可用于 completion、selection 和 syntax-aware fixes。`"Valid" view 只有 syntax
+diagnostics 为空时存在，用于 authoritative semantic analysis、indexes、rename 和 export。
+normalized AST 只在具体 consumer 能证明 typed views 不足时 materialize。
+
+`# 3. Static analysis pipeline
+
+官方 pipeline 包含四类 protocol-neutral computation：
+
+`- document analysis：从一个 revision 的 valid view 产生 semantic records 与 diagnostics。
+`- workspace analysis：组合 document outputs，产生 resolution、reverse edges、cycles 等 indexes。
+`- query：读取 immutable context，返回当前请求的结果，不改变 state。
+`- operation：验证 preconditions，提出 guarded text/resource effects，不直接应用。
+
+document analyses 由代码中的显式 typed inputs 与固定调用结构组合。新增或调整 analysis 必须同时更新
+本页、standard semantic profile、dependency/invalidation behavior 和 tests；不得通过 registration order
+形成隐式依赖。Pandoc export 是官方 semantics 的 consumer，不是 syntax 特例，也不被描述为可插拔 extension。
+
+`# 4. Source-backed outputs
+
+semantic record 必须携带足够 provenance：document identity、revision、owner node/range、selection
+range 和从 source 提取的值。derived field 应可追溯到一个或多个 source ranges。
+
+record identity 不能依赖 unstable allocation address。跨 revision reuse 只有在 workspace 能证明 source
+identity 时才允许。Analysis output 不修改 typed syntax，也不取得 syntax node 的唯一 ownership。
+
+`# 5. Semantic composition
+
+同一个 syntax node 可以同时产生多个正交 semantic facts。例如一个 task owner 也可以拥有 explicit
+anchor 和普通 attached data。standard projection 将 direct `"-" member 投影为 facet、direct `"@"
+declaration 投影为 id、direct `":" association 投影为 property；该 projection 属于 official semantic
+profile，不属于 syntax grammar。
+
+analyses 只增加自己拥有的 records/diagnostics，不能删除其他 analysis 所需的 source data。组合冲突必须
+产生显式 diagnostic 或使用在 standard profile 中冻结的 rule，不能依赖 Rust module 调用顺序。generic
+export 在标准 semantic lowering 后仍保留未消费的 attached elements。
+
+`# 6. Dependencies and invalidation
+
+analysis dependencies 通过 Rust types、函数 inputs 和固定 pipeline 明确表达。workspace 以 document
+revision、configuration 和直接 dependency output identity 形成 cache/invalidation boundary。document
+change 只 invalidates 直接或传递依赖其 outputs 的 computations；实现可以先采用整体 document output，
+但不得声称不存在的动态 descriptor 或任意 output registry。
+
+workspace analysis 必须声明需要 complete index，还是可以返回标明 provenance/completeness 的 partial
+result。依赖 output 缺失时，应返回 dependency/completeness failure，不能猜测 negative semantic result。
+
+`# 7. Snapshots and last-valid data
+
+snapshot 包含 document identity、revision、source、recovered tree、syntax diagnostics 和可选 current-valid
+semantic output。新 revision invalid 时，workspace 可以保留前一 revision 的 last-valid output 供其他
+documents 稳定解析，但必须携带原 revision provenance。
+
+当前 document 的 semantic diagnostics 和 authoritative query 不能使用自己的 last-valid output 冒充
+current result。consumer 必须能区分 current、last-valid 与 partial workspace data。
+
+`# 8. Queries
+
+query context 至少包含 request document/revision、cursor 或 target、workspace completeness、cancellation
+和 configuration。结果必须说明 provenance；candidate ordering 应 deterministic。
+
+completion 可以读取 current recovered view 与其他 documents 的 last-valid indexes。definition、references、
+hover 和 rename 默认要求当前 target 具有 valid semantic record。
+
+官方 workspace search query 的 LSP projection 使用 `"plumb/search" schema version 3。request 的可选
+`"kind" 是 `"note"、`"task" 或 `"event"；result item 共享 `"kind"、`"title"、workspace-relative
+`"path"、LSP `"location" 与 revision `"provenance"。Task item 还可包含 workflow fields；Event item
+还可包含 `"id"、resolved `"start"/`"end" 与 associated `"tasks"。增加 record kind 或改变 typed fields
+必须提升 schema version；client 必须按 initialize capability 中声明的 version 接受或明确拒绝。
+
+`# 9. Operations and editing
+
+operation 返回 proposal：ordered non-overlapping text edits、resource edits、expected revisions 和 required
+application capabilities。proposal 本身不改变 workspace。application adapter 在应用前重新验证 revisions、
+document identity、target existence 和 capability；multi-document operation 必须 atomic，或明确失败。
+
+official semantics/workspace 将 valid-tree authoring intent 交给 `"plumb-edit"。property insert/replace/remove
+必须指定 target 与 insertion position；新增 block 使用 semantics-neutral owned syntax node。edit session
+绑定 revision snapshot，在内存副本应用 mutations，canonicalize 完整 owner subtree，再映射为针对原
+revision 的 byte edits。
+
+consumer 不渲染 owned nodes、不计算 subtree indentation/line-ending replacement，也不把结构删除或移动
+降级为 raw token replacement。anchor/document rename 通过 `"plumb-edit" 验证 token ranges，并保持
+ordered minimal edits。incomplete-source completion 属于 recovery assist，不伪装成 authoritative mutation。
+
+Formatting 使用同一 syntax-only edit contract：consumer 传入当前 `"ParsedDocument" 和 scope，
+`"plumb-edit" 返回 byte edits；LSP/CLI/Web 不直接依赖 `"plumb-format" 或重新 parse revision source。
+
+`# 10. Diagnostics and failure
+
+diagnostic 是可定位的 source problem；query failure 是请求无法完成；cancellation 不是 failure；
+runtime failure 不应伪装成 source diagnostic。
+
+syntax diagnostics 由 `"plumb-syntax" 拥有；semantic profile diagnostics 由 `"plumb-semantics" 拥有；
+跨文档 resolution、identity 与 dependency diagnostics 由 `"plumb-workspace" 拥有。adapter 不重新解释
+或复制这些 rules。
+
+`# 11. Implementation policy
+
+当前 release 只有一套 official semantic profile 和一个静态 Rust pipeline。若未来出现第二个 concrete
+profile、第三方 integration 或不同 host，必须以独立 proposal 证明需求并重新冻结 compatibility contract；
+当前 crate names、records 与 pipeline 不构成 plugin API。

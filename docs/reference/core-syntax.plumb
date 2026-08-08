@@ -64,7 +64,7 @@ marked block 形状为：
   `marker Head {`-[facet] `@[identity] `:[property value]}
 
 marker 后只能紧接一个分隔 head 的 ASCII space/tab 或 line ending。普通 marker 允许空
-head 和空 children；marker-specific constraint 属于 extension。
+head 和空 children；marker-specific constraint 属于 semantic profile。
 
 空 head 不改变 block attachment rule。`"`x {}" 是 marker `"x"、空 head 与空 compact attached
 group；marker 和 group 之间的 horizontal whitespace 只建立 ownership，不进入 head。`"`x{}" 不满足

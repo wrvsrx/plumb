@@ -8,20 +8,20 @@
 
 `text"
   UTF-8 source
-      -> plumb-core recovered lossless tree + syntax diagnostics
+      -> plumb-syntax recovered lossless tree + syntax diagnostics
       -> typed recovered/valid views
-      -> document extensions
+      -> official document semantics
       -> workspace indexes
       -> queries / operations / export
       -> plumb-edit intents + canonical rendering
       -> revision-bound byte text edits
       -> LSP, CLI, Pandoc JSON export/import
 
-一次 revision 只解析一次。extensions 共享 source-backed views，不各自重新解析文本。
+一次 revision 只解析一次。semantic analyses 共享 source-backed views，不各自重新解析文本。
 
 `# 2. Strict parser
 
-`"plumb-core" 是 syntax 的唯一权威。它无文件 I/O，只使用 byte offsets，并对 valid 或 invalid
+`"plumb-syntax" 是 syntax 的唯一权威。它无文件 I/O，只使用 byte offsets，并对 valid 或 invalid
 input 都产生 lossless tree 与 diagnostics。它不解释 heading、list、metadata、link、task 或 id。
 
 parser 使用 reject-but-recover。当前 revision 有 syntax error 时，authoritative semantic analysis
@@ -32,7 +32,7 @@ sequence，并从同一次 parse 暴露 typed recovered/valid views；arbitrary 
 reconstruction、range boundary 和 deterministic output invariants。
 
 `"plumb-format" 消费 valid syntax tree 并提供 canonical rendering policy。formatting policy 不属于 core
-syntax validity，也不依赖 semantic extensions；invalid recovered tree 不进入 formatter。官方 editing
+syntax validity，也不依赖 official semantics；invalid recovered tree 不进入 formatter。官方 editing
 consumer 不直接调用该 crate，而是把已有 `"ParsedDocument" 与 format scope 交给 `"plumb-edit"，由 edit
 layer 产生 revision-bound byte edits。
 
@@ -40,18 +40,19 @@ layer 产生 revision-bound byte edits。
 format intent、validated token rewrites 和 authoring finalization。详细 contract 见
 `->[syntax editing]{`:[to editing.plumb]}。
 
-`# 3. Extensions
+`# 3. Semantics
 
-extension 是对 typed syntax view 或其他 extension outputs 的语言无关 analysis、query 或 operation。
-Rust module 是当前 host implementation，不是 extension contract 的一部分。
+`"plumb-semantics" 实现固定的 official semantic profile。它从 valid typed syntax views 产生
+source-backed records 与 diagnostics；document analyses、workspace analyses、queries 和 operations
+通过静态 Rust pipeline 显式组合，不提供动态 registration 或可替换 extension host。
 
 官方 bundle 包括 outline、anchors/references、target resolution、lists、definitions、metadata、
-citations、quotes、inline styles、tasks、events 和 export。extensions 将普通 attached elements 投影为
+citations、quotes、inline styles、tasks 和 events。semantic profile 将普通 attached elements 投影为
 id、facets 与 named properties；core 不维护 semantic registry，也不校验 element 或 marker spelling。
 
 `# 4. Workspace
 
-`"plumb-workspace" 保存 document snapshots、revision、last-valid extension outputs、dependency indexes
+`"plumb-workspace" 保存 document snapshots、revision、last-valid semantic outputs、dependency indexes
 和 guarded edit preconditions。open buffer 优先于 disk source；create/change/remove 只使相关
 documents 与 dependents invalidated。
 
@@ -91,10 +92,10 @@ payload 可以合法保留 tabs，其展示应继续服从用户配置。
 
 `# 6. Crate boundaries
 
-`- `"plumb-core"：strict syntax tree、diagnostics、typed views。
+`- `"plumb-syntax"：strict syntax tree、diagnostics、typed views。
 `- `"plumb-format"：syntax-valid document 的 protocol-neutral canonical formatter library。
 `- `"plumb-edit"：owned syntax、valid-tree mutations、format-aware finalization 与 validated token edits。
-`- `"plumb-extensions"：protocol-neutral semantic records、analyses、queries、operations、export model。
+`- `"plumb-semantics"：protocol-neutral semantic records、analyses、queries、operations、export model。
 `- `"plumb-workspace"：snapshots、indexes、cross-file invalidation 和 guarded edits。
 `- `"plumb"（`"crates/plumb-app"）：application composition root、统一 CLI、LSP adapter 以及各 library
    entry point 的 subcommand dispatch；crate 目录名表达整体 application 职责，而不是单个 `"lsp"
@@ -116,7 +117,7 @@ lenient mirror 必须保持 core structural boundaries：next-line attached bloc
 blank lines，也要在下一 nonblank line 预看并正确 dedent，不能把合法的 following top-level block 包进
 recovery error。verbatim block 与 inline verbatim 的 CST 都分别暴露 optional opaque
 `"verbatim_kind" 和 raw payload node；highlight query 必须与 block marker、parsed inline kind 一样给
-verbatim kind 使用通用 `"@keyword" capture，不能解释其 extension semantics，也不能让 raw payload
+verbatim kind 使用通用 `"@keyword" capture，不能解释其 semantic profile meaning，也不能让 raw payload
 capture 覆盖 kind；injection query 对同一 node 使用独立的 `"@injection.language" capture。verbatim
 block 的每条 raw payload node
 range 必须排除 parent column 与 quote count 声明的 structural margin，只覆盖移除 margin 后的 payload
@@ -150,4 +151,4 @@ Pandoc nodes，generic structures lower 为 Div/Span/CodeBlock/Code 并保留 op
 import 是 portability boundary 的反向 consumer，而不是 syntax authority。`"plumb-import" 使用 typed
 Pandoc AST，拒绝没有标准 plumb 表示的 nodes 与冲突 attributes；生成 source 必须经过 strict parser
 与 protocol-neutral formatter。它保证官方 exporter profile 内的 semantic round-trip，不把任意 Pandoc
-presentation surface 变成 core syntax 或隐式 extensions。
+presentation surface 变成 core syntax 或隐式 semantics。

@@ -4,7 +4,7 @@
 
 `# 1. Diagnostic ownership
 
-core diagnostics 只报告 syntax。standard extensions 报告 semantic profile violations；workspace
+ syntax diagnostics 只报告 syntax。official semantics 报告 semantic profile violations；workspace
 分析报告跨文档 resolution、identity 和 dependency 问题；protocol adapters 不重新解释这些错误。
 
 每条 diagnostic 包含稳定 code、severity、message 和 source range。可修复错误可以附带 edit，
@@ -13,7 +13,7 @@ core diagnostics 只报告 syntax。standard extensions 报告 semantic profile 
 `# 2. Publication policy
 
 每个 revision 都发布当前 recovered tree 的 syntax diagnostics。只有当前 revision syntax-valid 时，
-才合并同 revision 的 semantic diagnostics。last-valid extension outputs 可以继续服务跨文件查询，
+才合并同 revision 的 semantic diagnostics。last-valid semantic outputs 可以继续服务跨文件查询，
 但不能伪装成当前文档的 diagnostics。
 
 export 只接受 valid authoritative view。LSP completion 等 editor assist 可以显式查询 recovered view。
@@ -59,7 +59,7 @@ recovery 的目标是报告后续独立错误并保留 source，不是把 malfor
 
 `# 5. Semantic categories
 
-官方 extensions 至少区分：
+official semantic profile 至少区分：
 
 `- heading/anchor：非法 heading level、duplicate anchor。
 `- metadata：duplicate/invalid key、invalid location、unsupported 或 mixed value shape，以及
@@ -86,7 +86,7 @@ protocol-neutral related range 不携带 path，因此不伪造到 source docume
 `# 6. Stability
 
 diagnostic code 是 editor、test 和 automation 的接口；重写 message 不应改变 code。新增更精确
-diagnostic 时，应更新 parser/extension fixtures，并验证 recovery 后续 diagnostics 不回退。
+diagnostic 时，应更新 syntax/semantic fixtures，并验证 recovery 后续 diagnostics 不回退。
 
 strict parser normative corpus 固定 typed structural projection、code、primary/related ranges、
 precedence、ordering、recovery 与 lossless token coverage；lenient tree-sitter corpus 不能代替它。

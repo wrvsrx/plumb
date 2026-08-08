@@ -15,7 +15,7 @@ plumb 选择严格语法：特殊 spelling 一旦出现就必须完整合法。p
 `- source 易于直接阅读和编辑。
 `- syntax 局部可判定，错误位置与 recovery boundary 明确。
 `- parse tree lossless，支持可靠 diagnostics、navigation、rename 和 guarded edits。
-`- core semantics-neutral；新领域含义通过 extensions 增加。
+`- syntax layer semantics-neutral；领域含义由 official semantic profile 明确定义。
 `- 文件长期可迁移，官方 exporter 提供 Pandoc portability。
 `- editor ergonomics 不削弱 authoritative strictness。
 
@@ -28,10 +28,11 @@ plumb 不让某个 punctuation 在所有位置全局 special。反引号是显�
 
 `# Core 与 semantics
 
-core 只回答 source 由哪些 blocks、inline elements、attached groups 和 raw payload 构成。heading level、
-list grouping、metadata shape、link resolution、task state 和 export mapping 全部属于 extensions。
+syntax layer 只回答 source 由哪些 blocks、inline elements、attached groups 和 raw payload 构成。heading level、
+list grouping、metadata shape、link resolution、task state 和 export mapping 全部属于 official semantics。
 
-这条边界允许同一 syntax tree 服务不同 semantic profiles，也避免 parser 随每个新 workflow 膨胀。
+这条边界避免 parser 随每个 workflow 膨胀，但不承诺可替换 profiles 或第三方 plugin host。当前工具链
+只有一套固定的 official semantic profile；新领域含义需要通过规范、实现和验证一起冻结。
 
 `# 两套 parser
 

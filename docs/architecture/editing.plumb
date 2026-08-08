@@ -5,12 +5,12 @@
 `# 1. Boundary
 
 `"plumb-edit" 是 valid strict syntax tree 上的 protocol-neutral mutation 与 finalization layer。它依赖
-`"plumb-core" 和 `"plumb-format"，不依赖 semantic extensions、workspace、LSP 或 filesystem。
+`"plumb-syntax" 和 `"plumb-format"，不依赖 official semantics、workspace、LSP 或 filesystem。
 
-extensions 与 workspace 决定 operation intent 和 target；edit layer 只执行 syntax mutation、验证
+semantics 与 workspace 决定 operation intent 和 target；edit layer 只执行 syntax mutation、验证
 source ranges、canonicalize affected complete block subtree，并产生针对原 revision 的 text edit。
 
-`"plumb-core" 继续只负责 parse 与 lossless/typed tree，不接收 mutation。本文所称统一 core editing
+`"plumb-syntax" 继续只负责 parse 与 lossless/typed tree，不接收 mutation。本文所称统一 core editing
 boundary 是 `"plumb-edit"：LSP、CLI、Web 和 workspace 等 adapter/host 不直接调用 formatter，也不自行
 serialize CST replacement。`"plumb-format" 是 edit layer 使用的 canonical rendering policy，不是 editing
 consumer 的入口。
@@ -19,13 +19,13 @@ consumer 的入口。
 
 新增内容使用 semantics-neutral `"OwnedBlock"、`"OwnedInline"、`"OwnedAttribute" 和 `"OwnedValue"。
 owned nodes 表达 marker、attached elements、head、children、verbatim payload 与 inline structure，不携带 source
-ranges，也不识别 metadata、task、link 或其他 extension semantics。
+ranges，也不识别 metadata、task、link 或其他 semantic profile meanings。
 
 owned nodes 可以从 strict typed syntax view detach，也可以由 operation 构造。serializer 只负责生成
 valid intermediate source；最终 layout 始终由 `"plumb-format" canonicalize。operation 不拼接完整 CST
 block、手工计算 multiline attribute layout 或复制 subtree indentation。
 
-owned syntax 是 mutation intent 的 data model，不是预先渲染的 replacement text。Host 可以按 extension
+owned syntax 是 mutation intent 的 data model，不是预先渲染的 replacement text。Consumer 可以按 semantic
 语义修改 detached owned tree，但只有 edit layer 可以把它映射回 source ranges、indentation、line endings
 与 text edits。
 

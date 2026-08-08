@@ -5,7 +5,7 @@
 `# 1. Purpose
 
 strict parser 对任意 UTF-8 source 产生 recovered lossless tree。tree 服务 diagnostics、editor
-queries、source-preserving edits 和 extensions；它不是已经解释语义的 document AST。
+queries、source-preserving edits 和 semantic analyses；它不是已经解释语义的 document AST。
 
 `# 2. Fidelity
 
@@ -40,7 +40,7 @@ marked block 另暴露 marker、head 和 children；paragraph 只有 inline cont
 `# 4. Recovered and valid views
 
 lossless token stream 与 typed recovered tree 始终存在。`"recovered_syntax()" 返回 recovered typed
-view；`"valid_syntax()" 只在没有 error diagnostics 时返回同一 `"Document" reference，保证 extensions
+view；`"valid_syntax()" 只在没有 error diagnostics 时返回同一 `"Document" reference，保证 semantic analyses
 不会误把 recovery choice 当作 author intent。
 
 访问两种 view 不会重新 parse。typed nodes 保存 marker、attached projection 和 inline text，
@@ -63,7 +63,7 @@ plain-text traversal 也使用 iterative walk。语言不从 Rust call stack 获
 可能的 normalized model 会包含 parsed block、verbatim block，以及 `"Text"、`"SoftBreak"、`"Span"
 和 `"Verbatim" inline variants。它只在 exporter 或其他 concrete consumer 证明 typed views 不足时加入。
 
-normalized model 不取代 lossless tree，不改变 syntax validity，也不把 extension semantics 放回
+normalized model 不取代 lossless tree，不改变 syntax validity，也不把 semantic profile meanings 放回
 core。
 
 `"plumb-edit" 的 owned syntax nodes 不是 normalized semantic AST。它们只是 typed syntax view 的

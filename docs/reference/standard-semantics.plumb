@@ -1,5 +1,5 @@
 {
-  `: title plumb standard extensions reference
+  `: title plumb standard semantics reference
 }
 
 `# 1. Scope
@@ -238,7 +238,7 @@ marker `">" 产生 block quote。可选 head 作为引用中的第一个 paragra
 消费，不产生 `"data-plumb-marker"。`"quote" 不作为 alias，仍是 generic marked block。
 
 quote 不定义 attribution、citation、pull quote 或 presentation semantics；需要这些信息时使用普通
-children 或 opaque attached elements，直到独立 extension 冻结其含义。
+children 或 opaque attached elements，直到official semantic profile 冻结其含义。
 
 `# 13. Inline styles
 
@@ -472,8 +472,8 @@ authoring operations 使用执行时的本地 RFC 3339 timestamp：`"Convert to 
 缺少 `"created" 的最深 enclosing task 补录时间。后者不受 task state、dependency 或 recurrence
 限制。两者都保留已有 attached elements，并返回 revision-guarded edits。
 
-construct completion 是 prefix-sensitive 的 extension-neutral authoring interface。bare backtick 不提供
-candidate；已输入至少一个 marker character 后，completion 根据 syntax owner、source position 与 extension
+construct completion 是 prefix-sensitive 的 semantics-neutral authoring interface。bare backtick 不提供
+candidate；已输入至少一个 marker character 后，completion 根据 syntax owner、source position 与 semantic
 声明的 authoring prefix 过滤 candidate。named marker construct 使用其完整 marker spelling 的非空 prefix；
 继续输入时 candidate 只能保持或收窄，不能切换到不共享该 prefix 的 construct。candidate edit 替换从
 backtick 到 cursor 的完整 prefix。

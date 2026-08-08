@@ -4,7 +4,7 @@
 
 本文保存 attached declarations 最终设计及其取舍。该设计已经进入 current development line；validity
 与标准语义分别以 `->[core syntax reference]{`:[to ../reference/core-syntax.plumb]} 和
-`->[standard extensions reference]{`:[to ../reference/standard-extensions.plumb]} 为准。本页中的候选
+`->[standard semantics reference]{`:[to ../reference/standard-semantics.plumb]} 为准。本页中的候选
 比较用于解释决定，不覆盖 references。
 
 `# 目标
@@ -111,7 +111,7 @@ export 使用必要的 Pandoc `"Span" wrapper 保存它们。
   `: `"multi word key" Value
   `: `()[rich `*[key]] Value
 
-plain-key view 只在 key 可无损投影为 plain text 时存在。standard extensions 按 plain-key view 查询
+plain-key view 只在 key 可无损投影为 plain text 时存在。official semantics 按 plain-key view 查询
 `"created"、`"to"、`"src" 等已声明 properties；rich key 仍是合法 definition key，但不会偶然
 命中这些 machine-readable names。definition 本身不因位于 body 或 attached scope 而改变结构。
 
@@ -157,7 +157,7 @@ group 再 line ending，即 dispatch 为 block verbatim；raw body 继续由 ind
   `rust" {`@[example] `:[generated true]}
     fn generated() {}
 
-double quote 只选择 syntax mode；core 不解释 `"rust"、`"$" 或 `"->"。standard extensions 可以把
+double quote 只选择 syntax mode；core syntax 不解释 `"rust"、`"$" 或 `"->"。official semantics 可以把
 `"$" kind 投影为 math、`"->" kind 投影为 Autolink、language kind 投影为 code language。kind 表示
 payload 的主要解释方式；identity、正交 facets 与 properties 仍进入 attached group。
 
@@ -195,7 +195,7 @@ attached data 不是 JSON replacement，当前 profile 冻结以下边界：
 
 `- definition association 的 key 是第一个 inline atom；同行 remainder 是首个 value paragraph，children
    是后续 block value。
-`- property duplicate policy 由声明它的 extension 决定；core 保留 source order 与重复项。
+`- property duplicate policy 由 official semantic profile 对 recognized property 决定；syntax layer 保留 source order 与重复项。
 `- standard facet identity 使用 direct member 的 plain scalar；不满足 profile 约束的 richer member 仍是
    generic collection data。
 `- compact marked-block group 的 ownership、recovery 与 formatting 以 core syntax reference 为准。

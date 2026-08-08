@@ -18,10 +18,10 @@ Start at `docs/index.plumb`. For implementation work, read these sources of
 truth in order:
 
 - `docs/reference/core-syntax.plumb` — authoritative core syntax validity.
-- `docs/reference/standard-extensions.plumb` — official semantic profile.
+- `docs/reference/standard-semantics.plumb` — official semantic profile.
 - `docs/reference/diagnostics.plumb` — diagnostic ownership and recovery policy.
 - `docs/architecture/overview.plumb` — crates, data flow, and tool boundaries.
-- `docs/architecture/extension-system.plumb` — extension inputs, outputs,
+- `docs/architecture/semantic-analysis.plumb` — semantic inputs, outputs,
   dependencies, queries, operations, and effects.
 - `docs/architecture/syntax-tree.plumb` — lossless tree and typed-view contract.
 - `docs/architecture/editing.plumb` — owned syntax mutations and edit finalization.
@@ -54,11 +54,11 @@ authoritative specification only after the required verification passes.
 
 ## Unified editing boundary
 
-All authoritative source changes go through `plumb-edit`. `plumb-core` remains
+All authoritative source changes go through `plumb-edit`. `plumb-syntax` remains
 the parse/lossless-tree authority and does not own mutations; `plumb-format` is
 canonical rendering policy behind the edit layer, not an editing adapter API.
 
-- LSP, CLI, Web, workspace, and extension adapters must not call
+- LSP, CLI, Web, workspace, and semantic consumers must not call
   `plumb-format` directly for editing or reparse a revision already represented
   by `ParsedDocument`. They pass the existing parsed revision plus a format or
   mutation intent to `plumb-edit` and only translate/apply its byte edits.
@@ -110,11 +110,11 @@ records.
 ## Current status
 
 **Runnable 0.3 development line.** The repository contains the frozen core
-syntax, a hand-written strict parser, typed extension/workspace layers, an LSP,
+syntax, a hand-written strict parser, typed semantic/workspace layers, an LSP,
 an exporter, notes tooling, and a lenient tree-sitter mirror. The parser already
 produces a source-oriented tree plus `Vec<Diagnostic>`, but the remaining gaps in
 `docs/project/roadmap.plumb` still block calling it a complete lossless parser release.
-Normalized AST lowering remains deferred until an extension provides a concrete
+Normalized AST lowering remains deferred until a semantic consumer provides a concrete
 consumer.
 
 ## Relationship to djot-tools
@@ -140,16 +140,15 @@ project, but it is a **separate project**:
    A document with syntactic errors is not valid input for authoritative semantic
    analysis or export. Recovered-tree editor queries such as completion and
    syntax-aware assists remain available. Strictness is **syntactic only**.
-2. **The core is semantics-neutral; all meaning lives in extensions.**
-   The first `plumb-core` phase produces one recovered lossless syntax tree per
-   revision. Extensions initially consume typed recovered/valid views over that
+2. **The syntax layer is semantics-neutral; meaning lives in the official semantic profile.**
+   The first `plumb-syntax` phase produces one recovered lossless syntax tree per
+   revision. Semantic analyses initially consume typed recovered/valid views over that
    tree; a normalized AST is materialized only if a concrete consumer needs it
    (`{#id .class k=v}` remain opaque attributes). Everything semantic —
    metadata, link/anchor resolution, references, id generation, tasks, and
    lowering to HTML/pandoc — remains an
-   **extension** (a language-neutral query, analysis, or operation over typed
-   views and declared outputs; the exporter is itself an extension). Rust
-   modules are one host implementation, not part of the extension definition.
+   official semantic profile. The profile is implemented as one statically composed
+   Rust pipeline, not a dynamic or replaceable extension host.
    No registry, roles, or class-name validation exists in core.
    See `docs/project/vision.plumb` (the Pandoc/Docutils model).
 3. **tree-sitter is intentionally lenient and ergonomics-only.** Its current
@@ -159,7 +158,7 @@ project, but it is a **separate project**:
    parser regardless. Because core is semantics-neutral, core and tree-sitter
    cover the same (pure-syntax) scope, differing only in strict-vs-lenient.
 4. **Export owns portability.** plumb is its own pandoc *reader*: the exporter
-   (an extension) emits a `pandoc_types` JSON AST that is piped into `pandoc` as a
+   emits a `pandoc_types` JSON AST that is piped into `pandoc` as a
    *writer* only. This — not adopting a popular syntax — is the answer to "small
    ecosystem": output to PDF/HTML/etc. and a clean migration path out are always
    available.
@@ -169,7 +168,7 @@ project, but it is a **separate project**:
 A Cargo workspace (`crates/*`), mirroring djot-tools' deliberate split so the
 semantics can be shared by more than one tool:
 
-- **`plumb-core`** — semantics-neutral strict reader. Does no file I/O, works in
+- **`plumb-syntax`** — semantics-neutral strict reader. Does no file I/O, works in
   byte offsets only. Hand-written lexer + line-oriented block scanner + strict
   inline parser, initially producing a lossless syntax tree and syntactic
   diagnostics. Ordinary marker and inline-kind tokens
@@ -178,25 +177,22 @@ semantics can be shared by more than one tool:
   runs strengthen inline verbatim delimiters; an attribute-only block opener
   switches to an indented verbatim payload. Contains
   **no** anchors, references, metadata, tasks, outline, or resolution logic.
-- **extensions** — statically composed Rust implementations of the
-  language-neutral extension contract, initially consuming typed views and
-  adding semantics plus their own diagnostics and edit proposals:
-  outline, anchors/references, target resolution, workspace, metadata, tasks.
-  The official toolchain may implement and compose them as Rust modules, without
-  making Rust part of the semantic contract. (These are djot-tools' `djot-core`
-  analysis, relocated out of core.)
-- **`plumb-workspace`** — document snapshots, last-valid extension outputs,
+- **`plumb-semantics`** — the official semantic profile, implemented as a fixed
+  protocol-neutral Rust analysis pipeline over typed syntax views: outline,
+  anchors/references, metadata, lists, tasks, events, and semantic diagnostics.
+  It is not a plugin API or dynamic extension registry.
+- **`plumb-workspace`** — document snapshots, last-valid semantic outputs,
   dependency invalidation, cross-file indexes, and guarded workspace edits.
 - **`plumb-edit`** — protocol-neutral owned syntax, valid-tree mutations,
   format-aware authoring finalization, and validated minimal token rewrites.
 - **`plumb`** — the single user-facing binary. Its `lsp`, `export`, `fmt`, `note`,
   and `task` subcommands adapt the shared libraries to stdio, files, and editor
   protocols. The LSP implementation owns `lsp_types`, `async-lsp`, and UTF-16
-  positions; export remains an extension that emits Pandoc JSON.
+  positions; export consumes official semantic outputs and emits Pandoc JSON.
 - **`tree-sitter-plumb`** (eventually a separate repo) — the existing lenient
   grammar for editor ergonomics.
 
-The unified binary reuses `plumb-core` and the shared libraries; subcommand
+The unified binary reuses `plumb-syntax` and the shared libraries; subcommand
 dispatch does not move syntax or semantic behavior into the CLI layer.
 
 ## Tree-sitter generation workflow
@@ -307,7 +303,7 @@ implementation progress, TODOs, or "not yet implemented" lists into
 `docs/guide/`: unfinished or exploratory work belongs in
 `docs/project/roadmap.plumb`, directly actionable work belongs in
 `docs/project/tasks.plumb`, and normative exclusions belong in the references.
-`cargo test -p plumb-core --test project_documents` enforces this ownership and
+`cargo test -p plumb-syntax --test project_documents` enforces this ownership and
 also verifies all project `.plumb` documents plus bundled-skill plumb examples
 with the strict parser.
 
