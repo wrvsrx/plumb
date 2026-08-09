@@ -2165,7 +2165,7 @@ mod tests {
     }
 
     #[test]
-    fn does_not_fold_a_leaf_block_over_trailing_blank_lines() {
+    fn layers_owner_fold_without_extending_leaf_over_trailing_blank_lines() {
         let parsed = parse("`task Parent {\n}\n\n      `task Leaf {\n      }\n\n`- Next\n");
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         assert_eq!(
@@ -2173,7 +2173,7 @@ mod tests {
                 .iter()
                 .map(|range| (range.start_line, range.end_line))
                 .collect::<Vec<_>>(),
-            [(0, 4), (3, 4)]
+            [(0, 4), (0, 1), (3, 4)]
         );
     }
 
