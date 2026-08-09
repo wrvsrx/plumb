@@ -614,6 +614,57 @@ fn completes_block_constructs_from_their_marker_prefixes() {
 }
 
 #[test]
+fn completes_task_construct_immediately_after_attached_group() {
+    let root = unique_temp_dir();
+    std::fs::create_dir_all(&root).unwrap();
+    let document = root.join("current.plumb");
+    let source = "`task something {\n `: created 2026-08-09T10:55:24+08:00\n}\n`t";
+    std::fs::write(&document, source).unwrap();
+    let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
+    let document_uri = lsp_types::Url::from_file_path(&document).unwrap();
+    let messages = [
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {
+                "processId": null, "rootUri": root_uri,
+                "workspaceFolders": [{ "uri": root_uri, "name": "test" }],
+                "capabilities": { "textDocument": { "completion": {
+                    "completionItem": { "snippetSupport": true }
+                } } }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": {
+                "uri": document_uri, "languageId": "plumb", "version": 1, "text": source
+            }}
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 2, "method": "textDocument/completion",
+            "params": {
+                "textDocument": { "uri": document_uri },
+                "position": { "line": 3, "character": 2 }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 3, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+
+    let output = run_server(&messages);
+    let item = &response(&output, 2)["result"][0];
+    assert_eq!(item["label"], "Task");
+    assert_eq!(
+        item["textEdit"]["range"],
+        json!({
+            "start": { "line": 3, "character": 0 },
+            "end": { "line": 3, "character": 2 }
+        })
+    );
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn narrows_link_constructs_from_the_shared_marker_prefix() {
     let root = unique_temp_dir();
     std::fs::create_dir_all(&root).unwrap();

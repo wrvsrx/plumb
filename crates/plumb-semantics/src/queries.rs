@@ -1114,9 +1114,7 @@ fn verbatim_at(document: &ParsedDocument, offset: usize) -> bool {
 
 fn blocks_contain_verbatim(blocks: &[Block], offset: usize) -> bool {
     blocks.iter().any(|block| match block {
-        Block::Verbatim(block) => {
-            block.text_range.start <= offset && offset <= block.text_range.end
-        }
+        Block::Verbatim(block) => block.text_range.contains(&offset),
         Block::Parsed(block) => {
             inlines_contain_verbatim(&block.head, offset)
                 || blocks_contain_verbatim(&block.children, offset)
@@ -1130,13 +1128,13 @@ fn blocks_attributes_contain(blocks: &[Block], offset: usize) -> bool {
             .attrs
             .range
             .as_ref()
-            .is_some_and(|range| range.start <= offset && offset <= range.end),
+            .is_some_and(|range| range.contains(&offset)),
         Block::Parsed(block) => {
             block.mark.as_ref().is_some_and(|mark| {
                 mark.attrs
                     .range
                     .as_ref()
-                    .is_some_and(|range| range.start <= offset && offset <= range.end)
+                    .is_some_and(|range| range.contains(&offset))
             }) || inlines_attributes_contain(&block.head, offset)
                 || blocks_attributes_contain(&block.children, offset)
         }
@@ -1149,13 +1147,13 @@ fn inlines_attributes_contain(content: &InlineContent, offset: usize) -> bool {
             attrs
                 .range
                 .as_ref()
-                .is_some_and(|range| range.start <= offset && offset <= range.end)
+                .is_some_and(|range| range.contains(&offset))
                 || inlines_attributes_contain(content, offset)
         }
         Inline::Verbatim { attrs, .. } => attrs
             .range
             .as_ref()
-            .is_some_and(|range| range.start <= offset && offset <= range.end),
+            .is_some_and(|range| range.contains(&offset)),
         Inline::Text { .. } | Inline::Space { .. } | Inline::SoftBreak { .. } => false,
     })
 }
@@ -1218,6 +1216,39 @@ mod tests {
                 })
             );
         }
+        for prefix in ["`t", "`e"] {
+            let source =
+                format!("`task something {{\n `: created 2026-08-09T10:55:24+08:00\n}}\n{prefix}");
+            let parsed = parse(&source);
+            let replace = source.len() - prefix.len()..source.len();
+            let expected = if prefix == "`t" {
+                ConstructCompletionContext::Task { replace }
+            } else {
+                ConstructCompletionContext::Event { replace }
+            };
+            assert_eq!(
+                construct_completion_context(&parsed, source.len()),
+                Some(expected)
+            );
+        }
+        for source in ["`span[x]{`: key value}`-", "`\"raw\"{`: key value}`-"] {
+            let parsed = parse(source);
+            let start = source.rfind('`').unwrap();
+            assert_eq!(
+                construct_completion_context(&parsed, source.len()),
+                Some(ConstructCompletionContext::LinkAndAutolink {
+                    replace: start..source.len()
+                })
+            );
+        }
+        let after_verbatim = "`rust\"\n raw\n`t";
+        let parsed = parse(after_verbatim);
+        assert_eq!(
+            construct_completion_context(&parsed, after_verbatim.len()),
+            Some(ConstructCompletionContext::Task {
+                replace: after_verbatim.len() - 2..after_verbatim.len()
+            })
+        );
         for source in ["  `e", "  `ev", "  `eve", "  `even", "  `event"] {
             let parsed = parse(source);
             assert_eq!(
