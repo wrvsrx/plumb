@@ -635,6 +635,81 @@ fn completes_block_constructs_from_their_marker_prefixes() {
 }
 
 #[test]
+fn projects_nested_task_completion_for_adjusted_indentation() {
+    let root = unique_temp_dir();
+    std::fs::create_dir_all(&root).unwrap();
+    let document = root.join("adjusted.plumb");
+    let source = "`task Parent\n `t";
+    std::fs::write(&document, source).unwrap();
+    let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
+    let document_uri = lsp_types::Url::from_file_path(&document).unwrap();
+    let messages = [
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {
+                "processId": null, "rootUri": root_uri,
+                "workspaceFolders": [{ "uri": root_uri, "name": "test" }],
+                "capabilities": { "textDocument": { "completion": {
+                    "completionItem": {
+                        "snippetSupport": true,
+                        "insertTextModeSupport": { "valueSet": [2] }
+                    },
+                    "insertTextMode": 2
+                } } }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": {
+                "uri": document_uri, "languageId": "plumb", "version": 1, "text": source
+            }}
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 2, "method": "textDocument/completion",
+            "params": {
+                "textDocument": { "uri": document_uri },
+                "position": { "line": 1, "character": 3 }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 3, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+
+    let output = run_server(&messages);
+    let items = response(&output, 2)["result"].as_array().unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0]["label"], "Task");
+    assert_eq!(items[0]["insertTextMode"], 2);
+    assert_eq!(
+        items[0]["textEdit"]["range"],
+        json!({ "start": { "line": 1, "character": 1 }, "end": { "line": 1, "character": 3 } })
+    );
+    let replacement = items[0]["textEdit"]["newText"].as_str().unwrap();
+    assert!(replacement.starts_with("`task ${1:Task} {\n `: created "));
+    assert!(replacement.ends_with("\n}"));
+
+    let adjusted = replacement
+        .replace("${1:Task}", "Task")
+        .split('\n')
+        .enumerate()
+        .map(|(index, line)| {
+            if index == 0 {
+                line.to_string()
+            } else {
+                format!(" {line}")
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let completed = format!("`task Parent\n {adjusted}");
+    let parsed = plumb_syntax::parse(&completed);
+    assert!(parsed.is_valid(), "{:?}\n{completed}", parsed.diagnostics);
+
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn completes_task_construct_immediately_after_attached_group() {
     let root = unique_temp_dir();
     std::fs::create_dir_all(&root).unwrap();

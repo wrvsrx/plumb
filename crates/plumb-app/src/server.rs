@@ -65,7 +65,7 @@ pub(crate) struct ServerState {
     supports_resource_rename: bool,
     supports_dynamic_watching: bool,
     supports_completion_snippets: bool,
-    supports_completion_insert_text_mode_as_is: bool,
+    completion_indentation: CompletionIndentation,
     supports_code_lens_refresh: bool,
     folding_range_limit: Option<usize>,
     supports_folding_collapsed_text: bool,
@@ -92,7 +92,7 @@ impl ServerState {
             supports_resource_rename: false,
             supports_dynamic_watching: false,
             supports_completion_snippets: false,
-            supports_completion_insert_text_mode_as_is: false,
+            completion_indentation: CompletionIndentation::default(),
             supports_code_lens_refresh: false,
             folding_range_limit: None,
             supports_folding_collapsed_text: false,
@@ -486,14 +486,13 @@ impl LanguageServer for ServerState {
             .and_then(|completion| completion.completion_item.as_ref())
             .and_then(|item| item.snippet_support)
             .unwrap_or(false);
-        self.supports_completion_insert_text_mode_as_is = params
-            .capabilities
-            .text_document
-            .as_ref()
-            .and_then(|text_document| text_document.completion.as_ref())
-            .and_then(|completion| completion.completion_item.as_ref())
-            .and_then(|item| item.insert_text_mode_support.as_ref())
-            .is_some_and(|support| support.value_set.contains(&InsertTextMode::AS_IS));
+        self.completion_indentation = completion_indentation(
+            params
+                .capabilities
+                .text_document
+                .as_ref()
+                .and_then(|text_document| text_document.completion.as_ref()),
+        );
         self.supports_code_lens_refresh = params
             .capabilities
             .workspace
@@ -1234,7 +1233,7 @@ impl LanguageServer for ServerState {
                         &entry.parsed.source,
                         context,
                         self.supports_completion_snippets,
-                        self.supports_completion_insert_text_mode_as_is,
+                        self.completion_indentation,
                         &timestamp,
                     );
                     if include_link_labels {
@@ -1701,38 +1700,96 @@ struct ConstructTemplate {
     plain: String,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum CompletionIndentationProjection {
+    AsIs,
+    AdjustIndentation,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct CompletionIndentation {
+    projection: CompletionIndentationProjection,
+    item_mode: Option<InsertTextMode>,
+}
+
+impl Default for CompletionIndentation {
+    fn default() -> Self {
+        Self {
+            projection: CompletionIndentationProjection::AdjustIndentation,
+            item_mode: None,
+        }
+    }
+}
+
+fn completion_indentation(
+    capabilities: Option<&lsp_types::CompletionClientCapabilities>,
+) -> CompletionIndentation {
+    let Some(capabilities) = capabilities else {
+        return CompletionIndentation::default();
+    };
+    let supported = capabilities
+        .completion_item
+        .as_ref()
+        .and_then(|item| item.insert_text_mode_support.as_ref())
+        .map(|support| support.value_set.as_slice())
+        .unwrap_or_default();
+
+    if supported.contains(&InsertTextMode::AS_IS) {
+        CompletionIndentation {
+            projection: CompletionIndentationProjection::AsIs,
+            item_mode: Some(InsertTextMode::AS_IS),
+        }
+    } else if supported.contains(&InsertTextMode::ADJUST_INDENTATION) {
+        CompletionIndentation {
+            projection: CompletionIndentationProjection::AdjustIndentation,
+            item_mode: Some(InsertTextMode::ADJUST_INDENTATION),
+        }
+    } else if capabilities.insert_text_mode == Some(InsertTextMode::AS_IS) {
+        CompletionIndentation {
+            projection: CompletionIndentationProjection::AsIs,
+            item_mode: None,
+        }
+    } else {
+        CompletionIndentation::default()
+    }
+}
+
+fn task_construct_template(block_indent: &str, timestamp: &str) -> ConstructTemplate {
+    ConstructTemplate {
+        label: "Task",
+        detail: "plumb task list item",
+        snippet: format!(
+            "`task ${{1:Task}} {{\n{block_indent} `: created {timestamp}\n{block_indent}}}"
+        ),
+        plain: format!("`task  {{\n{block_indent} `: created {timestamp}\n{block_indent}}}"),
+    }
+}
+
 fn construct_completion_items(
     source: &str,
     context: ConstructCompletionContext,
     snippets: bool,
-    insert_text_mode_as_is: bool,
+    completion_indentation: CompletionIndentation,
     timestamp: &str,
 ) -> Vec<CompletionItem> {
-    let block_indent = match &context {
-        ConstructCompletionContext::Task { replace }
-        | ConstructCompletionContext::Event { replace } => {
+    let task_completion = matches!(&context, ConstructCompletionContext::Task { .. });
+    let block_indent = match (&context, completion_indentation.projection) {
+        (
+            ConstructCompletionContext::Task { replace }
+            | ConstructCompletionContext::Event { replace },
+            CompletionIndentationProjection::AsIs,
+        ) => {
             let line_start = source[..replace.start]
                 .rfind('\n')
                 .map_or(0, |index| index + 1);
             source[line_start..replace.start].to_string()
         }
-        ConstructCompletionContext::LinkAndAutolink { .. }
-        | ConstructCompletionContext::Autolink { .. }
-        | ConstructCompletionContext::Link { .. } => String::new(),
+        _ => String::new(),
     };
     let (replace, templates) = match context {
         ConstructCompletionContext::Task { replace } => (
             replace,
-            vec![ConstructTemplate {
-                label: "Task",
-                detail: "plumb task list item",
-                snippet: format!(
-                    "`task ${{1:Task}} {{\n{block_indent} `: created {timestamp}\n{block_indent}}}"
-                ),
-                plain: format!(
-                    "`task  {{\n{block_indent} `: created {timestamp}\n{block_indent}}}"
-                ),
-            }],
+            vec![task_construct_template(&block_indent, timestamp)],
         ),
         ConstructCompletionContext::Event { replace } => (
             replace,
@@ -1763,7 +1820,9 @@ fn construct_completion_items(
             } else {
                 InsertTextFormat::PLAIN_TEXT
             }),
-            insert_text_mode: insert_text_mode_as_is.then_some(InsertTextMode::AS_IS),
+            insert_text_mode: task_completion
+                .then_some(completion_indentation.item_mode)
+                .flatten(),
             text_edit: Some(CompletionTextEdit::Edit(LspTextEdit::new(
                 byte_range_to_lsp(source, &replace),
                 if snippets {
@@ -1973,10 +2032,85 @@ fn to_lsp_diagnostic(source: &str, uri: &Url, diagnostic: Diagnostic) -> LspDiag
 
 #[cfg(test)]
 mod tests {
+    use lsp_types::CompletionClientCapabilities;
     use plumb_semantics::{analyze_headings, analyze_metadata, analyze_tasks};
     use plumb_syntax::parse;
 
     use super::*;
+
+    #[test]
+    fn negotiates_completion_indentation_modes() {
+        let both: CompletionClientCapabilities = serde_json::from_value(serde_json::json!({
+            "completionItem": { "insertTextModeSupport": { "valueSet": [1, 2] } },
+            "insertTextMode": 2
+        }))
+        .unwrap();
+        assert_eq!(
+            completion_indentation(Some(&both)),
+            CompletionIndentation {
+                projection: CompletionIndentationProjection::AsIs,
+                item_mode: Some(InsertTextMode::AS_IS),
+            }
+        );
+
+        let adjusted: CompletionClientCapabilities = serde_json::from_value(serde_json::json!({
+            "completionItem": { "insertTextModeSupport": { "valueSet": [2] } },
+            "insertTextMode": 2
+        }))
+        .unwrap();
+        assert_eq!(
+            completion_indentation(Some(&adjusted)),
+            CompletionIndentation {
+                projection: CompletionIndentationProjection::AdjustIndentation,
+                item_mode: Some(InsertTextMode::ADJUST_INDENTATION),
+            }
+        );
+
+        let default_as_is: CompletionClientCapabilities =
+            serde_json::from_value(serde_json::json!({ "insertTextMode": 1 })).unwrap();
+        assert_eq!(
+            completion_indentation(Some(&default_as_is)),
+            CompletionIndentation {
+                projection: CompletionIndentationProjection::AsIs,
+                item_mode: None,
+            }
+        );
+        let default_adjusted: CompletionClientCapabilities =
+            serde_json::from_value(serde_json::json!({ "insertTextMode": 2 })).unwrap();
+        assert_eq!(
+            completion_indentation(Some(&default_adjusted)),
+            CompletionIndentation::default()
+        );
+        assert_eq!(
+            completion_indentation(None),
+            CompletionIndentation::default()
+        );
+    }
+
+    #[test]
+    fn task_completion_projections_produce_the_same_source() {
+        let timestamp = "2026-08-10T12:00:00+08:00";
+        let absolute = task_construct_template(" ", timestamp).snippet;
+        let relative = task_construct_template("", timestamp).snippet;
+        let adjusted = relative
+            .split('\n')
+            .enumerate()
+            .map(|(index, line)| {
+                if index == 0 {
+                    line.to_string()
+                } else {
+                    format!(" {line}")
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        assert_eq!(adjusted, absolute);
+        assert!(absolute.contains("\n  `: created "));
+        assert!(absolute.ends_with("\n }"));
+        assert!(relative.contains("\n `: created "));
+        assert!(relative.ends_with("\n}"));
+    }
 
     #[test]
     fn maps_nested_heading_facts_to_nested_symbols() {
