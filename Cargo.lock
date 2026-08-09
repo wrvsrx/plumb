@@ -1494,7 +1494,7 @@ checksum = "8b870d8c151b6f2fb93e84a13146138f05d02ed11c7e7c54f8826aaaf7c9f184"
 
 [[package]]
 name = "plumb"
-version = "0.20.4-dev"
+version = "0.20.4"
 dependencies = [
  "async-lsp",
  "chrono",
@@ -1519,7 +1519,7 @@ dependencies = [
 
 [[package]]
 name = "plumb-edit"
-version = "0.20.4-dev"
+version = "0.20.4"
 dependencies = [
  "plumb-format",
  "plumb-syntax",
@@ -1527,7 +1527,7 @@ dependencies = [
 
 [[package]]
 name = "plumb-export"
-version = "0.20.4-dev"
+version = "0.20.4"
 dependencies = [
  "plumb-semantics",
  "plumb-syntax",
@@ -1536,7 +1536,7 @@ dependencies = [
 
 [[package]]
 name = "plumb-format"
-version = "0.20.4-dev"
+version = "0.20.4"
 dependencies = [
  "plumb-syntax",
  "similar",
@@ -1544,7 +1544,7 @@ dependencies = [
 
 [[package]]
 name = "plumb-import"
-version = "0.20.4-dev"
+version = "0.20.4"
 dependencies = [
  "pandoc_types",
  "plumb-format",
@@ -1554,7 +1554,7 @@ dependencies = [
 
 [[package]]
 name = "plumb-notes"
-version = "0.20.4-dev"
+version = "0.20.4"
 dependencies = [
  "cel",
  "chrono",
@@ -1572,7 +1572,7 @@ dependencies = [
 
 [[package]]
 name = "plumb-semantics"
-version = "0.20.4-dev"
+version = "0.20.4"
 dependencies = [
  "chrono",
  "plumb-syntax",
@@ -1581,7 +1581,7 @@ dependencies = [
 
 [[package]]
 name = "plumb-syntax"
-version = "0.20.4-dev"
+version = "0.20.4"
 dependencies = [
  "proptest",
  "serde",
@@ -1590,7 +1590,7 @@ dependencies = [
 
 [[package]]
 name = "plumb-web"
-version = "0.20.4-dev"
+version = "0.20.4"
 dependencies = [
  "axum",
  "cel",
@@ -1613,7 +1613,7 @@ dependencies = [
 
 [[package]]
 name = "plumb-workspace"
-version = "0.20.4-dev"
+version = "0.20.4"
 dependencies = [
  "cel",
  "chrono",
