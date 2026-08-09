@@ -239,8 +239,9 @@ Construct completion is prefix-sensitive. A bare backtick offers no candidates.
 At line start, a backtick followed by a nonempty prefix of `task` offers Task,
 while a prefix of `event` offers Event. It creates the Task `created` field from
 the current local RFC 3339 timestamp. The Task replacement uses canonical
-same-line expanded-group indentation, and clients supporting per-item insertion
-modes receive `asIs` so they do not adjust the multiline snippet. At line start
+same-line expanded-group indentation. The LSP projects absolute indentation for
+`asIs` clients and owner-relative indentation for `adjustIndentation` clients,
+so applying either form produces the same source. At line start
 and in ordinary inline content, a backtick followed by a hyphen or arrow offers
 Link and Autolink;
 continuing with `->[` narrows to Link, while `->"` narrows to Autolink. A
