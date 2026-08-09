@@ -238,8 +238,11 @@ RFC 3339 timestamp.
 Construct completion is prefix-sensitive. A bare backtick offers no candidates.
 At line start, a backtick followed by a nonempty prefix of `task` offers Task,
 while a prefix of `event` offers Event. It creates the Task `created` field from
-the current local RFC 3339 timestamp. At line start and in ordinary inline
-content, a backtick followed by a hyphen or arrow offers Link and Autolink;
+the current local RFC 3339 timestamp. The Task replacement uses canonical
+same-line expanded-group indentation, and clients supporting per-item insertion
+modes receive `asIs` so they do not adjust the multiline snippet. At line start
+and in ordinary inline content, a backtick followed by a hyphen or arrow offers
+Link and Autolink;
 continuing with `->[` narrows to Link, while `->"` narrows to Autolink. A
 standalone opening bracket offers neither. Heading, ordinary list-item, and
 other inline-verbatim constructs are typed directly.
