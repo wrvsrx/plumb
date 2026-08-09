@@ -219,7 +219,7 @@ pub(crate) fn ranges(
     let mut byte_ranges = Vec::new();
     let mut pending_headings = headings.headings.iter().collect::<Vec<_>>();
     while let Some(heading) = pending_headings.pop() {
-        byte_ranges.push(heading.section_range.clone());
+        byte_ranges.push((heading.section_range.clone(), heading.section_range.clone()));
         pending_headings.extend(heading.children.iter().rev());
     }
 
@@ -227,22 +227,39 @@ pub(crate) fn ranges(
     while let Some(block) = pending_blocks.pop() {
         match block {
             Block::Parsed(parsed) => {
-                if parsed.mark.is_some() {
-                    byte_ranges.push(parsed.range.clone());
+                if let Some(mark) = &parsed.mark {
+                    byte_ranges.push((parsed.range.clone(), parsed.range.clone()));
+                    if let Some(attached) = mark.attrs.attached.as_deref() {
+                        let owner_range = parsed.range.start..attached.range.end;
+                        if owner_range.end < parsed.range.end
+                            && source[owner_range.clone()].contains('\n')
+                        {
+                            byte_ranges.push((owner_range, parsed.range.clone()));
+                        }
+                    }
                 }
                 pending_blocks.extend(parsed.children.iter().rev());
             }
-            Block::Verbatim(verbatim) => byte_ranges.push(verbatim.range.clone()),
+            Block::Verbatim(verbatim) => {
+                byte_ranges.push((verbatim.range.clone(), verbatim.range.clone()));
+            }
         }
     }
 
-    byte_ranges.sort_by_key(|range| (range.start, std::cmp::Reverse(range.end)));
-    byte_ranges.dedup();
+    byte_ranges.sort_by_key(|(range, _)| (range.start, std::cmp::Reverse(range.end)));
+    byte_ranges.dedup_by(|(left, _), (right, _)| left == right);
     let mut ranges = byte_ranges
         .into_iter()
-        .filter_map(|range| {
-            let label = labels.and_then(|table| table.get(&(range.start, range.end)));
-            line_range(source, &range, label, line_folding_only)
+        .filter_map(|(range, label_range)| {
+            let mut label = labels
+                .and_then(|table| table.get(&(label_range.start, label_range.end)))
+                .cloned();
+            if range != label_range {
+                if let Some(label) = &mut label {
+                    label.include_trailing_blank = false;
+                }
+            }
+            line_range(source, &range, label.as_ref(), line_folding_only)
         })
         .collect::<Vec<_>>();
     ranges.dedup();

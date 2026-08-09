@@ -489,7 +489,7 @@ fn completes_block_constructs_from_their_marker_prefixes() {
     let root = unique_temp_dir();
     std::fs::create_dir_all(&root).unwrap();
     let document = root.join("constructs.plumb");
-    let source = "`t\n  `ev\n`-\nText `";
+    let source = "`t\n  `ev\n `t\n`-\nText `";
     std::fs::write(&document, source).unwrap();
     let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
     let document_uri = lsp_types::Url::from_file_path(&document).unwrap();
@@ -500,7 +500,10 @@ fn completes_block_constructs_from_their_marker_prefixes() {
                 "processId": null, "rootUri": root_uri,
                 "workspaceFolders": [{ "uri": root_uri, "name": "test" }],
                 "capabilities": { "textDocument": { "completion": {
-                    "completionItem": { "snippetSupport": true }
+                    "completionItem": {
+                        "snippetSupport": true,
+                        "insertTextModeSupport": { "valueSet": [1, 2] }
+                    }
                 } } }
             }
         }),
@@ -529,17 +532,24 @@ fn completes_block_constructs_from_their_marker_prefixes() {
             "jsonrpc": "2.0", "id": 4, "method": "textDocument/completion",
             "params": {
                 "textDocument": { "uri": document_uri },
-                "position": { "line": 2, "character": 2 }
+                "position": { "line": 2, "character": 3 }
             }
         }),
         json!({
             "jsonrpc": "2.0", "id": 5, "method": "textDocument/completion",
             "params": {
                 "textDocument": { "uri": document_uri },
-                "position": { "line": 3, "character": 6 }
+                "position": { "line": 3, "character": 2 }
             }
         }),
-        json!({ "jsonrpc": "2.0", "id": 6, "method": "shutdown", "params": null }),
+        json!({
+            "jsonrpc": "2.0", "id": 6, "method": "textDocument/completion",
+            "params": {
+                "textDocument": { "uri": document_uri },
+                "position": { "line": 4, "character": 6 }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 7, "method": "shutdown", "params": null }),
         json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
     ];
 
@@ -559,9 +569,10 @@ fn completes_block_constructs_from_their_marker_prefixes() {
         json!({ "start": { "line": 0, "character": 0 }, "end": { "line": 0, "character": 2 } })
     );
     let task = task_items[0]["textEdit"]["newText"].as_str().unwrap();
-    assert!(task.starts_with("`task ${1:Task} {\n  `: created "));
+    assert!(task.starts_with("`task ${1:Task} {\n `: created "));
     assert!(task.ends_with("\n}"));
     assert_eq!(task_items[0]["insertTextFormat"], 2);
+    assert_eq!(task_items[0]["insertTextMode"], 1);
 
     let event_items = response(&output, 3)["result"].as_array().unwrap();
     assert_eq!(event_items.len(), 1);
@@ -570,11 +581,20 @@ fn completes_block_constructs_from_their_marker_prefixes() {
     assert_eq!(event["textEdit"]["newText"], "`event ${1:09:00} ${2:Event}");
     assert_eq!(event["insertTextFormat"], 2);
 
-    let link_items = response(&output, 4)["result"].as_array().unwrap();
+    let nested_task_items = response(&output, 4)["result"].as_array().unwrap();
+    assert_eq!(nested_task_items.len(), 1);
+    let nested_task = nested_task_items[0]["textEdit"]["newText"]
+        .as_str()
+        .unwrap();
+    assert!(nested_task.starts_with("`task ${1:Task} {\n  `: created "));
+    assert!(nested_task.ends_with("\n }"));
+    assert_eq!(nested_task_items[0]["insertTextMode"], 1);
+
+    let link_items = response(&output, 5)["result"].as_array().unwrap();
     assert_eq!(link_items.len(), 2);
     assert_eq!(link_items[0]["label"], "Link");
     assert_eq!(link_items[1]["label"], "Autolink");
-    assert!(response(&output, 5)["result"].is_null());
+    assert!(response(&output, 6)["result"].is_null());
 
     let fallback_messages = [
         json!({
@@ -607,9 +627,10 @@ fn completes_block_constructs_from_their_marker_prefixes() {
     assert_eq!(fallback_items.len(), 1);
     assert_eq!(fallback_items[0]["label"], "Task");
     let fallback_task = fallback_items[0]["textEdit"]["newText"].as_str().unwrap();
-    assert!(fallback_task.starts_with("`task  {\n  `: created "));
+    assert!(fallback_task.starts_with("`task  {\n `: created "));
     assert!(fallback_task.ends_with("\n}"));
     assert_eq!(fallback_items[0]["insertTextFormat"], 1);
+    assert!(fallback_items[0].get("insertTextMode").is_none());
     std::fs::remove_dir_all(root).unwrap();
 }
 

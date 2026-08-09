@@ -18,9 +18,9 @@ use lsp_types::{
     DocumentSymbolResponse, FileChangeType, FileSystemWatcher, FoldingRange, FoldingRangeParams,
     FoldingRangeProviderCapability, GlobPattern, GotoDefinitionParams, GotoDefinitionResponse,
     Hover, HoverContents, HoverParams, HoverProviderCapability, InitializeParams, InitializeResult,
-    InitializedParams, InsertTextFormat, Location, MarkupContent, MarkupKind, NumberOrString,
-    OneOf, OptionalVersionedTextDocumentIdentifier, PrepareRenameResponse, ProgressParams,
-    ProgressParamsValue, PublishDiagnosticsParams, ReferenceParams, Registration,
+    InitializedParams, InsertTextFormat, InsertTextMode, Location, MarkupContent, MarkupKind,
+    NumberOrString, OneOf, OptionalVersionedTextDocumentIdentifier, PrepareRenameResponse,
+    ProgressParams, ProgressParamsValue, PublishDiagnosticsParams, ReferenceParams, Registration,
     RegistrationParams, RenameFile, RenameFileOptions, RenameOptions, RenameParams, ResourceOp,
     ResourceOperationKind, SemanticToken, SemanticTokenModifier, SemanticTokenType, SemanticTokens,
     SemanticTokensFullOptions, SemanticTokensLegend, SemanticTokensOptions, SemanticTokensParams,
@@ -65,6 +65,7 @@ pub(crate) struct ServerState {
     supports_resource_rename: bool,
     supports_dynamic_watching: bool,
     supports_completion_snippets: bool,
+    supports_completion_insert_text_mode_as_is: bool,
     supports_code_lens_refresh: bool,
     folding_range_limit: Option<usize>,
     supports_folding_collapsed_text: bool,
@@ -91,6 +92,7 @@ impl ServerState {
             supports_resource_rename: false,
             supports_dynamic_watching: false,
             supports_completion_snippets: false,
+            supports_completion_insert_text_mode_as_is: false,
             supports_code_lens_refresh: false,
             folding_range_limit: None,
             supports_folding_collapsed_text: false,
@@ -484,6 +486,14 @@ impl LanguageServer for ServerState {
             .and_then(|completion| completion.completion_item.as_ref())
             .and_then(|item| item.snippet_support)
             .unwrap_or(false);
+        self.supports_completion_insert_text_mode_as_is = params
+            .capabilities
+            .text_document
+            .as_ref()
+            .and_then(|text_document| text_document.completion.as_ref())
+            .and_then(|completion| completion.completion_item.as_ref())
+            .and_then(|item| item.insert_text_mode_support.as_ref())
+            .is_some_and(|support| support.value_set.contains(&InsertTextMode::AS_IS));
         self.supports_code_lens_refresh = params
             .capabilities
             .workspace
@@ -1224,6 +1234,7 @@ impl LanguageServer for ServerState {
                         &entry.parsed.source,
                         context,
                         self.supports_completion_snippets,
+                        self.supports_completion_insert_text_mode_as_is,
                         &timestamp,
                     );
                     if include_link_labels {
@@ -1694,6 +1705,7 @@ fn construct_completion_items(
     source: &str,
     context: ConstructCompletionContext,
     snippets: bool,
+    insert_text_mode_as_is: bool,
     timestamp: &str,
 ) -> Vec<CompletionItem> {
     let block_indent = match &context {
@@ -1715,10 +1727,10 @@ fn construct_completion_items(
                 label: "Task",
                 detail: "plumb task list item",
                 snippet: format!(
-                    "`task ${{1:Task}} {{\n{block_indent}  `: created {timestamp}\n{block_indent}}}"
+                    "`task ${{1:Task}} {{\n{block_indent} `: created {timestamp}\n{block_indent}}}"
                 ),
                 plain: format!(
-                    "`task  {{\n{block_indent}  `: created {timestamp}\n{block_indent}}}"
+                    "`task  {{\n{block_indent} `: created {timestamp}\n{block_indent}}}"
                 ),
             }],
         ),
@@ -1751,6 +1763,7 @@ fn construct_completion_items(
             } else {
                 InsertTextFormat::PLAIN_TEXT
             }),
+            insert_text_mode: insert_text_mode_as_is.then_some(InsertTextMode::AS_IS),
             text_edit: Some(CompletionTextEdit::Edit(LspTextEdit::new(
                 byte_range_to_lsp(source, &replace),
                 if snippets {

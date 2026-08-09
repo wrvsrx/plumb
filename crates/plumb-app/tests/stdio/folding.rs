@@ -190,6 +190,7 @@ fn task_fold_includes_one_trailing_separator_line() {
         response(&run_server(&messages), 2)["result"],
         json!([
             { "startLine": 0, "endLine": 4, "collapsedText": "-   aaa" },
+            { "startLine": 0, "endLine": 1, "collapsedText": "-   aaa" },
             { "startLine": 5, "endLine": 6, "collapsedText": "-   ccc" }
         ])
     );
@@ -297,13 +298,20 @@ fn labels_task_folds_with_derived_workflow_states() {
         response(&run_server(&messages), 2)["result"],
         json!([
             { "startLine": 0, "endLine": 5, "collapsedText": "-   Ready task" },
+            { "startLine": 0, "endLine": 2, "collapsedText": "-   Ready task" },
             { "startLine": 6, "endLine": 12, "collapsedText": "~   Waiting task" },
+            { "startLine": 6, "endLine": 9, "collapsedText": "~   Waiting task" },
             { "startLine": 13, "endLine": 18, "collapsedText": "+   Done task" },
+            { "startLine": 13, "endLine": 15, "collapsedText": "+   Done task" },
             { "startLine": 19, "endLine": 24, "collapsedText": "x   Canceled task" },
+            { "startLine": 19, "endLine": 21, "collapsedText": "x   Canceled task" },
             { "startLine": 25, "endLine": 31, "collapsedText": "+x  Conflicted task" },
+            { "startLine": 25, "endLine": 28, "collapsedText": "+x  Conflicted task" },
             { "startLine": 32, "endLine": 37, "collapsedText": "!   Blocked task" },
+            { "startLine": 32, "endLine": 34, "collapsedText": "!   Blocked task" },
             { "startLine": 38, "endLine": 44 },
-            { "startLine": 40, "endLine": 44, "collapsedText": "      +   Nested task" }
+            { "startLine": 40, "endLine": 44, "collapsedText": "      +   Nested task" },
+            { "startLine": 40, "endLine": 42, "collapsedText": "      +   Nested task" }
         ])
     );
 }
@@ -346,10 +354,15 @@ fn labels_event_folds_with_abbreviated_times() {
         response(&run_server(&messages), 2)["result"],
         json!([
             { "startLine": 0, "endLine": 5, "collapsedText": "2026-08-02T14:00  Standup" },
+            { "startLine": 0, "endLine": 3, "collapsedText": "2026-08-02T14:00  Standup" },
             { "startLine": 7, "endLine": 12, "collapsedText": "2026-08-02T09:00--10:30  Review" },
+            { "startLine": 7, "endLine": 10, "collapsedText": "2026-08-02T09:00--10:30  Review" },
             { "startLine": 14, "endLine": 26, "collapsedText": "2026-08-02T11:00  Parent" },
+            { "startLine": 14, "endLine": 17, "collapsedText": "2026-08-02T11:00  Parent" },
             { "startLine": 21, "endLine": 26, "collapsedText": "       2026-08-02T12:00  Nested" },
-            { "startLine": 28, "endLine": 31 }
+            { "startLine": 21, "endLine": 24, "collapsedText": "       2026-08-02T12:00  Nested" },
+            { "startLine": 28, "endLine": 31 },
+            { "startLine": 28, "endLine": 29 }
         ])
     );
 }
