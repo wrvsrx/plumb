@@ -244,9 +244,11 @@ or the server crashes in real editors. A catch-all does not cover these.
 
 The primary development environment uses a patched Neovim from
 `~/Documents/nur-packages`, backed by the fork in `~/Documents/neovim`. The
-patch extends Neovim's LSP folding support for whole-line, single-physical-line
-folds and preserves their open state across relevant text edits. This behavior
-is not available in an unpatched upstream Neovim build.
+patch fixes Neovim's LSP fold expression when adjacent nested folding ranges end
+on the same line, preserving separate owner/subtree boundaries instead of
+merging the following sibling into the preceding fold. It does not add
+single-physical-line fold support or fold-state reconciliation. This nested
+boundary behavior is not available in an unpatched upstream Neovim 0.12.4 build.
 
 When investigating folding behavior, first reproduce it with the configured
 patched package and distinguish problems in plumb's folding ranges from problems

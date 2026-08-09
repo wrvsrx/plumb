@@ -117,12 +117,13 @@ range 使用整行 boundary，不排除单行 range。支持这类 range 的 edi
 `"foldminlines = 0" 的设置，才能关闭只占一个 screen line 的 fold。上游 Neovim 0.12 的
 LSP fold adapter 会忽略这类 range；plugin 不补充 folding-range adapter。
 
-当前官方 Neovim integration 使用原生 Neovim 的 `"vim.lsp.foldexpr()" 和 `"vim.lsp.foldtext()"，不依赖
-`"~/Documents/neovim" 中的实验性 single-line 或 fold-state reconciliation patch。原生 adapter 会按
-`"foldlevel"、`"foldmethod=expr" 和自身的 fold engine 规则重建 folding tree；编辑造成 folding topology
-变化时，用户通过 `"zo"、`"zc" 选择的局部状态不保证跨越所有结构重建继续保留。plugin 不在 Lua 层复制
-fold engine，也不使用 range overlap、cursor visibility 或延迟 `"foldopen"/`"foldclose" 猜测并恢复
-用户状态。
+当前官方 Neovim integration 使用 `"~/Documents/nur-packages" 提供的 patched Neovim 0.12.4，以及原生
+`"vim.lsp.foldexpr()" 和 `"vim.lsp.foldtext()"。patch 修复多个相邻 nested folding ranges 在同一行结束时
+被 foldexpr 合并的问题，使 owner/subtree 两层 range 不会吞并后续 sibling；它不增加 single-physical-line
+fold support，也不恢复 folding topology 重建前的手动 open/closed state。原生 adapter 仍按
+`"foldlevel"、`"foldmethod=expr" 和自身的 fold engine 规则重建 folding tree；编辑造成 topology 变化时，
+用户通过 `"zo"、`"zc" 选择的局部状态不保证跨越所有结构重建继续保留。plugin 不在 Lua 层复制 fold
+engine，也不使用 range overlap、cursor visibility 或延迟 `"foldopen"/`"foldclose" 猜测并恢复用户状态。
 
 这是当前的兼容性取舍，不是最终设计。长期愿景是让 Neovim 拥有现代的 identity-aware folding：fold
 source 以稳定 identity 和可随编辑移动的 anchor 表示，状态仍按 window 保存，更新按受影响的局部
