@@ -482,6 +482,11 @@ candidate；已输入至少一个 marker character 后，completion 根据 synta
 继续输入时 candidate 只能保持或收窄，不能切换到不共享该 prefix 的 construct。candidate edit 替换从
 backtick 到 cursor 的完整 prefix。
 
+syntax owner containment 使用半开 byte range；cursor 位于 owner `"range.end" 时不再属于该 owner。
+因此 complete attached group 的 closing delimiter 后紧邻的下一 structural line 可以直接开始 construct
+prefix，无需额外 blank line；前一 owner 的 attributes 或 verbatim block raw payload 不得抑制该 line
+的 Task 或 Event candidate。
+
 line start 的标准 construct prefixes 为：
 
 `- `"`t"、`"`ta" 直到完整 `"`task" 只提供 Task。
