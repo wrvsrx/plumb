@@ -498,9 +498,14 @@ Link 与 Autolink 共享 `"->" inline kind，opening envelope 负责收窄 candi
 line start 与 ordinary inline context 使用同一规则。`"task" 与 `"event" 不是 inline construct。Task skeleton
 使用 `"task" marker 并以当前本地 RFC 3339 timestamp 创建 `"created"，Event skeleton 使用 `"event"
 marker。Task replacement 本身必须使用 canonical same-line expanded-group layout：group content 位于 owner
-column 加一，closing brace 回到 owner column；adapter 必须请求 client 原样应用该 replacement，不得依赖
-client 对 multiline snippet 的隐式 indentation adjustment。client 声明支持 per-item `"insertTextMode"
-override 时，adapter 必须为 Task candidate 选择 `"asIs"。heading、ordinary list item 与其他
+column 加一，closing brace 回到 owner column。adapter 必须根据 client completion indentation capability
+投影 replacement，同时保证应用后的 source 相同：`"asIs" projection 包含 owner column 的完整绝对缩进；
+`"adjustIndentation" projection 省略 client 将为每条 continuation line 添加的 owner column，只保留 group
+content 相对 owner 多一个 space、closing brace 相对 owner 不增加 space。client 声明支持 per-item
+`"insertTextMode" override 时，adapter 优先选择 `"asIs"，否则选择 client 支持的
+`"adjustIndentation"；没有 per-item override 时使用 client 声明的 default mode，未声明 default mode
+则使用 legacy `"adjustIndentation" projection。adapter 只能在 client 声明支持 per-item mode 时设置
+candidate 的 `"insertTextMode"。heading、ordinary list item 与其他
 inline-verbatim spelling 本身没有额外声明时保持可直接输入。
 
 export 按 document-local closure state 在 task item 的首个 paragraph 添加可见 marker：open 为 `"☐"，done 为 `"☒"，canceled
