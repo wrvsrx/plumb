@@ -497,7 +497,11 @@ Link 与 Autolink 共享 `"->" inline kind，opening envelope 负责收窄 candi
 `"`->\"" 只提供 Autolink。单独 `"`[" 不是 construct prefix，不提供 candidate。以上 link constructs 在
 line start 与 ordinary inline context 使用同一规则。`"task" 与 `"event" 不是 inline construct。Task skeleton
 使用 `"task" marker 并以当前本地 RFC 3339 timestamp 创建 `"created"，Event skeleton 使用 `"event"
-marker。heading、ordinary list item 与其他 inline-verbatim spelling 本身没有额外声明时保持可直接输入。
+marker。Task replacement 本身必须使用 canonical same-line expanded-group layout：group content 位于 owner
+column 加一，closing brace 回到 owner column；adapter 必须请求 client 原样应用该 replacement，不得依赖
+client 对 multiline snippet 的隐式 indentation adjustment。client 声明支持 per-item `"insertTextMode"
+override 时，adapter 必须为 Task candidate 选择 `"asIs"。heading、ordinary list item 与其他
+inline-verbatim spelling 本身没有额外声明时保持可直接输入。
 
 export 按 document-local closure state 在 task item 的首个 paragraph 添加可见 marker：open 为 `"☐"，done 为 `"☒"，canceled
 为 `"⊘"，conflicted 为 `"⚠"。其中 `"☐"/[☒] 使用 Pandoc task-list 约定，使支持该约定的 writer

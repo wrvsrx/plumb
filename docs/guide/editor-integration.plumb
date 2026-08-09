@@ -89,9 +89,12 @@ repository development 使用 `"dev/nvim.lua" 加载当前 checkout 的 parser �
 `# Folding
 
 `"textDocument/foldingRange" 使用 recovered strict syntax，并返回两类整行 fold：heading fold 覆盖完整
-section，跨行 marked/verbatim block fold 覆盖自身 subtree 或 raw body。普通多行 paragraph 与 inline
-element 不单独折叠。即使 document 存在 syntax error，未受错误影响的 recovered blocks 仍可折叠；server
-遵守 client 声明的 `"rangeLimit"，按 source order 保留外层范围。
+section，verbatim block fold 覆盖 raw body。带 multiline owned group 的 marked block 先提供 head 加
+owned group 的 owner fold；存在 children 时再提供覆盖整个 node 与 descendants 的 subtree fold。两层从
+同一行开始，外层 subtree range 排在前面；没有 children 时不重复相同 range。没有 owned group 的 marked
+block 只提供 subtree fold。普通多行 paragraph 与 inline element 不单独折叠。即使 document 存在 syntax
+error，未受错误影响的 recovered blocks 仍可折叠；server 遵守 client 声明的 `"rangeLimit"，按 source
+order 保留外层范围。
 
 客户端声明 `"foldingRange.foldingRange.collapsedText" support 时，task fold 使用 derived workflow state
 和 title 生成固定两列 state slot：ready 是 `"-"、waiting 是 `"~"、blocked 是 `"!"、done 是 `"+"、
@@ -104,9 +107,9 @@ value 只使用 `"key"。label 规范为空格分隔的单行并在 80 character
 缩进。没有该 capability、无可靠 valid task/metadata facts 或无可用时间的 event fold 不携带 custom
 label。
 
-Task subtree 后紧邻 sibling 前的一个空白分隔行包含在 task fold range 中，使关闭后的 task 不遗留孤立
-空行；只消费一个直接相邻的空白行，不跨过下一条非空内容。其他 block 与 heading fold 继续遵守自身的
-source range，不扩张到 trailing layout。
+Task subtree 后紧邻 sibling 前的一个空白分隔行包含在 task subtree fold range 中，使关闭后的 task 不遗留
+孤立空行；只消费一个直接相邻的空白行，不跨过下一条非空内容。Task owner fold 与其他 block、heading
+fold 继续遵守自身的 source range，不扩张到 trailing layout。
 
 Task/event 只有一条 physical line 时，server 也会向声明 `"lineFoldingOnly = true" 的 client
 返回 `"startLine == endLine" 的 semantic fold，且省略 character boundaries。该 capability 只要求

@@ -90,6 +90,13 @@ options。官方 Neovim plugin 通过标准 `"ftplugin/plumb.lua" 设置 buffer-
 变化时恢复先前设置。它不覆盖 `"tabstop"：该选项决定 source 中真实 tab bytes 的显示宽度，而 verbatim
 payload 可以合法保留 tabs，其展示应继续服从用户配置。
 
+LSP folding 从 recovered syntax range 投影。heading section 与 verbatim raw body 各产生现有 structural
+range。marked block 若拥有 multiline attached group，则产生从 block start 到 attached group end 的 owner
+range；若 block 还有 children，则另产生延伸到最后一个 descendant 的 subtree range。两个 range 使用同一
+start，按较长 range 在前排序；没有 children 时不得重复相同 range。没有 attached group 的 marked block
+只产生 subtree range。Task trailing separator 只扩展 subtree range，不扩展 owner range。client range
+limit 在 source order 内优先保留外层 range。
+
 `# 6. Crate boundaries
 
 `- `"plumb-syntax"：strict syntax tree、diagnostics、typed views。
