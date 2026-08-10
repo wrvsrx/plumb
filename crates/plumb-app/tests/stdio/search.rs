@@ -1,6 +1,8 @@
 use serde_json::json;
 
-use crate::support::{response, run_server, run_server_with_pause, unique_temp_dir};
+use crate::support::{
+    response, run_server, run_server_after_initial_index, run_server_with_pause, unique_temp_dir,
+};
 
 #[cfg(unix)]
 #[test]
@@ -72,10 +74,7 @@ fn workspace_index_does_not_follow_directory_symlinks() {
         json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
     ];
 
-    let output = run_server_with_pause(
-        &messages[..messages.len() - 2],
-        &messages[messages.len() - 2..],
-    );
+    let output = run_server_after_initial_index(&messages);
     let items = response(&output, 2)["result"].as_array().unwrap();
     assert_eq!(
         items.iter().filter(|item| item["label"] == "Link").count(),
@@ -216,10 +215,7 @@ fn searches_workspace_symbols_and_structured_records_over_stdio() {
         json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
     ];
 
-    let output = run_server_with_pause(
-        &messages[..messages.len() - 2],
-        &messages[messages.len() - 2..],
-    );
+    let output = run_server_after_initial_index(&messages);
     let capabilities = &response(&output, 1)["result"]["capabilities"];
     assert_eq!(capabilities["workspaceSymbolProvider"], true);
     assert_eq!(

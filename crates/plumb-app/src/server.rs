@@ -71,7 +71,15 @@ pub(crate) struct ServerState {
     supports_folding_collapsed_text: bool,
     line_folding_only: bool,
     index_complete: bool,
+    index_generation: u64,
     pending_path_renames: Vec<PendingPathRename>,
+}
+
+pub(crate) struct InitialIndexResult {
+    generation: u64,
+    workspace: Workspace,
+    indexed: usize,
+    complete: bool,
 }
 
 struct PendingPathRename {
@@ -98,6 +106,7 @@ impl ServerState {
             supports_folding_collapsed_text: false,
             line_folding_only: false,
             index_complete: false,
+            index_generation: 0,
             pending_path_renames: Vec::new(),
         }
     }
@@ -191,16 +200,58 @@ impl ServerState {
     }
 
     fn scanned_files(&self) -> (Vec<PathBuf>, bool) {
-        let mut files = Vec::new();
-        let mut complete = true;
-        for root in &self.roots {
-            let scan = scan_workspace_files(root);
-            complete &= scan.is_complete();
-            files.extend(scan.files);
+        scanned_files(&self.roots)
+    }
+
+    fn start_initial_index(&mut self) {
+        self.index_generation = self.index_generation.wrapping_add(1);
+        let generation = self.index_generation;
+        let roots = self.roots.clone();
+        let client = self.client.clone();
+        self.notify_index_progress(WorkDoneProgress::Begin(WorkDoneProgressBegin {
+            title: "Indexing plumb workspace".to_string(),
+            cancellable: Some(false),
+            message: Some("Scanning .plumb files".to_string()),
+            percentage: None,
+        }));
+        tokio::task::spawn_blocking(move || {
+            let result = build_initial_index(&roots, generation);
+            let _ = client.emit(result);
+        });
+    }
+
+    pub(crate) fn finish_initial_index(
+        &mut self,
+        result: InitialIndexResult,
+    ) -> ControlFlow<async_lsp::Result<()>> {
+        if result.generation != self.index_generation {
+            return ControlFlow::Continue(());
         }
-        files.sort();
-        files.dedup();
-        (files, complete)
+        let open = self
+            .open_documents
+            .values()
+            .filter_map(|path| {
+                let entry = self.workspace.get(path)?;
+                Some((path.clone(), entry.revision, entry.parsed.source.clone()))
+            })
+            .collect::<Vec<_>>();
+        self.workspace = result.workspace;
+        for (path, revision, source) in open {
+            self.workspace.insert(path, revision, source);
+        }
+        self.index_complete = result.complete;
+        self.notify_index_progress(WorkDoneProgress::Report(WorkDoneProgressReport {
+            cancellable: Some(false),
+            message: Some(format!("Indexed {} files", result.indexed)),
+            percentage: None,
+        }));
+        self.notify_index_progress(WorkDoneProgress::End(WorkDoneProgressEnd {
+            message: Some(format!("Indexed {} plumb files", result.indexed)),
+        }));
+        self.register_workspace_file_watchers();
+        self.publish_all_open_diagnostics();
+        self.refresh_code_lenses();
+        ControlFlow::Continue(())
     }
 
     fn notify_index_progress(&self, progress: WorkDoneProgress) {
@@ -604,11 +655,7 @@ impl LanguageServer for ServerState {
     }
 
     fn initialized(&mut self, _params: InitializedParams) -> Self::NotifyResult {
-        let (_, complete) = self.index_roots();
-        self.index_complete = complete;
-        self.register_workspace_file_watchers();
-        self.publish_all_open_diagnostics();
-        self.refresh_code_lenses();
+        self.start_initial_index();
         ControlFlow::Continue(())
     }
 
@@ -683,6 +730,7 @@ impl LanguageServer for ServerState {
             .iter()
             .any(|(path, _)| path.file_name().is_some_and(|name| name == ".ignore"))
         {
+            self.index_generation = self.index_generation.wrapping_add(1);
             let (_, complete) = self.index_roots();
             self.index_complete = complete;
         } else {
@@ -1975,6 +2023,39 @@ fn workspace_roots(params: &InitializeParams) -> Vec<PathBuf> {
         .and_then(|uri| uri.to_file_path().ok())
         .map(|path| vec![normalize(&path)])
         .unwrap_or_default()
+}
+
+fn scanned_files(roots: &[PathBuf]) -> (Vec<PathBuf>, bool) {
+    let mut files = Vec::new();
+    let mut complete = true;
+    for root in roots {
+        let scan = scan_workspace_files(root);
+        complete &= scan.is_complete();
+        files.extend(scan.files);
+    }
+    files.sort();
+    files.dedup();
+    (files, complete)
+}
+
+fn build_initial_index(roots: &[PathBuf], generation: u64) -> InitialIndexResult {
+    let (files, mut complete) = scanned_files(roots);
+    let mut workspace = Workspace::new();
+    let mut indexed = 0;
+    for path in files {
+        if let Ok(text) = fs::read_to_string(&path) {
+            workspace.insert(path, 0, text);
+            indexed += 1;
+        } else {
+            complete = false;
+        }
+    }
+    InitialIndexResult {
+        generation,
+        workspace,
+        indexed,
+        complete,
+    }
 }
 
 fn workspace_symbol_query(query: &str) -> (Option<SearchKind>, String) {

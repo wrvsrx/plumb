@@ -1,6 +1,6 @@
 use serde_json::json;
 
-use crate::support::{response, run_server, unique_temp_dir};
+use crate::support::{response, run_server, run_server_after_initial_index, unique_temp_dir};
 
 #[test]
 fn completes_task_dependencies_from_workspace_tasks() {
@@ -58,7 +58,7 @@ fn completes_task_dependencies_from_workspace_tasks() {
         json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
     ];
 
-    let output = run_server(&messages);
+    let output = run_server_after_initial_index(&messages);
     let path_items = response(&output, 2)["result"].as_array().unwrap();
     assert_eq!(path_items.len(), 1);
     assert_eq!(path_items[0]["label"], "draft");
@@ -175,7 +175,7 @@ fn completes_links_by_document_metadata_title() {
         json!({ "jsonrpc": "2.0", "id": 7, "method": "shutdown", "params": null }),
         json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
     ];
-    let output = run_server(&messages);
+    let output = run_server_after_initial_index(&messages);
     let label = &response(&output, 2)["result"][0];
     assert_eq!(label["label"], "Usage Guide");
     assert_eq!(label["detail"], "Usage Guide.plumb");
@@ -254,7 +254,7 @@ fn completion_from_a_subdirectory_inserts_a_relative_path() {
         json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
     ];
 
-    let output = run_server(&messages);
+    let output = run_server_after_initial_index(&messages);
     let item = response(&output, 2)["result"]
         .as_array()
         .unwrap()

@@ -2,7 +2,9 @@ use std::path::PathBuf;
 
 use serde_json::{json, Value};
 
-use crate::support::{response, run_server, run_server_with_pause, unique_temp_dir};
+use crate::support::{
+    response, run_server, run_server_after_initial_index, run_server_with_pause, unique_temp_dir,
+};
 
 fn source_position(source: &str, needle: &str, occurrence: usize) -> (usize, usize) {
     let offset = source.match_indices(needle).nth(occurrence).unwrap().0;
@@ -52,7 +54,7 @@ fn definition_resolves_a_file_name_containing_spaces() {
         json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
     ];
 
-    let output = run_server(&messages);
+    let output = run_server_after_initial_index(&messages);
     let result = &response(&output, 2)["result"];
     assert_eq!(result["uri"], target_uri.as_str());
     assert_eq!(result["range"]["start"]["line"], 0);
@@ -127,7 +129,7 @@ fn document_references_resolve_metadata_and_reference_components() {
         json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
     ];
 
-    let output = run_server(&messages);
+    let output = run_server_after_initial_index(&messages);
     let metadata_references = &response(&output, 2)["result"];
     assert_eq!(metadata_references.as_array().unwrap().len(), 5);
     assert_eq!(response(&output, 3)["result"], *metadata_references);
@@ -238,7 +240,7 @@ fn task_references_support_navigation_and_rename() {
         json!({ "jsonrpc": "2.0", "id": 7, "method": "shutdown", "params": null }),
         json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
     ];
-    let output = run_server(&messages);
+    let output = run_server_after_initial_index(&messages);
     assert_eq!(response(&output, 2)["result"]["uri"], target_uri.as_str());
     assert_eq!(response(&output, 3)["result"].as_array().unwrap().len(), 2);
     assert_eq!(response(&output, 4)["result"].as_array().unwrap().len(), 3);
@@ -356,7 +358,7 @@ fn path_rename_is_optimistic_and_reconciles_failed_client_application() {
         json!({ "jsonrpc": "2.0", "id": 5, "method": "shutdown", "params": null }),
         json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
     ];
-    let output = run_server(&messages);
+    let output = run_server_after_initial_index(&messages);
     assert_eq!(response(&output, 3)["result"]["uri"], new_uri.as_str());
     assert_eq!(response(&output, 4)["result"]["uri"], old_uri.as_str());
     assert!(old_target.exists());
@@ -803,5 +805,5 @@ fn run_path_rename_precondition_test(
         json!({ "jsonrpc": "2.0", "id": 3, "method": "shutdown", "params": null }),
         json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
     ];
-    (root, run_server(&messages))
+    (root, run_server_after_initial_index(&messages))
 }

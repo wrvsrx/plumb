@@ -1,8 +1,8 @@
 use serde_json::json;
 
 use crate::support::{
-    response, run_server, run_server_with_pause, run_server_with_writer, unique_temp_dir,
-    write_message,
+    response, run_server, run_server_after_initial_index, run_server_with_pause,
+    run_server_with_writer, unique_temp_dir, write_message,
 };
 
 #[test]
@@ -54,13 +54,60 @@ fn initialized_reports_workspace_index_progress() {
         json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
     ];
 
-    let output = run_server(&messages);
+    let output = run_server_after_initial_index(&messages);
     let kinds = output
         .iter()
         .filter(|message| message["method"] == "$/progress")
         .map(|message| message["params"]["value"]["kind"].as_str().unwrap())
         .collect::<Vec<_>>();
     assert_eq!(kinds, ["begin", "report", "end"]);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn formatting_an_open_document_does_not_wait_for_initial_index() {
+    let root = unique_temp_dir();
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(root.join("large.plumb"), "Paragraph.\n\n".repeat(150_000)).unwrap();
+    let document = root.join("inbox.plumb");
+    let document_uri = lsp_types::Url::from_file_path(&document).unwrap();
+    let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
+    let first = [
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": { "processId": null, "rootUri": root_uri, "capabilities": {} }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": {
+                "uri": document_uri, "languageId": "plumb", "version": 1,
+                "text": "`node Parent\n\n       `child Child\n"
+            }}
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 2, "method": "textDocument/formatting",
+            "params": {
+                "textDocument": { "uri": document_uri },
+                "options": { "tabSize": 2, "insertSpaces": true }
+            }
+        }),
+    ];
+    let shutdown = [
+        json!({ "jsonrpc": "2.0", "id": 3, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+
+    let output = run_server_with_pause(&first, &shutdown);
+    let formatting_index = output
+        .iter()
+        .position(|message| message.get("id") == Some(&json!(2)))
+        .expect("formatting response while initial indexing is running");
+    if let Some(index_end) = output.iter().position(|message| {
+        message["method"] == "$/progress" && message["params"]["value"]["kind"] == "end"
+    }) {
+        assert!(formatting_index < index_end);
+    }
     std::fs::remove_dir_all(root).unwrap();
 }
 #[test]

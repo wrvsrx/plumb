@@ -1,6 +1,6 @@
 use serde_json::json;
 
-use crate::support::{response, run_server, run_server_with_pause, unique_temp_dir};
+use crate::support::{response, run_server, run_server_after_initial_index, unique_temp_dir};
 
 #[test]
 fn publishes_task_symbols_hover_and_workspace_diagnostics() {
@@ -474,7 +474,9 @@ fn code_lenses_count_anchor_references_and_ignore_last_valid_output() {
         json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
     ];
 
-    let output = run_server_with_pause(&messages, &shutdown);
+    let mut all_messages = messages.to_vec();
+    all_messages.extend_from_slice(&shutdown);
+    let output = run_server_after_initial_index(&all_messages);
     assert_eq!(
         response(&output, 1)["result"]["capabilities"]["codeLensProvider"],
         json!({ "resolveProvider": false })

@@ -25,6 +25,20 @@ pub fn run_server_with_pause(first: &[Value], second: &[Value]) -> Vec<Value> {
     })
 }
 
+pub fn run_server_after_initial_index(messages: &[Value]) -> Vec<Value> {
+    run_server_with_writer(|stdin| {
+        for (index, message) in messages.iter().enumerate() {
+            write_message(stdin, message);
+            if index == 1 {
+                std::thread::sleep(std::time::Duration::from_millis(500));
+            }
+            if index + 3 == messages.len() {
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+        }
+    })
+}
+
 pub fn run_server_with_writer(
     write_messages: impl FnOnce(&mut std::process::ChildStdin),
 ) -> Vec<Value> {

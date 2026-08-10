@@ -31,7 +31,9 @@ fn diagnostics_clear_after_a_link_is_fixed() {
         json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
     ];
 
-    assert_eq!(diagnostic_counts(&run_server(&messages), uri), [1, 0]);
+    let counts = diagnostic_counts(&run_server(&messages), uri);
+    assert_eq!(counts.first(), Some(&1));
+    assert_eq!(counts.last(), Some(&0));
 }
 
 #[test]
