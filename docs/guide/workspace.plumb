@@ -84,7 +84,9 @@ Agenda 按 at 或 start、path 和 source position 显示 point/closed/running e
 创建 event，或通过 revision-guarded operation 编辑、删除已有 event。Event detail
 显示 at/start/end、details 与 task references。Event form 显式选择 Point 或 Interval，空 interval
 end 表示 running，不能再用空 end 表示 point。Agenda 初次打开时定位到当前时间；`"Now" button 随时跳回
-当前时间，即使当天没有 event 也显示当天和当前时间 marker。Mobile Web mutation 初版要求在线，不缓存待提交 edits。
+当前时间，即使当天没有 event 也显示当天和当前时间 marker。大 agenda 只渲染当前时间附近的有界 window，
+使用 Earlier/Later controls 按页浏览其余 events；显式 URL selection 会打开包含目标 event 的 window。
+Mobile Web mutation 初版要求在线，不缓存待提交 edits。
 
 `"plumb event --root DIR export-vdir --output DIR" 将 workspace events 原子投影到受管理 vdir，每个 event
 对应一个 `"..ics" file。khal calendar 配置使用该目录并设置 `"readonly = true"；`".plumb" 仍是唯一
