@@ -183,16 +183,12 @@ fn set_task_status_target(
         .workspace
         .set_task_status_by_id(&path, &id, status, timestamp)
         .map_err(|error| error.to_string())?;
-    let source = loaded
-        .texts
-        .get(&path)
-        .cloned()
-        .ok_or_else(|| format!("task document is not loaded: {}", path.display()))?;
-    let revision = loaded
+    let entry = loaded
         .workspace
         .get(&path)
-        .ok_or_else(|| format!("task document is not indexed: {}", path.display()))?
-        .revision;
+        .ok_or_else(|| format!("task document is not indexed: {}", path.display()))?;
+    let source = entry.parsed.source.clone();
+    let revision = entry.revision;
     let updated = apply_document_edit(source, &path, revision, edit)
         .map_err(|error| format!("cannot apply task edit: {error:?}"))?;
     std::fs::write(&path, updated)

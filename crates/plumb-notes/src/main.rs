@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -84,7 +83,7 @@ fn run(config: Config) -> Result<(), String> {
                 .map(|record| record.path)
                 .collect::<Vec<_>>();
             if note.interactive {
-                let action = run_interactive(&root, &selected_paths, &loaded.texts)?;
+                let action = run_interactive(&root, &selected_paths, &loaded.workspace)?;
                 handle_interactive_action(&root, action)?;
             } else {
                 for path in selected_paths {
@@ -248,25 +247,18 @@ struct TaskTargetsConfig {
 struct LoadedWorkspace {
     root: PathBuf,
     workspace: Workspace,
-    texts: HashMap<PathBuf, String>,
 }
 
 fn load_workspace(root: &Path) -> Result<LoadedWorkspace, String> {
     let root = normalize(root);
     let paths = scan_workspace_files(&root).into_result()?;
     let mut workspace = Workspace::new();
-    let mut texts = HashMap::new();
     for path in &paths {
         let text = std::fs::read_to_string(path)
             .map_err(|error| format!("cannot read {}: {error}", path.display()))?;
-        workspace.insert(path, 0, text.clone());
-        texts.insert(path.clone(), text);
+        workspace.insert(path, 0, text);
     }
-    Ok(LoadedWorkspace {
-        root,
-        workspace,
-        texts,
-    })
+    Ok(LoadedWorkspace { root, workspace })
 }
 
 fn render_workspace_diagnostics(
@@ -277,12 +269,13 @@ fn render_workspace_diagnostics(
     use std::fmt::Write as _;
 
     let root = normalize(root);
-    let mut paths = loaded.texts.keys().collect::<Vec<_>>();
-    paths.sort();
+    let mut entries = loaded.workspace.documents().collect::<Vec<_>>();
+    entries.sort_by(|left, right| left.path.cmp(&right.path));
     let mut output = String::new();
     let mut has_failures = false;
-    for path in paths {
-        let source = &loaded.texts[path];
+    for entry in entries {
+        let path = &entry.path;
+        let source = &entry.parsed.source;
         let mut diagnostics = loaded.workspace.diagnostics(path);
         diagnostics.sort_by(|left, right| {
             (

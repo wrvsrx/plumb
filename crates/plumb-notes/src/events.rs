@@ -276,8 +276,6 @@ fn hex_digest(value: &[u8]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
-
     use super::*;
     use crate::LoadedWorkspace;
     use plumb_workspace::Workspace;
@@ -297,7 +295,6 @@ mod tests {
         let mut loaded = LoadedWorkspace {
             root: root.clone(),
             workspace,
-            texts: HashMap::new(),
         };
         let expected_filename = desired_events(&loaded).unwrap().into_keys().next().unwrap();
         export_vdir(&loaded, &output).unwrap();
@@ -371,7 +368,6 @@ mod tests {
         let loaded = LoadedWorkspace {
             root: root.clone(),
             workspace,
-            texts: HashMap::new(),
         };
         let point_output = root.join("point-calendar");
         export_vdir(&loaded, &point_output).unwrap();
@@ -393,7 +389,6 @@ mod tests {
         let loaded = LoadedWorkspace {
             root: root.clone(),
             workspace,
-            texts: HashMap::new(),
         };
         assert!(export_vdir(&loaded, &root.join("running-calendar"))
             .unwrap_err()
@@ -449,7 +444,6 @@ mod tests {
         LoadedWorkspace {
             root: root.to_path_buf(),
             workspace,
-            texts: HashMap::new(),
         }
     }
 }

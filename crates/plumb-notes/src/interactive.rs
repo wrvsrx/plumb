@@ -1,5 +1,4 @@
 use std::borrow::Cow;
-use std::collections::HashMap;
 use std::fs::OpenOptions;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -8,7 +7,7 @@ use std::sync::Arc;
 use skim::prelude::*;
 
 use crate::display_path;
-use plumb_workspace::normalize;
+use plumb_workspace::{normalize, Workspace};
 
 pub(crate) enum InteractiveAction {
     Open(Vec<String>),
@@ -55,7 +54,7 @@ impl SkimItem for FilterItem {
 pub(crate) fn run_interactive(
     root: &Path,
     paths: &[PathBuf],
-    texts: &HashMap<PathBuf, String>,
+    workspace: &Workspace,
 ) -> Result<InteractiveAction, String> {
     let options = SkimOptionsBuilder::default()
         .height(Some("100%"))
@@ -66,13 +65,13 @@ pub(crate) fn run_interactive(
         .map_err(|error| error.to_string())?;
     let (sender, receiver): (SkimItemSender, SkimItemReceiver) = unbounded();
     for path in paths {
-        let Some(source) = texts.get(path) else {
+        let Some(entry) = workspace.get(path) else {
             continue;
         };
         sender
             .send(Arc::new(FilterItem::new(
                 display_path(root, path),
-                source.clone(),
+                entry.parsed.source.clone(),
             )))
             .map_err(|error| format!("cannot send item to skim: {error}"))?;
     }
