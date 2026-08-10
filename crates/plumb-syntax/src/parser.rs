@@ -41,7 +41,8 @@ fn normalize_diagnostics(mut diagnostics: Vec<Diagnostic>) -> Vec<Diagnostic> {
                     (
                         "syntax.incomplete-introducer",
                         "syntax.invalid-inline-dispatch"
-                    ) | ("syntax.invalid-marker", "syntax.invalid-block-dispatch")
+                    ) | ("syntax.incomplete-introducer", "syntax.invalid-marker")
+                        | ("syntax.invalid-marker", "syntax.invalid-block-dispatch")
                         | ("syntax.short-verbatim-indent", "syntax.partial-indent")
                 )
         })
@@ -542,7 +543,7 @@ impl Parser<'_> {
                 "block introducer requires a marker, attributes, or inline delimiter",
                 start..after,
             ));
-            return None;
+            return Some(BlockDispatch::Marked);
         }
         let byte = self.source.as_bytes()[after];
         if byte == b'}'

@@ -2246,6 +2246,21 @@ mod tests {
     }
 
     #[test]
+    fn keeps_task_owner_fold_while_typing_its_marker() {
+        for opener in ["`", "`t", "`ta", "`tas", "`task"] {
+            let parsed = parse(format!("{opener}\n `: created now\n"));
+            assert_eq!(
+                folding_ranges(&parsed.source, &parsed.syntax, None, None, false)
+                    .iter()
+                    .map(|range| (range.start_line, range.end_line))
+                    .collect::<Vec<_>>(),
+                [(0, 1)],
+                "fold changed for {opener:?}"
+            );
+        }
+    }
+
+    #[test]
     fn layers_owner_fold_without_extending_leaf_over_trailing_blank_lines() {
         let parsed = parse("`task Parent {\n}\n\n      `task Leaf {\n      }\n\n`- Next\n");
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);

@@ -145,8 +145,21 @@
     "name": "incomplete introducer has one specific diagnostic",
     "source": "`",
     "valid": false,
-    "blocks": [{"kind":"paragraph","head":"","inline":""}],
+    "blocks": [{"kind":"marked","marker":"","attrs":[],"head":"","inline":"","children":[]}],
     "diagnostics": [{"code":"syntax.incomplete-introducer","range":{"text":"`"}}],
+    "required_tokens": ["Error"]
+  },
+  {
+    "name": "incomplete block introducer preserves child ownership",
+    "source": "`\n `: created now\nnext\n",
+    "valid": false,
+    "blocks": [
+      {"kind":"marked","marker":"","attrs":[],"head":"","inline":"","children":[
+        {"kind":"marked","marker":":","attrs":[],"head":"created now","inline":"T\"created\"W\" \"T\"now\"","children":[]}
+      ]},
+      {"kind":"paragraph","head":"next","inline":"T\"next\""}
+    ],
+    "diagnostics": [{"code":"syntax.incomplete-introducer","range":{"text":"`","occurrence":0}}],
     "required_tokens": ["Error"]
   },
   {
