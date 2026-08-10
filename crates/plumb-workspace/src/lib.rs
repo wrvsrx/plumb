@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Component, Path, PathBuf};
+use std::sync::Arc;
 
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveTime, SecondsFormat, TimeZone, Timelike};
 pub use plumb_edit::{apply_text_edits, TextEdit};
@@ -227,8 +228,8 @@ pub struct DocumentEntry {
     pub path: PathBuf,
     pub revision: i64,
     pub parsed: ParsedDocument,
-    pub current: Option<VersionedDocumentOutput>,
-    pub last_valid: Option<VersionedDocumentOutput>,
+    pub current: Option<Arc<VersionedDocumentOutput>>,
+    pub last_valid: Option<Arc<VersionedDocumentOutput>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -307,9 +308,11 @@ impl Workspace {
             .documents
             .get(&path)
             .and_then(|entry| entry.last_valid.clone());
-        let current = parsed.is_valid().then(|| VersionedDocumentOutput {
-            revision,
-            output: analyze_document(&parsed.source, &parsed.syntax),
+        let current = parsed.is_valid().then(|| {
+            Arc::new(VersionedDocumentOutput {
+                revision,
+                output: analyze_document(&parsed.source, &parsed.syntax),
+            })
         });
         let last_valid = current.clone().or(previous_last_valid);
         self.documents.insert(
@@ -4000,6 +4003,11 @@ mod tests {
     fn invalid_revision_keeps_but_does_not_publish_last_valid_output() {
         let mut workspace = Workspace::new();
         workspace.insert("a.plumb", 1, "`# Valid {\n  `@ ok\n}\n");
+        let valid = workspace.get("a.plumb").unwrap();
+        assert!(Arc::ptr_eq(
+            valid.current.as_ref().unwrap(),
+            valid.last_valid.as_ref().unwrap()
+        ));
         workspace.insert("a.plumb", 2, "`node{key=a key=b} Invalid\n");
         let entry = workspace.get("a.plumb").unwrap();
         assert!(entry.current.is_none());
