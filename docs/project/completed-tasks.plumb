@@ -504,6 +504,25 @@
 
 `# Workspace indexing
 
+`- 建立 persistent semantic workspace store {
+  `- task
+  `@ persistent-semantic-workspace
+  `: done 2026-08-11T05:10:19+08:00
+}
+
+   `note SQLite 只保存 closed disk documents 的 semantic projection、source identity 与 generation metadata；
+         syntax tree 和 source text 不持久化。Open buffer 在内存中按整份 document 遮蔽同路径 disk generation，
+         query 不进行 record-level merge，didChange 不写 persistent store。
+   `note 初始扫描以 content hash 命中 persistent generation 时跳过 parse 与 document semantics；didSave、close、
+         watcher change 和 reindex 才在 transaction 中原子替换稳定 disk generation。LSP cache 按 normalized
+         workspace identity 隔离，schema 或 producer version 不匹配时丢弃 disposable derived records。
+   `note memory 与 SQLite backend 的 reverse references、agenda ordering 和 open-overlay result parity 已由普通
+         tests 固定；LSP lifecycle、watcher、search、navigation、rename、completion 与 editing integration tests
+         覆盖 persistent backend adapters。
+   `note release benchmark 记录在 `->[performance benchmark points]{`:[to performance-benchmarks.plumb]}：
+         33,512-event workload 的 warm startup 快约 22.3x、warm resident memory 降低约 94.2%；cold build 慢
+         约 3.70x、agenda range 慢约 2.58x、完整 generation replacement 约 701.52 ms，因此不宣称总体提升。
+
 `- Workspace scanner 不递归进入目录 symlink {
   `- task
   `@ do-not-follow-directory-symlinks
