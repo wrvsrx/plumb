@@ -88,6 +88,11 @@ workspace 后回到 server event loop 原子安装；安装时必须保留 index
 revisions。完成前 cross-document query 明确报告 incomplete，旧 generation 的 indexing result 不得覆盖较新的
 rescan 或 open-document state。
 
+LSP adapter 将一个 revision 的 folding byte ranges 批量投影为 UTF-16 positions 时，必须复用由 source
+一次线性扫描建立的 line-start index；单个 offset 只扫描它所在的 physical line。folding response 不得为
+每个 range 从 document start 重复扫描 source。index 只属于 protocol projection，不进入 syntax/semantics
+output，也不得跨 source revision 复用。
+
 官方 workspace search query 的 LSP projection 使用 `"plumb/search" schema version 3。request 的可选
 `"kind" 是 `"note"、`"task" 或 `"event"；result item 共享 `"kind"、`"title"、workspace-relative
 `"path"、LSP `"location" 与 revision `"provenance"。Task item 还可包含 workflow fields；Event item

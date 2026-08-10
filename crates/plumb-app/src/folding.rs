@@ -7,7 +7,7 @@ use plumb_semantics::{analyze_headings, EventRecord, MetadataValue};
 use plumb_syntax::{Block, Document};
 use plumb_workspace::{DocumentEntry, TaskWorkflowState, Workspace};
 
-use crate::position::byte_range_to_lsp;
+use crate::position::PositionIndex;
 
 #[derive(Clone)]
 pub(crate) struct FoldLabel {
@@ -215,6 +215,7 @@ pub(crate) fn ranges(
     labels: Option<&HashMap<(usize, usize), FoldLabel>>,
     line_folding_only: bool,
 ) -> Vec<FoldingRange> {
+    let positions = PositionIndex::new(source);
     let headings = analyze_headings(document);
     let mut byte_ranges = Vec::new();
     let mut pending_headings = headings.headings.iter().collect::<Vec<_>>();
@@ -259,7 +260,13 @@ pub(crate) fn ranges(
                     label.include_trailing_blank = false;
                 }
             }
-            line_range(source, &range, label.as_ref(), line_folding_only)
+            line_range(
+                source,
+                &positions,
+                &range,
+                label.as_ref(),
+                line_folding_only,
+            )
         })
         .collect::<Vec<_>>();
     ranges.dedup();
@@ -271,6 +278,7 @@ pub(crate) fn ranges(
 
 fn line_range(
     source: &str,
+    positions: &PositionIndex<'_>,
     range: &std::ops::Range<usize>,
     label: Option<&FoldLabel>,
     line_folding_only: bool,
@@ -284,7 +292,7 @@ fn line_range(
     } else {
         trimmed_end
     };
-    let range = byte_range_to_lsp(source, &(range.start..content_end));
+    let range = positions.byte_range_to_lsp(&(range.start..content_end));
     let end_line = if range.end.character == 0 && range.end.line > range.start.line {
         range.end.line - 1
     } else {
