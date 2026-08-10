@@ -75,6 +75,7 @@ void tree_sitter_plumb_external_scanner_deserialize(void *payload,
   if (length < 4) return;
 
   scanner->depth = (uint8_t)buffer[0];
+  scanner->pending_dedents = (uint8_t)buffer[1];
   scanner->verbatim_margin = (uint8_t)buffer[2] |
                              ((uint16_t)(uint8_t)buffer[3] << 8);
   if (scanner->depth >= MAX_INDENT_DEPTH) scanner->depth = MAX_INDENT_DEPTH - 1;

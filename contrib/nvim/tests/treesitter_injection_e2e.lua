@@ -25,6 +25,23 @@ local function parse_injection(lines, language)
   return bufnr, parser:trees()[1]:root(), tree:root()
 end
 
+local diary_lines = { '{', ' `: title diary', '}', '' }
+for index = 1, 100 do
+  diary_lines[#diary_lines + 1] = '`### 2026-08-' .. string.format('%02d', (index - 1) % 31 + 1)
+  diary_lines[#diary_lines + 1] = ''
+  diary_lines[#diary_lines + 1] = '`->"日记条目 ' .. index .. '.plumb"'
+  diary_lines[#diary_lines + 1] = ''
+end
+local diary_buf = vim.api.nvim_create_buf(false, true)
+vim.api.nvim_buf_set_lines(diary_buf, 0, -1, false, diary_lines)
+local diary_parser = vim.treesitter.get_parser(diary_buf, 'plumb')
+diary_parser:parse(true)
+assert(
+  not diary_parser:trees()[1]:root():has_error(),
+  'repeated headings and Unicode autolinks must survive scanner state round-trips'
+)
+vim.api.nvim_buf_delete(diary_buf, { force = true })
+
 local plumb_buf, _, plumb_root = parse_injection({
   '`plumb"',
   ' `- xixi',
