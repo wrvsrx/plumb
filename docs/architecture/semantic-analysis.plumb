@@ -1,5 +1,5 @@
 {
-  `: title plumb semantic analysis
+ `: title plumb semantic analysis
 }
 
 `# 1. Scope
@@ -84,6 +84,13 @@ resolution result。
 当前 document 的 semantic diagnostics 和 authoritative query 不能使用自己的 last-valid output 冒充
 current result。consumer 必须能区分 current、last-valid 与 partial workspace data。
 
+稳定 disk snapshot 的 semantic output 可以投影到 persistent workspace store，但 persistent projection
+不是 syntax cache，也不是新的 semantic authority。projection 必须保留 query 所需 provenance，并以
+document generation 原子发布；query 不得观察一半属于旧 generation、一半属于新 generation 的 records。
+open document 的 current-valid 或 last-valid state 保留在内存中，并以整个 document 为单位遮蔽同 path
+的 disk generation。didChange 不触发 persistent write；didSave、external disk change 或 initial indexing
+只有在确认 disk bytes identity 后才能发布新 generation。
+
 `# 8. Queries
 
 query context 至少包含 request document/revision、cursor 或 target、workspace completeness、cancellation
@@ -97,6 +104,11 @@ formatting、range formatting、symbols、folding 与 semantic tokens requests�
 workspace 后回到 server event loop 原子安装；安装时必须保留 indexing 期间已经 didOpen/didChange 的 current
 revisions。完成前 cross-document query 明确报告 incomplete，旧 generation 的 indexing result 不得覆盖较新的
 rescan 或 open-document state。
+
+persistent workspace query 必须按需读取命中的 semantic rows，不得为了重建 process-local workspace model
+而在启动时反序列化全部 document outputs。open-buffer precedence 的合并边界是 source document：persistent
+query 排除所有 open paths，再与这些 paths 的内存 query result 组合并作 deterministic ordering。该规则由
+protocol-neutral workspace query layer 统一实现，adapter 不自行 merge 或 deduplicate records。
 
 LSP adapter 将一个 revision 的 folding byte ranges 批量投影为 UTF-16 positions 时，必须复用由 source
 一次线性扫描建立的 line-start index；单个 offset 只扫描它所在的 physical line。folding response 不得为

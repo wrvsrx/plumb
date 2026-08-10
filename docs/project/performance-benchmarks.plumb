@@ -1,0 +1,64 @@
+{
+ `: title plumb performance benchmark points
+}
+
+`# 1. Purpose
+
+本页记录 2026-08-11 大 workspace 调查中已解决的 performance problems、可复现 workload 和后续 backend
+comparison points。数值是特定机器上的 observation，不是跨机器 SLA；benchmark 必须记录 release commit、
+host、input identity、sample count 与统计量。
+
+`# 2. Reference workload
+
+主要 stress document 是 `"migrated-from-khal.plumb"：5,682,790 bytes、134,054 lines、33,512 events，
+其 folding response 包含 33,512 ranges，JSON payload 约 3.18 MB。仓库 benchmark 不复制个人 notebook
+内容，而是 deterministic 生成相同数量级并覆盖 nested events、events with links、unmatched links 与大量
+explicit anchors 的 fixture。
+
+`# 3. Resolved performance problems
+
+`- Agenda browser 不再一次 materialize 无界 event DOM；初始 render window 锚定 now，并使用 bounded paging。
+`- LSP initial workspace indexing 移到 background，不再阻塞 open-document lifecycle；generation install
+ 保留 indexing 期间产生的 buffer revisions。
+`- Folding byte offset 到 UTF-16 position 的 projection 复用 line-start index，避免每个 range 从 source
+ 开头重复扫描。
+`- 一个 document 的 reference CodeLens 使用 batched reverse-reference query，避免按每个 anchor 重复
+ 遍历 workspace records。
+`- event-contained links 利用 source-ordered link records 二分限定候选 suffix，不再为每个 event 从头扫描
+ 全部 links；后续仍计划建立 explicit containment index。
+`- unchanged didOpen/full-text update 在 normalized path 与 source bytes 相同期间重绑 revision，复用
+ ParsedDocument 与 DocumentOutput，不重复 parse 和 document semantics。
+
+`# 4. Observed baseline
+
+在上述真实 stress document 与当时 release build 上，server-side observation 为：plumb unchanged update
+约 2 ms，CodeLens 约 2--6 ms，semantic tokens 约 0 ms，folding range generation 约 55 ms。
+
+patched Neovim 0.12.4 中，JSON decode 约 18--47 ms，fold state evaluation 约 23--27 ms，
+`"vim._foldupdate" 约 291--293 ms，完整 folding handler 约 314--320 ms。end-to-end fold-ready 约
+2.50--4.52 s；instrumentation 显示 3.18 MB folding body 开始到接收完成约 4--42 ms，主要等待发生在 server
+response 开始之前。
+
+绕过 Neovim 的 minimal synchronous LSP client 中，didOpen write 约 8 ms，CodeLens/semantic data 约
+343 ms 可用，fold response header 约 422 ms，body 约 798 ms 完成，parsed result 约 851 ms 可用。
+Neovim instrumentation 中，5.82 MB didOpen 先进入 asynchronous stdin write queue；后续请求保持 protocol
+ordering 并排在该 write 后。该 transport wait 不能归因于 plumb parse、fold generation、JSON decode 或
+fold installation，backend benchmark 必须单独报告 server 与 editor end-to-end boundary。
+
+`# 5. Backend comparison matrix
+
+原 process-local backend 与 SQLite persistent semantic backend 必须在同一 release binary、同一 fixture、
+同一 host 上分别测量：
+
+`- cold build：空 cache 扫描、parse、document semantics、workspace index/store commit。
+`- warm startup：cache identity 全部命中，到 complete workspace query 可用。
+`- reverse references：document target、single anchor 与 batched CodeLens anchors。
+`- event query：时间范围 agenda、event-task association 与 contained-link lookup。
+`- unchanged reopen：disk snapshot 转 open revision，不重复 document-local computation。
+`- open overlay：一个或多个 open documents 遮蔽 disk generation 后的 query latency 与 result parity。
+`- save replacement：1K、10K 与 33,512-event document generation 的 transaction latency。
+`- resources：steady-state resident memory、peak build memory、database bytes 与 write amplification。
+
+每个 point 同时报告 absolute value 和相对 process-local baseline。wall-clock benchmark 不进入普通 correctness
+CI 的硬阈值；普通 CI 固定 result parity、cache identity、generation atomicity、document shadowing 和已知
+algorithmic work bounds。

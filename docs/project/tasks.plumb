@@ -1,5 +1,5 @@
 {
-  `: title plumb tasks
+ `: title plumb tasks
 }
 
 本页只记录可以直接实施和验收的工作。方向、约束和 deferred design 继续放在
@@ -7,12 +7,23 @@
 `->[completed tasks]{`:[to completed-tasks.plumb]}。
 
 `task 建立 event containment 索引 {
-  `@ event-containment-index
+ `@ event-containment-index
 }
 
-  `note 在 document analysis output 中显式表示 event 到 contained links 的关系，优先采用共享 link storage
-        上可重叠的 index ranges，保持嵌套 events 可以关联同一 link，避免复制 source-backed records。
-  `note workspace 的 event-task association、diagnostics、navigation、reverse references 与 event queries
-        统一通过 indexed containment query，移除各 consumer 的范围 join 和重复 resolution plumbing。
-  `note 用包含大量 events、links 与 nested events 的基准比较当前有序 links 二分查询，验证 build/query
-        complexity、revision invalidation、memory overhead 与现有 association semantics 后再替换。
+ `note 在 document analysis output 中显式表示 event 到 contained links 的关系，优先采用共享 link storage
+  上可重叠的 index ranges，保持嵌套 events 可以关联同一 link，避免复制 source-backed records。
+ `note workspace 的 event-task association、diagnostics、navigation、reverse references 与 event queries
+  统一通过 indexed containment query，移除各 consumer 的范围 join 和重复 resolution plumbing。
+ `note 用包含大量 events、links 与 nested events 的基准比较当前有序 links 二分查询，验证 build/query
+  complexity、revision invalidation、memory overhead 与现有 association semantics 后再替换。
+
+`task 建立 persistent semantic workspace store {
+ `@ persistent-semantic-workspace
+}
+
+ `note 按 architecture 中冻结的 document-granularity precedence 实现 SQLite disk projection 与 open-buffer
+  overlay；syntax tree 不持久化，didChange 不写 persistent store，稳定 disk revision 以 generation
+  transaction 原子替换。
+ `note 用 `->[performance benchmark points]{`:[to performance-benchmarks.plumb]} 中同一组 release 场景对比
+  原 process-local backend 与 SQLite backend 的 cold build、warm startup、reference/CodeLens、agenda、
+  unchanged reopen、save replacement、memory 和 database size；结果未完成前不得宣称总体提升。
