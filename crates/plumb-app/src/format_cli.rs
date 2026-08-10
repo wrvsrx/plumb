@@ -39,10 +39,12 @@ fn format_inputs(args: Args) -> Result<bool, String> {
         io::stdin()
             .read_to_string(&mut source)
             .map_err(|error| format!("cannot read stdin: {error}"))?;
-        let formatted = format_source(source.clone(), "stdin")?;
+        let (source, edits) = format_source_edits(source, "stdin")?;
         if args.check {
-            return Ok(source == formatted);
+            return Ok(edits.is_empty());
         }
+        let formatted = apply_text_edits(source, edits)
+            .map_err(|_| "cannot apply edits to stdin".to_string())?;
         print!("{formatted}");
         return Ok(true);
     }
@@ -51,14 +53,17 @@ fn format_inputs(args: Args) -> Result<bool, String> {
     for path in args.paths {
         let source = fs::read_to_string(&path)
             .map_err(|error| format!("cannot read {}: {error}", path.display()))?;
-        let formatted = format_source(source.clone(), &path.display().to_string())?;
-        if source == formatted {
+        let name = path.display().to_string();
+        let (source, edits) = format_source_edits(source, &name)?;
+        if edits.is_empty() {
             continue;
         }
         unchanged = false;
         if args.check {
             eprintln!("would reformat {}", path.display());
         } else {
+            let formatted = apply_text_edits(source, edits)
+                .map_err(|_| format!("cannot apply edits to {name}"))?;
             fs::write(&path, formatted)
                 .map_err(|error| format!("cannot write {}: {error}", path.display()))?;
         }
@@ -66,9 +71,12 @@ fn format_inputs(args: Args) -> Result<bool, String> {
     Ok(!args.check || unchanged)
 }
 
-fn format_source(source: String, name: &str) -> Result<String, String> {
+fn format_source_edits(
+    source: String,
+    name: &str,
+) -> Result<(String, Vec<plumb_edit::TextEdit>), String> {
     let parsed = plumb_syntax::parse(source);
     let edits = plumb_edit::format(&parsed, FormatScope::Document)
         .map_err(|_| format!("{name} has syntax errors"))?;
-    apply_text_edits(parsed.source, edits).map_err(|_| format!("cannot apply edits to {name}"))
+    Ok((parsed.source, edits))
 }
