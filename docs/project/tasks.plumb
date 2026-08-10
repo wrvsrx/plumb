@@ -5,3 +5,14 @@
 本页只记录可以直接实施和验收的工作。方向、约束和 deferred design 继续放在
 `->[roadmap]{`:[to roadmap.plumb]}；已经结束的任务及其验收记录保存在
 `->[completed tasks]{`:[to completed-tasks.plumb]}。
+
+`task 建立 event containment 索引 {
+  `@ event-containment-index
+}
+
+  `note 在 document analysis output 中显式表示 event 到 contained links 的关系，优先采用共享 link storage
+        上可重叠的 index ranges，保持嵌套 events 可以关联同一 link，避免复制 source-backed records。
+  `note workspace 的 event-task association、diagnostics、navigation、reverse references 与 event queries
+        统一通过 indexed containment query，移除各 consumer 的范围 join 和重复 resolution plumbing。
+  `note 用包含大量 events、links 与 nested events 的基准比较当前有序 links 二分查询，验证 build/query
+        complexity、revision invalidation、memory overhead 与现有 association semantics 后再替换。

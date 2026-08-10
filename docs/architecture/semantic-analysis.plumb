@@ -44,6 +44,10 @@ range 和从 source 提取的值。derived field 应可追溯到一个或多个 
 record identity 不能依赖 unstable allocation address。跨 revision reuse 只有在 workspace 能证明 source
 identity 时才允许。Analysis output 不修改 typed syntax，也不取得 syntax node 的唯一 ownership。
 
+同类 source-backed records 按 source range 起点保持稳定顺序。基于 owner range 查询其包含 records 时，
+consumer 应利用该顺序限定候选区间，不得为每个 owner 从头扫描同一 document 的完整 record collection；
+重叠或嵌套 owners 仍可引用同一 record，不引入唯一 ownership。
+
 `# 5. Semantic composition
 
 同一个 syntax node 可以同时产生多个正交 semantic facts。例如一个 task owner 也可以拥有 explicit
@@ -70,6 +74,11 @@ result。依赖 output 缺失时，应返回 dependency/completeness failure，�
 snapshot 包含 document identity、revision、source、recovered tree、syntax diagnostics 和可选 current-valid
 semantic output。新 revision invalid 时，workspace 可以保留前一 revision 的 last-valid output 供其他
 documents 稳定解析，但必须携带原 revision provenance。
+
+host 将 open snapshot 恢复为 disk snapshot 时，若规范化 path 与 source bytes 均未改变，可以只把现有
+ParsedDocument/current-valid output 重绑定到 disk revision，不重复 parse 或 document analysis；invalid
+snapshot 继续保留原 last-valid provenance。source bytes 不同则必须建立新 revision snapshot。该复用只省略
+由相同 bytes 决定的 document-local computation，不缓存 workspace diagnostics 或 resolution result。
 
 当前 document 的 semantic diagnostics 和 authoritative query 不能使用自己的 last-valid output 冒充
 current result。consumer 必须能区分 current、last-valid 与 partial workspace data。
