@@ -1399,10 +1399,12 @@ impl Parser<'_> {
     }
 
     fn line_index_at_offset(&self, offset: usize) -> Option<usize> {
-        self.lines
+        let index = self
+            .lines
             .0
-            .iter()
-            .position(|line| line.start <= offset && offset <= line.content_end)
+            .partition_point(|line| line.start <= offset)
+            .checked_sub(1)?;
+        (offset <= self.lines.0[index].content_end).then_some(index)
     }
 
     fn block_dispatch_readonly(&self, index: usize, indent: usize) -> Option<BlockDispatch> {
@@ -2449,5 +2451,29 @@ mod tests {
             .diagnostics
             .iter()
             .all(|diagnostic| diagnostic.range.end <= source.len()));
+    }
+
+    #[test]
+    fn line_index_lookup_preserves_content_boundaries() {
+        let source = "alpha\r\nbeta\n\nγ";
+        let parser = Parser {
+            source,
+            lines: Lines::new(source),
+            diagnostics: Vec::new(),
+        };
+        for (offset, expected) in [
+            (0, Some(0)),
+            (5, Some(0)),
+            (6, None),
+            (7, Some(1)),
+            (11, Some(1)),
+            (12, Some(2)),
+            (13, Some(3)),
+            (14, Some(3)),
+            (15, Some(3)),
+            (16, None),
+        ] {
+            assert_eq!(parser.line_index_at_offset(offset), expected, "{offset}");
+        }
     }
 }
