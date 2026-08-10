@@ -251,8 +251,10 @@ end 可写 time 或显式 date-time，但不能写 offset 或 `"Z"。time-only e
 dated end 不 rollover，且所有 interval 的 end 必须严格晚于 start。
 转换会在该 list item 上原位追加 `"event" facet，并把规范化 schedule 留在 head 开头；title 中的
 parsed/verbatim inline 及其 attached data 原样保留。它不生成 explicit id 或 UID metadata；只有需要引用
-event 时才用通用操作添加 id。vdir exporter 会从 workspace-relative path、schedule 与 title 确定性派生
-iCalendar UID，因此同一 workspace 在不同设备上产生相同的 calendar files。
+event 时才用通用操作添加 id。event 可用 direct `"uid" scalar/literal property 固定 iCalendar UID；省略时
+vdir exporter 从 workspace-relative path、schedule 与 title 确定性派生 UID，因此同一 workspace 在不同
+设备上产生相同的 calendar files。重复的有效 UID 会使完整 export 失败；`".ics" filename 使用 UID 的
+SHA-256 digest，不直接包含任意 UID text。
 
 显式 date 写入 event override；省略 date/timezone 时优先继承 document metadata，缺少对应 metadata 时
 才使用 operation 当前本地日期/offset。选中多行时可执行 `"Convert selected items to events"
@@ -261,7 +263,7 @@ iCalendar UID，因此同一 workspace 在不同设备上产生相同的 calenda
 schedule。没有下一条的 chain 末项暂不转换，普通 item 或其他 block 会中断推断；给末项写显式 end 后即可
 一次转换整条 chain。
 
-`"plumb event --root DIR" 列出 events，并支持使用 `"--query" 对 path、id、title、date、timezone、when、
+`"plumb event --root DIR" 列出 events，并支持使用 `"--query" 对 path、id、title、uid、date、timezone、when、
 解析后的 at/start/end、tasks
 与 now 执行 CEL。`"plumb event --root DIR export-vdir --output DIR" 生成受管理的只读 vdir；输出目录
 可以作为 khal 的 `"type = calendar"、`"readonly = true" calendar。每次导出原子替换旧 projection 并
