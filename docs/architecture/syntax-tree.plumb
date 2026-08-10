@@ -58,7 +58,15 @@ ranges。
 block 与 parsed-inline nesting 使用 explicit work stacks；typed block/inline tree 的 destruction 与
 plain-text traversal 也使用 iterative walk。语言不从 Rust call stack 获得 nesting depth limit。
 
-`# 6. Future normalized AST
+`# 6. Lenient incremental tree
+
+tree-sitter mirror 的 external scanner state 必须完整 serialize/deserialize 所有会影响后续 indentation、
+dedent、verbatim dispatch 与 inline/block ownership 的字段。对同一 source，fresh full parse、Neovim buffer
+parse、injection discovery 触发的 reparse 与任意合法 incremental edit sequence 必须产生等价 node kinds/ranges；
+scanner state round-trip 不得引入 `"ERROR" node。该约束只保证 editor tree stability，不改变 strict parser
+的 syntax authority。
+
+`# 7. Future normalized AST
 
 可能的 normalized model 会包含 parsed block、verbatim block，以及 `"Text"、`"SoftBreak"、`"Span"
 和 `"Verbatim" inline variants。它只在 exporter 或其他 concrete consumer 证明 typed views 不足时加入。
@@ -70,7 +78,7 @@ core。
 source-independent、可构造 counterpart，用于插入或替换 generic blocks、inlines 和 attached ownership data；最终
 source layout 仍由 formatter 决定。
 
-`# 7. Incremental identity
+`# 8. Incremental identity
 
 当前 contract 不承诺跨 revision `"NodeId" reuse。incremental parsing、source-map identity 和 text
 canonicalization 必须作为同一设计问题解决；实现优化不能泄漏为不稳定的 public identity。
