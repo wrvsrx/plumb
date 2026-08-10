@@ -396,7 +396,7 @@ fn completes_and_navigates_relative_autolinks_files_and_images() {
         json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
     ];
 
-    let output = run_server(&messages);
+    let output = run_server_after_initial_index(&messages);
     let autolink_path = response(&output, 2)["result"]
         .as_array()
         .unwrap()

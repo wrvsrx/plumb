@@ -419,7 +419,7 @@ fn metadata_marker_renames_the_current_document_without_changing_title() {
         json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
     ];
 
-    let output = run_server(&messages);
+    let output = run_server_after_initial_index(&messages);
     let prepare = response(&output, 2);
     assert_eq!(prepare["result"]["placeholder"], "current");
     assert_eq!(
