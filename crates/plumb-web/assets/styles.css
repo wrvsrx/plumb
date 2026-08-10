@@ -173,13 +173,16 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
 .task-sort-key.dragging { opacity: .45; }
 .task-sort-actions { min-width: 0; display: flex; flex-wrap: wrap; gap: 5px; }
 .task-sort-actions select, .task-sort-actions button { min-height: 30px; }
-.agenda-workspace { height: auto; min-height: 0; display: grid; grid-template-columns: minmax(420px, 1fr) minmax(340px, 34vw); flex: 1 1 0; }
-.event-list-pane { min-width: 0; overflow: auto; background: #f7f7f5; }
+.agenda-workspace {
+  height: auto; min-height: 0; display: grid; grid-template-columns: minmax(420px, 1fr) minmax(340px, 34vw);
+  grid-template-rows: auto minmax(0, 1fr); flex: 1 1 0;
+}
+.event-list-pane { min-width: 0; min-height: 0; grid-column: 1; grid-row: 2; overflow: auto; background: #f7f7f5; }
 .agenda-actions {
-  position: sticky; top: 0; z-index: 4; display: flex; justify-content: flex-end;
+  z-index: 4; grid-column: 1 / -1; grid-row: 1; display: flex; justify-content: flex-end;
   min-height: 49px; padding: 7px 16px; border-bottom: 1px solid var(--border); background: #efefec;
 }
-.agenda-date-heading { top: 49px; }
+.agenda-date-heading { top: 0; }
 .event-list { width: 100%; }
 .agenda-page-control { width: 100%; min-height: 40px; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; color: var(--teal); background: #efefec; font-weight: 700; }
 .agenda-current-time {
@@ -196,7 +199,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
 .event-row:hover { background: #efefec; }
 .event-row.selected { background: #e5efed; box-shadow: inset 3px 0 var(--teal); }
 .event-row time { color: var(--teal); font-size: 12px; font-weight: 700; }
-.event-panel { overflow: auto; border-left: 1px solid var(--border); background: var(--paper); padding: 24px; }
+.event-panel { min-height: 0; grid-column: 2; grid-row: 2; overflow: auto; border-left: 1px solid var(--border); background: var(--paper); padding: 24px; }
 .event-detail header { border-bottom: 2px solid var(--ink); padding-bottom: 16px; }
 .event-detail h1, .event-form h1 { font-size: 25px; line-height: 1.2; margin: 0 0 12px; overflow-wrap: anywhere; }
 .event-details { white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -268,7 +271,9 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
   .task-row time { display: none; }
   .task-form-grid { grid-template-columns: 1fr; }
   .task-filters .task-sort { flex-basis: 100%; }
-  .agenda-workspace { height: calc(100% - 112px); grid-template-columns: 1fr; grid-template-rows: minmax(260px, 48vh) minmax(0, 1fr); }
+  .agenda-workspace { height: calc(100% - 112px); grid-template-columns: 1fr; grid-template-rows: auto minmax(260px, 48vh) minmax(0, 1fr); }
+  .event-list-pane { grid-column: 1; grid-row: 2; }
+  .event-panel { grid-column: 1; grid-row: 3; }
   .event-panel { border-left: 0; border-top: 1px solid var(--border); }
   .event-row { grid-template-columns: 96px minmax(0, 1fr); }
 }
