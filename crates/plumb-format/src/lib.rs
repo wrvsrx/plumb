@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 #[cfg(test)]
 use std::fmt::Write;
 use std::ops::Range;
@@ -60,8 +61,7 @@ pub fn format_parsed_edits(parsed: &ParsedDocument) -> Result<Vec<FormatEdit>, F
 
     let source_offsets = line_offsets(source);
     let formatted_offsets = line_offsets(&formatted);
-    let diff = TextDiff::from_lines(source, &formatted);
-    let operations = diff.ops();
+    let operations = anchored_line_diff(source, &formatted, &source_offsets, &formatted_offsets);
     let mut edits = Vec::new();
     let mut index = 0;
     while index < operations.len() {
@@ -109,6 +109,170 @@ pub fn format_parsed_edits(parsed: &ParsedDocument) -> Result<Vec<FormatEdit>, F
         }]);
     }
     Ok(edits)
+}
+
+fn anchored_line_diff(
+    source: &str,
+    formatted: &str,
+    source_offsets: &[usize],
+    formatted_offsets: &[usize],
+) -> Vec<DiffOp> {
+    let source_lines = line_slices(source, source_offsets);
+    let formatted_lines = line_slices(formatted, formatted_offsets);
+    let source_unique = unique_line_indices(&source_lines);
+    let formatted_unique = unique_line_indices(&formatted_lines);
+    let mut anchors = Vec::new();
+    let mut last_formatted = None;
+
+    for (source_index, line) in source_lines.iter().enumerate() {
+        if source_unique.get(line) != Some(&Some(source_index)) {
+            continue;
+        }
+        let Some(Some(formatted_index)) = formatted_unique.get(line) else {
+            continue;
+        };
+        if last_formatted.is_none_or(|last| *formatted_index > last) {
+            anchors.push((source_index, *formatted_index));
+            last_formatted = Some(*formatted_index);
+        }
+    }
+
+    if anchors.is_empty() {
+        return TextDiff::from_lines(source, formatted).ops().to_vec();
+    }
+
+    let mut operations = Vec::new();
+    let mut source_cursor = 0;
+    let mut formatted_cursor = 0;
+    for (source_anchor, formatted_anchor) in anchors {
+        append_line_diff(
+            &mut operations,
+            source,
+            formatted,
+            source_offsets,
+            formatted_offsets,
+            source_cursor..source_anchor,
+            formatted_cursor..formatted_anchor,
+        );
+        push_equal(&mut operations, source_anchor, formatted_anchor);
+        source_cursor = source_anchor + 1;
+        formatted_cursor = formatted_anchor + 1;
+    }
+    append_line_diff(
+        &mut operations,
+        source,
+        formatted,
+        source_offsets,
+        formatted_offsets,
+        source_cursor..source_lines.len(),
+        formatted_cursor..formatted_lines.len(),
+    );
+    operations
+}
+
+fn line_slices<'a>(source: &'a str, offsets: &[usize]) -> Vec<&'a str> {
+    offsets
+        .windows(2)
+        .map(|range| &source[range[0]..range[1]])
+        .collect()
+}
+
+fn unique_line_indices<'a>(lines: &[&'a str]) -> HashMap<&'a str, Option<usize>> {
+    let mut indices = HashMap::with_capacity(lines.len());
+    for (index, line) in lines.iter().copied().enumerate() {
+        indices
+            .entry(line)
+            .and_modify(|existing| *existing = None)
+            .or_insert(Some(index));
+    }
+    indices
+}
+
+fn append_line_diff(
+    operations: &mut Vec<DiffOp>,
+    source: &str,
+    formatted: &str,
+    source_offsets: &[usize],
+    formatted_offsets: &[usize],
+    source_lines: Range<usize>,
+    formatted_lines: Range<usize>,
+) {
+    if source_lines.is_empty() && formatted_lines.is_empty() {
+        return;
+    }
+    let source_slice =
+        &source[source_offsets[source_lines.start]..source_offsets[source_lines.end]];
+    let formatted_slice = &formatted
+        [formatted_offsets[formatted_lines.start]..formatted_offsets[formatted_lines.end]];
+    for operation in TextDiff::from_lines(source_slice, formatted_slice).ops() {
+        operations.push(offset_diff_op(
+            *operation,
+            source_lines.start,
+            formatted_lines.start,
+        ));
+    }
+}
+
+fn offset_diff_op(operation: DiffOp, source_offset: usize, formatted_offset: usize) -> DiffOp {
+    match operation {
+        DiffOp::Equal {
+            old_index,
+            new_index,
+            len,
+        } => DiffOp::Equal {
+            old_index: old_index + source_offset,
+            new_index: new_index + formatted_offset,
+            len,
+        },
+        DiffOp::Delete {
+            old_index,
+            old_len,
+            new_index,
+        } => DiffOp::Delete {
+            old_index: old_index + source_offset,
+            old_len,
+            new_index: new_index + formatted_offset,
+        },
+        DiffOp::Insert {
+            old_index,
+            new_index,
+            new_len,
+        } => DiffOp::Insert {
+            old_index: old_index + source_offset,
+            new_index: new_index + formatted_offset,
+            new_len,
+        },
+        DiffOp::Replace {
+            old_index,
+            old_len,
+            new_index,
+            new_len,
+        } => DiffOp::Replace {
+            old_index: old_index + source_offset,
+            old_len,
+            new_index: new_index + formatted_offset,
+            new_len,
+        },
+    }
+}
+
+fn push_equal(operations: &mut Vec<DiffOp>, old_index: usize, new_index: usize) {
+    if let Some(DiffOp::Equal {
+        old_index: previous_old,
+        new_index: previous_new,
+        len,
+    }) = operations.last_mut()
+    {
+        if *previous_old + *len == old_index && *previous_new + *len == new_index {
+            *len += 1;
+            return;
+        }
+    }
+    operations.push(DiffOp::Equal {
+        old_index,
+        new_index,
+        len: 1,
+    });
 }
 
 fn line_offsets(source: &str) -> Vec<usize> {
@@ -793,6 +957,23 @@ mod tests {
         assert!(edited.contains("`:[created 2026-08-05T03:25:50+08:00]"));
         assert!(edited.contains("aaa aaa aaa"));
         assert!(parse(&edited).is_valid());
+    }
+
+    #[test]
+    fn whole_document_edits_anchor_large_repeated_block_layout() {
+        let mut source = String::new();
+        for index in 0..512 {
+            let _ = write!(source, "`event Event {index} {{\n  `: uid repeated\n}}\n\n");
+        }
+        let canonical = format(&source).unwrap();
+        let edits = format_edits(&source).unwrap();
+
+        assert_eq!(edits.len(), 1);
+        assert_eq!(edits[0].range.start, source.find('\n').unwrap() + 1);
+        let mut edited = source;
+        edited.replace_range(edits[0].range.clone(), &edits[0].new_text);
+        assert_eq!(edited, canonical);
+        assert!(format_edits(&edited).unwrap().is_empty());
     }
 
     #[test]

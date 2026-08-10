@@ -98,7 +98,10 @@ consumer 不传 source string 让 formatter 重新 parse，也不传预先计算
 同一 revision 只使用 workspace/CLI 已持有的 `"ParsedDocument"；formatter 不重新 parse。LSP 只负责
 byte range 到 protocol position 的转换，CLI/Web 只负责 revision validation、应用 edits 与 I/O。
 
-whole-document format 可以产生 changed-line minimal edits；range format 只编辑 scope 选中的 complete
+whole-document format 可以产生 changed-line minimal edits。canonical rendering 不重排 syntax nodes；line
+diff 因而先把 source 与 rendered output 中两侧均 unique、内容相同且顺序单调的 lines 作为 deterministic
+anchors，再在相邻 anchors 之间计算 Myers diff。没有可用 anchor 的 interval 仍直接计算 Myers diff；
+算法不使用 wall-clock deadline 或依赖机器速度的 fallback。range format 只编辑 scope 选中的 complete
 subtrees。无论 adapter 如何应用，使用同一 request 必须得到相同 byte edits。
 
 `# 7. Token rewrites
