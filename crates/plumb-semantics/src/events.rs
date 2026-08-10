@@ -393,19 +393,25 @@ fn resolve_when(
     let Some(end) = end else {
         return Ok(ResolvedWhen::Point(start));
     };
-    let end_time = parse_time(end)?;
-    if end_time == start.time() {
+    let end = if let Some((date, time)) = end.split_once('T') {
+        let date = parse_date(date)?;
+        let time = parse_time(time)?;
+        local_datetime(date, time, *start.offset())?
+    } else {
+        let time = parse_time(end)?;
+        let date = if time < start.time() {
+            start
+                .date_naive()
+                .succ_opt()
+                .ok_or(EventWhenError::InvalidInterval)?
+        } else {
+            start.date_naive()
+        };
+        local_datetime(date, time, *start.offset())?
+    };
+    if end <= start {
         return Err(EventWhenError::InvalidInterval);
     }
-    let end_date = if end_time < start.time() {
-        start
-            .date_naive()
-            .succ_opt()
-            .ok_or(EventWhenError::InvalidInterval)?
-    } else {
-        start.date_naive()
-    };
-    let end = local_datetime(end_date, end_time, *start.offset())?;
     Ok(ResolvedWhen::Interval(start, end))
 }
 
@@ -677,6 +683,40 @@ mod tests {
                 ),
             ]
         );
+    }
+
+    #[test]
+    fn dated_when_end_inherits_start_offset_and_supports_multi_day_intervals() {
+        let source = "`event 2026-05-02T08:22:31+08:00--2026-05-05T09:20:00 Multi-day {\n}\n`event 2026-05-02T23:22:31Z--2026-05-03T09:20 UTC {\n}\n";
+        let output = analyze(source);
+        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+        assert_eq!(
+            output
+                .events
+                .iter()
+                .map(|event| event.end_datetime().unwrap().to_rfc3339())
+                .collect::<Vec<_>>(),
+            ["2026-05-05T09:20:00+08:00", "2026-05-03T09:20:00+00:00"]
+        );
+    }
+
+    #[test]
+    fn dated_when_end_rejects_timezone_and_non_increasing_intervals() {
+        let source = "`event 2026-05-02T08:22:31+08:00--2026-05-03T09:20:00+08:00 Zoned end {\n}\n`event 2026-05-02T08:22:31+08:00--2026-05-01T09:20 Before start {\n}\n`event 2026-05-02T08:22:31+08:00--2026-05-02T08:22:31 Equal {\n}\n";
+        let output = analyze(source);
+        assert_eq!(
+            output
+                .diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.code)
+                .collect::<Vec<_>>(),
+            [
+                "event.invalid-when",
+                "event.invalid-interval",
+                "event.invalid-interval",
+            ]
+        );
+        assert!(output.events.iter().all(|event| event.start.is_none()));
     }
 
     #[test]

@@ -2937,10 +2937,7 @@ fn validate_event_input(input: &EventInput) -> Result<(), EventEditError> {
         if end <= start {
             return Err(EventEditError::InvalidInterval);
         }
-        let same_day = end.date_naive() == start.date_naive();
-        let next_day =
-            start.date_naive().succ_opt() == Some(end.date_naive()) && end.time() < start.time();
-        if (!same_day && !next_day) || end.offset() != start.offset() {
+        if end.offset() != start.offset() {
             return Err(EventEditError::InvalidInterval);
         }
     } else if start.is_some() {
@@ -3007,29 +3004,26 @@ fn parse_event_shorthand_with_title_start(
                 inferred.datetime
             }
         } else {
-            if end.contains('T') {
-                return Err(EventShorthandError::InvalidShorthand);
-            }
-            let end_time = parse_shorthand_time(end)?;
-            let end_date = if end_time < start.datetime.time() {
-                start
-                    .datetime
-                    .date_naive()
-                    .succ_opt()
-                    .ok_or(EventShorthandError::InvalidInterval)?
+            if let Some((date, time)) = end.split_once('T') {
+                let date = NaiveDate::parse_from_str(date, "%Y-%m-%d")
+                    .map_err(|_| EventShorthandError::InvalidShorthand)?;
+                let time = parse_shorthand_time(time)?;
+                shorthand_datetime(date, time, *start.datetime.offset())?
             } else {
-                start.datetime.date_naive()
-            };
-            shorthand_datetime(end_date, end_time, *start.datetime.offset())?
+                let end_time = parse_shorthand_time(end)?;
+                let end_date = if end_time < start.datetime.time() {
+                    start
+                        .datetime
+                        .date_naive()
+                        .succ_opt()
+                        .ok_or(EventShorthandError::InvalidInterval)?
+                } else {
+                    start.datetime.date_naive()
+                };
+                shorthand_datetime(end_date, end_time, *start.datetime.offset())?
+            }
         };
-        let next_date = start
-            .datetime
-            .date_naive()
-            .succ_opt()
-            .ok_or(EventShorthandError::InvalidInterval)?;
-        if end <= start.datetime
-            || !matches!(end.date_naive(), date if date == start.datetime.date_naive() || date == next_date)
-        {
+        if end <= start.datetime {
             return Err(EventShorthandError::InvalidInterval);
         }
         Ok((
@@ -3471,7 +3465,16 @@ fn compact_event_schedule(input: &EventInput) -> Result<(String, String, String)
     };
     let when = end.map_or_else(
         || time(start),
-        |end| format!("{}--{}", time(start), time(end)),
+        |end| {
+            let next_day_rollover = start.date_naive().succ_opt() == Some(end.date_naive())
+                && end.time() < start.time();
+            let end = if end.date_naive() == start.date_naive() || next_day_rollover {
+                time(end)
+            } else {
+                format!("{}T{}", end.date_naive().format("%Y-%m-%d"), time(end))
+            };
+            format!("{}--{end}", time(start))
+        },
     );
     Ok((
         start.date_naive().format("%Y-%m-%d").to_string(),
@@ -5717,6 +5720,13 @@ mod tests {
         assert_eq!(interval.start.as_deref(), Some("2026-05-21T11:00:00+08:00"));
         assert_eq!(interval.end.as_deref(), Some("2026-05-21T11:20:00+08:00"));
         assert!(interval.at.is_none());
+
+        let multi_day = parse_event_shorthand("2026-05-21T11--2026-05-23T11 review", now).unwrap();
+        assert_eq!(
+            multi_day.start.as_deref(),
+            Some("2026-05-21T11:00:00+08:00")
+        );
+        assert_eq!(multi_day.end.as_deref(), Some("2026-05-23T11:00:00+08:00"));
     }
 
     #[test]
@@ -5731,7 +5741,8 @@ mod tests {
             "2026-02-30T11 meeting",
             "2026-05-21 11 meeting",
             "11am meeting",
-            "11--2026-08-01T12 meeting",
+            "11--2026-08-01T12:00:00Z meeting",
+            "11--2026-08-01T12:00:00+08:00 meeting",
         ] {
             assert_eq!(
                 parse_event_shorthand(source, now),
@@ -5741,6 +5752,10 @@ mod tests {
         }
         assert_eq!(
             parse_event_shorthand("11:20--11:20 meeting", now),
+            Err(EventShorthandError::InvalidInterval)
+        );
+        assert_eq!(
+            parse_event_shorthand("2026-08-02T11:20--2026-08-01T11:20 meeting", now),
             Err(EventShorthandError::InvalidInterval)
         );
         let cross_midnight = parse_event_shorthand("23:40--00:00 meeting", now).unwrap();
@@ -5956,6 +5971,30 @@ mod tests {
         assert_eq!(
             plumb_format::format(&created_source).unwrap(),
             created_source
+        );
+
+        let multi_day = workspace
+            .create_event(
+                "agenda.plumb",
+                &EventInput {
+                    title: "Conference".to_string(),
+                    at: None,
+                    start: Some("2026-07-30T14:00:00+08:00".to_string()),
+                    end: Some("2026-08-02T14:00:00+08:00".to_string()),
+                    tasks: Vec::new(),
+                },
+            )
+            .unwrap();
+        let multi_day_source = apply_single_edit(source, &multi_day);
+        assert!(
+            multi_day_source.contains("`event 14:00--2026-08-02T14:00 Conference"),
+            "{multi_day_source}"
+        );
+        let multi_day_parsed = plumb_syntax::parse(multi_day_source);
+        assert!(
+            multi_day_parsed.is_valid(),
+            "{:?}",
+            multi_day_parsed.diagnostics
         );
 
         workspace.insert("agenda.plumb", 8, created_source.clone());
