@@ -82,6 +82,12 @@ query context 至少包含 request document/revision、cursor 或 target、works
 completion 可以读取 current recovered view 与其他 documents 的 last-valid indexes。definition、references、
 hover 和 rename 默认要求当前 target 具有 valid semantic record。
 
+LSP initial workspace indexing 不得阻塞 current open-document lifecycle 或只依赖该 document snapshot 的
+formatting、range formatting、symbols、folding 与 semantic tokens requests。index 在 background 构造完整
+workspace 后回到 server event loop 原子安装；安装时必须保留 indexing 期间已经 didOpen/didChange 的 current
+revisions。完成前 cross-document query 明确报告 incomplete，旧 generation 的 indexing result 不得覆盖较新的
+rescan 或 open-document state。
+
 官方 workspace search query 的 LSP projection 使用 `"plumb/search" schema version 3。request 的可选
 `"kind" 是 `"note"、`"task" 或 `"event"；result item 共享 `"kind"、`"title"、workspace-relative
 `"path"、LSP `"location" 与 revision `"provenance"。Task item 还可包含 workflow fields；Event item
