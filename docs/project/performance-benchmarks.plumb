@@ -17,6 +17,12 @@ explicit anchors 的 fixture。
 
 `# 3. Resolved performance problems
 
+`- Syntax source offset/line lookup 使用预建 line starts 二分查找，避免 position-heavy consumers 对每个 offset
+ 从文档开头线性扫描。
+`- Workspace 的 current/last-valid semantic generation 使用共享 ownership，合法 revision 不再复制整份
+ DocumentOutput；notes/events/tasks command paths 也直接消费 workspace-owned source，避免再次复制大文档。
+`- Whole-document formatting 的 changed-line projection 使用 unique anchors 分段 diff，避免重复 marker lines 令
+ sequence diff 退化；CLI 直接消费 formatter 已持有的 source，`"fmt --check" 不再构造并应用无用 edits。
 `- Agenda browser 不再一次 materialize 无界 event DOM；初始 render window 锚定 now，并使用 bounded paging。
 `- LSP initial workspace indexing 移到 background，不再阻塞 open-document lifecycle；generation install
  保留 indexing 期间产生的 buffer revisions。
