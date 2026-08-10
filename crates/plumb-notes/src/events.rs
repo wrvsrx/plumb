@@ -108,9 +108,9 @@ fn desired_events(loaded: &LoadedWorkspace) -> Result<BTreeMap<String, String>, 
             end.map(|end| end.with_timezone(&Utc)),
             &tasks,
         );
-        let filename = format!("{}.ics", hex_digest(uid.as_bytes()));
+        let filename = format!("{uid}.ics");
         if desired.insert(filename, ical).is_some() {
-            return Err("calendar uid filename digest collision".to_string());
+            return Err("calendar uid filename collision".to_string());
         }
     }
     Ok(desired)
@@ -334,10 +334,7 @@ mod tests {
             .find_map(|line| line.strip_prefix("UID:"))
             .unwrap();
         assert_eq!(item.file_name().to_string_lossy(), expected_filename);
-        assert_eq!(
-            item.file_name().to_string_lossy(),
-            format!("{}.ics", hex_digest(uid.as_bytes()))
-        );
+        assert_eq!(item.file_name().to_string_lossy(), format!("{uid}.ics"));
         assert!(ical.contains("UID:"), "{ical:?}");
         assert!(unfolded.contains("@plumb.local\r\n"), "{ical:?}");
         assert!(ical.contains("DTSTAMP:20260730T060000Z\r\n"), "{ical:?}");
@@ -460,13 +457,13 @@ mod tests {
     }
 
     #[test]
-    fn explicit_uid_is_stable_and_uses_a_safe_hashed_filename() {
+    fn explicit_uid_is_stable_and_used_directly_as_the_filename() {
         let root = std::env::temp_dir().join(format!(
             "plumb-event-explicit-uid-test-{}-{}",
             std::process::id(),
             uuid::Uuid::new_v4()
         ));
-        let uid = "unsafe/path:value@example";
+        let uid = "calendar-value@example";
         let first = loaded_with_source(
             &root,
             "events.plumb",
@@ -479,7 +476,7 @@ mod tests {
         );
         let first_events = desired_events(&first).unwrap();
         let second_events = desired_events(&second).unwrap();
-        let expected_filename = format!("{}.ics", hex_digest(uid.as_bytes()));
+        let expected_filename = format!("{uid}.ics");
         assert_eq!(first_events.keys().next().unwrap(), &expected_filename);
         assert_eq!(second_events.keys().next().unwrap(), &expected_filename);
         assert!(first_events
@@ -492,7 +489,6 @@ mod tests {
             .next()
             .unwrap()
             .contains(&format!("UID:{uid}\r\n")));
-        assert!(!expected_filename.contains("unsafe"));
         std::fs::remove_dir_all(root).unwrap();
     }
 
