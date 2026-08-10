@@ -115,6 +115,11 @@ limit 在 source order 内优先保留外层 range。
 
 统一 binary 可以依赖共享 layers，但 shared libraries 不能依赖 CLI protocol types。
 
+Web presentation 可以持有完整 semantic snapshot，但不得把无界 record collection 一对一常驻 DOM。
+Agenda 使用有界 render window：没有显式 selection 时初始 window 锚定当前时间；显式 selection 位于 window
+之外时锚定该 event。用户可以向前或向后替换固定大小的 page，page navigation 定位到新 page boundary；
+`"Now" command 重置到当前时间 window。selection/detail mutation 不能触发完整 event collection 的 DOM 重建。
+
 `# 7. Tree-sitter boundary
 
 tree-sitter grammar 与 strict core 覆盖相同的纯 syntax surface，但容错目标不同。grammar 不能定义
