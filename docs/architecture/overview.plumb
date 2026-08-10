@@ -65,7 +65,9 @@ ephemeral buffer snapshot 参与 document features，关闭后不属于 disk ind
 reference CodeLens 是 workspace reverse-reference query 的 LSP projection。`"references_to_document"
 聚合 current-valid documents 中的 document/anchor links 与 task references，并保留真实 same-document
 occurrences；Graph 等 consumer 可以按自己的 edge policy 隐藏 self-edge。`"references_to" 继续查询单个 explicit anchor。server 只为 current-valid metadata 与 anchors
-生成 lenses，count 与 command locations 来自同一次 query，避免 UI title 与执行结果偏移。
+生成 lenses，count 与 command locations 来自同一次 query，避免 UI title 与执行结果偏移。一个 document 的
+CodeLens projection 必须通过一次 batched reverse-reference query 同时取得 document occurrence 与所有 direct
+explicit-anchor occurrences，不得为每个 anchor 重新遍历 workspace records。
 `"plumb.showReferences" 是 client-side command，不把 editor UI 行为放入 protocol-neutral workspace。
 
 workspace identity 使用 normalized document path/URI boundary。跨文件 query 必须说明 index

@@ -280,6 +280,18 @@ pub struct DocumentReference {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReferenceOccurrence {
+    pub source_path: PathBuf,
+    pub source_range: std::ops::Range<usize>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct DocumentReverseReferences {
+    pub document: Vec<ReferenceOccurrence>,
+    pub anchors: HashMap<String, Vec<ReferenceOccurrence>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorkspaceEvent {
     pub path: PathBuf,
     pub revision: i64,
@@ -760,6 +772,59 @@ impl Workspace {
                 .cmp(right.0)
                 .then(left.1.source_range.start.cmp(&right.1.source_range.start))
         });
+        references
+    }
+
+    pub fn reverse_references_for_document(
+        &self,
+        target_path: impl AsRef<Path>,
+        target_ids: &HashSet<String>,
+    ) -> DocumentReverseReferences {
+        let target_path = normalize(target_path.as_ref());
+        let mut references = DocumentReverseReferences::default();
+        for entry in self.documents.values() {
+            let Some(current) = &entry.current else {
+                continue;
+            };
+            for link in &current.output.links {
+                collect_reverse_reference(
+                    &mut references,
+                    &target_path,
+                    target_ids,
+                    &entry.path,
+                    link.selection_range.clone(),
+                    self.resolve_link(&entry.path, link),
+                );
+            }
+            for task in &current.output.tasks.tasks {
+                for (_, range, target) in task_reference_fields(task) {
+                    collect_reverse_reference(
+                        &mut references,
+                        &target_path,
+                        target_ids,
+                        &entry.path,
+                        range.clone(),
+                        self.resolve_task_reference_target(&entry.path, &target),
+                    );
+                }
+            }
+            for event in &current.output.events.events {
+                for reference in &self.event_task_references(&entry.path, event) {
+                    collect_reverse_reference(
+                        &mut references,
+                        &target_path,
+                        target_ids,
+                        &entry.path,
+                        reference.range.clone(),
+                        self.resolve_task_reference_target(&entry.path, &reference.target),
+                    );
+                }
+            }
+        }
+        references.document.sort_by(reference_occurrence_order);
+        for occurrences in references.anchors.values_mut() {
+            occurrences.sort_by(reference_occurrence_order);
+        }
         references
     }
 
@@ -3795,6 +3860,44 @@ fn resolved_document_path(target: ResolvedTarget) -> Option<PathBuf> {
     }
 }
 
+fn collect_reverse_reference(
+    references: &mut DocumentReverseReferences,
+    target_path: &Path,
+    target_ids: &HashSet<String>,
+    source_path: &Path,
+    source_range: std::ops::Range<usize>,
+    resolved: ResolvedTarget,
+) {
+    if resolved_document_path(resolved.clone()).as_deref() == Some(target_path) {
+        references.document.push(ReferenceOccurrence {
+            source_path: source_path.to_path_buf(),
+            source_range: source_range.clone(),
+        });
+    }
+    let ResolvedTarget::Anchor { path, id, .. } = resolved else {
+        return;
+    };
+    if path == target_path && target_ids.contains(&id) {
+        references
+            .anchors
+            .entry(id)
+            .or_default()
+            .push(ReferenceOccurrence {
+                source_path: source_path.to_path_buf(),
+                source_range,
+            });
+    }
+}
+
+fn reference_occurrence_order(
+    left: &ReferenceOccurrence,
+    right: &ReferenceOccurrence,
+) -> std::cmp::Ordering {
+    left.source_path
+        .cmp(&right.source_path)
+        .then(left.source_range.start.cmp(&right.source_range.start))
+}
+
 fn task_reference_fields(
     task: &TaskRecord,
 ) -> Vec<(&str, &std::ops::Range<usize>, TaskReferenceTarget)> {
@@ -4048,6 +4151,21 @@ mod tests {
             ]
         );
         assert_eq!(workspace.references_to_document("a-local.plumb").len(), 1);
+        let batched = workspace
+            .reverse_references_for_document("a.plumb", &HashSet::from(["target".to_string()]));
+        assert_eq!(batched.document.len(), document_references.len());
+        assert_eq!(batched.anchors["target"].len(), 1);
+        assert_eq!(
+            batched
+                .document
+                .iter()
+                .map(|reference| reference.source_path.clone())
+                .collect::<Vec<_>>(),
+            document_references
+                .iter()
+                .map(|(path, _)| path.to_path_buf())
+                .collect::<Vec<_>>()
+        );
         assert_eq!(
             workspace.referenced_documents_from("missing.plumb"),
             vec![PathBuf::from("a.plumb")]
@@ -4056,6 +4174,33 @@ mod tests {
             workspace.referenced_documents_from("task.plumb"),
             vec![PathBuf::from("a.plumb")]
         );
+    }
+
+    #[test]
+    fn batches_document_and_multiple_anchor_reverse_references() {
+        let mut workspace = Workspace::new();
+        workspace.insert(
+            "target.plumb",
+            1,
+            "`# One {\n  `@ one\n}\n\n`# Two {\n  `@ two\n}\n",
+        );
+        workspace.insert(
+            "source.plumb",
+            1,
+            "`->[one]{`:[to target.plumb#one]} and `->[two]{`:[to target.plumb#two]}\n",
+        );
+
+        let references = workspace.reverse_references_for_document(
+            "target.plumb",
+            &HashSet::from(["one".to_string(), "two".to_string()]),
+        );
+        assert_eq!(references.document.len(), 2);
+        assert_eq!(references.anchors["one"].len(), 1);
+        assert_eq!(references.anchors["two"].len(), 1);
+        assert!(references
+            .document
+            .iter()
+            .all(|reference| reference.source_path == Path::new("source.plumb")));
     }
 
     #[test]

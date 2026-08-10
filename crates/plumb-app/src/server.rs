@@ -1101,14 +1101,26 @@ impl LanguageServer for ServerState {
                 let entry = self.workspace.get(&path)?;
                 let output = entry.current.as_ref()?;
                 let uri = Url::from_file_path(&entry.path).ok()?;
+                let anchor_ids = output
+                    .output
+                    .anchors
+                    .iter()
+                    .map(|anchor| anchor.id.value.clone())
+                    .collect::<HashSet<_>>();
+                let mut references = self
+                    .workspace
+                    .reverse_references_for_document(&entry.path, &anchor_ids);
                 let mut lenses = Vec::new();
                 if let Some(metadata) = &output.output.metadata.metadata {
-                    let locations = self
-                        .workspace
-                        .references_to_document(&entry.path)
+                    let locations = references
+                        .document
                         .into_iter()
-                        .filter_map(|(source_path, reference)| {
-                            location_for(&self.workspace, source_path, &reference.source_range)
+                        .filter_map(|reference| {
+                            location_for(
+                                &self.workspace,
+                                &reference.source_path,
+                                &reference.source_range,
+                            )
                         })
                         .collect::<Vec<_>>();
                     let count = locations.len();
@@ -1126,12 +1138,17 @@ impl LanguageServer for ServerState {
                     ));
                 }
                 lenses.extend(output.output.anchors.iter().map(|anchor| {
-                    let locations = self
-                        .workspace
-                        .references_to(&entry.path, &anchor.id.value)
+                    let locations = references
+                        .anchors
+                        .remove(&anchor.id.value)
+                        .unwrap_or_default()
                         .into_iter()
-                        .filter_map(|(source_path, reference)| {
-                            location_for(&self.workspace, source_path, &reference.source_range)
+                        .filter_map(|reference| {
+                            location_for(
+                                &self.workspace,
+                                &reference.source_path,
+                                &reference.source_range,
+                            )
                         })
                         .collect::<Vec<_>>();
                     let count = locations.len();
