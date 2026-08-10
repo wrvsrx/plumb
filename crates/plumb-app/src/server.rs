@@ -116,7 +116,13 @@ impl ServerState {
             return;
         };
         let path = normalize(&path);
-        self.workspace.insert(&path, i64::from(version), text);
+        let revision = i64::from(version);
+        if !self
+            .workspace
+            .rebind_revision_if_source(&path, revision, &text)
+        {
+            self.workspace.insert(&path, revision, text);
+        }
         self.open_documents.insert(uri, path);
         self.publish_all_open_diagnostics();
         self.refresh_code_lenses();
