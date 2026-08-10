@@ -683,7 +683,9 @@ impl LanguageServer for ServerState {
             self.index_complete &= complete;
             if files.binary_search(&path).is_ok() {
                 if let Ok(text) = fs::read_to_string(&path) {
-                    self.workspace.insert(&path, 0, text);
+                    if !self.workspace.rebind_revision_if_source(&path, 0, &text) {
+                        self.workspace.insert(&path, 0, text);
+                    }
                 } else {
                     self.workspace.remove(&path);
                 }

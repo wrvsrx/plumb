@@ -340,6 +340,39 @@ impl Workspace {
         self.documents.get(&path).expect("just inserted")
     }
 
+    pub fn rebind_revision_if_source(
+        &mut self,
+        path: impl AsRef<Path>,
+        revision: i64,
+        source: &str,
+    ) -> bool {
+        let path = normalize(path.as_ref());
+        let Some(entry) = self.documents.get_mut(&path) else {
+            return false;
+        };
+        if entry.parsed.source != source {
+            return false;
+        }
+        entry.revision = revision;
+        let Some(current) = entry.current.take() else {
+            return true;
+        };
+        entry.last_valid = None;
+        let rebound = match Arc::try_unwrap(current) {
+            Ok(mut output) => {
+                output.revision = revision;
+                Arc::new(output)
+            }
+            Err(output) => Arc::new(VersionedDocumentOutput {
+                revision,
+                output: output.output.clone(),
+            }),
+        };
+        entry.current = Some(rebound.clone());
+        entry.last_valid = Some(rebound);
+        true
+    }
+
     pub fn remove(&mut self, path: impl AsRef<Path>) -> Option<DocumentEntry> {
         self.documents.remove(&normalize(path.as_ref()))
     }
@@ -506,7 +539,7 @@ impl Workspace {
             }
         }
         for event in &output.events.events {
-            for reference in &self.event_task_references(&path, event) {
+            for reference in &self.event_task_references_in_output(&path, output, event) {
                 if !contains_inclusive(&reference.range, offset) {
                     continue;
                 }
@@ -684,7 +717,9 @@ impl Workspace {
                 }
             }
             for event in &current.output.events.events {
-                for reference in &self.event_task_references(&entry.path, event) {
+                for reference in
+                    &self.event_task_references_in_output(&entry.path, &current.output, event)
+                {
                     if let Some(reference) = self.task_anchor_reference(
                         &entry.path,
                         &reference.source,
@@ -749,7 +784,9 @@ impl Workspace {
                 }
             }
             for event in &current.output.events.events {
-                for reference in &self.event_task_references(&entry.path, event) {
+                for reference in
+                    &self.event_task_references_in_output(&entry.path, &current.output, event)
+                {
                     if resolved_document_path(
                         self.resolve_task_reference_target(&entry.path, &reference.target),
                     )
@@ -809,7 +846,9 @@ impl Workspace {
                 }
             }
             for event in &current.output.events.events {
-                for reference in &self.event_task_references(&entry.path, event) {
+                for reference in
+                    &self.event_task_references_in_output(&entry.path, &current.output, event)
+                {
                     collect_reverse_reference(
                         &mut references,
                         &target_path,
@@ -849,7 +888,7 @@ impl Workspace {
             }
         }
         for event in &output.events.events {
-            for reference in &self.event_task_references(&source_path, event) {
+            for reference in &self.event_task_references_in_output(&source_path, output, event) {
                 if let Some(path) = resolved_document_path(
                     self.resolve_task_reference_target(&source_path, &reference.target),
                 ) {
@@ -1002,12 +1041,16 @@ impl Workspace {
                 continue;
             };
             for event in &current.output.events.events {
-                if self.event_task_references(&entry.path, event).iter().any(|reference| {
-                    matches!(
-                        self.resolve_task_target(&entry.path, &reference.target),
-                        TaskTargetResolution::Task { target: ref resolved, .. } if resolved == target
-                    )
-                }) {
+                if self
+                    .event_task_references_in_output(&entry.path, &current.output, event)
+                    .iter()
+                    .any(|reference| {
+                        matches!(
+                            self.resolve_task_target(&entry.path, &reference.target),
+                            TaskTargetResolution::Task { target: ref resolved, .. } if resolved == target
+                        )
+                    })
+                {
                     events.push(WorkspaceEvent {
                         path: entry.path.clone(),
                         revision: current.revision,
@@ -1038,9 +1081,24 @@ impl Workspace {
         let Some(current) = self.current_output(&path) else {
             return Vec::new();
         };
-        current
+        self.event_task_references_in_output(&path, current, event)
+    }
+
+    fn event_task_references_in_output(
+        &self,
+        path: &Path,
+        current: &DocumentOutput,
+        event: &EventRecord,
+    ) -> Vec<TaskDependency> {
+        if event.tasks_override {
+            return event.tasks.clone();
+        }
+        let first = current
             .links
+            .partition_point(|link| link.range.start < event.range.start);
+        current.links[first..]
             .iter()
+            .take_while(|link| link.range.start <= event.range.end)
             .filter(|link| {
                 event.range.start <= link.range.start && link.range.end <= event.range.end
             })
@@ -1212,7 +1270,7 @@ impl Workspace {
     ) -> Vec<Diagnostic> {
         let mut diagnostics = Vec::new();
         for event in &current.output.events.events {
-            for reference in &self.event_task_references(path, event) {
+            for reference in &self.event_task_references_in_output(path, &current.output, event) {
                 if let Some(mut diagnostic) = self.task_target_diagnostic(
                     path,
                     &reference.source,
@@ -4119,6 +4177,56 @@ mod tests {
     }
 
     #[test]
+    fn rebinds_identical_source_without_rebuilding_document_outputs() {
+        let source = "`event 2026-08-11T09:00:00+08:00 Meeting\n";
+        let mut workspace = Workspace::new();
+        workspace.insert("event.plumb", 7, source);
+        let entry = workspace.get("event.plumb").unwrap();
+        let token_storage = entry.parsed.lossless.tokens.as_ptr();
+        let event_storage = entry
+            .current
+            .as_ref()
+            .unwrap()
+            .output
+            .events
+            .events
+            .as_ptr();
+
+        assert!(workspace.rebind_revision_if_source("event.plumb", 0, source));
+        let entry = workspace.get("event.plumb").unwrap();
+        assert_eq!(entry.revision, 0);
+        assert_eq!(entry.current.as_ref().unwrap().revision, 0);
+        assert_eq!(entry.last_valid.as_ref().unwrap().revision, 0);
+        assert_eq!(entry.parsed.lossless.tokens.as_ptr(), token_storage);
+        assert_eq!(
+            entry
+                .current
+                .as_ref()
+                .unwrap()
+                .output
+                .events
+                .events
+                .as_ptr(),
+            event_storage
+        );
+        assert!(!workspace.rebind_revision_if_source("event.plumb", 1, "changed\n"));
+    }
+
+    #[test]
+    fn rebinding_invalid_source_preserves_last_valid_provenance() {
+        let mut workspace = Workspace::new();
+        workspace.insert("note.plumb", 1, "Valid\n");
+        let invalid = "`broken[\n";
+        workspace.insert("note.plumb", 2, invalid);
+
+        assert!(workspace.rebind_revision_if_source("note.plumb", 0, invalid));
+        let entry = workspace.get("note.plumb").unwrap();
+        assert_eq!(entry.revision, 0);
+        assert!(entry.current.is_none());
+        assert_eq!(entry.last_valid.as_ref().unwrap().revision, 1);
+    }
+
+    #[test]
     fn returns_reverse_references() {
         let mut workspace = Workspace::new();
         workspace.insert("a.plumb", 1, "`# Target {\n  `@ target\n}\n");
@@ -5845,6 +5953,32 @@ mod tests {
         assert_eq!(
             point.items[0].at.as_deref(),
             Some("2026-07-30T15:00:00+08:00")
+        );
+    }
+
+    #[test]
+    fn event_task_associations_binary_search_source_ordered_links() {
+        let mut workspace = Workspace::new();
+        workspace.insert("tasks.plumb", 1, "`task Write {\n  `@ write\n}\n");
+        workspace.insert(
+            "events.plumb",
+            2,
+            "{\n  `: date 2026-08-11\n  `: timezone +08:00\n}\n\n`->[Before]{`:[to tasks.plumb#write]}\n\n`event 10:00 Outer `->[Outer]{`:[to tasks.plumb#write]}\n  `event 11:00 Nested `->[Nested]{`:[to tasks.plumb#write]}\n\n`->[After]{`:[to tasks.plumb#write]}\n",
+        );
+
+        let output = workspace.current_output(Path::new("events.plumb")).unwrap();
+        let outer = &output.events.events[0];
+        let nested = &output.events.events[1];
+
+        assert_eq!(
+            workspace.event_task_references("events.plumb", outer).len(),
+            2
+        );
+        assert_eq!(
+            workspace
+                .event_task_references("events.plumb", nested)
+                .len(),
+            1
         );
     }
 
