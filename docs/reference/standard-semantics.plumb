@@ -323,18 +323,23 @@ task-to-event reverse query。不得从 task 的 created、due、wait、done 或
 
 `"event" 与 `"task" 是互斥的 specialized list-item markers，不能组合。
 
-`"uid"、`"when" properties 与 metadata `"event-uids" 没有 event semantics，只作为 opaque attached data/metadata
-保留。Event 只有被引用时才需要 explicit id；authoring operation 不自动生成 id。
-只读 vdir projection 要求每个 event 具有有效 time；exporter 从使用正斜线分隔的 workspace-relative path、
-schedule 与 title 确定性派生 iCalendar UID。不同设备上的同一 workspace 因而产生相同 filename 与内容；
-同一路径内 schedule 和 title 都相同的 events 是 identity conflict。每个 event 生成一个含单个 VEVENT
+event 自身的 direct `"uid" property 接受 scalar/literal value，并作为显式 iCalendar UID；值必须非空。
+invalid explicit UID 不回退到派生值。缺少 `"uid" 时，exporter 从使用正斜线分隔的
+workspace-relative path、schedule 与 title 确定性派生 `"<sha256>@plumb.local" UID。`"when" property 与
+metadata `"event-uids" 没有 event semantics，只作为 opaque attached data/metadata 保留。Event 只有被引用时
+才需要 explicit id；authoring operation 不自动生成 id 或 UID。
+
+只读 vdir projection 要求每个 event 具有有效 time；不同设备上的同一 workspace 因而产生相同 UID 与内容。
+完整 export set 中两个 events 具有相同的显式或派生 effective UID 是 identity conflict，export 必须在写文件前
+失败。每个 event 生成一个含单个 VEVENT
 的 `"..ics" file，并 lower SUMMARY、DESCRIPTION、DTSTART、optional DTEND、UID、DTSTAMP 与重复的
 `"X-PLUMB-TASK" properties。输出使用 RFC 5545 escaping、75-octet folding 与 CRLF。`".plumb" source
-始终是唯一 writable source；UID 直接作为 `"..ics" filename，`"DTSTAMP" 确定性取 UTC `"DTSTART"。
+始终是唯一 writable source；filename 是 effective UID UTF-8 bytes 的 lowercase SHA-256 hex 加 `".ics"，
+不直接包含 UID；`"DTSTAMP" 确定性取 UTC `"DTSTART"。
 export 先构造完整期望集合，再对受管理目录新增、更新或删除对应 files；初版不导入外部 iCalendar 修改，
 也不实现 CalDAV client。
 
-Event CEL context 提供 `"path"、`"id"、`"title"、source-backed `"date"、`"timezone"、来自 head
+Event CEL context 提供 `"path"、`"id"、`"title"、source-backed `"uid"、`"date"、`"timezone"、来自 head
 schedule 的 `"when"、
 解析后的 `"at"、`"start"、`"end"、`"tasks" 与 `"now"。
 Web Agenda 通过 revision-guarded operations 创建、编辑和删除 event；首版只支持 online mutations。
