@@ -24,6 +24,7 @@ pub struct EventRecord {
     pub details: String,
     pub depth: usize,
     pub id: Option<EventField>,
+    pub uid: Option<EventField>,
     pub date: Option<EventField>,
     pub timezone: Option<EventField>,
     pub when: Option<EventField>,
@@ -168,6 +169,7 @@ fn event_record(
     let mark = block.mark.as_ref().expect("event is a marked block");
     let date = text_field(&mark.attrs.items, "date");
     let timezone = text_field(&mark.attrs.items, "timezone");
+    let uid = text_field(&mark.attrs.items, "uid");
     let (when, title, selection_range) = event_head(block);
     let resolved = resolve_when(
         when.as_ref(),
@@ -201,6 +203,7 @@ fn event_record(
         details: event_details(&block.children),
         depth,
         id,
+        uid,
         date,
         timezone,
         when,
@@ -329,6 +332,16 @@ fn collect_event_diagnostics(
             severity: DiagnosticSeverity::Warning,
             message: "an event requires a title after its schedule".to_string(),
             range: event.selection_range.clone(),
+            related: Vec::new(),
+        });
+    }
+    if event.uid.as_ref().is_some_and(|uid| uid.value.is_empty()) {
+        let uid = event.uid.as_ref().expect("empty uid exists");
+        output.diagnostics.push(Diagnostic {
+            code: "event.invalid-uid",
+            severity: DiagnosticSeverity::Warning,
+            message: "an explicit event uid must not be empty".to_string(),
+            range: uid.range.clone(),
             related: Vec::new(),
         });
     }
@@ -584,11 +597,29 @@ mod tests {
     }
 
     #[test]
-    fn legacy_uid_fields_are_opaque_event_attributes() {
-        let source = "{\n  `: date 2026-07-30\n  `: timezone +00:00\n}\n\n`event 10:00 Review {\n  `: uid calendar\n}\n";
+    fn projects_direct_uid_property() {
+        let source = "{\n  `: date 2026-07-30\n  `: timezone +00:00\n}\n\n`event 10:00 Review {\n  `: uid calendar@example\n}\n";
         let output = analyze(source);
         assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
-        assert_eq!(output.events[0].title, "Review");
+        assert_eq!(
+            output.events[0].uid.as_ref().unwrap().value,
+            "calendar@example"
+        );
+    }
+
+    #[test]
+    fn diagnoses_empty_explicit_uid_without_treating_it_as_missing() {
+        let source = "`event 2026-07-30T10:00:00Z Review {\n  `: uid `\"[]\"\n}\n";
+        let output = analyze(source);
+        assert_eq!(output.events[0].uid.as_ref().unwrap().value, "");
+        assert_eq!(
+            output
+                .diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.code)
+                .collect::<Vec<_>>(),
+            ["event.invalid-uid"]
+        );
     }
 
     #[test]
@@ -751,5 +782,9 @@ mod tests {
         let output = analyze(source);
         assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
         assert_eq!(output.events[0].title, "Review");
+        assert_eq!(
+            output.events[0].uid.as_ref().unwrap().value,
+            "inline@example"
+        );
     }
 }

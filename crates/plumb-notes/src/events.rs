@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fmt::Write as _;
 use std::path::{Component, Path};
 
@@ -46,8 +46,32 @@ fn desired_events(loaded: &LoadedWorkspace) -> Result<BTreeMap<String, String>, 
     });
 
     let mut desired = BTreeMap::new();
+    let mut effective_uids = HashMap::new();
     for (entry, event) in events {
-        let uid = derived_uid(loaded, &entry.path, event);
+        let uid = event
+            .uid
+            .as_ref()
+            .map(|field| field.value.clone())
+            .unwrap_or_else(|| derived_uid(loaded, &entry.path, event));
+        if uid.is_empty() {
+            return Err(format!(
+                "event '{}' in {} has an invalid empty uid",
+                event.title,
+                entry.path.display()
+            ));
+        }
+        if let Some((previous_path, previous_title)) =
+            effective_uids.insert(uid.clone(), (entry.path.clone(), event.title.clone()))
+        {
+            return Err(format!(
+                "events '{}' in {} and '{}' in {} have duplicate calendar uid '{}'",
+                previous_title,
+                previous_path.display(),
+                event.title,
+                entry.path.display(),
+                uid
+            ));
+        }
         let start = event.sort_datetime().ok_or_else(|| {
             format!(
                 "event '{}' in {} has no valid time",
@@ -84,14 +108,9 @@ fn desired_events(loaded: &LoadedWorkspace) -> Result<BTreeMap<String, String>, 
             end.map(|end| end.with_timezone(&Utc)),
             &tasks,
         );
-        let filename = format!("{uid}.ics");
+        let filename = format!("{}.ics", hex_digest(uid.as_bytes()));
         if desired.insert(filename, ical).is_some() {
-            return Err(format!(
-                "events in {} have duplicate calendar identity for schedule '{}' and title '{}'",
-                entry.path.display(),
-                event.when.as_ref().map_or("", |field| field.value.as_str()),
-                event.title
-            ));
+            return Err("calendar uid filename digest collision".to_string());
         }
     }
     Ok(desired)
@@ -315,7 +334,10 @@ mod tests {
             .find_map(|line| line.strip_prefix("UID:"))
             .unwrap();
         assert_eq!(item.file_name().to_string_lossy(), expected_filename);
-        assert_eq!(item.file_name().to_string_lossy(), format!("{uid}.ics"));
+        assert_eq!(
+            item.file_name().to_string_lossy(),
+            format!("{}.ics", hex_digest(uid.as_bytes()))
+        );
         assert!(ical.contains("UID:"), "{ical:?}");
         assert!(unfolded.contains("@plumb.local\r\n"), "{ical:?}");
         assert!(ical.contains("DTSTAMP:20260730T060000Z\r\n"), "{ical:?}");
@@ -423,7 +445,7 @@ mod tests {
     }
 
     #[test]
-    fn rejects_duplicate_path_schedule_and_title_identities() {
+    fn rejects_duplicate_effective_uids() {
         let root = std::env::temp_dir().join(format!(
             "plumb-event-duplicate-id-test-{}-{}",
             std::process::id(),
@@ -433,7 +455,115 @@ mod tests {
         let loaded = loaded_with_source(&root, "events.plumb", source);
         assert!(desired_events(&loaded)
             .unwrap_err()
-            .contains("duplicate calendar identity"));
+            .contains("duplicate calendar uid"));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn explicit_uid_is_stable_and_uses_a_safe_hashed_filename() {
+        let root = std::env::temp_dir().join(format!(
+            "plumb-event-explicit-uid-test-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        let uid = "unsafe/path:value@example";
+        let first = loaded_with_source(
+            &root,
+            "events.plumb",
+            &format!("`event 2026-07-30T14:00:00Z Review {{\n  `: uid {uid}\n}}\n"),
+        );
+        let second = loaded_with_source(
+            &root,
+            "events.plumb",
+            &format!("`event 2026-08-01T09:00:00Z Renamed {{\n  `: uid {uid}\n}}\n"),
+        );
+        let first_events = desired_events(&first).unwrap();
+        let second_events = desired_events(&second).unwrap();
+        let expected_filename = format!("{}.ics", hex_digest(uid.as_bytes()));
+        assert_eq!(first_events.keys().next().unwrap(), &expected_filename);
+        assert_eq!(second_events.keys().next().unwrap(), &expected_filename);
+        assert!(first_events
+            .values()
+            .next()
+            .unwrap()
+            .contains(&format!("UID:{uid}\r\n")));
+        assert!(second_events
+            .values()
+            .next()
+            .unwrap()
+            .contains(&format!("UID:{uid}\r\n")));
+        assert!(!expected_filename.contains("unsafe"));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn rejects_duplicate_explicit_uids_across_documents() {
+        let root = std::env::temp_dir().join(format!(
+            "plumb-event-cross-document-uid-test-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let mut workspace = Workspace::new();
+        workspace.insert(
+            root.join("first.plumb"),
+            1,
+            "`event 2026-07-30T14:00:00Z First {\n  `: uid shared@example\n}\n",
+        );
+        workspace.insert(
+            root.join("second.plumb"),
+            1,
+            "`event 2026-07-31T14:00:00Z Second {\n  `: uid shared@example\n}\n",
+        );
+        let loaded = LoadedWorkspace {
+            root: root.clone(),
+            workspace,
+        };
+        assert!(desired_events(&loaded)
+            .unwrap_err()
+            .contains("duplicate calendar uid 'shared@example'"));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn rejects_an_explicit_uid_equal_to_another_events_derived_uid() {
+        let root = std::env::temp_dir().join(format!(
+            "plumb-event-mixed-uid-test-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let mut workspace = Workspace::new();
+        workspace.insert(
+            root.join("derived.plumb"),
+            1,
+            "`event 2026-07-30T14:00:00Z Derived {\n}\n",
+        );
+        let preliminary = LoadedWorkspace {
+            root: root.clone(),
+            workspace,
+        };
+        let derived_entry = preliminary
+            .workspace
+            .documents()
+            .find(|entry| entry.path == root.join("derived.plumb"))
+            .unwrap();
+        let derived_event = &derived_entry.current.as_ref().unwrap().output.events.events[0];
+        let uid = derived_uid(&preliminary, &root.join("derived.plumb"), derived_event);
+
+        let mut workspace = preliminary.workspace;
+        workspace.insert(
+            root.join("explicit.plumb"),
+            1,
+            &format!("`event 2026-07-31T14:00:00Z Explicit {{\n  `: uid {uid}\n}}\n"),
+        );
+        let loaded = LoadedWorkspace {
+            root: root.clone(),
+            workspace,
+        };
+        assert!(desired_events(&loaded)
+            .unwrap_err()
+            .contains("duplicate calendar uid"));
         std::fs::remove_dir_all(root).unwrap();
     }
 

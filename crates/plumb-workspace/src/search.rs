@@ -572,6 +572,10 @@ impl SemanticSearchFilter {
         );
         context.add_variable_from_value("title", event.title.clone());
         context.add_variable_from_value(
+            "uid",
+            optional_search_string(event.uid.as_ref().map(|uid| &uid.value)),
+        );
+        context.add_variable_from_value(
             "date",
             optional_search_string(event.date.as_ref().map(|field| &field.value)),
         );

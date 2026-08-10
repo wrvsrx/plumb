@@ -5603,7 +5603,7 @@ mod tests {
             1,
             "`task Write {\n  `@ write\n}\n\n`node Plain {\n  `@ plain\n}\n",
         );
-        let events = "{\n  `: date 2026-07-30\n  `: timezone +08:00\n}\n\n`event 10:30 Early {\n  `: timezone +05:00\n}\n`event 11:00 `->[Write]{`:[to tasks.plumb#write]} {\n}\n`event 12:00 `->[Write]{`:[to tasks.plumb#write]} {\n  `: tasks \n}\n`event 14:00--15:00 Review {\n  `@ review\n  `: tasks tasks.plumb#write\n}\n`event 15:00 Point {\n  `: tasks tasks.plumb#plain missing.plumb#task bad\n}\n";
+        let events = "{\n  `: date 2026-07-30\n  `: timezone +08:00\n}\n\n`event 10:30 Early {\n  `: timezone +05:00\n}\n`event 11:00 `->[Write]{`:[to tasks.plumb#write]} {\n}\n`event 12:00 `->[Write]{`:[to tasks.plumb#write]} {\n  `: tasks \n}\n`event 14:00--15:00 Review {\n  `@ review\n  `: uid review@example\n  `: tasks tasks.plumb#write\n}\n`event 15:00 Point {\n  `: tasks tasks.plumb#plain missing.plumb#task bad\n}\n";
         workspace.insert("events.plumb", 2, events);
 
         let target = TaskRef {
@@ -5669,7 +5669,7 @@ mod tests {
                 "review",
                 20,
                 DateTime::parse_from_rfc3339("2026-07-30T00:00:00Z").unwrap(),
-                Some("when == '14:00--15:00' && start < timestamp('2026-07-30T07:00:00Z')"),
+                Some("uid == 'review@example' && when == '14:00--15:00' && start < timestamp('2026-07-30T07:00:00Z')"),
             )
             .unwrap();
         assert_eq!(filtered.items.len(), 1);
@@ -6092,7 +6092,7 @@ mod tests {
     }
 
     #[test]
-    fn updating_an_event_preserves_opaque_uid_and_when_properties() {
+    fn updating_an_event_preserves_semantic_uid_and_opaque_when_property() {
         let source = "{\n  `: date 2026-07-30\n  `: timezone +08:00\n}\n\n`event 14:00 Review {\n  `@ review\n  `: uid legacy@example\n  `: when 14:00\n}\n";
         let mut workspace = Workspace::new();
         workspace.insert("agenda.plumb", 1, source);
