@@ -182,7 +182,10 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
 .agenda-date-heading { top: 49px; }
 .event-list { width: 100%; }
 .agenda-page-control { width: 100%; min-height: 40px; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; color: var(--teal); background: #efefec; font-weight: 700; }
-.agenda-current-time { display: grid; grid-template-columns: 120px minmax(0, 1fr); align-items: center; gap: 14px; padding: 5px 16px; color: var(--red); }
+.agenda-current-time {
+  width: 100%; min-height: 62px; display: grid; grid-template-columns: 120px minmax(0, 1fr);
+  align-items: center; gap: 14px; padding: 9px 16px; border-bottom: 1px solid var(--border); color: var(--red);
+}
 .agenda-current-time time { font-size: 12px; font-weight: 700; }
 .agenda-current-time span { height: 2px; background: var(--red); }
 .event-row {
