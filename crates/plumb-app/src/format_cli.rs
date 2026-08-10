@@ -67,8 +67,8 @@ fn format_inputs(args: Args) -> Result<bool, String> {
 }
 
 fn format_source(source: String, name: &str) -> Result<String, String> {
-    let parsed = plumb_syntax::parse(&source);
+    let parsed = plumb_syntax::parse(source);
     let edits = plumb_edit::format(&parsed, FormatScope::Document)
         .map_err(|_| format!("{name} has syntax errors"))?;
-    apply_text_edits(source, edits).map_err(|_| format!("cannot apply edits to {name}"))
+    apply_text_edits(parsed.source, edits).map_err(|_| format!("cannot apply edits to {name}"))
 }
