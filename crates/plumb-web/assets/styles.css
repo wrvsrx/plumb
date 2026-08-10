@@ -164,7 +164,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
 .task-row time { font-size: 12px; text-align: right; }
 .task-empty { padding: 48px 24px; text-align: center; color: var(--muted); }
 .task-panel { overflow: auto; border-left: 1px solid var(--border); background: var(--paper); padding: 24px; }
-.task-sort { min-width: 0; max-width: 100%; display: flex; align-items: center; flex-wrap: wrap; gap: 5px; flex: 2 1 420px; }
+.task-sort { min-width: 0; max-width: 100%; margin-left: auto; display: flex; align-items: center; justify-content: flex-end; flex: 0 1 auto; flex-wrap: wrap; gap: 5px; }
 .task-sort-keys { min-width: 0; max-width: 100%; display: flex; flex-wrap: wrap; gap: 5px; min-height: 30px; }
 .task-sort-key { min-width: 0; max-width: 100%; display: grid; grid-template-columns: 24px minmax(0, 1fr) repeat(3, 24px); align-items: center; flex: 0 1 auto; border: 1px solid var(--border); border-radius: 4px; background: var(--paper); }
 .task-sort-key > span { min-width: 0; padding: 0 6px; font-size: 12px; font-weight: 700; white-space: normal; overflow-wrap: anywhere; }
@@ -181,6 +181,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
 }
 .agenda-date-heading { top: 49px; }
 .event-list { width: 100%; }
+.agenda-page-control { width: 100%; min-height: 40px; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; color: var(--teal); background: #efefec; font-weight: 700; }
 .agenda-current-time { display: grid; grid-template-columns: 120px minmax(0, 1fr); align-items: center; gap: 14px; padding: 5px 16px; color: var(--red); }
 .agenda-current-time time { font-size: 12px; font-weight: 700; }
 .agenda-current-time span { height: 2px; background: var(--red); }

@@ -11,7 +11,12 @@ import {
   viewFromPath,
   writeQueryParameters,
 } from './query-state.js';
-import { currentTimeInsertionIndex, localDateKey } from './agenda-state.js';
+import {
+  adjacentAgendaPage,
+  agendaPageRange,
+  currentTimeInsertionIndex,
+  localDateKey,
+} from './agenda-state.js';
 import { EDITABLE_TASK_PROPERTIES, missingTaskProperties } from './task-ui.js';
 
 (function () {
@@ -50,6 +55,7 @@ import { EDITABLE_TASK_PROPERTIES, missingTaskProperties } from './task-ui.js';
     selectedEvent: null,
     pendingEvent: false,
     agendaPositioned: false,
+    agendaRange: null,
   };
 
   const graphElement = document.getElementById('graph');
@@ -76,6 +82,7 @@ import { EDITABLE_TASK_PROPERTIES, missingTaskProperties } from './task-ui.js';
   const notification = document.getElementById('notification');
   const agendaWorkspace = document.querySelector('.agenda-workspace');
   const eventList = document.getElementById('event-list');
+  const eventListPane = document.querySelector('.event-list-pane');
   const agendaNowButton = document.getElementById('agenda-now');
   const eventEmpty = document.getElementById('event-empty');
   const eventPanel = document.getElementById('event-panel');
@@ -834,8 +841,37 @@ import { EDITABLE_TASK_PROPERTIES, missingTaskProperties } from './task-ui.js';
     eventEmpty.hidden = state.events.events.length > 0;
     const now = new Date();
     const nowIndex = currentTimeInsertionIndex(state.events.events, now);
+    const selectedIndex = state.selectedEvent
+      ? state.events.events.findIndex((event) => event.key === state.selectedEvent)
+      : -1;
+    if (positionNow) {
+      state.agendaRange = agendaPageRange(state.events.events.length, nowIndex);
+    } else if (!state.agendaRange) {
+      state.agendaRange = agendaPageRange(
+        state.events.events.length,
+        selectedIndex >= 0 ? selectedIndex : nowIndex,
+      );
+    }
+    const range = state.agendaRange;
     const todayKey = localDateKey(now);
     let previousDateKey = null;
+
+    function appendPageControl(direction) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'agenda-page-control';
+      button.textContent = direction === 'earlier' ? 'Earlier events' : 'Later events';
+      button.addEventListener('click', () => {
+        state.agendaRange = adjacentAgendaPage(
+          state.agendaRange,
+          direction,
+          state.events.events.length,
+        );
+        renderEvents();
+        eventListPane.scrollTop = eventList.offsetTop;
+      });
+      eventList.append(button);
+    }
 
     function appendDateHeading(date, dateKey) {
       const heading = document.createElement('div');
@@ -859,7 +895,9 @@ import { EDITABLE_TASK_PROPERTIES, missingTaskProperties } from './task-ui.js';
       eventList.append(marker);
     }
 
-    state.events.events.forEach((event, index) => {
+    if (range.start > 0) appendPageControl('earlier');
+    state.events.events.slice(range.start, range.end).forEach((event, relativeIndex) => {
+      const index = range.start + relativeIndex;
       if (index === nowIndex) appendCurrentTime();
       const eventTime = event.at || event.start;
       const parsedStart = eventTime ? new Date(eventTime) : null;
@@ -885,10 +923,11 @@ import { EDITABLE_TASK_PROPERTIES, missingTaskProperties } from './task-ui.js';
       source.textContent = event.path;
       identity.append(title, source);
       button.append(time, identity);
-      button.addEventListener('click', () => selectEvent(event));
+      button.addEventListener('click', () => selectEvent(event, button));
       eventList.append(button);
     });
-    if (nowIndex === state.events.events.length) appendCurrentTime();
+    if (nowIndex === state.events.events.length && range.end === state.events.events.length) appendCurrentTime();
+    if (range.end < state.events.events.length) appendPageControl('later');
     const selected = state.events.events.find((event) => event.key === state.selectedEvent);
     if (selected) renderEventDetail(selected);
     else renderNewEventPrompt();
@@ -912,10 +951,12 @@ import { EDITABLE_TASK_PROPERTIES, missingTaskProperties } from './task-ui.js';
     return `${startLabel}-${end.toLocaleTimeString([], EVENT_TIME_OPTIONS)}`;
   }
 
-  function selectEvent(event) {
+  function selectEvent(event, button = null) {
+    eventList.querySelector('.event-row.selected')?.classList.remove('selected');
     state.selectedEvent = event.key;
+    button?.classList.add('selected');
     updateUrl();
-    renderEvents();
+    renderEventDetail(event);
   }
 
   function renderNewEventPrompt() {
@@ -1038,6 +1079,7 @@ import { EDITABLE_TASK_PROPERTIES, missingTaskProperties } from './task-ui.js';
         ));
         state.selectedEvent = created?.key || null;
       }
+      if (action !== 'delete') state.agendaRange = null;
       renderEvents();
       updateUrl();
       notify(`Event ${action}d.`);
@@ -1537,7 +1579,7 @@ import { EDITABLE_TASK_PROPERTIES, missingTaskProperties } from './task-ui.js';
   newTaskButton.addEventListener('click', () => renderTaskForm());
   agendaViewButton.addEventListener('click', () => showView('agenda', { historyMode: 'push' }));
   agendaNowButton.addEventListener('click', () => {
-    renderEvents();
+    renderEvents({ positionNow: true });
     requestAnimationFrame(() => scrollAgendaToNow('smooth'));
   });
   document.querySelectorAll('.graph-filters .edge-options input[value]').forEach((input) => input.addEventListener('change', () => {
