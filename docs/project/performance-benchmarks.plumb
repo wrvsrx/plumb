@@ -62,3 +62,32 @@ fold installation，backend benchmark 必须单独报告 server 与 editor end-t
 每个 point 同时报告 absolute value 和相对 process-local baseline。wall-clock benchmark 不进入普通 correctness
 CI 的硬阈值；普通 CI 固定 result parity、cache identity、generation atomicity、document shadowing 和已知
 algorithmic work bounds。
+
+`# 6. SQLite backend comparison on 2026-08-11
+
+commit `"43b339e" 后的 benchmark harness 使用 33,512 events、3,351 references、2,038,805 source bytes
+的 deterministic workload。host 为 Intel Core i9-9980XE、Linux 6.18.39、rustc 1.97.1；Criterion 使用
+release profile。下列数值取 reported interval 的 midpoint：
+
+`- cold build：process-local memory backend 176.70 ms；SQLite backend 654.63 ms，SQLite 为 3.70x，
+ 即回退约 270%。该路径同时执行 parse、document semantics 与首次 persistent transaction。
+`- warm startup：SQLite content-hash hit 7.91 ms；原 backend 必须重新执行约 176.70 ms cold build，warm
+ SQLite 快约 22.3x。独立 process 的首次 page-cache observation 为 23.94 ms，因此 cold OS cache 会缩小
+ 但不会消除该收益。
+`- batched reverse references：memory 3.98 ms，SQLite 3.32 ms，SQLite 快约 16.7%。
+`- agenda range：memory 25.26 ms，SQLite 65.12 ms，SQLite 慢约 2.58x。SQL time index 限定候选后，
+ 命中 EventRecord 的 Bincode decode 仍是独立成本；该回退不能描述为性能提升。
+`- open overlay：SQLite disk generation 被一个完整 open document 遮蔽后，reverse-reference query 为
+ 2.35 ms，结果 parity 由普通 tests 固定。
+`- full document replacement：33,512-event generation transaction 为 701.52 ms；它只在稳定 disk
+ revision 发布时发生，不在 didChange/逐键路径执行。
+
+Linux process profile 中，memory backend cold build 的 peak/resident 为 217,584 KiB。SQLite cold build
+peak 为 207,672 KiB，事务完成后 resident 为 165,992 KiB；新 process warm startup 的 peak 为
+23,428 KiB、resident 为 12,628 KiB，相比原 backend resident 降低约 94.2%。该值包含 allocator、SQLite
+page cache 与 process runtime，不等同于 semantic records 的精确 retained bytes。
+
+Bincode semantic records 下，首次 transaction 尚有 WAL 时 database、WAL 与 shared-memory files 合计
+45,562,232 bytes；重新打开并 checkpoint 后合计 22,618,112 bytes。此前 JSON record prototype 为
+75,262,976 bytes，且同一 agenda query 约 84.66 ms；binary record encoding 同时降低 size 与 decode
+latency，但没有消除 agenda 相对 memory backend 的回退。

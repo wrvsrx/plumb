@@ -1190,6 +1190,7 @@ impl Workspace {
         if end <= start {
             return Vec::new();
         }
+        let has_open_documents = !self.documents.is_empty();
         let mut events = self
             .documents
             .values()
@@ -1221,6 +1222,9 @@ impl Workspace {
                     event: stored.record,
                 }));
             }
+        }
+        if !has_open_documents && self.disk_store.is_some() {
+            return events;
         }
         events.sort_by(|left, right| {
             left.event
@@ -4557,6 +4561,52 @@ mod tests {
         assert!(!workspace.insert_disk("event.plumb", 0, source).unwrap());
         assert!(workspace.insert_disk("event.plumb", 0, source).unwrap());
         assert_eq!(workspace.document_paths(), [PathBuf::from("event.plumb")]);
+    }
+
+    #[test]
+    fn sqlite_queries_match_memory_with_and_without_an_open_overlay() {
+        let target = "`task Target {\n `@ target\n}\n";
+        let disk_source = concat!(
+            "`event 2026-08-12T10:00 Later\n",
+            "`event 2026-08-11T10:00 Earlier\n",
+            "See `->[target]{`:[to target.plumb#target]}.\n",
+        );
+        let open_source = concat!(
+            "`event 2026-08-10T10:00 Open\n",
+            "See `->[target]{`:[to target.plumb#target]}.\n",
+            "See `->[target]{`:[to target.plumb#target]}.\n",
+        );
+        let ids = HashSet::from(["target".to_string()]);
+        let start = DateTime::parse_from_rfc3339("2026-08-01T00:00:00+00:00").unwrap();
+        let end = DateTime::parse_from_rfc3339("2026-09-01T00:00:00+00:00").unwrap();
+
+        let mut memory = Workspace::new();
+        memory.insert("target.plumb", 0, target);
+        memory.insert("source.plumb", 0, disk_source);
+        let store = SqliteSemanticStore::open_in_memory().unwrap();
+        let mut sqlite = Workspace::with_sqlite_store(store);
+        sqlite.insert_disk("target.plumb", 0, target).unwrap();
+        sqlite.insert_disk("source.plumb", 0, disk_source).unwrap();
+
+        assert_eq!(
+            sqlite.reverse_references_for_document("target.plumb", &ids),
+            memory.reverse_references_for_document("target.plumb", &ids)
+        );
+        assert_eq!(
+            sqlite.events_overlapping(start, end),
+            memory.events_overlapping(start, end)
+        );
+
+        memory.insert("source.plumb", 1, open_source);
+        sqlite.open_document("source.plumb", 1, open_source);
+        assert_eq!(
+            sqlite.reverse_references_for_document("target.plumb", &ids),
+            memory.reverse_references_for_document("target.plumb", &ids)
+        );
+        assert_eq!(
+            sqlite.events_overlapping(start, end),
+            memory.events_overlapping(start, end)
+        );
     }
 
     fn temp_workspace() -> PathBuf {

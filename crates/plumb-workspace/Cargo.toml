@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+bincode.workspace = true
 cel.workspace = true
 chrono.workspace = true
 ignore.workspace = true
@@ -13,10 +14,14 @@ plumb-edit = { path = "../plumb-edit" }
 plumb-semantics = { path = "../plumb-semantics" }
 rusqlite.workspace = true
 serde.workspace = true
-serde_json.workspace = true
 sha2.workspace = true
 uuid.workspace = true
 
 [dev-dependencies]
+criterion.workspace = true
 plumb-format = { path = "../plumb-format" }
 tempfile = "3"
+
+[[bench]]
+name = "semantic_store"
+harness = false

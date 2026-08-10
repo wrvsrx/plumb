@@ -14,13 +14,13 @@ use sha2::{Digest, Sha256};
 
 use crate::{normalize, resolve_relative, task_reference_fields, task_reference_ranges};
 
-const SCHEMA_VERSION: i64 = 1;
+const SCHEMA_VERSION: i64 = 2;
 const PRODUCER_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[derive(Debug)]
 pub enum StoreError {
     Sqlite(rusqlite::Error),
-    Json(serde_json::Error),
+    Bincode(Box<bincode::ErrorKind>),
     InvalidStoredValue,
     LockPoisoned,
 }
@@ -29,7 +29,7 @@ impl std::fmt::Display for StoreError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Sqlite(error) => write!(formatter, "SQLite semantic store: {error}"),
-            Self::Json(error) => write!(formatter, "semantic record encoding: {error}"),
+            Self::Bincode(error) => write!(formatter, "semantic record encoding: {error}"),
             Self::InvalidStoredValue => formatter.write_str("invalid persisted semantic value"),
             Self::LockPoisoned => formatter.write_str("SQLite semantic store lock poisoned"),
         }
@@ -44,9 +44,9 @@ impl From<rusqlite::Error> for StoreError {
     }
 }
 
-impl From<serde_json::Error> for StoreError {
-    fn from(error: serde_json::Error) -> Self {
-        Self::Json(error)
+impl From<Box<bincode::ErrorKind>> for StoreError {
+    fn from(error: Box<bincode::ErrorKind>) -> Self {
+        Self::Bincode(error)
     }
 }
 
@@ -307,7 +307,7 @@ impl SqliteSemanticStore {
         let rows = statement.query_map(params![path_bytes(&normalize(path)), id], |row| {
             row.get::<_, Vec<u8>>(0)
         })?;
-        rows.map(|row| Ok(serde_json::from_slice(&row?)?)).collect()
+        rows.map(|row| Ok(bincode::deserialize(&row?)?)).collect()
     }
 
     pub fn links(&self, excluded: &[PathBuf]) -> StoreResult<Vec<StoredRecord<LinkRecord>>> {
@@ -362,7 +362,7 @@ impl SqliteSemanticStore {
                 Ok(Some(StoredRecord {
                     path,
                     revision,
-                    record: serde_json::from_slice(&record)?,
+                    record: bincode::deserialize(&record)?,
                 }))
             })()),
             Err(error) => Some(Err(StoreError::Sqlite(error))),
@@ -406,7 +406,7 @@ impl SqliteSemanticStore {
                 Ok(Some(StoredRecord {
                     path,
                     revision,
-                    record: serde_json::from_slice(&record)?,
+                    record: bincode::deserialize(&record)?,
                 }))
             })()),
             Err(error) => Some(Err(StoreError::Sqlite(error))),
@@ -668,7 +668,7 @@ fn fallback_title(path: &Path) -> String {
 }
 
 fn encode(value: &impl Serialize) -> StoreResult<Vec<u8>> {
-    Ok(serde_json::to_vec(value)?)
+    Ok(bincode::serialize(value)?)
 }
 fn optional_range(start: Option<i64>, end: Option<i64>) -> Option<Range<i64>> {
     Some(start?..end?)
