@@ -351,9 +351,12 @@ reduced-precision `HH`, `HH:MM`, or `HH:MM:SS`; `YYYY-MM-DDTIME`, which
 overrides the date and inherits the timezone; or a self-contained full RFC 3339
 timestamp. A start with an offset or `Z` must include seconds and cannot append
 an offset to a reduced-precision time. A point contains only the start;
-`START--TIME` is a half-open interval whose end inherits the resolved start date
-and offset. An end local time crossing below the start advances to the next day;
-equal times are invalid. A date or offset inside the schedule applies only to that
+`START--END` is a half-open interval. End accepts `TIME` or
+`YYYY-MM-DDTTIME`, inherits the resolved start offset, and cannot carry `Z` or
+a numeric offset. A time-only end uses the start date and advances to the next
+day when its local time is earlier than the start. A dated end uses its explicit
+date without rollover. The resolved end must be strictly later than the start.
+A date or offset inside the schedule applies only to that
 event and does not propagate to descendants. Event `date` and numeric-offset
 `timezone` otherwise override same-named metadata scalar/literal values; an RFC
 3339 metadata date also supplies its offset. Old `at`, `start`, and `end`

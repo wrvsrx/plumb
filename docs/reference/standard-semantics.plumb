@@ -302,8 +302,10 @@ head 的第一个 inline text 是 schedule，随后必须有 ASCII space/tab 与
 nested events 只形成 display tree，不表示时间包含关系。schedule start 接受 reduced-precision local-time `"TIME"、带显式日期但继承 timezone 的
 `"YYYY-MM-DDTTIME"，或自包含的完整 RFC 3339 timestamp。`"TIME" 是 `"HH"、`"HH:MM" 或
 `"HH:MM:SS"；一旦 start 指定 offset 或 `"Z"，就必须使用包含秒的完整 RFC 3339 spelling，不能把 offset
-附在 reduced-precision time 后。point 只包含 start；interval 写成 `"START--TIME"，end 继承解析后 start
-的 date 与 offset 且不能相等。end local time 早于 start 时解释为次日。schedule 内显式 date/offset 只覆盖
+附在 reduced-precision time 后。point 只包含 start；interval 写成 `"START--END"，end 接受 `"TIME" 或
+`"YYYY-MM-DDTTIME"，始终继承解析后 start 的 offset，不能携带 `"Z" 或 numeric offset。仅含 `"TIME" 的
+end 默认使用 start date，local time 早于 start 时解释为次日；带 date 的 end 使用显式 date，不执行
+rollover。解析后的 end 必须严格晚于 start，因此 dated end 可以表达多日 interval。schedule 内显式 date/offset 只覆盖
 当前 event 的解析 context，不沿 subtree 传播。event `"date"、`"timezone" 分别覆盖 metadata 中的同名 scalar/literal；`"date"
 使用 `"YYYY-MM-DD"，metadata date 也可用 RFC 3339 timestamp 并同时提供其 offset；`"timezone" 使用 numeric UTC offset。缺少有效 date/timezone context 或 schedule
 时不产生有效 time。旧 `"at"、`"start"、`"end" pairs 不具有 event semantics。Agenda 和 workspace range
@@ -344,26 +346,29 @@ shorthand 开头时提供：
 `text"
   `- TIME TITLE
   `- TIME--TIME TITLE
+  `- TIME--YYYY-MM-DDTTIME TITLE
   `- TIME-- TITLE
   `- YYYY-MM-DDTTIME TITLE
   `- YYYY-MM-DDTTIME--TIME TITLE
+  `- YYYY-MM-DDTTIME--YYYY-MM-DDTTIME TITLE
   `- YYYY-MM-DDTTIME-- TITLE
 
 `"TIME" 是 ISO 8601-derived reduced-precision local time，只接受两位字段的 `"HH"、`"HH:MM" 或
 `"HH:MM:SS"；hour 范围是 `"00..23"，minute/second 是 `"00..59"。缺失低位补零；省略 date/timezone
 时先继承有效 document metadata，缺失对应 metadata 时分别使用 operation 执行时的本地日期/offset。
-显式 date 必须是合法 `"YYYY-MM-DD" 并直接以 `"T" 连接 time。区间 end
-默认继承 start date，不能再次携带 date；end local time 早于 start 时解释为次日，相等无效。至少一个 ASCII space/tab 分隔
+显式 date 必须是合法 `"YYYY-MM-DD" 并直接以 `"T" 连接 time。区间 end 接受 `"TIME" 或
+`"YYYY-MM-DDTTIME"，不得携带 offset 或 `"Z"；前者继承 start date 并在 local time 早于 start 时解释为
+次日，后者使用显式 date。解析后的 end 必须严格晚于 start。至少一个 ASCII space/tab 分隔
 schedule 与非空 title。Schedule prefix 必须位于首个 plain text inline；title 可混合 text、parsed inline、
 verbatim inline 与其 attached elements。Operation 只移除 schedule 与分隔 whitespace，保留其余 inline tree。
 单数字段、basic time、offset、`"Z"、`"am/pm" 和自然语言日期不进入 shorthand。
 
 trailing `"--" 是仅供 authoring 的 inferred-end spelling。它从紧邻的下一个 sibling list item shorthand
-取得 start，并在转换时固化为普通 `"START--TIME" schedule；下一项必须与当前项属于同一 parent、位于当前
+取得 start，并在转换时固化为普通 `"START--END" schedule；下一项必须与当前项属于同一 parent、位于当前
 batch selection 内（单项转换不要求 selection），且中间不能出现其他 block。下一项自身可以是 point、
 explicit interval 或 inferred-end shorthand。省略 date 的 next start 早于当前 start 时按次日解释；相等、
 不同 offset、超过次日或无可用下一项时当前 item 不转换。因而 chain 的最后一个 trailing `"--" 保持原文，
-除非后面还有 shorthand；显式 `"TIME--TIME" 始终优先且不依赖 sibling。
+除非后面还有 shorthand；显式 interval 始终优先且不依赖 sibling。
 
 operation 原位把 list-item marker 改为 `"event"，并把规范化 schedule 保留为 head 的第一个 positional
 argument；不生成 explicit id，也不向 `".plumb" source 写入 UID。显式 shorthand date 写入 event `"date" override，否则继承 metadata

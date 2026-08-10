@@ -211,11 +211,13 @@ strength。普通 dollar characters 和 dollar-delimited math 不具有特殊含
     `: tasks #write-parser
   }
 
-head 的第一个 positional argument 是 schedule，后接 whitespace 与 title。schedule 使用 `"HH"、`"HH:MM"、`"HH:MM:SS" point 或 `"START--TIME" interval。start 也可写
+head 的第一个 positional argument 是 schedule，后接 whitespace 与 title。schedule 使用 `"HH"、`"HH:MM"、`"HH:MM:SS" point 或 `"START--END" interval。start 也可写
 `"YYYY-MM-DDTTIME" 来覆盖 date 并继承 timezone；若指定 offset 或 `"Z"，则必须写包含秒的完整 RFC 3339
-timestamp，例如 `"2026-05-02T08:22:31+08:00--09:20"。end 从 start 继承 date 与 offset。
+timestamp，例如 `"2026-05-02T08:22:31+08:00--09:20"。end 可写 `"TIME" 或
+`"YYYY-MM-DDTTIME"；两者都从 start 继承 offset，end 不允许携带 timezone。仅含 time 的 end 默认使用
+start date 并在更早时解释为次日；带 date 的 end 可表达多日 interval。
 event 默认继承 metadata `"date" 与 numeric-offset `"timezone"；RFC 3339 metadata date 也提供自身 offset。
-同名 event pairs 可逐条覆盖。end 不能与 start 相等；end local time 早于 start 时解释为次日。
+同名 event pairs 可逐条覆盖。解析后的 end 必须严格晚于 start。
 旧 `"at"、`"start"、`"end" 不具有 event semantics。`"tasks" 显式关联同文件或跨文件 task id，不产生 dependency，也不从 task
 timestamps 猜测 event。`"event" 与 `"task" 是互斥的 specialized list-item markers；同名 attached
 facets 只是 opaque data。
@@ -237,6 +239,7 @@ title 可以包含 inline markup：
   `- 11:10:24 precise reminder
   `- 11:00--11:20 relax: phone
   `- 2026-05-21T11:10--11:20 parser review
+  `- 2026-05-21T11:10--2026-05-23T09:00 conference
   `- 00:05--00:15 wheel: distinguish `"nix develop" and normal shell
   `- 18:00-- event 1
   `- 18:30-- event 2
@@ -244,7 +247,8 @@ title 可以包含 inline markup：
 
 time 使用两位 `"HH"、`"HH:MM" 或 `"HH:MM:SS"；省略分钟/秒时补零，省略 date/timezone 时优先继承
 document metadata，缺少时使用执行操作的本地日期/offset。显式 date 使用 `"YYYY-MM-DDT" prefix。
-end local time 早于 start 时解释为次日，相等无效。
+end 可写 time 或显式 date-time，但不能写 offset 或 `"Z"。time-only end 早于 start 时解释为次日；
+dated end 不 rollover，且所有 interval 的 end 必须严格晚于 start。
 转换会在该 list item 上原位追加 `"event" facet，并把规范化 schedule 留在 head 开头；title 中的
 parsed/verbatim inline 及其 attached data 原样保留。它不生成 explicit id 或 UID metadata；只有需要引用
 event 时才用通用操作添加 id。vdir exporter 会从 workspace-relative path、schedule 与 title 确定性派生
