@@ -5,30 +5,31 @@ use chrono::{DateTime, Datelike, Duration, FixedOffset, SecondsFormat, TimeZone,
 use plumb_syntax::{
     AttrItem, AttrValue, Block, Diagnostic, DiagnosticSeverity, Document, ParsedBlock,
 };
+use serde::{Deserialize, Serialize};
 
 use crate::document::attr_source_backed;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TaskField {
     pub value: String,
     pub range: Range<usize>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TaskReferenceTarget {
     Internal { id: String },
     External { path: String, id: String },
     Invalid,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TaskDependency {
     pub source: String,
     pub range: Range<usize>,
     pub target: TaskReferenceTarget,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TaskState {
     Open,
     Done,
@@ -36,7 +37,7 @@ pub enum TaskState {
     Conflicted,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TaskStatus {
     Done,
     Canceled,
@@ -51,7 +52,7 @@ impl TaskStatus {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TaskRecord {
     pub range: Range<usize>,
     pub marker_range: Range<usize>,

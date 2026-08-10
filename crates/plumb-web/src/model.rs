@@ -1066,7 +1066,7 @@ impl WebWorkspace {
             .references_to_document(path)
             .into_iter()
             .map(|(source, reference)| {
-                SourceLocation::new(&self.root, source, reference.source_range)
+                SourceLocation::new(&self.root, &source, reference.source_range)
             })
             .collect();
         Some(NoteDocument {

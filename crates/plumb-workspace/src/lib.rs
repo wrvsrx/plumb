@@ -23,8 +23,11 @@ use plumb_syntax::{
 
 mod scan;
 mod search;
+mod store;
 mod task_sort;
 mod tasks;
+
+pub use store::{SqliteSemanticStore, StoreError};
 
 #[cfg(test)]
 use scan::resolve_workspace_root_from;
@@ -301,11 +304,73 @@ pub struct WorkspaceEvent {
 #[derive(Debug, Default, Clone)]
 pub struct Workspace {
     documents: HashMap<PathBuf, DocumentEntry>,
+    disk_store: Option<SqliteSemanticStore>,
 }
 
 impl Workspace {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn with_sqlite_store(store: SqliteSemanticStore) -> Self {
+        Self {
+            documents: HashMap::new(),
+            disk_store: Some(store),
+        }
+    }
+
+    pub fn insert_disk(
+        &mut self,
+        path: impl AsRef<Path>,
+        revision: i64,
+        source: impl Into<String>,
+    ) -> Result<bool, StoreError> {
+        let path = normalize(path.as_ref());
+        let source = source.into();
+        let Some(store) = &self.disk_store else {
+            self.insert(path, revision, source);
+            return Ok(false);
+        };
+        if store.contains_current(&path, &source)? {
+            return Ok(true);
+        }
+        let parsed = parse(source);
+        let output = parsed
+            .is_valid()
+            .then(|| analyze_document(&parsed.source, &parsed.syntax));
+        store.replace(&path, revision, &parsed.source, output.as_ref())?;
+        Ok(false)
+    }
+
+    pub fn open_document(
+        &mut self,
+        path: impl AsRef<Path>,
+        revision: i64,
+        source: impl Into<String>,
+    ) -> &DocumentEntry {
+        self.insert(path, revision, source)
+    }
+
+    pub fn close_document(&mut self, path: impl AsRef<Path>) -> Option<DocumentEntry> {
+        if self.disk_store.is_some() {
+            self.documents.remove(&normalize(path.as_ref()))
+        } else {
+            None
+        }
+    }
+
+    pub fn remove_disk(&mut self, path: impl AsRef<Path>) -> Result<(), StoreError> {
+        let path = normalize(path.as_ref());
+        if let Some(store) = &self.disk_store {
+            store.remove(&path)?;
+        } else {
+            self.documents.remove(&path);
+        }
+        Ok(())
+    }
+
+    pub fn has_persistent_store(&self) -> bool {
+        self.disk_store.is_some()
     }
 
     pub fn insert(
@@ -382,11 +447,35 @@ impl Workspace {
     }
 
     pub fn contains(&self, path: impl AsRef<Path>) -> bool {
-        self.documents.contains_key(&normalize(path.as_ref()))
+        let path = normalize(path.as_ref());
+        self.documents.contains_key(&path)
+            || self.disk_store.as_ref().is_some_and(|store| {
+                store
+                    .documents()
+                    .is_ok_and(|documents| documents.iter().any(|document| document.path == path))
+            })
     }
 
     pub fn documents(&self) -> impl Iterator<Item = &DocumentEntry> {
         self.documents.values()
+    }
+
+    pub fn document_paths(&self) -> Vec<PathBuf> {
+        let mut paths = self.documents.keys().cloned().collect::<HashSet<_>>();
+        if let Some(store) = &self.disk_store {
+            if let Ok(documents) = store.documents() {
+                paths.extend(documents.into_iter().map(|document| document.path));
+            }
+        }
+        let mut paths = paths.into_iter().collect::<Vec<_>>();
+        paths.sort();
+        paths
+    }
+
+    fn open_paths(&self) -> Vec<PathBuf> {
+        let mut paths = self.documents.keys().cloned().collect::<Vec<_>>();
+        paths.sort();
+        paths
     }
 
     pub fn resolve_link(&self, from: impl AsRef<Path>, link: &LinkRecord) -> ResolvedTarget {
@@ -404,7 +493,7 @@ impl Workspace {
             LinkTarget::Other => ResolvedTarget::Other,
             LinkTarget::Document { path } => {
                 let target = resolve_relative(&from, path);
-                if self.current_output(&target).is_some() {
+                if self.contains(&target) {
                     ResolvedTarget::Document { path: target }
                 } else {
                     ResolvedTarget::UnresolvedPath { path: target }
@@ -414,20 +503,17 @@ impl Workspace {
                 let target = path
                     .as_deref()
                     .map_or_else(|| from.clone(), |path| resolve_relative(&from, path));
-                let Some(output) = self.current_output(&target) else {
+                if !self.contains(&target) {
                     return ResolvedTarget::UnresolvedPath { path: target };
-                };
-                let mut anchors = output
-                    .anchors
-                    .iter()
-                    .filter(|anchor| anchor.id.value == *fragment);
-                let Some(anchor) = anchors.next() else {
+                }
+                let anchors = self.anchors_named(&target, fragment);
+                let Some(anchor) = anchors.first() else {
                     return ResolvedTarget::UnresolvedAnchor {
                         path: target,
                         id: fragment.clone(),
                     };
                 };
-                if anchors.next().is_some() {
+                if anchors.len() > 1 {
                     return ResolvedTarget::AmbiguousAnchor {
                         path: target,
                         id: fragment.clone(),
@@ -690,9 +776,32 @@ impl Workspace {
         &self,
         target_path: impl AsRef<Path>,
         target_id: &str,
-    ) -> Vec<(&Path, AnchorReference)> {
+    ) -> Vec<(PathBuf, AnchorReference)> {
         let target_path = normalize(target_path.as_ref());
         let mut references = Vec::new();
+        if let Some(store) = &self.disk_store {
+            let anchors = self.anchors_named(&target_path, target_id);
+            if anchors.len() == 1 {
+                if let Ok(stored) =
+                    store.references_to(&target_path, Some(target_id), &self.open_paths())
+                {
+                    let anchor = anchors[0].clone();
+                    references.extend(stored.into_iter().filter_map(|reference| {
+                        Some((
+                            reference.source_path,
+                            AnchorReference {
+                                source_range: reference.source_range,
+                                path_range: reference.path_range,
+                                id_range: reference.id_range?,
+                                target_path: target_path.clone(),
+                                target_id: target_id.to_string(),
+                                anchor: anchor.clone(),
+                            },
+                        ))
+                    }));
+                }
+            }
+        }
         for entry in self.documents.values() {
             let Some(current) = &entry.current else {
                 continue;
@@ -700,7 +809,7 @@ impl Workspace {
             for link in &current.output.links {
                 if let Some(reference) = self.link_anchor_reference(&entry.path, link) {
                     if reference.target_path == target_path && reference.target_id == target_id {
-                        references.push((entry.path.as_path(), reference));
+                        references.push((entry.path.clone(), reference));
                     }
                 }
             }
@@ -711,7 +820,7 @@ impl Workspace {
                     {
                         if reference.target_path == target_path && reference.target_id == target_id
                         {
-                            references.push((entry.path.as_path(), reference));
+                            references.push((entry.path.clone(), reference));
                         }
                     }
                 }
@@ -728,7 +837,7 @@ impl Workspace {
                     ) {
                         if reference.target_path == target_path && reference.target_id == target_id
                         {
-                            references.push((entry.path.as_path(), reference));
+                            references.push((entry.path.clone(), reference));
                         }
                     }
                 }
@@ -736,7 +845,7 @@ impl Workspace {
         }
         references.sort_by(|left, right| {
             left.0
-                .cmp(right.0)
+                .cmp(&right.0)
                 .then(left.1.source_range.start.cmp(&right.1.source_range.start))
         });
         references
@@ -745,9 +854,48 @@ impl Workspace {
     pub fn references_to_document(
         &self,
         target_path: impl AsRef<Path>,
-    ) -> Vec<(&Path, DocumentReference)> {
+    ) -> Vec<(PathBuf, DocumentReference)> {
         let target_path = normalize(target_path.as_ref());
         let mut references = Vec::new();
+        if let Some(store) = &self.disk_store {
+            let open = self.open_paths();
+            if let Ok(stored) = store.references_to(&target_path, None, &open) {
+                references.extend(stored.into_iter().map(|reference| {
+                    (
+                        reference.source_path,
+                        DocumentReference {
+                            source_range: reference.source_range,
+                            target_path: target_path.clone(),
+                        },
+                    )
+                }));
+            }
+            if let Ok(anchors) = store.anchors(&[]) {
+                let mut ids = anchors
+                    .into_iter()
+                    .filter(|anchor| anchor.path == target_path)
+                    .map(|anchor| anchor.record.id.value)
+                    .collect::<Vec<_>>();
+                ids.sort();
+                ids.dedup();
+                for id in ids {
+                    if self.anchors_named(&target_path, &id).len() != 1 {
+                        continue;
+                    }
+                    if let Ok(stored) = store.references_to(&target_path, Some(&id), &open) {
+                        references.extend(stored.into_iter().map(|reference| {
+                            (
+                                reference.source_path,
+                                DocumentReference {
+                                    source_range: reference.source_range,
+                                    target_path: target_path.clone(),
+                                },
+                            )
+                        }));
+                    }
+                }
+            }
+        }
         for entry in self.documents.values() {
             let Some(current) = &entry.current else {
                 continue;
@@ -757,7 +905,7 @@ impl Workspace {
                     == Some(&target_path)
                 {
                     references.push((
-                        entry.path.as_path(),
+                        entry.path.clone(),
                         DocumentReference {
                             source_range: link.selection_range.clone(),
                             target_path: target_path.clone(),
@@ -774,7 +922,7 @@ impl Workspace {
                         == Some(&target_path)
                     {
                         references.push((
-                            entry.path.as_path(),
+                            entry.path.clone(),
                             DocumentReference {
                                 source_range: range.clone(),
                                 target_path: target_path.clone(),
@@ -794,7 +942,7 @@ impl Workspace {
                         == Some(&target_path)
                     {
                         references.push((
-                            entry.path.as_path(),
+                            entry.path.clone(),
                             DocumentReference {
                                 source_range: reference.range.clone(),
                                 target_path: target_path.clone(),
@@ -806,7 +954,7 @@ impl Workspace {
         }
         references.sort_by(|left, right| {
             left.0
-                .cmp(right.0)
+                .cmp(&right.0)
                 .then(left.1.source_range.start.cmp(&right.1.source_range.start))
         });
         references
@@ -819,6 +967,43 @@ impl Workspace {
     ) -> DocumentReverseReferences {
         let target_path = normalize(target_path.as_ref());
         let mut references = DocumentReverseReferences::default();
+        if let Some(store) = &self.disk_store {
+            let open = self.open_paths();
+            if let Ok(document_references) = store.references_to(&target_path, None, &open) {
+                references
+                    .document
+                    .extend(
+                        document_references
+                            .into_iter()
+                            .map(|reference| ReferenceOccurrence {
+                                source_path: reference.source_path,
+                                source_range: reference.source_range,
+                            }),
+                    );
+            }
+            for target_id in target_ids {
+                if self.anchors_named(&target_path, target_id).len() != 1 {
+                    continue;
+                }
+                if let Ok(anchor_references) =
+                    store.references_to(&target_path, Some(target_id), &open)
+                {
+                    let occurrences = anchor_references
+                        .into_iter()
+                        .map(|reference| ReferenceOccurrence {
+                            source_path: reference.source_path,
+                            source_range: reference.source_range,
+                        })
+                        .collect::<Vec<_>>();
+                    references.document.extend(occurrences.iter().cloned());
+                    references
+                        .anchors
+                        .entry(target_id.clone())
+                        .or_default()
+                        .extend(occurrences);
+                }
+            }
+        }
         for entry in self.documents.values() {
             let Some(current) = &entry.current else {
                 continue;
@@ -959,14 +1144,14 @@ impl Workspace {
             }
             TaskReferenceTarget::Invalid => return ResolvedTarget::Other,
         };
-        let Some(output) = self.current_output(&path) else {
+        if !self.contains(&path) {
             return ResolvedTarget::UnresolvedPath { path };
-        };
-        let mut anchors = output.anchors.iter().filter(|anchor| anchor.id.value == id);
-        let Some(anchor) = anchors.next().cloned() else {
+        }
+        let anchors = self.anchors_named(&path, &id);
+        let Some(anchor) = anchors.first().cloned() else {
             return ResolvedTarget::UnresolvedAnchor { path, id };
         };
-        if anchors.next().is_some() {
+        if anchors.len() > 1 {
             return ResolvedTarget::AmbiguousAnchor { path, id };
         }
         ResolvedTarget::Anchor { path, id, anchor }
@@ -981,7 +1166,7 @@ impl Workspace {
             | ResolvedTarget::UnresolvedPath { path } => path,
             other => return other,
         };
-        if self.current_output(&path).is_some() {
+        if self.contains(&path) {
             ResolvedTarget::Document { path }
         } else {
             ResolvedTarget::UnresolvedPath { path }
@@ -1024,6 +1209,19 @@ impl Workspace {
                     })
             })
             .collect::<Vec<_>>();
+        if let Some(store) = &self.disk_store {
+            if let Ok(stored) = store.events_overlapping(
+                start.timestamp_millis(),
+                end.timestamp_millis(),
+                &self.open_paths(),
+            ) {
+                events.extend(stored.into_iter().map(|stored| WorkspaceEvent {
+                    path: stored.path,
+                    revision: stored.revision,
+                    event: stored.record,
+                }));
+            }
+        }
         events.sort_by(|left, right| {
             left.event
                 .sort_datetime()
@@ -1555,17 +1753,13 @@ impl Workspace {
             )?);
         for (path, reference) in self.references_to(&target.path, &target.id) {
             let reference_entry = self
-                .documents
-                .get(path)
+                .entry_for_operation(&path)
                 .ok_or(RenameError::StaleOrInvalidDocument)?;
-            grouped
-                .entry(path.to_path_buf())
-                .or_default()
-                .push(validated_token_edit(
-                    reference_entry,
-                    reference.id_range,
-                    replacement,
-                )?);
+            grouped.entry(path).or_default().push(validated_token_edit(
+                &reference_entry,
+                reference.id_range,
+                replacement,
+            )?);
         }
         let mut document_changes = Vec::new();
         for (path, mut edits) in grouped {
@@ -1577,8 +1771,7 @@ impl Workspace {
                 return Err(RenameError::OverlappingEdits);
             }
             let expected_revision = self
-                .documents
-                .get(&path)
+                .entry_for_operation(&path)
                 .ok_or(RenameError::StaleOrInvalidDocument)?
                 .revision;
             document_changes.push(DocumentEdit {
@@ -1705,15 +1898,16 @@ impl Workspace {
         {
             return Err(RenameError::InvalidPath);
         }
-        if self.documents.contains_key(&new_path) {
+        if self.contains(&new_path) || new_path.exists() {
             return Err(RenameError::TargetExists);
         }
-        if !self.documents.contains_key(&old_path) {
+        if !self.contains(&old_path) {
             return Err(RenameError::NotRenameable);
         }
 
         let mut grouped: HashMap<PathBuf, Vec<TextEdit>> = HashMap::new();
-        for entry in self.documents.values() {
+        let entries = self.entries_for_operation();
+        for entry in &entries {
             let Some(current) = &entry.current else {
                 continue;
             };
@@ -1784,8 +1978,7 @@ impl Workspace {
             }
             document_changes.push(DocumentEdit {
                 expected_revision: self
-                    .documents
-                    .get(&path)
+                    .entry_for_operation(&path)
                     .ok_or(RenameError::StaleOrInvalidDocument)?
                     .revision,
                 path,
@@ -2636,6 +2829,149 @@ impl Workspace {
                     .unwrap_or_default()
             }
         };
+        if let Some(store) = &self.disk_store {
+            let open = self.open_paths();
+            match context {
+                LinkCompletionContext::Label { replace, query } => {
+                    if let Ok(documents) = store.documents() {
+                        candidates.extend(documents.into_iter().filter_map(|document| {
+                            if open.binary_search(&document.path).is_ok() || document.path == from {
+                                return None;
+                            }
+                            let relative = relative_path(&from, &document.path)?;
+                            let title = if document.title.is_empty() {
+                                relative.clone()
+                            } else {
+                                document.title
+                            };
+                            (fuzzy_match(&relative, query) || fuzzy_match(&title, query)).then(
+                                || CompletionCandidate {
+                                    label: title.clone(),
+                                    detail: relative.clone(),
+                                    new_text: format!(
+                                        "`->[{}]{{`:[to {}]}}",
+                                        escape_parsed_text(&title),
+                                        escape_attached_text(&relative)
+                                    ),
+                                    replace: replace.clone(),
+                                },
+                            )
+                        }));
+                    }
+                }
+                LinkCompletionContext::Path {
+                    replace,
+                    query,
+                    quoted,
+                } => {
+                    if let Ok(documents) = store.documents() {
+                        candidates.extend(documents.into_iter().filter_map(|document| {
+                            if open.binary_search(&document.path).is_ok() || document.path == from {
+                                return None;
+                            }
+                            let relative = relative_path(&from, &document.path)?;
+                            let title = if document.title.is_empty() {
+                                relative.clone()
+                            } else {
+                                document.title
+                            };
+                            if (!fuzzy_match(&relative, query) && !fuzzy_match(&title, query))
+                                || (!*quoted && !valid_bare_attribute_value(&relative))
+                            {
+                                return None;
+                            }
+                            Some(CompletionCandidate {
+                                label: relative.clone(),
+                                detail: title,
+                                new_text: if *quoted {
+                                    escape_quoted_value(&relative)
+                                } else {
+                                    relative
+                                },
+                                replace: replace.clone(),
+                            })
+                        }));
+                    }
+                }
+                LinkCompletionContext::AutolinkPath {
+                    replace,
+                    envelope,
+                    quote_count,
+                    suffix,
+                    query,
+                } => {
+                    if let Ok(documents) = store.documents() {
+                        candidates.extend(documents.into_iter().filter_map(|document| {
+                            if open.binary_search(&document.path).is_ok() || document.path == from {
+                                return None;
+                            }
+                            let relative = relative_path(&from, &document.path)?;
+                            if !valid_autolink_completion_path(&relative) {
+                                return None;
+                            }
+                            let title = if document.title.is_empty() {
+                                relative.clone()
+                            } else {
+                                document.title
+                            };
+                            if !fuzzy_match(&relative, query) && !fuzzy_match(&title, query) {
+                                return None;
+                            }
+                            let payload = format!("{relative}{suffix}");
+                            let (new_text, replace) =
+                                if verbatim_payload_is_safe(&payload, *quote_count) {
+                                    (relative.clone(), replace.clone())
+                                } else {
+                                    (format_inline_verbatim(&payload), envelope.clone())
+                                };
+                            Some(CompletionCandidate {
+                                label: relative,
+                                detail: title,
+                                new_text,
+                                replace,
+                            })
+                        }));
+                    }
+                }
+                LinkCompletionContext::Anchor {
+                    path,
+                    replace,
+                    query,
+                }
+                | LinkCompletionContext::AutolinkAnchor {
+                    path,
+                    replace,
+                    query,
+                } => {
+                    let target_path = if path.is_empty() {
+                        from.clone()
+                    } else {
+                        resolve_relative(&from, path)
+                    };
+                    if !self.documents.contains_key(&target_path) {
+                        if let Ok(anchors) = store.anchors(&[]) {
+                            candidates.extend(
+                                anchors
+                                    .into_iter()
+                                    .filter(|stored| {
+                                        stored.path == target_path
+                                            && fuzzy_match(&stored.record.id.value, query)
+                                    })
+                                    .map(|stored| CompletionCandidate {
+                                        label: format!("#{}", stored.record.id.value),
+                                        detail: format!(
+                                            "explicit anchor in {}",
+                                            target_path.display()
+                                        ),
+                                        new_text: stored.record.id.value,
+                                        replace: replace.clone(),
+                                    }),
+                            );
+                        }
+                    }
+                }
+            }
+        }
         candidates.sort_by(|left, right| left.label.cmp(&right.label));
         candidates
     }
@@ -2709,6 +3045,35 @@ impl Workspace {
                     })
                 })
                 .collect::<Vec<_>>();
+            if let Some(store) = &self.disk_store {
+                let open = self.open_paths();
+                if let Ok(documents) = store.documents() {
+                    candidates.extend(documents.into_iter().filter_map(|document| {
+                        if open.binary_search(&document.path).is_ok()
+                            || !self
+                                .tasks_for_path(&document.path)
+                                .iter()
+                                .any(|task| eligible(&document.path, task))
+                        {
+                            return None;
+                        }
+                        let relative = relative_path(&from, &document.path)?;
+                        let reference = if document.path == from {
+                            "#".to_string()
+                        } else {
+                            format!("{relative}#")
+                        };
+                        fuzzy_match(reference.trim_end_matches('#'), &context.query).then(|| {
+                            CompletionCandidate {
+                                label: reference.clone(),
+                                detail: format!("task document ({relative})"),
+                                new_text: reference,
+                                replace: context.replace.clone(),
+                            }
+                        })
+                    }));
+                }
+            }
             candidates.sort_by(|left, right| left.label.cmp(&right.label));
             return candidates;
         };
@@ -2723,28 +3088,23 @@ impl Workspace {
                     .join(path_query),
             )
         };
-        let Some(entry) = self.documents.get(&target_path) else {
+        if !self.contains(&target_path) {
             return Vec::new();
-        };
-        let Some(versioned) = entry.current.as_ref().or(entry.last_valid.as_ref()) else {
-            return Vec::new();
-        };
+        }
         let now = chrono::Local::now().fixed_offset();
         let id_replace_start = context.replace.start + path_query.len() + 1;
         let id_replace = id_replace_start..context.replace.end;
-        let relative = relative_path(&from, &entry.path).unwrap_or_else(|| path_query.to_string());
-        let mut candidates = versioned
-            .output
-            .tasks
-            .tasks
+        let relative = relative_path(&from, &target_path).unwrap_or_else(|| path_query.to_string());
+        let target_tasks = self.tasks_for_path(&target_path);
+        let mut candidates = target_tasks
             .iter()
-            .filter(|task| eligible(&entry.path, task))
+            .filter(|task| eligible(&target_path, task))
             .filter_map(|task| {
                 let id = task.id.as_ref()?;
                 if !fuzzy_match(&id.value, id_query) && !fuzzy_match(&task.title, id_query) {
                     return None;
                 }
-                let (state, _) = self.task_workflow_state(&entry.path, task, now);
+                let (state, _) = self.task_workflow_state(&target_path, task, now);
                 let title = if task.title.is_empty() {
                     "Untitled task"
                 } else {
@@ -2869,6 +3229,143 @@ impl Workspace {
             .current
             .as_ref()
             .map(|versioned| &versioned.output)
+    }
+
+    fn anchors_named(&self, path: &Path, id: &str) -> Vec<AnchorRecord> {
+        let path = normalize(path);
+        if let Some(output) = self.current_output(&path) {
+            return output
+                .anchors
+                .iter()
+                .filter(|anchor| anchor.id.value == id)
+                .cloned()
+                .collect();
+        }
+        let stored = self
+            .disk_store
+            .as_ref()
+            .and_then(|store| store.anchors_named(&path, id).ok())
+            .unwrap_or_default();
+        if !stored.is_empty() {
+            return stored;
+        }
+        std::fs::read_to_string(&path)
+            .ok()
+            .map(parse)
+            .filter(ParsedDocument::is_valid)
+            .map(|parsed| analyze_document(&parsed.source, &parsed.syntax))
+            .map(|output| {
+                output
+                    .anchors
+                    .into_iter()
+                    .filter(|anchor| anchor.id.value == id)
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    fn tasks_for_path(&self, path: &Path) -> Vec<TaskRecord> {
+        let path = normalize(path);
+        if let Some(output) = self.current_output(&path) {
+            return output.tasks.tasks.clone();
+        }
+        let stored = self
+            .disk_store
+            .as_ref()
+            .and_then(|store| store.tasks(&[]).ok())
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|stored| stored.path == path)
+            .map(|stored| stored.record)
+            .collect::<Vec<_>>();
+        if !stored.is_empty() {
+            return stored;
+        }
+        std::fs::read_to_string(&path)
+            .ok()
+            .map(parse)
+            .filter(ParsedDocument::is_valid)
+            .map(|parsed| analyze_document(&parsed.source, &parsed.syntax).tasks.tasks)
+            .unwrap_or_default()
+    }
+
+    fn all_tasks(&self) -> Vec<(PathBuf, TaskRecord)> {
+        let mut tasks = self
+            .documents
+            .values()
+            .filter_map(|entry| entry.current.as_ref().map(|current| (entry, current)))
+            .flat_map(|(entry, current)| {
+                current
+                    .output
+                    .tasks
+                    .tasks
+                    .iter()
+                    .cloned()
+                    .map(|task| (entry.path.clone(), task))
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+        if let Some(store) = &self.disk_store {
+            if let Ok(stored) = store.tasks(&self.open_paths()) {
+                tasks.extend(
+                    stored
+                        .into_iter()
+                        .map(|stored| (stored.path, stored.record)),
+                );
+            }
+        }
+        tasks.sort_by(|left, right| {
+            left.0
+                .cmp(&right.0)
+                .then(left.1.range.start.cmp(&right.1.range.start))
+        });
+        tasks
+    }
+
+    fn entry_for_operation(&self, path: &Path) -> Option<DocumentEntry> {
+        let path = normalize(path);
+        if let Some(entry) = self.documents.get(&path) {
+            return Some(entry.clone());
+        }
+        let revision = self
+            .disk_store
+            .as_ref()?
+            .documents()
+            .ok()?
+            .into_iter()
+            .find(|document| document.path == path)?
+            .revision;
+        let parsed = parse(std::fs::read_to_string(&path).ok()?);
+        let current = parsed.is_valid().then(|| {
+            Arc::new(VersionedDocumentOutput {
+                revision,
+                output: analyze_document(&parsed.source, &parsed.syntax),
+            })
+        });
+        Some(DocumentEntry {
+            path,
+            revision,
+            parsed,
+            current: current.clone(),
+            last_valid: current,
+        })
+    }
+
+    fn entries_for_operation(&self) -> Vec<DocumentEntry> {
+        let open = self.open_paths();
+        let mut entries = self.documents.values().cloned().collect::<Vec<_>>();
+        if let Some(store) = &self.disk_store {
+            if let Ok(documents) = store.documents() {
+                entries.extend(
+                    documents
+                        .into_iter()
+                        .filter(|document| open.binary_search(&document.path).is_err())
+                        .filter_map(|document| self.entry_for_operation(&document.path)),
+                );
+            }
+        }
+        entries.sort_by(|left, right| left.path.cmp(&right.path));
+        entries
     }
 }
 
@@ -4009,6 +4506,58 @@ mod tests {
     use std::sync::atomic::{AtomicU64, Ordering};
 
     use super::*;
+
+    #[test]
+    fn sqlite_disk_documents_are_shadowed_by_complete_open_snapshots() {
+        let store = SqliteSemanticStore::open_in_memory().unwrap();
+        let mut workspace = Workspace::with_sqlite_store(store);
+        let target = "`task Target {\n `@ target\n}\n";
+        let disk_source = "See `->[target]{`:[to target.plumb#target]}.\n";
+        assert!(!workspace.insert_disk("target.plumb", 0, target).unwrap());
+        assert!(!workspace
+            .insert_disk("source.plumb", 0, disk_source)
+            .unwrap());
+        assert!(workspace.documents().next().is_none());
+        assert_eq!(
+            workspace
+                .reverse_references_for_document(
+                    "target.plumb",
+                    &HashSet::from(["target".to_string()])
+                )
+                .anchors["target"]
+                .len(),
+            1
+        );
+
+        workspace.open_document("source.plumb", 1, "No reference.\n");
+        assert!(workspace
+            .reverse_references_for_document("target.plumb", &HashSet::from(["target".to_string()]))
+            .anchors
+            .get("target")
+            .is_none_or(Vec::is_empty));
+
+        workspace.close_document("source.plumb");
+        assert_eq!(
+            workspace
+                .reverse_references_for_document(
+                    "target.plumb",
+                    &HashSet::from(["target".to_string()])
+                )
+                .anchors["target"]
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn sqlite_warm_insert_skips_document_analysis() {
+        let store = SqliteSemanticStore::open_in_memory().unwrap();
+        let mut workspace = Workspace::with_sqlite_store(store);
+        let source = "`event 2026-08-11T10:00 Cached\n";
+        assert!(!workspace.insert_disk("event.plumb", 0, source).unwrap());
+        assert!(workspace.insert_disk("event.plumb", 0, source).unwrap());
+        assert_eq!(workspace.document_paths(), [PathBuf::from("event.plumb")]);
+    }
 
     fn temp_workspace() -> PathBuf {
         static COUNTER: AtomicU64 = AtomicU64::new(0);

@@ -5,9 +5,7 @@ use cel::{Context, ExecutionError, Program, Value};
 use chrono::{DateTime, FixedOffset};
 use plumb_semantics::{EventRecord, MetadataValue, TaskRecord, TaskState};
 
-use crate::{
-    display_workspace_path, normalize, DocumentEntry, TaskRef, VersionedDocumentOutput, Workspace,
-};
+use crate::{display_workspace_path, normalize, TaskRef, VersionedDocumentOutput, Workspace};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SearchRecordKind {
@@ -125,7 +123,7 @@ impl Workspace {
                 let (title, range) = note_search_title(current, &relative_path);
                 let filter_match = match (&filter, &reverse) {
                     (Some(filter), Some(reverse)) => {
-                        filter.note_matches(&root, entry, &title, reverse)?
+                        filter.note_matches(&root, &entry.path, &title, reverse)?
                     }
                     _ => true,
                 };
@@ -179,7 +177,7 @@ impl Workspace {
                             blocked,
                             actionable,
                         };
-                        if !filter.task_matches(&root, entry, task, self, facts)? {
+                        if !filter.task_matches(&root, &entry.path, task, self, facts)? {
                             continue;
                         }
                     }
@@ -221,7 +219,7 @@ impl Workspace {
                         continue;
                     };
                     if let Some(filter) = &filter {
-                        if !filter.event_matches(&root, entry, event)? {
+                        if !filter.event_matches(&root, &entry.path, event)? {
                             continue;
                         }
                     }
@@ -251,6 +249,178 @@ impl Workspace {
                                     .tasks
                                     .iter()
                                     .map(|reference| reference.source.clone())
+                                    .collect(),
+                            ),
+                        },
+                    ));
+                }
+            }
+        }
+        if let Some(store) = &self.disk_store {
+            let open = self.open_paths();
+            let open_set = open.iter().collect::<HashSet<_>>();
+            if kind.is_none_or(|kind| kind == SearchRecordKind::Note) {
+                for document in store.documents().map_err(|error| error.to_string())? {
+                    if open_set.contains(&document.path) || !document.valid {
+                        continue;
+                    }
+                    let relative_path = document
+                        .path
+                        .strip_prefix(&root)
+                        .unwrap_or(&document.path)
+                        .display()
+                        .to_string();
+                    if let (Some(score), true) = (
+                        search_score(query, &[&document.title, &relative_path]),
+                        match (&filter, &reverse) {
+                            (Some(filter), Some(reverse)) => filter.note_matches(
+                                &root,
+                                &document.path,
+                                &document.title,
+                                reverse,
+                            )?,
+                            _ => true,
+                        },
+                    ) {
+                        matches.push((
+                            score,
+                            SearchRecord {
+                                kind: SearchRecordKind::Note,
+                                title: document.title,
+                                path: document.path,
+                                relative_path,
+                                range: document.title_range,
+                                revision: document.revision,
+                                id: None,
+                                task_state: None,
+                                wait_reasons: None,
+                                due: None,
+                                priority: None,
+                                effective_priority: None,
+                                blocked: None,
+                                actionable: None,
+                                depth: None,
+                                at: None,
+                                start: None,
+                                end: None,
+                                tasks: None,
+                            },
+                        ));
+                    }
+                }
+            }
+            if kind.is_none_or(|kind| kind == SearchRecordKind::Task) {
+                for stored in store.tasks(&open).map_err(|error| error.to_string())? {
+                    let task = stored.record;
+                    let relative_path = stored
+                        .path
+                        .strip_prefix(&root)
+                        .unwrap_or(&stored.path)
+                        .display()
+                        .to_string();
+                    let id = task.id.as_ref().map(|id| id.value.clone());
+                    let Some(score) = search_score(
+                        query,
+                        &[
+                            task.title.as_str(),
+                            id.as_deref().unwrap_or_default(),
+                            &relative_path,
+                        ],
+                    ) else {
+                        continue;
+                    };
+                    let blocked = self.is_task_blocked(&stored.path, &task);
+                    let (task_state, wait_reasons) =
+                        derive_task_workflow_state(&task, blocked, now);
+                    let actionable = task_state == TaskWorkflowState::Ready;
+                    if let Some(filter) = &filter {
+                        let facts = TaskMatchFacts {
+                            state: task_state,
+                            wait_reasons: &wait_reasons,
+                            blocked,
+                            actionable,
+                        };
+                        if !filter.task_matches(&root, &stored.path, &task, self, facts)? {
+                            continue;
+                        }
+                    }
+                    matches.push((
+                        score,
+                        SearchRecord {
+                            kind: SearchRecordKind::Task,
+                            title: task.title,
+                            path: stored.path,
+                            relative_path,
+                            range: task.selection_range,
+                            revision: stored.revision,
+                            id,
+                            task_state: Some(task_state),
+                            wait_reasons: Some(wait_reasons),
+                            due: task.due.map(|due| due.value),
+                            priority: task.priority,
+                            effective_priority: None,
+                            blocked: Some(blocked),
+                            actionable: Some(actionable),
+                            depth: Some(task.depth),
+                            at: None,
+                            start: None,
+                            end: None,
+                            tasks: None,
+                        },
+                    ));
+                }
+            }
+            if kind.is_none_or(|kind| kind == SearchRecordKind::Event) {
+                for stored in store.events(&open).map_err(|error| error.to_string())? {
+                    let event = stored.record;
+                    let relative_path = stored
+                        .path
+                        .strip_prefix(&root)
+                        .unwrap_or(&stored.path)
+                        .display()
+                        .to_string();
+                    let id = event.id.as_ref().map(|id| id.value.clone());
+                    let Some(score) = search_score(
+                        query,
+                        &[
+                            event.title.as_str(),
+                            id.as_deref().unwrap_or_default(),
+                            &relative_path,
+                        ],
+                    ) else {
+                        continue;
+                    };
+                    if let Some(filter) = &filter {
+                        if !filter.event_matches(&root, &stored.path, &event)? {
+                            continue;
+                        }
+                    }
+                    matches.push((
+                        score,
+                        SearchRecord {
+                            kind: SearchRecordKind::Event,
+                            title: event.title,
+                            path: stored.path,
+                            relative_path,
+                            range: event.selection_range,
+                            revision: stored.revision,
+                            id,
+                            task_state: None,
+                            wait_reasons: None,
+                            due: None,
+                            priority: None,
+                            effective_priority: None,
+                            blocked: None,
+                            actionable: None,
+                            depth: Some(event.depth),
+                            at: event.at.map(|field| field.value),
+                            start: event.start.map(|field| field.value),
+                            end: event.end.map(|field| field.value),
+                            tasks: Some(
+                                event
+                                    .tasks
+                                    .into_iter()
+                                    .map(|reference| reference.source)
                                     .collect(),
                             ),
                         },
@@ -466,17 +636,17 @@ impl SemanticSearchFilter {
     fn note_matches(
         &self,
         root: &Path,
-        entry: &DocumentEntry,
+        path: &Path,
         title: &str,
         reverse: &ReverseReferences,
     ) -> Result<bool, String> {
         let mut context = Context::default();
-        context.add_variable_from_value("path", display_workspace_path(root, &entry.path));
+        context.add_variable_from_value("path", display_workspace_path(root, path));
         context.add_variable_from_value("title", title.to_string());
         context.add_variable_from_value(
             "directly_referenced_by",
             reverse
-                .direct(&entry.path)
+                .direct(path)
                 .iter()
                 .map(|path| display_workspace_path(root, path))
                 .collect::<Vec<_>>(),
@@ -484,24 +654,24 @@ impl SemanticSearchFilter {
         context.add_variable_from_value(
             "transitively_referenced_by",
             reverse
-                .transitive(&entry.path)
+                .transitive(path)
                 .iter()
                 .map(|path| display_workspace_path(root, path))
                 .collect::<Vec<_>>(),
         );
-        execute_search_filter(&self.program, &context, &entry.path)
+        execute_search_filter(&self.program, &context, path)
     }
 
     fn task_matches(
         &self,
         root: &Path,
-        entry: &DocumentEntry,
+        path: &Path,
         task: &TaskRecord,
         workspace: &Workspace,
         facts: TaskMatchFacts<'_>,
     ) -> Result<bool, String> {
         let depends_on = workspace
-            .task_dependencies(&entry.path, task)
+            .task_dependencies(path, task)
             .into_iter()
             .map(|dependency| display_search_task_ref(root, &dependency.target))
             .collect::<Vec<_>>();
@@ -510,14 +680,14 @@ impl SemanticSearchFilter {
             .as_ref()
             .map(|id| {
                 workspace
-                    .directly_blocking_tasks(&entry.path, &id.value)
+                    .directly_blocking_tasks(path, &id.value)
                     .iter()
                     .map(|target| display_search_task_ref(root, target))
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default();
         let mut context = Context::default();
-        context.add_variable_from_value("path", display_workspace_path(root, &entry.path));
+        context.add_variable_from_value("path", display_workspace_path(root, path));
         context.add_variable_from_value(
             "id",
             optional_search_string(task.id.as_ref().map(|id| &id.value)),
@@ -555,17 +725,12 @@ impl SemanticSearchFilter {
         context.add_variable_from_value("blocked", facts.blocked);
         context.add_variable_from_value("actionable", facts.actionable);
         context.add_variable_from_value("now", Value::Timestamp(self.now));
-        execute_search_filter(&self.program, &context, &entry.path)
+        execute_search_filter(&self.program, &context, path)
     }
 
-    fn event_matches(
-        &self,
-        root: &Path,
-        entry: &DocumentEntry,
-        event: &EventRecord,
-    ) -> Result<bool, String> {
+    fn event_matches(&self, root: &Path, path: &Path, event: &EventRecord) -> Result<bool, String> {
         let mut context = Context::default();
-        context.add_variable_from_value("path", display_workspace_path(root, &entry.path));
+        context.add_variable_from_value("path", display_workspace_path(root, path));
         context.add_variable_from_value(
             "id",
             optional_search_string(event.id.as_ref().map(|id| &id.value)),
@@ -599,7 +764,7 @@ impl SemanticSearchFilter {
                 .collect::<Vec<_>>(),
         );
         context.add_variable_from_value("now", Value::Timestamp(self.now));
-        execute_search_filter(&self.program, &context, &entry.path)
+        execute_search_filter(&self.program, &context, path)
     }
 }
 

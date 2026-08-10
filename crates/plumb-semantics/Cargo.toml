@@ -7,4 +7,5 @@ license.workspace = true
 [dependencies]
 plumb-syntax = { path = "../plumb-syntax" }
 chrono.workspace = true
+serde.workspace = true
 url.workspace = true

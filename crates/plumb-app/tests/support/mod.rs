@@ -1,4 +1,4 @@
-use std::io::{Read, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -26,17 +26,56 @@ pub fn run_server_with_pause(first: &[Value], second: &[Value]) -> Vec<Value> {
 }
 
 pub fn run_server_after_initial_index(messages: &[Value]) -> Vec<Value> {
-    run_server_with_writer(|stdin| {
-        for (index, message) in messages.iter().enumerate() {
-            write_message(stdin, message);
-            if index == 1 {
-                std::thread::sleep(std::time::Duration::from_millis(500));
-            }
-            if index + 3 == messages.len() {
-                std::thread::sleep(std::time::Duration::from_millis(100));
+    let mut child = Command::new(env!("CARGO_BIN_EXE_plumb"))
+        .arg("lsp")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("start plumb lsp");
+    let stdout = child.stdout.take().expect("child stdout");
+    let (sender, receiver) = std::sync::mpsc::channel();
+    let reader = std::thread::spawn(move || {
+        let mut input = BufReader::new(stdout);
+        while let Some(message) = read_message(&mut input) {
+            if sender.send(message).is_err() {
+                break;
             }
         }
-    })
+    });
+    let stdin = child.stdin.as_mut().expect("child stdin");
+    for message in messages.iter().take(2) {
+        write_message(stdin, message);
+    }
+    let mut output = Vec::new();
+    loop {
+        let message = receiver
+            .recv_timeout(std::time::Duration::from_secs(10))
+            .expect("initial workspace index completes");
+        let complete = message["method"] == "$/progress"
+            && message["params"]["token"] == "plumb-ls-index"
+            && message["params"]["value"]["kind"] == "end";
+        output.push(message);
+        if complete {
+            break;
+        }
+    }
+    for (index, message) in messages.iter().enumerate().skip(2) {
+        write_message(stdin, message);
+        if index + 3 == messages.len() {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+    }
+    drop(child.stdin.take());
+    let status = child.wait_with_output().expect("wait for plumb-ls");
+    assert!(
+        status.status.success(),
+        "plumb lsp failed: {}",
+        String::from_utf8_lossy(&status.stderr)
+    );
+    reader.join().expect("join LSP stdout reader");
+    output.extend(receiver.try_iter());
+    output
 }
 
 pub fn run_server_with_writer(
@@ -128,4 +167,28 @@ fn read_messages(mut input: &str) -> Vec<Value> {
         input = &input[body_end..];
     }
     messages
+}
+
+fn read_message(input: &mut impl BufRead) -> Option<Value> {
+    let mut length = None;
+    loop {
+        let mut line = String::new();
+        if input.read_line(&mut line).ok()? == 0 {
+            return None;
+        }
+        if line == "\r\n" {
+            break;
+        }
+        if let Some(value) = line.strip_prefix("Content-Length: ") {
+            length = Some(
+                value
+                    .trim()
+                    .parse::<usize>()
+                    .expect("numeric content length"),
+            );
+        }
+    }
+    let mut body = vec![0; length.expect("content length")];
+    input.read_exact(&mut body).expect("JSON-RPC body");
+    Some(serde_json::from_slice(&body).expect("JSON-RPC JSON"))
 }

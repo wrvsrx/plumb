@@ -161,24 +161,19 @@ impl Workspace {
             id: target_id.to_string(),
         };
         let mut blocking = Vec::new();
-        for entry in self.documents.values() {
-            let Some(current) = &entry.current else {
+        for (path, task) in self.all_tasks() {
+            let Some(id) = &task.id else {
                 continue;
             };
-            for task in &current.output.tasks.tasks {
-                let Some(id) = &task.id else {
-                    continue;
-                };
-                if self
-                    .task_dependencies(&entry.path, task)
-                    .iter()
-                    .any(|dependency| dependency.target == target)
-                {
-                    blocking.push(TaskRef {
-                        path: entry.path.clone(),
-                        id: id.value.clone(),
-                    });
-                }
+            if self
+                .task_dependencies(&path, &task)
+                .iter()
+                .any(|dependency| dependency.target == target)
+            {
+                blocking.push(TaskRef {
+                    path,
+                    id: id.value.clone(),
+                });
             }
         }
         blocking.sort_by(|left, right| left.path.cmp(&right.path).then(left.id.cmp(&right.id)));
@@ -475,62 +470,52 @@ impl Workspace {
             }
             TaskReferenceTarget::Invalid => return TaskTargetResolution::Invalid,
         };
-        let Some(output) = self.current_output(&path) else {
+        if !self.contains(&path) && !path.is_file() {
             return TaskTargetResolution::UnresolvedPath { path };
-        };
-        let matching_anchors = output
-            .anchors
-            .iter()
-            .filter(|anchor| anchor.id.value == id)
-            .count();
+        }
+        let matching_anchors = self.anchors_named(&path, &id).len();
         if matching_anchors == 0 {
             return TaskTargetResolution::UnresolvedAnchor { path, id };
         }
         if matching_anchors > 1 {
             return TaskTargetResolution::AmbiguousAnchor { path, id };
         }
-        let Some(task) = output
-            .tasks
-            .tasks
-            .iter()
+        let Some(task) = self
+            .tasks_for_path(&path)
+            .into_iter()
             .find(|task| task.id.as_ref().is_some_and(|task_id| task_id.value == id))
         else {
             return TaskTargetResolution::NotTask { path, id };
         };
         TaskTargetResolution::Task {
             target: TaskRef { path, id },
-            task: Box::new(task.clone()),
+            task: Box::new(task),
         }
     }
 
     pub(super) fn task_dependency_graph(&self) -> HashMap<TaskRef, Vec<TaskRef>> {
         let mut graph = HashMap::new();
-        for entry in self.documents.values() {
-            let Some(current) = &entry.current else {
+        for (path, task) in self.all_tasks() {
+            let Some(id) = &task.id else {
                 continue;
             };
-            for task in &current.output.tasks.tasks {
-                let Some(id) = &task.id else {
-                    continue;
-                };
-                let task_ref = TaskRef {
-                    path: entry.path.clone(),
-                    id: id.value.clone(),
-                };
-                let dependencies = task
-                    .depends
-                    .iter()
-                    .filter_map(|dependency| {
-                        let TaskTargetResolution::Task { target, .. } =
-                            self.resolve_task_target(&entry.path, &dependency.target)
-                        else {
-                            return None;
-                        };
-                        Some(target)
-                    })
-                    .collect();
-                graph.insert(task_ref, dependencies);
-            }
+            let task_ref = TaskRef {
+                path: path.clone(),
+                id: id.value.clone(),
+            };
+            let dependencies = task
+                .depends
+                .iter()
+                .filter_map(|dependency| {
+                    let TaskTargetResolution::Task { target, .. } =
+                        self.resolve_task_target(&path, &dependency.target)
+                    else {
+                        return None;
+                    };
+                    Some(target)
+                })
+                .collect();
+            graph.insert(task_ref, dependencies);
         }
         graph
     }

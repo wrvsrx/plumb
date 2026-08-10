@@ -5,17 +5,18 @@ use plumb_syntax::{
     AttrItem, AttrValue, Block, Diagnostic, DiagnosticSeverity, Document, Inline, InlineContent,
     ParsedBlock,
 };
+use serde::{Deserialize, Serialize};
 
 use crate::tasks::{task_reference_fields, TaskDependency};
 use crate::{MetadataOutput, MetadataValue};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EventField {
     pub value: String,
     pub range: Range<usize>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EventRecord {
     pub range: Range<usize>,
     pub marker_range: Range<usize>,

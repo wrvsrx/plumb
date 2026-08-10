@@ -6,6 +6,7 @@ use plumb_syntax::{
     AttachedContent, AttrItem, AttrValue, Attributes, Block, Diagnostic, DiagnosticSeverity,
     Document, Inline, InlineContent,
 };
+use serde::{Deserialize, Serialize};
 use url::Url;
 
 use crate::{
@@ -15,7 +16,7 @@ use crate::{
     TaskOutput,
 };
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SourceBacked<T> {
     pub value: T,
     pub raw: String,
@@ -32,7 +33,7 @@ impl SourceBacked<String> {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AnchorKind {
     Heading,
     Block,
@@ -40,7 +41,7 @@ pub enum AnchorKind {
     VerbatimBlock,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AnchorRecord {
     pub id: SourceBacked<String>,
     pub kind: AnchorKind,
@@ -48,7 +49,7 @@ pub struct AnchorRecord {
     pub selection_range: Range<usize>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum LinkTarget {
     Anchor {
         path: Option<String>,
@@ -64,7 +65,7 @@ pub enum LinkTarget {
     Other,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum LinkSpelling {
     Explicit,
     Verbatim {
@@ -73,7 +74,7 @@ pub enum LinkSpelling {
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LinkRecord {
     pub range: Range<usize>,
     pub selection_range: Range<usize>,
@@ -84,13 +85,13 @@ pub struct LinkRecord {
     pub fragment_range: Option<Range<usize>>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ImageTarget {
     External,
     File { path: String },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ImageRecord {
     pub range: Range<usize>,
     pub selection_range: Range<usize>,
@@ -98,13 +99,13 @@ pub struct ImageRecord {
     pub target_kind: ImageTarget,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FileTarget {
     External,
     File { path: String },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FileRecord {
     pub range: Range<usize>,
     pub selection_range: Range<usize>,

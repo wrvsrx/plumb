@@ -38,8 +38,10 @@ use plumb_semantics::{
 use plumb_syntax::Diagnostic;
 use plumb_workspace::{
     normalize, scan_workspace_files, PathRenameInput, RenameError, ResolvedTarget,
-    ResourceOperation, SearchRecord, SearchRecordKind, Workspace, WorkspaceEdit,
+    ResourceOperation, SearchRecord, SearchRecordKind, SqliteSemanticStore, Workspace,
+    WorkspaceEdit,
 };
+use sha2::{Digest, Sha256};
 
 use crate::folding::{collapsed_text_labels as fold_labels, ranges as folding_ranges};
 #[cfg(test)]
@@ -79,6 +81,7 @@ pub(crate) struct InitialIndexResult {
     generation: u64,
     workspace: Workspace,
     indexed: usize,
+    cache_hits: usize,
     complete: bool,
 }
 
@@ -170,8 +173,8 @@ impl ServerState {
             .collect::<HashSet<_>>();
         let stale = self
             .workspace
-            .documents()
-            .map(|entry| entry.path.clone())
+            .document_paths()
+            .into_iter()
             .filter(|path| {
                 self.roots.iter().any(|root| path.starts_with(root))
                     && !open.contains(path)
@@ -179,7 +182,7 @@ impl ServerState {
             })
             .collect::<Vec<_>>();
         for path in stale {
-            self.workspace.remove(path);
+            let _ = self.workspace.remove_disk(path);
         }
 
         let mut indexed = 0;
@@ -188,8 +191,11 @@ impl ServerState {
                 continue;
             }
             if let Ok(text) = fs::read_to_string(&path) {
-                self.workspace.insert(path, 0, text);
-                indexed += 1;
+                if self.workspace.insert_disk(path, 0, text).is_ok() {
+                    indexed += 1;
+                } else {
+                    complete = false;
+                }
             } else {
                 complete = false;
             }
@@ -248,11 +254,17 @@ impl ServerState {
         self.index_complete = result.complete;
         self.notify_index_progress(WorkDoneProgress::Report(WorkDoneProgressReport {
             cancellable: Some(false),
-            message: Some(format!("Indexed {} files", result.indexed)),
+            message: Some(format!(
+                "Indexed {} files ({} cached)",
+                result.indexed, result.cache_hits
+            )),
             percentage: None,
         }));
         self.notify_index_progress(WorkDoneProgress::End(WorkDoneProgressEnd {
-            message: Some(format!("Indexed {} plumb files", result.indexed)),
+            message: Some(format!(
+                "Indexed {} plumb files ({} cached)",
+                result.indexed, result.cache_hits
+            )),
         }));
         self.register_workspace_file_watchers();
         self.publish_all_open_diagnostics();
@@ -315,11 +327,15 @@ impl ServerState {
     }
 
     fn begin_path_rename(&mut self, old_path: PathBuf, new_path: PathBuf) {
-        if let Some(entry) = self.workspace.get(&old_path) {
-            let revision = entry.revision;
-            let source = entry.parsed.source.clone();
-            self.workspace.insert(&new_path, revision, source);
+        let snapshot = self
+            .workspace
+            .get(&old_path)
+            .map(|entry| (entry.revision, entry.parsed.source.clone()))
+            .or_else(|| fs::read_to_string(&old_path).ok().map(|source| (0, source)));
+        if let Some((revision, source)) = snapshot {
+            self.workspace.open_document(&new_path, revision, source);
             self.workspace.remove(&old_path);
+            let _ = self.workspace.remove_disk(&old_path);
         }
         self.pending_path_renames.push(PendingPathRename {
             old_path,
@@ -335,6 +351,9 @@ impl ServerState {
                 rename.old_removed = !rename.old_path.exists();
                 if rename.old_removed {
                     self.workspace.remove(&rename.old_path);
+                    let _ = self.workspace.remove_disk(&rename.old_path);
+                } else if let Ok(text) = fs::read_to_string(&rename.old_path) {
+                    let _ = self.workspace.insert_disk(&rename.old_path, 0, text);
                 }
                 if !rename.new_path.exists()
                     && !self
@@ -343,13 +362,14 @@ impl ServerState {
                         .any(|open| open == &rename.new_path)
                 {
                     self.workspace.remove(&rename.new_path);
+                    let _ = self.workspace.remove_disk(&rename.new_path);
                     rename.new_seen = false;
                 }
             } else if changed_path == rename.new_path {
                 rename.new_seen = rename.new_path.exists();
                 if rename.new_seen {
                     if let Ok(text) = fs::read_to_string(&rename.new_path) {
-                        self.workspace.insert(&rename.new_path, 0, text);
+                        let _ = self.workspace.insert_disk(&rename.new_path, 0, text);
                     }
                 } else if !self
                     .open_documents
@@ -357,6 +377,7 @@ impl ServerState {
                     .any(|open| open == &rename.new_path)
                 {
                     self.workspace.remove(&rename.new_path);
+                    let _ = self.workspace.remove_disk(&rename.new_path);
                 }
                 rename.old_removed = !rename.old_path.exists();
             }
@@ -405,6 +426,15 @@ impl ServerState {
         };
         self.workspace.insert(target_path, 0, source);
         true
+    }
+
+    fn ensure_request_document(&mut self, path: &Path) {
+        if self.workspace.get(path).is_some() {
+            return;
+        }
+        if let Ok(source) = fs::read_to_string(path) {
+            self.workspace.open_document(path, 0, source);
+        }
     }
 
     pub(crate) fn search(
@@ -459,9 +489,15 @@ fn search_workspace(
 }
 
 fn search_item(workspace: &Workspace, record: SearchRecord) -> Result<SearchItem, ResponseError> {
-    let entry = workspace.get(&record.path).ok_or_else(|| {
-        ResponseError::new(ErrorCode::INTERNAL_ERROR, "search record lost its document")
-    })?;
+    let disk_source;
+    let source = if let Some(entry) = workspace.get(&record.path) {
+        &entry.parsed.source
+    } else {
+        disk_source = fs::read_to_string(&record.path).map_err(|_| {
+            ResponseError::new(ErrorCode::INTERNAL_ERROR, "search record lost its document")
+        })?;
+        &disk_source
+    };
     let location = Location::new(
         Url::from_file_path(&record.path).map_err(|_| {
             ResponseError::new(
@@ -472,7 +508,7 @@ fn search_item(workspace: &Workspace, record: SearchRecord) -> Result<SearchItem
                 ),
             )
         })?,
-        byte_range_to_lsp(&entry.parsed.source, &record.range),
+        byte_range_to_lsp(source, &record.range),
     );
     Ok(SearchItem {
         kind: match record.kind {
@@ -689,14 +725,15 @@ impl LanguageServer for ServerState {
             self.index_complete &= complete;
             if files.binary_search(&path).is_ok() {
                 if let Ok(text) = fs::read_to_string(&path) {
-                    if !self.workspace.rebind_revision_if_source(&path, 0, &text) {
-                        self.workspace.insert(&path, 0, text);
-                    }
+                    let _ = self.workspace.insert_disk(&path, 0, text);
+                    self.workspace.close_document(&path);
                 } else {
-                    self.workspace.remove(&path);
+                    let _ = self.workspace.remove_disk(&path);
+                    self.workspace.close_document(&path);
                 }
             } else {
-                self.workspace.remove(&path);
+                let _ = self.workspace.remove_disk(&path);
+                self.workspace.close_document(&path);
             }
         }
         let _ = self
@@ -711,7 +748,12 @@ impl LanguageServer for ServerState {
         ControlFlow::Continue(())
     }
 
-    fn did_save(&mut self, _params: DidSaveTextDocumentParams) -> Self::NotifyResult {
+    fn did_save(&mut self, params: DidSaveTextDocumentParams) -> Self::NotifyResult {
+        if let Ok(path) = params.text_document.uri.to_file_path() {
+            if let Ok(text) = fs::read_to_string(&path) {
+                let _ = self.workspace.insert_disk(path, 0, text);
+            }
+        }
         ControlFlow::Continue(())
     }
 
@@ -758,11 +800,11 @@ impl LanguageServer for ServerState {
                         if indexed.contains(&path) =>
                     {
                         if let Ok(text) = fs::read_to_string(&path) {
-                            self.workspace.insert(path, 0, text);
+                            let _ = self.workspace.insert_disk(path, 0, text);
                         }
                     }
                     FileChangeType::CREATED | FileChangeType::CHANGED | FileChangeType::DELETED => {
-                        self.workspace.remove(path);
+                        let _ = self.workspace.remove_disk(path);
                     }
                     _ => {}
                 }
@@ -1002,6 +1044,9 @@ impl LanguageServer for ServerState {
         params: GotoDefinitionParams,
     ) -> BoxFuture<'static, Result<Option<GotoDefinitionResponse>, Self::Error>> {
         let position = params.text_document_position_params;
+        if let Ok(path) = position.text_document.uri.to_file_path() {
+            self.ensure_request_document(&path);
+        }
         let location = position
             .text_document
             .uri
@@ -1032,6 +1077,9 @@ impl LanguageServer for ServerState {
         params: ReferenceParams,
     ) -> BoxFuture<'static, Result<Option<Vec<Location>>, Self::Error>> {
         let position = params.text_document_position;
+        if let Ok(path) = position.text_document.uri.to_file_path() {
+            self.ensure_request_document(&path);
+        }
         let locations = position
             .text_document
             .uri
@@ -1051,7 +1099,7 @@ impl LanguageServer for ServerState {
                             .references_to(&target_path, &id)
                             .into_iter()
                             .filter_map(|(source_path, reference)| {
-                                location_for(&self.workspace, source_path, &reference.source_range)
+                                location_for(&self.workspace, &source_path, &reference.source_range)
                             })
                             .collect::<Vec<_>>();
                         if params.context.include_declaration {
@@ -1069,7 +1117,7 @@ impl LanguageServer for ServerState {
                             .references_to_document(&target_path)
                             .into_iter()
                             .filter_map(|(source_path, reference)| {
-                                location_for(&self.workspace, source_path, &reference.source_range)
+                                location_for(&self.workspace, &source_path, &reference.source_range)
                             })
                             .collect::<Vec<_>>();
                         if params.context.include_declaration {
@@ -1100,6 +1148,9 @@ impl LanguageServer for ServerState {
         &mut self,
         params: CodeLensParams,
     ) -> BoxFuture<'static, Result<Option<Vec<CodeLens>>, Self::Error>> {
+        if let Ok(path) = params.text_document.uri.to_file_path() {
+            self.ensure_request_document(&path);
+        }
         let lenses = params
             .text_document
             .uri
@@ -1182,6 +1233,9 @@ impl LanguageServer for ServerState {
         params: HoverParams,
     ) -> BoxFuture<'static, Result<Option<Hover>, Self::Error>> {
         let position = params.text_document_position_params;
+        if let Ok(path) = position.text_document.uri.to_file_path() {
+            self.ensure_request_document(&path);
+        }
         let hover = position
             .text_document
             .uri
@@ -1616,6 +1670,9 @@ impl LanguageServer for ServerState {
         &mut self,
         params: lsp_types::TextDocumentPositionParams,
     ) -> BoxFuture<'static, Result<Option<PrepareRenameResponse>, Self::Error>> {
+        if let Ok(path) = params.text_document.uri.to_file_path() {
+            self.ensure_request_document(&path);
+        }
         let response = params
             .text_document
             .uri
@@ -1667,6 +1724,14 @@ impl LanguageServer for ServerState {
                     "anchor rename requires workspace.workspaceEdit.documentChanges support",
                 ))
             });
+        }
+        if let Ok(path) = params
+            .text_document_position
+            .text_document
+            .uri
+            .to_file_path()
+        {
+            self.ensure_request_document(&path);
         }
         let result = (|| {
             let Some(path) = params
@@ -1944,12 +2009,15 @@ fn location_for(
     path: &Path,
     range: &std::ops::Range<usize>,
 ) -> Option<Location> {
-    let entry = workspace.get(path)?;
+    let disk_source;
+    let source = if let Some(entry) = workspace.get(path) {
+        &entry.parsed.source
+    } else {
+        disk_source = fs::read_to_string(path).ok()?;
+        &disk_source
+    };
     let uri = Url::from_file_path(path).ok()?;
-    Some(Location::new(
-        uri,
-        byte_range_to_lsp(&entry.parsed.source, range),
-    ))
+    Some(Location::new(uri, byte_range_to_lsp(source, range)))
 }
 
 fn reference_code_lens(
@@ -1979,7 +2047,13 @@ fn workspace_edit_to_lsp(workspace: &Workspace, edit: WorkspaceEdit) -> Option<L
     let has_resource_operations = !edit.resource_operations.is_empty();
     let mut document_edits = Vec::new();
     for document in edit.document_changes {
-        let entry = workspace.get(&document.path)?;
+        let disk_source;
+        let source = if let Some(entry) = workspace.get(&document.path) {
+            &entry.parsed.source
+        } else {
+            disk_source = fs::read_to_string(&document.path).ok()?;
+            &disk_source
+        };
         let uri = Url::from_file_path(&document.path).ok()?;
         let version = (document.expected_revision > 0)
             .then(|| i32::try_from(document.expected_revision).ok())
@@ -1989,7 +2063,7 @@ fn workspace_edit_to_lsp(workspace: &Workspace, edit: WorkspaceEdit) -> Option<L
             .into_iter()
             .map(|edit| {
                 OneOf::Left(LspTextEdit::new(
-                    byte_range_to_lsp(&entry.parsed.source, &edit.range),
+                    byte_range_to_lsp(source, &edit.range),
                     edit.new_text,
                 ))
             })
@@ -2065,11 +2139,29 @@ fn scanned_files(roots: &[PathBuf]) -> (Vec<PathBuf>, bool) {
 
 fn build_initial_index(roots: &[PathBuf], generation: u64) -> InitialIndexResult {
     let (files, mut complete) = scanned_files(roots);
-    let mut workspace = Workspace::new();
+    let cache_path = semantic_cache_path(roots);
+    if let Some(parent) = cache_path.parent() {
+        complete &= fs::create_dir_all(parent).is_ok();
+    }
+    let store = SqliteSemanticStore::open(&cache_path).or_else(|_| {
+        complete = false;
+        SqliteSemanticStore::open_in_memory()
+    });
+    let mut workspace = match store {
+        Ok(store) => Workspace::with_sqlite_store(store),
+        Err(_) => {
+            complete = false;
+            Workspace::new()
+        }
+    };
     let mut indexed = 0;
+    let mut cache_hits = 0;
     for path in files {
         if let Ok(text) = fs::read_to_string(&path) {
-            workspace.insert(path, 0, text);
+            match workspace.insert_disk(path, 0, text) {
+                Ok(hit) => cache_hits += usize::from(hit),
+                Err(_) => complete = false,
+            }
             indexed += 1;
         } else {
             complete = false;
@@ -2079,8 +2171,30 @@ fn build_initial_index(roots: &[PathBuf], generation: u64) -> InitialIndexResult
         generation,
         workspace,
         indexed,
+        cache_hits,
         complete,
     }
+}
+
+fn semantic_cache_path(roots: &[PathBuf]) -> PathBuf {
+    let base = std::env::var_os("PLUMB_CACHE_DIR")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("XDG_CACHE_HOME").map(PathBuf::from))
+        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".cache")))
+        .unwrap_or_else(|| std::env::temp_dir().join("plumb-cache"));
+    let mut hasher = Sha256::new();
+    for root in roots {
+        hasher.update(root.as_os_str().to_string_lossy().as_bytes());
+        hasher.update([0]);
+    }
+    let digest = hasher.finalize();
+    let key = digest[..16]
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    base.join("plumb")
+        .join("workspaces")
+        .join(format!("{key}.sqlite3"))
 }
 
 fn workspace_symbol_query(query: &str) -> (Option<SearchKind>, String) {
