@@ -11,6 +11,7 @@ chrono.workspace = true
 diesel.workspace = true
 diesel_migrations.workspace = true
 ignore.workspace = true
+libsqlite3-sys.workspace = true
 plumb-syntax = { path = "../plumb-syntax" }
 plumb-edit = { path = "../plumb-edit" }
 plumb-semantics = { path = "../plumb-semantics" }

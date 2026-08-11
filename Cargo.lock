@@ -1975,6 +1975,7 @@ dependencies = [
  "diesel",
  "diesel_migrations",
  "ignore",
+ "libsqlite3-sys",
  "plumb-edit",
  "plumb-format",
  "plumb-semantics",

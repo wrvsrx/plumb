@@ -27,6 +27,7 @@ crossterm = "0.29"
 criterion = "0.5"
 diesel = { version = "2.3.12", features = ["sqlite"] }
 diesel_migrations = "2.3.0"
+libsqlite3-sys = { version = "0.35", features = ["bundled"] }
 shlex = "1.3"
 skim = "0.10.4"
 serde = { version = "1", features = ["derive"] }
