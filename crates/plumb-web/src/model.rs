@@ -638,12 +638,8 @@ impl WebWorkspace {
             .filter_map(|record| {
                 let document_id = self.document_id(&record.path)?.to_string();
                 let state = record.task_state?.as_str();
-                let task = self
-                    .workspace
-                    .documents()
-                    .find(|entry| entry.path == record.path)?
-                    .current
-                    .as_ref()?
+                let current = self.workspace.get(&record.path)?.current.as_ref()?;
+                let task = current
                     .output
                     .tasks
                     .tasks
@@ -688,7 +684,7 @@ impl WebWorkspace {
                     document_id,
                     title: record.title,
                     path: record.relative_path,
-                    revision: record.revision.to_string(),
+                    revision: current.revision.to_string(),
                     id: record.id,
                     locator,
                     state: state.to_string(),
@@ -768,11 +764,8 @@ impl WebWorkspace {
                 if requested_document.is_some_and(|requested| requested != document_id) {
                     return None;
                 }
-                let task = self
-                    .workspace
-                    .get(&record.path)?
-                    .current
-                    .as_ref()?
+                let current = self.workspace.get(&record.path)?.current.as_ref()?;
+                let task = current
                     .output
                     .tasks
                     .tasks
@@ -793,7 +786,7 @@ impl WebWorkspace {
                     document_id,
                     title: record.title,
                     path: record.relative_path,
-                    revision: record.revision.to_string(),
+                    revision: current.revision.to_string(),
                     id: record.id,
                     locator,
                     depth: record.depth.unwrap_or_default(),
@@ -1856,6 +1849,38 @@ mod tests {
         let graph = web.graph(&GraphQuery::default());
         assert_eq!(graph.revision, 4);
         assert_eq!(graph.nodes[0].title, "Open buffer title");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn cached_task_rows_project_the_live_document_revision_for_mutations() {
+        let root = temp_dir();
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join("tasks.plumb");
+        let source = "`task Current {\n  `@ current\n}\n";
+        std::fs::write(&path, source).unwrap();
+
+        let store = SqliteSemanticStore::open_in_memory().unwrap();
+        let mut query_workspace = Workspace::with_sqlite_store(store);
+        query_workspace.insert_disk(&path, 1, source).unwrap();
+        let mut live_workspace = Workspace::new();
+        live_workspace.insert(&path, 9, source);
+        let workspace =
+            WebWorkspace::from_workspaces(&root, live_workspace, query_workspace, 1).unwrap();
+
+        let snapshot = workspace.tasks();
+        assert_eq!(snapshot.documents[0].revision, "9");
+        assert_eq!(snapshot.tasks[0].revision, "9");
+        assert_eq!(workspace.task_candidates("", None, 10)[0].revision, "9");
+        workspace
+            .set_task_status(
+                &snapshot.tasks[0].document_id,
+                &snapshot.tasks[0].locator,
+                &snapshot.tasks[0].revision,
+                TaskStatus::Canceled,
+            )
+            .unwrap();
+
         std::fs::remove_dir_all(root).unwrap();
     }
 

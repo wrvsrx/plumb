@@ -1279,7 +1279,11 @@ import { EDITABLE_TASK_PROPERTIES, missingTaskProperties } from './task-ui.js';
   async function renderTaskPropertyEditor(task, property) {
     const definition = EDITABLE_TASK_PROPERTIES.find((candidate) => candidate.key === property);
     if (!definition || state.pendingTask) return;
-    if (property === 'prev' || property === 'depends') await ensureTaskCandidates();
+    if (property === 'prev' || property === 'depends') {
+      await renderTaskForm(task);
+      taskPanel.querySelector('[name="referenceSearch"]')?.focus();
+      return;
+    }
     const detail = taskPanel.querySelector(`.task-property-value[data-property="${property}"]`)?.closest('dd');
     const host = detail || taskPanel.querySelector('.task-property-actions');
     const form = document.createElement('form');

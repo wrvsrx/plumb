@@ -32,3 +32,9 @@ test('task creation uses a view toolbar control and sort keys shrink responsivel
   assert.match(css, /body \{ display: flex; flex-direction: column; overflow: hidden; \}/);
   assert.match(css, /\.task-filters \.task-sort \{ flex-basis: 100%; \}/);
 });
+
+test('task reference property editing reuses the searchable task form', async () => {
+  const app = await readFile(new URL('./app.js', import.meta.url), 'utf8');
+  assert.doesNotMatch(app, /ensureTaskCandidates/);
+  assert.match(app, /property === 'prev' \|\| property === 'depends'[\s\S]*await renderTaskForm\(task\)/);
+});
