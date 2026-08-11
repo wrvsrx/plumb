@@ -208,13 +208,13 @@ pub enum AttachedContent {
 }
 
 impl AttachedGroup {
-    fn append_blocks_to(mut self: Box<Self>, output: &mut Vec<Block>) {
+    fn append_blocks_to(mut self, output: &mut Vec<Block>) {
         if let AttachedContent::Blocks(blocks) = &mut self.content {
             output.append(blocks);
         }
     }
 
-    fn append_inlines_to(mut self: Box<Self>, output: &mut Vec<Inline>) {
+    fn append_inlines_to(mut self, output: &mut Vec<Inline>) {
         if let AttachedContent::Inlines(content) = &mut self.content {
             output.append(&mut content.items);
         }
