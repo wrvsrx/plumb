@@ -237,8 +237,29 @@ async fn task_candidates(
     .into_response()
 }
 
-async fn event_snapshot(State(state): State<AppState>) -> Response {
-    Json(state.workspace.read().await.events()).into_response()
+#[derive(Debug, Deserialize, Default)]
+struct EventPageQuery {
+    cursor: Option<String>,
+    direction: Option<String>,
+    selected: Option<String>,
+}
+
+async fn event_snapshot(
+    State(state): State<AppState>,
+    AxumQuery(query): AxumQuery<EventPageQuery>,
+) -> Response {
+    let workspace = state.workspace.read().await;
+    let result = match query.selected.as_deref() {
+        Some(selected) if query.cursor.is_none() && query.direction.is_none() => {
+            workspace.event_page_for_selection(selected)
+        }
+        Some(_) => Err("selected event cannot be combined with a page cursor".into()),
+        None => workspace.event_page(query.cursor.as_deref(), query.direction.as_deref()),
+    };
+    match result {
+        Ok(page) => Json(page).into_response(),
+        Err(error) => (StatusCode::BAD_REQUEST, error).into_response(),
+    }
 }
 
 async fn query(State(state): State<AppState>, Json(query): Json<WebQuery>) -> Response {
@@ -436,11 +457,27 @@ async fn update_event(
         Ok(workspace) => workspace,
         Err(error) => return (StatusCode::INTERNAL_SERVER_ERROR, error).into_response(),
     };
-    let events = refreshed.events();
+    let selected = if action == "delete" {
+        None
+    } else {
+        refreshed.event_key_after_mutation(
+            &document_id,
+            request.locator.as_ref(),
+            request.event.as_ref(),
+        )
+    };
+    let page = match selected.as_deref() {
+        Some(selected) => refreshed.event_page_for_selection(selected),
+        None => refreshed.event_page(None, None),
+    };
+    let events = match page {
+        Ok(events) => events,
+        Err(error) => return (StatusCode::INTERNAL_SERVER_ERROR, error).into_response(),
+    };
     *state.workspace.write().await = refreshed;
     state.html_cache.lock().await.clear();
     let _ = state.changes.send(revision);
-    Json(events).into_response()
+    ([("x-plumb-revision", revision.to_string())], Json(events)).into_response()
 }
 
 fn same_origin(headers: &HeaderMap) -> bool {

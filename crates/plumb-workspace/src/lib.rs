@@ -301,6 +301,47 @@ pub struct WorkspaceEvent {
     pub event: EventRecord,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkspaceEventCursor {
+    pub sort_millis: Option<i64>,
+    pub path: PathBuf,
+    pub start: usize,
+}
+
+fn compare_workspace_events(left: &WorkspaceEvent, right: &WorkspaceEvent) -> std::cmp::Ordering {
+    event_order_key(left).cmp(&event_order_key(right))
+}
+
+fn event_order_key(event: &WorkspaceEvent) -> (bool, Option<i64>, &Path, usize) {
+    let millis = event
+        .event
+        .sort_datetime()
+        .map(|value| value.timestamp_millis());
+    (
+        millis.is_none(),
+        millis,
+        &event.path,
+        event.event.range.start,
+    )
+}
+
+fn cursor_order_key(cursor: &WorkspaceEventCursor) -> (bool, Option<i64>, &Path, usize) {
+    (
+        cursor.sort_millis.is_none(),
+        cursor.sort_millis,
+        &cursor.path,
+        cursor.start,
+    )
+}
+
+fn event_after_cursor(event: &WorkspaceEvent, cursor: &WorkspaceEventCursor) -> bool {
+    event_order_key(event) > cursor_order_key(cursor)
+}
+
+fn event_before_cursor(event: &WorkspaceEvent, cursor: &WorkspaceEventCursor) -> bool {
+    event_order_key(event) < cursor_order_key(cursor)
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct WorkspaceTaskKey {
     pub path: PathBuf,
@@ -1356,6 +1397,104 @@ impl Workspace {
                 .then(left.event.range.start.cmp(&right.event.range.start))
         });
         events
+    }
+
+    pub fn events_page_after(
+        &self,
+        cursor: Option<&WorkspaceEventCursor>,
+        limit: usize,
+    ) -> Vec<WorkspaceEvent> {
+        let mut events = self
+            .open_events_for_page()
+            .into_iter()
+            .filter(|event| cursor.map_or(true, |cursor| event_after_cursor(event, cursor)))
+            .collect::<Vec<_>>();
+        let Some(store) = &self.disk_store else {
+            events.sort_by(compare_workspace_events);
+            events.truncate(limit);
+            return events;
+        };
+        let cursor = cursor.map(|cursor| store::StoredEventKey {
+            sort_millis: cursor.sort_millis,
+            path: cursor.path.clone(),
+            start: cursor.start,
+        });
+        let stored_limit = limit.saturating_add(events.len());
+        events.extend(
+            store
+                .event_page_after(cursor.as_ref(), stored_limit, &self.open_paths())
+                .unwrap_or_default()
+                .into_iter()
+                .map(|stored| WorkspaceEvent {
+                    path: stored.path,
+                    revision: stored.revision,
+                    event: stored.record,
+                }),
+        );
+        events.sort_by(compare_workspace_events);
+        events.truncate(limit);
+        events
+    }
+
+    pub fn events_page_before(
+        &self,
+        cursor: &WorkspaceEventCursor,
+        limit: usize,
+    ) -> Vec<WorkspaceEvent> {
+        let mut events = self
+            .open_events_for_page()
+            .into_iter()
+            .filter(|event| event_before_cursor(event, cursor))
+            .collect::<Vec<_>>();
+        let Some(store) = &self.disk_store else {
+            events.sort_by(compare_workspace_events);
+            if events.len() > limit {
+                events.drain(..events.len() - limit);
+            }
+            return events;
+        };
+        let cursor = store::StoredEventKey {
+            sort_millis: cursor.sort_millis,
+            path: cursor.path.clone(),
+            start: cursor.start,
+        };
+        let stored_limit = limit.saturating_add(events.len());
+        events.extend(
+            store
+                .event_page_before(&cursor, stored_limit, &self.open_paths())
+                .unwrap_or_default()
+                .into_iter()
+                .map(|stored| WorkspaceEvent {
+                    path: stored.path,
+                    revision: stored.revision,
+                    event: stored.record,
+                }),
+        );
+        events.sort_by(compare_workspace_events);
+        if events.len() > limit {
+            events.drain(..events.len() - limit);
+        }
+        events
+    }
+
+    fn open_events_for_page(&self) -> Vec<WorkspaceEvent> {
+        self.documents
+            .values()
+            .filter_map(|entry| entry.current.as_ref().map(|current| (entry, current)))
+            .flat_map(|(entry, current)| {
+                current
+                    .output
+                    .events
+                    .events
+                    .iter()
+                    .cloned()
+                    .map(|event| WorkspaceEvent {
+                        path: entry.path.clone(),
+                        revision: current.revision,
+                        event,
+                    })
+            })
+            .collect()
     }
 
     pub fn events_for_task(&self, target: &TaskRef) -> Vec<WorkspaceEvent> {

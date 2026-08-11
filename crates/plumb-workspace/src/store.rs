@@ -120,6 +120,13 @@ pub struct StoredTaskKey {
     pub start: usize,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StoredEventKey {
+    pub sort_millis: Option<i64>,
+    pub path: PathBuf,
+    pub start: usize,
+}
+
 #[derive(Clone)]
 pub struct SqliteSemanticStore {
     connection: Arc<Mutex<SqliteConnection>>,
@@ -489,6 +496,102 @@ impl SqliteSemanticStore {
             .order((events::path, events::start))
             .load_iter::<(Vec<u8>, i64, Vec<u8>), DefaultLoadingMode>(&mut *connection)?;
         decode_records(rows, excluded)
+    }
+
+    pub fn event_page_after(
+        &self,
+        boundary: Option<&StoredEventKey>,
+        limit: usize,
+        excluded: &[PathBuf],
+    ) -> StoreResult<Vec<StoredRecord<EventRecord>>> {
+        let mut connection = self
+            .connection
+            .lock()
+            .map_err(|_| StoreError::LockPoisoned)?;
+        let mut query = events::table
+            .inner_join(documents::table.on(documents::path.eq(events::path)))
+            .into_boxed();
+        if let Some(boundary) = boundary {
+            let path = path_bytes(&boundary.path);
+            query = match boundary.sort_millis {
+                Some(millis) => query.filter(
+                    events::sort_millis
+                        .gt(millis)
+                        .or(events::sort_millis.eq(millis).and(
+                            events::path.gt(path.clone()).or(events::path
+                                .eq(path)
+                                .and(events::start.gt(boundary.start as i64))),
+                        ))
+                        .or(events::sort_millis.is_null()),
+                ),
+                None => query.filter(
+                    events::sort_millis.is_null().and(
+                        events::path.gt(path.clone()).or(events::path
+                            .eq(path)
+                            .and(events::start.gt(boundary.start as i64))),
+                    ),
+                ),
+            };
+        }
+        let rows = query
+            .select((events::path, documents::revision, events::record))
+            .order((
+                events::sort_millis.is_null(),
+                events::sort_millis,
+                events::path,
+                events::start,
+            ))
+            .limit(limit as i64)
+            .load::<(Vec<u8>, i64, Vec<u8>)>(&mut *connection)?;
+        decode_records(rows.into_iter().map(Ok), excluded)
+    }
+
+    pub fn event_page_before(
+        &self,
+        boundary: &StoredEventKey,
+        limit: usize,
+        excluded: &[PathBuf],
+    ) -> StoreResult<Vec<StoredRecord<EventRecord>>> {
+        let mut connection = self
+            .connection
+            .lock()
+            .map_err(|_| StoreError::LockPoisoned)?;
+        let path = path_bytes(&boundary.path);
+        let mut query = events::table
+            .inner_join(documents::table.on(documents::path.eq(events::path)))
+            .into_boxed();
+        query = match boundary.sort_millis {
+            Some(millis) => query.filter(
+                events::sort_millis
+                    .lt(millis)
+                    .or(events::sort_millis.eq(millis).and(
+                        events::path.lt(path.clone()).or(events::path
+                            .eq(path)
+                            .and(events::start.lt(boundary.start as i64))),
+                    )),
+            ),
+            None => query.filter(
+                events::sort_millis
+                    .is_not_null()
+                    .or(events::sort_millis.is_null().and(
+                        events::path.lt(path.clone()).or(events::path
+                            .eq(path)
+                            .and(events::start.lt(boundary.start as i64))),
+                    )),
+            ),
+        };
+        let mut rows = query
+            .select((events::path, documents::revision, events::record))
+            .order((
+                events::sort_millis.is_null().desc(),
+                events::sort_millis.desc(),
+                events::path.desc(),
+                events::start.desc(),
+            ))
+            .limit(limit as i64)
+            .load::<(Vec<u8>, i64, Vec<u8>)>(&mut *connection)?;
+        rows.reverse();
+        decode_records(rows.into_iter().map(Ok), excluded)
     }
 
     pub fn events_overlapping(

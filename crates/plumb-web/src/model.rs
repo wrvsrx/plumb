@@ -10,7 +10,7 @@ use plumb_workspace::{
     search_score, sort_task_records_by, truncate_complete_task_documents, ApplyDocumentEditError,
     EventEditError, EventInput, ResolvedTarget, SearchRecordKind, SqliteSemanticStore,
     TaskAuthoringError, TaskAuthoringInput, TaskPlacement, TaskRef, TaskSortFacts, TaskSortOrder,
-    TaskWorkflowState, Workspace,
+    TaskWorkflowState, Workspace, WorkspaceEvent, WorkspaceEventCursor,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -221,6 +221,8 @@ pub struct EventSnapshot {
     pub revision: u64,
     pub events: Vec<WebEvent>,
     pub documents: Vec<WebEventDocument>,
+    pub earlier_cursor: Option<String>,
+    pub later_cursor: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -893,7 +895,280 @@ impl WebWorkspace {
                     })
                 })
                 .collect(),
+            earlier_cursor: None,
+            later_cursor: None,
         }
+    }
+
+    pub fn event_page(
+        &self,
+        cursor: Option<&str>,
+        direction: Option<&str>,
+    ) -> Result<EventSnapshot, String> {
+        const PAGE_SIZE: usize = 240;
+        let boundary = match cursor {
+            Some(cursor) => Some(self.decode_event_cursor(cursor)?),
+            None => None,
+        };
+        let (records, has_earlier, has_later) = match (boundary.as_ref(), direction) {
+            (Some(boundary), Some("earlier")) => {
+                let records = self
+                    .query_workspace
+                    .events_page_before(boundary, PAGE_SIZE + 1);
+                let has_earlier = records.len() > PAGE_SIZE;
+                let records = if has_earlier {
+                    records.into_iter().skip(1).collect()
+                } else {
+                    records
+                };
+                let has_later = !records.is_empty();
+                (records, has_earlier, has_later)
+            }
+            (Some(boundary), Some("later")) => {
+                let mut records = self
+                    .query_workspace
+                    .events_page_after(Some(boundary), PAGE_SIZE + 1);
+                let has_later = records.len() > PAGE_SIZE;
+                if has_later {
+                    records.pop();
+                }
+                let has_earlier = !records.is_empty();
+                (records, has_earlier, has_later)
+            }
+            (Some(_), _) => return Err("event cursor requires earlier or later direction".into()),
+            (None, Some(_)) => return Err("event page direction requires a cursor".into()),
+            (None, None) => {
+                let now = WorkspaceEventCursor {
+                    sort_millis: Some(Local::now().timestamp_millis()),
+                    path: PathBuf::new(),
+                    start: 0,
+                };
+                let mut earlier = self
+                    .query_workspace
+                    .events_page_before(&now, PAGE_SIZE / 2 + 1);
+                let mut later = self
+                    .query_workspace
+                    .events_page_after(Some(&now), PAGE_SIZE / 2 + 1);
+                let has_earlier = earlier.len() > PAGE_SIZE / 2;
+                let has_later = later.len() > PAGE_SIZE / 2;
+                if has_earlier {
+                    earlier.remove(0);
+                }
+                if has_later {
+                    later.pop();
+                }
+                earlier.extend(later);
+                (earlier, has_earlier, has_later)
+            }
+        };
+        let events = records
+            .iter()
+            .filter_map(|record| self.web_event(record))
+            .collect::<Vec<_>>();
+        let earlier_cursor = records
+            .first()
+            .map(|record| self.encode_event_cursor(record));
+        let later_cursor = records
+            .last()
+            .map(|record| self.encode_event_cursor(record));
+        Ok(EventSnapshot {
+            revision: self.revision,
+            events,
+            documents: self.event_documents(),
+            earlier_cursor: earlier_cursor.filter(|_| has_earlier),
+            later_cursor: later_cursor.filter(|_| has_later),
+        })
+    }
+
+    pub fn event_page_for_selection(&self, selected: &str) -> Result<EventSnapshot, String> {
+        const BEFORE: usize = 119;
+        const AFTER: usize = 120;
+        let (document, start) = selected
+            .rsplit_once(':')
+            .and_then(|(document, start)| {
+                start.parse::<usize>().ok().map(|start| (document, start))
+            })
+            .ok_or("selected event identity is malformed")?;
+        let path = self
+            .document_path(document)
+            .ok_or("selected event document is unavailable")?;
+        let entry = self
+            .workspace
+            .get(path)
+            .and_then(|entry| entry.current.as_ref())
+            .ok_or("selected event document is invalid")?;
+        let event = entry
+            .output
+            .events
+            .events
+            .iter()
+            .find(|event| event.range.start == start)
+            .cloned()
+            .ok_or("selected event is unavailable")?;
+        let boundary = WorkspaceEventCursor {
+            sort_millis: event.sort_datetime().map(|value| value.timestamp_millis()),
+            path: path.to_path_buf(),
+            start,
+        };
+        let mut earlier = self
+            .query_workspace
+            .events_page_before(&boundary, BEFORE + 1);
+        let mut later = self
+            .query_workspace
+            .events_page_after(Some(&boundary), AFTER + 1);
+        let has_earlier = earlier.len() > BEFORE;
+        let has_later = later.len() > AFTER;
+        if has_earlier {
+            earlier.remove(0);
+        }
+        if has_later {
+            later.pop();
+        }
+        earlier.push(WorkspaceEvent {
+            path: path.to_path_buf(),
+            revision: entry.revision,
+            event,
+        });
+        earlier.extend(later);
+        let earlier_cursor = earlier
+            .first()
+            .map(|record| self.encode_event_cursor(record))
+            .filter(|_| has_earlier);
+        let later_cursor = earlier
+            .last()
+            .map(|record| self.encode_event_cursor(record))
+            .filter(|_| has_later);
+        Ok(EventSnapshot {
+            revision: self.revision,
+            events: earlier
+                .iter()
+                .filter_map(|record| self.web_event(record))
+                .collect(),
+            documents: self.event_documents(),
+            earlier_cursor,
+            later_cursor,
+        })
+    }
+
+    pub fn event_key_after_mutation(
+        &self,
+        document_id: &str,
+        locator: Option<&WebEventLocator>,
+        input: Option<&WebEventInput>,
+    ) -> Option<String> {
+        let path = self.document_path(document_id)?;
+        let current = self.workspace.get(path)?.current.as_ref()?;
+        let event = locator
+            .and_then(|locator| {
+                current
+                    .output
+                    .events
+                    .events
+                    .iter()
+                    .find(|event| event.range.start == locator.start)
+            })
+            .or_else(|| {
+                input.and_then(|input| {
+                    current
+                        .output
+                        .events
+                        .events
+                        .iter()
+                        .rev()
+                        .find(|event| event.title == input.title)
+                })
+            })?;
+        Some(format!("{document_id}:{}", event.range.start))
+    }
+
+    fn event_documents(&self) -> Vec<WebEventDocument> {
+        self.document_ids
+            .iter()
+            .filter_map(|(path, id)| {
+                let entry = self.workspace.get(path)?;
+                entry.current.as_ref()?;
+                Some(WebEventDocument {
+                    id: id.clone(),
+                    path: display_path(&self.root, path),
+                    revision: entry.revision.to_string(),
+                })
+            })
+            .collect()
+    }
+
+    fn web_event(&self, record: &WorkspaceEvent) -> Option<WebEvent> {
+        let event = &record.event;
+        let document_id = self.document_id(&record.path)?.to_string();
+        Some(WebEvent {
+            key: format!("{document_id}:{}", event.range.start),
+            document_id,
+            path: display_path(&self.root, &record.path),
+            revision: record.revision.to_string(),
+            title: event.title.clone(),
+            details: event.details.clone(),
+            id: event.id.as_ref().map(|field| field.value.clone()),
+            date: event.date.as_ref().map(|field| field.value.clone()),
+            timezone: event.timezone.as_ref().map(|field| field.value.clone()),
+            when: event.when.as_ref().map(|field| field.value.clone()),
+            at: event.at.as_ref().map(|field| field.value.clone()),
+            start: event.start.as_ref().map(|field| field.value.clone()),
+            end: event.end.as_ref().map(|field| field.value.clone()),
+            tasks: self
+                .workspace
+                .event_task_references(&record.path, event)
+                .iter()
+                .map(|reference| reference.source.clone())
+                .collect(),
+            depth: event.depth,
+            locator: WebEventLocator {
+                start: event.range.start,
+                end: event.range.end,
+            },
+            location: SourceLocation::new(&self.root, &record.path, event.selection_range.clone()),
+        })
+    }
+
+    fn encode_event_cursor(&self, record: &WorkspaceEvent) -> String {
+        let millis = record
+            .event
+            .sort_datetime()
+            .map(|value| value.timestamp_millis())
+            .map_or_else(|| "n".into(), |value| value.to_string());
+        let document = self
+            .document_id(&record.path)
+            .expect("event document has an id");
+        format!(
+            "{}:{millis}:{document}:{}",
+            self.revision, record.event.range.start
+        )
+    }
+
+    fn decode_event_cursor(&self, cursor: &str) -> Result<WorkspaceEventCursor, String> {
+        let mut parts = cursor.splitn(4, ':');
+        let revision = parts.next().and_then(|value| value.parse::<u64>().ok());
+        let millis = parts.next();
+        let document = parts.next();
+        let start = parts.next().and_then(|value| value.parse::<usize>().ok());
+        if revision != Some(self.revision)
+            || millis.is_none()
+            || document.is_none()
+            || start.is_none()
+        {
+            return Err("event cursor is stale or malformed".into());
+        }
+        let sort_millis = match millis.unwrap() {
+            "n" => None,
+            value => Some(value.parse().map_err(|_| "event cursor is malformed")?),
+        };
+        let path = self
+            .document_path(document.unwrap())
+            .ok_or("event cursor document is unavailable")?
+            .to_path_buf();
+        Ok(WorkspaceEventCursor {
+            sort_millis,
+            path,
+            start: start.unwrap(),
+        })
     }
 
     pub fn set_task_status(
@@ -2028,6 +2303,37 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["Early", "Later"]
         );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn event_pages_are_bounded_and_reach_invalid_times() {
+        let root = temp_dir();
+        std::fs::create_dir_all(&root).unwrap();
+        let mut source = String::new();
+        for day in 1..=250 {
+            source.push_str(&format!(
+                "`event Future {day} {{\n  `: at 2027-01-01T00:00:00+00:00\n}}\n"
+            ));
+        }
+        source.push_str("`event Invalid {\n}\n");
+        std::fs::write(root.join("agenda.plumb"), source).unwrap();
+        let workspace = WebWorkspace::load(&root).unwrap();
+        let first = workspace.event_page(None, None).unwrap();
+        assert_eq!(first.events.len(), 120);
+        assert!(first.earlier_cursor.is_none());
+        let second = workspace
+            .event_page(first.later_cursor.as_deref(), Some("later"))
+            .unwrap();
+        assert_eq!(second.events.len(), 131);
+        assert!(second.events.last().unwrap().at.is_none());
+        assert!(second.events.last().unwrap().start.is_none());
+        assert!(second.later_cursor.is_none());
+        assert_ne!(first.events.last().unwrap().key, second.events[0].key);
+        let selected = second.events.last().unwrap().key.clone();
+        let anchored = workspace.event_page_for_selection(&selected).unwrap();
+        assert!(anchored.events.iter().any(|event| event.key == selected));
+        assert!(anchored.events.len() <= 240);
         std::fs::remove_dir_all(root).unwrap();
     }
 

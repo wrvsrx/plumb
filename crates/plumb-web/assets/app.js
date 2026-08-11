@@ -12,8 +12,6 @@ import {
   writeQueryParameters,
 } from './query-state.js';
 import {
-  adjacentAgendaPage,
-  agendaPageRange,
   currentTimeInsertionIndex,
   localDateKey,
 } from './agenda-state.js';
@@ -874,10 +872,17 @@ import {
     return snapshot.tasks;
   }
 
-  async function loadEvents() {
+  async function loadEvents(direction = null, cursor = null) {
     if (!config.eventSnapshotUrl) return;
     try {
-      const response = await fetch(config.eventSnapshotUrl, { cache: 'no-store' });
+      const url = new URL(config.eventSnapshotUrl, window.location.href);
+      if (direction && cursor) {
+        url.searchParams.set('direction', direction);
+        url.searchParams.set('cursor', cursor);
+      } else if (state.selectedEvent) {
+        url.searchParams.set('selected', state.selectedEvent);
+      }
+      const response = await fetch(url, { cache: 'no-store' });
       if (!response.ok) throw new Error(await response.text());
       state.events = await response.json();
       observeRevision(state.workspaceRevision, state.events.revision);
@@ -896,18 +901,6 @@ import {
     eventEmpty.hidden = state.events.events.length > 0;
     const now = new Date();
     const nowIndex = currentTimeInsertionIndex(state.events.events, now);
-    const selectedIndex = state.selectedEvent
-      ? state.events.events.findIndex((event) => event.key === state.selectedEvent)
-      : -1;
-    if (positionNow) {
-      state.agendaRange = agendaPageRange(state.events.events.length, nowIndex);
-    } else if (!state.agendaRange) {
-      state.agendaRange = agendaPageRange(
-        state.events.events.length,
-        selectedIndex >= 0 ? selectedIndex : nowIndex,
-      );
-    }
-    const range = state.agendaRange;
     const todayKey = localDateKey(now);
     let previousDateKey = null;
 
@@ -917,13 +910,8 @@ import {
       button.className = 'agenda-page-control';
       button.textContent = direction === 'earlier' ? 'Earlier events' : 'Later events';
       button.addEventListener('click', () => {
-        state.agendaRange = adjacentAgendaPage(
-          state.agendaRange,
-          direction,
-          state.events.events.length,
-        );
-        renderEvents();
-        eventListPane.scrollTop = eventList.offsetTop;
+        const cursor = direction === 'earlier' ? state.events.earlierCursor : state.events.laterCursor;
+        loadEvents(direction, cursor).then(() => { eventListPane.scrollTop = eventList.offsetTop; });
       });
       eventList.append(button);
     }
@@ -950,9 +938,8 @@ import {
       eventList.append(marker);
     }
 
-    if (range.start > 0) appendPageControl('earlier');
-    state.events.events.slice(range.start, range.end).forEach((event, relativeIndex) => {
-      const index = range.start + relativeIndex;
+    if (state.events.earlierCursor) appendPageControl('earlier');
+    state.events.events.forEach((event, index) => {
       if (index === nowIndex) appendCurrentTime();
       const eventTime = event.at || event.start;
       const parsedStart = eventTime ? new Date(eventTime) : null;
@@ -981,8 +968,8 @@ import {
       button.addEventListener('click', () => selectEvent(event, button));
       eventList.append(button);
     });
-    if (nowIndex === state.events.events.length && range.end === state.events.events.length) appendCurrentTime();
-    if (range.end < state.events.events.length) appendPageControl('later');
+    if (nowIndex === state.events.events.length) appendCurrentTime();
+    if (state.events.laterCursor) appendPageControl('later');
     const selected = state.events.events.find((event) => event.key === state.selectedEvent);
     if (selected) renderEventDetail(selected);
     else renderNewEventPrompt();
@@ -1707,8 +1694,7 @@ import {
   newTaskButton.addEventListener('click', () => renderTaskForm());
   agendaViewButton.addEventListener('click', () => showView('agenda', { historyMode: 'push' }));
   agendaNowButton.addEventListener('click', () => {
-    renderEvents({ positionNow: true });
-    requestAnimationFrame(() => scrollAgendaToNow('smooth'));
+    loadEvents().then(() => scrollAgendaToNow('smooth'));
   });
   document.querySelectorAll('.graph-filters .edge-options input[value]').forEach((input) => input.addEventListener('change', () => {
     updateUrl();
