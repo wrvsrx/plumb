@@ -301,34 +301,21 @@ pub struct WorkspaceEvent {
     pub event: EventRecord,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Default, Clone)]
 pub struct Workspace {
     documents: HashMap<PathBuf, DocumentEntry>,
-    store: SqliteSemanticStore,
-    persistent: bool,
-}
-
-impl Default for Workspace {
-    fn default() -> Self {
-        Self::new()
-    }
+    disk_store: Option<SqliteSemanticStore>,
 }
 
 impl Workspace {
     pub fn new() -> Self {
-        Self {
-            documents: HashMap::new(),
-            store: SqliteSemanticStore::open_in_memory()
-                .expect("in-memory semantic store must initialize"),
-            persistent: false,
-        }
+        Self::default()
     }
 
     pub fn with_sqlite_store(store: SqliteSemanticStore) -> Self {
         Self {
             documents: HashMap::new(),
-            store,
-            persistent: true,
+            disk_store: Some(store),
         }
     }
 
@@ -340,15 +327,18 @@ impl Workspace {
     ) -> Result<bool, StoreError> {
         let path = normalize(path.as_ref());
         let source = source.into();
-        if self.store.contains_current(&path, &source)? {
+        let Some(store) = &self.disk_store else {
+            self.insert(path, revision, source);
+            return Ok(false);
+        };
+        if store.contains_current(&path, &source)? {
             return Ok(true);
         }
         let parsed = parse(source);
         let output = parsed
             .is_valid()
             .then(|| analyze_document(&parsed.source, &parsed.syntax));
-        self.store
-            .replace(&path, revision, &parsed.source, output.as_ref())?;
+        store.replace(&path, revision, &parsed.source, output.as_ref())?;
         Ok(false)
     }
 
@@ -362,21 +352,25 @@ impl Workspace {
     }
 
     pub fn close_document(&mut self, path: impl AsRef<Path>) -> Option<DocumentEntry> {
-        let path = normalize(path.as_ref());
-        self.store
-            .remove_open(&path)
-            .expect("open semantic generation removal must succeed");
-        self.documents.remove(&path)
+        if self.disk_store.is_some() {
+            self.documents.remove(&normalize(path.as_ref()))
+        } else {
+            None
+        }
     }
 
     pub fn remove_disk(&mut self, path: impl AsRef<Path>) -> Result<(), StoreError> {
         let path = normalize(path.as_ref());
-        self.store.remove(&path)?;
+        if let Some(store) = &self.disk_store {
+            store.remove(&path)?;
+        } else {
+            self.documents.remove(&path);
+        }
         Ok(())
     }
 
     pub fn has_persistent_store(&self) -> bool {
-        self.persistent
+        self.disk_store.is_some()
     }
 
     pub fn insert(
@@ -398,14 +392,6 @@ impl Workspace {
             })
         });
         let last_valid = current.clone().or(previous_last_valid);
-        self.store
-            .replace_open(
-                &path,
-                revision,
-                &parsed.source,
-                current.as_ref().map(|current| &current.output),
-            )
-            .expect("open semantic generation publication must succeed");
         self.documents.insert(
             path.clone(),
             DocumentEntry {
@@ -433,9 +419,6 @@ impl Workspace {
             return false;
         }
         entry.revision = revision;
-        self.store
-            .rebind_open_revision(&path, revision)
-            .expect("open semantic revision rebinding must succeed");
         let Some(current) = entry.current.take() else {
             return true;
         };
@@ -456,11 +439,7 @@ impl Workspace {
     }
 
     pub fn remove(&mut self, path: impl AsRef<Path>) -> Option<DocumentEntry> {
-        let path = normalize(path.as_ref());
-        self.store
-            .remove_open(&path)
-            .expect("open semantic generation removal must succeed");
-        self.documents.remove(&path)
+        self.documents.remove(&normalize(path.as_ref()))
     }
 
     pub fn get(&self, path: impl AsRef<Path>) -> Option<&DocumentEntry> {
@@ -469,9 +448,12 @@ impl Workspace {
 
     pub fn contains(&self, path: impl AsRef<Path>) -> bool {
         let path = normalize(path.as_ref());
-        self.store
-            .documents()
-            .is_ok_and(|documents| documents.iter().any(|document| document.path == path))
+        self.documents.contains_key(&path)
+            || self.disk_store.as_ref().is_some_and(|store| {
+                store
+                    .documents()
+                    .is_ok_and(|documents| documents.iter().any(|document| document.path == path))
+            })
     }
 
     pub fn documents(&self) -> impl Iterator<Item = &DocumentEntry> {
@@ -479,15 +461,21 @@ impl Workspace {
     }
 
     pub fn document_paths(&self) -> Vec<PathBuf> {
-        self.store
-            .documents()
-            .map(|documents| {
-                documents
-                    .into_iter()
-                    .map(|document| document.path)
-                    .collect()
-            })
-            .unwrap_or_default()
+        let mut paths = self.documents.keys().cloned().collect::<HashSet<_>>();
+        if let Some(store) = &self.disk_store {
+            if let Ok(documents) = store.documents() {
+                paths.extend(documents.into_iter().map(|document| document.path));
+            }
+        }
+        let mut paths = paths.into_iter().collect::<Vec<_>>();
+        paths.sort();
+        paths
+    }
+
+    fn open_paths(&self) -> Vec<PathBuf> {
+        let mut paths = self.documents.keys().cloned().collect::<Vec<_>>();
+        paths.sort();
+        paths
     }
 
     pub fn resolve_link(&self, from: impl AsRef<Path>, link: &LinkRecord) -> ResolvedTarget {
@@ -790,29 +778,77 @@ impl Workspace {
         target_id: &str,
     ) -> Vec<(PathBuf, AnchorReference)> {
         let target_path = normalize(target_path.as_ref());
-        let anchors = self.anchors_named(&target_path, target_id);
-        if anchors.len() != 1 {
-            return Vec::new();
+        let mut references = Vec::new();
+        if let Some(store) = &self.disk_store {
+            let anchors = self.anchors_named(&target_path, target_id);
+            if anchors.len() == 1 {
+                if let Ok(stored) =
+                    store.references_to(&target_path, Some(target_id), &self.open_paths())
+                {
+                    let anchor = anchors[0].clone();
+                    references.extend(stored.into_iter().filter_map(|reference| {
+                        Some((
+                            reference.source_path,
+                            AnchorReference {
+                                source_range: reference.source_range,
+                                path_range: reference.path_range,
+                                id_range: reference.id_range?,
+                                target_path: target_path.clone(),
+                                target_id: target_id.to_string(),
+                                anchor: anchor.clone(),
+                            },
+                        ))
+                    }));
+                }
+            }
         }
-        let anchor = anchors[0].clone();
-        self.store
-            .references_to(&target_path, Some(target_id))
-            .unwrap_or_default()
-            .into_iter()
-            .filter_map(|reference| {
-                Some((
-                    reference.source_path,
-                    AnchorReference {
-                        source_range: reference.source_range,
-                        path_range: reference.path_range,
-                        id_range: reference.id_range?,
-                        target_path: target_path.clone(),
-                        target_id: target_id.to_string(),
-                        anchor: anchor.clone(),
-                    },
-                ))
-            })
-            .collect()
+        for entry in self.documents.values() {
+            let Some(current) = &entry.current else {
+                continue;
+            };
+            for link in &current.output.links {
+                if let Some(reference) = self.link_anchor_reference(&entry.path, link) {
+                    if reference.target_path == target_path && reference.target_id == target_id {
+                        references.push((entry.path.clone(), reference));
+                    }
+                }
+            }
+            for task in &current.output.tasks.tasks {
+                for (source, range, target) in task_reference_fields(task) {
+                    if let Some(reference) =
+                        self.task_anchor_reference(&entry.path, source, range, &target)
+                    {
+                        if reference.target_path == target_path && reference.target_id == target_id
+                        {
+                            references.push((entry.path.clone(), reference));
+                        }
+                    }
+                }
+            }
+            for event in &current.output.events.events {
+                for reference in
+                    &self.event_task_references_in_output(&entry.path, &current.output, event)
+                {
+                    if let Some(reference) = self.task_anchor_reference(
+                        &entry.path,
+                        &reference.source,
+                        &reference.range,
+                        &reference.target,
+                    ) {
+                        if reference.target_path == target_path && reference.target_id == target_id
+                        {
+                            references.push((entry.path.clone(), reference));
+                        }
+                    }
+                }
+            }
+        }
+        references.sort_by(|left, right| {
+            left.0
+                .cmp(&right.0)
+                .then(left.1.source_range.start.cmp(&right.1.source_range.start))
+        });
+        references
     }
 
     pub fn references_to_document(
@@ -820,20 +856,108 @@ impl Workspace {
         target_path: impl AsRef<Path>,
     ) -> Vec<(PathBuf, DocumentReference)> {
         let target_path = normalize(target_path.as_ref());
-        self.store
-            .references_to_document(&target_path)
-            .unwrap_or_default()
-            .into_iter()
-            .map(|reference| {
-                (
-                    reference.source_path,
-                    DocumentReference {
-                        source_range: reference.source_range,
-                        target_path: target_path.clone(),
-                    },
-                )
-            })
-            .collect()
+        let mut references = Vec::new();
+        if let Some(store) = &self.disk_store {
+            let open = self.open_paths();
+            if let Ok(stored) = store.references_to(&target_path, None, &open) {
+                references.extend(stored.into_iter().map(|reference| {
+                    (
+                        reference.source_path,
+                        DocumentReference {
+                            source_range: reference.source_range,
+                            target_path: target_path.clone(),
+                        },
+                    )
+                }));
+            }
+            if let Ok(anchors) = store.anchors(&[]) {
+                let mut ids = anchors
+                    .into_iter()
+                    .filter(|anchor| anchor.path == target_path)
+                    .map(|anchor| anchor.record.id.value)
+                    .collect::<Vec<_>>();
+                ids.sort();
+                ids.dedup();
+                for id in ids {
+                    if self.anchors_named(&target_path, &id).len() != 1 {
+                        continue;
+                    }
+                    if let Ok(stored) = store.references_to(&target_path, Some(&id), &open) {
+                        references.extend(stored.into_iter().map(|reference| {
+                            (
+                                reference.source_path,
+                                DocumentReference {
+                                    source_range: reference.source_range,
+                                    target_path: target_path.clone(),
+                                },
+                            )
+                        }));
+                    }
+                }
+            }
+        }
+        for entry in self.documents.values() {
+            let Some(current) = &entry.current else {
+                continue;
+            };
+            for link in &current.output.links {
+                if resolved_document_path(self.resolve_link(&entry.path, link)).as_ref()
+                    == Some(&target_path)
+                {
+                    references.push((
+                        entry.path.clone(),
+                        DocumentReference {
+                            source_range: link.selection_range.clone(),
+                            target_path: target_path.clone(),
+                        },
+                    ));
+                }
+            }
+            for task in &current.output.tasks.tasks {
+                for (_, range, target) in task_reference_fields(task) {
+                    if resolved_document_path(
+                        self.resolve_task_reference_target(&entry.path, &target),
+                    )
+                    .as_ref()
+                        == Some(&target_path)
+                    {
+                        references.push((
+                            entry.path.clone(),
+                            DocumentReference {
+                                source_range: range.clone(),
+                                target_path: target_path.clone(),
+                            },
+                        ));
+                    }
+                }
+            }
+            for event in &current.output.events.events {
+                for reference in
+                    &self.event_task_references_in_output(&entry.path, &current.output, event)
+                {
+                    if resolved_document_path(
+                        self.resolve_task_reference_target(&entry.path, &reference.target),
+                    )
+                    .as_ref()
+                        == Some(&target_path)
+                    {
+                        references.push((
+                            entry.path.clone(),
+                            DocumentReference {
+                                source_range: reference.range.clone(),
+                                target_path: target_path.clone(),
+                            },
+                        ));
+                    }
+                }
+            }
+        }
+        references.sort_by(|left, right| {
+            left.0
+                .cmp(&right.0)
+                .then(left.1.source_range.start.cmp(&right.1.source_range.start))
+        });
+        references
     }
 
     pub fn reverse_references_for_document(
@@ -843,81 +967,123 @@ impl Workspace {
     ) -> DocumentReverseReferences {
         let target_path = normalize(target_path.as_ref());
         let mut references = DocumentReverseReferences::default();
-        references.document.extend(
-            self.store
-                .references_to_document(&target_path)
-                .unwrap_or_default()
-                .into_iter()
-                .map(|reference| ReferenceOccurrence {
-                    source_path: reference.source_path,
-                    source_range: reference.source_range,
-                }),
-        );
-        for target_id in target_ids {
-            if self.anchors_named(&target_path, target_id).len() != 1 {
-                continue;
+        if let Some(store) = &self.disk_store {
+            let open = self.open_paths();
+            if let Ok(document_references) = store.references_to(&target_path, None, &open) {
+                references
+                    .document
+                    .extend(
+                        document_references
+                            .into_iter()
+                            .map(|reference| ReferenceOccurrence {
+                                source_path: reference.source_path,
+                                source_range: reference.source_range,
+                            }),
+                    );
             }
-            let occurrences = self
-                .store
-                .references_to(&target_path, Some(target_id))
-                .unwrap_or_default()
-                .into_iter()
-                .map(|reference| ReferenceOccurrence {
-                    source_path: reference.source_path,
-                    source_range: reference.source_range,
-                })
-                .collect::<Vec<_>>();
-            references.anchors.insert(target_id.clone(), occurrences);
+            for target_id in target_ids {
+                if self.anchors_named(&target_path, target_id).len() != 1 {
+                    continue;
+                }
+                if let Ok(anchor_references) =
+                    store.references_to(&target_path, Some(target_id), &open)
+                {
+                    let occurrences = anchor_references
+                        .into_iter()
+                        .map(|reference| ReferenceOccurrence {
+                            source_path: reference.source_path,
+                            source_range: reference.source_range,
+                        })
+                        .collect::<Vec<_>>();
+                    references.document.extend(occurrences.iter().cloned());
+                    references
+                        .anchors
+                        .entry(target_id.clone())
+                        .or_default()
+                        .extend(occurrences);
+                }
+            }
+        }
+        for entry in self.documents.values() {
+            let Some(current) = &entry.current else {
+                continue;
+            };
+            for link in &current.output.links {
+                collect_reverse_reference(
+                    &mut references,
+                    &target_path,
+                    target_ids,
+                    &entry.path,
+                    link.selection_range.clone(),
+                    self.resolve_link(&entry.path, link),
+                );
+            }
+            for task in &current.output.tasks.tasks {
+                for (_, range, target) in task_reference_fields(task) {
+                    collect_reverse_reference(
+                        &mut references,
+                        &target_path,
+                        target_ids,
+                        &entry.path,
+                        range.clone(),
+                        self.resolve_task_reference_target(&entry.path, &target),
+                    );
+                }
+            }
+            for event in &current.output.events.events {
+                for reference in
+                    &self.event_task_references_in_output(&entry.path, &current.output, event)
+                {
+                    collect_reverse_reference(
+                        &mut references,
+                        &target_path,
+                        target_ids,
+                        &entry.path,
+                        reference.range.clone(),
+                        self.resolve_task_reference_target(&entry.path, &reference.target),
+                    );
+                }
+            }
+        }
+        references.document.sort_by(reference_occurrence_order);
+        for occurrences in references.anchors.values_mut() {
+            occurrences.sort_by(reference_occurrence_order);
         }
         references
     }
 
     pub fn referenced_documents_from(&self, source_path: impl AsRef<Path>) -> Vec<PathBuf> {
         let source_path = normalize(source_path.as_ref());
-        self.store
-            .resolved_document_reference_edges()
-            .unwrap_or_default()
-            .into_iter()
-            .filter_map(|(source, target)| (source == source_path).then_some(target))
-            .collect()
-    }
-
-    pub fn current_reference_path_candidates(&self, source_path: impl AsRef<Path>) -> Vec<PathBuf> {
-        let source_path = normalize(source_path.as_ref());
         let Some(output) = self.current_output(&source_path) else {
             return Vec::new();
         };
-        let mut paths = HashSet::new();
+        let mut targets = HashSet::new();
         for link in &output.links {
-            match &link.target_kind {
-                LinkTarget::Document { path } => {
-                    paths.insert(resolve_relative(&source_path, path));
-                }
-                LinkTarget::Anchor {
-                    path: Some(path), ..
-                } => {
-                    paths.insert(resolve_relative(&source_path, path));
-                }
-                _ => {}
+            if let Some(path) = resolved_document_path(self.resolve_link(&source_path, link)) {
+                targets.insert(path);
             }
         }
         for task in &output.tasks.tasks {
             for (_, _, target) in task_reference_fields(task) {
-                if let TaskReferenceTarget::External { path, .. } = target {
-                    paths.insert(resolve_relative(&source_path, &path));
+                if let Some(path) = resolved_document_path(
+                    self.resolve_task_reference_target(&source_path, &target),
+                ) {
+                    targets.insert(path);
                 }
             }
         }
         for event in &output.events.events {
-            for dependency in &event.tasks {
-                if let TaskReferenceTarget::External { path, .. } = &dependency.target {
-                    paths.insert(resolve_relative(&source_path, path));
+            for reference in &self.event_task_references_in_output(&source_path, output, event) {
+                if let Some(path) = resolved_document_path(
+                    self.resolve_task_reference_target(&source_path, &reference.target),
+                ) {
+                    targets.insert(path);
                 }
             }
         }
-        let mut paths = paths.into_iter().collect::<Vec<_>>();
-        paths.sort();
-        paths
+        let mut targets = targets.into_iter().collect::<Vec<_>>();
+        targets.sort();
+        targets
     }
 
     fn link_anchor_reference(&self, from: &Path, link: &LinkRecord) -> Option<AnchorReference> {
@@ -1024,36 +1190,75 @@ impl Workspace {
         if end <= start {
             return Vec::new();
         }
-        self.store
-            .events_overlapping(start.timestamp_millis(), end.timestamp_millis())
-            .unwrap_or_default()
-            .into_iter()
-            .map(|stored| WorkspaceEvent {
-                path: stored.path,
-                revision: stored.revision,
-                event: stored.record,
+        let has_open_documents = !self.documents.is_empty();
+        let mut events = self
+            .documents
+            .values()
+            .filter_map(|entry| entry.current.as_ref().map(|current| (entry, current)))
+            .flat_map(|(entry, current)| {
+                current
+                    .output
+                    .events
+                    .events
+                    .iter()
+                    .filter(|event| event.overlaps(start, end))
+                    .cloned()
+                    .map(|event| WorkspaceEvent {
+                        path: entry.path.clone(),
+                        revision: current.revision,
+                        event,
+                    })
             })
-            .collect()
+            .collect::<Vec<_>>();
+        if let Some(store) = &self.disk_store {
+            if let Ok(stored) = store.events_overlapping(
+                start.timestamp_millis(),
+                end.timestamp_millis(),
+                &self.open_paths(),
+            ) {
+                events.extend(stored.into_iter().map(|stored| WorkspaceEvent {
+                    path: stored.path,
+                    revision: stored.revision,
+                    event: stored.record,
+                }));
+            }
+        }
+        if !has_open_documents && self.disk_store.is_some() {
+            return events;
+        }
+        events.sort_by(|left, right| {
+            left.event
+                .sort_datetime()
+                .cmp(&right.event.sort_datetime())
+                .then(left.path.cmp(&right.path))
+                .then(left.event.range.start.cmp(&right.event.range.start))
+        });
+        events
     }
 
     pub fn events_for_task(&self, target: &TaskRef) -> Vec<WorkspaceEvent> {
         let mut events = Vec::new();
-        for stored in self.store.events().unwrap_or_default() {
-            if self
-                .event_task_references_from_store(&stored.path, &stored.record)
+        for entry in self.documents.values() {
+            let Some(current) = &entry.current else {
+                continue;
+            };
+            for event in &current.output.events.events {
+                if self
+                    .event_task_references_in_output(&entry.path, &current.output, event)
                     .iter()
                     .any(|reference| {
                         matches!(
-                            self.resolve_task_target(&stored.path, &reference.target),
+                            self.resolve_task_target(&entry.path, &reference.target),
                             TaskTargetResolution::Task { target: ref resolved, .. } if resolved == target
                         )
                     })
-            {
-                events.push(WorkspaceEvent {
-                    path: stored.path,
-                    revision: stored.revision,
-                    event: stored.record,
-                });
+                {
+                    events.push(WorkspaceEvent {
+                        path: entry.path.clone(),
+                        revision: current.revision,
+                        event: event.clone(),
+                    });
+                }
             }
         }
         events.sort_by(|left, right| {
@@ -1075,22 +1280,10 @@ impl Workspace {
             return event.tasks.clone();
         }
         let path = normalize(path.as_ref());
-        self.event_task_references_from_store(&path, event)
-    }
-
-    fn event_task_references_from_store(
-        &self,
-        path: &Path,
-        event: &EventRecord,
-    ) -> Vec<TaskDependency> {
-        if event.tasks_override {
-            return event.tasks.clone();
-        }
-        let links = self
-            .store
-            .links_in_range(path, event.range.start, event.range.end)
-            .unwrap_or_default();
-        self.event_task_references_from_links(path, &links, event)
+        let Some(current) = self.current_output(&path) else {
+            return Vec::new();
+        };
+        self.event_task_references_in_output(&path, current, event)
     }
 
     fn event_task_references_in_output(
@@ -1105,16 +1298,7 @@ impl Workspace {
         let first = current
             .links
             .partition_point(|link| link.range.start < event.range.start);
-        self.event_task_references_from_links(path, &current.links[first..], event)
-    }
-
-    fn event_task_references_from_links(
-        &self,
-        path: &Path,
-        links: &[LinkRecord],
-        event: &EventRecord,
-    ) -> Vec<TaskDependency> {
-        links
+        current.links[first..]
             .iter()
             .take_while(|link| link.range.start <= event.range.end)
             .filter(|link| {
@@ -1137,8 +1321,10 @@ impl Workspace {
                 else {
                     return None;
                 };
-                let is_task = self
-                    .tasks_for_path(&resolved_path)
+                let target_output = self.current_output(&resolved_path)?;
+                let is_task = target_output
+                    .tasks
+                    .tasks
                     .iter()
                     .any(|task| task.id.as_ref().is_some_and(|field| field.value == id));
                 if !is_task {
@@ -2480,20 +2666,22 @@ impl Workspace {
         context: &LinkCompletionContext,
     ) -> Vec<CompletionCandidate> {
         let from = normalize(from.as_ref());
-        let documents = self.store.documents().unwrap_or_default();
-        let mut candidates = match context {
-            LinkCompletionContext::Label { replace, query } => documents
-                .into_iter()
-                .filter_map(|document| {
-                    if !document.valid || document.path == from {
+        let mut candidates: Vec<CompletionCandidate> = match context {
+            LinkCompletionContext::Label { replace, query } => self
+                .documents
+                .values()
+                .filter_map(|entry| {
+                    let versioned = entry.current.as_ref().or(entry.last_valid.as_ref())?;
+                    if entry.path == from {
                         return None;
                     }
-                    let relative = relative_path(&from, &document.path)?;
-                    let title = if document.title_range.is_empty() {
-                        relative.clone()
-                    } else {
-                        document.title
-                    };
+                    let relative = relative_path(&from, &entry.path)?;
+                    let title = versioned
+                        .output
+                        .metadata
+                        .document_title()
+                        .filter(|title| !title.is_empty())
+                        .unwrap_or_else(|| relative.clone());
                     (fuzzy_match(&relative, query) || fuzzy_match(&title, query)).then(|| {
                         CompletionCandidate {
                             label: title.clone(),
@@ -2507,26 +2695,30 @@ impl Workspace {
                         }
                     })
                 })
-                .collect::<Vec<_>>(),
+                .collect(),
             LinkCompletionContext::Path {
                 replace,
                 query,
                 quoted,
-            } => documents
-                .into_iter()
-                .filter_map(|document| {
-                    if !document.valid || document.path == from {
+            } => self
+                .documents
+                .values()
+                .filter_map(|entry| {
+                    let versioned = entry.current.as_ref().or(entry.last_valid.as_ref())?;
+                    if entry.path == from {
                         return None;
                     }
-                    let relative = relative_path(&from, &document.path)?;
-                    let title = if document.title.is_empty() {
-                        relative.clone()
-                    } else {
-                        document.title
-                    };
-                    if (!fuzzy_match(&relative, query) && !fuzzy_match(&title, query))
-                        || (!*quoted && !valid_bare_attribute_value(&relative))
-                    {
+                    let relative = relative_path(&from, &entry.path)?;
+                    let title = versioned
+                        .output
+                        .metadata
+                        .document_title()
+                        .filter(|title| !title.is_empty())
+                        .unwrap_or_else(|| relative.clone());
+                    if !fuzzy_match(&relative, query) && !fuzzy_match(&title, query) {
+                        return None;
+                    }
+                    if !*quoted && !valid_bare_attribute_value(&relative) {
                         return None;
                     }
                     Some(CompletionCandidate {
@@ -2547,44 +2739,42 @@ impl Workspace {
                 quote_count,
                 suffix,
                 query,
-            } => documents
-                .into_iter()
-                .filter_map(|document| {
-                    if !document.valid || document.path == from {
+            } => self
+                .documents
+                .values()
+                .filter_map(|entry| {
+                    let versioned = entry.current.as_ref().or(entry.last_valid.as_ref())?;
+                    if entry.path == from {
                         return None;
                     }
-                    let relative = relative_path(&from, &document.path)?;
+                    let relative = relative_path(&from, &entry.path)?;
                     if !valid_autolink_completion_path(&relative) {
                         return None;
                     }
-                    let title = if document.title.is_empty() {
-                        relative.clone()
-                    } else {
-                        document.title
-                    };
-                    if !fuzzy_match(&relative, query) && !fuzzy_match(&title, query) {
-                        return None;
-                    }
-                    let payload = format!("{relative}{suffix}");
-                    let (new_text, replace) = if verbatim_payload_is_safe(&payload, *quote_count) {
-                        (relative.clone(), replace.clone())
-                    } else {
-                        (format_inline_verbatim(&payload), envelope.clone())
-                    };
-                    Some(CompletionCandidate {
-                        label: relative,
-                        detail: title,
-                        new_text,
-                        replace,
+                    let title = versioned
+                        .output
+                        .metadata
+                        .document_title()
+                        .filter(|title| !title.is_empty())
+                        .unwrap_or_else(|| relative.clone());
+                    (fuzzy_match(&relative, query) || fuzzy_match(&title, query)).then(|| {
+                        let payload = format!("{relative}{suffix}");
+                        let (new_text, replace) =
+                            if verbatim_payload_is_safe(&payload, *quote_count) {
+                                (relative.clone(), replace.clone())
+                            } else {
+                                (format_inline_verbatim(&payload), envelope.clone())
+                            };
+                        CompletionCandidate {
+                            label: relative.clone(),
+                            detail: title,
+                            new_text,
+                            replace,
+                        }
                     })
                 })
                 .collect(),
             LinkCompletionContext::Anchor {
-                path,
-                replace,
-                query,
-            }
-            | LinkCompletionContext::AutolinkAnchor {
                 path,
                 replace,
                 query,
@@ -2594,22 +2784,198 @@ impl Workspace {
                 } else {
                     resolve_relative(&from, path)
                 };
-                self.store
-                    .anchors()
+                self.documents
+                    .get(&target_path)
+                    .and_then(|entry| entry.current.as_ref().or(entry.last_valid.as_ref()))
+                    .map(|versioned| {
+                        versioned
+                            .output
+                            .anchors
+                            .iter()
+                            .filter(|anchor| fuzzy_match(&anchor.id.value, query))
+                            .map(|anchor| CompletionCandidate {
+                                label: format!("#{}", anchor.id.value),
+                                detail: format!("explicit anchor in {}", target_path.display()),
+                                new_text: anchor.id.value.clone(),
+                                replace: replace.clone(),
+                            })
+                            .collect()
+                    })
                     .unwrap_or_default()
-                    .into_iter()
-                    .filter(|stored| {
-                        stored.path == target_path && fuzzy_match(&stored.record.id.value, query)
+            }
+            LinkCompletionContext::AutolinkAnchor {
+                path,
+                replace,
+                query,
+            } => {
+                let target_path = if path.is_empty() {
+                    from.clone()
+                } else {
+                    resolve_relative(&from, path)
+                };
+                self.documents
+                    .get(&target_path)
+                    .and_then(|entry| entry.current.as_ref().or(entry.last_valid.as_ref()))
+                    .map(|versioned| {
+                        versioned
+                            .output
+                            .anchors
+                            .iter()
+                            .filter(|anchor| fuzzy_match(&anchor.id.value, query))
+                            .map(|anchor| CompletionCandidate {
+                                label: format!("#{}", anchor.id.value),
+                                detail: format!("explicit anchor in {}", target_path.display()),
+                                new_text: anchor.id.value.clone(),
+                                replace: replace.clone(),
+                            })
+                            .collect()
                     })
-                    .map(|stored| CompletionCandidate {
-                        label: format!("#{}", stored.record.id.value),
-                        detail: format!("explicit anchor in {}", target_path.display()),
-                        new_text: stored.record.id.value,
-                        replace: replace.clone(),
-                    })
-                    .collect()
+                    .unwrap_or_default()
             }
         };
+        if let Some(store) = &self.disk_store {
+            let open = self.open_paths();
+            match context {
+                LinkCompletionContext::Label { replace, query } => {
+                    if let Ok(documents) = store.documents() {
+                        candidates.extend(documents.into_iter().filter_map(|document| {
+                            if open.binary_search(&document.path).is_ok() || document.path == from {
+                                return None;
+                            }
+                            let relative = relative_path(&from, &document.path)?;
+                            let title = if document.title.is_empty() {
+                                relative.clone()
+                            } else {
+                                document.title
+                            };
+                            (fuzzy_match(&relative, query) || fuzzy_match(&title, query)).then(
+                                || CompletionCandidate {
+                                    label: title.clone(),
+                                    detail: relative.clone(),
+                                    new_text: format!(
+                                        "`->[{}]{{`:[to {}]}}",
+                                        escape_parsed_text(&title),
+                                        escape_attached_text(&relative)
+                                    ),
+                                    replace: replace.clone(),
+                                },
+                            )
+                        }));
+                    }
+                }
+                LinkCompletionContext::Path {
+                    replace,
+                    query,
+                    quoted,
+                } => {
+                    if let Ok(documents) = store.documents() {
+                        candidates.extend(documents.into_iter().filter_map(|document| {
+                            if open.binary_search(&document.path).is_ok() || document.path == from {
+                                return None;
+                            }
+                            let relative = relative_path(&from, &document.path)?;
+                            let title = if document.title.is_empty() {
+                                relative.clone()
+                            } else {
+                                document.title
+                            };
+                            if (!fuzzy_match(&relative, query) && !fuzzy_match(&title, query))
+                                || (!*quoted && !valid_bare_attribute_value(&relative))
+                            {
+                                return None;
+                            }
+                            Some(CompletionCandidate {
+                                label: relative.clone(),
+                                detail: title,
+                                new_text: if *quoted {
+                                    escape_quoted_value(&relative)
+                                } else {
+                                    relative
+                                },
+                                replace: replace.clone(),
+                            })
+                        }));
+                    }
+                }
+                LinkCompletionContext::AutolinkPath {
+                    replace,
+                    envelope,
+                    quote_count,
+                    suffix,
+                    query,
+                } => {
+                    if let Ok(documents) = store.documents() {
+                        candidates.extend(documents.into_iter().filter_map(|document| {
+                            if open.binary_search(&document.path).is_ok() || document.path == from {
+                                return None;
+                            }
+                            let relative = relative_path(&from, &document.path)?;
+                            if !valid_autolink_completion_path(&relative) {
+                                return None;
+                            }
+                            let title = if document.title.is_empty() {
+                                relative.clone()
+                            } else {
+                                document.title
+                            };
+                            if !fuzzy_match(&relative, query) && !fuzzy_match(&title, query) {
+                                return None;
+                            }
+                            let payload = format!("{relative}{suffix}");
+                            let (new_text, replace) =
+                                if verbatim_payload_is_safe(&payload, *quote_count) {
+                                    (relative.clone(), replace.clone())
+                                } else {
+                                    (format_inline_verbatim(&payload), envelope.clone())
+                                };
+                            Some(CompletionCandidate {
+                                label: relative,
+                                detail: title,
+                                new_text,
+                                replace,
+                            })
+                        }));
+                    }
+                }
+                LinkCompletionContext::Anchor {
+                    path,
+                    replace,
+                    query,
+                }
+                | LinkCompletionContext::AutolinkAnchor {
+                    path,
+                    replace,
+                    query,
+                } => {
+                    let target_path = if path.is_empty() {
+                        from.clone()
+                    } else {
+                        resolve_relative(&from, path)
+                    };
+                    if !self.documents.contains_key(&target_path) {
+                        if let Ok(anchors) = store.anchors(&[]) {
+                            candidates.extend(
+                                anchors
+                                    .into_iter()
+                                    .filter(|stored| {
+                                        stored.path == target_path
+                                            && fuzzy_match(&stored.record.id.value, query)
+                                    })
+                                    .map(|stored| CompletionCandidate {
+                                        label: format!("#{}", stored.record.id.value),
+                                        detail: format!(
+                                            "explicit anchor in {}",
+                                            target_path.display()
+                                        ),
+                                        new_text: stored.record.id.value,
+                                        replace: replace.clone(),
+                                    }),
+                            );
+                        }
+                    }
+                }
+            }
+        }
         candidates.sort_by(|left, right| left.label.cmp(&right.label));
         candidates
     }
@@ -2653,34 +3019,65 @@ impl Workspace {
         };
         let Some((path_query, id_query)) = context.query.rsplit_once('#') else {
             let mut candidates = self
-                .store
-                .documents()
-                .unwrap_or_default()
-                .into_iter()
-                .filter_map(|document| {
-                    if !self
-                        .tasks_for_path(&document.path)
+                .documents
+                .values()
+                .filter_map(|entry| {
+                    let versioned = entry.current.as_ref().or(entry.last_valid.as_ref())?;
+                    if !versioned
+                        .output
+                        .tasks
+                        .tasks
                         .iter()
-                        .any(|task| eligible(&document.path, task))
+                        .any(|task| eligible(&entry.path, task))
                     {
                         return None;
                     }
-                    let relative = relative_path(&from, &document.path)?;
-                    let reference = if document.path == from {
+                    let relative = relative_path(&from, &entry.path)?;
+                    let reference = if entry.path == from {
                         "#".to_string()
                     } else {
                         format!("{relative}#")
                     };
-                    fuzzy_match(reference.trim_end_matches('#'), &context.query).then(|| {
-                        CompletionCandidate {
-                            label: reference.clone(),
-                            detail: format!("task document ({relative})"),
-                            new_text: reference,
-                            replace: context.replace.clone(),
-                        }
+                    if !fuzzy_match(reference.trim_end_matches('#'), &context.query) {
+                        return None;
+                    }
+                    Some(CompletionCandidate {
+                        label: reference.clone(),
+                        detail: format!("task document ({relative})"),
+                        new_text: reference,
+                        replace: context.replace.clone(),
                     })
                 })
                 .collect::<Vec<_>>();
+            if let Some(store) = &self.disk_store {
+                let open = self.open_paths();
+                if let Ok(documents) = store.documents() {
+                    candidates.extend(documents.into_iter().filter_map(|document| {
+                        if open.binary_search(&document.path).is_ok()
+                            || !self
+                                .tasks_for_path(&document.path)
+                                .iter()
+                                .any(|task| eligible(&document.path, task))
+                        {
+                            return None;
+                        }
+                        let relative = relative_path(&from, &document.path)?;
+                        let reference = if document.path == from {
+                            "#".to_string()
+                        } else {
+                            format!("{relative}#")
+                        };
+                        fuzzy_match(reference.trim_end_matches('#'), &context.query).then(|| {
+                            CompletionCandidate {
+                                label: reference.clone(),
+                                detail: format!("task document ({relative})"),
+                                new_text: reference,
+                                replace: context.replace.clone(),
+                            }
+                        })
+                    }));
+                }
+            }
             candidates.sort_by(|left, right| left.label.cmp(&right.label));
             return candidates;
         };
@@ -2840,27 +3237,93 @@ impl Workspace {
 
     fn anchors_named(&self, path: &Path, id: &str) -> Vec<AnchorRecord> {
         let path = normalize(path);
-        self.store.anchors_named(&path, id).unwrap_or_default()
+        if let Some(output) = self.current_output(&path) {
+            return output
+                .anchors
+                .iter()
+                .filter(|anchor| anchor.id.value == id)
+                .cloned()
+                .collect();
+        }
+        let stored = self
+            .disk_store
+            .as_ref()
+            .and_then(|store| store.anchors_named(&path, id).ok())
+            .unwrap_or_default();
+        if !stored.is_empty() {
+            return stored;
+        }
+        std::fs::read_to_string(&path)
+            .ok()
+            .map(parse)
+            .filter(ParsedDocument::is_valid)
+            .map(|parsed| analyze_document(&parsed.source, &parsed.syntax))
+            .map(|output| {
+                output
+                    .anchors
+                    .into_iter()
+                    .filter(|anchor| anchor.id.value == id)
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 
     fn tasks_for_path(&self, path: &Path) -> Vec<TaskRecord> {
         let path = normalize(path);
-        self.store
-            .tasks()
+        if let Some(output) = self.current_output(&path) {
+            return output.tasks.tasks.clone();
+        }
+        let stored = self
+            .disk_store
+            .as_ref()
+            .and_then(|store| store.tasks(&[]).ok())
             .unwrap_or_default()
             .into_iter()
             .filter(|stored| stored.path == path)
             .map(|stored| stored.record)
-            .collect()
+            .collect::<Vec<_>>();
+        if !stored.is_empty() {
+            return stored;
+        }
+        std::fs::read_to_string(&path)
+            .ok()
+            .map(parse)
+            .filter(ParsedDocument::is_valid)
+            .map(|parsed| analyze_document(&parsed.source, &parsed.syntax).tasks.tasks)
+            .unwrap_or_default()
     }
 
     fn all_tasks(&self) -> Vec<(PathBuf, TaskRecord)> {
-        self.store
-            .tasks()
-            .unwrap_or_default()
-            .into_iter()
-            .map(|stored| (stored.path, stored.record))
-            .collect()
+        let mut tasks = self
+            .documents
+            .values()
+            .filter_map(|entry| entry.current.as_ref().map(|current| (entry, current)))
+            .flat_map(|(entry, current)| {
+                current
+                    .output
+                    .tasks
+                    .tasks
+                    .iter()
+                    .cloned()
+                    .map(|task| (entry.path.clone(), task))
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+        if let Some(store) = &self.disk_store {
+            if let Ok(stored) = store.tasks(&self.open_paths()) {
+                tasks.extend(
+                    stored
+                        .into_iter()
+                        .map(|stored| (stored.path, stored.record)),
+                );
+            }
+        }
+        tasks.sort_by(|left, right| {
+            left.0
+                .cmp(&right.0)
+                .then(left.1.range.start.cmp(&right.1.range.start))
+        });
+        tasks
     }
 
     fn entry_for_operation(&self, path: &Path) -> Option<DocumentEntry> {
@@ -2869,7 +3332,8 @@ impl Workspace {
             return Some(entry.clone());
         }
         let revision = self
-            .store
+            .disk_store
+            .as_ref()?
             .documents()
             .ok()?
             .into_iter()
@@ -2892,13 +3356,18 @@ impl Workspace {
     }
 
     fn entries_for_operation(&self) -> Vec<DocumentEntry> {
-        let mut entries = self
-            .store
-            .documents()
-            .unwrap_or_default()
-            .into_iter()
-            .filter_map(|document| self.entry_for_operation(&document.path))
-            .collect::<Vec<_>>();
+        let open = self.open_paths();
+        let mut entries = self.documents.values().cloned().collect::<Vec<_>>();
+        if let Some(store) = &self.disk_store {
+            if let Ok(documents) = store.documents() {
+                entries.extend(
+                    documents
+                        .into_iter()
+                        .filter(|document| open.binary_search(&document.path).is_err())
+                        .filter_map(|document| self.entry_for_operation(&document.path)),
+                );
+            }
+        }
         entries.sort_by(|left, right| left.path.cmp(&right.path));
         entries
     }
@@ -3934,6 +4403,58 @@ fn task_reference_ranges(
     let path_range = (separator > 0).then(|| range.start..range.start + separator);
     let id_start = range.start + separator + 1;
     Some((path_range, id_start..range.end))
+}
+
+fn resolved_document_path(target: ResolvedTarget) -> Option<PathBuf> {
+    match target {
+        ResolvedTarget::Anchor { path, .. }
+        | ResolvedTarget::Document { path }
+        | ResolvedTarget::UnresolvedAnchor { path, .. }
+        | ResolvedTarget::AmbiguousAnchor { path, .. } => Some(path),
+        ResolvedTarget::External
+        | ResolvedTarget::File { .. }
+        | ResolvedTarget::UnresolvedFile { .. }
+        | ResolvedTarget::Other
+        | ResolvedTarget::UnresolvedPath { .. } => None,
+    }
+}
+
+fn collect_reverse_reference(
+    references: &mut DocumentReverseReferences,
+    target_path: &Path,
+    target_ids: &HashSet<String>,
+    source_path: &Path,
+    source_range: std::ops::Range<usize>,
+    resolved: ResolvedTarget,
+) {
+    if resolved_document_path(resolved.clone()).as_deref() == Some(target_path) {
+        references.document.push(ReferenceOccurrence {
+            source_path: source_path.to_path_buf(),
+            source_range: source_range.clone(),
+        });
+    }
+    let ResolvedTarget::Anchor { path, id, .. } = resolved else {
+        return;
+    };
+    if path == target_path && target_ids.contains(&id) {
+        references
+            .anchors
+            .entry(id)
+            .or_default()
+            .push(ReferenceOccurrence {
+                source_path: source_path.to_path_buf(),
+                source_range,
+            });
+    }
+}
+
+fn reference_occurrence_order(
+    left: &ReferenceOccurrence,
+    right: &ReferenceOccurrence,
+) -> std::cmp::Ordering {
+    left.source_path
+        .cmp(&right.source_path)
+        .then(left.source_range.start.cmp(&right.source_range.start))
 }
 
 fn task_reference_fields(

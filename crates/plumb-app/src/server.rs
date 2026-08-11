@@ -441,10 +441,12 @@ impl ServerState {
         &self,
         params: SearchParams,
     ) -> BoxFuture<'static, Result<SearchResult, ResponseError>> {
-        let result = search_workspace(&self.workspace, &self.roots, self.index_complete, params);
+        let workspace = self.workspace.clone();
+        let roots = self.roots.clone();
+        let index_complete = self.index_complete;
         Box::pin(async move {
             tokio::task::yield_now().await;
-            result
+            search_workspace(&workspace, &roots, index_complete, params)
         })
     }
 }
@@ -1044,9 +1046,6 @@ impl LanguageServer for ServerState {
         let position = params.text_document_position_params;
         if let Ok(path) = position.text_document.uri.to_file_path() {
             self.ensure_request_document(&path);
-            for target in self.workspace.current_reference_path_candidates(&path) {
-                self.ensure_request_document(&target);
-            }
         }
         let location = position
             .text_document
@@ -1236,10 +1235,6 @@ impl LanguageServer for ServerState {
         let position = params.text_document_position_params;
         if let Ok(path) = position.text_document.uri.to_file_path() {
             self.ensure_request_document(&path);
-            for target in self.workspace.current_reference_path_candidates(&path) {
-                self.ensure_request_document(&target);
-            }
-            self.publish_all_open_diagnostics();
         }
         let hover = position
             .text_document
