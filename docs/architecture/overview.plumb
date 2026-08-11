@@ -61,7 +61,9 @@ version；identity 不匹配的记录不能参与 query，并在 background inde
 persistent store 的 production implementation 使用 Diesel typed schema、models、transactions 与 query
 composition；不得在 workspace、Web 或 protocol adapters 中散布 SQL strings、column ordinals 或 row decoding。
 少数 Diesel query DSL 无法清楚表达且有独立 query-plan tests 的 SQLite operation 可以封装 raw SQL，但它仍
-属于 store module，不形成第二套 repository API。该 Diesel 迁移及下述 relation/query 下沉尚未实现。
+属于 store module，不形成第二套 repository API。Diesel schema、migration、generation transaction 与 typed
+row decoding 已实现；task dependency relation 与 active/blocked task lookup 已下沉。event-task relation、
+通用 filter/order/cursor pagination 及 adapter query 接入仍未实现。
 
 open buffer 以 normalized document path 为单位完整遮蔽同 path 的 persisted disk projection。一个 query
 中的 source document 只能来自 open-buffer snapshot 或 SQLite active generation 之一，不能逐 record
@@ -152,11 +154,13 @@ Agenda 使用有界 render window：没有显式 selection 时初始 window 锚�
 之外时锚定该 event。用户可以向前或向后替换固定大小的 page，page navigation 定位到新 page boundary；
 `"Now" command 重置到当前时间 window。selection/detail mutation 不能触发完整 event collection 的 DOM 重建。
 
-以下 Web mutation/query 规则是尚未实现的目标行为。Web task/event mutation 写入一个已索引 document 后，
+Web task mutation 已实现下述 changed-generation replacement 与 watcher 去重；event mutation 和有界 query
+接入仍是尚未实现的目标行为。Web task/event mutation 写入一个已索引 document 后，
 server 必须以写入后的 disk bytes 原子替换该 document
 snapshot，并只 invalidates 依赖该 document output 的 workspace computation；不得为了确认一次 guarded edit
 而重新 scan、读取和分析未变化的 workspace documents。mutation request 可以携带当前 view query，成功响应
-直接返回同一新 revision 上的 query result，browser 必须消费该响应而不是立刻重复同一 query。workspace
+可以直接返回同一新 revision 上的 query result；也可以返回空 success，让 browser 发起一次有界 query。
+两种协议都不得先生成一个未使用的无界 snapshot 或再重复同一 query。workspace
 change notification 继续服务其他 clients；发起 mutation 的 client 必须按 revision 去重，不能因自己的
 notification 再触发 graph/task/event 全量刷新。
 

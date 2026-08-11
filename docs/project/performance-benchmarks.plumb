@@ -88,6 +88,17 @@ release profile。下列数值取 reported interval 的 midpoint：
 `- full document replacement：33,512-event generation transaction 为 701.52 ms；它只在稳定 disk
  revision 发布时发生，不在 didChange/逐键路径执行。
 
+`# 7. Diesel/Web observation on 2026-08-11
+
+Diesel migration 后同一 host 的 release benchmark 中，batched reverse references 约 3.77 ms；33,512-event
+agenda 的完整 record decode 约 62.15 ms，说明仅改写 query API 不能消除无界 decode。1K 与 10K event
+generation replacement 分别约 13 ms 与 185 ms，较迁移前约回退 9% 与 10%。
+
+真实 notebook 包含 176 documents 与 1,297 tasks。debug Web server 的 `"GET /api/tasks" 仍约 2.18 s，
+response 约 964 KB；该 unbounded snapshot 与 `"allTasks" contract 尚待拆分。task mutation 改为只替换一个
+document generation、watcher 对相同 disk bytes 去重并返回空 `"204" 后，`"工作时专心.plumb" 的 complete
+request 从约 4.66 s 降到 41.7 ms。paired test 在操作后恢复原文件，前后 SHA-256 相同。
+
 Linux process profile 中，memory backend cold build 的 peak/resident 为 217,584 KiB。SQLite cold build
 peak 为 207,672 KiB，事务完成后 resident 为 165,992 KiB；新 process warm startup 的 peak 为
 23,428 KiB、resident 为 12,628 KiB，相比原 backend resident 降低约 94.2%。该值包含 allocator、SQLite
