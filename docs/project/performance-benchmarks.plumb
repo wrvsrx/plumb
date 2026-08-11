@@ -97,3 +97,39 @@ Bincode semantic records 下，首次 transaction 尚有 WAL 时 database、WAL 
 45,562,232 bytes；重新打开并 checkpoint 后合计 22,618,112 bytes。此前 JSON record prototype 为
 75,262,976 bytes，且同一 agenda query 约 84.66 ms；binary record encoding 同时降低 size 与 decode
 latency，但没有消除 agenda 相对 memory backend 的回退。
+
+`# 7. SQLite TEMP open-document overlay experiment on 2026-08-11
+
+`"semantic_overlay" release harness 在同一个 SQLite connection 中保留 main closed generations，并用
+`"temp_store=MEMORY" 的 `"open_documents/anchors/links/semantic_references/tasks/events" 保存 open generation。
+`"effective_events" 与 `"effective_references" TEMP views 使用 `"UNION ALL"，且 main branch 通过
+`"NOT EXISTS open_documents" 实现 complete-document shadow。每类 record 在 generation transaction 中只
+prepare 一次 insert statement；agenda records 和 direct-link references 与当前 Rust overlay 做 exact parity
+assertion 后才进入 measurement。
+
+同一 host、相同 deterministic workload 和 Criterion release profile 的 publication midpoint 为：
+
+`- 1,000 events：当前 Rust parse、semantics 与 generation replacement 为 4.79 ms；pre-analyzed TEMP
+ publication 为 3.28 ms；parse、semantics 与 TEMP publication 合计 8.32 ms，是当前路径的 1.74x。
+`- 10,000 events：当前路径 85.13 ms；pre-analyzed TEMP publication 37.45 ms；完整 TEMP path
+ 138.95 ms，是当前路径的 1.63x。
+`- 33,512 events：当前路径 314.37 ms；pre-analyzed TEMP publication 130.99 ms；完整 TEMP path
+ 498.10 ms，是当前路径的 1.58x。
+`- 十次连续 33,512-event updates：当前路径 3.31 s；pre-analyzed TEMP publication 1.32 s；完整 TEMP
+ path 5.04 s，是当前路径的 1.52x。连续 replacement 没有观察到超线性累积。
+
+Prepared-statement reuse 是结果成立的必要条件。prototype 每行重新 prepare 的早期 observation 中，33,512
+events 的 TEMP-only/full publication 分别约 291/654 ms；transaction 内按 record kind 复用 statement 后降为
+约 131/498 ms。后续实现和 benchmark 不得退回 per-row prepare。
+
+33,512-event open generation 上的统一查询 midpoint 为：
+
+`- agenda range：当前 Rust overlay 25.49 ms；SQL effective view 34.79 ms，SQL 慢约 36.5%。
+`- reverse references：当前 Rust overlay 4.02 ms；SQL effective view 2.24 ms，SQL 快约 44.3%。
+
+结论不是统一 SQL 不可行：document shadow 可以完整封装在 TEMP views 中，且 reference-style indexed query
+已有收益。阻碍是 publication 而非 overlay correctness；在当前 full-document parse/semantics 下，每次
+didChange 同步发布 TEMP generation 会给 33,512-event document 额外增加约 184 ms，并把已有约 314 ms 的
+更新扩大到约 498 ms。不能用 document-size threshold 隐藏该成本。生产重构应先获得 incremental semantic
+generation/record diff，或定义 asynchronous generation publication 与 revision consistency；在此之前保留
+Rust open-document output 与 document-granularity query composition 的总体 latency 更低。

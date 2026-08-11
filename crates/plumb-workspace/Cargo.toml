@@ -25,3 +25,7 @@ tempfile = "3"
 [[bench]]
 name = "semantic_store"
 harness = false
+
+[[bench]]
+name = "semantic_overlay"
+harness = false
