@@ -110,6 +110,13 @@ persistent workspace query 必须按需读取命中的 semantic rows，不得为
 query 排除所有 open paths，再与这些 paths 的内存 query result 组合并作 deterministic ordering。该规则由
 protocol-neutral workspace query layer 统一实现，adapter 不自行 merge 或 deduplicate records。
 
+尚未实现的 relation/query 下沉完成后，persistent task/event query 必须由 Diesel 在 database 中执行 typed
+filter、deterministic order、cursor pagination 与 indexed relation lookup，只 decode 命中 page 和显式 detail
+targets 的完整 records。Standard task state、resolved datetime、priority、depth、source identity 与 relation
+endpoints 作为 typed query columns 投影；这些 columns 是 Rust semantic output 的派生缓存，不成为新的语义
+权威。Open-document overlay 可以在 Rust 中对 database page 作 document-granularity replacement，但不得改变
+filter/order/limit 的 observable parity 或把完整 closed generation materialize 回内存。
+
 LSP adapter 将一个 revision 的 folding byte ranges 批量投影为 UTF-16 positions 时，必须复用由 source
 一次线性扫描建立的 line-start index；单个 offset 只扫描它所在的 physical line。folding response 不得为
 每个 range 从 document start 重复扫描 source。index 只属于 protocol projection，不进入 syntax/semantics

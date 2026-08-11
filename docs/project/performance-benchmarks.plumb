@@ -161,6 +161,8 @@ full-generation cost，且完整 production parity benchmark 不再显示明显�
 
 `# 9. Web mutation workload
 
+本节描述尚未实现的 Diesel relation/query backend 与 Web optimization 验收 workload。
+
 Web task mutation benchmark 使用 deterministic 生成的 176 documents、约 1,300 tasks workspace，并固定
 包含 recurring task 的 status operation。measurement 分开记录 guarded edit、changed-document snapshot
 replacement、当前 task query 和 JSON response；不得把 loopback connect time 当作 server latency。
@@ -170,3 +172,8 @@ mutation hot path 不得重新 scan 或分析未变化 documents，也不得在�
 一次 mutation 只读取并替换 target document，并证明 response revision/result 可由 browser 直接安装。
 真实 notebook smoke benchmark 记录 response size、time to first byte 与 total time；性能验收以优化前同一
 commit build 的 paired measurement 为基线，不把依赖 host 的绝对 wall-clock 数字写成跨机器 SLA。
+
+迁移分三组独立 measurement：现有 rusqlite 与 Diesel 等价 CRUD/generation replacement parity；relation rows
+publication 与 indexed dependency/event association lookup；database-side task filter/order/cursor page 加 Web
+mutation end-to-end latency。每组必须记录 query plan 和 decoded row count，不能只用较快 total time 掩盖
+unbounded materialization 或丢失 open-overlay/result parity。

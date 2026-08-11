@@ -6,6 +6,20 @@
 `->[roadmap]{`:[to roadmap.plumb]}；已经结束的任务及其验收记录保存在
 `->[completed tasks]{`:[to completed-tasks.plumb]}。
 
+`task 用 Diesel 建立关系化 workspace query backend {
+ `@ diesel-workspace-query-backend
+}
+
+ `note 先将现有 SqliteSemanticStore schema、migration、generation transaction、CRUD 与 typed row decoding
+  迁移到 Diesel，保持 memory/persistent result parity、non-UTF-8 path round-trip、cache invalidation 与现有
+  semantic-store benchmark，不在第一步改变 query behavior。
+ `note 再把 task dependencies、event-task associations 及 task/event 常用 query facts 投影为带 document
+  generation 的 typed relation rows，建立 identity、target、state、time 与 ordering indexes；Rust semantics
+  仍是事实权威，database 不解析 source 或重新推导 semantic meaning。
+ `note 最后让 protocol-neutral workspace query 使用 Diesel 完成 filter、sort、cursor pagination 与 reverse
+  lookup，Web mutation 只发布 changed document generation 并返回有界结果；覆盖 query-plan、open-overlay
+  parity、adapter tests 与真实 notebook paired latency benchmark，移除被替代的 rusqlite plumbing。
+
 `task 建立 event containment 索引 {
  `@ event-containment-index
 }
