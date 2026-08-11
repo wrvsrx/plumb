@@ -141,6 +141,13 @@ Agenda 使用有界 render window：没有显式 selection 时初始 window 锚�
 之外时锚定该 event。用户可以向前或向后替换固定大小的 page，page navigation 定位到新 page boundary；
 `"Now" command 重置到当前时间 window。selection/detail mutation 不能触发完整 event collection 的 DOM 重建。
 
+Web task/event mutation 写入一个已索引 document 后，server 必须以写入后的 disk bytes 原子替换该 document
+snapshot，并只 invalidates 依赖该 document output 的 workspace computation；不得为了确认一次 guarded edit
+而重新 scan、读取和分析未变化的 workspace documents。mutation request 可以携带当前 view query，成功响应
+直接返回同一新 revision 上的 query result，browser 必须消费该响应而不是立刻重复同一 query。workspace
+change notification 继续服务其他 clients；发起 mutation 的 client 必须按 revision 去重，不能因自己的
+notification 再触发 graph/task/event 全量刷新。
+
 `# 7. Tree-sitter boundary
 
 tree-sitter grammar 与 strict core 覆盖相同的纯 syntax surface，但容错目标不同。grammar 不能定义

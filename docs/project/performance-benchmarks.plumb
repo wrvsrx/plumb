@@ -158,3 +158,15 @@ row conversion 与 record decode 进入 open-document query。因此当前实现
 generations plus Rust open overlay。只有 incremental semantic record diff 或异步 publication 能先移除逐键
 full-generation cost，且完整 production parity benchmark 不再显示明显常用 query regression 时，才重新评估
 统一 SQL open generations；不能以 document-size threshold 规避该设计成本。
+
+`# 9. Web mutation workload
+
+Web task mutation benchmark 使用 deterministic 生成的 176 documents、约 1,300 tasks workspace，并固定
+包含 recurring task 的 status operation。measurement 分开记录 guarded edit、changed-document snapshot
+replacement、当前 task query 和 JSON response；不得把 loopback connect time 当作 server latency。
+
+mutation hot path 不得重新 scan 或分析未变化 documents，也不得在成功响应后由同一 browser revision
+立即重复 task query 或触发 graph/task/event workspace refresh。integration test 以 instrumentation 证明
+一次 mutation 只读取并替换 target document，并证明 response revision/result 可由 browser 直接安装。
+真实 notebook smoke benchmark 记录 response size、time to first byte 与 total time；性能验收以优化前同一
+commit build 的 paired measurement 为基线，不把依赖 host 的绝对 wall-clock 数字写成跨机器 SLA。
