@@ -269,7 +269,7 @@ async fn update_task(
         "plumb site serve: received task {action} for {document_id} ({:?})",
         request.locator
     );
-    let (root, revision) = {
+    let (path, revision) = {
         let workspace = state.workspace.read().await;
         let result = match action.as_str() {
             "complete" | "cancel" => request
@@ -319,21 +319,27 @@ async fn update_task(
             );
             return (StatusCode::CONFLICT, error).into_response();
         }
-        (workspace.root().to_path_buf(), workspace.revision() + 1)
+        (
+            workspace
+                .document_path(&document_id)
+                .expect("validated task document id")
+                .to_path_buf(),
+            workspace.revision() + 1,
+        )
     };
-    let refreshed = match WebWorkspace::load_with_revision(root, revision) {
-        Ok(workspace) => workspace,
-        Err(error) => return (StatusCode::INTERNAL_SERVER_ERROR, error).into_response(),
-    };
-    let tasks = refreshed.tasks();
-    *state.workspace.write().await = refreshed;
+    {
+        let mut workspace = state.workspace.write().await;
+        if let Err(error) = workspace.refresh_document(path, revision) {
+            return (StatusCode::INTERNAL_SERVER_ERROR, error).into_response();
+        }
+    }
     state.html_cache.lock().await.clear();
     let _ = state.changes.send(revision);
     eprintln!(
         "plumb site serve: task {action} completed for {document_id} ({:?})",
         request.locator
     );
-    Json(tasks).into_response()
+    StatusCode::NO_CONTENT.into_response()
 }
 
 #[derive(Debug, Deserialize)]
@@ -664,7 +670,7 @@ fn spawn_watcher(state: AppState) {
         let (sender, mut receiver) = mpsc::unbounded_channel();
         let mut watcher = match notify::recommended_watcher(move |event| match event {
             Ok(event) if watch_event_affects_workspace(&event) => {
-                let _ = sender.send(());
+                let _ = sender.send(event.paths);
             }
             Ok(_) => {}
             Err(error) => eprintln!("plumb site serve: workspace watcher failed: {error}"),
@@ -679,9 +685,28 @@ fn spawn_watcher(state: AppState) {
             eprintln!("plumb site serve: cannot watch workspace: {error}");
             return;
         }
-        while receiver.recv().await.is_some() {
+        while let Some(mut changed_paths) = receiver.recv().await {
             tokio::time::sleep(Duration::from_millis(180)).await;
-            while receiver.try_recv().is_ok() {}
+            while let Ok(paths) = receiver.try_recv() {
+                changed_paths.extend(paths);
+            }
+            changed_paths.sort();
+            changed_paths.dedup();
+            let already_current = if changed_paths.is_empty()
+                || changed_paths.iter().any(|path| {
+                    path.extension()
+                        .is_none_or(|extension| extension != "plumb")
+                }) {
+                false
+            } else {
+                let workspace = state.workspace.read().await;
+                changed_paths
+                    .iter()
+                    .all(|path| workspace.document_source_matches_disk(path))
+            };
+            if already_current {
+                continue;
+            }
             let revision = state.workspace.read().await.revision() + 1;
             match WebWorkspace::load_with_revision(&root, revision) {
                 Ok(workspace) => {
@@ -880,7 +905,11 @@ mod tests {
             )
             .await
             .unwrap();
-        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        assert!(to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap()
+            .is_empty());
         let source = std::fs::read_to_string(root.join("tasks.plumb")).unwrap();
         assert!(source.contains("Created from API"));
         assert!(source.contains("`: priority 3"), "{source}");

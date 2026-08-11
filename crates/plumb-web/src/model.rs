@@ -518,6 +518,50 @@ impl WebWorkspace {
         self.resources.get(&normalize(path.as_ref()))
     }
 
+    pub fn refresh_document(
+        &mut self,
+        path: impl AsRef<Path>,
+        revision: u64,
+    ) -> Result<(), String> {
+        let path = normalize(path.as_ref());
+        if !self.document_ids.contains_key(&path) {
+            return Err(format!("document is not indexed: {}", path.display()));
+        }
+        let source = std::fs::read_to_string(&path)
+            .map_err(|error| format!("cannot read {}: {error}", path.display()))?;
+        let file_revision = file_revision(&path).unwrap_or(0);
+        let entry = self.workspace.insert(&path, file_revision, source);
+        if entry.current.is_none() {
+            return Err(format!("updated document is invalid: {}", path.display()));
+        }
+        self.revision = revision;
+        self.titles = self
+            .workspace
+            .search_records(
+                &self.root,
+                Some(SearchRecordKind::Note),
+                "",
+                usize::MAX,
+                Local::now().fixed_offset(),
+            )
+            .items
+            .into_iter()
+            .map(|record| (record.path, record.title))
+            .collect();
+        self.resources.clear();
+        self.resources_by_id.clear();
+        self.index_resources();
+        Ok(())
+    }
+
+    pub fn document_source_matches_disk(&self, path: impl AsRef<Path>) -> bool {
+        let path = normalize(path.as_ref());
+        let Some(entry) = self.workspace.get(&path) else {
+            return false;
+        };
+        std::fs::read_to_string(path).is_ok_and(|source| source == entry.parsed.source)
+    }
+
     pub fn resources(&self) -> impl Iterator<Item = &ResourceRecord> {
         self.resources.values()
     }
