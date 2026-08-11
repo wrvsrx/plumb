@@ -16,17 +16,3 @@
   统一通过 indexed containment query，移除各 consumer 的范围 join 和重复 resolution plumbing。
  `note 用包含大量 events、links 与 nested events 的基准比较当前有序 links 二分查询，验证 build/query
   complexity、revision invalidation、memory overhead 与现有 association semantics 后再替换。
-
-`task 统一 workspace relational query backend {
- `@ unified-sql-workspace-queries
-}
-
- `note SQLite main tables 保存 closed disk generations，connection-local TEMP tables 保存 open buffer
-  generations；`"effective_*" views 按完整 source document 实现 TEMP-over-main precedence。
- `note 所有 cross-document references、resolution、search、task/event association、agenda、completion 与
-  rename candidate query 只读取 effective views，删除 excluded-open-path 参数和 Rust scan/merge/sort overlay。
- `note Rust open `"DocumentOutput" 只保留 current-document syntax/diagnostics/cursor/edit 用途；didChange 以
-  transaction 同步发布 TEMP generation，不产生 persistent file/WAL write。
- `note correctness tests 固定 main/TEMP generation atomicity、invalid open shadow、close fallback、全部 query
-  parity 与 deterministic ordering；同一 release workload 重测 1K/10K/33,512 updates、十次 burst、agenda、
-  reverse references、warm startup 和 RSS，明确记录相对 Rust overlay 的性能回退。
