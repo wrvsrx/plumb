@@ -112,6 +112,12 @@ pub struct StoredTaskDependency {
     pub source: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct StoredTaskKey {
+    pub path: PathBuf,
+    pub start: usize,
+}
+
 #[derive(Clone)]
 pub struct SqliteSemanticStore {
     connection: Arc<Mutex<SqliteConnection>>,
@@ -387,6 +393,83 @@ impl SqliteSemanticStore {
                     })())
                 },
             )
+            .filter_map(Result::transpose)
+            .collect()
+    }
+
+    pub fn active_tasks(
+        &self,
+        now_millis: i64,
+        excluded: &[PathBuf],
+    ) -> StoreResult<Vec<StoredRecord<TaskRecord>>> {
+        let mut connection = self
+            .connection
+            .lock()
+            .map_err(|_| StoreError::LockPoisoned)?;
+        let rows = tasks::table
+            .inner_join(documents::table.on(documents::path.eq(tasks::path)))
+            .filter(tasks::closure_state.eq("open"))
+            .filter(
+                tasks::wait_millis
+                    .is_null()
+                    .or(tasks::wait_millis.le(now_millis)),
+            )
+            .select((tasks::path, documents::revision, tasks::record))
+            .order((tasks::path, tasks::start))
+            .load_iter::<(Vec<u8>, i64, Vec<u8>), DefaultLoadingMode>(&mut *connection)?;
+        decode_records(rows, excluded)
+    }
+
+    pub fn blocked_task_sources(&self, excluded: &[PathBuf]) -> StoreResult<Vec<StoredTaskKey>> {
+        let mut connection = self
+            .connection
+            .lock()
+            .map_err(|_| StoreError::LockPoisoned)?;
+        let target = diesel::alias!(tasks as dependency_targets);
+        let rows = task_dependencies::table
+            .inner_join(
+                target.on(target
+                    .field(tasks::path)
+                    .eq(task_dependencies::target_path)
+                    .and(
+                        target
+                            .field(tasks::id)
+                            .eq(task_dependencies::target_id.nullable()),
+                    )),
+            )
+            .filter(target.field(tasks::closure_state).eq("open"))
+            .select((
+                task_dependencies::source_path,
+                task_dependencies::source_start,
+                task_dependencies::target_path,
+            ))
+            .distinct()
+            .order((
+                task_dependencies::source_path,
+                task_dependencies::source_start,
+            ))
+            .load::<(Vec<u8>, i64, Vec<u8>)>(&mut *connection)?;
+        let mut excluded = excluded
+            .iter()
+            .map(|path| normalize(path))
+            .collect::<Vec<_>>();
+        excluded.sort();
+        rows.into_iter()
+            .filter_map(|(path, start, target_path)| {
+                Some((|| {
+                    let path = path_from_bytes(path)?;
+                    let target_path = path_from_bytes(target_path)?;
+                    if excluded.binary_search(&path).is_ok()
+                        || excluded.binary_search(&target_path).is_ok()
+                    {
+                        return Ok(None);
+                    }
+                    Ok(Some(StoredTaskKey {
+                        path,
+                        start: to_usize(start)?,
+                    }))
+                })())
+            })
             .filter_map(Result::transpose)
             .collect()
     }
@@ -999,5 +1082,79 @@ mod tests {
             .task_dependents(Path::new("target.plumb"), "target", &[])
             .unwrap()
             .is_empty());
+    }
+
+    #[test]
+    fn queries_only_open_tasks_whose_wait_has_elapsed() {
+        let store = SqliteSemanticStore::open_in_memory().unwrap();
+        let source = "`task Ready {\n `@ ready\n}\n\n`task Waiting {\n `@ waiting\n `: wait 2026-08-12T10:00:00Z\n}\n\n`task Done {\n `@ done\n `: done 2026-08-10T10:00:00Z\n}\n\n`task Canceled {\n `@ canceled\n `: canceled 2026-08-10T10:00:00Z\n}\n";
+        store
+            .replace(Path::new("tasks.plumb"), 0, source, Some(&analyzed(source)))
+            .unwrap();
+
+        let now = chrono::DateTime::parse_from_rfc3339("2026-08-11T10:00:00Z")
+            .unwrap()
+            .timestamp_millis();
+        let tasks = store
+            .active_tasks(now, &[])
+            .unwrap()
+            .into_iter()
+            .map(|task| task.record.title)
+            .collect::<Vec<_>>();
+        assert_eq!(tasks, ["Ready"]);
+        assert!(store
+            .active_tasks(now, &[PathBuf::from("tasks.plumb")])
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn blocked_sources_follow_open_target_generations_and_overlay_exclusions() {
+        let store = SqliteSemanticStore::open_in_memory().unwrap();
+        let source = "`task Source {\n `@ source\n `: depends target.plumb#target\n}\n";
+        let open_target = "`task Target {\n `@ target\n}\n";
+        store
+            .replace(
+                Path::new("source.plumb"),
+                1,
+                source,
+                Some(&analyzed(source)),
+            )
+            .unwrap();
+        store
+            .replace(
+                Path::new("target.plumb"),
+                1,
+                open_target,
+                Some(&analyzed(open_target)),
+            )
+            .unwrap();
+
+        assert_eq!(
+            store.blocked_task_sources(&[]).unwrap(),
+            [StoredTaskKey {
+                path: PathBuf::from("source.plumb"),
+                start: 0,
+            }]
+        );
+        assert!(store
+            .blocked_task_sources(&[PathBuf::from("source.plumb")])
+            .unwrap()
+            .is_empty());
+        assert!(store
+            .blocked_task_sources(&[PathBuf::from("target.plumb")])
+            .unwrap()
+            .is_empty());
+
+        let closed_target = "`task Target {\n `@ target\n `: done 2026-08-11T10:00:00Z\n}\n";
+        store
+            .replace(
+                Path::new("target.plumb"),
+                2,
+                closed_target,
+                Some(&analyzed(closed_target)),
+            )
+            .unwrap();
+        assert!(store.blocked_task_sources(&[]).unwrap().is_empty());
     }
 }
