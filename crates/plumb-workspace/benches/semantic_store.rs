@@ -56,24 +56,28 @@ fn benchmark_build(c: &mut Criterion) {
     group.sample_size(10);
     for count in [1_000, 10_000, 33_512] {
         let (target, source) = workload(count, count / 10, "");
-        group.bench_with_input(BenchmarkId::new("memory_cold", count), &count, |b, _| {
+        group.bench_with_input(BenchmarkId::new("open_temp_cold", count), &count, |b, _| {
             b.iter(|| black_box(memory_workspace(&target, &source)));
         });
-        group.bench_with_input(BenchmarkId::new("sqlite_cold", count), &count, |b, _| {
-            b.iter_batched(
-                || tempfile::tempdir().unwrap(),
-                |directory| {
-                    let store =
-                        SqliteSemanticStore::open(directory.path().join("semantic.sqlite3"))
-                            .unwrap();
-                    let mut workspace = Workspace::with_sqlite_store(store);
-                    workspace.insert_disk("target.plumb", 0, &target).unwrap();
-                    workspace.insert_disk("migrated.plumb", 0, &source).unwrap();
-                    black_box(workspace)
-                },
-                BatchSize::LargeInput,
-            );
-        });
+        group.bench_with_input(
+            BenchmarkId::new("persistent_cold", count),
+            &count,
+            |b, _| {
+                b.iter_batched(
+                    || tempfile::tempdir().unwrap(),
+                    |directory| {
+                        let store =
+                            SqliteSemanticStore::open(directory.path().join("semantic.sqlite3"))
+                                .unwrap();
+                        let mut workspace = Workspace::with_sqlite_store(store);
+                        workspace.insert_disk("target.plumb", 0, &target).unwrap();
+                        workspace.insert_disk("migrated.plumb", 0, &source).unwrap();
+                        black_box(workspace)
+                    },
+                    BatchSize::LargeInput,
+                );
+            },
+        );
     }
     group.finish();
 }
@@ -117,10 +121,10 @@ fn benchmark_queries(c: &mut Criterion) {
     eprintln!("semantic_store_database_bytes/{count}: {database_bytes}");
     let mut group = c.benchmark_group("semantic_store_queries_33512");
     group.sample_size(30);
-    group.bench_function("memory_reverse_references", |b| {
+    group.bench_function("open_temp_reverse_references", |b| {
         b.iter(|| black_box(memory.reverse_references_for_document("target.plumb", &ids)));
     });
-    group.bench_function("sqlite_reverse_references", |b| {
+    group.bench_function("persistent_reverse_references", |b| {
         b.iter(|| {
             black_box(
                 sqlite
@@ -129,15 +133,15 @@ fn benchmark_queries(c: &mut Criterion) {
             )
         });
     });
-    group.bench_function("memory_agenda_range", |b| {
+    group.bench_function("open_temp_agenda_range", |b| {
         b.iter(|| black_box(memory.events_overlapping(start, end)));
     });
-    group.bench_function("sqlite_agenda_range", |b| {
+    group.bench_function("persistent_agenda_range", |b| {
         b.iter(|| black_box(sqlite.workspace.events_overlapping(start, end)));
     });
-    group.bench_function("sqlite_open_overlay", |b| {
+    group.bench_function("persistent_shadowed_by_open", |b| {
         b.iter_batched(
-            || sqlite.workspace.clone(),
+            || sqlite_fixture(&target, &source).workspace,
             |mut workspace| {
                 workspace.open_document("migrated.plumb", 1, "No references.\n");
                 black_box(workspace.reverse_references_for_document("target.plumb", &ids))

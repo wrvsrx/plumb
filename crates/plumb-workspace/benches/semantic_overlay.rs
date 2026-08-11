@@ -330,7 +330,7 @@ fn benchmark_publication(c: &mut Criterion) {
         rust.insert(SOURCE_PATH, 0, &old_source);
         let mut rust_revision = 0;
         group.bench_with_input(
-            BenchmarkId::new("rust_full_update", count),
+            BenchmarkId::new("production_full_update", count),
             &count,
             |b, _| {
                 b.iter(|| {
@@ -349,7 +349,7 @@ fn benchmark_publication(c: &mut Criterion) {
         storage.replace_open(1, &old);
         let mut storage_revision = 1;
         group.bench_with_input(
-            BenchmarkId::new("temp_store_preanalyzed", count),
+            BenchmarkId::new("prototype_preanalyzed", count),
             &count,
             |b, _| {
                 b.iter(|| {
@@ -369,7 +369,7 @@ fn benchmark_publication(c: &mut Criterion) {
         full.replace_open(1, &old);
         let mut full_revision = 1;
         group.bench_with_input(
-            BenchmarkId::new("temp_full_update", count),
+            BenchmarkId::new("prototype_full_update", count),
             &count,
             |b, _| {
                 b.iter(|| {
@@ -428,16 +428,16 @@ fn benchmark_queries(c: &mut Criterion) {
 
     let mut group = c.benchmark_group("semantic_overlay_queries_33512");
     group.sample_size(30);
-    group.bench_function("rust_agenda", |b| {
+    group.bench_function("production_open_agenda", |b| {
         b.iter(|| black_box(rust.events_overlapping(start, end)));
     });
-    group.bench_function("sql_effective_agenda", |b| {
+    group.bench_function("prototype_effective_agenda", |b| {
         b.iter(|| black_box(sql.events_overlapping(start, end)));
     });
-    group.bench_function("rust_reverse_references", |b| {
+    group.bench_function("production_open_reverse_references", |b| {
         b.iter(|| black_box(rust.reverse_references_for_document(TARGET_PATH, &ids)));
     });
-    group.bench_function("sql_effective_reverse_references", |b| {
+    group.bench_function("prototype_effective_reverse_references", |b| {
         b.iter(|| black_box(sql.references_to(TARGET_PATH, "target")));
     });
     group.finish();
@@ -458,7 +458,7 @@ fn benchmark_edit_burst(c: &mut Criterion) {
     rust.insert(TARGET_PATH, 0, &target_source);
     rust.insert(SOURCE_PATH, 0, &old_source);
     let mut rust_revision = 0;
-    group.bench_function("rust_full_updates", |b| {
+    group.bench_function("production_full_updates", |b| {
         b.iter(|| {
             for _ in 0..10 {
                 rust_revision += 1;
@@ -475,7 +475,7 @@ fn benchmark_edit_burst(c: &mut Criterion) {
     let mut storage = TempOverlay::new(&target, &old);
     storage.replace_open(1, &old);
     let mut storage_revision = 1;
-    group.bench_function("temp_store_preanalyzed", |b| {
+    group.bench_function("prototype_preanalyzed", |b| {
         b.iter(|| {
             for _ in 0..10 {
                 storage_revision += 1;
@@ -493,7 +493,7 @@ fn benchmark_edit_burst(c: &mut Criterion) {
     let mut full = TempOverlay::new(&target, &old);
     full.replace_open(1, &old);
     let mut full_revision = 1;
-    group.bench_function("temp_full_updates", |b| {
+    group.bench_function("prototype_full_updates", |b| {
         b.iter(|| {
             for _ in 0..10 {
                 full_revision += 1;
