@@ -62,8 +62,8 @@ persistent store 的 production implementation 使用 Diesel typed schema、mode
 composition；不得在 workspace、Web 或 protocol adapters 中散布 SQL strings、column ordinals 或 row decoding。
 少数 Diesel query DSL 无法清楚表达且有独立 query-plan tests 的 SQLite operation 可以封装 raw SQL，但它仍
 属于 store module，不形成第二套 repository API。Diesel schema、migration、generation transaction 与 typed
-row decoding 已实现；task dependency relation 与 active/blocked task lookup 已下沉。event-task relation、
-通用 filter/order/cursor pagination 及 adapter query 接入仍未实现。
+row decoding 已实现；task dependency relation、active/blocked lookup、standard task state filtering 与 Web task
+query adapter 已下沉。event-task relation、通用 CEL filter/order/cursor pagination 仍未实现。
 
 open buffer 以 normalized document path 为单位完整遮蔽同 path 的 persisted disk projection。一个 query
 中的 source document 只能来自 open-buffer snapshot 或 SQLite active generation 之一，不能逐 record
@@ -154,7 +154,8 @@ Agenda 使用有界 render window：没有显式 selection 时初始 window 锚�
 之外时锚定该 event。用户可以向前或向后替换固定大小的 page，page navigation 定位到新 page boundary；
 `"Now" command 重置到当前时间 window。selection/detail mutation 不能触发完整 event collection 的 DOM 重建。
 
-Web task mutation 已实现下述 changed-generation replacement 与 watcher 去重；event mutation 和有界 query
+Web task mutation 已实现下述 changed-generation replacement 与 watcher 去重；task result 与 authoring
+candidate collection 已拆分，candidate 只在打开 authoring UI 时加载。event mutation 和通用 cursor query
 接入仍是尚未实现的目标行为。Web task/event mutation 写入一个已索引 document 后，
 server 必须以写入后的 disk bytes 原子替换该 document
 snapshot，并只 invalidates 依赖该 document output 的 workspace computation；不得为了确认一次 guarded edit

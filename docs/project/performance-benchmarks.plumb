@@ -95,9 +95,15 @@ agenda 的完整 record decode 约 62.15 ms，说明仅改写 query API 不能�
 generation replacement 分别约 13 ms 与 185 ms，较迁移前约回退 9% 与 10%。
 
 真实 notebook 包含 176 documents 与 1,297 tasks。debug Web server 的 `"GET /api/tasks" 仍约 2.18 s，
-response 约 964 KB；该 unbounded snapshot 与 `"allTasks" contract 尚待拆分。task mutation 改为只替换一个
+response 约 964 KB。task mutation 改为只替换一个
 document generation、watcher 对相同 disk bytes 去重并返回空 `"204" 后，`"工作时专心.plumb" 的 complete
 request 从约 4.66 s 降到 41.7 ms。paired test 在操作后恢复原文件，前后 SHA-256 相同。
+
+进一步把 standard state preset 映射到 Diesel typed task queries、一次性读取 blocked source relation，且将
+完整 result 与 authoring candidates 拆分后，默认 `"ready + blocked" query 的 warm debug latency 为
+118--152 ms，response 约 73 KB；1,298 条紧凑 candidates 只在打开 authoring UI 时加载，约 61 ms、378 KB。
+paired complete observation 为 mutation 91.6 ms 加 query refresh 205.9 ms，总计约 0.30 s，恢复后文件 hash
+仍相同。显式 `"done" 全集仍约 1.47 s、658 KB；该路径需要后续 cursor pagination，不能视为已经解决。
 
 Linux process profile 中，memory backend cold build 的 peak/resident 为 217,584 KiB。SQLite cold build
 peak 为 207,672 KiB，事务完成后 resident 为 165,992 KiB；新 process warm startup 的 peak 为

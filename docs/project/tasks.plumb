@@ -19,6 +19,9 @@
  `note 最后让 protocol-neutral workspace query 使用 Diesel 完成 filter、sort、cursor pagination 与 reverse
   lookup，Web mutation 只发布 changed document generation 并返回有界结果；覆盖 query-plan、open-overlay
   parity、adapter tests 与真实 notebook paired latency benchmark，移除被替代的 rusqlite plumbing。
+ `note 当前 Diesel migration、task dependency relation、standard state query、Web changed-generation mutation
+  与 lazy authoring candidates 已完成；通用 CEL filter/order/cursor pagination、event-task relation 和 rusqlite
+  benchmark plumbing 清理仍待完成，因此本任务保持 open。
 
 `task 建立 event containment 索引 {
  `@ event-containment-index
