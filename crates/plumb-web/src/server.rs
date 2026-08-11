@@ -5,7 +5,7 @@ use std::process::ExitCode;
 use std::sync::Arc;
 use std::time::Duration;
 
-use axum::extract::{Path as AxumPath, RawQuery, Request, State};
+use axum::extract::{Path as AxumPath, Query as AxumQuery, RawQuery, Request, State};
 use axum::http::{header, HeaderMap, HeaderValue, Method, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::sse::{Event, KeepAlive, Sse};
@@ -214,11 +214,24 @@ async fn tasks(State(state): State<AppState>) -> Response {
     Json(state.workspace.read().await.tasks()).into_response()
 }
 
-async fn task_candidates(State(state): State<AppState>) -> Response {
+#[derive(Debug, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct TaskCandidateQuery {
+    #[serde(default)]
+    query: String,
+    document_id: Option<String>,
+    limit: Option<usize>,
+}
+
+async fn task_candidates(
+    State(state): State<AppState>,
+    AxumQuery(query): AxumQuery<TaskCandidateQuery>,
+) -> Response {
     let workspace = state.workspace.read().await;
+    let limit = query.limit.unwrap_or(50).min(500);
     Json(json!({
         "revision": workspace.revision(),
-        "tasks": workspace.task_candidates(),
+        "tasks": workspace.task_candidates(&query.query, query.document_id.as_deref(), limit),
     }))
     .into_response()
 }
@@ -887,6 +900,19 @@ mod tests {
         let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
         let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(value["tasks"].as_array().unwrap().len(), 1);
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::get("/api/task-candidates?query=missing&limit=1")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert!(value["tasks"].as_array().unwrap().is_empty());
 
         let response = app.clone().oneshot(
             Request::post("/api/query")

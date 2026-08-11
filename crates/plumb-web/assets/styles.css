@@ -139,6 +139,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
 .task-workspace { height: auto; min-height: 0; display: grid; grid-template-columns: minmax(440px, 1fr) minmax(340px, 34vw); flex: 1 1 0; }
 .task-list-pane { position: relative; min-width: 0; overflow: auto; background: #f7f7f5; }
 .task-list { width: 100%; }
+.load-more-tasks { display: block; min-height: 38px; margin: 12px auto 18px; padding: 7px 14px; }
 .task-document-group {
   position: sticky; top: 0; z-index: 2; padding: 6px 16px; border-bottom: 1px solid var(--border);
   background: #e7e8e4; color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace;

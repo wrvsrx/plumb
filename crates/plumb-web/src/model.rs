@@ -70,7 +70,7 @@ pub struct GraphSnapshot {
     pub complete: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum GraphDirection {
     Incoming,
@@ -79,7 +79,7 @@ pub enum GraphDirection {
     Both,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct GraphQuery {
     pub current: Option<String>,
@@ -269,7 +269,7 @@ pub struct QueryPreset {
     pub group: Option<&'static str>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct WebQuery {
     #[serde(default)]
@@ -285,6 +285,7 @@ pub struct WebQuery {
     #[serde(default, deserialize_with = "deserialize_sort_keys")]
     pub sort: Vec<QuerySort>,
     pub limit: Option<usize>,
+    pub cursor: Option<String>,
     #[serde(default)]
     pub traversal: GraphQuery,
 }
@@ -319,6 +320,7 @@ pub struct TaskQuerySnapshot {
     pub tasks: Vec<WebTask>,
     pub all_tasks: Vec<WebTaskCandidate>,
     pub complete: bool,
+    pub next_cursor: Option<String>,
     pub documents: Vec<WebTaskDocument>,
 }
 
@@ -609,10 +611,14 @@ impl WebWorkspace {
     }
 
     pub fn tasks(&self) -> TaskSnapshot {
-        self.task_snapshot(None)
+        self.task_snapshot(None, true)
     }
 
-    fn task_snapshot(&self, retained: Option<&BTreeSet<(String, usize)>>) -> TaskSnapshot {
+    fn task_snapshot(
+        &self,
+        retained: Option<&BTreeSet<(String, usize)>>,
+        include_relations: bool,
+    ) -> TaskSnapshot {
         let now = Local::now().fixed_offset();
         let records = self.query_workspace.search_records(
             &self.root,
@@ -653,21 +659,28 @@ impl WebWorkspace {
                     },
                     |id| WebTaskLocator::Id { id: id.clone() },
                 );
-                let depends_on = self
-                    .workspace
-                    .task_dependencies(&record.path, task)
-                    .into_iter()
-                    .map(|dependency| display_task_ref(&self.root, &dependency.target))
-                    .collect();
-                let directly_blocking = record
-                    .id
-                    .as_deref()
-                    .map(|id| {
+                let depends_on = include_relations
+                    .then(|| {
                         self.workspace
-                            .directly_blocking_tasks(&record.path, id)
+                            .task_dependencies(&record.path, task)
                             .into_iter()
-                            .map(|target| display_task_ref(&self.root, &target))
+                            .map(|dependency| display_task_ref(&self.root, &dependency.target))
                             .collect()
+                    })
+                    .unwrap_or_default();
+                let directly_blocking = include_relations
+                    .then(|| {
+                        record
+                            .id
+                            .as_deref()
+                            .map(|id| {
+                                self.workspace
+                                    .directly_blocking_tasks(&record.path, id)
+                                    .into_iter()
+                                    .map(|target| display_task_ref(&self.root, &target))
+                                    .collect()
+                            })
+                            .unwrap_or_default()
                     })
                     .unwrap_or_default();
                 Some(WebTask {
@@ -688,10 +701,13 @@ impl WebWorkspace {
                     canceled: task.canceled.as_ref().map(|field| field.value.clone()),
                     recur: task.recur.as_ref().map(|field| field.value.clone()),
                     prev: task.prev.as_ref().map(|field| field.value.clone()),
-                    prev_on: self
-                        .workspace
-                        .task_previous(&record.path, task)
-                        .map(|target| display_task_ref(&self.root, &target)),
+                    prev_on: include_relations
+                        .then(|| {
+                            self.workspace
+                                .task_previous(&record.path, task)
+                                .map(|target| display_task_ref(&self.root, &target))
+                        })
+                        .flatten(),
                     depends: task
                         .depends
                         .iter()
@@ -715,7 +731,9 @@ impl WebWorkspace {
             .collect::<Vec<_>>();
         tasks.sort_by(task_source_order);
         assign_task_parents(&mut tasks);
-        propagate_task_priorities(&mut tasks);
+        if include_relations {
+            propagate_task_priorities(&mut tasks);
+        }
         sort_task_tree(
             &mut tasks,
             &[QuerySort::Priority, QuerySort::Due],
@@ -728,20 +746,28 @@ impl WebWorkspace {
         }
     }
 
-    pub fn task_candidates(&self) -> Vec<WebTaskCandidate> {
+    pub fn task_candidates(
+        &self,
+        query: &str,
+        requested_document: Option<&str>,
+        limit: usize,
+    ) -> Vec<WebTaskCandidate> {
         let mut candidates = self
             .query_workspace
             .search_records(
                 &self.root,
                 Some(SearchRecordKind::Task),
-                "",
-                usize::MAX,
+                query,
+                requested_document.map_or(limit, |_| usize::MAX),
                 Local::now().fixed_offset(),
             )
             .items
             .into_iter()
             .filter_map(|record| {
                 let document_id = self.document_id(&record.path)?.to_string();
+                if requested_document.is_some_and(|requested| requested != document_id) {
+                    return None;
+                }
                 let task = self
                     .workspace
                     .get(&record.path)?
@@ -776,6 +802,7 @@ impl WebWorkspace {
             })
             .collect::<Vec<_>>();
         assign_candidate_parents(&mut candidates);
+        candidates.truncate(limit);
         candidates
     }
 
@@ -2285,8 +2312,14 @@ mod tests {
             })
             .unwrap();
         assert!(source.all_tasks.is_empty());
-        let candidates = workspace.task_candidates();
+        let candidates = workspace.task_candidates("", None, 50);
         assert_eq!(candidates.len(), 5);
+        assert_eq!(workspace.task_candidates("Needle", None, 2).len(), 2);
+        let document_id = candidates[0].document_id.as_str();
+        assert!(workspace
+            .task_candidates("", Some(document_id), 3)
+            .iter()
+            .all(|candidate| candidate.document_id == document_id));
         let matching = candidates
             .iter()
             .find(|task| task.id.as_deref() == Some("matching"))
@@ -2500,17 +2533,34 @@ mod tests {
                 assert!(positions.windows(2).all(|pair| pair[1] == pair[0] + 1));
             }
         }
-        let limited = workspace
-            .query_tasks(&WebQuery {
-                view: WebView::Tasks,
-                sort: vec![QuerySort::Priority],
-                limit: Some(1),
-                ..WebQuery::default()
-            })
-            .unwrap();
+        let first_page_query = WebQuery {
+            view: WebView::Tasks,
+            sort: vec![QuerySort::Priority],
+            limit: Some(1),
+            ..WebQuery::default()
+        };
+        let limited = workspace.query_tasks(&first_page_query).unwrap();
         assert!(!limited.complete);
         assert_eq!(limited.tasks.len(), 4);
         assert!(limited.tasks.iter().all(|task| task.path == "a.plumb"));
+        let second_page = workspace
+            .query_tasks(&WebQuery {
+                cursor: limited.next_cursor.clone(),
+                ..first_page_query.clone()
+            })
+            .unwrap();
+        assert!(second_page.tasks.iter().all(|task| task.path != "a.plumb"));
+        assert!(
+            workspace
+                .query_tasks(&WebQuery {
+                    query: "changed".to_string(),
+                    cursor: limited.next_cursor,
+                    ..first_page_query
+                })
+                .unwrap_err()
+                .source
+                == "cursor"
+        );
 
         let due_then_priority = workspace
             .query_tasks(&WebQuery {

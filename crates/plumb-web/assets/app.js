@@ -395,14 +395,15 @@ import { EDITABLE_TASK_PROPERTIES, missingTaskProperties } from './task-ui.js';
     return Array.from(document.querySelectorAll('.graph-filters .edge-options input[value]:checked')).map((input) => input.value);
   }
 
-  function queryRequest(view) {
+  function queryRequest(view, cursor = null) {
     return {
       view,
       query: state.query[view],
       presets: state.presets[view],
       filters: state.filters[view],
       sort: state.sort[view],
-      limit: null,
+      limit: view === 'tasks' ? 100 : null,
+      cursor,
       traversal: view === 'graph' ? {
         current: state.local ? state.current : null,
         depth: state.local ? Number(depth.value) : null,
@@ -413,12 +414,12 @@ import { EDITABLE_TASK_PROPERTIES, missingTaskProperties } from './task-ui.js';
     };
   }
 
-  async function executeQuery(view) {
+  async function executeQuery(view, cursor = null) {
     const response = await fetch(config.queryUrl, {
       method: 'POST',
       cache: 'no-store',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(queryRequest(view)),
+      body: JSON.stringify(queryRequest(view, cursor)),
     });
     if (!response.ok) {
       let failure;
@@ -808,10 +809,13 @@ import { EDITABLE_TASK_PROPERTIES, missingTaskProperties } from './task-ui.js';
     }
   }
 
-  async function loadTasks() {
+  async function loadTasks(cursor = null) {
     try {
-      const result = await executeQuery('tasks');
-      state.tasks = result.tasks;
+      const result = await executeQuery('tasks', cursor);
+      state.tasks = cursor ? {
+        ...result.tasks,
+        tasks: [...state.tasks.tasks, ...result.tasks.tasks],
+      } : result.tasks;
       setQueryError('tasks', null);
       renderTasks();
     } catch (error) {
@@ -820,12 +824,19 @@ import { EDITABLE_TASK_PROPERTIES, missingTaskProperties } from './task-ui.js';
     }
   }
 
-  async function ensureTaskCandidates() {
-    if (state.tasks.allTasks?.length) return;
-    const response = await fetch(config.taskCandidatesUrl, { cache: 'no-store' });
+  async function searchTaskCandidates({ query = '', documentId = null, limit = 50 } = {}) {
+    const url = new URL(config.taskCandidatesUrl, window.location.href);
+    if (query) url.searchParams.set('query', query);
+    if (documentId) url.searchParams.set('documentId', documentId);
+    url.searchParams.set('limit', String(limit));
+    const response = await fetch(url, { cache: 'no-store' });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const snapshot = await response.json();
-    if (snapshot.revision === state.tasks.revision) state.tasks.allTasks = snapshot.tasks;
+    if (snapshot.revision !== state.tasks.revision) return [];
+    const known = new Map((state.tasks.allTasks || []).map((task) => [task.key, task]));
+    snapshot.tasks.forEach((task) => known.set(task.key, task));
+    state.tasks.allTasks = Array.from(known.values());
+    return snapshot.tasks;
   }
 
   async function loadEvents() {
@@ -1141,6 +1152,14 @@ import { EDITABLE_TASK_PROPERTIES, missingTaskProperties } from './task-ui.js';
       button.addEventListener('click', () => selectTask(task));
       taskList.append(button);
     });
+    if (state.tasks.nextCursor) {
+      const more = document.createElement('button');
+      more.type = 'button';
+      more.className = 'load-more-tasks';
+      more.textContent = 'Load more';
+      more.addEventListener('click', () => loadTasks(state.tasks.nextCursor));
+      taskList.append(more);
+    }
     if (state.selectedTask) {
       const selected = taskByKey(state.tasks, state.selectedTask);
       if (selected) renderTaskDetail(selected);
@@ -1387,9 +1406,15 @@ import { EDITABLE_TASK_PROPERTIES, missingTaskProperties } from './task-ui.js';
   }
 
   async function renderTaskForm(task = null) {
-    await ensureTaskCandidates();
     const documents = state.tasks.documents || [];
     if (!documents.length) return clearTaskDetail('Tasks unavailable', 'No valid task document is writable.');
+    await Promise.all([
+      searchTaskCandidates(),
+      ...Array.from(
+        new Set([task?.prevOn, ...(task?.dependsOn || [])].filter(Boolean)),
+        (identity) => searchTaskCandidates({ query: identity, limit: 10 }),
+      ),
+    ]);
     taskPanel.innerHTML = `
       <form class="task-form" novalidate>
         <h1>${task ? 'Edit task' : 'New task'}</h1>
@@ -1406,6 +1431,7 @@ import { EDITABLE_TASK_PROPERTIES, missingTaskProperties } from './task-ui.js';
           <label>Priority<input name="priority" type="number" step="1" min="-2147483648" max="2147483647"></label>
         </div>
         <label>Recurrence<select name="recur"><option value="">None</option><option value="P1D">Daily</option><option value="P1W">Weekly</option><option value="P1M">Monthly</option><option value="P1Y">Yearly</option></select><span class="field-error" data-field="recur"></span></label>
+        <label>Find references<input name="referenceSearch" type="search" placeholder="Search tasks"></label>
         <label>Previous task<select name="prev"><option value="">None</option></select></label>
         <label>Dependencies<select name="depends" multiple size="6"></select><span class="field-error" data-field="depends"></span></label>
         <p class="form-error" role="alert"></p>
@@ -1414,7 +1440,7 @@ import { EDITABLE_TASK_PROPERTIES, missingTaskProperties } from './task-ui.js';
     const form = taskPanel.querySelector('form');
     documents.forEach((document) => form.elements.document.add(new Option(document.path, document.id)));
     if (task) { form.elements.document.value = task.documentId; form.elements.document.disabled = true; }
-    const all = state.tasks.allTasks || state.tasks.tasks;
+    let all = state.tasks.allTasks || state.tasks.tasks;
     const updatePlacement = () => {
       const documentId = form.elements.document.value;
       const parentValue = form.elements.parent.value;
@@ -1432,20 +1458,48 @@ import { EDITABLE_TASK_PROPERTIES, missingTaskProperties } from './task-ui.js';
         form.elements.after.add(new Option(`After ${candidate.title || '(untitled)'}`, candidate.key));
       });
     };
-    const updateParents = () => {
+    const updateParents = async () => {
       const documentId = form.elements.document.value;
+      await searchTaskCandidates({ documentId, limit: 500 });
+      all = state.tasks.allTasks || state.tasks.tasks;
       form.elements.parent.replaceChildren(new Option('Top level', ''));
       all.filter((candidate) => candidate.documentId === documentId && candidate.key !== task?.key).forEach((candidate) => {
         form.elements.parent.add(new Option(taskOptionLabel(candidate), candidate.key));
       });
       updatePlacement();
     };
-    updateParents();
-    const references = all.filter((candidate) => candidate.id && candidate.key !== task?.key);
-    references.forEach((candidate) => {
-      form.elements.prev.add(new Option(taskOptionLabel(candidate), candidate.key));
-      form.elements.depends.add(new Option(taskOptionLabel(candidate), candidate.key));
-    });
+    await updateParents();
+    const updateReferences = async (query = '') => {
+      const selectedPrev = form.elements.prev.value;
+      const selectedDepends = new Set(Array.from(form.elements.depends.selectedOptions, (option) => option.value));
+      const results = await searchTaskCandidates({ query });
+      const pinned = new Set([task?.prevOn, ...(task?.dependsOn || [])].filter(Boolean));
+      const referencesByKey = new Map(results
+        .filter((candidate) => candidate.id && candidate.key !== task?.key)
+        .map((candidate) => [candidate.key, candidate]));
+      (state.tasks.allTasks || []).forEach((candidate) => {
+        if (candidate.id && pinned.has(`${candidate.path}#${candidate.id}`)) {
+          referencesByKey.set(candidate.key, candidate);
+        }
+      });
+      const references = Array.from(referencesByKey.values());
+      form.elements.prev.replaceChildren(new Option('None', ''));
+      form.elements.depends.replaceChildren();
+      references.forEach((candidate) => {
+        form.elements.prev.add(new Option(taskOptionLabel(candidate), candidate.key));
+        form.elements.depends.add(new Option(taskOptionLabel(candidate), candidate.key));
+      });
+      for (const key of [selectedPrev, ...selectedDepends]) {
+        if (!key || references.some((candidate) => candidate.key === key)) continue;
+        const candidate = taskByKey(state.tasks, key);
+        if (!candidate) continue;
+        form.elements.prev.add(new Option(taskOptionLabel(candidate), key));
+        form.elements.depends.add(new Option(taskOptionLabel(candidate), key));
+      }
+      form.elements.prev.value = selectedPrev;
+      Array.from(form.elements.depends.options).forEach((option) => { option.selected = selectedDepends.has(option.value); });
+    };
+    await updateReferences();
     if (task) {
       form.elements.title.value = task.title;
       form.elements.created.value = localDateTimeValue(task.created);
@@ -1466,6 +1520,7 @@ import { EDITABLE_TASK_PROPERTIES, missingTaskProperties } from './task-ui.js';
         const candidate = taskByKey(state.tasks, option.value);
         option.selected = resolved.has(`${candidate.path}#${candidate.id}`);
       });
+      const references = state.tasks.allTasks || [];
       const prev = references.find((candidate) => (
         task.prevOn === `${candidate.path}#${candidate.id}`
       ));
@@ -1473,6 +1528,12 @@ import { EDITABLE_TASK_PROPERTIES, missingTaskProperties } from './task-ui.js';
     }
     form.elements.document.addEventListener('change', updateParents);
     form.elements.parent.addEventListener('change', updatePlacement);
+    let referenceTimer;
+    const searchReferences = () => {
+      clearTimeout(referenceTimer);
+      referenceTimer = setTimeout(() => updateReferences(form.elements.referenceSearch.value), 200);
+    };
+    form.elements.referenceSearch.addEventListener('input', searchReferences);
     form.addEventListener('submit', (event) => { event.preventDefault(); mutateTaskForm(task, form); });
     form.querySelector('.cancel-task-form').addEventListener('click', () => task ? renderTaskDetail(task) : clearTaskDetail('Workspace tasks', 'Select a task to inspect its fields and dependencies.'));
   }

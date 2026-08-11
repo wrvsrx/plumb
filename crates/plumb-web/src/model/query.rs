@@ -97,7 +97,8 @@ impl WebWorkspace {
                 .collect::<BTreeSet<_>>();
             intersect_keys(&mut retained, matching);
         }
-        let snapshot = self.task_snapshot(retained.as_ref());
+        let needs_priority_relations = query.sort.contains(&QuerySort::Priority);
+        let snapshot = self.task_snapshot(retained.as_ref(), needs_priority_relations);
         let mut tasks = snapshot.tasks;
         let mut scores = HashMap::new();
         let retained_keys = tasks
@@ -125,14 +126,43 @@ impl WebWorkspace {
             .collect::<BTreeSet<_>>();
         tasks.retain(|task| retained_keys.contains(&task.key));
         sort_task_tree(&mut tasks, &query.sort, &scores);
+        apply_task_cursor(&mut tasks, query, self.revision)?;
         let limit = query.limit.unwrap_or(usize::MAX);
         let complete = tasks.len() <= limit;
         truncate_complete_task_documents(&mut tasks, limit, |task| &task.path);
+        let next_cursor = (!complete)
+            .then(|| {
+                tasks
+                    .last()
+                    .map(|task| encode_task_cursor(query, self.revision, &task.path))
+            })
+            .flatten();
+        let page_keys = tasks
+            .iter()
+            .map(|task| (task.path.clone(), task.location.start))
+            .collect::<BTreeSet<_>>();
+        let page_order = tasks
+            .iter()
+            .enumerate()
+            .map(|(index, task)| (task.key.clone(), index))
+            .collect::<HashMap<_, _>>();
+        let page_priorities = tasks
+            .iter()
+            .map(|task| (task.key.clone(), task.effective_priority))
+            .collect::<HashMap<_, _>>();
+        let mut tasks = self.task_snapshot(Some(&page_keys), true).tasks;
+        for task in &mut tasks {
+            if let Some(priority) = page_priorities.get(&task.key) {
+                task.effective_priority = *priority;
+            }
+        }
+        tasks.sort_by_key(|task| page_order.get(&task.key).copied().unwrap_or(usize::MAX));
         Ok(TaskQuerySnapshot {
             revision: self.revision,
             tasks,
             all_tasks: Vec::new(),
             complete,
+            next_cursor,
             documents: snapshot.documents,
         })
     }
@@ -251,6 +281,50 @@ impl WebWorkspace {
         }
         metrics
     }
+}
+
+fn task_query_signature(query: &WebQuery) -> String {
+    let mut normalized = query.clone();
+    normalized.cursor = None;
+    let bytes = serde_json::to_vec(&normalized).expect("web query is serializable");
+    format!("{:x}", Sha256::digest(bytes))
+}
+
+fn encode_task_cursor(query: &WebQuery, revision: u64, last_document: &str) -> String {
+    format!("{revision}:{}:{last_document}", task_query_signature(query))
+}
+
+fn apply_task_cursor(
+    tasks: &mut Vec<WebTask>,
+    query: &WebQuery,
+    revision: u64,
+) -> Result<(), QueryFailure> {
+    let Some(cursor) = &query.cursor else {
+        return Ok(());
+    };
+    let mut parts = cursor.splitn(3, ':');
+    let cursor_revision = parts.next().and_then(|value| value.parse::<u64>().ok());
+    let signature = parts.next();
+    let last_document = parts.next();
+    let expected_signature = task_query_signature(query);
+    if cursor_revision != Some(revision)
+        || signature != Some(expected_signature.as_str())
+        || last_document.is_none()
+    {
+        return Err(QueryFailure {
+            source: "cursor".to_string(),
+            message: "task cursor is stale or does not match this query".to_string(),
+        });
+    }
+    let last_document = last_document.unwrap();
+    let Some(last_index) = tasks.iter().rposition(|task| task.path == last_document) else {
+        return Err(QueryFailure {
+            source: "cursor".to_string(),
+            message: "task cursor no longer identifies a result document".to_string(),
+        });
+    };
+    tasks.drain(..=last_index);
+    Ok(())
 }
 
 fn custom_filters(query: &WebQuery) -> impl Iterator<Item = (String, &str)> {
