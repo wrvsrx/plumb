@@ -1,0 +1,12 @@
+DROP TABLE IF EXISTS task_dependencies;
+DROP INDEX IF EXISTS tasks_priority;
+DROP INDEX IF EXISTS tasks_state_due;
+ALTER TABLE tasks DROP COLUMN parent_start;
+ALTER TABLE tasks DROP COLUMN depth;
+ALTER TABLE tasks DROP COLUMN priority;
+ALTER TABLE tasks DROP COLUMN canceled_millis;
+ALTER TABLE tasks DROP COLUMN done_millis;
+ALTER TABLE tasks DROP COLUMN wait_millis;
+ALTER TABLE tasks DROP COLUMN due_millis;
+ALTER TABLE tasks DROP COLUMN created_millis;
+ALTER TABLE tasks DROP COLUMN closure_state;

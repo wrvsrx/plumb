@@ -56,6 +56,26 @@ diesel::table! {
         title -> Text,
         start -> BigInt,
         record -> Binary,
+        closure_state -> Text,
+        created_millis -> Nullable<BigInt>,
+        due_millis -> Nullable<BigInt>,
+        wait_millis -> Nullable<BigInt>,
+        done_millis -> Nullable<BigInt>,
+        canceled_millis -> Nullable<BigInt>,
+        priority -> Nullable<Integer>,
+        depth -> BigInt,
+        parent_start -> Nullable<BigInt>,
+    }
+}
+
+diesel::table! {
+    task_dependencies (source_path, source_start, target_path, target_id) {
+        source_path -> Binary,
+        source_start -> BigInt,
+        source_id -> Nullable<Text>,
+        target_path -> Binary,
+        target_id -> Text,
+        source_text -> Text,
     }
 }
 
@@ -79,5 +99,6 @@ diesel::allow_tables_to_appear_in_same_query!(
     links,
     semantic_references,
     tasks,
+    task_dependencies,
     events,
 );

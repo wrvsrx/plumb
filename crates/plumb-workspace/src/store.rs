@@ -3,6 +3,7 @@ use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
+use chrono::DateTime;
 use diesel::connection::DefaultLoadingMode;
 use diesel::connection::SimpleConnection;
 use diesel::dsl::exists;
@@ -10,8 +11,8 @@ use diesel::prelude::*;
 use diesel::sqlite::SqliteConnection;
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
 use plumb_semantics::{
-    AnchorRecord, DocumentOutput, EventRecord, LinkRecord, LinkTarget, MetadataValue, TaskRecord,
-    TaskReferenceTarget,
+    AnchorRecord, DocumentOutput, EventRecord, LinkRecord, LinkTarget, MetadataValue, TaskField,
+    TaskRecord, TaskReferenceTarget, TaskState,
 };
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -21,9 +22,11 @@ use crate::{normalize, resolve_relative, task_reference_fields, task_reference_r
 
 mod schema;
 
-use schema::{anchors, cache_meta, documents, events, links, semantic_references, tasks};
+use schema::{
+    anchors, cache_meta, documents, events, links, semantic_references, task_dependencies, tasks,
+};
 
-const SCHEMA_VERSION: i64 = 2;
+const SCHEMA_VERSION: i64 = 3;
 const PRODUCER_VERSION: &str = env!("CARGO_PKG_VERSION");
 const MIGRATIONS: EmbeddedMigrations = embed_migrations!("migrations");
 
@@ -97,6 +100,16 @@ pub struct StoredRecord<T> {
     pub path: PathBuf,
     pub revision: i64,
     pub record: T,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StoredTaskDependency {
+    pub source_path: PathBuf,
+    pub source_start: usize,
+    pub source_id: Option<String>,
+    pub target_path: PathBuf,
+    pub target_id: String,
+    pub source: String,
 }
 
 #[derive(Clone)]
@@ -324,6 +337,60 @@ impl SqliteSemanticStore {
         decode_records(rows, excluded)
     }
 
+    pub fn task_dependents(
+        &self,
+        target_path: &Path,
+        target_id: &str,
+        excluded: &[PathBuf],
+    ) -> StoreResult<Vec<StoredTaskDependency>> {
+        let mut connection = self
+            .connection
+            .lock()
+            .map_err(|_| StoreError::LockPoisoned)?;
+        let rows = task_dependencies::table
+            .filter(task_dependencies::target_path.eq(path_bytes(&normalize(target_path))))
+            .filter(task_dependencies::target_id.eq(target_id))
+            .select((
+                task_dependencies::source_path,
+                task_dependencies::source_start,
+                task_dependencies::source_id,
+                task_dependencies::target_path,
+                task_dependencies::target_id,
+                task_dependencies::source_text,
+            ))
+            .order((
+                task_dependencies::source_path,
+                task_dependencies::source_start,
+            ))
+            .load::<(Vec<u8>, i64, Option<String>, Vec<u8>, String, String)>(&mut *connection)?;
+        let mut excluded = excluded
+            .iter()
+            .map(|path| normalize(path))
+            .collect::<Vec<_>>();
+        excluded.sort();
+        rows.into_iter()
+            .filter_map(
+                |(source_path, source_start, source_id, target_path, target_id, source)| {
+                    Some((|| {
+                        let source_path = path_from_bytes(source_path)?;
+                        if excluded.binary_search(&source_path).is_ok() {
+                            return Ok(None);
+                        }
+                        Ok(Some(StoredTaskDependency {
+                            source_path,
+                            source_start: to_usize(source_start)?,
+                            source_id,
+                            target_path: path_from_bytes(target_path)?,
+                            target_id,
+                            source,
+                        }))
+                    })())
+                },
+            )
+            .filter_map(Result::transpose)
+            .collect()
+    }
+
     pub fn events(&self, excluded: &[PathBuf]) -> StoreResult<Vec<StoredRecord<EventRecord>>> {
         let mut connection = self
             .connection
@@ -489,16 +556,51 @@ fn insert_output(
             insert_reference(connection, &reference)?;
         }
     }
+    let mut task_ancestors = Vec::new();
     for task in &output.tasks.tasks {
+        task_ancestors.truncate(task.depth);
+        let parent_start = task_ancestors.last().copied().map(to_i64).transpose()?;
+        let start = to_i64(task.range.start)?;
         diesel::insert_into(tasks::table)
             .values((
                 tasks::path.eq(encoded_path.clone()),
                 tasks::id.eq(task.id.as_ref().map(|id| id.value.as_str())),
                 tasks::title.eq(&task.title),
-                tasks::start.eq(to_i64(task.range.start)?),
+                tasks::start.eq(start),
                 tasks::record.eq(encode(task)?),
+                tasks::closure_state.eq(task_state_name(task.state())),
+                tasks::created_millis.eq(task_field_millis(task.created.as_ref())),
+                tasks::due_millis.eq(task_field_millis(task.due.as_ref())),
+                tasks::wait_millis.eq(task_field_millis(task.wait.as_ref())),
+                tasks::done_millis.eq(task_field_millis(task.done.as_ref())),
+                tasks::canceled_millis.eq(task_field_millis(task.canceled.as_ref())),
+                tasks::priority.eq(task.priority),
+                tasks::depth.eq(to_i64(task.depth)?),
+                tasks::parent_start.eq(parent_start),
             ))
             .execute(connection)?;
+        task_ancestors.push(task.range.start);
+        for dependency in &task.depends {
+            let Some(reference) = task_reference(
+                path,
+                &dependency.source,
+                &dependency.range,
+                &dependency.target,
+            ) else {
+                continue;
+            };
+            diesel::insert_into(task_dependencies::table)
+                .values((
+                    task_dependencies::source_path.eq(encoded_path.clone()),
+                    task_dependencies::source_start.eq(start),
+                    task_dependencies::source_id.eq(task.id.as_ref().map(|id| id.value.as_str())),
+                    task_dependencies::target_path.eq(path_bytes(&reference.target_path)),
+                    task_dependencies::target_id
+                        .eq(reference.target_id.as_deref().expect("task target has id")),
+                    task_dependencies::source_text.eq(&dependency.source),
+                ))
+                .execute(connection)?;
+        }
         for (source, range, target) in task_reference_fields(task) {
             if let Some(reference) = task_reference(path, source, range, &target) {
                 insert_reference(connection, &reference)?;
@@ -616,6 +718,8 @@ fn delete_document_rows(connection: &mut SqliteConnection, path: &Path) -> Store
     diesel::delete(semantic_references::table.filter(semantic_references::source_path.eq(&path)))
         .execute(connection)?;
     diesel::delete(tasks::table.filter(tasks::path.eq(&path))).execute(connection)?;
+    diesel::delete(task_dependencies::table.filter(task_dependencies::source_path.eq(&path)))
+        .execute(connection)?;
     diesel::delete(events::table.filter(events::path.eq(&path))).execute(connection)?;
     diesel::delete(documents::table.filter(documents::path.eq(&path))).execute(connection)?;
     Ok(())
@@ -626,6 +730,7 @@ fn clear_records(connection: &mut SqliteConnection) -> StoreResult<()> {
     diesel::delete(links::table).execute(connection)?;
     diesel::delete(semantic_references::table).execute(connection)?;
     diesel::delete(tasks::table).execute(connection)?;
+    diesel::delete(task_dependencies::table).execute(connection)?;
     diesel::delete(events::table).execute(connection)?;
     diesel::delete(documents::table).execute(connection)?;
     Ok(())
@@ -671,6 +776,21 @@ fn document_title(output: &DocumentOutput, path: &Path) -> (String, Range<usize>
             _ => None,
         })
         .unwrap_or_else(|| (fallback_title(path), 0..0))
+}
+
+fn task_state_name(state: TaskState) -> &'static str {
+    match state {
+        TaskState::Open => "open",
+        TaskState::Done => "done",
+        TaskState::Canceled => "canceled",
+        TaskState::Conflicted => "conflicted",
+    }
+}
+
+fn task_field_millis(field: Option<&TaskField>) -> Option<i64> {
+    field
+        .and_then(|field| DateTime::parse_from_rfc3339(&field.value).ok())
+        .map(|value| value.timestamp_millis())
 }
 
 fn fallback_title(path: &Path) -> String {
@@ -835,5 +955,49 @@ mod tests {
         assert!(store.contains_current(&path, source).unwrap());
         assert_eq!(store.documents().unwrap()[0].path, path);
         assert_eq!(store.tasks(&[]).unwrap()[0].path, path);
+    }
+
+    #[test]
+    fn indexes_task_dependencies_by_target_and_replaces_their_generation() {
+        let store = SqliteSemanticStore::open_in_memory().unwrap();
+        let source = "`task Source {\n `@ source\n `: depends target.plumb#target\n}\n";
+        store
+            .replace(
+                Path::new("source.plumb"),
+                3,
+                source,
+                Some(&analyzed(source)),
+            )
+            .unwrap();
+
+        let dependencies = store
+            .task_dependents(Path::new("target.plumb"), "target", &[])
+            .unwrap();
+        assert_eq!(dependencies.len(), 1);
+        assert_eq!(dependencies[0].source_path, Path::new("source.plumb"));
+        assert_eq!(dependencies[0].source_id.as_deref(), Some("source"));
+        assert_eq!(dependencies[0].source, "target.plumb#target");
+        assert!(store
+            .task_dependents(
+                Path::new("target.plumb"),
+                "target",
+                &[PathBuf::from("source.plumb")],
+            )
+            .unwrap()
+            .is_empty());
+
+        let updated = "`task Source {\n `@ source\n}\n";
+        store
+            .replace(
+                Path::new("source.plumb"),
+                4,
+                updated,
+                Some(&analyzed(updated)),
+            )
+            .unwrap();
+        assert!(store
+            .task_dependents(Path::new("target.plumb"), "target", &[])
+            .unwrap()
+            .is_empty());
     }
 }
