@@ -165,6 +165,10 @@ snapshot，并只 invalidates 依赖该 document output 的 workspace computatio
 change notification 继续服务其他 clients；发起 mutation 的 client 必须按 revision 去重，不能因自己的
 notification 再触发 graph/task/event 全量刷新。
 
+Task authoring 不得为 parent、previous 或 dependency controls 一次创建完整 workspace option DOM。candidate
+endpoint 按 document scope 或 fuzzy query 返回有界 compact identities；browser 保留已选 locator，并在输入变化
+时替换候选 page。Parent/position 只查询目标 document，cross-document previous/dependency 使用显式搜索。
+
 `# 7. Tree-sitter boundary
 
 tree-sitter grammar 与 strict core 覆盖相同的纯 syntax surface，但容错目标不同。grammar 不能定义

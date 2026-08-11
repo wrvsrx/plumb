@@ -119,6 +119,15 @@ endpoints 作为 typed query columns 投影；这些 columns 是 Rust semantic o
 权威。Open-document overlay 可以在 Rust 中对 database page 作 document-granularity replacement，但不得改变
 filter/order/limit 的 observable parity 或把完整 closed generation materialize 回内存。
 
+CEL filter compilation 必须记录 expression 实际引用的 variables。构造 task/event context 时，普通 typed
+columns 可以直接绑定；dependency、reverse relation 或其他需要 workspace lookup 的 facts 只在 expression 引用
+对应 variable 时物化。该 demand-driven context 不能改变缺失 variable、类型错误或 filter result semantics。
+
+Task cursor page 绑定 normalized filter、sort keys 与 workspace revision。cursor 是 opaque continuation identity，
+不得解释为 row offset；失配或 stale cursor 必须拒绝。分页先在 lightweight typed facts 上完成 filter、tree
+aggregation 与 deterministic ordering，再只 decode 当前 page 的完整 records。一个 page 可以越过 requested
+task count 以保留当前 document 的完整 retained tree，但不能重复或跳过相邻 pages 的 document group。
+
 LSP adapter 将一个 revision 的 folding byte ranges 批量投影为 UTF-16 positions 时，必须复用由 source
 一次线性扫描建立的 line-start index；单个 offset 只扫描它所在的 physical line。folding response 不得为
 每个 range 从 document start 重复扫描 source。index 只属于 protocol projection，不进入 syntax/semantics
