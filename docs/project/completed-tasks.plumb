@@ -523,6 +523,22 @@
          33,512-event workload 的 warm startup 快约 22.3x、warm resident memory 降低约 94.2%；cold build 慢
          约 3.70x、agenda range 慢约 2.58x、完整 generation replacement 约 701.52 ms，因此不宣称总体提升。
 
+`- 撤回 unified SQLite open generations {
+  `- task
+  `@ rollback-unified-sql-open-generations
+  `: done 2026-08-11T14:10:00+08:00
+}
+
+   `note production experiment 曾把 open documents 发布到 connection-local SQLite TEMP tables，并通过
+         `"effective_*" views 统一 closed/open query；当前实现恢复 persistent SQLite closed generations 加
+         Rust open-document overlay。
+   `note 统一 SQL 的主要收益是删除 dual query composition，不会重复获得第一阶段已有的 warm startup 与
+         resident-memory 收益；33,512-event workload 的 open update、ten-update burst、agenda 与 reverse
+         references 分别回退约 56%、69%、87% 与 64%，不适合进入逐键编辑路径。
+   `note rejected production 数据与重新评估条件记录在
+         `->[performance benchmark points]{`:[to performance-benchmarks.plumb]}；在 incremental semantic diff
+         或 asynchronous publication 解决 full-generation cost 前，不以 large-document threshold 重引入。
+
 `- Workspace scanner 不递归进入目录 symlink {
   `- task
   `@ do-not-follow-directory-symlinks

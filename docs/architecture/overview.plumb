@@ -64,6 +64,12 @@ open buffer 以 normalized document path 为单位完整遮蔽同 path 的 persi
 提交 persistent store。关闭 buffer 后，workspace 必须读取与实际 disk bytes identity 一致的 persisted
 generation，或先重新分析 disk source。create/change/remove 只使相关 documents 与 dependents invalidated。
 
+open-buffer snapshot 的跨文档 records 保留在 Rust `"DocumentOutput" overlay 中；workspace query 将
+persistent SQLite rows 排除 open paths 后与 overlay results 合成。不得把每次 didChange 的完整 generation
+同步发布到 SQLite TEMP tables：该统一 SQL 模型没有增加第一阶段已经获得的 warm-start 与 closed-workspace
+memory 收益，却会把大 open document 的 publication 和常用 query latency 带入逐键路径。query composition
+必须集中在 protocol-neutral workspace layer，并以 parity tests 防止两侧 semantic rules 分歧。
+
 syntax tree 不进入 persistent store。document analysis 仍先产生 protocol-neutral `"DocumentOutput"；
 workspace 将其中跨文档 query 所需的 semantic records 作为一个 document generation 原子投影到 SQLite。
 store 是 source 的 disposable derivative：transaction failure、schema migration 或 corruption 可以丢弃并

@@ -133,3 +133,28 @@ didChange 同步发布 TEMP generation 会给 33,512-event document 额外增加
 更新扩大到约 498 ms。不能用 document-size threshold 隐藏该成本。生产重构应先获得 incremental semantic
 generation/record diff，或定义 asynchronous generation publication 与 revision consistency；在此之前保留
 Rust open-document output 与 document-granularity query composition 的总体 latency 更低。
+
+`# 8. Unified TEMP SQL production rollback on 2026-08-11
+
+commit `"2f85c76" 曾将 prototype 扩展为生产实现：closed generations 位于 SQLite main tables，open
+generations 位于 connection-local TEMP tables，所有跨文档 query 通过 `"effective_*" views 统一。该实现
+随后被撤回；以下数据作为 rejected design 的实测记录保留，不描述当前 backend。
+
+相同 33,512-event release workload 相对第一阶段 SQLite plus Rust overlay baseline 的 midpoint 为：
+
+`- 单次 open update：314.37 ms 增至 491.57 ms，回退 56.4%。
+`- 十次连续 open updates：3.31 s 增至 5.59 s，回退 69.0%。
+`- open agenda：25.49 ms 增至 47.59 ms，回退 86.7%。
+`- persistent/site agenda：25.49 ms 增至 30.80 ms，回退 20.8%。
+`- open reverse references：4.02 ms 增至 6.58 ms，回退 63.7%。
+`- warm startup：7.91 ms 增至 8.67 ms，回退 9.6%。
+`- warm persistent resident memory：12.6 MiB 增至 13.5 MiB，回退约 6.7%；open in-memory resident
+ memory 从 217.6 MiB 降至 215.8 MiB，差异不显著。
+
+第二阶段删除 Rust/SQL dual query composition，工程收益是单一 relational query path；但第一阶段已经通过
+persistent SQLite 获得约 22.3x warm startup 和约 94.2% warm resident memory reduction。第二阶段没有重复
+获得这些核心收益，反而使 full-generation TEMP publication 进入 didChange，并让 SQLite VM、effective view、
+row conversion 与 record decode 进入 open-document query。因此当前实现恢复 persistent SQLite closed
+generations plus Rust open overlay。只有 incremental semantic record diff 或异步 publication 能先移除逐键
+full-generation cost，且完整 production parity benchmark 不再显示明显常用 query regression 时，才重新评估
+统一 SQL open generations；不能以 document-size threshold 规避该设计成本。
