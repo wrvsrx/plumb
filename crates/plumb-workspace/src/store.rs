@@ -7,14 +7,14 @@ use plumb_semantics::{
     AnchorRecord, DocumentOutput, EventRecord, LinkRecord, LinkTarget, MetadataValue, TaskRecord,
     TaskReferenceTarget,
 };
-use rusqlite::{params, Connection, OptionalExtension, Transaction};
+use rusqlite::{params, Connection, OptionalExtension, Statement, Transaction};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
 use crate::{normalize, resolve_relative, task_reference_fields, task_reference_ranges};
 
-const SCHEMA_VERSION: i64 = 2;
+const SCHEMA_VERSION: i64 = 3;
 const PRODUCER_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[derive(Debug)]
@@ -121,6 +121,13 @@ impl SqliteSemanticStore {
              CREATE INDEX IF NOT EXISTS references_target
                  ON semantic_references(target_path, target_id);
              CREATE INDEX IF NOT EXISTS references_source ON semantic_references(source_path);
+             CREATE TABLE IF NOT EXISTS event_link_references (
+                 source_path BLOB NOT NULL, target_path BLOB NOT NULL, target_id TEXT NOT NULL,
+                 source_start INTEGER NOT NULL, source_end INTEGER NOT NULL,
+                 path_start INTEGER, path_end INTEGER, id_start INTEGER, id_end INTEGER
+             );
+             CREATE INDEX IF NOT EXISTS event_link_references_target
+                 ON event_link_references(target_path, target_id);
              CREATE TABLE IF NOT EXISTS tasks (
                  path BLOB NOT NULL, id TEXT, title TEXT NOT NULL,
                  start INTEGER NOT NULL, record BLOB NOT NULL
@@ -132,7 +139,96 @@ impl SqliteSemanticStore {
                  interval_end_millis INTEGER, record BLOB NOT NULL
              );
              CREATE INDEX IF NOT EXISTS events_time
-                 ON events(interval_start_millis, interval_end_millis);",
+                 ON events(interval_start_millis, interval_end_millis);
+
+             CREATE TEMP TABLE open_documents (
+                 path BLOB PRIMARY KEY, revision INTEGER NOT NULL,
+                 content_hash BLOB NOT NULL, valid INTEGER NOT NULL,
+                 title TEXT NOT NULL, title_start INTEGER NOT NULL, title_end INTEGER NOT NULL
+             );
+             CREATE TEMP TABLE open_anchors (
+                 path BLOB NOT NULL, id TEXT NOT NULL, start INTEGER NOT NULL, record BLOB NOT NULL
+             );
+             CREATE INDEX temp.open_anchors_identity ON open_anchors(path, id);
+             CREATE TEMP TABLE open_links (
+                 path BLOB NOT NULL, start INTEGER NOT NULL, end INTEGER NOT NULL, record BLOB NOT NULL
+             );
+             CREATE INDEX temp.open_links_source_range ON open_links(path, start, end);
+             CREATE TEMP TABLE open_semantic_references (
+                 source_path BLOB NOT NULL, target_path BLOB NOT NULL, target_id TEXT,
+                 source_start INTEGER NOT NULL, source_end INTEGER NOT NULL,
+                 path_start INTEGER, path_end INTEGER, id_start INTEGER, id_end INTEGER
+             );
+             CREATE INDEX temp.open_references_target
+                 ON open_semantic_references(target_path, target_id);
+             CREATE INDEX temp.open_references_source ON open_semantic_references(source_path);
+             CREATE TEMP TABLE open_event_link_references (
+                 source_path BLOB NOT NULL, target_path BLOB NOT NULL, target_id TEXT NOT NULL,
+                 source_start INTEGER NOT NULL, source_end INTEGER NOT NULL,
+                 path_start INTEGER, path_end INTEGER, id_start INTEGER, id_end INTEGER
+             );
+             CREATE INDEX temp.open_event_link_references_target
+                 ON open_event_link_references(target_path, target_id);
+             CREATE TEMP TABLE open_tasks (
+                 path BLOB NOT NULL, id TEXT, title TEXT NOT NULL,
+                 start INTEGER NOT NULL, record BLOB NOT NULL
+             );
+             CREATE INDEX temp.open_tasks_identity ON open_tasks(path, id);
+             CREATE TEMP TABLE open_events (
+                 path BLOB NOT NULL, title TEXT NOT NULL, start INTEGER NOT NULL,
+                 is_point INTEGER NOT NULL, sort_millis INTEGER, interval_start_millis INTEGER,
+                 interval_end_millis INTEGER, record BLOB NOT NULL
+             );
+             CREATE INDEX temp.open_events_time
+                 ON open_events(interval_start_millis, interval_end_millis);
+
+             CREATE TEMP VIEW effective_documents AS
+                 SELECT * FROM open_documents
+                 UNION ALL
+                 SELECT d.* FROM main.documents d
+                 WHERE NOT EXISTS (SELECT 1 FROM open_documents o WHERE o.path = d.path);
+             CREATE TEMP VIEW effective_anchors AS
+                 SELECT * FROM open_anchors
+                 UNION ALL
+                 SELECT a.* FROM main.anchors a
+                 WHERE NOT EXISTS (SELECT 1 FROM open_documents o WHERE o.path = a.path);
+             CREATE TEMP VIEW effective_links AS
+                 SELECT * FROM open_links
+                 UNION ALL
+                 SELECT l.* FROM main.links l
+                 WHERE NOT EXISTS (SELECT 1 FROM open_documents o WHERE o.path = l.path);
+             CREATE TEMP VIEW effective_raw_references AS
+                 SELECT * FROM open_semantic_references
+                 UNION ALL
+                 SELECT r.* FROM main.semantic_references r
+                 WHERE NOT EXISTS (
+                     SELECT 1 FROM open_documents o WHERE o.path = r.source_path
+                 );
+             CREATE TEMP VIEW effective_tasks AS
+                 SELECT * FROM open_tasks
+                 UNION ALL
+                 SELECT t.* FROM main.tasks t
+                 WHERE NOT EXISTS (SELECT 1 FROM open_documents o WHERE o.path = t.path);
+             CREATE TEMP VIEW effective_event_link_references AS
+                 SELECT * FROM open_event_link_references
+                 UNION ALL
+                 SELECT r.* FROM main.event_link_references r
+                 WHERE NOT EXISTS (
+                     SELECT 1 FROM open_documents o WHERE o.path = r.source_path
+                 );
+             CREATE TEMP VIEW effective_semantic_references AS
+                 SELECT * FROM effective_raw_references
+                 UNION ALL
+                 SELECT r.* FROM effective_event_link_references r
+                 JOIN (
+                     SELECT path, id FROM effective_tasks
+                     WHERE id IS NOT NULL GROUP BY path, id HAVING COUNT(*) = 1
+                 ) t ON t.path = r.target_path AND t.id = r.target_id;
+             CREATE TEMP VIEW effective_events AS
+                 SELECT * FROM open_events
+                 UNION ALL
+                 SELECT e.* FROM main.events e
+                 WHERE NOT EXISTS (SELECT 1 FROM open_documents o WHERE o.path = e.path);",
         )?;
         let version = connection
             .query_row(
@@ -146,6 +242,7 @@ impl SqliteSemanticStore {
             Some(_) => {
                 connection.execute_batch(
                     "DELETE FROM anchors; DELETE FROM links; DELETE FROM semantic_references;
+                     DELETE FROM event_link_references;
                      DELETE FROM tasks; DELETE FROM events; DELETE FROM documents;",
                 )?;
                 connection.execute(
@@ -213,21 +310,45 @@ impl SqliteSemanticStore {
         source: &str,
         output: Option<&DocumentOutput>,
     ) -> StoreResult<()> {
+        self.replace_generation(path, revision, source, output, "")
+    }
+
+    pub fn replace_open(
+        &self,
+        path: &Path,
+        revision: i64,
+        source: &str,
+        output: Option<&DocumentOutput>,
+    ) -> StoreResult<()> {
+        self.replace_generation(path, revision, source, output, "open_")
+    }
+
+    fn replace_generation(
+        &self,
+        path: &Path,
+        revision: i64,
+        source: &str,
+        output: Option<&DocumentOutput>,
+        prefix: &str,
+    ) -> StoreResult<()> {
+        debug_assert!(matches!(prefix, "" | "open_"));
         let path = normalize(path);
         let mut connection = self
             .connection
             .lock()
             .map_err(|_| StoreError::LockPoisoned)?;
         let transaction = connection.transaction()?;
-        delete_document_rows(&transaction, &path)?;
+        delete_document_rows(&transaction, &path, prefix)?;
         let (title, title_range) = output.map_or_else(
             || (fallback_title(&path), 0..0),
             |output| document_title(output, &path),
         );
         transaction.execute(
-            "INSERT INTO documents(
+            &format!(
+                "INSERT INTO {prefix}documents(
                  path, revision, content_hash, valid, title, title_start, title_end
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)"
+            ),
             params![
                 path_bytes(&path),
                 revision,
@@ -239,7 +360,7 @@ impl SqliteSemanticStore {
             ],
         )?;
         if let Some(output) = output {
-            insert_output(&transaction, &path, output)?;
+            insert_output(&transaction, &path, output, prefix)?;
         }
         transaction.commit()?;
         Ok(())
@@ -251,8 +372,31 @@ impl SqliteSemanticStore {
             .lock()
             .map_err(|_| StoreError::LockPoisoned)?;
         let transaction = connection.transaction()?;
-        delete_document_rows(&transaction, &normalize(path))?;
+        delete_document_rows(&transaction, &normalize(path), "")?;
         transaction.commit()?;
+        Ok(())
+    }
+
+    pub fn remove_open(&self, path: &Path) -> StoreResult<()> {
+        let mut connection = self
+            .connection
+            .lock()
+            .map_err(|_| StoreError::LockPoisoned)?;
+        let transaction = connection.transaction()?;
+        delete_document_rows(&transaction, &normalize(path), "open_")?;
+        transaction.commit()?;
+        Ok(())
+    }
+
+    pub fn rebind_open_revision(&self, path: &Path, revision: i64) -> StoreResult<()> {
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| StoreError::LockPoisoned)?;
+        connection.execute(
+            "UPDATE open_documents SET revision = ?2 WHERE path = ?1",
+            params![path_bytes(&normalize(path)), revision],
+        )?;
         Ok(())
     }
 
@@ -263,7 +407,7 @@ impl SqliteSemanticStore {
             .map_err(|_| StoreError::LockPoisoned)?;
         let mut statement = connection.prepare(
             "SELECT path, revision, content_hash, valid, title, title_start, title_end
-             FROM documents ORDER BY path",
+             FROM effective_documents ORDER BY path",
         )?;
         let rows = statement.query_map([], |row| {
             Ok((
@@ -293,8 +437,8 @@ impl SqliteSemanticStore {
         .collect()
     }
 
-    pub fn anchors(&self, excluded: &[PathBuf]) -> StoreResult<Vec<StoredRecord<AnchorRecord>>> {
-        self.records("anchors", excluded)
+    pub fn anchors(&self) -> StoreResult<Vec<StoredRecord<AnchorRecord>>> {
+        self.records("anchors")
     }
 
     pub fn anchors_named(&self, path: &Path, id: &str) -> StoreResult<Vec<AnchorRecord>> {
@@ -302,39 +446,62 @@ impl SqliteSemanticStore {
             .connection
             .lock()
             .map_err(|_| StoreError::LockPoisoned)?;
-        let mut statement = connection
-            .prepare("SELECT record FROM anchors WHERE path = ?1 AND id = ?2 ORDER BY start")?;
+        let mut statement = connection.prepare(
+            "SELECT record FROM effective_anchors
+                 WHERE path = ?1 AND id = ?2 ORDER BY start",
+        )?;
         let rows = statement.query_map(params![path_bytes(&normalize(path)), id], |row| {
             row.get::<_, Vec<u8>>(0)
         })?;
         rows.map(|row| Ok(bincode::deserialize(&row?)?)).collect()
     }
 
-    pub fn links(&self, excluded: &[PathBuf]) -> StoreResult<Vec<StoredRecord<LinkRecord>>> {
-        self.records("links", excluded)
+    pub fn links(&self) -> StoreResult<Vec<StoredRecord<LinkRecord>>> {
+        self.records("links")
     }
 
-    pub fn tasks(&self, excluded: &[PathBuf]) -> StoreResult<Vec<StoredRecord<TaskRecord>>> {
-        self.records("tasks", excluded)
+    pub fn links_in_range(
+        &self,
+        path: &Path,
+        start: usize,
+        end: usize,
+    ) -> StoreResult<Vec<LinkRecord>> {
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| StoreError::LockPoisoned)?;
+        let mut statement = connection.prepare(
+            "SELECT record FROM effective_links
+             WHERE path = ?1 AND start >= ?2 AND end <= ?3
+             ORDER BY start",
+        )?;
+        let rows = statement.query_map(
+            params![path_bytes(&normalize(path)), to_i64(start)?, to_i64(end)?],
+            |row| row.get::<_, Vec<u8>>(0),
+        )?;
+        rows.map(|row| Ok(bincode::deserialize(&row?)?)).collect()
     }
 
-    pub fn events(&self, excluded: &[PathBuf]) -> StoreResult<Vec<StoredRecord<EventRecord>>> {
-        self.records("events", excluded)
+    pub fn tasks(&self) -> StoreResult<Vec<StoredRecord<TaskRecord>>> {
+        self.records("tasks")
+    }
+
+    pub fn events(&self) -> StoreResult<Vec<StoredRecord<EventRecord>>> {
+        self.records("events")
     }
 
     pub fn events_overlapping(
         &self,
         start_millis: i64,
         end_millis: i64,
-        excluded: &[PathBuf],
     ) -> StoreResult<Vec<StoredRecord<EventRecord>>> {
         let connection = self
             .connection
             .lock()
             .map_err(|_| StoreError::LockPoisoned)?;
         let mut statement = connection.prepare(
-            "SELECT e.path, d.revision, e.record FROM events e
-             JOIN documents d ON d.path = e.path
+            "SELECT e.path, d.revision, e.record FROM effective_events e
+             JOIN effective_documents d ON d.path = e.path
              WHERE (e.is_point = 1
                     AND e.interval_start_millis >= ?1 AND e.interval_start_millis < ?2)
                 OR (e.is_point = 0 AND e.interval_start_millis < ?2
@@ -348,17 +515,9 @@ impl SqliteSemanticStore {
                 row.get::<_, Vec<u8>>(2)?,
             ))
         })?;
-        let mut excluded = excluded
-            .iter()
-            .map(|path| normalize(path))
-            .collect::<Vec<_>>();
-        excluded.sort();
         rows.filter_map(|row| match row {
             Ok((path, revision, record)) => Some((|| {
                 let path = path_from_bytes(path)?;
-                if excluded.binary_search(&path).is_ok() {
-                    return Ok(None);
-                }
                 Ok(Some(StoredRecord {
                     path,
                     revision,
@@ -371,18 +530,14 @@ impl SqliteSemanticStore {
         .collect()
     }
 
-    fn records<T: DeserializeOwned>(
-        &self,
-        table: &str,
-        excluded: &[PathBuf],
-    ) -> StoreResult<Vec<StoredRecord<T>>> {
+    fn records<T: DeserializeOwned>(&self, table: &str) -> StoreResult<Vec<StoredRecord<T>>> {
         let connection = self
             .connection
             .lock()
             .map_err(|_| StoreError::LockPoisoned)?;
         let sql = format!(
-            "SELECT r.path, d.revision, r.record FROM {table} r
-             JOIN documents d ON d.path = r.path ORDER BY r.path, r.start"
+            "SELECT r.path, d.revision, r.record FROM effective_{table} r
+             JOIN effective_documents d ON d.path = r.path ORDER BY r.path, r.start"
         );
         let mut statement = connection.prepare(&sql)?;
         let rows = statement.query_map([], |row| {
@@ -392,17 +547,9 @@ impl SqliteSemanticStore {
                 row.get::<_, Vec<u8>>(2)?,
             ))
         })?;
-        let mut excluded = excluded
-            .iter()
-            .map(|path| normalize(path))
-            .collect::<Vec<_>>();
-        excluded.sort();
         rows.filter_map(|row| match row {
             Ok((path, revision, record)) => Some((|| {
                 let path = path_from_bytes(path)?;
-                if excluded.binary_search(&path).is_ok() {
-                    return Ok(None);
-                }
                 Ok(Some(StoredRecord {
                     path,
                     revision,
@@ -419,7 +566,6 @@ impl SqliteSemanticStore {
         &self,
         target_path: &Path,
         target_id: Option<&str>,
-        excluded: &[PathBuf],
     ) -> StoreResult<Vec<StoredReference>> {
         let connection = self
             .connection
@@ -428,7 +574,7 @@ impl SqliteSemanticStore {
         let mut statement = connection.prepare(
             "SELECT source_path, target_path, target_id, source_start, source_end,
                     path_start, path_end, id_start, id_end
-             FROM semantic_references
+             FROM effective_semantic_references
              WHERE target_path = ?1
                AND ((?2 IS NULL AND target_id IS NULL) OR target_id = ?2)
              ORDER BY source_path, source_start",
@@ -447,18 +593,10 @@ impl SqliteSemanticStore {
                 ))
             },
         )?;
-        let mut excluded = excluded
-            .iter()
-            .map(|path| normalize(path))
-            .collect::<Vec<_>>();
-        excluded.sort();
         rows.filter_map(|row| match row {
             Ok((source_path, target_path, target_id, start, end, path_range, id_range)) => {
                 Some((|| {
                     let source_path = path_from_bytes(source_path)?;
-                    if excluded.binary_search(&source_path).is_ok() {
-                        return Ok(None);
-                    }
                     Ok(Some(StoredReference {
                         source_path,
                         target_path: path_from_bytes(target_path)?,
@@ -472,6 +610,63 @@ impl SqliteSemanticStore {
             Err(error) => Some(Err(StoreError::Sqlite(error))),
         })
         .filter_map(|result| result.transpose())
+        .collect()
+    }
+
+    pub fn references_to_document(&self, target_path: &Path) -> StoreResult<Vec<StoredReference>> {
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| StoreError::LockPoisoned)?;
+        let mut statement = connection.prepare(
+            "SELECT source_path, target_path, target_id, source_start, source_end,
+                    path_start, path_end, id_start, id_end
+             FROM effective_semantic_references
+             WHERE target_path = ?1 ORDER BY source_path, source_start",
+        )?;
+        let rows = statement.query_map(params![path_bytes(&normalize(target_path))], |row| {
+            Ok((
+                row.get::<_, Vec<u8>>(0)?,
+                row.get::<_, Vec<u8>>(1)?,
+                row.get::<_, Option<String>>(2)?,
+                row.get::<_, i64>(3)?,
+                row.get::<_, i64>(4)?,
+                optional_range(row.get(5)?, row.get(6)?),
+                optional_range(row.get(7)?, row.get(8)?),
+            ))
+        })?;
+        rows.map(|row| {
+            let (source, target, target_id, start, end, path_range, id_range) = row?;
+            Ok(StoredReference {
+                source_path: path_from_bytes(source)?,
+                target_path: path_from_bytes(target)?,
+                target_id,
+                source_range: to_usize(start)?..to_usize(end)?,
+                path_range: convert_range(path_range)?,
+                id_range: convert_range(id_range)?,
+            })
+        })
+        .collect()
+    }
+
+    pub fn resolved_document_reference_edges(&self) -> StoreResult<Vec<(PathBuf, PathBuf)>> {
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| StoreError::LockPoisoned)?;
+        let mut statement = connection.prepare(
+            "SELECT DISTINCT r.source_path, r.target_path
+             FROM effective_semantic_references r
+             JOIN effective_documents d ON d.path = r.target_path AND d.valid = 1
+             ORDER BY r.source_path, r.target_path",
+        )?;
+        let rows = statement.query_map([], |row| {
+            Ok((row.get::<_, Vec<u8>>(0)?, row.get::<_, Vec<u8>>(1)?))
+        })?;
+        rows.map(|row| {
+            let (source, target) = row?;
+            Ok((path_from_bytes(source)?, path_from_bytes(target)?))
+        })
         .collect()
     }
 }
@@ -489,67 +684,83 @@ fn insert_output(
     transaction: &Transaction<'_>,
     path: &Path,
     output: &DocumentOutput,
+    prefix: &str,
 ) -> StoreResult<()> {
+    debug_assert!(matches!(prefix, "" | "open_"));
     let encoded_path = path_bytes(path);
+    let mut anchors = transaction.prepare(&format!(
+        "INSERT INTO {prefix}anchors(path, id, start, record) VALUES (?1, ?2, ?3, ?4)"
+    ))?;
+    let mut links = transaction.prepare(&format!(
+        "INSERT INTO {prefix}links(path, start, end, record) VALUES (?1, ?2, ?3, ?4)"
+    ))?;
+    let mut references = transaction.prepare(&format!(
+        "INSERT INTO {prefix}semantic_references(
+             source_path, target_path, target_id, source_start,
+             source_end, path_start, path_end, id_start, id_end)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)"
+    ))?;
+    let mut event_links = transaction.prepare(&format!(
+        "INSERT INTO {prefix}event_link_references(
+             source_path, target_path, target_id, source_start,
+             source_end, path_start, path_end, id_start, id_end)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)"
+    ))?;
+    let mut tasks = transaction.prepare(&format!(
+        "INSERT INTO {prefix}tasks(path, id, title, start, record)
+         VALUES (?1, ?2, ?3, ?4, ?5)"
+    ))?;
+    let mut events = transaction.prepare(&format!(
+        "INSERT INTO {prefix}events(
+             path, title, start, is_point, sort_millis, interval_start_millis,
+             interval_end_millis, record)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)"
+    ))?;
     for anchor in &output.anchors {
-        transaction.execute(
-            "INSERT INTO anchors(path, id, start, record) VALUES (?1, ?2, ?3, ?4)",
-            params![
-                encoded_path,
-                anchor.id.value,
-                to_i64(anchor.range.start)?,
-                encode(anchor)?
-            ],
-        )?;
+        anchors.execute(params![
+            encoded_path,
+            anchor.id.value,
+            to_i64(anchor.range.start)?,
+            encode(anchor)?
+        ])?;
     }
     for link in &output.links {
-        transaction.execute(
-            "INSERT INTO links(path, start, end, record) VALUES (?1, ?2, ?3, ?4)",
-            params![
-                encoded_path,
-                to_i64(link.range.start)?,
-                to_i64(link.range.end)?,
-                encode(link)?
-            ],
-        )?;
+        links.execute(params![
+            encoded_path,
+            to_i64(link.range.start)?,
+            to_i64(link.range.end)?,
+            encode(link)?
+        ])?;
         if let Some(reference) = link_reference(path, link) {
-            insert_reference(transaction, &reference)?;
+            insert_reference(&mut references, &reference)?;
         }
     }
     for task in &output.tasks.tasks {
-        transaction.execute(
-            "INSERT INTO tasks(path, id, title, start, record) VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![
-                encoded_path,
-                task.id.as_ref().map(|id| id.value.as_str()),
-                task.title,
-                to_i64(task.range.start)?,
-                encode(task)?
-            ],
-        )?;
+        tasks.execute(params![
+            encoded_path,
+            task.id.as_ref().map(|id| id.value.as_str()),
+            task.title,
+            to_i64(task.range.start)?,
+            encode(task)?
+        ])?;
         for (source, range, target) in task_reference_fields(task) {
             if let Some(reference) = task_reference(path, source, range, &target) {
-                insert_reference(transaction, &reference)?;
+                insert_reference(&mut references, &reference)?;
             }
         }
     }
     for event in &output.events.events {
         let interval_start = event.at_datetime().or_else(|| event.start_datetime());
-        transaction.execute(
-            "INSERT INTO events(path, title, start, is_point, sort_millis, interval_start_millis,
-                                interval_end_millis, record)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-            params![
-                encoded_path,
-                event.title,
-                to_i64(event.range.start)?,
-                i64::from(event.is_point()),
-                event.sort_datetime().map(|value| value.timestamp_millis()),
-                interval_start.map(|value| value.timestamp_millis()),
-                event.end_datetime().map(|value| value.timestamp_millis()),
-                encode(event)?
-            ],
-        )?;
+        events.execute(params![
+            encoded_path,
+            event.title,
+            to_i64(event.range.start)?,
+            i64::from(event.is_point()),
+            event.sort_datetime().map(|value| value.timestamp_millis()),
+            interval_start.map(|value| value.timestamp_millis()),
+            event.end_datetime().map(|value| value.timestamp_millis()),
+            encode(event)?
+        ])?;
         for dependency in &event.tasks {
             if let Some(reference) = task_reference(
                 path,
@@ -557,30 +768,42 @@ fn insert_output(
                 &dependency.range,
                 &dependency.target,
             ) {
-                insert_reference(transaction, &reference)?;
+                insert_reference(&mut references, &reference)?;
+            }
+        }
+        if !event.tasks_override {
+            let first = output
+                .links
+                .partition_point(|link| link.range.start < event.range.start);
+            for link in output.links[first..]
+                .iter()
+                .take_while(|link| link.range.start <= event.range.end)
+                .filter(|link| link.range.end <= event.range.end)
+            {
+                if !matches!(link.target_kind, LinkTarget::Anchor { .. }) {
+                    continue;
+                }
+                if let Some(reference) = link_reference(path, link) {
+                    insert_reference(&mut event_links, &reference)?;
+                }
             }
         }
     }
     Ok(())
 }
 
-fn insert_reference(transaction: &Transaction<'_>, reference: &StoredReference) -> StoreResult<()> {
-    transaction.execute(
-        "INSERT INTO semantic_references(source_path, target_path, target_id, source_start,
-             source_end, path_start, path_end, id_start, id_end)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-        params![
-            path_bytes(&reference.source_path),
-            path_bytes(&reference.target_path),
-            reference.target_id,
-            to_i64(reference.source_range.start)?,
-            to_i64(reference.source_range.end)?,
-            optional_i64(reference.path_range.as_ref().map(|range| range.start))?,
-            optional_i64(reference.path_range.as_ref().map(|range| range.end))?,
-            optional_i64(reference.id_range.as_ref().map(|range| range.start))?,
-            optional_i64(reference.id_range.as_ref().map(|range| range.end))?
-        ],
-    )?;
+fn insert_reference(statement: &mut Statement<'_>, reference: &StoredReference) -> StoreResult<()> {
+    statement.execute(params![
+        path_bytes(&reference.source_path),
+        path_bytes(&reference.target_path),
+        reference.target_id,
+        to_i64(reference.source_range.start)?,
+        to_i64(reference.source_range.end)?,
+        optional_i64(reference.path_range.as_ref().map(|range| range.start))?,
+        optional_i64(reference.path_range.as_ref().map(|range| range.end))?,
+        optional_i64(reference.id_range.as_ref().map(|range| range.start))?,
+        optional_i64(reference.id_range.as_ref().map(|range| range.end))?
+    ])?;
     Ok(())
 }
 
@@ -630,18 +853,30 @@ fn task_reference(
     })
 }
 
-fn delete_document_rows(transaction: &Transaction<'_>, path: &Path) -> StoreResult<()> {
+fn delete_document_rows(
+    transaction: &Transaction<'_>,
+    path: &Path,
+    prefix: &str,
+) -> StoreResult<()> {
+    debug_assert!(matches!(prefix, "" | "open_"));
     let path = path_bytes(path);
     for (table, column) in [
         ("anchors", "path"),
         ("links", "path"),
         ("semantic_references", "source_path"),
+        ("event_link_references", "source_path"),
         ("tasks", "path"),
         ("events", "path"),
     ] {
-        transaction.execute(&format!("DELETE FROM {table} WHERE {column} = ?1"), [&path])?;
+        transaction.execute(
+            &format!("DELETE FROM {prefix}{table} WHERE {column} = ?1"),
+            [&path],
+        )?;
     }
-    transaction.execute("DELETE FROM documents WHERE path = ?1", [&path])?;
+    transaction.execute(
+        &format!("DELETE FROM {prefix}documents WHERE path = ?1"),
+        [&path],
+    )?;
     Ok(())
 }
 
@@ -747,9 +982,9 @@ mod tests {
             .contains_current(Path::new("notes/a.plumb"), source)
             .unwrap());
         assert_eq!(store.documents().unwrap()[0].title, "Stored");
-        assert_eq!(store.anchors(&[]).unwrap().len(), 2);
-        assert_eq!(store.tasks(&[]).unwrap().len(), 1);
-        assert_eq!(store.events(&[]).unwrap().len(), 1);
+        assert_eq!(store.anchors().unwrap().len(), 2);
+        assert_eq!(store.tasks().unwrap().len(), 1);
+        assert_eq!(store.events().unwrap().len(), 1);
     }
 
     #[test]
@@ -764,29 +999,44 @@ mod tests {
             .replace(Path::new("a.plumb"), 0, new, Some(&analyzed(new)))
             .unwrap();
         assert!(store
-            .references_to(Path::new("a.plumb"), Some("target"), &[])
+            .references_to(Path::new("a.plumb"), Some("target"))
             .unwrap()
             .is_empty());
         assert_eq!(
             store
-                .references_to(Path::new("a.plumb"), Some("next"), &[])
+                .references_to(Path::new("a.plumb"), Some("next"))
                 .unwrap()
                 .len(),
             1
         );
-        assert_eq!(store.tasks(&[]).unwrap()[0].record.title, "New");
+        assert_eq!(store.tasks().unwrap()[0].record.title, "New");
     }
 
     #[test]
-    fn excludes_open_documents_at_document_granularity() {
+    fn open_generation_shadows_main_and_removal_reveals_it() {
         let store = SqliteSemanticStore::open_in_memory().unwrap();
         let source = "`task Stored {\n `@ item\n}\n";
         store
             .replace(Path::new("a.plumb"), 0, source, Some(&analyzed(source)))
             .unwrap();
-        let excluded = [PathBuf::from("a.plumb")];
-        assert!(store.tasks(&excluded).unwrap().is_empty());
-        assert!(store.anchors(&excluded).unwrap().is_empty());
+        let open = "`task Open {\n `@ changed\n}\n";
+        store
+            .replace_open(Path::new("a.plumb"), 1, open, Some(&analyzed(open)))
+            .unwrap();
+        assert_eq!(store.documents().unwrap()[0].revision, 1);
+        assert_eq!(store.tasks().unwrap()[0].record.title, "Open");
+
+        store
+            .replace_open(Path::new("a.plumb"), 2, "invalid", None)
+            .unwrap();
+        assert_eq!(store.documents().unwrap()[0].revision, 2);
+        assert!(!store.documents().unwrap()[0].valid);
+        assert!(store.tasks().unwrap().is_empty());
+        assert!(store.anchors().unwrap().is_empty());
+
+        store.remove_open(Path::new("a.plumb")).unwrap();
+        assert_eq!(store.documents().unwrap()[0].revision, 0);
+        assert_eq!(store.tasks().unwrap()[0].record.title, "Stored");
     }
 
     #[test]
@@ -804,6 +1054,6 @@ mod tests {
         assert!(reopened
             .contains_current(Path::new("a.plumb"), source)
             .unwrap());
-        assert_eq!(reopened.tasks(&[]).unwrap()[0].record.title, "Persistent");
+        assert_eq!(reopened.tasks().unwrap()[0].record.title, "Persistent");
     }
 }

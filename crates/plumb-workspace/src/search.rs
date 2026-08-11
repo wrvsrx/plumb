@@ -3,9 +3,9 @@ use std::path::{Path, PathBuf};
 
 use cel::{Context, ExecutionError, Program, Value};
 use chrono::{DateTime, FixedOffset};
-use plumb_semantics::{EventRecord, MetadataValue, TaskRecord, TaskState};
+use plumb_semantics::{EventRecord, TaskRecord, TaskState};
 
-use crate::{display_workspace_path, normalize, TaskRef, VersionedDocumentOutput, Workspace};
+use crate::{display_workspace_path, normalize, TaskRef, Workspace};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SearchRecordKind {
@@ -109,159 +109,11 @@ impl Workspace {
             .transpose()?;
         let reverse = filter.as_ref().map(|_| ReverseReferences::build(self));
         let mut matches = Vec::new();
-        for entry in self.documents.values() {
-            let Some(current) = &entry.current else {
-                continue;
-            };
-            let relative_path = entry
-                .path
-                .strip_prefix(&root)
-                .unwrap_or(&entry.path)
-                .display()
-                .to_string();
-            if kind.is_none_or(|kind| kind == SearchRecordKind::Note) {
-                let (title, range) = note_search_title(current, &relative_path);
-                let filter_match = match (&filter, &reverse) {
-                    (Some(filter), Some(reverse)) => {
-                        filter.note_matches(&root, &entry.path, &title, reverse)?
-                    }
-                    _ => true,
-                };
-                if filter_match {
-                    if let Some(score) = search_score(query, &[&title, &relative_path]) {
-                        matches.push((
-                            score,
-                            SearchRecord {
-                                kind: SearchRecordKind::Note,
-                                title,
-                                path: entry.path.clone(),
-                                relative_path: relative_path.clone(),
-                                range,
-                                revision: current.revision,
-                                id: None,
-                                task_state: None,
-                                wait_reasons: None,
-                                due: None,
-                                priority: None,
-                                effective_priority: None,
-                                blocked: None,
-                                actionable: None,
-                                depth: None,
-                                at: None,
-                                start: None,
-                                end: None,
-                                tasks: None,
-                            },
-                        ));
-                    }
-                }
-            }
-            if kind.is_none_or(|kind| kind == SearchRecordKind::Task) {
-                for task in &current.output.tasks.tasks {
-                    let id = task.id.as_ref().map(|id| id.value.clone());
-                    let fields = [
-                        task.title.as_str(),
-                        id.as_deref().unwrap_or_default(),
-                        relative_path.as_str(),
-                    ];
-                    let Some(score) = search_score(query, &fields) else {
-                        continue;
-                    };
-                    let blocked = self.is_task_blocked(&entry.path, task);
-                    let (task_state, wait_reasons) = derive_task_workflow_state(task, blocked, now);
-                    let actionable = task_state == TaskWorkflowState::Ready;
-                    if let Some(filter) = &filter {
-                        let facts = TaskMatchFacts {
-                            state: task_state,
-                            wait_reasons: &wait_reasons,
-                            blocked,
-                            actionable,
-                        };
-                        if !filter.task_matches(&root, &entry.path, task, self, facts)? {
-                            continue;
-                        }
-                    }
-                    matches.push((
-                        score,
-                        SearchRecord {
-                            kind: SearchRecordKind::Task,
-                            title: task.title.clone(),
-                            path: entry.path.clone(),
-                            relative_path: relative_path.clone(),
-                            range: task.selection_range.clone(),
-                            revision: current.revision,
-                            id,
-                            task_state: Some(task_state),
-                            wait_reasons: Some(wait_reasons),
-                            due: task.due.as_ref().map(|due| due.value.clone()),
-                            priority: task.priority,
-                            effective_priority: None,
-                            blocked: Some(blocked),
-                            actionable: Some(actionable),
-                            depth: Some(task.depth),
-                            at: None,
-                            start: None,
-                            end: None,
-                            tasks: None,
-                        },
-                    ));
-                }
-            }
-            if kind.is_none_or(|kind| kind == SearchRecordKind::Event) {
-                for event in &current.output.events.events {
-                    let id = event.id.as_ref().map(|id| id.value.clone());
-                    let fields = [
-                        event.title.as_str(),
-                        id.as_deref().unwrap_or_default(),
-                        relative_path.as_str(),
-                    ];
-                    let Some(score) = search_score(query, &fields) else {
-                        continue;
-                    };
-                    if let Some(filter) = &filter {
-                        if !filter.event_matches(&root, &entry.path, event)? {
-                            continue;
-                        }
-                    }
-                    matches.push((
-                        score,
-                        SearchRecord {
-                            kind: SearchRecordKind::Event,
-                            title: event.title.clone(),
-                            path: entry.path.clone(),
-                            relative_path: relative_path.clone(),
-                            range: event.selection_range.clone(),
-                            revision: current.revision,
-                            id,
-                            task_state: None,
-                            wait_reasons: None,
-                            due: None,
-                            priority: None,
-                            effective_priority: None,
-                            blocked: None,
-                            actionable: None,
-                            depth: Some(event.depth),
-                            at: event.at.as_ref().map(|field| field.value.clone()),
-                            start: event.start.as_ref().map(|field| field.value.clone()),
-                            end: event.end.as_ref().map(|field| field.value.clone()),
-                            tasks: Some(
-                                event
-                                    .tasks
-                                    .iter()
-                                    .map(|reference| reference.source.clone())
-                                    .collect(),
-                            ),
-                        },
-                    ));
-                }
-            }
-        }
-        if let Some(store) = &self.disk_store {
-            let open = self.open_paths();
-            let open_set = open.iter().collect::<HashSet<_>>();
+        {
+            let store = &self.store;
             if kind.is_none_or(|kind| kind == SearchRecordKind::Note) {
                 for document in store.documents().map_err(|error| error.to_string())? {
-                    if open_set.contains(&document.path) || !document.valid {
+                    if !document.valid {
                         continue;
                     }
                     let relative_path = document
@@ -310,7 +162,7 @@ impl Workspace {
                 }
             }
             if kind.is_none_or(|kind| kind == SearchRecordKind::Task) {
-                for stored in store.tasks(&open).map_err(|error| error.to_string())? {
+                for stored in store.tasks().map_err(|error| error.to_string())? {
                     let task = stored.record;
                     let relative_path = stored
                         .path
@@ -371,7 +223,7 @@ impl Workspace {
                 }
             }
             if kind.is_none_or(|kind| kind == SearchRecordKind::Event) {
-                for stored in store.events(&open).map_err(|error| error.to_string())? {
+                for stored in store.events().map_err(|error| error.to_string())? {
                     let event = stored.record;
                     let relative_path = stored
                         .path
@@ -583,33 +435,6 @@ fn fuzzy_score(candidate: &str, query: &str) -> Option<i64> {
         score += 500;
     }
     Some(score)
-}
-
-fn note_search_title(
-    current: &VersionedDocumentOutput,
-    relative_path: &str,
-) -> (String, std::ops::Range<usize>) {
-    let title = current
-        .output
-        .metadata
-        .metadata
-        .as_ref()
-        .and_then(|metadata| metadata.entries.iter().find(|entry| entry.key == "title"))
-        .and_then(|entry| match &entry.value {
-            MetadataValue::Scalar { content, .. } if !content.plain_text().is_empty() => {
-                Some((content.plain_text(), content.range.clone()))
-            }
-            _ => None,
-        });
-    title.unwrap_or_else(|| {
-        let fallback = Path::new(relative_path)
-            .file_stem()
-            .and_then(|stem| stem.to_str())
-            .filter(|stem| !stem.is_empty())
-            .unwrap_or(relative_path)
-            .to_string();
-        (fallback, 0..0)
-    })
 }
 
 struct SemanticSearchFilter {
@@ -852,10 +677,12 @@ struct ReverseReferences {
 impl ReverseReferences {
     fn build(workspace: &Workspace) -> Self {
         let mut direct: HashMap<PathBuf, HashSet<PathBuf>> = HashMap::new();
-        for entry in workspace.documents() {
-            for target in workspace.referenced_documents_from(&entry.path) {
-                direct.entry(target).or_default().insert(entry.path.clone());
-            }
+        for (source, target) in workspace
+            .store
+            .resolved_document_reference_edges()
+            .unwrap_or_default()
+        {
+            direct.entry(target).or_default().insert(source);
         }
         Self { direct }
     }
