@@ -64,6 +64,8 @@ composition；不得在 workspace、Web 或 protocol adapters 中散布 SQL stri
 属于 store module，不形成第二套 repository API。Diesel schema、migration、generation transaction 与 typed
 row decoding 已实现；task dependency relation、active/blocked lookup、standard task state filtering 与 Web task
 query adapter 已下沉。event-task relation、通用 CEL filter/order/cursor pagination 仍未实现。
+CEL reverse task dependency facts 使用 store-owned Diesel batch relation query 与 open-buffer overlay 合成，Web、
+CLI 和其他 adapters 不逐 task 查询 dependents，也不接触 relation table schema。
 
 open buffer 以 normalized document path 为单位完整遮蔽同 path 的 persisted disk projection。一个 query
 中的 source document 只能来自 open-buffer snapshot 或 SQLite active generation 之一，不能逐 record

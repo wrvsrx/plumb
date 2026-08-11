@@ -122,6 +122,10 @@ filter/order/limit 的 observable parity 或把完整 closed generation material
 CEL filter compilation 必须记录 expression 实际引用的 variables。构造 task/event context 时，普通 typed
 columns 可以直接绑定；dependency、reverse relation 或其他需要 workspace lookup 的 facts 只在 expression 引用
 对应 variable 时物化。该 demand-driven context 不能改变缺失 variable、类型错误或 filter result semantics。
+当 task filter 引用 reverse dependency variable 时，query execution 必须在遍历 records 前一次批量取得所有 direct
+dependency endpoints，并按 target identity 建立 lookup；不得为每个 candidate task 重扫 workspace 或分别发起
+database query。Persistent rows 排除 open source documents 后与 open-buffer relations 合并，继续保持 document-
+granularity overlay precedence 和 deterministic source ordering。
 
 Task cursor page 绑定 normalized filter、sort keys 与 workspace revision。cursor 是 opaque continuation identity，
 不得解释为 row offset；失配或 stale cursor 必须拒绝。分页先在 lightweight typed facts 上完成 filter、tree
