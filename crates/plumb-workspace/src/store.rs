@@ -26,7 +26,7 @@ use schema::{
     anchors, cache_meta, documents, events, links, semantic_references, task_dependencies, tasks,
 };
 
-const SCHEMA_VERSION: i64 = 3;
+const SCHEMA_VERSION: i64 = 4;
 const PRODUCER_VERSION: &str = env!("CARGO_PKG_VERSION");
 const MIGRATIONS: EmbeddedMigrations = embed_migrations!("migrations");
 
@@ -938,6 +938,7 @@ fn path_from_bytes(bytes: Vec<u8>) -> StoreResult<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use diesel::sql_types::Text;
     use plumb_semantics::analyze_document;
     use plumb_syntax::parse;
 
@@ -1156,5 +1157,33 @@ mod tests {
             )
             .unwrap();
         assert!(store.blocked_task_sources(&[]).unwrap().is_empty());
+    }
+
+    #[derive(QueryableByName)]
+    struct QueryPlanRow {
+        #[diesel(sql_type = Text)]
+        detail: String,
+    }
+
+    #[test]
+    fn active_task_query_uses_the_state_wait_index() {
+        let store = SqliteSemanticStore::open_in_memory().unwrap();
+        let mut connection = store.connection.lock().unwrap();
+        let plan = diesel::sql_query(
+            "EXPLAIN QUERY PLAN SELECT path, start FROM tasks \
+             WHERE closure_state = 'open' AND (wait_millis IS NULL OR wait_millis <= 0) \
+             ORDER BY path, start",
+        )
+        .load::<QueryPlanRow>(&mut *connection)
+        .unwrap();
+        assert!(
+            plan.iter()
+                .any(|row| row.detail.contains("tasks_state_wait")),
+            "{}",
+            plan.iter()
+                .map(|row| row.detail.as_str())
+                .collect::<Vec<_>>()
+                .join("; ")
+        );
     }
 }

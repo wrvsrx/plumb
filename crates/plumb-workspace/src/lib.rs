@@ -301,6 +301,12 @@ pub struct WorkspaceEvent {
     pub event: EventRecord,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct WorkspaceTaskKey {
+    pub path: PathBuf,
+    pub start: usize,
+}
+
 #[derive(Debug, Default, Clone)]
 pub struct Workspace {
     documents: HashMap<PathBuf, DocumentEntry>,
@@ -476,6 +482,122 @@ impl Workspace {
         let mut paths = self.documents.keys().cloned().collect::<Vec<_>>();
         paths.sort();
         paths
+    }
+
+    pub fn active_task_keys(
+        &self,
+        now: DateTime<FixedOffset>,
+    ) -> Result<Vec<WorkspaceTaskKey>, StoreError> {
+        let mut keys = self
+            .documents
+            .values()
+            .filter_map(|entry| entry.current.as_ref().map(|current| (entry, current)))
+            .flat_map(|(entry, current)| {
+                current.output.tasks.tasks.iter().filter_map(move |task| {
+                    let blocked = self.is_task_blocked(&entry.path, task);
+                    matches!(
+                        derive_task_workflow_state(task, blocked, now).0,
+                        TaskWorkflowState::Ready | TaskWorkflowState::Blocked
+                    )
+                    .then(|| WorkspaceTaskKey {
+                        path: entry.path.clone(),
+                        start: task.selection_range.start,
+                    })
+                })
+            })
+            .collect::<Vec<_>>();
+        if let Some(store) = &self.disk_store {
+            keys.extend(
+                store
+                    .active_tasks(now.timestamp_millis(), &self.open_paths())?
+                    .into_iter()
+                    .map(|stored| WorkspaceTaskKey {
+                        path: stored.path,
+                        start: stored.record.selection_range.start,
+                    }),
+            );
+        }
+        keys.sort_by(|left, right| {
+            left.path
+                .cmp(&right.path)
+                .then_with(|| left.start.cmp(&right.start))
+        });
+        Ok(keys)
+    }
+
+    pub fn task_keys_for_states(
+        &self,
+        states: &HashSet<TaskWorkflowState>,
+        now: DateTime<FixedOffset>,
+    ) -> Result<Vec<WorkspaceTaskKey>, StoreError> {
+        if states.len() == 2
+            && states.contains(&TaskWorkflowState::Ready)
+            && states.contains(&TaskWorkflowState::Blocked)
+        {
+            return self.active_task_keys(now);
+        }
+        let open = self.open_paths();
+        let mut blocked = self
+            .disk_store
+            .as_ref()
+            .map(|store| store.blocked_task_sources(&open))
+            .transpose()?
+            .unwrap_or_default()
+            .into_iter()
+            .map(|source| (source.path, source.start))
+            .collect::<HashSet<_>>();
+        for entry in self.documents.values() {
+            let Some(current) = &entry.current else {
+                continue;
+            };
+            blocked.extend(current.output.tasks.tasks.iter().filter_map(|task| {
+                self.is_task_blocked(&entry.path, task)
+                    .then(|| (entry.path.clone(), task.range.start))
+            }));
+        }
+        let mut keys = self
+            .documents
+            .values()
+            .filter_map(|entry| entry.current.as_ref().map(|current| (entry, current)))
+            .flat_map(|(entry, current)| {
+                current.output.tasks.tasks.iter().filter_map(|task| {
+                    states
+                        .contains(
+                            &derive_task_workflow_state(
+                                task,
+                                blocked.contains(&(entry.path.clone(), task.range.start)),
+                                now,
+                            )
+                            .0,
+                        )
+                        .then(|| WorkspaceTaskKey {
+                            path: entry.path.clone(),
+                            start: task.selection_range.start,
+                        })
+                })
+            })
+            .collect::<Vec<_>>();
+        if let Some(store) = &self.disk_store {
+            keys.extend(store.tasks(&open)?.into_iter().filter_map(|stored| {
+                let is_blocked = if open.is_empty() {
+                    blocked.contains(&(stored.path.clone(), stored.record.range.start))
+                } else {
+                    self.is_task_blocked(&stored.path, &stored.record)
+                };
+                states
+                    .contains(&derive_task_workflow_state(&stored.record, is_blocked, now).0)
+                    .then(|| WorkspaceTaskKey {
+                        path: stored.path,
+                        start: stored.record.selection_range.start,
+                    })
+            }));
+        }
+        keys.sort_by(|left, right| {
+            left.path
+                .cmp(&right.path)
+                .then_with(|| left.start.cmp(&right.start))
+        });
+        Ok(keys)
     }
 
     pub fn resolve_link(&self, from: impl AsRef<Path>, link: &LinkRecord) -> ResolvedTarget {
@@ -4606,6 +4728,65 @@ mod tests {
         assert_eq!(
             sqlite.events_overlapping(start, end),
             memory.events_overlapping(start, end)
+        );
+    }
+
+    #[test]
+    fn sqlite_active_task_keys_match_memory_and_replace_open_documents() {
+        let now = DateTime::parse_from_rfc3339("2026-08-11T10:00:00+00:00").unwrap();
+        let disk = concat!(
+            "`task Ready {\n `@ ready\n}\n",
+            "`task Waiting {\n `@ waiting\n `: wait 2026-08-12T10:00:00Z\n}\n",
+            "`task Done {\n `@ done\n `: done 2026-08-10T10:00:00Z\n}\n",
+        );
+        let open = "`task Open replacement {\n `@ replacement\n}\n";
+
+        let mut memory = Workspace::new();
+        memory.insert("tasks.plumb", 0, disk);
+        let store = SqliteSemanticStore::open_in_memory().unwrap();
+        let mut sqlite = Workspace::with_sqlite_store(store);
+        sqlite.insert_disk("tasks.plumb", 0, disk).unwrap();
+        assert_eq!(
+            sqlite.active_task_keys(now).unwrap(),
+            memory.active_task_keys(now).unwrap()
+        );
+
+        memory.insert("tasks.plumb", 1, open);
+        sqlite.open_document("tasks.plumb", 1, open);
+        assert_eq!(
+            sqlite.active_task_keys(now).unwrap(),
+            memory.active_task_keys(now).unwrap()
+        );
+        assert_eq!(
+            sqlite.active_task_keys(now).unwrap(),
+            [WorkspaceTaskKey {
+                path: PathBuf::from("tasks.plumb"),
+                start: 6,
+            }]
+        );
+    }
+
+    #[test]
+    fn sqlite_state_keys_recompute_disk_sources_against_open_targets() {
+        let now = DateTime::parse_from_rfc3339("2026-08-11T10:00:00+00:00").unwrap();
+        let source = "`task Source {\n `@ source\n `: depends target.plumb#target\n}\n";
+        let closed_target = "`task Target {\n `@ target\n `: done 2026-08-10T10:00:00Z\n}\n";
+        let open_target = "`task Target {\n `@ target\n}\n";
+        let store = SqliteSemanticStore::open_in_memory().unwrap();
+        let mut workspace = Workspace::with_sqlite_store(store);
+        workspace.insert_disk("source.plumb", 0, source).unwrap();
+        workspace
+            .insert_disk("target.plumb", 0, closed_target)
+            .unwrap();
+        workspace.open_document("target.plumb", 1, open_target);
+
+        let blocked = HashSet::from([TaskWorkflowState::Blocked]);
+        assert_eq!(
+            workspace.task_keys_for_states(&blocked, now).unwrap(),
+            [WorkspaceTaskKey {
+                path: PathBuf::from("source.plumb"),
+                start: 6,
+            }]
         );
     }
 

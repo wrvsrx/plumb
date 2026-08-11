@@ -14,7 +14,7 @@ pub enum SearchRecordKind {
     Event,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TaskWorkflowState {
     Ready,
     Waiting,
@@ -310,6 +310,12 @@ impl Workspace {
                 }
             }
             if kind.is_none_or(|kind| kind == SearchRecordKind::Task) {
+                let blocked_sources = store
+                    .blocked_task_sources(&open)
+                    .map_err(|error| error.to_string())?
+                    .into_iter()
+                    .map(|source| (source.path, source.start))
+                    .collect::<HashSet<_>>();
                 for stored in store.tasks(&open).map_err(|error| error.to_string())? {
                     let task = stored.record;
                     let relative_path = stored
@@ -329,7 +335,11 @@ impl Workspace {
                     ) else {
                         continue;
                     };
-                    let blocked = self.is_task_blocked(&stored.path, &task);
+                    let blocked = if open.is_empty() {
+                        blocked_sources.contains(&(stored.path.clone(), task.range.start))
+                    } else {
+                        self.is_task_blocked(&stored.path, &task)
+                    };
                     let (task_state, wait_reasons) =
                         derive_task_workflow_state(&task, blocked, now);
                     let actionable = task_state == TaskWorkflowState::Ready;
