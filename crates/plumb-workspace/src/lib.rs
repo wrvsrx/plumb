@@ -5799,6 +5799,47 @@ mod tests {
     }
 
     #[test]
+    fn batches_reverse_task_relations_with_open_document_precedence() {
+        let now = DateTime::parse_from_rfc3339("2026-08-11T12:00:00+08:00").unwrap();
+        let store = SqliteSemanticStore::open_in_memory().unwrap();
+        let mut workspace = Workspace::with_sqlite_store(store);
+        let target = "`task Target {\n  `@ target\n}\n";
+        let dependent = "`task Dependent {\n  `@ dependent\n  `: depends target.plumb#target\n}\n";
+        workspace.insert_disk("target.plumb", 1, target).unwrap();
+        workspace.insert_disk("source.plumb", 1, dependent).unwrap();
+
+        let blocking_targets = |workspace: &Workspace| {
+            workspace
+                .search_records_filtered(
+                    Path::new(""),
+                    Some(SearchRecordKind::Task),
+                    "",
+                    20,
+                    now,
+                    Some("directly_blocking.size() > 0"),
+                )
+                .unwrap()
+        };
+        assert_eq!(
+            blocking_targets(&workspace).items[0].id.as_deref(),
+            Some("target")
+        );
+
+        workspace.open_document(
+            "source.plumb",
+            2,
+            "`task Current source {\n  `@ dependent\n}\n",
+        );
+        assert!(blocking_targets(&workspace).items.is_empty());
+
+        workspace.open_document("source.plumb", 3, dependent);
+        assert_eq!(
+            blocking_targets(&workspace).items[0].id.as_deref(),
+            Some("target")
+        );
+    }
+
+    #[test]
     fn propagates_effective_priority_through_open_dependencies_and_ancestors() {
         let root = Path::new("notes");
         let now = DateTime::parse_from_rfc3339("2026-08-05T12:00:00+08:00").unwrap();

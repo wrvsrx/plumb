@@ -111,6 +111,12 @@ impl Workspace {
             .as_ref()
             .filter(|filter| filter.needs_reverse_references())
             .map(|_| ReverseReferences::build(self));
+        let task_dependents = filter
+            .as_ref()
+            .filter(|filter| filter.needs_task_dependents())
+            .filter(|_| kind.is_none_or(|kind| kind == SearchRecordKind::Task))
+            .map(|_| DirectTaskDependents::build(self))
+            .transpose()?;
         let mut matches = Vec::new();
         for entry in self.documents.values() {
             let Some(current) = &entry.current else {
@@ -180,7 +186,14 @@ impl Workspace {
                             blocked,
                             actionable,
                         };
-                        if !filter.task_matches(&root, &entry.path, task, self, facts)? {
+                        if !filter.task_matches(
+                            &root,
+                            &entry.path,
+                            task,
+                            self,
+                            task_dependents.as_ref(),
+                            facts,
+                        )? {
                             continue;
                         }
                     }
@@ -353,7 +366,14 @@ impl Workspace {
                             blocked,
                             actionable,
                         };
-                        if !filter.task_matches(&root, &stored.path, &task, self, facts)? {
+                        if !filter.task_matches(
+                            &root,
+                            &stored.path,
+                            &task,
+                            self,
+                            task_dependents.as_ref(),
+                            facts,
+                        )? {
                             continue;
                         }
                     }
@@ -663,6 +683,10 @@ impl SemanticSearchFilter {
         self.uses("directly_referenced_by") || self.uses("transitively_referenced_by")
     }
 
+    fn needs_task_dependents(&self) -> bool {
+        self.uses("directly_blocking")
+    }
+
     fn note_matches(
         &self,
         root: &Path,
@@ -704,6 +728,7 @@ impl SemanticSearchFilter {
         path: &Path,
         task: &TaskRecord,
         workspace: &Workspace,
+        task_dependents: Option<&DirectTaskDependents>,
         facts: TaskMatchFacts<'_>,
     ) -> Result<bool, String> {
         let mut context = Context::default();
@@ -742,13 +767,14 @@ impl SemanticSearchFilter {
             );
         }
         if self.uses("directly_blocking") {
+            let task_dependents = task_dependents.expect("task dependents requested by CEL filter");
             context.add_variable_from_value(
                 "directly_blocking",
                 task.id
                     .as_ref()
                     .map(|id| {
-                        workspace
-                            .directly_blocking_tasks(path, &id.value)
+                        task_dependents
+                            .get(path, &id.value)
                             .iter()
                             .map(|target| display_search_task_ref(root, target))
                             .collect::<Vec<_>>()
@@ -886,6 +912,73 @@ fn display_search_task_ref(root: &Path, task_ref: &TaskRef) -> String {
         display_workspace_path(root, &task_ref.path),
         task_ref.id
     )
+}
+
+#[derive(Debug, Default)]
+struct DirectTaskDependents {
+    by_target: HashMap<TaskRef, Vec<TaskRef>>,
+}
+
+impl DirectTaskDependents {
+    fn build(workspace: &Workspace) -> Result<Self, String> {
+        let open = workspace.open_paths();
+        let mut by_target = HashMap::<TaskRef, Vec<TaskRef>>::new();
+        if let Some(store) = &workspace.disk_store {
+            for relation in store
+                .task_dependency_relations(&open)
+                .map_err(|error| error.to_string())?
+            {
+                let Some(source_id) = relation.source_id else {
+                    continue;
+                };
+                by_target
+                    .entry(TaskRef {
+                        path: relation.target_path,
+                        id: relation.target_id,
+                    })
+                    .or_default()
+                    .push(TaskRef {
+                        path: relation.source_path,
+                        id: source_id,
+                    });
+            }
+        }
+        for entry in workspace.documents.values() {
+            let Some(current) = &entry.current else {
+                continue;
+            };
+            for task in &current.output.tasks.tasks {
+                let Some(id) = &task.id else {
+                    continue;
+                };
+                let source = TaskRef {
+                    path: entry.path.clone(),
+                    id: id.value.clone(),
+                };
+                for dependency in workspace.task_dependencies(&entry.path, task) {
+                    by_target
+                        .entry(dependency.target)
+                        .or_default()
+                        .push(source.clone());
+                }
+            }
+        }
+        for sources in by_target.values_mut() {
+            sources.sort_by(|left, right| left.path.cmp(&right.path).then(left.id.cmp(&right.id)));
+            sources.dedup();
+        }
+        Ok(Self { by_target })
+    }
+
+    fn get(&self, path: &Path, id: &str) -> &[TaskRef] {
+        self.by_target
+            .get(&TaskRef {
+                path: normalize(path),
+                id: id.to_string(),
+            })
+            .map(Vec::as_slice)
+            .unwrap_or_default()
+    }
 }
 
 struct ReverseReferences {

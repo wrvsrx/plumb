@@ -26,6 +26,8 @@ use schema::{
     anchors, cache_meta, documents, events, links, semantic_references, task_dependencies, tasks,
 };
 
+type TaskDependencyRow = (Vec<u8>, i64, Option<String>, Vec<u8>, String, String);
+
 const SCHEMA_VERSION: i64 = 4;
 const PRODUCER_VERSION: &str = env!("CARGO_PKG_VERSION");
 const MIGRATIONS: EmbeddedMigrations = embed_migrations!("migrations");
@@ -368,33 +370,35 @@ impl SqliteSemanticStore {
                 task_dependencies::source_path,
                 task_dependencies::source_start,
             ))
-            .load::<(Vec<u8>, i64, Option<String>, Vec<u8>, String, String)>(&mut *connection)?;
-        let mut excluded = excluded
-            .iter()
-            .map(|path| normalize(path))
-            .collect::<Vec<_>>();
-        excluded.sort();
-        rows.into_iter()
-            .filter_map(
-                |(source_path, source_start, source_id, target_path, target_id, source)| {
-                    Some((|| {
-                        let source_path = path_from_bytes(source_path)?;
-                        if excluded.binary_search(&source_path).is_ok() {
-                            return Ok(None);
-                        }
-                        Ok(Some(StoredTaskDependency {
-                            source_path,
-                            source_start: to_usize(source_start)?,
-                            source_id,
-                            target_path: path_from_bytes(target_path)?,
-                            target_id,
-                            source,
-                        }))
-                    })())
-                },
-            )
-            .filter_map(Result::transpose)
-            .collect()
+            .load::<TaskDependencyRow>(&mut *connection)?;
+        decode_task_dependencies(rows, excluded)
+    }
+
+    pub fn task_dependency_relations(
+        &self,
+        excluded: &[PathBuf],
+    ) -> StoreResult<Vec<StoredTaskDependency>> {
+        let mut connection = self
+            .connection
+            .lock()
+            .map_err(|_| StoreError::LockPoisoned)?;
+        let rows = task_dependencies::table
+            .select((
+                task_dependencies::source_path,
+                task_dependencies::source_start,
+                task_dependencies::source_id,
+                task_dependencies::target_path,
+                task_dependencies::target_id,
+                task_dependencies::source_text,
+            ))
+            .order((
+                task_dependencies::target_path,
+                task_dependencies::target_id,
+                task_dependencies::source_path,
+                task_dependencies::source_start,
+            ))
+            .load::<TaskDependencyRow>(&mut *connection)?;
+        decode_task_dependencies(rows, excluded)
     }
 
     pub fn active_tasks(
@@ -846,6 +850,38 @@ fn decode_records<T: DeserializeOwned>(
     .collect()
 }
 
+fn decode_task_dependencies(
+    rows: Vec<TaskDependencyRow>,
+    excluded: &[PathBuf],
+) -> StoreResult<Vec<StoredTaskDependency>> {
+    let mut excluded = excluded
+        .iter()
+        .map(|path| normalize(path))
+        .collect::<Vec<_>>();
+    excluded.sort();
+    rows.into_iter()
+        .filter_map(
+            |(source_path, source_start, source_id, target_path, target_id, source)| {
+                Some((|| {
+                    let source_path = path_from_bytes(source_path)?;
+                    if excluded.binary_search(&source_path).is_ok() {
+                        return Ok(None);
+                    }
+                    Ok(Some(StoredTaskDependency {
+                        source_path,
+                        source_start: to_usize(source_start)?,
+                        source_id,
+                        target_path: path_from_bytes(target_path)?,
+                        target_id,
+                        source,
+                    }))
+                })())
+            },
+        )
+        .filter_map(Result::transpose)
+        .collect()
+}
+
 fn document_title(output: &DocumentOutput, path: &Path) -> (String, Range<usize>) {
     output
         .metadata
@@ -1061,6 +1097,11 @@ mod tests {
         assert_eq!(dependencies[0].source_path, Path::new("source.plumb"));
         assert_eq!(dependencies[0].source_id.as_deref(), Some("source"));
         assert_eq!(dependencies[0].source, "target.plumb#target");
+        assert_eq!(store.task_dependency_relations(&[]).unwrap(), dependencies);
+        assert!(store
+            .task_dependency_relations(&[PathBuf::from("source.plumb")])
+            .unwrap()
+            .is_empty());
         assert!(store
             .task_dependents(
                 Path::new("target.plumb"),
