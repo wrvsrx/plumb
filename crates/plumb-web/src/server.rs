@@ -151,6 +151,7 @@ fn router(state: AppState) -> Router {
         .route("/api/query-presets", get(query_presets))
         .route("/api/graph", get(graph))
         .route("/api/tasks", get(tasks))
+        .route("/api/task-candidates", get(task_candidates))
         .route("/api/task/{document_id}/{action}", post(update_task))
         .route("/api/events", get(event_snapshot))
         .route("/api/event/{document_id}/{action}", post(update_event))
@@ -201,6 +202,7 @@ async fn index(State(state): State<AppState>) -> Response {
         "eventSnapshotUrl": "/api/events",
         "eventActionBase": "/api/event/",
         "taskActionBase": "/api/task/",
+        "taskCandidatesUrl": "/api/task-candidates",
         "taskMutations": state.allow_mutations,
         "eventMutations": state.allow_mutations,
         "current": state.current,
@@ -210,6 +212,15 @@ async fn index(State(state): State<AppState>) -> Response {
 
 async fn tasks(State(state): State<AppState>) -> Response {
     Json(state.workspace.read().await.tasks()).into_response()
+}
+
+async fn task_candidates(State(state): State<AppState>) -> Response {
+    let workspace = state.workspace.read().await;
+    Json(json!({
+        "revision": workspace.revision(),
+        "tasks": workspace.task_candidates(),
+    }))
+    .into_response()
 }
 
 async fn event_snapshot(State(state): State<AppState>) -> Response {
@@ -862,6 +873,20 @@ mod tests {
         let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(value["view"], "tasks");
         assert_eq!(value["tasks"]["tasks"].as_array().unwrap().len(), 1);
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::get("/api/task-candidates")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(value["tasks"].as_array().unwrap().len(), 1);
 
         let response = app.clone().oneshot(
             Request::post("/api/query")

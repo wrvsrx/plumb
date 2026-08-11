@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 
@@ -8,15 +8,16 @@ use plumb_semantics::{LinkSpelling, TaskStatus};
 use plumb_workspace::{
     apply_document_edit, display_workspace_path as display_path, normalize, scan_workspace_files,
     search_score, sort_task_records_by, truncate_complete_task_documents, ApplyDocumentEditError,
-    EventEditError, EventInput, ResolvedTarget, SearchRecordKind, TaskAuthoringError,
-    TaskAuthoringInput, TaskPlacement, TaskRef, TaskSortFacts, TaskSortOrder, Workspace,
+    EventEditError, EventInput, ResolvedTarget, SearchRecordKind, SqliteSemanticStore,
+    TaskAuthoringError, TaskAuthoringInput, TaskPlacement, TaskRef, TaskSortFacts, TaskSortOrder,
+    TaskWorkflowState, Workspace,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 mod query;
 
-use query::{assign_task_parents, sort_task_tree, task_source_order};
+use query::{assign_task_parents, propagate_task_priorities, sort_task_tree, task_source_order};
 
 const DEFAULT_GRAPH_LIMIT: usize = 2_000;
 const MAX_GRAPH_LIMIT: usize = 20_000;
@@ -316,9 +317,23 @@ pub struct QueryFailure {
 pub struct TaskQuerySnapshot {
     pub revision: u64,
     pub tasks: Vec<WebTask>,
-    pub all_tasks: Vec<WebTask>,
+    pub all_tasks: Vec<WebTaskCandidate>,
     pub complete: bool,
     pub documents: Vec<WebTaskDocument>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WebTaskCandidate {
+    pub key: String,
+    pub document_id: String,
+    pub title: String,
+    pub path: String,
+    pub revision: String,
+    pub id: Option<String>,
+    pub locator: WebTaskLocator,
+    pub depth: usize,
+    pub parent_key: Option<String>,
 }
 
 pub const TASK_PRESETS: &[QueryPreset] = &[
@@ -404,6 +419,7 @@ pub struct ResourceRecord {
 pub struct WebWorkspace {
     root: PathBuf,
     workspace: Workspace,
+    query_workspace: Workspace,
     revision: u64,
     document_ids: BTreeMap<PathBuf, String>,
     paths_by_document_id: HashMap<String, PathBuf>,
@@ -427,19 +443,41 @@ impl WebWorkspace {
         }
         let paths = scan_workspace_files(&root).into_result()?;
         let mut workspace = Workspace::new();
+        let cache_path = web_semantic_cache_path(&root);
+        if let Some(parent) = cache_path.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|error| format!("cannot create Web cache directory: {error}"))?;
+        }
+        let store = SqliteSemanticStore::open(&cache_path)
+            .or_else(|_| SqliteSemanticStore::open_in_memory())
+            .map_err(|error| format!("cannot open Web semantic cache: {error}"))?;
+        let mut query_workspace = Workspace::with_sqlite_store(store);
         for path in &paths {
             let source = std::fs::read_to_string(path)
                 .map_err(|error| format!("cannot read {}: {error}", path.display()))?;
             let file_revision = file_revision(path).unwrap_or(0);
+            query_workspace
+                .insert_disk(path, file_revision, source.clone())
+                .map_err(|error| format!("cannot index {}: {error}", path.display()))?;
             workspace.insert(path, file_revision, source);
         }
 
-        Self::from_workspace(root, workspace, revision)
+        Self::from_workspaces(root, workspace, query_workspace, revision)
     }
 
     pub fn from_workspace(
         root: impl AsRef<Path>,
         workspace: Workspace,
+        revision: u64,
+    ) -> Result<Self, String> {
+        let query_workspace = workspace.clone();
+        Self::from_workspaces(root, workspace, query_workspace, revision)
+    }
+
+    fn from_workspaces(
+        root: impl AsRef<Path>,
+        workspace: Workspace,
+        query_workspace: Workspace,
         revision: u64,
     ) -> Result<Self, String> {
         let root = normalize(root.as_ref());
@@ -480,6 +518,7 @@ impl WebWorkspace {
         let mut result = Self {
             root,
             workspace,
+            query_workspace,
             revision,
             document_ids,
             paths_by_document_id,
@@ -530,6 +569,9 @@ impl WebWorkspace {
         let source = std::fs::read_to_string(&path)
             .map_err(|error| format!("cannot read {}: {error}", path.display()))?;
         let file_revision = file_revision(&path).unwrap_or(0);
+        self.query_workspace
+            .insert_disk(&path, file_revision, source.clone())
+            .map_err(|error| format!("cannot index {}: {error}", path.display()))?;
         let entry = self.workspace.insert(&path, file_revision, source);
         if entry.current.is_none() {
             return Err(format!("updated document is invalid: {}", path.display()));
@@ -567,8 +609,12 @@ impl WebWorkspace {
     }
 
     pub fn tasks(&self) -> TaskSnapshot {
+        self.task_snapshot(None)
+    }
+
+    fn task_snapshot(&self, retained: Option<&BTreeSet<(String, usize)>>) -> TaskSnapshot {
         let now = Local::now().fixed_offset();
-        let records = self.workspace.search_records(
+        let records = self.query_workspace.search_records(
             &self.root,
             Some(SearchRecordKind::Task),
             "",
@@ -578,6 +624,11 @@ impl WebWorkspace {
         let mut tasks = records
             .items
             .into_iter()
+            .filter(|record| {
+                retained.is_none_or(|retained| {
+                    retained.contains(&(record.relative_path.clone(), record.range.start))
+                })
+            })
             .filter_map(|record| {
                 let document_id = self.document_id(&record.path)?.to_string();
                 let state = record.task_state?.as_str();
@@ -664,6 +715,7 @@ impl WebWorkspace {
             .collect::<Vec<_>>();
         tasks.sort_by(task_source_order);
         assign_task_parents(&mut tasks);
+        propagate_task_priorities(&mut tasks);
         sort_task_tree(
             &mut tasks,
             &[QuerySort::Priority, QuerySort::Due],
@@ -674,6 +726,57 @@ impl WebWorkspace {
             tasks,
             documents: self.task_documents(),
         }
+    }
+
+    pub fn task_candidates(&self) -> Vec<WebTaskCandidate> {
+        let mut candidates = self
+            .query_workspace
+            .search_records(
+                &self.root,
+                Some(SearchRecordKind::Task),
+                "",
+                usize::MAX,
+                Local::now().fixed_offset(),
+            )
+            .items
+            .into_iter()
+            .filter_map(|record| {
+                let document_id = self.document_id(&record.path)?.to_string();
+                let task = self
+                    .workspace
+                    .get(&record.path)?
+                    .current
+                    .as_ref()?
+                    .output
+                    .tasks
+                    .tasks
+                    .iter()
+                    .find(|task| task.selection_range == record.range)?;
+                let key = record.id.as_ref().map_or_else(
+                    || format!("{document_id}:{}", task.range.start),
+                    |id| format!("{document_id}:{id}"),
+                );
+                let locator = record.id.as_ref().map_or_else(
+                    || WebTaskLocator::Offset {
+                        offset: task.range.start,
+                    },
+                    |id| WebTaskLocator::Id { id: id.clone() },
+                );
+                Some(WebTaskCandidate {
+                    key,
+                    document_id,
+                    title: record.title,
+                    path: record.relative_path,
+                    revision: record.revision.to_string(),
+                    id: record.id,
+                    locator,
+                    depth: record.depth.unwrap_or_default(),
+                    parent_key: None,
+                })
+            })
+            .collect::<Vec<_>>();
+        assign_candidate_parents(&mut candidates);
+        candidates
     }
 
     fn task_documents(&self) -> Vec<WebTaskDocument> {
@@ -1452,6 +1555,37 @@ fn file_revision(path: &Path) -> Option<i64> {
     Some(duration.as_nanos().min(i64::MAX as u128) as i64)
 }
 
+fn web_semantic_cache_path(root: &Path) -> PathBuf {
+    let base = std::env::var_os("PLUMB_CACHE_DIR")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("XDG_CACHE_HOME").map(PathBuf::from))
+        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".cache")))
+        .unwrap_or_else(|| std::env::temp_dir().join("plumb-cache"));
+    base.join("plumb").join("site").join(format!(
+        "{}.sqlite3",
+        opaque_id("w", &root.to_string_lossy())
+    ))
+}
+
+fn assign_candidate_parents(tasks: &mut [WebTaskCandidate]) {
+    let mut ancestors = Vec::<(usize, String)>::new();
+    let mut previous_path = None;
+    for task in tasks {
+        if previous_path.as_ref() != Some(&task.path) {
+            ancestors.clear();
+            previous_path = Some(task.path.clone());
+        }
+        while ancestors
+            .last()
+            .is_some_and(|(depth, _)| *depth >= task.depth)
+        {
+            ancestors.pop();
+        }
+        task.parent_key = ancestors.last().map(|(_, key)| key.clone());
+        ancestors.push((task.depth, task.key.clone()));
+    }
+}
+
 fn display_task_ref(root: &Path, target: &TaskRef) -> String {
     format!("{}#{}", display_path(root, &target.path), target.id)
 }
@@ -2150,15 +2284,15 @@ mod tests {
                 ..WebQuery::default()
             })
             .unwrap();
-        assert_eq!(source.all_tasks.len(), 5);
-        let matching = source
-            .all_tasks
+        assert!(source.all_tasks.is_empty());
+        let candidates = workspace.task_candidates();
+        assert_eq!(candidates.len(), 5);
+        let matching = candidates
             .iter()
             .find(|task| task.id.as_deref() == Some("matching"))
             .unwrap();
         assert_eq!(
-            source
-                .all_tasks
+            candidates
                 .iter()
                 .find(|task| Some(task.key.as_str()) == matching.parent_key.as_deref())
                 .and_then(|task| task.id.as_deref()),

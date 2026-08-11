@@ -80,5 +80,6 @@ export function togglePresetValue(selected, preset, registry) {
 
 export function taskByKey(snapshot, key) {
   if (!snapshot || !key) return null;
-  return (snapshot.allTasks || snapshot.tasks || []).find((task) => task.key === key) || null;
+  return (snapshot.tasks || []).find((task) => task.key === key)
+    || (snapshot.allTasks || []).find((task) => task.key === key) || null;
 }

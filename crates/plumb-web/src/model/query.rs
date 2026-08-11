@@ -3,13 +3,45 @@ use super::*;
 impl WebWorkspace {
     pub fn query_tasks(&self, query: &WebQuery) -> Result<TaskQuerySnapshot, QueryFailure> {
         let now = Local::now().fixed_offset();
+        let state_presets = query
+            .presets
+            .iter()
+            .filter_map(|preset| match preset.as_str() {
+                "ready" => Some(TaskWorkflowState::Ready),
+                "waiting" => Some(TaskWorkflowState::Waiting),
+                "blocked" => Some(TaskWorkflowState::Blocked),
+                "done" => Some(TaskWorkflowState::Done),
+                "canceled" => Some(TaskWorkflowState::Canceled),
+                "conflicted" => Some(TaskWorkflowState::Conflicted),
+                _ => None,
+            })
+            .collect::<HashSet<_>>();
+        let typed_state_filter = !query.presets.is_empty()
+            && state_presets.len() == query.presets.iter().collect::<HashSet<_>>().len();
+        let mut retained = if typed_state_filter {
+            Some(
+                self.query_workspace
+                    .task_keys_for_states(&state_presets, now)
+                    .map_err(|error| QueryFailure {
+                        source: "state".to_string(),
+                        message: error.to_string(),
+                    })?
+                    .into_iter()
+                    .map(|task| (display_path(&self.root, &task.path), task.start))
+                    .collect::<BTreeSet<_>>(),
+            )
+        } else {
+            None
+        };
         let preset_groups = resolve_presets(&query.presets, TASK_PRESETS)?;
-        let mut retained: Option<BTreeSet<(String, usize)>> = None;
-        for group in preset_groups {
+        for group in preset_groups
+            .into_iter()
+            .filter(|group| !(typed_state_filter && group.key == "state"))
+        {
             let mut matching = BTreeSet::new();
             for (source, expression) in group.expressions {
                 let records = self
-                    .workspace
+                    .query_workspace
                     .search_records_filtered(
                         &self.root,
                         Some(SearchRecordKind::Task),
@@ -30,7 +62,7 @@ impl WebWorkspace {
         }
         for (source, expression) in custom_filters(query) {
             let records = self
-                .workspace
+                .query_workspace
                 .search_records_filtered(
                     &self.root,
                     Some(SearchRecordKind::Task),
@@ -49,11 +81,26 @@ impl WebWorkspace {
             );
         }
 
-        let snapshot = self.tasks();
-        let all_tasks = snapshot.tasks;
-        let mut tasks = all_tasks.clone();
+        if !query.query.is_empty() {
+            let matching = self
+                .query_workspace
+                .search_records(
+                    &self.root,
+                    Some(SearchRecordKind::Task),
+                    &query.query,
+                    usize::MAX,
+                    now,
+                )
+                .items
+                .into_iter()
+                .map(|record| (record.relative_path, record.range.start))
+                .collect::<BTreeSet<_>>();
+            intersect_keys(&mut retained, matching);
+        }
+        let snapshot = self.task_snapshot(retained.as_ref());
+        let mut tasks = snapshot.tasks;
         let mut scores = HashMap::new();
-        let retained = tasks
+        let retained_keys = tasks
             .iter()
             .filter_map(|task| {
                 let key = (task.path.clone(), task.location.start);
@@ -76,7 +123,7 @@ impl WebWorkspace {
                 }
             })
             .collect::<BTreeSet<_>>();
-        tasks.retain(|task| retained.contains(&task.key));
+        tasks.retain(|task| retained_keys.contains(&task.key));
         sort_task_tree(&mut tasks, &query.sort, &scores);
         let limit = query.limit.unwrap_or(usize::MAX);
         let complete = tasks.len() <= limit;
@@ -84,7 +131,7 @@ impl WebWorkspace {
         Ok(TaskQuerySnapshot {
             revision: self.revision,
             tasks,
-            all_tasks,
+            all_tasks: Vec::new(),
             complete,
             documents: snapshot.documents,
         })
@@ -357,6 +404,58 @@ pub(super) fn assign_task_parents(tasks: &mut [WebTask]) {
             .checked_sub(1)
             .and_then(|depth| ancestors.get(depth).filter(|key| !key.is_empty()).cloned());
         ancestors.push(task.key.clone());
+    }
+}
+
+pub(super) fn propagate_task_priorities(tasks: &mut [WebTask]) {
+    let nodes_by_key = tasks
+        .iter()
+        .enumerate()
+        .map(|(index, task)| (task.key.clone(), index))
+        .collect::<HashMap<_, _>>();
+    let nodes_by_ref = tasks
+        .iter()
+        .enumerate()
+        .filter_map(|(index, task)| {
+            task.id
+                .as_ref()
+                .map(|id| (format!("{}#{id}", task.path), index))
+        })
+        .collect::<HashMap<_, _>>();
+    let mut edges = Vec::new();
+    for (source, task) in tasks.iter().enumerate() {
+        if let Some(target) = task
+            .parent_key
+            .as_ref()
+            .and_then(|key| nodes_by_key.get(key))
+        {
+            edges.push((source, *target));
+        }
+        edges.extend(
+            task.depends_on
+                .iter()
+                .filter_map(|target| nodes_by_ref.get(target).copied())
+                .map(|target| (source, target)),
+        );
+    }
+    let mut priorities = tasks
+        .iter()
+        .map(|task| task.priority.unwrap_or_default())
+        .collect::<Vec<_>>();
+    loop {
+        let mut changed = false;
+        for &(source, target) in &edges {
+            if priorities[source] > priorities[target] {
+                priorities[target] = priorities[source];
+                changed = true;
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+    for (task, priority) in tasks.iter_mut().zip(priorities) {
+        task.effective_priority = priority;
     }
 }
 

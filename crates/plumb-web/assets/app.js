@@ -820,6 +820,14 @@ import { EDITABLE_TASK_PROPERTIES, missingTaskProperties } from './task-ui.js';
     }
   }
 
+  async function ensureTaskCandidates() {
+    if (state.tasks.allTasks?.length) return;
+    const response = await fetch(config.taskCandidatesUrl, { cache: 'no-store' });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const snapshot = await response.json();
+    if (snapshot.revision === state.tasks.revision) state.tasks.allTasks = snapshot.tasks;
+  }
+
   async function loadEvents() {
     if (!config.eventSnapshotUrl) return;
     try {
@@ -1227,7 +1235,7 @@ import { EDITABLE_TASK_PROPERTIES, missingTaskProperties } from './task-ui.js';
         addProperty.hidden = false;
       }
     });
-    const children = (state.tasks.allTasks || state.tasks.tasks)
+    const children = state.tasks.tasks
       .filter((candidate) => candidate.parentKey === task.key);
     if (children.length) {
       const section = taskPanel.querySelector('.task-children');
@@ -1249,9 +1257,10 @@ import { EDITABLE_TASK_PROPERTIES, missingTaskProperties } from './task-ui.js';
     ));
   }
 
-  function renderTaskPropertyEditor(task, property) {
+  async function renderTaskPropertyEditor(task, property) {
     const definition = EDITABLE_TASK_PROPERTIES.find((candidate) => candidate.key === property);
     if (!definition || state.pendingTask) return;
+    if (property === 'prev' || property === 'depends') await ensureTaskCandidates();
     const detail = taskPanel.querySelector(`.task-property-value[data-property="${property}"]`)?.closest('dd');
     const host = detail || taskPanel.querySelector('.task-property-actions');
     const form = document.createElement('form');
@@ -1377,7 +1386,8 @@ import { EDITABLE_TASK_PROPERTIES, missingTaskProperties } from './task-ui.js';
     return `${task.title || '(untitled)'} — ${task.path}${task.id ? `#${task.id}` : ''}`;
   }
 
-  function renderTaskForm(task = null) {
+  async function renderTaskForm(task = null) {
+    await ensureTaskCandidates();
     const documents = state.tasks.documents || [];
     if (!documents.length) return clearTaskDetail('Tasks unavailable', 'No valid task document is writable.');
     taskPanel.innerHTML = `
@@ -1510,7 +1520,7 @@ import { EDITABLE_TASK_PROPERTIES, missingTaskProperties } from './task-ui.js';
       const body = await response.text();
       if (!response.ok) throw new Error(body || `HTTP ${response.status}`);
       await loadTasks();
-      const selected = (state.tasks.allTasks || state.tasks.tasks).find((candidate) => candidate.title === fields.title && candidate.documentId === document.id);
+      const selected = state.tasks.tasks.find((candidate) => candidate.title === fields.title && candidate.documentId === document.id);
       state.selectedTask = selected?.key || task?.key || null;
       renderTasks(); updateUrl(); notify(`Task ${action}d.`);
     } catch (error) {
