@@ -107,7 +107,10 @@ impl Workspace {
         let filter = filter
             .map(|source| SemanticSearchFilter::compile(source, now))
             .transpose()?;
-        let reverse = filter.as_ref().map(|_| ReverseReferences::build(self));
+        let reverse = filter
+            .as_ref()
+            .filter(|filter| filter.needs_reverse_references())
+            .map(|_| ReverseReferences::build(self));
         let mut matches = Vec::new();
         for entry in self.documents.values() {
             let Some(current) = &entry.current else {
@@ -121,11 +124,11 @@ impl Workspace {
                 .to_string();
             if kind.is_none_or(|kind| kind == SearchRecordKind::Note) {
                 let (title, range) = note_search_title(current, &relative_path);
-                let filter_match = match (&filter, &reverse) {
-                    (Some(filter), Some(reverse)) => {
-                        filter.note_matches(&root, &entry.path, &title, reverse)?
+                let filter_match = match &filter {
+                    Some(filter) => {
+                        filter.note_matches(&root, &entry.path, &title, reverse.as_ref())?
                     }
-                    _ => true,
+                    None => true,
                 };
                 if filter_match {
                     if let Some(score) = search_score(query, &[&title, &relative_path]) {
@@ -272,14 +275,14 @@ impl Workspace {
                         .to_string();
                     if let (Some(score), true) = (
                         search_score(query, &[&document.title, &relative_path]),
-                        match (&filter, &reverse) {
-                            (Some(filter), Some(reverse)) => filter.note_matches(
+                        match &filter {
+                            Some(filter) => filter.note_matches(
                                 &root,
                                 &document.path,
                                 &document.title,
-                                reverse,
+                                reverse.as_ref(),
                             )?,
-                            _ => true,
+                            None => true,
                         },
                     ) {
                         matches.push((
@@ -624,6 +627,7 @@ fn note_search_title(
 
 struct SemanticSearchFilter {
     program: Program,
+    variables: HashSet<String>,
     now: DateTime<FixedOffset>,
 }
 
@@ -636,11 +640,27 @@ struct TaskMatchFacts<'a> {
 
 impl SemanticSearchFilter {
     fn compile(source: &str, now: DateTime<FixedOffset>) -> Result<Self, String> {
+        let program =
+            Program::compile(source).map_err(|error| format!("invalid CEL query: {error}"))?;
+        let variables = program
+            .references()
+            .variables()
+            .into_iter()
+            .map(str::to_string)
+            .collect();
         Ok(Self {
-            program: Program::compile(source)
-                .map_err(|error| format!("invalid CEL query: {error}"))?,
+            program,
+            variables,
             now,
         })
+    }
+
+    fn uses(&self, variable: &str) -> bool {
+        self.variables.contains(variable)
+    }
+
+    fn needs_reverse_references(&self) -> bool {
+        self.uses("directly_referenced_by") || self.uses("transitively_referenced_by")
     }
 
     fn note_matches(
@@ -648,27 +668,33 @@ impl SemanticSearchFilter {
         root: &Path,
         path: &Path,
         title: &str,
-        reverse: &ReverseReferences,
+        reverse: Option<&ReverseReferences>,
     ) -> Result<bool, String> {
         let mut context = Context::default();
         context.add_variable_from_value("path", display_workspace_path(root, path));
         context.add_variable_from_value("title", title.to_string());
-        context.add_variable_from_value(
-            "directly_referenced_by",
-            reverse
-                .direct(path)
-                .iter()
-                .map(|path| display_workspace_path(root, path))
-                .collect::<Vec<_>>(),
-        );
-        context.add_variable_from_value(
-            "transitively_referenced_by",
-            reverse
-                .transitive(path)
-                .iter()
-                .map(|path| display_workspace_path(root, path))
-                .collect::<Vec<_>>(),
-        );
+        if self.uses("directly_referenced_by") {
+            let reverse = reverse.expect("reverse references requested by CEL filter");
+            context.add_variable_from_value(
+                "directly_referenced_by",
+                reverse
+                    .direct(path)
+                    .iter()
+                    .map(|path| display_workspace_path(root, path))
+                    .collect::<Vec<_>>(),
+            );
+        }
+        if self.uses("transitively_referenced_by") {
+            let reverse = reverse.expect("reverse references requested by CEL filter");
+            context.add_variable_from_value(
+                "transitively_referenced_by",
+                reverse
+                    .transitive(path)
+                    .iter()
+                    .map(|path| display_workspace_path(root, path))
+                    .collect::<Vec<_>>(),
+            );
+        }
         execute_search_filter(&self.program, &context, path)
     }
 
@@ -680,22 +706,6 @@ impl SemanticSearchFilter {
         workspace: &Workspace,
         facts: TaskMatchFacts<'_>,
     ) -> Result<bool, String> {
-        let depends_on = workspace
-            .task_dependencies(path, task)
-            .into_iter()
-            .map(|dependency| display_search_task_ref(root, &dependency.target))
-            .collect::<Vec<_>>();
-        let directly_blocking = task
-            .id
-            .as_ref()
-            .map(|id| {
-                workspace
-                    .directly_blocking_tasks(path, &id.value)
-                    .iter()
-                    .map(|target| display_search_task_ref(root, target))
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
         let mut context = Context::default();
         context.add_variable_from_value("path", display_workspace_path(root, path));
         context.add_variable_from_value(
@@ -721,8 +731,31 @@ impl SemanticSearchFilter {
             "prev",
             optional_search_string(task.prev.as_ref().map(|field| &field.value)),
         );
-        context.add_variable_from_value("depends_on", depends_on);
-        context.add_variable_from_value("directly_blocking", directly_blocking);
+        if self.uses("depends_on") {
+            context.add_variable_from_value(
+                "depends_on",
+                workspace
+                    .task_dependencies(path, task)
+                    .into_iter()
+                    .map(|dependency| display_search_task_ref(root, &dependency.target))
+                    .collect::<Vec<_>>(),
+            );
+        }
+        if self.uses("directly_blocking") {
+            context.add_variable_from_value(
+                "directly_blocking",
+                task.id
+                    .as_ref()
+                    .map(|id| {
+                        workspace
+                            .directly_blocking_tasks(path, &id.value)
+                            .iter()
+                            .map(|target| display_search_task_ref(root, target))
+                            .collect::<Vec<_>>()
+                    })
+                    .unwrap_or_default(),
+            );
+        }
         context.add_variable_from_value("state", facts.state.as_str());
         context.add_variable_from_value(
             "wait_reasons",
