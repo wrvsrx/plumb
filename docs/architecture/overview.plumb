@@ -73,6 +73,10 @@ open buffer 以 normalized document path 为单位完整遮蔽同 path 的 persi
 提交 persistent store。关闭 buffer 后，workspace 必须读取与实际 disk bytes identity 一致的 persisted
 generation，或先重新分析 disk source。create/change/remove 只使相关 documents 与 dependents invalidated。
 
+Persistent query row 携带的 revision 只表示该 cached projection 的 provenance。Web 或其他 authoring adapter
+向 guarded mutation 投影 revision token 时，必须使用当前 live document snapshot revision；source identity 命中而
+复用旧 persistent generation 时，不得把旧 row revision 暴露为当前 mutation precondition。
+
 open-buffer snapshot 的跨文档 records 保留在 Rust `"DocumentOutput" overlay 中；workspace query 将
 persistent SQLite rows 排除 open paths 后与 overlay results 合成。不得把每次 didChange 的完整 generation
 同步发布到 SQLite TEMP tables：该统一 SQL 模型没有增加第一阶段已经获得的 warm-start 与 closed-workspace
