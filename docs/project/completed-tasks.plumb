@@ -504,25 +504,6 @@
 
 `# Workspace indexing
 
-`- 统一 workspace relational query backend {
-  `- task
-  `@ unified-sql-workspace-queries
-  `: done 2026-08-11T13:50:00+08:00
-}
-
-   `note SQLite main tables 保存 closed disk generations，connection-local TEMP tables 保存 open buffer
-         generations；`"effective_*" views 按完整 source document 实现 TEMP-over-main precedence，invalid open
-         generation 遮蔽 main rows，close 后恢复 main generation。
-   `note cross-document references、resolution、search、task/event association、agenda、completion 与 rename
-         candidate query 只读取 effective views；已删除 excluded-open-path 参数和 Rust scan/merge/sort overlay。
-         Rust open `"DocumentOutput" 只服务 current-document diagnostics、cursor、folding 与 editing。
-   `note event-contained link 作为 generation relation 发布，并在目标唯一解析为 task 时由 effective reference
-         view 投影 association；结果不依赖 document 插入顺序。LSP lazy target load 和 search request snapshot
-         覆盖 initial-index 与 didChange concurrency。
-   `note correctness、LSP 与 all-target warning gate 已通过；1K/10K/33,512 updates、十次 burst、open/persistent
-         agenda、reverse references、warm startup 和 RSS 的 production release 结果记录在
-         `->[performance benchmark points]{`:[to performance-benchmarks.plumb]}。
-
 `- 建立 persistent semantic workspace store {
   `- task
   `@ persistent-semantic-workspace

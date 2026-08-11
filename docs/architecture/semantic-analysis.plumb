@@ -110,9 +110,6 @@ workspace query 必须按需读取命中的 semantic rows，不得为了重建 p
 反序列化全部 document outputs。open-buffer precedence 的合并边界是 source document：`"effective_*"
 TEMP views 返回 TEMP open generation，并排除同 path 的 main generation。protocol-neutral workspace query
 和 adapter 都不得另外扫描 Rust open outputs、传递 excluded path lists、merge 或 deduplicate 第二份结果。
-event-contained link association 作为 document generation 内的 relational row 发布；effective reference query
-只在 link target 唯一解析为 task 时投影附加 association reference，不能依赖 document 插入顺序或查询时扫描
-Rust `"DocumentOutput"。
 当前 document 的 source/syntax/output snapshot 只服务 revision-local diagnostics、cursor queries、folding
 和 edit preconditions，不构成 workspace query backend。
 

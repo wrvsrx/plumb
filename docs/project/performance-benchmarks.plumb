@@ -133,37 +133,3 @@ didChange 同步发布 TEMP generation 会给 33,512-event document 额外增加
 更新扩大到约 498 ms。不能用 document-size threshold 隐藏该成本。生产重构应先获得 incremental semantic
 generation/record diff，或定义 asynchronous generation publication 与 revision consistency；在此之前保留
 Rust open-document output 与 document-granularity query composition 的总体 latency 更低。
-
-`# 8. Unified SQL production migration on 2026-08-11
-
-commit `"2f85c76" 后的 production workspace 将 closed generations 放在 SQLite main tables、open generations
-放在 connection-local TEMP tables，全部 cross-document query 读取 `"effective_*" views。测试 host、fixture、
-release profile 与前两节相同；下列 Criterion 数值取 reported interval midpoint，并与第 7 节迁移前 Rust
-overlay baseline 比较：
-
-`- 单次 open update：1,000 events 为 8.93 ms，相对 4.79 ms 回退约 86.4%；10,000 events 为
- 137.56 ms，相对 85.13 ms 回退约 61.6%；33,512 events 为 491.57 ms，相对 314.37 ms 回退约
- 56.4%。production 33,512 result 与 prototype 485.26 ms 接近，没有超出统一 SQL publication 的预期放大。
-`- 十次连续 33,512-event open updates 为 5.59 s，相对 3.31 s 回退约 69.0%；prototype 为 5.11 s。
- 连续 replacement 仍未观察到超线性累积。
-`- 33,512-event open TEMP generation 的 agenda range 为 47.59 ms，相对 Rust 25.49 ms 回退约 86.7%；
- persistent main generation 为 30.80 ms，回退约 20.8%。`"site serve" 的 closed archive workload 对应后者，
- 不能用较慢的 open-buffer observation 代表 site query。
-`- open TEMP reverse references 为 6.58 ms，相对 Rust 4.02 ms 回退约 63.8%；persistent main 为
- 7.19 ms，回退约 78.9%。prototype 的简化 reference schema 为 2.22 ms；production 还包含 document、task、
- event-contained association provenance，后续优化必须保留这些 result semantics。
-`- 33,512-event persistent warm startup 为 8.67 ms，相对迁移前 SQLite 7.91 ms 回退约 9.6%，仍比重新
- parse/semantic publication 快一个数量级。persistent cold build 为 495.43 ms；persistent full replacement
- 为 527.57 ms。
-
-独立 release process profile 中，open in-memory backend cold build 的 peak/resident 为 215,816 KiB，相对旧
-Rust baseline 217,584 KiB 降低约 0.8%；它同时保留 current document output 与 TEMP relational rows，不代表
-closed archive 的 steady state。persistent cold build peak 为 207,900 KiB、完成后 resident 为 165,992 KiB；
-warm process peak 为 21,016 KiB、resident 为 13,472 KiB，相对迁移前 warm resident 12,628 KiB 回退约 6.7%，
-仍比旧 process-local workspace resident 低约 93.8%。checkpoint 后 database 为 22,626,304 bytes；首次
-transaction 含 WAL/SHM 时为 45,586,904 bytes。
-
-这些回退是统一 query implementation、删除 Rust overlay 与获得 warm persistent model 的明确成本，不设
-large-document threshold 隐藏。普通 CI 继续固定 result parity、invalid-open shadow、close fallback、event
-association 与 LSP lifecycle；Criterion release harness 保留 production update/query points，性能变化单独
-审阅，不在普通 PR correctness CI 使用 wall-clock hard threshold。
