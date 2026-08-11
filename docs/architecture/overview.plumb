@@ -155,10 +155,11 @@ limit 在 source order 内优先保留外层 range。
 
 统一 binary 可以依赖共享 layers，但 shared libraries 不能依赖 CLI protocol types。
 
-Web presentation 可以持有完整 semantic snapshot，但不得把无界 record collection 一对一常驻 DOM。
-Agenda 使用有界 render window：没有显式 selection 时初始 window 锚定当前时间；显式 selection 位于 window
-之外时锚定该 event。用户可以向前或向后替换固定大小的 page，page navigation 定位到新 page boundary；
-`"Now" command 重置到当前时间 window。selection/detail mutation 不能触发完整 event collection 的 DOM 重建。
+Web presentation 不得取得或持有无界 event collection。Agenda 使用 server-side 有界 cursor page：没有显式
+selection 时初始 page 锚定当前时间并分别取得相邻的 earlier/later records；显式 selection 位于当前 page
+之外时以该 event identity 重新锚定。用户可以向前或向后替换固定大小的 page，page navigation 定位到新 page
+boundary；`"Now" command 重置到当前时间 page。selection/detail mutation 只重新取得包含目标 event 的有界 page，
+不能触发完整 event collection 的 transfer 或 DOM 重建。
 
 Web task mutation 已实现下述 changed-generation replacement 与 watcher 去重；task result 与 authoring
 candidate collection 已拆分，candidate 只在打开 authoring UI 时加载。event mutation 和通用 cursor query
@@ -170,6 +171,9 @@ snapshot，并只 invalidates 依赖该 document output 的 workspace computatio
 两种协议都不得先生成一个未使用的无界 snapshot 或再重复同一 query。workspace
 change notification 继续服务其他 clients；发起 mutation 的 client 必须按 revision 去重，不能因自己的
 notification 再触发 graph/task/event 全量刷新。
+Mutation response 必须暴露写入后的 workspace revision。browser 在 mutation 未结束时合并收到的 watcher
+revision，安装 mutation 后有界 query 的同一 revision 后丢弃自己的 notification；更新的外部 revision 只重新
+查询当前可见 view，连续 notifications 合并到最新 revision，其他 view 在切换到可见状态时按需查询。
 
 Task authoring 不得为 parent、previous 或 dependency controls 一次创建完整 workspace option DOM。candidate
 endpoint 按 document scope 或 fuzzy query 返回有界 compact identities；browser 保留已选 locator，并在输入变化

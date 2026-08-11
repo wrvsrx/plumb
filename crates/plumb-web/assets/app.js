@@ -18,6 +18,15 @@ import {
   localDateKey,
 } from './agenda-state.js';
 import { EDITABLE_TASK_PROPERTIES, missingTaskProperties } from './task-ui.js';
+import {
+  beginMutation,
+  createRevisionState,
+  endMutation,
+  finishRefresh,
+  observeRevision,
+  queueRevision,
+  takeQueuedRevision,
+} from './revision-state.js';
 
 (function () {
   'use strict';
@@ -56,6 +65,7 @@ import { EDITABLE_TASK_PROPERTIES, missingTaskProperties } from './task-ui.js';
     pendingEvent: false,
     agendaPositioned: false,
     agendaRange: null,
+    workspaceRevision: createRevisionState(),
   };
 
   const graphElement = document.getElementById('graph');
@@ -438,6 +448,7 @@ import { EDITABLE_TASK_PROPERTIES, missingTaskProperties } from './task-ui.js';
     try {
       const result = await executeQuery('graph');
       if (loadRevision !== state.graphLoadRevision) return;
+      observeRevision(state.workspaceRevision, result.graph.revision);
       state.graph = result.graph;
       setQueryError('graph', null);
       renderGraph(graphScope);
@@ -771,7 +782,8 @@ import { EDITABLE_TASK_PROPERTIES, missingTaskProperties } from './task-ui.js';
 
   async function refreshWorkspace() {
     const current = state.current;
-    await Promise.all([loadGraph(), loadTasks(), loadEvents()]);
+    await runViewQuery(state.view);
+    if (state.view !== 'graph') return;
     if (!current || state.current !== current) return;
     const node = state.graph?.nodes.find((candidate) => candidate.id === current);
     if (node) {
@@ -779,6 +791,28 @@ import { EDITABLE_TASK_PROPERTIES, missingTaskProperties } from './task-ui.js';
       return;
     }
     panel.innerHTML = '<div class="note-empty"><h1>Note unavailable</h1><p>This note is no longer in the workspace.</p></div>';
+  }
+
+  async function flushWorkspaceRevision() {
+    const revision = takeQueuedRevision(state.workspaceRevision);
+    if (revision === null) return;
+    try {
+      await refreshWorkspace();
+    } finally {
+      finishRefresh(state.workspaceRevision);
+      if (state.workspaceRevision.queued > state.workspaceRevision.installed) {
+        void flushWorkspaceRevision();
+      }
+    }
+  }
+
+  function workspaceChanged(event) {
+    queueRevision(state.workspaceRevision, event.data);
+    void flushWorkspaceRevision();
+  }
+
+  function observeMutationResponse(response) {
+    observeRevision(state.workspaceRevision, response.headers.get('x-plumb-revision'));
   }
 
   function showView(view, { historyMode = null, load = true } = {}) {
@@ -812,6 +846,7 @@ import { EDITABLE_TASK_PROPERTIES, missingTaskProperties } from './task-ui.js';
   async function loadTasks(cursor = null) {
     try {
       const result = await executeQuery('tasks', cursor);
+      observeRevision(state.workspaceRevision, result.tasks.revision);
       state.tasks = cursor ? {
         ...result.tasks,
         tasks: [...state.tasks.tasks, ...result.tasks.tasks],
@@ -845,6 +880,7 @@ import { EDITABLE_TASK_PROPERTIES, missingTaskProperties } from './task-ui.js';
       const response = await fetch(config.eventSnapshotUrl, { cache: 'no-store' });
       if (!response.ok) throw new Error(await response.text());
       state.events = await response.json();
+      observeRevision(state.workspaceRevision, state.events.revision);
       const positionNow = state.view === 'agenda' && !state.agendaPositioned;
       if (positionNow) state.agendaPositioned = true;
       renderEvents({ positionNow });
@@ -1075,6 +1111,7 @@ import { EDITABLE_TASK_PROPERTIES, missingTaskProperties } from './task-ui.js';
       tasks: form.elements.tasks.value.split('\n').map((value) => value.trim()).filter(Boolean),
     } : null;
     state.pendingEvent = true;
+    beginMutation(state.workspaceRevision);
     try {
       const response = await fetch(`${config.eventActionBase}${encodeURIComponent(document.id)}/${action}`, {
         method: 'POST',
@@ -1087,7 +1124,9 @@ import { EDITABLE_TASK_PROPERTIES, missingTaskProperties } from './task-ui.js';
       });
       const body = await response.text();
       if (!response.ok) throw new Error(body || `HTTP ${response.status}`);
+      observeMutationResponse(response);
       state.events = JSON.parse(body);
+      observeRevision(state.workspaceRevision, state.events.revision);
       if (action === 'delete') state.selectedEvent = null;
       if (action === 'create') {
         const created = state.events.events.find((candidate) => (
@@ -1107,6 +1146,8 @@ import { EDITABLE_TASK_PROPERTIES, missingTaskProperties } from './task-ui.js';
       notify(String(error), true);
     } finally {
       state.pendingEvent = false;
+      endMutation(state.workspaceRevision);
+      void flushWorkspaceRevision();
     }
   }
 
@@ -1373,6 +1414,7 @@ import { EDITABLE_TASK_PROPERTIES, missingTaskProperties } from './task-ui.js';
     const listScroll = taskList.parentElement.scrollTop;
     const panelScroll = taskPanel.scrollTop;
     state.pendingTask = task.key;
+    beginMutation(state.workspaceRevision);
     form.querySelectorAll('button, input, select').forEach((element) => { element.disabled = true; });
     try {
       const response = await fetch(`${config.taskActionBase}${encodeURIComponent(task.documentId)}/update`, {
@@ -1381,6 +1423,7 @@ import { EDITABLE_TASK_PROPERTIES, missingTaskProperties } from './task-ui.js';
       });
       const body = await response.text();
       if (!response.ok) throw new Error(body || `HTTP ${response.status}`);
+      observeMutationResponse(response);
       state.pendingTask = null;
       await loadTasks();
       const latest = taskByKey(state.tasks, task.key);
@@ -1398,6 +1441,8 @@ import { EDITABLE_TASK_PROPERTIES, missingTaskProperties } from './task-ui.js';
       notify(String(error), true);
     } finally {
       state.pendingTask = null;
+      endMutation(state.workspaceRevision);
+      void flushWorkspaceRevision();
     }
   }
 
@@ -1576,6 +1621,7 @@ import { EDITABLE_TASK_PROPERTIES, missingTaskProperties } from './task-ui.js';
     const placement = changedPlacement ? { parent: parent?.locator || null, after: after?.locator || null } : null;
     const action = task ? 'update' : 'create';
     state.pendingTask = task?.key || 'create';
+    beginMutation(state.workspaceRevision);
     form.querySelectorAll('button, input, select').forEach((control) => { control.disabled = true; });
     try {
       const response = await fetch(`${config.taskActionBase}${encodeURIComponent(document.id)}/${action}`, {
@@ -1584,6 +1630,7 @@ import { EDITABLE_TASK_PROPERTIES, missingTaskProperties } from './task-ui.js';
       });
       const body = await response.text();
       if (!response.ok) throw new Error(body || `HTTP ${response.status}`);
+      observeMutationResponse(response);
       await loadTasks();
       const selected = state.tasks.tasks.find((candidate) => candidate.title === fields.title && candidate.documentId === document.id);
       state.selectedTask = selected?.key || task?.key || null;
@@ -1602,6 +1649,8 @@ import { EDITABLE_TASK_PROPERTIES, missingTaskProperties } from './task-ui.js';
       notify(String(error), true);
     } finally {
       state.pendingTask = null;
+      endMutation(state.workspaceRevision);
+      void flushWorkspaceRevision();
       if (form.isConnected) {
         form.querySelectorAll('button, input, select').forEach((control) => { control.disabled = false; });
       } else {
@@ -1616,6 +1665,7 @@ import { EDITABLE_TASK_PROPERTIES, missingTaskProperties } from './task-ui.js';
     if (state.pendingTask) return;
     const url = `${config.taskActionBase}${encodeURIComponent(task.documentId)}/${action}`;
     state.pendingTask = task.key;
+    beginMutation(state.workspaceRevision);
     renderTaskDetail(task);
     try {
       const response = await fetch(url, {
@@ -1625,6 +1675,7 @@ import { EDITABLE_TASK_PROPERTIES, missingTaskProperties } from './task-ui.js';
       });
       const body = await response.text();
       if (!response.ok) throw new Error(body || `HTTP ${response.status}`);
+      observeMutationResponse(response);
       await loadTasks();
       notify(`${verb}d task.`);
     } catch (error) {
@@ -1632,6 +1683,8 @@ import { EDITABLE_TASK_PROPERTIES, missingTaskProperties } from './task-ui.js';
       notify(String(error), true);
     } finally {
       state.pendingTask = null;
+      endMutation(state.workspaceRevision);
+      void flushWorkspaceRevision();
       const selected = taskByKey(state.tasks, state.selectedTask);
       if (selected) renderTaskDetail(selected);
     }
@@ -1693,7 +1746,7 @@ import { EDITABLE_TASK_PROPERTIES, missingTaskProperties } from './task-ui.js';
 
   if (config.eventsUrl && window.EventSource) {
     const events = new EventSource(config.eventsUrl);
-    events.addEventListener('workspace', refreshWorkspace);
+    events.addEventListener('workspace', workspaceChanged);
   }
   window.addEventListener('popstate', () => {
     readUrlState();

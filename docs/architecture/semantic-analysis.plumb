@@ -132,6 +132,18 @@ Task cursor page 绑定 normalized filter、sort keys 与 workspace revision。c
 aggregation 与 deterministic ordering，再只 decode 当前 page 的完整 records。一个 page 可以越过 requested
 task count 以保留当前 document 的完整 retained tree，但不能重复或跳过相邻 pages 的 document group。
 
+Event cursor page 绑定 workspace revision、page direction 与稳定 event order key。order key 依次使用 resolved
+sort instant（有效时间先于无效或缺失时间）、normalized source path 和 event source start；cursor 是 opaque
+continuation identity，不得解释为 row offset。初始 around-now query 对当前时间之前和不早于当前时间的 records
+分别设置 hard limit，再合并为一个有界 page；earlier/later query 必须在 database 中按同一 key 作 keyset boundary
+与 limit，只 decode 命中 records。无效或缺失 resolved time 的 events 位于 timed events 之后并仍可通过 later
+pagination 到达，不能被固定日期 window 丢弃。
+
+Open-document events 以 document granularity 替换 persistent rows。Rust 可以合并有界 database candidates 与
+open overlay，但合并后必须与全部 records 上执行同一 filter/order/boundary/limit observable 等价；不得为分页
+materialize 完整 closed generation。Event page response 暴露 earlier/later cursors 与 page 所属 revision；selection
+identity query 和 mutation reload 必须返回包含目标 identity 的有界 page，stale 或 query 不匹配 cursor 必须拒绝。
+
 LSP adapter 将一个 revision 的 folding byte ranges 批量投影为 UTF-16 positions 时，必须复用由 source
 一次线性扫描建立的 line-start index；单个 offset 只扫描它所在的 physical line。folding response 不得为
 每个 range 从 document start 重复扫描 source。index 只属于 protocol projection，不进入 syntax/semantics
