@@ -385,6 +385,14 @@ action。shorthand 只是显式 authoring convention，不改变 list item synta
 event authoring 保留用户已有的 explicit id；新 event 默认不生成 id。需要被 link、task association 或其他
 reference 定位时，再使用通用 explicit-id authoring operation 添加 id。
 
+LSP 在 `"event" head 的 schedule 后、纯文本 title 尾部提供 workspace event title completion。当前 title
+纯文本作为 case-sensitive prefix；空 prefix 列出最常用 title。候选从 open documents 的 current valid
+semantic output 与其他 documents 的 last-valid persistent output 取得，按 workspace 中完全相同 title 的
+出现次数去重并降序排列，同频率按 title source spelling 排序，最多返回 50 项。候选替换完整 title
+prefix，但不修改 schedule；与当前非空 prefix 完全相同、应用后不改变 source 的 title 不作为候选。cursor 不在 head 尾部、title 已含 inline element、尚无 schedule/title 分隔
+whitespace，或 prefix 含换行时不提供 title completion。recovered current source 只用于定位 completion
+range，不向 title frequency 贡献尚未通过 valid semantic analysis 的 event。
+
 `# 16. Tasks
 
 `"task" marker 产生 task record，并具有 bullet list-item 结构：

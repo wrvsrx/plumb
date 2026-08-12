@@ -12,10 +12,10 @@ use plumb_edit::{
 use plumb_semantics::TaskStatus;
 use plumb_semantics::{
     analyze_document, parse_task_reference_target, AnchorRecord, DocumentOutput, EventRecord,
-    FileCompletionContext, FileRecord, FileTarget, ImageCompletionContext, ImageRecord,
-    ImageTarget, LinkCompletionContext, LinkRecord, LinkSpelling, LinkTarget, MetadataOutput,
-    MetadataValue, TaskDependency, TaskDependencyCompletionContext, TaskRecord,
-    TaskReferenceTarget, TaskState,
+    EventTitleCompletionContext, FileCompletionContext, FileRecord, FileTarget,
+    ImageCompletionContext, ImageRecord, ImageTarget, LinkCompletionContext, LinkRecord,
+    LinkSpelling, LinkTarget, MetadataOutput, MetadataValue, TaskDependency,
+    TaskDependencyCompletionContext, TaskRecord, TaskReferenceTarget, TaskState,
 };
 use plumb_syntax::{
     parse, Attributes, Block, Diagnostic, DiagnosticSeverity, ParsedBlock, ParsedDocument,
@@ -219,6 +219,8 @@ pub struct CompletionCandidate {
     pub new_text: String,
     pub replace: std::ops::Range<usize>,
 }
+
+const EVENT_TITLE_COMPLETION_LIMIT: usize = 50;
 
 #[derive(Debug, Clone)]
 pub struct VersionedDocumentOutput {
@@ -3241,6 +3243,55 @@ impl Workspace {
         candidates
     }
 
+    pub fn complete_event_title(
+        &self,
+        context: &EventTitleCompletionContext,
+    ) -> Vec<CompletionCandidate> {
+        let excluded = self.documents.keys().cloned().collect::<Vec<_>>();
+        let mut counts = HashMap::<String, usize>::new();
+        for entry in self.documents.values() {
+            let Some(versioned) = entry.current.as_ref().or(entry.last_valid.as_ref()) else {
+                continue;
+            };
+            for event in &versioned.output.events.events {
+                if !event.title.is_empty() {
+                    *counts.entry(event.title.clone()).or_default() += 1;
+                }
+            }
+        }
+        if let Some(store) = &self.disk_store {
+            if let Ok(records) = store.events(&excluded) {
+                for record in records {
+                    if !record.record.title.is_empty() {
+                        *counts.entry(record.record.title).or_default() += 1;
+                    }
+                }
+            }
+        }
+        let mut titles = counts
+            .into_iter()
+            .filter(|(title, _)| {
+                title.starts_with(&context.query)
+                    && (context.query.is_empty() || title != &context.query)
+            })
+            .collect::<Vec<_>>();
+        titles.sort_by(|(left_title, left_count), (right_title, right_count)| {
+            right_count
+                .cmp(left_count)
+                .then_with(|| left_title.cmp(right_title))
+        });
+        titles.truncate(EVENT_TITLE_COMPLETION_LIMIT);
+        titles
+            .into_iter()
+            .map(|(title, count)| CompletionCandidate {
+                label: title.clone(),
+                detail: format!("event title, {count} uses"),
+                new_text: title,
+                replace: context.replace.clone(),
+            })
+            .collect()
+    }
+
     pub fn complete_task_dependency(
         &self,
         from: impl AsRef<Path>,
@@ -5455,6 +5506,69 @@ mod tests {
             .iter()
             .flat_map(|document| &document.edits)
             .all(|edit| edit.new_text == "renamed"));
+    }
+
+    #[test]
+    fn completes_event_titles_by_workspace_frequency_and_prefix() {
+        let mut workspace = Workspace::new();
+        workspace.insert(
+            "one.plumb",
+            1,
+            "{\n  `: date 2026-08-13\n  `: timezone +08:00\n}\n\n`event 09:00 relax\n`event 10:00 relax\n`event 11:00 research\n",
+        );
+        workspace.insert(
+            "two.plumb",
+            1,
+            "{\n  `: date 2026-08-13\n  `: timezone +08:00\n}\n\n`event 12:00 research\n`event 13:00 read\n",
+        );
+        let candidates = workspace.complete_event_title(&EventTitleCompletionContext {
+            replace: 12..14,
+            query: "re".to_string(),
+        });
+        assert_eq!(
+            candidates
+                .iter()
+                .map(|candidate| (candidate.label.as_str(), candidate.detail.as_str()))
+                .collect::<Vec<_>>(),
+            [
+                ("relax", "event title, 2 uses"),
+                ("research", "event title, 2 uses"),
+                ("read", "event title, 1 uses"),
+            ]
+        );
+        assert!(candidates
+            .iter()
+            .all(|candidate| candidate.replace == (12..14)));
+    }
+
+    #[test]
+    fn event_title_completion_uses_open_overlay_and_limits_results() {
+        let store = SqliteSemanticStore::open_in_memory().unwrap();
+        let mut workspace = Workspace::with_sqlite_store(store);
+        workspace
+            .insert_disk("agenda.plumb", 1, "`event 09:00 stale\n")
+            .unwrap();
+        workspace.open_document("agenda.plumb", 2, "`event 09:00 current\n");
+        for index in 0..55 {
+            workspace
+                .insert_disk(
+                    format!("event-{index}.plumb"),
+                    1,
+                    format!("`event 09:00 title-{index:02}\n"),
+                )
+                .unwrap();
+        }
+        let candidates = workspace.complete_event_title(&EventTitleCompletionContext {
+            replace: 0..0,
+            query: String::new(),
+        });
+        assert_eq!(candidates.len(), EVENT_TITLE_COMPLETION_LIMIT);
+        assert!(candidates
+            .iter()
+            .any(|candidate| candidate.label == "current"));
+        assert!(!candidates
+            .iter()
+            .any(|candidate| candidate.label == "stale"));
     }
 
     #[test]

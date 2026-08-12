@@ -56,6 +56,12 @@ pub struct TaskDependencyCompletionContext {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EventTitleCompletionContext {
+    pub replace: Range<usize>,
+    pub query: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConstructCompletionContext {
     Task { replace: Range<usize> },
     Event { replace: Range<usize> },
@@ -692,6 +698,71 @@ pub fn construct_completion_context(
     }
 }
 
+pub fn event_title_completion_context(
+    document: &ParsedDocument,
+    offset: usize,
+) -> Option<EventTitleCompletionContext> {
+    if offset > document.source.len() || !document.source.is_char_boundary(offset) {
+        return None;
+    }
+    event_title_context_in_blocks(&document.syntax.blocks, &document.source, offset)
+}
+
+fn event_title_context_in_blocks(
+    blocks: &[Block],
+    source: &str,
+    offset: usize,
+) -> Option<EventTitleCompletionContext> {
+    for block in blocks {
+        let Block::Parsed(block) = block else {
+            continue;
+        };
+        if block
+            .mark
+            .as_ref()
+            .is_some_and(|mark| mark.marker == "event")
+            && offset == block.head.range.end
+        {
+            let [Inline::Text { .. }, Inline::Space { .. }, title @ ..] =
+                block.head.items.as_slice()
+            else {
+                return None;
+            };
+            if title
+                .iter()
+                .any(|inline| !matches!(inline, Inline::Text { .. } | Inline::Space { .. }))
+            {
+                return None;
+            }
+            let replace_start = title
+                .first()
+                .map_or(offset, |inline| inline_range(inline).start);
+            let query = source.get(replace_start..offset)?.to_string();
+            if query.contains(['\n', '\r']) {
+                return None;
+            }
+            return Some(EventTitleCompletionContext {
+                replace: replace_start..offset,
+                query,
+            });
+        }
+        if let Some(context) = event_title_context_in_blocks(&block.children, source, offset) {
+            return Some(context);
+        }
+    }
+    None
+}
+
+fn inline_range(inline: &Inline) -> &Range<usize> {
+    match inline {
+        Inline::Text { range, .. }
+        | Inline::Space { range, .. }
+        | Inline::SoftBreak { range }
+        | Inline::Element { range, .. }
+        | Inline::Verbatim { range, .. } => range,
+    }
+}
+
 pub fn task_dependency_completion_context(
     document: &ParsedDocument,
     offset: usize,
@@ -1305,6 +1376,40 @@ mod tests {
             construct_completion_context(&attribute, attribute_offset),
             None
         );
+    }
+
+    #[test]
+    fn locates_plain_event_title_completion_at_head_end() {
+        let (source, cursor) = strip_cursor("`event 09:00 rela|");
+        assert_eq!(
+            event_title_completion_context(&parse(&source), cursor),
+            Some(EventTitleCompletionContext {
+                replace: source.find("rela").unwrap()..cursor,
+                query: "rela".to_string(),
+            })
+        );
+
+        let (empty, cursor) = strip_cursor("`event 09:00 |");
+        assert_eq!(
+            event_title_completion_context(&parse(&empty), cursor),
+            Some(EventTitleCompletionContext {
+                replace: cursor..cursor,
+                query: String::new(),
+            })
+        );
+
+        for marked in [
+            "`event 09:00|",
+            "`event 09:00 `*[relax]|",
+            "`event 09:00 re|lax",
+            "`task 09:00 relax|",
+        ] {
+            let (source, cursor) = strip_cursor(marked);
+            assert_eq!(
+                event_title_completion_context(&parse(&source), cursor),
+                None
+            );
+        }
     }
 
     #[test]
