@@ -3,6 +3,70 @@ use serde_json::json;
 use crate::support::{response, run_server, run_server_after_initial_index, unique_temp_dir};
 
 #[test]
+fn completes_event_titles_by_workspace_frequency() {
+    let root = unique_temp_dir();
+    std::fs::create_dir_all(&root).unwrap();
+    let source_path = root.join("current.plumb");
+    let history_path = root.join("history.plumb");
+    let source = "`event 09:00 re";
+    std::fs::write(&source_path, source).unwrap();
+    std::fs::write(
+        &history_path,
+        "`event 10:00 relax\n`event 11:00 research\n`event 12:00 relax\n`event 13:00 read\n",
+    )
+    .unwrap();
+    let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
+    let source_uri = lsp_types::Url::from_file_path(&source_path).unwrap();
+    let messages = [
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {
+                "processId": null, "rootUri": root_uri,
+                "workspaceFolders": [{ "uri": root_uri, "name": "test" }],
+                "capabilities": {}
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": {
+                "uri": source_uri, "languageId": "plumb", "version": 1, "text": source
+            }}
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 2, "method": "textDocument/completion",
+            "params": {
+                "textDocument": { "uri": source_uri },
+                "position": { "line": 0, "character": source.len() }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 3, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+
+    let output = run_server_after_initial_index(&messages);
+    let items = response(&output, 2)["result"].as_array().unwrap();
+    assert_eq!(
+        items
+            .iter()
+            .map(|item| item["label"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        ["relax", "read", "research"]
+    );
+    assert_eq!(items[0]["kind"], 12);
+    assert_eq!(items[0]["detail"], "event title, 2 uses");
+    assert_eq!(items[0]["textEdit"]["newText"], "relax");
+    assert_eq!(
+        items[0]["textEdit"]["range"],
+        json!({
+            "start": { "line": 0, "character": source.len() - 2 },
+            "end": { "line": 0, "character": source.len() }
+        })
+    );
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn completes_task_dependencies_from_workspace_tasks() {
     let root = unique_temp_dir();
     std::fs::create_dir_all(&root).unwrap();

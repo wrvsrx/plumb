@@ -247,6 +247,11 @@ Link and Autolink;
 continuing with `->[` narrows to Link, while `->"` narrows to Autolink. A
 standalone opening bracket offers neither. Heading, ordinary list-item, and
 other inline-verbatim constructs are typed directly.
+At the end of a plain-text Event title after its schedule, the LSP completes
+workspace Event titles using the current case-sensitive title prefix. It deduplicates
+titles, ranks them by descending occurrence count then source spelling, and returns
+at most 50. An empty prefix offers the most frequent titles. The edit replaces only
+the title prefix, never the schedule; an identical nonempty title is omitted.
 
 Defined fields:
 

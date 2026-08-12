@@ -37,6 +37,8 @@ Link and Autolink; continuing with `->[` narrows to Link, while `->"` narrows
 to Autolink. A standalone opening bracket offers neither. Heading, ordinary
 list-item, and other inline-verbatim spellings are typed directly.
 Snippet-capable clients receive tab stops.
+At the end of a plain-text Event title, completion offers workspace Event titles
+matching the current case-sensitive prefix, ranked by descending use count.
 
 Inside complete or recovered attached groups, completion follows the syntax
 owner and offers declared standard facets, property names, and finite values while

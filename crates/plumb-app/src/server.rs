@@ -31,9 +31,9 @@ use lsp_types::{
     WorkspaceEdit as LspWorkspaceEdit, WorkspaceSymbolParams, WorkspaceSymbolResponse,
 };
 use plumb_semantics::{
-    attribute_completion_context, construct_completion_context, file_completion_context,
-    image_completion_context, link_completion_context, task_dependency_completion_context,
-    AnchorKind, ConstructCompletionContext, TaskStatus,
+    attribute_completion_context, construct_completion_context, event_title_completion_context,
+    file_completion_context, image_completion_context, link_completion_context,
+    task_dependency_completion_context, AnchorKind, ConstructCompletionContext, TaskStatus,
 };
 use plumb_syntax::Diagnostic;
 use plumb_workspace::{
@@ -1401,6 +1401,24 @@ impl LanguageServer for ServerState {
                                     CompletionItemKind::REFERENCE
                                 }),
                                 label: candidate.label,
+                                detail: Some(candidate.detail),
+                                text_edit: Some(CompletionTextEdit::Edit(LspTextEdit::new(
+                                    byte_range_to_lsp(&entry.parsed.source, &candidate.replace),
+                                    candidate.new_text,
+                                ))),
+                                ..CompletionItem::default()
+                            })
+                            .collect(),
+                    );
+                }
+                if let Some(context) = event_title_completion_context(&entry.parsed, offset) {
+                    return Some(
+                        self.workspace
+                            .complete_event_title(&context)
+                            .into_iter()
+                            .map(|candidate| CompletionItem {
+                                label: candidate.label,
+                                kind: Some(CompletionItemKind::VALUE),
                                 detail: Some(candidate.detail),
                                 text_edit: Some(CompletionTextEdit::Edit(LspTextEdit::new(
                                     byte_range_to_lsp(&entry.parsed.source, &candidate.replace),
