@@ -1,5 +1,5 @@
 {
-  `: title plumb 标准语义指南
+ `: title plumb 标准语义指南
 }
 
 core 只识别结构；本页介绍官方工具链赋予常用 marker、inline kind 和 attached elements 的语义。
@@ -135,7 +135,16 @@ LSP 在 src 中补全任意本地文件，并提供 hover、go-to-definition 和
 标准 citation 接受一个 plain id：
 
 `plumb"
+  {
+   `: bibliography
+    `- static/library.json
+  }
+
   See `cite[smith2004].
+
+`"bibliography" metadata 接受一个或多个 workspace 内的 CSL JSON relative paths。LSP 从
+这些 files 补全 citation id，并提供 hover 和 definition；Web viewer 通过 citeproc 渲染
+inline citation 与文末 bibliography。Bibliography file 改变时 Web watcher 自动刷新页面。
 
 其他 citation shape 的 profile 边界见
 `->[standard semantics reference]{`:[to ../reference/standard-semantics.plumb]}。

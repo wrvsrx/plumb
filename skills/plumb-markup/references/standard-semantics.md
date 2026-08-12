@@ -176,6 +176,22 @@ See `cite[smith2004].
 Do not add `@`, citation clusters, locators, prefixes, suffixes, or alternate
 modes. Those forms are deferred.
 
+Declare one or more workspace-contained CSL JSON files with document metadata.
+Plain scalar paths and inline-verbatim literal paths are both valid; paths are
+resolved from the source document directory:
+
+```plumb
+{
+  `: bibliography
+    `- static/library.json
+}
+```
+
+The LSP offers Citation construct completion for a nonempty `cite` prefix and
+completes ids inside complete or recovered `cite[...]`. Hover shows the CSL
+summary and definition opens the CSL JSON id field. `plumb site serve` runs
+citeproc and refreshes rendered notes when a declared CSL JSON file changes.
+
 ## Quotes
 
 Use the `>` block marker. Its optional head becomes the first paragraph in

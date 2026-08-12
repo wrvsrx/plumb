@@ -35,7 +35,9 @@ includes a current local RFC 3339 `created` timestamp. At line start and in
 ordinary inline content, a backtick followed by a hyphen or arrow offers both
 Link and Autolink; continuing with `->[` narrows to Link, while `->"` narrows
 to Autolink. A standalone opening bracket offers neither. Heading, ordinary
-list-item, and other inline-verbatim spellings are typed directly.
+list-item, and other inline-verbatim spellings are typed directly. In ordinary
+inline content, a nonempty prefix of `cite` offers Citation. Inside complete or
+recovered `cite[...]`, declared CSL JSON bibliography ids are completed.
 Snippet-capable clients receive tab stops.
 At the end of a plain-text Event title, completion offers workspace Event titles
 matching the current case-sensitive prefix, ranked by descending use count.
