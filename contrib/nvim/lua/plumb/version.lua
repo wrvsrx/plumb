@@ -1,4 +1,4 @@
 return {
-  version = '0.21.1-dev',
+  version = '0.22.0',
   search_schema = 3,
 }
