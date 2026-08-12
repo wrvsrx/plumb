@@ -34,6 +34,10 @@
               nativeBuildInputs = [ pkgs.makeWrapper ];
               nativeCheckInputs = [ pkgs.pandoc ];
 
+              preCheck = ''
+                export PLUMB_CACHE_DIR="$TMPDIR/plumb-cache"
+              '';
+
               postInstall = ''
                 mkdir -p $out/share/plumb
                 cp -r skills $out/share/plumb/
