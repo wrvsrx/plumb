@@ -796,6 +796,10 @@ fn spawn_watcher(state: AppState) {
             }
             changed_paths.sort();
             changed_paths.dedup();
+            let render_dependency_changed = changed_paths.iter().any(|path| {
+                path.extension()
+                    .is_some_and(|extension| extension == "json")
+            });
             let already_current = if changed_paths.is_empty()
                 || changed_paths.iter().any(|path| {
                     path.extension()
@@ -820,7 +824,9 @@ fn spawn_watcher(state: AppState) {
                         eprintln!("plumb site serve: cannot apply graph exclusion: {error}");
                         continue;
                     }
-                    if state.workspace.read().await.has_same_documents(&workspace) {
+                    if !render_dependency_changed
+                        && state.workspace.read().await.has_same_documents(&workspace)
+                    {
                         continue;
                     }
                     *state.workspace.write().await = workspace;
@@ -839,7 +845,7 @@ fn watch_event_affects_workspace(event: &notify::Event) -> bool {
         notify::EventKind::Create(_) | notify::EventKind::Modify(_) | notify::EventKind::Remove(_)
     ) && event.paths.iter().any(|path| {
         path.extension()
-            .is_some_and(|extension| extension == "plumb")
+            .is_some_and(|extension| extension == "plumb" || extension == "json")
             || path.file_name().is_some_and(|name| name == ".ignore")
     })
 }
@@ -880,6 +886,9 @@ mod tests {
         assert!(events.iter().all(watch_event_affects_workspace));
         let ignore = Event::new(EventKind::Modify(ModifyKind::Any)).add_path(".ignore".into());
         assert!(watch_event_affects_workspace(&ignore));
+        let bibliography =
+            Event::new(EventKind::Modify(ModifyKind::Any)).add_path("library.json".into());
+        assert!(watch_event_affects_workspace(&bibliography));
     }
 
     #[test]

@@ -6,11 +6,12 @@ use cel::{Context, Program, Value};
 use chrono::{Local, SecondsFormat};
 use plumb_semantics::{LinkSpelling, TaskStatus};
 use plumb_workspace::{
-    apply_document_edit, display_workspace_path as display_path, normalize, scan_workspace_files,
-    search_score, sort_task_records_by, truncate_complete_task_documents, ApplyDocumentEditError,
-    EventEditError, EventInput, ResolvedTarget, SearchRecordKind, SqliteSemanticStore,
-    TaskAuthoringError, TaskAuthoringInput, TaskPlacement, TaskRef, TaskSortFacts, TaskSortOrder,
-    TaskWorkflowState, Workspace, WorkspaceEvent, WorkspaceEventCursor,
+    apply_document_edit, display_workspace_path as display_path, load_bibliography, normalize,
+    scan_workspace_files, search_score, sort_task_records_by, truncate_complete_task_documents,
+    ApplyDocumentEditError, EventEditError, EventInput, ResolvedTarget, SearchRecordKind,
+    SqliteSemanticStore, TaskAuthoringError, TaskAuthoringInput, TaskPlacement, TaskRef,
+    TaskSortFacts, TaskSortOrder, TaskWorkflowState, Workspace, WorkspaceEvent,
+    WorkspaceEventCursor,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -1632,6 +1633,20 @@ impl WebWorkspace {
             .note(id)
             .ok_or_else(|| format!("unknown document id '{id}'"))?;
         plumb_export::export(&note.source)
+    }
+
+    pub fn bibliography(&self, id: &str) -> Result<plumb_workspace::Bibliography, String> {
+        let path = self
+            .document_path(id)
+            .ok_or_else(|| format!("unknown document id '{id}'"))?;
+        let metadata = &self
+            .workspace
+            .get(path)
+            .and_then(|entry| entry.current.as_ref())
+            .ok_or_else(|| format!("document '{}' is not semantically valid", path.display()))?
+            .output
+            .metadata;
+        Ok(load_bibliography(&self.root, path, metadata))
     }
 
     fn full_graph(&self) -> (BTreeMap<String, GraphNode>, Vec<GraphEdge>) {

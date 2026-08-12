@@ -153,11 +153,13 @@ fn watcher_registration_follows_client_capability() {
     let watchers = registration["params"]["registrations"][0]["registerOptions"]["watchers"]
         .as_array()
         .unwrap();
-    assert_eq!(watchers.len(), 2);
+    assert_eq!(watchers.len(), 3);
     assert_eq!(watchers[0]["globPattern"], "**/*.plumb");
     assert_eq!(watchers[0]["kind"], 7);
     assert_eq!(watchers[1]["globPattern"], "**/.ignore");
     assert_eq!(watchers[1]["kind"], 7);
+    assert_eq!(watchers[2]["globPattern"], "**/*.json");
+    assert_eq!(watchers[2]["kind"], 7);
     std::fs::remove_dir_all(root).unwrap();
 }
 

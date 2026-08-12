@@ -12,11 +12,21 @@ pub fn render_note_html(workspace: &WebWorkspace, document_id: &str) -> Result<S
         .document_path(document_id)
         .ok_or_else(|| format!("unknown document id '{document_id}'"))?;
     let mut document = workspace.pandoc_document(document_id)?;
+    let bibliography = workspace.bibliography(document_id)?;
+    if bibliography.declared && bibliography.sources.is_empty() {
+        let message = bibliography
+            .diagnostics
+            .first()
+            .map(|diagnostic| diagnostic.message.as_str())
+            .unwrap_or("no valid bibliography source");
+        return Err(format!("cannot render citations: {message}"));
+    }
+    project_bibliography_paths(&mut document, &bibliography.sources);
     adapt_pandoc_targets(workspace, source_path, &mut document);
     let input = serde_json::to_vec(&document)
         .map_err(|error| format!("cannot encode Pandoc document: {error}"))?;
     let mut child = Command::new("pandoc")
-        .args(["--from=json", "--to=html5", "--mathml"])
+        .args(["--from=json", "--to=html5", "--mathml", "--citeproc"])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -39,6 +49,24 @@ pub fn render_note_html(workspace: &WebWorkspace, document_id: &str) -> Result<S
     }
     String::from_utf8(output.stdout)
         .map_err(|error| format!("Pandoc returned invalid UTF-8: {error}"))
+}
+
+fn project_bibliography_paths(document: &mut Value, sources: &[PathBuf]) {
+    let Some(metadata) = document.get_mut("meta").and_then(Value::as_object_mut) else {
+        return;
+    };
+    if !sources.is_empty() {
+        metadata.insert(
+            "bibliography".to_string(),
+            serde_json::json!({
+                "t": "MetaList",
+                "c": sources.iter().map(|path| serde_json::json!({
+                    "t": "MetaString",
+                    "c": path.to_string_lossy(),
+                })).collect::<Vec<_>>()
+            }),
+        );
+    }
 }
 
 pub fn adapt_pandoc_targets(workspace: &WebWorkspace, source_path: &Path, document: &mut Value) {
@@ -347,6 +375,35 @@ mod tests {
         let rendered = render_note_html(&workspace, document_id).unwrap();
         assert!(rendered.contains("<video controls"), "{rendered}");
         assert!(rendered.contains("src=\"/resource/r"), "{rendered}");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn renders_citations_from_plain_csl_json_metadata() {
+        if Command::new("pandoc").arg("--version").output().is_err() {
+            return;
+        }
+        let root = temp_dir();
+        std::fs::create_dir_all(root.join("static")).unwrap();
+        std::fs::write(
+            root.join("static/library file.json"),
+            r#"[{"id":"smith2004","type":"book","title":"Example Book","author":[{"family":"Smith","given":"Alice"}],"issued":{"date-parts":[[2004]]}}]"#,
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("note.plumb"),
+            "{\n `: bibliography\n  `- static/library file.json\n}\n\nSee `cite[smith2004].\n",
+        )
+        .unwrap();
+        let workspace = WebWorkspace::load(&root).unwrap();
+        let document_id = workspace.document_id(root.join("note.plumb")).unwrap();
+        let rendered = render_note_html(&workspace, document_id).unwrap();
+        assert!(rendered.contains("class=\"citation\""), "{rendered}");
+        assert!(rendered.contains("Smith"), "{rendered}");
+        assert!(rendered.contains("2004"), "{rendered}");
+        assert!(rendered.contains("Example Book"), "{rendered}");
+        assert!(rendered.contains("id=\"refs\""), "{rendered}");
+        assert!(!rendered.contains("[smith2004]"), "{rendered}");
         std::fs::remove_dir_all(root).unwrap();
     }
 

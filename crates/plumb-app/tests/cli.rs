@@ -511,6 +511,74 @@ fn serves_the_workspace_site_with_notes_and_tasks() {
 }
 
 #[test]
+fn site_renders_and_refreshes_csl_json_citations() {
+    if Command::new("pandoc").arg("--version").output().is_err() {
+        return;
+    }
+    let root = unique_temp_dir();
+    std::fs::create_dir_all(root.join("static")).unwrap();
+    std::fs::write(
+        root.join("note.plumb"),
+        "{\n `: title Citation note\n `: bibliography static/library.json\n}\n\nSee `cite[smith2004].\n",
+    )
+    .unwrap();
+    let bibliography = root.join("static/library.json");
+    std::fs::write(
+        &bibliography,
+        r#"[{"id":"smith2004","type":"book","title":"First Edition","author":[{"family":"Smith"}],"issued":{"date-parts":[[2004]]}}]"#,
+    )
+    .unwrap();
+    let port = available_port();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_plumb"))
+        .args(["site", "serve", "--root"])
+        .arg(&root)
+        .arg("--port")
+        .arg(port.to_string())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut output_reader = BufReader::new(child.stdout.take().unwrap());
+    let mut url = String::new();
+    output_reader.read_line(&mut url).unwrap();
+    let address = url
+        .trim()
+        .strip_prefix("http://")
+        .unwrap()
+        .trim_end_matches('/');
+    let graph: serde_json::Value =
+        serde_json::from_str(&http_get(address, "/api/graph").2).unwrap();
+    let id = graph["nodes"][0]["id"].as_str().unwrap();
+    let first = http_get(address, &format!("/api/note/{id}"));
+    assert_eq!(first.0, 200, "{}", first.2);
+    assert!(first.2.contains("Smith"), "{}", first.2);
+    assert!(first.2.contains("First Edition"), "{}", first.2);
+    assert!(first.2.contains("id=\\\"refs\\\""), "{}", first.2);
+
+    std::fs::write(
+        &bibliography,
+        r#"[{"id":"smith2004","type":"book","title":"Revised Edition","author":[{"family":"Smith"}],"issued":{"date-parts":[[2005]]}}]"#,
+    )
+    .unwrap();
+    let mut refreshed = false;
+    for _ in 0..60 {
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        let response = http_get(address, &format!("/api/note/{id}"));
+        if response.0 == 200 && response.2.contains("Revised Edition") {
+            refreshed = true;
+            break;
+        }
+    }
+    assert!(
+        refreshed,
+        "bibliography change did not refresh rendered citation"
+    );
+    child.kill().unwrap();
+    child.wait().unwrap();
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn site_build_is_not_a_supported_subcommand() {
     let output = Command::new(env!("CARGO_BIN_EXE_plumb"))
         .args(["site", "build"])

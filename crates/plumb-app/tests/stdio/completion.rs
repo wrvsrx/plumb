@@ -3,6 +3,66 @@ use serde_json::json;
 use crate::support::{response, run_server, run_server_after_initial_index, unique_temp_dir};
 
 #[test]
+fn completes_citation_constructs_and_csl_json_ids() {
+    let root = unique_temp_dir();
+    std::fs::create_dir_all(root.join("static")).unwrap();
+    let source_path = root.join("note.plumb");
+    let bibliography_path = root.join("static/library.json");
+    let source = "{\n `: bibliography static/library.json\n}\n\nSee `ci and `cite[smi\n";
+    std::fs::write(&source_path, source).unwrap();
+    std::fs::write(
+        &bibliography_path,
+        r#"[{"id":"smith2004","title":"Example Book","author":[{"family":"Smith"}],"issued":{"date-parts":[[2004]]}},{"id":"roe2020","title":"Other"}]"#,
+    )
+    .unwrap();
+    let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
+    let source_uri = lsp_types::Url::from_file_path(&source_path).unwrap();
+    let lines = source.lines().collect::<Vec<_>>();
+    let line = lines.len() - 1;
+    let construct = lines[line].find("`ci").unwrap() + 3;
+    let key = lines[line].len();
+    let messages = [
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {
+                "processId": null, "rootUri": root_uri,
+                "workspaceFolders": [{ "uri": root_uri, "name": "test" }],
+                "capabilities": { "textDocument": { "completion": {
+                    "completionItem": { "snippetSupport": true }
+                } } }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": {
+                "uri": source_uri, "languageId": "plumb", "version": 1, "text": source
+            }}
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 2, "method": "textDocument/completion",
+            "params": { "textDocument": { "uri": source_uri }, "position": { "line": line, "character": construct } }
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 3, "method": "textDocument/completion",
+            "params": { "textDocument": { "uri": source_uri }, "position": { "line": line, "character": key } }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 4, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+    let output = run_server_after_initial_index(&messages);
+    let construct_items = response(&output, 2)["result"].as_array().unwrap();
+    assert_eq!(construct_items[0]["label"], "Citation");
+    assert_eq!(construct_items[0]["textEdit"]["newText"], "`cite[${1:id}]");
+    let key_items = response(&output, 3)["result"].as_array().unwrap();
+    assert_eq!(key_items.len(), 1);
+    assert_eq!(key_items[0]["label"], "smith2004");
+    assert_eq!(key_items[0]["detail"], "Smith · 2004 · Example Book");
+    assert_eq!(key_items[0]["textEdit"]["newText"], "smith2004");
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn completes_event_titles_by_workspace_frequency() {
     let root = unique_temp_dir();
     std::fs::create_dir_all(&root).unwrap();

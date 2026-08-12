@@ -31,15 +31,16 @@ use lsp_types::{
     WorkspaceEdit as LspWorkspaceEdit, WorkspaceSymbolParams, WorkspaceSymbolResponse,
 };
 use plumb_semantics::{
-    attribute_completion_context, construct_completion_context, event_title_completion_context,
-    file_completion_context, image_completion_context, link_completion_context,
-    task_dependency_completion_context, AnchorKind, ConstructCompletionContext, TaskStatus,
+    attribute_completion_context, citation_completion_context, construct_completion_context,
+    event_title_completion_context, file_completion_context, image_completion_context,
+    link_completion_context, task_dependency_completion_context, AnchorKind,
+    ConstructCompletionContext, TaskStatus,
 };
 use plumb_syntax::Diagnostic;
 use plumb_workspace::{
-    normalize, scan_workspace_files, PathRenameInput, RenameError, ResolvedTarget,
-    ResourceOperation, SearchRecord, SearchRecordKind, SqliteSemanticStore, Workspace,
-    WorkspaceEdit,
+    load_bibliography, normalize, scan_workspace_files, Bibliography, BibliographyResolution,
+    PathRenameInput, RenameError, ResolvedTarget, ResourceOperation, SearchRecord,
+    SearchRecordKind, SqliteSemanticStore, Workspace, WorkspaceEdit,
 };
 use sha2::{Digest, Sha256};
 
@@ -141,9 +142,15 @@ impl ServerState {
         let Some(entry) = self.workspace.get(path) else {
             return;
         };
-        let diagnostics = self
-            .workspace
-            .diagnostics(path)
+        let mut diagnostics = self.workspace.diagnostics(path);
+        if let Some(bibliography) = self.bibliography_for(path) {
+            diagnostics.extend(bibliography.diagnostics.clone());
+            if let Some(current) = &entry.current {
+                diagnostics
+                    .extend(bibliography.citation_diagnostics(&current.output.citations.citations));
+            }
+        }
+        let diagnostics = diagnostics
             .into_iter()
             .map(|diagnostic| to_lsp_diagnostic(&entry.parsed.source, uri, diagnostic))
             .collect();
@@ -155,6 +162,25 @@ impl ServerState {
                 diagnostics,
                 version,
             });
+    }
+
+    fn workspace_root_for(&self, path: &Path) -> Option<&Path> {
+        self.roots
+            .iter()
+            .filter(|root| path.starts_with(root))
+            .max_by_key(|root| root.components().count())
+            .map(PathBuf::as_path)
+    }
+
+    fn bibliography_for(&self, path: &Path) -> Option<Bibliography> {
+        let root = self.workspace_root_for(path)?;
+        let entry = self.workspace.get(path)?;
+        if let Some(current) = &entry.current {
+            Some(load_bibliography(root, path, &current.output.metadata))
+        } else {
+            let metadata = plumb_semantics::analyze_metadata(&entry.parsed.syntax);
+            Some(load_bibliography(root, path, &metadata))
+        }
     }
 
     fn index_roots(&mut self) -> (usize, bool) {
@@ -300,6 +326,12 @@ impl ServerState {
                             },
                             FileSystemWatcher {
                                 glob_pattern: GlobPattern::String("**/.ignore".to_string()),
+                                kind: Some(
+                                    WatchKind::Create | WatchKind::Change | WatchKind::Delete,
+                                ),
+                            },
+                            FileSystemWatcher {
+                                glob_pattern: GlobPattern::String("**/*.json".to_string()),
                                 kind: Some(
                                     WatchKind::Create | WatchKind::Change | WatchKind::Delete,
                                 ),
@@ -1055,6 +1087,24 @@ impl LanguageServer for ServerState {
             .and_then(|path| {
                 let entry = self.workspace.get(&path)?;
                 let offset = position_to_offset(&entry.parsed.source, position.position);
+                if let Some(citation) = entry.current.as_ref().and_then(|current| {
+                    current.output.citations.citations.iter().find(|citation| {
+                        citation.selection_range.start <= offset
+                            && offset <= citation.selection_range.end
+                    })
+                }) {
+                    let bibliography = self.bibliography_for(&path)?;
+                    let BibliographyResolution::Resolved(record) =
+                        bibliography.resolve(&citation.id)
+                    else {
+                        return None;
+                    };
+                    let source = std::fs::read_to_string(&record.path).ok()?;
+                    return Some(Location::new(
+                        Url::from_file_path(&record.path).ok()?,
+                        byte_range_to_lsp(&source, &record.range),
+                    ));
+                }
                 match self.target_at_with_lazy_load(&path, offset)? {
                     ResolvedTarget::Anchor { path, anchor, .. } => {
                         location_for(&self.workspace, &path, &anchor.selection_range)
@@ -1246,6 +1296,36 @@ impl LanguageServer for ServerState {
                     let entry = self.workspace.get(&path)?;
                     position_to_offset(&entry.parsed.source, position.position)
                 };
+                if let Some(citation) =
+                    self.workspace
+                        .get(&path)?
+                        .current
+                        .as_ref()
+                        .and_then(|current| {
+                            current.output.citations.citations.iter().find(|citation| {
+                                citation.selection_range.start <= offset
+                                    && offset <= citation.selection_range.end
+                            })
+                        })
+                {
+                    let bibliography = self.bibliography_for(&path)?;
+                    let BibliographyResolution::Resolved(record) =
+                        bibliography.resolve(&citation.id)
+                    else {
+                        return None;
+                    };
+                    let entry = self.workspace.get(&path)?;
+                    return Some(Hover {
+                        contents: HoverContents::Markup(MarkupContent {
+                            kind: MarkupKind::Markdown,
+                            value: format!("**Citation:** `{}`\n\n{}", record.id, record.detail()),
+                        }),
+                        range: Some(byte_range_to_lsp(
+                            &entry.parsed.source,
+                            &citation.selection_range,
+                        )),
+                    });
+                }
                 if let Some(file) = self.workspace.file_at(&path, offset).cloned() {
                     let target = self.workspace.resolve_file(&path, &file);
                     let entry = self.workspace.get(&path)?;
@@ -1388,6 +1468,37 @@ impl LanguageServer for ServerState {
                         }
                     }
                     return Some(items);
+                }
+                if let Some(context) = citation_completion_context(&entry.parsed, offset) {
+                    let bibliography = self.bibliography_for(&path)?;
+                    let query = context.query.to_lowercase();
+                    return Some(
+                        bibliography
+                            .records
+                            .iter()
+                            .filter(|record| {
+                                matches!(
+                                    bibliography.resolve(&record.id),
+                                    BibliographyResolution::Resolved(_)
+                                )
+                            })
+                            .filter(|record| {
+                                query.is_empty()
+                                    || record.id.to_lowercase().contains(&query)
+                                    || record.detail().to_lowercase().contains(&query)
+                            })
+                            .map(|record| CompletionItem {
+                                label: record.id.clone(),
+                                kind: Some(CompletionItemKind::REFERENCE),
+                                detail: Some(record.detail()),
+                                text_edit: Some(CompletionTextEdit::Edit(LspTextEdit::new(
+                                    byte_range_to_lsp(&entry.parsed.source, &context.replace),
+                                    record.id.clone(),
+                                ))),
+                                ..CompletionItem::default()
+                            })
+                            .collect(),
+                    );
                 }
                 if let Some(context) = task_dependency_completion_context(&entry.parsed, offset) {
                     let candidates = self.workspace.complete_task_dependency(&path, &context);
@@ -1943,6 +2054,15 @@ fn construct_completion_items(
         _ => String::new(),
     };
     let (replace, templates) = match context {
+        ConstructCompletionContext::Citation { replace } => (
+            replace,
+            vec![ConstructTemplate {
+                label: "Citation",
+                detail: "plumb citation",
+                snippet: "`cite[${1:id}]".to_string(),
+                plain: "`cite[]".to_string(),
+            }],
+        ),
         ConstructCompletionContext::Task { replace } => (
             replace,
             vec![task_construct_template(&block_indent, timestamp)],

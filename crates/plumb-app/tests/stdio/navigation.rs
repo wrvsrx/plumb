@@ -3,6 +3,52 @@ use serde_json::json;
 use crate::support::{response, run_server, run_server_after_initial_index, unique_temp_dir};
 
 #[test]
+fn resolves_csl_json_citation_hover_and_definition() {
+    let root = unique_temp_dir();
+    std::fs::create_dir_all(root.join("static")).unwrap();
+    let source_path = root.join("note.plumb");
+    let bibliography_path = root.join("static/library.json");
+    let source = "{\n `: bibliography static/library.json\n}\n\nSee `cite[smith2004].\n";
+    let bibliography = r#"[{"id":"smith2004","title":"Example Book","author":[{"family":"Smith"}],"issued":{"date-parts":[[2004]]}}]"#;
+    std::fs::write(&source_path, source).unwrap();
+    std::fs::write(&bibliography_path, bibliography).unwrap();
+    let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
+    let source_uri = lsp_types::Url::from_file_path(&source_path).unwrap();
+    let bibliography_uri = lsp_types::Url::from_file_path(&bibliography_path).unwrap();
+    let messages = [
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": { "processId": null, "rootUri": root_uri,
+                "workspaceFolders": [{ "uri": root_uri, "name": "test" }], "capabilities": {} }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": { "uri": source_uri, "languageId": "plumb", "version": 1, "text": source } }
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 2, "method": "textDocument/hover",
+            "params": { "textDocument": { "uri": source_uri }, "position": { "line": 4, "character": 13 } }
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 3, "method": "textDocument/definition",
+            "params": { "textDocument": { "uri": source_uri }, "position": { "line": 4, "character": 13 } }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 4, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+    let output = run_server_after_initial_index(&messages);
+    let hover = response(&output, 2);
+    let value = hover["result"]["contents"]["value"].as_str().unwrap();
+    assert!(value.contains("smith2004"), "{value}");
+    assert!(value.contains("Smith · 2004 · Example Book"), "{value}");
+    let definition = response(&output, 3);
+    assert_eq!(definition["result"]["uri"], bibliography_uri.as_str());
+    assert_eq!(definition["result"]["range"]["start"]["line"], 0);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn publishes_task_symbols_hover_and_workspace_diagnostics() {
     let root = unique_temp_dir();
     std::fs::create_dir_all(&root).unwrap();
