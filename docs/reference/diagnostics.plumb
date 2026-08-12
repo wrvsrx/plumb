@@ -1,10 +1,11 @@
 {
-  `: title plumb diagnostics reference
+ `: title plumb diagnostics reference
 }
 
 `# 1. Diagnostic ownership
 
  syntax diagnostics 只报告 syntax。official semantics 报告 semantic profile violations；workspace
+
 分析报告跨文档 resolution、identity 和 dependency 问题；protocol adapters 不重新解释这些错误。
 
 每条 diagnostic 包含稳定 code、severity、message 和 source range。可修复错误可以附带 edit，
@@ -47,13 +48,13 @@ Current parser 用 `"syntax.legacy-attributes" 拒绝识别出的旧 attribute s
 `# 4. Recovery boundaries
 
 `- block-start error：当前 physical line。block column 上独占 physical line 的孤立 introducer
-  保持 `"syntax.incomplete-introducer"，并在 recovered typed tree 中建立 empty-marker marked block
-  placeholder；它按普通 marked block indentation rule 接管紧随的 children，使输入 marker 首字符前后的
-  owner boundary 与 folding range 保持稳定。该 placeholder 不进入 valid authoritative view；ordinary inline
-  position 的孤立 introducer 不建立 block owner。
+ 保持 `"syntax.incomplete-introducer"，并在 recovered typed tree 中建立 empty-marker marked block
+ placeholder；它按普通 marked block indentation rule 接管紧随的 children，使输入 marker 首字符前后的
+ owner boundary 与 folding range 保持稳定。该 placeholder 不进入 valid authoritative view；ordinary inline
+ position 的孤立 introducer 不建立 block owner。
 `- attached block group：matching owner boundary 或 dedent；marked block 的 next-line opener 在 blank、
-  owner-level dedent、children start 或不匹配的 continuation column 前停止建立 ownership；attached inline
-  group：当前 enclosing inline boundary。
+ owner-level dedent、children start 或不匹配的 continuation column 前停止建立 ownership；attached inline
+ group：当前 enclosing inline boundary。
 `- unattached group/unexpected close：当前 structural line 或 enclosing inline boundary。
 `- parsed inline error：blank、dedent、block-only entry 或 EOF 前。
 `- inline verbatim error：当前 physical line ending 或 EOF。
@@ -67,17 +68,18 @@ official semantic profile 至少区分：
 
 `- heading/anchor：非法 heading level、duplicate anchor。
 `- metadata：duplicate/invalid key、invalid location、unsupported 或 mixed value shape，以及
-   `"metadata.invalid-created" RFC 3339 timestamp warning。
+ `"metadata.invalid-created" RFC 3339 timestamp warning。
 `- link/reference：缺失或无效 target、conflicting autolink property、missing document/anchor、
-   ambiguous anchor 或 unresolved file。
+ ambiguous anchor 或 unresolved file。
 `- image：missing/invalid src 或 unresolved local file。
 `- file：missing/invalid src 或 unresolved local attachment。
-`- citation：空 id、nested 或 unsupported citation shape。
+`- citation：空 id、nested 或 unsupported citation shape，无效/缺失 bibliography file、无效
+ CSL JSON、duplicate id，以及已声明 bibliography 时 unresolved 或 ambiguous citation id。
 `- task：`"task.invalid-datetime"、`"task.invalid-priority"、无效 recur/reference、互斥 closure state、
-   self dependency、cycle、blocked completion、`"task.done-with-open-dependency" 和
-   `"task.done-with-open-descendant" closure consistency warnings。
+ self dependency、cycle、blocked completion、`"task.done-with-open-dependency" 和
+ `"task.done-with-open-descendant" closure consistency warnings。
 `- event：missing/invalid title/time/date/timezone、`"event.invalid-uid" empty explicit UID、invalid interval，以及
-   invalid/unresolved/ambiguous/non-task reference。
+ invalid/unresolved/ambiguous/non-task reference。
 `- math：invalid owner 或 unsupported input language。
 
 semantic diagnostic 应指向最小 source-backed field range。由多个 documents 共同形成的问题可以

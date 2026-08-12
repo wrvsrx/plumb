@@ -1,5 +1,5 @@
 {
-  `: title plumb standard semantics reference
+ `: title plumb standard semantics reference
 }
 
 `# 1. Scope
@@ -205,6 +205,28 @@ link。未知或不支持 preview 的 MIME type 保持普通 attachment link。M
 
 export 产生一个 `"NormalCitation" mode 的 Pandoc `"Cite"。cluster、locator、prefix、suffix、
 suppress-author 和 author-in-text deferred；Pandoc Markdown `"`@key" spelling 不受支持。
+
+Document metadata `"bibliography" 声明 citation data source。它接受一个 scalar 或 `"-" list；
+每个 item 必须是非空 plain scalar 或单个 inline verbatim literal。首个 profile 只支持
+CSL JSON `".json" file。relative path 从 source document directory 解析，不做 percent decoding
+或 path normalization；absolute path、backslash、control character 和逃出 workspace root 的 target
+无效。同一 document 声明的多个 files 按 metadata 顺序合并，duplicate citation id 为
+ambiguous，不任意选择其中一个。
+
+CSL JSON root 必须是 item array；每个 item 必须是 object，并有非空 string `"id"。
+Workspace 以 bibliography file bytes 作为 dependency：file create/modify/remove 使 diagnostics、
+completion、hover、definition 和 Web render invalid。有 bibliography 声明时，未找到或 ambiguous
+id 的 citation 产生 semantic warning；没有 bibliography 声明的 document 仍保留 portable
+Pandoc citation，不仅因缺少 local data source 而诊断。
+
+LSP construct completion 在 ordinary inline content 中对反引号后 `"cite" 的非空 prefix
+提供 Citation snippet。在完整或 recovered `"cite[...]" content 中，completion 从当前
+document 声明的 bibliography files 提供 ids，并用 author、issued year 和 title 形成
+candidate detail。Hover 显示同一 summary；definition 返回 CSL JSON item 的 `"id" field。
+
+`"plumb site serve" 对完整 Pandoc document 运行 citeproc，使 inline citations 和 generated
+bibliography 使用同一 metadata source。Bibliography relative paths 仍相对 source document，
+不取决于 server process current directory。
 
 `# 11. Transparent containers
 
@@ -412,7 +434,7 @@ edge。attached facet 恰好名为 `"task" 时仍是 opaque attached data，不�
 `- `"prev" 是一个 same-file `"#id" 或 cross-file `"`path.plumb#id" reference。
 `- `"priority" 是 32-bit signed integer；数值越大，优先级越高。
 `- `"depends" 是一个 scalar reference list；same-file reference 使用 `"#id"，cross-file reference
-   使用 raw `"`path.plumb#id"。
+ 使用 raw `"`path.plumb#id"。
 
 Task reference 不进行 percent encode、percent decode 或 normalization。Cross-file target 必须使用相对
 `"path.plumb#id"；UTF-8、spaces、parentheses、`"%" 和其他普通 path characters 保持字面值，control

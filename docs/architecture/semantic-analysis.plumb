@@ -99,6 +99,12 @@ query context 至少包含 request document/revision、cursor 或 target、works
 completion 可以读取 current recovered view 与其他 documents 的 last-valid indexes。definition、references、
 hover 和 rename 默认要求当前 target 具有 valid semantic record。
 
+Bibliography 分为 document-local declaration 与 workspace file dependency：`"plumb-semantics" 从 typed
+metadata 投影 source-backed paths，并从 recovered inline view 产生 citation completion context；
+`"plumb-workspace" 负责 root containment、file I/O、CSL JSON decoding、id merge/resolution 和 dependency
+diagnostics。LSP 与 Web 不得各自解析 bibliography。Bibliography bytes 变化必须 invalidates
+所有声明该 source 的 derived query/render results。
+
 LSP initial workspace indexing 不得阻塞 current open-document lifecycle 或只依赖该 document snapshot 的
 formatting、range formatting、symbols、folding 与 semantic tokens requests。index 在 background 构造完整
 workspace 后回到 server event loop 原子安装；安装时必须保留 indexing 期间已经 didOpen/didChange 的 current

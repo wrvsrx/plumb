@@ -153,6 +153,11 @@ limit 在 source order 内优先保留外层 range。
 `- `"plumb-web"：workspace graph/Web document model、Pandoc Web target adaptation、本地 Web server
  与 browser assets。
 
+`"plumb-web" 的 note renderer 使用 Pandoc citeproc 处理 official citation records。Bibliography
+declaration、workspace-contained path resolution 和 CSL JSON records 由 shared semantic/workspace layers 提供；
+Web adapter 只投影 document-relative writer paths。Workspace watcher 必须将被声明的 bibliography
+files 视为 render dependencies，变化时清除 HTML cache 并发布新 revision。
+
 统一 binary 可以依赖共享 layers，但 shared libraries 不能依赖 CLI protocol types。
 
 Web presentation 不得取得或持有无界 event collection。Agenda 使用 server-side 有界 cursor page：没有显式
