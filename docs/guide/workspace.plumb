@@ -119,6 +119,16 @@ unresolved dependency 或 dependency cycle 都不会覆盖文件。失败时表�
 locator，不接受 filesystem path；source-offset locator 还必须精确匹配当前 revision 中 task block 的
 opener start。把 server 暴露到非-loopback network 前需要自行提供访问控制。
 
+反向代理后的 HTTPS mutation 使用 `"--public-origin" 显式声明 browser 访问的 origin，例如：
+
+`sh"
+ plumb site serve --host 127.0.0.1 --port 3000 \
+   --public-origin https://zettelkasten.example.org:9162
+
+该 option 只接受没有 path/query/fragment/userinfo 的 HTTP(S) origin，并要求 mutation request 的 browser
+`"Origin" 完全匹配；server 不把代理 headers 当作可信 origin。配置后，缺少 `"Origin" 的 mutation request
+也会被拒绝。
+
 server URL 单独写入 stdout；启动状态、task mutation、所有 non-GET requests 和任何 HTTP 4xx/5xx
 responses 写入 stderr。task operation 同时记录 received、rejected reason 或 completed，例如：
 

@@ -30,9 +30,19 @@ fn exposes_the_unified_command_surface() {
         .output()
         .unwrap();
     assert!(serve_help.status.success());
-    assert!(!String::from_utf8(serve_help.stdout)
-        .unwrap()
-        .contains("--no-open"));
+    let serve_help = String::from_utf8(serve_help.stdout).unwrap();
+    assert!(serve_help.contains("--public-origin"));
+    assert!(!serve_help.contains("--no-open"));
+
+    for origin in ["file:///tmp/site", "https://example.test/path"] {
+        let invalid_origin = Command::new(env!("CARGO_BIN_EXE_plumb"))
+            .args(["site", "serve", "--public-origin", origin])
+            .output()
+            .unwrap();
+        assert!(!invalid_origin.status.success());
+        assert!(String::from_utf8_lossy(&invalid_origin.stderr)
+            .contains("origin must contain only an http(s) scheme and authority"));
+    }
 
     let obsolete_option = Command::new(env!("CARGO_BIN_EXE_plumb"))
         .args(["site", "serve", "--no-open"])

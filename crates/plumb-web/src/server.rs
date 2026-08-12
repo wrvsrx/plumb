@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::process::ExitCode;
+use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -58,6 +59,10 @@ pub(crate) struct ServeConfig {
     #[arg(long)]
     allow_mutations: bool,
 
+    /// Public HTTP(S) origin used to validate browser mutations behind a proxy.
+    #[arg(long, value_name = "ORIGIN")]
+    public_origin: Option<PublicOrigin>,
+
     /// Hide notes whose CEL predicate evaluates to true.
     #[arg(long, value_name = "EXPR")]
     exclude: Option<String>,
@@ -71,6 +76,29 @@ struct AppState {
     current: Option<String>,
     exclude: Option<Arc<str>>,
     allow_mutations: bool,
+    public_origin: Option<PublicOrigin>,
+}
+
+#[derive(Clone, Debug)]
+struct PublicOrigin(url::Url);
+
+impl FromStr for PublicOrigin {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        let origin = url::Url::parse(value).map_err(|error| format!("invalid origin: {error}"))?;
+        if !matches!(origin.scheme(), "http" | "https")
+            || origin.host().is_none()
+            || !origin.username().is_empty()
+            || origin.password().is_some()
+            || origin.path() != "/"
+            || origin.query().is_some()
+            || origin.fragment().is_some()
+        {
+            return Err("origin must contain only an http(s) scheme and authority".to_string());
+        }
+        Ok(Self(origin))
+    }
 }
 
 pub(crate) fn serve(config: ServeConfig) -> ExitCode {
@@ -110,6 +138,7 @@ async fn run(config: ServeConfig) -> Result<(), String> {
         current,
         exclude: config.exclude.map(Arc::from),
         allow_mutations: mutations_enabled(config.host, config.allow_mutations),
+        public_origin: config.public_origin,
     };
     if !config.no_watch {
         spawn_watcher(state.clone());
@@ -304,7 +333,7 @@ async fn update_task(
         )
             .into_response();
     }
-    if !same_origin(&headers) {
+    if !same_origin(&headers, state.public_origin.as_ref()) {
         return (
             StatusCode::FORBIDDEN,
             "cross-origin task mutations are forbidden",
@@ -413,7 +442,7 @@ async fn update_event(
         )
             .into_response();
     }
-    if !same_origin(&headers) {
+    if !same_origin(&headers, state.public_origin.as_ref()) {
         return (
             StatusCode::FORBIDDEN,
             "cross-origin event mutations are forbidden",
@@ -480,24 +509,29 @@ async fn update_event(
     ([("x-plumb-revision", revision.to_string())], Json(events)).into_response()
 }
 
-fn same_origin(headers: &HeaderMap) -> bool {
+fn same_origin(headers: &HeaderMap, public_origin: Option<&PublicOrigin>) -> bool {
     let Some(origin) = headers.get(header::ORIGIN) else {
-        return true;
+        return public_origin.is_none();
     };
-    let (Ok(origin), Some(host)) = (
-        origin
-            .to_str()
-            .ok()
-            .and_then(|origin| url::Url::parse(origin).ok())
-            .ok_or(()),
-        headers
-            .get(header::HOST)
-            .and_then(|host| host.to_str().ok()),
-    ) else {
+    let Ok(origin) = origin
+        .to_str()
+        .ok()
+        .and_then(|origin| PublicOrigin::from_str(origin).ok())
+        .ok_or(())
+    else {
         return false;
     };
-    let authority = &origin[url::Position::BeforeHost..url::Position::AfterPort];
-    origin.scheme() == "http" && authority.eq_ignore_ascii_case(host)
+    if let Some(public_origin) = public_origin {
+        return origin.0 == public_origin.0;
+    }
+    let Some(host) = headers
+        .get(header::HOST)
+        .and_then(|host| host.to_str().ok())
+    else {
+        return false;
+    };
+    let authority = &origin.0[url::Position::BeforeHost..url::Position::AfterPort];
+    origin.0.scheme() == "http" && authority.eq_ignore_ascii_case(host)
 }
 
 async fn graph(State(state): State<AppState>, RawQuery(raw_query): RawQuery) -> Response {
@@ -852,20 +886,50 @@ mod tests {
     fn task_mutations_reject_cross_origin_browser_requests() {
         let mut headers = HeaderMap::new();
         headers.insert(header::HOST, HeaderValue::from_static("127.0.0.1:4242"));
-        assert!(same_origin(&headers));
+        assert!(same_origin(&headers, None));
         headers.insert(
             header::ORIGIN,
             HeaderValue::from_static("http://127.0.0.1:4242"),
         );
-        assert!(same_origin(&headers));
+        assert!(same_origin(&headers, None));
         headers.insert(
             header::ORIGIN,
             HeaderValue::from_static("https://example.test"),
         );
-        assert!(!same_origin(&headers));
+        assert!(!same_origin(&headers, None));
         assert!(mutations_enabled(IpAddr::V4(Ipv4Addr::LOCALHOST), false));
         assert!(!mutations_enabled(IpAddr::V4(Ipv4Addr::UNSPECIFIED), false));
         assert!(mutations_enabled(IpAddr::V4(Ipv4Addr::UNSPECIFIED), true));
+    }
+
+    #[test]
+    fn public_origin_validates_proxied_https_mutations() {
+        let public = PublicOrigin::from_str("https://Example.test:443").unwrap();
+        let mut headers = HeaderMap::new();
+        headers.insert(header::HOST, HeaderValue::from_static("127.0.0.1:3000"));
+        assert!(!same_origin(&headers, Some(&public)));
+
+        headers.insert(
+            header::ORIGIN,
+            HeaderValue::from_static("https://example.test"),
+        );
+        assert!(same_origin(&headers, Some(&public)));
+        headers.insert(
+            header::ORIGIN,
+            HeaderValue::from_static("https://example.test:9162"),
+        );
+        assert!(!same_origin(&headers, Some(&public)));
+
+        assert!(PublicOrigin::from_str("https://example.test:9162").is_ok());
+        for invalid in [
+            "file:///tmp/site",
+            "https://user@example.test",
+            "https://example.test/path",
+            "https://example.test/?query",
+            "https://example.test/#fragment",
+        ] {
+            assert!(PublicOrigin::from_str(invalid).is_err(), "{invalid}");
+        }
     }
 
     #[tokio::test]
@@ -885,6 +949,7 @@ mod tests {
             current: None,
             exclude: None,
             allow_mutations: true,
+            public_origin: None,
         };
         let app = router(state);
 

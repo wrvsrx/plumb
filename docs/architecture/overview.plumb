@@ -175,6 +175,14 @@ Mutation response 必须暴露写入后的 workspace revision。browser 在 muta
 revision，安装 mutation 后有界 query 的同一 revision 后丢弃自己的 notification；更新的外部 revision 只重新
 查询当前可见 view，连续 notifications 合并到最新 revision，其他 view 在切换到可见状态时按需查询。
 
+Web mutation 的 CSRF boundary 使用 browser `"Origin" header。未配置 public origin 时，缺少 `"Origin" 的
+non-browser request 保持允许；存在 `"Origin" 时只接受 `"http" scheme 且 authority 与直接 request `"Host"
+一致。反向代理部署可以显式配置一个 public origin；它必须是只含 `"http" 或 `"https" scheme 与 authority
+的 absolute origin，不得包含 userinfo、非 root path、query 或 fragment。配置后 mutation request 必须携带
+可解析且规范化后与该 public origin 完全一致的 `"Origin"；不得回退到直接 `"Host"，也不得信任
+`"Forwarded" 或 `"X-Forwarded-*" headers。origin comparison 规范化 scheme/host case 与默认 port，但保留
+非默认显式 port 的区别。
+
 Task authoring 不得为 parent、previous 或 dependency controls 一次创建完整 workspace option DOM。candidate
 endpoint 按 document scope 或 fuzzy query 返回有界 compact identities；browser 保留已选 locator，并在输入变化
 时替换候选 page。Parent/position 只查询目标 document，cross-document previous/dependency 使用显式搜索。
