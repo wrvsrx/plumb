@@ -432,7 +432,7 @@ fn serves_the_workspace_site_with_notes_and_tasks() {
         "/api/task/{}/complete",
         task["documentId"].as_str().unwrap()
     );
-    let (status, _, updated_tasks) = http_post_json(
+    let (status, headers, body) = http_post_json(
         address,
         &action_path,
         &serde_json::json!({
@@ -441,6 +441,10 @@ fn serves_the_workspace_site_with_notes_and_tasks() {
         })
         .to_string(),
     );
+    assert_eq!(status, 204, "{body}");
+    assert!(body.is_empty());
+    assert!(headers.contains("x-plumb-revision: 2"), "{headers}");
+    let (status, _, updated_tasks) = http_get(address, "/api/tasks");
     assert_eq!(status, 200, "{updated_tasks}");
     let updated_tasks = serde_json::from_str::<serde_json::Value>(&updated_tasks).unwrap();
     assert_eq!(updated_tasks["tasks"][0]["state"], "done");
@@ -486,7 +490,7 @@ fn serves_the_workspace_site_with_notes_and_tasks() {
         "{server_log}"
     );
     assert!(
-        server_log.contains(&format!("POST {action_path} -> 200")),
+        server_log.contains(&format!("POST {action_path} -> 204")),
         "{server_log}"
     );
     assert!(
