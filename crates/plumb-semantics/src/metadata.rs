@@ -81,6 +81,12 @@ pub struct MetadataListItem {
     pub range: Range<usize>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BibliographySource {
+    pub value: String,
+    pub range: Range<usize>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct MetadataOutput {
     pub definition_lists: Vec<DefinitionList>,
@@ -106,6 +112,53 @@ impl MetadataOutput {
             | MetadataValue::Verbatim { .. }
             | MetadataValue::Unsupported { .. } => None,
         }
+    }
+
+    pub fn bibliography_sources(&self) -> Vec<BibliographySource> {
+        let Some(entry) = self.metadata.as_ref().and_then(|metadata| {
+            metadata
+                .entries
+                .iter()
+                .find(|entry| entry.key == "bibliography")
+        }) else {
+            return Vec::new();
+        };
+        match &entry.value {
+            MetadataValue::List { items, .. } => items
+                .iter()
+                .filter_map(|item| bibliography_source(&item.value))
+                .collect(),
+            value => bibliography_source(value).into_iter().collect(),
+        }
+    }
+}
+
+fn bibliography_source(value: &MetadataValue) -> Option<BibliographySource> {
+    match value {
+        MetadataValue::Scalar { content, range } if inline_verbatim(content).is_some() => {
+            Some(BibliographySource {
+                value: inline_verbatim(content)?.to_string(),
+                range: range.clone(),
+            })
+        }
+        MetadataValue::Scalar { content, range }
+            if !content.items.is_empty()
+                && content
+                    .items
+                    .iter()
+                    .all(|inline| matches!(inline, Inline::Text { .. } | Inline::Space { .. })) =>
+        {
+            let value = content.plain_text();
+            (!value.is_empty()).then(|| BibliographySource {
+                value,
+                range: range.clone(),
+            })
+        }
+        MetadataValue::Verbatim { text, range } if !text.is_empty() => Some(BibliographySource {
+            value: text.clone(),
+            range: range.clone(),
+        }),
+        _ => None,
     }
 }
 
@@ -723,6 +776,19 @@ mod tests {
             metadata.entries[4].value,
             MetadataValue::Null { .. }
         ));
+    }
+
+    #[test]
+    fn projects_plain_and_literal_bibliography_sources() {
+        let parsed = parse(
+            "{\n `: bibliography\n  `- refs/library one.json\n  `- `\"refs/library-two.json\"\n}\n",
+        );
+        assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
+        let output = analyze_metadata(&parsed.syntax);
+        let sources = output.bibliography_sources();
+        assert_eq!(sources.len(), 2);
+        assert_eq!(sources[0].value, "refs/library one.json");
+        assert_eq!(sources[1].value, "refs/library-two.json");
     }
 
     #[test]

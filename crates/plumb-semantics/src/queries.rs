@@ -62,12 +62,36 @@ pub struct EventTitleCompletionContext {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CitationCompletionContext {
+    pub replace: Range<usize>,
+    pub query: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConstructCompletionContext {
+    Citation { replace: Range<usize> },
     Task { replace: Range<usize> },
     Event { replace: Range<usize> },
     LinkAndAutolink { replace: Range<usize> },
     Autolink { replace: Range<usize> },
     Link { replace: Range<usize> },
+}
+
+pub fn citation_completion_context(
+    document: &ParsedDocument,
+    offset: usize,
+) -> Option<CitationCompletionContext> {
+    if offset > document.source.len() || !document.source.is_char_boundary(offset) {
+        return None;
+    }
+    let start = document.source[..offset].rfind("`cite[")? + "`cite[".len();
+    if document.source[start..offset].contains([']', '\n', '\r', '`']) {
+        return None;
+    }
+    Some(CitationCompletionContext {
+        replace: start..offset,
+        query: document.source[start..offset].to_string(),
+    })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -684,7 +708,9 @@ pub fn construct_completion_context(
     if marker_prefix.is_empty() {
         return None;
     }
-    if block_position && "task".starts_with(marker_prefix) {
+    if "cite".starts_with(marker_prefix) {
+        Some(ConstructCompletionContext::Citation { replace })
+    } else if block_position && "task".starts_with(marker_prefix) {
         Some(ConstructCompletionContext::Task { replace })
     } else if block_position && "event".starts_with(marker_prefix) {
         Some(ConstructCompletionContext::Event { replace })
@@ -1361,6 +1387,20 @@ mod tests {
             let parsed = parse(source);
             assert_eq!(construct_completion_context(&parsed, source.len()), None);
         }
+        for source in ["Text `c", "Text `ci", "Text `cit", "Text `cite"] {
+            let parsed = parse(source);
+            let start = source.rfind('`').unwrap();
+            assert_eq!(
+                construct_completion_context(&parsed, source.len()),
+                Some(ConstructCompletionContext::Citation {
+                    replace: start..source.len()
+                })
+            );
+        }
+        assert_eq!(
+            construct_completion_context(&parse("`ci"), 3),
+            Some(ConstructCompletionContext::Citation { replace: 0..3 })
+        );
 
         let escaped = parse("Text ``");
         assert_eq!(construct_completion_context(&escaped, 7), None);
@@ -1375,6 +1415,26 @@ mod tests {
         assert_eq!(
             construct_completion_context(&attribute, attribute_offset),
             None
+        );
+    }
+
+    #[test]
+    fn identifies_recovered_citation_id_completion() {
+        let recovered = parse("See `cite[smi");
+        assert_eq!(
+            citation_completion_context(&recovered, recovered.source.len()),
+            Some(CitationCompletionContext {
+                replace: 10..13,
+                query: "smi".to_string(),
+            })
+        );
+        let complete = parse("See `cite[smith2004].");
+        assert_eq!(
+            citation_completion_context(&complete, 13),
+            Some(CitationCompletionContext {
+                replace: 10..13,
+                query: "smi".to_string(),
+            })
         );
     }
 

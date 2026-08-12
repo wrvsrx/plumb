@@ -21,12 +21,16 @@ use plumb_syntax::{
     parse, Attributes, Block, Diagnostic, DiagnosticSeverity, ParsedBlock, ParsedDocument,
 };
 
+mod bibliography;
 mod scan;
 mod search;
 mod store;
 mod task_sort;
 mod tasks;
 
+pub use bibliography::{
+    load_bibliography, Bibliography, BibliographyRecord, BibliographyResolution,
+};
 pub use store::{SqliteSemanticStore, StoreError};
 
 #[cfg(test)]

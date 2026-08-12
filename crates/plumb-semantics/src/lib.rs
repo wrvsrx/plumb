@@ -23,15 +23,16 @@ pub use inline_styles::{
 pub use lists::{analyze_lists, ListGroup, ListItemRecord, ListKind, ListOutput};
 pub use math::{analyze_math, MathKind, MathOutput, MathRecord};
 pub use metadata::{
-    analyze_metadata, DefinitionList, DefinitionRecord, MetadataBlock, MetadataEntry,
-    MetadataListItem, MetadataOutput, MetadataValue,
+    analyze_metadata, BibliographySource, DefinitionList, DefinitionRecord, MetadataBlock,
+    MetadataEntry, MetadataListItem, MetadataOutput, MetadataValue,
 };
 pub use queries::{
-    attribute_completion_context, construct_completion_context, event_title_completion_context,
-    file_completion_context, image_completion_context, link_completion_context,
-    task_dependency_completion_context, AttributeCompletion, AttributeCompletionContext,
-    ConstructCompletionContext, EventTitleCompletionContext, FileCompletionContext,
-    ImageCompletionContext, LinkCompletionContext, TaskDependencyCompletionContext,
+    attribute_completion_context, citation_completion_context, construct_completion_context,
+    event_title_completion_context, file_completion_context, image_completion_context,
+    link_completion_context, task_dependency_completion_context, AttributeCompletion,
+    AttributeCompletionContext, CitationCompletionContext, ConstructCompletionContext,
+    EventTitleCompletionContext, FileCompletionContext, ImageCompletionContext,
+    LinkCompletionContext, TaskDependencyCompletionContext,
 };
 pub use quotes::{analyze_quotes, QuoteOutput, QuoteRecord};
 pub use tasks::{
