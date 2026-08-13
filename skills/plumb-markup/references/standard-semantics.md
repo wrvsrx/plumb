@@ -191,6 +191,8 @@ The LSP offers Citation construct completion for a nonempty `cite` prefix and
 completes ids inside complete or recovered `cite[...]`. Hover shows the CSL
 summary and definition opens the CSL JSON id field. `plumb site serve` runs
 citeproc and refreshes rendered notes when a declared CSL JSON file changes.
+When no bibliography is declared, valid citations still export portably but
+receive a `citation.unresolved` diagnostic.
 
 ## Quotes
 

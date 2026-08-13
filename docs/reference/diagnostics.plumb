@@ -74,7 +74,7 @@ official semantic profile 至少区分：
 `- image：missing/invalid src 或 unresolved local file。
 `- file：missing/invalid src 或 unresolved local attachment。
 `- citation：空 id、nested 或 unsupported citation shape，无效/缺失 bibliography file、无效
- CSL JSON、duplicate id，以及已声明 bibliography 时 unresolved 或 ambiguous citation id。
+ CSL JSON、duplicate id，以及无 bibliography 或已声明 bibliography 时 unresolved 或 ambiguous citation id。
 `- task：`"task.invalid-datetime"、`"task.invalid-priority"、无效 recur/reference、互斥 closure state、
  self dependency、cycle、blocked completion、`"task.done-with-open-dependency" 和
  `"task.done-with-open-descendant" closure consistency warnings。

@@ -216,8 +216,8 @@ ambiguous，不任意选择其中一个。
 CSL JSON root 必须是 item array；每个 item 必须是 object，并有非空 string `"id"。
 Workspace 以 bibliography file bytes 作为 dependency：file create/modify/remove 使 diagnostics、
 completion、hover、definition 和 Web render invalid。有 bibliography 声明时，未找到或 ambiguous
-id 的 citation 产生 semantic warning；没有 bibliography 声明的 document 仍保留 portable
-Pandoc citation，不仅因缺少 local data source 而诊断。
+id 的 citation 产生 semantic warning；没有 bibliography 声明的 document 也对每个 citation 报告
+`"citation.unresolved"，同时仍保留 portable Pandoc citation export。
 
 LSP construct completion 在 ordinary inline content 中对反引号后 `"cite" 的非空 prefix
 提供 Citation snippet。在完整或 recovered `"cite[...]" content 中，completion 从当前

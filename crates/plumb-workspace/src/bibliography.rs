@@ -64,9 +64,6 @@ impl Bibliography {
     }
 
     pub fn citation_diagnostics(&self, citations: &[CitationRecord]) -> Vec<Diagnostic> {
-        if !self.declared {
-            return Vec::new();
-        }
         citations
             .iter()
             .filter_map(|citation| {
@@ -356,6 +353,21 @@ mod tests {
             bibliography.citation_diagnostics(&analysis.citations.citations)[0].code,
             "citation.unresolved"
         );
+    }
+
+    #[test]
+    fn diagnoses_citations_without_a_declared_bibliography() {
+        let root = tempfile::tempdir().unwrap();
+        let parsed = parse("See `cite[smith2004]\n");
+        let analysis = analyze_document(&parsed.source, &parsed.syntax);
+        let bibliography = load_bibliography(
+            root.path(),
+            &root.path().join("note.plumb"),
+            &analysis.metadata,
+        );
+        let diagnostics = bibliography.citation_diagnostics(&analysis.citations.citations);
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].code, "citation.unresolved");
     }
 
     #[test]
