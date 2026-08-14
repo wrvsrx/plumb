@@ -137,6 +137,19 @@ start，按较长 range 在前排序；没有 children 时不得重复相同 ran
 只产生 subtree range。Task trailing separator 只扩展 subtree range，不扩展 owner range。client range
 limit 在 source order 内优先保留外层 range。
 
+Folding provider 以 document revision 为边界提供当前 snapshot 的 ranges；provider 不要求保存上一次
+ response，也不要求提供 old-to-new mapping。客户端 fold engine 负责保存上一个 accepted snapshot 与用户
+ 对 provider folds 的 collapsed 状态，并在新 snapshot 到达后执行 best-effort reconciliation。匹配优先使用
+ provider 可选的 stable identity，其次使用编辑位置映射、父子结构、kind 与内容锚点，最后才使用起始行和
+ 重叠关系等启发式；无法唯一匹配时必须丢弃旧状态，不得把用户状态迁移到无关 fold。用户创建的 manual
+ ranges 不属于 provider snapshot，另由客户端 fold engine 管理。异步 response 必须经过 revision gate，
+ stale snapshot 不得覆盖较新的 accepted state。
+
+补全或 snippet 展开引起的 folding 闪动首先按更新时序处理：Insert mode 内的 folding refresh 应合并并
+ 延迟到稳定的 InsertLeave，再执行一次更新。该场景只要求避免在 snippet 中间态直接重算，不要求 provider
+ 提供 identity，也不应为了此问题引入完整的 collapse-state reconciliation；只有稳定退出编辑后仍错误丢失
+ 用户 collapsed 状态时，才进入上述 best-effort 状态恢复路径。
+
 `# 6. Crate boundaries
 
 `- `"plumb-syntax"：strict syntax tree、diagnostics、typed views。
