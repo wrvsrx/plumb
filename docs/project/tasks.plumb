@@ -38,6 +38,15 @@
   约 0.192 s/126 KB。browser 同时按 workspace revision 合并 watcher notifications，task mutation 不再因自己的
   notification 重复查询 Tasks 或刷新隐藏的 Graph/Agenda。
 
+`task 同步 lenient mirror 的统一 delimiter escape 集 {
+ `@ lenient-unified-escape-sync
+}
+
+ `note external scanner 的 dispatch 分类只把 introducer 后紧跟的左右 brace 认作 escape，grammar 的
+ inline_content 规则也不含 bracket escape；统一转义规则下 introducer 后紧跟 opening 或 closing
+ bracket 同样是无条件字面转义。更新 scanner.c 的分类与 grammar.js 的 escape tokens，在 nix develop
+ 环境重新 generate，并为统一 escape 与 head continuation 行尾 opener 补 corpus 用例。
+
 `task 建立 event containment 索引 {
  `@ event-containment-index
 }
