@@ -698,13 +698,16 @@ impl Formatter {
         }
     }
 
-    fn text(&mut self, text: &str, nested: bool) {
+    fn text(&mut self, text: &str, _nested: bool) {
+        // §2: bare delimiters never appear in text, so every literal one is
+        // escaped unconditionally.
         for character in text.chars() {
             match character {
                 '`' => self.output.push_str("``"),
-                ']' if nested => self.output.push_str("`]"),
-                '{' if nested => self.output.push_str("`{"),
-                '}' if nested => self.output.push_str("`}"),
+                '[' => self.output.push_str("`["),
+                ']' => self.output.push_str("`]"),
+                '{' => self.output.push_str("`{"),
+                '}' => self.output.push_str("`}"),
                 _ => self.output.push(character),
             }
         }
@@ -962,6 +965,11 @@ mod tests {
 
     #[test]
     fn preserves_markers_and_opaque_attached_spellings() {
+        // §2: literal delimiters stay escaped in rendered text.
+        assert_formats(
+            "escaped `[ `] `{ `} delims\n",
+            "escaped `[ `] `{ `} delims\n",
+        );
         assert_formats("`- Work {`-[task]}\n", "`- Work {`-[task]}\n");
         assert_formats("`node Meeting {`-[event]}\n", "`node Meeting {`-[event]}\n");
         assert_formats(
