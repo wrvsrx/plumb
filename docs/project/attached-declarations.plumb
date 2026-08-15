@@ -14,8 +14,7 @@
 `- attached data 不再让任意 property key 占用 marker/kind namespace。
 `- 正文与 attached scope 中的 list item、definition entry 保持同一种基础语义，而不是仅因 parent
    不同就把同一 spelling 重新解释成无关结构。
-`- definition key 与 value 可以同行；包含 spaces 或 rich inline 的 key 不要求使用冗长的 `"span"
-   spelling。
+`- definition key 与 value 可以同行；包含 spaces 或 rich inline 的 key 不要求使用冗长的显式 transparent element spelling。
 `- identity 使用独立的 `"@" declaration；它与 collection member、association 并列，而不是伪装成
    `"id" property 或让 `"#" 在 attached scope 中获得第二种含义。
 `- verbatim 的高频主要解释不再绕行 attached facet/property；可选 kind 与 double quote 共同提供

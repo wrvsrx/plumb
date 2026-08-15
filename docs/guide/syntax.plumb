@@ -109,7 +109,7 @@ inline owner 的 group 递归包含普通 inline elements。
     `: created 2026-08-07T09:00:00+08:00
    }
 
-  `span[text]{`@[intro] `-[note] `:[level 2]}
+  `note[text]{`@[intro] `-[facets] `:[level 2]}
 
 core syntax 不解释 `"-"、`"@" 或 `":"。official semantic profile 将 direct `"-" member 投影为 facet，
 将 direct `"@" declaration 投影为 identity，将 direct `":" association 投影为 property；正文中

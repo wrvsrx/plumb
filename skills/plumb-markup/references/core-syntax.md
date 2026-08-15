@@ -75,7 +75,7 @@ compact block and inline groups contain ordinary inline elements.
   `: created 2026-08-07T09:00:00+08:00
  }
 
-`span[text]{`@[intro] `-[note] `:[level 2]}
+`note[text]{`@[intro] `-[facets] `:[level 2]}
 ```
 
 A marked/verbatim block group is separated from its complete header by

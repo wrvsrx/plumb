@@ -99,12 +99,12 @@ it. Inside the plumb source repository, prefer
   `: tasks #write-parser
 }
 
-`div Transparent block container {
+`() Transparent block container {
   `- notice
 }
 `> A quoted paragraph
 Use `*[emphasis], `![strong], `=[mark], `~[strikeout], `^[superscript], and `_[subscript].
-Inline `span[container]{`-[notice]} and `$"x^2" math.
+Inline `()[container]{`-[notice]} and `$"x^2" math.
 
 `: Term
 

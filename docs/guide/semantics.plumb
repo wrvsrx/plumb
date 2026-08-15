@@ -235,7 +235,7 @@ facets 只是 opaque data。
 `"date"/`"timezone" 沿 marked-block subtree 继承，最近的 override 优先，dedent 后恢复 parent context：
 
 `plumb"
-  `div {
+  `() {
     `: date 2026-07-31
   }
     `event 09:00 使用 7 月 31 日
