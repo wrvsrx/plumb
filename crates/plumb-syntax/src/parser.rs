@@ -1761,9 +1761,13 @@ fn has_space_prefix(source: &str, start: usize, width: usize) -> bool {
         .is_some_and(|prefix| prefix.iter().all(|byte| *byte == b' '))
 }
 
+/// Finds the trailing attachment opener on one head line: the first
+/// unescaped opening brace with a preceding separator. The scan is local —
+/// it skips escapes and verbatim envelopes as single tokens and tracks no
+/// nesting depth, which the unified escape rules make sound: in valid
+/// documents no bare brace can hide inside inline element content.
 fn block_attached_start(source: &str, start: usize, end: usize) -> Option<(usize, usize)> {
     let mut cursor = start;
-    let mut inline_depth = 0usize;
     while cursor < end {
         if source.as_bytes()[cursor] == b'`' {
             let ticks = source[cursor..end]
@@ -1774,7 +1778,10 @@ fn block_attached_start(source: &str, start: usize, end: usize) -> Option<(usize
             if ticks % 2 == 0 || cursor >= end {
                 continue;
             }
-            if matches!(source.as_bytes()[cursor], b'{' | b'}') {
+            if matches!(
+                source.as_bytes()[cursor],
+                b'{' | b'}' | b'[' | b']'
+            ) {
                 cursor += 1;
                 continue;
             }
@@ -1796,20 +1803,11 @@ fn block_attached_start(source: &str, start: usize, end: usize) -> Option<(usize
                     cursor = delimiter + close + 1;
                     continue;
                 }
-            } else if delimiter < end && source.as_bytes()[delimiter] == b'[' {
-                inline_depth += 1;
-                cursor = delimiter + 1;
-                continue;
             }
             cursor = delimiter.max(cursor);
             continue;
         }
-        if source.as_bytes()[cursor] == b']' && inline_depth > 0 {
-            inline_depth -= 1;
-            cursor += 1;
-            continue;
-        }
-        if inline_depth == 0 && source.as_bytes()[cursor] == b'{' {
+        if source.as_bytes()[cursor] == b'{' {
             if cursor == start {
                 return Some((start, cursor));
             }
@@ -2534,6 +2532,27 @@ mod tests {
                 )
             }));
         }
+    }
+
+    #[test]
+    fn attachment_scan_skips_escapes_and_envelopes_locally() {
+        // The opener scan treats escapes and verbatim envelopes as single
+        // tokens and tracks no element nesting; neither hides a later
+        // trailing opener on the head line.
+        let escaped = parse("`note `x[a `{b`} c] tail {\n `- done\n}\n");
+        assert!(escaped.is_valid(), "{:?}", escaped.diagnostics);
+        let Block::Parsed(note) = &escaped.syntax.blocks[0] else {
+            panic!("expected marked block");
+        };
+        assert_eq!(note.head.plain_text(), "a {b} c tail");
+        assert_eq!(note.mark.as_ref().unwrap().attrs.items.len(), 1);
+
+        let envelope = parse("`note `\"[p {q]\" tail {\n `- done\n}\n");
+        assert!(envelope.is_valid(), "{:?}", envelope.diagnostics);
+        let Block::Parsed(note) = &envelope.syntax.blocks[0] else {
+            panic!("expected marked block");
+        };
+        assert_eq!(note.head.plain_text(), "p {q tail");
     }
 
     #[test]
