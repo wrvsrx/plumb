@@ -355,15 +355,18 @@ impl Parser<'_> {
         if !self.is_group_delimiter(index, 0, b'{') {
             return (Attributes::default(), 0);
         }
-        self.parse_expanded_attached(index, line.start, 0, true)
+        self.parse_expanded_attached(index, line.start, 0)
     }
 
+    /// Parses an expanded attached group whose opening brace sits at byte
+    /// `open` on line `opener_index`. `opener_column` is the structural
+    /// column of the opener's line: group content must be deeper, and the
+    /// closing brace returns to it.
     fn parse_expanded_attached(
         &mut self,
         opener_index: usize,
         open: usize,
-        owner_indent: usize,
-        opener_is_structural_line: bool,
+        opener_column: usize,
     ) -> (Attributes, usize) {
         let mut content_start = opener_index + 1;
         while self
@@ -374,22 +377,23 @@ impl Parser<'_> {
         {
             content_start += 1;
         }
-        let (blocks, next) = if self.is_group_delimiter(content_start, owner_indent, b'}') {
+        let (blocks, next) = if self.is_group_delimiter(content_start, opener_column, b'}') {
             (Vec::new(), content_start)
         } else if self
             .lines
             .0
             .get(content_start)
-            .is_some_and(|line| line.indent > owner_indent)
+            .is_some_and(|line| line.indent > opener_column)
         {
             let content_indent = self.lines.0[content_start].indent;
             self.parse_blocks(content_start, content_indent)
         } else {
             (Vec::new(), content_start)
         };
-        let (close_range, after, range_end) = if self.is_group_delimiter(next, owner_indent, b'}') {
+        let (close_range, after, range_end) = if self.is_group_delimiter(next, opener_column, b'}')
+        {
             let line = &self.lines.0[next];
-            let start = line.start + owner_indent;
+            let start = line.start + opener_column;
             (start..start + 1, next + 1, line.end)
         } else {
             let end = self
@@ -399,13 +403,18 @@ impl Parser<'_> {
                 .map_or(self.source.len(), |line| line.start + line.indent);
             self.diagnostics.push(Diagnostic::error(
                 "syntax.unclosed-attached-group",
-                "expanded attached group must close with '}' at the owner indentation",
+                "expanded attached group must close with '}' at the opener line's column",
                 open..end,
             ));
             (end..end, next, end)
         };
-        let range_start = if opener_is_structural_line {
-            self.lines.0[opener_index].start + owner_indent
+        // The opener is the sole structure of its line exactly when it sits
+        // at the line's structural column; a trailing opener always has the
+        // head and its separator before the brace.
+        let opener_line = &self.lines.0[opener_index];
+        let opener_on_own_line = open == opener_line.start + opener_line.indent;
+        let range_start = if opener_on_own_line {
+            self.lines.0[opener_index].start + opener_column
         } else {
             open
         };
@@ -419,7 +428,7 @@ impl Parser<'_> {
                     range,
                     open_range: open..open + 1,
                     close_range,
-                    opener_on_own_line: opener_is_structural_line,
+                    opener_on_own_line,
                     content: AttachedContent::Blocks(blocks),
                 })),
             },
@@ -670,6 +679,11 @@ impl Parser<'_> {
 
         let header_attached = block_attached_start(self.source, head_start, line.content_end);
         let head_end = header_attached.map_or(line.content_end, |(separator, _)| separator);
+        // The attached-group opener is the last structure of the complete
+        // head: it either trails the header line or occupies a head
+        // continuation line on its own. Both shapes produce the same opener
+        // description (opener line index, brace offset).
+        let mut head_opener = header_attached.map(|(_, group_start)| (header_index, group_start));
         let mut head_segments = vec![InlineSegment {
             start: head_start,
             end: head_end,
@@ -677,10 +691,9 @@ impl Parser<'_> {
         let mut next = header_index + 1;
         let mut saw_blank = false;
         let mut body_indent = None;
-        let mut next_line_attached = None;
         let mut attached_body_indent = None;
 
-        while header_attached.is_none() && next < self.lines.0.len() {
+        while head_opener.is_none() && next < self.lines.0.len() {
             let candidate = self.lines.0[next].clone();
             if candidate.blank {
                 saw_blank = true;
@@ -693,13 +706,13 @@ impl Parser<'_> {
             if !saw_blank && body_indent.is_none_or(|column| column == candidate.indent) {
                 let group_start = candidate.start + candidate.indent;
                 if self.is_group_delimiter(next, candidate.indent, b'{') {
-                    next_line_attached = Some((next, group_start));
+                    head_opener = Some((next, group_start));
                     break;
                 }
                 if self.source.as_bytes()[group_start] == b'{' {
                     self.diagnostics.push(Diagnostic::error(
                         "syntax.trailing-after-attached-group",
-                        "only horizontal whitespace may follow a next-line attached group opener",
+                        "a head continuation line opener holds only the brace",
                         group_start + 1..candidate.content_end,
                     ));
                     break;
@@ -720,40 +733,47 @@ impl Parser<'_> {
             break;
         }
         let head = self.parse_inline_segments(&mut head_segments, false);
-        if let Some((_, group_start)) = header_attached {
-            if find_inline_group_close(self.source, group_start + 1, line.content_end).is_some() {
+        if let Some((opener_index, group_start)) = head_opener {
+            let opener_line = &self.lines.0[opener_index];
+            let opener_column = if opener_index == header_index {
+                indent
+            } else {
+                opener_line.indent
+            };
+            let content_end = opener_line.content_end;
+            if find_inline_group_close(self.source, group_start + 1, content_end).is_some() {
+                // Compact form: only a trailing opener reaches here; an
+                // own-line opener holds nothing but the brace.
                 let mut position = InlinePosition {
                     segment: 0,
                     offset: group_start,
                 };
                 let (group, after_group) =
-                    self.parse_inline_attached(&mut position, group_start, line.content_end);
-                self.diagnose_block_group_trailer(group_start, after_group, line.content_end);
+                    self.parse_inline_attached(&mut position, group_start, content_end);
+                self.diagnose_block_group_trailer(group_start, after_group, content_end);
                 attrs = group;
-            } else if self.source[group_start + 1..line.content_end]
+            } else if self.source[group_start + 1..content_end]
                 .trim_matches([' ', '\t'])
                 .is_empty()
             {
                 let (group, after_group) =
-                    self.parse_expanded_attached(header_index, group_start, indent, false);
+                    self.parse_expanded_attached(opener_index, group_start, opener_column);
                 attrs = group;
                 next = after_group;
+                if opener_index > header_index {
+                    // An own-line opener establishes the body column shared
+                    // by the close and later child siblings.
+                    attached_body_indent = Some(opener_column);
+                }
             } else {
                 let mut position = InlinePosition {
                     segment: 0,
                     offset: group_start,
                 };
                 let (group, _) =
-                    self.parse_inline_attached(&mut position, group_start, line.content_end);
+                    self.parse_inline_attached(&mut position, group_start, content_end);
                 attrs = group;
             }
-        } else if let Some((opener_index, group_start)) = next_line_attached {
-            let group_indent = self.lines.0[opener_index].indent;
-            let (group, after_group) =
-                self.parse_expanded_attached(opener_index, group_start, group_indent, true);
-            attrs = group;
-            next = after_group;
-            attached_body_indent = Some(group_indent);
         }
         if let Some(consumed) = self.line_index_at_offset(head.range.end.saturating_sub(1)) {
             next = next.max(consumed + 1);
@@ -831,7 +851,7 @@ impl Parser<'_> {
                 .trim_matches([' ', '\t'])
                 .is_empty()
         {
-            self.parse_expanded_attached(index, group_start, indent, false)
+            self.parse_expanded_attached(index, group_start, indent)
         } else {
             (Attributes::default(), index + 1)
         };
