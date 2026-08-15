@@ -4796,13 +4796,16 @@ fn task_reference_fields(
 }
 
 fn escape_parsed_text(value: &str) -> String {
-    value.replace('`', "``").replace(']', "`]")
+    value
+        .replace('`', "``")
+        .replace('{', "`{")
+        .replace('}', "`}")
+        .replace('[', "`[")
+        .replace(']', "`]")
 }
 
 fn escape_attached_text(value: &str) -> String {
     escape_parsed_text(value)
-        .replace('{', "`{")
-        .replace('}', "`}")
 }
 
 fn escape_quoted_value(value: &str) -> String {
@@ -5706,7 +5709,7 @@ mod tests {
         );
         assert_eq!(
             structural_delimiters[0].new_text,
-            "`->[brace{draft}`].plumb]{`:[to brace`{draft`}`].plumb]}"
+            "`->[brace`{draft`}`].plumb]{`:[to brace`{draft`}`].plumb]}"
         );
         assert!(parse(&structural_delimiters[0].new_text).is_valid());
         let spaced_anchor = workspace.complete_link(
