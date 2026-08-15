@@ -8,6 +8,20 @@
 
 `# Core syntax
 
+`- 同步 lenient mirror 的统一 delimiter escape 集 {
+  `- task
+  `@ lenient-unified-escape-sync
+  `: done 2026-08-15T19:40:00+08:00
+}
+
+   `note external scanner 的 dispatch 分类把 introducer 后紧跟的全部四个结构 delimiter 认作
+   escape，grammar 的 bracket_escape 扩展为两种 bracket 并进入 inline_content；head_continuation
+   获得 trailing opener 槽位并可接 children，scan_paragraph_continue 对独占 opener 的 continuation
+   line 让位给 same-indent layout token，修复折行 head 后 own-line opener 的解析。
+   `note 在 nix develop 环境重新 generate；corpus 新增统一 escape、continuation 行尾 opener（含
+   children）与折行 head 后 own-line opener 四个用例，44/44 通过；strict-alignment 门在
+   strict-parser fixture（含统一 escape 与 continuation opener 用例）上与 strict parser 完全一致。
+
 `- 实现统一 body indentation 与 quote-count verbatim margin {
   `- task
   `@ unified-body-indentation
