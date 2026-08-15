@@ -123,20 +123,27 @@ attachment site 被识别；ordinary opening brace 在其他 ordinary inline/hea
 最多有一个 group：
 
 `- document group 必须是文件第一个结构，包含 ordinary blocks。
-`- marked/verbatim block group 由 horizontal whitespace 与完整 block header 分开；compact form 包含
-  ordinary inline elements，expanded form 包含 ordinary blocks。marked block 的 expanded opener 还可以
-  独占 head 的最后一条 continuation line（见下）。
+`- marked/verbatim block group 由 horizontal whitespace 与其前的 head source 分开；compact form 包含
+  ordinary inline elements，expanded form 包含 ordinary blocks。marked block 的 opener 可以位于任意
+  一条 head line 行尾，或独占 head 的最后一条 continuation line（见下）；verbatim block 只允许
+  header line 行尾。
 `- parsed inline 或 inline verbatim group 紧跟完整 closing delimiter，包含 ordinary inline elements。
 
 compact attachment separator 由 owner category 统一决定：inline owner 使用 tight attachment，group 必须
 紧贴完整 closing delimiter；marked/verbatim block header owner 使用 spaced attachment，group 前必须至少有
 一个 ASCII space/tab。separator 不属于 head 或 raw payload。
 
-block-header attachment 的 opening brace 是完整 head 的最后一个结构。opening brace 后在同一 physical
-line 出现 content 时必须以同一行 closing brace 完成 compact form；opening brace 后只剩 horizontal
-whitespace 与 line ending/EOF 时进入 expanded form。expanded content 建立比 opener 所在 structural
-line 的 column 更深的 structural column，closing brace 回到该 column，并且必须是该 physical line 唯一
-的 non-whitespace structure；trailing horizontal whitespace 合法。其内容使用第 3 至 6 节的普通 block parser，因此可以递归包含拥有 group 的 blocks。
+trailing opener 是任意一条 head line 的最后一个结构：它与该行其前的 head source 之间由至少一个
+ASCII space/tab 分开，并使 head 在 brace 前截止。opening brace 后在同一 physical line 出现 content
+时必须以同一行 closing brace 完成 compact form；opening brace 后只剩 horizontal whitespace 与
+line ending/EOF 时进入 expanded form。expanded content 建立比 opener 所在 structural line 的 column
+更深的 structural column，closing brace 回到该 column，并且必须是该 physical line 唯一的
+non-whitespace structure；trailing horizontal whitespace 合法。其内容使用第 3 至 6 节的普通 block
+parser，因此可以递归包含拥有 group 的 blocks。opener 位于 continuation line 上时，该 line 的
+column 同时是 group close 与后续 child siblings 的 column；opener 位于 header line 上时，children
+在深于 owner 的 column 上自行建立。continuation line 上的 ordinary opening brace 与 header line
+一样参与 attachment 判定；在 attachment position 需要字面 opening brace 时，使用单个 introducer 加
+opening brace 阻止 group 开始。
 document 没有 header，只允许 opening brace 独占文件第一条 structural line 的 expanded form：
 
 `plumb"
@@ -152,25 +159,32 @@ document 没有 header，只允许 opening brace 独占文件第一条 structura
    `: due 2026-08-07
   }
 
-marked block 的 expanded opener 还可以独占一条 head continuation line：
+折行 head 可以在任意一条 head line 行尾使用 trailing opener，也可以让 expanded opener 独占一条
+head continuation line：
 
 `plumb"
-  `task Buy milk
-   {
+  `task Buy milk and
+   remind me about eggs {
     `- shopping
     `@ shopping
-    `: due 2026-08-07
    }
    `note Remember the coupon
 
-该 line 就是一条 head line，遵循 deferred head continuation 的全部规则：必须紧邻前一条 head line，
-中间不能有 blank line，必须深于 owner 的 structural column，且若 continuation 已建立 column 则必须
-与之一致。opener line 除 opening brace 与 trailing horizontal whitespace 外不能包含其他 source。该
-column 同时建立 owner body column，closing brace 与后续 child siblings 都位于该 column。识别 opener
-会结束 deferred head，group close 后才可以开始 children；group content 自己建立比该 body column
-更深的独立 child column。verbatim block 不允许该形式，因为 quote run 后的 line ending 已经开始 raw
-payload。官方 formatter 将 opener、close 与后续 children 统一放在 owner column 加一，将 group content
-放在 opener column 加一。
+  `task Buy milk and
+   remind me about eggs
+   {
+    `- shopping
+    `@ shopping
+   }
+   `note Remember the coupon
+
+两种 placement 中，opener 都是完整 head 的最后一个结构。own-line opener 是一条 head line，遵循
+deferred head continuation 的全部规则：必须紧邻前一条 head line，中间不能有 blank line，必须深于
+owner 的 structural column，且若 continuation 已建立 column 则必须与之一致。opener line 除 opening
+brace 与 trailing horizontal whitespace 外不能包含其他 source。识别 opener 会结束 deferred head，
+group close 后才可以开始 children；group content 建立比该 body column 更深的独立 child column。
+verbatim block 不允许 continuation 上的 attachment，因为 quote run 后的 line ending 已经开始 raw
+payload。官方 formatter 保留 opener 的 source placement，并将各 placement 的缩进规范化。
 
 inline group 与 owner 同行，内容使用第 8、9 节的普通 inline parser，因此 inline element 可以递归
 包含 inline element；group 本身不建立新的 marker、property 或 raw-content grammar：
@@ -178,7 +192,7 @@ inline group 与 owner 同行，内容使用第 8、9 节的普通 inline parser
 `plumb"
   `->[guide]{`@[main] `-[external] `:[to guide.plumb]}
 
-空 head 与非空 head 使用同一 block-header attachment rule。紧贴 inline closing delimiter 的 group 仍归
+空 head 与非空 head 使用同一 trailing attachment rule。紧贴 inline closing delimiter 的 group 仍归
 inline owner；只有与 block head 分隔的 group 才归 marked block。expanded group 一出现就结束 deferred
 head；group close 后的缩进 ordinary text 只能开始 child paragraph，不能恢复 head。
 

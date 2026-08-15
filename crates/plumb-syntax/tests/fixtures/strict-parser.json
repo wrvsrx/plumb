@@ -303,5 +303,17 @@
       {"code":"syntax.invalid-inline-dispatch","range":{"text":"`oops"}}
     ],
     "required_tokens": ["Error","Text"]
+  },
+  {
+    "name": "trailing opener on a head continuation line",
+    "source": "`note first\n  second {\n   `- cited\n  }\n  Details\n",
+    "valid": true,
+    "blocks": [
+      {"kind":"marked","marker":"note","attrs":[".cited"],"head":"first second","inline":"T\"first\"ST\"second\"","children":[
+        {"kind":"paragraph","head":"Details","inline":"T\"Details\"","children":[]}
+      ]}
+    ],
+    "diagnostics": [],
+    "required_tokens": ["Indentation","Delimiter","LineEnding","Text"]
   }
 ]

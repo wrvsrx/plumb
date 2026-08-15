@@ -52,7 +52,7 @@ Current parser 用 `"syntax.legacy-attributes" 拒绝识别出的旧 attribute s
  placeholder；它按普通 marked block indentation rule 接管紧随的 children，使输入 marker 首字符前后的
  owner boundary 与 folding range 保持稳定。该 placeholder 不进入 valid authoritative view；ordinary inline
  position 的孤立 introducer 不建立 block owner。
-`- attached block group：matching owner boundary 或 dedent；marked block 独占 head continuation line 的
+`- attached block group：matching owner boundary 或 dedent；marked block 位于 head continuation line 上的
  opener 在 blank、owner-level dedent、children start 或不匹配的 continuation column 前停止建立
  ownership；attached inline group：当前 enclosing inline boundary。
 `- unattached group/unexpected close：当前 structural line 或 enclosing inline boundary。

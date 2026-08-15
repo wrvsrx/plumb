@@ -723,11 +723,28 @@ impl Parser<'_> {
                 break;
             }
             if !saw_blank && self.block_dispatch(next, candidate.indent).is_none() {
-                head_segments.push(InlineSegment {
-                    start: candidate.start + candidate.indent,
-                    end: candidate.content_end,
-                });
-                next += 1;
+                // A trailing opener can end any head line: the brace is
+                // spaced off the line's head source and cuts the head there.
+                match block_attached_start(
+                    self.source,
+                    candidate.start + candidate.indent,
+                    candidate.content_end,
+                ) {
+                    Some((separator, group_start)) => {
+                        head_segments.push(InlineSegment {
+                            start: candidate.start + candidate.indent,
+                            end: separator,
+                        });
+                        head_opener = Some((next, group_start));
+                    }
+                    None => {
+                        head_segments.push(InlineSegment {
+                            start: candidate.start + candidate.indent,
+                            end: candidate.content_end,
+                        });
+                        next += 1;
+                    }
+                }
                 continue;
             }
             break;
@@ -2463,6 +2480,59 @@ mod tests {
                 )
             }));
         }
+    }
+
+    #[test]
+    fn trailing_opener_ends_any_head_line() {
+        // Expanded trailing opener on a continuation line: close and later
+        // children sit at the opener line's column.
+        let expanded = parse("`note first\n  second {\n   `- cited\n  }\n  Details\n");
+        assert!(expanded.is_valid(), "{:?}", expanded.diagnostics);
+        let Block::Parsed(note) = &expanded.syntax.blocks[0] else {
+            panic!("expected marked block");
+        };
+        assert_eq!(note.head.plain_text(), "first second");
+        let attrs = &note.mark.as_ref().unwrap().attrs;
+        assert_eq!(attrs.items.len(), 1);
+        assert!(!attrs.attached.as_ref().unwrap().opener_on_own_line);
+        assert_eq!(note.children.len(), 1);
+        let Block::Parsed(details) = &note.children[0] else {
+            panic!("expected child paragraph");
+        };
+        assert_eq!(details.head.plain_text(), "Details");
+
+        // Compact trailing opener on a continuation line.
+        let compact = parse("`note first\n  second {`@[x]}\n");
+        assert!(compact.is_valid(), "{:?}", compact.diagnostics);
+        let Block::Parsed(note) = &compact.syntax.blocks[0] else {
+            panic!("expected marked block");
+        };
+        assert_eq!(note.mark.as_ref().unwrap().attrs.id(), Some("x"));
+
+        // The close must return to the opener line's column.
+        let misaligned = parse("`note first\n  second {\n   `- cited\n   }\n");
+        assert!(!misaligned.is_valid());
+        assert!(misaligned
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == "syntax.unclosed-attached-group"));
+
+        // Braces on a continuation line join the attachment triage exactly
+        // as on the header line; a literal brace needs the introducer.
+        let escaped = parse("`note first\n  second `{ third\n");
+        assert!(escaped.is_valid(), "{:?}", escaped.diagnostics);
+        let Block::Parsed(note) = &escaped.syntax.blocks[0] else {
+            panic!("expected marked block");
+        };
+        assert!(note.head.plain_text().contains('{'));
+        assert!(note.mark.as_ref().unwrap().attrs.attached.is_none());
+
+        let junk = parse("`note first\n  second { third\n");
+        assert!(!junk.is_valid());
+        assert!(junk
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == "syntax.unclosed-attached-group"));
     }
 
     #[test]
