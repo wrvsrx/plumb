@@ -107,8 +107,10 @@ A parsed inline element has a nonempty kind and parsed content:
 `outer[before `inner[nested] after]
 ```
 
-An opening bracket inside parsed content is ordinary text. An unescaped closing
-bracket closes the current element; write a literal closing bracket as `` `] ``.
+Bare `[`, `]`, `{`, and `}` are always structural: an unescaped opening
+bracket is legal only right after an inline kind, an unescaped closing bracket
+closes the current element, and the braces open or close attached groups.
+Literal delimiters use the single-backtick escape in any position.
 Attached groups must touch the complete closing delimiter. Parsed inline elements
 may cross continuation lines belonging to the same paragraph/head; those
 boundaries become soft breaks. Blank lines, dedents, block-only entries, and
@@ -171,6 +173,6 @@ uses one quote and one structural space without changing raw payload bytes.
 - Do not write `# heading`, `- item`, fenced code blocks, or Markdown links
   without the plumb backtick introducer and envelopes.
 - Do not assume punctuation is globally special.
-- Use a single backtick for active `]`, `{`, or `}` delimiter escapes; there is
-  no general backslash escape language.
+- Escape literal `[`, `]`, `{`, or `}` with a single backtick; bare delimiters
+  are always structural. There is no general backslash escape language.
 - Do not turn a syntax error into literal text. Repair the intended structure.

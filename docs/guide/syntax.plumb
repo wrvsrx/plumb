@@ -130,7 +130,9 @@ line。
 `plumb"
   ``note is text, not a block.
 
-不要使用 Markdown 的 backslash escape，也不要假设某个标点在所有位置都有特殊含义。
+单个反引号加 `"`["、`"]"、`"{" 或 `"}" 是这四个 delimiter 的字面转义，在任何位置无条件成立；
+裸 delimiter 永远是结构拼写，在非结构位置是语法错误而不是文本。不要使用 Markdown 的 backslash
+escape，也不要假设 punctuation 在所有位置都有特殊含义。
 
 完整 grammar、indentation 与 recovery 规则见
 `->[core syntax reference]{`:[to ../reference/core-syntax.plumb]}。
