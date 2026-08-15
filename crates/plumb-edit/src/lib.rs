@@ -1566,7 +1566,7 @@ mod tests {
     }
 
     #[test]
-    fn edits_next_line_block_attached_elements_with_canonical_layout() {
+    fn edits_own_line_opener_block_attached_elements_with_canonical_layout() {
         let source = "`task Work\n      {\n        `@ old\n      }\n";
         let parsed = parse(source);
         let Block::Parsed(block) = &parsed.syntax.blocks[0] else {

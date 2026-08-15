@@ -2331,7 +2331,7 @@ mod tests {
     }
 
     #[test]
-    fn parses_next_line_marked_block_groups_before_children() {
+    fn parses_own_line_opener_groups_before_children() {
         let parsed = parse(
             "`task Work\n      {\n        `: created now\n      }\n\n      Details\n\n`note first\n      second\n      {\n        `- cited\n      }\n",
         );
@@ -2357,7 +2357,7 @@ mod tests {
     }
 
     #[test]
-    fn next_line_group_requires_adjacency_and_the_continuation_column() {
+    fn own_line_opener_requires_adjacency_and_the_continuation_column() {
         for source in [
             "`task Work\n\n      {\n        `: created now\n      }\n",
             "`note first\n      second\n    {\n      `- cited\n    }\n",
@@ -2382,7 +2382,7 @@ mod tests {
     }
 
     #[test]
-    fn next_line_group_delimiters_allow_trailing_horizontal_whitespace() {
+    fn own_line_opener_delimiters_allow_trailing_horizontal_whitespace() {
         let parsed = parse("`task Work\n      { \t\n        `: created now\n      }  \t\n");
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
@@ -2413,7 +2413,7 @@ mod tests {
     }
 
     #[test]
-    fn next_line_group_column_is_the_following_child_column() {
+    fn own_line_opener_column_is_the_following_child_column() {
         let valid = parse("`task Work\n {\n  `@ work\n }\n `note Child\n");
         assert!(valid.is_valid(), "{:?}", valid.diagnostics);
 
@@ -2426,7 +2426,7 @@ mod tests {
     }
 
     #[test]
-    fn next_line_group_opener_rejects_trailing_source() {
+    fn own_line_opener_rejects_trailing_source() {
         for source in ["`task Work\n      { extra\n", "`task Work\n      {}\n"] {
             let parsed = parse(source);
             assert!(!parsed.is_valid(), "{source}");
@@ -2434,6 +2434,34 @@ mod tests {
                 .diagnostics
                 .iter()
                 .any(|diagnostic| { diagnostic.code == "syntax.trailing-after-attached-group" }));
+        }
+    }
+
+    #[test]
+    fn closing_brace_returns_to_the_opener_line_column() {
+        // Trailing opener: the close returns to the header line's column.
+        let trailing = parse("`- Work {\n  `- task\n}\n");
+        assert!(trailing.is_valid(), "{:?}", trailing.diagnostics);
+        // Own-line opener: the close returns to the head continuation column.
+        let own_line = parse("`- Work\n  {\n   `- task\n  }\n");
+        assert!(own_line.is_valid(), "{:?}", own_line.diagnostics);
+        // Document opener: the close returns to the file column.
+        let document = parse("{\n `: title T\n}\n");
+        assert!(document.is_valid(), "{:?}", document.diagnostics);
+
+        for source in [
+            "`- Work {\n  `- task\n  }\n",
+            "`- Work\n  {\n   `- task\n   }\n",
+            "{\n `: title T\n }\n",
+        ] {
+            let parsed = parse(source);
+            assert!(!parsed.is_valid(), "{source}");
+            assert!(parsed.diagnostics.iter().any(|diagnostic| {
+                matches!(
+                    diagnostic.code,
+                    "syntax.unclosed-attached-group" | "syntax.unexpected-group-close"
+                )
+            }));
         }
     }
 
