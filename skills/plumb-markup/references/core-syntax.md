@@ -48,7 +48,7 @@ Two backticks escape the introducer and produce a literal backtick:
 
 ```plumb
 ``marker is literal text
-``kind[content] is literal text
+``kind `[content`] is literal text
 ```
 
 ## Attached Groups

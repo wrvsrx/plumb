@@ -26,7 +26,9 @@ syntax diagnostics 分为：
 `- structural：indentation、partial dedent、非法 structural tab、verbatim margin。
 `- lexical：非法 marker/kind token 或 control character。
 `- delimiter/dispatch：非法 introducer entry、attached group、inline 或 verbatim。
-`- ownership：旧 attribute slot spelling、unattached group 或 unexpected group close。
+`- ownership：旧 attribute slot spelling、unattached delimiter 或 unexpected close。bare delimiter 在
+ 非结构位置不再回落为 text：`"syntax.unattached-group"、`"syntax.unexpected-group-close"、
+ `"syntax.unattached-bracket" 与 `"syntax.unexpected-element-close" 分别对应四种 delimiter。
 
 attached ownership 使用三个专用 codes：同一 owner 的第二个 group 使用
 `"syntax.duplicate-attached-group"，primary range 指向第二个 opening brace，related range 指向第一个 group；
@@ -55,7 +57,8 @@ Current parser 用 `"syntax.legacy-attributes" 拒绝识别出的旧 attribute s
 `- attached block group：matching owner boundary 或 dedent；marked block 位于 head continuation line 上的
  opener 在 blank、owner-level dedent、children start 或不匹配的 continuation column 前停止建立
  ownership；attached inline group：当前 enclosing inline boundary。
-`- unattached group/unexpected close：当前 structural line 或 enclosing inline boundary。
+`- unattached group/unexpected close/unattached bracket：当前 structural line 或 enclosing inline
+ boundary。
 `- parsed inline error：blank、dedent、block-only entry 或 EOF 前。
 `- inline verbatim error：当前 physical line ending 或 EOF。
 `- partial dedent：补到最接近的合法 outer column 后继续当前 line。
@@ -112,6 +115,8 @@ precedence、ordering、recovery 与 lossless token coverage；lenient tree-sitt
   syntax.invalid-document-group
   syntax.unattached-group
   syntax.unexpected-group-close
+  syntax.unattached-bracket
+  syntax.unexpected-element-close
   syntax.unclosed-inline
   syntax.unclosed-verbatim
   syntax.tab-indentation

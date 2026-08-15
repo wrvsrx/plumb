@@ -137,8 +137,8 @@
     "name": "invalid marked block dispatch stays an error",
     "source": "`node}bad\nnext\n",
     "valid": false,
-    "blocks": [{"kind":"marked","marker":"node","attrs":[],"head":"}bad","inline":"T\"}bad\"","children":[]},{"kind":"paragraph","head":"next","inline":"T\"next\""}],
-    "diagnostics": [{"code":"syntax.invalid-block-dispatch","range":{"text":"`node}"}}],
+    "blocks": [{"kind":"marked","marker":"node","attrs":[],"head":"bad","inline":"T\"bad\"","children":[]},{"kind":"paragraph","head":"next","inline":"T\"next\""}],
+    "diagnostics": [{"code":"syntax.invalid-block-dispatch","range":{"text":"`node}"}},{"code":"syntax.unexpected-group-close","range":{"text":"}"}}],
     "required_tokens": ["Error"]
   },
   {
@@ -267,7 +267,7 @@
     "name": "single line document group is invalid",
     "source": "{}\n",
     "valid": false,
-    "blocks": [{"kind":"paragraph","head":"{}","inline":"T\"{}\""}],
+    "blocks": [{"kind":"paragraph","head":"","inline":""}],
     "diagnostics": [{"code":"syntax.invalid-document-group","range":{"text":"{}"}}],
     "required_tokens": ["Error"]
   },
@@ -295,11 +295,12 @@
     "source": "`node}bad\nbefore `oops\n",
     "valid": false,
     "blocks": [
-      {"kind":"marked","marker":"node","attrs":[],"head":"}bad","inline":"T\"}bad\"","children":[]},
+      {"kind":"marked","marker":"node","attrs":[],"head":"bad","inline":"T\"bad\"","children":[]},
       {"kind":"paragraph","head":"before ","inline":"T\"before\"W\" \""}
     ],
     "diagnostics": [
       {"code":"syntax.invalid-block-dispatch","range":{"text":"`node}"}},
+      {"code":"syntax.unexpected-group-close","range":{"text":"}"}},
       {"code":"syntax.invalid-inline-dispatch","range":{"text":"`oops"}}
     ],
     "required_tokens": ["Error","Text"]
@@ -315,5 +316,27 @@
     ],
     "diagnostics": [],
     "required_tokens": ["Indentation","Delimiter","LineEnding","Text"]
+  },
+  {
+    "name": "bare delimiters never fall back to text",
+    "source": "brace { text\n",
+    "valid": false,
+    "blocks": [
+      {"kind":"paragraph","head":"brace  text","inline":"T\"brace\"W\" \"W\" \"T\"text\"","children":[]}
+    ],
+    "diagnostics": [
+      {"code":"syntax.unattached-group","range":{"text":"{"}}
+    ],
+    "required_tokens": ["Error","Text"]
+  },
+  {
+    "name": "unconditional delimiter escapes",
+    "source": "escaped `[ `] `{ `} delims\n",
+    "valid": true,
+    "blocks": [
+      {"kind":"paragraph","head":"escaped [ ] { } delims","inline":"T\"escaped\"W\" \"T\"[\"W\" \"T\"]\"W\" \"T\"{\"W\" \"T\"}\"W\" \"T\"delims\"","children":[]}
+    ],
+    "diagnostics": [],
+    "required_tokens": ["Escape","Text"]
   }
 ]

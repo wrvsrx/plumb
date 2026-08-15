@@ -16,13 +16,23 @@ parser 仍必须恢复并产生 lossless tree 与全部可报告 diagnostics。
 反引号是唯一 introducer。连续 run 从左到右每两个反引号组成一个 literal backtick；奇数 run
 最后剩余的一个作为 introducer。scanner 不回溯。
 
-在 parsed position 中，单个 introducer 后直接跟一个原本会在当前位置充当 opening/closing delimiter 的
-character，表示该 character 的 literal escape，不产生 literal backtick，也不启动或关闭 structure。这一
-规则同样适用于 block start、attachment site 与 active group content。ordinary opening bracket 在 parsed
-inline content 中不是 delimiter，不需要 escape。inline/block verbatim payload 是 raw bytes，不识别 delimiter
-escape。
+结构字符集由 `` `"`"、`"["、`"]"、`"{" 与 `"}" 组成，与 marker/kind 词法集排除的字符一致。delimiter
+escape 与 bare delimiter 的身份都是全局的，与位置无关：
 
-core 不定义通用 escape language。introducer 后不是当前位置 active delimiter 的 character 继续按普通
+`- 单个 introducer 后直接跟 `"["、`"]"、`"{" 或 `"}" 之一，表示该 character 的 literal escape，
+  不产生 literal backtick，也不启动或关闭 structure；该规则在所有 parsed position 无条件成立。
+`- 裸 `"{", `"}", `"[" 与 `"]" 永远是结构 delimiter：位于合法 attachment、group close、element open
+  或 element close 位置时执行该结构，否则发布对应 error，绝不回落为 ordinary text；字面使用必须
+  escape。
+`- `"`" 不参与 delimiter escape：它只在 introducer dispatch 内结构化，在 content 中是 ordinary
+  text，也没有字面需求（verbatim 的 quote strength 已覆盖）。inline/block verbatim payload 是 raw
+  bytes，不识别 delimiter escape。
+
+词法判定保持局部：token 只依赖当前字符 run 与紧邻 lookahead，允许的全局上下文仅 indentation、
+verbatim 的 margin 与 quote strength、以及当前行的 line ending。attachment、nesting 与 form 判定全部
+由 parser 在 token 流上完成，不进入 lexer。
+
+core 不定义通用 escape language。introducer 后不是上述 delimiter 的 character 继续按普通
 inline/block dispatch 解析；dispatch 不完整时发布已有 `"syntax.invalid-inline-dispatch" 或对应 block
 diagnostic，不新增 generic invalid-escape category。
 
@@ -209,12 +219,9 @@ block grammar。两种 form 即使为空也保留各自的 source layout 与 typ
 可由 syntax consumer 观察，但空 group 的 direct declaration projection 为空。formatter 与 syntax edit
 不能把显式空 group 自动改成 absent group。
 
-在 active group content 中，unescaped closing brace 关闭当前 group；单个 introducer 再跟 closing brace
-表示 literal closing brace，与 parsed inline content 的 literal closing bracket rule 一致。bare opening
-brace 不能建立没有 owner 的 nested group，在 active group content 中是 syntax error；literal opening brace
-也写作单个 introducer 再跟 opening brace。group content 需要包含任意 brace-rich source 时应使用 inline
-verbatim。在 attachment site 或 structural brace position，单个 introducer 加 opening brace 阻止 group
-开始；单个 introducer 加无匹配 owner 的 closing brace 阻止 ownership error，并产生 ordinary literal text。
+在 active group content 中，unescaped closing brace 关闭当前 group；bare opening brace 不能建立没有
+owner 的 nested group，是 syntax error。二者的字面使用遵循第 2 节的全局 escape 规则；group content
+需要包含任意 brace-rich source 时应使用 inline verbatim。
 
 第一个 group 之后再次出现在同一 owner attachment position 的 group 发布
 `"syntax.duplicate-attached-group"，不能覆盖或合并第一个 group。compact block group close 后允许 trailing
@@ -233,11 +240,11 @@ bracket 构成：
 `"InlineKind" 使用与 marker 相同的 lexical character set 和 maximal-match rule。core 不保留 kind
 集合。
 
-parsed content 中 ordinary opening bracket 是 text。未转义 closing bracket 关闭当前 element；
-字面 closing bracket 写作单个 introducer 再跟 closing bracket。空 content 合法。
+parsed content 中未转义 opening bracket 只在 introducer dispatch 完成处合法，未转义 closing bracket
+关闭当前 element；二者在其他位置发布 error，字面使用遵循第 2 节的 escape 规则。空 content 合法。
 
 inline kind 后必须出现 opening bracket；不存在裸 `"`kind" inline shorthand。没有 ordinary content
-的 element 写作 `"`kind["]，从而让 element boundary、递归 nesting 与 attached ownership 始终显式。
+的 element 写作 `"`kind[]"，从而让 element boundary、递归 nesting 与 attached ownership 始终显式。
 kind 非空的要求同样排除匿名 element：`"`[raw]" 不是合法 source，按 incomplete dispatch 报错。
 
 element 可以跨属于同一 enclosing inline content 的 continuation line。结构 indentation 被移除，
@@ -269,9 +276,16 @@ delimiter 时，在 line ending/EOF 报错并从下一 physical line 恢复。
 
 opening quote 后紧接 opening bracket 时进入 strengthened form；quote run 数量必须与 closing bracket
 后的 quote run 相同，空 payload 合法。两种 form 产生同一个 typed verbatim view，kind 保持 opaque。
-attached inline group 可以紧跟完整 closing delimiter；payload 自身仍只占一条 physical line。位于 block
-start 的 `"`rust\"\"" 因此是 quote count 为二的空 verbatim block；空 inline verbatim 必须写作
-`"`rust\"[]\"" 或其他完整 strengthened envelope。
+attached inline group 可以紧跟完整 closing delimiter；payload 自身仍只占一条 physical line。空 verbatim
+的写法：
+
+`plumb"
+  `rust""
+  `rust""[]""
+
+位于 block start 的多 quote run 因 quote 后直接 line ending 而成为空 verbatim block；空 inline
+verbatim 不能使用 compact form，必须写成完整 strengthened envelope（opening quote run、opening
+bracket、payload、closing bracket 与相同 quote run）。
 
 `# 10. Verbatim block
 
@@ -288,8 +302,14 @@ verbatim block 使用 introducer、可选 opaque kind 与一个或多个 opening
    fn main() {}
 
 完整 quote run 后必须立即 line ending/EOF，或跟至少一个 ASCII space/tab 与一个完整 compact/expanded
-attached group；不允许 raw head。single-quote `"`rust\"{}\"" 是 payload 为 `"{}" 的 compact inline
-verbatim；`"`rust\" {}" 才是带空 compact group 的 verbatim block。expanded group 在 header line 打开并
+attached group；不允许 raw head。single-quote verbatim 的 brace 属于 payload，直到 separator 出现：
+
+`plumb"
+  `rust"{}"
+  `rust" {}
+
+上例第一行是 payload 为 `"{}" 的 compact inline verbatim，第二行才是带空 compact group 的 verbatim
+block。expanded group 在 header line 打开并
 先于 raw body 关闭，因此 raw payload 中满足 structural margin 的 brace 仍全部是原始 bytes。旧的
 `"`{language=rust #example}" 在 unified grammar 中直接非法。
 

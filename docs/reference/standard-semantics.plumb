@@ -512,7 +512,7 @@ conflicted descendant 由 `"task.conflicting-closed-state" 负责。canceled par
 diagnostics 也不改变 nesting 只形成 display tree、只有 `"depends" 建立 dependency edge 的语义。
 
 authoring operations 使用执行时的本地 RFC 3339 timestamp：`"Convert to task" 把 cursor 命中的最深
-普通 `"-"/[.] item 转为 task 时，将 marker 改为 `"task" 并添加 `"created" property；`"Add task created timestamp" 为
+普通 `"-"/`"[.]" item 转为 task 时，将 marker 改为 `"task" 并添加 `"created" property；`"Add task created timestamp" 为
 缺少 `"created" 的最深 enclosing task 补录时间。后者不受 task state、dependency 或 recurrence
 限制。两者都保留已有 attached elements，并返回 revision-guarded edits。
 
@@ -549,7 +549,7 @@ candidate 的 `"insertTextMode"。heading、ordinary list item 与其他
 inline-verbatim spelling 本身没有额外声明时保持可直接输入。
 
 export 按 document-local closure state 在 task item 的首个 paragraph 添加可见 marker：open 为 `"☐"，done 为 `"☒"，canceled
-为 `"⊘"，conflicted 为 `"⚠"。其中 `"☐"/[☒] 使用 Pandoc task-list 约定，使支持该约定的 writer
+为 `"⊘"，conflicted 为 `"⚠"。其中 `"☐"/`"[☒]" 使用 Pandoc task-list 约定，使支持该约定的 writer
 生成 checkbox；task 的 id 与 fields 保留在包裹 title 的 Pandoc `"Span" attributes 中，marker 不伪装为 class，
 children 继续作为同一 list item 的后续 blocks。
 

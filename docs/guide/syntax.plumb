@@ -40,7 +40,7 @@ column 加一，对非空 head 将 children 与 conceptual head column 对齐：
 
 `# Inline element
 
-具名 inline element 使用 `"`kind[content"]，content 会继续解析 nested inline：
+具名 inline element 使用 `"`kind[content]"，content 会继续解析 nested inline：
 
 `plumb"
   See `term[outer `term[inner] text].

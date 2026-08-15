@@ -49,13 +49,13 @@ Try completion after each relevant introducer in a temporary edit:
 
 `- At line start, type a backtick followed by `"t" for Task or `"e" for Event; Task includes `"created".
 `- Type a backtick followed by a hyphen or arrow for Link and Autolink; continue with `"->[" for Link only or `"->\"" for Autolink only. A standalone opening bracket offers neither.
-`- Start a link label with ``->[ and select a document title.
-`- Complete a path in ``->[target]{`:[to plumb-]}.
-`- Complete a fragment in ``->[target]{`:[to plumb-export.plumb#]}.
-`- Complete a same-file fragment in ``->[target]{`:[to #]}.
+`- Start a link label with `"->[" and select a document title.
+`- Complete a path in `"->[target]{:[to plumb-]}".
+`- Complete a fragment in `"->[target]{:[to plumb-export.plumb#]}".
+`- Complete a same-file fragment in `"->[target]{:[to #]}".
 `- Complete an Autolink document path inside ``->"plumb-".
 `- Complete a raw fragment inside ``->"plumb-export.plumb#".
-`- Complete an image path in ``img[alt]{`:[src static/]}.
+`- Complete an image path in `"img[alt]{:[src static/]}".
 
 `# Rename {
   `@ rename

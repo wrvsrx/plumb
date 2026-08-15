@@ -86,7 +86,7 @@ scalar/list/map 与 source ranges 都能由同一个 parser 和 extension model 
 
 `## Citation
 
-首个 profile 只冻结 `"`cite[id"]。复杂 citation model 延后，避免把 Pandoc Markdown mini-language
+首个 profile 只冻结 `"`cite[id]"。复杂 citation model 延后，避免把 Pandoc Markdown mini-language
 嵌入 plumb。
 
 `## Task

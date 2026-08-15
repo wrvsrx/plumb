@@ -316,7 +316,7 @@ derived workflow state。补全保留同一 value 中其他 references，并排�
 
 `"recur" 接受正整数 `"`PnD"、`"`PnW"、`"`PnM" 或 `"`PnY"，并要求 `"due"。
 
-document-local closure state 由 closure timestamps 推导：没有 `"done"/[canceled] 是 open；只有 `"done" 是
+document-local closure state 由 closure timestamps 推导：没有 `"done"/`"[canceled]" 是 open；只有 `"done" 是
 done；只有 `"canceled" 是 canceled；两者同时存在是 conflicted。
 
 workspace 工具在 closure state 上推导互斥 workflow state：同时关闭是 conflicted；仅完成是 done；

@@ -29,6 +29,24 @@ pub fn parse(source: impl Into<String>) -> ParsedDocument {
 }
 
 fn normalize_diagnostics(mut diagnostics: Vec<Diagnostic>) -> Vec<Diagnostic> {
+    // The most specific error wins: generic bare-delimiter errors contained
+    // in an invalid document group range share its root cause.
+    let document_group_ranges: Vec<_> = diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.code == "syntax.invalid-document-group")
+        .map(|diagnostic| diagnostic.range.clone())
+        .collect();
+    if !document_group_ranges.is_empty() {
+        diagnostics.retain(|diagnostic| {
+            !(matches!(
+                diagnostic.code,
+                "syntax.unattached-group" | "syntax.unexpected-group-close"
+            ) && document_group_ranges
+                .iter()
+                .any(|range| range.contains(&diagnostic.range.start)
+                    && range.contains(&diagnostic.range.end.saturating_sub(1))))
+        });
+    }
     let preferred = diagnostics
         .iter()
         .map(|diagnostic| (diagnostic.code, diagnostic.range.clone()))
@@ -1074,7 +1092,7 @@ impl Parser<'_> {
     fn parse_inline_segments(
         &mut self,
         segments: &mut Vec<InlineSegment>,
-        group_content: bool,
+        _group_content: bool,
     ) -> InlineContent {
         let start = segments.first().map_or(0, |segment| segment.start);
         let mut position = InlinePosition {
@@ -1112,11 +1130,48 @@ impl Parser<'_> {
             let end = segment.end;
             let cursor = position.offset;
             let byte = self.source.as_bytes()[cursor];
-            if group_content && byte == b'{' {
+            // §2: bare delimiters never fall back to text. An unescaped
+            // opening brace must open an attached group, an unescaped
+            // closing brace must close one, and brackets are legal only in
+            // the introducer dispatch or when closing an open element.
+            if byte == b'{' {
                 flush_inline_text(self.source, frames.last_mut().unwrap(), cursor);
                 self.diagnostics.push(Diagnostic::error(
                     "syntax.unattached-group",
-                    "an opening brace inside attached content must be escaped or owned",
+                    "an opening brace must be escaped or open an attached group",
+                    cursor..cursor + 1,
+                ));
+                position.offset += 1;
+                frames.last_mut().unwrap().text_start = position.offset;
+                continue;
+            }
+            if byte == b'}' {
+                flush_inline_text(self.source, frames.last_mut().unwrap(), cursor);
+                self.diagnostics.push(Diagnostic::error(
+                    "syntax.unexpected-group-close",
+                    "group close has no matching opener",
+                    cursor..cursor + 1,
+                ));
+                position.offset += 1;
+                frames.last_mut().unwrap().text_start = position.offset;
+                continue;
+            }
+            if byte == b'[' {
+                flush_inline_text(self.source, frames.last_mut().unwrap(), cursor);
+                self.diagnostics.push(Diagnostic::error(
+                    "syntax.unattached-bracket",
+                    "an opening bracket must follow a nonempty inline kind or be escaped",
+                    cursor..cursor + 1,
+                ));
+                position.offset += 1;
+                frames.last_mut().unwrap().text_start = position.offset;
+                continue;
+            }
+            if byte == b']' && frames.len() == 1 {
+                flush_inline_text(self.source, frames.last_mut().unwrap(), cursor);
+                self.diagnostics.push(Diagnostic::error(
+                    "syntax.unexpected-element-close",
+                    "inline element close has no matching opener",
                     cursor..cursor + 1,
                 ));
                 position.offset += 1;
@@ -1175,23 +1230,16 @@ impl Parser<'_> {
 
             let introducer = position.offset;
             position.offset += 1;
+            // §2: a single introducer before any of the four structural
+            // delimiters is an unconditional literal escape.
             if position.offset < end
-                && matches!(self.source.as_bytes()[position.offset], b'{' | b'}')
+                && matches!(
+                    self.source.as_bytes()[position.offset],
+                    b'{' | b'}' | b'[' | b']'
+                )
             {
                 frames.last_mut().unwrap().items.push(Inline::Text {
                     text: self.source[position.offset..position.offset + 1].to_string(),
-                    range: introducer..position.offset + 1,
-                });
-                position.offset += 1;
-                frames.last_mut().unwrap().text_start = position.offset;
-                continue;
-            }
-            if frames.len() > 1
-                && position.offset < end
-                && self.source.as_bytes()[position.offset] == b']'
-            {
-                frames.last_mut().unwrap().items.push(Inline::Text {
-                    text: "]".to_string(),
                     range: introducer..position.offset + 1,
                 });
                 position.offset += 1;
@@ -2490,18 +2538,51 @@ mod tests {
 
     #[test]
     fn anonymous_inline_elements_are_rejected() {
-        // §8: the inline kind is nonempty; there is no anonymous element.
-        for source in ["`[] content\n", "`[raw] tail\n"] {
-            let parsed = parse(source);
-            assert!(!parsed.is_valid(), "{source}");
-            assert!(parsed
-                .diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.code == "syntax.invalid-inline-dispatch"));
-        }
+        // §2/§8: the introducer-plus-bracket spelling is a literal escape,
+        // so an empty-kind element cannot even be written; the leftovers
+        // surface as bare-delimiter errors.
+        let empty = parse("`[] content\n");
+        assert!(!empty.is_valid());
+        assert!(empty
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == "syntax.unexpected-element-close"));
+        let raw = parse("`[raw] tail\n");
+        assert!(!raw.is_valid());
+        assert!(raw
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == "syntax.unexpected-element-close"));
+
         // Empty content with a nonempty kind stays valid.
         let empty = parse("`k[] tail\n");
         assert!(empty.is_valid(), "{:?}", empty.diagnostics);
+    }
+
+    #[test]
+    fn bare_delimiters_never_fall_back_to_text() {
+        // Every bare delimiter in content is structural or an error.
+        for (source, code) in [
+            ("Text { brace\n", "syntax.unattached-group"),
+            ("Text } brace\n", "syntax.unexpected-group-close"),
+            ("Text [ bracket\n", "syntax.unattached-bracket"),
+            ("Text ] bracket\n", "syntax.unexpected-element-close"),
+        ] {
+            let parsed = parse(source);
+            assert!(!parsed.is_valid(), "{source}");
+            assert!(
+                parsed.diagnostics.iter().any(|d| d.code == code),
+                "{source}: {:?}",
+                parsed.diagnostics
+            );
+        }
+
+        // Escapes are unconditional literals in every position, including
+        // inside element content and at block start.
+        let escaped = parse("`k[a `[b`] c `{ `} x]\n");
+        assert!(escaped.is_valid(), "{:?}", escaped.diagnostics);
+        let block_start = parse("`{ starts a paragraph and `[ x\n");
+        assert!(block_start.is_valid(), "{:?}", block_start.diagnostics);
     }
 
     #[test]
