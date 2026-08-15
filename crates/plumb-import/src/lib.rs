@@ -199,7 +199,7 @@ fn render_block(block: &Block) -> Result<Option<String>, String> {
         }
         Block::DefinitionList(entries) => Ok(Some(render_definitions(entries)?)),
         Block::Div(attrs, blocks) => {
-            let marker = attr_pair(attrs, "data-plumb-marker").unwrap_or("div");
+            let marker = attr_pair(attrs, "data-plumb-marker").unwrap_or("()");
             require_marker(marker)?;
             Ok(Some(render_container(marker, attrs, blocks)?))
         }
@@ -402,7 +402,7 @@ fn render_inlines(inlines: &[Inline], bracketed: bool) -> Result<String, String>
                         _ => {}
                     }
                 }
-                let marker = attr_pair(attrs, "data-plumb-marker").unwrap_or("span");
+                let marker = attr_pair(attrs, "data-plumb-marker").unwrap_or("()");
                 require_marker(marker)?;
                 output.push_str(&render_element(marker, attrs, content)?);
             }

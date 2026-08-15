@@ -2580,6 +2580,22 @@ mod tests {
     }
 
     #[test]
+    fn implicit_paragraph_is_not_an_attachment_site() {
+        // §7: implicit paragraphs and text runs own no group; attaching one
+        // requires an explicit marked block or inline element.
+        let parsed = parse("Some prose {\\n `- child\\n}\\n");
+        assert!(!parsed.is_valid());
+        assert!(parsed
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == "syntax.unattached-group"));
+        assert!(matches!(
+            &parsed.syntax.blocks[0],
+            Block::Parsed(block) if block.mark.is_none()
+        ));
+    }
+
+    #[test]
     fn bare_delimiters_never_fall_back_to_text() {
         // Every bare delimiter in content is structural or an error.
         for (source, code) in [

@@ -149,19 +149,20 @@ inline citation 与文末 bibliography。Bibliography file 改变时 Web watcher
 其他 citation shape 的 profile 边界见
 `->[standard semantics reference]{`:[to ../reference/standard-semantics.plumb]}。
 
-`# Div 与 span
+`# 透明 containers
 
-`"div" 和 `"span" 是没有隐式 presentation semantics 的透明 containers：
+普通段落与 text run 是匿名的 container/span：零拼写、也因此零所有权——不能拥有 attached group。
+marker/kind `"()" 是显式的透明 container，解除该限制而不添加任何隐式 semantics：
 
 `plumb"
-  `div Warning {
+  `() Warning {
     `@ notice
     `warning
   }
 
     More details.
 
-  This is `span[important]{`-[warning]}.
+  This is `()[important]{`-[warning]}.
 
 它们直接导出为 Pandoc Div/Span；其他 generic marker/kind 仍保留 `"data-plumb-marker"。
 

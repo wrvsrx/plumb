@@ -327,7 +327,7 @@ fn lower_parsed_block(block: &ParsedBlock, analysis: &DocumentOutput, output: &m
         contents.extend(lower_blocks(&block.children, analysis));
         output.push(json!({
             "t": "Div",
-            "c": [lower_attrs(&mark.attrs, (mark.marker != "div").then_some(mark.marker.as_str())), contents],
+            "c": [lower_attrs(&mark.attrs, (mark.marker != "()").then_some(mark.marker.as_str())), contents],
         }));
     } else {
         output.push(json!({ "t": "Para", "c": lower_inlines(&block.head, analysis) }));
@@ -430,7 +430,7 @@ fn lower_inlines(content: &InlineContent, analysis: &DocumentOutput) -> Vec<Valu
                 } else {
                     output.push(json!({
                         "t": "Span",
-                        "c": [lower_attrs(attrs, (kind != "span").then_some(kind)), lower_inlines(content, analysis)],
+                        "c": [lower_attrs(attrs, (kind != "()").then_some(kind)), lower_inlines(content, analysis)],
                     }));
                 }
             }
@@ -785,13 +785,18 @@ mod tests {
     }
 
     #[test]
-    fn exports_standard_div_and_span_without_redundant_markers() {
+    fn exports_paren_transparent_containers_without_redundant_markers() {
         let document =
-            export("`div Body {\n  `@ box\n  `- note\n}\n\n`span[text]{`-[mark]}\n").unwrap();
+            export("`() Body {\n  `@ box\n  `- note\n}\n\n`()[text]{`-[mark]}\n").unwrap();
         let div_attrs = &document["blocks"][0]["c"][0];
         assert_eq!(div_attrs, &json!(["box", ["note"], []]));
         let span_attrs = &document["blocks"][1]["c"][0]["c"][0];
         assert_eq!(span_attrs, &json!(["", ["mark"], []]));
+
+        // The explicit container stays a Div even without declarations;
+        // paragraph and container are distinct categories.
+        let explicit = export("`() Plain prose.\n").unwrap();
+        assert_eq!(explicit["blocks"][0]["t"], "Div");
     }
 
     #[test]

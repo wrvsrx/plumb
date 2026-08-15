@@ -230,21 +230,28 @@ bibliography 使用同一 metadata source。Bibliography relative paths 仍相�
 
 `# 11. Transparent containers
 
-marker `"div" 与 parsed inline kind `"span" 是标准 transparent containers：
+projection 把 block 内容统一看作 container 序列、inline 内容统一看作 span 序列：kind 为空的
+container 即 paragraph，kind 为空的 span 即 text run。匿名形态以零拼写换取零所有权——没有
+attachment site、没有 children；显式形态由此获得 group。该模型陈述结构同源，不陈述语义恒等：
+`"()" 容器与匿名 paragraph、`"()[...]" 与 text run 是不同 category，explicitness 本身可观察，
+export 分别映射 `"Div"/`"Span" 与 `"Para"/text，不做两者间的隐式转换。marker `"()" 与 parsed
+inline kind `"()" 是标准的显式 transparent container，为匿名形态解除该限制：
 
 `plumb"
-  `div Warning {
+  `() Warning {
     `@ notice
     `warning
   }
 
     More details.
 
-  This is `span[important]{`-[warning]}.
+  This is `()[important]{`-[warning]}.
 
-`"div" 保留 generic marked block 的 head/children behavior，`"span" 保留 parsed inline content。
-二者不增加 presentation、section、warning 或其他隐式 semantics。export 直接产生 Pandoc `"Div" /
-`"Span"，不添加冗余 `"data-plumb-marker"；其他 generic spellings 仍保留 marker/kind pair。
+`"()" 保留 generic marked block 的 head/children behavior 与 parsed inline content，不增加
+presentation、section 或其他隐式 semantics；definition association key 位置的 `"()[...]" 按 plain
+text 参与 key atom 是同一透明性的推论。export 直接产生 Pandoc `"Div" / `"Span"，不添加冗余
+`"data-plumb-marker"；其他 generic spellings 仍保留 marker/kind pair。`"div" 与 `"span" 词法拼写
+不再是 transparent containers。
 
 `# 12. Quote
 

@@ -129,7 +129,7 @@ columns 之间是 partial dedent error。结构 indentation 只能使用 ASCII s
 `# 7. Attached groups
 
 attached group 是 postfix ownership operator，不是 attribute sublanguage。group 只在 owner 声明的
-attachment site 被识别；ordinary opening brace 在其他 ordinary inline/head position 是 text。每个 owner
+attachment site 被识别；其他位置的无主 brace 按第 2 节发布错误，不回落为 text。每个 owner
 最多有一个 group：
 
 `- document group 必须是文件第一个结构，包含 ordinary blocks。
@@ -138,6 +138,10 @@ attachment site 被识别；ordinary opening brace 在其他 ordinary inline/hea
   一条 head line 行尾，或独占 head 的最后一条 continuation line（见下）；verbatim block 只允许
   header line 行尾。
 `- parsed inline 或 inline verbatim group 紧跟完整 closing delimiter，包含 ordinary inline elements。
+
+implicit paragraph 与 ordinary text run 不是 attachment site：为二者添加 group 必须先显式表达为
+marked block 或 inline element。paragraph 行尾或 text 中的 unescaped opening brace 发布
+`"syntax.unattached-group"。
 
 compact attachment separator 由 owner category 统一决定：inline owner 使用 tight attachment，group 必须
 紧贴完整 closing delimiter；marked/verbatim block header owner 使用 spaced attachment，group 前必须至少有
