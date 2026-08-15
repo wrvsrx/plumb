@@ -1289,7 +1289,13 @@ impl Parser<'_> {
                 continue;
             }
 
-            if position.offset < end && self.source.as_bytes()[position.offset] == b'[' {
+            // §8: the inline kind must be nonempty — there is no anonymous
+            // inline element, so an empty kind before '[' falls through to
+            // the incomplete-dispatch diagnostic.
+            if position.offset < end
+                && self.source.as_bytes()[position.offset] == b'['
+                && kind_end > kind_start
+            {
                 position.offset += 1;
                 frames.push(InlineFrame {
                     start: position.offset,
@@ -2480,6 +2486,22 @@ mod tests {
                 )
             }));
         }
+    }
+
+    #[test]
+    fn anonymous_inline_elements_are_rejected() {
+        // §8: the inline kind is nonempty; there is no anonymous element.
+        for source in ["`[] content\n", "`[raw] tail\n"] {
+            let parsed = parse(source);
+            assert!(!parsed.is_valid(), "{source}");
+            assert!(parsed
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == "syntax.invalid-inline-dispatch"));
+        }
+        // Empty content with a nonempty kind stays valid.
+        let empty = parse("`k[] tail\n");
+        assert!(empty.is_valid(), "{:?}", empty.diagnostics);
     }
 
     #[test]

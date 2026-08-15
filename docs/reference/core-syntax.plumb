@@ -238,6 +238,7 @@ parsed content 中 ordinary opening bracket 是 text。未转义 closing bracket
 
 inline kind 后必须出现 opening bracket；不存在裸 `"`kind" inline shorthand。没有 ordinary content
 的 element 写作 `"`kind["]，从而让 element boundary、递归 nesting 与 attached ownership 始终显式。
+kind 非空的要求同样排除匿名 element：`"`[raw]" 不是合法 source，按 incomplete dispatch 报错。
 
 element 可以跨属于同一 enclosing inline content 的 continuation line。结构 indentation 被移除，
 额外 spaces 保留为 text，合法 newline 产生 `"SoftBreak"。element 不得跨 blank line、enclosing

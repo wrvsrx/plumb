@@ -210,3 +210,6 @@ attached data 不是 JSON replacement，当前 profile 冻结以下边界：
 `- compact marked-block group 的 ownership、recovery 与 formatting 以 core syntax reference 为准。
 `- legacy `"{#id .class key=value}" 仅由冻结 0.17 reader 接受，并按 source order转换为 direct
    `"-"、`"@" 与 `":" declarations；转换是 idempotent，普通 parser 不保留兼容入口。
+`- 不存在匿名 owner：marker 与 InlineKind 都必须非空，空 kind 的匿名 element 按
+   invalid-inline-dispatch 拒绝；introducer 后紧跟 brace 的拼写按 delimiter escape 解释，
+   不预留给匿名容器。

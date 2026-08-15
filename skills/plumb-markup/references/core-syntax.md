@@ -117,7 +117,8 @@ EOF remain hard boundaries.
 Core does not interpret kinds. For example, `*[text]` and `_[text]` are generic
 inline elements unless the official semantic profile explicitly defines them.
 
-The opening `[` is mandatory. Even an empty inline element is written as
+The opening `[` is mandatory and the kind must be nonempty; there is no
+anonymous element. Even an empty inline element is written as
 `kind[]`; a bare `` `kind`` is invalid.
 
 ## Inline Verbatim
