@@ -210,8 +210,9 @@ endpoint 按 document scope 或 fuzzy query 返回有界 compact identities；br
 tree-sitter grammar 与 strict core 覆盖相同的纯 syntax surface，但容错目标不同。grammar 不能定义
 validity，也不能迫使语言设计适应 CFG。
 
-lenient mirror 必须保持 core structural boundaries：next-line attached block group 结束后，即使随后有
-blank lines，也要在下一 nonblank line 预看并正确 dedent，不能把合法的 following top-level block 包进
+lenient mirror 必须保持 core structural boundaries：独占 head continuation line 的 attached block group
+结束后，即使随后有 blank lines，也要在下一 nonblank line 预看并正确 dedent，不能把合法的 following
+top-level block 包进
 recovery error。verbatim block 与 inline verbatim 的 CST 都分别暴露 optional opaque
 `"verbatim_kind" 和 raw payload node；highlight query 必须与 block marker、parsed inline kind 一样给
 verbatim kind 使用通用 `"@keyword" capture，不能解释其 semantic profile meaning，也不能让 raw payload

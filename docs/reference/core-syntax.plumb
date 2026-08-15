@@ -124,19 +124,19 @@ attachment site 被识别；ordinary opening brace 在其他 ordinary inline/hea
 
 `- document group 必须是文件第一个结构，包含 ordinary blocks。
 `- marked/verbatim block group 由 horizontal whitespace 与完整 block header 分开；compact form 包含
-  ordinary inline elements，expanded form 包含 ordinary blocks。marked block 还允许在紧邻 header 的
-  下一 structural line 打开 expanded group。
+  ordinary inline elements，expanded form 包含 ordinary blocks。marked block 的 expanded opener 还可以
+  独占 head 的最后一条 continuation line（见下）。
 `- parsed inline 或 inline verbatim group 紧跟完整 closing delimiter，包含 ordinary inline elements。
 
 compact attachment separator 由 owner category 统一决定：inline owner 使用 tight attachment，group 必须
 紧贴完整 closing delimiter；marked/verbatim block header owner 使用 spaced attachment，group 前必须至少有
 一个 ASCII space/tab。separator 不属于 head 或 raw payload。
 
-block-header attachment 的 opening brace 是 header 的最后一个结构。opening brace 后在同一 physical line
-出现 content 时必须以同一行 closing brace 完成 compact form；opening brace 后只剩 horizontal whitespace
-与 line ending/EOF 时进入 expanded form。expanded content 建立比 owner 更深的 structural column，closing
-brace 回到 owner column，并且必须是该 physical line 唯一的 non-whitespace structure；trailing horizontal
-whitespace 合法。其内容使用第 3 至 6 节的普通 block parser，因此可以递归包含拥有 group 的 blocks。
+block-header attachment 的 opening brace 是完整 head 的最后一个结构。opening brace 后在同一 physical
+line 出现 content 时必须以同一行 closing brace 完成 compact form；opening brace 后只剩 horizontal
+whitespace 与 line ending/EOF 时进入 expanded form。expanded content 建立比 opener 所在 structural
+line 的 column 更深的 structural column，closing brace 回到该 column，并且必须是该 physical line 唯一
+的 non-whitespace structure；trailing horizontal whitespace 合法。其内容使用第 3 至 6 节的普通 block parser，因此可以递归包含拥有 group 的 blocks。
 document 没有 header，只允许 opening brace 独占文件第一条 structural line 的 expanded form：
 
 `plumb"
@@ -152,7 +152,7 @@ document 没有 header，只允许 opening brace 独占文件第一条 structura
    `: due 2026-08-07
   }
 
-marked block 的 expanded group 也可以在下一 structural line 打开：
+marked block 的 expanded opener 还可以独占一条 head continuation line：
 
 `plumb"
   `task Buy milk
@@ -163,13 +163,14 @@ marked block 的 expanded group 也可以在下一 structural line 打开：
    }
    `note Remember the coupon
 
-next-line opener 必须紧邻 owner header，中间不能有 blank line，且必须位于深于 owner 的 structural
-column；该 column 同时建立 owner body column，并且是 group close 与后续 child siblings 的 column。若
-deferred head continuation 已建立 body column，opener 必须位于同一 column。opener line 除 opening brace
-与 trailing horizontal whitespace 外不能包含其他 source。识别 next-line opener 会结束 deferred head，
-group close 后才可以开始 children；group content 自己建立比该 body column 更深的独立 child column。
-verbatim block 不允许 next-line group，因为 quote run 后的 line ending 已经开始 raw payload。官方 formatter
-将 opener、close 与后续 children 统一放在 owner column 加一，将 group content 放在 opener column 加一。
+该 line 就是一条 head line，遵循 deferred head continuation 的全部规则：必须紧邻前一条 head line，
+中间不能有 blank line，必须深于 owner 的 structural column，且若 continuation 已建立 column 则必须
+与之一致。opener line 除 opening brace 与 trailing horizontal whitespace 外不能包含其他 source。该
+column 同时建立 owner body column，closing brace 与后续 child siblings 都位于该 column。识别 opener
+会结束 deferred head，group close 后才可以开始 children；group content 自己建立比该 body column
+更深的独立 child column。verbatim block 不允许该形式，因为 quote run 后的 line ending 已经开始 raw
+payload。官方 formatter 将 opener、close 与后续 children 统一放在 owner column 加一，将 group content
+放在 opener column 加一。
 
 inline group 与 owner 同行，内容使用第 8、9 节的普通 inline parser，因此 inline element 可以递归
 包含 inline element；group 本身不建立新的 marker、property 或 raw-content grammar：
@@ -182,8 +183,8 @@ inline owner；只有与 block head 分隔的 group 才归 marked block。expand
 head；group close 后的缩进 ordinary text 只能开始 child paragraph，不能恢复 head。
 
 空 group 合法。inline owner 的 group 必须紧贴 owner；whitespace 结束该 ownership。expanded block group
-由 header attachment site 或 marked block 的紧邻 next-line attachment site 与 indentation 建立 ownership，
-不允许作为任意独立 sibling。单行 document
+由 head 的 attachment site——header line 行尾或独占的最后一条 head continuation line——与 indentation
+建立 ownership，不允许作为任意独立 sibling。单行 document
 `"{}" 非法，因为 document group 只允许 expanded form。core 原样保留 attached content，不把其中
 spelling 固定解释为 facet、identity 或 property。
 

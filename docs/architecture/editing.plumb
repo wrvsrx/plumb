@@ -43,12 +43,13 @@ elements；formatter 只处理 whitespace、wrapping 和 indentation。
 
 syntax-preserving formatter 保留 attached group presence 与 typed content category：inline content 保持
 compact form，block content 保持 expanded form，不能只因 line width 在两者之间转换。compact group 可以
-超过 preferred width。同行 expanded group 的 opener 保持 block header 最后一个结构，content 使用 owner
-column 加一，closing brace 回到 owner column。next-line expanded group 保留 own-line opener form；opener
-同时建立 owner body column，formatter 将 opener、closing brace 与后续 children 统一放在 owner column
-加一，将 group content 放在 opener column 加一。普通 children 与 deferred head continuation 同样使用
-owner column 加一，不按 marker width 对齐 conceptual head column。document group 的 content 同样从
-document owner column 加一开始。
+超过 preferred width。expanded group 的 opener 是完整 head 的最后一个结构。同行 form 的 opener 保持
+block header 最后一个结构，content 使用 owner column 加一，closing brace 回到 opener 所在 line 的
+column。独占 head continuation line 的 form 保留 own-line opener form；opener 同时建立 owner body
+column，formatter 将 opener、closing brace 与后续 children 统一放在 owner column 加一，将 group
+content 放在 opener column 加一。普通 children 与 deferred head continuation 同样使用 owner column
+加一，不按 marker width 对齐 conceptual head column。document group 的 content 同样从 document owner
+column 加一开始。
 
 新建 owned group 尚无 source form 时，inline content 使用 compact，block content 使用 expanded；新建空
 marked/verbatim block group 默认 compact，document group 始终 expanded。已有显式 empty compact/expanded

@@ -184,10 +184,13 @@ inline owner 的 attached group 已由紧贴 closing delimiter 的 `"{}" 明确�
 group 中 ordinary block declarations 共享 collection/association/identity typed projection。formatter
 保留 expanded/compact source family，不把二者任意互换；每个 owner 最多拥有一个 group。
 
-marked block 的 expanded source family 同时允许 header-trailing 与 next-line opener。next-line form 的
-opener 必须紧邻 owner header、深于 owner，并在 deferred continuation 已建立时匹配该 column；group close
-回到 opener column。formatter 保留两种 expanded layout。verbatim block 的 line ending 仍立即建立 raw
-payload boundary，因此只使用 header-trailing attachment site。
+marked block 的 expanded source family 同时允许 header-trailing 与独占 head continuation line 的
+opener。后者是一条 head line，遵循 deferred continuation 规则：必须紧邻 owner header、深于 owner，
+并在 continuation 已建立时匹配该 column；group close 回到 opener 所在 line 的 column。这一归类使
+两种 expanded layout 共享同一条规则——opener 是完整 head 的最后一个结构，closing brace 回到
+opener 所在 structural line 的 column——而无需为 own-line form 单独立法。formatter 保留两种
+expanded layout。verbatim block 的 line ending 仍立即建立 raw payload boundary，因此只使用
+header-trailing attachment site。
 
 `# 已冻结的边界
 
