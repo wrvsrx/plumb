@@ -285,3 +285,25 @@ Plain [brackets] and closing ] remain text.
   (paragraph
     (inline_content
       (text))))
+
+==================
+Unified delimiter escapes
+==================
+
+escaped `[ `] `{ `} delims
+
+---
+
+(document
+  (blank_line)
+  (paragraph
+    (inline_content
+      (text)
+      (bracket_escape)
+      (text)
+      (bracket_escape)
+      (text)
+      (brace_escape)
+      (text)
+      (brace_escape)
+      (text))))

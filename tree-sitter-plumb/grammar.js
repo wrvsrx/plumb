@@ -21,7 +21,11 @@ module.exports = grammar({
 
   extras: _ => [/[ \t\r]/],
 
-  conflicts: $ => [[$.document]],
+  conflicts: $ => [
+    [$.document],
+    [$.head_continuation],
+    [$._next_line_attached_children],
+  ],
 
   rules: {
     document: $ => choice(
@@ -128,7 +132,14 @@ module.exports = grammar({
         $._paragraph_continue,
         field('content', $.inline_content),
       )),
-      $._line_end,
+      choice(
+        $._line_end,
+        seq(
+          field('attached', $.attached_block_group),
+          $._line_end,
+          optional($._next_line_attached_children),
+        ),
+      ),
     )),
 
     block_body: $ => prec.dynamic(1, prec.right(seq(
@@ -178,6 +189,7 @@ module.exports = grammar({
 
     inline_content: $ => prec.right(repeat1(choice(
       $.introducer_escape,
+      $.bracket_escape,
       $.brace_escape,
       $.inline_verbatim,
       $.inline_element,
@@ -239,7 +251,7 @@ module.exports = grammar({
 
     introducer_escape: _ => prec(3, '``'),
     verbatim_open: _ => token(/"+/),
-    bracket_escape: _ => prec(4, '`]'),
+    bracket_escape: _ => prec(4, choice('`[', '`]')),
     brace_escape: _ => prec(4, choice('`{', '`}')),
     soft_break: $ => $._inline_continue,
     introducer: _ => '`',

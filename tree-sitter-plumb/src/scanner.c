@@ -225,7 +225,8 @@ static bool is_name_char(int32_t character) {
 
 static enum BacktickDispatch classify_backtick_dispatch(TSLexer *lexer) {
   take(lexer);
-  if (lexer->lookahead == '`' || lexer->lookahead == '{' ||
+  if (lexer->lookahead == '`' || lexer->lookahead == '[' ||
+      lexer->lookahead == ']' || lexer->lookahead == '{' ||
       lexer->lookahead == '}') {
     return BACKTICK_ESCAPE;
   }
@@ -293,6 +294,17 @@ static bool scan_paragraph_continue(Scanner *scanner, TSLexer *lexer) {
   }
 
   lexer->mark_end(lexer);
+  if (lexer->lookahead == '{') {
+    // A line holding only an opener is an own-line attached group at the
+    // continuation column, not head text; decline so layout can emit the
+    // same-indent token instead.
+    take(lexer);
+    while (lexer->lookahead == ' ' || lexer->lookahead == '\t' ||
+           lexer->lookahead == '\r') {
+      take(lexer);
+    }
+    if (lexer->lookahead == '\n' || lexer->lookahead == 0) return false;
+  }
   if (lexer->lookahead == '`') {
     enum BacktickDispatch dispatch = classify_backtick_dispatch(lexer);
     if (!is_inline_dispatch(dispatch)) return false;

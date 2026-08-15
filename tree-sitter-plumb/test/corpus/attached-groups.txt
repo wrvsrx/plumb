@@ -292,3 +292,111 @@ Brace escapes at structural attachment sites
       (text)
       (brace_escape)
       (text))))
+
+==================
+Trailing opener on a continuation line
+==================
+
+`note first
+ second {
+  `- cited
+ }
+
+---
+
+(document
+  (blank_line)
+  (marked_block
+    (introducer)
+    (marker)
+    (head_separator)
+    (inline_content
+      (text))
+    (headed_body
+      (head_continuation
+        (inline_content
+          (text))
+        (attached_block_group
+          (block_group_open)
+          (marked_block
+            (introducer)
+            (marker)
+            (head_separator)
+            (inline_content
+              (text))))))))
+
+==================
+Trailing opener with children after close
+==================
+
+`note first
+ second {
+  `- cited
+ }
+ Details
+
+---
+
+(document
+  (blank_line)
+  (marked_block
+    (introducer)
+    (marker)
+    (head_separator)
+    (inline_content
+      (text))
+    (headed_body
+      (head_continuation
+        (inline_content
+          (text))
+        (attached_block_group
+          (block_group_open)
+          (marked_block
+            (introducer)
+            (marker)
+            (head_separator)
+            (inline_content
+              (text))))
+        (paragraph
+          (inline_content
+            (text)))))))
+
+==================
+Own-line opener after a wrapped head
+==================
+
+`task Buy milk
+ and eggs
+ {
+  `: due today
+ }
+ `note Child
+
+---
+
+(document
+  (blank_line)
+  (marked_block
+    (introducer)
+    (marker)
+    (head_separator)
+    (inline_content
+      (text))
+    (headed_body
+      (head_continuation
+        (inline_content
+          (text)))
+      (attached_block_group
+        (block_group_open)
+        (marked_block
+          (introducer)
+          (marker)
+          (head_separator)
+          (inline_content
+            (text))))
+      (marked_block
+        (introducer)
+        (marker)
+        (head_separator)
+        (inline_content
+          (text))))))
