@@ -169,6 +169,8 @@ pub struct ParsedBlock {
 pub struct VerbatimBlock {
     pub range: SourceRange,
     pub opener_range: SourceRange,
+    /// Opaque verbatim kind; an empty string is the anonymous form (§10
+    /// makes the kind optional).
     pub kind: String,
     pub kind_range: SourceRange,
     pub quote_count: usize,
@@ -180,6 +182,8 @@ pub struct VerbatimBlock {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Mark {
     pub range: SourceRange,
+    /// Nonempty in valid trees (§3 requires a nonempty marker token); an
+    /// empty string appears only in the invalid-marker recovery placeholder.
     pub marker: String,
     pub marker_range: SourceRange,
     pub attrs: Attributes,
@@ -344,6 +348,8 @@ pub enum Inline {
     },
     Element {
         range: SourceRange,
+        /// Nonempty (§8 forbids anonymous elements; the introducer-plus-
+        /// bracket spelling is a literal escape).
         kind: String,
         kind_range: SourceRange,
         content: InlineContent,
@@ -351,6 +357,7 @@ pub enum Inline {
     },
     Verbatim {
         range: SourceRange,
+        /// Opaque kind; empty is the anonymous inline verbatim (§9).
         kind: String,
         kind_range: SourceRange,
         text: String,

@@ -1344,6 +1344,7 @@ impl Parser<'_> {
                 && self.source.as_bytes()[position.offset] == b'['
                 && kind_end > kind_start
             {
+                debug_assert!(kind_end > kind_start, "inline kinds are nonempty");
                 position.offset += 1;
                 frames.push(InlineFrame {
                     start: position.offset,
