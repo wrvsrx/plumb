@@ -34,7 +34,7 @@ pub fn format_parsed(parsed: &ParsedDocument) -> Result<String, FormatError> {
 
     let mut formatter = Formatter::default();
     if parsed.syntax.attrs.attached.is_some() {
-        formatter.block_attached(&parsed.syntax.attrs, 0, true, None);
+        formatter.block_attached(&parsed.syntax.attrs, 0, true, true, None);
         if !parsed.syntax.blocks.is_empty() {
             formatter.output.push_str("\n\n");
         }
@@ -559,7 +559,7 @@ impl Formatter {
                         self.inline_attributes(&block.attrs, indent + 1);
                     }
                     Some(AttachedContent::Blocks(_)) => {
-                        self.block_attached(&block.attrs, indent, false, None);
+                        self.block_attached(&block.attrs, indent, false, false, None);
                     }
                     None => {}
                 }
@@ -623,20 +623,23 @@ impl Formatter {
             .mark
             .as_ref()
             .is_some_and(|mark| mark.attrs.attached.is_some());
+        // Canonical placement: the opener trails the header line while the
+        // head fits on one line and moves to a continuation line once the
+        // head wraps.
+        let head_wrapped = block
+            .head
+            .items
+            .iter()
+            .any(|inline| matches!(inline, Inline::SoftBreak { .. }));
         if let Some(mark) = &block.mark {
             if mark.attrs.attached.is_some() && !compact_attached {
-                self.block_attached(&mark.attrs, indent, false, Some(indent + 1));
+                self.block_attached(&mark.attrs, indent, false, head_wrapped, Some(indent + 1));
             }
         }
 
         if !block.children.is_empty() {
-            let next_line_attached = block.mark.as_ref().is_some_and(|mark| {
-                mark.attrs
-                    .attached
-                    .as_deref()
-                    .is_some_and(|group| group.opener_on_own_line)
-            });
-            if (block.head.items.is_empty() && !has_attached) || next_line_attached {
+            let rendered_own_line = head_wrapped && has_attached && !compact_attached;
+            if (block.head.items.is_empty() && !has_attached) || rendered_own_line {
                 self.output.push('\n');
             } else {
                 self.output.push_str("\n\n");
@@ -718,17 +721,23 @@ impl Formatter {
         self.output.push('}');
     }
 
+    /// Renders an expanded attached group. The canonical placement follows
+    /// the head shape: the opener trails the header line while the head
+    /// fits on one line, and occupies a continuation line once the head
+    /// wraps. The document group always opens its own first structural
+    /// line.
     fn block_attached(
         &mut self,
         attrs: &Attributes,
         indent: usize,
         document: bool,
+        render_own_line: bool,
         next_line_indent: Option<usize>,
     ) {
         let Some(attached) = attrs.attached.as_deref() else {
             return;
         };
-        let group_indent = if attached.opener_on_own_line && !document {
+        let group_indent = if render_own_line && !document {
             let group_indent = next_line_indent.expect("marked next-line group has an indent");
             self.output.push('\n');
             self.indent(group_indent);
@@ -921,7 +930,33 @@ mod tests {
         );
         assert_formats(
             "`task Work\n   {\n     `:   created now\n   }\n\n   Details\n",
-            "`task Work\n {\n  `: created now\n }\n Details\n",
+            "`task Work {\n `: created now\n}\n\n Details\n",
+        );
+    }
+
+    #[test]
+    fn canonical_opener_placement_follows_the_head_shape() {
+        // A single-line head canonicalizes to the trailing opener.
+        assert_formats(
+            "`task Work\n {\n  `: created now\n }\n",
+            "`task Work {\n `: created now\n}\n",
+        );
+        // A wrapped head keeps the own-line opener and aligns the close and
+        // children with it.
+        assert_formats(
+            "`task Buy milk\n and eggs\n {\n  `: created now\n }\n Details\n",
+            "`task Buy milk\n and eggs\n {\n  `: created now\n }\n Details\n",
+        );
+        // A trailing opener on a continuation line canonicalizes to the
+        // own-line placement.
+        assert_formats(
+            "`note first\n second {\n  `- cited\n }\n",
+            "`note first\n second\n {\n  `- cited\n }\n",
+        );
+        // Compact groups are unaffected.
+        assert_formats(
+            "`note first\n second {`@[x]}\n",
+            "`note first\n second {`@[x]}\n",
         );
     }
 

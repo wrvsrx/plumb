@@ -103,10 +103,11 @@ inline owner 的 group 递归包含普通 inline elements。
     `: level 2
   }
 
-  `task Next-line layout
-        {
-          `: created 2026-08-07T09:00:00+08:00
-        }
+  `task A long head that
+   wraps across lines
+   {
+    `: created 2026-08-07T09:00:00+08:00
+   }
 
   `span[text]{`@[intro] `-[note] `:[level 2]}
 
@@ -114,9 +115,11 @@ core syntax 不解释 `"-"、`"@" 或 `":"。official semantic profile 将 direc
 将 direct `"@" declaration 投影为 identity，将 direct `":" association 投影为 property；正文中
 相同节点仍保持 collection member、identity declaration 与 definition relation。
 
-marked block 的 expanded group 可以位于 header 末尾，也可以在紧邻的下一行按 conceptual head
-column 打开；后一种 layout 常用于长或跨行 head。两种形式都在 opener column 关闭。verbatim block
-的换行立即开始 raw payload，因此它的 group 必须留在 opener line。
+marked block 的 expanded opener 是完整 head 的最后一个结构：head 未折行时挂在 header 行尾，折行时
+可以挂在任意一条 head line 行尾，也可以独占一条 continuation line；group 在 opener 所在 line 的
+column 关闭。官方 formatter 按 head 形态选择典范形式：未折行 head 用行尾 trailing opener，折行 head
+用独占行的 opener。verbatim block 的换行立即开始 raw payload，因此它的 group 必须留在 opener
+line。
 
 旧的 `"{#id .class key=value}" slot 不属于 current syntax；parser 与 `"plumb fmt" 会拒绝它。
 

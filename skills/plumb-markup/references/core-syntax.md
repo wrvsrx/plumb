@@ -69,7 +69,8 @@ compact block and inline groups contain ordinary inline elements.
  `: level 2
 }
 
-`task Own-line opener layout
+`task A head that wraps
+ across lines
  {
   `: created 2026-08-07T09:00:00+08:00
  }
@@ -79,17 +80,20 @@ compact block and inline groups contain ordinary inline elements.
 
 A marked/verbatim block group is separated from its complete header by
 horizontal whitespace. The opening brace is the last structure of the complete
-head: it either trails the header line or occupies the final head continuation
-line on its own. A same-line close selects compact form; an expanded close
-returns to the structural column of the opener's line. The own-line opener
-follows the deferred-head continuation rules: it must be adjacent to the
-previous head line, deeper than the owner, and use the established
-continuation column when the head spans lines; that column also hosts the
-close and later child siblings, and a blank line breaks the continuation.
-Verbatim blocks cannot use the own-line opener because their line ending
-begins raw payload. An inline group must touch the complete closing delimiter.
-Groups may recursively contain owners with their own groups. Core does not
-assign id, facet, property, class, or key-value meaning to their content.
+head: it can trail any head line — the header line or a wrapped continuation
+line — or occupy the final head continuation line on its own. A same-line
+close selects compact form; an expanded close returns to the structural column
+of the opener's line. The own-line opener follows the deferred-head
+continuation rules: it must be adjacent to the previous head line, deeper than
+the owner, and use the established continuation column when the head spans
+lines; that column also hosts the close and later child siblings, and a blank
+line breaks the continuation. `plumb fmt` canonicalizes the placement by head
+shape: a single-line head gets the trailing opener on the header line, a
+wrapped head gets the own-line opener. Verbatim blocks cannot use a
+continuation-line opener because their line ending begins raw payload. An
+inline group must touch the complete closing delimiter. Groups may recursively
+contain owners with their own groups. Core does not assign id, facet, property,
+class, or key-value meaning to their content.
 
 The removed `{#id .class key=value}` spelling is not part of current syntax.
 Do not author it. Ordinary parsing and `plumb fmt` reject it.

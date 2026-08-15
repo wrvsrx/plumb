@@ -192,6 +192,12 @@ opener 所在 structural line 的 column——而无需为 own-line form 单独�
 expanded layout。verbatim block 的 line ending 仍立即建立 raw payload boundary，因此只使用
 header-trailing attachment site。
 
+2026-08 的后续统一把 trailing opener 推广到任意 head line，并把 own-line opener 归类为一条
+head line；两种 placement 与 document 的独占首行 opener 共享同一条规则——opener 是完整 head 的
+最后一个结构，closing brace 回到 opener 所在 structural line 的 column。canonical formatter 按
+head 形态选择 placement：未折行 head 输出行尾 trailing opener，折行 head 输出独占 continuation
+line 的 own-line opener，其余合法 placement 会被规范化。
+
 `# 已冻结的边界
 
 attached data 不是 JSON replacement，当前 profile 冻结以下边界：

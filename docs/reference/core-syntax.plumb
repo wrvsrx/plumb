@@ -184,7 +184,9 @@ owner 的 structural column，且若 continuation 已建立 column 则必须与�
 brace 与 trailing horizontal whitespace 外不能包含其他 source。识别 opener 会结束 deferred head，
 group close 后才可以开始 children；group content 建立比该 body column 更深的独立 child column。
 verbatim block 不允许 continuation 上的 attachment，因为 quote run 后的 line ending 已经开始 raw
-payload。官方 formatter 保留 opener 的 source placement，并将各 placement 的缩进规范化。
+payload。官方 formatter 按 head 形态选择典范 placement：head 未折行时使用 header line 行尾的
+trailing opener，折行时使用独占 continuation line 的 own-line opener；close 与后续 children 位于
+opener 所在 line 的 column，group content 再深一级。
 
 inline group 与 owner 同行，内容使用第 8、9 节的普通 inline parser，因此 inline element 可以递归
 包含 inline element；group 本身不建立新的 marker、property 或 raw-content grammar：

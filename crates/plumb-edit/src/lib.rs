@@ -1566,7 +1566,8 @@ mod tests {
     }
 
     #[test]
-    fn edits_own_line_opener_block_attached_elements_with_canonical_layout() {
+    fn edits_attached_elements_to_the_canonical_opener_placement() {
+        // A single-line head canonicalizes to the trailing opener.
         let source = "`task Work\n      {\n        `@ old\n      }\n";
         let parsed = parse(source);
         let Block::Parsed(block) = &parsed.syntax.blocks[0] else {
@@ -1577,7 +1578,21 @@ mod tests {
         edit.replace_attribute(attrs, 0, OwnedAttribute::id("new"))
             .unwrap();
         let edit = edit.finish().unwrap();
-        assert_eq!(edit.new_text, "`task Work\n {\n  `@ new\n }\n");
+        assert_eq!(edit.new_text, "`task Work {\n `@ new\n}\n");
+        assert!(parse(&edit.new_text).is_valid());
+
+        // A wrapped head keeps the own-line opener.
+        let source = "`task Work\n      spans lines\n      {\n        `@ old\n      }\n";
+        let parsed = parse(source);
+        let Block::Parsed(block) = &parsed.syntax.blocks[0] else {
+            unreachable!();
+        };
+        let attrs = &block.mark.as_ref().unwrap().attrs;
+        let mut edit = EditSession::new(&parsed, block.range.clone()).unwrap();
+        edit.replace_attribute(attrs, 0, OwnedAttribute::id("new"))
+            .unwrap();
+        let edit = edit.finish().unwrap();
+        assert_eq!(edit.new_text, "`task Work\n spans lines\n {\n  `@ new\n }\n");
         assert!(parse(&edit.new_text).is_valid());
     }
 
