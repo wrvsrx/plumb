@@ -210,6 +210,11 @@ endpoint 按 document scope 或 fuzzy query 返回有界 compact identities；br
 tree-sitter grammar 与 strict core 覆盖相同的纯 syntax surface，但容错目标不同。grammar 不能定义
 validity，也不能迫使语言设计适应 CFG。
 
+lenient mirror 的 external scanner 与 strict core 共享同一词法局部性预算（core syntax reference 第
+2 节）：scanner 状态只保存 indentation stack 与 verbatim margin，token 判定只做不超过一行的
+lookahead，不得跟踪 inline nesting depth，也不得跨行匹配 delimiter；grammar 侧同样不得为词法规则
+引入 nesting 上下文。
+
 lenient mirror 必须保持 core structural boundaries：独占 head continuation line 的 attached block group
 结束后，即使随后有 blank lines，也要在下一 nonblank line 预看并正确 dedent，不能把合法的 following
 top-level block 包进

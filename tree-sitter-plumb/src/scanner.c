@@ -1,3 +1,10 @@
+// plumb external scanner.
+//
+// Locality budget (core syntax reference §2): scanner state carries only the
+// indentation stack and the verbatim margin; token recognition looks ahead at
+// most one line, never tracks inline nesting depth, and never matches
+// delimiters across lines.
+
 #include "tree_sitter/parser.h"
 
 #include <stdbool.h>
