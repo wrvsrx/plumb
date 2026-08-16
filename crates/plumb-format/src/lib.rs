@@ -676,7 +676,10 @@ impl Formatter {
                 } => {
                     self.output.push('`');
                     self.output.push_str(kind);
-                    if !text.contains('"') {
+                    // A compact payload beginning with `[` would be reparsed
+                    // as a bracket envelope. Keep the bracketed spelling so
+                    // its leading bracket remains raw text.
+                    if !text.contains('"') && !text.starts_with('[') {
                         self.output.push('"');
                         self.output.push_str(text);
                         self.output.push('"');
@@ -1256,6 +1259,14 @@ mod tests {
     #[test]
     fn chooses_the_minimum_safe_verbatim_delimiter() {
         assert_formats("Raw `\"\"\"[a ]\" b]\"\"\".\n", "Raw `\"\"[a ]\" b]\"\".\n");
+    }
+
+    #[test]
+    fn bracketed_verbatim_formatting_is_idempotent() {
+        let source = "`\"[[]]\"\n";
+        let formatted = format(source).unwrap();
+        assert_eq!(formatted, source);
+        assert_eq!(format(&formatted).unwrap(), formatted);
     }
 
     #[test]
