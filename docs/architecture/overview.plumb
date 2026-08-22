@@ -134,8 +134,15 @@ LSP folding 从 recovered syntax range 投影。heading section 与 verbatim raw
 range。marked block 若拥有 multiline attached group，则产生从 block start 到 attached group end 的 owner
 range；若 block 还有 children，则另产生延伸到最后一个 descendant 的 subtree range。两个 range 使用同一
 start，按较长 range 在前排序；没有 children 时不得重复相同 range。没有 attached group 的 marked block
-只产生 subtree range。Task trailing separator 只扩展 subtree range，不扩展 owner range。client range
-limit 在 source order 内优先保留外层 range。
+只产生 subtree range。对于允许吸收 trailing layout 的 subtree fold，只有当前 block 与紧邻的同层 next
+sibling 都是 parsed marked block 且 marker 完全相同时，才把两者之间一个直接相邻的空白分隔行包含在
+subtree range 中；不同 marker、verbatim 或其他 block boundary 的空白分隔行保留在 fold range 外。该规则
+使同 marker sibling 折叠后紧凑排列，同时保留不同 block 种类之间的可见分组边界。Task owner fold 不吸收
+trailing separator；heading section 使用独立的 section range，不适用该 sibling separator 规则。client
+range limit 在 source order 内优先保留外层 range。
+
+上述 marker-aware trailing separator 规则尚未实现；当前 task subtree fold 仍无条件吸收 sibling 前一个
+直接相邻的空白分隔行。
 
 Folding provider 以 document revision 为边界提供当前 snapshot 的 ranges；provider 不要求保存上一次
 response，也不要求提供 old-to-new mapping。客户端 fold engine 负责保存上一个 accepted snapshot 与用户
