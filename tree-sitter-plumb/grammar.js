@@ -166,6 +166,7 @@ module.exports = grammar({
 
     attached_block_group: $ => prec.right(seq(
       $.block_group_open,
+      repeat($.blank_line),
       optional(seq(
         $._indent,
         field('content', $._block),

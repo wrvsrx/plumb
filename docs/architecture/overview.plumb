@@ -233,7 +233,9 @@ lookahead，不得跟踪 inline nesting depth，也不得跨行匹配 delimiter�
 lenient mirror 必须保持 core structural boundaries：独占 head continuation line 的 attached block group
 结束后，即使随后有 blank lines，也要在下一 nonblank line 预看并正确 dedent，不能把合法的 following
 top-level block 包进
-recovery error。verbatim block 与 inline verbatim 的 CST 都分别暴露 optional opaque
+recovery error。expanded attached block group 的 opener 后允许任意 blank layout；这些前导空行必须保留为
+`"blank_line" nodes，且不得阻止随后的首个缩进 content block 被解析或高亮。verbatim block 与 inline
+verbatim 的 CST 都分别暴露 optional opaque
 `"verbatim_kind" 和 raw payload node；highlight query 必须与 block marker、parsed inline kind 一样给
 verbatim kind 使用通用 `"@keyword" capture，不能解释其 semantic profile meaning，也不能让 raw payload
 capture 覆盖 kind；injection query 对同一 node 使用独立的 `"@injection.language" capture。verbatim
