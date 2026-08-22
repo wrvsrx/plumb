@@ -32,6 +32,13 @@ refresh 折叠的问题。与 `"neovim-lsp-folding-patch.plumb" 记录的 reconc
 第二个问题。不应用无条件 InsertLeave `"zv" 代替后者，因为它无法区分 folding snapshot 重算与普通
 进出 Insert，会误打开用户手动关闭的 fold。
 
+第二个问题不是新造的 LSP folding policy，而是补齐 Neovim 核心已有行为。核心
+`"foldUpdateAfterInsert()" 对自动更新的 foldmethod 先调用 `"foldUpdateAll()"，随后调用
+`"foldOpenCursor()"，保证更新后光标行仍可见；`"expr" 与 `"syntax" 因重算成本被明确排除。
+LSP adapter 在稳定退出编辑后主动安装新的 expr fold levels，绕过了这条核心组合路径，因此应在实际
+重算后补充等价的 `"foldOpenCursor()" 行为。它仍须受“本次确实应用了 deferred snapshot，且更新前
+光标可见”的条件约束，不能退化为无条件 InsertLeave `"zv"。
+
 `## 成因
 
 三层原因叠加：

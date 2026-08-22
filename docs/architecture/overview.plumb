@@ -158,6 +158,13 @@ provider 提供 identity，也不需要 collapse-state reconciliation。
 window-local editor policy，不是 provider contract，也不代替稳定更新后对其他 open/closed state 的
 best-effort reconciliation。
 
+该光标可见性后置条件与 Neovim 核心已有的 InsertLeave folding policy 一致：核心为自动更新的
+foldmethod 执行 `"foldUpdateAfterInsert()" 时，先更新 folds，再调用 `"foldOpenCursor()" 打开足以显示
+光标行的 fold 链。`"expr" 与 `"syntax" 因重算成本被核心排除在该自动更新路径之外；LSP adapter
+稳定安装新的 `"expr" fold levels 并主动触发 fold recomputation 时，应补齐等价的
+`"foldOpenCursor()" 行为。这个补充只恢复核心原有的光标可见性 invariant，不表示所有 expr-fold
+更新都应打开光标处 fold，也不扩大为 fold-state reconciliation。
+
 `# 6. Crate boundaries
 
 `- `"plumb-syntax"：strict syntax tree、diagnostics、typed views。
