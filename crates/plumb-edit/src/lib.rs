@@ -1179,7 +1179,7 @@ mod tests {
         let edit = edit.finish().unwrap();
         assert_eq!(
             edit.new_text,
-            "`task Work {\n `- next\n `@ id\n `: created now\n}\n"
+            "`task Work {\n `- next\n\n `@ id\n\n `: created now\n}\n"
         );
     }
 
@@ -1233,7 +1233,7 @@ mod tests {
         let edit = edit.finish().unwrap();
         assert_eq!(
             edit.new_text,
-            "   `- Nested {\n    `- kind\n    `: created 2026-07-20T10:00:00+08:00\n   }\n"
+            "   `- Nested {\n    `- kind\n\n    `: created 2026-07-20T10:00:00+08:00\n   }\n"
         );
     }
 
@@ -1286,7 +1286,7 @@ mod tests {
         let edit = edit.finish().unwrap();
         assert_eq!(
             edit.new_text,
-            "`# Hello, World! {\n `@ hello-world\n `- keep\n}\n"
+            "`# Hello, World! {\n `@ hello-world\n\n `- keep\n}\n"
         );
     }
 
@@ -1539,13 +1539,13 @@ mod tests {
         let replacement = replace.finish().unwrap();
         assert_eq!(
             replacement.new_text,
-            "`node Head {\n `@ new\n `- keep\n `: key value\n}\n"
+            "`node Head {\n `@ new\n\n `- keep\n\n `: key value\n}\n"
         );
 
         let mut remove = EditSession::new(&parsed, block.range.clone()).unwrap();
         remove.remove_attribute(&mark.attrs, 2).unwrap();
         let removal = remove.finish().unwrap();
-        assert_eq!(removal.new_text, "`node Head {\n `@ old\n `- keep\n}\n");
+        assert_eq!(removal.new_text, "`node Head {\n `@ old\n\n `- keep\n}\n");
     }
 
     #[test]

@@ -6376,7 +6376,7 @@ mod tests {
 
     #[test]
     fn task_status_targets_an_explicitly_anchored_nested_task() {
-        let source = "`task MJCF in, USD out solver {\n `@ task-f81deb18\n `: created 2026-05-24T02:35:50Z\n}\n\n `task 刚体版本 {\n  `@ task-9d49eb30\n  `: created 2026-05-24T02:35:32Z\n  `: done 2026-05-26T01:43:39Z\n }\n `task parse MJCF {\n  `@ task-c2cf5756\n  `: created 2026-05-27T13:03:04Z\n }\n `task solver with passive joint {\n  `@ task-99e28dad\n  `: created 2026-05-27T13:02:45Z\n }\n";
+        let source = "`task MJCF in, USD out solver {\n `@ task-f81deb18\n\n `: created 2026-05-24T02:35:50Z\n}\n\n `task 刚体版本 {\n  `@ task-9d49eb30\n\n  `: created 2026-05-24T02:35:32Z\n  `: done 2026-05-26T01:43:39Z\n }\n `task parse MJCF {\n  `@ task-c2cf5756\n\n  `: created 2026-05-27T13:03:04Z\n }\n `task solver with passive joint {\n  `@ task-99e28dad\n\n  `: created 2026-05-27T13:02:45Z\n }\n";
         let mut workspace = Workspace::new();
         workspace.insert("embodied-intelligence.plumb", 12, source);
 
@@ -6451,7 +6451,7 @@ mod tests {
 
     #[test]
     fn task_authoring_operations_convert_items_and_add_created() {
-        let source = "`- Outer {\n  `@ outer\n  `- keep\n}\n\n   `- Nested\n\n`task Closed {\n  `@ closed\n  `: done 2026-07-20T09:00:00Z\n}\n`task Existing {\n  `@ existing\n  `: created 2026-07-19T09:00:00Z\n}\n";
+        let source = "`- Outer {\n  `@ outer\n\n  `- keep\n}\n\n   `- Nested\n\n`task Closed {\n  `@ closed\n\n  `: done 2026-07-20T09:00:00Z\n}\n`task Existing {\n  `@ existing\n\n  `: created 2026-07-19T09:00:00Z\n}\n";
         let mut workspace = Workspace::new();
         workspace.insert("tasks.plumb", 7, source);
         let timestamp = "2026-07-20T10:00:00+08:00";
@@ -6474,8 +6474,8 @@ mod tests {
         assert!(outer_conversion.document_changes[0].edits[0]
             .new_text
             .contains(
-                "`task Outer {\n `@ outer\n `- keep\n `: created 2026-07-20T10:00:00+08:00\n}\n"
-            ));
+            "`task Outer {\n `@ outer\n\n `- keep\n\n `: created 2026-07-20T10:00:00+08:00\n}\n"
+        ));
 
         let closed_offset = source.find("Closed").unwrap();
         let created = workspace
@@ -6556,7 +6556,7 @@ mod tests {
         let edit = &heading.document_changes[0].edits[0];
         assert!(edit
             .new_text
-            .contains("`# Hello, World! {\n `@ hello-world-2\n `- keep\n}\n"));
+            .contains("`# Hello, World! {\n `@ hello-world-2\n\n `- keep\n}\n"));
 
         let nested = workspace
             .add_explicit_id("note.plumb", source.find("Nested title").unwrap())
@@ -6588,7 +6588,7 @@ mod tests {
             .unwrap();
         assert!(multiline.document_changes[0].edits[0]
             .new_text
-            .contains("`note Multiline attrs {\n `@ multiline-attrs\n `- keep\n}\n"));
+            .contains("`note Multiline attrs {\n `@ multiline-attrs\n\n `- keep\n}\n"));
 
         for operation in [&heading, &nested, &sibling_boundary, &raw, &multiline] {
             let edit = &operation.document_changes[0].edits[0];
@@ -6801,7 +6801,7 @@ mod tests {
 
     #[test]
     fn recurring_task_completion_preserves_canonical_layout() {
-        let source = "`# 饮食相关任务\n\n`task 控制饮食 {\n `@ 控制饮食-2026-07-20\n `: priority -5\n `: created 2026-07-20T01:06:48+08:00\n `: due 2026-07-20T23:59:59+08:00\n `: wait 2026-07-20T00:00:00+08:00\n `: recur P1D\n `: prev #控制饮食-2026-07-19\n}\n\n`# 锻炼相关任务\n";
+        let source = "`# 饮食相关任务\n\n`task 控制饮食 {\n `@ 控制饮食-2026-07-20\n\n `: priority -5\n `: created 2026-07-20T01:06:48+08:00\n `: due 2026-07-20T23:59:59+08:00\n `: wait 2026-07-20T00:00:00+08:00\n `: recur P1D\n `: prev #控制饮食-2026-07-19\n}\n\n`# 锻炼相关任务\n";
         assert_eq!(plumb_format::format(source).unwrap(), source);
         let mut workspace = Workspace::new();
         workspace.insert("减肥.plumb", 6, source);

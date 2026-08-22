@@ -763,12 +763,7 @@ impl Formatter {
             return;
         };
         self.output.push('\n');
-        for (index, block) in blocks.iter().enumerate() {
-            if index > 0 {
-                self.output.push('\n');
-            }
-            self.block(block, group_indent + 1);
-        }
+        self.blocks(blocks, group_indent + 1);
         if !self.output.ends_with('\n') {
             self.output.push('\n');
         }
@@ -926,7 +921,7 @@ mod tests {
     fn formats_recursive_attached_groups() {
         assert_formats(
             "{\n  `:   title Document title\n\n  `: tags plumb\n}\n\n`-   Buy milk {\n  `-   task\n  `@   shopping\n}\n\n   Details.\n",
-            "{\n `: title Document title\n `: tags plumb\n}\n\n`- Buy milk {\n `- task\n `@ shopping\n}\n\n Details.\n",
+            "{\n `: title Document title\n `: tags plumb\n}\n\n`- Buy milk {\n `- task\n\n `@ shopping\n}\n\n Details.\n",
         );
         assert_formats("{\n}\n", "{\n}\n");
         assert_formats("`\"\"\n  payload\n", "`\"\n payload\n");
@@ -937,6 +932,14 @@ mod tests {
         assert_formats(
             "`task Work\n   {\n     `:   created now\n   }\n\n   Details\n",
             "`task Work {\n `: created now\n}\n\n Details\n",
+        );
+    }
+
+    #[test]
+    fn expanded_groups_use_ordinary_block_sibling_spacing() {
+        assert_formats(
+            "{\n `: title\n\n  Example\n `: date\n\n  2026-08-23\n}\n\n`node Group {\n `@ stable\n `: first one\n `: second two\n `note Details\n\n  Child\n `rust\"\n  payload\n `: after raw\n}\n",
+            "{\n `: title\n\n  Example\n\n `: date\n\n  2026-08-23\n}\n\n`node Group {\n `@ stable\n\n `: first one\n `: second two\n\n `note Details\n\n  Child\n\n `rust\"\n  payload\n\n `: after raw\n}\n",
         );
     }
 
@@ -985,7 +988,7 @@ mod tests {
     fn formats_blocks_attributes_and_indentation() {
         assert_formats(
             "`node\n   `: title Example\n\n`- Work {\n  `- task\n  `@ write\n  `: created now\n}\n",
-            "`node\n `: title Example\n\n`- Work {\n `- task\n `@ write\n `: created now\n}\n",
+            "`node\n `: title Example\n\n`- Work {\n `- task\n\n `@ write\n\n `: created now\n}\n",
         );
     }
 
@@ -1102,7 +1105,7 @@ mod tests {
         assert_eq!(edits[0].range.end, block_content_range(&children[1]).end);
         assert_eq!(
             edits[0].new_text,
-            "`- One {\n `- task\n `@ one\n}\n`- Two {`-[task] `@[two]}"
+            "`- One {\n `- task\n\n `@ one\n}\n`- Two {`-[task] `@[two]}"
         );
         assert_eq!(&source[edits[0].range.end..], "\n\n`# Following\n");
         assert!(!edits[0].new_text.contains("`node Parent"));
@@ -1121,7 +1124,7 @@ mod tests {
         formatted.replace_range(edits[0].range.clone(), &edits[0].new_text);
         assert_eq!(
             formatted,
-            "`node Parent\n\n `- One {\n  `- task\n  `@ one\n }\n\n`# Following\n"
+            "`node Parent\n\n `- One {\n  `- task\n\n  `@ one\n }\n\n`# Following\n"
         );
         assert_eq!(format(&formatted).unwrap(), formatted);
         let reparsed = parse(&formatted);
