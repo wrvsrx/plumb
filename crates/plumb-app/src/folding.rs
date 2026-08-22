@@ -12,7 +12,6 @@ use crate::position::PositionIndex;
 #[derive(Clone)]
 pub(crate) struct FoldLabel {
     text: String,
-    include_trailing_blank: bool,
 }
 
 pub(crate) fn collapsed_text_labels(
@@ -47,10 +46,7 @@ pub(crate) fn metadata_labels(entry: &DocumentEntry) -> HashMap<(usize, usize), 
     );
     let mut labels = HashMap::from([(
         (metadata.range.start, metadata.range.end),
-        FoldLabel {
-            text: label,
-            include_trailing_blank: false,
-        },
+        FoldLabel { text: label },
     )]);
     let source = &entry.parsed.source;
     labels.extend(metadata.entries.iter().map(|entry| {
@@ -71,10 +67,7 @@ pub(crate) fn metadata_labels(entry: &DocumentEntry) -> HashMap<(usize, usize), 
         };
         (
             (entry.range.start, entry.range.end),
-            FoldLabel {
-                text: label,
-                include_trailing_blank: false,
-            },
+            FoldLabel { text: label },
         )
     }));
     labels
@@ -119,7 +112,6 @@ pub(crate) fn task_labels(
                 (task.range.start, task.range.end),
                 FoldLabel {
                     text: format!("{indent}{:<2}  {title}", task_state_symbol(state)),
-                    include_trailing_blank: true,
                 },
             )
         })
@@ -158,7 +150,6 @@ pub(crate) fn event_labels(entry: &DocumentEntry) -> HashMap<(usize, usize), Fol
                 (event.range.start, event.range.end),
                 FoldLabel {
                     text: format!("{indent}{time}  {title}"),
-                    include_trailing_blank: false,
                 },
             ))
         })
@@ -220,51 +211,29 @@ pub(crate) fn ranges(
     let mut byte_ranges = Vec::new();
     let mut pending_headings = headings.headings.iter().collect::<Vec<_>>();
     while let Some(heading) = pending_headings.pop() {
-        byte_ranges.push((heading.section_range.clone(), heading.section_range.clone()));
+        byte_ranges.push((
+            heading.section_range.clone(),
+            heading.section_range.clone(),
+            false,
+        ));
         pending_headings.extend(heading.children.iter().rev());
     }
 
-    let mut pending_blocks = document.blocks.iter().rev().collect::<Vec<_>>();
-    while let Some(block) = pending_blocks.pop() {
-        match block {
-            Block::Parsed(parsed) => {
-                if let Some(mark) = &parsed.mark {
-                    byte_ranges.push((parsed.range.clone(), parsed.range.clone()));
-                    if let Some(attached) = mark.attrs.attached.as_deref() {
-                        let owner_range = parsed.range.start..attached.range.end;
-                        if owner_range.end < parsed.range.end
-                            && source[owner_range.clone()].contains('\n')
-                        {
-                            byte_ranges.push((owner_range, parsed.range.clone()));
-                        }
-                    }
-                }
-                pending_blocks.extend(parsed.children.iter().rev());
-            }
-            Block::Verbatim(verbatim) => {
-                byte_ranges.push((verbatim.range.clone(), verbatim.range.clone()));
-            }
-        }
-    }
+    collect_block_ranges(source, &document.blocks, &mut byte_ranges);
 
-    byte_ranges.sort_by_key(|(range, _)| (range.start, std::cmp::Reverse(range.end)));
-    byte_ranges.dedup_by(|(left, _), (right, _)| left == right);
+    byte_ranges.sort_by_key(|(range, _, _)| (range.start, std::cmp::Reverse(range.end)));
+    byte_ranges.dedup_by(|(left, _, _), (right, _, _)| left == right);
     let mut ranges = byte_ranges
         .into_iter()
-        .filter_map(|(range, label_range)| {
-            let mut label = labels
-                .and_then(|table| table.get(&(label_range.start, label_range.end)))
-                .cloned();
-            if range != label_range {
-                if let Some(label) = &mut label {
-                    label.include_trailing_blank = false;
-                }
-            }
+        .filter_map(|(range, label_range, include_trailing_blank)| {
+            let label =
+                labels.and_then(|table| table.get(&(label_range.start, label_range.end)).cloned());
             line_range(
                 source,
                 &positions,
                 &range,
                 label.as_ref(),
+                include_trailing_blank,
                 line_folding_only,
             )
         })
@@ -276,18 +245,55 @@ pub(crate) fn ranges(
     ranges
 }
 
+fn collect_block_ranges(
+    source: &str,
+    blocks: &[Block],
+    byte_ranges: &mut Vec<(std::ops::Range<usize>, std::ops::Range<usize>, bool)>,
+) {
+    for (index, block) in blocks.iter().enumerate() {
+        match block {
+            Block::Parsed(parsed) => {
+                if let Some(mark) = &parsed.mark {
+                    let include_trailing_blank = mark.marker == "task"
+                        && blocks.get(index + 1).is_some_and(|next| {
+                            matches!(next, Block::Parsed(next) if next.mark.as_ref().is_some_and(|next_mark| next_mark.marker == mark.marker))
+                        });
+                    byte_ranges.push((
+                        parsed.range.clone(),
+                        parsed.range.clone(),
+                        include_trailing_blank,
+                    ));
+                    if let Some(attached) = mark.attrs.attached.as_deref() {
+                        let owner_range = parsed.range.start..attached.range.end;
+                        if owner_range.end < parsed.range.end
+                            && source[owner_range.clone()].contains('\n')
+                        {
+                            byte_ranges.push((owner_range, parsed.range.clone(), false));
+                        }
+                    }
+                }
+                collect_block_ranges(source, &parsed.children, byte_ranges);
+            }
+            Block::Verbatim(verbatim) => {
+                byte_ranges.push((verbatim.range.clone(), verbatim.range.clone(), false));
+            }
+        }
+    }
+}
+
 fn line_range(
     source: &str,
     positions: &PositionIndex<'_>,
     range: &std::ops::Range<usize>,
     label: Option<&FoldLabel>,
+    include_trailing_blank: bool,
     line_folding_only: bool,
 ) -> Option<FoldingRange> {
     let trimmed_end = range.start
         + source[range.clone()]
             .trim_end_matches(char::is_whitespace)
             .len();
-    let content_end = if label.is_some_and(|label| label.include_trailing_blank) {
+    let content_end = if include_trailing_blank {
         include_one_trailing_blank_line(source, trimmed_end)
     } else {
         trimmed_end

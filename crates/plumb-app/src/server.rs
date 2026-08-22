@@ -2551,6 +2551,21 @@ mod tests {
     }
 
     #[test]
+    fn folds_separator_between_same_marker_tasks_but_preserves_changed_marker_boundary() {
+        let parsed = parse(
+            "`task First {\n}\n\n      detail\n\n`task Second {\n}\n\n      detail\n\n`- Regular\n",
+        );
+        assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
+        assert_eq!(
+            folding_ranges(&parsed.source, &parsed.syntax, None, None, false)
+                .iter()
+                .map(|range| (range.start_line, range.end_line))
+                .collect::<Vec<_>>(),
+            [(0, 4), (0, 1), (5, 8), (5, 6)]
+        );
+    }
+
+    #[test]
     fn closed_task_tokens_preserve_nested_task_states() {
         let parsed = parse(
             "`task Closed parent {\n  `: done 2026-07-27T10:00:00+08:00\n}\n\n      `note Parent detail\n\n      `task Open child {\n      }\n\n      `note Parent tail\n\n`task Canceled {\n  `: canceled 2026-07-27T10:01:00+08:00\n}\n`task Conflicted {\n  `: done 2026-07-27T10:02:00+08:00\n  `: canceled 2026-07-27T10:03:00+08:00\n}\n",

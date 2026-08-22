@@ -156,9 +156,9 @@ fn exposes_single_line_semantic_folds_to_line_and_character_range_clients() {
 }
 
 #[test]
-fn task_fold_includes_one_trailing_separator_line() {
+fn task_fold_consumes_same_marker_separator_and_preserves_changed_marker_boundary() {
     let uri = "file:///tmp/task-trailing-blank-fold.plumb";
-    let source = "`task aaa {\n}\n\n      bbb\n\n`task ccc {\n}\n";
+    let source = "`task aaa {\n}\n\n      bbb\n\n`task ccc {\n}\n\n`- regular\n";
     let messages = [
         json!({
             "jsonrpc": "2.0", "id": 1, "method": "initialize",
@@ -307,7 +307,7 @@ fn labels_task_folds_with_derived_workflow_states() {
             { "startLine": 19, "endLine": 21, "collapsedText": "x   Canceled task" },
             { "startLine": 25, "endLine": 31, "collapsedText": "+x  Conflicted task" },
             { "startLine": 25, "endLine": 28, "collapsedText": "+x  Conflicted task" },
-            { "startLine": 32, "endLine": 37, "collapsedText": "!   Blocked task" },
+            { "startLine": 32, "endLine": 36, "collapsedText": "!   Blocked task" },
             { "startLine": 32, "endLine": 34, "collapsedText": "!   Blocked task" },
             { "startLine": 38, "endLine": 44 },
             { "startLine": 40, "endLine": 44, "collapsedText": "      +   Nested task" },
