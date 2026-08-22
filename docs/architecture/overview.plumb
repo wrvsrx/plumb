@@ -145,10 +145,18 @@ provider 可选的 stable identity，其次使用编辑位置映射、父子结�
 ranges 不属于 provider snapshot，另由客户端 fold engine 管理。异步 response 必须经过 revision gate，
 stale snapshot 不得覆盖较新的 accepted state。
 
-补全或 snippet 展开引起的 folding 闪动首先按更新时序处理：Insert mode 内的 folding refresh 应合并并
-延迟到稳定的 InsertLeave，再执行一次更新。该场景只要求避免在 snippet 中间态直接重算，不要求 provider
-提供 identity，也不应为了此问题引入完整的 collapse-state reconciliation；只有稳定退出编辑后仍错误丢失
-用户 collapsed 状态时，才进入上述 best-effort 状态恢复路径。
+补全或 snippet 展开期间的 folding 有两个独立问题。第一个是 snapshot 应用时机：Insert、
+Replace 或 Select 等编辑类模式内到达的 folding refresh 应合并，并延迟到 mode transition 后确认
+稳定退出编辑态时再执行一次 `"evaluate" 与 fold recomputation。退出后才到达的 response 应立即应用，
+不得再等待下一次 InsertLeave。该问题只要求不在 snippet 中间态替换当前 fold levels，不要求
+provider 提供 identity，也不需要 collapse-state reconciliation。
+
+第二个问题是新 snapshot 稳定应用后的光标可见性。新建或扩展的 fold 仍可能按 window fold settings
+关闭并遮住编辑位置；延迟更新本身不保证光标可见。客户端若采用光标可见性策略，应只在实际应用
+一次被延迟的 snapshot，且光标行由更新前可见变为更新后被关闭 fold 遮住时，打开包含光标的 fold
+链。不得在所有 InsertLeave 时无条件执行 `"zv"，否则会打开用户原本手动关闭的 fold。该策略属于
+window-local editor policy，不是 provider contract，也不代替稳定更新后对其他 open/closed state 的
+best-effort reconciliation。
 
 `# 6. Crate boundaries
 

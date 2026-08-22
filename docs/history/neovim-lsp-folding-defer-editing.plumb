@@ -1,0 +1,126 @@
+`# Neovim LSP folding 编辑期延迟 patch 总结
+
+本文记录 `"~/Documents/neovim" 中 `"wip/lsp-folding-defer-evaluate" 分支上的 folding patch 与配套的
+用户侧 `"zv" 配置。它解决 plumb LSP 构造补全在 Neovim 中展开为 snippet 时，正在编辑的块被 folding
+refresh 折叠的问题。与 `"neovim-lsp-folding-patch.plumb" 记录的 reconciliation 实验一样，本文是 fork
+开发记录，描述 2026-08-21 时 fork 中的状态，不是 plumb 的 normative contract。
+
+`## 现象
+
+在 `"test.plumb" 新行输入 `"`t" 触发 blink.cmp 构造补全。接受后 LSP 插入多行 `"task" 块并按 snippet
+展开：blink.cmp 默认 snippet 引擎是内置 `"vim.snippet"，占位符使光标进入 Select 模式。插入触发
+`"didChange"，server 重算 folding ranges，响应到达后刚展开的 task 块立即被折叠，占位符与 body 全部
+不可见。
+
+表现取决于文档结构：有 heading 时折到最外层 heading section，foldlevel 0 下整个 section 连同新 task
+一起收起；裸文件（无 heading）时 task 自身是唯一 fold，折到标题行。机制相同，只是最外层 fold 不同。
+
+`## 两个独立问题
+
+这个现象包含两个需要分开修复和验收的问题：
+
+`1 编辑期更新时机。folding response 在 Insert、Replace、Select 或 snippet 的瞬时模式切换中到达时，
+   不能立即替换 `"row_level" 或调用 `"foldupdate()"。新 snapshot 应与同一编辑代际的其他 response
+   合并，稳定退出编辑态后最多应用一次。如果退出时 response 尚未到达，退出事件只标记该代际已
+   稳定；response 稍后到达时应立即应用，不能再等待下一次 InsertLeave。
+`2 更新后的光标可见性。即使第一个问题已解决，稳定应用的新 snapshot 仍可能新建或扩展 fold，
+   fold engine 依照 window fold settings 关闭它后仍会遮住光标。这是 window-local editor policy，不是
+   snapshot 应用时机问题。若要保持光标可见，应只在实际应用被延迟的 snapshot 后，对由“更新前
+   可见”变为“更新后被关闭 fold 遮住”的光标打开其所在 fold 链。
+
+因此，延迟 `"evaluate()" 与 `"foldupdate()" 只验收第一个问题；有条件的 cursor visibility restore 验收
+第二个问题。不应用无条件 InsertLeave `"zv" 代替后者，因为它无法区分 folding snapshot 重算与普通
+进出 Insert，会误打开用户手动关闭的 fold。
+
+`## 成因
+
+三层原因叠加：
+
+`* 上游守卫只认 Insert 模式。`"runtime/lua/vim/lsp/_folding_range.lua" 的 `"multi_handler" 只对
+   `"mode:match('^i')" 延迟更新；Select（snippet 占位符）、Replace 与 Normal 模式都走立即
+   `"foldupdate()"。
+`* 只延迟 foldupdate 不够。`"evaluate()" 在延迟判断之前无条件执行，把新 fold levels 写入
+   `"row_level"，而 `"foldexpr()" 读取的正是它；此后任何核心侧 fold 重算（光标跳到占位符、模式切换、
+   redraw）都会应用新 levels 并折叠。第一版 patch 只延迟了模块自己的 `"foldupdate()"，实测仍然折叠。
+`* 新 fold 的默认状态由 fold engine 按上下文继承，而不是按 foldlevel 推导。`"src/nvim/fold.c" 的
+   `"foldUpdateIEMSRecurse" 插入新 fold 时：父 fold 为 `"FD_OPEN"（被手动 `"zo" 过）则新 fold 生成为
+   打开；本层第一个继承包含它的 fold 的 flags，最终由 foldlevel 决定；其余继承前一个兄弟 fold 的状态。
+   因此光标位于手动打开区域内时新 fold 生成为打开，即用户观察到的"heading 手动打开后插入 task 不折"；
+   否则在 foldlevel 0 下生成为关闭。
+
+`## 触发边界
+
+在系统安装的原生 Neovim `"0.12.4" 上以真实 plumb LSP 实测，折叠发生需要三个条件同时满足：
+
+`1 foldingRange 响应到达时模式不是 Insert；Select、Replace、Normal 均触发立即更新，Insert 是唯一被
+   延迟的路径。
+`2 编辑新建或延伸了 foldable range。良性文本编辑不重建 fold，手动打开状态完整保留。
+`3 光标不在手动打开的 fold 区域内。
+
+foldlevel 决定折叠到哪一层：0 关闭最外层 heading section；1 只关内层 task fold；不小于 2 时不关。
+`"foldminlines = 0" 允许单屏行 fold 参与关闭。
+
+`## fork patch
+
+分支 `"wip/lsp-folding-defer-evaluate" 自 `"patched-0.12.4" 的 `"0aed1c532" 切出，commit
+`"a3e0aafd8" `"fix(lsp.folding): defer fold recomputation while editing"。只修改
+`"runtime/lua/vim/lsp/_folding_range.lua"：
+
+`* 延迟条件是 `"pending_insert"（记录 didChange 发生时的模式，覆盖响应晚到时模式已切换的竞态）、当前
+   模式 `"[isS]"，或 `"vim.snippet.active()"；任一命中时 `"evaluate()" 与 `"foldupdate()" 一起延迟。
+`* settle 回调挂在 `"InsertLeave"：snippet 仍 active 则继续延迟，否则重放 `"evaluate()" 再执行
+   `"foldupdate()"。
+
+patch 不包含 settle 后打开光标处 fold 的行为。那是编辑器策略而不是缺陷修复，放在用户侧实现，同时
+保持 fork diff 最小、便于上游化。semantic patch tag 与 nur-packages 引用尚未裁剪。
+
+`## 用户侧 zv 配置
+
+settle 后对光标执行 `"zv"。`"foldOpenCursor" 是循环：逐层打开包含光标行的关闭 fold 直到光标行可见，
+只作用于光标所在的链，不触碰其他手动关闭的 fold；光标位于 fold 头行（snippet 标题占位符的落点）
+同样有效。加入个人配置已有的 `"LspFolding" augroup：
+
+`lua"
+ vim.api.nvim_create_autocmd('InsertLeave', {
+   group = folding_group,
+   callback = function(args)
+     vim.schedule(function()
+       if vim.api.nvim_buf_is_valid(args.buf) then
+         vim.cmd('normal! zv')
+       end
+     end)
+   end,
+ })
+
+`"vim.schedule" 必不可少：用户配置的 InsertLeave autocmd 先于模块动态注册的 settle 回调执行，需要推迟
+一拍才能排在延迟的 `"foldupdate()" 之后。已知代价是作用域不精确：手动 `"zc" 关闭 fold 后在其头行进出
+Insert（未改变 fold 结构）也会被 `"zv" 打开。fork 内实现可以区分这两种来源，用户侧无法区分。
+
+`## 验证方法与 harness 经验
+
+复现脚本使用真实 `"plumb lsp"、`"vim.lsp.foldexpr()"，并以 `"vim.snippet.expand" 展开与 blink.cmp 默认
+引擎相同的模板。headless 环境的已验证事实与陷阱：
+
+`* headless 中 `"startinsert" 在 `"vim.wait" 期间退回 Normal 模式，Insert 路径无法实测，只能依据代码
+   判断；Select 模式用 `"normal! gh" 进入，空行上会报错。
+`* 每个新建 buffer 必须显式 `"vim.lsp.buf_attach_client" attach，否则没有 folding ranges，测试全部
+   假阳性。
+`* heading 加空行的初始 buffer 没有 fold：单行 unlabeled range 被 server 丢弃，早期几轮围绕"手动打开"
+   的测试因此无效。验证手动打开行为前先用多行 section 确认 fold 真实存在。
+`* 计数手段：包装 `"vim._foldupdate" 计数并捕获调用瞬间的模式；保存原 C 函数可以模拟核心侧发起的
+   fold 重算并绕过计数。
+`* fork 改动是纯 Lua，测试不必构建 fork：系统 Neovim 与 fork 同为 `"0.12.4"，用
+   `"set runtimepath^=" 预置包含 patched `"_folding_range.lua" 的目录即可命中模块解析。nix store 的
+   runtime 目录会被 GC，不要依赖其路径。
+
+`## 遗留与后续
+
+`* Replace 模式不在 `"[isS]" 内，延迟条件仍是模式枚举；更完备的判定是编辑类模式集合。
+`* settle 挂在 `"InsertLeave"，而 snippet 占位符处于 Select 模式，select 直接 `"Esc" 回 Normal 的路径
+   不保证触发；`"ModeChanged"（离开 i/s）更贴合规格中"稳定的退出编辑"语义。
+`* `"docs/architecture/overview.plumb" 已有段落描述该政策：编辑类模式内的 folding refresh 应合并并
+   延迟到稳定退出编辑态的 mode transition；此场景不要求 provider identity，也不要求完整
+   reconciliation。本 patch 是该政策尚待补齐边界和回归测试的客户端实现。
+`* fork 回归测试待补：将本文边界测例收进
+   `"test/functional/plugin/lsp/folding_range_spec.lua"。
+`* 上游化：延迟 patch 是通用缺陷修复，适合单独提交 upstream；`"zv" 行为不进上游。
