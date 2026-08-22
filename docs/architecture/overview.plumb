@@ -147,9 +147,6 @@ block 已折叠，这个边界仍携带结构信息，因此必须可见。相�
 children 一同消失，继续显示会形成没有对应内容的孤立空行，因此可以由 subtree fold 吸收。Folding
 projection 由此保留折叠后仍有意义的分组信息，只移除因隐藏 subtree 而失去作用的布局间距。
 
-上述 marker-aware trailing separator 规则尚未实现；当前 task subtree fold 仍无条件吸收 sibling 前一个
-直接相邻的空白分隔行。
-
 Folding provider 以 document revision 为边界提供当前 snapshot 的 ranges；provider 不要求保存上一次
 response，也不要求提供 old-to-new mapping。客户端 fold engine 负责保存上一个 accepted snapshot 与用户
 对 provider folds 的 collapsed 状态，并在新 snapshot 到达后执行 best-effort reconciliation。匹配优先使用

@@ -107,9 +107,11 @@ value 只使用 `"key"。label 规范为空格分隔的单行并在 80 character
 缩进。没有该 capability、无可靠 valid task/metadata facts 或无可用时间的 event fold 不携带 custom
 label。
 
-Task subtree 后紧邻 sibling 前的一个空白分隔行包含在 task subtree fold range 中，使关闭后的 task 不遗留
-孤立空行；只消费一个直接相邻的空白行，不跨过下一条非空内容。Task owner fold 与其他 block、heading
-fold 继续遵守自身的 source range，不扩张到 trailing layout。
+Task subtree 与紧邻的同层 task sibling marker 相同时，把两者之间一个直接相邻的空白分隔行包含在 subtree
+fold range 中，使同类 task 关闭后不遗留孤立空行；只消费一个直接相邻的空白行，不跨过下一条非空内容。
+next sibling 使用不同 marker、verbatim 或其他 block boundary 时，空白分隔行保留在 fold range 外，继续
+显示 block 种类变化形成的分组边界。Task owner fold 与其他 block、heading fold 继续遵守自身的 source
+range，不扩张到 trailing layout。
 
 Task/event 只有一条 physical line 时，server 也会向声明 `"lineFoldingOnly = true" 的 client
 返回 `"startLine == endLine" 的 semantic fold，且省略 character boundaries。该 capability 只要求
