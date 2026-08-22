@@ -67,7 +67,9 @@ marked block 形状为：
   `marker Head
   `marker Head {
     `- facet
+
     `@ identity
+
     `: property value
   }
 
@@ -169,7 +171,9 @@ document 没有 header，只允许 opening brace 独占文件第一条 structura
 
   `- Buy milk {
    `- shopping
+
    `@ shopping
+
    `: due 2026-08-07
   }
 
@@ -180,6 +184,7 @@ head continuation line：
   `task Buy milk and
    remind me about eggs {
     `- shopping
+
     `@ shopping
    }
    `note Remember the coupon
@@ -188,6 +193,7 @@ head continuation line：
    remind me about eggs
    {
     `- shopping
+
     `@ shopping
    }
    `note Remember the coupon
@@ -301,6 +307,7 @@ verbatim block 使用 introducer、可选 opaque kind 与一个或多个 opening
 
   `rust" {
    `@ example
+
    `: generated true
   }
    fn main() {}

@@ -65,7 +65,9 @@ compact block and inline groups contain ordinary inline elements.
 
 `node Head {
  `@ intro
+
  `- note
+
  `: level 2
 }
 

@@ -58,6 +58,7 @@ metadata properties:
   `: tags
     `- plumb
     `- notes
+
   `: author
     `: name Alice
 }
@@ -239,6 +240,7 @@ A task uses the specialized `task` marker and has bullet-list-item structure:
 ```plumb
 `task Implement parser {
   `@ write-parser
+
   `: created 2026-07-20T09:00:00+08:00
   `: due 2026-07-21T09:00:00+08:00
   `: depends #design
@@ -362,6 +364,7 @@ An event uses the specialized `event` marker and has bullet-list-item structure:
 ```plumb
 `event 14:00--15:00 Parser review {
   `@ review
+
   `: date 2026-07-30
   `: timezone +08:00
   `: tasks #write-parser

@@ -16,7 +16,9 @@ head 构成：
   `note 一条有 head 的 block
   `note 带 attached group {
     `@ stable
+
     `- warning
+
     `: level 2
   }
 
@@ -99,7 +101,9 @@ inline owner 的 group 递归包含普通 inline elements。
 
   `node Head {
     `@ intro
+
     `- note
+
     `: level 2
   }
 

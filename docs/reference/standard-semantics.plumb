@@ -240,6 +240,7 @@ inline kind `"()" 是标准的显式 transparent container，为匿名形态解�
 `plumb"
   `() Warning {
     `@ notice
+
     `warning
   }
 
@@ -322,6 +323,7 @@ dollar-delimited math 没有特殊 syntax。
 `plumb"
   `event 14:00--15:30 Parser review {
     `@ parser-review
+
     `: date 2026-07-30
     `: timezone +08:00
     `: tasks #write-parser Project A.plumb#docs
