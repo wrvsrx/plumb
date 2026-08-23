@@ -36,6 +36,16 @@ assert(
   vim.api.nvim_get_hl(0, { name = '@lsp.typemod.task.canceled.plumb' }).link == 'Comment',
   'dim canceled task tokens'
 )
+local task_fold_links = {
+  PlumbTaskFoldWaiting = 'DiagnosticInfo',
+  PlumbTaskFoldBlocked = 'DiagnosticHint',
+  PlumbTaskFoldDone = 'Comment',
+  PlumbTaskFoldCanceled = 'DiagnosticDeprecated',
+  PlumbTaskFoldConflicted = 'DiagnosticWarn',
+}
+for group, link in pairs(task_fold_links) do
+  assert(vim.api.nvim_get_hl(0, { name = group }).link == link, group .. ' links to ' .. link)
+end
 
 local completion_path = root .. '/completion.plumb'
 vim.fn.writefile({ '`t' }, completion_path)

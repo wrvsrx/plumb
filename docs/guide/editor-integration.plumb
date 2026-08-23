@@ -154,9 +154,12 @@ plugin 不修改 window-local folding 设置。editor configuration 可以在 `"
 独立 tree-sitter package 的 `"folds.scm" 可以作为没有 LSP client 时的 lenient fallback；editor 可以在
 plumb LSP 支持 folding 时优先使用 LSP ranges。
 
-`"require('plumb').foldtext()" 包装原生 `"vim.lsp.foldtext()"，并使用下述 closed-task semantic highlight
-groups 渲染 `"[o]"、`"[x]" 与 `"[ox]" fold labels；其他 task states、event、metadata 与 fallback labels
-保持原样。LSP `"collapsedText" 本身只携带文字，highlight chunks 由 plugin 在 editor 端补充。
+`"require('plumb').foldtext()" 包装原生 `"vim.lsp.foldtext()"，并为 waiting、blocked、done、canceled、
+conflicted task 的整条 fold label 分别使用 PlumbTaskFoldWaiting、PlumbTaskFoldBlocked、PlumbTaskFoldDone、
+PlumbTaskFoldCanceled、PlumbTaskFoldConflicted。它们默认链接到 DiagnosticInfo、DiagnosticHint、Comment、
+DiagnosticDeprecated、DiagnosticWarn；ready、event、metadata 与 fallback labels 保持原样。fold-only groups
+不改变展开 task body 的 semantic highlight。LSP `"collapsedText" 本身只携带文字，highlight chunks 由
+plugin 在 editor 端补充。
 
 `# Closed task highlighting
 

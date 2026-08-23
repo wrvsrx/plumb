@@ -1,9 +1,11 @@
 local M = {}
 
 local task_highlights = {
-  ['[o]'] = '@lsp.typemod.task.completed.plumb',
-  ['[ox]'] = '@lsp.typemod.task.completed.plumb',
-  ['[x]'] = '@lsp.typemod.task.canceled.plumb',
+  ['[~]'] = 'PlumbTaskFoldWaiting',
+  ['[=]'] = 'PlumbTaskFoldBlocked',
+  ['[o]'] = 'PlumbTaskFoldDone',
+  ['[x]'] = 'PlumbTaskFoldCanceled',
+  ['[ox]'] = 'PlumbTaskFoldConflicted',
 }
 
 function M.foldtext()

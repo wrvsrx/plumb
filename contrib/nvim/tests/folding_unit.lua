@@ -12,19 +12,23 @@ local function render(text)
 end
 
 assert(vim.deep_equal(render('`task [o]  Ship it'), {
-  { '`task [o]  Ship it', '@lsp.typemod.task.completed.plumb' },
+  { '`task [o]  Ship it', 'PlumbTaskFoldDone' },
 }), 'highlight a completed task fold')
 assert(vim.deep_equal(render('`task [x]  Superseded'), {
-  { '`task [x]  Superseded', '@lsp.typemod.task.canceled.plumb' },
+  { '`task [x]  Superseded', 'PlumbTaskFoldCanceled' },
 }), 'highlight a canceled task fold')
 assert(vim.deep_equal(render('`task [ox] Conflicted'), {
-  { '`task [ox] Conflicted', '@lsp.typemod.task.completed.plumb' },
+  { '`task [ox] Conflicted', 'PlumbTaskFoldConflicted' },
 }), 'highlight a conflicted task fold')
+assert(vim.deep_equal(render('`task [~]  Waiting'), {
+  { '`task [~]  Waiting', 'PlumbTaskFoldWaiting' },
+}), 'highlight a waiting task fold')
+assert(vim.deep_equal(render('`task [=]  Blocked'), {
+  { '`task [=]  Blocked', 'PlumbTaskFoldBlocked' },
+}), 'highlight a blocked task fold')
 
 for _, text in ipairs({
   '`task [ ]  Ship it',
-  '`task [~]  Ship it',
-  '`task [=]  Ship it',
   'METADATA  Project',
   '2026-08-04T09:30  Meeting',
   '`note Details',
