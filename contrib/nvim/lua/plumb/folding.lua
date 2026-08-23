@@ -1,9 +1,9 @@
 local M = {}
 
 local task_highlights = {
-  ['+'] = '@lsp.typemod.task.completed.plumb',
-  ['+x'] = '@lsp.typemod.task.completed.plumb',
-  x = '@lsp.typemod.task.canceled.plumb',
+  ['[o]'] = '@lsp.typemod.task.completed.plumb',
+  ['[ox]'] = '@lsp.typemod.task.completed.plumb',
+  ['[x]'] = '@lsp.typemod.task.canceled.plumb',
 }
 
 function M.foldtext()
@@ -11,7 +11,8 @@ function M.foldtext()
   if type(text) ~= 'string' then
     return text
   end
-  local state = text:match('^%s*([+x]+)%s%s')
+  local state = text:match('^%s*(`task%s+%b[])%s*')
+  state = state and state:match('(%b[])$')
   local highlight = task_highlights[state]
   if highlight then
     return { { text, highlight } }
