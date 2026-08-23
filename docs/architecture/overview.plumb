@@ -147,6 +147,13 @@ block 已折叠，这个边界仍携带结构信息，因此必须可见。相�
 children 一同消失，继续显示会形成没有对应内容的孤立空行，因此可以由 subtree fold 吸收。Folding
 projection 由此保留折叠后仍有意义的分组信息，只移除因隐藏 subtree 而失去作用的布局间距。
 
+支持 `"foldingRange.foldingRange.collapsedText" 时，task 与 event 的 custom fold text 保留 backtick 与完整
+marker，以便与其他 block 的默认 opener 形式一致。Task 使用五种固定 ASCII workflow state slot（ready、
+waiting、blocked、done、canceled），conflicted 使用 done 与 canceled 的组合；slot 预留五个 ASCII 字符，
+使常见状态的 task title 对齐，但不为罕见 conflicted 状态改变其组合表达。Task text 依次包含 backtick、
+"task" marker、state 和 title；event text 依次包含 backtick、"event" marker、schedule 和 title；event
+保留已解析的 schedule 与 title。没有可靠 semantic facts 或 event 时间时不生成对应 custom text。
+
 Folding provider 以 document revision 为边界提供当前 snapshot 的 ranges；provider 不要求保存上一次
 response，也不要求提供 old-to-new mapping。客户端 fold engine 负责保存上一个 accepted snapshot 与用户
 对 provider folds 的 collapsed 状态，并在新 snapshot 到达后执行 best-effort reconciliation。匹配优先使用

@@ -127,14 +127,14 @@ fn exposes_single_line_semantic_folds_to_line_and_character_range_clients() {
                 "startCharacter": 0,
                 "endLine": 0,
                 "endCharacter": source.lines().next().unwrap().len(),
-                "collapsedText": "-   Ready"
+                "collapsedText": "`task [ ]  Ready"
             },
             {
                 "startLine": 1,
                 "startCharacter": 0,
                 "endLine": 1,
                 "endCharacter": source.lines().nth(1).unwrap().len(),
-                "collapsedText": "2026-08-02T14:00  Standup"
+                "collapsedText": "`event 2026-08-02T14:00  Standup"
             }
         ])
     );
@@ -144,12 +144,12 @@ fn exposes_single_line_semantic_folds_to_line_and_character_range_clients() {
             {
                 "startLine": 0,
                 "endLine": 0,
-                "collapsedText": "-   Ready"
+                "collapsedText": "`task [ ]  Ready"
             },
             {
                 "startLine": 1,
                 "endLine": 1,
-                "collapsedText": "2026-08-02T14:00  Standup"
+                "collapsedText": "`event 2026-08-02T14:00  Standup"
             }
         ])
     );
@@ -189,9 +189,9 @@ fn task_fold_consumes_same_marker_separator_and_preserves_changed_marker_boundar
     assert_eq!(
         response(&run_server(&messages), 2)["result"],
         json!([
-            { "startLine": 0, "endLine": 4, "collapsedText": "-   aaa" },
-            { "startLine": 0, "endLine": 1, "collapsedText": "-   aaa" },
-            { "startLine": 5, "endLine": 6, "collapsedText": "-   ccc" }
+            { "startLine": 0, "endLine": 4, "collapsedText": "`task [ ]  aaa" },
+            { "startLine": 0, "endLine": 1, "collapsedText": "`task [ ]  aaa" },
+            { "startLine": 5, "endLine": 6, "collapsedText": "`task [ ]  ccc" }
         ])
     );
 }
@@ -297,21 +297,21 @@ fn labels_task_folds_with_derived_workflow_states() {
     assert_eq!(
         response(&run_server(&messages), 2)["result"],
         json!([
-            { "startLine": 0, "endLine": 5, "collapsedText": "-   Ready task" },
-            { "startLine": 0, "endLine": 2, "collapsedText": "-   Ready task" },
-            { "startLine": 6, "endLine": 12, "collapsedText": "~   Waiting task" },
-            { "startLine": 6, "endLine": 9, "collapsedText": "~   Waiting task" },
-            { "startLine": 13, "endLine": 18, "collapsedText": "+   Done task" },
-            { "startLine": 13, "endLine": 15, "collapsedText": "+   Done task" },
-            { "startLine": 19, "endLine": 24, "collapsedText": "x   Canceled task" },
-            { "startLine": 19, "endLine": 21, "collapsedText": "x   Canceled task" },
-            { "startLine": 25, "endLine": 31, "collapsedText": "+x  Conflicted task" },
-            { "startLine": 25, "endLine": 28, "collapsedText": "+x  Conflicted task" },
-            { "startLine": 32, "endLine": 36, "collapsedText": "!   Blocked task" },
-            { "startLine": 32, "endLine": 34, "collapsedText": "!   Blocked task" },
+            { "startLine": 0, "endLine": 5, "collapsedText": "`task [ ]  Ready task" },
+            { "startLine": 0, "endLine": 2, "collapsedText": "`task [ ]  Ready task" },
+            { "startLine": 6, "endLine": 12, "collapsedText": "`task [~]  Waiting task" },
+            { "startLine": 6, "endLine": 9, "collapsedText": "`task [~]  Waiting task" },
+            { "startLine": 13, "endLine": 18, "collapsedText": "`task [x]  Done task" },
+            { "startLine": 13, "endLine": 15, "collapsedText": "`task [x]  Done task" },
+            { "startLine": 19, "endLine": 24, "collapsedText": "`task [-]  Canceled task" },
+            { "startLine": 19, "endLine": 21, "collapsedText": "`task [-]  Canceled task" },
+            { "startLine": 25, "endLine": 31, "collapsedText": "`task [x-] Conflicted task" },
+            { "startLine": 25, "endLine": 28, "collapsedText": "`task [x-] Conflicted task" },
+            { "startLine": 32, "endLine": 36, "collapsedText": "`task [=]  Blocked task" },
+            { "startLine": 32, "endLine": 34, "collapsedText": "`task [=]  Blocked task" },
             { "startLine": 38, "endLine": 44 },
-            { "startLine": 40, "endLine": 44, "collapsedText": "      +   Nested task" },
-            { "startLine": 40, "endLine": 42, "collapsedText": "      +   Nested task" }
+            { "startLine": 40, "endLine": 44, "collapsedText": "      `task [x]  Nested task" },
+            { "startLine": 40, "endLine": 42, "collapsedText": "      `task [x]  Nested task" }
         ])
     );
 }
@@ -353,14 +353,14 @@ fn labels_event_folds_with_abbreviated_times() {
     assert_eq!(
         response(&run_server(&messages), 2)["result"],
         json!([
-            { "startLine": 0, "endLine": 5, "collapsedText": "2026-08-02T14:00  Standup" },
-            { "startLine": 0, "endLine": 3, "collapsedText": "2026-08-02T14:00  Standup" },
-            { "startLine": 7, "endLine": 12, "collapsedText": "2026-08-02T09:00--10:30  Review" },
-            { "startLine": 7, "endLine": 10, "collapsedText": "2026-08-02T09:00--10:30  Review" },
-            { "startLine": 14, "endLine": 26, "collapsedText": "2026-08-02T11:00  Parent" },
-            { "startLine": 14, "endLine": 17, "collapsedText": "2026-08-02T11:00  Parent" },
-            { "startLine": 21, "endLine": 26, "collapsedText": "       2026-08-02T12:00  Nested" },
-            { "startLine": 21, "endLine": 24, "collapsedText": "       2026-08-02T12:00  Nested" },
+            { "startLine": 0, "endLine": 5, "collapsedText": "`event 2026-08-02T14:00  Standup" },
+            { "startLine": 0, "endLine": 3, "collapsedText": "`event 2026-08-02T14:00  Standup" },
+            { "startLine": 7, "endLine": 12, "collapsedText": "`event 2026-08-02T09:00--10:30  Review" },
+            { "startLine": 7, "endLine": 10, "collapsedText": "`event 2026-08-02T09:00--10:30  Review" },
+            { "startLine": 14, "endLine": 26, "collapsedText": "`event 2026-08-02T11:00  Parent" },
+            { "startLine": 14, "endLine": 17, "collapsedText": "`event 2026-08-02T11:00  Parent" },
+            { "startLine": 21, "endLine": 26, "collapsedText": "       `event 2026-08-02T12:00  Nested" },
+            { "startLine": 21, "endLine": 24, "collapsedText": "       `event 2026-08-02T12:00  Nested" },
             { "startLine": 28, "endLine": 31 },
             { "startLine": 28, "endLine": 29 }
         ])

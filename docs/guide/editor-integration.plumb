@@ -96,12 +96,13 @@ block 只提供 subtree fold。普通多行 paragraph 与 inline element 不单�
 error，未受错误影响的 recovered blocks 仍可折叠；server 遵守 client 声明的 `"rangeLimit"，按 source
 order 保留外层范围。
 
-客户端声明 `"foldingRange.foldingRange.collapsedText" support 时，task fold 使用 derived workflow state
-和 title 生成固定两列 state slot：ready 是 `"-"、waiting 是 `"~"、blocked 是 `"!"、done 是 `"+"、
-canceled 是 `"x"；conflicted 组合 done/canceled 为 `"+x"。单字符 symbol 补齐一列，因此同级 task title
-保持对齐，并保留 task block opener 的原始结构缩进。event fold 把 `"date"/`"timezone"/`"when"
-解析出的时间（省秒、省偏移）与 title 拼成缩写：point 写成 `"YYYY-MM-DDTHH:MM  Title"；interval 写成
-`"YYYY-MM-DDTHH:MM--HH:MM  Title"。顶层有效 metadata 使用 `"METADATA  Document title"，缺少可用 title
+客户端声明 `"foldingRange.foldingRange.collapsedText" support 时，task 与 event fold text 保留 backtick
+与完整 marker。Task 使用固定五字符 state slot：ready 使用空白槽，waiting 使用波浪号，blocked 使用等号，
+done 使用 x，canceled 使用短横线；conflicted 组合 done 与 canceled。常见状态 slot 后补齐空格，
+使同级 task title 对齐，但不为 conflicted 状态改变组合表达，并保留 task block opener 的原始结构缩进。
+Task text 保留 backtick 与完整 "task" marker，后接 state 和 title。event fold 把 date、timezone、when 属性
+解析出的时间（省秒、省偏移）与 title 拼成保留 backtick 与完整 "event" marker 的摘要；point 使用精确到分钟
+的时间与 title，interval 追加两个短横线和结束时间。顶层有效 metadata 使用 `"METADATA  Document title"，缺少可用 title
 时回退为 `"METADATA"；第一层 metadata entry fold 使用 `"key  scalar value"，list、map、null 或不可展示
 value 只使用 `"key"。label 规范为空格分隔的单行并在 80 characters 后截断。三者都保留原始结构
 缩进。没有该 capability、无可靠 valid task/metadata facts 或无可用时间的 event fold 不携带 custom

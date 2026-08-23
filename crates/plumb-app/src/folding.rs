@@ -111,7 +111,7 @@ pub(crate) fn task_labels(
             (
                 (task.range.start, task.range.end),
                 FoldLabel {
-                    text: format!("{indent}{:<2}  {title}", task_state_symbol(state)),
+                    text: format!("{indent}`task {:<5}{title}", task_state_symbol(state)),
                 },
             )
         })
@@ -120,12 +120,12 @@ pub(crate) fn task_labels(
 
 fn task_state_symbol(state: TaskWorkflowState) -> &'static str {
     match state {
-        TaskWorkflowState::Ready => "-",
-        TaskWorkflowState::Waiting => "~",
-        TaskWorkflowState::Blocked => "!",
-        TaskWorkflowState::Done => "+",
-        TaskWorkflowState::Canceled => "x",
-        TaskWorkflowState::Conflicted => "+x",
+        TaskWorkflowState::Ready => "[ ]",
+        TaskWorkflowState::Waiting => "[~]",
+        TaskWorkflowState::Blocked => "[=]",
+        TaskWorkflowState::Done => "[x]",
+        TaskWorkflowState::Canceled => "[-]",
+        TaskWorkflowState::Conflicted => "[x-]",
     }
 }
 
@@ -149,7 +149,7 @@ pub(crate) fn event_labels(entry: &DocumentEntry) -> HashMap<(usize, usize), Fol
             Some((
                 (event.range.start, event.range.end),
                 FoldLabel {
-                    text: format!("{indent}{time}  {title}"),
+                    text: format!("{indent}`event {time}  {title}"),
                 },
             ))
         })
