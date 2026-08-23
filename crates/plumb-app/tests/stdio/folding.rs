@@ -301,17 +301,17 @@ fn labels_task_folds_with_derived_workflow_states() {
             { "startLine": 0, "endLine": 2, "collapsedText": "`task [ ]  Ready task" },
             { "startLine": 6, "endLine": 12, "collapsedText": "`task [~]  Waiting task" },
             { "startLine": 6, "endLine": 9, "collapsedText": "`task [~]  Waiting task" },
-            { "startLine": 13, "endLine": 18, "collapsedText": "`task [x]  Done task" },
-            { "startLine": 13, "endLine": 15, "collapsedText": "`task [x]  Done task" },
-            { "startLine": 19, "endLine": 24, "collapsedText": "`task [-]  Canceled task" },
-            { "startLine": 19, "endLine": 21, "collapsedText": "`task [-]  Canceled task" },
-            { "startLine": 25, "endLine": 31, "collapsedText": "`task [x-] Conflicted task" },
-            { "startLine": 25, "endLine": 28, "collapsedText": "`task [x-] Conflicted task" },
+            { "startLine": 13, "endLine": 18, "collapsedText": "`task [o]  Done task" },
+            { "startLine": 13, "endLine": 15, "collapsedText": "`task [o]  Done task" },
+            { "startLine": 19, "endLine": 24, "collapsedText": "`task [x]  Canceled task" },
+            { "startLine": 19, "endLine": 21, "collapsedText": "`task [x]  Canceled task" },
+            { "startLine": 25, "endLine": 31, "collapsedText": "`task [ox] Conflicted task" },
+            { "startLine": 25, "endLine": 28, "collapsedText": "`task [ox] Conflicted task" },
             { "startLine": 32, "endLine": 36, "collapsedText": "`task [=]  Blocked task" },
             { "startLine": 32, "endLine": 34, "collapsedText": "`task [=]  Blocked task" },
             { "startLine": 38, "endLine": 44 },
-            { "startLine": 40, "endLine": 44, "collapsedText": "      `task [x]  Nested task" },
-            { "startLine": 40, "endLine": 42, "collapsedText": "      `task [x]  Nested task" }
+            { "startLine": 40, "endLine": 44, "collapsedText": "      `task [o]  Nested task" },
+            { "startLine": 40, "endLine": 42, "collapsedText": "      `task [o]  Nested task" }
         ])
     );
 }

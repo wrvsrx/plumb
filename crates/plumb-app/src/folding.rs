@@ -123,9 +123,9 @@ fn task_state_symbol(state: TaskWorkflowState) -> &'static str {
         TaskWorkflowState::Ready => "[ ]",
         TaskWorkflowState::Waiting => "[~]",
         TaskWorkflowState::Blocked => "[=]",
-        TaskWorkflowState::Done => "[x]",
-        TaskWorkflowState::Canceled => "[-]",
-        TaskWorkflowState::Conflicted => "[x-]",
+        TaskWorkflowState::Done => "[o]",
+        TaskWorkflowState::Canceled => "[x]",
+        TaskWorkflowState::Conflicted => "[ox]",
     }
 }
 

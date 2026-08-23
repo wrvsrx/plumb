@@ -98,7 +98,7 @@ order 保留外层范围。
 
 客户端声明 `"foldingRange.foldingRange.collapsedText" support 时，task 与 event fold text 保留 backtick
 与完整 marker。Task 使用固定五字符 state slot：ready 使用空白槽，waiting 使用波浪号，blocked 使用等号，
-done 使用 x，canceled 使用短横线；conflicted 组合 done 与 canceled。常见状态 slot 后补齐空格，
+done 使用 o，canceled 使用 x；conflicted 组合为 ox。常见状态 slot 后补齐空格，
 使同级 task title 对齐，但不为 conflicted 状态改变组合表达，并保留 task block opener 的原始结构缩进。
 Task text 保留 backtick 与完整 "task" marker，后接 state 和 title。event fold 把 date、timezone、when 属性
 解析出的时间（省秒、省偏移）与 title 拼成保留 backtick 与完整 "event" marker 的摘要；point 使用精确到分钟
