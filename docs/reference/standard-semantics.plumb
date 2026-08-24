@@ -56,6 +56,49 @@ marker `":" 产生 definition record。head 是 term，children 是 definition b
 相邻 definitions 聚合为 Pandoc `"DefinitionList"；attributes 通过 definition body 内的 `"Div"
 保存。
 
+`## 5.1 未实现：递归 positional argument projection
+
+本小节记录依赖 core parsed-inline multi-slot 的 deferred semantic target；当前 profile 仍使用本节之外
+已经冻结的 definition、metadata 与 attached declaration 规则。尤其 `"`:[key][value]" 当前不是合法
+core syntax，toolchain 不得提前接受、format 或生成该 spelling。
+
+目标 projection 为 block 与 inline 的多 argument recognizer 使用同一递归规则：没有独立下层 content
+container 时，在当前 container 内以首个 inline item 和紧随其后的 `"Space" 切分；存在独立下层
+container 时，当前 container 的全部 content 是第一个 argument，下层 content 是后续 arguments。
+separator `"Space" 只建立 compact boundary，不进入任一 argument。各 recognizer 继续独立约束 arity
+与 argument content；例如 Link title 可以保留一般 inline structure，而 property key 仍须投影为
+非空 plain key。
+
+block-level `":" association 的目标形态是：
+
+`plumb"
+  `: title plumb title
+  `: `()[key with spaces] value with spaces
+  `: key with spaces
+    `()[value with spaces]
+
+没有 children 时，head 的首个 inline item 是 key，紧随 `"Space" 后的其余 inline items 是
+同行 value；只有 key 时 value 为空。存在 children 时，不再切分 head：整个 head 是 key，ordered
+children 共同构成 value。marked/verbatim block 的 attached group 与 children 是正交结构；添加、删除或
+展开 `"{}" group 都不得切换上述 projection。
+
+inline-level `":" association 的目标形态是：
+
+`plumb"
+  `:[to target.plumb]
+  `:[`()[key with spaces] value with spaces]
+  `:[key with spaces][value with spaces]
+  `:[key][value one][value two]
+
+只有一个 slot 时，在该 slot 内使用与 compact block head 相同的首个 inline item、`"Space" 与
+remainder 切分。存在多个 slots 时，不再切分首个 slot：完整 first slot 是 key，后续 slots 按 source
+order 共同构成 value，并保留 slot boundaries。inline attached group 同样只附着于完整 owner，不属于
+任何 positional argument，也不改变 single-slot/multi-slot projection。
+
+这种 compact/expanded 双形态的动机是同时保留常见短 association 的低标点密度，并让包含 whitespace
+或 nested inline structure 的 argument 获得无歧义边界。block 的下层边界由 children 表达，inline 的
+下层边界由后续 slots 表达；两者都遵循“当前 content / 下层 content”的递归关系。
+
 `# 6. Metadata
 
 文件起始的 document attached group 是 document metadata；它的 direct `":" associations 是 entries。

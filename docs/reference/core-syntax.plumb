@@ -263,6 +263,30 @@ dedent 或 block-only entry。parser 使用 explicit stack，语言不设置 inl
 
 attached inline group 可以紧跟完整 closing delimiter，并使用第 7 节的递归 ordinary-inline grammar。
 
+`## 8.1 未实现：parsed inline multi-slot
+
+本小节记录 deferred target，不属于当前 core syntax validity。当前 strict parser、tree-sitter mirror、
+formatter 与 typed syntax view 都只接受一个 parsed-content bracket envelope；例如
+`"`kind[first][second]" 中的第二个 opening bracket 当前仍按 bare delimiter 报错。guide 在该能力实现并
+完成验证前不得使用以下 spelling。
+
+目标 grammar 允许 parsed inline element 在 kind 后拥有一个或多个彼此紧邻的 ordered content slots：
+
+`plumb"
+  `kind[only]
+  `kind[first][second]
+  `kind[first][second][third]{`-[facet]}
+
+每个 slot 分别使用 ordinary inline grammar、保留自己的 delimiter 与 content range，并允许空 content；
+slot 之间不允许 whitespace。完整 element boundary 延伸到最后一个连续 slot，attached inline group 只能
+紧跟最后一个 slot。core 只保存有序 slots，不解释 argument、key、value 或 marker-specific arity；这些
+约束属于 semantic profile。
+
+该 target 使 inline owner 可以递归表达与 block owner 相同的两种 content boundary：单 slot 是紧凑
+content container，多个 slots 在参数自身含 whitespace 或 nested inline structure 时提供显式边界；
+block owner 已有的 head 与 children 则分别承担当前层 content 和下层 block content。统一的是递归
+container model，而不是强迫 block 与 inline 使用相同 delimiter。
+
 `# 9. Inline verbatim
 
 inline verbatim 有 compact 与 strengthened 两种 envelope。compact form 是 introducer、可选 opaque
