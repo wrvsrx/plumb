@@ -69,10 +69,12 @@ recovery 的目标是报告后续独立错误并保留 source，不是把 malfor
 
 official semantic profile 至少区分：
 
+`- association：inline `":" 使用三个以上 slots 时发布 `"association.invalid-arity"。
 `- heading/anchor：非法 heading level、duplicate anchor。
 `- metadata：duplicate/invalid key、invalid location、unsupported 或 mixed value shape，以及
  `"metadata.invalid-created" RFC 3339 timestamp warning。
-`- link/reference：缺失或无效 target、conflicting autolink property、missing document/anchor、
+`- link/reference：缺失或无效 target、`"link.legacy-to-property" legacy named Link warning、
+ conflicting positional/property target、conflicting autolink property、missing document/anchor、
  ambiguous anchor 或 unresolved file。
 `- image：missing/invalid src 或 unresolved local file。
 `- file：missing/invalid src 或 unresolved local attachment。

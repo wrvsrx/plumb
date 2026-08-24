@@ -120,6 +120,13 @@ raw replacement 只对这种已有 typed token ownership 的机械 rewrite 开�
 attached mutation、conversion 与 formatting 不得使用 raw `"TextEdit::replace" 绕过 owned syntax 或 edit
 session。
 
+legacy named Link migration 是 syntax-aware semantic rewrite：semantics/workspace 选择同时具有一个 label
+slot 与 direct `"to" property 的 `"->" owner，`"plumb-edit" 在原 `"ParsedDocument" revision 上把 target
+移动为 second positional slot，并移除该 property；其他 slots、label inline structure 与 attached
+declarations 必须保留。property 是唯一 attached declaration 时移除空 group，否则保留原 group category。
+operation 返回覆盖完整 inline owner 的一个连续 edit，并重新 strict-parse 验证结果。formatter 不识别
+`"->" 或 `"to"，也不触发 migration。
+
 `# 8. Recovered-source assists
 
 completion、delimiter closure 等 assists 可能运行在 incomplete recovered source 上，此时不存在可安全

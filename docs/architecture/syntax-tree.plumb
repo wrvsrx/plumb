@@ -27,7 +27,8 @@ introducer、escape、marker、inline kind、group/inline delimiter、raw payloa
 和 error。
 
 typed `"Document" 表达 paragraph、marked block、verbatim block、attached group、inline element、inline
-verbatim、text、space 和 soft break。head 内容中的连续 ASCII space/tab 产生独立 `"Inline::Space"；
+verbatim、text、space 和 soft break。parsed inline element 暴露一个或多个 ordered `"InlineContent"
+slots，每个 slot 保留独立 content/delimiter ranges；head 内容中的连续 ASCII space/tab 产生独立 `"Inline::Space"；
 普通 marker/kind 保持原始 spelling；typed tree 不区分 heading、list、
 link 或 task。它与 token sequence 在同一次 parse 中产生，不是第二套 parser。
 

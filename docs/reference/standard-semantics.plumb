@@ -56,13 +56,9 @@ marker `":" 产生 definition record。head 是 term，children 是 definition b
 相邻 definitions 聚合为 Pandoc `"DefinitionList"；attributes 通过 definition body 内的 `"Div"
 保存。
 
-`## 5.1 未实现：递归 positional argument projection
+`## 5.1 递归 positional argument projection
 
-本小节记录依赖 core parsed-inline multi-slot 的 deferred semantic target；当前 profile 仍使用本节之外
-已经冻结的 definition、metadata 与 attached declaration 规则。尤其 `"`:[key][value]" 当前不是合法
-core syntax，toolchain 不得提前接受、format 或生成该 spelling。
-
-目标 projection 为 block 与 inline 的多 argument recognizer 使用同一递归规则：没有独立下层 content
+标准 projection 为 block 与 inline 的多 argument recognizer 使用同一递归规则：没有独立下层 content
 container 时，在当前 container 内以首个 inline item 和紧随其后的 `"Space" 切分；存在独立下层
 container 时，当前 container 的全部 content 是第一个 argument，下层 content 是后续 arguments。
 separator `"Space" 只建立 compact boundary，不进入任一 argument。各 recognizer 继续独立约束 arity
@@ -88,12 +84,12 @@ inline-level `":" association 的目标形态是：
   `:[to target.plumb]
   `:[`()[key with spaces] value with spaces]
   `:[key with spaces][value with spaces]
-  `:[key][value one][value two]
 
 只有一个 slot 时，在该 slot 内使用与 compact block head 相同的首个 inline item、`"Space" 与
-remainder 切分。存在多个 slots 时，不再切分首个 slot：完整 first slot 是 key，后续 slots 按 source
-order 共同构成 value，并保留 slot boundaries。inline attached group 同样只附着于完整 owner，不属于
-任何 positional argument，也不改变 single-slot/multi-slot projection。
+remainder 切分。存在两个 slots 时，不再切分首个 slot：完整 first slot 是 key，second slot 是 value。
+`":" association 的 marker-specific arity 只允许一个 compact slot 或两个 expanded slots；更多 slots
+发布 semantic diagnostic。inline attached group 同样只附着于完整 owner，不属于任何 positional
+argument，也不改变 single-slot/multi-slot projection。
 
 这种 compact/expanded 双形态的动机是同时保留常见短 association 的低标点密度，并让包含 whitespace
 或 nested inline structure 的 argument 获得无歧义边界。block 的下层边界由 children 表达，inline 的
@@ -104,7 +100,9 @@ order 共同构成 value，并保留 slot boundaries。inline attached group 同
 文件起始的 document attached group 是 document metadata；它的 direct `":" associations 是 entries。
 document-level `"meta" block 不具有 metadata semantics。
 
-metadata key 是 association head 的第一个 plain atom。同行 value 或 children 表达 value shapes：
+metadata entry 使用第 5.1 节的 association projection：没有 children 时，第一个 inline item 是 key，
+separator 后的 remainder 是同行 value；存在 children 时，整个 nonempty plain head 是 key，children
+表达 value。compact key 需要包含 spaces 时使用 `"()[...]" 显式限定第一个 item。value shapes 为：
 
 `- 没有 body：null。
 `- 非空 head 或一个 paragraph child：scalar。
@@ -137,18 +135,35 @@ canonical formatted edit。
 
 `# 7. Links 与 target resolution
 
-标准 Link 使用唯一 parsed inline kind `"->"；parsed content 是 label，`"to" property 是 target：
+标准 Link 使用唯一 parsed inline kind `"->"。单 slot compact form 在 slot 内以首个 inline item 与
+紧随的 `"Space" 分隔 label/target；两个 slots 的 expanded form 使用完整 first slot 作为 label、second
+slot 作为 target：
 
 `plumb"
-  `->[label]{`:[to #anchor]}
-  `->[label]{`:[to relative/path.plumb]}
-  `->[label]{`:[to relative/path.plumb#anchor]}
-  `->[label]{`:[to https://example.test]}
+  `->[guide relative/path.plumb]
+  `->[guide page][relative/path.plumb]
+  `->[guide page][relative/path.plumb#anchor]
+  `->[*[external]][https://example.test]
 
 `"link" 不是 alias。local/cross-file fragment 只解析显式 anchors。relative document target 使用
 `"..plumb" path。带 scheme 或以 `"//" 开始的 target 是 absolute/network URI；其他 target 是相对
-source document directory 的 raw filesystem path。named Link 的 `"to" value 不进行 percent encode、
+source document directory 的 raw filesystem path。named Link 的 target 不进行 percent encode、
 percent decode 或 normalization。external URL 只分类，不进行网络 I/O。
+
+当 heading、task、event、metadata 或其他 standard semantic consumer 从包含 Link 的 inline content
+投影可见 plain text 时，Link 只贡献 label；positional target slot 不进入容器的 title、details 或 scalar
+text。generic multi-slot inline 仍按 source order 贡献全部 slots，core plain-text traversal 也不解释 Link。
+
+旧式 named Link 把完整 parsed content 作为 label，并在 attached `"to" property 中保存 target：
+
+`plumb"
+  `->[description]{`:[to https://example.test]}
+
+该 spelling 保持 syntax-valid，并继续产生 Link record，便于现有文档迁移；semantics 发布
+`"link.legacy-to-property" warning。LSP 在 legacy owner 或该 diagnostic 上提供
+`"Rewrite legacy Link arguments" quickfix，由 `"plumb-edit" 将 label 与 target 改写为两个 slots，并
+保留其他 attached declarations。formatter 只观察 core syntax，不执行该 semantic migration。两个
+positional slots 与 `"to" property 同时存在时发布 conflicting-target warning，不猜测优先级。
 
 标准 Autolink 使用 inline verbatim `"->" kind；payload 同时是 label 与 target：
 

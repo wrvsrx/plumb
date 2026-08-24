@@ -59,6 +59,11 @@ analyses 只增加自己拥有的 records/diagnostics，不能删除其他 analy
 产生显式 diagnostic 或使用在 standard profile 中冻结的 rule，不能依赖 Rust module 调用顺序。generic
 export 在标准 semantic lowering 后仍保留未消费的 attached elements。
 
+named Link analysis 优先读取 positional slots；一个 legacy label slot 加 direct `"to" property 继续产生
+source-backed Link record，同时发布 `"link.legacy-to-property"。record 保存 owner、property 与 target
+ranges，使 workspace 可以选择 operation intent；实际 source rewrite 由 `"plumb-edit" 完成，analysis 与
+LSP adapter 都不构造 replacement text。
+
 `# 6. Dependencies and invalidation
 
 analysis dependencies 通过 Rust types、函数 inputs 和固定 pipeline 明确表达。workspace 以 document
