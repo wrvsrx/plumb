@@ -31,6 +31,41 @@ Text with `*[emphasis] and `outer[before `inner[nested] after].
       (text))))
 
 ==================
+Parsed inline multi-slot
+==================
+
+Use `pair[first][second] and `pair[][third]{`-[tag]}.
+
+---
+
+(document
+  (blank_line)
+  (paragraph
+    (inline_content
+      (text)
+      (inline_element
+        (introducer)
+        (inline_kind)
+        (parsed_inline_content
+          (inline_text))
+        (parsed_inline_content
+          (inline_text)))
+      (text)
+      (inline_element
+        (introducer)
+        (inline_kind)
+        (parsed_inline_content
+          (inline_text))
+        (attached_inline_group
+          (attached_inline_content
+            (inline_element
+              (introducer)
+              (inline_kind)
+              (parsed_inline_content
+                (inline_text))))))
+      (text))))
+
+==================
 Recursive inline group
 ==================
 

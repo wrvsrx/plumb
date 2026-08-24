@@ -25,7 +25,7 @@ fn workload(events: usize, references: usize, suffix: &str) -> (String, String) 
         ));
     }
     for _ in 0..references {
-        source.push_str("See `->[target]{`:[to target.plumb#target]}.\n");
+        source.push_str("See `->[target][target.plumb#target].\n");
     }
     (target, source)
 }

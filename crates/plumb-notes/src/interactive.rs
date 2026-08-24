@@ -252,7 +252,7 @@ mod tests {
         );
         let preview = preview_text(
             "topic.plumb",
-            "`# Topic {\n  `@ topic\n}\n\nSee `->[x]{`:[to x]}.\n",
+            "`# Topic {\n  `@ topic\n}\n\nSee `->[x][x].\n",
         );
         assert!(preview.contains("topic.plumb"));
         assert!(preview.contains("\x1b[1;34m"));

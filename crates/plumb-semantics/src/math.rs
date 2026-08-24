@@ -70,11 +70,13 @@ fn collect_inlines(content: &InlineContent, output: &mut MathOutput) {
             Inline::Element {
                 range,
                 attrs,
-                content,
+                slots,
                 ..
             } => {
                 let _ = (range, attrs);
-                collect_inlines(content, output);
+                for slot in slots {
+                    collect_inlines(&slot.content, output);
+                }
             }
             Inline::Text { .. } | Inline::Space { .. } | Inline::SoftBreak { .. } => {}
         }

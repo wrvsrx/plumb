@@ -93,14 +93,19 @@ fn assert_typed_ranges(parsed: &ParsedDocument) {
                 Inline::Element {
                     range,
                     kind_range,
-                    content,
+                    slots,
                     attrs,
                     ..
                 } => {
                     assert_range(&parsed.source, range);
                     assert_range(&parsed.source, kind_range);
                     assert_attributes(&parsed.source, attrs);
-                    inline_contents.push(content);
+                    for slot in slots {
+                        assert_range(&parsed.source, &slot.range);
+                        assert_range(&parsed.source, &slot.open_range);
+                        assert_range(&parsed.source, &slot.close_range);
+                        inline_contents.push(&slot.content);
+                    }
                 }
                 Inline::Verbatim {
                     range,

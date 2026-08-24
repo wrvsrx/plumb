@@ -8,6 +8,7 @@ use plumb_syntax::{
 use serde::{Deserialize, Serialize};
 
 use crate::document::attr_source_backed;
+use crate::text::plain_text;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TaskField {
@@ -128,7 +129,7 @@ fn task_record(source: &str, block: &ParsedBlock, depth: usize) -> TaskRecord {
         range: block.range.clone(),
         marker_range: mark.range.clone(),
         selection_range: block.head.range.clone(),
-        title: block.head.plain_text().trim().to_string(),
+        title: plain_text(&block.head).trim().to_string(),
         depth,
         attribute_insert: attrs
             .attached

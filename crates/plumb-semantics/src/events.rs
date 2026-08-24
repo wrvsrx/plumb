@@ -8,6 +8,7 @@ use plumb_syntax::{
 use serde::{Deserialize, Serialize};
 
 use crate::tasks::{task_reference_fields, TaskDependency};
+use crate::text::plain_text;
 use crate::{MetadataOutput, MetadataValue};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -105,7 +106,7 @@ impl EventContext {
                 .iter()
                 .find(|entry| entry.key == key)?;
             match &entry.value {
-                MetadataValue::Scalar { content, .. } => Some(content.plain_text()),
+                MetadataValue::Scalar { content, .. } => Some(plain_text(content)),
                 MetadataValue::Verbatim { text, .. } => Some(text.clone()),
                 _ => None,
             }
@@ -224,7 +225,7 @@ fn event_head(block: &ParsedBlock) -> (Option<EventField>, String, Range<usize>)
     let Some(Inline::Text { text, range }) = block.head.items.first() else {
         return (
             None,
-            block.head.plain_text().trim().to_string(),
+            plain_text(&block.head).trim().to_string(),
             block.head.range.clone(),
         );
     };
@@ -236,13 +237,11 @@ fn event_head(block: &ParsedBlock) -> (Option<EventField>, String, Range<usize>)
         block.head.range.end..block.head.range.end,
         |(first, last)| inline_range(first).start..inline_range(last).end,
     );
-    let title = InlineContent {
+    let title_content = InlineContent {
         range: title_range.clone(),
         items: title_items.to_vec(),
-    }
-    .plain_text()
-    .trim()
-    .to_string();
+    };
+    let title = plain_text(&title_content).trim().to_string();
     (
         Some(EventField {
             value: text.clone(),
@@ -280,7 +279,7 @@ fn collect_detail_lines(blocks: &[Block], lines: &mut Vec<String>) {
                 {
                     continue;
                 }
-                let text = block.head.plain_text().trim().to_string();
+                let text = plain_text(&block.head).trim().to_string();
                 if !text.is_empty() {
                     lines.push(text);
                 }
@@ -779,7 +778,7 @@ mod tests {
 
     #[test]
     fn metadata_uid_links_have_no_event_semantics() {
-        let source = "{\n  `: date 2026-07-30\n  `: timezone +08:00\n  `: event-uids\n\n     `event `->[mapped@example]{`:[to #review]}\n}\n\n`event 09:00 Review {\n  `@ review\n  `: uid inline@example\n}\n";
+        let source = "{\n  `: date 2026-07-30\n  `: timezone +08:00\n  `: event-uids\n\n     `event `->[mapped@example][#review]\n}\n\n`event 09:00 Review {\n  `@ review\n  `: uid inline@example\n}\n";
         let output = analyze(source);
         assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
         assert_eq!(output.events[0].title, "Review");

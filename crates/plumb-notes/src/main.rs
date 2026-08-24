@@ -402,7 +402,7 @@ mod tests {
         .unwrap();
         std::fs::write(
             root.join("nested/b.plumb"),
-            "See `->[missing]{`:[to missing.plumb#id]}.\n",
+            "See `->[missing][missing.plumb#id].\n",
         )
         .unwrap();
         let loaded = load_workspace(&root).unwrap();
@@ -503,8 +503,8 @@ mod tests {
     fn queries_transitive_referrers() {
         let root = unique_temp_dir();
         std::fs::create_dir_all(&root).unwrap();
-        std::fs::write(root.join("index.plumb"), "`->[topic]{`:[to topic.plumb]}\n").unwrap();
-        std::fs::write(root.join("topic.plumb"), "`->[leaf]{`:[to leaf.plumb]}\n").unwrap();
+        std::fs::write(root.join("index.plumb"), "`->[topic][topic.plumb]\n").unwrap();
+        std::fs::write(root.join("topic.plumb"), "`->[leaf][leaf.plumb]\n").unwrap();
         std::fs::write(root.join("leaf.plumb"), "Leaf note.\n").unwrap();
         let loaded = load_workspace(&root).unwrap();
         let leaf = normalize(&root.join("leaf.plumb"));

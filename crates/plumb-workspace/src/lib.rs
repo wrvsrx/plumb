@@ -6,7 +6,8 @@ use chrono::{DateTime, FixedOffset, NaiveDate, NaiveTime, SecondsFormat, TimeZon
 pub use plumb_edit::{apply_text_edits, TextEdit};
 use plumb_edit::{
     remove_block as remove_syntax_block, replace_owned_block, replace_owned_blocks,
-    AttributePosition, EditSession, OwnedAttribute, OwnedBlock, OwnedInline,
+    rewrite_legacy_link as rewrite_legacy_link_syntax, AttributePosition, EditSession,
+    OwnedAttribute, OwnedBlock, OwnedInline,
 };
 #[cfg(test)]
 use plumb_semantics::TaskStatus;
@@ -128,6 +129,13 @@ pub enum ExplicitIdError {
     StaleOrInvalidDocument,
     BlockNotFound,
     IdAlreadyExists,
+    GeneratedInvalid,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LegacyLinkRewriteError {
+    StaleOrInvalidDocument,
+    LinkNotFound,
     GeneratedInvalid,
 }
 
@@ -2309,6 +2317,45 @@ impl Workspace {
         Ok(single_document_edit(entry, path, edit))
     }
 
+    pub fn rewrite_legacy_link(
+        &self,
+        path: impl AsRef<Path>,
+        offset: usize,
+    ) -> Result<WorkspaceEdit, LegacyLinkRewriteError> {
+        let path = normalize(path.as_ref());
+        let entry = self
+            .documents
+            .get(&path)
+            .ok_or(LegacyLinkRewriteError::StaleOrInvalidDocument)?;
+        let current = entry
+            .current
+            .as_ref()
+            .ok_or(LegacyLinkRewriteError::StaleOrInvalidDocument)?;
+        let link = current
+            .output
+            .links
+            .iter()
+            .filter(|link| link.range.start <= offset && offset <= link.range.end)
+            .filter(|link| matches!(link.spelling, LinkSpelling::LegacyProperty { .. }))
+            .min_by_key(|link| link.range.len())
+            .ok_or(LegacyLinkRewriteError::LinkNotFound)?;
+        let LinkSpelling::LegacyProperty {
+            property_range,
+            value_range,
+        } = &link.spelling
+        else {
+            unreachable!("legacy Link filter checked the spelling");
+        };
+        let edit = rewrite_legacy_link_syntax(
+            &entry.parsed,
+            link.range.clone(),
+            property_range.clone(),
+            value_range.clone(),
+        )
+        .map_err(|_| LegacyLinkRewriteError::GeneratedInvalid)?;
+        Ok(single_document_edit(entry, path, edit))
+    }
+
     pub fn create_event(
         &self,
         path: impl AsRef<Path>,
@@ -2954,9 +3001,9 @@ impl Workspace {
                             label: title.clone(),
                             detail: relative.clone(),
                             new_text: format!(
-                                "`->[{}]{{`:[to {}]}}",
+                                "`->[{}][{}]",
                                 escape_parsed_text(&title),
-                                escape_attached_text(&relative)
+                                escape_parsed_text(&relative)
                             ),
                             replace: replace.clone(),
                         }
@@ -2966,7 +3013,7 @@ impl Workspace {
             LinkCompletionContext::Path {
                 replace,
                 query,
-                quoted,
+                parsed,
             } => self
                 .documents
                 .values()
@@ -2985,14 +3032,14 @@ impl Workspace {
                     if !fuzzy_match(&relative, query) && !fuzzy_match(&title, query) {
                         return None;
                     }
-                    if !*quoted && !valid_bare_attribute_value(&relative) {
+                    if !*parsed && !valid_bare_attribute_value(&relative) {
                         return None;
                     }
                     Some(CompletionCandidate {
                         label: relative.clone(),
                         detail: title,
-                        new_text: if *quoted {
-                            escape_quoted_value(&relative)
+                        new_text: if *parsed {
+                            escape_parsed_text(&relative)
                         } else {
                             relative
                         },
@@ -3120,9 +3167,9 @@ impl Workspace {
                                     label: title.clone(),
                                     detail: relative.clone(),
                                     new_text: format!(
-                                        "`->[{}]{{`:[to {}]}}",
+                                        "`->[{}][{}]",
                                         escape_parsed_text(&title),
-                                        escape_attached_text(&relative)
+                                        escape_parsed_text(&relative)
                                     ),
                                     replace: replace.clone(),
                                 },
@@ -3133,7 +3180,7 @@ impl Workspace {
                 LinkCompletionContext::Path {
                     replace,
                     query,
-                    quoted,
+                    parsed,
                 } => {
                     if let Ok(documents) = store.documents() {
                         candidates.extend(documents.into_iter().filter_map(|document| {
@@ -3147,15 +3194,15 @@ impl Workspace {
                                 document.title
                             };
                             if (!fuzzy_match(&relative, query) && !fuzzy_match(&title, query))
-                                || (!*quoted && !valid_bare_attribute_value(&relative))
+                                || (!*parsed && !valid_bare_attribute_value(&relative))
                             {
                                 return None;
                             }
                             Some(CompletionCandidate {
                                 label: relative.clone(),
                                 detail: title,
-                                new_text: if *quoted {
-                                    escape_quoted_value(&relative)
+                                new_text: if *parsed {
+                                    escape_parsed_text(&relative)
                                 } else {
                                     relative
                                 },
@@ -4804,10 +4851,6 @@ fn escape_parsed_text(value: &str) -> String {
         .replace(']', "`]")
 }
 
-fn escape_attached_text(value: &str) -> String {
-    escape_parsed_text(value)
-}
-
 fn escape_quoted_value(value: &str) -> String {
     value.replace('\\', "\\\\").replace('"', "\\\"")
 }
@@ -4835,7 +4878,7 @@ mod tests {
         let store = SqliteSemanticStore::open_in_memory().unwrap();
         let mut workspace = Workspace::with_sqlite_store(store);
         let target = "`task Target {\n `@ target\n}\n";
-        let disk_source = "See `->[target]{`:[to target.plumb#target]}.\n";
+        let disk_source = "See `->[target][target.plumb#target].\n";
         assert!(!workspace.insert_disk("target.plumb", 0, target).unwrap());
         assert!(!workspace
             .insert_disk("source.plumb", 0, disk_source)
@@ -4888,12 +4931,12 @@ mod tests {
         let disk_source = concat!(
             "`event 2026-08-12T10:00 Later\n",
             "`event 2026-08-11T10:00 Earlier\n",
-            "See `->[target]{`:[to target.plumb#target]}.\n",
+            "See `->[target][target.plumb#target].\n",
         );
         let open_source = concat!(
             "`event 2026-08-10T10:00 Open\n",
-            "See `->[target]{`:[to target.plumb#target]}.\n",
-            "See `->[target]{`:[to target.plumb#target]}.\n",
+            "See `->[target][target.plumb#target].\n",
+            "See `->[target][target.plumb#target].\n",
         );
         let ids = HashSet::from(["target".to_string()]);
         let start = DateTime::parse_from_rfc3339("2026-08-01T00:00:00+00:00").unwrap();
@@ -5024,6 +5067,28 @@ mod tests {
     }
 
     #[test]
+    fn rewrites_the_smallest_legacy_link_with_a_guarded_syntax_edit() {
+        let source = "Before `->[first][one.plumb] and `->[second]{`:[to two.plumb] `-[keep]}.\n";
+        let mut workspace = Workspace::new();
+        workspace.insert("note.plumb", 7, source);
+
+        let offset = source.find("two.plumb").unwrap();
+        let edit = workspace.rewrite_legacy_link("note.plumb", offset).unwrap();
+        assert_eq!(edit.document_changes[0].expected_revision, 7);
+        let rewritten = apply_document_edit(source.to_string(), "note.plumb", 7, edit).unwrap();
+        assert_eq!(
+            rewritten,
+            "Before `->[first][one.plumb] and `->[second][two.plumb]{`-[keep]}.\n"
+        );
+        assert!(plumb_syntax::parse(rewritten).is_valid());
+
+        assert_eq!(
+            workspace.rewrite_legacy_link("note.plumb", source.find("Before").unwrap()),
+            Err(LegacyLinkRewriteError::LinkNotFound)
+        );
+    }
+
+    #[test]
     fn discovers_the_nearest_plumb_workspace_marker() {
         let root = temp_workspace();
         let nested = root.join("notes/private/deep");
@@ -5099,7 +5164,7 @@ mod tests {
         workspace.insert(
             "notes/b.plumb",
             1,
-            "See `->[local]{`:[to a note.plumb#local]}.\nSee `->[literal]{`:[to a%20note.plumb#literal]}.\n",
+            "See `->[local][a note.plumb#local].\nSee `->[literal][a%20note.plumb#literal].\n",
         );
         let links = &workspace
             .get("notes/b.plumb")
@@ -5124,11 +5189,7 @@ mod tests {
     #[test]
     fn headings_without_ids_do_not_resolve() {
         let mut workspace = Workspace::new();
-        workspace.insert(
-            "a.plumb",
-            1,
-            "`# No anchor\n\nSee `->[x]{`:[to #No-anchor]}.\n",
-        );
+        workspace.insert("a.plumb", 1, "`# No anchor\n\nSee `->[x][#No-anchor].\n");
         let entry = workspace.get("a.plumb").unwrap();
         let link = &entry.current.as_ref().unwrap().output.links[0];
         assert!(matches!(
@@ -5207,18 +5268,18 @@ mod tests {
     fn returns_reverse_references() {
         let mut workspace = Workspace::new();
         workspace.insert("a.plumb", 1, "`# Target {\n  `@ target\n}\n");
-        workspace.insert("b.plumb", 1, "`->[x]{`:[to a.plumb#target]}\n");
-        workspace.insert("missing.plumb", 1, "`->[x]{`:[to a.plumb#missing]}\n");
+        workspace.insert("b.plumb", 1, "`->[x][a.plumb#target]\n");
+        workspace.insert("missing.plumb", 1, "`->[x][a.plumb#missing]\n");
         workspace.insert(
             "task.plumb",
             1,
             "`task Task {\n  `: depends a.plumb#missing\n}\n",
         );
-        workspace.insert("document.plumb", 1, "`->[a]{`:[to a.plumb]}\n");
+        workspace.insert("document.plumb", 1, "`->[a][a.plumb]\n");
         workspace.insert(
             "a-local.plumb",
             1,
-            "`# Local {\n  `@ local\n}\n\n`->[x]{`:[to #local]}\n",
+            "`# Local {\n  `@ local\n}\n\n`->[x][#local]\n",
         );
         assert_eq!(workspace.references_to("a.plumb", "target").len(), 1);
         let document_references = workspace.references_to_document("a.plumb");
@@ -5272,7 +5333,7 @@ mod tests {
         workspace.insert(
             "source.plumb",
             1,
-            "`->[one]{`:[to target.plumb#one]} and `->[two]{`:[to target.plumb#two]}\n",
+            "`->[one][target.plumb#one] and `->[two][target.plumb#two]\n",
         );
 
         let references = workspace.reverse_references_for_document(
@@ -5291,7 +5352,7 @@ mod tests {
     #[test]
     fn resolves_document_and_anchor_targets_from_declarations_and_reference_components() {
         let target_source = "{\n  `: title Target\n}\n\n`# Section {\n  `@ section\n}\n";
-        let reference_source = "See `->[named]{`:[to target.plumb#section]} and `->\"target.plumb#section\".\n\n`task Review {\n  `: prev target.plumb#section\n  `: depends target.plumb#section\n}\n";
+        let reference_source = "See `->[named][target.plumb#section] and `->\"target.plumb#section\".\n\n`task Review {\n  `: prev target.plumb#section\n  `: depends target.plumb#section\n}\n";
         let mut workspace = Workspace::new();
         workspace.insert("target.plumb", 1, target_source);
         workspace.insert("reference.plumb", 1, reference_source);
@@ -5354,7 +5415,7 @@ mod tests {
     #[test]
     fn task_fields_participate_in_navigation_references_and_anchor_rename() {
         let target_source = "`task Draft {\n  `@ draft\n}\n\n`node Note {\n  `@ note\n}\n";
-        let reference_source = "`task Review {\n  `@ review\n  `: prev Project Plan.plumb#draft\n  `: depends Project Plan.plumb#draft Project Plan.plumb#note Project%20Plan.plumb#literal\n}\n\nSee `->[draft]{`:[to Project Plan.plumb#draft]}.\n";
+        let reference_source = "`task Review {\n  `@ review\n  `: prev Project Plan.plumb#draft\n  `: depends Project Plan.plumb#draft Project Plan.plumb#note Project%20Plan.plumb#literal\n}\n\nSee `->[draft][Project Plan.plumb#draft].\n";
         let mut workspace = Workspace::new();
         workspace.insert("Project Plan.plumb", 4, target_source);
         workspace.insert(
@@ -5416,7 +5477,7 @@ mod tests {
     #[test]
     fn document_rename_rewrites_raw_task_reference_paths() {
         let target_source = "`task Draft {\n  `@ draft\n}\n";
-        let reference_source = "`task Review {\n  `: prev Project Plan.plumb#draft\n  `: depends Project Plan.plumb#draft\n}\n\nSee `->[draft]{`:[to Project Plan.plumb#draft]}.\n";
+        let reference_source = "`task Review {\n  `: prev Project Plan.plumb#draft\n  `: depends Project Plan.plumb#draft\n}\n\nSee `->[draft][Project Plan.plumb#draft].\n";
         let mut workspace = Workspace::new();
         workspace.insert("Project Plan.plumb", 4, target_source);
         workspace.insert("review.plumb", 7, reference_source);
@@ -5455,7 +5516,7 @@ mod tests {
         let source = "{\n  `: title Stable title\n}\n";
         let mut workspace = Workspace::new();
         workspace.insert("current.plumb", 4, source);
-        workspace.insert("incoming.plumb", 7, "`->[current]{`:[to current.plumb]}\n");
+        workspace.insert("incoming.plumb", 7, "`->[current][current.plumb]\n");
 
         let target = workspace
             .document_rename_target_at("current.plumb", source.find('{').unwrap())
@@ -5491,7 +5552,7 @@ mod tests {
     fn rename_updates_declaration_and_cross_file_fragments() {
         let mut workspace = Workspace::new();
         workspace.insert("a.plumb", 4, "`# Target {\n  `@ target\n}\n");
-        workspace.insert("b.plumb", 7, "`->[x]{`:[to a.plumb#target]}\n");
+        workspace.insert("b.plumb", 7, "`->[x][a.plumb#target]\n");
         let target = workspace
             .anchor_rename_target_at(
                 "a.plumb",
@@ -5645,7 +5706,7 @@ mod tests {
         );
         assert_eq!(labels[0].label, "Design Guide");
         assert_eq!(labels[0].detail, "design.plumb");
-        assert_eq!(labels[0].new_text, "`->[Design Guide]{`:[to design.plumb]}");
+        assert_eq!(labels[0].new_text, "`->[Design Guide][design.plumb]");
         let spaced_label = workspace.complete_link(
             "notes/current.plumb",
             &LinkCompletionContext::Label {
@@ -5655,14 +5716,14 @@ mod tests {
         );
         assert_eq!(
             spaced_label[0].new_text,
-            "`->[Project Plan]{`:[to Project Plan.plumb]}"
+            "`->[Project Plan][Project Plan.plumb]"
         );
         let spaced_path = workspace.complete_link(
             "notes/current.plumb",
             &LinkCompletionContext::Path {
                 replace: 0..0,
                 query: "project".to_string(),
-                quoted: true,
+                parsed: true,
             },
         );
         assert_eq!(spaced_path[0].new_text, "Project Plan.plumb");
@@ -5671,11 +5732,11 @@ mod tests {
             &LinkCompletionContext::Path {
                 replace: 0..0,
                 query: "quote".to_string(),
-                quoted: true,
+                parsed: true,
             },
         );
         assert_eq!(quote_path[0].label, "quote\"name.plumb");
-        assert_eq!(quote_path[0].new_text, "quote\\\"name.plumb");
+        assert_eq!(quote_path[0].new_text, "quote\"name.plumb");
         let spaced_autolink =
             workspace.complete_link("notes/current.plumb", &autolink_path(0..0, "project"));
         assert_eq!(spaced_autolink[0].label, "Project Plan.plumb");
@@ -5709,7 +5770,7 @@ mod tests {
         );
         assert_eq!(
             structural_delimiters[0].new_text,
-            "`->[brace`{draft`}`].plumb]{`:[to brace`{draft`}`].plumb]}"
+            "`->[brace`{draft`}`].plumb][brace`{draft`}`].plumb]"
         );
         assert!(parse(&structural_delimiters[0].new_text).is_valid());
         let spaced_anchor = workspace.complete_link(
@@ -6166,9 +6227,9 @@ mod tests {
         workspace.insert(
             "notes/a.plumb",
             1,
-            "`# A {\n  `@ a\n}\n\n`->[c]{`:[to ../shared/c.plumb#c]}\n",
+            "`# A {\n  `@ a\n}\n\n`->[c][../shared/c.plumb#c]\n",
         );
-        workspace.insert("notes/b.plumb", 2, "`->[a]{`:[to a.plumb#a]}\n");
+        workspace.insert("notes/b.plumb", 2, "`->[a][a.plumb#a]\n");
         workspace.insert("shared/c.plumb", 3, "`# C {\n  `@ c\n}\n");
         let link = &workspace
             .get("notes/b.plumb")
@@ -6403,7 +6464,7 @@ mod tests {
 
     #[test]
     fn task_status_formats_multiline_attributes_with_a_long_head() {
-        let source = "`task `->[如何在 nix 中检查 IFD]{`:[to 如何在 nix 中检查 IFD.plumb]} {\n `: created 2026-07-21T14:37:59+08:00\n}\n";
+        let source = "`task `->[如何在 nix 中检查 IFD][如何在 nix 中检查 IFD.plumb] {\n `: created 2026-07-21T14:37:59+08:00\n}\n";
         assert_eq!(plumb_format::format(source).unwrap(), source);
         let mut workspace = Workspace::new();
         workspace.insert("closed.plumb", 8, source);
@@ -6422,7 +6483,7 @@ mod tests {
 
         assert_eq!(
             edited,
-            "`task `->[如何在 nix 中检查 IFD]{`:[to 如何在 nix 中检查 IFD.plumb]} {\n `: created 2026-07-21T14:37:59+08:00\n `: done 2026-07-21T21:52:24+08:00\n}\n"
+            "`task `->[如何在 nix 中检查 IFD][如何在 nix 中检查 IFD.plumb] {\n `: created 2026-07-21T14:37:59+08:00\n `: done 2026-07-21T21:52:24+08:00\n}\n"
         );
         assert_eq!(plumb_format::format(&edited).unwrap(), edited);
     }
@@ -6937,7 +6998,7 @@ mod tests {
             1,
             "`task Write {\n  `@ write\n}\n\n`node Plain {\n  `@ plain\n}\n",
         );
-        let events = "{\n  `: date 2026-07-30\n  `: timezone +08:00\n}\n\n`event 10:30 Early {\n  `: timezone +05:00\n}\n`event 11:00 `->[Write]{`:[to tasks.plumb#write]} {\n}\n`event 12:00 `->[Write]{`:[to tasks.plumb#write]} {\n  `: tasks \n}\n`event 14:00--15:00 Review {\n  `@ review\n  `: uid review@example\n  `: tasks tasks.plumb#write\n}\n`event 15:00 Point {\n  `: tasks tasks.plumb#plain missing.plumb#task bad\n}\n";
+        let events = "{\n  `: date 2026-07-30\n  `: timezone +08:00\n}\n\n`event 10:30 Early {\n  `: timezone +05:00\n}\n`event 11:00 `->[Write][tasks.plumb#write] {\n}\n`event 12:00 `->[Write][tasks.plumb#write] {\n  `: tasks \n}\n`event 14:00--15:00 Review {\n  `@ review\n  `: uid review@example\n  `: tasks tasks.plumb#write\n}\n`event 15:00 Point {\n  `: tasks tasks.plumb#plain missing.plumb#task bad\n}\n";
         workspace.insert("events.plumb", 2, events);
 
         let target = TaskRef {
@@ -7044,7 +7105,7 @@ mod tests {
         workspace.insert(
             "events.plumb",
             2,
-            "{\n  `: date 2026-08-11\n  `: timezone +08:00\n}\n\n`->[Before]{`:[to tasks.plumb#write]}\n\n`event 10:00 Outer `->[Outer]{`:[to tasks.plumb#write]}\n  `event 11:00 Nested `->[Nested]{`:[to tasks.plumb#write]}\n\n`->[After]{`:[to tasks.plumb#write]}\n",
+            "{\n  `: date 2026-08-11\n  `: timezone +08:00\n}\n\n`->[Before][tasks.plumb#write]\n\n`event 10:00 Outer `->[Outer][tasks.plumb#write]\n  `event 11:00 Nested `->[Nested][tasks.plumb#write]\n\n`->[After][tasks.plumb#write]\n",
         );
 
         let output = workspace.current_output(Path::new("events.plumb")).unwrap();

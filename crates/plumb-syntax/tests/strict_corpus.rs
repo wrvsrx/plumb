@@ -198,16 +198,32 @@ fn attrs_shape(attrs: &Attributes) -> Vec<String> {
 }
 
 fn inline_shape(content: &InlineContent) -> String {
+    enum Action<'a> {
+        Items(&'a [Inline], usize),
+        Slot(&'a plumb_syntax::InlineSlot),
+        CloseSlot,
+    }
+
     let mut output = String::new();
-    let mut stack = vec![(content.items.as_slice(), 0usize, false)];
-    while let Some((items, index, closes_element)) = stack.pop() {
-        if index >= items.len() {
-            if closes_element {
+    let mut stack = vec![Action::Items(content.items.as_slice(), 0)];
+    while let Some(action) = stack.pop() {
+        let (items, index) = match action {
+            Action::CloseSlot => {
                 output.push(']');
+                continue;
             }
+            Action::Slot(slot) => {
+                output.push('[');
+                stack.push(Action::CloseSlot);
+                stack.push(Action::Items(slot.content.items.as_slice(), 0));
+                continue;
+            }
+            Action::Items(items, index) => (items, index),
+        };
+        if index >= items.len() {
             continue;
         }
-        stack.push((items, index + 1, closes_element));
+        stack.push(Action::Items(items, index + 1));
         match &items[index] {
             Inline::Text { text, .. } => output.push_str(&format!("T{text:?}")),
             Inline::Space { text, .. } => output.push_str(&format!("W{text:?}")),
@@ -219,13 +235,10 @@ fn inline_shape(content: &InlineContent) -> String {
                 ..
             } => output.push_str(&format!("V{quote_count}{:?}{:?}", attrs_shape(attrs), text)),
             Inline::Element {
-                kind,
-                content,
-                attrs,
-                ..
+                kind, slots, attrs, ..
             } => {
-                output.push_str(&format!("E{kind}{:?}[", attrs_shape(attrs)));
-                stack.push((content.items.as_slice(), 0, true));
+                output.push_str(&format!("E{kind}{:?}", attrs_shape(attrs)));
+                stack.extend(slots.iter().rev().map(Action::Slot));
             }
         }
     }

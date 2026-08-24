@@ -659,16 +659,15 @@ impl Formatter {
                     self.indent(continuation_indent);
                 }
                 Inline::Element {
-                    kind,
-                    content,
-                    attrs,
-                    ..
+                    kind, slots, attrs, ..
                 } => {
                     self.output.push('`');
                     self.output.push_str(kind);
-                    self.output.push('[');
-                    self.inlines(content, continuation_indent, true);
-                    self.output.push(']');
+                    for slot in slots {
+                        self.output.push('[');
+                        self.inlines(&slot.content, continuation_indent, true);
+                        self.output.push(']');
+                    }
                     self.inline_attributes(attrs, continuation_indent);
                 }
                 Inline::Verbatim {
@@ -868,13 +867,14 @@ mod tests {
                 }
                 Inline::SoftBreak { .. } => output.push('S'),
                 Inline::Element {
-                    kind,
-                    content,
-                    attrs,
-                    ..
+                    kind, slots, attrs, ..
                 } => {
                     let _ = write!(output, "E{kind:?}");
-                    shape_inlines(content, output);
+                    for slot in slots {
+                        output.push('[');
+                        shape_inlines(&slot.content, output);
+                        output.push(']');
+                    }
                     shape_attrs(attrs, output);
                 }
                 Inline::Verbatim { text, attrs, .. } => {

@@ -59,6 +59,14 @@
     "required_tokens": ["InlineKind","LineEnding"]
   },
   {
+    "name": "parsed inline multi-slot preserves ordered boundaries",
+    "source": "`pair[first][second]{`-[tag]}\n",
+    "valid": true,
+    "blocks": [{"kind":"paragraph","head":"firstsecond","inline":"Epair[\".tag\"][T\"first\"][T\"second\"]"}],
+    "diagnostics": [],
+    "required_tokens": ["Introducer","InlineKind","Delimiter","Text"]
+  },
+  {
     "name": "strengthened inline verbatim",
     "source": "Raw `text\"[a ] b]\"\n",
     "valid": true,

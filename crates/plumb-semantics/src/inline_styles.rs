@@ -48,10 +48,7 @@ fn collect_blocks(blocks: &[Block], output: &mut InlineStyleOutput) {
 fn collect_inlines(content: &InlineContent, output: &mut InlineStyleOutput) {
     for inline in &content.items {
         let Inline::Element {
-            range,
-            kind,
-            content,
-            ..
+            range, kind, slots, ..
         } = inline
         else {
             continue;
@@ -65,13 +62,15 @@ fn collect_inlines(content: &InlineContent, output: &mut InlineStyleOutput) {
             "_" => Some(InlineStyleKind::Subscript),
             _ => None,
         };
-        if let Some(kind) = kind {
+        if let Some(kind) = kind.filter(|_| slots.len() == 1) {
             output.styles.push(InlineStyleRecord {
                 kind,
                 range: range.clone(),
             });
         }
-        collect_inlines(content, output);
+        for slot in slots {
+            collect_inlines(&slot.content, output);
+        }
     }
 }
 

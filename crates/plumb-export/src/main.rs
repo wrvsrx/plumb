@@ -210,6 +210,12 @@ fn lower_definition_list(
             };
             let mark = block.mark.as_ref().expect("a definition has a mark");
             let mut body = lower_blocks(&block.children, analysis);
+            if let Some(inline_body) = &definition.inline_body {
+                body.insert(
+                    0,
+                    json!({ "t": "Para", "c": lower_inlines(inline_body, analysis) }),
+                );
+            }
             if !mark.attrs.items.is_empty() {
                 body = vec![json!({
                     "t": "Div",
@@ -376,12 +382,12 @@ fn lower_inlines(content: &InlineContent, analysis: &DocumentOutput) -> Vec<Valu
             Inline::Element {
                 range,
                 kind,
-                content,
+                slots,
                 attrs,
                 ..
             } => {
                 if let Some(style) = analysis.inline_styles.style_at_node_start(range.start) {
-                    let content = lower_inlines(content, analysis);
+                    let content = lower_slots(slots, analysis);
                     if style.kind == InlineStyleKind::Mark {
                         output.push(json!({
                             "t": "Span",
@@ -415,28 +421,76 @@ fn lower_inlines(content: &InlineContent, analysis: &DocumentOutput) -> Vec<Valu
                 } else if let Some(image) = analysis.image_at_node_start(range.start) {
                     output.push(json!({
                         "t": "Image",
-                        "c": [lower_image_attrs(attrs), lower_inlines(content, analysis), [&image.source.value, ""]],
+                        "c": [lower_image_attrs(attrs), lower_first_slot(slots, analysis), [&image.source.value, ""]],
                     }));
                 } else if let Some(file) = analysis.file_at_node_start(range.start) {
                     output.push(json!({
                         "t": "Link",
-                        "c": [lower_file_attrs(attrs), lower_inlines(content, analysis), [&file.source.value, ""]],
+                        "c": [lower_file_attrs(attrs), lower_first_slot(slots, analysis), [&file.source.value, ""]],
                     }));
                 } else if let Some(link) = analysis.link_at_node_start(range.start) {
                     output.push(json!({
                         "t": "Link",
-                        "c": [lower_attrs(attrs, None), lower_inlines(content, analysis), [&link.target.value, ""]],
+                        "c": [lower_link_attrs(attrs), lower_link_label(slots, &link.selection_range, analysis), [&link.target.value, ""]],
                     }));
                 } else {
                     output.push(json!({
                         "t": "Span",
-                        "c": [lower_attrs(attrs, (kind != "()").then_some(kind)), lower_inlines(content, analysis)],
+                        "c": [lower_attrs(attrs, (kind != "()").then_some(kind)), lower_slots(slots, analysis)],
                     }));
                 }
             }
         }
     }
     output
+}
+
+fn lower_first_slot(slots: &[plumb_syntax::InlineSlot], analysis: &DocumentOutput) -> Vec<Value> {
+    slots
+        .first()
+        .map_or_else(Vec::new, |slot| lower_inlines(&slot.content, analysis))
+}
+
+fn lower_slots(slots: &[plumb_syntax::InlineSlot], analysis: &DocumentOutput) -> Vec<Value> {
+    slots
+        .iter()
+        .flat_map(|slot| lower_inlines(&slot.content, analysis))
+        .collect()
+}
+
+fn lower_link_label(
+    slots: &[plumb_syntax::InlineSlot],
+    selection_range: &std::ops::Range<usize>,
+    analysis: &DocumentOutput,
+) -> Vec<Value> {
+    let Some(first) = slots.first() else {
+        return Vec::new();
+    };
+    let content = InlineContent {
+        range: selection_range.clone(),
+        items: first
+            .content
+            .items
+            .iter()
+            .filter(|inline| inline_range(inline) == selection_range)
+            .cloned()
+            .collect(),
+    };
+    if content.items.is_empty() && first.content.range == *selection_range {
+        lower_inlines(&first.content, analysis)
+    } else {
+        lower_inlines(&content, analysis)
+    }
+}
+
+fn inline_range(inline: &Inline) -> &std::ops::Range<usize> {
+    match inline {
+        Inline::Text { range, .. }
+        | Inline::Space { range, .. }
+        | Inline::SoftBreak { range }
+        | Inline::Element { range, .. }
+        | Inline::Verbatim { range, .. } => range,
+    }
 }
 
 fn lower_citation(citation: &CitationRecord) -> Value {
@@ -488,6 +542,10 @@ fn lower_image_attrs(attrs: &Attributes) -> Value {
 
 fn lower_file_attrs(attrs: &Attributes) -> Value {
     lower_attrs_filtered(attrs, Some("file"), |_| false, |key| key == "src")
+}
+
+fn lower_link_attrs(attrs: &Attributes) -> Value {
+    lower_attrs_filtered(attrs, None, |_| false, |key| key == "to")
 }
 
 fn lower_mark_attrs(attrs: &Attributes) -> Value {
@@ -680,9 +738,12 @@ mod tests {
 
     #[test]
     fn exports_links_from_shared_document_facts() {
-        let document = export("See `->[target]{`:[to other.plumb#id]}.\n").unwrap();
+        let document = export("See `->[target][other.plumb#id].\n").unwrap();
         assert_eq!(document["blocks"][0]["c"][2]["t"], "Link");
         assert_eq!(document["blocks"][0]["c"][2]["c"][2][0], "other.plumb#id");
+
+        let legacy = export("`->[target]{`:[to other.plumb#id]}\n").unwrap();
+        assert_eq!(legacy["blocks"][0]["c"][0]["c"][0], json!(["", [], []]));
     }
 
     #[test]

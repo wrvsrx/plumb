@@ -4,7 +4,7 @@ use std::path::Path;
 
 use plumb_syntax::{
     AttachedContent, AttrItem, AttrValue, Attributes, Block, Diagnostic, DiagnosticSeverity,
-    Document, Inline, InlineContent,
+    Document, Inline, InlineContent, InlineSlot,
 };
 use serde::{Deserialize, Serialize};
 use url::Url;
@@ -67,7 +67,11 @@ pub enum LinkTarget {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum LinkSpelling {
-    Explicit,
+    Positional,
+    LegacyProperty {
+        property_range: Range<usize>,
+        value_range: Range<usize>,
+    },
     Verbatim {
         envelope: Range<usize>,
         quote_count: usize,
@@ -167,6 +171,9 @@ pub fn analyze_document(source: &str, document: &Document) -> DocumentOutput {
         events,
         ..DocumentOutput::default()
     };
+    output
+        .diagnostics
+        .extend(association_arity_diagnostics(document));
     let mut first_ids: HashMap<String, Range<usize>> = HashMap::new();
     if let Some(attached) = document.attrs.attached.as_deref() {
         match &attached.content {
@@ -180,6 +187,75 @@ pub fn analyze_document(source: &str, document: &Document) -> DocumentOutput {
     }
     collect_blocks(source, &document.blocks, &mut first_ids, &mut output);
     output
+}
+
+fn association_arity_diagnostics(document: &Document) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+    let mut blocks = document.blocks.iter().collect::<Vec<_>>();
+    let mut contents = Vec::new();
+    push_attached_syntax(&document.attrs, &mut blocks, &mut contents);
+    while !blocks.is_empty() || !contents.is_empty() {
+        if let Some(block) = blocks.pop() {
+            match block {
+                Block::Parsed(block) => {
+                    contents.push(&block.head);
+                    blocks.extend(&block.children);
+                    if let Some(mark) = &block.mark {
+                        push_attached_syntax(&mark.attrs, &mut blocks, &mut contents);
+                    }
+                }
+                Block::Verbatim(block) => {
+                    push_attached_syntax(&block.attrs, &mut blocks, &mut contents);
+                }
+            }
+            continue;
+        }
+        let content = contents.pop().expect("syntax traversal has inline content");
+        for inline in &content.items {
+            match inline {
+                Inline::Element {
+                    range,
+                    kind,
+                    slots,
+                    attrs,
+                    ..
+                } => {
+                    if kind == ":" && slots.len() > 2 {
+                        diagnostics.push(Diagnostic {
+                            code: "association.invalid-arity",
+                            severity: DiagnosticSeverity::Warning,
+                            message: "inline ':' association accepts one compact slot or two expanded slots"
+                                .to_string(),
+                            range: range.clone(),
+                            related: Vec::new(),
+                        });
+                    }
+                    contents.extend(slots.iter().map(|slot| &slot.content));
+                    push_attached_syntax(attrs, &mut blocks, &mut contents);
+                }
+                Inline::Verbatim { attrs, .. } => {
+                    push_attached_syntax(attrs, &mut blocks, &mut contents);
+                }
+                Inline::Text { .. } | Inline::Space { .. } | Inline::SoftBreak { .. } => {}
+            }
+        }
+    }
+    diagnostics.sort_by_key(|diagnostic| diagnostic.range.start);
+    diagnostics
+}
+
+fn push_attached_syntax<'a>(
+    attrs: &'a Attributes,
+    blocks: &mut Vec<&'a Block>,
+    contents: &mut Vec<&'a InlineContent>,
+) {
+    let Some(attached) = attrs.attached.as_deref() else {
+        return;
+    };
+    match &attached.content {
+        AttachedContent::Blocks(attached) => blocks.extend(attached),
+        AttachedContent::Inlines(attached) => contents.push(attached),
+    }
 }
 
 fn collect_blocks(
@@ -240,27 +316,38 @@ fn collect_inlines(
             Inline::Element {
                 range,
                 kind,
-                content,
+                slots,
                 attrs,
                 ..
             } => {
+                let selection_range = slots
+                    .first()
+                    .map_or_else(|| range.clone(), |slot| slot.content.range.clone());
                 collect_anchor(
                     source,
                     attrs,
                     AnchorKind::Inline,
                     range.clone(),
-                    content.range.clone(),
+                    selection_range.clone(),
                     first_ids,
                     output,
                 );
                 if kind == "->" {
-                    collect_link(source, range.clone(), content.range.clone(), attrs, output);
+                    collect_link(source, range.clone(), slots, attrs, output);
                 } else if kind == "img" {
-                    collect_image(source, range.clone(), content.range.clone(), attrs, output);
+                    collect_image(
+                        source,
+                        range.clone(),
+                        selection_range.clone(),
+                        attrs,
+                        output,
+                    );
                 } else if kind == "file" {
-                    collect_file(source, range.clone(), content.range.clone(), attrs, output);
+                    collect_file(source, range.clone(), selection_range, attrs, output);
                 }
-                collect_inlines(source, content, first_ids, output);
+                for slot in slots {
+                    collect_inlines(source, &slot.content, first_ids, output);
+                }
             }
             Inline::Verbatim {
                 range,
@@ -592,24 +679,151 @@ fn collect_anchor(
 fn collect_link(
     source: &str,
     range: Range<usize>,
-    selection_range: Range<usize>,
+    slots: &[InlineSlot],
     attrs: &Attributes,
     output: &mut DocumentOutput,
 ) {
-    let Some(value) = attrs.items.iter().find_map(|item| match item {
-        AttrItem::Pair { key, value, .. } if key == "to" => Some(value),
+    let legacy = attrs.items.iter().find_map(|item| match item {
+        AttrItem::Pair {
+            key, value, range, ..
+        } if key == "to" => Some((value, range.clone())),
         _ => None,
-    }) else {
+    });
+
+    if slots.len() == 1 {
+        if let Some((value, property_range)) = legacy {
+            let target = attr_source_backed(source, value);
+            output.diagnostics.push(Diagnostic {
+                code: "link.legacy-to-property",
+                severity: DiagnosticSeverity::Warning,
+                message:
+                    "legacy named Link target property should be rewritten as a positional slot"
+                        .to_string(),
+                range: property_range.clone(),
+                related: vec![range.clone()],
+            });
+            push_link(
+                range,
+                slots[0].content.range.clone(),
+                target,
+                LinkSpelling::LegacyProperty {
+                    property_range,
+                    value_range: value.range.clone(),
+                },
+                output,
+            );
+            return;
+        }
+    } else if legacy.is_some() {
+        output.diagnostics.push(Diagnostic {
+            code: "link.conflicting-target",
+            severity: DiagnosticSeverity::Warning,
+            message: "named Link cannot combine positional target slots with a 'to' property"
+                .to_string(),
+            range,
+            related: Vec::new(),
+        });
+        return;
+    }
+
+    let Some((selection_range, target)) = positional_link_parts(source, slots) else {
         output.diagnostics.push(Diagnostic {
             code: "link.missing-target",
             severity: DiagnosticSeverity::Warning,
-            message: "link requires a 'to' attribute".to_string(),
+            message: "link requires a compact label/target pair or exactly two positional slots"
+                .to_string(),
             range,
             related: Vec::new(),
         });
         return;
     };
-    let target = attr_source_backed(source, value);
+    push_link(
+        range,
+        selection_range,
+        target,
+        LinkSpelling::Positional,
+        output,
+    );
+}
+
+fn positional_link_parts(
+    source: &str,
+    slots: &[InlineSlot],
+) -> Option<(Range<usize>, SourceBacked<String>)> {
+    match slots {
+        [slot] => {
+            let [label, Inline::Space { .. }, target @ ..] = slot.content.items.as_slice() else {
+                return None;
+            };
+            let target = source_backed_inline_items(source, target)?;
+            Some((inline_range(label).clone(), target))
+        }
+        [label, target] => Some((
+            label.content.range.clone(),
+            source_backed_inline_items(source, &target.content.items)?,
+        )),
+        _ => None,
+    }
+}
+
+fn source_backed_inline_items(source: &str, items: &[Inline]) -> Option<SourceBacked<String>> {
+    let first = items.first()?;
+    let last = items.last()?;
+    let range = inline_range(first).start..inline_range(last).end;
+    let mut value = String::new();
+    let mut decoded_boundaries = vec![range.start];
+    for inline in items {
+        let (text, source_range) = match inline {
+            Inline::Text { text, range } | Inline::Space { text, range } => {
+                (text.as_str(), range.clone())
+            }
+            Inline::SoftBreak { range } => (" ", range.clone()),
+            Inline::Element { .. } | Inline::Verbatim { .. } => return None,
+        };
+        let source_text = &source[source_range.clone()];
+        let escaped_single = text.chars().count() == 1 && source_text.len() != text.len();
+        for (offset, character) in text.char_indices() {
+            value.push(character);
+            for byte in 1..=character.len_utf8() {
+                let decoded_end = offset + byte == text.len();
+                decoded_boundaries.push(if decoded_end {
+                    source_range.end
+                } else if escaped_single {
+                    source_range.start
+                } else {
+                    source_range.start + offset + byte
+                });
+            }
+        }
+    }
+    if value.is_empty() {
+        return None;
+    }
+    Some(SourceBacked {
+        raw: source[range.clone()].to_string(),
+        value,
+        range,
+        decoded_boundaries,
+    })
+}
+
+fn inline_range(inline: &Inline) -> &Range<usize> {
+    match inline {
+        Inline::Text { range, .. }
+        | Inline::Space { range, .. }
+        | Inline::SoftBreak { range }
+        | Inline::Element { range, .. }
+        | Inline::Verbatim { range, .. } => range,
+    }
+}
+
+fn push_link(
+    range: Range<usize>,
+    selection_range: Range<usize>,
+    target: SourceBacked<String>,
+    spelling: LinkSpelling,
+    output: &mut DocumentOutput,
+) {
     let (target_kind, path_decoded, fragment_decoded) = classify_target(&target.value);
     let path_range = path_decoded.and_then(|decoded| target.source_range(decoded));
     let fragment_range = fragment_decoded.and_then(|decoded| target.source_range(decoded));
@@ -618,7 +832,7 @@ fn collect_link(
         selection_range,
         target,
         target_kind,
-        spelling: LinkSpelling::Explicit,
+        spelling,
         path_range,
         fragment_range,
     });
@@ -808,7 +1022,7 @@ mod tests {
         let parsed = parse("See `->[target]{`:[to docs/a.plumb#intro]}.\n");
         let output = analyze_document(&parsed.source, &parsed.syntax);
         let link = &output.links[0];
-        assert_eq!(link.spelling, LinkSpelling::Explicit);
+        assert!(matches!(link.spelling, LinkSpelling::LegacyProperty { .. }));
         assert_eq!(
             &parsed.source[link.path_range.clone().unwrap()],
             "docs/a.plumb"
@@ -824,6 +1038,104 @@ mod tests {
                 fragment: "intro".to_string(),
             }
         );
+    }
+
+    #[test]
+    fn recognizes_compact_and_expanded_positional_links() {
+        let source = "`->[guide target.plumb]\n`->[guide page][Project Guide.plumb#intro]\n`->[`*[external]][https://example.test]\n";
+        let parsed = parse(source);
+        assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
+
+        let output = analyze_document(&parsed.source, &parsed.syntax);
+        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+        assert_eq!(output.links.len(), 3);
+        assert!(output
+            .links
+            .iter()
+            .all(|link| link.spelling == LinkSpelling::Positional));
+        assert_eq!(output.links[0].target.value, "target.plumb");
+        assert_eq!(
+            output.links[0].target_kind,
+            LinkTarget::Document {
+                path: "target.plumb".to_string()
+            }
+        );
+        assert_eq!(
+            &source[output.links[1].selection_range.clone()],
+            "guide page"
+        );
+        assert_eq!(output.links[1].target.value, "Project Guide.plumb#intro");
+        assert_eq!(
+            output.links[1].target_kind,
+            LinkTarget::Anchor {
+                path: Some("Project Guide.plumb".to_string()),
+                fragment: "intro".to_string()
+            }
+        );
+        assert_eq!(
+            &source[output.links[2].selection_range.clone()],
+            "`*[external]"
+        );
+        assert_eq!(output.links[2].target_kind, LinkTarget::External);
+    }
+
+    #[test]
+    fn positional_link_ranges_map_utf8_and_escaped_delimiters() {
+        let source = "`->[目标][目录/项`].plumb#章节]\n";
+        let parsed = parse(source);
+        assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
+
+        let output = analyze_document(&parsed.source, &parsed.syntax);
+        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+        let link = &output.links[0];
+        assert_eq!(link.target.raw, "目录/项`].plumb#章节");
+        assert_eq!(link.target.value, "目录/项].plumb#章节");
+        assert_eq!(&source[link.path_range.clone().unwrap()], "目录/项`].plumb");
+        assert_eq!(&source[link.fragment_range.clone().unwrap()], "章节");
+    }
+
+    #[test]
+    fn legacy_link_warns_with_rewrite_ranges_and_conflicts_with_positional_target() {
+        let source =
+            "`->[legacy]{`:[to target.plumb]}\n`->[current][target.plumb]{`:[to other.plumb]}\n";
+        let parsed = parse(source);
+        assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
+
+        let output = analyze_document(&parsed.source, &parsed.syntax);
+        assert_eq!(output.links.len(), 1);
+        let LinkSpelling::LegacyProperty {
+            property_range,
+            value_range,
+        } = &output.links[0].spelling
+        else {
+            panic!("legacy Link must retain migration ranges");
+        };
+        assert_eq!(&source[property_range.clone()], "`:[to target.plumb]");
+        assert_eq!(&source[value_range.clone()], "target.plumb");
+        assert_eq!(
+            output
+                .diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.code)
+                .collect::<Vec<_>>(),
+            ["link.legacy-to-property", "link.conflicting-target"]
+        );
+        assert_eq!(output.diagnostics[0].range, property_range.clone());
+    }
+
+    #[test]
+    fn diagnoses_associations_with_more_than_two_slots_inside_attachments() {
+        let source = "`span[value]{`:[key][value][extra]}\n";
+        let parsed = parse(source);
+        assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
+
+        let output = analyze_document(&parsed.source, &parsed.syntax);
+        let diagnostic = output
+            .diagnostics
+            .iter()
+            .find(|diagnostic| diagnostic.code == "association.invalid-arity")
+            .expect("invalid association arity diagnostic");
+        assert_eq!(&source[diagnostic.range.clone()], "`:[key][value][extra]");
     }
 
     #[test]

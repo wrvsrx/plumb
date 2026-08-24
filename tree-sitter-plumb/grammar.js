@@ -220,22 +220,27 @@ module.exports = grammar({
       $.attached_inline_text,
     ))),
 
-    inline_element: $ => prec.right(2, seq(
+    inline_element: $ => prec.dynamic(2, prec.right(2, seq(
       field('introducer', $.introducer),
       field('kind', $.inline_kind),
-      '[',
-      optional(field('content', $.parsed_inline_content)),
-      ']',
+      repeat1($._inline_slot),
       optional(field('attached', $.attached_inline_group)),
-    )),
+    ))),
 
-    incomplete_inline_element: $ => prec.right(-1, seq(
+    incomplete_inline_element: $ => prec.dynamic(-2, prec.right(-1, seq(
       field('introducer', $.introducer),
       field('kind', $.inline_kind),
-      '[',
+      repeat($._inline_slot),
+      token.immediate(prec(5, '[')),
       optional(field('content', $.parsed_inline_content)),
       $._incomplete_inline_end,
-    )),
+    ))),
+
+    _inline_slot: $ => seq(
+      token.immediate(prec(5, '[')),
+      optional(field('content', $.parsed_inline_content)),
+      ']',
+    ),
 
     inline_verbatim: $ => prec.right(2, seq(
       field('introducer', $.introducer),

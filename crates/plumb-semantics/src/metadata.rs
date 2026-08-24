@@ -7,11 +7,14 @@ use plumb_syntax::{
     ParsedBlock,
 };
 
+use crate::text::plain_text;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DefinitionRecord {
     pub range: Range<usize>,
     pub term: InlineContent,
     pub term_range: Range<usize>,
+    pub inline_body: Option<InlineContent>,
     pub body_range: Range<usize>,
 }
 
@@ -105,7 +108,7 @@ impl MetadataOutput {
         let metadata = self.metadata.as_ref()?;
         let entry = metadata.entries.iter().find(|entry| entry.key == "title")?;
         match &entry.value {
-            MetadataValue::Scalar { content, .. } => Some(content.plain_text()),
+            MetadataValue::Scalar { content, .. } => Some(plain_text(content)),
             MetadataValue::Null { .. }
             | MetadataValue::List { .. }
             | MetadataValue::Map { .. }
@@ -225,10 +228,10 @@ fn parse_attached_entries(
             ));
             continue;
         }
-        let Some((key, key_range, scalar)) = attached_property_parts(&property.head) else {
+        let Some((key, key_range, scalar)) = attached_property_parts(property) else {
             diagnostics.push(warning(
                 "metadata.invalid-key",
-                "metadata keys must be nonempty plain text without whitespace",
+                "metadata keys must be nonempty plain text",
                 property.head.range.clone(),
             ));
             continue;
@@ -285,14 +288,32 @@ fn parse_attached_value(
 }
 
 fn attached_property_parts(
-    head: &InlineContent,
+    property: &ParsedBlock,
 ) -> Option<(String, Range<usize>, Option<InlineContent>)> {
+    let head = &property.head;
+    if !property.children.is_empty() {
+        let key = plain_association_key(head)?;
+        return Some((key, head.range.clone(), None));
+    }
     let first = head.items.first()?;
     let (key, key_range) = match first {
         Inline::Text { text, range }
             if !text.is_empty() && !text.chars().any(char::is_whitespace) =>
         {
             (text.clone(), range.clone())
+        }
+        Inline::Element {
+            kind,
+            slots,
+            attrs,
+            range,
+            ..
+        } if kind == "()" && slots.len() == 1 && attrs.items.is_empty() => {
+            let key = slots[0].content.plain_text();
+            if key.is_empty() {
+                return None;
+            }
+            (key, range.clone())
         }
         _ => return None,
     };
@@ -421,11 +442,20 @@ fn collect_definition_lists(blocks: &[Block], output: &mut Vec<DefinitionList>) 
         let start = index;
         let mut definitions = Vec::new();
         while let Some(block) = blocks.get(index).and_then(definition_block) {
+            let (term, inline_body) = if block.children.is_empty() {
+                split_inline_arguments(&block.head)
+            } else {
+                (block.head.clone(), None)
+            };
+            let projected_body_range = inline_body
+                .as_ref()
+                .map_or_else(|| body_range(block), |body| body.range.clone());
             definitions.push(DefinitionRecord {
                 range: block.range.clone(),
-                term: block.head.clone(),
-                term_range: block.head.range.clone(),
-                body_range: body_range(block),
+                term_range: term.range.clone(),
+                term,
+                inline_body,
+                body_range: projected_body_range,
             });
             collect_definition_lists(&block.children, output);
             index += 1;
@@ -523,12 +553,11 @@ fn parse_entries(blocks: &[Block], diagnostics: &mut Vec<Diagnostic>) -> Vec<Met
             ));
             continue;
         };
-        let key_range = definition.head.range.clone();
-        let Some(key) = metadata_key(definition) else {
+        let Some((key, key_range, scalar)) = attached_property_parts(definition) else {
             diagnostics.push(warning(
                 "metadata.invalid-key",
-                "metadata keys must be nonempty plain text without whitespace",
-                key_range,
+                "metadata keys must be nonempty plain text",
+                definition.head.range.clone(),
             ));
             continue;
         };
@@ -543,7 +572,14 @@ fn parse_entries(blocks: &[Block], diagnostics: &mut Vec<Diagnostic>) -> Vec<Met
         } else {
             keys.insert(key.clone(), key_range.clone());
         }
-        let value = parse_value(definition, diagnostics);
+        let value = if let Some(content) = scalar {
+            MetadataValue::Scalar {
+                range: content.range.clone(),
+                content,
+            }
+        } else {
+            parse_value(definition, diagnostics)
+        };
         entries.push(MetadataEntry {
             range: definition.range.clone(),
             key,
@@ -651,18 +687,51 @@ fn inline_verbatim(content: &InlineContent) -> Option<&str> {
     (kind.is_empty() && attrs.items.is_empty()).then_some(text)
 }
 
-fn metadata_key(block: &ParsedBlock) -> Option<String> {
-    if block.head.items.is_empty()
-        || !block
-            .head
-            .items
-            .iter()
-            .all(|item| matches!(item, Inline::Text { .. }))
+fn plain_association_key(content: &InlineContent) -> Option<String> {
+    if let [Inline::Element {
+        kind, slots, attrs, ..
+    }] = content.items.as_slice()
+    {
+        if kind == "()" && slots.len() == 1 && attrs.items.is_empty() {
+            let key = slots[0].content.plain_text();
+            return (!key.is_empty()).then_some(key);
+        }
+    }
+    if content.items.is_empty()
+        || content.items.iter().any(|item| {
+            !matches!(
+                item,
+                Inline::Text { .. } | Inline::Space { .. } | Inline::SoftBreak { .. }
+            )
+        })
     {
         return None;
     }
-    let key = block.head.plain_text();
-    (!key.is_empty() && !key.chars().any(char::is_whitespace)).then_some(key)
+    let key = content.plain_text();
+    (!key.is_empty()).then_some(key)
+}
+
+fn split_inline_arguments(content: &InlineContent) -> (InlineContent, Option<InlineContent>) {
+    let Some(first) = content.items.first() else {
+        return (content.clone(), None);
+    };
+    let term_range = inline_source_range(first).clone();
+    let term = InlineContent {
+        range: term_range,
+        items: vec![first.clone()],
+    };
+    let [_, Inline::Space { .. }, value @ ..] = content.items.as_slice() else {
+        return (term, None);
+    };
+    let Some(last) = value.last() else {
+        return (term, None);
+    };
+    let body = InlineContent {
+        range: inline_source_range(value.first().expect("nonempty value")).start
+            ..inline_source_range(last).end,
+        items: value.to_vec(),
+    };
+    (term, Some(body))
 }
 
 fn definition_block(block: &Block) -> Option<&ParsedBlock> {
@@ -846,7 +915,7 @@ mod tests {
     #[test]
     fn diagnoses_metadata_profile_violations() {
         let parsed = parse(
-            "`meta head\n  `: bad key\n\n    value\n  `: duplicate\n  `: duplicate\n  paragraph\n\n`meta\n  `: other\n",
+            "`meta head\n  `: `*[bad key]\n\n    value\n  `: duplicate\n  `: duplicate\n  paragraph\n\n`meta\n  `: other\n",
         );
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let output = analyze_metadata(&parsed.syntax);
@@ -860,6 +929,59 @@ mod tests {
         assert!(codes.contains(&"metadata.duplicate-key"));
         assert!(codes.contains(&"metadata.expected-definition"));
         assert!(codes.contains(&"metadata.multiple-blocks"));
+    }
+
+    #[test]
+    fn definitions_split_compact_heads_but_keep_heads_with_children_whole() {
+        let source = "`: term inline body\n\n`: term with spaces\n\n  child body\n";
+        let parsed = parse(source);
+        assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
+
+        let output = analyze_metadata(&parsed.syntax);
+        let definitions = &output.definition_lists[0].definitions;
+        assert_eq!(definitions.len(), 2);
+        assert_eq!(definitions[0].term.plain_text(), "term");
+        assert_eq!(
+            definitions[0]
+                .inline_body
+                .as_ref()
+                .map(InlineContent::plain_text)
+                .as_deref(),
+            Some("inline body")
+        );
+        assert_eq!(&source[definitions[0].body_range.clone()], "inline body");
+        assert_eq!(definitions[1].term.plain_text(), "term with spaces");
+        assert!(definitions[1].inline_body.is_none());
+        assert_eq!(
+            &source[definitions[1].term_range.clone()],
+            "term with spaces"
+        );
+    }
+
+    #[test]
+    fn root_metadata_uses_compact_or_child_bounded_association_keys() {
+        let source = "{\n `: title plumb title\n `: `()[key with spaces] inline value\n `: child key with spaces\n\n   child value\n}\n";
+        let parsed = parse(source);
+        assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
+
+        let output = analyze_metadata(&parsed.syntax);
+        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+        let metadata = output.metadata.unwrap();
+        assert_eq!(
+            metadata
+                .entries
+                .iter()
+                .map(|entry| entry.key.as_str())
+                .collect::<Vec<_>>(),
+            ["title", "key with spaces", "child key with spaces"]
+        );
+        let scalar = |entry: &MetadataEntry| match &entry.value {
+            MetadataValue::Scalar { content, .. } => content.plain_text(),
+            other => panic!("expected scalar metadata, got {other:?}"),
+        };
+        assert_eq!(scalar(&metadata.entries[0]), "plumb title");
+        assert_eq!(scalar(&metadata.entries[1]), "inline value");
+        assert_eq!(scalar(&metadata.entries[2]), "child value");
     }
 
     #[test]

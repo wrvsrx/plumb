@@ -125,7 +125,7 @@ pub enum OwnedInline {
     SoftBreak,
     Element {
         kind: String,
-        content: Vec<OwnedInline>,
+        slots: Vec<Vec<OwnedInline>>,
         attributes: OwnedAttributes,
     },
     Verbatim {
@@ -403,6 +403,202 @@ pub fn remove_block(parsed: &ParsedDocument, range: Range<usize>) -> Result<Text
     edit.finish()
 }
 
+pub fn rewrite_legacy_link(
+    parsed: &ParsedDocument,
+    link_range: Range<usize>,
+    property_range: Range<usize>,
+    value_range: Range<usize>,
+) -> Result<TextEdit, EditError> {
+    validate_range(&parsed.source, &link_range)?;
+    validate_range(&parsed.source, &property_range)?;
+    validate_range(&parsed.source, &value_range)?;
+    if parsed.valid_syntax().is_none()
+        || property_range.start < link_range.start
+        || property_range.end > link_range.end
+        || value_range.start < property_range.start
+        || value_range.end > property_range.end
+    {
+        return Err(EditError::InvalidRange);
+    }
+    let Inline::Element {
+        kind, slots, attrs, ..
+    } = find_inline(parsed, &link_range).ok_or(EditError::InvalidRange)?
+    else {
+        return Err(EditError::InvalidRange);
+    };
+    let [label] = slots.as_slice() else {
+        return Err(EditError::InvalidRange);
+    };
+    if kind != "->" {
+        return Err(EditError::InvalidRange);
+    }
+    let attached = attrs.attached.as_deref().ok_or(EditError::InvalidRange)?;
+    let AttachedContent::Inlines(content) = &attached.content else {
+        return Err(EditError::InvalidRange);
+    };
+    let property_index = content
+        .items
+        .iter()
+        .position(|inline| inline_range(inline) == &property_range)
+        .ok_or(EditError::InvalidRange)?;
+    let Inline::Element {
+        kind: property_kind,
+        slots: property_slots,
+        ..
+    } = &content.items[property_index]
+    else {
+        return Err(EditError::InvalidRange);
+    };
+    let mut to_items = attrs
+        .items
+        .iter()
+        .filter(|item| matches!(item, AttrItem::Pair { key, .. } if key == "to"));
+    let Some(AttrItem::Pair {
+        range: to_range,
+        value: to_value,
+        ..
+    }) = to_items.next()
+    else {
+        return Err(EditError::InvalidRange);
+    };
+    if property_kind != ":"
+        || property_slots.len() > 2
+        || to_items.next().is_some()
+        || to_range != &property_range
+        || to_value.range != value_range
+    {
+        return Err(EditError::InvalidRange);
+    }
+
+    let structural_items = content
+        .items
+        .iter()
+        .filter(|inline| !matches!(inline, Inline::Space { .. } | Inline::SoftBreak { .. }))
+        .count();
+    let removal = if structural_items == 1 {
+        attached.range.clone()
+    } else if property_index > 0
+        && matches!(
+            content.items[property_index - 1],
+            Inline::Space { .. } | Inline::SoftBreak { .. }
+        )
+    {
+        inline_range(&content.items[property_index - 1]).start..property_range.end
+    } else if let Some(next) = content
+        .items
+        .get(property_index + 1)
+        .filter(|inline| matches!(inline, Inline::Space { .. } | Inline::SoftBreak { .. }))
+    {
+        property_range.start..inline_range(next).end
+    } else {
+        property_range.clone()
+    };
+
+    let mut replacement = parsed.source[link_range.clone()].to_string();
+    let mut edits = vec![
+        (
+            removal.start - link_range.start..removal.end - link_range.start,
+            String::new(),
+        ),
+        (
+            label.close_range.end - link_range.start..label.close_range.end - link_range.start,
+            format!("[{}]", &parsed.source[value_range]),
+        ),
+    ];
+    edits.sort_by_key(|(range, _)| std::cmp::Reverse(range.start));
+    for (range, new_text) in edits {
+        replacement.replace_range(range, &new_text);
+    }
+    let mut modified = parsed.source.clone();
+    modified.replace_range(link_range.clone(), &replacement);
+    let reparsed = plumb_syntax::parse(modified);
+    if reparsed.valid_syntax().is_none() {
+        return Err(EditError::GeneratedInvalid);
+    }
+    Ok(TextEdit {
+        range: link_range,
+        new_text: replacement,
+    })
+}
+
+fn find_inline<'a>(parsed: &'a ParsedDocument, target: &Range<usize>) -> Option<&'a Inline> {
+    let mut blocks = parsed.syntax.blocks.iter().collect::<Vec<_>>();
+    let mut contents = Vec::new();
+    push_attached_content(&parsed.syntax.attrs, &mut blocks, &mut contents);
+    while let Some(block) = blocks.pop() {
+        match block {
+            Block::Parsed(block) => {
+                contents.push(&block.head);
+                blocks.extend(&block.children);
+                if let Some(mark) = &block.mark {
+                    push_attached_content(&mark.attrs, &mut blocks, &mut contents);
+                }
+            }
+            Block::Verbatim(block) => {
+                push_attached_content(&block.attrs, &mut blocks, &mut contents);
+            }
+        }
+    }
+    while let Some(content) = contents.pop() {
+        for inline in &content.items {
+            match inline {
+                Inline::Element {
+                    range,
+                    slots,
+                    attrs,
+                    ..
+                } => {
+                    if range == target {
+                        return Some(inline);
+                    }
+                    contents.extend(slots.iter().map(|slot| &slot.content));
+                    push_inline_attached_content(attrs, &mut contents);
+                }
+                Inline::Verbatim { attrs, .. } => {
+                    push_inline_attached_content(attrs, &mut contents);
+                }
+                Inline::Text { .. } | Inline::Space { .. } | Inline::SoftBreak { .. } => {}
+            }
+        }
+    }
+    None
+}
+
+fn push_attached_content<'a>(
+    attrs: &'a Attributes,
+    blocks: &mut Vec<&'a Block>,
+    contents: &mut Vec<&'a plumb_syntax::InlineContent>,
+) {
+    let Some(attached) = attrs.attached.as_deref() else {
+        return;
+    };
+    match &attached.content {
+        AttachedContent::Blocks(attached_blocks) => blocks.extend(attached_blocks),
+        AttachedContent::Inlines(content) => contents.push(content),
+    }
+}
+
+fn push_inline_attached_content<'a>(
+    attrs: &'a Attributes,
+    contents: &mut Vec<&'a plumb_syntax::InlineContent>,
+) {
+    if let Some(AttachedContent::Inlines(content)) =
+        attrs.attached.as_deref().map(|attached| &attached.content)
+    {
+        contents.push(content);
+    }
+}
+
+fn inline_range(inline: &Inline) -> &Range<usize> {
+    match inline {
+        Inline::Text { range, .. }
+        | Inline::Space { range, .. }
+        | Inline::SoftBreak { range }
+        | Inline::Element { range, .. }
+        | Inline::Verbatim { range, .. } => range,
+    }
+}
+
 impl OwnedInline {
     fn from_syntax(inline: &Inline) -> Self {
         match inline {
@@ -410,13 +606,13 @@ impl OwnedInline {
             Inline::Space { text, .. } => Self::Space(text.clone()),
             Inline::SoftBreak { .. } => Self::SoftBreak,
             Inline::Element {
-                kind,
-                content,
-                attrs,
-                ..
+                kind, slots, attrs, ..
             } => Self::Element {
                 kind: kind.clone(),
-                content: content.items.iter().map(Self::from_syntax).collect(),
+                slots: slots
+                    .iter()
+                    .map(|slot| slot.content.items.iter().map(Self::from_syntax).collect())
+                    .collect(),
                 attributes: owned_attributes(attrs),
             },
             Inline::Verbatim {
@@ -850,14 +1046,16 @@ fn render_owned_inlines(
             }
             OwnedInline::Element {
                 kind,
-                content,
+                slots,
                 attributes,
             } => {
                 output.push('`');
                 output.push_str(kind);
-                output.push('[');
-                render_owned_inlines(content, true, continuation_indent, output);
-                output.push(']');
+                for slot in slots {
+                    output.push('[');
+                    render_owned_inlines(slot, true, continuation_indent, output);
+                    output.push(']');
+                }
                 render_owned_attached(attributes, output);
             }
             OwnedInline::Verbatim {
@@ -1592,7 +1790,10 @@ mod tests {
         edit.replace_attribute(attrs, 0, OwnedAttribute::id("new"))
             .unwrap();
         let edit = edit.finish().unwrap();
-        assert_eq!(edit.new_text, "`task Work\n spans lines\n {\n  `@ new\n }\n");
+        assert_eq!(
+            edit.new_text,
+            "`task Work\n spans lines\n {\n  `@ new\n }\n"
+        );
         assert!(parse(&edit.new_text).is_valid());
     }
 
@@ -1644,6 +1845,128 @@ mod tests {
         let removal = remove.finish().unwrap();
         assert_eq!(removal.range, first);
         assert!(removal.new_text.is_empty());
+    }
+
+    #[test]
+    fn rewrites_legacy_link_target_as_a_second_slot() {
+        let source = "`->[description]{`:[to https://baidu.com]}\n";
+        let parsed = parse(source);
+        let Block::Parsed(paragraph) = &parsed.syntax.blocks[0] else {
+            unreachable!();
+        };
+        let Inline::Element { range, attrs, .. } = &paragraph.head.items[0] else {
+            unreachable!();
+        };
+        let AttrItem::Pair {
+            range: property,
+            value,
+            ..
+        } = &attrs.items[0]
+        else {
+            unreachable!();
+        };
+        let edit = rewrite_legacy_link(
+            &parsed,
+            range.clone(),
+            property.clone(),
+            value.range.clone(),
+        )
+        .unwrap();
+        assert_eq!(edit.range, range.clone());
+        assert_eq!(edit.new_text, "`->[description][https://baidu.com]");
+        assert_eq!(
+            apply_text_edits(parsed.source, vec![edit]).unwrap(),
+            "`->[description][https://baidu.com]\n"
+        );
+    }
+
+    #[test]
+    fn legacy_link_rewrite_preserves_other_attached_declarations() {
+        let source = "`->[description]{`-[external] `:[to target.plumb] `:[rel nofollow]}\n";
+        let parsed = parse(source);
+        let Block::Parsed(paragraph) = &parsed.syntax.blocks[0] else {
+            unreachable!();
+        };
+        let Inline::Element { range, attrs, .. } = &paragraph.head.items[0] else {
+            unreachable!();
+        };
+        let AttrItem::Pair {
+            range: property,
+            value,
+            ..
+        } = attrs
+            .items
+            .iter()
+            .find(|item| matches!(item, AttrItem::Pair { key, .. } if key == "to"))
+            .unwrap()
+        else {
+            unreachable!();
+        };
+        let AttrItem::Pair {
+            range: other_property,
+            value: other_value,
+            ..
+        } = attrs
+            .items
+            .iter()
+            .find(|item| matches!(item, AttrItem::Pair { key, .. } if key == "rel"))
+            .unwrap()
+        else {
+            unreachable!();
+        };
+        assert_eq!(
+            rewrite_legacy_link(
+                &parsed,
+                range.clone(),
+                other_property.clone(),
+                other_value.range.clone(),
+            ),
+            Err(EditError::InvalidRange)
+        );
+        let edit = rewrite_legacy_link(
+            &parsed,
+            range.clone(),
+            property.clone(),
+            value.range.clone(),
+        )
+        .unwrap();
+        assert_eq!(
+            edit.new_text,
+            "`->[description][target.plumb]{`-[external] `:[rel nofollow]}"
+        );
+        let formatted = format(&parsed, FormatScope::Document).unwrap();
+        assert!(
+            formatted.is_empty(),
+            "formatter must not migrate legacy Links"
+        );
+    }
+
+    #[test]
+    fn rewrites_an_expanded_legacy_to_association() {
+        let source = "`->[description]{`:[to][target.plumb]}\n";
+        let parsed = parse(source);
+        let Block::Parsed(paragraph) = &parsed.syntax.blocks[0] else {
+            unreachable!();
+        };
+        let Inline::Element { range, attrs, .. } = &paragraph.head.items[0] else {
+            unreachable!();
+        };
+        let AttrItem::Pair {
+            range: property,
+            value,
+            ..
+        } = &attrs.items[0]
+        else {
+            unreachable!();
+        };
+        let edit = rewrite_legacy_link(
+            &parsed,
+            range.clone(),
+            property.clone(),
+            value.range.clone(),
+        )
+        .unwrap();
+        assert_eq!(edit.new_text, "`->[description][target.plumb]");
     }
 }
 

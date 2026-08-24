@@ -289,11 +289,13 @@ impl Drop for InlineContent {
         while let Some(inline) = pending.pop() {
             match inline {
                 Inline::Element {
-                    mut content,
+                    mut slots,
                     mut attrs,
                     ..
                 } => {
-                    pending.append(&mut content.items);
+                    for slot in &mut slots {
+                        pending.append(&mut slot.content.items);
+                    }
                     if let Some(attached) = attrs.attached.take() {
                         attached.append_inlines_to(&mut pending);
                     }
@@ -328,9 +330,21 @@ fn append_plain_text(items: &[Inline], output: &mut String) {
             Inline::Text { text, .. } | Inline::Verbatim { text, .. } => output.push_str(text),
             Inline::Space { text, .. } => output.push_str(text),
             Inline::SoftBreak { .. } => output.push(' '),
-            Inline::Element { content, .. } => stack.push((&content.items, 0)),
+            Inline::Element { slots, .. } => {
+                for slot in slots.iter().rev() {
+                    stack.push((&slot.content.items, 0));
+                }
+            }
         }
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InlineSlot {
+    pub range: SourceRange,
+    pub open_range: SourceRange,
+    pub content: InlineContent,
+    pub close_range: SourceRange,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -352,7 +366,7 @@ pub enum Inline {
         /// bracket spelling is a literal escape).
         kind: String,
         kind_range: SourceRange,
-        content: InlineContent,
+        slots: Vec<InlineSlot>,
         attrs: Attributes,
     },
     Verbatim {

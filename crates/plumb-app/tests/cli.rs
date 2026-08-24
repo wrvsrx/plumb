@@ -211,7 +211,7 @@ fn checks_a_workspace_with_configurable_severity_and_error_exit_status() {
 
     std::fs::write(
         root.join("nested/broken.plumb"),
-        "See `->[missing]{`:[to missing.plumb#id]}.\n",
+        "See `->[missing][missing.plumb#id].\n",
     )
     .unwrap();
     let broken = Command::new(env!("CARGO_BIN_EXE_plumb"))
@@ -314,7 +314,7 @@ fn discovers_workspace_markers_and_applies_ignore_files() {
 
 #[test]
 fn round_trips_the_exported_standard_profile_through_import() {
-    let source = "{\n  `: title Import test\n}\n\n`# Intro {\n  `@ intro\n}\n\nParagraph with `*[emphasis], `![strong], `=[mark], `~[strike], `^[super], `_[sub], and `->[a link]{`:[to other.plumb#id]}.\n\n`> Quoted {\n  `@ quote\n  `- source\n}\n\n`task Item {\n  `@ task\n  `: created 2026-07-23T17:00:00+08:00\n}\n\n`rust\"\" {`@[code]}\n  fn main() {}\n";
+    let source = "{\n  `: title Import test\n}\n\n`# Intro {\n  `@ intro\n}\n\nParagraph with `*[emphasis], `![strong], `=[mark], `~[strike], `^[super], `_[sub], and `->[a link][other.plumb#id].\n\n`> Quoted {\n  `@ quote\n  `- source\n}\n\n`task Item {\n  `@ task\n  `: created 2026-07-23T17:00:00+08:00\n}\n\n`rust\"\" {`@[code]}\n  fn main() {}\n";
     let first = run_with_stdin(&["export"], source);
     assert!(
         first.status.success(),
@@ -358,13 +358,13 @@ fn serves_the_workspace_site_with_notes_and_tasks() {
     std::fs::write(root.join("private/note.plumb"), "Private note.\n").unwrap();
     std::fs::write(
         root.join("a.plumb"),
-        "{\n  `: title Alpha\n}\n\nSee `->[Beta]{`:[to b.plumb#beta]}.\n\n`img[icon]{`:[src assets/icon.png]}\n\n`task Ship release {\n  `: created 2026-07-25T10:00:00+08:00\n}\n",
+        "{\n  `: title Alpha\n}\n\nSee `->[Beta][b.plumb#beta].\n\n`img[icon]{`:[src assets/icon.png]}\n\n`task Ship release {\n  `: created 2026-07-25T10:00:00+08:00\n}\n",
     )
     .unwrap();
     std::fs::write(root.join("b.plumb"), "`# Beta {\n  `@ beta\n}\n").unwrap();
     std::fs::write(
         root.join("hidden.plumb"),
-        "Hidden index. `->[Alpha]{`:[to a.plumb]}.\n",
+        "Hidden index. `->[Alpha][a.plumb].\n",
     )
     .unwrap();
 
@@ -467,7 +467,7 @@ fn serves_the_workspace_site_with_notes_and_tasks() {
 
     std::fs::write(
         root.join("a.plumb"),
-        "{\n  `: title Alpha updated\n}\n\nSee `->[Beta]{`:[to b.plumb#beta]}.\n",
+        "{\n  `: title Alpha updated\n}\n\nSee `->[Beta][b.plumb#beta].\n",
     )
     .unwrap();
     let mut refreshed = false;

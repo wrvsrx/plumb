@@ -2,6 +2,8 @@ use std::ops::Range;
 
 use plumb_syntax::{Block, Diagnostic, Document, ParsedBlock};
 
+use crate::text::plain_text;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Heading {
     pub node_range: Range<usize>,
@@ -53,7 +55,7 @@ pub fn analyze_headings(document: &Document) -> HeadingOutput {
             selection_range: block.head.range.clone(),
             section_range: block.range.start..section_end,
             level,
-            title: block.head.plain_text(),
+            title: plain_text(&block.head),
             children: Vec::new(),
         };
         let siblings = get_heading_children_mut(&mut roots, &path);

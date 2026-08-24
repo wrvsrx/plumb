@@ -338,8 +338,12 @@ fn render_inlines(inlines: &[Inline], bracketed: bool) -> Result<String, String>
                     set_semantic_pair(&mut attrs, "src", &target.url)?;
                     output.push_str(&render_element("file", &attrs, label)?);
                 } else {
-                    set_semantic_pair(&mut attrs, "to", &target.url)?;
-                    output.push_str(&render_element("->", &attrs, label)?);
+                    output.push_str(&format!(
+                        "`->[{}][{}]{}",
+                        render_inlines(label, true)?,
+                        escape_text(&target.url, true),
+                        render_attrs(&attrs, Some("data-plumb-marker"))?
+                    ));
                 }
             }
             Inline::Image(attrs, alt, target) => {
@@ -645,7 +649,10 @@ fn minimum_quote_count(text: &str) -> usize {
 fn escape_text(text: &str, bracketed: bool) -> String {
     let text = text.replace('`', "``");
     if bracketed {
-        text.replace(']', "`]")
+        text.replace('[', "`[")
+            .replace(']', "`]")
+            .replace('{', "`{")
+            .replace('}', "`}")
     } else {
         text
     }
@@ -707,7 +714,7 @@ mod tests {
         assert!(source.contains("`# Intro {`@[intro]}"));
         assert!(source.contains("`*[em] `![strong] `=[marked]{`@[marked] `-[keep]}"));
         assert!(source.contains("`~[strike] `^[super] `_[sub]"));
-        assert!(source.contains("`->[target]{`:[to other.plumb#id]}"));
+        assert!(source.contains("`->[target][other.plumb#id]"));
         assert!(
             source.contains(
                 "`file[video]{`@[demo] `-[wide] `:[download yes] `:[src static/demo.mp4]}"

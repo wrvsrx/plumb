@@ -222,8 +222,8 @@ fn completes_links_by_document_metadata_title() {
     std::fs::create_dir_all(&root).unwrap();
     let source = root.join("current.plumb");
     let target = root.join("Usage Guide.plumb");
-    let closed_path = "`->[x]{`:[to usXXX]}\n";
-    let closed_anchor = "`->[x]{`:[to Usage Guide.plumb#usXXX]}\n";
+    let closed_path = "`->[x][usXXX]\n";
+    let closed_anchor = "`->[x][Usage Guide.plumb#usXXX]\n";
     let raw = "`\"[raw `->[x]{to=\"us\"}]\"";
     let source_text =
         format!("`->[Us\n\n`->[x]{{`:[to Guide\n\n{closed_path}\n{closed_anchor}\n{raw}\n");
@@ -305,7 +305,7 @@ fn completes_links_by_document_metadata_title() {
     assert_eq!(label["detail"], "Usage Guide.plumb");
     assert_eq!(
         label["textEdit"]["newText"],
-        "`->[Usage Guide]{`:[to Usage Guide.plumb]}"
+        "`->[Usage Guide][Usage Guide.plumb]"
     );
     let path = &response(&output, 3)["result"][0];
     assert_eq!(path["label"], "Usage Guide.plumb");
@@ -388,7 +388,7 @@ fn completion_from_a_subdirectory_inserts_a_relative_path() {
     assert_eq!(item["detail"], "../a/target.plumb");
     assert_eq!(
         item["textEdit"]["newText"],
-        "`->[Target A]{`:[to ../a/target.plumb]}"
+        "`->[Target A][../a/target.plumb]"
     );
     std::fs::remove_dir_all(root).unwrap();
 }
@@ -403,7 +403,7 @@ fn completes_and_navigates_relative_autolinks_files_and_images() {
     let unicode_target = root.join("中文笔记 [草稿].plumb");
     let image = static_dir.join("image one.PNG");
     let attachment = static_dir.join("manual draft.pdf");
-    let source = "`->\"tar\"\n`->\"target note.plumb#an\"\n`img[Query]{`:[src static/im]}\n`img[Missing]{`:[src static/missing.png]}\n`->\"target note.plumb\"\n`img[Result]{`:[src static/image one.PNG]}\n`->\"中文\"\n`->\"static/manual draft.pdf\"\n`->[manual]{`:[to static/manual draft.pdf]}\n`->\"static/missing guide.pdf\"\n";
+    let source = "`->\"tar\"\n`->\"target note.plumb#an\"\n`img[Query]{`:[src static/im]}\n`img[Missing]{`:[src static/missing.png]}\n`->\"target note.plumb\"\n`img[Result]{`:[src static/image one.PNG]}\n`->\"中文\"\n`->\"static/manual draft.pdf\"\n`->[manual][static/manual draft.pdf]\n`->\"static/missing guide.pdf\"\n";
     std::fs::write(&current, source).unwrap();
     std::fs::write(
         &target,
@@ -960,7 +960,7 @@ fn narrows_link_constructs_from_the_shared_marker_prefix() {
         assert_eq!(items[1]["label"], "Autolink");
         assert_eq!(
             items[0]["textEdit"]["newText"],
-            "`->[${1:label}]{`:[to ${2:target}]}"
+            "`->[${1:label}][${2:target}]"
         );
         assert_eq!(items[1]["textEdit"]["newText"], "`->\"${1:path}\"");
     }
@@ -1054,7 +1054,7 @@ fn completes_recursive_attached_elements() {
     let root = unique_temp_dir();
     std::fs::create_dir_all(&root).unwrap();
     let document = root.join("attached-completion.plumb");
-    let source = "`task Work {\n  `: pr\n}\n`->[x]{`: t}\n";
+    let source = "`task Work {\n  `: pr\n}\n`->[x][target]{`: t}\n";
     std::fs::write(&document, source).unwrap();
     let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
     let document_uri = lsp_types::Url::from_file_path(&document).unwrap();
@@ -1087,7 +1087,7 @@ fn completes_recursive_attached_elements() {
             "jsonrpc": "2.0", "id": 3, "method": "textDocument/completion",
             "params": {
                 "textDocument": { "uri": document_uri },
-                "position": { "line": 3, "character": 11 }
+                "position": { "line": 3, "character": 19 }
             }
         }),
         json!({ "jsonrpc": "2.0", "id": 4, "method": "shutdown", "params": null }),
@@ -1102,9 +1102,6 @@ fn completes_recursive_attached_elements() {
         .find(|item| item["label"] == "priority")
         .unwrap();
     assert_eq!(priority["textEdit"]["newText"], "`: priority ${1:0}");
-    let inline = response(&output, 3)["result"].as_array().unwrap();
-    assert_eq!(inline.len(), 1);
-    assert_eq!(inline[0]["label"], "to");
-    assert_eq!(inline[0]["textEdit"]["newText"], "`:[to ${1}]");
+    assert!(response(&output, 3)["result"].is_null());
     std::fs::remove_dir_all(root).unwrap();
 }

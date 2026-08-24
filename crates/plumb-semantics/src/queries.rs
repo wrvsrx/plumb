@@ -17,7 +17,7 @@ pub enum LinkCompletionContext {
     Path {
         replace: Range<usize>,
         query: String,
-        quoted: bool,
+        parsed: bool,
     },
     AutolinkPath {
         replace: Range<usize>,
@@ -197,10 +197,7 @@ fn attribute_context_in_inlines(
     for inline in &content.items {
         match inline {
             Inline::Element {
-                kind,
-                content,
-                attrs,
-                ..
+                kind, slots, attrs, ..
             } => {
                 if let Some(context) = attached_attribute_context(
                     attrs,
@@ -215,8 +212,12 @@ fn attribute_context_in_inlines(
                 {
                     return Some(context);
                 }
-                if let Some(context) = attribute_context_in_inlines(content, source, offset) {
-                    return Some(context);
+                for slot in slots {
+                    if let Some(context) =
+                        attribute_context_in_inlines(&slot.content, source, offset)
+                    {
+                        return Some(context);
+                    }
                 }
             }
             Inline::Verbatim { kind, attrs, .. } => {
@@ -354,15 +355,6 @@ fn attached_attribute_context(
                 false,
             );
         }
-        (AttachedContent::Inlines(_), AttributeOwner::ParsedInline("->")) => {
-            push_attached_pair_completion(
-                &mut completions,
-                !has_pair("to"),
-                "to",
-                "link target",
-                true,
-            );
-        }
         (AttachedContent::Inlines(_), AttributeOwner::ParsedInline("img")) => {
             push_attached_pair_completion(
                 &mut completions,
@@ -486,7 +478,6 @@ fn push_attached_pair_completion(
         ("timezone", false) => "`: timezone ",
         ("tasks", false) => "`: tasks ",
         ("language", false) => "`: language ",
-        ("to", true) => "`:[to ]",
         ("src", true) => "`:[src ]",
         ("language", true) => "`:[language ]",
         _ => return,
@@ -550,9 +541,6 @@ fn attribute_context(
                 push_pair_completion(&mut candidates, !existing_pairs(key), key, detail);
             }
         }
-        AttributeOwner::ParsedInline("->") => {
-            push_pair_completion(&mut candidates, !existing_pairs("to"), "to", "link target")
-        }
         AttributeOwner::ParsedInline("img") => push_pair_completion(
             &mut candidates,
             !existing_pairs("src"),
@@ -610,7 +598,6 @@ fn push_pair_completion(
         "date" => "date=",
         "timezone" => "timezone=\"\"",
         "tasks" => "tasks=\"\"",
-        "to" => "to=\"\"",
         "src" => "src=\"\"",
         "language" => "language=\"\"",
         _ => return,
@@ -944,19 +931,19 @@ pub fn link_completion_context(
         return None;
     }
     let label_start = link_start + LINK_OPEN.len();
-    let label_prefix = &source[label_start..offset];
-    let Some(label_end) = label_prefix.rfind("]{") else {
+    let line_end = source[offset..]
+        .find('\n')
+        .map_or(source.len(), |index| offset + index);
+    let Some(label_end) = matching_slot_close(source, label_start, line_end) else {
+        let label_prefix = &source[label_start..offset];
         if label_prefix
             .chars()
             .any(|character| character == '`' || character == ']' || character.is_control())
         {
             return None;
         }
-        let line_end = source[offset..]
-            .find('\n')
-            .map_or(source.len(), |index| offset + index);
         let suffix = &source[offset..line_end];
-        let replace_end = if suffix.starts_with(']') && !suffix.starts_with("]{") {
+        let replace_end = if suffix.starts_with(']') {
             offset + 1
         } else if suffix.contains(']') {
             return None;
@@ -968,26 +955,34 @@ pub fn link_completion_context(
             query: label_prefix.to_string(),
         });
     };
-    let after_label = label_start + label_end + 2;
-    let attrs = &source[after_label..offset];
-    let (raw_value_start, quoted, attached) = if let Some(to) = attrs.rfind("`:[to ") {
-        (after_label + to + "`:[to ".len(), true, true)
-    } else {
-        let to = attrs.rfind("to=")? + after_label;
-        if to > after_label {
-            let previous = source[..to].chars().next_back()?;
-            if !previous.is_whitespace() && previous != '{' {
-                return None;
+    if offset <= label_end {
+        let label_prefix = &source[label_start..offset];
+        return (!label_prefix.chars().any(char::is_control)).then(|| {
+            LinkCompletionContext::Label {
+                replace: link_start..label_end + 1,
+                query: label_prefix.to_string(),
             }
+        });
+    }
+
+    let (value_start, value_end, parsed) = match source.as_bytes().get(label_end + 1) {
+        Some(b'[') => {
+            let value_start = label_end + 2;
+            let value_end = matching_slot_close(source, value_start, line_end).unwrap_or(offset);
+            (value_start, value_end, true)
         }
-        let raw_value_start = to + 3;
-        (
-            raw_value_start,
-            source.as_bytes().get(raw_value_start) == Some(&b'"'),
-            false,
-        )
+        Some(b'{') => {
+            let attrs_start = label_end + 2;
+            let attrs = &source[attrs_start..offset];
+            let to = attrs.rfind("`:[to ")?;
+            let value_start = attrs_start + to + "`:[to ".len();
+            let value_end = source[offset..line_end]
+                .find(']')
+                .map_or(offset, |end| offset + end);
+            (value_start, value_end, true)
+        }
+        _ => return None,
     };
-    let value_start = raw_value_start + usize::from(quoted && !attached);
     if offset < value_start {
         return None;
     }
@@ -999,17 +994,6 @@ pub fn link_completion_context(
     {
         return None;
     }
-    let value_end = if attached {
-        source[offset..]
-            .find(']')
-            .map_or(offset, |end| offset + end)
-    } else if quoted {
-        closing_quote(source, offset).unwrap_or(offset)
-    } else {
-        source[offset..]
-            .find(|character: char| character.is_whitespace() || character == '}')
-            .map_or(source.len(), |end| offset + end)
-    };
     if let Some((path, fragment)) = query.split_once('#') {
         let fragment_start = value_start + path.len() + 1;
         Some(LinkCompletionContext::Anchor {
@@ -1024,9 +1008,38 @@ pub fn link_completion_context(
         Some(LinkCompletionContext::Path {
             replace: value_start..path_end,
             query: query.to_string(),
-            quoted,
+            parsed,
         })
     }
+}
+
+fn matching_slot_close(source: &str, start: usize, limit: usize) -> Option<usize> {
+    let mut depth = 1usize;
+    for (relative, character) in source[start..limit].char_indices() {
+        if !matches!(character, '[' | ']') {
+            continue;
+        }
+        let offset = start + relative;
+        let escaped = source[..offset]
+            .chars()
+            .rev()
+            .take_while(|candidate| *candidate == '`')
+            .count()
+            % 2
+            == 1;
+        if escaped {
+            continue;
+        }
+        if character == '[' {
+            depth += 1;
+        } else {
+            depth -= 1;
+            if depth == 0 {
+                return Some(offset);
+            }
+        }
+    }
+    None
 }
 
 pub fn image_completion_context(
@@ -1159,7 +1172,9 @@ fn inlines_find_autolink(
                 offset,
             )
         }
-        Inline::Element { content, .. } => inlines_find_autolink(source, content, offset),
+        Inline::Element { slots, .. } => slots
+            .iter()
+            .find_map(|slot| inlines_find_autolink(source, &slot.content, offset)),
         Inline::Verbatim { .. }
         | Inline::Text { .. }
         | Inline::Space { .. }
@@ -1240,12 +1255,14 @@ fn blocks_attributes_contain(blocks: &[Block], offset: usize) -> bool {
 
 fn inlines_attributes_contain(content: &InlineContent, offset: usize) -> bool {
     content.items.iter().any(|inline| match inline {
-        Inline::Element { attrs, content, .. } => {
+        Inline::Element { attrs, slots, .. } => {
             attrs
                 .range
                 .as_ref()
                 .is_some_and(|range| range.contains(&offset))
-                || inlines_attributes_contain(content, offset)
+                || slots
+                    .iter()
+                    .any(|slot| inlines_attributes_contain(&slot.content, offset))
         }
         Inline::Verbatim { attrs, .. } => attrs
             .range
@@ -1260,7 +1277,9 @@ fn inlines_contain_verbatim(content: &InlineContent, offset: usize) -> bool {
         Inline::Verbatim { text_range, .. } => {
             text_range.start <= offset && offset <= text_range.end
         }
-        Inline::Element { content, .. } => inlines_contain_verbatim(content, offset),
+        Inline::Element { slots, .. } => slots
+            .iter()
+            .any(|slot| inlines_contain_verbatim(&slot.content, offset)),
         Inline::Text { .. } | Inline::Space { .. } | Inline::SoftBreak { .. } => false,
     })
 }
@@ -1510,10 +1529,9 @@ mod tests {
             [("prev", "`: prev "), ("priority", "`: priority 0")]
         );
 
-        let (link, cursor) = strip_cursor("`->[label]{`: t|}");
+        let (link, cursor) = strip_cursor("`->[label][target]{`: t|}");
         let context = attribute_completion_context(&parse(&link), cursor).unwrap();
-        assert_eq!(context.completions[0].label, "to");
-        assert_eq!(context.completions[0].new_text, "`:[to ]");
+        assert!(context.completions.is_empty());
 
         let (root, cursor) = strip_cursor("{\n  `: ti|\n}\n");
         let context = attribute_completion_context(&parse(&root), cursor).unwrap();
@@ -1612,21 +1630,21 @@ mod tests {
             completion_context(strengthened, strengthened.len()),
             Some(LinkCompletionContext::Label { .. })
         ));
-        let path = "See `->[x]{to=\"doc";
+        let path = "See `->[x][doc";
         assert_eq!(
             completion_context(path, path.len()),
             Some(LinkCompletionContext::Path {
-                replace: 15..18,
+                replace: 11..14,
                 query: "doc".to_string(),
-                quoted: true,
+                parsed: true,
             })
         );
-        let anchor = "See `->[x]{to=\"doc.plumb#tar";
+        let anchor = "See `->[x][doc.plumb#tar";
         assert_eq!(
             completion_context(anchor, anchor.len()),
             Some(LinkCompletionContext::Anchor {
                 path: "doc.plumb".to_string(),
-                replace: 25..28,
+                replace: 21..24,
                 query: "tar".to_string(),
             })
         );
@@ -1642,7 +1660,7 @@ mod tests {
             Some(LinkCompletionContext::Path {
                 replace: value_start..separator,
                 query: "do".to_string(),
-                quoted: true,
+                parsed: true,
             })
         );
 
@@ -1663,7 +1681,7 @@ mod tests {
             Some(LinkCompletionContext::Path {
                 replace: cursor..cursor,
                 query: String::new(),
-                quoted: true,
+                parsed: true,
             })
         );
     }

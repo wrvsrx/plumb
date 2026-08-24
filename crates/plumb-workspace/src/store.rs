@@ -1111,11 +1111,11 @@ mod tests {
     #[test]
     fn atomically_replaces_a_documents_generation() {
         let store = SqliteSemanticStore::open_in_memory().unwrap();
-        let old = "Paragraph `->[old]{`:[to #target]}.\n\n`task Old {\n `@ target\n}\n";
+        let old = "Paragraph `->[old][#target].\n\n`task Old {\n `@ target\n}\n";
         store
             .replace(Path::new("a.plumb"), 0, old, Some(&analyzed(old)))
             .unwrap();
-        let new = "Paragraph `->[new]{`:[to #next]}.\n\n`task New {\n `@ next\n}\n";
+        let new = "Paragraph `->[new][#next].\n\n`task New {\n `@ next\n}\n";
         store
             .replace(Path::new("a.plumb"), 0, new, Some(&analyzed(new)))
             .unwrap();

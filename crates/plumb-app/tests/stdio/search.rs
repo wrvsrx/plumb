@@ -20,7 +20,7 @@ fn workspace_index_does_not_follow_directory_symlinks() {
     std::fs::write(&source, "`->[").unwrap();
     std::fs::write(&target, target_source).unwrap();
     std::fs::write(snapshot.join("target.plumb"), target_source).unwrap();
-    let reference_source = "`->[Target]{`:[to target.plumb#anchor]}\n";
+    let reference_source = "`->[Target][target.plumb#anchor]\n";
     std::fs::write(root.join("reference.plumb"), reference_source).unwrap();
     std::fs::write(snapshot.join("reference.plumb"), reference_source).unwrap();
     std::fs::write(

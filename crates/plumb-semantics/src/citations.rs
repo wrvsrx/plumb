@@ -41,31 +41,39 @@ fn collect_blocks(blocks: &[Block], output: &mut CitationOutput) {
 fn collect_inlines(content: &InlineContent, output: &mut CitationOutput) {
     for inline in &content.items {
         let Inline::Element {
-            range,
-            kind,
-            content,
-            ..
+            range, kind, slots, ..
         } = inline
         else {
             continue;
         };
         if kind == "cite" {
-            match citation_id(content) {
-                Some(id) => output.citations.push(CitationRecord {
-                    range: range.clone(),
-                    selection_range: content.range.clone(),
-                    id,
-                }),
-                None => output.diagnostics.push(Diagnostic {
+            match slots.as_slice() {
+                [slot] => match citation_id(&slot.content) {
+                    Some(id) => output.citations.push(CitationRecord {
+                        range: range.clone(),
+                        selection_range: slot.content.range.clone(),
+                        id,
+                    }),
+                    None => output.diagnostics.push(Diagnostic {
+                        code: "citation.invalid",
+                        severity: DiagnosticSeverity::Warning,
+                        message: "a citation must contain one plain id".to_string(),
+                        range: slot.content.range.clone(),
+                        related: Vec::new(),
+                    }),
+                },
+                _ => output.diagnostics.push(Diagnostic {
                     code: "citation.invalid",
                     severity: DiagnosticSeverity::Warning,
-                    message: "a citation must contain one plain id".to_string(),
-                    range: content.range.clone(),
+                    message: "a citation must contain exactly one content slot".to_string(),
+                    range: range.clone(),
                     related: Vec::new(),
                 }),
             }
         }
-        collect_inlines(content, output);
+        for slot in slots {
+            collect_inlines(&slot.content, output);
+        }
     }
 }
 

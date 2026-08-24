@@ -3,6 +3,44 @@ use serde_json::json;
 use crate::support::{diagnostic_counts, response, run_server};
 
 #[test]
+fn publishes_a_warning_for_legacy_link_arguments() {
+    let uri = "file:///tmp/legacy-link-diagnostic.plumb";
+    let messages = [
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": { "processId": null, "rootUri": null, "capabilities": {} }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": {
+                "uri": uri, "languageId": "plumb", "version": 1,
+                "text": "`->[description]{`:[to https://baidu.com]}\n"
+            }}
+        }),
+        json!({ "jsonrpc": "2.0", "id": 2, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+
+    let output = run_server(&messages);
+    let published = output
+        .iter()
+        .rfind(|message| {
+            message.get("method") == Some(&json!("textDocument/publishDiagnostics"))
+                && message["params"]["uri"] == uri
+        })
+        .expect("legacy Link diagnostics");
+    let diagnostics = published["params"]["diagnostics"].as_array().unwrap();
+    let warning = diagnostics
+        .iter()
+        .find(|diagnostic| diagnostic["code"] == "link.legacy-to-property")
+        .unwrap();
+    assert_eq!(warning["severity"], 2);
+    assert_eq!(warning["range"]["start"]["character"], 17);
+    assert_eq!(warning["range"]["end"]["character"], 41);
+}
+
+#[test]
 fn diagnostics_clear_after_a_link_is_fixed() {
     let uri = "file:///tmp/fix-link.plumb";
     let messages = [
@@ -15,7 +53,7 @@ fn diagnostics_clear_after_a_link_is_fixed() {
             "jsonrpc": "2.0", "method": "textDocument/didOpen",
             "params": { "textDocument": {
                 "uri": uri, "languageId": "plumb", "version": 1,
-                "text": "See `->[missing]{`:[to #missing]}.\n"
+                "text": "See `->[missing][#missing].\n"
             }}
         }),
         json!({
@@ -23,7 +61,7 @@ fn diagnostics_clear_after_a_link_is_fixed() {
             "params": {
                 "textDocument": { "uri": uri, "version": 2 },
                 "contentChanges": [{
-                    "text": "`node Target {\n  `@ target\n}\n\nSee `->[target]{`:[to #target]}.\n"
+                    "text": "`node Target {\n  `@ target\n}\n\nSee `->[target][#target].\n"
                 }]
             }
         }),
@@ -50,7 +88,7 @@ fn diagnostics_refresh_when_a_target_document_changes() {
             "jsonrpc": "2.0", "method": "textDocument/didOpen",
             "params": { "textDocument": {
                 "uri": source_uri, "languageId": "plumb", "version": 1,
-                "text": "See `->[target]{`:[to diagnostic-target.plumb#target]}.\n"
+                "text": "See `->[target][diagnostic-target.plumb#target].\n"
             }}
         }),
         json!({

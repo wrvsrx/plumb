@@ -162,7 +162,7 @@ impl<'a> TokenBuilder<'a> {
                     Inline::Element {
                         range,
                         kind_range,
-                        content,
+                        slots,
                         attrs,
                         ..
                     } => {
@@ -172,18 +172,20 @@ impl<'a> TokenBuilder<'a> {
                             TYPED_PRIORITY,
                         );
                         self.assign(kind_range.clone(), SyntaxKind::InlineKind, TYPED_PRIORITY);
-                        self.assign(
-                            kind_range.end..kind_range.end + 1,
-                            SyntaxKind::Delimiter,
-                            TYPED_PRIORITY,
-                        );
-                        self.assign(
-                            content.range.end..content.range.end + 1,
-                            SyntaxKind::Delimiter,
-                            TYPED_PRIORITY,
-                        );
+                        for slot in slots {
+                            self.assign(
+                                slot.open_range.clone(),
+                                SyntaxKind::Delimiter,
+                                TYPED_PRIORITY,
+                            );
+                            self.assign(
+                                slot.close_range.clone(),
+                                SyntaxKind::Delimiter,
+                                TYPED_PRIORITY,
+                            );
+                        }
                         self.annotate_inline_attributes(attrs, &mut contents);
-                        contents.push(content);
+                        contents.extend(slots.iter().rev().map(|slot| &slot.content));
                     }
                     Inline::Verbatim {
                         range,

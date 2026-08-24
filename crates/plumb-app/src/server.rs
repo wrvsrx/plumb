@@ -1723,6 +1723,33 @@ impl LanguageServer for ServerState {
         if code_action_kind_requested(params.context.only.as_deref(), &CodeActionKind::QUICKFIX) {
             if let Some(entry) = self.workspace.get(&path) {
                 let offset = position_to_offset(&entry.parsed.source, params.range.start);
+                if let Some(edit) = self
+                    .workspace
+                    .rewrite_legacy_link(&path, offset)
+                    .ok()
+                    .and_then(|edit| workspace_edit_to_lsp(&self.workspace, edit))
+                {
+                    let diagnostics = params
+                        .context
+                        .diagnostics
+                        .iter()
+                        .filter(|diagnostic| {
+                            diagnostic.code.as_ref().is_some_and(|code| match code {
+                                NumberOrString::String(code) => code == "link.legacy-to-property",
+                                NumberOrString::Number(_) => false,
+                            })
+                        })
+                        .cloned()
+                        .collect::<Vec<_>>();
+                    actions.push(CodeActionOrCommand::CodeAction(CodeAction {
+                        title: "Rewrite legacy Link arguments".to_string(),
+                        kind: Some(CodeActionKind::QUICKFIX),
+                        diagnostics: (!diagnostics.is_empty()).then_some(diagnostics),
+                        edit: Some(edit),
+                        is_preferred: Some(true),
+                        ..CodeAction::default()
+                    }));
+                }
                 for (status, title, preferred) in [
                     (TaskStatus::Done, "Complete task", true),
                     (TaskStatus::Canceled, "Cancel task", false),
@@ -2116,8 +2143,8 @@ fn link_construct_template() -> ConstructTemplate {
     ConstructTemplate {
         label: "Link",
         detail: "plumb link",
-        snippet: "`->[${1:label}]{`:[to ${2:target}]}".to_string(),
-        plain: "`->[]{`:[to ]}".to_string(),
+        snippet: "`->[${1:label}][${2:target}]".to_string(),
+        plain: "`->[][]".to_string(),
     }
 }
 

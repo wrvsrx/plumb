@@ -4,6 +4,92 @@ use serde_json::json;
 use crate::support::{attribute_value, response, run_server};
 
 #[test]
+fn rewrites_legacy_link_arguments_but_not_positional_links() {
+    let uri = "file:///tmp/legacy-link-action.plumb";
+    let legacy = "`->[description]{`:[to https://baidu.com]}\n";
+    let positional = "`->[description][https://baidu.com]\n";
+    let messages = [
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {
+                "processId": null, "rootUri": null,
+                "capabilities": {
+                    "workspace": { "workspaceEdit": { "documentChanges": true } }
+                }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": {
+                "uri": uri, "languageId": "plumb", "version": 7, "text": legacy
+            }}
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 2, "method": "textDocument/codeAction",
+            "params": {
+                "textDocument": { "uri": uri },
+                "range": {
+                    "start": { "line": 0, "character": 23 },
+                    "end": { "line": 0, "character": 23 }
+                },
+                "context": {
+                    "only": ["quickfix"],
+                    "diagnostics": [{
+                        "range": {
+                            "start": { "line": 0, "character": 17 },
+                            "end": { "line": 0, "character": 44 }
+                        },
+                        "severity": 2,
+                        "code": "link.legacy-to-property",
+                        "source": "plumb",
+                        "message": "legacy named Link target property"
+                    }]
+                }
+            }
+        }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didChange",
+            "params": {
+                "textDocument": { "uri": uri, "version": 8 },
+                "contentChanges": [{ "text": positional }]
+            }
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 3, "method": "textDocument/codeAction",
+            "params": {
+                "textDocument": { "uri": uri },
+                "range": {
+                    "start": { "line": 0, "character": 23 },
+                    "end": { "line": 0, "character": 23 }
+                },
+                "context": { "only": ["quickfix"], "diagnostics": [] }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 4, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+
+    let output = run_server(&messages);
+    let actions = response(&output, 2)["result"].as_array().unwrap();
+    let action = actions
+        .iter()
+        .find(|action| action["title"] == "Rewrite legacy Link arguments")
+        .unwrap();
+    assert_eq!(action["kind"], "quickfix");
+    assert_eq!(action["diagnostics"][0]["code"], "link.legacy-to-property");
+    assert_eq!(
+        action["edit"]["documentChanges"][0]["textDocument"]["version"],
+        7
+    );
+    assert_eq!(
+        action["edit"]["documentChanges"][0]["edits"][0]["newText"],
+        "`->[description][https://baidu.com]"
+    );
+    assert!(response(&output, 3)["result"].is_null());
+}
+
+#[test]
 fn inserts_metadata_code_action_only_for_valid_documents_without_metadata() {
     let uri = "file:///tmp/metadata-action.plumb";
     let messages = [

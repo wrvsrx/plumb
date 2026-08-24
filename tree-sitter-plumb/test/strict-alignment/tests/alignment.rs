@@ -177,7 +177,7 @@ fn project_inline_content(content: &InlineContent, output: &mut Vec<ProjectedNod
             Inline::Element {
                 range,
                 kind_range,
-                content,
+                slots,
                 attrs,
                 ..
             } => {
@@ -191,7 +191,9 @@ fn project_inline_content(content: &InlineContent, output: &mut Vec<ProjectedNod
                     range: Some(kind_range.clone()),
                     children: Vec::new(),
                 });
-                project_inline_content(content, &mut children);
+                for slot in slots {
+                    project_inline_content(&slot.content, &mut children);
+                }
                 project_attributes(attrs, &mut children);
                 output.push(ProjectedNode {
                     kind: "inline_element",

@@ -9,6 +9,7 @@ mod metadata;
 mod queries;
 mod quotes;
 mod tasks;
+mod text;
 
 pub use citations::{analyze_citations, CitationOutput, CitationRecord};
 pub use document::{

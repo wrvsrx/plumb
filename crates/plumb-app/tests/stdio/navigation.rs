@@ -361,7 +361,7 @@ fn resolves_cross_file_navigation_over_stdio() {
     let target = root.join("a.plumb");
     let source = root.join("b.plumb");
     std::fs::write(&target, "`# Target {\n  `@ target\n}\n").unwrap();
-    let source_text = "See `->[target]{`:[to a.plumb#target]}.\n";
+    let source_text = "See `->[target][a.plumb#target].\n";
     std::fs::write(&source, source_text).unwrap();
     let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
     let target_uri = lsp_types::Url::from_file_path(&target).unwrap();
@@ -404,29 +404,29 @@ fn resolves_cross_file_navigation_over_stdio() {
         }),
         json!({
             "jsonrpc": "2.0", "id": 8, "method": "textDocument/completion",
-            "params": { "textDocument": { "uri": source_uri }, "position": { "line": 0, "character": 32 } }
+            "params": { "textDocument": { "uri": source_uri }, "position": { "line": 0, "character": 24 } }
         }),
         json!({
             "jsonrpc": "2.0", "id": 5, "method": "textDocument/prepareRename",
-            "params": { "textDocument": { "uri": source_uri }, "position": { "line": 0, "character": 32 } }
+            "params": { "textDocument": { "uri": source_uri }, "position": { "line": 0, "character": 24 } }
         }),
         json!({
             "jsonrpc": "2.0", "id": 6, "method": "textDocument/rename",
             "params": {
                 "textDocument": { "uri": source_uri },
-                "position": { "line": 0, "character": 32 },
+                "position": { "line": 0, "character": 24 },
                 "newName": "renamed"
             }
         }),
         json!({
             "jsonrpc": "2.0", "id": 9, "method": "textDocument/prepareRename",
-            "params": { "textDocument": { "uri": source_uri }, "position": { "line": 0, "character": 24 } }
+            "params": { "textDocument": { "uri": source_uri }, "position": { "line": 0, "character": 16 } }
         }),
         json!({
             "jsonrpc": "2.0", "id": 10, "method": "textDocument/rename",
             "params": {
                 "textDocument": { "uri": source_uri },
-                "position": { "line": 0, "character": 24 },
+                "position": { "line": 0, "character": 16 },
                 "newName": "moved.plumb"
             }
         }),
@@ -477,7 +477,8 @@ fn code_lenses_count_anchor_references_and_ignore_last_valid_output() {
     let source = root.join("source.plumb");
     let target_text =
         "{\n  `: title Target\n}\n\n`# Used {\n  `@ used\n}\n\n`## Unused {\n  `@ unused\n}\n";
-    let source_text = "See `->[used]{`:[to target.plumb#used]}.\n\n`task Review {\n  `: depends target.plumb#used\n}\n";
+    let source_text =
+        "See `->[used][target.plumb#used].\n\n`task Review {\n  `: depends target.plumb#used\n}\n";
     std::fs::write(&target, target_text).unwrap();
     std::fs::write(&source, source_text).unwrap();
     let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();

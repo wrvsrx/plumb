@@ -1681,7 +1681,7 @@ impl WebWorkspace {
                 .expect("document id is current-valid");
             for link in &current.output.links {
                 let kind = match link.spelling {
-                    LinkSpelling::Explicit => "link",
+                    LinkSpelling::Positional | LinkSpelling::LegacyProperty { .. } => "link",
                     LinkSpelling::Verbatim { .. } => "autolink",
                 };
                 self.push_resolved_edge(
@@ -2067,7 +2067,7 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(
             root.join("a.plumb"),
-            "{\n  `: title Alpha\n}\n\n`task Old {\n  `@ old\n}\n`task A {\n  `@ a\n  `: prev b.plumb#b\n  `: depends b.plumb#b\n}\n`task Recurring instance {\n  `@ recur\n  `: prev #old\n}\n\nSee `->[B]{`:[to b.plumb#b]}, `->\"b.plumb#b\", `->[self]{`:[to #a]}, `->[self again]{`:[to #a]}, and `->[missing]{`:[to missing.plumb]}.\n",
+            "{\n  `: title Alpha\n}\n\n`task Old {\n  `@ old\n}\n`task A {\n  `@ a\n  `: prev b.plumb#b\n  `: depends b.plumb#b\n}\n`task Recurring instance {\n  `@ recur\n  `: prev #old\n}\n\nSee `->[B][b.plumb#b], `->\"b.plumb#b\", `->[self][#a], `->[self again][#a], and `->[missing][missing.plumb].\n",
         )
         .unwrap();
         std::fs::write(root.join("b.plumb"), "`task Beta {\n  `@ b\n}\n").unwrap();
@@ -3027,12 +3027,8 @@ mod tests {
     fn graph_queries_filter_after_traversal_and_remove_hidden_endpoints() {
         let root = temp_dir();
         std::fs::create_dir_all(&root).unwrap();
-        std::fs::write(root.join("a.plumb"), "`->[B]{`:[to b.plumb]}\n").unwrap();
-        std::fs::write(
-            root.join("b.plumb"),
-            "`->[C]{`:[to c.plumb]}\n\n`task Work {\n}\n",
-        )
-        .unwrap();
+        std::fs::write(root.join("a.plumb"), "`->[B][b.plumb]\n").unwrap();
+        std::fs::write(root.join("b.plumb"), "`->[C][c.plumb]\n\n`task Work {\n}\n").unwrap();
         std::fs::write(root.join("c.plumb"), "C\n").unwrap();
         std::fs::write(root.join("orphan.plumb"), "Orphan\n").unwrap();
         let workspace = WebWorkspace::load(&root).unwrap();

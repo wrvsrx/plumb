@@ -41,10 +41,10 @@ fn normalize_diagnostics(mut diagnostics: Vec<Diagnostic>) -> Vec<Diagnostic> {
             !(matches!(
                 diagnostic.code,
                 "syntax.unattached-group" | "syntax.unexpected-group-close"
-            ) && document_group_ranges
-                .iter()
-                .any(|range| range.contains(&diagnostic.range.start)
-                    && range.contains(&diagnostic.range.end.saturating_sub(1))))
+            ) && document_group_ranges.iter().any(|range| {
+                range.contains(&diagnostic.range.start)
+                    && range.contains(&diagnostic.range.end.saturating_sub(1))
+            }))
         });
     }
     let preferred = diagnostics
@@ -99,6 +99,9 @@ fn project_block_attributes(source: &str, blocks: &[Block]) -> Vec<AttrItem> {
             if mark.marker != ":" {
                 return None;
             }
+            if !block.children.is_empty() {
+                return None;
+            }
             let (key, key_range, value_range) = association_parts(&block.head)?;
             let value = block.head.items[2..]
                 .iter()
@@ -130,13 +133,17 @@ fn project_inline_attributes(source: &str, content: &InlineContent) -> Vec<AttrI
                 range,
                 kind,
                 kind_range: _,
-                content,
+                slots,
                 ..
             } = inline
             else {
                 return None;
             };
             if kind == "-" {
+                let [slot] = slots.as_slice() else {
+                    return None;
+                };
+                let content = &slot.content;
                 let value = content.plain_text();
                 if value.is_empty() {
                     return None;
@@ -147,6 +154,10 @@ fn project_inline_attributes(source: &str, content: &InlineContent) -> Vec<AttrI
                 });
             }
             if kind == "@" {
+                let [slot] = slots.as_slice() else {
+                    return None;
+                };
+                let content = &slot.content;
                 let value = content.plain_text();
                 if value.is_empty() {
                     return None;
@@ -159,13 +170,29 @@ fn project_inline_attributes(source: &str, content: &InlineContent) -> Vec<AttrI
             if kind != ":" {
                 return None;
             }
-            let (key, key_range, value_range) = association_parts(content)?;
-            let value = content.items[2..]
-                .iter()
-                .fold(String::new(), |mut output, inline| {
-                    append_inline_plain_text(inline, &mut output);
-                    output
-                });
+            let (key, key_range, value_range, value) = match slots.as_slice() {
+                [slot] => {
+                    let (key, key_range, value_range) = association_parts(&slot.content)?;
+                    let value =
+                        slot.content.items[2..]
+                            .iter()
+                            .fold(String::new(), |mut output, inline| {
+                                append_inline_plain_text(inline, &mut output);
+                                output
+                            });
+                    (key, key_range, value_range, value)
+                }
+                [key_slot, value_slot] if !value_slot.content.items.is_empty() => {
+                    let (key, key_range) = plain_key(&key_slot.content)?;
+                    (
+                        key,
+                        key_range,
+                        value_slot.content.range.clone(),
+                        value_slot.content.plain_text(),
+                    )
+                }
+                _ => return None,
+            };
             Some(AttrItem::Pair {
                 key,
                 key_range,
@@ -193,11 +220,8 @@ fn association_parts(content: &InlineContent) -> Option<(String, SourceRange, So
             (text.clone(), range.clone())
         }
         Inline::Element {
-            kind,
-            content,
-            range,
-            ..
-        } if kind == "()" => (content.plain_text(), range.clone()),
+            kind, slots, range, ..
+        } if kind == "()" && slots.len() == 1 => (slots[0].content.plain_text(), range.clone()),
         _ => return None,
     };
     if key.is_empty() {
@@ -208,6 +232,21 @@ fn association_parts(content: &InlineContent) -> Option<(String, SourceRange, So
         key_range,
         inline_range(value.first()?).start..inline_range(value.last()?).end,
     ))
+}
+
+fn plain_key(content: &InlineContent) -> Option<(String, SourceRange)> {
+    if content.items.is_empty()
+        || content.items.iter().any(|inline| {
+            !matches!(
+                inline,
+                Inline::Text { .. } | Inline::Space { .. } | Inline::SoftBreak { .. }
+            )
+        })
+    {
+        return None;
+    }
+    let key = content.plain_text();
+    (!key.is_empty()).then(|| (key, content.range.clone()))
 }
 
 fn inline_range(inline: &Inline) -> &SourceRange {
@@ -226,7 +265,11 @@ fn append_inline_plain_text(inline: &Inline, output: &mut String) {
             output.push_str(text)
         }
         Inline::SoftBreak { .. } => output.push(' '),
-        Inline::Element { content, .. } => output.push_str(&content.plain_text()),
+        Inline::Element { slots, .. } => {
+            for slot in slots {
+                output.push_str(&slot.content.plain_text());
+            }
+        }
     }
 }
 
@@ -256,6 +299,7 @@ struct InlineOpening {
     introducer: usize,
     kind: String,
     kind_range: SourceRange,
+    slots: Vec<InlineSlot>,
 }
 
 struct InlineFrame {
@@ -1182,6 +1226,27 @@ impl Parser<'_> {
                 flush_inline_text(self.source, frames.last_mut().unwrap(), cursor);
                 position.offset += 1;
                 let after_close = position.offset;
+                let mut frame = frames.pop().unwrap();
+                let mut opening = frame.opening.take().unwrap();
+                opening.slots.push(InlineSlot {
+                    range: frame.start - 1..after_close,
+                    open_range: frame.start - 1..frame.start,
+                    content: InlineContent {
+                        range: frame.start..cursor,
+                        items: frame.items,
+                    },
+                    close_range: cursor..after_close,
+                });
+                if after_close < end && self.source.as_bytes()[after_close] == b'[' {
+                    position.offset += 1;
+                    frames.push(InlineFrame {
+                        start: position.offset,
+                        text_start: position.offset,
+                        items: Vec::new(),
+                        opening: Some(opening),
+                    });
+                    continue;
+                }
                 let (attrs, after_attrs) =
                     if after_close < end && self.source.as_bytes()[after_close] == b'{' {
                         self.parse_inline_postfix(segments, &mut position, after_close, end)
@@ -1189,17 +1254,11 @@ impl Parser<'_> {
                         (Attributes::default(), after_close)
                     };
                 position.offset = after_attrs;
-                let frame = frames.pop().unwrap();
-                let opening = frame.opening.unwrap();
-                let content = InlineContent {
-                    range: frame.start..cursor,
-                    items: frame.items,
-                };
                 frames.last_mut().unwrap().items.push(Inline::Element {
                     range: opening.introducer..after_attrs,
                     kind: opening.kind,
                     kind_range: opening.kind_range,
-                    content,
+                    slots: opening.slots,
                     attrs,
                 });
                 frames.last_mut().unwrap().text_start = after_attrs;
@@ -1354,6 +1413,7 @@ impl Parser<'_> {
                         introducer,
                         kind: self.source[kind_start..kind_end].to_string(),
                         kind_range: kind_start..kind_end,
+                        slots: Vec::new(),
                     }),
                 });
                 continue;
@@ -1779,10 +1839,7 @@ fn block_attached_start(source: &str, start: usize, end: usize) -> Option<(usize
             if ticks % 2 == 0 || cursor >= end {
                 continue;
             }
-            if matches!(
-                source.as_bytes()[cursor],
-                b'{' | b'}' | b'[' | b']'
-            ) {
+            if matches!(source.as_bytes()[cursor], b'{' | b'}' | b'[' | b']') {
                 cursor += 1;
                 continue;
             }
@@ -1987,6 +2044,32 @@ mod tests {
     }
 
     #[test]
+    fn projects_expanded_inline_associations_without_flattening_child_blocks() {
+        let inline = parse("`span[value]{`:[key with spaces][value with spaces]}\n");
+        assert!(inline.is_valid(), "{:?}", inline.diagnostics);
+        let Block::Parsed(paragraph) = &inline.syntax.blocks[0] else {
+            panic!("expected paragraph");
+        };
+        let [Inline::Element { attrs, .. }] = paragraph.head.items.as_slice() else {
+            panic!("expected inline owner");
+        };
+        assert_eq!(attrs.value("key with spaces"), Some("value with spaces"));
+
+        let block = parse("{\n `: key with spaces\n   `- value\n}\n");
+        assert!(block.is_valid(), "{:?}", block.diagnostics);
+        assert_eq!(block.syntax.attrs.value("key"), None);
+        let attached = block.syntax.attrs.attached.as_deref().unwrap();
+        let AttachedContent::Blocks(blocks) = &attached.content else {
+            panic!("expected block attachment");
+        };
+        let Block::Parsed(property) = &blocks[0] else {
+            panic!("expected association block");
+        };
+        assert_eq!(property.head.plain_text(), "key with spaces");
+        assert_eq!(property.children.len(), 1);
+    }
+
+    #[test]
     fn parses_verbatim_block_with_structural_attached_opener() {
         let source = "`rust\" {`@[example]}\n fn main() {\n     println!(\"hi\");\n }\n";
         let parsed = parse(source);
@@ -2145,7 +2228,7 @@ mod tests {
             paragraph.head.plain_text(),
             "Before first second 嵌套 third after"
         );
-        let Some(Inline::Element { content, .. }) = paragraph
+        let Some(Inline::Element { slots, .. }) = paragraph
             .head
             .items
             .iter()
@@ -2153,8 +2236,11 @@ mod tests {
         else {
             panic!("expected multiline span");
         };
+        let [slot] = slots.as_slice() else {
+            panic!("expected one multiline span slot");
+        };
         assert_eq!(
-            content
+            slot.content
                 .items
                 .iter()
                 .filter(|inline| matches!(inline, Inline::SoftBreak { .. }))
@@ -2166,6 +2252,34 @@ mod tests {
             panic!("expected marked block");
         };
         assert_eq!(note.head.plain_text(), "Head one two tail");
+    }
+
+    #[test]
+    fn parses_ordered_inline_slots_before_the_owner_attachment() {
+        let source = "`pair[first][second]{`-[tag]}\n";
+        let parsed = parse(source);
+        assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
+        let Block::Parsed(paragraph) = &parsed.syntax.blocks[0] else {
+            panic!("expected paragraph");
+        };
+        let [Inline::Element {
+            range,
+            slots,
+            attrs,
+            ..
+        }] = paragraph.head.items.as_slice()
+        else {
+            panic!("expected one inline element");
+        };
+        assert_eq!(range, &(0..29));
+        assert_eq!(slots.len(), 2);
+        assert_eq!(slots[0].range, 5..12);
+        assert_eq!(slots[0].open_range, 5..6);
+        assert_eq!(slots[0].content.range, 6..11);
+        assert_eq!(slots[0].close_range, 11..12);
+        assert_eq!(slots[1].range, 12..20);
+        assert_eq!(slots[1].content.plain_text(), "second");
+        assert!(attrs.attached.is_some());
     }
 
     #[test]
