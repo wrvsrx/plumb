@@ -125,6 +125,18 @@ The opening `[` is mandatory and the kind must be nonempty; there is no
 anonymous element. Even an empty inline element is written as
 `kind[]`; a bare `` `kind`` is invalid.
 
+A parsed inline element may contain one or more adjacent content slots:
+
+```plumb
+`kind[only]
+`kind[first][second]
+`kind[first][second][third]{`-[facet]}
+```
+
+Each slot has ordinary parsed inline content and may be empty. Whitespace is
+not allowed between slots. The attached group, when present, touches the final
+slot. Core preserves slot order but does not assign argument meaning or arity.
+
 ## Inline Verbatim
 
 Compact inline verbatim starts with a backtick, an optional opaque kind, and a

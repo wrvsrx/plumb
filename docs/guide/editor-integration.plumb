@@ -9,7 +9,7 @@ CodeAction、CodeLens、semantic tokens、folding ranges、formatting、range fo
 
 LSP protocol 由 editor client 选择 `"rootUri"/`"workspaceFolders"。plumb server 不向上查找 marker，也
 不向 client 声明 marker；client integration 应优先使用 `".plumb"，再 fallback 到 editor 自己的
-project marker。workspace 与 ignore 行为见 `->[workspace 指南]{`:[to workspace.plumb]}。
+project marker。workspace 与 ignore 行为见 `->[workspace 指南][workspace.plumb]。
 
 当前官方 editor integration 只覆盖 Neovim 0.12。未来其它 editor 应复用相同的 LSP 与 workspace
 contract，并在本文增加同级章节。
@@ -205,7 +205,7 @@ CSL JSON files 补全 ids。单独 opening bracket prefix 不提供候选。snip
 CodeAction 包括 metadata insertion、explicit id、event shorthand conversion、task conversion、
 created insertion 和 task status operations。metadata insertion 只在 cursor 位于 document start（cursor
 之前仅有空白）时提供；event shorthand 的具体格式见
-`->[Event]{`:[to semantics.plumb]}。whole-document 与 range formatting 使用同一个 canonical formatter。
+`->[Event][semantics.plumb]。whole-document 与 range formatting 使用同一个 canonical formatter。
 Whole-document formatting 由 protocol-neutral formatter 产生 non-overlapping line-diff edits，LSP 只做
 position mapping，并只替换实际变化的行；Neovim 使用
 `"vim.lsp.foldexpr()" 时，这会减少未变化 source 被整篇 replacement 触发 fold 重算的机会；但原生

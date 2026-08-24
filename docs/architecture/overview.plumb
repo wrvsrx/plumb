@@ -38,7 +38,7 @@ layer 产生 revision-bound byte edits。
 
 `"plumb-edit" 在 valid revision 上执行 syntax-level attached-property/block mutations、owned syntax insertion、
 format intent、validated token rewrites 和 authoring finalization。详细 contract 见
-`->[syntax editing]{`:[to editing.plumb]}。
+`->[syntax editing][editing.plumb]。
 
 `# 3. Semantics
 

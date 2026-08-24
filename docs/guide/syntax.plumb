@@ -47,6 +47,15 @@ column 加一，对非空 head 将 children 与 conceptual head column 对齐：
 `plumb"
   See `term[outer `term[inner] text].
 
+同一个 owner 可以拥有多个紧邻 slots；每个 slot 都是独立的 parsed inline container，slots 之间不能
+插入 whitespace：
+
+`plumb"
+  `pair[first][second]
+  `pair[`*[rich first]][second with spaces]
+
+core 只保留 slots 的边界与顺序，不解释 argument 含义或数量；这些约束由 semantic profile 决定。
+
 element 可以跨属于同一 paragraph/head 的 continuation lines：
 
 `plumb"
@@ -139,4 +148,4 @@ line。
 escape，也不要假设 punctuation 在所有位置都有特殊含义。
 
 完整 grammar、indentation 与 recovery 规则见
-`->[core syntax reference]{`:[to ../reference/core-syntax.plumb]}。
+`->[core syntax reference][../reference/core-syntax.plumb]。

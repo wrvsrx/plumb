@@ -27,11 +27,11 @@ This heading should be nested below `"Document symbols".
 
 Try go-to-definition, hover, find references, and rename on these links:
 
-`- Same-file anchor: `->[Document symbols]{`:[to #symbols]}
-`- Same-file explicit anchor: `->[local anchor]{`:[to #local-anchor]}
-`- Cross-file anchor: `->[Exporter conclusion]{`:[to plumb-export.plumb#export-target]}
-`- Cross-file document: `->[Notes playground]{`:[to plumb-notes.plumb]}
-`- Repeated reference: `->[Exporter conclusion]{`:[to plumb-export.plumb#export-target]}
+`- Same-file anchor: `->[Document symbols][#symbols]
+`- Same-file explicit anchor: `->[local anchor][#local-anchor]
+`- Cross-file anchor: `->[Exporter conclusion][plumb-export.plumb#export-target]
+`- Cross-file document: `->[Notes playground][plumb-notes.plumb]
+`- Repeated reference: `->[Exporter conclusion][plumb-export.plumb#export-target]
 `- External autolink hover: `->"https://example.test/a%20b"
 `- Relative document Autolink: `->"plumb-export.plumb#export-target"
 `- Relative file Autolink: `->"static/plumb-pipeline.svg"
@@ -62,14 +62,14 @@ Try completion after each relevant introducer in a temporary edit:
 }
 
 Rename the `"plumb-export.plumb" path in
-`->[this link]{`:[to plumb-export.plumb]}. Rename `"local-anchor" from either
-its declaration or this `->[reference]{`:[to #local-anchor]}.
+`->[this link][plumb-export.plumb]. Rename `"local-anchor" from either
+its declaration or this `->[reference][#local-anchor].
 
 `# Code actions and task hover {
   `@ actions
 }
 
-Open `->[metadata-scratch.plumb]{`:[to metadata-scratch.plumb]} to try
+Open `->[metadata-scratch.plumb][metadata-scratch.plumb] to try
 `"Insert document metadata".
 
 Place the cursor in this ordinary item and request `"Convert to task"：
@@ -134,9 +134,9 @@ The exporter playground links to this explicit anchor.
 
 The following valid syntax deliberately produces semantic diagnostics:
 
-`- Missing same-file anchor: `->[missing]{`:[to #missing-anchor]}
-`- Missing file: `->[missing file]{`:[to missing-target.plumb]}
-`- Missing cross-file anchor: `->[missing heading]{`:[to plumb-export.plumb#missing-anchor]}
+`- Missing same-file anchor: `->[missing][#missing-anchor]
+`- Missing file: `->[missing file][missing-target.plumb]
+`- Missing cross-file anchor: `->[missing heading][plumb-export.plumb#missing-anchor]
 
 `anchor First duplicate target. {
   `@ duplicate-anchor

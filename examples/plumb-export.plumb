@@ -19,7 +19,7 @@ This document exercises the successfully exportable semantic profile.
 This paragraph contains `*[emphasis with `![strong content]], `=[marked content],
 `~[obsolete content], `^[superscript], and `_[subscript],
 inline verbatim `"cargo test", a `kbd[Ctrl+C]{`-[shortcut]} element, and a
-`->[link back to the index]{`:[to index.plumb]}.
+`->[link back to the index][index.plumb].
 
 An identical label and target can use an Autolink without duplication:
 `->"https://example.test/a%20b"{`@[external] `-[reference] `:[rel nofollow]}.
@@ -107,4 +107,4 @@ Task semantics can coexist with list-item structure and attributes:
 }
 
 This heading is a target for navigation tests from the
-`->[language server playground]{`:[to plumb-ls.plumb#export-target]}.
+`->[language server playground][plumb-ls.plumb#export-target].

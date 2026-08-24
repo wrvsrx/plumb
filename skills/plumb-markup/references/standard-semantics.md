@@ -37,10 +37,14 @@ list. Nested items form nested lists:
 
 Ordered lists always start at 1. `item` is a generic marker, not a list alias.
 
-Use `:` for definition entries. The head is the term and children are its
-definition body. Adjacent sibling definitions form a definition list:
+Use `:` for definition entries. Without children, the first inline item is the
+term and the content after the separating space is an inline definition body.
+With children, the whole head is the term and the children are its body.
+Adjacent sibling definitions form a definition list:
 
 ```plumb
+`: Term Inline body.
+
 `: Term
 
   Definition body.
@@ -64,7 +68,10 @@ metadata properties:
 }
 ```
 
-Keys must be nonempty plain text without whitespace or inline markup. Values
+Without children, the first inline item is the key and the remainder after a
+space is the value. With children, the whole plain head is the key and the
+children are the value. Use `()[key with spaces]` to bound a compact key with
+spaces explicitly. Keys must be nonempty plain text. Values
 may be empty/null, one paragraph scalar, a `-` list, a nested `:` map, or one
 verbatim block. A paragraph or list-item head containing exactly one inline
 verbatim value becomes a literal string. A list item with an empty head may use
@@ -81,21 +88,33 @@ The metadata insertion action creates `title` from the filename stem and
 
 ## Links
 
-Use `->` as the only link inline kind and put the target in an attached `to`
-property:
+Use `->` as the only link inline kind. The expanded form puts the label and
+target in two adjacent slots; the compact form uses the first inline item as
+the label and the remainder after a space as the target:
 
 ```plumb
-`->[same-file target]{`:[to #intro]}
-`->[other document]{`:[to guide.plumb]}
-`->[cross-file target]{`:[to guide.plumb#intro]}
-`->[external target]{`:[to https://example.test]}
+`->[same-file target][#intro]
+`->[other document][guide.plumb]
+`->[cross-file target][guide.plumb#intro]
+`->[external target][https://example.test]
+`->[guide guide.plumb]
 ```
 
 `link` is a generic inline kind, not a link alias. Local and cross-file anchors
 must be explicit. A target with a scheme or `//` prefix is an absolute/network
-URI. Other `to` values are raw relative filesystem paths resolved from the
+URI. Other targets are raw relative filesystem paths resolved from the
 source document directory. Do not percent-encode, percent-decode, or normalize
 them.
+
+When a heading, task, event, metadata value, or another standard semantic
+consumer projects visible plain text, a Link contributes only its label. Its
+positional target slot is not part of the containing title, details, or scalar
+text. Generic multi-slot inline elements still contribute all slots in source
+order.
+
+The legacy `` `->[label]{`:[to target]}`` form remains analyzable but emits
+`link.legacy-to-property`. Use the `Rewrite legacy Link arguments` quickfix to
+migrate it; formatting alone never performs this semantic rewrite.
 
 When label and target are identical, inline verbatim with opaque kind `->` is
 the standard Autolink; its payload is both label and target:

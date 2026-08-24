@@ -3,8 +3,8 @@
 }
 
 本页只记录可以直接实施和验收的工作。方向、约束和 deferred design 继续放在
-`->[roadmap]{`:[to roadmap.plumb]}；已经结束的任务及其验收记录保存在
-`->[completed tasks]{`:[to completed-tasks.plumb]}。
+`->[roadmap][roadmap.plumb]；已经结束的任务及其验收记录保存在
+`->[completed tasks][completed-tasks.plumb]。
 
 `task 用 Diesel 建立关系化 workspace query backend {
  `@ diesel-workspace-query-backend

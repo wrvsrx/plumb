@@ -5,7 +5,7 @@
 `# User guide
 
 完整的 Neovim 0.12、LSP、tree-sitter、workspace 与 authoring setup 见
-`->[editor integration 指南]{`:[to ../../docs/guide/editor-integration.plumb]}。本文只记录 packaged Lua
+`->[editor integration 指南][../../docs/guide/editor-integration.plumb]。本文只记录 packaged Lua
 modules 的调用接口。
 
 `# Setup

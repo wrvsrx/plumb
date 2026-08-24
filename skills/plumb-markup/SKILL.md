@@ -112,7 +112,7 @@ Inline `()[container]{`-[notice]} and `$"x^2" math.
 
   Definition body.
 
-See `->[guide]{`:[to guide.plumb#intro]}, `->"guide.plumb#intro", and `cite[smith2004].
+See `->[guide][guide.plumb#intro], `->"guide.plumb#intro", and `cite[smith2004].
 
 Use `img[status icon]{`:[src static/status.png]} for an image.
 Use `file[Demo video]{`:[src static/demo.mp4]} for a file attachment with fallback content.
@@ -125,7 +125,8 @@ Use `"cargo test" for inline raw text.
 
 Use `-` for bullet-list items, `.` for ordered-list items, `task` and `event`
 for their specialized bullet-list items, and `->` as the sole
-link inline kind. Use the `->` verbatim kind for an absolute URI or raw relative path
+link parsed kind; put its label and target in two adjacent slots. Use the `->`
+verbatim kind for an absolute URI or raw relative path
 whose payload is both label and target; relative `.plumb` targets resolve as
 documents and other relative targets resolve as files. Use
 `img[alt]{`:[src target]}` for images and `file[label]{`:[src target]}` for attachments.

@@ -8,10 +8,10 @@ exercise the implemented language server, exporter, and notes features.
 
 `# Start here
 
-`- `->[Language server playground]{`:[to plumb-ls.plumb]}
-`- `->[Metadata code-action scratchpad]{`:[to metadata-scratch.plumb]}
-`- `->[Exporter playground]{`:[to plumb-export.plumb]}
-`- `->[Notes playground]{`:[to plumb-notes.plumb]}
+`- `->[Language server playground][plumb-ls.plumb]
+`- `->[Metadata code-action scratchpad][metadata-scratch.plumb]
+`- `->[Exporter playground][plumb-export.plumb]
+`- `->[Notes playground][plumb-notes.plumb]
 
 `# Suggested commands
 
