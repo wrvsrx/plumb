@@ -282,6 +282,18 @@ content container，多个 slots 在参数自身含 whitespace 或 nested inline
 block owner 已有的 head 与 children 则分别承担当前层 content 和下层 block content。统一的是递归
 container model，而不是强迫 block 与 inline 使用相同 delimiter。
 
+`## 8.2 后继 single-envelope member 设计（尚未实现）
+
+后继设计计划用单一 `"[]" envelope、`"|" separated members 和 introducer-elided child dispatch
+同时替换 consecutive slots 与 inline attached group。member 将正交区分 parsed/verbatim argument 与
+parsed/verbatim child；argument 和 child 可以按 source order 交错，core 不解释 child kind。
+
+该设计尚未进入 parser、typed tree、formatter 或任何 user-facing tool。第 7、8.1 与 9 节仍是当前
+validity；目标 grammar、动机、未冻结的 export boundary 与 migration 要求见
+`->[unified inline members proposal][../project/inline-members.plumb]。实现完成并通过 strict parser、
+tree-sitter、format/edit 与 project-document verification 前，不得删除本状态说明或在 guide 中使用
+目标 spelling。
+
 `# 9. Inline verbatim
 
 inline verbatim 有 compact 与 strengthened 两种 envelope。compact form 是 introducer、可选 opaque

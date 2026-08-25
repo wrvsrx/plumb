@@ -24,7 +24,8 @@ heading、list、metadata、link、citation、task 和 event 等含义由officia
 `- 了解项目方向：阅读 `->[愿景][project/vision.plumb]、
    `->[路线图][project/roadmap.plumb]、`->[当前任务][project/tasks.plumb] 和
    `->[已完成任务][project/completed-tasks.plumb]；下一版 attached data 方向见
-   `->[attached declarations proposal][project/attached-declarations.plumb]。
+   `->[attached declarations proposal][project/attached-declarations.plumb]，后继 inline ownership
+   方向见 `->[unified inline members proposal][project/inline-members.plumb]。
 `- 追溯设计理由：阅读 `->[语法决策记录][history/syntax-decisions.plumb] 和
    `->[djot-tools 能力审计][history/djot-tools-audit.plumb]。
 

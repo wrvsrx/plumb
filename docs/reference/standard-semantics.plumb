@@ -95,6 +95,18 @@ argument，也不改变 single-slot/multi-slot projection。
 或 nested inline structure 的 argument 获得无歧义边界。block 的下层边界由 children 表达，inline 的
 下层边界由后续 slots 表达；两者都遵循“当前 content / 下层 content”的递归关系。
 
+`## 5.2 后继 inline member projection（尚未实现）
+
+后继 single-envelope 设计将由 syntax member form 直接区分 arguments 与 children，并允许两者交错。
+positional recognizer 只对 ordered argument view 编号；direct child 不因 kind 未被 standard profile
+识别而占用 argument index。Link 因而始终取 first argument 为 label、second argument 为 target，而不
+寻找“第二个不是 declaration 的 member”。普通 structural children 与 relation children 都保留 source
+order，再由各 owner recognizer 分别解释。
+
+该 projection 尚未实现，当前 consumer 继续遵循第 5.1 节的 block head/children 与 inline slots 规则。
+四种 member forms、space/pipe boundary、generic inline child export 的待冻结问题及 migration 见
+`->[unified inline members proposal][../project/inline-members.plumb]。
+
 `# 6. Metadata
 
 文件起始的 document attached group 是 document metadata；它的 direct `":" associations 是 entries。

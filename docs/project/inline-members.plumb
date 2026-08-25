@@ -1,0 +1,140 @@
+{
+ `: title Unified inline members proposal
+}
+
+本文记录 single-envelope inline members 的后继设计。该设计尚未实现；当前有效语法仍以
+`->[core syntax reference][../reference/core-syntax.plumb] 的连续 `"[]" slots 与 attached groups
+为准，当前 official projection 仍以
+`->[standard semantics reference][../reference/standard-semantics.plumb] 为准。本页中的 source
+示例是目标 spelling，不能作为当前 parser 的有效输入。
+
+`# 动机
+
+block owner 已经通过 head 与 indentation 同时表达 positional content 和 ordinary children。inline
+owner 目前通过连续 slots 表达 positional arguments，再通过独立 `"{}" attached group 表达 ownership；
+这让同一个 owner 需要两套递归 boundary，并让 attached data 看起来像独立 attribute container，而不是
+owner 拥有的 ordinary elements。
+
+目标设计让一个 inline owner 只使用一对 `"[]" envelope。envelope 内的 ordered members 以 `"|"
+分隔；member 自身的 form 同时决定它是 argument 还是 direct child，以及它使用 parsed content 还是
+verbatim payload。ownership 因而来自递归 nesting，不来自 marker/kind 的标准语义。
+
+`# 四种 member
+
+member 形成以下正交组合：
+
+`plumb"
+  parsed argument     `node[ordinary content]
+  verbatim argument   `node["raw content"]
+  parsed child        `node[head|note[parsed child]]
+  verbatim child      `node[head|code"raw child"]
+
+在 member boundary 上，目标 dispatch 为：
+
+`- opening quote 开始 verbatim argument；它没有 kind。
+`- 非空 kind 后跟 opening bracket 开始 parsed child；child spelling 省略 introducer。
+`- 非空 kind 后跟 opening quote 开始 verbatim child；child spelling省略 introducer。
+`- 其他 source 开始 parsed argument；其中 nested inline element 继续显式使用 introducer。
+
+因此有 introducer 的 nested element 属于 argument content，而省略 introducer、独占 member 的 element
+是 owner 的 direct child：
+
+`plumb"
+  `node[head|`note[value]]
+  `node[head|note[value]]
+
+第一行的 second member 是包含一个普通 inline element 的 parsed argument；第二行的 second member 是
+direct parsed child。verbatim argument 与 child 同样由 kind presence 区分：
+
+`plumb"
+  `node[head|"raw argument"|code"raw child"]
+
+parsed/verbatim child 必须恰好占满一个 member；完整 child 后只能出现当前 owner 的 `"|" 或 closing
+bracket。child 可以使用同一 member grammar 递归拥有 arguments 与 children。core 不保留 kind 集合，
+因此任意词法良构 kind 都可以建立 child；`"@"、`"+" 与 `"=" 的含义仍完全属于 semantic profile。
+
+`# Separator 与 source order
+
+目标语法取消 consecutive `"[][]" positional slots，统一使用当前 envelope 内的 `"|" 分隔 ordered
+members：
+
+`plumb"
+  `->[Guide|guide.plumb|@[main]|+[external]|=[rel|nofollow]]
+
+`"|" 只作用于当前 bracket depth；verbatim payload 中的 `"|" 是 raw byte，nested child 内的 `"|"
+属于 nested owner。parsed content 中的 literal pipe 必须使用 delimiter escape。inline member 内的 space
+始终属于当前 argument content，不建立 member boundary；canonical source 不把 padding spaces 添加到
+`"|" 两侧。
+
+argument 与 child 可以任意交错。syntax tree 必须按 source order 保存统一的 member sequence，而不是
+分别存储两个会丢失交错位置的 vectors：
+
+`plumb"
+  InlineMember = ParsedArgument | VerbatimArgument | ParsedChild | VerbatimChild
+
+semantic consumer 可以分别过滤 argument 与 child views，但不得重排 source。guide 可以推荐先写
+arguments、再写 declaration children，parser、formatter 与 authoritative operations 不强制该顺序。
+
+`# Block 与 inline 的 separator
+
+space 只在 block head 的 compact positional projection 中建立顶层 boundary。nested inline element
+内部的 space 不参与该分隔，因此 block argument 需要包含 spaces 或 rich structure 时仍可使用显式
+inline container。inline owner 的 argument 自然需要包含 prose spaces，所以只由 `"|" 建立 member
+boundary。
+
+lexer 与 lossless tree 仍在所有位置保存 whitespace；上述区别属于 owner-context projection，不要求
+lexer 根据 block/inline context 改变 token identity。block 与 inline 统一的是 ordered members 和递归
+ownership model，不是 surface separator character。
+
+`# Semantic projection
+
+syntax 根据 member form 区分 arguments 与 direct children，不根据 kind spelling 排除 declarations。
+official semantics 从 ordered arguments 中计算 positional arity；interleaved children 不占用 argument
+index。以 Link 为例，first argument 是 label，second argument 是 target：
+
+`plumb"
+  `->[Guide|@[main]|guide.plumb|note[recommended]]
+
+这里 target 仍是 `"guide.plumb"；不能通过寻找“第二个不是 `"@"、`"+"、`"=" 的 member”来猜测
+target，否则 custom child 或未来新增 relation spelling 会改变旧 source 的 positional interpretation。
+
+direct children 是一等结构，不等同于 declarations。standard semantics 可以把 direct `"@"、`"+"、
+`"=" children 分别投影为 identity、membership 与 association，也可以按 owner kind 解释普通 structural
+children。block list item 的 nested list item 就是普通 child，而不是 positional argument；inline owner
+同样需要定义非 declaration child 的 body projection。
+
+实现前仍需冻结 generic inline child 的默认 export：候选规则是把 generic block child lower 为
+Pandoc `"Div"，把 generic inline child lower 为 owner inline body 内的 `"Span"；Link 等 specialized
+owner 再约束 nested Link、Image fallback 等 owner-specific cases。在这条规则冻结前，通用 inline child
+不能被 guide 描述为已可渲染行为。
+
+`# 与现行 syntax 的替换关系
+
+目标设计完成后：
+
+`- single envelope members 取代 parsed inline consecutive slots。
+`- introducer-elided child members 取代 inline attached group 的 ownership boundary。
+`- relation kind 的 semantic meaning 不进入 core dispatch。
+`- 当前 compact inline verbatim 仍可作为 standalone inline node；需要 owner children 的 verbatim value
+   使用含 verbatim argument 的 full member envelope，具体 canonical spelling 必须在实现前冻结。
+`- block/document attached group 是否同时移除，取决于 verbatim block raw payload 与 document metadata
+   的 ownership spelling；不能从 inline member design 自动推导。
+
+这是一项 breaking syntax change。reference、guide、bundled skill 与 formatter 在实现完成前继续使用
+现行 spelling；不得提前把本页 examples 复制到用户指南。
+
+`# Migration
+
+实现应当同时提供显式、versioned migration，而不是让 formatter 或 ordinary parser 静默接受两套 syntax。
+migration 必须是 syntax-aware operation：
+
+`- consecutive slots 按 source order 转为 `"|" arguments。
+`- inline attached group 中的 direct elements 转为 introducer-elided child members。
+`- standard declarations 按最终 vocabulary 转写；opaque elements 保留 kind、payload、ordering 与 nesting。
+`- 已知 compact semantic forms，例如 single-slot Link 的 label/target boundary，只由 standard semantic
+   recognizer 转换；generic source 不按 spaces 猜测 arity。
+`- migration 必须 atomic、idempotent，并在输出后使用新 strict parser 验证。
+
+迁移实现遵循 `->[editing architecture][../architecture/editing.plumb]：isolated legacy reader 只负责读取
+旧 source，owned conversion、canonical rendering 与最终 byte edits 由 `"plumb-edit" 负责。formatter
+不得识别 semantic kind，也不得触发 migration。
