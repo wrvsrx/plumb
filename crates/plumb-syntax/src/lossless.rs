@@ -1,6 +1,7 @@
 use crate::syntax::{
     AttachedContent, AttrItem, AttrValue, Attributes, Block, Diagnostic, Document, Inline,
-    InlineContent, LosslessTree, SourceRange, SyntaxKind, SyntaxToken, VerbatimBlock,
+    InlineContent, InlineMember, LosslessTree, SourceRange, SyntaxKind, SyntaxToken,
+    VerbatimArgument, VerbatimBlock,
 };
 
 const BASELINE_PRIORITY: u8 = 10;
@@ -140,8 +141,12 @@ impl<'a> TokenBuilder<'a> {
 
     fn annotate_inlines(&mut self, content: &InlineContent) {
         let mut contents = vec![content];
-        while let Some(content) = contents.pop() {
-            for inline in &content.items {
+        let mut pending = Vec::new();
+        while !contents.is_empty() || !pending.is_empty() {
+            if let Some(content) = contents.pop() {
+                pending.extend(content.items.iter().rev());
+            }
+            while let Some(inline) = pending.pop() {
                 match inline {
                     Inline::Text { text, range } => {
                         let kind = if matches!(
@@ -162,7 +167,7 @@ impl<'a> TokenBuilder<'a> {
                     Inline::Element {
                         range,
                         kind_range,
-                        slots,
+                        members,
                         attrs,
                         ..
                     } => {
@@ -172,20 +177,53 @@ impl<'a> TokenBuilder<'a> {
                             TYPED_PRIORITY,
                         );
                         self.assign(kind_range.clone(), SyntaxKind::InlineKind, TYPED_PRIORITY);
-                        for slot in slots {
-                            self.assign(
-                                slot.open_range.clone(),
-                                SyntaxKind::Delimiter,
-                                TYPED_PRIORITY,
-                            );
-                            self.assign(
-                                slot.close_range.clone(),
-                                SyntaxKind::Delimiter,
-                                TYPED_PRIORITY,
-                            );
+                        self.assign(
+                            kind_range.end..kind_range.end + 1,
+                            SyntaxKind::Delimiter,
+                            TYPED_PRIORITY,
+                        );
+                        self.assign(
+                            range.end - 1..range.end,
+                            SyntaxKind::Delimiter,
+                            TYPED_PRIORITY,
+                        );
+                        for member in members.iter().rev() {
+                            match member {
+                                InlineMember::ParsedArgument(argument) => {
+                                    if let Some(separator) = &argument.separator_range {
+                                        self.assign(
+                                            separator.clone(),
+                                            SyntaxKind::Delimiter,
+                                            TYPED_PRIORITY,
+                                        );
+                                    }
+                                    contents.push(&argument.content);
+                                }
+                                InlineMember::VerbatimArgument(argument) => {
+                                    if let Some(separator) = &argument.separator_range {
+                                        self.assign(
+                                            separator.clone(),
+                                            SyntaxKind::Delimiter,
+                                            TYPED_PRIORITY,
+                                        );
+                                    }
+                                    self.annotate_verbatim_member(argument);
+                                }
+                                InlineMember::Child {
+                                    separator_range,
+                                    inline,
+                                    ..
+                                } => {
+                                    self.assign(
+                                        separator_range.clone(),
+                                        SyntaxKind::Delimiter,
+                                        TYPED_PRIORITY,
+                                    );
+                                    pending.push(inline);
+                                }
+                            }
                         }
                         self.annotate_inline_attributes(attrs, &mut contents);
-                        contents.extend(slots.iter().rev().map(|slot| &slot.content));
                     }
                     Inline::Verbatim {
                         range,
@@ -233,6 +271,44 @@ impl<'a> TokenBuilder<'a> {
                 }
             }
         }
+    }
+
+    fn annotate_verbatim_member(&mut self, argument: &VerbatimArgument) {
+        let delimiter_start = argument.range.start;
+        if argument.bracketed {
+            self.assign(
+                delimiter_start..delimiter_start + argument.quote_count,
+                SyntaxKind::Delimiter,
+                TYPED_PRIORITY,
+            );
+            self.assign(
+                delimiter_start + argument.quote_count
+                    ..delimiter_start + argument.quote_count + 1,
+                SyntaxKind::Delimiter,
+                TYPED_PRIORITY,
+            );
+        } else {
+            self.assign(
+                delimiter_start..delimiter_start + 1,
+                SyntaxKind::Delimiter,
+                TYPED_PRIORITY,
+            );
+        }
+        self.assign(
+            argument.text_range.clone(),
+            SyntaxKind::RawPayload,
+            TYPED_PRIORITY,
+        );
+        let close_width = if argument.bracketed {
+            1 + argument.quote_count
+        } else {
+            1
+        };
+        self.assign(
+            argument.range.end - close_width..argument.range.end,
+            SyntaxKind::Delimiter,
+            TYPED_PRIORITY,
+        );
     }
 
     fn annotate_attributes(&mut self, attrs: &Attributes) {

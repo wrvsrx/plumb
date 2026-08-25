@@ -76,7 +76,7 @@ fn project_block_attributes(source: &str, blocks: &[Block]) -> Vec<AttrItem> {
                 return None;
             };
             let mark = block.mark.as_ref()?;
-            if mark.marker == "-" {
+            if mark.marker == "+" {
                 let value = block.head.plain_text();
                 if value.is_empty() {
                     return None;
@@ -96,7 +96,7 @@ fn project_block_attributes(source: &str, blocks: &[Block]) -> Vec<AttrItem> {
                     range: block.range.clone(),
                 });
             }
-            if mark.marker != ":" {
+            if mark.marker != "=" {
                 return None;
             }
             if !block.children.is_empty() {
@@ -128,37 +128,51 @@ fn project_inline_attributes(source: &str, content: &InlineContent) -> Vec<AttrI
     content
         .items
         .iter()
-        .filter_map(|inline| {
+        .filter_map(|inline| project_inline_attribute(source, inline))
+        .collect()
+}
+
+fn project_inline_member_attributes(source: &str, members: &[InlineMember]) -> Vec<AttrItem> {
+    members
+        .iter()
+        .filter_map(InlineMember::child)
+        .filter_map(|inline| project_inline_attribute(source, inline))
+        .collect()
+}
+
+fn project_inline_attribute(source: &str, inline: &Inline) -> Option<AttrItem> {
             let Inline::Element {
                 range,
                 kind,
                 kind_range: _,
-                slots,
+                members,
                 ..
             } = inline
             else {
                 return None;
             };
-            if kind == "-" {
-                let [slot] = slots.as_slice() else {
+            let arguments = members
+                .iter()
+                .filter_map(InlineMember::argument)
+                .collect::<Vec<_>>();
+            if kind == "+" {
+                let [argument] = arguments.as_slice() else {
                     return None;
                 };
-                let content = &slot.content;
-                let value = content.plain_text();
+                let value = argument.plain_text();
                 if value.is_empty() {
                     return None;
                 }
                 return Some(AttrItem::Class {
                     value,
-                    range: content.range.clone(),
+                    range: argument_range(argument),
                 });
             }
             if kind == "@" {
-                let [slot] = slots.as_slice() else {
+                let [argument] = arguments.as_slice() else {
                     return None;
                 };
-                let content = &slot.content;
-                let value = content.plain_text();
+                let value = argument.plain_text();
                 if value.is_empty() {
                     return None;
                 }
@@ -167,29 +181,14 @@ fn project_inline_attributes(source: &str, content: &InlineContent) -> Vec<AttrI
                     range: range.clone(),
                 });
             }
-            if kind != ":" {
+            if kind != "=" {
                 return None;
             }
-            let (key, key_range, value_range, value) = match slots.as_slice() {
-                [slot] => {
-                    let (key, key_range, value_range) = association_parts(&slot.content)?;
-                    let value =
-                        slot.content.items[2..]
-                            .iter()
-                            .fold(String::new(), |mut output, inline| {
-                                append_inline_plain_text(inline, &mut output);
-                                output
-                            });
-                    (key, key_range, value_range, value)
-                }
-                [key_slot, value_slot] if !value_slot.content.items.is_empty() => {
-                    let (key, key_range) = plain_key(&key_slot.content)?;
-                    (
-                        key,
-                        key_range,
-                        value_slot.content.range.clone(),
-                        value_slot.content.plain_text(),
-                    )
+            let (key, key_range, value_range, value) = match arguments.as_slice() {
+                [key_argument, value_argument] => {
+                    let (key, key_range) = plain_argument_key(key_argument)?;
+                    let value = value_argument.plain_text();
+                    (key, key_range, argument_range(value_argument), value)
                 }
                 _ => return None,
             };
@@ -204,8 +203,23 @@ fn project_inline_attributes(source: &str, content: &InlineContent) -> Vec<AttrI
                 },
                 range: range.clone(),
             })
-        })
-        .collect()
+}
+
+fn argument_range(argument: &InlineArgumentRef<'_>) -> SourceRange {
+    match argument {
+        InlineArgumentRef::Parsed(content) => content.range.clone(),
+        InlineArgumentRef::Verbatim(argument) => argument.range.clone(),
+    }
+}
+
+fn plain_argument_key(argument: &InlineArgumentRef<'_>) -> Option<(String, SourceRange)> {
+    match argument {
+        InlineArgumentRef::Parsed(content) => plain_key(content),
+        InlineArgumentRef::Verbatim(argument) if !argument.text.is_empty() => {
+            Some((argument.text.clone(), argument.text_range.clone()))
+        }
+        InlineArgumentRef::Verbatim(_) => None,
+    }
 }
 
 fn association_parts(content: &InlineContent) -> Option<(String, SourceRange, SourceRange)> {
@@ -220,8 +234,18 @@ fn association_parts(content: &InlineContent) -> Option<(String, SourceRange, So
             (text.clone(), range.clone())
         }
         Inline::Element {
-            kind, slots, range, ..
-        } if kind == "()" && slots.len() == 1 => (slots[0].content.plain_text(), range.clone()),
+            kind,
+            members,
+            range,
+            ..
+        } if kind == "()" => {
+            let mut arguments = members.iter().filter_map(InlineMember::argument);
+            let argument = arguments.next()?;
+            if arguments.next().is_some() {
+                return None;
+            }
+            (argument.plain_text(), range.clone())
+        }
         _ => return None,
     };
     if key.is_empty() {
@@ -265,9 +289,17 @@ fn append_inline_plain_text(inline: &Inline, output: &mut String) {
             output.push_str(text)
         }
         Inline::SoftBreak { .. } => output.push(' '),
-        Inline::Element { slots, .. } => {
-            for slot in slots {
-                output.push_str(&slot.content.plain_text());
+        Inline::Element { members, .. } => {
+            for member in members {
+                match member {
+                    InlineMember::ParsedArgument(argument) => {
+                        output.push_str(&argument.content.plain_text());
+                    }
+                    InlineMember::VerbatimArgument(argument) => output.push_str(&argument.text),
+                    InlineMember::Child { inline, .. } => {
+                        append_inline_plain_text(inline, output);
+                    }
+                }
             }
         }
     }
@@ -296,10 +328,11 @@ struct InlinePosition {
 }
 
 struct InlineOpening {
-    introducer: usize,
+    start: usize,
     kind: String,
     kind_range: SourceRange,
-    slots: Vec<InlineSlot>,
+    members: Vec<InlineMember>,
+    child_separator: Option<SourceRange>,
 }
 
 struct InlineFrame {
@@ -307,6 +340,8 @@ struct InlineFrame {
     text_start: usize,
     items: Vec<Inline>,
     opening: Option<InlineOpening>,
+    separator_range: Option<SourceRange>,
+    member_complete: bool,
 }
 
 struct BlockFrame {
@@ -1148,6 +1183,8 @@ impl Parser<'_> {
             text_start: start,
             items: Vec::new(),
             opening: None,
+            separator_range: None,
+            member_complete: false,
         }];
 
         while position.segment < segments.len() {
@@ -1161,7 +1198,7 @@ impl Parser<'_> {
                 };
                 let nested = frames.len() > 1;
                 let frame = frames.last_mut().unwrap();
-                if nested || !frame.items.is_empty() {
+                if !frame.member_complete && (nested || !frame.items.is_empty()) {
                     frame.items.push(Inline::SoftBreak {
                         range: previous_end..next.start,
                     });
@@ -1174,6 +1211,117 @@ impl Parser<'_> {
             let end = segment.end;
             let cursor = position.offset;
             let byte = self.source.as_bytes()[cursor];
+
+            if frames.len() > 1 {
+                let frame = frames.last_mut().unwrap();
+                if frame.member_complete && !matches!(byte, b'|' | b']') {
+                    let trailer_end = self.source[cursor..end]
+                        .find(['|', ']'])
+                        .map_or(end, |relative| cursor + relative);
+                    self.diagnostics.push(Diagnostic::error(
+                        "syntax.trailing-after-inline-member",
+                        "a completed inline member must be followed by '|' or the owner close",
+                        cursor..trailer_end.max(next_char_end(self.source, cursor)),
+                    ));
+                    position.offset = trailer_end.max(next_char_end(self.source, cursor));
+                    frame.text_start = position.offset;
+                    continue;
+                }
+
+                let at_member_start = !frame.member_complete
+                    && frame.items.is_empty()
+                    && cursor == frame.start;
+                if at_member_start && byte == b'"' {
+                    let separator_range = frame.separator_range.clone();
+                    if let Some(argument) = self.parse_verbatim_argument(
+                        cursor,
+                        end,
+                        separator_range,
+                        "verbatim argument",
+                    ) {
+                        position.offset = argument.range.end;
+                        frame
+                            .opening
+                            .as_mut()
+                            .unwrap()
+                            .members
+                            .push(InlineMember::VerbatimArgument(argument));
+                        frame.member_complete = true;
+                        frame.text_start = position.offset;
+                    } else {
+                        position.offset = end;
+                        frame.text_start = end;
+                    }
+                    continue;
+                }
+
+                if at_member_start && frame.separator_range.is_some() && byte != b'`' {
+                    let kind_end = take_name_like(self.source, cursor, end, marker_char);
+                    if kind_end > cursor && kind_end < end {
+                        match self.source.as_bytes()[kind_end] {
+                            b'[' => {
+                                let separator_range = frame.separator_range.clone().unwrap();
+                                position.offset = kind_end + 1;
+                                frames.push(InlineFrame {
+                                    start: position.offset,
+                                    text_start: position.offset,
+                                    items: Vec::new(),
+                                    opening: Some(InlineOpening {
+                                        start: cursor,
+                                        kind: self.source[cursor..kind_end].to_string(),
+                                        kind_range: cursor..kind_end,
+                                        members: Vec::new(),
+                                        child_separator: Some(separator_range),
+                                    }),
+                                    separator_range: None,
+                                    member_complete: false,
+                                });
+                                continue;
+                            }
+                            b'"' => {
+                                let separator_range = frame.separator_range.clone().unwrap();
+                                if let Some(argument) = self.parse_verbatim_argument(
+                                    kind_end,
+                                    end,
+                                    None,
+                                    "verbatim child",
+                                ) {
+                                    let after = argument.range.end;
+                                    let inline = Inline::Verbatim {
+                                        range: cursor..after,
+                                        kind: self.source[cursor..kind_end].to_string(),
+                                        kind_range: cursor..kind_end,
+                                        text: argument.text,
+                                        text_range: argument.text_range,
+                                        quote_count: argument.quote_count,
+                                        bracketed: argument.bracketed,
+                                        attrs: Attributes::default(),
+                                    };
+                                    frame
+                                        .opening
+                                        .as_mut()
+                                        .unwrap()
+                                        .members
+                                        .push(InlineMember::Child {
+                                            range: cursor..after,
+                                            separator_range,
+                                            inline: Box::new(inline),
+                                        });
+                                    frame.member_complete = true;
+                                    position.offset = after;
+                                    frame.text_start = after;
+                                } else {
+                                    position.offset = end;
+                                    frame.text_start = end;
+                                }
+                                continue;
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+
             // §2: bare delimiters never fall back to text. An unescaped
             // opening brace must open an attached group, an unescaped
             // closing brace must close one, and brackets are legal only in
@@ -1211,6 +1359,44 @@ impl Parser<'_> {
                 frames.last_mut().unwrap().text_start = position.offset;
                 continue;
             }
+            if byte == b'|' {
+                if frames.len() == 1 {
+                    flush_inline_text(self.source, frames.last_mut().unwrap(), cursor);
+                    self.diagnostics.push(Diagnostic::error(
+                        "syntax.unexpected-member-separator",
+                        "an inline member separator must occur inside an inline element",
+                        cursor..cursor + 1,
+                    ));
+                    position.offset += 1;
+                    frames.last_mut().unwrap().text_start = position.offset;
+                    continue;
+                }
+
+                let frame = frames.last_mut().unwrap();
+                if !frame.member_complete {
+                    flush_inline_text(self.source, frame, cursor);
+                    frame
+                        .opening
+                        .as_mut()
+                        .unwrap()
+                        .members
+                        .push(InlineMember::ParsedArgument(InlineArgument {
+                            range: frame.start..cursor,
+                            separator_range: frame.separator_range.clone(),
+                            content: InlineContent {
+                                range: frame.start..cursor,
+                                items: std::mem::take(&mut frame.items),
+                            },
+                        }));
+                }
+                position.offset += 1;
+                frame.start = position.offset;
+                frame.text_start = position.offset;
+                frame.items.clear();
+                frame.separator_range = Some(cursor..cursor + 1);
+                frame.member_complete = false;
+                continue;
+            }
             if byte == b']' && frames.len() == 1 {
                 flush_inline_text(self.source, frames.last_mut().unwrap(), cursor);
                 self.diagnostics.push(Diagnostic::error(
@@ -1223,45 +1409,56 @@ impl Parser<'_> {
                 continue;
             }
             if frames.len() > 1 && byte == b']' {
-                flush_inline_text(self.source, frames.last_mut().unwrap(), cursor);
+                let frame = frames.last_mut().unwrap();
+                if !frame.member_complete {
+                    flush_inline_text(self.source, frame, cursor);
+                    frame
+                        .opening
+                        .as_mut()
+                        .unwrap()
+                        .members
+                        .push(InlineMember::ParsedArgument(InlineArgument {
+                            range: frame.start..cursor,
+                            separator_range: frame.separator_range.clone(),
+                            content: InlineContent {
+                                range: frame.start..cursor,
+                                items: std::mem::take(&mut frame.items),
+                            },
+                        }));
+                }
                 position.offset += 1;
                 let after_close = position.offset;
                 let mut frame = frames.pop().unwrap();
-                let mut opening = frame.opening.take().unwrap();
-                opening.slots.push(InlineSlot {
-                    range: frame.start - 1..after_close,
-                    open_range: frame.start - 1..frame.start,
-                    content: InlineContent {
-                        range: frame.start..cursor,
-                        items: frame.items,
-                    },
-                    close_range: cursor..after_close,
-                });
-                if after_close < end && self.source.as_bytes()[after_close] == b'[' {
-                    position.offset += 1;
-                    frames.push(InlineFrame {
-                        start: position.offset,
-                        text_start: position.offset,
-                        items: Vec::new(),
-                        opening: Some(opening),
-                    });
-                    continue;
-                }
-                let (attrs, after_attrs) =
-                    if after_close < end && self.source.as_bytes()[after_close] == b'{' {
-                        self.parse_inline_postfix(segments, &mut position, after_close, end)
-                    } else {
-                        (Attributes::default(), after_close)
-                    };
-                position.offset = after_attrs;
-                frames.last_mut().unwrap().items.push(Inline::Element {
-                    range: opening.introducer..after_attrs,
+                let opening = frame.opening.take().unwrap();
+                let attrs = Attributes {
+                    range: None,
+                    items: project_inline_member_attributes(self.source, &opening.members),
+                    attached: None,
+                };
+                let inline = Inline::Element {
+                    range: opening.start..after_close,
                     kind: opening.kind,
                     kind_range: opening.kind_range,
-                    slots: opening.slots,
+                    members: opening.members,
                     attrs,
-                });
-                frames.last_mut().unwrap().text_start = after_attrs;
+                };
+                let parent = frames.last_mut().unwrap();
+                if let Some(separator_range) = opening.child_separator {
+                    parent
+                        .opening
+                        .as_mut()
+                        .unwrap()
+                        .members
+                        .push(InlineMember::Child {
+                            range: opening.start..after_close,
+                            separator_range,
+                            inline: Box::new(inline),
+                        });
+                    parent.member_complete = true;
+                } else {
+                    parent.items.push(inline);
+                }
+                parent.text_start = after_close;
                 continue;
             }
             if byte != b'`' {
@@ -1294,7 +1491,7 @@ impl Parser<'_> {
             if position.offset < end
                 && matches!(
                     self.source.as_bytes()[position.offset],
-                    b'{' | b'}' | b'[' | b']'
+                    b'{' | b'}' | b'[' | b']' | b'|'
                 )
             {
                 frames.last_mut().unwrap().items.push(Inline::Text {
@@ -1321,24 +1518,18 @@ impl Parser<'_> {
                 if let Some((close, after_close)) =
                     find_verbatim_close(self.source, bracket_open + 1, end, quote_count)
                 {
-                    let (attrs, after_attrs) =
-                        if after_close < end && self.source.as_bytes()[after_close] == b'{' {
-                            self.parse_inline_postfix(segments, &mut position, after_close, end)
-                        } else {
-                            (Attributes::default(), after_close)
-                        };
                     frames.last_mut().unwrap().items.push(Inline::Verbatim {
-                        range: introducer..after_attrs,
+                        range: introducer..after_close,
                         kind,
                         kind_range: kind_start..kind_end,
                         text: self.source[bracket_open + 1..close].to_string(),
                         text_range: bracket_open + 1..close,
                         quote_count,
                         bracketed: true,
-                        attrs,
+                        attrs: Attributes::default(),
                     });
-                    position.offset = after_attrs;
-                    frames.last_mut().unwrap().text_start = after_attrs;
+                    position.offset = after_close;
+                    frames.last_mut().unwrap().text_start = after_close;
                     continue;
                 }
                 self.diagnostics.push(Diagnostic::error(
@@ -1366,24 +1557,18 @@ impl Parser<'_> {
                         frames.last_mut().unwrap().text_start = after_close;
                         continue;
                     }
-                    let (attrs, after_attrs) =
-                        if after_close < end && self.source.as_bytes()[after_close] == b'{' {
-                            self.parse_inline_postfix(segments, &mut position, after_close, end)
-                        } else {
-                            (Attributes::default(), after_close)
-                        };
                     frames.last_mut().unwrap().items.push(Inline::Verbatim {
-                        range: introducer..after_attrs,
+                        range: introducer..after_close,
                         kind,
                         kind_range: kind_start..kind_end,
                         text: self.source[payload_start..close].to_string(),
                         text_range: payload_start..close,
                         quote_count: 1,
                         bracketed: false,
-                        attrs,
+                        attrs: Attributes::default(),
                     });
-                    position.offset = after_attrs;
-                    frames.last_mut().unwrap().text_start = after_attrs;
+                    position.offset = after_close;
+                    frames.last_mut().unwrap().text_start = after_close;
                     continue;
                 }
                 self.diagnostics.push(Diagnostic::error(
@@ -1410,11 +1595,14 @@ impl Parser<'_> {
                     text_start: position.offset,
                     items: Vec::new(),
                     opening: Some(InlineOpening {
-                        introducer,
+                        start: introducer,
                         kind: self.source[kind_start..kind_end].to_string(),
                         kind_range: kind_start..kind_end,
-                        slots: Vec::new(),
+                        members: Vec::new(),
+                        child_separator: None,
                     }),
+                    separator_range: None,
+                    member_complete: false,
                 });
                 continue;
             }
@@ -1438,7 +1626,7 @@ impl Parser<'_> {
                 self.diagnostics.push(Diagnostic::error(
                     "syntax.unclosed-inline",
                     "parsed inline element is not closed before the enclosing inline boundary",
-                    opening.introducer..position.offset,
+                    opening.start..position.offset,
                 ));
             }
             frames.truncate(1);
@@ -1450,6 +1638,55 @@ impl Parser<'_> {
             range: root.start..position.offset,
             items: root.items,
         }
+    }
+
+    fn parse_verbatim_argument(
+        &mut self,
+        quote_start: usize,
+        limit: usize,
+        separator_range: Option<SourceRange>,
+        construct: &str,
+    ) -> Option<VerbatimArgument> {
+        let quote_count = self.source[quote_start..limit]
+            .bytes()
+            .take_while(|candidate| *candidate == b'"')
+            .count();
+        debug_assert!(quote_count > 0);
+        let bracket_open = quote_start + quote_count;
+        if bracket_open < limit && self.source.as_bytes()[bracket_open] == b'[' {
+            if let Some((close, after_close)) =
+                find_verbatim_close(self.source, bracket_open + 1, limit, quote_count)
+            {
+                return Some(VerbatimArgument {
+                    range: quote_start..after_close,
+                    separator_range,
+                    text: self.source[bracket_open + 1..close].to_string(),
+                    text_range: bracket_open + 1..close,
+                    quote_count,
+                    bracketed: true,
+                });
+            }
+        } else if quote_count == 1 {
+            let payload_start = quote_start + 1;
+            if let Some(relative_close) = self.source[payload_start..limit].find('"') {
+                let close = payload_start + relative_close;
+                return Some(VerbatimArgument {
+                    range: quote_start..close + 1,
+                    separator_range,
+                    text: self.source[payload_start..close].to_string(),
+                    text_range: payload_start..close,
+                    quote_count: 1,
+                    bracketed: false,
+                });
+            }
+        }
+
+        self.diagnostics.push(Diagnostic::error(
+            "syntax.unclosed-verbatim-member",
+            format!("{construct} must close before the enclosing inline boundary"),
+            quote_start..limit,
+        ));
+        None
     }
 
     fn attribute_extent(
@@ -1479,21 +1716,6 @@ impl Parser<'_> {
             index += 1;
         }
         (self.lines.0[last].content_end, last)
-    }
-
-    fn parse_inline_postfix(
-        &mut self,
-        segments: &mut Vec<InlineSegment>,
-        position: &mut InlinePosition,
-        start: usize,
-        limit: usize,
-    ) -> (Attributes, usize) {
-        let mut content_start = start + 1;
-        while content_start < limit && self.source.as_bytes()[content_start].is_ascii_whitespace() {
-            content_start += 1;
-        }
-        let _ = (segments, content_start);
-        self.parse_inline_attached(position, start, limit)
     }
 
     fn parse_inline_attached(
@@ -1771,7 +1993,7 @@ enum BlockDispatch {
 fn marker_char(character: char) -> bool {
     !character.is_whitespace()
         && !character.is_control()
-        && !matches!(character, '`' | '"' | '[' | ']' | '{' | '}')
+        && !matches!(character, '`' | '"' | '[' | ']' | '{' | '}' | '|')
 }
 
 fn attr_name_char(character: char) -> bool {
@@ -2018,8 +2240,8 @@ mod tests {
     }
 
     #[test]
-    fn parses_inline_attached_groups_with_ordinary_inline_elements() {
-        let source = "See `->[guide]{`@[main] `-[external] `:[to guide.plumb#intro]}.\nRaw `->\"target.plumb\"\n";
+    fn parses_inline_children_with_ordinary_inline_elements() {
+        let source = "See `->[guide|@[main]|+[external]|=[to|guide.plumb#intro]].\nRaw `->\"target.plumb\"\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let Block::Parsed(paragraph) = &parsed.syntax.blocks[0] else {
@@ -2037,15 +2259,12 @@ mod tests {
         assert_eq!(attrs.id(), Some("main"));
         assert!(attrs.has_class("external"));
         assert_eq!(attrs.value("to"), Some("guide.plumb#intro"));
-        assert!(matches!(
-            attrs.attached.as_deref().map(|group| &group.content),
-            Some(AttachedContent::Inlines(_))
-        ));
+        assert!(attrs.attached.is_none());
     }
 
     #[test]
-    fn projects_expanded_inline_associations_without_flattening_child_blocks() {
-        let inline = parse("`span[value]{`:[key with spaces][value with spaces]}\n");
+    fn projects_inline_member_associations_without_flattening_block_children() {
+        let inline = parse("`span[value|=[key with spaces|value with spaces]]\n");
         assert!(inline.is_valid(), "{:?}", inline.diagnostics);
         let Block::Parsed(paragraph) = &inline.syntax.blocks[0] else {
             panic!("expected paragraph");
@@ -2106,7 +2325,7 @@ mod tests {
 
     #[test]
     fn parses_attached_groups_on_marked_and_verbatim_blocks() {
-        let source = "`- Work {\n  `- task\n  `@ write\n  `: created 2026-07-20T09:00:00+08:00\n}\n\n`tex\" {`-[$] `@[equation]}\n E = mc^2\n";
+        let source = "`- Work {\n  `- task\n  `@ write\n  `: created 2026-07-20T09:00:00+08:00\n}\n\n`tex\" {`+[$] `@[equation]}\n E = mc^2\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
@@ -2228,7 +2447,7 @@ mod tests {
             paragraph.head.plain_text(),
             "Before first second 嵌套 third after"
         );
-        let Some(Inline::Element { slots, .. }) = paragraph
+        let Some(Inline::Element { members, .. }) = paragraph
             .head
             .items
             .iter()
@@ -2236,11 +2455,12 @@ mod tests {
         else {
             panic!("expected multiline span");
         };
-        let [slot] = slots.as_slice() else {
-            panic!("expected one multiline span slot");
+        let [InlineMember::ParsedArgument(argument)] = members.as_slice() else {
+            panic!("expected one multiline span argument");
         };
         assert_eq!(
-            slot.content
+            argument
+                .content
                 .items
                 .iter()
                 .filter(|inline| matches!(inline, Inline::SoftBreak { .. }))
@@ -2255,8 +2475,8 @@ mod tests {
     }
 
     #[test]
-    fn parses_ordered_inline_slots_before_the_owner_attachment() {
-        let source = "`pair[first][second]{`-[tag]}\n";
+    fn parses_ordered_inline_arguments_and_children() {
+        let source = "`pair[first|\"second raw\"|tag[value]|code\"raw\"]\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let Block::Parsed(paragraph) = &parsed.syntax.blocks[0] else {
@@ -2264,22 +2484,34 @@ mod tests {
         };
         let [Inline::Element {
             range,
-            slots,
+            members,
             attrs,
             ..
         }] = paragraph.head.items.as_slice()
         else {
             panic!("expected one inline element");
         };
-        assert_eq!(range, &(0..29));
-        assert_eq!(slots.len(), 2);
-        assert_eq!(slots[0].range, 5..12);
-        assert_eq!(slots[0].open_range, 5..6);
-        assert_eq!(slots[0].content.range, 6..11);
-        assert_eq!(slots[0].close_range, 11..12);
-        assert_eq!(slots[1].range, 12..20);
-        assert_eq!(slots[1].content.plain_text(), "second");
-        assert!(attrs.attached.is_some());
+        assert_eq!(range, &(0..source.len() - 1));
+        assert_eq!(members.len(), 4);
+        let InlineMember::ParsedArgument(first) = &members[0] else {
+            panic!("expected parsed argument");
+        };
+        assert_eq!(first.content.plain_text(), "first");
+        assert!(first.separator_range.is_none());
+        let InlineMember::VerbatimArgument(second) = &members[1] else {
+            panic!("expected verbatim argument");
+        };
+        assert_eq!(second.text, "second raw");
+        assert_eq!(second.separator_range, Some(11..12));
+        let InlineMember::Child { inline, .. } = &members[2] else {
+            panic!("expected parsed child");
+        };
+        assert!(matches!(inline.as_ref(), Inline::Element { kind, .. } if kind == "tag"));
+        let InlineMember::Child { inline, .. } = &members[3] else {
+            panic!("expected verbatim child");
+        };
+        assert!(matches!(inline.as_ref(), Inline::Verbatim { kind, text, .. } if kind == "code" && text == "raw"));
+        assert!(attrs.attached.is_none());
     }
 
     #[test]
@@ -2504,7 +2736,7 @@ mod tests {
     #[test]
     fn parses_empty_and_verbatim_expanded_groups_and_brace_escapes() {
         let parsed = parse(
-            "`x {}\n`x Head {\n}\n`rust\" {\n  `@ code\n}\n\n payload\nText `span[x]{literal `{ and `} braces}\n",
+            "`x {}\n`x Head {\n}\n`rust\" {\n  `@ code\n}\n\n payload\nText `span[literal `{ and `} braces]\n",
         );
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let Block::Verbatim(verbatim) = &parsed.syntax.blocks[2] else {
@@ -2791,7 +3023,7 @@ mod tests {
     #[test]
     fn delimiter_escapes_apply_only_at_active_structural_sites() {
         let escaped = parse(
-            "`{ starts a paragraph\n\n`span[text]`{ stays text and `} also stays text\n\n`span[x]{literal `{ and `} braces}\n",
+            "`{ starts a paragraph\n\n`span[text]`{ stays text and `} also stays text\n\n`span[literal `{ and `} braces]\n",
         );
         assert!(escaped.is_valid(), "{:?}", escaped.diagnostics);
         assert_eq!(escaped.syntax.blocks.len(), 3);

@@ -1,7 +1,7 @@
 [
   {
     "name": "marked block and complete attached declarations",
-    "source": "`node Head {`@[id] `-[class] `:[key complex value]}\n",
+    "source": "`node Head {`@[id] `+[class] `=[key|complex value]}\n",
     "valid": true,
     "blocks": [{"kind":"marked","marker":"node","attrs":["#id",".class","key=complex value"],"head":"Head","inline":"T\"Head\"","children":[]}],
     "diagnostics": [],
@@ -9,7 +9,7 @@
   },
   {
     "name": "empty attached group and empty association value",
-    "source": "`node Empty {}\n`node Escaped {`:[empty `\"[]\"] `:[value quote slash]}\n",
+    "source": "`node Empty {}\n`node Escaped {`=[empty|] `=[value|quote slash]}\n",
     "valid": true,
     "blocks": [
       {"kind":"marked","marker":"node","attrs":[],"head":"Empty","inline":"T\"Empty\"","children":[]},
@@ -36,7 +36,7 @@
   },
   {
     "name": "expanded attached declarations",
-    "source": "`node Head {\n  `- one\n  `@ two\n  `: key value\n}\n",
+    "source": "`node Head {\n  `+ one\n  `@ two\n  `= key value\n}\n",
     "valid": true,
     "blocks": [{"kind":"marked","marker":"node","attrs":[".one","#two","key=value"],"head":"Head","inline":"T\"Head\"","children":[]}],
     "diagnostics": [],
@@ -44,9 +44,9 @@
   },
   {
     "name": "nested parsed inline and escapes",
-    "source": "before `span[a `em[b] `` `] c]{`-[x]} after\n",
+    "source": "before `span[a `em[b] `` `] c|+[x]] after\n",
     "valid": true,
-    "blocks": [{"kind":"paragraph","head":"before a b ` ] c after","inline":"T\"before\"W\" \"Espan[\".x\"][T\"a\"W\" \"Eem[][T\"b\"]W\" \"T\"`\"W\" \"T\"]\"W\" \"T\"c\"]W\" \"T\"after\""}],
+    "blocks": [{"kind":"paragraph","head":"before a b ` ] cx after","inline":"T\"before\"W\" \"Espan[\".x\"]A[T\"a\"W\" \"Eem[]A[T\"b\"]W\" \"T\"`\"W\" \"T\"]\"W\" \"T\"c\"]CE+[]A[T\"x\"]W\" \"T\"after\""}],
     "diagnostics": [],
     "required_tokens": ["InlineKind","Escape","Delimiter"]
   },
@@ -54,15 +54,15 @@
     "name": "multiline parsed inline soft break",
     "source": "before `span[a\nb] after\n",
     "valid": true,
-    "blocks": [{"kind":"paragraph","head":"before a b after","inline":"T\"before\"W\" \"Espan[][T\"a\"ST\"b\"]W\" \"T\"after\""}],
+    "blocks": [{"kind":"paragraph","head":"before a b after","inline":"T\"before\"W\" \"Espan[]A[T\"a\"ST\"b\"]W\" \"T\"after\""}],
     "diagnostics": [],
     "required_tokens": ["InlineKind","LineEnding"]
   },
   {
     "name": "parsed inline multi-slot preserves ordered boundaries",
-    "source": "`pair[first][second]{`-[tag]}\n",
+    "source": "`pair[first|second|+[tag]]\n",
     "valid": true,
-    "blocks": [{"kind":"paragraph","head":"firstsecond","inline":"Epair[\".tag\"][T\"first\"][T\"second\"]"}],
+    "blocks": [{"kind":"paragraph","head":"firstsecondtag","inline":"Epair[\".tag\"]A[T\"first\"]A[T\"second\"]CE+[]A[T\"tag\"]"}],
     "diagnostics": [],
     "required_tokens": ["Introducer","InlineKind","Delimiter","Text"]
   },
@@ -175,7 +175,7 @@
     "source": "``literal `custom[value]\n`mystery Head\n",
     "valid": true,
     "blocks": [
-      {"kind":"paragraph","head":"`literal value","inline":"T\"`\"T\"literal\"W\" \"Ecustom[][T\"value\"]"},
+      {"kind":"paragraph","head":"`literal value","inline":"T\"`\"T\"literal\"W\" \"Ecustom[]A[T\"value\"]"},
       {"kind":"marked","marker":"mystery","attrs":[],"head":"Head","inline":"T\"Head\"","children":[]}
     ],
     "diagnostics": [],
@@ -315,7 +315,7 @@
   },
   {
     "name": "trailing opener on a head continuation line",
-    "source": "`note first\n  second {\n   `- cited\n  }\n  Details\n",
+    "source": "`note first\n  second {\n   `+ cited\n  }\n  Details\n",
     "valid": true,
     "blocks": [
       {"kind":"marked","marker":"note","attrs":[".cited"],"head":"first second","inline":"T\"first\"ST\"second\"","children":[

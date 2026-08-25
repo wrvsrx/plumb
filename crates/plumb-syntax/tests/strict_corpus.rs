@@ -200,22 +200,37 @@ fn attrs_shape(attrs: &Attributes) -> Vec<String> {
 fn inline_shape(content: &InlineContent) -> String {
     enum Action<'a> {
         Items(&'a [Inline], usize),
-        Slot(&'a plumb_syntax::InlineSlot),
-        CloseSlot,
+        Members(&'a [plumb_syntax::InlineMember], usize),
+        CloseArgument,
     }
 
     let mut output = String::new();
     let mut stack = vec![Action::Items(content.items.as_slice(), 0)];
     while let Some(action) = stack.pop() {
         let (items, index) = match action {
-            Action::CloseSlot => {
+            Action::CloseArgument => {
                 output.push(']');
                 continue;
             }
-            Action::Slot(slot) => {
-                output.push('[');
-                stack.push(Action::CloseSlot);
-                stack.push(Action::Items(slot.content.items.as_slice(), 0));
+            Action::Members(members, index) => {
+                if index >= members.len() {
+                    continue;
+                }
+                stack.push(Action::Members(members, index + 1));
+                match &members[index] {
+                    plumb_syntax::InlineMember::ParsedArgument(argument) => {
+                        output.push_str("A[");
+                        stack.push(Action::CloseArgument);
+                        stack.push(Action::Items(argument.content.items.as_slice(), 0));
+                    }
+                    plumb_syntax::InlineMember::VerbatimArgument(argument) => {
+                        output.push_str(&format!("R{}{:?}", argument.quote_count, argument.text));
+                    }
+                    plumb_syntax::InlineMember::Child { inline, .. } => {
+                        output.push('C');
+                        stack.push(Action::Items(std::slice::from_ref(inline.as_ref()), 0));
+                    }
+                }
                 continue;
             }
             Action::Items(items, index) => (items, index),
@@ -235,10 +250,13 @@ fn inline_shape(content: &InlineContent) -> String {
                 ..
             } => output.push_str(&format!("V{quote_count}{:?}{:?}", attrs_shape(attrs), text)),
             Inline::Element {
-                kind, slots, attrs, ..
+                kind,
+                members,
+                attrs,
+                ..
             } => {
                 output.push_str(&format!("E{kind}{:?}", attrs_shape(attrs)));
-                stack.extend(slots.iter().rev().map(Action::Slot));
+                stack.push(Action::Members(members, 0));
             }
         }
     }

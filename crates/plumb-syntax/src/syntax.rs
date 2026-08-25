@@ -289,12 +289,18 @@ impl Drop for InlineContent {
         while let Some(inline) = pending.pop() {
             match inline {
                 Inline::Element {
-                    mut slots,
+                    members,
                     mut attrs,
                     ..
                 } => {
-                    for slot in &mut slots {
-                        pending.append(&mut slot.content.items);
+                    for member in members {
+                        match member {
+                            InlineMember::ParsedArgument(mut argument) => {
+                                pending.append(&mut argument.content.items);
+                            }
+                            InlineMember::VerbatimArgument(_) => {}
+                            InlineMember::Child { inline, .. } => pending.push(*inline),
+                        }
                     }
                     if let Some(attached) = attrs.attached.take() {
                         attached.append_inlines_to(&mut pending);
@@ -320,19 +326,45 @@ impl InlineContent {
 }
 
 fn append_plain_text(items: &[Inline], output: &mut String) {
-    let mut stack = vec![(items, 0usize)];
-    while let Some((items, index)) = stack.pop() {
-        if index >= items.len() {
-            continue;
-        }
-        stack.push((items, index + 1));
-        match &items[index] {
-            Inline::Text { text, .. } | Inline::Verbatim { text, .. } => output.push_str(text),
-            Inline::Space { text, .. } => output.push_str(text),
-            Inline::SoftBreak { .. } => output.push(' '),
-            Inline::Element { slots, .. } => {
-                for slot in slots.iter().rev() {
-                    stack.push((&slot.content.items, 0));
+    enum Frame<'a> {
+        Inlines(&'a [Inline], usize),
+        Members(&'a [InlineMember], usize),
+    }
+
+    let mut stack = vec![Frame::Inlines(items, 0)];
+    while let Some(frame) = stack.pop() {
+        match frame {
+            Frame::Inlines(items, index) => {
+                if index >= items.len() {
+                    continue;
+                }
+                stack.push(Frame::Inlines(items, index + 1));
+                match &items[index] {
+                    Inline::Text { text, .. } | Inline::Verbatim { text, .. } => {
+                        output.push_str(text);
+                    }
+                    Inline::Space { text, .. } => output.push_str(text),
+                    Inline::SoftBreak { .. } => output.push(' '),
+                    Inline::Element { members, .. } => {
+                        stack.push(Frame::Members(members, 0));
+                    }
+                }
+            }
+            Frame::Members(members, index) => {
+                if index >= members.len() {
+                    continue;
+                }
+                stack.push(Frame::Members(members, index + 1));
+                match &members[index] {
+                    InlineMember::ParsedArgument(argument) => {
+                        stack.push(Frame::Inlines(&argument.content.items, 0));
+                    }
+                    InlineMember::VerbatimArgument(argument) => {
+                        output.push_str(&argument.text);
+                    }
+                    InlineMember::Child { inline, .. } => {
+                        stack.push(Frame::Inlines(std::slice::from_ref(inline.as_ref()), 0));
+                    }
                 }
             }
         }
@@ -340,11 +372,71 @@ fn append_plain_text(items: &[Inline], output: &mut String) {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct InlineSlot {
+pub struct InlineArgument {
     pub range: SourceRange,
-    pub open_range: SourceRange,
+    pub separator_range: Option<SourceRange>,
     pub content: InlineContent,
-    pub close_range: SourceRange,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VerbatimArgument {
+    pub range: SourceRange,
+    pub separator_range: Option<SourceRange>,
+    pub text: String,
+    pub text_range: SourceRange,
+    pub quote_count: usize,
+    pub bracketed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InlineMember {
+    ParsedArgument(InlineArgument),
+    VerbatimArgument(VerbatimArgument),
+    Child {
+        range: SourceRange,
+        separator_range: SourceRange,
+        inline: Box<Inline>,
+    },
+}
+
+impl InlineMember {
+    pub fn range(&self) -> &SourceRange {
+        match self {
+            Self::ParsedArgument(argument) => &argument.range,
+            Self::VerbatimArgument(argument) => &argument.range,
+            Self::Child { range, .. } => range,
+        }
+    }
+
+    pub fn argument(&self) -> Option<InlineArgumentRef<'_>> {
+        match self {
+            Self::ParsedArgument(argument) => Some(InlineArgumentRef::Parsed(&argument.content)),
+            Self::VerbatimArgument(argument) => Some(InlineArgumentRef::Verbatim(argument)),
+            Self::Child { .. } => None,
+        }
+    }
+
+    pub fn child(&self) -> Option<&Inline> {
+        match self {
+            Self::Child { inline, .. } => Some(inline),
+            Self::ParsedArgument(_) | Self::VerbatimArgument(_) => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InlineArgumentRef<'a> {
+    Parsed(&'a InlineContent),
+    Verbatim(&'a VerbatimArgument),
+}
+
+impl InlineArgumentRef<'_> {
+    pub fn plain_text(&self) -> String {
+        match self {
+            Self::Parsed(content) => content.plain_text(),
+            Self::Verbatim(argument) => argument.text.clone(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -366,7 +458,7 @@ pub enum Inline {
         /// bracket spelling is a literal escape).
         kind: String,
         kind_range: SourceRange,
-        slots: Vec<InlineSlot>,
+        members: Vec<InlineMember>,
         attrs: Attributes,
     },
     Verbatim {

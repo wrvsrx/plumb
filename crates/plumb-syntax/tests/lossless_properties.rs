@@ -81,9 +81,13 @@ fn assert_typed_ranges(parsed: &ParsedDocument) {
         }
     }
 
-    while let Some(content) = inline_contents.pop() {
-        assert_range(&parsed.source, &content.range);
-        for inline in &content.items {
+    let mut inlines = Vec::new();
+    while !inline_contents.is_empty() || !inlines.is_empty() {
+        if let Some(content) = inline_contents.pop() {
+            assert_range(&parsed.source, &content.range);
+            inlines.extend(content.items.iter().rev());
+        }
+        while let Some(inline) = inlines.pop() {
             match inline {
                 Inline::Text { range, .. }
                 | Inline::Space { range, .. }
@@ -93,18 +97,37 @@ fn assert_typed_ranges(parsed: &ParsedDocument) {
                 Inline::Element {
                     range,
                     kind_range,
-                    slots,
+                    members,
                     attrs,
                     ..
                 } => {
                     assert_range(&parsed.source, range);
                     assert_range(&parsed.source, kind_range);
                     assert_attributes(&parsed.source, attrs);
-                    for slot in slots {
-                        assert_range(&parsed.source, &slot.range);
-                        assert_range(&parsed.source, &slot.open_range);
-                        assert_range(&parsed.source, &slot.close_range);
-                        inline_contents.push(&slot.content);
+                    for member in members {
+                        assert_range(&parsed.source, member.range());
+                        match member {
+                            plumb_syntax::InlineMember::ParsedArgument(argument) => {
+                                if let Some(separator) = &argument.separator_range {
+                                    assert_range(&parsed.source, separator);
+                                }
+                                inline_contents.push(&argument.content);
+                            }
+                            plumb_syntax::InlineMember::VerbatimArgument(argument) => {
+                                if let Some(separator) = &argument.separator_range {
+                                    assert_range(&parsed.source, separator);
+                                }
+                                assert_range(&parsed.source, &argument.text_range);
+                            }
+                            plumb_syntax::InlineMember::Child {
+                                separator_range,
+                                inline,
+                                ..
+                            } => {
+                                assert_range(&parsed.source, separator_range);
+                                inlines.push(inline);
+                            }
+                        }
                     }
                 }
                 Inline::Verbatim {

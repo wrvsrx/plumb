@@ -58,7 +58,7 @@ fn marked_block_attributes_have_token_granularity() {
 
 #[test]
 fn parsed_and_verbatim_inlines_expose_their_delimiters() {
-    let source = "A `span[x]{`-[c]} `\"raw\" Z\n";
+    let source = "A `span[x|+[c]] `\"raw\" Z\n";
     assert_eq!(
         tokens(source),
         vec![
@@ -68,14 +68,12 @@ fn parsed_and_verbatim_inlines_expose_their_delimiters() {
             (SyntaxKind::InlineKind, "span"),
             (SyntaxKind::Delimiter, "["),
             (SyntaxKind::Text, "x"),
-            (SyntaxKind::Delimiter, "]"),
-            (SyntaxKind::Delimiter, "{"),
-            (SyntaxKind::Introducer, "`"),
-            (SyntaxKind::InlineKind, "-"),
+            (SyntaxKind::Delimiter, "|"),
+            (SyntaxKind::InlineKind, "+"),
             (SyntaxKind::Delimiter, "["),
             (SyntaxKind::Text, "c"),
             (SyntaxKind::Delimiter, "]"),
-            (SyntaxKind::Delimiter, "}"),
+            (SyntaxKind::Delimiter, "]"),
             (SyntaxKind::Whitespace, " "),
             (SyntaxKind::Introducer, "`"),
             (SyntaxKind::Delimiter, "\""),
