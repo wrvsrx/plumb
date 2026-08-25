@@ -69,9 +69,9 @@ fn document_references_resolve_metadata_and_reference_components() {
     let source = root.join("source.plumb");
     let lonely = root.join("lonely.plumb");
     let target_text =
-        "{\n  `= title Target\n}\n\n`# Section {\n  `@ section\n}\n\nSee `->[self|target.plumb].\n";
+        "`= title Target\n\n`# Section {\n  `@ section\n}\n\nSee `->[self|target.plumb].\n";
     let source_text = "See `->[document|target.plumb].\nSee `->[section|target.plumb#section].\n\n`task Review {\n  `= prev target.plumb#section\n  `= depends target.plumb#section\n}\n";
-    let lonely_text = "{\n  `= title Lonely\n}\n";
+    let lonely_text = "`= title Lonely\n";
     std::fs::write(&target, target_text).unwrap();
     std::fs::write(&source, source_text).unwrap();
     std::fs::write(&lonely, lonely_text).unwrap();
@@ -106,7 +106,7 @@ fn document_references_resolve_metadata_and_reference_components() {
             }
         }),
         json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
-        reference_request(2, &target_uri, 0, 1, false),
+        reference_request(2, &target_uri, 0, 0, false),
         reference_request(3, &source_uri, document_path.0, document_path.1, false),
         reference_request(4, &source_uri, anchor_path.0, anchor_path.1, false),
         reference_request(5, &source_uri, task_prev_path.0, task_prev_path.1, false),
@@ -118,10 +118,10 @@ fn document_references_resolve_metadata_and_reference_components() {
             false,
         ),
         reference_request(7, &source_uri, anchor_fragment.0, anchor_fragment.1, false),
-        reference_request(8, &target_uri, 0, 1, true),
+        reference_request(8, &target_uri, 0, 0, true),
         reference_request(9, &source_uri, anchor_fragment.0, anchor_fragment.1, true),
-        reference_request(10, &lonely_uri, 0, 1, false),
-        reference_request(11, &lonely_uri, 0, 1, true),
+        reference_request(10, &lonely_uri, 0, 0, false),
+        reference_request(11, &lonely_uri, 0, 0, true),
         json!({
             "jsonrpc": "2.0", "id": 12, "method": "textDocument/codeLens",
             "params": { "textDocument": { "uri": target_uri } }
@@ -147,7 +147,7 @@ fn document_references_resolve_metadata_and_reference_components() {
     let anchor_with_declaration = response(&output, 9)["result"].as_array().unwrap();
     assert_eq!(anchor_with_declaration.len(), 4);
     assert_eq!(anchor_with_declaration[0]["uri"], target_uri.as_str());
-    assert_eq!(anchor_with_declaration[0]["range"]["start"]["line"], 4);
+    assert_eq!(anchor_with_declaration[0]["range"]["start"]["line"], 2);
     assert!(response(&output, 10)["result"]
         .as_array()
         .unwrap()
@@ -368,12 +368,12 @@ fn path_rename_is_optimistic_and_reconciles_failed_client_application() {
 }
 
 #[test]
-fn document_group_opener_renames_the_current_document_without_changing_title() {
+fn document_start_renames_the_current_document_without_changing_title() {
     let root = unique_temp_dir();
     std::fs::create_dir_all(&root).unwrap();
     let current = root.join("current.plumb");
     let incoming = root.join("incoming.plumb");
-    let current_source = "{\n `= title\n\n    Stable title\n}\n";
+    let current_source = "`= title\n\n Stable title\n";
     std::fs::write(&current, current_source).unwrap();
     std::fs::write(&incoming, "`->[current|current.plumb]\n").unwrap();
     let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
@@ -427,7 +427,7 @@ fn document_group_opener_renames_the_current_document_without_changing_title() {
         prepare["result"]["range"],
         json!({
             "start": { "line": 0, "character": 0 },
-            "end": { "line": 0, "character": 1 }
+            "end": { "line": 0, "character": 0 }
         })
     );
 

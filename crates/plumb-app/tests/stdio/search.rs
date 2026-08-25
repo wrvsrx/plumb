@@ -16,18 +16,14 @@ fn workspace_index_does_not_follow_directory_symlinks() {
     let source = root.join("current.plumb");
     let target = root.join("target.plumb");
     let target_source =
-        "{\n  `= title Target\n}\n\n`# Target {\n  `@ anchor\n}\n\n`task Target work {\n  `@ work\n}\n";
+        "`= title Target\n\n`# Target {\n  `@ anchor\n}\n\n`task Target work {\n  `@ work\n}\n";
     std::fs::write(&source, "`->[").unwrap();
     std::fs::write(&target, target_source).unwrap();
     std::fs::write(snapshot.join("target.plumb"), target_source).unwrap();
     let reference_source = "`->[Target|target.plumb#anchor]\n";
     std::fs::write(root.join("reference.plumb"), reference_source).unwrap();
     std::fs::write(snapshot.join("reference.plumb"), reference_source).unwrap();
-    std::fs::write(
-        root.join("linked-source.txt"),
-        "{\n `= title\n\n    Linked file\n}\n",
-    )
-    .unwrap();
+    std::fs::write(root.join("linked-source.txt"), "`= title\n\n Linked file\n").unwrap();
     symlink(&snapshot, root.join("snapshot")).unwrap();
     symlink(&root, root.join("cycle")).unwrap();
     symlink(root.join("linked-source.txt"), root.join("linked.plumb")).unwrap();
@@ -66,7 +62,7 @@ fn workspace_index_does_not_follow_directory_symlinks() {
             "jsonrpc": "2.0", "id": 4, "method": "textDocument/references",
             "params": {
                 "textDocument": { "uri": target_uri },
-                "position": { "line": 5, "character": 5 },
+                "position": { "line": 3, "character": 5 },
                 "context": { "includeDeclaration": false }
             }
         }),
@@ -130,7 +126,7 @@ fn searches_workspace_symbols_and_structured_records_over_stdio() {
     let note = root.join("note.plumb");
     let tasks = root.join("tasks.plumb");
     let events = root.join("events.plumb");
-    std::fs::write(&note, "{\n `= title\n\n    Disk title\n}\n").unwrap();
+    std::fs::write(&note, "`= title\n\n Disk title\n").unwrap();
     std::fs::write(
         &tasks,
         "`task Review parser {\n  `@ review\n  `= due 2026-07-23T12:00:00+08:00\n}\n",
@@ -138,7 +134,7 @@ fn searches_workspace_symbols_and_structured_records_over_stdio() {
     .unwrap();
     std::fs::write(
         &events,
-        "{\n  `= date 2026-07-30\n  `= timezone +08:00\n}\n\n`event 14:00--15:00 Review meeting {\n  `@ review-event\n  `= tasks tasks.plumb#review\n}\n",
+        "`= date 2026-07-30\n`= timezone +08:00\n\n`event 14:00--15:00 Review meeting {\n  `@ review-event\n  `= tasks tasks.plumb#review\n}\n",
     )
     .unwrap();
     for index in 0..105 {
@@ -150,7 +146,7 @@ fn searches_workspace_symbols_and_structured_records_over_stdio() {
     }
     let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
     let note_uri = lsp_types::Url::from_file_path(&note).unwrap();
-    let open_note = "{\n `= title\n\n    Open title\n}\n";
+    let open_note = "`= title\n\n Open title\n";
     let messages = [
         json!({
             "jsonrpc": "2.0", "id": 1, "method": "initialize",

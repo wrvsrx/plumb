@@ -1171,17 +1171,10 @@ impl LanguageServer for ServerState {
                             })
                             .collect::<Vec<_>>();
                         if params.context.include_declaration {
-                            if let Some(metadata) = self
-                                .workspace
-                                .get(&target_path)
-                                .and_then(|entry| entry.current.as_ref())
-                                .and_then(|current| current.output.metadata.metadata.as_ref())
-                            {
-                                if let Some(declaration) = location_for(
-                                    &self.workspace,
-                                    &target_path,
-                                    &metadata.selection_range,
-                                ) {
+                            if self.workspace.get(&target_path).is_some() {
+                                if let Some(declaration) =
+                                    location_for(&self.workspace, &target_path, &(0..0))
+                                {
                                     locations.insert(0, declaration);
                                 }
                             }
@@ -1220,32 +1213,30 @@ impl LanguageServer for ServerState {
                     .workspace
                     .reverse_references_for_document(&entry.path, &anchor_ids);
                 let mut lenses = Vec::new();
-                if let Some(metadata) = &output.output.metadata.metadata {
-                    let locations = references
-                        .document
-                        .into_iter()
-                        .filter_map(|reference| {
-                            location_for(
-                                &self.workspace,
-                                &reference.source_path,
-                                &reference.source_range,
-                            )
-                        })
-                        .collect::<Vec<_>>();
-                    let count = locations.len();
-                    let title = if count == 1 {
-                        "1 file reference".to_string()
-                    } else {
-                        format!("{count} file references")
-                    };
-                    lenses.push(reference_code_lens(
-                        &entry.parsed.source,
-                        &uri,
-                        &metadata.selection_range,
-                        title,
-                        locations,
-                    ));
-                }
+                let locations = references
+                    .document
+                    .into_iter()
+                    .filter_map(|reference| {
+                        location_for(
+                            &self.workspace,
+                            &reference.source_path,
+                            &reference.source_range,
+                        )
+                    })
+                    .collect::<Vec<_>>();
+                let count = locations.len();
+                let title = if count == 1 {
+                    "1 file reference".to_string()
+                } else {
+                    format!("{count} file references")
+                };
+                lenses.push(reference_code_lens(
+                    &entry.parsed.source,
+                    &uri,
+                    &(0..0),
+                    title,
+                    locations,
+                ));
                 lenses.extend(output.output.anchors.iter().map(|anchor| {
                     let locations = references
                         .anchors
@@ -2586,9 +2577,7 @@ mod tests {
 
     #[test]
     fn maps_metadata_facts_to_nested_symbols() {
-        let parsed = parse(
-            "`meta\n  `: title\n\n    Document title\n\n  `: author\n    `: name\n\n      Alice\n",
-        );
+        let parsed = parse("`= title Document title\n`= author\n `= name Alice\n");
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let output = analyze_metadata(&parsed.syntax);
         let symbol = metadata_symbol(&parsed.source, output.metadata.as_ref().unwrap());

@@ -9,6 +9,7 @@ use plumb_syntax_legacy_v1 as legacy;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MigrationError {
     InvalidLegacy(Vec<MigrationDiagnostic>),
+    InvalidDocumentGroup(Vec<MigrationDiagnostic>),
     UnsupportedAttachedInline { range: legacy::SourceRange },
     ConflictingLinkTarget { range: legacy::SourceRange },
     InvalidGenerated,
@@ -26,6 +27,20 @@ impl fmt::Display for MigrationError {
         match self {
             Self::InvalidLegacy(diagnostics) => {
                 write!(formatter, "legacy source is invalid")?;
+                for diagnostic in diagnostics {
+                    write!(
+                        formatter,
+                        "; {} at bytes {}..{}: {}",
+                        diagnostic.code,
+                        diagnostic.range.start,
+                        diagnostic.range.end,
+                        diagnostic.message
+                    )?;
+                }
+                Ok(())
+            }
+            Self::InvalidDocumentGroup(diagnostics) => {
+                write!(formatter, "document-group-v1 source is invalid")?;
                 for diagnostic in diagnostics {
                     write!(
                         formatter,
@@ -84,12 +99,88 @@ pub fn migrate_attached_v1(source: &str) -> Result<String, MigrationError> {
     Ok(migrated)
 }
 
+pub fn migrate_document_group_v1(source: &str) -> Result<String, MigrationError> {
+    if !source.starts_with('{') {
+        let parsed = plumb_syntax::parse(source);
+        if parsed.is_valid() {
+            return Ok(source.to_string());
+        }
+        return Err(invalid_document_group(&parsed, 0));
+    }
+
+    const OWNER: &str = "`__document ";
+    let synthetic = format!("{OWNER}{source}");
+    let parsed = plumb_syntax::parse(&synthetic);
+    if !parsed.is_valid() {
+        return Err(invalid_document_group(&parsed, OWNER.len()));
+    }
+    let Some(plumb_syntax::Block::Parsed(owner)) = parsed.syntax.blocks.first() else {
+        return Err(MigrationError::InvalidDocumentGroup(Vec::new()));
+    };
+    let Some(mark) = owner
+        .mark
+        .as_ref()
+        .filter(|mark| mark.marker == "__document")
+    else {
+        return Err(MigrationError::InvalidDocumentGroup(Vec::new()));
+    };
+    if !owner.head.items.is_empty() || !owner.children.is_empty() {
+        return Err(MigrationError::InvalidDocumentGroup(Vec::new()));
+    }
+    let Some(attached) = mark.attrs.attached.as_deref() else {
+        return Err(MigrationError::InvalidDocumentGroup(Vec::new()));
+    };
+    let plumb_syntax::AttachedContent::Blocks(declarations) = &attached.content else {
+        return Err(MigrationError::InvalidDocumentGroup(Vec::new()));
+    };
+
+    let blocks = declarations
+        .iter()
+        .chain(parsed.syntax.blocks.iter().skip(1))
+        .map(|block| OwnedBlock::from_syntax(&synthetic, block))
+        .collect();
+    let migrated = OwnedDocument { blocks }
+        .format()
+        .map_err(|_| MigrationError::InvalidGenerated)?;
+    if !plumb_syntax::parse(&migrated).is_valid() {
+        return Err(MigrationError::InvalidGenerated);
+    }
+    Ok(migrated)
+}
+
+fn invalid_document_group(
+    parsed: &plumb_syntax::ParsedDocument,
+    synthetic_prefix: usize,
+) -> MigrationError {
+    MigrationError::InvalidDocumentGroup(
+        parsed
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.severity == plumb_syntax::DiagnosticSeverity::Error)
+            .map(|diagnostic| MigrationDiagnostic {
+                code: diagnostic.code,
+                range: diagnostic.range.start.saturating_sub(synthetic_prefix)
+                    ..diagnostic.range.end.saturating_sub(synthetic_prefix),
+                message: diagnostic.message.clone(),
+            })
+            .collect(),
+    )
+}
+
 pub fn convert_attached_v1(document: &legacy::Document) -> Result<OwnedDocument, MigrationError> {
     let mut blocks = Vec::new();
-    if document.attrs.attached.is_some() || document.attrs.range.is_some() {
-        blocks.push(OwnedBlock::Document {
-            attributes: convert_block_attributes(&document.attrs)?,
-        });
+    if let Some(attached) = document.attrs.attached.as_deref() {
+        let legacy::AttachedContent::Blocks(document_declarations) = &attached.content else {
+            return Err(MigrationError::UnsupportedAttachedInline {
+                range: attached.range.clone(),
+            });
+        };
+        blocks.extend(
+            document_declarations
+                .iter()
+                .map(convert_attached_block)
+                .collect::<Result<Vec<_>, _>>()?,
+        );
     }
     blocks.extend(
         document
@@ -562,5 +653,25 @@ mod tests {
         let once = migrate_attached_v1(source).unwrap();
         assert!(plumb_syntax::parse(&once).is_valid());
         assert_ne!(once, source);
+    }
+
+    #[test]
+    fn lifts_a_document_group_around_current_inline_syntax() {
+        let source = "{\n `= title Current\n}\n\n`->[guide|guide.plumb]\n";
+        let migrated = migrate_document_group_v1(source).unwrap();
+        assert_eq!(migrated, "`= title Current\n\n`->[guide|guide.plumb]\n");
+        assert!(plumb_syntax::parse(&migrated).is_valid());
+    }
+
+    #[test]
+    fn document_group_migration_keeps_current_documents_unchanged() {
+        let source = "`= title Current\n\nBody.\n";
+        assert_eq!(migrate_document_group_v1(source).unwrap(), source);
+    }
+
+    #[test]
+    fn document_group_migration_rejects_other_current_errors() {
+        let error = migrate_document_group_v1("{\n `= title Current\n}\n\n`broken[\n").unwrap_err();
+        assert!(matches!(error, MigrationError::InvalidDocumentGroup(_)));
     }
 }

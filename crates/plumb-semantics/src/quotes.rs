@@ -20,7 +20,13 @@ impl QuoteOutput {
 
 pub fn analyze_quotes(document: &Document) -> QuoteOutput {
     let mut output = QuoteOutput::default();
-    collect_quotes(&document.blocks, &mut output);
+    for block in document
+        .blocks
+        .iter()
+        .filter(|block| !crate::is_document_declaration(block))
+    {
+        collect_quotes(std::slice::from_ref(block), &mut output);
+    }
     output
 }
 

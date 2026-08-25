@@ -8,7 +8,7 @@ fn completes_citation_constructs_and_csl_json_ids() {
     std::fs::create_dir_all(root.join("static")).unwrap();
     let source_path = root.join("note.plumb");
     let bibliography_path = root.join("static/library.json");
-    let source = "{\n `= bibliography static/library.json\n}\n\nSee `ci and `cite[smi\n";
+    let source = "`= bibliography static/library.json\n\nSee `ci and `cite[smi\n";
     std::fs::write(&source_path, source).unwrap();
     std::fs::write(
         &bibliography_path,
@@ -230,7 +230,7 @@ fn completes_links_by_document_metadata_title() {
     std::fs::write(&source, &source_text).unwrap();
     std::fs::write(
         &target,
-        "{\n  `= title Usage Guide\n}\n\n`# Usage {\n  `@ usage\n}\n",
+        "`= title Usage Guide\n\n`# Usage {\n  `@ usage\n}\n",
     )
     .unwrap();
     let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
@@ -346,7 +346,7 @@ fn completion_from_a_subdirectory_inserts_a_relative_path() {
     std::fs::write(&source, source_text).unwrap();
     std::fs::write(
         &target,
-        "{\n  `= title Target A\n}\n\n`# Target {\n  `@ target\n}\n",
+        "`= title Target A\n\n`# Target {\n  `@ target\n}\n",
     )
     .unwrap();
     let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
@@ -407,7 +407,7 @@ fn completes_and_navigates_relative_autolinks_files_and_images() {
     std::fs::write(&current, source).unwrap();
     std::fs::write(
         &target,
-        "{\n  `= title Target note\n}\n\n`# Anchor {\n  `@ anchor\n}\n",
+        "`= title Target note\n\n`# Anchor {\n  `@ anchor\n}\n",
     )
     .unwrap();
     std::fs::write(&unicode_target, "`# 中文笔记\n").unwrap();

@@ -103,7 +103,7 @@ fn render_metadata(meta: &HashMap<String, MetaValue>) -> Result<String, String> 
         require_attr_name(key, "metadata key")?;
         entries.push(render_metadata_entry(key, &meta[key])?);
     }
-    Ok(format!("{{\n{}\n}}", indent(&entries.join("\n"), 2)))
+    Ok(entries.join("\n"))
 }
 
 fn render_metadata_entry(key: &str, value: &MetaValue) -> Result<String, String> {
@@ -754,7 +754,7 @@ mod tests {
         });
 
         let source = import_json(&document.to_string()).unwrap();
-        assert!(source.starts_with("{\n `= title Example\n}\n"), "{source}");
+        assert!(source.starts_with("`= title Example\n"), "{source}");
         assert!(source.contains("`# Intro {`@[intro]}"));
         assert!(source.contains("`*[em] `![strong] `==[marked|@[marked]|+[keep]]"));
         assert!(source.contains("`~[strike] `^[super] `_[sub]"));

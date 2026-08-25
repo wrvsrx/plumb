@@ -392,7 +392,7 @@ mod tests {
         .unwrap();
         std::fs::write(
             root.join("note.plumb"),
-            "{\n `= bibliography\n  `- static/library file.json\n}\n\nSee `cite[smith2004].\n",
+            "`= bibliography\n `- static/library file.json\n\nSee `cite[smith2004].\n",
         )
         .unwrap();
         let workspace = WebWorkspace::load(&root).unwrap();

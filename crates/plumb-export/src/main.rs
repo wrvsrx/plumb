@@ -4,8 +4,8 @@ use std::io::{self, Read};
 use std::process::ExitCode;
 
 use plumb_semantics::{
-    analyze_document, CitationRecord, DocumentOutput, InlineStyleKind, LinkSpelling, ListGroup,
-    ListKind, MetadataBlock, MetadataEntry, MetadataValue, TaskState,
+    analyze_document, is_document_declaration, CitationRecord, DocumentOutput, InlineStyleKind,
+    LinkSpelling, ListGroup, ListKind, MetadataBlock, MetadataEntry, MetadataValue, TaskState,
 };
 use plumb_syntax::{parse, AttrItem, Attributes, Block, Inline, InlineContent, ParsedBlock};
 use serde_json::{json, Map, Value};
@@ -74,8 +74,16 @@ pub fn export(source: &str) -> Result<Value, String> {
     Ok(json!({
         "pandoc-api-version": [1, 23, 1],
         "meta": metadata,
-        "blocks": lower_blocks(&parsed.syntax.blocks, &analysis),
+        "blocks": lower_document_blocks(&parsed.syntax.blocks, &analysis),
     }))
+}
+
+fn lower_document_blocks(blocks: &[Block], analysis: &DocumentOutput) -> Vec<Value> {
+    let body = blocks
+        .iter()
+        .filter(|block| !is_document_declaration(block))
+        .collect::<Vec<_>>();
+    lower_block_refs(&body, analysis)
 }
 
 fn lower_metadata(
@@ -138,10 +146,14 @@ fn lower_metadata_value(
 }
 
 fn lower_blocks(blocks: &[Block], analysis: &DocumentOutput) -> Vec<Value> {
+    lower_block_refs(&blocks.iter().collect::<Vec<_>>(), analysis)
+}
+
+fn lower_block_refs(blocks: &[&Block], analysis: &DocumentOutput) -> Vec<Value> {
     let mut output = Vec::new();
     let mut index = 0;
     while index < blocks.len() {
-        if let Block::Parsed(block) = &blocks[index] {
+        if let Block::Parsed(block) = blocks[index] {
             if let Some(definitions) = analysis
                 .metadata
                 .definition_list_at_node_start(block.range.start)
@@ -162,7 +174,7 @@ fn lower_blocks(blocks: &[Block], analysis: &DocumentOutput) -> Vec<Value> {
                 continue;
             }
         }
-        match &blocks[index] {
+        match blocks[index] {
             Block::Verbatim(block) => {
                 if analysis
                     .math
@@ -197,7 +209,7 @@ fn lower_blocks(blocks: &[Block], analysis: &DocumentOutput) -> Vec<Value> {
 }
 
 fn lower_definition_list(
-    blocks: &[Block],
+    blocks: &[&Block],
     definitions: &plumb_semantics::DefinitionList,
     analysis: &DocumentOutput,
 ) -> Value {
@@ -228,7 +240,7 @@ fn lower_definition_list(
     json!({ "t": "DefinitionList", "c": entries })
 }
 
-fn lower_list_group(blocks: &[Block], group: &ListGroup, analysis: &DocumentOutput) -> Value {
+fn lower_list_group(blocks: &[&Block], group: &ListGroup, analysis: &DocumentOutput) -> Value {
     let items = blocks
         .iter()
         .map(|block| {
@@ -686,6 +698,20 @@ mod tests {
     }
 
     #[test]
+    fn document_declarations_do_not_split_exported_body_lists() {
+        let document = export("`- First\n`= title Between\n`- Second\n").unwrap();
+        let blocks = document["blocks"].as_array().unwrap();
+
+        assert_eq!(document["meta"]["title"]["c"][0]["c"], "Between");
+        assert_eq!(blocks.len(), 1);
+        assert_eq!(blocks[0]["t"], "BulletList");
+        let items = blocks[0]["c"].as_array().unwrap();
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0][0]["c"][0]["c"], "First");
+        assert_eq!(items[1][0]["c"][0]["c"], "Second");
+    }
+
+    #[test]
     fn exports_visible_task_state_markers() {
         let source = "`task Open {\n}\n`task Done {\n  `= done 2026-07-25T15:00:00+08:00\n}\n`task Canceled {\n  `= canceled 2026-07-25T15:00:00+08:00\n}\n`task Conflicted {\n  `= done 2026-07-25T15:00:00+08:00\n  `= canceled 2026-07-25T15:01:00+08:00\n}\n";
         let document = export(source).unwrap();
@@ -797,7 +823,7 @@ mod tests {
 
     #[test]
     fn exports_verbatim_autolinks_in_body_and_metadata() {
-        let source = "{\n  `= homepage `->\"https://example.test/meta\"\n}\n\nBody `->[\"https://example.test/a%20b\"|@[site]|+[keep]|=[rel|nofollow]].\n";
+        let source = "`= homepage `->\"https://example.test/meta\"\n\nBody `->[\"https://example.test/a%20b\"|@[site]|+[keep]|=[rel|nofollow]].\n";
         let document = export(source).unwrap();
         let metadata_link = &document["meta"]["homepage"]["c"][0];
         assert_eq!(metadata_link["t"], "Link");
@@ -815,7 +841,7 @@ mod tests {
 
     #[test]
     fn exports_standard_images_in_body_and_metadata() {
-        let source = "{\n  `= cover `img[Cover|=[src|static/cover.png]]\n}\n\nBefore `img[Rich `em[alt]|=[src|\"static/a b.webp\"]|@[image]|+[wide]|=[loading|lazy]] after.\n\n`img[|=[src|https://example.test/decorative.svg]]\n";
+        let source = "`= cover `img[Cover|=[src|static/cover.png]]\n\nBefore `img[Rich `em[alt]|=[src|\"static/a b.webp\"]|@[image]|+[wide]|=[loading|lazy]] after.\n\n`img[|=[src|https://example.test/decorative.svg]]\n";
         let document = export(source).unwrap();
 
         let metadata_image = &document["meta"]["cover"]["c"][0];
@@ -961,7 +987,7 @@ mod tests {
 
     #[test]
     fn exports_math_inside_rich_metadata_scalars() {
-        let source = "{\n  `= formula Area `$\"\\pi r^2\"\n}\n";
+        let source = "`= formula Area `$\"\\pi r^2\"\n";
         let document = export(source).unwrap();
         assert_eq!(document["meta"]["formula"]["t"], "MetaInlines");
         let math = document["meta"]["formula"]["c"]
@@ -976,7 +1002,7 @@ mod tests {
 
     #[test]
     fn lifts_typed_metadata_out_of_the_document_body() {
-        let source = "{\n  `= title Rich `*[title]\n  `= tags\n\n     `- plumb\n     `- tools\n  `= macros\n\n     `-\n      `- `\"nearSet\"\n      `- `\"\\mathscr{C}\"\n      `- 0\n  `= author\n\n     `= name Alice\n  `= source\n\n     `text\"\n      raw\n      \n      \n  `= empty\n}\n\n`# Section\n";
+        let source = "`= title Rich `*[title]\n`= tags\n\n `- plumb\n `- tools\n\n`= macros\n\n `-\n  `- `\"nearSet\"\n  `- `\"\\mathscr{C}\"\n  `- 0\n\n`= author\n\n `= name Alice\n\n`= source\n\n `text\"\n  raw\n  \n  \n`= empty\n\n`# Section\n";
         let document = export(source).unwrap();
 
         assert_eq!(document["blocks"].as_array().unwrap().len(), 1);
@@ -1014,11 +1040,10 @@ mod tests {
 
     #[test]
     fn metadata_export_keeps_first_duplicate_and_rejects_unsupported_values() {
-        let duplicate =
-            export("`meta\n  `: title\n\n     First\n\n  `: title\n\n     Second\n").unwrap();
+        let duplicate = export("`= title First\n`= title Second\n").unwrap();
         assert_eq!(duplicate["meta"]["title"]["c"][0]["c"], "First");
 
-        let unsupported = export("`meta\n  `: mixed\n\n    paragraph\n    `- child\n");
+        let unsupported = export("`= mixed\n\n paragraph\n `- child\n");
         assert_eq!(
             unsupported.unwrap_err(),
             "metadata field 'mixed' has an unsupported value"
@@ -1027,8 +1052,7 @@ mod tests {
 
     #[test]
     fn exports_single_citations_in_body_and_metadata_without_a_pandoc_reader() {
-        let document =
-            export("`meta\n  `: source\n\n     `cite[roe2020]\n\nSee `cite[smith2004].\n").unwrap();
+        let document = export("`= source `cite[roe2020]\n\nSee `cite[smith2004].\n").unwrap();
 
         assert_eq!(document["meta"]["source"]["c"][0]["t"], "Cite");
         let cite = &document["blocks"][0]["c"][2];

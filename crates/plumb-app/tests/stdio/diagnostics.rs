@@ -187,7 +187,7 @@ fn nests_anchors_and_tasks_under_their_containing_headings() {
 
 #[test]
 fn publishes_metadata_diagnostics_and_nested_symbols_over_stdio() {
-    let source = "{\n  `= title\n\n    Document title\n\n  `= author\n    `= name\n\n      Alice\n\n  `= title\n\n  `= created\n\n    yesterday\n}\n\nInvalid `cite[@old-style].\n";
+    let source = "`= title\n\n Document title\n\n`= author\n `= name\n\n  Alice\n\n`= title\n\n`= created\n\n yesterday\n\nInvalid `cite[@old-style].\n";
     let messages = [
         json!({
             "jsonrpc": "2.0",
@@ -253,6 +253,6 @@ fn publishes_metadata_diagnostics_and_nested_symbols_over_stdio() {
     assert_eq!(invalid_created["severity"], 2);
     assert_eq!(
         invalid_created["range"]["start"],
-        json!({ "line": 14, "character": 4 })
+        json!({ "line": 13, "character": 1 })
     );
 }

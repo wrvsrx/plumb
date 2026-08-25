@@ -3,8 +3,8 @@ use std::ops::Range;
 
 use chrono::DateTime;
 use plumb_syntax::{
-    AttachedContent, Block, Diagnostic, DiagnosticSeverity, Document, Inline, InlineContent,
-    InlineMember, ParsedBlock,
+    Block, Diagnostic, DiagnosticSeverity, Document, Inline, InlineContent, InlineMember,
+    ParsedBlock,
 };
 
 use crate::text::plain_text;
@@ -29,6 +29,13 @@ pub struct MetadataBlock {
     pub range: Range<usize>,
     pub selection_range: Range<usize>,
     pub entries: Vec<MetadataEntry>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DocumentFacet {
+    pub range: Range<usize>,
+    pub value: String,
+    pub value_range: Range<usize>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -94,6 +101,7 @@ pub struct BibliographySource {
 pub struct MetadataOutput {
     pub definition_lists: Vec<DefinitionList>,
     pub metadata: Option<MetadataBlock>,
+    pub facets: Vec<DocumentFacet>,
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -167,38 +175,89 @@ fn bibliography_source(value: &MetadataValue) -> Option<BibliographySource> {
 
 pub fn analyze_metadata(document: &Document) -> MetadataOutput {
     let mut output = MetadataOutput::default();
-    if let Some(AttachedContent::Blocks(blocks)) = document
-        .attrs
-        .attached
-        .as_deref()
-        .map(|attached| &attached.content)
-    {
-        collect_definition_lists(blocks, &mut output.definition_lists);
-    }
-    collect_definition_lists(&document.blocks, &mut output.definition_lists);
+    collect_definition_lists(
+        document
+            .blocks
+            .iter()
+            .filter(|block| !crate::is_document_declaration(block)),
+        &mut output.definition_lists,
+    );
     output
         .definition_lists
         .sort_by_key(|definitions| definitions.range.start);
 
-    let mut first_meta = None;
-    if let Some(attached) = document.attrs.attached.as_deref() {
-        if let AttachedContent::Blocks(blocks) = &attached.content {
-            let entries = parse_attached_entries(blocks, &mut output.diagnostics);
-            lint_standard_entries(&entries, &mut output.diagnostics);
-            first_meta = Some(attached.range.clone());
-            output.metadata = Some(MetadataBlock {
-                range: attached.range.clone(),
-                selection_range: attached.open_range.clone(),
-                entries,
-            });
+    let properties = document
+        .blocks
+        .iter()
+        .filter(|block| parsed_marker(block) == Some("="))
+        .collect::<Vec<_>>();
+    if let (Some(first), Some(last)) = (properties.first(), properties.last()) {
+        let entries = parse_attached_entries(properties.iter().copied(), &mut output.diagnostics);
+        lint_standard_entries(&entries, &mut output.diagnostics);
+        let selection_range = match first {
+            Block::Parsed(block) => block
+                .mark
+                .as_ref()
+                .expect("metadata property has a marker")
+                .marker_range
+                .clone(),
+            Block::Verbatim(_) => unreachable!("metadata property is parsed"),
+        };
+        output.metadata = Some(MetadataBlock {
+            range: first.range().start..last.range().end,
+            selection_range,
+            entries,
+        });
+    }
+
+    for block in &document.blocks {
+        let Block::Parsed(block) = block else {
+            continue;
+        };
+        match marker(block) {
+            Some("+") => match document_facet(block) {
+                Some(facet) => output.facets.push(facet),
+                None => output.diagnostics.push(warning(
+                    "document.invalid-facet",
+                    "document facets require a nonempty plain head and no children",
+                    block.range.clone(),
+                )),
+            },
+            Some("@") => output.diagnostics.push(warning(
+                "document.unsupported-identity",
+                "document identity is defined by its workspace-relative path",
+                block.range.clone(),
+            )),
+            Some(_) | None => {}
         }
     }
-    collect_metadata_blocks(&document.blocks, 0, &mut first_meta, &mut output);
     output
 }
 
-fn parse_attached_entries(
-    blocks: &[Block],
+fn document_facet(block: &ParsedBlock) -> Option<DocumentFacet> {
+    if !block.children.is_empty()
+        || block.head.items.is_empty()
+        || !block
+            .head
+            .items
+            .iter()
+            .all(|inline| matches!(inline, Inline::Text { .. } | Inline::Space { .. }))
+    {
+        return None;
+    }
+    let value = block.head.plain_text();
+    if value.trim().is_empty() {
+        return None;
+    }
+    Some(DocumentFacet {
+        range: block.range.clone(),
+        value,
+        value_range: block.head.range.clone(),
+    })
+}
+
+fn parse_attached_entries<'a>(
+    blocks: impl IntoIterator<Item = &'a Block>,
     diagnostics: &mut Vec<Diagnostic>,
 ) -> Vec<MetadataEntry> {
     let mut entries = Vec::new();
@@ -207,7 +266,7 @@ fn parse_attached_entries(
         let Block::Parsed(property) = block else {
             diagnostics.push(warning(
                 "metadata.expected-property",
-                "root metadata children must be named block elements",
+                "document metadata declarations must be named block elements",
                 block.range().clone(),
             ));
             continue;
@@ -215,7 +274,7 @@ fn parse_attached_entries(
         let Some(mark) = property.mark.as_ref() else {
             diagnostics.push(warning(
                 "metadata.expected-property",
-                "root metadata children must be named block elements",
+                "document metadata declarations must be named block elements",
                 block.range().clone(),
             ));
             continue;
@@ -223,7 +282,7 @@ fn parse_attached_entries(
         if mark.marker != "=" {
             diagnostics.push(warning(
                 "metadata.expected-property",
-                "root metadata children must use the '=' association marker",
+                "document metadata declarations must use the '=' association marker",
                 mark.marker_range.clone(),
             ));
             continue;
@@ -416,10 +475,7 @@ fn parse_attached_children(
             .collect();
         return MetadataValue::List { items, range };
     }
-    if blocks
-        .iter()
-        .all(|block| matches!(block, Block::Parsed(parsed) if parsed.mark.is_some()))
-    {
+    if blocks.iter().all(|block| parsed_marker(block) == Some("=")) {
         return MetadataValue::Map {
             entries: parse_attached_entries(blocks, diagnostics),
             range,
@@ -433,20 +489,23 @@ fn parse_attached_children(
     MetadataValue::Unsupported { range }
 }
 
-fn collect_definition_lists(blocks: &[Block], output: &mut Vec<DefinitionList>) {
-    let mut index = 0;
-    while index < blocks.len() {
-        if definition_block(&blocks[index]).is_none() {
-            if let Block::Parsed(block) = &blocks[index] {
+fn collect_definition_lists<'a>(
+    blocks: impl IntoIterator<Item = &'a Block>,
+    output: &mut Vec<DefinitionList>,
+) {
+    let mut blocks = blocks.into_iter().peekable();
+    while let Some(current) = blocks.next() {
+        if definition_block(current).is_none() {
+            if let Block::Parsed(block) = current {
                 collect_definition_lists(&block.children, output);
             }
-            index += 1;
             continue;
         }
 
-        let start = index;
         let mut definitions = Vec::new();
-        while let Some(block) = blocks.get(index).and_then(definition_block) {
+        let start = current.range().start;
+        let mut current = Some(current);
+        while let Some(block) = current.and_then(definition_block) {
             let (term, inline_body) = if block.children.is_empty() {
                 split_inline_arguments(&block.head)
             } else {
@@ -463,64 +522,17 @@ fn collect_definition_lists(blocks: &[Block], output: &mut Vec<DefinitionList>) 
                 body_range: projected_body_range,
             });
             collect_definition_lists(&block.children, output);
-            index += 1;
+            current = blocks.next_if(|next| definition_block(next).is_some());
         }
         output.push(DefinitionList {
-            range: blocks[start].range().start..blocks[index - 1].range().end,
+            range: start
+                ..definitions
+                    .last()
+                    .expect("definition list is nonempty")
+                    .range
+                    .end,
             definitions,
         });
-    }
-}
-
-fn collect_metadata_blocks(
-    blocks: &[Block],
-    depth: usize,
-    first_meta: &mut Option<Range<usize>>,
-    output: &mut MetadataOutput,
-) {
-    for block in blocks {
-        let Block::Parsed(parsed) = block else {
-            continue;
-        };
-        if marker(parsed) == Some("meta") {
-            if depth != 0 {
-                output.diagnostics.push(warning(
-                    "metadata.nested-block",
-                    "metadata blocks must be document-level blocks",
-                    parsed.range.clone(),
-                ));
-            } else if let Some(first) = first_meta.as_ref() {
-                let mut diagnostic = warning(
-                    "metadata.multiple-blocks",
-                    "a document may contain only one metadata block",
-                    parsed.range.clone(),
-                );
-                diagnostic.related.push(first.clone());
-                output.diagnostics.push(diagnostic);
-            } else {
-                *first_meta = Some(parsed.range.clone());
-                if !parsed.head.items.is_empty() {
-                    output.diagnostics.push(warning(
-                        "metadata.nonempty-head",
-                        "the metadata block must not have a head",
-                        parsed.head.range.clone(),
-                    ));
-                }
-                let entries = parse_entries(&parsed.children, &mut output.diagnostics);
-                lint_standard_entries(&entries, &mut output.diagnostics);
-                output.metadata = Some(MetadataBlock {
-                    range: parsed.range.clone(),
-                    selection_range: parsed
-                        .mark
-                        .as_ref()
-                        .expect("metadata block has a marker")
-                        .marker_range
-                        .clone(),
-                    entries,
-                });
-            }
-        }
-        collect_metadata_blocks(&parsed.children, depth + 1, first_meta, output);
     }
 }
 
@@ -544,142 +556,6 @@ fn lint_standard_entries(entries: &[MetadataEntry], diagnostics: &mut Vec<Diagno
             ));
         }
     }
-}
-
-fn parse_entries(blocks: &[Block], diagnostics: &mut Vec<Diagnostic>) -> Vec<MetadataEntry> {
-    let mut entries = Vec::new();
-    let mut keys: HashMap<String, Range<usize>> = HashMap::new();
-    for block in blocks {
-        let Some(definition) = definition_block(block) else {
-            diagnostics.push(warning(
-                "metadata.expected-definition",
-                "metadata children must use the ':' definition marker",
-                block.range().clone(),
-            ));
-            continue;
-        };
-        let Some((key, key_range, scalar)) = attached_property_parts(definition) else {
-            diagnostics.push(warning(
-                "metadata.invalid-key",
-                "metadata keys must be nonempty plain text",
-                definition.head.range.clone(),
-            ));
-            continue;
-        };
-        if let Some(first) = keys.get(&key) {
-            let mut diagnostic = warning(
-                "metadata.duplicate-key",
-                format!("metadata key '{key}' appears more than once"),
-                key_range.clone(),
-            );
-            diagnostic.related.push(first.clone());
-            diagnostics.push(diagnostic);
-        } else {
-            keys.insert(key.clone(), key_range.clone());
-        }
-        let value = if let Some(content) = scalar {
-            MetadataValue::Scalar {
-                range: content.range.clone(),
-                content,
-            }
-        } else {
-            parse_value(definition, diagnostics)
-        };
-        entries.push(MetadataEntry {
-            range: definition.range.clone(),
-            key,
-            key_range,
-            value,
-        });
-    }
-    entries
-}
-
-fn parse_value(block: &ParsedBlock, diagnostics: &mut Vec<Diagnostic>) -> MetadataValue {
-    let range = body_range(block);
-    if block.children.is_empty() {
-        return MetadataValue::Null { range };
-    }
-    if block.children.len() == 1 {
-        match &block.children[0] {
-            Block::Parsed(child) if child.mark.is_none() => {
-                if let Some(text) = inline_verbatim(&child.head) {
-                    return MetadataValue::Verbatim {
-                        text: text.to_string(),
-                        range,
-                    };
-                }
-                return MetadataValue::Scalar {
-                    content: child.head.clone(),
-                    range,
-                };
-            }
-            Block::Verbatim(child) => {
-                return MetadataValue::Verbatim {
-                    text: child.text.clone(),
-                    range,
-                };
-            }
-            Block::Parsed(_) => {}
-        }
-    }
-    if block
-        .children
-        .iter()
-        .all(|child| parsed_marker(child) == Some("-"))
-    {
-        let mut items = Vec::new();
-        for child in &block.children {
-            let Block::Parsed(item) = child else {
-                unreachable!("dash marker implies parsed block");
-            };
-            let value = if item.children.is_empty() {
-                match inline_verbatim(&item.head) {
-                    Some(text) => MetadataValue::Verbatim {
-                        text: text.to_string(),
-                        range: item.head.range.clone(),
-                    },
-                    None => MetadataValue::Scalar {
-                        content: item.head.clone(),
-                        range: item.head.range.clone(),
-                    },
-                }
-            } else if item.head.items.is_empty() {
-                parse_value(item, diagnostics)
-            } else {
-                diagnostics.push(warning(
-                    "metadata.invalid-list-item",
-                    "metadata list items with child blocks must have an empty head",
-                    item.range.clone(),
-                ));
-                MetadataValue::Unsupported {
-                    range: item.range.clone(),
-                }
-            };
-            items.push(MetadataListItem {
-                value,
-                range: item.range.clone(),
-            });
-        }
-        return MetadataValue::List { items, range };
-    }
-    if block
-        .children
-        .iter()
-        .all(|child| definition_block(child).is_some())
-    {
-        return MetadataValue::Map {
-            entries: parse_entries(&block.children, diagnostics),
-            range,
-        };
-    }
-
-    diagnostics.push(warning(
-        "metadata.unsupported-value",
-        "metadata values must be a paragraph, list, definition map, verbatim block, or empty",
-        range.clone(),
-    ));
-    MetadataValue::Unsupported { range }
 }
 
 fn inline_verbatim(content: &InlineContent) -> Option<&str> {
@@ -794,7 +670,7 @@ mod tests {
     #[test]
     fn groups_definition_lists_and_projects_metadata_values() {
         let parsed = parse(
-            "{\n  `= title Document `em[title]\n  `= tags\n\n     `- plumb\n     `- parser\n  `= macros\n\n     `-\n      `- `\"name\"\n      `- `\"expansion\"\n      `- 1\n  `= author\n\n     `= name Alice\n  `= source\n\n     `text\"\n       raw\n}\n\n`: term\n\n   Definition.\n",
+            "`= title Document `em[title]\n`= tags\n\n `- plumb\n `- parser\n\n`= macros\n\n `-\n  `- `\"name\"\n  `- `\"expansion\"\n  `- 1\n\n`= author\n\n `= name Alice\n\n`= source\n\n `text\"\n  raw\n\n`: term\n\n Definition.\n",
         );
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let output = analyze_metadata(&parsed.syntax);
@@ -827,9 +703,9 @@ mod tests {
     }
 
     #[test]
-    fn projects_recursive_root_metadata() {
+    fn projects_recursive_document_metadata() {
         let parsed = parse(
-            "{\n  `= title Document `em[title]\n  `= tags\n   `- plumb\n   `- parser\n  `= macros\n   `-\n    `- `\"name\"\n    `- `\"expansion\"\n  `= author\n   `= name Alice\n  `= empty\n}\n\nBody.\n",
+            "`= title Document `em[title]\n`= tags\n `- plumb\n `- parser\n`= macros\n `-\n  `- `\"name\"\n  `- `\"expansion\"\n`= author\n `= name Alice\n`= empty\n\nBody.\n",
         );
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let output = analyze_metadata(&parsed.syntax);
@@ -862,9 +738,8 @@ mod tests {
 
     #[test]
     fn projects_plain_and_literal_bibliography_sources() {
-        let parsed = parse(
-            "{\n `= bibliography\n  `- refs/library one.json\n  `- `\"refs/library-two.json\"\n}\n",
-        );
+        let parsed =
+            parse("`= bibliography\n `- refs/library one.json\n `- `\"refs/library-two.json\"\n");
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let output = analyze_metadata(&parsed.syntax);
         let sources = output.bibliography_sources();
@@ -874,28 +749,37 @@ mod tests {
     }
 
     #[test]
-    fn root_and_legacy_metadata_are_diagnosed_as_duplicates() {
-        let parsed = parse("{\n  `= title Root\n}\n\n`meta\n `: title\n\n    Legacy\n");
+    fn declarations_can_interleave_with_body_and_project_facets() {
+        let parsed = parse(
+            "`= title Root\n\nBody before.\n\n`+ journal\n\nBody after.\n\n`= created 2026-08-26T00:00:00+08:00\n",
+        );
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let output = analyze_metadata(&parsed.syntax);
         assert_eq!(output.document_title().as_deref(), Some("Root"));
-        assert!(output
-            .diagnostics
-            .iter()
-            .any(|diagnostic| diagnostic.code == "metadata.multiple-blocks"));
+        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+        assert_eq!(
+            output
+                .metadata
+                .unwrap()
+                .entries
+                .iter()
+                .map(|entry| entry.key.as_str())
+                .collect::<Vec<_>>(),
+            ["title", "created"]
+        );
+        assert_eq!(output.facets[0].value, "journal");
     }
 
     #[test]
     fn document_title_requires_a_scalar_value() {
-        let parsed =
-            parse("`meta\n  `: title\n    `- Not a scalar\n\n  `: title\n\n    Later scalar\n");
+        let parsed = parse("`= title\n `- Not a scalar\n\n`= title Later scalar\n");
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         assert_eq!(analyze_metadata(&parsed.syntax).document_title(), None);
     }
 
     #[test]
     fn item_marker_is_not_a_metadata_list_item() {
-        let parsed = parse("`meta\n  `: tags\n    `item Generic block\n");
+        let parsed = parse("`= tags\n `item Generic block\n");
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
         let output = analyze_metadata(&parsed.syntax);
@@ -911,7 +795,7 @@ mod tests {
 
     #[test]
     fn ordered_marker_is_not_a_metadata_list_item() {
-        let parsed = parse("`meta\n  `: ranking\n    `. First\n    `. Second\n");
+        let parsed = parse("`= ranking\n `. First\n `. Second\n");
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
         let output = analyze_metadata(&parsed.syntax);
@@ -926,9 +810,9 @@ mod tests {
     }
 
     #[test]
-    fn diagnoses_metadata_profile_violations() {
+    fn diagnoses_document_declaration_violations() {
         let parsed = parse(
-            "`meta head\n  `: `*[bad key]\n\n    value\n  `: duplicate\n  `: duplicate\n  paragraph\n\n`meta\n  `: other\n",
+            "`= `*[bad key] value\n`= duplicate\n`= duplicate\n`+\n`+ `*[not plain]\n`@ forbidden\n",
         );
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let output = analyze_metadata(&parsed.syntax);
@@ -937,11 +821,16 @@ mod tests {
             .iter()
             .map(|diagnostic| diagnostic.code)
             .collect::<Vec<_>>();
-        assert!(codes.contains(&"metadata.nonempty-head"));
         assert!(codes.contains(&"metadata.invalid-key"));
         assert!(codes.contains(&"metadata.duplicate-key"));
-        assert!(codes.contains(&"metadata.expected-definition"));
-        assert!(codes.contains(&"metadata.multiple-blocks"));
+        assert_eq!(
+            codes
+                .iter()
+                .filter(|code| **code == "document.invalid-facet")
+                .count(),
+            2
+        );
+        assert!(codes.contains(&"document.unsupported-identity"));
     }
 
     #[test]
@@ -972,8 +861,8 @@ mod tests {
     }
 
     #[test]
-    fn root_metadata_uses_compact_or_child_bounded_association_keys() {
-        let source = "{\n `= title plumb title\n `= `()[key with spaces] inline value\n `= child key with spaces\n\n   child value\n}\n";
+    fn document_metadata_uses_compact_or_child_bounded_association_keys() {
+        let source = "`= title plumb title\n`= `()[key with spaces] inline value\n`= child key with spaces\n\n child value\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
@@ -999,13 +888,11 @@ mod tests {
 
     #[test]
     fn lints_only_the_standard_created_timestamp() {
-        let parsed = parse(
-            "`meta\n  `: created\n\n    2026-07-22T12:34:56+08:00\n\n  `: custom\n\n    not-a-date\n",
-        );
+        let parsed = parse("`= created 2026-07-22T12:34:56+08:00\n`= custom not-a-date\n");
         let output = analyze_metadata(&parsed.syntax);
         assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
 
-        let parsed = parse("`meta\n  `: created\n\n    2026-07-22 12:34:56\n");
+        let parsed = parse("`= created 2026-07-22 12:34:56\n");
         let output = analyze_metadata(&parsed.syntax);
         let diagnostic = output
             .diagnostics
@@ -1015,13 +902,13 @@ mod tests {
         assert_eq!(diagnostic.severity, DiagnosticSeverity::Warning);
         assert_eq!(
             &parsed.source[diagnostic.range.clone()],
-            "2026-07-22 12:34:56\n"
+            "2026-07-22 12:34:56"
         );
     }
 
     #[test]
     fn rejects_non_scalar_created_values() {
-        let parsed = parse("`meta\n  `: created\n    `- 2026-07-22T12:34:56+08:00\n");
+        let parsed = parse("`= created\n `- 2026-07-22T12:34:56+08:00\n");
         let output = analyze_metadata(&parsed.syntax);
         assert!(output
             .diagnostics

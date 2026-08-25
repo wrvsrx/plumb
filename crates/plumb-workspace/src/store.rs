@@ -1090,7 +1090,7 @@ mod tests {
     #[test]
     fn persists_semantic_records_without_source_or_syntax_tree() {
         let store = SqliteSemanticStore::open_in_memory().unwrap();
-        let source = "{\n `= title Stored\n}\n\n`task Do it {\n `@ item\n}\n\n`event 2026-08-11T10:00 Work {\n `@ meeting\n}\n";
+        let source = "`= title Stored\n\n`task Do it {\n `@ item\n}\n\n`event 2026-08-11T10:00 Work {\n `@ meeting\n}\n";
         store
             .replace(
                 Path::new("notes/a.plumb"),

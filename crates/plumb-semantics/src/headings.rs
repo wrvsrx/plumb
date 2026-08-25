@@ -28,7 +28,13 @@ impl HeadingOutput {
 
 pub fn analyze_headings(document: &Document) -> HeadingOutput {
     let mut flat = Vec::new();
-    collect_headings(&document.blocks, &mut flat);
+    for block in document
+        .blocks
+        .iter()
+        .filter(|block| !crate::is_document_declaration(block))
+    {
+        collect_headings(std::slice::from_ref(block), &mut flat);
+    }
     let diagnostics = Vec::new();
     let mut roots: Vec<Heading> = Vec::new();
     let mut path: Vec<usize> = Vec::new();

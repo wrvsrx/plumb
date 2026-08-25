@@ -214,7 +214,7 @@ fn ignored_documents_are_indexed_only_while_open() {
     std::fs::create_dir_all(&private).unwrap();
     std::fs::write(root.join(".ignore"), "private/\n").unwrap();
     let note = private.join("note.plumb");
-    let source = "{\n `= title\n\n    Private note\n}\n";
+    let source = "`= title\n\n Private note\n";
     std::fs::write(&note, source).unwrap();
     let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
     let note_uri = lsp_types::Url::from_file_path(&note).unwrap();
@@ -294,7 +294,7 @@ fn ignore_file_changes_resynchronize_the_workspace_index() {
     let ignore = root.join(".ignore");
     let note = private.join("note.plumb");
     std::fs::write(&ignore, "private/\n").unwrap();
-    std::fs::write(&note, "{\n `= title\n\n    Private note\n}\n").unwrap();
+    std::fs::write(&note, "`= title\n\n Private note\n").unwrap();
     let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
     let ignore_uri = lsp_types::Url::from_file_path(&ignore).unwrap();
 

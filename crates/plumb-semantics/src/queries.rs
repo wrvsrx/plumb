@@ -110,7 +110,6 @@ pub struct AttributeCompletionContext {
 
 #[derive(Clone, Copy)]
 enum AttributeOwner<'a> {
-    Document,
     Marked(&'a str),
     ParsedInline(&'a str),
     VerbatimInline(&'a str),
@@ -124,13 +123,7 @@ pub fn attribute_completion_context(
     if offset > document.source.len() || !document.source.is_char_boundary(offset) {
         return None;
     }
-    attached_attribute_context(
-        &document.syntax.attrs,
-        &document.source,
-        offset,
-        AttributeOwner::Document,
-    )
-    .or_else(|| attribute_context_in_blocks(&document.syntax.blocks, &document.source, offset))
+    attribute_context_in_blocks(&document.syntax.blocks, &document.source, offset)
 }
 
 fn attribute_context_in_blocks(
@@ -417,36 +410,6 @@ fn attached_attribute_context(
     };
     let mut completions = Vec::new();
     match (&group.content, owner) {
-        (AttachedContent::Blocks(_), AttributeOwner::Document) => {
-            push_attached_completion(
-                &mut completions,
-                !has_pair("title"),
-                "title",
-                "`= title ",
-                "document title",
-            );
-            push_attached_completion(
-                &mut completions,
-                !has_pair("created"),
-                "created",
-                "`= created ",
-                "document creation datetime",
-            );
-            push_attached_completion(
-                &mut completions,
-                !has_pair("date"),
-                "date",
-                "`= date ",
-                "document date",
-            );
-            push_attached_completion(
-                &mut completions,
-                !has_pair("timezone"),
-                "timezone",
-                "`= timezone ",
-                "document timezone",
-            );
-        }
         (AttachedContent::Blocks(_), AttributeOwner::Marked("task")) => {
             push_attached_completion(&mut completions, !has_id, "id", "`@ ", "explicit id");
             for (key, detail) in task_attribute_pairs() {
@@ -675,7 +638,7 @@ fn attribute_context(
                 "raw content language",
             );
         }
-        AttributeOwner::Document | AttributeOwner::Marked(_) | AttributeOwner::ParsedInline(_) => {}
+        AttributeOwner::Marked(_) | AttributeOwner::ParsedInline(_) => {}
     }
     if typed.starts_with('#') && !has_id {
         candidates.clear();
@@ -1603,10 +1566,6 @@ mod tests {
                 .collect::<Vec<_>>(),
             [("prev", "`= prev "), ("priority", "`= priority 0")]
         );
-
-        let (root, cursor) = strip_cursor("{\n  `= ti|\n}\n");
-        let context = attribute_completion_context(&parse(&root), cursor).unwrap();
-        assert_eq!(context.completions[0].new_text, "`= title ");
     }
 
     #[test]

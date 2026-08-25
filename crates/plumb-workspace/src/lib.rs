@@ -825,13 +825,8 @@ impl Workspace {
 
     pub fn target_at(&self, path: impl AsRef<Path>, offset: usize) -> Option<ResolvedTarget> {
         let path = normalize(path.as_ref());
-        if self
-            .current_output(&path)?
-            .metadata
-            .metadata
-            .as_ref()
-            .is_some_and(|metadata| contains_inclusive(&metadata.selection_range, offset))
-        {
+        self.current_output(&path)?;
+        if offset == 0 {
             return Some(ResolvedTarget::Document { path });
         }
         if let Some(target) = self.reference_target_at(&path, offset) {
@@ -2103,14 +2098,10 @@ impl Workspace {
         offset: usize,
     ) -> Result<PathRenameTarget, RenameError> {
         let path = normalize(path.as_ref());
-        if let Some(metadata) = self
-            .current_output(&path)
-            .and_then(|output| output.metadata.metadata.as_ref())
-            .filter(|metadata| contains_inclusive(&metadata.selection_range, offset))
-        {
+        if offset == 0 && self.current_output(&path).is_some() {
             return Ok(PathRenameTarget {
                 old_path: path,
-                range: metadata.selection_range.clone(),
+                range: 0..0,
                 input: PathRenameInput::FileStem,
             });
         }
@@ -2282,18 +2273,14 @@ impl Workspace {
         if current.output.metadata.metadata.is_some() {
             return Err(MetadataInsertError::MetadataAlreadyExists);
         }
-        if !entry.parsed.source.get(..offset).is_some_and(|prefix| {
-            prefix
-                .bytes()
-                .all(|byte| matches!(byte, b' ' | b'\t' | b'\n' | b'\r'))
-        }) {
+        if offset != 0 {
             return Err(MetadataInsertError::CursorNotAtDocumentStart);
         }
 
-        let metadata = OwnedBlock::document(vec![
-            OwnedAttribute::bare("title", title),
-            OwnedAttribute::bare("created", created),
-        ]);
+        let metadata = [
+            OwnedBlock::association("title", title),
+            OwnedBlock::association("created", created),
+        ];
         let affected = 0..if entry.parsed.syntax.blocks.is_empty() {
             entry.parsed.source.len()
         } else {
@@ -2301,7 +2288,7 @@ impl Workspace {
         };
         let mut edit = EditSession::new(&entry.parsed, affected)
             .map_err(|_| MetadataInsertError::GeneratedInvalid)?;
-        edit.insert_blocks(0, &[metadata])
+        edit.insert_blocks(0, &metadata)
             .map_err(|_| MetadataInsertError::GeneratedInvalid)?;
         let edit = edit
             .finish()
@@ -5282,14 +5269,14 @@ mod tests {
 
     #[test]
     fn resolves_document_and_anchor_targets_from_declarations_and_reference_components() {
-        let target_source = "{\n  `= title Target\n}\n\n`# Section {\n  `@ section\n}\n";
+        let target_source = "`= title Target\n\n`# Section {\n  `@ section\n}\n";
         let reference_source = "See `->[named|target.plumb#section] and `->\"target.plumb#section\".\n\n`task Review {\n  `= prev target.plumb#section\n  `= depends target.plumb#section\n}\n";
         let mut workspace = Workspace::new();
         workspace.insert("target.plumb", 1, target_source);
         workspace.insert("reference.plumb", 1, reference_source);
 
         assert!(matches!(
-            workspace.target_at("target.plumb", target_source.find('{').unwrap()),
+            workspace.target_at("target.plumb", 0),
             Some(ResolvedTarget::Document { path }) if path == Path::new("target.plumb")
         ));
         assert!(workspace
@@ -5331,10 +5318,10 @@ mod tests {
             Some(ResolvedTarget::Anchor { id, .. }) if id == "section"
         ));
 
-        let lonely_source = "{\n  `= title\n\n    Lonely\n}\n";
+        let lonely_source = "`= title\n\n Lonely\n";
         workspace.insert("lonely.plumb", 1, lonely_source);
         assert!(matches!(
-            workspace.target_at("lonely.plumb", lonely_source.find('{').unwrap()),
+            workspace.target_at("lonely.plumb", 0),
             Some(ResolvedTarget::Document { path }) if path == Path::new("lonely.plumb")
         ));
         assert!(workspace.references_to_document("lonely.plumb").is_empty());
@@ -5443,17 +5430,18 @@ mod tests {
     }
 
     #[test]
-    fn metadata_marker_targets_the_current_document_without_editing_title() {
-        let source = "{\n  `= title Stable title\n}\n";
+    fn document_start_targets_the_current_document_without_editing_title() {
+        let source = "`= title Stable title\n";
         let mut workspace = Workspace::new();
         workspace.insert("current.plumb", 4, source);
         workspace.insert("incoming.plumb", 7, "`->[current|current.plumb]\n");
 
         let target = workspace
-            .document_rename_target_at("current.plumb", source.find('{').unwrap())
+            .document_rename_target_at("current.plumb", 0)
             .unwrap();
         assert_eq!(target.old_path, Path::new("current.plumb"));
-        assert_eq!(&source[target.range.clone()], "{");
+        assert_eq!(target.range, 0..0);
+        assert_eq!(&source[target.range.clone()], "");
         assert_eq!(target.input, PathRenameInput::FileStem);
         assert_eq!(
             workspace.rename_document(&target, "archive/renamed"),
@@ -5513,12 +5501,12 @@ mod tests {
         workspace.insert(
             "one.plumb",
             1,
-            "{\n  `= date 2026-08-13\n  `= timezone +08:00\n}\n\n`event 09:00 relax\n`event 10:00 relax\n`event 11:00 research\n",
+            "`= date 2026-08-13\n`= timezone +08:00\n\n`event 09:00 relax\n`event 10:00 relax\n`event 11:00 research\n",
         );
         workspace.insert(
             "two.plumb",
             1,
-            "{\n  `= date 2026-08-13\n  `= timezone +08:00\n}\n\n`event 12:00 research\n`event 13:00 read\n",
+            "`= date 2026-08-13\n`= timezone +08:00\n\n`event 12:00 research\n`event 13:00 read\n",
         );
         let candidates = workspace.complete_event_title(&EventTitleCompletionContext {
             replace: 12..14,
@@ -5612,12 +5600,12 @@ mod tests {
         workspace.insert(
             "notes/design.plumb",
             1,
-            "{\n  `= title Design Guide\n}\n\n`# No id\n\n`## API {\n  `@ api\n}\n",
+            "`= title Design Guide\n\n`# No id\n\n`## API {\n  `@ api\n}\n",
         );
         workspace.insert(
             "notes/Project Plan.plumb",
             1,
-            "{\n  `= title Project Plan\n}\n\n`# Roadmap {\n  `@ roadmap\n}\n",
+            "`= title Project Plan\n\n`# Roadmap {\n  `@ roadmap\n}\n",
         );
         workspace.insert("notes/中文笔记.plumb", 1, "`# 中文内容 {\n  `@ 内容\n}\n");
         workspace.insert("notes/方案 (草稿).plumb", 1, "`# 草稿\n");
@@ -5922,7 +5910,7 @@ mod tests {
         workspace.insert(
             "notes/design.plumb",
             4,
-            "{\n  `= title Design Guide\n}\n\n`task Review parser {\n  `@ review\n  `= due 2026-07-23T12:00:00+08:00\n}\n",
+            "`= title Design Guide\n\n`task Review parser {\n  `@ review\n  `= due 2026-07-23T12:00:00+08:00\n}\n",
         );
         workspace.insert("notes/fallback.plumb", 2, "Fallback body\n");
 
@@ -6839,7 +6827,7 @@ mod tests {
         assert_eq!(document.edits[0].range, 0..0);
         assert_eq!(
             document.edits[0].new_text,
-            "{\n `= title my``note\n `= created 2026-07-19T12:34:56+08:00\n}\n\n"
+            "`= title my``note\n`= created 2026-07-19T12:34:56+08:00\n\n"
         );
     }
 
@@ -6857,7 +6845,7 @@ mod tests {
         assert_eq!(document.edits[0].range, 0..0);
         assert_eq!(
             document.edits[0].new_text,
-            "{\n `= title empty\n `= created 2026-07-22T12:34:56+08:00\n}\n"
+            "`= title empty\n`= created 2026-07-22T12:34:56+08:00\n"
         );
         assert_eq!(
             plumb_format::format(&document.edits[0].new_text).unwrap(),
@@ -6876,14 +6864,14 @@ mod tests {
 
         assert_eq!(
             edit.document_changes[0].edits[0].new_text,
-            "{\r\n `= title note\r\n `= created 2026-07-19T12:34:56+08:00\r\n}\r\n\r\n"
+            "`= title note\r\n`= created 2026-07-19T12:34:56+08:00\r\n\r\n"
         );
     }
 
     #[test]
     fn metadata_insertion_rejects_existing_or_invalid_metadata_target() {
         let mut workspace = Workspace::new();
-        workspace.insert("existing.plumb", 1, "{\n  `= title Existing\n}\n");
+        workspace.insert("existing.plumb", 1, "`= title Existing\n");
         assert_eq!(
             workspace.insert_metadata("existing.plumb", 0, "existing", "created"),
             Err(MetadataInsertError::MetadataAlreadyExists)
@@ -6914,11 +6902,12 @@ mod tests {
             Err(MetadataInsertError::CursorNotAtDocumentStart)
         );
 
-        // A cursor inside leading blank lines still counts as the document start.
+        // Leading blank lines do not create an alternate document-start target.
         workspace.insert("blank.plumb", 2, "\n\n`# Section\n");
-        assert!(workspace
-            .insert_metadata("blank.plumb", 2, "blank", "2026-07-19T12:34:56+08:00")
-            .is_ok());
+        assert_eq!(
+            workspace.insert_metadata("blank.plumb", 2, "blank", "2026-07-19T12:34:56+08:00"),
+            Err(MetadataInsertError::CursorNotAtDocumentStart)
+        );
     }
 
     #[test]
@@ -6929,7 +6918,7 @@ mod tests {
             1,
             "`task Write {\n  `@ write\n}\n\n`node Plain {\n  `@ plain\n}\n",
         );
-        let events = "{\n  `= date 2026-07-30\n  `= timezone +08:00\n}\n\n`event 10:30 Early {\n  `= timezone +05:00\n}\n`event 11:00 `->[Write|tasks.plumb#write] {\n}\n`event 12:00 `->[Write|tasks.plumb#write] {\n  `= tasks \n}\n`event 14:00--15:00 Review {\n  `@ review\n  `= uid review@example\n  `= tasks tasks.plumb#write\n}\n`event 15:00 Point {\n  `= tasks tasks.plumb#plain missing.plumb#task bad\n}\n";
+        let events = "`= date 2026-07-30\n`= timezone +08:00\n\n`event 10:30 Early {\n  `= timezone +05:00\n}\n`event 11:00 `->[Write|tasks.plumb#write] {\n}\n`event 12:00 `->[Write|tasks.plumb#write] {\n  `= tasks \n}\n`event 14:00--15:00 Review {\n  `@ review\n  `= uid review@example\n  `= tasks tasks.plumb#write\n}\n`event 15:00 Point {\n  `= tasks tasks.plumb#plain missing.plumb#task bad\n}\n";
         workspace.insert("events.plumb", 2, events);
 
         let target = TaskRef {
@@ -7036,7 +7025,7 @@ mod tests {
         workspace.insert(
             "events.plumb",
             2,
-            "{\n  `= date 2026-08-11\n  `= timezone +08:00\n}\n\n`->[Before|tasks.plumb#write]\n\n`event 10:00 Outer `->[Outer|tasks.plumb#write]\n  `event 11:00 Nested `->[Nested|tasks.plumb#write]\n\n`->[After|tasks.plumb#write]\n",
+            "`= date 2026-08-11\n`= timezone +08:00\n\n`->[Before|tasks.plumb#write]\n\n`event 10:00 Outer `->[Outer|tasks.plumb#write]\n  `event 11:00 Nested `->[Nested|tasks.plumb#write]\n\n`->[After|tasks.plumb#write]\n",
         );
 
         let output = workspace.current_output(Path::new("events.plumb")).unwrap();
@@ -7196,7 +7185,7 @@ mod tests {
 
     #[test]
     fn converts_selected_event_shorthands_in_one_edit() {
-        let source = "{\n  `= date 2026-08-01\n  `= timezone +08:00\n}\n\n`event 09:00 Existing {\n  `@ e0015\n}\n\n`- 10:00--10:20 first\n`- ordinary item\n`- 10:20--10:30 second `\"code\"\n";
+        let source = "`= date 2026-08-01\n`= timezone +08:00\n\n`event 09:00 Existing {\n  `@ e0015\n}\n\n`- 10:00--10:20 first\n`- ordinary item\n`- 10:20--10:30 second `\"code\"\n";
         let mut workspace = Workspace::new();
         workspace.insert("agenda.plumb", 9, source);
         let now = DateTime::parse_from_rfc3339("2026-08-03T08:00:00+09:00").unwrap();
@@ -7231,7 +7220,8 @@ mod tests {
 
     #[test]
     fn infers_open_event_ends_from_adjacent_selected_siblings() {
-        let source = "{\n  `= date 2026-08-01\n  `= timezone +08:00\n}\n\n`- 18:00-- 事件 1\n`- 18:30-- 事件 2\n";
+        let source =
+            "`= date 2026-08-01\n`= timezone +08:00\n\n`- 18:00-- 事件 1\n`- 18:30-- 事件 2\n";
         let mut workspace = Workspace::new();
         workspace.insert("agenda.plumb", 1, source);
         let now = DateTime::parse_from_rfc3339("2026-08-03T08:00:00+09:00").unwrap();
@@ -7269,7 +7259,7 @@ mod tests {
             Err(EventShorthandError::InvalidShorthand)
         );
 
-        let chain = "{\n  `= date 2026-08-01\n  `= timezone +08:00\n}\n\n`- 18:00-- first\n`- 18:30-- second\n`- 19:00--20:00 third\n";
+        let chain = "`= date 2026-08-01\n`= timezone +08:00\n\n`- 18:00-- first\n`- 18:30-- second\n`- 19:00--20:00 third\n";
         workspace.insert("chain.plumb", 3, chain);
         let chained = apply_text_edits(
             chain.to_string(),
@@ -7445,7 +7435,7 @@ mod tests {
 
     #[test]
     fn updating_an_event_preserves_semantic_uid_and_opaque_when_property() {
-        let source = "{\n  `= date 2026-07-30\n  `= timezone +08:00\n}\n\n`event 14:00 Review {\n  `@ review\n  `= uid legacy@example\n  `= when 14:00\n}\n";
+        let source = "`= date 2026-07-30\n`= timezone +08:00\n\n`event 14:00 Review {\n  `@ review\n  `= uid legacy@example\n  `= when 14:00\n}\n";
         let mut workspace = Workspace::new();
         workspace.insert("agenda.plumb", 1, source);
         let event = workspace

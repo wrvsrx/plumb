@@ -8,7 +8,7 @@ fn resolves_csl_json_citation_hover_and_definition() {
     std::fs::create_dir_all(root.join("static")).unwrap();
     let source_path = root.join("note.plumb");
     let bibliography_path = root.join("static/library.json");
-    let source = "{\n `= bibliography static/library.json\n}\n\nSee `cite[smith2004].\n";
+    let source = "`= bibliography static/library.json\n\nSee `cite[smith2004].\n";
     let bibliography = r#"[{"id":"smith2004","title":"Example Book","author":[{"family":"Smith"}],"issued":{"date-parts":[[2004]]}}]"#;
     std::fs::write(&source_path, source).unwrap();
     std::fs::write(&bibliography_path, bibliography).unwrap();
@@ -28,11 +28,11 @@ fn resolves_csl_json_citation_hover_and_definition() {
         }),
         json!({
             "jsonrpc": "2.0", "id": 2, "method": "textDocument/hover",
-            "params": { "textDocument": { "uri": source_uri }, "position": { "line": 4, "character": 13 } }
+            "params": { "textDocument": { "uri": source_uri }, "position": { "line": 2, "character": 13 } }
         }),
         json!({
             "jsonrpc": "2.0", "id": 3, "method": "textDocument/definition",
-            "params": { "textDocument": { "uri": source_uri }, "position": { "line": 4, "character": 13 } }
+            "params": { "textDocument": { "uri": source_uri }, "position": { "line": 2, "character": 13 } }
         }),
         json!({ "jsonrpc": "2.0", "id": 4, "method": "shutdown", "params": null }),
         json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
@@ -476,7 +476,7 @@ fn code_lenses_count_anchor_references_and_ignore_last_valid_output() {
     let target = root.join("target.plumb");
     let source = root.join("source.plumb");
     let target_text =
-        "{\n  `= title Target\n}\n\n`# Used {\n  `@ used\n}\n\n`## Unused {\n  `@ unused\n}\n";
+        "`= title Target\n\n`# Used {\n  `@ used\n}\n\n`## Unused {\n  `@ unused\n}\n";
     let source_text =
         "See `->[used|target.plumb#used].\n\n`task Review {\n  `= depends target.plumb#used\n}\n";
     std::fs::write(&target, target_text).unwrap();
@@ -585,20 +585,21 @@ fn block_reference_code_lenses_use_block_openers() {
 
     let output = run_server(&messages);
     let lenses = response(&output, 2)["result"].as_array().unwrap();
-    assert_eq!(lenses.len(), 7);
+    assert_eq!(lenses.len(), 8);
     for (lens, expected_line, expected_character) in [
         (&lenses[0], 0, 0),
-        (&lenses[1], 4, 0),
-        (&lenses[2], 8, 0),
-        (&lenses[3], 12, 0),
-        (&lenses[4], 17, 1),
-        (&lenses[6], 23, 0),
+        (&lenses[1], 0, 0),
+        (&lenses[2], 4, 0),
+        (&lenses[3], 8, 0),
+        (&lenses[4], 12, 0),
+        (&lenses[5], 17, 1),
+        (&lenses[7], 23, 0),
     ] {
         assert_eq!(lens["range"]["start"]["line"], expected_line);
         assert_eq!(lens["range"]["start"]["character"], expected_character);
         assert_eq!(lens["range"]["end"], lens["range"]["start"]);
     }
-    assert_eq!(lenses[5]["range"]["start"]["line"], 21);
-    assert!(lenses[5]["range"]["start"]["character"].as_u64().unwrap() > 0);
+    assert_eq!(lenses[6]["range"]["start"]["line"], 21);
+    assert!(lenses[6]["range"]["start"]["character"].as_u64().unwrap() > 0);
     std::fs::remove_dir_all(root).unwrap();
 }

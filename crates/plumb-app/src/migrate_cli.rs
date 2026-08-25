@@ -9,6 +9,7 @@ use clap::{Parser, ValueEnum};
 #[derive(Debug, Clone, Copy, ValueEnum)]
 enum SourceEpoch {
     AttachedV1,
+    DocumentGroupV1,
 }
 
 #[derive(Debug, Parser)]
@@ -77,6 +78,7 @@ fn migrate_inputs(args: Args) -> Result<bool, String> {
 fn migrate_source(epoch: SourceEpoch, source: &str, name: &str) -> Result<String, String> {
     match epoch {
         SourceEpoch::AttachedV1 => plumb_migrate::migrate_attached_v1(source),
+        SourceEpoch::DocumentGroupV1 => plumb_migrate::migrate_document_group_v1(source),
     }
     .map_err(|error| format!("{name}: {error}"))
 }

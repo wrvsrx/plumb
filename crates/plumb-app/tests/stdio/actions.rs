@@ -43,7 +43,7 @@ fn inserts_metadata_code_action_only_for_valid_documents_without_metadata() {
             "params": {
                 "textDocument": { "uri": uri, "version": 4 },
                 "contentChanges": [{
-                    "text": "{\n  `= title Existing\n}\n\n`# Section\n"
+                    "text": "`= title Existing\n\n`# Section\n"
                 }]
             }
         }),
@@ -98,10 +98,10 @@ fn inserts_metadata_code_action_only_for_valid_documents_without_metadata() {
     assert_eq!(change["edits"][0]["range"]["start"]["line"], 0);
     assert_eq!(change["edits"][0]["range"]["start"]["character"], 0);
     let new_text = change["edits"][0]["newText"].as_str().unwrap();
-    let prefix = "{\n `= title metadata-action\n `= created ";
+    let prefix = "`= title metadata-action\n`= created ";
     let created = new_text
         .strip_prefix(prefix)
-        .and_then(|suffix| suffix.strip_suffix("\n}\n\n"))
+        .and_then(|suffix| suffix.strip_suffix("\n\n"))
         .expect("metadata contains created after title");
     chrono::DateTime::parse_from_rfc3339(created).expect("created is an RFC 3339 timestamp");
     assert!(response(&output, 3)["result"]
@@ -213,7 +213,7 @@ fn inserts_metadata_into_an_empty_document_over_stdio() {
         json!({ "line": 0, "character": 0 })
     );
     let generated = change["edits"][0]["newText"].as_str().unwrap();
-    assert!(generated.starts_with("{\n `= title empty-note\n `= created "));
+    assert!(generated.starts_with("`= title empty-note\n`= created "));
     let parsed = plumb_syntax::parse(generated);
     assert!(
         plumb_edit::format(&parsed, plumb_edit::FormatScope::Document)
@@ -438,7 +438,7 @@ fn converts_event_shorthand_with_a_refactor_action() {
 #[test]
 fn converts_selected_event_shorthands_with_a_refactor_action() {
     let uri = "file:///tmp/event-shorthands.plumb";
-    let source = "{\n  `= date 2026-08-01\n  `= timezone +08:00\n}\n\n`- 10:00-- first\n`- 10:20-- second\n`- 10:30--10:40 third\n";
+    let source = "`= date 2026-08-01\n`= timezone +08:00\n\n`- 10:00-- first\n`- 10:20-- second\n`- 10:30--10:40 third\n";
     let messages = [
         json!({
             "jsonrpc": "2.0", "id": 1, "method": "initialize",
@@ -461,8 +461,8 @@ fn converts_selected_event_shorthands_with_a_refactor_action() {
             "params": {
                 "textDocument": { "uri": uri },
                 "range": {
-                    "start": { "line": 5, "character": 0 },
-                    "end": { "line": 8, "character": 0 }
+                    "start": { "line": 3, "character": 0 },
+                    "end": { "line": 6, "character": 0 }
                 },
                 "context": { "diagnostics": [], "only": ["refactor.rewrite"] }
             }

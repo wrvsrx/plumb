@@ -11,6 +11,16 @@ mod quotes;
 mod tasks;
 mod text;
 
+pub fn is_document_declaration(block: &plumb_syntax::Block) -> bool {
+    matches!(
+        block,
+        plumb_syntax::Block::Parsed(block)
+            if block.mark.as_ref().is_some_and(|mark| {
+                matches!(mark.marker.as_str(), "=" | "+" | "@")
+            })
+    )
+}
+
 pub use citations::{analyze_citations, CitationOutput, CitationRecord};
 pub use document::{
     analyze_document, AnchorKind, AnchorRecord, DocumentOutput, FileRecord, FileTarget,
@@ -24,8 +34,8 @@ pub use inline_styles::{
 pub use lists::{analyze_lists, ListGroup, ListItemRecord, ListKind, ListOutput};
 pub use math::{analyze_math, MathKind, MathOutput, MathRecord};
 pub use metadata::{
-    analyze_metadata, BibliographySource, DefinitionList, DefinitionRecord, MetadataBlock,
-    MetadataEntry, MetadataListItem, MetadataOutput, MetadataValue,
+    analyze_metadata, BibliographySource, DefinitionList, DefinitionRecord, DocumentFacet,
+    MetadataBlock, MetadataEntry, MetadataListItem, MetadataOutput, MetadataValue,
 };
 pub use queries::{
     attribute_completion_context, citation_completion_context, construct_completion_context,

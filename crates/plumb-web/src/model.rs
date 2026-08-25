@@ -2067,7 +2067,7 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(
             root.join("a.plumb"),
-            "{\n  `= title Alpha\n}\n\n`task Old {\n  `@ old\n}\n`task A {\n  `@ a\n  `= prev b.plumb#b\n  `= depends b.plumb#b\n}\n`task Recurring instance {\n  `@ recur\n  `= prev #old\n}\n\nSee `->[B|b.plumb#b], `->\"b.plumb#b\", `->[self|#a], `->[self again|#a], and `->[missing|missing.plumb].\n",
+            "`= title Alpha\n\n`task Old {\n  `@ old\n}\n`task A {\n  `@ a\n  `= prev b.plumb#b\n  `= depends b.plumb#b\n}\n`task Recurring instance {\n  `@ recur\n  `= prev #old\n}\n\nSee `->[B|b.plumb#b], `->\"b.plumb#b\", `->[self|#a], `->[self again|#a], and `->[missing|missing.plumb].\n",
         )
         .unwrap();
         std::fs::write(root.join("b.plumb"), "`task Beta {\n  `@ b\n}\n").unwrap();
@@ -2134,7 +2134,7 @@ mod tests {
         let path = root.join("note.plumb");
         std::fs::write(&path, "disk\n").unwrap();
         let mut source_workspace = Workspace::new();
-        source_workspace.insert(&path, 9, "{\n  `= title Open buffer title\n}\n");
+        source_workspace.insert(&path, 9, "`= title Open buffer title\n");
         let web = WebWorkspace::from_workspace(&root, source_workspace, 4).unwrap();
         let graph = web.graph(&GraphQuery::default());
         assert_eq!(graph.revision, 4);
@@ -2305,7 +2305,7 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(
             root.join("agenda.plumb"),
-            "{\n  `= date 2026-07-30\n  `= timezone +00:00\n}\n\n`event 10:30 Early {\n  `= timezone +05:00\n}\n`event 06:00 Later {\n}\n",
+            "`= date 2026-07-30\n`= timezone +00:00\n\n`event 10:30 Early {\n  `= timezone +05:00\n}\n`event 06:00 Later {\n}\n",
         )
         .unwrap();
         let workspace = WebWorkspace::load(&root).unwrap();

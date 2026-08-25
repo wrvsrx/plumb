@@ -94,7 +94,13 @@ pub struct TaskOutput {
 
 pub fn analyze_tasks(source: &str, document: &Document) -> TaskOutput {
     let mut output = TaskOutput::default();
-    collect_blocks(source, &document.blocks, 0, &mut output);
+    for block in document
+        .blocks
+        .iter()
+        .filter(|block| !crate::is_document_declaration(block))
+    {
+        collect_blocks(source, std::slice::from_ref(block), 0, &mut output);
+    }
     output
 }
 

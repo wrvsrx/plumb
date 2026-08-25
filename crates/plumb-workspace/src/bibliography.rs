@@ -307,7 +307,7 @@ mod tests {
     fn loads_plain_csl_json_and_resolves_citations() {
         let root = tempfile::tempdir().unwrap();
         std::fs::write(root.path().join("refs.json"), r#"[{"id":"smith2004","title":"Book","author":[{"family":"Smith"}],"issued":{"date-parts":[[2004]]}}]"#).unwrap();
-        let parsed = parse("{\n `= bibliography refs.json\n}\n\n`cite[smith2004]\n");
+        let parsed = parse("`= bibliography refs.json\n\n`cite[smith2004]\n");
         let analysis = analyze_document(&parsed.source, &parsed.syntax);
         let bibliography = load_bibliography(
             root.path(),
@@ -333,9 +333,8 @@ mod tests {
             r#"[{"id":"same"},{"id":"same"}]"#,
         )
         .unwrap();
-        let parsed = parse(
-            "{\n `= bibliography\n  `- missing.json\n  `- duplicate.json\n}\n\n`cite[unknown]\n",
-        );
+        let parsed =
+            parse("`= bibliography\n `- missing.json\n `- duplicate.json\n\n`cite[unknown]\n");
         let analysis = analyze_document(&parsed.source, &parsed.syntax);
         let bibliography = load_bibliography(
             root.path(),
@@ -376,7 +375,7 @@ mod tests {
         let root = parent.path().join("workspace");
         std::fs::create_dir(&root).unwrap();
         std::fs::write(parent.path().join("outside.json"), "[]").unwrap();
-        let parsed = parse("{\n `= bibliography ../outside.json\n}\n");
+        let parsed = parse("`= bibliography ../outside.json\n");
         let analysis = analyze_document(&parsed.source, &parsed.syntax);
         let bibliography = load_bibliography(&root, &root.join("note.plumb"), &analysis.metadata);
         assert_eq!(
@@ -390,7 +389,7 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let text = r#"[{"title":"same","id":"same"}]"#;
         std::fs::write(root.path().join("refs.json"), text).unwrap();
-        let parsed = parse("{\n `= bibliography refs.json\n}\n");
+        let parsed = parse("`= bibliography refs.json\n");
         let analysis = analyze_document(&parsed.source, &parsed.syntax);
         let bibliography = load_bibliography(
             root.path(),

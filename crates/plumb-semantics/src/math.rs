@@ -1,8 +1,8 @@
 use std::ops::Range;
 
 use plumb_syntax::{
-    AttachedContent, AttrItem, Attributes, Block, Diagnostic, DiagnosticSeverity, Document, Inline,
-    InlineContent, InlineMember,
+    AttrItem, Attributes, Block, Diagnostic, DiagnosticSeverity, Document, Inline, InlineContent,
+    InlineMember,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -33,12 +33,6 @@ impl MathOutput {
 
 pub fn analyze_math(document: &Document) -> MathOutput {
     let mut output = MathOutput::default();
-    if let Some(attached) = document.attrs.attached.as_deref() {
-        match &attached.content {
-            AttachedContent::Blocks(blocks) => collect_blocks(blocks, &mut output),
-            AttachedContent::Inlines(content) => collect_inlines(content, &mut output),
-        }
-    }
     collect_blocks(&document.blocks, &mut output);
     output
 }

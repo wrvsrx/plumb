@@ -171,16 +171,6 @@ pub fn analyze_document(source: &str, document: &Document) -> DocumentOutput {
         .diagnostics
         .extend(association_arity_diagnostics(document));
     let mut first_ids: HashMap<String, Range<usize>> = HashMap::new();
-    if let Some(attached) = document.attrs.attached.as_deref() {
-        match &attached.content {
-            AttachedContent::Blocks(blocks) => {
-                collect_blocks(source, blocks, &mut first_ids, &mut output)
-            }
-            AttachedContent::Inlines(content) => {
-                collect_inlines(source, content, &mut first_ids, &mut output)
-            }
-        }
-    }
     collect_blocks(source, &document.blocks, &mut first_ids, &mut output);
     output
 }
@@ -190,7 +180,6 @@ fn association_arity_diagnostics(document: &Document) -> Vec<Diagnostic> {
     let mut blocks = document.blocks.iter().collect::<Vec<_>>();
     let mut contents = Vec::new();
     let mut inlines = Vec::new();
-    push_attached_syntax(&document.attrs, &mut blocks, &mut contents);
     while !blocks.is_empty() || !contents.is_empty() || !inlines.is_empty() {
         if let Some(block) = blocks.pop() {
             match block {

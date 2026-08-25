@@ -397,7 +397,7 @@ mod tests {
         std::fs::create_dir_all(root.join("nested")).unwrap();
         std::fs::write(
             root.join("a.plumb"),
-            "{\n  `= title First\n  `= title Second\n}\n\n中文\n",
+            "`= title First\n`= title Second\n\n中文\n",
         )
         .unwrap();
         std::fs::write(
@@ -410,7 +410,7 @@ mod tests {
             render_workspace_diagnostics(&root, &loaded, CheckLevel::Warning);
         assert!(!has_failures);
         let lines = output.lines().collect::<Vec<_>>();
-        assert!(lines[0].starts_with("a.plumb:3:"), "{output}");
+        assert!(lines[0].starts_with("a.plumb:2:"), "{output}");
         assert!(
             lines[0].contains("warning[metadata.duplicate-key]"),
             "{output}"
@@ -561,7 +561,7 @@ mod tests {
         std::fs::create_dir_all(root.join("docs")).unwrap();
         std::fs::write(
             root.join("docs/semantics.plumb"),
-            "{\n  `= title Semantics `em[Guide]\n}\n\n`# Heading\n",
+            "`= title Semantics `em[Guide]\n\n`# Heading\n",
         )
         .unwrap();
         std::fs::write(root.join("notes.plumb"), "`# Notes\n").unwrap();

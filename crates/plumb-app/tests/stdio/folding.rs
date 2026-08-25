@@ -3,9 +3,9 @@ use serde_json::json;
 use crate::support::{response, run_server};
 
 #[test]
-fn labels_metadata_folds_with_the_document_title() {
+fn labels_individual_metadata_entry_folds() {
     let uri = "file:///tmp/metadata-fold-label.plumb";
-    let source = "{\n  `= title\n\n    项目 Overview\n\n  `= created\n\n    2026-08-05T03:46:54+08:00\n\n  `= tags\n    `- plumb\n}\n";
+    let source = "`= title\n\n 项目 Overview\n\n`= created\n\n 2026-08-05T03:46:54+08:00\n\n`= tags\n `- plumb\n";
     let messages = [
         json!({
             "jsonrpc": "2.0", "id": 1, "method": "initialize",
@@ -32,7 +32,7 @@ fn labels_metadata_folds_with_the_document_title() {
             "jsonrpc": "2.0", "method": "textDocument/didChange",
             "params": {
                 "textDocument": { "uri": uri, "version": 2 },
-                "contentChanges": [{ "text": "{\n  `= tags\n    `- plumb\n}\n" }]
+                "contentChanges": [{ "text": "`= tags\n `- plumb\n" }]
             }
         }),
         json!({
@@ -58,26 +58,16 @@ fn labels_metadata_folds_with_the_document_title() {
         .as_array()
         .unwrap()
         .to_vec();
-    assert_eq!(
-        ranges[0],
-        json!({
-            "startLine": 0,
-            "endLine": 11,
-            "collapsedText": "METADATA  项目 Overview"
-        })
-    );
     assert!(ranges
         .iter()
-        .any(|range| range["collapsedText"] == "  title  项目 Overview"));
+        .any(|range| range["collapsedText"] == "title  项目 Overview"));
     assert!(ranges
         .iter()
-        .any(|range| range["collapsedText"] == "  created  2026-08-05T03:46:54+08:00"));
-    assert!(ranges
-        .iter()
-        .any(|range| range["collapsedText"] == "  tags"));
+        .any(|range| range["collapsedText"] == "created  2026-08-05T03:46:54+08:00"));
+    assert!(ranges.iter().any(|range| range["collapsedText"] == "tags"));
     assert_eq!(
         response(&run_server(&messages), 3)["result"][0],
-        json!({ "startLine": 0, "endLine": 3, "collapsedText": "METADATA" })
+        json!({ "startLine": 0, "endLine": 1, "collapsedText": "tags" })
     );
     assert!(response(&run_server(&messages), 4)["result"]
         .as_array()

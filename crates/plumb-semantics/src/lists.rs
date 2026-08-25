@@ -34,30 +34,42 @@ impl ListOutput {
 
 pub fn analyze_lists(document: &Document) -> ListOutput {
     let mut output = ListOutput::default();
-    collect_groups(&document.blocks, &mut output);
+    collect_groups(
+        document
+            .blocks
+            .iter()
+            .filter(|block| !crate::is_document_declaration(block)),
+        &mut output,
+    );
     output.groups.sort_by_key(|group| group.range.start);
     output
 }
 
-fn collect_groups(blocks: &[Block], output: &mut ListOutput) {
-    let mut index = 0;
-    while index < blocks.len() {
-        let Some((first, kind)) = list_item(&blocks[index]) else {
-            collect_child_groups(&blocks[index], output);
-            index += 1;
+fn collect_groups<'a>(blocks: impl IntoIterator<Item = &'a Block>, output: &mut ListOutput) {
+    let mut blocks = blocks.into_iter().peekable();
+    while let Some(current) = blocks.next() {
+        let Some((first, kind)) = list_item(current) else {
+            collect_child_groups(current, output);
             continue;
         };
         let mut items = Vec::new();
-        while let Some((item, item_kind)) = blocks.get(index).and_then(list_item) {
-            if item_kind != kind {
-                break;
-            }
+        let mut current = Some((first, kind));
+        while let Some((item, item_kind)) = current {
+            debug_assert_eq!(item_kind, kind);
             items.push(ListItemRecord {
                 range: item.range.clone(),
                 selection_range: item.head.range.clone(),
             });
             collect_groups(&item.children, output);
-            index += 1;
+            current = if blocks
+                .peek()
+                .and_then(|next| list_item(next))
+                .is_some_and(|(_, next_kind)| next_kind == kind)
+            {
+                blocks.next().and_then(list_item)
+            } else {
+                None
+            };
         }
         output.groups.push(ListGroup {
             range: first.range.start..items.last().expect("list has an item").range.end,
@@ -143,5 +155,15 @@ mod tests {
         let output = analyze_lists(&parsed.syntax);
         assert_eq!(output.groups.len(), 1);
         assert_eq!(output.groups[0].range.start, "`item Generic block\n".len());
+    }
+
+    #[test]
+    fn document_declarations_do_not_split_adjacent_body_lists() {
+        let parsed = parse("`- First\n`= title Between\n`- Second\n");
+        assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
+
+        let output = analyze_lists(&parsed.syntax);
+        assert_eq!(output.groups.len(), 1);
+        assert_eq!(output.groups[0].items.len(), 2);
     }
 }

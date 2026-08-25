@@ -4,7 +4,7 @@ use std::path::Path;
 use chrono::{DateTime, FixedOffset, Local};
 use lsp_types::FoldingRange;
 use plumb_semantics::{analyze_headings, EventRecord, MetadataValue};
-use plumb_syntax::{AttachedContent, Block, Document};
+use plumb_syntax::{Block, Document};
 use plumb_workspace::{DocumentEntry, TaskWorkflowState, Workspace};
 
 use crate::position::PositionIndex;
@@ -33,44 +33,32 @@ pub(crate) fn metadata_labels(entry: &DocumentEntry) -> HashMap<(usize, usize), 
     else {
         return HashMap::new();
     };
-    let indent = line_indent(&entry.parsed.source, metadata.range.start);
-    let title = entry
-        .current
-        .as_ref()
-        .and_then(|current| current.output.metadata.document_title())
-        .map(|title| single_line_label(&title, 80))
-        .filter(|title| !title.is_empty());
-    let label = title.map_or_else(
-        || format!("{indent}METADATA"),
-        |title| format!("{indent}METADATA  {title}"),
-    );
-    let mut labels = HashMap::from([(
-        (metadata.range.start, metadata.range.end),
-        FoldLabel { text: label },
-    )]);
     let source = &entry.parsed.source;
-    labels.extend(metadata.entries.iter().map(|entry| {
-        let indent = line_indent(source, entry.range.start);
-        let value = match &entry.value {
-            MetadataValue::Scalar { content, .. } => content.plain_text(),
-            MetadataValue::Verbatim { text, .. } => text.clone(),
-            MetadataValue::Null { .. }
-            | MetadataValue::List { .. }
-            | MetadataValue::Map { .. }
-            | MetadataValue::Unsupported { .. } => String::new(),
-        };
-        let value = single_line_label(&value, 80);
-        let label = if value.is_empty() {
-            format!("{indent}{}", entry.key)
-        } else {
-            format!("{indent}{}  {value}", entry.key)
-        };
-        (
-            (entry.range.start, entry.range.end),
-            FoldLabel { text: label },
-        )
-    }));
-    labels
+    metadata
+        .entries
+        .iter()
+        .map(|entry| {
+            let indent = line_indent(source, entry.range.start);
+            let value = match &entry.value {
+                MetadataValue::Scalar { content, .. } => content.plain_text(),
+                MetadataValue::Verbatim { text, .. } => text.clone(),
+                MetadataValue::Null { .. }
+                | MetadataValue::List { .. }
+                | MetadataValue::Map { .. }
+                | MetadataValue::Unsupported { .. } => String::new(),
+            };
+            let value = single_line_label(&value, 80);
+            let label = if value.is_empty() {
+                format!("{indent}{}", entry.key)
+            } else {
+                format!("{indent}{}  {value}", entry.key)
+            };
+            (
+                (entry.range.start, entry.range.end),
+                FoldLabel { text: label },
+            )
+        })
+        .collect()
 }
 
 fn single_line_label(value: &str, max_chars: usize) -> String {
@@ -219,12 +207,6 @@ pub(crate) fn ranges(
         pending_headings.extend(heading.children.iter().rev());
     }
 
-    if let Some(attached) = document.attrs.attached.as_deref() {
-        byte_ranges.push((attached.range.clone(), attached.range.clone(), false));
-        if let AttachedContent::Blocks(blocks) = &attached.content {
-            collect_block_ranges(source, blocks, &mut byte_ranges);
-        }
-    }
     collect_block_ranges(source, &document.blocks, &mut byte_ranges);
 
     byte_ranges.sort_by_key(|(range, _, _)| (range.start, std::cmp::Reverse(range.end)));
