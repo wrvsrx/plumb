@@ -710,7 +710,7 @@ impl Formatter {
     fn verbatim_payload(&mut self, text: &str) {
         // A compact payload beginning with `[` would be reparsed as a
         // bracket envelope. Keep the bracketed spelling so the bracket is raw.
-        if !text.contains('"') && !text.starts_with('[') {
+        if !text.is_empty() && !text.contains('"') && !text.starts_with('[') {
             self.output.push('"');
             self.output.push_str(text);
             self.output.push('"');
@@ -1316,6 +1316,11 @@ mod tests {
         let formatted = format(source).unwrap();
         assert_eq!(formatted, source);
         assert_eq!(format(&formatted).unwrap(), formatted);
+    }
+
+    #[test]
+    fn keeps_empty_inline_verbatim_in_a_strengthened_envelope() {
+        assert_formats("Before `\"[]\" after.\n", "Before `\"[]\" after.\n");
     }
 
     #[test]

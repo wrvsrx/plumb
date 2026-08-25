@@ -1037,7 +1037,7 @@ fn render_owned_inline(
 }
 
 fn render_owned_verbatim_payload(text: &str, output: &mut String) {
-    if !text.contains('"') && !text.starts_with('[') {
+    if !text.is_empty() && !text.contains('"') && !text.starts_with('[') {
         output.push('"');
         output.push_str(text);
         output.push('"');
@@ -1771,6 +1771,15 @@ mod tests {
         assert!(formatted.contains("`span[first\n"));
         assert!(formatted.contains("`span[first\n second|]"));
         assert!(formatted.contains("`\"raw\""));
+    }
+
+    #[test]
+    fn preserves_an_empty_inline_verbatim_with_a_strengthened_envelope() {
+        let source = "Before `\"[]\" after.\n";
+        let parsed = parse(source);
+        assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
+        let owned = OwnedBlock::from_syntax(source, &parsed.syntax.blocks[0]);
+        assert_eq!(owned.format().unwrap(), source);
     }
 
     #[test]
