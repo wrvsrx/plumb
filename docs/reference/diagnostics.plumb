@@ -1,5 +1,5 @@
 {
- `: title plumb diagnostics reference
+ `= title plumb diagnostics reference
 }
 
 `# 1. Diagnostic ownership
@@ -56,7 +56,7 @@ Current parser 用 `"syntax.legacy-attributes" 拒绝识别出的旧 attribute s
  position 的孤立 introducer 不建立 block owner。
 `- attached block group：matching owner boundary 或 dedent；marked block 位于 head continuation line 上的
  opener 在 blank、owner-level dedent、children start 或不匹配的 continuation column 前停止建立
- ownership；attached inline group：当前 enclosing inline boundary。
+ ownership。
 `- unattached group/unexpected close/unattached bracket：当前 structural line 或 enclosing inline
  boundary。
 `- parsed inline error：blank、dedent、block-only entry 或 EOF 前。
@@ -69,12 +69,11 @@ recovery 的目标是报告后续独立错误并保留 source，不是把 malfor
 
 official semantic profile 至少区分：
 
-`- association：inline `":" 使用三个以上 slots 时发布 `"association.invalid-arity"。
+`- association：inline `"=" 不是恰好两个 arguments 时发布 `"association.invalid-arity"。
 `- heading/anchor：非法 heading level、duplicate anchor。
 `- metadata：duplicate/invalid key、invalid location、unsupported 或 mixed value shape，以及
  `"metadata.invalid-created" RFC 3339 timestamp warning。
-`- link/reference：缺失或无效 target、`"link.legacy-to-property" legacy named Link warning、
- conflicting positional/property target、conflicting autolink property、missing document/anchor、
+`- link/reference：缺失或无效 target、conflicting autolink property、missing document/anchor、
  ambiguous anchor 或 unresolved file。
 `- image：missing/invalid src 或 unresolved local file。
 `- file：missing/invalid src 或 unresolved local attachment。

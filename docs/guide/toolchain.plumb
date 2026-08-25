@@ -1,5 +1,5 @@
 {
-  `: title plumb 工具链指南
+ `= title plumb 工具链指南
 }
 
 `# Build and test
@@ -18,13 +18,13 @@ tree-sitter grammar 使用独立 shell 生成和测试：
 generated parser sources 不属于 repository source，不应提交。
 
 workspace discovery、ignore、note/task、graph 与 site 见
-`->[workspace 指南][workspace.plumb]；editor setup 与交互工作流见
-`->[editor integration 指南][editor-integration.plumb]。
+`->[workspace 指南|workspace.plumb]；editor setup 与交互工作流见
+`->[editor integration 指南|editor-integration.plumb]。
 
 `# Check
 
 `"plumb check --root DIR" 检查 workspace index 中的 `"..plumb" files；省略 `"--root" 时使用
-`->[workspace marker discovery][workspace.plumb]。它复用与 LSP 相同的 strict syntax、semantic
+`->[workspace marker discovery|workspace.plumb]。它复用与 LSP 相同的 strict syntax、semantic
 和 cross-document diagnostics。
 
 diagnostics 按 relative path 和 source range 稳定排序，输出 `"path:line:column"、severity、code 与
@@ -65,11 +65,11 @@ Location 等内部 invariant 失败使用 InternalError，cancellation 使用 Re
 的 `"experimental.plumb.search" 声明 method 与 schemaVersion。
 
 client configuration、completion、CodeAction、CodeLens、search 与 Web app integration 见
-`->[editor integration 指南][editor-integration.plumb]。
+`->[editor integration 指南|editor-integration.plumb]。
 
 attached group 内的 completion 由 recovered syntax owner 决定：task/event marker properties、Link 的
 `"to"、Image 的 `"src"，以及 verbatim math/language 会按上下文提供。block owner
-生成普通 marked children，inline owner 生成始终带 `""[[]]"" content delimiter 的 inline elements；已存在
+生成普通 marked children，inline owner 生成始终带 `"[[]]" content delimiter 的 inline elements；已存在
 的唯一 property 不会重复建议。Link/Image path、anchor 等 content 继续使用 workspace-aware candidates。
 旧 attribute slot spelling 不属于 current editor grammar，也不提供 completion。
 
@@ -82,8 +82,7 @@ attached group 内的 completion 由 recovered syntax owner 决定：task/event 
 紧凑。verbatim block canonicalize 为一个 opening quote，payload 使用 opener column 加一个 ASCII space。
 
 block attached group 使用 structural lines 并格式化其中的普通 blocks；marked block 会保留 group
-opener 位于 header 末尾还是紧邻下一行的 layout family。inline attached group 保持单行并格式化其中的
-普通 inline elements。
+opener 位于 header 末尾还是紧邻下一行的 layout family。inline members 保持统一 envelope 与 source order。
 
 formatter 为 inline verbatim 选择最小安全 quote count，不重排普通文本，不改变 attached element
 顺序，也不解释 marker、facet、property、heading、list、metadata 或 task semantics。相同 syntax tree 的
@@ -136,5 +135,5 @@ HTML、horizontal rule、line block、footnote、复杂 citation、非 decimal �
 当前均不受支持。Pandoc attribute name 不能表示为 attached element name，或 Link/Image property 与 target tuple
 冲突时也会失败。importer 不读取 Pandoc Markdown source；需要先让 Pandoc 输出 JSON。
 
-项目方向与尚需验证的工作统一记录在 `->[路线图][../project/roadmap.plumb]；可直接实施的
-工作见 `->[当前任务][../project/tasks.plumb]。本指南不复制实现进度。
+项目方向与尚需验证的工作统一记录在 `->[路线图|../project/roadmap.plumb]；可直接实施的
+工作见 `->[当前任务|../project/tasks.plumb]。本指南不复制实现进度。

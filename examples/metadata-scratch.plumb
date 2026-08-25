@@ -11,8 +11,8 @@ The beginning of the file should have this shape:
 
 `plumb"
   {
-    `: title metadata-scratch
-    `: created `"2026-07-20T12:34:56+08:00"
+    `= title metadata-scratch
+    `= created `"2026-07-20T12:34:56+08:00"
   }
 
-Return to the `->[playground index][index.plumb].
+Return to the `->[playground index|index.plumb].

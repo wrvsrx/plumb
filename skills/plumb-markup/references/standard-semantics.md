@@ -57,14 +57,14 @@ metadata properties:
 
 ```plumb
 {
-  `: title Document title
-  `: created 2026-07-20T09:00:00+08:00
-  `: tags
+  `= title Document title
+  `= created 2026-07-20T09:00:00+08:00
+  `= tags
     `- plumb
     `- notes
 
-  `: author
-    `: name Alice
+  `= author
+    `= name Alice
 }
 ```
 
@@ -88,16 +88,14 @@ The metadata insertion action creates `title` from the filename stem and
 
 ## Links
 
-Use `->` as the only link inline kind. The expanded form puts the label and
-target in two adjacent slots; the compact form uses the first inline item as
-the label and the remainder after a space as the target:
+Use `->` as the only link inline kind. Its first argument is the label and its
+second argument is the target. Interleaved children do not occupy argument indexes:
 
 ```plumb
-`->[same-file target][#intro]
-`->[other document][guide.plumb]
-`->[cross-file target][guide.plumb#intro]
-`->[external target][https://example.test]
-`->[guide guide.plumb]
+`->[same-file target|#intro]
+`->[other document|guide.plumb]
+`->[cross-file target|@[cross-file]|guide.plumb#intro]
+`->[external target|https://example.test]
 ```
 
 `link` is a generic inline kind, not a link alias. Local and cross-file anchors
@@ -108,13 +106,10 @@ them.
 
 When a heading, task, event, metadata value, or another standard semantic
 consumer projects visible plain text, a Link contributes only its label. Its
-positional target slot is not part of the containing title, details, or scalar
-text. Generic multi-slot inline elements still contribute all slots in source
-order.
-
-The legacy `` `->[label]{`:[to target]}`` form remains analyzable but emits
-`link.legacy-to-property`. Use the `Rewrite legacy Link arguments` quickfix to
-migrate it; formatting alone never performs this semantic rewrite.
+positional target argument is not part of the containing title, details, or scalar
+text. Generic inline elements contribute arguments and ordinary children in source order.
+Use `plumb migrate --from attached-v1` for legacy consecutive slots and inline
+attached groups; the current parser does not read those spellings.
 
 When label and target are identical, inline verbatim with opaque kind `->` is
 the standard Autolink; its payload is both label and target:
@@ -140,7 +135,7 @@ delimiter. Completion inserts named Link and Autolink paths verbatim; named
 Links preserve parsed content, while Autolinks strengthen the envelope when
 needed. Use explicit `->` links for custom labels. The `->` kind
 is valid only on inline verbatim and cannot be combined with `to` or `$`; other
-attached elements are preserved.
+children are preserved.
 
 To create an Autolink, type a backtick followed by `-` or `->` and choose
 `Autolink` from construct completion; continuing with `->"` narrows the
@@ -154,9 +149,9 @@ Use the `img` parsed inline kind. Its content is alt content and `src` is a
 required nonempty target:
 
 ```plumb
-Text with `img[status icon]{`:[src static/status.png]} inline.
+Text with `img[status icon|=[src|static/status.png]] inline.
 
-`img[]{`:[src https://example.test/decorative.svg]}
+`img[|=[src|https://example.test/decorative.svg]]
 ```
 
 Empty alt is valid for a decorative image. Sources with a scheme or `//` prefix
@@ -175,8 +170,8 @@ Use the `file` parsed inline kind. Its content is the portable fallback label
 and `src` is a required nonempty URI or raw relative filesystem target:
 
 ```plumb
-`file[Demo video]{`:[src static/demo.mp4]}
-`file[Download report]{`:[src reports/final.pdf]}
+`file[Demo video|=[src|static/demo.mp4]]
+`file[Download report|=[src|reports/final.pdf]]
 ```
 
 Export lowers a file attachment to a Pandoc Link so every writer retains a
@@ -202,7 +197,7 @@ resolved from the source document directory:
 
 ```plumb
 {
-  `: bibliography
+  `= bibliography
     `- static/library.json
 }
 ```
@@ -234,12 +229,12 @@ Do not infer attribution, citation, pull-quote, or presentation semantics.
 
 ## Inline Styles
 
-Six single-character parsed inline kinds have standard style semantics:
+Six parsed inline kinds have standard style semantics:
 
 ```plumb
 `*[emphasis]
 `![strong]
-`=[mark]
+`==[mark]
 `~[strikeout]
 `^[superscript]
 `_[subscript]
@@ -248,7 +243,7 @@ Six single-character parsed inline kinds have standard style semantics:
 They export as Pandoc Emph, Strong, a Span carrying `.mark`, Strikeout,
 Superscript, and Subscript. Attributes on native Pandoc nodes are preserved
 through an outer Span. Import consumes the first Pandoc `.mark` class as the standard
-`=` spelling and preserves remaining attached data. `**`, `em`, `strong`, and
+`==` spelling and preserves remaining children. `**`, `em`, `strong`, and
 `mark` are not aliases and remain generic. Italic and bold are common
 presentations of emphasis and strong, not separate standard spellings.
 
@@ -260,9 +255,9 @@ A task uses the specialized `task` marker and has bullet-list-item structure:
 `task Implement parser {
   `@ write-parser
 
-  `: created 2026-07-20T09:00:00+08:00
-  `: due 2026-07-21T09:00:00+08:00
-  `: depends #design
+  `= created 2026-07-20T09:00:00+08:00
+  `= due 2026-07-21T09:00:00+08:00
+  `= depends #design
 }
   `note Optional details
 ```
@@ -309,7 +304,7 @@ path from its explicit id:
 
 ```plumb
 `task Review {
-  `: depends #local Project A.plumb#build Project B.plumb#test
+  `= depends #local Project A.plumb#build Project B.plumb#test
 }
 ```
 
@@ -384,9 +379,9 @@ An event uses the specialized `event` marker and has bullet-list-item structure:
 `event 14:00--15:00 Parser review {
   `@ review
 
-  `: date 2026-07-30
-  `: timezone +08:00
-  `: tasks #write-parser
+  `= date 2026-07-30
+  `= timezone +08:00
+  `= tasks #write-parser
 }
 ```
 
@@ -446,7 +441,7 @@ with `readonly = true`.
 ## Export Semantics
 
 `div` and `span` are transparent standard containers and export without a
-redundant `data-plumb-marker`. `>` exports as Pandoc BlockQuote. `*`, `!`, `=`,
+redundant `data-plumb-marker`. `>` exports as Pandoc BlockQuote. `*`, `!`, `==`,
 `~`, `^`, and `_` export as the standard inline styles. Verbatim
 inline/block nodes with opaque kind `$` are TeX inline/display math. Other
 attached elements are preserved with Span/Div wrappers.

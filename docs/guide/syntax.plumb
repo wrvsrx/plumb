@@ -1,5 +1,5 @@
 {
-  `: title plumb 语法指南
+ `= title plumb 语法指南
 }
 
 plumb 使用反引号引入特殊结构。特殊 spelling 一旦开始就必须完整合法；错误不会静默退化为
@@ -17,9 +17,9 @@ head 构成：
   `note 带 attached group {
     `@ stable
 
-    `- warning
+    `+ warning
 
-    `: level 2
+    `= level 2
   }
 
 block 可以拥有缩进 children。第一个 child 建立 sibling column；formatter 对空 head 使用 owner
@@ -47,14 +47,15 @@ column 加一，对非空 head 将 children 与 conceptual head column 对齐：
 `plumb"
   See `term[outer `term[inner] text].
 
-同一个 owner 可以拥有多个紧邻 slots；每个 slot 都是独立的 parsed inline container，slots 之间不能
-插入 whitespace：
+同一个 owner 在一对 brackets 内拥有 `"|" 分隔的 ordered members。ordinary content 是 argument，
+省略 introducer 且独占 member 的具名 element 是 child：
 
 `plumb"
-  `pair[first][second]
-  `pair[`*[rich first]][second with spaces]
+  `pair[first|second]
+  `pair[`*[rich first]|second with spaces|note[child]]
 
-core 只保留 slots 的边界与顺序，不解释 argument 含义或数量；这些约束由 semantic profile 决定。
+argument 与 child 可以交错；space 属于 argument content，只有当前 depth 的 pipe 建立 member boundary。
+core 保存统一的 source order，不解释 kind、argument 含义或数量。
 
 element 可以跨属于同一 paragraph/head 的 continuation lines：
 
@@ -62,15 +63,15 @@ element 可以跨属于同一 paragraph/head 的 continuation lines：
   See `term[first line
   second line].
 
-attached inline group 必须紧跟完整 closing delimiter，并继续使用普通 inline syntax：
+id、facet、property 或普通 structural child 也放在同一 envelope：
 
 `plumb"
-  `term[value]{`@[stable] `-[warning] `:[level 2]}
+  `term[value|@[stable]|+[warning]|=[level|2]]
 
-inline element 即使 content 为空也必须写出 `""[[]]"" delimiter；不存在裸 `"warning" shorthand：
+inline element 即使没有 members 也必须写出 `"[]" delimiter；不存在裸 `"warning" shorthand：
 
 `plumb"
-  `-[warning]
+  `warning[]
 
 需要字面 closing bracket 时写两个反引号再跟 closing bracket。
 
@@ -99,33 +100,31 @@ ASCII-space structural margin。通常只写一个 quote 和一个空格：
 
 `# Attached groups
 
-每个 document、marked/verbatim block 或 inline element 都可以拥有一个 attached group。group 是
-postfix ownership structure，不是另一套 attribute parser：block owner 的 group 递归包含普通 blocks，
-inline owner 的 group 递归包含普通 inline elements。
+document 与 marked/verbatim block 可以拥有 attached group。group 是 postfix ownership structure，
+不是另一套 attribute parser，并递归包含普通 blocks 或 compact ordinary inlines。inline ownership
+已经由第 8 节的 members 表达，不使用 postfix group。
 
 `plumb"
   {
-    `: title Document title
+    `= title Document title
   }
 
   `node Head {
     `@ intro
 
-    `- note
+    `+ note
 
-    `: level 2
+    `= level 2
   }
 
   `task A long head that
    wraps across lines
    {
-    `: created 2026-08-07T09:00:00+08:00
+    `= created 2026-08-07T09:00:00+08:00
    }
 
-  `note[text]{`@[intro] `-[facets] `:[level 2]}
-
-core syntax 不解释 `"-"、`"@" 或 `":"。official semantic profile 将 direct `"-" member 投影为 facet，
-将 direct `"@" declaration 投影为 identity，将 direct `":" association 投影为 property；正文中
+core syntax 不解释 `"+"、`"@" 或 `"="。official semantic profile 将 direct `"+" member 投影为 facet，
+将 direct `"@" declaration 投影为 identity，将 direct `"=" association 投影为 property；正文中
 相同节点仍保持 collection member、identity declaration 与 definition relation。
 
 marked block 的 expanded opener 是完整 head 的最后一个结构：head 未折行时挂在 header 行尾，折行时
@@ -148,4 +147,4 @@ line。
 escape，也不要假设 punctuation 在所有位置都有特殊含义。
 
 完整 grammar、indentation 与 recovery 规则见
-`->[core syntax reference][../reference/core-syntax.plumb]。
+`->[core syntax reference|../reference/core-syntax.plumb]。

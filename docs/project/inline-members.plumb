@@ -1,12 +1,11 @@
 {
- `: title Unified inline members proposal
+ `= title Unified inline members design
 }
 
-本文记录 single-envelope inline members 的后继设计。该设计尚未实现；当前有效语法仍以
-`->[core syntax reference][../reference/core-syntax.plumb] 的连续 `"[]" slots 与 attached groups
-为准，当前 official projection 仍以
-`->[standard semantics reference][../reference/standard-semantics.plumb] 为准。本页中的 source
-示例是目标 spelling，不能作为当前 parser 的有效输入。
+本文记录 single-envelope inline members 的设计动机与 migration boundary。当前 validity 以
+`->[core syntax reference|../reference/core-syntax.plumb] 为准，official projection 以
+`->[standard semantics reference|../reference/standard-semantics.plumb] 为准。本页中的 source
+示例均为 current spelling；本页不覆盖 reference。
 
 `# 动机
 
@@ -29,7 +28,7 @@ member 形成以下正交组合：
   parsed child        `node[head|note[parsed child]]
   verbatim child      `node[head|code"raw child"]
 
-在 member boundary 上，目标 dispatch 为：
+在 member boundary 上，dispatch 为：
 
 `- opening quote 开始 verbatim argument；它没有 kind。
 `- 非空 kind 后跟 opening bracket 开始 parsed child；child spelling 省略 introducer。
@@ -55,7 +54,7 @@ bracket。child 可以使用同一 member grammar 递归拥有 arguments 与 chi
 
 `# Separator 与 source order
 
-目标语法取消 consecutive `"[][]" positional slots，统一使用当前 envelope 内的 `"|" 分隔 ordered
+目标语法取消 consecutive `"][" positional slots，统一使用当前 envelope 内的 `"|" 分隔 ordered
 members：
 
 `plumb"
@@ -103,25 +102,22 @@ direct children 是一等结构，不等同于 declarations。standard semantics
 children。block list item 的 nested list item 就是普通 child，而不是 positional argument；inline owner
 同样需要定义非 declaration child 的 body projection。
 
-实现前仍需冻结 generic inline child 的默认 export：候选规则是把 generic block child lower 为
-Pandoc `"Div"，把 generic inline child lower 为 owner inline body 内的 `"Span"；Link 等 specialized
-owner 再约束 nested Link、Image fallback 等 owner-specific cases。在这条规则冻结前，通用 inline child
-不能被 guide 描述为已可渲染行为。
+generic inline child 已按 source order lower 为 owner inline body 中的 nested inline structure；
+owner attributes 消费 declaration children，specialized owner 再约束普通 children 的 projection。
 
-`# 与现行 syntax 的替换关系
+`# 与旧 syntax 的替换关系
 
-目标设计完成后：
+当前设计已经完成以下替换：
 
 `- single envelope members 取代 parsed inline consecutive slots。
 `- introducer-elided child members 取代 inline attached group 的 ownership boundary。
 `- relation kind 的 semantic meaning 不进入 core dispatch。
-`- 当前 compact inline verbatim 仍可作为 standalone inline node；需要 owner children 的 verbatim value
-   使用含 verbatim argument 的 full member envelope，具体 canonical spelling 必须在实现前冻结。
+`- compact inline verbatim 仍可作为 standalone inline node；需要 owner children 的 verbatim value
+ 使用含 verbatim argument 的 full member envelope。
 `- block/document attached group 是否同时移除，取决于 verbatim block raw payload 与 document metadata
-   的 ownership spelling；不能从 inline member design 自动推导。
+ 的 ownership spelling；不能从 inline member design 自动推导。
 
-这是一项 breaking syntax change。reference、guide、bundled skill 与 formatter 在实现完成前继续使用
-现行 spelling；不得提前把本页 examples 复制到用户指南。
+这是 breaking syntax change；current parser 不包含 legacy compatibility branch。
 
 `# Migration
 
@@ -149,14 +145,15 @@ structural converter 必须执行：
 `- consecutive slots 按 source order 转为 `"|" arguments。
 `- inline attached group 中的 direct elements 转为 introducer-elided child members。
 `- declaration vocabulary 的 epoch-level spelling change 由显式、固定的 syntax mapping 转写；opaque
-   elements 保留 kind、payload、ordering 与 nesting。
-`- migration 必须 atomic、idempotent，并在输出后使用新 strict parser 验证。
+ elements 保留 kind、payload、ordering 与 nesting。
+`- 单文件写入必须 atomic、转换规则必须 deterministic，并在输出后使用新 strict parser 验证。两个
+ syntax epochs 有部分重叠 spelling，因此调用方必须显式提供 source epoch，不能靠 source 猜测。
 
 若旧 spelling 把一个 standard-profile value 压缩进无法由 syntax shape 无损拆分的 content，例如旧版
 compact Link 把 label 与 target 混在同一个 slot，则另设 standard-profile migration pass。该 pass 消费
 legacy syntax tree 或 structural conversion result，但不属于 legacy parser，也不能改变 generic converter
 对未知 kind 的处理。generic migration 不按 spaces 猜测 positional arity。
 
-迁移实现遵循 `->[editing architecture][../architecture/editing.plumb]：isolated legacy reader 只负责读取
+迁移实现遵循 `->[editing architecture|../architecture/editing.plumb]：isolated legacy reader 只负责读取
 旧 source，version-specific converter 负责 tree-to-tree lowering，owned canonical rendering 与最终 byte
 edits 由 `"plumb-edit" 负责。formatter 不选择 syntax epoch、不读取 legacy tree，也不触发 migration。

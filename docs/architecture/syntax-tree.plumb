@@ -1,5 +1,5 @@
 {
-  `: title plumb lossless syntax tree
+ `= title plumb lossless syntax tree
 }
 
 `# 1. Purpose
@@ -13,7 +13,7 @@ queries、source-preserving edits 和 semantic analyses；它不是已经解释�
 覆盖输入。拼接 leaf bytes 必须逐字节等于 source。
 
 tree 保留 trivia、structural indentation、line endings、delimiters、attached groups、payload 和 malformed
-source。非空 source 的 leaf token 非空；空 source 产生 range `""[[0, 0)]"" 的 document root。
+source。非空 source 的 leaf token 非空；空 source 产生 range `"[[0, 0)]" 的 document root。
 
 missing token 不作为 synthetic leaf 插入，由 diagnostic 和 insertion fix 表达。node range 从其
 source-backed descendants 推导。
@@ -27,12 +27,13 @@ introducer、escape、marker、inline kind、group/inline delimiter、raw payloa
 和 error。
 
 typed `"Document" 表达 paragraph、marked block、verbatim block、attached group、inline element、inline
-verbatim、text、space 和 soft break。parsed inline element 暴露一个或多个 ordered `"InlineContent"
-slots，每个 slot 保留独立 content/delimiter ranges；head 内容中的连续 ASCII space/tab 产生独立 `"Inline::Space"；
+verbatim、text、space 和 soft break。parsed inline element 暴露 source-ordered `"InlineMember" sequence：
+parsed/verbatim arguments 与 parsed/verbatim children 各自保留 delimiter、separator 和 content ranges；
+head 内容中的连续 ASCII space/tab 产生独立 `"Inline::Space"；
 普通 marker/kind 保持原始 spelling；typed tree 不区分 heading、list、
 link 或 task。它与 token sequence 在同一次 parse 中产生，不是第二套 parser。
 
-document、marked block、verbatim block、parsed inline 与 inline verbatim 都通过统一 `"Attributes" view
+document、marked block与 verbatim block 通过统一 `"Attributes" view
 暴露可选 recursive attached group。attached group 的 content 按
 owner category 直接复用 ordinary block 或 ordinary inline nodes，不产生专门的 property/facet node kind。
 marked block 另暴露 marker、head 和 children；paragraph 只有 inline content。verbatim block 另暴露

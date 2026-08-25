@@ -1,10 +1,10 @@
 {
- `: title plumb tasks
+ `= title plumb tasks
 }
 
 本页只记录可以直接实施和验收的工作。方向、约束和 deferred design 继续放在
-`->[roadmap][roadmap.plumb]；已经结束的任务及其验收记录保存在
-`->[completed tasks][completed-tasks.plumb]。
+`->[roadmap|roadmap.plumb]；已经结束的任务及其验收记录保存在
+`->[completed tasks|completed-tasks.plumb]。
 
 `task 用 Diesel 建立关系化 workspace query backend {
  `@ diesel-workspace-query-backend
@@ -30,7 +30,9 @@
   中 title CEL 降至约 0.172 s，done 首页约 0.279 s/150 KB、下一页约 0.360 s/89 KB，candidate search 约
   0.041 s/16 KB；authoring reference options 从约 920 降至约 40。显式 directly_blocking CEL 原约 12.5 s，
   改为 Diesel batch relation 与 open overlay lookup 后，冷启动首轮约 2.45 s，热查询约 0.139--0.161 s。
+
  当前仍没有证据支持先引入 async driver 或 connection pool。
+
  `note Web Agenda 已改为 Diesel stable-key cursor page：初始 page 围绕当前时间分别取得前后 records，earlier/
   later page 在 database 中按 resolved time、source path、source start 执行 hard limit，NULL time 位于有效时间之后
   且仍可到达；selected event 可以重新锚定有界 page，open documents 按 document generation overlay。真实 notebook

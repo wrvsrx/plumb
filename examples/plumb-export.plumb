@@ -1,36 +1,37 @@
 {
-  `: title plumb export playground
-  `: author plumb
-  `: created 2026-07-20T00:00:00+08:00
-  `: keywords
+ `= title plumb export playground
+ `= author plumb
+ `= created 2026-07-20T00:00:00+08:00
+ `= keywords
 
-     `- strict markup
-     `- pandoc
-  `: project
+  `- strict markup
+  `- pandoc
 
-     `: name plumb
-     `: stage prototype
+ `= project
+
+  `= name plumb
+  `= stage prototype
 }
 
 This document exercises the successfully exportable semantic profile.
 
 `# Inline content
 
-This paragraph contains `*[emphasis with `![strong content]], `=[marked content],
+This paragraph contains `*[emphasis with `![strong content]], `==[marked content],
 `~[obsolete content], `^[superscript], and `_[subscript],
-inline verbatim `"cargo test", a `kbd[Ctrl+C]{`-[shortcut]} element, and a
-`->[link back to the index][index.plumb].
+inline verbatim `"cargo test", a `kbd[Ctrl+C|+[shortcut]] element, and a
+`->[link back to the index|index.plumb].
 
 An identical label and target can use an Autolink without duplication:
-`->"https://example.test/a%20b"{`@[external] `-[reference] `:[rel nofollow]}.
+`->["https://example.test/a%20b"|@[external]|+[reference]|=[rel|nofollow]].
 
 A relative file Autolink uses the same form: `->"static/plumb-pipeline.svg".
 
 Images use parsed alt content and an absolute URI or raw relative src target:
 
-`img[plumb processing pipeline]{`:[src static/plumb-pipeline.svg] `@[pipeline] `-[diagram] `:[loading lazy]}
+`img[plumb processing pipeline|=[src|static/plumb-pipeline.svg]|@[pipeline]|+[diagram]|=[loading|lazy]]
 
-Transparent `span[inline containers]{`-[notice]} and TeX `$"x^2 + y^2" use standard profiles.
+Transparent `span[inline containers|+[notice]] and TeX `$"x^2 + y^2" use standard profiles.
 
 The exporter preserves generic inline kinds as Pandoc spans. The official
 citation profile currently accepts one plain id, such as `cite[smith2004].
@@ -40,11 +41,12 @@ citation profile currently accepts one plain id, such as `cite[smith2004].
 `- first item
 `- second item
 
-   `- nested item
+ `- nested item
 
 `- attributed item {
-  `- example
-  `: key value
+ `+ example
+
+ `= key value
 }
 `-
  `- compact nested item
@@ -53,36 +55,39 @@ citation profile currently accepts one plain id, such as `cite[smith2004].
 `. first ordered item
 `. second ordered item
 
-   `. nested ordered item
+ `. nested ordered item
 
 `: term
 
-   First definition.
+ First definition.
 
-`: another term {`-[example]}
+`: another term {`+[example]}
 
-   Second definition with attributes.
+ Second definition with attributes.
 
 `# Generic blocks and raw content
 
 `aside Generic marked blocks become Pandoc Div values. {
-  `- notice
+ `+ notice
 }
 
 `div Standard div containers omit the generic marker pair. {
-  `@ transparent
-  `- notice
+ `@ transparent
+
+ `+ notice
 }
 
 `> A quote head becomes its first paragraph. {
-  `@ quoted
-  `- source
-  `: cite smith2004
+ `@ quoted
+
+ `+ source
+
+ `= cite smith2004
 }
 
-   Quote children remain inside the Pandoc BlockQuote.
+ Quote children remain inside the Pandoc BlockQuote.
 
-   `> Nested quotes use the same marker.
+ `> Nested quotes use the same marker.
 
 `rust" {`@[hello-rust]}
   fn main() {
@@ -97,14 +102,16 @@ citation profile currently accepts one plain id, such as `cite[smith2004].
 Task semantics can coexist with list-item structure and attributes:
 
 `- Inspect multiline task attributes {
-  `- task
-  `@ export-example
-  `: created 2026-07-20T09:00:00+08:00
+ `+ task
+
+ `@ export-example
+
+ `= created 2026-07-20T09:00:00+08:00
 }
 
 `# Conclusion {
-  `@ export-target
+ `@ export-target
 }
 
 This heading is a target for navigation tests from the
-`->[language server playground][plumb-ls.plumb#export-target].
+`->[language server playground|plumb-ls.plumb#export-target].

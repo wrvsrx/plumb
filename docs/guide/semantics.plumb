@@ -1,5 +1,5 @@
 {
- `: title plumb 标准语义指南
+ `= title plumb 标准语义指南
 }
 
 core 只识别结构；本页介绍官方工具链赋予常用 marker、inline kind 和 attached elements 的语义。
@@ -49,23 +49,23 @@ ordered list 固定从 1 开始。
 
 `# Metadata
 
-文档 metadata 是文件开头的 document attached group，其中每个 `":" block 是 key/value association：
+文档 metadata 是文件开头的 document attached group，其中每个 `"=" block 是 key/value association：
 
 `plumb"
   {
-    `: title Document title
+    `= title Document title
 
-    `: created 2026-07-20T09:00:00+08:00
+    `= created 2026-07-20T09:00:00+08:00
 
-    `: tags
+    `= tags
       `- plumb
       `- notes
 
-    `: author
-      `: name Alice
+    `= author
+      `= name Alice
   }
 
-value 可以是 null、一个 paragraph scalar、`"-" sequence、nested `":" map 或一个 verbatim
+value 可以是 null、一个 paragraph scalar、`"-" sequence、nested `"=" map 或一个 verbatim
 block。metadata sequence 只使用 `"-"；它表示数据顺序，不带正文 list style。
 
 `"created" 使用带 timezone 的完整 RFC 3339 timestamp。非法值会产生
@@ -75,21 +75,21 @@ block。metadata sequence 只使用 `"-"；它表示数据顺序，不带正文 
 
 `# Link
 
-自定义 label、相对文档与 anchor 使用 `"->"。常用 expanded form 把 label 与 target 分别放在两个
-slots；compact form 也可以写成 `"`->[label target]"：
+自定义 label、相对文档与 anchor 使用 `"->"。first argument 是 label，second argument 是 target；
+interleaved children 不占 argument index：
 
 `plumb"
-  `->[same document][#intro]
-  `->[another document][guide.plumb]
-  `->[another anchor][guide.plumb#intro]
-  `->[website][https://example.test]
+  `->[same document|#intro]
+  `->[another document|guide.plumb]
+  `->[another anchor|@[guide]|guide.plumb#intro]
+  `->[website|https://example.test]
 
-本地 anchor 必须显式存在。跨文件 target 使用相对 `"..plumb" path。named Link 的 target slot
+本地 anchor 必须显式存在。跨文件 target 使用相对 `"..plumb" path。named Link 的 target argument
 是 raw filesystem path；中文、spaces、parentheses 与 percent characters 都按字面保留，不进行 URL
 encode/decode。
 
-旧式 `"`->[label]{`:[to target]}" 仍可读取，但会产生 `"link.legacy-to-property" warning；
-`"Rewrite legacy Link arguments" quickfix 通过 `"plumb-edit" 改写为两个 slots，formatter 不执行该迁移。
+旧 consecutive slots 与 inline attached group 不属于 current syntax；使用
+`"plumb migrate --from attached-v1" 显式迁移，formatter 不读取 legacy syntax。
 
 label 与 target 相同时，可以改用 Autolink：
 
@@ -117,23 +117,23 @@ bare backtick、单独 `"`[" 或 unclosed inline verbatim 不提供 construct ca
 `"img" content 是 alt text，`"src" 是 absolute URI 或相对当前 document 的 file reference：
 
 `plumb"
-  Text with `img[status icon]{`:[src static/status.png]} inline.
+  Text with `img[status icon|=[src|static/status.png]] inline.
 
-  `img[]{`:[src https://example.test/decorative.svg]}
+  `img[|=[src|https://example.test/decorative.svg]]
 
 empty alt 用于 decorative image。image 单独占一个 paragraph 时不需要另一种 block syntax。
 相对 src 是 raw filesystem path，中文、spaces、parentheses 和 percent characters 都按字面保留，
 不做 URL encode/decode。LSP 在 src 中补全常见本地图片文件，并为存在的文件提供 hover 和
 go-to-definition。image 的
-标准 profile 边界见 `->[standard semantics reference][../reference/standard-semantics.plumb]。
+标准 profile 边界见 `->[standard semantics reference|../reference/standard-semantics.plumb]。
 
 `# File attachment
 
 `"file" content 是始终可用的 fallback label，`"src" 指向 absolute URI 或相对当前 document 的文件：
 
 `plumb"
-  `file[Demo video]{`:[src static/demo.mp4]}
-  `file[Download report]{`:[src reports/final.pdf]}
+  `file[Demo video|=[src|static/demo.mp4]]
+  `file[Download report|=[src|reports/final.pdf]]
 
 普通 exporter 把 attachment 写成可点击 Link。Web viewer 会把 workspace 内能识别为 video 的本地文件
 显示为带 controls 的播放器，同时保留下载链接作为浏览器不支持该格式时的 fallback；PDF、archive 或
@@ -146,7 +146,7 @@ LSP 在 src 中补全任意本地文件，并提供 hover、go-to-definition 和
 
 `plumb"
   {
-   `: bibliography
+   `= bibliography
     `- static/library.json
   }
 
@@ -157,7 +157,7 @@ LSP 在 src 中补全任意本地文件，并提供 hover、go-to-definition 和
 inline citation 与文末 bibliography。Bibliography file 改变时 Web watcher 自动刷新页面。
 
 其他 citation shape 的 profile 边界见
-`->[standard semantics reference][../reference/standard-semantics.plumb]。
+`->[standard semantics reference|../reference/standard-semantics.plumb]。
 
 `# 透明 containers
 
@@ -173,7 +173,7 @@ marker/kind `"()" 是显式的透明 container，解除该限制而不添加任�
 
     More details.
 
-  This is `()[important]{`-[warning]}.
+  This is `()[important|+[warning]].
 
 它们直接导出为 Pandoc Div/Span；其他 generic marker/kind 仍保留 `"data-plumb-marker"。
 
@@ -193,12 +193,12 @@ generic block 导出。quote 不隐式解释 attribution 或 citation。
 
 `# Inline styles
 
-常用 inline styles 都使用单字符 kind：
+常用 inline styles 使用简短 kind：
 
 `plumb"
   `*[emphasis]
   `![strong]
-  `=[mark]
+  `==[mark]
   `~[strikeout]
   `^[superscript]
   `_[subscript]
@@ -228,9 +228,9 @@ strength。普通 dollar characters 和 dollar-delimited math 不具有特殊含
   `event 14:00--15:30 Parser review {
     `@ parser-review
 
-    `: date 2026-07-30
-    `: timezone +08:00
-    `: tasks #write-parser
+    `= date 2026-07-30
+    `= timezone +08:00
+    `= tasks #write-parser
   }
 
 head 的第一个 positional argument 是 schedule，后接 whitespace 与 title。schedule 使用 `"HH"、`"HH:MM"、`"HH:MM:SS" point 或 `"START--END" interval。start 也可写
@@ -248,7 +248,7 @@ facets 只是 opaque data。
 
 `plumb"
   `() {
-    `: date 2026-07-31
+    `= date 2026-07-31
   }
     `event 09:00 使用 7 月 31 日
   `event 09:00 恢复 document metadata date
@@ -301,9 +301,9 @@ event、reminder、外部 iCalendar 回写或 CalDAV client。
   `task Implement parser {
     `@ write-parser
 
-    `: priority 10
-    `: created 2026-07-20T09:00:00+08:00
-    `: due 2026-07-21T09:00:00+08:00
+    `= priority 10
+    `= created 2026-07-20T09:00:00+08:00
+    `= due 2026-07-21T09:00:00+08:00
   }
 
 head 是 title，children 是 details。另一个 task 需要引用它时才添加 id。
@@ -319,7 +319,7 @@ reference 在 id 后由 whitespace 分隔，因此 path 可以直接包含 space
 
 `plumb"
   `task Review {
-    `: depends #local Project A.plumb#build Project B.plumb#test
+    `= depends #local Project A.plumb#build Project B.plumb#test
   }
 
 LSP 在 `"depends" scalar value 内分两阶段补全 workspace tasks：当前 reference 尚无 `"#" 时只列出含有
@@ -330,7 +330,7 @@ derived workflow state。补全保留同一 value 中其他 references，并排�
 
 `"recur" 接受正整数 `"`PnD"、`"`PnW"、`"`PnM" 或 `"`PnY"，并要求 `"due"。
 
-document-local closure state 由 closure timestamps 推导：没有 `"done"/`"[canceled]" 是 open；只有 `"done" 是
+document-local closure state 由 closure timestamps 推导：没有 `"done"/`"canceled" 是 open；只有 `"done" 是
 done；只有 `"canceled" 是 canceled；两者同时存在是 conflicted。
 
 workspace 工具在 closure state 上推导互斥 workflow state：同时关闭是 conflicted；仅完成是 done；
@@ -355,4 +355,4 @@ done task 仍有 open dependency 时发布 `"task.done-with-open-dependency" war
 只报告 dependency inconsistency。warnings 不阻止 operation，canceled parent 不受此检查。
 
 精确 recognition、diagnostics 和 export semantics 见
-`->[standard semantics reference][../reference/standard-semantics.plumb]。
+`->[standard semantics reference|../reference/standard-semantics.plumb]。

@@ -17,7 +17,7 @@ Paragraph text.
 ```
 
 The marker may contain any non-whitespace, non-control Unicode scalar except
-backtick, double quote, brackets, and braces. It is case-sensitive and kept
+backtick, double quote, brackets, braces, and pipe. It is case-sensitive and kept
 losslessly.
 
 A block can have indented children. The first child establishes the child
@@ -53,31 +53,29 @@ Two backticks escape the introducer and produce a literal backtick:
 
 ## Attached Groups
 
-Every document, marked/verbatim block, parsed inline, or inline verbatim owner
-may have one attached group. This is a postfix ownership structure, not an
-attribute sublanguage. Expanded document/block groups contain ordinary blocks;
-compact block and inline groups contain ordinary inline elements.
+Every document or marked/verbatim block owner may have one attached group. This
+is a postfix ownership structure, not an attribute sublanguage. Expanded groups
+contain ordinary blocks; compact block groups contain ordinary inline elements.
 
 ```plumb
 {
-  `: title Document title
+  `= title Document title
 }
 
 `node Head {
  `@ intro
 
- `- note
+ `+ note
 
- `: level 2
+ `= level 2
 }
 
 `task A head that wraps
  across lines
  {
-  `: created 2026-08-07T09:00:00+08:00
+  `= created 2026-08-07T09:00:00+08:00
  }
 
-`note[text]{`@[intro] `-[facets] `:[level 2]}
 ```
 
 A marked/verbatim block group is separated from its complete header by
@@ -93,8 +91,7 @@ line breaks the continuation. `plumb fmt` canonicalizes the placement by head
 shape: a single-line head gets the trailing opener on the header line, a
 wrapped head gets the own-line opener. Verbatim blocks cannot use a
 continuation-line opener because their line ending begins raw payload. An
-inline group must touch the complete closing delimiter. Groups may recursively
-contain owners with their own groups. Core does not assign id, facet, property,
+Groups may recursively contain owners with their own groups. Core does not assign id, facet, property,
 class, or key-value meaning to their content.
 
 The removed `{#id .class key=value}` spelling is not part of current syntax.
@@ -102,19 +99,18 @@ Do not author it. Ordinary parsing and `plumb fmt` reject it.
 
 ## Parsed Inline Elements
 
-A parsed inline element has a nonempty kind and parsed content:
+A parsed inline element has a nonempty kind and ordered members:
 
 ```plumb
-`kind[content]{`@[stable] `-[class] `:[key value]}
-`outer[before `inner[nested] after]
+`kind[content|@[stable]|+[class]|=[key|value]]
+`outer[before `inner[nested] after|child[value]|code"raw"]
 ```
 
 Bare `[`, `]`, `{`, and `}` are always structural: an unescaped opening
 bracket is legal only right after an inline kind, an unescaped closing bracket
-closes the current element, and the braces open or close attached groups.
+closes the current element, and braces open or close block attached groups.
 Literal delimiters use the single-backtick escape in any position.
-Attached groups must touch the complete closing delimiter. Parsed inline elements
-may cross continuation lines belonging to the same paragraph/head; those
+Parsed inline elements may cross continuation lines belonging to the same paragraph/head; those
 boundaries become soft breaks. Blank lines, dedents, block-only entries, and
 EOF remain hard boundaries.
 
@@ -125,17 +121,19 @@ The opening `[` is mandatory and the kind must be nonempty; there is no
 anonymous element. Even an empty inline element is written as
 `kind[]`; a bare `` `kind`` is invalid.
 
-A parsed inline element may contain one or more adjacent content slots:
+A parsed inline element uses one envelope with `|`-separated ordered members:
 
 ```plumb
 `kind[only]
-`kind[first][second]
-`kind[first][second][third]{`-[facet]}
+`kind[first|second]
+`kind[first|child[value]|"raw argument"|code"raw child"]
 ```
 
-Each slot has ordinary parsed inline content and may be empty. Whitespace is
-not allowed between slots. The attached group, when present, touches the final
-slot. Core preserves slot order but does not assign argument meaning or arity.
+Ordinary content and unkinded verbatim payloads are arguments. A nonempty kind
+followed by `[` or `"` is an introducer-elided child. Arguments and children may
+interleave. Whitespace remains argument content; only `|` separates members.
+Use `` `|`` for a literal pipe inside parsed argument content. Core preserves
+source order but does not assign kind-specific meaning or arity.
 
 ## Inline Verbatim
 
@@ -157,8 +155,9 @@ the closing bracket must be followed by the same quote count:
 `rust""[contains ]" safely]""
 ```
 
-Raw content stays on one physical line and is not parsed. An attached inline
-group may follow the complete closing delimiter.
+Raw content stays on one physical line and is not parsed. Standalone inline
+verbatim has no children; use a full element with a verbatim argument when an
+owner also needs children.
 
 ## Verbatim Blocks
 
@@ -187,6 +186,6 @@ uses one quote and one structural space without changing raw payload bytes.
 - Do not write `# heading`, `- item`, fenced code blocks, or Markdown links
   without the plumb backtick introducer and envelopes.
 - Do not assume punctuation is globally special.
-- Escape literal `[`, `]`, `{`, or `}` with a single backtick; bare delimiters
+- Escape literal `[`, `]`, `{`, `}`, or member-level `|` with a single backtick; bare delimiters
   are always structural. There is no general backslash escape language.
 - Do not turn a syntax error into literal text. Repair the intended structure.

@@ -1,5 +1,5 @@
 {
-  `: title plumb syntax editing
+ `= title plumb syntax editing
 }
 
 `# 1. Boundary
@@ -97,7 +97,7 @@ formatting 与 mutation 共用同一 revision-bound edit boundary。Protocol-neu
 
 `- `"Document"：format 当前 revision 的完整 document。
 `- `"ContainedBlocks(selection)"：由 edit layer 在现有 valid tree 中解析 selection，选择其中 maximal
-   complete block subtrees；空 selection 不隐式选择 cursor owner。
+ complete block subtrees；空 selection 不隐式选择 cursor owner。
 
 consumer 不传 source string 让 formatter 重新 parse，也不传预先计算的 replacement。edit layer 把 scope
 解析为 syntax nodes，调用 canonical renderer，并返回 source-ordered、non-overlapping `"TextEdit" list。
@@ -120,13 +120,6 @@ raw replacement 只对这种已有 typed token ownership 的机械 rewrite 开�
 attached mutation、conversion 与 formatting 不得使用 raw `"TextEdit::replace" 绕过 owned syntax 或 edit
 session。
 
-legacy named Link migration 是 syntax-aware semantic rewrite：semantics/workspace 选择同时具有一个 label
-slot 与 direct `"to" property 的 `"->" owner，`"plumb-edit" 在原 `"ParsedDocument" revision 上把 target
-移动为 second positional slot，并移除该 property；其他 slots、label inline structure 与 attached
-declarations 必须保留。property 是唯一 attached declaration 时移除空 group，否则保留原 group category。
-operation 返回覆盖完整 inline owner 的一个连续 edit，并重新 strict-parse 验证结果。formatter 不识别
-`"->" 或 `"to"，也不触发 migration。
-
 `# 8. Recovered-source assists
 
 completion、delimiter closure 等 assists 可能运行在 incomplete recovered source 上，此时不存在可安全
@@ -136,19 +129,20 @@ owned-syntax mutation，也不得进入 authoring finalization pipeline。
 tree-sitter 不参与 mutation、formatting 或 range authority；它仍只服务 editor highlighting、folding、
 indentation、text objects 和 injections。
 
-`# 9. Planned inline-member migration（尚未实现）
+`# 9. Versioned inline-member migration
 
-single-envelope inline members 是 breaking syntax change，必须提供显式 versioned migration；ordinary
+single-envelope inline members 是 breaking syntax change，提供显式 versioned migration；ordinary
 formatter 不得把旧 slots/attached groups 静默改写成新 members，ordinary strict parser 也不长期保留
 两套等价入口。
 
-若 migration 在旧 syntax 移除后运行，CLI 使用 isolated legacy reader 读取旧 revision，再把 lossless
+CLI 使用 isolated legacy reader 读取旧 revision，再把 lossless
 structure 转为 semantics-neutral owned members；新 source 的 rendering、canonicalization、strict reparse
 与 byte edit production 仍由 `"plumb-edit" 统一拥有。adapter、workspace 与 migration reader 都不得自行
 拼接 nested inline replacement text。
 
 纯 syntax conversion 保留 slot/group source order、opaque kind、raw payload 与 nesting。依赖 standard
 meaning 的 compact forms 由 semantics/workspace 提供明确 intent，例如 Link label/target split；generic
-owner 不按 spaces 或已知 kind 排除表猜测 positional arity。operation 必须 atomic、idempotent，并拒绝
-无法无损投影的 legacy owner。目标规则与完整 migration mapping 见
-`->[unified inline members proposal][../project/inline-members.plumb]。
+owner 不按 spaces 或已知 kind 排除表猜测 positional arity。Link compact/`"to" forms 由独立的 fixed
+profile pass 转换。单文件写入必须 atomic，输出必须经 current strict parser 验证；两个 epochs 的重叠
+spelling 使调用方必须显式提供 source epoch。规则与完整 mapping 见
+`->[unified inline members design|../project/inline-members.plumb]。

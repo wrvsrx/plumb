@@ -1,5 +1,5 @@
 {
- `: title plumb
+ `= title plumb
 }
 
 `# plumb
@@ -26,17 +26,17 @@ plumb 是一门严格、语义中立的 markup language，也是一套围绕它�
 
 `# 文档
 
-`- `->[语法指南][docs/guide/syntax.plumb]
-`- `->[标准语义指南][docs/guide/semantics.plumb]
-`- `->[工具链指南][docs/guide/toolchain.plumb]
-`- `->[Editor integration 指南][docs/guide/editor-integration.plumb]
-`- `->[Core syntax reference][docs/reference/core-syntax.plumb]
-`- `->[架构总览][docs/architecture/overview.plumb]
-`- `->[完整文档索引][docs/index.plumb]
+`- `->[语法指南|docs/guide/syntax.plumb]
+`- `->[标准语义指南|docs/guide/semantics.plumb]
+`- `->[工具链指南|docs/guide/toolchain.plumb]
+`- `->[Editor integration 指南|docs/guide/editor-integration.plumb]
+`- `->[Core syntax reference|docs/reference/core-syntax.plumb]
+`- `->[架构总览|docs/architecture/overview.plumb]
+`- `->[完整文档索引|docs/index.plumb]
 
 `# 开发约定
 
-`"docs/reference/" 定义权威 syntax 与 semantic profile，`"docs/architecture/" 定义工具边界，`"docs/guide/" 只描述当前 release 已提供的行为。实现 behavior change 前先更新对应权威规范，再同步实现、测试和 user-facing documentation。完整的 agent 开发与 release 规则见 `->[AGENTS.md][AGENTS.md]。
+`"docs/reference/" 定义权威 syntax 与 semantic profile，`"docs/architecture/" 定义工具边界，`"docs/guide/" 只描述当前 release 已提供的行为。实现 behavior change 前先更新对应权威规范，再同步实现、测试和 user-facing documentation。完整的 agent 开发与 release 规则见 `->[AGENTS.md|AGENTS.md]。
 
 本文件是 repository README 的权威源。根目录的 `"README.md" 由它导出，不应直接编辑：
 

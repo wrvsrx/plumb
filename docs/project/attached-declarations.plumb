@@ -1,24 +1,24 @@
 {
-  `: title Attached declarations redesign
+ `= title Attached declarations redesign
 }
 
 本文保存 attached declarations 最终设计及其取舍。该设计已经进入 current development line；validity
-与标准语义分别以 `->[core syntax reference][../reference/core-syntax.plumb] 和
-`->[standard semantics reference][../reference/standard-semantics.plumb] 为准。本页中的候选
+与标准语义分别以 `->[core syntax reference|../reference/core-syntax.plumb] 和
+`->[standard semantics reference|../reference/standard-semantics.plumb] 为准。本页中的候选
 比较用于解释决定，不覆盖 references。
 
 `# 目标
 
 `- `"{}" 继续按照 owner level 递归包含普通 blocks 或普通 inline elements，不建立 attribute
-   mini-language。
+ mini-language。
 `- attached data 不再让任意 property key 占用 marker/kind namespace。
 `- 正文与 attached scope 中的 list item、definition entry 保持同一种基础语义，而不是仅因 parent
-   不同就把同一 spelling 重新解释成无关结构。
+ 不同就把同一 spelling 重新解释成无关结构。
 `- definition key 与 value 可以同行；包含 spaces 或 rich inline 的 key 不要求使用冗长的显式 transparent element spelling。
 `- identity 使用独立的 `"@" declaration；它与 collection member、association 并列，而不是伪装成
-   `"id" property 或让 `"#" 在 attached scope 中获得第二种含义。
+ `"id" property 或让 `"#" 在 attached scope 中获得第二种含义。
 `- verbatim 的高频主要解释不再绕行 attached facet/property；可选 kind 与 double quote 共同提供
-   compact inline/block envelope，复杂 inline payload 才回退到 strengthened bracket envelope。
+ compact inline/block envelope，复杂 inline payload 才回退到 strengthened bracket envelope。
 
 `# Collection 与 association
 
@@ -202,14 +202,14 @@ line 的 own-line opener，其余合法 placement 会被规范化。
 attached data 不是 JSON replacement，当前 profile 冻结以下边界：
 
 `- definition association 的 key 是第一个 inline atom；同行 remainder 是首个 value paragraph，children
-   是后续 block value。
+ 是后续 block value。
 `- property duplicate policy 由 official semantic profile 对 recognized property 决定；syntax layer 保留 source order 与重复项。
 `- standard facet identity 使用 direct member 的 plain scalar；不满足 profile 约束的 richer member 仍是
-   generic collection data。
+ generic collection data。
 `- compact marked-block group 的 ownership、recovery 与 formatting 以 core syntax reference 为准。
 `- legacy `"{#id .class key=value}" 仅由冻结 0.17 reader 接受，并按 source order转换为 direct
-   `"-"、`"@" 与 `":" declarations；转换是 idempotent，普通 parser 不保留兼容入口。
+ `"-"、`"@" 与 `":" declarations；转换是 idempotent，普通 parser 不保留兼容入口。
 `- 不存在匿名 owner：marker 与 InlineKind 都必须非空，空 kind 的匿名 element 按
-   invalid-inline-dispatch 拒绝；introducer 后紧跟 brace 的拼写按 delimiter escape 解释，
-   不预留给匿名容器。implicit paragraph 与 text run 也不是 attachment site；group 的 owner
-   必须显式，profile 以 `"()" 作为透明 div/span 的显式 kind，匿名/显式的对价是零拼写换零所有权。
+ invalid-inline-dispatch 拒绝；introducer 后紧跟 brace 的拼写按 delimiter escape 解释，
+ 不预留给匿名容器。implicit paragraph 与 text run 也不是 attachment site；group 的 owner
+ 必须显式，profile 以 `"()" 作为透明 div/span 的显式 kind，匿名/显式的对价是零拼写换零所有权。

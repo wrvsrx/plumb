@@ -1,5 +1,5 @@
 {
- `: title plumb standard semantics reference
+ `= title plumb standard semantics reference
 }
 
 `# 1. Scope
@@ -7,10 +7,10 @@
 本文定义官方工具链在 valid core tree 上启用的 semantic profile。recognizer 只解释这里冻结的
 spelling；其他词法良构 marker、inline kind 与 attached content 保持 opaque generic data。
 
-标准 projection 对 block/inline owner 使用同一关系：direct `"-" collection member 的 plain value 产生
-facet，direct `"@" identity declaration 的 plain value 产生 id，direct `":" association 的首个 plain
-key 与其 value 产生 property。block group 使用 ordinary marked blocks，inline group 使用 ordinary parsed
-inline elements `"-[...]"、`"@[...]" 与 `":[key value]"。其他 direct children 不偶然占用 facet/property
+标准 projection 对 block/inline owner 使用同一关系：direct `"+" collection member 的 plain value 产生
+facet，direct `"@" identity declaration 的 plain value 产生 id，direct `"=" association 的首个 plain
+key 与其 value 产生 property。block group 使用 ordinary marked blocks；inline owner 使用 introducer-elided
+children `"+[facet]"、`"@[id]" 与 `"=[key|value]"。其他 direct children 不偶然占用 facet/property
 namespace，也不会仅因处于 attached scope 而改变自身基础语义。
 
 semantic diagnostics 不改变 core syntax validity，但 authoritative export 和 operations 可以拒绝
@@ -56,21 +56,19 @@ marker `":" 产生 definition record。head 是 term，children 是 definition b
 相邻 definitions 聚合为 Pandoc `"DefinitionList"；attributes 通过 definition body 内的 `"Div"
 保存。
 
-`## 5.1 递归 positional argument projection
+`## 5.1 Block positional argument projection
 
-标准 projection 为 block 与 inline 的多 argument recognizer 使用同一递归规则：没有独立下层 content
-container 时，在当前 container 内以首个 inline item 和紧随其后的 `"Space" 切分；存在独立下层
-container 时，当前 container 的全部 content 是第一个 argument，下层 content 是后续 arguments。
+block 多 argument recognizer 在没有 children 时，以 head 的首个 inline item 和紧随其后的 `"Space"
+切分；存在 children 时，完整 head 是第一个 argument，children 是后续结构。
 separator `"Space" 只建立 compact boundary，不进入任一 argument。各 recognizer 继续独立约束 arity
-与 argument content；例如 Link title 可以保留一般 inline structure，而 property key 仍须投影为
-非空 plain key。
+与 argument content；例如 association key 仍须投影为非空 plain key。
 
-block-level `":" association 的目标形态是：
+block-level `"=" association 的形态是：
 
 `plumb"
-  `: title plumb title
-  `: `()[key with spaces] value with spaces
-  `: key with spaces
+  `= title plumb title
+  `= `()[key with spaces] value with spaces
+  `= key with spaces
     `()[value with spaces]
 
 没有 children 时，head 的首个 inline item 是 key，紧随 `"Space" 后的其余 inline items 是
@@ -78,38 +76,28 @@ block-level `":" association 的目标形态是：
 children 共同构成 value。marked/verbatim block 的 attached group 与 children 是正交结构；添加、删除或
 展开 `"{}" group 都不得切换上述 projection。
 
-inline-level `":" association 的目标形态是：
+`## 5.2 Inline member projection
 
-`plumb"
-  `:[to target.plumb]
-  `:[`()[key with spaces] value with spaces]
-  `:[key with spaces][value with spaces]
-
-只有一个 slot 时，在该 slot 内使用与 compact block head 相同的首个 inline item、`"Space" 与
-remainder 切分。存在两个 slots 时，不再切分首个 slot：完整 first slot 是 key，second slot 是 value。
-`":" association 的 marker-specific arity 只允许一个 compact slot 或两个 expanded slots；更多 slots
-发布 semantic diagnostic。inline attached group 同样只附着于完整 owner，不属于任何 positional
-argument，也不改变 single-slot/multi-slot projection。
-
-这种 compact/expanded 双形态的动机是同时保留常见短 association 的低标点密度，并让包含 whitespace
-或 nested inline structure 的 argument 获得无歧义边界。block 的下层边界由 children 表达，inline 的
-下层边界由后续 slots 表达；两者都遵循“当前 content / 下层 content”的递归关系。
-
-`## 5.2 后继 inline member projection（尚未实现）
-
-后继 single-envelope 设计将由 syntax member form 直接区分 arguments 与 children，并允许两者交错。
+single-envelope syntax 由 member form 直接区分 arguments 与 children，并允许两者交错。
 positional recognizer 只对 ordered argument view 编号；direct child 不因 kind 未被 standard profile
 识别而占用 argument index。Link 因而始终取 first argument 为 label、second argument 为 target，而不
 寻找“第二个不是 declaration 的 member”。普通 structural children 与 relation children 都保留 source
 order，再由各 owner recognizer 分别解释。
 
-该 projection 尚未实现，当前 consumer 继续遵循第 5.1 节的 block head/children 与 inline slots 规则。
-四种 member forms、space/pipe boundary、generic inline child export 的待冻结问题及 migration 见
-`->[unified inline members proposal][../project/inline-members.plumb]。
+inline `"=" association 必须恰好有两个 arguments；key 必须是非空 plain value，第二个 argument 是
+value。space 属于 argument content，不再提供 compact key/value split：
+
+`plumb"
+  `owner[value|=[to|target.plumb]]
+  `owner[value|=[`()[key with spaces]|value with spaces]]
+
+generic inline children 保持 source order，并作为 owner body 的 nested inline structure 导出；specialized
+owner 可以进一步约束 child kinds。四种 member forms 与 migration rationale 见
+`->[unified inline members design|../project/inline-members.plumb]。
 
 `# 6. Metadata
 
-文件起始的 document attached group 是 document metadata；它的 direct `":" associations 是 entries。
+文件起始的 document attached group 是 document metadata；它的 direct `"=" associations 是 entries。
 document-level `"meta" block 不具有 metadata semantics。
 
 metadata entry 使用第 5.1 节的 association projection：没有 children 时，第一个 inline item 是 key，
@@ -119,7 +107,7 @@ separator 后的 remainder 是同行 value；存在 children 时，整个 nonemp
 `- 没有 body：null。
 `- 非空 head 或一个 paragraph child：scalar。
 `- `"-" children：sequence。
-`- `":" children：map。
+`- `"=" children：map。
 `- 一个 verbatim block：literal string。
 
 paragraph 或 list-item head 恰好只有一个 inline verbatim 时产生 literal string。空 head list item
@@ -147,15 +135,14 @@ canonical formatted edit。
 
 `# 7. Links 与 target resolution
 
-标准 Link 使用唯一 parsed inline kind `"->"。单 slot compact form 在 slot 内以首个 inline item 与
-紧随的 `"Space" 分隔 label/target；两个 slots 的 expanded form 使用完整 first slot 作为 label、second
-slot 作为 target：
+标准 Link 使用唯一 parsed inline kind `"->"。ordered arguments 中 first 是 label，second 是 target；
+interleaved children 不占 argument index：
 
 `plumb"
-  `->[guide relative/path.plumb]
-  `->[guide page][relative/path.plumb]
-  `->[guide page][relative/path.plumb#anchor]
-  `->[*[external]][https://example.test]
+  `->[guide|relative/path.plumb]
+  `->[guide page|relative/path.plumb]
+  `->[guide page|@[guide]|relative/path.plumb#anchor]
+  `->[`*[external]|https://example.test]
 
 `"link" 不是 alias。local/cross-file fragment 只解析显式 anchors。relative document target 使用
 `"..plumb" path。带 scheme 或以 `"//" 开始的 target 是 absolute/network URI；其他 target 是相对
@@ -164,18 +151,9 @@ percent decode 或 normalization。external URL 只分类，不进行网络 I/O�
 
 当 heading、task、event、metadata 或其他 standard semantic consumer 从包含 Link 的 inline content
 投影可见 plain text 时，Link 只贡献 label；positional target slot 不进入容器的 title、details 或 scalar
-text。generic multi-slot inline 仍按 source order 贡献全部 slots，core plain-text traversal 也不解释 Link。
-
-旧式 named Link 把完整 parsed content 作为 label，并在 attached `"to" property 中保存 target：
-
-`plumb"
-  `->[description]{`:[to https://example.test]}
-
-该 spelling 保持 syntax-valid，并继续产生 Link record，便于现有文档迁移；semantics 发布
-`"link.legacy-to-property" warning。LSP 在 legacy owner 或该 diagnostic 上提供
-`"Rewrite legacy Link arguments" quickfix，由 `"plumb-edit" 将 label 与 target 改写为两个 slots，并
-保留其他 attached declarations。formatter 只观察 core syntax，不执行该 semantic migration。两个
-positional slots 与 `"to" property 同时存在时发布 conflicting-target warning，不猜测优先级。
+text。generic multi-member inline 按 source order 贡献 arguments 与 ordinary children，core plain-text
+traversal 也不解释 Link。旧 consecutive slots 与 `"to" attached property 不是 current syntax；
+`"plumb migrate --from attached-v1" 通过 frozen legacy parser 和 version-specific converter 改写它们。
 
 标准 Autolink 使用 inline verbatim `"->" kind；payload 同时是 label 与 target：
 
@@ -227,8 +205,8 @@ document reverse references 保留真实 same-document occurrences；Graph 等 c
 parsed inline kind `"img" 是标准 image；content 是 alt content，`"src" property 是非空 target：
 
 `plumb"
-  Inline `img[status icon]{`:[src static/status.png]} image.
-  `img[]{`:[src https://example.test/decorative.svg]}
+  Inline `img[status icon|=[src|static/status.png]] image.
+  `img[|=[src|https://example.test/decorative.svg]]
 
 empty alt 合法。缺失或空 src 产生 `"image.missing-source"。带 scheme 或 `"..//" prefix 的 src 是
 absolute/network URI，继续按 URI reference 校验；其他 src 是相对 source document directory 的 raw
@@ -250,8 +228,8 @@ raw relative path。
 parsed inline kind `"file" 是标准 file attachment；content 是 fallback label，`"src" property 是非空 target：
 
 `plumb"
-  `file[Demo video]{`:[src static/demo.mp4]}
-  `file[Download report]{`:[src reports/final.pdf]}
+  `file[Demo video|=[src|static/demo.mp4]]
+  `file[Download report|=[src|reports/final.pdf]]
 
 src 使用与 image src 相同的 URI/raw relative filesystem path classification 和 validity rules，但不限制
 本地文件扩展名。缺失或空 src 产生 `"file.missing-source"，非法 URI 或 relative path 产生
@@ -316,7 +294,7 @@ inline kind `"()" 是标准的显式 transparent container，为匿名形态解�
 
     More details.
 
-  This is `()[important]{`-[warning]}.
+  This is `()[important|+[warning]].
 
 `"()" 保留 generic marked block 的 head/children behavior 与 parsed inline content，不增加
 presentation、section 或其他隐式 semantics；definition association key 位置的 `"()[...]" 按 plain
@@ -345,12 +323,12 @@ children 或 opaque attached elements，直到official semantic profile 冻结�
 
 `# 13. Inline styles
 
-六个单字符 parsed inline kinds 产生标准 inline style semantics：
+六个 parsed inline kinds 产生标准 inline style semantics：
 
 `plumb"
   `*[emphasis]
   `![strong]
-  `=[mark]
+  `==[mark]
   `~[strikeout]
   `^[superscript]
   `_[subscript]
@@ -359,8 +337,8 @@ children 或 opaque attached elements，直到official semantic profile 冻结�
 `"Superscript" 与 `"Subscript"。这些 Pandoc nodes 没有原生 attribute slot；存在 attached data 时，
 export 使用外层 `"Span" 保留全部 id/facets/properties。
 
-Pandoc 没有原生 Mark node；`"=" lower 为带 `".mark" class 的 `"Span"，并在其后保留 source 中的
-其他 facets。Pandoc import 将第一个 `"mark" facet 消费为 `"=" semantic spelling，其余 attached data
+Pandoc 没有原生 Mark node；`"==" lower 为带 `".mark" class 的 `"Span"，并在其后保留 source 中的
+其他 facets。Pandoc import 将第一个 `"mark" facet 消费为 `"==" semantic spelling，其余 children
 保持不变。六个 inline kind 本身都被消费，不产生 `"data-plumb-marker"。
 
 `"**"、`"em"、`"strong"、`"mark" 和其他 inline kinds 不作为 aliases，仍是 generic parsed inline
@@ -591,7 +569,7 @@ conflicted descendant 由 `"task.conflicting-closed-state" 负责。canceled par
 diagnostics 也不改变 nesting 只形成 display tree、只有 `"depends" 建立 dependency edge 的语义。
 
 authoring operations 使用执行时的本地 RFC 3339 timestamp：`"Convert to task" 把 cursor 命中的最深
-普通 `"-"/`"[.]" item 转为 task 时，将 marker 改为 `"task" 并添加 `"created" property；`"Add task created timestamp" 为
+普通 `"-"/`"." item 转为 task 时，将 marker 改为 `"task" 并添加 `"created" property；`"Add task created timestamp" 为
 缺少 `"created" 的最深 enclosing task 补录时间。后者不受 task state、dependency 或 recurrence
 限制。两者都保留已有 attached elements，并返回 revision-guarded edits。
 
@@ -628,7 +606,7 @@ candidate 的 `"insertTextMode"。heading、ordinary list item 与其他
 inline-verbatim spelling 本身没有额外声明时保持可直接输入。
 
 export 按 document-local closure state 在 task item 的首个 paragraph 添加可见 marker：open 为 `"☐"，done 为 `"☒"，canceled
-为 `"⊘"，conflicted 为 `"⚠"。其中 `"☐"/`"[☒]" 使用 Pandoc task-list 约定，使支持该约定的 writer
+为 `"⊘"，conflicted 为 `"⚠"。其中 `"☐"/`"☒" 使用 Pandoc task-list 约定，使支持该约定的 writer
 生成 checkbox；task 的 id 与 fields 保留在包裹 title 的 Pandoc `"Span" attributes 中，marker 不伪装为 class，
 children 继续作为同一 list item 的后续 blocks。
 

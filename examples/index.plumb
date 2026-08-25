@@ -1,6 +1,6 @@
 {
-  `: title plumb playground
-  `: created 2026-07-20T00:00:00+08:00
+ `= title plumb playground
+ `= created 2026-07-20T00:00:00+08:00
 }
 
 Open this directory as a workspace after building the toolchain. These documents
@@ -8,10 +8,10 @@ exercise the implemented language server, exporter, and notes features.
 
 `# Start here
 
-`- `->[Language server playground][plumb-ls.plumb]
-`- `->[Metadata code-action scratchpad][metadata-scratch.plumb]
-`- `->[Exporter playground][plumb-export.plumb]
-`- `->[Notes playground][plumb-notes.plumb]
+`- `->[Language server playground|plumb-ls.plumb]
+`- `->[Metadata code-action scratchpad|metadata-scratch.plumb]
+`- `->[Exporter playground|plumb-export.plumb]
+`- `->[Notes playground|plumb-notes.plumb]
 
 `# Suggested commands
 

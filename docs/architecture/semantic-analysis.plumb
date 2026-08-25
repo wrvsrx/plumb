@@ -1,5 +1,5 @@
 {
- `: title plumb semantic analysis
+ `= title plumb semantic analysis
 }
 
 `# 1. Scope
@@ -51,18 +51,16 @@ consumer 应利用该顺序限定候选区间，不得为每个 owner 从头扫�
 `# 5. Semantic composition
 
 同一个 syntax node 可以同时产生多个正交 semantic facts。例如一个 task owner 也可以拥有 explicit
-anchor 和普通 attached data。standard projection 将 direct `"-" member 投影为 facet、direct `"@"
-declaration 投影为 id、direct `":" association 投影为 property；该 projection 属于 official semantic
+anchor 和普通 attached data。standard projection 将 direct `"+" member 投影为 facet、direct `"@"
+declaration 投影为 id、direct `"=" association 投影为 property；该 projection 属于 official semantic
 profile，不属于 syntax grammar。
 
 analyses 只增加自己拥有的 records/diagnostics，不能删除其他 analysis 所需的 source data。组合冲突必须
 产生显式 diagnostic 或使用在 standard profile 中冻结的 rule，不能依赖 Rust module 调用顺序。generic
 export 在标准 semantic lowering 后仍保留未消费的 attached elements。
 
-named Link analysis 优先读取 positional slots；一个 legacy label slot 加 direct `"to" property 继续产生
-source-backed Link record，同时发布 `"link.legacy-to-property"。record 保存 owner、property 与 target
-ranges，使 workspace 可以选择 operation intent；实际 source rewrite 由 `"plumb-edit" 完成，analysis 与
-LSP adapter 都不构造 replacement text。
+named Link analysis 过滤 ordered arguments，first 是 label、second 是 target；interleaved children 不占
+argument index。legacy Link conversion 属于 versioned migration，不进入 current semantic pipeline。
 
 `# 6. Dependencies and invalidation
 

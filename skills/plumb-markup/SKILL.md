@@ -42,7 +42,7 @@ Snippet-capable clients receive tab stops.
 At the end of a plain-text Event title, completion offers workspace Event titles
 matching the current case-sensitive prefix, ranked by descending use count.
 
-Inside complete or recovered attached groups, completion follows the syntax
+Inside complete or recovered owner declarations, completion follows the syntax
 owner and offers declared standard facets, property names, and finite values while
 suppressing unique properties already present. Custom elements remain allowed.
 Link/Image paths and anchors continue to use workspace-aware value completion.
@@ -61,13 +61,14 @@ it. Inside the plumb source repository, prefer
   text.
 - Use spaces for structural indentation. Do not use tabs in indentation.
 - Separate marked/verbatim block attached groups from the complete header with
-  whitespace; attach inline groups directly to the complete inline delimiter.
+  whitespace. Inline owners place arguments and children in one `[]` envelope.
 - Open expanded block groups at the end of the owner header. A marked block may
   instead use an immediately following, deeper opener at its continuation
   column. Close at the opener column. Verbatim groups remain on the opener line;
   document groups remain structural and expanded.
 - Use direct `@` declarations for explicit ids. Headings do not generate implicit ids.
-- Always write `[]` on inline elements, including empty facets.
+- Separate ordered inline members with `|`. Arguments and introducer-elided
+  children may interleave; spaces remain part of an argument.
 - Do not author the removed `{#id .class key=value}` spelling; parsing and
   formatting reject it.
 - Parsed inline elements may cross valid paragraph/head continuation lines;
@@ -79,7 +80,7 @@ it. Inside the plumb source repository, prefer
 
 ```plumb
 {
-  `: title Example
+  `= title Example
 }
 
 `# Heading {
@@ -91,31 +92,31 @@ it. Inside the plumb source repository, prefer
 `task Implement parser {
   `@ write-parser
 
-  `: created 2026-07-20T09:00:00+08:00
+  `= created 2026-07-20T09:00:00+08:00
 }
 `event 14:00--15:00 Parser review {
   `@ review
 
-  `: date 2026-07-30
-  `: timezone +08:00
-  `: tasks #write-parser
+  `= date 2026-07-30
+  `= timezone +08:00
+  `= tasks #write-parser
 }
 
 `() Transparent block container {
-  `- notice
+  `+ notice
 }
 `> A quoted paragraph
-Use `*[emphasis], `![strong], `=[mark], `~[strikeout], `^[superscript], and `_[subscript].
-Inline `()[container]{`-[notice]} and `$"x^2" math.
+Use `*[emphasis], `![strong], `==[mark], `~[strikeout], `^[superscript], and `_[subscript].
+Inline `()[container|+[notice]] and `$"x^2" math.
 
 `: Term
 
   Definition body.
 
-See `->[guide][guide.plumb#intro], `->"guide.plumb#intro", and `cite[smith2004].
+See `->[guide|guide.plumb#intro], `->"guide.plumb#intro", and `cite[smith2004].
 
-Use `img[status icon]{`:[src static/status.png]} for an image.
-Use `file[Demo video]{`:[src static/demo.mp4]} for a file attachment with fallback content.
+Use `img[status icon|=[src|static/status.png]] for an image.
+Use `file[Demo video|=[src|static/demo.mp4]] for a file attachment with fallback content.
 
 Use `"cargo test" for inline raw text.
 
@@ -125,14 +126,14 @@ Use `"cargo test" for inline raw text.
 
 Use `-` for bullet-list items, `.` for ordered-list items, `task` and `event`
 for their specialized bullet-list items, and `->` as the sole
-link parsed kind; put its label and target in two adjacent slots. Use the `->`
+link parsed kind; put its label and target in the first two arguments. Use the `->`
 verbatim kind for an absolute URI or raw relative path
 whose payload is both label and target; relative `.plumb` targets resolve as
 documents and other relative targets resolve as files. Use
-`img[alt]{`:[src target]}` for images and `file[label]{`:[src target]}` for attachments.
+`img[alt|=[src|target]]` for images and `file[label|=[src|target]]` for attachments.
 `item`, `link`, `**`, `em`, and `strong` remain syntactically valid generic names but
 have no list or link semantics. `task` and `event` are mutually exclusive
 specialized list-item markers; they are not facets on `-` or `.` items.
 `div` and `span` are transparent containers; `>` is a block
-quote; `*`, `!`, `=`, `~`, `^`, and `_` are inline styles; `$` on verbatim
+quote; `*`, `!`, `==`, `~`, `^`, and `_` are inline styles; `$` on verbatim
 inline/block nodes is TeX math.

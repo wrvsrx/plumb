@@ -42,25 +42,25 @@ server refresh 中保持每个 window 的用户 fold state。
 
 `* `"2435abd1fb" `"fix(lsp): support single-line folding ranges"
 
-   接受 `"startLine == endLine"。计算 fold levels 时先分别收集 row starts 和 row ends，再统一决定
-   opener/closer，避免相邻 single-line folds、同一行上的 start/end 和 EOF range 相互覆盖。
+ 接受 `"startLine == endLine"。计算 fold levels 时先分别收集 row starts 和 row ends，再统一决定
+ opener/closer，避免相邻 single-line folds、同一行上的 start/end 和 EOF range 相互覆盖。
 
 `* `"e1f13122e3" `"fix(lsp): preserve folds across line joins"
 
-   开始使用 `"on_bytes" 提供的 column 和 old/new extent 信息。line join 删除后续行时保留仍然存活的
-   start row，避免 fold opener 在新 response 到达前消失。覆盖 multi-line fold shrink 成 single-line
-   fold 的情况。
+ 开始使用 `"on_bytes" 提供的 column 和 old/new extent 信息。line join 删除后续行时保留仍然存活的
+ start row，避免 fold opener 在新 response 到达前消失。覆盖 multi-line fold shrink 成 single-line
+ fold 的情况。
 
 `* `"ec298cdb49" `"fix(lsp): preserve open folds across expansion"
 
-   在 range 因编辑扩大时保存手动 open state，使原本打开的 single-line fold 扩大后不会按全局
-   `"foldlevel" 自动关闭。
+ 在 range 因编辑扩大时保存手动 open state，使原本打开的 single-line fold 扩大后不会按全局
+ `"foldlevel" 自动关闭。
 
 `* `"9d1f449a52" `"fix(lsp): reconcile fold state across edits"
 
-   将前面的局部修补整理成完整 reconciliation：缓存 range 随 buffer edit 映射，记录每个 client、
-   range 和 window 的 open state；新 server response 到达后按 overlap 与 nesting depth 匹配 old/new
-   ranges；执行 `"foldupdate()" 后恢复 matched folds，并为新出现且包含可见 cursor 的 fold 保持打开。
+ 将前面的局部修补整理成完整 reconciliation：缓存 range 随 buffer edit 映射，记录每个 client、
+ range 和 window 的 open state；新 server response 到达后按 overlap 与 nesting depth 匹配 old/new
+ ranges；执行 `"foldupdate()" 后恢复 matched folds，并为新出现且包含可见 cursor 的 fold 保持打开。
 
 `## 最终实现模型
 
@@ -87,10 +87,10 @@ server refresh 中保持每个 window 的用户 fold state。
 `7 执行 `"foldupdate()"，再恢复 matched open folds；
 
 `8 对没有 predecessor 的新增 range，若它包含某个 window 中仍然可见的 cursor，则保持打开，否则按
-   window fold settings 关闭；
+ window fold settings 关闭；
 
 `9 仅当 response 对应的 `"edit_tick" 仍是最新值时清除 pending state，避免旧 response 清除新 edit
-   的 reconciliation context。
+ 的 reconciliation context。
 
 fold restore 只作用于仍然有效、显示该 buffer 且 `"foldmethod=expr" 的 window。它先执行需要关闭的
 actions，再执行需要打开的 actions，以便 nested folds 的最终状态不受遍历顺序影响。
@@ -117,32 +117,32 @@ large range sets 的压力验证。
 `## 当前风险与待讨论点
 
 `* `"reconcile_ranges" 通过 nesting depth 和最大 line overlap 推断 identity。它不依赖
-   `"collapsedText" 或 kind，避免 presentation change 破坏匹配，但 repeated siblings 在大范围 rewrite
-   后可能匹配到错误 predecessor。
+ `"collapsedText" 或 kind，避免 presentation change 破坏匹配，但 repeated siblings 在大范围 rewrite
+ 后可能匹配到错误 predecessor。
 `* `"range_depths" 和 matching 都是 nested loops，整体最坏为 range 数量的平方。普通文档可接受，
-   large generated files 需要 benchmark 或更好的 interval/index strategy。
+ large generated files 需要 benchmark 或更好的 interval/index strategy。
 `* state 以 range index 关联 client response。多个 client 提供重叠 ranges 时，foldexpr 合并后的 UI fold
-   与单个 client range 不总是一一对应，需要明确 conflict semantics。
+ 与单个 client range 不总是一一对应，需要明确 conflict semantics。
 `* restore 使用 Ex `"foldopen" 和 `"foldclose!"。需要确认 window-local manual fold state、foldenable、
-   foldlevel、foldnestmax 以及 closed outer fold 下的 inner state 是否都符合 Neovim 的既有约定。
+ foldlevel、foldnestmax 以及 closed outer fold 下的 inner state 是否都符合 Neovim 的既有约定。
 `* 当前 patch 同时解决 protocol acceptance、edit mapping 和 UI state reconciliation，最终 runtime diff 较大。
-   upstream review 更适合拆成可以独立论证和测试的 changes。
+ upstream review 更适合拆成可以独立论证和测试的 changes。
 `* branch 基于 release tag `"v0.12.4"，提交 upstream 前必须 rebase 到当前 Neovim master，并检查
-   `"vim.lsp._folding_range" 已发生的并行修改。
+ `"vim.lsp._folding_range" 已发生的并行修改。
 
 `## 建议的 upstream 拆分
 
 `1 单独提交 single-line `"FoldingRange" support，只包含 evaluate 算法和 adjacent/EOF tests。这个 change
-   最小，直接对应 LSP protocol behavior。
+ 最小，直接对应 LSP protocol behavior。
 
 `2 单独提交 cached ranges through `"on_bytes" edit mapping，先保证等待 server response 时 foldexpr 不使用
-   stale rows，并覆盖 insertion、deletion、join 和 split。
+ stale rows，并覆盖 insertion、deletion、join 和 split。
 
 `3 单独提交 per-window manual open-state preservation，明确它与 foldlevel、cursor visibility、insert mode
-   和 multiple windows 的交互。
+ 和 multiple windows 的交互。
 
 `4 最后提交 old/new range reconciliation；在 commit message 或 design discussion 中明确 identity heuristic、
-   complexity 和 unmatched ranges 的 policy。
+ complexity 和 unmatched ranges 的 policy。
 
 正式发 PR 前，建议先开 issue 或 discussion，用最小 reproduction 展示两个相互独立的现象：上游忽略
 single-line LSP range，以及异步 refresh 后手动 open fold 被关闭。这样 protocol correctness 与 state
