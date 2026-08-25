@@ -213,7 +213,8 @@ fn convert_element(
     slots: &[legacy::InlineSlot],
     attributes: &legacy::Attributes,
 ) -> Result<OwnedInline, MigrationError> {
-    let mut members = if kind == "->" && slots.len() == 1 {
+    let property_link_target = kind == "->" && has_attached_link_target(attributes);
+    let mut members = if kind == "->" && slots.len() == 1 && !property_link_target {
         convert_compact_link_slot(&slots[0].content.items)?
     } else {
         slots
@@ -238,6 +239,22 @@ fn convert_element(
     Ok(OwnedInline::Element {
         kind: kind.to_string(),
         members,
+    })
+}
+
+fn has_attached_link_target(attributes: &legacy::Attributes) -> bool {
+    let Some(attached) = attributes.attached.as_deref() else {
+        return false;
+    };
+    let legacy::AttachedContent::Inlines(content) = &attached.content else {
+        return false;
+    };
+    content.items.iter().any(|inline| {
+        matches!(
+            inline,
+            legacy::Inline::Element { kind, slots, .. }
+                if kind == ":" && association_key(slots) == Some("to")
+        )
     })
 }
 
@@ -470,11 +487,11 @@ mod tests {
 
     #[test]
     fn migrates_compact_and_property_links_to_positional_arguments() {
-        let source = "`->[guide target.plumb]\n`->[guide]{`:[to Project Guide.plumb]}\n";
+        let source = "`->[guide target.plumb]\n`->[guide]{`:[to Project Guide.plumb]}\n`->[Get cookies.txt LOCALLY]{`:[to https://example.test]}\n";
         let migrated = migrate_attached_v1(source).unwrap();
         assert_eq!(
             migrated,
-            "`->[guide|target.plumb]\n`->[guide|Project Guide.plumb]\n"
+            "`->[guide|target.plumb]\n`->[guide|Project Guide.plumb]\n`->[Get cookies.txt LOCALLY|https://example.test]\n"
         );
     }
 

@@ -154,6 +154,10 @@ percent decode 或 normalization。external URL 只分类，不进行网络 I/O�
 text。generic multi-member inline 按 source order 贡献 arguments 与 ordinary children，core plain-text
 traversal 也不解释 Link。旧 consecutive slots 与 `"to" attached property 不是 current syntax；
 `"plumb migrate --from attached-v1" 通过 frozen legacy parser 和 version-specific converter 改写它们。
+迁移旧 Link 时，唯一的 attached `"to" property 提供 target；此时单个 legacy slot 的全部内容提供
+label，即使其中含 spaces，也不得先按 space 拆成 positional target。没有 attached `"to" 时，单个
+legacy slot 才按第一个 space 分隔 compact label 与 target。多个 legacy slots 与 attached `"to" 同时
+出现，或存在多个 attached `"to" properties，均是冲突且迁移失败。
 
 标准 Autolink 使用 inline verbatim `"->" kind；payload 同时是 label 与 target：
 
