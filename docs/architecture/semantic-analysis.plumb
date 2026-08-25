@@ -1,6 +1,4 @@
-{
- `= title plumb semantic analysis
-}
+`= title plumb semantic analysis
 
 `# 1. Scope
 
@@ -139,7 +137,7 @@ granularity overlay precedence 和 deterministic source ordering。
 Task cursor page 绑定 normalized filter、sort keys 与 workspace revision。cursor 是 opaque continuation identity，
 不得解释为 row offset；失配或 stale cursor 必须拒绝。分页先在 lightweight typed facts 上完成 filter、tree
 aggregation 与 deterministic ordering，再只 decode 当前 page 的完整 records。一个 page 可以越过 requested
-task count 以保留当前 document 的完整 retained tree，但不能重复或跳过相邻 pages 的 document group。
+task count 以保留当前 document 的完整 retained tree，但不能重复或跳过相邻 pages 的 document subtree。
 
 Event cursor page 绑定 workspace revision、page direction 与稳定 event order key。order key 依次使用 resolved
 sort instant（有效时间先于无效或缺失时间）、normalized source path 和 event source start；cursor 是 opaque

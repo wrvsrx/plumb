@@ -1,6 +1,4 @@
-{
- `= title plumb 文档
-}
+`= title plumb 文档
 
 plumb 是一门严格、语义中立的 markup language。手写 parser 是语法有效性的唯一权威；
 heading、list、metadata、link、citation、task 和 event 等含义由official semantic profile 提供。

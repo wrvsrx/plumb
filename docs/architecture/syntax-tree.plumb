@@ -1,6 +1,4 @@
-{
- `= title plumb lossless syntax tree
-}
+`= title plumb lossless syntax tree
 
 `# 1. Purpose
 
@@ -33,7 +31,8 @@ head 内容中的连续 ASCII space/tab 产生独立 `"Inline::Space"；
 普通 marker/kind 保持原始 spelling；typed tree 不区分 heading、list、
 link 或 task。它与 token sequence 在同一次 parse 中产生，不是第二套 parser。
 
-document、marked block与 verbatim block 通过统一 `"Attributes" view
+document 保存一个 source-ordered top-level `"blocks" sequence，并可从 direct declaration blocks 投影
+generic attribute view，但不拥有 attached group。marked block 与 verbatim block 通过 `"Attributes" view
 暴露可选 recursive attached group。attached group 的 content 按
 owner category 直接复用 ordinary block 或 ordinary inline nodes，不产生专门的 property/facet node kind。
 marked block 另暴露 marker、head 和 children；paragraph 只有 inline content。verbatim block 另暴露

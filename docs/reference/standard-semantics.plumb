@@ -1,6 +1,4 @@
-{
- `= title plumb standard semantics reference
-}
+`= title plumb standard semantics reference
 
 `# 1. Scope
 
@@ -97,8 +95,18 @@ owner 可以进一步约束 child kinds。四种 member forms 与 migration rati
 
 `# 6. Metadata
 
-文件起始的 document attached group 是 document metadata；它的 direct `"=" associations 是 entries。
-document-level `"meta" block 不具有 metadata semantics。
+document 是 implicit root owner。它的 direct `"=" blocks 是 metadata entries，direct `"+" blocks 是
+document facets；两者可以与普通 document body blocks 任意交错，source order 不改变 ownership。official
+profile 从同一个 top-level block sequence 投影 declarations 与 body：direct `"="、`"+" 不进入 document
+body，其他 blocks 保持原有相对顺序；declaration 不形成 body separator，因此夹在 source-adjacent 同类
+body blocks 之间时不拆分 list 等相邻分组。declaration 的整个 subtree 只作为 declaration value 解释，
+不参与 heading、definition、list、quote、task 或 event 等 body recognizer。document-level `"meta" block
+不具有 metadata semantics。
+
+document identity 由 normalized workspace-relative path 定义，不由 source declaration 定义。direct
+`"@" block 不创建 document identity 或 anchor，发布 `"document.unsupported-identity" warning，并且作为
+无效 declaration 不进入 document body。nested `"@" 仍按其 direct block owner 的 identity declaration
+解释。document facets 使用非空 plain head；非法 facet 发布 `"document.invalid-facet" warning。
 
 metadata entry 使用第 5.1 节的 association projection：没有 children 时，第一个 inline item 是 key，
 separator 后的 remainder 是同行 value；存在 children 时，整个 nonempty plain head 是 key，children
@@ -118,14 +126,15 @@ metadata sequence 只接受 `"-"。它是有序数据，不表达 bullet/ordered
 支持。duplicate key 使用第一个值并发布 diagnostic。
 
 export 将 scalar、sequence、map、verbatim、null 映射为 Pandoc `"MetaInlines"、`"MetaList"、
-`"MetaMap"、`"MetaString" 和空 `"MetaString"。metadata block 不进入 document body。
+`"MetaMap"、`"MetaString" 和空 `"MetaString"。document declarations 不进入 document body；facets
+作为 document-level classification 保留在 semantic output，首版不自动改写为 Pandoc metadata key。
 
-metadata insertion operation 只用于尚无 metadata 的 syntax-valid document，且只在 cursor 位于
-document start（cursor 之前只有空白字节）时提供；edit 在 byte offset 0 插入 root group 及 `"title" 与
+metadata insertion operation 只用于尚无 metadata 的 syntax-valid document，且只在 cursor 精确位于
+document start（byte offset 0）时提供；edit 在 byte offset 0 插入 direct `"title" 与
 `"created"。title 默认取 filename stem；created 使用 operation 时刻的本地
 RFC 3339 timestamp。标准 `"date" scalar 使用 `"YYYY-MM-DD"；标准 `"timezone" scalar 使用 numeric
 UTC offset（例如 `"+08:00"），为 event 提供默认 local-time context。生成布局与 formatter 一致：
-properties 比 root brace 深一层；scalar 优先写在 property head 中。
+properties 位于 document column，scalar 优先写在 property head 中。
 
 标准 `"created" metadata value 必须是 scalar，并且是带 timezone 的完整 RFC 3339 timestamp。
 非法值发布 `"metadata.invalid-created" warning；它不改变 core syntax validity，依赖时间的 query、
@@ -158,6 +167,12 @@ traversal 也不解释 Link。旧 consecutive slots 与 `"to" attached property 
 label，即使其中含 spaces，也不得先按 space 拆成 positional target。没有 attached `"to" 时，单个
 legacy slot 才按第一个 space 分隔 compact label 与 target。多个 legacy slots 与 attached `"to" 同时
 出现，或存在多个 attached `"to" properties，均是冲突且迁移失败。
+
+已经使用 current inline syntax、但仍保留文件头 document attached group 的过渡文档使用
+`"plumb migrate --from document-group-v1"。converter 只将该 root group 的 direct blocks 提升为 implicit
+document root 的 direct children，不改写其余 current syntax；它必须用 current strict parser 验证临时 owner
+结构和最终文档，并通过 `"plumb-edit" owned syntax 产生 canonical result。没有 root group 的 current-valid
+文档保持 byte-identical；不能形成唯一 expanded block group 的文件头或其他 current syntax error 使迁移失败。
 
 标准 Autolink 使用 inline verbatim `"->" kind；payload 同时是 label 与 target：
 
@@ -196,12 +211,12 @@ candidates，也不推测 Autolink 意图。
 workspace 使用 open buffer 覆盖 disk snapshot。document target 已确定但 fragment missing 时，
 仍保留 document-level reverse edge。
 
-editor cursor target resolution 将顶层有效 document group opener 视为 document declaration；metadata title
-value 不定义 document identity。named Link、Autolink 与 task reference 中的 `"..plumb" path component
+editor cursor target resolution 将 document byte offset 0 视为 path-defined document declaration；metadata
+title value 不定义 document identity。named Link、Autolink 与 task reference 中的 `"..plumb" path component
 解析为 document target，`"#id" fragment component 解析为 explicit anchor target；因此 references query
 可以从 declaration 或任意 reference occurrence 发起。跨文件 `"`path.plumb#id" 的 path 与 fragment
 按 cursor 所在 component 分别查询 document 与 anchor references。`"includeDeclaration" 只控制结果中
-是否额外包含 document group opener 或 explicit anchor declaration，不因 request position 改变 occurrence 集合。
+是否额外包含 document offset 0 或 explicit anchor declaration，不因 request position 改变 occurrence 集合。
 document reverse references 保留真实 same-document occurrences；Graph 等 consumer 可以独立隐藏 self-edge。
 
 `# 8. Images
@@ -533,7 +548,7 @@ closed dependency 不接受传播。整个投影取所有可达来源 priority �
 source position；due 按 RFC 3339 instant 比较。query 先过滤 records，再从保留 records 投影用于排序的
 forest；只有保留 task 的 priority、due 与 relevance 参与 ancestor 和 document 聚合，未匹配或因 state
 被排除的 task 不得改变结果顺序。Task query limit 不得截断 document subtree；必要时返回超过 limit 的
-完整首个或末尾 document group，并用 `"complete=false" 表示仍有结果。
+完整首个或末尾 document subtree，并用 `"complete=false" 表示仍有结果。
 
 workspace query、LSP hover 与 Web task view 在 closure state 之上推导互斥 workflow state：
 

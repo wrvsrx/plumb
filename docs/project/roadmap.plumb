@@ -1,6 +1,4 @@
-{
- `= title plumb roadmap
-}
+`= title plumb roadmap
 
 本页只记录尚未完成或需要继续验证的工作。当前可用 surface 见
 `->[工具链指南|../guide/toolchain.plumb]；已经冻结的规则见 `"`reference/"；可以直接

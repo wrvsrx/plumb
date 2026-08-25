@@ -1,6 +1,4 @@
-{
- `= title plumb diagnostics reference
-}
+`= title plumb diagnostics reference
 
 `# 1. Diagnostic ownership
 
@@ -30,11 +28,12 @@ syntax diagnostics 分为：
  非结构位置不再回落为 text：`"syntax.unattached-group"、`"syntax.unexpected-group-close"、
  `"syntax.unattached-bracket" 与 `"syntax.unexpected-element-close" 分别对应四种 delimiter。
 
-attached ownership 使用三个专用 codes：同一 owner 的第二个 group 使用
+attached ownership 使用两个专用 codes：同一 owner 的第二个 group 使用
 `"syntax.duplicate-attached-group"，primary range 指向第二个 opening brace，related range 指向第一个 group；
-compact block group 后的 non-whitespace source 使用 `"syntax.trailing-after-attached-group"；文件起始的单行
-`"{}" 使用 `"syntax.invalid-document-group"。duplicate recovery 保留第一个 group，并将第二个 group 标为
-error region；trailing source 不重新并入 head；invalid document group 不产生 document attachment。
+compact block group 后的 non-whitespace source 使用 `"syntax.trailing-after-attached-group"。duplicate
+recovery 保留第一个 group，并将第二个 group 标为 error region；trailing source 不重新并入 head。
+文件开头的 bare opening/closing brace 不再有 document-specific recovery，分别使用普通
+`"syntax.unattached-group" 与 `"syntax.unexpected-group-close"。
 
 同一 source range 和根因只发布最具体的错误。structural error 优先于由错误结构派生的 generic
 delimiter error。
@@ -113,7 +112,6 @@ precedence、ordering、recovery 与 lossless token coverage；lenient tree-sitt
   syntax.unclosed-attached-group
   syntax.duplicate-attached-group
   syntax.trailing-after-attached-group
-  syntax.invalid-document-group
   syntax.unattached-group
   syntax.unexpected-group-close
   syntax.unattached-bracket

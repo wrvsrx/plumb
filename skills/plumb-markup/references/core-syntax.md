@@ -51,17 +51,27 @@ Two backticks escape the introducer and produce a literal backtick:
 ``kind `[content`] is literal text
 ```
 
-## Attached Groups
+## Document Root
 
-Every document or marked/verbatim block owner may have one attached group. This
-is a postfix ownership structure, not an attribute sublanguage. Expanded groups
-contain ordinary blocks; compact block groups contain ordinary inline elements.
+The document is an implicit root owner. It contains one source-ordered sequence
+of top-level blocks and has no attached-group site. A bare opening brace at the
+start of a file is therefore invalid. Semantic profiles may interpret ordinary
+top-level marker spellings as document declarations.
 
 ```plumb
-{
-  `= title Document title
-}
+`= title Document title
+`+ guide
 
+Body paragraph.
+```
+
+## Attached Groups
+
+Every marked/verbatim block owner may have one attached group. This is a postfix
+ownership structure, not an attribute sublanguage. Expanded groups contain
+ordinary blocks; compact block groups contain ordinary inline elements.
+
+```plumb
 `node Head {
  `@ intro
 
@@ -90,9 +100,9 @@ lines; that column also hosts the close and later child siblings, and a blank
 line breaks the continuation. `plumb fmt` canonicalizes the placement by head
 shape: a single-line head gets the trailing opener on the header line, a
 wrapped head gets the own-line opener. Verbatim blocks cannot use a
-continuation-line opener because their line ending begins raw payload. An
-Groups may recursively contain owners with their own groups. Core does not assign id, facet, property,
-class, or key-value meaning to their content.
+continuation-line opener because their line ending begins raw payload. Groups
+may recursively contain owners with their own groups. Core does not assign id,
+facet, property, class, or key-value meaning to their content.
 
 The removed `{#id .class key=value}` spelling is not part of current syntax.
 Do not author it. Ordinary parsing and `plumb fmt` reject it.

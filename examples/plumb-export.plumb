@@ -1,17 +1,15 @@
-{
- `= title plumb export playground
- `= author plumb
- `= created 2026-07-20T00:00:00+08:00
- `= keywords
+`= title plumb export playground
+`= author plumb
+`= created 2026-07-20T00:00:00+08:00
+`= keywords
 
-  `- strict markup
-  `- pandoc
+ `- strict markup
+ `- pandoc
 
- `= project
+`= project
 
-  `= name plumb
-  `= stage prototype
-}
+ `= name plumb
+ `= stage prototype
 
 This document exercises the successfully exportable semantic profile.
 
@@ -61,7 +59,9 @@ citation profile currently accepts one plain id, such as `cite[smith2004].
 
  First definition.
 
-`: another term {`+[example]}
+`: another term {
+ `+ example
+}
 
  Second definition with attributes.
 

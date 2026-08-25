@@ -1,6 +1,4 @@
-{
- `= title Attached declarations redesign
-}
+`= title Attached declarations redesign
 
 本文保存 attached declarations 最终设计及其取舍。该设计已经进入 current development line；validity
 与标准语义分别以 `->[core syntax reference|../reference/core-syntax.plumb] 和

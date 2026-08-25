@@ -1,12 +1,14 @@
-{
- `= title plumb core syntax reference
-}
+`= title plumb core syntax reference
 
 `# 1. Scope
 
 本文定义 core syntax validity。core 识别 source structure，不解释 marker、inline kind 或 attached
 content 的语义。任意语法错误都使文档不能进入 authoritative semantic analysis 或 export；
 parser 仍必须恢复并产生 lossless tree 与全部可报告 diagnostics。
+
+document 是 implicit root owner；它只保存 source-ordered top-level blocks，不声明 attached group。
+所有顶层 blocks 都是 document 的 direct children，core 不按 marker spelling 把其中任何 block 移出该
+sequence 或划入单独的 document attribute region。
 
 输入是 UTF-8 bytes。offset 和 range 使用 UTF-8 half-open byte range。不做 Unicode normalization
 或 backslash processing。
@@ -130,11 +132,10 @@ columns 之间是 partial dedent error。结构 indentation 只能使用 ASCII s
 
 `# 7. Attached groups
 
-attached group 是 postfix ownership operator，不是 attribute sublanguage。group 只在 owner 声明的
+attached group 是 postfix ownership operator，不是 attribute sublanguage。group 只在 block owner 声明的
 attachment site 被识别；其他位置的无主 brace 按第 2 节发布错误，不回落为 text。每个 owner
 最多有一个 group：
 
-`- document group 必须是文件第一个结构，包含 ordinary blocks。
 `- marked/verbatim block group 由 horizontal whitespace 与其前的 head source 分开；compact form 包含
  ordinary inline elements，expanded form 包含 ordinary blocks。marked block 的 opener 可以位于任意
  一条 head line 行尾，或独占 head 的最后一条 continuation line（见下）；verbatim block 只允许
@@ -158,14 +159,14 @@ column 同时是 group close 与后续 child siblings 的 column；opener 位于
 在深于 owner 的 column 上自行建立。continuation line 上的 ordinary opening brace 与 header line
 一样参与 attachment 判定；在 attachment position 需要字面 opening brace 时，使用单个 introducer 加
 opening brace 阻止 group 开始。
-document 没有 header，只允许 opening brace 独占文件第一条 structural line 的 expanded form：
+document root 不提供 attachment site；文件开头的独占 opening brace 与其他无主 brace 一样发布
+`"syntax.unattached-group"。顶层 declarations 若由 semantic profile 定义，仍使用 ordinary top-level
+blocks 表达：
 
 `plumb"
-  {
-   `= title Document title
-   `= tags
-    `- plumb
-  }
+  `= title Document title
+  `= tags
+   `- plumb
 
   `- Buy milk {
    `+ shopping
@@ -212,9 +213,8 @@ head 分隔的 group 才归 marked block。expanded group 一出现就结束 def
 ordinary text 只能开始 child paragraph，不能恢复 head。
 
 空 group 合法。expanded block group 由 head 的 attachment site——header line 行尾或独占的最后一条 head continuation line——与 indentation
-建立 ownership，不允许作为任意独立 sibling。单行 document
-`"{}" 非法，因为 document group 只允许 expanded form。core 原样保留 attached content，不把其中
-spelling 固定解释为 facet、identity 或 property。
+建立 ownership，不允许作为任意独立 sibling。core 原样保留 attached content，不把其中 spelling
+固定解释为 facet、identity 或 property。
 
 compact form 的 content 一律使用 ordinary inline grammar；expanded form 的 content 一律使用 ordinary
 block grammar。两种 form 即使为空也保留各自的 source layout 与 typed content category；group presence
@@ -228,7 +228,7 @@ owner 的 nested group，是 syntax error。二者的字面使用遵循第 2 节
 第一个 group 之后再次出现在同一 owner attachment position 的 group 发布
 `"syntax.duplicate-attached-group"，不能覆盖或合并第一个 group。compact block group close 后允许 trailing
 horizontal whitespace；其他 source 发布 `"syntax.trailing-after-attached-group"，不得静默丢弃或重新解释为
-head。单行 document `"{}" 发布 `"syntax.invalid-document-group"。
+head。
 
 `# 8. Parsed inline element
 
@@ -272,7 +272,7 @@ kind spelling 猜测 declaration，也不分别存储会丢失交错位置的 ar
 属于 parsed argument content，不建立 member boundary；literal pipe 在 parsed argument 中写作 delimiter
 escape。verbatim payload 中的 pipe 是 raw byte，nested child 内的 pipe 属于 nested owner。
 
-连续 `"[][]" 和 inline postfix `"{}" 都不是当前语法。前者在第一个 close 后恢复为 unattached bracket，
+连续 `"[[][]]" 和 inline postfix `"{}" 都不是当前语法。前者在第一个 close 后恢复为 unattached bracket，
 后者恢复为 unattached group；版本迁移必须通过显式 legacy parser 与 converter 完成，current parser 与
 formatter 不读取旧 spelling。
 

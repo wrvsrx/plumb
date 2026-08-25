@@ -1,7 +1,5 @@
-{
- `= title plumb playground
- `= created 2026-07-20T00:00:00+08:00
-}
+`= title plumb playground
+`= created 2026-07-20T00:00:00+08:00
 
 Open this directory as a workspace after building the toolchain. These documents
 exercise the implemented language server, exporter, and notes features.

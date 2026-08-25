@@ -1,6 +1,4 @@
-{
- `= title tree-sitter-plumb
-}
+`= title tree-sitter-plumb
 
 The intentionally lenient tree-sitter grammar for plumb editor tooling. The
 hand-written `"plumb-syntax" parser remains the authority for syntax errors

@@ -1,6 +1,4 @@
-{
- `= title plumb syntax editing
-}
+`= title plumb syntax editing
 
 `# 1. Boundary
 
@@ -49,15 +47,14 @@ column 加一，closing brace 回到 owner column。head 折行时，formatter �
 line 的 own-line opener，并将 opener、closing brace 与后续 children 统一放在 owner column 加一，
 将 group content 放在 opener column 加一；source 中的 trailing-on-continuation placement 会被改写
 为该典范形式。普通 children 与 deferred head continuation 同样使用 owner column 加一，不按 marker
-width 对齐 conceptual head column。document group 的 content 同样从 document owner column 加一
-开始。expanded group content、document body 与 marked-block children 使用同一套 sibling spacing：前一个
+width 对齐 conceptual head column。document body 与 marked-block children 使用同一套 sibling spacing：前一个
 parsed block 没有 children 且前后 marker 相同时只用一个 line ending；前一个 block 有 children、marker
 不同或任一 sibling 不是 parsed block 时使用一个 blank separator；前一个 block 的 terminal descendant
 是 verbatim block 时同样保证一个 blank separator。attached ownership、document metadata projection 与
 其他 semantic profile meaning 不得改变这套 syntax-only spacing。
 
 新建 owned group 尚无 source form 时，inline content 使用 compact，block content 使用 expanded；新建空
-marked/verbatim block group 默认 compact，document group 始终 expanded。已有显式 empty compact/expanded
+marked/verbatim block group 默认 compact。已有显式 empty compact/expanded
 group 保留其 form，formatter 不删除 group。closing brace line 只允许 trailing horizontal whitespace。
 
 verbatim block source 可以用 `"N" 个 opening quotes 声明 `"N" 个 ASCII-space structural margin，但
@@ -73,7 +70,8 @@ block API 支持插入 owned blocks、插入 sibling blocks、用 owned block �
 block。sibling insertion 从 revision snapshot 的 owner column 推导 base indentation，保留 LF/CRLF，
 再由 formatter 使用相邻 sibling 作为 read-only spacing context。
 
-metadata insertion 与 recurring-task clone 都使用 owned block insertion。recurring task operation 在
+metadata insertion 使用 ordinary top-level `"=" owned blocks；recurring-task clone 使用 owned block
+insertion。recurring task operation 在
 owned attached properties 上移除旧 instance state、设置 next instance fields，不再对 source slice 做相对 range
 replacement。
 

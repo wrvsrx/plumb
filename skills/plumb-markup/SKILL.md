@@ -64,9 +64,13 @@ it. Inside the plumb source repository, prefer
   whitespace. Inline owners place arguments and children in one `[]` envelope.
 - Open expanded block groups at the end of the owner header. A marked block may
   instead use an immediately following, deeper opener at its continuation
-  column. Close at the opener column. Verbatim groups remain on the opener line;
-  document groups remain structural and expanded.
-- Use direct `@` declarations for explicit ids. Headings do not generate implicit ids.
+  column. Close at the opener column. Verbatim groups remain on the opener line.
+- The document is an implicit root owner with no attached group. Direct top-level
+  `=` blocks are metadata and direct top-level `+` blocks are document facets;
+  they may interleave with body blocks. Document identity comes from its
+  workspace-relative path, so do not use a direct top-level `@` block.
+- Use direct `@` declarations inside block attached groups for explicit ids.
+  Headings do not generate implicit ids.
 - Separate ordered inline members with `|`. Arguments and introducer-elided
   children may interleave; spaces remain part of an argument.
 - Do not author the removed `{#id .class key=value}` spelling; parsing and
@@ -79,9 +83,8 @@ it. Inside the plumb source repository, prefer
 ## Standard Spelling
 
 ```plumb
-{
-  `= title Example
-}
+`= title Example
+`+ guide
 
 `# Heading {
   `@ intro

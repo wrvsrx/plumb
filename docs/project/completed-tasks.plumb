@@ -1,6 +1,4 @@
-{
- `= title completed plumb tasks
-}
+`= title completed plumb tasks
 
 本页归档已经结束的任务及其验收记录。可以直接实施的工作只记录在
 `->[`()[current tasks]|tasks.plumb]；方向、约束和 deferred design 继续放在

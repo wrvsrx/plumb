@@ -1,7 +1,5 @@
-{
- `= title plumb note and task playground
- `= area examples
-}
+`= title plumb note and task playground
+`= area examples
 
 This file provides records for document queries, reverse references, task and event
 queries, nesting, dependencies, recurrence, and guarded actions.

@@ -1,6 +1,4 @@
-{
- `= title plumb 标准语义指南
-}
+`= title plumb 标准语义指南
 
 core 只识别结构；本页介绍官方工具链赋予常用 marker、inline kind 和 attached elements 的语义。
 
@@ -49,21 +47,22 @@ ordered list 固定从 1 开始。
 
 `# Metadata
 
-文档 metadata 是文件开头的 document attached group，其中每个 `"=" block 是 key/value association：
+document 是 implicit root owner。顶层 direct `"=" block 是 metadata key/value association，direct
+`"+" block 是 document facet；它们可以与正文 blocks 交错，且不会拆分投影后相邻的正文 list。
+document identity 来自 normalized workspace-relative path，因此顶层 direct `"@" 不受支持：
 
 `plumb"
-  {
-    `= title Document title
+  `= title Document title
+  `+ guide
 
-    `= created 2026-07-20T09:00:00+08:00
+  `= created 2026-07-20T09:00:00+08:00
 
-    `= tags
-      `- plumb
-      `- notes
+  `= tags
+   `- plumb
+   `- notes
 
-    `= author
-      `= name Alice
-  }
+  `= author
+   `= name Alice
 
 value 可以是 null、一个 paragraph scalar、`"-" sequence、nested `"=" map 或一个 verbatim
 block。metadata sequence 只使用 `"-"；它表示数据顺序，不带正文 list style。
@@ -71,7 +70,8 @@ block。metadata sequence 只使用 `"-"；它表示数据顺序，不带正文 
 `"created" 使用带 timezone 的完整 RFC 3339 timestamp。非法值会产生
 `"metadata.invalid-created" warning，但不使 core syntax 无效。空文档也可以通过
 `"Insert document metadata" code action 创建带默认 filename title 与当前 created 的 metadata；
-该 action 只在 cursor 位于 document start（第一个非空白字节之前）时提供。
+该 action 只在 cursor 精确位于 document start（byte offset 0）时提供，并在 byte 0 插入 direct
+`"title" 与 `"created" declarations。
 
 `# Link
 

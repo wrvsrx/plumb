@@ -1,6 +1,4 @@
-{
- `= title plumb editor integration 指南
-}
+`= title plumb editor integration 指南
 
 `# LSP boundary
 
@@ -203,8 +201,8 @@ CSL JSON files 补全 ids。单独 opening bracket prefix 不提供候选。snip
 使用 tab stops。Task completion 根据 client 的 multiline insertion mode 投影缩进，因此在顶层或嵌套位置
 都生成相同的 canonical expanded-group layout。
 CodeAction 包括 metadata insertion、explicit id、event shorthand conversion、task conversion、
-created insertion 和 task status operations。metadata insertion 只在 cursor 位于 document start（cursor
-之前仅有空白）时提供；event shorthand 的具体格式见
+created insertion 和 task status operations。metadata insertion 只在 cursor 精确位于 document start（byte offset 0）
+时提供；event shorthand 的具体格式见
 `->[Event|semantics.plumb]。whole-document 与 range formatting 使用同一个 canonical formatter。
 Whole-document formatting 由 protocol-neutral formatter 产生 non-overlapping line-diff edits，LSP 只做
 position mapping，并只替换实际变化的行；Neovim 使用

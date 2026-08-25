@@ -1,6 +1,4 @@
-{
- `= title plumb 语法指南
-}
+`= title plumb 语法指南
 
 plumb 使用反引号引入特殊结构。特殊 spelling 一旦开始就必须完整合法；错误不会静默退化为
 普通文本。
@@ -98,16 +96,25 @@ ASCII-space structural margin。通常只写一个 quote 和一个空格：
 结构缩进后的 payload bytes 会原样保留。内部空行可以完全空白；尾部空行只有带完整 structural margin
 才属于 payload，否则它是 block layout。verbatim block 没有 closing fence。
 
-`# Attached groups
+`# Document root
 
-document 与 marked/verbatim block 可以拥有 attached group。group 是 postfix ownership structure，
-不是另一套 attribute parser，并递归包含普通 blocks 或 compact ordinary inlines。inline ownership
-已经由第 8 节的 members 表达，不使用 postfix group。
+document 是 implicit root owner，保存 source-ordered top-level blocks，不拥有 attached group。文件开头
+的裸 `"{" 因而与其他 unattached brace 一样是 syntax error。顶层 declaration 仍是普通 marked block；
+例如 official semantic profile 使用 direct `"=" 与 `"+"：
 
 `plumb"
-  {
-    `= title Document title
-  }
+  `= title Document title
+  `+ guide
+
+  Body paragraph.
+
+`# Attached groups
+
+marked/verbatim block 可以拥有 attached group。group 是 postfix ownership structure，不是另一套
+attribute parser，并递归包含普通 blocks 或 compact ordinary inlines。inline ownership 已经由第 8 节的
+members 表达，不使用 postfix group。
+
+`plumb"
 
   `node Head {
     `@ intro

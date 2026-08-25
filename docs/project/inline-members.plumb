@@ -1,6 +1,4 @@
-{
- `= title Unified inline members design
-}
+`= title Unified inline members design
 
 本文记录 single-envelope inline members 的设计动机与 migration boundary。当前 validity 以
 `->[core syntax reference|../reference/core-syntax.plumb] 为准，official projection 以
@@ -114,8 +112,8 @@ owner attributes 消费 declaration children，specialized owner 再约束普通
 `- relation kind 的 semantic meaning 不进入 core dispatch。
 `- compact inline verbatim 仍可作为 standalone inline node；需要 owner children 的 verbatim value
  使用含 verbatim argument 的 full member envelope。
-`- block/document attached group 是否同时移除，取决于 verbatim block raw payload 与 document metadata
- 的 ownership spelling；不能从 inline member design 自动推导。
+`- block attached group 继续表达显式 postfix ownership；document 改用 implicit root ownership，direct
+ top-level declaration blocks 与 body blocks 共用同一 ordered child sequence。
 
 这是 breaking syntax change；current parser 不包含 legacy compatibility branch。
 

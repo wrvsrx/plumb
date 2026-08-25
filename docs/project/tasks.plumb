@@ -1,6 +1,4 @@
-{
- `= title plumb tasks
-}
+`= title plumb tasks
 
 本页只记录可以直接实施和验收的工作。方向、约束和 deferred design 继续放在
 `->[roadmap|roadmap.plumb]；已经结束的任务及其验收记录保存在

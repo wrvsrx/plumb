@@ -1,6 +1,4 @@
-{
- `= title djot-tools capability audit
-}
+`= title djot-tools capability audit
 
 本页记录 plumb 早期从 djot-tools 提取的产品能力，不表示 syntax 或 crate compatibility。当前功能
 与计划分别以 `"`guide/" 和 `"`project/roadmap.plumb" 为准。

@@ -1,6 +1,4 @@
-{
- `= title plumb architecture overview
-}
+`= title plumb architecture overview
 
 `# 1. Data flow
 
