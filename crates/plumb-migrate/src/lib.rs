@@ -126,14 +126,33 @@ fn convert_block(block: &legacy::Block) -> Result<OwnedBlock, MigrationError> {
 
 fn convert_attached_block(block: &legacy::Block) -> Result<OwnedBlock, MigrationError> {
     let mut converted = convert_block(block)?;
+    let association = matches!(block, legacy::Block::Parsed(block) if block.mark.as_ref().is_some_and(|mark| mark.marker == ":"));
     if let OwnedBlock::Parsed {
         marker: Some(marker),
+        children,
         ..
     } = &mut converted
     {
         *marker = declaration_kind(marker).to_string();
+        if association {
+            map_legacy_value_associations(children);
+        }
     }
     Ok(converted)
+}
+
+fn map_legacy_value_associations(blocks: &mut [OwnedBlock]) {
+    for block in blocks {
+        if let OwnedBlock::Parsed {
+            marker, children, ..
+        } = block
+        {
+            if marker.as_deref() == Some(":") {
+                *marker = Some("=".into());
+            }
+            map_legacy_value_associations(children);
+        }
+    }
 }
 
 fn convert_block_attributes(
@@ -469,6 +488,17 @@ mod tests {
         assert!(migrated.contains("`opaque value"), "{migrated}");
         assert!(migrated.contains("`note ordinary child"), "{migrated}");
         assert!(plumb_syntax::parse(&migrated).is_valid(), "{migrated}");
+    }
+
+    #[test]
+    fn migrates_nested_map_entries_but_preserves_sequence_items() {
+        let source =
+            "{\n `: project\n   `: name plumb\n   `: tags\n     `- syntax\n     `- tools\n}\n";
+        let migrated = migrate_attached_v1(source).unwrap();
+        assert!(migrated.contains("`= project"), "{migrated}");
+        assert!(migrated.contains("`= name plumb"), "{migrated}");
+        assert!(migrated.contains("`= tags"), "{migrated}");
+        assert!(migrated.contains("`- syntax"), "{migrated}");
     }
 
     #[test]
