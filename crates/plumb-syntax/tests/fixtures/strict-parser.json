@@ -276,7 +276,10 @@
     "source": "{}\n",
     "valid": false,
     "blocks": [{"kind":"paragraph","head":"","inline":""}],
-    "diagnostics": [{"code":"syntax.invalid-document-group","range":{"text":"{}"}}],
+    "diagnostics": [
+      {"code":"syntax.unattached-group","range":{"text":"{"}},
+      {"code":"syntax.unexpected-group-close","range":{"text":"}"}}
+    ],
     "required_tokens": ["Error"]
   },
   {

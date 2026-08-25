@@ -115,9 +115,6 @@ pub struct Document {
 impl Drop for Document {
     fn drop(&mut self) {
         let mut pending = std::mem::take(&mut self.blocks);
-        if let Some(attached) = self.attrs.attached.take() {
-            attached.append_blocks_to(&mut pending);
-        }
         while let Some(block) = pending.pop() {
             if let Block::Parsed(mut block) = block {
                 if let Some(mark) = &mut block.mark {

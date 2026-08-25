@@ -11,8 +11,11 @@ pub fn parse(source: impl Into<String>) -> ParsedDocument {
         lines,
         diagnostics: Vec::new(),
     };
-    let (attrs, body_start) = parser.parse_root_attached();
-    let (blocks, _) = parser.parse_blocks(body_start, 0);
+    let (blocks, _) = parser.parse_blocks(0, 0);
+    let attrs = Attributes {
+        items: project_block_attributes(&source, &blocks),
+        ..Attributes::default()
+    };
     let syntax = Document {
         attrs,
         blocks,
@@ -29,24 +32,6 @@ pub fn parse(source: impl Into<String>) -> ParsedDocument {
 }
 
 fn normalize_diagnostics(mut diagnostics: Vec<Diagnostic>) -> Vec<Diagnostic> {
-    // The most specific error wins: generic bare-delimiter errors contained
-    // in an invalid document group range share its root cause.
-    let document_group_ranges: Vec<_> = diagnostics
-        .iter()
-        .filter(|diagnostic| diagnostic.code == "syntax.invalid-document-group")
-        .map(|diagnostic| diagnostic.range.clone())
-        .collect();
-    if !document_group_ranges.is_empty() {
-        diagnostics.retain(|diagnostic| {
-            !(matches!(
-                diagnostic.code,
-                "syntax.unattached-group" | "syntax.unexpected-group-close"
-            ) && document_group_ranges.iter().any(|range| {
-                range.contains(&diagnostic.range.start)
-                    && range.contains(&diagnostic.range.end.saturating_sub(1))
-            }))
-        });
-    }
     let preferred = diagnostics
         .iter()
         .map(|diagnostic| (diagnostic.code, diagnostic.range.clone()))
@@ -435,26 +420,6 @@ struct Parser<'a> {
 }
 
 impl Parser<'_> {
-    fn parse_root_attached(&mut self) -> (Attributes, usize) {
-        let Some(index) = self.lines.0.iter().position(|line| !line.blank) else {
-            return (Attributes::default(), 0);
-        };
-        let line = &self.lines.0[index];
-        let content = self.source[line.start + line.indent..line.content_end].trim_end();
-        if line.indent == 0 && content == "{}" {
-            self.diagnostics.push(Diagnostic::error(
-                "syntax.invalid-document-group",
-                "document attached group must use expanded form",
-                line.start..line.start + 2,
-            ));
-            return (Attributes::default(), 0);
-        }
-        if !self.is_group_delimiter(index, 0, b'{') {
-            return (Attributes::default(), 0);
-        }
-        self.parse_expanded_attached(index, line.start, 0)
-    }
-
     /// Parses an expanded attached group whose opening brace sits at byte
     /// `open` on line `opener_index`. `opener_column` is the structural
     /// column of the opener's line: group content must be deeper, and the
@@ -2213,18 +2178,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parses_root_and_marked_block_attached_groups_with_ordinary_blocks() {
-        let source = "{\n  `= title Document title\n  `= tags plumb\n}\n\n`- Buy milk {\n  `+ task\n  `@ shopping\n  `= due 2026-08-07\n}\n\n  Details.\n";
+    fn projects_interleaved_document_declarations_and_block_attached_groups() {
+        let source = "`= title Document title\n\nBody.\n\n`+ plumb\n\n`- Buy milk {\n  `+ task\n  `@ shopping\n  `= due 2026-08-07\n}\n\n  Details.\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         assert_eq!(parsed.syntax.attrs.value("title"), Some("Document title"));
-        let root = parsed.syntax.attrs.attached.as_deref().unwrap();
-        let AttachedContent::Blocks(root_blocks) = &root.content else {
-            panic!("expected block attached content");
-        };
-        assert_eq!(root_blocks.len(), 2);
+        assert!(parsed.syntax.attrs.has_class("plumb"));
+        assert!(parsed.syntax.attrs.attached.is_none());
+        assert_eq!(parsed.syntax.blocks.len(), 4);
 
-        let Block::Parsed(item) = &parsed.syntax.blocks[0] else {
+        let Block::Parsed(item) = &parsed.syntax.blocks[3] else {
             panic!("expected list item");
         };
         let attrs = &item.mark.as_ref().unwrap().attrs;
@@ -2270,14 +2233,10 @@ mod tests {
         };
         assert_eq!(attrs.value("key with spaces"), Some("value with spaces"));
 
-        let block = parse("{\n `= key with spaces\n   `- value\n}\n");
+        let block = parse("`= key with spaces\n `- value\n");
         assert!(block.is_valid(), "{:?}", block.diagnostics);
         assert_eq!(block.syntax.attrs.value("key"), None);
-        let attached = block.syntax.attrs.attached.as_deref().unwrap();
-        let AttachedContent::Blocks(blocks) = &attached.content else {
-            panic!("expected block attachment");
-        };
-        let Block::Parsed(property) = &blocks[0] else {
+        let Block::Parsed(property) = &block.syntax.blocks[0] else {
             panic!("expected association block");
         };
         assert_eq!(property.head.plain_text(), "key with spaces");
@@ -2725,7 +2684,7 @@ mod tests {
         assert!(document
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.code == "syntax.invalid-document-group"));
+            .any(|diagnostic| diagnostic.code == "syntax.unattached-group"));
 
         let tight_verbatim = parse("`rust\"{`@[id]}\n  payload\n");
         assert!(!tight_verbatim.is_valid());
@@ -2859,14 +2818,9 @@ mod tests {
         // Own-line opener: the close returns to the head continuation column.
         let own_line = parse("`- Work\n  {\n   `+ task\n  }\n");
         assert!(own_line.is_valid(), "{:?}", own_line.diagnostics);
-        // Document opener: the close returns to the file column.
-        let document = parse("{\n `= title T\n}\n");
-        assert!(document.is_valid(), "{:?}", document.diagnostics);
-
         for source in [
             "`- Work {\n  `+ task\n  }\n",
             "`- Work\n  {\n   `+ task\n   }\n",
-            "{\n `= title T\n }\n",
         ] {
             let parsed = parse(source);
             assert!(!parsed.is_valid(), "{source}");

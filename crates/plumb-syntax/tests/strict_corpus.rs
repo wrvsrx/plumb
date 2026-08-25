@@ -73,7 +73,6 @@ fn strict_parser_normative_corpus() {
         "syntax.legacy-attributes",
         "syntax.duplicate-attached-group",
         "syntax.trailing-after-attached-group",
-        "syntax.invalid-document-group",
         "syntax.unclosed-inline",
         "syntax.unclosed-verbatim",
         "syntax.tab-indentation",

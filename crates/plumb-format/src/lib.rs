@@ -33,12 +33,6 @@ pub fn format_parsed(parsed: &ParsedDocument) -> Result<String, FormatError> {
     }
 
     let mut formatter = Formatter::default();
-    if parsed.syntax.attrs.attached.is_some() {
-        formatter.block_attached(&parsed.syntax.attrs, 0, true, true, None);
-        if !parsed.syntax.blocks.is_empty() {
-            formatter.output.push_str("\n\n");
-        }
-    }
     let body = &parsed.syntax.blocks;
     formatter.blocks(&body, 0);
     if terminal_verbatim(&body).is_none() && !formatter.output.is_empty() {
@@ -753,8 +747,8 @@ impl Formatter {
     /// Renders an expanded attached group. The canonical placement follows
     /// the head shape: the opener trails the header line while the head
     /// fits on one line, and occupies a continuation line once the head
-    /// wraps. The document group always opens its own first structural
-    /// line.
+    /// wraps. A synthetic document owner, used only by migration, always
+    /// opens its group on the first structural line.
     fn block_attached(
         &mut self,
         attrs: &Attributes,
@@ -962,10 +956,10 @@ mod tests {
     #[test]
     fn formats_recursive_attached_groups() {
         assert_formats(
-            "{\n  `:   title Document title\n\n  `: tags plumb\n}\n\n`-   Buy milk {\n  `-   task\n  `@   shopping\n}\n\n   Details.\n",
-            "{\n `: title Document title\n `: tags plumb\n}\n\n`- Buy milk {\n `- task\n\n `@ shopping\n}\n\n Details.\n",
+            "`=   title Document title\n\n`= tags plumb\n\n`-   Buy milk {\n  `-   task\n  `@   shopping\n}\n\n   Details.\n",
+            "`= title Document title\n`= tags plumb\n\n`- Buy milk {\n `- task\n\n `@ shopping\n}\n\n Details.\n",
         );
-        assert_formats("{\n}\n", "{\n}\n");
+        assert_formats("", "");
         assert_formats("`\"\"\n  payload\n", "`\"\n payload\n");
         assert_formats(
             "See `->[guide|@[main]|+[external]|=[to|guide.plumb]].\n",
@@ -980,8 +974,8 @@ mod tests {
     #[test]
     fn expanded_groups_use_ordinary_block_sibling_spacing() {
         assert_formats(
-            "{\n `: title\n\n  Example\n `: date\n\n  2026-08-23\n}\n\n`node Group {\n `@ stable\n `: first one\n `: second two\n `note Details\n\n  Child\n `rust\"\n  payload\n `: after raw\n}\n",
-            "{\n `: title\n\n  Example\n\n `: date\n\n  2026-08-23\n}\n\n`node Group {\n `@ stable\n\n `: first one\n `: second two\n\n `note Details\n\n  Child\n\n `rust\"\n  payload\n\n `: after raw\n}\n",
+            "`= title\n\n Example\n`= date\n\n 2026-08-23\n\n`node Group {\n `@ stable\n `: first one\n `: second two\n `note Details\n\n  Child\n `rust\"\n  payload\n `: after raw\n}\n",
+            "`= title\n\n Example\n\n`= date\n\n 2026-08-23\n\n`node Group {\n `@ stable\n\n `: first one\n `: second two\n\n `note Details\n\n  Child\n\n `rust\"\n  payload\n\n `: after raw\n}\n",
         );
     }
 

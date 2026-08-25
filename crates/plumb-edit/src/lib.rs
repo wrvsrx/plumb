@@ -102,9 +102,6 @@ pub enum OwnedValue {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OwnedBlock {
-    Document {
-        attributes: OwnedAttributes,
-    },
     Parsed {
         marker: Option<String>,
         attributes: OwnedAttributes,
@@ -227,13 +224,16 @@ impl OwnedAttribute {
 }
 
 impl OwnedBlock {
-    pub fn document(attributes: Vec<OwnedAttribute>) -> Self {
-        Self::Document {
-            attributes: OwnedAttributes {
-                present: true,
-                items: attributes,
-                content: None,
-            },
+    pub fn association(key: impl Into<String>, value: impl Into<String>) -> Self {
+        Self::Parsed {
+            marker: Some("=".into()),
+            attributes: OwnedAttributes::default(),
+            head: vec![
+                OwnedInline::Text(key.into()),
+                OwnedInline::Space(" ".into()),
+                OwnedInline::Text(value.into()),
+            ],
+            children: Vec::new(),
         }
     }
 
@@ -257,10 +257,7 @@ impl OwnedBlock {
 
     pub fn with_attributes(mut self, attributes: Vec<OwnedAttribute>) -> Self {
         match &mut self {
-            Self::Document {
-                attributes: current,
-            }
-            | Self::Parsed {
+            Self::Parsed {
                 attributes: current,
                 ..
             }
@@ -280,7 +277,7 @@ impl OwnedBlock {
             Self::Parsed {
                 children: current, ..
             } => *current = children,
-            Self::Document { .. } | Self::Verbatim { .. } => {
+            Self::Verbatim { .. } => {
                 debug_assert!(children.is_empty())
             }
         }
@@ -289,17 +286,15 @@ impl OwnedBlock {
 
     pub fn attributes(&self) -> &[OwnedAttribute] {
         match self {
-            Self::Document { attributes }
-            | Self::Parsed { attributes, .. }
-            | Self::Verbatim { attributes, .. } => &attributes.items,
+            Self::Parsed { attributes, .. } | Self::Verbatim { attributes, .. } => {
+                &attributes.items
+            }
         }
     }
 
     pub fn attributes_mut(&mut self) -> &mut Vec<OwnedAttribute> {
         match self {
-            Self::Document { attributes }
-            | Self::Parsed { attributes, .. }
-            | Self::Verbatim { attributes, .. } => {
+            Self::Parsed { attributes, .. } | Self::Verbatim { attributes, .. } => {
                 attributes.present = true;
                 &mut attributes.items
             }
@@ -321,7 +316,7 @@ impl OwnedBlock {
     pub fn children_mut(&mut self) -> Option<&mut Vec<OwnedBlock>> {
         match self {
             Self::Parsed { children, .. } => Some(children),
-            Self::Document { .. } | Self::Verbatim { .. } => None,
+            Self::Verbatim { .. } => None,
         }
     }
 
@@ -790,9 +785,6 @@ fn render_owned_blocks(blocks: &[OwnedBlock], indent: usize, output: &mut String
 fn render_owned_block(block: &OwnedBlock, indent: usize, output: &mut String) {
     output.extend(std::iter::repeat_n(' ', indent));
     match block {
-        OwnedBlock::Document { attributes } => {
-            render_owned_block_attached(attributes, indent, output);
-        }
         OwnedBlock::Parsed {
             marker,
             attributes,
@@ -1092,23 +1084,6 @@ pub fn finalize(
         return Ok(TextEdit {
             range: affected,
             new_text,
-        });
-    }
-    if affected.start == 0 && modified_parsed.syntax.attrs.attached.is_some() {
-        let mut formatted = plumb_format::format_parsed(&modified_parsed)
-            .map_err(|_| EditError::GeneratedInvalid)?;
-        if line_ending(source) == "\r\n" {
-            formatted = formatted.replace('\n', "\r\n");
-        }
-        if let Some(prefix) = formatted.strip_suffix(source.as_str()) {
-            return Ok(TextEdit {
-                range: 0..0,
-                new_text: prefix.to_string(),
-            });
-        }
-        return Ok(TextEdit {
-            range: 0..source.len(),
-            new_text: formatted,
         });
     }
     if modified_end == affected.start {
@@ -1551,17 +1526,17 @@ mod tests {
     #[test]
     fn inserts_owned_metadata_before_existing_blocks() {
         let parsed = parse("`# Existing\n");
-        let metadata = OwnedBlock::document(vec![
-            OwnedAttribute::bare("title", "Example"),
-            OwnedAttribute::bare("created", "2026-07-23T03:00:00+08:00"),
-        ]);
+        let metadata = [
+            OwnedBlock::marked("=", "title Example"),
+            OwnedBlock::marked("=", "created 2026-07-23T03:00:00+08:00"),
+        ];
         let mut edit = EditSession::new(&parsed, 0..0).unwrap();
-        edit.insert_blocks(0, &[metadata]).unwrap();
+        edit.insert_blocks(0, &metadata).unwrap();
         let edit = edit.finish().unwrap();
         assert_eq!(edit.range, 0..0);
         assert_eq!(
             edit.new_text,
-            "{\n `= title Example\n `= created 2026-07-23T03:00:00+08:00\n}\n\n"
+            "`= title Example\n`= created 2026-07-23T03:00:00+08:00\n\n"
         );
     }
 
@@ -1615,16 +1590,7 @@ mod tests {
     fn renders_opaque_block_attached_content_without_attribute_projection() {
         let owned = OwnedDocument {
             blocks: vec![
-                OwnedBlock::Document {
-                    attributes: OwnedAttributes {
-                        present: true,
-                        items: Vec::new(),
-                        content: Some(OwnedAttachedContent::Blocks(vec![OwnedBlock::marked(
-                            "custom",
-                            "root value",
-                        )])),
-                    },
-                },
+                OwnedBlock::marked("custom", "root value"),
                 OwnedBlock::Parsed {
                     marker: Some("owner".into()),
                     attributes: OwnedAttributes {
