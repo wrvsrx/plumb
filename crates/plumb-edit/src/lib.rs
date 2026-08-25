@@ -1,7 +1,8 @@
 use std::ops::Range;
 
 use plumb_syntax::{
-    AttachedContent, AttrItem, Attributes, Block, Inline, ParsedBlock, ParsedDocument,
+    AttachedContent, AttrItem, Attributes, Block, Inline, InlineMember, ParsedBlock,
+    ParsedDocument,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -125,14 +126,19 @@ pub enum OwnedInline {
     SoftBreak,
     Element {
         kind: String,
-        slots: Vec<Vec<OwnedInline>>,
-        attributes: OwnedAttributes,
+        members: Vec<OwnedInlineMember>,
     },
     Verbatim {
         kind: String,
         text: String,
-        attributes: OwnedAttributes,
     },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OwnedInlineMember {
+    ParsedArgument(Vec<OwnedInline>),
+    VerbatimArgument(String),
+    Child(Box<OwnedInline>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -193,16 +199,16 @@ impl OwnedAttribute {
         match self {
             Self::Id(value) if inline => format!("`@[{}]", escape(value)),
             Self::Id(value) => format!("`@ {}", escape(value)),
-            Self::Class(value) if inline => format!("`-[{}]", escape(value)),
-            Self::Class(value) => format!("`- {}", escape(value)),
+            Self::Class(value) if inline => format!("`+[{}]", escape(value)),
+            Self::Class(value) => format!("`+ {}", escape(value)),
             Self::Pair { key, value } => {
                 let value = match value {
                     OwnedValue::Bare(value) | OwnedValue::Quoted(value) => value,
                 };
                 if inline {
-                    format!("`:[{} {}]", escape(key), escape(value))
+                    format!("`=[{}|{}]", escape(key), escape(value))
                 } else {
-                    format!("`: {} {}", escape(key), escape(value))
+                    format!("`= {} {}", escape(key), escape(value))
                 }
             }
         }
@@ -420,105 +426,11 @@ pub fn rewrite_legacy_link(
     {
         return Err(EditError::InvalidRange);
     }
-    let Inline::Element {
-        kind, slots, attrs, ..
-    } = find_inline(parsed, &link_range).ok_or(EditError::InvalidRange)?
-    else {
-        return Err(EditError::InvalidRange);
-    };
-    let [label] = slots.as_slice() else {
-        return Err(EditError::InvalidRange);
-    };
-    if kind != "->" {
-        return Err(EditError::InvalidRange);
-    }
-    let attached = attrs.attached.as_deref().ok_or(EditError::InvalidRange)?;
-    let AttachedContent::Inlines(content) = &attached.content else {
-        return Err(EditError::InvalidRange);
-    };
-    let property_index = content
-        .items
-        .iter()
-        .position(|inline| inline_range(inline) == &property_range)
-        .ok_or(EditError::InvalidRange)?;
-    let Inline::Element {
-        kind: property_kind,
-        slots: property_slots,
-        ..
-    } = &content.items[property_index]
-    else {
-        return Err(EditError::InvalidRange);
-    };
-    let mut to_items = attrs
-        .items
-        .iter()
-        .filter(|item| matches!(item, AttrItem::Pair { key, .. } if key == "to"));
-    let Some(AttrItem::Pair {
-        range: to_range,
-        value: to_value,
-        ..
-    }) = to_items.next()
-    else {
-        return Err(EditError::InvalidRange);
-    };
-    if property_kind != ":"
-        || property_slots.len() > 2
-        || to_items.next().is_some()
-        || to_range != &property_range
-        || to_value.range != value_range
-    {
-        return Err(EditError::InvalidRange);
-    }
-
-    let structural_items = content
-        .items
-        .iter()
-        .filter(|inline| !matches!(inline, Inline::Space { .. } | Inline::SoftBreak { .. }))
-        .count();
-    let removal = if structural_items == 1 {
-        attached.range.clone()
-    } else if property_index > 0
-        && matches!(
-            content.items[property_index - 1],
-            Inline::Space { .. } | Inline::SoftBreak { .. }
-        )
-    {
-        inline_range(&content.items[property_index - 1]).start..property_range.end
-    } else if let Some(next) = content
-        .items
-        .get(property_index + 1)
-        .filter(|inline| matches!(inline, Inline::Space { .. } | Inline::SoftBreak { .. }))
-    {
-        property_range.start..inline_range(next).end
-    } else {
-        property_range.clone()
-    };
-
-    let mut replacement = parsed.source[link_range.clone()].to_string();
-    let mut edits = vec![
-        (
-            removal.start - link_range.start..removal.end - link_range.start,
-            String::new(),
-        ),
-        (
-            label.close_range.end - link_range.start..label.close_range.end - link_range.start,
-            format!("[{}]", &parsed.source[value_range]),
-        ),
-    ];
-    edits.sort_by_key(|(range, _)| std::cmp::Reverse(range.start));
-    for (range, new_text) in edits {
-        replacement.replace_range(range, &new_text);
-    }
-    let mut modified = parsed.source.clone();
-    modified.replace_range(link_range.clone(), &replacement);
-    let reparsed = plumb_syntax::parse(modified);
-    if reparsed.valid_syntax().is_none() {
-        return Err(EditError::GeneratedInvalid);
-    }
-    Ok(TextEdit {
-        range: link_range,
-        new_text: replacement,
-    })
+    let _ = find_inline(parsed, &link_range).ok_or(EditError::InvalidRange)?;
+    let _ = (property_range, value_range);
+    // Legacy Link source is parsed and rewritten by the versioned document
+    // migrator before it enters the current editing pipeline.
+    Err(EditError::InvalidRange)
 }
 
 fn find_inline<'a>(parsed: &'a ParsedDocument, target: &Range<usize>) -> Option<&'a Inline> {
@@ -544,14 +456,25 @@ fn find_inline<'a>(parsed: &'a ParsedDocument, target: &Range<usize>) -> Option<
             match inline {
                 Inline::Element {
                     range,
-                    slots,
+                    members,
                     attrs,
                     ..
                 } => {
                     if range == target {
                         return Some(inline);
                     }
-                    contents.extend(slots.iter().map(|slot| &slot.content));
+                    for member in members {
+                        match member {
+                            InlineMember::ParsedArgument(argument) => {
+                                contents.push(&argument.content);
+                            }
+                            InlineMember::Child { inline, .. } if inline_range(inline) == target => {
+                                return Some(inline);
+                            }
+                            InlineMember::Child { .. }
+                            | InlineMember::VerbatimArgument(_) => {}
+                        }
+                    }
                     push_inline_attached_content(attrs, &mut contents);
                 }
                 Inline::Verbatim { attrs, .. } => {
@@ -606,21 +529,29 @@ impl OwnedInline {
             Inline::Space { text, .. } => Self::Space(text.clone()),
             Inline::SoftBreak { .. } => Self::SoftBreak,
             Inline::Element {
-                kind, slots, attrs, ..
+                kind, members, ..
             } => Self::Element {
                 kind: kind.clone(),
-                slots: slots
+                members: members
                     .iter()
-                    .map(|slot| slot.content.items.iter().map(Self::from_syntax).collect())
+                    .map(|member| match member {
+                        InlineMember::ParsedArgument(argument) => {
+                            OwnedInlineMember::ParsedArgument(
+                                argument.content.items.iter().map(Self::from_syntax).collect(),
+                            )
+                        }
+                        InlineMember::VerbatimArgument(argument) => {
+                            OwnedInlineMember::VerbatimArgument(argument.text.clone())
+                        }
+                        InlineMember::Child { inline, .. } => {
+                            OwnedInlineMember::Child(Box::new(Self::from_syntax(inline)))
+                        }
+                    })
                     .collect(),
-                attributes: owned_attributes(attrs),
             },
-            Inline::Verbatim {
-                kind, text, attrs, ..
-            } => Self::Verbatim {
+            Inline::Verbatim { kind, text, .. } => Self::Verbatim {
                 kind: kind.clone(),
                 text: text.clone(),
-                attributes: owned_attributes(attrs),
             },
         }
     }
@@ -1029,12 +960,26 @@ fn render_owned_inlines(
     output: &mut String,
 ) {
     for inline in inlines {
+        render_owned_inline(inline, nested, continuation_indent, output, true);
+    }
+}
+
+fn render_owned_inline(
+    inline: &OwnedInline,
+    nested: bool,
+    continuation_indent: usize,
+    output: &mut String,
+    introduced: bool,
+) {
         match inline {
             OwnedInline::Text(text) => {
                 for character in text.chars() {
                     match character {
                         '`' => output.push_str("``"),
-                        ']' if nested => output.push_str("`]"),
+                        '[' | ']' | '|' if nested => {
+                            output.push('`');
+                            output.push(character);
+                        }
                         _ => output.push(character),
                     }
                 }
@@ -1046,40 +991,53 @@ fn render_owned_inlines(
             }
             OwnedInline::Element {
                 kind,
-                slots,
-                attributes,
+                members,
             } => {
-                output.push('`');
-                output.push_str(kind);
-                for slot in slots {
-                    output.push('[');
-                    render_owned_inlines(slot, true, continuation_indent, output);
-                    output.push(']');
+                if introduced {
+                    output.push('`');
                 }
-                render_owned_attached(attributes, output);
+                output.push_str(kind);
+                output.push('[');
+                for (index, member) in members.iter().enumerate() {
+                    if index > 0 {
+                        output.push('|');
+                    }
+                    match member {
+                        OwnedInlineMember::ParsedArgument(argument) => {
+                            render_owned_inlines(argument, true, continuation_indent, output);
+                        }
+                        OwnedInlineMember::VerbatimArgument(argument) => {
+                            render_owned_verbatim_payload(argument, output);
+                        }
+                        OwnedInlineMember::Child(child) => {
+                            render_owned_inline(child, true, continuation_indent, output, false);
+                        }
+                    }
+                }
+                output.push(']');
             }
-            OwnedInline::Verbatim {
-                kind,
-                text,
-                attributes,
-            } => {
-                output.push('`');
-                output.push_str(kind);
-                if !text.contains('"') {
-                    output.push('"');
-                    output.push_str(text);
-                    output.push('"');
-                } else {
-                    let quotes = minimum_quote_count(text).max(1);
-                    output.push_str(&"\"".repeat(quotes));
-                    output.push('[');
-                    output.push_str(text);
-                    output.push(']');
-                    output.push_str(&"\"".repeat(quotes));
+            OwnedInline::Verbatim { kind, text } => {
+                if introduced {
+                    output.push('`');
                 }
-                render_owned_attached(attributes, output);
+                output.push_str(kind);
+                render_owned_verbatim_payload(text, output);
             }
         }
+}
+
+fn render_owned_verbatim_payload(text: &str, output: &mut String) {
+    if !text.contains('"') && !text.starts_with('[') {
+        output.push('"');
+        output.push_str(text);
+        output.push('"');
+    } else {
+        let quotes = minimum_quote_count(text).max(1);
+        output.push_str(&"\"".repeat(quotes));
+        output.push('[');
+        output.push_str(text);
+        output.push(']');
+        output.push_str(&"\"".repeat(quotes));
     }
 }
 
@@ -1360,7 +1318,7 @@ mod tests {
 
     #[test]
     fn inserts_attributes_at_explicit_positions() {
-        let source = "`task Work {\n  `@ id\n  `: created now\n}\n";
+        let source = "`task Work {\n  `@ id\n  `= created now\n}\n";
         let parsed = parse(source);
         let Block::Parsed(block) = &parsed.syntax.blocks[0] else {
             panic!("expected parsed block");
@@ -1377,7 +1335,7 @@ mod tests {
         let edit = edit.finish().unwrap();
         assert_eq!(
             edit.new_text,
-            "`task Work {\n `- next\n\n `@ id\n\n `: created now\n}\n"
+            "`task Work {\n `+ next\n\n `@ id\n\n `= created now\n}\n"
         );
     }
 
@@ -1400,7 +1358,7 @@ mod tests {
         let edit = edit.finish().unwrap();
         assert_eq!(
             edit.new_text,
-            "`- Work {\n `: created 2026-07-23T03:00:00+08:00\n}\n"
+            "`- Work {\n `= created 2026-07-23T03:00:00+08:00\n}\n"
         );
     }
 
@@ -1431,13 +1389,13 @@ mod tests {
         let edit = edit.finish().unwrap();
         assert_eq!(
             edit.new_text,
-            "   `- Nested {\n    `- kind\n\n    `: created 2026-07-20T10:00:00+08:00\n   }\n"
+            "   `- Nested {\n    `+ kind\n\n    `= created 2026-07-20T10:00:00+08:00\n   }\n"
         );
     }
 
     #[test]
     fn creates_a_nested_slot_before_a_top_level_sibling() {
-        let source = "`- Outer {\n  `@ outer\n  `- keep\n}\n\n   `- Nested\n\n`task Closed {\n  `@ closed\n  `: done 2026-07-20T09:00:00Z\n}\n";
+        let source = "`- Outer {\n  `@ outer\n  `+ keep\n}\n\n   `- Nested\n\n`task Closed {\n  `@ closed\n  `= done 2026-07-20T09:00:00Z\n}\n";
         let parsed = parse(source);
         let Block::Parsed(outer) = &parsed.syntax.blocks[0] else {
             unreachable!();
@@ -1462,12 +1420,12 @@ mod tests {
         let edit = edit.finish().unwrap();
         let edited = apply_text_edits(source.to_string(), vec![edit]).unwrap();
         assert!(parse(&edited).is_valid(), "{edited}");
-        assert!(edited.contains("`- Nested {\n    `- kind"), "{edited}");
+        assert!(edited.contains("`- Nested {\n    `+ kind"), "{edited}");
     }
 
     #[test]
     fn inserts_an_id_first_in_an_existing_attached_group() {
-        let source = "`# Hello, World! {\n  `- keep\n}\n";
+        let source = "`# Hello, World! {\n  `+ keep\n}\n";
         let parsed = parse(source);
         let Block::Parsed(block) = &parsed.syntax.blocks[0] else {
             unreachable!();
@@ -1484,7 +1442,7 @@ mod tests {
         let edit = edit.finish().unwrap();
         assert_eq!(
             edit.new_text,
-            "`# Hello, World! {\n `@ hello-world\n\n `- keep\n}\n"
+            "`# Hello, World! {\n `@ hello-world\n\n `+ keep\n}\n"
         );
     }
 
@@ -1543,7 +1501,7 @@ mod tests {
 
     #[test]
     fn inserts_a_status_between_compact_top_level_siblings() {
-        let source = "`task Blocker {\n  `@ blocker\n}\n`task Blocked {\n  `@ blocked\n  `: depends #blocker\n}\n`task Closed {\n  `@ closed\n}\n";
+        let source = "`task Blocker {\n  `@ blocker\n}\n`task Blocked {\n  `@ blocked\n  `= depends #blocker\n}\n`task Closed {\n  `@ closed\n}\n";
         let parsed = parse(source);
         let Block::Parsed(block) = &parsed.syntax.blocks[1] else {
             unreachable!();
@@ -1560,7 +1518,7 @@ mod tests {
         let edit = edit.finish().unwrap();
         let edited = apply_text_edits(source.to_string(), vec![edit]).unwrap();
         assert!(parse(&edited).is_valid(), "{edited}");
-        assert!(edited.contains("`: canceled 2026-07-20T12:00:00Z"));
+        assert!(edited.contains("`= canceled 2026-07-20T12:00:00Z"));
     }
 
     #[test]
@@ -1600,7 +1558,7 @@ mod tests {
         block.attributes_mut().push(OwnedAttribute::class("event"));
         let mut output = String::new();
         render_owned_blocks(&[block], 0, &mut output);
-        assert_eq!(output, "`- Work {\n `- event\n}");
+        assert_eq!(output, "`- Work {\n `+ event\n}");
     }
 
     #[test]
@@ -1669,13 +1627,13 @@ mod tests {
         assert_eq!(edit.range, 0..0);
         assert_eq!(
             edit.new_text,
-            "{\n `: title Example\n `: created 2026-07-23T03:00:00+08:00\n}\n\n"
+            "{\n `= title Example\n `= created 2026-07-23T03:00:00+08:00\n}\n\n"
         );
     }
 
     #[test]
     fn round_trips_owned_syntax_without_extension_knowledge() {
-        let source = "`node Head `span[text] and `\"raw\" {\n  `@ id\n  `- opaque\n  `: key bare\n}\n\n      `child Body\n";
+        let source = "`node Head `span[text|@[id]|+[opaque]|=[key|bare]] and `\"raw\" {\n  `@ id\n  `+ opaque\n  `= key bare\n}\n\n      `child Body\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let owned = OwnedBlock::from_syntax(source, &parsed.syntax.blocks[0]);
@@ -1686,15 +1644,15 @@ mod tests {
             "{formatted}\n{:?}",
             reparsed.diagnostics
         );
-        assert!(formatted.contains("`- opaque"));
-        assert!(formatted.contains("`span[text]"));
+        assert!(formatted.contains("`+ opaque"));
+        assert!(formatted.contains("`span[text|@[id]|+[opaque]|=[key|bare]]"));
         assert!(formatted.contains("`\"raw\""));
         assert!(formatted.contains("`child Body"));
     }
 
     #[test]
     fn preserves_empty_attribute_slots_and_soft_breaks() {
-        let source = "`node Head `span[first\n      second] and `\"raw\"{}\n";
+        let source = "`node Head `span[first\n      second|] and `\"raw\"\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let owned = OwnedBlock::from_syntax(source, &parsed.syntax.blocks[0]);
@@ -1707,7 +1665,8 @@ mod tests {
         );
         assert!(formatted.contains("`node Head"));
         assert!(formatted.contains("`span[first\n"));
-        assert!(formatted.contains("`\"raw\"{}"));
+        assert!(formatted.contains("`span[first\n second|]"));
+        assert!(formatted.contains("`\"raw\""));
     }
 
     #[test]
@@ -1724,7 +1683,7 @@ mod tests {
 
     #[test]
     fn replaces_and_removes_attributes_by_explicit_index() {
-        let source = "`node Head {\n  `@ old\n  `- keep\n  `: key value\n}\n";
+        let source = "`node Head {\n  `@ old\n  `+ keep\n  `= key value\n}\n";
         let parsed = parse(source);
         let Block::Parsed(block) = &parsed.syntax.blocks[0] else {
             unreachable!();
@@ -1737,13 +1696,13 @@ mod tests {
         let replacement = replace.finish().unwrap();
         assert_eq!(
             replacement.new_text,
-            "`node Head {\n `@ new\n\n `- keep\n\n `: key value\n}\n"
+            "`node Head {\n `@ new\n\n `+ keep\n\n `= key value\n}\n"
         );
 
         let mut remove = EditSession::new(&parsed, block.range.clone()).unwrap();
         remove.remove_attribute(&mark.attrs, 2).unwrap();
         let removal = remove.finish().unwrap();
-        assert_eq!(removal.new_text, "`node Head {\n `@ old\n\n `- keep\n}\n");
+        assert_eq!(removal.new_text, "`node Head {\n `@ old\n\n `+ keep\n}\n");
     }
 
     #[test]
@@ -1798,37 +1757,6 @@ mod tests {
     }
 
     #[test]
-    fn edits_inline_attached_elements_without_reintroducing_legacy_attributes() {
-        let source = "See `->[label]{`:[to old]}.\n";
-        let parsed = parse(source);
-        let Block::Parsed(block) = &parsed.syntax.blocks[0] else {
-            unreachable!();
-        };
-        let Inline::Element { attrs, .. } = &block.head.items[2] else {
-            panic!("expected link inline");
-        };
-        let mut edit = EditSession::new(&parsed, block.range.clone()).unwrap();
-        edit.replace_attribute(attrs, 0, OwnedAttribute::quoted("to", "new]/{draft}.plumb"))
-            .unwrap();
-        let edit = edit.finish().unwrap();
-        assert!(
-            edit.new_text.contains("{`:[to new`]/`{draft`}.plumb]}"),
-            "{}",
-            edit.new_text
-        );
-        assert!(!edit.new_text.contains("to="), "{}", edit.new_text);
-        let reparsed = parse(&edit.new_text);
-        assert!(reparsed.is_valid(), "{:?}", reparsed.diagnostics);
-        let Block::Parsed(block) = &reparsed.syntax.blocks[0] else {
-            unreachable!();
-        };
-        let Inline::Element { attrs, .. } = &block.head.items[2] else {
-            unreachable!();
-        };
-        assert_eq!(attrs.value("to"), Some("new]/{draft}.plumb"));
-    }
-
-    #[test]
     fn replaces_and_removes_complete_blocks() {
         let source = "`old Head\n`next Keep\n";
         let parsed = parse(source);
@@ -1847,127 +1775,6 @@ mod tests {
         assert!(removal.new_text.is_empty());
     }
 
-    #[test]
-    fn rewrites_legacy_link_target_as_a_second_slot() {
-        let source = "`->[description]{`:[to https://baidu.com]}\n";
-        let parsed = parse(source);
-        let Block::Parsed(paragraph) = &parsed.syntax.blocks[0] else {
-            unreachable!();
-        };
-        let Inline::Element { range, attrs, .. } = &paragraph.head.items[0] else {
-            unreachable!();
-        };
-        let AttrItem::Pair {
-            range: property,
-            value,
-            ..
-        } = &attrs.items[0]
-        else {
-            unreachable!();
-        };
-        let edit = rewrite_legacy_link(
-            &parsed,
-            range.clone(),
-            property.clone(),
-            value.range.clone(),
-        )
-        .unwrap();
-        assert_eq!(edit.range, range.clone());
-        assert_eq!(edit.new_text, "`->[description][https://baidu.com]");
-        assert_eq!(
-            apply_text_edits(parsed.source, vec![edit]).unwrap(),
-            "`->[description][https://baidu.com]\n"
-        );
-    }
-
-    #[test]
-    fn legacy_link_rewrite_preserves_other_attached_declarations() {
-        let source = "`->[description]{`-[external] `:[to target.plumb] `:[rel nofollow]}\n";
-        let parsed = parse(source);
-        let Block::Parsed(paragraph) = &parsed.syntax.blocks[0] else {
-            unreachable!();
-        };
-        let Inline::Element { range, attrs, .. } = &paragraph.head.items[0] else {
-            unreachable!();
-        };
-        let AttrItem::Pair {
-            range: property,
-            value,
-            ..
-        } = attrs
-            .items
-            .iter()
-            .find(|item| matches!(item, AttrItem::Pair { key, .. } if key == "to"))
-            .unwrap()
-        else {
-            unreachable!();
-        };
-        let AttrItem::Pair {
-            range: other_property,
-            value: other_value,
-            ..
-        } = attrs
-            .items
-            .iter()
-            .find(|item| matches!(item, AttrItem::Pair { key, .. } if key == "rel"))
-            .unwrap()
-        else {
-            unreachable!();
-        };
-        assert_eq!(
-            rewrite_legacy_link(
-                &parsed,
-                range.clone(),
-                other_property.clone(),
-                other_value.range.clone(),
-            ),
-            Err(EditError::InvalidRange)
-        );
-        let edit = rewrite_legacy_link(
-            &parsed,
-            range.clone(),
-            property.clone(),
-            value.range.clone(),
-        )
-        .unwrap();
-        assert_eq!(
-            edit.new_text,
-            "`->[description][target.plumb]{`-[external] `:[rel nofollow]}"
-        );
-        let formatted = format(&parsed, FormatScope::Document).unwrap();
-        assert!(
-            formatted.is_empty(),
-            "formatter must not migrate legacy Links"
-        );
-    }
-
-    #[test]
-    fn rewrites_an_expanded_legacy_to_association() {
-        let source = "`->[description]{`:[to][target.plumb]}\n";
-        let parsed = parse(source);
-        let Block::Parsed(paragraph) = &parsed.syntax.blocks[0] else {
-            unreachable!();
-        };
-        let Inline::Element { range, attrs, .. } = &paragraph.head.items[0] else {
-            unreachable!();
-        };
-        let AttrItem::Pair {
-            range: property,
-            value,
-            ..
-        } = &attrs.items[0]
-        else {
-            unreachable!();
-        };
-        let edit = rewrite_legacy_link(
-            &parsed,
-            range.clone(),
-            property.clone(),
-            value.range.clone(),
-        )
-        .unwrap();
-        assert_eq!(edit.new_text, "`->[description][target.plumb]");
-    }
 }
 
 #[cfg(test)]
