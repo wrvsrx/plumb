@@ -126,15 +126,37 @@ owner 再约束 nested Link、Image fallback 等 owner-specific cases。在这�
 `# Migration
 
 实现应当同时提供显式、versioned migration，而不是让 formatter 或 ordinary parser 静默接受两套 syntax。
-migration 必须是 syntax-aware operation：
+每个 parser 只解析自己版本的 core syntax，并产出该版本的 lossless syntax tree；legacy parser 不把
+attached group 解释成 attributes，也不直接产出 current children。parser 之后的 hardcoded structural
+converter 才把旧节点 lowering 为 current owned syntax：
+
+`plumb"
+  legacy source
+    -> legacy parser
+    -> legacy syntax tree
+    -> version-specific structural converter
+    -> current OwnedDocument
+    -> plumb-edit canonical rendering
+    -> current strict-parser validation
+
+这里的 hardcoded 指 source/target syntax epoch 之间固定的节点映射，不表示按 `"@"、`"+"、`"="
+等 semantic spelling 在 parser 内 dispatch。以 ownership 为例，converter 根据 old attached-group node
+与它的 direct content 建立 current direct children，保留原有 kind、payload、source order 与 nesting；
+它不需要先判断 child 是 identity、facet、association 还是 opaque element。
+
+structural converter 必须执行：
 
 `- consecutive slots 按 source order 转为 `"|" arguments。
 `- inline attached group 中的 direct elements 转为 introducer-elided child members。
-`- standard declarations 按最终 vocabulary 转写；opaque elements 保留 kind、payload、ordering 与 nesting。
-`- 已知 compact semantic forms，例如 single-slot Link 的 label/target boundary，只由 standard semantic
-   recognizer 转换；generic source 不按 spaces 猜测 arity。
+`- declaration vocabulary 的 epoch-level spelling change 由显式、固定的 syntax mapping 转写；opaque
+   elements 保留 kind、payload、ordering 与 nesting。
 `- migration 必须 atomic、idempotent，并在输出后使用新 strict parser 验证。
 
+若旧 spelling 把一个 standard-profile value 压缩进无法由 syntax shape 无损拆分的 content，例如旧版
+compact Link 把 label 与 target 混在同一个 slot，则另设 standard-profile migration pass。该 pass 消费
+legacy syntax tree 或 structural conversion result，但不属于 legacy parser，也不能改变 generic converter
+对未知 kind 的处理。generic migration 不按 spaces 猜测 positional arity。
+
 迁移实现遵循 `->[editing architecture][../architecture/editing.plumb]：isolated legacy reader 只负责读取
-旧 source，owned conversion、canonical rendering 与最终 byte edits 由 `"plumb-edit" 负责。formatter
-不得识别 semantic kind，也不得触发 migration。
+旧 source，version-specific converter 负责 tree-to-tree lowering，owned canonical rendering 与最终 byte
+edits 由 `"plumb-edit" 负责。formatter 不选择 syntax epoch、不读取 legacy tree，也不触发 migration。
