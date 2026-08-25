@@ -339,10 +339,10 @@ fn render_inlines(inlines: &[Inline], bracketed: bool) -> Result<String, String>
                     output.push_str(&render_element("file", &attrs, label)?);
                 } else {
                     output.push_str(&format!(
-                        "`->[{}][{}]{}",
+                        "`->[{}|{}{}]",
                         render_inlines(label, true)?,
-                        escape_text(&target.url, true),
-                        render_attrs(&attrs, Some("data-plumb-marker"))?
+                        render_verbatim_argument(&target.url),
+                        render_inline_children(&attrs, Some("data-plumb-marker"))?
                     ));
                 }
             }
@@ -372,7 +372,7 @@ fn render_inlines(inlines: &[Inline], bracketed: bool) -> Result<String, String>
             }
             Inline::Span(attrs, content) => {
                 if let Some(attrs) = without_first_class(attrs, "mark") {
-                    output.push_str(&render_element("=", &attrs, content)?);
+                    output.push_str(&render_element("==", &attrs, content)?);
                     continue;
                 }
                 if content.len() == 1 {
@@ -437,9 +437,9 @@ fn render_inlines(inlines: &[Inline], bracketed: bool) -> Result<String, String>
 fn render_element(marker: &str, attrs: &Attr, content: &[Inline]) -> Result<String, String> {
     require_marker(marker)?;
     Ok(format!(
-        "`{marker}[{}]{}",
+        "`{marker}[{}{}]",
         render_inlines(content, true)?,
-        render_attrs(attrs, Some("data-plumb-marker"))?
+        render_inline_children(attrs, Some("data-plumb-marker"))?
     ))
 }
 
@@ -448,18 +448,38 @@ fn render_verbatim(text: &str, attrs: &Attr) -> Result<String, String> {
         return Err("inline verbatim content cannot contain a line ending".into());
     }
     let (kind, attrs) = promoted_verbatim_attrs(attrs, false);
-    let attached = render_attrs(&attrs, None)?;
+    let children = render_inline_children(&attrs, None)?;
+    if children.is_empty() {
+        if !text.contains('"') {
+            return Ok(format!("`{kind}\"{text}\""));
+        }
+        let quotes = minimum_quote_count(text).max(1);
+        return Ok(format!(
+            "`{kind}{}[{}]{}",
+            "\"".repeat(quotes),
+            text,
+            "\"".repeat(quotes),
+        ));
+    }
+    let owner_kind = if kind.is_empty() { "code" } else { &kind };
+    Ok(format!(
+        "`{owner_kind}[{}{}]",
+        render_verbatim_argument(text),
+        children
+    ))
+}
+
+fn render_verbatim_argument(text: &str) -> String {
     if !text.contains('"') {
-        return Ok(format!("`{kind}\"{text}\"{attached}"));
+        return format!("\"{text}\"");
     }
     let quotes = minimum_quote_count(text).max(1);
-    Ok(format!(
-        "`{kind}{}[{}]{}{}",
+    format!(
+        "{}[{}]{}",
         "\"".repeat(quotes),
         text,
-        "\"".repeat(quotes),
-        attached
-    ))
+        "\"".repeat(quotes)
+    )
 }
 
 fn render_verbatim_block(attrs: &Attr, text: &str) -> Result<String, String> {
@@ -501,7 +521,7 @@ fn render_attrs(attrs: &Attr, consumed_pair: Option<&str>) -> Result<String, Str
     }
     for class in &attrs.classes {
         require_attr_name(class, "attribute class")?;
-        items.push(format!("`-[{}]", escape_attached_text(class)));
+        items.push(format!("`+[{}]", escape_attached_text(class)));
     }
     for (key, value) in &attrs.attributes {
         if consumed_pair == Some(key.as_str()) {
@@ -509,7 +529,7 @@ fn render_attrs(attrs: &Attr, consumed_pair: Option<&str>) -> Result<String, Str
         }
         require_attr_name(key, "attribute key")?;
         items.push(format!(
-            "`:[{} {}]",
+            "`=[{}|{}]",
             escape_attached_text(key),
             escape_attached_text(value)
         ));
@@ -519,6 +539,36 @@ fn render_attrs(attrs: &Attr, consumed_pair: Option<&str>) -> Result<String, Str
     } else {
         format!("{{{}}}", items.join(" "))
     })
+}
+
+fn render_inline_children(
+    attrs: &Attr,
+    consumed_pair: Option<&str>,
+) -> Result<String, String> {
+    let mut members = Vec::new();
+    if !attrs.identifier.is_empty() {
+        require_attr_name(&attrs.identifier, "attribute id")?;
+        members.push(format!("@[{}]", escape_text(&attrs.identifier, true)));
+    }
+    for class in &attrs.classes {
+        require_attr_name(class, "attribute class")?;
+        members.push(format!("+[{}]", escape_text(class, true)));
+    }
+    for (key, value) in &attrs.attributes {
+        if consumed_pair == Some(key.as_str()) {
+            continue;
+        }
+        require_attr_name(key, "attribute key")?;
+        members.push(format!(
+            "=[{}|{}]",
+            escape_text(key, true),
+            render_verbatim_argument(value)
+        ));
+    }
+    Ok(members
+        .into_iter()
+        .map(|member| format!("|{member}"))
+        .collect())
 }
 
 fn append_block_attrs(output: &mut String, attrs: &str) {
@@ -534,6 +584,7 @@ fn escape_attached_text(value: &str) -> String {
         .replace(']', "`]")
         .replace('{', "`{")
         .replace('}', "`}")
+        .replace('|', "`|")
 }
 
 fn promoted_verbatim_attrs(attrs: &Attr, block: bool) -> (String, Attr) {
@@ -608,7 +659,7 @@ fn require_marker(marker: &str) -> Result<(), String> {
         && marker.chars().all(|character| {
             !character.is_whitespace()
                 && !character.is_control()
-                && !matches!(character, '`' | '"' | '[' | ']' | '{' | '}')
+                && !matches!(character, '`' | '"' | '[' | ']' | '{' | '}' | '|')
         })
     {
         Ok(())
@@ -653,6 +704,7 @@ fn escape_text(text: &str, bracketed: bool) -> String {
             .replace(']', "`]")
             .replace('{', "`{")
             .replace('}', "`}")
+            .replace('|', "`|")
     } else {
         text
     }
@@ -712,12 +764,12 @@ mod tests {
         let source = import_json(&document.to_string()).unwrap();
         assert!(source.starts_with("{\n `: title Example\n}\n"), "{source}");
         assert!(source.contains("`# Intro {`@[intro]}"));
-        assert!(source.contains("`*[em] `![strong] `=[marked]{`@[marked] `-[keep]}"));
+        assert!(source.contains("`*[em] `![strong] `==[marked|@[marked]|+[keep]]"));
         assert!(source.contains("`~[strike] `^[super] `_[sub]"));
-        assert!(source.contains("`->[target][other.plumb#id]"));
+        assert!(source.contains("`->[target|\"other.plumb#id\"]"));
         assert!(
             source.contains(
-                "`file[video]{`@[demo] `-[wide] `:[download yes] `:[src static/demo.mp4]}"
+                "`file[video|@[demo]|+[wide]|=[download|\"yes\"]|=[src|\"static/demo.mp4\"]]"
             ),
             "{source}"
         );
@@ -762,15 +814,18 @@ mod tests {
         };
         let source = import(&document).unwrap();
         assert!(source.contains("`*[a`]b]"), "{source}");
-        assert!(source.contains("`\"a]b\""));
-        assert!(source.contains("{`:[data value`]/`{draft`}]}"), "{source}");
+        assert!(source.contains("`code[\"a]b\"|"));
+        assert!(
+            source.contains("`code[\"a]b\"|=[data|\"value]/{draft}\"]]"),
+            "{source}"
+        );
         assert!(source.contains("`\"\n raw"), "{source}");
         let parsed = plumb_syntax::parse(&source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let plumb_syntax::Block::Parsed(paragraph) = &parsed.syntax.blocks[0] else {
             unreachable!();
         };
-        let plumb_syntax::Inline::Verbatim { attrs, .. } = &paragraph.head.items[2] else {
+        let plumb_syntax::Inline::Element { attrs, .. } = &paragraph.head.items[2] else {
             unreachable!();
         };
         assert_eq!(attrs.value("data"), Some("value]/{draft}"));

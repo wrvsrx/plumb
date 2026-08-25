@@ -4,8 +4,8 @@ use std::io::{self, Read};
 use std::process::ExitCode;
 
 use plumb_semantics::{
-    analyze_document, CitationRecord, DocumentOutput, InlineStyleKind, ListGroup, ListKind,
-    MetadataBlock, MetadataEntry, MetadataValue, TaskState,
+    analyze_document, CitationRecord, DocumentOutput, InlineStyleKind, LinkSpelling, ListGroup,
+    ListKind, MetadataBlock, MetadataEntry, MetadataValue, TaskState,
 };
 use plumb_syntax::{parse, AttrItem, Attributes, Block, Inline, InlineContent, ParsedBlock};
 use serde_json::{json, Map, Value};
@@ -382,12 +382,12 @@ fn lower_inlines(content: &InlineContent, analysis: &DocumentOutput) -> Vec<Valu
             Inline::Element {
                 range,
                 kind,
-                slots,
+                members,
                 attrs,
                 ..
             } => {
                 if let Some(style) = analysis.inline_styles.style_at_node_start(range.start) {
-                    let content = lower_slots(slots, analysis);
+                    let content = lower_members(members, analysis);
                     if style.kind == InlineStyleKind::Mark {
                         output.push(json!({
                             "t": "Span",
@@ -421,22 +421,27 @@ fn lower_inlines(content: &InlineContent, analysis: &DocumentOutput) -> Vec<Valu
                 } else if let Some(image) = analysis.image_at_node_start(range.start) {
                     output.push(json!({
                         "t": "Image",
-                        "c": [lower_image_attrs(attrs), lower_first_slot(slots, analysis), [&image.source.value, ""]],
+                        "c": [lower_image_attrs(attrs), lower_first_argument(members, analysis), [&image.source.value, ""]],
                     }));
                 } else if let Some(file) = analysis.file_at_node_start(range.start) {
                     output.push(json!({
                         "t": "Link",
-                        "c": [lower_file_attrs(attrs), lower_first_slot(slots, analysis), [&file.source.value, ""]],
+                        "c": [lower_file_attrs(attrs), lower_first_argument(members, analysis), [&file.source.value, ""]],
                     }));
                 } else if let Some(link) = analysis.link_at_node_start(range.start) {
+                    let label = if matches!(link.spelling, LinkSpelling::Verbatim { .. }) {
+                        text_inlines(&link.target.value)
+                    } else {
+                        lower_link_label(members, analysis)
+                    };
                     output.push(json!({
                         "t": "Link",
-                        "c": [lower_link_attrs(attrs), lower_link_label(slots, &link.selection_range, analysis), [&link.target.value, ""]],
+                        "c": [lower_link_attrs(attrs), label, [&link.target.value, ""]],
                     }));
                 } else {
                     output.push(json!({
                         "t": "Span",
-                        "c": [lower_attrs(attrs, (kind != "()").then_some(kind)), lower_slots(slots, analysis)],
+                        "c": [lower_attrs(attrs, (kind != "()").then_some(kind)), lower_members(members, analysis)],
                     }));
                 }
             }
@@ -445,42 +450,89 @@ fn lower_inlines(content: &InlineContent, analysis: &DocumentOutput) -> Vec<Valu
     output
 }
 
-fn lower_first_slot(slots: &[plumb_syntax::InlineSlot], analysis: &DocumentOutput) -> Vec<Value> {
-    slots
-        .first()
-        .map_or_else(Vec::new, |slot| lower_inlines(&slot.content, analysis))
+fn lower_first_argument(
+    members: &[plumb_syntax::InlineMember],
+    analysis: &DocumentOutput,
+) -> Vec<Value> {
+    members
+        .iter()
+        .find_map(plumb_syntax::InlineMember::argument)
+        .map_or_else(Vec::new, |argument| lower_argument(argument, analysis))
 }
 
-fn lower_slots(slots: &[plumb_syntax::InlineSlot], analysis: &DocumentOutput) -> Vec<Value> {
-    slots
-        .iter()
-        .flat_map(|slot| lower_inlines(&slot.content, analysis))
-        .collect()
+fn lower_members(members: &[plumb_syntax::InlineMember], analysis: &DocumentOutput) -> Vec<Value> {
+    let mut output = Vec::new();
+    for member in members {
+        match member {
+            plumb_syntax::InlineMember::ParsedArgument(argument) => {
+                output.extend(lower_inlines(&argument.content, analysis));
+            }
+            plumb_syntax::InlineMember::VerbatimArgument(argument) => output.push(json!({
+                "t": "Code",
+                "c": [["", [], []], argument.text],
+            })),
+            plumb_syntax::InlineMember::Child { inline, .. } if !is_relation_child(inline) => {
+                output.extend(lower_inline_child(inline, analysis));
+            }
+            plumb_syntax::InlineMember::Child { .. } => {}
+        }
+    }
+    output
 }
 
 fn lower_link_label(
-    slots: &[plumb_syntax::InlineSlot],
-    selection_range: &std::ops::Range<usize>,
+    members: &[plumb_syntax::InlineMember],
     analysis: &DocumentOutput,
 ) -> Vec<Value> {
-    let Some(first) = slots.first() else {
-        return Vec::new();
-    };
-    let content = InlineContent {
-        range: selection_range.clone(),
-        items: first
-            .content
-            .items
-            .iter()
-            .filter(|inline| inline_range(inline) == selection_range)
-            .cloned()
-            .collect(),
-    };
-    if content.items.is_empty() && first.content.range == *selection_range {
-        lower_inlines(&first.content, analysis)
-    } else {
-        lower_inlines(&content, analysis)
+    let mut output = Vec::new();
+    let mut argument_index = 0;
+    for member in members {
+        match member {
+            plumb_syntax::InlineMember::ParsedArgument(argument) => {
+                if argument_index == 0 {
+                    output.extend(lower_inlines(&argument.content, analysis));
+                }
+                argument_index += 1;
+            }
+            plumb_syntax::InlineMember::VerbatimArgument(argument) => {
+                if argument_index == 0 {
+                    output.push(json!({ "t": "Code", "c": [["", [], []], argument.text] }));
+                }
+                argument_index += 1;
+            }
+            plumb_syntax::InlineMember::Child { inline, .. } if !is_relation_child(inline) => {
+                output.extend(lower_inline_child(inline, analysis));
+            }
+            plumb_syntax::InlineMember::Child { .. } => {}
+        }
     }
+    output
+}
+
+fn lower_argument(
+    argument: plumb_syntax::InlineArgumentRef<'_>,
+    analysis: &DocumentOutput,
+) -> Vec<Value> {
+    match argument {
+        plumb_syntax::InlineArgumentRef::Parsed(content) => lower_inlines(content, analysis),
+        plumb_syntax::InlineArgumentRef::Verbatim(argument) => {
+            vec![json!({ "t": "Code", "c": [["", [], []], argument.text] })]
+        }
+    }
+}
+
+fn lower_inline_child(inline: &Inline, analysis: &DocumentOutput) -> Vec<Value> {
+    lower_inlines(
+        &InlineContent {
+            range: inline_range(inline).clone(),
+            items: vec![inline.clone()],
+        },
+        analysis,
+    )
+}
+
+fn is_relation_child(inline: &Inline) -> bool {
+    matches!(inline, Inline::Element { kind, .. } if matches!(kind.as_str(), "@" | "+" | "="))
 }
 
 fn inline_range(inline: &Inline) -> &std::ops::Range<usize> {
@@ -599,7 +651,7 @@ mod tests {
     #[test]
     fn exports_heading_paragraph_and_generic_block() {
         let document = export(
-            "`# Intro {\n  `@ intro\n}\n\nParagraph text.\n\n`note Remember this. {\n  `- tip\n}\n",
+            "`# Intro {\n  `@ intro\n}\n\nParagraph text.\n\n`note Remember this. {\n  `+ tip\n}\n",
         )
         .unwrap();
         let blocks = document["blocks"].as_array().unwrap();
@@ -610,7 +662,7 @@ mod tests {
 
     #[test]
     fn exports_adjacent_and_nested_items_as_bullet_lists() {
-        let source = "`- One\n\n`task Two {\n  `@ two\n  `: priority -5\n}\n\n      `- Nested\n\nParagraph.\n";
+        let source = "`- One\n\n`task Two {\n  `@ two\n  `= priority -5\n}\n\n      `- Nested\n\nParagraph.\n";
         let document = export(source).unwrap();
         let blocks = document["blocks"].as_array().unwrap();
 
@@ -635,7 +687,7 @@ mod tests {
 
     #[test]
     fn exports_visible_task_state_markers() {
-        let source = "`task Open {\n}\n`task Done {\n  `: done 2026-07-25T15:00:00+08:00\n}\n`task Canceled {\n  `: canceled 2026-07-25T15:00:00+08:00\n}\n`task Conflicted {\n  `: done 2026-07-25T15:00:00+08:00\n  `: canceled 2026-07-25T15:01:00+08:00\n}\n";
+        let source = "`task Open {\n}\n`task Done {\n  `= done 2026-07-25T15:00:00+08:00\n}\n`task Canceled {\n  `= canceled 2026-07-25T15:00:00+08:00\n}\n`task Conflicted {\n  `= done 2026-07-25T15:00:00+08:00\n  `= canceled 2026-07-25T15:01:00+08:00\n}\n";
         let document = export(source).unwrap();
         let items = document["blocks"][0]["c"].as_array().unwrap();
         let markers = items
@@ -678,7 +730,7 @@ mod tests {
 
     #[test]
     fn exports_quote_head_children_nesting_and_attributes() {
-        let source = "`> Quoted head\n\n   Quoted body.\n\n   `> Nested quote {\n     `@ nested\n     `- source\n     `: cite book\n   }\n\n`quote Generic\n";
+        let source = "`> Quoted head\n\n   Quoted body.\n\n   `> Nested quote {\n     `@ nested\n     `+ source\n     `= cite book\n   }\n\n`quote Generic\n";
         let document = export(source).unwrap();
         let blocks = document["blocks"].as_array().unwrap();
 
@@ -711,7 +763,7 @@ mod tests {
 
     #[test]
     fn exports_adjacent_definitions_and_preserves_definition_attributes() {
-        let source = "`: Term\n\n   Definition.\n\n`: Tagged {\n  `@ tag\n  `- kind\n  `: key value\n}\n\n   `- First\n   `- Second\n";
+        let source = "`: Term\n\n   Definition.\n\n`: Tagged {\n  `@ tag\n  `+ kind\n  `= key value\n}\n\n   `- First\n   `- Second\n";
         let document = export(source).unwrap();
         let blocks = document["blocks"].as_array().unwrap();
 
@@ -738,17 +790,14 @@ mod tests {
 
     #[test]
     fn exports_links_from_shared_document_facts() {
-        let document = export("See `->[target][other.plumb#id].\n").unwrap();
+        let document = export("See `->[target|other.plumb#id].\n").unwrap();
         assert_eq!(document["blocks"][0]["c"][2]["t"], "Link");
         assert_eq!(document["blocks"][0]["c"][2]["c"][2][0], "other.plumb#id");
-
-        let legacy = export("`->[target]{`:[to other.plumb#id]}\n").unwrap();
-        assert_eq!(legacy["blocks"][0]["c"][0]["c"][0], json!(["", [], []]));
     }
 
     #[test]
     fn exports_verbatim_autolinks_in_body_and_metadata() {
-        let source = "{\n  `: homepage `->\"https://example.test/meta\"\n}\n\nBody `->\"https://example.test/a%20b\"{`@[site] `-[keep] `:[rel nofollow]}.\n";
+        let source = "{\n  `= homepage `->\"https://example.test/meta\"\n}\n\nBody `->[\"https://example.test/a%20b\"|@[site]|+[keep]|=[rel|nofollow]].\n";
         let document = export(source).unwrap();
         let metadata_link = &document["meta"]["homepage"]["c"][0];
         assert_eq!(metadata_link["t"], "Link");
@@ -766,7 +815,7 @@ mod tests {
 
     #[test]
     fn exports_standard_images_in_body_and_metadata() {
-        let source = "{\n  `: cover `img[Cover]{`:[src static/cover.png]}\n}\n\nBefore `img[Rich `em[alt]]{`:[src static/a b.webp] `@[image] `-[wide] `:[loading lazy]} after.\n\n`img[]{`:[src https://example.test/decorative.svg]}\n";
+        let source = "{\n  `= cover `img[Cover|=[src|static/cover.png]]\n}\n\nBefore `img[Rich `em[alt]|=[src|\"static/a b.webp\"]|@[image]|+[wide]|=[loading|lazy]] after.\n\n`img[|=[src|https://example.test/decorative.svg]]\n";
         let document = export(source).unwrap();
 
         let metadata_image = &document["meta"]["cover"]["c"][0];
@@ -805,7 +854,7 @@ mod tests {
     #[test]
     fn exports_file_attachments_as_portable_links_with_fallback_content() {
         let document = export(
-            "Watch `file[Demo `![video]]{`:[src static/demo video.mp4] `@[demo] `-[wide] `:[download yes]}.\n",
+            "Watch `file[Demo `![video]|=[src|\"static/demo video.mp4\"]|@[demo]|+[wide]|=[download|yes]].\n",
         )
         .unwrap();
         let file = &document["blocks"][0]["c"][2];
@@ -825,7 +874,7 @@ mod tests {
 
     #[test]
     fn exports_link_kind_as_a_generic_span() {
-        let document = export("`link[target]{`:[to other.plumb#id]}\n").unwrap();
+        let document = export("`link[target|=[to|other.plumb#id]]\n").unwrap();
         let inline = &document["blocks"][0]["c"][0];
 
         assert_eq!(inline["t"], "Span");
@@ -837,8 +886,7 @@ mod tests {
 
     #[test]
     fn exports_verbatim_envelopes_as_pandoc_code() {
-        let document =
-            export("Use `\"cargo check\"{`:[language sh]}.\n\n`rust\"\n fn main() {}\n").unwrap();
+        let document = export("Use `\"cargo check\".\n\n`rust\"\n fn main() {}\n").unwrap();
         assert_eq!(document["blocks"][0]["c"][2]["t"], "Code");
         assert_eq!(document["blocks"][0]["c"][2]["c"][1], "cargo check");
         assert_eq!(document["blocks"][1]["t"], "CodeBlock");
@@ -848,7 +896,7 @@ mod tests {
     #[test]
     fn exports_paren_transparent_containers_without_redundant_markers() {
         let document =
-            export("`() Body {\n  `@ box\n  `- note\n}\n\n`()[text]{`-[mark]}\n").unwrap();
+            export("`() Body {\n  `@ box\n  `+ note\n}\n\n`()[text|+[mark]]\n").unwrap();
         let div_attrs = &document["blocks"][0]["c"][0];
         assert_eq!(div_attrs, &json!(["box", ["note"], []]));
         let span_attrs = &document["blocks"][1]["c"][0]["c"][0];
@@ -863,7 +911,7 @@ mod tests {
     #[test]
     fn exports_symbolic_inline_styles_and_preserves_attributes() {
         let document = export(
-            "`*[em `![strong]] `=[mark]{`@[marked] `-[keep]} `~[strike] `^[super] `_[sub] `**[generic]\n",
+            "`*[em `![strong]] `==[mark|@[marked]|+[keep]] `~[strike] `^[super] `_[sub] `**[generic]\n",
         )
         .unwrap();
         let inlines = document["blocks"][0]["c"].as_array().unwrap();
@@ -893,22 +941,10 @@ mod tests {
 
     #[test]
     fn exports_inline_and_display_math_with_attribute_wrappers() {
-        let source = "Inline `$\"x^2\". Wrapped `$\"y\"{`@[inline] `-[keep] `:[key value]}.\n\n`$\"\n  E = mc^2\n`$\" {`@[display] `-[numbered]}\n  a = b\n";
+        let source = "Inline `$\"x^2\".\n\n`$\"\n  E = mc^2\n`$\" {`@[display] `+[numbered]}\n  a = b\n";
         let document = export(source).unwrap();
         assert_eq!(document["blocks"][0]["c"][2]["t"], "Math");
         assert_eq!(document["blocks"][0]["c"][2]["c"][0]["t"], "InlineMath");
-        let inline_wrapper = document["blocks"][0]["c"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|inline| inline["t"] == "Span")
-            .unwrap();
-        assert_eq!(inline_wrapper["t"], "Span");
-        assert_eq!(
-            inline_wrapper["c"][0],
-            json!(["inline", ["keep"], [["key", "value"]]])
-        );
-        assert_eq!(inline_wrapper["c"][1][0]["t"], "Math");
         assert_eq!(document["blocks"][1]["t"], "Para");
         assert_eq!(document["blocks"][1]["c"][0]["c"][0]["t"], "DisplayMath");
         let display_wrapper = &document["blocks"][2];
@@ -925,7 +961,7 @@ mod tests {
 
     #[test]
     fn exports_math_inside_rich_metadata_scalars() {
-        let source = "{\n  `: formula Area `$\"\\pi r^2\"\n}\n";
+        let source = "{\n  `= formula Area `$\"\\pi r^2\"\n}\n";
         let document = export(source).unwrap();
         assert_eq!(document["meta"]["formula"]["t"], "MetaInlines");
         let math = document["meta"]["formula"]["c"]
@@ -940,7 +976,7 @@ mod tests {
 
     #[test]
     fn lifts_typed_metadata_out_of_the_document_body() {
-        let source = "{\n  `: title Rich `*[title]\n  `: tags\n\n     `- plumb\n     `- tools\n  `: macros\n\n     `-\n      `- `\"nearSet\"\n      `- `\"\\mathscr{C}\"\n      `- 0\n  `: author\n\n     `: name Alice\n  `: source\n\n     `text\"\n      raw\n      \n      \n  `: empty\n}\n\n`# Section\n";
+        let source = "{\n  `= title Rich `*[title]\n  `= tags\n\n     `- plumb\n     `- tools\n  `= macros\n\n     `-\n      `- `\"nearSet\"\n      `- `\"\\mathscr{C}\"\n      `- 0\n  `= author\n\n     `= name Alice\n  `= source\n\n     `text\"\n      raw\n      \n      \n  `= empty\n}\n\n`# Section\n";
         let document = export(source).unwrap();
 
         assert_eq!(document["blocks"].as_array().unwrap().len(), 1);
