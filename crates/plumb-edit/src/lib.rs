@@ -141,10 +141,22 @@ pub enum OwnedInlineMember {
     Child(Box<OwnedInline>),
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OwnedAttachedContent {
+    Blocks(Vec<OwnedBlock>),
+    Inlines(Vec<OwnedInline>),
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct OwnedAttributes {
     pub present: bool,
     pub items: Vec<OwnedAttribute>,
+    pub content: Option<OwnedAttachedContent>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct OwnedDocument {
+    pub blocks: Vec<OwnedBlock>,
 }
 
 impl OwnedAttribute {
@@ -221,6 +233,7 @@ impl OwnedBlock {
             attributes: OwnedAttributes {
                 present: true,
                 items: attributes,
+                content: None,
             },
         }
     }
@@ -349,6 +362,12 @@ impl OwnedBlock {
 
     pub fn format(&self) -> Result<String, EditError> {
         format_owned_blocks(std::slice::from_ref(self), "\n")
+    }
+}
+
+impl OwnedDocument {
+    pub fn format(&self) -> Result<String, EditError> {
+        format_owned_blocks(&self.blocks, "\n")
     }
 }
 
@@ -806,6 +825,7 @@ fn owned_attributes(attributes: &Attributes) -> OwnedAttributes {
                 },
             })
             .collect(),
+        content: None,
     }
 }
 
@@ -882,12 +902,7 @@ fn render_owned_block(block: &OwnedBlock, indent: usize, output: &mut String) {
     output.extend(std::iter::repeat_n(' ', indent));
     match block {
         OwnedBlock::Document { attributes } => {
-            output.push_str(&render_attached_attribute_slot(
-                &attributes.items,
-                &AttachedContent::Blocks(Vec::new()),
-                indent,
-                "\n",
-            ));
+            render_owned_block_attached(attributes, indent, output);
         }
         OwnedBlock::Parsed {
             marker,
@@ -906,12 +921,7 @@ fn render_owned_block(block: &OwnedBlock, indent: usize, output: &mut String) {
             render_owned_inlines(head, marker.is_some(), continuation_indent, output);
             if attributes.present {
                 output.push(' ');
-                output.push_str(&render_attached_attribute_slot(
-                    &attributes.items,
-                    &AttachedContent::Blocks(Vec::new()),
-                    indent,
-                    "\n",
-                ));
+                render_owned_block_attached(attributes, indent, output);
             }
             if !children.is_empty() {
                 if head.is_empty() && !attributes.present {
@@ -933,7 +943,7 @@ fn render_owned_block(block: &OwnedBlock, indent: usize, output: &mut String) {
             if attributes.present {
                 output.push(' ');
             }
-            render_owned_attached(attributes, output);
+            render_owned_attached(attributes, indent, output);
             if !text.is_empty() {
                 output.push('\n');
                 for (index, line) in text.split_terminator('\n').enumerate() {
@@ -1041,18 +1051,56 @@ fn render_owned_verbatim_payload(text: &str, output: &mut String) {
     }
 }
 
-fn render_owned_attached(attributes: &OwnedAttributes, output: &mut String) {
+fn render_owned_block_attached(attributes: &OwnedAttributes, indent: usize, output: &mut String) {
+    match &attributes.content {
+        Some(OwnedAttachedContent::Blocks(blocks)) => {
+            output.push('{');
+            output.push('\n');
+            if !blocks.is_empty() {
+                render_owned_blocks(blocks, indent + 1, output);
+                output.push('\n');
+            }
+            output.extend(std::iter::repeat_n(' ', indent));
+            output.push('}');
+        }
+        Some(OwnedAttachedContent::Inlines(inlines)) => {
+            output.push('{');
+            render_owned_inlines(inlines, true, indent + 1, output);
+            output.push('}');
+        }
+        None => output.push_str(&render_attached_attribute_slot(
+            &attributes.items,
+            &AttachedContent::Blocks(Vec::new()),
+            indent,
+            "\n",
+        )),
+    }
+}
+
+fn render_owned_attached(attributes: &OwnedAttributes, indent: usize, output: &mut String) {
     if !attributes.present {
         return;
     }
-    output.push('{');
-    for (index, attribute) in attributes.items.iter().enumerate() {
-        if index > 0 {
-            output.push(' ');
+    match &attributes.content {
+        Some(OwnedAttachedContent::Blocks(_)) => {
+            render_owned_block_attached(attributes, indent, output);
         }
-        output.push_str(&attribute.render_attached(true));
+        Some(OwnedAttachedContent::Inlines(inlines)) => {
+            output.push('{');
+            render_owned_inlines(inlines, true, indent + 1, output);
+            output.push('}');
+        }
+        None => {
+            output.push('{');
+            for (index, attribute) in attributes.items.iter().enumerate() {
+                if index > 0 {
+                    output.push(' ');
+                }
+                output.push_str(&attribute.render_attached(true));
+            }
+            output.push('}');
+        }
     }
-    output.push('}');
 }
 
 fn minimum_quote_count(text: &str) -> usize {
@@ -1648,6 +1696,62 @@ mod tests {
         assert!(formatted.contains("`span[text|@[id]|+[opaque]|=[key|bare]]"));
         assert!(formatted.contains("`\"raw\""));
         assert!(formatted.contains("`child Body"));
+    }
+
+    #[test]
+    fn renders_opaque_block_attached_content_without_attribute_projection() {
+        let owned = OwnedDocument {
+            blocks: vec![
+                OwnedBlock::Document {
+                    attributes: OwnedAttributes {
+                        present: true,
+                        items: Vec::new(),
+                        content: Some(OwnedAttachedContent::Blocks(vec![OwnedBlock::marked(
+                            "custom", "root value",
+                        )])),
+                    },
+                },
+                OwnedBlock::Parsed {
+                    marker: Some("owner".into()),
+                    attributes: OwnedAttributes {
+                        present: true,
+                        items: Vec::new(),
+                        content: Some(OwnedAttachedContent::Blocks(vec![OwnedBlock::marked(
+                            "relation", "opaque value",
+                        )])),
+                    },
+                    head: vec![OwnedInline::Text("Head".into())],
+                    children: Vec::new(),
+                },
+            ],
+        };
+
+        let formatted = owned.format().unwrap();
+        assert!(parse(&formatted).is_valid(), "{formatted}");
+        assert!(formatted.contains("`custom root value"));
+        assert!(formatted.contains("`relation opaque value"));
+    }
+
+    #[test]
+    fn renders_opaque_compact_attached_content_as_current_inlines() {
+        let owned = OwnedBlock::Verbatim {
+            kind: "code".into(),
+            attributes: OwnedAttributes {
+                present: true,
+                items: Vec::new(),
+                content: Some(OwnedAttachedContent::Inlines(vec![OwnedInline::Element {
+                    kind: "custom".into(),
+                    members: vec![OwnedInlineMember::ParsedArgument(vec![OwnedInline::Text(
+                        "value".into(),
+                    )])],
+                }])),
+            },
+            text: "payload".into(),
+        };
+
+        let formatted = owned.format().unwrap();
+        assert!(parse(&formatted).is_valid(), "{formatted}");
+        assert!(formatted.contains("{`custom[value]}"));
     }
 
     #[test]
