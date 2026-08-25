@@ -1,10 +1,12 @@
 ==================
-Root and nested block groups
+Document declarations and nested block groups
 ==================
 
-{
-  `: title Example
-}
+`= title Example
+
+Body
+
+`+ journal
 
 `- Work {
   `- task
@@ -14,14 +16,23 @@ Root and nested block groups
 
 (document
   (blank_line)
-  (attached_block_group
-    (block_group_open)
-    (marked_block
-      (introducer)
-      (marker)
-      (head_separator)
-      (inline_content
-        (text))))
+  (marked_block
+    (introducer)
+    (marker)
+    (head_separator)
+    (inline_content
+      (text)))
+  (blank_line)
+  (paragraph
+    (inline_content
+      (text)))
+  (blank_line)
+  (marked_block
+    (introducer)
+    (marker)
+    (head_separator)
+    (inline_content
+      (text)))
   (blank_line)
   (marked_block
     (introducer)
@@ -39,27 +50,21 @@ Root and nested block groups
           (text))))))
 
 ==================
-Expanded document group preserves leading blank layout
+Document declaration
 ==================
 
-{
-
- `: title something
-}
+`= title something
 
 ---
 
 (document
   (blank_line)
-  (attached_block_group
-    (block_group_open)
-    (blank_line)
-    (marked_block
-      (introducer)
-      (marker)
-      (head_separator)
-      (inline_content
-        (text)))))
+  (marked_block
+    (introducer)
+    (marker)
+    (head_separator)
+    (inline_content
+      (text))))
 
 ==================
 Next-line marked block group

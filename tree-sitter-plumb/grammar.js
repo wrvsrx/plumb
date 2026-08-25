@@ -23,21 +23,12 @@ module.exports = grammar({
   extras: _ => [/[ \t\r]/],
 
   conflicts: $ => [
-    [$.document],
     [$.head_continuation],
     [$._next_line_attached_children],
   ],
 
   rules: {
-    document: $ => choice(
-      seq(
-        repeat($.blank_line),
-        field('attached', $.attached_block_group),
-        $._line_end,
-        repeat(choice($._block, $.blank_line)),
-      ),
-      repeat(choice($._block, $.blank_line)),
-    ),
+    document: $ => repeat(choice($._block, $.blank_line)),
 
     _block: $ => choice($.verbatim_block, $.marked_block, $.paragraph),
 
