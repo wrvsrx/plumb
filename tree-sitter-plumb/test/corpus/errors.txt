@@ -16,7 +16,7 @@ broken `kind[unfinished
         (introducer)
         (inline_kind)
         (parsed_inline_content
-          (inline_text))
+          (inline_member_text))
         (MISSING "]"))))
   (marked_block
     (introducer)
@@ -44,7 +44,7 @@ second line]
         (introducer)
         (inline_kind)
         (parsed_inline_content
-          (inline_text))
+          (inline_member_text))
         (MISSING "]"))))
   (blank_line)
   (paragraph

@@ -1,5 +1,5 @@
 {
-  `: title tree-sitter-plumb
+ `= title tree-sitter-plumb
 }
 
 The intentionally lenient tree-sitter grammar for plumb editor tooling. The
@@ -23,6 +23,13 @@ child separately from raw payload so generic editor queries can highlight or ins
 without assigning official semantic meanings. The recovery-only
 `"incomplete_inline_element" node keeps subsequent blocks parseable while a
 document is being edited; it does not make malformed syntax valid to the strict parser.
+
+Parsed inline elements use the current single-envelope member model. Top-level
+`"member_separator" nodes divide ordered arguments and children; `"inline_child"
+wraps a recursive `"inline_element" or `"inline_verbatim" without assigning meaning
+to its kind. `"verbatim_argument" represents a raw positional member. Inline owners
+do not accept postfix attached groups; `"attached_inline_group" remains only as the
+compact attached form for block owners.
 
 `# Source and generated files
 

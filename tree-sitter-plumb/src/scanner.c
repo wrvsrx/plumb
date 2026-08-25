@@ -22,6 +22,7 @@ enum TokenType {
   VERBATIM_BLOCK_OPEN,
   RAW_CODE_LINE,
   INLINE_VERBATIM_TOKEN,
+  INLINE_CHILD_KIND,
   INCOMPLETE_INLINE_END,
   END_OF_FILE,
 };
@@ -218,7 +219,7 @@ static bool is_name_char(int32_t character) {
   return character != 0 && character != ' ' && character != '\t' &&
          character != '\n' && character != '\r' && character != '[' &&
          character != ']' && character != '{' && character != '}' &&
-         character != '`' && character != '"' &&
+         character != '`' && character != '"' && character != '|' &&
          !(character >= 0x01 && character <= 0x1f) &&
          !(character >= 0x7f && character <= 0x9f);
 }
@@ -227,7 +228,7 @@ static enum BacktickDispatch classify_backtick_dispatch(TSLexer *lexer) {
   take(lexer);
   if (lexer->lookahead == '`' || lexer->lookahead == '[' ||
       lexer->lookahead == ']' || lexer->lookahead == '{' ||
-      lexer->lookahead == '}') {
+      lexer->lookahead == '}' || lexer->lookahead == '|') {
     return BACKTICK_ESCAPE;
   }
 
@@ -274,6 +275,17 @@ static bool scan_inline_verbatim_body(TSLexer *lexer) {
   if (!scan_verbatim_close(lexer, quotes)) return false;
   lexer->mark_end(lexer);
   lexer->result_symbol = INLINE_VERBATIM_TOKEN;
+  return true;
+}
+
+static bool scan_inline_child_kind(TSLexer *lexer) {
+  if (!is_name_char(lexer->lookahead)) return false;
+  do {
+    take(lexer);
+  } while (is_name_char(lexer->lookahead));
+  if (lexer->lookahead != '[' && lexer->lookahead != '"') return false;
+  lexer->mark_end(lexer);
+  lexer->result_symbol = INLINE_CHILD_KIND;
   return true;
 }
 
@@ -437,6 +449,9 @@ bool tree_sitter_plumb_external_scanner_scan(void *payload, TSLexer *lexer,
   }
   if (valid_symbols[INLINE_VERBATIM_TOKEN] && lexer->lookahead == '"') {
     return scan_inline_verbatim_body(lexer);
+  }
+  if (valid_symbols[INLINE_CHILD_KIND]) {
+    return scan_inline_child_kind(lexer);
   }
   if (valid_symbols[RAW_CODE_LINE] && lexer->get_column(lexer) == 0) {
     return scan_raw_code_line(scanner, lexer, valid_symbols);

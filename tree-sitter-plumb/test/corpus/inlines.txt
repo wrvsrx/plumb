@@ -15,26 +15,26 @@ Text with `*[emphasis] and `outer[before `inner[nested] after].
         (introducer)
         (inline_kind)
         (parsed_inline_content
-          (inline_text)))
+          (inline_member_text)))
       (text)
       (inline_element
         (introducer)
         (inline_kind)
         (parsed_inline_content
-          (inline_text)
+          (inline_member_text)
           (inline_element
             (introducer)
             (inline_kind)
             (parsed_inline_content
-              (inline_text)))
-          (inline_text)))
+              (inline_member_text)))
+          (inline_member_text)))
       (text))))
 
 ==================
-Parsed inline multi-slot
+Parsed inline members
 ==================
 
-Use `pair[first][second] and `pair[][third]{`-[tag]}.
+Use `pair[first|second] and `pair[|third|+[tag]].
 
 ---
 
@@ -47,29 +47,30 @@ Use `pair[first][second] and `pair[][third]{`-[tag]}.
         (introducer)
         (inline_kind)
         (parsed_inline_content
-          (inline_text))
+          (inline_member_text))
+        (member_separator)
         (parsed_inline_content
-          (inline_text)))
+          (inline_member_text)))
       (text)
       (inline_element
         (introducer)
         (inline_kind)
+        (member_separator)
         (parsed_inline_content
-          (inline_text))
-        (attached_inline_group
-          (attached_inline_content
-            (inline_element
-              (introducer)
-              (inline_kind)
-              (parsed_inline_content
-                (inline_text))))))
+          (inline_member_text))
+        (member_separator)
+        (inline_child
+          (inline_element
+            (inline_kind)
+            (parsed_inline_content
+              (inline_member_text)))))
       (text))))
 
 ==================
-Recursive inline group
+Ordered arguments and children
 ==================
 
-See `->[guide]{`@[main] `-[external] `:[to guide.plumb]}.
+See `->[guide|@[main]|+[external]|=[to|guide.plumb]].
 
 ---
 
@@ -82,33 +83,35 @@ See `->[guide]{`@[main] `-[external] `:[to guide.plumb]}.
         (introducer)
         (inline_kind)
         (parsed_inline_content
-          (inline_text))
-        (attached_inline_group
-          (attached_inline_content
-            (inline_element
-              (introducer)
-              (inline_kind)
-              (parsed_inline_content
-                (inline_text)))
-            (attached_inline_text)
-            (inline_element
-              (introducer)
-              (inline_kind)
-              (parsed_inline_content
-                (inline_text)))
-            (attached_inline_text)
-            (inline_element
-              (introducer)
-              (inline_kind)
-              (parsed_inline_content
-                (inline_text))))))
+          (inline_member_text))
+        (member_separator)
+        (inline_child
+          (inline_element
+            (inline_kind)
+            (parsed_inline_content
+              (inline_member_text))))
+        (member_separator)
+        (inline_child
+          (inline_element
+            (inline_kind)
+            (parsed_inline_content
+              (inline_member_text))))
+        (member_separator)
+        (inline_child
+          (inline_element
+            (inline_kind)
+            (parsed_inline_content
+              (inline_member_text))
+            (member_separator)
+            (parsed_inline_content
+              (inline_member_text)))))
       (text))))
 
 ==================
-Empty parsed inline and group
+Empty parsed inline argument
 ==================
 
-An empty `kind[]{} element.
+An empty `kind[] element.
 
 ---
 
@@ -119,15 +122,14 @@ An empty `kind[]{} element.
       (text)
       (inline_element
         (introducer)
-        (inline_kind)
-        (attached_inline_group))
+        (inline_kind))
       (text))))
 
 ==================
 Opening bracket and closing escape
 ==================
 
-Use `kind[literal [ and ``] brackets].
+Use `kind[literal `[ and `] brackets].
 
 ---
 
@@ -140,8 +142,11 @@ Use `kind[literal [ and ``] brackets].
         (introducer)
         (inline_kind)
         (parsed_inline_content
-          (inline_text)
-          (introducer_escape)))
+          (inline_member_text)
+          (bracket_escape)
+          (inline_member_text)
+          (bracket_escape)
+          (inline_member_text)))
       (text))))
 
 ==================
@@ -231,10 +236,10 @@ Use `"[raw containing " safely]" and `rust""[raw containing ]" safely]"".
       (text))))
 
 ==================
-Attached inline verbatim
+Verbatim argument with children
 ==================
 
-Use `rust"let x = 1;"{`@[example] `:[generated true]}.
+Use `code["let x = 1;"|@[example]|=[generated|true]].
 
 ---
 
@@ -243,23 +248,26 @@ Use `rust"let x = 1;"{`@[example] `:[generated true]}.
   (paragraph
     (inline_content
       (text)
-      (inline_verbatim
+      (inline_element
         (introducer)
-        (verbatim_kind)
-        (raw_text)
-        (attached_inline_group
-          (attached_inline_content
-            (inline_element
-              (introducer)
-              (inline_kind)
-              (parsed_inline_content
-                (inline_text)))
-            (attached_inline_text)
-            (inline_element
-              (introducer)
-              (inline_kind)
-              (parsed_inline_content
-                (inline_text))))))
+        (inline_kind)
+        (parsed_inline_content
+          (inline_member_text))
+        (member_separator)
+        (inline_child
+          (inline_element
+            (inline_kind)
+            (parsed_inline_content
+              (inline_member_text))))
+        (member_separator)
+        (inline_child
+          (inline_element
+            (inline_kind)
+            (parsed_inline_content
+              (inline_member_text))
+            (member_separator)
+            (parsed_inline_content
+              (inline_member_text)))))
       (text))))
 
 ==================
@@ -280,9 +288,9 @@ second line] tail.
         (introducer)
         (inline_kind)
         (parsed_inline_content
-          (inline_text)
+          (inline_member_text)
           (soft_break)
-          (inline_text)))
+          (inline_member_text)))
       (text))))
 
 ==================
@@ -304,7 +312,7 @@ Introducer runs
         (introducer)
         (inline_kind)
         (parsed_inline_content
-          (inline_text)))
+          (inline_member_text)))
       (text))))
 
 ==================
@@ -325,7 +333,7 @@ Plain [brackets] and closing ] remain text.
 Unified delimiter escapes
 ==================
 
-escaped `[ `] `{ `} delims
+escaped `[ `] `{ `} `| delims
 
 ---
 
@@ -341,4 +349,6 @@ escaped `[ `] `{ `} delims
       (brace_escape)
       (text)
       (brace_escape)
+      (text)
+      (pipe_escape)
       (text))))

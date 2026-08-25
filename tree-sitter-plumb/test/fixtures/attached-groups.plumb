@@ -1,16 +1,19 @@
 {
-  `: title Example
-  `: tags
-   `- plumb
+ `= title Example
+ `= tags
+
+  `- plumb
 }
 
 `- Buy milk {
-  `- task
-  `@ shopping
-  `: due 2026-08-07
+ `+ task
+
+ `@ shopping
+
+ `= due 2026-08-07
 }
 
-See `->[guide]{`@[main] `-[external] `:[to https://example.test/guide]}.
+See `->[guide|https://example.test/guide|@[main]|+[external]].
 
 `"
   fn main() {}

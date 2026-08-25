@@ -195,10 +195,10 @@ Nested next-line groups dedent across multiple blank lines
       (text))))
 
 ==================
-Recursive inline group
+Inline children replace inline groups
 ==================
 
-`->[guide]{`@[main] `-[external] `:[to guide.plumb]}
+`->[guide|@[main]|+[external]|=[to|guide.plumb]]
 
 ---
 
@@ -210,32 +210,34 @@ Recursive inline group
         (introducer)
         (inline_kind)
         (parsed_inline_content
-          (inline_text))
-        (attached_inline_group
-          (attached_inline_content
-            (inline_element
-              (introducer)
-              (inline_kind)
-              (parsed_inline_content
-                (inline_text)))
-            (attached_inline_text)
-            (inline_element
-              (introducer)
-              (inline_kind)
-              (parsed_inline_content
-                (inline_text)))
-            (attached_inline_text)
-            (inline_element
-              (introducer)
-              (inline_kind)
-              (parsed_inline_content
-                (inline_text)))))))))
+          (inline_member_text))
+        (member_separator)
+        (inline_child
+          (inline_element
+            (inline_kind)
+            (parsed_inline_content
+              (inline_member_text))))
+        (member_separator)
+        (inline_child
+          (inline_element
+            (inline_kind)
+            (parsed_inline_content
+              (inline_member_text))))
+        (member_separator)
+        (inline_child
+          (inline_element
+            (inline_kind)
+            (parsed_inline_content
+              (inline_member_text))
+            (member_separator)
+            (parsed_inline_content
+              (inline_member_text))))))))
 
 ==================
 Structural verbatim opener
 ==================
 
-`rust" {`@[example] `:[generated true]}
+`rust" {`@[example] `=[generated|true]}
   fn main() {}
 
 ---
@@ -253,13 +255,16 @@ Structural verbatim opener
           (introducer)
           (inline_kind)
           (parsed_inline_content
-            (inline_text)))
+            (inline_member_text)))
         (attached_inline_text)
         (inline_element
           (introducer)
           (inline_kind)
           (parsed_inline_content
-            (inline_text)))))
+            (inline_member_text))
+          (member_separator)
+          (parsed_inline_content
+            (inline_member_text)))))
     (raw_text)))
 
 ==================
@@ -310,7 +315,7 @@ Brace escapes at structural attachment sites
         (introducer)
         (inline_kind)
         (parsed_inline_content
-          (inline_text)))
+          (inline_member_text)))
       (brace_escape)
       (text)
       (brace_escape)

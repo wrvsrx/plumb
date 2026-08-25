@@ -1,9 +1,9 @@
 {
 
- `: title something
+ `= title something
 }
 
-`marker head {`-[aside] `@[intro] `-[note] `:[key value]} with `->[link][guide.plumb]
+`marker head {`+[aside] `@[intro] `+[note] `=[key|value]} with `->[link|guide.plumb]
 
 Paragraph with `text"raw text" and ``escaped introducer.
 

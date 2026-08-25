@@ -124,7 +124,7 @@ first
         (introducer)
         (inline_kind)
         (parsed_inline_content
-          (inline_text))))
+          (inline_member_text))))
     (inline_content
       (inline_verbatim
         (introducer)
@@ -142,14 +142,14 @@ first
         (introducer)
         (inline_kind)
         (parsed_inline_content
-          (inline_text)
+          (inline_member_text)
           (soft_break)
           (inline_element
             (introducer)
             (inline_kind)
             (parsed_inline_content
-              (inline_text)))
-          (inline_text)
+              (inline_member_text)))
+          (inline_member_text)
           (inline_verbatim
             (introducer)
             (verbatim_kind)

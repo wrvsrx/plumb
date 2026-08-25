@@ -17,4 +17,5 @@
 ] @inline.outer
 
 (parsed_inline_content) @inline.inner
+(verbatim_argument) @inline.inner
 (attached_inline_content) @inline.inner

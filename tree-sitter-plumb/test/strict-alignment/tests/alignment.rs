@@ -2,7 +2,7 @@ use std::{ops::Range, path::PathBuf};
 
 use plumb_syntax::{
     parse, AttachedContent, AttachedGroup, Attributes, Block, Document, Inline, InlineContent,
-    ParsedBlock, VerbatimBlock,
+    InlineMember, ParsedBlock, VerbatimBlock,
 };
 use serde::Deserialize;
 use tree_sitter::{Language, Node, Parser};
@@ -177,24 +177,33 @@ fn project_inline_content(content: &InlineContent, output: &mut Vec<ProjectedNod
             Inline::Element {
                 range,
                 kind_range,
-                slots,
-                attrs,
+                members,
                 ..
             } => {
-                let mut children = vec![ProjectedNode {
-                    kind: "introducer",
-                    range: Some(range.start..kind_range.start),
-                    children: Vec::new(),
-                }];
+                let mut children = Vec::new();
+                if range.start < kind_range.start {
+                    children.push(ProjectedNode {
+                        kind: "introducer",
+                        range: Some(range.start..kind_range.start),
+                        children: Vec::new(),
+                    });
+                }
                 children.push(ProjectedNode {
                     kind: "inline_kind",
                     range: Some(kind_range.clone()),
                     children: Vec::new(),
                 });
-                for slot in slots {
-                    project_inline_content(&slot.content, &mut children);
+                for member in members {
+                    match member {
+                        InlineMember::ParsedArgument(argument) => {
+                            project_inline_content(&argument.content, &mut children);
+                        }
+                        InlineMember::VerbatimArgument(_) => {}
+                        InlineMember::Child { inline, .. } => {
+                            project_inline(inline, &mut children);
+                        }
+                    }
                 }
-                project_attributes(attrs, &mut children);
                 output.push(ProjectedNode {
                     kind: "inline_element",
                     range: Some(range.clone()),
@@ -204,14 +213,16 @@ fn project_inline_content(content: &InlineContent, output: &mut Vec<ProjectedNod
             Inline::Verbatim {
                 range,
                 kind_range,
-                attrs,
                 ..
             } => {
-                let mut children = vec![ProjectedNode {
-                    kind: "introducer",
-                    range: Some(range.start..kind_range.start),
-                    children: Vec::new(),
-                }];
+                let mut children = Vec::new();
+                if range.start < kind_range.start {
+                    children.push(ProjectedNode {
+                        kind: "introducer",
+                        range: Some(range.start..kind_range.start),
+                        children: Vec::new(),
+                    });
+                }
                 if !kind_range.is_empty() {
                     children.push(ProjectedNode {
                         kind: "verbatim_kind",
@@ -219,7 +230,6 @@ fn project_inline_content(content: &InlineContent, output: &mut Vec<ProjectedNod
                         children: Vec::new(),
                     });
                 }
-                project_attributes(attrs, &mut children);
                 output.push(ProjectedNode {
                     kind: "inline_verbatim",
                     range: Some(range.clone()),
@@ -229,6 +239,23 @@ fn project_inline_content(content: &InlineContent, output: &mut Vec<ProjectedNod
             Inline::Text { .. } | Inline::Space { .. } | Inline::SoftBreak { .. } => {}
         }
     }
+}
+
+fn project_inline(inline: &Inline, output: &mut Vec<ProjectedNode>) {
+    let range = match inline {
+        Inline::Text { range, .. }
+        | Inline::Space { range, .. }
+        | Inline::SoftBreak { range }
+        | Inline::Element { range, .. }
+        | Inline::Verbatim { range, .. } => range.clone(),
+    };
+    project_inline_content(
+        &InlineContent {
+            range,
+            items: vec![inline.clone()],
+        },
+        output,
+    );
 }
 
 fn project_tree_sitter(node: Node<'_>) -> Vec<ProjectedNode> {

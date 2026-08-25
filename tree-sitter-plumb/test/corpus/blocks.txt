@@ -166,7 +166,7 @@ Inline head is not a same-line child
         (introducer)
         (inline_kind)
         (parsed_inline_content
-          (inline_text))))))
+          (inline_member_text))))))
 
 ==================
 Expanded attached group
@@ -213,7 +213,7 @@ Expanded attached group
 Compact trailing group
 ==================
 
-`- Buy milk {`-[task] `@[shopping] `:[due 2026-08-07]}
+`- Buy milk {`+[task] `@[shopping] `=[due|2026-08-07]}
 
 ---
 
@@ -231,25 +231,28 @@ Compact trailing group
           (introducer)
           (inline_kind)
           (parsed_inline_content
-            (inline_text)))
+            (inline_member_text)))
         (attached_inline_text)
         (inline_element
           (introducer)
           (inline_kind)
           (parsed_inline_content
-            (inline_text)))
+            (inline_member_text)))
         (attached_inline_text)
         (inline_element
           (introducer)
           (inline_kind)
           (parsed_inline_content
-            (inline_text)))))))
+            (inline_member_text))
+          (member_separator)
+          (parsed_inline_content
+            (inline_member_text)))))))
 
 ==================
 Verbatim blocks
 ==================
 
-`rust"" {`@[example] `:[generated true]}
+`rust"" {`@[example] `=[generated|true]}
   fn main() {
       println!("hello");
   }
@@ -272,13 +275,16 @@ Verbatim blocks
           (introducer)
           (inline_kind)
           (parsed_inline_content
-            (inline_text)))
+            (inline_member_text)))
         (attached_inline_text)
         (inline_element
           (introducer)
           (inline_kind)
           (parsed_inline_content
-            (inline_text)))))
+            (inline_member_text))
+          (member_separator)
+          (parsed_inline_content
+            (inline_member_text)))))
     (raw_text)
     (raw_text)
     (raw_text)

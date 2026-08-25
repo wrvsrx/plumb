@@ -2,6 +2,7 @@
 (introducer) @punctuation.special
 (introducer_escape) @string.escape
 (bracket_escape) @string.escape
+(pipe_escape) @string.escape
 (marker) @keyword
 (inline_kind) @keyword
 (verbatim_kind) @keyword
@@ -10,6 +11,8 @@
 (inline_element
   "[" @punctuation.bracket
   "]" @punctuation.bracket)
+
+(member_separator) @punctuation.delimiter
 
 (attached_block_group
   "}" @punctuation.bracket)
@@ -24,6 +27,8 @@
 
 ; Raw payloads are syntax nodes because they change the lexical mode.
 ((inline_verbatim (raw_text) @markup.raw)
+  (#set! priority 90))
+((verbatim_argument (raw_text) @markup.raw)
   (#set! priority 90))
 (verbatim_block (raw_text) @markup.raw.block)
 

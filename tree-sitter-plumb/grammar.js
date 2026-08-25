@@ -15,6 +15,7 @@ module.exports = grammar({
     $._verbatim_block_open,
     $.raw_code_line,
     $._inline_verbatim_token,
+    $._inline_child_kind,
     $._incomplete_inline_end,
     $._eof,
   ],
@@ -192,6 +193,7 @@ module.exports = grammar({
       $.introducer_escape,
       $.bracket_escape,
       $.brace_escape,
+      $.pipe_escape,
       $.inline_verbatim,
       $.inline_element,
       $.incomplete_inline_element,
@@ -202,17 +204,19 @@ module.exports = grammar({
       $.introducer_escape,
       $.bracket_escape,
       $.brace_escape,
+      $.pipe_escape,
       $.inline_verbatim,
       $.inline_element,
       $.soft_break,
       $.open_brace_text,
-      $.inline_text,
+      $.inline_member_text,
     ))),
 
     attached_inline_content: $ => prec.right(repeat1(choice(
       $.introducer_escape,
       $.bracket_escape,
       $.brace_escape,
+      $.pipe_escape,
       $.inline_verbatim,
       $.inline_element,
       $.soft_break,
@@ -222,31 +226,68 @@ module.exports = grammar({
 
     inline_element: $ => prec.dynamic(2, prec.right(2, seq(
       field('introducer', $.introducer),
-      field('kind', $.inline_kind),
-      repeat1($._inline_slot),
-      optional(field('attached', $.attached_inline_group)),
+      $._inline_element_body,
     ))),
+
+    _inline_element_body: $ => seq(
+      field('kind', $.inline_kind),
+      $._inline_member_envelope,
+    ),
+
+    _inline_member_envelope: $ => seq(
+      token.immediate(prec(5, '[')),
+      optional(field('argument', $.parsed_inline_content)),
+      repeat(seq(
+        field('separator', $.member_separator),
+        choice(
+          field('argument', $.verbatim_argument),
+          field('child', $.inline_child),
+          optional(field('argument', $.parsed_inline_content)),
+        ),
+      )),
+      ']',
+    ),
+
+    verbatim_argument: $ => field(
+      'body',
+      alias($._inline_verbatim_token, $.raw_text),
+    ),
+
+    inline_child: $ => choice(
+      alias($._inline_child_element, $.inline_element),
+      alias($._inline_child_verbatim, $.inline_verbatim),
+    ),
+
+    _inline_child_element: $ => seq(
+      field('kind', alias($._inline_child_kind, $.inline_kind)),
+      $._inline_member_envelope,
+    ),
+
+    _inline_child_verbatim: $ => seq(
+      field('kind', alias($._inline_child_kind, $.verbatim_kind)),
+      field('body', alias($._inline_verbatim_token, $.raw_text)),
+    ),
 
     incomplete_inline_element: $ => prec.dynamic(-2, prec.right(-1, seq(
       field('introducer', $.introducer),
       field('kind', $.inline_kind),
-      repeat($._inline_slot),
       token.immediate(prec(5, '[')),
-      optional(field('content', $.parsed_inline_content)),
+      optional(field('argument', $.parsed_inline_content)),
+      repeat(seq(
+        field('separator', $.member_separator),
+        choice(
+          field('argument', $.verbatim_argument),
+          field('child', $.inline_child),
+          optional(field('argument', $.parsed_inline_content)),
+        ),
+      )),
       $._incomplete_inline_end,
     ))),
-
-    _inline_slot: $ => seq(
-      token.immediate(prec(5, '[')),
-      optional(field('content', $.parsed_inline_content)),
-      ']',
-    ),
 
     inline_verbatim: $ => prec.right(2, seq(
       field('introducer', $.introducer),
       optional(field('kind', $.verbatim_kind)),
       field('body', alias($._inline_verbatim_token, $.raw_text)),
-      optional(field('attached', $.attached_inline_group)),
     )),
 
     attached_inline_group: $ => prec(3, seq(
@@ -259,16 +300,18 @@ module.exports = grammar({
     verbatim_open: _ => token(/"+/),
     bracket_escape: _ => prec(4, choice('`[', '`]')),
     brace_escape: _ => prec(4, choice('`{', '`}')),
+    pipe_escape: _ => prec(4, '`|'),
     soft_break: $ => $._inline_continue,
     introducer: _ => '`',
-    marker: _ => /[^\s\x00-\x1f\x7f-\x9f\[\]{}`"]+/,
-    inline_kind: _ => /[^\s\x00-\x1f\x7f-\x9f\[\]{}`"]+/,
-    verbatim_kind: _ => /[^\s\x00-\x1f\x7f-\x9f\[\]{}`"]+/,
+    marker: _ => /[^\s\x00-\x1f\x7f-\x9f\[\]{}`"|]+/,
+    inline_kind: _ => /[^\s\x00-\x1f\x7f-\x9f\[\]{}`"|]+/,
+    verbatim_kind: _ => /[^\s\x00-\x1f\x7f-\x9f\[\]{}`"|]+/,
+    member_separator: _ => token.immediate('|'),
     head_separator: _ => token(prec(2, /[ \t]+/)),
     block_group_open: _ => token(prec(3, /\{\r?\n/)),
     open_brace_text: _ => prec(-1, '{'),
     text: _ => /[^`{\n]+/,
-    inline_text: _ => /[^`\]{\n]+/,
+    inline_member_text: _ => /[^`\[\]|{\n]+/,
     attached_inline_text: _ => /[^`}\n]+/,
     _line_end: $ => choice('\n', $._eof),
   },
