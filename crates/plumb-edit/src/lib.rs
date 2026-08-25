@@ -865,7 +865,7 @@ fn render_owned_inlines(
 
 fn render_owned_inline(
     inline: &OwnedInline,
-    nested: bool,
+    _nested: bool,
     continuation_indent: usize,
     output: &mut String,
     introduced: bool,
@@ -875,7 +875,7 @@ fn render_owned_inline(
             for character in text.chars() {
                 match character {
                     '`' => output.push_str("``"),
-                    '[' | ']' | '|' if nested => {
+                    '[' | ']' | '{' | '}' | '|' => {
                         output.push('`');
                         output.push(character);
                     }
@@ -1582,6 +1582,33 @@ mod tests {
         assert!(formatted.contains("`span[text|@[id]|+[opaque]|=[key|bare]]"));
         assert!(formatted.contains("`\"raw\""));
         assert!(formatted.contains("`child Body"));
+    }
+
+    #[test]
+    fn escapes_structural_delimiters_in_owned_inline_text() {
+        let owned = OwnedBlock::Parsed {
+            marker: Some("node".into()),
+            attributes: OwnedAttributes::default(),
+            head: vec![
+                OwnedInline::Text("top []{}| ".into()),
+                OwnedInline::Element {
+                    kind: "span".into(),
+                    members: vec![OwnedInlineMember::ParsedArgument(vec![OwnedInline::Text(
+                        "nested []{}|".into(),
+                    )])],
+                },
+            ],
+            children: Vec::new(),
+        };
+
+        let formatted = owned.format().unwrap();
+        assert_eq!(formatted, "`node top `[`]`{`}`| `span[nested `[`]`{`}`|]\n");
+        let reparsed = parse(&formatted);
+        assert!(
+            reparsed.is_valid(),
+            "{formatted}\n{:?}",
+            reparsed.diagnostics
+        );
     }
 
     #[test]

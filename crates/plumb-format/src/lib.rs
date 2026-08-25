@@ -725,8 +725,7 @@ impl Formatter {
     }
 
     fn text(&mut self, text: &str, _nested: bool) {
-        // §2: bare delimiters never appear in text, so every literal one is
-        // escaped unconditionally.
+        // §2: structural delimiters never become bare when rendered as text.
         for character in text.chars() {
             match character {
                 '`' => self.output.push_str("``"),
@@ -734,6 +733,7 @@ impl Formatter {
                 ']' => self.output.push_str("`]"),
                 '{' => self.output.push_str("`{"),
                 '}' => self.output.push_str("`}"),
+                '|' => self.output.push_str("`|"),
                 _ => self.output.push(character),
             }
         }
@@ -1018,6 +1018,7 @@ mod tests {
             "escaped `[ `] `{ `} delims\n",
             "escaped `[ `] `{ `} delims\n",
         );
+        assert_formats("`span[literal `| pipe]\n", "`span[literal `| pipe]\n");
         assert_formats("`- Work {`-[task]}\n", "`- Work {`-[task]}\n");
         assert_formats("`node Meeting {`-[event]}\n", "`node Meeting {`-[event]}\n");
         assert_formats(

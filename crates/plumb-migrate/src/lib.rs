@@ -531,6 +531,16 @@ mod tests {
     }
 
     #[test]
+    fn preserves_escaped_delimiters_in_legacy_text() {
+        let source = "`event wheel: refactor qt`{5,6`}ct {\n `: uid example\n}\n";
+        let migrated = migrate_attached_v1(source).unwrap();
+        assert_eq!(
+            migrated,
+            "`event wheel: refactor qt`{5,6`}ct {\n `= uid example\n}\n"
+        );
+    }
+
+    #[test]
     fn rejects_conflicting_legacy_link_targets() {
         let error = migrate_attached_v1("`->[guide][positional.plumb]{`:[to property.plumb]}\n")
             .unwrap_err();
