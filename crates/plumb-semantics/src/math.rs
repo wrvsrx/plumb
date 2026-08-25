@@ -2,7 +2,7 @@ use std::ops::Range;
 
 use plumb_syntax::{
     AttachedContent, AttrItem, Attributes, Block, Diagnostic, DiagnosticSeverity, Document, Inline,
-    InlineContent,
+    InlineContent, InlineMember,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -63,6 +63,11 @@ fn collect_blocks(blocks: &[Block], output: &mut MathOutput) {
 
 fn collect_inlines(content: &InlineContent, output: &mut MathOutput) {
     for inline in &content.items {
+        collect_inline(inline, output);
+    }
+}
+
+fn collect_inline(inline: &Inline, output: &mut MathOutput) {
         match inline {
             Inline::Verbatim {
                 range, kind, attrs, ..
@@ -70,16 +75,21 @@ fn collect_inlines(content: &InlineContent, output: &mut MathOutput) {
             Inline::Element {
                 range,
                 attrs,
-                slots,
+                members,
                 ..
             } => {
                 let _ = (range, attrs);
-                for slot in slots {
-                    collect_inlines(&slot.content, output);
+                for member in members {
+                    match member {
+                        InlineMember::ParsedArgument(argument) => {
+                            collect_inlines(&argument.content, output);
+                        }
+                        InlineMember::Child { inline, .. } => collect_inline(inline, output),
+                        InlineMember::VerbatimArgument(_) => {}
+                    }
                 }
             }
             Inline::Text { .. } | Inline::Space { .. } | Inline::SoftBreak { .. } => {}
-        }
     }
 }
 
@@ -125,7 +135,7 @@ mod tests {
 
     #[test]
     fn recognizes_verbatim_math_and_ignores_dollar_facets() {
-        let source = "Inline `$\"x^2\".\n\n`$\" {`@[display]}\n  x^2\n\n`$\" {`:[language mathml]}\n  <math/>\n\n`div Not raw {\n  `- $\n}\n\n`span[x]{`-[$]}\n";
+        let source = "Inline `$\"x^2\".\n\n`$\" {`@[display]}\n  x^2\n\n`$\" {`=[language|mathml]}\n  <math/>\n\n`div Not raw {\n  `+ $\n}\n\n`span[x|+[$]]\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let output = analyze_math(&parsed.syntax);

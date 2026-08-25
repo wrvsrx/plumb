@@ -1,6 +1,9 @@
 use std::ops::Range;
 
-use plumb_syntax::{Block, Diagnostic, DiagnosticSeverity, Document, Inline, InlineContent};
+use plumb_syntax::{
+    Block, Diagnostic, DiagnosticSeverity, Document, Inline, InlineArgumentRef, InlineContent,
+    InlineMember,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CitationRecord {
@@ -41,39 +44,64 @@ fn collect_blocks(blocks: &[Block], output: &mut CitationOutput) {
 fn collect_inlines(content: &InlineContent, output: &mut CitationOutput) {
     for inline in &content.items {
         let Inline::Element {
-            range, kind, slots, ..
+            range,
+            kind,
+            members,
+            ..
         } = inline
         else {
             continue;
         };
         if kind == "cite" {
-            match slots.as_slice() {
-                [slot] => match citation_id(&slot.content) {
+            let arguments = members
+                .iter()
+                .filter_map(InlineMember::argument)
+                .collect::<Vec<_>>();
+            match arguments.as_slice() {
+                [argument] => match citation_argument_id(argument) {
                     Some(id) => output.citations.push(CitationRecord {
                         range: range.clone(),
-                        selection_range: slot.content.range.clone(),
+                        selection_range: argument_range(argument),
                         id,
                     }),
                     None => output.diagnostics.push(Diagnostic {
                         code: "citation.invalid",
                         severity: DiagnosticSeverity::Warning,
                         message: "a citation must contain one plain id".to_string(),
-                        range: slot.content.range.clone(),
+                        range: argument_range(argument),
                         related: Vec::new(),
                     }),
                 },
                 _ => output.diagnostics.push(Diagnostic {
                     code: "citation.invalid",
                     severity: DiagnosticSeverity::Warning,
-                    message: "a citation must contain exactly one content slot".to_string(),
+                    message: "a citation must contain exactly one argument".to_string(),
                     range: range.clone(),
                     related: Vec::new(),
                 }),
             }
         }
-        for slot in slots {
-            collect_inlines(&slot.content, output);
+        for member in members {
+            if let InlineMember::ParsedArgument(argument) = member {
+                collect_inlines(&argument.content, output);
+            }
         }
+    }
+}
+
+fn citation_argument_id(argument: &InlineArgumentRef<'_>) -> Option<String> {
+    match argument {
+        InlineArgumentRef::Parsed(content) => citation_id(content),
+        InlineArgumentRef::Verbatim(argument) => {
+            (!argument.text.is_empty()).then(|| argument.text.clone())
+        }
+    }
+}
+
+fn argument_range(argument: &InlineArgumentRef<'_>) -> Range<usize> {
+    match argument {
+        InlineArgumentRef::Parsed(content) => content.range.clone(),
+        InlineArgumentRef::Verbatim(argument) => argument.text_range.clone(),
     }
 }
 

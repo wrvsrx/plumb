@@ -4,7 +4,7 @@ use std::path::Path;
 
 use plumb_syntax::{
     AttachedContent, AttrItem, AttrValue, Attributes, Block, Diagnostic, DiagnosticSeverity,
-    Document, Inline, InlineContent, InlineSlot,
+    Document, Inline, InlineArgumentRef, InlineContent, InlineMember,
 };
 use serde::{Deserialize, Serialize};
 use url::Url;
@@ -193,8 +193,9 @@ fn association_arity_diagnostics(document: &Document) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     let mut blocks = document.blocks.iter().collect::<Vec<_>>();
     let mut contents = Vec::new();
+    let mut inlines = Vec::new();
     push_attached_syntax(&document.attrs, &mut blocks, &mut contents);
-    while !blocks.is_empty() || !contents.is_empty() {
+    while !blocks.is_empty() || !contents.is_empty() || !inlines.is_empty() {
         if let Some(block) = blocks.pop() {
             match block {
                 Block::Parsed(block) => {
@@ -210,27 +211,42 @@ fn association_arity_diagnostics(document: &Document) -> Vec<Diagnostic> {
             }
             continue;
         }
-        let content = contents.pop().expect("syntax traversal has inline content");
-        for inline in &content.items {
+        if let Some(content) = contents.pop() {
+            inlines.extend(content.items.iter().rev());
+            continue;
+        }
+        while let Some(inline) = inlines.pop() {
             match inline {
                 Inline::Element {
                     range,
                     kind,
-                    slots,
+                    members,
                     attrs,
                     ..
                 } => {
-                    if kind == ":" && slots.len() > 2 {
+                    let argument_count = members
+                        .iter()
+                        .filter(|member| member.argument().is_some())
+                        .count();
+                    if kind == "=" && argument_count != 2 {
                         diagnostics.push(Diagnostic {
                             code: "association.invalid-arity",
                             severity: DiagnosticSeverity::Warning,
-                            message: "inline ':' association accepts one compact slot or two expanded slots"
+                            message: "inline '=' association requires exactly two arguments"
                                 .to_string(),
                             range: range.clone(),
                             related: Vec::new(),
                         });
                     }
-                    contents.extend(slots.iter().map(|slot| &slot.content));
+                    for member in members.iter().rev() {
+                        match member {
+                            InlineMember::ParsedArgument(argument) => {
+                                contents.push(&argument.content);
+                            }
+                            InlineMember::Child { inline, .. } => inlines.push(inline),
+                            InlineMember::VerbatimArgument(_) => {}
+                        }
+                    }
                     push_attached_syntax(attrs, &mut blocks, &mut contents);
                 }
                 Inline::Verbatim { attrs, .. } => {
@@ -316,13 +332,15 @@ fn collect_inlines(
             Inline::Element {
                 range,
                 kind,
-                slots,
+                kind_range,
+                members,
                 attrs,
                 ..
             } => {
-                let selection_range = slots
-                    .first()
-                    .map_or_else(|| range.clone(), |slot| slot.content.range.clone());
+                let selection_range = members
+                    .iter()
+                    .find_map(InlineMember::argument)
+                    .map_or_else(|| range.clone(), |argument| argument_range(&argument));
                 collect_anchor(
                     source,
                     attrs,
@@ -333,7 +351,14 @@ fn collect_inlines(
                     output,
                 );
                 if kind == "->" {
-                    collect_link(source, range.clone(), slots, attrs, output);
+                    collect_link(
+                        source,
+                        range.clone(),
+                        kind_range.clone(),
+                        members,
+                        attrs,
+                        output,
+                    );
                 } else if kind == "img" {
                     collect_image(
                         source,
@@ -345,8 +370,22 @@ fn collect_inlines(
                 } else if kind == "file" {
                     collect_file(source, range.clone(), selection_range, attrs, output);
                 }
-                for slot in slots {
-                    collect_inlines(source, &slot.content, first_ids, output);
+                for member in members {
+                    match member {
+                        InlineMember::ParsedArgument(argument) => {
+                            collect_inlines(source, &argument.content, first_ids, output);
+                        }
+                        InlineMember::Child { inline, .. } => collect_inlines(
+                            source,
+                            &InlineContent {
+                                range: inline_range(inline).clone(),
+                                items: vec![inline.as_ref().clone()],
+                            },
+                            first_ids,
+                            output,
+                        ),
+                        InlineMember::VerbatimArgument(_) => {}
+                    }
                 }
             }
             Inline::Verbatim {
@@ -679,59 +718,33 @@ fn collect_anchor(
 fn collect_link(
     source: &str,
     range: Range<usize>,
-    slots: &[InlineSlot],
+    kind_range: Range<usize>,
+    members: &[InlineMember],
     attrs: &Attributes,
     output: &mut DocumentOutput,
 ) {
-    let legacy = attrs.items.iter().find_map(|item| match item {
-        AttrItem::Pair {
-            key, value, range, ..
-        } if key == "to" => Some((value, range.clone())),
-        _ => None,
-    });
-
-    if slots.len() == 1 {
-        if let Some((value, property_range)) = legacy {
-            let target = attr_source_backed(source, value);
-            output.diagnostics.push(Diagnostic {
-                code: "link.legacy-to-property",
-                severity: DiagnosticSeverity::Warning,
-                message:
-                    "legacy named Link target property should be rewritten as a positional slot"
-                        .to_string(),
-                range: property_range.clone(),
-                related: vec![range.clone()],
-            });
-            push_link(
-                range,
-                slots[0].content.range.clone(),
-                target,
-                LinkSpelling::LegacyProperty {
-                    property_range,
-                    value_range: value.range.clone(),
-                },
-                output,
-            );
-            return;
-        }
-    } else if legacy.is_some() {
-        output.diagnostics.push(Diagnostic {
-            code: "link.conflicting-target",
-            severity: DiagnosticSeverity::Warning,
-            message: "named Link cannot combine positional target slots with a 'to' property"
-                .to_string(),
+    let arguments = members
+        .iter()
+        .filter_map(InlineMember::argument)
+        .collect::<Vec<_>>();
+    if let [InlineArgumentRef::Verbatim(argument)] = arguments.as_slice() {
+        collect_verbatim_autolink(
+            source,
             range,
-            related: Vec::new(),
-        });
+            kind_range,
+            &argument.text,
+            argument.text_range.clone(),
+            argument.quote_count,
+            attrs,
+            output,
+        );
         return;
     }
-
-    let Some((selection_range, target)) = positional_link_parts(source, slots) else {
+    let Some((selection_range, target)) = positional_link_parts(source, members) else {
         output.diagnostics.push(Diagnostic {
             code: "link.missing-target",
             severity: DiagnosticSeverity::Warning,
-            message: "link requires a compact label/target pair or exactly two positional slots"
-                .to_string(),
+            message: "link requires exactly two positional arguments".to_string(),
             range,
             related: Vec::new(),
         });
@@ -748,21 +761,38 @@ fn collect_link(
 
 fn positional_link_parts(
     source: &str,
-    slots: &[InlineSlot],
+    members: &[InlineMember],
 ) -> Option<(Range<usize>, SourceBacked<String>)> {
-    match slots {
-        [slot] => {
-            let [label, Inline::Space { .. }, target @ ..] = slot.content.items.as_slice() else {
-                return None;
-            };
-            let target = source_backed_inline_items(source, target)?;
-            Some((inline_range(label).clone(), target))
-        }
-        [label, target] => Some((
-            label.content.range.clone(),
-            source_backed_inline_items(source, &target.content.items)?,
-        )),
-        _ => None,
+    let arguments = members
+        .iter()
+        .filter_map(InlineMember::argument)
+        .collect::<Vec<_>>();
+    let [label, target] = arguments.as_slice() else {
+        return None;
+    };
+    Some((argument_range(label), source_backed_argument(source, target)?))
+}
+
+fn argument_range(argument: &InlineArgumentRef<'_>) -> Range<usize> {
+    match argument {
+        InlineArgumentRef::Parsed(content) => content.range.clone(),
+        InlineArgumentRef::Verbatim(argument) => argument.text_range.clone(),
+    }
+}
+
+fn source_backed_argument(
+    source: &str,
+    argument: &InlineArgumentRef<'_>,
+) -> Option<SourceBacked<String>> {
+    match argument {
+        InlineArgumentRef::Parsed(content) => source_backed_inline_items(source, &content.items),
+        InlineArgumentRef::Verbatim(argument) if !argument.text.is_empty() => Some(SourceBacked {
+            raw: source[argument.text_range.clone()].to_string(),
+            value: argument.text.clone(),
+            range: argument.text_range.clone(),
+            decoded_boundaries: (argument.text_range.start..=argument.text_range.end).collect(),
+        }),
+        InlineArgumentRef::Verbatim(_) => None,
     }
 }
 
@@ -1001,7 +1031,7 @@ mod tests {
 
     #[test]
     fn only_shorthand_ids_create_anchors() {
-        let parsed = parse("`# Heading {\n  `@ intro\n}\n\n`## Pair only {\n  `: id pair\n}\n");
+        let parsed = parse("`# Heading {\n  `@ intro\n}\n\n`## Pair only {\n  `= id pair\n}\n");
         let output = analyze_document(&parsed.source, &parsed.syntax);
         assert_eq!(output.anchors.len(), 1);
         assert_eq!(output.anchors[0].id.value, "intro");
@@ -1018,31 +1048,8 @@ mod tests {
     }
 
     #[test]
-    fn links_keep_component_source_ranges_through_quotes() {
-        let parsed = parse("See `->[target]{`:[to docs/a.plumb#intro]}.\n");
-        let output = analyze_document(&parsed.source, &parsed.syntax);
-        let link = &output.links[0];
-        assert!(matches!(link.spelling, LinkSpelling::LegacyProperty { .. }));
-        assert_eq!(
-            &parsed.source[link.path_range.clone().unwrap()],
-            "docs/a.plumb"
-        );
-        assert_eq!(
-            &parsed.source[link.fragment_range.clone().unwrap()],
-            "intro"
-        );
-        assert_eq!(
-            link.target_kind,
-            LinkTarget::Anchor {
-                path: Some("docs/a.plumb".to_string()),
-                fragment: "intro".to_string(),
-            }
-        );
-    }
-
-    #[test]
     fn recognizes_compact_and_expanded_positional_links() {
-        let source = "`->[guide target.plumb]\n`->[guide page][Project Guide.plumb#intro]\n`->[`*[external]][https://example.test]\n";
+        let source = "`->[guide|target.plumb]\n`->[guide page|\"Project Guide.plumb#intro\"]\n`->[`*[external]|https://example.test]\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
@@ -1081,7 +1088,7 @@ mod tests {
 
     #[test]
     fn positional_link_ranges_map_utf8_and_escaped_delimiters() {
-        let source = "`->[目标][目录/项`].plumb#章节]\n";
+        let source = "`->[目标|目录/项`].plumb#章节]\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
@@ -1095,37 +1102,8 @@ mod tests {
     }
 
     #[test]
-    fn legacy_link_warns_with_rewrite_ranges_and_conflicts_with_positional_target() {
-        let source =
-            "`->[legacy]{`:[to target.plumb]}\n`->[current][target.plumb]{`:[to other.plumb]}\n";
-        let parsed = parse(source);
-        assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
-
-        let output = analyze_document(&parsed.source, &parsed.syntax);
-        assert_eq!(output.links.len(), 1);
-        let LinkSpelling::LegacyProperty {
-            property_range,
-            value_range,
-        } = &output.links[0].spelling
-        else {
-            panic!("legacy Link must retain migration ranges");
-        };
-        assert_eq!(&source[property_range.clone()], "`:[to target.plumb]");
-        assert_eq!(&source[value_range.clone()], "target.plumb");
-        assert_eq!(
-            output
-                .diagnostics
-                .iter()
-                .map(|diagnostic| diagnostic.code)
-                .collect::<Vec<_>>(),
-            ["link.legacy-to-property", "link.conflicting-target"]
-        );
-        assert_eq!(output.diagnostics[0].range, property_range.clone());
-    }
-
-    #[test]
     fn diagnoses_associations_with_more_than_two_slots_inside_attachments() {
-        let source = "`span[value]{`:[key][value][extra]}\n";
+        let source = "`span[value|=[key|value|extra]]\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
@@ -1135,12 +1113,12 @@ mod tests {
             .iter()
             .find(|diagnostic| diagnostic.code == "association.invalid-arity")
             .expect("invalid association arity diagnostic");
-        assert_eq!(&source[diagnostic.range.clone()], "`:[key][value][extra]");
+        assert_eq!(&source[diagnostic.range.clone()], "=[key|value|extra]");
     }
 
     #[test]
     fn link_kind_is_not_a_standard_link() {
-        let parsed = parse("`link[generic]{`:[to other.plumb#target]}\n");
+        let parsed = parse("`link[generic|=[to|other.plumb#target]]\n");
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
         let output = analyze_document(&parsed.source, &parsed.syntax);
@@ -1149,7 +1127,7 @@ mod tests {
 
     #[test]
     fn recognizes_inline_verbatim_autolinks_without_normalizing_the_target() {
-        let source = "Visit `->\"https://example.test/a%20b\"{`@[site] `-[keep] `:[rel nofollow]} or `->\"https://[::1]/\".\n";
+        let source = "Visit `->[\"https://example.test/a%20b\"|@[site]|+[keep]|=[rel|nofollow]] or `->\"https://[::1]/\".\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
@@ -1215,7 +1193,7 @@ mod tests {
 
     #[test]
     fn recognizes_standard_images_and_diagnoses_invalid_sources() {
-        let source = "`img[Alt `em[text]]{`:[src static/图 像(100%).png] `@[figure] `-[wide] `:[loading lazy]}\n`img[]{`:[src https://example.test/a.png]}\n`img[Missing]\n`img[Empty]{`:[src ]}\n`img[Invalid URI]{`:[src https://example.test/bad path.png]}\n`img[Invalid path]{`:[src bad\\path.png]}\n";
+        let source = "`img[Alt `em[text]|=[src|\"static/图 像(100%).png\"]|@[figure]|+[wide]|=[loading|lazy]]\n`img[|=[src|https://example.test/a.png]]\n`img[Missing]\n`img[Empty|=[src|]]\n`img[Invalid URI|=[src|\"https://example.test/bad path.png\"]]\n`img[Invalid path|=[src|bad\\path.png]]\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
@@ -1246,7 +1224,7 @@ mod tests {
 
     #[test]
     fn recognizes_standard_files_and_diagnoses_invalid_sources() {
-        let source = "`file[Demo]{`:[src static/demo video.mp4] `@[demo] `-[wide]}\n`file[Remote]{`:[src https://example.test/demo.mp4]}\n`file[Missing]\n`file[Empty]{`:[src ]}\n`file[Invalid URI]{`:[src https://example.test/bad path.mp4]}\n`file[Invalid path]{`:[src bad\\path.mp4]}\n";
+        let source = "`file[Demo|=[src|\"static/demo video.mp4\"]|@[demo]|+[wide]]\n`file[Remote|=[src|https://example.test/demo.mp4]]\n`file[Missing]\n`file[Empty|=[src|]]\n`file[Invalid URI|=[src|\"https://example.test/bad path.mp4\"]]\n`file[Invalid path|=[src|bad\\path.mp4]]\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
@@ -1277,7 +1255,7 @@ mod tests {
 
     #[test]
     fn diagnoses_invalid_autolink_targets_and_conflicting_properties() {
-        let source = "`->\"[]\"\n`->\"https://example.test/bad path\"\n`->\"https://example.test/%zz\"\n`->\"doc.plumb#one#two\"\n`->\"https://example.test\"{`:[to other]}\n`->\"https://example.test\"{`-[$]}\n`span[text]{`-[->]}\n\n`note head {\n  `- ->\n}\n\n`\" {`-[->]}\n raw\n";
+        let source = "`->\"[]\"\n`->\"https://example.test/bad path\"\n`->\"https://example.test/%zz\"\n`->\"doc.plumb#one#two\"\n`->[\"https://example.test\"|=[to|other]]\n`->[\"https://example.test\"|+[$]]\n`span[text|+[->]]\n\n`note head {\n  `+ ->\n}\n\n`\" {`+[->]}\n raw\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 

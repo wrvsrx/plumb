@@ -4,7 +4,7 @@ use std::ops::Range;
 use chrono::DateTime;
 use plumb_syntax::{
     AttachedContent, Block, Diagnostic, DiagnosticSeverity, Document, Inline, InlineContent,
-    ParsedBlock,
+    InlineMember, ParsedBlock,
 };
 
 use crate::text::plain_text;
@@ -220,10 +220,10 @@ fn parse_attached_entries(
             ));
             continue;
         };
-        if mark.marker != ":" {
+        if mark.marker != "=" {
             diagnostics.push(warning(
                 "metadata.expected-property",
-                "root metadata children must use the ':' association marker",
+                "root metadata children must use the '=' association marker",
                 mark.marker_range.clone(),
             ));
             continue;
@@ -304,12 +304,17 @@ fn attached_property_parts(
         }
         Inline::Element {
             kind,
-            slots,
+            members,
             attrs,
             range,
             ..
-        } if kind == "()" && slots.len() == 1 && attrs.items.is_empty() => {
-            let key = slots[0].content.plain_text();
+        } if kind == "()" && attrs.items.is_empty() => {
+            let mut arguments = members.iter().filter_map(InlineMember::argument);
+            let argument = arguments.next()?;
+            if arguments.next().is_some() {
+                return None;
+            }
+            let key = argument.plain_text();
             if key.is_empty() {
                 return None;
             }
@@ -689,11 +694,19 @@ fn inline_verbatim(content: &InlineContent) -> Option<&str> {
 
 fn plain_association_key(content: &InlineContent) -> Option<String> {
     if let [Inline::Element {
-        kind, slots, attrs, ..
+        kind,
+        members,
+        attrs,
+        ..
     }] = content.items.as_slice()
     {
-        if kind == "()" && slots.len() == 1 && attrs.items.is_empty() {
-            let key = slots[0].content.plain_text();
+        let mut arguments = members.iter().filter_map(InlineMember::argument);
+        if kind == "()" && attrs.items.is_empty() {
+            let argument = arguments.next()?;
+            if arguments.next().is_some() {
+                return None;
+            }
+            let key = argument.plain_text();
             return (!key.is_empty()).then_some(key);
         }
     }
@@ -781,11 +794,11 @@ mod tests {
     #[test]
     fn groups_definition_lists_and_projects_metadata_values() {
         let parsed = parse(
-            "{\n  `: title Document `em[title]\n  `: tags\n\n     `- plumb\n     `- parser\n  `: macros\n\n     `-\n      `- `\"name\"\n      `- `\"expansion\"\n      `- 1\n  `: author\n\n     `: name Alice\n  `: source\n\n     `text\"\n       raw\n}\n\n`: term\n\n   Definition.\n",
+            "{\n  `= title Document `em[title]\n  `= tags\n\n     `- plumb\n     `- parser\n  `= macros\n\n     `-\n      `- `\"name\"\n      `- `\"expansion\"\n      `- 1\n  `= author\n\n     `= name Alice\n  `= source\n\n     `text\"\n       raw\n}\n\n`: term\n\n   Definition.\n",
         );
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let output = analyze_metadata(&parsed.syntax);
-        assert_eq!(output.definition_lists.len(), 3);
+        assert_eq!(output.definition_lists.len(), 1);
         assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
         assert_eq!(output.document_title().as_deref(), Some("Document title"));
         let metadata = output.metadata.unwrap();
@@ -816,7 +829,7 @@ mod tests {
     #[test]
     fn projects_recursive_root_metadata() {
         let parsed = parse(
-            "{\n  `: title Document `em[title]\n  `: tags\n   `- plumb\n   `- parser\n  `: macros\n   `-\n    `- `\"name\"\n    `- `\"expansion\"\n  `: author\n   `: name Alice\n  `: empty\n}\n\nBody.\n",
+            "{\n  `= title Document `em[title]\n  `= tags\n   `- plumb\n   `- parser\n  `= macros\n   `-\n    `- `\"name\"\n    `- `\"expansion\"\n  `= author\n   `= name Alice\n  `= empty\n}\n\nBody.\n",
         );
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let output = analyze_metadata(&parsed.syntax);
@@ -850,7 +863,7 @@ mod tests {
     #[test]
     fn projects_plain_and_literal_bibliography_sources() {
         let parsed = parse(
-            "{\n `: bibliography\n  `- refs/library one.json\n  `- `\"refs/library-two.json\"\n}\n",
+            "{\n `= bibliography\n  `- refs/library one.json\n  `- `\"refs/library-two.json\"\n}\n",
         );
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let output = analyze_metadata(&parsed.syntax);
@@ -862,7 +875,7 @@ mod tests {
 
     #[test]
     fn root_and_legacy_metadata_are_diagnosed_as_duplicates() {
-        let parsed = parse("{\n  `: title Root\n}\n\n`meta\n `: title\n\n    Legacy\n");
+        let parsed = parse("{\n  `= title Root\n}\n\n`meta\n `: title\n\n    Legacy\n");
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let output = analyze_metadata(&parsed.syntax);
         assert_eq!(output.document_title().as_deref(), Some("Root"));
@@ -960,7 +973,7 @@ mod tests {
 
     #[test]
     fn root_metadata_uses_compact_or_child_bounded_association_keys() {
-        let source = "{\n `: title plumb title\n `: `()[key with spaces] inline value\n `: child key with spaces\n\n   child value\n}\n";
+        let source = "{\n `= title plumb title\n `= `()[key with spaces] inline value\n `= child key with spaces\n\n   child value\n}\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 

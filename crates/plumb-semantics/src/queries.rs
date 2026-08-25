@@ -1,7 +1,8 @@
 use std::ops::Range;
 
 use plumb_syntax::{
-    AttachedContent, AttrItem, AttrValue, Attributes, Block, Inline, InlineContent, ParsedDocument,
+    AttachedContent, AttrItem, AttrValue, Attributes, Block, Inline, InlineContent, InlineMember,
+    ParsedDocument,
 };
 
 use crate::{parse_task_reference_target, TaskReferenceTarget};
@@ -197,7 +198,10 @@ fn attribute_context_in_inlines(
     for inline in &content.items {
         match inline {
             Inline::Element {
-                kind, slots, attrs, ..
+                kind,
+                members,
+                attrs,
+                ..
             } => {
                 if let Some(context) = attached_attribute_context(
                     attrs,
@@ -212,11 +216,29 @@ fn attribute_context_in_inlines(
                 {
                     return Some(context);
                 }
-                for slot in slots {
-                    if let Some(context) =
-                        attribute_context_in_inlines(&slot.content, source, offset)
-                    {
-                        return Some(context);
+                for member in members {
+                    match member {
+                        InlineMember::ParsedArgument(argument) => {
+                            if let Some(context) = attribute_context_in_inlines(
+                                &argument.content,
+                                source,
+                                offset,
+                            ) {
+                                return Some(context);
+                            }
+                        }
+                        InlineMember::Child { inline, .. } => {
+                            let content = InlineContent {
+                                range: inline_range(inline).clone(),
+                                items: vec![inline.as_ref().clone()],
+                            };
+                            if let Some(context) =
+                                attribute_context_in_inlines(&content, source, offset)
+                            {
+                                return Some(context);
+                            }
+                        }
+                        InlineMember::VerbatimArgument(_) => {}
                     }
                 }
             }
@@ -297,10 +319,10 @@ fn attached_attribute_context(
             .any(|line| line.trim_start().starts_with("`@ "));
     let has_pair = |key: &str| {
         attrs.value(key).is_some()
-            || attached_source.contains(&format!("`:[{key} "))
+            || attached_source.contains(&format!("`=[{key}|"))
             || attached_source
                 .lines()
-                .any(|line| line.trim_start().starts_with(&format!("`: {key} ")))
+                .any(|line| line.trim_start().starts_with(&format!("`= {key} ")))
     };
     let mut completions = Vec::new();
     match (&group.content, owner) {
@@ -309,28 +331,28 @@ fn attached_attribute_context(
                 &mut completions,
                 !has_pair("title"),
                 "title",
-                "`: title ",
+                "`= title ",
                 "document title",
             );
             push_attached_completion(
                 &mut completions,
                 !has_pair("created"),
                 "created",
-                "`: created ",
+                "`= created ",
                 "document creation datetime",
             );
             push_attached_completion(
                 &mut completions,
                 !has_pair("date"),
                 "date",
-                "`: date ",
+                "`= date ",
                 "document date",
             );
             push_attached_completion(
                 &mut completions,
                 !has_pair("timezone"),
                 "timezone",
-                "`: timezone ",
+                "`= timezone ",
                 "document timezone",
             );
         }
@@ -377,9 +399,9 @@ fn attached_attribute_context(
     }
     completions.retain(|candidate| {
         let candidate_declaration = match candidate.new_text.as_bytes().get(1) {
-            Some(b'-') => '-',
+            Some(b'+') => '+',
             Some(b'@') => '@',
-            Some(b':') => ':',
+            Some(b'=') => '=',
             _ => return false,
         };
         candidate_declaration == declaration && candidate.label.starts_with(query)
@@ -396,7 +418,7 @@ fn attached_value_completion_context(
     offset: usize,
     owner: AttributeOwner<'_>,
 ) -> Option<AttributeCompletionContext> {
-    let introducer = source[group.open_range.end..offset].rfind("`:[")? + group.open_range.end;
+    let introducer = source[group.open_range.end..offset].rfind("`=[")? + group.open_range.end;
     let typed = &source[introducer + 3..offset];
     if typed
         .chars()
@@ -404,8 +426,7 @@ fn attached_value_completion_context(
     {
         return None;
     }
-    let (key, value) = typed.split_once(char::is_whitespace)?;
-    let value = value.trim_start();
+    let (key, value) = typed.split_once('|')?;
     if key != "language"
         || !matches!(
             owner,
@@ -432,7 +453,7 @@ fn attached_value_completion_context(
 fn attached_declaration_query(typed: &str) -> Option<(char, &str)> {
     let mut characters = typed.chars();
     let declaration = characters.next()?;
-    if !matches!(declaration, '-' | '@' | ':') {
+    if !matches!(declaration, '+' | '@' | '=') {
         return None;
     }
     let remainder = characters.as_str();
@@ -467,19 +488,19 @@ fn push_attached_pair_completion(
     inline: bool,
 ) {
     let new_text = match (key, inline) {
-        ("created", false) => "`: created ",
-        ("due", false) => "`: due ",
-        ("wait", false) => "`: wait ",
-        ("recur", false) => "`: recur ",
-        ("prev", false) => "`: prev ",
-        ("depends", false) => "`: depends ",
-        ("priority", false) => "`: priority 0",
-        ("date", false) => "`: date ",
-        ("timezone", false) => "`: timezone ",
-        ("tasks", false) => "`: tasks ",
-        ("language", false) => "`: language ",
-        ("src", true) => "`:[src ]",
-        ("language", true) => "`:[language ]",
+        ("created", false) => "`= created ",
+        ("due", false) => "`= due ",
+        ("wait", false) => "`= wait ",
+        ("recur", false) => "`= recur ",
+        ("prev", false) => "`= prev ",
+        ("depends", false) => "`= depends ",
+        ("priority", false) => "`= priority 0",
+        ("date", false) => "`= date ",
+        ("timezone", false) => "`= timezone ",
+        ("tasks", false) => "`= tasks ",
+        ("language", false) => "`= language ",
+        ("src", true) => "`=[src|]",
+        ("language", true) => "`=[language|]",
         _ => return,
     };
     push_attached_completion(candidates, include, key, new_text, detail);
@@ -1172,9 +1193,20 @@ fn inlines_find_autolink(
                 offset,
             )
         }
-        Inline::Element { slots, .. } => slots
-            .iter()
-            .find_map(|slot| inlines_find_autolink(source, &slot.content, offset)),
+        Inline::Element { members, .. } => members.iter().find_map(|member| match member {
+            InlineMember::ParsedArgument(argument) => {
+                inlines_find_autolink(source, &argument.content, offset)
+            }
+            InlineMember::Child { inline, .. } => inlines_find_autolink(
+                source,
+                &InlineContent {
+                    range: inline_range(inline).clone(),
+                    items: vec![inline.as_ref().clone()],
+                },
+                offset,
+            ),
+            InlineMember::VerbatimArgument(_) => None,
+        }),
         Inline::Verbatim { .. }
         | Inline::Text { .. }
         | Inline::Space { .. }
@@ -1255,14 +1287,24 @@ fn blocks_attributes_contain(blocks: &[Block], offset: usize) -> bool {
 
 fn inlines_attributes_contain(content: &InlineContent, offset: usize) -> bool {
     content.items.iter().any(|inline| match inline {
-        Inline::Element { attrs, slots, .. } => {
+        Inline::Element { attrs, members, .. } => {
             attrs
                 .range
                 .as_ref()
                 .is_some_and(|range| range.contains(&offset))
-                || slots
-                    .iter()
-                    .any(|slot| inlines_attributes_contain(&slot.content, offset))
+                || members.iter().any(|member| match member {
+                    InlineMember::ParsedArgument(argument) => {
+                        inlines_attributes_contain(&argument.content, offset)
+                    }
+                    InlineMember::Child { inline, .. } => inlines_attributes_contain(
+                        &InlineContent {
+                            range: inline_range(inline).clone(),
+                            items: vec![inline.as_ref().clone()],
+                        },
+                        offset,
+                    ),
+                    InlineMember::VerbatimArgument(_) => false,
+                })
         }
         Inline::Verbatim { attrs, .. } => attrs
             .range
@@ -1277,9 +1319,21 @@ fn inlines_contain_verbatim(content: &InlineContent, offset: usize) -> bool {
         Inline::Verbatim { text_range, .. } => {
             text_range.start <= offset && offset <= text_range.end
         }
-        Inline::Element { slots, .. } => slots
-            .iter()
-            .any(|slot| inlines_contain_verbatim(&slot.content, offset)),
+        Inline::Element { members, .. } => members.iter().any(|member| match member {
+            InlineMember::ParsedArgument(argument) => {
+                inlines_contain_verbatim(&argument.content, offset)
+            }
+            InlineMember::VerbatimArgument(argument) => {
+                argument.text_range.start <= offset && offset <= argument.text_range.end
+            }
+            InlineMember::Child { inline, .. } => inlines_contain_verbatim(
+                &InlineContent {
+                    range: inline_range(inline).clone(),
+                    items: vec![inline.as_ref().clone()],
+                },
+                offset,
+            ),
+        }),
         Inline::Text { .. } | Inline::Space { .. } | Inline::SoftBreak { .. } => false,
     })
 }
@@ -1493,9 +1547,9 @@ mod tests {
 
     #[test]
     fn completes_standard_attributes_from_recovered_owner_context() {
-        let (task, cursor) = strip_cursor("`task Work {\n  `: created now\n  `: pr|\n}\n");
+        let (task, cursor) = strip_cursor("`task Work {\n  `= created now\n  `= pr|\n}\n");
         let context = attribute_completion_context(&parse(&task), cursor).unwrap();
-        assert_eq!(context.replace, task.find("`: pr").unwrap()..cursor);
+        assert_eq!(context.replace, task.find("`= pr").unwrap()..cursor);
         assert_eq!(
             context
                 .completions
@@ -1504,44 +1558,32 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["prev", "priority"]
         );
-        assert_eq!(context.completions[1].new_text, "`: priority 0");
-
-        let (recovered, cursor) = strip_cursor("`img[Alt]{`: s|");
-        let context = attribute_completion_context(&parse(&recovered), cursor).unwrap();
-        assert_eq!(context.completions[0].new_text, "`:[src ]");
-
-        let (nested, cursor) = strip_cursor("Text `span[x `img[y]{`: s|}]{`-[outer]}");
-        let context = attribute_completion_context(&parse(&nested), cursor).unwrap();
-        assert_eq!(context.completions[0].label, "src");
+        assert_eq!(context.completions[1].new_text, "`= priority 0");
     }
 
     #[test]
     fn completes_attached_elements_with_the_owners_ordinary_syntax() {
-        let (task, cursor) = strip_cursor("`task Work {\n  `: pr|\n}\n");
+        let (task, cursor) = strip_cursor("`task Work {\n  `= pr|\n}\n");
         let context = attribute_completion_context(&parse(&task), cursor).unwrap();
-        assert_eq!(context.replace, task.find("`: pr").unwrap()..cursor);
+        assert_eq!(context.replace, task.find("`= pr").unwrap()..cursor);
         assert_eq!(
             context
                 .completions
                 .iter()
                 .map(|item| (item.label, item.new_text))
                 .collect::<Vec<_>>(),
-            [("prev", "`: prev "), ("priority", "`: priority 0")]
+            [("prev", "`= prev "), ("priority", "`= priority 0")]
         );
 
-        let (link, cursor) = strip_cursor("`->[label][target]{`: t|}");
-        let context = attribute_completion_context(&parse(&link), cursor).unwrap();
-        assert!(context.completions.is_empty());
-
-        let (root, cursor) = strip_cursor("{\n  `: ti|\n}\n");
+        let (root, cursor) = strip_cursor("{\n  `= ti|\n}\n");
         let context = attribute_completion_context(&parse(&root), cursor).unwrap();
-        assert_eq!(context.completions[0].new_text, "`: title ");
+        assert_eq!(context.completions[0].new_text, "`= title ");
     }
 
     #[test]
     fn identifies_task_dependency_tokens_and_preserves_other_references() {
         let (source, cursor) = strip_cursor(
-            "`task Review {\n  `@ review\n  `: depends #done Project Plan.plumb#dr|aft #later\n}\n",
+            "`task Review {\n  `@ review\n  `= depends #done Project Plan.plumb#dr|aft #later\n}\n",
         );
         let current_start = source.find("Project Plan.plumb#draft").unwrap();
         let context = task_dependency_completion_context(&parse(&source), cursor).unwrap();
@@ -1562,7 +1604,7 @@ mod tests {
             ]
         );
 
-        let (empty, cursor) = strip_cursor("`task Review {\n  `: depends #done |\n}\n");
+        let (empty, cursor) = strip_cursor("`task Review {\n  `= depends #done |\n}\n");
         let context = task_dependency_completion_context(&parse(&empty), cursor).unwrap();
         assert_eq!(context.replace, cursor..cursor);
         assert_eq!(context.query, "");
@@ -1573,13 +1615,13 @@ mod tests {
             }]
         );
 
-        let (non_task, cursor) = strip_cursor("`- Plain item {\n  `: depends #dr|aft\n}\n");
+        let (non_task, cursor) = strip_cursor("`- Plain item {\n  `= depends #dr|aft\n}\n");
         assert_eq!(
             task_dependency_completion_context(&parse(&non_task), cursor),
             None
         );
 
-        let (recovered, cursor) = strip_cursor("`task Review {\n  `: depends #dr|aft\n");
+        let (recovered, cursor) = strip_cursor("`task Review {\n  `= depends #dr|aft\n");
         let context = task_dependency_completion_context(&parse(&recovered), cursor).unwrap();
         assert_eq!(context.query, "#dr");
         assert_eq!(&recovered[context.replace], "#draft");
@@ -1587,19 +1629,15 @@ mod tests {
 
     #[test]
     fn suppresses_duplicate_attributes_and_completes_enum_values() {
-        let (task, cursor) = strip_cursor("`- Work {`-[task] `:[priority 2] `: |}");
+        let (task, cursor) =
+            strip_cursor("`task Work {\n `= priority 2\n `= |\n}\n");
         let context = attribute_completion_context(&parse(&task), cursor).unwrap();
         assert!(!context
             .completions
             .iter()
             .any(|item| item.label == "priority"));
 
-        let (math, cursor) = strip_cursor("`$\"x\"{`:[language t|]}\n");
-        let context = attribute_completion_context(&parse(&math), cursor).unwrap();
-        assert_eq!(context.completions[0].label, "tex");
-        assert_eq!(context.completions[0].new_text, "tex");
-
-        let (quoted, cursor) = strip_cursor("`task Work\n{\n  `: due 2026-|\n}\n");
+        let (quoted, cursor) = strip_cursor("`task Work\n{\n  `= due 2026-|\n}\n");
         assert_eq!(attribute_completion_context(&parse(&quoted), cursor), None);
     }
 

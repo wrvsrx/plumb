@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use plumb_syntax::{Block, Document, Inline, InlineContent};
+use plumb_syntax::{Block, Document, Inline, InlineContent, InlineMember};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InlineStyleKind {
@@ -48,7 +48,10 @@ fn collect_blocks(blocks: &[Block], output: &mut InlineStyleOutput) {
 fn collect_inlines(content: &InlineContent, output: &mut InlineStyleOutput) {
     for inline in &content.items {
         let Inline::Element {
-            range, kind, slots, ..
+            range,
+            kind,
+            members,
+            ..
         } = inline
         else {
             continue;
@@ -56,20 +59,26 @@ fn collect_inlines(content: &InlineContent, output: &mut InlineStyleOutput) {
         let kind = match kind.as_str() {
             "*" => Some(InlineStyleKind::Emphasis),
             "!" => Some(InlineStyleKind::Strong),
-            "=" => Some(InlineStyleKind::Mark),
+            "==" => Some(InlineStyleKind::Mark),
             "~" => Some(InlineStyleKind::Strikeout),
             "^" => Some(InlineStyleKind::Superscript),
             "_" => Some(InlineStyleKind::Subscript),
             _ => None,
         };
-        if let Some(kind) = kind.filter(|_| slots.len() == 1) {
+        let argument_count = members
+            .iter()
+            .filter(|member| member.argument().is_some())
+            .count();
+        if let Some(kind) = kind.filter(|_| argument_count == 1) {
             output.styles.push(InlineStyleRecord {
                 kind,
                 range: range.clone(),
             });
         }
-        for slot in slots {
-            collect_inlines(&slot.content, output);
+        for member in members {
+            if let InlineMember::ParsedArgument(argument) = member {
+                collect_inlines(&argument.content, output);
+            }
         }
     }
 }
@@ -82,7 +91,7 @@ mod tests {
 
     #[test]
     fn recognizes_single_symbol_inline_styles_only() {
-        let source = "`*[em `![strong]] `=[mark] `~[strike] `^[super] `_[sub] `**[generic]\n";
+        let source = "`*[em `![strong]] `==[mark] `~[strike] `^[super] `_[sub] `**[generic]\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
