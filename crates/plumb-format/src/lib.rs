@@ -651,6 +651,17 @@ impl Formatter {
 
     fn inlines(&mut self, content: &InlineContent, continuation_indent: usize, nested: bool) {
         for inline in &content.items {
+            self.inline(inline, continuation_indent, nested, true);
+        }
+    }
+
+    fn inline(
+        &mut self,
+        inline: &Inline,
+        continuation_indent: usize,
+        nested: bool,
+        introduced: bool,
+    ) {
             match inline {
                 Inline::Text { text, .. } => self.text(text, nested),
                 Inline::Space { text, .. } => self.output.push_str(text),
@@ -659,43 +670,60 @@ impl Formatter {
                     self.indent(continuation_indent);
                 }
                 Inline::Element {
-                    kind, slots, attrs, ..
+                    kind, members, ..
                 } => {
-                    self.output.push('`');
-                    self.output.push_str(kind);
-                    for slot in slots {
-                        self.output.push('[');
-                        self.inlines(&slot.content, continuation_indent, true);
-                        self.output.push(']');
+                    if introduced {
+                        self.output.push('`');
                     }
-                    self.inline_attributes(attrs, continuation_indent);
+                    self.output.push_str(kind);
+                    self.output.push('[');
+                    for (index, member) in members.iter().enumerate() {
+                        if index > 0 {
+                            self.output.push('|');
+                        }
+                        match member {
+                            plumb_syntax::InlineMember::ParsedArgument(argument) => {
+                                self.inlines(&argument.content, continuation_indent, true);
+                            }
+                            plumb_syntax::InlineMember::VerbatimArgument(argument) => {
+                                self.verbatim_payload(&argument.text);
+                            }
+                            plumb_syntax::InlineMember::Child { inline, .. } => {
+                                self.inline(inline, continuation_indent, true, false);
+                            }
+                        }
+                    }
+                    self.output.push(']');
                 }
                 Inline::Verbatim {
-                    kind, text, attrs, ..
+                    kind, text, ..
                 } => {
-                    self.output.push('`');
-                    self.output.push_str(kind);
-                    // A compact payload beginning with `[` would be reparsed
-                    // as a bracket envelope. Keep the bracketed spelling so
-                    // its leading bracket remains raw text.
-                    if !text.contains('"') && !text.starts_with('[') {
-                        self.output.push('"');
-                        self.output.push_str(text);
-                        self.output.push('"');
-                    } else {
-                        let quotes = minimum_quote_count(text).max(1);
-                        for _ in 0..quotes {
-                            self.output.push('"');
-                        }
-                        self.output.push('[');
-                        self.output.push_str(text);
-                        self.output.push(']');
-                        for _ in 0..quotes {
-                            self.output.push('"');
-                        }
+                    if introduced {
+                        self.output.push('`');
                     }
-                    self.inline_attributes(attrs, continuation_indent);
+                    self.output.push_str(kind);
+                    self.verbatim_payload(text);
                 }
+            }
+    }
+
+    fn verbatim_payload(&mut self, text: &str) {
+        // A compact payload beginning with `[` would be reparsed as a
+        // bracket envelope. Keep the bracketed spelling so the bracket is raw.
+        if !text.contains('"') && !text.starts_with('[') {
+            self.output.push('"');
+            self.output.push_str(text);
+            self.output.push('"');
+        } else {
+            let quotes = minimum_quote_count(text).max(1);
+            for _ in 0..quotes {
+                self.output.push('"');
+            }
+            self.output.push('[');
+            self.output.push_str(text);
+            self.output.push(']');
+            for _ in 0..quotes {
+                self.output.push('"');
             }
         }
     }
@@ -867,13 +895,31 @@ mod tests {
                 }
                 Inline::SoftBreak { .. } => output.push('S'),
                 Inline::Element {
-                    kind, slots, attrs, ..
+                    kind,
+                    members,
+                    attrs,
+                    ..
                 } => {
                     let _ = write!(output, "E{kind:?}");
-                    for slot in slots {
-                        output.push('[');
-                        shape_inlines(&slot.content, output);
-                        output.push(']');
+                    for member in members {
+                        match member {
+                            plumb_syntax::InlineMember::ParsedArgument(argument) => {
+                                output.push_str("A[");
+                                shape_inlines(&argument.content, output);
+                                output.push(']');
+                            }
+                            plumb_syntax::InlineMember::VerbatimArgument(argument) => {
+                                let _ = write!(output, "R{:?}", argument.text);
+                            }
+                            plumb_syntax::InlineMember::Child { inline, .. } => {
+                                output.push('C');
+                                let content = InlineContent {
+                                    range: 0..0,
+                                    items: vec![inline.as_ref().clone()],
+                                };
+                                shape_inlines(&content, output);
+                            }
+                        }
                     }
                     shape_attrs(attrs, output);
                 }
@@ -926,8 +972,8 @@ mod tests {
         assert_formats("{\n}\n", "{\n}\n");
         assert_formats("`\"\"\n  payload\n", "`\"\n payload\n");
         assert_formats(
-            "See `->[guide]{`@[main] `-[external] `:[to guide.plumb]}.\n",
-            "See `->[guide]{`@[main] `-[external] `:[to guide.plumb]}.\n",
+            "See `->[guide|@[main]|+[external]|=[to|guide.plumb]].\n",
+            "See `->[guide|@[main]|+[external]|=[to|guide.plumb]].\n",
         );
         assert_formats(
             "`task Work\n   {\n     `:   created now\n   }\n\n   Details\n",
