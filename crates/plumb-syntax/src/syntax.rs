@@ -289,9 +289,7 @@ impl Drop for InlineContent {
         while let Some(inline) = pending.pop() {
             match inline {
                 Inline::Element {
-                    members,
-                    mut attrs,
-                    ..
+                    members, mut attrs, ..
                 } => {
                     for member in members {
                         match member {

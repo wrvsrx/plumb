@@ -8,7 +8,7 @@ fn resolves_csl_json_citation_hover_and_definition() {
     std::fs::create_dir_all(root.join("static")).unwrap();
     let source_path = root.join("note.plumb");
     let bibliography_path = root.join("static/library.json");
-    let source = "{\n `: bibliography static/library.json\n}\n\nSee `cite[smith2004].\n";
+    let source = "{\n `= bibliography static/library.json\n}\n\nSee `cite[smith2004].\n";
     let bibliography = r#"[{"id":"smith2004","title":"Example Book","author":[{"family":"Smith"}],"issued":{"date-parts":[[2004]]}}]"#;
     std::fs::write(&source_path, source).unwrap();
     std::fs::write(&bibliography_path, bibliography).unwrap();
@@ -55,7 +55,7 @@ fn publishes_task_symbols_hover_and_workspace_diagnostics() {
     let blockers_path = root.join("blockers.plumb");
     let tasks_path = root.join("tasks.plumb");
     let blocker_source = "`task Draft dependency {\n  `@ draft\n}\n";
-    let task_source = "`task Review task {\n  `@ review\n  `: due not-a-date\n  `: recur P1M1D\n  `: depends blockers.plumb#draft\n}\n\n      `task Nested task {\n        `@ nested\n        `: done 2026-07-20T10:00:00Z\n      }\n\n`note Invalid owner {\n  `- task\n}\n\n`span[not raw]{`-[$]}\n";
+    let task_source = "`task Review task {\n  `@ review\n  `= due not-a-date\n  `= recur P1M1D\n  `= depends blockers.plumb#draft\n}\n\n      `task Nested task {\n        `@ nested\n        `= done 2026-07-20T10:00:00Z\n      }\n\n`note Invalid owner {\n  `+ task\n}\n\n`span[not raw|+[$]]\n";
     std::fs::write(&blockers_path, blocker_source).unwrap();
     std::fs::write(&tasks_path, task_source).unwrap();
     let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
@@ -175,7 +175,7 @@ fn publishes_event_symbols_hover_references_and_diagnostics() {
     let root = unique_temp_dir();
     std::fs::create_dir_all(&root).unwrap();
     let path = root.join("agenda.plumb");
-    let source = "`task Write {\n  `@ write\n}\n\n`event 14:00--15:00 Review {\n  `@ review\n  `: date 2026-07-30\n  `: timezone +08:00\n  `: tasks #write\n}\n`event 16:00 Conflict {\n  `- task\n  `: date 2026-07-30\n  `: timezone +08:00\n}\n";
+    let source = "`task Write {\n  `@ write\n}\n\n`event 14:00--15:00 Review {\n  `@ review\n  `= date 2026-07-30\n  `= timezone +08:00\n  `= tasks #write\n}\n`event 16:00 Conflict {\n  `- task\n  `= date 2026-07-30\n  `= timezone +08:00\n}\n";
     std::fs::write(&path, source).unwrap();
     let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
     let uri = lsp_types::Url::from_file_path(&path).unwrap();
@@ -235,7 +235,7 @@ fn publishes_event_symbols_hover_references_and_diagnostics() {
 #[test]
 fn highlights_closed_tasks_with_multiline_attributes() {
     let uri = "file:///tmp/multiline-closed-tasks.plumb";
-    let source = "`task Done {\n  `: done 2026-07-20T10:00:00Z\n}\n`task Canceled {\n  `: canceled 2026-07-20T11:00:00Z\n}\n";
+    let source = "`task Done {\n  `= done 2026-07-20T10:00:00Z\n}\n`task Canceled {\n  `= canceled 2026-07-20T11:00:00Z\n}\n";
     let messages = [
         json!({
             "jsonrpc": "2.0", "id": 1, "method": "initialize",
@@ -268,7 +268,7 @@ fn highlights_closed_tasks_with_multiline_attributes() {
 #[test]
 fn publishes_completed_task_consistency_diagnostics() {
     let uri = "file:///tmp/completed-task-consistency.plumb";
-    let source = "`task Dependency parent {\n  `@ dependency-parent\n  `: done 2026-07-27T10:00:00Z\n  `: depends #child\n}\n\n      `task Open explicit child {\n        `@ child\n      }\n\n`task Descendant parent {\n  `: done 2026-07-27T10:01:00Z\n}\n\n      `task Open implicit child {\n      }\n";
+    let source = "`task Dependency parent {\n  `@ dependency-parent\n  `= done 2026-07-27T10:00:00Z\n  `= depends #child\n}\n\n      `task Open explicit child {\n        `@ child\n      }\n\n`task Descendant parent {\n  `= done 2026-07-27T10:01:00Z\n}\n\n      `task Open implicit child {\n      }\n";
     let messages = [
         json!({
             "jsonrpc": "2.0", "id": 1, "method": "initialize",
@@ -361,7 +361,7 @@ fn resolves_cross_file_navigation_over_stdio() {
     let target = root.join("a.plumb");
     let source = root.join("b.plumb");
     std::fs::write(&target, "`# Target {\n  `@ target\n}\n").unwrap();
-    let source_text = "See `->[target][a.plumb#target].\n";
+    let source_text = "See `->[target|a.plumb#target].\n";
     std::fs::write(&source, source_text).unwrap();
     let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
     let target_uri = lsp_types::Url::from_file_path(&target).unwrap();
@@ -476,9 +476,9 @@ fn code_lenses_count_anchor_references_and_ignore_last_valid_output() {
     let target = root.join("target.plumb");
     let source = root.join("source.plumb");
     let target_text =
-        "{\n  `: title Target\n}\n\n`# Used {\n  `@ used\n}\n\n`## Unused {\n  `@ unused\n}\n";
+        "{\n  `= title Target\n}\n\n`# Used {\n  `@ used\n}\n\n`## Unused {\n  `@ unused\n}\n";
     let source_text =
-        "See `->[used][target.plumb#used].\n\n`task Review {\n  `: depends target.plumb#used\n}\n";
+        "See `->[used|target.plumb#used].\n\n`task Review {\n  `= depends target.plumb#used\n}\n";
     std::fs::write(&target, target_text).unwrap();
     std::fs::write(&source, source_text).unwrap();
     let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
@@ -554,7 +554,7 @@ fn block_reference_code_lenses_use_block_openers() {
     let root = unique_temp_dir();
     std::fs::create_dir_all(&root).unwrap();
     let document = root.join("positions.plumb");
-    let source = "`# Heading {\n  `@ heading\n}\n\n`task Task {\n  `@ task\n}\n\n`node Block {\n  `@ block\n}\n\n`task Multiline {\n  `@ multiline\n}\n\n`outer\n `node Nested {\n   `@ nested\n }\n\nParagraph `span[text]{`@[inline]}.\n\n`\" {`@[raw]}\n  payload\n";
+    let source = "`# Heading {\n  `@ heading\n}\n\n`task Task {\n  `@ task\n}\n\n`node Block {\n  `@ block\n}\n\n`task Multiline {\n  `@ multiline\n}\n\n`outer\n `node Nested {\n   `@ nested\n }\n\nParagraph `span[text|@[inline]].\n\n`\" {`@[raw]}\n  payload\n";
     std::fs::write(&document, source).unwrap();
     let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
     let document_uri = lsp_types::Url::from_file_path(&document).unwrap();

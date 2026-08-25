@@ -4,92 +4,6 @@ use serde_json::json;
 use crate::support::{attribute_value, response, run_server};
 
 #[test]
-fn rewrites_legacy_link_arguments_but_not_positional_links() {
-    let uri = "file:///tmp/legacy-link-action.plumb";
-    let legacy = "`->[description]{`:[to https://baidu.com]}\n";
-    let positional = "`->[description][https://baidu.com]\n";
-    let messages = [
-        json!({
-            "jsonrpc": "2.0", "id": 1, "method": "initialize",
-            "params": {
-                "processId": null, "rootUri": null,
-                "capabilities": {
-                    "workspace": { "workspaceEdit": { "documentChanges": true } }
-                }
-            }
-        }),
-        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
-        json!({
-            "jsonrpc": "2.0", "method": "textDocument/didOpen",
-            "params": { "textDocument": {
-                "uri": uri, "languageId": "plumb", "version": 7, "text": legacy
-            }}
-        }),
-        json!({
-            "jsonrpc": "2.0", "id": 2, "method": "textDocument/codeAction",
-            "params": {
-                "textDocument": { "uri": uri },
-                "range": {
-                    "start": { "line": 0, "character": 23 },
-                    "end": { "line": 0, "character": 23 }
-                },
-                "context": {
-                    "only": ["quickfix"],
-                    "diagnostics": [{
-                        "range": {
-                            "start": { "line": 0, "character": 17 },
-                            "end": { "line": 0, "character": 44 }
-                        },
-                        "severity": 2,
-                        "code": "link.legacy-to-property",
-                        "source": "plumb",
-                        "message": "legacy named Link target property"
-                    }]
-                }
-            }
-        }),
-        json!({
-            "jsonrpc": "2.0", "method": "textDocument/didChange",
-            "params": {
-                "textDocument": { "uri": uri, "version": 8 },
-                "contentChanges": [{ "text": positional }]
-            }
-        }),
-        json!({
-            "jsonrpc": "2.0", "id": 3, "method": "textDocument/codeAction",
-            "params": {
-                "textDocument": { "uri": uri },
-                "range": {
-                    "start": { "line": 0, "character": 23 },
-                    "end": { "line": 0, "character": 23 }
-                },
-                "context": { "only": ["quickfix"], "diagnostics": [] }
-            }
-        }),
-        json!({ "jsonrpc": "2.0", "id": 4, "method": "shutdown", "params": null }),
-        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
-    ];
-
-    let output = run_server(&messages);
-    let actions = response(&output, 2)["result"].as_array().unwrap();
-    let action = actions
-        .iter()
-        .find(|action| action["title"] == "Rewrite legacy Link arguments")
-        .unwrap();
-    assert_eq!(action["kind"], "quickfix");
-    assert_eq!(action["diagnostics"][0]["code"], "link.legacy-to-property");
-    assert_eq!(
-        action["edit"]["documentChanges"][0]["textDocument"]["version"],
-        7
-    );
-    assert_eq!(
-        action["edit"]["documentChanges"][0]["edits"][0]["newText"],
-        "`->[description][https://baidu.com]"
-    );
-    assert!(response(&output, 3)["result"].is_null());
-}
-
-#[test]
 fn inserts_metadata_code_action_only_for_valid_documents_without_metadata() {
     let uri = "file:///tmp/metadata-action.plumb";
     let messages = [
@@ -129,7 +43,7 @@ fn inserts_metadata_code_action_only_for_valid_documents_without_metadata() {
             "params": {
                 "textDocument": { "uri": uri, "version": 4 },
                 "contentChanges": [{
-                    "text": "{\n  `: title Existing\n}\n\n`# Section\n"
+                    "text": "{\n  `= title Existing\n}\n\n`# Section\n"
                 }]
             }
         }),
@@ -184,7 +98,7 @@ fn inserts_metadata_code_action_only_for_valid_documents_without_metadata() {
     assert_eq!(change["edits"][0]["range"]["start"]["line"], 0);
     assert_eq!(change["edits"][0]["range"]["start"]["character"], 0);
     let new_text = change["edits"][0]["newText"].as_str().unwrap();
-    let prefix = "{\n `: title metadata-action\n `: created ";
+    let prefix = "{\n `= title metadata-action\n `= created ";
     let created = new_text
         .strip_prefix(prefix)
         .and_then(|suffix| suffix.strip_suffix("\n}\n\n"))
@@ -299,7 +213,7 @@ fn inserts_metadata_into_an_empty_document_over_stdio() {
         json!({ "line": 0, "character": 0 })
     );
     let generated = change["edits"][0]["newText"].as_str().unwrap();
-    assert!(generated.starts_with("{\n `: title empty-note\n `: created "));
+    assert!(generated.starts_with("{\n `= title empty-note\n `= created "));
     let parsed = plumb_syntax::parse(generated);
     assert!(
         plumb_edit::format(&parsed, plumb_edit::FormatScope::Document)
@@ -499,12 +413,12 @@ fn converts_event_shorthand_with_a_refactor_action() {
     );
     assert!(!replacement.contains("`- event"), "{replacement}");
     assert!(
-        replacement.contains(" `: date 2026-05-21\n"),
+        replacement.contains(" `= date 2026-05-21\n"),
         "{replacement}"
     );
     let timezone = Local::now().fixed_offset().format("%:z").to_string();
     assert!(
-        replacement.contains(&format!(" `: timezone {timezone}\n")),
+        replacement.contains(&format!(" `= timezone {timezone}\n")),
         "{replacement}"
     );
     assert!(!replacement.contains("#e0001"), "{replacement}");
@@ -524,7 +438,7 @@ fn converts_event_shorthand_with_a_refactor_action() {
 #[test]
 fn converts_selected_event_shorthands_with_a_refactor_action() {
     let uri = "file:///tmp/event-shorthands.plumb";
-    let source = "{\n  `: date 2026-08-01\n  `: timezone +08:00\n}\n\n`- 10:00-- first\n`- 10:20-- second\n`- 10:30--10:40 third\n";
+    let source = "{\n  `= date 2026-08-01\n  `= timezone +08:00\n}\n\n`- 10:00-- first\n`- 10:20-- second\n`- 10:30--10:40 third\n";
     let messages = [
         json!({
             "jsonrpc": "2.0", "id": 1, "method": "initialize",
@@ -616,7 +530,7 @@ fn offers_task_authoring_refactor_actions() {
             "params": {
                 "textDocument": { "uri": uri, "version": 2 },
                 "contentChanges": [{
-                    "text": "`task Closed {\n  `@ closed\n  `: done 2026-07-20T09:00:00Z\n}\n"
+                    "text": "`task Closed {\n  `@ closed\n  `= done 2026-07-20T09:00:00Z\n}\n"
                 }]
             }
         }),
@@ -665,7 +579,7 @@ fn offers_task_authoring_refactor_actions() {
 #[test]
 fn offers_guarded_task_status_code_actions() {
     let uri = "file:///tmp/task-actions.plumb";
-    let source = "`task MJCF in, USD out solver {\n  `@ task-f81deb18\n  `: created 2026-05-24T02:35:50Z\n}\n\n      `task parse MJCF {\n        `@ task-c2cf5756\n        `: created 2026-05-27T13:03:04Z\n      }\n      `task solver with passive joint {\n        `@ task-99e28dad\n        `: created 2026-05-27T13:02:45Z\n      }\n";
+    let source = "`task MJCF in, USD out solver {\n  `@ task-f81deb18\n  `= created 2026-05-24T02:35:50Z\n}\n\n      `task parse MJCF {\n        `@ task-c2cf5756\n        `= created 2026-05-27T13:03:04Z\n      }\n      `task solver with passive joint {\n        `@ task-99e28dad\n        `= created 2026-05-27T13:02:45Z\n      }\n";
     let line = source
         .lines()
         .position(|line| line.contains("parse MJCF"))
@@ -730,7 +644,7 @@ fn offers_guarded_task_status_code_actions() {
 #[test]
 fn recurring_task_action_closes_current_and_appends_next_instance() {
     let uri = "file:///tmp/recurring-task.plumb";
-    let source = "`task Weekly review {\n  `: due 2026-07-20T09:00:00+08:00\n  `: recur P1W\n}\n";
+    let source = "`task Weekly review {\n  `= due 2026-07-20T09:00:00+08:00\n  `= recur P1W\n}\n";
     let messages = [
         json!({
             "jsonrpc": "2.0", "id": 1, "method": "initialize",
@@ -775,17 +689,17 @@ fn recurring_task_action_closes_current_and_appends_next_instance() {
     assert_eq!(edits.len(), 1);
     let replacement = edits[0]["newText"].as_str().unwrap();
     assert!(replacement.contains("`@ weekly-review-2026-07-20"));
-    assert!(replacement.contains("`: done "));
+    assert!(replacement.contains("`= done "));
     assert!(replacement.contains("`@ weekly-review-2026-07-27"));
-    assert!(replacement.contains("`: due 2026-07-27T09:00:00+08:00"));
-    assert!(replacement.contains("`: prev #weekly-review-2026-07-20"));
+    assert!(replacement.contains("`= due 2026-07-27T09:00:00+08:00"));
+    assert!(replacement.contains("`= prev #weekly-review-2026-07-20"));
 }
 
 #[test]
 fn blocked_task_offers_cancel_but_not_complete() {
     let uri = "file:///tmp/blocked-task-actions.plumb";
     let source =
-        "`task Draft {\n  `@ draft\n}\n`task Review {\n  `@ review\n  `: depends #draft\n}\n";
+        "`task Draft {\n  `@ draft\n}\n`task Review {\n  `@ review\n  `= depends #draft\n}\n";
     let line = source
         .lines()
         .position(|line| line.contains("Review"))
@@ -836,7 +750,7 @@ fn blocked_task_offers_cancel_but_not_complete() {
 #[test]
 fn canceling_a_recurring_task_appends_the_next_instance() {
     let uri = "file:///tmp/cancel-recurring-task.plumb";
-    let source = "`task Weekly review {\n  `: due 2026-07-20T09:00:00+08:00\n  `: recur P1W\n}\n";
+    let source = "`task Weekly review {\n  `= due 2026-07-20T09:00:00+08:00\n  `= recur P1W\n}\n";
     let cursor = source.find("Weekly review").unwrap();
     let messages = [
         json!({
@@ -883,16 +797,16 @@ fn canceling_a_recurring_task_appends_the_next_instance() {
     assert_eq!(edits.len(), 1);
     let replacement = edits[0]["newText"].as_str().unwrap();
     assert!(replacement.contains("`@ weekly-review-2026-07-20"));
-    assert!(replacement.contains("`: canceled "));
+    assert!(replacement.contains("`= canceled "));
     assert!(replacement.contains("`@ weekly-review-2026-07-27"));
-    assert!(replacement.contains("`: due 2026-07-27T09:00:00+08:00"));
-    assert!(replacement.contains("`: prev #weekly-review-2026-07-20"));
+    assert!(replacement.contains("`= due 2026-07-27T09:00:00+08:00"));
+    assert!(replacement.contains("`= prev #weekly-review-2026-07-20"));
 }
 
 #[test]
 fn task_actions_fall_back_from_closed_child_to_open_parent() {
     let uri = "file:///tmp/nested-task-actions.plumb";
-    let source = "`task Outer {\n  `@ outer\n}\n\n      `task Inner {\n        `@ inner\n        `: done 2026-07-20T09:00:00Z\n      }\n";
+    let source = "`task Outer {\n  `@ outer\n}\n\n      `task Inner {\n        `@ inner\n        `= done 2026-07-20T09:00:00Z\n      }\n";
     let cursor = source.find("Inner").unwrap();
     let line_start = source.find('\n').unwrap() + 1;
     let character = cursor - line_start;

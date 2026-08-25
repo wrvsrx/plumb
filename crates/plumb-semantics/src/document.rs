@@ -68,10 +68,6 @@ pub enum LinkTarget {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum LinkSpelling {
     Positional,
-    LegacyProperty {
-        property_range: Range<usize>,
-        value_range: Range<usize>,
-    },
     Verbatim {
         envelope: Range<usize>,
         quote_count: usize,
@@ -770,7 +766,10 @@ fn positional_link_parts(
     let [label, target] = arguments.as_slice() else {
         return None;
     };
-    Some((argument_range(label), source_backed_argument(source, target)?))
+    Some((
+        argument_range(label),
+        source_backed_argument(source, target)?,
+    ))
 }
 
 fn argument_range(argument: &InlineArgumentRef<'_>) -> Range<usize> {

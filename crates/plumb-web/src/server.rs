@@ -1084,7 +1084,7 @@ mod tests {
             .is_empty());
         let source = std::fs::read_to_string(root.join("tasks.plumb")).unwrap();
         assert!(source.contains("Created from API"));
-        assert!(source.contains("`: priority 3"), "{source}");
+        assert!(source.contains("`= priority 3"), "{source}");
 
         let response = app
             .oneshot(

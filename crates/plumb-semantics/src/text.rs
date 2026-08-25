@@ -18,9 +18,7 @@ fn append_inline(inline: &Inline, output: &mut String) {
             output.push_str(text)
         }
         Inline::SoftBreak { .. } => output.push(' '),
-        Inline::Element {
-            kind, members, ..
-        } => {
+        Inline::Element { kind, members, .. } => {
             if kind == "->" {
                 if let Some(label) = members.iter().find_map(InlineMember::argument) {
                     append_argument(label, output);

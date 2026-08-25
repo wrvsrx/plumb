@@ -282,8 +282,7 @@ impl<'a> TokenBuilder<'a> {
                 TYPED_PRIORITY,
             );
             self.assign(
-                delimiter_start + argument.quote_count
-                    ..delimiter_start + argument.quote_count + 1,
+                delimiter_start + argument.quote_count..delimiter_start + argument.quote_count + 1,
                 SyntaxKind::Delimiter,
                 TYPED_PRIORITY,
             );

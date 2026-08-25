@@ -109,14 +109,14 @@ fn render_metadata(meta: &HashMap<String, MetaValue>) -> Result<String, String> 
 fn render_metadata_entry(key: &str, value: &MetaValue) -> Result<String, String> {
     let value_source = render_metadata_value(value)?;
     if value_source.is_empty() {
-        return Ok(format!("`: {key}"));
+        return Ok(format!("`= {key}"));
     }
     if matches!(value, MetaValue::MetaString(value) if !value.contains(['\n', '\r']))
         || matches!(value, MetaValue::MetaInlines(_))
     {
-        return Ok(format!("`: {key} {value_source}"));
+        return Ok(format!("`= {key} {value_source}"));
     }
-    Ok(format!("`: {key}\n{}", indent(&value_source, 2)))
+    Ok(format!("`= {key}\n{}", indent(&value_source, 2)))
 }
 
 fn render_metadata_value(value: &MetaValue) -> Result<String, String> {
@@ -474,12 +474,7 @@ fn render_verbatim_argument(text: &str) -> String {
         return format!("\"{text}\"");
     }
     let quotes = minimum_quote_count(text).max(1);
-    format!(
-        "{}[{}]{}",
-        "\"".repeat(quotes),
-        text,
-        "\"".repeat(quotes)
-    )
+    format!("{}[{}]{}", "\"".repeat(quotes), text, "\"".repeat(quotes))
 }
 
 fn render_verbatim_block(attrs: &Attr, text: &str) -> Result<String, String> {
@@ -541,10 +536,7 @@ fn render_attrs(attrs: &Attr, consumed_pair: Option<&str>) -> Result<String, Str
     })
 }
 
-fn render_inline_children(
-    attrs: &Attr,
-    consumed_pair: Option<&str>,
-) -> Result<String, String> {
+fn render_inline_children(attrs: &Attr, consumed_pair: Option<&str>) -> Result<String, String> {
     let mut members = Vec::new();
     if !attrs.identifier.is_empty() {
         require_attr_name(&attrs.identifier, "attribute id")?;
@@ -762,7 +754,7 @@ mod tests {
         });
 
         let source = import_json(&document.to_string()).unwrap();
-        assert!(source.starts_with("{\n `: title Example\n}\n"), "{source}");
+        assert!(source.starts_with("{\n `= title Example\n}\n"), "{source}");
         assert!(source.contains("`# Intro {`@[intro]}"));
         assert!(source.contains("`*[em] `![strong] `==[marked|@[marked]|+[keep]]"));
         assert!(source.contains("`~[strike] `^[super] `_[sub]"));

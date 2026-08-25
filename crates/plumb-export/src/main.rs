@@ -895,8 +895,7 @@ mod tests {
 
     #[test]
     fn exports_paren_transparent_containers_without_redundant_markers() {
-        let document =
-            export("`() Body {\n  `@ box\n  `+ note\n}\n\n`()[text|+[mark]]\n").unwrap();
+        let document = export("`() Body {\n  `@ box\n  `+ note\n}\n\n`()[text|+[mark]]\n").unwrap();
         let div_attrs = &document["blocks"][0]["c"][0];
         assert_eq!(div_attrs, &json!(["box", ["note"], []]));
         let span_attrs = &document["blocks"][1]["c"][0]["c"][0];
@@ -941,7 +940,8 @@ mod tests {
 
     #[test]
     fn exports_inline_and_display_math_with_attribute_wrappers() {
-        let source = "Inline `$\"x^2\".\n\n`$\"\n  E = mc^2\n`$\" {`@[display] `+[numbered]}\n  a = b\n";
+        let source =
+            "Inline `$\"x^2\".\n\n`$\"\n  E = mc^2\n`$\" {`@[display] `+[numbered]}\n  a = b\n";
         let document = export(source).unwrap();
         assert_eq!(document["blocks"][0]["c"][2]["t"], "Math");
         assert_eq!(document["blocks"][0]["c"][2]["c"][0]["t"], "InlineMath");

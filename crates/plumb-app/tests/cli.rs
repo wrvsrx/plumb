@@ -121,7 +121,7 @@ fn exports_events_as_a_khal_readonly_vdir() {
     std::fs::create_dir_all(&root).unwrap();
     std::fs::write(
         root.join("agenda.plumb"),
-        "{\n  `: date 2026-07-30\n  `: timezone +08:00\n}\n\n`event 14:00--15:00 Parser review {\n  `@ review\n  `: tasks #write\n}\n",
+        "{\n  `= date 2026-07-30\n  `= timezone +08:00\n}\n\n`event 14:00--15:00 Parser review {\n  `@ review\n  `= tasks #write\n}\n",
     )
     .unwrap();
     let exported = Command::new(env!("CARGO_BIN_EXE_plumb"))
@@ -251,7 +251,7 @@ fn checks_a_workspace_with_configurable_severity_and_error_exit_status() {
 
     std::fs::write(
         root.join("nested/broken.plumb"),
-        "See `->[missing][missing.plumb#id].\n",
+        "See `->[missing|missing.plumb#id].\n",
     )
     .unwrap();
     let broken = Command::new(env!("CARGO_BIN_EXE_plumb"))
@@ -270,7 +270,7 @@ fn checks_a_workspace_with_configurable_severity_and_error_exit_status() {
 
     std::fs::write(
         root.join("tasks.plumb"),
-        "`task Draft {\n  `@ draft\n}\n`task Review {\n  `@ review\n  `: depends #draft\n}\n",
+        "`task Draft {\n  `@ draft\n}\n`task Review {\n  `@ review\n  `= depends #draft\n}\n",
     )
     .unwrap();
     let default = Command::new(env!("CARGO_BIN_EXE_plumb"))
@@ -354,7 +354,7 @@ fn discovers_workspace_markers_and_applies_ignore_files() {
 
 #[test]
 fn round_trips_the_exported_standard_profile_through_import() {
-    let source = "{\n  `: title Import test\n}\n\n`# Intro {\n  `@ intro\n}\n\nParagraph with `*[emphasis], `![strong], `=[mark], `~[strike], `^[super], `_[sub], and `->[a link][other.plumb#id].\n\n`> Quoted {\n  `@ quote\n  `- source\n}\n\n`task Item {\n  `@ task\n  `: created 2026-07-23T17:00:00+08:00\n}\n\n`rust\"\" {`@[code]}\n  fn main() {}\n";
+    let source = "{\n  `= title Import test\n}\n\n`# Intro {\n  `@ intro\n}\n\nParagraph with `*[emphasis], `![strong], `==[mark], `~[strike], `^[super], `_[sub], and `->[a link|other.plumb#id].\n\n`> Quoted {\n  `@ quote\n  `+ source\n}\n\n`task Item {\n  `@ task\n  `= created 2026-07-23T17:00:00+08:00\n}\n\n`rust\"\" {`@[code]}\n  fn main() {}\n";
     let first = run_with_stdin(&["export"], source);
     assert!(
         first.status.success(),
@@ -398,13 +398,13 @@ fn serves_the_workspace_site_with_notes_and_tasks() {
     std::fs::write(root.join("private/note.plumb"), "Private note.\n").unwrap();
     std::fs::write(
         root.join("a.plumb"),
-        "{\n  `: title Alpha\n}\n\nSee `->[Beta][b.plumb#beta].\n\n`img[icon]{`:[src assets/icon.png]}\n\n`task Ship release {\n  `: created 2026-07-25T10:00:00+08:00\n}\n",
+        "{\n  `= title Alpha\n}\n\nSee `->[Beta|b.plumb#beta].\n\n`img[icon|=[src|assets/icon.png]]\n\n`task Ship release {\n  `= created 2026-07-25T10:00:00+08:00\n}\n",
     )
     .unwrap();
     std::fs::write(root.join("b.plumb"), "`# Beta {\n  `@ beta\n}\n").unwrap();
     std::fs::write(
         root.join("hidden.plumb"),
-        "Hidden index. `->[Alpha][a.plumb].\n",
+        "Hidden index. `->[Alpha|a.plumb].\n",
     )
     .unwrap();
 
@@ -503,11 +503,11 @@ fn serves_the_workspace_site_with_notes_and_tasks() {
         .is_some_and(|timestamp| timestamp.starts_with("2026-")));
     assert!(std::fs::read_to_string(root.join("a.plumb"))
         .unwrap()
-        .contains("`: done 2026-"));
+        .contains("`= done 2026-"));
 
     std::fs::write(
         root.join("a.plumb"),
-        "{\n  `: title Alpha updated\n}\n\nSee `->[Beta][b.plumb#beta].\n",
+        "{\n  `= title Alpha updated\n}\n\nSee `->[Beta|b.plumb#beta].\n",
     )
     .unwrap();
     let mut refreshed = false;
@@ -559,7 +559,7 @@ fn site_renders_and_refreshes_csl_json_citations() {
     std::fs::create_dir_all(root.join("static")).unwrap();
     std::fs::write(
         root.join("note.plumb"),
-        "{\n `: title Citation note\n `: bibliography static/library.json\n}\n\nSee `cite[smith2004].\n",
+        "{\n `= title Citation note\n `= bibliography static/library.json\n}\n\nSee `cite[smith2004].\n",
     )
     .unwrap();
     let bibliography = root.join("static/library.json");

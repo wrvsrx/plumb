@@ -1681,7 +1681,7 @@ impl WebWorkspace {
                 .expect("document id is current-valid");
             for link in &current.output.links {
                 let kind = match link.spelling {
-                    LinkSpelling::Positional | LinkSpelling::LegacyProperty { .. } => "link",
+                    LinkSpelling::Positional => "link",
                     LinkSpelling::Verbatim { .. } => "autolink",
                 };
                 self.push_resolved_edge(
@@ -2067,7 +2067,7 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(
             root.join("a.plumb"),
-            "{\n  `: title Alpha\n}\n\n`task Old {\n  `@ old\n}\n`task A {\n  `@ a\n  `: prev b.plumb#b\n  `: depends b.plumb#b\n}\n`task Recurring instance {\n  `@ recur\n  `: prev #old\n}\n\nSee `->[B][b.plumb#b], `->\"b.plumb#b\", `->[self][#a], `->[self again][#a], and `->[missing][missing.plumb].\n",
+            "{\n  `= title Alpha\n}\n\n`task Old {\n  `@ old\n}\n`task A {\n  `@ a\n  `= prev b.plumb#b\n  `= depends b.plumb#b\n}\n`task Recurring instance {\n  `@ recur\n  `= prev #old\n}\n\nSee `->[B|b.plumb#b], `->\"b.plumb#b\", `->[self|#a], `->[self again|#a], and `->[missing|missing.plumb].\n",
         )
         .unwrap();
         std::fs::write(root.join("b.plumb"), "`task Beta {\n  `@ b\n}\n").unwrap();
@@ -2134,7 +2134,7 @@ mod tests {
         let path = root.join("note.plumb");
         std::fs::write(&path, "disk\n").unwrap();
         let mut source_workspace = Workspace::new();
-        source_workspace.insert(&path, 9, "{\n  `: title Open buffer title\n}\n");
+        source_workspace.insert(&path, 9, "{\n  `= title Open buffer title\n}\n");
         let web = WebWorkspace::from_workspace(&root, source_workspace, 4).unwrap();
         let graph = web.graph(&GraphQuery::default());
         assert_eq!(graph.revision, 4);
@@ -2181,7 +2181,7 @@ mod tests {
         let path = root.join("tasks.plumb");
         std::fs::write(
             &path,
-            "`task Ship release {\n  `@ ship\n  `: priority 8\n  `: created 2026-07-25T10:00:00+08:00\n  `: due 2099-02-01T10:00:00+08:00\n}\n\n      `task Child stays with ship {\n        `@ child\n        `: priority 2\n        `: due 2099-01-01T10:00:00+08:00\n      }\n      `task Urgent child {\n        `@ urgent-child\n        `: priority 9\n      }\n\n`task Later {\n  `@ later\n  `: priority 3\n  `: wait 2099-01-10T00:00:00+08:00\n  `: due 2099-01-15T00:00:00+08:00\n}\n`task Broken {\n  `@ broken\n  `: done 2026-07-25T11:00:00+08:00\n  `: canceled 2026-07-25T12:00:00+08:00\n}\n",
+            "`task Ship release {\n  `@ ship\n  `= priority 8\n  `= created 2026-07-25T10:00:00+08:00\n  `= due 2099-02-01T10:00:00+08:00\n}\n\n      `task Child stays with ship {\n        `@ child\n        `= priority 2\n        `= due 2099-01-01T10:00:00+08:00\n      }\n      `task Urgent child {\n        `@ urgent-child\n        `= priority 9\n      }\n\n`task Later {\n  `@ later\n  `= priority 3\n  `= wait 2099-01-10T00:00:00+08:00\n  `= due 2099-01-15T00:00:00+08:00\n}\n`task Broken {\n  `@ broken\n  `= done 2026-07-25T11:00:00+08:00\n  `= canceled 2026-07-25T12:00:00+08:00\n}\n",
         )
         .unwrap();
         let workspace = WebWorkspace::load(&root).unwrap();
@@ -2225,7 +2225,7 @@ mod tests {
             )
             .unwrap();
         let updated = std::fs::read_to_string(&path).unwrap();
-        assert!(updated.contains("`: done 2026-"), "{updated}");
+        assert!(updated.contains("`= done 2026-"), "{updated}");
         std::fs::remove_dir_all(root).unwrap();
     }
 
@@ -2305,7 +2305,7 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(
             root.join("agenda.plumb"),
-            "{\n  `: date 2026-07-30\n  `: timezone +00:00\n}\n\n`event 10:30 Early {\n  `: timezone +05:00\n}\n`event 06:00 Later {\n}\n",
+            "{\n  `= date 2026-07-30\n  `= timezone +00:00\n}\n\n`event 10:30 Early {\n  `= timezone +05:00\n}\n`event 06:00 Later {\n}\n",
         )
         .unwrap();
         let workspace = WebWorkspace::load(&root).unwrap();
@@ -2328,7 +2328,7 @@ mod tests {
         let mut source = String::new();
         for day in 1..=250 {
             source.push_str(&format!(
-                "`event Future {day} {{\n  `: at 2027-01-01T00:00:00+00:00\n}}\n"
+                "`event Future {day} {{\n  `= at 2027-01-01T00:00:00+00:00\n}}\n"
             ));
         }
         source.push_str("`event Invalid {\n}\n");
@@ -2358,7 +2358,7 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();
         let path = root.join("tasks.plumb");
         let source =
-            "`task 完成任务后查看修改后任务的内容 {\n  `: created 2026-07-25T10:00:00+08:00\n}\n";
+            "`task 完成任务后查看修改后任务的内容 {\n  `= created 2026-07-25T10:00:00+08:00\n}\n";
         std::fs::write(&path, source).unwrap();
         let workspace = WebWorkspace::load(&root).unwrap();
         let task = workspace.tasks().tasks.into_iter().next().unwrap();
@@ -2386,7 +2386,7 @@ mod tests {
             )
             .unwrap();
         let updated = std::fs::read_to_string(&path).unwrap();
-        assert!(updated.contains("`: done 2026-"), "{updated}");
+        assert!(updated.contains("`= done 2026-"), "{updated}");
         let refreshed = WebWorkspace::load_with_revision(&root, 2).unwrap();
         let completed = refreshed.tasks().tasks.into_iter().next().unwrap();
         assert_eq!(completed.key, task.key);
@@ -2399,7 +2399,7 @@ mod tests {
         let root = temp_dir();
         std::fs::create_dir_all(&root).unwrap();
         let path = root.join("tasks.plumb");
-        std::fs::write(&path, "`task Parent {\n  `@ parent\n  `: custom keep\n}\n").unwrap();
+        std::fs::write(&path, "`task Parent {\n  `@ parent\n  `= custom keep\n}\n").unwrap();
         let workspace = WebWorkspace::load(&root).unwrap();
         let snapshot = workspace.tasks();
         let document = &snapshot.documents[0];
@@ -2471,7 +2471,7 @@ mod tests {
         assert!(updated.due.is_none());
         assert!(updated.recur.is_none());
         let source = std::fs::read_to_string(&path).unwrap();
-        assert!(source.contains("`: custom keep"), "{source}");
+        assert!(source.contains("`= custom keep"), "{source}");
         assert!(refreshed
             .create_task(
                 &document.id,
@@ -2569,8 +2569,8 @@ mod tests {
             )
             .unwrap();
         let source = std::fs::read_to_string(&a_path).unwrap();
-        assert!(source.contains("`: prev b.plumb#b"), "{source}");
-        assert!(source.contains("`: depends b.plumb#b"), "{source}");
+        assert!(source.contains("`= prev b.plumb#b"), "{source}");
+        assert!(source.contains("`= depends b.plumb#b"), "{source}");
 
         let refreshed = WebWorkspace::load_with_revision(&root, 2).unwrap();
         let snapshot = refreshed.tasks();
@@ -2645,7 +2645,7 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(
             root.join("a.plumb"),
-            "`task Parent {\n  `@ parent\n  `: priority 3\n  `: due 2099-02-01T00:00:00Z\n}\n\n      `task Needle child {\n        `@ matching\n        `: priority 20\n        `: due 2099-01-01T00:00:00Z\n      }\n      `task Quiet child {\n        `@ quiet\n        `: priority 30\n      }\n\n`task Needle first {\n  `@ first\n  `: priority 8\n  `: due 2099-01-15T00:00:00Z\n}\n`task Needle done {\n  `@ done\n  `: done 2026-07-27T00:00:00Z\n}\n",
+            "`task Parent {\n  `@ parent\n  `= priority 3\n  `= due 2099-02-01T00:00:00Z\n}\n\n      `task Needle child {\n        `@ matching\n        `= priority 20\n        `= due 2099-01-01T00:00:00Z\n      }\n      `task Quiet child {\n        `@ quiet\n        `= priority 30\n      }\n\n`task Needle first {\n  `@ first\n  `= priority 8\n  `= due 2099-01-15T00:00:00Z\n}\n`task Needle done {\n  `@ done\n  `= done 2026-07-27T00:00:00Z\n}\n",
         )
         .unwrap();
         let workspace = WebWorkspace::load(&root).unwrap();
@@ -2797,17 +2797,17 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(
             root.join("a.plumb"),
-            "`task A late {\n  `@ a-late\n  `: priority -5\n  `: due 2099-03-01T00:00:00Z\n}\n`task A promoted {\n  `@ a-promoted\n  `: priority -10\n}\n\n      `task A urgent {\n        `@ a-urgent\n        `: priority 30\n      }\n\n`task A early {\n  `@ a-early\n  `: due 2099-01-01T00:15:00-01:00\n}\n",
+            "`task A late {\n  `@ a-late\n  `= priority -5\n  `= due 2099-03-01T00:00:00Z\n}\n`task A promoted {\n  `@ a-promoted\n  `= priority -10\n}\n\n      `task A urgent {\n        `@ a-urgent\n        `= priority 30\n      }\n\n`task A early {\n  `@ a-early\n  `= due 2099-01-01T00:15:00-01:00\n}\n",
         )
         .unwrap();
         std::fs::write(
             root.join("b.plumb"),
-            "`task B high {\n  `@ b-high\n  `: priority 20\n  `: due 2099-01-01T01:00:00+02:00\n}\n`task B other {\n  `@ b-other\n  `: priority 15\n}\n",
+            "`task B high {\n  `@ b-high\n  `= priority 20\n  `= due 2099-01-01T01:00:00+02:00\n}\n`task B other {\n  `@ b-other\n  `= priority 15\n}\n",
         )
         .unwrap();
         std::fs::write(
             root.join("c.plumb"),
-            "`task C negative {\n  `@ c-negative\n  `: priority -1\n}\n",
+            "`task C negative {\n  `@ c-negative\n  `= priority -1\n}\n",
         )
         .unwrap();
         std::fs::write(
@@ -2965,7 +2965,7 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(
             root.join("tasks.plumb"),
-            "`task Medium {\n  `@ medium\n  `: priority 20\n}\n`task Blocker {\n  `@ blocker\n  `: priority -5\n}\n`task Urgent {\n  `@ urgent\n  `: priority 50\n  `: depends #blocker\n}\n",
+            "`task Medium {\n  `@ medium\n  `= priority 20\n}\n`task Blocker {\n  `@ blocker\n  `= priority -5\n}\n`task Urgent {\n  `@ urgent\n  `= priority 50\n  `= depends #blocker\n}\n",
         )
         .unwrap();
         let workspace = WebWorkspace::load(&root).unwrap();
@@ -2994,12 +2994,12 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(
             root.join("a.plumb"),
-            "`task Closed {\n  `@ closed\n  `: priority 100\n  `: done 2026-07-31T10:00:00Z\n}\n`task Low active {\n  `@ low\n  `: priority 1\n}\n",
+            "`task Closed {\n  `@ closed\n  `= priority 100\n  `= done 2026-07-31T10:00:00Z\n}\n`task Low active {\n  `@ low\n  `= priority 1\n}\n",
         )
         .unwrap();
         std::fs::write(
             root.join("b.plumb"),
-            "`task Important active {\n  `@ important\n  `: priority 10\n}\n",
+            "`task Important active {\n  `@ important\n  `= priority 10\n}\n",
         )
         .unwrap();
         let workspace = WebWorkspace::load(&root).unwrap();
@@ -3027,8 +3027,8 @@ mod tests {
     fn graph_queries_filter_after_traversal_and_remove_hidden_endpoints() {
         let root = temp_dir();
         std::fs::create_dir_all(&root).unwrap();
-        std::fs::write(root.join("a.plumb"), "`->[B][b.plumb]\n").unwrap();
-        std::fs::write(root.join("b.plumb"), "`->[C][c.plumb]\n\n`task Work {\n}\n").unwrap();
+        std::fs::write(root.join("a.plumb"), "`->[B|b.plumb]\n").unwrap();
+        std::fs::write(root.join("b.plumb"), "`->[C|c.plumb]\n\n`task Work {\n}\n").unwrap();
         std::fs::write(root.join("c.plumb"), "C\n").unwrap();
         std::fs::write(root.join("orphan.plumb"), "Orphan\n").unwrap();
         let workspace = WebWorkspace::load(&root).unwrap();
@@ -3099,7 +3099,7 @@ mod tests {
         std::fs::write(target.join("static/image.jpg"), b"image").unwrap();
         std::fs::write(
             target.join("note.plumb"),
-            "`img[]{`:[src static/image.jpg]}\n",
+            "`img[|=[src|static/image.jpg]]\n",
         )
         .unwrap();
         symlink(&target, &root).unwrap();
@@ -3119,7 +3119,7 @@ mod tests {
         let path = root.join("tasks.plumb");
         std::fs::write(
             &path,
-            "`task Blocker {\n  `@ blocker\n}\n`task Dependent {\n  `@ dependent\n  `: depends #blocker\n}\n`task Recurring {\n  `@ recurring\n  `: due 2026-07-20T09:00:00+08:00\n  `: recur P1D\n}\n`task Conflicted {\n  `@ conflicted\n  `: done 2026-07-20T10:00:00+08:00\n  `: canceled 2026-07-20T11:00:00+08:00\n}\n",
+            "`task Blocker {\n  `@ blocker\n}\n`task Dependent {\n  `@ dependent\n  `= depends #blocker\n}\n`task Recurring {\n  `@ recurring\n  `= due 2026-07-20T09:00:00+08:00\n  `= recur P1D\n}\n`task Conflicted {\n  `@ conflicted\n  `= done 2026-07-20T10:00:00+08:00\n  `= canceled 2026-07-20T11:00:00+08:00\n}\n",
         )
         .unwrap();
         let workspace = WebWorkspace::load(&root).unwrap();

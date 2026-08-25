@@ -117,7 +117,7 @@ fn open_in_editor(paths: &[PathBuf]) -> Result<(), String> {
         .args(args)
         .args(paths)
         .status()
-        .map_err(|error| format!("cannot run editor `{program}`: {error}"))?;
+        .map_err(|error| format!("cannot run editor `{program}`= {error}"))?;
     if !status.success() {
         return Err(format!("editor `{program}` exited with {status}"));
     }
@@ -252,7 +252,7 @@ mod tests {
         );
         let preview = preview_text(
             "topic.plumb",
-            "`# Topic {\n  `@ topic\n}\n\nSee `->[x][x].\n",
+            "`# Topic {\n  `@ topic\n}\n\nSee `->[x|x].\n",
         );
         assert!(preview.contains("topic.plumb"));
         assert!(preview.contains("\x1b[1;34m"));
@@ -262,7 +262,7 @@ mod tests {
     #[test]
     fn preview_highlights_metadata_and_verbatim_blocks() {
         let preview =
-            highlight_plumb("{\n  `: title Preview\n}\n\n`rust\"\n  fn main() {}\n\n`# Heading\n");
+            highlight_plumb("{\n  `= title Preview\n}\n\n`rust\"\n  fn main() {}\n\n`# Heading\n");
         assert!(preview.contains("\x1b[35m{\x1b[0m"));
         assert!(preview.contains("\x1b[36m`rust\"\x1b[0m"));
         assert!(preview.contains("\x1b[90m  fn main() {}\x1b[0m"));

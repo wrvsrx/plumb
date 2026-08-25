@@ -1,8 +1,7 @@
 use std::ops::Range;
 
 use plumb_syntax::{
-    AttachedContent, AttrItem, Attributes, Block, Inline, InlineMember, ParsedBlock,
-    ParsedDocument,
+    AttachedContent, AttrItem, Attributes, Block, Inline, InlineMember, ParsedBlock, ParsedDocument,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -428,135 +427,25 @@ pub fn remove_block(parsed: &ParsedDocument, range: Range<usize>) -> Result<Text
     edit.finish()
 }
 
-pub fn rewrite_legacy_link(
-    parsed: &ParsedDocument,
-    link_range: Range<usize>,
-    property_range: Range<usize>,
-    value_range: Range<usize>,
-) -> Result<TextEdit, EditError> {
-    validate_range(&parsed.source, &link_range)?;
-    validate_range(&parsed.source, &property_range)?;
-    validate_range(&parsed.source, &value_range)?;
-    if parsed.valid_syntax().is_none()
-        || property_range.start < link_range.start
-        || property_range.end > link_range.end
-        || value_range.start < property_range.start
-        || value_range.end > property_range.end
-    {
-        return Err(EditError::InvalidRange);
-    }
-    let _ = find_inline(parsed, &link_range).ok_or(EditError::InvalidRange)?;
-    let _ = (property_range, value_range);
-    // Legacy Link source is parsed and rewritten by the versioned document
-    // migrator before it enters the current editing pipeline.
-    Err(EditError::InvalidRange)
-}
-
-fn find_inline<'a>(parsed: &'a ParsedDocument, target: &Range<usize>) -> Option<&'a Inline> {
-    let mut blocks = parsed.syntax.blocks.iter().collect::<Vec<_>>();
-    let mut contents = Vec::new();
-    push_attached_content(&parsed.syntax.attrs, &mut blocks, &mut contents);
-    while let Some(block) = blocks.pop() {
-        match block {
-            Block::Parsed(block) => {
-                contents.push(&block.head);
-                blocks.extend(&block.children);
-                if let Some(mark) = &block.mark {
-                    push_attached_content(&mark.attrs, &mut blocks, &mut contents);
-                }
-            }
-            Block::Verbatim(block) => {
-                push_attached_content(&block.attrs, &mut blocks, &mut contents);
-            }
-        }
-    }
-    while let Some(content) = contents.pop() {
-        for inline in &content.items {
-            match inline {
-                Inline::Element {
-                    range,
-                    members,
-                    attrs,
-                    ..
-                } => {
-                    if range == target {
-                        return Some(inline);
-                    }
-                    for member in members {
-                        match member {
-                            InlineMember::ParsedArgument(argument) => {
-                                contents.push(&argument.content);
-                            }
-                            InlineMember::Child { inline, .. } if inline_range(inline) == target => {
-                                return Some(inline);
-                            }
-                            InlineMember::Child { .. }
-                            | InlineMember::VerbatimArgument(_) => {}
-                        }
-                    }
-                    push_inline_attached_content(attrs, &mut contents);
-                }
-                Inline::Verbatim { attrs, .. } => {
-                    push_inline_attached_content(attrs, &mut contents);
-                }
-                Inline::Text { .. } | Inline::Space { .. } | Inline::SoftBreak { .. } => {}
-            }
-        }
-    }
-    None
-}
-
-fn push_attached_content<'a>(
-    attrs: &'a Attributes,
-    blocks: &mut Vec<&'a Block>,
-    contents: &mut Vec<&'a plumb_syntax::InlineContent>,
-) {
-    let Some(attached) = attrs.attached.as_deref() else {
-        return;
-    };
-    match &attached.content {
-        AttachedContent::Blocks(attached_blocks) => blocks.extend(attached_blocks),
-        AttachedContent::Inlines(content) => contents.push(content),
-    }
-}
-
-fn push_inline_attached_content<'a>(
-    attrs: &'a Attributes,
-    contents: &mut Vec<&'a plumb_syntax::InlineContent>,
-) {
-    if let Some(AttachedContent::Inlines(content)) =
-        attrs.attached.as_deref().map(|attached| &attached.content)
-    {
-        contents.push(content);
-    }
-}
-
-fn inline_range(inline: &Inline) -> &Range<usize> {
-    match inline {
-        Inline::Text { range, .. }
-        | Inline::Space { range, .. }
-        | Inline::SoftBreak { range }
-        | Inline::Element { range, .. }
-        | Inline::Verbatim { range, .. } => range,
-    }
-}
-
 impl OwnedInline {
     fn from_syntax(inline: &Inline) -> Self {
         match inline {
             Inline::Text { text, .. } => Self::Text(text.clone()),
             Inline::Space { text, .. } => Self::Space(text.clone()),
             Inline::SoftBreak { .. } => Self::SoftBreak,
-            Inline::Element {
-                kind, members, ..
-            } => Self::Element {
+            Inline::Element { kind, members, .. } => Self::Element {
                 kind: kind.clone(),
                 members: members
                     .iter()
                     .map(|member| match member {
                         InlineMember::ParsedArgument(argument) => {
                             OwnedInlineMember::ParsedArgument(
-                                argument.content.items.iter().map(Self::from_syntax).collect(),
+                                argument
+                                    .content
+                                    .items
+                                    .iter()
+                                    .map(Self::from_syntax)
+                                    .collect(),
                             )
                         }
                         InlineMember::VerbatimArgument(argument) => {
@@ -981,59 +870,56 @@ fn render_owned_inline(
     output: &mut String,
     introduced: bool,
 ) {
-        match inline {
-            OwnedInline::Text(text) => {
-                for character in text.chars() {
-                    match character {
-                        '`' => output.push_str("``"),
-                        '[' | ']' | '|' if nested => {
-                            output.push('`');
-                            output.push(character);
-                        }
-                        _ => output.push(character),
+    match inline {
+        OwnedInline::Text(text) => {
+            for character in text.chars() {
+                match character {
+                    '`' => output.push_str("``"),
+                    '[' | ']' | '|' if nested => {
+                        output.push('`');
+                        output.push(character);
                     }
+                    _ => output.push(character),
                 }
-            }
-            OwnedInline::Space(space) => output.push_str(space),
-            OwnedInline::SoftBreak => {
-                output.push('\n');
-                output.extend(std::iter::repeat_n(' ', continuation_indent));
-            }
-            OwnedInline::Element {
-                kind,
-                members,
-            } => {
-                if introduced {
-                    output.push('`');
-                }
-                output.push_str(kind);
-                output.push('[');
-                for (index, member) in members.iter().enumerate() {
-                    if index > 0 {
-                        output.push('|');
-                    }
-                    match member {
-                        OwnedInlineMember::ParsedArgument(argument) => {
-                            render_owned_inlines(argument, true, continuation_indent, output);
-                        }
-                        OwnedInlineMember::VerbatimArgument(argument) => {
-                            render_owned_verbatim_payload(argument, output);
-                        }
-                        OwnedInlineMember::Child(child) => {
-                            render_owned_inline(child, true, continuation_indent, output, false);
-                        }
-                    }
-                }
-                output.push(']');
-            }
-            OwnedInline::Verbatim { kind, text } => {
-                if introduced {
-                    output.push('`');
-                }
-                output.push_str(kind);
-                render_owned_verbatim_payload(text, output);
             }
         }
+        OwnedInline::Space(space) => output.push_str(space),
+        OwnedInline::SoftBreak => {
+            output.push('\n');
+            output.extend(std::iter::repeat_n(' ', continuation_indent));
+        }
+        OwnedInline::Element { kind, members } => {
+            if introduced {
+                output.push('`');
+            }
+            output.push_str(kind);
+            output.push('[');
+            for (index, member) in members.iter().enumerate() {
+                if index > 0 {
+                    output.push('|');
+                }
+                match member {
+                    OwnedInlineMember::ParsedArgument(argument) => {
+                        render_owned_inlines(argument, true, continuation_indent, output);
+                    }
+                    OwnedInlineMember::VerbatimArgument(argument) => {
+                        render_owned_verbatim_payload(argument, output);
+                    }
+                    OwnedInlineMember::Child(child) => {
+                        render_owned_inline(child, true, continuation_indent, output, false);
+                    }
+                }
+            }
+            output.push(']');
+        }
+        OwnedInline::Verbatim { kind, text } => {
+            if introduced {
+                output.push('`');
+            }
+            output.push_str(kind);
+            render_owned_verbatim_payload(text, output);
+        }
+    }
 }
 
 fn render_owned_verbatim_payload(text: &str, output: &mut String) {
@@ -1707,7 +1593,8 @@ mod tests {
                         present: true,
                         items: Vec::new(),
                         content: Some(OwnedAttachedContent::Blocks(vec![OwnedBlock::marked(
-                            "custom", "root value",
+                            "custom",
+                            "root value",
                         )])),
                     },
                 },
@@ -1717,7 +1604,8 @@ mod tests {
                         present: true,
                         items: Vec::new(),
                         content: Some(OwnedAttachedContent::Blocks(vec![OwnedBlock::marked(
-                            "relation", "opaque value",
+                            "relation",
+                            "opaque value",
                         )])),
                     },
                     head: vec![OwnedInline::Text("Head".into())],
@@ -1887,7 +1775,6 @@ mod tests {
         assert_eq!(removal.range, first);
         assert!(removal.new_text.is_empty());
     }
-
 }
 
 #[cfg(test)]

@@ -662,49 +662,45 @@ impl Formatter {
         nested: bool,
         introduced: bool,
     ) {
-            match inline {
-                Inline::Text { text, .. } => self.text(text, nested),
-                Inline::Space { text, .. } => self.output.push_str(text),
-                Inline::SoftBreak { .. } => {
-                    self.output.push('\n');
-                    self.indent(continuation_indent);
-                }
-                Inline::Element {
-                    kind, members, ..
-                } => {
-                    if introduced {
-                        self.output.push('`');
-                    }
-                    self.output.push_str(kind);
-                    self.output.push('[');
-                    for (index, member) in members.iter().enumerate() {
-                        if index > 0 {
-                            self.output.push('|');
-                        }
-                        match member {
-                            plumb_syntax::InlineMember::ParsedArgument(argument) => {
-                                self.inlines(&argument.content, continuation_indent, true);
-                            }
-                            plumb_syntax::InlineMember::VerbatimArgument(argument) => {
-                                self.verbatim_payload(&argument.text);
-                            }
-                            plumb_syntax::InlineMember::Child { inline, .. } => {
-                                self.inline(inline, continuation_indent, true, false);
-                            }
-                        }
-                    }
-                    self.output.push(']');
-                }
-                Inline::Verbatim {
-                    kind, text, ..
-                } => {
-                    if introduced {
-                        self.output.push('`');
-                    }
-                    self.output.push_str(kind);
-                    self.verbatim_payload(text);
-                }
+        match inline {
+            Inline::Text { text, .. } => self.text(text, nested),
+            Inline::Space { text, .. } => self.output.push_str(text),
+            Inline::SoftBreak { .. } => {
+                self.output.push('\n');
+                self.indent(continuation_indent);
             }
+            Inline::Element { kind, members, .. } => {
+                if introduced {
+                    self.output.push('`');
+                }
+                self.output.push_str(kind);
+                self.output.push('[');
+                for (index, member) in members.iter().enumerate() {
+                    if index > 0 {
+                        self.output.push('|');
+                    }
+                    match member {
+                        plumb_syntax::InlineMember::ParsedArgument(argument) => {
+                            self.inlines(&argument.content, continuation_indent, true);
+                        }
+                        plumb_syntax::InlineMember::VerbatimArgument(argument) => {
+                            self.verbatim_payload(&argument.text);
+                        }
+                        plumb_syntax::InlineMember::Child { inline, .. } => {
+                            self.inline(inline, continuation_indent, true, false);
+                        }
+                    }
+                }
+                self.output.push(']');
+            }
+            Inline::Verbatim { kind, text, .. } => {
+                if introduced {
+                    self.output.push('`');
+                }
+                self.output.push_str(kind);
+                self.verbatim_payload(text);
+            }
+        }
     }
 
     fn verbatim_payload(&mut self, text: &str) {

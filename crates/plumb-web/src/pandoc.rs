@@ -313,7 +313,7 @@ mod tests {
         std::fs::write(root.join("assets/a b.png"), b"png").unwrap();
         std::fs::write(
             root.join("a.plumb"),
-            "`->[B][b.plumb#section]\n\n`img[x]{`:[src assets/a b.png]}\n",
+            "`->[B|b.plumb#section]\n\n`img[x|=[src|assets/a b.png]]\n",
         )
         .unwrap();
         std::fs::write(root.join("b.plumb"), "`# B {\n  `@ section\n}\n").unwrap();
@@ -349,7 +349,7 @@ mod tests {
         std::fs::write(root.join("assets/manual.pdf"), b"pdf").unwrap();
         std::fs::write(
             root.join("a.plumb"),
-            "`file[Demo video]{`:[src assets/demo video.mp4]}\n\n`file[Manual]{`:[src assets/manual.pdf]}\n\n`->[Video link][assets/demo video.mp4]\n",
+            "`file[Demo video|=[src|assets/demo video.mp4]]\n\n`file[Manual|=[src|assets/manual.pdf]]\n\n`->[Video link|assets/demo video.mp4]\n",
         )
         .unwrap();
         let workspace = WebWorkspace::load(&root).unwrap();
@@ -392,7 +392,7 @@ mod tests {
         .unwrap();
         std::fs::write(
             root.join("note.plumb"),
-            "{\n `: bibliography\n  `- static/library file.json\n}\n\nSee `cite[smith2004].\n",
+            "{\n `= bibliography\n  `- static/library file.json\n}\n\nSee `cite[smith2004].\n",
         )
         .unwrap();
         let workspace = WebWorkspace::load(&root).unwrap();

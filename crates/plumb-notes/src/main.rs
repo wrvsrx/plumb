@@ -397,12 +397,12 @@ mod tests {
         std::fs::create_dir_all(root.join("nested")).unwrap();
         std::fs::write(
             root.join("a.plumb"),
-            "{\n  `: title First\n  `: title Second\n}\n\n中文\n",
+            "{\n  `= title First\n  `= title Second\n}\n\n中文\n",
         )
         .unwrap();
         std::fs::write(
             root.join("nested/b.plumb"),
-            "See `->[missing][missing.plumb#id].\n",
+            "See `->[missing|missing.plumb#id].\n",
         )
         .unwrap();
         let loaded = load_workspace(&root).unwrap();
@@ -427,7 +427,7 @@ mod tests {
         std::fs::remove_file(root.join("nested/b.plumb")).unwrap();
         std::fs::write(
             root.join("tasks.plumb"),
-            "`task Draft {\n  `@ draft\n}\n`task Review {\n  `@ review\n  `: depends #draft\n}\n",
+            "`task Draft {\n  `@ draft\n}\n`task Review {\n  `@ review\n  `= depends #draft\n}\n",
         )
         .unwrap();
         let loaded = load_workspace(&root).unwrap();
@@ -503,8 +503,8 @@ mod tests {
     fn queries_transitive_referrers() {
         let root = unique_temp_dir();
         std::fs::create_dir_all(&root).unwrap();
-        std::fs::write(root.join("index.plumb"), "`->[topic][topic.plumb]\n").unwrap();
-        std::fs::write(root.join("topic.plumb"), "`->[leaf][leaf.plumb]\n").unwrap();
+        std::fs::write(root.join("index.plumb"), "`->[topic|topic.plumb]\n").unwrap();
+        std::fs::write(root.join("topic.plumb"), "`->[leaf|leaf.plumb]\n").unwrap();
         std::fs::write(root.join("leaf.plumb"), "Leaf note.\n").unwrap();
         let loaded = load_workspace(&root).unwrap();
         let leaf = normalize(&root.join("leaf.plumb"));
@@ -529,12 +529,12 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(
             root.join("index.plumb"),
-            "`task Index {\n  `@ index\n  `: prev topic.plumb#topic\n}\n",
+            "`task Index {\n  `@ index\n  `= prev topic.plumb#topic\n}\n",
         )
         .unwrap();
         std::fs::write(
             root.join("topic.plumb"),
-            "`task Topic {\n  `@ topic\n  `: depends leaf.plumb#leaf\n}\n",
+            "`task Topic {\n  `@ topic\n  `= depends leaf.plumb#leaf\n}\n",
         )
         .unwrap();
         std::fs::write(root.join("leaf.plumb"), "`task Leaf {\n  `@ leaf\n}\n").unwrap();
@@ -561,7 +561,7 @@ mod tests {
         std::fs::create_dir_all(root.join("docs")).unwrap();
         std::fs::write(
             root.join("docs/semantics.plumb"),
-            "{\n  `: title Semantics `em[Guide]\n}\n\n`# Heading\n",
+            "{\n  `= title Semantics `em[Guide]\n}\n\n`# Heading\n",
         )
         .unwrap();
         std::fs::write(root.join("notes.plumb"), "`# Notes\n").unwrap();

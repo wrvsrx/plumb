@@ -68,28 +68,28 @@ fn collect_inlines(content: &InlineContent, output: &mut MathOutput) {
 }
 
 fn collect_inline(inline: &Inline, output: &mut MathOutput) {
-        match inline {
-            Inline::Verbatim {
-                range, kind, attrs, ..
-            } => recognize_verbatim(kind, attrs, range.clone(), MathKind::Inline, output),
-            Inline::Element {
-                range,
-                attrs,
-                members,
-                ..
-            } => {
-                let _ = (range, attrs);
-                for member in members {
-                    match member {
-                        InlineMember::ParsedArgument(argument) => {
-                            collect_inlines(&argument.content, output);
-                        }
-                        InlineMember::Child { inline, .. } => collect_inline(inline, output),
-                        InlineMember::VerbatimArgument(_) => {}
+    match inline {
+        Inline::Verbatim {
+            range, kind, attrs, ..
+        } => recognize_verbatim(kind, attrs, range.clone(), MathKind::Inline, output),
+        Inline::Element {
+            range,
+            attrs,
+            members,
+            ..
+        } => {
+            let _ = (range, attrs);
+            for member in members {
+                match member {
+                    InlineMember::ParsedArgument(argument) => {
+                        collect_inlines(&argument.content, output);
                     }
+                    InlineMember::Child { inline, .. } => collect_inline(inline, output),
+                    InlineMember::VerbatimArgument(_) => {}
                 }
             }
-            Inline::Text { .. } | Inline::Space { .. } | Inline::SoftBreak { .. } => {}
+        }
+        Inline::Text { .. } | Inline::Space { .. } | Inline::SoftBreak { .. } => {}
     }
 }
 

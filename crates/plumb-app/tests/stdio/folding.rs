@@ -5,7 +5,7 @@ use crate::support::{response, run_server};
 #[test]
 fn labels_metadata_folds_with_the_document_title() {
     let uri = "file:///tmp/metadata-fold-label.plumb";
-    let source = "`meta\n  `: title\n\n    项目 Overview\n\n  `: created\n\n    2026-08-05T03:46:54+08:00\n\n  `: tags\n    `- plumb\n";
+    let source = "{\n  `= title\n\n    项目 Overview\n\n  `= created\n\n    2026-08-05T03:46:54+08:00\n\n  `= tags\n    `- plumb\n}\n";
     let messages = [
         json!({
             "jsonrpc": "2.0", "id": 1, "method": "initialize",
@@ -32,7 +32,7 @@ fn labels_metadata_folds_with_the_document_title() {
             "jsonrpc": "2.0", "method": "textDocument/didChange",
             "params": {
                 "textDocument": { "uri": uri, "version": 2 },
-                "contentChanges": [{ "text": "`meta\n  `: tags\n    `- plumb\n" }]
+                "contentChanges": [{ "text": "{\n  `= tags\n    `- plumb\n}\n" }]
             }
         }),
         json!({
@@ -43,7 +43,7 @@ fn labels_metadata_folds_with_the_document_title() {
             "jsonrpc": "2.0", "method": "textDocument/didChange",
             "params": {
                 "textDocument": { "uri": uri, "version": 3 },
-                "contentChanges": [{ "text": "`node Parent\n  `meta\n    `: title\n\n      Nested\n" }]
+                "contentChanges": [{ "text": "`node Parent\n  `meta\n    `= title\n\n      Nested\n" }]
             }
         }),
         json!({
@@ -62,7 +62,7 @@ fn labels_metadata_folds_with_the_document_title() {
         ranges[0],
         json!({
             "startLine": 0,
-            "endLine": 10,
+            "endLine": 11,
             "collapsedText": "METADATA  项目 Overview"
         })
     );
@@ -77,7 +77,7 @@ fn labels_metadata_folds_with_the_document_title() {
         .any(|range| range["collapsedText"] == "  tags"));
     assert_eq!(
         response(&run_server(&messages), 3)["result"][0],
-        json!({ "startLine": 0, "endLine": 2, "collapsedText": "METADATA" })
+        json!({ "startLine": 0, "endLine": 3, "collapsedText": "METADATA" })
     );
     assert!(response(&run_server(&messages), 4)["result"]
         .as_array()
@@ -89,7 +89,7 @@ fn labels_metadata_folds_with_the_document_title() {
 #[test]
 fn exposes_single_line_semantic_folds_to_line_and_character_range_clients() {
     let uri = "file:///tmp/single-line-folds.plumb";
-    let source = "`task Ready\n`event 14:00 Standup {`:[date 2026-08-02] `:[timezone +08:00]}\n";
+    let source = "`task Ready\n`event 14:00 Standup {`=[date|2026-08-02] `=[timezone|+08:00]}\n";
     let requests = |line_folding_only| {
         [
             json!({
@@ -263,7 +263,7 @@ fn provides_structural_folding_for_valid_and_recovered_documents() {
 #[test]
 fn labels_task_folds_with_derived_workflow_states() {
     let uri = "file:///tmp/task-fold-labels.plumb";
-    let source = "`task Ready task {\n  `@ blocker\n}\n\n      `note Detail\n\n`task Waiting task {\n  `: wait 2099-01-01T00:00:00Z\n  `: depends #blocker\n}\n\n      `note Detail\n\n`task Done task {\n  `: done 2026-07-27T10:00:00Z\n}\n\n      `note Detail\n\n`task Canceled task {\n  `: canceled 2026-07-27T10:00:00Z\n}\n\n      `note Detail\n\n`task Conflicted task {\n  `: done 2026-07-27T10:00:00Z\n  `: canceled 2026-07-27T10:01:00Z\n}\n\n      `note Detail\n\n`task Blocked task {\n  `: depends #blocker\n}\n\n      `note Detail\n\n`node Parent\n\n      `task Nested task {\n        `: done 2026-07-27T10:02:00Z\n      }\n\n            `note Detail\n";
+    let source = "`task Ready task {\n  `@ blocker\n}\n\n      `note Detail\n\n`task Waiting task {\n  `= wait 2099-01-01T00:00:00Z\n  `= depends #blocker\n}\n\n      `note Detail\n\n`task Done task {\n  `= done 2026-07-27T10:00:00Z\n}\n\n      `note Detail\n\n`task Canceled task {\n  `= canceled 2026-07-27T10:00:00Z\n}\n\n      `note Detail\n\n`task Conflicted task {\n  `= done 2026-07-27T10:00:00Z\n  `= canceled 2026-07-27T10:01:00Z\n}\n\n      `note Detail\n\n`task Blocked task {\n  `= depends #blocker\n}\n\n      `note Detail\n\n`node Parent\n\n      `task Nested task {\n        `= done 2026-07-27T10:02:00Z\n      }\n\n            `note Detail\n";
     let messages = [
         json!({
             "jsonrpc": "2.0", "id": 1, "method": "initialize",
@@ -319,7 +319,7 @@ fn labels_task_folds_with_derived_workflow_states() {
 #[test]
 fn labels_event_folds_with_abbreviated_times() {
     let uri = "file:///tmp/event-fold-labels.plumb";
-    let source = "`event 14:00 Standup {\n  `: date 2026-08-02\n  `: timezone +08:00\n}\n\n       `note Detail\n\n`event 09:00--10:30 Review {\n  `: date 2026-08-02\n  `: timezone +08:00\n}\n\n       `note Detail\n\n`event 11:00 Parent {\n  `: date 2026-08-02\n  `: timezone +08:00\n}\n\n       `note Detail\n\n       `event 12:00 Nested {\n         `: date 2026-08-02\n         `: timezone +08:00\n       }\n\n              `note Detail\n\n`event Untimed {\n}\n\n       `note Detail\n";
+    let source = "`event 14:00 Standup {\n  `= date 2026-08-02\n  `= timezone +08:00\n}\n\n       `note Detail\n\n`event 09:00--10:30 Review {\n  `= date 2026-08-02\n  `= timezone +08:00\n}\n\n       `note Detail\n\n`event 11:00 Parent {\n  `= date 2026-08-02\n  `= timezone +08:00\n}\n\n       `note Detail\n\n       `event 12:00 Nested {\n         `= date 2026-08-02\n         `= timezone +08:00\n       }\n\n              `note Detail\n\n`event Untimed {\n}\n\n       `note Detail\n";
     let messages = [
         json!({
             "jsonrpc": "2.0", "id": 1, "method": "initialize",

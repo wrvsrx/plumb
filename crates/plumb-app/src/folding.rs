@@ -4,7 +4,7 @@ use std::path::Path;
 use chrono::{DateTime, FixedOffset, Local};
 use lsp_types::FoldingRange;
 use plumb_semantics::{analyze_headings, EventRecord, MetadataValue};
-use plumb_syntax::{Block, Document};
+use plumb_syntax::{AttachedContent, Block, Document};
 use plumb_workspace::{DocumentEntry, TaskWorkflowState, Workspace};
 
 use crate::position::PositionIndex;
@@ -219,6 +219,12 @@ pub(crate) fn ranges(
         pending_headings.extend(heading.children.iter().rev());
     }
 
+    if let Some(attached) = document.attrs.attached.as_deref() {
+        byte_ranges.push((attached.range.clone(), attached.range.clone(), false));
+        if let AttachedContent::Blocks(blocks) = &attached.content {
+            collect_block_ranges(source, blocks, &mut byte_ranges);
+        }
+    }
     collect_block_ranges(source, &document.blocks, &mut byte_ranges);
 
     byte_ranges.sort_by_key(|(range, _, _)| (range.start, std::cmp::Reverse(range.end)));

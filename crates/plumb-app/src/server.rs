@@ -1723,33 +1723,6 @@ impl LanguageServer for ServerState {
         if code_action_kind_requested(params.context.only.as_deref(), &CodeActionKind::QUICKFIX) {
             if let Some(entry) = self.workspace.get(&path) {
                 let offset = position_to_offset(&entry.parsed.source, params.range.start);
-                if let Some(edit) = self
-                    .workspace
-                    .rewrite_legacy_link(&path, offset)
-                    .ok()
-                    .and_then(|edit| workspace_edit_to_lsp(&self.workspace, edit))
-                {
-                    let diagnostics = params
-                        .context
-                        .diagnostics
-                        .iter()
-                        .filter(|diagnostic| {
-                            diagnostic.code.as_ref().is_some_and(|code| match code {
-                                NumberOrString::String(code) => code == "link.legacy-to-property",
-                                NumberOrString::Number(_) => false,
-                            })
-                        })
-                        .cloned()
-                        .collect::<Vec<_>>();
-                    actions.push(CodeActionOrCommand::CodeAction(CodeAction {
-                        title: "Rewrite legacy Link arguments".to_string(),
-                        kind: Some(CodeActionKind::QUICKFIX),
-                        diagnostics: (!diagnostics.is_empty()).then_some(diagnostics),
-                        edit: Some(edit),
-                        is_preferred: Some(true),
-                        ..CodeAction::default()
-                    }));
-                }
                 for (status, title, preferred) in [
                     (TaskStatus::Done, "Complete task", true),
                     (TaskStatus::Canceled, "Cancel task", false),
@@ -1964,10 +1937,12 @@ fn attribute_completion_text(text: &str, snippets: bool) -> String {
     }
     if let Some(prefix) = text.strip_suffix(" ]") {
         format!("{prefix} ${{1}}]")
+    } else if let Some(prefix) = text.strip_suffix("|]") {
+        format!("{prefix}|${{1}}]")
     } else if let Some(prefix) = text.strip_suffix("[]") {
         format!("{prefix}[${{1}}]")
-    } else if text == "`: priority 0" {
-        "`: priority ${1:0}".to_string()
+    } else if text == "`= priority 0" {
+        "`= priority ${1:0}".to_string()
     } else if text.ends_with(' ') {
         format!("{text}${{1}}")
     } else {
@@ -2053,9 +2028,9 @@ fn task_construct_template(block_indent: &str, timestamp: &str) -> ConstructTemp
         label: "Task",
         detail: "plumb task list item",
         snippet: format!(
-            "`task ${{1:Task}} {{\n{block_indent} `: created {timestamp}\n{block_indent}}}"
+            "`task ${{1:Task}} {{\n{block_indent} `= created {timestamp}\n{block_indent}}}"
         ),
-        plain: format!("`task  {{\n{block_indent} `: created {timestamp}\n{block_indent}}}"),
+        plain: format!("`task  {{\n{block_indent} `= created {timestamp}\n{block_indent}}}"),
     }
 }
 
@@ -2143,8 +2118,8 @@ fn link_construct_template() -> ConstructTemplate {
     ConstructTemplate {
         label: "Link",
         detail: "plumb link",
-        snippet: "`->[${1:label}][${2:target}]".to_string(),
-        plain: "`->[][]".to_string(),
+        snippet: "`->[${1:label}|${2:target}]".to_string(),
+        plain: "`->[|]".to_string(),
     }
 }
 
@@ -2491,9 +2466,9 @@ mod tests {
             .join("\n");
 
         assert_eq!(adjusted, absolute);
-        assert!(absolute.contains("\n  `: created "));
+        assert!(absolute.contains("\n  `= created "));
         assert!(absolute.ends_with("\n }"));
-        assert!(relative.contains("\n `: created "));
+        assert!(relative.contains("\n `= created "));
         assert!(relative.ends_with("\n}"));
     }
 
@@ -2552,7 +2527,7 @@ mod tests {
     #[test]
     fn keeps_task_owner_fold_while_typing_its_marker() {
         for opener in ["`", "`t", "`ta", "`tas", "`task"] {
-            let parsed = parse(format!("{opener}\n `: created now\n"));
+            let parsed = parse(format!("{opener}\n `= created now\n"));
             assert_eq!(
                 folding_ranges(&parsed.source, &parsed.syntax, None, None, false)
                     .iter()
@@ -2595,7 +2570,7 @@ mod tests {
     #[test]
     fn closed_task_tokens_preserve_nested_task_states() {
         let parsed = parse(
-            "`task Closed parent {\n  `: done 2026-07-27T10:00:00+08:00\n}\n\n      `note Parent detail\n\n      `task Open child {\n      }\n\n      `note Parent tail\n\n`task Canceled {\n  `: canceled 2026-07-27T10:01:00+08:00\n}\n`task Conflicted {\n  `: done 2026-07-27T10:02:00+08:00\n  `: canceled 2026-07-27T10:03:00+08:00\n}\n",
+            "`task Closed parent {\n  `= done 2026-07-27T10:00:00+08:00\n}\n\n      `note Parent detail\n\n      `task Open child {\n      }\n\n      `note Parent tail\n\n`task Canceled {\n  `= canceled 2026-07-27T10:01:00+08:00\n}\n`task Conflicted {\n  `= done 2026-07-27T10:02:00+08:00\n  `= canceled 2026-07-27T10:03:00+08:00\n}\n",
         );
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let tasks = analyze_tasks(&parsed.source, &parsed.syntax).tasks;

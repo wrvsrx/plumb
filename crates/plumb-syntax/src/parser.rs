@@ -141,68 +141,68 @@ fn project_inline_member_attributes(source: &str, members: &[InlineMember]) -> V
 }
 
 fn project_inline_attribute(source: &str, inline: &Inline) -> Option<AttrItem> {
-            let Inline::Element {
-                range,
-                kind,
-                kind_range: _,
-                members,
-                ..
-            } = inline
-            else {
-                return None;
-            };
-            let arguments = members
-                .iter()
-                .filter_map(InlineMember::argument)
-                .collect::<Vec<_>>();
-            if kind == "+" {
-                let [argument] = arguments.as_slice() else {
-                    return None;
-                };
-                let value = argument.plain_text();
-                if value.is_empty() {
-                    return None;
-                }
-                return Some(AttrItem::Class {
-                    value,
-                    range: argument_range(argument),
-                });
-            }
-            if kind == "@" {
-                let [argument] = arguments.as_slice() else {
-                    return None;
-                };
-                let value = argument.plain_text();
-                if value.is_empty() {
-                    return None;
-                }
-                return Some(AttrItem::Id {
-                    value,
-                    range: range.clone(),
-                });
-            }
-            if kind != "=" {
-                return None;
-            }
-            let (key, key_range, value_range, value) = match arguments.as_slice() {
-                [key_argument, value_argument] => {
-                    let (key, key_range) = plain_argument_key(key_argument)?;
-                    let value = value_argument.plain_text();
-                    (key, key_range, argument_range(value_argument), value)
-                }
-                _ => return None,
-            };
-            Some(AttrItem::Pair {
-                key,
-                key_range,
-                value: AttrValue {
-                    decoded: value,
-                    raw: source[value_range.clone()].to_string(),
-                    range: value_range,
-                    quoted: true,
-                },
-                range: range.clone(),
-            })
+    let Inline::Element {
+        range,
+        kind,
+        kind_range: _,
+        members,
+        ..
+    } = inline
+    else {
+        return None;
+    };
+    let arguments = members
+        .iter()
+        .filter_map(InlineMember::argument)
+        .collect::<Vec<_>>();
+    if kind == "+" {
+        let [argument] = arguments.as_slice() else {
+            return None;
+        };
+        let value = argument.plain_text();
+        if value.is_empty() {
+            return None;
+        }
+        return Some(AttrItem::Class {
+            value,
+            range: argument_range(argument),
+        });
+    }
+    if kind == "@" {
+        let [argument] = arguments.as_slice() else {
+            return None;
+        };
+        let value = argument.plain_text();
+        if value.is_empty() {
+            return None;
+        }
+        return Some(AttrItem::Id {
+            value,
+            range: range.clone(),
+        });
+    }
+    if kind != "=" {
+        return None;
+    }
+    let (key, key_range, value_range, value) = match arguments.as_slice() {
+        [key_argument, value_argument] => {
+            let (key, key_range) = plain_argument_key(key_argument)?;
+            let value = value_argument.plain_text();
+            (key, key_range, argument_range(value_argument), value)
+        }
+        _ => return None,
+    };
+    Some(AttrItem::Pair {
+        key,
+        key_range,
+        value: AttrValue {
+            decoded: value,
+            raw: source[value_range.clone()].to_string(),
+            range: value_range,
+            quoted: true,
+        },
+        range: range.clone(),
+    })
 }
 
 fn argument_range(argument: &InlineArgumentRef<'_>) -> SourceRange {
@@ -1228,9 +1228,8 @@ impl Parser<'_> {
                     continue;
                 }
 
-                let at_member_start = !frame.member_complete
-                    && frame.items.is_empty()
-                    && cursor == frame.start;
+                let at_member_start =
+                    !frame.member_complete && frame.items.is_empty() && cursor == frame.start;
                 if at_member_start && byte == b'"' {
                     let separator_range = frame.separator_range.clone();
                     if let Some(argument) = self.parse_verbatim_argument(
@@ -1297,16 +1296,13 @@ impl Parser<'_> {
                                         bracketed: argument.bracketed,
                                         attrs: Attributes::default(),
                                     };
-                                    frame
-                                        .opening
-                                        .as_mut()
-                                        .unwrap()
-                                        .members
-                                        .push(InlineMember::Child {
+                                    frame.opening.as_mut().unwrap().members.push(
+                                        InlineMember::Child {
                                             range: cursor..after,
                                             separator_range,
                                             inline: Box::new(inline),
-                                        });
+                                        },
+                                    );
                                     frame.member_complete = true;
                                     position.offset = after;
                                     frame.text_start = after;
@@ -2218,7 +2214,7 @@ mod tests {
 
     #[test]
     fn parses_root_and_marked_block_attached_groups_with_ordinary_blocks() {
-        let source = "{\n  `: title Document title\n  `: tags plumb\n}\n\n`- Buy milk {\n  `- task\n  `@ shopping\n  `: due 2026-08-07\n}\n\n  Details.\n";
+        let source = "{\n  `= title Document title\n  `= tags plumb\n}\n\n`- Buy milk {\n  `+ task\n  `@ shopping\n  `= due 2026-08-07\n}\n\n  Details.\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         assert_eq!(parsed.syntax.attrs.value("title"), Some("Document title"));
@@ -2274,7 +2270,7 @@ mod tests {
         };
         assert_eq!(attrs.value("key with spaces"), Some("value with spaces"));
 
-        let block = parse("{\n `: key with spaces\n   `- value\n}\n");
+        let block = parse("{\n `= key with spaces\n   `- value\n}\n");
         assert!(block.is_valid(), "{:?}", block.diagnostics);
         assert_eq!(block.syntax.attrs.value("key"), None);
         let attached = block.syntax.attrs.attached.as_deref().unwrap();
@@ -2314,7 +2310,7 @@ mod tests {
     #[test]
     fn parses_heading_and_nested_blocks() {
         let parsed =
-            parse("`heading Intro {`@[intro] `:[level 1]}\n  child text\n\n  `task Work\n");
+            parse("`heading Intro {`@[intro] `=[level|1]}\n  child text\n\n  `task Work\n");
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let Block::Parsed(heading) = &parsed.syntax.blocks[0] else {
             panic!("expected heading");
@@ -2325,7 +2321,7 @@ mod tests {
 
     #[test]
     fn parses_attached_groups_on_marked_and_verbatim_blocks() {
-        let source = "`- Work {\n  `- task\n  `@ write\n  `: created 2026-07-20T09:00:00+08:00\n}\n\n`tex\" {`+[$] `@[equation]}\n E = mc^2\n";
+        let source = "`- Work {\n  `+ task\n  `@ write\n  `= created 2026-07-20T09:00:00+08:00\n}\n\n`tex\" {`+[$] `@[equation]}\n E = mc^2\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
@@ -2348,7 +2344,7 @@ mod tests {
 
     #[test]
     fn block_attached_groups_allow_compact_and_brace_aligned_closing_delimiters() {
-        let source = "`- Work {\n  `- task\n  `@ write\n}\n\n`text\"\n payload\n`x {\n  `- class\n}\n\n  `child Nested\n";
+        let source = "`- Work {\n  `+ task\n  `@ write\n}\n\n`text\"\n payload\n`x {\n  `+ class\n}\n\n  `child Nested\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
@@ -2372,7 +2368,7 @@ mod tests {
         assert!(container.mark.as_ref().unwrap().attrs.has_class("class"));
         assert_eq!(container.children.len(), 1);
 
-        let next_line = parse("`- Work\n  {\n    `- task\n  }\n");
+        let next_line = parse("`- Work\n  {\n    `+ task\n  }\n");
         assert!(next_line.is_valid(), "{:?}", next_line.diagnostics);
         let Block::Parsed(task) = &next_line.syntax.blocks[0] else {
             panic!("expected next-line attached group");
@@ -2388,10 +2384,10 @@ mod tests {
                 .opener_on_own_line
         );
 
-        let compact = parse("`- Something {`-[task] `@[id]}\n");
+        let compact = parse("`- Something {`+[task] `@[id]}\n");
         assert!(compact.is_valid(), "{:?}", compact.diagnostics);
 
-        let crlf = parse("`- Work {\r\n  `- task\r\n  `@ crlf\r\n  `: key value\r\n}\r\n");
+        let crlf = parse("`- Work {\r\n  `+ task\r\n  `@ crlf\r\n  `= key value\r\n}\r\n");
         assert!(crlf.is_valid(), "{:?}", crlf.diagnostics);
         let Block::Parsed(task) = &crlf.syntax.blocks[0] else {
             panic!("expected CRLF task block");
@@ -2510,7 +2506,9 @@ mod tests {
         let InlineMember::Child { inline, .. } = &members[3] else {
             panic!("expected verbatim child");
         };
-        assert!(matches!(inline.as_ref(), Inline::Verbatim { kind, text, .. } if kind == "code" && text == "raw"));
+        assert!(
+            matches!(inline.as_ref(), Inline::Verbatim { kind, text, .. } if kind == "code" && text == "raw")
+        );
         assert!(attrs.attached.is_none());
     }
 
@@ -2687,7 +2685,7 @@ mod tests {
         };
         assert!(matches!(paragraph.head.items[0], Inline::Verbatim { .. }));
 
-        let block = parse("`\" {`-[note]}\n  raw `em[not parsed]\n");
+        let block = parse("`\" {`+[note]}\n  raw `em[not parsed]\n");
         assert!(matches!(block.syntax.blocks[0], Block::Verbatim(_)));
 
         let quote_block = parse("`\"\n  code block\n");
@@ -2749,7 +2747,7 @@ mod tests {
     #[test]
     fn parses_own_line_opener_groups_before_children() {
         let parsed = parse(
-            "`task Work\n      {\n        `: created now\n      }\n\n      Details\n\n`note first\n      second\n      {\n        `- cited\n      }\n",
+            "`task Work\n      {\n        `= created now\n      }\n\n      Details\n\n`note first\n      second\n      {\n        `+ cited\n      }\n",
         );
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
@@ -2775,8 +2773,8 @@ mod tests {
     #[test]
     fn own_line_opener_requires_adjacency_and_the_continuation_column() {
         for source in [
-            "`task Work\n\n      {\n        `: created now\n      }\n",
-            "`note first\n      second\n    {\n      `- cited\n    }\n",
+            "`task Work\n\n      {\n        `= created now\n      }\n",
+            "`note first\n      second\n    {\n      `+ cited\n    }\n",
         ] {
             let parsed = parse(source);
             assert!(!parsed.is_valid(), "{source}");
@@ -2799,7 +2797,7 @@ mod tests {
 
     #[test]
     fn own_line_opener_delimiters_allow_trailing_horizontal_whitespace() {
-        let parsed = parse("`task Work\n      { \t\n        `: created now\n      }  \t\n");
+        let parsed = parse("`task Work\n      { \t\n        `= created now\n      }  \t\n");
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
         let Block::Parsed(task) = &parsed.syntax.blocks[0] else {
@@ -2856,19 +2854,19 @@ mod tests {
     #[test]
     fn closing_brace_returns_to_the_opener_line_column() {
         // Trailing opener: the close returns to the header line's column.
-        let trailing = parse("`- Work {\n  `- task\n}\n");
+        let trailing = parse("`- Work {\n  `+ task\n}\n");
         assert!(trailing.is_valid(), "{:?}", trailing.diagnostics);
         // Own-line opener: the close returns to the head continuation column.
-        let own_line = parse("`- Work\n  {\n   `- task\n  }\n");
+        let own_line = parse("`- Work\n  {\n   `+ task\n  }\n");
         assert!(own_line.is_valid(), "{:?}", own_line.diagnostics);
         // Document opener: the close returns to the file column.
-        let document = parse("{\n `: title T\n}\n");
+        let document = parse("{\n `= title T\n}\n");
         assert!(document.is_valid(), "{:?}", document.diagnostics);
 
         for source in [
-            "`- Work {\n  `- task\n  }\n",
-            "`- Work\n  {\n   `- task\n   }\n",
-            "{\n `: title T\n }\n",
+            "`- Work {\n  `+ task\n  }\n",
+            "`- Work\n  {\n   `+ task\n   }\n",
+            "{\n `= title T\n }\n",
         ] {
             let parsed = parse(source);
             assert!(!parsed.is_valid(), "{source}");
@@ -2886,7 +2884,7 @@ mod tests {
         // The opener scan treats escapes and verbatim envelopes as single
         // tokens and tracks no element nesting; neither hides a later
         // trailing opener on the head line.
-        let escaped = parse("`note `x[a `{b`} c] tail {\n `- done\n}\n");
+        let escaped = parse("`note `x[a `{b`} c] tail {\n `+ done\n}\n");
         assert!(escaped.is_valid(), "{:?}", escaped.diagnostics);
         let Block::Parsed(note) = &escaped.syntax.blocks[0] else {
             panic!("expected marked block");
@@ -2894,7 +2892,7 @@ mod tests {
         assert_eq!(note.head.plain_text(), "a {b} c tail");
         assert_eq!(note.mark.as_ref().unwrap().attrs.items.len(), 1);
 
-        let envelope = parse("`note `\"[p {q]\" tail {\n `- done\n}\n");
+        let envelope = parse("`note `\"[p {q]\" tail {\n `+ done\n}\n");
         assert!(envelope.is_valid(), "{:?}", envelope.diagnostics);
         let Block::Parsed(note) = &envelope.syntax.blocks[0] else {
             panic!("expected marked block");
@@ -2971,7 +2969,7 @@ mod tests {
     fn trailing_opener_ends_any_head_line() {
         // Expanded trailing opener on a continuation line: close and later
         // children sit at the opener line's column.
-        let expanded = parse("`note first\n  second {\n   `- cited\n  }\n  Details\n");
+        let expanded = parse("`note first\n  second {\n   `+ cited\n  }\n  Details\n");
         assert!(expanded.is_valid(), "{:?}", expanded.diagnostics);
         let Block::Parsed(note) = &expanded.syntax.blocks[0] else {
             panic!("expected marked block");
@@ -2995,7 +2993,7 @@ mod tests {
         assert_eq!(note.mark.as_ref().unwrap().attrs.id(), Some("x"));
 
         // The close must return to the opener line's column.
-        let misaligned = parse("`note first\n  second {\n   `- cited\n   }\n");
+        let misaligned = parse("`note first\n  second {\n   `+ cited\n   }\n");
         assert!(!misaligned.is_valid());
         assert!(misaligned
             .diagnostics
@@ -3048,7 +3046,7 @@ mod tests {
 
     #[test]
     fn malformed_old_attribute_spelling_keeps_ranges_in_bounds() {
-        let source = "`node{.one`text\"`node{key=\"bad\\q\"}`node\n      {\n        `: key quote\" slash\\\n      }\n\n";
+        let source = "`node{.one`text\"`node{key=\"bad\\q\"}`node\n      {\n        `= key quote\" slash\\\n      }\n\n";
         let parsed = parse(source);
         assert_eq!(parsed.lossless.reconstruct(&parsed.source), source);
         assert!(parsed
