@@ -13,7 +13,7 @@ fn exposes_the_unified_command_surface() {
     assert!(help.status.success());
     let help = String::from_utf8(help.stdout).unwrap();
     for command in [
-        "check", "event", "fmt", "export", "import", "note", "site", "task", "lsp",
+        "check", "event", "fmt", "export", "import", "migrate", "note", "site", "task", "lsp",
     ] {
         assert!(help.contains(command));
     }
@@ -72,6 +72,46 @@ fn exposes_the_unified_command_surface() {
         String::from_utf8_lossy(&imported.stderr)
     );
     assert_eq!(String::from_utf8(imported.stdout).unwrap(), "Paragraph.\n");
+}
+
+#[test]
+fn migrates_an_explicit_syntax_epoch_from_stdin_and_paths() {
+    let source = "`->[guide]{`:[to guide.plumb] `-[external]}\n";
+    let expected = "`->[guide|guide.plumb|+[external]]\n";
+
+    let stdin = run_with_stdin(&["migrate", "--from", "attached-v1"], source);
+    assert!(
+        stdin.status.success(),
+        "{}",
+        String::from_utf8_lossy(&stdin.stderr)
+    );
+    assert_eq!(String::from_utf8(stdin.stdout).unwrap(), expected);
+
+    let root = unique_temp_dir();
+    std::fs::create_dir_all(&root).unwrap();
+    let path = root.join("legacy.plumb");
+    std::fs::write(&path, source).unwrap();
+    let check = Command::new(env!("CARGO_BIN_EXE_plumb"))
+        .args(["migrate", "--from", "attached-v1", "--check"])
+        .arg(&path)
+        .output()
+        .unwrap();
+    assert_eq!(check.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&check.stderr).contains("would migrate"));
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), source);
+
+    let migrated = Command::new(env!("CARGO_BIN_EXE_plumb"))
+        .args(["migrate", "--from", "attached-v1"])
+        .arg(&path)
+        .output()
+        .unwrap();
+    assert!(
+        migrated.status.success(),
+        "{}",
+        String::from_utf8_lossy(&migrated.stderr)
+    );
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), expected);
+    std::fs::remove_dir_all(root).unwrap();
 }
 
 #[test]

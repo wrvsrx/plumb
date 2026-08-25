@@ -1,5 +1,6 @@
 mod folding;
 pub mod format_cli;
+pub mod migrate_cli;
 mod hover;
 mod position;
 mod search;

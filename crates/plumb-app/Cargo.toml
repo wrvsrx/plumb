@@ -10,6 +10,7 @@ plumb-edit = { path = "../plumb-edit" }
 plumb-export = { path = "../plumb-export" }
 plumb-semantics = { path = "../plumb-semantics" }
 plumb-import = { path = "../plumb-import" }
+plumb-migrate = { path = "../plumb-migrate" }
 plumb-notes = { path = "../plumb-notes" }
 plumb-workspace = { path = "../plumb-workspace" }
 plumb-web = { path = "../plumb-web" }

@@ -1855,6 +1855,7 @@ dependencies = [
  "plumb-edit",
  "plumb-export",
  "plumb-import",
+ "plumb-migrate",
  "plumb-notes",
  "plumb-semantics",
  "plumb-syntax",
@@ -1902,6 +1903,15 @@ dependencies = [
  "plumb-format",
  "plumb-syntax",
  "serde_json",
+]
+
+[[package]]
+name = "plumb-migrate"
+version = "0.26.1-dev"
+dependencies = [
+ "plumb-edit",
+ "plumb-syntax",
+ "plumb-syntax-legacy-v1",
 ]
 
 [[package]]

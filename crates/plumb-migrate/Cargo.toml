@@ -1,0 +1,10 @@
+[package]
+name = "plumb-migrate"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+plumb-edit = { path = "../plumb-edit" }
+plumb-syntax = { path = "../plumb-syntax" }
+plumb-syntax-legacy-v1 = { path = "../plumb-syntax-legacy-v1" }
