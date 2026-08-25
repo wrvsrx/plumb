@@ -1942,6 +1942,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "plumb-syntax-legacy-v1"
+version = "0.26.1-dev"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "plumb-web"
 version = "0.26.1-dev"
 dependencies = [
