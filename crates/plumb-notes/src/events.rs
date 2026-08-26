@@ -308,7 +308,7 @@ mod tests {
         ));
         let output = root.join("calendar");
         std::fs::create_dir_all(&root).unwrap();
-        let source = "`= date 2026-07-30\n`= timezone +08:00\n\n`event 14:00--15:30 Review, parser; semantics with a deliberately long summary that must be folded safely {\n  `= tasks #write\n}\n\n       `note First line\n";
+        let source = "`= date 2026-07-30\n`= timezone +08:00\n\n`event 14:00--15:30 Review, parser; semantics with a deliberately long summary that must be folded safely\n  `= tasks #write\n\n  `note First line\n";
         let mut workspace = Workspace::new();
         workspace.insert(root.join("events.plumb"), 1, source);
         let mut loaded = LoadedWorkspace {
@@ -382,7 +382,7 @@ mod tests {
         workspace.insert(
             root.join("point.plumb"),
             1,
-            "`= date 2026-07-30\n`= timezone +08:00\n\n`event 14:00 Reminder {\n}\n",
+            "`= date 2026-07-30\n`= timezone +08:00\n\n`event 14:00 Reminder\n",
         );
         let loaded = LoadedWorkspace {
             root: root.clone(),
@@ -403,7 +403,7 @@ mod tests {
         workspace.insert(
             root.join("running.plumb"),
             1,
-            "`= date 2026-07-30\n`= timezone +08:00\n\n`event Work {\n}\n",
+            "`= date 2026-07-30\n`= timezone +08:00\n\n`event Work\n",
         );
         let loaded = LoadedWorkspace {
             root: root.clone(),
@@ -424,7 +424,7 @@ mod tests {
         ));
         let first_root = base.join("device-a");
         let second_root = base.join("device-b");
-        let source = "`= date 2026-07-30\n`= timezone +08:00\n\n`event 14:00 Review {\n}\n";
+        let source = "`= date 2026-07-30\n`= timezone +08:00\n\n`event 14:00 Review\n";
         let shifted_source = source.replacen(
             "\n\n`- 14:00 Review",
             "\n\nA preceding paragraph.\n\n`- 14:00 Review",
@@ -447,7 +447,8 @@ mod tests {
             std::process::id(),
             uuid::Uuid::new_v4()
         ));
-        let source = "`= date 2026-07-30\n`= timezone +08:00\n\n`event 14:00 Review {\n}\n`event 14:00 Review {\n}\n";
+        let source =
+            "`= date 2026-07-30\n`= timezone +08:00\n\n`event 14:00 Review\n`event 14:00 Review\n";
         let loaded = loaded_with_source(&root, "events.plumb", source);
         assert!(desired_events(&loaded)
             .unwrap_err()
@@ -503,12 +504,12 @@ mod tests {
         workspace.insert(
             root.join("first.plumb"),
             1,
-            "`event 2026-07-30T14:00:00Z First {\n  `= uid shared@example\n}\n",
+            "`event 2026-07-30T14:00:00Z First\n  `= uid shared@example\n",
         );
         workspace.insert(
             root.join("second.plumb"),
             1,
-            "`event 2026-07-31T14:00:00Z Second {\n  `= uid shared@example\n}\n",
+            "`event 2026-07-31T14:00:00Z Second\n  `= uid shared@example\n",
         );
         let loaded = LoadedWorkspace {
             root: root.clone(),
@@ -532,7 +533,7 @@ mod tests {
         workspace.insert(
             root.join("derived.plumb"),
             1,
-            "`event 2026-07-30T14:00:00Z Derived {\n}\n",
+            "`event 2026-07-30T14:00:00Z Derived\n",
         );
         let preliminary = LoadedWorkspace {
             root: root.clone(),

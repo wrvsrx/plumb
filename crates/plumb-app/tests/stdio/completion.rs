@@ -132,8 +132,8 @@ fn completes_task_dependencies_from_workspace_tasks() {
     std::fs::create_dir_all(&root).unwrap();
     let source_path = root.join("current.plumb");
     let target_path = root.join("Project Plan.plumb");
-    let source = "`task Existing dependency {\n  `@ done\n}\n`task Local task {\n  `@ local\n}\n\n`node Plain anchor {\n  `@ plain\n}\n\n`task Review {\n  `@ review\n  `= depends #done Project Plan.plumb#dr\n}\n`task Review two {\n  `@ review-two\n  `= depends #done \n}\n";
-    let target = "`task Draft task {\n  `@ draft\n}\n`task Closed task {\n  `@ closed\n  `= done 2026-08-04T12:00:00+08:00\n}\n\n`node Not a task {\n  `@ note\n}\n";
+    let source = "`task Existing dependency\n  `@ done\n`task Local task\n  `@ local\n\n`node Plain anchor\n  `@ plain\n\n`task Review\n  `@ review\n  `= depends #done Project Plan.plumb#dr\n`task Review two\n  `@ review-two\n  `= depends #done \n";
+    let target = "`task Draft task\n  `@ draft\n`task Closed task\n  `@ closed\n  `= done 2026-08-04T12:00:00+08:00\n\n`node Not a task\n  `@ note\n";
     std::fs::write(&source_path, source).unwrap();
     std::fs::write(&target_path, target).unwrap();
     let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
@@ -228,11 +228,7 @@ fn completes_links_by_document_metadata_title() {
     let open_path = "`->[x|Guide";
     let source_text = format!("`->[Us\n\n{open_path}\n\n{closed_path}\n{closed_anchor}\n{raw}\n");
     std::fs::write(&source, &source_text).unwrap();
-    std::fs::write(
-        &target,
-        "`= title Usage Guide\n\n`# Usage {\n  `@ usage\n}\n",
-    )
-    .unwrap();
+    std::fs::write(&target, "`= title Usage Guide\n\n`# Usage\n  `@ usage\n").unwrap();
     let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
     let source_uri = lsp_types::Url::from_file_path(&source).unwrap();
     let messages = [
@@ -344,11 +340,7 @@ fn completion_from_a_subdirectory_inserts_a_relative_path() {
     let target = target_dir.join("target.plumb");
     let source_text = "`->[Target";
     std::fs::write(&source, source_text).unwrap();
-    std::fs::write(
-        &target,
-        "`= title Target A\n\n`# Target {\n  `@ target\n}\n",
-    )
-    .unwrap();
+    std::fs::write(&target, "`= title Target A\n\n`# Target\n  `@ target\n").unwrap();
     let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
     let source_uri = lsp_types::Url::from_file_path(&source).unwrap();
     let messages = [
@@ -405,11 +397,7 @@ fn completes_and_navigates_relative_autolinks_files_and_images() {
     let attachment = static_dir.join("manual draft.pdf");
     let source = "`->\"tar\"\n`->\"target note.plumb#an\"\n`img[Query|=[src|static/im]]\n`img[Missing|=[src|static/missing.png]]\n`->\"target note.plumb\"\n`img[Result|=[src|static/image one.PNG]]\n`->\"中文\"\n`->\"static/manual draft.pdf\"\n`->[manual|static/manual draft.pdf]\n`->\"static/missing guide.pdf\"\n";
     std::fs::write(&current, source).unwrap();
-    std::fs::write(
-        &target,
-        "`= title Target note\n\n`# Anchor {\n  `@ anchor\n}\n",
-    )
-    .unwrap();
+    std::fs::write(&target, "`= title Target note\n\n`# Anchor\n  `@ anchor\n").unwrap();
     std::fs::write(&unicode_target, "`# 中文笔记\n").unwrap();
     std::fs::write(&image, b"png").unwrap();
     std::fs::write(&attachment, b"pdf").unwrap();
@@ -693,8 +681,7 @@ fn completes_block_constructs_from_their_marker_prefixes() {
         json!({ "start": { "line": 0, "character": 0 }, "end": { "line": 0, "character": 2 } })
     );
     let task = task_items[0]["textEdit"]["newText"].as_str().unwrap();
-    assert!(task.starts_with("`task ${1:Task} {\n `= created "));
-    assert!(task.ends_with("\n}"));
+    assert!(task.starts_with("`task ${1:Task}\n `= created "));
     assert_eq!(task_items[0]["insertTextFormat"], 2);
     assert_eq!(task_items[0]["insertTextMode"], 1);
 
@@ -710,8 +697,7 @@ fn completes_block_constructs_from_their_marker_prefixes() {
     let nested_task = nested_task_items[0]["textEdit"]["newText"]
         .as_str()
         .unwrap();
-    assert!(nested_task.starts_with("`task ${1:Task} {\n  `= created "));
-    assert!(nested_task.ends_with("\n }"));
+    assert!(nested_task.starts_with("`task ${1:Task}\n  `= created "));
     assert_eq!(nested_task_items[0]["insertTextMode"], 1);
 
     let link_items = response(&output, 5)["result"].as_array().unwrap();
@@ -751,8 +737,7 @@ fn completes_block_constructs_from_their_marker_prefixes() {
     assert_eq!(fallback_items.len(), 1);
     assert_eq!(fallback_items[0]["label"], "Task");
     let fallback_task = fallback_items[0]["textEdit"]["newText"].as_str().unwrap();
-    assert!(fallback_task.starts_with("`task  {\n `= created "));
-    assert!(fallback_task.ends_with("\n}"));
+    assert!(fallback_task.starts_with("`task \n `= created "));
     assert_eq!(fallback_items[0]["insertTextFormat"], 1);
     assert!(fallback_items[0].get("insertTextMode").is_none());
     std::fs::remove_dir_all(root).unwrap();
@@ -810,8 +795,7 @@ fn projects_nested_task_completion_for_adjusted_indentation() {
         json!({ "start": { "line": 1, "character": 1 }, "end": { "line": 1, "character": 3 } })
     );
     let replacement = items[0]["textEdit"]["newText"].as_str().unwrap();
-    assert!(replacement.starts_with("`task ${1:Task} {\n `= created "));
-    assert!(replacement.ends_with("\n}"));
+    assert!(replacement.starts_with("`task ${1:Task}\n `= created "));
 
     let adjusted = replacement
         .replace("${1:Task}", "Task")
@@ -834,11 +818,11 @@ fn projects_nested_task_completion_for_adjusted_indentation() {
 }
 
 #[test]
-fn completes_task_construct_immediately_after_attached_group() {
+fn completes_task_construct_immediately_after_direct_declarations() {
     let root = unique_temp_dir();
     std::fs::create_dir_all(&root).unwrap();
     let document = root.join("current.plumb");
-    let source = "`task something {\n `= created 2026-08-09T10:55:24+08:00\n}\n`t";
+    let source = "`task something\n\n `= created 2026-08-09T10:55:24+08:00\n\n`t";
     std::fs::write(&document, source).unwrap();
     let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
     let document_uri = lsp_types::Url::from_file_path(&document).unwrap();
@@ -864,7 +848,7 @@ fn completes_task_construct_immediately_after_attached_group() {
             "jsonrpc": "2.0", "id": 2, "method": "textDocument/completion",
             "params": {
                 "textDocument": { "uri": document_uri },
-                "position": { "line": 3, "character": 2 }
+                "position": { "line": 4, "character": 2 }
             }
         }),
         json!({ "jsonrpc": "2.0", "id": 3, "method": "shutdown", "params": null }),
@@ -877,8 +861,8 @@ fn completes_task_construct_immediately_after_attached_group() {
     assert_eq!(
         item["textEdit"]["range"],
         json!({
-            "start": { "line": 3, "character": 0 },
-            "end": { "line": 3, "character": 2 }
+            "start": { "line": 4, "character": 0 },
+            "end": { "line": 4, "character": 2 }
         })
     );
     std::fs::remove_dir_all(root).unwrap();
@@ -989,8 +973,7 @@ fn completes_attributes_with_protocol_ranges_and_snippets() {
     let root = unique_temp_dir();
     std::fs::create_dir_all(&root).unwrap();
     let document = root.join("attributes.plumb");
-    let source =
-        "`task Work {\n  `= created now\n  `= pr\n}\n`img[Alt|=[s]]\n`$[\"x\"|=[language|t]]\n";
+    let source = "`task Work\n  `= created now\n  `= pr\n`img[Alt|=[s]]\n`$[\"x\"|=[language|t]]\n";
     std::fs::write(&document, source).unwrap();
     let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
     let document_uri = lsp_types::Url::from_file_path(&document).unwrap();
@@ -1020,12 +1003,12 @@ fn completes_attributes_with_protocol_ranges_and_snippets() {
         json!({
             "jsonrpc": "2.0", "id": 3, "method": "textDocument/completion",
             "params": { "textDocument": { "uri": document_uri },
-                "position": { "line": 4, "character": 12 } }
+                "position": { "line": 3, "character": 12 } }
         }),
         json!({
             "jsonrpc": "2.0", "id": 4, "method": "textDocument/completion",
             "params": { "textDocument": { "uri": document_uri },
-                "position": { "line": 5, "character": 19 } }
+                "position": { "line": 4, "character": 19 } }
         }),
         json!({ "jsonrpc": "2.0", "id": 5, "method": "shutdown", "params": null }),
         json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
@@ -1050,11 +1033,11 @@ fn completes_attributes_with_protocol_ranges_and_snippets() {
 }
 
 #[test]
-fn completes_recursive_attached_elements() {
+fn completes_recursive_direct_members() {
     let root = unique_temp_dir();
     std::fs::create_dir_all(&root).unwrap();
-    let document = root.join("attached-completion.plumb");
-    let source = "`task Work {\n  `= pr\n}\n`->[x|target|=[t]]\n";
+    let document = root.join("direct-completion.plumb");
+    let source = "`task Work\n  `= pr\n`->[x|target|=[t]]\n";
     std::fs::write(&document, source).unwrap();
     let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
     let document_uri = lsp_types::Url::from_file_path(&document).unwrap();

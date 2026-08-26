@@ -2018,10 +2018,8 @@ fn task_construct_template(block_indent: &str, timestamp: &str) -> ConstructTemp
     ConstructTemplate {
         label: "Task",
         detail: "plumb task list item",
-        snippet: format!(
-            "`task ${{1:Task}} {{\n{block_indent} `= created {timestamp}\n{block_indent}}}"
-        ),
-        plain: format!("`task  {{\n{block_indent} `= created {timestamp}\n{block_indent}}}"),
+        snippet: format!("`task ${{1:Task}}\n{block_indent}`= created {timestamp}"),
+        plain: format!("`task \n{block_indent}`= created {timestamp}"),
     }
 }
 
@@ -2042,9 +2040,9 @@ fn construct_completion_items(
             let line_start = source[..replace.start]
                 .rfind('\n')
                 .map_or(0, |index| index + 1);
-            source[line_start..replace.start].to_string()
+            format!("{} ", &source[line_start..replace.start])
         }
-        _ => String::new(),
+        _ => " ".to_string(),
     };
     let (replace, templates) = match context {
         ConstructCompletionContext::Citation { replace } => (
@@ -2441,8 +2439,8 @@ mod tests {
     #[test]
     fn task_completion_projections_produce_the_same_source() {
         let timestamp = "2026-08-10T12:00:00+08:00";
-        let absolute = task_construct_template(" ", timestamp).snippet;
-        let relative = task_construct_template("", timestamp).snippet;
+        let absolute = task_construct_template("  ", timestamp).snippet;
+        let relative = task_construct_template(" ", timestamp).snippet;
         let adjusted = relative
             .split('\n')
             .enumerate()
@@ -2458,9 +2456,11 @@ mod tests {
 
         assert_eq!(adjusted, absolute);
         assert!(absolute.contains("\n  `= created "));
-        assert!(absolute.ends_with("\n }"));
         assert!(relative.contains("\n `= created "));
-        assert!(relative.ends_with("\n}"));
+        assert!(!absolute.contains(" {"));
+        assert!(!absolute.contains("\n}"));
+        assert!(!relative.contains(" {"));
+        assert!(!relative.contains("\n}"));
     }
 
     #[test]
@@ -2479,7 +2479,7 @@ mod tests {
     #[test]
     fn folds_heading_sections_and_multiline_syntax_blocks() {
         let parsed = parse(
-            "`# Top\n\nIntro.\n\n`## Child\n\n`div Details\n\n     body\n\n     `text\"\n       raw\n`# Next\n\nTail.\n",
+            "`# Top\n\nIntro.\n\n`## Child\n\n`div Details\n\n body\n\n `text\n\n \"\n  raw\n`# Next\n\nTail.\n",
         );
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let ranges = folding_ranges(&parsed.source, &parsed.syntax, None, None, false);
@@ -2488,7 +2488,7 @@ mod tests {
                 .iter()
                 .map(|range| (range.start_line, range.end_line))
                 .collect::<Vec<_>>(),
-            [(0, 11), (4, 11), (6, 11), (10, 11), (12, 14)]
+            [(0, 13), (4, 13), (6, 13), (10, 13), (14, 16)]
         );
         assert!(ranges.iter().all(|range| {
             range.start_character.is_none()
@@ -2532,36 +2532,34 @@ mod tests {
 
     #[test]
     fn layers_owner_fold_without_extending_leaf_over_trailing_blank_lines() {
-        let parsed = parse("`task Parent {\n}\n\n      `task Leaf {\n      }\n\n`- Next\n");
+        let parsed = parse("`task Parent\n\n `@ parent\n\n `task Leaf\n\n  `@ leaf\n\n`- Next\n");
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         assert_eq!(
             folding_ranges(&parsed.source, &parsed.syntax, None, None, false)
                 .iter()
                 .map(|range| (range.start_line, range.end_line))
                 .collect::<Vec<_>>(),
-            [(0, 4), (0, 1), (3, 4)]
+            [(0, 6), (4, 6)]
         );
     }
 
     #[test]
     fn folds_separator_between_same_marker_tasks_but_preserves_changed_marker_boundary() {
-        let parsed = parse(
-            "`task First {\n}\n\n      detail\n\n`task Second {\n}\n\n      detail\n\n`- Regular\n",
-        );
+        let parsed = parse("`task First\n\n detail\n\n`task Second\n\n detail\n\n`- Regular\n");
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         assert_eq!(
             folding_ranges(&parsed.source, &parsed.syntax, None, None, false)
                 .iter()
                 .map(|range| (range.start_line, range.end_line))
                 .collect::<Vec<_>>(),
-            [(0, 4), (0, 1), (5, 8), (5, 6)]
+            [(0, 3), (4, 6)]
         );
     }
 
     #[test]
     fn closed_task_tokens_preserve_nested_task_states() {
         let parsed = parse(
-            "`task Closed parent {\n  `= done 2026-07-27T10:00:00+08:00\n}\n\n      `note Parent detail\n\n      `task Open child {\n      }\n\n      `note Parent tail\n\n`task Canceled {\n  `= canceled 2026-07-27T10:01:00+08:00\n}\n`task Conflicted {\n  `= done 2026-07-27T10:02:00+08:00\n  `= canceled 2026-07-27T10:03:00+08:00\n}\n",
+            "`task Closed parent\n\n `= done 2026-07-27T10:00:00+08:00\n\n `note Parent detail\n\n `task Open child\n\n `note Parent tail\n\n`task Canceled\n\n `= canceled 2026-07-27T10:01:00+08:00\n\n`task Conflicted\n\n `= done 2026-07-27T10:02:00+08:00\n\n `= canceled 2026-07-27T10:03:00+08:00\n",
         );
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let tasks = analyze_tasks(&parsed.source, &parsed.syntax).tasks;

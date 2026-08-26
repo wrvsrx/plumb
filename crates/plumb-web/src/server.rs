@@ -945,11 +945,7 @@ mod tests {
     async fn web_routes_restore_views_and_execute_structured_queries() {
         let root = temp_dir();
         std::fs::create_dir_all(&root).unwrap();
-        std::fs::write(
-            root.join("tasks.plumb"),
-            "`task Ready task {\n  `@ ready\n}\n",
-        )
-        .unwrap();
+        std::fs::write(root.join("tasks.plumb"), "`task Ready task\n  `@ ready\n").unwrap();
         let (changes, _) = broadcast::channel(2);
         let state = AppState {
             workspace: Arc::new(RwLock::new(WebWorkspace::load(&root).unwrap())),

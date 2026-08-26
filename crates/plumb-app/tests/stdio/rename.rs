@@ -27,7 +27,7 @@ fn definition_resolves_a_file_name_containing_spaces() {
     let target = root.join("other file.plumb");
     let source_text = "See `->[topic|other file.plumb#topic].\n";
     std::fs::write(&source, source_text).unwrap();
-    std::fs::write(&target, "`node Topic {\n  `@ topic\n}\n").unwrap();
+    std::fs::write(&target, "`node Topic\n  `@ topic\n").unwrap();
     let source_uri = lsp_types::Url::from_file_path(&source).unwrap();
     let target_uri = lsp_types::Url::from_file_path(&target).unwrap();
     let position = source_text.find("other file.plumb").unwrap();
@@ -69,8 +69,8 @@ fn document_references_resolve_metadata_and_reference_components() {
     let source = root.join("source.plumb");
     let lonely = root.join("lonely.plumb");
     let target_text =
-        "`= title Target\n\n`# Section {\n  `@ section\n}\n\nSee `->[self|target.plumb].\n";
-    let source_text = "See `->[document|target.plumb].\nSee `->[section|target.plumb#section].\n\n`task Review {\n  `= prev target.plumb#section\n  `= depends target.plumb#section\n}\n";
+        "`= title Target\n\n`# Section\n  `@ section\n\nSee `->[self|target.plumb].\n";
+    let source_text = "See `->[document|target.plumb].\nSee `->[section|target.plumb#section].\n\n`task Review\n  `= prev target.plumb#section\n  `= depends target.plumb#section\n";
     let lonely_text = "`= title Lonely\n";
     std::fs::write(&target, target_text).unwrap();
     std::fs::write(&source, source_text).unwrap();
@@ -167,8 +167,8 @@ fn task_references_support_navigation_and_rename() {
     std::fs::create_dir_all(&root).unwrap();
     let target = root.join("Project Plan.plumb");
     let source = root.join("review.plumb");
-    let target_text = "`task Draft {\n  `@ draft\n}\n";
-    let source_text = "`task Review {\n  `@ review\n  `= prev Project Plan.plumb#draft\n  `= depends Project Plan.plumb#draft\n}\n";
+    let target_text = "`task Draft\n  `@ draft\n";
+    let source_text = "`task Review\n  `@ review\n  `= prev Project Plan.plumb#draft\n  `= depends Project Plan.plumb#draft\n";
     std::fs::write(&target, target_text).unwrap();
     std::fs::write(&source, source_text).unwrap();
     let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
@@ -286,7 +286,7 @@ fn path_rename_is_optimistic_and_reconciles_failed_client_application() {
     let old_target = root.join("old.plumb");
     let new_target = root.join("new.plumb");
     let source = root.join("source.plumb");
-    let target_text = "`# Target {\n  `@ target\n}\n";
+    let target_text = "`# Target\n  `@ target\n";
     let old_source = "See `->[target|old.plumb#target].\n";
     let new_source = "See `->[target|new.plumb#target].\n";
     std::fs::write(&old_target, target_text).unwrap();
@@ -456,7 +456,7 @@ fn path_rename_watcher_confirms_a_successful_filesystem_rename() {
     let old_target = root.join("old.plumb");
     let new_target = root.join("new.plumb");
     let source = root.join("source.plumb");
-    let target_text = "`# Target {\n  `@ target\n}\n";
+    let target_text = "`# Target\n  `@ target\n";
     let old_source = "See `->[target|old.plumb#target].\n";
     let new_source = "See `->[target|new.plumb#target].\n";
     std::fs::write(&old_target, target_text).unwrap();
@@ -545,7 +545,7 @@ fn path_rename_watcher_clears_a_missing_optimistic_target() {
     let source = root.join("source.plumb");
     let old_source = "See `->[target|old.plumb#target].\n";
     let new_source = "See `->[target|new.plumb#target].\n";
-    std::fs::write(&old_target, "`# Target {\n  `@ target\n}\n").unwrap();
+    std::fs::write(&old_target, "`# Target\n  `@ target\n").unwrap();
     std::fs::write(&source, old_source).unwrap();
     let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
     let old_uri = lsp_types::Url::from_file_path(&old_target).unwrap();
@@ -671,11 +671,11 @@ fn definition_and_hover_lazily_load_targets_without_a_workspace_root() {
     let link_target = root.join("link target.plumb");
     let hover_target = root.join("hover target.plumb");
     let file_target = root.join("file target.plumb");
-    let source_text = "`task Review {\n  `= depends task target.plumb#draft\n}\n\nSee `->[note|link target.plumb#note].\nSee `->[hover|hover target.plumb#hover].\nSee `->[file|file target.plumb].\n";
+    let source_text = "`task Review\n  `= depends task target.plumb#draft\n\nSee `->[note|link target.plumb#note].\nSee `->[hover|hover target.plumb#hover].\nSee `->[file|file target.plumb].\n";
     std::fs::write(&source, source_text).unwrap();
-    std::fs::write(&task_target, "`task Draft {\n  `@ draft\n}\n").unwrap();
-    std::fs::write(&link_target, "`node Note {\n  `@ note\n}\n").unwrap();
-    std::fs::write(&hover_target, "`node Hover {\n  `@ hover\n}\n").unwrap();
+    std::fs::write(&task_target, "`task Draft\n  `@ draft\n").unwrap();
+    std::fs::write(&link_target, "`node Note\n  `@ note\n").unwrap();
+    std::fs::write(&hover_target, "`node Hover\n  `@ hover\n").unwrap();
     std::fs::write(&file_target, "\n\nFirst content\nSecond content\n").unwrap();
     let source_uri = lsp_types::Url::from_file_path(&source).unwrap();
     let task_uri = lsp_types::Url::from_file_path(&task_target).unwrap();
@@ -745,12 +745,12 @@ fn definition_and_hover_lazily_load_targets_without_a_workspace_root() {
         .unwrap();
     assert!(hover.contains("#hover"));
     assert!(hover.contains("hover target.plumb"));
-    assert!(hover.contains("`node Hover {\n  `@ hover\n}\n"));
+    assert!(hover.contains("`node Hover\n  `@ hover\n"));
     let task_reference_hover = response(&output, 5)["result"]["contents"]["value"]
         .as_str()
         .unwrap();
     assert!(task_reference_hover.starts_with("**Anchor** `#draft`"));
-    assert!(task_reference_hover.contains("`task Draft {\n  `@ draft\n}\n"));
+    assert!(task_reference_hover.contains("`task Draft\n  `@ draft\n"));
     let file_hover = response(&output, 6)["result"]["contents"]["value"]
         .as_str()
         .unwrap();
@@ -770,7 +770,7 @@ fn run_path_rename_precondition_test(
     let old_target = root.join("old.plumb");
     let source = root.join("source.plumb");
     let source_text = "See `->[target|old.plumb#target].\n";
-    std::fs::write(&old_target, "`# Target {\n  `@ target\n}\n").unwrap();
+    std::fs::write(&old_target, "`# Target\n  `@ target\n").unwrap();
     std::fs::write(&source, source_text).unwrap();
     if create_target {
         std::fs::write(root.join(new_name), "Already here.\n").unwrap();

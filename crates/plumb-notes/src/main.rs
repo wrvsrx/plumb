@@ -427,7 +427,7 @@ mod tests {
         std::fs::remove_file(root.join("nested/b.plumb")).unwrap();
         std::fs::write(
             root.join("tasks.plumb"),
-            "`task Draft {\n  `@ draft\n}\n`task Review {\n  `@ review\n  `= depends #draft\n}\n",
+            "`task Draft\n  `@ draft\n`task Review\n  `@ review\n  `= depends #draft\n",
         )
         .unwrap();
         let loaded = load_workspace(&root).unwrap();
@@ -529,15 +529,15 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(
             root.join("index.plumb"),
-            "`task Index {\n  `@ index\n  `= prev topic.plumb#topic\n}\n",
+            "`task Index\n  `@ index\n  `= prev topic.plumb#topic\n",
         )
         .unwrap();
         std::fs::write(
             root.join("topic.plumb"),
-            "`task Topic {\n  `@ topic\n  `= depends leaf.plumb#leaf\n}\n",
+            "`task Topic\n  `@ topic\n  `= depends leaf.plumb#leaf\n",
         )
         .unwrap();
-        std::fs::write(root.join("leaf.plumb"), "`task Leaf {\n  `@ leaf\n}\n").unwrap();
+        std::fs::write(root.join("leaf.plumb"), "`task Leaf\n  `@ leaf\n").unwrap();
         let loaded = load_workspace(&root).unwrap();
         let leaf = normalize(&root.join("leaf.plumb"));
         let results = loaded

@@ -251,14 +251,6 @@ fn collect_block_ranges(
                         parsed.range.clone(),
                         include_trailing_blank,
                     ));
-                    if let Some(attached) = mark.attrs.attached.as_deref() {
-                        let owner_range = parsed.range.start..attached.range.end;
-                        if owner_range.end < parsed.range.end
-                            && source[owner_range.clone()].contains('\n')
-                        {
-                            byte_ranges.push((owner_range, parsed.range.clone(), false));
-                        }
-                    }
                 }
                 collect_block_ranges(source, &parsed.children, byte_ranges);
             }

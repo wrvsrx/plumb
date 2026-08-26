@@ -249,10 +249,7 @@ mod tests {
             editor_command("'code editor' --wait").unwrap(),
             ("code editor".to_string(), vec!["--wait".to_string()])
         );
-        let preview = preview_text(
-            "topic.plumb",
-            "`# Topic {\n  `@ topic\n}\n\nSee `->[x|x].\n",
-        );
+        let preview = preview_text("topic.plumb", "`# Topic\n  `@ topic\n\nSee `->[x|x].\n");
         assert!(preview.contains("topic.plumb"));
         assert!(preview.contains("\x1b[1;34m"));
         assert!(preview.contains("\x1b[32m"));

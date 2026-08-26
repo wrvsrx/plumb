@@ -316,7 +316,7 @@ mod tests {
             "`->[B|b.plumb#section]\n\n`img[x|=[src|assets/a b.png]]\n",
         )
         .unwrap();
-        std::fs::write(root.join("b.plumb"), "`# B {\n  `@ section\n}\n").unwrap();
+        std::fs::write(root.join("b.plumb"), "`# B\n  `@ section\n").unwrap();
         let workspace = WebWorkspace::load(&root).unwrap();
         let mut document = workspace
             .pandoc_document(workspace.document_id(root.join("a.plumb")).unwrap())
