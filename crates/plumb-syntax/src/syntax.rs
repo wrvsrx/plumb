@@ -117,16 +117,7 @@ impl Drop for Document {
         let mut pending = std::mem::take(&mut self.blocks);
         while let Some(block) = pending.pop() {
             if let Block::Parsed(mut block) = block {
-                if let Some(mark) = &mut block.mark {
-                    if let Some(attached) = mark.attrs.attached.take() {
-                        attached.append_blocks_to(&mut pending);
-                    }
-                }
                 pending.append(&mut block.children);
-            } else if let Block::Verbatim(mut block) = block {
-                if let Some(attached) = block.attrs.attached.take() {
-                    attached.append_blocks_to(&mut pending);
-                }
             }
         }
     }
@@ -160,6 +151,16 @@ pub struct ParsedBlock {
     pub mark: Option<Mark>,
     pub head: InlineContent,
     pub children: Vec<Block>,
+    pub raw: Option<RawPayload>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RawPayload {
+    pub range: SourceRange,
+    pub boundary_range: SourceRange,
+    pub quote_count: usize,
+    pub text: String,
+    pub text_range: SourceRange,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -171,7 +172,6 @@ pub struct VerbatimBlock {
     pub kind: String,
     pub kind_range: SourceRange,
     pub quote_count: usize,
-    pub attrs: Attributes,
     pub text: String,
     pub text_range: SourceRange,
 }
@@ -190,36 +190,6 @@ pub struct Mark {
 pub struct Attributes {
     pub range: Option<SourceRange>,
     pub items: Vec<AttrItem>,
-    pub attached: Option<Box<AttachedGroup>>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AttachedGroup {
-    pub range: SourceRange,
-    pub open_range: SourceRange,
-    pub close_range: SourceRange,
-    pub opener_on_own_line: bool,
-    pub content: AttachedContent,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum AttachedContent {
-    Blocks(Vec<Block>),
-    Inlines(InlineContent),
-}
-
-impl AttachedGroup {
-    fn append_blocks_to(mut self, output: &mut Vec<Block>) {
-        if let AttachedContent::Blocks(blocks) = &mut self.content {
-            output.append(blocks);
-        }
-    }
-
-    fn append_inlines_to(mut self, output: &mut Vec<Inline>) {
-        if let AttachedContent::Inlines(content) = &mut self.content {
-            output.append(&mut content.items);
-        }
-    }
 }
 
 impl Attributes {
@@ -285,9 +255,7 @@ impl Drop for InlineContent {
         let mut pending = std::mem::take(&mut self.items);
         while let Some(inline) = pending.pop() {
             match inline {
-                Inline::Element {
-                    members, mut attrs, ..
-                } => {
+                Inline::Element { members, .. } => {
                     for member in members {
                         match member {
                             InlineMember::ParsedArgument(mut argument) => {
@@ -297,15 +265,8 @@ impl Drop for InlineContent {
                             InlineMember::Child { inline, .. } => pending.push(*inline),
                         }
                     }
-                    if let Some(attached) = attrs.attached.take() {
-                        attached.append_inlines_to(&mut pending);
-                    }
                 }
-                Inline::Verbatim { mut attrs, .. } => {
-                    if let Some(attached) = attrs.attached.take() {
-                        attached.append_inlines_to(&mut pending);
-                    }
-                }
+                Inline::Verbatim { .. } => {}
                 Inline::Text { .. } | Inline::Space { .. } | Inline::SoftBreak { .. } => {}
             }
         }

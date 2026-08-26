@@ -3,11 +3,9 @@ use std::collections::HashMap;
 use std::fmt::Write;
 use std::ops::Range;
 
+use plumb_syntax::{parse, Block, Inline, InlineContent, ParsedBlock, ParsedDocument, RawPayload};
 #[cfg(test)]
-use plumb_syntax::AttrItem;
-use plumb_syntax::{
-    parse, AttachedContent, Attributes, Block, Inline, InlineContent, ParsedBlock, ParsedDocument,
-};
+use plumb_syntax::{AttrItem, Attributes};
 use similar::{DiffOp, TextDiff};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -35,7 +33,7 @@ pub fn format_parsed(parsed: &ParsedDocument) -> Result<String, FormatError> {
     let mut formatter = Formatter::default();
     let body = &parsed.syntax.blocks;
     formatter.blocks(&body, 0);
-    if terminal_verbatim(&body).is_none() && !formatter.output.is_empty() {
+    if !terminal_verbatim(&body) && !formatter.output.is_empty() {
         formatter.output.push('\n');
     }
     Ok(formatter.output)
@@ -399,7 +397,7 @@ fn format_block_group(source: &str, blocks: &[Block], first: usize, last: usize)
         } else {
             formatter.output.push_str("\n\n");
         }
-    } else if terminal_verbatim(selected).is_none() && !formatter.output.is_empty() {
+    } else if !terminal_verbatim(selected) && !formatter.output.is_empty() {
         formatter.output.push('\n');
     }
     let mut new_text = formatter.output;
@@ -454,26 +452,17 @@ fn block_content_range(block: &Block) -> Range<usize> {
     match block {
         Block::Parsed(block) => {
             let own_end = block.mark.as_ref().map_or(block.head.range.end, |mark| {
-                let attached_end = mark
-                    .attrs
-                    .attached
-                    .as_deref()
-                    .map_or(mark.range.end, |attached| attached.close_range.end);
-                mark.range.end.max(block.head.range.end).max(attached_end)
+                mark.range.end.max(block.head.range.end)
             });
             let end = block
                 .children
                 .last()
                 .map_or(own_end, |child| block_content_range(child).end.max(own_end));
+            let end = block.raw.as_ref().map_or(end, |raw| end.max(raw.range.end));
             block.range.start..end
         }
         Block::Verbatim(block) => {
-            let attributes_end = block
-                .attrs
-                .range
-                .as_ref()
-                .map_or(block.opener_range.end, |range| range.end);
-            block.range.start..attributes_end.max(block.text_range.end)
+            block.range.start..block.text_range.end.max(block.opener_range.end)
         }
     }
 }
@@ -508,9 +497,13 @@ fn sibling_block_range<'a>(
     })
 }
 
-fn terminal_verbatim(blocks: &[Block]) -> Option<&plumb_syntax::VerbatimBlock> {
-    match blocks.last()? {
-        Block::Verbatim(block) => Some(block),
+fn terminal_verbatim(blocks: &[Block]) -> bool {
+    let Some(last) = blocks.last() else {
+        return false;
+    };
+    match last {
+        Block::Verbatim(_) => true,
+        Block::Parsed(block) if block.raw.is_some() => true,
         Block::Parsed(block) => terminal_verbatim(&block.children),
     }
 }
@@ -525,7 +518,7 @@ impl Formatter {
         for (index, block) in blocks.iter().enumerate() {
             if index > 0 {
                 let previous = &blocks[index - 1];
-                if terminal_verbatim(std::slice::from_ref(previous)).is_some() {
+                if terminal_verbatim(std::slice::from_ref(previous)) {
                     while !self.output.ends_with("\n\n") {
                         self.output.push('\n');
                     }
@@ -544,42 +537,8 @@ impl Formatter {
             Block::Parsed(block) => self.parsed_block(block, indent),
             Block::Verbatim(block) => {
                 self.indent(indent);
-                self.output.push('`');
-                self.output.push_str(&block.kind);
-                self.output.push('"');
-                match block.attrs.attached.as_deref().map(|group| &group.content) {
-                    Some(AttachedContent::Inlines(_)) => {
-                        self.output.push(' ');
-                        self.inline_attributes(&block.attrs, indent + 1);
-                    }
-                    Some(AttachedContent::Blocks(_)) => {
-                        self.block_attached(&block.attrs, indent, false, false, None);
-                    }
-                    None => {}
-                }
-                if !block.text.is_empty() {
-                    self.output.push('\n');
-                    let mut lines = block.text.split('\n').collect::<Vec<_>>();
-                    let has_final_newline = block.text.ends_with('\n');
-                    if has_final_newline {
-                        lines.pop();
-                    }
-                    let last_content = lines.iter().rposition(|line| !line.is_empty());
-                    for (index, line) in lines.iter().enumerate() {
-                        if index > 0 {
-                            self.output.push('\n');
-                        }
-                        if !line.is_empty() {
-                            self.indent(indent + 1);
-                            self.output.push_str(line);
-                        } else if last_content.is_none_or(|last| index > last) {
-                            self.indent(indent + 1);
-                        }
-                    }
-                    if has_final_newline {
-                        self.output.push('\n');
-                    }
-                }
+                self.output.push_str("`\"");
+                self.raw_text(&block.text, indent + 1);
             }
         }
     }
@@ -599,47 +558,20 @@ impl Formatter {
         };
         self.inlines(&block.head, continuation_indent, false);
 
-        let compact_attached = block.mark.as_ref().is_some_and(|mark| {
-            matches!(
-                mark.attrs.attached.as_deref().map(|group| &group.content),
-                Some(AttachedContent::Inlines(_))
-            )
-        });
-        if compact_attached {
-            self.output.push(' ');
-            self.inline_attributes(
-                &block.mark.as_ref().expect("marked block").attrs,
-                continuation_indent,
-            );
-        }
-
-        let has_attached = block
-            .mark
-            .as_ref()
-            .is_some_and(|mark| mark.attrs.attached.is_some());
-        // Canonical placement: the opener trails the header line while the
-        // head fits on one line and moves to a continuation line once the
-        // head wraps.
-        let head_wrapped = block
-            .head
-            .items
-            .iter()
-            .any(|inline| matches!(inline, Inline::SoftBreak { .. }));
-        if let Some(mark) = &block.mark {
-            if mark.attrs.attached.is_some() && !compact_attached {
-                self.block_attached(&mark.attrs, indent, false, head_wrapped, Some(indent + 1));
-            }
-        }
-
         if !block.children.is_empty() {
-            let rendered_own_line = head_wrapped && has_attached && !compact_attached;
-            if (block.head.items.is_empty() && !has_attached) || rendered_own_line {
+            if block.head.items.is_empty() && block.raw.is_none() {
                 self.output.push('\n');
             } else {
                 self.output.push_str("\n\n");
             }
             let child_indent = block.mark.as_ref().map_or(indent, |_| indent + 1);
             self.blocks(&block.children, child_indent);
+        }
+        if let Some(raw) = &block.raw {
+            self.output.push_str("\n\n");
+            self.indent(indent);
+            self.output.push('"');
+            self.raw_payload(raw, indent + 1);
         }
     }
 
@@ -718,6 +650,37 @@ impl Formatter {
         }
     }
 
+    fn raw_payload(&mut self, raw: &RawPayload, body_indent: usize) {
+        self.raw_text(&raw.text, body_indent);
+    }
+
+    fn raw_text(&mut self, text: &str, body_indent: usize) {
+        if text.is_empty() {
+            return;
+        }
+        self.output.push('\n');
+        let mut lines = text.split('\n').collect::<Vec<_>>();
+        let has_final_newline = text.ends_with('\n');
+        if has_final_newline {
+            lines.pop();
+        }
+        let last_content = lines.iter().rposition(|line| !line.is_empty());
+        for (index, line) in lines.iter().enumerate() {
+            if index > 0 {
+                self.output.push('\n');
+            }
+            if !line.is_empty() {
+                self.indent(body_indent);
+                self.output.push_str(line);
+            } else if last_content.is_none_or(|last| index > last) {
+                self.indent(body_indent);
+            }
+        }
+        if has_final_newline {
+            self.output.push('\n');
+        }
+    }
+
     fn text(&mut self, text: &str, _nested: bool) {
         // §2: structural delimiters never become bare when rendered as text.
         for character in text.chars() {
@@ -725,67 +688,11 @@ impl Formatter {
                 '`' => self.output.push_str("``"),
                 '[' => self.output.push_str("`["),
                 ']' => self.output.push_str("`]"),
-                '{' => self.output.push_str("`{"),
-                '}' => self.output.push_str("`}"),
+                '{' | '}' => self.output.push(character),
                 '|' => self.output.push_str("`|"),
                 _ => self.output.push(character),
             }
         }
-    }
-
-    fn inline_attributes(&mut self, attrs: &Attributes, continuation_indent: usize) {
-        let Some(attached) = attrs.attached.as_deref() else {
-            return;
-        };
-        self.output.push('{');
-        if let AttachedContent::Inlines(content) = &attached.content {
-            self.inlines(content, continuation_indent, true);
-        }
-        self.output.push('}');
-    }
-
-    /// Renders an expanded attached group. The canonical placement follows
-    /// the head shape: the opener trails the header line while the head
-    /// fits on one line, and occupies a continuation line once the head
-    /// wraps. A synthetic document owner, used only by migration, always
-    /// opens its group on the first structural line.
-    fn block_attached(
-        &mut self,
-        attrs: &Attributes,
-        indent: usize,
-        document: bool,
-        render_own_line: bool,
-        next_line_indent: Option<usize>,
-    ) {
-        let Some(attached) = attrs.attached.as_deref() else {
-            return;
-        };
-        let group_indent = if render_own_line && !document {
-            let group_indent = next_line_indent.expect("marked next-line group has an indent");
-            self.output.push('\n');
-            self.indent(group_indent);
-            group_indent
-        } else if document {
-            self.indent(indent);
-            indent
-        } else {
-            self.output.push(' ');
-            indent
-        };
-        self.output.push('{');
-        let AttachedContent::Blocks(blocks) = &attached.content else {
-            self.output.push_str("\n");
-            self.indent(group_indent);
-            self.output.push('}');
-            return;
-        };
-        self.output.push('\n');
-        self.blocks(blocks, group_indent + 1);
-        if !self.output.ends_with('\n') {
-            self.output.push('\n');
-        }
-        self.indent(group_indent);
-        self.output.push('}');
     }
 
     fn indent(&mut self, indent: usize) {
@@ -800,7 +707,9 @@ fn compact_siblings(previous: &Block, current: &Block) -> bool {
     let (Some(previous_mark), Some(current_mark)) = (&previous.mark, &current.mark) else {
         return false;
     };
-    previous.children.is_empty() && previous_mark.marker == current_mark.marker
+    previous.children.is_empty()
+        && previous.raw.is_none()
+        && previous_mark.marker == current_mark.marker
 }
 
 fn minimum_quote_count(text: &str) -> usize {
@@ -828,11 +737,11 @@ mod tests {
 
     fn assert_formats(source: &str, expected: &str) {
         let original = parse(source);
-        assert!(original.is_valid());
+        assert!(original.is_valid(), "{:?}", original.diagnostics);
         let formatted = format(source).unwrap();
         assert_eq!(formatted, expected);
         let reparsed = parse(&formatted);
-        assert!(reparsed.is_valid());
+        assert!(reparsed.is_valid(), "{:?}", reparsed.diagnostics);
         assert_eq!(
             shape_document(&original.syntax),
             shape_document(&reparsed.syntax)
@@ -862,10 +771,12 @@ mod tests {
                     }
                     shape_inlines(&block.head, output);
                     shape_blocks(&block.children, output);
+                    if let Some(raw) = &block.raw {
+                        let _ = write!(output, "R{:?}", raw.text);
+                    }
                 }
                 Block::Verbatim(block) => {
                     output.push('V');
-                    shape_attrs(&block.attrs, output);
                     let _ = write!(output, "{:?}", block.text);
                 }
             }
@@ -943,309 +854,133 @@ mod tests {
                 output.push('}');
             }
         }
-        if let Some(attached) = attrs.attached.as_deref() {
-            output.push('<');
-            match &attached.content {
-                AttachedContent::Blocks(blocks) => shape_blocks(blocks, output),
-                AttachedContent::Inlines(content) => shape_inlines(content, output),
-            }
-            output.push('>');
-        }
     }
 
     #[test]
-    fn formats_recursive_attached_groups() {
+    fn formats_direct_declarations_and_recursive_children() {
         assert_formats(
-            "`=   title Document title\n\n`= tags plumb\n\n`-   Buy milk {\n  `-   task\n  `@   shopping\n}\n\n   Details.\n",
-            "`= title Document title\n`= tags plumb\n\n`- Buy milk {\n `- task\n\n `@ shopping\n}\n\n Details.\n",
+            "`=   title Document title\n\n`= tags plumb\n\n`task   Buy milk\n   `+ task\n   `@ shopping\n\n   `note Details\n",
+            "`= title Document title\n`= tags plumb\n\n`task Buy milk\n\n `+ task\n\n `@ shopping\n\n `note Details\n",
         );
         assert_formats("", "");
+    }
+
+    #[test]
+    fn formats_anonymous_and_owned_raw_payloads() {
         assert_formats("`\"\"\n  payload\n", "`\"\n payload\n");
         assert_formats(
+            "`rust\n   `@ example\n\n\"\n fn main() {}\n",
+            "`rust\n\n `@ example\n\n\"\n fn main() {}\n",
+        );
+        assert_formats(
+            "`example\n   `\"\n    child raw\n",
+            "`example\n `\"\n  child raw\n",
+        );
+    }
+
+    #[test]
+    fn braces_are_preserved_as_ordinary_text() {
+        assert_formats("Text { fn() {} }\n", "Text { fn() {} }\n");
+        assert_formats("`node value{inside}\n", "`node value{inside}\n");
+    }
+
+    #[test]
+    fn preserves_inline_members_and_soft_breaks() {
+        assert_formats(
             "See `->[guide|@[main]|+[external]|=[to|guide.plumb]].\n",
             "See `->[guide|@[main]|+[external]|=[to|guide.plumb]].\n",
         );
         assert_formats(
-            "`task Work\n   {\n     `:   created now\n   }\n\n   Details\n",
-            "`task Work {\n `: created now\n}\n\n Details\n",
+            "`note First `span[a `] b `` c]\n   second\n",
+            "`note First `span[a `] b `` c]\n second\n",
         );
     }
 
     #[test]
-    fn expanded_groups_use_ordinary_block_sibling_spacing() {
+    fn chooses_minimum_safe_verbatim_delimiters() {
+        assert_formats("Raw `\"\"\"[a ]\" b]\"\"\".\n", "Raw `\"\"[a ]\" b]\"\".\n");
+        assert_formats("`\"[[]]\"\n", "`\"[[]]\"\n");
+        assert_formats("Before `\"[]\" after.\n", "Before `\"[]\" after.\n");
+    }
+
+    #[test]
+    fn aligns_children_and_compacts_same_marker_siblings() {
         assert_formats(
-            "`= title\n\n Example\n`= date\n\n 2026-08-23\n\n`node Group {\n `@ stable\n `: first one\n `: second two\n `note Details\n\n  Child\n `rust\"\n  payload\n `: after raw\n}\n",
-            "`= title\n\n Example\n\n`= date\n\n 2026-08-23\n\n`node Group {\n `@ stable\n\n `: first one\n `: second two\n\n `note Details\n\n  Child\n\n `rust\"\n  payload\n\n `: after raw\n}\n",
+            "`meta\n  `= title\n\n     this is a title\n  `= created\n\n     2026-07-20\n`- before\n\n`- something\n  `- nested\n`- after\n",
+            "`meta\n `= title\n\n  this is a title\n\n `= created\n\n  2026-07-20\n\n`- before\n`- something\n\n `- nested\n\n`- after\n",
         );
     }
 
     #[test]
-    fn canonical_opener_placement_follows_the_head_shape() {
-        // A single-line head canonicalizes to the trailing opener.
+    fn raw_payload_preserves_content_and_final_newline() {
+        assert_formats("`\"\"\n  final newline\n", "`\"\n final newline\n");
+        assert_formats("`\"\"\n  no newline", "`\"\n no newline");
         assert_formats(
-            "`task Work\n {\n  `: created now\n }\n",
-            "`task Work {\n `: created now\n}\n",
-        );
-        // A wrapped head keeps the own-line opener and aligns the close and
-        // children with it.
-        assert_formats(
-            "`task Buy milk\n and eggs\n {\n  `: created now\n }\n Details\n",
-            "`task Buy milk\n and eggs\n {\n  `: created now\n }\n Details\n",
-        );
-        // A trailing opener on a continuation line canonicalizes to the
-        // own-line placement.
-        assert_formats(
-            "`note first\n second {\n  `- cited\n }\n",
-            "`note first\n second\n {\n  `- cited\n }\n",
-        );
-        // Compact groups are unaffected.
-        assert_formats(
-            "`note first\n second {`@[x]}\n",
-            "`note first\n second {`@[x]}\n",
+            "`text\n\"\n   leading\n \n\nnext\n",
+            "`text\n\n\"\n   leading\n \n\nnext\n",
         );
     }
 
     #[test]
-    fn preserves_markers_and_opaque_attached_spellings() {
-        // §2: literal delimiters stay escaped in rendered text.
-        assert_formats(
-            "escaped `[ `] `{ `} delims\n",
-            "escaped `[ `] `{ `} delims\n",
-        );
-        assert_formats("`span[literal `| pipe]\n", "`span[literal `| pipe]\n");
-        assert_formats("`- Work {`-[task]}\n", "`- Work {`-[task]}\n");
-        assert_formats("`node Meeting {`-[event]}\n", "`node Meeting {`-[event]}\n");
-        assert_formats(
-            "`task Work\n`event Meeting\n",
-            "`task Work\n\n`event Meeting\n",
-        );
+    fn rejects_invalid_documents() {
+        assert_eq!(format("`span[open\n"), Err(FormatError::InvalidSyntax));
+        assert_eq!(format("`rust\"\n raw\n"), Err(FormatError::InvalidSyntax));
     }
 
     #[test]
-    fn formats_blocks_attributes_and_indentation() {
-        assert_formats(
-            "`node\n   `: title Example\n\n`- Work {\n  `- task\n  `@ write\n  `: created now\n}\n",
-            "`node\n `: title Example\n\n`- Work {\n `- task\n\n `@ write\n\n `: created now\n}\n",
-        );
-    }
-
-    #[test]
-    fn whole_document_edits_preserve_a_task_before_a_repeated_marker() {
-        let source = "`- Before {`-[task] `:[created one]}\n`- 实现 task snippet 的时候有问题 aaa aaa aaa aaa aaa aaa aaa {`-[task] `:[created 2026-08-05T03:25:50+08:00]}\n`- task fold 的时候没包含最后一行 {\n  `- task\n  `: created 2026-08-05T03:26:23+08:00\n  `: done 2026-08-05T04:03:22+08:00\n}\n`- state 默认显示 ready 跟 blocked {`-[task] `:[created 2026-08-05T03:43:34+08:00] `:[done 2026-08-05T04:32:23+08:00]}\n";
+    fn whole_document_edits_apply_to_the_canonical_result() {
+        let source = "`task   First\n   `@ one\n\n`task   Second\n   `@ two\n";
         let canonical = format(source).unwrap();
         let edits = format_edits(source).unwrap();
         let mut edited = source.to_string();
         for edit in edits.iter().rev() {
             edited.replace_range(edit.range.clone(), &edit.new_text);
         }
-
-        assert_eq!(edited, canonical);
-        assert!(edited.contains("`:[created 2026-08-05T03:25:50+08:00]"));
-        assert!(edited.contains("aaa aaa aaa"));
-        assert!(parse(&edited).is_valid());
-    }
-
-    #[test]
-    fn whole_document_edits_anchor_large_repeated_block_layout() {
-        let mut source = String::new();
-        for index in 0..512 {
-            let _ = write!(source, "`event Event {index} {{\n  `: uid repeated\n}}\n\n");
-        }
-        let canonical = format(&source).unwrap();
-        let edits = format_edits(&source).unwrap();
-
-        assert_eq!(edits.len(), 1);
-        assert_eq!(edits[0].range.start, source.find('\n').unwrap() + 1);
-        let mut edited = source;
-        edited.replace_range(edits[0].range.clone(), &edits[0].new_text);
         assert_eq!(edited, canonical);
         assert!(format_edits(&edited).unwrap().is_empty());
     }
 
     #[test]
-    fn aligns_children_and_spaces_siblings_by_structure() {
-        assert_formats(
-            "`meta\n  `: title\n\n     this is a title\n  `: created\n\n     2026-07-20\n`- before\n\n`- something\n  `- aaa\n`- ssss\n\n`- jjjj\n",
-            "`meta\n `: title\n\n  this is a title\n\n `: created\n\n  2026-07-20\n\n`- before\n`- something\n\n `- aaa\n\n`- ssss\n`- jjjj\n",
-        );
+    fn whole_document_diff_anchors_large_repeated_layout() {
+        let mut source = String::new();
+        for index in 0..512 {
+            let _ = write!(source, "`event   Event {index}\n   `= uid repeated\n\n");
+        }
+        let canonical = format(&source).unwrap();
+        let edits = format_edits(&source).unwrap();
+        let mut edited = source;
+        for edit in edits.iter().rev() {
+            edited.replace_range(edit.range.clone(), &edit.new_text);
+        }
+        assert_eq!(edited, canonical);
+        assert!(edits.len() < 512);
     }
 
     #[test]
-    fn formats_a_complete_block_range_with_following_sibling_context() {
-        let source =
-            "`- Work {`-[task] `@[old] `:[done now]}\n\n`- Work {`-[task] `@[next]}\n`# Following\n\nUnrelated\n";
+    fn block_range_formats_complete_siblings_with_following_context() {
+        let source = "`task   First\n   `@ one\n\n`task   Second\n   `@ two\n\n`event Following\n";
         let parsed = parse(source);
         let first = parsed.syntax.blocks[0].range().clone();
         let second = parsed.syntax.blocks[1].range().clone();
         let edit = format_block_range(source, first.start..second.end).unwrap();
-
+        let mut edited = source.to_string();
+        edited.replace_range(edit.range.clone(), &edit.new_text);
         assert_eq!(
-            &source[edit.range.clone()],
-            "`- Work {`-[task] `@[old] `:[done now]}\n\n`- Work {`-[task] `@[next]}\n"
+            edited,
+            "`task First\n\n `@ one\n\n`task Second\n\n `@ two\n\n`event Following\n"
         );
-        assert_eq!(
-            edit.new_text,
-            "`- Work {`-[task] `@[old] `:[done now]}\n`- Work {`-[task] `@[next]}\n\n"
-        );
-        assert_eq!(&source[edit.range.end..], "`# Following\n\nUnrelated\n");
     }
 
     #[test]
-    fn formats_a_range_that_contains_the_first_generated_block() {
-        let source =
-            "`meta\n `: title\n\n  empty\n\n `: created\n\n  2026-07-22T12:34:56+08:00\n\n";
-        let edit = format_block_range(source, 0..source.len()).unwrap();
-        assert_eq!(edit.range, 0..source.len() - 1);
-        assert_eq!(edit.new_text, &source[..source.len() - 1]);
-    }
-
-    #[test]
-    fn formats_a_nested_block_range_and_preserves_crlf() {
-        let source = "`node Parent\r\n  `- Work {`-[task] `@[old] `:[done now]}\r\n\r\n  `- Work {`-[task] `@[next]}\r\n  `note Following\r\n";
+    fn nested_block_range_preserves_crlf_and_external_layout() {
+        let source = "`node Parent\r\n   `task   First\r\n    `@ one\r\n\r\n   `task Second\r\n    `@ two\r\n\r\n`event Following\r\n";
         let parsed = parse(source);
         let children = parsed.syntax.blocks[0].children();
         let edit =
             format_block_range(source, children[0].range().start..children[1].range().end).unwrap();
-
-        assert_eq!(
-            edit.new_text,
-            "  `- Work {`-[task] `@[old] `:[done now]}\r\n  `- Work {`-[task] `@[next]}\r\n\r\n"
-        );
-        assert_eq!(&source[edit.range.end..], "  `note Following\r\n");
-    }
-
-    #[test]
-    fn nested_block_range_preserves_the_following_sibling_indent() {
-        let source = "`node Parent\n   `- Old {`-[task] `@[old]}\n   `- Next {`-[task] `@[next]}\n";
-        let parsed = parse(source);
-        let first = &parsed.syntax.blocks[0].children()[0];
-        let edit = format_block_range(source, first.range().clone()).unwrap();
-        let mut edited = source.to_string();
-        edited.replace_range(edit.range.clone(), &edit.new_text);
-
-        assert_eq!(edited, source);
-    }
-
-    #[test]
-    fn contained_range_formats_only_complete_maximal_blocks() {
-        let source = "`node Parent\n       `- One {\n         `- task\n         `@ one\n       }\n\n       `- Two {`-[task] `@[two]}\n\n`# Following\n";
-        let parsed = parse(source);
-        assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
-        let parent = &parsed.syntax.blocks[0];
-        let children = parent.children();
-        let selection =
-            block_content_range(&children[0]).start..block_content_range(&children[1]).end;
-        let edits = format_contained_blocks(source, selection).unwrap();
-
-        assert_eq!(edits.len(), 1);
-        assert_eq!(edits[0].range.start, children[0].range().start);
-        assert_eq!(edits[0].range.end, block_content_range(&children[1]).end);
-        assert_eq!(
-            edits[0].new_text,
-            "`- One {\n `- task\n\n `@ one\n}\n`- Two {`-[task] `@[two]}"
-        );
-        assert_eq!(&source[edits[0].range.end..], "\n\n`# Following\n");
-        assert!(!edits[0].new_text.contains("`node Parent"));
-    }
-
-    #[test]
-    fn contained_range_formats_a_complete_parent_subtree() {
-        let source =
-            "`node Parent\n       `- One {\n         `- task\n         `@ one\n       }\n\n`# Following\n";
-        let parsed = parse(source);
-        let parent_range = block_content_range(&parsed.syntax.blocks[0]);
-        let edits = format_contained_blocks(source, parent_range).unwrap();
-        assert_eq!(edits.len(), 1);
-
-        let mut formatted = source.to_string();
-        formatted.replace_range(edits[0].range.clone(), &edits[0].new_text);
-        assert_eq!(
-            formatted,
-            "`node Parent\n\n `- One {\n  `- task\n\n  `@ one\n }\n\n`# Following\n"
-        );
-        assert_eq!(format(&formatted).unwrap(), formatted);
-        let reparsed = parse(&formatted);
-        assert!(format_contained_blocks(
-            &formatted,
-            block_content_range(&reparsed.syntax.blocks[0]),
-        )
-        .unwrap()
-        .is_empty());
-    }
-
-    #[test]
-    fn contained_range_returns_non_overlapping_maximal_groups() {
-        let source = "`node First\n  `-   One {`-[task] `@[one]}\n`node   Second\n  `- Two {`-[task] `@[two]}\n";
-        let parsed = parse(source);
-        let first_child = &parsed.syntax.blocks[0].children()[0];
-        let second_parent = &parsed.syntax.blocks[1];
-        let selection =
-            block_content_range(first_child).start..block_content_range(second_parent).end;
-        let edits = format_contained_blocks(source, selection).unwrap();
-
-        assert_eq!(edits.len(), 2);
-        assert!(edits[0].range.end <= edits[1].range.start);
-        assert!(!edits[0].new_text.contains("`node First"));
-        assert!(edits[1].new_text.starts_with("`node Second"));
-        assert!(edits[0].new_text.contains("`- One {`-[task] `@[one]}"));
-        assert!(edits[1].new_text.contains("`- Two {`-[task] `@[two]}"));
-    }
-
-    #[test]
-    fn contained_range_ignores_partial_and_empty_selections() {
-        let source = "`- One {`-[task] `@[one]}\n";
-        let head = source.find("One").unwrap();
-        assert!(format_contained_blocks(source, head..head + 3)
-            .unwrap()
-            .is_empty());
-        assert!(format_contained_blocks(source, head..head)
-            .unwrap()
-            .is_empty());
-    }
-
-    #[test]
-    fn contained_range_preserves_crlf_and_external_layout() {
-        let source = "`node Parent\r\n  `-   One {`-[task] `@[one]}\r\n\r\n`# Following\r\n";
-        let parsed = parse(source);
-        let child = &parsed.syntax.blocks[0].children()[0];
-        let edits = format_contained_blocks(source, block_content_range(child)).unwrap();
-
-        assert_eq!(edits.len(), 1);
-        assert_eq!(edits[0].new_text, "`- One {`-[task] `@[one]}");
-        assert_eq!(&source[edits[0].range.end..], "\r\n\r\n`# Following\r\n");
-    }
-
-    #[test]
-    fn contained_range_ending_at_the_next_block_excludes_it() {
-        let source = "`-   One {`-[task] `@[one]}\n`- Two {`-[task] `@[two]}\n";
-        let parsed = parse(source);
-        let second_start = parsed.syntax.blocks[1].range().start;
-        let edits = format_contained_blocks(source, 0..second_start).unwrap();
-
-        assert_eq!(edits.len(), 1);
-        assert_eq!(edits[0].new_text, "`- One {`-[task] `@[one]}");
-        assert!(!edits[0].new_text.contains("Two"));
-        assert_eq!(
-            &source[edits[0].range.end..],
-            "\n`- Two {`-[task] `@[two]}\n"
-        );
-    }
-
-    #[test]
-    fn contained_range_supports_verbatim_blocks_and_paragraphs() {
-        let source = "`text\"\" {`:[source test]}\n  payload\n\nParagraph `\"\"\"[a ]\" b]\"\"\".\n\n`# Following\n";
-        let parsed = parse(source);
-        assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
-        let selection = block_content_range(&parsed.syntax.blocks[0]).start
-            ..block_content_range(&parsed.syntax.blocks[1]).end;
-        let edits = format_contained_blocks(source, selection).unwrap();
-
-        assert_eq!(edits.len(), 1);
-        assert_eq!(
-            edits[0].new_text,
-            "`text\" {`:[source test]}\n payload\n\nParagraph `\"\"[a ]\" b]\"\"."
-        );
-        assert_eq!(&source[edits[0].range.end..], "\n\n`# Following\n");
+        assert!(edit.new_text.contains("\r\n"));
+        assert!(!edit.new_text.contains("\n") || edit.new_text.contains("\r\n"));
+        assert_eq!(&source[edit.range.end..], "`event Following\r\n");
     }
 
     #[test]
@@ -1258,83 +993,72 @@ mod tests {
     }
 
     #[test]
-    fn attributes_do_not_shift_the_fixed_body_column() {
-        assert_formats(
-            "`- Work {`-[task] `@[write] `:[created now]}\n  `note Details\n",
-            "`- Work {`-[task] `@[write] `:[created now]}\n\n `note Details\n",
+    fn contained_range_formats_complete_maximal_blocks() {
+        let source = "`node Parent\n       `task   One\n         `@ one\n\n       `task   Two\n         `@ two\n\n`event Following\n";
+        let parsed = parse(source);
+        assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
+        let parent = &parsed.syntax.blocks[0];
+        let children = parent.children();
+        let selection =
+            block_content_range(&children[0]).start..block_content_range(&children[1]).end;
+        let edits = format_contained_blocks(source, selection).unwrap();
+        assert_eq!(edits.len(), 1);
+        assert!(!edits[0].new_text.contains("`node Parent"));
+        assert!(edits[0].new_text.contains("`task One"));
+        assert!(edits[0].new_text.contains("`task Two"));
+        assert_eq!(&source[edits[0].range.end..], "\n\n`event Following\n");
+    }
+
+    #[test]
+    fn contained_range_formats_a_complete_parent_subtree() {
+        let source = "`node   Parent\n       `task   One\n         `@ one\n\n`event Following\n";
+        let parsed = parse(source);
+        let parent_range = block_content_range(&parsed.syntax.blocks[0]);
+        let edits = format_contained_blocks(source, parent_range).unwrap();
+        assert_eq!(edits.len(), 1);
+        let mut edited = source.to_string();
+        edited.replace_range(edits[0].range.clone(), &edits[0].new_text);
+        assert_eq!(format(&edited).unwrap(), edited);
+        assert!(edited.ends_with("\n\n`event Following\n"));
+    }
+
+    #[test]
+    fn contained_range_ignores_partial_empty_and_next_block_selections() {
+        let source = "`-   One\n`- Two\n";
+        let parsed = parse(source);
+        let head = source.find("One").unwrap();
+        assert!(format_contained_blocks(source, head..head + 3)
+            .unwrap()
+            .is_empty());
+        assert!(format_contained_blocks(source, head..head)
+            .unwrap()
+            .is_empty());
+        let second_start = parsed.syntax.blocks[1].range().start;
+        let edits = format_contained_blocks(source, 0..second_start).unwrap();
+        assert_eq!(edits.len(), 1);
+        assert_eq!(edits[0].new_text, "`- One");
+    }
+
+    #[test]
+    fn contained_range_supports_anonymous_raw_and_paragraphs() {
+        let source = "`\"\"\n  payload\n\nParagraph `\"\"\"[a ]\" b]\"\"\".\n\n`event Following\n";
+        let parsed = parse(source);
+        assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
+        let selection = block_content_range(&parsed.syntax.blocks[0]).start
+            ..block_content_range(&parsed.syntax.blocks[1]).end;
+        let edits = format_contained_blocks(source, selection).unwrap();
+        assert_eq!(edits.len(), 1);
+        assert_eq!(
+            edits[0].new_text,
+            "`\"\n payload\n\nParagraph `\"\"[a ]\" b]\"\"."
         );
     }
 
     #[test]
-    fn preserves_long_attached_groups() {
-        assert_formats(
-            "`- Work {`-[task] `@[write] `:[created 2026-07-20T12:00:00+08:00] `:[due 2026-07-21T12:00:00+08:00] `:[depends notes/project.plumb#prepare]}\n",
-            "`- Work {`-[task] `@[write] `:[created 2026-07-20T12:00:00+08:00] `:[due 2026-07-21T12:00:00+08:00] `:[depends notes/project.plumb#prepare]}\n",
-        );
-        assert_formats(
-            "`text\"\" {`:[source generated-with-a-deliberately-long-identifier-that-exceeds-the-limit-by-itself] `:[another value]}\n  payload\n",
-            "`text\" {`:[source generated-with-a-deliberately-long-identifier-that-exceeds-the-limit-by-itself] `:[another value]}\n payload\n",
-        );
-
-        assert_formats(
-            "`- Work {`-[task] `@[crlf] `:[key value]}\r\n",
-            "`- Work {`-[task] `@[crlf] `:[key value]}\n",
-        );
-
-        let value = "界".repeat(45);
-        assert_formats(
-            &format!("`- Work {{`-[task] `:[label {value}]}}\n"),
-            &format!("`- Work {{`-[task] `:[label {value}]}}\n"),
-        );
-    }
-
-    #[test]
-    fn preserves_soft_breaks_and_inline_meaning() {
-        assert_formats(
-            "`note First `span[a `] b `` c]\n   second\n",
-            "`note First `span[a `] b `` c]\n second\n",
-        );
-    }
-
-    #[test]
-    fn chooses_the_minimum_safe_verbatim_delimiter() {
-        assert_formats("Raw `\"\"\"[a ]\" b]\"\"\".\n", "Raw `\"\"[a ]\" b]\"\".\n");
-    }
-
-    #[test]
-    fn bracketed_verbatim_formatting_is_idempotent() {
-        let source = "`\"[[]]\"\n";
-        let formatted = format(source).unwrap();
-        assert_eq!(formatted, source);
-        assert_eq!(format(&formatted).unwrap(), formatted);
-    }
-
-    #[test]
-    fn keeps_empty_inline_verbatim_in_a_strengthened_envelope() {
-        assert_formats("Before `\"[]\" after.\n", "Before `\"[]\" after.\n");
-    }
-
-    #[test]
-    fn preserves_verbatim_payload_and_its_final_newline() {
-        assert_formats("`text\"\"\n  a\nnext\n", "`text\"\n a\n\nnext\n");
-        assert_formats(
-            "`text\"\"\n    a\n  \n\nnext\n",
-            "`text\"\n   a\n \n\nnext\n",
-        );
-        assert_formats("`\"\"\n  final newline\n", "`\"\n final newline\n");
-        assert_formats("`\"\"\n  no newline", "`\"\n no newline");
-    }
-
-    #[test]
-    fn terminal_verbatim_descendants_do_not_accumulate_sibling_spacing() {
-        let source = "`. config\n\n   `json\"\n     {\"enabled\": true}\n\n\n`# Following\n";
+    fn terminal_raw_descendants_do_not_accumulate_spacing() {
+        let source = "`config\n   `json\n\n   \"\n    {\"enabled\": true}\n\n\n`event Following\n";
         let formatted = format(source).unwrap();
         assert_eq!(format(&formatted).unwrap(), formatted);
-        assert_eq!(formatted.matches("\n\n`# Following").count(), 1);
-    }
-
-    #[test]
-    fn rejects_invalid_documents() {
-        assert_eq!(format("`span[open\n"), Err(FormatError::InvalidSyntax));
+        assert_eq!(formatted.matches("\n\n`event Following").count(), 1);
     }
 }

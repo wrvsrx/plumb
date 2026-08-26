@@ -1,7 +1,6 @@
 use crate::syntax::{
-    AttachedContent, AttrItem, AttrValue, Attributes, Block, Diagnostic, Document, Inline,
-    InlineContent, InlineMember, LosslessTree, SourceRange, SyntaxKind, SyntaxToken,
-    VerbatimArgument, VerbatimBlock,
+    Block, Diagnostic, Document, Inline, InlineContent, InlineMember, LosslessTree, RawPayload,
+    SourceRange, SyntaxKind, SyntaxToken, VerbatimArgument, VerbatimBlock,
 };
 
 const BASELINE_PRIORITY: u8 = 10;
@@ -94,7 +93,6 @@ impl<'a> TokenBuilder<'a> {
 
     fn annotate_document(&mut self, document: &Document) {
         let mut blocks = document.blocks.iter().rev().collect::<Vec<_>>();
-        self.annotate_block_attributes(&document.attrs, &mut blocks);
         while let Some(block) = blocks.pop() {
             match block {
                 Block::Parsed(block) => {
@@ -109,10 +107,17 @@ impl<'a> TokenBuilder<'a> {
                             SyntaxKind::Marker,
                             TYPED_PRIORITY,
                         );
-                        self.annotate_block_attributes(&mark.attrs, &mut blocks);
                     }
                     self.annotate_inlines(&block.head);
                     blocks.extend(block.children.iter().rev());
+                    if let Some(raw) = &block.raw {
+                        self.assign(
+                            raw.boundary_range.clone(),
+                            SyntaxKind::Delimiter,
+                            TYPED_PRIORITY,
+                        );
+                        self.annotate_raw_payload(raw, block.range.start, false);
+                    }
                 }
                 Block::Verbatim(block) => {
                     self.assign(
@@ -132,7 +137,6 @@ impl<'a> TokenBuilder<'a> {
                             TYPED_PRIORITY,
                         );
                     }
-                    self.annotate_block_attributes(&block.attrs, &mut blocks);
                     self.annotate_raw_block(block);
                 }
             }
@@ -149,10 +153,8 @@ impl<'a> TokenBuilder<'a> {
             while let Some(inline) = pending.pop() {
                 match inline {
                     Inline::Text { text, range } => {
-                        let kind = if matches!(
-                            self.source.get(range.clone()),
-                            Some("``" | "`]" | "`{" | "`}")
-                        ) && matches!(text.as_str(), "`" | "]" | "{" | "}")
+                        let kind = if matches!(self.source.get(range.clone()), Some("``" | "`]"))
+                            && matches!(text.as_str(), "`" | "]")
                         {
                             SyntaxKind::Escape
                         } else {
@@ -223,7 +225,7 @@ impl<'a> TokenBuilder<'a> {
                                 }
                             }
                         }
-                        self.annotate_inline_attributes(attrs, &mut contents);
+                        let _ = attrs;
                     }
                     Inline::Verbatim {
                         range,
@@ -266,7 +268,7 @@ impl<'a> TokenBuilder<'a> {
                             SyntaxKind::Delimiter,
                             TYPED_PRIORITY,
                         );
-                        self.annotate_inline_attributes(attrs, &mut contents);
+                        let _ = attrs;
                     }
                 }
             }
@@ -310,144 +312,29 @@ impl<'a> TokenBuilder<'a> {
         );
     }
 
-    fn annotate_attributes(&mut self, attrs: &Attributes) {
-        let Some(range) = &attrs.range else {
-            return;
-        };
-        if self.source.as_bytes().get(range.start) == Some(&b'{') {
-            self.assign(
-                range.start..range.start + 1,
-                SyntaxKind::Delimiter,
-                TYPED_PRIORITY,
-            );
-        }
-        if range.end > range.start && self.source.as_bytes().get(range.end - 1) == Some(&b'}') {
-            self.assign(
-                range.end - 1..range.end,
-                SyntaxKind::Delimiter,
-                TYPED_PRIORITY,
-            );
-        }
-        for item in &attrs.items {
-            match item {
-                AttrItem::Id { range, .. } | AttrItem::Class { range, .. } => {
-                    self.assign(
-                        range.start..range.start + 1,
-                        SyntaxKind::AttributePunctuation,
-                        TYPED_PRIORITY,
-                    );
-                    self.assign(
-                        range.start + 1..range.end,
-                        SyntaxKind::AttributeName,
-                        TYPED_PRIORITY,
-                    );
-                }
-                AttrItem::Pair {
-                    key_range, value, ..
-                } => {
-                    self.assign(key_range.clone(), SyntaxKind::AttributeName, TYPED_PRIORITY);
-                    self.assign(
-                        key_range.end..key_range.end + 1,
-                        SyntaxKind::AttributePunctuation,
-                        TYPED_PRIORITY,
-                    );
-                    self.annotate_attribute_value(value);
-                }
-            }
-        }
-    }
-
-    fn annotate_block_attributes<'b>(
-        &mut self,
-        attrs: &'b Attributes,
-        blocks: &mut Vec<&'b Block>,
-    ) {
-        let Some(attached) = attrs.attached.as_deref() else {
-            self.annotate_attributes(attrs);
-            return;
-        };
-        self.annotate_attached_delimiters(attached);
-        if let AttachedContent::Blocks(content) = &attached.content {
-            blocks.extend(content.iter().rev());
-        }
-    }
-
-    fn annotate_inline_attributes<'b>(
-        &mut self,
-        attrs: &'b Attributes,
-        contents: &mut Vec<&'b InlineContent>,
-    ) {
-        let Some(attached) = attrs.attached.as_deref() else {
-            self.annotate_attributes(attrs);
-            return;
-        };
-        self.annotate_attached_delimiters(attached);
-        if let AttachedContent::Inlines(content) = &attached.content {
-            contents.push(content);
-        }
-    }
-
-    fn annotate_attached_delimiters(&mut self, attached: &crate::syntax::AttachedGroup) {
-        self.assign(
-            attached.open_range.clone(),
-            SyntaxKind::Delimiter,
-            TYPED_PRIORITY,
-        );
-        self.assign(
-            attached.close_range.clone(),
-            SyntaxKind::Delimiter,
-            TYPED_PRIORITY,
-        );
-    }
-
-    fn annotate_attribute_value(&mut self, value: &AttrValue) {
-        if !value.quoted {
-            self.assign(
-                value.range.clone(),
-                SyntaxKind::AttributeValue,
-                TYPED_PRIORITY,
-            );
-            return;
-        }
-        self.assign(
-            value.range.start..value.range.start + 1,
-            SyntaxKind::Delimiter,
-            TYPED_PRIORITY,
-        );
-        self.assign(
-            value.range.end - 1..value.range.end,
-            SyntaxKind::Delimiter,
-            TYPED_PRIORITY,
-        );
-        let mut cursor = value.range.start + 1;
-        let end = value.range.end - 1;
-        while cursor < end {
-            if self.source.as_bytes()[cursor] == b'\\' && cursor + 1 < end {
-                self.assign(
-                    cursor..cursor + 2,
-                    SyntaxKind::AttributeEscape,
-                    TYPED_PRIORITY,
-                );
-                cursor += 2;
-            } else {
-                let next = cursor + self.source[cursor..].chars().next().unwrap().len_utf8();
-                self.assign(cursor..next, SyntaxKind::AttributeValue, TYPED_PRIORITY);
-                cursor = next;
-            }
-        }
-    }
-
     fn annotate_raw_block(&mut self, block: &VerbatimBlock) {
-        let line_start = self.source[..block.range.start]
+        let raw = RawPayload {
+            range: block.range.clone(),
+            boundary_range: block.kind_range.end..block.kind_range.end + block.quote_count,
+            quote_count: block.quote_count,
+            text: block.text.clone(),
+            text_range: block.text_range.clone(),
+        };
+        self.annotate_raw_payload(&raw, block.range.start, true);
+    }
+
+    fn annotate_raw_payload(&mut self, raw: &RawPayload, owner_start: usize, anonymous: bool) {
+        let line_start = self.source[..owner_start]
             .rfind('\n')
             .map_or(0, |index| index + 1);
-        let body_indent = block.range.start - line_start + 2;
-        let mut start = block.text_range.start;
-        while start < block.text_range.end {
-            let newline = self.source[start..block.text_range.end]
+        let owner_indent = owner_start - line_start;
+        let body_indent = owner_indent + if anonymous { raw.quote_count } else { 1 };
+        let mut start = raw.text_range.start;
+        while start < raw.text_range.end {
+            let newline = self.source[start..raw.text_range.end]
                 .find('\n')
                 .map(|offset| start + offset);
-            let end = newline.map_or(block.text_range.end, |index| index + 1);
+            let end = newline.map_or(raw.text_range.end, |index| index + 1);
             let mut content_end = newline.unwrap_or(end);
             if content_end > start && self.source.as_bytes()[content_end - 1] == b'\r' {
                 content_end -= 1;
@@ -490,7 +377,7 @@ impl<'a> TokenBuilder<'a> {
 fn fallback_kind(source: &str, cursor: usize) -> SyntaxKind {
     match source[cursor..].chars().next().unwrap() {
         '`' => SyntaxKind::Introducer,
-        '[' | ']' | '{' | '}' | '"' => SyntaxKind::Delimiter,
+        '[' | ']' => SyntaxKind::Delimiter,
         '#' | '.' | '=' => SyntaxKind::AttributePunctuation,
         character if character.is_whitespace() => SyntaxKind::Whitespace,
         _ => SyntaxKind::Text,

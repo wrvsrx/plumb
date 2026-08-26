@@ -18,8 +18,8 @@ fn empty_source_has_an_empty_lossless_root() {
 }
 
 #[test]
-fn marked_block_attributes_have_token_granularity() {
-    let source = "`node Head {\n  `@ id\n  `- class\n  `: key a\"b\n}\n";
+fn direct_declaration_children_have_token_granularity() {
+    let source = "`node Head\n `@ id\n `+ class\n `= key a\"b\n";
     assert_eq!(
         tokens(source),
         vec![
@@ -27,30 +27,26 @@ fn marked_block_attributes_have_token_granularity() {
             (SyntaxKind::Marker, "node"),
             (SyntaxKind::Whitespace, " "),
             (SyntaxKind::Text, "Head"),
-            (SyntaxKind::Whitespace, " "),
-            (SyntaxKind::Delimiter, "{"),
             (SyntaxKind::LineEnding, "\n"),
-            (SyntaxKind::Indentation, "  "),
+            (SyntaxKind::Indentation, " "),
             (SyntaxKind::Introducer, "`"),
             (SyntaxKind::Marker, "@"),
             (SyntaxKind::Whitespace, " "),
             (SyntaxKind::Text, "id"),
             (SyntaxKind::LineEnding, "\n"),
-            (SyntaxKind::Indentation, "  "),
+            (SyntaxKind::Indentation, " "),
             (SyntaxKind::Introducer, "`"),
-            (SyntaxKind::Marker, "-"),
+            (SyntaxKind::Marker, "+"),
             (SyntaxKind::Whitespace, " "),
             (SyntaxKind::Text, "class"),
             (SyntaxKind::LineEnding, "\n"),
-            (SyntaxKind::Indentation, "  "),
+            (SyntaxKind::Indentation, " "),
             (SyntaxKind::Introducer, "`"),
-            (SyntaxKind::Marker, ":"),
+            (SyntaxKind::Marker, "="),
             (SyntaxKind::Whitespace, " "),
             (SyntaxKind::Text, "key"),
             (SyntaxKind::Whitespace, " "),
             (SyntaxKind::Text, "a\"b"),
-            (SyntaxKind::LineEnding, "\n"),
-            (SyntaxKind::Delimiter, "}"),
             (SyntaxKind::LineEnding, "\n"),
         ]
     );
@@ -107,18 +103,19 @@ fn strengthened_verbatim_quotes_are_individual_delimiters() {
 
 #[test]
 fn raw_block_separates_structural_prefix_payload_and_crlf() {
-    let source = "`text\"\n  raw\r\n  \r\n";
+    let source = "`text\n\"\n raw\r\n \r\n";
     assert_eq!(
         tokens(source),
         vec![
             (SyntaxKind::Introducer, "`"),
-            (SyntaxKind::InlineKind, "text"),
+            (SyntaxKind::Marker, "text"),
+            (SyntaxKind::LineEnding, "\n"),
             (SyntaxKind::Delimiter, "\""),
             (SyntaxKind::LineEnding, "\n"),
-            (SyntaxKind::Indentation, "  "),
+            (SyntaxKind::Indentation, " "),
             (SyntaxKind::RawPayload, "raw"),
             (SyntaxKind::LineEnding, "\r\n"),
-            (SyntaxKind::Indentation, "  "),
+            (SyntaxKind::Indentation, " "),
             (SyntaxKind::LineEnding, "\r\n"),
         ]
     );
@@ -126,15 +123,9 @@ fn raw_block_separates_structural_prefix_payload_and_crlf() {
 
 #[test]
 fn malformed_region_is_preserved_as_an_error_token() {
-    let source = "`node}bad\n";
+    let source = "`\n";
     assert_eq!(
         tokens(source),
-        vec![
-            (SyntaxKind::Error, "`"),
-            (SyntaxKind::Error, "node"),
-            (SyntaxKind::Error, "}"),
-            (SyntaxKind::Text, "bad"),
-            (SyntaxKind::LineEnding, "\n"),
-        ]
+        vec![(SyntaxKind::Error, "`"), (SyntaxKind::LineEnding, "\n"),]
     );
 }

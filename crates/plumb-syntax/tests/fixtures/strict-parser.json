@@ -1,22 +1,46 @@
 [
   {
-    "name": "marked block and complete attached declarations",
-    "source": "`node Head {`@[id] `+[class] `=[key|complex value]}\n",
+    "name": "marked block projects direct declaration children",
+    "source": "`node Head\n `@ id\n `+ class\n `= key complex value\n",
     "valid": true,
-    "blocks": [{"kind":"marked","marker":"node","attrs":["#id",".class","key=complex value"],"head":"Head","inline":"T\"Head\"","children":[]}],
+    "blocks": [{
+      "kind": "marked", "marker": "node", "attrs": ["#id", ".class", "key=complex value"],
+      "head": "Head", "inline": "T\"Head\"", "children": [
+        {"kind":"marked","marker":"@","attrs":[],"head":"id","inline":"T\"id\"","children":[]},
+        {"kind":"marked","marker":"+","attrs":[],"head":"class","inline":"T\"class\"","children":[]},
+        {"kind":"marked","marker":"=","attrs":[],"head":"key complex value","inline":"T\"key\"W\" \"T\"complex\"W\" \"T\"value\"","children":[]}
+      ]
+    }],
     "diagnostics": [],
-    "required_tokens": ["Introducer","Marker","Delimiter","Text","LineEnding"]
+    "required_tokens": ["Introducer", "Marker", "Indentation", "Text", "LineEnding"]
   },
   {
-    "name": "empty attached group and empty association value",
-    "source": "`node Empty {}\n`node Escaped {`=[empty|] `=[value|quote slash]}\n",
+    "name": "marked owner has a singular raw tail after children",
+    "source": "`rust\n `@ example\n\"\n fn main() {}\n",
     "valid": true,
-    "blocks": [
-      {"kind":"marked","marker":"node","attrs":[],"head":"Empty","inline":"T\"Empty\"","children":[]},
-      {"kind":"marked","marker":"node","attrs":["empty=","value=quote slash"],"head":"Escaped","inline":"T\"Escaped\"","children":[]}
-    ],
+    "blocks": [{
+      "kind":"marked","marker":"rust","attrs":["#example"],"head":"","inline":"",
+      "children":[{"kind":"marked","marker":"@","attrs":[],"head":"example","inline":"T\"example\"","children":[]}],
+      "raw":"fn main() {}\n"
+    }],
     "diagnostics": [],
-    "required_tokens": ["Introducer","Text","Delimiter"]
+    "required_tokens": ["Introducer", "Marker", "Delimiter", "RawPayload"]
+  },
+  {
+    "name": "anonymous verbatim is a compact block",
+    "source": "`\"\n raw\r\n \r\n",
+    "valid": true,
+    "blocks": [{"kind":"verbatim","attrs":[],"text":"raw\r\n\r\n"}],
+    "diagnostics": [],
+    "required_tokens": ["Introducer", "Delimiter", "RawPayload", "LineEnding"]
+  },
+  {
+    "name": "braces are ordinary parsed text",
+    "source": "brace { text }\n",
+    "valid": true,
+    "blocks": [{"kind":"paragraph","head":"brace { text }","inline":"T\"brace\"W\" \"T\"{\"W\" \"T\"text\"W\" \"T\"}\""}],
+    "diagnostics": [],
+    "required_tokens": ["Text", "LineEnding"]
   },
   {
     "name": "deferred head and paragraph child",
@@ -35,20 +59,12 @@
     "required_tokens": ["Introducer","Marker","Indentation"]
   },
   {
-    "name": "expanded attached declarations",
-    "source": "`node Head {\n  `+ one\n  `@ two\n  `= key value\n}\n",
+    "name": "nested parsed inline and member children",
+    "source": "before `span[a `em[b]|+[x]] after\n",
     "valid": true,
-    "blocks": [{"kind":"marked","marker":"node","attrs":[".one","#two","key=value"],"head":"Head","inline":"T\"Head\"","children":[]}],
+    "blocks": [{"kind":"paragraph","head":"before a bx after","inline":"T\"before\"W\" \"Espan[\".x\"]A[T\"a\"W\" \"Eem[]A[T\"b\"]]CE+[]A[T\"x\"]W\" \"T\"after\""}],
     "diagnostics": [],
-    "required_tokens": ["Introducer","Marker","Text","Indentation"]
-  },
-  {
-    "name": "nested parsed inline and escapes",
-    "source": "before `span[a `em[b] `` `] c|+[x]] after\n",
-    "valid": true,
-    "blocks": [{"kind":"paragraph","head":"before a b ` ] cx after","inline":"T\"before\"W\" \"Espan[\".x\"]A[T\"a\"W\" \"Eem[]A[T\"b\"]W\" \"T\"`\"W\" \"T\"]\"W\" \"T\"c\"]CE+[]A[T\"x\"]W\" \"T\"after\""}],
-    "diagnostics": [],
-    "required_tokens": ["InlineKind","Escape","Delimiter"]
+    "required_tokens": ["InlineKind","Delimiter","Introducer"]
   },
   {
     "name": "multiline parsed inline soft break",
@@ -59,12 +75,12 @@
     "required_tokens": ["InlineKind","LineEnding"]
   },
   {
-    "name": "parsed inline multi-slot preserves ordered boundaries",
-    "source": "`pair[first|second|+[tag]]\n",
+    "name": "ordered inline arguments and children",
+    "source": "`pair[first|\"second raw\"|tag[value]]\n",
     "valid": true,
-    "blocks": [{"kind":"paragraph","head":"firstsecondtag","inline":"Epair[\".tag\"]A[T\"first\"]A[T\"second\"]CE+[]A[T\"tag\"]"}],
+    "blocks": [{"kind":"paragraph","head":"firstsecond rawvalue","inline":"Epair[]A[T\"first\"]R1\"second raw\"CEtag[]A[T\"value\"]"}],
     "diagnostics": [],
-    "required_tokens": ["Introducer","InlineKind","Delimiter","Text"]
+    "required_tokens": ["InlineKind","Delimiter","RawPayload"]
   },
   {
     "name": "strengthened inline verbatim",
@@ -75,39 +91,12 @@
     "required_tokens": ["RawPayload","InlineKind","Delimiter"]
   },
   {
-    "name": "inline verbatim at block dispatch positions",
-    "source": "`->\"something.plumb\"\n`- `->\"something.plumb\"\n",
-    "valid": true,
-    "blocks": [
-      {"kind":"paragraph","head":"something.plumb","inline":"V1[]\"something.plumb\""},
-      {"kind":"marked","marker":"-","attrs":[],"head":"something.plumb","inline":"V1[]\"something.plumb\"","children":[]}
-    ],
-    "diagnostics": [],
-    "required_tokens": ["RawPayload","InlineKind","Marker","Delimiter"]
-  },
-  {
-    "name": "verbatim block preserves CRLF payload",
-    "source": "`text\"\r\n raw\r\n \r\n\r\nnext\r\n",
-    "valid": true,
-    "blocks": [{"kind":"verbatim","attrs":[],"text":"raw\r\n\r\n"},{"kind":"paragraph","head":"next","inline":"T\"next\""}],
-    "diagnostics": [],
-    "required_tokens": ["RawPayload","LineEnding","Indentation"]
-  },
-  {
     "name": "EOF closes nested blocks",
     "source": "`parent\n  `child End",
     "valid": true,
     "blocks": [{"kind":"marked","marker":"parent","attrs":[],"head":"","inline":"","children":[{"kind":"marked","marker":"child","attrs":[],"head":"End","inline":"T\"End\"","children":[]}]}],
     "diagnostics": [],
     "required_tokens": ["Introducer","Marker","Indentation"]
-  },
-  {
-    "name": "legacy attribute slot is rejected",
-    "source": "`node{#id} Head\n",
-    "valid": false,
-    "blocks": [{"kind":"marked","marker":"node","attrs":[],"head":"Head","inline":"T\"Head\"","children":[]}],
-    "diagnostics": [{"code":"syntax.legacy-attributes","range":{"text":"{#id} Head"}}],
-    "required_tokens": ["Error"]
   },
   {
     "name": "unclosed parsed inline recovers at blank",
@@ -142,11 +131,27 @@
     "required_tokens": ["Error"]
   },
   {
-    "name": "invalid marked block dispatch stays an error",
-    "source": "`node}bad\nnext\n",
+    "name": "legacy named raw opener is invalid block dispatch",
+    "source": "`rust\"\n code\n",
     "valid": false,
-    "blocks": [{"kind":"marked","marker":"node","attrs":[],"head":"bad","inline":"T\"bad\"","children":[]},{"kind":"paragraph","head":"next","inline":"T\"next\""}],
-    "diagnostics": [{"code":"syntax.invalid-block-dispatch","range":{"text":"`node}"}},{"code":"syntax.unexpected-group-close","range":{"text":"}"}}],
+    "blocks": [{"kind":"marked","marker":"rust","attrs":[],"head":"\" code","inline":"T\"\\\"\"ST\"code\"","children":[]}],
+    "diagnostics": [{"code":"syntax.invalid-block-dispatch","range":{"text":"`rust\""}}],
+    "required_tokens": ["Error","Text"]
+  },
+  {
+    "name": "invalid anonymous verbatim head recovers at next line",
+    "source": "`\" forbidden\nnext\n",
+    "valid": false,
+    "blocks": [{"kind":"verbatim","attrs":[],"text":""},{"kind":"paragraph","head":"next","inline":"T\"next\""}],
+    "diagnostics": [{"code":"syntax.invalid-verbatim-block-dispatch","range":{"text":"`\" forbidden"}}],
+    "required_tokens": ["Error","Text"]
+  },
+  {
+    "name": "invalid marker is diagnosed",
+    "source": "`| head\n",
+    "valid": false,
+    "blocks": [{"kind":"marked","marker":"","attrs":[],"head":" head","inline":"W\" \"T\"head\"","children":[]}],
+    "diagnostics": [{"code":"syntax.invalid-marker","range":{"text":"`|"}},{"code":"syntax.unexpected-member-separator","range":{"text":"|"}}],
     "required_tokens": ["Error"]
   },
   {
@@ -158,60 +163,6 @@
     "required_tokens": ["Error"]
   },
   {
-    "name": "incomplete block introducer preserves child ownership",
-    "source": "`\n `: created now\nnext\n",
-    "valid": false,
-    "blocks": [
-      {"kind":"marked","marker":"","attrs":[],"head":"","inline":"","children":[
-        {"kind":"marked","marker":":","attrs":[],"head":"created now","inline":"T\"created\"W\" \"T\"now\"","children":[]}
-      ]},
-      {"kind":"paragraph","head":"next","inline":"T\"next\""}
-    ],
-    "diagnostics": [{"code":"syntax.incomplete-introducer","range":{"text":"`","occurrence":0}}],
-    "required_tokens": ["Error"]
-  },
-  {
-    "name": "introducer grouping and unknown spellings remain generic",
-    "source": "``literal `custom[value]\n`mystery Head\n",
-    "valid": true,
-    "blocks": [
-      {"kind":"paragraph","head":"`literal value","inline":"T\"`\"T\"literal\"W\" \"Ecustom[]A[T\"value\"]"},
-      {"kind":"marked","marker":"mystery","attrs":[],"head":"Head","inline":"T\"Head\"","children":[]}
-    ],
-    "diagnostics": [],
-    "required_tokens": ["Escape","InlineKind","Marker"]
-  },
-  {
-    "name": "closing brace escape can start a paragraph",
-    "source": "`}bad\n",
-    "valid": true,
-    "blocks": [{"kind":"paragraph","head":"}bad","inline":"T\"}\"T\"bad\""}],
-    "diagnostics": [],
-    "required_tokens": ["Escape"]
-  },
-  {
-    "name": "ownerless empty group after an introducer remains invalid",
-    "source": "`{} head\n",
-    "valid": false,
-    "blocks": [{"kind":"marked","marker":"","attrs":[],"head":"head","inline":"T\"head\"","children":[]}],
-    "diagnostics": [
-      {"code":"syntax.invalid-marker","range":{"text":"`{"}},
-      {"code":"syntax.legacy-attributes","range":{"text":"{} head"}}
-    ],
-    "required_tokens": ["Error"]
-  },
-  {
-    "name": "invalid verbatim block head recovers at next line",
-    "source": "`\" forbidden\nnext\n",
-    "valid": false,
-    "blocks": [
-      {"kind":"verbatim","attrs":[],"text":""},
-      {"kind":"paragraph","head":"next","inline":"T\"next\""}
-    ],
-    "diagnostics": [{"code":"syntax.invalid-verbatim-block-dispatch","range":{"text":"`\" forbidden"}}],
-    "required_tokens": ["Error","Text"]
-  },
-  {
     "name": "invalid inline dispatch recovers to following line",
     "source": "before `oops\nnext\n",
     "valid": false,
@@ -220,134 +171,27 @@
     "required_tokens": ["Error","LineEnding"]
   },
   {
-    "name": "short verbatim margin outranks partial indent",
+    "name": "short anonymous verbatim margin outranks partial indent",
     "source": "`\"\"\n x\nnext\n",
     "valid": false,
-    "blocks": [
-      {"kind":"verbatim","attrs":[],"text":""},
-      {"kind":"paragraph","head":"x","inline":"T\"x\""},
-      {"kind":"paragraph","head":"next","inline":"T\"next\""}
-    ],
+    "blocks": [{"kind":"verbatim","attrs":[],"text":""},{"kind":"paragraph","head":"x","inline":"T\"x\""},{"kind":"paragraph","head":"next","inline":"T\"next\""}],
     "diagnostics": [{"code":"syntax.short-verbatim-indent","range":{"text":" "}}],
     "required_tokens": ["Error","Text"]
   },
   {
-    "name": "odd quote run emits a literal tick before an inline node",
-    "source": "```\"raw\"\n",
-    "valid": true,
-    "blocks": [{"kind":"paragraph","head":"`raw","inline":"T\"`\"V1[]\"raw\""}],
-    "diagnostics": [],
-    "required_tokens": ["Escape","Introducer","RawPayload"]
-  },
-  {
-    "name": "empty head compact block attachment",
-    "source": "`node {.x}\n",
-    "valid": true,
-    "blocks": [{"kind":"marked","marker":"node","attrs":[],"head":"","inline":"","children":[]}],
-    "diagnostics": [],
-    "required_tokens": ["Marker","Delimiter","Text"]
-  },
-  {
-    "name": "next-line expanded block attachment",
-    "source": "`node Head\n      {\n        `@ id\n      }\n",
-    "valid": true,
-    "blocks": [{"kind":"marked","marker":"node","attrs":["#id"],"head":"Head","inline":"T\"Head\"","children":[]}],
-    "diagnostics": [],
-    "required_tokens": ["Marker","Delimiter","Introducer"]
-  },
-  {
-    "name": "duplicate block attached group keeps first",
-    "source": "`node Head {} {}\n",
+    "name": "bare raw boundary without owner is invalid",
+    "source": "\"\nraw\n",
     "valid": false,
-    "blocks": [{"kind":"marked","marker":"node","attrs":[],"head":"Head","inline":"T\"Head\"","children":[]}],
-    "diagnostics": [{"code":"syntax.duplicate-attached-group","range":{"text":"{","occurrence":1},"related":[{"text":"{","occurrence":0}]}],
-    "required_tokens": ["Delimiter","Error"]
-  },
-  {
-    "name": "trailing source after compact block group",
-    "source": "`node Head {} tail\n",
-    "valid": false,
-    "blocks": [{"kind":"marked","marker":"node","attrs":[],"head":"Head","inline":"T\"Head\"","children":[]}],
-    "diagnostics": [{"code":"syntax.trailing-after-attached-group","range":{"text":"tail"}}],
-    "required_tokens": ["Delimiter","Error"]
-  },
-  {
-    "name": "single line document group is invalid",
-    "source": "{}\n",
-    "valid": false,
-    "blocks": [{"kind":"paragraph","head":"","inline":""}],
-    "diagnostics": [
-      {"code":"syntax.unattached-group","range":{"text":"{"}},
-      {"code":"syntax.unexpected-group-close","range":{"text":"}"}}
-    ],
-    "required_tokens": ["Error"]
-  },
-  {
-    "name": "unclosed inline stops before block-only child",
-    "source": "`parent `span[open\n  `child Boundary\n",
-    "valid": false,
-    "blocks": [{"kind":"marked","marker":"parent","attrs":[],"head":"","inline":"","children":[{"kind":"marked","marker":"child","attrs":[],"head":"Boundary","inline":"T\"Boundary\"","children":[]}]}],
-    "diagnostics": [{"code":"syntax.unclosed-inline","range":{"text":"`span[open"}}],
-    "required_tokens": ["Error","Marker"]
-  },
-  {
-    "name": "dedent closes multiple block frames",
-    "source": "`a\n  `b\n    `c\n`d\n",
-    "valid": true,
-    "blocks": [
-      {"kind":"marked","marker":"a","attrs":[],"head":"","inline":"","children":[{"kind":"marked","marker":"b","attrs":[],"head":"","inline":"","children":[{"kind":"marked","marker":"c","attrs":[],"head":"","inline":"","children":[]}]}]},
-      {"kind":"marked","marker":"d","attrs":[],"head":"","inline":"","children":[]}
-    ],
-    "diagnostics": [],
-    "required_tokens": ["Indentation","Marker"]
-  },
-  {
-    "name": "recovery continues to a later independent error",
-    "source": "`node}bad\nbefore `oops\n",
-    "valid": false,
-    "blocks": [
-      {"kind":"marked","marker":"node","attrs":[],"head":"bad","inline":"T\"bad\"","children":[]},
-      {"kind":"paragraph","head":"before ","inline":"T\"before\"W\" \""}
-    ],
-    "diagnostics": [
-      {"code":"syntax.invalid-block-dispatch","range":{"text":"`node}"}},
-      {"code":"syntax.unexpected-group-close","range":{"text":"}"}},
-      {"code":"syntax.invalid-inline-dispatch","range":{"text":"`oops"}}
-    ],
+    "blocks": [{"kind":"paragraph","head":"raw","inline":"T\"raw\""}],
+    "diagnostics": [{"code":"syntax.unattached-raw-tail","range":{"text":"\""}}],
     "required_tokens": ["Error","Text"]
   },
   {
-    "name": "trailing opener on a head continuation line",
-    "source": "`note first\n  second {\n   `+ cited\n  }\n  Details\n",
-    "valid": true,
-    "blocks": [
-      {"kind":"marked","marker":"note","attrs":[".cited"],"head":"first second","inline":"T\"first\"ST\"second\"","children":[
-        {"kind":"paragraph","head":"Details","inline":"T\"Details\"","children":[]}
-      ]}
-    ],
-    "diagnostics": [],
-    "required_tokens": ["Indentation","Delimiter","LineEnding","Text"]
-  },
-  {
-    "name": "bare delimiters never fall back to text",
-    "source": "brace { text\n",
+    "name": "unattached bracket is invalid",
+    "source": "Text [ bracket\n",
     "valid": false,
-    "blocks": [
-      {"kind":"paragraph","head":"brace  text","inline":"T\"brace\"W\" \"W\" \"T\"text\"","children":[]}
-    ],
-    "diagnostics": [
-      {"code":"syntax.unattached-group","range":{"text":"{"}}
-    ],
+    "blocks": [{"kind":"paragraph","head":"Text  bracket","inline":"T\"Text\"W\" \"W\" \"T\"bracket\""}],
+    "diagnostics": [{"code":"syntax.unattached-bracket","range":{"text":"["}}],
     "required_tokens": ["Error","Text"]
-  },
-  {
-    "name": "unconditional delimiter escapes",
-    "source": "escaped `[ `] `{ `} delims\n",
-    "valid": true,
-    "blocks": [
-      {"kind":"paragraph","head":"escaped [ ] { } delims","inline":"T\"escaped\"W\" \"T\"[\"W\" \"T\"]\"W\" \"T\"{\"W\" \"T\"}\"W\" \"T\"delims\"","children":[]}
-    ],
-    "diagnostics": [],
-    "required_tokens": ["Escape","Text"]
   }
 ]

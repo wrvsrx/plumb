@@ -26,6 +26,8 @@ enum ExpectedBlock {
         head: String,
         inline: String,
         children: Vec<ExpectedBlock>,
+        #[serde(default)]
+        raw: Option<String>,
     },
     Verbatim {
         attrs: Vec<String>,
@@ -70,14 +72,13 @@ fn strict_parser_normative_corpus() {
         "syntax.invalid-inline-dispatch",
         "syntax.invalid-verbatim-block-dispatch",
         "syntax.invalid-marker",
-        "syntax.legacy-attributes",
-        "syntax.duplicate-attached-group",
-        "syntax.trailing-after-attached-group",
         "syntax.unclosed-inline",
         "syntax.unclosed-verbatim",
         "syntax.tab-indentation",
         "syntax.partial-indent",
         "syntax.short-verbatim-indent",
+        "syntax.unattached-raw-tail",
+        "syntax.unattached-bracket",
     ];
     for case in &cases {
         let parsed = parse(case.source.clone());
@@ -166,6 +167,7 @@ fn assert_blocks(actual: &[Block], expected: &[ExpectedBlock], case: &str) {
                     head,
                     inline,
                     children,
+                    raw,
                 },
             ) => {
                 let mark = actual.mark.as_ref().expect("expected marked block");
@@ -174,9 +176,14 @@ fn assert_blocks(actual: &[Block], expected: &[ExpectedBlock], case: &str) {
                 assert_eq!(&actual.head.plain_text(), head, "{case} marked head");
                 assert_eq!(&inline_shape(&actual.head), inline, "{case} marked inline");
                 assert_blocks(&actual.children, children, case);
+                assert_eq!(
+                    actual.raw.as_ref().map(|payload| &payload.text),
+                    raw.as_ref(),
+                    "{case} marked raw tail"
+                );
             }
             (Block::Verbatim(actual), ExpectedBlock::Verbatim { attrs, text }) => {
-                assert_eq!(&attrs_shape(&actual.attrs), attrs, "{case} verbatim attrs");
+                assert!(attrs.is_empty(), "{case} anonymous raw attributes");
                 assert_eq!(&actual.text, text, "{case} verbatim text");
             }
             _ => panic!("{case} block kind mismatch: {actual:?} vs {expected:?}"),

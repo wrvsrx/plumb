@@ -76,7 +76,6 @@ fn assert_typed_ranges(parsed: &ParsedDocument) {
             Block::Verbatim(block) => {
                 assert_range(&parsed.source, &block.opener_range);
                 assert_range(&parsed.source, &block.text_range);
-                assert_attributes(&parsed.source, &block.attrs);
             }
         }
     }
