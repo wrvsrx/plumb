@@ -10,14 +10,18 @@ plumb 是一门严格、语义中立的 markup language，也是一套围绕它�
 
 在 Nix development shell 中构建并运行测试：
 
-`sh"
+`sh
+
+"
  cargo build
  cargo test --workspace
  cargo check --workspace --all-targets
 
 检查、格式化和导出 `".plumb" document：
 
-`sh"
+`sh
+
+"
  cargo run -- check --root docs
  cargo run -- fmt document.plumb
  cargo run -- export document.plumb | pandoc --from=json --to=gfm
@@ -38,5 +42,7 @@ plumb 是一门严格、语义中立的 markup language，也是一套围绕它�
 
 本文件是 repository README 的权威源。根目录的 `"README.md" 由它导出，不应直接编辑：
 
-`sh"
+`sh
+
+"
  plumb export README.plumb | pandoc --from=json --to=gfm --wrap=none --lua-filter=scripts/readme.lua --output=README.md

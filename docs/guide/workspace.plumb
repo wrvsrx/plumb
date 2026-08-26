@@ -8,7 +8,9 @@ directory 向上选择最近的 marker；找不到 marker 时使用当前 direct
 
 一个较大的 notes directory 可以包含 nested workspace：
 
-`text"
+`text
+
+"
   notes/
     .plumb/
     .ignore
@@ -26,7 +28,9 @@ marker 建立独立 root，不读取 parent ignore rules。
 root parent、`".gitignore"、Git global ignore 或 `".git/info/exclude"。dot files 和 dot directories
 没有内置特殊处理，需要排除时显式声明：
 
-`gitignore"
+`gitignore
+
+"
   .git/
   .obsidian/
   private/
@@ -42,7 +46,9 @@ workspace features，应显式将其作为 root，或在其中创建 `".plumb/"�
 
 `"plumb note" 与 `"plumb task" 提供 document/task CEL query、interactive picker 和 task operations：
 
-`text"
+`text
+
+"
   plumb note --query 'title.contains("parser")'
   plumb note --interactive
   plumb task --query 'state == "ready" && due < now'
@@ -105,7 +111,7 @@ Complete 或 Cancel。
 Parent 与 position 只列出目标 document 中已索引的 tasks。Previous task 和 dependencies 显示可读 title、
 source path 与 explicit id，并向 server 提交 opaque document identity 和 task locator；same-file 或
 cross-file reference spelling 由 shared authoring operation 生成。创建操作生成 explicit id 与 created
-timestamp；编辑保留不属于标准表单的 attached elements、nested tasks 和其它 child blocks。
+timestamp；编辑保留不属于标准表单的 declaration children、nested tasks 和其它 child blocks。
 
 所有 create/edit requests 携带 document revision。server 在写入前再次比较 indexed source 与 disk source，
 应用 owned syntax edit，并验证结果仍是严格有效的 plumb；stale revision、external edit、invalid field、
@@ -119,7 +125,9 @@ opener start。把 server 暴露到非-loopback network 前需要自行提供访
 
 反向代理后的 HTTPS mutation 使用 `"--public-origin" 显式声明 browser 访问的 origin，例如：
 
-`sh"
+`sh
+
+"
  plumb site serve --host 127.0.0.1 --port 3000 \
    --public-origin https://zettelkasten.example.org:9162
 
@@ -130,13 +138,17 @@ opener start。把 server 暴露到非-loopback network 前需要自行提供访
 server URL 单独写入 stdout；启动状态、task mutation、所有 non-GET requests 和任何 HTTP 4xx/5xx
 responses 写入 stderr。task operation 同时记录 received、rejected reason 或 completed，例如：
 
-`text"
+`text
+
+"
   plumb site serve: received task complete for DOCUMENT (Id { id: "TASK" })
   plumb site serve: POST /api/task/DOCUMENT/complete -> 409
 
 `"--exclude EXPR" 使用 note CEL fields 隐藏 predicate 为 true 的 node 及其 connections：
 
-`text"
+`text
+
+"
   plumb site serve --exclude 'path in ["closed.plumb", "diary.plumb"]'
 
 `".ignore" 与 graph CEL 的职责不同：前者阻止 document 进入整个 workspace index；后者保留 document

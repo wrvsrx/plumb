@@ -9,12 +9,10 @@
 `- 补全 metadata field/value completion、existing metadata edits 和 metadata hover。
 `- 评估 format-on-type；不得用 recovered invalid tree 猜测 author intent。
 `- 评估 task reopen；必须先冻结 recurrent instance 与 dependency history 的行为。
-`- 冻结并实现 `->[single-envelope inline members|inline-members.plumb]，包括 generic inline child export、
- verbatim owner full form 与显式 versioned migration；实现前 current slots/attached groups 仍是唯一有效语法。
 
 `# Editor ergonomics
 
-`- 补全 marker 与通用 attached declaration completion。
+`- 补全 marker 与通用 direct declaration/member completion。
 `- 增加 selection ranges 和更多 syntax-aware refactors。
 `- 为 inline verbatim 提供独立 tree-sitter raw-content node 与 language injection。
 `- 在 tree-sitter 独立发布前补齐 bindings、release artifacts 和 consumer instructions。

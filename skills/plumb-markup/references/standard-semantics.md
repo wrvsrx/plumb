@@ -10,9 +10,8 @@ Use one through six `#` characters as the marker. The count is the heading
 level. Add an explicit id when the heading must be a link or rename target:
 
 ```plumb
-`# Introduction {
-  `@ intro
-}
+`# Introduction
+ `@ intro
 `## Details
 ```
 
@@ -223,7 +222,7 @@ the quote, and its children become the remaining quoted blocks:
   `> A nested quote.
 ```
 
-Empty and nested quotes are valid. Unconsumed attached elements are preserved through an
+Empty and nested quotes are valid. Unconsumed declaration children are preserved through an
 inner Pandoc Div because Pandoc BlockQuote has no attribute slot. The `>`
 marker itself is consumed; `quote` is not an alias and remains generic.
 Do not infer attribution, citation, pull-quote, or presentation semantics.
@@ -253,14 +252,12 @@ presentations of emphasis and strong, not separate standard spellings.
 A task uses the specialized `task` marker and has bullet-list-item structure:
 
 ```plumb
-`task Implement parser {
-  `@ write-parser
-
-  `= created 2026-07-20T09:00:00+08:00
-  `= due 2026-07-21T09:00:00+08:00
-  `= depends #design
-}
-  `note Optional details
+`task Implement parser
+ `@ write-parser
+ `= created 2026-07-20T09:00:00+08:00
+ `= due 2026-07-21T09:00:00+08:00
+ `= depends #design
+ `note Optional details
 ```
 
 The block head is the title and child blocks are details. Nested task blocks
@@ -274,7 +271,7 @@ Construct completion is prefix-sensitive. A bare backtick offers no candidates.
 At line start, a backtick followed by a nonempty prefix of `task` offers Task,
 while a prefix of `event` offers Event. It creates the Task `created` field from
 the current local RFC 3339 timestamp. The Task replacement uses canonical
-same-line expanded-group indentation. The LSP projects absolute indentation for
+owner-column-plus-one child indentation. The LSP projects absolute indentation for
 `asIs` clients and owner-relative indentation for `adjustIndentation` clients,
 so applying either form produces the same source. At line start
 and in ordinary inline content, a backtick followed by a hyphen or arrow offers
@@ -304,9 +301,8 @@ characters are literal. Control characters, backslashes, absolute paths, and
 path from its explicit id:
 
 ```plumb
-`task Review {
-  `= depends #local Project A.plumb#build Project B.plumb#test
-}
+`task Review
+ `= depends #local Project A.plumb#build Project B.plumb#test
 ```
 
 Datetime fields must use RFC 3339 property values. An invalid value produces
@@ -325,7 +321,7 @@ Document-local closure state is derived from closure timestamps:
 - Both: conflicted and invalid for normal operations.
 
 Do not invent `state`, `status`, `scheduled`, or checkbox syntax as
-task semantics. Other attached elements remain opaque custom data.
+task semantics. Other declaration and ordinary children remain opaque custom data.
 
 `plumb task` and the Web task view project each document as a virtual structural
 node in the workspace task forest. It has no language syntax or editable
@@ -377,13 +373,11 @@ blocks remain subsequent blocks in the same list item.
 An event uses the specialized `event` marker and has bullet-list-item structure:
 
 ```plumb
-`event 14:00--15:00 Parser review {
-  `@ review
-
-  `= date 2026-07-30
-  `= timezone +08:00
-  `= tasks #write-parser
-}
+`event 14:00--15:00 Parser review
+ `@ review
+ `= date 2026-07-30
+ `= timezone +08:00
+ `= tasks #write-parser
 ```
 
 The first inline text in the head is the schedule; ASCII whitespace separates it
@@ -412,13 +406,13 @@ An event's own overrides therefore also propagate to nested events. An invalid
 explicit override never falls back to an ancestor value.
 
 Source `uid` and `when` properties and metadata `event-uids` have no event
-semantics; they remain opaque attached data. Event authoring does not generate
+semantics; they remain opaque direct declarations. Event authoring does not generate
 an explicit id or write UID data.
 
 The `Convert to event` action recognizes a reduced-precision schedule at the
 start of a list-item head. The title after its separating whitespace may contain
 parsed or verbatim inline markup; conversion removes only the leading schedule
-and preserves the remaining inline tree and attached elements.
+and preserves the remaining inline tree and ordered members.
 An event needs an explicit id only when referenced. A shorthand without an
 explicit date or timezone inherits valid document metadata
 before falling back to the operation's local date and offset.
@@ -441,11 +435,11 @@ with `readonly = true`.
 
 ## Export Semantics
 
-`div` and `span` are transparent standard containers and export without a
+`()` is the transparent standard block/inline container and exports without a
 redundant `data-plumb-marker`. `>` exports as Pandoc BlockQuote. `*`, `!`, `==`,
 `~`, `^`, and `_` export as the standard inline styles. Verbatim
-inline/block nodes with opaque kind `$` are TeX inline/display math. Other
-attached elements are preserved with Span/Div wrappers.
+inline nodes with opaque kind `$`, and marked raw-tail owners with marker `$`,
+are TeX inline/display math. Other declarations are preserved with Span/Div wrappers.
 
 `plumb export` emits Pandoc JSON directly. Standard lowering includes headings,
 bullet lists, definition lists, metadata, `->` links and Autolinks, `img`

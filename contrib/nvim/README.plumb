@@ -10,7 +10,9 @@ modules 的调用接口。
 
 把该 directory 加入 Neovim `"runtimepath" 后，在打开首个 plumb buffer 前显式调用 setup：
 
-`lua"
+`lua
+
+"
   require('plumb').setup({
     command = 'plumb',
     lsp = { root_markers = { '.plumb', '.git' } },
@@ -28,7 +30,9 @@ modules 的调用接口。
 setup 默认启用 LSP、CodeLens 与 search，不创建 keymaps；`"lsp"、`"codelens" 与 `"search" 都可用
 `"enabled = false" 单独关闭，并可直接传入 `"on_attach" 等 function-valued options：
 
-`lua"
+`lua
+
+"
   require('plumb').setup({
     lsp = { on_attach = function(client, bufnr) end },
   })
@@ -71,7 +75,9 @@ tree-sitter parser 与 queries 独立发行，不属于 plugin runtime 或 setup
 
 lazy.nvim 使用 source checkout 时：
 
-`lua"
+`lua
+
+"
   {
     dir = '/path/to/plumb/contrib/nvim',
     ft = 'plumb',

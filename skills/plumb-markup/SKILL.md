@@ -1,6 +1,6 @@
 ---
 name: plumb-markup
-description: Write, edit, review, or convert strict plumb (.plumb) documents using the released core syntax and official semantic profile. Use for plumb blocks, inline elements, attached groups, raw content, headings, lists, definitions, metadata, links, images, file attachments, citations, quotes, inline styles, tasks, events, references, or documents consumed by the plumb toolchain.
+description: Write, edit, review, or convert strict plumb (.plumb) documents using the released core syntax and official semantic profile. Use for plumb blocks, inline elements, direct children, raw content, headings, lists, definitions, metadata, links, images, file attachments, citations, quotes, inline styles, tasks, events, references, or documents consumed by the plumb toolchain.
 ---
 
 # Plumb Markup
@@ -16,7 +16,7 @@ text.
 2. Read `references/standard-semantics.md` completely when the document uses
    headings, lists, definitions, metadata, links, images, citations, quotes, inline styles, tasks, events, anchors, or
    export semantics.
-3. Preserve nearby source style, indentation, attached elements, explicit ids, and
+3. Preserve nearby source style, indentation, direct declarations, explicit ids, and
    reference spelling unless the requested change requires modifying them.
 4. Use only frozen standard spellings. Keep unknown markers and inline kinds
    generic; do not infer Markdown semantics from punctuation.
@@ -60,21 +60,23 @@ it. Inside the plumb source repository, prefer
 - Preserve strict syntax; never silently rewrite malformed input as ordinary
   text.
 - Use spaces for structural indentation. Do not use tabs in indentation.
-- Separate marked/verbatim block attached groups from the complete header with
-  whitespace. Inline owners place arguments and children in one `[]` envelope.
-- Open expanded block groups at the end of the owner header. A marked block may
-  instead use an immediately following, deeper opener at its continuation
-  column. Close at the opener column. Verbatim groups remain on the opener line.
-- The document is an implicit root owner with no attached group. Direct top-level
+- Marked blocks own one source-ordered sequence of directly indented children.
+  Canonical child indentation is the owner column plus one. Inline owners place
+  arguments and children in one `[]` envelope.
+- A marked block may end its children with one raw tail. Put a bare `"` on the
+  owner column, then indent every nonempty payload line by one structural space.
+  Anonymous block raw uses an introducer and quote, has no head or children, and
+  starts raw payload immediately.
+- The document is an implicit root owner. Direct top-level
   `=` blocks are metadata and direct top-level `+` blocks are document facets;
   they may interleave with body blocks. Document identity comes from its
   workspace-relative path, so do not use a direct top-level `@` block.
-- Use direct `@` declarations inside block attached groups for explicit ids.
+- Use direct `@` declaration children for explicit ids.
   Headings do not generate implicit ids.
 - Separate ordered inline members with `|`. Arguments and introducer-elided
   children may interleave; spaces remain part of an argument.
-- Do not author the removed `{#id .class key=value}` spelling; parsing and
-  formatting reject it.
+- Braces are ordinary parsed text. Do not author removed postfix `{...}`
+  ownership or `{#id .class key=value}`; migrate legacy source explicitly.
 - Parsed inline elements may cross valid paragraph/head continuation lines;
   inline verbatim payloads remain on one physical line.
 - Do not invent table, thematic-break, presentation-only italic, or nonstandard quote
@@ -86,28 +88,22 @@ it. Inside the plumb source repository, prefer
 `= title Example
 `+ guide
 
-`# Heading {
-  `@ intro
-}
+`# Heading
+ `@ intro
 
 `- List item
 `. Ordered item
-`task Implement parser {
-  `@ write-parser
+`task Implement parser
+ `@ write-parser
+ `= created 2026-07-20T09:00:00+08:00
+`event 14:00--15:00 Parser review
+ `@ review
+ `= date 2026-07-30
+ `= timezone +08:00
+ `= tasks #write-parser
 
-  `= created 2026-07-20T09:00:00+08:00
-}
-`event 14:00--15:00 Parser review {
-  `@ review
-
-  `= date 2026-07-30
-  `= timezone +08:00
-  `= tasks #write-parser
-}
-
-`() Transparent block container {
-  `+ notice
-}
+`() Transparent block container
+ `+ notice
 `> A quoted paragraph
 Use `*[emphasis], `![strong], `==[mark], `~[strikeout], `^[superscript], and `_[subscript].
 Inline `()[container|+[notice]] and `$"x^2" math.
@@ -123,7 +119,8 @@ Use `file[Demo video|=[src|static/demo.mp4]] for a file attachment with fallback
 
 Use `"cargo test" for inline raw text.
 
-`rust"
+`rust
+"
  fn main() {}
 ```
 
@@ -137,6 +134,6 @@ documents and other relative targets resolve as files. Use
 `item`, `link`, `**`, `em`, and `strong` remain syntactically valid generic names but
 have no list or link semantics. `task` and `event` are mutually exclusive
 specialized list-item markers; they are not facets on `-` or `.` items.
-`div` and `span` are transparent containers; `>` is a block
-quote; `*`, `!`, `==`, `~`, `^`, and `_` are inline styles; `$` on verbatim
-inline/block nodes is TeX math.
+`()` is the transparent block/inline container; `>` is a block
+quote; `*`, `!`, `==`, `~`, `^`, and `_` are inline styles; `$` on inline
+verbatim or a marked raw-tail owner is TeX math.

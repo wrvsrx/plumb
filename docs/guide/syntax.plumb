@@ -8,22 +8,23 @@ plumb 使用反引号引入特殊结构。特殊 spelling 一旦开始就必须�
 普通文本组成 paragraph。marked block 由一个反引号、非空 marker 和可选
 head 构成：
 
-`plumb"
+`plumb
+
+"
   普通 paragraph。
 
   `note 一条有 head 的 block
-  `note 带 attached group {
-    `@ stable
+  `note 带 direct children
+   `@ stable
+   `+ warning
+   `= level 2
 
-    `+ warning
+block 可以拥有缩进 children。第一个 child 建立 sibling column；formatter 无论 head 是否为空，
+都把 children 放在 owner column 加一：
 
-    `= level 2
-  }
+`plumb
 
-block 可以拥有缩进 children。第一个 child 建立 sibling column；formatter 对空 head 使用 owner
-column 加一，对非空 head 将 children 与 conceptual head column 对齐：
-
-`plumb"
+"
   `- Parent
 
      Child paragraph.
@@ -34,7 +35,9 @@ column 加一，对非空 head 将 children 与 conceptual head column 对齐：
 
 空 head 的 first child 也可以与 parent 写在同一行；child introducer column 决定后续对齐：
 
-`plumb"
+`plumb
+
+"
   `- `- a
      `- b
 
@@ -42,13 +45,17 @@ column 加一，对非空 head 将 children 与 conceptual head column 对齐：
 
 具名 inline element 使用 `"`kind[content]"，content 会继续解析 nested inline：
 
-`plumb"
+`plumb
+
+"
   See `term[outer `term[inner] text].
 
 同一个 owner 在一对 brackets 内拥有 `"|" 分隔的 ordered members。ordinary content 是 argument，
 省略 introducer 且独占 member 的具名 element 是 child：
 
-`plumb"
+`plumb
+
+"
   `pair[first|second]
   `pair[`*[rich first]|second with spaces|note[child]]
 
@@ -57,18 +64,24 @@ core 保存统一的 source order，不解释 kind、argument 含义或数量。
 
 element 可以跨属于同一 paragraph/head 的 continuation lines：
 
-`plumb"
+`plumb
+
+"
   See `term[first line
   second line].
 
 id、facet、property 或普通 structural child 也放在同一 envelope：
 
-`plumb"
+`plumb
+
+"
   `term[value|@[stable]|+[warning]|=[level|2]]
 
 inline element 即使没有 members 也必须写出 `"[]" delimiter；不存在裸 `"warning" shorthand：
 
-`plumb"
+`plumb
+
+"
   `warning[]
 
 需要字面 closing bracket 时写两个反引号再跟 closing bracket。
@@ -77,18 +90,34 @@ inline element 即使没有 members 也必须写出 `"[]" delimiter；不存在�
 
 inline verbatim 适合 code、路径和其他不需要 inline parsing 的内容：
 
-`plumb"
+`plumb
+
+"
   Run `"cargo test".
   A literal quote: `"[say "hello"]".
 
 引号数量决定 closing delimiter 的强度。只有 payload 中出现较短 closing spelling 时才增加
 引号。
 
-verbatim block 以可选 kind 与一个或多个 opening quotes 开始；quote count 声明 raw payload 的
-ASCII-space structural margin。通常只写一个 quote 和一个空格：
+anonymous verbatim block 由 introducer 与一个或多个 quotes 开始；quote count 声明 raw payload 的
+ASCII-space structural margin。它是没有 head 或 children 的 raw leaf：
 
-`plumb"
-  `rust"
+`plumb
+
+"
+  `"
+   anonymous raw
+
+具名 raw 使用普通 marked block 的 terminal raw tail。owner 可以先拥有任意 direct children，再由与
+owner column 对齐、独占一行的 bare quote 进入 raw phase：
+
+`plumb
+
+"
+  `rust
+   `@ example
+
+  "
    fn main() {
        println!("hello");
    }
@@ -98,60 +127,60 @@ ASCII-space structural margin。通常只写一个 quote 和一个空格：
 
 `# Document root
 
-document 是 implicit root owner，保存 source-ordered top-level blocks，不拥有 attached group。文件开头
-的裸 `"{" 因而与其他 unattached brace 一样是 syntax error。顶层 declaration 仍是普通 marked block；
-例如 official semantic profile 使用 direct `"=" 与 `"+"：
+document 是 implicit root owner，保存 source-ordered top-level blocks。brace 是 ordinary parsed text，
+不建立 ownership structure。顶层 declaration 是普通 marked block；例如 official semantic profile
+使用 direct `"=" 与 `"+"：
 
-`plumb"
+`plumb
+
+"
   `= title Document title
   `+ guide
 
   Body paragraph.
 
-`# Attached groups
+`# Direct ownership 与 raw tail
 
-marked/verbatim block 可以拥有 attached group。group 是 postfix ownership structure，不是另一套
-attribute parser，并递归包含普通 blocks 或 compact ordinary inlines。inline ownership 已经由第 8 节的
-members 表达，不使用 postfix group。
+document 与 marked block 都用同一个 source-ordered direct children sequence 表达 ownership。declaration
+与普通 structural children 可以任意交错；core 不根据 marker spelling 改变结构：
 
-`plumb"
+`plumb
 
-  `node Head {
-    `@ intro
-
-    `+ note
-
-    `= level 2
-  }
+"
+  `node Head
+   `@ intro
+   `+ note
+   `= level 2
+   `note ordinary child
 
   `task A long head that
    wraps across lines
-   {
-    `= created 2026-08-07T09:00:00+08:00
-   }
 
-core syntax 不解释 `"+"、`"@" 或 `"="。official semantic profile 将 direct `"+" member 投影为 facet，
-将 direct `"@" declaration 投影为 identity，将 direct `"=" association 投影为 property；正文中
-相同节点仍保持 collection member、identity declaration 与 definition relation。
+   `= created 2026-08-07T09:00:00+08:00
 
-marked block 的 expanded opener 是完整 head 的最后一个结构：head 未折行时挂在 header 行尾，折行时
-可以挂在任意一条 head line 行尾，也可以独占一条 continuation line；group 在 opener 所在 line 的
-column 关闭。官方 formatter 按 head 形态选择典范形式：未折行 head 用行尾 trailing opener，折行 head
-用独占行的 opener。verbatim block 的换行立即开始 raw payload，因此它的 group 必须留在 opener
-line。
+core syntax 不解释 `"+"、`"@" 或 `"="。official semantic profile 将 direct `"+" child 投影为 facet，
+将 direct `"@" declaration 投影为 identity，将 direct `"=" association 投影为 property，并从 owner
+的普通 body projection 中过滤已消费 declarations。
 
-旧的 `"{#id .class key=value}" slot 不属于 current syntax；parser 与 `"plumb fmt" 会拒绝它。
+raw tail 是 marked owner 的 optional singular field，不是 child。bare quote 之后永久进入 raw phase，
+所以 raw tail 必须位于全部 children 后，结构上也不能出现第二个 payload。匿名 raw 需要 declarations
+或普通 children 时，使用 `"()" explicit owner 与同一个 raw-tail form。
+
+旧 postfix `"{}" group 与 `"{#id .class key=value}" slot 都不属于 current syntax；brace 只作为
+ordinary text 保留。legacy 文件必须显式使用 `"plumb migrate --from attached-v1"，formatter 不读取旧语法。
 
 `# Escape
 
 两个连续反引号产生一个字面反引号：
 
-`plumb"
+`plumb
+
+"
   ``note is text, not a block.
 
-单个反引号加 `"`["、`"]"、`"{" 或 `"}" 是这四个 delimiter 的字面转义，在任何位置无条件成立；
-裸 delimiter 永远是结构拼写，在非结构位置是语法错误而不是文本。不要使用 Markdown 的 backslash
-escape，也不要假设 punctuation 在所有位置都有特殊含义。
+单个反引号加 `"`["、`"]" 或 `"|" 是 delimiter 的字面转义，在任何 parsed position 无条件成立；
+裸 brackets 与 inline member boundary 上的 pipe 是结构拼写。brace 是 ordinary text，不需要 escape。
+不要使用 Markdown 的 backslash escape，也不要假设 punctuation 在所有位置都有特殊含义。
 
 完整 grammar、indentation 与 recovery 规则见
 `->[core syntax reference|../reference/core-syntax.plumb]。

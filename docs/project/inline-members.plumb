@@ -7,12 +7,12 @@
 
 `# 动机
 
-block owner 已经通过 head 与 indentation 同时表达 positional content 和 ordinary children。inline
-owner 目前通过连续 slots 表达 positional arguments，再通过独立 `"{}" attached group 表达 ownership；
-这让同一个 owner 需要两套递归 boundary，并让 attached data 看起来像独立 attribute container，而不是
-owner 拥有的 ordinary elements。
+旧版 block owner 通过 head 与 indentation 同时表达 positional content 和 ordinary children，而 inline
+owner 通过连续 slots 表达 positional arguments，再通过独立 `"{}" attached group 表达 ownership。
+这曾让同一个 owner 需要两套递归 boundary，并让 attached data 看起来像独立 attribute container，而不是
+owner 拥有的 ordinary elements；current syntax 已用本页设计替换该结构。
 
-目标设计让一个 inline owner 只使用一对 `"[]" envelope。envelope 内的 ordered members 以 `"|"
+current syntax 让一个 inline owner 只使用一对 `"[]" envelope。envelope 内的 ordered members 以 `"|"
 分隔；member 自身的 form 同时决定它是 argument 还是 direct child，以及它使用 parsed content 还是
 verbatim payload。ownership 因而来自递归 nesting，不来自 marker/kind 的标准语义。
 
@@ -20,7 +20,9 @@ verbatim payload。ownership 因而来自递归 nesting，不来自 marker/kind 
 
 member 形成以下正交组合：
 
-`plumb"
+`plumb
+
+"
   parsed argument     `node[ordinary content]
   verbatim argument   `node["raw content"]
   parsed child        `node[head|note[parsed child]]
@@ -36,14 +38,18 @@ member 形成以下正交组合：
 因此有 introducer 的 nested element 属于 argument content，而省略 introducer、独占 member 的 element
 是 owner 的 direct child：
 
-`plumb"
+`plumb
+
+"
   `node[head|`note[value]]
   `node[head|note[value]]
 
 第一行的 second member 是包含一个普通 inline element 的 parsed argument；第二行的 second member 是
 direct parsed child。verbatim argument 与 child 同样由 kind presence 区分：
 
-`plumb"
+`plumb
+
+"
   `node[head|"raw argument"|code"raw child"]
 
 parsed/verbatim child 必须恰好占满一个 member；完整 child 后只能出现当前 owner 的 `"|" 或 closing
@@ -52,10 +58,12 @@ bracket。child 可以使用同一 member grammar 递归拥有 arguments 与 chi
 
 `# Separator 与 source order
 
-目标语法取消 consecutive `"][" positional slots，统一使用当前 envelope 内的 `"|" 分隔 ordered
+current syntax 取消 consecutive `"][" positional slots，统一使用当前 envelope 内的 `"|" 分隔 ordered
 members：
 
-`plumb"
+`plumb
+
+"
   `->[Guide|guide.plumb|@[main]|+[external]|=[rel|nofollow]]
 
 `"|" 只作用于当前 bracket depth；verbatim payload 中的 `"|" 是 raw byte，nested child 内的 `"|"
@@ -66,7 +74,9 @@ members：
 argument 与 child 可以任意交错。syntax tree 必须按 source order 保存统一的 member sequence，而不是
 分别存储两个会丢失交错位置的 vectors：
 
-`plumb"
+`plumb
+
+"
   InlineMember = ParsedArgument | VerbatimArgument | ParsedChild | VerbatimChild
 
 semantic consumer 可以分别过滤 argument 与 child views，但不得重排 source。guide 可以推荐先写
@@ -89,7 +99,9 @@ syntax 根据 member form 区分 arguments 与 direct children，不根据 kind 
 official semantics 从 ordered arguments 中计算 positional arity；interleaved children 不占用 argument
 index。以 Link 为例，first argument 是 label，second argument 是 target：
 
-`plumb"
+`plumb
+
+"
   `->[Guide|@[main]|guide.plumb|note[recommended]]
 
 这里 target 仍是 `"guide.plumb"；不能通过寻找“第二个不是 `"@"、`"+"、`"=" 的 member”来猜测
@@ -101,7 +113,7 @@ children。block list item 的 nested list item 就是普通 child，而不是 p
 同样需要定义非 declaration child 的 body projection。
 
 generic inline child 已按 source order lower 为 owner inline body 中的 nested inline structure；
-owner attributes 消费 declaration children，specialized owner 再约束普通 children 的 projection。
+owner declaration projection 消费 declaration children，specialized owner 再约束普通 children 的 projection。
 
 `# 与旧 syntax 的替换关系
 
@@ -112,19 +124,21 @@ owner attributes 消费 declaration children，specialized owner 再约束普通
 `- relation kind 的 semantic meaning 不进入 core dispatch。
 `- compact inline verbatim 仍可作为 standalone inline node；需要 owner children 的 verbatim value
  使用含 verbatim argument 的 full member envelope。
-`- block attached group 将由 direct block ownership 取代；document 与 marked block 都让 declarations 和
+`- block attached group 已由 direct block ownership 取代；document 与 marked block 都让 declarations 和
  ordinary blocks 共用同一 ordered child sequence。具名 raw payload 成为 marked owner 的 terminal field。
 
 这是 breaking syntax change；current parser 不包含 legacy compatibility branch。
 
 `# Migration
 
-实现应当同时提供显式、versioned migration，而不是让 formatter 或 ordinary parser 静默接受两套 syntax。
+实现同时提供显式、versioned migration，而不是让 formatter 或 ordinary parser 静默接受两套 syntax。
 每个 parser 只解析自己版本的 core syntax，并产出该版本的 lossless syntax tree；legacy parser 不把
 attached group 解释成 attributes，也不直接产出 current children。parser 之后的 hardcoded structural
 converter 才把旧节点 lowering 为 current owned syntax：
 
-`plumb"
+`plumb
+
+"
   legacy source
     -> legacy parser
     -> legacy syntax tree

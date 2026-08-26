@@ -4,7 +4,9 @@
 
 官方工具链的数据流是：
 
-`text"
+`text
+
+"
   UTF-8 source
       -> plumb-syntax recovered lossless tree + syntax diagnostics
       -> typed recovered/valid views
@@ -34,7 +36,7 @@ syntax validity，也不依赖 official semantics；invalid recovered tree 不�
 consumer 不直接调用该 crate，而是把已有 `"ParsedDocument" 与 format scope 交给 `"plumb-edit"，由 edit
 layer 产生 revision-bound byte edits。
 
-`"plumb-edit" 在 valid revision 上执行 syntax-level attached-property/block mutations、owned syntax insertion、
+`"plumb-edit" 在 valid revision 上执行 syntax-level declaration/block mutations、owned syntax insertion、
 format intent、validated token rewrites 和 authoring finalization。详细 contract 见
 `->[syntax editing|editing.plumb]。
 
@@ -246,29 +248,26 @@ tree-sitter grammar 与 strict core 覆盖相同的纯 syntax surface，但容�
 validity，也不能迫使语言设计适应 CFG。
 
 lenient mirror 的 external scanner 与 strict core 共享同一词法局部性预算（core syntax reference 第
-2 节）：scanner 状态只保存 indentation stack 与 verbatim margin，token 判定只做不超过一行的
-lookahead，不得跟踪 inline nesting depth，也不得跨行匹配 delimiter；grammar 侧同样不得为词法规则
-引入 nesting 上下文。
+2 节）：scanner 状态只保存 indentation stack 与 raw margin/phase。inline dispatch 不跨 physical line，
+不得跟踪 inline nesting depth 或跨行匹配 delimiter；raw payload 的 blank-run classification 可以预看至
+下一条 nonblank line 或 EOF，但不能引入其他 nesting context。
 
-lenient mirror 必须保持 core structural boundaries：独占 head continuation line 的 attached block group
-结束后，即使随后有 blank lines，也要在下一 nonblank line 预看并正确 dedent，不能把合法的 following
-top-level block 包进
-recovery error。expanded attached block group 的 opener 后允许任意 blank layout；这些前导空行必须保留为
-`"blank_line" nodes，且不得阻止随后的首个缩进 content block 被解析或高亮。verbatim block 与 inline
-verbatim 的 CST 都分别暴露 optional opaque
-`"verbatim_kind" 和 raw payload node；highlight query 必须与 block marker、parsed inline kind 一样给
-verbatim kind 使用通用 `"@keyword" capture，不能解释其 semantic profile meaning，也不能让 raw payload
-capture 覆盖 kind；injection query 对同一 node 使用独立的 `"@injection.language" capture。verbatim
-block 的每条 raw payload node
-range 必须排除 parent column 与 quote count 声明的 structural margin，只覆盖移除 margin 后的 payload
-bytes 与 line ending。injection 必须组合这些 payload ranges，使 injected parser 从 payload column zero
-读取首层内容，同时逐 byte 保留 Python 等 indentation-sensitive language 的 payload indentation。
-block dispatch position 的 backtick-kind-quote spelling 若在同一物理行形成完整 inline verbatim
-envelope，必须进入 owner head 或 paragraph 的 `"inline_verbatim"，不能被较早的 `"verbatim_block" 或
-same-line child dispatch 吞掉；这条消歧规则也适用于 paragraph 或 marked-block head 只包含该 inline
-verbatim 的情形。
+lenient mirror 必须保持 direct ownership 与 terminal raw-tail boundary。bare quote 只能绑定 scanner
+indentation stack 中同 column、仍处于 structural phase 的 marked owner，不能附着到最后一个 declaration
+child，也不能在 owner 已被同列 sibling 关闭后重新接管它。raw payload 中的 blank run 必须延迟分类：
+下一条 nonblank line 满足 margin 时属于 payload，缺少 margin 的 trailing run 作为 block layout 保留。
+
+CST 使用 `"marked_block" 保存 opaque `"marker"、head、source-ordered children 与 optional `"raw_tail"；
+anonymous `"verbatim_block" 只保存 quote opener 与 payload。highlight query 给 marker、parsed inline kind
+与 inline verbatim kind 使用通用 `"@keyword" capture，不解释 semantic profile meaning。injection query
+只对具有 raw tail 的 marked owner读取 marker 作为 `"@injection.language"；anonymous verbatim 没有 kind，
+不得猜测 injection language。每条 raw payload node range 必须排除 parent column 与 structural margin，只
+覆盖移除 margin 后的 payload bytes 与 line ending。injection 必须组合这些 ranges，使 injected parser
+从 payload column zero 读取首层内容，同时逐 byte 保留 Python 等 indentation-sensitive language 的
+payload indentation。
+
 external scanner 中所有需要预判 backtick spelling 的入口必须复用同一个无 token-range 副作用的
-dispatch classifier；classifier 只区分 escape、parsed inline、inline verbatim、marked block 与
+dispatch classifier；classifier 只区分 escape、parsed inline、inline verbatim、marked block 与 anonymous
 verbatim block，不能在 lookahead 时调用 `"mark_end" 或发射 token。strict parser normative corpus 中
 所有 valid case 经 tree-sitter parser 解析后都不得包含 `"ERROR" 或 missing node；该差分检查补充而
 不替代按 dispatch position 与 spelling kind 展开的 tree-sitter corpus matrix。

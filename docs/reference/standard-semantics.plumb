@@ -65,7 +65,9 @@ separator `"Space" 只建立 compact boundary，不进入任一 argument。各 r
 
 block-level `"=" association 的形态是：
 
-`plumb"
+`plumb
+
+"
   `= title plumb title
   `= `()[key with spaces] value with spaces
   `= key with spaces
@@ -87,7 +89,9 @@ order，再由各 owner recognizer 分别解释。
 inline `"=" association 必须恰好有两个 arguments；key 必须是非空 plain value，第二个 argument 是
 value。space 属于 argument content，不再提供 compact key/value split：
 
-`plumb"
+`plumb
+
+"
   `owner[value|=[to|target.plumb]]
   `owner[value|=[`()[key with spaces]|value with spaces]]
 
@@ -149,7 +153,9 @@ canonical formatted edit。
 标准 Link 使用唯一 parsed inline kind `"->"。ordered arguments 中 first 是 label，second 是 target；
 interleaved children 不占 argument index：
 
-`plumb"
+`plumb
+
+"
   `->[guide|relative/path.plumb]
   `->[guide page|relative/path.plumb]
   `->[guide page|@[guide]|relative/path.plumb#anchor]
@@ -178,7 +184,9 @@ document root 的 direct children，不改写其余 current syntax；它必须�
 
 标准 Autolink 使用 inline verbatim `"->" kind；payload 同时是 label 与 target：
 
-`plumb"
+`plumb
+
+"
   `->"https://example.test/a%20b"
   `->""[https://[2001:db8::1]/]""
   `->"guide.plumb#intro"
@@ -189,8 +197,8 @@ Link 使用相同 target classification；absolute/network URI 按 URI validity 
 `"..plumb" 和 `"..plumb#id" 进入 document/anchor resolution，其他 relative targets 是 file
 resources。
 
-attached `"->" facet 不产生 Autolink record，也不发布 Link-specific owner diagnostic；它与其他未知
-facet 一样保持 generic。Autolink 语义只由 inline verbatim kind `"->" 启动。
+direct `"+" child 的 `"->" facet 不产生 Autolink record，也不发布 Link-specific owner diagnostic；
+它与其他未知 facet 一样保持 generic。Autolink 语义只由 inline verbatim kind `"->" 启动。
 
 raw relative path 不进行 percent encode、percent decode 或 normalization；UTF-8、spaces、`"%"、`"?"
 和其他 path characters 都保持字面值。`"#" 是唯一 structure separator，用于 explicit anchor，因此
@@ -225,7 +233,9 @@ document reverse references 保留真实 same-document occurrences；Graph 等 c
 
 parsed inline kind `"img" 是标准 image；content 是 alt content，`"src" property 是非空 target：
 
-`plumb"
+`plumb
+
+"
   Inline `img[status icon|=[src|static/status.png]] image.
   `img[|=[src|https://example.test/decorative.svg]]
 
@@ -248,7 +258,9 @@ raw relative path。
 
 parsed inline kind `"file" 是标准 file attachment；content 是 fallback label，`"src" property 是非空 target：
 
-`plumb"
+`plumb
+
+"
   `file[Demo video|=[src|static/demo.mp4]]
   `file[Download report|=[src|reports/final.pdf]]
 
@@ -269,7 +281,9 @@ link。未知或不支持 preview 的 MIME type 保持普通 attachment link。M
 标准 citation 是 kind `"cite" 的 parsed inline element，content 必须是一个非空 plain id，且不能
 包含 nested markup：
 
-`plumb"
+`plumb
+
+"
   `cite[smith2004]
 
 export 产生一个 `"NormalCitation" mode 的 Pandoc `"Cite"。cluster、locator、prefix、suffix、
@@ -306,7 +320,9 @@ children；显式形态由此获得 direct ownership。该模型陈述结构同�
 export 分别映射 `"Div"/`"Span" 与 `"Para"/text，不做两者间的隐式转换。marker `"()" 与 parsed
 inline kind `"()" 是标准的显式 transparent container，为匿名形态解除该限制：
 
-`text"
+`text
+
+"
   `() Warning
    `@ notice
    `warning
@@ -326,7 +342,9 @@ text 参与 key atom 是同一透明性的推论。export 直接产生 Pandoc `"
 marker `">" 产生 block quote。可选 head 作为引用中的第一个 paragraph，children 按原顺序形成
 后续 blocks：
 
-`plumb"
+`plumb
+
+"
   `> A quoted opening.
 
     A second quoted paragraph.
@@ -344,7 +362,9 @@ children 或 opaque declarations，直到 official semantic profile 冻结其含
 
 六个 parsed inline kinds 产生标准 inline style semantics：
 
-`plumb"
+`plumb
+
+"
   `*[emphasis]
   `![strong]
   `==[mark]
@@ -369,7 +389,9 @@ bracket 与 introducer 始终显式标记 content boundary。
 
 verbatim inline 或 block 的 `"$" kind 产生标准 math：
 
-`text"
+`text
+
+"
   Inline `$"pi r^2".
 
   `$
@@ -389,7 +411,9 @@ dollar-delimited math 没有特殊 syntax。
 
 `"event" marker 产生 event record，并具有 bullet list-item 结构：
 
-`text"
+`text
+
+"
   `event 14:00--15:30 Parser review
    `@ parser-review
    `= date 2026-07-30
@@ -446,7 +470,9 @@ Pandoc export 将 event 作为普通 bullet list item 导出；event marker 不�
 editor authoring operation `"Convert to event" 只在 cursor 命中的单个 list item head 以完整 event
 shorthand 开头时提供：
 
-`text"
+`text
+
+"
   `- TIME TITLE
   `- TIME--TIME TITLE
   `- TIME--YYYY-MM-DDTTIME TITLE
@@ -495,7 +521,9 @@ range，不向 title frequency 贡献尚未通过 valid semantic analysis 的 ev
 
 `"task" marker 产生 task record，并具有 bullet list-item 结构：
 
-`text"
+`text
+
+"
   `task Implement parser
    `@ write-parser
 
@@ -518,7 +546,9 @@ characters、backslash、absolute path 与 `"#" 不合法。`".plumb#" 是 cross
 边界，因此 path 本身不能包含 `"#"。在 `"depends" 中，same-file reference 的 id 或 cross-file
 reference 的 id 结束后的 whitespace 才分隔下一条 reference；path 内的 spaces 属于 path：
 
-`text"
+`text
+
+"
   `task Review
    `= depends #local Project A.plumb#build Project B.plumb#test
 

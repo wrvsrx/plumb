@@ -90,7 +90,9 @@ settle 后对光标执行 `"zv"。`"foldOpenCursor" 是循环：逐层打开包�
 只作用于光标所在的链，不触碰其他手动关闭的 fold；光标位于 fold 头行（snippet 标题占位符的落点）
 同样有效。加入个人配置已有的 `"LspFolding" augroup：
 
-`lua"
+`lua
+
+"
  vim.api.nvim_create_autocmd('InsertLeave', {
    group = folding_group,
    callback = function(args)

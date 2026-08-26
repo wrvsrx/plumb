@@ -17,7 +17,9 @@ contract，并在本文增加同级章节。
 确保 `"plumb" binary 可从 `"PATH" 启动，并将 packaged `"contrib/nvim" 或 source checkout 中的同名
 directory 加入 `"runtimepath"。在打开首个 plumb buffer 前显式调用 setup：
 
-`lua"
+`lua
+
+"
   require('plumb').setup({
     command = 'plumb',
     lsp = { root_markers = { '.plumb', '.git' } },
@@ -28,7 +30,9 @@ directory 加入 `"runtimepath"。在打开首个 plumb buffer 前显式调用 s
 setup 默认启用 LSP、CodeLens 与 search，不创建 keymaps；重复 setup 不会重复 commands、autocmds 或
 clients，并可直接接受 function-valued options：
 
-`lua"
+`lua
+
+"
   require('plumb').setup({
     lsp = { on_attach = function(client, bufnr) end },
   })
@@ -40,7 +44,9 @@ verbatim payload 中真实 tab bytes 的显示宽度继续服从用户配置。
 
 底层等价的 Neovim native LSP 配置是：
 
-`lua"
+`lua
+
+"
   vim.filetype.add({ extension = { plumb = 'plumb' } })
 
   local capabilities = vim.lsp.protocol.make_client_capabilities()
@@ -70,7 +76,9 @@ tree-sitter parser 只负责 highlight、fold、indent、text object 和 injecti
 diagnostics。parser 与 queries 独立于 `"plumb.nvim" 安装；plugin 不注册 parser、不携带 queries，也不调用
 `"vim.treesitter.start()"。editor configuration 可以统一启动已注册 parser：
 
-`lua"
+`lua
+
+"
   vim.api.nvim_create_autocmd('FileType', {
     pattern = 'plumb',
     callback = function(args)
@@ -80,7 +88,9 @@ diagnostics。parser 与 queries 独立于 `"plumb.nvim" 安装；plugin 不注�
 
 repository development 使用 `"dev/nvim.lua" 加载当前 checkout 的 parser 与 queries。先运行：
 
-`text"
+`text
+
+"
   ./tree-sitter-plumb/build-parser.sh
   nvim -u dev/nvim.lua document.plumb
 
@@ -135,7 +145,9 @@ override。LSP 的无 identity `"FoldingRange" 仍需采用明确的保守匹配
 plugin 不修改 window-local folding 设置。editor configuration 可以在 `"LspAttach" 中仅对支持该 method
 的 client 启用：
 
-`lua"
+`lua
+
+"
   vim.api.nvim_create_autocmd('LspAttach', {
     callback = function(args)
       local client = vim.lsp.get_client_by_id(args.data.client_id)
@@ -168,7 +180,9 @@ range 会扣除 nested task blocks，child task 始终按自身状态着色。�
 完整 plugin 默认把两种 token 链接到 `"Comment" highlight，因此 closed task 保持可读但降低对比度。
 不使用 plugin 时可以直接配置 Neovim 0.12：
 
-`lua"
+`lua
+
+"
   vim.api.nvim_set_hl(0, '@lsp.typemod.task.completed.plumb', {
     link = 'Comment',
   })
@@ -183,7 +197,9 @@ range 会扣除 nested task blocks，child task 始终按自身状态着色。�
 
 普通 Neovim LSP mappings 可以直接调用 plumb 标准功能：
 
-`lua"
+`lua
+
+"
   vim.keymap.set('n', 'gd', vim.lsp.buf.definition)
   vim.keymap.set('n', 'gr', vim.lsp.buf.references)
   vim.keymap.set('n', '<leader>rn', vim.lsp.buf.rename)
@@ -219,7 +235,9 @@ stem 时不写 `".plumb" extension，server 会自动保留它。operation 不�
 
 `"plumb.search" 使用 `"plumb/search" custom request。native picker 基于 `"vim.ui.input/select"：
 
-`lua"
+`lua
+
+"
   vim.keymap.set('n', '<leader>pn', function()
     require('plumb.search').search_notes()
   end)
@@ -239,13 +257,17 @@ stem 时不写 `".plumb" extension，server 会自动保留它。operation 不�
 
 可以直接执行一行命令：
 
-`text"
+`text
+
+"
   :lua require('plumb.search').search_notes()
   :lua require('plumb.search').search_tasks({ filter = 'state == "ready"' })
 
 也可以注册稳定的 user commands 与 keymaps：
 
-`lua"
+`lua
+
+"
   vim.api.nvim_create_user_command('PlumbNotes', function()
     require('plumb.search').search_notes()
   end, {})
@@ -257,7 +279,9 @@ stem 时不写 `".plumb" extension，server 会自动保留它。operation 不�
 
 底层调用不经过 `"workspace/executeCommand"；它直接发送 `"plumb/search"：
 
-`lua"
+`lua
+
+"
   local client = assert(vim.lsp.get_clients({ bufnr = 0, name = 'plumb' })[1])
   client:request('plumb/search', {
     kind = 'task',
@@ -294,12 +318,16 @@ Snacks 不可用时回退 quickfix。
 position 与完整 `"Location list"；wrapper 直接使用第三个 argument，不再发送 `"textDocument/references"。
 光标位于 metadata marker 或 explicit anchor block 时可以运行：
 
-`text"
+`text
+
+"
   :lua vim.lsp.codelens.run()
 
 推荐直接注册 keymap：
 
-`lua"
+`lua
+
+"
   vim.keymap.set('n', '<leader>pr', vim.lsp.codelens.run)
 
 这要求当前 buffer attached 到提供 CodeLens 的 plumb client，并且已调用
@@ -311,7 +339,9 @@ Snacks additionally 提供 preview、tagstack 与 single-result auto-confirm。
 
 Web viewer 独立于 LSP process 与 Neovim plugin，通过统一 CLI 启动：
 
-`text"
+`text
+
+"
   plumb site serve --root /path/to/workspace
 
 Note preview 对 `"cite" 运行 Pandoc citeproc。Bibliography relative path 从各 note 所在目录

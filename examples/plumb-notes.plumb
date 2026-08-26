@@ -8,7 +8,9 @@ queries, nesting, dependencies, recurrence, and guarded actions.
 
 Run these commands from the repository root:
 
-`sh"
+`sh
+
+"
   cargo run -q -p plumb -- note --root examples --query 'title.matches("playground")'
   cargo run -q -p plumb -- note --root examples --query 'path.endsWith("plumb-ls.plumb")'
   cargo run -q -p plumb -- note --root examples --query '"index.plumb" in directly_referenced_by'
@@ -16,7 +18,9 @@ Run these commands from the repository root:
 
 `# Interactive mode
 
-`sh"
+`sh
+
+"
   EDITOR=nvim cargo run -q -p plumb -- note --root examples --interactive
 
 The picker supports fuzzy matching, source previews, multiple selections,
@@ -24,7 +28,9 @@ The picker supports fuzzy matching, source previews, multiple selections,
 
 `# Task queries
 
-`sh"
+`sh
+
+"
   cargo run -q -p plumb -- task --root examples
   cargo run -q -p plumb -- task --root examples --flat
   cargo run -q -p plumb -- task --root examples --query 'created != null && done == null'
@@ -35,68 +41,74 @@ The picker supports fuzzy matching, source previews, multiple selections,
   cargo run -q -p plumb -- event --root examples --query 'start >= timestamp("2026-07-30T00:00:00Z")'
   cargo run -q -p plumb -- event --root examples export-vdir --output /tmp/plumb-calendar
 
-`- Try a task query {
+`- Try a task query
+
  `+ task
 
  `@ try-task-query
 
- `= created 2026-07-20T09:00:00+08:00
- `= wait 2026-07-20T18:00:00+08:00
-}
+ `== created 2026-07-20T09:00:00+08:00
+ `== wait 2026-07-20T18:00:00+08:00
 
  `note This open task becomes actionable when `"wait <= now".
 
- `- Inspect nested task output {
+ `- Inspect nested task output
+
   `+ task
 
   `@ nested-task
- }
 
-`- Read completed results {
+`- Read completed results
+
  `+ task
 
  `@ finished-query
 
- `= created 2026-07-20T10:00:00+08:00
- `= done 2026-07-20T11:00:00+08:00
-}
-`- Inspect canceled results {
+ `== created 2026-07-20T10:00:00+08:00
+ `== done 2026-07-20T11:00:00+08:00
+
+`- Inspect canceled results
+
  `+ task
 
  `@ canceled-query
 
- `= created 2026-07-20T12:00:00+08:00
- `= canceled 2026-07-20T13:00:00+08:00
-}
-`- Inspect a blocked task {
+ `== created 2026-07-20T12:00:00+08:00
+ `== canceled 2026-07-20T13:00:00+08:00
+
+`- Inspect a blocked task
+
  `+ task
 
  `@ blocked-query
 
- `= depends #try-task-query
-}
-`- Review recurring task advancement {
+ `== depends #try-task-query
+
+`- Review recurring task advancement
+
  `+ task
 
  `@ weekly-review
 
- `= due 2026-07-27T17:00:00+08:00
- `= wait 2026-07-27T09:00:00+08:00
- `= recur P1W
-}
-`- 2026-07-30T14:00:00+08:00--15:00 Review task query behavior {
+ `== due 2026-07-27T17:00:00+08:00
+ `== wait 2026-07-27T09:00:00+08:00
+ `== recur P1W
+
+`- 2026-07-30T14:00:00+08:00--15:00 Review task query behavior
+
  `+ event
 
  `@ query-review
 
- `= tasks #try-task-query
-}
+ `== tasks #try-task-query
 
  `note This event appears in event CEL queries, Web Agenda, and the read-only vdir projection.
 
 Complete or cancel copies of these tasks with an explicit target:
 
-`sh"
+`sh
+
+"
   cargo run -q -p plumb -- task --root examples complete plumb-notes.plumb#try-task-query
   cargo run -q -p plumb -- task --root examples cancel plumb-notes.plumb#blocked-query
 

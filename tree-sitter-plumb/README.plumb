@@ -7,27 +7,27 @@ and document acceptance.
 `# Core-only CST
 
 The grammar represents plumb's core surface syntax with generic nodes such as
-`"marked_block"、`"marker"、`"paragraph"、`"attached_block_group"、
-`"attached_inline_group" 和 `"inline_element"。
+`"marked_block"、`"marker"、`"paragraph"、`"verbatim_block"、`"raw_tail" and
+`"inline_element"。
 Marker and inline kind tokens remain opaque. It deliberately does not create
 nodes such as `"heading"、`"list_item"、`"quote"、`"task"、`"emphasis" or
 `"link"。
 Those interpretations belong to semantic typed views, analyses, and future
 consumer-specific lowering.
 
-`"verbatim_block" and `"inline_verbatim" are separate syntax nodes because their raw
-payloads change the lexical parsing mode. Both expose an optional opaque `"verbatim_kind"
-child separately from raw payload so generic editor queries can highlight or inspect the kind
-without assigning official semantic meanings. The recovery-only
+`"verbatim_block" is the anonymous block raw leaf; `"inline_verbatim" is the single-line
+inline raw form. A named block raw payload belongs to a regular `"marked_block" through its
+optional terminal `"raw_tail" field, so its opaque language kind is the owner's `"marker".
+Anonymous block raw has no kind. The recovery-only
 `"incomplete_inline_element" node keeps subsequent blocks parseable while a
 document is being edited; it does not make malformed syntax valid to the strict parser.
 
 Parsed inline elements use the current single-envelope member model. Top-level
 `"member_separator" nodes divide ordered arguments and children; `"inline_child"
 wraps a recursive `"inline_element" or `"inline_verbatim" without assigning meaning
-to its kind. `"verbatim_argument" represents a raw positional member. Inline owners
-do not accept postfix attached groups; `"attached_inline_group" remains only as the
-compact attached form for block owners.
+to its kind. `"verbatim_argument" represents a raw positional member. Inline owners use
+only this single envelope; block and document ownership use source-ordered direct children,
+with no postfix attached-group nodes.
 
 `# Source and generated files
 
@@ -54,7 +54,9 @@ The ignore rules name these paths individually so the hand-written
 
 Run generation through the repository's locked Nix environment:
 
-`sh"
+`sh
+
+"
   cd tree-sitter-plumb
   nix develop .#tree-sitter-plumb -c tree-sitter generate
 
@@ -69,19 +71,21 @@ release artifact or regenerated locally.
 
 `"queries/highlights.scm" uses Neovim's standard tree-sitter capture names and
 only highlights the generic core CST. It does not interpret marker or inline
-kind values semantically. Marker, parsed-inline kind, and verbatim kind nodes receive generic
-token captures; raw highlighting is limited to verbatim payload nodes and does not override the
-kind capture.
+kind values semantically. Marker and parsed/inline-verbatim kind nodes receive generic token
+captures; raw highlighting is limited to payload nodes and does not override the kind capture.
 
 `"queries/folds.scm" and `"queries/indents.scm" cover generic block structure。
 `"queries/textobjects.scm" publishes `"block.outer"、`"block.inner"、`"inline.outer" and
-`"inline.inner" captures。`"queries/injections.scm" uses a verbatim block's opaque kind as
-the injection language and treats the `"$" kind as TeX。Inline verbatim does not expose a
-separate raw-content node yet, so it is not an injection target.
+`"inline.inner" captures。`"queries/injections.scm" uses the marker of a marked block with a
+raw tail as the injection language and treats the `"$" marker as TeX。Anonymous block raw has
+no injection language. Inline verbatim does not expose a separate raw-content node yet, so it
+is not an injection target.
 
 Build the parser explicitly through the locked Nix environment:
 
-`sh"
+`sh
+
+"
   ./tree-sitter-plumb/build-parser.sh
 
 The ignored output is written to `"tree-sitter-plumb/build/plumb.so". Re-run the
@@ -93,18 +97,24 @@ and enables the development `"plumb lsp" server for `"*.plumb" buffers. It does
 not invoke Nix or compile code during Neovim startup. Build both development
 artifacts first:
 
-`sh"
+`sh
+
+"
   ./tree-sitter-plumb/build-parser.sh
   cargo build -p plumb
 
 Enable the configuration locally with an ignored symlink:
 
-`sh"
+`sh
+
+"
   ln -s dev/nvim.lua .nvim.lua
 
 Enable trusted project-local configuration in your global Neovim `"init.lua"：
 
-`lua"
+`lua
+
+"
   vim.o.exrc = true
 
 Then start Neovim in this repository and approve `".nvim.lua" with `":trust" when
@@ -114,7 +124,9 @@ see the capture under the cursor.
 
 The highlight query can be checked outside Neovim with the tracked fixture:
 
-`sh"
+`sh
+
+"
   nix develop .#tree-sitter-plumb -c tree-sitter query \
     --config-path tree-sitter-plumb/config.json \
     -p tree-sitter-plumb \
@@ -125,13 +137,17 @@ The strict-valid alignment check extracts every valid case from the strict parse
 corpus, projects the strict syntax tree into normalized tree-sitter structural CST form, and
 compares it with the real generated parser's node kinds, nesting, and stable byte ranges:
 
-`sh"
+`sh
+
+"
   nix develop .#tree-sitter-plumb -c tree-sitter-plumb/check-strict-valid.sh
 
 The Neovim injection regression test loads the locked Python parser and verifies both recursive
 plumb blocks and indentation-sensitive Python highlights:
 
-`sh"
+`sh
+
+"
   nix develop .#tree-sitter-plumb -c \
     nvim --headless --clean -l contrib/nvim/tests/treesitter_injection_e2e.lua
 

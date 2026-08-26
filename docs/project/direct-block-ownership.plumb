@@ -1,7 +1,7 @@
 `= title Direct block ownership and raw tails
 
-`note 本页记录已经冻结、正在实现的 breaking feature set；可用性仍以
- `->[core syntax reference|../reference/core-syntax.plumb] 顶部状态说明为准。
+`note 本页记录已经冻结并实现的 breaking feature set；validity 以
+ `->[core syntax reference|../reference/core-syntax.plumb] 为准。
 
 `# Feature list
 
@@ -38,9 +38,10 @@ outline、export 与 semantic traversal 必须过滤 declarations，但保持普
 之前，并把 named/attributed anonymous verbatim blocks 转成 current raw-tail structure。迁移后 current parser
 不保留兼容分支。
 
-`. tree-sitter、LSP semantic tokens/folding、owned editing、import/export、bundled skill 与 zettelkasten corpus
+`. tree-sitter、LSP semantic tokens/folding、owned editing、import/export、bundled skill 与外部
+ zettelkasten corpus
 
-必须随 strict syntax 同步迁移；raw payload 中的 brace bytes 必须保持不变。
+必须随 strict syntax 同步迁移；raw payload 中包括 brace 在内的 bytes 必须逐 byte 保持不变。
 
 `# Motivation
 

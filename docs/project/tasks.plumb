@@ -4,9 +4,9 @@
 `->[roadmap|roadmap.plumb]；已经结束的任务及其验收记录保存在
 `->[completed tasks|completed-tasks.plumb]。
 
-`task 用 Diesel 建立关系化 workspace query backend {
+`task 用 Diesel 建立关系化 workspace query backend
+
  `@ diesel-workspace-query-backend
-}
 
  `note 先将现有 SqliteSemanticStore schema、migration、generation transaction、CRUD 与 typed row decoding
   迁移到 Diesel，保持 memory/persistent result parity、non-UTF-8 path round-trip、cache invalidation 与现有
@@ -38,9 +38,9 @@
   约 0.192 s/126 KB。browser 同时按 workspace revision 合并 watcher notifications，task mutation 不再因自己的
   notification 重复查询 Tasks 或刷新隐藏的 Graph/Agenda。
 
-`task 建立 event containment 索引 {
+`task 建立 event containment 索引
+
  `@ event-containment-index
-}
 
  `note 在 document analysis output 中显式表示 event 到 contained links 的关系，优先采用共享 link storage
   上可重叠的 index ranges，保持嵌套 events 可以关联同一 link，避免复制 source-backed records。

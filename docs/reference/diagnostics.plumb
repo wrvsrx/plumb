@@ -96,7 +96,9 @@ precedence、ordering、recovery 与 lossless token coverage；lenient tree-sitt
 
 当前 core codes：
 
-`text"
+`text
+
+"
   syntax.incomplete-introducer
   syntax.invalid-block-dispatch
   syntax.invalid-inline-dispatch

@@ -26,7 +26,7 @@ plumb 不让某个 punctuation 在所有位置全局 special。反引号是显�
 
 `# Core 与 semantics
 
-syntax layer 只回答 source 由哪些 blocks、inline elements、attached groups 和 raw payload 构成。heading level、
+syntax layer 只回答 source 由哪些 blocks、inline members、direct children 和 raw payload 构成。heading level、
 list grouping、metadata shape、link resolution、task state 和 export mapping 全部属于 official semantics。
 
 这条边界避免 parser 随每个 workflow 膨胀，但不承诺可替换 profiles 或第三方 plugin host。当前工具链

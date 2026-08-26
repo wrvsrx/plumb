@@ -1,9 +1,5 @@
 `= title plumb core syntax reference
 
-`note 本文定义的 direct block ownership 与 block raw-tail syntax 尚未实现；当前 released parser 仍接受
- legacy block attached groups 与 named verbatim opener。实现与迁移验证完成前，guide 不得把本页的新
- spelling 表述为 available behavior。
-
 `# 1. Scope
 
 本文定义 core syntax validity。core 识别 source structure，不解释 marker、inline kind、direct child
@@ -34,15 +30,19 @@ escape 与 bare delimiter 的身份都是全局的，与位置无关：
  text；唯一例外是 marked block owner column 上独占 physical line 的 bare `"`"，它开始该 block 的
  raw tail。inline/raw payload 是 raw bytes，不识别 delimiter escape。
 
-词法判定保持局部：token 只依赖当前字符 run 与紧邻 lookahead，允许的全局上下文仅 indentation、
-verbatim 的 margin 与 quote strength、以及当前行的 line ending。ownership、nesting 与 form 判定全部
-由 parser 在 token 流上完成，不进入 lexer。
+inline dispatch 的词法判定保持在单条 physical line 内：token 只依赖当前字符 run 与紧邻 lookahead，
+允许的全局上下文仅 indentation、verbatim margin、quote strength 与当前 line ending。第 10 节为了区分
+raw payload 内部 blank run 和 block layout，允许唯一一次跨多行 lookahead 到下一条 nonblank line 或
+EOF；它只分类 blank bytes，不跟踪 inline nesting 或跨行 delimiter。ownership、nesting 与 member form
+判定全部由 parser 在 token 流上完成，不进入 lexer。
 
 core 不定义通用 escape language。introducer 后不是上述 delimiter 的 character 继续按普通
 inline/block dispatch 解析；dispatch 不完整时发布已有 `"syntax.invalid-inline-dispatch" 或对应 block
 diagnostic，不新增 generic invalid-escape category。
 
-`plumb"
+`plumb
+
+"
   ``node is literal text.
   ```node introduces one literal backtick, then a node.
 
@@ -73,7 +73,9 @@ double quote、bracket 或 pipe。brace 是 ordinary marker character。token �
 
 marked block 形状为：
 
-`text"
+`text
+
+"
   `marker
   `marker Head
 
@@ -107,13 +109,17 @@ head 仍为空时，head separator 后任何能完成 block dispatch 的 marked/
 physical line 开始 first child；group delimiter 不属于 block entry。first child 的 introducer column
 建立 body column，后续 children 必须从同一 column 开始：
 
-`plumb"
+`plumb
+
+"
   `- `- a
      `- b
 
 这与换行布局产生相同 tree：
 
-`plumb"
+`plumb
+
+"
   `-
      `- a
      `- b
@@ -145,7 +151,9 @@ postfix attached group、compact block ownership 或独立 attribute region。`"
 marker 在 core 中完全同类；typed generic attribute view 可以从 direct declaration children 投影，
 但不得改变、移除或重排原 children sequence。
 
-`text"
+`text
+
+"
   `= title Document title
   `= tags
    `- plumb
@@ -168,7 +176,9 @@ declaration 与普通 structural children 可以任意交错。semantic profile 
 parsed inline element 由 introducer、非空 `"InlineKind"、opening bracket、ordered members 和 closing
 bracket 构成：
 
-`plumb"
+`plumb
+
+"
   `kind[content]
   `outer[before `inner[nested] after|child[value]|code"raw"]
 
@@ -190,7 +200,9 @@ dedent 或 block-only entry。parser 使用 explicit stack，语言不设置 inl
 
 一个 element 只使用一对 `"[]" envelope。envelope 内以当前 depth 的 `"|" 分隔 ordered members：
 
-`plumb"
+`plumb
+
+"
   `kind[only]
   `kind[first|second|child[value]|code"raw"]
   `kind[first|@[identity]|second|=[key|value]]
@@ -214,7 +226,9 @@ unattached bracket；后者只是 parsed text braces，不建立 children。版�
 inline verbatim 有 compact 与 strengthened 两种 envelope。compact form 是 introducer、可选 opaque
 kind、一个 opening quote、非空 raw payload 和一个 closing quote；它只是常见单行 payload 的 sugar：
 
-`plumb"
+`plumb
+
+"
   `"raw"
   `rust"let x = 1;"
   `$"x^2"
@@ -222,7 +236,9 @@ kind、一个 opening quote、非空 raw payload 和一个 closing quote；它�
 
 compact payload 不能包含 double quote。需要 quote 或 closing-like sequence 时使用 strengthened form：
 
-`plumb"
+`plumb
+
+"
   `"[raw containing " safely]"
   `rust""[raw containing ]" safely]""
 
@@ -235,7 +251,9 @@ opening quote 后紧接 opening bracket 时进入 strengthened form；quote run 
 standalone inline verbatim 不拥有 children；需要 raw argument 与 children 的 owner 使用第 8.1 节的
 full element。payload 自身仍只占一条 physical line。空 verbatim 的写法：
 
-`plumb"
+`plumb
+
+"
   `rust""
   `rust""[]""
 
@@ -248,7 +266,9 @@ bracket、payload、closing bracket 与相同 quote run）。
 任何 marked block 都可以在完整 children sequence 后声明至多一个 raw tail。boundary 是与 owner
 introducer column 对齐、独占 physical line 的 bare `"`"；它不是 block、child 或 anonymous payload node：
 
-`text"
+`text
+
+"
   `rust
    `@ example
    `= generated true
@@ -267,14 +287,18 @@ bare `"`" 只在 parser indentation stack 仍持有同 column marked owner 时�
 
 anonymous compact verbatim 使用 introducer 与一个或多个 opening quotes，并立即进入 raw phase：
 
-`text"
+`text
+
+"
   `"
    anonymous raw
 
 它产生 zero-head、zero-children block 与一个 payload；不能拥有 declarations 或普通 children。需要让
 anonymous raw 拥有 children 时，以 `"()" marker 显式化 owner，再使用普通 raw tail：
 
-`text"
+`text
+
+"
   `()
    `@ example
   "
@@ -283,7 +307,9 @@ anonymous raw 拥有 children 时，以 `"()" marker 显式化 owner，再使用
 因此带 introducer 的 anonymous quote opener 是匿名紧凑形式，bare `"`" 是现有 marked owner 的 tail boundary，两者由 introducer 明确
 区分。普通 block 仍可恰好包含一个 anonymous verbatim child：
 
-`text"
+`text
+
+"
   `example
    `"
     one anonymous child
