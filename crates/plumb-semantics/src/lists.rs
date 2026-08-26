@@ -60,7 +60,7 @@ fn collect_groups<'a>(blocks: impl IntoIterator<Item = &'a Block>, output: &mut 
                 range: item.range.clone(),
                 selection_range: item.head.range.clone(),
             });
-            collect_groups(&item.children, output);
+            collect_groups(crate::body_children(item), output);
             current = if blocks
                 .peek()
                 .and_then(|next| list_item(next))
@@ -81,7 +81,7 @@ fn collect_groups<'a>(blocks: impl IntoIterator<Item = &'a Block>, output: &mut 
 
 fn collect_child_groups(block: &Block, output: &mut ListOutput) {
     if let Block::Parsed(block) = block {
-        collect_groups(&block.children, output);
+        collect_groups(crate::body_children(block), output);
     }
 }
 
@@ -106,7 +106,7 @@ mod tests {
     #[test]
     fn groups_adjacent_sibling_items_and_nested_items() {
         let parsed = parse(
-            "`task One {\n}\n\n      `- Nested one\n      `- Nested two\n\n`- Two\n\nParagraph.\n\n`- Three\n",
+            "`task One\n `- Nested one\n `- Nested two\n\n`- Two\n\nParagraph.\n\n`- Three\n",
         );
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 

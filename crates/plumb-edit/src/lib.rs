@@ -1,7 +1,7 @@
 use std::ops::Range;
 
 use plumb_syntax::{
-    AttachedContent, AttrItem, Attributes, Block, Inline, InlineMember, ParsedBlock, ParsedDocument,
+    AttrItem, Attributes, Block, Inline, InlineMember, ParsedBlock, ParsedDocument,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -104,13 +104,11 @@ pub enum OwnedValue {
 pub enum OwnedBlock {
     Parsed {
         marker: Option<String>,
-        attributes: OwnedAttributes,
         head: Vec<OwnedInline>,
         children: Vec<OwnedBlock>,
+        raw: Option<String>,
     },
     Verbatim {
-        kind: String,
-        attributes: OwnedAttributes,
         text: String,
     },
 }
@@ -135,19 +133,6 @@ pub enum OwnedInlineMember {
     ParsedArgument(Vec<OwnedInline>),
     VerbatimArgument(String),
     Child(Box<OwnedInline>),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum OwnedAttachedContent {
-    Blocks(Vec<OwnedBlock>),
-    Inlines(Vec<OwnedInline>),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct OwnedAttributes {
-    pub present: bool,
-    pub items: Vec<OwnedAttribute>,
-    pub content: Option<OwnedAttachedContent>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -178,46 +163,29 @@ impl OwnedAttribute {
         }
     }
 
-    fn render(&self) -> String {
+    fn render_block(&self) -> String {
+        let escape = |value: &str| value.replace('`', "``");
         match self {
-            Self::Id(value) => format!("#{value}"),
-            Self::Class(value) => format!(".{value}"),
-            Self::Pair { key, value } => match value {
-                OwnedValue::Bare(value) => format!("{key}={value}"),
-                OwnedValue::Quoted(value) => {
-                    let value = value.replace('\\', "\\\\").replace('"', "\\\"");
-                    format!("{key}=\"{value}\"")
-                }
-            },
-        }
-    }
-
-    fn render_attached(&self, inline: bool) -> String {
-        let escape = |value: &str| {
-            let value = value.replace('`', "``");
-            if inline {
-                value
-                    .replace(']', "`]")
-                    .replace('{', "`{")
-                    .replace('}', "`}")
-            } else {
-                value
-            }
-        };
-        match self {
-            Self::Id(value) if inline => format!("`@[{}]", escape(value)),
             Self::Id(value) => format!("`@ {}", escape(value)),
-            Self::Class(value) if inline => format!("`+[{}]", escape(value)),
             Self::Class(value) => format!("`+ {}", escape(value)),
             Self::Pair { key, value } => {
                 let value = match value {
                     OwnedValue::Bare(value) | OwnedValue::Quoted(value) => value,
                 };
-                if inline {
-                    format!("`=[{}|{}]", escape(key), escape(value))
-                } else {
-                    format!("`= {} {}", escape(key), escape(value))
-                }
+                format!("`= {} {}", escape(key), escape(value))
+            }
+        }
+    }
+
+    fn into_block(self) -> OwnedBlock {
+        match self {
+            Self::Id(value) => OwnedBlock::marked("@", value),
+            Self::Class(value) => OwnedBlock::marked("+", value),
+            Self::Pair { key, value } => {
+                let value = match value {
+                    OwnedValue::Bare(value) | OwnedValue::Quoted(value) => value,
+                };
+                OwnedBlock::association(key, value)
             }
         }
     }
@@ -227,49 +195,71 @@ impl OwnedBlock {
     pub fn association(key: impl Into<String>, value: impl Into<String>) -> Self {
         Self::Parsed {
             marker: Some("=".into()),
-            attributes: OwnedAttributes::default(),
             head: vec![
                 OwnedInline::Text(key.into()),
                 OwnedInline::Space(" ".into()),
                 OwnedInline::Text(value.into()),
             ],
             children: Vec::new(),
+            raw: None,
         }
     }
 
     pub fn marked(marker: impl Into<String>, head: impl Into<String>) -> Self {
         Self::Parsed {
             marker: Some(marker.into()),
-            attributes: OwnedAttributes::default(),
             head: vec![OwnedInline::Text(head.into())],
             children: Vec::new(),
+            raw: None,
         }
     }
 
     pub fn paragraph(text: impl Into<String>) -> Self {
         Self::Parsed {
             marker: None,
-            attributes: OwnedAttributes::default(),
             head: vec![OwnedInline::Text(text.into())],
             children: Vec::new(),
+            raw: None,
         }
     }
 
-    pub fn with_attributes(mut self, attributes: Vec<OwnedAttribute>) -> Self {
-        match &mut self {
+    pub fn with_attributes(self, attributes: Vec<OwnedAttribute>) -> Self {
+        match self {
             Self::Parsed {
-                attributes: current,
-                ..
-            }
-            | Self::Verbatim {
-                attributes: current,
-                ..
+                marker,
+                head,
+                mut children,
+                raw,
             } => {
-                current.present = true;
-                current.items = attributes;
+                children.retain(|child| owned_declaration(child).is_none());
+                let mut declarations = attributes
+                    .into_iter()
+                    .map(OwnedAttribute::into_block)
+                    .collect::<Vec<_>>();
+                declarations.append(&mut children);
+                Self::Parsed {
+                    marker,
+                    head,
+                    children: declarations,
+                    raw,
+                }
+            }
+            Self::Verbatim { text } => {
+                if attributes.is_empty() {
+                    Self::Verbatim { text }
+                } else {
+                    Self::Parsed {
+                        marker: Some("()".into()),
+                        head: Vec::new(),
+                        children: attributes
+                            .into_iter()
+                            .map(OwnedAttribute::into_block)
+                            .collect(),
+                        raw: Some(text),
+                    }
+                }
             }
         }
-        self
     }
 
     pub fn with_children(mut self, children: Vec<OwnedBlock>) -> Self {
@@ -277,27 +267,41 @@ impl OwnedBlock {
             Self::Parsed {
                 children: current, ..
             } => *current = children,
-            Self::Verbatim { .. } => {
-                debug_assert!(children.is_empty())
-            }
+            Self::Verbatim { .. } => debug_assert!(children.is_empty()),
         }
         self
     }
 
-    pub fn attributes(&self) -> &[OwnedAttribute] {
+    pub fn attributes(&self) -> Vec<OwnedAttribute> {
         match self {
-            Self::Parsed { attributes, .. } | Self::Verbatim { attributes, .. } => {
-                &attributes.items
+            Self::Parsed { children, .. } => {
+                children.iter().filter_map(owned_declaration).collect()
             }
+            Self::Verbatim { .. } => Vec::new(),
         }
     }
 
-    pub fn attributes_mut(&mut self) -> &mut Vec<OwnedAttribute> {
-        match self {
-            Self::Parsed { attributes, .. } | Self::Verbatim { attributes, .. } => {
-                attributes.present = true;
-                &mut attributes.items
-            }
+    pub fn retain_attributes(&mut self, mut predicate: impl FnMut(&OwnedAttribute) -> bool) {
+        if let Self::Parsed { children, .. } = self {
+            children.retain(|child| owned_declaration(child).as_ref().is_none_or(&mut predicate));
+        }
+    }
+
+    pub fn push_attribute(&mut self, attribute: OwnedAttribute) {
+        if let Self::Parsed { children, .. } = self {
+            let index = children
+                .iter()
+                .rposition(|child| owned_declaration(child).is_some())
+                .map_or(0, |index| index + 1);
+            children.insert(index, attribute.into_block());
+        } else {
+            panic!("anonymous raw blocks have no attributes");
+        }
+    }
+
+    pub fn extend_attributes(&mut self, attributes: impl IntoIterator<Item = OwnedAttribute>) {
+        for attribute in attributes {
+            self.push_attribute(attribute);
         }
     }
 
@@ -324,8 +328,6 @@ impl OwnedBlock {
         match block {
             Block::Parsed(block) => Self::from_parsed(source, block),
             Block::Verbatim(block) => Self::Verbatim {
-                kind: block.kind.clone(),
-                attributes: owned_attributes(&block.attrs),
                 text: block.text.clone(),
             },
         }
@@ -334,12 +336,6 @@ impl OwnedBlock {
     pub fn from_parsed(source: &str, block: &ParsedBlock) -> Self {
         Self::Parsed {
             marker: block.mark.as_ref().map(|mark| mark.marker.clone()),
-            attributes: block
-                .mark
-                .as_ref()
-                .map_or_else(OwnedAttributes::default, |mark| {
-                    owned_attributes(&mark.attrs)
-                }),
             head: block
                 .head
                 .items
@@ -351,6 +347,7 @@ impl OwnedBlock {
                 .iter()
                 .map(|child| Self::from_syntax(source, child))
                 .collect(),
+            raw: block.raw.as_ref().map(|raw| raw.text.clone()),
         }
     }
 
@@ -362,6 +359,48 @@ impl OwnedBlock {
 impl OwnedDocument {
     pub fn format(&self) -> Result<String, EditError> {
         format_owned_blocks(&self.blocks, "\n")
+    }
+}
+
+fn owned_declaration(block: &OwnedBlock) -> Option<OwnedAttribute> {
+    let OwnedBlock::Parsed {
+        marker: Some(marker),
+        head,
+        children,
+        raw: None,
+    } = block
+    else {
+        return None;
+    };
+    if !children.is_empty() {
+        return None;
+    }
+    let plain = |items: &[OwnedInline]| {
+        items.iter().try_fold(String::new(), |mut output, inline| {
+            match inline {
+                OwnedInline::Text(text) | OwnedInline::Space(text) => output.push_str(text),
+                OwnedInline::SoftBreak
+                | OwnedInline::Element { .. }
+                | OwnedInline::Verbatim { .. } => return None,
+            }
+            Some(output)
+        })
+    };
+    match marker.as_str() {
+        "@" => Some(OwnedAttribute::Id(plain(head)?)),
+        "+" => Some(OwnedAttribute::Class(plain(head)?)),
+        "=" => {
+            let separator = head
+                .iter()
+                .position(|inline| matches!(inline, OwnedInline::Space(_)))?;
+            let key = plain(&head[..separator])?;
+            let value = plain(&head[separator + 1..])?;
+            (!key.is_empty() && !value.is_empty()).then_some(OwnedAttribute::Pair {
+                key,
+                value: OwnedValue::Bare(value),
+            })
+        }
+        _ => None,
     }
 }
 
@@ -423,7 +462,7 @@ pub fn remove_block(parsed: &ParsedDocument, range: Range<usize>) -> Result<Text
 }
 
 impl OwnedInline {
-    fn from_syntax(inline: &Inline) -> Self {
+    pub fn from_syntax(inline: &Inline) -> Self {
         match inline {
             Inline::Text { text, .. } => Self::Text(text.clone()),
             Inline::Space { text, .. } => Self::Space(text.clone()),
@@ -492,12 +531,81 @@ impl<'a> EditSession<'a> {
         owner_insert: usize,
         additions: impl IntoIterator<Item = (AttributePosition, OwnedAttribute)>,
     ) -> Result<(), EditError> {
-        let mut items = owned_attribute_items(attributes);
-        for (position, item) in additions {
-            let index = insertion_index(position, items.len())?;
-            items.insert(index, item);
+        enum Entry {
+            Existing(usize),
+            Added(OwnedAttribute),
         }
-        self.replace_attribute_slot(attributes, owner_insert, items)
+        let mut entries = (0..attributes.items.len())
+            .map(Entry::Existing)
+            .collect::<Vec<_>>();
+        for (position, item) in additions {
+            let index = insertion_index(position, entries.len())?;
+            entries.insert(index, Entry::Added(item));
+        }
+        let newline = line_ending(&self.parsed.source);
+        let mut index = 0;
+        while index < entries.len() {
+            if matches!(entries[index], Entry::Existing(_)) {
+                index += 1;
+                continue;
+            }
+            let start = index;
+            while index < entries.len() && matches!(entries[index], Entry::Added(_)) {
+                index += 1;
+            }
+            let additions = entries[start..index]
+                .iter()
+                .map(|entry| match entry {
+                    Entry::Added(item) => item.clone(),
+                    Entry::Existing(_) => unreachable!(),
+                })
+                .collect::<Vec<_>>();
+            let next_existing = entries[index..].iter().find_map(|entry| match entry {
+                Entry::Existing(existing) => Some(*existing),
+                Entry::Added(_) => None,
+            });
+            if let Some(existing) = next_existing {
+                let offset = attr_item_range(&attributes.items[existing]).start;
+                let indent = line_indent(&self.parsed.source, offset);
+                let prefix = " ".repeat(indent);
+                let rendered = render_block_attributes(&additions, indent, newline);
+                let mut text = rendered
+                    .strip_prefix(&prefix)
+                    .ok_or(EditError::GeneratedInvalid)?
+                    .to_string();
+                text.push_str(newline);
+                text.push_str(newline);
+                text.push_str(&prefix);
+                self.replace(offset..offset, text)?;
+            } else if let Some(last) = attributes.items.last() {
+                let range = attr_item_range(last);
+                let content = self.parsed.source[range.clone()].trim_end_matches(['\r', '\n']);
+                let offset = range.start + content.len();
+                let indent = line_indent(&self.parsed.source, range.start);
+                let text = format!(
+                    "{newline}{}",
+                    render_block_attributes(&additions, indent, newline)
+                );
+                self.replace(offset..offset, text)?;
+            } else {
+                let line_end = self.parsed.source[owner_insert..]
+                    .find('\n')
+                    .map_or(self.parsed.source.len(), |relative| owner_insert + relative);
+                let owner_indent = line_indent(&self.parsed.source, owner_insert);
+                let child_indent =
+                    parsed_block_with_range(&self.parsed.syntax.blocks, &self.affected)
+                        .and_then(|owner| owner.children.first())
+                        .map_or(owner_indent + 1, |child| {
+                            line_indent(&self.parsed.source, child.range().start)
+                        });
+                let text = format!(
+                    "{newline}{newline}{}",
+                    render_block_attributes(&additions, child_indent, newline)
+                );
+                self.replace(line_end..line_end, text)?;
+            }
+        }
+        Ok(())
     }
 
     pub fn replace_attribute(
@@ -506,12 +614,17 @@ impl<'a> EditSession<'a> {
         index: usize,
         item: OwnedAttribute,
     ) -> Result<(), EditError> {
-        let mut items = owned_attribute_items(attributes);
-        let target = items
-            .get_mut(index)
+        let target = attributes
+            .items
+            .get(index)
             .ok_or(EditError::InvalidAttributePosition)?;
-        *target = item;
-        self.replace_attribute_slot(attributes, 0, items)
+        let range = attr_item_range(target).clone();
+        let mut replacement = item.render_block();
+        let newline = line_ending(&self.parsed.source);
+        if self.parsed.source[range.clone()].ends_with(newline) {
+            replacement.push_str(newline);
+        }
+        self.replace(range, replacement)
     }
 
     pub fn remove_attribute(
@@ -519,12 +632,11 @@ impl<'a> EditSession<'a> {
         attributes: &Attributes,
         index: usize,
     ) -> Result<(), EditError> {
-        let mut items = owned_attribute_items(attributes);
-        if index >= items.len() {
-            return Err(EditError::InvalidAttributePosition);
-        }
-        items.remove(index);
-        self.replace_attribute_slot(attributes, 0, items)
+        let target = attributes
+            .items
+            .get(index)
+            .ok_or(EditError::InvalidAttributePosition)?;
+        self.replace(attr_item_range(target).clone(), String::new())
     }
 
     pub fn insert_blocks(&mut self, offset: usize, blocks: &[OwnedBlock]) -> Result<(), EditError> {
@@ -564,11 +676,27 @@ impl<'a> EditSession<'a> {
         range: Range<usize>,
         block: &OwnedBlock,
     ) -> Result<(), EditError> {
+        self.replace_block_with_blocks(range, std::slice::from_ref(block))
+    }
+
+    pub fn replace_block_with_blocks(
+        &mut self,
+        range: Range<usize>,
+        blocks: &[OwnedBlock],
+    ) -> Result<(), EditError> {
         let newline = line_ending(&self.parsed.source);
-        self.replace(
-            range,
-            format_owned_blocks(std::slice::from_ref(block), newline)?,
-        )
+        let formatted = format_owned_blocks(blocks, newline)?;
+        let indent = " ".repeat(line_indent(&self.parsed.source, range.start));
+        let new_text = if indent.is_empty() {
+            formatted
+        } else {
+            let indented = indent_fragment(&formatted, &indent, newline);
+            indented
+                .strip_prefix(&indent)
+                .ok_or(EditError::GeneratedInvalid)?
+                .to_string()
+        };
+        self.replace(range, new_text)
     }
 
     pub fn remove_block(&mut self, range: Range<usize>) -> Result<(), EditError> {
@@ -594,68 +722,13 @@ impl<'a> EditSession<'a> {
     pub fn finish(self) -> Result<TextEdit, EditError> {
         finalize(self.parsed, self.affected, self.edits)
     }
+}
 
-    fn replace_attribute_slot(
-        &mut self,
-        attributes: &Attributes,
-        owner_insert: usize,
-        items: Vec<OwnedAttribute>,
-    ) -> Result<(), EditError> {
-        let (range, new_text) = if let Some(range) = &attributes.range {
-            let mut rendered = if let Some(attached) = attributes.attached.as_deref() {
-                render_attached_attribute_slot(
-                    &items,
-                    &attached.content,
-                    line_indent(&self.parsed.source, attached.open_range.start),
-                    line_ending(&self.parsed.source),
-                )
-            } else {
-                render_attribute_slot(&items.iter().map(OwnedAttribute::render).collect::<Vec<_>>())
-            };
-            let newline = line_ending(&self.parsed.source);
-            if self.parsed.source[range.clone()].ends_with(newline) && !rendered.ends_with(newline)
-            {
-                rendered.push_str(newline);
-            }
-            (range.clone(), rendered)
-        } else {
-            if owner_insert > self.parsed.source.len()
-                || !self.parsed.source.is_char_boundary(owner_insert)
-            {
-                return Err(EditError::InvalidRange);
-            }
-            let line_end = self.parsed.source[owner_insert..]
-                .find('\n')
-                .map_or(self.parsed.source.len(), |relative| owner_insert + relative);
-            let newline = line_ending(&self.parsed.source);
-            if self.parsed.source[..owner_insert].ends_with('"') {
-                let group = render_attached_attribute_slot(
-                    &items,
-                    &AttachedContent::Inlines(plumb_syntax::InlineContent {
-                        range: 0..0,
-                        items: Vec::new(),
-                    }),
-                    0,
-                    newline,
-                );
-                return self.replace(owner_insert..owner_insert, format!(" {group}"));
-            }
-            let line_start = self.parsed.source[..owner_insert]
-                .rfind('\n')
-                .map_or(0, |index| index + 1);
-            let group_indent = self.parsed.source[line_start..owner_insert]
-                .bytes()
-                .take_while(|byte| *byte == b' ')
-                .count();
-            let group = render_attached_attribute_slot(
-                &items,
-                &AttachedContent::Blocks(Vec::new()),
-                group_indent,
-                newline,
-            );
-            (line_end..line_end, format!(" {group}"))
-        };
-        self.replace(range, new_text)
+fn attr_item_range(item: &AttrItem) -> &Range<usize> {
+    match item {
+        AttrItem::Id { range, .. }
+        | AttrItem::Class { range, .. }
+        | AttrItem::Pair { range, .. } => range,
     }
 }
 
@@ -671,84 +744,13 @@ fn insertion_index(position: AttributePosition, len: usize) -> Result<usize, Edi
     }
 }
 
-fn owned_attribute_items(attributes: &Attributes) -> Vec<OwnedAttribute> {
-    attributes
-        .items
+fn render_block_attributes(items: &[OwnedAttribute], indent: usize, newline: &str) -> String {
+    let item_indent = " ".repeat(indent);
+    items
         .iter()
-        .map(|item| match item {
-            AttrItem::Id { value, .. } => OwnedAttribute::Id(value.clone()),
-            AttrItem::Class { value, .. } => OwnedAttribute::Class(value.clone()),
-            AttrItem::Pair { key, value, .. } => OwnedAttribute::Pair {
-                key: key.clone(),
-                value: if value.quoted {
-                    OwnedValue::Quoted(value.decoded.clone())
-                } else {
-                    OwnedValue::Bare(value.decoded.clone())
-                },
-            },
-        })
-        .collect()
-}
-
-fn owned_attributes(attributes: &Attributes) -> OwnedAttributes {
-    OwnedAttributes {
-        present: attributes.range.is_some(),
-        items: attributes
-            .items
-            .iter()
-            .map(|item| match item {
-                AttrItem::Id { value, .. } => OwnedAttribute::Id(value.clone()),
-                AttrItem::Class { value, .. } => OwnedAttribute::Class(value.clone()),
-                AttrItem::Pair { key, value, .. } => OwnedAttribute::Pair {
-                    key: key.clone(),
-                    value: if value.quoted {
-                        OwnedValue::Quoted(value.decoded.clone())
-                    } else {
-                        OwnedValue::Bare(value.decoded.clone())
-                    },
-                },
-            })
-            .collect(),
-        content: None,
-    }
-}
-
-fn render_attribute_slot(items: &[String]) -> String {
-    format!("{{{}}}", items.join(" "))
-}
-
-fn render_attached_attribute_slot(
-    items: &[OwnedAttribute],
-    content: &AttachedContent,
-    indent: usize,
-    newline: &str,
-) -> String {
-    match content {
-        AttachedContent::Inlines(_) => format!(
-            "{{{}}}",
-            items
-                .iter()
-                .map(|item| item.render_attached(true))
-                .collect::<Vec<_>>()
-                .join(" ")
-        ),
-        AttachedContent::Blocks(_) => {
-            let item_indent = " ".repeat(indent + 1);
-            let close_indent = " ".repeat(indent);
-            if items.is_empty() {
-                format!("{{{newline}{close_indent}}}")
-            } else {
-                format!(
-                    "{{{newline}{item_indent}{}{newline}{close_indent}}}",
-                    items
-                        .iter()
-                        .map(|item| item.render_attached(false))
-                        .collect::<Vec<_>>()
-                        .join(&format!("{newline}{item_indent}"))
-                )
-            }
-        }
-    }
+        .map(|item| format!("{item_indent}{}", item.render_block()))
+        .collect::<Vec<_>>()
+        .join(&format!("{newline}{newline}"))
 }
 
 fn line_indent(source: &str, offset: usize) -> usize {
@@ -787,9 +789,9 @@ fn render_owned_block(block: &OwnedBlock, indent: usize, output: &mut String) {
     match block {
         OwnedBlock::Parsed {
             marker,
-            attributes,
             head,
             children,
+            raw,
         } => {
             if let Some(marker) = marker {
                 output.push('`');
@@ -800,47 +802,44 @@ fn render_owned_block(block: &OwnedBlock, indent: usize, output: &mut String) {
             }
             let continuation_indent = if marker.is_some() { indent + 1 } else { indent };
             render_owned_inlines(head, marker.is_some(), continuation_indent, output);
-            if attributes.present {
-                output.push(' ');
-                render_owned_block_attached(attributes, indent, output);
-            }
             if !children.is_empty() {
-                if head.is_empty() && !attributes.present {
+                if head.is_empty() {
                     output.push('\n');
                 } else {
                     output.push_str("\n\n");
                 }
                 render_owned_blocks(children, indent + 1, output);
             }
-        }
-        OwnedBlock::Verbatim {
-            kind,
-            attributes,
-            text,
-        } => {
-            output.push('`');
-            output.push_str(kind);
-            output.push('"');
-            if attributes.present {
-                output.push(' ');
-            }
-            render_owned_attached(attributes, indent, output);
-            if !text.is_empty() {
-                output.push('\n');
-                for (index, line) in text.split_terminator('\n').enumerate() {
-                    if index > 0 {
-                        output.push('\n');
-                    }
-                    if !line.is_empty() {
-                        output.extend(std::iter::repeat_n(' ', indent + 1));
-                        output.push_str(line);
-                    }
-                }
-                if text.ends_with('\n') {
-                    output.push('\n');
-                }
+            if let Some(text) = raw {
+                output.push_str("\n\n");
+                output.extend(std::iter::repeat_n(' ', indent));
+                output.push('"');
+                render_owned_raw_text(text, indent, output);
             }
         }
+        OwnedBlock::Verbatim { text } => {
+            output.push_str("`\"");
+            render_owned_raw_text(text, indent, output);
+        }
+    }
+}
+
+fn render_owned_raw_text(text: &str, indent: usize, output: &mut String) {
+    if text.is_empty() {
+        return;
+    }
+    output.push('\n');
+    for (index, line) in text.split_terminator('\n').enumerate() {
+        if index > 0 {
+            output.push('\n');
+        }
+        if !line.is_empty() {
+            output.extend(std::iter::repeat_n(' ', indent + 1));
+            output.push_str(line);
+        }
+    }
+    if text.ends_with('\n') {
+        output.push('\n');
     }
 }
 
@@ -867,7 +866,7 @@ fn render_owned_inline(
             for character in text.chars() {
                 match character {
                     '`' => output.push_str("``"),
-                    '[' | ']' | '{' | '}' | '|' => {
+                    '[' | ']' | '|' => {
                         output.push('`');
                         output.push(character);
                     }
@@ -929,58 +928,6 @@ fn render_owned_verbatim_payload(text: &str, output: &mut String) {
     }
 }
 
-fn render_owned_block_attached(attributes: &OwnedAttributes, indent: usize, output: &mut String) {
-    match &attributes.content {
-        Some(OwnedAttachedContent::Blocks(blocks)) => {
-            output.push('{');
-            output.push('\n');
-            if !blocks.is_empty() {
-                render_owned_blocks(blocks, indent + 1, output);
-                output.push('\n');
-            }
-            output.extend(std::iter::repeat_n(' ', indent));
-            output.push('}');
-        }
-        Some(OwnedAttachedContent::Inlines(inlines)) => {
-            output.push('{');
-            render_owned_inlines(inlines, true, indent + 1, output);
-            output.push('}');
-        }
-        None => output.push_str(&render_attached_attribute_slot(
-            &attributes.items,
-            &AttachedContent::Blocks(Vec::new()),
-            indent,
-            "\n",
-        )),
-    }
-}
-
-fn render_owned_attached(attributes: &OwnedAttributes, indent: usize, output: &mut String) {
-    if !attributes.present {
-        return;
-    }
-    match &attributes.content {
-        Some(OwnedAttachedContent::Blocks(_)) => {
-            render_owned_block_attached(attributes, indent, output);
-        }
-        Some(OwnedAttachedContent::Inlines(inlines)) => {
-            output.push('{');
-            render_owned_inlines(inlines, true, indent + 1, output);
-            output.push('}');
-        }
-        None => {
-            output.push('{');
-            for (index, attribute) in attributes.items.iter().enumerate() {
-                if index > 0 {
-                    output.push(' ');
-                }
-                output.push_str(&attribute.render_attached(true));
-            }
-            output.push('}');
-        }
-    }
-}
-
 fn minimum_quote_count(text: &str) -> usize {
     (0..)
         .find(|quotes| !text.contains(&format!("]{}", "\"".repeat(*quotes))))
@@ -999,6 +946,24 @@ fn has_block_range(blocks: &[Block], target: &Range<usize>) -> bool {
     blocks
         .iter()
         .any(|block| block.range() == target || has_block_range(block.children(), target))
+}
+
+fn parsed_block_with_range<'a>(
+    blocks: &'a [Block],
+    target: &Range<usize>,
+) -> Option<&'a plumb_syntax::ParsedBlock> {
+    for block in blocks {
+        let Block::Parsed(block) = block else {
+            continue;
+        };
+        if &block.range == target {
+            return Some(block);
+        }
+        if let Some(found) = parsed_block_with_range(&block.children, target) {
+            return Some(found);
+        }
+    }
+    None
 }
 
 fn trailing_line_breaks(source: &str) -> usize {
@@ -1152,44 +1117,154 @@ mod tests {
     use plumb_syntax::{parse, Block};
 
     #[test]
-    fn formats_a_parsed_revision_through_the_edit_boundary() {
-        let source = "`meta\n   `: title\n\n      Unified command\n";
+    fn owned_marked_block_renders_children_before_one_raw_tail() {
+        let block = OwnedBlock::Parsed {
+            marker: Some("rust".into()),
+            head: Vec::new(),
+            children: vec![
+                OwnedAttribute::id("example").into_block(),
+                OwnedBlock::marked("note", "nested"),
+            ],
+            raw: Some("fn main() {}\n".into()),
+        };
+        let formatted = block.format().unwrap();
+        assert_eq!(
+            formatted,
+            "`rust\n\n `@ example\n\n `note nested\n\n\"\n fn main() {}\n"
+        );
+        let parsed = parse(&formatted);
+        assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
+        let [Block::Parsed(owner)] = parsed.syntax.blocks.as_slice() else {
+            panic!("expected parsed raw owner");
+        };
+        assert_eq!(owner.children.len(), 2);
+        assert!(owner.raw.is_some());
+    }
+
+    #[test]
+    fn adding_attributes_explicitizes_anonymous_raw() {
+        let block = OwnedBlock::Verbatim { text: "raw".into() }
+            .with_attributes(vec![OwnedAttribute::id("example")]);
+        assert_eq!(block.format().unwrap(), "`()\n\n `@ example\n\n\"\n raw");
+    }
+
+    #[test]
+    fn replacing_an_interleaved_declaration_preserves_ordinary_children() {
+        let source = "`task Work\n\n `note before\n\n `@ old\n\n `note after\n";
+        let parsed = parse(source);
+        assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
+        let Block::Parsed(task) = &parsed.syntax.blocks[0] else {
+            panic!("expected task");
+        };
+        let attrs = &task.mark.as_ref().unwrap().attrs;
+        let mut session = EditSession::new(&parsed, task.range.clone()).unwrap();
+        session
+            .replace_attribute(attrs, 0, OwnedAttribute::id("new"))
+            .unwrap();
+        let edit = session.finish().unwrap();
+        let edited = apply_text_edits(source.to_string(), vec![edit]).unwrap();
+        assert!(edited.contains("`note before"));
+        assert!(edited.contains("`@ new"));
+        assert!(edited.contains("`note after"));
+        assert!(!edited.contains("`@ old"));
+        assert!(parse(&edited).is_valid(), "{edited}");
+    }
+
+    #[test]
+    fn inserts_direct_declarations_into_an_owner_without_a_slot() {
+        let source = "`task Work\n";
+        let parsed = parse(source);
+        let Block::Parsed(task) = &parsed.syntax.blocks[0] else {
+            panic!("expected task");
+        };
+        let mark = task.mark.as_ref().unwrap();
+        let mut session = EditSession::new(&parsed, task.range.clone()).unwrap();
+        session
+            .insert_attributes(
+                &mark.attrs,
+                mark.marker_range.end,
+                [
+                    (AttributePosition::Last, OwnedAttribute::id("work")),
+                    (
+                        AttributePosition::Last,
+                        OwnedAttribute::bare("created", "2026-08-26T00:00:00+08:00"),
+                    ),
+                ],
+            )
+            .unwrap();
+        let edit = session.finish().unwrap();
+        assert_eq!(
+            edit.new_text,
+            "`task Work\n\n `@ work\n\n `= created 2026-08-26T00:00:00+08:00\n"
+        );
+    }
+
+    #[test]
+    fn inserting_before_a_noncanonical_declaration_preserves_ownership() {
+        let source = "`task Work\n  `+ keep\n";
+        let parsed = parse(source);
+        assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
+        let Block::Parsed(task) = &parsed.syntax.blocks[0] else {
+            panic!("expected task");
+        };
+        let mark = task.mark.as_ref().unwrap();
+        let mut session = EditSession::new(&parsed, task.range.clone()).unwrap();
+        session
+            .insert_attribute(
+                &mark.attrs,
+                mark.marker_range.end,
+                AttributePosition::First,
+                OwnedAttribute::id("work"),
+            )
+            .unwrap();
+        let edit = session.finish().unwrap();
+        assert_eq!(edit.new_text, "`task Work\n\n `@ work\n\n `+ keep\n");
+    }
+
+    #[test]
+    fn appending_a_declaration_before_a_following_sibling_stays_valid() {
+        let source = "`task Closed\n\n `@ closed\n\n `= done 2026-07-20T09:00:00Z\n\n`task Existing\n\n `@ existing\n";
+        let parsed = parse(source);
+        assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
+        let Block::Parsed(task) = &parsed.syntax.blocks[0] else {
+            panic!("expected task");
+        };
+        let mark = task.mark.as_ref().unwrap();
+        let mut session = EditSession::new(&parsed, task.range.clone()).unwrap();
+        session
+            .insert_attribute(
+                &mark.attrs,
+                mark.marker_range.end,
+                AttributePosition::Last,
+                OwnedAttribute::quoted("created", "2026-07-20T10:00:00+08:00"),
+            )
+            .unwrap();
+        let edit = session.finish().unwrap();
+        let edited = apply_text_edits(source.to_string(), vec![edit]).unwrap();
+        assert!(parse(&edited).is_valid(), "{edited}");
+        assert!(edited.contains("`= created 2026-07-20T10:00:00+08:00"));
+        assert!(edited.contains("`task Existing"));
+    }
+
+    #[test]
+    fn formats_parsed_revisions_only_through_the_edit_boundary() {
+        let source = "`meta\n   `= title\n\n      Unified command\n";
         let parsed = parse(source);
         let edits = format(&parsed, FormatScope::Document).unwrap();
         let formatted = apply_text_edits(source.to_string(), edits).unwrap();
-        assert_eq!(formatted, "`meta\n `: title\n\n  Unified command\n");
+        assert_eq!(formatted, "`meta\n `= title\n\n  Unified command\n");
         assert!(format(&parse(&formatted), FormatScope::Document)
             .unwrap()
             .is_empty());
-    }
 
-    #[test]
-    fn formats_only_complete_blocks_contained_by_a_selection() {
-        let source = "`first One\n\n      Child\n\n`second Two\n";
-        let parsed = parse(source);
-        let first = parsed.syntax.blocks[0].range().clone();
-        let edits = format(&parsed, FormatScope::ContainedBlocks(first.clone())).unwrap();
-        let formatted = apply_text_edits(source.to_string(), edits).unwrap();
-        assert_eq!(formatted, "`first One\n\n Child\n\n`second Two\n");
-        assert!(format(
-            &parsed,
-            FormatScope::ContainedBlocks(first.start..first.start)
-        )
-        .unwrap()
-        .is_empty());
-    }
-
-    #[test]
-    fn formatting_rejects_invalid_revisions_and_ranges() {
         assert_eq!(
             format(&parse("`broken[\n"), FormatScope::Document),
             Err(EditError::GeneratedInvalid)
         );
-        let parsed = parse("Paragraph.\n");
         assert_eq!(
             format(
-                &parsed,
-                FormatScope::ContainedBlocks(0..parsed.source.len() + 1)
+                &parse("Paragraph.\n"),
+                FormatScope::ContainedBlocks(0..usize::MAX)
             ),
             Err(EditError::InvalidRange)
         );
@@ -1200,573 +1275,107 @@ mod tests {
         let source = "`outer Parent\r\n\r\n   `old Child\r\n\r\n`next Keep\r\n";
         let parsed = parse(source);
         let Block::Parsed(outer) = &parsed.syntax.blocks[0] else {
-            unreachable!();
+            panic!("expected outer block");
         };
         let nested = outer.children[0].range().clone();
         let edit = replace_owned_block(&parsed, nested, &OwnedBlock::marked("new", "Replacement"))
             .unwrap();
-        assert_eq!(edit.new_text, "`new Replacement\r\n\r\n");
+        assert!(edit.new_text.contains("\r\n"));
         let edited = apply_text_edits(source.to_string(), vec![edit]).unwrap();
         assert!(edited.contains("   `new Replacement\r\n\r\n`next Keep"));
-    }
-
-    #[test]
-    fn structural_removal_rejects_non_block_ranges() {
-        let parsed = parse("`item Keep\n");
-        assert_eq!(remove_block(&parsed, 0..5), Err(EditError::InvalidRange));
-    }
-
-    fn first_mark(source: &str) -> (ParsedDocument, Range<usize>, usize) {
-        let parsed = parse(source);
-        let Block::Parsed(block) = &parsed.syntax.blocks[0] else {
-            panic!("expected parsed block");
-        };
-        let mark = block.mark.as_ref().unwrap();
-        (parsed.clone(), block.range.clone(), mark.marker_range.end)
-    }
-
-    #[test]
-    fn inserts_attributes_at_explicit_positions() {
-        let source = "`task Work {\n  `@ id\n  `= created now\n}\n";
-        let parsed = parse(source);
-        let Block::Parsed(block) = &parsed.syntax.blocks[0] else {
-            panic!("expected parsed block");
-        };
-        let mark = block.mark.as_ref().unwrap();
-        let mut edit = EditSession::new(&parsed, block.range.clone()).unwrap();
-        edit.insert_attribute(
-            &mark.attrs,
-            mark.marker_range.end,
-            AttributePosition::First,
-            OwnedAttribute::class("next"),
-        )
-        .unwrap();
-        let edit = edit.finish().unwrap();
-        assert_eq!(
-            edit.new_text,
-            "`task Work {\n `+ next\n\n `@ id\n\n `= created now\n}\n"
-        );
-    }
-
-    #[test]
-    fn creates_an_attribute_slot_and_quotes_values() {
-        let source = "`- Work\n";
-        let (parsed, range, insert) = first_mark(source);
-        let Block::Parsed(block) = &parsed.syntax.blocks[0] else {
-            unreachable!();
-        };
-        let mark = block.mark.as_ref().unwrap();
-        let mut edit = EditSession::new(&parsed, range).unwrap();
-        edit.insert_attribute(
-            &mark.attrs,
-            insert,
-            AttributePosition::First,
-            OwnedAttribute::quoted("created", "2026-07-23T03:00:00+08:00"),
-        )
-        .unwrap();
-        let edit = edit.finish().unwrap();
-        assert_eq!(
-            edit.new_text,
-            "`- Work {\n `= created 2026-07-23T03:00:00+08:00\n}\n"
-        );
-    }
-
-    #[test]
-    fn creates_an_attribute_slot_for_a_nested_marked_block() {
-        let source = "`- Outer\n\n   `- Nested\n";
-        let parsed = parse(source);
-        let Block::Parsed(outer) = &parsed.syntax.blocks[0] else {
-            unreachable!();
-        };
-        let Block::Parsed(nested) = &outer.children[0] else {
-            unreachable!();
-        };
-        let mark = nested.mark.as_ref().unwrap();
-        let mut edit = EditSession::new(&parsed, nested.range.clone()).unwrap();
-        edit.insert_attributes(
-            &mark.attrs,
-            mark.marker_range.end,
-            [
-                (AttributePosition::Last, OwnedAttribute::class("kind")),
-                (
-                    AttributePosition::Last,
-                    OwnedAttribute::bare("created", "2026-07-20T10:00:00+08:00"),
-                ),
-            ],
-        )
-        .unwrap();
-        let edit = edit.finish().unwrap();
-        assert_eq!(
-            edit.new_text,
-            "   `- Nested {\n    `+ kind\n\n    `= created 2026-07-20T10:00:00+08:00\n   }\n"
-        );
-    }
-
-    #[test]
-    fn creates_a_nested_slot_before_a_top_level_sibling() {
-        let source = "`- Outer {\n  `@ outer\n  `+ keep\n}\n\n   `- Nested\n\n`task Closed {\n  `@ closed\n  `= done 2026-07-20T09:00:00Z\n}\n";
-        let parsed = parse(source);
-        let Block::Parsed(outer) = &parsed.syntax.blocks[0] else {
-            unreachable!();
-        };
-        let Block::Parsed(nested) = &outer.children[0] else {
-            unreachable!();
-        };
-        let mark = nested.mark.as_ref().unwrap();
-        let mut edit = EditSession::new(&parsed, nested.range.clone()).unwrap();
-        edit.insert_attributes(
-            &mark.attrs,
-            mark.marker_range.end,
-            [
-                (AttributePosition::Last, OwnedAttribute::class("kind")),
-                (
-                    AttributePosition::Last,
-                    OwnedAttribute::bare("created", "2026-07-20T10:00:00+08:00"),
-                ),
-            ],
-        )
-        .unwrap();
-        let edit = edit.finish().unwrap();
-        let edited = apply_text_edits(source.to_string(), vec![edit]).unwrap();
         assert!(parse(&edited).is_valid(), "{edited}");
-        assert!(edited.contains("`- Nested {\n    `+ kind"), "{edited}");
     }
 
     #[test]
-    fn inserts_an_id_first_in_an_existing_attached_group() {
-        let source = "`# Hello, World! {\n  `+ keep\n}\n";
+    fn attribute_positions_replace_and_remove_single_declaration_blocks() {
+        let source =
+            "`task Work\n `note before\n `@ old\n `+ keep\n `= created now\n `note after\n";
         let parsed = parse(source);
-        let Block::Parsed(block) = &parsed.syntax.blocks[0] else {
-            unreachable!();
+        let Block::Parsed(task) = &parsed.syntax.blocks[0] else {
+            panic!("expected task");
         };
-        let mark = block.mark.as_ref().unwrap();
-        let mut edit = EditSession::new(&parsed, block.range.clone()).unwrap();
-        edit.insert_attribute(
-            &mark.attrs,
-            mark.marker_range.end,
-            AttributePosition::First,
-            OwnedAttribute::id("hello-world"),
-        )
-        .unwrap();
-        let edit = edit.finish().unwrap();
-        assert_eq!(
-            edit.new_text,
-            "`# Hello, World! {\n `@ hello-world\n\n `+ keep\n}\n"
-        );
-    }
+        let mark = task.mark.as_ref().unwrap();
 
-    #[test]
-    fn inserts_an_id_before_unrelated_following_blocks() {
-        let source = "`# Hello, World! {\n  `- keep\n}\n\n`node Outer\n\n      `child Nested title\n\n`text\"\n  raw\n`note Multiline attrs {\n  `- keep\n}\n\n`other Existing {\n  `@ hello-world\n}\n\n`# Hello, World!\n";
-        let parsed = parse(source);
-        assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
-        let Block::Parsed(block) = &parsed.syntax.blocks[0] else {
-            unreachable!();
-        };
-        let mark = block.mark.as_ref().unwrap();
-        let mut edit = EditSession::new(&parsed, block.range.clone()).unwrap();
-        edit.insert_attribute(
-            &mark.attrs,
-            mark.marker_range.end,
-            AttributePosition::First,
-            OwnedAttribute::id("hello-world-2"),
-        )
-        .unwrap();
-        let mut logical = source.to_string();
-        for pending in edit.edits.iter().rev() {
-            logical.replace_range(pending.range.clone(), &pending.new_text);
-        }
-        let delta = edit.edits[0].new_text.len() as isize - edit.edits[0].range.len() as isize;
-        let end = block.range.end.checked_add_signed(delta).unwrap();
-        eprintln!(
-            "block={:?} pending={:?} end={end} parsed={:?} format={:?}",
-            block.range,
-            edit.edits,
-            parse(&logical).syntax.blocks[0].range(),
-            plumb_format::format_block_range(&logical, block.range.start..end)
-        );
-        let edit = edit.finish().unwrap();
-        assert!(edit.new_text.contains("`@ hello-world-2"), "{edit:?}");
-    }
-
-    #[test]
-    fn creates_a_compact_group_for_a_verbatim_block() {
-        let source = "`rust\"\n  fn main() {}\n";
-        let parsed = parse(source);
-        let Block::Verbatim(block) = &parsed.syntax.blocks[0] else {
-            unreachable!();
-        };
-        let mut edit = EditSession::new(&parsed, block.range.clone()).unwrap();
-        edit.insert_attribute(
-            &block.attrs,
-            block.opener_range.end,
-            AttributePosition::First,
-            OwnedAttribute::id("example"),
-        )
-        .unwrap();
-        let edit = edit.finish().unwrap();
-        assert_eq!(edit.new_text, "`rust\" {`@[example]}\n  fn main() {}\n");
-    }
-
-    #[test]
-    fn inserts_a_status_between_compact_top_level_siblings() {
-        let source = "`task Blocker {\n  `@ blocker\n}\n`task Blocked {\n  `@ blocked\n  `= depends #blocker\n}\n`task Closed {\n  `@ closed\n}\n";
-        let parsed = parse(source);
-        let Block::Parsed(block) = &parsed.syntax.blocks[1] else {
-            unreachable!();
-        };
-        let mark = block.mark.as_ref().unwrap();
-        let mut edit = EditSession::new(&parsed, block.range.clone()).unwrap();
-        edit.insert_attribute(
-            &mark.attrs,
-            mark.marker_range.end,
-            AttributePosition::Last,
-            OwnedAttribute::bare("canceled", "2026-07-20T12:00:00Z"),
-        )
-        .unwrap();
-        let edit = edit.finish().unwrap();
-        let edited = apply_text_edits(source.to_string(), vec![edit]).unwrap();
-        assert!(parse(&edited).is_valid(), "{edited}");
-        assert!(edited.contains("`= canceled 2026-07-20T12:00:00Z"));
-    }
-
-    #[test]
-    fn updates_and_clones_a_recurring_task_before_a_heading() {
-        let source = "`task Repeat {\n  `@ repeat\n  `: due 2026-07-20T23:59:59+08:00\n  `: recur P1D\n}\n\n`# Following\n";
-        let parsed = parse(source);
-        let Block::Parsed(block) = &parsed.syntax.blocks[0] else {
-            unreachable!();
-        };
-        let mark = block.mark.as_ref().unwrap();
-        let mut next = OwnedBlock::from_parsed(source, block);
-        let attributes = next.attributes_mut();
-        attributes.retain(|attribute| matches!(attribute, OwnedAttribute::Class(_)));
-        attributes.push(OwnedAttribute::id("repeat-next"));
-        attributes.push(OwnedAttribute::bare("due", "2026-07-21T23:59:59+08:00"));
-        attributes.push(OwnedAttribute::bare("recur", "P1D"));
-
-        let mut edit = EditSession::new(&parsed, block.range.clone()).unwrap();
-        edit.insert_attribute(
-            &mark.attrs,
-            mark.marker_range.end,
-            AttributePosition::Last,
-            OwnedAttribute::bare("done", "2026-07-21T18:01:12+08:00"),
-        )
-        .unwrap();
-        edit.insert_sibling_blocks(&block.range, &[next]).unwrap();
-        let edit = edit.finish().unwrap();
-        let edited = apply_text_edits(source.to_string(), vec![edit]).unwrap();
-        assert!(parse(&edited).is_valid(), "{edited}");
-        assert!(edited.contains("`@ repeat-next"));
-        assert!(edited.contains("`# Following"));
-    }
-
-    #[test]
-    fn mutable_attributes_create_a_missing_slot() {
-        let mut block = OwnedBlock::marked("-", "Work");
-        block.attributes_mut().push(OwnedAttribute::class("event"));
-        let mut output = String::new();
-        render_owned_blocks(&[block], 0, &mut output);
-        assert_eq!(output, "`- Work {\n `+ event\n}");
-    }
-
-    #[test]
-    fn rejects_implicit_or_out_of_bounds_positions() {
-        let source = "`task Work {\n}\n";
-        let parsed = parse(source);
-        let Block::Parsed(block) = &parsed.syntax.blocks[0] else {
-            unreachable!();
-        };
-        let mark = block.mark.as_ref().unwrap();
-        let mut edit = EditSession::new(&parsed, block.range.clone()).unwrap();
-        assert_eq!(
-            edit.insert_attribute(
+        let mut insert = EditSession::new(&parsed, task.range.clone()).unwrap();
+        insert
+            .insert_attribute(
                 &mark.attrs,
                 mark.marker_range.end,
-                AttributePosition::After(1),
-                OwnedAttribute::id("work"),
-            ),
-            Err(EditError::InvalidAttributePosition)
-        );
-    }
+                AttributePosition::After(0),
+                OwnedAttribute::bare("due", "tomorrow"),
+            )
+            .unwrap();
+        let inserted =
+            apply_text_edits(source.to_string(), vec![insert.finish().unwrap()]).unwrap();
+        assert!(inserted.find("`@ old").unwrap() < inserted.find("`= due tomorrow").unwrap());
+        assert!(inserted.find("`= due tomorrow").unwrap() < inserted.find("`+ keep").unwrap());
+        assert!(inserted.contains("`note before"));
+        assert!(inserted.contains("`note after"));
 
-    #[test]
-    fn rejects_overlapping_logical_edits() {
-        let parsed = parse("`- Work\n");
-        assert_eq!(
-            finalize(
-                &parsed,
-                0..8,
-                vec![
-                    TextEdit {
-                        range: 1..2,
-                        new_text: "a".to_string(),
-                    },
-                    TextEdit {
-                        range: 1..1,
-                        new_text: "b".to_string(),
-                    },
-                ],
-            ),
-            Err(EditError::OverlappingEdits)
-        );
-        assert_eq!(
-            finalize(
-                &parsed,
-                0..8,
-                vec![TextEdit {
-                    range: 9..9,
-                    new_text: "outside".to_string(),
-                }],
-            ),
-            Err(EditError::InvalidRange)
-        );
-    }
-
-    #[test]
-    fn inserts_owned_metadata_before_existing_blocks() {
-        let parsed = parse("`# Existing\n");
-        let metadata = [
-            OwnedBlock::marked("=", "title Example"),
-            OwnedBlock::marked("=", "created 2026-07-23T03:00:00+08:00"),
-        ];
-        let mut edit = EditSession::new(&parsed, 0..0).unwrap();
-        edit.insert_blocks(0, &metadata).unwrap();
-        let edit = edit.finish().unwrap();
-        assert_eq!(edit.range, 0..0);
-        assert_eq!(
-            edit.new_text,
-            "`= title Example\n`= created 2026-07-23T03:00:00+08:00\n\n"
-        );
-    }
-
-    #[test]
-    fn round_trips_owned_syntax_without_extension_knowledge() {
-        let source = "`node Head `span[text|@[id]|+[opaque]|=[key|bare]] and `\"raw\" {\n  `@ id\n  `+ opaque\n  `= key bare\n}\n\n      `child Body\n";
-        let parsed = parse(source);
-        assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
-        let owned = OwnedBlock::from_syntax(source, &parsed.syntax.blocks[0]);
-        let formatted = owned.format().unwrap();
-        let reparsed = parse(&formatted);
-        assert!(
-            reparsed.is_valid(),
-            "{formatted}\n{:?}",
-            reparsed.diagnostics
-        );
-        assert!(formatted.contains("`+ opaque"));
-        assert!(formatted.contains("`span[text|@[id]|+[opaque]|=[key|bare]]"));
-        assert!(formatted.contains("`\"raw\""));
-        assert!(formatted.contains("`child Body"));
-    }
-
-    #[test]
-    fn escapes_structural_delimiters_in_owned_inline_text() {
-        let owned = OwnedBlock::Parsed {
-            marker: Some("node".into()),
-            attributes: OwnedAttributes::default(),
-            head: vec![
-                OwnedInline::Text("top []{}| ".into()),
-                OwnedInline::Element {
-                    kind: "span".into(),
-                    members: vec![OwnedInlineMember::ParsedArgument(vec![OwnedInline::Text(
-                        "nested []{}|".into(),
-                    )])],
-                },
-            ],
-            children: Vec::new(),
-        };
-
-        let formatted = owned.format().unwrap();
-        assert_eq!(formatted, "`node top `[`]`{`}`| `span[nested `[`]`{`}`|]\n");
-        let reparsed = parse(&formatted);
-        assert!(
-            reparsed.is_valid(),
-            "{formatted}\n{:?}",
-            reparsed.diagnostics
-        );
-    }
-
-    #[test]
-    fn renders_opaque_block_attached_content_without_attribute_projection() {
-        let owned = OwnedDocument {
-            blocks: vec![
-                OwnedBlock::marked("custom", "root value"),
-                OwnedBlock::Parsed {
-                    marker: Some("owner".into()),
-                    attributes: OwnedAttributes {
-                        present: true,
-                        items: Vec::new(),
-                        content: Some(OwnedAttachedContent::Blocks(vec![OwnedBlock::marked(
-                            "relation",
-                            "opaque value",
-                        )])),
-                    },
-                    head: vec![OwnedInline::Text("Head".into())],
-                    children: Vec::new(),
-                },
-            ],
-        };
-
-        let formatted = owned.format().unwrap();
-        assert!(parse(&formatted).is_valid(), "{formatted}");
-        assert!(formatted.contains("`custom root value"));
-        assert!(formatted.contains("`relation opaque value"));
-    }
-
-    #[test]
-    fn renders_opaque_compact_attached_content_as_current_inlines() {
-        let owned = OwnedBlock::Verbatim {
-            kind: "code".into(),
-            attributes: OwnedAttributes {
-                present: true,
-                items: Vec::new(),
-                content: Some(OwnedAttachedContent::Inlines(vec![OwnedInline::Element {
-                    kind: "custom".into(),
-                    members: vec![OwnedInlineMember::ParsedArgument(vec![OwnedInline::Text(
-                        "value".into(),
-                    )])],
-                }])),
-            },
-            text: "payload".into(),
-        };
-
-        let formatted = owned.format().unwrap();
-        assert!(parse(&formatted).is_valid(), "{formatted}");
-        assert!(formatted.contains("{`custom[value]}"));
-    }
-
-    #[test]
-    fn preserves_empty_attribute_slots_and_soft_breaks() {
-        let source = "`node Head `span[first\n      second|] and `\"raw\"\n";
-        let parsed = parse(source);
-        assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
-        let owned = OwnedBlock::from_syntax(source, &parsed.syntax.blocks[0]);
-        let formatted = owned.format().unwrap();
-        let reparsed = parse(&formatted);
-        assert!(
-            reparsed.is_valid(),
-            "{formatted}\n{:?}",
-            reparsed.diagnostics
-        );
-        assert!(formatted.contains("`node Head"));
-        assert!(formatted.contains("`span[first\n"));
-        assert!(formatted.contains("`span[first\n second|]"));
-        assert!(formatted.contains("`\"raw\""));
-    }
-
-    #[test]
-    fn preserves_an_empty_inline_verbatim_with_a_strengthened_envelope() {
-        let source = "Before `\"[]\" after.\n";
-        let parsed = parse(source);
-        assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
-        let owned = OwnedBlock::from_syntax(source, &parsed.syntax.blocks[0]);
-        assert_eq!(owned.format().unwrap(), source);
-    }
-
-    #[test]
-    fn preserves_verbatim_payload_when_detaching_a_block() {
-        let source = "`text\" {`@[raw]}\n  first\n    second\n";
-        let parsed = parse(source);
-        assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
-        let owned = OwnedBlock::from_syntax(source, &parsed.syntax.blocks[0]);
-        assert_eq!(
-            owned.format().unwrap(),
-            "`text\" {`@[raw]}\n  first\n    second\n"
-        );
-    }
-
-    #[test]
-    fn replaces_and_removes_attributes_by_explicit_index() {
-        let source = "`node Head {\n  `@ old\n  `+ keep\n  `= key value\n}\n";
-        let parsed = parse(source);
-        let Block::Parsed(block) = &parsed.syntax.blocks[0] else {
-            unreachable!();
-        };
-        let mark = block.mark.as_ref().unwrap();
-        let mut replace = EditSession::new(&parsed, block.range.clone()).unwrap();
+        let mut replace = EditSession::new(&parsed, task.range.clone()).unwrap();
         replace
             .replace_attribute(&mark.attrs, 0, OwnedAttribute::id("new"))
             .unwrap();
-        let replacement = replace.finish().unwrap();
-        assert_eq!(
-            replacement.new_text,
-            "`node Head {\n `@ new\n\n `+ keep\n\n `= key value\n}\n"
-        );
+        let replaced =
+            apply_text_edits(source.to_string(), vec![replace.finish().unwrap()]).unwrap();
+        assert!(replaced.contains("`@ new"));
+        assert!(!replaced.contains("`@ old"));
 
-        let mut remove = EditSession::new(&parsed, block.range.clone()).unwrap();
+        let mut remove = EditSession::new(&parsed, task.range.clone()).unwrap();
         remove.remove_attribute(&mark.attrs, 2).unwrap();
-        let removal = remove.finish().unwrap();
-        assert_eq!(removal.new_text, "`node Head {\n `@ old\n\n `+ keep\n}\n");
+        let removed = apply_text_edits(source.to_string(), vec![remove.finish().unwrap()]).unwrap();
+        assert!(!removed.contains("`= created now"));
+        assert!(removed.contains("`+ keep"));
     }
 
     #[test]
-    fn edits_block_attached_elements_without_reintroducing_legacy_attributes() {
-        let source = "`task Work {\n  `@ old\n}\n";
+    fn owned_syntax_round_trips_inline_members_children_and_raw() {
+        let source = "`node Head `span[text|@[id]|+[opaque]|=[key|bare]] and `\"raw\"\n `@ owner\n `child Body\n\n\"\n payload\n";
         let parsed = parse(source);
-        let Block::Parsed(block) = &parsed.syntax.blocks[0] else {
-            unreachable!();
-        };
-        let attrs = &block.mark.as_ref().unwrap().attrs;
-        let mut edit = EditSession::new(&parsed, block.range.clone()).unwrap();
-        edit.replace_attribute(attrs, 0, OwnedAttribute::id("new"))
-            .unwrap();
-        let edit = edit.finish().unwrap();
-        assert!(edit.new_text.contains("`@ new"), "{}", edit.new_text);
-        assert!(!edit.new_text.contains("#new"), "{}", edit.new_text);
-        assert!(parse(&edit.new_text).is_valid());
+        assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
+        let owned = OwnedBlock::from_syntax(source, &parsed.syntax.blocks[0]);
+        let formatted = owned.format().unwrap();
+        let reparsed = parse(&formatted);
+        assert!(
+            reparsed.is_valid(),
+            "{formatted}\n{:?}",
+            reparsed.diagnostics
+        );
+        assert!(formatted.contains("`span[text|@[id]|+[opaque]|=[key|bare]]"));
+        assert!(formatted.contains("`@ owner"));
+        assert!(formatted.contains("`child Body"));
+        assert!(formatted.contains("\n\"\n payload"));
     }
 
     #[test]
-    fn edits_attached_elements_to_the_canonical_opener_placement() {
-        // A single-line head canonicalizes to the trailing opener.
-        let source = "`task Work\n      {\n        `@ old\n      }\n";
+    fn inserts_owned_metadata_and_replaces_or_removes_complete_blocks() {
+        let source = "`# Existing\n";
         let parsed = parse(source);
-        let Block::Parsed(block) = &parsed.syntax.blocks[0] else {
-            unreachable!();
-        };
-        let attrs = &block.mark.as_ref().unwrap().attrs;
-        let mut edit = EditSession::new(&parsed, block.range.clone()).unwrap();
-        edit.replace_attribute(attrs, 0, OwnedAttribute::id("new"))
-            .unwrap();
-        let edit = edit.finish().unwrap();
-        assert_eq!(edit.new_text, "`task Work {\n `@ new\n}\n");
-        assert!(parse(&edit.new_text).is_valid());
-
-        // A wrapped head keeps the own-line opener.
-        let source = "`task Work\n      spans lines\n      {\n        `@ old\n      }\n";
-        let parsed = parse(source);
-        let Block::Parsed(block) = &parsed.syntax.blocks[0] else {
-            unreachable!();
-        };
-        let attrs = &block.mark.as_ref().unwrap().attrs;
-        let mut edit = EditSession::new(&parsed, block.range.clone()).unwrap();
-        edit.replace_attribute(attrs, 0, OwnedAttribute::id("new"))
-            .unwrap();
-        let edit = edit.finish().unwrap();
+        let metadata = [
+            OwnedBlock::marked("=", "title Example"),
+            OwnedBlock::marked("=", "created 2026-08-26T00:00:00+08:00"),
+        ];
+        let mut insert = EditSession::new(&parsed, 0..0).unwrap();
+        insert.insert_blocks(0, &metadata).unwrap();
+        let edit = insert.finish().unwrap();
+        assert_eq!(edit.range, 0..0);
         assert_eq!(
             edit.new_text,
-            "`task Work\n spans lines\n {\n  `@ new\n }\n"
+            "`= title Example\n`= created 2026-08-26T00:00:00+08:00\n\n"
         );
-        assert!(parse(&edit.new_text).is_valid());
-    }
 
-    #[test]
-    fn replaces_and_removes_complete_blocks() {
-        let source = "`old Head\n`next Keep\n";
-        let parsed = parse(source);
         let first = parsed.syntax.blocks[0].range().clone();
-        let mut replace = EditSession::new(&parsed, first.clone()).unwrap();
-        replace
-            .replace_block(first.clone(), &OwnedBlock::marked("new", "Replacement"))
-            .unwrap();
-        let replacement = replace.finish().unwrap();
-        assert_eq!(replacement.new_text, "`new Replacement\n\n");
-
-        let mut remove = EditSession::new(&parsed, first.clone()).unwrap();
-        remove.remove_block(first.clone()).unwrap();
-        let removal = remove.finish().unwrap();
+        let replacement = replace_owned_block(
+            &parsed,
+            first.clone(),
+            &OwnedBlock::marked("heading", "Replacement"),
+        )
+        .unwrap();
+        assert_eq!(replacement.new_text, "`heading Replacement\n");
+        let removal = remove_block(&parsed, first.clone()).unwrap();
         assert_eq!(removal.range, first);
         assert!(removal.new_text.is_empty());
+        assert_eq!(remove_block(&parsed, 0..2), Err(EditError::InvalidRange));
     }
 }
 

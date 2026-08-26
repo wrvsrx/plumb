@@ -260,12 +260,10 @@ impl Workspace {
         }
         let mut owned = OwnedBlock::from_parsed(&entry.parsed.source, item);
         owned.set_marker("task");
-        owned.attributes_mut().retain(
+        owned.retain_attributes(
             |attribute| !matches!(attribute, OwnedAttribute::Class(value) if value == "task"),
         );
-        owned
-            .attributes_mut()
-            .push(OwnedAttribute::quoted("created", timestamp));
+        owned.push_attribute(OwnedAttribute::quoted("created", timestamp));
         let edit = replace_owned_block(&entry.parsed, item.range.clone(), &owned)
             .map_err(|_| TaskEditError::GeneratedInvalid)?;
         Ok(single_document_edit(entry, path, edit))
@@ -338,16 +336,15 @@ impl Workspace {
         }
         let block = parsed_block_with_range(&entry.parsed.syntax.blocks, &task.range)
             .ok_or(TaskEditError::TaskNotFound)?;
-        let mark = block.mark.as_ref().ok_or(TaskEditError::TaskNotFound)?;
+        if block.mark.is_none() {
+            return Err(TaskEditError::TaskNotFound);
+        }
+        let mut owned = OwnedBlock::from_parsed(&entry.parsed.source, block);
+        owned.push_attribute(OwnedAttribute::quoted(status.attribute(), timestamp));
         let mut edit = EditSession::new(&entry.parsed, block.range.clone())
             .map_err(|_| TaskEditError::GeneratedInvalid)?;
-        edit.insert_attribute(
-            &mark.attrs,
-            mark.marker_range.end,
-            AttributePosition::Last,
-            OwnedAttribute::quoted(status.attribute(), timestamp),
-        )
-        .map_err(|_| TaskEditError::GeneratedInvalid)?;
+        edit.replace_block(block.range.clone(), &owned)
+            .map_err(|_| TaskEditError::GeneratedInvalid)?;
         let edit = edit.finish().map_err(|_| TaskEditError::GeneratedInvalid)?;
         Ok(single_document_edit(entry, path.to_path_buf(), edit))
     }
@@ -426,7 +423,9 @@ impl Workspace {
         let source = &entry.parsed.source;
         let block = parsed_block_with_range(&entry.parsed.syntax.blocks, &task.range)
             .ok_or(TaskEditError::TaskNotFound)?;
-        let mark = block.mark.as_ref().ok_or(TaskEditError::TaskNotFound)?;
+        if block.mark.is_none() {
+            return Err(TaskEditError::TaskNotFound);
+        }
         let mut next = OwnedBlock::from_parsed(source, block);
         let clone_context = RecurringTaskCloneContext {
             tasks: &current.output.tasks.tasks,
@@ -440,19 +439,14 @@ impl Workspace {
         };
         prepare_recurring_task_clone(&mut next, block, &clone_context);
 
-        let mut additions = Vec::new();
+        let mut current = OwnedBlock::from_parsed(source, block);
         if task.id.is_none() {
-            additions.push((AttributePosition::Last, OwnedAttribute::id(current_id)));
+            current.push_attribute(OwnedAttribute::id(current_id));
         }
-        additions.push((
-            AttributePosition::Last,
-            OwnedAttribute::quoted(status.attribute(), timestamp),
-        ));
+        current.push_attribute(OwnedAttribute::quoted(status.attribute(), timestamp));
         let mut edit = EditSession::new(&entry.parsed, task.range.clone())
             .map_err(|_| TaskEditError::GeneratedInvalid)?;
-        edit.insert_attributes(&mark.attrs, mark.marker_range.end, additions)
-            .map_err(|_| TaskEditError::GeneratedInvalid)?;
-        edit.insert_sibling_blocks(&task.range, &[next])
+        edit.replace_block_with_blocks(task.range.clone(), &[current, next])
             .map_err(|_| TaskEditError::GeneratedInvalid)?;
         let edit = edit.finish().map_err(|_| TaskEditError::GeneratedInvalid)?;
         Ok(single_document_edit(entry, entry.path.clone(), edit))

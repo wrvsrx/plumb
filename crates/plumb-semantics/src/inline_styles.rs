@@ -41,7 +41,9 @@ fn collect_blocks(blocks: &[Block], output: &mut InlineStyleOutput) {
             continue;
         };
         collect_inlines(&block.head, output);
-        collect_blocks(&block.children, output);
+        for child in crate::body_children(block) {
+            collect_blocks(std::slice::from_ref(child), output);
+        }
     }
 }
 

@@ -1900,7 +1900,7 @@ name = "plumb-import"
 version = "0.27.1-dev"
 dependencies = [
  "pandoc_types",
- "plumb-format",
+ "plumb-edit",
  "plumb-syntax",
  "serde_json",
 ]

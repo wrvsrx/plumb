@@ -40,7 +40,9 @@ fn collect_quotes(blocks: &[Block], output: &mut QuoteOutput) {
                 range: block.range.clone(),
             });
         }
-        collect_quotes(&block.children, output);
+        for child in crate::body_children(block) {
+            collect_quotes(std::slice::from_ref(child), output);
+        }
     }
 }
 

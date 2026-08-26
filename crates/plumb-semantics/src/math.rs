@@ -40,14 +40,21 @@ pub fn analyze_math(document: &Document) -> MathOutput {
 fn collect_blocks(blocks: &[Block], output: &mut MathOutput) {
     for block in blocks {
         match block {
-            Block::Verbatim(block) => recognize_verbatim(
-                &block.kind,
-                &block.attrs,
-                block.range.clone(),
-                MathKind::Display,
-                output,
-            ),
+            Block::Verbatim(_) => {}
             Block::Parsed(block) => {
+                if block.raw.is_some() {
+                    let mark = block
+                        .mark
+                        .as_ref()
+                        .expect("raw tail requires a marked owner");
+                    recognize_verbatim(
+                        &mark.marker,
+                        &mark.attrs,
+                        block.range.clone(),
+                        MathKind::Display,
+                        output,
+                    );
+                }
                 collect_inlines(&block.head, output);
                 collect_blocks(&block.children, output);
             }
@@ -129,7 +136,7 @@ mod tests {
 
     #[test]
     fn recognizes_verbatim_math_and_ignores_dollar_facets() {
-        let source = "Inline `$\"x^2\".\n\n`$\" {`@[display]}\n  x^2\n\n`$\" {`=[language|mathml]}\n  <math/>\n\n`div Not raw {\n  `+ $\n}\n\n`span[x|+[$]]\n";
+        let source = "Inline `$\"x^2\".\n\n`$\n `@ display\n\n\"\n x^2\n\n`$\n `= language mathml\n\n\"\n <math/>\n\n`div Not raw\n `+ $\n\n`span[x|+[$]]\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let output = analyze_math(&parsed.syntax);

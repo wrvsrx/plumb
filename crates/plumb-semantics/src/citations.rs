@@ -36,7 +36,9 @@ fn collect_blocks(blocks: &[Block], output: &mut CitationOutput) {
     for block in blocks {
         if let Block::Parsed(block) = block {
             collect_inlines(&block.head, output);
-            collect_blocks(&block.children, output);
+            for child in crate::body_children(block) {
+                collect_blocks(std::slice::from_ref(child), output);
+            }
         }
     }
 }

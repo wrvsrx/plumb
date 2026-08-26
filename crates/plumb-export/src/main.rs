@@ -145,8 +145,11 @@ fn lower_metadata_value(
     }
 }
 
-fn lower_blocks(blocks: &[Block], analysis: &DocumentOutput) -> Vec<Value> {
-    lower_block_refs(&blocks.iter().collect::<Vec<_>>(), analysis)
+fn lower_body(block: &ParsedBlock, analysis: &DocumentOutput) -> Vec<Value> {
+    lower_block_refs(
+        &plumb_semantics::body_children(block).collect::<Vec<_>>(),
+        analysis,
+    )
 }
 
 fn lower_block_refs(blocks: &[&Block], analysis: &DocumentOutput) -> Vec<Value> {
@@ -176,30 +179,10 @@ fn lower_block_refs(blocks: &[&Block], analysis: &DocumentOutput) -> Vec<Value> 
         }
         match blocks[index] {
             Block::Verbatim(block) => {
-                if analysis
-                    .math
-                    .math_at_node_start(block.range.start)
-                    .is_some()
-                {
-                    let math = json!({
-                        "t": "Math",
-                        "c": [{ "t": "DisplayMath" }, block.text],
-                    });
-                    let paragraph = json!({ "t": "Para", "c": [math] });
-                    if has_unconsumed_math_attrs(&block.attrs) {
-                        output.push(json!({
-                            "t": "Div",
-                            "c": [lower_math_attrs(&block.attrs), [paragraph]],
-                        }));
-                    } else {
-                        output.push(paragraph);
-                    }
-                } else {
-                    output.push(json!({
-                        "t": "CodeBlock",
-                        "c": [lower_attrs(&block.attrs, (!block.kind.is_empty()).then_some(block.kind.as_str())), block.text],
-                    }));
-                }
+                output.push(json!({
+                    "t": "CodeBlock",
+                    "c": [lower_attrs(&Attributes::default(), None), block.text],
+                }));
             }
             Block::Parsed(parsed) => lower_parsed_block(parsed, analysis, &mut output),
         }
@@ -221,7 +204,7 @@ fn lower_definition_list(
                 unreachable!("a definition list contains only parsed definition blocks")
             };
             let mark = block.mark.as_ref().expect("a definition has a mark");
-            let mut body = lower_blocks(&block.children, analysis);
+            let mut body = lower_body(block, analysis);
             if let Some(inline_body) = &definition.inline_body {
                 body.insert(
                     0,
@@ -268,7 +251,7 @@ fn lower_list_group(blocks: &[&Block], group: &ListGroup, analysis: &DocumentOut
             } else if !block.head.items.is_empty() {
                 contents.push(json!({ "t": "Para", "c": lower_inlines(&block.head, analysis) }));
             }
-            contents.extend(lower_blocks(&block.children, analysis));
+            contents.extend(lower_body(block, analysis));
             if task.is_some() || mark.attrs.items.is_empty() {
                 contents
             } else {
@@ -306,13 +289,41 @@ fn lower_parsed_block(block: &ParsedBlock, analysis: &DocumentOutput, output: &m
     {
         return;
     }
+    if let Some(raw) = &block.raw {
+        let mark = block.mark.as_ref().expect("a raw owner is marked");
+        if analysis
+            .math
+            .math_at_node_start(block.range.start)
+            .is_some()
+        {
+            let math = json!({
+                "t": "Math",
+                "c": [{ "t": "DisplayMath" }, raw.text],
+            });
+            let paragraph = json!({ "t": "Para", "c": [math] });
+            if has_unconsumed_math_attrs(&mark.attrs) {
+                output.push(json!({
+                    "t": "Div",
+                    "c": [lower_math_attrs(&mark.attrs), [paragraph]],
+                }));
+            } else {
+                output.push(paragraph);
+            }
+        } else {
+            output.push(json!({
+                "t": "CodeBlock",
+                "c": [lower_attrs(&mark.attrs, (mark.marker != "()").then_some(mark.marker.as_str())), raw.text],
+            }));
+        }
+        return;
+    }
     if let Some(heading) = analysis.headings.heading_at_node_start(block.range.start) {
         let attrs = &block.mark.as_ref().expect("heading has mark").attrs;
         output.push(json!({
             "t": "Header",
             "c": [heading.level, lower_attrs(attrs, None), lower_inlines(&block.head, analysis)],
         }));
-        output.extend(lower_blocks(&block.children, analysis));
+        output.extend(lower_body(block, analysis));
         return;
     }
 
@@ -326,7 +337,7 @@ fn lower_parsed_block(block: &ParsedBlock, analysis: &DocumentOutput, output: &m
         if !block.head.items.is_empty() {
             contents.push(json!({ "t": "Para", "c": lower_inlines(&block.head, analysis) }));
         }
-        contents.extend(lower_blocks(&block.children, analysis));
+        contents.extend(lower_body(block, analysis));
         if !mark.attrs.items.is_empty() {
             contents = vec![json!({
                 "t": "Div",
@@ -342,7 +353,7 @@ fn lower_parsed_block(block: &ParsedBlock, analysis: &DocumentOutput, output: &m
         if !block.head.items.is_empty() {
             contents.push(json!({ "t": "Para", "c": lower_inlines(&block.head, analysis) }));
         }
-        contents.extend(lower_blocks(&block.children, analysis));
+        contents.extend(lower_body(block, analysis));
         output.push(json!({
             "t": "Div",
             "c": [lower_attrs(&mark.attrs, (mark.marker != "()").then_some(mark.marker.as_str())), contents],
@@ -662,10 +673,9 @@ mod tests {
 
     #[test]
     fn exports_heading_paragraph_and_generic_block() {
-        let document = export(
-            "`# Intro {\n  `@ intro\n}\n\nParagraph text.\n\n`note Remember this. {\n  `+ tip\n}\n",
-        )
-        .unwrap();
+        let document =
+            export("`# Intro\n  `@ intro\n\nParagraph text.\n\n`note Remember this.\n  `+ tip\n")
+                .unwrap();
         let blocks = document["blocks"].as_array().unwrap();
         assert_eq!(blocks[0]["t"], "Header");
         assert_eq!(blocks[1]["t"], "Para");
@@ -674,7 +684,8 @@ mod tests {
 
     #[test]
     fn exports_adjacent_and_nested_items_as_bullet_lists() {
-        let source = "`- One\n\n`task Two {\n  `@ two\n  `= priority -5\n}\n\n      `- Nested\n\nParagraph.\n";
+        let source =
+            "`- One\n\n`task Two\n  `@ two\n  `= priority -5\n\n  `- Nested\n\nParagraph.\n";
         let document = export(source).unwrap();
         let blocks = document["blocks"].as_array().unwrap();
 
@@ -713,7 +724,7 @@ mod tests {
 
     #[test]
     fn exports_visible_task_state_markers() {
-        let source = "`task Open {\n}\n`task Done {\n  `= done 2026-07-25T15:00:00+08:00\n}\n`task Canceled {\n  `= canceled 2026-07-25T15:00:00+08:00\n}\n`task Conflicted {\n  `= done 2026-07-25T15:00:00+08:00\n  `= canceled 2026-07-25T15:01:00+08:00\n}\n";
+        let source = "`task Open\n`task Done\n  `= done 2026-07-25T15:00:00+08:00\n`task Canceled\n  `= canceled 2026-07-25T15:00:00+08:00\n`task Conflicted\n  `= done 2026-07-25T15:00:00+08:00\n  `= canceled 2026-07-25T15:01:00+08:00\n";
         let document = export(source).unwrap();
         let items = document["blocks"][0]["c"].as_array().unwrap();
         let markers = items
@@ -756,7 +767,7 @@ mod tests {
 
     #[test]
     fn exports_quote_head_children_nesting_and_attributes() {
-        let source = "`> Quoted head\n\n   Quoted body.\n\n   `> Nested quote {\n     `@ nested\n     `+ source\n     `= cite book\n   }\n\n`quote Generic\n";
+        let source = "`> Quoted head\n\n   Quoted body.\n\n   `> Nested quote\n     `@ nested\n     `+ source\n     `= cite book\n\n`quote Generic\n";
         let document = export(source).unwrap();
         let blocks = document["blocks"].as_array().unwrap();
 
@@ -789,7 +800,7 @@ mod tests {
 
     #[test]
     fn exports_adjacent_definitions_and_preserves_definition_attributes() {
-        let source = "`: Term\n\n   Definition.\n\n`: Tagged {\n  `@ tag\n  `+ kind\n  `= key value\n}\n\n   `- First\n   `- Second\n";
+        let source = "`: Term\n\n   Definition.\n\n`: Tagged\n  `@ tag\n  `+ kind\n  `= key value\n\n  `- First\n  `- Second\n";
         let document = export(source).unwrap();
         let blocks = document["blocks"].as_array().unwrap();
 
@@ -811,7 +822,7 @@ mod tests {
 
     #[test]
     fn rejects_syntax_errors() {
-        assert!(export("`node{key=a key=b} broken\n").is_err());
+        assert!(export("`broken[\n").is_err());
     }
 
     #[test]
@@ -912,7 +923,7 @@ mod tests {
 
     #[test]
     fn exports_verbatim_envelopes_as_pandoc_code() {
-        let document = export("Use `\"cargo check\".\n\n`rust\"\n fn main() {}\n").unwrap();
+        let document = export("Use `\"cargo check\".\n\n`rust\n\n\"\n fn main() {}\n").unwrap();
         assert_eq!(document["blocks"][0]["c"][2]["t"], "Code");
         assert_eq!(document["blocks"][0]["c"][2]["c"][1], "cargo check");
         assert_eq!(document["blocks"][1]["t"], "CodeBlock");
@@ -921,7 +932,7 @@ mod tests {
 
     #[test]
     fn exports_paren_transparent_containers_without_redundant_markers() {
-        let document = export("`() Body {\n  `@ box\n  `+ note\n}\n\n`()[text|+[mark]]\n").unwrap();
+        let document = export("`() Body\n  `@ box\n  `+ note\n\n`()[text|+[mark]]\n").unwrap();
         let div_attrs = &document["blocks"][0]["c"][0];
         assert_eq!(div_attrs, &json!(["box", ["note"], []]));
         let span_attrs = &document["blocks"][1]["c"][0]["c"][0];
@@ -966,8 +977,7 @@ mod tests {
 
     #[test]
     fn exports_inline_and_display_math_with_attribute_wrappers() {
-        let source =
-            "Inline `$\"x^2\".\n\n`$\"\n  E = mc^2\n`$\" {`@[display] `+[numbered]}\n  a = b\n";
+        let source = "Inline `$\"x^2\".\n\n`$\n\n\"\n E = mc^2\n`$\n `@ display\n `+ numbered\n\n\"\n a = b\n";
         let document = export(source).unwrap();
         assert_eq!(document["blocks"][0]["c"][2]["t"], "Math");
         assert_eq!(document["blocks"][0]["c"][2]["c"][0]["t"], "InlineMath");
@@ -1002,7 +1012,7 @@ mod tests {
 
     #[test]
     fn lifts_typed_metadata_out_of_the_document_body() {
-        let source = "`= title Rich `*[title]\n`= tags\n\n `- plumb\n `- tools\n\n`= macros\n\n `-\n  `- `\"nearSet\"\n  `- `\"\\mathscr{C}\"\n  `- 0\n\n`= author\n\n `= name Alice\n\n`= source\n\n `text\"\n  raw\n  \n  \n`= empty\n\n`# Section\n";
+        let source = "`= title Rich `*[title]\n`= tags\n\n `- plumb\n `- tools\n\n`= macros\n\n `-\n  `- `\"nearSet\"\n  `- `\"\\mathscr{C}\"\n  `- 0\n\n`= author\n\n `= name Alice\n\n`= source\n\n `\"\n  raw\n  \n  \n`= empty\n\n`# Section\n";
         let document = export(source).unwrap();
 
         assert_eq!(document["blocks"].as_array().unwrap().len(), 1);

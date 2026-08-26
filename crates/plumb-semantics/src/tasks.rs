@@ -119,12 +119,14 @@ fn collect_blocks(source: &str, blocks: &[Block], task_depth: usize, output: &mu
             collect_task_diagnostics(&task, attrs.items.as_slice(), output);
             output.tasks.push(task);
         }
-        collect_blocks(
-            source,
-            &block.children,
-            task_depth + usize::from(is_task),
-            output,
-        );
+        for child in crate::body_children(block) {
+            collect_blocks(
+                source,
+                std::slice::from_ref(child),
+                task_depth + usize::from(is_task),
+                output,
+            );
+        }
     }
 }
 
@@ -137,10 +139,7 @@ fn task_record(source: &str, block: &ParsedBlock, depth: usize) -> TaskRecord {
         selection_range: block.head.range.clone(),
         title: plain_text(&block.head).trim().to_string(),
         depth,
-        attribute_insert: attrs
-            .attached
-            .as_deref()
-            .map_or(mark.marker_range.end, |attached| attached.close_range.start),
+        attribute_insert: block.head.range.end.max(mark.marker_range.end),
         attribute_range: attrs
             .range
             .clone()
@@ -452,7 +451,7 @@ mod tests {
 
     #[test]
     fn collects_task_facets_fields_dependencies_and_nesting() {
-        let source = "`task Write parser {\n  `@ write\n  `= created 2026-07-20T09:00:00+08:00\n  `= due 2026-07-21T09:00:00+08:00\n  `= wait 2026-07-20T12:00:00+08:00\n  `= recur P1W\n  `= prev #old\n  `= depends #draft other notes.plumb#review third.plumb#done\n}\n\n   `note Details\n\n   `task Nested task {\n     `= done 2026-07-20T10:00:00+08:00\n   }\n";
+        let source = "`task Write parser\n `@ write\n `= created 2026-07-20T09:00:00+08:00\n `= due 2026-07-21T09:00:00+08:00\n `= wait 2026-07-20T12:00:00+08:00\n `= recur P1W\n `= prev #old\n `= depends #draft other notes.plumb#review third.plumb#done\n\n `note Details\n\n `task Nested task\n  `= done 2026-07-20T10:00:00+08:00\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
@@ -464,7 +463,7 @@ mod tests {
         assert_eq!(task.depth, 0);
         assert_eq!(
             &source[task.attribute_insert..task.attribute_insert + 1],
-            "}"
+            "\n"
         );
         assert_eq!(task.id.as_ref().unwrap().value, "write");
         assert_eq!(task.state(), TaskState::Open);
@@ -536,9 +535,8 @@ mod tests {
     }
 
     #[test]
-    fn attached_dependency_values_keep_exact_source_ranges() {
-        let source =
-            "`task Review {\n  `@ review\n  `= depends Project Plan.plumb#build #local\n}\n";
+    fn direct_dependency_values_keep_exact_source_ranges() {
+        let source = "`task Review\n  `@ review\n  `= depends Project Plan.plumb#build #local\n";
         let parsed = plumb_syntax::parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let output = analyze_tasks(source, &parsed.syntax);
@@ -553,7 +551,7 @@ mod tests {
 
     #[test]
     fn reports_local_task_state_and_recurrence_diagnostics() {
-        let source = "`task Conflict {\n  `= done 2026-07-20T09:00:00Z\n  `= canceled 2026-07-20T10:00:00Z\n}\n`task Invalid recurrence {\n  `= due not-a-date\n  `= recur P1M1D\n}\n`task Invalid datetimes {\n  `= created 2026-07-20T09:00:00Z\n  `= wait tomorrow\n  `= done later\n  `= canceled never\n}\n";
+        let source = "`task Conflict\n  `= done 2026-07-20T09:00:00Z\n  `= canceled 2026-07-20T10:00:00Z\n`task Invalid recurrence\n  `= due not-a-date\n  `= recur P1M1D\n`task Invalid datetimes\n  `= created 2026-07-20T09:00:00Z\n  `= wait tomorrow\n  `= done later\n  `= canceled never\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
@@ -588,7 +586,7 @@ mod tests {
 
     #[test]
     fn parses_signed_task_priority_and_rejects_out_of_range_values() {
-        let source = "`task Maximum {\n  `= priority 2147483647\n}\n`task Deferred {\n  `= priority -12\n}\n`task Minimum {\n  `= priority -2147483648\n}\n`task Too large {\n  `= priority 2147483648\n}\n`task Too small {\n  `= priority -2147483649\n}\n`task Invalid {\n  `= priority soon\n}\n";
+        let source = "`task Maximum\n  `= priority 2147483647\n`task Deferred\n  `= priority -12\n`task Minimum\n  `= priority -2147483648\n`task Too large\n  `= priority 2147483648\n`task Too small\n  `= priority -2147483649\n`task Invalid\n  `= priority soon\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
@@ -616,7 +614,7 @@ mod tests {
     #[test]
     fn reports_missing_due_only_when_the_attribute_is_absent() {
         let source =
-            "`task Missing due {\n  `= recur P1W\n}\n`task Invalid due {\n  `= due invalid\n  `= recur P1W\n}\n";
+            "`task Missing due\n  `= recur P1W\n`task Invalid due\n  `= due invalid\n  `= recur P1W\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
@@ -651,7 +649,7 @@ mod tests {
 
     #[test]
     fn only_the_task_marker_creates_tasks() {
-        let source = "`note Not a task {\n  `+ task\n}\n\n`task Work\n";
+        let source = "`note Not a task\n  `+ task\n\n`task Work\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 

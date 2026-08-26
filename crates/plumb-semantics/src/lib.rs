@@ -12,13 +12,40 @@ mod tasks;
 mod text;
 
 pub fn is_document_declaration(block: &plumb_syntax::Block) -> bool {
-    matches!(
-        block,
-        plumb_syntax::Block::Parsed(block)
-            if block.mark.as_ref().is_some_and(|mark| {
-                matches!(mark.marker.as_str(), "=" | "+" | "@")
-            })
-    )
+    let plumb_syntax::Block::Parsed(block) = block else {
+        return false;
+    };
+    block
+        .mark
+        .as_ref()
+        .is_some_and(|mark| matches!(mark.marker.as_str(), "=" | "+"))
+}
+
+pub fn is_block_declaration(
+    owner: &plumb_syntax::ParsedBlock,
+    child: &plumb_syntax::Block,
+) -> bool {
+    let Some(mark) = &owner.mark else {
+        return false;
+    };
+    mark.attrs.items.iter().any(|item| {
+        let range = match item {
+            plumb_syntax::AttrItem::Id { range, .. }
+            | plumb_syntax::AttrItem::Class { range, .. }
+            | plumb_syntax::AttrItem::Pair { range, .. } => range,
+        };
+        range == child.range()
+    })
+}
+
+pub fn body_children(
+    owner: &plumb_syntax::ParsedBlock,
+) -> impl DoubleEndedIterator<Item = &plumb_syntax::Block> {
+    let association_value = owner.mark.as_ref().is_some_and(|mark| mark.marker == "=");
+    owner
+        .children
+        .iter()
+        .filter(move |child| !association_value && !is_block_declaration(owner, child))
 }
 
 pub use citations::{analyze_citations, CitationOutput, CitationRecord};

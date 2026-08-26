@@ -1,8 +1,7 @@
-use std::fmt;
+use std::{collections::HashMap, fmt, ops::Range};
 
 use plumb_edit::{
-    OwnedAttachedContent, OwnedAttributes, OwnedBlock, OwnedDocument, OwnedInline,
-    OwnedInlineMember,
+    OwnedAttribute, OwnedBlock, OwnedDocument, OwnedInline, OwnedInlineMember, OwnedValue,
 };
 use plumb_syntax_legacy_v1 as legacy;
 
@@ -73,7 +72,22 @@ impl fmt::Display for MigrationError {
 impl std::error::Error for MigrationError {}
 
 pub fn migrate_attached_v1(source: &str) -> Result<String, MigrationError> {
-    let parsed = legacy::parse(source);
+    let initial = legacy::parse(source);
+    let current = plumb_syntax::parse(source);
+    let hybrid = mask_current_inline_elements(source, &initial, &current);
+    let (parsed, overrides) = if let Some((masked, ranges)) = hybrid {
+        let reparsed = legacy::parse(masked);
+        if reparsed.is_valid() {
+            (
+                reparsed,
+                Some(HeadOverrides::new(&current.syntax.blocks, ranges)),
+            )
+        } else {
+            (initial, None)
+        }
+    } else {
+        (initial, None)
+    };
     if !parsed.is_valid() {
         return Err(MigrationError::InvalidLegacy(
             parsed
@@ -89,7 +103,7 @@ pub fn migrate_attached_v1(source: &str) -> Result<String, MigrationError> {
         ));
     }
 
-    let owned = convert_attached_v1(&parsed.syntax)?;
+    let owned = convert_attached_v1_with_overrides(&parsed.syntax, overrides.as_ref())?;
     let migrated = owned
         .format()
         .map_err(|_| MigrationError::InvalidGenerated)?;
@@ -108,44 +122,71 @@ pub fn migrate_document_group_v1(source: &str) -> Result<String, MigrationError>
         return Err(invalid_document_group(&parsed, 0));
     }
 
-    const OWNER: &str = "`__document ";
-    let synthetic = format!("{OWNER}{source}");
-    let parsed = plumb_syntax::parse(&synthetic);
-    if !parsed.is_valid() {
-        return Err(invalid_document_group(&parsed, OWNER.len()));
+    let legacy = legacy::parse(source);
+    if !legacy.is_valid() {
+        return Err(MigrationError::InvalidDocumentGroup(
+            legacy
+                .diagnostics
+                .iter()
+                .filter(|diagnostic| diagnostic.severity == legacy::DiagnosticSeverity::Error)
+                .map(|diagnostic| MigrationDiagnostic {
+                    code: diagnostic.code,
+                    range: diagnostic.range.clone(),
+                    message: diagnostic.message.clone(),
+                })
+                .collect(),
+        ));
     }
-    let Some(plumb_syntax::Block::Parsed(owner)) = parsed.syntax.blocks.first() else {
+    let Some(group) = legacy.syntax.attrs.attached.as_deref() else {
         return Err(MigrationError::InvalidDocumentGroup(Vec::new()));
     };
-    let Some(mark) = owner
-        .mark
-        .as_ref()
-        .filter(|mark| mark.marker == "__document")
-    else {
-        return Err(MigrationError::InvalidDocumentGroup(Vec::new()));
-    };
-    if !owner.head.items.is_empty() || !owner.children.is_empty() {
-        return Err(MigrationError::InvalidDocumentGroup(Vec::new()));
-    }
-    let Some(attached) = mark.attrs.attached.as_deref() else {
-        return Err(MigrationError::InvalidDocumentGroup(Vec::new()));
-    };
-    let plumb_syntax::AttachedContent::Blocks(declarations) = &attached.content else {
+    let legacy::AttachedContent::Blocks(declarations) = &group.content else {
         return Err(MigrationError::InvalidDocumentGroup(Vec::new()));
     };
 
-    let blocks = declarations
+    let mut candidate = declarations
         .iter()
-        .chain(parsed.syntax.blocks.iter().skip(1))
-        .map(|block| OwnedBlock::from_syntax(&synthetic, block))
-        .collect();
-    let migrated = OwnedDocument { blocks }
-        .format()
-        .map_err(|_| MigrationError::InvalidGenerated)?;
+        .map(|block| dedent_root_block(source, block.range().clone()))
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    let body = source[group.range.end..].trim_start_matches(['\r', '\n']);
+    if !body.is_empty() {
+        if !candidate.is_empty() {
+            candidate.push_str("\n\n");
+        }
+        candidate.push_str(body);
+    }
+    let parsed = plumb_syntax::parse(&candidate);
+    if !parsed.is_valid() {
+        return Err(invalid_document_group(&parsed, 0));
+    }
+    let migrated = OwnedDocument {
+        blocks: parsed
+            .syntax
+            .blocks
+            .iter()
+            .map(|block| OwnedBlock::from_syntax(&parsed.source, block))
+            .collect(),
+    }
+    .format()
+    .map_err(|_| MigrationError::InvalidGenerated)?;
     if !plumb_syntax::parse(&migrated).is_valid() {
         return Err(MigrationError::InvalidGenerated);
     }
     Ok(migrated)
+}
+
+fn dedent_root_block(source: &str, range: legacy::SourceRange) -> String {
+    let mut output = String::new();
+    for (index, line) in source[range].split_inclusive('\n').enumerate() {
+        let line = if index == 0 {
+            line
+        } else {
+            line.strip_prefix(' ').unwrap_or(line)
+        };
+        output.push_str(line);
+    }
+    output.trim_end_matches(['\r', '\n']).to_string()
 }
 
 fn invalid_document_group(
@@ -167,7 +208,248 @@ fn invalid_document_group(
     )
 }
 
+fn mask_current_inline_elements(
+    source: &str,
+    legacy: &legacy::ParsedDocument,
+    current: &plumb_syntax::ParsedDocument,
+) -> Option<(String, Vec<Range<usize>>)> {
+    let errors = legacy
+        .diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.severity == legacy::DiagnosticSeverity::Error)
+        .map(|diagnostic| diagnostic.range.clone())
+        .collect::<Vec<_>>();
+    let mut attached = Vec::new();
+    collect_legacy_attribute_ranges(&legacy.syntax.attrs, &mut attached);
+    collect_legacy_block_attribute_ranges(&legacy.syntax.blocks, &mut attached);
+    let mut legacy_verbatim = Vec::new();
+    collect_legacy_verbatim_ranges(&legacy.syntax.blocks, &mut legacy_verbatim);
+
+    let mut current_inlines = Vec::new();
+    collect_current_inline_ranges(&current.syntax.blocks, &mut current_inlines);
+    current_inlines.retain(|range| {
+        (errors.iter().any(|error| ranges_intersect(range, error))
+            || has_current_member_separator(&source[range.clone()]))
+            && !attached
+                .iter()
+                .any(|group| group.start <= range.start && range.end <= group.end)
+            && !legacy_verbatim
+                .iter()
+                .any(|block| block.start <= range.start && range.end <= block.end)
+    });
+    if current_inlines.is_empty() {
+        return None;
+    }
+
+    let mut bytes = source.as_bytes().to_vec();
+    for range in &current_inlines {
+        for byte in &mut bytes[range.clone()] {
+            if !matches!(*byte, b'\r' | b'\n') {
+                *byte = b'x';
+            }
+        }
+    }
+    Some((
+        String::from_utf8(bytes).expect("ASCII masking preserves UTF-8"),
+        current_inlines,
+    ))
+}
+
+fn collect_legacy_verbatim_ranges(blocks: &[legacy::Block], output: &mut Vec<Range<usize>>) {
+    for block in blocks {
+        match block {
+            legacy::Block::Parsed(block) => collect_legacy_verbatim_ranges(&block.children, output),
+            legacy::Block::Verbatim(block) => output.push(block.range.clone()),
+        }
+    }
+}
+
+fn has_current_member_separator(source: &str) -> bool {
+    source.char_indices().any(|(offset, character)| {
+        if character != '|' {
+            return false;
+        }
+        source[..offset]
+            .bytes()
+            .rev()
+            .take_while(|byte| *byte == b'`')
+            .count()
+            % 2
+            == 0
+    })
+}
+
+fn ranges_intersect(left: &Range<usize>, right: &Range<usize>) -> bool {
+    left.start < right.end && right.start < left.end
+}
+
+fn collect_legacy_attribute_ranges(
+    attributes: &legacy::Attributes,
+    output: &mut Vec<Range<usize>>,
+) {
+    let Some(group) = attributes.attached.as_deref() else {
+        return;
+    };
+    output.push(group.range.clone());
+    match &group.content {
+        legacy::AttachedContent::Blocks(blocks) => {
+            collect_legacy_block_attribute_ranges(blocks, output)
+        }
+        legacy::AttachedContent::Inlines(content) => {
+            collect_legacy_inline_attribute_ranges(&content.items, output)
+        }
+    }
+}
+
+fn collect_legacy_block_attribute_ranges(blocks: &[legacy::Block], output: &mut Vec<Range<usize>>) {
+    for block in blocks {
+        match block {
+            legacy::Block::Parsed(block) => {
+                if let Some(mark) = &block.mark {
+                    collect_legacy_attribute_ranges(&mark.attrs, output);
+                }
+                collect_legacy_inline_attribute_ranges(&block.head.items, output);
+                collect_legacy_block_attribute_ranges(&block.children, output);
+            }
+            legacy::Block::Verbatim(block) => collect_legacy_attribute_ranges(&block.attrs, output),
+        }
+    }
+}
+
+fn collect_legacy_inline_attribute_ranges(
+    inlines: &[legacy::Inline],
+    output: &mut Vec<Range<usize>>,
+) {
+    for inline in inlines {
+        match inline {
+            legacy::Inline::Element { slots, attrs, .. } => {
+                collect_legacy_attribute_ranges(attrs, output);
+                for slot in slots {
+                    collect_legacy_inline_attribute_ranges(&slot.content.items, output);
+                }
+            }
+            legacy::Inline::Verbatim { attrs, .. } => {
+                collect_legacy_attribute_ranges(attrs, output)
+            }
+            legacy::Inline::Text { .. }
+            | legacy::Inline::Space { .. }
+            | legacy::Inline::SoftBreak { .. } => {}
+        }
+    }
+}
+
+fn collect_current_inline_ranges(blocks: &[plumb_syntax::Block], output: &mut Vec<Range<usize>>) {
+    for block in blocks {
+        let plumb_syntax::Block::Parsed(block) = block else {
+            continue;
+        };
+        collect_current_ranges_in_content(&block.head, output);
+        collect_current_inline_ranges(&block.children, output);
+    }
+}
+
+fn collect_current_ranges_in_content(
+    content: &plumb_syntax::InlineContent,
+    output: &mut Vec<Range<usize>>,
+) {
+    for inline in &content.items {
+        match inline {
+            plumb_syntax::Inline::Element { range, members, .. } => {
+                output.push(range.clone());
+                for member in members {
+                    match member {
+                        plumb_syntax::InlineMember::ParsedArgument(argument) => {
+                            collect_current_ranges_in_content(&argument.content, output)
+                        }
+                        plumb_syntax::InlineMember::Child { inline, .. } => {
+                            collect_current_range_in_inline(inline, output)
+                        }
+                        plumb_syntax::InlineMember::VerbatimArgument(_) => {}
+                    }
+                }
+            }
+            plumb_syntax::Inline::Verbatim { range, .. } => output.push(range.clone()),
+            plumb_syntax::Inline::Text { .. }
+            | plumb_syntax::Inline::Space { .. }
+            | plumb_syntax::Inline::SoftBreak { .. } => {}
+        }
+    }
+}
+
+fn collect_current_range_in_inline(inline: &plumb_syntax::Inline, output: &mut Vec<Range<usize>>) {
+    let content = plumb_syntax::InlineContent {
+        range: current_inline_range(inline).clone(),
+        items: vec![inline.clone()],
+    };
+    collect_current_ranges_in_content(&content, output);
+}
+
+fn current_inline_range(inline: &plumb_syntax::Inline) -> &Range<usize> {
+    match inline {
+        plumb_syntax::Inline::Text { range, .. }
+        | plumb_syntax::Inline::Space { range, .. }
+        | plumb_syntax::Inline::SoftBreak { range }
+        | plumb_syntax::Inline::Element { range, .. }
+        | plumb_syntax::Inline::Verbatim { range, .. } => range,
+    }
+}
+
+struct HeadOverrides<'a> {
+    blocks: HashMap<usize, &'a plumb_syntax::ParsedBlock>,
+    masked: Vec<Range<usize>>,
+}
+
+impl<'a> HeadOverrides<'a> {
+    fn new(blocks: &'a [plumb_syntax::Block], masked: Vec<Range<usize>>) -> Self {
+        let mut current = Self {
+            blocks: HashMap::new(),
+            masked,
+        };
+        current.collect_blocks(blocks);
+        current
+    }
+
+    fn collect_blocks(&mut self, blocks: &'a [plumb_syntax::Block]) {
+        for block in blocks {
+            let plumb_syntax::Block::Parsed(block) = block else {
+                continue;
+            };
+            self.blocks.insert(block.range.start, block);
+            self.collect_blocks(&block.children);
+        }
+    }
+
+    fn head(&self, block_start: usize, range: &Range<usize>) -> Option<Vec<OwnedInline>> {
+        if !self
+            .masked
+            .iter()
+            .any(|masked| ranges_intersect(masked, range))
+        {
+            return None;
+        }
+        let block = self.blocks.get(&block_start)?;
+        let items = block
+            .head
+            .items
+            .iter()
+            .filter(|inline| {
+                let inline = current_inline_range(inline);
+                range.start <= inline.start && inline.end <= range.end
+            })
+            .map(OwnedInline::from_syntax)
+            .collect::<Vec<_>>();
+        (!items.is_empty() || range.is_empty()).then_some(items)
+    }
+}
+
 pub fn convert_attached_v1(document: &legacy::Document) -> Result<OwnedDocument, MigrationError> {
+    convert_attached_v1_with_overrides(document, None)
+}
+
+fn convert_attached_v1_with_overrides(
+    document: &legacy::Document,
+    overrides: Option<&HeadOverrides<'_>>,
+) -> Result<OwnedDocument, MigrationError> {
     let mut blocks = Vec::new();
     if let Some(attached) = document.attrs.attached.as_deref() {
         let legacy::AttachedContent::Blocks(document_declarations) = &attached.content else {
@@ -178,7 +460,7 @@ pub fn convert_attached_v1(document: &legacy::Document) -> Result<OwnedDocument,
         blocks.extend(
             document_declarations
                 .iter()
-                .map(convert_attached_block)
+                .map(|block| convert_attached_block(block, overrides))
                 .collect::<Result<Vec<_>, _>>()?,
         );
     }
@@ -186,37 +468,82 @@ pub fn convert_attached_v1(document: &legacy::Document) -> Result<OwnedDocument,
         document
             .blocks
             .iter()
-            .map(convert_block)
+            .map(|block| convert_block(block, overrides))
             .collect::<Result<Vec<_>, _>>()?,
     );
     Ok(OwnedDocument { blocks })
 }
 
-fn convert_block(block: &legacy::Block) -> Result<OwnedBlock, MigrationError> {
+fn convert_block(
+    block: &legacy::Block,
+    overrides: Option<&HeadOverrides<'_>>,
+) -> Result<OwnedBlock, MigrationError> {
     match block {
-        legacy::Block::Parsed(block) => Ok(OwnedBlock::Parsed {
-            marker: block.mark.as_ref().map(|mark| mark.marker.clone()),
-            attributes: block.mark.as_ref().map_or_else(
-                || Ok(OwnedAttributes::default()),
+        legacy::Block::Parsed(block) => {
+            let attributes = block.mark.as_ref().map_or_else(
+                || Ok(Vec::new()),
                 |mark| convert_block_attributes(&mark.attrs),
-            )?,
-            head: convert_inlines(&block.head.items)?,
-            children: block
-                .children
-                .iter()
-                .map(convert_block)
-                .collect::<Result<Vec<_>, _>>()?,
-        }),
-        legacy::Block::Verbatim(block) => Ok(OwnedBlock::Verbatim {
-            kind: block.kind.clone(),
-            attributes: convert_block_attributes(&block.attrs)?,
-            text: block.text.clone(),
-        }),
+            )?;
+            let mut children = attributes
+                .into_iter()
+                .map(owned_attribute_block)
+                .collect::<Vec<_>>();
+            children.extend(
+                block
+                    .mark
+                    .as_ref()
+                    .map(|mark| convert_attached_block_children(&mark.attrs, overrides))
+                    .transpose()?
+                    .unwrap_or_default(),
+            );
+            children.extend(
+                block
+                    .children
+                    .iter()
+                    .map(|block| convert_block(block, overrides))
+                    .collect::<Result<Vec<_>, _>>()?,
+            );
+            Ok(OwnedBlock::Parsed {
+                marker: block.mark.as_ref().map(|mark| mark.marker.clone()),
+                head: overrides
+                    .and_then(|overrides| overrides.head(block.range.start, &block.head.range))
+                    .unwrap_or(convert_inlines(&block.head.items)?),
+                children,
+                raw: None,
+            })
+        }
+        legacy::Block::Verbatim(block) => {
+            let attributes = convert_block_attributes(&block.attrs)?;
+            let mut children = attributes
+                .into_iter()
+                .map(owned_attribute_block)
+                .collect::<Vec<_>>();
+            children.extend(convert_attached_block_children(&block.attrs, overrides)?);
+            if block.kind.is_empty() && children.is_empty() {
+                Ok(OwnedBlock::Verbatim {
+                    text: block.text.clone(),
+                })
+            } else {
+                Ok(OwnedBlock::Parsed {
+                    marker: Some(if block.kind.is_empty() {
+                        "()".into()
+                    } else {
+                        block.kind.clone()
+                    }),
+                    head: Vec::new(),
+                    children,
+                    raw: Some(block.text.clone()),
+                })
+            }
+        }
     }
 }
 
-fn convert_attached_block(block: &legacy::Block) -> Result<OwnedBlock, MigrationError> {
-    let mut converted = convert_block(block)?;
+fn convert_attached_block(
+    block: &legacy::Block,
+    overrides: Option<&HeadOverrides<'_>>,
+) -> Result<OwnedBlock, MigrationError> {
+    let mut converted = convert_block(block, overrides)?;
     let association = matches!(block, legacy::Block::Parsed(block) if block.mark.as_ref().is_some_and(|mark| mark.marker == ":"));
     if let OwnedBlock::Parsed {
         marker: Some(marker),
@@ -248,28 +575,133 @@ fn map_legacy_value_associations(blocks: &mut [OwnedBlock]) {
 
 fn convert_block_attributes(
     attributes: &legacy::Attributes,
-) -> Result<OwnedAttributes, MigrationError> {
-    let content = attributes
-        .attached
-        .as_deref()
-        .map(|attached| match &attached.content {
-            legacy::AttachedContent::Blocks(blocks) => Ok(OwnedAttachedContent::Blocks(
-                blocks
-                    .iter()
-                    .map(convert_attached_block)
-                    .collect::<Result<Vec<_>, _>>()?,
-            )),
-            legacy::AttachedContent::Inlines(content) => Ok(OwnedAttachedContent::Inlines(
-                convert_attached_inlines(&content.items)?,
-            )),
-        })
-        .transpose()?;
+) -> Result<Vec<OwnedAttribute>, MigrationError> {
+    let mut items = attributes
+        .items
+        .iter()
+        .map(convert_attribute)
+        .collect::<Vec<_>>();
+    if let Some(attached) = attributes.attached.as_deref() {
+        if let legacy::AttachedContent::Inlines(content) = &attached.content {
+            items.extend(convert_inline_declaration_attributes(
+                &content.items,
+                &attached.range,
+            )?);
+        }
+    }
+    Ok(items)
+}
 
-    Ok(OwnedAttributes {
-        present: attributes.range.is_some() || attributes.attached.is_some(),
-        items: Vec::new(),
-        content,
-    })
+fn owned_attribute_block(attribute: OwnedAttribute) -> OwnedBlock {
+    match attribute {
+        OwnedAttribute::Id(value) => OwnedBlock::marked("@", value),
+        OwnedAttribute::Class(value) => OwnedBlock::marked("+", value),
+        OwnedAttribute::Pair { key, value } => {
+            let value = match value {
+                OwnedValue::Bare(value) | OwnedValue::Quoted(value) => value,
+            };
+            OwnedBlock::association(key, value)
+        }
+    }
+}
+
+fn convert_attribute(item: &legacy::AttrItem) -> OwnedAttribute {
+    match item {
+        legacy::AttrItem::Id { value, .. } => OwnedAttribute::Id(value.clone()),
+        legacy::AttrItem::Class { value, .. } => OwnedAttribute::Class(value.clone()),
+        legacy::AttrItem::Pair { key, value, .. } => OwnedAttribute::Pair {
+            key: key.clone(),
+            value: if value.quoted {
+                OwnedValue::Quoted(value.decoded.clone())
+            } else {
+                OwnedValue::Bare(value.decoded.clone())
+            },
+        },
+    }
+}
+
+fn convert_attached_block_children(
+    attributes: &legacy::Attributes,
+    overrides: Option<&HeadOverrides<'_>>,
+) -> Result<Vec<OwnedBlock>, MigrationError> {
+    let Some(attached) = attributes.attached.as_deref() else {
+        return Ok(Vec::new());
+    };
+    match &attached.content {
+        legacy::AttachedContent::Blocks(blocks) => blocks
+            .iter()
+            .map(|block| convert_attached_block(block, overrides))
+            .collect(),
+        legacy::AttachedContent::Inlines(content) => {
+            convert_inline_declaration_attributes(&content.items, &attached.range)?;
+            Ok(Vec::new())
+        }
+    }
+}
+
+fn convert_inline_declaration_attributes(
+    inlines: &[legacy::Inline],
+    group_range: &legacy::SourceRange,
+) -> Result<Vec<OwnedAttribute>, MigrationError> {
+    let mut attributes = Vec::new();
+    for inline in inlines {
+        match inline {
+            legacy::Inline::Space { .. } | legacy::Inline::SoftBreak { .. } => {}
+            legacy::Inline::Element { kind, slots, .. }
+                if matches!(kind.as_str(), "@" | "-" | "+") =>
+            {
+                let [slot] = slots.as_slice() else {
+                    return Err(MigrationError::UnsupportedAttachedInline {
+                        range: group_range.clone(),
+                    });
+                };
+                let value = slot.content.plain_text();
+                if value.is_empty() {
+                    return Err(MigrationError::UnsupportedAttachedInline {
+                        range: group_range.clone(),
+                    });
+                }
+                attributes.push(if kind == "@" {
+                    OwnedAttribute::Id(value)
+                } else {
+                    OwnedAttribute::Class(value)
+                });
+            }
+            legacy::Inline::Element { kind, slots, .. } if kind == ":" || kind == "=" => {
+                let (key, value) = match slots.as_slice() {
+                    [key, value] => (key.content.plain_text(), value.content.plain_text()),
+                    [combined] => combined
+                        .content
+                        .plain_text()
+                        .split_once(' ')
+                        .map(|(key, value)| (key.to_string(), value.to_string()))
+                        .ok_or_else(|| MigrationError::UnsupportedAttachedInline {
+                            range: group_range.clone(),
+                        })?,
+                    _ => {
+                        return Err(MigrationError::UnsupportedAttachedInline {
+                            range: group_range.clone(),
+                        })
+                    }
+                };
+                if key.is_empty() || value.is_empty() {
+                    return Err(MigrationError::UnsupportedAttachedInline {
+                        range: group_range.clone(),
+                    });
+                }
+                attributes.push(OwnedAttribute::Pair {
+                    key,
+                    value: OwnedValue::Bare(value),
+                });
+            }
+            _ => {
+                return Err(MigrationError::UnsupportedAttachedInline {
+                    range: group_range.clone(),
+                })
+            }
+        }
+    }
+    Ok(attributes)
 }
 
 fn convert_inlines(inlines: &[legacy::Inline]) -> Result<Vec<OwnedInline>, MigrationError> {
@@ -428,23 +860,6 @@ fn append_attached_members(
     Ok(())
 }
 
-fn convert_attached_inlines(
-    inlines: &[legacy::Inline],
-) -> Result<Vec<OwnedInline>, MigrationError> {
-    inlines
-        .iter()
-        .map(|inline| match inline {
-            legacy::Inline::Element { .. } | legacy::Inline::Verbatim { .. } => {
-                convert_attached_inline(inline)
-            }
-            legacy::Inline::Text { text, .. } | legacy::Inline::Space { text, .. } => {
-                Ok(OwnedInline::Text(text.clone()))
-            }
-            legacy::Inline::SoftBreak { .. } => Ok(OwnedInline::SoftBreak),
-        })
-        .collect()
-}
-
 fn convert_attached_inline(inline: &legacy::Inline) -> Result<OwnedInline, MigrationError> {
     match inline {
         legacy::Inline::Element {
@@ -577,6 +992,27 @@ mod tests {
     }
 
     #[test]
+    fn migrates_block_attachments_around_current_inline_members() {
+        let source = "`# Links {\n `@ links\n}\n\nSee `->[guide|guide.plumb].\n\n`img[icon|=[src|asset.png]]\n";
+        let migrated = migrate_attached_v1(source).unwrap();
+        assert_eq!(
+            migrated,
+            "`# Links\n\n `@ links\n\nSee `->[guide|guide.plumb].\n\n`img[icon|=[src|asset.png]]\n"
+        );
+        assert!(plumb_syntax::parse(&migrated).is_valid());
+    }
+
+    #[test]
+    fn preserves_current_inline_spelling_inside_legacy_verbatim_payload() {
+        let source = "`plumb\"\n `->[guide|guide.plumb]\n `img[icon|=[src|asset.png]]\n";
+        let migrated = migrate_attached_v1(source).unwrap();
+        assert_eq!(
+            migrated,
+            "`plumb\n\n\"\n `->[guide|guide.plumb]\n `img[icon|=[src|asset.png]]\n"
+        );
+    }
+
+    #[test]
     fn migrates_compact_and_property_links_to_positional_arguments() {
         let source = "`->[guide target.plumb]\n`->[guide]{`:[to Project Guide.plumb]}\n`->[Get cookies.txt LOCALLY]{`:[to https://example.test]}\n";
         let migrated = migrate_attached_v1(source).unwrap();
@@ -627,8 +1063,28 @@ mod tests {
         let migrated = migrate_attached_v1(source).unwrap();
         assert_eq!(
             migrated,
-            "`event wheel: refactor qt`{5,6`}ct {\n `= uid example\n}\n"
+            "`event wheel: refactor qt{5,6}ct\n\n `= uid example\n"
         );
+    }
+
+    #[test]
+    fn converts_named_verbatim_to_a_marked_owner_with_one_raw_tail() {
+        let source = "`tex\" {`+[$] `@[equation]}\n E = mc^2\n";
+        let migrated = migrate_attached_v1(source).unwrap();
+        assert_eq!(migrated, "`tex\n\n `+ $\n\n `@ equation\n\n\"\n E = mc^2\n");
+        let parsed = plumb_syntax::parse(&migrated);
+        let [plumb_syntax::Block::Parsed(owner)] = parsed.syntax.blocks.as_slice() else {
+            panic!("expected one marked raw owner");
+        };
+        assert_eq!(owner.children.len(), 2);
+        assert_eq!(owner.raw.as_ref().unwrap().text, "E = mc^2\n");
+    }
+
+    #[test]
+    fn explicitizes_an_attributed_anonymous_verbatim_block() {
+        let source = "`\" {`@[example]}\n raw { bytes }\n";
+        let migrated = migrate_attached_v1(source).unwrap();
+        assert_eq!(migrated, "`()\n\n `@ example\n\n\"\n raw { bytes }\n");
     }
 
     #[test]

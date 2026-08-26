@@ -192,7 +192,7 @@ pub fn analyze_metadata(document: &Document) -> MetadataOutput {
         .filter(|block| parsed_marker(block) == Some("="))
         .collect::<Vec<_>>();
     if let (Some(first), Some(last)) = (properties.first(), properties.last()) {
-        let entries = parse_attached_entries(properties.iter().copied(), &mut output.diagnostics);
+        let entries = parse_direct_entries(properties.iter().copied(), &mut output.diagnostics);
         lint_standard_entries(&entries, &mut output.diagnostics);
         let selection_range = match first {
             Block::Parsed(block) => block
@@ -256,7 +256,7 @@ fn document_facet(block: &ParsedBlock) -> Option<DocumentFacet> {
     })
 }
 
-fn parse_attached_entries<'a>(
+fn parse_direct_entries<'a>(
     blocks: impl IntoIterator<Item = &'a Block>,
     diagnostics: &mut Vec<Diagnostic>,
 ) -> Vec<MetadataEntry> {
@@ -287,7 +287,7 @@ fn parse_attached_entries<'a>(
             ));
             continue;
         }
-        let Some((key, key_range, scalar)) = attached_property_parts(property) else {
+        let Some((key, key_range, scalar)) = direct_property_parts(property) else {
             diagnostics.push(warning(
                 "metadata.invalid-key",
                 "metadata keys must be nonempty plain text",
@@ -310,13 +310,13 @@ fn parse_attached_entries<'a>(
             range: property.range.clone(),
             key,
             key_range,
-            value: parse_attached_value(property, scalar, diagnostics),
+            value: parse_direct_value(property, scalar, diagnostics),
         });
     }
     entries
 }
 
-fn parse_attached_value(
+fn parse_direct_value(
     property: &ParsedBlock,
     scalar: Option<InlineContent>,
     diagnostics: &mut Vec<Diagnostic>,
@@ -343,10 +343,10 @@ fn parse_attached_value(
             },
         };
     }
-    parse_attached_children(&property.children, body_range(property), diagnostics)
+    parse_direct_children(&property.children, body_range(property), diagnostics)
 }
 
-fn attached_property_parts(
+fn direct_property_parts(
     property: &ParsedBlock,
 ) -> Option<(String, Range<usize>, Option<InlineContent>)> {
     let head = &property.head;
@@ -409,7 +409,7 @@ fn inline_source_range(inline: &Inline) -> &Range<usize> {
     }
 }
 
-fn parse_attached_children(
+fn parse_direct_children(
     blocks: &[Block],
     range: Range<usize>,
     diagnostics: &mut Vec<Diagnostic>,
@@ -456,7 +456,7 @@ fn parse_attached_children(
                         },
                     }
                 } else if item.head.items.is_empty() {
-                    parse_attached_children(&item.children, body_range(item), diagnostics)
+                    parse_direct_children(&item.children, body_range(item), diagnostics)
                 } else {
                     diagnostics.push(warning(
                         "metadata.invalid-list-item",
@@ -477,7 +477,7 @@ fn parse_attached_children(
     }
     if blocks.iter().all(|block| parsed_marker(block) == Some("=")) {
         return MetadataValue::Map {
-            entries: parse_attached_entries(blocks, diagnostics),
+            entries: parse_direct_entries(blocks, diagnostics),
             range,
         };
     }
@@ -497,7 +497,7 @@ fn collect_definition_lists<'a>(
     while let Some(current) = blocks.next() {
         if definition_block(current).is_none() {
             if let Block::Parsed(block) = current {
-                collect_definition_lists(&block.children, output);
+                collect_definition_lists(crate::body_children(block), output);
             }
             continue;
         }
@@ -521,7 +521,7 @@ fn collect_definition_lists<'a>(
                 inline_body,
                 body_range: projected_body_range,
             });
-            collect_definition_lists(&block.children, output);
+            collect_definition_lists(crate::body_children(block), output);
             current = blocks.next_if(|next| definition_block(next).is_some());
         }
         output.push(DefinitionList {
@@ -642,13 +642,12 @@ fn marker(block: &ParsedBlock) -> Option<&str> {
 }
 
 fn body_range(block: &ParsedBlock) -> Range<usize> {
-    block
-        .children
-        .first()
-        .zip(block.children.last())
-        .map_or(block.range.end..block.range.end, |(first, last)| {
-            first.range().start..last.range().end
-        })
+    let mut children = block.children.iter();
+    let Some(first) = children.next() else {
+        return block.range.end..block.range.end;
+    };
+    let last = children.next_back().unwrap_or(first);
+    first.range().start..last.range().end
 }
 
 fn warning(code: &'static str, message: impl Into<String>, range: Range<usize>) -> Diagnostic {
@@ -670,7 +669,7 @@ mod tests {
     #[test]
     fn groups_definition_lists_and_projects_metadata_values() {
         let parsed = parse(
-            "`= title Document `em[title]\n`= tags\n\n `- plumb\n `- parser\n\n`= macros\n\n `-\n  `- `\"name\"\n  `- `\"expansion\"\n  `- 1\n\n`= author\n\n `= name Alice\n\n`= source\n\n `text\"\n  raw\n\n`: term\n\n Definition.\n",
+            "`= title Document `em[title]\n`= tags\n\n `- plumb\n `- parser\n\n`= macros\n\n `-\n  `- `\"name\"\n  `- `\"expansion\"\n  `- 1\n\n`= author\n\n `= name Alice\n\n`= source\n\n `\"\n  raw\n\n`: term\n\n Definition.\n",
         );
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let output = analyze_metadata(&parsed.syntax);

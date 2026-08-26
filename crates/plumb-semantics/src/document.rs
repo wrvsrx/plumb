@@ -3,8 +3,8 @@ use std::ops::Range;
 use std::path::Path;
 
 use plumb_syntax::{
-    AttachedContent, AttrItem, AttrValue, Attributes, Block, Diagnostic, DiagnosticSeverity,
-    Document, Inline, InlineArgumentRef, InlineContent, InlineMember,
+    AttrItem, AttrValue, Attributes, Block, Diagnostic, DiagnosticSeverity, Document, Inline,
+    InlineArgumentRef, InlineContent, InlineMember,
 };
 use serde::{Deserialize, Serialize};
 use url::Url;
@@ -185,14 +185,9 @@ fn association_arity_diagnostics(document: &Document) -> Vec<Diagnostic> {
             match block {
                 Block::Parsed(block) => {
                     contents.push(&block.head);
-                    blocks.extend(&block.children);
-                    if let Some(mark) = &block.mark {
-                        push_attached_syntax(&mark.attrs, &mut blocks, &mut contents);
-                    }
+                    blocks.extend(crate::body_children(block));
                 }
-                Block::Verbatim(block) => {
-                    push_attached_syntax(&block.attrs, &mut blocks, &mut contents);
-                }
+                Block::Verbatim(_) => {}
             }
             continue;
         }
@@ -232,31 +227,15 @@ fn association_arity_diagnostics(document: &Document) -> Vec<Diagnostic> {
                             InlineMember::VerbatimArgument(_) => {}
                         }
                     }
-                    push_attached_syntax(attrs, &mut blocks, &mut contents);
+                    let _ = attrs;
                 }
-                Inline::Verbatim { attrs, .. } => {
-                    push_attached_syntax(attrs, &mut blocks, &mut contents);
-                }
+                Inline::Verbatim { .. } => {}
                 Inline::Text { .. } | Inline::Space { .. } | Inline::SoftBreak { .. } => {}
             }
         }
     }
     diagnostics.sort_by_key(|diagnostic| diagnostic.range.start);
     diagnostics
-}
-
-fn push_attached_syntax<'a>(
-    attrs: &'a Attributes,
-    blocks: &mut Vec<&'a Block>,
-    contents: &mut Vec<&'a InlineContent>,
-) {
-    let Some(attached) = attrs.attached.as_deref() else {
-        return;
-    };
-    match &attached.content {
-        AttachedContent::Blocks(attached) => blocks.extend(attached),
-        AttachedContent::Inlines(attached) => contents.push(attached),
-    }
 }
 
 fn collect_blocks(
@@ -269,7 +248,9 @@ fn collect_blocks(
         match block {
             Block::Parsed(parsed) => {
                 if let Some(mark) = &parsed.mark {
-                    let kind = if output
+                    let kind = if parsed.raw.is_some() {
+                        AnchorKind::VerbatimBlock
+                    } else if output
                         .headings
                         .heading_at_node_start(parsed.range.start)
                         .is_some()
@@ -289,19 +270,11 @@ fn collect_blocks(
                     );
                 }
                 collect_inlines(source, &parsed.head, first_ids, output);
-                collect_blocks(source, &parsed.children, first_ids, output);
+                for child in crate::body_children(parsed) {
+                    collect_blocks(source, std::slice::from_ref(child), first_ids, output);
+                }
             }
-            Block::Verbatim(block) => {
-                collect_anchor(
-                    source,
-                    &block.attrs,
-                    AnchorKind::VerbatimBlock,
-                    block.range.clone(),
-                    block.opener_range.clone(),
-                    first_ids,
-                    output,
-                );
-            }
+            Block::Verbatim(_) => {}
         }
     }
 }
@@ -1019,7 +992,7 @@ mod tests {
 
     #[test]
     fn only_shorthand_ids_create_anchors() {
-        let parsed = parse("`# Heading {\n  `@ intro\n}\n\n`## Pair only {\n  `= id pair\n}\n");
+        let parsed = parse("`# Heading\n  `@ intro\n\n`## Pair only\n  `= id pair\n");
         let output = analyze_document(&parsed.source, &parsed.syntax);
         assert_eq!(output.anchors.len(), 1);
         assert_eq!(output.anchors[0].id.value, "intro");
@@ -1028,7 +1001,7 @@ mod tests {
 
     #[test]
     fn verbatim_blocks_create_syntax_neutral_anchors() {
-        let parsed = parse("`text\" {`@[example]}\n  raw text\n");
+        let parsed = parse("`text\n `@ example\n\n\"\n raw text\n");
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let output = analyze_document(&parsed.source, &parsed.syntax);
         assert_eq!(output.anchors.len(), 1);
@@ -1243,7 +1216,7 @@ mod tests {
 
     #[test]
     fn diagnoses_invalid_autolink_targets_and_conflicting_properties() {
-        let source = "`->\"[]\"\n`->\"https://example.test/bad path\"\n`->\"https://example.test/%zz\"\n`->\"doc.plumb#one#two\"\n`->[\"https://example.test\"|=[to|other]]\n`->[\"https://example.test\"|+[$]]\n`span[text|+[->]]\n\n`note head {\n  `+ ->\n}\n\n`\" {`+[->]}\n raw\n";
+        let source = "`->\"[]\"\n`->\"https://example.test/bad path\"\n`->\"https://example.test/%zz\"\n`->\"doc.plumb#one#two\"\n`->[\"https://example.test\"|=[to|other]]\n`->[\"https://example.test\"|+[$]]\n`span[text|+[->]]\n\n`note head\n `+ ->\n\n`()\n `+ ->\n\n\"\n raw\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
@@ -1268,7 +1241,7 @@ mod tests {
 
     #[test]
     fn duplicate_ids_are_semantic_diagnostics() {
-        let parsed = parse("`node One {\n  `@ same\n}\n\n`other Two {\n  `@ same\n}\n");
+        let parsed = parse("`node One\n  `@ same\n\n`other Two\n  `@ same\n");
         assert!(parsed.is_valid());
         let output = analyze_document(&parsed.source, &parsed.syntax);
         assert_eq!(output.diagnostics[0].code, "anchor.duplicate-id");

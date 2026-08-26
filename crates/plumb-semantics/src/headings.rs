@@ -81,7 +81,9 @@ fn collect_headings<'a>(blocks: &'a [Block], output: &mut Vec<&'a ParsedBlock>) 
             if is_heading_marker(parsed) {
                 output.push(parsed);
             }
-            collect_headings(&parsed.children, output);
+            for child in crate::body_children(parsed) {
+                collect_headings(std::slice::from_ref(child), output);
+            }
         }
     }
 }

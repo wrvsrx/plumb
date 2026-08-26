@@ -80,7 +80,7 @@ fn main() {
 }
 
 fn workload(events: usize, references: usize) -> (String, String) {
-    let target = "`= title Target\n\n`task Target {\n `@ target\n}\n".to_string();
+    let target = "`= title Target\n\n`task Target\n `@ target\n".to_string();
     let mut source = String::with_capacity(events * 90 + references * 55);
     source.push_str("`= title Migrated events\n`= timezone Z\n\n");
     for index in 0..events {

@@ -86,7 +86,9 @@ pub fn import(document: &Pandoc) -> Result<String, String> {
             .join("; ");
         return Err(format!("generated plumb is invalid: {diagnostics}"));
     }
-    let formatted = plumb_format::format(&source)
+    let edits = plumb_edit::format(&parsed, plumb_edit::FormatScope::Document)
+        .map_err(|_| "generated plumb failed strict validation".to_string())?;
+    let formatted = plumb_edit::apply_text_edits(source, edits)
         .map_err(|_| "generated plumb failed strict validation".to_string())?;
     let parsed = plumb_syntax::parse(&formatted);
     if !parsed.is_valid() {
@@ -480,8 +482,21 @@ fn render_verbatim_argument(text: &str) -> String {
 fn render_verbatim_block(attrs: &Attr, text: &str) -> Result<String, String> {
     let (kind, attrs) = promoted_verbatim_attrs(attrs, true);
     let attrs = render_attrs(&attrs, None)?;
-    let separator = if attrs.is_empty() { "" } else { " " };
-    let mut output = format!("`{kind}\"{separator}{attrs}");
+    if kind.is_empty() && attrs.is_empty() {
+        let mut output = "`\"".to_string();
+        append_raw_payload(&mut output, text);
+        return Ok(output);
+    }
+
+    let owner = if kind.is_empty() { "()" } else { &kind };
+    let mut output = format!("`{owner}");
+    append_block_attrs(&mut output, &attrs);
+    output.push_str("\n\n\"");
+    append_raw_payload(&mut output, text);
+    Ok(output)
+}
+
+fn append_raw_payload(output: &mut String, text: &str) {
     if !text.is_empty() {
         output.push('\n');
         let mut lines = text.split('\n').collect::<Vec<_>>();
@@ -505,34 +520,34 @@ fn render_verbatim_block(attrs: &Attr, text: &str) -> Result<String, String> {
             output.push('\n');
         }
     }
-    Ok(output)
 }
 
 fn render_attrs(attrs: &Attr, consumed_pair: Option<&str>) -> Result<String, String> {
     let mut items = Vec::new();
     if !attrs.identifier.is_empty() {
         require_attr_name(&attrs.identifier, "attribute id")?;
-        items.push(format!("`@[{}]", escape_attached_text(&attrs.identifier)));
+        items.push(format!("`@ {}", escape_block_text(&attrs.identifier)));
     }
     for class in &attrs.classes {
         require_attr_name(class, "attribute class")?;
-        items.push(format!("`+[{}]", escape_attached_text(class)));
+        items.push(format!("`+ {}", escape_block_text(class)));
     }
     for (key, value) in &attrs.attributes {
         if consumed_pair == Some(key.as_str()) {
             continue;
         }
         require_attr_name(key, "attribute key")?;
-        items.push(format!(
-            "`=[{}|{}]",
-            escape_attached_text(key),
-            escape_attached_text(value)
-        ));
+        let value = if value.is_empty() {
+            "`\"[]\"".to_string()
+        } else {
+            escape_block_text(value)
+        };
+        items.push(format!("`= {} {value}", escape_block_text(key)));
     }
     Ok(if items.is_empty() {
         String::new()
     } else {
-        format!("{{{}}}", items.join(" "))
+        items.join("\n")
     })
 }
 
@@ -565,17 +580,16 @@ fn render_inline_children(attrs: &Attr, consumed_pair: Option<&str>) -> Result<S
 
 fn append_block_attrs(output: &mut String, attrs: &str) {
     if !attrs.is_empty() {
-        output.push(' ');
-        output.push_str(attrs);
+        output.push_str("\n\n");
+        output.push_str(&indent(attrs, 1));
     }
 }
 
-fn escape_attached_text(value: &str) -> String {
+fn escape_block_text(value: &str) -> String {
     value
         .replace('`', "``")
+        .replace('[', "`[")
         .replace(']', "`]")
-        .replace('{', "`{")
-        .replace('}', "`}")
         .replace('|', "`|")
 }
 
@@ -651,7 +665,7 @@ fn require_marker(marker: &str) -> Result<(), String> {
         && marker.chars().all(|character| {
             !character.is_whitespace()
                 && !character.is_control()
-                && !matches!(character, '`' | '"' | '[' | ']' | '{' | '}' | '|')
+                && !matches!(character, '`' | '"' | '[' | ']' | '|')
         })
     {
         Ok(())
@@ -665,10 +679,7 @@ fn require_attr_name(value: &str, what: &str) -> Result<(), String> {
         && value.chars().all(|character| {
             !character.is_whitespace()
                 && !character.is_control()
-                && !matches!(
-                    character,
-                    '`' | '"' | '[' | ']' | '{' | '}' | '#' | '.' | '='
-                )
+                && !matches!(character, '`' | '"' | '[' | ']' | '#' | '.' | '=' | '|')
         })
     {
         Ok(())
@@ -694,8 +705,6 @@ fn escape_text(text: &str, bracketed: bool) -> String {
     if bracketed {
         text.replace('[', "`[")
             .replace(']', "`]")
-            .replace('{', "`{")
-            .replace('}', "`}")
             .replace('|', "`|")
     } else {
         text
@@ -755,7 +764,7 @@ mod tests {
 
         let source = import_json(&document.to_string()).unwrap();
         assert!(source.starts_with("`= title Example\n"), "{source}");
-        assert!(source.contains("`# Intro {`@[intro]}"));
+        assert!(source.contains("`# Intro\n\n `@ intro"), "{source}");
         assert!(source.contains("`*[em] `![strong] `==[marked|@[marked]|+[keep]]"));
         assert!(source.contains("`~[strike] `^[super] `_[sub]"));
         assert!(source.contains("`->[target|\"other.plumb#id\"]"));
@@ -767,7 +776,7 @@ mod tests {
         );
         assert!(source.contains("`> quoted"));
         assert!(source.contains("`- item"));
-        assert!(source.contains("`rust\" {`@[code]}"));
+        assert!(source.contains("`rust\n\n `@ code\n\n\"\n fn main() {}"));
         assert!(plumb_syntax::parse(&source).is_valid());
     }
 
