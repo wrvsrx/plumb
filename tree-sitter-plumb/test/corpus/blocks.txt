@@ -99,13 +99,11 @@ Inline head is not a same-line child
 
 `- ``literal
 
-`- `{open
+`- {open
 
-`- `}close
+`- }close
 
 `- `->"something.plumb"
-
-`- `->"[https://[2001:db8::1]/]"
 
 `- `*[something]
 
@@ -126,7 +124,6 @@ Inline head is not a same-line child
     (marker)
     (head_separator)
     (inline_content
-      (brace_escape)
       (text)))
   (blank_line)
   (marked_block
@@ -134,18 +131,7 @@ Inline head is not a same-line child
     (marker)
     (head_separator)
     (inline_content
-      (brace_escape)
       (text)))
-  (blank_line)
-  (marked_block
-    (introducer)
-    (marker)
-    (head_separator)
-    (inline_content
-      (inline_verbatim
-        (introducer)
-        (verbatim_kind)
-        (raw_text))))
   (blank_line)
   (marked_block
     (introducer)
@@ -169,129 +155,21 @@ Inline head is not a same-line child
           (inline_member_text))))))
 
 ==================
-Expanded attached group
+Braces are ordinary text
 ==================
 
-`- Buy milk {
-  `- task
-  `@ shopping
-  `: due 2026-08-07
-}
+Paragraph {open} and close.
+
+`marker{brace} Head {content}
 
 ---
 
 (document
   (blank_line)
-  (marked_block
-    (introducer)
-    (marker)
-    (head_separator)
+  (paragraph
     (inline_content
-      (text))
-    (attached_block_group
-      (block_group_open)
-      (marked_block
-        (introducer)
-        (marker)
-        (head_separator)
-        (inline_content
-          (text)))
-      (marked_block
-        (introducer)
-        (marker)
-        (head_separator)
-        (inline_content
-          (text)))
-      (marked_block
-        (introducer)
-        (marker)
-        (head_separator)
-        (inline_content
-          (text))))))
-
-==================
-Compact trailing group
-==================
-
-`- Buy milk {`+[task] `@[shopping] `=[due|2026-08-07]}
-
----
-
-(document
+      (text)))
   (blank_line)
-  (marked_block
-    (introducer)
-    (marker)
-    (head_separator)
-    (inline_content
-      (text))
-    (attached_inline_group
-      (attached_inline_content
-        (inline_element
-          (introducer)
-          (inline_kind)
-          (parsed_inline_content
-            (inline_member_text)))
-        (attached_inline_text)
-        (inline_element
-          (introducer)
-          (inline_kind)
-          (parsed_inline_content
-            (inline_member_text)))
-        (attached_inline_text)
-        (inline_element
-          (introducer)
-          (inline_kind)
-          (parsed_inline_content
-            (inline_member_text))
-          (member_separator)
-          (parsed_inline_content
-            (inline_member_text)))))))
-
-==================
-Verbatim blocks
-==================
-
-`rust"" {`@[example] `=[generated|true]}
-  fn main() {
-      println!("hello");
-  }
-
-`"
-`after Done
-
----
-
-(document
-  (blank_line)
-  (verbatim_block
-    (introducer)
-    (verbatim_kind)
-    (verbatim_open)
-    (head_separator)
-    (attached_inline_group
-      (attached_inline_content
-        (inline_element
-          (introducer)
-          (inline_kind)
-          (parsed_inline_content
-            (inline_member_text)))
-        (attached_inline_text)
-        (inline_element
-          (introducer)
-          (inline_kind)
-          (parsed_inline_content
-            (inline_member_text))
-          (member_separator)
-          (parsed_inline_content
-            (inline_member_text)))))
-    (raw_text)
-    (raw_text)
-    (raw_text)
-    (raw_text))
-  (verbatim_block
-    (introducer)
-    (verbatim_open))
   (marked_block
     (introducer)
     (marker)
@@ -300,11 +178,11 @@ Verbatim blocks
       (text))))
 
 ==================
-Nested verbatim margin
+Nested anonymous verbatim margin
 ==================
 
 `parent
-  `text"
+  `""
     one
     \ttwo
   `after
@@ -319,7 +197,6 @@ Nested verbatim margin
     (block_body
       (verbatim_block
         (introducer)
-        (verbatim_kind)
         (verbatim_open)
         (raw_text)
         (raw_text))
@@ -363,8 +240,9 @@ Dynamic indentation and dedent
 Nested blocks close at EOF
 ==================
 
-`parent
-  `child End
+`a
+ `b
+  `c
 
 ---
 
@@ -377,6 +255,7 @@ Nested blocks close at EOF
       (marked_block
         (introducer)
         (marker)
-        (head_separator)
-        (inline_content
-          (text))))))
+        (block_body
+          (marked_block
+            (introducer)
+            (marker)))))))

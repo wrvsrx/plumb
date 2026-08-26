@@ -94,8 +94,8 @@ Inline spellings continue paragraphs and parsed content
 
 first
 ``literal
-`{open
-`}close
+{open
+}close
 `span[parsed]
 `text"raw"
 `text"[strengthened]"
@@ -114,10 +114,8 @@ first
       (introducer_escape)
       (text))
     (inline_content
-      (brace_escape)
       (text))
     (inline_content
-      (brace_escape)
       (text))
     (inline_content
       (inline_element

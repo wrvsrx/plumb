@@ -1,8 +1,7 @@
 use std::{ops::Range, path::PathBuf};
 
 use plumb_syntax::{
-    parse, AttachedContent, AttachedGroup, Attributes, Block, Document, Inline, InlineContent,
-    InlineMember, ParsedBlock, VerbatimBlock,
+    parse, Block, Document, Inline, InlineContent, InlineMember, ParsedBlock, VerbatimBlock,
 };
 use serde::Deserialize;
 use tree_sitter::{Language, Node, Parser};
@@ -46,7 +45,7 @@ fn strict_valid_trees_align_with_tree_sitter() {
         .filter(|case| case.valid)
         .collect::<Vec<_>>();
     assert!(
-        valid_cases.len() >= 17,
+        valid_cases.len() >= 11,
         "strict alignment corpus unexpectedly shrank"
     );
 
@@ -79,9 +78,7 @@ fn strict_valid_trees_align_with_tree_sitter() {
 }
 
 fn project_document(document: &Document) -> ProjectedNode {
-    let mut children = Vec::new();
-    project_attributes(&document.attrs, &mut children);
-    children.extend(document.blocks.iter().map(project_block));
+    let children = document.blocks.iter().map(project_block).collect();
     ProjectedNode {
         kind: "document",
         range: None,
@@ -110,8 +107,14 @@ fn project_parsed_block(block: &ParsedBlock) -> ProjectedNode {
             children: Vec::new(),
         });
         project_inline_content(&block.head, &mut children);
-        project_attributes(&mark.attrs, &mut children);
         children.extend(block.children.iter().map(project_block));
+        if let Some(raw) = &block.raw {
+            children.push(ProjectedNode {
+                kind: "raw_tail",
+                range: Some(raw.boundary_range.start..raw.range.end),
+                children: Vec::new(),
+            });
+        }
         "marked_block"
     } else {
         project_inline_content(&block.head, &mut children);
@@ -125,48 +128,14 @@ fn project_parsed_block(block: &ParsedBlock) -> ProjectedNode {
 }
 
 fn project_verbatim_block(block: &VerbatimBlock) -> ProjectedNode {
-    let mut children = vec![ProjectedNode {
+    let children = vec![ProjectedNode {
         kind: "introducer",
         range: Some(block.opener_range.start..block.kind_range.start),
         children: Vec::new(),
     }];
-    if !block.kind_range.is_empty() {
-        children.push(ProjectedNode {
-            kind: "verbatim_kind",
-            range: Some(block.kind_range.clone()),
-            children: Vec::new(),
-        });
-    }
-    project_attributes(&block.attrs, &mut children);
     ProjectedNode {
         kind: "verbatim_block",
         range: None,
-        children,
-    }
-}
-
-fn project_attributes(attributes: &Attributes, output: &mut Vec<ProjectedNode>) {
-    let Some(attached) = attributes.attached.as_deref() else {
-        return;
-    };
-    output.push(project_attached(attached));
-}
-
-fn project_attached(attached: &AttachedGroup) -> ProjectedNode {
-    let (kind, children) = match &attached.content {
-        AttachedContent::Blocks(blocks) => (
-            "attached_block_group",
-            blocks.iter().map(project_block).collect(),
-        ),
-        AttachedContent::Inlines(content) => {
-            let mut children = Vec::new();
-            project_inline_content(content, &mut children);
-            ("attached_inline_group", children)
-        }
-    };
-    ProjectedNode {
-        kind,
-        range: Some(attached.open_range.start..attached.close_range.end),
         children,
     }
 }
@@ -280,8 +249,7 @@ fn projected_kind(kind: &str) -> Option<(&'static str, bool)> {
         "paragraph" => ("paragraph", false),
         "marked_block" => ("marked_block", false),
         "verbatim_block" => ("verbatim_block", false),
-        "attached_block_group" => ("attached_block_group", true),
-        "attached_inline_group" => ("attached_inline_group", true),
+        "raw_tail" => ("raw_tail", true),
         "inline_element" => ("inline_element", true),
         "inline_verbatim" => ("inline_verbatim", true),
         "introducer" => ("introducer", true),

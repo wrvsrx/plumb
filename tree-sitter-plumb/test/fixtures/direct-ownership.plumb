@@ -1,0 +1,17 @@
+`task Buy milk
+
+ `+ shopping
+ `@ shopping
+ `= due 2026-08-07
+
+ `note Remember the coupon
+
+`rust
+
+ `@ example
+
+"
+ fn main() {}
+
+`"
+ anonymous raw

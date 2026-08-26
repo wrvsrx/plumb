@@ -49,7 +49,8 @@ second line]
   (blank_line)
   (paragraph
     (inline_content
-      (text))))
+      (text))
+    (ERROR)))
 
 ==================
 Recover after unclosed compact verbatim
@@ -107,7 +108,7 @@ broken `"[unfinished
 Reject verbatim block head
 ==================
 
-`rust" unexpected head
+`" unexpected head
 
 ---
 
@@ -115,10 +116,8 @@ Reject verbatim block head
   (blank_line)
   (verbatim_block
     (introducer)
-    (verbatim_kind)
     (verbatim_open)
-    (ERROR
-      (head_separator))))
+    (ERROR)))
 
 ==================
 Reject partial dedent

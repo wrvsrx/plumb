@@ -8,11 +8,10 @@ vim.treesitter.language.add('plumb', { path = parser_path })
 local bufnr = vim.api.nvim_create_buf(false, true)
 vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, {
   '`- xixi',
-  ' {',
-  '  `: test 2026-08-06T00:00:00+08:00',
-  '  `: recur P1D',
-  '  `: prev #take-diary-2026-08-05',
-  ' }',
+  '',
+  ' `= test 2026-08-06T00:00:00+08:00',
+  ' `= recur P1D',
+  ' `= prev #take-diary-2026-08-05',
   '',
   '`# some',
   '',
@@ -21,13 +20,12 @@ vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, {
 
 local parser = vim.treesitter.get_parser(bufnr, 'plumb')
 local root = parser:parse()[1]:root()
-assert(not root:has_error(), 'valid next-line attached group must not produce an error node')
+assert(not root:has_error(), 'valid direct declarations must not produce an error node')
 
 local crlf_source = table.concat({
   '`- crlf',
-  ' {',
-  '  `: value nested',
-  ' }',
+  '',
+  ' `= value nested',
   '',
   '',
   '`# top',
@@ -36,7 +34,7 @@ local crlf_source = table.concat({
 local crlf_root = vim.treesitter.get_string_parser(crlf_source, 'plumb'):parse()[1]:root()
 assert(
   not crlf_root:has_error(),
-  'next-line attached group must dedent across CRLF blank lines: ' .. crlf_root:sexpr()
+  'direct declarations must dedent across CRLF blank lines: ' .. crlf_root:sexpr()
 )
 
 local query_source = table.concat(vim.fn.readfile(grammar .. '/queries/highlights.scm'), '\n')
@@ -48,7 +46,7 @@ for id, node in query:iter_captures(root, bufnr, 0, -1) do
   captures[name .. '\0' .. text] = true
 end
 
-assert(captures['label\0->'], 'line-start inline verbatim kind must receive the label capture')
+assert(captures['keyword\0->'], 'line-start inline verbatim kind must receive the keyword capture')
 assert(
   captures['markup.raw\0"something.plumb"'],
   'line-start inline verbatim payload must receive a separate raw capture'

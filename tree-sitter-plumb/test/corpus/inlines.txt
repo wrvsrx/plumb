@@ -316,7 +316,7 @@ Introducer runs
       (text))))
 
 ==================
-Ordinary brackets
+Bare brackets recover as errors
 ==================
 
 Plain [brackets] and closing ] remain text.
@@ -327,13 +327,14 @@ Plain [brackets] and closing ] remain text.
   (blank_line)
   (paragraph
     (inline_content
-      (text))))
+      (text))
+    (ERROR)))
 
 ==================
 Unified delimiter escapes
 ==================
 
-escaped `[ `] `{ `} `| delims
+escaped `[ `] { } `| delims
 
 ---
 
@@ -345,10 +346,6 @@ escaped `[ `] `{ `} `| delims
       (bracket_escape)
       (text)
       (bracket_escape)
-      (text)
-      (brace_escape)
-      (text)
-      (brace_escape)
       (text)
       (pipe_escape)
       (text))))

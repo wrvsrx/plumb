@@ -14,15 +14,6 @@
 
 (member_separator) @punctuation.delimiter
 
-(attached_block_group
-  "}" @punctuation.bracket)
-
-(block_group_open) @punctuation.bracket
-
-(attached_inline_group
-  "{" @punctuation.bracket
-  "}" @punctuation.bracket)
-
 (verbatim_open) @punctuation.delimiter
 
 ; Raw payloads are syntax nodes because they change the lexical mode.
@@ -31,6 +22,7 @@
 ((verbatim_argument (raw_text) @markup.raw)
   (#set! priority 90))
 (verbatim_block (raw_text) @markup.raw.block)
+(raw_tail (raw_text) @markup.raw.block)
 
 ; Recovery nodes represent incomplete editor input, not valid strict syntax.
 [

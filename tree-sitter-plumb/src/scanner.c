@@ -1,9 +1,9 @@
 // plumb external scanner.
 //
 // Locality budget (core syntax reference §2): scanner state carries only the
-// indentation stack and the verbatim margin; token recognition looks ahead at
-// most one line, never tracks inline nesting depth, and never matches
-// delimiters across lines.
+// indentation stack and the verbatim margin. Inline token recognition stays
+// on one physical line; raw blank runs look ahead to the next nonblank line so
+// internal blank payload and trailing block layout remain distinguishable.
 
 #include "tree_sitter/parser.h"
 
@@ -20,6 +20,7 @@ enum TokenType {
   INLINE_CONTINUE,
   DEDENT,
   VERBATIM_BLOCK_OPEN,
+  RAW_TAIL_OPEN,
   RAW_CODE_LINE,
   INLINE_VERBATIM_TOKEN,
   INLINE_CHILD_KIND,
@@ -110,11 +111,29 @@ static bool scan_raw_code_line(Scanner *scanner, TSLexer *lexer,
   }
 
   if (lexer->lookahead == '\n') {
-    if (spaces > 0 && spaces < verbatim_indent) return false;
-    take(lexer);
-    lexer->mark_end(lexer);
-    lexer->result_symbol = RAW_CODE_LINE;
-    return true;
+    if (spaces >= verbatim_indent) {
+      take(lexer);
+      lexer->mark_end(lexer);
+      lexer->result_symbol = RAW_CODE_LINE;
+      return true;
+    }
+    if (spaces > 0) return false;
+
+    for (;;) {
+      take(lexer);
+      uint32_t next_spaces = 0;
+      while (lexer->lookahead == ' ' && next_spaces < verbatim_indent) {
+        take(lexer);
+        next_spaces++;
+      }
+      if (lexer->lookahead == '\n') continue;
+      if (lexer->lookahead == 0 || next_spaces < verbatim_indent) return false;
+      while (lexer->lookahead != '\n' && lexer->lookahead != 0) take(lexer);
+      if (lexer->lookahead == '\n') take(lexer);
+      lexer->mark_end(lexer);
+      lexer->result_symbol = RAW_CODE_LINE;
+      return true;
+    }
   }
   if (spaces < verbatim_indent) {
     uint16_t current = scanner->indents[scanner->depth];
@@ -202,9 +221,6 @@ static enum BacktickDispatch classify_verbatim_after_open(TSLexer *lexer,
     return BACKTICK_VERBATIM_BLOCK;
   }
 
-  while (lexer->lookahead == ' ' || lexer->lookahead == '\t') take(lexer);
-  if (lexer->lookahead == '{') return BACKTICK_VERBATIM_BLOCK;
-
   while (lexer->lookahead != 0 && lexer->lookahead != '\n') {
     if (lexer->lookahead == '"') {
       take(lexer);
@@ -218,8 +234,8 @@ static enum BacktickDispatch classify_verbatim_after_open(TSLexer *lexer,
 static bool is_name_char(int32_t character) {
   return character != 0 && character != ' ' && character != '\t' &&
          character != '\n' && character != '\r' && character != '[' &&
-         character != ']' && character != '{' && character != '}' &&
-         character != '`' && character != '"' && character != '|' &&
+         character != ']' && character != '`' && character != '"' &&
+         character != '|' &&
          !(character >= 0x01 && character <= 0x1f) &&
          !(character >= 0x7f && character <= 0x9f);
 }
@@ -227,9 +243,13 @@ static bool is_name_char(int32_t character) {
 static enum BacktickDispatch classify_backtick_dispatch(TSLexer *lexer) {
   take(lexer);
   if (lexer->lookahead == '`' || lexer->lookahead == '[' ||
-      lexer->lookahead == ']' || lexer->lookahead == '{' ||
-      lexer->lookahead == '}' || lexer->lookahead == '|') {
+      lexer->lookahead == ']' || lexer->lookahead == '|') {
     return BACKTICK_ESCAPE;
+  }
+
+  if (lexer->lookahead == '"') {
+    uint16_t quotes = scan_quote_run(lexer);
+    return classify_verbatim_after_open(lexer, quotes);
   }
 
   bool has_kind = false;
@@ -240,7 +260,8 @@ static enum BacktickDispatch classify_backtick_dispatch(TSLexer *lexer) {
   if (has_kind && lexer->lookahead == '[') return BACKTICK_PARSED_INLINE;
   if (lexer->lookahead == '"') {
     uint16_t quotes = scan_quote_run(lexer);
-    return classify_verbatim_after_open(lexer, quotes);
+    return scan_verbatim_close(lexer, quotes) ? BACKTICK_INLINE_VERBATIM
+                                               : BACKTICK_MARKED_BLOCK;
   }
   return BACKTICK_MARKED_BLOCK;
 }
@@ -266,6 +287,19 @@ static bool scan_verbatim_block_open(Scanner *scanner, TSLexer *lexer,
 
   scanner->verbatim_margin = quotes;
   lexer->result_symbol = VERBATIM_BLOCK_OPEN;
+  return true;
+}
+
+static bool scan_raw_tail_open(Scanner *scanner, TSLexer *lexer) {
+  if (lexer->lookahead != '"') return false;
+  take(lexer);
+  lexer->mark_end(lexer);
+  if (lexer->lookahead != '\n' && lexer->lookahead != '\r' &&
+      lexer->lookahead != 0) {
+    return false;
+  }
+  scanner->verbatim_margin = 1;
+  lexer->result_symbol = RAW_TAIL_OPEN;
   return true;
 }
 
@@ -306,17 +340,6 @@ static bool scan_paragraph_continue(Scanner *scanner, TSLexer *lexer) {
   }
 
   lexer->mark_end(lexer);
-  if (lexer->lookahead == '{') {
-    // A line holding only an opener is an own-line attached group at the
-    // continuation column, not head text; decline so layout can emit the
-    // same-indent token instead.
-    take(lexer);
-    while (lexer->lookahead == ' ' || lexer->lookahead == '\t' ||
-           lexer->lookahead == '\r') {
-      take(lexer);
-    }
-    if (lexer->lookahead == '\n' || lexer->lookahead == 0) return false;
-  }
   if (lexer->lookahead == '`') {
     enum BacktickDispatch dispatch = classify_backtick_dispatch(lexer);
     if (!is_inline_dispatch(dispatch)) return false;
@@ -374,7 +397,8 @@ static bool scan_layout(Scanner *scanner, TSLexer *lexer,
       column++;
     }
     bool can_scan_blank =
-        valid_symbols[INDENT_AFTER_BLANK] || valid_symbols[DEDENT];
+        valid_symbols[INDENT_AFTER_BLANK] || valid_symbols[DEDENT] ||
+        valid_symbols[RAW_TAIL_OPEN];
     if (!can_scan_blank) break;
     if (lexer->lookahead == '\r') skip(lexer);
     if (lexer->lookahead != '\n') {
@@ -387,6 +411,11 @@ static bool scan_layout(Scanner *scanner, TSLexer *lexer,
   if (lexer->lookahead == '\n' || lexer->lookahead == '\r') return false;
 
   uint16_t current = scanner->indents[scanner->depth];
+  if (valid_symbols[RAW_TAIL_OPEN] && column == current &&
+      lexer->lookahead == '"') {
+    if (!scan_raw_tail_open(scanner, lexer)) return false;
+    return true;
+  }
   if (after_blank && !valid_symbols[INDENT_AFTER_BLANK] && column >= current) {
     return false;
   }
@@ -446,6 +475,10 @@ bool tree_sitter_plumb_external_scanner_scan(void *payload, TSLexer *lexer,
   }
   if (valid_symbols[VERBATIM_BLOCK_OPEN] && lexer->lookahead == '"') {
     return scan_verbatim_block_open(scanner, lexer, valid_symbols);
+  }
+  if (valid_symbols[RAW_TAIL_OPEN] && lexer->lookahead == '"' &&
+      lexer->get_column(lexer) == scanner->indents[scanner->depth]) {
+    return scan_raw_tail_open(scanner, lexer);
   }
   if (valid_symbols[INLINE_VERBATIM_TOKEN] && lexer->lookahead == '"') {
     return scan_inline_verbatim_body(lexer);

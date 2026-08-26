@@ -1,0 +1,242 @@
+==================
+Direct declarations and ordinary children
+==================
+
+`task Buy milk
+
+ `+ shopping
+ `@ shopping
+ `= due 2026-08-07
+
+ `note Remember the coupon
+
+---
+
+(document
+  (blank_line)
+  (marked_block
+    (introducer)
+    (marker)
+    (head_separator)
+    (inline_content
+      (text))
+    (block_body
+      (marked_block
+        (introducer)
+        (marker)
+        (head_separator)
+        (inline_content
+          (text)))
+      (marked_block
+        (introducer)
+        (marker)
+        (head_separator)
+        (inline_content
+          (text)))
+      (marked_block
+        (introducer)
+        (marker)
+        (head_separator)
+        (inline_content
+          (text)))
+      (marked_block
+        (introducer)
+        (marker)
+        (head_separator)
+        (inline_content
+          (text))))))
+
+==================
+Interleaved direct children
+==================
+
+`owner Head
+
+ `@ identity
+
+ child paragraph
+
+ `= key value
+
+ `child Nested
+
+---
+
+(document
+  (blank_line)
+  (marked_block
+    (introducer)
+    (marker)
+    (head_separator)
+    (inline_content
+      (text))
+    (block_body
+      (marked_block
+        (introducer)
+        (marker)
+        (head_separator)
+        (inline_content
+          (text)))
+      (paragraph
+        (inline_content
+          (text)))
+      (blank_line)
+      (marked_block
+        (introducer)
+        (marker)
+        (head_separator)
+        (inline_content
+          (text)))
+      (marked_block
+        (introducer)
+        (marker)
+        (head_separator)
+        (inline_content
+          (text))))))
+
+==================
+Marked raw tail after children
+==================
+
+`rust
+
+ `@ example
+ `= generated true
+
+ `note Source follows
+
+"
+ fn main() {}
+
+---
+
+(document
+  (blank_line)
+  (marked_block
+    (introducer)
+    (marker)
+    (block_body
+      (marked_block
+        (introducer)
+        (marker)
+        (head_separator)
+        (inline_content
+          (text)))
+      (marked_block
+        (introducer)
+        (marker)
+        (head_separator)
+        (inline_content
+          (text)))
+      (marked_block
+        (introducer)
+        (marker)
+        (head_separator)
+        (inline_content
+          (text))))
+    (raw_tail
+      (verbatim_open)
+      (raw_text))))
+
+==================
+Anonymous raw block
+==================
+
+`""
+  first
+  second
+
+`after Done
+
+---
+
+(document
+  (blank_line)
+  (verbatim_block
+    (introducer)
+    (verbatim_open)
+    (raw_text)
+    (raw_text))
+  (blank_line)
+  (marked_block
+    (introducer)
+    (marker)
+    (head_separator)
+    (inline_content
+      (text))))
+
+==================
+Explicit anonymous raw owner
+==================
+
+`()
+
+ `@ example
+
+"
+ anonymous owned raw
+
+---
+
+(document
+  (blank_line)
+  (marked_block
+    (introducer)
+    (marker)
+    (block_body
+      (marked_block
+        (introducer)
+        (marker)
+        (head_separator)
+        (inline_content
+          (text))))
+    (raw_tail
+      (verbatim_open)
+      (raw_text))))
+
+==================
+Anonymous raw child
+==================
+
+`example
+
+ `"
+  one anonymous child
+
+---
+
+(document
+  (blank_line)
+  (marked_block
+    (introducer)
+    (marker)
+    (block_body
+      (verbatim_block
+        (introducer)
+        (verbatim_open)
+        (raw_text)))))
+
+==================
+Raw internal blank and trailing layout
+==================
+
+`"
+ first
+
+ second
+
+`next
+
+---
+
+(document
+  (blank_line)
+  (verbatim_block
+    (introducer)
+    (verbatim_open)
+    (raw_text)
+    (raw_text))
+  (blank_line)
+  (marked_block
+    (introducer)
+    (marker)))

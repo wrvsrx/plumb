@@ -1,9 +1,6 @@
-{
+`= title something
 
- `= title something
-}
-
-`marker head {`+[aside] `@[intro] `+[note] `=[key|value]} with `->[link|guide.plumb]
+`marker{brace} head {ordinary} with `->[link|guide.plumb|+[external]]
 
 Paragraph with `text"raw text" and ``escaped introducer.
 
@@ -11,10 +8,19 @@ Autolink `->"inbox.plumb".
 
 `->"something.plumb"
 
-`rust"
-  fn main() {}
+`rust
 
-`$"
-  E = mc^2
+ `@ example
+
+"
+ fn main() {}
+
+`$
+
+"
+ E = mc^2
+
+`"
+ anonymous raw
 
 Broken `kind[inline

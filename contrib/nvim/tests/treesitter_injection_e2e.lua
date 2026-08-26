@@ -25,7 +25,7 @@ local function parse_injection(lines, language)
   return bufnr, parser:trees()[1]:root(), tree:root()
 end
 
-local diary_lines = { '{', ' `: title diary', '}', '' }
+local diary_lines = { '`= title diary', '' }
 for index = 1, 100 do
   diary_lines[#diary_lines + 1] = '`### 2026-08-' .. string.format('%02d', (index - 1) % 31 + 1)
   diary_lines[#diary_lines + 1] = ''
@@ -43,25 +43,29 @@ assert(
 vim.api.nvim_buf_delete(diary_buf, { force = true })
 
 local plumb_buf, _, plumb_root = parse_injection({
-  '`plumb"',
+  '`plumb',
+  '',
+  ' `@ recursive-example',
+  '',
+  '"',
   ' `- xixi',
-  '  {',
-  '   `: recur P1D',
-  '  }',
+  '  `= recur P1D',
   '',
   ' `# some',
 }, 'plumb')
 assert(not plumb_root:has_error(), 'recursive plumb injection must parse without errors')
 local plumb_tree = plumb_root:sexpr()
-assert(plumb_tree:find('attached_block_group', 1, true), 'recursive injection must include the group')
-assert(plumb_tree:find('blank_line', 1, true), 'recursive injection must include all raw lines')
+assert(plumb_tree:find('marked_block', 1, true), 'recursive injection must include direct blocks')
+assert(plumb_tree:find('block_body', 1, true), 'recursive injection must preserve direct children')
 vim.api.nvim_buf_delete(plumb_buf, { force = true })
 
 local python_buf, outer_root, python_root = parse_injection({
-  '`python""',
-  '  def greet(name):',
-  '      if name:',
-  '          return f"hello {name}"',
+  '`python',
+  '',
+  '"',
+  ' def greet(name):',
+  '     if name:',
+  '         return f"hello {name}"',
 }, 'python')
 assert(not python_root:has_error(), 'indentation-sensitive Python injection must parse without errors')
 
@@ -72,7 +76,7 @@ for _, node in raw_query:iter_captures(outer_root, python_buf, 0, -1) do
 end
 assert(
   raw_lines[1] == 'def greet(name):\n',
-  'raw range must exclude the two-space margin: ' .. vim.inspect(raw_lines)
+  'raw range must exclude the one-space margin: ' .. vim.inspect(raw_lines)
 )
 assert(
   raw_lines[2] == '    if name:\n',
