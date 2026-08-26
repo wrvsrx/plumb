@@ -45,7 +45,7 @@ source-backed records 与 diagnostics；document analyses、workspace analyses�
 通过静态 Rust pipeline 显式组合，不提供动态 registration 或可替换 extension host。
 
 官方 bundle 包括 outline、anchors/references、target resolution、lists、definitions、metadata、
-citations、quotes、inline styles、tasks 和 events。semantic profile 将普通 attached elements 投影为
+citations、quotes、inline styles、tasks 和 events。semantic profile 将普通 direct declaration children 投影为
 id、facets 与 named properties；core 不维护 semantic registry，也不校验 element 或 marker spelling。
 
 `# 4. Workspace
@@ -128,11 +128,10 @@ options。官方 Neovim plugin 通过标准 `"ftplugin/plumb.lua" 设置 buffer-
 变化时恢复先前设置。它不覆盖 `"tabstop"：该选项决定 source 中真实 tab bytes 的显示宽度，而 verbatim
 payload 可以合法保留 tabs，其展示应继续服从用户配置。
 
-LSP folding 从 recovered syntax range 投影。heading section 与 verbatim raw body 各产生现有 structural
-range。marked block 若拥有 multiline attached group，则产生从 block start 到 attached group end 的 owner
-range；若 block 还有 children，则另产生延伸到最后一个 descendant 的 subtree range。两个 range 使用同一
-start，按较长 range 在前排序；没有 children 时不得重复相同 range。没有 attached group 的 marked block
-只产生 subtree range。对于允许吸收 trailing layout 的 subtree fold，只有当前 block 与紧邻的同层 next
+LSP folding 从 recovered syntax range 投影。heading section、marked raw tail 与 anonymous verbatim raw
+body 各产生 structural range。marked block 若有 children 或 raw tail，则产生延伸到最后一个 descendant
+或 payload end 的 subtree range；raw tail 不增加同 start 的重复 owner range。对于允许吸收 trailing
+layout 的 subtree fold，只有当前 block 与紧邻的同层 next
 sibling 都是 parsed marked block 且 marker 完全相同时，才把两者之间一个直接相邻的空白分隔行包含在
 subtree range 中；不同 marker、verbatim 或其他 block boundary 的空白分隔行保留在 fold range 外。该规则
 使同 marker sibling 折叠后紧凑排列，同时保留不同 block 种类之间的可见分组边界。Task owner fold 不吸收
@@ -275,9 +274,9 @@ verbatim block，不能在 lookahead 时调用 `"mark_end" 或发射 token。str
 不替代按 dispatch position 与 spelling kind 展开的 tree-sitter corpus matrix。
 更强的 strict-alignment test 将 strict valid syntax 投影为 normalized tree-sitter structural CST，并
 与真实 tree-sitter parse tree 比较 node kind、nesting 和稳定 byte range。投影保留 `"document"、block、
-attached group、inline envelope、`"introducer"、`"marker"、`"inline_kind" 与 `"verbatim_kind"；忽略
+raw-tail、inline envelope、`"introducer"、`"marker"、`"inline_kind" 与 anonymous verbatim opener；忽略
 layout-only wrapper、ordinary text leaf 与 anonymous delimiter。document/block container range 会因 blank
-layout ownership 不同而忽略；token 与 delimiter-owned inline/attached envelope range 必须一致。recovered
+layout ownership 不同而忽略；token 与 delimiter-owned inline/raw-tail range 必须一致。recovered
 invalid tree 不做同构比较，因为 strict diagnostics recovery 与 editor-oriented lenient recovery 的边界不同。
 
 `"grammar.js" 和 `"tree-sitter.json" 是 source of truth。generated parser files 是 build/release

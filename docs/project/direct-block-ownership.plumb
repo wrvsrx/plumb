@@ -1,0 +1,54 @@
+`= title Direct block ownership and raw tails
+
+`note 本页记录已经冻结、正在实现的 breaking feature set；可用性仍以
+ `->[core syntax reference|../reference/core-syntax.plumb] 顶部状态说明为准。
+
+`# Feature list
+
+`. 删除全部 structural block/document attached groups；brace 在 parsed content 与 marker 中成为 ordinary
+ character。
+`. document 继续作为 implicit root，顶层 `"=" 与 `"+" declarations 可以和 body blocks 乱序；顶层
+ `"@" 不定义 document identity。
+`. marked block 使用一个 source-ordered direct children sequence 同时保存 declarations 与普通 structural
+ children；core 不解释 declaration marker，semantic profile 投影 direct leaf `"@"、`"+"、`"=" 并从
+ owner body/details projection 中过滤已消费 declarations。
+`. block head positional projection 保持现有规则：没有 children 时由首个 inline item 与其后 space 切分；
+
+存在 children 时完整 head 是 key、children 是 value。inline owner 继续使用 single `"[]" envelope 与
+`"|" members；argument/child 可以乱序，semantic positional index 只计 arguments。
+
+`. 所有 marked blocks 具有同一 shape：marker、head、children 与 optional singular raw tail。raw tail 由
+
+owner column 上独占的 bare `"`" 开始，必须位于 children 后；boundary 之后永久进入 raw phase。
+
+`. raw tail 是 owner 的 direct field，不是 anonymous child，因此不会增加 payload ownership nesting，
+
+并且结构上至多出现一次。普通 block 仍可拥有一个或多个真正的 anonymous verbatim children。
+
+`. 带 introducer 的 anonymous quote opener 保留为 zero-head、zero-children compact form。有 declarations 或普通 children
+
+时使用 `"()" explicit owner 与 bare raw tail。
+
+`. formatter 统一输出 direct children、aligned bare boundary 与一个 structural-space raw margin；folding、
+
+outline、export 与 semantic traversal 必须过滤 declarations，但保持普通 children 的边界和顺序。
+
+`. frozen legacy parser 与 explicit versioned converter 将 former attached content 放在原 ordinary children
+
+之前，并把 named/attributed anonymous verbatim blocks 转成 current raw-tail structure。迁移后 current parser
+不保留兼容分支。
+
+`. tree-sitter、LSP semantic tokens/folding、owned editing、import/export、bundled skill 与 zettelkasten corpus
+
+必须随 strict syntax 同步迁移；raw payload 中的 brace bytes 必须保持不变。
+
+`# Motivation
+
+attached group 把 owner metadata 与 ordinary recursive content 分进两套边界，导致 block 与 inline 的
+ownership 模型不一致，也让 id/property 看起来像独立 attribute language。direct children 让 ownership
+只由递归位置决定，semantic profile 再解释 declaration spelling。
+
+named verbatim 若继续用 compact opener直接进入 raw phase，就无法在不增加 attached envelope 的情况下
+拥有任意递归 children。把 raw 改为所有 marked block 都可选的 terminal field，可以先使用完整普通 block
+grammar 表达 children，再以一次不可逆状态转换进入唯一 payload。bare boundary 不产生节点，因此不会把
+payload 伪装成 anonymous child；anonymous compact form 仍为常见零 ownership 情况保留最短 spelling。

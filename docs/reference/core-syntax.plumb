@@ -1,12 +1,16 @@
 `= title plumb core syntax reference
 
+`note 本文定义的 direct block ownership 与 block raw-tail syntax 尚未实现；当前 released parser 仍接受
+ legacy block attached groups 与 named verbatim opener。实现与迁移验证完成前，guide 不得把本页的新
+ spelling 表述为 available behavior。
+
 `# 1. Scope
 
-本文定义 core syntax validity。core 识别 source structure，不解释 marker、inline kind 或 attached
-content 的语义。任意语法错误都使文档不能进入 authoritative semantic analysis 或 export；
+本文定义 core syntax validity。core 识别 source structure，不解释 marker、inline kind、direct child
+或 raw payload 的语义。任意语法错误都使文档不能进入 authoritative semantic analysis 或 export；
 parser 仍必须恢复并产生 lossless tree 与全部可报告 diagnostics。
 
-document 是 implicit root owner；它只保存 source-ordered top-level blocks，不声明 attached group。
+document 是 implicit root owner；它只保存 source-ordered top-level blocks，不声明其他 ownership envelope。
 所有顶层 blocks 都是 document 的 direct children，core 不按 marker spelling 把其中任何 block 移出该
 sequence 或划入单独的 document attribute region。
 
@@ -18,20 +22,20 @@ sequence 或划入单独的 document attribute region。
 反引号是唯一 introducer。连续 run 从左到右每两个反引号组成一个 literal backtick；奇数 run
 最后剩余的一个作为 introducer。scanner 不回溯。
 
-结构字符集由 `` `"`"、`"["、`"]"、`"{"、`"}" 与 inline member 内的 `"|" 组成。delimiter
+结构字符集由 `` `"`"、`"["、`"]"、block raw-tail boundary 的 `"`" 与 inline member 内的 `"|" 组成。delimiter
 escape 与 bare delimiter 的身份都是全局的，与位置无关：
 
-`- 单个 introducer 后直接跟 `"["、`"]"、`"{"、`"}" 或 `"|" 之一，表示该 character 的 literal escape，
+`- 单个 introducer 后直接跟 `"["、`"]" 或 `"|" 之一，表示该 character 的 literal escape，
  不产生 literal backtick，也不启动或关闭 structure；该规则在所有 parsed position 无条件成立。
-`- 裸 `"{", `"}", `"[" 与 `"]" 永远是结构 delimiter：位于合法 attachment、group close、element open
- 或 element close 位置时执行该结构，否则发布对应 error，绝不回落为 ordinary text；字面使用必须
- escape。
+`- 裸 `"[" 与 `"]" 永远是 inline 结构 delimiter：位于合法 element open 或 element close 位置时执行
+ 该结构，否则发布对应 error，绝不回落为 ordinary text；字面使用必须 escape。
+`- `"{" 与 `"}" 是 ordinary parsed text characters，不需要 escape，也不能打开或关闭 ownership structure。
 `- `"`" 不参与 delimiter escape：它只在 introducer dispatch 内结构化，在 content 中是 ordinary
- text，也没有字面需求（verbatim 的 quote strength 已覆盖）。inline/block verbatim payload 是 raw
- bytes，不识别 delimiter escape。
+ text；唯一例外是 marked block owner column 上独占 physical line 的 bare `"`"，它开始该 block 的
+ raw tail。inline/raw payload 是 raw bytes，不识别 delimiter escape。
 
 词法判定保持局部：token 只依赖当前字符 run 与紧邻 lookahead，允许的全局上下文仅 indentation、
-verbatim 的 margin 与 quote strength、以及当前行的 line ending。attachment、nesting 与 form 判定全部
+verbatim 的 margin 与 quote strength、以及当前行的 line ending。ownership、nesting 与 form 判定全部
 由 parser 在 token 流上完成，不进入 lexer。
 
 core 不定义通用 escape language。introducer 后不是上述 delimiter 的 character 继续按普通
@@ -46,43 +50,47 @@ escape 已经产生 inline text 时，当前位置不再是 block start。
 
 `# 3. Block dispatch
 
-block start 的 introducer 先读取可选 kind 与完整 quote run，再按其后的 delimiter dispatch：
+block start 的 introducer 先读取 marker 或 anonymous quote，再按其后的 delimiter dispatch：
 
-`- `"KIND?QUOTES" 后立即 line ending/EOF，或跟 horizontal whitespace 与 compact/expanded attached
- group opener：verbatim block；quote count 同时声明 raw-body structural margin。
+`- introducer 后立即出现一个或多个 quotes，并在 quote run 后立即 line ending/EOF：anonymous verbatim
+ block；quote count 声明 raw-body structural margin。anonymous form 立即进入 raw phase，不能拥有 head、
+ children 或 raw-tail boundary。
 `- `"KIND?QUOTES["：strengthened inline verbatim，属于 paragraph/head inline content。
 `- `"KIND?\"RAW\""：single-quote compact inline verbatim sugar，属于 paragraph/head inline content，
  其中 `"RAW" 必须非空。
 `- 非空 marker token：marked block；紧接 opening bracket 时改为 parsed inline element。
+
+kind 后跟 quote 和 line ending 的旧 named verbatim opener 不再成立；具名 raw block 使用普通 marked
+block 与第 10 节的 raw tail。
 
 非法入口产生 syntax diagnostic，不退化为 ordinary text。
 
 `# 4. Marker 与 marked block
 
 `"MarkerToken" 是一个或多个非-whitespace、非-control Unicode scalar values，且不能包含反引号、
-double quote、bracket、brace 或 pipe。token 使用 maximal match，大小写敏感，按 source 原样保存。
+double quote、bracket 或 pipe。brace 是 ordinary marker character。token 使用 maximal match，大小写敏感，
+按 source 原样保存。
 
 marked block 形状为：
 
-`plumb"
+`text"
   `marker
   `marker Head
-  `marker Head {
-    `+ facet
 
-    `@ identity
+   `+ facet
+   `@ identity
+   `= property value
 
-    `= property value
-  }
+  `marker Head
 
-  `marker Head {`+[facet] `@[identity] `=[property|value]}
+   `@ identity
 
-marker 后只能紧接一个分隔 head 的 ASCII space/tab 或 line ending。普通 marker 允许空
-head 和空 children；marker-specific constraint 属于 semantic profile。
+  "
+   one raw payload
 
-空 head 不改变 block attachment rule。`"`x {}" 是 marker `"x"、空 head 与空 compact attached
-group；marker 和 group 之间的 horizontal whitespace 只建立 ownership，不进入 head。`"`x{}" 不满足
-block attachment site，仍是非法 legacy attribute-slot spelling。
+marker 后只能紧接一个分隔 head 的 ASCII space/tab 或 line ending。普通 marker 允许空 head、空 children
+与 absent raw tail；marker-specific constraint 属于 semantic profile。children 按 source order 直接归 owner，
+core 不按 `"@"、`"+" 或 `"=" spelling 把 declaration children 移入独立 attribute container。
 
 `# 5. Head 与 paragraph
 
@@ -118,7 +126,7 @@ text lines 属于同一 paragraph，并以 soft break 连接；blank、dedent、
 
 `# 6. Children 与 indentation
 
-只有 marked block 可以拥有 children。第一个 child 的首个非空 physical line 建立 child column；
+只有 marked block 可以拥有 children 和 raw tail。第一个 child 的首个非空 physical line 建立 child column；
 同级 siblings 必须从同一 column 开始。具体 column 是 formatter policy，不影响 syntax validity；
 官方 formatter 不以 marker width 或 conceptual head column 累积结构缩进，而是统一使用 owner column
 加一作为 body column。deferred head continuation 与普通 children 都从该 canonical body column 开始。
@@ -130,105 +138,30 @@ columns 之间是 partial dedent error。结构 indentation 只能使用 ASCII s
 只含 spaces/tabs 的 blank line 不建立或改变 indentation。文件最后一行不要求 newline；EOF
 完成当前行并关闭全部有效 levels。
 
-`# 7. Attached groups
+`# 7. Direct ownership
 
-attached group 是 postfix ownership operator，不是 attribute sublanguage。group 只在 block owner 声明的
-attachment site 被识别；其他位置的无主 brace 按第 2 节发布错误，不回落为 text。每个 owner
-最多有一个 group：
+document 与 marked block 都通过一个 source-ordered direct children sequence 表达 ownership，不存在
+postfix attached group、compact block ownership 或独立 attribute region。`"@"、`"+"、`"=" 与普通
+marker 在 core 中完全同类；typed generic attribute view 可以从 direct declaration children 投影，
+但不得改变、移除或重排原 children sequence。
 
-`- marked/verbatim block group 由 horizontal whitespace 与其前的 head source 分开；compact form 包含
- ordinary inline elements，expanded form 包含 ordinary blocks。marked block 的 opener 可以位于任意
- 一条 head line 行尾，或独占 head 的最后一条 continuation line（见下）；verbatim block 只允许
- header line 行尾。
-
-implicit paragraph 与 ordinary text run 不是 attachment site：为二者添加 group 必须先显式表达为
-marked block 或 inline element。paragraph 行尾或 text 中的 unescaped opening brace 发布
-`"syntax.unattached-group"。
-
-marked/verbatim block header owner 使用 spaced attachment：group 前必须至少有
-一个 ASCII space/tab。separator 不属于 head 或 raw payload。
-
-trailing opener 是任意一条 head line 的最后一个结构：它与该行其前的 head source 之间由至少一个
-ASCII space/tab 分开，并使 head 在 brace 前截止。opening brace 后在同一 physical line 出现 content
-时必须以同一行 closing brace 完成 compact form；opening brace 后只剩 horizontal whitespace 与
-line ending/EOF 时进入 expanded form。expanded content 建立比 opener 所在 structural line 的 column
-更深的 structural column，closing brace 回到该 column，并且必须是该 physical line 唯一的
-non-whitespace structure；trailing horizontal whitespace 合法。其内容使用第 3 至 6 节的普通 block
-parser，因此可以递归包含拥有 group 的 blocks。opener 位于 continuation line 上时，该 line 的
-column 同时是 group close 与后续 child siblings 的 column；opener 位于 header line 上时，children
-在深于 owner 的 column 上自行建立。continuation line 上的 ordinary opening brace 与 header line
-一样参与 attachment 判定；在 attachment position 需要字面 opening brace 时，使用单个 introducer 加
-opening brace 阻止 group 开始。
-document root 不提供 attachment site；文件开头的独占 opening brace 与其他无主 brace 一样发布
-`"syntax.unattached-group"。顶层 declarations 若由 semantic profile 定义，仍使用 ordinary top-level
-blocks 表达：
-
-`plumb"
+`text"
   `= title Document title
   `= tags
    `- plumb
 
-  `- Buy milk {
+  `task Buy milk
    `+ shopping
-
    `@ shopping
-
    `= due 2026-08-07
-  }
-
-折行 head 可以在任意一条 head line 行尾使用 trailing opener，也可以让 expanded opener 独占一条
-head continuation line：
-
-`plumb"
-  `task Buy milk and
-   remind me about eggs {
-    `+ shopping
-
-    `@ shopping
-   }
    `note Remember the coupon
 
-  `task Buy milk and
-   remind me about eggs
-   {
-    `+ shopping
+declaration 与普通 structural children 可以任意交错。semantic profile 可以消费 direct declarations，
+并在具体 owner 的 body projection 中过滤它们；core 不执行这种过滤。为 paragraph 或 ordinary text run
+建立 ownership 时必须先用 marked block 显式化，例如 `"()" marker。
 
-    `@ shopping
-   }
-   `note Remember the coupon
-
-两种 placement 中，opener 都是完整 head 的最后一个结构。own-line opener 是一条 head line，遵循
-deferred head continuation 的全部规则：必须紧邻前一条 head line，中间不能有 blank line，必须深于
-owner 的 structural column，且若 continuation 已建立 column 则必须与之一致。opener line 除 opening
-brace 与 trailing horizontal whitespace 外不能包含其他 source。识别 opener 会结束 deferred head，
-group close 后才可以开始 children；group content 建立比该 body column 更深的独立 child column。
-verbatim block 不允许 continuation 上的 attachment，因为 quote run 后的 line ending 已经开始 raw
-payload。官方 formatter 按 head 形态选择典范 placement：head 未折行时使用 header line 行尾的
-trailing opener，折行时使用独占 continuation line 的 own-line opener；close 与后续 children 位于
-opener 所在 line 的 column，group content 再深一级。
-
-空 head 与非空 head 使用同一 trailing attachment rule。紧贴 inline closing delimiter 的 group 仍归
-inline element，因 inline 已不再声明 attachment site 而发布 `"syntax.unattached-group"；只有与 block
-head 分隔的 group 才归 marked block。expanded group 一出现就结束 deferred head；group close 后的缩进
-ordinary text 只能开始 child paragraph，不能恢复 head。
-
-空 group 合法。expanded block group 由 head 的 attachment site——header line 行尾或独占的最后一条 head continuation line——与 indentation
-建立 ownership，不允许作为任意独立 sibling。core 原样保留 attached content，不把其中 spelling
-固定解释为 facet、identity 或 property。
-
-compact form 的 content 一律使用 ordinary inline grammar；expanded form 的 content 一律使用 ordinary
-block grammar。两种 form 即使为空也保留各自的 source layout 与 typed content category；group presence
-可由 syntax consumer 观察，但空 group 的 direct declaration projection 为空。formatter 与 syntax edit
-不能把显式空 group 自动改成 absent group。
-
-在 active group content 中，unescaped closing brace 关闭当前 group；bare opening brace 不能建立没有
-owner 的 nested group，是 syntax error。二者的字面使用遵循第 2 节的全局 escape 规则；group content
-需要包含任意 brace-rich source 时应使用 inline verbatim。
-
-第一个 group 之后再次出现在同一 owner attachment position 的 group 发布
-`"syntax.duplicate-attached-group"，不能覆盖或合并第一个 group。compact block group close 后允许 trailing
-horizontal whitespace；其他 source 发布 `"syntax.trailing-after-attached-group"，不得静默丢弃或重新解释为
-head。
+旧 block attached group spelling 不是 current syntax。因为 brace 已是 ordinary text，current parser
+不会按 legacy ownership 解释它；版本迁移必须通过 isolated legacy parser 与显式 converter 完成。
 
 `# 8. Parsed inline element
 
@@ -272,9 +205,9 @@ kind spelling 猜测 declaration，也不分别存储会丢失交错位置的 ar
 属于 parsed argument content，不建立 member boundary；literal pipe 在 parsed argument 中写作 delimiter
 escape。verbatim payload 中的 pipe 是 raw byte，nested child 内的 pipe 属于 nested owner。
 
-连续 `"[[][]]" 和 inline postfix `"{}" 都不是当前语法。前者在第一个 close 后恢复为 unattached bracket，
-后者恢复为 unattached group；版本迁移必须通过显式 legacy parser 与 converter 完成，current parser 与
-formatter 不读取旧 spelling。
+连续 `"[[][]]" 和 inline postfix `"{}" 都不是 current ownership syntax。前者在第一个 close 后恢复为
+unattached bracket；后者只是 parsed text braces，不建立 children。版本迁移必须通过显式 legacy parser
+与 converter 完成，current parser 与 formatter 不读取旧 spelling。
 
 `# 9. Inline verbatim
 
@@ -310,37 +243,54 @@ full element。payload 自身仍只占一条 physical line。空 verbatim 的写
 verbatim 不能使用 compact form，必须写成完整 strengthened envelope（opening quote run、opening
 bracket、payload、closing bracket 与相同 quote run）。
 
-`# 10. Verbatim block
+`# 10. Block raw tail 与 anonymous verbatim
 
-verbatim block 使用 introducer、可选 opaque kind 与一个或多个 opening quotes，并且不能有 head：
+任何 marked block 都可以在完整 children sequence 后声明至多一个 raw tail。boundary 是与 owner
+introducer column 对齐、独占 physical line 的 bare `"`"；它不是 block、child 或 anonymous payload node：
 
-`plumb"
-  `rust" {`@[example] `=[generated|true]}
-   fn main() {}
-
-  `rust" {
+`text"
+  `rust
    `@ example
-
    `= generated true
-  }
+   `note Source follows
+  "
    fn main() {}
 
-完整 quote run 后必须立即 line ending/EOF，或跟至少一个 ASCII space/tab 与一个完整 compact/expanded
-attached group；不允许 raw head。single-quote verbatim 的 brace 属于 payload，直到 separator 出现：
+boundary 之前使用完整普通 block grammar，因此 children 可以递归拥有 children。boundary 必须出现在
+owner 的所有 children 之后；识别 boundary 后 parser 永久进入该 owner 的 raw phase，不能恢复结构解析。
+raw tail 是 owner 的单值 optional field，不进入 children sequence。第二个看似 boundary 的 source 若满足
+payload margin 就是 raw byte，因而语法结构不能产生第二个 payload。
 
-`plumb"
-  `rust"{}"
-  `rust" {}
+bare `"`" 只在 parser indentation stack 仍持有同 column marked owner 时具有 boundary 身份。它必须紧接
+该 owner 的 head/children region；同列 sibling 已经关闭 owner 后，bare `"`" 发布
+`"syntax.unattached-raw-tail"。payload 可以为空。
 
-上例第一行是 payload 为 `"{}" 的 compact inline verbatim，第二行才是带空 compact group 的 verbatim
-block。expanded group 在 header line 打开并
-先于 raw body 关闭，因此 raw payload 中满足 structural margin 的 brace 仍全部是原始 bytes。旧的
-`"`{language=rust #example}" 在 unified grammar 中直接非法。
+anonymous compact verbatim 使用 introducer 与一个或多个 opening quotes，并立即进入 raw phase：
 
-opening quote count `"N" 显式声明 raw body 的 structural margin。body 的每条非空 line 必须在 parent
-column 后带恰好可供移除的 `"N" 个 ASCII spaces；移除这些 structural spaces 后，其余 spaces、tabs、line
-endings 和 syntax-like bytes 都属于 payload。`"N" 可以是任意正整数，因此 source 可以显式选择任意
-margin，而 parser 不从第一条 payload line 或共同缩进反推边界。
+`text"
+  `"
+   anonymous raw
+
+它产生 zero-head、zero-children block 与一个 payload；不能拥有 declarations 或普通 children。需要让
+anonymous raw 拥有 children 时，以 `"()" marker 显式化 owner，再使用普通 raw tail：
+
+`text"
+  `()
+   `@ example
+  "
+   anonymous owned raw
+
+因此带 introducer 的 anonymous quote opener 是匿名紧凑形式，bare `"`" 是现有 marked owner 的 tail boundary，两者由 introducer 明确
+区分。普通 block 仍可恰好包含一个 anonymous verbatim child：
+
+`text"
+  `example
+   `"
+    one anonymous child
+
+anonymous opener quote count `"N" 显式声明 raw-body structural margin。marked raw tail 的 bare boundary
+固定声明一个 ASCII-space margin。payload 的每条非空 line 必须在 parent column 后带可供移除的 margin；
+移除 structural spaces 后，其余 spaces、tabs、line endings 和 syntax-like bytes 都属于 payload。
 
 连续 blank run 需要延迟到下一条非空 line 或 EOF 才能分类。若其后仍有满足 structural margin 的非空
 payload line，则整个 run 是内部 payload，完全空行不要求 margin。若该 run 位于 payload 尾部，则 blank
@@ -349,27 +299,21 @@ trailing blank line 结束 payload，并与其余 blank lines 一同作为 block
 空行不会被 raw block 吞入，而作者仍可用显式 spaces 保留 trailing empty payload lines。首个显式空 raw
 line 产生 leading newline；EOF 不补 final newline。空 block 合法。
 
-compact/expanded group 都可以为空，group close 后直接 EOF 时 verbatim payload 也为空。expanded group
-close 后立即进入 raw-body phase；其后的 blank physical line 属于 payload 并产生 leading newline，不是
-可忽略的 group/body separator。
-
 第一条不足 `"N" 个 structural spaces 的非空 line 结束 block；structural margin 中的 tab、partial dedent
-或 structural tab 按 structural error 处理。官方 formatter 将所有 verbatim block canonicalize 为一个
-opening quote 与一个 structural space，并在调整 source envelope 时保持 typed raw payload 逐 byte 不变。
+或 structural tab 按 structural error 处理。官方 formatter 将 anonymous verbatim canonicalize 为一个
+opening quote，将 marked raw tail canonicalize 为一个 bare boundary，并使用一个 structural space；调整
+source envelope 时必须保持 typed raw payload 逐 byte 不变。
 内部 empty payload lines 保持无缩进；trailing empty payload lines 输出一个 structural space。非终端
 verbatim block 与后续 block 之间输出一个无缩进 blank separator；位于 EOF 的 verbatim 不添加 layout
 blank line，并保留 payload 是否带 final newline。
-
-`note 以上两种旧 block attachment spelling 在 unified grammar 中直接非法；strict parser 不保留兼容分支，
- toolchain 也不提供针对它们的 migration reader 或 migrator。
 
 `# 11. Recovery
 
 parser 使用 reject-but-recover：
 
 `- malformed block entry 恢复到下一 physical line。
-`- unclosed attached group 在 matching owner boundary、dedent、line ending 或 EOF 前停止。
-`- unattached group 与 unexpected closing brace 在当前 structural boundary 恢复。
+`- unattached raw-tail boundary 在当前 physical line 恢复，不接管前一个已关闭 sibling。
+`- raw-tail structural margin error 在 owner dedent 或 EOF 前恢复。
 `- unclosed parsed inline 在 blank、dedent、block-only entry 或 EOF 前停止，不消费边界。
 `- unclosed inline verbatim 在当前 physical line 结束。
 `- partial dedent 虚拟补到严格大于实际 column 的最小已有 column，并继续解析当前行。

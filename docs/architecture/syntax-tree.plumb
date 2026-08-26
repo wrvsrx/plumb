@@ -10,7 +10,7 @@ queries、source-preserving edits 和 semantic analyses；它不是已经解释�
 所有 source-backed leaf tokens 使用 UTF-8 half-open byte ranges，按 source order 无重叠、无空洞
 覆盖输入。拼接 leaf bytes 必须逐字节等于 source。
 
-tree 保留 trivia、structural indentation、line endings、delimiters、attached groups、payload 和 malformed
+tree 保留 trivia、structural indentation、line endings、delimiters、direct ownership、payload 和 malformed
 source。非空 source 的 leaf token 非空；空 source 产生 range `"[[0, 0)]" 的 document root。
 
 missing token 不作为 synthetic leaf 插入，由 diagnostic 和 insertion fix 表达。node range 从其
@@ -21,10 +21,10 @@ source-backed descendants 推导。
 `"ParsedDocument" 同时持有原始 source、`"LosslessTree"、typed `"Document" 与 diagnostics。
 `"LosslessTree" 当前是 range 加按 source order 排列的 `"SyntaxToken" sequence；每个 token 暴露 kind、
 range，以及从同一 source 取 text 的方法。token kinds 包括 text、whitespace、indentation、line ending、
-introducer、escape、marker、inline kind、group/inline delimiter、raw payload
+introducer、escape、marker、inline kind、inline/raw-tail delimiter、raw payload
 和 error。
 
-typed `"Document" 表达 paragraph、marked block、verbatim block、attached group、inline element、inline
+typed `"Document" 表达 paragraph、marked block、anonymous verbatim block、inline element、inline
 verbatim、text、space 和 soft break。parsed inline element 暴露 source-ordered `"InlineMember" sequence：
 parsed/verbatim arguments 与 parsed/verbatim children 各自保留 delimiter、separator 和 content ranges；
 head 内容中的连续 ASCII space/tab 产生独立 `"Inline::Space"；
@@ -32,11 +32,14 @@ head 内容中的连续 ASCII space/tab 产生独立 `"Inline::Space"；
 link 或 task。它与 token sequence 在同一次 parse 中产生，不是第二套 parser。
 
 document 保存一个 source-ordered top-level `"blocks" sequence，并可从 direct declaration blocks 投影
-generic attribute view，但不拥有 attached group。marked block 与 verbatim block 通过 `"Attributes" view
-暴露可选 recursive attached group。attached group 的 content 按
-owner category 直接复用 ordinary block 或 ordinary inline nodes，不产生专门的 property/facet node kind。
-marked block 另暴露 marker、head 和 children；paragraph 只有 inline content。verbatim block 另暴露
-每行 structural prefix 与 raw payload ranges。
+generic attribute view。marked block 暴露 marker、head、一个 source-ordered children sequence、从 direct
+declaration children 投影的 `"Attributes" view，以及 optional singular `"RawPayload"。projection 不改变
+children。paragraph 只有 inline content且没有 children/raw payload。anonymous verbatim block 直接暴露
+opener、每行 structural prefix 与 raw payload ranges；它没有 marker、head 或 children。
+
+marked block raw tail 的 typed structure是 owner 上的 optional singular field：bare boundary token 与 payload
+ranges 都直接属于 owner，不产生 anonymous payload child 或额外 ownership node。因而一个 marked block
+可以拥有一个 ordinary anonymous verbatim child，也可以拥有自己的 raw tail，两者在 tree 中不同。
 
 `# 4. Recovered and valid views
 
@@ -44,7 +47,7 @@ lossless token stream 与 typed recovered tree 始终存在。`"recovered_syntax
 view；`"valid_syntax()" 只在没有 error diagnostics 时返回同一 `"Document" reference，保证 semantic analyses
 不会误把 recovery choice 当作 author intent。
 
-访问两种 view 不会重新 parse。typed nodes 保存 marker、attached projection 和 inline text，
+访问两种 view 不会重新 parse。typed nodes 保存 marker、declaration projection 和 inline text，
 但所有 ownership 与 diagnostics 仍由 source ranges 定位。
 
 `# 5. Recovery representation
@@ -69,14 +72,15 @@ scanner state round-trip 不得引入 `"ERROR" node。该约束只保证 editor 
 
 `# 7. Future normalized AST
 
-可能的 normalized model 会包含 parsed block、verbatim block，以及 `"Text"、`"SoftBreak"、`"Span"
+可能的 normalized model 会包含 parsed block、anonymous verbatim block，以及 `"Text"、`"SoftBreak"、`"Span"
 和 `"Verbatim" inline variants。它只在 exporter 或其他 concrete consumer 证明 typed views 不足时加入。
 
 normalized model 不取代 lossless tree，不改变 syntax validity，也不把 semantic profile meanings 放回
 core。
 
 `"plumb-edit" 的 owned syntax nodes 不是 normalized semantic AST。它们只是 typed syntax view 的
-source-independent、可构造 counterpart，用于插入或替换 generic blocks、inlines 和 attached ownership data；最终
+source-independent、可构造 counterpart，用于插入或替换 generic blocks、inlines、direct ownership data
+与 raw tails；最终
 source layout 仍由 formatter 决定。
 
 `# 8. Incremental identity

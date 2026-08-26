@@ -3,13 +3,15 @@
 `# 1. Scope
 
 本文定义官方工具链在 valid core tree 上启用的 semantic profile。recognizer 只解释这里冻结的
-spelling；其他词法良构 marker、inline kind 与 attached content 保持 opaque generic data。
+spelling；其他词法良构 marker、inline kind 与 direct children 保持 opaque generic data。
 
 标准 projection 对 block/inline owner 使用同一关系：direct `"+" collection member 的 plain value 产生
 facet，direct `"@" identity declaration 的 plain value 产生 id，direct `"=" association 的首个 plain
-key 与其 value 产生 property。block group 使用 ordinary marked blocks；inline owner 使用 introducer-elided
+key 与其 value 产生 property。block owner 使用 ordinary direct child blocks；inline owner 使用 introducer-elided
 children `"+[facet]"、`"@[id]" 与 `"=[key|value]"。其他 direct children 不偶然占用 facet/property
-namespace，也不会仅因处于 attached scope 而改变自身基础语义。
+namespace，也不会仅因处于 owner child scope 而改变自身基础语义。block declaration projection 只消费
+direct、leaf-shaped declaration child；其他 children 保持普通结构。consumer 必须从 body/details/list
+projection 中过滤已消费 declarations，但不能从 core tree 移除或重排它们。
 
 semantic diagnostics 不改变 core syntax validity，但 authoritative export 和 operations 可以拒绝
 违反 profile constraint 的文档。
@@ -19,12 +21,12 @@ semantic diagnostics 不改变 core syntax validity，但 authoritative export �
 marker 是一至六个 `"#" 的 marked block 是 heading，run length 是 level，head 是 title。
 heading 进入 outline；children 和后续 headings 的层级关系由 source order 与 level 推导。
 
-heading 不生成 implicit id。只有 attached `"@" identity declaration 产生 anchor。
+heading 不生成 implicit id。只有 direct `"@" identity declaration 产生 anchor。
 需要作为 link、task reference 或 rename target 时才应添加显式 id。
 
 `# 3. Anchors
 
-任意 syntax owner attached group 中的 direct `"@" declaration 产生显式 anchor。document 内 id 必须唯一。
+任意 block/inline syntax owner 的 direct `"@" declaration 产生显式 anchor。document 内 id 必须唯一。
 anchor 保存 source document、id、owner 和 selection range。跨文件 index 只使用最新 valid snapshot。
 
 `"Add explicit id" authoring operation 只用于 syntax-valid document 中 cursor 命中的最深 marked 或
@@ -32,7 +34,7 @@ verbatim block；paragraph、inline owner 与已有 id 的 block 不提供 opera
 非空 plain head 生成 id，空 head 回退到 marker；verbatim block 回退到 `"block"。生成过程保留
 Unicode alphanumeric、underscore 与 hyphen，将其他 runs 变为单个 hyphen，并做 Unicode lowercase；
 空结果回退为 `"block"。与 document 中任意 explicit anchor 冲突时依次添加 `"-2"、`"-3"。
-operation 将 id 插入已有 attached group 首位，或创建新 group，并返回 revision-guarded edit。
+operation 将 id 作为 owner 的第一个 direct declaration child 插入，并返回 revision-guarded edit。
 authoring operation 修改的完整 owner block subtree 使用 canonical formatter layout，包括其 children；
 相邻 sibling 只提供 spacing context，不被一并格式化。anchor 与 document rename 仍只执行必要的
 minimal replacements。
@@ -45,7 +47,7 @@ marker `"-" 产生 bullet list item；marker `"." 产生 ordered list item。`"i
 或 paragraph 结束 group。nested item groups lower 为 nested lists。ordered list 固定从 1 开始，
 不提供 start attribute semantics。
 
-export 分别产生 Pandoc `"BulletList" 和 `"OrderedList"。item attached data 通过内部 `"Div" 保存。
+export 分别产生 Pandoc `"BulletList" 和 `"OrderedList"。item 未消费 declarations 通过内部 `"Div" 保存。
 specialized `"task" 与 `"event" markers 也投影为 bullet list items，但语义直接来自 marker，不来自 facet。
 
 `# 5. Definitions
@@ -71,8 +73,8 @@ block-level `"=" association 的形态是：
 
 没有 children 时，head 的首个 inline item 是 key，紧随 `"Space" 后的其余 inline items 是
 同行 value；只有 key 时 value 为空。存在 children 时，不再切分 head：整个 head 是 key，ordered
-children 共同构成 value。marked/verbatim block 的 attached group 与 children 是正交结构；添加、删除或
-展开 `"{}" group 都不得切换上述 projection。
+children 共同构成 value。是否存在 raw tail 不改变上述 projection。association 自身的 direct children
+属于 association value，而不是 association owner 的独立 attached region。
 
 `## 5.2 Inline member projection
 
@@ -299,17 +301,15 @@ bibliography 使用同一 metadata source。Bibliography relative paths 仍相�
 
 projection 把 block 内容统一看作 container 序列、inline 内容统一看作 span 序列：kind 为空的
 container 即 paragraph，kind 为空的 span 即 text run。匿名形态以零拼写换取零所有权——没有
-attachment site、没有 children；显式形态由此获得 group。该模型陈述结构同源，不陈述语义恒等：
+children；显式形态由此获得 direct ownership。该模型陈述结构同源，不陈述语义恒等：
 `"()" 容器与匿名 paragraph、`"()[...]" 与 text run 是不同 category，explicitness 本身可观察，
 export 分别映射 `"Div"/`"Span" 与 `"Para"/text，不做两者间的隐式转换。marker `"()" 与 parsed
 inline kind `"()" 是标准的显式 transparent container，为匿名形态解除该限制：
 
-`plumb"
-  `() Warning {
-    `@ notice
-
-    `warning
-  }
+`text"
+  `() Warning
+   `@ notice
+   `warning
 
     More details.
 
@@ -333,12 +333,12 @@ marker `">" 产生 block quote。可选 head 作为引用中的第一个 paragra
 
     `> A nested quote.
 
-空 head、空 children 与 nested quote 都合法。quote attached data 不能直接附着到 Pandoc
+空 head、空 children 与 nested quote 都合法。quote declarations 不能直接附着到 Pandoc
 `"BlockQuote"，export 使用 quote 内部的 `"Div" 保留全部 id/facets/properties；`">" marker 本身被
 消费，不产生 `"data-plumb-marker"。`"quote" 不作为 alias，仍是 generic marked block。
 
 quote 不定义 attribution、citation、pull quote 或 presentation semantics；需要这些信息时使用普通
-children 或 opaque attached elements，直到official semantic profile 冻结其含义。
+children 或 opaque declarations，直到 official semantic profile 冻结其含义。
 
 `# 13. Inline styles
 
@@ -353,7 +353,7 @@ children 或 opaque attached elements，直到official semantic profile 冻结�
   `_[subscript]
 
 `"*"、`"!"、`"~"、`"^" 与 `"_" 分别 lower 为 Pandoc `"Emph"、`"Strong"、`"Strikeout"、
-`"Superscript" 与 `"Subscript"。这些 Pandoc nodes 没有原生 attribute slot；存在 attached data 时，
+`"Superscript" 与 `"Subscript"。这些 Pandoc nodes 没有原生 attribute slot；存在 declarations 时，
 export 使用外层 `"Span" 保留全部 id/facets/properties。
 
 Pandoc 没有原生 Mark node；`"==" lower 为带 `".mark" class 的 `"Span"，并在其后保留 source 中的
@@ -369,32 +369,32 @@ bracket 与 introducer 始终显式标记 content boundary。
 
 verbatim inline 或 block 的 `"$" kind 产生标准 math：
 
-`plumb"
+`text"
   Inline `$"pi r^2".
 
-  `$" {`@[energy]}
-    E = mc^2
+  `$
+   `@ energy
+  "
+   E = mc^2
 
 inline verbatim lower 为 Pandoc `"InlineMath"，verbatim block lower 为 `"DisplayMath"。input 默认是
 TeX；可选 `"language" property 值 `"tex"。其他 language 产生 `"math.unsupported-language"。
 
-`"$" 作为其他 marker、parsed inline kind 或 attached facet 时不产生 math record。export 消费 verbatim
+`"$" 作为其他 marker、parsed inline kind 或 facet declaration 时不产生 math record。export 消费 raw-tail
 kind `"$" 与 `"language" property；其余 id/facets/properties 分别通过 `"Span" 或 `"Div"
-wrapper 保留，attached `"$" facet 不发布 Math-specific owner diagnostic。普通 dollar characters 和
+wrapper 保留，`"$" facet declaration 不发布 Math-specific owner diagnostic。普通 dollar characters 和
 dollar-delimited math 没有特殊 syntax。
 
 `# 15. Events
 
 `"event" marker 产生 event record，并具有 bullet list-item 结构：
 
-`plumb"
-  `event 14:00--15:30 Parser review {
-    `@ parser-review
-
-    `: date 2026-07-30
-    `: timezone +08:00
-    `: tasks #write-parser Project A.plumb#docs
-  }
+`text"
+  `event 14:00--15:30 Parser review
+   `@ parser-review
+   `= date 2026-07-30
+   `= timezone +08:00
+   `= tasks #write-parser Project A.plumb#docs
 
 head 的第一个 inline text 是 schedule，随后必须有 ASCII space/tab 与非空 title 分隔；children 是 details。
 nested events 只形成 display tree，不表示时间包含关系。schedule start 接受 reduced-precision local-time `"TIME"、带显式日期但继承 timezone 的
@@ -424,7 +424,7 @@ task-to-event reverse query。不得从 task 的 created、due、wait、done 或
 event 自身的 direct `"uid" property 接受 scalar/literal value，并作为显式 iCalendar UID；值必须非空。
 invalid explicit UID 不回退到派生值。缺少 `"uid" 时，exporter 从使用正斜线分隔的
 workspace-relative path、schedule 与 title 确定性派生 `"<sha256>@plumb.local" UID。`"when" property 与
-metadata `"event-uids" 没有 event semantics，只作为 opaque attached data/metadata 保留。Event 只有被引用时
+metadata `"event-uids" 没有 event semantics，只作为 opaque declaration data/metadata 保留。Event 只有被引用时
 才需要 explicit id；authoring operation 不自动生成 id 或 UID。
 
 只读 vdir projection 要求每个 event 具有有效 time；不同设备上的同一 workspace 因而产生相同 UID 与内容。
@@ -441,7 +441,7 @@ Event CEL context 提供 `"path"、`"id"、`"title"、source-backed `"uid"、`"d
 schedule 的 `"when"、
 解析后的 `"at"、`"start"、`"end"、`"tasks" 与 `"now"。
 Web Agenda 通过 revision-guarded operations 创建、编辑和删除 event；首版只支持 online mutations。
-Pandoc export 将 event 作为普通 bullet list item 导出；event marker 不伪装成 class，attached data 保持不变。
+Pandoc export 将 event 作为普通 bullet list item 导出；event marker 不伪装成 class，opaque declarations 保持不变。
 
 editor authoring operation `"Convert to event" 只在 cursor 命中的单个 list item head 以完整 event
 shorthand 开头时提供：
@@ -463,7 +463,7 @@ shorthand 开头时提供：
 `"YYYY-MM-DDTTIME"，不得携带 offset 或 `"Z"；前者继承 start date 并在 local time 早于 start 时解释为
 次日，后者使用显式 date。解析后的 end 必须严格晚于 start。至少一个 ASCII space/tab 分隔
 schedule 与非空 title。Schedule prefix 必须位于首个 plain text inline；title 可混合 text、parsed inline、
-verbatim inline 与其 attached elements。Operation 只移除 schedule 与分隔 whitespace，保留其余 inline tree。
+verbatim inline 与其 direct children。Operation 只移除 schedule 与分隔 whitespace，保留其余 inline tree。
 单数字段、basic time、offset、`"Z"、`"am/pm" 和自然语言日期不进入 shorthand。
 
 trailing `"--" 是仅供 authoring 的 inferred-end spelling。它从紧邻的下一个 sibling list item shorthand
@@ -495,13 +495,13 @@ range，不向 title frequency 贡献尚未通过 valid semantic analysis 的 ev
 
 `"task" marker 产生 task record，并具有 bullet list-item 结构：
 
-`plumb"
-  `task Implement parser {
-    `@ write-parser
-  }
+`text"
+  `task Implement parser
+   `@ write-parser
 
 head 是 title，children 是 details。nested tasks 形成 display tree，但只有 `"depends" 建立 dependency
-edge。attached facet 恰好名为 `"task" 时仍是 opaque attached data，不生成 task record。
+edge。facet declaration 恰好名为 `"task" 时仍是 opaque data，不生成 task record。direct declaration
+children 不进入 task details；其余 direct children 保持 source order并形成 details/nested task tree。
 
 字段约束：
 
@@ -518,10 +518,9 @@ characters、backslash、absolute path 与 `"#" 不合法。`".plumb#" 是 cross
 边界，因此 path 本身不能包含 `"#"。在 `"depends" 中，same-file reference 的 id 或 cross-file
 reference 的 id 结束后的 whitespace 才分隔下一条 reference；path 内的 spaces 属于 path：
 
-`plumb"
-  `task Review {
-    `: depends #local Project A.plumb#build Project B.plumb#test
-  }
+`text"
+  `task Review
+   `= depends #local Project A.plumb#build Project B.plumb#test
 
 document-local closure state：
 
@@ -590,7 +589,7 @@ diagnostics 也不改变 nesting 只形成 display tree、只有 `"depends" 建�
 authoring operations 使用执行时的本地 RFC 3339 timestamp：`"Convert to task" 把 cursor 命中的最深
 普通 `"-"/`"." item 转为 task 时，将 marker 改为 `"task" 并添加 `"created" property；`"Add task created timestamp" 为
 缺少 `"created" 的最深 enclosing task 补录时间。后者不受 task state、dependency 或 recurrence
-限制。两者都保留已有 attached elements，并返回 revision-guarded edits。
+限制。两者都保留已有 declaration children，并返回 revision-guarded edits。
 
 construct completion 是 prefix-sensitive 的 semantics-neutral authoring interface。bare backtick 不提供
 candidate；已输入至少一个 marker character 后，completion 根据 syntax owner、source position 与 semantic
@@ -599,8 +598,8 @@ candidate；已输入至少一个 marker character 后，completion 根据 synta
 backtick 到 cursor 的完整 prefix。
 
 syntax owner containment 使用半开 byte range；cursor 位于 owner `"range.end" 时不再属于该 owner。
-因此 complete attached group 的 closing delimiter 后紧邻的下一 structural line 可以直接开始 construct
-prefix，无需额外 blank line；前一 owner 的 attributes 或 verbatim block raw payload 不得抑制该 line
+因此 complete owner subtree 后紧邻的下一 structural line 可以直接开始 construct prefix，无需额外
+blank line；前一 owner 的 declarations 或 raw payload 不得抑制该 line
 的 Task 或 Event candidate。
 
 line start 的标准 construct prefixes 为：

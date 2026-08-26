@@ -16,7 +16,7 @@ consumer 的入口。
 `# 2. Owned syntax
 
 新增内容使用 semantics-neutral `"OwnedBlock"、`"OwnedInline"、`"OwnedAttribute" 和 `"OwnedValue"。
-owned nodes 表达 marker、attached elements、head、children、verbatim payload 与 inline structure，不携带 source
+owned nodes 表达 marker、direct declarations、head、children、raw tail 与 inline structure，不携带 source
 ranges，也不识别 metadata、task、link 或其他 semantic profile meanings。
 
 owned nodes 可以从 strict typed syntax view detach，也可以由 operation 构造。serializer 只负责生成
@@ -27,42 +27,35 @@ owned syntax 是 mutation intent 的 data model，不是预先渲染的 replacem
 语义修改 detached owned tree，但只有 edit layer 可以把它映射回 source ranges、indentation、line endings
 与 text edits。
 
-`# 3. Attached-property mutations
+`# 3. Declaration mutations
 
 统一 property API 将 insert、replace 与 remove 分开。insert 必须显式给出 `"First"、`"Last"、`"Before(index)"
 或 `"After(index)"；不存在隐式 append policy。一次 transaction 可以依次应用多个显式 insertion。
-attached owner 以 ordinary block/inline element 表达 id、facet 与 named property。新 owner、whole-owner
-rewrite 与 generated source 一律写 recursive attached syntax。
+owner 以 ordinary direct block/inline child 表达 id、facet 与 named property。新 owner、whole-owner
+rewrite 与 generated source 一律写 recursive direct-child syntax。block declaration insertion 必须插入
+owner 的 source-ordered children sequence；inline declaration insertion 必须插入 ordered members。
 
 replace 与 remove 使用明确 item index。edit layer 不按 semantic name 猜测顺序，也不重新排列 opaque
 elements；formatter 只处理 whitespace、wrapping 和 indentation。
 
-`## Canonical attached-group layout
+`## Canonical block ownership 与 raw-tail layout
 
-syntax-preserving formatter 保留 attached group presence 与 typed content category：inline content 保持
-compact form，block content 保持 expanded form，不能只因 line width 在两者之间转换。compact group 可以
-超过 preferred width。expanded group 的 opener 是完整 head 的最后一个结构，canonical placement 由
-head 形态决定：head 未折行时，formatter 输出 header line 行尾的 trailing opener，content 使用 owner
-column 加一，closing brace 回到 owner column。head 折行时，formatter 输出独占 head continuation
-line 的 own-line opener，并将 opener、closing brace 与后续 children 统一放在 owner column 加一，
-将 group content 放在 opener column 加一；source 中的 trailing-on-continuation placement 会被改写
-为该典范形式。普通 children 与 deferred head continuation 同样使用 owner column 加一，不按 marker
+普通 children、declaration children 与 deferred head continuation统一使用 owner column 加一，不按 marker
 width 对齐 conceptual head column。document body 与 marked-block children 使用同一套 sibling spacing：前一个
 parsed block 没有 children 且前后 marker 相同时只用一个 line ending；前一个 block 有 children、marker
 不同或任一 sibling 不是 parsed block 时使用一个 blank separator；前一个 block 的 terminal descendant
-是 verbatim block 时同样保证一个 blank separator。attached ownership、document metadata projection 与
+有 raw payload 时同样保证一个 blank separator。direct ownership、document metadata projection 与
 其他 semantic profile meaning 不得改变这套 syntax-only spacing。
 
-新建 owned group 尚无 source form 时，inline content 使用 compact，block content 使用 expanded；新建空
-marked/verbatim block group 默认 compact。已有显式 empty compact/expanded
-group 保留其 form，formatter 不删除 group。closing brace line 只允许 trailing horizontal whitespace。
-
-verbatim block source 可以用 `"N" 个 opening quotes 声明 `"N" 个 ASCII-space structural margin，但
-canonical formatter 一律输出 `"N = 1"。formatter 同步重写每条非空 raw-body line 的 structural prefix，
+marked block raw tail 的 bare `"`" boundary 与 owner column 对齐，payload 使用 owner column 加一个
+ASCII-space structural margin。children 与 boundary 之间使用普通异类 sibling separator；boundary 后立即
+进入 payload，不插入属于 payload 的隐式 blank line。anonymous verbatim source 可以用 `"N" 个 opening
+quotes 声明 `"N" 个 margin，但 canonical formatter 一律输出 `"N = 1"。formatter 同步重写每条非空
+raw-body line 的 structural prefix，
 不得改变 typed raw payload 的任何 byte。内部 empty payload line 保持无缩进；trailing empty payload line
 加一个 structural space，以免被解析为 layout。非终端 verbatim 与后续 block 之间输出一个无缩进 blank
 separator；终端 verbatim 在 EOF 不添加 layout blank，并保留 payload 是否带 final newline。quote count
-不作为需要保留的 delimiter strength，因为 verbatim block 没有 closing-delimiter collision。
+不作为需要保留的 delimiter strength，因为 raw block 没有 closing-delimiter collision。
 
 `# 4. Block mutations
 
@@ -72,7 +65,7 @@ block。sibling insertion 从 revision snapshot 的 owner column 推导 base ind
 
 metadata insertion 使用 ordinary top-level `"=" owned blocks；recurring-task clone 使用 owned block
 insertion。recurring task operation 在
-owned attached properties 上移除旧 instance state、设置 next instance fields，不再对 source slice 做相对 range
+owned declaration children 上移除旧 instance state、设置 next instance fields，不再对 source slice 做相对 range
 replacement。
 
 `# 5. Finalization
@@ -115,7 +108,7 @@ range 并产生 ordered minimal edits，但不触发 subtree formatting。worksp
 grouping、expected revisions、resource operations 与 atomicity requirements。
 
 raw replacement 只对这种已有 typed token ownership 的机械 rewrite 开放。Block insert/replace/remove/move、
-attached mutation、conversion 与 formatting 不得使用 raw `"TextEdit::replace" 绕过 owned syntax 或 edit
+declaration mutation、conversion 与 formatting 不得使用 raw `"TextEdit::replace" 绕过 owned syntax 或 edit
 session。
 
 `# 8. Recovered-source assists
@@ -144,3 +137,20 @@ owner 不按 spaces 或已知 kind 排除表猜测 positional arity。Link compa
 profile pass 转换。单文件写入必须 atomic，输出必须经 current strict parser 验证；两个 epochs 的重叠
 spelling 使调用方必须显式提供 source epoch。规则与完整 mapping 见
 `->[unified inline members design|../project/inline-members.plumb]。
+
+`# 10. Versioned block-group migration
+
+删除 block attached groups 与 named verbatim opener 是 breaking syntax change。`"plumb migrate" 提供显式
+legacy epoch；ordinary parser 不识别 old groups，formatter 不静默迁移。converter 使用 frozen legacy tree
+执行固定 structural mapping：
+
+`- document attached content 与 marked-block attached content 按原顺序转为 owner direct children。
+`- former attached children 排在 owner 原 ordinary children 之前；两个旧 sequences 各自保持 source order。
+`- named verbatim block 转为同 kind 的 empty-head marked block；former attached content 成为 direct children，
+ bare raw-tail boundary 承载原 payload。
+`- anonymous verbatim 没有 attached content 时保留 anonymous compact form；有 attached content 时转为
+ `"()" explicit owner、direct children 与 bare raw tail。
+`- brace-rich raw payload 逐 byte 保持；parsed content 中旧 structural braces 只由 legacy parser 解释。
+
+converter 产出 current owned syntax，经 `"plumb-edit" canonical rendering、strict reparse 与 atomic write。
+migration 不根据 marker spelling 猜 source epoch，也不把 old attached content 与 ordinary children 交错。

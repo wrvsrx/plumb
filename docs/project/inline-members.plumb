@@ -112,8 +112,8 @@ owner attributes 消费 declaration children，specialized owner 再约束普通
 `- relation kind 的 semantic meaning 不进入 core dispatch。
 `- compact inline verbatim 仍可作为 standalone inline node；需要 owner children 的 verbatim value
  使用含 verbatim argument 的 full member envelope。
-`- block attached group 继续表达显式 postfix ownership；document 改用 implicit root ownership，direct
- top-level declaration blocks 与 body blocks 共用同一 ordered child sequence。
+`- block attached group 将由 direct block ownership 取代；document 与 marked block 都让 declarations 和
+ ordinary blocks 共用同一 ordered child sequence。具名 raw payload 成为 marked owner 的 terminal field。
 
 这是 breaking syntax change；current parser 不包含 legacy compatibility branch。
 
@@ -155,3 +155,6 @@ legacy syntax tree 或 structural conversion result，但不属于 legacy parser
 迁移实现遵循 `->[editing architecture|../architecture/editing.plumb]：isolated legacy reader 只负责读取
 旧 source，version-specific converter 负责 tree-to-tree lowering，owned canonical rendering 与最终 byte
 edits 由 `"plumb-edit" 负责。formatter 不选择 syntax epoch、不读取 legacy tree，也不触发 migration。
+
+后续 block ownership 与 raw-tail mapping 见
+`->[direct block ownership and raw tails|direct-block-ownership.plumb]。

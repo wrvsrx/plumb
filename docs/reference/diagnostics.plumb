@@ -23,17 +23,13 @@ syntax diagnostics 分为：
 
 `- structural：indentation、partial dedent、非法 structural tab、verbatim margin。
 `- lexical：非法 marker/kind token 或 control character。
-`- delimiter/dispatch：非法 introducer entry、attached group、inline 或 verbatim。
-`- ownership：旧 attribute slot spelling、unattached delimiter 或 unexpected close。bare delimiter 在
- 非结构位置不再回落为 text：`"syntax.unattached-group"、`"syntax.unexpected-group-close"、
- `"syntax.unattached-bracket" 与 `"syntax.unexpected-element-close" 分别对应四种 delimiter。
+`- delimiter/dispatch：非法 introducer entry、inline、anonymous verbatim 或 block raw tail。
+`- ownership：旧 attribute slot spelling、unattached raw-tail boundary、unattached bracket 或 unexpected
+ element close。bare brace 是 ordinary text，不拥有 delimiter diagnostics。
 
-attached ownership 使用两个专用 codes：同一 owner 的第二个 group 使用
-`"syntax.duplicate-attached-group"，primary range 指向第二个 opening brace，related range 指向第一个 group；
-compact block group 后的 non-whitespace source 使用 `"syntax.trailing-after-attached-group"。duplicate
-recovery 保留第一个 group，并将第二个 group 标为 error region；trailing source 不重新并入 head。
-文件开头的 bare opening/closing brace 不再有 document-specific recovery，分别使用普通
-`"syntax.unattached-group" 与 `"syntax.unexpected-group-close"。
+owner column 上的 bare `"`" 只有在 indentation stack 仍持有一个可接收 raw tail 的 marked owner 时才合法；
+否则发布 `"syntax.unattached-raw-tail"。raw tail 是单值 terminal field：进入 payload 后所有满足 margin
+的 bytes 都是 raw，因此不存在 duplicate-tail diagnostic。
 
 同一 source range 和根因只发布最具体的错误。structural error 优先于由错误结构派生的 generic
 delimiter error。
@@ -53,11 +49,9 @@ Current parser 用 `"syntax.legacy-attributes" 拒绝识别出的旧 attribute s
  placeholder；它按普通 marked block indentation rule 接管紧随的 children，使输入 marker 首字符前后的
  owner boundary 与 folding range 保持稳定。该 placeholder 不进入 valid authoritative view；ordinary inline
  position 的孤立 introducer 不建立 block owner。
-`- attached block group：matching owner boundary 或 dedent；marked block 位于 head continuation line 上的
- opener 在 blank、owner-level dedent、children start 或不匹配的 continuation column 前停止建立
- ownership。
-`- unattached group/unexpected close/unattached bracket：当前 structural line 或 enclosing inline
- boundary。
+`- raw-tail boundary：只接管 indentation stack 上同 column、尚未关闭的 marked owner；无主 boundary
+ 在当前 physical line 恢复。
+`- unattached bracket：当前 structural line 或 enclosing inline boundary。
 `- parsed inline error：blank、dedent、block-only entry 或 EOF 前。
 `- inline verbatim error：当前 physical line ending 或 EOF。
 `- partial dedent：补到最接近的合法 outer column 后继续当前 line。
@@ -109,11 +103,7 @@ precedence、ordering、recovery 与 lossless token coverage；lenient tree-sitt
   syntax.invalid-verbatim-block-dispatch
   syntax.invalid-marker
   syntax.legacy-attributes
-  syntax.unclosed-attached-group
-  syntax.duplicate-attached-group
-  syntax.trailing-after-attached-group
-  syntax.unattached-group
-  syntax.unexpected-group-close
+  syntax.unattached-raw-tail
   syntax.unattached-bracket
   syntax.unexpected-element-close
   syntax.unclosed-inline
