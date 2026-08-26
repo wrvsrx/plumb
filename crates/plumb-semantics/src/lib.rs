@@ -18,7 +18,7 @@ pub fn is_document_declaration(block: &plumb_syntax::Block) -> bool {
     block
         .mark
         .as_ref()
-        .is_some_and(|mark| matches!(mark.marker.as_str(), "=" | "+"))
+        .is_some_and(|mark| matches!(mark.marker.as_str(), "=" | "+" | "@"))
 }
 
 pub fn is_block_declaration(

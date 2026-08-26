@@ -710,7 +710,8 @@ mod tests {
 
     #[test]
     fn document_declarations_do_not_split_exported_body_lists() {
-        let document = export("`- First\n`= title Between\n`- Second\n").unwrap();
+        let document =
+            export("`- First\n`= title Between\n`+ journal\n`@ unsupported\n`- Second\n").unwrap();
         let blocks = document["blocks"].as_array().unwrap();
 
         assert_eq!(document["meta"]["title"]["c"][0]["c"], "Between");
