@@ -881,7 +881,10 @@ mod tests {
     #[test]
     fn braces_are_preserved_as_ordinary_text() {
         assert_formats("Text { fn() {} }\n", "Text { fn() {} }\n");
-        assert_formats("`node value{inside}\n", "`node value{inside}\n");
+        assert_formats(
+            "`marker{brace} value{inside}\n",
+            "`marker{brace} value{inside}\n",
+        );
     }
 
     #[test]

@@ -239,7 +239,7 @@ Use `"[raw containing " safely]" and `rust""[raw containing ]" safely]"".
 Verbatim argument with children
 ==================
 
-Use `code["let x = 1;"|@[example]|=[generated|true]].
+Use `code["let x = 1;"|syntax"raw child"|@[example]|=[generated|true]].
 
 ---
 
@@ -253,6 +253,11 @@ Use `code["let x = 1;"|@[example]|=[generated|true]].
         (inline_kind)
         (parsed_inline_content
           (inline_member_text))
+        (member_separator)
+        (inline_child
+          (inline_verbatim
+            (verbatim_kind)
+            (raw_text)))
         (member_separator)
         (inline_child
           (inline_element

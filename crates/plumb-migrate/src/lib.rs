@@ -1013,6 +1013,24 @@ mod tests {
     }
 
     #[test]
+    fn preserves_crlf_tabs_braces_and_trailing_empty_raw_bytes() {
+        let source = "`plumb\"\r\n \t{ `->[guide|guide.plumb] }\r\n \r\n";
+        let migrated = migrate_attached_v1(source).unwrap();
+        assert_eq!(
+            migrated,
+            "`plumb\n\n\"\n \t{ `->[guide|guide.plumb] }\r\n \r\n"
+        );
+        let parsed = plumb_syntax::parse(&migrated);
+        let [plumb_syntax::Block::Parsed(owner)] = parsed.syntax.blocks.as_slice() else {
+            panic!("expected one marked raw owner");
+        };
+        assert_eq!(
+            owner.raw.as_ref().unwrap().text.as_bytes(),
+            b"\t{ `->[guide|guide.plumb] }\r\n\r\n"
+        );
+    }
+
+    #[test]
     fn migrates_compact_and_property_links_to_positional_arguments() {
         let source = "`->[guide target.plumb]\n`->[guide]{`:[to Project Guide.plumb]}\n`->[Get cookies.txt LOCALLY]{`:[to https://example.test]}\n";
         let migrated = migrate_attached_v1(source).unwrap();

@@ -1562,7 +1562,7 @@ mod tests {
 
     #[test]
     fn parsed_owner_has_one_raw_tail_after_its_children() {
-        let source = "`rust\n\n `@ example\n\n `note nested\n\n\"\n fn main() {}\n";
+        let source = "`rust\n\n `@ example\n\n `note nested\n\n\"\n fn main() {}\n \"\n tail\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let Block::Parsed(owner) = &parsed.syntax.blocks[0] else {
@@ -1571,18 +1571,20 @@ mod tests {
         assert_eq!(owner.mark.as_ref().unwrap().marker, "rust");
         assert_eq!(owner.mark.as_ref().unwrap().attrs.id(), Some("example"));
         assert_eq!(owner.children.len(), 2);
-        assert_eq!(owner.raw.as_ref().unwrap().text, "fn main() {}\n");
+        assert_eq!(owner.raw.as_ref().unwrap().text, "fn main() {}\n\"\ntail\n");
     }
 
     #[test]
     fn anonymous_raw_is_compact_and_can_be_an_ordinary_child() {
-        let parsed = parse("`example\n\n `\"\n  raw child\n");
+        let parsed = parse("`example\n\n `\"\n  first raw child\n\n `\"\n  second raw child\n");
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let Block::Parsed(owner) = &parsed.syntax.blocks[0] else {
             panic!("expected owner");
         };
         assert!(owner.raw.is_none());
-        assert!(matches!(&owner.children[..], [Block::Verbatim(raw)] if raw.text == "raw child\n"));
+        assert!(
+            matches!(&owner.children[..], [Block::Verbatim(first), Block::Verbatim(second)] if first.text == "first raw child\n" && second.text == "second raw child\n")
+        );
 
         let anonymous = parse("`\"\n anonymous\n");
         assert!(anonymous.is_valid(), "{:?}", anonymous.diagnostics);
@@ -1603,13 +1605,18 @@ mod tests {
 
     #[test]
     fn braces_are_ordinary_lossless_text() {
-        let source = "Text { fn() {} }\n";
+        let source = "Text { fn() {} }\n\n`marker{brace} Head {content}\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let Block::Parsed(paragraph) = &parsed.syntax.blocks[0] else {
             panic!("expected paragraph");
         };
         assert_eq!(paragraph.head.plain_text(), "Text { fn() {} }");
+        let Block::Parsed(marked) = &parsed.syntax.blocks[1] else {
+            panic!("expected marked block");
+        };
+        assert_eq!(marked.mark.as_ref().unwrap().marker, "marker{brace}");
+        assert_eq!(marked.head.plain_text(), "Head {content}");
         assert_eq!(parsed.lossless.reconstruct(source), source);
     }
 
@@ -1621,8 +1628,7 @@ mod tests {
 
     #[test]
     fn parses_inline_arguments_children_and_projected_declarations() {
-        let source =
-            "`pair[first|\"second raw\"|tag[value]|@[main]|+[external]|=[to|guide.plumb]]\n";
+        let source = "`pair[first|\"second raw\"|tag[value]|code\"raw child\"|@[main]|+[external]|=[to|guide.plumb]]\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let Block::Parsed(paragraph) = &parsed.syntax.blocks[0] else {
@@ -1631,7 +1637,7 @@ mod tests {
         let [Inline::Element { members, attrs, .. }] = paragraph.head.items.as_slice() else {
             panic!("expected one inline element");
         };
-        assert_eq!(members.len(), 6);
+        assert_eq!(members.len(), 7);
         assert_eq!(attrs.id(), Some("main"));
         assert!(attrs.has_class("external"));
         assert_eq!(attrs.value("to"), Some("guide.plumb"));
@@ -1643,6 +1649,9 @@ mod tests {
         );
         assert!(
             matches!(&members[2], InlineMember::Child { inline, .. } if matches!(inline.as_ref(), Inline::Element { kind, .. } if kind == "tag"))
+        );
+        assert!(
+            matches!(&members[3], InlineMember::Child { inline, .. } if matches!(inline.as_ref(), Inline::Verbatim { kind, text, .. } if kind == "code" && text == "raw child"))
         );
     }
 
