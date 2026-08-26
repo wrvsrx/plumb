@@ -83,6 +83,22 @@
     "required_tokens": ["InlineKind","Delimiter","RawPayload"]
   },
   {
+    "name": "completed inline child rejects trailing content",
+    "source": "`owner[first|child[value]tail]\n",
+    "valid": false,
+    "blocks": [{"kind":"paragraph","head":"firstvalue","inline":"Eowner[]A[T\"first\"]CEchild[]A[T\"value\"]"}],
+    "diagnostics": [{"code":"syntax.trailing-after-inline-member","range":{"text":"tail"}}],
+    "required_tokens": ["Error","InlineKind","Delimiter"]
+  },
+  {
+    "name": "verbatim member must close inside its owner",
+    "source": "`owner[first|\"raw]\n",
+    "valid": false,
+    "blocks": [{"kind":"paragraph","head":"","inline":""}],
+    "diagnostics": [{"code":"syntax.unclosed-verbatim-member","range":{"text":"\"raw]"}},{"code":"syntax.unclosed-inline","range":{"text":"`owner[first|\"raw]"}}],
+    "required_tokens": ["Error","LineEnding"]
+  },
+  {
     "name": "strengthened inline verbatim",
     "source": "Raw `text\"[a ] b]\"\n",
     "valid": true,

@@ -79,6 +79,9 @@ fn strict_parser_normative_corpus() {
         "syntax.short-verbatim-indent",
         "syntax.unattached-raw-tail",
         "syntax.unattached-bracket",
+        "syntax.unexpected-member-separator",
+        "syntax.trailing-after-inline-member",
+        "syntax.unclosed-verbatim-member",
     ];
     for case in &cases {
         let parsed = parse(case.source.clone());
