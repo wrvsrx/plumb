@@ -133,9 +133,9 @@ spaces, `%`, `?`, and other path characters are literal. `#` is the sole
 structure separator for an explicit anchor, so a relative filename cannot
 contain `#`. Control characters and backslashes remain invalid. Use verbatim
 quote strength, rather than payload escaping, when `]` conflicts with the
-delimiter. Completion inserts named Link and Autolink paths verbatim; named
-Links preserve parsed content, while Autolinks strengthen the envelope when
-needed. Use explicit `->` links for custom labels. The `->` kind
+delimiter. Named Link completion escapes backticks, brackets, and member pipes
+as required by parsed content while preserving the decoded path; Autolinks
+strengthen the verbatim envelope when needed. Use explicit `->` links for custom labels. The `->` kind
 is valid only on inline verbatim and cannot be combined with `to` or `$`; other
 children are preserved.
 

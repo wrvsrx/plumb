@@ -96,11 +96,10 @@ repository development 使用 `"dev/nvim.lua" 加载当前 checkout 的 parser �
 
 `# Folding
 
-`"textDocument/foldingRange" 使用 recovered strict syntax，并返回两类整行 fold：heading fold 覆盖完整
-section，verbatim block fold 覆盖 raw body。带 multiline owned group 的 marked block 先提供 head 加
-owned group 的 owner fold；存在 children 时再提供覆盖整个 node 与 descendants 的 subtree fold。两层从
-同一行开始，外层 subtree range 排在前面；没有 children 时不重复相同 range。没有 owned group 的 marked
-block 只提供 subtree fold。普通多行 paragraph 与 inline element 不单独折叠。即使 document 存在 syntax
+`"textDocument/foldingRange" 使用 recovered strict syntax，并返回整行 structural folds：heading fold
+覆盖完整 section，anonymous verbatim block fold 覆盖 raw body，拥有 children 或 raw tail 的 marked block
+提供覆盖完整 node 与 descendants/payload 的 subtree fold。raw tail 不额外产生同 start 的重复 owner
+range。普通多行 paragraph 与 inline element 不单独折叠。即使 document 存在 syntax
 error，未受错误影响的 recovered blocks 仍可折叠；server 遵守 client 声明的 `"rangeLimit"，按 source
 order 保留外层范围。
 
@@ -110,17 +109,16 @@ done 使用 o，canceled 使用 x；conflicted 组合为 ox。常见状态 slot 
 使同级 task title 对齐，但不为 conflicted 状态改变组合表达，并保留 task block opener 的原始结构缩进。
 Task text 保留 backtick 与完整 "task" marker，后接 state 和 title。event fold 把 date、timezone、when 属性
 解析出的时间（省秒、省偏移）与 title 拼成保留 backtick 与完整 "event" marker 的摘要；point 使用精确到分钟
-的时间与 title，interval 追加两个短横线和结束时间。顶层有效 metadata 使用 `"METADATA  Document title"，缺少可用 title
-时回退为 `"METADATA"；第一层 metadata entry fold 使用 `"key  scalar value"，list、map、null 或不可展示
-value 只使用 `"key"。label 规范为空格分隔的单行并在 80 characters 后截断。三者都保留原始结构
+的时间与 title，interval 追加两个短横线和结束时间。可折叠的顶层 metadata entry 使用
+`"key  scalar value"，list、map、null 或不可展示 value 只使用 `"key"。label 规范为空格分隔的单行并在
+80 characters 后截断。三者都保留原始结构
 缩进。没有该 capability、无可靠 valid task/metadata facts 或无可用时间的 event fold 不携带 custom
 label。
 
-Task subtree 与紧邻的同层 task sibling marker 相同时，把两者之间一个直接相邻的空白分隔行包含在 subtree
-fold range 中，使同类 task 关闭后不遗留孤立空行；只消费一个直接相邻的空白行，不跨过下一条非空内容。
-next sibling 使用不同 marker、verbatim 或其他 block boundary 时，空白分隔行保留在 fold range 外，继续
-显示 block 种类变化形成的分组边界。Task owner fold 与其他 block、heading fold 继续遵守自身的 source
-range，不扩张到 trailing layout。
+非 heading subtree 与紧邻的同层 parsed sibling marker 相同时，把两者之间一个直接相邻的空白分隔行包含在
+subtree fold range 中，使同类 block 关闭后不遗留孤立空行；只消费一个直接相邻的空白行，不跨过下一条
+非空内容。next sibling 使用不同 marker、verbatim 或其他 block boundary 时，空白分隔行保留在 fold range
+外，继续显示 block 种类变化形成的分组边界。heading section fold 不适用该规则。
 
 Task/event 只有一条 physical line 时，server 也会向声明 `"lineFoldingOnly = true" 的 client
 返回 `"startLine == endLine" 的 semantic fold，且省略 character boundaries。该 capability 只要求
@@ -130,7 +128,7 @@ LSP fold adapter 会忽略这类 range；plugin 不补充 folding-range adapter�
 
 当前官方 Neovim integration 使用 `"~/Documents/nur-packages" 提供的 patched Neovim 0.12.4，以及原生
 `"vim.lsp.foldexpr()" 和 `"vim.lsp.foldtext()"。patch 修复多个相邻 nested folding ranges 在同一行结束时
-被 foldexpr 合并的问题，使 owner/subtree 两层 range 不会吞并后续 sibling；它不增加 single-physical-line
+被 foldexpr 合并的问题，使 section/subtree 等 nested ranges 不会吞并后续 sibling；它不增加 single-physical-line
 fold support，也不恢复 folding topology 重建前的手动 open/closed state。原生 adapter 仍按
 `"foldlevel"、`"foldmethod=expr" 和自身的 fold engine 规则重建 folding tree；编辑造成 topology 变化时，
 用户通过 `"zo"、`"zc" 选择的局部状态不保证跨越所有结构重建继续保留。plugin 不在 Lua 层复制 fold
@@ -215,7 +213,7 @@ ordinary inline context 都以反引号加连字符或箭头 prefix 同时提供
 提供 Citation snippet；在 `"cite[...]" content 中，从 document `"bibliography" metadata 声明的
 CSL JSON files 补全 ids。单独 opening bracket prefix 不提供候选。snippet-capable client
 使用 tab stops。Task completion 根据 client 的 multiline insertion mode 投影缩进，因此在顶层或嵌套位置
-都生成相同的 canonical expanded-group layout。
+都生成相同的 canonical direct-child layout。
 CodeAction 包括 metadata insertion、explicit id、event shorthand conversion、task conversion、
 created insertion 和 task status operations。metadata insertion 只在 cursor 精确位于 document start（byte offset 0）
 时提供；event shorthand 的具体格式见

@@ -20,9 +20,9 @@ heading 默认只有 outline identity。需要成为 link 或 rename target 时�
   `# 可引用的标题
    `@ intro
 
-cursor 位于尚无 id 的 heading、generic marked block 或 verbatim block 时，`"Add explicit id" code
-action 根据 head 生成 document-unique id。空 head 使用 marker，anonymous verbatim block 使用 `"block"；
-已有 direct children 会保留。
+cursor 位于尚无 id 的 heading 或 generic marked block 时，`"Add explicit id" code action 根据 head
+生成 document-unique id，空 head 使用 marker；已有 direct children 会保留。anonymous verbatim block
+不能拥有 declarations；需要 raw payload 与 id 时使用 marked owner 和 raw tail。
 
 `# List 与 definition
 
@@ -375,8 +375,7 @@ cursor 位于普通 list item 时，`"Convert to task" code action 将 marker �
 已有 task 缺少 `"created" 时，`"Add task created timestamp" 可以补录。两者使用执行时的本地
 RFC 3339 timestamp。
 
-`"created"、`"due"、`"wait"、`"done" 与 `"canceled" 必须是 RFC 3339 timestamp property；legacy pair
-必须 quoted。非法值发布
+`"created"、`"due"、`"wait"、`"done" 与 `"canceled" 必须是 RFC 3339 timestamp property。非法值发布
 `"task.invalid-datetime" warning，不参与 state 或 operations。完成或取消 nested task 时只格式化该
 task subtree，不改变 following sibling 的层级。
 
