@@ -170,9 +170,9 @@ fn exposes_single_line_semantic_folds_to_line_and_character_range_clients() {
 }
 
 #[test]
-fn task_fold_consumes_same_marker_separator_and_preserves_changed_marker_boundary() {
+fn same_marker_fold_consumes_separator_and_preserves_changed_marker_boundary() {
     let uri = "file:///tmp/task-trailing-blank-fold.plumb";
-    let source = "`task aaa\n\n bbb\n\n`task ccc\n\n detail\n\n`- regular\n";
+    let source = "`note aaa\n\n bbb\n\n`note ccc\n\n detail\n\n`task aaa\n\n bbb\n\n`task ccc\n\n detail\n\n`- regular\n";
     let messages = [
         json!({
             "jsonrpc": "2.0", "id": 1, "method": "initialize",
@@ -203,8 +203,10 @@ fn task_fold_consumes_same_marker_separator_and_preserves_changed_marker_boundar
     assert_eq!(
         response(&run_server(&messages), 2)["result"],
         json!([
-            { "startLine": 0, "endLine": 3, "collapsedText": "`task [ ]  aaa" },
-            { "startLine": 4, "endLine": 6, "collapsedText": "`task [ ]  ccc" }
+            { "startLine": 0, "endLine": 3 },
+            { "startLine": 4, "endLine": 6 },
+            { "startLine": 8, "endLine": 11, "collapsedText": "`task [ ]  aaa" },
+            { "startLine": 12, "endLine": 14, "collapsedText": "`task [ ]  ccc" }
         ])
     );
 }
@@ -359,9 +361,9 @@ fn labels_event_folds_with_abbreviated_times() {
     assert_eq!(
         response(&run_server(&messages), 2)["result"],
         json!([
-            { "startLine": 0, "endLine": 5, "collapsedText": "`event 2026-08-02T14:00  Standup" },
-            { "startLine": 7, "endLine": 12, "collapsedText": "`event 2026-08-02T09:00--10:30  Review" },
-            { "startLine": 14, "endLine": 26, "collapsedText": "`event 2026-08-02T11:00  Parent" },
+            { "startLine": 0, "endLine": 6, "collapsedText": "`event 2026-08-02T14:00  Standup" },
+            { "startLine": 7, "endLine": 13, "collapsedText": "`event 2026-08-02T09:00--10:30  Review" },
+            { "startLine": 14, "endLine": 27, "collapsedText": "`event 2026-08-02T11:00  Parent" },
             { "startLine": 21, "endLine": 26, "collapsedText": " `event 2026-08-02T12:00  Nested" },
             { "startLine": 28, "endLine": 30 }
         ])

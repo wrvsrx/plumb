@@ -3512,14 +3512,7 @@ impl Workspace {
                 {
                     return None;
                 }
-                if !context.quoted && !valid_bare_attribute_value(&path) {
-                    return None;
-                }
-                let new_text = if context.quoted {
-                    escape_quoted_value(&path)
-                } else {
-                    path.clone()
-                };
+                let new_text = escape_parsed_text(&path);
                 Some(CompletionCandidate {
                     label: path,
                     detail: detail.to_string(),
@@ -4780,10 +4773,6 @@ fn escape_parsed_text(value: &str) -> String {
         .replace('|', "`|")
 }
 
-fn escape_quoted_value(value: &str) -> String {
-    value.replace('\\', "\\\\").replace('"', "\\\"")
-}
-
 fn valid_bare_attribute_value(value: &str) -> bool {
     !value.is_empty()
         && value.chars().all(|character| {
@@ -5710,6 +5699,9 @@ mod tests {
         std::fs::write(static_dir.join("图 像(100%).PNG"), b"png").unwrap();
         std::fs::write(static_dir.join("literal%20name.PNG"), b"png").unwrap();
         std::fs::write(static_dir.join("quote\"image.PNG"), b"png").unwrap();
+        std::fs::write(static_dir.join("closing]image.PNG"), b"png").unwrap();
+        std::fs::write(static_dir.join("pipe|image.PNG"), b"png").unwrap();
+        std::fs::write(static_dir.join("tick`image.PNG"), b"png").unwrap();
         std::fs::write(static_dir.join("literal%20name.txt"), b"text").unwrap();
         std::fs::write(static_dir.join("ignored.txt"), b"text").unwrap();
         let source_path = root.join("current.plumb");
@@ -5722,7 +5714,6 @@ mod tests {
             &ImageCompletionContext {
                 replace: 18..25,
                 query: "static/im".to_string(),
-                quoted: true,
             },
         );
         let image_with_space = candidates
@@ -5738,7 +5729,6 @@ mod tests {
             &ImageCompletionContext {
                 replace: 0..0,
                 query: "static/图".to_string(),
-                quoted: true,
             },
         );
         assert_eq!(unicode.len(), 1);
@@ -5750,19 +5740,45 @@ mod tests {
             &ImageCompletionContext {
                 replace: 0..0,
                 query: "static/quote".to_string(),
-                quoted: true,
             },
         );
         assert_eq!(quoted.len(), 1);
         assert_eq!(quoted[0].label, "static/quote\"image.PNG");
-        assert_eq!(quoted[0].new_text, "static/quote\\\"image.PNG");
+        assert_eq!(quoted[0].new_text, "static/quote\"image.PNG");
+
+        for (query, expected) in [
+            ("closing", "static/closing`]image.PNG"),
+            ("pipe", "static/pipe`|image.PNG"),
+            ("tick", "static/tick``image.PNG"),
+        ] {
+            let candidate = workspace
+                .complete_image_path(
+                    &source_path,
+                    &ImageCompletionContext {
+                        replace: 0..0,
+                        query: format!("static/{query}"),
+                    },
+                )
+                .into_iter()
+                .next()
+                .unwrap();
+            assert_eq!(candidate.new_text, expected);
+            let completed = format!("`img[alt|=[src|{}]]\n", candidate.new_text);
+            let parsed = parse(&completed);
+            assert!(parsed.is_valid(), "{completed}\n{:?}", parsed.diagnostics);
+            assert_eq!(
+                analyze_document(&parsed.source, &parsed.syntax).images[0]
+                    .source
+                    .value,
+                candidate.label
+            );
+        }
 
         let directories = workspace.complete_image_path(
             &source_path,
             &ImageCompletionContext {
                 replace: 0..0,
                 query: "static/ne".to_string(),
-                quoted: true,
             },
         );
         assert!(directories
@@ -5862,7 +5878,6 @@ mod tests {
             &FileCompletionContext {
                 replace: 0..0,
                 query: "static/ma".to_string(),
-                quoted: true,
             },
         );
         assert_eq!(completions.len(), 1);
@@ -6574,13 +6589,18 @@ mod tests {
     }
 
     #[test]
-    fn add_explicit_id_requires_a_valid_marked_or_verbatim_block() {
+    fn add_explicit_id_requires_a_valid_marked_block() {
         let mut workspace = Workspace::new();
         workspace.insert("plain.plumb", 1, "Plain paragraph\n");
+        workspace.insert("raw.plumb", 1, "`\"\n raw\n");
         workspace.insert("invalid.plumb", 2, "`broken[\n");
 
         assert_eq!(
             workspace.add_explicit_id("plain.plumb", 2),
+            Err(ExplicitIdError::BlockNotFound)
+        );
+        assert_eq!(
+            workspace.add_explicit_id("raw.plumb", 4),
             Err(ExplicitIdError::BlockNotFound)
         );
         assert_eq!(

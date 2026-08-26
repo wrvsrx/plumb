@@ -922,7 +922,7 @@ fn classify_raw_target(target: &str) -> (LinkTarget, Option<Range<usize>>, Optio
     )
 }
 
-fn has_uri_scheme(target: &str) -> bool {
+pub(crate) fn has_uri_scheme(target: &str) -> bool {
     let Some((scheme, _)) = target.split_once(':') else {
         return false;
     };

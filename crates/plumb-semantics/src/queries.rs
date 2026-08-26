@@ -5,6 +5,7 @@ use plumb_syntax::{
     ParsedBlock, ParsedDocument,
 };
 
+use crate::document::has_uri_scheme;
 use crate::{parse_task_reference_target, TaskReferenceTarget};
 
 const LINK_OPEN: &str = "`->[";
@@ -43,7 +44,6 @@ pub enum LinkCompletionContext {
 pub struct ImageCompletionContext {
     pub replace: Range<usize>,
     pub query: String,
-    pub quoted: bool,
 }
 
 pub type FileCompletionContext = ImageCompletionContext;
@@ -864,12 +864,11 @@ fn resource_completion_context(
         return None;
     }
     let query = &source[value_start..offset];
-    if query.contains('"')
-        || query.contains('}')
-        || query.contains('#')
-        || query.contains('?')
-        || query.contains(':')
-        || query.chars().any(char::is_control)
+    if query
+        .chars()
+        .any(|character| character.is_control() || character == '\\')
+        || has_uri_scheme(query)
+        || query.starts_with("//")
     {
         return None;
     }
@@ -879,7 +878,6 @@ fn resource_completion_context(
     Some(ImageCompletionContext {
         replace: value_start..value_end,
         query: query.to_string(),
-        quoted: true,
     })
 }
 
@@ -1494,7 +1492,6 @@ mod tests {
             Some(ImageCompletionContext {
                 replace: value_start..value_start + "static/image.png".len(),
                 query: "static/im".to_string(),
-                quoted: true,
             })
         );
 
@@ -1504,12 +1501,21 @@ mod tests {
             Some(ImageCompletionContext {
                 replace: recovered.find("static/im").unwrap()..cursor,
                 query: "static/im".to_string(),
-                quoted: true,
             })
         );
 
         let (external, cursor) = strip_cursor("`img[Alt|=[src|https:|//example.test/a.png]]\n");
         assert_eq!(image_completion(&external, cursor), None);
+
+        let (literal_path, cursor) = strip_cursor("`img[Alt|=[src|static/a#b?quote\"|]]\n");
+        let value_start = literal_path.find("static/a#b?quote\"").unwrap();
+        assert_eq!(
+            image_completion(&literal_path, cursor),
+            Some(ImageCompletionContext {
+                replace: value_start..value_start + "static/a#b?quote\"".len(),
+                query: "static/a#b?quote\"".to_string(),
+            })
+        );
     }
 
     #[test]
@@ -1521,7 +1527,6 @@ mod tests {
             Some(FileCompletionContext {
                 replace: value_start..value_start + "static/demo.mp4".len(),
                 query: "static/de".to_string(),
-                quoted: true,
             })
         );
         assert_eq!(image_completion_context(&parse(&file), cursor), None);

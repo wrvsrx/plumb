@@ -242,7 +242,7 @@ fn collect_block_ranges(
         match block {
             Block::Parsed(parsed) => {
                 if let Some(mark) = &parsed.mark {
-                    let include_trailing_blank = mark.marker == "task"
+                    let include_trailing_blank = !is_heading_marker(&mark.marker)
                         && blocks.get(index + 1).is_some_and(|next| {
                             matches!(next, Block::Parsed(next) if next.mark.as_ref().is_some_and(|next_mark| next_mark.marker == mark.marker))
                         });
@@ -259,6 +259,10 @@ fn collect_block_ranges(
             }
         }
     }
+}
+
+fn is_heading_marker(marker: &str) -> bool {
+    (1..=6).contains(&marker.len()) && marker.bytes().all(|byte| byte == b'#')
 }
 
 fn line_range(
@@ -324,7 +328,7 @@ fn include_one_trailing_blank_line(source: &str, mut end: usize) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use super::{include_one_trailing_blank_line, single_line_label};
+    use super::{include_one_trailing_blank_line, is_heading_marker, single_line_label};
 
     #[test]
     fn normalizes_and_truncates_fold_labels_on_character_boundaries() {
@@ -342,5 +346,15 @@ mod tests {
         assert_eq!(include_one_trailing_blank_line("body\n\n\nnext", 4), 6);
         assert_eq!(include_one_trailing_blank_line("body\r\n\r\nnext", 4), 8);
         assert_eq!(include_one_trailing_blank_line("body", 4), 4);
+    }
+
+    #[test]
+    fn recognizes_only_standard_heading_markers() {
+        for marker in ["#", "##", "######"] {
+            assert!(is_heading_marker(marker));
+        }
+        for marker in ["", "#######", "#note", "task"] {
+            assert!(!is_heading_marker(marker));
+        }
     }
 }

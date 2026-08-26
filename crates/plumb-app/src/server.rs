@@ -2531,7 +2531,7 @@ mod tests {
     }
 
     #[test]
-    fn layers_owner_fold_without_extending_leaf_over_trailing_blank_lines() {
+    fn layers_nested_subtree_folds_without_extending_leaf_layout() {
         let parsed = parse("`task Parent\n\n `@ parent\n\n `task Leaf\n\n  `@ leaf\n\n`- Next\n");
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         assert_eq!(
@@ -2544,7 +2544,7 @@ mod tests {
     }
 
     #[test]
-    fn folds_separator_between_same_marker_tasks_but_preserves_changed_marker_boundary() {
+    fn folds_separator_between_same_marker_blocks_but_preserves_changed_marker_boundary() {
         let parsed = parse("`task First\n\n detail\n\n`task Second\n\n detail\n\n`- Regular\n");
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         assert_eq!(
