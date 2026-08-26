@@ -47,15 +47,15 @@ parsed block 没有 children 且前后 marker 相同时只用一个 line ending�
 有 raw payload 时同样保证一个 blank separator。direct ownership、document metadata projection 与
 其他 semantic profile meaning 不得改变这套 syntax-only spacing。
 
-marked block raw tail 的 bare `"`" boundary 与 owner column 对齐，payload 使用 owner column 加一个
-ASCII-space structural margin。children 与 boundary 之间使用普通异类 sibling separator；boundary 后立即
-进入 payload，不插入属于 payload 的隐式 blank line。anonymous verbatim source 可以用 `"N" 个 opening
-quotes 声明 `"N" 个 margin，但 canonical formatter 一律输出 `"N = 1"。formatter 同步重写每条非空
-raw-body line 的 structural prefix，
+marked block raw tail 的 `"N" quote-run boundary 与 owner column 对齐，payload 使用 owner column 加
+`"N" 个 ASCII-space structural margin。owner 没有 children 时，boundary 紧接 head line；存在 children 时，
+children 与 boundary 之间使用普通异类 sibling separator。boundary 后立即进入 payload，不插入属于 payload
+的隐式 blank line。anonymous verbatim opener 与 marked raw-tail boundary 都保留 parsed quote count；owned
+syntax 新建 raw payload 时默认 `"N = 1"。formatter 同步重写每条非空 raw-body line 的 structural prefix，
 不得改变 typed raw payload 的任何 byte。内部 empty payload line 保持无缩进；trailing empty payload line
-加一个 structural space，以免被解析为 layout。非终端 verbatim 与后续 block 之间输出一个无缩进 blank
+加完整的 `"N" structural spaces，以免被解析为 layout。非终端 verbatim 与后续 block 之间输出一个无缩进 blank
 separator；终端 verbatim 在 EOF 不添加 layout blank，并保留 payload 是否带 final newline。quote count
-不作为需要保留的 delimiter strength，因为 raw block 没有 closing-delimiter collision。
+是 raw structural margin 的 source-level 声明，不按 closing-delimiter collision 重新选择。
 
 `# 4. Block mutations
 

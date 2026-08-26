@@ -811,7 +811,11 @@ fn render_owned_block(block: &OwnedBlock, indent: usize, output: &mut String) {
                 render_owned_blocks(children, indent + 1, output);
             }
             if let Some(text) = raw {
-                output.push_str("\n\n");
+                if children.is_empty() {
+                    output.push('\n');
+                } else {
+                    output.push_str("\n\n");
+                }
                 output.extend(std::iter::repeat_n(' ', indent));
                 output.push('"');
                 render_owned_raw_text(text, indent, output);
@@ -1139,6 +1143,17 @@ mod tests {
         };
         assert_eq!(owner.children.len(), 2);
         assert!(owner.raw.is_some());
+    }
+
+    #[test]
+    fn owned_childless_marked_raw_tail_is_adjacent_to_its_head() {
+        let block = OwnedBlock::Parsed {
+            marker: Some("rust".into()),
+            head: Vec::new(),
+            children: Vec::new(),
+            raw: Some("fn main() {}\n".into()),
+        };
+        assert_eq!(block.format().unwrap(), "`rust\n\"\n fn main() {}\n");
     }
 
     #[test]

@@ -139,6 +139,25 @@ Marked raw tail after children
       (raw_text))))
 
 ==================
+Childless marked raw tail with a custom margin
+==================
+
+`rust
+"""
+   fn main() {}
+
+---
+
+(document
+  (blank_line)
+  (marked_block
+    (introducer)
+    (marker)
+    (raw_tail
+      (verbatim_open)
+      (raw_text))))
+
+==================
 Anonymous raw block
 ==================
 

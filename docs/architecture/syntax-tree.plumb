@@ -37,8 +37,8 @@ declaration children 投影的 `"Attributes" view，以及 optional singular `"R
 children。paragraph 只有 inline content且没有 children/raw payload。anonymous verbatim block 直接暴露
 opener、每行 structural prefix 与 raw payload ranges；它没有 marker、head 或 children。
 
-marked block raw tail 的 typed structure是 owner 上的 optional singular field：bare boundary token 与 payload
-ranges 都直接属于 owner，不产生 anonymous payload child 或额外 ownership node。因而一个 marked block
+marked block raw tail 的 typed structure 是 owner 上的 optional singular field：quote-run boundary token、
+quote count 与 payload ranges 都直接属于 owner，不产生 anonymous payload child 或额外 ownership node。因而一个 marked block
 可以拥有一个 ordinary anonymous verbatim child，也可以拥有自己的 raw tail，两者在 tree 中不同。
 
 `# 4. Recovered and valid views

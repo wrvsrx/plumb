@@ -191,9 +191,12 @@ syntax-like text exactly. Internal blank lines need no margin. A trailing blank
 line belongs to the payload only when it carries the complete declared margin;
 the first marginless trailing blank ends the payload and becomes block layout.
 There is no closing fence. An empty anonymous verbatim block is valid.
-Named block raw uses the marked-block raw tail described above. Canonical
-formatting uses one quote and one structural space without changing raw payload
-bytes.
+Named block raw uses a terminal quote-run boundary on the owner column. The
+quote count declares the raw-body structural margin just as it does for an
+anonymous opener. Canonical formatting preserves an existing quote count and
+its matching margin without changing raw payload bytes; newly owned raw payloads
+default to one quote. A childless owner's boundary is adjacent to its head,
+while an owner with children keeps one blank separator before the boundary.
 
 ## Avoid Markdown And Djot Assumptions
 

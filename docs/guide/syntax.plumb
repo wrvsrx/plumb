@@ -109,7 +109,7 @@ ASCII-space structural margin。它是没有 head 或 children 的 raw leaf：
    anonymous raw
 
 具名 raw 使用普通 marked block 的 terminal raw tail。owner 可以先拥有任意 direct children，再由与
-owner column 对齐、独占一行的 bare quote 进入 raw phase：
+owner column 对齐、独占一行的 quote run 进入 raw phase：
 
 `plumb
 
@@ -122,7 +122,9 @@ owner column 对齐、独占一行的 bare quote 进入 raw phase：
        println!("hello");
    }
 
-结构缩进后的 payload bytes 会原样保留。内部空行可以完全空白；尾部空行只有带完整 structural margin
+quote count 声明 raw payload 的 ASCII-space structural margin；没有 children 时 boundary 紧接 head，存在
+children 时最后一个 child 与 boundary 之间保留空行。结构缩进后的 payload bytes 会原样保留。内部空行
+可以完全空白；尾部空行只有带完整 structural margin
 才属于 payload，否则它是 block layout。verbatim block 没有 closing fence。
 
 `# Document root
@@ -162,7 +164,7 @@ core syntax 不解释 `"+"、`"@" 或 `"="。official semantic profile 将 direc
 将 direct `"@" declaration 投影为 identity，将 direct `"=" association 投影为 property，并从 owner
 的普通 body projection 中过滤已消费 declarations。
 
-raw tail 是 marked owner 的 optional singular field，不是 child。bare quote 之后永久进入 raw phase，
+raw tail 是 marked owner 的 optional singular field，不是 child。quote run 之后永久进入 raw phase，
 所以 raw tail 必须位于全部 children 后，结构上也不能出现第二个 payload。匿名 raw 需要 declarations
 或普通 children 时，使用 `"()" explicit owner 与同一个 raw-tail form。
 

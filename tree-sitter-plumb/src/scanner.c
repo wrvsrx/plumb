@@ -292,13 +292,13 @@ static bool scan_verbatim_block_open(Scanner *scanner, TSLexer *lexer,
 
 static bool scan_raw_tail_open(Scanner *scanner, TSLexer *lexer) {
   if (lexer->lookahead != '"') return false;
-  take(lexer);
+  uint16_t quotes = scan_quote_run(lexer);
   lexer->mark_end(lexer);
   if (lexer->lookahead != '\n' && lexer->lookahead != '\r' &&
       lexer->lookahead != 0) {
     return false;
   }
-  scanner->verbatim_margin = 1;
+  scanner->verbatim_margin = quotes;
   lexer->result_symbol = RAW_TAIL_OPEN;
   return true;
 }

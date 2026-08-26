@@ -252,7 +252,7 @@ lenient mirror 的 external scanner 与 strict core 共享同一词法局部性�
 不得跟踪 inline nesting depth 或跨行匹配 delimiter；raw payload 的 blank-run classification 可以预看至
 下一条 nonblank line 或 EOF，但不能引入其他 nesting context。
 
-lenient mirror 必须保持 direct ownership 与 terminal raw-tail boundary。bare quote 只能绑定 scanner
+lenient mirror 必须保持 direct ownership 与 terminal raw-tail boundary。quote run 只能绑定 scanner
 indentation stack 中同 column、仍处于 structural phase 的 marked owner，不能附着到最后一个 declaration
 child，也不能在 owner 已被同列 sibling 关闭后重新接管它。raw payload 中的 blank run 必须延迟分类：
 下一条 nonblank line 满足 margin 时属于 payload，缺少 margin 的 trailing run 作为 block layout 保留。

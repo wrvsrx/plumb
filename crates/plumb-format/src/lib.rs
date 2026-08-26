@@ -537,8 +537,9 @@ impl Formatter {
             Block::Parsed(block) => self.parsed_block(block, indent),
             Block::Verbatim(block) => {
                 self.indent(indent);
-                self.output.push_str("`\"");
-                self.raw_text(&block.text, indent + 1);
+                self.output.push('`');
+                self.output.push_str(&"\"".repeat(block.quote_count));
+                self.raw_text(&block.text, indent + block.quote_count);
             }
         }
     }
@@ -568,10 +569,14 @@ impl Formatter {
             self.blocks(&block.children, child_indent);
         }
         if let Some(raw) = &block.raw {
-            self.output.push_str("\n\n");
+            if block.children.is_empty() {
+                self.output.push('\n');
+            } else {
+                self.output.push_str("\n\n");
+            }
             self.indent(indent);
-            self.output.push('"');
-            self.raw_payload(raw, indent + 1);
+            self.output.push_str(&"\"".repeat(raw.quote_count));
+            self.raw_payload(raw, indent + raw.quote_count);
         }
     }
 
@@ -867,7 +872,11 @@ mod tests {
 
     #[test]
     fn formats_anonymous_and_owned_raw_payloads() {
-        assert_formats("`\"\"\n  payload\n", "`\"\n payload\n");
+        assert_formats("`\"\"\n  payload\n", "`\"\"\n  payload\n");
+        assert_formats(
+            "`rust\n\n\"\"\"\n   fn main() {}\n",
+            "`rust\n\"\"\"\n   fn main() {}\n",
+        );
         assert_formats(
             "`rust\n   `@ example\n\n\"\n fn main() {}\n",
             "`rust\n\n `@ example\n\n\"\n fn main() {}\n",
@@ -916,11 +925,11 @@ mod tests {
 
     #[test]
     fn raw_payload_preserves_content_and_final_newline() {
-        assert_formats("`\"\"\n  final newline\n", "`\"\n final newline\n");
-        assert_formats("`\"\"\n  no newline", "`\"\n no newline");
+        assert_formats("`\"\"\n  final newline\n", "`\"\"\n  final newline\n");
+        assert_formats("`\"\"\n  no newline", "`\"\"\n  no newline");
         assert_formats(
             "`text\n\"\n   leading\n \n\nnext\n",
-            "`text\n\n\"\n   leading\n \n\nnext\n",
+            "`text\n\"\n   leading\n \n\nnext\n",
         );
     }
 
@@ -1053,7 +1062,7 @@ mod tests {
         assert_eq!(edits.len(), 1);
         assert_eq!(
             edits[0].new_text,
-            "`\"\n payload\n\nParagraph `\"\"[a ]\" b]\"\"."
+            "`\"\"\n  payload\n\nParagraph `\"\"[a ]\" b]\"\"."
         );
     }
 

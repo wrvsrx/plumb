@@ -466,8 +466,11 @@ impl Parser<'_> {
             let same_line = frames.last().unwrap().same_line;
             if !same_line && current.indent < expected_indent {
                 let owner_indent = frames.last().unwrap().owner_indent;
-                if owner_indent.is_some_and(|column| self.is_raw_tail_boundary(index, column)) {
-                    let (raw, next) = self.parse_raw_payload(index, owner_indent.unwrap(), 1);
+                if let Some((owner_indent, quote_count)) = owner_indent.and_then(|column| {
+                    self.raw_tail_quote_count(index, column)
+                        .map(|quote_count| (column, quote_count))
+                }) {
+                    let (raw, next) = self.parse_raw_payload(index, owner_indent, quote_count);
                     frames.last_mut().unwrap().owner.as_mut().unwrap().raw = Some(raw);
                     if let Some(result) = finish_block_frame(self.source, &mut frames, next) {
                         return result;
@@ -500,12 +503,12 @@ impl Parser<'_> {
             } else {
                 current.indent
             };
-            if self.is_raw_tail_boundary(index, effective_indent) {
+            if let Some(quote_count) = self.raw_tail_quote_count(index, effective_indent) {
                 let start = current.start + effective_indent;
                 self.diagnostics.push(Diagnostic::error(
                     "syntax.unattached-raw-tail",
                     "raw-tail boundary has no open marked owner at this column",
-                    start..start + 1,
+                    start..start + quote_count,
                 ));
                 frames.last_mut().unwrap().cursor += 1;
                 continue;
@@ -545,18 +548,23 @@ impl Parser<'_> {
         }
     }
 
-    fn is_raw_tail_boundary(&self, index: usize, indent: usize) -> bool {
+    fn raw_tail_quote_count(&self, index: usize, indent: usize) -> Option<usize> {
         let Some(line) = self.lines.0.get(index) else {
-            return false;
+            return None;
         };
         let start = line.start + indent;
-        !line.blank
-            && !line.has_tab_indent
-            && line.indent == indent
-            && self.source.as_bytes().get(start) == Some(&b'"')
-            && self.source[start + 1..line.content_end]
+        if line.blank || line.has_tab_indent || line.indent != indent {
+            return None;
+        }
+        let quote_count = self.source[start..line.content_end]
+            .bytes()
+            .take_while(|byte| *byte == b'"')
+            .count();
+        (quote_count > 0
+            && self.source[start + quote_count..line.content_end]
                 .bytes()
-                .all(|byte| matches!(byte, b' ' | b'\t'))
+                .all(|byte| matches!(byte, b' ' | b'\t')))
+        .then_some(quote_count)
     }
 
     fn block_dispatch(&mut self, index: usize, indent: usize) -> Option<BlockDispatch> {
@@ -723,7 +731,7 @@ impl Parser<'_> {
         let child = if child_start < self.lines.0.len() && self.lines.0[child_start].indent > indent
         {
             Some((child_start, self.lines.0[child_start].indent, false))
-        } else if self.is_raw_tail_boundary(child_start, indent) {
+        } else if self.raw_tail_quote_count(child_start, indent).is_some() {
             Some((child_start, indent + 1, false))
         } else {
             None
@@ -787,7 +795,7 @@ impl Parser<'_> {
         let boundary_range = if self.source.as_bytes()[boundary_start] == b'`' {
             boundary_start + 1..boundary_start + 1 + quote_count
         } else {
-            boundary_start..boundary_start + 1
+            boundary_start..boundary_start + quote_count
         };
         let body_indent = owner_indent + quote_count;
         let mut next = boundary_index + 1;
@@ -1719,6 +1727,20 @@ mod tests {
         };
         assert_eq!(raw.quote_count, 2);
         assert_eq!(raw.text, "first\n  indented\n");
+        assert_eq!(parsed.syntax.blocks.len(), 2);
+    }
+
+    #[test]
+    fn quote_count_declares_marked_raw_tail_margin() {
+        let parsed = parse("`rust\n\"\"\"\n   first\n     indented\nnext\n");
+        assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
+        let Block::Parsed(owner) = &parsed.syntax.blocks[0] else {
+            panic!("expected marked owner");
+        };
+        let raw = owner.raw.as_ref().expect("expected raw tail");
+        assert_eq!(raw.quote_count, 3);
+        assert_eq!(raw.text, "first\n  indented\n");
+        assert_eq!(raw.boundary_range, 6..9);
         assert_eq!(parsed.syntax.blocks.len(), 2);
     }
 

@@ -83,8 +83,9 @@ Link/Image path、anchor 等 content 继续使用 workspace-aware candidates。
 owner 深一列，不随 marker width 或 head 是否为空改变。parent head 与 children 之间、subtree 与后继
 sibling 之间使用空行；当前 sibling 是否
 拥有 children 不影响它前面的间距，因此同 marker 的 leaf-to-parent 与 leaf-to-leaf siblings 保持
-紧凑。anonymous verbatim canonicalize 为一个 opening quote；marked raw tail canonicalize 为一个
-aligned bare boundary；两者的 payload 都使用一个 ASCII-space structural margin。
+紧凑。anonymous verbatim opener 与 marked raw-tail boundary 都保留 source quote count，并按该 count
+输出 ASCII-space structural margin。没有 children 的 marked owner 不在 head 与 raw tail 之间插入空行；
+存在 children 时保留最后一个 child 与 raw tail 之间的分隔空行。
 
 formatter 按 source order 格式化 direct children，raw tail 始终位于 children 后。inline members 保持
 single envelope 与 source order。

@@ -263,7 +263,8 @@ bracket、payload、closing bracket 与相同 quote run）。
 `# 10. Block raw tail 与 anonymous verbatim
 
 任何 marked block 都可以在完整 children sequence 后声明至多一个 raw tail。boundary 是与 owner
-introducer column 对齐、独占 physical line 的 bare `"`"；它不是 block、child 或 anonymous payload node：
+introducer column 对齐、独占 physical line 的一个或多个连续 `"`"；它不是 block、child 或 anonymous
+payload node：
 
 `text
 
@@ -280,8 +281,8 @@ owner 的所有 children 之后；识别 boundary 后 parser 永久进入该 own
 raw tail 是 owner 的单值 optional field，不进入 children sequence。第二个看似 boundary 的 source 若满足
 payload margin 就是 raw byte，因而语法结构不能产生第二个 payload。
 
-bare `"`" 只在 parser indentation stack 仍持有同 column marked owner 时具有 boundary 身份。它必须紧接
-该 owner 的 head/children region；同列 sibling 已经关闭 owner 后，bare `"`" 发布
+quote run 只在 parser indentation stack 仍持有同 column marked owner 时具有 boundary 身份。它必须紧接
+该 owner 的 head/children region；同列 sibling 已经关闭 owner 后，quote run 发布
 `"syntax.unattached-raw-tail"。payload 可以为空。
 
 anonymous compact verbatim 使用 introducer 与一个或多个 opening quotes，并立即进入 raw phase：
@@ -313,8 +314,8 @@ anonymous raw 拥有 children 时，以 `"()" marker 显式化 owner，再使用
    `"
     one anonymous child
 
-anonymous opener quote count `"N" 显式声明 raw-body structural margin。marked raw tail 的 bare boundary
-固定声明一个 ASCII-space margin。payload 的每条非空 line 必须在 parent column 后带可供移除的 margin；
+anonymous opener 与 marked raw-tail boundary 的 quote count `"N" 都显式声明 raw-body structural margin。
+payload 的每条非空 line 必须在 parent column 后带可供移除的 margin；
 移除 structural spaces 后，其余 spaces、tabs、line endings 和 syntax-like bytes 都属于 payload。
 
 连续 blank run 需要延迟到下一条非空 line 或 EOF 才能分类。若其后仍有满足 structural margin 的非空
@@ -325,12 +326,16 @@ trailing blank line 结束 payload，并与其余 blank lines 一同作为 block
 line 产生 leading newline；EOF 不补 final newline。空 block 合法。
 
 第一条不足 `"N" 个 structural spaces 的非空 line 结束 block；structural margin 中的 tab、partial dedent
-或 structural tab 按 structural error 处理。官方 formatter 将 anonymous verbatim canonicalize 为一个
-opening quote，将 marked raw tail canonicalize 为一个 bare boundary，并使用一个 structural space；调整
-source envelope 时必须保持 typed raw payload 逐 byte 不变。
-内部 empty payload lines 保持无缩进；trailing empty payload lines 输出一个 structural space。非终端
+或 structural tab 按 structural error 处理。官方 formatter 保留现有 anonymous opener 或 marked raw-tail
+boundary 的 quote count，并据此输出 structural spaces；由 owned syntax 新建的 raw payload 默认使用一个
+quote 与一个 structural space。调整 source envelope 时必须保持 typed raw payload 逐 byte 不变。
+内部 empty payload lines 保持无缩进；trailing empty payload lines 输出完整的 `"N" structural spaces。非终端
 verbatim block 与后续 block 之间输出一个无缩进 blank separator；位于 EOF 的 verbatim 不添加 layout
 blank line，并保留 payload 是否带 final newline。
+
+marked owner 没有 children 时，formatter 让 raw-tail boundary 紧接 head line，不插入 blank separator；存在
+children 时，最后一个 child 与 boundary 之间保留一个 blank separator。该规则让空行继续只承担 block
+region 的分隔职责，而不在 head 与它的 terminal raw field 之间制造不存在的 child boundary。
 
 `# 11. Recovery
 

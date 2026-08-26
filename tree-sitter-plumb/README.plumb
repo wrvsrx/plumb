@@ -18,7 +18,8 @@ consumer-specific lowering.
 `"verbatim_block" is the anonymous block raw leaf; `"inline_verbatim" is the single-line
 inline raw form. A named block raw payload belongs to a regular `"marked_block" through its
 optional terminal `"raw_tail" field, so its opaque language kind is the owner's `"marker".
-Anonymous block raw has no kind. The recovery-only
+Anonymous opener and marked raw-tail quote counts both declare their raw payload's
+ASCII-space structural margin. Anonymous block raw has no kind. The recovery-only
 `"incomplete_inline_element" node keeps subsequent blocks parseable while a
 document is being edited; it does not make malformed syntax valid to the strict parser.
 

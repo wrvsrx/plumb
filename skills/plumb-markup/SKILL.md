@@ -63,8 +63,10 @@ it. Inside the plumb source repository, prefer
 - Marked blocks own one source-ordered sequence of directly indented children.
   Canonical child indentation is the owner column plus one. Inline owners place
   arguments and children in one `[]` envelope.
-- A marked block may end its children with one raw tail. Put a bare `"` on the
-  owner column, then indent every nonempty payload line by one structural space.
+- A marked block may end its children with one raw tail. Put one or more `"` on
+  the owner column, then indent every nonempty payload line by the same number
+  of structural spaces. Keep the boundary adjacent to the head when the owner
+  has no children; keep one blank separator after children.
   Anonymous block raw uses an introducer and quote, has no head or children, and
   starts raw payload immediately.
 - The document is an implicit root owner. Direct top-level
