@@ -143,8 +143,9 @@ project, but it is a **separate project**:
 2. **The syntax layer is semantics-neutral; meaning lives in the official semantic profile.**
    The first `plumb-syntax` phase produces one recovered lossless syntax tree per
    revision. Semantic analyses initially consume typed recovered/valid views over that
-   tree; a normalized AST is materialized only if a concrete consumer needs it
-   (`{#id .class k=v}` remain opaque attributes). Everything semantic —
+   tree; a normalized AST is materialized only if a concrete consumer needs it.
+   Direct `@`, `+`, and `=` children remain generic syntax until the official
+   profile projects them as declarations. Everything semantic —
    metadata, link/anchor resolution, references, id generation, tasks, and
    lowering to HTML/pandoc — remains an
    official semantic profile. The profile is implemented as one statically composed
@@ -171,11 +172,12 @@ semantics can be shared by more than one tool:
 - **`plumb-syntax`** — semantics-neutral strict reader. Does no file I/O, works in
   byte offsets only. Hand-written lexer + line-oriented block scanner + strict
   inline parser, initially producing a lossless syntax tree and syntactic
-  diagnostics. Ordinary marker and inline-kind tokens
-  produce generic nodes carrying an opaque `{#id .class k=v}`; core does not
-  reserve heading, list, quote, or semantic marker spellings. Zero-or-more quote
-  runs strengthen inline verbatim delimiters; an attribute-only block opener
-  switches to an indented verbatim payload. Contains
+  diagnostics. Ordinary marker and inline-kind tokens produce generic owners
+  with source-ordered direct children or inline members; core does not reserve
+  heading, list, quote, declaration, or semantic marker spellings. Braces are
+  ordinary parsed text. Quote runs strengthen inline verbatim delimiters;
+  anonymous block raw starts with an introducer and quote, while a marked owner
+  enters one terminal indented raw tail after a bare quote boundary. Contains
   **no** anchors, references, metadata, tasks, outline, or resolution logic.
 - **`plumb-semantics`** — the official semantic profile, implemented as a fixed
   protocol-neutral Rust analysis pipeline over typed syntax views: outline,
@@ -245,7 +247,7 @@ or the server crashes in real editors. A catch-all does not cover these.
 The primary development environment uses a patched Neovim from
 `~/Documents/nur-packages`, backed by the fork in `~/Documents/neovim`. The
 patch fixes Neovim's LSP fold expression when adjacent nested folding ranges end
-on the same line, preserving separate owner/subtree boundaries instead of
+on the same line, preserving separate section/subtree boundaries instead of
 merging the following sibling into the preceding fold. It does not add
 single-physical-line fold support or fold-state reconciliation. This nested
 boundary behavior is not available in an unpatched upstream Neovim 0.12.4 build.

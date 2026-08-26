@@ -123,7 +123,7 @@ indentation、text objects 和 injections。
 `# 9. Versioned inline-member migration
 
 single-envelope inline members 是 breaking syntax change，提供显式 versioned migration；ordinary
-formatter 不得把旧 slots/attached groups 静默改写成新 members，ordinary strict parser 也不长期保留
+formatter 不得把旧 slots/attached groups 静默改写成新 members，ordinary strict parser 不保留
 两套等价入口。
 
 CLI 使用 isolated legacy reader 读取旧 revision，再把 lossless

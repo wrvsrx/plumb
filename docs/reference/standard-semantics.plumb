@@ -29,9 +29,10 @@ heading 不生成 implicit id。只有 direct `"@" identity declaration 产生 a
 任意 block/inline syntax owner 的 direct `"@" declaration 产生显式 anchor。document 内 id 必须唯一。
 anchor 保存 source document、id、owner 和 selection range。跨文件 index 只使用最新 valid snapshot。
 
-`"Add explicit id" authoring operation 只用于 syntax-valid document 中 cursor 命中的最深 marked 或
-verbatim block；paragraph、inline owner 与已有 id 的 block 不提供 operation。marked block 默认以
-非空 plain head 生成 id，空 head 回退到 marker；verbatim block 回退到 `"block"。生成过程保留
+`"Add explicit id" authoring operation 只用于 syntax-valid document 中 cursor 命中的最深 marked
+block；paragraph、inline owner、anonymous verbatim block 与已有 id 的 block 不提供 operation。marked
+block 默认以非空 plain head 生成 id，空 head 回退到 marker。需要 raw payload 与 identity 时，先使用
+marked owner 与 raw tail，而不是 anonymous verbatim form。生成过程保留
 Unicode alphanumeric、underscore 与 hyphen，将其他 runs 变为单个 hyphen，并做 Unicode lowercase；
 空结果回退为 `"block"。与 document 中任意 explicit anchor 冲突时依次添加 `"-2"、`"-3"。
 operation 将 id 作为 owner 的第一个 direct declaration child 插入，并返回 revision-guarded edit。
@@ -208,8 +209,9 @@ whitespace、control、backslash 与 invalid percent escape 仍不合法。其�
 Pandoc Link attributes 保留，`"->" kind 本身被 semantic lowering 消费。
 
 LSP 为 named Link 与 Autolink 复用 document title/path 与 explicit-anchor completion。relative path
-中的 characters 全部原样插入，不进行 URL escaping；named Link 只生成 quoted attribute value 所需
-的 syntax escapes，Autolink 候选包含 closing-like sequence 时重写完整 verbatim envelope 并选择最小
+不进行 URL escaping；named Link target 是 parsed argument，completion 只对反引号、brackets 与 member
+pipe 写入 core delimiter escapes，decoded path 与 filesystem spelling 保持一致。Autolink 候选包含
+closing-like sequence 时重写完整 verbatim envelope 并选择最小
 安全 quote count。存在的普通 file target 可 hover 和 go-to-definition；缺失 file 发布
 `"link.unresolved-file" warning。
 
@@ -249,8 +251,8 @@ warning。
 export lower 为 Pandoc `"Image"，消费 `"src" 并保留 alt inlines 与其他 id/classes/pairs。
 image-only paragraph 仍是只含 Image 的 paragraph；不存在独立 block-image spelling。Figure、
 caption、numbering 和 cross-reference deferred。LSP src completion 列出相对 directories 和
-PNG/JPEG/WebP/GIF/SVG/AVIF files，并按 filesystem spelling 原样插入 path；只有 quoted attribute
-value 自身需要的 quote/backslash syntax escapes 会写入 source。本地 image 支持 hover 和
+PNG/JPEG/WebP/GIF/SVG/AVIF files；src 是 parsed argument，completion 对反引号、brackets 与 member pipe
+写入 core delimiter escapes，decoded path 与 filesystem spelling 保持一致，不产生 backslash escape。本地 image 支持 hover 和
 go-to-definition，completion、resolution、hover、definition 与 unresolved-file diagnostic 使用同一
 raw relative path。
 
@@ -533,7 +535,7 @@ children 不进入 task details；其余 direct children 保持 source order并�
 
 字段约束：
 
-`- `"created"、`"due"、`"wait"、`"done" 和 `"canceled" 是 RFC 3339 timestamp properties；legacy pair 必须 quoted。
+`- `"created"、`"due"、`"wait"、`"done" 和 `"canceled" 是 RFC 3339 timestamp properties。
 `- `"recur" 是正整数 `"`PnD"、`"`PnW"、`"`PnM" 或 `"`PnY"，并要求 `"due"。
 `- `"prev" 是一个 same-file `"#id" 或 cross-file `"`path.plumb#id" reference。
 `- `"priority" 是 32-bit signed integer；数值越大，优先级越高。
@@ -642,11 +644,10 @@ Link 与 Autolink 共享 `"->" inline kind，opening envelope 负责收窄 candi
 `"`->\"" 只提供 Autolink。单独 `"`[" 不是 construct prefix，不提供 candidate。以上 link constructs 在
 line start 与 ordinary inline context 使用同一规则。`"task" 与 `"event" 不是 inline construct。Task skeleton
 使用 `"task" marker 并以当前本地 RFC 3339 timestamp 创建 `"created"，Event skeleton 使用 `"event"
-marker。Task replacement 本身必须使用 canonical same-line expanded-group layout：group content 位于 owner
-column 加一，closing brace 回到 owner column。adapter 必须根据 client completion indentation capability
-投影 replacement，同时保证应用后的 source 相同：`"asIs" projection 包含 owner column 的完整绝对缩进；
-`"adjustIndentation" projection 省略 client 将为每条 continuation line 添加的 owner column，只保留 group
-content 相对 owner 多一个 space、closing brace 相对 owner 不增加 space。client 声明支持 per-item
+marker。Task replacement 本身必须使用 canonical direct-child layout：`"created" declaration 位于 owner
+column 加一。adapter 必须根据 client completion indentation capability 投影 replacement，同时保证应用后的
+source 相同：`"asIs" projection 包含 owner column 的完整绝对缩进；`"adjustIndentation" projection 省略
+client 将为每条 continuation line 添加的 owner column，只保留 declaration 相对 owner 多一个 space。client 声明支持 per-item
 `"insertTextMode" override 时，adapter 优先选择 `"asIs"，否则选择 client 支持的
 `"adjustIndentation"；没有 per-item override 时使用 client 声明的 default mode，未声明 default mode
 则使用 legacy `"adjustIndentation" projection。adapter 只能在 client 声明支持 per-item mode 时设置

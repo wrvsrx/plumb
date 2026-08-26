@@ -254,7 +254,6 @@ full element。payload 自身仍只占一条 physical line。空 verbatim 的写
 `plumb
 
 "
-  `rust""
   `rust""[]""
 
 位于 block start 的多 quote run 因 quote 后直接 line ending 而成为空 verbatim block；空 inline

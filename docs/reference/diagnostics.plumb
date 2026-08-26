@@ -24,8 +24,9 @@ syntax diagnostics 分为：
 `- structural：indentation、partial dedent、非法 structural tab、verbatim margin。
 `- lexical：非法 marker/kind token 或 control character。
 `- delimiter/dispatch：非法 introducer entry、inline、anonymous verbatim 或 block raw tail。
-`- ownership：旧 attribute slot spelling、unattached raw-tail boundary、unattached bracket 或 unexpected
- element close。bare brace 是 ordinary text，不拥有 delimiter diagnostics。
+`- ownership：unattached raw-tail boundary、unattached bracket、unexpected element close、unexpected member
+ separator、member close 前未结束的 verbatim 或 completed child member 后的 trailing content。bare brace
+ 是 ordinary text，不拥有 delimiter diagnostics。
 
 owner column 上的 bare `"`" 只有在 indentation stack 仍持有一个可接收 raw tail 的 marked owner 时才合法；
 否则发布 `"syntax.unattached-raw-tail"。raw tail 是单值 terminal field：进入 payload 后所有满足 margin
@@ -34,8 +35,8 @@ owner column 上的 bare `"`" 只有在 indentation stack 仍持有一个可接�
 同一 source range 和根因只发布最具体的错误。structural error 优先于由错误结构派生的 generic
 delimiter error。
 
-Current parser 用 `"syntax.legacy-attributes" 拒绝识别出的旧 attribute slot spelling；该识别只用于
-精确指出不合法范围，不产生 legacy syntax view，也不验证旧 spelling 的内部词法或 cardinality。
+Current parser 不识别旧 attribute slot spelling；brace 是 ordinary text，因此不会为 legacy braces 发布
+专用 syntax diagnostic。版本识别与错误属于显式 legacy parser/converter boundary。
 
 当前固定 precedence 包括：孤立 block introducer 的 `"syntax.incomplete-introducer" 优先于同 range
 的 `"syntax.invalid-inline-dispatch"；`"syntax.invalid-marker" 优先于派生的
@@ -104,12 +105,14 @@ precedence、ordering、recovery 与 lossless token coverage；lenient tree-sitt
   syntax.invalid-inline-dispatch
   syntax.invalid-verbatim-block-dispatch
   syntax.invalid-marker
-  syntax.legacy-attributes
   syntax.unattached-raw-tail
   syntax.unattached-bracket
   syntax.unexpected-element-close
+  syntax.unexpected-member-separator
+  syntax.trailing-after-inline-member
   syntax.unclosed-inline
   syntax.unclosed-verbatim
+  syntax.unclosed-verbatim-member
   syntax.tab-indentation
   syntax.partial-indent
   syntax.short-verbatim-indent

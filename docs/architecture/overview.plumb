@@ -134,10 +134,10 @@ LSP folding 从 recovered syntax range 投影。heading section、marked raw tai
 body 各产生 structural range。marked block 若有 children 或 raw tail，则产生延伸到最后一个 descendant
 或 payload end 的 subtree range；raw tail 不增加同 start 的重复 owner range。对于允许吸收 trailing
 layout 的 subtree fold，只有当前 block 与紧邻的同层 next
-sibling 都是 parsed marked block 且 marker 完全相同时，才把两者之间一个直接相邻的空白分隔行包含在
+sibling 都是非 heading 的 parsed marked block 且 marker 完全相同时，才把两者之间一个直接相邻的空白分隔行包含在
 subtree range 中；不同 marker、verbatim 或其他 block boundary 的空白分隔行保留在 fold range 外。该规则
-使同 marker sibling 折叠后紧凑排列，同时保留不同 block 种类之间的可见分组边界。Task owner fold 不吸收
-trailing separator；heading section 使用独立的 section range，不适用该 sibling separator 规则。client
+使同 marker sibling 折叠后紧凑排列，同时保留不同 block 种类之间的可见分组边界。heading section 使用
+独立的 section range，不适用该 sibling separator 规则。client
 range limit 在 source order 内优先保留外层 range。
 
 该设计区分空白分隔行的两种作用。不同 marker 之间的分隔行表达 block 种类变化形成的分组边界；即使前一
