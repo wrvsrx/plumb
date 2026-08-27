@@ -96,7 +96,7 @@ fn publishes_task_symbols_hover_and_workspace_diagnostics() {
         json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
     ];
 
-    let output = run_server(&messages);
+    let output = run_server_after_initial_index(&messages);
     assert_eq!(
         response(&output, 1)["result"]["capabilities"]["semanticTokensProvider"]["legend"]
             ["tokenTypes"][0],
@@ -210,7 +210,7 @@ fn publishes_event_symbols_hover_references_and_diagnostics() {
         json!({ "jsonrpc": "2.0", "id": 5, "method": "shutdown", "params": null }),
         json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
     ];
-    let output = run_server(&messages);
+    let output = run_server_after_initial_index(&messages);
     let symbols = response(&output, 2)["result"].as_array().unwrap();
     assert_eq!(symbols.len(), 3);
     assert_eq!(symbols[1]["name"], "Review");
@@ -286,7 +286,7 @@ fn publishes_completed_task_consistency_diagnostics() {
         json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
     ];
 
-    let output = run_server(&messages);
+    let output = run_server_after_initial_index(&messages);
     let diagnostics = output
         .iter()
         .rfind(|message| message.get("method") == Some(&json!("textDocument/publishDiagnostics")))
@@ -340,7 +340,7 @@ fn hovers_verbatim_autolinks_with_the_original_uri() {
         json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
     ];
 
-    let output = run_server(&messages);
+    let output = run_server_after_initial_index(&messages);
     let hover = &response(&output, 2)["result"];
     assert_eq!(
         hover["contents"]["value"],
@@ -434,7 +434,7 @@ fn resolves_cross_file_navigation_over_stdio() {
         json!({ "jsonrpc": "2.0", "id": 7, "method": "shutdown", "params": null }),
         json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
     ];
-    let output = run_server(&messages);
+    let output = run_server_after_initial_index(&messages);
     let definition = response(&output, 2);
     assert_eq!(definition["result"]["uri"], target_uri.as_str());
     let references = response(&output, 3);
@@ -583,7 +583,7 @@ fn block_reference_code_lenses_use_block_openers() {
         json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
     ];
 
-    let output = run_server(&messages);
+    let output = run_server_after_initial_index(&messages);
     let lenses = response(&output, 2)["result"].as_array().unwrap();
     assert_eq!(lenses.len(), 8);
     let line_of = |needle: &str| {

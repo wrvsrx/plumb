@@ -98,6 +98,8 @@ fn desired_events(loaded: &LoadedWorkspace) -> Result<BTreeMap<String, String>, 
         let tasks = loaded
             .workspace
             .event_task_references(&entry.path, event)
+            .map_err(|error| error.to_string())?
+            .value
             .into_iter()
             .map(|task| task.source)
             .collect::<Vec<_>>();

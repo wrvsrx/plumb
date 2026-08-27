@@ -11,8 +11,8 @@ use plumb_semantics::{
 use super::{
     deepest_list_item, derive_task_workflow_state, normalize, parsed_block_with_range,
     prepare_recurring_task_clone, resolve_relative, single_document_edit, unique_task_instance_id,
-    DocumentEntry, RecurringTaskCloneContext, TaskWaitReason, TaskWorkflowState, Workspace,
-    WorkspaceEdit,
+    DocumentEntry, QueryResult, RecurringTaskCloneContext, TaskWaitReason, TaskWorkflowState,
+    Workspace, WorkspaceEdit, WorkspaceOperationError, WorkspaceQueryError,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -47,6 +47,12 @@ impl std::fmt::Display for TaskEditError {
 }
 
 impl std::error::Error for TaskEditError {}
+
+impl From<TaskEditError> for WorkspaceOperationError<TaskEditError> {
+    fn from(error: TaskEditError) -> Self {
+        Self::Operation(error)
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct TaskRef {
@@ -99,37 +105,49 @@ impl Workspace {
         &self,
         path: impl AsRef<Path>,
         task: &TaskRecord,
-    ) -> Vec<ResolvedTaskDependency> {
-        let path = normalize(path.as_ref());
-        self.task_dependencies(path, task)
+    ) -> Result<QueryResult<Vec<ResolvedTaskDependency>>, WorkspaceQueryError> {
+        let dependencies = self
+            .task_dependencies_value(path.as_ref(), task)?
             .into_iter()
             .filter(|dependency| dependency.task.state() == TaskState::Open)
-            .collect()
+            .collect();
+        Ok(self.query_result(dependencies))
     }
 
     pub fn task_dependencies(
         &self,
         path: impl AsRef<Path>,
         task: &TaskRecord,
-    ) -> Vec<ResolvedTaskDependency> {
+    ) -> Result<QueryResult<Vec<ResolvedTaskDependency>>, WorkspaceQueryError> {
+        Ok(self.query_result(self.task_dependencies_value(path.as_ref(), task)?))
+    }
+
+    pub(super) fn task_dependencies_value(
+        &self,
+        path: &Path,
+        task: &TaskRecord,
+    ) -> Result<Vec<ResolvedTaskDependency>, WorkspaceQueryError> {
         let path = normalize(path.as_ref());
         let mut dependencies = task
             .depends
             .iter()
-            .filter_map(|dependency| {
+            .map(|dependency| {
                 let TaskTargetResolution::Task {
                     target,
                     task: target_task,
-                } = self.resolve_task_target(&path, &dependency.target)
+                } = self.resolve_task_target(&path, &dependency.target)?
                 else {
-                    return None;
+                    return Ok(None);
                 };
-                Some(ResolvedTaskDependency {
+                Ok(Some(ResolvedTaskDependency {
                     source: dependency.source.clone(),
                     target,
                     task: *target_task,
-                })
+                }))
             })
+            .collect::<Result<Vec<_>, WorkspaceQueryError>>()?
+            .into_iter()
+            .flatten()
             .collect::<Vec<_>>();
         dependencies.sort_by(|left, right| {
             left.target
@@ -137,36 +155,42 @@ impl Workspace {
                 .cmp(&right.target.path)
                 .then(left.target.id.cmp(&right.target.id))
         });
-        dependencies
+        Ok(dependencies)
     }
 
-    pub fn task_previous(&self, path: impl AsRef<Path>, task: &TaskRecord) -> Option<TaskRef> {
+    pub fn task_previous(
+        &self,
+        path: impl AsRef<Path>,
+        task: &TaskRecord,
+    ) -> Result<QueryResult<Option<TaskRef>>, WorkspaceQueryError> {
         let path = normalize(path.as_ref());
-        let previous = task.prev.as_ref()?;
-        let target = parse_task_reference_target(&previous.value);
-        let TaskTargetResolution::Task { target, .. } = self.resolve_task_target(&path, &target)
-        else {
-            return None;
+        let Some(previous) = task.prev.as_ref() else {
+            return Ok(self.query_result(None));
         };
-        Some(target)
+        let target = parse_task_reference_target(&previous.value);
+        let TaskTargetResolution::Task { target, .. } = self.resolve_task_target(&path, &target)?
+        else {
+            return Ok(self.query_result(None));
+        };
+        Ok(self.query_result(Some(target)))
     }
 
     pub fn directly_blocking_tasks(
         &self,
         target_path: impl AsRef<Path>,
         target_id: &str,
-    ) -> Vec<TaskRef> {
+    ) -> Result<QueryResult<Vec<TaskRef>>, WorkspaceQueryError> {
         let target = TaskRef {
             path: normalize(target_path.as_ref()),
             id: target_id.to_string(),
         };
         let mut blocking = Vec::new();
-        for (path, task) in self.all_tasks() {
+        for (path, task) in self.all_tasks()? {
             let Some(id) = &task.id else {
                 continue;
             };
             if self
-                .task_dependencies(&path, &task)
+                .task_dependencies_value(&path, &task)?
                 .iter()
                 .any(|dependency| dependency.target == target)
             {
@@ -177,11 +201,26 @@ impl Workspace {
             }
         }
         blocking.sort_by(|left, right| left.path.cmp(&right.path).then(left.id.cmp(&right.id)));
-        blocking
+        Ok(self.query_result(blocking))
     }
 
-    pub fn is_task_blocked(&self, path: impl AsRef<Path>, task: &TaskRecord) -> bool {
-        !self.open_task_dependencies(path, task).is_empty()
+    pub fn is_task_blocked(
+        &self,
+        path: impl AsRef<Path>,
+        task: &TaskRecord,
+    ) -> Result<QueryResult<bool>, WorkspaceQueryError> {
+        Ok(self.query_result(self.is_task_blocked_value(path.as_ref(), task)?))
+    }
+
+    pub(super) fn is_task_blocked_value(
+        &self,
+        path: &Path,
+        task: &TaskRecord,
+    ) -> Result<bool, WorkspaceQueryError> {
+        Ok(self
+            .task_dependencies_value(path, task)?
+            .iter()
+            .any(|dependency| dependency.task.state() == TaskState::Open))
     }
 
     pub fn task_workflow_state(
@@ -189,8 +228,10 @@ impl Workspace {
         path: impl AsRef<Path>,
         task: &TaskRecord,
         now: DateTime<FixedOffset>,
-    ) -> (TaskWorkflowState, Vec<TaskWaitReason>) {
-        derive_task_workflow_state(task, self.is_task_blocked(path, task), now)
+    ) -> Result<QueryResult<(TaskWorkflowState, Vec<TaskWaitReason>)>, WorkspaceQueryError> {
+        let value =
+            derive_task_workflow_state(task, self.is_task_blocked_value(path.as_ref(), task)?, now);
+        Ok(self.query_result(value))
     }
 
     pub fn set_task_status(
@@ -199,9 +240,9 @@ impl Workspace {
         offset: usize,
         status: TaskStatus,
         timestamp: &str,
-    ) -> Result<WorkspaceEdit, TaskEditError> {
+    ) -> Result<WorkspaceEdit, WorkspaceOperationError<TaskEditError>> {
         if !valid_task_datetime(timestamp) {
-            return Err(TaskEditError::InvalidTimestamp);
+            return Err(TaskEditError::InvalidTimestamp.into());
         }
         let path = normalize(path.as_ref());
         let entry = self
@@ -321,23 +362,33 @@ impl Workspace {
         task: &TaskRecord,
         status: TaskStatus,
         timestamp: &str,
-    ) -> Result<WorkspaceEdit, TaskEditError> {
+    ) -> Result<WorkspaceEdit, WorkspaceOperationError<TaskEditError>> {
         if task.state() != TaskState::Open {
-            return Err(TaskEditError::TaskAlreadyClosed);
+            return Err(TaskEditError::TaskAlreadyClosed.into());
         }
         if task.recur.is_some() && task.due.is_some() {
-            if status == TaskStatus::Done && self.is_task_blocked(path, task) {
-                return Err(TaskEditError::TaskBlocked);
+            if status == TaskStatus::Done
+                && self
+                    .is_task_blocked_value(path, task)
+                    .map_err(WorkspaceOperationError::Query)?
+            {
+                return Err(TaskEditError::TaskBlocked.into());
             }
-            return self.recurring_task_status_edit(entry, task, status, timestamp);
+            return self
+                .recurring_task_status_edit(entry, task, status, timestamp)
+                .map_err(Into::into);
         }
-        if status == TaskStatus::Done && self.is_task_blocked(path, task) {
-            return Err(TaskEditError::TaskBlocked);
+        if status == TaskStatus::Done
+            && self
+                .is_task_blocked_value(path, task)
+                .map_err(WorkspaceOperationError::Query)?
+        {
+            return Err(TaskEditError::TaskBlocked.into());
         }
         let block = parsed_block_with_range(&entry.parsed.syntax.blocks, &task.range)
             .ok_or(TaskEditError::TaskNotFound)?;
         if block.mark.is_none() {
-            return Err(TaskEditError::TaskNotFound);
+            return Err(TaskEditError::TaskNotFound.into());
         }
         let mut owned = OwnedBlock::from_parsed(&entry.parsed.source, block);
         owned.push_attribute(OwnedAttribute::quoted(status.attribute(), timestamp));
@@ -355,9 +406,9 @@ impl Workspace {
         id: &str,
         status: TaskStatus,
         timestamp: &str,
-    ) -> Result<WorkspaceEdit, TaskEditError> {
+    ) -> Result<WorkspaceEdit, WorkspaceOperationError<TaskEditError>> {
         if !valid_task_datetime(timestamp) {
-            return Err(TaskEditError::InvalidTimestamp);
+            return Err(TaskEditError::InvalidTimestamp.into());
         }
         let path = normalize(path.as_ref());
         let entry = self
@@ -456,40 +507,42 @@ impl Workspace {
         &self,
         from: &Path,
         target: &TaskReferenceTarget,
-    ) -> TaskTargetResolution {
+    ) -> Result<TaskTargetResolution, WorkspaceQueryError> {
         let (path, id) = match target {
             TaskReferenceTarget::Internal { id } => (normalize(from), id.clone()),
             TaskReferenceTarget::External { path, id } => {
                 (resolve_relative(from, path), id.clone())
             }
-            TaskReferenceTarget::Invalid => return TaskTargetResolution::Invalid,
+            TaskReferenceTarget::Invalid => return Ok(TaskTargetResolution::Invalid),
         };
-        if !self.contains(&path) && !path.is_file() {
-            return TaskTargetResolution::UnresolvedPath { path };
+        if !self.contains_path(&path)? && !path.is_file() {
+            return Ok(TaskTargetResolution::UnresolvedPath { path });
         }
-        let matching_anchors = self.anchors_named(&path, &id).len();
+        let matching_anchors = self.anchors_named(&path, &id)?.len();
         if matching_anchors == 0 {
-            return TaskTargetResolution::UnresolvedAnchor { path, id };
+            return Ok(TaskTargetResolution::UnresolvedAnchor { path, id });
         }
         if matching_anchors > 1 {
-            return TaskTargetResolution::AmbiguousAnchor { path, id };
+            return Ok(TaskTargetResolution::AmbiguousAnchor { path, id });
         }
         let Some(task) = self
-            .tasks_for_path(&path)
+            .tasks_for_path(&path)?
             .into_iter()
             .find(|task| task.id.as_ref().is_some_and(|task_id| task_id.value == id))
         else {
-            return TaskTargetResolution::NotTask { path, id };
+            return Ok(TaskTargetResolution::NotTask { path, id });
         };
-        TaskTargetResolution::Task {
+        Ok(TaskTargetResolution::Task {
             target: TaskRef { path, id },
             task: Box::new(task),
-        }
+        })
     }
 
-    pub(super) fn task_dependency_graph(&self) -> HashMap<TaskRef, Vec<TaskRef>> {
+    pub(super) fn task_dependency_graph(
+        &self,
+    ) -> Result<HashMap<TaskRef, Vec<TaskRef>>, WorkspaceQueryError> {
         let mut graph = HashMap::new();
-        for (path, task) in self.all_tasks() {
+        for (path, task) in self.all_tasks()? {
             let Some(id) = &task.id else {
                 continue;
             };
@@ -500,17 +553,20 @@ impl Workspace {
             let dependencies = task
                 .depends
                 .iter()
-                .filter_map(|dependency| {
+                .map(|dependency| {
                     let TaskTargetResolution::Task { target, .. } =
-                        self.resolve_task_target(&path, &dependency.target)
+                        self.resolve_task_target(&path, &dependency.target)?
                     else {
-                        return None;
+                        return Ok(None);
                     };
-                    Some(target)
+                    Ok(Some(target))
                 })
+                .collect::<Result<Vec<_>, WorkspaceQueryError>>()?
+                .into_iter()
+                .flatten()
                 .collect();
             graph.insert(task_ref, dependencies);
         }
-        graph
+        Ok(graph)
     }
 }

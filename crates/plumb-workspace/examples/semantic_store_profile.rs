@@ -40,10 +40,14 @@ fn main() {
     let build = started.elapsed();
     let ids = HashSet::from(["target".to_string()]);
     let query_started = Instant::now();
-    let references = workspace.reverse_references_for_document("target.plumb", &ids);
+    let references = workspace
+        .reverse_references_for_document("target.plumb", &ids)
+        .expect("reverse-reference query should succeed");
     let start = DateTime::parse_from_rfc3339("2026-08-10T00:00:00+00:00").unwrap();
     let end = DateTime::parse_from_rfc3339("2026-08-20T00:00:00+00:00").unwrap();
-    let events = workspace.events_overlapping(start, end);
+    let events = workspace
+        .events_overlapping(start, end)
+        .expect("event query should succeed");
     let query = query_started.elapsed();
     black_box((&workspace, references, events));
     println!("backend={backend}");

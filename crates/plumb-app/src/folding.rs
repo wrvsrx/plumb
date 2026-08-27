@@ -5,7 +5,7 @@ use chrono::{DateTime, FixedOffset, Local};
 use lsp_types::FoldingRange;
 use plumb_semantics::{analyze_recovered_headings, EventRecord, MetadataValue};
 use plumb_syntax::{Block, Document};
-use plumb_workspace::{DocumentEntry, TaskWorkflowState, Workspace};
+use plumb_workspace::{DocumentEntry, TaskWorkflowState, Workspace, WorkspaceQueryError};
 
 use crate::position::PositionIndex;
 
@@ -18,11 +18,11 @@ pub(crate) fn collapsed_text_labels(
     workspace: &Workspace,
     path: &Path,
     entry: &DocumentEntry,
-) -> HashMap<(usize, usize), FoldLabel> {
-    let mut labels = task_labels(workspace, path, entry);
+) -> Result<HashMap<(usize, usize), FoldLabel>, WorkspaceQueryError> {
+    let mut labels = task_labels(workspace, path, entry)?;
     labels.extend(event_labels(entry));
     labels.extend(metadata_labels(entry));
-    labels
+    Ok(labels)
 }
 
 pub(crate) fn metadata_labels(entry: &DocumentEntry) -> HashMap<(usize, usize), FoldLabel> {
@@ -78,9 +78,9 @@ pub(crate) fn task_labels(
     workspace: &Workspace,
     path: &Path,
     entry: &DocumentEntry,
-) -> HashMap<(usize, usize), FoldLabel> {
+) -> Result<HashMap<(usize, usize), FoldLabel>, WorkspaceQueryError> {
     let Some(current) = &entry.current else {
-        return HashMap::new();
+        return Ok(HashMap::new());
     };
     let now = Local::now().fixed_offset();
     current
@@ -89,19 +89,19 @@ pub(crate) fn task_labels(
         .tasks
         .iter()
         .map(|task| {
-            let (state, _) = workspace.task_workflow_state(path, task, now);
+            let (state, _) = workspace.task_workflow_state(path, task, now)?.value;
             let indent = line_indent(&entry.parsed.source, task.range.start);
             let title = if task.title.is_empty() {
                 "Untitled task"
             } else {
                 &task.title
             };
-            (
+            Ok((
                 (task.range.start, task.range.end),
                 FoldLabel {
                     text: format!("{indent}`task {:<5}{title}", task_state_symbol(state)),
                 },
-            )
+            ))
         })
         .collect()
 }

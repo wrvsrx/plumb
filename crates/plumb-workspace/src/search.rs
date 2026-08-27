@@ -81,6 +81,48 @@ pub struct SearchResults {
     pub complete: bool,
 }
 
+#[derive(Debug)]
+pub enum WorkspaceSearchError {
+    Filter(String),
+    Query(super::WorkspaceQueryError),
+}
+
+impl std::fmt::Display for WorkspaceSearchError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Filter(message) => formatter.write_str(message),
+            Self::Query(error) => error.fmt(formatter),
+        }
+    }
+}
+
+impl std::error::Error for WorkspaceSearchError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Filter(_) => None,
+            Self::Query(error) => Some(error),
+        }
+    }
+}
+
+impl From<String> for WorkspaceSearchError {
+    fn from(message: String) -> Self {
+        Self::Filter(message)
+    }
+}
+
+impl From<super::WorkspaceQueryError> for WorkspaceSearchError {
+    fn from(error: super::WorkspaceQueryError) -> Self {
+        Self::Query(error)
+    }
+}
+
+impl From<super::StoreError> for WorkspaceSearchError {
+    fn from(error: super::StoreError) -> Self {
+        Self::Query(super::WorkspaceQueryError::Store(error))
+    }
+}
+
 impl Workspace {
     pub fn search_records(
         &self,
@@ -89,9 +131,14 @@ impl Workspace {
         query: &str,
         limit: usize,
         now: DateTime<FixedOffset>,
-    ) -> SearchResults {
+    ) -> Result<super::QueryResult<SearchResults>, super::WorkspaceQueryError> {
         self.search_records_filtered(root, kind, query, limit, now, None)
-            .expect("search without a semantic filter cannot fail")
+            .map_err(|error| match error {
+                WorkspaceSearchError::Query(error) => error,
+                WorkspaceSearchError::Filter(_) => {
+                    unreachable!("search without a semantic filter cannot fail")
+                }
+            })
     }
 
     pub fn search_records_filtered(
@@ -102,7 +149,7 @@ impl Workspace {
         limit: usize,
         now: DateTime<FixedOffset>,
         filter: Option<&str>,
-    ) -> Result<SearchResults, String> {
+    ) -> Result<super::QueryResult<SearchResults>, WorkspaceSearchError> {
         let root = normalize(root.as_ref());
         let filter = filter
             .map(|source| SemanticSearchFilter::compile(source, now))
@@ -110,7 +157,8 @@ impl Workspace {
         let reverse = filter
             .as_ref()
             .filter(|filter| filter.needs_reverse_references())
-            .map(|_| ReverseReferences::build(self));
+            .map(|_| ReverseReferences::build(self))
+            .transpose()?;
         let task_dependents = filter
             .as_ref()
             .filter(|filter| filter.needs_task_dependents())
@@ -176,7 +224,7 @@ impl Workspace {
                     let Some(score) = search_score(query, &fields) else {
                         continue;
                     };
-                    let blocked = self.is_task_blocked(&entry.path, task);
+                    let blocked = self.is_task_blocked_value(&entry.path, task)?;
                     let (task_state, wait_reasons) = derive_task_workflow_state(task, blocked, now);
                     let actionable = task_state == TaskWorkflowState::Ready;
                     if let Some(filter) = &filter {
@@ -276,7 +324,7 @@ impl Workspace {
             let open = self.open_paths();
             let open_set = open.iter().collect::<HashSet<_>>();
             if kind.is_none_or(|kind| kind == SearchRecordKind::Note) {
-                for document in store.documents().map_err(|error| error.to_string())? {
+                for document in store.documents()? {
                     if open_set.contains(&document.path) || !document.valid {
                         continue;
                     }
@@ -327,12 +375,11 @@ impl Workspace {
             }
             if kind.is_none_or(|kind| kind == SearchRecordKind::Task) {
                 let blocked_sources = store
-                    .blocked_task_sources(&open)
-                    .map_err(|error| error.to_string())?
+                    .blocked_task_sources(&open)?
                     .into_iter()
                     .map(|source| (source.path, source.start))
                     .collect::<HashSet<_>>();
-                for stored in store.tasks(&open).map_err(|error| error.to_string())? {
+                for stored in store.tasks(&open)? {
                     let task = stored.record;
                     let relative_path = stored
                         .path
@@ -354,7 +401,7 @@ impl Workspace {
                     let blocked = if open.is_empty() {
                         blocked_sources.contains(&(stored.path.clone(), task.range.start))
                     } else {
-                        self.is_task_blocked(&stored.path, &task)
+                        self.is_task_blocked_value(&stored.path, &task)?
                     };
                     let (task_state, wait_reasons) =
                         derive_task_workflow_state(&task, blocked, now);
@@ -404,7 +451,7 @@ impl Workspace {
                 }
             }
             if kind.is_none_or(|kind| kind == SearchRecordKind::Event) {
-                for stored in store.events(&open).map_err(|error| error.to_string())? {
+                for stored in store.events(&open)? {
                     let event = stored.record;
                     let relative_path = stored
                         .path
@@ -461,7 +508,7 @@ impl Workspace {
                 }
             }
         }
-        self.propagate_task_priorities(&mut matches);
+        self.propagate_task_priorities(&mut matches)?;
         matches.sort_by(|(left_score, left), (right_score, right)| {
             right_score
                 .cmp(left_score)
@@ -471,13 +518,16 @@ impl Workspace {
         });
         let complete = matches.len() <= limit;
         matches.truncate(limit);
-        Ok(SearchResults {
+        Ok(self.query_result(SearchResults {
             items: matches.into_iter().map(|(_, record)| record).collect(),
             complete,
-        })
+        }))
     }
 
-    fn propagate_task_priorities(&self, matches: &mut [(i64, SearchRecord)]) {
+    fn propagate_task_priorities(
+        &self,
+        matches: &mut [(i64, SearchRecord)],
+    ) -> Result<(), super::WorkspaceQueryError> {
         let mut task_indexes = matches
             .iter()
             .enumerate()
@@ -541,7 +591,11 @@ impl Workspace {
             }) else {
                 continue;
             };
-            for dependency in self.open_task_dependencies(&record.path, task) {
+            for dependency in self
+                .task_dependencies_value(&record.path, task)?
+                .into_iter()
+                .filter(|dependency| dependency.task.state() == TaskState::Open)
+            {
                 if let Some(target) = node_by_ref.get(&dependency.target) {
                     edges.push((node, *target));
                 }
@@ -567,6 +621,7 @@ impl Workspace {
         for (node, record_index) in task_indexes.into_iter().enumerate() {
             matches[record_index].1.effective_priority = Some(priorities[node]);
         }
+        Ok(())
     }
 }
 
@@ -693,7 +748,7 @@ impl SemanticSearchFilter {
         path: &Path,
         title: &str,
         reverse: Option<&ReverseReferences>,
-    ) -> Result<bool, String> {
+    ) -> Result<bool, WorkspaceSearchError> {
         let mut context = Context::default();
         context.add_variable_from_value("path", display_workspace_path(root, path));
         context.add_variable_from_value("title", title.to_string());
@@ -719,7 +774,7 @@ impl SemanticSearchFilter {
                     .collect::<Vec<_>>(),
             );
         }
-        execute_search_filter(&self.program, &context, path)
+        execute_search_filter(&self.program, &context, path).map_err(Into::into)
     }
 
     fn task_matches(
@@ -730,7 +785,7 @@ impl SemanticSearchFilter {
         workspace: &Workspace,
         task_dependents: Option<&DirectTaskDependents>,
         facts: TaskMatchFacts<'_>,
-    ) -> Result<bool, String> {
+    ) -> Result<bool, WorkspaceSearchError> {
         let mut context = Context::default();
         context.add_variable_from_value("path", display_workspace_path(root, path));
         context.add_variable_from_value(
@@ -760,7 +815,7 @@ impl SemanticSearchFilter {
             context.add_variable_from_value(
                 "depends_on",
                 workspace
-                    .task_dependencies(path, task)
+                    .task_dependencies_value(path, task)?
                     .into_iter()
                     .map(|dependency| display_search_task_ref(root, &dependency.target))
                     .collect::<Vec<_>>(),
@@ -794,7 +849,7 @@ impl SemanticSearchFilter {
         context.add_variable_from_value("blocked", facts.blocked);
         context.add_variable_from_value("actionable", facts.actionable);
         context.add_variable_from_value("now", Value::Timestamp(self.now));
-        execute_search_filter(&self.program, &context, path)
+        execute_search_filter(&self.program, &context, path).map_err(Into::into)
     }
 
     fn event_matches(&self, root: &Path, path: &Path, event: &EventRecord) -> Result<bool, String> {
@@ -920,14 +975,11 @@ struct DirectTaskDependents {
 }
 
 impl DirectTaskDependents {
-    fn build(workspace: &Workspace) -> Result<Self, String> {
+    fn build(workspace: &Workspace) -> Result<Self, super::WorkspaceQueryError> {
         let open = workspace.open_paths();
         let mut by_target = HashMap::<TaskRef, Vec<TaskRef>>::new();
         if let Some(store) = &workspace.disk_store {
-            for relation in store
-                .task_dependency_relations(&open)
-                .map_err(|error| error.to_string())?
-            {
+            for relation in store.task_dependency_relations(&open)? {
                 let Some(source_id) = relation.source_id else {
                     continue;
                 };
@@ -955,7 +1007,7 @@ impl DirectTaskDependents {
                     path: entry.path.clone(),
                     id: id.value.clone(),
                 };
-                for dependency in workspace.task_dependencies(&entry.path, task) {
+                for dependency in workspace.task_dependencies_value(&entry.path, task)? {
                     by_target
                         .entry(dependency.target)
                         .or_default()
@@ -986,14 +1038,14 @@ struct ReverseReferences {
 }
 
 impl ReverseReferences {
-    fn build(workspace: &Workspace) -> Self {
+    fn build(workspace: &Workspace) -> Result<Self, super::WorkspaceQueryError> {
         let mut direct: HashMap<PathBuf, HashSet<PathBuf>> = HashMap::new();
         for entry in workspace.documents() {
-            for target in workspace.referenced_documents_from(&entry.path) {
+            for target in workspace.referenced_documents_from(&entry.path)?.value {
                 direct.entry(target).or_default().insert(entry.path.clone());
             }
         }
-        Self { direct }
+        Ok(Self { direct })
     }
 
     fn direct(&self, path: &Path) -> Vec<PathBuf> {

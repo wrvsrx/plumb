@@ -297,6 +297,65 @@ impl SqliteSemanticStore {
             .collect()
     }
 
+    pub fn document_exists(&self, path: &Path) -> StoreResult<bool> {
+        let mut connection = self
+            .connection
+            .lock()
+            .map_err(|_| StoreError::LockPoisoned)?;
+        let path = path_bytes(&normalize(path));
+        diesel::select(exists(documents::table.filter(documents::path.eq(path))))
+            .get_result(&mut *connection)
+            .map_err(Into::into)
+    }
+
+    pub fn document(&self, path: &Path) -> StoreResult<Option<StoredDocument>> {
+        let mut connection = self
+            .connection
+            .lock()
+            .map_err(|_| StoreError::LockPoisoned)?;
+        let row = documents::table
+            .filter(documents::path.eq(path_bytes(&normalize(path))))
+            .select((
+                documents::path,
+                documents::revision,
+                documents::content_hash,
+                documents::valid,
+                documents::title,
+                documents::title_start,
+                documents::title_end,
+            ))
+            .first::<(Vec<u8>, i64, Vec<u8>, bool, String, i64, i64)>(&mut *connection)
+            .optional()?;
+        row.map(|(path, revision, hash, valid, title, start, end)| {
+            let content_hash = hash
+                .try_into()
+                .map_err(|_| StoreError::InvalidStoredValue)?;
+            Ok(StoredDocument {
+                path: path_from_bytes(path)?,
+                revision,
+                content_hash,
+                valid,
+                title,
+                title_range: to_usize(start)?..to_usize(end)?,
+            })
+        })
+        .transpose()
+    }
+
+    pub fn document_paths(&self) -> StoreResult<Vec<PathBuf>> {
+        let mut connection = self
+            .connection
+            .lock()
+            .map_err(|_| StoreError::LockPoisoned)?;
+        documents::table
+            .select(documents::path)
+            .order(documents::path)
+            .load::<Vec<u8>>(&mut *connection)?
+            .into_iter()
+            .map(path_from_bytes)
+            .collect()
+    }
+
     pub fn anchors(&self, excluded: &[PathBuf]) -> StoreResult<Vec<StoredRecord<AnchorRecord>>> {
         let mut connection = self
             .connection
@@ -350,6 +409,21 @@ impl SqliteSemanticStore {
             .order((tasks::path, tasks::start))
             .load_iter::<(Vec<u8>, i64, Vec<u8>), DefaultLoadingMode>(&mut *connection)?;
         decode_records(rows, excluded)
+    }
+
+    pub fn tasks_for_path(&self, path: &Path) -> StoreResult<Vec<TaskRecord>> {
+        let mut connection = self
+            .connection
+            .lock()
+            .map_err(|_| StoreError::LockPoisoned)?;
+        let rows = tasks::table
+            .filter(tasks::path.eq(path_bytes(&normalize(path))))
+            .select(tasks::record)
+            .order(tasks::start)
+            .load::<Vec<u8>>(&mut *connection)?;
+        rows.into_iter()
+            .map(|record| Ok(bincode::deserialize(&record)?))
+            .collect()
     }
 
     pub fn task_dependents(

@@ -26,6 +26,7 @@ impl WebWorkspace {
                         source: "state".to_string(),
                         message: error.to_string(),
                     })?
+                    .value
                     .into_iter()
                     .map(|task| (display_path(&self.root, &task.path), task.start))
                     .collect::<BTreeSet<_>>(),
@@ -50,7 +51,11 @@ impl WebWorkspace {
                         now,
                         Some(expression),
                     )
-                    .map_err(|message| QueryFailure { source, message })?;
+                    .map_err(|error| QueryFailure {
+                        source,
+                        message: error.to_string(),
+                    })?
+                    .value;
                 matching.extend(
                     records
                         .items
@@ -71,7 +76,11 @@ impl WebWorkspace {
                     now,
                     Some(expression),
                 )
-                .map_err(|message| QueryFailure { source, message })?;
+                .map_err(|error| QueryFailure {
+                    source,
+                    message: error.to_string(),
+                })?
+                .value;
             intersect_keys(
                 &mut retained,
                 records
@@ -91,6 +100,11 @@ impl WebWorkspace {
                     usize::MAX,
                     now,
                 )
+                .map_err(|error| QueryFailure {
+                    source: "query".to_string(),
+                    message: error.to_string(),
+                })?
+                .value
                 .items
                 .into_iter()
                 .map(|record| (record.relative_path, record.range.start))
@@ -98,7 +112,12 @@ impl WebWorkspace {
             intersect_keys(&mut retained, matching);
         }
         let needs_priority_relations = query.sort.contains(&QuerySort::Priority);
-        let snapshot = self.task_snapshot(retained.as_ref(), needs_priority_relations);
+        let snapshot = self
+            .task_snapshot(retained.as_ref(), needs_priority_relations)
+            .map_err(|message| QueryFailure {
+                source: "workspace".to_string(),
+                message,
+            })?;
         let mut tasks = snapshot.tasks;
         let mut scores = HashMap::new();
         let retained_keys = tasks
@@ -150,7 +169,13 @@ impl WebWorkspace {
             .iter()
             .map(|task| (task.key.clone(), task.effective_priority))
             .collect::<HashMap<_, _>>();
-        let mut tasks = self.task_snapshot(Some(&page_keys), true).tasks;
+        let mut tasks = self
+            .task_snapshot(Some(&page_keys), true)
+            .map_err(|message| QueryFailure {
+                source: "workspace".to_string(),
+                message,
+            })?
+            .tasks;
         for task in &mut tasks {
             if let Some(priority) = page_priorities.get(&task.key) {
                 task.effective_priority = *priority;
@@ -178,7 +203,12 @@ impl WebWorkspace {
                 source: "exclude".to_string(),
                 message,
             })?;
-        let mut graph = self.graph_with_excluded(&query.traversal, &excluded, false);
+        let mut graph = self
+            .graph_with_excluded(&query.traversal, &excluded, false)
+            .map_err(|message| QueryFailure {
+                source: "workspace".to_string(),
+                message,
+            })?;
         let mut program_groups = resolve_presets(&query.presets, GRAPH_PRESETS)?
             .into_iter()
             .map(|group| compile_program_group(group.expressions))
@@ -188,7 +218,10 @@ impl WebWorkspace {
                 .map(|expression| compile_program_group(vec![expression]))
                 .collect::<Result<Vec<_>, _>>()?,
         );
-        let metrics = self.graph_metrics(&graph);
+        let metrics = self.graph_metrics(&graph).map_err(|message| QueryFailure {
+            source: "workspace".to_string(),
+            message,
+        })?;
         let mut scores = HashMap::new();
         let mut retained = Vec::new();
         'nodes: for node in std::mem::take(&mut graph.nodes) {
@@ -255,7 +288,7 @@ impl WebWorkspace {
         Ok(graph)
     }
 
-    fn graph_metrics(&self, graph: &GraphSnapshot) -> HashMap<String, GraphMetric> {
+    fn graph_metrics(&self, graph: &GraphSnapshot) -> Result<HashMap<String, GraphMetric>, String> {
         let mut metrics = graph
             .nodes
             .iter()
@@ -271,7 +304,7 @@ impl WebWorkspace {
                 metric.degree += 1;
             }
         }
-        for task in self.tasks().tasks {
+        for task in self.tasks()?.tasks {
             if let Some(metric) = metrics.get_mut(&task.document_id) {
                 metric.task_count += 1;
                 if matches!(task.state.as_str(), "ready" | "waiting" | "blocked") {
@@ -279,7 +312,7 @@ impl WebWorkspace {
                 }
             }
         }
-        metrics
+        Ok(metrics)
     }
 }
 

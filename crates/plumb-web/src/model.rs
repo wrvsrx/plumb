@@ -11,7 +11,7 @@ use plumb_workspace::{
     ApplyDocumentEditError, EventEditError, EventInput, ResolvedTarget, SearchRecordKind,
     SqliteSemanticStore, TaskAuthoringError, TaskAuthoringInput, TaskPlacement, TaskRef,
     TaskSortFacts, TaskSortOrder, TaskWorkflowState, Workspace, WorkspaceEvent,
-    WorkspaceEventCursor,
+    WorkspaceEventCursor, WorkspaceOperationError,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -515,6 +515,8 @@ impl WebWorkspace {
                 usize::MAX,
                 Local::now().fixed_offset(),
             )
+            .map_err(|error| error.to_string())?
+            .value
             .items
             .into_iter()
             .map(|record| (record.path, record.title))
@@ -531,7 +533,7 @@ impl WebWorkspace {
             resources: BTreeMap::new(),
             resources_by_id: HashMap::new(),
         };
-        result.index_resources();
+        result.index_resources()?;
         Ok(result)
     }
 
@@ -591,13 +593,15 @@ impl WebWorkspace {
                 usize::MAX,
                 Local::now().fixed_offset(),
             )
+            .map_err(|error| error.to_string())?
+            .value
             .items
             .into_iter()
             .map(|record| (record.path, record.title))
             .collect();
         self.resources.clear();
         self.resources_by_id.clear();
-        self.index_resources();
+        self.index_resources()?;
         Ok(())
     }
 
@@ -613,7 +617,7 @@ impl WebWorkspace {
         self.resources.values()
     }
 
-    pub fn tasks(&self) -> TaskSnapshot {
+    pub fn tasks(&self) -> Result<TaskSnapshot, String> {
         self.task_snapshot(None, true)
     }
 
@@ -621,113 +625,132 @@ impl WebWorkspace {
         &self,
         retained: Option<&BTreeSet<(String, usize)>>,
         include_relations: bool,
-    ) -> TaskSnapshot {
+    ) -> Result<TaskSnapshot, String> {
         let now = Local::now().fixed_offset();
-        let records = self.query_workspace.search_records(
-            &self.root,
-            Some(SearchRecordKind::Task),
-            "",
-            usize::MAX,
-            now,
-        );
-        let mut tasks = records
-            .items
-            .into_iter()
-            .filter(|record| {
-                retained.is_none_or(|retained| {
-                    retained.contains(&(record.relative_path.clone(), record.range.start))
-                })
-            })
-            .filter_map(|record| {
-                let document_id = self.document_id(&record.path)?.to_string();
-                let state = record.task_state?.as_str();
-                let current = self.workspace.get(&record.path)?.current.as_ref()?;
-                let task = current
-                    .output
-                    .tasks
-                    .tasks
-                    .iter()
-                    .find(|task| task.selection_range == record.range)?;
-                let key = record.id.as_ref().map_or_else(
-                    || format!("{document_id}:{}", task.range.start),
-                    |id| format!("{document_id}:{id}"),
-                );
-                let locator = record.id.as_ref().map_or_else(
-                    || WebTaskLocator::Offset {
-                        offset: task.range.start,
-                    },
-                    |id| WebTaskLocator::Id { id: id.clone() },
-                );
-                let depends_on = include_relations
-                    .then(|| {
-                        self.workspace
-                            .task_dependencies(&record.path, task)
-                            .into_iter()
-                            .map(|dependency| display_task_ref(&self.root, &dependency.target))
-                            .collect()
-                    })
-                    .unwrap_or_default();
-                let directly_blocking = include_relations
-                    .then(|| {
-                        record
-                            .id
-                            .as_deref()
-                            .map(|id| {
-                                self.workspace
-                                    .directly_blocking_tasks(&record.path, id)
-                                    .into_iter()
-                                    .map(|target| display_task_ref(&self.root, &target))
-                                    .collect()
-                            })
-                            .unwrap_or_default()
-                    })
-                    .unwrap_or_default();
-                Some(WebTask {
-                    key,
-                    document_id,
-                    title: record.title,
-                    path: record.relative_path,
-                    revision: current.revision.to_string(),
-                    id: record.id,
-                    locator,
-                    state: state.to_string(),
-                    created: task.created.as_ref().map(|field| field.value.clone()),
-                    due: task.due.as_ref().map(|field| field.value.clone()),
-                    priority: task.priority,
-                    effective_priority: record.effective_priority.unwrap_or_default(),
-                    wait: task.wait.as_ref().map(|field| field.value.clone()),
-                    done: task.done.as_ref().map(|field| field.value.clone()),
-                    canceled: task.canceled.as_ref().map(|field| field.value.clone()),
-                    recur: task.recur.as_ref().map(|field| field.value.clone()),
-                    prev: task.prev.as_ref().map(|field| field.value.clone()),
-                    prev_on: include_relations
-                        .then(|| {
-                            self.workspace
-                                .task_previous(&record.path, task)
-                                .map(|target| display_task_ref(&self.root, &target))
-                        })
-                        .flatten(),
-                    depends: task
-                        .depends
-                        .iter()
-                        .map(|item| item.source.clone())
-                        .collect(),
-                    depends_on,
-                    directly_blocking,
-                    blocked: record.blocked.unwrap_or(false),
-                    actionable: record.actionable.unwrap_or(false),
-                    wait_reasons: record
-                        .wait_reasons
-                        .unwrap_or_default()
+        let records = self
+            .query_workspace
+            .search_records(
+                &self.root,
+                Some(SearchRecordKind::Task),
+                "",
+                usize::MAX,
+                now,
+            )
+            .map_err(|error| error.to_string())?
+            .value;
+        let mut tasks = Vec::new();
+        for record in records.items {
+            if retained.is_some_and(|retained| {
+                !retained.contains(&(record.relative_path.clone(), record.range.start))
+            }) {
+                continue;
+            }
+            let Some(document_id) = self.document_id(&record.path).map(str::to_string) else {
+                continue;
+            };
+            let Some(state) = record.task_state.map(|state| state.as_str()) else {
+                continue;
+            };
+            let Some(current) = self
+                .workspace
+                .get(&record.path)
+                .and_then(|entry| entry.current.as_ref())
+            else {
+                continue;
+            };
+            let Some(task) = current
+                .output
+                .tasks
+                .tasks
+                .iter()
+                .find(|task| task.selection_range == record.range)
+            else {
+                continue;
+            };
+            let key = record.id.as_ref().map_or_else(
+                || format!("{document_id}:{}", task.range.start),
+                |id| format!("{document_id}:{id}"),
+            );
+            let locator = record.id.as_ref().map_or_else(
+                || WebTaskLocator::Offset {
+                    offset: task.range.start,
+                },
+                |id| WebTaskLocator::Id { id: id.clone() },
+            );
+            let depends_on = if include_relations {
+                self.workspace
+                    .task_dependencies(&record.path, task)
+                    .map_err(|error| error.to_string())?
+                    .value
+                    .into_iter()
+                    .map(|dependency| display_task_ref(&self.root, &dependency.target))
+                    .collect()
+            } else {
+                Vec::new()
+            };
+            let directly_blocking = if include_relations {
+                match record.id.as_deref() {
+                    Some(id) => self
+                        .workspace
+                        .directly_blocking_tasks(&record.path, id)
+                        .map_err(|error| error.to_string())?
+                        .value
                         .into_iter()
-                        .map(|reason| reason.as_str().to_string())
+                        .map(|target| display_task_ref(&self.root, &target))
                         .collect(),
-                    depth: record.depth.unwrap_or_default(),
-                    parent_key: None,
-                    location: SourceLocation::new(&self.root, &record.path, record.range),
-                })
-            })
-            .collect::<Vec<_>>();
+                    None => Vec::new(),
+                }
+            } else {
+                Vec::new()
+            };
+            let prev_on = if include_relations {
+                self.workspace
+                    .task_previous(&record.path, task)
+                    .map_err(|error| error.to_string())?
+                    .value
+                    .map(|target| display_task_ref(&self.root, &target))
+            } else {
+                None
+            };
+            tasks.push(WebTask {
+                key,
+                document_id,
+                title: record.title,
+                path: record.relative_path,
+                revision: current.revision.to_string(),
+                id: record.id,
+                locator,
+                state: state.to_string(),
+                created: task.created.as_ref().map(|field| field.value.clone()),
+                due: task.due.as_ref().map(|field| field.value.clone()),
+                priority: task.priority,
+                effective_priority: record.effective_priority.unwrap_or_default(),
+                wait: task.wait.as_ref().map(|field| field.value.clone()),
+                done: task.done.as_ref().map(|field| field.value.clone()),
+                canceled: task.canceled.as_ref().map(|field| field.value.clone()),
+                recur: task.recur.as_ref().map(|field| field.value.clone()),
+                prev: task.prev.as_ref().map(|field| field.value.clone()),
+                prev_on,
+                depends: task
+                    .depends
+                    .iter()
+                    .map(|item| item.source.clone())
+                    .collect(),
+                depends_on,
+                directly_blocking,
+                blocked: record.blocked.unwrap_or(false),
+                actionable: record.actionable.unwrap_or(false),
+                wait_reasons: record
+                    .wait_reasons
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|reason| reason.as_str().to_string())
+                    .collect(),
+                depth: record.depth.unwrap_or_default(),
+                parent_key: None,
+                location: SourceLocation::new(&self.root, &record.path, record.range),
+            });
+        }
         tasks.sort_by(task_source_order);
         assign_task_parents(&mut tasks);
         if include_relations {
@@ -738,11 +761,11 @@ impl WebWorkspace {
             &[QuerySort::Priority, QuerySort::Due],
             &HashMap::new(),
         );
-        TaskSnapshot {
+        Ok(TaskSnapshot {
             revision: self.revision,
             tasks,
             documents: self.task_documents(),
-        }
+        })
     }
 
     pub fn task_candidates(
@@ -750,7 +773,7 @@ impl WebWorkspace {
         query: &str,
         requested_document: Option<&str>,
         limit: usize,
-    ) -> Vec<WebTaskCandidate> {
+    ) -> Result<Vec<WebTaskCandidate>, String> {
         let mut candidates = self
             .query_workspace
             .search_records(
@@ -760,6 +783,8 @@ impl WebWorkspace {
                 requested_document.map_or(limit, |_| usize::MAX),
                 Local::now().fixed_offset(),
             )
+            .map_err(|error| error.to_string())?
+            .value
             .items
             .into_iter()
             .filter_map(|record| {
@@ -799,7 +824,7 @@ impl WebWorkspace {
             .collect::<Vec<_>>();
         assign_candidate_parents(&mut candidates);
         candidates.truncate(limit);
-        candidates
+        Ok(candidates)
     }
 
     fn task_documents(&self) -> Vec<WebTaskDocument> {
@@ -817,54 +842,51 @@ impl WebWorkspace {
             .collect()
     }
 
-    pub fn events(&self) -> EventSnapshot {
-        let mut events = self
-            .workspace
-            .documents()
-            .filter_map(|entry| entry.current.as_ref().map(|current| (entry, current)))
-            .flat_map(|(entry, current)| {
-                let document_id = self.document_id(&entry.path).map(str::to_string);
-                current
-                    .output
-                    .events
-                    .events
-                    .iter()
-                    .filter_map(move |event| {
-                        let document_id = document_id.clone()?;
-                        Some(WebEvent {
-                            key: format!("{document_id}:{}", event.range.start),
-                            document_id,
-                            path: display_path(&self.root, &entry.path),
-                            revision: current.revision.to_string(),
-                            title: event.title.clone(),
-                            details: event.details.clone(),
-                            id: event.id.as_ref().map(|field| field.value.clone()),
-                            date: event.date.as_ref().map(|field| field.value.clone()),
-                            timezone: event.timezone.as_ref().map(|field| field.value.clone()),
-                            when: event.when.as_ref().map(|field| field.value.clone()),
-                            at: event.at.as_ref().map(|field| field.value.clone()),
-                            start: event.start.as_ref().map(|field| field.value.clone()),
-                            end: event.end.as_ref().map(|field| field.value.clone()),
-                            tasks: self
-                                .workspace
-                                .event_task_references(&entry.path, event)
-                                .iter()
-                                .map(|reference| reference.source.clone())
-                                .collect(),
-                            depth: event.depth,
-                            locator: WebEventLocator {
-                                start: event.range.start,
-                                end: event.range.end,
-                            },
-                            location: SourceLocation::new(
-                                &self.root,
-                                &entry.path,
-                                event.selection_range.clone(),
-                            ),
-                        })
-                    })
-            })
-            .collect::<Vec<_>>();
+    pub fn events(&self) -> Result<EventSnapshot, String> {
+        let mut events = Vec::new();
+        for entry in self.workspace.documents() {
+            let Some(current) = &entry.current else {
+                continue;
+            };
+            let Some(document_id) = self.document_id(&entry.path).map(str::to_string) else {
+                continue;
+            };
+            for event in &current.output.events.events {
+                events.push(WebEvent {
+                    key: format!("{document_id}:{}", event.range.start),
+                    document_id: document_id.clone(),
+                    path: display_path(&self.root, &entry.path),
+                    revision: current.revision.to_string(),
+                    title: event.title.clone(),
+                    details: event.details.clone(),
+                    id: event.id.as_ref().map(|field| field.value.clone()),
+                    date: event.date.as_ref().map(|field| field.value.clone()),
+                    timezone: event.timezone.as_ref().map(|field| field.value.clone()),
+                    when: event.when.as_ref().map(|field| field.value.clone()),
+                    at: event.at.as_ref().map(|field| field.value.clone()),
+                    start: event.start.as_ref().map(|field| field.value.clone()),
+                    end: event.end.as_ref().map(|field| field.value.clone()),
+                    tasks: self
+                        .workspace
+                        .event_task_references(&entry.path, event)
+                        .map_err(|error| error.to_string())?
+                        .value
+                        .into_iter()
+                        .map(|reference| reference.source.clone())
+                        .collect(),
+                    depth: event.depth,
+                    locator: WebEventLocator {
+                        start: event.range.start,
+                        end: event.range.end,
+                    },
+                    location: SourceLocation::new(
+                        &self.root,
+                        &entry.path,
+                        event.selection_range.clone(),
+                    ),
+                });
+            }
+        }
         events.sort_by(|left, right| {
             left.at
                 .as_deref()
@@ -880,7 +902,7 @@ impl WebWorkspace {
                 .then(left.path.cmp(&right.path))
                 .then(left.locator.start.cmp(&right.locator.start))
         });
-        EventSnapshot {
+        Ok(EventSnapshot {
             revision: self.revision,
             events,
             documents: self
@@ -898,7 +920,7 @@ impl WebWorkspace {
                 .collect(),
             earlier_cursor: None,
             later_cursor: None,
-        }
+        })
     }
 
     pub fn event_page(
@@ -915,7 +937,9 @@ impl WebWorkspace {
             (Some(boundary), Some("earlier")) => {
                 let records = self
                     .query_workspace
-                    .events_page_before(boundary, PAGE_SIZE + 1);
+                    .events_page_before(boundary, PAGE_SIZE + 1)
+                    .map_err(|error| error.to_string())?
+                    .value;
                 let has_earlier = records.len() > PAGE_SIZE;
                 let records = if has_earlier {
                     records.into_iter().skip(1).collect()
@@ -928,7 +952,9 @@ impl WebWorkspace {
             (Some(boundary), Some("later")) => {
                 let mut records = self
                     .query_workspace
-                    .events_page_after(Some(boundary), PAGE_SIZE + 1);
+                    .events_page_after(Some(boundary), PAGE_SIZE + 1)
+                    .map_err(|error| error.to_string())?
+                    .value;
                 let has_later = records.len() > PAGE_SIZE;
                 if has_later {
                     records.pop();
@@ -946,10 +972,14 @@ impl WebWorkspace {
                 };
                 let mut earlier = self
                     .query_workspace
-                    .events_page_before(&now, PAGE_SIZE / 2 + 1);
+                    .events_page_before(&now, PAGE_SIZE / 2 + 1)
+                    .map_err(|error| error.to_string())?
+                    .value;
                 let mut later = self
                     .query_workspace
-                    .events_page_after(Some(&now), PAGE_SIZE / 2 + 1);
+                    .events_page_after(Some(&now), PAGE_SIZE / 2 + 1)
+                    .map_err(|error| error.to_string())?
+                    .value;
                 let has_earlier = earlier.len() > PAGE_SIZE / 2;
                 let has_later = later.len() > PAGE_SIZE / 2;
                 if has_earlier {
@@ -964,7 +994,10 @@ impl WebWorkspace {
         };
         let events = records
             .iter()
-            .filter_map(|record| self.web_event(record))
+            .map(|record| self.web_event(record))
+            .collect::<Result<Vec<_>, String>>()?
+            .into_iter()
+            .flatten()
             .collect::<Vec<_>>();
         let earlier_cursor = records
             .first()
@@ -1013,10 +1046,14 @@ impl WebWorkspace {
         };
         let mut earlier = self
             .query_workspace
-            .events_page_before(&boundary, BEFORE + 1);
+            .events_page_before(&boundary, BEFORE + 1)
+            .map_err(|error| error.to_string())?
+            .value;
         let mut later = self
             .query_workspace
-            .events_page_after(Some(&boundary), AFTER + 1);
+            .events_page_after(Some(&boundary), AFTER + 1)
+            .map_err(|error| error.to_string())?
+            .value;
         let has_earlier = earlier.len() > BEFORE;
         let has_later = later.len() > AFTER;
         if has_earlier {
@@ -1043,7 +1080,10 @@ impl WebWorkspace {
             revision: self.revision,
             events: earlier
                 .iter()
-                .filter_map(|record| self.web_event(record))
+                .map(|record| self.web_event(record))
+                .collect::<Result<Vec<_>, String>>()?
+                .into_iter()
+                .flatten()
                 .collect(),
             documents: self.event_documents(),
             earlier_cursor,
@@ -1097,10 +1137,12 @@ impl WebWorkspace {
             .collect()
     }
 
-    fn web_event(&self, record: &WorkspaceEvent) -> Option<WebEvent> {
+    fn web_event(&self, record: &WorkspaceEvent) -> Result<Option<WebEvent>, String> {
         let event = &record.event;
-        let document_id = self.document_id(&record.path)?.to_string();
-        Some(WebEvent {
+        let Some(document_id) = self.document_id(&record.path).map(str::to_string) else {
+            return Ok(None);
+        };
+        Ok(Some(WebEvent {
             key: format!("{document_id}:{}", event.range.start),
             document_id,
             path: display_path(&self.root, &record.path),
@@ -1117,7 +1159,9 @@ impl WebWorkspace {
             tasks: self
                 .workspace
                 .event_task_references(&record.path, event)
-                .iter()
+                .map_err(|error| error.to_string())?
+                .value
+                .into_iter()
                 .map(|reference| reference.source.clone())
                 .collect(),
             depth: event.depth,
@@ -1126,7 +1170,7 @@ impl WebWorkspace {
                 end: event.range.end,
             },
             location: SourceLocation::new(&self.root, &record.path, event.selection_range.clone()),
-        })
+        }))
     }
 
     fn encode_event_cursor(&self, record: &WorkspaceEvent) -> String {
@@ -1269,7 +1313,7 @@ impl WebWorkspace {
             let edit = self
                 .workspace
                 .move_task(path, original_range.clone(), &placement)
-                .map_err(task_authoring_error)?;
+                .map_err(|error| task_authoring_error(error.into()))?;
             source = apply_guarded_edit(
                 source,
                 path,
@@ -1500,19 +1544,27 @@ impl WebWorkspace {
         documents(&self.workspace) == documents(&other.workspace)
     }
 
-    pub fn note(&self, id: &str) -> Option<NoteDocument> {
-        let path = self.document_path(id)?;
-        let entry = self.workspace.get(path)?;
-        let current = entry.current.as_ref()?;
+    pub fn note(&self, id: &str) -> Result<Option<NoteDocument>, String> {
+        let Some(path) = self.document_path(id) else {
+            return Ok(None);
+        };
+        let Some(entry) = self.workspace.get(path) else {
+            return Ok(None);
+        };
+        let Some(current) = entry.current.as_ref() else {
+            return Ok(None);
+        };
         let backlinks = self
             .workspace
             .references_to_document(path)
+            .map_err(|error| error.to_string())?
+            .value
             .into_iter()
             .map(|(source, reference)| {
                 SourceLocation::new(&self.root, &source, reference.source_range)
             })
             .collect();
-        Some(NoteDocument {
+        Ok(Some(NoteDocument {
             id: id.to_string(),
             title: self.title(path),
             path: display_path(&self.root, path),
@@ -1520,10 +1572,10 @@ impl WebWorkspace {
             location: SourceLocation::new(&self.root, path, 0..entry.parsed.source.len()),
             source: entry.parsed.source.clone(),
             backlinks,
-        })
+        }))
     }
 
-    pub fn graph(&self, query: &GraphQuery) -> GraphSnapshot {
+    pub fn graph(&self, query: &GraphQuery) -> Result<GraphSnapshot, String> {
         self.graph_with_excluded(query, &BTreeSet::new(), true)
     }
 
@@ -1533,7 +1585,7 @@ impl WebWorkspace {
         predicate: Option<&str>,
     ) -> Result<GraphSnapshot, String> {
         let excluded = self.excluded_documents(predicate)?;
-        Ok(self.graph_with_excluded(query, &excluded, true))
+        self.graph_with_excluded(query, &excluded, true)
     }
 
     fn excluded_documents(&self, predicate: Option<&str>) -> Result<BTreeSet<String>, String> {
@@ -1547,7 +1599,9 @@ impl WebWorkspace {
                     usize::MAX,
                     Local::now().fixed_offset(),
                     Some(predicate),
-                )?
+                )
+                .map_err(|error| error.to_string())?
+                .value
                 .items
                 .into_iter()
                 .filter_map(|record| self.document_ids.get(&record.path).cloned())
@@ -1561,8 +1615,8 @@ impl WebWorkspace {
         query: &GraphQuery,
         excluded: &BTreeSet<String>,
         apply_limit: bool,
-    ) -> GraphSnapshot {
-        let (mut nodes, mut edges) = self.full_graph();
+    ) -> Result<GraphSnapshot, String> {
+        let (mut nodes, mut edges) = self.full_graph()?;
         nodes.retain(|id, _| !excluded.contains(id));
         edges.retain(|edge| nodes.contains_key(&edge.source) && nodes.contains_key(&edge.target));
         let connected = edges
@@ -1620,17 +1674,17 @@ impl WebWorkspace {
             nodes.retain(|id, _| retained.contains(id));
             edges.retain(|edge| retained.contains(&edge.source) && retained.contains(&edge.target));
         }
-        GraphSnapshot {
+        Ok(GraphSnapshot {
             revision: self.revision,
             nodes: nodes.into_values().collect(),
             edges,
             complete,
-        }
+        })
     }
 
     pub fn pandoc_document(&self, id: &str) -> Result<serde_json::Value, String> {
         let note = self
-            .note(id)
+            .note(id)?
             .ok_or_else(|| format!("unknown document id '{id}'"))?;
         plumb_export::export(&note.source)
     }
@@ -1649,7 +1703,7 @@ impl WebWorkspace {
         Ok(load_bibliography(&self.root, path, metadata))
     }
 
-    fn full_graph(&self) -> (BTreeMap<String, GraphNode>, Vec<GraphEdge>) {
+    fn full_graph(&self) -> Result<(BTreeMap<String, GraphNode>, Vec<GraphEdge>), String> {
         let mut nodes = self
             .document_ids
             .iter()
@@ -1693,7 +1747,10 @@ impl WebWorkspace {
                     kind,
                     link.target.value.as_str(),
                     link.selection_range.clone(),
-                    self.workspace.resolve_link(path, link),
+                    self.workspace
+                        .resolve_link(path, link)
+                        .map_err(|error| error.to_string())?
+                        .value,
                 );
             }
             for task in &current.output.tasks.tasks {
@@ -1709,6 +1766,8 @@ impl WebWorkspace {
                         prev.range.clone(),
                         self.workspace
                             .resolve_task_reference_at(path, prev.range.start)
+                            .map_err(|error| error.to_string())?
+                            .value
                             .unwrap_or(ResolvedTarget::Other),
                     );
                 }
@@ -1724,12 +1783,14 @@ impl WebWorkspace {
                         dependency.range.clone(),
                         self.workspace
                             .resolve_task_reference_at(path, dependency.range.start)
+                            .map_err(|error| error.to_string())?
+                            .value
                             .unwrap_or(ResolvedTarget::Other),
                     );
                 }
             }
         }
-        (nodes, edges)
+        Ok((nodes, edges))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1803,7 +1864,7 @@ impl WebWorkspace {
         })
     }
 
-    fn index_resources(&mut self) {
+    fn index_resources(&mut self) -> Result<(), String> {
         let mut paths = BTreeSet::new();
         let canonical_root = self
             .root
@@ -1814,8 +1875,11 @@ impl WebWorkspace {
                 continue;
             };
             for link in &current.output.links {
-                if let ResolvedTarget::File { path } =
-                    self.workspace.resolve_link(&entry.path, link)
+                if let ResolvedTarget::File { path } = self
+                    .workspace
+                    .resolve_link(&entry.path, link)
+                    .map_err(|error| error.to_string())?
+                    .value
                 {
                     paths.insert(path);
                 }
@@ -1855,6 +1919,7 @@ impl WebWorkspace {
             self.resources_by_id.insert(id, canonical.clone());
             self.resources.insert(canonical, record);
         }
+        Ok(())
     }
 }
 
@@ -2013,7 +2078,11 @@ fn task_range_after_move(
     })
 }
 
-fn task_authoring_error(error: TaskAuthoringError) -> String {
+fn task_authoring_error(error: WorkspaceOperationError<TaskAuthoringError>) -> String {
+    let error = match error {
+        WorkspaceOperationError::Operation(error) => error,
+        WorkspaceOperationError::Query(error) => return error.to_string(),
+    };
     match error {
         TaskAuthoringError::StaleOrInvalidDocument => "task document is stale or invalid",
         TaskAuthoringError::TaskNotFound => "task is no longer available",
@@ -2073,7 +2142,7 @@ mod tests {
         std::fs::write(root.join("b.plumb"), "`task Beta\n  `@ b\n").unwrap();
         std::fs::write(root.join("broken.plumb"), "`broken[\n").unwrap();
         let workspace = WebWorkspace::load(&root).unwrap();
-        let graph = workspace.graph(&GraphQuery::default());
+        let graph = workspace.graph(&GraphQuery::default()).unwrap();
         assert_eq!(
             graph.nodes.iter().filter(|node| !node.unresolved).count(),
             2
@@ -2090,10 +2159,12 @@ mod tests {
         assert!(graph.edges.iter().any(|edge| edge.kind == "autolink"));
         assert!(graph.edges.iter().any(|edge| edge.kind == "task-prev"));
         assert!(graph.edges.iter().any(|edge| edge.kind == "task-depends"));
-        let limited = workspace.graph(&GraphQuery {
-            limit: Some(1),
-            ..GraphQuery::default()
-        });
+        let limited = workspace
+            .graph(&GraphQuery {
+                limit: Some(1),
+                ..GraphQuery::default()
+            })
+            .unwrap();
         assert!(!limited.complete);
         assert_eq!(limited.nodes.len(), 1);
 
@@ -2101,11 +2172,13 @@ mod tests {
             .document_id(root.join("a.plumb"))
             .unwrap()
             .to_string();
-        let local = workspace.graph(&GraphQuery {
-            current: Some(alpha),
-            depth: Some(0),
-            ..GraphQuery::default()
-        });
+        let local = workspace
+            .graph(&GraphQuery {
+                current: Some(alpha),
+                depth: Some(0),
+                ..GraphQuery::default()
+            })
+            .unwrap();
         assert_eq!(local.nodes.len(), 1);
         assert!(local.edges.is_empty());
 
@@ -2136,7 +2209,7 @@ mod tests {
         let mut source_workspace = Workspace::new();
         source_workspace.insert(&path, 9, "`= title Open buffer title\n");
         let web = WebWorkspace::from_workspace(&root, source_workspace, 4).unwrap();
-        let graph = web.graph(&GraphQuery::default());
+        let graph = web.graph(&GraphQuery::default()).unwrap();
         assert_eq!(graph.revision, 4);
         assert_eq!(graph.nodes[0].title, "Open buffer title");
         std::fs::remove_dir_all(root).unwrap();
@@ -2158,10 +2231,13 @@ mod tests {
         let workspace =
             WebWorkspace::from_workspaces(&root, live_workspace, query_workspace, 1).unwrap();
 
-        let snapshot = workspace.tasks();
+        let snapshot = workspace.tasks().unwrap();
         assert_eq!(snapshot.documents[0].revision, "9");
         assert_eq!(snapshot.tasks[0].revision, "9");
-        assert_eq!(workspace.task_candidates("", None, 10)[0].revision, "9");
+        assert_eq!(
+            workspace.task_candidates("", None, 10).unwrap()[0].revision,
+            "9"
+        );
         workspace
             .set_task_status(
                 &snapshot.tasks[0].document_id,
@@ -2185,7 +2261,7 @@ mod tests {
         )
         .unwrap();
         let workspace = WebWorkspace::load(&root).unwrap();
-        let snapshot = workspace.tasks();
+        let snapshot = workspace.tasks().unwrap();
         assert_eq!(snapshot.tasks.len(), 5);
         assert_eq!(
             snapshot
@@ -2236,7 +2312,7 @@ mod tests {
         let path = root.join("agenda.plumb");
         std::fs::write(&path, "`# Agenda\n").unwrap();
         let workspace = WebWorkspace::load(&root).unwrap();
-        let document = workspace.events().documents[0].clone();
+        let document = workspace.events().unwrap().documents[0].clone();
         workspace
             .create_event(
                 &document.id,
@@ -2251,7 +2327,7 @@ mod tests {
             )
             .unwrap();
         let workspace = WebWorkspace::load(&root).unwrap();
-        let event = workspace.events().events[0].clone();
+        let event = workspace.events().unwrap().events[0].clone();
         assert!(event.id.is_none());
         workspace
             .update_event(
@@ -2268,7 +2344,7 @@ mod tests {
             )
             .unwrap();
         let workspace = WebWorkspace::load(&root).unwrap();
-        let updated = workspace.events().events[0].clone();
+        let updated = workspace.events().unwrap().events[0].clone();
         assert!(updated.id.is_none());
         assert_eq!(updated.title, "Updated");
         assert_eq!(updated.at.as_deref(), Some("2026-07-30T08:00:00+00:00"));
@@ -2294,6 +2370,7 @@ mod tests {
         assert!(WebWorkspace::load(&root)
             .unwrap()
             .events()
+            .unwrap()
             .events
             .is_empty());
         std::fs::remove_dir_all(root).unwrap();
@@ -2312,6 +2389,7 @@ mod tests {
         assert_eq!(
             workspace
                 .events()
+                .unwrap()
                 .events
                 .iter()
                 .map(|event| event.title.as_str())
@@ -2361,7 +2439,7 @@ mod tests {
             "`task 完成任务后查看修改后任务的内容\n  `= created 2026-07-25T10:00:00+08:00\n";
         std::fs::write(&path, source).unwrap();
         let workspace = WebWorkspace::load(&root).unwrap();
-        let task = workspace.tasks().tasks.into_iter().next().unwrap();
+        let task = workspace.tasks().unwrap().tasks.into_iter().next().unwrap();
         let WebTaskLocator::Offset { offset } = task.locator else {
             panic!("idless task must use an offset locator");
         };
@@ -2388,7 +2466,7 @@ mod tests {
         let updated = std::fs::read_to_string(&path).unwrap();
         assert!(updated.contains("`= done 2026-"), "{updated}");
         let refreshed = WebWorkspace::load_with_revision(&root, 2).unwrap();
-        let completed = refreshed.tasks().tasks.into_iter().next().unwrap();
+        let completed = refreshed.tasks().unwrap().tasks.into_iter().next().unwrap();
         assert_eq!(completed.key, task.key);
         assert_eq!(completed.state, "done");
         std::fs::remove_dir_all(root).unwrap();
@@ -2401,7 +2479,7 @@ mod tests {
         let path = root.join("tasks.plumb");
         std::fs::write(&path, "`task Parent\n  `@ parent\n  `= custom keep\n").unwrap();
         let workspace = WebWorkspace::load(&root).unwrap();
-        let snapshot = workspace.tasks();
+        let snapshot = workspace.tasks().unwrap();
         let document = &snapshot.documents[0];
         let parent = &snapshot.tasks[0];
         workspace
@@ -2425,7 +2503,7 @@ mod tests {
             )
             .unwrap();
         let refreshed = WebWorkspace::load_with_revision(&root, 2).unwrap();
-        let snapshot = refreshed.tasks();
+        let snapshot = refreshed.tasks().unwrap();
         let child = snapshot
             .tasks
             .iter()
@@ -2462,6 +2540,7 @@ mod tests {
         let final_workspace = WebWorkspace::load_with_revision(&root, 3).unwrap();
         let updated = final_workspace
             .tasks()
+            .unwrap()
             .tasks
             .into_iter()
             .find(|task| task.title == "Updated child")
@@ -2492,7 +2571,7 @@ mod tests {
             .contains("changed"));
 
         let externally_changed = WebWorkspace::load_with_revision(&root, 4).unwrap();
-        let snapshot = externally_changed.tasks();
+        let snapshot = externally_changed.tasks().unwrap();
         let document = &snapshot.documents[0];
         let external = format!(
             "{}\n`note External edit\n",
@@ -2530,7 +2609,7 @@ mod tests {
         std::fs::write(&a_path, "`task A\n  `@ a\n").unwrap();
         std::fs::write(&b_path, "`task B\n  `@ b\n").unwrap();
         let workspace = WebWorkspace::load(&root).unwrap();
-        let snapshot = workspace.tasks();
+        let snapshot = workspace.tasks().unwrap();
         let a = snapshot
             .tasks
             .iter()
@@ -2573,7 +2652,7 @@ mod tests {
         assert!(source.contains("`= depends b.plumb#b"), "{source}");
 
         let refreshed = WebWorkspace::load_with_revision(&root, 2).unwrap();
-        let snapshot = refreshed.tasks();
+        let snapshot = refreshed.tasks().unwrap();
         let b = snapshot
             .tasks
             .iter()
@@ -2615,6 +2694,7 @@ mod tests {
                 &a_document.id,
                 &refreshed
                     .tasks()
+                    .unwrap()
                     .documents
                     .iter()
                     .find(|document| document.id == a_document.id)
@@ -2658,12 +2738,16 @@ mod tests {
             })
             .unwrap();
         assert!(source.all_tasks.is_empty());
-        let candidates = workspace.task_candidates("", None, 50);
+        let candidates = workspace.task_candidates("", None, 50).unwrap();
         assert_eq!(candidates.len(), 5);
-        assert_eq!(workspace.task_candidates("Needle", None, 2).len(), 2);
+        assert_eq!(
+            workspace.task_candidates("Needle", None, 2).unwrap().len(),
+            2
+        );
         let document_id = candidates[0].document_id.as_str();
         assert!(workspace
             .task_candidates("", Some(document_id), 3)
+            .unwrap()
             .iter()
             .all(|candidate| candidate.document_id == document_id));
         let matching = candidates
@@ -3074,7 +3158,7 @@ mod tests {
         std::fs::write(root.join("private/note.plumb"), "Private\n").unwrap();
 
         let first = WebWorkspace::load(&root).unwrap();
-        assert_eq!(first.graph(&GraphQuery::default()).nodes.len(), 1);
+        assert_eq!(first.graph(&GraphQuery::default()).unwrap().nodes.len(), 1);
         std::fs::write(root.join("private/note.plumb"), "Changed private\n").unwrap();
         let second = WebWorkspace::load_with_revision(&root, 2).unwrap();
         assert!(first.has_same_documents(&second));
@@ -3119,7 +3203,7 @@ mod tests {
         )
         .unwrap();
         let workspace = WebWorkspace::load(&root).unwrap();
-        let snapshot = workspace.tasks();
+        let snapshot = workspace.tasks().unwrap();
         let dependent = snapshot
             .tasks
             .iter()
@@ -3161,6 +3245,7 @@ mod tests {
         let refreshed = WebWorkspace::load_with_revision(&root, 2).unwrap();
         assert!(refreshed
             .tasks()
+            .unwrap()
             .tasks
             .iter()
             .any(|task| { task.prev.as_deref() == Some("#recurring") && task.state == "ready" }));
@@ -3169,6 +3254,7 @@ mod tests {
         assert!(WebWorkspace::load_with_revision(&root, 3)
             .unwrap()
             .tasks()
+            .unwrap()
             .tasks
             .is_empty());
         std::fs::write(&path, "`task Ignored\n").unwrap();
@@ -3176,6 +3262,7 @@ mod tests {
         assert!(WebWorkspace::load_with_revision(&root, 4)
             .unwrap()
             .tasks()
+            .unwrap()
             .tasks
             .is_empty());
         std::fs::remove_dir_all(root).unwrap();

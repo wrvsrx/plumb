@@ -39,8 +39,9 @@ use plumb_semantics::{
 use plumb_syntax::Diagnostic;
 use plumb_workspace::{
     load_bibliography, load_bibliography_sources, normalize, scan_workspace_files, Bibliography,
-    BibliographyResolution, PathRenameInput, RenameError, ResolvedTarget, ResourceOperation,
-    SearchRecord, SearchRecordKind, SqliteSemanticStore, Workspace, WorkspaceEdit,
+    BibliographyResolution, CompletionCandidate, PathRenameInput, QueryResult, RenameError,
+    ResolvedTarget, ResourceOperation, SearchRecord, SearchRecordKind, SqliteSemanticStore,
+    Workspace, WorkspaceEdit, WorkspaceOperationError, WorkspaceQueryError, WorkspaceSearchError,
 };
 use sha2::{Digest, Sha256};
 
@@ -142,7 +143,13 @@ impl ServerState {
         let Some(entry) = self.workspace.get(path) else {
             return;
         };
-        let mut diagnostics = self.workspace.diagnostics(path);
+        let mut diagnostics = match self.workspace.diagnostics(path) {
+            Ok(result) => result.value,
+            Err(error) => {
+                tracing::error!(%error, path = %path.display(), "workspace diagnostics query failed");
+                return;
+            }
+        };
         if let Some(bibliography) = self.bibliography_for(path) {
             diagnostics.extend(bibliography.diagnostics.clone());
             if let Some(current) = &entry.current {
@@ -203,16 +210,22 @@ impl ServerState {
             .values()
             .cloned()
             .collect::<HashSet<_>>();
-        let stale = self
-            .workspace
-            .document_paths()
-            .into_iter()
-            .filter(|path| {
-                self.roots.iter().any(|root| path.starts_with(root))
-                    && !open.contains(path)
-                    && !retained.contains(path)
-            })
-            .collect::<Vec<_>>();
+        let stale = match self.workspace.document_paths() {
+            Ok(result) => result
+                .value
+                .into_iter()
+                .filter(|path| {
+                    self.roots.iter().any(|root| path.starts_with(root))
+                        && !open.contains(path)
+                        && !retained.contains(path)
+                })
+                .collect::<Vec<_>>(),
+            Err(error) => {
+                tracing::error!(%error, "workspace document-path query failed during indexing");
+                complete = false;
+                Vec::new()
+            }
+        };
         for path in stale {
             let _ = self.workspace.remove_disk(path);
         }
@@ -424,18 +437,32 @@ impl ServerState {
             .retain(|rename| !(rename.old_removed && rename.new_seen));
     }
 
-    fn reference_target_at(&self, path: &Path, offset: usize) -> Option<ResolvedTarget> {
-        self.workspace.reference_target_at(path, offset)
+    fn reference_target_at(
+        &self,
+        path: &Path,
+        offset: usize,
+    ) -> Result<Option<ResolvedTarget>, WorkspaceQueryError> {
+        self.complete_query(self.workspace.reference_target_at(path, offset))
     }
 
-    fn target_at(&self, path: &Path, offset: usize) -> Option<ResolvedTarget> {
-        self.workspace.target_at(path, offset)
+    fn target_at(
+        &self,
+        path: &Path,
+        offset: usize,
+    ) -> Result<Option<ResolvedTarget>, WorkspaceQueryError> {
+        self.complete_query(self.workspace.target_at(path, offset))
     }
 
-    fn target_at_with_lazy_load(&mut self, path: &Path, offset: usize) -> Option<ResolvedTarget> {
-        let target = self.target_at(path, offset)?;
+    fn target_at_with_lazy_load(
+        &mut self,
+        path: &Path,
+        offset: usize,
+    ) -> Result<Option<ResolvedTarget>, WorkspaceQueryError> {
+        let Some(target) = self.target_at(path, offset)? else {
+            return Ok(None);
+        };
         if !self.load_unresolved_target(&target) {
-            return Some(target);
+            return Ok(Some(target));
         }
         self.target_at(path, offset)
     }
@@ -444,10 +471,12 @@ impl ServerState {
         &mut self,
         path: &Path,
         offset: usize,
-    ) -> Option<ResolvedTarget> {
-        let target = self.reference_target_at(path, offset)?;
+    ) -> Result<Option<ResolvedTarget>, WorkspaceQueryError> {
+        let Some(target) = self.reference_target_at(path, offset)? else {
+            return Ok(None);
+        };
         if !self.load_unresolved_target(&target) {
-            return Some(target);
+            return Ok(Some(target));
         }
         self.reference_target_at(path, offset)
     }
@@ -473,6 +502,21 @@ impl ServerState {
         if let Ok(source) = fs::read_to_string(path) {
             self.workspace.open_document(path, 0, source);
         }
+    }
+
+    fn complete_query<T>(
+        &self,
+        result: Result<QueryResult<T>, WorkspaceQueryError>,
+    ) -> Result<T, WorkspaceQueryError> {
+        self.require_index_complete()?;
+        result?.require_complete()
+    }
+
+    fn require_index_complete(&self) -> Result<(), WorkspaceQueryError> {
+        if !self.roots.is_empty() && !self.index_complete {
+            return Err(WorkspaceQueryError::Incomplete);
+        }
+        Ok(())
     }
 
     pub(crate) fn search(
@@ -513,8 +557,15 @@ fn search_workspace(
             Local::now().fixed_offset(),
             params.filter.as_deref(),
         )
-        .map_err(|message| ResponseError::new(ErrorCode::INVALID_PARAMS, message))?;
+        .map_err(|error| match error {
+            WorkspaceSearchError::Filter(message) => {
+                ResponseError::new(ErrorCode::INVALID_PARAMS, message)
+            }
+            WorkspaceSearchError::Query(error) => workspace_query_response_error(error),
+        })?;
+    let complete = index_complete && results.is_complete() && results.value.complete;
     let items = results
+        .value
         .items
         .into_iter()
         .map(|record| search_item(workspace, record))
@@ -522,7 +573,7 @@ fn search_workspace(
     Ok(SearchResult {
         schema_version: 3,
         items,
-        complete: index_complete && results.complete,
+        complete,
     })
 }
 
@@ -943,25 +994,32 @@ impl LanguageServer for ServerState {
         &mut self,
         params: FoldingRangeParams,
     ) -> BoxFuture<'static, Result<Option<Vec<FoldingRange>>, Self::Error>> {
-        let ranges = params
-            .text_document
-            .uri
-            .to_file_path()
-            .ok()
-            .and_then(|path| self.workspace.get(path))
-            .map(|entry| {
-                let labels = self
-                    .supports_folding_collapsed_text
-                    .then(|| fold_labels(&self.workspace, &entry.path, entry));
-                folding_ranges(
-                    &entry.parsed.source,
-                    entry.parsed.recovered_syntax(),
-                    self.folding_range_limit,
-                    labels.as_ref(),
-                    self.line_folding_only,
+        let result = (|| {
+            let Some(path) = params.text_document.uri.to_file_path().ok() else {
+                return Ok(None);
+            };
+            let Some(entry) = self.workspace.get(path) else {
+                return Ok(None);
+            };
+            let labels = if self.supports_folding_collapsed_text {
+                self.require_index_complete()
+                    .map_err(workspace_query_response_error)?;
+                Some(
+                    fold_labels(&self.workspace, &entry.path, entry)
+                        .map_err(workspace_query_response_error)?,
                 )
-            });
-        Box::pin(async move { Ok(ranges) })
+            } else {
+                None
+            };
+            Ok(Some(folding_ranges(
+                &entry.parsed.source,
+                entry.parsed.recovered_syntax(),
+                self.folding_range_limit,
+                labels.as_ref(),
+                self.line_folding_only,
+            )))
+        })();
+        Box::pin(async move { result })
     }
 
     fn symbol(
@@ -1085,47 +1143,57 @@ impl LanguageServer for ServerState {
         if let Ok(path) = position.text_document.uri.to_file_path() {
             self.ensure_request_document(&path);
         }
-        let location = position
-            .text_document
-            .uri
-            .to_file_path()
-            .ok()
-            .and_then(|path| {
-                let entry = self.workspace.get(&path)?;
-                let offset = position_to_offset(&entry.parsed.source, position.position);
-                if let Some(citation) = entry.current.as_ref().and_then(|current| {
-                    current.output.citations.citations.iter().find(|citation| {
-                        citation.selection_range.start <= offset
-                            && offset <= citation.selection_range.end
-                    })
-                }) {
-                    let bibliography = self.bibliography_for(&path)?;
-                    let BibliographyResolution::Resolved(record) =
-                        bibliography.resolve(&citation.id)
-                    else {
-                        return None;
-                    };
-                    let source = std::fs::read_to_string(&record.path).ok()?;
-                    return Some(Location::new(
-                        Url::from_file_path(&record.path).ok()?,
-                        byte_range_to_lsp(&source, &record.range),
-                    ));
-                }
-                match self.target_at_with_lazy_load(&path, offset)? {
-                    ResolvedTarget::Anchor { path, anchor, .. } => {
+        let result = (|| {
+            let Some(path) = position.text_document.uri.to_file_path().ok() else {
+                return Ok(None);
+            };
+            let Some(entry) = self.workspace.get(&path) else {
+                return Ok(None);
+            };
+            let offset = position_to_offset(&entry.parsed.source, position.position);
+            if let Some(citation) = entry.current.as_ref().and_then(|current| {
+                current.output.citations.citations.iter().find(|citation| {
+                    citation.selection_range.start <= offset
+                        && offset <= citation.selection_range.end
+                })
+            }) {
+                let Some(bibliography) = self.bibliography_for(&path) else {
+                    return Ok(None);
+                };
+                let BibliographyResolution::Resolved(record) = bibliography.resolve(&citation.id)
+                else {
+                    return Ok(None);
+                };
+                let Ok(source) = std::fs::read_to_string(&record.path) else {
+                    return Ok(None);
+                };
+                let Ok(uri) = Url::from_file_path(&record.path) else {
+                    return Ok(None);
+                };
+                return Ok(Some(Location::new(
+                    uri,
+                    byte_range_to_lsp(&source, &record.range),
+                )));
+            }
+            Ok(
+                match self
+                    .target_at_with_lazy_load(&path, offset)
+                    .map_err(workspace_query_response_error)?
+                {
+                    Some(ResolvedTarget::Anchor { path, anchor, .. }) => {
                         location_for(&self.workspace, &path, &anchor.selection_range)
                     }
-                    ResolvedTarget::Document { path } => {
+                    Some(ResolvedTarget::Document { path }) => {
                         location_for(&self.workspace, &path, &(0..0))
                     }
-                    ResolvedTarget::File { path } => Some(Location::new(
-                        Url::from_file_path(path).ok()?,
-                        lsp_types::Range::default(),
-                    )),
+                    Some(ResolvedTarget::File { path }) => Url::from_file_path(path)
+                        .ok()
+                        .map(|uri| Location::new(uri, lsp_types::Range::default())),
                     _ => None,
-                }
-            });
-        Box::pin(async move { Ok(location.map(GotoDefinitionResponse::Scalar)) })
+                },
+            )
+        })();
+        Box::pin(async move { result.map(|location| location.map(GotoDefinitionResponse::Scalar)) })
     }
 
     fn references(
@@ -1136,61 +1204,64 @@ impl LanguageServer for ServerState {
         if let Ok(path) = position.text_document.uri.to_file_path() {
             self.ensure_request_document(&path);
         }
-        let locations = position
-            .text_document
-            .uri
-            .to_file_path()
-            .ok()
-            .and_then(|path| {
-                let entry = self.workspace.get(&path)?;
-                let offset = position_to_offset(&entry.parsed.source, position.position);
-                match self.target_at_with_lazy_load(&path, offset)? {
-                    ResolvedTarget::Anchor {
-                        path: target_path,
-                        id,
-                        anchor,
-                    } => {
-                        let mut locations = self
-                            .workspace
-                            .references_to(&target_path, &id)
-                            .into_iter()
-                            .filter_map(|(source_path, reference)| {
-                                location_for(&self.workspace, &source_path, &reference.source_range)
-                            })
-                            .collect::<Vec<_>>();
-                        if params.context.include_declaration {
+        let result = (|| {
+            let Some(path) = position.text_document.uri.to_file_path().ok() else {
+                return Ok(None);
+            };
+            let Some(entry) = self.workspace.get(&path) else {
+                return Ok(None);
+            };
+            let offset = position_to_offset(&entry.parsed.source, position.position);
+            match self
+                .target_at_with_lazy_load(&path, offset)
+                .map_err(workspace_query_response_error)?
+            {
+                Some(ResolvedTarget::Anchor {
+                    path: target_path,
+                    id,
+                    anchor,
+                }) => {
+                    let mut locations = self
+                        .complete_query(self.workspace.references_to(&target_path, &id))
+                        .map_err(workspace_query_response_error)?
+                        .into_iter()
+                        .filter_map(|(source_path, reference)| {
+                            location_for(&self.workspace, &source_path, &reference.source_range)
+                        })
+                        .collect::<Vec<_>>();
+                    if params.context.include_declaration {
+                        if let Some(declaration) =
+                            location_for(&self.workspace, &target_path, &anchor.selection_range)
+                        {
+                            locations.insert(0, declaration);
+                        }
+                    }
+                    Ok(Some(locations))
+                }
+                Some(ResolvedTarget::Document { path: target_path }) => {
+                    let mut locations = self
+                        .complete_query(self.workspace.references_to_document(&target_path))
+                        .map_err(workspace_query_response_error)?
+                        .into_iter()
+                        .filter_map(|(source_path, reference)| {
+                            location_for(&self.workspace, &source_path, &reference.source_range)
+                        })
+                        .collect::<Vec<_>>();
+                    if params.context.include_declaration {
+                        if self.workspace.get(&target_path).is_some() {
                             if let Some(declaration) =
-                                location_for(&self.workspace, &target_path, &anchor.selection_range)
+                                location_for(&self.workspace, &target_path, &(0..0))
                             {
                                 locations.insert(0, declaration);
                             }
                         }
-                        Some(locations)
                     }
-                    ResolvedTarget::Document { path: target_path } => {
-                        let mut locations = self
-                            .workspace
-                            .references_to_document(&target_path)
-                            .into_iter()
-                            .filter_map(|(source_path, reference)| {
-                                location_for(&self.workspace, &source_path, &reference.source_range)
-                            })
-                            .collect::<Vec<_>>();
-                        if params.context.include_declaration {
-                            if self.workspace.get(&target_path).is_some() {
-                                if let Some(declaration) =
-                                    location_for(&self.workspace, &target_path, &(0..0))
-                                {
-                                    locations.insert(0, declaration);
-                                }
-                            }
-                        }
-                        Some(locations)
-                    }
-                    _ => None,
+                    Ok(Some(locations))
                 }
-            });
-        Box::pin(async move { Ok(locations) })
+                _ => Ok(None),
+            }
+        })();
+        Box::pin(async move { result })
     }
 
     fn code_lens(
@@ -1200,27 +1271,61 @@ impl LanguageServer for ServerState {
         if let Ok(path) = params.text_document.uri.to_file_path() {
             self.ensure_request_document(&path);
         }
-        let lenses = params
-            .text_document
-            .uri
-            .to_file_path()
-            .ok()
-            .and_then(|path| {
-                let entry = self.workspace.get(&path)?;
-                let output = entry.current.as_ref()?;
-                let uri = Url::from_file_path(&entry.path).ok()?;
-                let anchor_ids = output
-                    .output
-                    .anchors
-                    .iter()
-                    .map(|anchor| anchor.id.value.clone())
-                    .collect::<HashSet<_>>();
-                let mut references = self
-                    .workspace
-                    .reverse_references_for_document(&entry.path, &anchor_ids);
-                let mut lenses = Vec::new();
+        let result = (|| {
+            let Some(path) = params.text_document.uri.to_file_path().ok() else {
+                return Ok(None);
+            };
+            let Some(entry) = self.workspace.get(&path) else {
+                return Ok(None);
+            };
+            let Some(output) = entry.current.as_ref() else {
+                return Ok(None);
+            };
+            let Ok(uri) = Url::from_file_path(&entry.path) else {
+                return Ok(None);
+            };
+            let anchor_ids = output
+                .output
+                .anchors
+                .iter()
+                .map(|anchor| anchor.id.value.clone())
+                .collect::<HashSet<_>>();
+            let mut references = self
+                .complete_query(
+                    self.workspace
+                        .reverse_references_for_document(&entry.path, &anchor_ids),
+                )
+                .map_err(workspace_query_response_error)?;
+            let mut lenses = Vec::new();
+            let locations = references
+                .document
+                .into_iter()
+                .filter_map(|reference| {
+                    location_for(
+                        &self.workspace,
+                        &reference.source_path,
+                        &reference.source_range,
+                    )
+                })
+                .collect::<Vec<_>>();
+            let count = locations.len();
+            let title = if count == 1 {
+                "1 file reference".to_string()
+            } else {
+                format!("{count} file references")
+            };
+            lenses.push(reference_code_lens(
+                &entry.parsed.source,
+                &uri,
+                &(0..0),
+                title,
+                locations,
+            ));
+            lenses.extend(output.output.anchors.iter().map(|anchor| {
                 let locations = references
-                    .document
+                    .anchors
+                    .remove(&anchor.id.value)
+                    .unwrap_or_default()
                     .into_iter()
                     .filter_map(|reference| {
                         location_for(
@@ -1232,47 +1337,20 @@ impl LanguageServer for ServerState {
                     .collect::<Vec<_>>();
                 let count = locations.len();
                 let title = if count == 1 {
-                    "1 file reference".to_string()
+                    "1 reference".to_string()
                 } else {
-                    format!("{count} file references")
+                    format!("{count} references")
                 };
-                lenses.push(reference_code_lens(
-                    &entry.parsed.source,
-                    &uri,
-                    &(0..0),
-                    title,
-                    locations,
-                ));
-                lenses.extend(output.output.anchors.iter().map(|anchor| {
-                    let locations = references
-                        .anchors
-                        .remove(&anchor.id.value)
-                        .unwrap_or_default()
-                        .into_iter()
-                        .filter_map(|reference| {
-                            location_for(
-                                &self.workspace,
-                                &reference.source_path,
-                                &reference.source_range,
-                            )
-                        })
-                        .collect::<Vec<_>>();
-                    let count = locations.len();
-                    let title = if count == 1 {
-                        "1 reference".to_string()
-                    } else {
-                        format!("{count} references")
-                    };
-                    let lens_range = if anchor.kind == AnchorKind::Inline {
-                        anchor.id.range.clone()
-                    } else {
-                        anchor.range.start..anchor.range.start
-                    };
-                    reference_code_lens(&entry.parsed.source, &uri, &lens_range, title, locations)
-                }));
-                Some(lenses)
-            });
-        Box::pin(async move { Ok(lenses) })
+                let lens_range = if anchor.kind == AnchorKind::Inline {
+                    anchor.id.range.clone()
+                } else {
+                    anchor.range.start..anchor.range.start
+                };
+                reference_code_lens(&entry.parsed.source, &uri, &lens_range, title, locations)
+            }));
+            Ok(Some(lenses))
+        })();
+        Box::pin(async move { result })
     }
 
     fn hover(
@@ -1283,137 +1361,163 @@ impl LanguageServer for ServerState {
         if let Ok(path) = position.text_document.uri.to_file_path() {
             self.ensure_request_document(&path);
         }
-        let hover = position
-            .text_document
-            .uri
-            .to_file_path()
-            .ok()
-            .and_then(|path| {
-                let offset = {
-                    let entry = self.workspace.get(&path)?;
-                    position_to_offset(&entry.parsed.source, position.position)
+        let result = (|| {
+            let Some(path) = position.text_document.uri.to_file_path().ok() else {
+                return Ok(None);
+            };
+            let offset = {
+                let Some(entry) = self.workspace.get(&path) else {
+                    return Ok(None);
                 };
-                if let Some(citation) =
-                    self.workspace
-                        .get(&path)?
-                        .current
-                        .as_ref()
-                        .and_then(|current| {
-                            current.output.citations.citations.iter().find(|citation| {
-                                citation.selection_range.start <= offset
-                                    && offset <= citation.selection_range.end
-                            })
-                        })
-                {
-                    let bibliography = self.bibliography_for(&path)?;
-                    let BibliographyResolution::Resolved(record) =
-                        bibliography.resolve(&citation.id)
-                    else {
-                        return None;
+                position_to_offset(&entry.parsed.source, position.position)
+            };
+            if let Some(citation) = self
+                .workspace
+                .get(&path)
+                .and_then(|entry| entry.current.as_ref())
+                .and_then(|current| {
+                    current.output.citations.citations.iter().find(|citation| {
+                        citation.selection_range.start <= offset
+                            && offset <= citation.selection_range.end
+                    })
+                })
+            {
+                let Some(bibliography) = self.bibliography_for(&path) else {
+                    return Ok(None);
+                };
+                let BibliographyResolution::Resolved(record) = bibliography.resolve(&citation.id)
+                else {
+                    return Ok(None);
+                };
+                let Some(entry) = self.workspace.get(&path) else {
+                    return Ok(None);
+                };
+                return Ok(Some(Hover {
+                    contents: HoverContents::Markup(MarkupContent {
+                        kind: MarkupKind::Markdown,
+                        value: format!("**Citation:** `{}`\n\n{}", record.id, record.detail()),
+                    }),
+                    range: Some(byte_range_to_lsp(
+                        &entry.parsed.source,
+                        &citation.selection_range,
+                    )),
+                }));
+            }
+            if let Some(file) = self.workspace.file_at(&path, offset).cloned() {
+                let target = self.workspace.resolve_file(&path, &file);
+                let Some(entry) = self.workspace.get(&path) else {
+                    return Ok(None);
+                };
+                return Ok(Some(Hover {
+                    contents: HoverContents::Markup(MarkupContent {
+                        kind: MarkupKind::Markdown,
+                        value: file_hover(&target, &file),
+                    }),
+                    range: Some(byte_range_to_lsp(
+                        &entry.parsed.source,
+                        &file.selection_range,
+                    )),
+                }));
+            }
+            if let Some(image) = self.workspace.image_at(&path, offset).cloned() {
+                let target = self.workspace.resolve_image(&path, &image);
+                let Some(entry) = self.workspace.get(&path) else {
+                    return Ok(None);
+                };
+                return Ok(Some(Hover {
+                    contents: HoverContents::Markup(MarkupContent {
+                        kind: MarkupKind::Markdown,
+                        value: image_hover(&target, &image),
+                    }),
+                    range: Some(byte_range_to_lsp(
+                        &entry.parsed.source,
+                        &image.selection_range,
+                    )),
+                }));
+            }
+            if let Some(link) = self.workspace.link_at(&path, offset).cloned() {
+                let target = self
+                    .complete_query(self.workspace.resolve_link(&path, &link))
+                    .map_err(workspace_query_response_error)?;
+                if matches!(target, ResolvedTarget::External | ResolvedTarget::Other) {
+                    let Some(entry) = self.workspace.get(&path) else {
+                        return Ok(None);
                     };
-                    let entry = self.workspace.get(&path)?;
-                    return Some(Hover {
+                    return Ok(Some(Hover {
                         contents: HoverContents::Markup(MarkupContent {
                             kind: MarkupKind::Markdown,
-                            value: format!("**Citation:** `{}`\n\n{}", record.id, record.detail()),
+                            value: link_hover(&target, &link),
                         }),
                         range: Some(byte_range_to_lsp(
                             &entry.parsed.source,
-                            &citation.selection_range,
+                            &link.selection_range,
                         )),
-                    });
+                    }));
                 }
-                if let Some(file) = self.workspace.file_at(&path, offset).cloned() {
-                    let target = self.workspace.resolve_file(&path, &file);
-                    let entry = self.workspace.get(&path)?;
-                    return Some(Hover {
-                        contents: HoverContents::Markup(MarkupContent {
-                            kind: MarkupKind::Markdown,
-                            value: file_hover(&target, &file),
-                        }),
-                        range: Some(byte_range_to_lsp(
-                            &entry.parsed.source,
-                            &file.selection_range,
-                        )),
-                    });
-                }
-                if let Some(image) = self.workspace.image_at(&path, offset).cloned() {
-                    let target = self.workspace.resolve_image(&path, &image);
-                    let entry = self.workspace.get(&path)?;
-                    return Some(Hover {
-                        contents: HoverContents::Markup(MarkupContent {
-                            kind: MarkupKind::Markdown,
-                            value: image_hover(&target, &image),
-                        }),
-                        range: Some(byte_range_to_lsp(
-                            &entry.parsed.source,
-                            &image.selection_range,
-                        )),
-                    });
-                }
-                if let Some(link) = self.workspace.link_at(&path, offset).cloned() {
-                    let target = self.workspace.resolve_link(&path, &link);
-                    if matches!(target, ResolvedTarget::External | ResolvedTarget::Other) {
-                        let entry = self.workspace.get(&path)?;
-                        return Some(Hover {
-                            contents: HoverContents::Markup(MarkupContent {
-                                kind: MarkupKind::Markdown,
-                                value: link_hover(&target, &link),
-                            }),
-                            range: Some(byte_range_to_lsp(
-                                &entry.parsed.source,
-                                &link.selection_range,
-                            )),
-                        });
-                    }
-                }
-                if let Some(target) = self.reference_target_at_with_lazy_load(&path, offset) {
-                    let message = target_hover(&self.workspace, &target);
-                    return Some(Hover {
-                        contents: HoverContents::Markup(MarkupContent {
-                            kind: MarkupKind::Markdown,
-                            value: message,
-                        }),
-                        range: None,
-                    });
-                }
-                if let Some(task) = self.workspace.task_at(&path, offset).cloned() {
-                    let entry = self.workspace.get(&path)?;
-                    return Some(Hover {
-                        contents: HoverContents::Markup(MarkupContent {
-                            kind: MarkupKind::Markdown,
-                            value: task_hover(&self.workspace, &path, &task),
-                        }),
-                        range: Some(byte_range_to_lsp(
-                            &entry.parsed.source,
-                            &task.selection_range,
-                        )),
-                    });
-                }
-                if let Some(event) = self.workspace.event_at(&path, offset).cloned() {
-                    let entry = self.workspace.get(&path)?;
-                    return Some(Hover {
-                        contents: HoverContents::Markup(MarkupContent {
-                            kind: MarkupKind::Markdown,
-                            value: event_hover(&event),
-                        }),
-                        range: Some(byte_range_to_lsp(
-                            &entry.parsed.source,
-                            &event.selection_range,
-                        )),
-                    });
-                }
-                let target = self.target_at(&path, offset)?;
+            }
+            if let Some(target) = self
+                .reference_target_at_with_lazy_load(&path, offset)
+                .map_err(workspace_query_response_error)?
+            {
                 let message = target_hover(&self.workspace, &target);
-                Some(Hover {
+                return Ok(Some(Hover {
                     contents: HoverContents::Markup(MarkupContent {
                         kind: MarkupKind::Markdown,
                         value: message,
                     }),
                     range: None,
-                })
-            });
-        Box::pin(async move { Ok(hover) })
+                }));
+            }
+            if let Some(task) = self.workspace.task_at(&path, offset).cloned() {
+                self.require_index_complete()
+                    .map_err(workspace_query_response_error)?;
+                let value = task_hover(&self.workspace, &path, &task)
+                    .map_err(workspace_query_response_error)?;
+                let Some(entry) = self.workspace.get(&path) else {
+                    return Ok(None);
+                };
+                return Ok(Some(Hover {
+                    contents: HoverContents::Markup(MarkupContent {
+                        kind: MarkupKind::Markdown,
+                        value,
+                    }),
+                    range: Some(byte_range_to_lsp(
+                        &entry.parsed.source,
+                        &task.selection_range,
+                    )),
+                }));
+            }
+            if let Some(event) = self.workspace.event_at(&path, offset).cloned() {
+                let Some(entry) = self.workspace.get(&path) else {
+                    return Ok(None);
+                };
+                return Ok(Some(Hover {
+                    contents: HoverContents::Markup(MarkupContent {
+                        kind: MarkupKind::Markdown,
+                        value: event_hover(&event),
+                    }),
+                    range: Some(byte_range_to_lsp(
+                        &entry.parsed.source,
+                        &event.selection_range,
+                    )),
+                }));
+            }
+            let Some(target) = self
+                .target_at(&path, offset)
+                .map_err(workspace_query_response_error)?
+            else {
+                return Ok(None);
+            };
+            let message = target_hover(&self.workspace, &target);
+            Ok(Some(Hover {
+                contents: HoverContents::Markup(MarkupContent {
+                    kind: MarkupKind::Markdown,
+                    value: message,
+                }),
+                range: None,
+            }))
+        })();
+        Box::pin(async move { result })
     }
 
     fn completion(
@@ -1421,183 +1525,88 @@ impl LanguageServer for ServerState {
         params: CompletionParams,
     ) -> BoxFuture<'static, Result<Option<CompletionResponse>, Self::Error>> {
         let position = params.text_document_position;
-        let items = position
-            .text_document
-            .uri
-            .to_file_path()
-            .ok()
-            .and_then(|path| {
-                let entry = self.workspace.get(&path)?;
-                let offset = position_to_offset(&entry.parsed.source, position.position);
-                if let Some(context) = construct_completion_context(&entry.parsed, offset) {
-                    let timestamp = Local::now().to_rfc3339_opts(SecondsFormat::Secs, false);
-                    let include_link_labels =
-                        matches!(context, ConstructCompletionContext::Link { .. });
-                    let mut items = construct_completion_items(
-                        &entry.parsed.source,
-                        context,
-                        self.supports_completion_snippets,
-                        self.completion_indentation,
-                        &timestamp,
-                    );
-                    if include_link_labels {
+        let result = (|| {
+            let Some(path) = position.text_document.uri.to_file_path().ok() else {
+                return Ok(None);
+            };
+            let Some(entry) = self.workspace.get(&path) else {
+                return Ok(None);
+            };
+            let offset = position_to_offset(&entry.parsed.source, position.position);
+            if let Some(context) = construct_completion_context(&entry.parsed, offset) {
+                let timestamp = Local::now().to_rfc3339_opts(SecondsFormat::Secs, false);
+                let include_link_labels =
+                    matches!(context, ConstructCompletionContext::Link { .. });
+                let mut items = construct_completion_items(
+                    &entry.parsed.source,
+                    context,
+                    self.supports_completion_snippets,
+                    self.completion_indentation,
+                    &timestamp,
+                );
+                if include_link_labels {
+                    if self.index_complete {
                         if let Some(context) = link_completion_context(&entry.parsed, offset) {
-                            items.extend(
-                                self.workspace
-                                    .complete_link(&path, &context)
-                                    .into_iter()
-                                    .map(|candidate| CompletionItem {
-                                        label: candidate.label,
-                                        kind: Some(CompletionItemKind::FILE),
-                                        detail: Some(candidate.detail),
-                                        text_edit: Some(CompletionTextEdit::Edit(
-                                            LspTextEdit::new(
-                                                byte_range_to_lsp(
-                                                    &entry.parsed.source,
-                                                    &candidate.replace,
-                                                ),
-                                                candidate.new_text,
-                                            ),
-                                        )),
-                                        ..CompletionItem::default()
-                                    }),
-                            );
+                            let candidates = self
+                                .complete_query(self.workspace.complete_link(&path, &context))
+                                .map_err(workspace_query_response_error)?;
+                            items.extend(completion_items(
+                                &entry.parsed.source,
+                                candidates,
+                                CompletionItemKind::FILE,
+                            ));
                         }
                     }
-                    return Some(items);
                 }
-                if let Some(context) = citation_completion_context(&entry.parsed, offset) {
-                    let bibliography = self.bibliography_for_completion(&path)?;
-                    let query = context.query.to_lowercase();
-                    return Some(
-                        bibliography
-                            .records
-                            .iter()
-                            .filter(|record| {
-                                matches!(
-                                    bibliography.resolve(&record.id),
-                                    BibliographyResolution::Resolved(_)
-                                )
-                            })
-                            .filter(|record| {
-                                query.is_empty()
-                                    || record.id.to_lowercase().contains(&query)
-                                    || record.detail().to_lowercase().contains(&query)
-                            })
-                            .map(|record| CompletionItem {
-                                label: record.id.clone(),
-                                kind: Some(CompletionItemKind::REFERENCE),
-                                detail: Some(record.detail()),
-                                text_edit: Some(CompletionTextEdit::Edit(LspTextEdit::new(
-                                    byte_range_to_lsp(&entry.parsed.source, &context.replace),
-                                    record.id.clone(),
-                                ))),
-                                ..CompletionItem::default()
-                            })
-                            .collect(),
-                    );
-                }
-                if let Some(context) = task_dependency_completion_context(&entry.parsed, offset) {
-                    let candidates = self.workspace.complete_task_dependency(&path, &context);
-                    return Some(
-                        candidates
-                            .into_iter()
-                            .map(|candidate| CompletionItem {
-                                kind: Some(if candidate.new_text.ends_with('#') {
-                                    CompletionItemKind::FILE
-                                } else {
-                                    CompletionItemKind::REFERENCE
-                                }),
-                                label: candidate.label,
-                                detail: Some(candidate.detail),
-                                text_edit: Some(CompletionTextEdit::Edit(LspTextEdit::new(
-                                    byte_range_to_lsp(&entry.parsed.source, &candidate.replace),
-                                    candidate.new_text,
-                                ))),
-                                ..CompletionItem::default()
-                            })
-                            .collect(),
-                    );
-                }
-                if let Some(context) = event_title_completion_context(&entry.parsed, offset) {
-                    return Some(
-                        self.workspace
-                            .complete_event_title(&context)
-                            .into_iter()
-                            .map(|candidate| CompletionItem {
-                                label: candidate.label,
-                                kind: Some(CompletionItemKind::VALUE),
-                                detail: Some(candidate.detail),
-                                text_edit: Some(CompletionTextEdit::Edit(LspTextEdit::new(
-                                    byte_range_to_lsp(&entry.parsed.source, &candidate.replace),
-                                    candidate.new_text,
-                                ))),
-                                ..CompletionItem::default()
-                            })
-                            .collect(),
-                    );
-                }
-                if let Some(context) = attribute_completion_context(&entry.parsed, offset) {
-                    if !context.completions.is_empty() {
-                        return Some(
-                            context
-                                .completions
-                                .into_iter()
-                                .map(|candidate| CompletionItem {
-                                    label: candidate.label.to_string(),
-                                    kind: Some(CompletionItemKind::PROPERTY),
-                                    detail: Some(candidate.detail.to_string()),
-                                    insert_text_format: Some(
-                                        if self.supports_completion_snippets {
-                                            InsertTextFormat::SNIPPET
-                                        } else {
-                                            InsertTextFormat::PLAIN_TEXT
-                                        },
-                                    ),
-                                    text_edit: Some(CompletionTextEdit::Edit(LspTextEdit::new(
-                                        byte_range_to_lsp(&entry.parsed.source, &context.replace),
-                                        attribute_completion_text(
-                                            candidate.new_text,
-                                            self.supports_completion_snippets,
-                                        ),
-                                    ))),
-                                    ..CompletionItem::default()
-                                })
-                                .collect(),
-                        );
-                    }
-                }
-                let (candidates, kind) =
-                    if let Some(context) = link_completion_context(&entry.parsed, offset) {
-                        let kind = if matches!(
-                            &context,
-                            plumb_semantics::LinkCompletionContext::Label { .. }
-                                | plumb_semantics::LinkCompletionContext::Path { .. }
-                                | plumb_semantics::LinkCompletionContext::AutolinkPath { .. }
-                        ) {
-                            CompletionItemKind::FILE
-                        } else {
-                            CompletionItemKind::REFERENCE
-                        };
-                        (self.workspace.complete_link(&path, &context), kind)
-                    } else if let Some(context) = image_completion_context(&entry.parsed, offset) {
-                        (
-                            self.workspace.complete_image_path(&path, &context),
-                            CompletionItemKind::FILE,
-                        )
-                    } else {
-                        let context = file_completion_context(&entry.parsed, offset)?;
-                        (
-                            self.workspace.complete_file_path(&path, &context),
-                            CompletionItemKind::FILE,
-                        )
-                    };
-                Some(
+                return Ok(Some(items));
+            }
+            if let Some(context) = citation_completion_context(&entry.parsed, offset) {
+                let Some(bibliography) = self.bibliography_for_completion(&path) else {
+                    return Ok(None);
+                };
+                let query = context.query.to_lowercase();
+                return Ok(Some(
+                    bibliography
+                        .records
+                        .iter()
+                        .filter(|record| {
+                            matches!(
+                                bibliography.resolve(&record.id),
+                                BibliographyResolution::Resolved(_)
+                            )
+                        })
+                        .filter(|record| {
+                            query.is_empty()
+                                || record.id.to_lowercase().contains(&query)
+                                || record.detail().to_lowercase().contains(&query)
+                        })
+                        .map(|record| CompletionItem {
+                            label: record.id.clone(),
+                            kind: Some(CompletionItemKind::REFERENCE),
+                            detail: Some(record.detail()),
+                            text_edit: Some(CompletionTextEdit::Edit(LspTextEdit::new(
+                                byte_range_to_lsp(&entry.parsed.source, &context.replace),
+                                record.id.clone(),
+                            ))),
+                            ..CompletionItem::default()
+                        })
+                        .collect(),
+                ));
+            }
+            if let Some(context) = task_dependency_completion_context(&entry.parsed, offset) {
+                let candidates = self
+                    .complete_query(self.workspace.complete_task_dependency(&path, &context))
+                    .map_err(workspace_query_response_error)?;
+                return Ok(Some(
                     candidates
                         .into_iter()
                         .map(|candidate| CompletionItem {
+                            kind: Some(if candidate.new_text.ends_with('#') {
+                                CompletionItemKind::FILE
+                            } else {
+                                CompletionItemKind::REFERENCE
+                            }),
                             label: candidate.label,
-                            kind: Some(kind),
                             detail: Some(candidate.detail),
                             text_edit: Some(CompletionTextEdit::Edit(LspTextEdit::new(
                                 byte_range_to_lsp(&entry.parsed.source, &candidate.replace),
@@ -1605,10 +1614,93 @@ impl LanguageServer for ServerState {
                             ))),
                             ..CompletionItem::default()
                         })
-                        .collect::<Vec<_>>(),
-                )
-            });
-        Box::pin(async move { Ok(items.map(CompletionResponse::Array)) })
+                        .collect(),
+                ));
+            }
+            if let Some(context) = event_title_completion_context(&entry.parsed, offset) {
+                return Ok(Some(
+                    self.complete_query(self.workspace.complete_event_title(&context))
+                        .map_err(workspace_query_response_error)?
+                        .into_iter()
+                        .map(|candidate| CompletionItem {
+                            label: candidate.label,
+                            kind: Some(CompletionItemKind::VALUE),
+                            detail: Some(candidate.detail),
+                            text_edit: Some(CompletionTextEdit::Edit(LspTextEdit::new(
+                                byte_range_to_lsp(&entry.parsed.source, &candidate.replace),
+                                candidate.new_text,
+                            ))),
+                            ..CompletionItem::default()
+                        })
+                        .collect(),
+                ));
+            }
+            if let Some(context) = attribute_completion_context(&entry.parsed, offset) {
+                if !context.completions.is_empty() {
+                    return Ok(Some(
+                        context
+                            .completions
+                            .into_iter()
+                            .map(|candidate| CompletionItem {
+                                label: candidate.label.to_string(),
+                                kind: Some(CompletionItemKind::PROPERTY),
+                                detail: Some(candidate.detail.to_string()),
+                                insert_text_format: Some(if self.supports_completion_snippets {
+                                    InsertTextFormat::SNIPPET
+                                } else {
+                                    InsertTextFormat::PLAIN_TEXT
+                                }),
+                                text_edit: Some(CompletionTextEdit::Edit(LspTextEdit::new(
+                                    byte_range_to_lsp(&entry.parsed.source, &context.replace),
+                                    attribute_completion_text(
+                                        candidate.new_text,
+                                        self.supports_completion_snippets,
+                                    ),
+                                ))),
+                                ..CompletionItem::default()
+                            })
+                            .collect(),
+                    ));
+                }
+            }
+            let (candidates, kind) =
+                if let Some(context) = link_completion_context(&entry.parsed, offset) {
+                    let kind = if matches!(
+                        &context,
+                        plumb_semantics::LinkCompletionContext::Label { .. }
+                            | plumb_semantics::LinkCompletionContext::Path { .. }
+                            | plumb_semantics::LinkCompletionContext::AutolinkPath { .. }
+                    ) {
+                        CompletionItemKind::FILE
+                    } else {
+                        CompletionItemKind::REFERENCE
+                    };
+                    (
+                        self.complete_query(self.workspace.complete_link(&path, &context))
+                            .map_err(workspace_query_response_error)?,
+                        kind,
+                    )
+                } else if let Some(context) = image_completion_context(&entry.parsed, offset) {
+                    (
+                        self.workspace.complete_image_path(&path, &context),
+                        CompletionItemKind::FILE,
+                    )
+                } else {
+                    let Some(context) = file_completion_context(&entry.parsed, offset) else {
+                        return Ok(None);
+                    };
+                    (
+                        self.workspace.complete_file_path(&path, &context),
+                        CompletionItemKind::FILE,
+                    )
+                };
+            Ok(Some(completion_items(
+                &entry.parsed.source,
+                candidates,
+                kind,
+            )))
+        })();
+        Box::pin(async move { result.map(|items| items.map(CompletionResponse::Array)) })
     }
 
     fn code_action(
@@ -1799,44 +1891,50 @@ impl LanguageServer for ServerState {
         if let Ok(path) = params.text_document.uri.to_file_path() {
             self.ensure_request_document(&path);
         }
-        let response = params
-            .text_document
-            .uri
-            .to_file_path()
-            .ok()
-            .and_then(|path| {
-                let entry = self.workspace.get(&path)?;
-                let offset = position_to_offset(&entry.parsed.source, params.position);
-                let (range, placeholder) = self
-                    .workspace
-                    .anchor_rename_target_at(&path, offset)
-                    .map(|target| (target.range, target.id))
-                    .or_else(|_| {
-                        self.workspace
-                            .document_rename_target_at(&path, offset)
-                            .map(|target| {
-                                let (name, fallback) = match target.input {
-                                    PathRenameInput::Path => {
-                                        (target.old_path.file_name(), "document.plumb")
-                                    }
-                                    PathRenameInput::FileStem => {
-                                        (target.old_path.file_stem(), "document")
-                                    }
-                                };
-                                let placeholder = name
-                                    .and_then(|name| name.to_str())
-                                    .unwrap_or(fallback)
-                                    .to_string();
-                                (target.range, placeholder)
-                            })
-                    })
-                    .ok()?;
-                Some(PrepareRenameResponse::RangeWithPlaceholder {
-                    range: byte_range_to_lsp(&entry.parsed.source, &range),
-                    placeholder,
-                })
-            });
-        Box::pin(async move { Ok(response) })
+        let result = (|| {
+            let Some(path) = params.text_document.uri.to_file_path().ok() else {
+                return Ok(None);
+            };
+            let Some(entry) = self.workspace.get(&path) else {
+                return Ok(None);
+            };
+            let offset = position_to_offset(&entry.parsed.source, params.position);
+            let target = match self.workspace.anchor_rename_target_at(&path, offset) {
+                Ok(target) => Some((target.range, target.id)),
+                Err(WorkspaceOperationError::Operation(RenameError::NotRenameable)) => None,
+                Err(error) => return Err(rename_operation_error("anchor rename", error)),
+            };
+            let (range, placeholder) = if let Some(target) = target {
+                target
+            } else {
+                match self.workspace.document_rename_target_at(&path, offset) {
+                    Ok(target) => {
+                        let (name, fallback) = match target.input {
+                            PathRenameInput::Path => {
+                                (target.old_path.file_name(), "document.plumb")
+                            }
+                            PathRenameInput::FileStem => (target.old_path.file_stem(), "document"),
+                        };
+                        let placeholder = name
+                            .and_then(|name| name.to_str())
+                            .unwrap_or(fallback)
+                            .to_string();
+                        (target.range, placeholder)
+                    }
+                    Err(WorkspaceOperationError::Operation(RenameError::NotRenameable)) => {
+                        return Ok(None);
+                    }
+                    Err(error) => {
+                        return Err(rename_operation_error("document rename", error));
+                    }
+                }
+            };
+            Ok(Some(PrepareRenameResponse::RangeWithPlaceholder {
+                range: byte_range_to_lsp(&entry.parsed.source, &range),
+                placeholder,
+            }))
+        })();
+        Box::pin(async move { result })
     }
 
     fn rename(
@@ -1874,19 +1972,25 @@ impl LanguageServer for ServerState {
             };
             let offset =
                 position_to_offset(&entry.parsed.source, params.text_document_position.position);
-            if let Ok(target) = self.workspace.anchor_rename_target_at(&path, offset) {
-                let edit = self
-                    .workspace
-                    .rename_anchor(&target, &params.new_name)
-                    .map_err(|error| {
-                        rename_request_error(format!("anchor rename failed: {error:?}"))
-                    })?;
-                let edit = workspace_edit_to_lsp(&self.workspace, edit)
-                    .ok_or_else(|| rename_request_error("cannot map anchor rename edit"))?;
-                return Ok(Some(edit));
+            match self.workspace.anchor_rename_target_at(&path, offset) {
+                Ok(target) => {
+                    let edit = self
+                        .workspace
+                        .rename_anchor(&target, &params.new_name)
+                        .map_err(|error| rename_operation_error("anchor rename", error))?;
+                    let edit = workspace_edit_to_lsp(&self.workspace, edit)
+                        .ok_or_else(|| rename_request_error("cannot map anchor rename edit"))?;
+                    return Ok(Some(edit));
+                }
+                Err(WorkspaceOperationError::Operation(RenameError::NotRenameable)) => {}
+                Err(error) => return Err(rename_operation_error("anchor rename", error)),
             }
-            let Ok(target) = self.workspace.document_rename_target_at(&path, offset) else {
-                return Ok(None);
+            let target = match self.workspace.document_rename_target_at(&path, offset) {
+                Ok(target) => target,
+                Err(WorkspaceOperationError::Operation(RenameError::NotRenameable)) => {
+                    return Ok(None);
+                }
+                Err(error) => return Err(rename_operation_error("document rename", error)),
             };
             if !self.supports_resource_rename {
                 return Err(rename_request_error(
@@ -1951,12 +2055,55 @@ fn rename_request_error(message: impl Into<String>) -> ResponseError {
     ResponseError::new(ErrorCode::REQUEST_FAILED, message.into())
 }
 
-fn document_rename_error(error: RenameError) -> ResponseError {
-    let message = match error {
-        RenameError::TargetExists => "document rename target already exists".to_string(),
-        error => format!("document rename failed: {error:?}"),
-    };
-    rename_request_error(message)
+fn workspace_query_response_error(error: WorkspaceQueryError) -> ResponseError {
+    ResponseError::new(
+        ErrorCode::INTERNAL_ERROR,
+        format!("workspace query failed: {error}"),
+    )
+}
+
+fn rename_operation_error(
+    operation: &str,
+    error: WorkspaceOperationError<RenameError>,
+) -> ResponseError {
+    match error {
+        WorkspaceOperationError::Operation(error) => {
+            rename_request_error(format!("{operation} failed: {error:?}"))
+        }
+        WorkspaceOperationError::Query(error) => workspace_query_response_error(error),
+    }
+}
+
+fn document_rename_error(error: WorkspaceOperationError<RenameError>) -> ResponseError {
+    match error {
+        WorkspaceOperationError::Operation(RenameError::TargetExists) => {
+            rename_request_error("document rename target already exists")
+        }
+        WorkspaceOperationError::Operation(error) => {
+            rename_request_error(format!("document rename failed: {error:?}"))
+        }
+        WorkspaceOperationError::Query(error) => workspace_query_response_error(error),
+    }
+}
+
+fn completion_items(
+    source: &str,
+    candidates: Vec<CompletionCandidate>,
+    kind: CompletionItemKind,
+) -> Vec<CompletionItem> {
+    candidates
+        .into_iter()
+        .map(|candidate| CompletionItem {
+            label: candidate.label,
+            kind: Some(kind),
+            detail: Some(candidate.detail),
+            text_edit: Some(CompletionTextEdit::Edit(LspTextEdit::new(
+                byte_range_to_lsp(source, &candidate.replace),
+                candidate.new_text,
+            ))),
+            ..CompletionItem::default()
+        })
+        .collect()
 }
 
 struct ConstructTemplate {

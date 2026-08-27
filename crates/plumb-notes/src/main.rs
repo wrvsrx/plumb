@@ -45,7 +45,7 @@ pub fn run_check_cli(args: impl IntoIterator<Item = OsString>) -> ExitCode {
     let result = (|| {
         let root = resolve_workspace_root(config.root.as_deref())?;
         let loaded = load_workspace(&root)?;
-        Ok::<_, String>(render_workspace_diagnostics(&root, &loaded, config.level))
+        render_workspace_diagnostics(&root, &loaded, config.level)
     })();
     match result {
         Ok((output, has_failures)) => {
@@ -77,7 +77,9 @@ fn run(config: Config) -> Result<(), String> {
                     usize::MAX,
                     Local::now().fixed_offset(),
                     config.query.as_deref(),
-                )?
+                )
+                .map_err(|error| error.to_string())?
+                .value
                 .items
                 .into_iter()
                 .map(|record| record.path)
@@ -118,14 +120,18 @@ fn run(config: Config) -> Result<(), String> {
                 events::export_vdir(&loaded, &export.output)?;
             }
             None => {
-                let records = loaded.workspace.search_records_filtered(
-                    &root,
-                    Some(SearchRecordKind::Event),
-                    "",
-                    usize::MAX,
-                    Local::now().fixed_offset(),
-                    config.query.as_deref(),
-                )?;
+                let records = loaded
+                    .workspace
+                    .search_records_filtered(
+                        &root,
+                        Some(SearchRecordKind::Event),
+                        "",
+                        usize::MAX,
+                        Local::now().fixed_offset(),
+                        config.query.as_deref(),
+                    )
+                    .map_err(|error| error.to_string())?
+                    .value;
                 for event in records.items {
                     println!(
                         "{}\t{}\t{}\t{}\t{}",
@@ -265,7 +271,7 @@ fn render_workspace_diagnostics(
     root: &Path,
     loaded: &LoadedWorkspace,
     level: CheckLevel,
-) -> (String, bool) {
+) -> Result<(String, bool), String> {
     use std::fmt::Write as _;
 
     let root = normalize(root);
@@ -276,7 +282,11 @@ fn render_workspace_diagnostics(
     for entry in entries {
         let path = &entry.path;
         let source = &entry.parsed.source;
-        let mut diagnostics = loaded.workspace.diagnostics(path);
+        let mut diagnostics = loaded
+            .workspace
+            .diagnostics(path)
+            .map_err(|error| error.to_string())?
+            .value;
         diagnostics.sort_by(|left, right| {
             (
                 left.range.start,
@@ -318,7 +328,7 @@ fn render_workspace_diagnostics(
             }
         }
     }
-    (output, has_failures)
+    Ok((output, has_failures))
 }
 
 impl CheckLevel {
@@ -407,7 +417,7 @@ mod tests {
         .unwrap();
         let loaded = load_workspace(&root).unwrap();
         let (output, has_failures) =
-            render_workspace_diagnostics(&root, &loaded, CheckLevel::Warning);
+            render_workspace_diagnostics(&root, &loaded, CheckLevel::Warning).unwrap();
         assert!(!has_failures);
         let lines = output.lines().collect::<Vec<_>>();
         assert!(lines[0].starts_with("a.plumb:2:"), "{output}");
@@ -432,10 +442,11 @@ mod tests {
         .unwrap();
         let loaded = load_workspace(&root).unwrap();
         let (output, has_failures) =
-            render_workspace_diagnostics(&root, &loaded, CheckLevel::Warning);
+            render_workspace_diagnostics(&root, &loaded, CheckLevel::Warning).unwrap();
         assert!(!has_failures, "{output}");
         assert!(output.is_empty(), "{output}");
-        let (output, has_failures) = render_workspace_diagnostics(&root, &loaded, CheckLevel::Hint);
+        let (output, has_failures) =
+            render_workspace_diagnostics(&root, &loaded, CheckLevel::Hint).unwrap();
         assert!(!has_failures, "{output}");
         assert!(output.contains("hint[task.blocked]"), "{output}");
         std::fs::remove_dir_all(root).unwrap();
@@ -518,7 +529,8 @@ mod tests {
                 Local::now().fixed_offset(),
                 Some("'index.plumb' in transitively_referenced_by"),
             )
-            .unwrap();
+            .unwrap()
+            .value;
         assert!(results.items.iter().any(|record| record.path == leaf));
         std::fs::remove_dir_all(root).unwrap();
     }
@@ -550,7 +562,8 @@ mod tests {
                 Local::now().fixed_offset(),
                 Some("'topic.plumb' in directly_referenced_by && 'index.plumb' in transitively_referenced_by"),
             )
-            .unwrap();
+            .unwrap()
+            .value;
         assert!(results.items.iter().any(|record| record.path == leaf));
         std::fs::remove_dir_all(root).unwrap();
     }
@@ -577,7 +590,8 @@ mod tests {
                 Local::now().fixed_offset(),
                 Some("path.startsWith('docs/') && title.matches('Semantics Guide')"),
             )
-            .unwrap();
+            .unwrap()
+            .value;
         assert!(results.items.iter().any(|record| record.path == semantics));
         std::fs::remove_dir_all(root).unwrap();
     }
@@ -599,7 +613,7 @@ mod tests {
                 Some("path"),
             )
             .unwrap_err();
-        assert!(error.contains("must return bool"));
+        assert!(error.to_string().contains("must return bool"));
         std::fs::remove_dir_all(root).unwrap();
     }
 
@@ -618,10 +632,20 @@ mod tests {
         symlink(root.join("linked.txt"), root.join("linked.plumb")).unwrap();
 
         let loaded = load_workspace(&root).unwrap();
-        assert!(loaded.workspace.contains(root.join("linked.plumb")));
-        assert!(!loaded
-            .workspace
-            .contains(root.join("snapshot/hidden.plumb")));
+        assert!(
+            loaded
+                .workspace
+                .contains(root.join("linked.plumb"))
+                .unwrap()
+                .value
+        );
+        assert!(
+            !loaded
+                .workspace
+                .contains(root.join("snapshot/hidden.plumb"))
+                .unwrap()
+                .value
+        );
 
         std::fs::remove_dir_all(root).unwrap();
         std::fs::remove_dir_all(snapshot).unwrap();
@@ -636,8 +660,20 @@ mod tests {
         std::fs::write(root.join("private/note.plumb"), "Private\n").unwrap();
 
         let loaded = load_workspace(&root).unwrap();
-        assert!(loaded.workspace.contains(root.join("public.plumb")));
-        assert!(!loaded.workspace.contains(root.join("private/note.plumb")));
+        assert!(
+            loaded
+                .workspace
+                .contains(root.join("public.plumb"))
+                .unwrap()
+                .value
+        );
+        assert!(
+            !loaded
+                .workspace
+                .contains(root.join("private/note.plumb"))
+                .unwrap()
+                .value
+        );
 
         std::fs::remove_dir_all(root).unwrap();
     }

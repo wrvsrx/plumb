@@ -26,6 +26,14 @@ pub fn run_server_with_pause(first: &[Value], second: &[Value]) -> Vec<Value> {
 }
 
 pub fn run_server_after_initial_index(messages: &[Value]) -> Vec<Value> {
+    run_server_after_initial_index_with_action(messages, || {}, &[])
+}
+
+pub fn run_server_after_initial_index_with_action(
+    first: &[Value],
+    action: impl FnOnce(),
+    second: &[Value],
+) -> Vec<Value> {
     let mut child = Command::new(env!("CARGO_BIN_EXE_plumb"))
         .arg("lsp")
         .stdin(Stdio::piped())
@@ -44,7 +52,7 @@ pub fn run_server_after_initial_index(messages: &[Value]) -> Vec<Value> {
         }
     });
     let stdin = child.stdin.as_mut().expect("child stdin");
-    for message in messages.iter().take(2) {
+    for message in first.iter().take(2) {
         write_message(stdin, message);
     }
     let mut output = Vec::new();
@@ -60,10 +68,20 @@ pub fn run_server_after_initial_index(messages: &[Value]) -> Vec<Value> {
             break;
         }
     }
-    for (index, message) in messages.iter().enumerate().skip(2) {
+    for (index, message) in first.iter().enumerate().skip(2) {
         write_message(stdin, message);
-        if index + 3 == messages.len() {
+        if second.is_empty() && index + 3 == first.len() {
             std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+    }
+    if !second.is_empty() {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        action();
+        for (index, message) in second.iter().enumerate() {
+            write_message(stdin, message);
+            if index + 3 == second.len() {
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
         }
     }
     drop(child.stdin.take());
@@ -113,7 +131,7 @@ pub fn response(messages: &[Value], id: u64) -> &Value {
     messages
         .iter()
         .find(|message| message.get("id") == Some(&json!(id)))
-        .expect("response")
+        .unwrap_or_else(|| panic!("response {id} missing from {messages:#?}"))
 }
 
 pub fn attribute_value<'a>(text: &'a str, key: &str) -> &'a str {

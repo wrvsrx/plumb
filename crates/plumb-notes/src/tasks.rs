@@ -47,7 +47,9 @@ fn task_records(
             usize::MAX,
             Local::now().fixed_offset(),
             None,
-        )?
+        )
+        .map_err(|error| error.to_string())?
+        .value
         .items;
     let retained = if let Some(query) = query {
         Some(
@@ -60,7 +62,9 @@ fn task_records(
                     usize::MAX,
                     Local::now().fixed_offset(),
                     Some(query),
-                )?
+                )
+                .map_err(|error| error.to_string())?
+                .value
                 .items
                 .into_iter()
                 .map(|record| (record.relative_path, record.range.start))

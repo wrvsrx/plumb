@@ -412,7 +412,7 @@ fn benchmark_queries(c: &mut Criterion) {
     let start = DateTime::parse_from_rfc3339("2026-08-10T00:00:00+00:00").unwrap();
     let end = DateTime::parse_from_rfc3339("2026-08-20T00:00:00+00:00").unwrap();
 
-    let rust_events = rust.events_overlapping(start, end);
+    let rust_events = rust.events_overlapping(start, end).unwrap().value;
     let sql_events = sql.events_overlapping(start, end);
     assert_eq!(
         rust_events
@@ -421,7 +421,10 @@ fn benchmark_queries(c: &mut Criterion) {
             .collect::<Vec<_>>(),
         sql_events.iter().collect::<Vec<_>>()
     );
-    let rust_references = rust.reverse_references_for_document(TARGET_PATH, &ids);
+    let rust_references = rust
+        .reverse_references_for_document(TARGET_PATH, &ids)
+        .unwrap()
+        .value;
     let rust_anchor_references = &rust_references.anchors["target"];
     let sql_references = sql.references_to(TARGET_PATH, "target");
     assert_eq!(rust_anchor_references.len(), sql_references.len());

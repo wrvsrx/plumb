@@ -2,7 +2,7 @@ use std::path::Path;
 
 use chrono::Local;
 use plumb_semantics::{AnchorKind, EventRecord, FileRecord, ImageRecord, LinkRecord, TaskRecord};
-use plumb_workspace::{ResolvedTarget, Workspace};
+use plumb_workspace::{ResolvedTarget, Workspace, WorkspaceQueryError};
 
 pub(crate) fn target(workspace: &Workspace, target: &ResolvedTarget) -> String {
     match target {
@@ -113,9 +113,14 @@ pub(crate) fn link(target: &ResolvedTarget, link: &LinkRecord) -> String {
     }
 }
 
-pub(crate) fn task(workspace: &Workspace, path: &Path, task: &TaskRecord) -> String {
-    let (state, wait_reasons) =
-        workspace.task_workflow_state(path, task, Local::now().fixed_offset());
+pub(crate) fn task(
+    workspace: &Workspace,
+    path: &Path,
+    task: &TaskRecord,
+) -> Result<String, WorkspaceQueryError> {
+    let (state, wait_reasons) = workspace
+        .task_workflow_state(path, task, Local::now().fixed_offset())?
+        .value;
     let mut lines = vec![
         format!("**Task:** {}", task.title),
         format!("**State:** {}", state.as_str()),
@@ -156,7 +161,7 @@ pub(crate) fn task(workspace: &Workspace, path: &Path, task: &TaskRecord) -> Str
                 .join(", ")
         ));
     }
-    let blockers = workspace.open_task_dependencies(path, task);
+    let blockers = workspace.open_task_dependencies(path, task)?.value;
     if !blockers.is_empty() {
         lines.push(format!(
             "**Open blockers:** {}",
@@ -167,7 +172,7 @@ pub(crate) fn task(workspace: &Workspace, path: &Path, task: &TaskRecord) -> Str
                 .join(", ")
         ));
     }
-    lines.join("\n\n")
+    Ok(lines.join("\n\n"))
 }
 
 pub(crate) fn event(event: &EventRecord) -> String {

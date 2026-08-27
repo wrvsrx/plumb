@@ -241,7 +241,10 @@ async fn index(State(state): State<AppState>) -> Response {
 }
 
 async fn tasks(State(state): State<AppState>) -> Response {
-    Json(state.workspace.read().await.tasks()).into_response()
+    match state.workspace.read().await.tasks() {
+        Ok(snapshot) => Json(snapshot).into_response(),
+        Err(error) => (StatusCode::INTERNAL_SERVER_ERROR, error).into_response(),
+    }
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -259,9 +262,13 @@ async fn task_candidates(
 ) -> Response {
     let workspace = state.workspace.read().await;
     let limit = query.limit.unwrap_or(50).min(500);
+    let tasks = match workspace.task_candidates(&query.query, query.document_id.as_deref(), limit) {
+        Ok(tasks) => tasks,
+        Err(error) => return (StatusCode::INTERNAL_SERVER_ERROR, error).into_response(),
+    };
     Json(json!({
         "revision": workspace.revision(),
-        "tasks": workspace.task_candidates(&query.query, query.document_id.as_deref(), limit),
+        "tasks": tasks,
     }))
     .into_response()
 }
@@ -591,8 +598,10 @@ fn parse_graph_query(raw: &str) -> Result<GraphQuery, String> {
 
 async fn note_api(State(state): State<AppState>, AxumPath(id): AxumPath<String>) -> Response {
     let workspace = state.workspace.read().await.clone();
-    let Some(note) = workspace.note(&id) else {
-        return (StatusCode::NOT_FOUND, "unknown note").into_response();
+    let note = match workspace.note(&id) {
+        Ok(Some(note)) => note,
+        Ok(None) => return (StatusCode::NOT_FOUND, "unknown note").into_response(),
+        Err(error) => return (StatusCode::INTERNAL_SERVER_ERROR, error).into_response(),
     };
     let html = match cached_html(&state, &workspace, &id, note.revision).await {
         Ok(html) => html,
@@ -612,8 +621,10 @@ async fn note_api(State(state): State<AppState>, AxumPath(id): AxumPath<String>)
 
 async fn note_page(State(state): State<AppState>, AxumPath(id): AxumPath<String>) -> Response {
     let workspace = state.workspace.read().await.clone();
-    let Some(note) = workspace.note(&id) else {
-        return (StatusCode::NOT_FOUND, "unknown note").into_response();
+    let note = match workspace.note(&id) {
+        Ok(Some(note)) => note,
+        Ok(None) => return (StatusCode::NOT_FOUND, "unknown note").into_response(),
+        Err(error) => return (StatusCode::INTERNAL_SERVER_ERROR, error).into_response(),
     };
     let html = match cached_html(&state, &workspace, &id, note.revision).await {
         Ok(html) => html,

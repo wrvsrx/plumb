@@ -77,6 +77,26 @@ change 只 invalidates 直接或传递依赖其 outputs 的 computations；实�
 workspace analysis 必须声明需要 complete index，还是可以返回标明 provenance/completeness 的 partial
 result。依赖 output 缺失时，应返回 dependency/completeness failure，不能猜测 negative semantic result。
 
+protocol-neutral workspace query 统一返回 `"Result<QueryResult<T>, WorkspaceQueryError>"。
+`"QueryResult" 分别携带 value、`"Complete"/`"Partial" completeness 与 `"Memory"、`"Persistent" 或
+`"PersistentWithOverlay" provenance；不得要求 consumer 从空 collection、false 或 missing value 猜测
+这些状态。需要完整结果的调用方显式调用 complete requirement，partial result 因而成为
+`"WorkspaceQueryError::Incomplete"。persistent store、decode 或 lock failure 由
+`"WorkspaceQueryError::Store" 保留 source error；不得 `"unwrap_or_default"、`"if let Ok" 或转换成完整
+negative result。adapter 拥有的 scan/index completeness 与 query-local completeness 作逻辑与，并把
+failure 映射为 protocol error，而不是 source diagnostic。
+
+依赖 workspace query 的 protocol-neutral mutation 返回
+`"Result<T, WorkspaceOperationError<E>>"：`"Operation(E)" 只表示该 mutation 自身的领域拒绝，
+`"Query(WorkspaceQueryError)" 保留读取其决策输入时的失败。adapter 可以把前者映射为可操作的 request
+failure，但必须把后者映射为 internal/protocol failure；不得把 query failure 降格为 not found、not renameable
+或其它领域拒绝。
+
+带 semantic filter 的 search 使用 `"WorkspaceSearchError" 区分用户 filter error 与 workspace query
+failure。adapter 只把 filter error 映射为 invalid parameters；query failure 仍是 internal/protocol failure。
+search 自身的 limit/truncation completeness、外层 `"QueryResult" completeness 与 adapter scan/index
+completeness 是三个独立信号，最终响应只有在三者都 complete 时才能声明 complete。
+
 `# 7. Snapshots and last-valid data
 
 snapshot 包含 document identity、revision、source、recovered tree、syntax diagnostics 和可选 current-valid
