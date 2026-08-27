@@ -1,6 +1,6 @@
 use serde_json::json;
 
-use crate::support::{response, run_server};
+use crate::support::{response, run_server, run_server_with_pause, unique_temp_dir};
 
 #[test]
 fn labels_individual_metadata_entry_folds() {
@@ -273,6 +273,90 @@ fn provides_structural_folding_for_valid_and_recovered_documents() {
         response(&output, 3)["result"],
         json!([{ "startLine": 0, "endLine": 1 }])
     );
+}
+
+#[test]
+fn folds_with_locally_determined_labels_before_initial_index_completes() {
+    let root = unique_temp_dir();
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(root.join("large.plumb"), "Paragraph.\n\n".repeat(150_000)).unwrap();
+    let document = root.join("inbox.plumb");
+    let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
+    let document_uri = lsp_types::Url::from_file_path(&document).unwrap();
+    let source = "`= title Workspace\n\n`event 14:00 Standup\n `= date 2026-08-02\n `= timezone +08:00\n `note Detail\n\n`task Blocker\n `@ blocker\n `note Detail\n\n`task Closed dependency\n `@ closed\n `= done 2026-08-01T00:00:00Z\n `note Detail\n\n`task Ready\n `note Detail\n\n`task Waiting\n `= wait 2099-01-01T00:00:00Z\n `= depends missing.plumb#task\n `note Detail\n\n`task Done\n `= done 2026-08-01T00:00:00Z\n `note Detail\n\n`task Canceled\n `= canceled 2026-08-01T00:00:00Z\n `note Detail\n\n`task Conflicted\n `= done 2026-08-01T00:00:00Z\n `= canceled 2026-08-01T00:01:00Z\n `note Detail\n\n`task Blocked\n `= depends #blocker\n `note Detail\n\n`task Resolved ready\n `= depends #closed\n `note Detail\n\n`task Unknown\n `= depends missing.plumb#task\n `note Detail\n";
+    let first = [
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {
+                "processId": null,
+                "rootUri": root_uri,
+                "workspaceFolders": [{ "uri": root_uri, "name": "test" }],
+                "capabilities": { "textDocument": { "foldingRange": {
+                    "foldingRange": { "collapsedText": true }
+                }}}
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": {
+                "uri": document_uri, "languageId": "plumb", "version": 1, "text": source
+            }}
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 2, "method": "textDocument/foldingRange",
+            "params": { "textDocument": { "uri": document_uri } }
+        }),
+    ];
+    let shutdown = [
+        json!({ "jsonrpc": "2.0", "id": 3, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+
+    let output = run_server_with_pause(&first, &shutdown);
+    let folding_index = output
+        .iter()
+        .position(|message| message.get("id") == Some(&json!(2)))
+        .expect("folding response while initial indexing is running");
+    if let Some(index_end) = output.iter().position(|message| {
+        message["method"] == "$/progress" && message["params"]["value"]["kind"] == "end"
+    }) {
+        assert!(folding_index < index_end);
+    }
+    let ranges = response(&output, 2)["result"].as_array().unwrap();
+    let labels = ranges
+        .iter()
+        .filter_map(|range| range["collapsedText"].as_str())
+        .collect::<Vec<_>>();
+    for expected in [
+        "title  Workspace",
+        "`event 2026-08-02T14:00  Standup",
+        "`task [ ]  Blocker",
+        "`task [o]  Closed dependency",
+        "`task [ ]  Ready",
+        "`task [~]  Waiting",
+        "`task [o]  Done",
+        "`task [x]  Canceled",
+        "`task [ox] Conflicted",
+        "`task [=]  Blocked",
+        "`task [ ]  Resolved ready",
+    ] {
+        assert!(
+            labels.contains(&expected),
+            "missing {expected:?}: {labels:?}"
+        );
+    }
+    let unknown_line = source[..source.find("`task Unknown").unwrap()]
+        .bytes()
+        .filter(|byte| *byte == b'\n')
+        .count() as u64;
+    let unknown = ranges
+        .iter()
+        .find(|range| range["startLine"] == unknown_line)
+        .expect("unknown task retains its structural fold");
+    assert!(unknown.get("collapsedText").is_none());
+
+    std::fs::remove_dir_all(root).unwrap();
 }
 
 #[test]

@@ -1011,12 +1011,12 @@ impl LanguageServer for ServerState {
                 return Ok(None);
             };
             let labels = if self.supports_folding_collapsed_text {
-                self.require_index_complete()
-                    .map_err(workspace_query_response_error)?;
-                Some(
-                    fold_labels(&self.workspace, &entry.path, entry)
-                        .map_err(workspace_query_response_error)?,
-                )
+                Some(fold_labels(
+                    &self.workspace,
+                    &entry.path,
+                    entry,
+                    self.index_complete,
+                ))
             } else {
                 None
             };

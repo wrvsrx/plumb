@@ -157,6 +157,12 @@ workspace 后回到 server event loop 原子安装；安装时必须保留 index
 revisions。完成前 cross-document query 明确报告 incomplete，旧 generation 的 indexing result 不得覆盖较新的
 rescan 或 open-document state。
 
+`"textDocument/foldingRange" 是上述 open-document exception：structural ranges 与 current-document labels
+不得因 task workspace facts incomplete 而整体失败。adapter 对 task state 使用保守的 local determination，
+无法证明唯一状态时只省略该 task 的 `"collapsedText"。不支持 `"workspace/foldingRange/refresh" 的 client
+保留这份立即可用的 response，直到 document lifecycle 或 client 自身触发下一次 folding request；不得为等待
+完整 label 延迟首次 response。
+
 persistent workspace query 必须按需读取命中的 semantic rows，不得为了重建 process-local workspace model
 而在启动时反序列化全部 document outputs。open-buffer precedence 的合并边界是 source document：persistent
 query 排除所有 open paths，再与这些 paths 的内存 query result 组合并作 deterministic ordering。该规则由

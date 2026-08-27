@@ -105,6 +105,11 @@ range。普通多行 paragraph 与 inline element 不单独折叠。即使 docum
 error，未受错误影响的 recovered blocks 仍可折叠；server 遵守 client 声明的 `"rangeLimit"，按 source
 order 保留外层范围。
 
+首次 workspace index 进行期间，folding request 仍立即返回 structural folds。metadata、event 与可由当前
+snapshot 唯一确定状态的 task 继续携带 custom text；依赖未进入当前 index snapshot 的 document、暂时无法
+区分 ready 与 blocked 的 task 使用普通 opener fold text。不支持 `"workspace/foldingRange/refresh" 的
+client 会在下一次 document lifecycle 或 client folding request 时更新这类降级 label；结构 fold 不受影响。
+
 客户端声明 `"foldingRange.foldingRange.collapsedText" support 时，task 与 event fold text 保留 backtick
 与完整 marker。Task 使用固定五字符 state slot：ready 使用空白槽，waiting 使用波浪号，blocked 使用等号，
 done 使用 o，canceled 使用 x；conflicted 组合为 ox。常见状态 slot 后补齐空格，

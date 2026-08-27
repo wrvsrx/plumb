@@ -3,7 +3,9 @@ use std::path::Path;
 
 use chrono::{DateTime, FixedOffset, Local};
 use lsp_types::FoldingRange;
-use plumb_semantics::{analyze_recovered_headings, EventRecord, MetadataValue};
+use plumb_semantics::{
+    analyze_recovered_headings, EventRecord, MetadataValue, TaskRecord, TaskState,
+};
 use plumb_syntax::{Block, Document};
 use plumb_workspace::{DocumentEntry, TaskWorkflowState, Workspace, WorkspaceQueryError};
 
@@ -18,11 +20,12 @@ pub(crate) fn collapsed_text_labels(
     workspace: &Workspace,
     path: &Path,
     entry: &DocumentEntry,
-) -> Result<HashMap<(usize, usize), FoldLabel>, WorkspaceQueryError> {
-    let mut labels = task_labels(workspace, path, entry)?;
+    index_complete: bool,
+) -> HashMap<(usize, usize), FoldLabel> {
+    let mut labels = task_labels(workspace, path, entry, index_complete);
     labels.extend(event_labels(entry));
     labels.extend(metadata_labels(entry));
-    Ok(labels)
+    labels
 }
 
 pub(crate) fn metadata_labels(entry: &DocumentEntry) -> HashMap<(usize, usize), FoldLabel> {
@@ -78,9 +81,10 @@ pub(crate) fn task_labels(
     workspace: &Workspace,
     path: &Path,
     entry: &DocumentEntry,
-) -> Result<HashMap<(usize, usize), FoldLabel>, WorkspaceQueryError> {
+    index_complete: bool,
+) -> HashMap<(usize, usize), FoldLabel> {
     let Some(current) = &entry.current else {
-        return Ok(HashMap::new());
+        return HashMap::new();
     };
     let now = Local::now().fixed_offset();
     current
@@ -88,15 +92,22 @@ pub(crate) fn task_labels(
         .tasks
         .tasks
         .iter()
-        .map(|task| {
-            let (state, _) = workspace.task_workflow_state(path, task, now)?.value;
+        .filter_map(|task| {
+            let state = match task_label_state(workspace, path, task, now, index_complete) {
+                Ok(Some(state)) => state,
+                Ok(None) => return None,
+                Err(error) => {
+                    tracing::error!(%error, "task fold label query failed");
+                    return None;
+                }
+            };
             let indent = line_indent(&entry.parsed.source, task.range.start);
             let title = if task.title.is_empty() {
                 "Untitled task"
             } else {
                 &task.title
             };
-            Ok((
+            Some((
                 (task.range.start, task.range.end),
                 FoldLabel {
                     text: format!("{indent}`task {:<5}{title}", task_state_symbol(state)),
@@ -104,6 +115,50 @@ pub(crate) fn task_labels(
             ))
         })
         .collect()
+}
+
+fn task_label_state(
+    workspace: &Workspace,
+    path: &Path,
+    task: &TaskRecord,
+    now: DateTime<FixedOffset>,
+    index_complete: bool,
+) -> Result<Option<TaskWorkflowState>, WorkspaceQueryError> {
+    if index_complete {
+        return Ok(Some(
+            workspace.task_workflow_state(path, task, now)?.value.0,
+        ));
+    }
+
+    Ok(match task.state() {
+        TaskState::Done => Some(TaskWorkflowState::Done),
+        TaskState::Canceled => Some(TaskWorkflowState::Canceled),
+        TaskState::Conflicted => Some(TaskWorkflowState::Conflicted),
+        TaskState::Open => {
+            let waiting = task
+                .wait
+                .as_ref()
+                .and_then(|wait| DateTime::parse_from_rfc3339(&wait.value).ok())
+                .is_some_and(|wait| wait > now);
+            if waiting {
+                Some(TaskWorkflowState::Waiting)
+            } else if task.depends.is_empty() {
+                Some(TaskWorkflowState::Ready)
+            } else {
+                let dependencies = workspace.task_dependencies(path, task)?.value;
+                if dependencies
+                    .iter()
+                    .any(|dependency| dependency.task.state() == TaskState::Open)
+                {
+                    Some(TaskWorkflowState::Blocked)
+                } else if dependencies.len() == task.depends.len() {
+                    Some(TaskWorkflowState::Ready)
+                } else {
+                    None
+                }
+            }
+        }
+    })
 }
 
 fn task_state_symbol(state: TaskWorkflowState) -> &'static str {
