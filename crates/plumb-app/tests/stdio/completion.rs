@@ -681,7 +681,7 @@ fn completes_block_constructs_from_their_marker_prefixes() {
         json!({ "start": { "line": 0, "character": 0 }, "end": { "line": 0, "character": 2 } })
     );
     let task = task_items[0]["textEdit"]["newText"].as_str().unwrap();
-    assert!(task.starts_with("`task ${1:Task}\n `= created "));
+    assert!(task.starts_with("`task ${1:Task}\n\n `= created "));
     assert_eq!(task_items[0]["insertTextFormat"], 2);
     assert_eq!(task_items[0]["insertTextMode"], 1);
 
@@ -697,7 +697,7 @@ fn completes_block_constructs_from_their_marker_prefixes() {
     let nested_task = nested_task_items[0]["textEdit"]["newText"]
         .as_str()
         .unwrap();
-    assert!(nested_task.starts_with("`task ${1:Task}\n  `= created "));
+    assert!(nested_task.starts_with("`task ${1:Task}\n\n  `= created "));
     assert_eq!(nested_task_items[0]["insertTextMode"], 1);
 
     let link_items = response(&output, 5)["result"].as_array().unwrap();
@@ -737,7 +737,7 @@ fn completes_block_constructs_from_their_marker_prefixes() {
     assert_eq!(fallback_items.len(), 1);
     assert_eq!(fallback_items[0]["label"], "Task");
     let fallback_task = fallback_items[0]["textEdit"]["newText"].as_str().unwrap();
-    assert!(fallback_task.starts_with("`task \n `= created "));
+    assert!(fallback_task.starts_with("`task\n `= created "));
     assert_eq!(fallback_items[0]["insertTextFormat"], 1);
     assert!(fallback_items[0].get("insertTextMode").is_none());
     std::fs::remove_dir_all(root).unwrap();
@@ -795,7 +795,7 @@ fn projects_nested_task_completion_for_adjusted_indentation() {
         json!({ "start": { "line": 1, "character": 1 }, "end": { "line": 1, "character": 3 } })
     );
     let replacement = items[0]["textEdit"]["newText"].as_str().unwrap();
-    assert!(replacement.starts_with("`task ${1:Task}\n `= created "));
+    assert!(replacement.starts_with("`task ${1:Task}\n\n `= created "));
 
     let adjusted = replacement
         .replace("${1:Task}", "Task")

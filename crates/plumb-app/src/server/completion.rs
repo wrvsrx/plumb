@@ -104,8 +104,8 @@ pub(super) fn task_construct_template(block_indent: &str, timestamp: &str) -> Co
     ConstructTemplate {
         label: "Task",
         detail: "plumb task list item",
-        snippet: format!("`task ${{1:Task}}\n{block_indent}`= created {timestamp}"),
-        plain: format!("`task \n{block_indent}`= created {timestamp}"),
+        snippet: format!("`task ${{1:Task}}\n\n{block_indent}`= created {timestamp}"),
+        plain: format!("`task\n{block_indent}`= created {timestamp}"),
     }
 }
 

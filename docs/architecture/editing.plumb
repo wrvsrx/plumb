@@ -128,6 +128,13 @@ completion、delimiter closure 等 assists 可能运行在 incomplete recovered 
 mutation 的 valid owner node。它们可以返回局部 recovery text replacement，但不得伪装成 authoritative
 owned-syntax mutation，也不得进入 authoring finalization pipeline。
 
+当 completion replacement 自身生成一个完整 construct 时，它仍必须遵守对应 canonical structural layout，
+不能因绕过 authoring finalization 而选择不同的 separator 或 indentation。Snippet placeholders 与 client
+indentation projection 由 assist 层持有；展开后的非空 block head 与 children 之间使用一个 blank separator，
+empty head 与第一个 child 之间只使用一个 line ending。LSP `"adjustIndentation" 会把接受位置的 base
+indentation 添加到所有 continuation lines，因而 nested completion 的 blank separator 可以只包含该 base
+indentation；这是 client projection 允许的唯一 non-canonical whitespace，不得改变非空行的相对缩进。
+
 tree-sitter 不参与 mutation、formatting 或 range authority；它仍只服务 editor highlighting、folding、
 indentation、text objects 和 injections。
 

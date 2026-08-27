@@ -216,8 +216,10 @@ ordinary inline context 都以反引号加连字符或箭头 prefix 同时提供
 提供 Link，输入 `"->\"" 时只提供 Autolink。ordinary inline context 中的 `"c" 至 `"cite" prefix
 提供 Citation snippet；在 `"cite[...]" content 中，从 document `"bibliography" metadata 声明的
 CSL JSON files 补全 ids。单独 opening bracket prefix 不提供候选。snippet-capable client
-使用 tab stops。Task completion 根据 client 的 multiline insertion mode 投影缩进，因此在顶层或嵌套位置
-都生成相同的 canonical direct-child layout。
+使用 tab stops。Task completion 的默认非空 title 与自动生成的 `"created" child 之间保留一个 blank
+separator；不支持 snippet 的 empty-head fallback 则不插入该空行。completion 根据 client 的 multiline
+insertion mode 投影缩进，因此在顶层或嵌套位置都生成相同的 direct-child structure；使用
+`"adjustIndentation" 的 client 可以在 nested blank separator 上保留接受位置的 base indentation。
 CodeAction 包括 metadata insertion、explicit id、event shorthand conversion、task conversion、
 created insertion 和 task status operations。metadata insertion 只在 cursor 精确位于 document start（byte offset 0）
 时提供；event shorthand 的具体格式见

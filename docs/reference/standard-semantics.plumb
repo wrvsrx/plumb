@@ -646,9 +646,13 @@ Link 与 Autolink 共享 `"->" inline kind，opening envelope 负责收窄 candi
 line start 与 ordinary inline context 使用同一规则。`"task" 与 `"event" 不是 inline construct。Task skeleton
 使用 `"task" marker 并以当前本地 RFC 3339 timestamp 创建 `"created"，Event skeleton 使用 `"event"
 marker。Task replacement 本身必须使用 canonical direct-child layout：`"created" declaration 位于 owner
-column 加一。adapter 必须根据 client completion indentation capability 投影 replacement，同时保证应用后的
-source 相同：`"asIs" projection 包含 owner column 的完整绝对缩进；`"adjustIndentation" projection 省略
-client 将为每条 continuation line 添加的 owner column，只保留 declaration 相对 owner 多一个 space。client 声明支持 per-item
+column 加一；snippet 展开的默认非空 title 与该 child 之间使用一个 blank separator，不支持 snippet 的
+fallback 使用 empty head、一个 line ending 且不保留 head trailing space。adapter 必须根据 client completion
+indentation capability 投影 replacement：`"asIs" projection 包含 owner column 的完整绝对缩进；
+`"adjustIndentation" projection 省略 client 将为每条 continuation line 添加的 owner column，只保留
+declaration 相对 owner 多一个 space。两种 projection 应用后的非空行与 separator structure 必须相同；
+`"adjustIndentation" 按协议也会缩进 blank continuation line，因此 nested blank separator 可以额外包含
+owner base indentation。client 声明支持 per-item
 `"insertTextMode" override 时，adapter 优先选择 `"asIs"，否则选择 client 支持的
 `"adjustIndentation"；没有 per-item override 时使用 client 声明的 default mode，未声明 default mode
 则使用 legacy `"adjustIndentation" projection。adapter 只能在 client 声明支持 per-item mode 时设置

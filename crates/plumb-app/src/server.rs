@@ -2392,7 +2392,7 @@ mod tests {
     }
 
     #[test]
-    fn task_completion_projections_produce_the_same_source() {
+    fn task_completion_projections_preserve_canonical_layout() {
         let timestamp = "2026-08-10T12:00:00+08:00";
         let absolute = task_construct_template("  ", timestamp).snippet;
         let relative = task_construct_template(" ", timestamp).snippet;
@@ -2409,13 +2409,24 @@ mod tests {
             .collect::<Vec<_>>()
             .join("\n");
 
-        assert_eq!(adjusted, absolute);
-        assert!(absolute.contains("\n  `= created "));
-        assert!(relative.contains("\n `= created "));
+        assert_eq!(adjusted, absolute.replacen("\n\n", "\n \n", 1));
+        assert!(absolute.contains("\n\n  `= created "));
+        assert!(relative.contains("\n\n `= created "));
         assert!(!absolute.contains(" {"));
         assert!(!absolute.contains("\n}"));
         assert!(!relative.contains(" {"));
         assert!(!relative.contains("\n}"));
+
+        let expanded = format!("{}\n", relative.replace("${1:Task}", "Task"));
+        let expanded = plumb_syntax::parse(expanded);
+        assert!(expanded.is_valid(), "{:?}", expanded.diagnostics);
+        let edits = plumb_edit::format(&expanded, plumb_edit::FormatScope::Document).unwrap();
+        assert!(edits.is_empty(), "{edits:?}");
+        let plain = format!("{}\n", task_construct_template(" ", timestamp).plain);
+        let plain = plumb_syntax::parse(plain);
+        assert!(plain.is_valid(), "{:?}", plain.diagnostics);
+        let edits = plumb_edit::format(&plain, plumb_edit::FormatScope::Document).unwrap();
+        assert!(edits.is_empty(), "{edits:?}");
     }
 
     #[test]
