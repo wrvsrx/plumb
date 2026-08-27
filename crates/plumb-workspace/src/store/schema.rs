@@ -65,6 +65,10 @@ diesel::table! {
         priority -> Nullable<Integer>,
         depth -> BigInt,
         parent_start -> Nullable<BigInt>,
+        selection_start -> BigInt,
+        selection_end -> BigInt,
+        recur_text -> Nullable<Text>,
+        prev_text -> Nullable<Text>,
     }
 }
 

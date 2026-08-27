@@ -25,6 +25,7 @@ mod bibliography;
 mod scan;
 mod search;
 mod store;
+mod task_query;
 mod task_sort;
 mod tasks;
 
@@ -44,6 +45,10 @@ use search::derive_task_workflow_state;
 pub use search::{
     search_score, SearchRecord, SearchRecordKind, SearchResults, TaskWaitReason, TaskWorkflowState,
     WorkspaceSearchError,
+};
+pub use task_query::{
+    TaskPage, TaskPageQuery, TaskPageQueryError, TaskQueryFilter, TaskQueryFilterGroup,
+    WorkspaceTask,
 };
 pub use task_sort::{
     sort_task_records, sort_task_records_by, truncate_complete_task_documents, TaskSortFacts,

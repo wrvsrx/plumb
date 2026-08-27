@@ -29,8 +29,28 @@ use schema::{
 
 type TaskDependencyRow = (Vec<u8>, i64, Option<String>, Vec<u8>, String, String);
 type EventTaskAssociationRow = (Vec<u8>, i64, Vec<u8>, String, String, i64, i64);
+type TaskFactRow = (
+    Vec<u8>,
+    i64,
+    i64,
+    i64,
+    i64,
+    Option<String>,
+    String,
+    String,
+    Option<i64>,
+    Option<i64>,
+    Option<i64>,
+    Option<i64>,
+    Option<i64>,
+    Option<i32>,
+    i64,
+    Option<i64>,
+    Option<String>,
+    Option<String>,
+);
 
-const SCHEMA_VERSION: i64 = 5;
+const SCHEMA_VERSION: i64 = 6;
 const PRODUCER_VERSION: &str = env!("CARGO_PKG_VERSION");
 const MIGRATIONS: EmbeddedMigrations = embed_migrations!("migrations");
 
@@ -120,6 +140,27 @@ pub struct StoredTaskDependency {
 pub struct StoredTaskKey {
     pub path: PathBuf,
     pub start: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StoredTaskFact {
+    pub path: PathBuf,
+    pub revision: i64,
+    pub start: usize,
+    pub selection_range: Range<usize>,
+    pub id: Option<String>,
+    pub title: String,
+    pub closure_state: String,
+    pub created_millis: Option<i64>,
+    pub due_millis: Option<i64>,
+    pub wait_millis: Option<i64>,
+    pub done_millis: Option<i64>,
+    pub canceled_millis: Option<i64>,
+    pub priority: Option<i32>,
+    pub depth: usize,
+    pub parent_start: Option<usize>,
+    pub recur: Option<String>,
+    pub prev: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -457,6 +498,72 @@ impl SqliteSemanticStore {
         rows.into_iter()
             .map(|record| Ok(bincode::deserialize(&record)?))
             .collect()
+    }
+
+    pub fn task_facts(&self, excluded: &[PathBuf]) -> StoreResult<Vec<StoredTaskFact>> {
+        let mut connection = self
+            .connection
+            .lock()
+            .map_err(|_| StoreError::LockPoisoned)?;
+        let rows = tasks::table
+            .inner_join(documents::table.on(documents::path.eq(tasks::path)))
+            .select((
+                tasks::path,
+                documents::revision,
+                tasks::start,
+                tasks::selection_start,
+                tasks::selection_end,
+                tasks::id,
+                tasks::title,
+                tasks::closure_state,
+                tasks::created_millis,
+                tasks::due_millis,
+                tasks::wait_millis,
+                tasks::done_millis,
+                tasks::canceled_millis,
+                tasks::priority,
+                tasks::depth,
+                tasks::parent_start,
+                tasks::recur_text,
+                tasks::prev_text,
+            ))
+            .order((tasks::path, tasks::start))
+            .load::<TaskFactRow>(&mut *connection)?;
+        decode_task_facts(rows, excluded)
+    }
+
+    pub fn tasks_by_keys(
+        &self,
+        keys: &[StoredTaskKey],
+    ) -> StoreResult<Vec<StoredRecord<TaskRecord>>> {
+        let mut connection = self
+            .connection
+            .lock()
+            .map_err(|_| StoreError::LockPoisoned)?;
+        let mut grouped = std::collections::BTreeMap::<Vec<u8>, Vec<i64>>::new();
+        for key in keys {
+            grouped
+                .entry(path_bytes(&normalize(&key.path)))
+                .or_default()
+                .push(to_i64(key.start)?);
+        }
+        let mut records = Vec::<StoredRecord<TaskRecord>>::with_capacity(keys.len());
+        for (path, starts) in grouped {
+            let rows = tasks::table
+                .inner_join(documents::table.on(documents::path.eq(tasks::path)))
+                .filter(tasks::path.eq(path))
+                .filter(tasks::start.eq_any(starts))
+                .select((tasks::path, documents::revision, tasks::record))
+                .order(tasks::start)
+                .load::<(Vec<u8>, i64, Vec<u8>)>(&mut *connection)?;
+            records.extend(decode_records(rows.into_iter().map(Ok), &[])?);
+        }
+        records.sort_by(|left, right| {
+            left.path
+                .cmp(&right.path)
+                .then(left.record.range.start.cmp(&right.record.range.start))
+        });
+        Ok(records)
     }
 
     pub fn task_dependents(
@@ -926,6 +1033,10 @@ fn insert_output(
                 tasks::priority.eq(task.priority),
                 tasks::depth.eq(to_i64(task.depth)?),
                 tasks::parent_start.eq(parent_start),
+                tasks::selection_start.eq(to_i64(task.selection_range.start)?),
+                tasks::selection_end.eq(to_i64(task.selection_range.end)?),
+                tasks::recur_text.eq(task.recur.as_ref().map(|field| field.value.as_str())),
+                tasks::prev_text.eq(task.prev.as_ref().map(|field| field.value.as_str())),
             ))
             .execute(connection)?;
         task_ancestors.push(task.range.start);
@@ -1206,6 +1317,68 @@ fn decode_task_dependencies(
                         target_path: path_from_bytes(target_path)?,
                         target_id,
                         source,
+                    }))
+                })())
+            },
+        )
+        .filter_map(Result::transpose)
+        .collect()
+}
+
+fn decode_task_facts(
+    rows: Vec<TaskFactRow>,
+    excluded: &[PathBuf],
+) -> StoreResult<Vec<StoredTaskFact>> {
+    let mut excluded = excluded
+        .iter()
+        .map(|path| normalize(path))
+        .collect::<Vec<_>>();
+    excluded.sort();
+    rows.into_iter()
+        .filter_map(
+            |(
+                path,
+                revision,
+                start,
+                selection_start,
+                selection_end,
+                id,
+                title,
+                closure_state,
+                created_millis,
+                due_millis,
+                wait_millis,
+                done_millis,
+                canceled_millis,
+                priority,
+                depth,
+                parent_start,
+                recur,
+                prev,
+            )| {
+                Some((|| {
+                    let path = path_from_bytes(path)?;
+                    if excluded.binary_search(&path).is_ok() {
+                        return Ok(None);
+                    }
+                    Ok(Some(StoredTaskFact {
+                        path,
+                        revision,
+                        start: to_usize(start)?,
+                        selection_range: to_usize(selection_start)?..to_usize(selection_end)?,
+                        id,
+                        title,
+                        closure_state,
+                        created_millis,
+                        due_millis,
+                        wait_millis,
+                        done_millis,
+                        canceled_millis,
+                        priority,
+                        depth: to_usize(depth)?,
+                        parent_start: parent_start.map(to_usize).transpose()?,
+                        recur,
+                        prev,
                     }))
                 })())
             },
@@ -1504,6 +1677,56 @@ mod tests {
     }
 
     #[test]
+    fn task_facts_do_not_decode_records_and_page_lookup_decodes_only_selected_keys() {
+        let store = SqliteSemanticStore::open_in_memory().unwrap();
+        let source = concat!(
+            "`task First\n `@ first\n `= priority 3\n `= recur P1D\n `= due 2026-08-29T10:00:00Z\n",
+            "`task Second\n `@ second\n `= prev #first\n",
+        );
+        let output = analyzed(source);
+        let first_start = output.tasks.tasks[0].range.start;
+        let second_start = output.tasks.tasks[1].range.start;
+        store
+            .replace(Path::new("tasks.plumb"), 9, source, Some(&output))
+            .unwrap();
+
+        {
+            let mut connection = store.connection.lock().unwrap();
+            diesel::update(
+                tasks::table
+                    .filter(tasks::path.eq(path_bytes(Path::new("tasks.plumb"))))
+                    .filter(tasks::start.eq(to_i64(first_start).unwrap())),
+            )
+            .set(tasks::record.eq(vec![0xff]))
+            .execute(&mut *connection)
+            .unwrap();
+        }
+
+        let facts = store.task_facts(&[]).unwrap();
+        assert_eq!(facts.len(), 2);
+        assert_eq!(facts[0].priority, Some(3));
+        assert_eq!(facts[0].recur.as_deref(), Some("P1D"));
+        assert_eq!(facts[1].prev.as_deref(), Some("#first"));
+        assert_eq!(
+            store
+                .tasks_by_keys(&[StoredTaskKey {
+                    path: PathBuf::from("tasks.plumb"),
+                    start: second_start,
+                }])
+                .unwrap()[0]
+                .record
+                .title,
+            "Second"
+        );
+        assert!(store
+            .tasks_by_keys(&[StoredTaskKey {
+                path: PathBuf::from("tasks.plumb"),
+                start: first_start,
+            }])
+            .is_err());
+    }
+
+    #[test]
     fn queries_only_open_tasks_whose_wait_has_elapsed() {
         let store = SqliteSemanticStore::open_in_memory().unwrap();
         let source = "`task Ready\n `@ ready\n\n`task Waiting\n `@ waiting\n `= wait 2026-08-12T10:00:00Z\n\n`task Done\n `@ done\n `= done 2026-08-10T10:00:00Z\n\n`task Canceled\n `@ canceled\n `= canceled 2026-08-10T10:00:00Z\n";
@@ -1681,6 +1904,47 @@ mod tests {
                 .any(|row| row.detail.contains("event_task_associations_target")),
             "{}",
             plan.iter()
+                .map(|row| row.detail.as_str())
+                .collect::<Vec<_>>()
+                .join("; ")
+        );
+    }
+
+    #[test]
+    fn task_fact_order_queries_use_typed_indexes() {
+        let store = SqliteSemanticStore::open_in_memory().unwrap();
+        let mut connection = store.connection.lock().unwrap();
+        let source_plan = diesel::sql_query(
+            "EXPLAIN QUERY PLAN SELECT path, start FROM tasks ORDER BY path, start",
+        )
+        .load::<QueryPlanRow>(&mut *connection)
+        .unwrap();
+        assert!(
+            source_plan.iter().any(|row| {
+                row.detail.contains("tasks_source_order")
+                    || row.detail.contains("sqlite_autoindex_tasks_1")
+            }),
+            "{}",
+            source_plan
+                .iter()
+                .map(|row| row.detail.as_str())
+                .collect::<Vec<_>>()
+                .join("; ")
+        );
+
+        let due_plan = diesel::sql_query(
+            "EXPLAIN QUERY PLAN SELECT due_millis, path, start FROM tasks \
+             ORDER BY due_millis, path, start",
+        )
+        .load::<QueryPlanRow>(&mut *connection)
+        .unwrap();
+        assert!(
+            due_plan
+                .iter()
+                .any(|row| row.detail.contains("tasks_due_order")),
+            "{}",
+            due_plan
+                .iter()
                 .map(|row| row.detail.as_str())
                 .collect::<Vec<_>>()
                 .join("; ")
