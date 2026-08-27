@@ -3,192 +3,133 @@ use super::*;
 impl WebWorkspace {
     pub fn query_tasks(&self, query: &WebQuery) -> Result<TaskQuerySnapshot, QueryFailure> {
         let now = Local::now().fixed_offset();
-        let state_presets = query
-            .presets
-            .iter()
-            .filter_map(|preset| match preset.as_str() {
-                "ready" => Some(TaskWorkflowState::Ready),
-                "waiting" => Some(TaskWorkflowState::Waiting),
-                "blocked" => Some(TaskWorkflowState::Blocked),
-                "done" => Some(TaskWorkflowState::Done),
-                "canceled" => Some(TaskWorkflowState::Canceled),
-                "conflicted" => Some(TaskWorkflowState::Conflicted),
-                _ => None,
-            })
-            .collect::<HashSet<_>>();
-        let typed_state_filter = !query.presets.is_empty()
-            && state_presets.len() == query.presets.iter().collect::<HashSet<_>>().len();
-        let mut retained = if typed_state_filter {
-            Some(
-                self.workspace
-                    .task_keys_for_states(&state_presets, now)
-                    .map_err(|error| QueryFailure {
-                        source: "state".to_string(),
-                        message: error.to_string(),
-                    })?
-                    .value
-                    .into_iter()
-                    .map(|task| (display_path(&self.root, &task.path), task.start))
-                    .collect::<BTreeSet<_>>(),
-            )
-        } else {
-            None
-        };
-        let preset_groups = resolve_presets(&query.presets, TASK_PRESETS)?;
-        for group in preset_groups
+        let mut filter_groups = resolve_presets(&query.presets, TASK_PRESETS)?
             .into_iter()
-            .filter(|group| !(typed_state_filter && group.key == "state"))
-        {
-            let mut matching = BTreeSet::new();
-            for (source, expression) in group.expressions {
-                let records = self
-                    .workspace
-                    .search_records_filtered(
-                        &self.root,
-                        Some(SearchRecordKind::Task),
-                        "",
-                        usize::MAX,
-                        now,
-                        Some(expression),
-                    )
-                    .map_err(|error| QueryFailure {
-                        source,
-                        message: error.to_string(),
-                    })?
-                    .value;
-                matching.extend(
-                    records
-                        .items
-                        .into_iter()
-                        .map(|record| (record.relative_path, record.range.start)),
-                );
-            }
-            intersect_keys(&mut retained, matching);
-        }
-        for (source, expression) in custom_filters(query) {
-            let records = self
-                .workspace
-                .search_records_filtered(
-                    &self.root,
-                    Some(SearchRecordKind::Task),
-                    "",
-                    usize::MAX,
-                    now,
-                    Some(expression),
-                )
-                .map_err(|error| QueryFailure {
-                    source,
-                    message: error.to_string(),
-                })?
-                .value;
-            intersect_keys(
-                &mut retained,
-                records
-                    .items
+            .map(|group| TaskQueryFilterGroup {
+                filters: group
+                    .expressions
                     .into_iter()
-                    .map(|record| (record.relative_path, record.range.start)),
-            );
-        }
-
-        if !query.query.is_empty() {
-            let matching = self
-                .workspace
-                .search_records(
-                    &self.root,
-                    Some(SearchRecordKind::Task),
-                    &query.query,
-                    usize::MAX,
-                    now,
-                )
-                .map_err(|error| QueryFailure {
-                    source: "query".to_string(),
-                    message: error.to_string(),
-                })?
-                .value
-                .items
-                .into_iter()
-                .map(|record| (record.relative_path, record.range.start))
-                .collect::<BTreeSet<_>>();
-            intersect_keys(&mut retained, matching);
-        }
-        let needs_priority_relations = query.sort.contains(&QuerySort::Priority);
-        let snapshot = self
-            .task_snapshot(retained.as_ref(), needs_priority_relations)
-            .map_err(|message| QueryFailure {
-                source: "workspace".to_string(),
-                message,
-            })?;
-        let mut tasks = snapshot.tasks;
-        let mut scores = HashMap::new();
-        let retained_keys = tasks
-            .iter()
-            .filter_map(|task| {
-                let key = (task.path.clone(), task.location.start);
-                if retained.as_ref().is_some_and(|items| !items.contains(&key)) {
-                    return None;
-                }
-                let score = search_score(
-                    &query.query,
-                    &[
-                        &task.title,
-                        task.id.as_deref().unwrap_or_default(),
-                        &task.path,
-                    ],
-                );
-                if let Some(score) = score {
-                    scores.insert(task.key.clone(), score);
-                    Some(task.key.clone())
-                } else {
-                    None
-                }
+                    .map(|(source, expression)| TaskQueryFilter {
+                        source,
+                        expression: expression.to_string(),
+                    })
+                    .collect(),
             })
-            .collect::<BTreeSet<_>>();
-        tasks.retain(|task| retained_keys.contains(&task.key));
-        sort_task_tree(&mut tasks, &query.sort, &scores);
-        apply_task_cursor(&mut tasks, query, self.revision)?;
-        let limit = query.limit.unwrap_or(usize::MAX);
-        let complete = tasks.len() <= limit;
-        truncate_complete_task_documents(&mut tasks, limit, |task| &task.path);
-        let next_cursor = (!complete)
-            .then(|| {
-                tasks
-                    .last()
-                    .map(|task| encode_task_cursor(query, self.revision, &task.path))
-            })
-            .flatten();
-        let page_keys = tasks
-            .iter()
-            .map(|task| (task.path.clone(), task.location.start))
-            .collect::<BTreeSet<_>>();
-        let page_order = tasks
-            .iter()
-            .enumerate()
-            .map(|(index, task)| (task.key.clone(), index))
-            .collect::<HashMap<_, _>>();
-        let page_priorities = tasks
-            .iter()
-            .map(|task| (task.key.clone(), task.effective_priority))
-            .collect::<HashMap<_, _>>();
-        let mut tasks = self
-            .task_snapshot(Some(&page_keys), true)
-            .map_err(|message| QueryFailure {
-                source: "workspace".to_string(),
-                message,
-            })?
-            .tasks;
-        for task in &mut tasks {
-            if let Some(priority) = page_priorities.get(&task.key) {
-                task.effective_priority = *priority;
+            .collect::<Vec<_>>();
+        filter_groups.extend(custom_filters(query).map(|(source, expression)| {
+            TaskQueryFilterGroup {
+                filters: vec![TaskQueryFilter {
+                    source,
+                    expression: expression.to_string(),
+                }],
+            }
+        }));
+        let mut sort = Vec::new();
+        for order in &query.sort {
+            let order = match order {
+                QuerySort::Source => TaskSortOrder::Source,
+                QuerySort::Priority => TaskSortOrder::Priority,
+                QuerySort::Due => TaskSortOrder::Due,
+                QuerySort::Relevance => TaskSortOrder::Relevance,
+            };
+            if !sort.contains(&order) {
+                sort.push(order);
             }
         }
-        tasks.sort_by_key(|task| page_order.get(&task.key).copied().unwrap_or(usize::MAX));
+        let page = self
+            .workspace
+            .query_task_page(&TaskPageQuery {
+                root: self.root.clone(),
+                text: query.query.clone(),
+                filter_groups,
+                sort,
+                limit: query.limit.unwrap_or(usize::MAX),
+                cursor: query.cursor.clone(),
+                workspace_revision: self.revision,
+                now,
+            })
+            .map_err(task_query_failure)?
+            .value;
+        let mut tasks = page
+            .tasks
+            .into_iter()
+            .filter_map(|task| self.web_task(task))
+            .collect::<Vec<_>>();
+        assign_task_parents(&mut tasks);
         Ok(TaskQuerySnapshot {
             revision: self.revision,
             tasks,
             all_tasks: Vec::new(),
-            complete,
-            next_cursor,
-            documents: snapshot.documents,
+            complete: page.complete,
+            next_cursor: page.next_cursor,
+            documents: self.task_documents().map_err(|message| QueryFailure {
+                source: "workspace".to_string(),
+                message,
+            })?,
+        })
+    }
+
+    fn web_task(&self, item: WorkspaceTask) -> Option<WebTask> {
+        let document_id = self.document_id(&item.path)?.to_string();
+        let task = item.task;
+        let id = task.id.as_ref().map(|field| field.value.clone());
+        let key = id.as_ref().map_or_else(
+            || format!("{document_id}:{}", task.range.start),
+            |id| format!("{document_id}:{id}"),
+        );
+        let locator = id.as_ref().map_or_else(
+            || WebTaskLocator::Offset {
+                offset: task.range.start,
+            },
+            |id| WebTaskLocator::Id { id: id.clone() },
+        );
+        Some(WebTask {
+            key,
+            document_id,
+            title: task.title.clone(),
+            path: display_path(&self.root, &item.path),
+            revision: item.revision.to_string(),
+            id,
+            locator,
+            state: item.state.as_str().to_string(),
+            created: task.created.as_ref().map(|field| field.value.clone()),
+            due: task.due.as_ref().map(|field| field.value.clone()),
+            priority: task.priority,
+            effective_priority: item.effective_priority,
+            wait: task.wait.as_ref().map(|field| field.value.clone()),
+            done: task.done.as_ref().map(|field| field.value.clone()),
+            canceled: task.canceled.as_ref().map(|field| field.value.clone()),
+            recur: task.recur.as_ref().map(|field| field.value.clone()),
+            prev: task.prev.as_ref().map(|field| field.value.clone()),
+            prev_on: item
+                .previous
+                .as_ref()
+                .map(|target| display_task_ref(&self.root, target)),
+            depends: task
+                .depends
+                .iter()
+                .map(|dependency| dependency.source.clone())
+                .collect(),
+            depends_on: item
+                .depends_on
+                .iter()
+                .map(|target| display_task_ref(&self.root, target))
+                .collect(),
+            directly_blocking: item
+                .directly_blocking
+                .iter()
+                .map(|target| display_task_ref(&self.root, target))
+                .collect(),
+            blocked: item.blocked,
+            actionable: item.actionable,
+            wait_reasons: item
+                .wait_reasons
+                .into_iter()
+                .map(|reason| reason.as_str().to_string())
+                .collect(),
+            depth: task.depth,
+            parent_key: None,
+            location: SourceLocation::new(&self.root, &item.path, task.selection_range),
         })
     }
 
@@ -316,48 +257,18 @@ impl WebWorkspace {
     }
 }
 
-fn task_query_signature(query: &WebQuery) -> String {
-    let mut normalized = query.clone();
-    normalized.cursor = None;
-    let bytes = serde_json::to_vec(&normalized).expect("web query is serializable");
-    format!("{:x}", Sha256::digest(bytes))
-}
-
-fn encode_task_cursor(query: &WebQuery, revision: u64, last_document: &str) -> String {
-    format!("{revision}:{}:{last_document}", task_query_signature(query))
-}
-
-fn apply_task_cursor(
-    tasks: &mut Vec<WebTask>,
-    query: &WebQuery,
-    revision: u64,
-) -> Result<(), QueryFailure> {
-    let Some(cursor) = &query.cursor else {
-        return Ok(());
-    };
-    let mut parts = cursor.splitn(3, ':');
-    let cursor_revision = parts.next().and_then(|value| value.parse::<u64>().ok());
-    let signature = parts.next();
-    let last_document = parts.next();
-    let expected_signature = task_query_signature(query);
-    if cursor_revision != Some(revision)
-        || signature != Some(expected_signature.as_str())
-        || last_document.is_none()
-    {
-        return Err(QueryFailure {
+fn task_query_failure(error: TaskPageQueryError) -> QueryFailure {
+    match error {
+        TaskPageQueryError::Filter { source, message } => QueryFailure { source, message },
+        TaskPageQueryError::Cursor(message) => QueryFailure {
             source: "cursor".to_string(),
-            message: "task cursor is stale or does not match this query".to_string(),
-        });
+            message,
+        },
+        TaskPageQueryError::Query(error) => QueryFailure {
+            source: "workspace".to_string(),
+            message: error.to_string(),
+        },
     }
-    let last_document = last_document.unwrap();
-    let Some(last_index) = tasks.iter().rposition(|task| task.path == last_document) else {
-        return Err(QueryFailure {
-            source: "cursor".to_string(),
-            message: "task cursor no longer identifies a result document".to_string(),
-        });
-    };
-    tasks.drain(..=last_index);
-    Ok(())
 }
 
 fn custom_filters(query: &WebQuery) -> impl Iterator<Item = (String, &str)> {
@@ -430,14 +341,6 @@ fn compile_program_group(
                 })
         })
         .collect()
-}
-
-fn intersect_keys<T: Ord>(retained: &mut Option<BTreeSet<T>>, values: impl IntoIterator<Item = T>) {
-    let values = values.into_iter().collect::<BTreeSet<_>>();
-    match retained {
-        Some(retained) => retained.retain(|value| values.contains(value)),
-        None => *retained = Some(values),
-    }
 }
 
 fn graph_node_matches(

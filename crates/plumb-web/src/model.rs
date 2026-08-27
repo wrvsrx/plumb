@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
@@ -8,11 +8,11 @@ use chrono::{Local, SecondsFormat};
 use plumb_semantics::{DocumentOutput, LinkSpelling, TaskRecord, TaskStatus};
 use plumb_workspace::{
     apply_document_edit, display_workspace_path as display_path, load_bibliography, normalize,
-    scan_workspace_files, search_score, sort_task_records_by, truncate_complete_task_documents,
-    ApplyDocumentEditError, DocumentEntry, EventEditError, EventInput, ResolvedTarget,
-    SearchRecordKind, SqliteSemanticStore, TaskAuthoringError, TaskAuthoringInput, TaskPlacement,
-    TaskRef, TaskSortFacts, TaskSortOrder, TaskWorkflowState, Workspace, WorkspaceEvent,
-    WorkspaceEventCursor, WorkspaceOperationError,
+    scan_workspace_files, search_score, sort_task_records_by, ApplyDocumentEditError,
+    DocumentEntry, EventEditError, EventInput, ResolvedTarget, SearchRecordKind,
+    SqliteSemanticStore, TaskAuthoringError, TaskAuthoringInput, TaskPageQuery, TaskPageQueryError,
+    TaskPlacement, TaskQueryFilter, TaskQueryFilterGroup, TaskRef, TaskSortFacts, TaskSortOrder,
+    Workspace, WorkspaceEvent, WorkspaceEventCursor, WorkspaceOperationError, WorkspaceTask,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -929,16 +929,14 @@ impl WebWorkspace {
     fn task_documents(&self) -> Result<Vec<WebTaskDocument>, String> {
         let mut documents = Vec::new();
         for (path, id) in &self.document_ids {
-            let Some(entry) = self.document_entry(path)? else {
+            let Some(document) = self.documents.get(path) else {
                 continue;
             };
-            if entry.current.is_some() {
-                documents.push(WebTaskDocument {
-                    id: id.clone(),
-                    path: display_path(&self.root, path),
-                    revision: entry.revision.to_string(),
-                });
-            }
+            documents.push(WebTaskDocument {
+                id: id.clone(),
+                path: display_path(&self.root, path),
+                revision: document.revision.to_string(),
+            });
         }
         Ok(documents)
     }
@@ -2032,6 +2030,11 @@ mod tests {
         assert!(first.documents[&path].entry.get().is_none());
         let warm = WebWorkspace::load_with_revision(&root, 2).unwrap();
         assert!(warm.documents[&path].generation_reused);
+        assert!(warm.documents[&path].entry.get().is_none());
+        assert_eq!(
+            warm.query_tasks(&WebQuery::default()).unwrap().tasks[0].title,
+            "First"
+        );
         assert!(warm.documents[&path].entry.get().is_none());
 
         std::fs::write(&path, "`task Second\n  `@ second\n").unwrap();
