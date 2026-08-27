@@ -12,7 +12,7 @@ plumb 是一门严格、语义中立的 markup language，也是一套围绕它�
 
 `sh
 
-"
+|"
  cargo build
  cargo test --workspace
  cargo check --workspace --all-targets
@@ -21,7 +21,7 @@ plumb 是一门严格、语义中立的 markup language，也是一套围绕它�
 
 `sh
 
-"
+|"
  cargo run -- check --root docs
  cargo run -- fmt document.plumb
  cargo run -- export document.plumb | pandoc --from=json --to=gfm
@@ -44,5 +44,5 @@ plumb 是一门严格、语义中立的 markup language，也是一套围绕它�
 
 `sh
 
-"
+|"
  plumb export README.plumb | pandoc --from=json --to=gfm --wrap=none --lua-filter=scripts/readme.lua --output=README.md

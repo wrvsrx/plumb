@@ -508,7 +508,7 @@ impl Parser<'_> {
                 self.diagnostics.push(Diagnostic::error(
                     "syntax.unattached-raw-tail",
                     "raw-tail boundary has no open marked owner at this column",
-                    start..start + quote_count,
+                    start..start + 1 + quote_count,
                 ));
                 frames.last_mut().unwrap().cursor += 1;
                 continue;
@@ -556,12 +556,16 @@ impl Parser<'_> {
         if line.blank || line.has_tab_indent || line.indent != indent {
             return None;
         }
-        let quote_count = self.source[start..line.content_end]
+        if self.source.as_bytes().get(start) != Some(&b'|') {
+            return None;
+        }
+        let quote_start = start + 1;
+        let quote_count = self.source[quote_start..line.content_end]
             .bytes()
             .take_while(|byte| *byte == b'"')
             .count();
         (quote_count > 0
-            && self.source[start + quote_count..line.content_end]
+            && self.source[quote_start + quote_count..line.content_end]
                 .bytes()
                 .all(|byte| matches!(byte, b' ' | b'\t')))
         .then_some(quote_count)
@@ -795,7 +799,7 @@ impl Parser<'_> {
         let boundary_range = if self.source.as_bytes()[boundary_start] == b'`' {
             boundary_start + 1..boundary_start + 1 + quote_count
         } else {
-            boundary_start..boundary_start + quote_count
+            boundary_start..boundary_start + 1 + quote_count
         };
         let body_indent = owner_indent + quote_count;
         let mut next = boundary_index + 1;
@@ -1013,7 +1017,11 @@ impl Parser<'_> {
 
                 let at_member_start =
                     !frame.member_complete && frame.items.is_empty() && cursor == frame.start;
-                if at_member_start && byte == b'"' {
+                if at_member_start
+                    && frame.separator_range.is_some()
+                    && byte == b'"'
+                    && starts_full_verbatim_envelope(self.source, cursor, end)
+                {
                     let separator_range = frame.separator_range.clone();
                     if let Some(argument) = self.parse_verbatim_argument(
                         cursor,
@@ -1060,7 +1068,7 @@ impl Parser<'_> {
                                 });
                                 continue;
                             }
-                            b'"' => {
+                            b'"' if starts_full_verbatim_envelope(self.source, kind_end, end) => {
                                 let separator_range = frame.separator_range.clone().unwrap();
                                 if let Some(argument) = self.parse_verbatim_argument(
                                     kind_end,
@@ -1403,32 +1411,21 @@ impl Parser<'_> {
             .count();
         debug_assert!(quote_count > 0);
         let bracket_open = quote_start + quote_count;
-        if bracket_open < limit && self.source.as_bytes()[bracket_open] == b'[' {
-            if let Some((close, after_close)) =
-                find_verbatim_close(self.source, bracket_open + 1, limit, quote_count)
-            {
-                return Some(VerbatimArgument {
-                    range: quote_start..after_close,
-                    separator_range,
-                    text: self.source[bracket_open + 1..close].to_string(),
-                    text_range: bracket_open + 1..close,
-                    quote_count,
-                    bracketed: true,
-                });
-            }
-        } else if quote_count == 1 {
-            let payload_start = quote_start + 1;
-            if let Some(relative_close) = self.source[payload_start..limit].find('"') {
-                let close = payload_start + relative_close;
-                return Some(VerbatimArgument {
-                    range: quote_start..close + 1,
-                    separator_range,
-                    text: self.source[payload_start..close].to_string(),
-                    text_range: payload_start..close,
-                    quote_count: 1,
-                    bracketed: false,
-                });
-            }
+        debug_assert!(
+            bracket_open < limit && self.source.as_bytes()[bracket_open] == b'[',
+            "verbatim members require a full bracket envelope"
+        );
+        if let Some((close, after_close)) =
+            find_verbatim_close(self.source, bracket_open + 1, limit, quote_count)
+        {
+            return Some(VerbatimArgument {
+                range: quote_start..after_close,
+                separator_range,
+                text: self.source[bracket_open + 1..close].to_string(),
+                text_range: bracket_open + 1..close,
+                quote_count,
+                bracketed: true,
+            });
         }
 
         self.diagnostics.push(Diagnostic::error(
@@ -1518,6 +1515,15 @@ fn flush_inline_text(source: &str, frame: &mut InlineFrame, end: usize) {
     frame.text_start = end;
 }
 
+fn starts_full_verbatim_envelope(source: &str, quote_start: usize, limit: usize) -> bool {
+    let quote_count = source[quote_start..limit]
+        .bytes()
+        .take_while(|byte| *byte == b'"')
+        .count();
+    let bracket_open = quote_start + quote_count;
+    quote_count > 0 && bracket_open < limit && source.as_bytes()[bracket_open] == b'['
+}
+
 fn find_verbatim_close(
     source: &str,
     mut cursor: usize,
@@ -1570,7 +1576,7 @@ mod tests {
 
     #[test]
     fn parsed_owner_has_one_raw_tail_after_its_children() {
-        let source = "`rust\n\n `@ example\n\n `note nested\n\n\"\n fn main() {}\n \"\n tail\n";
+        let source = "`rust\n\n `@ example\n\n `note nested\n\n|\"\n fn main() {}\n \"\n tail\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let Block::Parsed(owner) = &parsed.syntax.blocks[0] else {
@@ -1602,8 +1608,15 @@ mod tests {
     }
 
     #[test]
-    fn bare_quote_without_an_owner_is_an_error() {
-        let parsed = parse("\"\n raw\n");
+    fn quote_only_paragraph_is_ordinary_text_and_unattached_raw_tail_is_an_error() {
+        let parsed = parse("\"\n");
+        assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
+        let [Block::Parsed(paragraph)] = parsed.syntax.blocks.as_slice() else {
+            panic!("expected quote paragraph");
+        };
+        assert_eq!(paragraph.head.plain_text(), "\"");
+
+        let parsed = parse("|\"\n raw\n");
         assert!(!parsed.is_valid());
         assert!(parsed
             .diagnostics
@@ -1636,7 +1649,7 @@ mod tests {
 
     #[test]
     fn parses_inline_arguments_children_and_projected_declarations() {
-        let source = "`pair[first|\"second raw\"|tag[value]|code\"raw child\"|@[main]|+[external]|=[to|guide.plumb]]\n";
+        let source = "`pair[first|\"[second raw]\"|tag[value]|code\"[raw child]\"|@[main]|+[external]|=[to|guide.plumb]]\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let Block::Parsed(paragraph) = &parsed.syntax.blocks[0] else {
@@ -1732,7 +1745,7 @@ mod tests {
 
     #[test]
     fn quote_count_declares_marked_raw_tail_margin() {
-        let parsed = parse("`rust\n\"\"\"\n   first\n     indented\nnext\n");
+        let parsed = parse("`rust\n|\"\"\"\n   first\n     indented\nnext\n");
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let Block::Parsed(owner) = &parsed.syntax.blocks[0] else {
             panic!("expected marked owner");
@@ -1740,8 +1753,63 @@ mod tests {
         let raw = owner.raw.as_ref().expect("expected raw tail");
         assert_eq!(raw.quote_count, 3);
         assert_eq!(raw.text, "first\n  indented\n");
-        assert_eq!(raw.boundary_range, 6..9);
+        assert_eq!(raw.boundary_range, 6..10);
         assert_eq!(parsed.syntax.blocks.len(), 2);
+    }
+
+    #[test]
+    fn compact_quotes_inside_members_remain_parsed_arguments() {
+        let parsed = parse("`owner[\"quoted\"|code\"raw\"|\"[verbatim]\"|code\"[child]\"]\n");
+        assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
+        let Block::Parsed(paragraph) = &parsed.syntax.blocks[0] else {
+            panic!("expected paragraph");
+        };
+        let [Inline::Element { members, .. }] = paragraph.head.items.as_slice() else {
+            panic!("expected owner");
+        };
+        assert!(
+            matches!(&members[0], InlineMember::ParsedArgument(argument) if argument.content.plain_text() == "\"quoted\"")
+        );
+        assert!(
+            matches!(&members[1], InlineMember::ParsedArgument(argument) if argument.content.plain_text() == "code\"raw\"")
+        );
+        assert!(
+            matches!(&members[2], InlineMember::VerbatimArgument(argument) if argument.text == "verbatim")
+        );
+        assert!(
+            matches!(&members[3], InlineMember::Child { inline, .. } if matches!(inline.as_ref(), Inline::Verbatim { kind, text, .. } if kind == "code" && text == "child"))
+        );
+    }
+
+    #[test]
+    fn first_inline_member_must_be_a_parsed_argument() {
+        for source in ["`owner[\"[raw]\"]\n", "`owner[child[value]]\n"] {
+            let parsed = parse(source);
+            assert!(!parsed.is_valid(), "{source:?} unexpectedly parsed");
+            assert!(
+                parsed
+                    .diagnostics
+                    .iter()
+                    .any(|diagnostic| diagnostic.code == "syntax.unattached-bracket"),
+                "{:?}",
+                parsed.diagnostics
+            );
+        }
+
+        let parsed = parse("`owner[|\"[raw]\"]\n");
+        assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
+        let Block::Parsed(paragraph) = &parsed.syntax.blocks[0] else {
+            panic!("expected paragraph");
+        };
+        let [Inline::Element { members, .. }] = paragraph.head.items.as_slice() else {
+            panic!("expected owner");
+        };
+        assert!(
+            matches!(&members[0], InlineMember::ParsedArgument(argument) if argument.content.items.is_empty())
+        );
+        assert!(
+            matches!(&members[1], InlineMember::VerbatimArgument(argument) if argument.text == "raw")
+        );
     }
 
     #[test]

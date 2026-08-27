@@ -136,7 +136,7 @@ mod tests {
 
     #[test]
     fn recognizes_verbatim_math_and_ignores_dollar_facets() {
-        let source = "Inline `$\"x^2\".\n\n`$\n `@ display\n\n\"\n x^2\n\n`$\n `= language mathml\n\n\"\n <math/>\n\n`div Not raw\n `+ $\n\n`span[x|+[$]]\n";
+        let source = "Inline `$\"x^2\".\n\n`$\n `@ display\n\n|\"\n x^2\n\n`$\n `= language mathml\n\n|\"\n <math/>\n\n`div Not raw\n `+ $\n\n`span[x|+[$]]\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let output = analyze_math(&parsed.syntax);

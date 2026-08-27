@@ -10,7 +10,7 @@ directory 向上选择最近的 marker；找不到 marker 时使用当前 direct
 
 `text
 
-"
+|"
   notes/
     .plumb/
     .ignore
@@ -30,7 +30,7 @@ root parent、`".gitignore"、Git global ignore 或 `".git/info/exclude"。dot f
 
 `gitignore
 
-"
+|"
   .git/
   .obsidian/
   private/
@@ -48,7 +48,7 @@ workspace features，应显式将其作为 root，或在其中创建 `".plumb/"�
 
 `text
 
-"
+|"
   plumb note --query 'title.contains("parser")'
   plumb note --interactive
   plumb task --query 'state == "ready" && due < now'
@@ -127,7 +127,7 @@ opener start。把 server 暴露到非-loopback network 前需要自行提供访
 
 `sh
 
-"
+|"
  plumb site serve --host 127.0.0.1 --port 3000 \
    --public-origin https://zettelkasten.example.org:9162
 
@@ -140,7 +140,7 @@ responses 写入 stderr。task operation 同时记录 received、rejected reason
 
 `text
 
-"
+|"
   plumb site serve: received task complete for DOCUMENT (Id { id: "TASK" })
   plumb site serve: POST /api/task/DOCUMENT/complete -> 409
 
@@ -148,7 +148,7 @@ responses 写入 stderr。task operation 同时记录 received、rejected reason
 
 `text
 
-"
+|"
   plumb site serve --exclude 'path in ["closed.plumb", "diary.plumb"]'
 
 `".ignore" 与 graph CEL 的职责不同：前者阻止 document 进入整个 workspace index；后者保留 document

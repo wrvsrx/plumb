@@ -16,31 +16,36 @@ current syntax 让一个 inline owner 只使用一对 `"[]" envelope。envelope 
 分隔；member 自身的 form 同时决定它是 argument 还是 direct child，以及它使用 parsed content 还是
 verbatim payload。ownership 因而来自递归 nesting，不来自 marker/kind 的标准语义。
 
+opening bracket 后固定存在 first parsed argument，它可以为空。这个 head-like member 不写前导 `"|"，
+其余三种 form 只能在 separator 后 dispatch；因此每个 owner 都有稳定的 parsed head，且不存在
+zero-member element。
+
 `# 四种 member
 
 member 形成以下正交组合：
 
 `plumb
 
-"
+|"
   parsed argument     `node[ordinary content]
-  verbatim argument   `node["raw content"]
+  verbatim argument   `node[|"[raw content]"]
   parsed child        `node[head|note[parsed child]]
-  verbatim child      `node[head|code"raw child"]
+  verbatim child      `node[head|code"[raw child]"]
 
 在 member boundary 上，dispatch 为：
 
-`- opening quote 开始 verbatim argument；它没有 kind。
+`- opening bracket 后固定开始 parsed argument；这里不执行其他 member dispatch。
+`- 后续 boundary 上，full quote/bracket envelope 开始 verbatim argument；它没有 kind。
 `- 非空 kind 后跟 opening bracket 开始 parsed child；child spelling 省略 introducer。
-`- 非空 kind 后跟 opening quote 开始 verbatim child；child spelling省略 introducer。
-`- 其他 source 开始 parsed argument；其中 nested inline element 继续显式使用 introducer。
+`- 非空 kind 后跟 full quote/bracket envelope 开始 verbatim child；child spelling省略 introducer。
+`- 后续 boundary 上的其他 source 开始 parsed argument；其中 nested inline element 继续显式使用 introducer。
 
 因此有 introducer 的 nested element 属于 argument content，而省略 introducer、独占 member 的 element
 是 owner 的 direct child：
 
 `plumb
 
-"
+|"
   `node[head|`note[value]]
   `node[head|note[value]]
 
@@ -49,8 +54,8 @@ direct parsed child。verbatim argument 与 child 同样由 kind presence 区分
 
 `plumb
 
-"
-  `node[head|"raw argument"|code"raw child"]
+|"
+  `node[head|"[raw argument]"|code"[raw child]"]
 
 parsed/verbatim child 必须恰好占满一个 member；完整 child 后只能出现当前 owner 的 `"|" 或 closing
 bracket。child 可以使用同一 member grammar 递归拥有 arguments 与 children。core 不保留 kind 集合，
@@ -63,7 +68,7 @@ members：
 
 `plumb
 
-"
+|"
   `->[Guide|guide.plumb|@[main]|+[external]|=[rel|nofollow]]
 
 `"|" 只作用于当前 bracket depth；verbatim payload 中的 `"|" 是 raw byte，nested child 内的 `"|"
@@ -71,16 +76,18 @@ members：
 始终属于当前 argument content，不建立 member boundary；canonical source 不把 padding spaces 添加到
 `"|" 两侧。
 
-argument 与 child 可以任意交错。syntax tree 必须按 source order 保存统一的 member sequence，而不是
+first parsed argument 后，argument 与 child 可以任意交错。syntax tree 必须按 source order 保存统一的
+member sequence，而不是
 分别存储两个会丢失交错位置的 vectors：
 
 `plumb
 
-"
+|"
   InlineMember = ParsedArgument | VerbatimArgument | ParsedChild | VerbatimChild
 
-semantic consumer 可以分别过滤 argument 与 child views，但不得重排 source。guide 可以推荐先写
-arguments、再写 declaration children，parser、formatter 与 authoritative operations 不强制该顺序。
+semantic consumer 可以分别过滤 argument 与 child views，但不得重排 source。guide 可以推荐在 first
+argument 后先写其余 arguments、再写 declaration children，parser、formatter 与 authoritative operations
+不强制后续顺序。
 
 `# Block 与 inline 的 separator
 
@@ -101,7 +108,7 @@ index。以 Link 为例，first argument 是 label，second argument 是 target�
 
 `plumb
 
-"
+|"
   `->[Guide|@[main]|guide.plumb|note[recommended]]
 
 这里 target 仍是 `"guide.plumb"；不能通过寻找“第二个不是 `"@"、`"+"、`"=" 的 member”来猜测
@@ -138,7 +145,7 @@ converter 才把旧节点 lowering 为 current owned syntax：
 
 `plumb
 
-"
+|"
   legacy source
     -> legacy parser
     -> legacy syntax tree

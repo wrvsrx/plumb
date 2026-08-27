@@ -26,7 +26,8 @@ document is being edited; it does not make malformed syntax valid to the strict 
 Parsed inline elements use the current single-envelope member model. Top-level
 `"member_separator" nodes divide ordered arguments and children; `"inline_child"
 wraps a recursive `"inline_element" or `"inline_verbatim" without assigning meaning
-to its kind. `"verbatim_argument" represents a raw positional member. Inline owners use
+to its kind. The first member is always parsed content and may be empty;
+`"verbatim_argument" represents a later raw positional member. Inline owners use
 only this single envelope; block and document ownership use source-ordered direct children,
 with no postfix attached-group nodes.
 
@@ -57,7 +58,7 @@ Run generation through the repository's locked Nix environment:
 
 `sh
 
-"
+|"
   cd tree-sitter-plumb
   nix develop .#tree-sitter-plumb -c tree-sitter generate
 
@@ -86,7 +87,7 @@ Build the parser explicitly through the locked Nix environment:
 
 `sh
 
-"
+|"
   ./tree-sitter-plumb/build-parser.sh
 
 The ignored output is written to `"tree-sitter-plumb/build/plumb.so". Re-run the
@@ -100,7 +101,7 @@ artifacts first:
 
 `sh
 
-"
+|"
   ./tree-sitter-plumb/build-parser.sh
   cargo build -p plumb
 
@@ -108,14 +109,14 @@ Enable the configuration locally with an ignored symlink:
 
 `sh
 
-"
+|"
   ln -s dev/nvim.lua .nvim.lua
 
 Enable trusted project-local configuration in your global Neovim `"init.lua"：
 
 `lua
 
-"
+|"
   vim.o.exrc = true
 
 Then start Neovim in this repository and approve `".nvim.lua" with `":trust" when
@@ -127,7 +128,7 @@ The highlight query can be checked outside Neovim with the tracked fixture:
 
 `sh
 
-"
+|"
   nix develop .#tree-sitter-plumb -c tree-sitter query \
     --config-path tree-sitter-plumb/config.json \
     -p tree-sitter-plumb \
@@ -140,7 +141,7 @@ compares it with the real generated parser's node kinds, nesting, and stable byt
 
 `sh
 
-"
+|"
   nix develop .#tree-sitter-plumb -c tree-sitter-plumb/check-strict-valid.sh
 
 The Neovim injection regression test loads the locked Python parser and verifies both recursive
@@ -148,7 +149,7 @@ plumb blocks and indentation-sensitive Python highlights:
 
 `sh
 
-"
+|"
   nix develop .#tree-sitter-plumb -c \
     nvim --headless --clean -l contrib/nvim/tests/treesitter_injection_e2e.lua
 

@@ -19,7 +19,7 @@ directory 加入 `"runtimepath"。在打开首个 plumb buffer 前显式调用 s
 
 `lua
 
-"
+|"
   require('plumb').setup({
     command = 'plumb',
     lsp = { root_markers = { '.plumb', '.git' } },
@@ -32,7 +32,7 @@ clients，并可直接接受 function-valued options：
 
 `lua
 
-"
+|"
   require('plumb').setup({
     lsp = { on_attach = function(client, bufnr) end },
   })
@@ -46,7 +46,7 @@ verbatim payload 中真实 tab bytes 的显示宽度继续服从用户配置。
 
 `lua
 
-"
+|"
   vim.filetype.add({ extension = { plumb = 'plumb' } })
 
   local capabilities = vim.lsp.protocol.make_client_capabilities()
@@ -78,7 +78,7 @@ diagnostics。parser 与 queries 独立于 `"plumb.nvim" 安装；plugin 不注�
 
 `lua
 
-"
+|"
   vim.api.nvim_create_autocmd('FileType', {
     pattern = 'plumb',
     callback = function(args)
@@ -90,7 +90,7 @@ repository development 使用 `"dev/nvim.lua" 加载当前 checkout 的 parser �
 
 `text
 
-"
+|"
   ./tree-sitter-plumb/build-parser.sh
   nvim -u dev/nvim.lua document.plumb
 
@@ -145,7 +145,7 @@ plugin 不修改 window-local folding 设置。editor configuration 可以在 `"
 
 `lua
 
-"
+|"
   vim.api.nvim_create_autocmd('LspAttach', {
     callback = function(args)
       local client = vim.lsp.get_client_by_id(args.data.client_id)
@@ -180,7 +180,7 @@ range 会扣除 nested task blocks，child task 始终按自身状态着色。�
 
 `lua
 
-"
+|"
   vim.api.nvim_set_hl(0, '@lsp.typemod.task.completed.plumb', {
     link = 'Comment',
   })
@@ -197,7 +197,7 @@ range 会扣除 nested task blocks，child task 始终按自身状态着色。�
 
 `lua
 
-"
+|"
   vim.keymap.set('n', 'gd', vim.lsp.buf.definition)
   vim.keymap.set('n', 'gr', vim.lsp.buf.references)
   vim.keymap.set('n', '<leader>rn', vim.lsp.buf.rename)
@@ -235,7 +235,7 @@ stem 时不写 `".plumb" extension，server 会自动保留它。operation 不�
 
 `lua
 
-"
+|"
   vim.keymap.set('n', '<leader>pn', function()
     require('plumb.search').search_notes()
   end)
@@ -257,7 +257,7 @@ stem 时不写 `".plumb" extension，server 会自动保留它。operation 不�
 
 `text
 
-"
+|"
   :lua require('plumb.search').search_notes()
   :lua require('plumb.search').search_tasks({ filter = 'state == "ready"' })
 
@@ -265,7 +265,7 @@ stem 时不写 `".plumb" extension，server 会自动保留它。operation 不�
 
 `lua
 
-"
+|"
   vim.api.nvim_create_user_command('PlumbNotes', function()
     require('plumb.search').search_notes()
   end, {})
@@ -279,7 +279,7 @@ stem 时不写 `".plumb" extension，server 会自动保留它。operation 不�
 
 `lua
 
-"
+|"
   local client = assert(vim.lsp.get_clients({ bufnr = 0, name = 'plumb' })[1])
   client:request('plumb/search', {
     kind = 'task',
@@ -318,14 +318,14 @@ position 与完整 `"Location list"；wrapper 直接使用第三个 argument，�
 
 `text
 
-"
+|"
   :lua vim.lsp.codelens.run()
 
 推荐直接注册 keymap：
 
 `lua
 
-"
+|"
   vim.keymap.set('n', '<leader>pr', vim.lsp.codelens.run)
 
 这要求当前 buffer attached 到提供 CodeLens 的 plumb client，并且已调用
@@ -339,7 +339,7 @@ Web viewer 独立于 LSP process 与 Neovim plugin，通过统一 CLI 启动：
 
 `text
 
-"
+|"
   plumb site serve --root /path/to/workspace
 
 Note preview 对 `"cite" 运行 Pandoc citeproc。Bibliography relative path 从各 note 所在目录

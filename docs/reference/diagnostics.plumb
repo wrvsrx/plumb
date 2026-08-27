@@ -28,7 +28,12 @@ syntax diagnostics 分为：
  separator、member close 前未结束的 verbatim 或 completed child member 后的 trailing content。bare brace
  是 ordinary text，不拥有 delimiter diagnostics。
 
-owner column 上的 bare `"`" 只有在 indentation stack 仍持有一个可接收 raw tail 的 marked owner 时才合法；
+inline element 的 opening bracket 后固定开始 first parsed argument；该位置不执行 verbatim argument 或
+introducer-elided child dispatch。full-verbatim-like source 中的 bare opening bracket 因而由
+`"syntax.unattached-bracket" 拥有；first child spelling 同样由该 diagnostic 拒绝。经过首个 member
+separator 后才启用另外三种 member form。
+
+owner column 上的 `"|QUOTES" 只有在 indentation stack 仍持有一个可接收 raw tail 的 marked owner 时才合法；
 否则发布 `"syntax.unattached-raw-tail"。raw tail 是单值 terminal field：进入 payload 后所有满足 margin
 的 bytes 都是 raw，因此不存在 duplicate-tail diagnostic。
 
@@ -99,7 +104,7 @@ precedence、ordering、recovery 与 lossless token coverage；lenient tree-sitt
 
 `text
 
-"
+|"
   syntax.incomplete-introducer
   syntax.invalid-block-dispatch
   syntax.invalid-inline-dispatch

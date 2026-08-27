@@ -23,6 +23,10 @@ owned nodes 可以从 strict typed syntax view detach，也可以由 operation �
 valid intermediate source；最终 layout 始终由 `"plumb-format" canonicalize。operation 不拼接完整 CST
 block、手工计算 multiline attribute layout 或复制 subtree indentation。
 
+owned inline element rendering 保证 first member 是 parsed argument。operation 未提供 members 时输出 empty
+first argument；若构造的首项是 verbatim argument 或 child，renderer 在其前插入 empty parsed argument，
+使后续 member 经过显式 `"|" boundary 输出。
+
 owned syntax 是 mutation intent 的 data model，不是预先渲染的 replacement text。Consumer 可以按 semantic
 语义修改 detached owned tree，但只有 edit layer 可以把它映射回 source ranges、indentation、line endings
 与 text edits。

@@ -68,7 +68,7 @@ block-level `"=" association 的形态是：
 
 `plumb
 
-"
+|"
   `= title plumb title
   `= `()[key with spaces] value with spaces
   `= key with spaces
@@ -81,7 +81,8 @@ children 共同构成 value。是否存在 raw tail 不改变上述 projection�
 
 `## 5.2 Inline member projection
 
-single-envelope syntax 由 member form 直接区分 arguments 与 children，并允许两者交错。
+single-envelope syntax 的 first member 固定为 parsed argument；后续 member form 直接区分 parsed/verbatim
+arguments 与 parsed/verbatim children，并允许两类 positional arguments 与 children 交错。
 positional recognizer 只对 ordered argument view 编号；direct child 不因 kind 未被 standard profile
 识别而占用 argument index。Link 因而始终取 first argument 为 label、second argument 为 target，而不
 寻找“第二个不是 declaration 的 member”。普通 structural children 与 relation children 都保留 source
@@ -92,7 +93,7 @@ value。space 属于 argument content，不再提供 compact key/value split：
 
 `plumb
 
-"
+|"
   `owner[value|=[to|target.plumb]]
   `owner[value|=[`()[key with spaces]|value with spaces]]
 
@@ -156,7 +157,7 @@ interleaved children 不占 argument index：
 
 `plumb
 
-"
+|"
   `->[guide|relative/path.plumb]
   `->[guide page|relative/path.plumb]
   `->[guide page|@[guide]|relative/path.plumb#anchor]
@@ -187,7 +188,7 @@ document root 的 direct children，不改写其余 current syntax；它必须�
 
 `plumb
 
-"
+|"
   `->"https://example.test/a%20b"
   `->""[https://[2001:db8::1]/]""
   `->"guide.plumb#intro"
@@ -237,7 +238,7 @@ parsed inline kind `"img" 是标准 image；content 是 alt content，`"src" pro
 
 `plumb
 
-"
+|"
   Inline `img[status icon|=[src|static/status.png]] image.
   `img[|=[src|https://example.test/decorative.svg]]
 
@@ -262,7 +263,7 @@ parsed inline kind `"file" 是标准 file attachment；content 是 fallback labe
 
 `plumb
 
-"
+|"
   `file[Demo video|=[src|static/demo.mp4]]
   `file[Download report|=[src|reports/final.pdf]]
 
@@ -285,7 +286,7 @@ link。未知或不支持 preview 的 MIME type 保持普通 attachment link。M
 
 `plumb
 
-"
+|"
   `cite[smith2004]
 
 export 产生一个 `"NormalCitation" mode 的 Pandoc `"Cite"。cluster、locator、prefix、suffix、
@@ -324,7 +325,7 @@ inline kind `"()" 是标准的显式 transparent container，为匿名形态解�
 
 `text
 
-"
+|"
   `() Warning
    `@ notice
    `warning
@@ -346,7 +347,7 @@ marker `">" 产生 block quote。可选 head 作为引用中的第一个 paragra
 
 `plumb
 
-"
+|"
   `> A quoted opening.
 
     A second quoted paragraph.
@@ -366,7 +367,7 @@ children 或 opaque declarations，直到 official semantic profile 冻结其含
 
 `plumb
 
-"
+|"
   `*[emphasis]
   `![strong]
   `==[mark]
@@ -393,12 +394,12 @@ verbatim inline 或 block 的 `"$" kind 产生标准 math：
 
 `text
 
-"
+|"
   Inline `$"pi r^2".
 
   `$
    `@ energy
-  "
+  |"
    E = mc^2
 
 inline verbatim lower 为 Pandoc `"InlineMath"，verbatim block lower 为 `"DisplayMath"。input 默认是
@@ -415,7 +416,7 @@ dollar-delimited math 没有特殊 syntax。
 
 `text
 
-"
+|"
   `event 14:00--15:30 Parser review
    `@ parser-review
    `= date 2026-07-30
@@ -474,7 +475,7 @@ shorthand 开头时提供：
 
 `text
 
-"
+|"
   `- TIME TITLE
   `- TIME--TIME TITLE
   `- TIME--YYYY-MM-DDTTIME TITLE
@@ -525,7 +526,7 @@ range，不向 title frequency 贡献尚未通过 valid semantic analysis 的 ev
 
 `text
 
-"
+|"
   `task Implement parser
    `@ write-parser
 
@@ -550,7 +551,7 @@ reference 的 id 结束后的 whitespace 才分隔下一条 reference；path 内
 
 `text
 
-"
+|"
   `task Review
    `= depends #local Project A.plumb#build Project B.plumb#test
 

@@ -63,9 +63,9 @@ it. Inside the plumb source repository, prefer
 - Marked blocks own one source-ordered sequence of directly indented children.
   Canonical child indentation is the owner column plus one. Inline owners place
   arguments and children in one `[]` envelope.
-- A marked block may end its children with one raw tail. Put one or more `"` on
-  the owner column, then indent every nonempty payload line by the same number
-  of structural spaces. Keep the boundary adjacent to the head when the owner
+- A marked block may end its children with one raw tail. Put `|` and one or more
+  `"` on the owner column, then indent every nonempty payload line by the quote
+  count. Keep the boundary adjacent to the head when the owner
   has no children; keep one blank separator after children.
   Anonymous block raw uses an introducer and quote, has no head or children, and
   starts raw payload immediately.
@@ -75,8 +75,10 @@ it. Inside the plumb source repository, prefer
   workspace-relative path, so do not use a direct top-level `@` block.
 - Use direct `@` declaration children for explicit ids.
   Headings do not generate implicit ids.
-- Separate ordered inline members with `|`. Arguments and introducer-elided
-  children may interleave; spaces remain part of an argument.
+- Every parsed inline owner starts with a parsed argument, which may be empty. Separate
+  later ordered members with `|`; arguments and introducer-elided children may
+  then interleave. Verbatim members always use the full quote/bracket envelope;
+  compact verbatim is standalone only. Spaces remain part of an argument.
 - Braces are ordinary parsed text. Do not author removed postfix `{...}`
   ownership or `{#id .class key=value}`; migrate legacy source explicitly.
 - Parsed inline elements may cross valid paragraph/head continuation lines;
@@ -122,7 +124,7 @@ Use `file[Demo video|=[src|static/demo.mp4]] for a file attachment with fallback
 Use `"cargo test" for inline raw text.
 
 `rust
-"
+|"
  fn main() {}
 ```
 

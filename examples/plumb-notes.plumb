@@ -10,7 +10,7 @@ Run these commands from the repository root:
 
 `sh
 
-"
+|"
   cargo run -q -p plumb -- note --root examples --query 'title.matches("playground")'
   cargo run -q -p plumb -- note --root examples --query 'path.endsWith("plumb-ls.plumb")'
   cargo run -q -p plumb -- note --root examples --query '"index.plumb" in directly_referenced_by'
@@ -20,7 +20,7 @@ Run these commands from the repository root:
 
 `sh
 
-"
+|"
   EDITOR=nvim cargo run -q -p plumb -- note --root examples --interactive
 
 The picker supports fuzzy matching, source previews, multiple selections,
@@ -30,7 +30,7 @@ The picker supports fuzzy matching, source previews, multiple selections,
 
 `sh
 
-"
+|"
   cargo run -q -p plumb -- task --root examples
   cargo run -q -p plumb -- task --root examples --flat
   cargo run -q -p plumb -- task --root examples --query 'created != null && done == null'
@@ -108,7 +108,7 @@ Complete or cancel copies of these tasks with an explicit target:
 
 `sh
 
-"
+|"
   cargo run -q -p plumb -- task --root examples complete plumb-notes.plumb#try-task-query
   cargo run -q -p plumb -- task --root examples cancel plumb-notes.plumb#blocked-query
 

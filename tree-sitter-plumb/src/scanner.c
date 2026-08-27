@@ -23,6 +23,7 @@ enum TokenType {
   RAW_TAIL_OPEN,
   RAW_CODE_LINE,
   INLINE_VERBATIM_TOKEN,
+  INLINE_VERBATIM_MEMBER_TOKEN,
   INLINE_CHILD_KIND,
   INCOMPLETE_INLINE_END,
   END_OF_FILE,
@@ -291,6 +292,8 @@ static bool scan_verbatim_block_open(Scanner *scanner, TSLexer *lexer,
 }
 
 static bool scan_raw_tail_open(Scanner *scanner, TSLexer *lexer) {
+  if (lexer->lookahead != '|') return false;
+  take(lexer);
   if (lexer->lookahead != '"') return false;
   uint16_t quotes = scan_quote_run(lexer);
   lexer->mark_end(lexer);
@@ -312,13 +315,29 @@ static bool scan_inline_verbatim_body(TSLexer *lexer) {
   return true;
 }
 
+static bool scan_inline_verbatim_member_body(TSLexer *lexer) {
+  if (lexer->lookahead != '"') return false;
+  uint16_t quotes = scan_quote_run(lexer);
+  if (lexer->lookahead != '[' || !scan_strengthened_close(lexer, quotes)) {
+    return false;
+  }
+  lexer->mark_end(lexer);
+  lexer->result_symbol = INLINE_VERBATIM_MEMBER_TOKEN;
+  return true;
+}
+
 static bool scan_inline_child_kind(TSLexer *lexer) {
   if (!is_name_char(lexer->lookahead)) return false;
   do {
     take(lexer);
   } while (is_name_char(lexer->lookahead));
-  if (lexer->lookahead != '[' && lexer->lookahead != '"') return false;
   lexer->mark_end(lexer);
+  if (lexer->lookahead == '"') {
+    scan_quote_run(lexer);
+    if (lexer->lookahead != '[') return false;
+  } else if (lexer->lookahead != '[') {
+    return false;
+  }
   lexer->result_symbol = INLINE_CHILD_KIND;
   return true;
 }
@@ -412,7 +431,7 @@ static bool scan_layout(Scanner *scanner, TSLexer *lexer,
 
   uint16_t current = scanner->indents[scanner->depth];
   if (valid_symbols[RAW_TAIL_OPEN] && column == current &&
-      lexer->lookahead == '"') {
+      lexer->lookahead == '|') {
     if (!scan_raw_tail_open(scanner, lexer)) return false;
     return true;
   }
@@ -476,12 +495,15 @@ bool tree_sitter_plumb_external_scanner_scan(void *payload, TSLexer *lexer,
   if (valid_symbols[VERBATIM_BLOCK_OPEN] && lexer->lookahead == '"') {
     return scan_verbatim_block_open(scanner, lexer, valid_symbols);
   }
-  if (valid_symbols[RAW_TAIL_OPEN] && lexer->lookahead == '"' &&
+  if (valid_symbols[RAW_TAIL_OPEN] && lexer->lookahead == '|' &&
       lexer->get_column(lexer) == scanner->indents[scanner->depth]) {
     return scan_raw_tail_open(scanner, lexer);
   }
   if (valid_symbols[INLINE_VERBATIM_TOKEN] && lexer->lookahead == '"') {
     return scan_inline_verbatim_body(lexer);
+  }
+  if (valid_symbols[INLINE_VERBATIM_MEMBER_TOKEN] && lexer->lookahead == '"') {
+    return scan_inline_verbatim_member_body(lexer);
   }
   if (valid_symbols[INLINE_CHILD_KIND]) {
     return scan_inline_child_kind(lexer);

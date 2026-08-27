@@ -835,7 +835,7 @@ mod tests {
 
     #[test]
     fn exports_verbatim_autolinks_in_body_and_metadata() {
-        let source = "`= homepage `->\"https://example.test/meta\"\n\nBody `->[\"https://example.test/a%20b\"|@[site]|+[keep]|=[rel|nofollow]].\n";
+        let source = "`= homepage `->\"https://example.test/meta\"\n\nBody `->\"https://example.test/a%20b\".\n";
         let document = export(source).unwrap();
         let metadata_link = &document["meta"]["homepage"]["c"][0];
         assert_eq!(metadata_link["t"], "Link");
@@ -843,17 +843,14 @@ mod tests {
 
         let body_link = &document["blocks"][0]["c"][2];
         assert_eq!(body_link["t"], "Link");
-        assert_eq!(
-            body_link["c"][0],
-            json!(["site", ["keep"], [["rel", "nofollow"]]])
-        );
+        assert_eq!(body_link["c"][0], json!(["", [], []]));
         assert_eq!(body_link["c"][1][0]["c"], "https://example.test/a%20b");
         assert_eq!(body_link["c"][2][0], "https://example.test/a%20b");
     }
 
     #[test]
     fn exports_standard_images_in_body_and_metadata() {
-        let source = "`= cover `img[Cover|=[src|static/cover.png]]\n\nBefore `img[Rich `em[alt]|=[src|\"static/a b.webp\"]|@[image]|+[wide]|=[loading|lazy]] after.\n\n`img[|=[src|https://example.test/decorative.svg]]\n";
+        let source = "`= cover `img[Cover|=[src|static/cover.png]]\n\nBefore `img[Rich `em[alt]|=[src|\"[static/a b.webp]\"]|@[image]|+[wide]|=[loading|lazy]] after.\n\n`img[|=[src|https://example.test/decorative.svg]]\n";
         let document = export(source).unwrap();
 
         let metadata_image = &document["meta"]["cover"]["c"][0];
@@ -892,7 +889,7 @@ mod tests {
     #[test]
     fn exports_file_attachments_as_portable_links_with_fallback_content() {
         let document = export(
-            "Watch `file[Demo `![video]|=[src|\"static/demo video.mp4\"]|@[demo]|+[wide]|=[download|yes]].\n",
+            "Watch `file[Demo `![video]|=[src|\"[static/demo video.mp4]\"]|@[demo]|+[wide]|=[download|yes]].\n",
         )
         .unwrap();
         let file = &document["blocks"][0]["c"][2];
@@ -924,7 +921,7 @@ mod tests {
 
     #[test]
     fn exports_verbatim_envelopes_as_pandoc_code() {
-        let document = export("Use `\"cargo check\".\n\n`rust\n\n\"\n fn main() {}\n").unwrap();
+        let document = export("Use `\"cargo check\".\n\n`rust\n\n|\"\n fn main() {}\n").unwrap();
         assert_eq!(document["blocks"][0]["c"][2]["t"], "Code");
         assert_eq!(document["blocks"][0]["c"][2]["c"][1], "cargo check");
         assert_eq!(document["blocks"][1]["t"], "CodeBlock");
@@ -978,7 +975,7 @@ mod tests {
 
     #[test]
     fn exports_inline_and_display_math_with_attribute_wrappers() {
-        let source = "Inline `$\"x^2\".\n\n`$\n\n\"\n E = mc^2\n`$\n `@ display\n `+ numbered\n\n\"\n a = b\n";
+        let source = "Inline `$\"x^2\".\n\n`$\n\n|\"\n E = mc^2\n`$\n `@ display\n `+ numbered\n\n|\"\n a = b\n";
         let document = export(source).unwrap();
         assert_eq!(document["blocks"][0]["c"][2]["t"], "Math");
         assert_eq!(document["blocks"][0]["c"][2]["c"][0]["t"], "InlineMath");

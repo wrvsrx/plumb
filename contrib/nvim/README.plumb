@@ -12,7 +12,7 @@ modules 的调用接口。
 
 `lua
 
-"
+|"
   require('plumb').setup({
     command = 'plumb',
     lsp = { root_markers = { '.plumb', '.git' } },
@@ -32,7 +32,7 @@ setup 默认启用 LSP、CodeLens 与 search，不创建 keymaps；`"lsp"、`"co
 
 `lua
 
-"
+|"
   require('plumb').setup({
     lsp = { on_attach = function(client, bufnr) end },
   })
@@ -77,7 +77,7 @@ lazy.nvim 使用 source checkout 时：
 
 `lua
 
-"
+|"
   {
     dir = '/path/to/plumb/contrib/nvim',
     ft = 'plumb',

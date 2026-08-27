@@ -15,6 +15,7 @@
 (member_separator) @punctuation.delimiter
 
 (verbatim_open) @punctuation.delimiter
+(raw_tail_open) @punctuation.delimiter
 
 ; Raw payloads are syntax nodes because they change the lexical mode.
 ((inline_verbatim (raw_text) @markup.raw)

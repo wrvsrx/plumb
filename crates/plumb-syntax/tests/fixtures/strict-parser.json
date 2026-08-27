@@ -16,7 +16,7 @@
   },
   {
     "name": "marked owner has a singular raw tail after children",
-    "source": "`rust\n `@ example\n\"\n fn main() {}\n",
+    "source": "`rust\n `@ example\n|\"\n fn main() {}\n",
     "valid": true,
     "blocks": [{
       "kind":"marked","marker":"rust","attrs":["#example"],"head":"","inline":"",
@@ -76,7 +76,7 @@
   },
   {
     "name": "ordered inline arguments and children",
-    "source": "`pair[first|\"second raw\"|tag[value]]\n",
+    "source": "`pair[first|\"[second raw]\"|tag[value]]\n",
     "valid": true,
     "blocks": [{"kind":"paragraph","head":"firstsecond rawvalue","inline":"Epair[]A[T\"first\"]R1\"second raw\"CEtag[]A[T\"value\"]"}],
     "diagnostics": [],
@@ -92,10 +92,10 @@
   },
   {
     "name": "verbatim member must close inside its owner",
-    "source": "`owner[first|\"raw]\n",
+    "source": "`owner[first|\"[raw]]\n",
     "valid": false,
     "blocks": [{"kind":"paragraph","head":"","inline":""}],
-    "diagnostics": [{"code":"syntax.unclosed-verbatim-member","range":{"text":"\"raw]"}},{"code":"syntax.unclosed-inline","range":{"text":"`owner[first|\"raw]"}}],
+    "diagnostics": [{"code":"syntax.unclosed-verbatim-member","range":{"text":"\"[raw]]"}},{"code":"syntax.unclosed-inline","range":{"text":"`owner[first|\"[raw]]"}}],
     "required_tokens": ["Error","LineEnding"]
   },
   {
@@ -195,11 +195,11 @@
     "required_tokens": ["Error","Text"]
   },
   {
-    "name": "bare raw boundary without owner is invalid",
-    "source": "\"\nraw\n",
+    "name": "raw boundary without owner is invalid",
+    "source": "|\"\nraw\n",
     "valid": false,
     "blocks": [{"kind":"paragraph","head":"raw","inline":"T\"raw\""}],
-    "diagnostics": [{"code":"syntax.unattached-raw-tail","range":{"text":"\""}}],
+    "diagnostics": [{"code":"syntax.unattached-raw-tail","range":{"text":"|\""}}],
     "required_tokens": ["Error","Text"]
   },
   {

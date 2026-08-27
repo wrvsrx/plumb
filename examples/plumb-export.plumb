@@ -94,7 +94,7 @@ citation profile currently accepts one plain id, such as `cite[smith2004].
 
  `@ hello-rust
 
-"
+|"
   fn main() {
       println!("hello from plumb-export");
   }
@@ -103,7 +103,7 @@ citation profile currently accepts one plain id, such as `cite[smith2004].
 
  `@ energy
 
-"
+|"
   E = mc^2
 
 `# Tasks in exported content

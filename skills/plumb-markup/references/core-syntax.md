@@ -85,14 +85,14 @@ does not interpret their marker spellings.
 
 ```
 
-A marked block may have one terminal raw tail after all children. Put a bare
-double quote on the owner's introducer column, then indent each nonempty payload
-line by one ASCII structural space:
+A marked block may have one terminal raw tail after all children. Put `|` and
+one or more quotes on the owner's introducer column, then indent each nonempty
+payload line by the quote count:
 
 ```plumb
 `rust
  `@ example
-"
+|"
  fn main() {}
 ```
 
@@ -118,7 +118,7 @@ A parsed inline element has a nonempty kind and ordered members:
 
 ```plumb
 `kind[content|@[stable]|+[class]|=[key|value]]
-`outer[before `inner[nested] after|child[value]|code"raw"]
+`outer[before `inner[nested] after|child[value]|code"[raw]"]
 ```
 
 Bare `[` and `]` are always structural: an unescaped opening bracket is legal
@@ -133,20 +133,26 @@ Core does not interpret kinds. For example, `*[text]` and `_[text]` are generic
 inline elements unless the official semantic profile explicitly defines them.
 
 The opening `[` is mandatory and the kind must be nonempty; there is no
-anonymous element. Even an empty inline element is written as
-`kind[]`; a bare `` `kind`` is invalid.
+anonymous element. Every element has a first parsed argument, which may be empty;
+`kind[]` therefore contains one empty parsed argument. A bare `` `kind`` is
+invalid, and there is no zero-member element.
 
 A parsed inline element uses one envelope with `|`-separated ordered members:
 
 ```plumb
 `kind[only]
 `kind[first|second]
-`kind[first|child[value]|"raw argument"|code"raw child"]
+`kind[first|child[value]|"[raw argument]"|code"[raw child]"]
 ```
 
-Ordinary content and unkinded verbatim payloads are arguments. A nonempty kind
-followed by `[` or `"` is an introducer-elided child. Arguments and children may
-interleave. Whitespace remains argument content; only `|` separates members.
+The first member is always a parsed argument. In later members, a nonempty kind
+followed by `[` is an introducer-elided parsed child, while a kind followed by a
+full quote/bracket envelope is a verbatim child. Full unkinded verbatim
+envelopes are arguments only after a `|`; use `kind[|"[raw]"]` when the first
+parsed argument is empty. Compact quotes inside members remain parsed text;
+compact verbatim is available only as an introduced standalone inline.
+Arguments and children may interleave after the first argument. Whitespace
+remains argument content; only `|` separates members.
 Use `` `|`` for a literal pipe inside parsed argument content. Core preserves
 source order but does not assign kind-specific meaning or arity.
 
@@ -191,7 +197,7 @@ syntax-like text exactly. Internal blank lines need no margin. A trailing blank
 line belongs to the payload only when it carries the complete declared margin;
 the first marginless trailing blank ends the payload and becomes block layout.
 There is no closing fence. An empty anonymous verbatim block is valid.
-Named block raw uses a terminal quote-run boundary on the owner column. The
+Named block raw uses a terminal `|` plus quote-run boundary on the owner column. The
 quote count declares the raw-body structural margin just as it does for an
 anonymous opener. Canonical formatting preserves an existing quote count and
 its matching margin without changing raw payload bytes; newly owned raw payloads

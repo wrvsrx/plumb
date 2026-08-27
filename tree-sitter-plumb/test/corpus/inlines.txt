@@ -67,6 +67,29 @@ Use `pair[first|second] and `pair[|third|+[tag]].
       (text))))
 
 ==================
+Compact quotes are parsed member text
+==================
+
+Use `owner["quoted"|code"raw"].
+
+---
+
+(document
+  (blank_line)
+  (paragraph
+    (inline_content
+      (text)
+      (inline_element
+        (introducer)
+        (inline_kind)
+        (parsed_inline_content
+          (inline_member_text))
+        (member_separator)
+        (parsed_inline_content
+          (inline_member_text)))
+      (text))))
+
+==================
 Ordered arguments and children
 ==================
 
@@ -236,10 +259,10 @@ Use `"[raw containing " safely]" and `rust""[raw containing ]" safely]"".
       (text))))
 
 ==================
-Verbatim argument with children
+Verbatim argument after required first argument
 ==================
 
-Use `code["let x = 1;"|syntax"raw child"|@[example]|=[generated|true]].
+Use `code[|"[let x = 1;]"|syntax"[raw child]"|@[example]|=[generated|true]].
 
 ---
 
@@ -251,8 +274,9 @@ Use `code["let x = 1;"|syntax"raw child"|@[example]|=[generated|true]].
       (inline_element
         (introducer)
         (inline_kind)
-        (parsed_inline_content
-          (inline_member_text))
+        (member_separator)
+        (verbatim_argument
+          (raw_text))
         (member_separator)
         (inline_child
           (inline_verbatim

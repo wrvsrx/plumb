@@ -6515,7 +6515,7 @@ mod tests {
 
     #[test]
     fn add_explicit_id_targets_the_deepest_block_and_generates_unique_slugs() {
-        let source = "`# Hello, World!\n  `+ keep\n\n`node Outer\n\n      `child Nested title\n\n`text\n\"\n raw\n\n`note Multiline attrs\n  `+ keep\n\n`other Existing\n  `@ hello-world\n\n`# Hello, World!\n";
+        let source = "`# Hello, World!\n  `+ keep\n\n`node Outer\n\n      `child Nested title\n\n`text\n|\"\n raw\n\n`note Multiline attrs\n  `+ keep\n\n`other Existing\n  `@ hello-world\n\n`# Hello, World!\n";
         let mut workspace = Workspace::new();
         workspace.insert("note.plumb", 7, source);
 
@@ -6558,7 +6558,7 @@ mod tests {
             .unwrap();
         assert!(raw.document_changes[0].edits[0]
             .new_text
-            .contains("`text\n\n `@ text\n\n\"\n raw"));
+            .contains("`text\n\n `@ text\n\n|\"\n raw"));
 
         let multiline = workspace
             .add_explicit_id("note.plumb", source.find("Multiline attrs").unwrap())
@@ -7161,7 +7161,7 @@ mod tests {
 
         // Parsed and verbatim inline structure survives prefix removal.
         let rich_source =
-            "`- 11 wheel: distinguish `code[\"nix develop\"|=[language|sh]] and `*[normal] shell\n";
+            "`- 11 wheel: distinguish `code[|\"[nix develop]\"|=[language|sh]] and `*[normal] shell\n";
         workspace.insert("markup.plumb", 9, rich_source);
         let rich = apply_single_edit(
             rich_source,
@@ -7170,7 +7170,7 @@ mod tests {
                 .unwrap(),
         );
         assert!(
-            rich.contains("`event 11:00 wheel: distinguish `code[\"nix develop\"|=[language|sh]] and `*[normal] shell"),
+            rich.contains("`event 11:00 wheel: distinguish `code[|\"[nix develop]\"|=[language|sh]] and `*[normal] shell"),
             "{rich}"
         );
 

@@ -18,7 +18,8 @@ sequence 或划入单独的 document attribute region。
 反引号是唯一 introducer。连续 run 从左到右每两个反引号组成一个 literal backtick；奇数 run
 最后剩余的一个作为 introducer。scanner 不回溯。
 
-结构字符集由 `` `"`"、`"["、`"]"、block raw-tail boundary 的 `"`" 与 inline member 内的 `"|" 组成。delimiter
+结构字符集由 `` `"`"、`"["、`"]" 与 `"|" 组成。`"|" 在 inline member 内分隔 members，在 marked owner
+column 后跟 quote run 时开始 block raw tail。delimiter
 escape 与 bare delimiter 的身份都是全局的，与位置无关：
 
 `- 单个 introducer 后直接跟 `"["、`"]" 或 `"|" 之一，表示该 character 的 literal escape，
@@ -26,9 +27,8 @@ escape 与 bare delimiter 的身份都是全局的，与位置无关：
 `- 裸 `"[" 与 `"]" 永远是 inline 结构 delimiter：位于合法 element open 或 element close 位置时执行
  该结构，否则发布对应 error，绝不回落为 ordinary text；字面使用必须 escape。
 `- `"{" 与 `"}" 是 ordinary parsed text characters，不需要 escape，也不能打开或关闭 ownership structure。
-`- `"`" 不参与 delimiter escape：它只在 introducer dispatch 内结构化，在 content 中是 ordinary
- text；唯一例外是 marked block owner column 上独占 physical line 的 bare `"`"，它开始该 block 的
- raw tail。inline/raw payload 是 raw bytes，不识别 delimiter escape。
+`- `"`" 不参与 delimiter escape：它只在 introducer dispatch 或 inline member 的 full verbatim envelope 内
+ 结构化，在其他 parsed content 中是 ordinary text。inline/raw payload 是 raw bytes，不识别 delimiter escape。
 
 inline dispatch 的词法判定保持在单条 physical line 内：token 只依赖当前字符 run 与紧邻 lookahead，
 允许的全局上下文仅 indentation、verbatim margin、quote strength 与当前 line ending。第 10 节为了区分
@@ -42,7 +42,7 @@ diagnostic，不新增 generic invalid-escape category。
 
 `plumb
 
-"
+|"
   ``node is literal text.
   ```node introduces one literal backtick, then a node.
 
@@ -75,7 +75,7 @@ marked block 形状为：
 
 `text
 
-"
+|"
   `marker
   `marker Head
 
@@ -87,7 +87,7 @@ marked block 形状为：
 
    `@ identity
 
-  "
+  |"
    one raw payload
 
 marker 后只能紧接一个分隔 head 的 ASCII space/tab 或 line ending。普通 marker 允许空 head、空 children
@@ -111,7 +111,7 @@ physical line 开始 first child；group delimiter 不属于 block entry。first
 
 `plumb
 
-"
+|"
   `- `- a
      `- b
 
@@ -119,7 +119,7 @@ physical line 开始 first child；group delimiter 不属于 block entry。first
 
 `plumb
 
-"
+|"
   `-
      `- a
      `- b
@@ -153,7 +153,7 @@ marker 在 core 中完全同类；typed generic attribute view 可以从 direct 
 
 `text
 
-"
+|"
   `= title Document title
   `= tags
    `- plumb
@@ -178,9 +178,9 @@ bracket 构成：
 
 `plumb
 
-"
+|"
   `kind[content]
-  `outer[before `inner[nested] after|child[value]|code"raw"]
+  `outer[before `inner[nested] after|child[value]|code"[raw]"]
 
 `"InlineKind" 使用与 marker 相同的 lexical character set 和 maximal-match rule。core 不保留 kind
 集合。
@@ -188,8 +188,9 @@ bracket 构成：
 parsed argument 中未转义 opening bracket 只在 introducer dispatch 完成处合法，未转义 closing bracket
 关闭当前 element；二者在其他位置发布 error，字面使用遵循第 2 节的 escape 规则。空 argument 合法。
 
-inline kind 后必须出现 opening bracket；不存在裸 `"`kind" inline shorthand。没有 members
-的 element 写作 `"`kind[]"，从而让 element boundary 与递归 ownership 始终显式。
+inline kind 后必须出现 opening bracket；不存在裸 `"`kind" inline shorthand。每个 element 必须有 first
+parsed argument，first parsed argument 可以为空；`"`kind[]" 因而表示一个 empty parsed argument，不存在
+zero-member element。element boundary 与递归 ownership 始终显式。
 kind 非空的要求同样排除匿名 element：`"`[raw]" 不是合法 source，按 incomplete dispatch 报错。
 
 element 可以跨属于同一 enclosing inline content 的 continuation line。结构 indentation 被移除，
@@ -198,21 +199,27 @@ dedent 或 block-only entry。parser 使用 explicit stack，语言不设置 inl
 
 `## 8.1 Ordered inline members
 
-一个 element 只使用一对 `"[]" envelope。envelope 内以当前 depth 的 `"|" 分隔 ordered members：
+一个 element 只使用一对 `"[]" envelope。opening bracket 后到首个 `"|"/closing bracket 的区域固定是
+first parsed argument；后续以当前 depth 的 `"|" 分隔 ordered members：
 
 `plumb
 
-"
+|"
   `kind[only]
-  `kind[first|second|child[value]|code"raw"]
+  `kind[first|second|child[value]|code"[raw]"]
+  `kind[|"[raw second argument]"]
   `kind[first|@[identity]|second|=[key|value]]
 
-member form 由 boundary 上的 source shape 判定：opening quote 开始无 kind 的 verbatim argument；非空
-kind 后跟 opening bracket 是 parsed child；非空 kind 后跟 opening quote是 verbatim child；其他 source
-开始 parsed argument，其中 nested inline element 仍显式使用 introducer。parsed/verbatim child 必须恰好
+first member 必须是 parsed argument，不能是 verbatim argument 或 child。opening bracket 后的 quote 是
+ordinary parsed text；若其后的 bare opening bracket 形成 full-envelope-like spelling，仍按 unattached bracket
+报错，不切换为 verbatim member。后续 member boundary 上，quote run、opening bracket、payload、closing
+bracket 与相同 quote run 构成 verbatim argument；非空 kind 后跟同一 full envelope 构成 verbatim child，
+非空 kind 后跟 opening bracket 构成 parsed child；其他 source 构成 parsed argument，其中 nested inline
+element 仍显式使用 introducer。verbatim member 不接受 compact quote form。parsed/verbatim child 必须恰好
 占满一个 member；完整 child 后只能出现 owner 的 `"|" 或 closing bracket。
 
-argument 与 child 可以任意交错。tree 按 source order 保存统一的 `"InlineMember" sequence；core 不根据
+first argument 后的 argument 与 child 可以任意交错。tree 按 source order 保存统一的 `"InlineMember"
+sequence；core 不根据
 kind spelling 猜测 declaration，也不分别存储会丢失交错位置的 arguments/children vectors。space 始终
 属于 parsed argument content，不建立 member boundary；literal pipe 在 parsed argument 中写作 delimiter
 escape。verbatim payload 中的 pipe 是 raw byte，nested child 内的 pipe 属于 nested owner。
@@ -223,12 +230,12 @@ unattached bracket；后者只是 parsed text braces，不建立 children。版�
 
 `# 9. Inline verbatim
 
-inline verbatim 有 compact 与 strengthened 两种 envelope。compact form 是 introducer、可选 opaque
+standalone inline verbatim 有 compact 与 strengthened 两种 envelope。compact form 是 introducer、可选 opaque
 kind、一个 opening quote、非空 raw payload 和一个 closing quote；它只是常见单行 payload 的 sugar：
 
 `plumb
 
-"
+|"
   `"raw"
   `rust"let x = 1;"
   `$"x^2"
@@ -238,7 +245,7 @@ compact payload 不能包含 double quote。需要 quote 或 closing-like sequen
 
 `plumb
 
-"
+|"
   `"[raw containing " safely]"
   `rust""[raw containing ]" safely]""
 
@@ -248,12 +255,13 @@ delimiter 时，在 line ending/EOF 报错并从下一 physical line 恢复。
 
 opening quote 后紧接 opening bracket 时进入 strengthened form；quote run 数量必须与 closing bracket
 后的 quote run 相同，空 payload 合法。两种 form 产生同一个 typed verbatim view，kind 保持 opaque。
-standalone inline verbatim 不拥有 children；需要 raw argument 与 children 的 owner 使用第 8.1 节的
-full element。payload 自身仍只占一条 physical line。空 verbatim 的写法：
+compact form 只在 introducer dispatch 中成立；parsed inline member 内只有第 8.1 节的 full envelope 能创建
+verbatim argument/child。standalone inline verbatim 不拥有 children；需要 raw argument 与 children 的 owner
+使用第 8.1 节的 full element。payload 自身仍只占一条 physical line。空 verbatim 的写法：
 
 `plumb
 
-"
+|"
   `rust""[]""
 
 位于 block start 的多 quote run 因 quote 后直接 line ending 而成为空 verbatim block；空 inline
@@ -263,17 +271,17 @@ bracket、payload、closing bracket 与相同 quote run）。
 `# 10. Block raw tail 与 anonymous verbatim
 
 任何 marked block 都可以在完整 children sequence 后声明至多一个 raw tail。boundary 是与 owner
-introducer column 对齐、独占 physical line 的一个或多个连续 `"`"；它不是 block、child 或 anonymous
-payload node：
+introducer column 对齐、独占 physical line 的 `"|" 与一个或多个连续 `"`"；它不是 block、child 或
+anonymous payload node：
 
 `text
 
-"
+|"
   `rust
    `@ example
    `= generated true
    `note Source follows
-  "
+  |"
    fn main() {}
 
 boundary 之前使用完整普通 block grammar，因此 children 可以递归拥有 children。boundary 必须出现在
@@ -281,15 +289,15 @@ owner 的所有 children 之后；识别 boundary 后 parser 永久进入该 own
 raw tail 是 owner 的单值 optional field，不进入 children sequence。第二个看似 boundary 的 source 若满足
 payload margin 就是 raw byte，因而语法结构不能产生第二个 payload。
 
-quote run 只在 parser indentation stack 仍持有同 column marked owner 时具有 boundary 身份。它必须紧接
-该 owner 的 head/children region；同列 sibling 已经关闭 owner 后，quote run 发布
+`"|QUOTES" 只在 parser indentation stack 仍持有同 column marked owner 时具有 boundary 身份。它必须紧接
+该 owner 的 head/children region；同列 sibling 已经关闭 owner 后，boundary 发布
 `"syntax.unattached-raw-tail"。payload 可以为空。
 
 anonymous compact verbatim 使用 introducer 与一个或多个 opening quotes，并立即进入 raw phase：
 
 `text
 
-"
+|"
   `"
    anonymous raw
 
@@ -298,23 +306,25 @@ anonymous raw 拥有 children 时，以 `"()" marker 显式化 owner，再使用
 
 `text
 
-"
+|"
   `()
    `@ example
-  "
+  |"
    anonymous owned raw
 
-因此带 introducer 的 anonymous quote opener 是匿名紧凑形式，bare `"`" 是现有 marked owner 的 tail boundary，两者由 introducer 明确
-区分。普通 block 仍可恰好包含一个 anonymous verbatim child：
+因此带 introducer 的 anonymous quote opener 是匿名紧凑形式，`"|QUOTES" 是现有 marked owner 的 tail
+boundary，两者由 introducer/pipe 明确区分。quote-only physical line 是 ordinary paragraph content；literal
+pipe 继续使用第 2 节的 delimiter escape。普通 block 仍可恰好包含一个 anonymous verbatim child：
 
 `text
 
-"
+|"
   `example
    `"
     one anonymous child
 
-anonymous opener 与 marked raw-tail boundary 的 quote count `"N" 都显式声明 raw-body structural margin。
+anonymous opener 与 marked raw-tail boundary 中的 quote count `"N" 都显式声明 raw-body structural margin；
+boundary pipe 不计入 margin。
 payload 的每条非空 line 必须在 parent column 后带可供移除的 margin；
 移除 structural spaces 后，其余 spaces、tabs、line endings 和 syntax-like bytes 都属于 payload。
 

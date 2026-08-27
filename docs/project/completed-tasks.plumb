@@ -322,7 +322,7 @@
 
  `== done 2026-07-23T23:15:48+08:00
 
- `note 已确认 `"plumb export" 将 `code["img[alt"|=[src|target]]`] lower 为 Pandoc Image，并覆盖 metadata、inline image、image-only paragraph、empty alt 与 raw relative src。
+ `note 已确认 `"plumb export" 将 `code"[img[alt]|=[src|target]]" lower 为 Pandoc Image，并覆盖 metadata、inline image、image-only paragraph、empty alt 与 raw relative src。
  `note 现有 lowering 已完整；focused regression tests 固定 parsed alt inlines、消费 `"src"、保留 explicit id/classes/key-value attributes、empty target title 与 image-only paragraph 不增加 wrapper。
 
 `- Image src completion 原样插入相对路径

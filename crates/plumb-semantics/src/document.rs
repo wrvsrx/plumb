@@ -1001,7 +1001,7 @@ mod tests {
 
     #[test]
     fn verbatim_blocks_create_syntax_neutral_anchors() {
-        let parsed = parse("`text\n `@ example\n\n\"\n raw text\n");
+        let parsed = parse("`text\n `@ example\n\n|\"\n raw text\n");
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let output = analyze_document(&parsed.source, &parsed.syntax);
         assert_eq!(output.anchors.len(), 1);
@@ -1010,7 +1010,7 @@ mod tests {
 
     #[test]
     fn recognizes_compact_and_expanded_positional_links() {
-        let source = "`->[guide|target.plumb]\n`->[guide page|\"Project Guide.plumb#intro\"]\n`->[`*[external]|https://example.test]\n";
+        let source = "`->[guide|target.plumb]\n`->[guide page|\"[Project Guide.plumb#intro]\"]\n`->[`*[external]|https://example.test]\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
@@ -1088,7 +1088,7 @@ mod tests {
 
     #[test]
     fn recognizes_inline_verbatim_autolinks_without_normalizing_the_target() {
-        let source = "Visit `->[\"https://example.test/a%20b\"|@[site]|+[keep]|=[rel|nofollow]] or `->\"https://[::1]/\".\n";
+        let source = "Visit `->\"https://example.test/a%20b\" or `->\"https://[::1]/\".\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
@@ -1154,7 +1154,7 @@ mod tests {
 
     #[test]
     fn recognizes_standard_images_and_diagnoses_invalid_sources() {
-        let source = "`img[Alt `em[text]|=[src|\"static/图 像(100%).png\"]|@[figure]|+[wide]|=[loading|lazy]]\n`img[|=[src|https://example.test/a.png]]\n`img[Missing]\n`img[Empty|=[src|]]\n`img[Invalid URI|=[src|\"https://example.test/bad path.png\"]]\n`img[Invalid path|=[src|bad\\path.png]]\n";
+        let source = "`img[Alt `em[text]|=[src|\"[static/图 像(100%).png]\"]|@[figure]|+[wide]|=[loading|lazy]]\n`img[|=[src|https://example.test/a.png]]\n`img[Missing]\n`img[Empty|=[src|]]\n`img[Invalid URI|=[src|\"[https://example.test/bad path.png]\"]]\n`img[Invalid path|=[src|bad\\path.png]]\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
@@ -1185,7 +1185,7 @@ mod tests {
 
     #[test]
     fn recognizes_standard_files_and_diagnoses_invalid_sources() {
-        let source = "`file[Demo|=[src|\"static/demo video.mp4\"]|@[demo]|+[wide]]\n`file[Remote|=[src|https://example.test/demo.mp4]]\n`file[Missing]\n`file[Empty|=[src|]]\n`file[Invalid URI|=[src|\"https://example.test/bad path.mp4\"]]\n`file[Invalid path|=[src|bad\\path.mp4]]\n";
+        let source = "`file[Demo|=[src|\"[static/demo video.mp4]\"]|@[demo]|+[wide]]\n`file[Remote|=[src|https://example.test/demo.mp4]]\n`file[Missing]\n`file[Empty|=[src|]]\n`file[Invalid URI|=[src|\"[https://example.test/bad path.mp4]\"]]\n`file[Invalid path|=[src|bad\\path.mp4]]\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
@@ -1215,13 +1215,13 @@ mod tests {
     }
 
     #[test]
-    fn diagnoses_invalid_autolink_targets_and_conflicting_properties() {
-        let source = "`->\"[]\"\n`->\"https://example.test/bad path\"\n`->\"https://example.test/%zz\"\n`->\"doc.plumb#one#two\"\n`->[\"https://example.test\"|=[to|other]]\n`->[\"https://example.test\"|+[$]]\n`span[text|+[->]]\n\n`note head\n `+ ->\n\n`()\n `+ ->\n\n\"\n raw\n";
+    fn diagnoses_invalid_autolink_targets_and_ignores_arrow_facets() {
+        let source = "`->\"[]\"\n`->\"https://example.test/bad path\"\n`->\"https://example.test/%zz\"\n`->\"doc.plumb#one#two\"\n`span[text|+[->]]\n\n`note head\n `+ ->\n\n`()\n `+ ->\n\n|\"\n raw\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
         let output = analyze_document(&parsed.source, &parsed.syntax);
-        assert_eq!(output.links.len(), 1);
+        assert!(output.links.is_empty());
         let codes = output
             .diagnostics
             .iter()
@@ -1234,7 +1234,6 @@ mod tests {
                 "link.invalid-autolink-target",
                 "link.invalid-autolink-target",
                 "link.invalid-autolink-target",
-                "link.conflicting-property",
             ]
         );
     }

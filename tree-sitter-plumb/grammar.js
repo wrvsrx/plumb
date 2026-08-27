@@ -16,6 +16,7 @@ module.exports = grammar({
     $._raw_tail_open,
     $.raw_code_line,
     $._inline_verbatim_token,
+    $._inline_verbatim_member_token,
     $._inline_child_kind,
     $._incomplete_inline_end,
     $._eof,
@@ -109,7 +110,7 @@ module.exports = grammar({
     ))),
 
     raw_tail: $ => prec.dynamic(10, prec.right(seq(
-      field('open', alias($._raw_tail_open, $.verbatim_open)),
+      field('open', alias($._raw_tail_open, $.raw_tail_open)),
       $._line_end,
       field('body', repeat(alias($.raw_code_line, $.raw_text))),
     ))),
@@ -176,7 +177,7 @@ module.exports = grammar({
 
     verbatim_argument: $ => field(
       'body',
-      alias($._inline_verbatim_token, $.raw_text),
+      alias($._inline_verbatim_member_token, $.raw_text),
     ),
 
     inline_child: $ => choice(
@@ -191,7 +192,7 @@ module.exports = grammar({
 
     _inline_child_verbatim: $ => seq(
       field('kind', alias($._inline_child_kind, $.verbatim_kind)),
-      field('body', alias($._inline_verbatim_token, $.raw_text)),
+      field('body', alias($._inline_verbatim_member_token, $.raw_text)),
     ),
 
     incomplete_inline_element: $ => prec.dynamic(-2, prec.right(-1, seq(
@@ -218,6 +219,7 @@ module.exports = grammar({
 
     introducer_escape: _ => prec(3, '``'),
     verbatim_open: _ => token(/"+/),
+    raw_tail_open: _ => token(/\|"+/),
     bracket_escape: _ => prec(4, choice('`[', '`]')),
     pipe_escape: _ => prec(4, '`|'),
     soft_break: $ => $._inline_continue,

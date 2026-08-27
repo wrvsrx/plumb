@@ -10,7 +10,7 @@ head 构成：
 
 `plumb
 
-"
+|"
   普通 paragraph。
 
   `note 一条有 head 的 block
@@ -24,7 +24,7 @@ block 可以拥有缩进 children。第一个 child 建立 sibling column；form
 
 `plumb
 
-"
+|"
   `- Parent
 
      Child paragraph.
@@ -37,7 +37,7 @@ block 可以拥有缩进 children。第一个 child 建立 sibling column；form
 
 `plumb
 
-"
+|"
   `- `- a
      `- b
 
@@ -47,7 +47,7 @@ block 可以拥有缩进 children。第一个 child 建立 sibling column；form
 
 `plumb
 
-"
+|"
   See `term[outer `term[inner] text].
 
 同一个 owner 在一对 brackets 内拥有 `"|" 分隔的 ordered members。ordinary content 是 argument，
@@ -55,18 +55,20 @@ block 可以拥有缩进 children。第一个 child 建立 sibling column；form
 
 `plumb
 
-"
+|"
   `pair[first|second]
   `pair[`*[rich first]|second with spaces|note[child]]
+  `pair[|"[raw]"]
 
-argument 与 child 可以交错；space 属于 argument content，只有当前 depth 的 pipe 建立 member boundary。
-core 保存统一的 source order，不解释 kind、argument 含义或数量。
+first member 固定为 parsed argument 且可以为空；后续 argument 与 child 可以交错。space 属于 argument
+content，只有当前 depth 的 pipe 建立 member boundary。verbatim argument 也只能出现在 pipe 后，如上面的
+第三行。core 保存统一的 source order，不解释 kind、argument 含义或数量。
 
 element 可以跨属于同一 paragraph/head 的 continuation lines：
 
 `plumb
 
-"
+|"
   See `term[first line
   second line].
 
@@ -74,14 +76,15 @@ id、facet、property 或普通 structural child 也放在同一 envelope：
 
 `plumb
 
-"
+|"
   `term[value|@[stable]|+[warning]|=[level|2]]
 
-inline element 即使没有 members 也必须写出 `"[]" delimiter；不存在裸 `"warning" shorthand：
+inline element 即使 first argument 为空也必须写出 `"[]" delimiter；不存在 zero-member element 或裸
+`"warning" shorthand：
 
 `plumb
 
-"
+|"
   `warning[]
 
 需要字面 closing bracket 时写两个反引号再跟 closing bracket。
@@ -92,7 +95,7 @@ inline verbatim 适合 code、路径和其他不需要 inline parsing 的内容�
 
 `plumb
 
-"
+|"
   Run `"cargo test".
   A literal quote: `"[say "hello"]".
 
@@ -104,7 +107,7 @@ ASCII-space structural margin。它是没有 head 或 children 的 raw leaf：
 
 `plumb
 
-"
+|"
   `"
    anonymous raw
 
@@ -113,11 +116,11 @@ owner column 对齐、独占一行的 quote run 进入 raw phase：
 
 `plumb
 
-"
+|"
   `rust
    `@ example
 
-  "
+  |"
    fn main() {
        println!("hello");
    }
@@ -135,7 +138,7 @@ document 是 implicit root owner，保存 source-ordered top-level blocks。brac
 
 `plumb
 
-"
+|"
   `= title Document title
   `+ guide
 
@@ -148,7 +151,7 @@ document 与 marked block 都用同一个 source-ordered direct children sequenc
 
 `plumb
 
-"
+|"
   `node Head
    `@ intro
    `+ note
@@ -177,7 +180,7 @@ ordinary text 保留。legacy 文件必须显式使用 `"plumb migrate --from at
 
 `plumb
 
-"
+|"
   ``note is text, not a block.
 
 单个反引号加 `"`["、`"]" 或 `"|" 是 delimiter 的字面转义，在任何 parsed position 无条件成立；

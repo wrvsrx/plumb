@@ -8,7 +8,7 @@ core 只识别结构；本页介绍官方工具链赋予常用 marker、inline k
 
 `plumb
 
-"
+|"
   `# 一级标题
   `## 二级标题
 
@@ -16,7 +16,7 @@ heading 默认只有 outline identity。需要成为 link 或 rename target 时�
 
 `plumb
 
-"
+|"
   `# 可引用的标题
    `@ intro
 
@@ -30,7 +30,7 @@ cursor 位于尚无 id 的 heading 或 generic marked block 时，`"Add explicit
 
 `plumb
 
-"
+|"
   `- First
   `- Second
     `- Nested
@@ -45,7 +45,7 @@ ordered list 固定从 1 开始。
 
 `plumb
 
-"
+|"
   `: Term Inline body.
 
   `: Term
@@ -60,7 +60,7 @@ document identity 来自 normalized workspace-relative path，因此顶层 direc
 
 `plumb
 
-"
+|"
   `= title Document title
   `+ guide
 
@@ -89,7 +89,7 @@ interleaved children 不占 argument index：
 
 `plumb
 
-"
+|"
   `->[same document|#intro]
   `->[another document|guide.plumb]
   `->[another anchor|@[guide]|guide.plumb#intro]
@@ -106,7 +106,7 @@ label 与 target 相同时，可以改用 Autolink：
 
 `plumb
 
-"
+|"
   `->"https://example.test/a%20b"
   `->"[https://[2001:db8::1]/]"
   `->"guide.plumb#intro"
@@ -131,7 +131,7 @@ bare backtick、单独 `"`[" 或 unclosed inline verbatim 不提供 construct ca
 
 `plumb
 
-"
+|"
   Text with `img[status icon|=[src|static/status.png]] inline.
 
   `img[|=[src|https://example.test/decorative.svg]]
@@ -148,7 +148,7 @@ go-to-definition。image 的
 
 `plumb
 
-"
+|"
   `file[Demo video|=[src|static/demo.mp4]]
   `file[Download report|=[src|reports/final.pdf]]
 
@@ -163,7 +163,7 @@ LSP 在 src 中补全任意本地文件，并提供 hover、go-to-definition 和
 
 `plumb
 
-"
+|"
   `= bibliography
    `- static/library.json
 
@@ -183,7 +183,7 @@ marker/kind `"()" 是显式的透明 container，解除该限制而不添加任�
 
 `plumb
 
-"
+|"
   `() Warning
    `@ notice
    `warning
@@ -200,7 +200,7 @@ marker/kind `"()" 是显式的透明 container，解除该限制而不添加任�
 
 `plumb
 
-"
+|"
   `> A quoted opening.
 
     A second quoted paragraph.
@@ -216,7 +216,7 @@ generic block 导出。quote 不隐式解释 attribution 或 citation。
 
 `plumb
 
-"
+|"
   `*[emphasis]
   `![strong]
   `==[mark]
@@ -234,13 +234,13 @@ Subscript。未消费的 declaration children 通过 Span 保存。`"**"、`"em"
 
 `plumb
 
-"
+|"
   Inline `$"\pi r^2".
 
   `$
    `@ energy
 
-  "
+  |"
    E = mc^2
 
 inline 与 display 由 envelope 决定，input 默认是 TeX。内容出现 closing bracket 时使用现有 quote
@@ -252,7 +252,7 @@ strength。普通 dollar characters 和 dollar-delimited math 不具有特殊含
 
 `plumb
 
-"
+|"
   `event 14:00--15:30 Parser review
    `@ parser-review
    `= date 2026-07-30
@@ -274,7 +274,7 @@ facets 只是 opaque data。
 
 `plumb
 
-"
+|"
   `()
    `= date 2026-07-31
    `event 09:00 使用 7 月 31 日
@@ -285,7 +285,7 @@ title 可以包含 inline markup：
 
 `text
 
-"
+|"
   `- 11 relax: phone
   `- 11:10:24 precise reminder
   `- 11:00--11:20 relax: phone
@@ -328,7 +328,7 @@ event、reminder、外部 iCalendar 回写或 CalDAV client。
 
 `plumb
 
-"
+|"
   `task Implement parser
    `@ write-parser
    `= priority 10
@@ -348,7 +348,7 @@ reference 在 id 后由 whitespace 分隔，因此 path 可以直接包含 space
 
 `plumb
 
-"
+|"
   `task Review
    `= depends #local Project A.plumb#build Project B.plumb#test
 

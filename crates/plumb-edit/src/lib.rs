@@ -817,6 +817,7 @@ fn render_owned_block(block: &OwnedBlock, indent: usize, output: &mut String) {
                     output.push_str("\n\n");
                 }
                 output.extend(std::iter::repeat_n(' ', indent));
+                output.push('|');
                 output.push('"');
                 render_owned_raw_text(text, indent, output);
             }
@@ -889,8 +890,12 @@ fn render_owned_inline(
             }
             output.push_str(kind);
             output.push('[');
+            let needs_empty_first_argument = !matches!(
+                members.first(),
+                Some(OwnedInlineMember::ParsedArgument(_)) | None
+            );
             for (index, member) in members.iter().enumerate() {
-                if index > 0 {
+                if index > 0 || needs_empty_first_argument {
                     output.push('|');
                 }
                 match member {
@@ -898,7 +903,7 @@ fn render_owned_inline(
                         render_owned_inlines(argument, true, continuation_indent, output);
                     }
                     OwnedInlineMember::VerbatimArgument(argument) => {
-                        render_owned_verbatim_payload(argument, output);
+                        render_owned_full_verbatim_payload(argument, output);
                     }
                     OwnedInlineMember::Child(child) => {
                         render_owned_inline(child, true, continuation_indent, output, false);
@@ -910,11 +915,23 @@ fn render_owned_inline(
         OwnedInline::Verbatim { kind, text } => {
             if introduced {
                 output.push('`');
+                output.push_str(kind);
+                render_owned_verbatim_payload(text, output);
+            } else {
+                output.push_str(kind);
+                render_owned_full_verbatim_payload(text, output);
             }
-            output.push_str(kind);
-            render_owned_verbatim_payload(text, output);
         }
     }
+}
+
+fn render_owned_full_verbatim_payload(text: &str, output: &mut String) {
+    let quotes = minimum_quote_count(text).max(1);
+    output.push_str(&"\"".repeat(quotes));
+    output.push('[');
+    output.push_str(text);
+    output.push(']');
+    output.push_str(&"\"".repeat(quotes));
 }
 
 fn render_owned_verbatim_payload(text: &str, output: &mut String) {
@@ -1134,7 +1151,7 @@ mod tests {
         let formatted = block.format().unwrap();
         assert_eq!(
             formatted,
-            "`rust\n\n `@ example\n\n `note nested\n\n\"\n fn main() {}\n"
+            "`rust\n\n `@ example\n\n `note nested\n\n|\"\n fn main() {}\n"
         );
         let parsed = parse(&formatted);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
@@ -1153,14 +1170,14 @@ mod tests {
             children: Vec::new(),
             raw: Some("fn main() {}\n".into()),
         };
-        assert_eq!(block.format().unwrap(), "`rust\n\"\n fn main() {}\n");
+        assert_eq!(block.format().unwrap(), "`rust\n|\"\n fn main() {}\n");
     }
 
     #[test]
     fn adding_attributes_explicitizes_anonymous_raw() {
         let block = OwnedBlock::Verbatim { text: "raw".into() }
             .with_attributes(vec![OwnedAttribute::id("example")]);
-        assert_eq!(block.format().unwrap(), "`()\n\n `@ example\n\n\"\n raw");
+        assert_eq!(block.format().unwrap(), "`()\n\n `@ example\n\n|\"\n raw");
     }
 
     #[test]
@@ -1345,7 +1362,7 @@ mod tests {
 
     #[test]
     fn owned_syntax_round_trips_inline_members_children_and_raw() {
-        let source = "`node Head `span[text|@[id]|+[opaque]|=[key|bare]] and `\"raw\"\n `@ owner\n `child Body\n\n\"\n payload\n";
+        let source = "`node Head `span[text|@[id]|+[opaque]|=[key|bare]] and `\"raw\"\n `@ owner\n `child Body\n\n|\"\n payload\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let owned = OwnedBlock::from_syntax(source, &parsed.syntax.blocks[0]);
@@ -1359,7 +1376,29 @@ mod tests {
         assert!(formatted.contains("`span[text|@[id]|+[opaque]|=[key|bare]]"));
         assert!(formatted.contains("`@ owner"));
         assert!(formatted.contains("`child Body"));
-        assert!(formatted.contains("\n\"\n payload"));
+        assert!(formatted.contains("\n|\"\n payload"));
+    }
+
+    #[test]
+    fn owned_elements_insert_an_empty_first_argument_before_other_member_forms() {
+        for first in [
+            OwnedInlineMember::VerbatimArgument("raw".into()),
+            OwnedInlineMember::Child(Box::new(OwnedInline::Element {
+                kind: "note".into(),
+                members: vec![OwnedInlineMember::ParsedArgument(vec![OwnedInline::Text(
+                    "child".into(),
+                )])],
+            })),
+        ] {
+            let inline = OwnedInline::Element {
+                kind: "owner".into(),
+                members: vec![first],
+            };
+            let mut output = String::new();
+            render_owned_inline(&inline, true, 0, &mut output, true);
+            assert!(output.starts_with("`owner[|"), "{output}");
+            assert!(parse(&format!("{output}\n")).is_valid(), "{output}");
+        }
     }
 
     #[test]

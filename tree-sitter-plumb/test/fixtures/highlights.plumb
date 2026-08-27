@@ -12,12 +12,12 @@ Autolink `->"inbox.plumb".
 
  `@ example
 
-"
+|"
  fn main() {}
 
 `$
 
-"
+|"
  E = mc^2
 
 `"

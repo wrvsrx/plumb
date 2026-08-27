@@ -2479,7 +2479,7 @@ mod tests {
     #[test]
     fn folds_heading_sections_and_multiline_syntax_blocks() {
         let parsed = parse(
-            "`# Top\n\nIntro.\n\n`## Child\n\n`div Details\n\n body\n\n `text\n\n \"\n  raw\n`# Next\n\nTail.\n",
+            "`# Top\n\nIntro.\n\n`## Child\n\n`div Details\n\n body\n\n `text\n\n |\"\n  raw\n`# Next\n\nTail.\n",
         );
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let ranges = folding_ranges(&parsed.source, &parsed.syntax, None, None, false);

@@ -4,7 +4,7 @@
 
 `text
 
-"
+|"
   nix develop
   cargo test --workspace
   cargo check --workspace --all-targets
@@ -13,7 +13,7 @@ tree-sitter grammar 使用独立 shell 生成和测试：
 
 `text
 
-"
+|"
   nix develop .#tree-sitter-plumb -c tree-sitter generate
   nix develop .#tree-sitter-plumb -c tree-sitter test
 
@@ -53,7 +53,7 @@ document 若作为 open buffer 存在，仍由 open-buffer snapshot 覆盖 disk 
 
 `json
 
-"
+|"
   {
     "kind": "task",
     "query": "review",
@@ -98,7 +98,7 @@ formatter 为 inline verbatim 选择最小安全 quote count，不重排普通�
 
 `text
 
-"
+|"
   plumb fmt document.plumb
   cat document.plumb | plumb fmt > formatted.plumb
   plumb fmt --check docs/*.plumb
@@ -120,7 +120,7 @@ range formatting 不把 selection 扩展到只被部分命中的 structure：空
 
 `text
 
-"
+|"
   plumb export document.plumb | pandoc -f json -t html -o document.html
   cat document.plumb | plumb export | pandoc -f json -o document.pdf
 
@@ -133,7 +133,7 @@ syntax error、无效 metadata 或其他阻止 authoritative semantics 的错误
 
 `text
 
-"
+|"
   pandoc source.md -t json | plumb import > document.plumb
   plumb import document.json > document.plumb
 

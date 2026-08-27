@@ -15,7 +15,7 @@ exercise the implemented language server, exporter, and notes features.
 
 `sh
 
-"
+|"
   nix develop -c cargo build --workspace
   cargo run -q -p plumb -- export examples/plumb-export.plumb | pandoc -f json -t markdown
   cargo run -q -p plumb -- note --root examples --query 'title.matches("playground")'

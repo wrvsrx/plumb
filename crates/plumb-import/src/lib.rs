@@ -465,16 +465,13 @@ fn render_verbatim(text: &str, attrs: &Attr) -> Result<String, String> {
     }
     let owner_kind = if kind.is_empty() { "code" } else { &kind };
     Ok(format!(
-        "`{owner_kind}[{}{}]",
+        "`{owner_kind}[|{}{}]",
         render_verbatim_argument(text),
         children
     ))
 }
 
 fn render_verbatim_argument(text: &str) -> String {
-    if !text.contains('"') {
-        return format!("\"{text}\"");
-    }
     let quotes = minimum_quote_count(text).max(1);
     format!("{}[{}]{}", "\"".repeat(quotes), text, "\"".repeat(quotes))
 }
@@ -491,7 +488,7 @@ fn render_verbatim_block(attrs: &Attr, text: &str) -> Result<String, String> {
     let owner = if kind.is_empty() { "()" } else { &kind };
     let mut output = format!("`{owner}");
     append_block_attrs(&mut output, &attrs);
-    output.push_str("\n\n\"");
+    output.push_str("\n\n|\"");
     append_raw_payload(&mut output, text);
     Ok(output)
 }
@@ -767,16 +764,16 @@ mod tests {
         assert!(source.contains("`# Intro\n\n `@ intro"), "{source}");
         assert!(source.contains("`*[em] `![strong] `==[marked|@[marked]|+[keep]]"));
         assert!(source.contains("`~[strike] `^[super] `_[sub]"));
-        assert!(source.contains("`->[target|\"other.plumb#id\"]"));
+        assert!(source.contains("`->[target|\"[other.plumb#id]\"]"));
         assert!(
             source.contains(
-                "`file[video|@[demo]|+[wide]|=[download|\"yes\"]|=[src|\"static/demo.mp4\"]]"
+                "`file[video|@[demo]|+[wide]|=[download|\"[yes]\"]|=[src|\"[static/demo.mp4]\"]]"
             ),
             "{source}"
         );
         assert!(source.contains("`> quoted"));
         assert!(source.contains("`- item"));
-        assert!(source.contains("`rust\n\n `@ code\n\n\"\n fn main() {}"));
+        assert!(source.contains("`rust\n\n `@ code\n\n|\"\n fn main() {}"));
         assert!(plumb_syntax::parse(&source).is_valid());
     }
 
@@ -815,9 +812,9 @@ mod tests {
         };
         let source = import(&document).unwrap();
         assert!(source.contains("`*[a`]b]"), "{source}");
-        assert!(source.contains("`code[\"a]b\"|"));
+        assert!(source.contains("`code[|\"[a]b]\"|"));
         assert!(
-            source.contains("`code[\"a]b\"|=[data|\"value]/{draft}\"]]"),
+            source.contains("`code[|\"[a]b]\"|=[data|\"[value]/{draft}]\"]]"),
             "{source}"
         );
         assert!(source.contains("`\"\n raw"), "{source}");

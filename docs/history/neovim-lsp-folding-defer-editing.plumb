@@ -92,7 +92,7 @@ settle 后对光标执行 `"zv"。`"foldOpenCursor" 是循环：逐层打开包�
 
 `lua
 
-"
+|"
  vim.api.nvim_create_autocmd('InsertLeave', {
    group = folding_group,
    callback = function(args)

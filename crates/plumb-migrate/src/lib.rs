@@ -1008,7 +1008,7 @@ mod tests {
         let migrated = migrate_attached_v1(source).unwrap();
         assert_eq!(
             migrated,
-            "`plumb\n\"\n `->[guide|guide.plumb]\n `img[icon|=[src|asset.png]]\n"
+            "`plumb\n|\"\n `->[guide|guide.plumb]\n `img[icon|=[src|asset.png]]\n"
         );
     }
 
@@ -1018,7 +1018,7 @@ mod tests {
         let migrated = migrate_attached_v1(source).unwrap();
         assert_eq!(
             migrated,
-            "`plumb\n\"\n \t{ `->[guide|guide.plumb] }\r\n \r\n"
+            "`plumb\n|\"\n \t{ `->[guide|guide.plumb] }\r\n \r\n"
         );
         let parsed = plumb_syntax::parse(&migrated);
         let [plumb_syntax::Block::Parsed(owner)] = parsed.syntax.blocks.as_slice() else {
@@ -1066,7 +1066,7 @@ mod tests {
     #[test]
     fn expands_anonymous_verbatim_with_children_to_an_explicit_owner() {
         let migrated = migrate_attached_v1("`\"raw\"{`@[id]}\n").unwrap();
-        assert_eq!(migrated, "`code[\"raw\"|@[id]]\n");
+        assert_eq!(migrated, "`code[|\"[raw]\"|@[id]]\n");
     }
 
     #[test]
@@ -1089,7 +1089,10 @@ mod tests {
     fn converts_named_verbatim_to_a_marked_owner_with_one_raw_tail() {
         let source = "`tex\" {`+[$] `@[equation]}\n E = mc^2\n";
         let migrated = migrate_attached_v1(source).unwrap();
-        assert_eq!(migrated, "`tex\n\n `+ $\n\n `@ equation\n\n\"\n E = mc^2\n");
+        assert_eq!(
+            migrated,
+            "`tex\n\n `+ $\n\n `@ equation\n\n|\"\n E = mc^2\n"
+        );
         let parsed = plumb_syntax::parse(&migrated);
         let [plumb_syntax::Block::Parsed(owner)] = parsed.syntax.blocks.as_slice() else {
             panic!("expected one marked raw owner");
@@ -1102,7 +1105,7 @@ mod tests {
     fn explicitizes_an_attributed_anonymous_verbatim_block() {
         let source = "`\" {`@[example]}\n raw { bytes }\n";
         let migrated = migrate_attached_v1(source).unwrap();
-        assert_eq!(migrated, "`()\n\n `@ example\n\n\"\n raw { bytes }\n");
+        assert_eq!(migrated, "`()\n\n `@ example\n\n|\"\n raw { bytes }\n");
     }
 
     #[test]

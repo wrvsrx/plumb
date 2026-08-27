@@ -575,6 +575,7 @@ impl Formatter {
                 self.output.push_str("\n\n");
             }
             self.indent(indent);
+            self.output.push('|');
             self.output.push_str(&"\"".repeat(raw.quote_count));
             self.raw_payload(raw, indent + raw.quote_count);
         }
@@ -615,7 +616,7 @@ impl Formatter {
                             self.inlines(&argument.content, continuation_indent, true);
                         }
                         plumb_syntax::InlineMember::VerbatimArgument(argument) => {
-                            self.verbatim_payload(&argument.text);
+                            self.full_verbatim_payload(&argument.text);
                         }
                         plumb_syntax::InlineMember::Child { inline, .. } => {
                             self.inline(inline, continuation_indent, true, false);
@@ -627,10 +628,26 @@ impl Formatter {
             Inline::Verbatim { kind, text, .. } => {
                 if introduced {
                     self.output.push('`');
+                    self.output.push_str(kind);
+                    self.verbatim_payload(text);
+                } else {
+                    self.output.push_str(kind);
+                    self.full_verbatim_payload(text);
                 }
-                self.output.push_str(kind);
-                self.verbatim_payload(text);
             }
+        }
+    }
+
+    fn full_verbatim_payload(&mut self, text: &str) {
+        let quotes = minimum_quote_count(text).max(1);
+        for _ in 0..quotes {
+            self.output.push('"');
+        }
+        self.output.push('[');
+        self.output.push_str(text);
+        self.output.push(']');
+        for _ in 0..quotes {
+            self.output.push('"');
         }
     }
 
@@ -874,12 +891,12 @@ mod tests {
     fn formats_anonymous_and_owned_raw_payloads() {
         assert_formats("`\"\"\n  payload\n", "`\"\"\n  payload\n");
         assert_formats(
-            "`rust\n\n\"\"\"\n   fn main() {}\n",
-            "`rust\n\"\"\"\n   fn main() {}\n",
+            "`rust\n\n|\"\"\"\n   fn main() {}\n",
+            "`rust\n|\"\"\"\n   fn main() {}\n",
         );
         assert_formats(
-            "`rust\n   `@ example\n\n\"\n fn main() {}\n",
-            "`rust\n\n `@ example\n\n\"\n fn main() {}\n",
+            "`rust\n   `@ example\n\n|\"\n fn main() {}\n",
+            "`rust\n\n `@ example\n\n|\"\n fn main() {}\n",
         );
         assert_formats(
             "`example\n   `\"\n    child raw\n",
@@ -906,6 +923,10 @@ mod tests {
             "`note First `span[a `] b `` c]\n   second\n",
             "`note First `span[a `] b `` c]\n second\n",
         );
+        assert_formats(
+            "`owner[\"quoted\"|code\"raw\"|\"[verbatim]\"|code\"[child]\"]\n",
+            "`owner[\"quoted\"|code\"raw\"|\"[verbatim]\"|code\"[child]\"]\n",
+        );
     }
 
     #[test]
@@ -928,8 +949,8 @@ mod tests {
         assert_formats("`\"\"\n  final newline\n", "`\"\"\n  final newline\n");
         assert_formats("`\"\"\n  no newline", "`\"\"\n  no newline");
         assert_formats(
-            "`text\n\"\n   leading\n \n\nnext\n",
-            "`text\n\"\n   leading\n \n\nnext\n",
+            "`text\n|\"\n   leading\n \n\nnext\n",
+            "`text\n|\"\n   leading\n \n\nnext\n",
         );
     }
 
@@ -1068,7 +1089,7 @@ mod tests {
 
     #[test]
     fn terminal_raw_descendants_do_not_accumulate_spacing() {
-        let source = "`config\n   `json\n\n   \"\n    {\"enabled\": true}\n\n\n`event Following\n";
+        let source = "`config\n   `json\n\n   |\"\n    {\"enabled\": true}\n\n\n`event Following\n";
         let formatted = format(source).unwrap();
         assert_eq!(format(&formatted).unwrap(), formatted);
         assert_eq!(formatted.matches("\n\n`event Following").count(), 1);

@@ -6,7 +6,7 @@
 
 `text
 
-"
+|"
   UTF-8 source
       -> plumb-syntax recovered lossless tree + syntax diagnostics
       -> typed recovered/valid views

@@ -554,7 +554,7 @@ fn block_reference_code_lenses_use_block_openers() {
     let root = unique_temp_dir();
     std::fs::create_dir_all(&root).unwrap();
     let document = root.join("positions.plumb");
-    let source = "`# Heading\n\n `@ heading\n\n`task Task\n\n `@ task\n\n`node Block\n\n `@ block\n\n`task Multiline\n\n `@ multiline\n\n`outer\n\n `node Nested\n\n  `@ nested\n\nParagraph `span[text|@[inline]].\n\n`()\n\n `@ raw\n\n\"\n payload\n";
+    let source = "`# Heading\n\n `@ heading\n\n`task Task\n\n `@ task\n\n`node Block\n\n `@ block\n\n`task Multiline\n\n `@ multiline\n\n`outer\n\n `node Nested\n\n  `@ nested\n\nParagraph `span[text|@[inline]].\n\n`()\n\n `@ raw\n\n|\"\n payload\n";
     std::fs::write(&document, source).unwrap();
     let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
     let document_uri = lsp_types::Url::from_file_path(&document).unwrap();

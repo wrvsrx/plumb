@@ -103,13 +103,14 @@ fn strengthened_verbatim_quotes_are_individual_delimiters() {
 
 #[test]
 fn raw_block_separates_structural_prefix_payload_and_crlf() {
-    let source = "`text\n\"\n raw\r\n \r\n";
+    let source = "`text\n|\"\n raw\r\n \r\n";
     assert_eq!(
         tokens(source),
         vec![
             (SyntaxKind::Introducer, "`"),
             (SyntaxKind::Marker, "text"),
             (SyntaxKind::LineEnding, "\n"),
+            (SyntaxKind::Delimiter, "|"),
             (SyntaxKind::Delimiter, "\""),
             (SyntaxKind::LineEnding, "\n"),
             (SyntaxKind::Indentation, " "),

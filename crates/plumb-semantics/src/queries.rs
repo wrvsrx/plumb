@@ -1117,7 +1117,7 @@ mod tests {
                 })
             );
         }
-        let after_verbatim = "`rust\n\"\n raw\n`t";
+        let after_verbatim = "`rust\n|\"\n raw\n`t";
         let parsed = parse(after_verbatim);
         assert_eq!(
             construct_completion_context(&parsed, after_verbatim.len()),
@@ -1437,7 +1437,7 @@ mod tests {
         let (unclosed, cursor) = strip_cursor(unclosed);
         assert_eq!(completion_context(&unclosed, cursor), None);
 
-        let block = "`text\n\"\n raw `->[x]{to=\"doc|\"}\n";
+        let block = "`text\n|\"\n raw `->[x]{to=\"doc|\"}\n";
         let (block, cursor) = strip_cursor(block);
         assert_eq!(completion_context(&block, cursor), None);
     }
