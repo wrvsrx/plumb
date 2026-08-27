@@ -1,6 +1,46 @@
 use serde_json::json;
 
-use crate::support::{diagnostic_counts, response, run_server};
+use crate::support::{diagnostic_counts, response, run_server, unique_temp_dir};
+
+#[test]
+fn syntax_invalid_revision_does_not_publish_bibliography_diagnostics() {
+    let root = unique_temp_dir();
+    std::fs::create_dir_all(&root).unwrap();
+    let source_path = root.join("invalid.plumb");
+    let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
+    let source_uri = lsp_types::Url::from_file_path(&source_path).unwrap();
+    let source = "`= bibliography missing.json\n\n`span[open\n";
+    let messages = [
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {
+                "processId": null, "rootUri": root_uri,
+                "workspaceFolders": [{ "uri": root_uri, "name": "test" }],
+                "capabilities": {}
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": {
+                "uri": source_uri, "languageId": "plumb", "version": 1, "text": source
+            }}
+        }),
+        json!({ "jsonrpc": "2.0", "id": 2, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+
+    let output = run_server(&messages);
+    let diagnostics = output
+        .iter()
+        .rfind(|message| message.get("method") == Some(&json!("textDocument/publishDiagnostics")))
+        .expect("diagnostics notification")["params"]["diagnostics"]
+        .as_array()
+        .unwrap();
+    assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+    assert_eq!(diagnostics[0]["code"], "syntax.unclosed-inline");
+    std::fs::remove_dir_all(root).unwrap();
+}
 
 #[test]
 fn diagnostics_clear_after_a_link_is_fixed() {

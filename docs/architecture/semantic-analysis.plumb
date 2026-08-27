@@ -25,7 +25,14 @@ normalized AST 只在具体 consumer 能证明 typed views 不足时 materialize
 
 官方 pipeline 包含四类 protocol-neutral computation：
 
-`- document analysis：从一个 revision 的 valid view 产生 semantic records 与 diagnostics。
+`- document analysis：从一个 revision 的不可伪造 `"ValidDocument" view 产生 semantic records 与
+ diagnostics。public authoritative analysis entry points 不接受裸 `"Document" 或独立 source 参数；
+ valid view 同时提供同一次 parse 的 source 与 syntax tree。
+`- recovered editor queries：只能通过显式命名、按 consumer 所需字段窄化的 recovered entry point
+ 消费裸 `"Document"，且不产生 authoritative semantic diagnostics 或完整 document records。heading
+ folding projection 使用 `"analyze_recovered_headings"；citation completion 可以使用
+ `"recovered_bibliography_sources" 读取 source-backed bibliography declarations。两者不能借此调用或
+ 发布其他 semantic passes 的结果。
 `- workspace analysis：组合 document outputs，产生 resolution、reverse edges、cycles 等 indexes。
 `- query：读取 immutable context，返回当前请求的结果，不改变 state。
 `- operation：验证 preconditions，提出 guarded text/resource effects，不直接应用。

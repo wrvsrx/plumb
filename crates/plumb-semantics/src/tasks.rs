@@ -3,7 +3,7 @@ use std::path::Path;
 
 use chrono::{DateTime, Datelike, Duration, FixedOffset, SecondsFormat, TimeZone, Timelike};
 use plumb_syntax::{
-    AttrItem, AttrValue, Block, Diagnostic, DiagnosticSeverity, Document, ParsedBlock,
+    AttrItem, AttrValue, Block, Diagnostic, DiagnosticSeverity, ParsedBlock, ValidDocument,
 };
 use serde::{Deserialize, Serialize};
 
@@ -92,7 +92,9 @@ pub struct TaskOutput {
     pub diagnostics: Vec<Diagnostic>,
 }
 
-pub fn analyze_tasks(source: &str, document: &Document) -> TaskOutput {
+pub fn analyze_tasks(valid: ValidDocument<'_>) -> TaskOutput {
+    let source = valid.source();
+    let document = valid.syntax();
     let mut output = TaskOutput::default();
     for block in document
         .blocks
@@ -455,7 +457,11 @@ mod tests {
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
-        let output = analyze_tasks(source, &parsed.syntax);
+        let output = analyze_tasks(
+            parsed
+                .valid_syntax()
+                .expect("semantic analysis requires valid syntax"),
+        );
         assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
         assert_eq!(output.tasks.len(), 2);
         let task = &output.tasks[0];
@@ -539,7 +545,11 @@ mod tests {
         let source = "`task Review\n  `@ review\n  `= depends Project Plan.plumb#build #local\n";
         let parsed = plumb_syntax::parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
-        let output = analyze_tasks(source, &parsed.syntax);
+        let output = analyze_tasks(
+            parsed
+                .valid_syntax()
+                .expect("semantic analysis requires valid syntax"),
+        );
         let task = &output.tasks[0];
         assert_eq!(task.depends.len(), 2);
         assert_eq!(
@@ -555,7 +565,11 @@ mod tests {
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
-        let output = analyze_tasks(source, &parsed.syntax);
+        let output = analyze_tasks(
+            parsed
+                .valid_syntax()
+                .expect("semantic analysis requires valid syntax"),
+        );
         assert_eq!(output.tasks[0].state(), TaskState::Conflicted);
         let codes = output
             .diagnostics
@@ -590,7 +604,11 @@ mod tests {
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
-        let output = analyze_tasks(source, &parsed.syntax);
+        let output = analyze_tasks(
+            parsed
+                .valid_syntax()
+                .expect("semantic analysis requires valid syntax"),
+        );
         assert_eq!(output.tasks[0].priority, Some(i32::MAX));
         assert_eq!(output.tasks[1].priority, Some(-12));
         assert_eq!(output.tasks[2].priority, Some(i32::MIN));
@@ -618,7 +636,11 @@ mod tests {
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
-        let output = analyze_tasks(source, &parsed.syntax);
+        let output = analyze_tasks(
+            parsed
+                .valid_syntax()
+                .expect("semantic analysis requires valid syntax"),
+        );
         let codes = output
             .diagnostics
             .iter()
@@ -653,7 +675,11 @@ mod tests {
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
-        let output = analyze_tasks(source, &parsed.syntax);
+        let output = analyze_tasks(
+            parsed
+                .valid_syntax()
+                .expect("semantic analysis requires valid syntax"),
+        );
         assert_eq!(output.tasks.len(), 1);
         assert!(output.diagnostics.is_empty());
     }

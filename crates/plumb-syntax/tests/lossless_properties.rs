@@ -42,6 +42,10 @@ fn assert_lossless(parsed: &ParsedDocument) {
     }
 
     assert_eq!(parsed.valid_syntax().is_some(), parsed.is_valid());
+    if let Some(valid) = parsed.valid_syntax() {
+        assert_eq!(valid.source(), parsed.source);
+        assert_eq!(valid.syntax(), &parsed.syntax);
+    }
     assert_eq!(parsed.recovered_syntax(), &parsed.syntax);
     assert_eq!(
         parsed.is_valid(),

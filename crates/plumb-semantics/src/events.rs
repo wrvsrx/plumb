@@ -2,8 +2,8 @@ use std::ops::Range;
 
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveTime, TimeZone};
 use plumb_syntax::{
-    AttrItem, AttrValue, Block, Diagnostic, DiagnosticSeverity, Document, Inline, InlineContent,
-    ParsedBlock,
+    AttrItem, AttrValue, Block, Diagnostic, DiagnosticSeverity, Inline, InlineContent, ParsedBlock,
+    ValidDocument,
 };
 use serde::{Deserialize, Serialize};
 
@@ -83,7 +83,9 @@ pub struct EventOutput {
     pub diagnostics: Vec<Diagnostic>,
 }
 
-pub fn analyze_events(source: &str, document: &Document, metadata: &MetadataOutput) -> EventOutput {
+pub fn analyze_events(valid: ValidDocument<'_>, metadata: &MetadataOutput) -> EventOutput {
+    let source = valid.source();
+    let document = valid.syntax();
     let mut output = EventOutput::default();
     let context = EventContext::from_metadata(metadata);
     for block in document
@@ -572,8 +574,11 @@ mod tests {
     fn analyze(source: &str) -> EventOutput {
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
-        let metadata = crate::analyze_metadata(&parsed.syntax);
-        analyze_events(source, &parsed.syntax, &metadata)
+        let valid = parsed
+            .valid_syntax()
+            .expect("semantic analysis requires valid syntax");
+        let metadata = crate::analyze_metadata(valid);
+        analyze_events(valid, &metadata)
     }
 
     #[test]

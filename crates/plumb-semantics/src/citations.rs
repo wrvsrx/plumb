@@ -1,8 +1,8 @@
 use std::ops::Range;
 
 use plumb_syntax::{
-    Block, Diagnostic, DiagnosticSeverity, Document, Inline, InlineArgumentRef, InlineContent,
-    InlineMember,
+    Block, Diagnostic, DiagnosticSeverity, Inline, InlineArgumentRef, InlineContent, InlineMember,
+    ValidDocument,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -26,7 +26,8 @@ impl CitationOutput {
     }
 }
 
-pub fn analyze_citations(document: &Document) -> CitationOutput {
+pub fn analyze_citations(valid: ValidDocument<'_>) -> CitationOutput {
+    let document = valid.syntax();
     let mut output = CitationOutput::default();
     collect_blocks(&document.blocks, &mut output);
     output
@@ -137,7 +138,11 @@ mod tests {
         let parsed = parse("See `cite[smith2004].\n\n`meta\n  `: source\n\n     `cite[roe-2020]\n");
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
-        let output = analyze_citations(&parsed.syntax);
+        let output = analyze_citations(
+            parsed
+                .valid_syntax()
+                .expect("semantic analysis requires valid syntax"),
+        );
         assert!(output.diagnostics.is_empty());
         assert_eq!(output.citations.len(), 2);
         assert_eq!(output.citations[0].id, "smith2004");
@@ -149,7 +154,11 @@ mod tests {
         let parsed = parse("`cite[plain text] `cite[@one] `cite[one;two] `cite[`*[nested]].\n");
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
-        let output = analyze_citations(&parsed.syntax);
+        let output = analyze_citations(
+            parsed
+                .valid_syntax()
+                .expect("semantic analysis requires valid syntax"),
+        );
         assert!(output.citations.is_empty());
         assert_eq!(output.diagnostics.len(), 4);
         assert!(output

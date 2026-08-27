@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use plumb_syntax::{Block, Document, Inline, InlineContent, InlineMember};
+use plumb_syntax::{Block, Inline, InlineContent, InlineMember, ValidDocument};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InlineStyleKind {
@@ -29,7 +29,8 @@ impl InlineStyleOutput {
     }
 }
 
-pub fn analyze_inline_styles(document: &Document) -> InlineStyleOutput {
+pub fn analyze_inline_styles(valid: ValidDocument<'_>) -> InlineStyleOutput {
+    let document = valid.syntax();
     let mut output = InlineStyleOutput::default();
     collect_blocks(&document.blocks, &mut output);
     output
@@ -97,7 +98,11 @@ mod tests {
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
-        let output = analyze_inline_styles(&parsed.syntax);
+        let output = analyze_inline_styles(
+            parsed
+                .valid_syntax()
+                .expect("semantic analysis requires valid syntax"),
+        );
         assert_eq!(
             output
                 .styles

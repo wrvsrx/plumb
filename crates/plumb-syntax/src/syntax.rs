@@ -53,8 +53,23 @@ impl ParsedDocument {
         &self.syntax
     }
 
-    pub fn valid_syntax(&self) -> Option<&Document> {
-        self.is_valid().then_some(&self.syntax)
+    pub fn valid_syntax(&self) -> Option<ValidDocument<'_>> {
+        self.is_valid().then_some(ValidDocument { parsed: self })
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ValidDocument<'a> {
+    parsed: &'a ParsedDocument,
+}
+
+impl<'a> ValidDocument<'a> {
+    pub fn source(self) -> &'a str {
+        &self.parsed.source
+    }
+
+    pub fn syntax(self) -> &'a Document {
+        &self.parsed.syntax
     }
 }
 

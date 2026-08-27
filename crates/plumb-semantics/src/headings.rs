@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use plumb_syntax::{Block, Diagnostic, Document, ParsedBlock};
+use plumb_syntax::{Block, Diagnostic, Document, ParsedBlock, ValidDocument};
 
 use crate::text::plain_text;
 
@@ -26,7 +26,11 @@ impl HeadingOutput {
     }
 }
 
-pub fn analyze_headings(document: &Document) -> HeadingOutput {
+pub fn analyze_headings(valid: ValidDocument<'_>) -> HeadingOutput {
+    analyze_recovered_headings(valid.syntax())
+}
+
+pub fn analyze_recovered_headings(document: &Document) -> HeadingOutput {
     let mut flat = Vec::new();
     for block in document
         .blocks
@@ -148,7 +152,11 @@ mod tests {
     #[test]
     fn builds_heading_hierarchy() {
         let parsed = parse("`# One\n`## Two\n`# Three\n");
-        let output = analyze_headings(&parsed.syntax);
+        let output = analyze_headings(
+            parsed
+                .valid_syntax()
+                .expect("semantic analysis requires valid syntax"),
+        );
         assert_eq!(output.headings.len(), 2);
         assert_eq!(output.headings[0].children[0].title, "Two");
     }

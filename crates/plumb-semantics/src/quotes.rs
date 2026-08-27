@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use plumb_syntax::{Block, Document};
+use plumb_syntax::{Block, ValidDocument};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct QuoteRecord {
@@ -18,7 +18,8 @@ impl QuoteOutput {
     }
 }
 
-pub fn analyze_quotes(document: &Document) -> QuoteOutput {
+pub fn analyze_quotes(valid: ValidDocument<'_>) -> QuoteOutput {
+    let document = valid.syntax();
     let mut output = QuoteOutput::default();
     for block in document
         .blocks
@@ -58,7 +59,11 @@ mod tests {
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
-        let output = analyze_quotes(&parsed.syntax);
+        let output = analyze_quotes(
+            parsed
+                .valid_syntax()
+                .expect("semantic analysis requires valid syntax"),
+        );
         assert_eq!(output.quotes.len(), 2);
         assert_eq!(
             &source[output.quotes[0].range.clone()],

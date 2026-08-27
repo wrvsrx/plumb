@@ -29,7 +29,8 @@ mod task_sort;
 mod tasks;
 
 pub use bibliography::{
-    load_bibliography, Bibliography, BibliographyRecord, BibliographyResolution,
+    load_bibliography, load_bibliography_sources, Bibliography, BibliographyRecord,
+    BibliographyResolution,
 };
 pub use store::{SqliteSemanticStore, StoreError};
 
@@ -388,9 +389,7 @@ impl Workspace {
             return Ok(true);
         }
         let parsed = parse(source);
-        let output = parsed
-            .is_valid()
-            .then(|| analyze_document(&parsed.source, &parsed.syntax));
+        let output = parsed.valid_syntax().map(analyze_document);
         store.replace(&path, revision, &parsed.source, output.as_ref())?;
         Ok(false)
     }
@@ -438,10 +437,10 @@ impl Workspace {
             .documents
             .get(&path)
             .and_then(|entry| entry.last_valid.clone());
-        let current = parsed.is_valid().then(|| {
+        let current = parsed.valid_syntax().map(|valid| {
             Arc::new(VersionedDocumentOutput {
                 revision,
-                output: analyze_document(&parsed.source, &parsed.syntax),
+                output: analyze_document(valid),
             })
         });
         let last_valid = current.clone().or(previous_last_valid);
@@ -3554,8 +3553,7 @@ impl Workspace {
         std::fs::read_to_string(&path)
             .ok()
             .map(parse)
-            .filter(ParsedDocument::is_valid)
-            .map(|parsed| analyze_document(&parsed.source, &parsed.syntax))
+            .and_then(|parsed| parsed.valid_syntax().map(analyze_document))
             .map(|output| {
                 output
                     .anchors
@@ -3586,8 +3584,12 @@ impl Workspace {
         std::fs::read_to_string(&path)
             .ok()
             .map(parse)
-            .filter(ParsedDocument::is_valid)
-            .map(|parsed| analyze_document(&parsed.source, &parsed.syntax).tasks.tasks)
+            .and_then(|parsed| {
+                parsed
+                    .valid_syntax()
+                    .map(analyze_document)
+                    .map(|output| output.tasks.tasks)
+            })
             .unwrap_or_default()
     }
 
@@ -3638,10 +3640,10 @@ impl Workspace {
             .find(|document| document.path == path)?
             .revision;
         let parsed = parse(std::fs::read_to_string(&path).ok()?);
-        let current = parsed.is_valid().then(|| {
+        let current = parsed.valid_syntax().map(|valid| {
             Arc::new(VersionedDocumentOutput {
                 revision,
-                output: analyze_document(&parsed.source, &parsed.syntax),
+                output: analyze_document(valid),
             })
         });
         Some(DocumentEntry {
@@ -5767,7 +5769,12 @@ mod tests {
             let parsed = parse(&completed);
             assert!(parsed.is_valid(), "{completed}\n{:?}", parsed.diagnostics);
             assert_eq!(
-                analyze_document(&parsed.source, &parsed.syntax).images[0]
+                analyze_document(
+                    parsed
+                        .valid_syntax()
+                        .expect("semantic analysis requires valid syntax")
+                )
+                .images[0]
                     .source
                     .value,
                 candidate.label
@@ -6577,9 +6584,13 @@ mod tests {
             edited.replace_range(edit.range.clone(), &edit.new_text);
             let parsed = parse(&edited);
             assert!(parsed.is_valid(), "{edited}\n{:?}", parsed.diagnostics);
-            assert!(!analyze_document(&parsed.source, &parsed.syntax)
-                .anchors
-                .is_empty());
+            assert!(!analyze_document(
+                parsed
+                    .valid_syntax()
+                    .expect("semantic analysis requires valid syntax")
+            )
+            .anchors
+            .is_empty());
         }
 
         assert_eq!(
@@ -6736,7 +6747,11 @@ mod tests {
         assert_eq!(edited.matches("`= done 2026-01-20").count(), 1);
         let parsed = parse(&edited);
         assert!(parsed.is_valid(), "{}\n{:?}", edited, parsed.diagnostics);
-        let output = analyze_document(&parsed.source, &parsed.syntax);
+        let output = analyze_document(
+            parsed
+                .valid_syntax()
+                .expect("semantic analysis requires valid syntax"),
+        );
         assert_eq!(output.tasks.tasks.len(), 4);
         assert_eq!(output.tasks.tasks[2].state(), TaskState::Open);
     }

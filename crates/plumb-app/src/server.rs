@@ -33,14 +33,14 @@ use lsp_types::{
 use plumb_semantics::{
     attribute_completion_context, citation_completion_context, construct_completion_context,
     event_title_completion_context, file_completion_context, image_completion_context,
-    link_completion_context, task_dependency_completion_context, AnchorKind,
-    ConstructCompletionContext, TaskStatus,
+    link_completion_context, recovered_bibliography_sources, task_dependency_completion_context,
+    AnchorKind, ConstructCompletionContext, TaskStatus,
 };
 use plumb_syntax::Diagnostic;
 use plumb_workspace::{
-    load_bibliography, normalize, scan_workspace_files, Bibliography, BibliographyResolution,
-    PathRenameInput, RenameError, ResolvedTarget, ResourceOperation, SearchRecord,
-    SearchRecordKind, SqliteSemanticStore, Workspace, WorkspaceEdit,
+    load_bibliography, load_bibliography_sources, normalize, scan_workspace_files, Bibliography,
+    BibliographyResolution, PathRenameInput, RenameError, ResolvedTarget, ResourceOperation,
+    SearchRecord, SearchRecordKind, SqliteSemanticStore, Workspace, WorkspaceEdit,
 };
 use sha2::{Digest, Sha256};
 
@@ -175,12 +175,18 @@ impl ServerState {
     fn bibliography_for(&self, path: &Path) -> Option<Bibliography> {
         let root = self.workspace_root_for(path)?;
         let entry = self.workspace.get(path)?;
-        if let Some(current) = &entry.current {
-            Some(load_bibliography(root, path, &current.output.metadata))
-        } else {
-            let metadata = plumb_semantics::analyze_metadata(&entry.parsed.syntax);
-            Some(load_bibliography(root, path, &metadata))
+        let current = entry.current.as_ref()?;
+        Some(load_bibliography(root, path, &current.output.metadata))
+    }
+
+    fn bibliography_for_completion(&self, path: &Path) -> Option<Bibliography> {
+        if let Some(bibliography) = self.bibliography_for(path) {
+            return Some(bibliography);
         }
+        let root = self.workspace_root_for(path)?;
+        let entry = self.workspace.get(path)?;
+        let sources = recovered_bibliography_sources(entry.parsed.recovered_syntax());
+        Some(load_bibliography_sources(root, path, sources))
     }
 
     fn index_roots(&mut self) -> (usize, bool) {
@@ -1461,7 +1467,7 @@ impl LanguageServer for ServerState {
                     return Some(items);
                 }
                 if let Some(context) = citation_completion_context(&entry.parsed, offset) {
-                    let bibliography = self.bibliography_for(&path)?;
+                    let bibliography = self.bibliography_for_completion(&path)?;
                     let query = context.query.to_lowercase();
                     return Some(
                         bibliography
@@ -2466,7 +2472,11 @@ mod tests {
     #[test]
     fn maps_nested_heading_facts_to_nested_symbols() {
         let parsed = parse("`# One\n`## Two\n");
-        let output = analyze_headings(&parsed.syntax);
+        let output = analyze_headings(
+            parsed
+                .valid_syntax()
+                .expect("semantic analysis requires valid syntax"),
+        );
         let symbols = output
             .headings
             .iter()
@@ -2562,7 +2572,12 @@ mod tests {
             "`task Closed parent\n\n `= done 2026-07-27T10:00:00+08:00\n\n `note Parent detail\n\n `task Open child\n\n `note Parent tail\n\n`task Canceled\n\n `= canceled 2026-07-27T10:01:00+08:00\n\n`task Conflicted\n\n `= done 2026-07-27T10:02:00+08:00\n\n `= canceled 2026-07-27T10:03:00+08:00\n",
         );
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
-        let tasks = analyze_tasks(&parsed.source, &parsed.syntax).tasks;
+        let tasks = analyze_tasks(
+            parsed
+                .valid_syntax()
+                .expect("semantic analysis requires valid syntax"),
+        )
+        .tasks;
         let ranges = closed_task_token_ranges(&tasks);
         let open_child = &tasks[1].range;
         assert!(ranges
@@ -2577,7 +2592,11 @@ mod tests {
     fn maps_metadata_facts_to_nested_symbols() {
         let parsed = parse("`= title Document title\n`= author\n `= name Alice\n");
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
-        let output = analyze_metadata(&parsed.syntax);
+        let output = analyze_metadata(
+            parsed
+                .valid_syntax()
+                .expect("semantic analysis requires valid syntax"),
+        );
         let symbol = metadata_symbol(&parsed.source, output.metadata.as_ref().unwrap());
         assert_eq!(symbol.name, "metadata");
         let children = symbol.children.unwrap();

@@ -3,7 +3,7 @@ use std::path::Path;
 
 use chrono::{DateTime, FixedOffset, Local};
 use lsp_types::FoldingRange;
-use plumb_semantics::{analyze_headings, EventRecord, MetadataValue};
+use plumb_semantics::{analyze_recovered_headings, EventRecord, MetadataValue};
 use plumb_syntax::{Block, Document};
 use plumb_workspace::{DocumentEntry, TaskWorkflowState, Workspace};
 
@@ -195,7 +195,7 @@ pub(crate) fn ranges(
     line_folding_only: bool,
 ) -> Vec<FoldingRange> {
     let positions = PositionIndex::new(source);
-    let headings = analyze_headings(document);
+    let headings = analyze_recovered_headings(document);
     let mut byte_ranges = Vec::new();
     let mut pending_headings = headings.headings.iter().collect::<Vec<_>>();
     while let Some(heading) = pending_headings.pop() {

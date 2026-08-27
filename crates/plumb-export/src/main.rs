@@ -52,7 +52,7 @@ fn read_input(path: Option<&OsStr>) -> Result<String, String> {
 
 pub fn export(source: &str) -> Result<Value, String> {
     let parsed = parse(source);
-    if !parsed.is_valid() {
+    let Some(valid) = parsed.valid_syntax() else {
         let summary = parsed
             .diagnostics
             .iter()
@@ -68,8 +68,8 @@ pub fn export(source: &str) -> Result<Value, String> {
             .collect::<Vec<_>>()
             .join("\n");
         return Err(format!("document has syntax errors:\n{summary}"));
-    }
-    let analysis = analyze_document(&parsed.source, &parsed.syntax);
+    };
+    let analysis = analyze_document(valid);
     let metadata = lower_metadata(analysis.metadata.metadata.as_ref(), &analysis)?;
     Ok(json!({
         "pandoc-api-version": [1, 23, 1],

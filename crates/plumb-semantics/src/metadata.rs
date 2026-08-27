@@ -4,7 +4,7 @@ use std::ops::Range;
 use chrono::DateTime;
 use plumb_syntax::{
     Block, Diagnostic, DiagnosticSeverity, Document, Inline, InlineContent, InlineMember,
-    ParsedBlock,
+    ParsedBlock, ValidDocument,
 };
 
 use crate::text::plain_text;
@@ -173,7 +173,15 @@ fn bibliography_source(value: &MetadataValue) -> Option<BibliographySource> {
     }
 }
 
-pub fn analyze_metadata(document: &Document) -> MetadataOutput {
+pub fn analyze_metadata(valid: ValidDocument<'_>) -> MetadataOutput {
+    analyze_metadata_document(valid.syntax())
+}
+
+pub fn recovered_bibliography_sources(document: &Document) -> Vec<BibliographySource> {
+    analyze_metadata_document(document).bibliography_sources()
+}
+
+fn analyze_metadata_document(document: &Document) -> MetadataOutput {
     let mut output = MetadataOutput::default();
     collect_definition_lists(
         document
@@ -672,7 +680,11 @@ mod tests {
             "`= title Document `em[title]\n`= tags\n\n `- plumb\n `- parser\n\n`= macros\n\n `-\n  `- `\"name\"\n  `- `\"expansion\"\n  `- 1\n\n`= author\n\n `= name Alice\n\n`= source\n\n `\"\n  raw\n\n`: term\n\n Definition.\n",
         );
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
-        let output = analyze_metadata(&parsed.syntax);
+        let output = analyze_metadata(
+            parsed
+                .valid_syntax()
+                .expect("semantic analysis requires valid syntax"),
+        );
         assert_eq!(output.definition_lists.len(), 1);
         assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
         assert_eq!(output.document_title().as_deref(), Some("Document title"));
@@ -707,7 +719,11 @@ mod tests {
             "`= title Document `em[title]\n`= tags\n `- plumb\n `- parser\n`= macros\n `-\n  `- `\"name\"\n  `- `\"expansion\"\n`= author\n `= name Alice\n`= empty\n\nBody.\n",
         );
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
-        let output = analyze_metadata(&parsed.syntax);
+        let output = analyze_metadata(
+            parsed
+                .valid_syntax()
+                .expect("semantic analysis requires valid syntax"),
+        );
         assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
         assert_eq!(output.document_title().as_deref(), Some("Document title"));
         let metadata = output.metadata.unwrap();
@@ -740,7 +756,11 @@ mod tests {
         let parsed =
             parse("`= bibliography\n `- refs/library one.json\n `- `\"refs/library-two.json\"\n");
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
-        let output = analyze_metadata(&parsed.syntax);
+        let output = analyze_metadata(
+            parsed
+                .valid_syntax()
+                .expect("semantic analysis requires valid syntax"),
+        );
         let sources = output.bibliography_sources();
         assert_eq!(sources.len(), 2);
         assert_eq!(sources[0].value, "refs/library one.json");
@@ -753,7 +773,11 @@ mod tests {
             "`= title Root\n\nBody before.\n\n`+ journal\n\nBody after.\n\n`= created 2026-08-26T00:00:00+08:00\n",
         );
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
-        let output = analyze_metadata(&parsed.syntax);
+        let output = analyze_metadata(
+            parsed
+                .valid_syntax()
+                .expect("semantic analysis requires valid syntax"),
+        );
         assert_eq!(output.document_title().as_deref(), Some("Root"));
         assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
         assert_eq!(
@@ -773,7 +797,15 @@ mod tests {
     fn document_title_requires_a_scalar_value() {
         let parsed = parse("`= title\n `- Not a scalar\n\n`= title Later scalar\n");
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
-        assert_eq!(analyze_metadata(&parsed.syntax).document_title(), None);
+        assert_eq!(
+            analyze_metadata(
+                parsed
+                    .valid_syntax()
+                    .expect("semantic analysis requires valid syntax")
+            )
+            .document_title(),
+            None
+        );
     }
 
     #[test]
@@ -781,7 +813,11 @@ mod tests {
         let parsed = parse("`= tags\n `item Generic block\n");
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
-        let output = analyze_metadata(&parsed.syntax);
+        let output = analyze_metadata(
+            parsed
+                .valid_syntax()
+                .expect("semantic analysis requires valid syntax"),
+        );
         assert!(matches!(
             output.metadata.unwrap().entries[0].value,
             MetadataValue::Unsupported { .. }
@@ -797,7 +833,11 @@ mod tests {
         let parsed = parse("`= ranking\n `. First\n `. Second\n");
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
-        let output = analyze_metadata(&parsed.syntax);
+        let output = analyze_metadata(
+            parsed
+                .valid_syntax()
+                .expect("semantic analysis requires valid syntax"),
+        );
         assert!(matches!(
             output.metadata.unwrap().entries[0].value,
             MetadataValue::Unsupported { .. }
@@ -814,7 +854,11 @@ mod tests {
             "`= `*[bad key] value\n`= duplicate\n`= duplicate\n`+\n`+ `*[not plain]\n`@ forbidden\n",
         );
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
-        let output = analyze_metadata(&parsed.syntax);
+        let output = analyze_metadata(
+            parsed
+                .valid_syntax()
+                .expect("semantic analysis requires valid syntax"),
+        );
         let codes = output
             .diagnostics
             .iter()
@@ -838,7 +882,11 @@ mod tests {
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
-        let output = analyze_metadata(&parsed.syntax);
+        let output = analyze_metadata(
+            parsed
+                .valid_syntax()
+                .expect("semantic analysis requires valid syntax"),
+        );
         let definitions = &output.definition_lists[0].definitions;
         assert_eq!(definitions.len(), 2);
         assert_eq!(definitions[0].term.plain_text(), "term");
@@ -865,7 +913,11 @@ mod tests {
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
-        let output = analyze_metadata(&parsed.syntax);
+        let output = analyze_metadata(
+            parsed
+                .valid_syntax()
+                .expect("semantic analysis requires valid syntax"),
+        );
         assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
         let metadata = output.metadata.unwrap();
         assert_eq!(
@@ -888,11 +940,19 @@ mod tests {
     #[test]
     fn lints_only_the_standard_created_timestamp() {
         let parsed = parse("`= created 2026-07-22T12:34:56+08:00\n`= custom not-a-date\n");
-        let output = analyze_metadata(&parsed.syntax);
+        let output = analyze_metadata(
+            parsed
+                .valid_syntax()
+                .expect("semantic analysis requires valid syntax"),
+        );
         assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
 
         let parsed = parse("`= created 2026-07-22 12:34:56\n");
-        let output = analyze_metadata(&parsed.syntax);
+        let output = analyze_metadata(
+            parsed
+                .valid_syntax()
+                .expect("semantic analysis requires valid syntax"),
+        );
         let diagnostic = output
             .diagnostics
             .iter()
@@ -908,7 +968,11 @@ mod tests {
     #[test]
     fn rejects_non_scalar_created_values() {
         let parsed = parse("`= created\n `- 2026-07-22T12:34:56+08:00\n");
-        let output = analyze_metadata(&parsed.syntax);
+        let output = analyze_metadata(
+            parsed
+                .valid_syntax()
+                .expect("semantic analysis requires valid syntax"),
+        );
         assert!(output
             .diagnostics
             .iter()

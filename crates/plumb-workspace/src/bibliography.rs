@@ -2,7 +2,7 @@ use std::collections::{BTreeSet, HashMap};
 use std::ops::Range;
 use std::path::{Component, Path, PathBuf};
 
-use plumb_semantics::{CitationRecord, MetadataOutput};
+use plumb_semantics::{BibliographySource, CitationRecord, MetadataOutput};
 use plumb_syntax::{Diagnostic, DiagnosticSeverity};
 use serde_json::Value;
 
@@ -98,7 +98,14 @@ pub fn load_bibliography(
     document_path: &Path,
     metadata: &MetadataOutput,
 ) -> Bibliography {
-    let sources = metadata.bibliography_sources();
+    load_bibliography_sources(root, document_path, metadata.bibliography_sources())
+}
+
+pub fn load_bibliography_sources(
+    root: &Path,
+    document_path: &Path,
+    sources: Vec<BibliographySource>,
+) -> Bibliography {
     let declaration_range = sources
         .first()
         .map(|source| source.range.clone())
@@ -308,7 +315,11 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         std::fs::write(root.path().join("refs.json"), r#"[{"id":"smith2004","title":"Book","author":[{"family":"Smith"}],"issued":{"date-parts":[[2004]]}}]"#).unwrap();
         let parsed = parse("`= bibliography refs.json\n\n`cite[smith2004]\n");
-        let analysis = analyze_document(&parsed.source, &parsed.syntax);
+        let analysis = analyze_document(
+            parsed
+                .valid_syntax()
+                .expect("semantic analysis requires valid syntax"),
+        );
         let bibliography = load_bibliography(
             root.path(),
             &root.path().join("note.plumb"),
@@ -335,7 +346,11 @@ mod tests {
         .unwrap();
         let parsed =
             parse("`= bibliography\n `- missing.json\n `- duplicate.json\n\n`cite[unknown]\n");
-        let analysis = analyze_document(&parsed.source, &parsed.syntax);
+        let analysis = analyze_document(
+            parsed
+                .valid_syntax()
+                .expect("semantic analysis requires valid syntax"),
+        );
         let bibliography = load_bibliography(
             root.path(),
             &root.path().join("note.plumb"),
@@ -358,7 +373,11 @@ mod tests {
     fn diagnoses_citations_without_a_declared_bibliography() {
         let root = tempfile::tempdir().unwrap();
         let parsed = parse("See `cite[smith2004]\n");
-        let analysis = analyze_document(&parsed.source, &parsed.syntax);
+        let analysis = analyze_document(
+            parsed
+                .valid_syntax()
+                .expect("semantic analysis requires valid syntax"),
+        );
         let bibliography = load_bibliography(
             root.path(),
             &root.path().join("note.plumb"),
@@ -376,7 +395,11 @@ mod tests {
         std::fs::create_dir(&root).unwrap();
         std::fs::write(parent.path().join("outside.json"), "[]").unwrap();
         let parsed = parse("`= bibliography ../outside.json\n");
-        let analysis = analyze_document(&parsed.source, &parsed.syntax);
+        let analysis = analyze_document(
+            parsed
+                .valid_syntax()
+                .expect("semantic analysis requires valid syntax"),
+        );
         let bibliography = load_bibliography(&root, &root.join("note.plumb"), &analysis.metadata);
         assert_eq!(
             bibliography.diagnostics[0].code,
@@ -390,7 +413,11 @@ mod tests {
         let text = r#"[{"title":"same","id":"same"}]"#;
         std::fs::write(root.path().join("refs.json"), text).unwrap();
         let parsed = parse("`= bibliography refs.json\n");
-        let analysis = analyze_document(&parsed.source, &parsed.syntax);
+        let analysis = analyze_document(
+            parsed
+                .valid_syntax()
+                .expect("semantic analysis requires valid syntax"),
+        );
         let bibliography = load_bibliography(
             root.path(),
             &root.path().join("note.plumb"),

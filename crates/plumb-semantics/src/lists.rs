@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use plumb_syntax::{Block, Document, ParsedBlock};
+use plumb_syntax::{Block, ParsedBlock, ValidDocument};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ListItemRecord {
@@ -32,7 +32,8 @@ impl ListOutput {
     }
 }
 
-pub fn analyze_lists(document: &Document) -> ListOutput {
+pub fn analyze_lists(valid: ValidDocument<'_>) -> ListOutput {
+    let document = valid.syntax();
     let mut output = ListOutput::default();
     collect_groups(
         document
@@ -110,7 +111,11 @@ mod tests {
         );
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
-        let output = analyze_lists(&parsed.syntax);
+        let output = analyze_lists(
+            parsed
+                .valid_syntax()
+                .expect("semantic analysis requires valid syntax"),
+        );
         assert_eq!(output.groups.len(), 3);
         assert_eq!(output.groups[0].kind, ListKind::Bullet);
         assert_eq!(output.groups[0].items.len(), 2);
@@ -135,7 +140,11 @@ mod tests {
         );
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
-        let output = analyze_lists(&parsed.syntax);
+        let output = analyze_lists(
+            parsed
+                .valid_syntax()
+                .expect("semantic analysis requires valid syntax"),
+        );
         assert_eq!(output.groups.len(), 4);
         assert_eq!(output.groups[0].kind, ListKind::Bullet);
         assert_eq!(output.groups[0].items.len(), 1);
@@ -152,7 +161,11 @@ mod tests {
         let parsed = parse("`item Generic block\n`- List item\n");
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
-        let output = analyze_lists(&parsed.syntax);
+        let output = analyze_lists(
+            parsed
+                .valid_syntax()
+                .expect("semantic analysis requires valid syntax"),
+        );
         assert_eq!(output.groups.len(), 1);
         assert_eq!(output.groups[0].range.start, "`item Generic block\n".len());
     }
@@ -162,7 +175,11 @@ mod tests {
         let parsed = parse("`- First\n`= title Between\n`+ journal\n`@ unsupported\n`- Second\n");
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
-        let output = analyze_lists(&parsed.syntax);
+        let output = analyze_lists(
+            parsed
+                .valid_syntax()
+                .expect("semantic analysis requires valid syntax"),
+        );
         assert_eq!(output.groups.len(), 1);
         assert_eq!(output.groups[0].items.len(), 2);
     }

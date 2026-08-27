@@ -311,7 +311,11 @@ fn workload(events: usize, references: usize, suffix: &str) -> (String, String) 
 fn analyzed(source: &str) -> DocumentOutput {
     let parsed = parse(source);
     assert!(parsed.is_valid());
-    analyze_document(&parsed.source, &parsed.syntax)
+    analyze_document(
+        parsed
+            .valid_syntax()
+            .expect("semantic analysis requires valid syntax"),
+    )
 }
 
 fn benchmark_publication(c: &mut Criterion) {

@@ -1084,7 +1084,11 @@ mod tests {
     fn analyzed(source: &str) -> DocumentOutput {
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
-        analyze_document(&parsed.source, &parsed.syntax)
+        analyze_document(
+            parsed
+                .valid_syntax()
+                .expect("semantic analysis requires valid syntax"),
+        )
     }
 
     #[test]

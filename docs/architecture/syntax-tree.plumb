@@ -44,9 +44,13 @@ quote count 与 payload ranges 都直接属于 owner，不产生 anonymous paylo
 
 `# 4. Recovered and valid views
 
-lossless token stream 与 typed recovered tree 始终存在。`"recovered_syntax()" 返回 recovered typed
-view；`"valid_syntax()" 只在没有 error diagnostics 时返回同一 `"Document" reference，保证 semantic analyses
-不会误把 recovery choice 当作 author intent。
+lossless token stream 与 typed recovered tree 始终存在。`"recovered_syntax()" 返回 recovered `"Document"
+view；`"valid_syntax()" 只在没有 error diagnostics 时返回不可由 consumer 构造的 `"ValidDocument"
+view。该 valid view 同时借用同一次 parse 的 source 与 typed tree；authoritative consumer 不另外接收
+可与 tree 不匹配的 source。official semantic analysis、export 与 valid-tree authoring API 只接受
+`"ValidDocument"；面向编辑中无效 source 的 completion、folding 等 recovered query 则显式接受
+recovered `"Document"。因此 Rust type boundary 保证 semantic analyses 不会误把 recovery choice 当作
+author intent。
 
 访问两种 view 不会重新 parse。typed nodes 保存 marker、declaration projection 和 inline text，
 但所有 ownership 与 diagnostics 仍由 source ranges 定位。

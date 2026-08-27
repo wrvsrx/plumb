@@ -1,8 +1,8 @@
 use std::ops::Range;
 
 use plumb_syntax::{
-    AttrItem, Attributes, Block, Diagnostic, DiagnosticSeverity, Document, Inline, InlineContent,
-    InlineMember,
+    AttrItem, Attributes, Block, Diagnostic, DiagnosticSeverity, Inline, InlineContent,
+    InlineMember, ValidDocument,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -31,7 +31,8 @@ impl MathOutput {
     }
 }
 
-pub fn analyze_math(document: &Document) -> MathOutput {
+pub fn analyze_math(valid: ValidDocument<'_>) -> MathOutput {
+    let document = valid.syntax();
     let mut output = MathOutput::default();
     collect_blocks(&document.blocks, &mut output);
     output
@@ -139,7 +140,11 @@ mod tests {
         let source = "Inline `$\"x^2\".\n\n`$\n `@ display\n\n|\"\n x^2\n\n`$\n `= language mathml\n\n|\"\n <math/>\n\n`div Not raw\n `+ $\n\n`span[x|+[$]]\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
-        let output = analyze_math(&parsed.syntax);
+        let output = analyze_math(
+            parsed
+                .valid_syntax()
+                .expect("semantic analysis requires valid syntax"),
+        );
         assert_eq!(
             output
                 .records

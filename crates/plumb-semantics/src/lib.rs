@@ -54,15 +54,16 @@ pub use document::{
     ImageRecord, ImageTarget, LinkRecord, LinkSpelling, LinkTarget, SourceBacked,
 };
 pub use events::{analyze_events, EventField, EventOutput, EventRecord};
-pub use headings::{analyze_headings, Heading, HeadingOutput};
+pub use headings::{analyze_headings, analyze_recovered_headings, Heading, HeadingOutput};
 pub use inline_styles::{
     analyze_inline_styles, InlineStyleKind, InlineStyleOutput, InlineStyleRecord,
 };
 pub use lists::{analyze_lists, ListGroup, ListItemRecord, ListKind, ListOutput};
 pub use math::{analyze_math, MathKind, MathOutput, MathRecord};
 pub use metadata::{
-    analyze_metadata, BibliographySource, DefinitionList, DefinitionRecord, DocumentFacet,
-    MetadataBlock, MetadataEntry, MetadataListItem, MetadataOutput, MetadataValue,
+    analyze_metadata, recovered_bibliography_sources, BibliographySource, DefinitionList,
+    DefinitionRecord, DocumentFacet, MetadataBlock, MetadataEntry, MetadataListItem,
+    MetadataOutput, MetadataValue,
 };
 pub use queries::{
     attribute_completion_context, citation_completion_context, construct_completion_context,

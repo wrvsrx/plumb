@@ -4,7 +4,7 @@ use std::path::Path;
 
 use plumb_syntax::{
     AttrItem, AttrValue, Attributes, Block, Diagnostic, DiagnosticSeverity, Document, Inline,
-    InlineArgumentRef, InlineContent, InlineMember,
+    InlineArgumentRef, InlineContent, InlineMember, ValidDocument,
 };
 use serde::{Deserialize, Serialize};
 use url::Url;
@@ -145,16 +145,18 @@ impl DocumentOutput {
     }
 }
 
-pub fn analyze_document(source: &str, document: &Document) -> DocumentOutput {
-    let headings = analyze_headings(document);
-    let metadata = analyze_metadata(document);
-    let citations = analyze_citations(document);
-    let inline_styles = analyze_inline_styles(document);
-    let lists = analyze_lists(document);
-    let math = analyze_math(document);
-    let quotes = analyze_quotes(document);
-    let tasks = analyze_tasks(source, document);
-    let events = analyze_events(source, document, &metadata);
+pub fn analyze_document(valid: ValidDocument<'_>) -> DocumentOutput {
+    let source = valid.source();
+    let document = valid.syntax();
+    let headings = analyze_headings(valid);
+    let metadata = analyze_metadata(valid);
+    let citations = analyze_citations(valid);
+    let inline_styles = analyze_inline_styles(valid);
+    let lists = analyze_lists(valid);
+    let math = analyze_math(valid);
+    let quotes = analyze_quotes(valid);
+    let tasks = analyze_tasks(valid);
+    let events = analyze_events(valid, &metadata);
     let mut output = DocumentOutput {
         headings,
         metadata,
@@ -993,7 +995,11 @@ mod tests {
     #[test]
     fn only_shorthand_ids_create_anchors() {
         let parsed = parse("`# Heading\n  `@ intro\n\n`## Pair only\n  `= id pair\n");
-        let output = analyze_document(&parsed.source, &parsed.syntax);
+        let output = analyze_document(
+            parsed
+                .valid_syntax()
+                .expect("semantic analysis requires valid syntax"),
+        );
         assert_eq!(output.anchors.len(), 1);
         assert_eq!(output.anchors[0].id.value, "intro");
         assert_eq!(output.anchors[0].kind, AnchorKind::Heading);
@@ -1003,7 +1009,11 @@ mod tests {
     fn verbatim_blocks_create_syntax_neutral_anchors() {
         let parsed = parse("`text\n `@ example\n\n|\"\n raw text\n");
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
-        let output = analyze_document(&parsed.source, &parsed.syntax);
+        let output = analyze_document(
+            parsed
+                .valid_syntax()
+                .expect("semantic analysis requires valid syntax"),
+        );
         assert_eq!(output.anchors.len(), 1);
         assert_eq!(output.anchors[0].kind, AnchorKind::VerbatimBlock);
     }
@@ -1014,7 +1024,11 @@ mod tests {
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
-        let output = analyze_document(&parsed.source, &parsed.syntax);
+        let output = analyze_document(
+            parsed
+                .valid_syntax()
+                .expect("semantic analysis requires valid syntax"),
+        );
         assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
         assert_eq!(output.links.len(), 3);
         assert!(output
@@ -1053,7 +1067,11 @@ mod tests {
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
-        let output = analyze_document(&parsed.source, &parsed.syntax);
+        let output = analyze_document(
+            parsed
+                .valid_syntax()
+                .expect("semantic analysis requires valid syntax"),
+        );
         assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
         let link = &output.links[0];
         assert_eq!(link.target.raw, "目录/项`].plumb#章节");
@@ -1068,7 +1086,11 @@ mod tests {
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
-        let output = analyze_document(&parsed.source, &parsed.syntax);
+        let output = analyze_document(
+            parsed
+                .valid_syntax()
+                .expect("semantic analysis requires valid syntax"),
+        );
         let diagnostic = output
             .diagnostics
             .iter()
@@ -1082,7 +1104,11 @@ mod tests {
         let parsed = parse("`link[generic|=[to|other.plumb#target]]\n");
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
-        let output = analyze_document(&parsed.source, &parsed.syntax);
+        let output = analyze_document(
+            parsed
+                .valid_syntax()
+                .expect("semantic analysis requires valid syntax"),
+        );
         assert!(output.links.is_empty());
     }
 
@@ -1092,7 +1118,11 @@ mod tests {
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
-        let output = analyze_document(&parsed.source, &parsed.syntax);
+        let output = analyze_document(
+            parsed
+                .valid_syntax()
+                .expect("semantic analysis requires valid syntax"),
+        );
         assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
         assert_eq!(output.links.len(), 2);
         assert_eq!(output.links[0].target.value, "https://example.test/a%20b");
@@ -1107,7 +1137,11 @@ mod tests {
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
-        let output = analyze_document(&parsed.source, &parsed.syntax);
+        let output = analyze_document(
+            parsed
+                .valid_syntax()
+                .expect("semantic analysis requires valid syntax"),
+        );
         assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
         assert_eq!(output.links.len(), 5);
         assert!(output
@@ -1158,7 +1192,11 @@ mod tests {
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
-        let output = analyze_document(&parsed.source, &parsed.syntax);
+        let output = analyze_document(
+            parsed
+                .valid_syntax()
+                .expect("semantic analysis requires valid syntax"),
+        );
         assert_eq!(output.images.len(), 2);
         assert_eq!(output.images[0].source.value, "static/图 像(100%).png");
         assert_eq!(
@@ -1189,7 +1227,11 @@ mod tests {
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
-        let output = analyze_document(&parsed.source, &parsed.syntax);
+        let output = analyze_document(
+            parsed
+                .valid_syntax()
+                .expect("semantic analysis requires valid syntax"),
+        );
         assert_eq!(output.files.len(), 2);
         assert_eq!(output.files[0].source.value, "static/demo video.mp4");
         assert_eq!(
@@ -1220,7 +1262,11 @@ mod tests {
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
-        let output = analyze_document(&parsed.source, &parsed.syntax);
+        let output = analyze_document(
+            parsed
+                .valid_syntax()
+                .expect("semantic analysis requires valid syntax"),
+        );
         assert!(output.links.is_empty());
         let codes = output
             .diagnostics
@@ -1242,7 +1288,11 @@ mod tests {
     fn duplicate_ids_are_semantic_diagnostics() {
         let parsed = parse("`node One\n  `@ same\n\n`other Two\n  `@ same\n");
         assert!(parsed.is_valid());
-        let output = analyze_document(&parsed.source, &parsed.syntax);
+        let output = analyze_document(
+            parsed
+                .valid_syntax()
+                .expect("semantic analysis requires valid syntax"),
+        );
         assert_eq!(output.diagnostics[0].code, "anchor.duplicate-id");
     }
 }
