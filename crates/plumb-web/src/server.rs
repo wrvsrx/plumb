@@ -665,7 +665,10 @@ async fn resource(
     State(state): State<AppState>,
     AxumPath((id, name)): AxumPath<(String, String)>,
 ) -> Response {
-    let record = state.workspace.read().await.resource(&id).cloned();
+    let record = match state.workspace.read().await.resource(&id) {
+        Ok(record) => record.cloned(),
+        Err(error) => return (StatusCode::INTERNAL_SERVER_ERROR, error).into_response(),
+    };
     let Some(record) = record else {
         return (StatusCode::NOT_FOUND, "unknown resource").into_response();
     };

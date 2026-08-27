@@ -150,6 +150,27 @@ impl SqliteSemanticStore {
         Self::from_connection(SqliteConnection::establish(":memory:")?)
     }
 
+    pub fn readonly_snapshot(&self) -> StoreResult<Self> {
+        let mut source = self
+            .connection
+            .lock()
+            .map_err(|_| StoreError::LockPoisoned)?;
+        source.batch_execute("PRAGMA wal_checkpoint(FULL)")?;
+        let serialized = source.serialize_database_to_buffer();
+        let mut image = serialized.as_slice().to_vec();
+        // A detached readonly image has no WAL sidecar. Mark the checkpointed image
+        // as rollback-journal format so SQLite does not try to open one.
+        if image.len() >= 20 {
+            image[18] = 1;
+            image[19] = 1;
+        }
+        let mut connection = SqliteConnection::establish(":memory:")?;
+        connection.deserialize_readonly_database_from_buffer(&image)?;
+        Ok(Self {
+            connection: Arc::new(Mutex::new(connection)),
+        })
+    }
+
     fn from_connection(mut connection: SqliteConnection) -> StoreResult<Self> {
         connection.batch_execute("PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;")?;
         connection
@@ -1209,6 +1230,28 @@ mod tests {
             1
         );
         assert_eq!(store.tasks(&[]).unwrap()[0].record.title, "New");
+    }
+
+    #[test]
+    fn readonly_snapshot_is_isolated_from_later_replacements() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = SqliteSemanticStore::open(&directory.path().join("semantic.sqlite3")).unwrap();
+        let first = "`task First\n `@ first\n";
+        store
+            .replace(Path::new("tasks.plumb"), 1, first, Some(&analyzed(first)))
+            .unwrap();
+        let snapshot = store.readonly_snapshot().unwrap();
+
+        let second = "`task Second\n `@ second\n";
+        store
+            .replace(Path::new("tasks.plumb"), 2, second, Some(&analyzed(second)))
+            .unwrap();
+
+        assert_eq!(snapshot.tasks(&[]).unwrap()[0].record.title, "First");
+        assert_eq!(store.tasks(&[]).unwrap()[0].record.title, "Second");
+        assert!(snapshot
+            .replace(Path::new("other.plumb"), 1, "", None)
+            .is_err());
     }
 
     #[test]

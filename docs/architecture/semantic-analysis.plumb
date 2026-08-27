@@ -115,6 +115,18 @@ tree、typed tree 与 document-local output，不能按 request 深拷贝这些 
 derived index 仍由各 workspace owner 独立持有。创建不同 source bytes 的 revision 必须分配新的 parsed
 payload，相同 bytes 的 revision rebind 保留原 shared allocation。
 
+Persistent generation 可以从 host 已保存的同 revision source snapshot 按需 materialize 一个
+`"DocumentEntry"。materialization 必须先确认 source content identity 与 generation 相同，随后建立
+`"ParsedDocument" 与 current output；identity 不同不能把新 bytes 伪装成旧 generation。Web 等 immutable
+snapshot owner 应缓存成功 materialize 的 entry，但该 cache 不进入 persistent store，也不改变 query
+provenance。不得在 lazy materialization 时读取 filesystem 来替代 host snapshot bytes。
+
+若 persistent store 使用 changed-generation replacement，长期读取 revision snapshot 的 consumer 必须取得
+replacement 后的 immutable database snapshot 或等价 generation-pinned view。后续 writer 对 canonical store
+的 replacement 不能改变旧 revision query 的 rows；只保存旧 source 而继续查询 mutable latest-generation
+rows 不满足 snapshot isolation。只读 store snapshot 仍属于该 consumer 的唯一 workspace query authority，
+canonical writable store 只承担 indexing publication，不能被 adapter 当作第二套 query workspace。
+
 当前 document 的 semantic diagnostics 和 authoritative query 不能使用自己的 last-valid output 冒充
 current result。consumer 必须能区分 current、last-valid 与 partial workspace data。
 

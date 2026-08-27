@@ -20,7 +20,7 @@ impl WebWorkspace {
             && state_presets.len() == query.presets.iter().collect::<HashSet<_>>().len();
         let mut retained = if typed_state_filter {
             Some(
-                self.query_workspace
+                self.workspace
                     .task_keys_for_states(&state_presets, now)
                     .map_err(|error| QueryFailure {
                         source: "state".to_string(),
@@ -42,7 +42,7 @@ impl WebWorkspace {
             let mut matching = BTreeSet::new();
             for (source, expression) in group.expressions {
                 let records = self
-                    .query_workspace
+                    .workspace
                     .search_records_filtered(
                         &self.root,
                         Some(SearchRecordKind::Task),
@@ -67,7 +67,7 @@ impl WebWorkspace {
         }
         for (source, expression) in custom_filters(query) {
             let records = self
-                .query_workspace
+                .workspace
                 .search_records_filtered(
                     &self.root,
                     Some(SearchRecordKind::Task),
@@ -92,7 +92,7 @@ impl WebWorkspace {
 
         if !query.query.is_empty() {
             let matching = self
-                .query_workspace
+                .workspace
                 .search_records(
                     &self.root,
                     Some(SearchRecordKind::Task),

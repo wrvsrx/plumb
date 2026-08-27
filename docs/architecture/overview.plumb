@@ -213,6 +213,13 @@ blocking renderer 的 request 先 clone 该 `"Arc"，随后释放 shared-state l
 parsed documents 或 indexes。mutation 与 watcher 在独占边界建立或 copy-on-write 更新下一个 snapshot，完成
 校验后一次发布新的 `"Arc"；进行中的 request 可以继续读取旧 revision，但不能观察半更新状态。
 
+每个 `"WebWorkspace" snapshot 只拥有一个 `"Workspace" query authority，不得为 live document access 与
+persistent queries 维护两份 workspace。加载 snapshot 时保存该 revision 的 immutable source bytes，并将 disk
+generations 更新到 persistent store；warm generation 不重复 parse 或 document analysis。只有 note render、
+graph projection、mutation 或其它需要 lossless/typed tree 的 operation 才从保存的 source snapshot 按需
+materialize document entry，并在该 Web revision 内复用。旧 snapshot 不得为了 lazy materialization 重读 disk，
+因此后续 filesystem change 不能改变进行中 request 观察到的 source 或 semantic output。
+
 统一 binary 可以依赖共享 layers，但 shared libraries 不能依赖 CLI protocol types。
 
 Web presentation 不得取得或持有无界 event collection。Agenda 使用 server-side 有界 cursor page：没有显式

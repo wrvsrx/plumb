@@ -625,6 +625,39 @@ impl Workspace {
         self.documents.get(&normalize(path.as_ref()))
     }
 
+    pub fn document_from_source(
+        &self,
+        path: impl AsRef<Path>,
+        source: &str,
+    ) -> Result<Option<DocumentEntry>, WorkspaceQueryError> {
+        let path = normalize(path.as_ref());
+        if let Some(entry) = self.documents.get(&path) {
+            return Ok((entry.parsed.source == source).then(|| entry.clone()));
+        }
+        let Some(store) = &self.disk_store else {
+            return Ok(None);
+        };
+        let Some(document) = store.document(&path)? else {
+            return Ok(None);
+        };
+        if document.content_hash != SqliteSemanticStore::content_hash(source) {
+            return Ok(None);
+        }
+        Ok(Some(Self::materialize_document(
+            path,
+            document.revision,
+            source,
+        )))
+    }
+
+    pub fn materialize_document(
+        path: impl AsRef<Path>,
+        revision: i64,
+        source: &str,
+    ) -> DocumentEntry {
+        document_entry_from_source(normalize(path.as_ref()), revision, source)
+    }
+
     pub fn contains(
         &self,
         path: impl AsRef<Path>,
@@ -3823,20 +3856,14 @@ impl Workspace {
         let Ok(source) = std::fs::read_to_string(&path) else {
             return Ok(None);
         };
-        let parsed = Arc::new(parse(source));
-        let current = parsed.valid_syntax().map(|valid| {
-            Arc::new(VersionedDocumentOutput {
-                revision: document.revision,
-                output: Arc::new(analyze_document(valid)),
-            })
-        });
-        Ok(Some(DocumentEntry {
+        if document.content_hash != SqliteSemanticStore::content_hash(&source) {
+            return Ok(None);
+        }
+        Ok(Some(Self::materialize_document(
             path,
-            revision: document.revision,
-            parsed,
-            current: current.clone(),
-            last_valid: current,
-        }))
+            document.revision,
+            &source,
+        )))
     }
 
     fn entries_for_operation(&self) -> Result<Vec<DocumentEntry>, WorkspaceQueryError> {
@@ -3854,6 +3881,23 @@ impl Workspace {
         }
         entries.sort_by(|left, right| left.path.cmp(&right.path));
         Ok(entries)
+    }
+}
+
+fn document_entry_from_source(path: PathBuf, revision: i64, source: &str) -> DocumentEntry {
+    let parsed = Arc::new(parse(source));
+    let current = parsed.valid_syntax().map(|valid| {
+        Arc::new(VersionedDocumentOutput {
+            revision,
+            output: Arc::new(analyze_document(valid)),
+        })
+    });
+    DocumentEntry {
+        path,
+        revision,
+        parsed,
+        current: current.clone(),
+        last_valid: current,
     }
 }
 
@@ -5435,6 +5479,26 @@ mod tests {
             &changed.current.as_ref().unwrap().output,
             &clone.current.as_ref().unwrap().output
         ));
+    }
+
+    #[test]
+    fn materializes_only_the_matching_persistent_generation() {
+        let store = SqliteSemanticStore::open_in_memory().unwrap();
+        let mut workspace = Workspace::with_sqlite_store(store);
+        let source = "`# Stored\n";
+        workspace.insert_disk("note.plumb", 7, source).unwrap();
+
+        let entry = workspace
+            .document_from_source("note.plumb", source)
+            .unwrap()
+            .unwrap();
+        assert_eq!(entry.revision, 7);
+        assert_eq!(entry.parsed.source, source);
+        assert!(entry.current.is_some());
+        assert!(workspace
+            .document_from_source("note.plumb", "`# Changed\n")
+            .unwrap()
+            .is_none());
     }
 
     #[test]

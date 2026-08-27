@@ -22,7 +22,7 @@ pub fn render_note_html(workspace: &WebWorkspace, document_id: &str) -> Result<S
         return Err(format!("cannot render citations: {message}"));
     }
     project_bibliography_paths(&mut document, &bibliography.sources);
-    adapt_pandoc_targets(workspace, source_path, &mut document);
+    adapt_pandoc_targets(workspace, source_path, &mut document)?;
     let input = serde_json::to_vec(&document)
         .map_err(|error| format!("cannot encode Pandoc document: {error}"))?;
     let mut child = Command::new("pandoc")
@@ -69,15 +69,23 @@ fn project_bibliography_paths(document: &mut Value, sources: &[PathBuf]) {
     }
 }
 
-pub fn adapt_pandoc_targets(workspace: &WebWorkspace, source_path: &Path, document: &mut Value) {
-    adapt_value(workspace, source_path, document);
+pub fn adapt_pandoc_targets(
+    workspace: &WebWorkspace,
+    source_path: &Path,
+    document: &mut Value,
+) -> Result<(), String> {
+    adapt_value(workspace, source_path, document)
 }
 
-fn adapt_value(workspace: &WebWorkspace, source_path: &Path, value: &mut Value) {
+fn adapt_value(
+    workspace: &WebWorkspace,
+    source_path: &Path,
+    value: &mut Value,
+) -> Result<(), String> {
     match value {
         Value::Array(values) => {
             for value in values {
-                adapt_value(workspace, source_path, value);
+                adapt_value(workspace, source_path, value)?;
             }
         }
         Value::Object(object) => {
@@ -93,17 +101,20 @@ fn adapt_value(workspace: &WebWorkspace, source_path: &Path, value: &mut Value) 
                     .map(str::to_string)
                 {
                     let (adapted, document_id) = if node_kind.as_deref() == Some("Image") {
-                        (adapt_resource_target(workspace, source_path, &target), None)
+                        (
+                            adapt_resource_target(workspace, source_path, &target)?,
+                            None,
+                        )
                     } else {
-                        adapt_link_target(workspace, source_path, &target)
+                        adapt_link_target(workspace, source_path, &target)?
                     };
                     if node_kind.as_deref() == Some("Link")
                         && is_file_node(object)
-                        && is_local_video(workspace, source_path, &target)
+                        && is_local_video(workspace, source_path, &target)?
                     {
                         let video = video_inline(object, &adapted);
                         *object = video;
-                        return;
+                        return Ok(());
                     }
                     if let Some(target_value) = object
                         .get_mut("c")
@@ -120,11 +131,12 @@ fn adapt_value(workspace: &WebWorkspace, source_path: &Path, value: &mut Value) 
                 }
             }
             for child in object.values_mut() {
-                adapt_value(workspace, source_path, child);
+                adapt_value(workspace, source_path, child)?;
             }
         }
         _ => {}
     }
+    Ok(())
 }
 
 fn is_file_node(object: &serde_json::Map<String, Value>) -> bool {
@@ -145,19 +157,23 @@ fn is_file_node(object: &serde_json::Map<String, Value>) -> bool {
         })
 }
 
-fn is_local_video(workspace: &WebWorkspace, source_path: &Path, target: &str) -> bool {
+fn is_local_video(
+    workspace: &WebWorkspace,
+    source_path: &Path,
+    target: &str,
+) -> Result<bool, String> {
     if is_external(target) || target.contains('#') {
-        return false;
+        return Ok(false);
     }
     let resolved = resolve_relative(source_path, target);
     let canonical = resolved.canonicalize().unwrap_or(resolved);
-    workspace
-        .resource_for_path(&canonical)
+    Ok(workspace
+        .resource_for_path(&canonical)?
         .is_some_and(|resource| {
             mime_guess::from_path(&resource.path)
                 .first()
                 .is_some_and(|mime| mime.type_() == mime_guess::mime::VIDEO)
-        })
+        }))
 }
 
 fn video_inline(
@@ -227,12 +243,12 @@ fn adapt_link_target(
     workspace: &WebWorkspace,
     source_path: &Path,
     target: &str,
-) -> (String, Option<String>) {
+) -> Result<(String, Option<String>), String> {
     if is_external(target) {
-        return (target.to_string(), None);
+        return Ok((target.to_string(), None));
     }
     if let Some(fragment) = target.strip_prefix('#') {
-        return (format!("#{}", encode_fragment(fragment)), None);
+        return Ok((format!("#{}", encode_fragment(fragment)), None));
     }
     let (path, fragment) = target
         .split_once('#')
@@ -240,11 +256,11 @@ fn adapt_link_target(
     let resolved = resolve_relative(source_path, path);
     if path.ends_with(".plumb") {
         if let Some(id) = workspace.document_id(&resolved) {
-            return (document_url(id, fragment), Some(id.to_string()));
+            return Ok((document_url(id, fragment), Some(id.to_string())));
         }
-        return (target.to_string(), None);
+        return Ok((target.to_string(), None));
     }
-    (adapt_resource_target(workspace, source_path, target), None)
+    Ok((adapt_resource_target(workspace, source_path, target)?, None))
 }
 
 fn add_link_document_attribute(object: &mut serde_json::Map<String, Value>, document_id: &str) {
@@ -264,17 +280,21 @@ fn add_link_document_attribute(object: &mut serde_json::Map<String, Value>, docu
     ]));
 }
 
-fn adapt_resource_target(workspace: &WebWorkspace, source_path: &Path, target: &str) -> String {
+fn adapt_resource_target(
+    workspace: &WebWorkspace,
+    source_path: &Path,
+    target: &str,
+) -> Result<String, String> {
     if is_external(target) {
-        return target.to_string();
+        return Ok(target.to_string());
     }
     let resolved = resolve_relative(source_path, target);
     let canonical = resolved.canonicalize().unwrap_or(resolved);
-    let Some(resource) = workspace.resource_for_path(&canonical) else {
-        return target.to_string();
+    let Some(resource) = workspace.resource_for_path(&canonical)? else {
+        return Ok(target.to_string());
     };
     let name = utf8_percent_encode(&resource.name, NON_ALPHANUMERIC).to_string();
-    format!("/resource/{}/{}", resource.id, name)
+    Ok(format!("/resource/{}/{}", resource.id, name))
 }
 
 fn document_url(id: &str, fragment: Option<&str>) -> String {
@@ -321,7 +341,7 @@ mod tests {
         let mut document = workspace
             .pandoc_document(workspace.document_id(root.join("a.plumb")).unwrap())
             .unwrap();
-        adapt_pandoc_targets(&workspace, &root.join("a.plumb"), &mut document);
+        adapt_pandoc_targets(&workspace, &root.join("a.plumb"), &mut document).unwrap();
         let link = &document["blocks"][0]["c"][0];
         assert!(link["c"][2][0].as_str().unwrap().starts_with("/note/d"));
         assert!(link["c"][2][0].as_str().unwrap().ends_with("#section"));
@@ -356,7 +376,7 @@ mod tests {
         let document_id = workspace.document_id(root.join("a.plumb")).unwrap();
 
         let mut document = workspace.pandoc_document(document_id).unwrap();
-        adapt_pandoc_targets(&workspace, &root.join("a.plumb"), &mut document);
+        adapt_pandoc_targets(&workspace, &root.join("a.plumb"), &mut document).unwrap();
         let video = &document["blocks"][0]["c"][0];
         assert_eq!(video["t"], "Span");
         let html = video["c"][1][0]["c"][1].as_str().unwrap();

@@ -1,16 +1,17 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 use std::ops::Range;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, OnceLock};
 
 use cel::{Context, Program, Value};
 use chrono::{Local, SecondsFormat};
-use plumb_semantics::{LinkSpelling, TaskStatus};
+use plumb_semantics::{DocumentOutput, LinkSpelling, TaskRecord, TaskStatus};
 use plumb_workspace::{
     apply_document_edit, display_workspace_path as display_path, load_bibliography, normalize,
     scan_workspace_files, search_score, sort_task_records_by, truncate_complete_task_documents,
-    ApplyDocumentEditError, EventEditError, EventInput, ResolvedTarget, SearchRecordKind,
-    SqliteSemanticStore, TaskAuthoringError, TaskAuthoringInput, TaskPlacement, TaskRef,
-    TaskSortFacts, TaskSortOrder, TaskWorkflowState, Workspace, WorkspaceEvent,
+    ApplyDocumentEditError, DocumentEntry, EventEditError, EventInput, ResolvedTarget,
+    SearchRecordKind, SqliteSemanticStore, TaskAuthoringError, TaskAuthoringInput, TaskPlacement,
+    TaskRef, TaskSortFacts, TaskSortOrder, TaskWorkflowState, Workspace, WorkspaceEvent,
     WorkspaceEventCursor, WorkspaceOperationError,
 };
 use serde::{Deserialize, Serialize};
@@ -424,11 +425,26 @@ pub struct ResourceRecord {
 pub struct WebWorkspace {
     root: PathBuf,
     workspace: Workspace,
-    query_workspace: Workspace,
+    index_store: Option<SqliteSemanticStore>,
+    documents: BTreeMap<PathBuf, Arc<LazyDocument>>,
     revision: u64,
     document_ids: BTreeMap<PathBuf, String>,
     paths_by_document_id: HashMap<String, PathBuf>,
     titles: HashMap<PathBuf, String>,
+    resource_index: Arc<OnceLock<Result<ResourceIndex, String>>>,
+}
+
+#[derive(Debug)]
+struct LazyDocument {
+    revision: i64,
+    source: Arc<str>,
+    entry: OnceLock<DocumentEntry>,
+    #[cfg(test)]
+    generation_reused: bool,
+}
+
+#[derive(Debug)]
+struct ResourceIndex {
     resources: BTreeMap<PathBuf, ResourceRecord>,
     resources_by_id: HashMap<String, PathBuf>,
 }
@@ -447,27 +463,59 @@ impl WebWorkspace {
             ));
         }
         let paths = scan_workspace_files(&root).into_result()?;
-        let mut workspace = Workspace::new();
         let cache_path = web_semantic_cache_path(&root);
         if let Some(parent) = cache_path.parent() {
             std::fs::create_dir_all(parent)
                 .map_err(|error| format!("cannot create Web cache directory: {error}"))?;
         }
-        let store = SqliteSemanticStore::open(&cache_path)
+        let index_store = SqliteSemanticStore::open(&cache_path)
             .or_else(|_| SqliteSemanticStore::open_in_memory())
             .map_err(|error| format!("cannot open Web semantic cache: {error}"))?;
-        let mut query_workspace = Workspace::with_sqlite_store(store);
+        let mut index_workspace = Workspace::with_sqlite_store(index_store.clone());
+        let current_paths = paths.iter().cloned().collect::<BTreeSet<_>>();
+        for indexed_path in index_workspace
+            .document_paths()
+            .map_err(|error| error.to_string())?
+            .value
+        {
+            if !current_paths.contains(&indexed_path) {
+                index_workspace
+                    .remove_disk(&indexed_path)
+                    .map_err(|error| error.to_string())?;
+            }
+        }
+        let mut documents = BTreeMap::new();
         for path in &paths {
             let source = std::fs::read_to_string(path)
                 .map_err(|error| format!("cannot read {}: {error}", path.display()))?;
             let file_revision = file_revision(path).unwrap_or(0);
-            query_workspace
+            let generation_reused = index_workspace
                 .insert_disk(path, file_revision, source.clone())
                 .map_err(|error| format!("cannot index {}: {error}", path.display()))?;
-            workspace.insert(path, file_revision, source);
+            #[cfg(not(test))]
+            let _ = generation_reused;
+            documents.insert(
+                path.clone(),
+                Arc::new(LazyDocument {
+                    revision: file_revision,
+                    source: Arc::from(source),
+                    entry: OnceLock::new(),
+                    #[cfg(test)]
+                    generation_reused,
+                }),
+            );
         }
 
-        Self::from_workspaces(root, workspace, query_workspace, revision)
+        let query_store = index_store
+            .readonly_snapshot()
+            .map_err(|error| error.to_string())?;
+        Self::from_snapshot(
+            root,
+            Workspace::with_sqlite_store(query_store),
+            Some(index_store),
+            documents,
+            revision,
+        )
     }
 
     pub fn from_workspace(
@@ -475,14 +523,29 @@ impl WebWorkspace {
         workspace: Workspace,
         revision: u64,
     ) -> Result<Self, String> {
-        let query_workspace = workspace.clone();
-        Self::from_workspaces(root, workspace, query_workspace, revision)
+        let documents = workspace
+            .documents()
+            .map(|entry| {
+                (
+                    entry.path.clone(),
+                    Arc::new(LazyDocument {
+                        revision: entry.revision,
+                        source: Arc::from(entry.parsed.source.as_str()),
+                        entry: OnceLock::new(),
+                        #[cfg(test)]
+                        generation_reused: false,
+                    }),
+                )
+            })
+            .collect();
+        Self::from_snapshot(root, workspace, None, documents, revision)
     }
 
-    fn from_workspaces(
+    fn from_snapshot(
         root: impl AsRef<Path>,
         workspace: Workspace,
-        query_workspace: Workspace,
+        index_store: Option<SqliteSemanticStore>,
+        documents: BTreeMap<PathBuf, Arc<LazyDocument>>,
         revision: u64,
     ) -> Result<Self, String> {
         let root = normalize(root.as_ref());
@@ -493,21 +556,7 @@ impl WebWorkspace {
             ));
         }
 
-        let mut valid_paths = workspace
-            .documents()
-            .filter(|entry| entry.current.is_some())
-            .map(|entry| entry.path.clone())
-            .collect::<Vec<_>>();
-        valid_paths.sort();
-        let document_ids = valid_paths
-            .iter()
-            .map(|path| (path.clone(), opaque_id("d", &display_path(&root, path))))
-            .collect::<BTreeMap<_, _>>();
-        let paths_by_document_id = document_ids
-            .iter()
-            .map(|(path, id)| (id.clone(), path.clone()))
-            .collect();
-        let titles = workspace
+        let note_records = workspace
             .search_records(
                 &root,
                 Some(SearchRecordKind::Note),
@@ -517,24 +566,37 @@ impl WebWorkspace {
             )
             .map_err(|error| error.to_string())?
             .value
-            .items
+            .items;
+        let valid_paths = note_records
+            .iter()
+            .filter(|record| documents.contains_key(&record.path))
+            .map(|record| record.path.clone())
+            .collect::<Vec<_>>();
+        let document_ids = valid_paths
+            .iter()
+            .map(|path| (path.clone(), opaque_id("d", &display_path(&root, path))))
+            .collect::<BTreeMap<_, _>>();
+        let paths_by_document_id = document_ids
+            .iter()
+            .map(|(path, id)| (id.clone(), path.clone()))
+            .collect();
+        let titles = note_records
             .into_iter()
+            .filter(|record| documents.contains_key(&record.path))
             .map(|record| (record.path, record.title))
             .collect();
 
-        let mut result = Self {
+        Ok(Self {
             root,
             workspace,
-            query_workspace,
+            index_store,
+            documents,
             revision,
             document_ids,
             paths_by_document_id,
             titles,
-            resources: BTreeMap::new(),
-            resources_by_id: HashMap::new(),
-        };
-        result.index_resources()?;
-        Ok(result)
+            resource_index: Arc::new(OnceLock::new()),
+        })
     }
 
     pub fn root(&self) -> &Path {
@@ -555,13 +617,22 @@ impl WebWorkspace {
         self.paths_by_document_id.get(id).map(PathBuf::as_path)
     }
 
-    pub fn resource(&self, id: &str) -> Option<&ResourceRecord> {
-        let path = self.resources_by_id.get(id)?;
-        self.resources.get(path)
+    pub fn resource(&self, id: &str) -> Result<Option<&ResourceRecord>, String> {
+        let index = self.resource_index()?;
+        let Some(path) = index.resources_by_id.get(id) else {
+            return Ok(None);
+        };
+        Ok(index.resources.get(path))
     }
 
-    pub fn resource_for_path(&self, path: impl AsRef<Path>) -> Option<&ResourceRecord> {
-        self.resources.get(&normalize(path.as_ref()))
+    pub fn resource_for_path(
+        &self,
+        path: impl AsRef<Path>,
+    ) -> Result<Option<&ResourceRecord>, String> {
+        Ok(self
+            .resource_index()?
+            .resources
+            .get(&normalize(path.as_ref())))
     }
 
     pub fn refresh_document(
@@ -576,13 +647,34 @@ impl WebWorkspace {
         let source = std::fs::read_to_string(&path)
             .map_err(|error| format!("cannot read {}: {error}", path.display()))?;
         let file_revision = file_revision(&path).unwrap_or(0);
-        self.query_workspace
+        let index_store = self
+            .index_store
+            .as_ref()
+            .ok_or_else(|| "Web workspace has no persistent index".to_string())?;
+        let mut index_workspace = Workspace::with_sqlite_store(index_store.clone());
+        index_workspace
             .insert_disk(&path, file_revision, source.clone())
             .map_err(|error| format!("cannot index {}: {error}", path.display()))?;
-        let entry = self.workspace.insert(&path, file_revision, source);
+        let entry = Workspace::materialize_document(&path, file_revision, &source);
         if entry.current.is_none() {
             return Err(format!("updated document is invalid: {}", path.display()));
         }
+        let lazy = LazyDocument {
+            revision: file_revision,
+            source: Arc::from(source),
+            entry: OnceLock::new(),
+            #[cfg(test)]
+            generation_reused: false,
+        };
+        lazy.entry
+            .set(entry)
+            .expect("new lazy document entry is empty");
+        self.documents.insert(path.clone(), Arc::new(lazy));
+        self.workspace = Workspace::with_sqlite_store(
+            index_store
+                .readonly_snapshot()
+                .map_err(|error| error.to_string())?,
+        );
         self.revision = revision;
         self.titles = self
             .workspace
@@ -599,22 +691,20 @@ impl WebWorkspace {
             .into_iter()
             .map(|record| (record.path, record.title))
             .collect();
-        self.resources.clear();
-        self.resources_by_id.clear();
-        self.index_resources()?;
+        self.resource_index = Arc::new(OnceLock::new());
         Ok(())
     }
 
     pub fn document_source_matches_disk(&self, path: impl AsRef<Path>) -> bool {
         let path = normalize(path.as_ref());
-        let Some(entry) = self.workspace.get(&path) else {
+        let Some(document) = self.documents.get(&path) else {
             return false;
         };
-        std::fs::read_to_string(path).is_ok_and(|source| source == entry.parsed.source)
+        std::fs::read_to_string(path).is_ok_and(|source| source == document.source.as_ref())
     }
 
-    pub fn resources(&self) -> impl Iterator<Item = &ResourceRecord> {
-        self.resources.values()
+    pub fn resources(&self) -> Result<impl Iterator<Item = &ResourceRecord>, String> {
+        Ok(self.resource_index()?.resources.values())
     }
 
     pub fn tasks(&self) -> Result<TaskSnapshot, String> {
@@ -628,7 +718,7 @@ impl WebWorkspace {
     ) -> Result<TaskSnapshot, String> {
         let now = Local::now().fixed_offset();
         let records = self
-            .query_workspace
+            .workspace
             .search_records(
                 &self.root,
                 Some(SearchRecordKind::Task),
@@ -651,11 +741,10 @@ impl WebWorkspace {
             let Some(state) = record.task_state.map(|state| state.as_str()) else {
                 continue;
             };
-            let Some(current) = self
-                .workspace
-                .get(&record.path)
-                .and_then(|entry| entry.current.as_ref())
-            else {
+            let Some(entry) = self.document_entry(&record.path)? else {
+                continue;
+            };
+            let Some(current) = entry.current.as_ref() else {
                 continue;
             };
             let Some(task) = current
@@ -764,7 +853,7 @@ impl WebWorkspace {
         Ok(TaskSnapshot {
             revision: self.revision,
             tasks,
-            documents: self.task_documents(),
+            documents: self.task_documents()?,
         })
     }
 
@@ -774,8 +863,8 @@ impl WebWorkspace {
         requested_document: Option<&str>,
         limit: usize,
     ) -> Result<Vec<WebTaskCandidate>, String> {
-        let mut candidates = self
-            .query_workspace
+        let records = self
+            .workspace
             .search_records(
                 &self.root,
                 Some(SearchRecordKind::Task),
@@ -785,66 +874,80 @@ impl WebWorkspace {
             )
             .map_err(|error| error.to_string())?
             .value
-            .items
-            .into_iter()
-            .filter_map(|record| {
-                let document_id = self.document_id(&record.path)?.to_string();
-                if requested_document.is_some_and(|requested| requested != document_id) {
-                    return None;
-                }
-                let current = self.workspace.get(&record.path)?.current.as_ref()?;
-                let task = current
-                    .output
-                    .tasks
-                    .tasks
-                    .iter()
-                    .find(|task| task.selection_range == record.range)?;
-                let key = record.id.as_ref().map_or_else(
-                    || format!("{document_id}:{}", task.range.start),
-                    |id| format!("{document_id}:{id}"),
-                );
-                let locator = record.id.as_ref().map_or_else(
-                    || WebTaskLocator::Offset {
-                        offset: task.range.start,
-                    },
-                    |id| WebTaskLocator::Id { id: id.clone() },
-                );
-                Some(WebTaskCandidate {
-                    key,
-                    document_id,
-                    title: record.title,
-                    path: record.relative_path,
-                    revision: current.revision.to_string(),
-                    id: record.id,
-                    locator,
-                    depth: record.depth.unwrap_or_default(),
-                    parent_key: None,
-                })
-            })
-            .collect::<Vec<_>>();
+            .items;
+        let mut candidates = Vec::new();
+        for record in records {
+            let Some(document_id) = self.document_id(&record.path).map(str::to_string) else {
+                continue;
+            };
+            if requested_document.is_some_and(|requested| requested != document_id) {
+                continue;
+            }
+            let Some(entry) = self.document_entry(&record.path)? else {
+                continue;
+            };
+            let Some(current) = entry.current.as_ref() else {
+                continue;
+            };
+            let Some(task) = current
+                .output
+                .tasks
+                .tasks
+                .iter()
+                .find(|task| task.selection_range == record.range)
+            else {
+                continue;
+            };
+            let key = record.id.as_ref().map_or_else(
+                || format!("{document_id}:{}", task.range.start),
+                |id| format!("{document_id}:{id}"),
+            );
+            let locator = record.id.as_ref().map_or_else(
+                || WebTaskLocator::Offset {
+                    offset: task.range.start,
+                },
+                |id| WebTaskLocator::Id { id: id.clone() },
+            );
+            candidates.push(WebTaskCandidate {
+                key,
+                document_id,
+                title: record.title,
+                path: record.relative_path,
+                revision: current.revision.to_string(),
+                id: record.id,
+                locator,
+                depth: record.depth.unwrap_or_default(),
+                parent_key: None,
+            });
+        }
         assign_candidate_parents(&mut candidates);
         candidates.truncate(limit);
         Ok(candidates)
     }
 
-    fn task_documents(&self) -> Vec<WebTaskDocument> {
-        self.document_ids
-            .iter()
-            .filter_map(|(path, id)| {
-                let entry = self.workspace.get(path)?;
-                entry.current.as_ref()?;
-                Some(WebTaskDocument {
+    fn task_documents(&self) -> Result<Vec<WebTaskDocument>, String> {
+        let mut documents = Vec::new();
+        for (path, id) in &self.document_ids {
+            let Some(entry) = self.document_entry(path)? else {
+                continue;
+            };
+            if entry.current.is_some() {
+                documents.push(WebTaskDocument {
                     id: id.clone(),
                     path: display_path(&self.root, path),
                     revision: entry.revision.to_string(),
-                })
-            })
-            .collect()
+                });
+            }
+        }
+        Ok(documents)
     }
 
     pub fn events(&self) -> Result<EventSnapshot, String> {
         let mut events = Vec::new();
-        for entry in self.workspace.documents() {
+        for path in self.document_ids.keys() {
+            let Some(entry) = self.document_entry(path)? else {
+                continue;
+            };
             let Some(current) = &entry.current else {
                 continue;
             };
@@ -905,19 +1008,7 @@ impl WebWorkspace {
         Ok(EventSnapshot {
             revision: self.revision,
             events,
-            documents: self
-                .document_ids
-                .iter()
-                .filter_map(|(path, id)| {
-                    let entry = self.workspace.get(path)?;
-                    entry.current.as_ref()?;
-                    Some(WebEventDocument {
-                        id: id.clone(),
-                        path: display_path(&self.root, path),
-                        revision: entry.revision.to_string(),
-                    })
-                })
-                .collect(),
+            documents: self.event_documents()?,
             earlier_cursor: None,
             later_cursor: None,
         })
@@ -936,7 +1027,7 @@ impl WebWorkspace {
         let (records, has_earlier, has_later) = match (boundary.as_ref(), direction) {
             (Some(boundary), Some("earlier")) => {
                 let records = self
-                    .query_workspace
+                    .workspace
                     .events_page_before(boundary, PAGE_SIZE + 1)
                     .map_err(|error| error.to_string())?
                     .value;
@@ -951,7 +1042,7 @@ impl WebWorkspace {
             }
             (Some(boundary), Some("later")) => {
                 let mut records = self
-                    .query_workspace
+                    .workspace
                     .events_page_after(Some(boundary), PAGE_SIZE + 1)
                     .map_err(|error| error.to_string())?
                     .value;
@@ -971,12 +1062,12 @@ impl WebWorkspace {
                     start: 0,
                 };
                 let mut earlier = self
-                    .query_workspace
+                    .workspace
                     .events_page_before(&now, PAGE_SIZE / 2 + 1)
                     .map_err(|error| error.to_string())?
                     .value;
                 let mut later = self
-                    .query_workspace
+                    .workspace
                     .events_page_after(Some(&now), PAGE_SIZE / 2 + 1)
                     .map_err(|error| error.to_string())?
                     .value;
@@ -1008,7 +1099,7 @@ impl WebWorkspace {
         Ok(EventSnapshot {
             revision: self.revision,
             events,
-            documents: self.event_documents(),
+            documents: self.event_documents()?,
             earlier_cursor: earlier_cursor.filter(|_| has_earlier),
             later_cursor: later_cursor.filter(|_| has_later),
         })
@@ -1027,8 +1118,7 @@ impl WebWorkspace {
             .document_path(document)
             .ok_or("selected event document is unavailable")?;
         let entry = self
-            .workspace
-            .get(path)
+            .document_entry(path)?
             .and_then(|entry| entry.current.as_ref())
             .ok_or("selected event document is invalid")?;
         let event = entry
@@ -1045,12 +1135,12 @@ impl WebWorkspace {
             start,
         };
         let mut earlier = self
-            .query_workspace
+            .workspace
             .events_page_before(&boundary, BEFORE + 1)
             .map_err(|error| error.to_string())?
             .value;
         let mut later = self
-            .query_workspace
+            .workspace
             .events_page_after(Some(&boundary), AFTER + 1)
             .map_err(|error| error.to_string())?
             .value;
@@ -1085,7 +1175,7 @@ impl WebWorkspace {
                 .into_iter()
                 .flatten()
                 .collect(),
-            documents: self.event_documents(),
+            documents: self.event_documents()?,
             earlier_cursor,
             later_cursor,
         })
@@ -1098,7 +1188,7 @@ impl WebWorkspace {
         input: Option<&WebEventInput>,
     ) -> Option<String> {
         let path = self.document_path(document_id)?;
-        let current = self.workspace.get(path)?.current.as_ref()?;
+        let current = self.document_entry(path).ok()??.current.as_ref()?;
         let event = locator
             .and_then(|locator| {
                 current
@@ -1122,19 +1212,21 @@ impl WebWorkspace {
         Some(format!("{document_id}:{}", event.range.start))
     }
 
-    fn event_documents(&self) -> Vec<WebEventDocument> {
-        self.document_ids
-            .iter()
-            .filter_map(|(path, id)| {
-                let entry = self.workspace.get(path)?;
-                entry.current.as_ref()?;
-                Some(WebEventDocument {
+    fn event_documents(&self) -> Result<Vec<WebEventDocument>, String> {
+        let mut documents = Vec::new();
+        for (path, id) in &self.document_ids {
+            let Some(entry) = self.document_entry(path)? else {
+                continue;
+            };
+            if entry.current.is_some() {
+                documents.push(WebEventDocument {
                     id: id.clone(),
                     path: display_path(&self.root, path),
                     revision: entry.revision.to_string(),
-                })
-            })
-            .collect()
+                });
+            }
+        }
+        Ok(documents)
     }
 
     fn web_event(&self, record: &WorkspaceEvent) -> Result<Option<WebEvent>, String> {
@@ -1227,9 +1319,7 @@ impl WebWorkspace {
             .document_path(document_id)
             .ok_or_else(|| "unknown task document".to_string())?;
         let entry = self
-            .workspace
-            .documents()
-            .find(|entry| entry.path == path)
+            .document_entry(path)?
             .filter(|entry| entry.current.is_some())
             .ok_or_else(|| "task document is invalid".to_string())?;
         if entry.revision.to_string() != revision {
@@ -1243,10 +1333,11 @@ impl WebWorkspace {
         let timestamp = Local::now()
             .fixed_offset()
             .to_rfc3339_opts(SecondsFormat::Secs, false);
+        let operation_workspace = self.operation_workspace(path)?;
         let edit = match locator {
-            WebTaskLocator::Id { id } => self
-                .workspace
-                .set_task_status_by_id(path, id, status, &timestamp),
+            WebTaskLocator::Id { id } => {
+                operation_workspace.set_task_status_by_id(path, id, status, &timestamp)
+            }
             WebTaskLocator::Offset { offset } => {
                 let indexed = entry
                     .current
@@ -1260,8 +1351,7 @@ impl WebWorkspace {
                 if !indexed {
                     return Err("task position changed; refresh before retrying".to_string());
                 }
-                self.workspace
-                    .set_task_status(path, *offset, status, &timestamp)
+                operation_workspace.set_task_status(path, *offset, status, &timestamp)
             }
         }
         .map_err(|error| error.to_string())?;
@@ -1282,12 +1372,13 @@ impl WebWorkspace {
         let source = std::fs::read_to_string(path)
             .map_err(|error| format!("cannot read {}: {error}", path.display()))?;
         let input = self.task_authoring_input(path, input)?;
-        let placement = self.task_placement(&self.workspace, path, placement)?;
+        let operation_workspace = self.operation_workspace(path)?;
+        let placement = self.task_placement(&operation_workspace, path, placement)?;
         let timestamp = Local::now()
             .fixed_offset()
             .to_rfc3339_opts(SecondsFormat::Secs, false);
         let edit = self
-            .workspace
+            .operation_workspace(path)?
             .create_task(path, &input, &placement, &timestamp)
             .map_err(task_authoring_error)?;
         self.write_workspace_edit(path, source, edit, "task")
@@ -1307,33 +1398,28 @@ impl WebWorkspace {
         let timestamp = Local::now()
             .fixed_offset()
             .to_rfc3339_opts(SecondsFormat::Secs, false);
-        let original_range = task_range_in(&self.workspace, path, locator)?;
+        let operation_workspace = self.operation_workspace(path)?;
+        let original_range = task_range_in(&operation_workspace, path, locator)?;
         if let Some(placement) = placement {
-            let placement = self.task_placement(&self.workspace, path, placement)?;
+            let placement = self.task_placement(&operation_workspace, path, placement)?;
             let edit = self
-                .workspace
+                .operation_workspace(path)?
                 .move_task(path, original_range.clone(), &placement)
                 .map_err(|error| task_authoring_error(error.into()))?;
             source = apply_guarded_edit(
                 source,
                 path,
-                self.workspace.get(path).unwrap().revision,
+                operation_workspace.get(path).unwrap().revision,
                 edit,
                 "task",
             )?;
         }
-        let mut updated_workspace = Workspace::new();
-        for entry in self.workspace.documents() {
-            updated_workspace.insert(
-                entry.path.clone(),
-                entry.revision,
-                if entry.path == path {
-                    source.clone()
-                } else {
-                    entry.parsed.source.clone()
-                },
-            );
-        }
+        let mut updated_workspace = self.workspace.clone();
+        updated_workspace.open_document(
+            path,
+            operation_workspace.get(path).unwrap().revision,
+            source.clone(),
+        );
         let range = task_range_after_move(&updated_workspace, path, locator, &input.title)?;
         let input = self.task_authoring_input(path, input)?;
         let edit = updated_workspace
@@ -1399,19 +1485,12 @@ impl WebWorkspace {
         let target_path = self
             .document_path(&reference.document_id)
             .ok_or_else(|| "unknown task reference document".to_string())?;
-        let range = task_range_in(&self.workspace, target_path, &reference.locator)?;
-        let task = self
-            .workspace
-            .get(target_path)
+        let entry = self
+            .document_entry(target_path)?
             .and_then(|entry| entry.current.as_ref())
-            .and_then(|current| {
-                current
-                    .output
-                    .tasks
-                    .tasks
-                    .iter()
-                    .find(|task| task.range == range)
-            })
+            .ok_or_else(|| "task reference is no longer available".to_string())?;
+        let task = self
+            .task_for_locator(entry.output.as_ref(), &reference.locator)
             .ok_or_else(|| "task reference is no longer available".to_string())?;
         let id = task
             .id
@@ -1476,7 +1555,8 @@ impl WebWorkspace {
         let path = self.guarded_document(document_id, revision, "event")?;
         let source = std::fs::read_to_string(path)
             .map_err(|error| format!("cannot read {}: {error}", path.display()))?;
-        let edit = mutation(&self.workspace, path).map_err(event_edit_error)?;
+        let operation_workspace = self.operation_workspace(path)?;
+        let edit = mutation(&operation_workspace, path).map_err(event_edit_error)?;
         self.write_workspace_edit(path, source, edit, "event")
     }
 
@@ -1490,9 +1570,7 @@ impl WebWorkspace {
             .document_path(document_id)
             .ok_or_else(|| format!("unknown {kind} document"))?;
         let entry = self
-            .workspace
-            .documents()
-            .find(|entry| entry.path == path)
+            .document_entry(path)?
             .filter(|entry| entry.current.is_some())
             .ok_or_else(|| format!("{kind} document is invalid"))?;
         if entry.revision.to_string() != revision {
@@ -1516,8 +1594,7 @@ impl WebWorkspace {
         kind: &str,
     ) -> Result<(), String> {
         let revision = self
-            .workspace
-            .get(path)
+            .document_entry(path)?
             .ok_or_else(|| format!("{kind} document is no longer indexed"))?
             .revision;
         let updated = apply_guarded_edit(source, path, revision, edit, kind)?;
@@ -1527,28 +1604,20 @@ impl WebWorkspace {
     }
 
     pub fn has_same_documents(&self, other: &Self) -> bool {
-        let documents = |workspace: &Workspace| {
-            let mut documents = workspace
-                .documents()
-                .map(|entry| {
-                    (
-                        entry.path.clone(),
-                        entry.revision,
-                        entry.parsed.source.clone(),
-                    )
-                })
-                .collect::<Vec<_>>();
-            documents.sort_by(|left, right| left.0.cmp(&right.0));
-            documents
-        };
-        documents(&self.workspace) == documents(&other.workspace)
+        self.documents.len() == other.documents.len()
+            && self.documents.iter().all(|(path, document)| {
+                other
+                    .documents
+                    .get(path)
+                    .is_some_and(|other| document.source == other.source)
+            })
     }
 
     pub fn note(&self, id: &str) -> Result<Option<NoteDocument>, String> {
         let Some(path) = self.document_path(id) else {
             return Ok(None);
         };
-        let Some(entry) = self.workspace.get(path) else {
+        let Some(entry) = self.document_entry(path)? else {
             return Ok(None);
         };
         let Some(current) = entry.current.as_ref() else {
@@ -1694,8 +1763,7 @@ impl WebWorkspace {
             .document_path(id)
             .ok_or_else(|| format!("unknown document id '{id}'"))?;
         let metadata = &self
-            .workspace
-            .get(path)
+            .document_entry(path)?
             .and_then(|entry| entry.current.as_ref())
             .ok_or_else(|| format!("document '{}' is not semantically valid", path.display()))?
             .output
@@ -1708,18 +1776,19 @@ impl WebWorkspace {
             .document_ids
             .iter()
             .map(|(path, id)| {
-                let entry = self.workspace.get(path).expect("indexed document exists");
+                let source_len = self
+                    .documents
+                    .get(path)
+                    .expect("indexed document has source bytes")
+                    .source
+                    .len();
                 (
                     id.clone(),
                     GraphNode {
                         id: id.clone(),
                         title: self.title(path),
                         path: Some(display_path(&self.root, path)),
-                        location: Some(SourceLocation::new(
-                            &self.root,
-                            path,
-                            0..entry.parsed.source.len(),
-                        )),
+                        location: Some(SourceLocation::new(&self.root, path, 0..source_len)),
                         unresolved: false,
                     },
                 )
@@ -1728,11 +1797,14 @@ impl WebWorkspace {
         let mut edges = Vec::new();
         let mut ghost_ids = BTreeMap::<String, String>::new();
         for (path, source_id) in &self.document_ids {
-            let entry = self.workspace.get(path).expect("indexed document exists");
+            let entry = self
+                .document_entry(path)?
+                .ok_or_else(|| format!("indexed document is unavailable: {}", path.display()))?;
             let current = entry
                 .current
                 .as_ref()
                 .expect("document id is current-valid");
+            let operation_workspace = self.operation_workspace(path)?;
             for link in &current.output.links {
                 let kind = match link.spelling {
                     LinkSpelling::Positional => "link",
@@ -1747,7 +1819,7 @@ impl WebWorkspace {
                     kind,
                     link.target.value.as_str(),
                     link.selection_range.clone(),
-                    self.workspace
+                    operation_workspace
                         .resolve_link(path, link)
                         .map_err(|error| error.to_string())?
                         .value,
@@ -1764,7 +1836,7 @@ impl WebWorkspace {
                         "task-prev",
                         &prev.value,
                         prev.range.clone(),
-                        self.workspace
+                        operation_workspace
                             .resolve_task_reference_at(path, prev.range.start)
                             .map_err(|error| error.to_string())?
                             .value
@@ -1781,7 +1853,7 @@ impl WebWorkspace {
                         "task-depends",
                         &dependency.source,
                         dependency.range.clone(),
-                        self.workspace
+                        operation_workspace
                             .resolve_task_reference_at(path, dependency.range.start)
                             .map_err(|error| error.to_string())?
                             .value
@@ -1864,13 +1936,60 @@ impl WebWorkspace {
         })
     }
 
-    fn index_resources(&mut self) -> Result<(), String> {
+    fn document_entry(&self, path: &Path) -> Result<Option<&DocumentEntry>, String> {
+        let path = normalize(path);
+        if let Some(entry) = self.workspace.get(&path) {
+            return Ok(Some(entry));
+        }
+        let Some(document) = self.documents.get(&path) else {
+            return Ok(None);
+        };
+        if document.entry.get().is_none() {
+            let entry = Workspace::materialize_document(&path, document.revision, &document.source);
+            let _ = document.entry.set(entry);
+        }
+        Ok(document.entry.get())
+    }
+
+    fn operation_workspace(&self, path: &Path) -> Result<Workspace, String> {
+        let entry = self
+            .document_entry(path)?
+            .ok_or_else(|| format!("document is no longer indexed: {}", path.display()))?;
+        let mut workspace = self.workspace.clone();
+        workspace.open_document(&entry.path, entry.revision, entry.parsed.source.clone());
+        Ok(workspace)
+    }
+
+    fn task_for_locator<'a>(
+        &self,
+        output: &'a DocumentOutput,
+        locator: &WebTaskLocator,
+    ) -> Option<&'a TaskRecord> {
+        output.tasks.tasks.iter().find(|task| match locator {
+            WebTaskLocator::Id { id } => task.id.as_ref().is_some_and(|field| field.value == *id),
+            WebTaskLocator::Offset { offset } => task.range.start == *offset,
+        })
+    }
+
+    fn resource_index(&self) -> Result<&ResourceIndex, String> {
+        self.resource_index
+            .get_or_init(|| self.build_resource_index())
+            .as_ref()
+            .map_err(Clone::clone)
+    }
+
+    fn build_resource_index(&self) -> Result<ResourceIndex, String> {
         let mut paths = BTreeSet::new();
+        let mut resources = BTreeMap::new();
+        let mut resources_by_id = HashMap::new();
         let canonical_root = self
             .root
             .canonicalize()
             .unwrap_or_else(|_| self.root.clone());
-        for entry in self.workspace.documents() {
+        for path in self.document_ids.keys() {
+            let Some(entry) = self.document_entry(path)? else {
+                continue;
+            };
             let Some(current) = &entry.current else {
                 continue;
             };
@@ -1916,10 +2035,13 @@ impl WebWorkspace {
                     .to_string(),
                 path: canonical.clone(),
             };
-            self.resources_by_id.insert(id, canonical.clone());
-            self.resources.insert(canonical, record);
+            resources_by_id.insert(id, canonical.clone());
+            resources.insert(canonical, record);
         }
-        Ok(())
+        Ok(ResourceIndex {
+            resources,
+            resources_by_id,
+        })
     }
 }
 
@@ -2216,6 +2338,34 @@ mod tests {
     }
 
     #[test]
+    fn lazy_document_materialization_and_queries_use_snapshot_bytes() {
+        let root = temp_dir();
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join("tasks.plumb");
+        let first_source = "`task First\n  `@ first\n";
+        std::fs::write(&path, first_source).unwrap();
+        let first = WebWorkspace::load(&root).unwrap();
+        let document_id = first.document_id(&path).unwrap().to_string();
+        assert!(first.documents[&path].entry.get().is_none());
+        let warm = WebWorkspace::load_with_revision(&root, 2).unwrap();
+        assert!(warm.documents[&path].generation_reused);
+        assert!(warm.documents[&path].entry.get().is_none());
+
+        std::fs::write(&path, "`task Second\n  `@ second\n").unwrap();
+        let second = WebWorkspace::load_with_revision(&root, 3).unwrap();
+        assert_eq!(
+            first.note(&document_id).unwrap().unwrap().source,
+            first_source
+        );
+        assert!(first.documents[&path].entry.get().is_some());
+        assert_eq!(first.tasks().unwrap().tasks[0].title, "First");
+        assert_eq!(second.tasks().unwrap().tasks[0].title, "Second");
+
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn cached_task_rows_project_the_live_document_revision_for_mutations() {
         let root = temp_dir();
         std::fs::create_dir_all(&root).unwrap();
@@ -2224,12 +2374,10 @@ mod tests {
         std::fs::write(&path, source).unwrap();
 
         let store = SqliteSemanticStore::open_in_memory().unwrap();
-        let mut query_workspace = Workspace::with_sqlite_store(store);
-        query_workspace.insert_disk(&path, 1, source).unwrap();
-        let mut live_workspace = Workspace::new();
-        live_workspace.insert(&path, 9, source);
-        let workspace =
-            WebWorkspace::from_workspaces(&root, live_workspace, query_workspace, 1).unwrap();
+        let mut source_workspace = Workspace::with_sqlite_store(store);
+        source_workspace.insert_disk(&path, 1, source).unwrap();
+        source_workspace.open_document(&path, 9, source);
+        let workspace = WebWorkspace::from_workspace(&root, source_workspace, 1).unwrap();
 
         let snapshot = workspace.tasks().unwrap();
         assert_eq!(snapshot.documents[0].revision, "9");
@@ -3185,7 +3333,11 @@ mod tests {
         symlink(&target, &root).unwrap();
 
         let workspace = WebWorkspace::load(&root).unwrap();
-        let resource = workspace.resources().next().expect("indexed image");
+        let resource = workspace
+            .resources()
+            .unwrap()
+            .next()
+            .expect("indexed image");
         assert_eq!(resource.path, target.join("static/image.jpg"));
 
         std::fs::remove_dir_all(parent).unwrap();
