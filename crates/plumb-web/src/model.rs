@@ -1393,43 +1393,21 @@ impl WebWorkspace {
         placement: Option<&WebTaskPlacement>,
     ) -> Result<(), String> {
         let path = self.guarded_document(document_id, revision, "task")?;
-        let mut source = std::fs::read_to_string(path)
+        let source = std::fs::read_to_string(path)
             .map_err(|error| format!("cannot read {}: {error}", path.display()))?;
         let timestamp = Local::now()
             .fixed_offset()
             .to_rfc3339_opts(SecondsFormat::Secs, false);
         let operation_workspace = self.operation_workspace(path)?;
         let original_range = task_range_in(&operation_workspace, path, locator)?;
-        if let Some(placement) = placement {
-            let placement = self.task_placement(&operation_workspace, path, placement)?;
-            let edit = self
-                .operation_workspace(path)?
-                .move_task(path, original_range.clone(), &placement)
-                .map_err(|error| task_authoring_error(error.into()))?;
-            source = apply_guarded_edit(
-                source,
-                path,
-                operation_workspace.get(path).unwrap().revision,
-                edit,
-                "task",
-            )?;
-        }
-        let mut updated_workspace = self.workspace.clone();
-        updated_workspace.open_document(
-            path,
-            operation_workspace.get(path).unwrap().revision,
-            source.clone(),
-        );
-        let range = task_range_after_move(&updated_workspace, path, locator, &input.title)?;
+        let placement = placement
+            .map(|placement| self.task_placement(&operation_workspace, path, placement))
+            .transpose()?;
         let input = self.task_authoring_input(path, input)?;
-        let edit = updated_workspace
-            .update_task(path, range, &input, &timestamp)
+        let edit = operation_workspace
+            .update_and_move_task(path, original_range, &input, placement.as_ref(), &timestamp)
             .map_err(task_authoring_error)?;
-        let revision = updated_workspace.get(path).unwrap().revision;
-        let updated = apply_guarded_edit(source, path, revision, edit, "task")?;
-        validate_generated_source(path, revision, &updated, "task")?;
-        std::fs::write(path, updated)
-            .map_err(|error| format!("cannot write {}: {error}", path.display()))
+        self.write_workspace_edit(path, source, edit, "task")
     }
 
     fn task_placement(
@@ -2176,30 +2154,6 @@ fn task_range_in(
         .ok_or_else(|| "task is no longer available".to_string())
 }
 
-fn task_range_after_move(
-    workspace: &Workspace,
-    path: &Path,
-    locator: &WebTaskLocator,
-    title: &str,
-) -> Result<std::ops::Range<usize>, String> {
-    task_range_in(workspace, path, locator).or_else(|_| {
-        let output = workspace
-            .get(path)
-            .and_then(|entry| entry.current.as_ref())
-            .map(|current| &current.output)
-            .ok_or_else(|| "task document is invalid".to_string())?;
-        let matches = output
-            .tasks
-            .tasks
-            .iter()
-            .filter(|task| task.title == title)
-            .collect::<Vec<_>>();
-        (matches.len() == 1)
-            .then(|| matches[0].range.clone())
-            .ok_or_else(|| "moved idless task cannot be identified; add an explicit id".to_string())
-    })
-}
-
 fn task_authoring_error(error: WorkspaceOperationError<TaskAuthoringError>) -> String {
     let error = match error {
         WorkspaceOperationError::Operation(error) => error,
@@ -2745,6 +2699,66 @@ mod tests {
             .unwrap_err();
         assert!(error.contains("changed on disk"), "{error}");
         assert_eq!(std::fs::read_to_string(&path).unwrap(), external);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn updates_and_reparents_idless_tasks_without_an_intermediate_parse() {
+        let root = temp_dir();
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join("tasks.plumb");
+        std::fs::write(
+            &path,
+            "`task Parent\n  `@ parent\n  `task Idless child\n    `= custom keep\n",
+        )
+        .unwrap();
+        let workspace = WebWorkspace::load(&root).unwrap();
+        let snapshot = workspace.tasks().unwrap();
+        let parent = snapshot
+            .tasks
+            .iter()
+            .find(|task| task.id.as_deref() == Some("parent"))
+            .unwrap();
+        let child = snapshot
+            .tasks
+            .iter()
+            .find(|task| task.title == "Idless child")
+            .unwrap();
+        assert!(child.id.is_none());
+        workspace
+            .update_task_fields(
+                &child.document_id,
+                &child.locator,
+                &child.revision,
+                &WebTaskInput {
+                    title: "Renamed idless child".to_string(),
+                    created: child.created.clone(),
+                    due: None,
+                    wait: None,
+                    recur: None,
+                    prev: None,
+                    depends: Vec::new(),
+                    priority: Some(-2),
+                },
+                Some(&WebTaskPlacement {
+                    parent: None,
+                    after: Some(parent.locator.clone()),
+                }),
+            )
+            .unwrap();
+        let updated = std::fs::read_to_string(&path).unwrap();
+        assert!(updated.contains("`task Renamed idless child"), "{updated}");
+        assert!(updated.contains("`= custom keep"), "{updated}");
+        let refreshed = WebWorkspace::load_with_revision(&root, 2).unwrap();
+        let task = refreshed
+            .tasks()
+            .unwrap()
+            .tasks
+            .into_iter()
+            .find(|task| task.title == "Renamed idless child")
+            .unwrap();
+        assert_eq!(task.depth, 0);
+        assert_eq!(task.priority, Some(-2));
         std::fs::remove_dir_all(root).unwrap();
     }
 

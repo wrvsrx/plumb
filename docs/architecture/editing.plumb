@@ -72,6 +72,13 @@ insertion。recurring task operation 在
 owned declaration children 上移除旧 instance state、设置 next instance fields，不再对 source slice 做相对 range
 replacement。
 
+一次用户 authoring intent 如果同时修改 block 内容与结构位置，workspace 必须在原 revision 的同一个 owned
+syntax transaction 中完成两者，并返回一个 guarded `"WorkspaceEdit"。transaction 先从原 tree detach 完整
+subtree，在 owned subtree 上应用内容 mutation，再把同一个 subtree 插入目标位置；idless owner 不依赖修改后的
+head 或重新查询来定位。adapter 不得应用部分 edit、parse 中间 source，再发起第二个 workspace operation。
+同 parent reorder、跨 parent move、top-level 与 nested 之间的 move 都遵守这一规则；opaque direct children 随
+完整 subtree 保留。目标是 source subtree 本身或其 descendant 时，operation 必须拒绝 placement。
+
 `# 5. Finalization
 
 `"EditSession" 绑定一个 valid `"ParsedDocument" revision 和 affected complete block range。commit：

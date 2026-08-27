@@ -2782,6 +2782,46 @@ impl Workspace {
         )
     }
 
+    pub fn update_and_move_task(
+        &self,
+        path: impl AsRef<Path>,
+        task_range: std::ops::Range<usize>,
+        input: &TaskAuthoringInput,
+        placement: Option<&TaskPlacement>,
+        timestamp: &str,
+    ) -> Result<WorkspaceEdit, WorkspaceOperationError<TaskAuthoringError>> {
+        let Some(placement) = placement else {
+            return self.update_task(path, task_range, input, timestamp);
+        };
+        let path = normalize(path.as_ref());
+        let entry = self
+            .documents
+            .get(&path)
+            .ok_or(TaskAuthoringError::StaleOrInvalidDocument)?;
+        let current = entry
+            .current
+            .as_ref()
+            .ok_or(TaskAuthoringError::StaleOrInvalidDocument)?;
+        let task = current
+            .output
+            .tasks
+            .tasks
+            .iter()
+            .find(|task| task.range == task_range)
+            .ok_or(TaskAuthoringError::TaskNotFound)?;
+        validate_task_authoring_input(input, timestamp)?;
+        self.validate_authored_task_references(
+            &path,
+            task.id.as_ref().map(|id| id.value.as_str()),
+            input,
+        )?;
+        let block = parsed_block_with_range(&entry.parsed.syntax.blocks, &task.range)
+            .ok_or(TaskAuthoringError::TaskNotFound)?;
+        let moved = updated_owned_task(&entry.parsed.source, block, task, input, timestamp);
+        self.move_task_owned(entry, path, task.range.clone(), placement, moved)
+            .map_err(Into::into)
+    }
+
     pub fn update_task_patch(
         &self,
         path: impl AsRef<Path>,
@@ -2851,21 +2891,7 @@ impl Workspace {
         )?;
         let block = parsed_block_with_range(&entry.parsed.syntax.blocks, &task.range)
             .ok_or(TaskAuthoringError::TaskNotFound)?;
-        let mut owned = OwnedBlock::from_parsed(&entry.parsed.source, block);
-        owned.set_head_text(&input.title);
-        let mut attributes = owned.attributes();
-        attributes.retain(|attribute| {
-            !matches!(attribute, OwnedAttribute::Pair { key, .. }
-                if matches!(key.as_str(), "created" | "due" | "wait" | "recur" | "prev" | "depends" | "priority"))
-        });
-        append_authored_task_fields(
-            &mut attributes,
-            &input,
-            task.created
-                .as_ref()
-                .map_or(timestamp, |created| created.value.as_str()),
-        );
-        owned = owned.with_attributes(attributes);
+        let owned = updated_owned_task(&entry.parsed.source, block, task, &input, timestamp);
         let edit = replace_owned_block(&entry.parsed, task.range.clone(), &owned)
             .map_err(|_| TaskAuthoringError::GeneratedInvalid)?;
         Ok(single_document_edit(entry, path, edit))
@@ -2895,38 +2921,97 @@ impl Workspace {
             .ok_or(TaskAuthoringError::TaskNotFound)?;
         let source = parsed_block_with_range(&entry.parsed.syntax.blocks, &task.range)
             .ok_or(TaskAuthoringError::TaskNotFound)?;
+        let moved = OwnedBlock::from_parsed(&entry.parsed.source, source);
+        self.move_task_owned(entry, path, task.range.clone(), placement, moved)
+    }
+
+    fn move_task_owned(
+        &self,
+        entry: &DocumentEntry,
+        path: PathBuf,
+        task_range: std::ops::Range<usize>,
+        placement: &TaskPlacement,
+        moved: OwnedBlock,
+    ) -> Result<WorkspaceEdit, TaskAuthoringError> {
         if placement
             .parent
             .as_ref()
-            .is_some_and(|parent| task.range.start <= parent.start && parent.end <= task.range.end)
-            || placement.after.as_ref() == Some(&task.range)
+            .is_some_and(|parent| task_range.start <= parent.start && parent.end <= task_range.end)
+            || placement.after.as_ref() == Some(&task_range)
         {
             return Err(TaskAuthoringError::InvalidPlacement);
         }
-        let moved = OwnedBlock::from_parsed(&entry.parsed.source, source);
-        let source_parent = direct_parent_range(&entry.parsed.syntax.blocks, &task.range);
-        if placement.parent.as_ref() == source_parent.as_ref() {
-            if let Some(parent_range) = source_parent {
-                return self.reorder_task_children(
-                    entry,
-                    path,
-                    parent_range,
-                    task.range.clone(),
-                    placement.after.as_ref(),
-                );
+        let source_parent = direct_parent_range(&entry.parsed.syntax.blocks, &task_range);
+        if let Some(parent_range) = &placement.parent {
+            let source_path = block_index_path(&entry.parsed.syntax.blocks, &task_range)
+                .ok_or(TaskAuthoringError::InvalidPlacement)?;
+            let parent_path = block_index_path(&entry.parsed.syntax.blocks, parent_range)
+                .ok_or(TaskAuthoringError::InvalidPlacement)?;
+            if source_path.first() == parent_path.first() {
+                let is_task = entry
+                    .current
+                    .as_ref()
+                    .expect("current output checked")
+                    .output
+                    .tasks
+                    .tasks
+                    .iter()
+                    .any(|task| task.range == *parent_range);
+                if !is_task {
+                    return Err(TaskAuthoringError::InvalidPlacement);
+                }
+                let root_index = source_path[0];
+                let root = parsed_block(&entry.parsed.syntax.blocks[root_index])
+                    .ok_or(TaskAuthoringError::InvalidPlacement)?;
+                let parent = parsed_block_with_range(&entry.parsed.syntax.blocks, parent_range)
+                    .ok_or(TaskAuthoringError::InvalidPlacement)?;
+                let mut insertion =
+                    child_insertion_index(&parent.children, placement.after.as_ref())?;
+                let source_relative = &source_path[1..];
+                let mut parent_relative = parent_path[1..].to_vec();
+                if source_relative.len() == parent_relative.len() + 1
+                    && source_relative[..parent_relative.len()] == parent_relative
+                    && insertion > source_relative[parent_relative.len()]
+                {
+                    insertion -= 1;
+                }
+                adjust_path_after_removal(&mut parent_relative, source_relative);
+                let mut owned_root = OwnedBlock::from_parsed(&entry.parsed.source, root);
+                remove_owned_at_path(&mut owned_root, source_relative)
+                    .ok_or(TaskAuthoringError::InvalidPlacement)?;
+                owned_at_path_mut(&mut owned_root, &parent_relative)
+                    .and_then(OwnedBlock::children_mut)
+                    .ok_or(TaskAuthoringError::InvalidPlacement)?
+                    .insert(insertion, moved);
+                let edit = replace_owned_block(&entry.parsed, root.range.clone(), &owned_root)
+                    .map_err(|_| TaskAuthoringError::GeneratedInvalid)?;
+                return Ok(single_document_edit(entry, path, edit));
             }
         }
-        if placement.parent.is_none()
-            && placement
-                .after
-                .as_ref()
-                .is_some_and(|after| after.start <= task.range.start && task.range.end <= after.end)
+        let top_level_after = if placement.parent.is_none() {
+            placement.after.clone().or_else(|| {
+                entry
+                    .parsed
+                    .syntax
+                    .blocks
+                    .iter()
+                    .rev()
+                    .map(Block::range)
+                    .find(|range| **range != task_range)
+                    .cloned()
+            })
+        } else {
+            None
+        };
+        if top_level_after
+            .as_ref()
+            .is_some_and(|after| after.start <= task_range.start && task_range.end <= after.end)
         {
-            let after = placement.after.as_ref().expect("checked after");
+            let after = top_level_after.as_ref().expect("checked after");
             let ancestor = parsed_block_with_range(&entry.parsed.syntax.blocks, after)
                 .ok_or(TaskAuthoringError::InvalidPlacement)?;
             let mut owned_ancestor = OwnedBlock::from_parsed(&entry.parsed.source, ancestor);
-            if !remove_owned_descendant(ancestor, &mut owned_ancestor, &task.range) {
+            if !remove_owned_descendant(ancestor, &mut owned_ancestor, &task_range) {
                 return Err(TaskAuthoringError::InvalidPlacement);
             }
             let edit = replace_owned_blocks(&entry.parsed, after.clone(), &[owned_ancestor, moved])
@@ -2944,7 +3029,7 @@ impl Workspace {
             let source_index = parent
                 .children
                 .iter()
-                .position(|child| child.range() == &task.range)
+                .position(|child| child.range() == &task_range)
                 .ok_or(TaskAuthoringError::InvalidPlacement)?;
             let mut owned_parent = OwnedBlock::from_parsed(&entry.parsed.source, parent);
             owned_parent
@@ -2954,7 +3039,7 @@ impl Workspace {
             replace_owned_block(&entry.parsed, parent_range.clone(), &owned_parent)
                 .map_err(|_| TaskAuthoringError::GeneratedInvalid)?
         } else {
-            remove_syntax_block(&entry.parsed, task.range.clone())
+            remove_syntax_block(&entry.parsed, task_range.clone())
                 .map_err(|_| TaskAuthoringError::GeneratedInvalid)?
         };
         let target_edit = if let Some(parent_range) = &placement.parent {
@@ -2981,18 +3066,10 @@ impl Workspace {
             replace_owned_block(&entry.parsed, parent_range.clone(), &owned)
                 .map_err(|_| TaskAuthoringError::GeneratedInvalid)?
         } else {
-            let after = placement.after.as_ref().or_else(|| {
-                entry
-                    .parsed
-                    .syntax
-                    .blocks
-                    .iter()
-                    .rev()
-                    .map(Block::range)
-                    .find(|range| **range != task.range)
-            });
-            let Some(after) = after else {
-                return Ok(WorkspaceEdit::default());
+            let Some(after) = top_level_after.as_ref() else {
+                let edit = replace_owned_block(&entry.parsed, task_range, &moved)
+                    .map_err(|_| TaskAuthoringError::GeneratedInvalid)?;
+                return Ok(single_document_edit(entry, path, edit));
             };
             if !entry
                 .parsed
@@ -3020,34 +3097,6 @@ impl Workspace {
             }],
             resource_operations: Vec::new(),
         })
-    }
-
-    fn reorder_task_children(
-        &self,
-        entry: &DocumentEntry,
-        path: PathBuf,
-        parent_range: std::ops::Range<usize>,
-        task_range: std::ops::Range<usize>,
-        after: Option<&std::ops::Range<usize>>,
-    ) -> Result<WorkspaceEdit, TaskAuthoringError> {
-        let parent = parsed_block_with_range(&entry.parsed.syntax.blocks, &parent_range)
-            .ok_or(TaskAuthoringError::InvalidPlacement)?;
-        let source_index = parent
-            .children
-            .iter()
-            .position(|child| child.range() == &task_range)
-            .ok_or(TaskAuthoringError::InvalidPlacement)?;
-        let mut target_index = child_insertion_index(&parent.children, after)?;
-        let mut owned = OwnedBlock::from_parsed(&entry.parsed.source, parent);
-        let children = owned.children_mut().expect("parsed parent");
-        let moved = children.remove(source_index);
-        if target_index > source_index {
-            target_index -= 1;
-        }
-        children.insert(target_index, moved);
-        let edit = replace_owned_block(&entry.parsed, parent_range, &owned)
-            .map_err(|_| TaskAuthoringError::GeneratedInvalid)?;
-        Ok(single_document_edit(entry, path, edit))
     }
 
     fn validate_authored_task_references(
@@ -3992,6 +4041,51 @@ fn direct_parent_range(
     None
 }
 
+fn block_index_path(blocks: &[Block], target: &std::ops::Range<usize>) -> Option<Vec<usize>> {
+    for (index, block) in blocks.iter().enumerate() {
+        if block.range() == target {
+            return Some(vec![index]);
+        }
+        let Block::Parsed(block) = block else {
+            continue;
+        };
+        if block.range.start <= target.start && target.end <= block.range.end {
+            if let Some(mut path) = block_index_path(&block.children, target) {
+                path.insert(0, index);
+                return Some(path);
+            }
+        }
+    }
+    None
+}
+
+fn adjust_path_after_removal(path: &mut [usize], removed: &[usize]) {
+    for (target, source) in path.iter_mut().zip(removed) {
+        if *target == *source {
+            continue;
+        }
+        if *source < *target {
+            *target -= 1;
+        }
+        break;
+    }
+}
+
+fn owned_at_path_mut<'a>(owned: &'a mut OwnedBlock, path: &[usize]) -> Option<&'a mut OwnedBlock> {
+    let Some((index, remaining)) = path.split_first() else {
+        return Some(owned);
+    };
+    let child = owned.children_mut()?.get_mut(*index)?;
+    owned_at_path_mut(child, remaining)
+}
+
+fn remove_owned_at_path(owned: &mut OwnedBlock, path: &[usize]) -> Option<OwnedBlock> {
+    let (index, parent_path) = path.split_last()?;
+    let parent = owned_at_path_mut(owned, parent_path)?;
+    let children = parent.children_mut()?;
+    (*index < children.len()).then(|| children.remove(*index))
+}
+
 struct BlockIdTarget<'a> {
     block_range: std::ops::Range<usize>,
     attrs: &'a Attributes,
@@ -4396,6 +4490,30 @@ fn owned_authored_task(input: &TaskAuthoringInput, id: &str, timestamp: &str) ->
     let mut attributes = vec![OwnedAttribute::id(id)];
     append_authored_task_fields(&mut attributes, input, timestamp);
     OwnedBlock::marked("task", &input.title).with_attributes(attributes)
+}
+
+fn updated_owned_task(
+    source: &str,
+    block: &ParsedBlock,
+    task: &TaskRecord,
+    input: &TaskAuthoringInput,
+    timestamp: &str,
+) -> OwnedBlock {
+    let mut owned = OwnedBlock::from_parsed(source, block);
+    owned.set_head_text(&input.title);
+    let mut attributes = owned.attributes();
+    attributes.retain(|attribute| {
+        !matches!(attribute, OwnedAttribute::Pair { key, .. }
+            if matches!(key.as_str(), "created" | "due" | "wait" | "recur" | "prev" | "depends" | "priority"))
+    });
+    append_authored_task_fields(
+        &mut attributes,
+        input,
+        task.created
+            .as_ref()
+            .map_or(timestamp, |created| created.value.as_str()),
+    );
+    owned.with_attributes(attributes)
 }
 
 fn append_authored_task_fields(
@@ -8303,5 +8421,118 @@ mod tests {
         );
         let formatted = plumb_format::format(&updated_source).expect("updated task source formats");
         assert_eq!(formatted, updated_source);
+    }
+
+    #[test]
+    fn updates_and_moves_task_subtrees_in_one_original_revision_operation() {
+        let mut workspace = Workspace::new();
+        let source = plumb_format::format(
+            "`task Parent\n  `@ parent\n  `task Group\n    `@ group\n    `task Idless child\n      `= custom keep\n      `note Keep details\n  `task Sibling\n    `@ sibling\n\n`task Destination\n  `@ destination\n",
+        )
+        .unwrap();
+        workspace.insert("tasks.plumb", 17, &source);
+        let tasks = &workspace
+            .current_output(Path::new("tasks.plumb"))
+            .unwrap()
+            .tasks
+            .tasks;
+        let child = tasks
+            .iter()
+            .find(|task| task.title == "Idless child")
+            .unwrap();
+        assert!(child.id.is_none());
+        let parent = tasks
+            .iter()
+            .find(|task| task.id.as_ref().is_some_and(|id| id.value == "parent"))
+            .unwrap();
+        let operation = workspace
+            .update_and_move_task(
+                "tasks.plumb",
+                child.range.clone(),
+                &TaskAuthoringInput {
+                    title: "Updated idless child".to_string(),
+                    due: Some("2026-08-15T02:30:00Z".to_string()),
+                    priority: Some(-3),
+                    ..TaskAuthoringInput::default()
+                },
+                Some(&TaskPlacement {
+                    parent: Some(parent.range.clone()),
+                    after: Some(
+                        tasks
+                            .iter()
+                            .find(|task| task.id.as_ref().is_some_and(|id| id.value == "sibling"))
+                            .unwrap()
+                            .range
+                            .clone(),
+                    ),
+                }),
+                "2026-08-01T10:00:00Z",
+            )
+            .unwrap();
+        assert_eq!(operation.document_changes.len(), 1);
+        assert_eq!(operation.document_changes[0].expected_revision, 17);
+        assert_eq!(operation.document_changes[0].edits.len(), 1);
+        let updated = apply_document_edit(source, "tasks.plumb", 17, operation).unwrap();
+        assert!(updated.contains("`task Updated idless child"), "{updated}");
+        assert!(updated.contains("`= custom keep"), "{updated}");
+        assert!(updated.contains("`note Keep details"), "{updated}");
+        assert!(updated.contains("`= due 2026-08-15T02:30:00Z"), "{updated}");
+        assert!(updated.contains("`= priority -3"), "{updated}");
+        let parsed = parse(&updated);
+        assert!(parsed.is_valid(), "{updated}\n{:?}", parsed.diagnostics);
+        assert_eq!(plumb_format::format(&updated).unwrap(), updated);
+
+        workspace.insert("tasks.plumb", 18, updated.clone());
+        let tasks = &workspace
+            .current_output(Path::new("tasks.plumb"))
+            .unwrap()
+            .tasks
+            .tasks;
+        let child = tasks
+            .iter()
+            .find(|task| task.title == "Updated idless child")
+            .unwrap();
+        let parent = tasks
+            .iter()
+            .find(|task| task.id.as_ref().is_some_and(|id| id.value == "parent"))
+            .unwrap();
+        assert_eq!(child.depth, parent.depth + 1, "{updated}");
+
+        let destination = tasks
+            .iter()
+            .find(|task| task.id.as_ref().is_some_and(|id| id.value == "destination"))
+            .unwrap();
+        let cross_root = workspace
+            .update_and_move_task(
+                "tasks.plumb",
+                child.range.clone(),
+                &TaskAuthoringInput {
+                    title: "Cross-root child".to_string(),
+                    due: Some("2026-08-16T02:30:00Z".to_string()),
+                    priority: Some(-4),
+                    ..TaskAuthoringInput::default()
+                },
+                Some(&TaskPlacement {
+                    parent: Some(destination.range.clone()),
+                    after: None,
+                }),
+                "2026-08-01T11:00:00Z",
+            )
+            .unwrap();
+        assert_eq!(cross_root.document_changes.len(), 1);
+        assert_eq!(cross_root.document_changes[0].expected_revision, 18);
+        assert_eq!(cross_root.document_changes[0].edits.len(), 2);
+        let cross_root_updated =
+            apply_document_edit(updated, "tasks.plumb", 18, cross_root).unwrap();
+        assert!(cross_root_updated.contains("`task Cross-root child"));
+        assert!(cross_root_updated.contains("`= custom keep"));
+        assert!(
+            parse(&cross_root_updated).is_valid(),
+            "{cross_root_updated}"
+        );
+        assert_eq!(
+            plumb_format::format(&cross_root_updated).unwrap(),
+            cross_root_updated
+        );
     }
 }
