@@ -203,6 +203,16 @@ impl SqliteSemanticStore {
         Self::from_connection(SqliteConnection::establish(":memory:")?)
     }
 
+    #[cfg(test)]
+    pub(crate) fn execute_batch_for_test(&self, sql: &str) -> StoreResult<()> {
+        let mut connection = self
+            .connection
+            .lock()
+            .map_err(|_| StoreError::LockPoisoned)?;
+        connection.batch_execute(sql)?;
+        Ok(())
+    }
+
     pub fn readonly_snapshot(&self) -> StoreResult<Self> {
         let mut source = self
             .connection

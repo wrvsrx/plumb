@@ -5064,13 +5064,14 @@ mod tests {
     fn sqlite_query_failures_are_not_reported_as_empty_or_negative_results() {
         let database = temp_workspace().with_extension("sqlite");
         let store = SqliteSemanticStore::open(&database).unwrap();
-        let mut workspace = Workspace::with_sqlite_store(store);
+        let mut workspace = Workspace::with_sqlite_store(store.clone());
         workspace
             .insert_disk("tasks.plumb", 0, "`task Persisted\n  `@ persisted\n")
             .unwrap();
 
-        let connection = rusqlite::Connection::open(&database).unwrap();
-        connection.execute_batch("DROP TABLE documents;").unwrap();
+        store
+            .execute_batch_for_test("DROP TABLE documents;")
+            .unwrap();
 
         assert!(matches!(
             workspace.document_paths(),
@@ -5081,7 +5082,6 @@ mod tests {
             Err(WorkspaceQueryError::Store(StoreError::Diesel(_)))
         ));
 
-        drop(connection);
         drop(workspace);
         std::fs::remove_file(database).unwrap();
     }
@@ -5090,13 +5090,12 @@ mod tests {
     fn sqlite_task_query_failures_do_not_fall_back_to_reanalysis() {
         let database = temp_workspace().with_extension("sqlite");
         let store = SqliteSemanticStore::open(&database).unwrap();
-        let mut workspace = Workspace::with_sqlite_store(store);
+        let mut workspace = Workspace::with_sqlite_store(store.clone());
         workspace
             .insert_disk("tasks.plumb", 0, "`task Persisted\n  `@ persisted\n")
             .unwrap();
 
-        let connection = rusqlite::Connection::open(&database).unwrap();
-        connection.execute_batch("DROP TABLE tasks;").unwrap();
+        store.execute_batch_for_test("DROP TABLE tasks;").unwrap();
         let now = DateTime::parse_from_rfc3339("2026-08-27T00:00:00Z").unwrap();
 
         assert!(matches!(
@@ -5104,7 +5103,6 @@ mod tests {
             Err(WorkspaceQueryError::Store(StoreError::Diesel(_)))
         ));
 
-        drop(connection);
         drop(workspace);
         std::fs::remove_file(database).unwrap();
     }

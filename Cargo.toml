@@ -45,6 +45,5 @@ mime_guess = "2"
 notify = "8"
 ignore = "0.4"
 percent-encoding = "2"
-rusqlite = { version = "0.37", features = ["bundled"] }
 tokio-stream = "0.1"
 uuid = { version = "1", features = ["v4"] }
