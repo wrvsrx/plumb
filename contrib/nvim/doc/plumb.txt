@@ -40,9 +40,11 @@ safe and replace the plugin's commands and autocmds.
 
 The plugin does not modify window-local folding options. `plumb lsp` provides
 folding ranges and task collapsedText; configure vim.lsp.foldexpr() and
-require('plumb').foldtext() in the editor when desired. The wrapper uses the
-closed-task semantic highlight groups for DONE and CANCELED labels; other fold
-labels retain the native vim.lsp.foldtext() result. Whole-document formatting
+require('plumb').foldtext() in the editor when desired. The wrapper dims
+WAITING, BLOCKED, DONE, CANCELED, and CONFLICTED task labels with the resolved
+Comment highlight. It also preserves the corresponding diagnostic decoration,
+so WAITING can be both dimmed and underlined. Other fold labels retain the
+native vim.lsp.foldtext() result. Whole-document formatting
 uses changed-line edits, so native vim.lsp.buf.format() and format-on-save
 preserve fold overrides on unchanged blocks. The server returns same-line task
 and event ranges to lineFoldingOnly clients. Editors that support these ranges

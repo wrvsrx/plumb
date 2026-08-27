@@ -7,14 +7,19 @@ local root = vim.fn.tempname()
 vim.fn.mkdir(root .. '/.plumb', 'p')
 local path = root .. '/plugin.plumb'
 vim.fn.writefile({
-  '{',
-  ' `: title Plugin E2E',
-  '}',
+  '`= title Plugin E2E',
   '',
-  '`task Do work {`@[work]}',
+  '`task Do work',
+  ' `@ work',
   '',
   ' `note Task detail',
 }, path)
+
+vim.api.nvim_set_hl(0, 'Comment', { fg = 0x667788, italic = true })
+vim.api.nvim_set_hl(0, 'DiagnosticInfo', { fg = 0xff0000, underline = true })
+vim.api.nvim_set_hl(0, 'DiagnosticHint', { fg = 0x00ff00, undercurl = true })
+vim.api.nvim_set_hl(0, 'DiagnosticDeprecated', { fg = 0x0000ff, strikethrough = true })
+vim.api.nvim_set_hl(0, 'DiagnosticWarn', { fg = 0xffff00, bold = true })
 
 require('plumb').setup({
   command = repo .. '/target/debug/plumb',
@@ -36,15 +41,27 @@ assert(
   vim.api.nvim_get_hl(0, { name = '@lsp.typemod.task.canceled.plumb' }).link == 'Comment',
   'dim canceled task tokens'
 )
-local task_fold_links = {
-  PlumbTaskFoldWaiting = 'DiagnosticInfo',
-  PlumbTaskFoldBlocked = 'DiagnosticHint',
-  PlumbTaskFoldDone = 'Comment',
-  PlumbTaskFoldCanceled = 'DiagnosticDeprecated',
-  PlumbTaskFoldConflicted = 'DiagnosticWarn',
+local task_fold_decorations = {
+  PlumbTaskFoldWaiting = 'underline',
+  PlumbTaskFoldBlocked = 'undercurl',
+  PlumbTaskFoldDone = nil,
+  PlumbTaskFoldCanceled = 'strikethrough',
+  PlumbTaskFoldConflicted = 'bold',
 }
-for group, link in pairs(task_fold_links) do
-  assert(vim.api.nvim_get_hl(0, { name = group }).link == link, group .. ' links to ' .. link)
+for _, group in ipairs({
+  'PlumbTaskFoldWaiting',
+  'PlumbTaskFoldBlocked',
+  'PlumbTaskFoldDone',
+  'PlumbTaskFoldCanceled',
+  'PlumbTaskFoldConflicted',
+}) do
+  local highlight = vim.api.nvim_get_hl(0, { name = group, link = false })
+  assert(highlight.fg == 0x667788, group .. ' uses the Comment foreground')
+  assert(highlight.italic == true, group .. ' preserves the Comment base style')
+  local decoration = task_fold_decorations[group]
+  if decoration then
+    assert(highlight[decoration] == true, group .. ' preserves its diagnostic decoration')
+  end
 end
 
 local completion_path = root .. '/completion.plumb'
@@ -63,12 +80,12 @@ local items = completion.result.items or completion.result
 assert(vim.iter(items):any(function(item) return item.label == 'Task' end), 'Task completion missing')
 
 vim.cmd.edit(vim.fn.fnameescape(path))
-vim.api.nvim_win_set_cursor(0, { 7, 0 })
+vim.api.nvim_win_set_cursor(0, { 6, 0 })
 assert(vim.wait(5000, function()
   return #vim.lsp.codelens.get({ bufnr = 0, client_id = client.id }) > 0
 end), 'receive plumb CodeLens')
 
-vim.api.nvim_buf_set_lines(0, -1, -1, false, { '`node{key=a key=b} Invalid' })
+vim.api.nvim_buf_set_lines(0, -1, -1, false, { 'Unclosed `kind[inline element' })
 assert(vim.wait(5000, function()
   return #vim.diagnostic.get(0) > 0
 end), 'receive strict diagnostics')

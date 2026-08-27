@@ -1,5 +1,32 @@
 local M = {}
 
+local decoration_attributes = {
+  'bold',
+  'italic',
+  'reverse',
+  'standout',
+  'strikethrough',
+  'underline',
+  'undercurl',
+  'underdashed',
+  'underdotted',
+  'underdouble',
+}
+
+local function task_fold_highlight(decoration)
+  local highlight = vim.api.nvim_get_hl(0, { name = 'Comment', link = false })
+  if decoration then
+    local diagnostic = vim.api.nvim_get_hl(0, { name = decoration, link = false })
+    for _, attribute in ipairs(decoration_attributes) do
+      if diagnostic[attribute] ~= nil then
+        highlight[attribute] = diagnostic[attribute]
+      end
+    end
+  end
+  highlight.default = true
+  return highlight
+end
+
 local function configure_task_highlights()
   vim.api.nvim_set_hl(0, '@lsp.typemod.task.completed.plumb', {
     default = true,
@@ -12,15 +39,12 @@ local function configure_task_highlights()
   local fold_highlights = {
     PlumbTaskFoldWaiting = 'DiagnosticInfo',
     PlumbTaskFoldBlocked = 'DiagnosticHint',
-    PlumbTaskFoldDone = 'Comment',
+    PlumbTaskFoldDone = false,
     PlumbTaskFoldCanceled = 'DiagnosticDeprecated',
     PlumbTaskFoldConflicted = 'DiagnosticWarn',
   }
-  for group, link in pairs(fold_highlights) do
-    vim.api.nvim_set_hl(0, group, {
-      default = true,
-      link = link,
-    })
+  for group, decoration in pairs(fold_highlights) do
+    vim.api.nvim_set_hl(0, group, task_fold_highlight(decoration))
   end
 end
 

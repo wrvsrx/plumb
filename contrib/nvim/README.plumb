@@ -49,9 +49,10 @@ incomplete-result state。
 plugin 不修改 window-local folding settings。`"plumb lsp" 仍提供 folding ranges 与 task
 `"collapsedText"；editor configuration 决定是否使用 `"vim.lsp.foldexpr()" 与
 `"require('plumb').foldtext()"。后者包装原生 `"vim.lsp.foldtext()"，并为 waiting、blocked、done、canceled、
-conflicted task 的整条 label 使用独立 fold highlight groups；ready 保持原样。默认 links 依次是
-DiagnosticInfo、DiagnosticHint、Comment、DiagnosticDeprecated、DiagnosticWarn，且不改变 task body 的
-semantic highlight。LSP protocol 自身不传递 fold label highlight。
+conflicted task 的整条 label 使用独立 fold highlight groups；ready 保持原样。所有状态默认使用 resolved
+`"Comment" 的弱化颜色，并为 waiting、blocked、canceled、conflicted 分别叠加 DiagnosticInfo、
+DiagnosticHint、DiagnosticDeprecated、DiagnosticWarn 的 decoration attributes，不继承 diagnostic 颜色。
+这不会改变 task body 的 semantic highlight。LSP protocol 自身不传递 fold label highlight。
 LSP formatting 只返回 changed-line edits，因此原生 `"vim.lsp.buf.format()" 和 format-on-save 不会用整篇
 replacement 重置未变化 blocks 的 window-local fold overrides。server 会向
 `"lineFoldingOnly" client 返回 `"startLine == endLine" 的单行 task/event range；支持这类 range
