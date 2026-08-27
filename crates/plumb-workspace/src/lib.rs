@@ -49,7 +49,11 @@ pub use task_sort::{
     sort_task_records, sort_task_records_by, truncate_complete_task_documents, TaskSortFacts,
     TaskSortOrder,
 };
-use tasks::TaskTargetResolution;
+use tasks::{
+    adjust_path_after_removal, block_index_path, child_insertion_index, owned_at_path_mut,
+    owned_authored_task, remove_owned_at_path, remove_owned_descendant, updated_owned_task,
+    validate_task_authoring_input, TaskTargetResolution,
+};
 pub use tasks::{ResolvedTaskDependency, TaskEditError, TaskRef};
 
 pub const WORKSPACE_MARKER: &str = ".plumb";
@@ -4041,51 +4045,6 @@ fn direct_parent_range(
     None
 }
 
-fn block_index_path(blocks: &[Block], target: &std::ops::Range<usize>) -> Option<Vec<usize>> {
-    for (index, block) in blocks.iter().enumerate() {
-        if block.range() == target {
-            return Some(vec![index]);
-        }
-        let Block::Parsed(block) = block else {
-            continue;
-        };
-        if block.range.start <= target.start && target.end <= block.range.end {
-            if let Some(mut path) = block_index_path(&block.children, target) {
-                path.insert(0, index);
-                return Some(path);
-            }
-        }
-    }
-    None
-}
-
-fn adjust_path_after_removal(path: &mut [usize], removed: &[usize]) {
-    for (target, source) in path.iter_mut().zip(removed) {
-        if *target == *source {
-            continue;
-        }
-        if *source < *target {
-            *target -= 1;
-        }
-        break;
-    }
-}
-
-fn owned_at_path_mut<'a>(owned: &'a mut OwnedBlock, path: &[usize]) -> Option<&'a mut OwnedBlock> {
-    let Some((index, remaining)) = path.split_first() else {
-        return Some(owned);
-    };
-    let child = owned.children_mut()?.get_mut(*index)?;
-    owned_at_path_mut(child, remaining)
-}
-
-fn remove_owned_at_path(owned: &mut OwnedBlock, path: &[usize]) -> Option<OwnedBlock> {
-    let (index, parent_path) = path.split_last()?;
-    let parent = owned_at_path_mut(owned, parent_path)?;
-    let children = parent.children_mut()?;
-    (*index < children.len()).then(|| children.remove(*index))
-}
-
 struct BlockIdTarget<'a> {
     block_range: std::ops::Range<usize>,
     attrs: &'a Attributes,
@@ -4443,148 +4402,6 @@ fn shorthand_datetime(
 
 fn event_datetime(datetime: DateTime<FixedOffset>) -> String {
     datetime.to_rfc3339_opts(SecondsFormat::Secs, false)
-}
-
-fn validate_task_authoring_input(
-    input: &TaskAuthoringInput,
-    timestamp: &str,
-) -> Result<(), TaskAuthoringError> {
-    for value in [
-        Some(timestamp),
-        input.created.as_deref(),
-        input.due.as_deref(),
-        input.wait.as_deref(),
-    ]
-    .into_iter()
-    .flatten()
-    {
-        DateTime::parse_from_rfc3339(value).map_err(|_| TaskAuthoringError::InvalidDatetime)?;
-    }
-    if input.recur.as_deref().is_some_and(|value| {
-        let Some(number) = value
-            .strip_prefix('P')
-            .and_then(|value| value.get(..value.len().saturating_sub(1)))
-        else {
-            return true;
-        };
-        !matches!(value.chars().last(), Some('D' | 'W' | 'M' | 'Y'))
-            || number.parse::<u64>().ok().is_none_or(|number| number == 0)
-    }) {
-        return Err(TaskAuthoringError::InvalidRecurrence);
-    }
-    if input.recur.is_some() && input.due.is_none() {
-        return Err(TaskAuthoringError::InvalidRecurrence);
-    }
-    for reference in input.prev.iter().chain(&input.depends) {
-        if matches!(
-            parse_task_reference_target(reference),
-            TaskReferenceTarget::Invalid
-        ) {
-            return Err(TaskAuthoringError::InvalidReference);
-        }
-    }
-    Ok(())
-}
-
-fn owned_authored_task(input: &TaskAuthoringInput, id: &str, timestamp: &str) -> OwnedBlock {
-    let mut attributes = vec![OwnedAttribute::id(id)];
-    append_authored_task_fields(&mut attributes, input, timestamp);
-    OwnedBlock::marked("task", &input.title).with_attributes(attributes)
-}
-
-fn updated_owned_task(
-    source: &str,
-    block: &ParsedBlock,
-    task: &TaskRecord,
-    input: &TaskAuthoringInput,
-    timestamp: &str,
-) -> OwnedBlock {
-    let mut owned = OwnedBlock::from_parsed(source, block);
-    owned.set_head_text(&input.title);
-    let mut attributes = owned.attributes();
-    attributes.retain(|attribute| {
-        !matches!(attribute, OwnedAttribute::Pair { key, .. }
-            if matches!(key.as_str(), "created" | "due" | "wait" | "recur" | "prev" | "depends" | "priority"))
-    });
-    append_authored_task_fields(
-        &mut attributes,
-        input,
-        task.created
-            .as_ref()
-            .map_or(timestamp, |created| created.value.as_str()),
-    );
-    owned.with_attributes(attributes)
-}
-
-fn append_authored_task_fields(
-    attributes: &mut Vec<OwnedAttribute>,
-    input: &TaskAuthoringInput,
-    default_created: &str,
-) {
-    attributes.push(OwnedAttribute::quoted(
-        "created",
-        input.created.as_deref().unwrap_or(default_created),
-    ));
-    for (key, value) in [
-        ("due", input.due.as_deref()),
-        ("wait", input.wait.as_deref()),
-        ("recur", input.recur.as_deref()),
-        ("prev", input.prev.as_deref()),
-    ] {
-        if let Some(value) = value.filter(|value| !value.is_empty()) {
-            attributes.push(OwnedAttribute::quoted(key, value));
-        }
-    }
-    if !input.depends.is_empty() {
-        attributes.push(OwnedAttribute::quoted("depends", input.depends.join(" ")));
-    }
-    if let Some(priority) = input.priority {
-        attributes.push(OwnedAttribute::bare("priority", priority.to_string()));
-    }
-}
-
-fn child_insertion_index(
-    children: &[Block],
-    after: Option<&std::ops::Range<usize>>,
-) -> Result<usize, TaskAuthoringError> {
-    let Some(after) = after else {
-        return Ok(children.len());
-    };
-    children
-        .iter()
-        .position(|child| child.range() == after)
-        .map(|index| index + 1)
-        .ok_or(TaskAuthoringError::InvalidPlacement)
-}
-
-fn remove_owned_descendant(
-    syntax: &ParsedBlock,
-    owned: &mut OwnedBlock,
-    target: &std::ops::Range<usize>,
-) -> bool {
-    let Some(children) = owned.children_mut() else {
-        return false;
-    };
-    if let Some(index) = syntax
-        .children
-        .iter()
-        .position(|child| child.range() == target)
-    {
-        children.remove(index);
-        return true;
-    }
-    for (index, syntax_child) in syntax.children.iter().enumerate() {
-        let Block::Parsed(syntax_child) = syntax_child else {
-            continue;
-        };
-        if syntax_child.range.start <= target.start
-            && target.end <= syntax_child.range.end
-            && remove_owned_descendant(syntax_child, &mut children[index], target)
-        {
-            return true;
-        }
-    }
-    false
 }
 
 fn event_attributes(input: &EventInput, metadata: &MetadataOutput) -> Vec<OwnedAttribute> {
