@@ -158,8 +158,9 @@ Neovim foldtext projection 对一条 task label 使用单一 highlight group，�
 分别使用独立的 fold-only highlight groups。所有这些 groups 以 resolved `"Comment" highlight 的 foreground
 与基础样式取得一致的弱化颜色；waiting、blocked、canceled、conflicted 再分别叠加 `"DiagnosticInfo"、
 `"DiagnosticHint"、`"DiagnosticDeprecated"、`"DiagnosticWarn" 的 decoration attributes，但不继承这些
-diagnostic groups 的 foreground/background。由此 waiting 可以同时灰显并保留 underline 等状态提示，而不是
-用 diagnostic link 替换弱化颜色。fold-only groups 不复用 task semantic token groups，因此 fold text 配色
+diagnostic groups 的 foreground/background。由此 canceled 会同时使用弱化颜色与 strikethrough，而不是用
+diagnostic link 替换弱化颜色。fold-only groups
+不复用 task semantic token groups，因此 fold text 配色
 不得改变展开状态下 task body 的 semantic highlight。
 
 Folding provider 以 document revision 为边界提供当前 snapshot 的 ranges；provider 不要求保存上一次

@@ -167,7 +167,7 @@ conflicted task 的整条 fold label 分别使用 PlumbTaskFoldWaiting、PlumbTa
 PlumbTaskFoldCanceled、PlumbTaskFoldConflicted。它们都使用 resolved `"Comment" 的弱化颜色；waiting、
 blocked、canceled、conflicted 另外保留 DiagnosticInfo、DiagnosticHint、DiagnosticDeprecated、
 DiagnosticWarn 的 underline、strikethrough 等 decoration，不采用这些 diagnostic groups 的颜色。因此
-waiting label 可以同时灰显并带划线。ready、event、metadata 与 fallback labels 保持原样；fold-only groups
+canceled label 会同时灰显并带删除线。ready、event、metadata 与 fallback labels 保持原样；fold-only groups
 不改变展开 task body 的 semantic highlight。LSP `"collapsedText" 本身只携带文字，highlight chunks 由
 plugin 在 editor 端补充。
 
