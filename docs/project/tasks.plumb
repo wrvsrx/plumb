@@ -48,3 +48,23 @@
   统一通过 indexed containment query，移除各 consumer 的范围 join 和重复 resolution plumbing。
  `note 用包含大量 events、links 与 nested events 的基准比较当前有序 links 二分查询，验证 build/query
   complexity、revision invalidation、memory overhead 与现有 association semantics 后再替换。
+
+`task 让 folding 在 workspace 索引期间保持可用
+
+ `@ folding-before-index-complete
+
+ `note `"textDocument/foldingRange" 不等待也不要求 `"index_complete"；首次 workspace scan 尚未完成或
+  永久 incomplete 时，server 仍立即返回只依赖当前 recovered syntax 的 structural ranges，以及可由当前
+  document 独立确定的 metadata、event 与 task labels，不得以 `"workspace query result is incomplete" 拒绝
+  整个请求。
+ `note Task workflow state 只有在完整 query result 或本地事实足以唯一确定时才进入 `"collapsedText"。
+  Closure、future wait、无 dependencies 的 ready 以及已发现 open dependency 的 blocked 均可直接确定；
+  存在尚未完整解析的 dependencies 且仍可能在 ready/blocked 之间变化时，只省略该 task 的 custom label，
+  不得省略 fold 或猜测 ready。
+ `note 索引完成及后续 dependency facts 改变时，对声明 support 的 client 使用标准
+  `"workspace/foldingRange/refresh" 请求更新 labels。Neovim adapter 只有在实现并声明该 capability 后才接收
+  refresh；不支持 refresh 的 client 仍必须保留首次返回的 structural folds。
+ `note Protocol tests 使用 non-null workspace root 和可控的未完成 initial index，覆盖首次请求不返回
+  `"-32603"、本地与不确定 task labels 的降级、metadata/event labels 不受 task query 影响，以及索引完成后的
+  capability-gated refresh。Neovim integration test 覆盖 initial request race，并把 client refresh support 留在
+  Neovim fork 或正式 adapter boundary 内实现。
