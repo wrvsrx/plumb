@@ -23,19 +23,23 @@ local function task_fold_highlight(decoration)
       end
     end
   end
-  highlight.default = true
   return highlight
 end
 
-local function configure_task_highlights()
-  vim.api.nvim_set_hl(0, '@lsp.typemod.task.completed.plumb', {
-    default = true,
+local function set_default_highlight(group, highlight, reset)
+  if not reset then
+    highlight.default = true
+  end
+  vim.api.nvim_set_hl(0, group, highlight)
+end
+
+local function configure_task_highlights(reset)
+  set_default_highlight('@lsp.typemod.task.completed.plumb', {
     link = 'Comment',
-  })
-  vim.api.nvim_set_hl(0, '@lsp.typemod.task.canceled.plumb', {
-    default = true,
+  }, reset)
+  set_default_highlight('@lsp.typemod.task.canceled.plumb', {
     link = 'Comment',
-  })
+  }, reset)
   local fold_highlights = {
     PlumbTaskFoldWaiting = 'DiagnosticInfo',
     PlumbTaskFoldBlocked = 'DiagnosticHint',
@@ -43,12 +47,15 @@ local function configure_task_highlights()
     PlumbTaskFoldConflicted = 'DiagnosticWarn',
   }
   for group, link in pairs(fold_highlights) do
-    vim.api.nvim_set_hl(0, group, {
-      default = true,
+    set_default_highlight(group, {
       link = link,
-    })
+    }, reset)
   end
-  vim.api.nvim_set_hl(0, 'PlumbTaskFoldCanceled', task_fold_highlight('DiagnosticDeprecated'))
+  set_default_highlight(
+    'PlumbTaskFoldCanceled',
+    task_fold_highlight('DiagnosticDeprecated'),
+    reset
+  )
 end
 
 function M.capabilities()
@@ -66,10 +73,13 @@ function M.setup(opts, group)
     vim.lsp.enable('plumb', false)
     return
   end
-  configure_task_highlights()
+  local reset_default_highlights = opts.reset_default_highlights == true
+  configure_task_highlights(reset_default_highlights)
   vim.api.nvim_create_autocmd('ColorScheme', {
     group = group,
-    callback = configure_task_highlights,
+    callback = function()
+      configure_task_highlights(reset_default_highlights)
+    end,
   })
   local config = {
     cmd = opts.cmd or { opts.command or 'plumb', 'lsp' },

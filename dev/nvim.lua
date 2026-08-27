@@ -6,7 +6,7 @@ local parser_path = grammar_dir .. "/build/plumb.so"
 vim.opt.runtimepath:prepend(repo_root .. "/contrib/nvim")
 
 -- The user's init may have loaded the packaged plugin before this exrc. Reload
--- the modules after prepending the checkout so setup uses the local sources.
+-- the modules and reset its default highlights so setup uses the local sources.
 for name in pairs(package.loaded) do
   if name == "plumb" or vim.startswith(name, "plumb.") then
     package.loaded[name] = nil
@@ -15,6 +15,7 @@ end
 
 require("plumb").setup({
   command = repo_root .. "/target/debug/plumb",
+  lsp = { reset_default_highlights = true },
   codelens = { picker = "snacks" },
   search = { picker = "snacks" },
 })

@@ -86,7 +86,9 @@ diagnostics。parser 与 queries 独立于 `"plumb.nvim" 安装；plugin 不注�
     end,
   })
 
-repository development 使用 `"dev/nvim.lua" 加载当前 checkout 的 parser 与 queries。先运行：
+repository development 使用 `"dev/nvim.lua" 加载当前 checkout 的 plugin、parser 与 queries。它会在 setup
+时强制重置较早加载的 packaged plumb plugin 所留下的默认 semantic-token 与 fold-only highlight groups，使
+checkout defaults 生效；正式 plugin setup 仍保留用户和 colorscheme overrides。先运行：
 
 `text
 

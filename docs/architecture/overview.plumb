@@ -162,6 +162,11 @@ highlight 的 foreground 与基础样式取得弱化颜色，再叠加 `"Diagnos
 不复用 task semantic token groups，因此 fold text 配色
 不得改变展开状态下 task body 的 semantic highlight。
 
+Repository development loader 在 checkout modules setup 时强制重置 plumb-owned semantic-token 与 fold-only
+default highlight groups，使同一 Neovim process 中较早加载的 packaged plugin defaults 不会因
+`"default = true" 阻止 checkout 重新建立当前定义。该强制清理只属于 `"dev/nvim.lua"；正式 plugin setup
+继续保留已有用户或 colorscheme overrides。
+
 Folding provider 以 document revision 为边界提供当前 snapshot 的 ranges；provider 不要求保存上一次
 response，也不要求提供 old-to-new mapping。客户端 fold engine 负责保存上一个 accepted snapshot 与用户
 对 provider folds 的 collapsed 状态，并在新 snapshot 到达后执行 best-effort reconciliation。匹配优先使用

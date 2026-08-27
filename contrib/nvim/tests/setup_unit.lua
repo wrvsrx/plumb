@@ -10,7 +10,12 @@ local opts = {
   codelens = { enabled = true, picker = 'quickfix' },
   search = { enabled = false },
 }
+vim.api.nvim_set_hl(0, 'PlumbTaskFoldWaiting', { fg = 0x123456 })
 plumb.setup(opts)
+assert(
+  vim.api.nvim_get_hl(0, { name = 'PlumbTaskFoldWaiting', link = false }).fg == 0x123456,
+  'production setup preserves an existing highlight override'
+)
 assert(package.loaded['plumb.codelens'] == nil, 'defer the CodeLens implementation')
 assert(package.loaded['plumb.search'] == nil, 'defer the search implementation')
 local first = #vim.api.nvim_get_autocmds({ group = 'PlumbNvim' })

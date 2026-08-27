@@ -90,7 +90,9 @@ implementation modules 在对应 command 实际执行时才加载。
 
 不用 plugin manager 时，在打开首个 plumb buffer 前执行
 `"vim.opt.runtimepath:prepend('/path/to/plumb/contrib/nvim')"。
-repository-local parser override 只属于 `"dev/nvim.lua"，不进入正式 plugin API。
+repository-local parser override 与 packaged-default highlight reset 只属于 `"dev/nvim.lua"，不进入正式
+plugin API。开发配置会让 checkout setup 强制重置 plumb-owned semantic-token 与 fold-only default groups；
+正式 setup 继续保留已有用户和 colorscheme overrides。
 
 `# Commands and API
 
