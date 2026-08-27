@@ -174,9 +174,36 @@ generations plus Rust open overlay。只有 incremental semantic record diff 或
 full-generation cost，且完整 production parity benchmark 不再显示明显常用 query regression 时，才重新评估
 统一 SQL open generations；不能以 document-size threshold 规避该设计成本。
 
-`# 9. Web mutation workload
+`# 9. Diesel relation and task-page acceptance on 2026-08-28
 
-本节描述尚未实现的 Diesel relation/query backend 与 Web optimization 验收 workload。
+commit `"0a232a7" 的 release benchmark 使用 176 documents、每篇 8 tasks 的 deterministic workload，共
+1,408 tasks；每个 document 包含 dependency chain 与一个 event-task association。host 为 Intel Core
+i9-9980XE、Linux 6.18.45、rustc 1.97.1；Criterion 每项 warmup 1 s、measurement 5 s、20 samples。下列数值
+取 reported interval midpoint：
+
+`- process-local memory filtered cursor page 为 12.812 ms；Diesel persistent page 为 14.417 ms，约为
+ memory 的 1.13x。requested limit 50 按完整 document boundary 扩展后只 decode 56 个 full TaskRecord，未
+ decode 其余 1,352 个 records。
+`- 显式 `"directly_blocking" reverse-relation CEL page 为 14.694 ms；indexed event-task reverse lookup 为
+ 23.836 us。
+`- 一个完整 open document 遮蔽 persistent generation 后的同一 page 为 14.598 ms；benchmark setup 在计时前
+ 对 memory/persistent page 与 memory/persistent open-overlay page 作 exact parity assertion。
+`- query-plan tests 固定 active state/wait、event-task target 与 task source/due order queries 使用对应 typed
+ indexes；corrupt-record test 证明 lightweight fact query 不 decode Bincode record，page lookup 只 decode
+ selected keys。
+
+真实 notebook paired smoke 使用同一 release host、独立 dedicated ports 与 `"--no-watch"，baseline 为
+`"cc9287d"，当前实现为 `"0a232a7"；每版完成 workspace startup 后先 warmup 一次，再记录 10 个 loopback
+samples。两版结果都是 214 indexed documents；done query 的 requested limit 50 因 document boundary 扩展为
+75 tasks，`"complete=false" 且返回 next cursor：
+
+`- done page total-time median 从 232.5 ms 降至 38.3 ms，约快 6.1x；response 分别为 80,571 与
+ 80,618 bytes，差异来自新的 opaque cursor spelling。
+`- `"directly_blocking.size() > 0" query total-time median 从 49.3 ms 降至 34.2 ms，约快 1.44x；两版
+ response 都是 22,887 bytes。
+
+这些 wall-clock observation 不是跨机器 SLA。它们与 ordinary tests 中的 query-plan、open-overlay、adapter、
+stale/query-mismatch cursor、non-UTF-8 path 和 page-only decode assertions 共同作为 backend 验收证据。
 
 Web task mutation benchmark 使用 deterministic 生成的 176 documents、约 1,300 tasks workspace，并固定
 包含 recurring task 的 status operation。measurement 分开记录 guarded edit、changed-document snapshot
@@ -188,7 +215,6 @@ mutation hot path 不得重新 scan 或分析未变化 documents，也不得在�
 真实 notebook smoke benchmark 记录 response size、time to first byte 与 total time；性能验收以优化前同一
 commit build 的 paired measurement 为基线，不把依赖 host 的绝对 wall-clock 数字写成跨机器 SLA。
 
-迁移分三组独立 measurement：现有 rusqlite 与 Diesel 等价 CRUD/generation replacement parity；relation rows
-publication 与 indexed dependency/event association lookup；database-side task filter/order/cursor page 加 Web
-mutation end-to-end latency。每组必须记录 query plan 和 decoded row count，不能只用较快 total time 掩盖
-unbounded materialization 或丢失 open-overlay/result parity。
+旧 `"semantic_overlay" rusqlite prototype harness 已移除；历史 experiment 与 rollback 数据保留在前述章节，
+不再作为当前 backend 的可执行 plumbing。当前 `"semantic_store" harness 统一覆盖 Diesel CRUD/generation、
+relation lookup、task typed-fact page 与 open overlay。

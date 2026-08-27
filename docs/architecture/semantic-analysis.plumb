@@ -168,14 +168,15 @@ persistent workspace query 必须按需读取命中的 semantic rows，不得为
 query 排除所有 open paths，再与这些 paths 的内存 query result 组合并作 deterministic ordering。该规则由
 protocol-neutral workspace query layer 统一实现，adapter 不自行 merge 或 deduplicate records。
 
-task dependency relation、active/blocked lookup 与 standard task state filtering 已由 Diesel 执行；其余
-尚未实现的 relation/query 下沉
-完成后，persistent task/event query 必须由 Diesel 在 database 中执行 typed
-filter、deterministic order、cursor pagination 与 indexed relation lookup，只 decode 命中 page 和显式 detail
-targets 的完整 records。Standard task state、resolved datetime、priority、depth、source identity 与 relation
-endpoints 作为 typed query columns 投影；这些 columns 是 Rust semantic output 的派生缓存，不成为新的语义
-权威。Open-document overlay 可以在 Rust 中对 database page 作 document-granularity replacement，但不得改变
-filter/order/limit 的 observable parity 或把完整 closed generation materialize 回内存。
+task dependency、event-task association、active/blocked lookup 与 standard task state filtering 使用 Diesel typed
+rows 和 indexed relation lookup。Persistent event page 在 database 中执行 deterministic order、keyset cursor 与
+hard limit；persistent task page 则通过 Diesel 读取 lightweight typed facts 与批量 relation endpoints，在
+protocol-neutral Rust layer 完成 CEL filter、tree aggregation、effective-priority propagation、deterministic
+ordering 与 document-group cursor，再只 decode 命中 page 和显式 detail targets 的完整 records。Standard task
+state、resolved datetime、priority、depth、source identity 与 relation endpoints 作为 typed query columns 投影；
+这些 columns 是 Rust semantic output 的派生缓存，不成为新的语义权威。Open-document overlay 在同一
+protocol-neutral layer 作 document-granularity replacement，不得改变 filter/order/limit 的 observable parity
+或把完整 closed generation materialize 回内存。
 
 CEL filter compilation 必须记录 expression 实际引用的 variables。构造 task/event context 时，普通 typed
 columns 可以直接绑定；dependency、reverse relation 或其他需要 workspace lookup 的 facts 只在 expression 引用

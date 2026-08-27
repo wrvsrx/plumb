@@ -606,6 +606,34 @@
 
 `# Workspace indexing
 
+`- 用 Diesel 建立关系化 workspace query backend
+
+ `+ task
+
+ `@ diesel-workspace-query-backend
+
+ `== done 2026-08-28T02:02:45+08:00
+
+ `note SqliteSemanticStore 的 schema migrations、generation transaction、CRUD、typed row decoding 与 cache
+  invalidation 已迁移到 Diesel；memory/persistent parity、non-UTF-8 path round-trip、warm reuse 与 query failure
+  propagation 由 protocol-neutral tests 固定。
+ `note task dependencies 与 event-task associations 作为带 source generation 的 typed relation rows 发布，identity、
+  target、state、time 与 ordering indexes 由 query-plan tests 覆盖；Rust semantics 仍是事实权威，database 不解析
+  source 或重新推导 meaning。
+ `note task query 先通过 Diesel 读取 lightweight typed facts 与批量 relation endpoints，在 protocol-neutral layer
+  完成 demand-driven CEL、workflow state、effective priority、tree aggregation、deterministic ordering 与 opaque
+  document-group cursor，只 decode 当前 page；Web adapter 不再自行 merge、filter、sort 或分页，也不会为了
+  document revision 列表 materialize lazy semantic outputs。
+ `note event pages 使用 Diesel stable-key order/cursor/hard limit；Web mutation 只发布 changed document generation，
+  browser 按 workspace revision 合并 watcher notifications，authoring candidates 保持 bounded lazy query。
+ `note 移除旧 rusqlite `"semantic_overlay" harness，并将 relation、task-page、decoded-row 与 open-overlay parity
+  benchmark 合并进 `"semantic_store"。release synthetic benchmark、真实 notebook baseline/current paired samples、
+  host、commit、sample count 与 response sizes 记录在
+  `->[`()[performance benchmark points]|performance-benchmarks.plumb]。
+ `note `"cargo test --workspace"、workspace all-target warning gate、tree-sitter strict-alignment check 与 project
+  document strict validation 全部通过；现有 latency 与 concurrency observation 仍不支持仅为该 workload 引入
+  async database driver 或 connection pool。
+
 `- 建立 persistent semantic workspace store
 
  `+ task
