@@ -23,12 +23,14 @@ use crate::{normalize, resolve_relative, task_reference_fields, task_reference_r
 mod schema;
 
 use schema::{
-    anchors, cache_meta, documents, events, links, semantic_references, task_dependencies, tasks,
+    anchors, cache_meta, documents, event_task_associations, events, links, semantic_references,
+    task_dependencies, tasks,
 };
 
 type TaskDependencyRow = (Vec<u8>, i64, Option<String>, Vec<u8>, String, String);
+type EventTaskAssociationRow = (Vec<u8>, i64, Vec<u8>, String, String, i64, i64);
 
-const SCHEMA_VERSION: i64 = 4;
+const SCHEMA_VERSION: i64 = 5;
 const PRODUCER_VERSION: &str = env!("CARGO_PKG_VERSION");
 const MIGRATIONS: EmbeddedMigrations = embed_migrations!("migrations");
 
@@ -125,6 +127,16 @@ pub struct StoredEventKey {
     pub sort_millis: Option<i64>,
     pub path: PathBuf,
     pub start: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StoredEventTaskAssociation {
+    pub source_path: PathBuf,
+    pub event_start: usize,
+    pub target_path: PathBuf,
+    pub target_id: String,
+    pub source: String,
+    pub source_range: Range<usize>,
 }
 
 #[derive(Clone)]
@@ -593,6 +605,58 @@ impl SqliteSemanticStore {
         decode_records(rows, excluded)
     }
 
+    pub fn event_task_associations_for_event(
+        &self,
+        source_path: &Path,
+        event_start: usize,
+    ) -> StoreResult<Vec<StoredEventTaskAssociation>> {
+        let mut connection = self
+            .connection
+            .lock()
+            .map_err(|_| StoreError::LockPoisoned)?;
+        let rows = event_task_associations::table
+            .filter(event_task_associations::source_path.eq(path_bytes(&normalize(source_path))))
+            .filter(event_task_associations::event_start.eq(to_i64(event_start)?))
+            .select((
+                event_task_associations::source_path,
+                event_task_associations::event_start,
+                event_task_associations::target_path,
+                event_task_associations::target_id,
+                event_task_associations::source_text,
+                event_task_associations::source_start,
+                event_task_associations::source_end,
+            ))
+            .order(event_task_associations::source_start)
+            .load::<EventTaskAssociationRow>(&mut *connection)?;
+        decode_event_task_associations(rows)
+    }
+
+    pub fn events_for_task(
+        &self,
+        target_path: &Path,
+        target_id: &str,
+        excluded: &[PathBuf],
+    ) -> StoreResult<Vec<StoredRecord<EventRecord>>> {
+        let mut connection = self
+            .connection
+            .lock()
+            .map_err(|_| StoreError::LockPoisoned)?;
+        let rows = event_task_associations::table
+            .inner_join(
+                events::table.on(events::path
+                    .eq(event_task_associations::source_path)
+                    .and(events::start.eq(event_task_associations::event_start))),
+            )
+            .inner_join(documents::table.on(documents::path.eq(events::path)))
+            .filter(event_task_associations::target_path.eq(path_bytes(&normalize(target_path))))
+            .filter(event_task_associations::target_id.eq(target_id))
+            .select((events::path, documents::revision, events::record))
+            .distinct()
+            .order((events::path, events::start))
+            .load_iter::<(Vec<u8>, i64, Vec<u8>), DefaultLoadingMode>(&mut *connection)?;
+        decode_records(rows, excluded)
+    }
+
     pub fn event_page_after(
         &self,
         boundary: Option<&StoredEventKey>,
@@ -908,6 +972,20 @@ fn insert_output(
                 events::record.eq(encode(event)?),
             ))
             .execute(connection)?;
+        for association in projected_event_task_associations(path, output, event) {
+            diesel::insert_into(event_task_associations::table)
+                .values((
+                    event_task_associations::source_path.eq(encoded_path.clone()),
+                    event_task_associations::event_start.eq(to_i64(event.range.start)?),
+                    event_task_associations::target_path.eq(path_bytes(&association.target_path)),
+                    event_task_associations::target_id.eq(&association.target_id),
+                    event_task_associations::source_text.eq(&association.source),
+                    event_task_associations::source_start
+                        .eq(to_i64(association.source_range.start)?),
+                    event_task_associations::source_end.eq(to_i64(association.source_range.end)?),
+                ))
+                .execute(connection)?;
+        }
         for dependency in &event.tasks {
             if let Some(reference) = task_reference(
                 path,
@@ -948,6 +1026,57 @@ fn insert_reference(
         ))
         .execute(connection)?;
     Ok(())
+}
+
+fn projected_event_task_associations(
+    source_path: &Path,
+    output: &DocumentOutput,
+    event: &EventRecord,
+) -> Vec<StoredEventTaskAssociation> {
+    if event.tasks_override {
+        return event
+            .tasks
+            .iter()
+            .filter_map(|dependency| {
+                task_reference(
+                    source_path,
+                    &dependency.source,
+                    &dependency.range,
+                    &dependency.target,
+                )
+                .and_then(|reference| {
+                    Some(StoredEventTaskAssociation {
+                        source_path: source_path.to_path_buf(),
+                        event_start: event.range.start,
+                        target_path: reference.target_path,
+                        target_id: reference.target_id?,
+                        source: dependency.source.clone(),
+                        source_range: dependency.range.clone(),
+                    })
+                })
+            })
+            .collect();
+    }
+
+    let first = output
+        .links
+        .partition_point(|link| link.range.start < event.range.start);
+    output.links[first..]
+        .iter()
+        .take_while(|link| link.range.start <= event.range.end)
+        .filter(|link| event.range.start <= link.range.start && link.range.end <= event.range.end)
+        .filter_map(|link| {
+            let reference = link_reference(source_path, link)?;
+            Some(StoredEventTaskAssociation {
+                source_path: source_path.to_path_buf(),
+                event_start: event.range.start,
+                target_path: reference.target_path,
+                target_id: reference.target_id?,
+                source: link.target.value.clone(),
+                source_range: link.target.range.clone(),
+            })
+        })
+        .collect()
 }
 
 fn link_reference(source_path: &Path, link: &LinkRecord) -> Option<StoredReference> {
@@ -1005,6 +1134,10 @@ fn delete_document_rows(connection: &mut SqliteConnection, path: &Path) -> Store
     diesel::delete(tasks::table.filter(tasks::path.eq(&path))).execute(connection)?;
     diesel::delete(task_dependencies::table.filter(task_dependencies::source_path.eq(&path)))
         .execute(connection)?;
+    diesel::delete(
+        event_task_associations::table.filter(event_task_associations::source_path.eq(&path)),
+    )
+    .execute(connection)?;
     diesel::delete(events::table.filter(events::path.eq(&path))).execute(connection)?;
     diesel::delete(documents::table.filter(documents::path.eq(&path))).execute(connection)?;
     Ok(())
@@ -1016,6 +1149,7 @@ fn clear_records(connection: &mut SqliteConnection) -> StoreResult<()> {
     diesel::delete(semantic_references::table).execute(connection)?;
     diesel::delete(tasks::table).execute(connection)?;
     diesel::delete(task_dependencies::table).execute(connection)?;
+    diesel::delete(event_task_associations::table).execute(connection)?;
     diesel::delete(events::table).execute(connection)?;
     diesel::delete(documents::table).execute(connection)?;
     Ok(())
@@ -1077,6 +1211,25 @@ fn decode_task_dependencies(
             },
         )
         .filter_map(Result::transpose)
+        .collect()
+}
+
+fn decode_event_task_associations(
+    rows: Vec<EventTaskAssociationRow>,
+) -> StoreResult<Vec<StoredEventTaskAssociation>> {
+    rows.into_iter()
+        .map(
+            |(source_path, event_start, target_path, target_id, source, start, end)| {
+                Ok(StoredEventTaskAssociation {
+                    source_path: path_from_bytes(source_path)?,
+                    event_start: to_usize(event_start)?,
+                    target_path: path_from_bytes(target_path)?,
+                    target_id,
+                    source,
+                    source_range: to_usize(start)?..to_usize(end)?,
+                })
+            },
+        )
         .collect()
 }
 
@@ -1424,6 +1577,65 @@ mod tests {
         assert!(store.blocked_task_sources(&[]).unwrap().is_empty());
     }
 
+    #[test]
+    fn indexes_event_task_associations_and_replaces_their_generation() {
+        let store = SqliteSemanticStore::open_in_memory().unwrap();
+        let source = concat!(
+            "`event 2026-08-28T10:00 Linked `->[Task|tasks.plumb#task]\n",
+            "`event 2026-08-28T11:00 Explicit\n `= tasks tasks.plumb#task\n",
+        );
+        let output = analyzed(source);
+        let first_start = output.events.events[0].range.start;
+        let second_start = output.events.events[1].range.start;
+        store
+            .replace(Path::new("events.plumb"), 7, source, Some(&output))
+            .unwrap();
+
+        let linked = store
+            .event_task_associations_for_event(Path::new("events.plumb"), first_start)
+            .unwrap();
+        assert_eq!(linked.len(), 1);
+        assert_eq!(linked[0].target_path, Path::new("tasks.plumb"));
+        assert_eq!(linked[0].target_id, "task");
+        assert_eq!(linked[0].source, "tasks.plumb#task");
+        let explicit = store
+            .event_task_associations_for_event(Path::new("events.plumb"), second_start)
+            .unwrap();
+        assert_eq!(explicit.len(), 1);
+        assert_eq!(explicit[0].target_id, "task");
+        assert_eq!(
+            store
+                .events_for_task(Path::new("tasks.plumb"), "task", &[])
+                .unwrap()
+                .into_iter()
+                .map(|event| event.record.title)
+                .collect::<Vec<_>>(),
+            ["Linked Task", "Explicit"]
+        );
+        assert!(store
+            .events_for_task(
+                Path::new("tasks.plumb"),
+                "task",
+                &[PathBuf::from("events.plumb")],
+            )
+            .unwrap()
+            .is_empty());
+
+        let updated = "`event 2026-08-28T12:00 Unrelated\n";
+        store
+            .replace(
+                Path::new("events.plumb"),
+                8,
+                updated,
+                Some(&analyzed(updated)),
+            )
+            .unwrap();
+        assert!(store
+            .events_for_task(Path::new("tasks.plumb"), "task", &[])
+            .unwrap()
+            .is_empty());
+    }
+
     #[derive(QueryableByName)]
     struct QueryPlanRow {
         #[diesel(sql_type = Text)]
@@ -1444,6 +1656,29 @@ mod tests {
         assert!(
             plan.iter()
                 .any(|row| row.detail.contains("tasks_state_wait")),
+            "{}",
+            plan.iter()
+                .map(|row| row.detail.as_str())
+                .collect::<Vec<_>>()
+                .join("; ")
+        );
+    }
+
+    #[test]
+    fn event_task_lookup_uses_the_target_index() {
+        let store = SqliteSemanticStore::open_in_memory().unwrap();
+        let mut connection = store.connection.lock().unwrap();
+        let plan = diesel::sql_query(
+            "EXPLAIN QUERY PLAN SELECT source_path, event_start \
+             FROM event_task_associations \
+             WHERE target_path = x'7461736b732e706c756d62' AND target_id = 'task' \
+             ORDER BY source_path, event_start",
+        )
+        .load::<QueryPlanRow>(&mut *connection)
+        .unwrap();
+        assert!(
+            plan.iter()
+                .any(|row| row.detail.contains("event_task_associations_target")),
             "{}",
             plan.iter()
                 .map(|row| row.detail.as_str())

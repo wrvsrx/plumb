@@ -1730,6 +1730,13 @@ impl Workspace {
         &self,
         target: &TaskRef,
     ) -> Result<QueryResult<Vec<WorkspaceEvent>>, WorkspaceQueryError> {
+        if !self.tasks_for_path(&target.path)?.iter().any(|task| {
+            task.id
+                .as_ref()
+                .is_some_and(|field| field.value == target.id)
+        }) {
+            return Ok(self.query_result(Vec::new()));
+        }
         let mut events = Vec::new();
         for entry in self.documents.values() {
             let Some(current) = &entry.current else {
@@ -1757,6 +1764,18 @@ impl Workspace {
                 }
             }
         }
+        if let Some(store) = &self.disk_store {
+            events.extend(
+                store
+                    .events_for_task(&target.path, &target.id, &self.open_paths())?
+                    .into_iter()
+                    .map(|stored| WorkspaceEvent {
+                        path: stored.path,
+                        revision: stored.revision,
+                        event: stored.record,
+                    }),
+            );
+        }
         events.sort_by(|left, right| {
             left.event
                 .sort_datetime()
@@ -1776,10 +1795,29 @@ impl Workspace {
             return Ok(self.query_result(event.tasks.clone()));
         }
         let path = normalize(path.as_ref());
-        let Some(current) = self.current_output(&path) else {
+        if let Some(current) = self.current_output(&path) {
+            return Ok(
+                self.query_result(self.event_task_references_in_output(&path, current, event)?)
+            );
+        }
+        let Some(store) = &self.disk_store else {
             return Ok(self.query_result(Vec::new()));
         };
-        Ok(self.query_result(self.event_task_references_in_output(&path, current, event)?))
+        let mut references = Vec::new();
+        for association in store.event_task_associations_for_event(&path, event.range.start)? {
+            let target = parse_task_reference_target(&association.source);
+            if matches!(
+                self.resolve_task_target(&path, &target)?,
+                TaskTargetResolution::Task { .. }
+            ) {
+                references.push(TaskDependency {
+                    source: association.source,
+                    range: association.source_range,
+                    target,
+                });
+            }
+        }
+        Ok(self.query_result(references))
     }
 
     fn event_task_references_in_output(
@@ -5127,6 +5165,55 @@ mod tests {
             sqlite.events_overlapping(start, end).unwrap().value,
             memory.events_overlapping(start, end).unwrap().value
         );
+    }
+
+    #[test]
+    fn sqlite_event_task_relations_match_memory_and_obey_document_overlays() {
+        let target_source = "`task Target\n `@ target\n";
+        let event_source = "`event 2026-08-28T10:00 Linked `->[Target|tasks.plumb#target]\n";
+        let target = TaskRef {
+            path: PathBuf::from("tasks.plumb"),
+            id: "target".to_string(),
+        };
+
+        let mut memory = Workspace::new();
+        memory.insert("tasks.plumb", 0, target_source);
+        memory.insert("events.plumb", 0, event_source);
+        let store = SqliteSemanticStore::open_in_memory().unwrap();
+        let mut sqlite = Workspace::with_sqlite_store(store);
+        sqlite.insert_disk("tasks.plumb", 0, target_source).unwrap();
+        sqlite.insert_disk("events.plumb", 0, event_source).unwrap();
+
+        assert_eq!(
+            sqlite.events_for_task(&target).unwrap().value,
+            memory.events_for_task(&target).unwrap().value
+        );
+        let event = sqlite
+            .events_page_after(None, 1)
+            .unwrap()
+            .value
+            .pop()
+            .unwrap();
+        assert_eq!(
+            sqlite
+                .event_task_references(&event.path, &event.event)
+                .unwrap()
+                .value
+                .len(),
+            1
+        );
+
+        memory.insert("events.plumb", 1, "No events.\n");
+        sqlite.open_document("events.plumb", 1, "No events.\n");
+        assert_eq!(
+            sqlite.events_for_task(&target).unwrap().value,
+            memory.events_for_task(&target).unwrap().value
+        );
+        assert!(sqlite.events_for_task(&target).unwrap().value.is_empty());
+
+        sqlite.close_document("events.plumb");
+        sqlite.open_document("tasks.plumb", 1, "`task Replacement\n `@ replacement\n");
+        assert!(sqlite.events_for_task(&target).unwrap().value.is_empty());
     }
 
     #[test]

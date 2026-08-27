@@ -92,9 +92,22 @@ diesel::table! {
     }
 }
 
+diesel::table! {
+    event_task_associations (source_path, event_start, target_path, target_id, source_start) {
+        source_path -> Binary,
+        event_start -> BigInt,
+        target_path -> Binary,
+        target_id -> Text,
+        source_text -> Text,
+        source_start -> BigInt,
+        source_end -> BigInt,
+    }
+}
+
 diesel::allow_tables_to_appear_in_same_query!(
     cache_meta,
     documents,
+    event_task_associations,
     anchors,
     links,
     semantic_references,
