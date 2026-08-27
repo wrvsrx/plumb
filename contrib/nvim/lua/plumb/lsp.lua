@@ -39,13 +39,16 @@ local function configure_task_highlights()
   local fold_highlights = {
     PlumbTaskFoldWaiting = 'DiagnosticInfo',
     PlumbTaskFoldBlocked = 'DiagnosticHint',
-    PlumbTaskFoldDone = false,
-    PlumbTaskFoldCanceled = 'DiagnosticDeprecated',
+    PlumbTaskFoldDone = 'Comment',
     PlumbTaskFoldConflicted = 'DiagnosticWarn',
   }
-  for group, decoration in pairs(fold_highlights) do
-    vim.api.nvim_set_hl(0, group, task_fold_highlight(decoration))
+  for group, link in pairs(fold_highlights) do
+    vim.api.nvim_set_hl(0, group, {
+      default = true,
+      link = link,
+    })
   end
+  vim.api.nvim_set_hl(0, 'PlumbTaskFoldCanceled', task_fold_highlight('DiagnosticDeprecated'))
 end
 
 function M.capabilities()

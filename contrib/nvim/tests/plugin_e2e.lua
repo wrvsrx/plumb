@@ -41,28 +41,19 @@ assert(
   vim.api.nvim_get_hl(0, { name = '@lsp.typemod.task.canceled.plumb' }).link == 'Comment',
   'dim canceled task tokens'
 )
-local task_fold_decorations = {
-  PlumbTaskFoldWaiting = 'underline',
-  PlumbTaskFoldBlocked = 'undercurl',
-  PlumbTaskFoldDone = nil,
-  PlumbTaskFoldCanceled = 'strikethrough',
-  PlumbTaskFoldConflicted = 'bold',
+local task_fold_links = {
+  PlumbTaskFoldWaiting = 'DiagnosticInfo',
+  PlumbTaskFoldBlocked = 'DiagnosticHint',
+  PlumbTaskFoldDone = 'Comment',
+  PlumbTaskFoldConflicted = 'DiagnosticWarn',
 }
-for _, group in ipairs({
-  'PlumbTaskFoldWaiting',
-  'PlumbTaskFoldBlocked',
-  'PlumbTaskFoldDone',
-  'PlumbTaskFoldCanceled',
-  'PlumbTaskFoldConflicted',
-}) do
-  local highlight = vim.api.nvim_get_hl(0, { name = group, link = false })
-  assert(highlight.fg == 0x667788, group .. ' uses the Comment foreground')
-  assert(highlight.italic == true, group .. ' preserves the Comment base style')
-  local decoration = task_fold_decorations[group]
-  if decoration then
-    assert(highlight[decoration] == true, group .. ' preserves its diagnostic decoration')
-  end
+for group, link in pairs(task_fold_links) do
+  assert(vim.api.nvim_get_hl(0, { name = group, link = true }).link == link, group .. ' keeps its link')
 end
+local canceled_fold = vim.api.nvim_get_hl(0, { name = 'PlumbTaskFoldCanceled', link = false })
+assert(canceled_fold.fg == 0x667788, 'canceled fold uses the Comment foreground')
+assert(canceled_fold.italic == true, 'canceled fold preserves the Comment base style')
+assert(canceled_fold.strikethrough == true, 'canceled fold preserves the deprecated decoration')
 
 local completion_path = root .. '/completion.plumb'
 vim.fn.writefile({ '`t' }, completion_path)
