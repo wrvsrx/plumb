@@ -109,6 +109,12 @@ analysis；invalid snapshot 继续保留原 last-valid provenance。source bytes
 snapshot。该复用只省略由相同 bytes 决定的 document-local computation，不缓存 workspace diagnostics 或
 resolution result。
 
+`"ParsedDocument" 与 current/last-valid semantic output 是 revision snapshot 的 immutable shared
+payload。workspace clone、Web read snapshot 或 background query clone 必须通过 `"Arc" 共享 source、lossless
+tree、typed tree 与 document-local output，不能按 request 深拷贝这些 payload；可变 document map、overlay 与
+derived index 仍由各 workspace owner 独立持有。创建不同 source bytes 的 revision 必须分配新的 parsed
+payload，相同 bytes 的 revision rebind 保留原 shared allocation。
+
 当前 document 的 semantic diagnostics 和 authoritative query 不能使用自己的 last-valid output 冒充
 current result。consumer 必须能区分 current、last-valid 与 partial workspace data。
 

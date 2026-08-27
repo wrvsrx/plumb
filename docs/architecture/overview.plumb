@@ -208,6 +208,11 @@ declaration、workspace-contained path resolution 和 CSL JSON records 由 share
 Web adapter 只投影 document-relative writer paths。Workspace watcher 必须将被声明的 bibliography
 files 视为 render dependencies，变化时清除 HTML cache 并发布新 revision。
 
+Web server 将每个已发布 `"WebWorkspace" 作为 immutable `"Arc" snapshot。需要跨 `"await" 或进入
+blocking renderer 的 request 先 clone 该 `"Arc"，随后释放 shared-state lock；不得 clone 整个 workspace、
+parsed documents 或 indexes。mutation 与 watcher 在独占边界建立或 copy-on-write 更新下一个 snapshot，完成
+校验后一次发布新的 `"Arc"；进行中的 request 可以继续读取旧 revision，但不能观察半更新状态。
+
 统一 binary 可以依赖共享 layers，但 shared libraries 不能依赖 CLI protocol types。
 
 Web presentation 不得取得或持有无界 event collection。Agenda 使用 server-side 有界 cursor page：没有显式

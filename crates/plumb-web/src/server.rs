@@ -70,7 +70,7 @@ pub(crate) struct ServeConfig {
 
 #[derive(Clone)]
 struct AppState {
-    workspace: Arc<RwLock<WebWorkspace>>,
+    workspace: Arc<RwLock<Arc<WebWorkspace>>>,
     html_cache: Arc<Mutex<HashMap<(String, i64), String>>>,
     changes: broadcast::Sender<u64>,
     current: Option<String>,
@@ -132,7 +132,7 @@ async fn run(config: ServeConfig) -> Result<(), String> {
     });
     let (changes, _) = broadcast::channel(32);
     let state = AppState {
-        workspace: Arc::new(RwLock::new(workspace)),
+        workspace: Arc::new(RwLock::new(Arc::new(workspace))),
         html_cache: Arc::new(Mutex::new(HashMap::new())),
         changes,
         current,
@@ -410,8 +410,8 @@ async fn update_task(
         )
     };
     {
-        let mut workspace = state.workspace.write().await;
-        if let Err(error) = workspace.refresh_document(path, revision) {
+        let mut snapshot = state.workspace.write().await;
+        if let Err(error) = Arc::make_mut(&mut snapshot).refresh_document(path, revision) {
             return (StatusCode::INTERNAL_SERVER_ERROR, error).into_response();
         }
     }
@@ -510,7 +510,7 @@ async fn update_event(
         Ok(events) => events,
         Err(error) => return (StatusCode::INTERNAL_SERVER_ERROR, error).into_response(),
     };
-    *state.workspace.write().await = refreshed;
+    *state.workspace.write().await = Arc::new(refreshed);
     state.html_cache.lock().await.clear();
     let _ = state.changes.send(revision);
     ([("x-plumb-revision", revision.to_string())], Json(events)).into_response()
@@ -644,7 +644,7 @@ async fn note_page(State(state): State<AppState>, AxumPath(id): AxumPath<String>
 
 async fn cached_html(
     state: &AppState,
-    workspace: &WebWorkspace,
+    workspace: &Arc<WebWorkspace>,
     id: &str,
     revision: i64,
 ) -> Result<String, String> {
@@ -652,7 +652,7 @@ async fn cached_html(
     if let Some(html) = state.html_cache.lock().await.get(&key).cloned() {
         return Ok(html);
     }
-    let workspace = workspace.clone();
+    let workspace = Arc::clone(workspace);
     let id = id.to_string();
     let html = tokio::task::spawn_blocking(move || render_note_html(&workspace, &id))
         .await
@@ -840,7 +840,7 @@ fn spawn_watcher(state: AppState) {
                     {
                         continue;
                     }
-                    *state.workspace.write().await = workspace;
+                    *state.workspace.write().await = Arc::new(workspace);
                     state.html_cache.lock().await.clear();
                     let _ = state.changes.send(revision);
                 }
@@ -953,13 +953,37 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn published_workspace_snapshots_do_not_change_existing_readers() {
+        let root = temp_dir();
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join("tasks.plumb");
+        std::fs::write(&path, "`task First\n  `@ first\n").unwrap();
+        let shared = Arc::new(RwLock::new(Arc::new(
+            WebWorkspace::load_with_revision(&root, 1).unwrap(),
+        )));
+        let old_reader = shared.read().await.clone();
+
+        std::fs::write(&path, "`task Second\n  `@ second\n").unwrap();
+        let replacement = Arc::new(WebWorkspace::load_with_revision(&root, 2).unwrap());
+        *shared.write().await = replacement;
+        let new_reader = shared.read().await.clone();
+
+        assert_eq!(old_reader.revision(), 1);
+        assert!(!old_reader.document_source_matches_disk(&path));
+        assert_eq!(new_reader.revision(), 2);
+        assert!(new_reader.document_source_matches_disk(&path));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
     async fn web_routes_restore_views_and_execute_structured_queries() {
         let root = temp_dir();
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(root.join("tasks.plumb"), "`task Ready task\n  `@ ready\n").unwrap();
         let (changes, _) = broadcast::channel(2);
         let state = AppState {
-            workspace: Arc::new(RwLock::new(WebWorkspace::load(&root).unwrap())),
+            workspace: Arc::new(RwLock::new(Arc::new(WebWorkspace::load(&root).unwrap()))),
             html_cache: Arc::new(Mutex::new(HashMap::new())),
             changes,
             current: None,

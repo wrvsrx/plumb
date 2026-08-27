@@ -344,14 +344,14 @@ const EVENT_TITLE_COMPLETION_LIMIT: usize = 50;
 #[derive(Debug, Clone)]
 pub struct VersionedDocumentOutput {
     pub revision: i64,
-    pub output: DocumentOutput,
+    pub output: Arc<DocumentOutput>,
 }
 
 #[derive(Debug, Clone)]
 pub struct DocumentEntry {
     pub path: PathBuf,
     pub revision: i64,
-    pub parsed: ParsedDocument,
+    pub parsed: Arc<ParsedDocument>,
     pub current: Option<Arc<VersionedDocumentOutput>>,
     pub last_valid: Option<Arc<VersionedDocumentOutput>>,
 }
@@ -559,7 +559,7 @@ impl Workspace {
         source: impl Into<String>,
     ) -> &DocumentEntry {
         let path = normalize(path.as_ref());
-        let parsed = parse(source);
+        let parsed = Arc::new(parse(source));
         let previous_last_valid = self
             .documents
             .get(&path)
@@ -567,7 +567,7 @@ impl Workspace {
         let current = parsed.valid_syntax().map(|valid| {
             Arc::new(VersionedDocumentOutput {
                 revision,
-                output: analyze_document(valid),
+                output: Arc::new(analyze_document(valid)),
             })
         });
         let last_valid = current.clone().or(previous_last_valid);
@@ -609,7 +609,7 @@ impl Workspace {
             }
             Err(output) => Arc::new(VersionedDocumentOutput {
                 revision,
-                output: output.output.clone(),
+                output: Arc::clone(&output.output),
             }),
         };
         entry.current = Some(rebound.clone());
@@ -3738,7 +3738,7 @@ impl Workspace {
             .get(&normalize(path))?
             .current
             .as_ref()
-            .map(|versioned| &versioned.output)
+            .map(|versioned| versioned.output.as_ref())
     }
 
     fn anchors_named(
@@ -3823,11 +3823,11 @@ impl Workspace {
         let Ok(source) = std::fs::read_to_string(&path) else {
             return Ok(None);
         };
-        let parsed = parse(source);
+        let parsed = Arc::new(parse(source));
         let current = parsed.valid_syntax().map(|valid| {
             Arc::new(VersionedDocumentOutput {
                 revision: document.revision,
-                output: analyze_document(valid),
+                output: Arc::new(analyze_document(valid)),
             })
         });
         Ok(Some(DocumentEntry {
@@ -5377,6 +5377,8 @@ mod tests {
         let mut workspace = Workspace::new();
         workspace.insert("event.plumb", 7, source);
         let entry = workspace.get("event.plumb").unwrap();
+        let parsed = Arc::clone(&entry.parsed);
+        let output = Arc::clone(&entry.current.as_ref().unwrap().output);
         let token_storage = entry.parsed.lossless.tokens.as_ptr();
         let event_storage = entry
             .current
@@ -5392,6 +5394,11 @@ mod tests {
         assert_eq!(entry.revision, 0);
         assert_eq!(entry.current.as_ref().unwrap().revision, 0);
         assert_eq!(entry.last_valid.as_ref().unwrap().revision, 0);
+        assert!(Arc::ptr_eq(&entry.parsed, &parsed));
+        assert!(Arc::ptr_eq(
+            &entry.current.as_ref().unwrap().output,
+            &output
+        ));
         assert_eq!(entry.parsed.lossless.tokens.as_ptr(), token_storage);
         assert_eq!(
             entry
@@ -5405,6 +5412,29 @@ mod tests {
             event_storage
         );
         assert!(!workspace.rebind_revision_if_source("event.plumb", 1, "changed\n"));
+    }
+
+    #[test]
+    fn cloned_workspaces_share_immutable_document_payloads() {
+        let mut workspace = Workspace::new();
+        workspace.insert("note.plumb", 1, "`# Note\n");
+        let cloned = workspace.clone();
+        let original = workspace.get("note.plumb").unwrap();
+        let clone = cloned.get("note.plumb").unwrap();
+
+        assert!(Arc::ptr_eq(&original.parsed, &clone.parsed));
+        assert!(Arc::ptr_eq(
+            &original.current.as_ref().unwrap().output,
+            &clone.current.as_ref().unwrap().output
+        ));
+
+        workspace.insert("note.plumb", 2, "`# Changed\n");
+        let changed = workspace.get("note.plumb").unwrap();
+        assert!(!Arc::ptr_eq(&changed.parsed, &clone.parsed));
+        assert!(!Arc::ptr_eq(
+            &changed.current.as_ref().unwrap().output,
+            &clone.current.as_ref().unwrap().output
+        ));
     }
 
     #[test]
