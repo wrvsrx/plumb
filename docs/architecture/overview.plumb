@@ -203,6 +203,14 @@ foldmethod 执行 `"foldUpdateAfterInsert()" 时，先更新 folds，再调用 `
 `- `"plumb-web"：workspace graph/Web document model、Pandoc Web target adaptation、本地 Web server
  与 browser assets。
 
+crate 内部 source module 按稳定职责分界。crate root 只保留 shared data model、composition 与 public
+re-export，不作为所有 domain operation 的默认落点：`"plumb-workspace" 的 task query、workflow 与
+authoring mutation 由 task domain modules 持有，persistent query/schema 只由 store modules 持有；
+`"plumb-web" 的 immutable snapshot/materialization、query projection、graph projection 与 task/event
+mutation adapter 分属独立 modules；`"plumb" LSP server 的 workspace/index lifecycle 与各 protocol feature
+adapter 分离，feature module 只投影 shared workspace/edit 结果，不取得另一份 semantic authority。
+拆分不得改变 public API、revision guard、lazy materialization 或 adapter validation boundary。
+
 `"plumb-web" 的 note renderer 使用 Pandoc citeproc 处理 official citation records。Bibliography
 declaration、workspace-contained path resolution 和 CSL JSON records 由 shared semantic/workspace layers 提供；
 Web adapter 只投影 document-relative writer paths。Workspace watcher 必须将被声明的 bibliography
