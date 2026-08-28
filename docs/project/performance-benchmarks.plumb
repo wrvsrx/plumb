@@ -248,3 +248,16 @@ complete-scan pruning、memory/SQLite behavior 与 cancel-before-publication ato
 旧 `"semantic_overlay" rusqlite prototype harness 已移除；历史 experiment 与 rollback 数据保留在前述章节，
 不再作为当前 backend 的可执行 plumbing。当前 `"semantic_store" harness 统一覆盖 Diesel CRUD/generation、
 relation lookup、task typed-fact page 与 open overlay。
+
+`# 11. Event title completion query on 2026-08-29
+
+commit `"211e973" 后，event title completion 不再调用完整 persistent event record query。Store 使用
+covering `"events(title, path)" index，只读取 grouped title/count rows；case-sensitive prefix 在 SQLite
+中对 UTF-8 bytes 比较，open paths 在 aggregation 前排除。Workspace 再合并 current-valid open output 并
+执行原有 frequency/title ordering 与 50-item limit。
+
+同一 33,512-event deterministic release workload、30 samples、1 s warmup 与 5 s measurement 中，
+`"Event 12" prefix/title-count query midpoint 为 2.9518 ms；旧完整 `"EventRecord" Bincode decode
+baseline 为 50.960 ms。新 hot path 约快 17.3x，latency 降低约 94.2%。Corrupt-record correctness test
+证明该 query 不读取 `"record" BLOB；普通 tests 固定 disk/open-overlay、literal wildcard、case、count、
+ordering 与 LSP projection。

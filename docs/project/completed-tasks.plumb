@@ -1208,6 +1208,26 @@
 
  actionable task 或已交付功能，guide 未加入 implementation status。
 
+`- 有界查询 workspace event title completion
+
+ `+ task
+
+ `@ bound-event-title-completion
+
+ `= created|2026-08-29T07:10:00+08:00
+ `= done|2026-08-29T07:23:46+08:00
+
+ `note Persistent query 现在只读取 typed title/count，在 SQLite 内完成 case-sensitive prefix filter 与
+ exact-title aggregation，不反序列化 EventRecord。Open overlay 继续按 document shadow 后合并 frequency，
+ 保持既有 ordering、prefix 与 50-item observable behavior。
+
+ `note store test 破坏全部 event Bincode BLOB 后仍能完成 title query，并覆盖大小写、literal wildcard、
+ open-path exclusion 与 count；workspace overlay、102 个 workspace tests、LSP stdio completion 和
+ project-document strict validation 全部通过。
+
+ `note 33,512-event release benchmark 中完整 EventRecord decode midpoint 为 50.960 ms，新的
+ `"Event 12" prefix/title-count query 为 2.9518 ms，约快 17.3x、latency 降低约 94.2%。
+
 `# Neovim plugin
 
 `- 避免 format 后重置 Neovim fold 状态
