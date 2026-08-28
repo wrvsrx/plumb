@@ -261,3 +261,21 @@ covering `"events(title, path)" index，只读取 grouped title/count rows；cas
 baseline 为 50.960 ms。新 hot path 约快 17.3x，latency 降低约 94.2%。Corrupt-record correctness test
 证明该 query 不读取 `"record" BLOB；普通 tests 固定 disk/open-overlay、literal wildcard、case、count、
 ordering 与 LSP projection。
+
+`# 12. Lightweight workspace search on 2026-08-29
+
+commit `"88af858" 后，无 CEL filter 的 persistent task/event search 不再先 decode 全部 semantic records。
+Task search 在 typed facts 与 persistent/open dependency overlay 上计算 workflow state、fuzzy score 和 effective
+priority，limit 后只按 source key hydration selected records。Event search 把同一个 deterministic Rust fuzzy
+scorer 注册为 SQLite function，在 database 内完成 score、ordering 与 `"limit + 1" completeness boundary；
+只把有界 lightweight facts 送回 protocol-neutral merge layer。Open records 直接借用 immutable snapshot。
+
+同一 33,512-event deterministic release workload、30 samples、1 s warmup 与 5 s measurement 中，query 为
+`"Event 12"、limit 为 50。旧式 baseline 完整 decode EventRecord，执行相同 title/id/path fuzzy score、
+deterministic ordering 与 limit；midpoint 为 60.426 ms。新完整 workspace search（包括 SQLite scoring、fact
+projection、selected EventRecord decode 和 response hydration）midpoint 为 49.206 ms，约快 1.23x、latency
+降低约 18.6%。单独 full decode 不包含 scoring/ordering，不能作为该端到端比较的 baseline。
+
+Correctness tests 将未命中的 task/event Bincode BLOB 改为无效 bytes，仍取得 selected task due 与 event
+association fields；另以全 persistent dependency chain 固定 priority propagation，并由既有 workflow、overlay、
+truncation 与 filtered-CEL tests 保持 observable parity。

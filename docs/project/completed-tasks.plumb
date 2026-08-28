@@ -1228,6 +1228,28 @@
  `note 33,512-event release benchmark 中完整 EventRecord decode midpoint 为 50.960 ms，新的
  `"Event 12" prefix/title-count query 为 2.9518 ms，约快 17.3x、latency 降低约 94.2%。
 
+`- 有界解码 workspace search
+
+ `+ task
+
+ `@ bound-workspace-search-records
+
+ `= created|2026-08-29T07:25:00+08:00
+ `= done|2026-08-29T07:45:12+08:00
+
+ `note 无 CEL filter 的 task search 现在先读取 typed facts 与 dependency relations，计算 workflow state、
+ fuzzy score 和 effective priority 后只 decode selected keys；event search 在 SQLite 内调用同一 deterministic
+ Rust fuzzy scorer 完成 score/order/limit，再只返回 lightweight facts 和 selected records。CEL-filtered search
+ 暂时保留完整 semantic record evaluation。
+
+ `note persistent dependency relations 与 open-document overlay 统一参与 blocked/effective-priority projection，
+ 修复了 closed generation 之间漏传 priority 的旧行为；open records 直接借用 immutable snapshot，不为搜索
+ 克隆完整 collection。Corrupt-BLOB tests 证明未命中 task/event records 不会被 decode，105 个 workspace tests
+ 与 all-target check 通过。
+
+ `note 33,512-event release benchmark 中，旧式 full decode + 相同 fuzzy score/order/50-item limit midpoint 为
+ 60.426 ms；新 selected-decode search 为 49.206 ms，约快 1.23x、latency 降低约 18.6%。
+
 `# Neovim plugin
 
 `- 避免 format 后重置 Neovim fold 状态
