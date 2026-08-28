@@ -2316,6 +2316,10 @@ fn semantic_cache_path(roots: &[PathBuf]) -> PathBuf {
         .or_else(|| std::env::var_os("XDG_CACHE_HOME").map(PathBuf::from))
         .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".cache")))
         .unwrap_or_else(|| std::env::temp_dir().join("plumb-cache"));
+    semantic_cache_path_in(&base, env!("CARGO_PKG_VERSION"), roots)
+}
+
+fn semantic_cache_path_in(base: &Path, version: &str, roots: &[PathBuf]) -> PathBuf {
     let mut hasher = Sha256::new();
     for root in roots {
         hasher.update(root.as_os_str().to_string_lossy().as_bytes());
@@ -2328,6 +2332,7 @@ fn semantic_cache_path(roots: &[PathBuf]) -> PathBuf {
         .collect::<String>();
     base.join("plumb")
         .join("workspaces")
+        .join(version)
         .join(format!("{key}.sqlite3"))
 }
 
@@ -2391,6 +2396,19 @@ mod tests {
     use plumb_syntax::parse;
 
     use super::*;
+
+    #[test]
+    fn semantic_cache_paths_are_namespaced_by_compiled_version() {
+        let base = Path::new("/cache");
+        let roots = [PathBuf::from("/notes"), PathBuf::from("/projects")];
+        let current = semantic_cache_path_in(base, "0.34.1", &roots);
+        let next = semantic_cache_path_in(base, "0.34.2", &roots);
+
+        assert_eq!(current.parent().unwrap().file_name().unwrap(), "0.34.1");
+        assert_eq!(next.parent().unwrap().file_name().unwrap(), "0.34.2");
+        assert_eq!(current.file_name(), next.file_name());
+        assert_ne!(current, next);
+    }
 
     #[test]
     fn negotiates_completion_indentation_modes() {

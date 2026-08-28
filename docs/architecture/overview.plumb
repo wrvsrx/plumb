@@ -5,7 +5,6 @@
 官方工具链的数据流是：
 
 `text
-
 |"
   UTF-8 source
       -> plumb-syntax recovered lossless tree + syntax diagnostics
@@ -57,6 +56,11 @@ id、facets 与 named properties；core 不维护 semantic registry，也不校�
 持久化；未打开 document 不要求在进程启动时恢复 source、syntax tree 或完整 Rust semantic object graph。
 SQLite cache identity 至少包含 normalized path、source content hash、semantic schema version 与 producer
 version；identity 不匹配的记录不能参与 query，并在 background indexing 后按 document transaction 替换。
+production cache path 使用编译进 user-facing binary 的 package version 建立 namespace，再以 normalized
+workspace roots 的 deterministic hash 命名数据库；不同 binary versions 不打开、清空或覆盖彼此的 cache。
+数据库内部继续保存并校验 semantic schema version 与 producer version，因此 path namespace 不能替代
+store-level validity check。旧版本 namespace 是 disposable derived data，可以由独立 maintenance policy 清理，
+server startup 不主动递归删除其他版本 cache。
 
 persistent store 的 production implementation 使用 Diesel typed schema、models、transactions 与 query
 composition；不得在 workspace、Web 或 protocol adapters 中散布 SQL strings、column ordinals 或 row decoding。
