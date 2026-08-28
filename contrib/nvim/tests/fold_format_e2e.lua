@@ -7,13 +7,13 @@ local root = vim.fn.tempname()
 vim.fn.mkdir(root .. '/.plumb', 'p')
 local path = root .. '/fold-format.plumb'
 vim.fn.writefile({
-  '`task First',
+  '`node First',
   '',
   '   `@ first',
   '',
   '   `note Detail',
   '',
-  '`task Second',
+  '`node Second',
   '',
   '  `@ second',
   '',

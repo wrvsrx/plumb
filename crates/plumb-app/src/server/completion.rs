@@ -104,8 +104,10 @@ pub(super) fn task_construct_template(block_indent: &str, timestamp: &str) -> Co
     ConstructTemplate {
         label: "Task",
         detail: "plumb task list item",
-        snippet: format!("`task ${{1:Task}}\n\n{block_indent}`= created|{timestamp}"),
-        plain: format!("`task\n{block_indent}`= created|{timestamp}"),
+        snippet: format!(
+            "`- ${{1:Task}}\n\n{block_indent}`+ task\n\n{block_indent}`= created|{timestamp}"
+        ),
+        plain: format!("`-\n{block_indent}`+ task\n\n{block_indent}`= created|{timestamp}"),
     }
 }
 
@@ -149,8 +151,8 @@ pub(super) fn construct_completion_items(
             vec![ConstructTemplate {
                 label: "Event",
                 detail: "plumb event list item",
-                snippet: "`event ${1:09:00}|${2:Event}".to_string(),
-                plain: "`event ".to_string(),
+                snippet: format!("`- ${{1:09:00}}|${{2:Event}}\n\n{block_indent}`+ event"),
+                plain: format!("`- 09:00|Event\n\n{block_indent}`+ event"),
             }],
         ),
         ConstructCompletionContext::LinkAndAutolink { replace } => (

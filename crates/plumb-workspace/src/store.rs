@@ -1522,7 +1522,7 @@ mod tests {
     #[test]
     fn persists_semantic_records_without_source_or_syntax_tree() {
         let store = SqliteSemanticStore::open_in_memory().unwrap();
-        let source = "`= title|Stored\n\n`task Do it\n `@ item\n\n`event 2026-08-11T10:00|Work\n `@ meeting\n";
+        let source = "`= title|Stored\n\n`- Do it\n\n `+ task\n\n `@ item\n\n`- 2026-08-11T10:00|Work\n\n `+ event\n\n `@ meeting\n";
         store
             .replace(
                 Path::new("notes/a.plumb"),
@@ -1543,11 +1543,11 @@ mod tests {
     #[test]
     fn atomically_replaces_a_documents_generation() {
         let store = SqliteSemanticStore::open_in_memory().unwrap();
-        let old = "Paragraph `->[old|#target].\n\n`task Old\n `@ target\n";
+        let old = "Paragraph `->[old|#target].\n\n`- Old\n\n `+ task\n\n `@ target\n";
         store
             .replace(Path::new("a.plumb"), 0, old, Some(&analyzed(old)))
             .unwrap();
-        let new = "Paragraph `->[new|#next].\n\n`task New\n `@ next\n";
+        let new = "Paragraph `->[new|#next].\n\n`- New\n\n `+ task\n\n `@ next\n";
         store
             .replace(Path::new("a.plumb"), 0, new, Some(&analyzed(new)))
             .unwrap();
@@ -1569,13 +1569,13 @@ mod tests {
     fn readonly_snapshot_is_isolated_from_later_replacements() {
         let directory = tempfile::tempdir().unwrap();
         let store = SqliteSemanticStore::open(&directory.path().join("semantic.sqlite3")).unwrap();
-        let first = "`task First\n `@ first\n";
+        let first = "`- First\n\n `+ task\n\n `@ first\n";
         store
             .replace(Path::new("tasks.plumb"), 1, first, Some(&analyzed(first)))
             .unwrap();
         let snapshot = store.readonly_snapshot().unwrap();
 
-        let second = "`task Second\n `@ second\n";
+        let second = "`- Second\n\n `+ task\n\n `@ second\n";
         store
             .replace(Path::new("tasks.plumb"), 2, second, Some(&analyzed(second)))
             .unwrap();
@@ -1590,7 +1590,7 @@ mod tests {
     #[test]
     fn excludes_open_documents_at_document_granularity() {
         let store = SqliteSemanticStore::open_in_memory().unwrap();
-        let source = "`task Stored\n `@ item\n";
+        let source = "`- Stored\n\n `+ task\n\n `@ item\n";
         store
             .replace(Path::new("a.plumb"), 0, source, Some(&analyzed(source)))
             .unwrap();
@@ -1603,7 +1603,7 @@ mod tests {
     fn reopens_a_persistent_store_without_rebuilding_records() {
         let directory = tempfile::tempdir().unwrap();
         let database = directory.path().join("semantic.sqlite3");
-        let source = "`task Persistent\n `@ item\n";
+        let source = "`- Persistent\n\n `+ task\n\n `@ item\n";
         {
             let store = SqliteSemanticStore::open(&database).unwrap();
             store
@@ -1624,7 +1624,7 @@ mod tests {
 
         let store = SqliteSemanticStore::open_in_memory().unwrap();
         let path = PathBuf::from(OsString::from_vec(b"notes/\xff.plumb".to_vec()));
-        let source = "`task Stored\n";
+        let source = "`- Stored\n\n `+ task\n";
         store
             .replace(&path, 7, source, Some(&analyzed(source)))
             .unwrap();
@@ -1637,7 +1637,7 @@ mod tests {
     #[test]
     fn indexes_task_dependencies_by_target_and_replaces_their_generation() {
         let store = SqliteSemanticStore::open_in_memory().unwrap();
-        let source = "`task Source\n `@ source\n `= depends|target.plumb#target\n";
+        let source = "`- Source\n\n `+ task\n\n `@ source\n\n `= depends|target.plumb#target\n";
         store
             .replace(
                 Path::new("source.plumb"),
@@ -1668,7 +1668,7 @@ mod tests {
             .unwrap()
             .is_empty());
 
-        let updated = "`task Source\n `@ source\n";
+        let updated = "`- Source\n\n `+ task\n\n `@ source\n";
         store
             .replace(
                 Path::new("source.plumb"),
@@ -1687,8 +1687,8 @@ mod tests {
     fn task_facts_do_not_decode_records_and_page_lookup_decodes_only_selected_keys() {
         let store = SqliteSemanticStore::open_in_memory().unwrap();
         let source = concat!(
-            "`task First\n `@ first\n `= priority|3\n `= recur|P1D\n `= due|2026-08-29T10:00:00Z\n",
-            "`task Second\n `@ second\n `= prev|#first\n",
+            "`- First\n\n `+ task\n\n `@ first\n\n `= priority|3\n `= recur|P1D\n `= due|2026-08-29T10:00:00Z\n",
+            "`- Second\n\n `+ task\n\n `@ second\n\n `= prev|#first\n",
         );
         let output = analyzed(source);
         let first_start = output.tasks.tasks[0].range.start;
@@ -1736,7 +1736,7 @@ mod tests {
     #[test]
     fn queries_only_open_tasks_whose_wait_has_elapsed() {
         let store = SqliteSemanticStore::open_in_memory().unwrap();
-        let source = "`task Ready\n `@ ready\n\n`task Waiting\n `@ waiting\n `= wait|2026-08-12T10:00:00Z\n\n`task Done\n `@ done\n `= done|2026-08-10T10:00:00Z\n\n`task Canceled\n `@ canceled\n `= canceled|2026-08-10T10:00:00Z\n";
+        let source = "`- Ready\n\n `+ task\n\n `@ ready\n\n`- Waiting\n\n `+ task\n\n `@ waiting\n\n `= wait|2026-08-12T10:00:00Z\n\n`- Done\n\n `+ task\n\n `@ done\n\n `= done|2026-08-10T10:00:00Z\n\n`- Canceled\n\n `+ task\n\n `@ canceled\n\n `= canceled|2026-08-10T10:00:00Z\n";
         store
             .replace(Path::new("tasks.plumb"), 0, source, Some(&analyzed(source)))
             .unwrap();
@@ -1760,8 +1760,8 @@ mod tests {
     #[test]
     fn blocked_sources_follow_open_target_generations_and_overlay_exclusions() {
         let store = SqliteSemanticStore::open_in_memory().unwrap();
-        let source = "`task Source\n `@ source\n `= depends|target.plumb#target\n";
-        let open_target = "`task Target\n `@ target\n";
+        let source = "`- Source\n\n `+ task\n\n `@ source\n\n `= depends|target.plumb#target\n";
+        let open_target = "`- Target\n\n `+ task\n\n `@ target\n";
         store
             .replace(
                 Path::new("source.plumb"),
@@ -1795,7 +1795,8 @@ mod tests {
             .unwrap()
             .is_empty());
 
-        let closed_target = "`task Target\n `@ target\n `= done|2026-08-11T10:00:00Z\n";
+        let closed_target =
+            "`- Target\n\n `+ task\n\n `@ target\n\n `= done|2026-08-11T10:00:00Z\n";
         store
             .replace(
                 Path::new("target.plumb"),
@@ -1811,8 +1812,8 @@ mod tests {
     fn indexes_event_task_associations_and_replaces_their_generation() {
         let store = SqliteSemanticStore::open_in_memory().unwrap();
         let source = concat!(
-            "`event 2026-08-28T10:00|Linked `->[Task|tasks.plumb#task]\n",
-            "`event 2026-08-28T11:00|Explicit\n `= tasks|tasks.plumb#task\n",
+            "`- 2026-08-28T10:00|Linked `->[Task|tasks.plumb#task]\n\n `+ event\n",
+            "`- 2026-08-28T11:00|Explicit\n\n `+ event\n\n `= tasks|tasks.plumb#task\n",
         );
         let output = analyzed(source);
         let first_start = output.events.events[0].range.start;
@@ -1851,7 +1852,7 @@ mod tests {
             .unwrap()
             .is_empty());
 
-        let updated = "`event 2026-08-28T12:00|Unrelated\n";
+        let updated = "`- 2026-08-28T12:00|Unrelated\n\n `+ event\n";
         store
             .replace(
                 Path::new("events.plumb"),

@@ -238,6 +238,11 @@ fn lower_list_group(blocks: &[&Block], group: &ListGroup, analysis: &DocumentOut
                 .tasks
                 .iter()
                 .find(|task| task.range.start == block.range.start);
+            let event = analysis
+                .events
+                .events
+                .iter()
+                .find(|event| event.range.start == block.range.start);
             if let Some(task) = task {
                 let mut title = vec![json!({ "t": "Str", "c": task_state_marker(task.state()) })];
                 let inlines = lower_inlines(&block.head, analysis);
@@ -246,19 +251,22 @@ fn lower_list_group(blocks: &[&Block], group: &ListGroup, analysis: &DocumentOut
                 }
                 title.push(json!({
                     "t": "Span",
-                    "c": [lower_attrs(&mark.attrs, None), inlines],
+                    "c": [lower_task_attrs(&mark.attrs), inlines],
                 }));
                 contents.push(json!({ "t": "Para", "c": title }));
             } else if !block.head.is_empty() {
                 contents.push(json!({ "t": "Para", "c": lower_inlines(&block.head, analysis) }));
             }
             contents.extend(lower_body(block, analysis));
-            if task.is_some() || mark.attrs.items.is_empty() {
+            if task.is_some()
+                || (event.is_some() && !has_unconsumed_facet_attrs(&mark.attrs, "event"))
+                || mark.attrs.items.is_empty()
+            {
                 contents
             } else {
                 vec![json!({
                     "t": "Div",
-                    "c": [lower_attrs(&mark.attrs, None), contents],
+                    "c": [if event.is_some() { lower_event_attrs(&mark.attrs) } else { lower_attrs(&mark.attrs, None) }, contents],
                 })]
             }
         })
@@ -730,6 +738,21 @@ fn lower_math_attrs(attrs: &Attributes) -> Value {
     lower_attrs_filtered(attrs, None, |class| class == "$", |key| key == "language")
 }
 
+fn lower_task_attrs(attrs: &Attributes) -> Value {
+    lower_attrs_filtered(attrs, None, |class| class == "task", |_| false)
+}
+
+fn lower_event_attrs(attrs: &Attributes) -> Value {
+    lower_attrs_filtered(attrs, None, |class| class == "event", |_| false)
+}
+
+fn has_unconsumed_facet_attrs(attrs: &Attributes, facet: &str) -> bool {
+    attrs.items.iter().any(|item| match item {
+        AttrItem::Class { value, .. } => value != facet,
+        AttrItem::Id { .. } | AttrItem::Pair { .. } => true,
+    })
+}
+
 fn lower_autolink_attrs(attrs: &Attributes) -> Value {
     lower_attrs_filtered(attrs, None, |class| class == "->", |_| false)
 }
@@ -807,8 +830,7 @@ mod tests {
 
     #[test]
     fn exports_adjacent_and_nested_items_as_bullet_lists() {
-        let source =
-            "`- One\n\n`task Two\n  `@ two\n  `= priority|-5\n\n  `- Nested\n\nParagraph.\n";
+        let source = "`- One\n\n`- Two\n  `+ task\n  `@ two\n  `= priority|-5\n\n  `- Nested\n\nParagraph.\n";
         let document = export(source).unwrap();
         let blocks = document["blocks"].as_array().unwrap();
 
@@ -866,7 +888,7 @@ mod tests {
 
     #[test]
     fn exports_visible_task_state_markers() {
-        let source = "`task Open\n`task Done\n  `= done|2026-07-25T15:00:00+08:00\n`task Canceled\n  `= canceled|2026-07-25T15:00:00+08:00\n`task Conflicted\n  `= done|2026-07-25T15:00:00+08:00\n  `= canceled|2026-07-25T15:01:00+08:00\n";
+        let source = "`- Open\n  `+ task\n`- Done\n  `+ task\n  `= done|2026-07-25T15:00:00+08:00\n`- Canceled\n  `+ task\n  `= canceled|2026-07-25T15:00:00+08:00\n`- Conflicted\n  `+ task\n  `= done|2026-07-25T15:00:00+08:00\n  `= canceled|2026-07-25T15:01:00+08:00\n";
         let document = export(source).unwrap();
         let items = document["blocks"][0]["c"].as_array().unwrap();
         let markers = items

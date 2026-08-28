@@ -776,7 +776,8 @@ mod tests {
 
     #[test]
     fn zoned_when_start_requires_full_rfc3339_time() {
-        let source = "`- 2026-05-02T08+08:00|Hour\n `+ event\n`- 2026-05-02T08:22+08:00|Minute\n `+ event\n";
+        let source =
+            "`- 2026-05-02T08+08:00|Hour\n `+ event\n`- 2026-05-02T08:22+08:00|Minute\n `+ event\n";
         let output = analyze(source);
         assert_eq!(
             output

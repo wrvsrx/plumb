@@ -19,14 +19,14 @@ struct SqliteFixture {
 }
 
 fn workload(events: usize, references: usize, suffix: &str) -> (String, String) {
-    let target = "`= title|Target\n\n`task Target\n `@ target\n".to_string();
+    let target = "`= title|Target\n\n`- Target\n\n `+ task\n\n `@ target\n".to_string();
     let mut source = String::with_capacity(events * 90 + references * 55);
     source.push_str("`= title|Migrated events\n`= timezone|Z\n\n");
     for index in 0..events {
         let day = index % 28 + 1;
         let hour = index % 24;
         source.push_str(&format!(
-            "`event 2026-08-{day:02}T{hour:02}:00|Event {index}{suffix}\n `@ event-{index}\n\n"
+            "`- 2026-08-{day:02}T{hour:02}:00|Event {index}{suffix}\n\n `+ event\n\n `@ event-{index}\n\n"
         ));
     }
     for _ in 0..references {
@@ -40,7 +40,7 @@ fn task_document_source(document: usize, tasks: usize, suffix: &str) -> String {
     for task in 0..tasks {
         let id = format!("task-{document:03}-{task:02}");
         source.push_str(&format!(
-            "`task Task {document:03}/{task:02}{suffix}\n `@ {id}\n `= priority|{}\n `= due|2026-08-{:02}T10:00:00Z\n",
+            "`- Task {document:03}/{task:02}{suffix}\n\n `+ task\n\n `@ {id}\n\n `= priority|{}\n `= due|2026-08-{:02}T10:00:00Z\n",
             (document + task) % 31,
             (document + task) % 28 + 1,
         ));
@@ -52,7 +52,7 @@ fn task_document_source(document: usize, tasks: usize, suffix: &str) -> String {
         }
     }
     source.push_str(&format!(
-        "\n`event 09:00|Review {document:03}{suffix}\n `= date|2026-08-28\n `= timezone|+00:00\n `= tasks|#task-{document:03}-00\n"
+        "\n`- 09:00|Review {document:03}{suffix}\n\n `+ event\n\n `= date|2026-08-28\n `= timezone|+00:00\n `= tasks|#task-{document:03}-00\n"
     ));
     source
 }
@@ -315,7 +315,7 @@ fn event_containment_source(events: usize) -> String {
     let mut source = String::with_capacity(events * 180);
     for index in 0..events {
         source.push_str(&format!(
-            "`event 2026-08-28T10:00:00Z|Outer {index} `->[outer|target.plumb#task]\n `event 2026-08-28T11:00:00Z|Nested {index} `->[nested|target.plumb#task]\n"
+            "`- 2026-08-28T10:00:00Z|Outer {index} `->[outer|target.plumb#task]\n\n `+ event\n\n `- 2026-08-28T11:00:00Z|Nested {index} `->[nested|target.plumb#task]\n\n  `+ event\n"
         ));
     }
     source

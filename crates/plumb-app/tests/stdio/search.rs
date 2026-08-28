@@ -16,7 +16,7 @@ fn workspace_index_does_not_follow_directory_symlinks() {
     let source = root.join("current.plumb");
     let target = root.join("target.plumb");
     let target_source =
-        "`= title|Target\n\n`# Target\n\n `@ anchor\n\n`task Target work\n\n `@ work\n";
+        "`= title|Target\n\n`# Target\n\n `@ anchor\n\n`- Target work\n\n `+ task\n\n `@ work\n";
     let anchor_line = target_source
         .lines()
         .position(|line| line.contains("`@ anchor"))
@@ -133,12 +133,12 @@ fn searches_workspace_symbols_and_structured_records_over_stdio() {
     std::fs::write(&note, "`= title\n\n Disk title\n").unwrap();
     std::fs::write(
         &tasks,
-        "`task Review parser\n\n `@ review\n `= due|2026-07-23T12:00:00+08:00\n",
+        "`- Review parser\n\n `+ task\n\n `@ review\n `= due|2026-07-23T12:00:00+08:00\n",
     )
     .unwrap();
     std::fs::write(
         &events,
-        "`= date|2026-07-30\n`= timezone|+08:00\n\n`event 14:00--15:00|Review meeting\n\n `@ review-event\n `= tasks|tasks.plumb#review\n",
+        "`= date|2026-07-30\n`= timezone|+08:00\n\n`- 14:00--15:00|Review meeting\n\n `+ event\n\n `@ review-event\n `= tasks|tasks.plumb#review\n",
     )
     .unwrap();
     for index in 0..105 {

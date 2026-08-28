@@ -102,6 +102,7 @@ pub(crate) fn task_labels(
                 }
             };
             let indent = line_indent(&entry.parsed.source, task.range.start);
+            let marker = &entry.parsed.source[task.range.start + 1..task.range.start + 2];
             let title = if task.title.is_empty() {
                 "Untitled task"
             } else {
@@ -110,7 +111,7 @@ pub(crate) fn task_labels(
             Some((
                 (task.range.start, task.range.end),
                 FoldLabel {
-                    text: format!("{indent}`task {:<5}{title}", task_state_symbol(state)),
+                    text: format!("{indent}`{marker} {:<5}{title}", task_state_symbol(state)),
                 },
             ))
         })
@@ -184,6 +185,7 @@ pub(crate) fn event_labels(entry: &DocumentEntry) -> HashMap<(usize, usize), Fol
         .filter_map(|event| {
             let time = event_time_label(event)?;
             let indent = line_indent(&entry.parsed.source, event.range.start);
+            let marker = &entry.parsed.source[event.range.start + 1..event.range.start + 2];
             let title = if event.title.is_empty() {
                 "Untitled event"
             } else {
@@ -192,7 +194,7 @@ pub(crate) fn event_labels(entry: &DocumentEntry) -> HashMap<(usize, usize), Fol
             Some((
                 (event.range.start, event.range.end),
                 FoldLabel {
-                    text: format!("{indent}`event {time}| {title}"),
+                    text: format!("{indent}`{marker} {time}| {title}"),
                 },
             ))
         })

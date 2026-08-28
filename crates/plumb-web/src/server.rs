@@ -961,13 +961,13 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).unwrap();
         let path = root.join("tasks.plumb");
-        std::fs::write(&path, "`task First\n  `@ first\n").unwrap();
+        std::fs::write(&path, "`- First\n\n `+ task\n\n `@ first\n").unwrap();
         let shared = Arc::new(RwLock::new(Arc::new(
             WebWorkspace::load_with_revision(&root, 1).unwrap(),
         )));
         let old_reader = shared.read().await.clone();
 
-        std::fs::write(&path, "`task Second\n  `@ second\n").unwrap();
+        std::fs::write(&path, "`- Second\n\n `+ task\n\n `@ second\n").unwrap();
         let replacement = Arc::new(WebWorkspace::load_with_revision(&root, 2).unwrap());
         *shared.write().await = replacement;
         let new_reader = shared.read().await.clone();
@@ -983,7 +983,11 @@ mod tests {
     async fn web_routes_restore_views_and_execute_structured_queries() {
         let root = temp_dir();
         std::fs::create_dir_all(&root).unwrap();
-        std::fs::write(root.join("tasks.plumb"), "`task Ready task\n  `@ ready\n").unwrap();
+        std::fs::write(
+            root.join("tasks.plumb"),
+            "`- Ready task\n\n `+ task\n\n `@ ready\n",
+        )
+        .unwrap();
         let (changes, _) = broadcast::channel(2);
         let state = AppState {
             workspace: Arc::new(RwLock::new(Arc::new(WebWorkspace::load(&root).unwrap()))),

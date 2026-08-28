@@ -191,7 +191,7 @@ fn publishes_diagnostics_and_returns_heading_symbols_over_stdio() {
 #[test]
 fn nests_anchors_and_tasks_under_their_containing_headings() {
     let uri = "file:///tmp/symbol-containment.plumb";
-    let source = "`# Project\n\n`node Note\n\n `@ note\n\n`task Write parser\n\n `@ write\n\n`## Section\n\n`node Inside\n\n `@ inside\n";
+    let source = "`# Project\n\n`node Note\n\n `@ note\n\n`- Write parser\n\n `+ task\n\n `@ write\n\n`## Section\n\n`node Inside\n\n `@ inside\n";
     let messages = [
         json!({
             "jsonrpc": "2.0", "id": 1, "method": "initialize",

@@ -7,7 +7,7 @@ vim.fn.mkdir(root, 'p')
 local current = root .. '/current.plumb'
 local target = root .. '/target.plumb'
 vim.fn.writefile({ '`->[' }, current)
-vim.fn.writefile({ '`= title|Target note', '', '`task Target task' }, target)
+vim.fn.writefile({ '`= title|Target note', '', '`- Target task', '', ' `+ task' }, target)
 
 local bufnr = vim.fn.bufadd(current)
 vim.fn.bufload(bufnr)

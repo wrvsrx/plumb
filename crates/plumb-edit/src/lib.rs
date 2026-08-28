@@ -302,6 +302,14 @@ impl OwnedBlock {
         }
     }
 
+    pub fn prepend_attribute(&mut self, attribute: OwnedAttribute) {
+        if let Self::Parsed { children, .. } = self {
+            children.insert(0, attribute.into_block());
+        } else {
+            panic!("anonymous raw blocks have no attributes");
+        }
+    }
+
     pub fn extend_attributes(&mut self, attributes: impl IntoIterator<Item = OwnedAttribute>) {
         for attribute in attributes {
             self.push_attribute(attribute);

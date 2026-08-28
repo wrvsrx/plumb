@@ -13,7 +13,7 @@ function M.foldtext()
   if type(text) ~= 'string' then
     return text
   end
-  local state = text:match('^%s*(`task%s+%b[])%s*')
+  local state = text:match('^%s*(`[-.]%s+%b[])%s*')
   state = state and state:match('(%b[])$')
   local highlight = task_highlights[state]
   if highlight then

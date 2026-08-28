@@ -911,17 +911,17 @@ mod tests {
             (
                 "a.plumb",
                 concat!(
-                    "`task Parent\n `@ parent\n `= priority|-1\n",
-                    " `task Dependent\n  `@ dependent\n  `= priority|20\n  `= depends|b.plumb#target\n",
+                    "`- Parent\n\n `+ task\n\n `@ parent\n\n `= priority|-1\n",
+                    " `- Dependent\n\n  `+ task\n\n  `@ dependent\n  `= priority|20\n  `= depends|b.plumb#target\n",
                 ),
             ),
             (
                 "b.plumb",
-                "`task Target\n `@ target\n `= priority|1\n",
+                "`- Target\n\n `+ task\n\n `@ target\n\n `= priority|1\n",
             ),
             (
                 "c.plumb",
-                "`task Done\n `@ done\n `= done|2026-08-27T12:00:00Z\n",
+                "`- Done\n\n `+ task\n\n `@ done\n\n `= done|2026-08-27T12:00:00Z\n",
             ),
         ];
         for (path, source) in documents {
@@ -995,7 +995,7 @@ mod tests {
         workspace.open_document(
             "a.plumb",
             2,
-            "`task Parent\n `@ parent\n `task Current\n `@ current\n",
+            "`- Parent\n\n `+ task\n\n `@ parent\n\n `- Current\n\n  `+ task\n\n `@ current\n",
         );
         assert!(workspace
             .query_task_page(&relation_query)

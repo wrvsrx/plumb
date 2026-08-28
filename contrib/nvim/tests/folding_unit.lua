@@ -11,24 +11,24 @@ local function render(text)
   return folding.foldtext()
 end
 
-assert(vim.deep_equal(render('`task [o]  Ship it'), {
-  { '`task [o]  Ship it', 'PlumbTaskFoldDone' },
+assert(vim.deep_equal(render('`- [o]  Ship it'), {
+  { '`- [o]  Ship it', 'PlumbTaskFoldDone' },
 }), 'highlight a completed task fold')
-assert(vim.deep_equal(render('`task [x]  Superseded'), {
-  { '`task [x]  Superseded', 'PlumbTaskFoldCanceled' },
+assert(vim.deep_equal(render('`- [x]  Superseded'), {
+  { '`- [x]  Superseded', 'PlumbTaskFoldCanceled' },
 }), 'highlight a canceled task fold')
-assert(vim.deep_equal(render('`task [ox] Conflicted'), {
-  { '`task [ox] Conflicted', 'PlumbTaskFoldConflicted' },
+assert(vim.deep_equal(render('`- [ox] Conflicted'), {
+  { '`- [ox] Conflicted', 'PlumbTaskFoldConflicted' },
 }), 'highlight a conflicted task fold')
-assert(vim.deep_equal(render('`task [~]  Waiting'), {
-  { '`task [~]  Waiting', 'PlumbTaskFoldWaiting' },
+assert(vim.deep_equal(render('`- [~]  Waiting'), {
+  { '`- [~]  Waiting', 'PlumbTaskFoldWaiting' },
 }), 'highlight a waiting task fold')
-assert(vim.deep_equal(render('`task [=]  Blocked'), {
-  { '`task [=]  Blocked', 'PlumbTaskFoldBlocked' },
+assert(vim.deep_equal(render('`. [=]  Blocked'), {
+  { '`. [=]  Blocked', 'PlumbTaskFoldBlocked' },
 }), 'highlight a blocked task fold')
 
 for _, text in ipairs({
-  '`task [ ]  Ship it',
+  '`- [ ]  Ship it',
   'METADATA  Project',
   '2026-08-04T09:30  Meeting',
   '`note Details',

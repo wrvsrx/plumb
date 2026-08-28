@@ -7,7 +7,7 @@ local root = vim.fn.tempname()
 vim.fn.mkdir(root .. '/.plumb', 'p')
 local path = root .. '/fold-join.plumb'
 vim.fn.writefile({
-  '`task aaa bbb ccc ddd eee fff',
+  '`node aaa bbb ccc ddd eee fff',
   ' continuation ggg hhh iii jjj',
   ' continuation kkk lll mmm nnn',
 }, path)

@@ -298,14 +298,14 @@ impl Workspace {
         let item = deepest_list_item(&entry.parsed.syntax.blocks, offset)
             .ok_or(TaskEditError::ListItemNotFound)?;
         let mark = item.mark.as_ref().expect("list item has a mark");
-        if mark.marker == "task" {
+        if mark.attrs.has_class("task") {
             return Err(TaskEditError::TaskAlreadyExists);
         }
         let mut owned = OwnedBlock::from_parsed(&entry.parsed.source, item);
-        owned.set_marker("task");
         owned.retain_attributes(
             |attribute| !matches!(attribute, OwnedAttribute::Class(value) if value == "task"),
         );
+        owned.prepend_attribute(OwnedAttribute::class("task"));
         owned.push_attribute(OwnedAttribute::quoted("created", timestamp));
         let edit = replace_owned_block(&entry.parsed, item.range.clone(), &owned)
             .map_err(|_| TaskEditError::GeneratedInvalid)?;
@@ -670,9 +670,9 @@ pub(super) fn owned_authored_task(
     id: &str,
     timestamp: &str,
 ) -> OwnedBlock {
-    let mut attributes = vec![OwnedAttribute::id(id)];
+    let mut attributes = vec![OwnedAttribute::class("task"), OwnedAttribute::id(id)];
     append_authored_task_fields(&mut attributes, input, timestamp);
-    OwnedBlock::marked("task", &input.title).with_attributes(attributes)
+    OwnedBlock::marked("-", &input.title).with_attributes(attributes)
 }
 
 pub(super) fn updated_owned_task(

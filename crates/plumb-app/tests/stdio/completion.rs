@@ -68,11 +68,12 @@ fn completes_event_titles_by_workspace_frequency() {
     std::fs::create_dir_all(&root).unwrap();
     let source_path = root.join("current.plumb");
     let history_path = root.join("history.plumb");
-    let source = "`event 09:00|re";
+    let source = "`- 09:00|re\n `+ event";
+    let cursor = "`- 09:00|re".len();
     std::fs::write(&source_path, source).unwrap();
     std::fs::write(
         &history_path,
-        "`event 10:00|relax\n`event 11:00|research\n`event 12:00|relax\n`event 13:00|read\n",
+        "`- 10:00|relax\n `+ event\n`- 11:00|research\n `+ event\n`- 12:00|relax\n `+ event\n`- 13:00|read\n `+ event\n",
     )
     .unwrap();
     let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
@@ -97,7 +98,7 @@ fn completes_event_titles_by_workspace_frequency() {
             "jsonrpc": "2.0", "id": 2, "method": "textDocument/completion",
             "params": {
                 "textDocument": { "uri": source_uri },
-                "position": { "line": 0, "character": source.len() }
+                "position": { "line": 0, "character": cursor }
             }
         }),
         json!({ "jsonrpc": "2.0", "id": 3, "method": "shutdown", "params": null }),
@@ -119,8 +120,8 @@ fn completes_event_titles_by_workspace_frequency() {
     assert_eq!(
         items[0]["textEdit"]["range"],
         json!({
-            "start": { "line": 0, "character": source.len() - 2 },
-            "end": { "line": 0, "character": source.len() }
+            "start": { "line": 0, "character": cursor - 2 },
+            "end": { "line": 0, "character": cursor }
         })
     );
     std::fs::remove_dir_all(root).unwrap();
@@ -132,8 +133,8 @@ fn completes_task_dependencies_from_workspace_tasks() {
     std::fs::create_dir_all(&root).unwrap();
     let source_path = root.join("current.plumb");
     let target_path = root.join("Project Plan.plumb");
-    let source = "`task Existing dependency\n  `@ done\n`task Local task\n  `@ local\n\n`node Plain anchor\n  `@ plain\n\n`task Review\n  `@ review\n  `= depends|#done Project Plan.plumb#dr\n`task Review two\n  `@ review-two\n  `= depends|#done \n";
-    let target = "`task Draft task\n  `@ draft\n`task Closed task\n  `@ closed\n  `= done|2026-08-04T12:00:00+08:00\n\n`node Not a task\n  `@ note\n";
+    let source = "`- Existing dependency\n  `+ task\n  `@ done\n`- Local task\n  `+ task\n  `@ local\n\n`node Plain anchor\n  `@ plain\n\n`- Review\n  `+ task\n  `@ review\n  `= depends|#done Project Plan.plumb#dr\n`- Review two\n  `+ task\n  `@ review-two\n  `= depends|#done \n";
+    let target = "`- Draft task\n  `+ task\n  `@ draft\n`- Closed task\n  `+ task\n  `@ closed\n  `= done|2026-08-04T12:00:00+08:00\n\n`node Not a task\n  `@ note\n";
     std::fs::write(&source_path, source).unwrap();
     std::fs::write(&target_path, target).unwrap();
     let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
@@ -681,7 +682,7 @@ fn completes_block_constructs_from_their_marker_prefixes() {
         json!({ "start": { "line": 0, "character": 0 }, "end": { "line": 0, "character": 2 } })
     );
     let task = task_items[0]["textEdit"]["newText"].as_str().unwrap();
-    assert!(task.starts_with("`task ${1:Task}\n\n `= created|"));
+    assert!(task.starts_with("`- ${1:Task}\n\n `+ task\n\n `= created|"));
     assert_eq!(task_items[0]["insertTextFormat"], 2);
     assert_eq!(task_items[0]["insertTextMode"], 1);
 
@@ -689,7 +690,10 @@ fn completes_block_constructs_from_their_marker_prefixes() {
     assert_eq!(event_items.len(), 1);
     assert_eq!(event_items[0]["label"], "Event");
     let event = &event_items[0];
-    assert_eq!(event["textEdit"]["newText"], "`event ${1:09:00}|${2:Event}");
+    assert_eq!(
+        event["textEdit"]["newText"],
+        "`- ${1:09:00}|${2:Event}\n\n   `+ event"
+    );
     assert_eq!(event["insertTextFormat"], 2);
 
     let nested_task_items = response(&output, 4)["result"].as_array().unwrap();
@@ -697,7 +701,7 @@ fn completes_block_constructs_from_their_marker_prefixes() {
     let nested_task = nested_task_items[0]["textEdit"]["newText"]
         .as_str()
         .unwrap();
-    assert!(nested_task.starts_with("`task ${1:Task}\n\n  `= created|"));
+    assert!(nested_task.starts_with("`- ${1:Task}\n\n  `+ task\n\n  `= created|"));
     assert_eq!(nested_task_items[0]["insertTextMode"], 1);
 
     let link_items = response(&output, 5)["result"].as_array().unwrap();
@@ -737,7 +741,7 @@ fn completes_block_constructs_from_their_marker_prefixes() {
     assert_eq!(fallback_items.len(), 1);
     assert_eq!(fallback_items[0]["label"], "Task");
     let fallback_task = fallback_items[0]["textEdit"]["newText"].as_str().unwrap();
-    assert!(fallback_task.starts_with("`task\n `= created|"));
+    assert!(fallback_task.starts_with("`-\n `+ task\n\n `= created|"));
     assert_eq!(fallback_items[0]["insertTextFormat"], 1);
     assert!(fallback_items[0].get("insertTextMode").is_none());
     std::fs::remove_dir_all(root).unwrap();
@@ -748,7 +752,7 @@ fn projects_nested_task_completion_for_adjusted_indentation() {
     let root = unique_temp_dir();
     std::fs::create_dir_all(&root).unwrap();
     let document = root.join("adjusted.plumb");
-    let source = "`task Parent\n `t";
+    let source = "`- Parent\n `+ task\n `t";
     std::fs::write(&document, source).unwrap();
     let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
     let document_uri = lsp_types::Url::from_file_path(&document).unwrap();
@@ -778,7 +782,7 @@ fn projects_nested_task_completion_for_adjusted_indentation() {
             "jsonrpc": "2.0", "id": 2, "method": "textDocument/completion",
             "params": {
                 "textDocument": { "uri": document_uri },
-                "position": { "line": 1, "character": 3 }
+                "position": { "line": 2, "character": 3 }
             }
         }),
         json!({ "jsonrpc": "2.0", "id": 3, "method": "shutdown", "params": null }),
@@ -792,10 +796,10 @@ fn projects_nested_task_completion_for_adjusted_indentation() {
     assert_eq!(items[0]["insertTextMode"], 2);
     assert_eq!(
         items[0]["textEdit"]["range"],
-        json!({ "start": { "line": 1, "character": 1 }, "end": { "line": 1, "character": 3 } })
+        json!({ "start": { "line": 2, "character": 1 }, "end": { "line": 2, "character": 3 } })
     );
     let replacement = items[0]["textEdit"]["newText"].as_str().unwrap();
-    assert!(replacement.starts_with("`task ${1:Task}\n\n `= created|"));
+    assert!(replacement.starts_with("`- ${1:Task}\n\n `+ task\n\n `= created|"));
 
     let adjusted = replacement
         .replace("${1:Task}", "Task")
@@ -810,7 +814,7 @@ fn projects_nested_task_completion_for_adjusted_indentation() {
         })
         .collect::<Vec<_>>()
         .join("\n");
-    let completed = format!("`task Parent\n {adjusted}");
+    let completed = format!("`- Parent\n `+ task\n {adjusted}");
     let parsed = plumb_syntax::parse(&completed);
     assert!(parsed.is_valid(), "{:?}\n{completed}", parsed.diagnostics);
 
@@ -822,7 +826,7 @@ fn completes_task_construct_immediately_after_direct_declarations() {
     let root = unique_temp_dir();
     std::fs::create_dir_all(&root).unwrap();
     let document = root.join("current.plumb");
-    let source = "`task something\n\n `= created|2026-08-09T10:55:24+08:00\n\n`t";
+    let source = "`- something\n\n `+ task\n\n `= created|2026-08-09T10:55:24+08:00\n\n`t";
     std::fs::write(&document, source).unwrap();
     let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
     let document_uri = lsp_types::Url::from_file_path(&document).unwrap();
@@ -848,7 +852,7 @@ fn completes_task_construct_immediately_after_direct_declarations() {
             "jsonrpc": "2.0", "id": 2, "method": "textDocument/completion",
             "params": {
                 "textDocument": { "uri": document_uri },
-                "position": { "line": 4, "character": 2 }
+                "position": { "line": 6, "character": 2 }
             }
         }),
         json!({ "jsonrpc": "2.0", "id": 3, "method": "shutdown", "params": null }),
@@ -861,8 +865,8 @@ fn completes_task_construct_immediately_after_direct_declarations() {
     assert_eq!(
         item["textEdit"]["range"],
         json!({
-            "start": { "line": 4, "character": 0 },
-            "end": { "line": 4, "character": 2 }
+            "start": { "line": 6, "character": 0 },
+            "end": { "line": 6, "character": 2 }
         })
     );
     std::fs::remove_dir_all(root).unwrap();
@@ -973,7 +977,8 @@ fn completes_attributes_with_protocol_ranges_and_snippets() {
     let root = unique_temp_dir();
     std::fs::create_dir_all(&root).unwrap();
     let document = root.join("attributes.plumb");
-    let source = "`task Work\n  `= created|now\n  `= pr\n`img[Alt|=[s]]\n`$[\"x\"|=[language|t]]\n";
+    let source =
+        "`- Work\n  `+ task\n  `= created|now\n  `= pr\n`img[Alt|=[s]]\n`$[\"x\"|=[language|t]]\n";
     std::fs::write(&document, source).unwrap();
     let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
     let document_uri = lsp_types::Url::from_file_path(&document).unwrap();
@@ -998,17 +1003,17 @@ fn completes_attributes_with_protocol_ranges_and_snippets() {
         json!({
             "jsonrpc": "2.0", "id": 2, "method": "textDocument/completion",
             "params": { "textDocument": { "uri": document_uri },
-                "position": { "line": 2, "character": 7 } }
+                "position": { "line": 3, "character": 7 } }
         }),
         json!({
             "jsonrpc": "2.0", "id": 3, "method": "textDocument/completion",
             "params": { "textDocument": { "uri": document_uri },
-                "position": { "line": 3, "character": 12 } }
+                "position": { "line": 4, "character": 12 } }
         }),
         json!({
             "jsonrpc": "2.0", "id": 4, "method": "textDocument/completion",
             "params": { "textDocument": { "uri": document_uri },
-                "position": { "line": 4, "character": 19 } }
+                "position": { "line": 5, "character": 19 } }
         }),
         json!({ "jsonrpc": "2.0", "id": 5, "method": "shutdown", "params": null }),
         json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
@@ -1037,7 +1042,7 @@ fn completes_recursive_direct_members() {
     let root = unique_temp_dir();
     std::fs::create_dir_all(&root).unwrap();
     let document = root.join("direct-completion.plumb");
-    let source = "`task Work\n  `= pr\n`->[x|target|=[t]]\n";
+    let source = "`- Work\n  `+ task\n  `= pr\n`->[x|target|=[t]]\n";
     std::fs::write(&document, source).unwrap();
     let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
     let document_uri = lsp_types::Url::from_file_path(&document).unwrap();
@@ -1063,7 +1068,7 @@ fn completes_recursive_direct_members() {
             "jsonrpc": "2.0", "id": 2, "method": "textDocument/completion",
             "params": {
                 "textDocument": { "uri": document_uri },
-                "position": { "line": 1, "character": 7 }
+                "position": { "line": 2, "character": 7 }
             }
         }),
         json!({

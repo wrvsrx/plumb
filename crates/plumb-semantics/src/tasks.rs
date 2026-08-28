@@ -136,7 +136,11 @@ fn collect_blocks(
                 code: "facet.task-event-conflict",
                 severity: DiagnosticSeverity::Warning,
                 message: "a list item cannot have both task and event facets".to_string(),
-                range: mark.attrs.range.clone().unwrap_or(mark.marker_range.clone()),
+                range: mark
+                    .attrs
+                    .range
+                    .clone()
+                    .unwrap_or(mark.marker_range.clone()),
                 related: Vec::new(),
             });
         }
@@ -568,7 +572,8 @@ mod tests {
 
     #[test]
     fn direct_dependency_values_keep_exact_source_ranges() {
-        let source = "`- Review\n  `+ task\n  `@ review\n  `= depends|Project Plan.plumb#build #local\n";
+        let source =
+            "`- Review\n  `+ task\n  `@ review\n  `= depends|Project Plan.plumb#build #local\n";
         let parsed = plumb_syntax::parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let output = analyze_tasks(

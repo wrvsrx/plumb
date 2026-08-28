@@ -9,7 +9,10 @@ local path = root .. '/plugin.plumb'
 vim.fn.writefile({
   '`= title|Plugin E2E',
   '',
-  '`task Do work',
+  '`- Do work',
+  '',
+  ' `+ task',
+  '',
   ' `@ work',
   '',
   ' `note Task detail',
@@ -71,7 +74,7 @@ local items = completion.result.items or completion.result
 assert(vim.iter(items):any(function(item) return item.label == 'Task' end), 'Task completion missing')
 
 vim.cmd.edit(vim.fn.fnameescape(path))
-vim.api.nvim_win_set_cursor(0, { 6, 0 })
+vim.api.nvim_win_set_cursor(0, { 9, 0 })
 assert(vim.wait(5000, function()
   return #vim.lsp.codelens.get({ bufnr = 0, client_id = client.id }) > 0
 end), 'receive plumb CodeLens')

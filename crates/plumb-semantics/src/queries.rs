@@ -202,8 +202,8 @@ fn direct_block_attribute_context(
                         .iter()
                         .any(|item| matches!(item, AttrItem::Pair { key: existing, .. } if existing == key))
                 };
-                match owner_mark.marker.as_str() {
-                    "task" => {
+                match crate::list_item_facet(owner) {
+                    crate::ListItemFacet::Task => {
                         for (key, detail) in task_attribute_pairs() {
                             push_block_pair_completion(
                                 &mut completions,
@@ -213,7 +213,7 @@ fn direct_block_attribute_context(
                             );
                         }
                     }
-                    "event" => {
+                    crate::ListItemFacet::Event => {
                         for (key, detail) in event_attribute_pairs() {
                             push_block_pair_completion(
                                 &mut completions,
@@ -537,10 +537,7 @@ fn event_title_context_in_blocks(
         let Block::Parsed(block) = block else {
             continue;
         };
-        if block
-            .mark
-            .as_ref()
-            .is_some_and(|mark| mark.marker == "event")
+        if crate::list_item_facet(block) == crate::ListItemFacet::Event
             && offset == block.head.range.end
         {
             if block.head.arguments.len() != 2 {
@@ -603,7 +600,7 @@ fn task_dependency_context_in_blocks(
             continue;
         };
         if let Some(mark) = &block.mark {
-            if mark.marker == "task" {
+            if crate::list_item_facet(block) == crate::ListItemFacet::Task {
                 let value = mark.attrs.items.iter().find_map(|item| match item {
                     AttrItem::Pair { key, value, .. } if key == "depends" => Some(value),
                     _ => None,
@@ -1106,8 +1103,9 @@ mod tests {
             );
         }
         for prefix in ["`t", "`e"] {
-            let source =
-                format!("`task something\n `= created|2026-08-09T10:55:24+08:00\n\n{prefix}");
+            let source = format!(
+                "`- something\n `+ task\n `= created|2026-08-09T10:55:24+08:00\n\n{prefix}"
+            );
             let parsed = parse(&source);
             let replace = source.len() - prefix.len()..source.len();
             let expected = if prefix == "`t" {
@@ -1232,7 +1230,8 @@ mod tests {
 
     #[test]
     fn locates_plain_event_title_completion_at_head_end() {
-        let (source, cursor) = strip_cursor("`event 09:00|rela|");
+        let source = "`- 09:00|rela\n `+ event".to_string();
+        let cursor = source.find("rela").unwrap() + "rela".len();
         assert_eq!(
             event_title_completion_context(&parse(&source), cursor),
             Some(EventTitleCompletionContext {
@@ -1241,7 +1240,8 @@ mod tests {
             })
         );
 
-        let (empty, cursor) = strip_cursor("`event 09:00||");
+        let empty = "`- 09:00|\n `+ event".to_string();
+        let cursor = "`- 09:00|".len();
         assert_eq!(
             event_title_completion_context(&parse(&empty), cursor),
             Some(EventTitleCompletionContext {
@@ -1266,7 +1266,7 @@ mod tests {
 
     #[test]
     fn completes_standard_attributes_from_recovered_owner_context() {
-        let (task, cursor) = strip_cursor("`task Work\n `= created|now\n `= pr|\n");
+        let (task, cursor) = strip_cursor("`- Work\n `+ task\n `= created|now\n `= pr|\n");
         let context = attribute_completion_context(&parse(&task), cursor).unwrap();
         assert_eq!(context.replace, task.find("`= pr").unwrap()..cursor);
         assert_eq!(
@@ -1282,7 +1282,7 @@ mod tests {
 
     #[test]
     fn completes_direct_declaration_children_with_the_owners_ordinary_syntax() {
-        let (task, cursor) = strip_cursor("`task Work\n `= pr|\n");
+        let (task, cursor) = strip_cursor("`- Work\n `+ task\n `= pr|\n");
         let context = attribute_completion_context(&parse(&task), cursor).unwrap();
         assert_eq!(context.replace, task.find("`= pr").unwrap()..cursor);
         assert_eq!(
@@ -1298,7 +1298,7 @@ mod tests {
     #[test]
     fn identifies_task_dependency_tokens_and_preserves_other_references() {
         let (source, cursor) = strip_cursor(
-            "`task Review\n `@ review\n `= depends|#done Project Plan.plumb#dr|aft #later\n",
+            "`- Review\n `+ task\n `@ review\n `= depends|#done Project Plan.plumb#dr|aft #later\n",
         );
         let current_start = source.find("Project Plan.plumb#draft").unwrap();
         let context = task_dependency_completion_context(&parse(&source), cursor).unwrap();
@@ -1319,7 +1319,7 @@ mod tests {
             ]
         );
 
-        let (empty, cursor) = strip_cursor("`task Review\n `= depends|#done |\n");
+        let (empty, cursor) = strip_cursor("`- Review\n `+ task\n `= depends|#done |\n");
         let context = task_dependency_completion_context(&parse(&empty), cursor).unwrap();
         assert_eq!(context.replace, cursor..cursor);
         assert_eq!(context.query, "");
@@ -1336,7 +1336,7 @@ mod tests {
             None
         );
 
-        let (recovered, cursor) = strip_cursor("`task Review\n `= depends|#dr|aft\n");
+        let (recovered, cursor) = strip_cursor("`- Review\n `+ task\n `= depends|#dr|aft\n");
         let context = task_dependency_completion_context(&parse(&recovered), cursor).unwrap();
         assert_eq!(context.query, "#dr");
         assert_eq!(&recovered[context.replace], "#draft");
@@ -1344,14 +1344,14 @@ mod tests {
 
     #[test]
     fn suppresses_duplicate_attributes_and_completes_enum_values() {
-        let (task, cursor) = strip_cursor("`task Work\n `= priority|2\n `= |\n");
+        let (task, cursor) = strip_cursor("`- Work\n `+ task\n `= priority|2\n `= |\n");
         let context = attribute_completion_context(&parse(&task), cursor).unwrap();
         assert!(!context
             .completions
             .iter()
             .any(|item| item.label == "priority"));
 
-        let (quoted, cursor) = strip_cursor("`task Work\n `= due|2026-|\n");
+        let (quoted, cursor) = strip_cursor("`- Work\n `+ task\n `= due|2026-|\n");
         assert_eq!(attribute_completion_context(&parse(&quoted), cursor), None);
     }
 

@@ -2459,7 +2459,7 @@ mod tests {
             .collect::<Vec<_>>()
             .join("\n");
 
-        assert_eq!(adjusted, absolute.replacen("\n\n", "\n \n", 1));
+        assert_eq!(adjusted, absolute.replace("\n\n", "\n \n"));
         assert!(absolute.contains("\n\n  `= created|"));
         assert!(relative.contains("\n\n `= created|"));
         assert!(!absolute.contains(" {"));
@@ -2579,7 +2579,7 @@ mod tests {
     #[test]
     fn closed_task_tokens_preserve_nested_task_states() {
         let parsed = parse(
-            "`task Closed parent\n\n `= done|2026-07-27T10:00:00+08:00\n\n `note Parent detail\n\n `task Open child\n\n `note Parent tail\n\n`task Canceled\n\n `= canceled|2026-07-27T10:01:00+08:00\n\n`task Conflicted\n\n `= done|2026-07-27T10:02:00+08:00\n\n `= canceled|2026-07-27T10:03:00+08:00\n",
+            "`- Closed parent\n\n `+ task\n\n `= done|2026-07-27T10:00:00+08:00\n\n `note Parent detail\n\n `- Open child\n\n  `+ task\n\n `note Parent tail\n\n`- Canceled\n\n `+ task\n\n `= canceled|2026-07-27T10:01:00+08:00\n\n`- Conflicted\n\n `+ task\n\n `= done|2026-07-27T10:02:00+08:00\n\n `= canceled|2026-07-27T10:03:00+08:00\n",
         );
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let tasks = analyze_tasks(

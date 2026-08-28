@@ -11,6 +11,7 @@ enum SourceEpoch {
     AttachedV1,
     DocumentGroupV1,
     HeadSpaceV1,
+    TaskEventMarkersV1,
 }
 
 #[derive(Debug, Parser)]
@@ -81,6 +82,7 @@ fn migrate_source(epoch: SourceEpoch, source: &str, name: &str) -> Result<String
         SourceEpoch::AttachedV1 => plumb_migrate::migrate_attached_v1(source),
         SourceEpoch::DocumentGroupV1 => plumb_migrate::migrate_document_group_v1(source),
         SourceEpoch::HeadSpaceV1 => plumb_migrate::migrate_head_space_v1(source),
+        SourceEpoch::TaskEventMarkersV1 => plumb_migrate::migrate_task_event_markers_v1(source),
     }
     .map_err(|error| format!("{name}: {error}"))
 }

@@ -81,7 +81,8 @@ fn labels_individual_metadata_entry_folds() {
 #[test]
 fn exposes_single_line_semantic_folds_to_line_and_character_range_clients() {
     let uri = "file:///tmp/single-line-folds.plumb";
-    let source = "`= date|2026-08-02\n`= timezone|+08:00\n`task Ready\n`event 14:00|Standup\n";
+    let source =
+        "`= date|2026-08-02\n`= timezone|+08:00\n`- Ready\n `+ task\n`- 14:00|Standup\n `+ event\n";
     let requests = |line_folding_only| {
         [
             json!({
@@ -130,17 +131,13 @@ fn exposes_single_line_semantic_folds_to_line_and_character_range_clients() {
             },
             {
                 "startLine": 2,
-                "startCharacter": 0,
-                "endLine": 2,
-                "endCharacter": source.lines().nth(2).unwrap().len(),
-                "collapsedText": "`task [ ]  Ready"
+                "endLine": 3,
+                "collapsedText": "`- [ ]  Ready"
             },
             {
-                "startLine": 3,
-                "startCharacter": 0,
-                "endLine": 3,
-                "endCharacter": source.lines().nth(3).unwrap().len(),
-                "collapsedText": "`event 2026-08-02T14:00| Standup"
+                "startLine": 4,
+                "endLine": 5,
+                "collapsedText": "`- 2026-08-02T14:00| Standup"
             }
         ])
     );
@@ -159,13 +156,13 @@ fn exposes_single_line_semantic_folds_to_line_and_character_range_clients() {
             },
             {
                 "startLine": 2,
-                "endLine": 2,
-                "collapsedText": "`task [ ]  Ready"
+                "endLine": 3,
+                "collapsedText": "`- [ ]  Ready"
             },
             {
-                "startLine": 3,
-                "endLine": 3,
-                "collapsedText": "`event 2026-08-02T14:00| Standup"
+                "startLine": 4,
+                "endLine": 5,
+                "collapsedText": "`- 2026-08-02T14:00| Standup"
             }
         ])
     );
@@ -174,7 +171,7 @@ fn exposes_single_line_semantic_folds_to_line_and_character_range_clients() {
 #[test]
 fn same_marker_fold_consumes_separator_and_preserves_changed_marker_boundary() {
     let uri = "file:///tmp/task-trailing-blank-fold.plumb";
-    let source = "`note aaa\n\n bbb\n\n`note ccc\n\n detail\n\n`task aaa\n\n bbb\n\n`task ccc\n\n detail\n\n`- regular\n";
+    let source = "`note aaa\n\n bbb\n\n`note ccc\n\n detail\n\n`- aaa\n\n `+ task\n\n bbb\n\n`- ccc\n\n `+ task\n\n detail\n\n`- regular\n";
     let messages = [
         json!({
             "jsonrpc": "2.0", "id": 1, "method": "initialize",
@@ -207,8 +204,8 @@ fn same_marker_fold_consumes_separator_and_preserves_changed_marker_boundary() {
         json!([
             { "startLine": 0, "endLine": 3 },
             { "startLine": 4, "endLine": 6 },
-            { "startLine": 8, "endLine": 11, "collapsedText": "`task [ ]  aaa" },
-            { "startLine": 12, "endLine": 14, "collapsedText": "`task [ ]  ccc" }
+            { "startLine": 8, "endLine": 13, "collapsedText": "`- [ ]  aaa" },
+            { "startLine": 14, "endLine": 19, "collapsedText": "`- [ ]  ccc" }
         ])
     );
 }
@@ -293,7 +290,7 @@ fn folds_with_locally_determined_labels_before_initial_index_completes() {
     let document = root.join("inbox.plumb");
     let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
     let document_uri = lsp_types::Url::from_file_path(&document).unwrap();
-    let source = "`= title|Workspace\n\n`event 14:00|Standup\n `= date|2026-08-02\n `= timezone|+08:00\n `note Detail\n\n`task Blocker\n `@ blocker\n `note Detail\n\n`task Closed dependency\n `@ closed\n `= done|2026-08-01T00:00:00Z\n `note Detail\n\n`task Ready\n `note Detail\n\n`task Waiting\n `= wait|2099-01-01T00:00:00Z\n `= depends|missing.plumb#task\n `note Detail\n\n`task Done\n `= done|2026-08-01T00:00:00Z\n `note Detail\n\n`task Canceled\n `= canceled|2026-08-01T00:00:00Z\n `note Detail\n\n`task Conflicted\n `= done|2026-08-01T00:00:00Z\n `= canceled|2026-08-01T00:01:00Z\n `note Detail\n\n`task Blocked\n `= depends|#blocker\n `note Detail\n\n`task Resolved ready\n `= depends|#closed\n `note Detail\n\n`task Unknown\n `= depends|missing.plumb#task\n `note Detail\n";
+    let source = "`= title|Workspace\n\n`- 14:00|Standup\n `+ event\n `= date|2026-08-02\n `= timezone|+08:00\n `note Detail\n\n`- Blocker\n `+ task\n `@ blocker\n `note Detail\n\n`- Closed dependency\n `+ task\n `@ closed\n `= done|2026-08-01T00:00:00Z\n `note Detail\n\n`- Ready\n `+ task\n `note Detail\n\n`- Waiting\n `+ task\n `= wait|2099-01-01T00:00:00Z\n `= depends|missing.plumb#task\n `note Detail\n\n`- Done\n `+ task\n `= done|2026-08-01T00:00:00Z\n `note Detail\n\n`- Canceled\n `+ task\n `= canceled|2026-08-01T00:00:00Z\n `note Detail\n\n`- Conflicted\n `+ task\n `= done|2026-08-01T00:00:00Z\n `= canceled|2026-08-01T00:01:00Z\n `note Detail\n\n`- Blocked\n `+ task\n `= depends|#blocker\n `note Detail\n\n`- Resolved ready\n `+ task\n `= depends|#closed\n `note Detail\n\n`- Unknown\n `+ task\n `= depends|missing.plumb#task\n `note Detail\n";
     let first = [
         json!({
             "jsonrpc": "2.0", "id": 1, "method": "initialize",
@@ -340,23 +337,23 @@ fn folds_with_locally_determined_labels_before_initial_index_completes() {
         .collect::<Vec<_>>();
     for expected in [
         "title  Workspace",
-        "`event 2026-08-02T14:00| Standup",
-        "`task [ ]  Blocker",
-        "`task [o]  Closed dependency",
-        "`task [ ]  Ready",
-        "`task [~]  Waiting",
-        "`task [o]  Done",
-        "`task [x]  Canceled",
-        "`task [ox] Conflicted",
-        "`task [=]  Blocked",
-        "`task [ ]  Resolved ready",
+        "`- 2026-08-02T14:00| Standup",
+        "`- [ ]  Blocker",
+        "`- [o]  Closed dependency",
+        "`- [ ]  Ready",
+        "`- [~]  Waiting",
+        "`- [o]  Done",
+        "`- [x]  Canceled",
+        "`- [ox] Conflicted",
+        "`- [=]  Blocked",
+        "`- [ ]  Resolved ready",
     ] {
         assert!(
             labels.contains(&expected),
             "missing {expected:?}: {labels:?}"
         );
     }
-    let unknown_line = source[..source.find("`task Unknown").unwrap()]
+    let unknown_line = source[..source.find("`- Unknown").unwrap()]
         .bytes()
         .filter(|byte| *byte == b'\n')
         .count() as u64;
@@ -372,7 +369,7 @@ fn folds_with_locally_determined_labels_before_initial_index_completes() {
 fn refreshes_folding_after_index_only_for_declared_clients() {
     let root = unique_temp_dir();
     std::fs::create_dir_all(&root).unwrap();
-    std::fs::write(root.join("note.plumb"), "`task Indexed\n").unwrap();
+    std::fs::write(root.join("note.plumb"), "`- Indexed\n `+ task\n").unwrap();
     let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
     let run = |support: bool| {
         let experimental =
@@ -408,7 +405,7 @@ fn refreshes_folding_after_index_only_for_declared_clients() {
 #[test]
 fn labels_task_folds_with_derived_workflow_states() {
     let uri = "file:///tmp/task-fold-labels.plumb";
-    let source = "`task Ready task\n\n `@ blocker\n\n `note Detail\n\n`task Waiting task\n\n `= wait|2099-01-01T00:00:00Z\n `= depends|#blocker\n\n `note Detail\n\n`task Done task\n\n `= done|2026-07-27T10:00:00Z\n\n `note Detail\n\n`task Canceled task\n\n `= canceled|2026-07-27T10:00:00Z\n\n `note Detail\n\n`task Conflicted task\n\n `= done|2026-07-27T10:00:00Z\n `= canceled|2026-07-27T10:01:00Z\n\n `note Detail\n\n`task Blocked task\n\n `= depends|#blocker\n\n `note Detail\n\n`node Parent\n\n `task Nested task\n\n  `= done|2026-07-27T10:02:00Z\n\n  `note Detail\n";
+    let source = "`- Ready task\n\n `+ task\n\n `@ blocker\n\n `note Detail\n\n`- Waiting task\n\n `+ task\n\n `= wait|2099-01-01T00:00:00Z\n `= depends|#blocker\n\n `note Detail\n\n`- Done task\n\n `+ task\n\n `= done|2026-07-27T10:00:00Z\n\n `note Detail\n\n`- Canceled task\n\n `+ task\n\n `= canceled|2026-07-27T10:00:00Z\n\n `note Detail\n\n`- Conflicted task\n\n `+ task\n\n `= done|2026-07-27T10:00:00Z\n `= canceled|2026-07-27T10:01:00Z\n\n `note Detail\n\n`- Blocked task\n\n `+ task\n\n `= depends|#blocker\n\n `note Detail\n\n`node Parent\n\n `- Nested task\n\n  `+ task\n\n  `= done|2026-07-27T10:02:00Z\n\n  `note Detail\n";
     let messages = [
         json!({
             "jsonrpc": "2.0", "id": 1, "method": "initialize",
@@ -442,14 +439,14 @@ fn labels_task_folds_with_derived_workflow_states() {
     assert_eq!(
         response(&run_server(&messages), 2)["result"],
         json!([
-            { "startLine": 0, "endLine": 5, "collapsedText": "`task [ ]  Ready task" },
-            { "startLine": 6, "endLine": 12, "collapsedText": "`task [~]  Waiting task" },
-            { "startLine": 13, "endLine": 18, "collapsedText": "`task [o]  Done task" },
-            { "startLine": 19, "endLine": 24, "collapsedText": "`task [x]  Canceled task" },
-            { "startLine": 25, "endLine": 31, "collapsedText": "`task [ox] Conflicted task" },
-            { "startLine": 32, "endLine": 36, "collapsedText": "`task [=]  Blocked task" },
-            { "startLine": 38, "endLine": 44 },
-            { "startLine": 40, "endLine": 44, "collapsedText": " `task [o]  Nested task" }
+            { "startLine": 0, "endLine": 7, "collapsedText": "`- [ ]  Ready task" },
+            { "startLine": 8, "endLine": 16, "collapsedText": "`- [~]  Waiting task" },
+            { "startLine": 17, "endLine": 24, "collapsedText": "`- [o]  Done task" },
+            { "startLine": 25, "endLine": 32, "collapsedText": "`- [x]  Canceled task" },
+            { "startLine": 33, "endLine": 41, "collapsedText": "`- [ox] Conflicted task" },
+            { "startLine": 42, "endLine": 48, "collapsedText": "`- [=]  Blocked task" },
+            { "startLine": 50, "endLine": 58 },
+            { "startLine": 52, "endLine": 58, "collapsedText": " `- [o]  Nested task" }
         ])
     );
 }
@@ -457,7 +454,7 @@ fn labels_task_folds_with_derived_workflow_states() {
 #[test]
 fn labels_event_folds_with_abbreviated_times() {
     let uri = "file:///tmp/event-fold-labels.plumb";
-    let source = "`event 14:00|Standup\n\n `= date|2026-08-02\n `= timezone|+08:00\n\n `note Detail\n\n`event 09:00--10:30|Review\n\n `= date|2026-08-02\n `= timezone|+08:00\n\n `note Detail\n\n`event 11:00|Parent\n\n `= date|2026-08-02\n `= timezone|+08:00\n\n `note Detail\n\n `event 12:00|Nested\n\n  `= date|2026-08-02\n  `= timezone|+08:00\n\n  `note Detail\n\n`event Untimed\n\n `note Detail\n";
+    let source = "`- 14:00|Standup\n\n `+ event\n\n `= date|2026-08-02\n `= timezone|+08:00\n\n `note Detail\n\n`- 09:00--10:30|Review\n\n `+ event\n\n `= date|2026-08-02\n `= timezone|+08:00\n\n `note Detail\n\n`- 11:00|Parent\n\n `+ event\n\n `= date|2026-08-02\n `= timezone|+08:00\n\n `note Detail\n\n `- 12:00|Nested\n\n  `+ event\n\n  `= date|2026-08-02\n  `= timezone|+08:00\n\n  `note Detail\n\n`- Untimed\n\n `+ event\n\n `note Detail\n";
     let messages = [
         json!({
             "jsonrpc": "2.0", "id": 1, "method": "initialize",
@@ -491,11 +488,11 @@ fn labels_event_folds_with_abbreviated_times() {
     assert_eq!(
         response(&run_server(&messages), 2)["result"],
         json!([
-            { "startLine": 0, "endLine": 6, "collapsedText": "`event 2026-08-02T14:00| Standup" },
-            { "startLine": 7, "endLine": 13, "collapsedText": "`event 2026-08-02T09:00--10:30| Review" },
-            { "startLine": 14, "endLine": 27, "collapsedText": "`event 2026-08-02T11:00| Parent" },
-            { "startLine": 21, "endLine": 26, "collapsedText": " `event 2026-08-02T12:00| Nested" },
-            { "startLine": 28, "endLine": 30 }
+            { "startLine": 0, "endLine": 8, "collapsedText": "`- 2026-08-02T14:00| Standup" },
+            { "startLine": 9, "endLine": 17, "collapsedText": "`- 2026-08-02T09:00--10:30| Review" },
+            { "startLine": 18, "endLine": 35, "collapsedText": "`- 2026-08-02T11:00| Parent" },
+            { "startLine": 27, "endLine": 34, "collapsedText": " `- 2026-08-02T12:00| Nested" },
+            { "startLine": 36, "endLine": 40 }
         ])
     );
 }
