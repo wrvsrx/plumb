@@ -88,10 +88,11 @@ bare `"|"。同一 converter 也迁移 childless definition 的 term/body bounda
 schedule/title boundary；already-migrated heads 与不满足旧 recognizer 的 source 保持 byte-identical。
 
 旧 specialized-marker epoch 使用 `"task"/`"event" markers 表达 records。使用
-`"plumb migrate --from task-event-markers-v1" 将每个这样的 owner 改为 bullet `"-" item，并把对应
-`"+ task"/`"+ event" 作为第一个 direct declaration 插入；原 head、后续 declarations、body children 与
-raw tail 的内容及 ownership 保持不变，owner base indentation 与 document line ending 保留，subtree layout
-按 canonical formatter 规范化。迁移 current facet form 时 source 保持 byte-identical。
+`"plumb migrate --from task-event-markers-v1" 将每个这样的 owner 改为 bullet `"-" item；对应
+`"+ task"/`"+ event" 缺失时作为第一个 direct declaration 插入，已存在时不重复也不重排。原 head、后续 declarations、body children、
+raw tail、owner base indentation、document line ending 与其他 layout 保持不变。converter 通过 `"plumb-edit"
+从同一个 parsed revision 批量生成 marker-token replacements 与 facet insertions，应用全部 non-overlapping
+edits 后只对最终 document 执行一次 strict validation；迁移 current facet form 时 source 保持 byte-identical。
 
 `## 5.2 Inline member projection
 

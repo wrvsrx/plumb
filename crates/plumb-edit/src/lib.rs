@@ -1,4 +1,4 @@
-use std::ops::Range;
+use std::{collections::HashMap, ops::Range};
 
 use plumb_syntax::{
     AttrItem, Attributes, Block, Inline, InlineMember, ParsedBlock, ParsedDocument,
@@ -98,6 +98,13 @@ pub enum OwnedAttribute {
 pub enum OwnedValue {
     Bare(String),
     Quoted(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MarkedOwnerRewrite {
+    pub owner_range: Range<usize>,
+    pub marker: String,
+    pub first_attribute: Option<OwnedAttribute>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -483,6 +490,123 @@ pub fn replace_owned_blocks(
         replacement.push_str(newline);
     }
     TextEdit::replace(parsed, range, replacement)
+}
+
+pub fn rewrite_marked_owners(
+    parsed: &ParsedDocument,
+    rewrites: &[MarkedOwnerRewrite],
+) -> Result<Vec<TextEdit>, EditError> {
+    let mut owners = HashMap::new();
+    collect_parsed_blocks(&parsed.syntax.blocks, &mut owners);
+    let newline = line_ending(&parsed.source);
+    let mut edits = Vec::with_capacity(rewrites.len() * 2);
+    for rewrite in rewrites {
+        let owner = owners
+            .get(&(rewrite.owner_range.start, rewrite.owner_range.end))
+            .ok_or(EditError::InvalidRange)?;
+        let mark = owner.mark.as_ref().ok_or(EditError::InvalidRange)?;
+        edits.push(TextEdit::replace(
+            parsed,
+            mark.marker_range.clone(),
+            rewrite.marker.clone(),
+        )?);
+        if let Some(attribute) = &rewrite.first_attribute {
+            edits.push(prepend_owner_attribute(parsed, owner, attribute, newline)?);
+        }
+    }
+    let mut ranges = edits.iter().map(|edit| &edit.range).collect::<Vec<_>>();
+    ranges.sort_by_key(|range| (range.start, range.end));
+    if ranges
+        .windows(2)
+        .any(|ranges| ranges[0].end > ranges[1].start || ranges[0].start == ranges[1].start)
+    {
+        return Err(EditError::OverlappingEdits);
+    }
+    Ok(edits)
+}
+
+fn collect_parsed_blocks<'a>(
+    blocks: &'a [Block],
+    owners: &mut HashMap<(usize, usize), &'a ParsedBlock>,
+) {
+    for block in blocks {
+        if let Block::Parsed(block) = block {
+            owners.insert((block.range.start, block.range.end), block);
+            collect_parsed_blocks(&block.children, owners);
+        }
+    }
+}
+
+fn prepend_owner_attribute(
+    parsed: &ParsedDocument,
+    owner: &ParsedBlock,
+    attribute: &OwnedAttribute,
+    newline: &str,
+) -> Result<TextEdit, EditError> {
+    let mark = owner.mark.as_ref().ok_or(EditError::InvalidRange)?;
+    let source = &parsed.source;
+    let owner_line_start = source[..owner.range.start]
+        .rfind('\n')
+        .map_or(0, |index| index + 1);
+    let owner_indent = &source[owner_line_start..owner.range.start];
+    if !owner_indent.chars().all(|character| character == ' ') {
+        return Err(EditError::InvalidRange);
+    }
+    let owner_line_end = source[mark.marker_range.end..]
+        .find('\n')
+        .map(|relative| mark.marker_range.end + relative);
+    let structural_start = owner
+        .children
+        .first()
+        .map(Block::range)
+        .map(|range| range.start)
+        .or_else(|| owner.raw.as_ref().map(|raw| raw.boundary_range.start));
+
+    if let Some(structural_start) = structural_start {
+        let structural_line_start = source[..structural_start]
+            .rfind('\n')
+            .map_or(0, |index| index + 1);
+        if structural_line_start == owner_line_start {
+            let indent = " ".repeat(owner_indent.len() + 1);
+            let text = format!(
+                "{newline}{newline}{indent}{}{newline}{newline}{indent}",
+                attribute.render_block()
+            );
+            return TextEdit::replace(parsed, structural_start..structural_start, text);
+        }
+        let indent = &source[structural_line_start..structural_start];
+        if !indent.chars().all(|character| character == ' ') {
+            return Err(EditError::InvalidRange);
+        }
+        let line_end = owner_line_end.ok_or(EditError::InvalidRange)?;
+        let gap = &source[line_end..structural_line_start];
+        let prefix = if gap.bytes().filter(|byte| *byte == b'\n').count() >= 2 {
+            ""
+        } else {
+            newline
+        };
+        let text = format!(
+            "{prefix}{indent}{}{newline}{newline}",
+            attribute.render_block()
+        );
+        return TextEdit::replace(parsed, structural_line_start..structural_line_start, text);
+    }
+
+    let indent = " ".repeat(owner_indent.len() + 1);
+    let replacement = format!(
+        "{newline}{newline}{indent}{}{newline}",
+        attribute.render_block()
+    );
+    if let Some(line_end) = owner_line_end {
+        let break_start = if source[..line_end].ends_with('\r') {
+            line_end - 1
+        } else {
+            line_end
+        };
+        TextEdit::replace(parsed, break_start..line_end + 1, replacement)
+    } else {
+        TextEdit::replace(parsed, source.len()..source.len(), replacement)
+    }
 }
 
 pub fn remove_block(parsed: &ParsedDocument, range: Range<usize>) -> Result<TextEdit, EditError> {
@@ -1370,6 +1494,63 @@ mod tests {
         assert!(parse(&edited).is_valid(), "{edited}");
         assert!(edited.contains("`= created|2026-07-20T10:00:00+08:00"));
         assert!(edited.contains("`task Existing"));
+    }
+
+    #[test]
+    fn rewrites_marked_owners_with_first_attributes_in_one_revision() {
+        let source = "`task First\n `@ first\n\n`event Second\n";
+        let parsed = parse(source);
+        let first = parsed.syntax.blocks[0].range().clone();
+        let second = parsed.syntax.blocks[1].range().clone();
+        let rewrites = vec![
+            MarkedOwnerRewrite {
+                owner_range: first,
+                marker: "-".to_string(),
+                first_attribute: Some(OwnedAttribute::class("task")),
+            },
+            MarkedOwnerRewrite {
+                owner_range: second,
+                marker: "-".to_string(),
+                first_attribute: Some(OwnedAttribute::class("event")),
+            },
+        ];
+        let edits = rewrite_marked_owners(&parsed, &rewrites).unwrap();
+        assert_eq!(edits.len(), 4);
+        let edited = apply_text_edits(source.to_string(), edits).unwrap();
+        assert_eq!(
+            edited,
+            "`- First\n\n `+ task\n\n `@ first\n\n`- Second\n\n `+ event\n"
+        );
+        assert!(parse(&edited).is_valid(), "{edited}");
+        assert_eq!(
+            rewrite_marked_owners(
+                &parsed,
+                &[MarkedOwnerRewrite {
+                    owner_range: 1..3,
+                    marker: "-".to_string(),
+                    first_attribute: None,
+                }]
+            ),
+            Err(EditError::InvalidRange)
+        );
+    }
+
+    #[test]
+    fn marked_owner_rewrite_preserves_crlf_when_adding_a_first_attribute() {
+        let source = "`task Work\r\n";
+        let parsed = parse(source);
+        let edits = rewrite_marked_owners(
+            &parsed,
+            &[MarkedOwnerRewrite {
+                owner_range: parsed.syntax.blocks[0].range().clone(),
+                marker: "-".to_string(),
+                first_attribute: Some(OwnedAttribute::class("task")),
+            }],
+        )
+        .unwrap();
+        let edited = apply_text_edits(source.to_string(), edits).unwrap();
+        assert_eq!(edited, "`- Work\r\n\r\n `+ task\r\n");
+        assert!(parse(&edited).is_valid(), "{edited:?}");
     }
 
     #[test]

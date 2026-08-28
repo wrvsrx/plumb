@@ -97,9 +97,10 @@ with `|` and leaves already-migrated heads unchanged.
 
 Use `plumb migrate --from task-event-markers-v1` for the former specialized-marker
 epoch. It changes each `task` or `event` owner to a bullet item, inserts the
-matching direct leaf facet first, and canonicalizes that owner subtree while
-preserving its content, ownership, base indentation, and document line ending.
-Current facet-form source remains unchanged.
+matching direct leaf facet first when absent, does not duplicate or reorder an
+existing facet, and preserves the remaining content, ownership,
+layout, base indentation, and document line ending. Current facet-form source
+remains unchanged.
 
 The metadata insertion action creates `title` from the filename stem and
 `created` from the current local RFC 3339 timestamp.

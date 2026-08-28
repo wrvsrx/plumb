@@ -1,8 +1,8 @@
 use std::{collections::HashMap, fmt, ops::Range};
 
 use plumb_edit::{
-    apply_text_edits, OwnedAttribute, OwnedBlock, OwnedDocument, OwnedInline, OwnedInlineMember,
-    OwnedValue, TextEdit,
+    apply_text_edits, MarkedOwnerRewrite, OwnedAttribute, OwnedBlock, OwnedDocument, OwnedInline,
+    OwnedInlineMember, OwnedValue, TextEdit,
 };
 use plumb_syntax::{Block, Inline, InlineMember, ParsedBlock};
 use plumb_syntax_legacy_v1 as legacy;
@@ -251,20 +251,26 @@ pub fn migrate_task_event_markers_v1(source: &str) -> Result<String, MigrationEr
         ));
     }
 
-    let mut roots = Vec::new();
-    collect_task_event_marker_roots(&parsed.syntax.blocks, false, &mut roots);
-    let edits = roots
+    let mut owners = Vec::new();
+    collect_task_event_marker_owners(&parsed.syntax.blocks, &mut owners);
+    let rewrites = owners
         .into_iter()
         .map(|block| {
-            let mut owned = OwnedBlock::from_parsed(&parsed.source, block);
-            if source.contains("\r\n") {
-                normalize_owned_raw_line_endings(&mut owned);
+            let mark = block.mark.as_ref().expect("legacy owner has a mark");
+            let facet = mark.marker.clone();
+            MarkedOwnerRewrite {
+                owner_range: block.range.clone(),
+                marker: "-".to_string(),
+                first_attribute: (!mark.attrs.has_class(&facet))
+                    .then(|| OwnedAttribute::class(facet)),
             }
-            migrate_task_event_owned_block(&mut owned);
-            plumb_edit::replace_owned_block(&parsed, block.range.clone(), &owned)
-                .map_err(|_| MigrationError::InvalidGenerated)
         })
-        .collect::<Result<Vec<_>, _>>()?;
+        .collect::<Vec<_>>();
+    if rewrites.is_empty() {
+        return Ok(source.to_string());
+    }
+    let edits = plumb_edit::rewrite_marked_owners(&parsed, &rewrites)
+        .map_err(|_| MigrationError::InvalidGenerated)?;
     let migrated = apply_text_edits(source.to_string(), edits)
         .map_err(|_| MigrationError::InvalidGenerated)?;
     if !plumb_syntax::parse(&migrated).is_valid() {
@@ -273,25 +279,7 @@ pub fn migrate_task_event_markers_v1(source: &str) -> Result<String, MigrationEr
     Ok(migrated)
 }
 
-fn normalize_owned_raw_line_endings(block: &mut OwnedBlock) {
-    match block {
-        OwnedBlock::Parsed { children, raw, .. } => {
-            if let Some(raw) = raw {
-                *raw = raw.replace("\r\n", "\n");
-            }
-            for child in children {
-                normalize_owned_raw_line_endings(child);
-            }
-        }
-        OwnedBlock::Verbatim { text } => *text = text.replace("\r\n", "\n"),
-    }
-}
-
-fn collect_task_event_marker_roots<'a>(
-    blocks: &'a [Block],
-    inside_legacy_owner: bool,
-    roots: &mut Vec<&'a ParsedBlock>,
-) {
+fn collect_task_event_marker_owners<'a>(blocks: &'a [Block], owners: &mut Vec<&'a ParsedBlock>) {
     for block in blocks {
         let Block::Parsed(block) = block else {
             continue;
@@ -300,48 +288,11 @@ fn collect_task_event_marker_roots<'a>(
             .mark
             .as_ref()
             .is_some_and(|mark| matches!(mark.marker.as_str(), "task" | "event"));
-        if legacy && !inside_legacy_owner {
-            roots.push(block);
+        if legacy {
+            owners.push(block);
         }
-        collect_task_event_marker_roots(&block.children, inside_legacy_owner || legacy, roots);
+        collect_task_event_marker_owners(&block.children, owners);
     }
-}
-
-fn migrate_task_event_owned_block(block: &mut OwnedBlock) {
-    let OwnedBlock::Parsed {
-        marker, children, ..
-    } = block
-    else {
-        return;
-    };
-    let facet = marker
-        .as_deref()
-        .filter(|marker| matches!(*marker, "task" | "event"))
-        .map(str::to_string);
-    for child in children.iter_mut() {
-        migrate_task_event_owned_block(child);
-    }
-    let Some(facet) = facet else {
-        return;
-    };
-    *marker = Some("-".to_string());
-    children.retain(|child| !owned_leaf_facet(child, &facet));
-    children.insert(0, OwnedBlock::marked("+", facet));
-}
-
-fn owned_leaf_facet(block: &OwnedBlock, wanted: &str) -> bool {
-    let OwnedBlock::Parsed {
-        marker: Some(marker),
-        head,
-        children,
-        raw: None,
-    } = block
-    else {
-        return false;
-    };
-    marker == "+"
-        && children.is_empty()
-        && matches!(head.as_slice(), [OwnedInline::Text(value)] if value == wanted)
 }
 
 fn invalid_head_space(parsed: &plumb_syntax::ParsedDocument) -> MigrationError {
@@ -1491,7 +1442,7 @@ mod tests {
     fn task_event_marker_migration_preserves_crlf_raw_tails_and_deduplicates_facets() {
         let source = "`task Code\r\n `+ task\r\n\r\n|\"\r\n raw\r\n";
         let migrated = migrate_task_event_markers_v1(source).unwrap();
-        assert_eq!(migrated, "`- Code\r\n\r\n `+ task\r\n\r\n|\"\r\n raw\r\n");
+        assert_eq!(migrated, "`- Code\r\n `+ task\r\n\r\n|\"\r\n raw\r\n");
         assert!(!migrated.contains("`+ task\r\n\r\n `+ task"));
     }
 
@@ -1499,5 +1450,17 @@ mod tests {
     fn task_event_marker_migration_rejects_invalid_current_syntax() {
         let error = migrate_task_event_markers_v1("`broken[\n").unwrap_err();
         assert!(matches!(error, MigrationError::InvalidTaskEventMarkers(_)));
+    }
+
+    #[test]
+    fn migrates_many_task_event_owners_in_one_batch() {
+        let mut source = String::new();
+        for index in 0..5_000 {
+            source.push_str(&format!("`event 09:00|Event {index}\n"));
+        }
+        let migrated = migrate_task_event_markers_v1(&source).unwrap();
+        assert_eq!(migrated.matches("`+ event").count(), 5_000);
+        assert!(!migrated.contains("`event "));
+        assert!(plumb_syntax::parse(&migrated).is_valid());
     }
 }
