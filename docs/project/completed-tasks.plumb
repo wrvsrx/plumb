@@ -1064,6 +1064,29 @@
 
 `# Workspace performance and maintenance
 
+`- 控制本地 Cargo build artifacts 增长
+
+ `+ task
+
+ `@ control-cargo-build-artifacts
+
+ `= created|2026-08-29T03:28:53+08:00
+ `= done|2026-08-29T04:38:43+08:00
+
+ `note 只读 baseline 显示长期 root target 为 245 GiB，其中 incremental 129 GiB、debug deps 112 GiB、release
+
+ 4.1 GiB；root target 与其中 debug/release outputs 均由 repository ignore rule 覆盖，没有 build output 被提交。
+
+ `note 隔离的 clean workspace all-target build 中，full debug 使用 3.8 GiB/53.36 s，dev debug=1 使用
+
+ 2.8 GiB/49.78 s，磁盘减少约 26%，同时保留 line numbers、function symbols、breakpoints 与 backtraces；需要完整
+ locals/types 的调试 invocation 可以用 CARGO_PROFILE_DEV_DEBUG=2 覆盖。
+
+ `note contributor policy 保留 incremental；只有 contributor 明确确认 target path、disk size 并接受约 50 s clean
+
+ rebuild 时才手动运行 cargo clean --profile dev。普通 build、test 和 release 不自动清 cache，也不要求未安装的
+ cargo-sweep；现有 root target 未被本任务删除。
+
 `- 让 semantic-store profiling fixture 使用当前语法
 
  `+ task

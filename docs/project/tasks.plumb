@@ -4,26 +4,6 @@
 `->[roadmap|roadmap.plumb]；已经结束的任务及其验收记录保存在
 `->[completed tasks|completed-tasks.plumb]。
 
-`- 控制本地 Cargo build artifacts 增长
-
- `+ task
-
- `@ control-cargo-build-artifacts
-
- `= created|2026-08-29T03:28:53+08:00
-
- `note 测量 target 中 incremental、deps、binary 与重复 build variants 的空间和 rebuild-time contribution，记录
-
- 可重复的 baseline，而不把单次本机 target size 当成仓库保证。
-
- `note 评估 documented periodic cleanup、cargo-sweep 与 dev profile debug-info policy；选择方案前测量 clean/incremental
-
- build time、debugger usability 和 disk usage，不能在普通 build、test 或 release workflow 中自动删除用户 cache。
-
- `note 将采用的维护命令和风险写入 contributor-facing documentation，并验证 root target 与其他 generated artifacts
-
- 继续被 ignore；不提交 build outputs。
-
 `- 减少 notes interactive mode 的旧 dependency generations
 
  `+ task
