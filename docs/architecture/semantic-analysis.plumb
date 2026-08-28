@@ -123,6 +123,20 @@ tree、typed tree 与 document-local output，不能按 request 深拷贝这些 
 derived index 仍由各 workspace owner 独立持有。创建不同 source bytes 的 revision 必须分配新的 parsed
 payload，相同 bytes 的 revision rebind 保留原 shared allocation。
 
+LSP didOpen/didChange 将 current source 的 parse 与 document-local semantic generation 分成两个 revision-safe
+阶段。Server event loop 同步安装新的 immutable ParsedDocument，使 syntax diagnostics、formatting、folding、
+symbols over recovered syntax 与 completion context 立即观察新 bytes；syntax-valid revision 的 semantic analysis
+在 blocking worker 上运行。Result 必须携带 normalized path、protocol revision 与 parsed allocation identity，
+只有三者仍与 current entry 相同才原子安装 current-valid output。较新 revision、close/reopen 或相同 revision 的
+不同 bytes 都使旧 result stale；stale result 不发布 diagnostics、refresh 或 indexes。Queued job 在 analysis 前
+检查 per-path cancellation generation；已经进入当前不可中断 analyzer 的 stale job可以完成计算，但其 result
+仍必须丢弃，不得覆盖 current state。
+
+Semantic generation pending 时，workspace-wide semantic query 明确为 partial；adapter 不把旧 current output
+冒充新 revision，也不回退到同 path 的 persistent generation。只依赖 current ParsedDocument 的上述 editor
+requests 继续可用。Pending revision 立即发布 current syntax diagnostics并清除旧 semantic diagnostics；成功安装
+semantic output 后才重新发布该 generation 的 semantic/workspace diagnostics，并触发受影响的 refresh。
+
 Persistent generation 可以从 host 已保存的同 revision source snapshot 按需 materialize 一个
 `"DocumentEntry"。materialization 必须先确认 source content identity 与 generation 相同，随后建立
 `"ParsedDocument" 与 current output；identity 不同不能把新 bytes 伪装成旧 generation。Web 等 immutable
