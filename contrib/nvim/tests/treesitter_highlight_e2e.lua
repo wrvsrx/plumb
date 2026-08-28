@@ -48,6 +48,14 @@ end
 
 assert(captures['keyword\0->'], 'line-start inline verbatim kind must receive the keyword capture')
 assert(
+  captures['punctuation.delimiter\0`'],
+  'bare introducers must use the muted delimiter capture'
+)
+assert(
+  captures['punctuation.delimiter\0|'],
+  'argument separators must use the muted delimiter capture'
+)
+assert(
   captures['markup.raw\0"something.plumb"'],
   'line-start inline verbatim payload must receive a separate raw capture'
 )

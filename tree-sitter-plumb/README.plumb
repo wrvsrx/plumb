@@ -75,6 +75,9 @@ release artifact or regenerated locally.
 only highlights the generic core CST. It does not interpret marker or inline
 kind values semantically. Marker and parsed/inline-verbatim kind nodes receive generic token
 captures; raw highlighting is limited to payload nodes and does not override the kind capture.
+Bare introducers and argument/member separators share the muted
+`"@punctuation.delimiter" capture so syntax scaffolding does not compete with marker/kind/content;
+literal delimiter escapes remain `"@string.escape" and recovery remains `"@error".
 
 `"queries/folds.scm" and `"queries/indents.scm" cover generic block structure。
 `"queries/textobjects.scm" publishes `"block.outer"、`"block.inner"、`"inline.outer" and

@@ -1,5 +1,5 @@
 ; Core block and inline envelopes. Marker and kind meanings remain opaque.
-(introducer) @punctuation.special
+(introducer) @punctuation.delimiter
 (introducer_escape) @string.escape
 (bracket_escape) @string.escape
 (pipe_escape) @string.escape
