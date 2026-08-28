@@ -20,6 +20,7 @@ use benchmark_support::semantic_store_workload as workload;
 struct SqliteFixture {
     _directory: tempfile::TempDir,
     database: PathBuf,
+    store: SqliteSemanticStore,
     workspace: Workspace,
 }
 
@@ -50,7 +51,7 @@ fn task_fixtures(documents: usize, tasks: usize) -> (Workspace, SqliteFixture) {
     let directory = tempfile::tempdir().unwrap();
     let database = directory.path().join("semantic.sqlite3");
     let store = SqliteSemanticStore::open(&database).unwrap();
-    let mut persistent = Workspace::with_sqlite_store(store);
+    let mut persistent = Workspace::with_sqlite_store(store.clone());
     for document in 0..documents {
         let path = format!("tasks-{document:03}.plumb");
         let source = task_document_source(document, tasks, "");
@@ -62,6 +63,7 @@ fn task_fixtures(documents: usize, tasks: usize) -> (Workspace, SqliteFixture) {
         SqliteFixture {
             _directory: directory,
             database,
+            store,
             workspace: persistent,
         },
     )
@@ -107,12 +109,13 @@ fn sqlite_fixture(target: &str, source: &str) -> SqliteFixture {
     let directory = tempfile::tempdir().unwrap();
     let database = directory.path().join("semantic.sqlite3");
     let store = SqliteSemanticStore::open(&database).unwrap();
-    let mut workspace = Workspace::with_sqlite_store(store);
+    let mut workspace = Workspace::with_sqlite_store(store.clone());
     workspace.insert_disk("target.plumb", 0, target).unwrap();
     workspace.insert_disk("migrated.plumb", 0, source).unwrap();
     SqliteFixture {
         _directory: directory,
         database,
+        store,
         workspace,
     }
 }
@@ -200,6 +203,12 @@ fn benchmark_queries(c: &mut Criterion) {
     });
     group.bench_function("sqlite_agenda_range", |b| {
         b.iter(|| black_box(sqlite.workspace.events_overlapping(start, end)));
+    });
+    group.bench_function("sqlite_event_title_prefix", |b| {
+        b.iter(|| black_box(sqlite.store.event_title_counts("Event 12", &[])));
+    });
+    group.bench_function("sqlite_event_full_decode", |b| {
+        b.iter(|| black_box(sqlite.store.events(&[])));
     });
     group.bench_function("sqlite_open_overlay", |b| {
         b.iter_batched(

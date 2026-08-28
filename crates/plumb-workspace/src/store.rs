@@ -7,8 +7,9 @@ use std::sync::{Arc, Mutex};
 use chrono::DateTime;
 use diesel::connection::DefaultLoadingMode;
 use diesel::connection::SimpleConnection;
-use diesel::dsl::exists;
+use diesel::dsl::{count_star, exists, not, sql};
 use diesel::prelude::*;
+use diesel::sql_types::{Bool, Text};
 use diesel::sqlite::SqliteConnection;
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
 use plumb_semantics::{
@@ -769,6 +770,41 @@ impl SqliteSemanticStore {
             .order((events::path, events::start))
             .load_iter::<(Vec<u8>, i64, Vec<u8>), DefaultLoadingMode>(&mut *connection)?;
         decode_records(rows, excluded)
+    }
+
+    pub fn event_title_counts(
+        &self,
+        prefix: &str,
+        excluded: &[PathBuf],
+    ) -> StoreResult<Vec<(String, usize)>> {
+        let mut connection = self
+            .connection
+            .lock()
+            .map_err(|_| StoreError::LockPoisoned)?;
+        let excluded = excluded
+            .iter()
+            .map(|path| path_bytes(&normalize(path)))
+            .collect::<Vec<_>>();
+        let mut query = events::table
+            .filter(events::title.ne(""))
+            .filter(
+                sql::<Bool>("substr(CAST(events.title AS BLOB), 1, length(CAST(")
+                    .bind::<Text, _>(prefix)
+                    .sql(" AS BLOB))) = CAST(")
+                    .bind::<Text, _>(prefix)
+                    .sql(" AS BLOB)"),
+            )
+            .group_by(events::title)
+            .select((events::title, count_star()))
+            .into_boxed();
+        if !excluded.is_empty() {
+            query = query.filter(not(events::path.eq_any(excluded)));
+        }
+        query
+            .load::<(String, i64)>(&mut *connection)?
+            .into_iter()
+            .map(|(title, count)| Ok((title, to_usize(count)?)))
+            .collect()
     }
 
     pub fn event_task_associations_for_event(
@@ -1583,7 +1619,6 @@ fn path_from_bytes(bytes: Vec<u8>) -> StoreResult<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use diesel::sql_types::Text;
     use plumb_semantics::analyze_document;
     use plumb_syntax::parse;
 
@@ -1616,6 +1651,52 @@ mod tests {
         assert_eq!(store.anchors(&[]).unwrap().len(), 2);
         assert_eq!(store.tasks(&[]).unwrap().len(), 1);
         assert_eq!(store.events(&[]).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn event_title_counts_filter_group_and_exclude_without_decoding_records() {
+        let store = SqliteSemanticStore::open_in_memory().unwrap();
+        for (path, title) in [
+            ("one.plumb", "Alpha*"),
+            ("two.plumb", "Alpha*"),
+            ("three.plumb", "alpha*"),
+            ("four.plumb", "Alpha?"),
+            ("five.plumb", "Alpha`["),
+        ] {
+            let source = format!("`- 09:00|{title}\n\n `+ event\n");
+            store
+                .replace(Path::new(path), 0, &source, Some(&analyzed(&source)))
+                .unwrap();
+        }
+        store
+            .execute_batch_for_test("UPDATE events SET record = X'00'")
+            .unwrap();
+
+        assert_eq!(
+            store.event_title_counts("Alpha*", &[]).unwrap(),
+            vec![("Alpha*".to_string(), 2)]
+        );
+        assert_eq!(
+            store.event_title_counts("Alpha?", &[]).unwrap(),
+            vec![("Alpha?".to_string(), 1)]
+        );
+        assert_eq!(
+            store.event_title_counts("Alpha[", &[]).unwrap(),
+            vec![("Alpha[".to_string(), 1)]
+        );
+        assert_eq!(
+            store
+                .event_title_counts("Alpha", &[PathBuf::from("one.plumb")])
+                .unwrap()
+                .into_iter()
+                .collect::<HashMap<_, _>>(),
+            HashMap::from([
+                ("Alpha*".to_string(), 1),
+                ("Alpha?".to_string(), 1),
+                ("Alpha[".to_string(), 1),
+            ])
+        );
+        assert!(store.events(&[]).is_err());
     }
 
     #[test]

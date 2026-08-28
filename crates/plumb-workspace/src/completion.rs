@@ -28,10 +28,8 @@ impl Workspace {
             }
         }
         if let Some(store) = &self.disk_store {
-            for record in store.events(&excluded)? {
-                if !record.record.title.is_empty() {
-                    *counts.entry(record.record.title).or_default() += 1;
-                }
+            for (title, count) in store.event_title_counts(&context.query, &excluded)? {
+                *counts.entry(title).or_default() += count;
             }
         }
         let mut titles = counts
