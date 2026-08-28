@@ -382,7 +382,7 @@ fn discovers_workspace_markers_and_applies_ignore_files() {
 
 #[test]
 fn round_trips_the_exported_standard_profile_through_import() {
-    let source = "`= title|Import test\n\n`# Intro\n `@ intro\n\nParagraph with `*[emphasis], `![strong], `==[mark], `~[strike], `^[super], `_[sub], and `->[a link|other.plumb#id].\n\n`> Quoted\n `@ quote\n `+ source\n\n`task Item\n `@ task\n `= created|2026-07-23T17:00:00+08:00\n\n`rust\n `@ code\n\n|\"\n fn main() {}\n";
+    let source = "`= title|Import test\n\n`# Intro\n `@ intro\n\nParagraph with `*[emphasis], `![strong], `==[mark], `~[strike], `^[super], `_[sub], and `->[a link|other.plumb#id].\n\n`> Quoted\n `@ quote\n `+ source\n\n`task Item\n `@ task\n `= created|2026-07-23T17:00:00+08:00\n\n`table People\n `- name  | age\n  `+ header\n `- Alice | 10\n\n`rust\n `@ code\n\n|\"\n fn main() {}\n";
     let first = run_with_stdin(&["export"], source);
     assert!(
         first.status.success(),

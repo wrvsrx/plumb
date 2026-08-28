@@ -898,6 +898,12 @@ mod tests {
     }
 
     #[test]
+    fn preserves_argument_boundary_padding() {
+        let source = "`row name  | age\n`row Alice | 10\n";
+        assert_formats(source, source);
+    }
+
+    #[test]
     fn formats_anonymous_and_owned_raw_payloads() {
         assert_formats("`\"\"\n  payload\n", "`\"\"\n  payload\n");
         assert_formats(

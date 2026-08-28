@@ -82,8 +82,38 @@ fn collect_groups<'a>(blocks: impl IntoIterator<Item = &'a Block>, output: &mut 
 
 fn collect_child_groups(block: &Block, output: &mut ListOutput) {
     if let Block::Parsed(block) = block {
+        if block
+            .mark
+            .as_ref()
+            .is_some_and(|mark| mark.marker == "table")
+        {
+            collect_table_cell_groups(block, output);
+            return;
+        }
         collect_groups(crate::body_children(block), output);
     }
+}
+
+fn collect_table_cell_groups(table: &ParsedBlock, output: &mut ListOutput) {
+    for row in crate::body_children(table).filter_map(parsed_dash) {
+        if !row.head.is_empty() {
+            continue;
+        }
+        for cell in crate::body_children(row).filter_map(parsed_dash) {
+            collect_groups(crate::body_children(cell), output);
+        }
+    }
+}
+
+fn parsed_dash(block: &Block) -> Option<&ParsedBlock> {
+    let Block::Parsed(block) = block else {
+        return None;
+    };
+    block
+        .mark
+        .as_ref()
+        .is_some_and(|mark| mark.marker == "-")
+        .then_some(block)
 }
 
 fn list_item(block: &Block) -> Option<(&ParsedBlock, ListKind)> {
@@ -182,5 +212,22 @@ mod tests {
         );
         assert_eq!(output.groups.len(), 1);
         assert_eq!(output.groups[0].items.len(), 2);
+    }
+
+    #[test]
+    fn table_rows_and_cells_are_not_lists_but_rich_cell_body_lists_are() {
+        let parsed = parse(
+            "`table\n `- name|age\n `- Alice|10\n `-\n  `- Rich\n\n   `- nested item\n  `- 20\n",
+        );
+        assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
+
+        let output = analyze_lists(parsed.valid_syntax().unwrap());
+        assert_eq!(output.groups.len(), 1);
+        assert_eq!(output.groups[0].items.len(), 1);
+        let nested = "nested item";
+        assert_eq!(
+            output.groups[0].range.start,
+            parsed.source.find(nested).unwrap() - "`- ".len()
+        );
     }
 }

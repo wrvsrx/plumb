@@ -94,7 +94,7 @@ fn collect_inlines(content: &InlineContent, output: &mut CitationOutput) {
 
 fn citation_argument_id(argument: &InlineArgumentRef<'_>) -> Option<String> {
     match argument {
-        InlineArgumentRef::Parsed(content) => citation_id(content),
+        InlineArgumentRef::Parsed(content) => citation_id(&content.trim_boundary_padding()),
         InlineArgumentRef::Verbatim(argument) => {
             (!argument.text.is_empty()).then(|| argument.text.clone())
         }
@@ -102,10 +102,7 @@ fn citation_argument_id(argument: &InlineArgumentRef<'_>) -> Option<String> {
 }
 
 fn argument_range(argument: &InlineArgumentRef<'_>) -> Range<usize> {
-    match argument {
-        InlineArgumentRef::Parsed(content) => content.range.clone(),
-        InlineArgumentRef::Verbatim(argument) => argument.text_range.clone(),
-    }
+    argument.range()
 }
 
 fn citation_id(content: &InlineContent) -> Option<String> {

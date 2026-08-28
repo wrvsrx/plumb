@@ -8,6 +8,7 @@ mod math;
 mod metadata;
 mod queries;
 mod quotes;
+mod tables;
 mod tasks;
 mod text;
 
@@ -74,6 +75,7 @@ pub use queries::{
     LinkCompletionContext, TaskDependencyCompletionContext,
 };
 pub use quotes::{analyze_quotes, QuoteOutput, QuoteRecord};
+pub use tables::{analyze_tables, TableCellRecord, TableOutput, TableRecord, TableRowRecord};
 pub use tasks::{
     analyze_tasks, next_task_datetime, parse_task_reference_target, valid_task_datetime,
     TaskDependency, TaskField, TaskOutput, TaskRecord, TaskReferenceTarget, TaskState, TaskStatus,

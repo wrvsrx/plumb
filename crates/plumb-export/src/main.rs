@@ -5,7 +5,8 @@ use std::process::ExitCode;
 
 use plumb_semantics::{
     analyze_document, is_document_declaration, CitationRecord, DocumentOutput, InlineStyleKind,
-    LinkSpelling, ListGroup, ListKind, MetadataBlock, MetadataEntry, MetadataValue, TaskState,
+    LinkSpelling, ListGroup, ListKind, MetadataBlock, MetadataEntry, MetadataValue, TableRecord,
+    TaskState,
 };
 use plumb_syntax::{parse, AttrItem, Attributes, Block, Inline, InlineContent, ParsedBlock};
 use serde_json::{json, Map, Value};
@@ -289,6 +290,10 @@ fn lower_parsed_block(block: &ParsedBlock, analysis: &DocumentOutput, output: &m
     {
         return;
     }
+    if let Some(table) = analysis.tables.table_at_node_start(block.range.start) {
+        output.push(lower_table(block, table, analysis));
+        return;
+    }
     if let Some(raw) = &block.raw {
         let mark = block.mark.as_ref().expect("a raw owner is marked");
         if analysis
@@ -361,6 +366,111 @@ fn lower_parsed_block(block: &ParsedBlock, analysis: &DocumentOutput, output: &m
     } else {
         output.push(json!({ "t": "Para", "c": lower_inlines(&block.head, analysis) }));
     }
+}
+
+fn lower_table(block: &ParsedBlock, table: &TableRecord, analysis: &DocumentOutput) -> Value {
+    let mark = block.mark.as_ref().expect("a table has a mark");
+    let syntax_rows = plumb_semantics::body_children(block)
+        .filter_map(parsed_dash)
+        .collect::<Vec<_>>();
+    let rows = syntax_rows
+        .iter()
+        .zip(&table.rows)
+        .map(|(row, record)| lower_table_row(row, record, analysis))
+        .collect::<Vec<_>>();
+    let header_count = table.rows.iter().take_while(|row| row.header).count();
+    let caption = if table.caption.is_empty() {
+        json!([null, []])
+    } else {
+        json!([null, [{ "t": "Plain", "c": lower_inlines(&table.caption, analysis) }]])
+    };
+    let colspecs = (0..table.column_count)
+        .map(|_| json!([{ "t": "AlignDefault" }, { "t": "ColWidthDefault" }]))
+        .collect::<Vec<_>>();
+    let body = if rows.len() == header_count {
+        Vec::new()
+    } else {
+        vec![json!([
+            ["", [], []],
+            table.row_head_columns,
+            [],
+            rows[header_count..]
+        ])]
+    };
+    json!({
+        "t": "Table",
+        "c": [
+            lower_attrs(&mark.attrs, None),
+            caption,
+            colspecs,
+            [["", [], []], rows[..header_count]],
+            body,
+            [["", [], []], []]
+        ]
+    })
+}
+
+fn lower_table_row(
+    row: &ParsedBlock,
+    record: &plumb_semantics::TableRowRecord,
+    analysis: &DocumentOutput,
+) -> Value {
+    let attrs = row.mark.as_ref().map_or_else(
+        || json!(["", [], []]),
+        |mark| lower_table_attrs(&mark.attrs),
+    );
+    let cells = if record.compact {
+        row.head
+            .arguments
+            .iter()
+            .enumerate()
+            .map(|(index, _)| {
+                let content = row.head.argument(index).unwrap();
+                let blocks = if content.is_empty() {
+                    Vec::new()
+                } else {
+                    vec![json!({ "t": "Plain", "c": lower_inlines(&content, analysis) })]
+                };
+                json!([["", [], []], { "t": "AlignDefault" }, 1, 1, blocks])
+            })
+            .collect::<Vec<_>>()
+    } else {
+        plumb_semantics::body_children(row)
+            .filter_map(parsed_dash)
+            .zip(&record.cells)
+            .map(|(cell, _)| {
+                let mark = cell.mark.as_ref().expect("a table cell has a mark");
+                let mut blocks = Vec::new();
+                if !cell.head.is_empty() {
+                    blocks.push(json!({ "t": "Plain", "c": lower_inlines(&cell.head, analysis) }));
+                }
+                blocks.extend(lower_body(cell, analysis));
+                json!([
+                    lower_table_attrs(&mark.attrs),
+                    { "t": "AlignDefault" },
+                    1,
+                    1,
+                    blocks
+                ])
+            })
+            .collect::<Vec<_>>()
+    };
+    json!([attrs, cells])
+}
+
+fn parsed_dash(block: &Block) -> Option<&ParsedBlock> {
+    let Block::Parsed(block) = block else {
+        return None;
+    };
+    block
+        .mark
+        .as_ref()
+        .is_some_and(|mark| mark.marker == "-")
+        .then_some(block)
+}
+
+fn lower_table_attrs(attrs: &Attributes) -> Value {
+    lower_attrs_filtered(attrs, None, |class| class == "header", |_| false)
 }
 
 fn lower_inlines(content: &InlineContent, analysis: &DocumentOutput) -> Vec<Value> {
@@ -488,7 +598,10 @@ fn lower_members(members: &[plumb_syntax::InlineMember], analysis: &DocumentOutp
     for member in members {
         match member {
             plumb_syntax::InlineMember::ParsedArgument(argument) => {
-                output.extend(lower_inlines(&argument.content, analysis));
+                output.extend(lower_inlines(
+                    &argument.content.trim_boundary_padding(),
+                    analysis,
+                ));
             }
             plumb_syntax::InlineMember::VerbatimArgument(argument) => output.push(json!({
                 "t": "Code",
@@ -513,7 +626,10 @@ fn lower_link_label(
         match member {
             plumb_syntax::InlineMember::ParsedArgument(argument) => {
                 if argument_index == 0 {
-                    output.extend(lower_inlines(&argument.content, analysis));
+                    output.extend(lower_inlines(
+                        &argument.content.trim_boundary_padding(),
+                        analysis,
+                    ));
                 }
                 argument_index += 1;
             }
@@ -537,7 +653,9 @@ fn lower_argument(
     analysis: &DocumentOutput,
 ) -> Vec<Value> {
     match argument {
-        plumb_syntax::InlineArgumentRef::Parsed(content) => lower_inlines(content, analysis),
+        plumb_syntax::InlineArgumentRef::Parsed(content) => {
+            lower_inlines(&content.trim_boundary_padding(), analysis)
+        }
         plumb_syntax::InlineArgumentRef::Verbatim(argument) => {
             vec![json!({ "t": "Code", "c": [["", [], []], argument.text] })]
         }
@@ -718,6 +836,24 @@ mod tests {
         assert_eq!(items.len(), 2);
         assert_eq!(items[0][0]["c"][0]["c"], "First");
         assert_eq!(items[1][0]["c"][0]["c"], "Second");
+    }
+
+    #[test]
+    fn exports_compact_and_expanded_tables() {
+        let source = "`table People\n `- name  | age\n  `+ header\n `-\n  `- Alice\n   `+ header\n  `- 10\n `-\n  `- Bob\n   `+ header\n  `- 20\n\n   `note Approximate\n";
+        let document = export(source).unwrap();
+        let table = &document["blocks"][0];
+
+        assert_eq!(table["t"], "Table");
+        assert_eq!(table["c"][1][1][0]["c"][0]["c"], "People");
+        assert_eq!(table["c"][2].as_array().unwrap().len(), 2);
+        assert_eq!(table["c"][3][1].as_array().unwrap().len(), 1);
+        assert_eq!(table["c"][4][0][1], 1);
+        let body = table["c"][4][0][3].as_array().unwrap();
+        assert_eq!(body.len(), 2);
+        assert_eq!(body[0][1][0][4][0]["c"][0]["c"], "Alice");
+        assert_eq!(body[1][1][0][4][0]["c"][0]["c"], "Bob");
+        assert_eq!(body[1][1][1][4][1]["t"], "Div");
     }
 
     #[test]

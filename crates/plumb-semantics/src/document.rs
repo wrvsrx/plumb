@@ -11,9 +11,9 @@ use url::Url;
 
 use crate::{
     analyze_citations, analyze_events, analyze_headings, analyze_inline_styles, analyze_lists,
-    analyze_math, analyze_metadata, analyze_quotes, analyze_tasks, CitationOutput, EventOutput,
-    HeadingOutput, InlineStyleOutput, ListOutput, MathOutput, MetadataOutput, QuoteOutput,
-    TaskOutput,
+    analyze_math, analyze_metadata, analyze_quotes, analyze_tables, analyze_tasks, CitationOutput,
+    EventOutput, HeadingOutput, InlineStyleOutput, ListOutput, MathOutput, MetadataOutput,
+    QuoteOutput, TableOutput, TaskOutput,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -124,6 +124,7 @@ pub struct DocumentOutput {
     pub quotes: QuoteOutput,
     pub tasks: TaskOutput,
     pub events: EventOutput,
+    pub tables: TableOutput,
     pub anchors: Vec<AnchorRecord>,
     pub links: Vec<LinkRecord>,
     pub images: Vec<ImageRecord>,
@@ -157,6 +158,7 @@ pub fn analyze_document(valid: ValidDocument<'_>) -> DocumentOutput {
     let quotes = analyze_quotes(valid);
     let tasks = analyze_tasks(valid);
     let events = analyze_events(valid, &metadata);
+    let tables = analyze_tables(valid);
     let mut output = DocumentOutput {
         headings,
         metadata,
@@ -167,6 +169,7 @@ pub fn analyze_document(valid: ValidDocument<'_>) -> DocumentOutput {
         quotes,
         tasks,
         events,
+        tables,
         ..DocumentOutput::default()
     };
     output
@@ -174,6 +177,9 @@ pub fn analyze_document(valid: ValidDocument<'_>) -> DocumentOutput {
         .extend(association_arity_diagnostics(document));
     let mut first_ids: HashMap<String, Range<usize>> = HashMap::new();
     collect_blocks(source, &document.blocks, &mut first_ids, &mut output);
+    output
+        .diagnostics
+        .extend(output.tables.diagnostics.iter().cloned());
     output
 }
 
@@ -737,10 +743,7 @@ fn positional_link_parts(
 }
 
 fn argument_range(argument: &InlineArgumentRef<'_>) -> Range<usize> {
-    match argument {
-        InlineArgumentRef::Parsed(content) => content.range.clone(),
-        InlineArgumentRef::Verbatim(argument) => argument.text_range.clone(),
-    }
+    argument.range()
 }
 
 fn source_backed_argument(
@@ -748,7 +751,10 @@ fn source_backed_argument(
     argument: &InlineArgumentRef<'_>,
 ) -> Option<SourceBacked<String>> {
     match argument {
-        InlineArgumentRef::Parsed(content) => source_backed_inline_items(source, &content.items),
+        InlineArgumentRef::Parsed(content) => {
+            let content = content.trim_boundary_padding();
+            source_backed_inline_items(source, &content.items)
+        }
         InlineArgumentRef::Verbatim(argument) if !argument.text.is_empty() => Some(SourceBacked {
             raw: source[argument.text_range.clone()].to_string(),
             value: argument.text.clone(),

@@ -316,23 +316,74 @@ impl InlineContent {
 
     pub fn argument(&self, index: usize) -> Option<InlineContent> {
         let argument = self.arguments.get(index)?;
-        Some(Self::from_items(
+        Some(trim_argument_content(
+            &self.items[argument.item_range.clone()],
             argument.range.clone(),
-            self.items[argument.item_range.clone()].to_vec(),
         ))
     }
 
     pub fn argument_plain_text(&self, index: usize) -> Option<String> {
-        let argument = self.arguments.get(index)?;
-        let mut output = String::new();
-        append_plain_text(&self.items[argument.item_range.clone()], &mut output);
-        Some(output)
+        Some(self.argument(index)?.plain_text())
     }
 
     pub fn plain_text(&self) -> String {
         let mut output = String::new();
         append_plain_text(&self.items, &mut output);
         output
+    }
+
+    pub fn trim_boundary_padding(&self) -> InlineContent {
+        trim_argument_content(&self.items, self.range.clone())
+    }
+}
+
+fn trim_argument_content(items: &[Inline], source_range: SourceRange) -> InlineContent {
+    let mut items = items.to_vec();
+
+    while let Some(Inline::Space { text, range }) = items.first_mut() {
+        let trimmed = text.trim_start_matches(' ');
+        let removed = text.len() - trimmed.len();
+        if removed == 0 {
+            break;
+        }
+        range.start += removed;
+        *text = trimmed.to_string();
+        if text.is_empty() {
+            items.remove(0);
+        } else {
+            break;
+        }
+    }
+
+    while let Some(Inline::Space { text, range }) = items.last_mut() {
+        let trimmed = text.trim_end_matches(' ');
+        let removed = text.len() - trimmed.len();
+        if removed == 0 {
+            break;
+        }
+        range.end -= removed;
+        *text = trimmed.to_string();
+        if text.is_empty() {
+            items.pop();
+        } else {
+            break;
+        }
+    }
+
+    let range = match (items.first(), items.last()) {
+        (Some(first), Some(last)) => inline_range(first).start..inline_range(last).end,
+        _ => source_range.end..source_range.end,
+    };
+    InlineContent::from_items(range, items)
+}
+
+fn inline_range(inline: &Inline) -> &SourceRange {
+    match inline {
+        Inline::Text { range, .. }
+        | Inline::Space { range, .. }
+        | Inline::SoftBreak { range }
+        | Inline::Element { range, .. }
+        | Inline::Verbatim { range, .. } => range,
     }
 }
 
@@ -442,9 +493,16 @@ pub enum InlineArgumentRef<'a> {
 }
 
 impl InlineArgumentRef<'_> {
+    pub fn range(&self) -> SourceRange {
+        match self {
+            Self::Parsed(content) => content.trim_boundary_padding().range.clone(),
+            Self::Verbatim(argument) => argument.text_range.clone(),
+        }
+    }
+
     pub fn plain_text(&self) -> String {
         match self {
-            Self::Parsed(content) => content.plain_text(),
+            Self::Parsed(content) => content.trim_boundary_padding().plain_text(),
             Self::Verbatim(argument) => argument.text.clone(),
         }
     }

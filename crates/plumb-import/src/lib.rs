@@ -5,8 +5,8 @@ use std::io::{self, Read};
 use std::process::ExitCode;
 
 use pandoc_types::definition::{
-    Attr, Block, CitationMode, Inline, ListNumberDelim, ListNumberStyle, MathType, MetaValue,
-    Pandoc,
+    Alignment, Attr, Block, Caption, Cell, CitationMode, ColWidth, Inline, ListNumberDelim,
+    ListNumberStyle, MathType, MetaValue, Pandoc, Row, Table,
 };
 
 pub fn run_cli(args: impl IntoIterator<Item = OsString>) -> ExitCode {
@@ -209,9 +209,168 @@ fn render_block(block: &Block) -> Result<Option<String>, String> {
         Block::LineBlock(_) => Err("LineBlock has no standard plumb representation".into()),
         Block::RawBlock(_, _) => Err("RawBlock has no standard plumb representation".into()),
         Block::HorizontalRule => Err("HorizontalRule has no standard plumb representation".into()),
-        Block::Table(_) => Err("Table has no standard plumb representation".into()),
+        Block::Table(table) => Ok(Some(render_table(table)?)),
         Block::Figure(_, _, _) => Err("Figure has no standard plumb representation".into()),
     }
+}
+
+fn render_table(table: &Table) -> Result<String, String> {
+    if table.colspecs.iter().any(|spec| {
+        !matches!(spec.0, Alignment::AlignDefault) || !matches!(spec.1, ColWidth::ColWidthDefault)
+    }) {
+        return Err("table alignment and column widths are not representable".into());
+    }
+    if !table.foot.rows.is_empty() {
+        return Err("table foot rows are not representable".into());
+    }
+    if table.bodies.len() > 1 || table.bodies.iter().any(|body| !body.head.is_empty()) {
+        return Err("complex table body grouping is not representable".into());
+    }
+
+    let column_count = table.colspecs.len();
+    let mut rendered_rows = Vec::new();
+    for row in &table.head.rows {
+        rendered_rows.push(render_table_row(row, true, 0, column_count)?);
+    }
+    if let Some(body) = table.bodies.first() {
+        let row_head_columns = usize::try_from(body.row_head_columns)
+            .map_err(|_| "negative table row-head column count is invalid")?;
+        if row_head_columns > column_count {
+            return Err("table row-head column count exceeds the column count".into());
+        }
+        for row in &body.body {
+            rendered_rows.push(render_table_row(
+                row,
+                false,
+                row_head_columns,
+                column_count,
+            )?);
+        }
+    }
+
+    let caption = render_table_caption(&table.caption)?;
+    let mut output = if caption.is_empty() {
+        "`table".to_string()
+    } else {
+        format!("`table {caption}")
+    };
+    append_block_attrs(&mut output, &render_attrs(&table.attr, None)?);
+    if !rendered_rows.is_empty() {
+        output.push('\n');
+        output.push_str(&indent(&rendered_rows.join("\n"), 1));
+    }
+    Ok(output)
+}
+
+fn render_table_caption(caption: &Caption) -> Result<String, String> {
+    if let Some(short) = &caption.short {
+        if caption.long.is_empty() {
+            return render_inlines(short, false);
+        }
+    }
+    match caption.long.as_slice() {
+        [] => Ok(String::new()),
+        [Block::Plain(inlines) | Block::Para(inlines)] => render_inlines(inlines, false),
+        _ => Err("table caption must be representable as one inline paragraph".into()),
+    }
+}
+
+fn render_table_row(
+    row: &Row,
+    header: bool,
+    row_head_columns: usize,
+    column_count: usize,
+) -> Result<String, String> {
+    if row.cells.len() != column_count {
+        return Err(format!(
+            "table row has {} cells; expected {column_count}",
+            row.cells.len()
+        ));
+    }
+    for cell in &row.cells {
+        validate_table_cell(cell)?;
+    }
+
+    let compact = row_head_columns == 0 && row.cells.iter().all(compact_table_cell);
+    let mut output = if compact {
+        let cells = row
+            .cells
+            .iter()
+            .map(render_compact_table_cell)
+            .collect::<Result<Vec<_>, _>>()?;
+        format!("`- {}", cells.join("|"))
+    } else {
+        let cells = row
+            .cells
+            .iter()
+            .enumerate()
+            .map(|(index, cell)| render_expanded_table_cell(cell, index < row_head_columns))
+            .collect::<Result<Vec<_>, _>>()?;
+        format!("`-\n{}", indent(&cells.join("\n"), 1))
+    };
+
+    let mut attrs = render_attrs(&row.attr, None)?;
+    if header {
+        if !attrs.is_empty() {
+            attrs.push('\n');
+        }
+        attrs.push_str("`+ header");
+    }
+    append_block_attrs(&mut output, &attrs);
+    Ok(output)
+}
+
+fn validate_table_cell(cell: &Cell) -> Result<(), String> {
+    if !matches!(cell.align, Alignment::AlignDefault) {
+        return Err("table cell alignment is not representable".into());
+    }
+    if cell.row_span != 1 || cell.col_span != 1 {
+        return Err("table row and column spans are not representable".into());
+    }
+    Ok(())
+}
+
+fn compact_table_cell(cell: &Cell) -> bool {
+    cell.attr == Attr::default()
+        && matches!(
+            cell.content.as_slice(),
+            [] | [Block::Plain(_) | Block::Para(_)]
+        )
+        && !cell.content.iter().any(|block| match block {
+            Block::Plain(inlines) | Block::Para(inlines) => inlines
+                .iter()
+                .any(|inline| matches!(inline, Inline::SoftBreak | Inline::LineBreak)),
+            _ => false,
+        })
+}
+
+fn render_compact_table_cell(cell: &Cell) -> Result<String, String> {
+    match cell.content.as_slice() {
+        [] => Ok(String::new()),
+        [Block::Plain(inlines) | Block::Para(inlines)] => render_inlines(inlines, true),
+        _ => unreachable!("compact cell shape was checked"),
+    }
+}
+
+fn render_expanded_table_cell(cell: &Cell, header: bool) -> Result<String, String> {
+    let (head, children) = match split_head(&cell.content)? {
+        Some((head, children)) => (Some(head), children),
+        None => (None, cell.content.as_slice()),
+    };
+    let mut output = head.map_or_else(|| "`-".to_string(), |head| format!("`- {head}"));
+    let mut attrs = render_attrs(&cell.attr, None)?;
+    if header {
+        if !attrs.is_empty() {
+            attrs.push('\n');
+        }
+        attrs.push_str("`+ header");
+    }
+    append_block_attrs(&mut output, &attrs);
+    if !children.is_empty() {
+        output.push_str("\n\n");
+        output.push_str(&indent(&render_blocks(children)?, 1));
+    }
+    Ok(output)
 }
 
 fn render_list(marker: &str, items: &[Vec<Block>]) -> Result<String, String> {
@@ -725,7 +884,7 @@ fn indent(source: &str, columns: usize) -> String {
 
 #[cfg(test)]
 mod tests {
-    use serde_json::json;
+    use serde_json::{json, Value};
 
     use super::*;
 
@@ -794,6 +953,56 @@ mod tests {
             meta: HashMap::new(),
         };
         assert!(import(&document).unwrap_err().contains("HorizontalRule"));
+    }
+
+    #[test]
+    fn imports_compact_headers_and_expanded_rich_table_cells() {
+        let cell = |content: Value| json!([["", [], []], {"t": "AlignDefault"}, 1, 1, content]);
+        let document = json!({
+            "pandoc-api-version": [1, 23, 1],
+            "meta": {},
+            "blocks": [{
+                "t": "Table",
+                "c": [
+                    ["people", ["wide"], []],
+                    [null, [{"t": "Plain", "c": [{"t": "Str", "c": "People"}]}]],
+                    [
+                        [{"t": "AlignDefault"}, {"t": "ColWidthDefault"}],
+                        [{"t": "AlignDefault"}, {"t": "ColWidthDefault"}]
+                    ],
+                    [["", [], []], [[
+                        ["", [], []],
+                        [
+                            cell(json!([{"t": "Plain", "c": [{"t": "Str", "c": "name"}]}])),
+                            cell(json!([{"t": "Plain", "c": [{"t": "Str", "c": "age"}]}]))
+                        ]
+                    ]]],
+                    [[ ["", [], []], 1, [], [[
+                        ["", [], []],
+                        [
+                            cell(json!([{"t": "Plain", "c": [{"t": "Str", "c": "Alice"}]}])),
+                            cell(json!([
+                                {"t": "Plain", "c": [{"t": "Str", "c": "10"}]},
+                                {"t": "Div", "c": [["", [], [["data-plumb-marker", "note"]]], [
+                                    {"t": "Para", "c": [{"t": "Str", "c": "Approximate"}]}
+                                ]]}
+                            ]))
+                        ]
+                    ]]]],
+                    [["", [], []], []]
+                ]
+            }]
+        });
+
+        let source = import_json(&document.to_string()).unwrap();
+        assert!(source.contains("`table People"), "{source}");
+        assert!(source.contains("`@ people"), "{source}");
+        assert!(source.contains("`+ wide"), "{source}");
+        assert!(source.contains("`- name|age"), "{source}");
+        assert!(source.contains("`+ header"), "{source}");
+        assert!(source.contains("`- Alice"), "{source}");
+        assert!(source.contains("`note Approximate"), "{source}");
+        assert!(plumb_syntax::parse(&source).is_valid(), "{source}");
     }
 
     #[test]

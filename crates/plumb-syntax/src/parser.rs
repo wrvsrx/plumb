@@ -184,7 +184,7 @@ fn argument_range(argument: &InlineArgumentRef<'_>) -> SourceRange {
 
 fn plain_argument_key(argument: &InlineArgumentRef<'_>) -> Option<(String, SourceRange)> {
     match argument {
-        InlineArgumentRef::Parsed(content) => plain_key(content),
+        InlineArgumentRef::Parsed(content) => plain_key(&content.trim_boundary_padding()),
         InlineArgumentRef::Verbatim(argument) if !argument.text.is_empty() => {
             Some((argument.text.clone(), argument.text_range.clone()))
         }
@@ -197,9 +197,8 @@ fn association_parts(content: &InlineContent) -> Option<(String, SourceRange, So
         return None;
     }
     let key = content.argument(0)?;
-    let value = content.argument(1)?;
     let (key, key_range) = plain_key(&key)?;
-    Some((key, key_range, value.range.clone()))
+    Some((key, key_range, content.arguments.get(1)?.range.clone()))
 }
 
 fn plain_key(content: &InlineContent) -> Option<(String, SourceRange)> {
@@ -1624,6 +1623,28 @@ mod tests {
         assert!(paragraph.mark.is_none());
         assert_eq!(paragraph.head.arguments.len(), 2);
         assert_eq!(paragraph.head.plain_text(), "firstsecond value");
+    }
+
+    #[test]
+    fn typed_arguments_ignore_direct_ascii_space_padding_only() {
+        let source = "`row  Alice  | 10 | `()[ preserved ] |  \tvalue\t  \n";
+        let parsed = parse(source);
+        assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
+
+        let Block::Parsed(row) = &parsed.syntax.blocks[0] else {
+            panic!("row is parsed");
+        };
+        assert_eq!(row.head.argument_plain_text(0).as_deref(), Some("Alice"));
+        assert_eq!(row.head.argument_plain_text(1).as_deref(), Some("10"));
+        assert_eq!(
+            row.head.argument_plain_text(2).as_deref(),
+            Some(" preserved ")
+        );
+        assert_eq!(
+            row.head.argument_plain_text(3).as_deref(),
+            Some("\tvalue\t")
+        );
+        assert_eq!(parsed.lossless.reconstruct(source), source);
     }
 
     #[test]
