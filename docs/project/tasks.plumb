@@ -4,50 +4,6 @@
 `->[roadmap|roadmap.plumb]；已经结束的任务及其验收记录保存在
 `->[completed tasks|completed-tasks.plumb]。
 
-`- 建立共享的 protocol-neutral batch workspace indexer
-
- `+ task
-
- `@ batch-workspace-indexer
-
- `= created|2026-08-29T03:28:53+08:00
-
- `note 在 plumb-workspace 提供单一批量索引 API，供 LSP、Web 与 notes CLI 复用；移除各 adapter
-
- 各自串行读取、解析和发布 workspace files 的重复流程。
-
- `note 对 content-hash cache misses 使用 bounded parallelism 完成读取、解析与 semantic analysis，保持
-
- normalized path order、diagnostics、generation identity 与 query results deterministic。
-
- `note SQLite backend 将 changed closed generations 通过 serialized batched transactions 发布；open-document
-
- overlay 继续留在内存，不能重新引入 unified SQLite open generations 已记录的逐键编辑性能回退。
-
- `note 增加 memory/SQLite parity、warm cache、cold cache、partial cache miss、invalid document 与 cancellation
-
- tests，并在 synthetic workspace 和真实 notebook 上记录 cold-index wall time、peak memory 与 publication cost。
-
-`- 对齐 roadmap、tasks 与已经完成的实现
-
- `+ task
-
- `@ reconcile-project-backlog
-
- `= created|2026-08-29T03:28:53+08:00
-
- `note 从 roadmap 移除或归档已经实现的 persistent cache、indexed CEL prefilter 等条目；roadmap 只保留尚未完成
-
- 或仍需验证的方向。
-
- `note 将能够直接实施的剩余工作写成带 explicit id、边界、依赖与验收条件的 task，并验证默认 ready/waiting
-
- query 能返回当前 actionable backlog。
-
- `note 对照 reference、architecture、performance benchmark 与 completed task records，不能让 task 状态重复或
-
- 覆盖 normative contract。
-
 `- 按 capability 拆分 plumb-workspace implementation
 
  `+ task
@@ -55,7 +11,6 @@
  `@ split-workspace-capabilities
 
  `= created|2026-08-29T03:28:53+08:00
- `= depends|#batch-workspace-indexer
 
  `note 保留 Workspace 作为公共 facade，沿 document lifecycle/overlay、navigation/references、completion、rename、
 

@@ -1062,6 +1062,60 @@
  `note 在窄侧栏与移动端保留完整 label 和可操作 controls；需要时让单个 key 内部换行或调整 responsive layout，不能依靠裁掉文字或隐藏 keyboard controls 掩盖越界。
  `note 增加覆盖全部 sort keys、长标签、最窄支持 viewport 和 desktop sidebar 的 frontend layout regression test，并确认 add/reset actions 与排序 key 列表之间没有重叠。
 
+`# Workspace performance and maintenance
+
+`- 建立共享的 protocol-neutral batch workspace indexer
+
+ `+ task
+
+ `@ batch-workspace-indexer
+
+ `= created|2026-08-29T03:28:53+08:00
+ `= done|2026-08-29T04:15:57+08:00
+
+ `note plumb-workspace 统一拥有 batch indexer；LSP、Web 与 notes CLI 已移除各自的 initial read/parse/index
+
+ loop。完整 scan 在同一 SQLite transaction 中发布 changed generations 并清理 stale closed generations；
+ incomplete scan 不把 partial negative result 表示成 complete。
+
+ `note batch identity 使用一次 typed path/content-hash query，只分析 cache misses；读取与分析按 file/miss byte
+
+ distribution 自适应使用 bounded Rayon workers，单一大 document 主导时保持 sequential，source retention
+ 只为 Web lazy snapshot 显式启用。
+
+ `note tests 覆盖 deterministic path order、memory/SQLite、warm/partial hit、invalid/read failure、complete-scan
+
+ pruning 与 cancel-before-publication；LSP 77 个 stdio tests、Web warm lazy cache 和 notes scanner integration
+ 全部通过。
+
+ `note synthetic 1,408-task workload 的 memory cold、SQLite cold 与 SQLite warm 分别提升约 1.70x、3.15x 和
+
+ 1.17x；真实 223-file notebook 的 SQLite cold median 提升约 11%，memory 差异落在 noise 内。SQLite batch
+ peak-memory tradeoff 和完整 measurement 记录在
+ `->[`()[performance benchmark points]|performance-benchmarks.plumb]。
+
+`- 对齐 roadmap、tasks 与已经完成的实现
+
+ `+ task
+
+ `@ reconcile-project-backlog
+
+ `= created|2026-08-29T03:28:53+08:00
+ `= done|2026-08-29T04:15:57+08:00
+
+ `note roadmap 已移除完成的 persistent cache/indexed CEL prefilter 评估，将已实现 table 从 deferred
+
+ presentation 列表删除，并把 metadata 条目收窄为尚未完成的 existing metadata edits。
+
+ `note 当前可执行 backlog 全部使用 explicit ids、边界、依赖与验收条件；完成记录只存在于本页，默认
+
+ ready/waiting query 不再返回已完成工作；capability split 的已满足 dependency 保留在本页 history，不在
+ active task file 中形成 unresolved edge。
+
+ `note 已对照 reference、architecture、performance benchmarks 与 archived records；roadmap 不再复制
+
+ actionable task 或已交付功能，guide 未加入 implementation status。
+
 `# Neovim plugin
 
 `- 避免 format 后重置 Neovim fold 状态
