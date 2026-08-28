@@ -3,21 +3,3 @@
 本页只记录可以直接实施和验收的工作。方向、约束和 deferred design 继续放在
 `->[roadmap|roadmap.plumb]；已经结束的任务及其验收记录保存在
 `->[completed tasks|completed-tasks.plumb]。
-
-`- 共享 workspace diagnostic dependency snapshot
-
- `+ task
-
- `@ share-diagnostic-dependency-snapshot
-
- `= created|2026-08-29T07:50:00+08:00
-
- `note 新增 protocol-neutral immutable diagnostic context；一次 LSP publication round 只构造一个 context，
- 所有 open document diagnostics 共享它，单文档 query 仍可自行建立 context。
-
- `note task dependency graph 从 persistent typed task facts/relation rows 与 open-document overlay 构造，保持
- document-granularity shadow、unique target、cycle 与 self-dependency semantics，不 decode 全量 TaskRecord，
- 不为每条 edge 单独查询 target。
-
- `note tests 覆盖 memory/SQLite/open overlay graph parity、同一 publication round 只构造一次 graph、context
- build failure 不发布混合结果；benchmark 固定多个 open documents 下旧重复 graph 与新共享 snapshot 成本。

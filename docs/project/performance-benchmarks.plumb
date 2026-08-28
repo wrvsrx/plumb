@@ -279,3 +279,21 @@ projection、selected EventRecord decode 和 response hydration）midpoint 为 4
 Correctness tests 将未命中的 task/event Bincode BLOB 改为无效 bytes，仍取得 selected task due 与 event
 association fields；另以全 persistent dependency chain 固定 priority propagation，并由既有 workflow、overlay、
 truncation 与 filtered-CEL tests 保持 observable parity。
+
+`# 13. Shared diagnostic dependency snapshot on 2026-08-29
+
+commit `"839464f" 后，protocol-neutral diagnostics 暴露 immutable WorkspaceDiagnosticContext。LSP 一轮
+open-document publication 只构造一个 context；task graph 从 typed task facts、dependency relations、anchor
+identities 与 open overlay 建立，不再 decode 全量 TaskRecord，也不为每个 document/edge 重复 target query。
+单 document convenience query 仍按需建立自己的 context。
+
+Criterion workload 使用 176 documents、每 document 8 tasks，共 1,408 tasks；其中 8 documents 作为 current
+open overlay。release profile 使用 10 samples、1 s warmup 与 5 s measurement。旧 adapter-equivalent baseline
+对 8 个 open documents 分别调用 convenience diagnostics，因此重建 8 次 context；midpoint 为 46.906 ms。
+新路径先构造一次 context，再对同样 8 个 documents 调用 context-bound diagnostics；midpoint 为 6.9113 ms，
+约快 6.79x、latency 降低约 85.3%。两条路径都包含相同 document diagnostics 与 target resolution work，差异
+只来自 dependency snapshot reuse。
+
+Correctness tests 在破坏 persistent task/anchor Bincode BLOB 后仍构造 cycle graph，并固定 open document
+replacement 会遮蔽 disk relations。Workspace 107 tests 与 LSP 77 个 stdio tests 保持 diagnostics、target refresh、
+workflow、folding 和 lifecycle observable behavior。
