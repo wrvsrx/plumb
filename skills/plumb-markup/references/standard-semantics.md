@@ -89,6 +89,11 @@ Metadata uses only `+` for sequence values. A metadata sequence preserves source
 order but does not become a rendered bullet or numbered list, so `-` and `.` are
 unsupported inside metadata.
 
+Use `plumb migrate --from head-space-v1` for the former flat-head epoch whose
+block associations, compact definitions, and Events used a recognized space as
+their positional boundary. It minimally replaces only those typed boundaries
+with `|` and leaves already-migrated heads unchanged.
+
 The metadata insertion action creates `title` from the filename stem and
 `created` from the current local RFC 3339 timestamp.
 

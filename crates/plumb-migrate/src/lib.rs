@@ -1,14 +1,17 @@
 use std::{collections::HashMap, fmt, ops::Range};
 
 use plumb_edit::{
-    OwnedAttribute, OwnedBlock, OwnedDocument, OwnedInline, OwnedInlineMember, OwnedValue,
+    apply_text_edits, OwnedAttribute, OwnedBlock, OwnedDocument, OwnedInline, OwnedInlineMember,
+    OwnedValue, TextEdit,
 };
+use plumb_syntax::{Block, Inline, InlineMember, ParsedBlock};
 use plumb_syntax_legacy_v1 as legacy;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MigrationError {
     InvalidLegacy(Vec<MigrationDiagnostic>),
     InvalidDocumentGroup(Vec<MigrationDiagnostic>),
+    InvalidHeadSpace(Vec<MigrationDiagnostic>),
     UnsupportedAttachedInline { range: legacy::SourceRange },
     ConflictingLinkTarget { range: legacy::SourceRange },
     InvalidGenerated,
@@ -40,6 +43,20 @@ impl fmt::Display for MigrationError {
             }
             Self::InvalidDocumentGroup(diagnostics) => {
                 write!(formatter, "document-group-v1 source is invalid")?;
+                for diagnostic in diagnostics {
+                    write!(
+                        formatter,
+                        "; {} at bytes {}..{}: {}",
+                        diagnostic.code,
+                        diagnostic.range.start,
+                        diagnostic.range.end,
+                        diagnostic.message
+                    )?;
+                }
+                Ok(())
+            }
+            Self::InvalidHeadSpace(diagnostics) => {
+                write!(formatter, "head-space-v1 source is invalid")?;
                 for diagnostic in diagnostics {
                     write!(
                         formatter,
@@ -178,6 +195,91 @@ pub fn migrate_document_group_v1(source: &str) -> Result<String, MigrationError>
         return Err(MigrationError::InvalidGenerated);
     }
     Ok(migrated)
+}
+
+pub fn migrate_head_space_v1(source: &str) -> Result<String, MigrationError> {
+    let parsed = plumb_syntax::parse(source);
+    if !parsed.is_valid() {
+        return Err(invalid_head_space(&parsed));
+    }
+
+    let mut ranges = Vec::new();
+    collect_head_space_ranges(&parsed.syntax.blocks, &mut ranges);
+    let edits = ranges
+        .into_iter()
+        .map(|range| {
+            TextEdit::replace(&parsed, range, "|").map_err(|_| MigrationError::InvalidGenerated)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let migrated = apply_text_edits(source.to_string(), edits)
+        .map_err(|_| MigrationError::InvalidGenerated)?;
+    if !plumb_syntax::parse(&migrated).is_valid() {
+        return Err(MigrationError::InvalidGenerated);
+    }
+    Ok(migrated)
+}
+
+fn invalid_head_space(parsed: &plumb_syntax::ParsedDocument) -> MigrationError {
+    MigrationError::InvalidHeadSpace(
+        parsed
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.severity == plumb_syntax::DiagnosticSeverity::Error)
+            .map(|diagnostic| MigrationDiagnostic {
+                code: diagnostic.code,
+                range: diagnostic.range.clone(),
+                message: diagnostic.message.clone(),
+            })
+            .collect(),
+    )
+}
+
+fn collect_head_space_ranges(blocks: &[Block], output: &mut Vec<Range<usize>>) {
+    let mut stack = blocks.iter().rev().collect::<Vec<_>>();
+    while let Some(block) = stack.pop() {
+        let Block::Parsed(block) = block else {
+            continue;
+        };
+        if let Some(range) = legacy_head_space_range(block) {
+            output.push(range);
+        }
+        stack.extend(block.children.iter().rev());
+    }
+}
+
+fn legacy_head_space_range(block: &ParsedBlock) -> Option<Range<usize>> {
+    if block.head.arguments.len() != 1 {
+        return None;
+    }
+    let marker = block.mark.as_ref()?.marker.as_str();
+    let [first, Inline::Space { range, .. }, value @ ..] = block.head.items.as_slice() else {
+        return None;
+    };
+    if value.is_empty() {
+        return None;
+    }
+    match marker {
+        "event" if matches!(first, Inline::Text { text, .. } if !text.is_empty()) => {
+            Some(range.clone())
+        }
+        ":" if block.children.is_empty() => Some(range.clone()),
+        "=" if block.children.is_empty() && is_legacy_association_key(first) => Some(range.clone()),
+        _ => None,
+    }
+}
+
+fn is_legacy_association_key(inline: &Inline) -> bool {
+    match inline {
+        Inline::Text { text, .. } | Inline::Verbatim { text, .. } => !text.is_empty(),
+        Inline::Element { kind, members, .. } if kind == "()" => {
+            let mut arguments = members.iter().filter_map(InlineMember::argument);
+            arguments
+                .next()
+                .is_some_and(|argument| !argument.plain_text().is_empty())
+                && arguments.next().is_none()
+        }
+        _ => false,
+    }
 }
 
 fn dedent_root_block(source: &str, range: legacy::SourceRange) -> String {
@@ -1187,6 +1289,32 @@ mod tests {
         let once = migrate_attached_v1(source).unwrap();
         assert!(plumb_syntax::parse(&once).is_valid());
         assert_ne!(once, source);
+    }
+
+    #[test]
+    fn migrates_only_legacy_semantic_head_spaces_with_minimal_edits() {
+        let source = "`= title Plumb notes\r\n`= child key with spaces\r\n\r\n child value\r\n\r\n`: Term Inline body\r\n\r\n`: Term with spaces\r\n\r\n child definition\r\n\r\n`event 14:00 Parser review\r\n `note details\r\n\r\n`note Generic head stays flat\r\n\r\nParagraph stays flat.\r\n\r\n`= current|value\r\n";
+        let migrated = migrate_head_space_v1(source).unwrap();
+        assert_eq!(
+            migrated,
+            "`= title|Plumb notes\r\n`= child key with spaces\r\n\r\n child value\r\n\r\n`: Term|Inline body\r\n\r\n`: Term with spaces\r\n\r\n child definition\r\n\r\n`event 14:00|Parser review\r\n `note details\r\n\r\n`note Generic head stays flat\r\n\r\nParagraph stays flat.\r\n\r\n`= current|value\r\n"
+        );
+        assert_eq!(migrate_head_space_v1(&migrated).unwrap(), migrated);
+    }
+
+    #[test]
+    fn head_space_migration_preserves_unrecognized_keys_and_event_schedules() {
+        let source = "`= `()[key with spaces] scalar value\n`= `*[not a key] scalar value\n`event `*[14:00] Styled schedule\n";
+        assert_eq!(
+            migrate_head_space_v1(source).unwrap(),
+            "`= `()[key with spaces]|scalar value\n`= `*[not a key] scalar value\n`event `*[14:00] Styled schedule\n"
+        );
+    }
+
+    #[test]
+    fn head_space_migration_rejects_current_syntax_errors() {
+        let error = migrate_head_space_v1("`broken[\n").unwrap_err();
+        assert!(matches!(error, MigrationError::InvalidHeadSpace(_)));
     }
 
     #[test]

@@ -186,6 +186,9 @@ raw tail 是 marked owner 的 optional singular field，不是 child。quote run
 
 旧 postfix `"{}" group 与 `"{#id .class key=value}" slot 都不属于 current syntax；brace 只作为
 ordinary text 保留。legacy 文件必须显式使用 `"plumb migrate --from attached-v1"，formatter 不读取旧语法。
+已经移除 attached groups、但 block association、compact definition 或 event 仍用旧 space boundary 的
+文件使用 `"plumb migrate --from head-space-v1"；该 converter 只把旧 recognizer 确认的 separator token
+最小替换为 `"|"，不会重新格式化其余 source。
 
 `# Escape
 

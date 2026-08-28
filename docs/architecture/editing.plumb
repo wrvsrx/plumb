@@ -172,3 +172,23 @@ legacy epoch；ordinary parser 不识别 old groups，formatter 不静默迁移�
 
 converter 产出 current owned syntax，经 `"plumb-edit" canonical rendering、strict reparse 与 atomic write。
 migration 不根据 marker spelling 猜 source epoch，也不把 old attached content 与 ordinary children 交错。
+
+`# 11. Versioned block-head argument migration
+
+在 head/paragraph 统一使用 bare `"|" 分隔 parsed arguments 之前，official semantic profile 对少数
+block markers 直接从 flat head items 识别 space-delimited compact arguments。显式迁移该 epoch 使用
+`"plumb migrate --from head-space-v1"；current parser/formatter 不根据 marker spelling 静默改写空格。
+
+converter 只对 source 中仍只有一个 head argument 的下列旧 compact forms 产生 minimal byte edit：
+
+`- childless `"=" association：first item 必须是旧 profile 接受的 nonempty Text、inline Verbatim 或单一
+ argument 的 `"()" element；紧随的 `"Inline::Space" 与 nonempty remainder 之间是 key/value boundary。
+`- childless `":" definition：first inline item 与紧随的 `"Inline::Space"、nonempty remainder 之间是
+ term/inline-body boundary。
+`- `"event"：first inline item 必须是 nonempty Text；紧随的 `"Inline::Space" 与 nonempty remainder
+ 之间是 schedule/title boundary，是否有 children 不改变该规则。
+
+每个匹配的完整 Space token range 替换为一个 bare `"|"；其他 source bytes、line endings、indentation、
+raw payload 与 already-migrated multi-argument heads 保持 byte-identical。converter 递归遍历 direct children，
+拒绝含 current syntax errors 的输入，应用 edits 后必须通过 current strict parser；重复执行是 idempotent。
+CLI 对每个 path 保持 atomic replacement，`"--check" 只报告需要迁移的 paths，不写文件。

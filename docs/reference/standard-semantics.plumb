@@ -79,6 +79,11 @@ value；只有 key 时 value 为空。存在 children 时必须恰好有一个 h
 共同构成 value。额外 head arguments 是 semantic error。是否存在 raw tail 不改变上述 projection。
 association 自身的 direct children 属于 association value，而不是 association owner 的独立 attached region。
 
+旧 flat-head epoch 曾在 childless `"=" 上把 first accepted key item 后的 Space 当作 compact boundary；
+它不是 current association syntax。使用 `"plumb migrate --from head-space-v1" 将该 boundary 最小改写为
+bare `"|"。同一 converter 也迁移 childless definition 的 term/body boundary 与 `"event" 的
+schedule/title boundary；already-migrated heads 与不满足旧 recognizer 的 source 保持 byte-identical。
+
 `## 5.2 Inline member projection
 
 single-envelope syntax 的 first member 固定为 parsed argument；后续 member form 直接区分 parsed/verbatim

@@ -101,6 +101,20 @@ fn migrates_an_explicit_syntax_epoch_from_stdin_and_paths() {
         "`= title|Current\n\n`->[guide|guide.plumb]\n"
     );
 
+    let head_spaces = run_with_stdin(
+        &["migrate", "--from", "head-space-v1"],
+        "`= title Current title\n\n`event 14:00 Review\n",
+    );
+    assert!(
+        head_spaces.status.success(),
+        "{}",
+        String::from_utf8_lossy(&head_spaces.stderr)
+    );
+    assert_eq!(
+        String::from_utf8(head_spaces.stdout).unwrap(),
+        "`= title|Current title\n\n`event 14:00|Review\n"
+    );
+
     let root = unique_temp_dir();
     std::fs::create_dir_all(&root).unwrap();
     let path = root.join("legacy.plumb");

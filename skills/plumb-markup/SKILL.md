@@ -85,6 +85,9 @@ it. Inside the plumb source repository, prefer
   compact verbatim is standalone only. Spaces remain part of an argument.
 - Braces are ordinary parsed text. Do not author removed postfix `{...}`
   ownership or `{#id .class key=value}`; migrate legacy source explicitly.
+- Migrate the former space-delimited block association, compact definition,
+  and Event heads with `plumb migrate --from head-space-v1`. The converter is
+  minimal and idempotent; do not emulate it with global whitespace replacement.
 - Parsed inline elements may cross valid paragraph/head continuation lines;
   inline verbatim payloads remain on one physical line.
 - Do not invent table, thematic-break, presentation-only italic, or nonstandard quote
