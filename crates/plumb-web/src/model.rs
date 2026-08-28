@@ -473,36 +473,40 @@ impl WebWorkspace {
             .or_else(|_| SqliteSemanticStore::open_in_memory())
             .map_err(|error| format!("cannot open Web semantic cache: {error}"))?;
         let mut index_workspace = Workspace::with_sqlite_store(index_store.clone());
-        let current_paths = paths.iter().cloned().collect::<BTreeSet<_>>();
-        for indexed_path in index_workspace
-            .document_paths()
-            .map_err(|error| error.to_string())?
-            .value
-        {
-            if !current_paths.contains(&indexed_path) {
-                index_workspace
-                    .remove_disk(&indexed_path)
-                    .map_err(|error| error.to_string())?;
-            }
+        let batch = index_workspace
+            .index_disk_files(
+                &paths,
+                true,
+                |path| file_revision(path).unwrap_or(0),
+                || false,
+            )
+            .map_err(|error| error.to_string())?;
+        if !batch.is_complete() {
+            return Err(batch
+                .failures
+                .iter()
+                .map(|failure| {
+                    format!(
+                        "cannot read {}: {}",
+                        failure.path.display(),
+                        failure.message
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("\n"));
         }
         let mut documents = BTreeMap::new();
-        for path in &paths {
-            let source = std::fs::read_to_string(path)
-                .map_err(|error| format!("cannot read {}: {error}", path.display()))?;
-            let file_revision = file_revision(path).unwrap_or(0);
-            let generation_reused = index_workspace
-                .insert_disk(path, file_revision, source.clone())
-                .map_err(|error| format!("cannot index {}: {error}", path.display()))?;
+        for document in batch.documents {
             #[cfg(not(test))]
-            let _ = generation_reused;
+            let _ = document.cache_hit;
             documents.insert(
-                path.clone(),
+                document.path,
                 Arc::new(LazyDocument {
-                    revision: file_revision,
-                    source: Arc::from(source),
+                    revision: document.revision,
+                    source: document.source,
                     entry: OnceLock::new(),
                     #[cfg(test)]
-                    generation_reused,
+                    generation_reused: document.cache_hit,
                 }),
             );
         }
@@ -1762,7 +1766,11 @@ fn web_semantic_cache_path(root: &Path) -> PathBuf {
         .or_else(|| std::env::var_os("XDG_CACHE_HOME").map(PathBuf::from))
         .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".cache")))
         .unwrap_or_else(|| std::env::temp_dir().join("plumb-cache"));
-    base.join("plumb").join("site").join(format!(
+    web_semantic_cache_path_in(&base, env!("CARGO_PKG_VERSION"), root)
+}
+
+fn web_semantic_cache_path_in(base: &Path, version: &str, root: &Path) -> PathBuf {
+    base.join("plumb").join("site").join(version).join(format!(
         "{}.sqlite3",
         opaque_id("w", &root.to_string_lossy())
     ))
@@ -1931,6 +1939,19 @@ mod tests {
     use std::sync::atomic::{AtomicU64, Ordering};
 
     use super::*;
+
+    #[test]
+    fn web_cache_paths_are_namespaced_by_compiled_version() {
+        let base = Path::new("/cache");
+        let root = Path::new("/notes");
+        let current = web_semantic_cache_path_in(base, "0.34.1", root);
+        let next = web_semantic_cache_path_in(base, "0.34.2", root);
+
+        assert_eq!(current.parent().unwrap().file_name().unwrap(), "0.34.1");
+        assert_eq!(next.parent().unwrap().file_name().unwrap(), "0.34.2");
+        assert_eq!(current.file_name(), next.file_name());
+        assert_ne!(current, next);
+    }
 
     #[test]
     fn builds_graph_with_links_tasks_ghosts_and_bounded_neighborhoods() {

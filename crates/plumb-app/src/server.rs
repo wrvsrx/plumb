@@ -2288,19 +2288,21 @@ fn build_initial_index(roots: &[PathBuf], generation: u64) -> InitialIndexResult
             Workspace::new()
         }
     };
-    let mut indexed = 0;
-    let mut cache_hits = 0;
-    for path in files {
-        if let Ok(text) = fs::read_to_string(&path) {
-            match workspace.insert_disk(path, 0, text) {
-                Ok(hit) => cache_hits += usize::from(hit),
-                Err(_) => complete = false,
-            }
-            indexed += 1;
-        } else {
-            complete = false;
+    let batch = workspace.index_disk_files(&files, complete, |_| 0, || false);
+    let (indexed, cache_hits) = match batch {
+        Ok(batch) => {
+            complete &= batch.is_complete();
+            (batch.documents.len(), batch.cache_hits())
         }
-    }
+        Err(_) => {
+            complete = false;
+            workspace = Workspace::new();
+            match workspace.index_disk_files(&files, false, |_| 0, || false) {
+                Ok(batch) => (batch.documents.len(), 0),
+                Err(_) => (0, 0),
+            }
+        }
+    };
     InitialIndexResult {
         generation,
         workspace,

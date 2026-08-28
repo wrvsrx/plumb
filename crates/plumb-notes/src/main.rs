@@ -259,10 +259,22 @@ fn load_workspace(root: &Path) -> Result<LoadedWorkspace, String> {
     let root = normalize(root);
     let paths = scan_workspace_files(&root).into_result()?;
     let mut workspace = Workspace::new();
-    for path in &paths {
-        let text = std::fs::read_to_string(path)
-            .map_err(|error| format!("cannot read {}: {error}", path.display()))?;
-        workspace.insert(path, 0, text);
+    let batch = workspace
+        .index_disk_files(&paths, true, |_| 0, || false)
+        .map_err(|error| error.to_string())?;
+    if !batch.is_complete() {
+        return Err(batch
+            .failures
+            .iter()
+            .map(|failure| {
+                format!(
+                    "cannot read {}: {}",
+                    failure.path.display(),
+                    failure.message
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n"));
     }
     Ok(LoadedWorkspace { root, workspace })
 }
