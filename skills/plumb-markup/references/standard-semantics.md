@@ -73,8 +73,9 @@ projected body.
 
 Without children, the first head argument is the key and an optional second
 argument is the value. With children, the sole plain head argument is the key
-and the children are the value. Spaces remain argument content, so keys and
-values containing spaces need no extra container. Keys must be nonempty plain text. Values
+and the children are the value. Internal spaces remain argument content, so keys
+and values containing spaces need no extra container; direct boundary spaces are
+typed padding. Keys must be nonempty plain text. Values
 may be empty/null, one paragraph scalar, a `+` sequence, a nested `=` map, or
 one verbatim block. A paragraph or collection-member head containing exactly
 one inline verbatim value becomes a literal string. A `+` member with an empty
@@ -443,6 +444,32 @@ derived deterministically from workspace-relative path, schedule, and title.
 Plumb source remains authoritative; khal should configure the generated calendar
 with `readonly = true`.
 
+## Tables
+
+Use `table` with an optional inline caption. Its direct `-` children are rows.
+A nonempty row head uses ordered arguments as compact inline cells; an empty row
+head uses direct `-` children as expanded cells:
+
+```plumb
+`table
+ `- name  | age
+  `+ header
+ `- Alice | 10
+ `- Bob   | 20
+```
+
+Direct ASCII spaces at compact argument boundaries are padding, so source can
+align columns without changing cell values. Consecutive separators create empty
+cells. A direct `+ header` marks leading header rows. On an expanded body row,
+the same facet marks a row-header cell. Expanded cell heads form their first
+paragraph and ordinary children form later blocks; an empty head and body form
+an empty cell. Do not mix compact and expanded cells in one row, and keep one
+effective column count. Rowspan, colspan, alignment, widths, table foot, and
+complex head/body grouping are unsupported.
+
+Export emits a Pandoc Table. Import preserves the supported caption,
+attributes, header rows, row-header prefix, and inline/rich/empty cells.
+
 ## Export Semantics
 
 `()` is the transparent standard block/inline container and exports without a
@@ -453,7 +480,7 @@ are TeX inline/display math. Other declarations are preserved with Span/Div wrap
 
 `plumb export` emits Pandoc JSON directly. Standard lowering includes headings,
 bullet lists, definition lists, metadata, `->` links and Autolinks, `img`
-images, `file` attachments, single-id citations, quotes, inline styles, and visible task states with
+images, `file` attachments, single-id citations, quotes, inline styles, tables, and visible task states with
 task data. Generic marked blocks become Divs, generic parsed inline
 elements become Spans, verbatim blocks become CodeBlocks, and inline verbatim
 becomes Code.
@@ -467,8 +494,7 @@ plumb export document.plumb | pandoc -f json -t html -o document.html
 `plumb import` performs the reverse conversion for the supported exported
 profile and emits canonical strict plumb. Feed other source formats through
 Pandoc JSON first. Nodes without a standard plumb representation, such as
-tables, figures, raw HTML, footnotes, and complex citations, are rejected
+figures, raw HTML, footnotes, and complex citations, are rejected
 rather than silently discarded.
 
-Do not assume table, thematic-break, or presentation-only italic semantics until
-the official semantic profile freezes them.
+Do not assume thematic-break or presentation-only italic semantics.

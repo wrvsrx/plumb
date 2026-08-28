@@ -604,6 +604,22 @@
  `note protocol-neutral workspace operation 从现存 events 最大 `"eNNNN" id 生成下一个 document-local explicit id，并生成 metadata UID mapping 与紧凑 `"when"；省略 date/timezone 时优先继承 document metadata。在 owned tree 中原位在 list item 上追加 `".event" 与 scheduling fields、将 head 缩减为 title 并 canonicalize 完整 owner subtree，返回 revision-guarded edit；非空 selection 可批量转换范围内匹配的 list items，LSP adapter 不解析或拼接 source。
  `note 覆盖带/不带 date 的全部 time precision、point/explicit/inferred interval、nested 与 interrupted sibling chains、已有 attributes/id 保留、已是 event 的 item 拒绝、invalid/ambiguous spelling、rich inline structure/attributes preservation、formatter fixed point 和 stdio CodeAction availability tests；同步 reference 与 guides。
 
+`- 定义并实现 block table 语义
+
+ `+ task
+
+ `@ block-table-semantics
+
+ `== done 2026-08-28T21:05:30+08:00
+
+ `note 标准 profile 已实现 `"table" owner、compact/expanded rows、header rows、row-header cells、empty/rich
+  cells、column consistency 与结构 ownership diagnostics；table structural `"-" 不进入普通 list，expanded
+  cell body 恢复普通 block semantics。
+ `note typed positional arguments 只移除当前 depth 两端的 direct ASCII-space padding，lossless source 与
+  formatter 保留原 bytes，nested content 不递归 trim；因此 compact table 可以对齐 source 而不改变 cell value。
+ `note Pandoc Table lowering/import 覆盖可表示 subset 与 semantic round trip；semantics、export、import、CLI
+  integration 和 project-document tests 已覆盖，reference、guide 与 bundled skill 已同步。
+
 `# Workspace indexing
 
 `- 用 Diesel 建立关系化 workspace query backend
@@ -685,6 +701,20 @@
  `note 默认不跟随指向 workspace 内部或外部的目录 symlink，避免重复索引、循环、越界扫描与 watcher 语义不一致。
  `note 扩展名为 .plumb 的 file symlink 保持现有行为；如果未来需要跟随目录 symlink，必须作为显式 opt-in 并定义 canonical-path deduplication。
  `note 增加 workspace root 内含 symlinked repository snapshot 和 symlink cycle 的 tests，验证 completion、references 与 note/task indexes 不产生重复 records。
+
+`- 建立 event containment 索引
+
+ `+ task
+
+ `@ event-containment-index
+
+ `== done 2026-08-28T21:05:30+08:00
+
+ `note document output 使用共享 ordered links 上可重叠的 `"EventLinkRange" records 表示 containment，nested
+  events 可以关联同一 link 而不复制 source-backed records；production event-task association consumers 已统一
+  使用 indexed query。
+ `note semantic overlap、revision replacement 与 memory-size tests 已覆盖；Criterion 同时比较 build、legacy
+  binary query、indexed query 和 memory overhead，保持现有 association semantics。
 
 `# Editor search
 
@@ -812,6 +842,34 @@
  `note 复用 `"Workspace::diagnostics" 汇总 strict syntax、extension 与 cross-document diagnostics，不在 CLI adapter 重复分析逻辑。
  `note 按 relative path、range、severity、code 与 message 稳定排序，输出 1-based line/column；related ranges 作为 note locations 输出。
  `note Error/Warning 返回 nonzero，Hint 只报告；覆盖 clean workspace、nested file、syntax error、unresolved reference、blocked-task hint、Unicode position 与 unified binary help/exit tests。
+
+`- 在任意 document metadata entry 上提供文档 hover
+
+ `+ task
+
+ `@ document-metadata-hover
+
+ `== done 2026-08-28T21:05:30+08:00
+
+ `note protocol-neutral workspace query 能在 byte offset 0 或任意 top-level direct `"=" subtree 内定位 document
+  metadata；LSP 显示完整 projected summary，并把 hover range 限定为当前命中的 entry。普通 nested property
+  不命中，Link、citation 与其他更具体 semantic targets 保持更高优先级。
+ `note stdio tests 覆盖 entry children、分散且与 body 交错的 metadata、nested properties，以及 Link/Citation
+  precedence。
+
+`- 让 folding 在 workspace 索引期间保持可用
+
+ `+ task
+
+ `@ folding-before-index-complete
+
+ `== done 2026-08-28T21:05:30+08:00
+
+ `note folding request 在 initial index 未完成时立即返回 recovered structural ranges 和本地可确定 labels；
+  dependency facts 尚不完整时只降级不确定 task 的 custom label，不省略 fold 或阻塞 response。
+ `note 声明 `"experimental.plumb.foldingRangeRefreshSupport" 的 client 会在 initial index 安装及后续 dependency
+  revisions 后收到 `"workspace/foldingRange/refresh"；未声明的 client 不接收未知 request。Protocol tests 覆盖
+  initial-index race、本地/不确定 labels、结构 folds 与 capability gate。
 
 `# Workspace visualization
 

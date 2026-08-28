@@ -139,13 +139,15 @@ syntax error、无效 metadata 或其他阻止 authoritative semantics 的错误
 
 importer 覆盖 `"plumb export" 当前产生的标准 profile，并保证受支持 AST 的
 `"export -> import -> export" semantic round-trip。包括 metadata、paragraph、heading、bullet/decimal
-ordered list、definition、quote、Div、CodeBlock，以及 text、inline styles、Code、Link、File、Image、simple
-citation、inline math 和 Span。
+ordered list、definition、table、quote、Div、CodeBlock，以及 text、inline styles、Code、Link、File、Image、
+simple citation、inline math 和 Span。Table 支持 inline/rich/empty cells、caption、attributes、连续 header
+rows 与一致的 row-header prefix。
 
-Pandoc 中不存在标准 plumb 表示的 node 会明确失败，不会静默丢失内容。例如 table、figure、raw
+Pandoc 中不存在标准 plumb 表示的 node 会明确失败，不会静默丢失内容。例如 figure、raw
 HTML、horizontal rule、line block、footnote、复杂 citation、非 decimal 或非 1 起始 ordered list
-当前均不受支持。Pandoc attribute name 不能表示为 declaration name，或 Link/Image property 与 target tuple
-冲突时也会失败。importer 不读取 Pandoc Markdown source；需要先让 Pandoc 输出 JSON。
+当前均不受支持。Table 的 rowspan、colspan、alignment、column widths、foot 与复杂 body grouping 也不可表示。
+Pandoc attribute name 不能表示为 declaration name，或 Link/Image property 与 target tuple 冲突时也会失败。
+importer 不读取 Pandoc Markdown source；需要先让 Pandoc 输出 JSON。
 
 项目方向与尚需验证的工作统一记录在 `->[路线图|../project/roadmap.plumb]；可直接实施的
 工作见 `->[当前任务|../project/tasks.plumb]。本指南不复制实现进度。

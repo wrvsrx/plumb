@@ -34,8 +34,9 @@ block 可以拥有缩进 children。第一个 child 建立 sibling column；form
 空行后的缩进 paragraph 是 child；没有空行的缩进普通文本会继续前一行的 head。
 
 paragraph 与 block head 都包含 ordered parsed arguments。first argument 没有前导 separator，后续
-arguments 用当前 depth 的 bare `"|" 分隔；space 始终属于当前 argument，连续 pipes 会产生 empty
-arguments。literal pipe 写成 `` `|"：
+arguments 用当前 depth 的 bare `"|" 分隔；紧邻 argument boundary 的 ASCII spaces 是 padding，typed
+argument view 会从两端移除，但 lossless source 与 formatter 原样保留。连续 pipes 或只有 padding 的区域会产生
+empty arguments。literal pipe 写成 `` `|"：
 
 `plumb
 
@@ -45,7 +46,8 @@ arguments。literal pipe 写成 `` `|"：
   ordinary first argument|second argument
 
 marker 后的 space 只分隔 marker 与 head，不建立 argument boundary。block children 位于完整 head
-argument sequence 之后。
+argument sequence 之后。padding trim 不递归进入 nested inline element；确实需要 argument 以 space 开头或结尾时，
+可以写 `"`()[ value ]"。
 
 空 head 的 first child 也可以与 parent 写在同一行；child introducer column 决定后续对齐：
 
@@ -74,9 +76,10 @@ argument sequence 之后。
   `pair[`*[rich first]|second with spaces|note[child]]
   `pair[|"[raw]"]
 
-first member 固定为 parsed argument 且可以为空；后续 argument 与 child 可以交错。space 属于 argument
-content，只有当前 depth 的 pipe 建立 member boundary。verbatim argument 也只能出现在 pipe 后，如上面的
-第三行。core 保存统一的 source order，不解释 kind、argument 含义或数量。
+first member 固定为 parsed argument 且可以为空；后续 argument 与 child 可以交错。只有当前 depth 的 pipe
+建立 member boundary；member 两端的 direct ASCII spaces 是 typed padding，nested content 不递归 trim。
+verbatim argument 也只能出现在 pipe 后，如上面的第三行。core 保存统一的 source order，不解释 kind、
+argument 含义或数量。
 
 element 可以跨属于同一 paragraph/head 的 continuation lines：
 

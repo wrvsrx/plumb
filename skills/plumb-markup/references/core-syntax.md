@@ -46,7 +46,9 @@ indented paragraph child. Only marked blocks can own children.
 
 Block heads and paragraphs contain one or more ordered parsed arguments. The
 first argument has no leading separator; a bare `|` at the current inline depth
-starts each later argument. Spaces remain argument content, consecutive
+starts each later argument. Direct ASCII spaces at argument boundaries are
+typed padding: semantic consumers trim them while lossless source and formatting
+preserve them. Nested inline content is not recursively trimmed. Consecutive
 separators create empty arguments, and `` `| `` writes a literal pipe. The
 space after a block marker separates the marker from its head and does not
 create an argument boundary:
@@ -164,8 +166,9 @@ full quote/bracket envelope is a verbatim child. Full unkinded verbatim
 envelopes are arguments only after a `|`; use `kind[|"[raw]"]` when the first
 parsed argument is empty. Compact quotes inside members remain parsed text;
 compact verbatim is available only as an introduced standalone inline.
-Arguments and children may interleave after the first argument. Whitespace
-remains argument content; only `|` separates members.
+Arguments and children may interleave after the first argument. Only `|`
+separates members; direct ASCII boundary spaces are typed padding, while nested
+inline content is not recursively trimmed.
 Use `` `|`` for a literal pipe inside parsed argument content. Core preserves
 source order but does not assign kind-specific meaning or arity.
 

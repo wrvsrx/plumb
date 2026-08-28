@@ -52,6 +52,44 @@ ordered list 固定从 1 开始。
 
     Definition body.
 
+`# Table
+
+`"table" block 的可选 head 是 inline caption，direct `"-" children 是 rows。compact row 直接把非空
+head 的 ordered arguments 作为 cells；因此可以在 `"|" 两侧加入 padding 对齐 source，typed cell value
+不会包含这些 boundary spaces：
+
+`plumb
+
+|"
+  `table
+   `- name  | age
+    `+ header
+   `- Alice | 10
+   `- Bob   | 20
+
+row 的 direct `"+ header" facet 把开头连续 rows 标为 column headers。连续 separators 表示 empty cell。
+需要 rich blocks、cell attributes 或独立 row header 时使用 empty-head expanded row，其 direct `"-"
+children 是 cells：
+
+`plumb
+
+|"
+  `table People
+   `-
+    `+ header
+    `- name
+    `- age
+   `-
+    `- Alice
+     `+ header
+    `- 10
+
+      `note Approximate.
+
+同一 row 不混用 compact 与 expanded cells，所有 rows 的 effective column count 必须一致。expanded cell
+的 head 是可选首段，ordinary children 是后续 blocks；空 head 且没有 body 表示 empty cell。首版不支持
+rowspan、colspan、column widths、alignment、table foot 或复杂 head/body grouping。
+
 `# Metadata
 
 document 是 implicit root owner。顶层 direct `"=" block 是 metadata key/value association，可以与正文

@@ -76,13 +76,15 @@ it. Inside the plumb source repository, prefer
 - Use direct `@` declaration children for explicit ids.
   Headings do not generate implicit ids.
 - Block heads and paragraphs contain ordered parsed arguments. Separate later
-  arguments with a bare `|` at the current inline depth. Spaces remain part of
-  an argument, consecutive separators create empty arguments, and a literal
-  pipe is written as `` `| ``.
+  arguments with a bare `|` at the current inline depth. Direct ASCII spaces at
+  argument boundaries are typed padding: semantic consumers trim them while
+  lossless source and formatting preserve them. Consecutive separators create
+  empty arguments, and a literal pipe is written as `` `| ``.
 - Every parsed inline owner starts with a parsed argument, which may be empty. Separate
   later ordered members with `|`; arguments and introducer-elided children may
   then interleave. Verbatim members always use the full quote/bracket envelope;
-  compact verbatim is standalone only. Spaces remain part of an argument.
+  compact verbatim is standalone only. Direct boundary padding is trimmed;
+  nested inline content is not recursively trimmed.
 - Braces are ordinary parsed text. Do not author removed postfix `{...}`
   ownership or `{#id .class key=value}`; migrate legacy source explicitly.
 - Migrate the former space-delimited block association, compact definition,
@@ -90,7 +92,7 @@ it. Inside the plumb source repository, prefer
   minimal and idempotent; do not emulate it with global whitespace replacement.
 - Parsed inline elements may cross valid paragraph/head continuation lines;
   inline verbatim payloads remain on one physical line.
-- Do not invent table, thematic-break, presentation-only italic, or nonstandard quote
+- Do not invent thematic-break, presentation-only italic, or nonstandard quote
   semantics. Generic markers and inline kinds remain generic.
 
 ## Standard Spelling
@@ -126,6 +128,12 @@ Inline `()[container|+[notice]] and `$"x^2" math.
 
   Definition body.
 
+`table
+ `- name  | age
+  `+ header
+ `- Alice | 10
+ `- Bob   | 20
+
 See `->[guide|guide.plumb#intro], `->"guide.plumb#intro", and `cite[smith2004].
 
 Use `img[status icon|=[src|static/status.png]] for an image.
@@ -148,6 +156,11 @@ documents and other relative targets resolve as files. Use
 `item`, `link`, `**`, `em`, and `strong` remain syntactically valid generic names but
 have no list or link semantics. `task` and `event` are mutually exclusive
 specialized list-item markers; they are not facets on `-` or `.` items.
+`table` owns direct `-` rows. A nonempty row head uses ordered arguments as
+compact cells; an empty row head uses direct `-` children as expanded cells.
+Use direct `+ header` on leading header rows or on expanded row-header cells.
+Expanded cell children contain ordinary blocks. Keep one effective column count;
+rowspan, colspan, widths, alignment, table foot, and complex grouping are unsupported.
 `()` is the transparent block/inline container; `>` is a block
 quote; `*`, `!`, `==`, `~`, `^`, and `_` are inline styles; `$` on inline
 verbatim or a marked raw-tail owner is TeX math.
