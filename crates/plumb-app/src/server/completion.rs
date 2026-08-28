@@ -44,6 +44,7 @@ pub(super) struct ConstructTemplate {
     pub(super) detail: &'static str,
     pub(super) snippet: String,
     pub(super) plain: String,
+    pub(super) uses_block_indentation: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -108,6 +109,17 @@ pub(super) fn task_construct_template(block_indent: &str, timestamp: &str) -> Co
             "`- ${{1:Task}}\n\n{block_indent}`+ task\n\n{block_indent}`= created|{timestamp}"
         ),
         plain: format!("`-\n{block_indent}`+ task\n\n{block_indent}`= created|{timestamp}"),
+        uses_block_indentation: true,
+    }
+}
+
+fn event_construct_template(block_indent: &str) -> ConstructTemplate {
+    ConstructTemplate {
+        label: "Event",
+        detail: "plumb event list item",
+        snippet: format!("`- ${{1:09:00}}|${{2:Event}}\n\n{block_indent}`+ event"),
+        plain: format!("`- 09:00|Event\n\n{block_indent}`+ event"),
+        uses_block_indentation: true,
     }
 }
 
@@ -118,11 +130,11 @@ pub(super) fn construct_completion_items(
     completion_indentation: CompletionIndentation,
     timestamp: &str,
 ) -> Vec<CompletionItem> {
-    let task_completion = matches!(&context, ConstructCompletionContext::Task { .. });
     let block_indent = match (&context, completion_indentation.projection) {
         (
             ConstructCompletionContext::Task { replace }
-            | ConstructCompletionContext::Event { replace },
+            | ConstructCompletionContext::Event { replace }
+            | ConstructCompletionContext::TaskEventLinkAndAutolink { replace },
             CompletionIndentationProjection::AsIs,
         ) => {
             let line_start = source[..replace.start]
@@ -140,20 +152,24 @@ pub(super) fn construct_completion_items(
                 detail: "plumb citation",
                 snippet: "`cite[${1:id}]".to_string(),
                 plain: "`cite[]".to_string(),
+                uses_block_indentation: false,
             }],
         ),
         ConstructCompletionContext::Task { replace } => (
             replace,
             vec![task_construct_template(&block_indent, timestamp)],
         ),
-        ConstructCompletionContext::Event { replace } => (
+        ConstructCompletionContext::Event { replace } => {
+            (replace, vec![event_construct_template(&block_indent)])
+        }
+        ConstructCompletionContext::TaskEventLinkAndAutolink { replace } => (
             replace,
-            vec![ConstructTemplate {
-                label: "Event",
-                detail: "plumb event list item",
-                snippet: format!("`- ${{1:09:00}}|${{2:Event}}\n\n{block_indent}`+ event"),
-                plain: format!("`- 09:00|Event\n\n{block_indent}`+ event"),
-            }],
+            vec![
+                task_construct_template(&block_indent, timestamp),
+                event_construct_template(&block_indent),
+                link_construct_template(),
+                autolink_construct_template(),
+            ],
         ),
         ConstructCompletionContext::LinkAndAutolink { replace } => (
             replace,
@@ -175,7 +191,8 @@ pub(super) fn construct_completion_items(
             } else {
                 InsertTextFormat::PLAIN_TEXT
             }),
-            insert_text_mode: task_completion
+            insert_text_mode: template
+                .uses_block_indentation
                 .then_some(completion_indentation.item_mode)
                 .flatten(),
             text_edit: Some(CompletionTextEdit::Edit(LspTextEdit::new(
@@ -197,6 +214,7 @@ fn link_construct_template() -> ConstructTemplate {
         detail: "plumb link",
         snippet: "`->[${1:label}|${2:target}]".to_string(),
         plain: "`->[|]".to_string(),
+        uses_block_indentation: false,
     }
 }
 
@@ -206,5 +224,6 @@ fn autolink_construct_template() -> ConstructTemplate {
         detail: "plumb autolink",
         snippet: "`->\"${1:path}\"".to_string(),
         plain: "`->\"[]\"".to_string(),
+        uses_block_indentation: false,
     }
 }

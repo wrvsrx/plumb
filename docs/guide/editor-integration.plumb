@@ -222,7 +222,9 @@ range 会扣除 nested task blocks，child task 始终按自身状态着色。�
 
 construct completion 按 marker prefix 与 syntax owner 触发：裸 introducer 不提供候选；line start 的反引号加
 `"t" prefix 提供 Task，`"e" prefix 提供 Event，并在继续输入完整 marker 时保持对应候选。line start 与
-ordinary inline context 都以反引号加连字符或箭头 prefix 同时提供 Link 与 Autolink；继续输入 `"->[" 时只
+ordinary inline context 都以反引号加连字符或箭头 prefix 提供 Link 与 Autolink；line start 的反引号加
+连字符还同时提供 Task 与 Event，便于从标准 list marker 选择带 facet 的 list-item construct。继续输入
+`"->" 时候选收窄为 Link 与 Autolink，继续输入 `"->[" 时只
 提供 Link，输入 `"->\"" 时只提供 Autolink。ordinary inline context 中的 `"c" 至 `"cite" prefix
 提供 Citation snippet；在 `"cite[...]" content 中，从 document `"bibliography" metadata 声明的
 CSL JSON files 补全 ids。单独 opening bracket prefix 不提供候选。snippet-capable client

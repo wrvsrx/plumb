@@ -31,9 +31,10 @@ standard plumb representation instead of dropping them.
 In an editor using `plumb lsp`, construct completion is prefix-sensitive: a bare
 backtick offers no candidates. At line start, a backtick followed by a nonempty
 prefix of `task` offers Task, while a prefix of `event` offers Event. Task
-includes a current local RFC 3339 `created` timestamp. At line start and in
-ordinary inline content, a backtick followed by a hyphen or arrow offers both
-Link and Autolink; continuing with `->[` narrows to Link, while `->"` narrows
+includes a current local RFC 3339 `created` timestamp. At line start, a
+backtick followed by a hyphen offers Task, Event, Link, and Autolink. In
+ordinary inline content it offers only Link and Autolink; an arrow offers Link
+and Autolink in either context. Continuing with `->[` narrows to Link, while `->"` narrows
 to Autolink. A standalone opening bracket offers neither. Heading, ordinary
 list-item, and other inline-verbatim spellings are typed directly. In ordinary
 inline content, a nonempty prefix of `cite` offers Citation. Inside complete or

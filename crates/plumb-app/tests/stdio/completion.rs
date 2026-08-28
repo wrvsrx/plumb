@@ -602,7 +602,7 @@ fn completes_block_constructs_from_their_marker_prefixes() {
     let root = unique_temp_dir();
     std::fs::create_dir_all(&root).unwrap();
     let document = root.join("constructs.plumb");
-    let source = "`t\n  `ev\n `t\n`-\nText `";
+    let source = "`t\n  `ev\n `t\n `-\nText `";
     std::fs::write(&document, source).unwrap();
     let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
     let document_uri = lsp_types::Url::from_file_path(&document).unwrap();
@@ -652,7 +652,7 @@ fn completes_block_constructs_from_their_marker_prefixes() {
             "jsonrpc": "2.0", "id": 5, "method": "textDocument/completion",
             "params": {
                 "textDocument": { "uri": document_uri },
-                "position": { "line": 3, "character": 2 }
+                "position": { "line": 3, "character": 3 }
             }
         }),
         json!({
@@ -704,10 +704,22 @@ fn completes_block_constructs_from_their_marker_prefixes() {
     assert!(nested_task.starts_with("`- ${1:Task}\n\n  `+ task\n\n  `= created|"));
     assert_eq!(nested_task_items[0]["insertTextMode"], 1);
 
-    let link_items = response(&output, 5)["result"].as_array().unwrap();
-    assert_eq!(link_items.len(), 2);
-    assert_eq!(link_items[0]["label"], "Link");
-    assert_eq!(link_items[1]["label"], "Autolink");
+    let list_item_items = response(&output, 5)["result"].as_array().unwrap();
+    assert_eq!(list_item_items.len(), 4);
+    assert_eq!(list_item_items[0]["label"], "Task");
+    assert_eq!(list_item_items[1]["label"], "Event");
+    assert_eq!(list_item_items[2]["label"], "Link");
+    assert_eq!(list_item_items[3]["label"], "Autolink");
+    assert_eq!(list_item_items[0]["insertTextMode"], 1);
+    assert_eq!(list_item_items[1]["insertTextMode"], 1);
+    assert!(list_item_items[0]["textEdit"]["newText"]
+        .as_str()
+        .unwrap()
+        .starts_with("`- ${1:Task}\n\n  `+ task\n\n  `= created|"));
+    assert_eq!(
+        list_item_items[1]["textEdit"]["newText"],
+        "`- ${1:09:00}|${2:Event}\n\n  `+ event"
+    );
     assert!(response(&output, 6)["result"].is_null());
 
     let fallback_messages = [

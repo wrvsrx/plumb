@@ -73,6 +73,7 @@ pub enum ConstructCompletionContext {
     Citation { replace: Range<usize> },
     Task { replace: Range<usize> },
     Event { replace: Range<usize> },
+    TaskEventLinkAndAutolink { replace: Range<usize> },
     LinkAndAutolink { replace: Range<usize> },
     Autolink { replace: Range<usize> },
     Link { replace: Range<usize> },
@@ -510,6 +511,9 @@ pub fn construct_completion_context(
         Some(ConstructCompletionContext::Event { replace })
     } else {
         match marker_prefix {
+            "-" if block_position => {
+                Some(ConstructCompletionContext::TaskEventLinkAndAutolink { replace })
+            }
             "-" | "->" => Some(ConstructCompletionContext::LinkAndAutolink { replace }),
             "->[" => Some(ConstructCompletionContext::Link { replace }),
             "->\"" => Some(ConstructCompletionContext::Autolink { replace }),
@@ -1146,7 +1150,17 @@ mod tests {
             );
         }
 
-        for source in ["`-", "`->", "Text `-", "Text `->"] {
+        for source in ["`-", "  `-"] {
+            let parsed = parse(source);
+            let start = source.rfind('`').unwrap();
+            assert_eq!(
+                construct_completion_context(&parsed, source.len()),
+                Some(ConstructCompletionContext::TaskEventLinkAndAutolink {
+                    replace: start..source.len()
+                })
+            );
+        }
+        for source in ["`->", "Text `-", "Text `->"] {
             let parsed = parse(source);
             let start = source.rfind('`').unwrap();
             assert_eq!(

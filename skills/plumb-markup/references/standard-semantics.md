@@ -291,9 +291,10 @@ while a prefix of `event` offers Event. It creates the Task `created` field from
 the current local RFC 3339 timestamp. The Task replacement uses canonical
 owner-column-plus-one child indentation. The LSP projects absolute indentation for
 `asIs` clients and owner-relative indentation for `adjustIndentation` clients,
-so applying either form produces the same source. At line start
-and in ordinary inline content, a backtick followed by a hyphen or arrow offers
-Link and Autolink;
+so applying either form produces the same source. At line start, a backtick
+followed by a hyphen offers Task, Event, Link, and Autolink. In ordinary inline
+content the hyphen offers only Link and Autolink; an arrow offers Link and
+Autolink in either context;
 continuing with `->[` narrows to Link, while `->"` narrows to Autolink. A
 standalone opening bracket offers neither. Heading, ordinary list-item, and
 other inline-verbatim constructs are typed directly.

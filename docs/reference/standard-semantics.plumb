@@ -671,11 +671,14 @@ line start 的标准 construct prefixes 为：
 
 `- `"`t"、`"`ta" 直到完整 legacy authoring prefix `"`task" 只提供 Task。
 `- `"`e"、`"`ev" 直到完整 legacy authoring prefix `"`event" 只提供 Event。
-`- `"`-" 与 `"`->" 同时提供 Link 与 Autolink。
+`- `"`-" 提供 Task、Event、Link 与 Autolink；这让已经输入标准 list marker 的 author 可以选择
+  添加 facet 的标准 list-item construct，同时保留用相同 prefix 创建 inline Link 或 Autolink 的能力。
+`- `"`->" 只提供 Link 与 Autolink。
 
 Link 与 Autolink 共享 `"->" inline kind，opening envelope 负责收窄 candidate：`"`->[" 只提供 Link，
 `"`->\"" 只提供 Autolink。单独 `"`[" 不是 construct prefix，不提供 candidate。以上 link constructs 在
-line start 与 ordinary inline context 使用同一规则。`"task" 与 `"event" 不是 inline construct。Task skeleton
+ordinary inline context 的 `"`-" 与 `"`->" prefix 都提供 Link 与 Autolink；Task 与 Event candidate 只在
+line start 的 block position 提供，`"task" 与 `"event" 不是 inline construct。Task skeleton
 使用 bullet item 加首个 `"+ task" facet，并以当前本地 RFC 3339 timestamp 创建 `"created"；Event skeleton
 使用 bullet item 加首个 `"+ event" facet。Task replacement 本身必须使用 canonical direct-child layout：
 facet 与 `"created" declaration 位于 owner column 加一；snippet 展开的默认非空 title 与 declarations 之间使用一个 blank separator，不支持 snippet 的
