@@ -1010,7 +1010,7 @@ mod tests {
 
     #[test]
     fn lifts_typed_metadata_out_of_the_document_body() {
-        let source = "`= title Rich `*[title]\n`= tags\n\n `- plumb\n `- tools\n\n`= macros\n\n `-\n  `- `\"nearSet\"\n  `- `\"\\mathscr{C}\"\n  `- 0\n\n`= author\n\n `= name Alice\n\n`= source\n\n `\"\n  raw\n  \n  \n`= empty\n\n`# Section\n";
+        let source = "`= title Rich `*[title]\n`= tags\n\n `+ plumb\n `+ tools\n\n`= macros\n\n `+\n  `+ `\"nearSet\"\n  `+ `\"\\mathscr{C}\"\n  `+ 0\n\n`= author\n\n `= name Alice\n\n`= source\n\n `\"\n  raw\n  \n  \n`= empty\n\n`# Section\n";
         let document = export(source).unwrap();
 
         assert_eq!(document["blocks"].as_array().unwrap().len(), 1);
@@ -1050,6 +1050,12 @@ mod tests {
     fn metadata_export_keeps_first_duplicate_and_rejects_unsupported_values() {
         let duplicate = export("`= title First\n`= title Second\n").unwrap();
         assert_eq!(duplicate["meta"]["title"]["c"][0]["c"], "First");
+
+        let rendered_sequence = export("`= tags\n `- old-rendered-item\n");
+        assert_eq!(
+            rendered_sequence.unwrap_err(),
+            "metadata field 'tags' has an unsupported value"
+        );
 
         let unsupported = export("`= mixed\n\n paragraph\n `- child\n");
         assert_eq!(

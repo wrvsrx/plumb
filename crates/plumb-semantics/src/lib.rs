@@ -62,8 +62,8 @@ pub use lists::{analyze_lists, ListGroup, ListItemRecord, ListKind, ListOutput};
 pub use math::{analyze_math, MathKind, MathOutput, MathRecord};
 pub use metadata::{
     analyze_metadata, recovered_bibliography_sources, BibliographySource, DefinitionList,
-    DefinitionRecord, DocumentFacet, MetadataBlock, MetadataEntry, MetadataListItem,
-    MetadataOutput, MetadataValue,
+    DefinitionRecord, MetadataBlock, MetadataEntry, MetadataListItem, MetadataOutput,
+    MetadataValue,
 };
 pub use queries::{
     attribute_completion_context, citation_completion_context, construct_completion_context,

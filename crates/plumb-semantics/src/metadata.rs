@@ -32,13 +32,6 @@ pub struct MetadataBlock {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DocumentFacet {
-    pub range: Range<usize>,
-    pub value: String,
-    pub value_range: Range<usize>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MetadataEntry {
     pub range: Range<usize>,
     pub key: String,
@@ -101,7 +94,6 @@ pub struct BibliographySource {
 pub struct MetadataOutput {
     pub definition_lists: Vec<DefinitionList>,
     pub metadata: Option<MetadataBlock>,
-    pub facets: Vec<DocumentFacet>,
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -223,14 +215,11 @@ fn analyze_metadata_document(document: &Document) -> MetadataOutput {
             continue;
         };
         match marker(block) {
-            Some("+") => match document_facet(block) {
-                Some(facet) => output.facets.push(facet),
-                None => output.diagnostics.push(warning(
-                    "document.invalid-facet",
-                    "document facets require a nonempty plain head and no children",
-                    block.range.clone(),
-                )),
-            },
+            Some("+") => output.diagnostics.push(warning(
+                "document.unsupported-facet",
+                "document root does not support facets",
+                block.range.clone(),
+            )),
             Some("@") => output.diagnostics.push(warning(
                 "document.unsupported-identity",
                 "document identity is defined by its workspace-relative path",
@@ -240,28 +229,6 @@ fn analyze_metadata_document(document: &Document) -> MetadataOutput {
         }
     }
     output
-}
-
-fn document_facet(block: &ParsedBlock) -> Option<DocumentFacet> {
-    if !block.children.is_empty()
-        || block.head.items.is_empty()
-        || !block
-            .head
-            .items
-            .iter()
-            .all(|inline| matches!(inline, Inline::Text { .. } | Inline::Space { .. }))
-    {
-        return None;
-    }
-    let value = block.head.plain_text();
-    if value.trim().is_empty() {
-        return None;
-    }
-    Some(DocumentFacet {
-        range: block.range.clone(),
-        value,
-        value_range: block.head.range.clone(),
-    })
 }
 
 fn parse_direct_entries<'a>(
@@ -445,12 +412,12 @@ fn parse_direct_children(
             };
         }
     }
-    if blocks.iter().all(|block| parsed_marker(block) == Some("-")) {
+    if blocks.iter().all(|block| parsed_marker(block) == Some("+")) {
         let items = blocks
             .iter()
             .map(|block| {
                 let Block::Parsed(item) = block else {
-                    unreachable!("dash marker implies parsed block");
+                    unreachable!("plus marker implies parsed block");
                 };
                 let value = if item.children.is_empty() {
                     match inline_verbatim(&item.head) {
@@ -468,7 +435,7 @@ fn parse_direct_children(
                 } else {
                     diagnostics.push(warning(
                         "metadata.invalid-list-item",
-                        "metadata list items with child blocks must have an empty head",
+                        "metadata sequence members with child blocks must have an empty head",
                         item.range.clone(),
                     ));
                     MetadataValue::Unsupported {
@@ -677,7 +644,7 @@ mod tests {
     #[test]
     fn groups_definition_lists_and_projects_metadata_values() {
         let parsed = parse(
-            "`= title Document `em[title]\n`= tags\n\n `- plumb\n `- parser\n\n`= macros\n\n `-\n  `- `\"name\"\n  `- `\"expansion\"\n  `- 1\n\n`= author\n\n `= name Alice\n\n`= source\n\n `\"\n  raw\n\n`: term\n\n Definition.\n",
+            "`= title Document `em[title]\n`= tags\n\n `+ plumb\n `+ parser\n\n`= macros\n\n `+\n  `+ `\"name\"\n  `+ `\"expansion\"\n  `+ 1\n\n`= author\n\n `= name Alice\n\n`= source\n\n `\"\n  raw\n\n`: term\n\n Definition.\n",
         );
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let output = analyze_metadata(
@@ -716,7 +683,7 @@ mod tests {
     #[test]
     fn projects_recursive_document_metadata() {
         let parsed = parse(
-            "`= title Document `em[title]\n`= tags\n `- plumb\n `- parser\n`= macros\n `-\n  `- `\"name\"\n  `- `\"expansion\"\n`= author\n `= name Alice\n`= empty\n\nBody.\n",
+            "`= title Document `em[title]\n`= tags\n `+ plumb\n `+ parser\n`= macros\n `+\n  `+ `\"name\"\n  `+ `\"expansion\"\n`= author\n `= name Alice\n`= empty\n\nBody.\n",
         );
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let output = analyze_metadata(
@@ -754,7 +721,7 @@ mod tests {
     #[test]
     fn projects_plain_and_literal_bibliography_sources() {
         let parsed =
-            parse("`= bibliography\n `- refs/library one.json\n `- `\"refs/library-two.json\"\n");
+            parse("`= bibliography\n `+ refs/library one.json\n `+ `\"refs/library-two.json\"\n");
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let output = analyze_metadata(
             parsed
@@ -768,7 +735,7 @@ mod tests {
     }
 
     #[test]
-    fn declarations_can_interleave_with_body_and_project_facets() {
+    fn declarations_can_interleave_with_body_and_reject_document_facets() {
         let parsed = parse(
             "`= title Root\n\nBody before.\n\n`+ journal\n\nBody after.\n\n`= created 2026-08-26T00:00:00+08:00\n",
         );
@@ -779,7 +746,8 @@ mod tests {
                 .expect("semantic analysis requires valid syntax"),
         );
         assert_eq!(output.document_title().as_deref(), Some("Root"));
-        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+        assert_eq!(output.diagnostics.len(), 1, "{:?}", output.diagnostics);
+        assert_eq!(output.diagnostics[0].code, "document.unsupported-facet");
         assert_eq!(
             output
                 .metadata
@@ -790,12 +758,11 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["title", "created"]
         );
-        assert_eq!(output.facets[0].value, "journal");
     }
 
     #[test]
     fn document_title_requires_a_scalar_value() {
-        let parsed = parse("`= title\n `- Not a scalar\n\n`= title Later scalar\n");
+        let parsed = parse("`= title\n `+ Not a scalar\n\n`= title Later scalar\n");
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         assert_eq!(
             analyze_metadata(
@@ -849,6 +816,26 @@ mod tests {
     }
 
     #[test]
+    fn rendered_list_marker_is_not_a_metadata_sequence_member() {
+        let parsed = parse("`= tags\n `- First\n `- Second\n");
+        assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
+
+        let output = analyze_metadata(
+            parsed
+                .valid_syntax()
+                .expect("semantic analysis requires valid syntax"),
+        );
+        assert!(matches!(
+            output.metadata.unwrap().entries[0].value,
+            MetadataValue::Unsupported { .. }
+        ));
+        assert!(output
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == "metadata.unsupported-value"));
+    }
+
+    #[test]
     fn diagnoses_document_declaration_violations() {
         let parsed = parse(
             "`= `*[bad key] value\n`= duplicate\n`= duplicate\n`+\n`+ `*[not plain]\n`@ forbidden\n",
@@ -869,7 +856,7 @@ mod tests {
         assert_eq!(
             codes
                 .iter()
-                .filter(|code| **code == "document.invalid-facet")
+                .filter(|code| **code == "document.unsupported-facet")
                 .count(),
             2
         );
@@ -967,7 +954,7 @@ mod tests {
 
     #[test]
     fn rejects_non_scalar_created_values() {
-        let parsed = parse("`= created\n `- 2026-07-22T12:34:56+08:00\n");
+        let parsed = parse("`= created\n `+ 2026-07-22T12:34:56+08:00\n");
         let output = analyze_metadata(
             parsed
                 .valid_syntax()

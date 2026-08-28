@@ -135,9 +135,9 @@ fn render_metadata_value(value: &MetaValue) -> Result<String, String> {
                 if value.contains('\n')
                     || matches!(value.lines().next(), Some(line) if line.starts_with('`'))
                 {
-                    items.push(format!("`-\n{}", indent(&value, 2)));
+                    items.push(format!("`+\n{}", indent(&value, 2)));
                 } else {
-                    items.push(format!("`- {value}"));
+                    items.push(format!("`+ {value}"));
                 }
             }
             Ok(items.join("\n"))
@@ -733,7 +733,13 @@ mod tests {
     fn imports_the_exported_standard_profile() {
         let document = json!({
             "pandoc-api-version": [1, 23, 1],
-            "meta": {"title": {"t": "MetaInlines", "c": [{"t": "Str", "c": "Example"}]}},
+            "meta": {
+                "tags": {"t": "MetaList", "c": [
+                    {"t": "MetaInlines", "c": [{"t": "Str", "c": "plumb"}]},
+                    {"t": "MetaInlines", "c": [{"t": "Str", "c": "markup"}]}
+                ]},
+                "title": {"t": "MetaInlines", "c": [{"t": "Str", "c": "Example"}]}
+            },
             "blocks": [
                 {"t": "Header", "c": [1, ["intro", [], []], [{"t": "Str", "c": "Intro"}]]},
                 {"t": "Para", "c": [
@@ -760,7 +766,11 @@ mod tests {
         });
 
         let source = import_json(&document.to_string()).unwrap();
-        assert!(source.starts_with("`= title Example\n"), "{source}");
+        assert!(
+            source.starts_with("`= tags\n\n `+ plumb\n `+ markup\n\n"),
+            "{source}"
+        );
+        assert!(source.contains("`= title Example\n"), "{source}");
         assert!(source.contains("`# Intro\n\n `@ intro"), "{source}");
         assert!(source.contains("`*[em] `![strong] `==[marked|@[marked]|+[keep]]"));
         assert!(source.contains("`~[strike] `^[super] `_[sub]"));

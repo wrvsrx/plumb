@@ -345,7 +345,7 @@ mod tests {
         )
         .unwrap();
         let parsed =
-            parse("`= bibliography\n `- missing.json\n `- duplicate.json\n\n`cite[unknown]\n");
+            parse("`= bibliography\n `+ missing.json\n `+ duplicate.json\n\n`cite[unknown]\n");
         let analysis = analyze_document(
             parsed
                 .valid_syntax()
