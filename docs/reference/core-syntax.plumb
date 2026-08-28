@@ -22,8 +22,10 @@ sequence 或划入单独的 document attribute region。
 在 inline owner 内分隔 members，在 marked owner column 后跟 quote run 时开始 block raw tail。delimiter
 escape 与 bare delimiter 的身份都是全局的，与位置无关：
 
-`- 单个 introducer 后直接跟 `"["、`"]" 或 `"|" 之一，表示该 character 的 literal escape，
- 不产生 literal backtick，也不启动或关闭 structure；该规则在所有 parsed position 无条件成立。
+`- 单个 introducer 后直接跟 ASCII space、`"["、`"]" 或 `"|" 之一，表示该 character 的 literal escape，
+ 不产生 literal backtick，也不启动或关闭 structure；该规则在所有 parsed position 无条件成立。转义
+ ASCII space 产生 `"Inline::Text"，而普通 ASCII space 产生 `"Inline::Space"；因此前者是 argument
+ content，后者在 argument boundary 上是 padding。
 `- 裸 `"[" 与 `"]" 永远是 inline 结构 delimiter：位于合法 element open 或 element close 位置时执行
  该结构，否则发布对应 error，绝不回落为 ordinary text；字面使用必须 escape。
 `- `"{" 与 `"}" 是 ordinary parsed text characters，不需要 escape，也不能打开或关闭 ownership structure。
@@ -90,7 +92,9 @@ marked block 形状为：
   |"
    one raw payload
 
-marker 后只能紧接一个分隔 head 的 ASCII space/tab 或 line ending。普通 marker 允许空 head、空 children
+marker 后只能紧接作为 head 首个 inline byte 的 ASCII space 或 line ending。该 space 不属于 marker，也不由
+独立 head-separator token 消费；它进入 head 并产生 `"Inline::Space"。tab 或其他 whitespace 不能打开 head。
+普通 marker 允许空 head、空 children
 与 absent raw tail；marker-specific constraint 属于 semantic profile。children 按 source order 直接归 owner，
 core 不按 `"@"、`"+" 或 `"=" spelling 把 declaration children 移入独立 attribute container。
 
@@ -98,21 +102,25 @@ core 不按 `"@"、`"+" 或 `"=" spelling 把 declaration children 移入独立 
 
 普通非空文本行开始 paragraph。paragraph 只有 ordered parsed arguments，不拥有 children。第一个
 argument 不写前导 separator；当前 inline depth 的 bare `"|" 开始后续 argument。每个 argument 都是
-parsed inline content。紧邻 argument boundary 的 ASCII space 是 source padding：typed argument view 从
-两端移除这些 direct spaces，但 lossless tree 与 source range 仍保存原 bytes；nested inline element 内的
-space 不递归移除。连续 separators 或只有 padding 的区域产生 empty arguments。paragraph
+parsed inline content。普通 ASCII space 在 inline sequence 中产生 `"Inline::Space"，不建立 argument
+boundary；紧邻 argument boundary 的 direct ASCII space 是 source padding：typed argument view 从
+两端移除这些 direct spaces，但 lossless tree 与 source range 仍保存原 bytes。内部 space run 保持原数量；
+tab、non-breaking space、其他 Unicode whitespace、soft break 与 delimiter-escaped ASCII space 都不是
+padding。连续 separators 或只有 padding 的区域产生 empty arguments。paragraph
 至少有一个 argument，因而只含一个 bare `"|" 的 paragraph 具有两个 empty arguments。
 
-marked block 的 marker line 在第一个 ASCII space 后开始 head。head 与 paragraph 使用相同的 ordered
-parsed arguments；marker 后的 ASCII space 只分隔 marker 与 head，不建立 argument boundary。marker line
+marked block 的 marker line 在 marker 后第一个 ASCII space 处开始 head；这个 byte 是 first argument 的
+首个 `"Inline::Space"。head 与 paragraph 使用相同的 ordered parsed arguments，typed view 会像其他 boundary
+padding 一样移除它。marker line
 即使没有 text，head 也先保持 open；紧接的第一条缩进普通行可以建立 body column 并启动 deferred head。后续同属
 该 head 的 physical continuation line 产生 soft break；结构 indentation 不进入 inline content，
 超过要求的 spaces 仍是 text。blank line 结束 head。空行后的缩进普通文本是 child paragraph；
 缩进 marked block 则无需前置空行，直接结束 head 并开始 children。一旦开始 children 就不能
 恢复 head。
 
-head 仍为空时，head separator 后任何能完成 block dispatch 的 marked/verbatim block entry 可以在同一
-physical line 开始 first child；group delimiter 不属于 block entry。first child 的 introducer column
+head 在移除 direct ASCII-space padding 后仍为空时，padding 后任何能完成 block dispatch 的
+marked/verbatim block entry 可以在同一 physical line 开始 first child；escaped space、tab 或其他 inline
+content 都会使 head 非空。first child 的 introducer column
 建立 body column，后续 children 必须从同一 column 开始：
 
 `plumb
@@ -144,8 +152,18 @@ padding；consumer 观察到的 argument content 不受表格列对齐影响：
   `row Language server | Waiting || Optional note
   ordinary first argument|second argument
 
-需要让 argument value 以 space 开头或结尾时，把该 space 放入 nested inline element；padding trim 只作用
-于当前 argument depth，因此 `"`()[ value ]" 的 value 保留两端 spaces。
+需要让 argument value 以 ASCII space 开头或结尾时，对每个 content space 使用 delimiter escape。因为 escaped
+space 是 `"Inline::Text" 而不是 `"Inline::Space"，typed view 不移除它：
+
+`plumb
+
+|"
+  `row ` Alice` |10
+  `kind[` value` ]
+
+nested inline element 不是 trim barrier。generic plain-text projection 遍历 parsed inline owner 时，必须逐个
+通过每个 nested parsed argument 的 typed view，不能直接读取其 raw items；因此 `"`()[ value ]" 仍投影为
+`"value"。verbatim argument/payload 不执行 parsed-space trim。
 
 同列 ordinary text 结束当前 marked block，并开始 sibling paragraph。连续、同缩进的 ordinary
 text lines 属于同一 paragraph，并以 soft break 连接；blank、dedent、同级 marked block 或 EOF
@@ -243,8 +261,11 @@ first argument 后的 argument 与 child 可以任意交错。tree 按 source or
 sequence；core 不根据
 kind spelling 猜测 declaration，也不分别存储会丢失交错位置的 arguments/children vectors。与
 head/paragraph 相同，space 不建立 member boundary；member 两端的 direct ASCII spaces 是 padding，typed
-argument view 按本节同样移除，nested content 不递归 trim。literal pipe 在 parsed argument 中写作 delimiter
-escape。verbatim payload 中的 pipe 是 raw byte，nested child 内的 pipe 属于 nested owner。
+argument view 按本节同样移除。后续 member 在忽略普通 boundary padding 后分类；因此 padding 不改变
+introducer-elided parsed child、verbatim child 或 full-envelope verbatim argument 的身份，且这些 form 在
+移除 padding 后仍必须占满 member。escaped space 是 content，不参与该分类 padding。literal pipe 在 parsed
+argument 中写作 delimiter escape。verbatim payload 中的 pipe 是 raw byte，nested child 内的 pipe 属于
+nested owner。
 
 连续 `"[[][]]" 和 inline postfix `"{}" 都不是 current ownership syntax。前者在第一个 close 后恢复为
 unattached bracket；后者只是 parsed text braces，不建立 children。版本迁移必须通过显式 legacy parser
