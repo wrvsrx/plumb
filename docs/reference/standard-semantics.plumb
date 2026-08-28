@@ -103,10 +103,11 @@ owner 可以进一步约束 child kinds。四种 member forms 与 migration rati
 
 `# 6. Metadata
 
-document 是 implicit root owner。它的 direct `"=" blocks 是 metadata entries，direct `"+" blocks 是
-document facets；两者可以与普通 document body blocks 任意交错，source order 不改变 ownership。official
-profile 从同一个 top-level block sequence 投影 declarations 与 body：direct `"="、`"+" 不进入 document
-body，其他 blocks 保持原有相对顺序；declaration 不形成 body separator，因此夹在 source-adjacent 同类
+document 是 implicit root owner。它的 direct `"=" blocks 是 metadata entries；它不投影 document
+facets。direct `"="、`"+"、`"@" declarations 可以与普通 document body blocks 任意交错，source
+order 不改变 ownership。official profile 从同一个 top-level block sequence 投影 declarations 与
+body；这三种 direct declarations 不进入 document body，其他 blocks 保持原有相对顺序。declaration
+不形成 body separator，因此夹在 source-adjacent 同类
 body blocks 之间时不拆分 list 等相邻分组。declaration 的整个 subtree 只作为 declaration value 解释，
 不参与 heading、definition、list、quote、task 或 event 等 body recognizer。document-level `"meta" block
 不具有 metadata semantics。
@@ -114,7 +115,9 @@ body blocks 之间时不拆分 list 等相邻分组。declaration 的整个 subt
 document identity 由 normalized workspace-relative path 定义，不由 source declaration 定义。direct
 `"@" block 不创建 document identity 或 anchor，发布 `"document.unsupported-identity" warning，并且作为
 无效 declaration 不进入 document body。nested `"@" 仍按其 direct block owner 的 identity declaration
-解释。document facets 使用非空 plain head；非法 facet 发布 `"document.invalid-facet" warning。
+解释。direct top-level `"+" 没有可附着的 document attribute container，发布
+`"document.unsupported-facet" warning，也不进入 document body。只有进入 `"=" association value 后，
+direct `"+" 才投影为 metadata sequence member。
 
 metadata entry 使用第 5.1 节的 association projection：没有 children 时，第一个 inline item 是 key，
 separator 后的 remainder 是同行 value；存在 children 时，整个 nonempty plain head 是 key，children
@@ -122,20 +125,23 @@ separator 后的 remainder 是同行 value；存在 children 时，整个 nonemp
 
 `- 没有 body：null。
 `- 非空 head 或一个 paragraph child：scalar。
-`- `"-" children：sequence。
+`- `"+" children：sequence。
 `- `"=" children：map。
 `- 一个 verbatim block：literal string。
 
-paragraph 或 list-item head 恰好只有一个 inline verbatim 时产生 literal string。空 head list item
+paragraph 或 collection-member head 恰好只有一个 inline verbatim 时产生 literal string。空 head
+collection member
 可以用 children 承载 nested sequence、map、scalar 或 verbatim value。非空 item head 不能同时有
 children；同一 container 不能混合不兼容 shapes。
 
-metadata sequence 只接受 `"-"。它是有序数据，不表达 bullet/ordered rendering，因此 `"." 不受
-支持。duplicate key 使用第一个值并发布 diagnostic。
+metadata sequence 只接受 `"+"，并保留 source order。`":"/`"-" 分别是可渲染的 definition
+association 与 list item；`"="/`"+" 分别是不进入 rendered body 的 named association 与
+anonymous collection member。因此 `"-"、`"." 都不支持作为 metadata sequence item。普通 owner
+下 leaf-shaped `"+" 仍投影为 facet；metadata association value context 优先，其中的 `"+" 只投影
+为 sequence member。duplicate key 使用第一个值并发布 diagnostic。
 
 export 将 scalar、sequence、map、verbatim、null 映射为 Pandoc `"MetaInlines"、`"MetaList"、
-`"MetaMap"、`"MetaString" 和空 `"MetaString"。document declarations 不进入 document body；facets
-作为 document-level classification 保留在 semantic output，首版不自动改写为 Pandoc metadata key。
+`"MetaMap"、`"MetaString" 和空 `"MetaString"。document declarations 不进入 document body。
 
 metadata insertion operation 只用于尚无 metadata 的 syntax-valid document，且只在 cursor 精确位于
 document start（byte offset 0）时提供；edit 在 byte offset 0 插入 direct `"title" 与

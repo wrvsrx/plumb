@@ -71,7 +71,8 @@ official semantic profile 至少区分：
 `- association：inline `"=" 不是恰好两个 arguments 时发布 `"association.invalid-arity"。
 `- heading/anchor：非法 heading level、duplicate anchor。
 `- metadata：duplicate/invalid key、invalid location、unsupported 或 mixed value shape，以及
- `"metadata.invalid-created" RFC 3339 timestamp warning。
+ `"metadata.invalid-created" RFC 3339 timestamp warning。document root 上的 direct `"@"/`"+" 分别发布
+ `"document.unsupported-identity"/`"document.unsupported-facet" warning，两者都不进入 rendered body。
 `- link/reference：缺失或无效 target、conflicting autolink property、missing document/anchor、
  ambiguous anchor 或 unresolved file。
 `- image：missing/invalid src 或 unresolved local file。
