@@ -1,0 +1,6 @@
+ALTER TABLE events ADD COLUMN id TEXT;
+ALTER TABLE events ADD COLUMN selection_start BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE events ADD COLUMN selection_end BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE events ADD COLUMN depth BIGINT NOT NULL DEFAULT 0;
+
+CREATE INDEX events_source_order ON events(path, start);

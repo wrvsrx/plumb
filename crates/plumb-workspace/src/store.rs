@@ -51,6 +51,7 @@ type TaskFactRow = (
     Option<String>,
     Option<String>,
 );
+type EventFactRow = (Vec<u8>, i64, i64, i64, i64, Option<String>, String, i64);
 
 const SCHEMA_VERSION: i64 = 6;
 const PRODUCER_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -170,6 +171,23 @@ pub struct StoredEventKey {
     pub sort_millis: Option<i64>,
     pub path: PathBuf,
     pub start: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct StoredEventSourceKey {
+    pub path: PathBuf,
+    pub start: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StoredEventFact {
+    pub path: PathBuf,
+    pub revision: i64,
+    pub start: usize,
+    pub selection_range: Range<usize>,
+    pub id: Option<String>,
+    pub title: String,
+    pub depth: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -772,6 +790,62 @@ impl SqliteSemanticStore {
         decode_records(rows, excluded)
     }
 
+    pub fn event_facts(&self, excluded: &[PathBuf]) -> StoreResult<Vec<StoredEventFact>> {
+        let mut connection = self
+            .connection
+            .lock()
+            .map_err(|_| StoreError::LockPoisoned)?;
+        let rows = events::table
+            .inner_join(documents::table.on(documents::path.eq(events::path)))
+            .select((
+                events::path,
+                documents::revision,
+                events::start,
+                events::selection_start,
+                events::selection_end,
+                events::id,
+                events::title,
+                events::depth,
+            ))
+            .order((events::path, events::start))
+            .load::<EventFactRow>(&mut *connection)?;
+        decode_event_facts(rows, excluded)
+    }
+
+    pub fn events_by_source_keys(
+        &self,
+        keys: &[StoredEventSourceKey],
+    ) -> StoreResult<Vec<StoredRecord<EventRecord>>> {
+        let mut connection = self
+            .connection
+            .lock()
+            .map_err(|_| StoreError::LockPoisoned)?;
+        let mut grouped = std::collections::BTreeMap::<Vec<u8>, Vec<i64>>::new();
+        for key in keys {
+            grouped
+                .entry(path_bytes(&normalize(&key.path)))
+                .or_default()
+                .push(to_i64(key.start)?);
+        }
+        let mut records = Vec::<StoredRecord<EventRecord>>::with_capacity(keys.len());
+        for (path, starts) in grouped {
+            let rows = events::table
+                .inner_join(documents::table.on(documents::path.eq(events::path)))
+                .filter(events::path.eq(path))
+                .filter(events::start.eq_any(starts))
+                .select((events::path, documents::revision, events::record))
+                .order(events::start)
+                .load::<(Vec<u8>, i64, Vec<u8>)>(&mut *connection)?;
+            records.extend(decode_records(rows.into_iter().map(Ok), &[])?);
+        }
+        records.sort_by(|left, right| {
+            left.path
+                .cmp(&right.path)
+                .then(left.record.range.start.cmp(&right.record.range.start))
+        });
+        Ok(records)
+    }
+
     pub fn event_title_counts(
         &self,
         prefix: &str,
@@ -1196,8 +1270,12 @@ fn insert_output(
         diesel::insert_into(events::table)
             .values((
                 events::path.eq(encoded_path.clone()),
+                events::id.eq(event.id.as_ref().map(|id| id.value.as_str())),
                 events::title.eq(&event.title),
                 events::start.eq(to_i64(event.range.start)?),
+                events::selection_start.eq(to_i64(event.selection_range.start)?),
+                events::selection_end.eq(to_i64(event.selection_range.end)?),
+                events::depth.eq(to_i64(event.depth)?),
                 events::is_point.eq(event.is_point()),
                 events::sort_millis.eq(event.sort_datetime().map(|value| value.timestamp_millis())),
                 events::interval_start_millis
@@ -1508,6 +1586,39 @@ fn decode_task_facts(
         .collect()
 }
 
+fn decode_event_facts(
+    rows: Vec<EventFactRow>,
+    excluded: &[PathBuf],
+) -> StoreResult<Vec<StoredEventFact>> {
+    let mut excluded = excluded
+        .iter()
+        .map(|path| normalize(path))
+        .collect::<Vec<_>>();
+    excluded.sort();
+    rows.into_iter()
+        .filter_map(
+            |(path, revision, start, selection_start, selection_end, id, title, depth)| {
+                Some((|| {
+                    let path = path_from_bytes(path)?;
+                    if excluded.binary_search(&path).is_ok() {
+                        return Ok(None);
+                    }
+                    Ok(Some(StoredEventFact {
+                        path,
+                        revision,
+                        start: to_usize(start)?,
+                        selection_range: to_usize(selection_start)?..to_usize(selection_end)?,
+                        id,
+                        title,
+                        depth: to_usize(depth)?,
+                    }))
+                })())
+            },
+        )
+        .filter_map(Result::transpose)
+        .collect()
+}
+
 fn decode_event_task_associations(
     rows: Vec<EventTaskAssociationRow>,
 ) -> StoreResult<Vec<StoredEventTaskAssociation>> {
@@ -1697,6 +1808,54 @@ mod tests {
             ])
         );
         assert!(store.events(&[]).is_err());
+    }
+
+    #[test]
+    fn event_facts_do_not_decode_records_and_lookup_decodes_only_selected_keys() {
+        let store = SqliteSemanticStore::open_in_memory().unwrap();
+        let source = concat!(
+            "`- 09:00|First\n\n `+ event\n\n `@ first\n",
+            "`- 10:00|Second\n\n `+ event\n\n `@ second\n",
+        );
+        let output = analyzed(source);
+        let first_start = output.events.events[0].range.start;
+        let second = &output.events.events[1];
+        store
+            .replace(Path::new("events.plumb"), 7, source, Some(&output))
+            .unwrap();
+        {
+            let mut connection = store.connection.lock().unwrap();
+            diesel::update(
+                events::table
+                    .filter(events::path.eq(path_bytes(Path::new("events.plumb"))))
+                    .filter(events::start.eq(to_i64(first_start).unwrap())),
+            )
+            .set(events::record.eq(vec![0xff]))
+            .execute(&mut *connection)
+            .unwrap();
+        }
+
+        let facts = store.event_facts(&[]).unwrap();
+        assert_eq!(facts.len(), 2);
+        assert_eq!(facts[0].id.as_deref(), Some("first"));
+        assert_eq!(facts[1].selection_range, second.selection_range);
+        assert_eq!(
+            store
+                .events_by_source_keys(&[StoredEventSourceKey {
+                    path: PathBuf::from("events.plumb"),
+                    start: second.range.start,
+                }])
+                .unwrap()[0]
+                .record
+                .title,
+            "Second"
+        );
+        assert!(store
+            .events_by_source_keys(&[StoredEventSourceKey {
+                path: PathBuf::from("events.plumb"),
+                start: first_start,
+            }])
+            .is_err());
     }
 
     #[test]

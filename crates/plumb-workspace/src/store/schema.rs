@@ -86,8 +86,12 @@ diesel::table! {
 diesel::table! {
     events (path, start) {
         path -> Binary,
+        id -> Nullable<Text>,
         title -> Text,
         start -> BigInt,
+        selection_start -> BigInt,
+        selection_end -> BigInt,
+        depth -> BigInt,
         is_point -> Bool,
         sort_millis -> Nullable<BigInt>,
         interval_start_millis -> Nullable<BigInt>,
