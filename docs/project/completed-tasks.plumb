@@ -1064,6 +1064,28 @@
 
 `# Workspace performance and maintenance
 
+`- 让 semantic-store profiling fixture 使用当前语法
+
+ `+ task
+
+ `@ current-semantic-store-profile-fixture
+
+ `= created|2026-08-29T03:28:53+08:00
+ `= done|2026-08-29T04:32:32+08:00
+
+ `note Criterion benchmark 与 manual profiler 现复用 benchmark-only canonical fixture generator；event 使用当前
+
+ list facet、direct declaration children 与 positional arguments，不再生成 legacy brace ownership。
+
+ `note generator 在 benchmark timing 外通过 strict parser，并验证 target task、source event 与 link record 数量；
+
+ 20-event manual profiler 的 memory、SQLite cold 和同 database SQLite warm 路径均运行成功，warm reopen 继续命中
+ persistent generation。
+
+ `note cargo check -p plumb-workspace --all-targets 通过，Criterion 与 example 不再维护两份会独立漂移的 event
+
+ workload source。
+
 `- 按 capability 拆分 plumb-workspace implementation
 
  `+ task

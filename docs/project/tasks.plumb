@@ -24,26 +24,6 @@
 
  继续被 ignore；不提交 build outputs。
 
-`- 让 semantic-store profiling fixture 使用当前语法
-
- `+ task
-
- `@ current-semantic-store-profile-fixture
-
- `= created|2026-08-29T03:28:53+08:00
-
- `note 移除 semantic_store_profile example 生成的 legacy brace ownership，改用当前 list facet、direct declaration
-
- 与 positional-argument syntax，使生成 records、titles 和 source structure 与 production documents 一致。
-
- `note Criterion benchmark 与 manual profiler 复用一份 canonical fixture generator，或删除不再提供独立价值的重复
-
- example，避免两个 workload 再次漂移。
-
- `note strict-parse generated fixture，并验证预期 event/task counts、cache hit/miss 路径和 benchmark measurements
-
- 仍覆盖其声明的 workload。
-
 `- 减少 notes interactive mode 的旧 dependency generations
 
  `+ task
