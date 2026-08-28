@@ -244,6 +244,7 @@ struct InlineOpening {
     kind_range: SourceRange,
     members: Vec<InlineMember>,
     child_separator: Option<SourceRange>,
+    child_leading_padding: Option<InlinePadding>,
 }
 
 struct InlineFrame {
@@ -529,6 +530,9 @@ impl Parser<'_> {
             return Some(BlockDispatch::Marked);
         }
         let byte = self.source.as_bytes()[after];
+        if byte == b' ' {
+            return None;
+        }
         if byte == b'[' {
             return None;
         }
@@ -584,17 +588,12 @@ impl Parser<'_> {
         let marker_range = marker_start..cursor;
         let mark_end = cursor;
         let head_start = if cursor < line.content_end {
-            if matches!(self.source.as_bytes()[cursor], b' ' | b'\t') {
-                while cursor < line.content_end
-                    && matches!(self.source.as_bytes()[cursor], b' ' | b'\t')
-                {
-                    cursor += 1;
-                }
+            if self.source.as_bytes()[cursor] == b' ' {
                 cursor
             } else {
                 self.diagnostics.push(Diagnostic::error(
                     "syntax.invalid-block-dispatch",
-                    "marker must be followed by whitespace or end of line",
+                    "marker must be followed by an ASCII space or end of line",
                     introducer..next_char_end(self.source, cursor),
                 ));
                 cursor
@@ -604,8 +603,16 @@ impl Parser<'_> {
         };
 
         if head_start < line.content_end {
-            let child_indent = head_start - line.start;
+            let child_start = skip_ascii_spaces(self.source, head_start, line.content_end);
+            let child_indent = child_start - line.start;
             if self.block_dispatch(index, child_indent).is_some() {
+                let head = self.parse_inline_segments(
+                    &mut vec![InlineSegment {
+                        start: head_start,
+                        end: child_start,
+                    }],
+                    false,
+                );
                 return MarkedParse {
                     block: ParsedBlock {
                         range: introducer..line.end,
@@ -615,7 +622,7 @@ impl Parser<'_> {
                             marker_range,
                             attrs: Attributes::default(),
                         }),
-                        head: InlineContent::from_items(head_start..head_start, Vec::new()),
+                        head,
                         children: Vec::new(),
                         raw: None,
                     },
@@ -937,6 +944,19 @@ impl Parser<'_> {
 
             if frames.len() > 1 {
                 let frame = frames.last_mut().unwrap();
+                if frame.member_complete && byte == b' ' {
+                    let padding_end = skip_ascii_spaces(self.source, cursor, end);
+                    set_trailing_member_padding(
+                        frame.opening.as_mut().unwrap().members.last_mut().unwrap(),
+                        InlinePadding {
+                            text: self.source[cursor..padding_end].to_string(),
+                            range: cursor..padding_end,
+                        },
+                    );
+                    position.offset = padding_end;
+                    frame.text_start = padding_end;
+                    continue;
+                }
                 if frame.member_complete && !matches!(byte, b'|' | b']') {
                     let trailer_end = self.source[cursor..end]
                         .find(['|', ']'])
@@ -953,16 +973,23 @@ impl Parser<'_> {
 
                 let at_member_start =
                     !frame.member_complete && frame.items.is_empty() && cursor == frame.start;
+                let content_cursor = skip_ascii_spaces(self.source, cursor, end);
+                let leading_padding = (content_cursor > cursor).then(|| InlinePadding {
+                    text: self.source[cursor..content_cursor].to_string(),
+                    range: cursor..content_cursor,
+                });
+                let content_byte = self.source.as_bytes().get(content_cursor).copied();
                 if at_member_start
                     && frame.separator_range.is_some()
-                    && byte == b'"'
-                    && starts_full_verbatim_envelope(self.source, cursor, end)
+                    && content_byte == Some(b'"')
+                    && starts_full_verbatim_envelope(self.source, content_cursor, end)
                 {
                     let separator_range = frame.separator_range.clone();
                     if let Some(argument) = self.parse_verbatim_argument(
-                        cursor,
+                        content_cursor,
                         end,
                         separator_range,
+                        leading_padding,
                         "verbatim argument",
                     ) {
                         position.offset = argument.range.end;
@@ -981,9 +1008,12 @@ impl Parser<'_> {
                     continue;
                 }
 
-                if at_member_start && frame.separator_range.is_some() && byte != b'`' {
-                    let kind_end = take_name_like(self.source, cursor, end, marker_char);
-                    if kind_end > cursor && kind_end < end {
+                if at_member_start
+                    && frame.separator_range.is_some()
+                    && content_byte.is_some_and(|byte| byte != b'`')
+                {
+                    let kind_end = take_name_like(self.source, content_cursor, end, marker_char);
+                    if kind_end > content_cursor && kind_end < end {
                         match self.source.as_bytes()[kind_end] {
                             b'[' => {
                                 let separator_range = frame.separator_range.clone().unwrap();
@@ -993,11 +1023,12 @@ impl Parser<'_> {
                                     text_start: position.offset,
                                     items: Vec::new(),
                                     opening: Some(InlineOpening {
-                                        start: cursor,
-                                        kind: self.source[cursor..kind_end].to_string(),
-                                        kind_range: cursor..kind_end,
+                                        start: content_cursor,
+                                        kind: self.source[content_cursor..kind_end].to_string(),
+                                        kind_range: content_cursor..kind_end,
                                         members: Vec::new(),
                                         child_separator: Some(separator_range),
+                                        child_leading_padding: leading_padding,
                                     }),
                                     separator_range: None,
                                     member_complete: false,
@@ -1011,13 +1042,14 @@ impl Parser<'_> {
                                     kind_end,
                                     end,
                                     None,
+                                    None,
                                     "verbatim child",
                                 ) {
                                     let after = argument.range.end;
                                     let inline = Inline::Verbatim {
-                                        range: cursor..after,
-                                        kind: self.source[cursor..kind_end].to_string(),
-                                        kind_range: cursor..kind_end,
+                                        range: content_cursor..after,
+                                        kind: self.source[content_cursor..kind_end].to_string(),
+                                        kind_range: content_cursor..kind_end,
                                         text: argument.text,
                                         text_range: argument.text_range,
                                         quote_count: argument.quote_count,
@@ -1026,8 +1058,10 @@ impl Parser<'_> {
                                     };
                                     frame.opening.as_mut().unwrap().members.push(
                                         InlineMember::Child {
-                                            range: cursor..after,
+                                            range: content_cursor..after,
                                             separator_range,
+                                            leading_padding,
+                                            trailing_padding: None,
                                             inline: Box::new(inline),
                                         },
                                     );
@@ -1155,6 +1189,8 @@ impl Parser<'_> {
                         .push(InlineMember::Child {
                             range: opening.start..after_close,
                             separator_range,
+                            leading_padding: opening.child_leading_padding,
+                            trailing_padding: None,
                             inline: Box::new(inline),
                         });
                     parent.member_complete = true;
@@ -1192,7 +1228,10 @@ impl Parser<'_> {
             // §2: a single introducer before an inline structural
             // delimiters is an unconditional literal escape.
             if position.offset < end
-                && matches!(self.source.as_bytes()[position.offset], b'[' | b']' | b'|')
+                && matches!(
+                    self.source.as_bytes()[position.offset],
+                    b' ' | b'[' | b']' | b'|'
+                )
             {
                 frames.last_mut().unwrap().items.push(Inline::Text {
                     text: self.source[position.offset..position.offset + 1].to_string(),
@@ -1300,6 +1339,7 @@ impl Parser<'_> {
                         kind_range: kind_start..kind_end,
                         members: Vec::new(),
                         child_separator: None,
+                        child_leading_padding: None,
                     }),
                     separator_range: None,
                     member_complete: false,
@@ -1352,6 +1392,7 @@ impl Parser<'_> {
         quote_start: usize,
         limit: usize,
         separator_range: Option<SourceRange>,
+        leading_padding: Option<InlinePadding>,
         construct: &str,
     ) -> Option<VerbatimArgument> {
         let quote_count = self.source[quote_start..limit]
@@ -1370,6 +1411,8 @@ impl Parser<'_> {
             return Some(VerbatimArgument {
                 range: quote_start..after_close,
                 separator_range,
+                leading_padding,
+                trailing_padding: None,
                 text: self.source[bracket_open + 1..close].to_string(),
                 text_range: bracket_open + 1..close,
                 quote_count,
@@ -1438,6 +1481,25 @@ fn has_space_prefix(source: &str, start: usize, width: usize) -> bool {
         .as_bytes()
         .get(start..start.saturating_add(width))
         .is_some_and(|prefix| prefix.iter().all(|byte| *byte == b' '))
+}
+
+fn skip_ascii_spaces(source: &str, mut cursor: usize, limit: usize) -> usize {
+    while cursor < limit && source.as_bytes()[cursor] == b' ' {
+        cursor += 1;
+    }
+    cursor
+}
+
+fn set_trailing_member_padding(member: &mut InlineMember, padding: InlinePadding) {
+    match member {
+        InlineMember::ParsedArgument(_) => {
+            unreachable!("parsed argument padding is stored in its inline content")
+        }
+        InlineMember::VerbatimArgument(argument) => argument.trailing_padding = Some(padding),
+        InlineMember::Child {
+            trailing_padding, ..
+        } => *trailing_padding = Some(padding),
+    }
 }
 
 fn flush_inline_text(source: &str, frame: &mut InlineFrame, end: usize) {
@@ -1626,8 +1688,8 @@ mod tests {
     }
 
     #[test]
-    fn typed_arguments_ignore_direct_ascii_space_padding_only() {
-        let source = "`row  Alice  | 10 | `()[ preserved ] |  \tvalue\t  \n";
+    fn typed_arguments_trim_every_parsed_level_and_preserve_escaped_spaces() {
+        let source = "`row  Alice  | 10 | `()[ preserved ] |  \tvalue\t   |` kept` \n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
@@ -1638,13 +1700,40 @@ mod tests {
         assert_eq!(row.head.argument_plain_text(1).as_deref(), Some("10"));
         assert_eq!(
             row.head.argument_plain_text(2).as_deref(),
-            Some(" preserved ")
+            Some("preserved")
         );
         assert_eq!(
             row.head.argument_plain_text(3).as_deref(),
             Some("\tvalue\t")
         );
+        assert_eq!(row.head.argument_plain_text(4).as_deref(), Some(" kept "));
+        assert!(matches!(
+            &row.head.items[0],
+            Inline::Space { text, range } if text == "  " && &parsed.source[range.clone()] == "  "
+        ));
         assert_eq!(parsed.lossless.reconstruct(source), source);
+    }
+
+    #[test]
+    fn backtick_space_starts_inline_text_while_marker_heads_require_ascii_space() {
+        let escaped = parse("` leading and trailing` \n\n`kind[` value` ]\n");
+        assert!(escaped.is_valid(), "{:?}", escaped.diagnostics);
+        let Block::Parsed(paragraph) = &escaped.syntax.blocks[0] else {
+            panic!("escaped space starts a paragraph");
+        };
+        assert!(paragraph.mark.is_none());
+        assert_eq!(paragraph.head.plain_text(), " leading and trailing ");
+        let Block::Parsed(element_paragraph) = &escaped.syntax.blocks[1] else {
+            panic!("inline element paragraph");
+        };
+        assert_eq!(element_paragraph.head.plain_text(), " value ");
+
+        let tab = parse("`row\tvalue\n");
+        assert!(!tab.is_valid());
+        assert!(tab
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == "syntax.invalid-block-dispatch"));
     }
 
     #[test]
@@ -1683,6 +1772,44 @@ mod tests {
     }
 
     #[test]
+    fn member_padding_does_not_change_verbatim_or_child_classification() {
+        let source = "`owner[first | child[value] | \"[raw]\" | code\"[child]\" ]\n";
+        let parsed = parse(source);
+        assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
+        let Block::Parsed(paragraph) = &parsed.syntax.blocks[0] else {
+            panic!("paragraph");
+        };
+        let [Inline::Element { members, .. }] = paragraph.head.items.as_slice() else {
+            panic!("owner element");
+        };
+        assert_eq!(members.len(), 4);
+        assert!(matches!(
+            &members[0],
+            InlineMember::ParsedArgument(argument) if argument.content.plain_text() == "first"
+        ));
+        assert!(matches!(
+            &members[1],
+            InlineMember::Child { leading_padding: Some(leading), trailing_padding: Some(trailing), inline, .. }
+                if leading.text == " " && trailing.text == " "
+                    && matches!(inline.as_ref(), Inline::Element { kind, .. } if kind == "child")
+        ));
+        assert!(matches!(
+            &members[2],
+            InlineMember::VerbatimArgument(argument)
+                if argument.text == "raw"
+                    && argument.leading_padding.as_ref().is_some_and(|padding| padding.text == " ")
+                    && argument.trailing_padding.as_ref().is_some_and(|padding| padding.text == " ")
+        ));
+        assert!(matches!(
+            &members[3],
+            InlineMember::Child { leading_padding: Some(leading), trailing_padding: Some(trailing), inline, .. }
+                if leading.text == " " && trailing.text == " "
+                    && matches!(inline.as_ref(), Inline::Verbatim { kind, text, .. } if kind == "code" && text == "child")
+        ));
+        assert_eq!(parsed.lossless.reconstruct(source), source);
+    }
+
+    #[test]
     fn multiline_inline_recovers_before_block_boundaries() {
         let parsed = parse("`parent `span[open\n  `child Boundary\n");
         assert!(!parsed.is_valid());
@@ -1708,7 +1835,11 @@ mod tests {
         let Block::Parsed(expanded_outer) = &expanded.syntax.blocks[0] else {
             panic!("expected expanded outer block");
         };
-        assert!(compact_outer.head.items.is_empty());
+        assert!(compact_outer.head.is_empty());
+        assert!(matches!(
+            compact_outer.head.items.as_slice(),
+            [Inline::Space { text, .. }] if text == " "
+        ));
         assert_eq!(compact_outer.children.len(), 3);
         assert_eq!(compact_outer.children.len(), expanded_outer.children.len());
     }

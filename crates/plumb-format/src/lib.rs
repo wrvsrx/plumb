@@ -550,14 +550,13 @@ impl Formatter {
             let marker = mark.marker.as_str();
             self.output.push('`');
             self.output.push_str(marker);
-            if !block.head.is_empty() {
-                self.output.push(' ');
-            }
             indent + 1
         } else {
             indent
         };
-        self.inlines(&block.head, continuation_indent, false);
+        if block.mark.is_none() || !block.head.is_empty() {
+            self.inlines(&block.head, continuation_indent, false);
+        }
 
         if !block.children.is_empty() {
             if block.head.is_empty() && block.raw.is_none() {
@@ -621,10 +620,27 @@ impl Formatter {
                             self.inlines(&argument.content, continuation_indent, true);
                         }
                         plumb_syntax::InlineMember::VerbatimArgument(argument) => {
+                            if let Some(padding) = &argument.leading_padding {
+                                self.output.push_str(&padding.text);
+                            }
                             self.full_verbatim_payload(&argument.text);
+                            if let Some(padding) = &argument.trailing_padding {
+                                self.output.push_str(&padding.text);
+                            }
                         }
-                        plumb_syntax::InlineMember::Child { inline, .. } => {
+                        plumb_syntax::InlineMember::Child {
+                            inline,
+                            leading_padding,
+                            trailing_padding,
+                            ..
+                        } => {
+                            if let Some(padding) = leading_padding {
+                                self.output.push_str(&padding.text);
+                            }
                             self.inline(inline, continuation_indent, true, false);
+                            if let Some(padding) = trailing_padding {
+                                self.output.push_str(&padding.text);
+                            }
                         }
                     }
                 }
@@ -713,6 +729,7 @@ impl Formatter {
         for character in text.chars() {
             match character {
                 '`' => self.output.push_str("``"),
+                ' ' => self.output.push_str("` "),
                 '[' => self.output.push_str("`["),
                 ']' => self.output.push_str("`]"),
                 '{' | '}' => self.output.push(character),
@@ -892,7 +909,7 @@ mod tests {
     fn formats_direct_declarations_and_recursive_children() {
         assert_formats(
             "`=   title|Document title\n\n`= tags|plumb\n\n`task   Buy milk\n   `+ task\n   `@ shopping\n\n   `note Details\n",
-            "`= title|Document title\n`= tags|plumb\n\n`task Buy milk\n\n `+ task\n\n `@ shopping\n\n `note Details\n",
+            "`=   title|Document title\n`= tags|plumb\n\n`task   Buy milk\n\n `+ task\n\n `@ shopping\n\n `note Details\n",
         );
         assert_formats("", "");
     }
@@ -900,6 +917,15 @@ mod tests {
     #[test]
     fn preserves_argument_boundary_padding() {
         let source = "`row name  | age\n`row Alice | 10\n";
+        assert_formats(source, source);
+    }
+
+    #[test]
+    fn preserves_marker_member_padding_and_escaped_boundary_spaces() {
+        let source = concat!(
+            "`row   ` Alice` | 10\n\n",
+            "`owner[first | child[value] | \"[raw]\" | code\"[child]\" ]\n",
+        );
         assert_formats(source, source);
     }
 
@@ -1016,7 +1042,7 @@ mod tests {
         edited.replace_range(edit.range.clone(), &edit.new_text);
         assert_eq!(
             edited,
-            "`task First\n\n `@ one\n\n`task Second\n\n `@ two\n\n`event Following\n"
+            "`task   First\n\n `@ one\n\n`task   Second\n\n `@ two\n\n`event Following\n"
         );
     }
 
@@ -1053,8 +1079,8 @@ mod tests {
         let edits = format_contained_blocks(source, selection).unwrap();
         assert_eq!(edits.len(), 1);
         assert!(!edits[0].new_text.contains("`node Parent"));
-        assert!(edits[0].new_text.contains("`task One"));
-        assert!(edits[0].new_text.contains("`task Two"));
+        assert!(edits[0].new_text.contains("`task   One"));
+        assert!(edits[0].new_text.contains("`task   Two"));
         assert_eq!(&source[edits[0].range.end..], "\n\n`event Following\n");
     }
 
@@ -1073,7 +1099,7 @@ mod tests {
 
     #[test]
     fn contained_range_ignores_partial_empty_and_next_block_selections() {
-        let source = "`-   One\n`- Two\n";
+        let source = "`- One\n   `note Child\n\n`- Two\n";
         let parsed = parse(source);
         let head = source.find("One").unwrap();
         assert!(format_contained_blocks(source, head..head + 3)
@@ -1085,7 +1111,7 @@ mod tests {
         let second_start = parsed.syntax.blocks[1].range().start;
         let edits = format_contained_blocks(source, 0..second_start).unwrap();
         assert_eq!(edits.len(), 1);
-        assert_eq!(edits[0].new_text, "`- One");
+        assert_eq!(edits[0].new_text, "`- One\n\n `note Child");
     }
 
     #[test]

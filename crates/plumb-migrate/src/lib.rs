@@ -252,7 +252,9 @@ fn legacy_head_space_range(block: &ParsedBlock) -> Option<Range<usize>> {
         return None;
     }
     let marker = block.mark.as_ref()?.marker.as_str();
-    let [first, Inline::Space { range, .. }, value @ ..] = block.head.items.as_slice() else {
+    let [Inline::Space { .. }, first, Inline::Space { range, .. }, value @ ..] =
+        block.head.items.as_slice()
+    else {
         return None;
     };
     if value.is_empty() {

@@ -59,7 +59,7 @@ fn collect_groups<'a>(blocks: impl IntoIterator<Item = &'a Block>, output: &mut 
             debug_assert_eq!(item_kind, kind);
             items.push(ListItemRecord {
                 range: item.range.clone(),
-                selection_range: item.head.range.clone(),
+                selection_range: crate::inline_selection_range(&item.head),
             });
             collect_groups(crate::body_children(item), output);
             current = if blocks

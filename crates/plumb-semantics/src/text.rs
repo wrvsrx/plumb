@@ -7,8 +7,12 @@ pub fn plain_text(content: &InlineContent) -> String {
 }
 
 fn append_content(content: &InlineContent, output: &mut String) {
-    for inline in &content.items {
-        append_inline(inline, output);
+    for index in 0..content.arguments.len() {
+        if let Some(argument) = content.argument(index) {
+            for inline in &argument.items {
+                append_inline(inline, output);
+            }
+        }
     }
 }
 

@@ -249,7 +249,7 @@ fn lower_list_group(blocks: &[&Block], group: &ListGroup, analysis: &DocumentOut
                     "c": [lower_attrs(&mark.attrs, None), inlines],
                 }));
                 contents.push(json!({ "t": "Para", "c": title }));
-            } else if !block.head.items.is_empty() {
+            } else if !block.head.is_empty() {
                 contents.push(json!({ "t": "Para", "c": lower_inlines(&block.head, analysis) }));
             }
             contents.extend(lower_body(block, analysis));
@@ -339,7 +339,7 @@ fn lower_parsed_block(block: &ParsedBlock, analysis: &DocumentOutput, output: &m
     {
         let mark = block.mark.as_ref().expect("a quote has a mark");
         let mut contents = Vec::new();
-        if !block.head.items.is_empty() {
+        if !block.head.is_empty() {
             contents.push(json!({ "t": "Para", "c": lower_inlines(&block.head, analysis) }));
         }
         contents.extend(lower_body(block, analysis));
@@ -355,7 +355,7 @@ fn lower_parsed_block(block: &ParsedBlock, analysis: &DocumentOutput, output: &m
 
     if let Some(mark) = &block.mark {
         let mut contents = Vec::new();
-        if !block.head.items.is_empty() {
+        if !block.head.is_empty() {
             contents.push(json!({ "t": "Para", "c": lower_inlines(&block.head, analysis) }));
         }
         contents.extend(lower_body(block, analysis));
@@ -475,10 +475,19 @@ fn lower_table_attrs(attrs: &Attributes) -> Value {
 
 fn lower_inlines(content: &InlineContent, analysis: &DocumentOutput) -> Vec<Value> {
     let mut output = Vec::new();
-    for inline in &content.items {
+    for index in 0..content.arguments.len() {
+        if let Some(argument) = content.argument(index) {
+            lower_inline_items(&argument.items, analysis, &mut output);
+        }
+    }
+    output
+}
+
+fn lower_inline_items(items: &[Inline], analysis: &DocumentOutput, output: &mut Vec<Value>) {
+    for inline in items {
         match inline {
-            Inline::Text { text, .. } => lower_text(text, &mut output),
-            Inline::Space { text, .. } => lower_text(text, &mut output),
+            Inline::Text { text, .. } => lower_text(text, output),
+            Inline::Space { text, .. } => lower_text(text, output),
             Inline::SoftBreak { .. } => output.push(json!({ "t": "SoftBreak" })),
             Inline::Verbatim {
                 range,
@@ -580,7 +589,6 @@ fn lower_inlines(content: &InlineContent, analysis: &DocumentOutput) -> Vec<Valu
             }
         }
     }
-    output
 }
 
 fn lower_first_argument(

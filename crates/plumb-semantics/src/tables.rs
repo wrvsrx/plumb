@@ -125,7 +125,7 @@ fn analyze_table(table: &ParsedBlock, output: &mut TableOutput) {
 
     output.tables.push(TableRecord {
         range: table.range.clone(),
-        selection_range: table.head.range.clone(),
+        selection_range: crate::inline_selection_range(&table.head),
         caption: table.head.clone(),
         column_count,
         row_head_columns: row_head_columns.unwrap_or(0),
@@ -172,7 +172,7 @@ fn analyze_row(row: &ParsedBlock, output: &mut TableOutput) -> TableRowRecord {
                 };
                 Some(TableCellRecord {
                     range: cell.range.clone(),
-                    selection_range: cell.head.range.clone(),
+                    selection_range: crate::inline_selection_range(&cell.head),
                     header: has_header_facet(cell),
                 })
             })

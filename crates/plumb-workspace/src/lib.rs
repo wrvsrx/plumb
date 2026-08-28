@@ -4325,7 +4325,11 @@ fn parse_event_shorthand_head(
     metadata: &MetadataOutput,
     inferred_end: Option<ShorthandStart>,
 ) -> Result<(EventInput, usize), EventShorthandError> {
-    let shorthand = &source[syntax.head.range.clone()];
+    let argument = syntax
+        .head
+        .argument(0)
+        .ok_or(EventShorthandError::InvalidShorthand)?;
+    let shorthand = &source[argument.range.clone()];
     let (mut input, title_start) =
         parse_event_shorthand_with_title_start(shorthand, now, Some(metadata), inferred_end)?;
     let plain = syntax.head.plain_text();
@@ -4348,7 +4352,8 @@ fn inferred_end_from_sibling(
     if !matches!(mark.marker.as_str(), "-" | "." | "task" | "event") || mark.marker == "event" {
         return None;
     }
-    let shorthand = &source[sibling.head.range.clone()];
+    let argument = sibling.head.argument(0)?;
+    let shorthand = &source[argument.range.clone()];
     let separator = shorthand
         .char_indices()
         .find_map(|(index, character)| matches!(character, ' ' | '\t').then_some(index))?;
@@ -4493,14 +4498,14 @@ fn event_attributes(input: &EventInput, metadata: &MetadataOutput) -> Vec<OwnedA
 fn set_event_head(owned: &mut OwnedBlock, input: &EventInput) {
     let (_, _, schedule) =
         compact_event_schedule(input).expect("event input is validated before authoring");
+    owned.set_head_text(&input.title);
     let OwnedBlock::Parsed { head, .. } = owned else {
         return;
     };
-    *head = vec![
-        OwnedInline::Text(schedule),
-        OwnedInline::ArgumentSeparator,
-        OwnedInline::Text(input.title.clone()),
-    ];
+    head.splice(
+        0..0,
+        [OwnedInline::Text(schedule), OwnedInline::ArgumentSeparator],
+    );
 }
 
 fn prepend_event_schedule(owned: &mut OwnedBlock, input: &EventInput) {

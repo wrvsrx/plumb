@@ -158,8 +158,10 @@ impl<'a> TokenBuilder<'a> {
             while let Some(inline) = pending.pop() {
                 match inline {
                     Inline::Text { text, range } => {
-                        let kind = if matches!(self.source.get(range.clone()), Some("``" | "`]"))
-                            && matches!(text.as_str(), "`" | "]")
+                        let kind = if matches!(
+                            self.source.get(range.clone()),
+                            Some("``" | "` " | "`[" | "`]" | "`|")
+                        ) && matches!(text.as_str(), "`" | "]")
                         {
                             SyntaxKind::Escape
                         } else {
@@ -214,10 +216,25 @@ impl<'a> TokenBuilder<'a> {
                                             TYPED_PRIORITY,
                                         );
                                     }
+                                    for padding in [
+                                        argument.leading_padding.as_ref(),
+                                        argument.trailing_padding.as_ref(),
+                                    ]
+                                    .into_iter()
+                                    .flatten()
+                                    {
+                                        self.assign(
+                                            padding.range.clone(),
+                                            SyntaxKind::Whitespace,
+                                            TYPED_PRIORITY,
+                                        );
+                                    }
                                     self.annotate_verbatim_member(argument);
                                 }
                                 InlineMember::Child {
                                     separator_range,
+                                    leading_padding,
+                                    trailing_padding,
                                     inline,
                                     ..
                                 } => {
@@ -226,6 +243,17 @@ impl<'a> TokenBuilder<'a> {
                                         SyntaxKind::Delimiter,
                                         TYPED_PRIORITY,
                                     );
+                                    for padding in
+                                        [leading_padding.as_ref(), trailing_padding.as_ref()]
+                                            .into_iter()
+                                            .flatten()
+                                    {
+                                        self.assign(
+                                            padding.range.clone(),
+                                            SyntaxKind::Whitespace,
+                                            TYPED_PRIORITY,
+                                        );
+                                    }
                                     pending.push(inline);
                                 }
                             }

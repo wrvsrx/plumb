@@ -12,6 +12,25 @@ mod tables;
 mod tasks;
 mod text;
 
+pub(crate) fn inline_selection_range(
+    content: &plumb_syntax::InlineContent,
+) -> std::ops::Range<usize> {
+    let mut normalized = content
+        .arguments
+        .iter()
+        .enumerate()
+        .filter_map(|(index, _)| content.argument(index))
+        .filter(|argument| !argument.items.is_empty());
+    let Some(first) = normalized.next() else {
+        return content.range.end..content.range.end;
+    };
+    let mut range = first.range.clone();
+    for argument in normalized {
+        range.end = argument.range.end;
+    }
+    range
+}
+
 pub fn is_document_declaration(block: &plumb_syntax::Block) -> bool {
     let plumb_syntax::Block::Parsed(block) = block else {
         return false;

@@ -62,7 +62,7 @@ pub fn analyze_recovered_headings(document: &Document) -> HeadingOutput {
 
         let heading = Heading {
             node_range: block.range.clone(),
-            selection_range: block.head.range.clone(),
+            selection_range: crate::inline_selection_range(&block.head),
             section_range: block.range.start..section_end,
             level,
             title: plain_text(&block.head),

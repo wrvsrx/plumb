@@ -5,10 +5,10 @@
     "valid": true,
     "blocks": [{
       "kind": "marked", "marker": "node", "attrs": ["#id", ".class", "key=complex value"],
-      "head": "Head", "inline": "T\"Head\"", "children": [
-        {"kind":"marked","marker":"@","attrs":[],"head":"id","inline":"T\"id\"","children":[]},
-        {"kind":"marked","marker":"+","attrs":[],"head":"class","inline":"T\"class\"","children":[]},
-        {"kind":"marked","marker":"=","attrs":[],"head":"keycomplex value","inline":"T\"key\"|T\"complex\"W\" \"T\"value\"","children":[]}
+      "head": "Head", "inline": "W\" \"T\"Head\"", "children": [
+        {"kind":"marked","marker":"@","attrs":[],"head":"id","inline":"W\" \"T\"id\"","children":[]},
+        {"kind":"marked","marker":"+","attrs":[],"head":"class","inline":"W\" \"T\"class\"","children":[]},
+        {"kind":"marked","marker":"=","attrs":[],"head":"keycomplex value","inline":"W\" \"T\"key\"|T\"complex\"W\" \"T\"value\"","children":[]}
       ]
     }],
     "diagnostics": [],
@@ -20,7 +20,7 @@
     "valid": true,
     "blocks": [{
       "kind":"marked","marker":"rust","attrs":["#example"],"head":"","inline":"",
-      "children":[{"kind":"marked","marker":"@","attrs":[],"head":"example","inline":"T\"example\"","children":[]}],
+      "children":[{"kind":"marked","marker":"@","attrs":[],"head":"example","inline":"W\" \"T\"example\"","children":[]}],
       "raw":"fn main() {}\n"
     }],
     "diagnostics": [],
@@ -46,7 +46,7 @@
     "name": "deferred head and paragraph child",
     "source": "`node Head\n  continuation\n\n  child paragraph\n",
     "valid": true,
-    "blocks": [{"kind":"marked","marker":"node","attrs":[],"head":"Head continuation","inline":"T\"Head\"ST\"continuation\"","children":[{"kind":"paragraph","head":"child paragraph","inline":"T\"child\"W\" \"T\"paragraph\""}]}],
+    "blocks": [{"kind":"marked","marker":"node","attrs":[],"head":"Head continuation","inline":"W\" \"T\"Head\"ST\"continuation\"","children":[{"kind":"paragraph","head":"child paragraph","inline":"T\"child\"W\" \"T\"paragraph\""}]}],
     "diagnostics": [],
     "required_tokens": ["Indentation","LineEnding","Text"]
   },
@@ -54,7 +54,7 @@
     "name": "same line first child and siblings",
     "source": "`- `- a\n   `- b\n",
     "valid": true,
-    "blocks": [{"kind":"marked","marker":"-","attrs":[],"head":"","inline":"","children":[{"kind":"marked","marker":"-","attrs":[],"head":"a","inline":"T\"a\"","children":[]},{"kind":"marked","marker":"-","attrs":[],"head":"b","inline":"T\"b\"","children":[]}]}],
+    "blocks": [{"kind":"marked","marker":"-","attrs":[],"head":"","inline":"W\" \"","children":[{"kind":"marked","marker":"-","attrs":[],"head":"a","inline":"W\" \"T\"a\"","children":[]},{"kind":"marked","marker":"-","attrs":[],"head":"b","inline":"W\" \"T\"b\"","children":[]}]}],
     "diagnostics": [],
     "required_tokens": ["Introducer","Marker","Indentation"]
   },
@@ -110,7 +110,7 @@
     "name": "EOF closes nested blocks",
     "source": "`parent\n  `child End",
     "valid": true,
-    "blocks": [{"kind":"marked","marker":"parent","attrs":[],"head":"","inline":"","children":[{"kind":"marked","marker":"child","attrs":[],"head":"End","inline":"T\"End\"","children":[]}]}],
+    "blocks": [{"kind":"marked","marker":"parent","attrs":[],"head":"","inline":"","children":[{"kind":"marked","marker":"child","attrs":[],"head":"End","inline":"W\" \"T\"End\"","children":[]}]}],
     "diagnostics": [],
     "required_tokens": ["Introducer","Marker","Indentation"]
   },
@@ -118,7 +118,7 @@
     "name": "unclosed parsed inline recovers at blank",
     "source": "before `span[open\n\nnext\n",
     "valid": false,
-    "blocks": [{"kind":"paragraph","head":"before ","inline":"T\"before\"W\" \""},{"kind":"paragraph","head":"next","inline":"T\"next\""}],
+    "blocks": [{"kind":"paragraph","head":"before","inline":"T\"before\"W\" \""},{"kind":"paragraph","head":"next","inline":"T\"next\""}],
     "diagnostics": [{"code":"syntax.unclosed-inline","range":{"text":"`span[open"}}],
     "required_tokens": ["Error","LineEnding","Text"]
   },
@@ -166,7 +166,7 @@
     "name": "invalid marker is diagnosed",
     "source": "`| head\n",
     "valid": false,
-    "blocks": [{"kind":"marked","marker":"","attrs":[],"head":" head","inline":"|W\" \"T\"head\"","children":[]}],
+    "blocks": [{"kind":"marked","marker":"","attrs":[],"head":"head","inline":"|W\" \"T\"head\"","children":[]}],
     "diagnostics": [{"code":"syntax.invalid-marker","range":{"text":"`|"}}],
     "required_tokens": ["Error"]
   },

@@ -166,16 +166,16 @@ impl OwnedAttribute {
 
     fn render_block(&self) -> String {
         match self {
-            Self::Id(value) => format!("`@ {}", escape_parsed_text(value)),
-            Self::Class(value) => format!("`+ {}", escape_parsed_text(value)),
+            Self::Id(value) => format!("`@ {}", escape_authored_text(value)),
+            Self::Class(value) => format!("`+ {}", escape_authored_text(value)),
             Self::Pair { key, value } => {
                 let value = match value {
                     OwnedValue::Bare(value) | OwnedValue::Quoted(value) => value,
                 };
                 format!(
                     "`= {}|{}",
-                    escape_parsed_text(key),
-                    escape_parsed_text(value)
+                    escape_authored_text(key),
+                    escape_authored_text(value)
                 )
             }
         }
@@ -197,13 +197,12 @@ impl OwnedAttribute {
 
 impl OwnedBlock {
     pub fn association(key: impl Into<String>, value: impl Into<String>) -> Self {
+        let mut head = owned_authored_text(&key.into());
+        head.push(OwnedInline::ArgumentSeparator);
+        head.extend(owned_authored_text(&value.into()));
         Self::Parsed {
             marker: Some("=".into()),
-            head: vec![
-                OwnedInline::Text(key.into()),
-                OwnedInline::ArgumentSeparator,
-                OwnedInline::Text(value.into()),
-            ],
+            head,
             children: Vec::new(),
             raw: None,
         }
@@ -212,7 +211,7 @@ impl OwnedBlock {
     pub fn marked(marker: impl Into<String>, head: impl Into<String>) -> Self {
         Self::Parsed {
             marker: Some(marker.into()),
-            head: vec![OwnedInline::Text(head.into())],
+            head: owned_authored_text(&head.into()),
             children: Vec::new(),
             raw: None,
         }
@@ -221,7 +220,7 @@ impl OwnedBlock {
     pub fn paragraph(text: impl Into<String>) -> Self {
         Self::Parsed {
             marker: None,
-            head: vec![OwnedInline::Text(text.into())],
+            head: owned_authored_text(&text.into()),
             children: Vec::new(),
             raw: None,
         }
@@ -311,7 +310,7 @@ impl OwnedBlock {
 
     pub fn set_head_text(&mut self, text: impl Into<String>) {
         if let Self::Parsed { head, .. } = self {
-            *head = vec![OwnedInline::Text(text.into())];
+            *head = owned_authored_text(&text.into());
         }
     }
 
@@ -338,25 +337,35 @@ impl OwnedBlock {
     }
 
     pub fn from_parsed(source: &str, block: &ParsedBlock) -> Self {
+        let mut head = block
+            .head
+            .arguments
+            .iter()
+            .flat_map(|argument| {
+                argument
+                    .separator_range
+                    .is_some()
+                    .then_some(OwnedInline::ArgumentSeparator)
+                    .into_iter()
+                    .chain(
+                        block.head.items[argument.item_range.clone()]
+                            .iter()
+                            .map(OwnedInline::from_syntax),
+                    )
+            })
+            .collect::<Vec<_>>();
+        if block.mark.is_some() {
+            if let Some(OwnedInline::Space(space)) = head.first_mut() {
+                debug_assert!(space.starts_with(' '));
+                space.remove(0);
+                if space.is_empty() {
+                    head.remove(0);
+                }
+            }
+        }
         Self::Parsed {
             marker: block.mark.as_ref().map(|mark| mark.marker.clone()),
-            head: block
-                .head
-                .arguments
-                .iter()
-                .flat_map(|argument| {
-                    argument
-                        .separator_range
-                        .is_some()
-                        .then_some(OwnedInline::ArgumentSeparator)
-                        .into_iter()
-                        .chain(
-                            block.head.items[argument.item_range.clone()]
-                                .iter()
-                                .map(OwnedInline::from_syntax),
-                        )
-                })
-                .collect(),
+            head,
             children: block
                 .children
                 .iter()
@@ -938,12 +947,56 @@ fn escape_parsed_text(text: &str) -> String {
     for character in text.chars() {
         match character {
             '`' => output.push_str("``"),
+            ' ' | '[' | ']' | '|' => {
+                output.push('`');
+                output.push(character);
+            }
+            _ => output.push(character),
+        }
+    }
+    output
+}
+
+fn escape_authored_text(text: &str) -> String {
+    let mut output = String::with_capacity(text.len());
+    for character in text.chars() {
+        match character {
+            '`' => output.push_str("``"),
             '[' | ']' | '|' => {
                 output.push('`');
                 output.push(character);
             }
             _ => output.push(character),
         }
+    }
+    output
+}
+
+fn owned_authored_text(text: &str) -> Vec<OwnedInline> {
+    let mut output = Vec::new();
+    let mut start = 0;
+    let mut in_spaces = text.starts_with(' ');
+    for (index, character) in text.char_indices() {
+        let is_space = character == ' ';
+        if is_space == in_spaces {
+            continue;
+        }
+        let segment = text[start..index].to_string();
+        output.push(if in_spaces {
+            OwnedInline::Space(segment)
+        } else {
+            OwnedInline::Text(segment)
+        });
+        start = index;
+        in_spaces = is_space;
+    }
+    if start < text.len() {
+        let segment = text[start..].to_string();
+        output.push(if in_spaces {
+            OwnedInline::Space(segment)
+        } else {
+            OwnedInline::Text(segment)
+        });
     }
     output
 }

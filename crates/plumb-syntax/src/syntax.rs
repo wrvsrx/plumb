@@ -311,7 +311,10 @@ impl InlineContent {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.range.is_empty()
+        self.arguments.iter().enumerate().all(|(index, _)| {
+            self.argument(index)
+                .is_none_or(|argument| argument.items.is_empty())
+        })
     }
 
     pub fn argument(&self, index: usize) -> Option<InlineContent> {
@@ -328,7 +331,11 @@ impl InlineContent {
 
     pub fn plain_text(&self) -> String {
         let mut output = String::new();
-        append_plain_text(&self.items, &mut output);
+        for index in 0..self.arguments.len() {
+            if let Some(argument) = self.argument(index) {
+                append_plain_text(&argument.items, &mut output);
+            }
+        }
         output
     }
 
@@ -391,6 +398,8 @@ fn append_plain_text(items: &[Inline], output: &mut String) {
     enum Frame<'a> {
         Inlines(&'a [Inline], usize),
         Members(&'a [InlineMember], usize),
+        OwnedInline(Inline),
+        OwnedText(String),
     }
 
     let mut stack = vec![Frame::Inlines(items, 0)];
@@ -419,7 +428,10 @@ fn append_plain_text(items: &[Inline], output: &mut String) {
                 stack.push(Frame::Members(members, index + 1));
                 match &members[index] {
                     InlineMember::ParsedArgument(argument) => {
-                        stack.push(Frame::Inlines(&argument.content.items, 0));
+                        let mut trimmed = argument.content.trim_boundary_padding();
+                        for inline in std::mem::take(&mut trimmed.items).into_iter().rev() {
+                            stack.push(Frame::OwnedInline(inline));
+                        }
                     }
                     InlineMember::VerbatimArgument(argument) => {
                         output.push_str(&argument.text);
@@ -429,6 +441,31 @@ fn append_plain_text(items: &[Inline], output: &mut String) {
                     }
                 }
             }
+            Frame::OwnedInline(inline) => match inline {
+                Inline::Text { text, .. }
+                | Inline::Space { text, .. }
+                | Inline::Verbatim { text, .. } => output.push_str(&text),
+                Inline::SoftBreak { .. } => output.push(' '),
+                Inline::Element { members, .. } => {
+                    for member in members.into_iter().rev() {
+                        match member {
+                            InlineMember::ParsedArgument(argument) => {
+                                let mut trimmed = argument.content.trim_boundary_padding();
+                                for inline in std::mem::take(&mut trimmed.items).into_iter().rev() {
+                                    stack.push(Frame::OwnedInline(inline));
+                                }
+                            }
+                            InlineMember::VerbatimArgument(argument) => {
+                                stack.push(Frame::OwnedText(argument.text));
+                            }
+                            InlineMember::Child { inline, .. } => {
+                                stack.push(Frame::OwnedInline(*inline));
+                            }
+                        }
+                    }
+                }
+            },
+            Frame::OwnedText(text) => output.push_str(&text),
         }
     }
 }
@@ -444,10 +481,18 @@ pub struct InlineArgument {
 pub struct VerbatimArgument {
     pub range: SourceRange,
     pub separator_range: Option<SourceRange>,
+    pub leading_padding: Option<InlinePadding>,
+    pub trailing_padding: Option<InlinePadding>,
     pub text: String,
     pub text_range: SourceRange,
     pub quote_count: usize,
     pub bracketed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InlinePadding {
+    pub text: String,
+    pub range: SourceRange,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -457,6 +502,8 @@ pub enum InlineMember {
     Child {
         range: SourceRange,
         separator_range: SourceRange,
+        leading_padding: Option<InlinePadding>,
+        trailing_padding: Option<InlinePadding>,
         inline: Box<Inline>,
     },
 }

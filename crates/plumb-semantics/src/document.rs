@@ -314,7 +314,7 @@ fn collect_blocks(
                         &mark.attrs,
                         kind,
                         parsed.range.clone(),
-                        parsed.head.range.clone(),
+                        crate::inline_selection_range(&parsed.head),
                         first_ids,
                         output,
                     );

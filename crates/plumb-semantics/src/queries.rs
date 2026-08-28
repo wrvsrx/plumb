@@ -174,7 +174,14 @@ fn direct_block_attribute_context(
         if declaration.head.arguments.len() > 1 {
             continue;
         }
-        let query = &source[declaration.head.range.start..offset];
+        let query_start = declaration
+            .head
+            .argument(0)
+            .map_or(declaration.head.range.end, |argument| argument.range.start);
+        if offset < query_start {
+            continue;
+        }
+        let query = &source[query_start..offset];
         if query.chars().any(char::is_whitespace) {
             continue;
         }

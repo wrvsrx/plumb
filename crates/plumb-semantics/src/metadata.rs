@@ -145,7 +145,7 @@ fn bibliography_source(value: &MetadataValue) -> Option<BibliographySource> {
             })
         }
         MetadataValue::Scalar { content, range }
-            if !content.items.is_empty()
+            if !content.is_empty()
                 && content
                     .items
                     .iter()
@@ -361,15 +361,13 @@ fn parse_direct_children(
     }
     if let [Block::Parsed(block)] = blocks {
         if block.mark.is_none() && block.children.is_empty() {
-            return match inline_verbatim(&block.head) {
+            let content = block.head.argument(0).unwrap_or_else(|| block.head.clone());
+            return match inline_verbatim(&content) {
                 Some(text) => MetadataValue::Verbatim {
                     text: text.to_string(),
                     range,
                 },
-                None => MetadataValue::Scalar {
-                    content: block.head.clone(),
-                    range,
-                },
+                None => MetadataValue::Scalar { content, range },
             };
         }
     }
@@ -381,17 +379,18 @@ fn parse_direct_children(
                     unreachable!("plus marker implies parsed block");
                 };
                 let value = if item.children.is_empty() {
-                    match inline_verbatim(&item.head) {
+                    let content = item.head.argument(0).unwrap_or_else(|| item.head.clone());
+                    match inline_verbatim(&content) {
                         Some(text) => MetadataValue::Verbatim {
                             text: text.to_string(),
                             range: item.head.range.clone(),
                         },
                         None => MetadataValue::Scalar {
-                            content: item.head.clone(),
+                            content,
                             range: item.head.range.clone(),
                         },
                     }
-                } else if item.head.items.is_empty() {
+                } else if item.head.is_empty() {
                     parse_direct_children(&item.children, body_range(item), diagnostics)
                 } else {
                     diagnostics.push(warning(
@@ -445,7 +444,10 @@ fn collect_definition_lists<'a>(
             let (term, inline_body) = if block.children.is_empty() {
                 split_inline_arguments(&block.head)
             } else {
-                (block.head.clone(), None)
+                (
+                    block.head.argument(0).unwrap_or_else(|| block.head.clone()),
+                    None,
+                )
             };
             let projected_body_range = inline_body
                 .as_ref()
@@ -522,7 +524,7 @@ fn plain_association_key(content: &InlineContent) -> Option<String> {
             return (!key.is_empty()).then_some(key);
         }
     }
-    if content.items.is_empty()
+    if content.is_empty()
         || content.items.iter().any(|item| {
             !matches!(
                 item,
