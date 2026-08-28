@@ -80,6 +80,7 @@ pub(crate) struct ServerState {
     supports_completion_snippets: bool,
     completion_indentation: CompletionIndentation,
     supports_code_lens_refresh: bool,
+    supports_folding_range_refresh: bool,
     folding_range_limit: Option<usize>,
     supports_folding_collapsed_text: bool,
     line_folding_only: bool,
@@ -103,6 +104,14 @@ struct PendingPathRename {
     new_seen: bool,
 }
 
+enum FoldingRangeRefresh {}
+
+impl lsp_types::request::Request for FoldingRangeRefresh {
+    type Params = ();
+    type Result = ();
+    const METHOD: &'static str = "workspace/foldingRange/refresh";
+}
+
 impl ServerState {
     pub(crate) fn new(client: ClientSocket) -> Self {
         Self {
@@ -116,6 +125,7 @@ impl ServerState {
             supports_completion_snippets: false,
             completion_indentation: CompletionIndentation::default(),
             supports_code_lens_refresh: false,
+            supports_folding_range_refresh: false,
             folding_range_limit: None,
             supports_folding_collapsed_text: false,
             line_folding_only: false,
@@ -140,6 +150,7 @@ impl ServerState {
         self.open_documents.insert(uri, path);
         self.publish_all_open_diagnostics();
         self.refresh_code_lenses();
+        self.refresh_folding_ranges();
     }
 
     fn publish_all_open_diagnostics(&self) {
@@ -323,6 +334,7 @@ impl ServerState {
         self.register_workspace_file_watchers();
         self.publish_all_open_diagnostics();
         self.refresh_code_lenses();
+        self.refresh_folding_ranges();
         ControlFlow::Continue(())
     }
 
@@ -383,6 +395,16 @@ impl ServerState {
         let mut client = self.client.clone();
         tokio::spawn(async move {
             let _ = client.code_lens_refresh(()).await;
+        });
+    }
+
+    fn refresh_folding_ranges(&self) {
+        if !self.supports_folding_range_refresh || !self.index_complete {
+            return;
+        }
+        let client = self.client.clone();
+        tokio::spawn(async move {
+            let _ = client.request::<FoldingRangeRefresh>(()).await;
         });
     }
 
@@ -691,6 +713,13 @@ impl LanguageServer for ServerState {
             .and_then(|workspace| workspace.code_lens.as_ref())
             .and_then(|code_lens| code_lens.refresh_support)
             .unwrap_or(false);
+        self.supports_folding_range_refresh = params
+            .capabilities
+            .experimental
+            .as_ref()
+            .and_then(|experimental| experimental.pointer("/plumb/foldingRangeRefreshSupport"))
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false);
         self.folding_range_limit = params
             .capabilities
             .text_document
@@ -784,6 +813,10 @@ impl LanguageServer for ServerState {
                             "search": {
                                 "schemaVersion": 3,
                                 "method": "plumb/search"
+                            },
+                            "foldingRangeRefresh": {
+                                "method": "workspace/foldingRange/refresh",
+                                "clientCapability": "experimental.plumb.foldingRangeRefreshSupport"
                             }
                         }
                     })),
@@ -843,6 +876,7 @@ impl LanguageServer for ServerState {
             });
         self.publish_all_open_diagnostics();
         self.refresh_code_lenses();
+        self.refresh_folding_ranges();
         ControlFlow::Continue(())
     }
 
@@ -910,6 +944,7 @@ impl LanguageServer for ServerState {
         }
         self.publish_all_open_diagnostics();
         self.refresh_code_lenses();
+        self.refresh_folding_ranges();
         ControlFlow::Continue(())
     }
 

@@ -1,6 +1,8 @@
 use serde_json::json;
 
-use crate::support::{response, run_server, run_server_with_pause, unique_temp_dir};
+use crate::support::{
+    response, run_server, run_server_after_initial_index, run_server_with_pause, unique_temp_dir,
+};
 
 #[test]
 fn labels_individual_metadata_entry_folds() {
@@ -258,6 +260,11 @@ fn provides_structural_folding_for_valid_and_recovered_documents() {
 
     let output = run_server(&messages);
     assert_eq!(
+        response(&output, 1)["result"]["capabilities"]["experimental"]["plumb"]
+            ["foldingRangeRefresh"]["method"],
+        "workspace/foldingRange/refresh"
+    );
+    assert_eq!(
         response(&output, 1)["result"]["capabilities"]["foldingRangeProvider"],
         true
     );
@@ -273,6 +280,9 @@ fn provides_structural_folding_for_valid_and_recovered_documents() {
         response(&output, 3)["result"],
         json!([{ "startLine": 0, "endLine": 1 }])
     );
+    assert!(!output
+        .iter()
+        .any(|message| message["method"] == "workspace/foldingRange/refresh"));
 }
 
 #[test]
@@ -355,7 +365,43 @@ fn folds_with_locally_determined_labels_before_initial_index_completes() {
         .find(|range| range["startLine"] == unknown_line)
         .expect("unknown task retains its structural fold");
     assert!(unknown.get("collapsedText").is_none());
+    std::fs::remove_dir_all(root).unwrap();
+}
 
+#[test]
+fn refreshes_folding_after_index_only_for_declared_clients() {
+    let root = unique_temp_dir();
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(root.join("note.plumb"), "`task Indexed\n").unwrap();
+    let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
+    let run = |support: bool| {
+        let experimental =
+            support.then(|| json!({ "plumb": { "foldingRangeRefreshSupport": true } }));
+        let messages = [
+            json!({
+                "jsonrpc": "2.0", "id": 1, "method": "initialize",
+                "params": {
+                    "processId": null,
+                    "rootUri": root_uri,
+                    "workspaceFolders": [{ "uri": root_uri, "name": "test" }],
+                    "capabilities": { "experimental": experimental }
+                }
+            }),
+            json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+            json!({ "jsonrpc": "2.0", "id": 2, "method": "shutdown", "params": null }),
+            json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+        ];
+        run_server_after_initial_index(&messages)
+    };
+
+    let supported = run(true);
+    assert!(supported
+        .iter()
+        .any(|message| message["method"] == "workspace/foldingRange/refresh"));
+    let unsupported = run(false);
+    assert!(!unsupported
+        .iter()
+        .any(|message| message["method"] == "workspace/foldingRange/refresh"));
     std::fs::remove_dir_all(root).unwrap();
 }
 

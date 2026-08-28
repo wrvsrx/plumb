@@ -176,6 +176,13 @@ rescan 或 open-document state。
 保留这份立即可用的 response，直到 document lifecycle 或 client 自身触发下一次 folding request；不得为等待
 完整 label 延迟首次 response。
 
+LSP 3.17 typed capability model 尚未定义 folding refresh support 字段；官方 adapter 因而使用初始化时的
+`"capabilities.experimental.plumb.foldingRangeRefreshSupport = true" 作为显式 handshake，并在 server
+experimental capability 中公布 method 与 client-capability path。只有完成该 handshake 且 workspace index
+complete 时，server 才发送标准 `"workspace/foldingRange/refresh" request；initial index 安装以及之后可能
+改变跨文档 task dependency facts 的 open-document/watched-file revision replacement 都触发 refresh。不声明
+support 的 client 不接收未知 request。
+
 persistent workspace query 必须按需读取命中的 semantic rows，不得为了重建 process-local workspace model
 而在启动时反序列化全部 document outputs。open-buffer precedence 的合并边界是 source document：persistent
 query 排除所有 open paths，再与这些 paths 的内存 query result 组合并作 deterministic ordering。该规则由
