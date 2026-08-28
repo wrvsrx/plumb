@@ -549,6 +549,12 @@ prefix，但不修改 schedule；与当前非空 prefix 完全相同、应用后
 whitespace，或 prefix 含换行时不提供 title completion。recovered current source 只用于定位 completion
 range，不向 title frequency 贡献尚未通过 valid semantic analysis 的 event。
 
+Persistent title completion 必须从 typed event title column 读取并在 database query 中完成
+case-sensitive prefix filter 与 exact-title count aggregation；不得为了 title、count 或 50-item limit
+反序列化完整 `"EventRecord"。query 排除全部 open document paths，再与 open current-valid output 的
+title counts 合并并执行同一 deterministic ordering。即使 open overlay 改变 disk 侧前 50 项，persistent
+query 也必须返回足够的 grouped candidates，使最终结果与对完整 effective workspace 统计后截断一致。
+
 `# 16. Tasks
 
 bullet 或 ordered list item 的 direct leaf `"+ task" facet 产生 task record：

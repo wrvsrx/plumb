@@ -3,3 +3,15 @@
 本页只记录可以直接实施和验收的工作。方向、约束和 deferred design 继续放在
 `->[roadmap|roadmap.plumb]；已经结束的任务及其验收记录保存在
 `->[completed tasks|completed-tasks.plumb]。
+
+`- 有界查询 workspace event title completion
+
+ `+ task
+
+ `@ bound-event-title-completion
+
+ `= created|2026-08-29T07:10:00+08:00
+
+ `note Persistent query 只读取 typed title/count，在 SQLite 内完成 case-sensitive prefix filter 与 exact-title
+ aggregation，不反序列化 EventRecord。Open overlay 保持 document shadow、frequency ordering 与 50-item
+ observable parity；补充 33,512-event benchmark、store tests、workspace tests 和 LSP completion tests。
