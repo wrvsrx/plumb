@@ -552,6 +552,34 @@ impl SqliteSemanticStore {
         decode_records(rows, excluded)
     }
 
+    pub fn anchor_identities(&self, excluded: &[PathBuf]) -> StoreResult<Vec<(PathBuf, String)>> {
+        let mut connection = self
+            .connection
+            .lock()
+            .map_err(|_| StoreError::LockPoisoned)?;
+        let rows = anchors::table
+            .select((anchors::path, anchors::id))
+            .order((anchors::path, anchors::start))
+            .load::<(Vec<u8>, String)>(&mut *connection)?;
+        let mut excluded = excluded
+            .iter()
+            .map(|path| normalize(path))
+            .collect::<Vec<_>>();
+        excluded.sort();
+        rows.into_iter()
+            .filter_map(|(path, id)| {
+                Some((|| {
+                    let path = path_from_bytes(path)?;
+                    if excluded.binary_search(&path).is_ok() {
+                        return Ok(None);
+                    }
+                    Ok(Some((path, id)))
+                })())
+            })
+            .filter_map(Result::transpose)
+            .collect()
+    }
+
     pub fn anchors_named(&self, path: &Path, id: &str) -> StoreResult<Vec<AnchorRecord>> {
         let mut connection = self
             .connection

@@ -362,6 +362,41 @@ fn benchmark_task_queries(c: &mut Criterion) {
     group.finish();
 }
 
+fn benchmark_diagnostic_round(c: &mut Criterion) {
+    let (_, mut sqlite) = task_fixtures(176, 8);
+    let open_paths = (0..8)
+        .map(|document| PathBuf::from(format!("tasks-{document:03}.plumb")))
+        .collect::<Vec<_>>();
+    for (document, path) in open_paths.iter().enumerate() {
+        sqlite
+            .workspace
+            .open_document(path, 1, task_document_source(document, 8, " current"));
+    }
+    let mut group = c.benchmark_group("workspace_diagnostic_round_8_of_176");
+    group.sample_size(10);
+    group.bench_function("rebuild_context_per_document", |b| {
+        b.iter(|| {
+            for path in &open_paths {
+                black_box(sqlite.workspace.diagnostics(path).unwrap());
+            }
+        });
+    });
+    group.bench_function("shared_context", |b| {
+        b.iter(|| {
+            let context = sqlite.workspace.diagnostic_context().unwrap();
+            for path in &open_paths {
+                black_box(
+                    sqlite
+                        .workspace
+                        .diagnostics_with_context(path, &context)
+                        .unwrap(),
+                );
+            }
+        });
+    });
+    group.finish();
+}
+
 fn benchmark_batch_index(c: &mut Criterion) {
     let document_count = 176;
     let tasks_per_document = 8;
@@ -552,6 +587,7 @@ criterion_group! {
     name = benches;
     config = configuration();
     targets = benchmark_build, benchmark_warm_start, benchmark_queries, benchmark_replacement,
-        benchmark_task_queries, benchmark_batch_index, benchmark_event_containment
+        benchmark_task_queries, benchmark_diagnostic_round, benchmark_batch_index,
+        benchmark_event_containment
 }
 criterion_main!(benches);

@@ -41,8 +41,8 @@ use plumb_workspace::{
     load_bibliography, load_bibliography_sources, normalize, scan_workspace_files,
     BatchIndexOptions, Bibliography, BibliographyResolution, CompletionCandidate, PathRenameInput,
     QueryResult, RenameError, ResolvedTarget, ResourceOperation, SearchRecord, SearchRecordKind,
-    SqliteSemanticStore, Workspace, WorkspaceEdit, WorkspaceOperationError, WorkspaceQueryError,
-    WorkspaceSearchError,
+    SqliteSemanticStore, Workspace, WorkspaceDiagnosticContext, WorkspaceEdit,
+    WorkspaceOperationError, WorkspaceQueryError, WorkspaceSearchError,
 };
 use sha2::{Digest, Sha256};
 
@@ -155,16 +155,23 @@ impl ServerState {
     }
 
     fn publish_all_open_diagnostics(&self) {
+        let context = match self.workspace.diagnostic_context() {
+            Ok(context) => context,
+            Err(error) => {
+                tracing::error!(%error, "workspace diagnostic context query failed");
+                return;
+            }
+        };
         for (uri, path) in &self.open_documents {
-            self.publish(uri, path);
+            self.publish(uri, path, &context);
         }
     }
 
-    fn publish(&self, uri: &Url, path: &Path) {
+    fn publish(&self, uri: &Url, path: &Path, context: &WorkspaceDiagnosticContext) {
         let Some(entry) = self.workspace.get(path) else {
             return;
         };
-        let mut diagnostics = match self.workspace.diagnostics(path) {
+        let mut diagnostics = match self.workspace.diagnostics_with_context(path, context) {
             Ok(result) => result.value,
             Err(error) => {
                 tracing::error!(%error, path = %path.display(), "workspace diagnostics query failed");

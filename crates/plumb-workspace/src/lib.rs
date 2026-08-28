@@ -495,6 +495,11 @@ pub struct WorkspaceTaskKey {
     pub start: usize,
 }
 
+#[derive(Debug, Clone)]
+pub struct WorkspaceDiagnosticContext {
+    task_dependency_graph: HashMap<TaskRef, Vec<TaskRef>>,
+}
+
 #[derive(Debug, Default, Clone)]
 pub struct Workspace {
     documents: HashMap<PathBuf, DocumentEntry>,
@@ -1716,6 +1721,21 @@ impl Workspace {
         &self,
         path: impl AsRef<Path>,
     ) -> Result<QueryResult<Vec<Diagnostic>>, WorkspaceQueryError> {
+        let context = self.diagnostic_context()?;
+        self.diagnostics_with_context(path, &context)
+    }
+
+    pub fn diagnostic_context(&self) -> Result<WorkspaceDiagnosticContext, WorkspaceQueryError> {
+        Ok(WorkspaceDiagnosticContext {
+            task_dependency_graph: self.task_dependency_graph()?,
+        })
+    }
+
+    pub fn diagnostics_with_context(
+        &self,
+        path: impl AsRef<Path>,
+        context: &WorkspaceDiagnosticContext,
+    ) -> Result<QueryResult<Vec<Diagnostic>>, WorkspaceQueryError> {
         let path = normalize(path.as_ref());
         let Some(entry) = self.documents.get(&path) else {
             return Ok(self.query_result(Vec::new()));
@@ -1785,7 +1805,11 @@ impl Workspace {
                 related: Vec::new(),
             });
         }
-        diagnostics.extend(self.task_workspace_diagnostics(&path, current)?);
+        diagnostics.extend(self.task_workspace_diagnostics(
+            &path,
+            current,
+            &context.task_dependency_graph,
+        )?);
         diagnostics.extend(self.event_workspace_diagnostics(&path, current)?);
         Ok(self.query_result(diagnostics))
     }
@@ -1824,8 +1848,8 @@ impl Workspace {
         &self,
         path: &Path,
         current: &VersionedDocumentOutput,
+        graph: &HashMap<TaskRef, Vec<TaskRef>>,
     ) -> Result<Vec<Diagnostic>, WorkspaceQueryError> {
-        let graph = self.task_dependency_graph()?;
         let mut diagnostics = Vec::new();
         let tasks = &current.output.tasks.tasks;
         for (task_index, task) in tasks.iter().enumerate() {
@@ -1870,7 +1894,7 @@ impl Workspace {
                 }
             }
             if let Some(task_ref) = &own_ref {
-                if dependency_cycle_contains(&graph, task_ref) {
+                if dependency_cycle_contains(graph, task_ref) {
                     diagnostics.push(Diagnostic {
                         code: "task.dependency-cycle",
                         severity: DiagnosticSeverity::Warning,
@@ -6619,6 +6643,81 @@ mod tests {
         assert!(codes.contains(&"task.unresolved-path"));
         assert!(codes.contains(&"task.self-dependency"));
         assert!(codes.contains(&"task.dependency-cycle"));
+    }
+
+    #[test]
+    fn diagnostic_context_builds_persistent_cycles_without_decoding_task_records() {
+        let store = SqliteSemanticStore::open_in_memory().unwrap();
+        let mut workspace = Workspace::with_sqlite_store(store.clone());
+        workspace
+            .insert_disk(
+                "a.plumb",
+                1,
+                "`- A\n\n `+ task\n\n `@ a\n\n `= depends|b.plumb#b\n",
+            )
+            .unwrap();
+        workspace
+            .insert_disk(
+                "b.plumb",
+                1,
+                "`- B\n\n `+ task\n\n `@ b\n\n `= depends|a.plumb#a\n",
+            )
+            .unwrap();
+        store
+            .execute_batch_for_test(
+                "UPDATE tasks SET record = X'FF'; UPDATE anchors SET record = X'FF';",
+            )
+            .unwrap();
+
+        let context = workspace.diagnostic_context().unwrap();
+        assert!(dependency_cycle_contains(
+            &context.task_dependency_graph,
+            &TaskRef {
+                path: PathBuf::from("a.plumb"),
+                id: "a".to_string(),
+            }
+        ));
+        assert!(workspace.all_tasks().is_err());
+    }
+
+    #[test]
+    fn diagnostic_context_obeys_open_document_dependency_overlay() {
+        let store = SqliteSemanticStore::open_in_memory().unwrap();
+        let mut workspace = Workspace::with_sqlite_store(store);
+        workspace
+            .insert_disk(
+                "a.plumb",
+                1,
+                "`- A\n\n `+ task\n\n `@ a\n\n `= depends|b.plumb#b\n",
+            )
+            .unwrap();
+        workspace
+            .insert_disk(
+                "b.plumb",
+                1,
+                "`- B\n\n `+ task\n\n `@ b\n\n `= depends|a.plumb#a\n",
+            )
+            .unwrap();
+        let task_a = TaskRef {
+            path: PathBuf::from("a.plumb"),
+            id: "a".to_string(),
+        };
+        assert!(dependency_cycle_contains(
+            &workspace
+                .diagnostic_context()
+                .unwrap()
+                .task_dependency_graph,
+            &task_a,
+        ));
+
+        workspace.open_document("b.plumb", 2, "`- B\n\n `+ task\n\n `@ b\n");
+        assert!(!dependency_cycle_contains(
+            &workspace
+                .diagnostic_context()
+                .unwrap()
+                .task_dependency_graph,
+            &task_a,
+        ));
     }
 
     #[test]

@@ -15,6 +15,7 @@ use super::{
     TaskWaitReason, TaskWorkflowState, Workspace, WorkspaceEdit, WorkspaceOperationError,
     WorkspaceQueryError,
 };
+use crate::store::StoredTaskKey;
 use plumb_syntax::{Block, ParsedBlock};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -543,33 +544,121 @@ impl Workspace {
     pub(super) fn task_dependency_graph(
         &self,
     ) -> Result<HashMap<TaskRef, Vec<TaskRef>>, WorkspaceQueryError> {
-        let mut graph = HashMap::new();
-        for (path, task) in self.all_tasks()? {
-            let Some(id) = &task.id else {
+        let open_paths = self.open_paths();
+        let mut task_by_key = HashMap::<StoredTaskKey, TaskRef>::new();
+        let mut task_counts = HashMap::<TaskRef, usize>::new();
+        let mut anchor_counts = HashMap::<TaskRef, usize>::new();
+        let mut relations = Vec::<(StoredTaskKey, TaskRef)>::new();
+
+        for entry in self.documents.values() {
+            let Some(current) = &entry.current else {
                 continue;
             };
-            let task_ref = TaskRef {
-                path: path.clone(),
-                id: id.value.clone(),
-            };
-            let dependencies = task
-                .depends
-                .iter()
-                .map(|dependency| {
-                    let TaskTargetResolution::Task { target, .. } =
-                        self.resolve_task_target(&path, &dependency.target)?
-                    else {
-                        return Ok(None);
+            for anchor in &current.output.anchors {
+                *anchor_counts
+                    .entry(TaskRef {
+                        path: entry.path.clone(),
+                        id: anchor.id.value.clone(),
+                    })
+                    .or_default() += 1;
+            }
+            for task in &current.output.tasks.tasks {
+                let key = StoredTaskKey {
+                    path: entry.path.clone(),
+                    start: task.range.start,
+                };
+                if let Some(id) = &task.id {
+                    let task_ref = TaskRef {
+                        path: entry.path.clone(),
+                        id: id.value.clone(),
                     };
-                    Ok(Some(target))
-                })
-                .collect::<Result<Vec<_>, WorkspaceQueryError>>()?
-                .into_iter()
-                .flatten()
-                .collect();
-            graph.insert(task_ref, dependencies);
+                    *task_counts.entry(task_ref.clone()).or_default() += 1;
+                    task_by_key.insert(key.clone(), task_ref);
+                }
+                for dependency in &task.depends {
+                    if let Some(target) = dependency_task_ref(&entry.path, &dependency.target) {
+                        relations.push((key.clone(), target));
+                    }
+                }
+            }
+        }
+        if let Some(store) = &self.disk_store {
+            for (path, id) in store.anchor_identities(&open_paths)? {
+                *anchor_counts.entry(TaskRef { path, id }).or_default() += 1;
+            }
+            for fact in store.task_facts(&open_paths)? {
+                let Some(id) = fact.id else {
+                    continue;
+                };
+                let task_ref = TaskRef {
+                    path: fact.path.clone(),
+                    id,
+                };
+                *task_counts.entry(task_ref.clone()).or_default() += 1;
+                task_by_key.insert(
+                    StoredTaskKey {
+                        path: fact.path,
+                        start: fact.start,
+                    },
+                    task_ref,
+                );
+            }
+            relations.extend(
+                store
+                    .task_dependency_relations(&open_paths)?
+                    .into_iter()
+                    .map(|relation| {
+                        (
+                            StoredTaskKey {
+                                path: relation.source_path,
+                                start: relation.source_start,
+                            },
+                            TaskRef {
+                                path: relation.target_path,
+                                id: relation.target_id,
+                            },
+                        )
+                    }),
+            );
+        }
+
+        let unique = |task_ref: &TaskRef| {
+            task_counts.get(task_ref) == Some(&1) && anchor_counts.get(task_ref) == Some(&1)
+        };
+        let mut graph = task_counts
+            .keys()
+            .filter(|task_ref| unique(task_ref))
+            .cloned()
+            .map(|task_ref| (task_ref, Vec::new()))
+            .collect::<HashMap<_, _>>();
+        for (source_key, target) in relations {
+            let Some(source) = task_by_key.get(&source_key) else {
+                continue;
+            };
+            if unique(source) && unique(&target) {
+                graph.entry(source.clone()).or_default().push(target);
+            }
+        }
+        for dependencies in graph.values_mut() {
+            dependencies
+                .sort_by(|left, right| left.path.cmp(&right.path).then(left.id.cmp(&right.id)));
+            dependencies.dedup();
         }
         Ok(graph)
+    }
+}
+
+fn dependency_task_ref(source_path: &Path, target: &TaskReferenceTarget) -> Option<TaskRef> {
+    match target {
+        TaskReferenceTarget::Internal { id } => Some(TaskRef {
+            path: normalize(source_path),
+            id: id.clone(),
+        }),
+        TaskReferenceTarget::External { path, id } => Some(TaskRef {
+            path: resolve_relative(source_path, path),
+            id: id.clone(),
+        }),
+        TaskReferenceTarget::Invalid => None,
     }
 }
 
