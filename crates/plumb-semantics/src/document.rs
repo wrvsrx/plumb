@@ -1112,7 +1112,7 @@ mod tests {
     #[test]
     fn indexes_overlapping_event_containment_without_copying_links() {
         let parsed = parse(
-            "`->[Before|before.plumb]\n\n`event 10:00|Outer `->[Outer|outer.plumb]\n `event 11:00|Nested `->[Nested|nested.plumb]\n\n`->[After|after.plumb]\n",
+            "`->[Before|before.plumb]\n\n`- 10:00|Outer `->[Outer|outer.plumb]\n `+ event\n `- 11:00|Nested `->[Nested|nested.plumb]\n  `+ event\n\n`->[After|after.plumb]\n",
         );
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let output = analyze_document(parsed.valid_syntax().unwrap());

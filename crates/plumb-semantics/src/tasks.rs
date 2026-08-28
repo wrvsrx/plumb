@@ -96,25 +96,50 @@ pub fn analyze_tasks(valid: ValidDocument<'_>) -> TaskOutput {
     let source = valid.source();
     let document = valid.syntax();
     let mut output = TaskOutput::default();
+    let table_items = crate::table_structural_item_starts(valid);
     for block in document
         .blocks
         .iter()
         .filter(|block| !crate::is_document_declaration(block))
     {
-        collect_blocks(source, std::slice::from_ref(block), 0, &mut output);
+        collect_blocks(
+            source,
+            std::slice::from_ref(block),
+            0,
+            &table_items,
+            &mut output,
+        );
     }
     output
 }
 
-fn collect_blocks(source: &str, blocks: &[Block], task_depth: usize, output: &mut TaskOutput) {
+fn collect_blocks(
+    source: &str,
+    blocks: &[Block],
+    task_depth: usize,
+    table_items: &std::collections::HashSet<usize>,
+    output: &mut TaskOutput,
+) {
     for block in blocks {
         let Block::Parsed(block) = block else {
             continue;
         };
-        let is_task = block
-            .mark
-            .as_ref()
-            .is_some_and(|mark| mark.marker == "task");
+        let facet = if table_items.contains(&block.range.start) {
+            crate::ListItemFacet::None
+        } else {
+            crate::list_item_facet(block)
+        };
+        let is_task = facet == crate::ListItemFacet::Task;
+        if facet == crate::ListItemFacet::Conflict {
+            let mark = block.mark.as_ref().expect("a list item has a mark");
+            output.diagnostics.push(Diagnostic {
+                code: "facet.task-event-conflict",
+                severity: DiagnosticSeverity::Warning,
+                message: "a list item cannot have both task and event facets".to_string(),
+                range: mark.attrs.range.clone().unwrap_or(mark.marker_range.clone()),
+                related: Vec::new(),
+            });
+        }
         if is_task {
             let task = task_record(source, block, task_depth);
             let attrs = &block.mark.as_ref().expect("task is a marked block").attrs;
@@ -126,6 +151,7 @@ fn collect_blocks(source: &str, blocks: &[Block], task_depth: usize, output: &mu
                 source,
                 std::slice::from_ref(child),
                 task_depth + usize::from(is_task),
+                table_items,
                 output,
             );
         }
@@ -453,7 +479,7 @@ mod tests {
 
     #[test]
     fn collects_task_facets_fields_dependencies_and_nesting() {
-        let source = "`task Write parser\n `@ write\n `= created|2026-07-20T09:00:00+08:00\n `= due|2026-07-21T09:00:00+08:00\n `= wait|2026-07-20T12:00:00+08:00\n `= recur|P1W\n `= prev|#old\n `= depends|#draft other notes.plumb#review third.plumb#done\n\n `note Details\n\n `task Nested task\n  `= done|2026-07-20T10:00:00+08:00\n";
+        let source = "`- Write parser\n `+ task\n `@ write\n `= created|2026-07-20T09:00:00+08:00\n `= due|2026-07-21T09:00:00+08:00\n `= wait|2026-07-20T12:00:00+08:00\n `= recur|P1W\n `= prev|#old\n `= depends|#draft other notes.plumb#review third.plumb#done\n\n `note Details\n\n `- Nested task\n  `+ task\n  `= done|2026-07-20T10:00:00+08:00\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
@@ -542,7 +568,7 @@ mod tests {
 
     #[test]
     fn direct_dependency_values_keep_exact_source_ranges() {
-        let source = "`task Review\n  `@ review\n  `= depends|Project Plan.plumb#build #local\n";
+        let source = "`- Review\n  `+ task\n  `@ review\n  `= depends|Project Plan.plumb#build #local\n";
         let parsed = plumb_syntax::parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let output = analyze_tasks(
@@ -561,7 +587,7 @@ mod tests {
 
     #[test]
     fn reports_local_task_state_and_recurrence_diagnostics() {
-        let source = "`task Conflict\n  `= done|2026-07-20T09:00:00Z\n  `= canceled|2026-07-20T10:00:00Z\n`task Invalid recurrence\n  `= due|not-a-date\n  `= recur|P1M1D\n`task Invalid datetimes\n  `= created|2026-07-20T09:00:00Z\n  `= wait|tomorrow\n  `= done|later\n  `= canceled|never\n";
+        let source = "`- Conflict\n  `+ task\n  `= done|2026-07-20T09:00:00Z\n  `= canceled|2026-07-20T10:00:00Z\n`- Invalid recurrence\n  `+ task\n  `= due|not-a-date\n  `= recur|P1M1D\n`- Invalid datetimes\n  `+ task\n  `= created|2026-07-20T09:00:00Z\n  `= wait|tomorrow\n  `= done|later\n  `= canceled|never\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
@@ -600,7 +626,7 @@ mod tests {
 
     #[test]
     fn parses_signed_task_priority_and_rejects_out_of_range_values() {
-        let source = "`task Maximum\n  `= priority|2147483647\n`task Deferred\n  `= priority|-12\n`task Minimum\n  `= priority|-2147483648\n`task Too large\n  `= priority|2147483648\n`task Too small\n  `= priority|-2147483649\n`task Invalid\n  `= priority|soon\n";
+        let source = "`- Maximum\n  `+ task\n  `= priority|2147483647\n`- Deferred\n  `+ task\n  `= priority|-12\n`- Minimum\n  `+ task\n  `= priority|-2147483648\n`- Too large\n  `+ task\n  `= priority|2147483648\n`- Too small\n  `+ task\n  `= priority|-2147483649\n`- Invalid\n  `+ task\n  `= priority|soon\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
@@ -632,7 +658,7 @@ mod tests {
     #[test]
     fn reports_missing_due_only_when_the_attribute_is_absent() {
         let source =
-            "`task Missing due\n  `= recur|P1W\n`task Invalid due\n  `= due|invalid\n  `= recur|P1W\n";
+            "`- Missing due\n  `+ task\n  `= recur|P1W\n`- Invalid due\n  `+ task\n  `= due|invalid\n  `= recur|P1W\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
@@ -670,8 +696,8 @@ mod tests {
     }
 
     #[test]
-    fn only_the_task_marker_creates_tasks() {
-        let source = "`note Not a task\n  `+ task\n\n`task Work\n";
+    fn task_facet_requires_a_list_item_and_specialized_markers_are_ordinary() {
+        let source = "`note Not a task\n  `+ task\n\n`task Legacy marker\n\n`. Work\n `+ task\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
@@ -682,5 +708,16 @@ mod tests {
         );
         assert_eq!(output.tasks.len(), 1);
         assert!(output.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn conflicting_facets_create_neither_record_and_table_items_are_consumed() {
+        let source = "`- Conflict\n `+ task\n `+ event\n\n`table\n `- Cell\n  `+ task\n";
+        let parsed = parse(source);
+        assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
+        let output = analyze_tasks(parsed.valid_syntax().unwrap());
+        assert!(output.tasks.is_empty());
+        assert_eq!(output.diagnostics.len(), 1);
+        assert_eq!(output.diagnostics[0].code, "facet.task-event-conflict");
     }
 }

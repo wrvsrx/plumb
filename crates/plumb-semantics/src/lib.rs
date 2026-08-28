@@ -12,6 +12,45 @@ mod tables;
 mod tasks;
 mod text;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ListItemFacet {
+    None,
+    Task,
+    Event,
+    Conflict,
+}
+
+pub(crate) fn list_item_facet(block: &plumb_syntax::ParsedBlock) -> ListItemFacet {
+    let Some(mark) = &block.mark else {
+        return ListItemFacet::None;
+    };
+    if !matches!(mark.marker.as_str(), "-" | ".") {
+        return ListItemFacet::None;
+    }
+    match (mark.attrs.has_class("task"), mark.attrs.has_class("event")) {
+        (false, false) => ListItemFacet::None,
+        (true, false) => ListItemFacet::Task,
+        (false, true) => ListItemFacet::Event,
+        (true, true) => ListItemFacet::Conflict,
+    }
+}
+
+pub(crate) fn table_structural_item_starts(
+    valid: plumb_syntax::ValidDocument<'_>,
+) -> std::collections::HashSet<usize> {
+    let tables = tables::analyze_tables(valid);
+    tables
+        .tables
+        .iter()
+        .flat_map(|table| {
+            table.rows.iter().flat_map(|row| {
+                std::iter::once(row.range.start)
+                    .chain(row.cells.iter().map(|cell| cell.range.start))
+            })
+        })
+        .collect()
+}
+
 pub(crate) fn inline_selection_range(
     content: &plumb_syntax::InlineContent,
 ) -> std::ops::Range<usize> {

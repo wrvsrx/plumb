@@ -121,7 +121,7 @@ fn list_item(block: &Block) -> Option<(&ParsedBlock, ListKind)> {
         return None;
     };
     let kind = match block.mark.as_ref()?.marker.as_str() {
-        "-" | "task" | "event" => ListKind::Bullet,
+        "-" => ListKind::Bullet,
         "." => ListKind::Ordered,
         _ => return None,
     };
@@ -137,7 +137,7 @@ mod tests {
     #[test]
     fn groups_adjacent_sibling_items_and_nested_items() {
         let parsed = parse(
-            "`task One\n `- Nested one\n `- Nested two\n\n`- Two\n\nParagraph.\n\n`- Three\n",
+            "`- One\n `+ task\n `- Nested one\n `- Nested two\n\n`- Two\n\nParagraph.\n\n`- Three\n",
         );
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
