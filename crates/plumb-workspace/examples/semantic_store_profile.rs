@@ -5,6 +5,11 @@ use std::time::Instant;
 use chrono::DateTime;
 use plumb_workspace::{SqliteSemanticStore, Workspace};
 
+#[path = "../benchmark_support.rs"]
+mod benchmark_support;
+
+use benchmark_support::semantic_store_workload;
+
 fn main() {
     let mut arguments = std::env::args().skip(1);
     let backend = arguments.next().expect("backend: memory or sqlite");
@@ -13,7 +18,7 @@ fn main() {
         .expect("event count")
         .parse::<usize>()
         .expect("numeric event count");
-    let (target, source) = workload(count, count / 10);
+    let (target, source) = semantic_store_workload(count, count / 10, "");
     let started = Instant::now();
     let mut database = None;
     let workspace = match backend.as_str() {
@@ -81,21 +86,4 @@ fn main() {
             println!("{resident}");
         }
     }
-}
-
-fn workload(events: usize, references: usize) -> (String, String) {
-    let target = "`= title|Target\n\n`- Target\n\n `+ task\n\n `@ target\n".to_string();
-    let mut source = String::with_capacity(events * 90 + references * 55);
-    source.push_str("`= title|Migrated events\n`= timezone|Z\n\n");
-    for index in 0..events {
-        let day = index % 28 + 1;
-        let hour = index % 24;
-        source.push_str(&format!(
-            "`- 2026-08-{day:02}T{hour:02}:00|Event {index} {{\n\n `+ event\n\n `@ event-{index}\n}}\n\n"
-        ));
-    }
-    for _ in 0..references {
-        source.push_str("See `->[target|target.plumb#target].\n");
-    }
-    (target, source)
 }
