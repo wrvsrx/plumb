@@ -15,6 +15,20 @@
  `note 用包含大量 events、links 与 nested events 的基准比较当前有序 links 二分查询，验证 build/query
   complexity、revision invalidation、memory overhead 与现有 association semantics 后再替换。
 
+`task 在任意 document metadata entry 上提供文档 hover
+
+ `@ document-metadata-hover
+
+ `note 保留 document byte offset 0 作为 path-defined document declaration 的 hover 入口；光标位于
+  任意 top-level direct `"=" metadata entry 的整个 subtree 时，也显示该文档投影后的完整
+  metadata summary。普通 block 的 nested `"=" property 不得命中 document metadata hover。
+ `note Link、citation 等更具体的 semantic target 优先于 metadata hover。Hover range 使用当前
+  命中的 top-level metadata entry；不得用 metadata 从首个 entry 到末个 entry 的聚合
+  range 直接命中，因为 document declarations 可以与 body blocks 任意交错。
+ `note 在 protocol-neutral workspace query 中提供明确的 metadata target lookup，LSP 只负责
+  position/range 投影和 Markdown rendering。测试覆盖文件开头、分散的 top-level entries、
+  entry children、与正文交错的 declarations、nested owner properties 以及具体 target 的优先级。
+
 `task 让 folding 在 workspace 索引期间保持可用
 
  `@ folding-before-index-complete
