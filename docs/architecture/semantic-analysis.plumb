@@ -194,6 +194,16 @@ Event title completion 是 typed-column query：persistent store 按 case-sensit
 current-valid title counts、排序并应用最终 hard limit。普通 correctness tests 固定 disk-only、open-overlay、
 prefix、frequency tie 与 limit parity；large-event benchmark 单独固定该 hot path 不随完整 record 大小增长。
 
+不带 CEL filter 的 workspace search 先从 document columns、task facts 与 event facts 构造 lightweight
+candidates，在 protocol-neutral layer 完成 fuzzy score、task workflow/effective-priority propagation、跨 kind
+deterministic ordering 与 hard limit，随后只按 selected source keys 批量 decode 完整 task/event records 以补齐
+response fields。Task priority propagation 必须合并 persistent typed dependency relations 与 open-document
+overlay，并把 dependency target 的 closure state 纳入判断；不得只因 dependency source 或 target 未打开就漏掉
+有效传播。带 CEL filter 的 search 在 filter 所需 typed projection 完整以前可以继续 decode candidate records，
+但必须保持与无 filter 路径相同的 observable result ordering、completeness、workflow fields、effective priority
+和 document-granularity overlay precedence。Store tests 应在破坏未命中 BLOB 后证明 lightweight selection 不会
+decode 它们，并固定 selected-record hydration 与 persistent/open parity。
+
 task dependency、event-task association、active/blocked lookup 与 standard task state filtering 使用 Diesel typed
 rows 和 indexed relation lookup。Persistent event page 在 database 中执行 deterministic order、keyset cursor 与
 hard limit；persistent task page 则通过 Diesel 读取 lightweight typed facts 与批量 relation endpoints，在

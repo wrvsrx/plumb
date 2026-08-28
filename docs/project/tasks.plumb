@@ -3,3 +3,22 @@
 本页只记录可以直接实施和验收的工作。方向、约束和 deferred design 继续放在
 `->[roadmap|roadmap.plumb]；已经结束的任务及其验收记录保存在
 `->[completed tasks|completed-tasks.plumb]。
+
+`- 有界解码 workspace search
+
+ `+ task
+
+ `@ bound-workspace-search-records
+
+ `= created|2026-08-29T08:00:00+08:00
+
+ `note 无 CEL filter 的 note/task/event search 先在 typed document/task/event facts 上完成 fuzzy score、
+ workflow state、effective-priority propagation、deterministic ordering 与 limit，只 decode 最终命中的完整
+ TaskRecord/EventRecord；filtered search 暂时保留完整 semantic record evaluation。
+
+ `note task dependency propagation 合并 persistent relation rows 与 open-document overlay，不能只读取打开的
+ source task；event facts 补齐 selection range、id 与 depth，最终 hydration 保持 schema version 3 的全部字段。
+
+ `note 测试破坏未命中 task/event BLOB 后 search 仍成功，覆盖 disk-only、open overlay、跨 kind tie、limit、
+ complete flag、persistent dependency priority 与 selected-record hydration；large-store benchmark 对比旧 full
+ decode 与新 lightweight query。
