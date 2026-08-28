@@ -9,7 +9,7 @@ use diesel::connection::DefaultLoadingMode;
 use diesel::connection::SimpleConnection;
 use diesel::dsl::{count_star, exists, not, sql};
 use diesel::prelude::*;
-use diesel::sql_types::{Bool, Text};
+use diesel::sql_types::{Binary, Bool, Nullable, Text};
 use diesel::sqlite::SqliteConnection;
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
 use plumb_semantics::{
@@ -21,6 +21,16 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 
 use crate::{normalize, resolve_relative, task_reference_fields, task_reference_ranges};
+
+diesel::define_sql_function! {
+    fn plumb_fuzzy_score(
+        title: Text,
+        id: Nullable<Text>,
+        path: Binary,
+        root: Binary,
+        query: Text,
+    ) -> Nullable<diesel::sql_types::BigInt>;
+}
 
 mod schema;
 
@@ -262,6 +272,27 @@ impl SqliteSemanticStore {
     }
 
     fn from_connection(mut connection: SqliteConnection) -> StoreResult<Self> {
+        plumb_fuzzy_score_utils::register_impl(
+            &mut connection,
+            |title: String,
+             id: Option<String>,
+             path: Vec<u8>,
+             root: Vec<u8>,
+             query: String|
+             -> Option<i64> {
+                let path = path_from_bytes(path).ok()?;
+                let root = path_from_bytes(root).ok()?;
+                let relative_path = path
+                    .strip_prefix(&root)
+                    .unwrap_or(&path)
+                    .display()
+                    .to_string();
+                crate::search::search_score(
+                    &query,
+                    &[&title, id.as_deref().unwrap_or_default(), &relative_path],
+                )
+            },
+        )?;
         connection.batch_execute("PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;")?;
         connection
             .run_pending_migrations(MIGRATIONS)
@@ -810,6 +841,92 @@ impl SqliteSemanticStore {
             .order((events::path, events::start))
             .load::<EventFactRow>(&mut *connection)?;
         decode_event_facts(rows, excluded)
+    }
+
+    pub fn event_search_facts(
+        &self,
+        root: &Path,
+        query: &str,
+        excluded: &[PathBuf],
+        limit: usize,
+    ) -> StoreResult<Vec<(i64, StoredEventFact)>> {
+        let mut connection = self
+            .connection
+            .lock()
+            .map_err(|_| StoreError::LockPoisoned)?;
+        let excluded = excluded
+            .iter()
+            .map(|path| path_bytes(&normalize(path)))
+            .collect::<Vec<_>>();
+        let root = path_bytes(&normalize(root));
+        let score = || {
+            plumb_fuzzy_score(
+                events::title,
+                events::id,
+                events::path,
+                root.clone(),
+                query.to_string(),
+            )
+        };
+        let mut rows = events::table
+            .inner_join(documents::table.on(documents::path.eq(events::path)))
+            .filter(score().is_not_null())
+            .select((
+                score().assume_not_null(),
+                events::path,
+                documents::revision,
+                events::start,
+                events::selection_start,
+                events::selection_end,
+                events::id,
+                events::title,
+                events::depth,
+            ))
+            .order((score().desc(), events::path, events::selection_start))
+            .limit(i64::try_from(limit.saturating_add(1)).unwrap_or(i64::MAX))
+            .into_boxed();
+        if !excluded.is_empty() {
+            rows = rows.filter(not(events::path.eq_any(excluded)));
+        }
+        let rows = rows.load::<(
+            i64,
+            Vec<u8>,
+            i64,
+            i64,
+            i64,
+            i64,
+            Option<String>,
+            String,
+            i64,
+        )>(&mut *connection)?;
+        rows.into_iter()
+            .map(
+                |(
+                    score,
+                    path,
+                    revision,
+                    start,
+                    selection_start,
+                    selection_end,
+                    id,
+                    title,
+                    depth,
+                )| {
+                    Ok((
+                        score,
+                        StoredEventFact {
+                            path: path_from_bytes(path)?,
+                            revision,
+                            start: to_usize(start)?,
+                            selection_range: to_usize(selection_start)?..to_usize(selection_end)?,
+                            id,
+                            title,
+                            depth: to_usize(depth)?,
+                        },
+                    ))
+                },
+            )
+            .collect()
     }
 
     pub fn events_by_source_keys(

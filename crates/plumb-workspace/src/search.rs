@@ -3,9 +3,13 @@ use std::path::{Path, PathBuf};
 
 use cel::{Context, ExecutionError, Program, Value};
 use chrono::{DateTime, FixedOffset};
-use plumb_semantics::{EventRecord, MetadataValue, TaskRecord, TaskState};
+use plumb_semantics::{EventRecord, MetadataValue, TaskRecord, TaskReferenceTarget, TaskState};
 
-use crate::{display_workspace_path, normalize, TaskRef, VersionedDocumentOutput, Workspace};
+use crate::store::{StoredEventSourceKey, StoredTaskKey};
+use crate::{
+    display_workspace_path, normalize, resolve_relative, TaskRef, VersionedDocumentOutput,
+    Workspace,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SearchRecordKind {
@@ -151,6 +155,11 @@ impl Workspace {
         filter: Option<&str>,
     ) -> Result<super::QueryResult<SearchResults>, WorkspaceSearchError> {
         let root = normalize(root.as_ref());
+        if filter.is_none() {
+            return self
+                .search_records_unfiltered_lightweight(&root, kind, query, limit, now)
+                .map_err(Into::into);
+        }
         let filter = filter
             .map(|source| SemanticSearchFilter::compile(source, now))
             .transpose()?;
@@ -524,6 +533,299 @@ impl Workspace {
         }))
     }
 
+    fn search_records_unfiltered_lightweight(
+        &self,
+        root: &Path,
+        kind: Option<SearchRecordKind>,
+        query: &str,
+        limit: usize,
+        now: DateTime<FixedOffset>,
+    ) -> Result<super::QueryResult<SearchResults>, super::WorkspaceQueryError> {
+        let open_paths = self.open_paths();
+        let open_set = open_paths.iter().cloned().collect::<HashSet<_>>();
+        let mut matches = Vec::new();
+        let mut source_starts = HashMap::<(u8, PathBuf, usize, usize), usize>::new();
+        let mut open_tasks = HashMap::<StoredTaskKey, &TaskRecord>::new();
+        let mut open_events = HashMap::<StoredEventSourceKey, (i64, &EventRecord)>::new();
+        let mut task_facts = Vec::<SearchTaskFact>::new();
+        let mut task_relations = Vec::<SearchTaskRelation>::new();
+
+        for entry in self.documents.values() {
+            let Some(current) = &entry.current else {
+                continue;
+            };
+            let relative_path = display_search_path(root, &entry.path);
+            if kind.is_none_or(|kind| kind == SearchRecordKind::Note) {
+                let (title, range) = note_search_title(current, &relative_path);
+                if let Some(score) = search_score(query, &[&title, &relative_path]) {
+                    matches.push((
+                        score,
+                        note_search_record(
+                            title,
+                            entry.path.clone(),
+                            relative_path.clone(),
+                            range,
+                            current.revision,
+                        ),
+                    ));
+                }
+            }
+            if kind.is_none_or(|kind| kind == SearchRecordKind::Task) {
+                for task in &current.output.tasks.tasks {
+                    let key = StoredTaskKey {
+                        path: entry.path.clone(),
+                        start: task.range.start,
+                    };
+                    task_facts.push(SearchTaskFact {
+                        key: key.clone(),
+                        revision: current.revision,
+                        selection_range: task.selection_range.clone(),
+                        id: task.id.as_ref().map(|id| id.value.clone()),
+                        title: task.title.clone(),
+                        closure_state: task.state(),
+                        wait_millis: task
+                            .wait
+                            .as_ref()
+                            .and_then(|field| DateTime::parse_from_rfc3339(&field.value).ok())
+                            .map(|value| value.timestamp_millis()),
+                        priority: task.priority,
+                        depth: task.depth,
+                    });
+                    for dependency in &task.depends {
+                        if let Some(target) = search_task_ref(&entry.path, &dependency.target) {
+                            task_relations.push(SearchTaskRelation {
+                                source: key.clone(),
+                                target,
+                            });
+                        }
+                    }
+                    open_tasks.insert(key, task);
+                }
+            }
+            if kind.is_none_or(|kind| kind == SearchRecordKind::Event) {
+                for event in &current.output.events.events {
+                    open_events.insert(
+                        StoredEventSourceKey {
+                            path: entry.path.clone(),
+                            start: event.range.start,
+                        },
+                        (current.revision, event),
+                    );
+                }
+            }
+        }
+
+        if let Some(store) = &self.disk_store {
+            if kind.is_none_or(|kind| kind == SearchRecordKind::Note) {
+                for document in store.documents()? {
+                    if open_set.contains(&document.path) || !document.valid {
+                        continue;
+                    }
+                    let relative_path = display_search_path(root, &document.path);
+                    if let Some(score) = search_score(query, &[&document.title, &relative_path]) {
+                        matches.push((
+                            score,
+                            note_search_record(
+                                document.title,
+                                document.path,
+                                relative_path,
+                                document.title_range,
+                                document.revision,
+                            ),
+                        ));
+                    }
+                }
+            }
+            if kind.is_none_or(|kind| kind == SearchRecordKind::Task) {
+                task_facts.extend(store.task_facts(&open_paths)?.into_iter().map(|fact| {
+                    SearchTaskFact {
+                        key: StoredTaskKey {
+                            path: fact.path,
+                            start: fact.start,
+                        },
+                        revision: fact.revision,
+                        selection_range: fact.selection_range,
+                        id: fact.id,
+                        title: fact.title,
+                        closure_state: task_state_from_name(&fact.closure_state),
+                        wait_millis: fact.wait_millis,
+                        priority: fact.priority,
+                        depth: fact.depth,
+                    }
+                }));
+                task_relations.extend(
+                    store
+                        .task_dependency_relations(&open_paths)?
+                        .into_iter()
+                        .map(|relation| SearchTaskRelation {
+                            source: StoredTaskKey {
+                                path: relation.source_path,
+                                start: relation.source_start,
+                            },
+                            target: TaskRef {
+                                path: relation.target_path,
+                                id: relation.target_id,
+                            },
+                        }),
+                );
+            }
+        }
+
+        if kind.is_none_or(|kind| kind == SearchRecordKind::Task) {
+            let identities = task_facts
+                .iter()
+                .filter_map(|fact| {
+                    fact.id.as_ref().map(|id| {
+                        (
+                            TaskRef {
+                                path: fact.key.path.clone(),
+                                id: id.clone(),
+                            },
+                            fact,
+                        )
+                    })
+                })
+                .collect::<HashMap<_, _>>();
+            let blocked = task_relations
+                .iter()
+                .filter(|relation| {
+                    identities
+                        .get(&relation.target)
+                        .is_some_and(|target| target.closure_state == TaskState::Open)
+                })
+                .map(|relation| relation.source.clone())
+                .collect::<HashSet<_>>();
+            for fact in &task_facts {
+                let relative_path = display_search_path(root, &fact.key.path);
+                let id = fact.id.as_deref().unwrap_or_default();
+                let Some(score) = search_score(query, &[&fact.title, id, &relative_path]) else {
+                    continue;
+                };
+                let is_blocked = blocked.contains(&fact.key);
+                let (state, wait_reasons) = derive_task_workflow_state_from_parts(
+                    fact.closure_state,
+                    fact.wait_millis,
+                    is_blocked,
+                    now.timestamp_millis(),
+                );
+                source_starts.insert(
+                    search_source_identity(
+                        SearchRecordKind::Task,
+                        &fact.key.path,
+                        &fact.selection_range,
+                    ),
+                    fact.key.start,
+                );
+                matches.push((
+                    score,
+                    SearchRecord {
+                        kind: SearchRecordKind::Task,
+                        title: fact.title.clone(),
+                        path: fact.key.path.clone(),
+                        relative_path,
+                        range: fact.selection_range.clone(),
+                        revision: fact.revision,
+                        id: fact.id.clone(),
+                        task_state: Some(state),
+                        wait_reasons: Some(wait_reasons),
+                        due: None,
+                        priority: fact.priority,
+                        effective_priority: None,
+                        blocked: Some(is_blocked),
+                        actionable: Some(state == TaskWorkflowState::Ready),
+                        depth: Some(fact.depth),
+                        at: None,
+                        start: None,
+                        end: None,
+                        tasks: None,
+                    },
+                ));
+            }
+        }
+
+        if kind.is_none_or(|kind| kind == SearchRecordKind::Event) {
+            for (key, (revision, event)) in &open_events {
+                let relative_path = display_search_path(root, &key.path);
+                let id = event.id.as_ref().map(|id| id.value.clone());
+                let Some(score) = search_score(
+                    query,
+                    &[
+                        event.title.as_str(),
+                        id.as_deref().unwrap_or_default(),
+                        &relative_path,
+                    ],
+                ) else {
+                    continue;
+                };
+                source_starts.insert(
+                    search_source_identity(
+                        SearchRecordKind::Event,
+                        &key.path,
+                        &event.selection_range,
+                    ),
+                    key.start,
+                );
+                matches.push((
+                    score,
+                    event_search_record(event, key.path.clone(), relative_path, *revision),
+                ));
+            }
+            if let Some(store) = &self.disk_store {
+                for (score, fact) in store.event_search_facts(root, query, &open_paths, limit)? {
+                    let relative_path = display_search_path(root, &fact.path);
+                    source_starts.insert(
+                        search_source_identity(
+                            SearchRecordKind::Event,
+                            &fact.path,
+                            &fact.selection_range,
+                        ),
+                        fact.start,
+                    );
+                    matches.push((
+                        score,
+                        SearchRecord {
+                            kind: SearchRecordKind::Event,
+                            title: fact.title,
+                            path: fact.path,
+                            relative_path,
+                            range: fact.selection_range,
+                            revision: fact.revision,
+                            id: fact.id,
+                            task_state: None,
+                            wait_reasons: None,
+                            due: None,
+                            priority: None,
+                            effective_priority: None,
+                            blocked: None,
+                            actionable: None,
+                            depth: Some(fact.depth),
+                            at: None,
+                            start: None,
+                            end: None,
+                            tasks: None,
+                        },
+                    ));
+                }
+            }
+        }
+
+        propagate_lightweight_task_priorities(&mut matches, &task_relations, &source_starts);
+        sort_search_matches(&mut matches);
+        let complete = matches.len() <= limit;
+        matches.truncate(limit);
+        hydrate_selected_search_records(
+            self,
+            &mut matches,
+            &source_starts,
+            &open_tasks,
+            &open_events,
+        )?;
+        Ok(self.query_result(SearchResults {
+            items: matches.into_iter().map(|(_, record)| record).collect(),
+            complete,
+        }))
+    }
+
     fn propagate_task_priorities(
         &self,
         matches: &mut [(i64, SearchRecord)],
@@ -623,6 +925,353 @@ impl Workspace {
         }
         Ok(())
     }
+}
+
+#[derive(Clone)]
+struct SearchTaskFact {
+    key: StoredTaskKey,
+    revision: i64,
+    selection_range: std::ops::Range<usize>,
+    id: Option<String>,
+    title: String,
+    closure_state: TaskState,
+    wait_millis: Option<i64>,
+    priority: Option<i32>,
+    depth: usize,
+}
+
+struct SearchTaskRelation {
+    source: StoredTaskKey,
+    target: TaskRef,
+}
+
+fn display_search_path(root: &Path, path: &Path) -> String {
+    path.strip_prefix(root)
+        .unwrap_or(path)
+        .display()
+        .to_string()
+}
+
+fn note_search_record(
+    title: String,
+    path: PathBuf,
+    relative_path: String,
+    range: std::ops::Range<usize>,
+    revision: i64,
+) -> SearchRecord {
+    SearchRecord {
+        kind: SearchRecordKind::Note,
+        title,
+        path,
+        relative_path,
+        range,
+        revision,
+        id: None,
+        task_state: None,
+        wait_reasons: None,
+        due: None,
+        priority: None,
+        effective_priority: None,
+        blocked: None,
+        actionable: None,
+        depth: None,
+        at: None,
+        start: None,
+        end: None,
+        tasks: None,
+    }
+}
+
+fn event_search_record(
+    event: &EventRecord,
+    path: PathBuf,
+    relative_path: String,
+    revision: i64,
+) -> SearchRecord {
+    SearchRecord {
+        kind: SearchRecordKind::Event,
+        title: event.title.clone(),
+        path,
+        relative_path,
+        range: event.selection_range.clone(),
+        revision,
+        id: event.id.as_ref().map(|id| id.value.clone()),
+        task_state: None,
+        wait_reasons: None,
+        due: None,
+        priority: None,
+        effective_priority: None,
+        blocked: None,
+        actionable: None,
+        depth: Some(event.depth),
+        at: event.at.as_ref().map(|field| field.value.clone()),
+        start: event.start.as_ref().map(|field| field.value.clone()),
+        end: event.end.as_ref().map(|field| field.value.clone()),
+        tasks: Some(
+            event
+                .tasks
+                .iter()
+                .map(|reference| reference.source.clone())
+                .collect(),
+        ),
+    }
+}
+
+fn search_source_identity(
+    kind: SearchRecordKind,
+    path: &Path,
+    range: &std::ops::Range<usize>,
+) -> (u8, PathBuf, usize, usize) {
+    (
+        search_kind_order(kind),
+        path.to_path_buf(),
+        range.start,
+        range.end,
+    )
+}
+
+fn task_state_from_name(value: &str) -> TaskState {
+    match value {
+        "done" => TaskState::Done,
+        "canceled" => TaskState::Canceled,
+        "conflicted" => TaskState::Conflicted,
+        _ => TaskState::Open,
+    }
+}
+
+fn search_task_ref(source_path: &Path, target: &TaskReferenceTarget) -> Option<TaskRef> {
+    match target {
+        TaskReferenceTarget::Internal { id } => Some(TaskRef {
+            path: normalize(source_path),
+            id: id.clone(),
+        }),
+        TaskReferenceTarget::External { path, id } => Some(TaskRef {
+            path: resolve_relative(source_path, path),
+            id: id.clone(),
+        }),
+        TaskReferenceTarget::Invalid => None,
+    }
+}
+
+fn propagate_lightweight_task_priorities(
+    matches: &mut [(i64, SearchRecord)],
+    relations: &[SearchTaskRelation],
+    source_starts: &HashMap<(u8, PathBuf, usize, usize), usize>,
+) {
+    let mut task_indexes = matches
+        .iter()
+        .enumerate()
+        .filter(|(_, (_, record))| record.kind == SearchRecordKind::Task)
+        .map(|(index, _)| index)
+        .collect::<Vec<_>>();
+    task_indexes.sort_by_key(|index| {
+        let record = &matches[*index].1;
+        (record.path.clone(), record.range.start)
+    });
+    let mut node_by_key = HashMap::new();
+    let mut node_by_ref = HashMap::new();
+    for (node, record_index) in task_indexes.iter().copied().enumerate() {
+        let record = &matches[record_index].1;
+        let identity = search_source_identity(SearchRecordKind::Task, &record.path, &record.range);
+        if let Some(start) = source_starts.get(&identity) {
+            node_by_key.insert(
+                StoredTaskKey {
+                    path: record.path.clone(),
+                    start: *start,
+                },
+                node,
+            );
+        }
+        if let Some(id) = &record.id {
+            node_by_ref.insert(
+                TaskRef {
+                    path: record.path.clone(),
+                    id: id.clone(),
+                },
+                node,
+            );
+        }
+    }
+
+    let mut edges = Vec::new();
+    let mut ancestors = Vec::<(usize, usize)>::new();
+    let mut previous_path = None;
+    for (node, record_index) in task_indexes.iter().copied().enumerate() {
+        let record = &matches[record_index].1;
+        if previous_path.as_ref() != Some(&record.path) {
+            ancestors.clear();
+            previous_path = Some(record.path.clone());
+        }
+        let depth = record.depth.unwrap_or_default();
+        while ancestors
+            .last()
+            .is_some_and(|(ancestor_depth, _)| *ancestor_depth >= depth)
+        {
+            ancestors.pop();
+        }
+        if let Some((_, parent)) = ancestors.last() {
+            edges.push((node, *parent));
+        }
+        ancestors.push((depth, node));
+    }
+    for relation in relations {
+        let (Some(source), Some(target)) = (
+            node_by_key.get(&relation.source),
+            node_by_ref.get(&relation.target),
+        ) else {
+            continue;
+        };
+        let target_record = &matches[task_indexes[*target]].1;
+        if !matches!(
+            target_record.task_state,
+            Some(
+                TaskWorkflowState::Done
+                    | TaskWorkflowState::Canceled
+                    | TaskWorkflowState::Conflicted
+            )
+        ) {
+            edges.push((*source, *target));
+        }
+    }
+
+    let mut priorities = task_indexes
+        .iter()
+        .map(|index| matches[*index].1.priority.unwrap_or_default())
+        .collect::<Vec<_>>();
+    loop {
+        let mut changed = false;
+        for &(source, target) in &edges {
+            if priorities[source] > priorities[target] {
+                priorities[target] = priorities[source];
+                changed = true;
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+    for (node, record_index) in task_indexes.into_iter().enumerate() {
+        matches[record_index].1.effective_priority = Some(priorities[node]);
+    }
+}
+
+fn sort_search_matches(matches: &mut [(i64, SearchRecord)]) {
+    matches.sort_by(|(left_score, left), (right_score, right)| {
+        right_score
+            .cmp(left_score)
+            .then_with(|| left.relative_path.cmp(&right.relative_path))
+            .then_with(|| left.range.start.cmp(&right.range.start))
+            .then_with(|| search_kind_order(left.kind).cmp(&search_kind_order(right.kind)))
+    });
+}
+
+fn hydrate_selected_search_records(
+    workspace: &Workspace,
+    matches: &mut [(i64, SearchRecord)],
+    source_starts: &HashMap<(u8, PathBuf, usize, usize), usize>,
+    open_tasks: &HashMap<StoredTaskKey, &TaskRecord>,
+    open_events: &HashMap<StoredEventSourceKey, (i64, &EventRecord)>,
+) -> Result<(), super::WorkspaceQueryError> {
+    let mut stored_tasks = HashMap::<StoredTaskKey, TaskRecord>::new();
+    let mut stored_events = HashMap::<StoredEventSourceKey, EventRecord>::new();
+    let mut stored_task_keys = Vec::new();
+    let mut stored_event_keys = Vec::new();
+    for (_, record) in matches.iter() {
+        let Some(start) = source_starts.get(&search_source_identity(
+            record.kind,
+            &record.path,
+            &record.range,
+        )) else {
+            continue;
+        };
+        match record.kind {
+            SearchRecordKind::Task => {
+                let key = StoredTaskKey {
+                    path: record.path.clone(),
+                    start: *start,
+                };
+                if !open_tasks.contains_key(&key) {
+                    stored_task_keys.push(key);
+                }
+            }
+            SearchRecordKind::Event => {
+                let key = StoredEventSourceKey {
+                    path: record.path.clone(),
+                    start: *start,
+                };
+                if !open_events.contains_key(&key) {
+                    stored_event_keys.push(key);
+                }
+            }
+            SearchRecordKind::Note => {}
+        }
+    }
+    if let Some(store) = &workspace.disk_store {
+        for stored in store.tasks_by_keys(&stored_task_keys)? {
+            stored_tasks.insert(
+                StoredTaskKey {
+                    path: stored.path,
+                    start: stored.record.range.start,
+                },
+                stored.record,
+            );
+        }
+        for stored in store.events_by_source_keys(&stored_event_keys)? {
+            stored_events.insert(
+                StoredEventSourceKey {
+                    path: stored.path,
+                    start: stored.record.range.start,
+                },
+                stored.record,
+            );
+        }
+    }
+    for (_, record) in matches.iter_mut() {
+        let Some(start) = source_starts.get(&search_source_identity(
+            record.kind,
+            &record.path,
+            &record.range,
+        )) else {
+            continue;
+        };
+        match record.kind {
+            SearchRecordKind::Task => {
+                let key = StoredTaskKey {
+                    path: record.path.clone(),
+                    start: *start,
+                };
+                let task = open_tasks
+                    .get(&key)
+                    .copied()
+                    .or_else(|| stored_tasks.get(&key))
+                    .ok_or(super::StoreError::InvalidStoredValue)?;
+                record.due = task.due.as_ref().map(|field| field.value.clone());
+            }
+            SearchRecordKind::Event => {
+                let key = StoredEventSourceKey {
+                    path: record.path.clone(),
+                    start: *start,
+                };
+                let event = open_events
+                    .get(&key)
+                    .map(|(_, event)| *event)
+                    .or_else(|| stored_events.get(&key))
+                    .ok_or(super::StoreError::InvalidStoredValue)?;
+                record.at = event.at.as_ref().map(|field| field.value.clone());
+                record.start = event.start.as_ref().map(|field| field.value.clone());
+                record.end = event.end.as_ref().map(|field| field.value.clone());
+                record.tasks = Some(
+                    event
+                        .tasks
+                        .iter()
+                        .map(|reference| reference.source.clone())
+                        .collect(),
+                );
+            }
+            SearchRecordKind::Note => {}
+        }
+    }
+    Ok(())
 }
 
 pub fn search_score(query: &str, fields: &[&str]) -> Option<i64> {
@@ -897,17 +1546,30 @@ pub(crate) fn derive_task_workflow_state(
     blocked: bool,
     now: DateTime<FixedOffset>,
 ) -> (TaskWorkflowState, Vec<TaskWaitReason>) {
-    match task.state() {
+    derive_task_workflow_state_from_parts(
+        task.state(),
+        task.wait
+            .as_ref()
+            .and_then(|wait| DateTime::parse_from_rfc3339(&wait.value).ok())
+            .map(|wait| wait.timestamp_millis()),
+        blocked,
+        now.timestamp_millis(),
+    )
+}
+
+fn derive_task_workflow_state_from_parts(
+    closure_state: TaskState,
+    wait_millis: Option<i64>,
+    blocked: bool,
+    now_millis: i64,
+) -> (TaskWorkflowState, Vec<TaskWaitReason>) {
+    match closure_state {
         TaskState::Done => (TaskWorkflowState::Done, Vec::new()),
         TaskState::Canceled => (TaskWorkflowState::Canceled, Vec::new()),
         TaskState::Conflicted => (TaskWorkflowState::Conflicted, Vec::new()),
         TaskState::Open => {
             let mut reasons = Vec::new();
-            let waiting = task
-                .wait
-                .as_ref()
-                .and_then(|wait| DateTime::parse_from_rfc3339(&wait.value).ok())
-                .is_some_and(|wait| wait > now);
+            let waiting = wait_millis.is_some_and(|wait| wait > now_millis);
             if waiting {
                 reasons.push(TaskWaitReason::Time);
             }

@@ -6309,6 +6309,93 @@ mod tests {
     }
 
     #[test]
+    fn propagates_search_priority_through_persistent_dependencies() {
+        let now = DateTime::parse_from_rfc3339("2026-08-29T08:00:00+08:00").unwrap();
+        let store = SqliteSemanticStore::open_in_memory().unwrap();
+        let mut workspace = Workspace::with_sqlite_store(store);
+        workspace
+            .insert_disk(
+                "source.plumb",
+                1,
+                "`- Urgent\n\n `+ task\n\n `@ urgent\n\n `= priority|40\n `= depends|target.plumb#target\n",
+            )
+            .unwrap();
+        workspace
+            .insert_disk(
+                "target.plumb",
+                1,
+                "`- Target\n\n `+ task\n\n `@ target\n\n `= priority|-5\n",
+            )
+            .unwrap();
+
+        let results = workspace
+            .search_records("", Some(SearchRecordKind::Task), "", 20, now)
+            .unwrap()
+            .value;
+        assert_eq!(
+            results
+                .items
+                .iter()
+                .find(|record| record.id.as_deref() == Some("target"))
+                .unwrap()
+                .effective_priority,
+            Some(40)
+        );
+    }
+
+    #[test]
+    fn unfiltered_search_decodes_only_selected_persistent_records() {
+        let now = DateTime::parse_from_rfc3339("2026-08-29T08:00:00+08:00").unwrap();
+        let store = SqliteSemanticStore::open_in_memory().unwrap();
+        let mut workspace = Workspace::with_sqlite_store(store.clone());
+        workspace
+            .insert_disk(
+                "selected.plumb",
+                1,
+                concat!(
+                    "`- Selected task\n\n `+ task\n\n `@ selected-task\n\n `= due|2026-08-30T08:00:00+08:00\n",
+                    "`- 09:00|Selected event\n\n `+ event\n\n `@ selected-event\n",
+                ),
+            )
+            .unwrap();
+        workspace
+            .insert_disk(
+                "other.plumb",
+                1,
+                concat!(
+                    "`- Other task\n\n `+ task\n\n `@ other-task\n",
+                    "`- 10:00|Other event\n\n `+ event\n\n `@ other-event\n",
+                ),
+            )
+            .unwrap();
+        store
+            .execute_batch_for_test(
+                "UPDATE tasks SET record = X'FF' WHERE title = 'Other task';\
+                 UPDATE events SET record = X'FF' WHERE title = 'Other event';",
+            )
+            .unwrap();
+
+        let results = workspace
+            .search_records("", None, "Selected", 20, now)
+            .unwrap()
+            .value;
+        assert_eq!(results.items.len(), 3);
+        assert!(results.complete);
+        let task = results
+            .items
+            .iter()
+            .find(|record| record.kind == SearchRecordKind::Task)
+            .unwrap();
+        assert_eq!(task.due.as_deref(), Some("2026-08-30T08:00:00+08:00"));
+        let event = results
+            .items
+            .iter()
+            .find(|record| record.kind == SearchRecordKind::Event)
+            .unwrap();
+        assert_eq!(event.tasks, Some(Vec::new()));
+    }
+
+    #[test]
     fn search_records_use_current_valid_snapshots_and_report_truncation() {
         let now = DateTime::parse_from_rfc3339("2026-07-22T12:00:00Z").unwrap();
         let mut workspace = Workspace::new();

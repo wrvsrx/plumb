@@ -8,8 +8,8 @@ use criterion::{criterion_group, criterion_main, BatchSize, BenchmarkId, Criteri
 use plumb_semantics::analyze_document;
 use plumb_syntax::parse;
 use plumb_workspace::{
-    BatchIndexOptions, SqliteSemanticStore, TaskPageQuery, TaskQueryFilter, TaskQueryFilterGroup,
-    TaskRef, TaskSortOrder, Workspace,
+    search_score, BatchIndexOptions, SearchRecordKind, SqliteSemanticStore, TaskPageQuery,
+    TaskQueryFilter, TaskQueryFilterGroup, TaskRef, TaskSortOrder, Workspace,
 };
 
 #[path = "../benchmark_support.rs"]
@@ -209,6 +209,49 @@ fn benchmark_queries(c: &mut Criterion) {
     });
     group.bench_function("sqlite_event_full_decode", |b| {
         b.iter(|| black_box(sqlite.store.events(&[])));
+    });
+    group.bench_function("sqlite_event_legacy_decode_score_limit", |b| {
+        b.iter(|| {
+            let mut matches = sqlite
+                .store
+                .events(&[])
+                .unwrap()
+                .into_iter()
+                .filter_map(|stored| {
+                    let relative_path = stored.path.display().to_string();
+                    let id = stored.record.id.as_ref().map(|field| field.value.as_str());
+                    search_score(
+                        "Event 12",
+                        &[
+                            stored.record.title.as_str(),
+                            id.unwrap_or_default(),
+                            &relative_path,
+                        ],
+                    )
+                    .map(|score| (score, relative_path, stored.record))
+                })
+                .collect::<Vec<_>>();
+            matches.sort_by(|left, right| {
+                right
+                    .0
+                    .cmp(&left.0)
+                    .then_with(|| left.1.cmp(&right.1))
+                    .then_with(|| left.2.range.start.cmp(&right.2.range.start))
+            });
+            matches.truncate(50);
+            black_box(matches)
+        });
+    });
+    group.bench_function("sqlite_event_search_selected_decode", |b| {
+        b.iter(|| {
+            black_box(sqlite.workspace.search_records(
+                Path::new(""),
+                Some(SearchRecordKind::Event),
+                "Event 12",
+                50,
+                start,
+            ))
+        });
     });
     group.bench_function("sqlite_open_overlay", |b| {
         b.iter_batched(
