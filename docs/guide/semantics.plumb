@@ -54,27 +54,27 @@ ordered list 固定从 1 开始。
 
 `# Metadata
 
-document 是 implicit root owner。顶层 direct `"=" block 是 metadata key/value association，direct
-`"+" block 是 document facet；它们可以与正文 blocks 交错，且不会拆分投影后相邻的正文 list。
-document identity 来自 normalized workspace-relative path，因此顶层 direct `"@" 不受支持：
+document 是 implicit root owner。顶层 direct `"=" block 是 metadata key/value association，可以与正文
+blocks 交错，且不会拆分投影后相邻的正文 list。document identity 来自 normalized
+workspace-relative path，document 也没有 attribute class container，因此顶层 direct `"@" 与
+`"+" 都不受支持：
 
 `plumb
 
 |"
   `= title Document title
-  `+ guide
-
   `= created 2026-07-20T09:00:00+08:00
 
   `= tags
-   `- plumb
-   `- notes
+   `+ plumb
+   `+ notes
 
   `= author
    `= name Alice
 
-value 可以是 null、一个 paragraph scalar、`"-" sequence、nested `"=" map 或一个 verbatim
-block。metadata sequence 只使用 `"-"；它表示数据顺序，不带正文 list style。
+value 可以是 null、一个 paragraph scalar、`"+" sequence、nested `"=" map 或一个 verbatim
+block。metadata sequence 只使用 `"+" 并保留 source order。`":"/`"-" 是可渲染的
+definition/list structure，`"="/`"+" 是不进入 rendered body 的 map/sequence structure。
 
 `"created" 使用带 timezone 的完整 RFC 3339 timestamp。非法值会产生
 `"metadata.invalid-created" warning，但不使 core syntax 无效。空文档也可以通过
@@ -165,7 +165,7 @@ LSP 在 src 中补全任意本地文件，并提供 hover、go-to-definition 和
 
 |"
   `= bibliography
-   `- static/library.json
+   `+ static/library.json
 
   See `cite[smith2004].
 

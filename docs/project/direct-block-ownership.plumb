@@ -7,8 +7,9 @@
 
 `. 删除全部 structural block/document attached groups；brace 在 parsed content 与 marker 中成为 ordinary
  character。
-`. document 继续作为 implicit root，顶层 `"=" 与 `"+" declarations 可以和 body blocks 乱序；顶层
- `"@" 不定义 document identity。
+`. document 继续作为 implicit root，顶层 `"="、`"+"、`"@" declarations 可以和 body blocks
+ 乱序；只有 `"=" 投影 document metadata，`"+"、`"@" 分别因 document 没有 attribute container
+ 与 path-defined identity 而发布 unsupported diagnostic。
 `. marked block 使用一个 source-ordered direct children sequence 同时保存 declarations 与普通 structural
  children；core 不解释 declaration marker，semantic profile 投影 direct leaf `"@"、`"+"、`"=" 并从
  owner body/details projection 中过滤已消费 declarations。

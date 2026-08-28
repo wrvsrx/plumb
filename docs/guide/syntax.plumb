@@ -134,13 +134,12 @@ children 时最后一个 child 与 boundary 之间保留空行。结构缩进后
 
 document 是 implicit root owner，保存 source-ordered top-level blocks。brace 是 ordinary parsed text，
 不建立 ownership structure。顶层 declaration 是普通 marked block；例如 official semantic profile
-使用 direct `"=" 与 `"+"：
+使用 direct `"=" 表达 document metadata：
 
 `plumb
 
 |"
   `= title Document title
-  `+ guide
 
   Body paragraph.
 

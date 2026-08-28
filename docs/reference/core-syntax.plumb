@@ -156,7 +156,7 @@ marker 在 core 中完全同类；typed generic attribute view 可以从 direct 
 |"
   `= title Document title
   `= tags
-   `- plumb
+   `+ plumb
 
   `task Buy milk
    `+ shopping

@@ -69,10 +69,10 @@ it. Inside the plumb source repository, prefer
   has no children; keep one blank separator after children.
   Anonymous block raw uses an introducer and quote, has no head or children, and
   starts raw payload immediately.
-- The document is an implicit root owner. Direct top-level
-  `=` blocks are metadata and direct top-level `+` blocks are document facets;
-  they may interleave with body blocks. Document identity comes from its
-  workspace-relative path, so do not use a direct top-level `@` block.
+- The document is an implicit root owner. Direct top-level `=` blocks are
+  metadata and may interleave with body blocks. Document identity comes from
+  its workspace-relative path, and the document has no attribute-class
+  container, so direct top-level `@` and `+` blocks are unsupported.
 - Use direct `@` declaration children for explicit ids.
   Headings do not generate implicit ids.
 - Every parsed inline owner starts with a parsed argument, which may be empty. Separate
@@ -90,7 +90,8 @@ it. Inside the plumb source repository, prefer
 
 ```plumb
 `= title Example
-`+ guide
+`= tags
+ `+ guide
 
 `# Heading
  `@ intro

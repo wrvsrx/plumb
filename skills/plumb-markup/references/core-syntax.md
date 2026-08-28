@@ -60,7 +60,6 @@ spellings as document declarations.
 
 ```plumb
 `= title Document title
-`+ guide
 
 Body paragraph.
 ```

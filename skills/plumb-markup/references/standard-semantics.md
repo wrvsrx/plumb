@@ -52,19 +52,20 @@ Adjacent sibling definitions form a definition list:
 ## Document Metadata
 
 The document is an implicit root owner. Direct top-level `=` blocks are metadata
-properties and direct top-level `+` blocks are document facets. They may
-interleave with body blocks; declarations are removed from the projected body
-without splitting adjacent body lists. Direct top-level `@` is unsupported:
-document identity is its normalized workspace-relative path.
+properties and may interleave with body blocks; declarations are removed from
+the projected body without splitting adjacent body lists. Direct top-level `@`
+is unsupported because document identity is its normalized workspace-relative
+path. Direct top-level `+` is also unsupported because the document has no
+attribute-class container. Both unsupported declarations remain outside the
+projected body.
 
 ```plumb
 `= title Document title
 `= created 2026-07-20T09:00:00+08:00
-`+ reference
 
 `= tags
- `- plumb
- `- notes
+ `+ plumb
+ `+ notes
 
 `= author
  `= name Alice
@@ -74,16 +75,19 @@ Without children, the first inline item is the key and the remainder after a
 space is the value. With children, the whole plain head is the key and the
 children are the value. Use `()[key with spaces]` to bound a compact key with
 spaces explicitly. Keys must be nonempty plain text. Values
-may be empty/null, one paragraph scalar, a `-` list, a nested `=` map, or one
-verbatim block. A paragraph or list-item head containing exactly one inline
-verbatim value becomes a literal string. A list item with an empty head may use
-children to hold another list, map, scalar, or verbatim value. Do not combine a
-nonempty item head with children or mix incompatible child shapes. Ordinary
-definitions remain body content.
+may be empty/null, one paragraph scalar, a `+` sequence, a nested `=` map, or
+one verbatim block. A paragraph or collection-member head containing exactly
+one inline verbatim value becomes a literal string. A `+` member with an empty
+head may use children to hold another sequence, map, scalar, or verbatim value.
+Do not combine a nonempty member head with children or mix incompatible child
+shapes. Metadata sequences preserve source order. `:` and `-` remain rendered
+definition/list structure; `=` and `+` form non-rendered map/sequence data in a
+metadata value. Ordinary owner-level leaf-shaped `+` declarations remain
+facets.
 
-Metadata uses only `-` for list values. A metadata list is an ordered data
-sequence rather than a rendered bullet or numbered list, so `.` is unsupported
-inside metadata.
+Metadata uses only `+` for sequence values. A metadata sequence preserves source
+order but does not become a rendered bullet or numbered list, so `-` and `.` are
+unsupported inside metadata.
 
 The metadata insertion action creates `title` from the filename stem and
 `created` from the current local RFC 3339 timestamp.
@@ -199,7 +203,7 @@ resolved from the source document directory:
 
 ```plumb
 `= bibliography
- `- static/library.json
+ `+ static/library.json
 ```
 
 The LSP offers Citation construct completion for a nonempty `cite` prefix and
