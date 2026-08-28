@@ -658,9 +658,8 @@ authoring operations 使用执行时的本地 RFC 3339 timestamp：`"Convert to 
 
 construct completion 是 prefix-sensitive 的 semantics-neutral authoring interface。bare backtick 不提供
 candidate；已输入至少一个 marker character 后，completion 根据 syntax owner、source position 与 semantic
-声明的 authoring prefix 过滤 candidate。named marker construct 使用其完整 marker spelling 的非空 prefix；
-继续输入时 candidate 只能保持或收窄，不能切换到不共享该 prefix 的 construct。candidate edit 替换从
-backtick 到 cursor 的完整 prefix。
+声明的 authoring prefix 过滤 candidate。继续输入时 candidate 只能保持或收窄，不能切换到不共享该
+prefix 的 construct。candidate edit 替换从 backtick 到 cursor 的完整 prefix。
 
 syntax owner containment 使用半开 byte range；cursor 位于 owner `"range.end" 时不再属于该 owner。
 因此 complete owner subtree 后紧邻的下一 structural line 可以直接开始 construct prefix，无需额外
@@ -669,11 +668,13 @@ blank line；前一 owner 的 declarations 或 raw payload 不得抑制该 line
 
 line start 的标准 construct prefixes 为：
 
-`- `"`t"、`"`ta" 直到完整 legacy authoring prefix `"`task" 只提供 Task。
-`- `"`e"、`"`ev" 直到完整 legacy authoring prefix `"`event" 只提供 Event。
 `- `"`-" 提供 Task、Event、Link 与 Autolink；这让已经输入标准 list marker 的 author 可以选择
   添加 facet 的标准 list-item construct，同时保留用相同 prefix 创建 inline Link 或 Autolink 的能力。
 `- `"`->" 只提供 Link 与 Autolink。
+
+字母 prefix，包括 `"`t" 到 `"`task" 与 `"`e" 到 `"`event"，不提供 Task 或 Event candidate。
+这两个 marker spellings 在 syntax 与 semantics 中都是 generic；Task/Event authoring 只从标准 list marker
+进入，并通过生成的 direct facet 表达语义。
 
 Link 与 Autolink 共享 `"->" inline kind，opening envelope 负责收窄 candidate：`"`->[" 只提供 Link，
 `"`->\"" 只提供 Autolink。单独 `"`[" 不是 construct prefix，不提供 candidate。以上 link constructs 在

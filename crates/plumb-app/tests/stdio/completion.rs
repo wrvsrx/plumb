@@ -598,11 +598,11 @@ fn completes_and_navigates_relative_autolinks_files_and_images() {
 }
 
 #[test]
-fn completes_block_constructs_from_their_marker_prefixes() {
+fn completes_task_and_event_only_from_the_list_marker() {
     let root = unique_temp_dir();
     std::fs::create_dir_all(&root).unwrap();
     let document = root.join("constructs.plumb");
-    let source = "`t\n  `ev\n `t\n `-\nText `";
+    let source = "`t\n  `event\n `task\n `-\nText `e";
     std::fs::write(&document, source).unwrap();
     let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
     let document_uri = lsp_types::Url::from_file_path(&document).unwrap();
@@ -638,14 +638,14 @@ fn completes_block_constructs_from_their_marker_prefixes() {
             "jsonrpc": "2.0", "id": 3, "method": "textDocument/completion",
             "params": {
                 "textDocument": { "uri": document_uri },
-                "position": { "line": 1, "character": 5 }
+                "position": { "line": 1, "character": 8 }
             }
         }),
         json!({
             "jsonrpc": "2.0", "id": 4, "method": "textDocument/completion",
             "params": {
                 "textDocument": { "uri": document_uri },
-                "position": { "line": 2, "character": 3 }
+                "position": { "line": 2, "character": 6 }
             }
         }),
         json!({
@@ -659,7 +659,7 @@ fn completes_block_constructs_from_their_marker_prefixes() {
             "jsonrpc": "2.0", "id": 6, "method": "textDocument/completion",
             "params": {
                 "textDocument": { "uri": document_uri },
-                "position": { "line": 4, "character": 6 }
+                "position": { "line": 4, "character": 7 }
             }
         }),
         json!({ "jsonrpc": "2.0", "id": 7, "method": "shutdown", "params": null }),
@@ -667,42 +667,9 @@ fn completes_block_constructs_from_their_marker_prefixes() {
     ];
 
     let output = run_server(&messages);
-    let trigger_characters = response(&output, 1)["result"]["capabilities"]["completionProvider"]
-        ["triggerCharacters"]
-        .as_array()
-        .unwrap();
-    assert!(trigger_characters.iter().any(|character| character == "t"));
-    assert!(trigger_characters.iter().any(|character| character == "e"));
-
-    let task_items = response(&output, 2)["result"].as_array().unwrap();
-    assert_eq!(task_items.len(), 1);
-    assert_eq!(task_items[0]["label"], "Task");
-    assert_eq!(
-        task_items[0]["textEdit"]["range"],
-        json!({ "start": { "line": 0, "character": 0 }, "end": { "line": 0, "character": 2 } })
-    );
-    let task = task_items[0]["textEdit"]["newText"].as_str().unwrap();
-    assert!(task.starts_with("`- ${1:Task}\n\n `+ task\n\n `= created|"));
-    assert_eq!(task_items[0]["insertTextFormat"], 2);
-    assert_eq!(task_items[0]["insertTextMode"], 1);
-
-    let event_items = response(&output, 3)["result"].as_array().unwrap();
-    assert_eq!(event_items.len(), 1);
-    assert_eq!(event_items[0]["label"], "Event");
-    let event = &event_items[0];
-    assert_eq!(
-        event["textEdit"]["newText"],
-        "`- ${1:09:00}|${2:Event}\n\n   `+ event"
-    );
-    assert_eq!(event["insertTextFormat"], 2);
-
-    let nested_task_items = response(&output, 4)["result"].as_array().unwrap();
-    assert_eq!(nested_task_items.len(), 1);
-    let nested_task = nested_task_items[0]["textEdit"]["newText"]
-        .as_str()
-        .unwrap();
-    assert!(nested_task.starts_with("`- ${1:Task}\n\n  `+ task\n\n  `= created|"));
-    assert_eq!(nested_task_items[0]["insertTextMode"], 1);
+    assert!(response(&output, 2)["result"].is_null());
+    assert!(response(&output, 3)["result"].is_null());
+    assert!(response(&output, 4)["result"].is_null());
 
     let list_item_items = response(&output, 5)["result"].as_array().unwrap();
     assert_eq!(list_item_items.len(), 4);
@@ -742,7 +709,7 @@ fn completes_block_constructs_from_their_marker_prefixes() {
             "jsonrpc": "2.0", "id": 2, "method": "textDocument/completion",
             "params": {
                 "textDocument": { "uri": document_uri },
-                "position": { "line": 0, "character": 2 }
+                "position": { "line": 3, "character": 3 }
             }
         }),
         json!({ "jsonrpc": "2.0", "id": 3, "method": "shutdown", "params": null }),
@@ -750,7 +717,7 @@ fn completes_block_constructs_from_their_marker_prefixes() {
     ];
     let fallback_output = run_server(&fallback_messages);
     let fallback_items = response(&fallback_output, 2)["result"].as_array().unwrap();
-    assert_eq!(fallback_items.len(), 1);
+    assert_eq!(fallback_items.len(), 4);
     assert_eq!(fallback_items[0]["label"], "Task");
     let fallback_task = fallback_items[0]["textEdit"]["newText"].as_str().unwrap();
     assert!(fallback_task.starts_with("`-\n `+ task\n\n `= created|"));
@@ -764,7 +731,7 @@ fn projects_nested_task_completion_for_adjusted_indentation() {
     let root = unique_temp_dir();
     std::fs::create_dir_all(&root).unwrap();
     let document = root.join("adjusted.plumb");
-    let source = "`- Parent\n `+ task\n `t";
+    let source = "`- Parent\n `+ task\n `-";
     std::fs::write(&document, source).unwrap();
     let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
     let document_uri = lsp_types::Url::from_file_path(&document).unwrap();
@@ -803,7 +770,7 @@ fn projects_nested_task_completion_for_adjusted_indentation() {
 
     let output = run_server(&messages);
     let items = response(&output, 2)["result"].as_array().unwrap();
-    assert_eq!(items.len(), 1);
+    assert_eq!(items.len(), 4);
     assert_eq!(items[0]["label"], "Task");
     assert_eq!(items[0]["insertTextMode"], 2);
     assert_eq!(
@@ -838,7 +805,7 @@ fn completes_task_construct_immediately_after_direct_declarations() {
     let root = unique_temp_dir();
     std::fs::create_dir_all(&root).unwrap();
     let document = root.join("current.plumb");
-    let source = "`- something\n\n `+ task\n\n `= created|2026-08-09T10:55:24+08:00\n\n`t";
+    let source = "`- something\n\n `+ task\n\n `= created|2026-08-09T10:55:24+08:00\n\n`-";
     std::fs::write(&document, source).unwrap();
     let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
     let document_uri = lsp_types::Url::from_file_path(&document).unwrap();

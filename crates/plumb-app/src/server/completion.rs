@@ -132,9 +132,7 @@ pub(super) fn construct_completion_items(
 ) -> Vec<CompletionItem> {
     let block_indent = match (&context, completion_indentation.projection) {
         (
-            ConstructCompletionContext::Task { replace }
-            | ConstructCompletionContext::Event { replace }
-            | ConstructCompletionContext::TaskEventLinkAndAutolink { replace },
+            ConstructCompletionContext::TaskEventLinkAndAutolink { replace },
             CompletionIndentationProjection::AsIs,
         ) => {
             let line_start = source[..replace.start]
@@ -155,13 +153,6 @@ pub(super) fn construct_completion_items(
                 uses_block_indentation: false,
             }],
         ),
-        ConstructCompletionContext::Task { replace } => (
-            replace,
-            vec![task_construct_template(&block_indent, timestamp)],
-        ),
-        ConstructCompletionContext::Event { replace } => {
-            (replace, vec![event_construct_template(&block_indent)])
-        }
         ConstructCompletionContext::TaskEventLinkAndAutolink { replace } => (
             replace,
             vec![

@@ -286,13 +286,13 @@ The LSP can convert an ordinary list item by preserving its marker and adding th
 first `+ task` facet plus `created`, or add `created` to an existing task; both use the operation's local
 RFC 3339 timestamp.
 Construct completion is prefix-sensitive. A bare backtick offers no candidates.
-At line start, a backtick followed by a nonempty prefix of `task` offers Task,
-while a prefix of `event` offers Event. It creates the Task `created` field from
-the current local RFC 3339 timestamp. The Task replacement uses canonical
+At line start, a backtick followed by a hyphen offers Task, Event, Link, and
+Autolink. Letter prefixes such as `t`/`task` and `e`/`event` offer no construct
+candidates. Selecting Task creates its `created` field from the current local
+RFC 3339 timestamp. The Task replacement uses canonical
 owner-column-plus-one child indentation. The LSP projects absolute indentation for
 `asIs` clients and owner-relative indentation for `adjustIndentation` clients,
-so applying either form produces the same source. At line start, a backtick
-followed by a hyphen offers Task, Event, Link, and Autolink. In ordinary inline
+so applying either form produces the same source. In ordinary inline
 content the hyphen offers only Link and Autolink; an arrow offers Link and
 Autolink in either context;
 continuing with `->[` narrows to Link, while `->"` narrows to Autolink. A

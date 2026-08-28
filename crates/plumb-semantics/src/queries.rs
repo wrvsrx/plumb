@@ -71,8 +71,6 @@ pub struct CitationCompletionContext {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConstructCompletionContext {
     Citation { replace: Range<usize> },
-    Task { replace: Range<usize> },
-    Event { replace: Range<usize> },
     TaskEventLinkAndAutolink { replace: Range<usize> },
     LinkAndAutolink { replace: Range<usize> },
     Autolink { replace: Range<usize> },
@@ -505,10 +503,6 @@ pub fn construct_completion_context(
     }
     if "cite".starts_with(marker_prefix) {
         Some(ConstructCompletionContext::Citation { replace })
-    } else if block_position && "task".starts_with(marker_prefix) {
-        Some(ConstructCompletionContext::Task { replace })
-    } else if block_position && "event".starts_with(marker_prefix) {
-        Some(ConstructCompletionContext::Event { replace })
     } else {
         match marker_prefix {
             "-" if block_position => {
@@ -1097,30 +1091,12 @@ mod tests {
         let inline = parse("Text `");
         assert_eq!(construct_completion_context(&inline, 6), None);
 
-        for source in ["`t", "`ta", "`tas", "`task"] {
-            let parsed = parse(source);
-            assert_eq!(
-                construct_completion_context(&parsed, source.len()),
-                Some(ConstructCompletionContext::Task {
-                    replace: 0..source.len()
-                })
-            );
-        }
-        for prefix in ["`t", "`e"] {
+        for prefix in ["`t", "`ta", "`task", "`e", "`ev", "`event"] {
             let source = format!(
                 "`- something\n `+ task\n `= created|2026-08-09T10:55:24+08:00\n\n{prefix}"
             );
             let parsed = parse(&source);
-            let replace = source.len() - prefix.len()..source.len();
-            let expected = if prefix == "`t" {
-                ConstructCompletionContext::Task { replace }
-            } else {
-                ConstructCompletionContext::Event { replace }
-            };
-            assert_eq!(
-                construct_completion_context(&parsed, source.len()),
-                Some(expected)
-            );
+            assert_eq!(construct_completion_context(&parsed, source.len()), None);
         }
         for source in ["`span[x|=[key|value]]`-", "`\"raw\"`-"] {
             let parsed = parse(source);
@@ -1136,19 +1112,8 @@ mod tests {
         let parsed = parse(after_verbatim);
         assert_eq!(
             construct_completion_context(&parsed, after_verbatim.len()),
-            Some(ConstructCompletionContext::Task {
-                replace: after_verbatim.len() - 2..after_verbatim.len()
-            })
+            None
         );
-        for source in ["  `e", "  `ev", "  `eve", "  `even", "  `event"] {
-            let parsed = parse(source);
-            assert_eq!(
-                construct_completion_context(&parsed, source.len()),
-                Some(ConstructCompletionContext::Event {
-                    replace: 2..source.len()
-                })
-            );
-        }
 
         for source in ["`-", "  `-"] {
             let parsed = parse(source);
