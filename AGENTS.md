@@ -270,6 +270,27 @@ Use the same explicit port in browser automation and health checks so restarting
 the demo never requires rewriting test scripts and cannot collide with the user's
 own `plumb site serve` instance.
 
+## Cargo build artifacts
+
+The workspace dev profile uses limited debug information (`debug = 1`). This keeps line numbers,
+function symbols, breakpoints, and useful backtraces while reducing the disk cost of repeated
+all-target builds. For a debugging session that needs complete local-variable and type information,
+override it for that invocation with `CARGO_PROFILE_DEV_DEBUG=2`; do not make full debug information
+the persistent workspace default.
+
+Keep Cargo incremental compilation enabled for the normal edit/build/test loop. Build artifacts are
+derived local state and must remain ignored, but normal build, test, and release commands must never
+delete them automatically. When disk pressure justifies paying for a clean dev rebuild, a contributor
+may explicitly run `cargo clean --profile dev` after checking the target path and current size. This
+removes dev artifacts, including accumulated incremental variants, while leaving release artifacts;
+the next workspace all-target build will be a clean build. `cargo-sweep` is not a required project
+tool and should not be assumed to be installed.
+
+The 2026-08-29 baseline behind this policy was a 245 GiB long-lived root `target/`: 129 GiB incremental,
+112 GiB debug dependencies, and 4.1 GiB release output. In isolated clean all-target builds, full debug
+information used 3.8 GiB and 53.36 seconds, while `debug = 1` used 2.8 GiB and 49.78 seconds. Treat these
+numbers as one-machine measurements, not repository guarantees.
+
 ## Commit workflow
 
 Start from `main` and create a short-lived topic branch (`feat/…`, `fix/…`)
