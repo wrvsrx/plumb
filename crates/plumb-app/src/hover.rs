@@ -1,7 +1,10 @@
 use std::path::Path;
 
 use chrono::Local;
-use plumb_semantics::{AnchorKind, EventRecord, FileRecord, ImageRecord, LinkRecord, TaskRecord};
+use plumb_semantics::{
+    semantic_plain_text, AnchorKind, EventRecord, FileRecord, ImageRecord, LinkRecord,
+    MetadataBlock, MetadataEntry, MetadataValue, TaskRecord,
+};
 use plumb_workspace::{ResolvedTarget, Workspace, WorkspaceQueryError};
 
 pub(crate) fn target(workspace: &Workspace, target: &ResolvedTarget) -> String {
@@ -201,6 +204,79 @@ pub(crate) fn event(event: &EventRecord) -> String {
         ));
     }
     lines.join("  \n")
+}
+
+pub(crate) fn metadata(path: &Path, metadata: &MetadataBlock) -> String {
+    let mut lines = vec![format!(
+        "**Document:** `{}`",
+        escape_markdown_code(&path.display().to_string())
+    )];
+    if metadata.entries.is_empty() {
+        lines.push("**Metadata:** none".to_string());
+        return lines.join("\n\n");
+    }
+    lines.push("**Metadata**".to_string());
+    for entry in &metadata.entries {
+        append_metadata_entry(&mut lines, entry, 0);
+    }
+    lines.join("\n\n")
+}
+
+fn append_metadata_entry(lines: &mut Vec<String>, entry: &MetadataEntry, depth: usize) {
+    let prefix = "  ".repeat(depth);
+    let key = escape_markdown_code(&entry.key);
+    match &entry.value {
+        MetadataValue::Null { .. } => lines.push(format!("{prefix}- `{key}`: null")),
+        MetadataValue::Scalar { content, .. } => lines.push(format!(
+            "{prefix}- `{key}`: {}",
+            semantic_plain_text(content)
+        )),
+        MetadataValue::Verbatim { text, .. } => lines.push(format!(
+            "{prefix}- `{key}`: `{}`",
+            escape_markdown_code(text)
+        )),
+        MetadataValue::Unsupported { .. } => {
+            lines.push(format!("{prefix}- `{key}`: unsupported"));
+        }
+        MetadataValue::List { items, .. } => {
+            lines.push(format!("{prefix}- `{key}`:"));
+            for item in items {
+                append_metadata_value(lines, &item.value, depth + 1);
+            }
+        }
+        MetadataValue::Map { entries, .. } => {
+            lines.push(format!("{prefix}- `{key}`:"));
+            for entry in entries {
+                append_metadata_entry(lines, entry, depth + 1);
+            }
+        }
+    }
+}
+
+fn append_metadata_value(lines: &mut Vec<String>, value: &MetadataValue, depth: usize) {
+    let prefix = "  ".repeat(depth);
+    match value {
+        MetadataValue::Null { .. } => lines.push(format!("{prefix}- null")),
+        MetadataValue::Scalar { content, .. } => {
+            lines.push(format!("{prefix}- {}", semantic_plain_text(content)));
+        }
+        MetadataValue::Verbatim { text, .. } => {
+            lines.push(format!("{prefix}- `{}`", escape_markdown_code(text)))
+        }
+        MetadataValue::Unsupported { .. } => lines.push(format!("{prefix}- unsupported")),
+        MetadataValue::List { items, .. } => {
+            lines.push(format!("{prefix}- list:"));
+            for item in items {
+                append_metadata_value(lines, &item.value, depth + 1);
+            }
+        }
+        MetadataValue::Map { entries, .. } => {
+            lines.push(format!("{prefix}- map:"));
+            for entry in entries {
+                append_metadata_entry(lines, entry, depth + 1);
+            }
+        }
+    }
 }
 
 pub(crate) fn fenced_plumb(source: &str) -> String {

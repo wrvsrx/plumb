@@ -14,7 +14,7 @@ use plumb_semantics::{
     analyze_document, parse_task_reference_target, AnchorRecord, DocumentOutput, EventRecord,
     EventTitleCompletionContext, FileCompletionContext, FileRecord, FileTarget,
     ImageCompletionContext, ImageRecord, ImageTarget, LinkCompletionContext, LinkRecord,
-    LinkSpelling, LinkTarget, MetadataOutput, MetadataValue, TaskDependency,
+    LinkSpelling, LinkTarget, MetadataBlock, MetadataOutput, MetadataValue, TaskDependency,
     TaskDependencyCompletionContext, TaskRecord, TaskReferenceTarget, TaskState,
 };
 use plumb_syntax::{
@@ -363,6 +363,11 @@ pub struct DocumentEntry {
     pub parsed: Arc<ParsedDocument>,
     pub current: Option<Arc<VersionedDocumentOutput>>,
     pub last_valid: Option<Arc<VersionedDocumentOutput>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DocumentMetadataTarget {
+    pub range: std::ops::Range<usize>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -891,6 +896,34 @@ impl Workspace {
             .iter()
             .filter(|link| link.range.start <= offset && offset <= link.range.end)
             .max_by_key(|link| link.range.start)
+    }
+
+    pub fn document_metadata(&self, path: impl AsRef<Path>) -> Option<&MetadataBlock> {
+        self.current_output(path.as_ref())?
+            .metadata
+            .metadata
+            .as_ref()
+    }
+
+    pub fn document_metadata_target_at(
+        &self,
+        path: impl AsRef<Path>,
+        offset: usize,
+    ) -> Option<DocumentMetadataTarget> {
+        let entry = self.get(path)?;
+        entry.current.as_ref()?;
+        if let Some(range) = entry.parsed.syntax.blocks.iter().find_map(|block| {
+            let Block::Parsed(block) = block else {
+                return None;
+            };
+            let is_metadata = block.mark.as_ref().is_some_and(|mark| mark.marker == "=");
+            (is_metadata && block.range.start <= offset && offset < block.range.end)
+                .then(|| block.range.clone())
+        }) {
+            return Some(DocumentMetadataTarget { range });
+        }
+        (offset == 0 && self.document_metadata(&entry.path).is_some())
+            .then_some(DocumentMetadataTarget { range: 0..0 })
     }
 
     pub fn resolve_image(&self, from: impl AsRef<Path>, image: &ImageRecord) -> ResolvedTarget {
@@ -5720,6 +5753,47 @@ mod tests {
             .unwrap()
             .value
             .is_none());
+    }
+
+    #[test]
+    fn document_metadata_targets_only_top_level_entry_subtrees_and_offset_zero() {
+        let source = "`= title|Document\n\n`note Body\n `= nested|ordinary property\n\n`= tags\n `+ plumb\n `+ notes\n";
+        let mut workspace = Workspace::new();
+        workspace.insert("metadata.plumb", 1, source);
+        let entry = workspace.get("metadata.plumb").unwrap();
+        let first = entry.parsed.syntax.blocks[0].range().clone();
+        let second = entry.parsed.syntax.blocks[2].range().clone();
+
+        assert_eq!(
+            workspace
+                .document_metadata_target_at("metadata.plumb", 0)
+                .unwrap()
+                .range,
+            first
+        );
+        assert_eq!(
+            workspace
+                .document_metadata_target_at("metadata.plumb", source.find("plumb").unwrap())
+                .unwrap()
+                .range,
+            second
+        );
+        assert!(workspace
+            .document_metadata_target_at("metadata.plumb", source.find("Body").unwrap())
+            .is_none());
+        assert!(workspace
+            .document_metadata_target_at("metadata.plumb", source.find("nested").unwrap())
+            .is_none());
+
+        let body_first = "Body first.\n\n`= title|Later\n";
+        workspace.insert("body-first.plumb", 2, body_first);
+        assert_eq!(
+            workspace
+                .document_metadata_target_at("body-first.plumb", 0)
+                .unwrap()
+                .range,
+            0..0
+        );
     }
 
     #[test]

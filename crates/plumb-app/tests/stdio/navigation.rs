@@ -8,7 +8,7 @@ fn resolves_csl_json_citation_hover_and_definition() {
     std::fs::create_dir_all(root.join("static")).unwrap();
     let source_path = root.join("note.plumb");
     let bibliography_path = root.join("static/library.json");
-    let source = "`= bibliography|static/library.json\n\nSee `cite[smith2004].\n";
+    let source = "`= bibliography|static/library.json\n`= source|`cite[smith2004]\n";
     let bibliography = r#"[{"id":"smith2004","title":"Example Book","author":[{"family":"Smith"}],"issued":{"date-parts":[[2004]]}}]"#;
     std::fs::write(&source_path, source).unwrap();
     std::fs::write(&bibliography_path, bibliography).unwrap();
@@ -28,11 +28,11 @@ fn resolves_csl_json_citation_hover_and_definition() {
         }),
         json!({
             "jsonrpc": "2.0", "id": 2, "method": "textDocument/hover",
-            "params": { "textDocument": { "uri": source_uri }, "position": { "line": 2, "character": 13 } }
+            "params": { "textDocument": { "uri": source_uri }, "position": { "line": 1, "character": 20 } }
         }),
         json!({
             "jsonrpc": "2.0", "id": 3, "method": "textDocument/definition",
-            "params": { "textDocument": { "uri": source_uri }, "position": { "line": 2, "character": 13 } }
+            "params": { "textDocument": { "uri": source_uri }, "position": { "line": 1, "character": 20 } }
         }),
         json!({ "jsonrpc": "2.0", "id": 4, "method": "shutdown", "params": null }),
         json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
@@ -46,6 +46,66 @@ fn resolves_csl_json_citation_hover_and_definition() {
     assert_eq!(definition["result"]["uri"], bibliography_uri.as_str());
     assert_eq!(definition["result"]["range"]["start"]["line"], 0);
     std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn hovers_document_metadata_from_each_top_level_entry_subtree() {
+    let uri = "file:///tmp/document-metadata-hover.plumb";
+    let source = "`= title|Document\n\n`note Body\n `= nested|ordinary\n\n`= tags\n `+ plumb\n `+ notes\n\n`= related|`->[site|https://example.test]\n";
+    let requests = [
+        (2, 0, 10),
+        (3, 5, 4),
+        (4, 6, 5),
+        (5, 9, 5),
+        (6, 9, 25),
+        (7, 2, 7),
+        (8, 3, 5),
+    ];
+    let mut messages = vec![
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": { "processId": null, "rootUri": null, "capabilities": {} }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": {
+                "uri": uri, "languageId": "plumb", "version": 1, "text": source
+            }}
+        }),
+    ];
+    messages.extend(requests.map(|(id, line, character)| {
+        json!({
+            "jsonrpc": "2.0", "id": id, "method": "textDocument/hover",
+            "params": { "textDocument": { "uri": uri }, "position": {
+                "line": line, "character": character
+            }}
+        })
+    }));
+    messages.extend([
+        json!({ "jsonrpc": "2.0", "id": 9, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ]);
+
+    let output = run_server_after_initial_index(&messages);
+    for id in [2, 3, 4, 5] {
+        let hover = &response(&output, id)["result"];
+        let value = hover["contents"]["value"].as_str().unwrap();
+        assert!(value.contains("**Document:** `/tmp/document-metadata-hover.plumb`"));
+        assert!(value.contains("`title`: Document"), "{value}");
+        assert!(value.contains("`tags`:"), "{value}");
+        assert!(value.contains("- plumb"), "{value}");
+        assert!(value.contains("`related`: site"), "{value}");
+    }
+    assert_eq!(response(&output, 2)["result"]["range"]["start"]["line"], 0);
+    assert_eq!(response(&output, 4)["result"]["range"]["start"]["line"], 5);
+    assert_eq!(response(&output, 5)["result"]["range"]["start"]["line"], 9);
+    assert_eq!(
+        response(&output, 6)["result"]["contents"]["value"],
+        "**External link**\n\n`https://example.test`"
+    );
+    assert!(response(&output, 7)["result"].is_null());
+    assert!(response(&output, 8)["result"].is_null());
 }
 
 #[test]

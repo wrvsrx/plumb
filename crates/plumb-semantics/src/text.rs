@@ -1,6 +1,6 @@
 use plumb_syntax::{Inline, InlineArgumentRef, InlineContent, InlineMember};
 
-pub(crate) fn plain_text(content: &InlineContent) -> String {
+pub fn plain_text(content: &InlineContent) -> String {
     let mut output = String::new();
     append_content(content, &mut output);
     output

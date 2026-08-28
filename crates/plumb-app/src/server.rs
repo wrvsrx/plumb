@@ -50,7 +50,7 @@ use crate::folding::{collapsed_text_labels as fold_labels, ranges as folding_ran
 use crate::hover::fenced_plumb;
 use crate::hover::{
     event as event_hover, file as file_hover, image as image_hover, link as link_hover,
-    target as target_hover, task as task_hover,
+    metadata as metadata_hover, target as target_hover, task as task_hover,
 };
 use crate::position::{byte_range_to_lsp, position_to_offset};
 use crate::search::{SearchItem, SearchKind, SearchParams, SearchProvenance, SearchResult};
@@ -1509,6 +1509,21 @@ impl LanguageServer for ServerState {
                         &entry.parsed.source,
                         &event.selection_range,
                     )),
+                }));
+            }
+            if let Some(target) = self.workspace.document_metadata_target_at(&path, offset) {
+                let Some(metadata) = self.workspace.document_metadata(&path) else {
+                    return Ok(None);
+                };
+                let Some(entry) = self.workspace.get(&path) else {
+                    return Ok(None);
+                };
+                return Ok(Some(Hover {
+                    contents: HoverContents::Markup(MarkupContent {
+                        kind: MarkupKind::Markdown,
+                        value: metadata_hover(&path, metadata),
+                    }),
+                    range: Some(byte_range_to_lsp(&entry.parsed.source, &target.range)),
                 }));
             }
             let Some(target) = self
