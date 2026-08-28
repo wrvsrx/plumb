@@ -42,7 +42,7 @@ empty arguments。普通 ASCII space 始终产生 `"Inline::Space"，不会建�
 `plumb
 
 |"
-  `event 14:00--15:30|Parser review
+  `row 14:00--15:30|Parser review
   `row Language server|Waiting||Optional note
   ordinary first argument|second argument
 
@@ -183,7 +183,7 @@ document 与 marked block 都用同一个 source-ordered direct children sequenc
    `= level|2
    `note ordinary child
 
-  `task A long head that
+  `node A long head that
    wraps across lines
 
    `= created|2026-08-07T09:00:00+08:00

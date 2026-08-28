@@ -96,6 +96,9 @@ it. Inside the plumb source repository, prefer
 - Migrate the former space-delimited block association, compact definition,
   and Event heads with `plumb migrate --from head-space-v1`. The converter is
   minimal and idempotent; do not emulate it with global whitespace replacement.
+- Migrate legacy specialized `task`/`event` markers with
+  `plumb migrate --from task-event-markers-v1`; it creates bullet items with a
+  first matching facet and leaves current facet-form source unchanged.
 - Parsed inline elements may cross valid paragraph/head continuation lines;
   inline verbatim payloads remain on one physical line.
 - Do not invent thematic-break, presentation-only italic, or nonstandard quote
@@ -113,10 +116,12 @@ it. Inside the plumb source repository, prefer
 
 `- List item
 `. Ordered item
-`task Implement parser
+`- Implement parser
+ `+ task
  `@ write-parser
  `= created|2026-07-20T09:00:00+08:00
-`event 14:00--15:00|Parser review
+`- 14:00--15:00|Parser review
+ `+ event
  `@ review
  `= date|2026-07-30
  `= timezone|+08:00
@@ -152,16 +157,17 @@ Use `"cargo test" for inline raw text.
  fn main() {}
 ```
 
-Use `-` for bullet-list items, `.` for ordered-list items, `task` and `event`
-for their specialized bullet-list items, and `->` as the sole
+Use `-` for bullet-list items, `.` for ordered-list items, and direct leaf
+`+ task` or `+ event` facets to give either list-item kind task or event semantics.
+Use `->` as the sole
 link parsed kind; put its label and target in the first two arguments. Use the `->`
 verbatim kind for an absolute URI or raw relative path
 whose payload is both label and target; relative `.plumb` targets resolve as
 documents and other relative targets resolve as files. Use
 `img[alt|=[src|target]]` for images and `file[label|=[src|target]]` for attachments.
 `item`, `link`, `**`, `em`, and `strong` remain syntactically valid generic names but
-have no list or link semantics. `task` and `event` are mutually exclusive
-specialized list-item markers; they are not facets on `-` or `.` items.
+have no list or link semantics. `task` and `event` marker spellings are generic.
+A list item carrying both facets is a conflict and produces neither record.
 `table` owns direct `-` rows. A nonempty row head uses ordered arguments as
 compact cells; an empty row head uses direct `-` children as expanded cells.
 Use direct `+ header` on leading header rows or on expanded row-header cells.

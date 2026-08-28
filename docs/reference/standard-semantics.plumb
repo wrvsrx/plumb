@@ -89,8 +89,9 @@ schedule/title boundary；already-migrated heads 与不满足旧 recognizer 的 
 
 旧 specialized-marker epoch 使用 `"task"/`"event" markers 表达 records。使用
 `"plumb migrate --from task-event-markers-v1" 将每个这样的 owner 改为 bullet `"-" item，并把对应
-`"+ task"/`"+ event" 作为第一个 direct declaration 插入；原 head、后续 declarations、body children、
-raw tail、indentation 与 line ending 保持不变。迁移 current facet form 时 source 保持 byte-identical。
+`"+ task"/`"+ event" 作为第一个 direct declaration 插入；原 head、后续 declarations、body children 与
+raw tail 的内容及 ownership 保持不变，owner base indentation 与 document line ending 保留，subtree layout
+按 canonical formatter 规范化。迁移 current facet form 时 source 保持 byte-identical。
 
 `## 5.2 Inline member projection
 
@@ -581,7 +582,8 @@ reference 的 id 结束后的 whitespace 才分隔下一条 reference；path 内
 `text
 
 |"
-  `task Review
+  `- Review
+   `+ task
    `= depends|#local Project A.plumb#build Project B.plumb#test
 
 document-local closure state：

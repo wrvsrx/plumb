@@ -95,6 +95,12 @@ block associations, compact definitions, and Events used a recognized space as
 their positional boundary. It minimally replaces only those typed boundaries
 with `|` and leaves already-migrated heads unchanged.
 
+Use `plumb migrate --from task-event-markers-v1` for the former specialized-marker
+epoch. It changes each `task` or `event` owner to a bullet item, inserts the
+matching direct leaf facet first, and canonicalizes that owner subtree while
+preserving its content, ownership, base indentation, and document line ending.
+Current facet-form source remains unchanged.
+
 The metadata insertion action creates `title` from the filename stem and
 `created` from the current local RFC 3339 timestamp.
 
@@ -259,10 +265,11 @@ presentations of emphasis and strong, not separate standard spellings.
 
 ## Tasks
 
-A task uses the specialized `task` marker and has bullet-list-item structure:
+A bullet or ordered list item becomes a task through a direct leaf `+ task` facet:
 
 ```plumb
-`task Implement parser
+`- Implement parser
+ `+ task
  `@ write-parser
  `= created|2026-07-20T09:00:00+08:00
  `= due|2026-07-21T09:00:00+08:00
@@ -274,8 +281,8 @@ The block head is the title and child blocks are details. Nested task blocks
 form the display tree, but only `depends` creates a dependency edge. Add an
 explicit id when another task must reference it.
 
-The LSP can convert an ordinary list item to the `task` marker while adding
-`created`, or add `created` to an existing task; both use the operation's local
+The LSP can convert an ordinary list item by preserving its marker and adding the
+first `+ task` facet plus `created`, or add `created` to an existing task; both use the operation's local
 RFC 3339 timestamp.
 Construct completion is prefix-sensitive. A bare backtick offers no candidates.
 At line start, a backtick followed by a nonempty prefix of `task` offers Task,
@@ -311,7 +318,8 @@ characters are literal. Control characters, backslashes, absolute paths, and
 path from its explicit id:
 
 ```plumb
-`task Review
+`- Review
+ `+ task
  `= depends|#local Project A.plumb#build Project B.plumb#test
 ```
 
@@ -375,15 +383,16 @@ provides spacing context without entering the edit or losing indentation.
 Export prefixes the first task paragraph with a visible closure marker: `☐` for
 open, `☒` for done, `⊘` for canceled, and `⚠` for conflicted. `☐` and `☒`
 follow Pandoc's task-list convention so supporting writers produce checkboxes.
-The task id, marker identity, and fields remain on a Span around the title; child
+The task id, list-marker identity, and fields remain on a Span around the title; child
 blocks remain subsequent blocks in the same list item.
 
 ## Events
 
-An event uses the specialized `event` marker and has bullet-list-item structure:
+A bullet or ordered list item becomes an event through a direct leaf `+ event` facet:
 
 ```plumb
-`event 14:00--15:00|Parser review
+`- 14:00--15:00|Parser review
+ `+ event
  `@ review
  `= date|2026-07-30
  `= timezone|+08:00
@@ -433,8 +442,10 @@ interval schedule. Batch inference requires both siblings in the selection; a
 single-item conversion may inspect its unselected next sibling. An intervening
 block breaks the chain, and a final trailing-`--` item remains unconverted until
 it has a following shorthand or an explicit end.
-`event` and `task` are mutually exclusive specialized list-item markers and
-cannot be combined.
+`event` and `task` facets are mutually exclusive. An item carrying both emits
+`facet.task-event-conflict` and produces neither record. The formatter preserves
+source order; authoring operations place the semantic facet first. Table rows and
+cells consumed by table recognition do not become task or event records.
 The initial profile has no all-day, floating-time, recurrence, reminder,
 attendee, alarm, external-iCalendar import, or CalDAV semantics.
 
