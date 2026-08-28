@@ -51,8 +51,8 @@ pub fn body_children(
 
 pub use citations::{analyze_citations, CitationOutput, CitationRecord};
 pub use document::{
-    analyze_document, AnchorKind, AnchorRecord, DocumentOutput, FileRecord, FileTarget,
-    ImageRecord, ImageTarget, LinkRecord, LinkSpelling, LinkTarget, SourceBacked,
+    analyze_document, AnchorKind, AnchorRecord, DocumentOutput, EventLinkRange, FileRecord,
+    FileTarget, ImageRecord, ImageTarget, LinkRecord, LinkSpelling, LinkTarget, SourceBacked,
 };
 pub use events::{analyze_events, EventField, EventOutput, EventRecord};
 pub use headings::{analyze_headings, analyze_recovered_headings, Heading, HeadingOutput};

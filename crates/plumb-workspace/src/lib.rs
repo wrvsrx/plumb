@@ -1834,16 +1834,10 @@ impl Workspace {
         if event.tasks_override {
             return Ok(event.tasks.clone());
         }
-        let first = current
-            .links
-            .partition_point(|link| link.range.start < event.range.start);
         let mut references = Vec::new();
-        for link in current.links[first..]
-            .iter()
-            .take_while(|link| link.range.start <= event.range.end)
-            .filter(|link| {
-                event.range.start <= link.range.start && link.range.end <= event.range.end
-            })
+        for link in current
+            .links_contained_by_event(event.range.start)
+            .unwrap_or_default()
         {
             let LinkTarget::Anchor {
                 path: target_path,
@@ -7590,7 +7584,7 @@ mod tests {
     }
 
     #[test]
-    fn event_task_associations_binary_search_source_ordered_links() {
+    fn event_task_associations_use_overlapping_containment_index_ranges() {
         let mut workspace = Workspace::new();
         workspace.insert("tasks.plumb", 1, "`task Write\n  `@ write\n");
         workspace.insert(
@@ -7602,6 +7596,9 @@ mod tests {
         let output = workspace.current_output(Path::new("events.plumb")).unwrap();
         let outer = &output.events.events[0];
         let nested = &output.events.events[1];
+        assert_eq!(output.event_link_ranges.len(), 2);
+        assert_eq!(output.event_link_ranges[0].links, 1..3);
+        assert_eq!(output.event_link_ranges[1].links, 2..3);
 
         assert_eq!(
             workspace
@@ -7614,6 +7611,23 @@ mod tests {
         assert_eq!(
             workspace
                 .event_task_references("events.plumb", nested)
+                .unwrap()
+                .value
+                .len(),
+            1
+        );
+
+        workspace.insert(
+            "events.plumb",
+            3,
+            "`= date|2026-08-11\n`= timezone|+08:00\n\n`event 12:00|Replacement\n\n `->[Only|tasks.plumb#write]\n",
+        );
+        let replacement = workspace.current_output(Path::new("events.plumb")).unwrap();
+        assert_eq!(replacement.event_link_ranges.len(), 1);
+        assert_eq!(replacement.event_link_ranges[0].links, 0..1);
+        assert_eq!(
+            workspace
+                .event_task_references("events.plumb", &replacement.events.events[0])
                 .unwrap()
                 .value
                 .len(),

@@ -5,6 +5,8 @@ use std::time::Duration;
 
 use chrono::DateTime;
 use criterion::{criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion};
+use plumb_semantics::analyze_document;
+use plumb_syntax::parse;
 use plumb_workspace::{
     SqliteSemanticStore, TaskPageQuery, TaskQueryFilter, TaskQueryFilterGroup, TaskRef,
     TaskSortOrder, Workspace,
@@ -309,6 +311,62 @@ fn benchmark_task_queries(c: &mut Criterion) {
     group.finish();
 }
 
+fn event_containment_source(events: usize) -> String {
+    let mut source = String::with_capacity(events * 180);
+    for index in 0..events {
+        source.push_str(&format!(
+            "`event 2026-08-28T10:00:00Z|Outer {index} `->[outer|target.plumb#task]\n `event 2026-08-28T11:00:00Z|Nested {index} `->[nested|target.plumb#task]\n"
+        ));
+    }
+    source
+}
+
+fn benchmark_event_containment(c: &mut Criterion) {
+    let source = event_containment_source(2_000);
+    let parsed = parse(&source);
+    let output = analyze_document(parsed.valid_syntax().unwrap());
+    let event = &output.events.events[1_000];
+    let legacy = || {
+        let first = output
+            .links
+            .partition_point(|link| link.range.start < event.range.start);
+        output.links[first..]
+            .iter()
+            .take_while(|link| link.range.start < event.range.end)
+            .count()
+    };
+
+    let mut group = c.benchmark_group("event_containment_4000");
+    group.bench_function("analysis_build", |b| {
+        b.iter(|| {
+            let parsed = parse(black_box(&source));
+            black_box(analyze_document(parsed.valid_syntax().unwrap()))
+        })
+    });
+    group.bench_function("legacy_binary_range_query", |b| {
+        b.iter(|| black_box(legacy()))
+    });
+    group.bench_function("indexed_range_query", |b| {
+        b.iter(|| {
+            black_box(
+                output
+                    .links_contained_by_event(black_box(event.range.start))
+                    .unwrap()
+                    .len(),
+            )
+        })
+    });
+    group.bench_function("index_memory_bytes", |b| {
+        b.iter(|| {
+            black_box(
+                output.event_link_ranges.capacity()
+                    * std::mem::size_of::<plumb_semantics::EventLinkRange>(),
+            )
+        })
+    });
+    group.finish();
+}
+
 fn configuration() -> Criterion {
     Criterion::default()
         .measurement_time(Duration::from_secs(5))
@@ -319,6 +377,6 @@ criterion_group! {
     name = benches;
     config = configuration();
     targets = benchmark_build, benchmark_warm_start, benchmark_queries, benchmark_replacement,
-        benchmark_task_queries
+        benchmark_task_queries, benchmark_event_containment
 }
 criterion_main!(benches);

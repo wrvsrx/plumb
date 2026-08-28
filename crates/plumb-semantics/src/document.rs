@@ -113,6 +113,12 @@ pub struct FileRecord {
     pub target_kind: FileTarget,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EventLinkRange {
+    pub event_start: usize,
+    pub links: Range<usize>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct DocumentOutput {
     pub headings: HeadingOutput,
@@ -127,6 +133,7 @@ pub struct DocumentOutput {
     pub tables: TableOutput,
     pub anchors: Vec<AnchorRecord>,
     pub links: Vec<LinkRecord>,
+    pub event_link_ranges: Vec<EventLinkRange>,
     pub images: Vec<ImageRecord>,
     pub files: Vec<FileRecord>,
     pub diagnostics: Vec<Diagnostic>,
@@ -143,6 +150,14 @@ impl DocumentOutput {
 
     pub fn file_at_node_start(&self, start: usize) -> Option<&FileRecord> {
         self.files.iter().find(|file| file.range.start == start)
+    }
+
+    pub fn links_contained_by_event(&self, event_start: usize) -> Option<&[LinkRecord]> {
+        let index = self
+            .event_link_ranges
+            .binary_search_by_key(&event_start, |range| range.event_start)
+            .ok()?;
+        Some(&self.links[self.event_link_ranges[index].links.clone()])
     }
 }
 
@@ -177,10 +192,37 @@ pub fn analyze_document(valid: ValidDocument<'_>) -> DocumentOutput {
         .extend(association_arity_diagnostics(document));
     let mut first_ids: HashMap<String, Range<usize>> = HashMap::new();
     collect_blocks(source, &document.blocks, &mut first_ids, &mut output);
+    output.event_link_ranges = build_event_link_ranges(&output.events.events, &output.links);
     output
         .diagnostics
         .extend(output.tables.diagnostics.iter().cloned());
     output
+}
+
+fn build_event_link_ranges(
+    events: &[crate::EventRecord],
+    links: &[LinkRecord],
+) -> Vec<EventLinkRange> {
+    debug_assert!(events
+        .windows(2)
+        .all(|events| events[0].range.start <= events[1].range.start));
+    debug_assert!(links
+        .windows(2)
+        .all(|links| links[0].range.start <= links[1].range.start));
+    events
+        .iter()
+        .map(|event| {
+            let start = links.partition_point(|link| link.range.start < event.range.start);
+            let end = links.partition_point(|link| link.range.start < event.range.end);
+            debug_assert!(links[start..end]
+                .iter()
+                .all(|link| link.range.end <= event.range.end));
+            EventLinkRange {
+                event_start: event.range.start,
+                links: start..end,
+            }
+        })
+        .collect()
 }
 
 fn association_arity_diagnostics(document: &Document) -> Vec<Diagnostic> {
@@ -1065,6 +1107,43 @@ mod tests {
             "`*[external]"
         );
         assert_eq!(output.links[2].target_kind, LinkTarget::External);
+    }
+
+    #[test]
+    fn indexes_overlapping_event_containment_without_copying_links() {
+        let parsed = parse(
+            "`->[Before|before.plumb]\n\n`event 10:00|Outer `->[Outer|outer.plumb]\n `event 11:00|Nested `->[Nested|nested.plumb]\n\n`->[After|after.plumb]\n",
+        );
+        assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
+        let output = analyze_document(parsed.valid_syntax().unwrap());
+        assert_eq!(output.links.len(), 4);
+        assert_eq!(output.event_link_ranges.len(), 2);
+
+        let outer = &output.events.events[0];
+        let nested = &output.events.events[1];
+        assert_eq!(
+            output
+                .links_contained_by_event(outer.range.start)
+                .unwrap()
+                .iter()
+                .map(|link| link.target.value.as_str())
+                .collect::<Vec<_>>(),
+            ["outer.plumb", "nested.plumb"]
+        );
+        assert_eq!(
+            output
+                .links_contained_by_event(nested.range.start)
+                .unwrap()
+                .iter()
+                .map(|link| link.target.value.as_str())
+                .collect::<Vec<_>>(),
+            ["nested.plumb"]
+        );
+        assert!(output.links_contained_by_event(usize::MAX).is_none());
+        assert_eq!(
+            std::mem::size_of::<EventLinkRange>(),
+            3 * std::mem::size_of::<usize>()
+        );
     }
 
     #[test]

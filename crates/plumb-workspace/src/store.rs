@@ -1179,13 +1179,10 @@ fn projected_event_task_associations(
             .collect();
     }
 
-    let first = output
-        .links
-        .partition_point(|link| link.range.start < event.range.start);
-    output.links[first..]
+    output
+        .links_contained_by_event(event.range.start)
+        .unwrap_or_default()
         .iter()
-        .take_while(|link| link.range.start <= event.range.end)
-        .filter(|link| event.range.start <= link.range.start && link.range.end <= event.range.end)
         .filter_map(|link| {
             let reference = link_reference(source_path, link)?;
             Some(StoredEventTaskAssociation {
