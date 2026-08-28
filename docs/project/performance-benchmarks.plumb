@@ -215,6 +215,36 @@ mutation hot path 不得重新 scan 或分析未变化 documents，也不得在�
 真实 notebook smoke benchmark 记录 response size、time to first byte 与 total time；性能验收以优化前同一
 commit build 的 paired measurement 为基线，不把依赖 host 的绝对 wall-clock 数字写成跨机器 SLA。
 
+`# 10. Batch workspace indexing on 2026-08-29
+
+commit `"3f849b0" 后的 `"workspace_batch_index_1408" Criterion workload 使用当前 list facet syntax 生成
+176 documents、1,408 tasks，每个 document 同时包含 dependency chain 与 event-task association。host 为
+Intel Core i9-9980XE、Linux 6.18.45、rustc 1.97.1；release profile warmup 1 s、measurement 5 s、
+10 samples。serial baseline 重现此前 adapter 的 read/insert loop；batch path 使用一次 typed identity query、
+bounded read/analysis workers 和 serialized multi-generation transaction。下列数值取 reported interval midpoint：
+
+`- memory cold 从 18.452 ms 降至 10.856 ms，约快 1.70x，latency 降低约 41.2%。
+`- SQLite cold 从 371.19 ms 降至 117.96 ms，约快 3.15x，latency 降低约 68.2%。
+`- SQLite warm 从 2.5377 ms 降至 2.1644 ms，约快 1.17x，latency 降低约 14.7%；batch path 的一次
+ identity query 取代逐 document SQLite lookup，全部 hit 时不打开 publication transaction。
+
+真实 `"~/Syncthing/Apps/zettelkasten" workspace paired profile 使用同一 release binary、223 scanned files，
+四种 mode 交错执行，各 10 samples，profiler 只输出 counts、timings 与 process memory，不输出 source：
+
+`- memory serial/batch index median 分别为 504.409 ms 与 507.717 ms，batch 慢约 0.7%；samples ranges
+ 分别为 497.791--529.554 ms 与 494.097--521.534 ms，该差异落在 observation noise 内，不能宣称提升。
+`- SQLite serial/batch cold median 分别为 1,793.988 ms 与 1,596.988 ms，batch 快约 11.0%。
+`- 单次 `"/proc/self/status" observation 中，memory serial/batch peak 分别为 329,684/329,704 KiB；SQLite
+ serial/batch peak 为 295,544/333,304 KiB，steady resident 为 238,988/276,360 KiB。batch transaction
+ 降低 commit latency 但提高 SQLite cold publication memory；该 tradeoff 必须保留在后续 chunking/streaming
+ 设计的 baseline 中，不能只报告 latency。
+
+worker policy 对 stored path set 已完全命中的 warm path 使用 sequential reads；cold misses 只有在 files 和
+miss payload 都不存在单一大 document 主导时才并行。真实 notebook 的大 document 因此不会与大量 small
+documents 竞争 allocator。普通 tests 固定 path ordering、partial cache hit、invalid document、read failure、
+complete-scan pruning、memory/SQLite behavior 与 cancel-before-publication atomicity；LSP stdio、Web lazy cache
+和 notes scanner tests 固定 adapter integration。
+
 旧 `"semantic_overlay" rusqlite prototype harness 已移除；历史 experiment 与 rollback 数据保留在前述章节，
 不再作为当前 backend 的可执行 plumbing。当前 `"semantic_store" harness 统一覆盖 Diesel CRUD/generation、
 relation lookup、task typed-fact page 与 open overlay。

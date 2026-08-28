@@ -66,4 +66,12 @@ fn main() {
     println!("cache_hits={cache_hits}");
     println!("scan_micros={}", scan.as_micros());
     println!("index_micros={}", index.as_micros());
+    if let Ok(status) = std::fs::read_to_string("/proc/self/status") {
+        if let Some(high_water) = status.lines().find(|line| line.starts_with("VmHWM:")) {
+            println!("{high_water}");
+        }
+        if let Some(resident) = status.lines().find(|line| line.starts_with("VmRSS:")) {
+            println!("{resident}");
+        }
+    }
 }
