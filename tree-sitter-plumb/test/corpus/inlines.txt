@@ -378,3 +378,30 @@ escaped `[ `] { } `| delims
       (text)
       (pipe_escape)
       (text))))
+==================
+Block and paragraph arguments
+==================
+
+`row Language server|Waiting||Optional note
+first|second value
+
+---
+
+(document
+  (blank_line)
+  (marked_block
+    (introducer)
+    (marker)
+    (head_separator)
+    (inline_content
+      (text)
+      (argument_separator)
+      (text)
+      (argument_separator)
+      (argument_separator)
+      (text)))
+  (paragraph
+    (inline_content
+      (text)
+      (argument_separator)
+      (text))))

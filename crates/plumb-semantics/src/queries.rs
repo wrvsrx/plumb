@@ -171,6 +171,9 @@ fn direct_block_attribute_context(
             return Some(context);
         }
 
+        if declaration.head.arguments.len() > 1 {
+            continue;
+        }
         let query = &source[declaration.head.range.start..offset];
         if query.chars().any(char::is_whitespace) {
             continue;
@@ -241,13 +244,16 @@ fn direct_block_value_context(
 ) -> Option<AttributeCompletionContext> {
     if owner_marker != "$"
         || declaration.mark.as_ref()?.marker != "="
-        || declaration.head.plain_text().split_whitespace().next()? != "language"
+        || declaration.head.argument_plain_text(0)?.as_str() != "language"
     {
         return None;
     }
-    let [Inline::Text { text: key, .. }, Inline::Space { .. }, Inline::Text { range, .. }] =
-        declaration.head.items.as_slice()
-    else {
+    let key = declaration.head.argument(0)?;
+    let value = declaration.head.argument(1)?;
+    let [Inline::Text { text: key, .. }] = key.items.as_slice() else {
+        return None;
+    };
+    let [Inline::Text { range, .. }] = value.items.as_slice() else {
         return None;
     };
     if key != "language" || offset < range.start || offset > range.end {
@@ -276,17 +282,17 @@ fn push_block_pair_completion(
         return;
     }
     let new_text = match key {
-        "created" => "`= created ",
-        "due" => "`= due ",
-        "wait" => "`= wait ",
-        "recur" => "`= recur ",
-        "prev" => "`= prev ",
-        "depends" => "`= depends ",
-        "priority" => "`= priority 0",
-        "date" => "`= date ",
-        "timezone" => "`= timezone ",
-        "tasks" => "`= tasks ",
-        "language" => "`= language ",
+        "created" => "`= created|",
+        "due" => "`= due|",
+        "wait" => "`= wait|",
+        "recur" => "`= recur|",
+        "prev" => "`= prev|",
+        "depends" => "`= depends|",
+        "priority" => "`= priority|0",
+        "date" => "`= date|",
+        "timezone" => "`= timezone|",
+        "tasks" => "`= tasks|",
+        "language" => "`= language|",
         _ => return,
     };
     candidates.push(AttributeCompletion {
@@ -344,10 +350,10 @@ fn attribute_context_in_inlines(
                             }
                         }
                         InlineMember::Child { inline, .. } => {
-                            let content = InlineContent {
-                                range: inline_range(inline).clone(),
-                                items: vec![inline.as_ref().clone()],
-                            };
+                            let content = InlineContent::from_items(
+                                inline_range(inline).clone(),
+                                vec![inline.as_ref().clone()],
+                            );
                             if let Some(context) =
                                 attribute_context_in_inlines(&content, source, offset)
                             {
@@ -530,11 +536,11 @@ fn event_title_context_in_blocks(
             .is_some_and(|mark| mark.marker == "event")
             && offset == block.head.range.end
         {
-            let [Inline::Text { .. }, Inline::Space { .. }, title @ ..] =
-                block.head.items.as_slice()
-            else {
+            if block.head.arguments.len() != 2 {
                 return None;
-            };
+            }
+            let title_content = block.head.argument(1)?;
+            let title = title_content.items.as_slice();
             if title
                 .iter()
                 .any(|inline| !matches!(inline, Inline::Text { .. } | Inline::Space { .. }))
@@ -929,10 +935,10 @@ fn inlines_find_autolink(
             }
             InlineMember::Child { inline, .. } => inlines_find_autolink(
                 source,
-                &InlineContent {
-                    range: inline_range(inline).clone(),
-                    items: vec![inline.as_ref().clone()],
-                },
+                &InlineContent::from_items(
+                    inline_range(inline).clone(),
+                    vec![inline.as_ref().clone()],
+                ),
                 offset,
             ),
             InlineMember::VerbatimArgument(_) => None,
@@ -1027,10 +1033,10 @@ fn inlines_attributes_contain(content: &InlineContent, offset: usize) -> bool {
                         inlines_attributes_contain(&argument.content, offset)
                     }
                     InlineMember::Child { inline, .. } => inlines_attributes_contain(
-                        &InlineContent {
-                            range: inline_range(inline).clone(),
-                            items: vec![inline.as_ref().clone()],
-                        },
+                        &InlineContent::from_items(
+                            inline_range(inline).clone(),
+                            vec![inline.as_ref().clone()],
+                        ),
                         offset,
                     ),
                     InlineMember::VerbatimArgument(_) => false,
@@ -1057,10 +1063,10 @@ fn inlines_contain_verbatim(content: &InlineContent, offset: usize) -> bool {
                 argument.text_range.start <= offset && offset <= argument.text_range.end
             }
             InlineMember::Child { inline, .. } => inlines_contain_verbatim(
-                &InlineContent {
-                    range: inline_range(inline).clone(),
-                    items: vec![inline.as_ref().clone()],
-                },
+                &InlineContent::from_items(
+                    inline_range(inline).clone(),
+                    vec![inline.as_ref().clone()],
+                ),
                 offset,
             ),
         }),
@@ -1094,7 +1100,7 @@ mod tests {
         }
         for prefix in ["`t", "`e"] {
             let source =
-                format!("`task something\n `= created 2026-08-09T10:55:24+08:00\n\n{prefix}");
+                format!("`task something\n `= created|2026-08-09T10:55:24+08:00\n\n{prefix}");
             let parsed = parse(&source);
             let replace = source.len() - prefix.len()..source.len();
             let expected = if prefix == "`t" {
@@ -1189,7 +1195,7 @@ mod tests {
             construct_completion_context(&verbatim, verbatim_offset),
             None
         );
-        let attribute = parse("`node Head\n `= key ``\n");
+        let attribute = parse("`node Head\n `= key|``\n");
         let attribute_offset = attribute.source.rfind("``").unwrap() + 1;
         assert_eq!(
             construct_completion_context(&attribute, attribute_offset),
@@ -1219,7 +1225,7 @@ mod tests {
 
     #[test]
     fn locates_plain_event_title_completion_at_head_end() {
-        let (source, cursor) = strip_cursor("`event 09:00 rela|");
+        let (source, cursor) = strip_cursor("`event 09:00|rela|");
         assert_eq!(
             event_title_completion_context(&parse(&source), cursor),
             Some(EventTitleCompletionContext {
@@ -1228,7 +1234,7 @@ mod tests {
             })
         );
 
-        let (empty, cursor) = strip_cursor("`event 09:00 |");
+        let (empty, cursor) = strip_cursor("`event 09:00||");
         assert_eq!(
             event_title_completion_context(&parse(&empty), cursor),
             Some(EventTitleCompletionContext {
@@ -1239,8 +1245,8 @@ mod tests {
 
         for marked in [
             "`event 09:00|",
-            "`event 09:00 `*[relax]|",
-            "`event 09:00 re|lax",
+            "`event 09:00|`*[relax]|",
+            "`event 09:00|re|lax",
             "`task 09:00 relax|",
         ] {
             let (source, cursor) = strip_cursor(marked);
@@ -1253,7 +1259,7 @@ mod tests {
 
     #[test]
     fn completes_standard_attributes_from_recovered_owner_context() {
-        let (task, cursor) = strip_cursor("`task Work\n `= created now\n `= pr|\n");
+        let (task, cursor) = strip_cursor("`task Work\n `= created|now\n `= pr|\n");
         let context = attribute_completion_context(&parse(&task), cursor).unwrap();
         assert_eq!(context.replace, task.find("`= pr").unwrap()..cursor);
         assert_eq!(
@@ -1264,7 +1270,7 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["prev", "priority"]
         );
-        assert_eq!(context.completions[1].new_text, "`= priority 0");
+        assert_eq!(context.completions[1].new_text, "`= priority|0");
     }
 
     #[test]
@@ -1278,14 +1284,14 @@ mod tests {
                 .iter()
                 .map(|item| (item.label, item.new_text))
                 .collect::<Vec<_>>(),
-            [("prev", "`= prev "), ("priority", "`= priority 0")]
+            [("prev", "`= prev|"), ("priority", "`= priority|0")]
         );
     }
 
     #[test]
     fn identifies_task_dependency_tokens_and_preserves_other_references() {
         let (source, cursor) = strip_cursor(
-            "`task Review\n `@ review\n `= depends #done Project Plan.plumb#dr|aft #later\n",
+            "`task Review\n `@ review\n `= depends|#done Project Plan.plumb#dr|aft #later\n",
         );
         let current_start = source.find("Project Plan.plumb#draft").unwrap();
         let context = task_dependency_completion_context(&parse(&source), cursor).unwrap();
@@ -1306,7 +1312,7 @@ mod tests {
             ]
         );
 
-        let (empty, cursor) = strip_cursor("`task Review\n `= depends #done |\n");
+        let (empty, cursor) = strip_cursor("`task Review\n `= depends|#done |\n");
         let context = task_dependency_completion_context(&parse(&empty), cursor).unwrap();
         assert_eq!(context.replace, cursor..cursor);
         assert_eq!(context.query, "");
@@ -1317,13 +1323,13 @@ mod tests {
             }]
         );
 
-        let (non_task, cursor) = strip_cursor("`- Plain item\n `= depends #dr|aft\n");
+        let (non_task, cursor) = strip_cursor("`- Plain item\n `= depends|#dr|aft\n");
         assert_eq!(
             task_dependency_completion_context(&parse(&non_task), cursor),
             None
         );
 
-        let (recovered, cursor) = strip_cursor("`task Review\n `= depends #dr|aft\n");
+        let (recovered, cursor) = strip_cursor("`task Review\n `= depends|#dr|aft\n");
         let context = task_dependency_completion_context(&parse(&recovered), cursor).unwrap();
         assert_eq!(context.query, "#dr");
         assert_eq!(&recovered[context.replace], "#draft");
@@ -1331,14 +1337,14 @@ mod tests {
 
     #[test]
     fn suppresses_duplicate_attributes_and_completes_enum_values() {
-        let (task, cursor) = strip_cursor("`task Work\n `= priority 2\n `= |\n");
+        let (task, cursor) = strip_cursor("`task Work\n `= priority|2\n `= |\n");
         let context = attribute_completion_context(&parse(&task), cursor).unwrap();
         assert!(!context
             .completions
             .iter()
             .any(|item| item.label == "priority"));
 
-        let (quoted, cursor) = strip_cursor("`task Work\n `= due 2026-|\n");
+        let (quoted, cursor) = strip_cursor("`task Work\n `= due|2026-|\n");
         assert_eq!(attribute_completion_context(&parse(&quoted), cursor), None);
     }
 

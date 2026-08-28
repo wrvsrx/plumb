@@ -2410,8 +2410,8 @@ mod tests {
             .join("\n");
 
         assert_eq!(adjusted, absolute.replacen("\n\n", "\n \n", 1));
-        assert!(absolute.contains("\n\n  `= created "));
-        assert!(relative.contains("\n\n `= created "));
+        assert!(absolute.contains("\n\n  `= created|"));
+        assert!(relative.contains("\n\n `= created|"));
         assert!(!absolute.contains(" {"));
         assert!(!absolute.contains("\n}"));
         assert!(!relative.contains(" {"));
@@ -2488,7 +2488,7 @@ mod tests {
     #[test]
     fn keeps_task_owner_fold_while_typing_its_marker() {
         for opener in ["`", "`t", "`ta", "`tas", "`task"] {
-            let parsed = parse(format!("{opener}\n `= created now\n"));
+            let parsed = parse(format!("{opener}\n `= created|now\n"));
             assert_eq!(
                 folding_ranges(&parsed.source, &parsed.syntax, None, None, false)
                     .iter()
@@ -2529,7 +2529,7 @@ mod tests {
     #[test]
     fn closed_task_tokens_preserve_nested_task_states() {
         let parsed = parse(
-            "`task Closed parent\n\n `= done 2026-07-27T10:00:00+08:00\n\n `note Parent detail\n\n `task Open child\n\n `note Parent tail\n\n`task Canceled\n\n `= canceled 2026-07-27T10:01:00+08:00\n\n`task Conflicted\n\n `= done 2026-07-27T10:02:00+08:00\n\n `= canceled 2026-07-27T10:03:00+08:00\n",
+            "`task Closed parent\n\n `= done|2026-07-27T10:00:00+08:00\n\n `note Parent detail\n\n `task Open child\n\n `note Parent tail\n\n`task Canceled\n\n `= canceled|2026-07-27T10:01:00+08:00\n\n`task Conflicted\n\n `= done|2026-07-27T10:02:00+08:00\n\n `= canceled|2026-07-27T10:03:00+08:00\n",
         );
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let tasks = analyze_tasks(
@@ -2550,7 +2550,7 @@ mod tests {
 
     #[test]
     fn maps_metadata_facts_to_nested_symbols() {
-        let parsed = parse("`= title Document title\n`= author\n `= name Alice\n");
+        let parsed = parse("`= title|Document title\n`= author\n `= name|Alice\n");
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let output = analyze_metadata(
             parsed

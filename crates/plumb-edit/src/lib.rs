@@ -118,6 +118,7 @@ pub enum OwnedInline {
     Text(String),
     Space(String),
     SoftBreak,
+    ArgumentSeparator,
     Element {
         kind: String,
         members: Vec<OwnedInlineMember>,
@@ -164,15 +165,18 @@ impl OwnedAttribute {
     }
 
     fn render_block(&self) -> String {
-        let escape = |value: &str| value.replace('`', "``");
         match self {
-            Self::Id(value) => format!("`@ {}", escape(value)),
-            Self::Class(value) => format!("`+ {}", escape(value)),
+            Self::Id(value) => format!("`@ {}", escape_parsed_text(value)),
+            Self::Class(value) => format!("`+ {}", escape_parsed_text(value)),
             Self::Pair { key, value } => {
                 let value = match value {
                     OwnedValue::Bare(value) | OwnedValue::Quoted(value) => value,
                 };
-                format!("`= {} {}", escape(key), escape(value))
+                format!(
+                    "`= {}|{}",
+                    escape_parsed_text(key),
+                    escape_parsed_text(value)
+                )
             }
         }
     }
@@ -197,7 +201,7 @@ impl OwnedBlock {
             marker: Some("=".into()),
             head: vec![
                 OwnedInline::Text(key.into()),
-                OwnedInline::Space(" ".into()),
+                OwnedInline::ArgumentSeparator,
                 OwnedInline::Text(value.into()),
             ],
             children: Vec::new(),
@@ -338,9 +342,20 @@ impl OwnedBlock {
             marker: block.mark.as_ref().map(|mark| mark.marker.clone()),
             head: block
                 .head
-                .items
+                .arguments
                 .iter()
-                .map(OwnedInline::from_syntax)
+                .flat_map(|argument| {
+                    argument
+                        .separator_range
+                        .is_some()
+                        .then_some(OwnedInline::ArgumentSeparator)
+                        .into_iter()
+                        .chain(
+                            block.head.items[argument.item_range.clone()]
+                                .iter()
+                                .map(OwnedInline::from_syntax),
+                        )
+                })
                 .collect(),
             children: block
                 .children
@@ -380,6 +395,7 @@ fn owned_declaration(block: &OwnedBlock) -> Option<OwnedAttribute> {
             match inline {
                 OwnedInline::Text(text) | OwnedInline::Space(text) => output.push_str(text),
                 OwnedInline::SoftBreak
+                | OwnedInline::ArgumentSeparator
                 | OwnedInline::Element { .. }
                 | OwnedInline::Verbatim { .. } => return None,
             }
@@ -392,7 +408,7 @@ fn owned_declaration(block: &OwnedBlock) -> Option<OwnedAttribute> {
         "=" => {
             let separator = head
                 .iter()
-                .position(|inline| matches!(inline, OwnedInline::Space(_)))?;
+                .position(|inline| matches!(inline, OwnedInline::ArgumentSeparator))?;
             let key = plain(&head[..separator])?;
             let value = plain(&head[separator + 1..])?;
             (!key.is_empty() && !value.is_empty()).then_some(OwnedAttribute::Pair {
@@ -868,22 +884,14 @@ fn render_owned_inline(
 ) {
     match inline {
         OwnedInline::Text(text) => {
-            for character in text.chars() {
-                match character {
-                    '`' => output.push_str("``"),
-                    '[' | ']' | '|' => {
-                        output.push('`');
-                        output.push(character);
-                    }
-                    _ => output.push(character),
-                }
-            }
+            output.push_str(&escape_parsed_text(text));
         }
         OwnedInline::Space(space) => output.push_str(space),
         OwnedInline::SoftBreak => {
             output.push('\n');
             output.extend(std::iter::repeat_n(' ', continuation_indent));
         }
+        OwnedInline::ArgumentSeparator => output.push('|'),
         OwnedInline::Element { kind, members } => {
             if introduced {
                 output.push('`');
@@ -923,6 +931,21 @@ fn render_owned_inline(
             }
         }
     }
+}
+
+fn escape_parsed_text(text: &str) -> String {
+    let mut output = String::with_capacity(text.len());
+    for character in text.chars() {
+        match character {
+            '`' => output.push_str("``"),
+            '[' | ']' | '|' => {
+                output.push('`');
+                output.push(character);
+            }
+            _ => output.push(character),
+        }
+    }
+    output
 }
 
 fn render_owned_full_verbatim_payload(text: &str, output: &mut String) {
@@ -1138,6 +1161,16 @@ mod tests {
     use plumb_syntax::{parse, Block};
 
     #[test]
+    fn block_attributes_escape_argument_delimiters() {
+        let attribute = OwnedAttribute::bare("key|part", "value[part]");
+        assert_eq!(attribute.render_block(), "`= key`|part|value`[part`]");
+
+        let formatted = attribute.into_block().format().unwrap();
+        assert_eq!(formatted, "`= key`|part|value`[part`]\n");
+        assert!(parse(&formatted).is_valid(), "{formatted}");
+    }
+
+    #[test]
     fn owned_marked_block_renders_children_before_one_raw_tail() {
         let block = OwnedBlock::Parsed {
             marker: Some("rust".into()),
@@ -1227,7 +1260,7 @@ mod tests {
         let edit = session.finish().unwrap();
         assert_eq!(
             edit.new_text,
-            "`task Work\n\n `@ work\n\n `= created 2026-08-26T00:00:00+08:00\n"
+            "`task Work\n\n `@ work\n\n `= created|2026-08-26T00:00:00+08:00\n"
         );
     }
 
@@ -1255,7 +1288,7 @@ mod tests {
 
     #[test]
     fn appending_a_declaration_before_a_following_sibling_stays_valid() {
-        let source = "`task Closed\n\n `@ closed\n\n `= done 2026-07-20T09:00:00Z\n\n`task Existing\n\n `@ existing\n";
+        let source = "`task Closed\n\n `@ closed\n\n `= done|2026-07-20T09:00:00Z\n\n`task Existing\n\n `@ existing\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let Block::Parsed(task) = &parsed.syntax.blocks[0] else {
@@ -1274,7 +1307,7 @@ mod tests {
         let edit = session.finish().unwrap();
         let edited = apply_text_edits(source.to_string(), vec![edit]).unwrap();
         assert!(parse(&edited).is_valid(), "{edited}");
-        assert!(edited.contains("`= created 2026-07-20T10:00:00+08:00"));
+        assert!(edited.contains("`= created|2026-07-20T10:00:00+08:00"));
         assert!(edited.contains("`task Existing"));
     }
 
@@ -1321,7 +1354,7 @@ mod tests {
     #[test]
     fn attribute_positions_replace_and_remove_single_declaration_blocks() {
         let source =
-            "`task Work\n `note before\n `@ old\n `+ keep\n `= created now\n `note after\n";
+            "`task Work\n `note before\n `@ old\n `+ keep\n `= created|now\n `note after\n";
         let parsed = parse(source);
         let Block::Parsed(task) = &parsed.syntax.blocks[0] else {
             panic!("expected task");
@@ -1339,8 +1372,8 @@ mod tests {
             .unwrap();
         let inserted =
             apply_text_edits(source.to_string(), vec![insert.finish().unwrap()]).unwrap();
-        assert!(inserted.find("`@ old").unwrap() < inserted.find("`= due tomorrow").unwrap());
-        assert!(inserted.find("`= due tomorrow").unwrap() < inserted.find("`+ keep").unwrap());
+        assert!(inserted.find("`@ old").unwrap() < inserted.find("`= due|tomorrow").unwrap());
+        assert!(inserted.find("`= due|tomorrow").unwrap() < inserted.find("`+ keep").unwrap());
         assert!(inserted.contains("`note before"));
         assert!(inserted.contains("`note after"));
 
@@ -1356,7 +1389,7 @@ mod tests {
         let mut remove = EditSession::new(&parsed, task.range.clone()).unwrap();
         remove.remove_attribute(&mark.attrs, 2).unwrap();
         let removed = apply_text_edits(source.to_string(), vec![remove.finish().unwrap()]).unwrap();
-        assert!(!removed.contains("`= created now"));
+        assert!(!removed.contains("`= created|now"));
         assert!(removed.contains("`+ keep"));
     }
 
@@ -1406,8 +1439,8 @@ mod tests {
         let source = "`# Existing\n";
         let parsed = parse(source);
         let metadata = [
-            OwnedBlock::marked("=", "title Example"),
-            OwnedBlock::marked("=", "created 2026-08-26T00:00:00+08:00"),
+            OwnedBlock::association("title", "Example"),
+            OwnedBlock::association("created", "2026-08-26T00:00:00+08:00"),
         ];
         let mut insert = EditSession::new(&parsed, 0..0).unwrap();
         insert.insert_blocks(0, &metadata).unwrap();
@@ -1415,7 +1448,7 @@ mod tests {
         assert_eq!(edit.range, 0..0);
         assert_eq!(
             edit.new_text,
-            "`= title Example\n`= created 2026-08-26T00:00:00+08:00\n\n"
+            "`= title|Example\n`= created|2026-08-26T00:00:00+08:00\n\n"
         );
 
         let first = parsed.syntax.blocks[0].range().clone();

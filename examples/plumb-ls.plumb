@@ -1,4 +1,4 @@
-`= title plumb lsp playground
+`= title|plumb lsp playground
 
 Use this file with `"plumb lsp" attached. The final diagnostics section contains
 intentional semantic errors; the entire file remains syntactically valid.

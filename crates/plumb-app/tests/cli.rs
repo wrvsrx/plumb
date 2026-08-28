@@ -89,7 +89,7 @@ fn migrates_an_explicit_syntax_epoch_from_stdin_and_paths() {
 
     let current_group = run_with_stdin(
         &["migrate", "--from", "document-group-v1"],
-        "{\n `= title Current\n}\n\n`->[guide|guide.plumb]\n",
+        "{\n `= title|Current\n}\n\n`->[guide|guide.plumb]\n",
     );
     assert!(
         current_group.status.success(),
@@ -98,7 +98,7 @@ fn migrates_an_explicit_syntax_epoch_from_stdin_and_paths() {
     );
     assert_eq!(
         String::from_utf8(current_group.stdout).unwrap(),
-        "`= title Current\n\n`->[guide|guide.plumb]\n"
+        "`= title|Current\n\n`->[guide|guide.plumb]\n"
     );
 
     let root = unique_temp_dir();
@@ -135,7 +135,7 @@ fn exports_events_as_a_khal_readonly_vdir() {
     std::fs::create_dir_all(&root).unwrap();
     std::fs::write(
         root.join("agenda.plumb"),
-        "`= date 2026-07-30\n`= timezone +08:00\n\n`event 14:00--15:00 Parser review\n `@ review\n `= tasks #write\n",
+        "`= date|2026-07-30\n`= timezone|+08:00\n\n`event 14:00--15:00|Parser review\n `@ review\n `= tasks|#write\n",
     )
     .unwrap();
     let exported = Command::new(env!("CARGO_BIN_EXE_plumb"))
@@ -284,7 +284,7 @@ fn checks_a_workspace_with_configurable_severity_and_error_exit_status() {
 
     std::fs::write(
         root.join("tasks.plumb"),
-        "`task Draft\n `@ draft\n`task Review\n `@ review\n `= depends #draft\n",
+        "`task Draft\n `@ draft\n`task Review\n `@ review\n `= depends|#draft\n",
     )
     .unwrap();
     let default = Command::new(env!("CARGO_BIN_EXE_plumb"))
@@ -368,7 +368,7 @@ fn discovers_workspace_markers_and_applies_ignore_files() {
 
 #[test]
 fn round_trips_the_exported_standard_profile_through_import() {
-    let source = "`= title Import test\n\n`# Intro\n `@ intro\n\nParagraph with `*[emphasis], `![strong], `==[mark], `~[strike], `^[super], `_[sub], and `->[a link|other.plumb#id].\n\n`> Quoted\n `@ quote\n `+ source\n\n`task Item\n `@ task\n `= created 2026-07-23T17:00:00+08:00\n\n`rust\n `@ code\n\n|\"\n fn main() {}\n";
+    let source = "`= title|Import test\n\n`# Intro\n `@ intro\n\nParagraph with `*[emphasis], `![strong], `==[mark], `~[strike], `^[super], `_[sub], and `->[a link|other.plumb#id].\n\n`> Quoted\n `@ quote\n `+ source\n\n`task Item\n `@ task\n `= created|2026-07-23T17:00:00+08:00\n\n`rust\n `@ code\n\n|\"\n fn main() {}\n";
     let first = run_with_stdin(&["export"], source);
     assert!(
         first.status.success(),
@@ -412,7 +412,7 @@ fn serves_the_workspace_site_with_notes_and_tasks() {
     std::fs::write(root.join("private/note.plumb"), "Private note.\n").unwrap();
     std::fs::write(
         root.join("a.plumb"),
-        "`= title Alpha\n\nSee `->[Beta|b.plumb#beta].\n\n`img[icon|=[src|assets/icon.png]]\n\n`task Ship release\n `= created 2026-07-25T10:00:00+08:00\n",
+        "`= title|Alpha\n\nSee `->[Beta|b.plumb#beta].\n\n`img[icon|=[src|assets/icon.png]]\n\n`task Ship release\n `= created|2026-07-25T10:00:00+08:00\n",
     )
     .unwrap();
     std::fs::write(root.join("b.plumb"), "`# Beta\n `@ beta\n").unwrap();
@@ -517,11 +517,11 @@ fn serves_the_workspace_site_with_notes_and_tasks() {
         .is_some_and(|timestamp| timestamp.starts_with("2026-")));
     assert!(std::fs::read_to_string(root.join("a.plumb"))
         .unwrap()
-        .contains("`= done 2026-"));
+        .contains("`= done|2026-"));
 
     std::fs::write(
         root.join("a.plumb"),
-        "`= title Alpha updated\n\nSee `->[Beta|b.plumb#beta].\n",
+        "`= title|Alpha updated\n\nSee `->[Beta|b.plumb#beta].\n",
     )
     .unwrap();
     let mut refreshed = false;
@@ -573,7 +573,7 @@ fn site_renders_and_refreshes_csl_json_citations() {
     std::fs::create_dir_all(root.join("static")).unwrap();
     std::fs::write(
         root.join("note.plumb"),
-        "`= title Citation note\n`= bibliography static/library.json\n\nSee `cite[smith2004].\n",
+        "`= title|Citation note\n`= bibliography|static/library.json\n\nSee `cite[smith2004].\n",
     )
     .unwrap();
     let bibliography = root.join("static/library.json");

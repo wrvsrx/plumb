@@ -2,7 +2,7 @@
 
  `+ shopping
  `@ shopping
- `= due 2026-08-07
+ `= due|2026-08-07
 
  `note Remember the coupon
 

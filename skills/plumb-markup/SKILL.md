@@ -75,6 +75,10 @@ it. Inside the plumb source repository, prefer
   container, so direct top-level `@` and `+` blocks are unsupported.
 - Use direct `@` declaration children for explicit ids.
   Headings do not generate implicit ids.
+- Block heads and paragraphs contain ordered parsed arguments. Separate later
+  arguments with a bare `|` at the current inline depth. Spaces remain part of
+  an argument, consecutive separators create empty arguments, and a literal
+  pipe is written as `` `| ``.
 - Every parsed inline owner starts with a parsed argument, which may be empty. Separate
   later ordered members with `|`; arguments and introducer-elided children may
   then interleave. Verbatim members always use the full quote/bracket envelope;
@@ -89,7 +93,7 @@ it. Inside the plumb source repository, prefer
 ## Standard Spelling
 
 ```plumb
-`= title Example
+`= title|Example
 `= tags
  `+ guide
 
@@ -100,18 +104,20 @@ it. Inside the plumb source repository, prefer
 `. Ordered item
 `task Implement parser
  `@ write-parser
- `= created 2026-07-20T09:00:00+08:00
-`event 14:00--15:00 Parser review
+ `= created|2026-07-20T09:00:00+08:00
+`event 14:00--15:00|Parser review
  `@ review
- `= date 2026-07-30
- `= timezone +08:00
- `= tasks #write-parser
+ `= date|2026-07-30
+ `= timezone|+08:00
+ `= tasks|#write-parser
 
 `() Transparent block container
  `+ notice
 `> A quoted paragraph
 Use `*[emphasis], `![strong], `==[mark], `~[strikeout], `^[superscript], and `_[subscript].
 Inline `()[container|+[notice]] and `$"x^2" math.
+
+`: Term|Inline definition body.
 
 `: Term
 

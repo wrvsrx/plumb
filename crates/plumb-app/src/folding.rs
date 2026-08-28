@@ -192,7 +192,7 @@ pub(crate) fn event_labels(entry: &DocumentEntry) -> HashMap<(usize, usize), Fol
             Some((
                 (event.range.start, event.range.end),
                 FoldLabel {
-                    text: format!("{indent}`event {time}  {title}"),
+                    text: format!("{indent}`event {time}| {title}"),
                 },
             ))
         })

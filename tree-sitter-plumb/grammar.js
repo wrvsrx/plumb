@@ -138,6 +138,7 @@ module.exports = grammar({
       $.inline_verbatim,
       $.inline_element,
       $.incomplete_inline_element,
+      $.argument_separator,
       $.text,
     ))),
 
@@ -228,8 +229,9 @@ module.exports = grammar({
     inline_kind: _ => /[^\s\x00-\x1f\x7f-\x9f\[\]`"|]+/,
     verbatim_kind: _ => /[^\s\x00-\x1f\x7f-\x9f\[\]`"|]+/,
     member_separator: _ => token.immediate('|'),
+    argument_separator: _ => '|',
     head_separator: _ => token(prec(2, /[ \t]+/)),
-    text: _ => /[^`\[\]\n]+/,
+    text: _ => /[^`\[\]|\n]+/,
     inline_member_text: _ => /[^`\[\]|\n]+/,
     _line_end: $ => choice('\n', $._eof),
   },

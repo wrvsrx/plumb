@@ -13,6 +13,7 @@
   "]" @punctuation.bracket)
 
 (member_separator) @punctuation.delimiter
+(argument_separator) @punctuation.delimiter
 
 (verbatim_open) @punctuation.delimiter
 (raw_tail_open) @punctuation.delimiter

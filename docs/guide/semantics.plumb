@@ -1,4 +1,4 @@
-`= title plumb 标准语义指南
+`= title|plumb 标准语义指南
 
 core 只识别结构；本页介绍官方工具链赋予常用 marker、inline kind、direct declarations 与 children 的语义。
 
@@ -40,13 +40,13 @@ cursor 位于尚无 id 的 heading 或 generic marked block 时，`"Add explicit
 
 ordered list 固定从 1 开始。
 
-`":" 是 definition entry。没有 children 时，第一个 inline item 是 term，空格后的其余 items 是
-同行 definition body；存在 children 时，整个 head 是 term，children 是 body：
+`":" 是 definition entry。没有 children 时，第一个 head argument 是 term，可选 second argument 是
+同行 definition body；存在 children 时，唯一 head argument 是 term，children 是 body：
 
 `plumb
 
 |"
-  `: Term Inline body.
+  `: Term|Inline body.
 
   `: Term
 
@@ -62,15 +62,15 @@ workspace-relative path，document 也没有 attribute class container，因此�
 `plumb
 
 |"
-  `= title Document title
-  `= created 2026-07-20T09:00:00+08:00
+  `= title|Document title
+  `= created|2026-07-20T09:00:00+08:00
 
   `= tags
    `+ plumb
    `+ notes
 
   `= author
-   `= name Alice
+   `= name|Alice
 
 value 可以是 null、一个 paragraph scalar、`"+" sequence、nested `"=" map 或一个 verbatim
 block。metadata sequence 只使用 `"+" 并保留 source order。`":"/`"-" 是可渲染的
@@ -253,13 +253,14 @@ strength。普通 dollar characters 和 dollar-delimited math 不具有特殊含
 `plumb
 
 |"
-  `event 14:00--15:30 Parser review
+  `event 14:00--15:30|Parser review
    `@ parser-review
-   `= date 2026-07-30
-   `= timezone +08:00
-   `= tasks #write-parser
+   `= date|2026-07-30
+   `= timezone|+08:00
+   `= tasks|#write-parser
 
-head 的第一个 positional argument 是 schedule，后接 whitespace 与 title。schedule 使用 `"HH"、`"HH:MM"、`"HH:MM:SS" point 或 `"START--END" interval。start 也可写
+head 必须恰好有两个 positional arguments：first 是 schedule，second 是非空 title；event recognizer
+不再按 whitespace 二次切分。schedule 使用 `"HH"、`"HH:MM"、`"HH:MM:SS" point 或 `"START--END" interval。start 也可写
 `"YYYY-MM-DDTTIME" 来覆盖 date 并继承 timezone；若指定 offset 或 `"Z"，则必须写包含秒的完整 RFC 3339
 timestamp，例如 `"2026-05-02T08:22:31+08:00--09:20"。end 可写 `"TIME" 或
 `"YYYY-MM-DDTTIME"；两者都从 start 继承 offset，end 不允许携带 timezone。仅含 time 的 end 默认使用
@@ -276,9 +277,9 @@ facets 只是 opaque data。
 
 |"
   `()
-   `= date 2026-07-31
-   `event 09:00 使用 7 月 31 日
-  `event 09:00 恢复 document metadata date
+   `= date|2026-07-31
+   `event 09:00|使用 7 月 31 日
+  `event 09:00|恢复 document metadata date
 
 快速创建 event 时，在 list item head 开头输入 shorthand，再在该行执行 `"Convert to event" CodeAction；
 title 可以包含 inline markup：
@@ -331,9 +332,9 @@ event、reminder、外部 iCalendar 回写或 CalDAV client。
 |"
   `task Implement parser
    `@ write-parser
-   `= priority 10
-   `= created 2026-07-20T09:00:00+08:00
-   `= due 2026-07-21T09:00:00+08:00
+   `= priority|10
+   `= created|2026-07-20T09:00:00+08:00
+   `= due|2026-07-21T09:00:00+08:00
 
 head 是 title，children 是 details。另一个 task 需要引用它时才添加 id。
 
@@ -350,7 +351,7 @@ reference 在 id 后由 whitespace 分隔，因此 path 可以直接包含 space
 
 |"
   `task Review
-   `= depends #local Project A.plumb#build Project B.plumb#test
+   `= depends|#local Project A.plumb#build Project B.plumb#test
 
 LSP 在 `"depends" scalar value 内分两阶段补全 workspace tasks：当前 reference 尚无 `"#" 时只列出含有
 可选 task 的 document，选择后插入 same-file `"#" 或 cross-file `"`path.plumb#"；`"#" 后只列出已选

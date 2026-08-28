@@ -43,7 +43,7 @@ fn inserts_metadata_code_action_only_for_valid_documents_without_metadata() {
             "params": {
                 "textDocument": { "uri": uri, "version": 4 },
                 "contentChanges": [{
-                    "text": "`= title Existing\n\n`# Section\n"
+                    "text": "`= title|Existing\n\n`# Section\n"
                 }]
             }
         }),
@@ -98,7 +98,7 @@ fn inserts_metadata_code_action_only_for_valid_documents_without_metadata() {
     assert_eq!(change["edits"][0]["range"]["start"]["line"], 0);
     assert_eq!(change["edits"][0]["range"]["start"]["character"], 0);
     let new_text = change["edits"][0]["newText"].as_str().unwrap();
-    let prefix = "`= title metadata-action\n`= created ";
+    let prefix = "`= title|metadata-action\n`= created|";
     let created = new_text
         .strip_prefix(prefix)
         .and_then(|suffix| suffix.strip_suffix("\n\n"))
@@ -213,7 +213,7 @@ fn inserts_metadata_into_an_empty_document_over_stdio() {
         json!({ "line": 0, "character": 0 })
     );
     let generated = change["edits"][0]["newText"].as_str().unwrap();
-    assert!(generated.starts_with("`= title empty-note\n`= created "));
+    assert!(generated.starts_with("`= title|empty-note\n`= created|"));
     let parsed = plumb_syntax::parse(generated);
     assert!(
         plumb_edit::format(&parsed, plumb_edit::FormatScope::Document)
@@ -408,17 +408,17 @@ fn converts_event_shorthand_with_a_refactor_action() {
     assert_eq!(change["textDocument"]["version"], 3);
     let replacement = change["edits"][0]["newText"].as_str().unwrap();
     assert!(
-        replacement.starts_with("`event 11:10--11:20 relax: `\"phone\"\n"),
+        replacement.starts_with("`event 11:10--11:20|relax: `\"phone\"\n"),
         "{replacement}"
     );
     assert!(!replacement.contains("`- event"), "{replacement}");
     assert!(
-        replacement.contains(" `= date 2026-05-21\n"),
+        replacement.contains(" `= date|2026-05-21\n"),
         "{replacement}"
     );
     let timezone = Local::now().fixed_offset().format("%:z").to_string();
     assert!(
-        replacement.contains(&format!(" `= timezone {timezone}\n")),
+        replacement.contains(&format!(" `= timezone|{timezone}\n")),
         "{replacement}"
     );
     assert!(!replacement.contains("#e0001"), "{replacement}");
@@ -438,7 +438,7 @@ fn converts_event_shorthand_with_a_refactor_action() {
 #[test]
 fn converts_selected_event_shorthands_with_a_refactor_action() {
     let uri = "file:///tmp/event-shorthands.plumb";
-    let source = "`= date 2026-08-01\n`= timezone +08:00\n\n`- 10:00-- first\n`- 10:20-- second\n`- 10:30--10:40 third\n";
+    let source = "`= date|2026-08-01\n`= timezone|+08:00\n\n`- 10:00-- first\n`- 10:20-- second\n`- 10:30--10:40 third\n";
     let messages = [
         json!({
             "jsonrpc": "2.0", "id": 1, "method": "initialize",
@@ -488,9 +488,9 @@ fn converts_selected_event_shorthands_with_a_refactor_action() {
         .collect::<String>();
     assert_eq!(replacements.matches("`event").count(), 3);
     assert!(!replacements.contains("@plumb.local"));
-    assert!(replacements.contains("`event 10:00--10:20 first\n"));
-    assert!(replacements.contains("`event 10:20--10:30 second\n"));
-    assert!(replacements.contains("`event 10:30--10:40 third\n"));
+    assert!(replacements.contains("`event 10:00--10:20|first\n"));
+    assert!(replacements.contains("`event 10:20--10:30|second\n"));
+    assert!(replacements.contains("`event 10:30--10:40|third\n"));
 }
 
 #[test]
@@ -530,7 +530,7 @@ fn offers_task_authoring_refactor_actions() {
             "params": {
                 "textDocument": { "uri": uri, "version": 2 },
                 "contentChanges": [{
-                    "text": "`task Closed\n `@ closed\n `= done 2026-07-20T09:00:00Z\n"
+                    "text": "`task Closed\n `@ closed\n `= done|2026-07-20T09:00:00Z\n"
                 }]
             }
         }),
@@ -579,7 +579,7 @@ fn offers_task_authoring_refactor_actions() {
 #[test]
 fn offers_guarded_task_status_code_actions() {
     let uri = "file:///tmp/task-actions.plumb";
-    let source = "`task MJCF in, USD out solver\n\n `@ task-f81deb18\n\n `= created 2026-05-24T02:35:50Z\n\n `task parse MJCF\n\n  `@ task-c2cf5756\n\n  `= created 2026-05-27T13:03:04Z\n\n `task solver with passive joint\n\n  `@ task-99e28dad\n\n  `= created 2026-05-27T13:02:45Z\n";
+    let source = "`task MJCF in, USD out solver\n\n `@ task-f81deb18\n\n `= created|2026-05-24T02:35:50Z\n\n `task parse MJCF\n\n  `@ task-c2cf5756\n\n  `= created|2026-05-27T13:03:04Z\n\n `task solver with passive joint\n\n  `@ task-99e28dad\n\n  `= created|2026-05-27T13:02:45Z\n";
     let line = source
         .lines()
         .position(|line| line.contains("parse MJCF"))
@@ -644,7 +644,7 @@ fn offers_guarded_task_status_code_actions() {
 #[test]
 fn recurring_task_action_closes_current_and_appends_next_instance() {
     let uri = "file:///tmp/recurring-task.plumb";
-    let source = "`task Weekly review\n\n `= due 2026-07-20T09:00:00+08:00\n\n `= recur P1W\n";
+    let source = "`task Weekly review\n\n `= due|2026-07-20T09:00:00+08:00\n\n `= recur|P1W\n";
     let messages = [
         json!({
             "jsonrpc": "2.0", "id": 1, "method": "initialize",
@@ -689,16 +689,16 @@ fn recurring_task_action_closes_current_and_appends_next_instance() {
     assert_eq!(edits.len(), 1);
     let replacement = edits[0]["newText"].as_str().unwrap();
     assert!(replacement.contains("`@ weekly-review-2026-07-20"));
-    assert!(replacement.contains("`= done "));
+    assert!(replacement.contains("`= done|"));
     assert!(replacement.contains("`@ weekly-review-2026-07-27"));
-    assert!(replacement.contains("`= due 2026-07-27T09:00:00+08:00"));
-    assert!(replacement.contains("`= prev #weekly-review-2026-07-20"));
+    assert!(replacement.contains("`= due|2026-07-27T09:00:00+08:00"));
+    assert!(replacement.contains("`= prev|#weekly-review-2026-07-20"));
 }
 
 #[test]
 fn blocked_task_offers_cancel_but_not_complete() {
     let uri = "file:///tmp/blocked-task-actions.plumb";
-    let source = "`task Draft\n\n `@ draft\n\n`task Review\n\n `@ review\n\n `= depends #draft\n";
+    let source = "`task Draft\n\n `@ draft\n\n`task Review\n\n `@ review\n\n `= depends|#draft\n";
     let line = source
         .lines()
         .position(|line| line.contains("Review"))
@@ -749,7 +749,7 @@ fn blocked_task_offers_cancel_but_not_complete() {
 #[test]
 fn canceling_a_recurring_task_appends_the_next_instance() {
     let uri = "file:///tmp/cancel-recurring-task.plumb";
-    let source = "`task Weekly review\n\n `= due 2026-07-20T09:00:00+08:00\n\n `= recur P1W\n";
+    let source = "`task Weekly review\n\n `= due|2026-07-20T09:00:00+08:00\n\n `= recur|P1W\n";
     let cursor = source.find("Weekly review").unwrap();
     let messages = [
         json!({
@@ -796,16 +796,16 @@ fn canceling_a_recurring_task_appends_the_next_instance() {
     assert_eq!(edits.len(), 1);
     let replacement = edits[0]["newText"].as_str().unwrap();
     assert!(replacement.contains("`@ weekly-review-2026-07-20"));
-    assert!(replacement.contains("`= canceled "));
+    assert!(replacement.contains("`= canceled|"));
     assert!(replacement.contains("`@ weekly-review-2026-07-27"));
-    assert!(replacement.contains("`= due 2026-07-27T09:00:00+08:00"));
-    assert!(replacement.contains("`= prev #weekly-review-2026-07-20"));
+    assert!(replacement.contains("`= due|2026-07-27T09:00:00+08:00"));
+    assert!(replacement.contains("`= prev|#weekly-review-2026-07-20"));
 }
 
 #[test]
 fn task_actions_fall_back_from_closed_child_to_open_parent() {
     let uri = "file:///tmp/nested-task-actions.plumb";
-    let source = "`task Outer\n\n `@ outer\n\n `task Inner\n\n  `@ inner\n\n  `= done 2026-07-20T09:00:00Z\n";
+    let source = "`task Outer\n\n `@ outer\n\n `task Inner\n\n  `@ inner\n\n  `= done|2026-07-20T09:00:00Z\n";
     let cursor = source.find("Inner").unwrap();
     let line_start = source[..cursor].rfind('\n').unwrap() + 1;
     let character = cursor - line_start;

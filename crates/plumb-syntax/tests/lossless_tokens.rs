@@ -19,7 +19,7 @@ fn empty_source_has_an_empty_lossless_root() {
 
 #[test]
 fn direct_declaration_children_have_token_granularity() {
-    let source = "`node Head\n `@ id\n `+ class\n `= key a\"b\n";
+    let source = "`node Head\n `@ id\n `+ class\n `= key|a\"b\n";
     assert_eq!(
         tokens(source),
         vec![
@@ -45,7 +45,7 @@ fn direct_declaration_children_have_token_granularity() {
             (SyntaxKind::Marker, "="),
             (SyntaxKind::Whitespace, " "),
             (SyntaxKind::Text, "key"),
-            (SyntaxKind::Whitespace, " "),
+            (SyntaxKind::Delimiter, "|"),
             (SyntaxKind::Text, "a\"b"),
             (SyntaxKind::LineEnding, "\n"),
         ]

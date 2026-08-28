@@ -258,8 +258,8 @@ mod tests {
     #[test]
     fn preview_highlights_metadata_and_verbatim_blocks() {
         let preview =
-            highlight_plumb("`= title Preview\n\n`rust\"\n  fn main() {}\n\n`# Heading\n");
-        assert!(preview.contains("\x1b[35m`= title Preview\x1b[0m"));
+            highlight_plumb("`= title|Preview\n\n`rust\"\n  fn main() {}\n\n`# Heading\n");
+        assert!(preview.contains("\x1b[35m`= title|Preview\x1b[0m"));
         assert!(preview.contains("\x1b[36m`rust\"\x1b[0m"));
         assert!(preview.contains("\x1b[90m  fn main() {}\x1b[0m"));
         assert!(preview.contains("\x1b[1;34m`# Heading\x1b[0m"));

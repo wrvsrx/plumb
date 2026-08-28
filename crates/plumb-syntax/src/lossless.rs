@@ -144,6 +144,11 @@ impl<'a> TokenBuilder<'a> {
     }
 
     fn annotate_inlines(&mut self, content: &InlineContent) {
+        for argument in &content.arguments {
+            if let Some(separator) = &argument.separator_range {
+                self.assign(separator.clone(), SyntaxKind::Delimiter, TYPED_PRIORITY);
+            }
+        }
         let mut contents = vec![content];
         let mut pending = Vec::new();
         while !contents.is_empty() || !pending.is_empty() {

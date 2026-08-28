@@ -36,13 +36,13 @@ list. Nested items form nested lists:
 
 Ordered lists always start at 1. `item` is a generic marker, not a list alias.
 
-Use `:` for definition entries. Without children, the first inline item is the
-term and the content after the separating space is an inline definition body.
-With children, the whole head is the term and the children are its body.
+Use `:` for definition entries. Without children, the first head argument is
+the term and an optional second argument is the inline definition body. With
+children, the sole head argument is the term and the children are its body.
 Adjacent sibling definitions form a definition list:
 
 ```plumb
-`: Term Inline body.
+`: Term|Inline body.
 
 `: Term
 
@@ -60,21 +60,21 @@ attribute-class container. Both unsupported declarations remain outside the
 projected body.
 
 ```plumb
-`= title Document title
-`= created 2026-07-20T09:00:00+08:00
+`= title|Document title
+`= created|2026-07-20T09:00:00+08:00
 
 `= tags
  `+ plumb
  `+ notes
 
 `= author
- `= name Alice
+ `= name|Alice
 ```
 
-Without children, the first inline item is the key and the remainder after a
-space is the value. With children, the whole plain head is the key and the
-children are the value. Use `()[key with spaces]` to bound a compact key with
-spaces explicitly. Keys must be nonempty plain text. Values
+Without children, the first head argument is the key and an optional second
+argument is the value. With children, the sole plain head argument is the key
+and the children are the value. Spaces remain argument content, so keys and
+values containing spaces need no extra container. Keys must be nonempty plain text. Values
 may be empty/null, one paragraph scalar, a `+` sequence, a nested `=` map, or
 one verbatim block. A paragraph or collection-member head containing exactly
 one inline verbatim value becomes a literal string. A `+` member with an empty
@@ -258,9 +258,9 @@ A task uses the specialized `task` marker and has bullet-list-item structure:
 ```plumb
 `task Implement parser
  `@ write-parser
- `= created 2026-07-20T09:00:00+08:00
- `= due 2026-07-21T09:00:00+08:00
- `= depends #design
+ `= created|2026-07-20T09:00:00+08:00
+ `= due|2026-07-21T09:00:00+08:00
+ `= depends|#design
  `note Optional details
 ```
 
@@ -306,7 +306,7 @@ path from its explicit id:
 
 ```plumb
 `task Review
- `= depends #local Project A.plumb#build Project B.plumb#test
+ `= depends|#local Project A.plumb#build Project B.plumb#test
 ```
 
 Datetime fields must use RFC 3339 property values. An invalid value produces
@@ -377,15 +377,16 @@ blocks remain subsequent blocks in the same list item.
 An event uses the specialized `event` marker and has bullet-list-item structure:
 
 ```plumb
-`event 14:00--15:00 Parser review
+`event 14:00--15:00|Parser review
  `@ review
- `= date 2026-07-30
- `= timezone +08:00
- `= tasks #write-parser
+ `= date|2026-07-30
+ `= timezone|+08:00
+ `= tasks|#write-parser
 ```
 
-The first inline text in the head is the schedule; ASCII whitespace separates it
-from the nonempty title. Children are details. A schedule start may be
+The head must contain exactly two arguments: a nonempty plain schedule and a
+nonempty title. Children are details; the event recognizer does not rescan
+whitespace to find the boundary. A schedule start may be
 reduced-precision `HH`, `HH:MM`, or `HH:MM:SS`; `YYYY-MM-DDTIME`, which
 overrides the date and inherits the timezone; or a self-contained full RFC 3339
 timestamp. A start with an offset or `Z` must include seconds and cannot append

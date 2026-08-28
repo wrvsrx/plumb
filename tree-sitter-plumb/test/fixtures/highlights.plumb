@@ -1,4 +1,4 @@
-`= title something
+`= title|something
 
 `marker{brace} head {ordinary} with `->[link|guide.plumb|+[external]]
 

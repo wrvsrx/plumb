@@ -1,4 +1,4 @@
-`= title plumb core syntax reference
+`= title|plumb core syntax reference
 
 `# 1. Scope
 
@@ -18,8 +18,8 @@ sequence 或划入单独的 document attribute region。
 反引号是唯一 introducer。连续 run 从左到右每两个反引号组成一个 literal backtick；奇数 run
 最后剩余的一个作为 introducer。scanner 不回溯。
 
-结构字符集由 `` `"`"、`"["、`"]" 与 `"|" 组成。`"|" 在 inline member 内分隔 members，在 marked owner
-column 后跟 quote run 时开始 block raw tail。delimiter
+结构字符集由 `` `"`"、`"["、`"]" 与 `"|" 组成。`"|" 在 head/paragraph 顶层分隔 parsed arguments，
+在 inline owner 内分隔 members，在 marked owner column 后跟 quote run 时开始 block raw tail。delimiter
 escape 与 bare delimiter 的身份都是全局的，与位置无关：
 
 `- 单个 introducer 后直接跟 `"["、`"]" 或 `"|" 之一，表示该 character 的 literal escape，
@@ -81,7 +81,7 @@ marked block 形状为：
 
    `+ facet
    `@ identity
-   `= property value
+   `= property|value
 
   `marker Head
 
@@ -96,10 +96,14 @@ core 不按 `"@"、`"+" 或 `"=" spelling 把 declaration children 移入独立 
 
 `# 5. Head 与 paragraph
 
-普通非空文本行开始 paragraph。paragraph 只有 inline content，不拥有 children。
+普通非空文本行开始 paragraph。paragraph 只有 ordered parsed arguments，不拥有 children。第一个
+argument 不写前导 separator；当前 inline depth 的 bare `"|" 开始后续 argument。每个 argument 都是
+parsed inline content，space 始终属于当前 argument；连续 separators 产生 empty arguments。paragraph
+至少有一个 argument，因而只含一个 bare `"|" 的 paragraph 具有两个 empty arguments。
 
-marked block 的 marker line 在第一个 ASCII space 后开始 head。marker line 即使没有 text，head
-也先保持 open；紧接的第一条缩进普通行可以建立 body column 并启动 deferred head。后续同属
+marked block 的 marker line 在第一个 ASCII space 后开始 head。head 与 paragraph 使用相同的 ordered
+parsed arguments；marker 后的 ASCII space 只分隔 marker 与 head，不建立 argument boundary。marker line
+即使没有 text，head 也先保持 open；紧接的第一条缩进普通行可以建立 body column 并启动 deferred head。后续同属
 该 head 的 physical continuation line 产生 soft break；结构 indentation 不进入 inline content，
 超过要求的 spaces 仍是 text。blank line 结束 head。空行后的缩进普通文本是 child paragraph；
 缩进 marked block 则无需前置空行，直接结束 head 并开始 children。一旦开始 children 就不能
@@ -124,7 +128,17 @@ physical line 开始 first child；group delimiter 不属于 block entry。first
      `- a
      `- b
 
-head 已有 inline content 后出现 block-only entry 仍是 syntax error。
+head 已有 argument source 后出现 block-only entry 仍是 syntax error。
+
+argument separator 只作用于当前 parsed-content depth。nested inline owner 内的 `"|" 属于该 owner；
+delimiter escape 产生 literal pipe。canonical source 不在 separator 两侧添加 padding spaces：
+
+`plumb
+
+|"
+  `event 14:00--15:30|Parser review
+  `row Language server|Waiting||Optional note
+  ordinary first argument|second argument
 
 同列 ordinary text 结束当前 marked block，并开始 sibling paragraph。连续、同缩进的 ordinary
 text lines 属于同一 paragraph，并以 soft break 连接；blank、dedent、同级 marked block 或 EOF
@@ -154,14 +168,14 @@ marker 在 core 中完全同类；typed generic attribute view 可以从 direct 
 `text
 
 |"
-  `= title Document title
+  `= title|Document title
   `= tags
    `+ plumb
 
   `task Buy milk
    `+ shopping
    `@ shopping
-   `= due 2026-08-07
+   `= due|2026-08-07
    `note Remember the coupon
 
 declaration 与普通 structural children 可以任意交错。semantic profile 可以消费 direct declarations，
@@ -220,8 +234,8 @@ element 仍显式使用 introducer。verbatim member 不接受 compact quote for
 
 first argument 后的 argument 与 child 可以任意交错。tree 按 source order 保存统一的 `"InlineMember"
 sequence；core 不根据
-kind spelling 猜测 declaration，也不分别存储会丢失交错位置的 arguments/children vectors。space 始终
-属于 parsed argument content，不建立 member boundary；literal pipe 在 parsed argument 中写作 delimiter
+kind spelling 猜测 declaration，也不分别存储会丢失交错位置的 arguments/children vectors。与
+head/paragraph 相同，space 始终属于 parsed argument content，不建立 member boundary；literal pipe 在 parsed argument 中写作 delimiter
 escape。verbatim payload 中的 pipe 是 raw byte，nested child 内的 pipe 属于 nested owner。
 
 连续 `"[[][]]" 和 inline postfix `"{}" 都不是 current ownership syntax。前者在第一个 close 后恢复为
@@ -279,7 +293,7 @@ anonymous payload node：
 |"
   `rust
    `@ example
-   `= generated true
+   `= generated|true
    `note Source follows
   |"
    fn main() {}

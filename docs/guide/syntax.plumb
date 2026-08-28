@@ -1,4 +1,4 @@
-`= title plumb 语法指南
+`= title|plumb 语法指南
 
 plumb 使用反引号引入特殊结构。特殊 spelling 一旦开始就必须完整合法；错误不会静默退化为
 普通文本。
@@ -17,7 +17,7 @@ head 构成：
   `note 带 direct children
    `@ stable
    `+ warning
-   `= level 2
+   `= level|2
 
 block 可以拥有缩进 children。第一个 child 建立 sibling column；formatter 无论 head 是否为空，
 都把 children 放在 owner column 加一：
@@ -32,6 +32,20 @@ block 可以拥有缩进 children。第一个 child 建立 sibling column；form
      `- Nested block
 
 空行后的缩进 paragraph 是 child；没有空行的缩进普通文本会继续前一行的 head。
+
+paragraph 与 block head 都包含 ordered parsed arguments。first argument 没有前导 separator，后续
+arguments 用当前 depth 的 bare `"|" 分隔；space 始终属于当前 argument，连续 pipes 会产生 empty
+arguments。literal pipe 写成 `` `|"：
+
+`plumb
+
+|"
+  `event 14:00--15:30|Parser review
+  `row Language server|Waiting||Optional note
+  ordinary first argument|second argument
+
+marker 后的 space 只分隔 marker 与 head，不建立 argument boundary。block children 位于完整 head
+argument sequence 之后。
 
 空 head 的 first child 也可以与 parent 写在同一行；child introducer column 决定后续对齐：
 
@@ -139,7 +153,7 @@ document 是 implicit root owner，保存 source-ordered top-level blocks。brac
 `plumb
 
 |"
-  `= title Document title
+  `= title|Document title
 
   Body paragraph.
 
@@ -154,13 +168,13 @@ document 与 marked block 都用同一个 source-ordered direct children sequenc
   `node Head
    `@ intro
    `+ note
-   `= level 2
+   `= level|2
    `note ordinary child
 
   `task A long head that
    wraps across lines
 
-   `= created 2026-08-07T09:00:00+08:00
+   `= created|2026-08-07T09:00:00+08:00
 
 core syntax 不解释 `"+"、`"@" 或 `"="。official semantic profile 将 direct `"+" child 投影为 facet，
 将 direct `"@" declaration 投影为 identity，将 direct `"=" association 投影为 property，并从 owner

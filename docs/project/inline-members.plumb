@@ -1,4 +1,4 @@
-`= title Unified inline members design
+`= title|Unified inline members design
 
 本文记录 single-envelope inline members 的设计动机与 migration boundary。当前 validity 以
 `->[core syntax reference|../reference/core-syntax.plumb] 为准，official projection 以
@@ -91,14 +91,20 @@ argument 后先写其余 arguments、再写 declaration children，parser、form
 
 `# Block 与 inline 的 separator
 
-space 只在 block head 的 compact positional projection 中建立顶层 boundary。nested inline element
-内部的 space 不参与该分隔，因此 block argument 需要包含 spaces 或 rich structure 时仍可使用显式
-inline container。inline owner 的 argument 自然需要包含 prose spaces，所以只由 `"|" 建立 member
-boundary。
+head、paragraph 与 inline owner 全部使用当前 depth 的 bare `"|" 建立 positional boundary；space 在
+所有位置都属于当前 parsed argument。block/paragraph 没有 bracket envelope，但仍具有至少一个 first
+parsed argument，后续 argument 与 inline owner 一样不需要为 multiword content 添加 container：
 
-lexer 与 lossless tree 仍在所有位置保存 whitespace；上述区别属于 owner-context projection，不要求
-lexer 根据 block/inline context 改变 token identity。block 与 inline 统一的是 ordered members 和递归
-ownership model，不是 surface separator character。
+`plumb
+
+|"
+  `event 14:00--15:30|Parser review
+  `row Language server|Waiting||Optional note
+  `->[Guide page|guide.plumb]
+
+block direct children 仍由 newline/indentation 建立，并位于完整 head argument sequence 之后；它们不与
+head arguments 交错。lexer 与 lossless tree 在所有位置保存 whitespace 和 separator token identity，
+typed tree 直接暴露 argument view，semantic recognizer 不按 whitespace 二次切分 source。
 
 `# Semantic projection
 

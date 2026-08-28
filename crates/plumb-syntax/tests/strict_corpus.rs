@@ -79,7 +79,6 @@ fn strict_parser_normative_corpus() {
         "syntax.short-verbatim-indent",
         "syntax.unattached-raw-tail",
         "syntax.unattached-bracket",
-        "syntax.unexpected-member-separator",
         "syntax.trailing-after-inline-member",
         "syntax.unclosed-verbatim-member",
     ];
@@ -211,12 +210,26 @@ fn inline_shape(content: &InlineContent) -> String {
         Items(&'a [Inline], usize),
         Members(&'a [plumb_syntax::InlineMember], usize),
         CloseArgument,
+        Separator,
     }
 
     let mut output = String::new();
-    let mut stack = vec![Action::Items(content.items.as_slice(), 0)];
+    let mut stack = Vec::new();
+    for argument in content.arguments.iter().rev() {
+        stack.push(Action::Items(
+            &content.items[argument.item_range.clone()],
+            0,
+        ));
+        if argument.separator_range.is_some() {
+            stack.push(Action::Separator);
+        }
+    }
     while let Some(action) = stack.pop() {
         let (items, index) = match action {
+            Action::Separator => {
+                output.push('|');
+                continue;
+            }
             Action::CloseArgument => {
                 output.push(']');
                 continue;

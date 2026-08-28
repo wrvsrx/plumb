@@ -25,7 +25,7 @@ local function parse_injection(lines, language)
   return bufnr, parser:trees()[1]:root(), tree:root()
 end
 
-local diary_lines = { '`= title diary', '' }
+local diary_lines = { '`= title|diary', '' }
 for index = 1, 100 do
   diary_lines[#diary_lines + 1] = '`### 2026-08-' .. string.format('%02d', (index - 1) % 31 + 1)
   diary_lines[#diary_lines + 1] = ''
@@ -49,7 +49,7 @@ local plumb_buf, _, plumb_root = parse_injection({
   '',
   '"',
   ' `- xixi',
-  '  `= recur P1D',
+  '  `= recur|P1D',
   '',
   ' `# some',
 }, 'plumb')

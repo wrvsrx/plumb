@@ -160,16 +160,20 @@ pub fn migrate_document_group_v1(source: &str) -> Result<String, MigrationError>
     if !parsed.is_valid() {
         return Err(invalid_document_group(&parsed, 0));
     }
-    let migrated = OwnedDocument {
+    let mut owned = OwnedDocument {
         blocks: parsed
             .syntax
             .blocks
             .iter()
             .map(|block| OwnedBlock::from_syntax(&parsed.source, block))
             .collect(),
+    };
+    for block in &mut owned.blocks {
+        upgrade_legacy_block_arguments(block);
     }
-    .format()
-    .map_err(|_| MigrationError::InvalidGenerated)?;
+    let migrated = owned
+        .format()
+        .map_err(|_| MigrationError::InvalidGenerated)?;
     if !plumb_syntax::parse(&migrated).is_valid() {
         return Err(MigrationError::InvalidGenerated);
     }
@@ -377,10 +381,10 @@ fn collect_current_ranges_in_content(
 }
 
 fn collect_current_range_in_inline(inline: &plumb_syntax::Inline, output: &mut Vec<Range<usize>>) {
-    let content = plumb_syntax::InlineContent {
-        range: current_inline_range(inline).clone(),
-        items: vec![inline.clone()],
-    };
+    let content = plumb_syntax::InlineContent::from_items(
+        current_inline_range(inline).clone(),
+        vec![inline.clone()],
+    );
     collect_current_ranges_in_content(&content, output);
 }
 
@@ -503,11 +507,18 @@ fn convert_block(
                     .map(|block| convert_block(block, overrides))
                     .collect::<Result<Vec<_>, _>>()?,
             );
+            let marker = block.mark.as_ref().map(|mark| mark.marker.clone());
+            let mut head = overrides
+                .and_then(|overrides| overrides.head(block.range.start, &block.head.range))
+                .unwrap_or(convert_inlines(&block.head.items)?);
+            if marker.as_deref() == Some("event")
+                || (marker.as_deref() == Some(":") && children.is_empty())
+            {
+                split_legacy_compact_head(&mut head);
+            }
             Ok(OwnedBlock::Parsed {
-                marker: block.mark.as_ref().map(|mark| mark.marker.clone()),
-                head: overrides
-                    .and_then(|overrides| overrides.head(block.range.start, &block.head.range))
-                    .unwrap_or(convert_inlines(&block.head.items)?),
+                marker,
+                head,
                 children,
                 raw: None,
             })
@@ -547,12 +558,16 @@ fn convert_attached_block(
     let association = matches!(block, legacy::Block::Parsed(block) if block.mark.as_ref().is_some_and(|mark| mark.marker == ":"));
     if let OwnedBlock::Parsed {
         marker: Some(marker),
+        head,
         children,
         ..
     } = &mut converted
     {
         *marker = declaration_kind(marker).to_string();
         if association {
+            if children.is_empty() {
+                split_legacy_compact_head(head);
+            }
             map_legacy_value_associations(children);
         }
     }
@@ -562,14 +577,56 @@ fn convert_attached_block(
 fn map_legacy_value_associations(blocks: &mut [OwnedBlock]) {
     for block in blocks {
         if let OwnedBlock::Parsed {
-            marker, children, ..
+            marker,
+            head,
+            children,
+            ..
         } = block
         {
             if marker.as_deref() == Some(":") {
                 *marker = Some("=".into());
+                if children.is_empty() {
+                    split_legacy_compact_head(head);
+                }
             }
             map_legacy_value_associations(children);
         }
+    }
+}
+
+fn split_legacy_compact_head(head: &mut Vec<OwnedInline>) {
+    if head
+        .iter()
+        .any(|inline| matches!(inline, OwnedInline::ArgumentSeparator))
+    {
+        return;
+    }
+    let Some(separator) = head
+        .iter()
+        .position(|inline| matches!(inline, OwnedInline::Space(_)))
+    else {
+        return;
+    };
+    head[separator] = OwnedInline::ArgumentSeparator;
+}
+
+fn upgrade_legacy_block_arguments(block: &mut OwnedBlock) {
+    let OwnedBlock::Parsed {
+        marker,
+        head,
+        children,
+        ..
+    } = block
+    else {
+        return;
+    };
+    if matches!(marker.as_deref(), Some("event"))
+        || (matches!(marker.as_deref(), Some(":" | "=")) && children.is_empty())
+    {
+        split_legacy_compact_head(head);
+    }
+    for child in children {
+        upgrade_legacy_block_arguments(child);
     }
 }
 
@@ -1044,9 +1101,9 @@ mod tests {
     fn preserves_opaque_block_attached_content_and_ordinary_children() {
         let source = "{\n `: title Example\n `custom root\n}\n\n`task Work {\n `@ work\n `: created now\n `opaque value\n}\n\n  `note ordinary child\n";
         let migrated = migrate_attached_v1(source).unwrap();
-        assert!(migrated.contains("`= title Example"), "{migrated}");
+        assert!(migrated.contains("`= title|Example"), "{migrated}");
         assert!(migrated.contains("`custom root"), "{migrated}");
-        assert!(migrated.contains("`= created now"), "{migrated}");
+        assert!(migrated.contains("`= created|now"), "{migrated}");
         assert!(migrated.contains("`opaque value"), "{migrated}");
         assert!(migrated.contains("`note ordinary child"), "{migrated}");
         assert!(plumb_syntax::parse(&migrated).is_valid(), "{migrated}");
@@ -1058,7 +1115,7 @@ mod tests {
             "{\n `: project\n   `: name plumb\n   `: tags\n     `- syntax\n     `- tools\n}\n";
         let migrated = migrate_attached_v1(source).unwrap();
         assert!(migrated.contains("`= project"), "{migrated}");
-        assert!(migrated.contains("`= name plumb"), "{migrated}");
+        assert!(migrated.contains("`= name|plumb"), "{migrated}");
         assert!(migrated.contains("`= tags"), "{migrated}");
         assert!(migrated.contains("`- syntax"), "{migrated}");
     }
@@ -1081,7 +1138,7 @@ mod tests {
         let migrated = migrate_attached_v1(source).unwrap();
         assert_eq!(
             migrated,
-            "`event wheel: refactor qt{5,6}ct\n\n `= uid example\n"
+            "`event wheel:|refactor qt{5,6}ct\n\n `= uid|example\n"
         );
     }
 
@@ -1136,7 +1193,19 @@ mod tests {
     fn lifts_a_document_group_around_current_inline_syntax() {
         let source = "{\n `= title Current\n}\n\n`->[guide|guide.plumb]\n";
         let migrated = migrate_document_group_v1(source).unwrap();
-        assert_eq!(migrated, "`= title Current\n\n`->[guide|guide.plumb]\n");
+        assert_eq!(migrated, "`= title|Current\n\n`->[guide|guide.plumb]\n");
+        assert!(plumb_syntax::parse(&migrated).is_valid());
+    }
+
+    #[test]
+    fn document_group_migration_upgrades_semantic_block_arguments() {
+        let source =
+            "{\n `= title Project guide\n}\n\n`: Term Inline body\n\n`event 14:00 Review notes\n";
+        let migrated = migrate_document_group_v1(source).unwrap();
+        assert_eq!(
+            migrated,
+            "`= title|Project guide\n\n`: Term|Inline body\n\n`event 14:00|Review notes\n"
+        );
         assert!(plumb_syntax::parse(&migrated).is_valid());
     }
 

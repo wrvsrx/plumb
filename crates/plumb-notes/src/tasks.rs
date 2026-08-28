@@ -231,7 +231,7 @@ mod tests {
         std::fs::write(root.join("deps.plumb"), "`task Draft\n  `@ draft\n").unwrap();
         std::fs::write(
             root.join("tasks.plumb"),
-            "`task Review\n  `@ review\n  `= depends deps.plumb#draft\n\n  `task Nested\n    `@ nested\n    `= done 2026-07-20T09:00:00Z\n",
+            "`task Review\n  `@ review\n  `= depends|deps.plumb#draft\n\n  `task Nested\n    `@ nested\n    `= done|2026-07-20T09:00:00Z\n",
         )
         .unwrap();
         let loaded = load_workspace(&root).unwrap();
@@ -266,7 +266,7 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(
             root.join("tasks.plumb"),
-            "`task Low\n  `@ low\n  `= priority 1\n\n  `task Low child\n    `@ low-child\n    `= priority 99\n\n`task High\n  `@ high\n  `= priority 10\n\n  `task Later child\n    `@ later-child\n    `= priority 2\n\n    `task Grandchild\n      `@ grandchild\n\n  `task First child\n    `@ first-child\n    `= priority 8\n",
+            "`task Low\n  `@ low\n  `= priority|1\n\n  `task Low child\n    `@ low-child\n    `= priority|99\n\n`task High\n  `@ high\n  `= priority|10\n\n  `task Later child\n    `@ later-child\n    `= priority|2\n\n    `task Grandchild\n      `@ grandchild\n\n  `task First child\n    `@ first-child\n    `= priority|8\n",
         )
         .unwrap();
 
@@ -295,7 +295,7 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(
             root.join("tasks.plumb"),
-            "`task Medium\n  `@ medium\n  `= priority 20\n`task Blocker\n  `@ blocker\n  `= priority -5\n`task Urgent\n  `@ urgent\n  `= priority 50\n  `= depends #blocker\n",
+            "`task Medium\n  `@ medium\n  `= priority|20\n`task Blocker\n  `@ blocker\n  `= priority|-5\n`task Urgent\n  `@ urgent\n  `= priority|50\n  `= depends|#blocker\n",
         )
         .unwrap();
 
@@ -321,17 +321,17 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(
             root.join("a.plumb"),
-            "`task Deferred\n  `@ deferred\n  `= priority -10\n\n  `task More deferred\n    `@ more-deferred\n    `= priority -20\n\n`task Normal\n  `@ normal\n",
+            "`task Deferred\n  `@ deferred\n  `= priority|-10\n\n  `task More deferred\n    `@ more-deferred\n    `= priority|-20\n\n`task Normal\n  `@ normal\n",
         )
         .unwrap();
         std::fs::write(
             root.join("b.plumb"),
-            "`task Important\n  `@ important\n  `= priority 10\n",
+            "`task Important\n  `@ important\n  `= priority|10\n",
         )
         .unwrap();
         std::fs::write(
             root.join("c.plumb"),
-            "`task Promoted root\n  `@ promoted\n  `= priority -5\n\n  `task Urgent descendant\n    `@ urgent\n    `= priority 50\n",
+            "`task Promoted root\n  `@ promoted\n  `= priority|-5\n\n  `task Urgent descendant\n    `@ urgent\n    `= priority|50\n",
         )
         .unwrap();
 
@@ -360,12 +360,12 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(
             root.join("a.plumb"),
-            "`task Closed\n  `@ closed\n  `= priority 100\n  `= done 2026-07-31T10:00:00Z\n`task Low active\n  `@ low\n  `= priority 1\n",
+            "`task Closed\n  `@ closed\n  `= priority|100\n  `= done|2026-07-31T10:00:00Z\n`task Low active\n  `@ low\n  `= priority|1\n",
         )
         .unwrap();
         std::fs::write(
             root.join("b.plumb"),
-            "`task Important active\n  `@ important\n  `= priority 10\n",
+            "`task Important active\n  `@ important\n  `= priority|10\n",
         )
         .unwrap();
 
@@ -395,7 +395,7 @@ mod tests {
         )
         .unwrap();
         let updated = std::fs::read_to_string(path).unwrap();
-        assert!(updated.contains("`= done 2026-07-20T12:00:00+08:00"));
+        assert!(updated.contains("`= done|2026-07-20T12:00:00+08:00"));
         std::fs::remove_dir_all(root).unwrap();
     }
 
@@ -436,10 +436,10 @@ mod tests {
         )
         .unwrap();
 
-        assert!(std::fs::read_to_string(first).unwrap().contains("`= done "));
+        assert!(std::fs::read_to_string(first).unwrap().contains("`= done|"));
         assert!(std::fs::read_to_string(second)
             .unwrap()
-            .contains("`= done "));
+            .contains("`= done|"));
         std::fs::remove_dir_all(root).unwrap();
     }
 

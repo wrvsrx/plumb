@@ -1,14 +1,14 @@
 [
   {
     "name": "marked block projects direct declaration children",
-    "source": "`node Head\n `@ id\n `+ class\n `= key complex value\n",
+    "source": "`node Head\n `@ id\n `+ class\n `= key|complex value\n",
     "valid": true,
     "blocks": [{
       "kind": "marked", "marker": "node", "attrs": ["#id", ".class", "key=complex value"],
       "head": "Head", "inline": "T\"Head\"", "children": [
         {"kind":"marked","marker":"@","attrs":[],"head":"id","inline":"T\"id\"","children":[]},
         {"kind":"marked","marker":"+","attrs":[],"head":"class","inline":"T\"class\"","children":[]},
-        {"kind":"marked","marker":"=","attrs":[],"head":"key complex value","inline":"T\"key\"W\" \"T\"complex\"W\" \"T\"value\"","children":[]}
+        {"kind":"marked","marker":"=","attrs":[],"head":"keycomplex value","inline":"T\"key\"|T\"complex\"W\" \"T\"value\"","children":[]}
       ]
     }],
     "diagnostics": [],
@@ -166,8 +166,8 @@
     "name": "invalid marker is diagnosed",
     "source": "`| head\n",
     "valid": false,
-    "blocks": [{"kind":"marked","marker":"","attrs":[],"head":" head","inline":"W\" \"T\"head\"","children":[]}],
-    "diagnostics": [{"code":"syntax.invalid-marker","range":{"text":"`|"}},{"code":"syntax.unexpected-member-separator","range":{"text":"|"}}],
+    "blocks": [{"kind":"marked","marker":"","attrs":[],"head":" head","inline":"|W\" \"T\"head\"","children":[]}],
+    "diagnostics": [{"code":"syntax.invalid-marker","range":{"text":"`|"}}],
     "required_tokens": ["Error"]
   },
   {

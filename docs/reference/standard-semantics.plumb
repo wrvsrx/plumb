@@ -1,4 +1,4 @@
-`= title plumb standard semantics reference
+`= title|plumb standard semantics reference
 
 `# 1. Scope
 
@@ -59,25 +59,25 @@ marker `":" 产生 definition record。head 是 term，children 是 definition b
 
 `## 5.1 Block positional argument projection
 
-block 多 argument recognizer 在没有 children 时，以 head 的首个 inline item 和紧随其后的 `"Space"
-切分；存在 children 时，完整 head 是第一个 argument，children 是后续结构。
-separator `"Space" 只建立 compact boundary，不进入任一 argument。各 recognizer 继续独立约束 arity
-与 argument content；例如 association key 仍须投影为非空 plain key。
+block head 直接暴露 core syntax 产生的 ordered parsed arguments；所有 kind 共用 bare `"|" boundary，
+semantic recognizer 不再按 space 或 kind-specific text grammar 二次切分 head。space 始终属于当前
+argument。各 recognizer 独立约束 arity 与 argument content；例如 association key 仍须投影为非空
+plain key。children 位于完整 head argument sequence 之后，不占 positional argument index。
 
 block-level `"=" association 的形态是：
 
 `plumb
 
 |"
-  `= title plumb title
-  `= `()[key with spaces] value with spaces
-  `= key with spaces
+  `= title|plumb title
+  `= key|with spaces|value with spaces
+  `= key|with spaces
     `()[value with spaces]
 
-没有 children 时，head 的首个 inline item 是 key，紧随 `"Space" 后的其余 inline items 是
-同行 value；只有 key 时 value 为空。存在 children 时，不再切分 head：整个 head 是 key，ordered
-children 共同构成 value。是否存在 raw tail 不改变上述 projection。association 自身的 direct children
-属于 association value，而不是 association owner 的独立 attached region。
+没有 children 时，association 必须有一个或两个 head arguments：first 是 key，optional second 是同行
+value；只有 key 时 value 为空。存在 children 时必须恰好有一个 head argument 作为 key，ordered children
+共同构成 value。额外 head arguments 是 semantic error。是否存在 raw tail 不改变上述 projection。
+association 自身的 direct children 属于 association value，而不是 association owner 的独立 attached region。
 
 `## 5.2 Inline member projection
 
@@ -119,9 +119,10 @@ document identity 由 normalized workspace-relative path 定义，不由 source 
 `"document.unsupported-facet" warning，也不进入 document body。只有进入 `"=" association value 后，
 direct `"+" 才投影为 metadata sequence member。
 
-metadata entry 使用第 5.1 节的 association projection：没有 children 时，第一个 inline item 是 key，
-separator 后的 remainder 是同行 value；存在 children 时，整个 nonempty plain head 是 key，children
-表达 value。compact key 需要包含 spaces 时使用 `"()[...]" 显式限定第一个 item。value shapes 为：
+metadata entry 使用第 5.1 节的 association projection：没有 children 时，first head argument 是 key，
+optional second argument 是同行 value；存在 children 时，唯一 nonempty plain head argument 是 key，
+children 表达 value。key 与 value 都可以自然包含 spaces 与 rich inline content，不需要额外 container
+限定 argument boundary。value shapes 为：
 
 `- 没有 body：null。
 `- 非空 head 或一个 paragraph child：scalar。
@@ -423,13 +424,14 @@ dollar-delimited math 没有特殊 syntax。
 `text
 
 |"
-  `event 14:00--15:30 Parser review
+  `event 14:00--15:30|Parser review
    `@ parser-review
-   `= date 2026-07-30
-   `= timezone +08:00
-   `= tasks #write-parser Project A.plumb#docs
+   `= date|2026-07-30
+   `= timezone|+08:00
+   `= tasks|#write-parser Project A.plumb#docs
 
-head 的第一个 inline text 是 schedule，随后必须有 ASCII space/tab 与非空 title 分隔；children 是 details。
+head 必须恰好有两个 arguments：first 是 nonempty plain schedule，second 是 nonempty title；children 是 details。
+event recognizer 不扫描 whitespace 或重新解析完整 head 来寻找 boundary。
 nested events 只形成 display tree，不表示时间包含关系。schedule start 接受 reduced-precision local-time `"TIME"、带显式日期但继承 timezone 的
 `"YYYY-MM-DDTTIME"，或自包含的完整 RFC 3339 timestamp。`"TIME" 是 `"HH"、`"HH:MM" 或
 `"HH:MM:SS"；一旦 start 指定 offset 或 `"Z"，就必须使用包含秒的完整 RFC 3339 spelling，不能把 offset
@@ -559,7 +561,7 @@ reference 的 id 结束后的 whitespace 才分隔下一条 reference；path 内
 
 |"
   `task Review
-   `= depends #local Project A.plumb#build Project B.plumb#test
+   `= depends|#local Project A.plumb#build Project B.plumb#test
 
 document-local closure state：
 

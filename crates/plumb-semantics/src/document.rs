@@ -337,10 +337,10 @@ fn collect_inlines(
                         }
                         InlineMember::Child { inline, .. } => collect_inlines(
                             source,
-                            &InlineContent {
-                                range: inline_range(inline).clone(),
-                                items: vec![inline.as_ref().clone()],
-                            },
+                            &InlineContent::from_items(
+                                inline_range(inline).clone(),
+                                vec![inline.as_ref().clone()],
+                            ),
                             first_ids,
                             output,
                         ),
@@ -994,7 +994,7 @@ mod tests {
 
     #[test]
     fn only_shorthand_ids_create_anchors() {
-        let parsed = parse("`# Heading\n  `@ intro\n\n`## Pair only\n  `= id pair\n");
+        let parsed = parse("`# Heading\n  `@ intro\n\n`## Pair only\n  `= id|pair\n");
         let output = analyze_document(
             parsed
                 .valid_syntax()

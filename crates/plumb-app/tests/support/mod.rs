@@ -135,7 +135,7 @@ pub fn response(messages: &[Value], id: u64) -> &Value {
 }
 
 pub fn attribute_value<'a>(text: &'a str, key: &str) -> &'a str {
-    let needle = format!("`= {key} ");
+    let needle = format!("`= {key}|");
     text.split_once(&needle)
         .and_then(|(_, value)| value.lines().next())
         .map(str::trim_end)

@@ -17,14 +17,14 @@ struct SqliteFixture {
 }
 
 fn workload(events: usize, references: usize, suffix: &str) -> (String, String) {
-    let target = "`= title Target\n\n`task Target\n `@ target\n".to_string();
+    let target = "`= title|Target\n\n`task Target\n `@ target\n".to_string();
     let mut source = String::with_capacity(events * 90 + references * 55);
-    source.push_str("`= title Migrated events\n`= timezone Z\n\n");
+    source.push_str("`= title|Migrated events\n`= timezone|Z\n\n");
     for index in 0..events {
         let day = index % 28 + 1;
         let hour = index % 24;
         source.push_str(&format!(
-            "`event 2026-08-{day:02}T{hour:02}:00 Event {index}{suffix}\n `@ event-{index}\n\n"
+            "`event 2026-08-{day:02}T{hour:02}:00|Event {index}{suffix}\n `@ event-{index}\n\n"
         ));
     }
     for _ in 0..references {
@@ -34,23 +34,23 @@ fn workload(events: usize, references: usize, suffix: &str) -> (String, String) 
 }
 
 fn task_document_source(document: usize, tasks: usize, suffix: &str) -> String {
-    let mut source = format!("`= title Task document {document}{suffix}\n\n");
+    let mut source = format!("`= title|Task document {document}{suffix}\n\n");
     for task in 0..tasks {
         let id = format!("task-{document:03}-{task:02}");
         source.push_str(&format!(
-            "`task Task {document:03}/{task:02}{suffix}\n `@ {id}\n `= priority {}\n `= due 2026-08-{:02}T10:00:00Z\n",
+            "`task Task {document:03}/{task:02}{suffix}\n `@ {id}\n `= priority|{}\n `= due|2026-08-{:02}T10:00:00Z\n",
             (document + task) % 31,
             (document + task) % 28 + 1,
         ));
         if task > 0 {
             source.push_str(&format!(
-                " `= depends #task-{document:03}-{:02}\n",
+                " `= depends|#task-{document:03}-{:02}\n",
                 task - 1
             ));
         }
     }
     source.push_str(&format!(
-        "\n`event 09:00 Review {document:03}{suffix}\n `= date 2026-08-28\n `= timezone +00:00\n `= tasks #task-{document:03}-00\n"
+        "\n`event 09:00|Review {document:03}{suffix}\n `= date|2026-08-28\n `= timezone|+00:00\n `= tasks|#task-{document:03}-00\n"
     ));
     source
 }

@@ -10,8 +10,8 @@ pub(super) fn attribute_completion_text(text: &str, snippets: bool) -> String {
         format!("{prefix}|${{1}}]")
     } else if let Some(prefix) = text.strip_suffix("[]") {
         format!("{prefix}[${{1}}]")
-    } else if text == "`= priority 0" {
-        "`= priority ${1:0}".to_string()
+    } else if text == "`= priority|0" {
+        "`= priority|${1:0}".to_string()
     } else if text.ends_with(' ') {
         format!("{text}${{1}}")
     } else {
@@ -104,8 +104,8 @@ pub(super) fn task_construct_template(block_indent: &str, timestamp: &str) -> Co
     ConstructTemplate {
         label: "Task",
         detail: "plumb task list item",
-        snippet: format!("`task ${{1:Task}}\n\n{block_indent}`= created {timestamp}"),
-        plain: format!("`task\n{block_indent}`= created {timestamp}"),
+        snippet: format!("`task ${{1:Task}}\n\n{block_indent}`= created|{timestamp}"),
+        plain: format!("`task\n{block_indent}`= created|{timestamp}"),
     }
 }
 
@@ -149,7 +149,7 @@ pub(super) fn construct_completion_items(
             vec![ConstructTemplate {
                 label: "Event",
                 detail: "plumb event list item",
-                snippet: "`event ${1:09:00} ${2:Event}".to_string(),
+                snippet: "`event ${1:09:00}|${2:Event}".to_string(),
                 plain: "`event ".to_string(),
             }],
         ),

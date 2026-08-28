@@ -86,12 +86,7 @@ fn project_block_attributes(source: &str, blocks: &[Block]) -> Vec<AttrItem> {
                 return None;
             }
             let (key, key_range, value_range) = association_parts(&block.head)?;
-            let value = block.head.items[2..]
-                .iter()
-                .fold(String::new(), |mut output, inline| {
-                    append_inline_plain_text(inline, &mut output);
-                    output
-                });
+            let value = block.head.argument_plain_text(1)?;
             Some(AttrItem::Pair {
                 key,
                 key_range,
@@ -198,39 +193,13 @@ fn plain_argument_key(argument: &InlineArgumentRef<'_>) -> Option<(String, Sourc
 }
 
 fn association_parts(content: &InlineContent) -> Option<(String, SourceRange, SourceRange)> {
-    let [key, Inline::Space { .. }, value @ ..] = content.items.as_slice() else {
-        return None;
-    };
-    if value.is_empty() {
+    if content.arguments.len() != 2 {
         return None;
     }
-    let (key, key_range) = match key {
-        Inline::Text { text, range } | Inline::Verbatim { text, range, .. } if !text.is_empty() => {
-            (text.clone(), range.clone())
-        }
-        Inline::Element {
-            kind,
-            members,
-            range,
-            ..
-        } if kind == "()" => {
-            let mut arguments = members.iter().filter_map(InlineMember::argument);
-            let argument = arguments.next()?;
-            if arguments.next().is_some() {
-                return None;
-            }
-            (argument.plain_text(), range.clone())
-        }
-        _ => return None,
-    };
-    if key.is_empty() {
-        return None;
-    }
-    Some((
-        key,
-        key_range,
-        inline_range(value.first()?).start..inline_range(value.last()?).end,
-    ))
+    let key = content.argument(0)?;
+    let value = content.argument(1)?;
+    let (key, key_range) = plain_key(&key)?;
+    Some((key, key_range, value.range.clone()))
 }
 
 fn plain_key(content: &InlineContent) -> Option<(String, SourceRange)> {
@@ -246,38 +215,6 @@ fn plain_key(content: &InlineContent) -> Option<(String, SourceRange)> {
     }
     let key = content.plain_text();
     (!key.is_empty()).then(|| (key, content.range.clone()))
-}
-
-fn inline_range(inline: &Inline) -> &SourceRange {
-    match inline {
-        Inline::Text { range, .. }
-        | Inline::Space { range, .. }
-        | Inline::SoftBreak { range }
-        | Inline::Element { range, .. }
-        | Inline::Verbatim { range, .. } => range,
-    }
-}
-
-fn append_inline_plain_text(inline: &Inline, output: &mut String) {
-    match inline {
-        Inline::Text { text, .. } | Inline::Space { text, .. } | Inline::Verbatim { text, .. } => {
-            output.push_str(text)
-        }
-        Inline::SoftBreak { .. } => output.push(' '),
-        Inline::Element { members, .. } => {
-            for member in members {
-                match member {
-                    InlineMember::ParsedArgument(argument) => {
-                        output.push_str(&argument.content.plain_text());
-                    }
-                    InlineMember::VerbatimArgument(argument) => output.push_str(&argument.text),
-                    InlineMember::Child { inline, .. } => {
-                        append_inline_plain_text(inline, output);
-                    }
-                }
-            }
-        }
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -317,6 +254,7 @@ struct InlineFrame {
     opening: Option<InlineOpening>,
     separator_range: Option<SourceRange>,
     member_complete: bool,
+    argument_item_start: usize,
 }
 
 struct BlockFrame {
@@ -678,10 +616,7 @@ impl Parser<'_> {
                             marker_range,
                             attrs: Attributes::default(),
                         }),
-                        head: InlineContent {
-                            range: head_start..head_start,
-                            items: Vec::new(),
-                        },
+                        head: InlineContent::from_items(head_start..head_start, Vec::new()),
                         children: Vec::new(),
                         raw: None,
                     },
@@ -972,7 +907,9 @@ impl Parser<'_> {
             opening: None,
             separator_range: None,
             member_complete: false,
+            argument_item_start: 0,
         }];
+        let mut root_arguments = Vec::new();
 
         while position.segment < segments.len() {
             let segment = segments[position.segment];
@@ -1065,6 +1002,7 @@ impl Parser<'_> {
                                     }),
                                     separator_range: None,
                                     member_complete: false,
+                                    argument_item_start: 0,
                                 });
                                 continue;
                             }
@@ -1123,14 +1061,18 @@ impl Parser<'_> {
             }
             if byte == b'|' {
                 if frames.len() == 1 {
-                    flush_inline_text(self.source, frames.last_mut().unwrap(), cursor);
-                    self.diagnostics.push(Diagnostic::error(
-                        "syntax.unexpected-member-separator",
-                        "an inline member separator must occur inside an inline element",
-                        cursor..cursor + 1,
-                    ));
+                    let frame = frames.last_mut().unwrap();
+                    flush_inline_text(self.source, frame, cursor);
+                    root_arguments.push(crate::InlineContentArgument {
+                        range: frame.start..cursor,
+                        separator_range: frame.separator_range.clone(),
+                        item_range: frame.argument_item_start..frame.items.len(),
+                    });
                     position.offset += 1;
-                    frames.last_mut().unwrap().text_start = position.offset;
+                    frame.start = position.offset;
+                    frame.text_start = position.offset;
+                    frame.separator_range = Some(cursor..cursor + 1);
+                    frame.argument_item_start = frame.items.len();
                     continue;
                 }
 
@@ -1145,10 +1087,10 @@ impl Parser<'_> {
                         .push(InlineMember::ParsedArgument(InlineArgument {
                             range: frame.start..cursor,
                             separator_range: frame.separator_range.clone(),
-                            content: InlineContent {
-                                range: frame.start..cursor,
-                                items: std::mem::take(&mut frame.items),
-                            },
+                            content: InlineContent::from_items(
+                                frame.start..cursor,
+                                std::mem::take(&mut frame.items),
+                            ),
                         }));
                 }
                 position.offset += 1;
@@ -1157,6 +1099,7 @@ impl Parser<'_> {
                 frame.items.clear();
                 frame.separator_range = Some(cursor..cursor + 1);
                 frame.member_complete = false;
+                frame.argument_item_start = 0;
                 continue;
             }
             if byte == b']' && frames.len() == 1 {
@@ -1182,10 +1125,10 @@ impl Parser<'_> {
                         .push(InlineMember::ParsedArgument(InlineArgument {
                             range: frame.start..cursor,
                             separator_range: frame.separator_range.clone(),
-                            content: InlineContent {
-                                range: frame.start..cursor,
-                                items: std::mem::take(&mut frame.items),
-                            },
+                            content: InlineContent::from_items(
+                                frame.start..cursor,
+                                std::mem::take(&mut frame.items),
+                            ),
                         }));
                 }
                 position.offset += 1;
@@ -1361,6 +1304,7 @@ impl Parser<'_> {
                     }),
                     separator_range: None,
                     member_complete: false,
+                    argument_item_start: 0,
                 });
                 continue;
             }
@@ -1392,9 +1336,15 @@ impl Parser<'_> {
         }
         let mut root = frames.pop().unwrap();
         flush_inline_text(self.source, &mut root, position.offset);
-        InlineContent {
+        root_arguments.push(crate::InlineContentArgument {
             range: root.start..position.offset,
+            separator_range: root.separator_range,
+            item_range: root.argument_item_start..root.items.len(),
+        });
+        InlineContent {
+            range: start..position.offset,
             items: root.items,
+            arguments: root_arguments,
         }
     }
 
@@ -1552,7 +1502,7 @@ mod tests {
 
     #[test]
     fn projects_direct_declaration_children_without_reordering_them() {
-        let source = "`task Work\n\n `note first\n\n `@ work\n\n `= due tomorrow\n\n `note last\n";
+        let source = "`task Work\n\n `note first\n\n `@ work\n\n `= due|tomorrow\n\n `note last\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let Block::Parsed(task) = &parsed.syntax.blocks[0] else {
@@ -1639,6 +1589,41 @@ mod tests {
         assert_eq!(marked.mark.as_ref().unwrap().marker, "marker{brace}");
         assert_eq!(marked.head.plain_text(), "Head {content}");
         assert_eq!(parsed.lossless.reconstruct(source), source);
+    }
+
+    #[test]
+    fn block_heads_and_paragraphs_expose_pipe_delimited_arguments() {
+        let parsed = parse("`row Language server|Waiting||Optional note\n\nfirst|second value\n");
+        assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
+
+        let Block::Parsed(row) = &parsed.syntax.blocks[0] else {
+            panic!("row is parsed");
+        };
+        assert_eq!(row.head.arguments.len(), 4);
+        assert_eq!(
+            row.head.argument_plain_text(0).as_deref(),
+            Some("Language server")
+        );
+        assert_eq!(row.head.argument_plain_text(1).as_deref(), Some("Waiting"));
+        assert_eq!(row.head.argument_plain_text(2).as_deref(), Some(""));
+        assert_eq!(
+            row.head.argument_plain_text(3).as_deref(),
+            Some("Optional note")
+        );
+        assert_eq!(
+            row.head.arguments[1]
+                .separator_range
+                .as_ref()
+                .map(|range| &parsed.source[range.clone()]),
+            Some("|")
+        );
+
+        let Block::Parsed(paragraph) = &parsed.syntax.blocks[1] else {
+            panic!("paragraph is parsed");
+        };
+        assert!(paragraph.mark.is_none());
+        assert_eq!(paragraph.head.arguments.len(), 2);
+        assert_eq!(paragraph.head.plain_text(), "firstsecond value");
     }
 
     #[test]

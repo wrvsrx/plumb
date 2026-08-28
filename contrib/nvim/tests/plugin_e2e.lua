@@ -7,7 +7,7 @@ local root = vim.fn.tempname()
 vim.fn.mkdir(root .. '/.plumb', 'p')
 local path = root .. '/plugin.plumb'
 vim.fn.writefile({
-  '`= title Plugin E2E',
+  '`= title|Plugin E2E',
   '',
   '`task Do work',
   ' `@ work',

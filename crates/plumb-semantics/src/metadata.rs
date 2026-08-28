@@ -326,62 +326,23 @@ fn direct_property_parts(
 ) -> Option<(String, Range<usize>, Option<InlineContent>)> {
     let head = &property.head;
     if !property.children.is_empty() {
-        let key = plain_association_key(head)?;
-        return Some((key, head.range.clone(), None));
-    }
-    let first = head.items.first()?;
-    let (key, key_range) = match first {
-        Inline::Text { text, range }
-            if !text.is_empty() && !text.chars().any(char::is_whitespace) =>
-        {
-            (text.clone(), range.clone())
+        if head.arguments.len() != 1 {
+            return None;
         }
-        Inline::Element {
-            kind,
-            members,
-            attrs,
-            range,
-            ..
-        } if kind == "()" && attrs.items.is_empty() => {
-            let mut arguments = members.iter().filter_map(InlineMember::argument);
-            let argument = arguments.next()?;
-            if arguments.next().is_some() {
-                return None;
-            }
-            let key = argument.plain_text();
-            if key.is_empty() {
-                return None;
-            }
-            (key, range.clone())
-        }
-        _ => return None,
-    };
-    match head.items.as_slice() {
-        [_] => Some((key, key_range, None)),
-        [_, Inline::Space { .. }, value @ ..] if !value.is_empty() => {
-            let start = inline_source_range(value.first()?).start;
-            let end = inline_source_range(value.last()?).end;
-            Some((
-                key,
-                key_range,
-                Some(InlineContent {
-                    range: start..end,
-                    items: value.to_vec(),
-                }),
-            ))
-        }
-        _ => None,
+        let key_content = head.argument(0)?;
+        let key = plain_association_key(&key_content)?;
+        return Some((key, key_content.range.clone(), None));
     }
-}
-
-fn inline_source_range(inline: &Inline) -> &Range<usize> {
-    match inline {
-        Inline::Text { range, .. }
-        | Inline::Space { range, .. }
-        | Inline::SoftBreak { range }
-        | Inline::Element { range, .. }
-        | Inline::Verbatim { range, .. } => range,
+    if !(1..=2).contains(&head.arguments.len()) {
+        return None;
     }
+    let key_content = head.argument(0)?;
+    let key = plain_association_key(&key_content)?;
+    let key_range = key_content.range.clone();
+    let value = (head.arguments.len() == 2)
+        .then(|| head.argument(1))
+        .flatten();
+    Some((key, key_range, value))
 }
 
 fn parse_direct_children(
@@ -576,26 +537,9 @@ fn plain_association_key(content: &InlineContent) -> Option<String> {
 }
 
 fn split_inline_arguments(content: &InlineContent) -> (InlineContent, Option<InlineContent>) {
-    let Some(first) = content.items.first() else {
-        return (content.clone(), None);
-    };
-    let term_range = inline_source_range(first).clone();
-    let term = InlineContent {
-        range: term_range,
-        items: vec![first.clone()],
-    };
-    let [_, Inline::Space { .. }, value @ ..] = content.items.as_slice() else {
-        return (term, None);
-    };
-    let Some(last) = value.last() else {
-        return (term, None);
-    };
-    let body = InlineContent {
-        range: inline_source_range(value.first().expect("nonempty value")).start
-            ..inline_source_range(last).end,
-        items: value.to_vec(),
-    };
-    (term, Some(body))
+    let term = content.argument(0).unwrap_or_else(|| content.clone());
+    let body = content.argument(1);
+    (term, body)
 }
 
 fn definition_block(block: &Block) -> Option<&ParsedBlock> {
@@ -644,7 +588,7 @@ mod tests {
     #[test]
     fn groups_definition_lists_and_projects_metadata_values() {
         let parsed = parse(
-            "`= title Document `em[title]\n`= tags\n\n `+ plumb\n `+ parser\n\n`= macros\n\n `+\n  `+ `\"name\"\n  `+ `\"expansion\"\n  `+ 1\n\n`= author\n\n `= name Alice\n\n`= source\n\n `\"\n  raw\n\n`: term\n\n Definition.\n",
+            "`= title|Document `em[title]\n`= tags\n\n `+ plumb\n `+ parser\n\n`= macros\n\n `+\n  `+ `\"name\"\n  `+ `\"expansion\"\n  `+ 1\n\n`= author\n\n `= name|Alice\n\n`= source\n\n `\"\n  raw\n\n`: term\n\n Definition.\n",
         );
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let output = analyze_metadata(
@@ -683,7 +627,7 @@ mod tests {
     #[test]
     fn projects_recursive_document_metadata() {
         let parsed = parse(
-            "`= title Document `em[title]\n`= tags\n `+ plumb\n `+ parser\n`= macros\n `+\n  `+ `\"name\"\n  `+ `\"expansion\"\n`= author\n `= name Alice\n`= empty\n\nBody.\n",
+            "`= title|Document `em[title]\n`= tags\n `+ plumb\n `+ parser\n`= macros\n `+\n  `+ `\"name\"\n  `+ `\"expansion\"\n`= author\n `= name|Alice\n`= empty\n\nBody.\n",
         );
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let output = analyze_metadata(
@@ -737,7 +681,7 @@ mod tests {
     #[test]
     fn declarations_can_interleave_with_body_and_reject_document_facets() {
         let parsed = parse(
-            "`= title Root\n\nBody before.\n\n`+ journal\n\nBody after.\n\n`= created 2026-08-26T00:00:00+08:00\n",
+            "`= title|Root\n\nBody before.\n\n`+ journal\n\nBody after.\n\n`= created|2026-08-26T00:00:00+08:00\n",
         );
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let output = analyze_metadata(
@@ -762,7 +706,7 @@ mod tests {
 
     #[test]
     fn document_title_requires_a_scalar_value() {
-        let parsed = parse("`= title\n `+ Not a scalar\n\n`= title Later scalar\n");
+        let parsed = parse("`= title\n `+ Not a scalar\n\n`= title|Later scalar\n");
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         assert_eq!(
             analyze_metadata(
@@ -864,8 +808,8 @@ mod tests {
     }
 
     #[test]
-    fn definitions_split_compact_heads_but_keep_heads_with_children_whole() {
-        let source = "`: term inline body\n\n`: term with spaces\n\n  child body\n";
+    fn definitions_use_head_arguments_or_children_for_their_body() {
+        let source = "`: term|inline body\n\n`: term with spaces\n\n  child body\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
@@ -895,8 +839,8 @@ mod tests {
     }
 
     #[test]
-    fn document_metadata_uses_compact_or_child_bounded_association_keys() {
-        let source = "`= title plumb title\n`= `()[key with spaces] inline value\n`= child key with spaces\n\n child value\n";
+    fn document_metadata_uses_head_arguments_or_children_for_associations() {
+        let source = "`= title|plumb title\n`= key with spaces|inline value\n`= child key with spaces\n\n child value\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
@@ -926,7 +870,7 @@ mod tests {
 
     #[test]
     fn lints_only_the_standard_created_timestamp() {
-        let parsed = parse("`= created 2026-07-22T12:34:56+08:00\n`= custom not-a-date\n");
+        let parsed = parse("`= created|2026-07-22T12:34:56+08:00\n`= custom|not-a-date\n");
         let output = analyze_metadata(
             parsed
                 .valid_syntax()
@@ -934,7 +878,7 @@ mod tests {
         );
         assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
 
-        let parsed = parse("`= created 2026-07-22 12:34:56\n");
+        let parsed = parse("`= created|2026-07-22 12:34:56\n");
         let output = analyze_metadata(
             parsed
                 .valid_syntax()

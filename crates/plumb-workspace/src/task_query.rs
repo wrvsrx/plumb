@@ -911,17 +911,17 @@ mod tests {
             (
                 "a.plumb",
                 concat!(
-                    "`task Parent\n `@ parent\n `= priority -1\n",
-                    " `task Dependent\n  `@ dependent\n  `= priority 20\n  `= depends b.plumb#target\n",
+                    "`task Parent\n `@ parent\n `= priority|-1\n",
+                    " `task Dependent\n  `@ dependent\n  `= priority|20\n  `= depends|b.plumb#target\n",
                 ),
             ),
             (
                 "b.plumb",
-                "`task Target\n `@ target\n `= priority 1\n",
+                "`task Target\n `@ target\n `= priority|1\n",
             ),
             (
                 "c.plumb",
-                "`task Done\n `@ done\n `= done 2026-08-27T12:00:00Z\n",
+                "`task Done\n `@ done\n `= done|2026-08-27T12:00:00Z\n",
             ),
         ];
         for (path, source) in documents {

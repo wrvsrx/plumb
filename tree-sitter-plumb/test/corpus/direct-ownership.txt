@@ -6,7 +6,7 @@ Direct declarations and ordinary children
 
  `+ shopping
  `@ shopping
- `= due 2026-08-07
+ `= due|2026-08-07
 
  `note Remember the coupon
 
@@ -38,6 +38,8 @@ Direct declarations and ordinary children
         (marker)
         (head_separator)
         (inline_content
+          (text)
+          (argument_separator)
           (text)))
       (marked_block
         (introducer)
@@ -56,7 +58,7 @@ Interleaved direct children
 
  child paragraph
 
- `= key value
+ `= key|value
 
  `child Nested
 
@@ -86,6 +88,8 @@ Interleaved direct children
         (marker)
         (head_separator)
         (inline_content
+          (text)
+          (argument_separator)
           (text)))
       (marked_block
         (introducer)
@@ -101,7 +105,7 @@ Marked raw tail after children
 `rust
 
  `@ example
- `= generated true
+ `= generated|true
 
  `note Source follows
 
@@ -127,6 +131,8 @@ Marked raw tail after children
         (marker)
         (head_separator)
         (inline_content
+          (text)
+          (argument_separator)
           (text)))
       (marked_block
         (introducer)

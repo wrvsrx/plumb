@@ -9,7 +9,7 @@ fn syntax_invalid_revision_does_not_publish_bibliography_diagnostics() {
     let source_path = root.join("invalid.plumb");
     let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
     let source_uri = lsp_types::Url::from_file_path(&source_path).unwrap();
-    let source = "`= bibliography missing.json\n\n`span[open\n";
+    let source = "`= bibliography|missing.json\n\n`span[open\n";
     let messages = [
         json!({
             "jsonrpc": "2.0", "id": 1, "method": "initialize",

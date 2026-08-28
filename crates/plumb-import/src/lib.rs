@@ -116,7 +116,7 @@ fn render_metadata_entry(key: &str, value: &MetaValue) -> Result<String, String>
     if matches!(value, MetaValue::MetaString(value) if !value.contains(['\n', '\r']))
         || matches!(value, MetaValue::MetaInlines(_))
     {
-        return Ok(format!("`= {key} {value_source}"));
+        return Ok(format!("`= {key}|{value_source}"));
     }
     Ok(format!("`= {key}\n{}", indent(&value_source, 2)))
 }
@@ -539,7 +539,7 @@ fn render_attrs(attrs: &Attr, consumed_pair: Option<&str>) -> Result<String, Str
         } else {
             escape_block_text(value)
         };
-        items.push(format!("`= {} {value}", escape_block_text(key)));
+        items.push(format!("`= {}|{value}", escape_block_text(key)));
     }
     Ok(if items.is_empty() {
         String::new()
@@ -770,7 +770,7 @@ mod tests {
             source.starts_with("`= tags\n\n `+ plumb\n `+ markup\n\n"),
             "{source}"
         );
-        assert!(source.contains("`= title Example\n"), "{source}");
+        assert!(source.contains("`= title|Example\n"), "{source}");
         assert!(source.contains("`# Intro\n\n `@ intro"), "{source}");
         assert!(source.contains("`*[em] `![strong] `==[marked|@[marked]|+[keep]]"));
         assert!(source.contains("`~[strike] `^[super] `_[sub]"));

@@ -1,4 +1,4 @@
-`= title Direct block ownership and raw tails
+`= title|Direct block ownership and raw tails
 
 `note 本页记录已经冻结并实现的 breaking feature set；validity 以
  `->[core syntax reference|../reference/core-syntax.plumb] 为准。
@@ -13,10 +13,10 @@
 `. marked block 使用一个 source-ordered direct children sequence 同时保存 declarations 与普通 structural
  children；core 不解释 declaration marker，semantic profile 投影 direct leaf `"@"、`"+"、`"=" 并从
  owner body/details projection 中过滤已消费 declarations。
-`. block head positional projection 保持现有规则：没有 children 时由首个 inline item 与其后 space 切分；
-
-存在 children 时完整 head 是 key、children 是 value。inline owner 继续使用 single `"[]" envelope 与
-`"|" members；argument/child 可以乱序，semantic positional index 只计 arguments。
+`. block head 与 paragraph 直接使用 bare `"|" 分隔 ordered parsed arguments；space 始终属于 argument
+content，children 位于完整 head argument sequence 之后。inline owner 同样使用 single `"[]" envelope 与
+`"|" members；argument/child 可以乱序，semantic positional index 只计 arguments。两层结构因此共享
+同一个 positional boundary，而不需要 kind-specific whitespace parser。
 
 `. 所有 marked blocks 具有同一 shape：marker、head、children 与 optional singular raw tail。raw tail 由
 

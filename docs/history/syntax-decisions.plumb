@@ -1,4 +1,4 @@
-`= title plumb syntax decision record
+`= title|plumb syntax decision record
 
 本页保存已经影响当前语言形状的设计理由。当前 validity 只以
 `->[`()[core syntax reference]|../reference/core-syntax.plumb] 为准；本页不重复充当规范。

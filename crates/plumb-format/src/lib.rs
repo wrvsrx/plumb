@@ -550,7 +550,7 @@ impl Formatter {
             let marker = mark.marker.as_str();
             self.output.push('`');
             self.output.push_str(marker);
-            if !block.head.items.is_empty() {
+            if !block.head.is_empty() {
                 self.output.push(' ');
             }
             indent + 1
@@ -560,7 +560,7 @@ impl Formatter {
         self.inlines(&block.head, continuation_indent, false);
 
         if !block.children.is_empty() {
-            if block.head.items.is_empty() && block.raw.is_none() {
+            if block.head.is_empty() && block.raw.is_none() {
                 self.output.push('\n');
             } else {
                 self.output.push_str("\n\n");
@@ -582,8 +582,13 @@ impl Formatter {
     }
 
     fn inlines(&mut self, content: &InlineContent, continuation_indent: usize, nested: bool) {
-        for inline in &content.items {
-            self.inline(inline, continuation_indent, nested, true);
+        for argument in &content.arguments {
+            if argument.separator_range.is_some() {
+                self.output.push('|');
+            }
+            for inline in &content.items[argument.item_range.clone()] {
+                self.inline(inline, continuation_indent, nested, true);
+            }
         }
     }
 
@@ -808,47 +813,52 @@ mod tests {
 
     fn shape_inlines(content: &InlineContent, output: &mut String) {
         output.push('(');
-        for inline in &content.items {
-            match inline {
-                Inline::Text { text, .. } => {
-                    let _ = write!(output, "T{text:?}");
-                }
-                Inline::Space { text, .. } => {
-                    let _ = write!(output, "W{text:?}");
-                }
-                Inline::SoftBreak { .. } => output.push('S'),
-                Inline::Element {
-                    kind,
-                    members,
-                    attrs,
-                    ..
-                } => {
-                    let _ = write!(output, "E{kind:?}");
-                    for member in members {
-                        match member {
-                            plumb_syntax::InlineMember::ParsedArgument(argument) => {
-                                output.push_str("A[");
-                                shape_inlines(&argument.content, output);
-                                output.push(']');
-                            }
-                            plumb_syntax::InlineMember::VerbatimArgument(argument) => {
-                                let _ = write!(output, "R{:?}", argument.text);
-                            }
-                            plumb_syntax::InlineMember::Child { inline, .. } => {
-                                output.push('C');
-                                let content = InlineContent {
-                                    range: 0..0,
-                                    items: vec![inline.as_ref().clone()],
-                                };
-                                shape_inlines(&content, output);
+        for argument in &content.arguments {
+            if argument.separator_range.is_some() {
+                output.push('|');
+            }
+            for inline in &content.items[argument.item_range.clone()] {
+                match inline {
+                    Inline::Text { text, .. } => {
+                        let _ = write!(output, "T{text:?}");
+                    }
+                    Inline::Space { text, .. } => {
+                        let _ = write!(output, "W{text:?}");
+                    }
+                    Inline::SoftBreak { .. } => output.push('S'),
+                    Inline::Element {
+                        kind,
+                        members,
+                        attrs,
+                        ..
+                    } => {
+                        let _ = write!(output, "E{kind:?}");
+                        for member in members {
+                            match member {
+                                plumb_syntax::InlineMember::ParsedArgument(argument) => {
+                                    output.push_str("A[");
+                                    shape_inlines(&argument.content, output);
+                                    output.push(']');
+                                }
+                                plumb_syntax::InlineMember::VerbatimArgument(argument) => {
+                                    let _ = write!(output, "R{:?}", argument.text);
+                                }
+                                plumb_syntax::InlineMember::Child { inline, .. } => {
+                                    output.push('C');
+                                    let content = InlineContent::from_items(
+                                        0..0,
+                                        vec![inline.as_ref().clone()],
+                                    );
+                                    shape_inlines(&content, output);
+                                }
                             }
                         }
+                        shape_attrs(attrs, output);
                     }
-                    shape_attrs(attrs, output);
-                }
-                Inline::Verbatim { text, attrs, .. } => {
-                    let _ = write!(output, "V{text:?}");
-                    shape_attrs(attrs, output);
+                    Inline::Verbatim { text, attrs, .. } => {
+                        let _ = write!(output, "V{text:?}");
+                        shape_attrs(attrs, output);
+                    }
                 }
             }
         }
@@ -881,8 +891,8 @@ mod tests {
     #[test]
     fn formats_direct_declarations_and_recursive_children() {
         assert_formats(
-            "`=   title Document title\n\n`= tags plumb\n\n`task   Buy milk\n   `+ task\n   `@ shopping\n\n   `note Details\n",
-            "`= title Document title\n`= tags plumb\n\n`task Buy milk\n\n `+ task\n\n `@ shopping\n\n `note Details\n",
+            "`=   title|Document title\n\n`= tags|plumb\n\n`task   Buy milk\n   `+ task\n   `@ shopping\n\n   `note Details\n",
+            "`= title|Document title\n`= tags|plumb\n\n`task Buy milk\n\n `+ task\n\n `@ shopping\n\n `note Details\n",
         );
         assert_formats("", "");
     }
@@ -977,7 +987,7 @@ mod tests {
     fn whole_document_diff_anchors_large_repeated_layout() {
         let mut source = String::new();
         for index in 0..512 {
-            let _ = write!(source, "`event   Event {index}\n   `= uid repeated\n\n");
+            let _ = write!(source, "`event   Event {index}\n   `= uid|repeated\n\n");
         }
         let canonical = format(&source).unwrap();
         let edits = format_edits(&source).unwrap();

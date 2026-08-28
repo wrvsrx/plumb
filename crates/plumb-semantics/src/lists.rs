@@ -172,7 +172,7 @@ mod tests {
 
     #[test]
     fn document_declarations_do_not_split_adjacent_body_lists() {
-        let parsed = parse("`- First\n`= title Between\n`+ journal\n`@ unsupported\n`- Second\n");
+        let parsed = parse("`- First\n`= title|Between\n`+ journal\n`@ unsupported\n`- Second\n");
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
         let output = analyze_lists(

@@ -79,7 +79,7 @@ fn labels_individual_metadata_entry_folds() {
 #[test]
 fn exposes_single_line_semantic_folds_to_line_and_character_range_clients() {
     let uri = "file:///tmp/single-line-folds.plumb";
-    let source = "`= date 2026-08-02\n`= timezone +08:00\n`task Ready\n`event 14:00 Standup\n";
+    let source = "`= date|2026-08-02\n`= timezone|+08:00\n`task Ready\n`event 14:00|Standup\n";
     let requests = |line_folding_only| {
         [
             json!({
@@ -138,7 +138,7 @@ fn exposes_single_line_semantic_folds_to_line_and_character_range_clients() {
                 "startCharacter": 0,
                 "endLine": 3,
                 "endCharacter": source.lines().nth(3).unwrap().len(),
-                "collapsedText": "`event 2026-08-02T14:00  Standup"
+                "collapsedText": "`event 2026-08-02T14:00| Standup"
             }
         ])
     );
@@ -163,7 +163,7 @@ fn exposes_single_line_semantic_folds_to_line_and_character_range_clients() {
             {
                 "startLine": 3,
                 "endLine": 3,
-                "collapsedText": "`event 2026-08-02T14:00  Standup"
+                "collapsedText": "`event 2026-08-02T14:00| Standup"
             }
         ])
     );
@@ -283,7 +283,7 @@ fn folds_with_locally_determined_labels_before_initial_index_completes() {
     let document = root.join("inbox.plumb");
     let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
     let document_uri = lsp_types::Url::from_file_path(&document).unwrap();
-    let source = "`= title Workspace\n\n`event 14:00 Standup\n `= date 2026-08-02\n `= timezone +08:00\n `note Detail\n\n`task Blocker\n `@ blocker\n `note Detail\n\n`task Closed dependency\n `@ closed\n `= done 2026-08-01T00:00:00Z\n `note Detail\n\n`task Ready\n `note Detail\n\n`task Waiting\n `= wait 2099-01-01T00:00:00Z\n `= depends missing.plumb#task\n `note Detail\n\n`task Done\n `= done 2026-08-01T00:00:00Z\n `note Detail\n\n`task Canceled\n `= canceled 2026-08-01T00:00:00Z\n `note Detail\n\n`task Conflicted\n `= done 2026-08-01T00:00:00Z\n `= canceled 2026-08-01T00:01:00Z\n `note Detail\n\n`task Blocked\n `= depends #blocker\n `note Detail\n\n`task Resolved ready\n `= depends #closed\n `note Detail\n\n`task Unknown\n `= depends missing.plumb#task\n `note Detail\n";
+    let source = "`= title|Workspace\n\n`event 14:00|Standup\n `= date|2026-08-02\n `= timezone|+08:00\n `note Detail\n\n`task Blocker\n `@ blocker\n `note Detail\n\n`task Closed dependency\n `@ closed\n `= done|2026-08-01T00:00:00Z\n `note Detail\n\n`task Ready\n `note Detail\n\n`task Waiting\n `= wait|2099-01-01T00:00:00Z\n `= depends|missing.plumb#task\n `note Detail\n\n`task Done\n `= done|2026-08-01T00:00:00Z\n `note Detail\n\n`task Canceled\n `= canceled|2026-08-01T00:00:00Z\n `note Detail\n\n`task Conflicted\n `= done|2026-08-01T00:00:00Z\n `= canceled|2026-08-01T00:01:00Z\n `note Detail\n\n`task Blocked\n `= depends|#blocker\n `note Detail\n\n`task Resolved ready\n `= depends|#closed\n `note Detail\n\n`task Unknown\n `= depends|missing.plumb#task\n `note Detail\n";
     let first = [
         json!({
             "jsonrpc": "2.0", "id": 1, "method": "initialize",
@@ -330,7 +330,7 @@ fn folds_with_locally_determined_labels_before_initial_index_completes() {
         .collect::<Vec<_>>();
     for expected in [
         "title  Workspace",
-        "`event 2026-08-02T14:00  Standup",
+        "`event 2026-08-02T14:00| Standup",
         "`task [ ]  Blocker",
         "`task [o]  Closed dependency",
         "`task [ ]  Ready",
@@ -362,7 +362,7 @@ fn folds_with_locally_determined_labels_before_initial_index_completes() {
 #[test]
 fn labels_task_folds_with_derived_workflow_states() {
     let uri = "file:///tmp/task-fold-labels.plumb";
-    let source = "`task Ready task\n\n `@ blocker\n\n `note Detail\n\n`task Waiting task\n\n `= wait 2099-01-01T00:00:00Z\n `= depends #blocker\n\n `note Detail\n\n`task Done task\n\n `= done 2026-07-27T10:00:00Z\n\n `note Detail\n\n`task Canceled task\n\n `= canceled 2026-07-27T10:00:00Z\n\n `note Detail\n\n`task Conflicted task\n\n `= done 2026-07-27T10:00:00Z\n `= canceled 2026-07-27T10:01:00Z\n\n `note Detail\n\n`task Blocked task\n\n `= depends #blocker\n\n `note Detail\n\n`node Parent\n\n `task Nested task\n\n  `= done 2026-07-27T10:02:00Z\n\n  `note Detail\n";
+    let source = "`task Ready task\n\n `@ blocker\n\n `note Detail\n\n`task Waiting task\n\n `= wait|2099-01-01T00:00:00Z\n `= depends|#blocker\n\n `note Detail\n\n`task Done task\n\n `= done|2026-07-27T10:00:00Z\n\n `note Detail\n\n`task Canceled task\n\n `= canceled|2026-07-27T10:00:00Z\n\n `note Detail\n\n`task Conflicted task\n\n `= done|2026-07-27T10:00:00Z\n `= canceled|2026-07-27T10:01:00Z\n\n `note Detail\n\n`task Blocked task\n\n `= depends|#blocker\n\n `note Detail\n\n`node Parent\n\n `task Nested task\n\n  `= done|2026-07-27T10:02:00Z\n\n  `note Detail\n";
     let messages = [
         json!({
             "jsonrpc": "2.0", "id": 1, "method": "initialize",
@@ -411,7 +411,7 @@ fn labels_task_folds_with_derived_workflow_states() {
 #[test]
 fn labels_event_folds_with_abbreviated_times() {
     let uri = "file:///tmp/event-fold-labels.plumb";
-    let source = "`event 14:00 Standup\n\n `= date 2026-08-02\n `= timezone +08:00\n\n `note Detail\n\n`event 09:00--10:30 Review\n\n `= date 2026-08-02\n `= timezone +08:00\n\n `note Detail\n\n`event 11:00 Parent\n\n `= date 2026-08-02\n `= timezone +08:00\n\n `note Detail\n\n `event 12:00 Nested\n\n  `= date 2026-08-02\n  `= timezone +08:00\n\n  `note Detail\n\n`event Untimed\n\n `note Detail\n";
+    let source = "`event 14:00|Standup\n\n `= date|2026-08-02\n `= timezone|+08:00\n\n `note Detail\n\n`event 09:00--10:30|Review\n\n `= date|2026-08-02\n `= timezone|+08:00\n\n `note Detail\n\n`event 11:00|Parent\n\n `= date|2026-08-02\n `= timezone|+08:00\n\n `note Detail\n\n `event 12:00|Nested\n\n  `= date|2026-08-02\n  `= timezone|+08:00\n\n  `note Detail\n\n`event Untimed\n\n `note Detail\n";
     let messages = [
         json!({
             "jsonrpc": "2.0", "id": 1, "method": "initialize",
@@ -445,10 +445,10 @@ fn labels_event_folds_with_abbreviated_times() {
     assert_eq!(
         response(&run_server(&messages), 2)["result"],
         json!([
-            { "startLine": 0, "endLine": 6, "collapsedText": "`event 2026-08-02T14:00  Standup" },
-            { "startLine": 7, "endLine": 13, "collapsedText": "`event 2026-08-02T09:00--10:30  Review" },
-            { "startLine": 14, "endLine": 27, "collapsedText": "`event 2026-08-02T11:00  Parent" },
-            { "startLine": 21, "endLine": 26, "collapsedText": " `event 2026-08-02T12:00  Nested" },
+            { "startLine": 0, "endLine": 6, "collapsedText": "`event 2026-08-02T14:00| Standup" },
+            { "startLine": 7, "endLine": 13, "collapsedText": "`event 2026-08-02T09:00--10:30| Review" },
+            { "startLine": 14, "endLine": 27, "collapsedText": "`event 2026-08-02T11:00| Parent" },
+            { "startLine": 21, "endLine": 26, "collapsedText": " `event 2026-08-02T12:00| Nested" },
             { "startLine": 28, "endLine": 30 }
         ])
     );

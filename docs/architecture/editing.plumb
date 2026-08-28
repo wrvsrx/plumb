@@ -1,4 +1,4 @@
-`= title plumb syntax editing
+`= title|plumb syntax editing
 
 `# 1. Boundary
 
@@ -16,7 +16,7 @@ consumer 的入口。
 `# 2. Owned syntax
 
 新增内容使用 semantics-neutral `"OwnedBlock"、`"OwnedInline"、`"OwnedAttribute" 和 `"OwnedValue"。
-owned nodes 表达 marker、direct declarations、head、children、raw tail 与 inline structure，不携带 source
+owned nodes 表达 marker、direct declarations、包含 explicit argument separators 的 head、children、raw tail 与 inline structure，不携带 source
 ranges，也不识别 metadata、task、link 或其他 semantic profile meanings。
 
 owned nodes 可以从 strict typed syntax view detach，也可以由 operation 构造。serializer 只负责生成

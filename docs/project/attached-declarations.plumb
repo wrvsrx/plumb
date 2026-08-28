@@ -1,4 +1,4 @@
-`= title Attached declarations redesign
+`= title|Attached declarations redesign
 
 `note 本页是已被取代的历史设计记录，不描述 current syntax。最终设计删除了 structural attached groups；
 

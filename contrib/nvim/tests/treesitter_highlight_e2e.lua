@@ -9,9 +9,9 @@ local bufnr = vim.api.nvim_create_buf(false, true)
 vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, {
   '`- xixi',
   '',
-  ' `= test 2026-08-06T00:00:00+08:00',
-  ' `= recur P1D',
-  ' `= prev #take-diary-2026-08-05',
+  ' `= test|2026-08-06T00:00:00+08:00',
+  ' `= recur|P1D',
+  ' `= prev|#take-diary-2026-08-05',
   '',
   '`# some',
   '',
@@ -25,7 +25,7 @@ assert(not root:has_error(), 'valid direct declarations must not produce an erro
 local crlf_source = table.concat({
   '`- crlf',
   '',
-  ' `= value nested',
+  ' `= value|nested',
   '',
   '',
   '`# top',

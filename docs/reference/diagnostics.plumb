@@ -1,4 +1,4 @@
-`= title plumb diagnostics reference
+`= title|plumb diagnostics reference
 
 `# 1. Diagnostic ownership
 
@@ -82,7 +82,7 @@ official semantic profile 至少区分：
 `- task：`"task.invalid-datetime"、`"task.invalid-priority"、无效 recur/reference、互斥 closure state、
  self dependency、cycle、blocked completion、`"task.done-with-open-dependency" 和
  `"task.done-with-open-descendant" closure consistency warnings。
-`- event：missing/invalid title/time/date/timezone、`"event.invalid-uid" empty explicit UID、invalid interval，以及
+`- event：`"event.invalid-head-arity"、missing/invalid title/time/date/timezone、`"event.invalid-uid" empty explicit UID、invalid interval，以及
  invalid/unresolved/ambiguous/non-task reference。
 `- math：invalid owner 或 unsupported input language。
 
@@ -114,7 +114,6 @@ precedence、ordering、recovery 与 lossless token coverage；lenient tree-sitt
   syntax.unattached-raw-tail
   syntax.unattached-bracket
   syntax.unexpected-element-close
-  syntax.unexpected-member-separator
   syntax.trailing-after-inline-member
   syntax.unclosed-inline
   syntax.unclosed-verbatim

@@ -546,10 +546,7 @@ fn lower_argument(
 
 fn lower_inline_child(inline: &Inline, analysis: &DocumentOutput) -> Vec<Value> {
     lower_inlines(
-        &InlineContent {
-            range: inline_range(inline).clone(),
-            items: vec![inline.clone()],
-        },
+        &InlineContent::from_items(inline_range(inline).clone(), vec![inline.clone()]),
         analysis,
     )
 }
@@ -685,7 +682,7 @@ mod tests {
     #[test]
     fn exports_adjacent_and_nested_items_as_bullet_lists() {
         let source =
-            "`- One\n\n`task Two\n  `@ two\n  `= priority -5\n\n  `- Nested\n\nParagraph.\n";
+            "`- One\n\n`task Two\n  `@ two\n  `= priority|-5\n\n  `- Nested\n\nParagraph.\n";
         let document = export(source).unwrap();
         let blocks = document["blocks"].as_array().unwrap();
 
@@ -711,7 +708,7 @@ mod tests {
     #[test]
     fn document_declarations_do_not_split_exported_body_lists() {
         let document =
-            export("`- First\n`= title Between\n`+ journal\n`@ unsupported\n`- Second\n").unwrap();
+            export("`- First\n`= title|Between\n`+ journal\n`@ unsupported\n`- Second\n").unwrap();
         let blocks = document["blocks"].as_array().unwrap();
 
         assert_eq!(document["meta"]["title"]["c"][0]["c"], "Between");
@@ -725,7 +722,7 @@ mod tests {
 
     #[test]
     fn exports_visible_task_state_markers() {
-        let source = "`task Open\n`task Done\n  `= done 2026-07-25T15:00:00+08:00\n`task Canceled\n  `= canceled 2026-07-25T15:00:00+08:00\n`task Conflicted\n  `= done 2026-07-25T15:00:00+08:00\n  `= canceled 2026-07-25T15:01:00+08:00\n";
+        let source = "`task Open\n`task Done\n  `= done|2026-07-25T15:00:00+08:00\n`task Canceled\n  `= canceled|2026-07-25T15:00:00+08:00\n`task Conflicted\n  `= done|2026-07-25T15:00:00+08:00\n  `= canceled|2026-07-25T15:01:00+08:00\n";
         let document = export(source).unwrap();
         let items = document["blocks"][0]["c"].as_array().unwrap();
         let markers = items
@@ -768,7 +765,7 @@ mod tests {
 
     #[test]
     fn exports_quote_head_children_nesting_and_attributes() {
-        let source = "`> Quoted head\n\n   Quoted body.\n\n   `> Nested quote\n     `@ nested\n     `+ source\n     `= cite book\n\n`quote Generic\n";
+        let source = "`> Quoted head\n\n   Quoted body.\n\n   `> Nested quote\n     `@ nested\n     `+ source\n     `= cite|book\n\n`quote Generic\n";
         let document = export(source).unwrap();
         let blocks = document["blocks"].as_array().unwrap();
 
@@ -801,7 +798,7 @@ mod tests {
 
     #[test]
     fn exports_adjacent_definitions_and_preserves_definition_attributes() {
-        let source = "`: Term\n\n   Definition.\n\n`: Tagged\n  `@ tag\n  `+ kind\n  `= key value\n\n  `- First\n  `- Second\n";
+        let source = "`: Term\n\n   Definition.\n\n`: Tagged\n  `@ tag\n  `+ kind\n  `= key|value\n\n  `- First\n  `- Second\n";
         let document = export(source).unwrap();
         let blocks = document["blocks"].as_array().unwrap();
 
@@ -835,7 +832,7 @@ mod tests {
 
     #[test]
     fn exports_verbatim_autolinks_in_body_and_metadata() {
-        let source = "`= homepage `->\"https://example.test/meta\"\n\nBody `->\"https://example.test/a%20b\".\n";
+        let source = "`= homepage|`->\"https://example.test/meta\"\n\nBody `->\"https://example.test/a%20b\".\n";
         let document = export(source).unwrap();
         let metadata_link = &document["meta"]["homepage"]["c"][0];
         assert_eq!(metadata_link["t"], "Link");
@@ -850,7 +847,7 @@ mod tests {
 
     #[test]
     fn exports_standard_images_in_body_and_metadata() {
-        let source = "`= cover `img[Cover|=[src|static/cover.png]]\n\nBefore `img[Rich `em[alt]|=[src|\"[static/a b.webp]\"]|@[image]|+[wide]|=[loading|lazy]] after.\n\n`img[|=[src|https://example.test/decorative.svg]]\n";
+        let source = "`= cover|`img[Cover|=[src|static/cover.png]]\n\nBefore `img[Rich `em[alt]|=[src|\"[static/a b.webp]\"]|@[image]|+[wide]|=[loading|lazy]] after.\n\n`img[|=[src|https://example.test/decorative.svg]]\n";
         let document = export(source).unwrap();
 
         let metadata_image = &document["meta"]["cover"]["c"][0];
@@ -995,7 +992,7 @@ mod tests {
 
     #[test]
     fn exports_math_inside_rich_metadata_scalars() {
-        let source = "`= formula Area `$\"\\pi r^2\"\n";
+        let source = "`= formula|Area `$\"\\pi r^2\"\n";
         let document = export(source).unwrap();
         assert_eq!(document["meta"]["formula"]["t"], "MetaInlines");
         let math = document["meta"]["formula"]["c"]
@@ -1010,7 +1007,7 @@ mod tests {
 
     #[test]
     fn lifts_typed_metadata_out_of_the_document_body() {
-        let source = "`= title Rich `*[title]\n`= tags\n\n `+ plumb\n `+ tools\n\n`= macros\n\n `+\n  `+ `\"nearSet\"\n  `+ `\"\\mathscr{C}\"\n  `+ 0\n\n`= author\n\n `= name Alice\n\n`= source\n\n `\"\n  raw\n  \n  \n`= empty\n\n`# Section\n";
+        let source = "`= title|Rich `*[title]\n`= tags\n\n `+ plumb\n `+ tools\n\n`= macros\n\n `+\n  `+ `\"nearSet\"\n  `+ `\"\\mathscr{C}\"\n  `+ 0\n\n`= author\n\n `= name|Alice\n\n`= source\n\n `\"\n  raw\n  \n  \n`= empty\n\n`# Section\n";
         let document = export(source).unwrap();
 
         assert_eq!(document["blocks"].as_array().unwrap().len(), 1);
@@ -1048,7 +1045,7 @@ mod tests {
 
     #[test]
     fn metadata_export_keeps_first_duplicate_and_rejects_unsupported_values() {
-        let duplicate = export("`= title First\n`= title Second\n").unwrap();
+        let duplicate = export("`= title|First\n`= title|Second\n").unwrap();
         assert_eq!(duplicate["meta"]["title"]["c"][0]["c"], "First");
 
         let rendered_sequence = export("`= tags\n `- old-rendered-item\n");
@@ -1066,7 +1063,7 @@ mod tests {
 
     #[test]
     fn exports_single_citations_in_body_and_metadata_without_a_pandoc_reader() {
-        let document = export("`= source `cite[roe2020]\n\nSee `cite[smith2004].\n").unwrap();
+        let document = export("`= source|`cite[roe2020]\n\nSee `cite[smith2004].\n").unwrap();
 
         assert_eq!(document["meta"]["source"]["c"][0]["t"], "Cite");
         let cite = &document["blocks"][0]["c"][2];

@@ -45,7 +45,7 @@ fn whole_document_formatting_keeps_unchanged_blocks_out_of_edits() {
 #[test]
 fn whole_document_formatting_handles_repeated_marker_lines() {
     let uri = "file:///tmp/repeated-marker-format.plumb";
-    let source = "`task aaa bbb ccc ddd eee fff ggg hhh iii jjj kkk lll mmm nnn ooo ppp\n `= created now\n\n       `note Detail\n\n`task Following\n `= created later\n";
+    let source = "`task aaa bbb ccc ddd eee fff ggg hhh iii jjj kkk lll mmm nnn ooo ppp\n `= created|now\n\n       `note Detail\n\n`task Following\n `= created|later\n";
     let messages = [
         json!({
             "jsonrpc": "2.0", "id": 1, "method": "initialize",

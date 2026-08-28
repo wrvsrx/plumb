@@ -263,6 +263,14 @@ pub struct AttrValue {
 pub struct InlineContent {
     pub range: SourceRange,
     pub items: Vec<Inline>,
+    pub arguments: Vec<InlineContentArgument>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InlineContentArgument {
+    pub range: SourceRange,
+    pub separator_range: Option<SourceRange>,
+    pub item_range: std::ops::Range<usize>,
 }
 
 impl Drop for InlineContent {
@@ -289,6 +297,38 @@ impl Drop for InlineContent {
 }
 
 impl InlineContent {
+    pub fn from_items(range: SourceRange, items: Vec<Inline>) -> Self {
+        let item_count = items.len();
+        Self {
+            arguments: vec![InlineContentArgument {
+                range: range.clone(),
+                separator_range: None,
+                item_range: 0..item_count,
+            }],
+            range,
+            items,
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.range.is_empty()
+    }
+
+    pub fn argument(&self, index: usize) -> Option<InlineContent> {
+        let argument = self.arguments.get(index)?;
+        Some(Self::from_items(
+            argument.range.clone(),
+            self.items[argument.item_range.clone()].to_vec(),
+        ))
+    }
+
+    pub fn argument_plain_text(&self, index: usize) -> Option<String> {
+        let argument = self.arguments.get(index)?;
+        let mut output = String::new();
+        append_plain_text(&self.items[argument.item_range.clone()], &mut output);
+        Some(output)
+    }
+
     pub fn plain_text(&self) -> String {
         let mut output = String::new();
         append_plain_text(&self.items, &mut output);

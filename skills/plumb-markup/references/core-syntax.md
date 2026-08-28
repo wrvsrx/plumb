@@ -44,6 +44,20 @@ A nonblank indented plain line immediately following a marked head, without an
 intervening blank line, continues that head. Put a blank line before an
 indented paragraph child. Only marked blocks can own children.
 
+Block heads and paragraphs contain one or more ordered parsed arguments. The
+first argument has no leading separator; a bare `|` at the current inline depth
+starts each later argument. Spaces remain argument content, consecutive
+separators create empty arguments, and `` `| `` writes a literal pipe. The
+space after a block marker separates the marker from its head and does not
+create an argument boundary:
+
+```plumb
+`event 14:00--15:30|Parser review
+`row Language server|Waiting||Optional note
+
+ordinary first argument|second argument
+```
+
 Two backticks escape the introducer and produce a literal backtick:
 
 ```plumb
@@ -59,7 +73,7 @@ ownership site. Semantic profiles may interpret ordinary top-level marker
 spellings as document declarations.
 
 ```plumb
-`= title Document title
+`= title|Document title
 
 Body paragraph.
 ```
@@ -74,13 +88,13 @@ does not interpret their marker spellings.
 `node Head
  `@ intro
  `+ note
- `= level 2
+ `= level|2
  `note ordinary child
 
 `task A head that wraps
  across lines
 
- `= created 2026-08-07T09:00:00+08:00
+ `= created|2026-08-07T09:00:00+08:00
 
 ```
 
@@ -123,7 +137,7 @@ A parsed inline element has a nonempty kind and ordered members:
 Bare `[` and `]` are always structural: an unescaped opening bracket is legal
 only right after an inline kind and an unescaped closing bracket closes the
 current element. A member-level `|` is structural. Literal brackets and parsed
-member pipes use the single-backtick escape; braces are ordinary text.
+argument pipes use the single-backtick escape; braces are ordinary text.
 Parsed inline elements may cross continuation lines belonging to the same paragraph/head; those
 boundaries become soft breaks. Blank lines, dedents, block-only entries, and
 EOF remain hard boundaries.

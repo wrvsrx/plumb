@@ -1,4 +1,4 @@
-`= title plumb lossless syntax tree
+`= title|plumb lossless syntax tree
 
 `# 1. Purpose
 
@@ -25,10 +25,12 @@ introducer、escape、marker、inline kind、inline/raw-tail delimiter、raw pay
 和 error。
 
 typed `"Document" 表达 paragraph、marked block、anonymous verbatim block、inline element、inline
-verbatim、text、space 和 soft break。parsed inline element 暴露 source-ordered `"InlineMember" sequence：
+verbatim、text、space 和 soft break。paragraph 与 marked-block head 暴露至少一个 source-ordered
+parsed argument；每个 argument 保留 optional separator range、content range 与 inline items，顶层
+separator 不作为 text item。parsed inline element 暴露 source-ordered `"InlineMember" sequence：
 valid element 的 first member 始终是可以为空的 parsed argument，后续 parsed/verbatim arguments 与
 parsed/verbatim children 各自保留 delimiter、separator 和 content ranges；
-head 内容中的连续 ASCII space/tab 产生独立 `"Inline::Space"；
+每个 head/paragraph argument 内容中的连续 ASCII space/tab 产生独立 `"Inline::Space"；
 普通 marker/kind 保持原始 spelling；typed tree 不区分 heading、list、
 link 或 task。它与 token sequence 在同一次 parse 中产生，不是第二套 parser。
 
