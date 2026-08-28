@@ -4,6 +4,24 @@
 `->[roadmap|roadmap.plumb]；已经结束的任务及其验收记录保存在
 `->[completed tasks|completed-tasks.plumb]。
 
+`task 定义并实现 block table 语义
+
+ `@ block-table-semantics
+
+ `note 使用可选 inline caption 的 `"table" block 表示表格；其空 head direct `"-" children 表示
+  rows，row 的 direct `"-" children 表示 cells。`"+ header" facet 标记开头的 header rows，
+  并允许在 body row 中标记独立的 row-header cell。
+ `note Cell head 投影为 cell 的首段，cell children 继续容纳普通 blocks；空 head 且没有 children 的
+  cell 表示 empty cell。Table recognizer 拥有 row/cell subtree，结构性的 `"-" blocks 不得同时进入
+  普通 list recognition；cell children 内恢复普通 block semantics。
+ `note 对非空 row head、非 cell 的 row children、table 中混入其它 direct children、header row 出现在
+  body row 之后以及 effective column count 不一致提供 semantic diagnostics。首版支持 caption、empty/rich
+  cells、连续 header rows、row-header cells、attributes 与一致列数，不实现 rowspan、colspan、column
+  widths 或复杂的 Pandoc head/body/foot 分组。
+ `note 先在 protocol-neutral semantics 中测试识别、subtree ownership、projection 与 diagnostics，再实现
+  Pandoc Table 的 lowering/import round trip；随后按共享 semantic output 补充 exporter/importer tests，
+  并在确有编辑器需求时加入 LSP folding 与 completion integration。
+
 `task 建立 event containment 索引
 
  `@ event-containment-index
