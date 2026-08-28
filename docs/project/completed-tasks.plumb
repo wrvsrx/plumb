@@ -1064,6 +1064,29 @@
 
 `# Workspace performance and maintenance
 
+`- 按 capability 拆分 plumb-workspace implementation
+
+ `+ task
+
+ `@ split-workspace-capabilities
+
+ `= created|2026-08-29T03:28:53+08:00
+ `= done|2026-08-29T04:29:50+08:00
+
+ `note Workspace 继续作为 public facade；document lifecycle/overlay、batch indexing、navigation resources 与
+
+ completion candidates 由直接持有 implementation 的 capability modules 负责，没有增加 forwarding-only
+ wrapper，也没有改变 public API、revision guard、cache、editing 或 adapter observable behavior。
+
+ `note task query、workflow、authoring mutations 与 persistent store 已有职责模块继续保留；架构 reference 明确
+
+ capability 只能依赖 shared workspace model、semantic records、plumb-edit intent 和 store query API，LSP、Web、
+ CLI adapter types 不得进入 protocol-neutral crate。
+
+ `note plumb-workspace 101 个 tests 与 cargo check --workspace --all-targets 通过；batch indexer 的 LSP、Web、notes
+
+ adapter integration coverage 在同一实现线上通过，拆分未建立第二份 semantic authority。
+
 `- 建立共享的 protocol-neutral batch workspace indexer
 
  `+ task

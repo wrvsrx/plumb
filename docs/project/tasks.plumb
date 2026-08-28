@@ -4,26 +4,6 @@
 `->[roadmap|roadmap.plumb]；已经结束的任务及其验收记录保存在
 `->[completed tasks|completed-tasks.plumb]。
 
-`- 按 capability 拆分 plumb-workspace implementation
-
- `+ task
-
- `@ split-workspace-capabilities
-
- `= created|2026-08-29T03:28:53+08:00
-
- `note 保留 Workspace 作为公共 facade，沿 document lifecycle/overlay、navigation/references、completion、rename、
-
- task 与 event operations 等已有 ownership boundary 拆分当前大型 implementation module。
-
- `note 以 batch indexer 的共享抽取作为首个边界，不引入仅转发调用的抽象层，也不改变 query、editing、revision、
-
- cache 或 adapter observable behavior。
-
- `note 分拆后保持 public API compatibility，并通过 workspace tests、adapter integration tests 与 warning gate；记录
-
- 新模块的责任和 dependency direction，防止 adapter-specific types 进入 protocol-neutral crates。
-
 `- 控制本地 Cargo build artifacts 增长
 
  `+ task

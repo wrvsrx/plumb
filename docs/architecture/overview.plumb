@@ -238,6 +238,14 @@ mutation adapter 分属独立 modules；`"plumb" LSP server 的 workspace/index 
 adapter 分离，feature module 只投影 shared workspace/edit 结果，不取得另一份 semantic authority。
 拆分不得改变 public API、revision guard、lazy materialization 或 adapter validation boundary。
 
+`"plumb-workspace" 保留 `"Workspace" 作为 public facade，但 capability implementation 直接由职责模块
+持有，不在 crate root 建立 forwarding-only wrapper。document lifecycle module 管理 snapshot、revision、
+open/disk overlay 与 persistent materialization；batch index module 管理 scan result 的并行准备和原子发布；
+navigation module 解析 image/file resources；completion module 聚合 workspace facts 并产生 protocol-neutral
+replacement candidates。capability module 可以依赖 shared workspace model、semantic records、`"plumb-edit"
+intent 与 store query API，但不能依赖 LSP、Web 或 CLI adapter types；adapter 只能投影 facade 返回的 shared
+result。
+
 `"plumb-web" 的 note renderer 使用 Pandoc citeproc 处理 official citation records。Bibliography
 declaration、workspace-contained path resolution 和 CSL JSON records 由 shared semantic/workspace layers 提供；
 Web adapter 只投影 document-relative writer paths。Workspace watcher 必须将被声明的 bibliography
