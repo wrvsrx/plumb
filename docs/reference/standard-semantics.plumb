@@ -49,7 +49,9 @@ marker `"-" 产生 bullet list item；marker `"." 产生 ordered list item。`"i
 不提供 start attribute semantics。
 
 export 分别产生 Pandoc `"BulletList" 和 `"OrderedList"。item 未消费 declarations 通过内部 `"Div" 保存。
-specialized `"task" 与 `"event" markers 也投影为 bullet list items，但语义直接来自 marker，不来自 facet。
+list item 的 direct leaf `"+ task" 或 `"+ event" declaration 可以赋予标准 task/event facet；facet 不改变
+bullet/ordered list kind，也不切断相邻同 marker items 的 list group。`"task" 与 `"event" markers 没有
+标准特殊语义，按普通 marked blocks 处理。
 
 `# 5. Definitions
 
@@ -84,6 +86,11 @@ association 自身的 direct children 属于 association value，而不是 assoc
 它不是 current association syntax。使用 `"plumb migrate --from head-space-v1" 将该 boundary 最小改写为
 bare `"|"。同一 converter 也迁移 childless definition 的 term/body boundary 与 `"event" 的
 schedule/title boundary；already-migrated heads 与不满足旧 recognizer 的 source 保持 byte-identical。
+
+旧 specialized-marker epoch 使用 `"task"/`"event" markers 表达 records。使用
+`"plumb migrate --from task-event-markers-v1" 将每个这样的 owner 改为 bullet `"-" item，并把对应
+`"+ task"/`"+ event" 作为第一个 direct declaration 插入；原 head、后续 declarations、body children、
+raw tail、indentation 与 line ending 保持不变。迁移 current facet form 时 source 保持 byte-identical。
 
 `## 5.2 Inline member projection
 
@@ -426,18 +433,20 @@ dollar-delimited math 没有特殊 syntax。
 
 `# 15. Events
 
-`"event" marker 产生 event record，并具有 bullet list-item 结构：
+bullet 或 ordered list item 的 direct leaf `"+ event" facet 产生 event record：
 
 `text
 
 |"
-  `event 14:00--15:30|Parser review
+  `- 14:00--15:30|Parser review
+   `+ event
    `@ parser-review
    `= date|2026-07-30
    `= timezone|+08:00
    `= tasks|#write-parser Project A.plumb#docs
 
-head 必须恰好有两个 arguments：first 是 nonempty plain schedule，second 是 nonempty title；children 是 details。
+head 必须恰好有两个 arguments：first 是 nonempty plain schedule，second 是 nonempty title；非 declaration
+children 是 details。
 event recognizer 不扫描 whitespace 或重新解析完整 head 来寻找 boundary。
 nested events 只形成 display tree，不表示时间包含关系。schedule start 接受 reduced-precision local-time `"TIME"、带显式日期但继承 timezone 的
 `"YYYY-MM-DDTTIME"，或自包含的完整 RFC 3339 timestamp。`"TIME" 是 `"HH"、`"HH:MM" 或
@@ -458,10 +467,13 @@ siblings。event 自身的 override 因此同时用于自身 time，并成为 ne
 invalid explicit override 不回退到 ancestor value。
 
 `"tasks" 使用与 task `"depends" 相同的 reference-list spelling，只建立 event-to-task association，不建立
-dependency，也不改变 task state。Target 必须解析到具有 `"task" marker 的 explicit id；workspace 提供
+dependency，也不改变 task state。Target 必须解析到具有 `"task" facet 的 explicit id；workspace 提供
 task-to-event reverse query。不得从 task 的 created、due、wait、done 或 canceled fields 隐式生成 event。
 
-`"event" 与 `"task" 是互斥的 specialized list-item markers，不能组合。
+`"event" 与 `"task" facets 互斥。同一 list item 同时具有两者时发布 `"facet.task-event-conflict"，且该
+item 不产生 task 或 event record；recognizers 不采用 first/last precedence。facets 可以与其他 direct
+declarations 交错，authoring 生成时把 semantic facet 放在首位，formatter 不重排已有 children。table
+recognizer 消费的 row/cell list items 即使具有同名 facet 也不产生 task/event record。
 
 event 自身的 direct `"uid" property 接受 scalar/literal value，并作为显式 iCalendar UID；值必须非空。
 invalid explicit UID 不回退到派生值。缺少 `"uid" 时，exporter 从使用正斜线分隔的
@@ -483,7 +495,7 @@ Event CEL context 提供 `"path"、`"id"、`"title"、source-backed `"uid"、`"d
 schedule 的 `"when"、
 解析后的 `"at"、`"start"、`"end"、`"tasks" 与 `"now"。
 Web Agenda 通过 revision-guarded operations 创建、编辑和删除 event；首版只支持 online mutations。
-Pandoc export 将 event 作为普通 bullet list item 导出；event marker 不伪装成 class，opaque declarations 保持不变。
+Pandoc export 保留 item 原有 bullet/ordered list kind；消费 `"event" facet，其他 opaque declarations 保持不变。
 
 editor authoring operation `"Convert to event" 只在 cursor 命中的单个 list item head 以完整 event
 shorthand 开头时提供：
@@ -517,11 +529,11 @@ explicit interval 或 inferred-end shorthand。省略 date 的 next start 早于
 不同 offset、超过次日或无可用下一项时当前 item 不转换。因而 chain 的最后一个 trailing `"--" 保持原文，
 除非后面还有 shorthand；显式 interval 始终优先且不依赖 sibling。
 
-operation 原位把 list-item marker 改为 `"event"，并把规范化 schedule 保留为 head 的第一个 positional
+operation 保留 list-item marker 并添加首个 direct `"+ event" facet，把规范化 schedule 保留为 head 的第一个 positional
 argument；不生成 explicit id，也不向 `".plumb" source 写入 UID。显式 shorthand date 写入 event `"date" override，否则继承 metadata
 context。它保留 title 的原 inline structure，并把完整 owner subtree canonicalize 后返回
 revision-guarded edit。非空 editor selection 还提供批量转换 action，仅转换范围内
-完整匹配 shorthand 的 plain list-item heads，其他 items 保持不变。已是 `"event" 的 item 不再提供该
+完整匹配 shorthand 的 plain list-item heads，其他 items 保持不变。已具有 `"event" facet 的 item 不再提供该
 action。shorthand 只是显式 authoring convention，不改变 list item syntax，也不从任意 prose 隐式生成 event。
 
 event authoring 保留用户已有的 explicit id；新 event 默认不生成 id。需要被 link、task association 或其他
@@ -537,17 +549,19 @@ range，不向 title frequency 贡献尚未通过 valid semantic analysis 的 ev
 
 `# 16. Tasks
 
-`"task" marker 产生 task record，并具有 bullet list-item 结构：
+bullet 或 ordered list item 的 direct leaf `"+ task" facet 产生 task record：
 
 `text
 
 |"
-  `task Implement parser
+  `- Implement parser
+   `+ task
    `@ write-parser
 
-head 是 title，children 是 details。nested tasks 形成 display tree，但只有 `"depends" 建立 dependency
-edge。facet declaration 恰好名为 `"task" 时仍是 opaque data，不生成 task record。direct declaration
-children 不进入 task details；其余 direct children 保持 source order并形成 details/nested task tree。
+head 是 title，非 declaration children 是 details。nested tasks 形成 display tree，但只有 `"depends" 建立
+dependency edge。`"task" facet 只在 `"-"/`"." list owner 上生效；普通 marker、table 消费的 row/cell 或
+inline class 不生成 task record。direct declaration children 不进入 task details；其余 direct children
+保持 source order并形成 details/nested task tree。
 
 字段约束：
 
@@ -635,7 +649,7 @@ conflicted descendant 由 `"task.conflicting-closed-state" 负责。canceled par
 diagnostics 也不改变 nesting 只形成 display tree、只有 `"depends" 建立 dependency edge 的语义。
 
 authoring operations 使用执行时的本地 RFC 3339 timestamp：`"Convert to task" 把 cursor 命中的最深
-普通 `"-"/`"." item 转为 task 时，将 marker 改为 `"task" 并添加 `"created" property；`"Add task created timestamp" 为
+普通 `"-"/`"." item 转为 task 时，保留 marker、添加首个 direct `"+ task" facet 和 `"created" property；`"Add task created timestamp" 为
 缺少 `"created" 的最深 enclosing task 补录时间。后者不受 task state、dependency 或 recurrence
 限制。两者都保留已有 declaration children，并返回 revision-guarded edits。
 
@@ -652,16 +666,16 @@ blank line；前一 owner 的 declarations 或 raw payload 不得抑制该 line
 
 line start 的标准 construct prefixes 为：
 
-`- `"`t"、`"`ta" 直到完整 `"`task" 只提供 Task。
-`- `"`e"、`"`ev" 直到完整 `"`event" 只提供 Event。
+`- `"`t"、`"`ta" 直到完整 legacy authoring prefix `"`task" 只提供 Task。
+`- `"`e"、`"`ev" 直到完整 legacy authoring prefix `"`event" 只提供 Event。
 `- `"`-" 与 `"`->" 同时提供 Link 与 Autolink。
 
 Link 与 Autolink 共享 `"->" inline kind，opening envelope 负责收窄 candidate：`"`->[" 只提供 Link，
 `"`->\"" 只提供 Autolink。单独 `"`[" 不是 construct prefix，不提供 candidate。以上 link constructs 在
 line start 与 ordinary inline context 使用同一规则。`"task" 与 `"event" 不是 inline construct。Task skeleton
-使用 `"task" marker 并以当前本地 RFC 3339 timestamp 创建 `"created"，Event skeleton 使用 `"event"
-marker。Task replacement 本身必须使用 canonical direct-child layout：`"created" declaration 位于 owner
-column 加一；snippet 展开的默认非空 title 与该 child 之间使用一个 blank separator，不支持 snippet 的
+使用 bullet item 加首个 `"+ task" facet，并以当前本地 RFC 3339 timestamp 创建 `"created"；Event skeleton
+使用 bullet item 加首个 `"+ event" facet。Task replacement 本身必须使用 canonical direct-child layout：
+facet 与 `"created" declaration 位于 owner column 加一；snippet 展开的默认非空 title 与 declarations 之间使用一个 blank separator，不支持 snippet 的
 fallback 使用 empty head、一个 line ending 且不保留 head trailing space。adapter 必须根据 client completion
 indentation capability 投影 replacement：`"asIs" projection 包含 owner column 的完整绝对缩进；
 `"adjustIndentation" projection 省略 client 将为每条 continuation line 添加的 owner column，只保留

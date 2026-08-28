@@ -89,6 +89,8 @@ official semantic profile 至少区分：
  `"task.done-with-open-descendant" closure consistency warnings。
 `- event：`"event.invalid-head-arity"、missing/invalid title/time/date/timezone、`"event.invalid-uid" empty explicit UID、invalid interval，以及
  invalid/unresolved/ambiguous/non-task reference。
+`- facet：`"facet.task-event-conflict" 表示同一 list item 同时声明互斥的 task 与 event facets；冲突
+ item 不产生任一 semantic record。
 `- math：invalid owner 或 unsupported input language。
 
 semantic diagnostic 应指向最小 source-backed field range。由多个 documents 共同形成的问题可以
