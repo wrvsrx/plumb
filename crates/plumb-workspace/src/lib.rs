@@ -34,7 +34,9 @@ pub use bibliography::{
     load_bibliography, load_bibliography_sources, Bibliography, BibliographyRecord,
     BibliographyResolution,
 };
-pub use index::{BatchIndexError, BatchIndexFailure, BatchIndexResult, BatchIndexedDocument};
+pub use index::{
+    BatchIndexError, BatchIndexFailure, BatchIndexOptions, BatchIndexResult, BatchIndexedDocument,
+};
 pub use store::{SqliteSemanticStore, StoreError};
 
 #[cfg(test)]

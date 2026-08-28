@@ -7,7 +7,7 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 use plumb_syntax::DiagnosticSeverity;
 use plumb_workspace::{
     display_workspace_path as display_path, normalize, resolve_workspace_root,
-    scan_workspace_files, SearchRecordKind, Workspace,
+    scan_workspace_files, BatchIndexOptions, SearchRecordKind, Workspace,
 };
 
 mod events;
@@ -260,7 +260,15 @@ fn load_workspace(root: &Path) -> Result<LoadedWorkspace, String> {
     let paths = scan_workspace_files(&root).into_result()?;
     let mut workspace = Workspace::new();
     let batch = workspace
-        .index_disk_files(&paths, true, |_| 0, || false)
+        .index_disk_files(
+            &paths,
+            BatchIndexOptions {
+                prune_missing: true,
+                retain_sources: false,
+            },
+            |_| 0,
+            || false,
+        )
         .map_err(|error| error.to_string())?;
     if !batch.is_complete() {
         return Err(batch

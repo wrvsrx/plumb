@@ -38,10 +38,11 @@ use plumb_semantics::{
 };
 use plumb_syntax::Diagnostic;
 use plumb_workspace::{
-    load_bibliography, load_bibliography_sources, normalize, scan_workspace_files, Bibliography,
-    BibliographyResolution, CompletionCandidate, PathRenameInput, QueryResult, RenameError,
-    ResolvedTarget, ResourceOperation, SearchRecord, SearchRecordKind, SqliteSemanticStore,
-    Workspace, WorkspaceEdit, WorkspaceOperationError, WorkspaceQueryError, WorkspaceSearchError,
+    load_bibliography, load_bibliography_sources, normalize, scan_workspace_files,
+    BatchIndexOptions, Bibliography, BibliographyResolution, CompletionCandidate, PathRenameInput,
+    QueryResult, RenameError, ResolvedTarget, ResourceOperation, SearchRecord, SearchRecordKind,
+    SqliteSemanticStore, Workspace, WorkspaceEdit, WorkspaceOperationError, WorkspaceQueryError,
+    WorkspaceSearchError,
 };
 use sha2::{Digest, Sha256};
 
@@ -2288,7 +2289,15 @@ fn build_initial_index(roots: &[PathBuf], generation: u64) -> InitialIndexResult
             Workspace::new()
         }
     };
-    let batch = workspace.index_disk_files(&files, complete, |_| 0, || false);
+    let batch = workspace.index_disk_files(
+        &files,
+        BatchIndexOptions {
+            prune_missing: complete,
+            retain_sources: false,
+        },
+        |_| 0,
+        || false,
+    );
     let (indexed, cache_hits) = match batch {
         Ok(batch) => {
             complete &= batch.is_complete();
@@ -2297,7 +2306,8 @@ fn build_initial_index(roots: &[PathBuf], generation: u64) -> InitialIndexResult
         Err(_) => {
             complete = false;
             workspace = Workspace::new();
-            match workspace.index_disk_files(&files, false, |_| 0, || false) {
+            match workspace.index_disk_files(&files, BatchIndexOptions::default(), |_| 0, || false)
+            {
                 Ok(batch) => (batch.documents.len(), 0),
                 Err(_) => (0, 0),
             }

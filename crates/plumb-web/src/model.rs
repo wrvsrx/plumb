@@ -9,7 +9,7 @@ use plumb_semantics::{DocumentOutput, LinkSpelling, TaskRecord, TaskStatus};
 use plumb_workspace::{
     apply_document_edit, display_workspace_path as display_path, load_bibliography, normalize,
     scan_workspace_files, search_score, sort_task_records_by, ApplyDocumentEditError,
-    DocumentEntry, EventEditError, EventInput, ResolvedTarget, SearchRecordKind,
+    BatchIndexOptions, DocumentEntry, EventEditError, EventInput, ResolvedTarget, SearchRecordKind,
     SqliteSemanticStore, TaskAuthoringError, TaskAuthoringInput, TaskPageQuery, TaskPageQueryError,
     TaskPlacement, TaskQueryFilter, TaskQueryFilterGroup, TaskRef, TaskSortFacts, TaskSortOrder,
     Workspace, WorkspaceEvent, WorkspaceEventCursor, WorkspaceOperationError, WorkspaceTask,
@@ -476,7 +476,10 @@ impl WebWorkspace {
         let batch = index_workspace
             .index_disk_files(
                 &paths,
-                true,
+                BatchIndexOptions {
+                    prune_missing: true,
+                    retain_sources: true,
+                },
                 |path| file_revision(path).unwrap_or(0),
                 || false,
             )
@@ -503,7 +506,9 @@ impl WebWorkspace {
                 document.path,
                 Arc::new(LazyDocument {
                     revision: document.revision,
-                    source: document.source,
+                    source: document
+                        .source
+                        .expect("Web batch indexing retains source text"),
                     entry: OnceLock::new(),
                     #[cfg(test)]
                     generation_reused: document.cache_hit,

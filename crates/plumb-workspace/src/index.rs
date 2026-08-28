@@ -12,8 +12,14 @@ use crate::{normalize, SqliteSemanticStore, StoreError, VersionedDocumentOutput,
 pub struct BatchIndexedDocument {
     pub path: PathBuf,
     pub revision: i64,
-    pub source: Arc<str>,
+    pub source: Option<Arc<str>>,
     pub cache_hit: bool,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct BatchIndexOptions {
+    pub prune_missing: bool,
+    pub retain_sources: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -67,13 +73,12 @@ impl From<StoreError> for BatchIndexError {
 struct ReadDocument {
     path: PathBuf,
     revision: i64,
-    source: Arc<str>,
+    source: String,
 }
 
 struct PreparedDocument {
     path: PathBuf,
     revision: i64,
-    source: Arc<str>,
     parsed: Arc<ParsedDocument>,
     current: Option<Arc<VersionedDocumentOutput>>,
 }
@@ -82,7 +87,7 @@ impl Workspace {
     pub fn index_disk_files<F, C>(
         &mut self,
         paths: &[PathBuf],
-        prune_missing: bool,
+        options: BatchIndexOptions,
         revision_for: F,
         cancelled: C,
     ) -> Result<BatchIndexResult, BatchIndexError>
@@ -97,25 +102,44 @@ impl Workspace {
             return Err(BatchIndexError::Cancelled);
         }
 
-        let reads = paths
-            .par_iter()
-            .map(|path| {
-                if cancelled() {
-                    return None;
-                }
-                Some(match std::fs::read_to_string(path) {
-                    Ok(source) => Ok(ReadDocument {
-                        path: path.clone(),
-                        revision: revision_for(path),
-                        source: Arc::from(source),
-                    }),
-                    Err(error) => Err(BatchIndexFailure {
-                        path: path.clone(),
-                        message: error.to_string(),
-                    }),
-                })
+        let stored_hashes = self
+            .disk_store
+            .as_ref()
+            .map(SqliteSemanticStore::document_hashes)
+            .transpose()?;
+        let stored_paths_match = stored_hashes.as_ref().is_some_and(|hashes| {
+            hashes.len() == paths.len() && paths.iter().all(|path| hashes.contains_key(path))
+        });
+        let file_sizes = paths
+            .iter()
+            .map(|path| path.metadata().map(|metadata| metadata.len()))
+            .collect::<Result<Vec<_>, _>>();
+        let balanced_files = file_sizes.is_ok_and(|sizes| {
+            let total = sizes.iter().copied().sum::<u64>();
+            let largest = sizes.iter().copied().max().unwrap_or(0);
+            sizes.len() > 1 && largest <= 256 * 1024 && largest.saturating_mul(2) <= total
+        });
+        let read = |path: &PathBuf| {
+            if cancelled() {
+                return None;
+            }
+            Some(match std::fs::read_to_string(path) {
+                Ok(source) => Ok(ReadDocument {
+                    path: path.clone(),
+                    revision: revision_for(path),
+                    source,
+                }),
+                Err(error) => Err(BatchIndexFailure {
+                    path: path.clone(),
+                    message: error.to_string(),
+                }),
             })
-            .collect::<Vec<_>>();
+        };
+        let reads = if !stored_paths_match && balanced_files {
+            paths.par_iter().map(read).collect::<Vec<_>>()
+        } else {
+            paths.iter().map(read).collect::<Vec<_>>()
+        };
         if cancelled() || reads.iter().any(Option::is_none) {
             return Err(BatchIndexError::Cancelled);
         }
@@ -132,9 +156,9 @@ impl Workspace {
         let mut indexed = Vec::with_capacity(read_documents.len());
         let mut misses = Vec::new();
         let mut stored_paths_changed = false;
-        if let Some(store) = &self.disk_store {
-            let stored_hashes = store.document_hashes()?;
-            stored_paths_changed = prune_missing
+        if self.disk_store.is_some() {
+            let stored_hashes = stored_hashes.expect("persistent store hashes were loaded");
+            stored_paths_changed = options.prune_missing
                 && (stored_hashes.len() != paths.len()
                     || paths.iter().any(|path| !stored_hashes.contains_key(path)));
             for document in read_documents {
@@ -143,7 +167,9 @@ impl Workspace {
                 indexed.push(BatchIndexedDocument {
                     path: document.path.clone(),
                     revision: document.revision,
-                    source: Arc::clone(&document.source),
+                    source: options
+                        .retain_sources
+                        .then(|| Arc::from(document.source.as_str())),
                     cache_hit,
                 });
                 if !cache_hit {
@@ -151,37 +177,54 @@ impl Workspace {
                 }
             }
         } else {
-            indexed.extend(read_documents.iter().map(|document| BatchIndexedDocument {
-                path: document.path.clone(),
-                revision: document.revision,
-                source: Arc::clone(&document.source),
-                cache_hit: false,
+            indexed.extend(read_documents.iter().map(|document| {
+                BatchIndexedDocument {
+                    path: document.path.clone(),
+                    revision: document.revision,
+                    source: options
+                        .retain_sources
+                        .then(|| Arc::from(document.source.as_str())),
+                    cache_hit: false,
+                }
             }));
             misses = read_documents;
         }
 
-        let prepared = misses
-            .into_par_iter()
-            .map(|document| {
-                if cancelled() {
-                    return None;
-                }
-                let parsed = Arc::new(parse(document.source.to_string()));
-                let current = parsed.valid_syntax().map(|syntax| {
-                    Arc::new(VersionedDocumentOutput {
-                        revision: document.revision,
-                        output: Arc::new(analyze_document(syntax)),
-                    })
-                });
-                Some(PreparedDocument {
-                    path: document.path,
+        let total_miss_bytes = misses
+            .iter()
+            .map(|document| document.source.len())
+            .sum::<usize>();
+        let largest_miss_bytes = misses
+            .iter()
+            .map(|document| document.source.len())
+            .max()
+            .unwrap_or(0);
+        let balanced_misses = misses.len() > 1
+            && largest_miss_bytes <= 256 * 1024
+            && largest_miss_bytes.saturating_mul(2) <= total_miss_bytes;
+        let prepare = |document: ReadDocument| {
+            if cancelled() {
+                return None;
+            }
+            let parsed = Arc::new(parse(document.source));
+            let current = parsed.valid_syntax().map(|syntax| {
+                Arc::new(VersionedDocumentOutput {
                     revision: document.revision,
-                    source: document.source,
-                    parsed,
-                    current,
+                    output: Arc::new(analyze_document(syntax)),
                 })
+            });
+            Some(PreparedDocument {
+                path: document.path,
+                revision: document.revision,
+                parsed,
+                current,
             })
-            .collect::<Vec<_>>();
+        };
+        let prepared = if balanced_misses {
+            misses.into_par_iter().map(prepare).collect::<Vec<_>>()
+        } else {
+            misses.into_iter().map(prepare).collect::<Vec<_>>()
+        };
         if cancelled() || prepared.iter().any(Option::is_none) {
             return Err(BatchIndexError::Cancelled);
         }
@@ -194,7 +237,7 @@ impl Workspace {
                 .map(|document| StoredGeneration {
                     path: &document.path,
                     revision: document.revision,
-                    source: &document.source,
+                    source: &document.parsed.source,
                     output: document
                         .current
                         .as_ref()
@@ -222,7 +265,7 @@ impl Workspace {
                     },
                 );
             }
-            if prune_missing {
+            if options.prune_missing {
                 self.documents
                     .retain(|path, _| paths.binary_search(path).is_ok());
             }
@@ -259,7 +302,10 @@ mod tests {
         let result = workspace
             .index_disk_files(
                 &[second.clone(), missing.clone(), first.clone()],
-                true,
+                BatchIndexOptions {
+                    prune_missing: true,
+                    retain_sources: false,
+                },
                 |_| 7,
                 || false,
             )
@@ -296,20 +342,44 @@ mod tests {
         let mut workspace = Workspace::with_sqlite_store(store);
 
         let cold = workspace
-            .index_disk_files(&[second.clone(), first.clone()], true, |_| 1, || false)
+            .index_disk_files(
+                &[second.clone(), first.clone()],
+                BatchIndexOptions {
+                    prune_missing: true,
+                    retain_sources: false,
+                },
+                |_| 1,
+                || false,
+            )
             .unwrap();
         assert_eq!(cold.cache_hits(), 0);
         assert_eq!(workspace.document_paths().unwrap().value.len(), 2);
 
         std::fs::write(&second, "Second updated\n").unwrap();
         let partial = workspace
-            .index_disk_files(&[first.clone(), second.clone()], true, |_| 2, || false)
+            .index_disk_files(
+                &[first.clone(), second.clone()],
+                BatchIndexOptions {
+                    prune_missing: true,
+                    retain_sources: false,
+                },
+                |_| 2,
+                || false,
+            )
             .unwrap();
         assert_eq!(partial.cache_hits(), 1);
         assert_eq!(workspace.document_paths().unwrap().value.len(), 2);
 
         let warm = workspace
-            .index_disk_files(std::slice::from_ref(&first), true, |_| 3, || false)
+            .index_disk_files(
+                std::slice::from_ref(&first),
+                BatchIndexOptions {
+                    prune_missing: true,
+                    retain_sources: false,
+                },
+                |_| 3,
+                || false,
+            )
             .unwrap();
         assert_eq!(warm.cache_hits(), 1);
         assert_eq!(workspace.document_paths().unwrap().value, [first]);
@@ -323,14 +393,25 @@ mod tests {
         let store = SqliteSemanticStore::open_in_memory().unwrap();
         let mut workspace = Workspace::with_sqlite_store(store);
         workspace
-            .index_disk_files(std::slice::from_ref(&path), true, |_| 1, || false)
+            .index_disk_files(
+                std::slice::from_ref(&path),
+                BatchIndexOptions {
+                    prune_missing: true,
+                    retain_sources: false,
+                },
+                |_| 1,
+                || false,
+            )
             .unwrap();
         std::fs::write(&path, "New\n").unwrap();
 
         let cancelled = AtomicBool::new(true);
         let result = workspace.index_disk_files(
             std::slice::from_ref(&path),
-            true,
+            BatchIndexOptions {
+                prune_missing: true,
+                retain_sources: false,
+            },
             |_| 2,
             || cancelled.load(Ordering::Relaxed),
         );

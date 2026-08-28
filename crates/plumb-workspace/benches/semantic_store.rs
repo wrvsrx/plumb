@@ -8,8 +8,8 @@ use criterion::{criterion_group, criterion_main, BatchSize, BenchmarkId, Criteri
 use plumb_semantics::analyze_document;
 use plumb_syntax::parse;
 use plumb_workspace::{
-    SqliteSemanticStore, TaskPageQuery, TaskQueryFilter, TaskQueryFilterGroup, TaskRef,
-    TaskSortOrder, Workspace,
+    BatchIndexOptions, SqliteSemanticStore, TaskPageQuery, TaskQueryFilter, TaskQueryFilterGroup,
+    TaskRef, TaskSortOrder, Workspace,
 };
 
 struct SqliteFixture {
@@ -77,6 +77,17 @@ fn task_fixtures(documents: usize, tasks: usize) -> (Workspace, SqliteFixture) {
             workspace: persistent,
         },
     )
+}
+
+fn batch_index_files(documents: usize, tasks: usize) -> (tempfile::TempDir, Vec<PathBuf>) {
+    let directory = tempfile::tempdir().unwrap();
+    let mut paths = Vec::with_capacity(documents);
+    for document in 0..documents {
+        let path = directory.path().join(format!("tasks-{document:03}.plumb"));
+        std::fs::write(&path, task_document_source(document, tasks, "")).unwrap();
+        paths.push(path);
+    }
+    (directory, paths)
 }
 
 fn task_page_query() -> TaskPageQuery {
@@ -311,6 +322,130 @@ fn benchmark_task_queries(c: &mut Criterion) {
     group.finish();
 }
 
+fn benchmark_batch_index(c: &mut Criterion) {
+    let document_count = 176;
+    let tasks_per_document = 8;
+    let (_sources, paths) = batch_index_files(document_count, tasks_per_document);
+    let mut group = c.benchmark_group("workspace_batch_index_1408");
+    group.sample_size(10);
+    group.bench_function("memory_serial_cold", |b| {
+        b.iter(|| {
+            let mut workspace = Workspace::new();
+            for path in &paths {
+                workspace.insert(path, 0, std::fs::read_to_string(path).unwrap());
+            }
+            black_box(workspace)
+        })
+    });
+    group.bench_function("memory_cold", |b| {
+        b.iter(|| {
+            let mut workspace = Workspace::new();
+            black_box(
+                workspace
+                    .index_disk_files(
+                        &paths,
+                        BatchIndexOptions {
+                            prune_missing: true,
+                            retain_sources: false,
+                        },
+                        |_| 0,
+                        || false,
+                    )
+                    .unwrap(),
+            )
+        })
+    });
+    group.bench_function("sqlite_serial_cold", |b| {
+        b.iter_batched(
+            || tempfile::tempdir().unwrap(),
+            |directory| {
+                let store =
+                    SqliteSemanticStore::open(directory.path().join("semantic.sqlite3")).unwrap();
+                let mut workspace = Workspace::with_sqlite_store(store);
+                for path in &paths {
+                    workspace
+                        .insert_disk(path, 0, std::fs::read_to_string(path).unwrap())
+                        .unwrap();
+                }
+                black_box(workspace)
+            },
+            BatchSize::LargeInput,
+        )
+    });
+    group.bench_function("sqlite_cold", |b| {
+        b.iter_batched(
+            || tempfile::tempdir().unwrap(),
+            |directory| {
+                let store =
+                    SqliteSemanticStore::open(directory.path().join("semantic.sqlite3")).unwrap();
+                let mut workspace = Workspace::with_sqlite_store(store);
+                black_box(
+                    workspace
+                        .index_disk_files(
+                            &paths,
+                            BatchIndexOptions {
+                                prune_missing: true,
+                                retain_sources: false,
+                            },
+                            |_| 0,
+                            || false,
+                        )
+                        .unwrap(),
+                )
+            },
+            BatchSize::LargeInput,
+        )
+    });
+
+    let cache = tempfile::tempdir().unwrap();
+    let database = cache.path().join("semantic.sqlite3");
+    let store = SqliteSemanticStore::open(&database).unwrap();
+    let mut workspace = Workspace::with_sqlite_store(store);
+    workspace
+        .index_disk_files(
+            &paths,
+            BatchIndexOptions {
+                prune_missing: true,
+                retain_sources: false,
+            },
+            |_| 0,
+            || false,
+        )
+        .unwrap();
+    group.bench_function("sqlite_serial_warm", |b| {
+        b.iter(|| {
+            let store = SqliteSemanticStore::open(&database).unwrap();
+            let mut workspace = Workspace::with_sqlite_store(store);
+            for path in &paths {
+                assert!(workspace
+                    .insert_disk(path, 0, std::fs::read_to_string(path).unwrap())
+                    .unwrap());
+            }
+            black_box(workspace)
+        })
+    });
+    group.bench_function("sqlite_warm", |b| {
+        b.iter(|| {
+            let store = SqliteSemanticStore::open(&database).unwrap();
+            let mut workspace = Workspace::with_sqlite_store(store);
+            let result = workspace
+                .index_disk_files(
+                    &paths,
+                    BatchIndexOptions {
+                        prune_missing: true,
+                        retain_sources: false,
+                    },
+                    |_| 0,
+                    || false,
+                )
+                .unwrap();
+            assert_eq!(result.cache_hits(), paths.len());
+            black_box(result)
+        })
+    });
+    group.finish();
+}
+
 fn event_containment_source(events: usize) -> String {
     let mut source = String::with_capacity(events * 180);
     for index in 0..events {
@@ -377,6 +512,6 @@ criterion_group! {
     name = benches;
     config = configuration();
     targets = benchmark_build, benchmark_warm_start, benchmark_queries, benchmark_replacement,
-        benchmark_task_queries, benchmark_event_containment
+        benchmark_task_queries, benchmark_batch_index, benchmark_event_containment
 }
 criterion_main!(benches);
