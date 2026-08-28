@@ -60,8 +60,9 @@ marker `":" 产生 definition record。head 是 term，children 是 definition b
 `## 5.1 Block positional argument projection
 
 block head 直接暴露 core syntax 产生的 ordered parsed arguments；所有 kind 共用 bare `"|" boundary，
-semantic recognizer 不再按 space 或 kind-specific text grammar 二次切分 head。space 始终属于当前
-argument。各 recognizer 独立约束 arity 与 argument content；例如 association key 仍须投影为非空
+semantic recognizer 不再按 space 或 kind-specific text grammar 二次切分 head。core typed argument view
+已移除 boundary padding；internal 与 nested spaces 仍属于 argument。各 recognizer 独立约束 arity 与
+argument content；例如 association key 仍须投影为非空
 plain key。children 位于完整 head argument sequence 之后，不占 positional argument index。
 
 block-level `"=" association 的形态是：
@@ -94,7 +95,8 @@ positional recognizer 只对 ordered argument view 编号；direct child 不因 
 order，再由各 owner recognizer 分别解释。
 
 inline `"=" association 必须恰好有两个 arguments；key 必须是非空 plain value，第二个 argument 是
-value。space 属于 argument content，不再提供 compact key/value split：
+value。space 不建立 argument boundary，boundary padding 由 core typed view 移除；不再提供 compact
+key/value split：
 
 `plumb
 
@@ -677,7 +679,64 @@ export 按 document-local closure state 在 task item 的首个 paragraph 添加
 生成 checkbox；task 的 id 与 fields 保留在包裹 title 的 Pandoc `"Span" attributes 中，marker 不伪装为 class，
 children 继续作为同一 list item 的后续 blocks。
 
-`# 17. Generic export
+`# 17. Tables
+
+marker `"table" 产生 table owner；可选 head 是 inline caption。table 的 direct `"-" children 是 rows，
+由 table recognizer 独占其结构角色，不同时进入普通 list recognition。table 中其他未消费的 direct
+declarations 仍按通用 owner projection 提供 attributes；其他 direct children 是
+`"table.invalid-child"。row 与 cell subtree 内只有结构性 `"-" 被 table 消费，展开 cell 的普通 children
+恢复标准 block semantics。
+
+row 有两种互斥形态：
+
+`- nonempty head：ordered head arguments 是 compact inline cells；direct declarations 不占 cell 位置，
+ 其他 children 是 `"table.compact-row-child"。
+`- empty head：direct `"-" children 是 expanded cells；direct declarations 不占 cell 位置，其他 children
+ 是 `"table.expanded-row-child"。cell head 是可选首段，cell 的未消费 children 是后续普通 blocks；空 head
+ 且没有 body 的 cell 表示 empty cell。
+
+因此 compact 与 expanded cell 不在同一 row 混用。boundary padding 使用 core typed argument view：
+
+`plumb
+
+|"
+  `table
+   `- name  | age
+    `+ header
+   `- Alice | 10
+   `- Bob   | 20
+
+连续 separators 表示 compact empty cell，例如 `"`- Alice||active"。需要 rich cell、cell attributes 或
+row-header cell 时使用展开形态：
+
+`plumb
+
+|"
+  `table People
+   `-
+    `+ header
+    `- name
+    `- age
+   `-
+    `- Alice
+     `+ header
+    `- 10
+
+      `note Age is approximate.
+
+row 的 leaf-shaped direct `"+ header" facet 标记 header row；header rows 必须是开头的连续序列。body row
+中 expanded cell 的同一 facet 标记 row-header cell；compact cell 不能单独携带 facet。每个 row 的
+effective column count 必须一致，第一行确定 expected count。空 table 合法；非空 table 的 zero-column
+row 与列数不一致分别发布 `"table.empty-row" 与 `"table.column-count-mismatch"。首版不解释 rowspan、
+colspan、column widths 或 Pandoc 的复杂 head/body/foot 分组。
+
+portable export 产生 Pandoc `"Table"：连续 header rows 进入单个 `"TableHead"，其余 rows 进入单个
+`"TableBody"；row-header cell 通过 body 的 row-head-columns count 投影，无法形成一致开头 row-header
+prefix 时发布 `"table.inconsistent-row-headers"。caption、inline/rich/empty cells 和通用 attributes
+保持可迁移。Pandoc import 对首版可表示 subset 生成 compact rows；含 rich blocks、cell attributes 或
+row headers 时生成 expanded rows，且 round trip 保持 Pandoc table structure。
+
+`# 18. Generic export
 
 不具有标准语义的 valid structures 仍可 portable export：generic marked block 变为 Pandoc `"Div"，
 generic parsed inline element 变为 `"Span"，verbatim block 变为 `"CodeBlock"，inline verbatim 变为

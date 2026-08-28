@@ -46,7 +46,7 @@ format intent、validated token rewrites 和 authoring finalization。详细 con
 source-backed records 与 diagnostics；document analyses、workspace analyses、queries 和 operations
 通过静态 Rust pipeline 显式组合，不提供动态 registration 或可替换 extension host。
 
-官方 bundle 包括 outline、anchors/references、target resolution、lists、definitions、metadata、
+官方 bundle 包括 outline、anchors/references、target resolution、lists、tables、definitions、metadata、
 citations、quotes、inline styles、tasks 和 events。semantic profile 将普通 direct declaration children 投影为
 id、facets 与 named properties；core 不维护 semantic registry，也不校验 element 或 marker spelling。
 

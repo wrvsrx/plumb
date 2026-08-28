@@ -145,6 +145,19 @@ query context 至少包含 request document/revision、cursor 或 target、works
 completion 可以读取 current recovered view 与其他 documents 的 last-valid indexes。definition、references、
 hover 和 rename 默认要求当前 target 具有 valid semantic record。
 
+document analysis output 在共享 source-ordered link storage 之外保存 event containment index。每个 event
+record 对应一个可重叠的 link index range；nested events 可以引用同一 link record，不复制 source-backed
+link data。构建在 links 与 events 已按 source 排序后以 monotonic boundary search 完成；workspace 的
+event-task association、diagnostics、navigation、reverse references 与 event query 统一调用 indexed
+contained-links query，不各自重做 byte-range join。revision replacement 原子替换 links 与 ranges，不能让
+新 event 观察旧 link storage。
+
+workspace hover target lookup 在 current valid document 上先解析 link、citation 等具体 semantic target，
+再解析 document metadata target。byte offset 0 始终是 path-defined document declaration target；任意
+top-level direct `"=" metadata entry 的完整 subtree 也是同一 document summary 的入口，返回 range 是命中的
+entry range。nested ordinary-owner property 不属于 document target，分散 metadata entries 之间的 body
+也不能由聚合 range 偶然命中。
+
 Bibliography 分为 document-local declaration 与 workspace file dependency：`"plumb-semantics" 从 typed
 metadata 投影 source-backed paths，并从 recovered inline view 产生 citation completion context；
 `"plumb-workspace" 负责 root containment、file I/O、CSL JSON decoding、id merge/resolution 和 dependency

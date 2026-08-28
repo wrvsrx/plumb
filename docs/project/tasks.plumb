@@ -8,13 +8,14 @@
 
  `@ block-table-semantics
 
- `note 使用可选 inline caption 的 `"table" block 表示表格；其空 head direct `"-" children 表示
-  rows，row 的 direct `"-" children 表示 cells。`"+ header" facet 标记开头的 header rows，
-  并允许在 body row 中标记独立的 row-header cell。
- `note Cell head 投影为 cell 的首段，cell children 继续容纳普通 blocks；空 head 且没有 children 的
-  cell 表示 empty cell。Table recognizer 拥有 row/cell subtree，结构性的 `"-" blocks 不得同时进入
-  普通 list recognition；cell children 内恢复普通 block semantics。
- `note 对非空 row head、非 cell 的 row children、table 中混入其它 direct children、header row 出现在
+ `note 使用可选 inline caption 的 `"table" block 表示表格；direct `"-" children 表示 rows。非空 row
+  head 的 ordered arguments 是 compact inline cells；空 head row 的 direct `"-" children 是 expanded
+  rich cells。两种形态不在同一 row 混用，连续 separators 表示 compact empty cell。
+ `note `"+ header" facet 标记开头的 header rows，并允许在 expanded body row 中标记独立的 row-header
+  cell。Cell head 投影为首段，cell children 继续容纳普通 blocks；空 cell 可表达。Table recognizer 拥有
+  row/cell subtree，结构性的 `"-" blocks 不得同时进入普通 list recognition；cell children 内恢复普通
+  block semantics，direct declarations 不占 row/cell position。
+ `note 对非 cell 的 row children、table 中混入其它 direct children、header row 出现在
   body row 之后以及 effective column count 不一致提供 semantic diagnostics。首版支持 caption、empty/rich
   cells、连续 header rows、row-header cells、attributes 与一致列数，不实现 rowspan、colspan、column
   widths 或复杂的 Pandoc head/body/foot 分组。

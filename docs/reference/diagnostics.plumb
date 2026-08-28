@@ -69,6 +69,11 @@ recovery 的目标是报告后续独立错误并保留 source，不是把 malfor
 official semantic profile 至少区分：
 
 `- association：inline `"=" 不是恰好两个 arguments 时发布 `"association.invalid-arity"。
+`- table：非 declaration 的非法 direct child 发布 `"table.invalid-child"；compact/expanded row 中的
+ 非法 child 分别发布 `"table.compact-row-child"/`"table.expanded-row-child"；zero-column row、effective
+ column count 不一致、header row 位于 body row 后以及 body rows 无法形成一致 row-header prefix，分别发布
+ `"table.empty-row"、`"table.column-count-mismatch"、`"table.header-after-body" 与
+ `"table.inconsistent-row-headers"。diagnostic 归 table recognizer，普通 list recognizer 不重复报告。
 `- heading/anchor：非法 heading level、duplicate anchor。
 `- metadata：duplicate/invalid key、invalid location、unsupported 或 mixed value shape，以及
  `"metadata.invalid-created" RFC 3339 timestamp warning。document root 上的 direct `"@"/`"+" 分别发布

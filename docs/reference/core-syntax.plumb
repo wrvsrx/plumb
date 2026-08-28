@@ -98,7 +98,9 @@ core 不按 `"@"、`"+" 或 `"=" spelling 把 declaration children 移入独立 
 
 普通非空文本行开始 paragraph。paragraph 只有 ordered parsed arguments，不拥有 children。第一个
 argument 不写前导 separator；当前 inline depth 的 bare `"|" 开始后续 argument。每个 argument 都是
-parsed inline content，space 始终属于当前 argument；连续 separators 产生 empty arguments。paragraph
+parsed inline content。紧邻 argument boundary 的 ASCII space 是 source padding：typed argument view 从
+两端移除这些 direct spaces，但 lossless tree 与 source range 仍保存原 bytes；nested inline element 内的
+space 不递归移除。连续 separators 或只有 padding 的区域产生 empty arguments。paragraph
 至少有一个 argument，因而只含一个 bare `"|" 的 paragraph 具有两个 empty arguments。
 
 marked block 的 marker line 在第一个 ASCII space 后开始 head。head 与 paragraph 使用相同的 ordered
@@ -131,14 +133,19 @@ physical line 开始 first child；group delimiter 不属于 block entry。first
 head 已有 argument source 后出现 block-only entry 仍是 syntax error。
 
 argument separator 只作用于当前 parsed-content depth。nested inline owner 内的 `"|" 属于该 owner；
-delimiter escape 产生 literal pipe。canonical source 不在 separator 两侧添加 padding spaces：
+delimiter escape 产生 literal pipe。formatter 保留已有 boundary padding，不为普通 argument 主动添加
+padding；consumer 观察到的 argument content 不受表格列对齐影响：
 
 `plumb
 
 |"
   `event 14:00--15:30|Parser review
   `row Language server|Waiting||Optional note
+  `row Language server | Waiting || Optional note
   ordinary first argument|second argument
+
+需要让 argument value 以 space 开头或结尾时，把该 space 放入 nested inline element；padding trim 只作用
+于当前 argument depth，因此 `"`()[ value ]" 的 value 保留两端 spaces。
 
 同列 ordinary text 结束当前 marked block，并开始 sibling paragraph。连续、同缩进的 ordinary
 text lines 属于同一 paragraph，并以 soft break 连接；blank、dedent、同级 marked block 或 EOF
@@ -235,7 +242,8 @@ element 仍显式使用 introducer。verbatim member 不接受 compact quote for
 first argument 后的 argument 与 child 可以任意交错。tree 按 source order 保存统一的 `"InlineMember"
 sequence；core 不根据
 kind spelling 猜测 declaration，也不分别存储会丢失交错位置的 arguments/children vectors。与
-head/paragraph 相同，space 始终属于 parsed argument content，不建立 member boundary；literal pipe 在 parsed argument 中写作 delimiter
+head/paragraph 相同，space 不建立 member boundary；member 两端的 direct ASCII spaces 是 padding，typed
+argument view 按本节同样移除，nested content 不递归 trim。literal pipe 在 parsed argument 中写作 delimiter
 escape。verbatim payload 中的 pipe 是 raw byte，nested child 内的 pipe 属于 nested owner。
 
 连续 `"[[][]]" 和 inline postfix `"{}" 都不是 current ownership syntax。前者在第一个 close 后恢复为
