@@ -78,13 +78,19 @@ it. Inside the plumb source repository, prefer
 - Block heads and paragraphs contain ordered parsed arguments. Separate later
   arguments with a bare `|` at the current inline depth. Direct ASCII spaces at
   argument boundaries are typed padding: semantic consumers trim them while
-  lossless source and formatting preserve them. Consecutive separators create
-  empty arguments, and a literal pipe is written as `` `| ``.
+  lossless source and formatting preserve them. Ordinary ASCII space always
+  produces inline space, never an argument boundary. A marked head starts at
+  the first ASCII space after its marker; that byte is part of the lossless
+  head and is trimmed by its typed first-argument view. A tab cannot open a head.
+  Consecutive separators create empty arguments, and literal pipe and boundary
+  space are written as `` `| `` and backtick-space respectively.
 - Every parsed inline owner starts with a parsed argument, which may be empty. Separate
   later ordered members with `|`; arguments and introducer-elided children may
   then interleave. Verbatim members always use the full quote/bracket envelope;
   compact verbatim is standalone only. Direct boundary padding is trimmed;
-  nested inline content is not recursively trimmed.
+  each nested parsed argument is independently viewed through the same trimmed
+  projection. Padding around later members does not change verbatim-argument or
+  parsed/verbatim-child classification.
 - Braces are ordinary parsed text. Do not author removed postfix `{...}`
   ownership or `{#id .class key=value}`; migrate legacy source explicitly.
 - Migrate the former space-delimited block association, compact definition,

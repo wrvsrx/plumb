@@ -36,7 +36,8 @@ block 可以拥有缩进 children。第一个 child 建立 sibling column；form
 paragraph 与 block head 都包含 ordered parsed arguments。first argument 没有前导 separator，后续
 arguments 用当前 depth 的 bare `"|" 分隔；紧邻 argument boundary 的 ASCII spaces 是 padding，typed
 argument view 会从两端移除，但 lossless source 与 formatter 原样保留。连续 pipes 或只有 padding 的区域会产生
-empty arguments。literal pipe 写成 `` `|"：
+empty arguments。普通 ASCII space 始终产生 `"Inline::Space"，不会建立 argument boundary；literal pipe
+写成 `` `|"：
 
 `plumb
 
@@ -45,9 +46,16 @@ empty arguments。literal pipe 写成 `` `|"：
   `row Language server|Waiting||Optional note
   ordinary first argument|second argument
 
-marker 后的 space 只分隔 marker 与 head，不建立 argument boundary。block children 位于完整 head
-argument sequence 之后。padding trim 不递归进入 nested inline element；确实需要 argument 以 space 开头或结尾时，
-可以写 `"`()[ value ]"。
+marker 后第一个 ASCII space 同时是 head 的首个 `"Inline::Space"；typed first argument 会把它作为 boundary
+padding 移除。tab 或其他 whitespace 不能打开 head。block children 位于完整 head argument sequence 之后。
+每层 nested parsed argument 都独立通过 typed view trim，因此 `"`()[ value ]" 投影为 `"value"。确实需要
+argument 以 ASCII space 开头或结尾时，用 backtick-space 把该 space 写成 literal text：
+
+`plumb
+
+|"
+  `row ` Alice` |10
+  `kind[` value` ]
 
 空 head 的 first child 也可以与 parent 写在同一行；child introducer column 决定后续对齐：
 
@@ -77,7 +85,8 @@ argument sequence 之后。padding trim 不递归进入 nested inline element；
   `pair[|"[raw]"]
 
 first member 固定为 parsed argument 且可以为空；后续 argument 与 child 可以交错。只有当前 depth 的 pipe
-建立 member boundary；member 两端的 direct ASCII spaces 是 typed padding，nested content 不递归 trim。
+建立 member boundary；member 两端的 direct ASCII spaces 是 typed padding。每个 nested parsed argument
+也独立 trim；padding 不会把 full verbatim argument 或 introducer-elided child 改判为普通 argument。
 verbatim argument 也只能出现在 pipe 后，如上面的第三行。core 保存统一的 source order，不解释 kind、
 argument 含义或数量。
 
@@ -202,7 +211,8 @@ ordinary text 保留。legacy 文件必须显式使用 `"plumb migrate --from at
 |"
   ``note is text, not a block.
 
-单个反引号加 `"`["、`"]" 或 `"|" 是 delimiter 的字面转义，在任何 parsed position 无条件成立；
+单个反引号加 ASCII space、`"`["、`"]" 或 `"|" 是 delimiter 的字面转义，在任何 parsed position 无条件成立；
+backtick-space 产生 literal `"Inline::Text" space，因此不会被 boundary trim 移除。
 裸 brackets 与 inline member boundary 上的 pipe 是结构拼写。brace 是 ordinary text，不需要 escape。
 不要使用 Markdown 的 backslash escape，也不要假设 punctuation 在所有位置都有特殊含义。
 

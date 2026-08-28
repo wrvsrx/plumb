@@ -31,8 +31,8 @@ additional space. Dedent returns to an existing outer indentation level.
 `grandchild Three
 ```
 
-An empty-head marked block may put its first marked/verbatim child after the
-head separator on the same physical line. That child's introducer column
+An empty-head marked block may put its first marked/verbatim child after
+ASCII-space head padding on the same physical line. That child's introducer column
 establishes the sibling column:
 
 ```plumb
@@ -48,16 +48,26 @@ Block heads and paragraphs contain one or more ordered parsed arguments. The
 first argument has no leading separator; a bare `|` at the current inline depth
 starts each later argument. Direct ASCII spaces at argument boundaries are
 typed padding: semantic consumers trim them while lossless source and formatting
-preserve them. Nested inline content is not recursively trimmed. Consecutive
-separators create empty arguments, and `` `| `` writes a literal pipe. The
-space after a block marker separates the marker from its head and does not
-create an argument boundary:
+preserve them. Ordinary ASCII space always produces inline space and never an
+argument boundary. Each nested parsed argument is independently projected
+through the same trimmed view. Consecutive separators create empty arguments,
+and `` `| `` writes a literal pipe. The first ASCII space after a block marker
+is the first inline space in its lossless head; the typed first argument trims
+it as boundary padding. A tab or other whitespace cannot open a marked head:
 
 ```plumb
 `event 14:00--15:30|Parser review
 `row Language server|Waiting||Optional note
 
 ordinary first argument|second argument
+```
+
+Use backtick-space for a literal boundary space. It produces parsed text rather
+than inline space, so typed trimming preserves it:
+
+```plumb
+`row ` Alice` |10
+`kind[` value` ]
 ```
 
 Two backticks escape the introducer and produce a literal backtick:
@@ -167,8 +177,9 @@ envelopes are arguments only after a `|`; use `kind[|"[raw]"]` when the first
 parsed argument is empty. Compact quotes inside members remain parsed text;
 compact verbatim is available only as an introduced standalone inline.
 Arguments and children may interleave after the first argument. Only `|`
-separates members; direct ASCII boundary spaces are typed padding, while nested
-inline content is not recursively trimmed.
+separates members; direct ASCII boundary spaces are typed padding. Every nested
+parsed argument is independently trimmed, and padding around a later member
+does not change its verbatim-argument or parsed/verbatim-child classification.
 Use `` `|`` for a literal pipe inside parsed argument content. Core preserves
 source order but does not assign kind-specific meaning or arity.
 
@@ -225,6 +236,6 @@ while an owner with children keeps one blank separator before the boundary.
 - Do not write `# heading`, `- item`, fenced code blocks, or Markdown links
   without the plumb backtick introducer and envelopes.
 - Do not assume punctuation is globally special.
-- Escape literal `[`, `]`, or member-level `|` with a single backtick.
+- Escape literal ASCII space, `[`, `]`, or member-level `|` with a single backtick.
   Braces are ordinary. There is no general backslash escape language.
 - Do not turn a syntax error into literal text. Repair the intended structure.
