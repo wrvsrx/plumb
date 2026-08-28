@@ -3,23 +3,3 @@
 本页只记录可以直接实施和验收的工作。方向、约束和 deferred design 继续放在
 `->[roadmap|roadmap.plumb]；已经结束的任务及其验收记录保存在
 `->[completed tasks|completed-tasks.plumb]。
-
-`- 减少 notes interactive mode 的旧 dependency generations
-
- `+ task
-
- `@ deduplicate-notes-interactive-dependencies
-
- `= created|2026-08-29T03:28:53+08:00
-
- `note 评估升级或替换 notes interactive mode 使用的 skim 0.10，减少与 workspace 当前 clap、syn、bitflags、nix
-
- 和 unicode-width 并存的旧 dependency generations。
-
- `note 保持 fuzzy selection、preview、terminal input/output、single-binary packaging 与 Nix build behavior；补充 notes
-
- interactive tests 或等价的 protocol-neutral selection tests。
-
- `note 比较 clean build time、target size 和 release binary size；只有收益足以覆盖迁移与维护成本时才替换依赖，
-
- 否则记录测量结果并关闭任务。

@@ -1064,6 +1064,30 @@
 
 `# Workspace performance and maintenance
 
+`- 评估 notes interactive mode 的旧 dependency generations
+
+ `+ task
+
+ `@ deduplicate-notes-interactive-dependencies
+
+ `= created|2026-08-29T03:28:53+08:00
+ `= done|2026-08-29T04:45:55+08:00
+
+ `note 当前 skim 0.10 保留 fuzzy multi-selection、inline preview、custom Ctrl-N create action、terminal I/O 与
+
+ single-binary packaging；dependency tree 为 400 行，隔离 clean release build 为 95.7 s/731 MiB，统一 plumb
+ release binary 为 24,701,864 bytes。
+
+ `note skim 5.6.6 with default features disabled 已实际解析和 check：它删除 clap 3、syn 1、bitflags 1、旧 nix 与
+
+ unicode-width 0.1，但新增约百个 Ratatui、PTY、terminal rendering dependencies，并同时出现 nix 0.28、0.29、
+ 0.31；library API 也不兼容当前 picker。skim 1-4 已使用同一类较重 TUI architecture。
+
+ `note 轻量 nucleo-picker 支持 fuzzy multi-selection 与 custom key events，但当前明确不支持 preview，不能保持交互
+
+ contract。收益不足以覆盖迁移和 dependency expansion，因此 Cargo.toml/Cargo.lock 已恢复原状；只有候选库同时
+ 提供 preview/custom create/multi-selection 且 dependency tree 明显收缩时再重新评估。
+
 `- 控制本地 Cargo build artifacts 增长
 
  `+ task
