@@ -11,22 +11,29 @@ Text with `*[emphasis] and `outer[before `inner[nested] after].
   (paragraph
     (inline_content
       (text)
+      (space)
+      (text)
+      (space)
       (inline_element
         (introducer)
         (inline_kind)
         (parsed_inline_content
           (inline_member_text)))
+      (space)
       (text)
+      (space)
       (inline_element
         (introducer)
         (inline_kind)
         (parsed_inline_content
           (inline_member_text)
+          (space)
           (inline_element
             (introducer)
             (inline_kind)
             (parsed_inline_content
               (inline_member_text)))
+          (space)
           (inline_member_text)))
       (text))))
 
@@ -43,6 +50,7 @@ Use `pair[first|second] and `pair[|third|+[tag]].
   (paragraph
     (inline_content
       (text)
+      (space)
       (inline_element
         (introducer)
         (inline_kind)
@@ -51,7 +59,9 @@ Use `pair[first|second] and `pair[|third|+[tag]].
         (member_separator)
         (parsed_inline_content
           (inline_member_text)))
+      (space)
       (text)
+      (space)
       (inline_element
         (introducer)
         (inline_kind)
@@ -79,6 +89,7 @@ Use `owner["quoted"|code"raw"].
   (paragraph
     (inline_content
       (text)
+      (space)
       (inline_element
         (introducer)
         (inline_kind)
@@ -102,6 +113,7 @@ See `->[guide|@[main]|+[external]|=[to|guide.plumb]].
   (paragraph
     (inline_content
       (text)
+      (space)
       (inline_element
         (introducer)
         (inline_kind)
@@ -143,9 +155,13 @@ An empty `kind[] element.
   (paragraph
     (inline_content
       (text)
+      (space)
+      (text)
+      (space)
       (inline_element
         (introducer)
         (inline_kind))
+      (space)
       (text))))
 
 ==================
@@ -161,14 +177,19 @@ Use `kind[literal `[ and `] brackets].
   (paragraph
     (inline_content
       (text)
+      (space)
       (inline_element
         (introducer)
         (inline_kind)
         (parsed_inline_content
           (inline_member_text)
+          (space)
           (bracket_escape)
+          (space)
           (inline_member_text)
+          (space)
           (bracket_escape)
+          (space)
           (inline_member_text)))
       (text))))
 
@@ -185,25 +206,32 @@ Use `"raw", `rust"let x = 1;", `$"x^2", `->"guide.plumb#intro", and `"{}".
   (paragraph
     (inline_content
       (text)
+      (space)
       (inline_verbatim
         (introducer)
         (raw_text))
       (text)
-      (inline_verbatim
-        (introducer)
-        (verbatim_kind)
-        (raw_text))
-      (text)
+      (space)
       (inline_verbatim
         (introducer)
         (verbatim_kind)
         (raw_text))
       (text)
+      (space)
       (inline_verbatim
         (introducer)
         (verbatim_kind)
         (raw_text))
       (text)
+      (space)
+      (inline_verbatim
+        (introducer)
+        (verbatim_kind)
+        (raw_text))
+      (text)
+      (space)
+      (text)
+      (space)
       (inline_verbatim
         (introducer)
         (raw_text))
@@ -248,10 +276,13 @@ Use `"[raw containing " safely]" and `rust""[raw containing ]" safely]"".
   (paragraph
     (inline_content
       (text)
+      (space)
       (inline_verbatim
         (introducer)
         (raw_text))
+      (space)
       (text)
+      (space)
       (inline_verbatim
         (introducer)
         (verbatim_kind)
@@ -271,6 +302,7 @@ Use `code[|"[let x = 1;]"|syntax"[raw child]"|@[example]|=[generated|true]].
   (paragraph
     (inline_content
       (text)
+      (space)
       (inline_element
         (introducer)
         (inline_kind)
@@ -313,13 +345,19 @@ second line] tail.
   (paragraph
     (inline_content
       (text)
+      (space)
       (inline_element
         (introducer)
         (inline_kind)
         (parsed_inline_content
           (inline_member_text)
+          (space)
+          (inline_member_text)
           (soft_break)
+          (inline_member_text)
+          (space)
           (inline_member_text)))
+      (space)
       (text))))
 
 ==================
@@ -336,6 +374,9 @@ Introducer runs
     (inline_content
       (introducer_escape)
       (text)
+      (space)
+      (text)
+      (space)
       (introducer_escape)
       (inline_element
         (introducer)
@@ -356,8 +397,14 @@ Plain [brackets] and closing ] remain text.
   (blank_line)
   (paragraph
     (inline_content
-      (text))
-    (ERROR)))
+      (text)
+      (space))
+    (ERROR
+      (space)
+      (space)
+      (space)
+      (space)
+      (space))))
 
 ==================
 Unified delimiter escapes
@@ -372,12 +419,19 @@ escaped `[ `] { } `| delims
   (paragraph
     (inline_content
       (text)
+      (space)
       (bracket_escape)
-      (text)
+      (space)
       (bracket_escape)
+      (space)
       (text)
+      (space)
+      (text)
+      (space)
       (pipe_escape)
+      (space)
       (text))))
+
 ==================
 Block and paragraph arguments
 ==================
@@ -392,16 +446,65 @@ first|second value
   (marked_block
     (introducer)
     (marker)
-    (head_separator)
     (inline_content
+      (space)
+      (text)
+      (space)
       (text)
       (argument_separator)
       (text)
       (argument_separator)
       (argument_separator)
+      (text)
+      (space)
       (text)))
   (paragraph
     (inline_content
       (text)
       (argument_separator)
+      (text)
+      (space)
       (text))))
+
+==================
+Escaped spaces and padded specialized members
+==================
+
+` leading and `owner[first | "[raw]" | child[value] | code"[raw]"]
+
+---
+
+(document
+  (blank_line)
+  (paragraph
+    (inline_content
+      (space_escape)
+      (text)
+      (space)
+      (text)
+      (space)
+      (inline_element
+        (introducer)
+        (inline_kind)
+        (parsed_inline_content
+          (inline_member_text)
+          (space))
+        (member_separator)
+        (space)
+        (verbatim_argument
+          (raw_text))
+        (space)
+        (member_separator)
+        (space)
+        (inline_child
+          (inline_element
+            (inline_kind)
+            (parsed_inline_content
+              (inline_member_text))))
+        (space)
+        (member_separator)
+        (space)
+        (inline_child
+          (inline_verbatim
+            (verbatim_kind)
+            (raw_text)))))))

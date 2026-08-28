@@ -3,6 +3,7 @@
 (introducer_escape) @string.escape
 (bracket_escape) @string.escape
 (pipe_escape) @string.escape
+(space_escape) @string.escape
 (marker) @keyword
 (inline_kind) @keyword
 (verbatim_kind) @keyword

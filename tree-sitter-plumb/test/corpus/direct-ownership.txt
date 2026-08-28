@@ -17,35 +17,41 @@ Direct declarations and ordinary children
   (marked_block
     (introducer)
     (marker)
-    (head_separator)
     (inline_content
+      (space)
+      (text)
+      (space)
       (text))
     (block_body
       (marked_block
         (introducer)
         (marker)
-        (head_separator)
         (inline_content
+          (space)
           (text)))
       (marked_block
         (introducer)
         (marker)
-        (head_separator)
         (inline_content
+          (space)
           (text)))
       (marked_block
         (introducer)
         (marker)
-        (head_separator)
         (inline_content
+          (space)
           (text)
           (argument_separator)
           (text)))
       (marked_block
         (introducer)
         (marker)
-        (head_separator)
         (inline_content
+          (space)
+          (text)
+          (space)
+          (text)
+          (space)
           (text))))))
 
 ==================
@@ -69,33 +75,35 @@ Interleaved direct children
   (marked_block
     (introducer)
     (marker)
-    (head_separator)
     (inline_content
+      (space)
       (text))
     (block_body
       (marked_block
         (introducer)
         (marker)
-        (head_separator)
         (inline_content
+          (space)
           (text)))
       (paragraph
         (inline_content
+          (text)
+          (space)
           (text)))
       (blank_line)
       (marked_block
         (introducer)
         (marker)
-        (head_separator)
         (inline_content
+          (space)
           (text)
           (argument_separator)
           (text)))
       (marked_block
         (introducer)
         (marker)
-        (head_separator)
         (inline_content
+          (space)
           (text))))))
 
 ==================
@@ -123,22 +131,24 @@ Marked raw tail after children
       (marked_block
         (introducer)
         (marker)
-        (head_separator)
         (inline_content
+          (space)
           (text)))
       (marked_block
         (introducer)
         (marker)
-        (head_separator)
         (inline_content
+          (space)
           (text)
           (argument_separator)
           (text)))
       (marked_block
         (introducer)
         (marker)
-        (head_separator)
         (inline_content
+          (space)
+          (text)
+          (space)
           (text))))
     (raw_tail
       (raw_tail_open)
@@ -186,8 +196,8 @@ Anonymous raw block
   (marked_block
     (introducer)
     (marker)
-    (head_separator)
     (inline_content
+      (space)
       (text))))
 
 ==================
@@ -212,8 +222,8 @@ Explicit anonymous raw owner
       (marked_block
         (introducer)
         (marker)
-        (head_separator)
         (inline_content
+          (space)
           (text))))
     (raw_tail
       (raw_tail_open)

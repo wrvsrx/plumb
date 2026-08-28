@@ -22,7 +22,7 @@ module.exports = grammar({
     $._eof,
   ],
 
-  extras: _ => [/[ \t\r]/],
+  extras: _ => [/\r/],
 
   conflicts: _ => [],
 
@@ -38,7 +38,7 @@ module.exports = grammar({
       field('marker', $.marker),
       choice(
         seq(
-          $.head_separator,
+          field('head', alias($._head_inline_content, $.inline_content)),
           $._same_line_child_indent,
           field('child', choice($.verbatim_block, $.marked_block)),
           repeat(choice(
@@ -50,8 +50,7 @@ module.exports = grammar({
         ),
         seq(
           optional(seq(
-            $.head_separator,
-            optional(field('head', $.inline_content)),
+            field('head', alias($._head_inline_content, $.inline_content)),
           )),
           $._line_end,
           optional(choice(
@@ -131,26 +130,39 @@ module.exports = grammar({
       $._line_end,
     ),
 
-    inline_content: $ => prec.right(repeat1(choice(
+    _head_inline_content: $ => seq(
+      alias(token.immediate(/ +/), $.space),
+      repeat($._inline_content_item),
+    ),
+
+    inline_content: $ => prec.right(repeat1($._inline_content_item)),
+
+    _inline_content_item: $ => choice(
       $.introducer_escape,
       $.bracket_escape,
       $.pipe_escape,
+      $.space_escape,
       $.inline_verbatim,
       $.inline_element,
       $.incomplete_inline_element,
       $.argument_separator,
+      $.space,
       $.text,
-    ))),
+    ),
 
-    parsed_inline_content: $ => prec.right(repeat1(choice(
+    parsed_inline_content: $ => prec.right(repeat1($._parsed_inline_content_item)),
+
+    _parsed_inline_content_item: $ => choice(
       $.introducer_escape,
       $.bracket_escape,
       $.pipe_escape,
+      $.space_escape,
       $.inline_verbatim,
       $.inline_element,
       $.soft_break,
+      $.space,
       $.inline_member_text,
-    ))),
+    ),
 
     inline_element: $ => prec.dynamic(2, prec.right(2, seq(
       field('introducer', $.introducer),
@@ -168,8 +180,16 @@ module.exports = grammar({
       repeat(seq(
         field('separator', $.member_separator),
         choice(
-          field('argument', $.verbatim_argument),
-          field('child', $.inline_child),
+          seq(
+            optional($.space),
+            field('argument', $.verbatim_argument),
+            optional($.space),
+          ),
+          seq(
+            optional($.space),
+            field('child', $.inline_child),
+            optional($.space),
+          ),
           optional(field('argument', $.parsed_inline_content)),
         ),
       )),
@@ -204,8 +224,16 @@ module.exports = grammar({
       repeat(seq(
         field('separator', $.member_separator),
         choice(
-          field('argument', $.verbatim_argument),
-          field('child', $.inline_child),
+          seq(
+            optional($.space),
+            field('argument', $.verbatim_argument),
+            optional($.space),
+          ),
+          seq(
+            optional($.space),
+            field('child', $.inline_child),
+            optional($.space),
+          ),
           optional(field('argument', $.parsed_inline_content)),
         ),
       )),
@@ -223,6 +251,7 @@ module.exports = grammar({
     raw_tail_open: _ => token(/\|"+/),
     bracket_escape: _ => prec(4, choice('`[', '`]')),
     pipe_escape: _ => prec(4, '`|'),
+    space_escape: _ => prec(4, '` '),
     soft_break: $ => $._inline_continue,
     introducer: _ => '`',
     marker: _ => /[^\s\x00-\x1f\x7f-\x9f\[\]`"|]+/,
@@ -230,9 +259,9 @@ module.exports = grammar({
     verbatim_kind: _ => /[^\s\x00-\x1f\x7f-\x9f\[\]`"|]+/,
     member_separator: _ => token.immediate('|'),
     argument_separator: _ => '|',
-    head_separator: _ => token(prec(2, /[ \t]+/)),
-    text: _ => /[^`\[\]|\n]+/,
-    inline_member_text: _ => /[^`\[\]|\n]+/,
+    space: _ => / +/,
+    text: _ => /[^`\[\]|\n\t\r ]+/,
+    inline_member_text: _ => /[^`\[\]|\n\t\r ]+/,
     _line_end: $ => choice('\n', $._eof),
   },
 });

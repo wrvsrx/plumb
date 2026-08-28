@@ -13,12 +13,20 @@ another paragraph
   (blank_line)
   (paragraph
     (inline_content
+      (text)
+      (space)
       (text))
     (inline_content
+      (text)
+      (space)
+      (text)
+      (space)
       (text)))
   (blank_line)
   (paragraph
     (inline_content
+      (text)
+      (space)
       (text))))
 
 ==================
@@ -40,29 +48,33 @@ Marked blocks and children
   (marked_block
     (introducer)
     (marker)
-    (head_separator)
     (inline_content
+      (space)
       (text))
     (headed_body
       (head_continuation
         (inline_content
+          (text)
+          (space)
           (text)))
       (blank_line)
       (paragraph
         (inline_content
+          (text)
+          (space)
           (text)))
       (blank_line)
       (marked_block
         (introducer)
         (marker)
-        (head_separator)
         (inline_content
+          (space)
           (text)))))
   (marked_block
     (introducer)
     (marker)
-    (head_separator)
     (inline_content
+      (space)
       (text))))
 
 ==================
@@ -79,18 +91,19 @@ Same-line first child
   (marked_block
     (introducer)
     (marker)
-    (head_separator)
+    (inline_content
+      (space))
     (marked_block
       (introducer)
       (marker)
-      (head_separator)
       (inline_content
+        (space)
         (text)))
     (marked_block
       (introducer)
       (marker)
-      (head_separator)
       (inline_content
+        (space)
         (text)))))
 
 ==================
@@ -114,30 +127,30 @@ Inline head is not a same-line child
   (marked_block
     (introducer)
     (marker)
-    (head_separator)
     (inline_content
+      (space)
       (introducer_escape)
       (text)))
   (blank_line)
   (marked_block
     (introducer)
     (marker)
-    (head_separator)
     (inline_content
+      (space)
       (text)))
   (blank_line)
   (marked_block
     (introducer)
     (marker)
-    (head_separator)
     (inline_content
+      (space)
       (text)))
   (blank_line)
   (marked_block
     (introducer)
     (marker)
-    (head_separator)
     (inline_content
+      (space)
       (inline_verbatim
         (introducer)
         (verbatim_kind)
@@ -146,8 +159,8 @@ Inline head is not a same-line child
   (marked_block
     (introducer)
     (marker)
-    (head_separator)
     (inline_content
+      (space)
       (inline_element
         (introducer)
         (inline_kind)
@@ -168,13 +181,21 @@ Paragraph {open} and close.
   (blank_line)
   (paragraph
     (inline_content
+      (text)
+      (space)
+      (text)
+      (space)
+      (text)
+      (space)
       (text)))
   (blank_line)
   (marked_block
     (introducer)
     (marker)
-    (head_separator)
     (inline_content
+      (space)
+      (text)
+      (space)
       (text))))
 
 ==================

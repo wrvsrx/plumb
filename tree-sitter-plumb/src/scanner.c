@@ -244,7 +244,8 @@ static bool is_name_char(int32_t character) {
 static enum BacktickDispatch classify_backtick_dispatch(TSLexer *lexer) {
   take(lexer);
   if (lexer->lookahead == '`' || lexer->lookahead == '[' ||
-      lexer->lookahead == ']' || lexer->lookahead == '|') {
+      lexer->lookahead == ']' || lexer->lookahead == '|' ||
+      lexer->lookahead == ' ') {
     return BACKTICK_ESCAPE;
   }
 
