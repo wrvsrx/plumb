@@ -219,10 +219,7 @@ fn project_inline(inline: &Inline, output: &mut Vec<ProjectedNode>) {
         | Inline::Verbatim { range, .. } => range.clone(),
     };
     project_inline_content(
-        &InlineContent {
-            range,
-            items: vec![inline.clone()],
-        },
+        &InlineContent::from_items(range, vec![inline.clone()]),
         output,
     );
 }
