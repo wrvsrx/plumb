@@ -97,6 +97,14 @@ failure。adapter 只把 filter error 映射为 invalid parameters；query failu
 search 自身的 limit/truncation completeness、外层 `"QueryResult" completeness 与 adapter scan/index
 completeness 是三个独立信号，最终响应只有在三者都 complete 时才能声明 complete。
 
+Workspace diagnostic publication round 必须先取得一个 protocol-neutral immutable diagnostic context，并让
+该轮所有 document diagnostics 共享其中的 cross-document dependency snapshot。Task dependency graph 从 typed
+task facts、typed relation rows 与 open-document overlay 构造，不得为每个 open document 重复 decode 全部
+TaskRecord 或逐 edge 发起 target query。Context 绑定构造时的 workspace state；document revision replacement
+后不能复用旧 context。单 document convenience query 可以按需建立一轮 context，但 adapter 批量 publication
+必须显式复用。Context build failure 作为 workspace query failure 结束该轮 publication，不能发布来自不同
+dependency generations 的混合 diagnostics。
+
 `# 7. Snapshots and last-valid data
 
 snapshot 包含 document identity、revision、source、recovered tree、syntax diagnostics 和可选 current-valid
