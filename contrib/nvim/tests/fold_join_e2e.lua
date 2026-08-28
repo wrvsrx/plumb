@@ -7,9 +7,9 @@ local root = vim.fn.tempname()
 vim.fn.mkdir(root .. '/.plumb', 'p')
 local path = root .. '/fold-join.plumb'
 vim.fn.writefile({
-  '`-{',
-  '   .task created="2026-08-05T19:59:19+08:00"',
-  '  } aaa bbb ccc ddd eee fff ggg kkk kkk kkk kkk kkk kkk kkk kkk',
+  '`task aaa bbb ccc ddd eee fff',
+  ' continuation ggg hhh iii jjj',
+  ' continuation kkk lll mmm nnn',
 }, path)
 
 require('plumb').setup({

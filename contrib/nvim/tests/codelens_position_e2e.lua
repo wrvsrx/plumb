@@ -3,25 +3,28 @@ local root = vim.fn.tempname()
 vim.fn.mkdir(root, 'p')
 local path = root .. '/positions.plumb'
 vim.fn.writefile({
-  '`# Heading {',
-  '  `@ heading',
-  '}',
-  '`task Task {',
-  '  `@ task',
-  '}',
-  '`node Block {',
-  '  `@ block',
-  '}',
-  '`task Multiline {',
-  '  `@ multiline',
-  '}',
+  '`# Heading',
+  ' `@ heading',
+  '',
+  '`task Task',
+  ' `@ task',
+  '',
+  '`node Block',
+  ' `@ block',
+  '',
+  '`task Multiline',
+  ' `@ multiline',
+  '',
   '`outer',
-  ' `node Nested {',
-  '   `@ nested',
-  ' }',
-  'Paragraph `span[text]{`@[inline]}.',
-  '`" {`@[raw]}',
-  '  payload',
+  ' `node Nested',
+  '  `@ nested',
+  '',
+  'Paragraph `span[text|@[inline]].',
+  '`()',
+  ' `@ raw',
+  '',
+  '|"',
+  ' payload',
 }, path)
 
 local bufnr = vim.fn.bufadd(path)
@@ -38,9 +41,16 @@ assert(vim.wait(5000, function()
 end), 'initialize plumb LSP')
 
 vim.lsp.codelens.enable(true, { bufnr = bufnr, client_id = client_id })
-assert(vim.wait(5000, function()
-  return #vim.lsp.codelens.get({ bufnr = bufnr, client_id = client_id }) == 7
-end), 'receive reference CodeLenses')
+local received_all_lenses = vim.wait(5000, function()
+  return #vim.lsp.codelens.get({ bufnr = bufnr, client_id = client_id }) == 8
+end)
+assert(
+  received_all_lenses,
+  'receive reference CodeLenses: '
+    .. vim.inspect(vim.lsp.codelens.get({ bufnr = bufnr, client_id = client_id }))
+    .. '; diagnostics: '
+    .. vim.inspect(vim.diagnostic.get(bufnr))
+)
 
 local positions = vim.tbl_map(function(item)
   local start = item.lens.range.start
@@ -51,11 +61,12 @@ table.sort(positions, function(left, right)
 end)
 assert(vim.deep_equal(positions, {
   { 0, 0 },
+  { 0, 0 },
   { 3, 0 },
   { 6, 0 },
   { 9, 0 },
   { 13, 1 },
-  { 16, 23 },
+  { 16, 22 },
   { 17, 0 },
 }), vim.inspect(positions))
 

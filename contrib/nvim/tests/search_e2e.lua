@@ -7,7 +7,7 @@ vim.fn.mkdir(root, 'p')
 local current = root .. '/current.plumb'
 local target = root .. '/target.plumb'
 vim.fn.writefile({ '`->[' }, current)
-vim.fn.writefile({ '{', ' `: title Target note', '}', '', '`task Target task' }, target)
+vim.fn.writefile({ '`= title|Target note', '', '`task Target task' }, target)
 
 local bufnr = vim.fn.bufadd(current)
 vim.fn.bufload(bufnr)
@@ -25,6 +25,18 @@ end), 'initialize plumb LSP')
 local capability, capability_error = search.capabilities(bufnr)
 assert(capability, capability_error)
 assert(capability.schema_version == 3)
+local client = assert(vim.lsp.get_client_by_id(client_id))
+assert(vim.wait(5000, function()
+  local response = client:request_sync('plumb/search', {
+    kind = 'note',
+    query = 'target',
+    limit = 20,
+  }, 1000, bufnr)
+  return response
+    and not response.err
+    and response.result.complete == true
+    and #response.result.items == 1
+end, 50), 'wait for the initial workspace index')
 
 local native_done = false
 vim.ui.input = function(_, callback)
@@ -106,7 +118,6 @@ end), 'complete live note search')
 assert(updates == 1, 'stale live result was suppressed')
 live_callbacks.on_close()
 
-local client = assert(vim.lsp.get_client_by_id(client_id))
 local response = client:request_sync('plumb/search', {
   kind = 'note',
   query = 'target',

@@ -47,7 +47,7 @@ local plumb_buf, _, plumb_root = parse_injection({
   '',
   ' `@ recursive-example',
   '',
-  '"',
+  '|"',
   ' `- xixi',
   '  `= recur|P1D',
   '',
@@ -62,7 +62,7 @@ vim.api.nvim_buf_delete(plumb_buf, { force = true })
 local python_buf, outer_root, python_root = parse_injection({
   '`python',
   '',
-  '"',
+  '|"',
   ' def greet(name):',
   '     if name:',
   '         return f"hello {name}"',
