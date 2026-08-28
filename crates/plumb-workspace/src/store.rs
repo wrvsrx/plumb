@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
 use std::ops::Range;
 use std::path::{Path, PathBuf};
@@ -466,6 +467,25 @@ impl SqliteSemanticStore {
             .load::<Vec<u8>>(&mut *connection)?
             .into_iter()
             .map(path_from_bytes)
+            .collect()
+    }
+
+    pub(crate) fn document_hashes(&self) -> StoreResult<HashMap<PathBuf, [u8; 32]>> {
+        let mut connection = self
+            .connection
+            .lock()
+            .map_err(|_| StoreError::LockPoisoned)?;
+        documents::table
+            .select((documents::path, documents::content_hash))
+            .load::<(Vec<u8>, Vec<u8>)>(&mut *connection)?
+            .into_iter()
+            .map(|(path, hash)| {
+                Ok((
+                    path_from_bytes(path)?,
+                    hash.try_into()
+                        .map_err(|_| StoreError::InvalidStoredValue)?,
+                ))
+            })
             .collect()
     }
 

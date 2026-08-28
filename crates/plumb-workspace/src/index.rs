@@ -6,7 +6,7 @@ use plumb_syntax::{parse, ParsedDocument};
 use rayon::prelude::*;
 
 use crate::store::StoredGeneration;
-use crate::{normalize, StoreError, VersionedDocumentOutput, Workspace};
+use crate::{normalize, SqliteSemanticStore, StoreError, VersionedDocumentOutput, Workspace};
 
 #[derive(Debug, Clone)]
 pub struct BatchIndexedDocument {
@@ -131,9 +131,15 @@ impl Workspace {
 
         let mut indexed = Vec::with_capacity(read_documents.len());
         let mut misses = Vec::new();
+        let mut stored_paths_changed = false;
         if let Some(store) = &self.disk_store {
+            let stored_hashes = store.document_hashes()?;
+            stored_paths_changed = prune_missing
+                && (stored_hashes.len() != paths.len()
+                    || paths.iter().any(|path| !stored_hashes.contains_key(path)));
             for document in read_documents {
-                let cache_hit = store.contains_current(&document.path, &document.source)?;
+                let cache_hit = stored_hashes.get(&document.path)
+                    == Some(&SqliteSemanticStore::content_hash(&document.source));
                 indexed.push(BatchIndexedDocument {
                     path: document.path.clone(),
                     revision: document.revision,
@@ -195,7 +201,9 @@ impl Workspace {
                         .map(|current| current.output.as_ref()),
                 })
                 .collect::<Vec<_>>();
-            store.reconcile_generations(&paths, &generations, prune_missing)?;
+            if !generations.is_empty() || stored_paths_changed {
+                store.reconcile_generations(&paths, &generations, stored_paths_changed)?;
+            }
         } else {
             for document in prepared {
                 let previous_last_valid = self
