@@ -22,6 +22,7 @@ use plumb_syntax::{
 };
 
 mod bibliography;
+mod index;
 mod scan;
 mod search;
 mod store;
@@ -33,6 +34,7 @@ pub use bibliography::{
     load_bibliography, load_bibliography_sources, Bibliography, BibliographyRecord,
     BibliographyResolution,
 };
+pub use index::{BatchIndexError, BatchIndexFailure, BatchIndexResult, BatchIndexedDocument};
 pub use store::{SqliteSemanticStore, StoreError};
 
 #[cfg(test)]

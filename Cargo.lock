@@ -1961,6 +1961,7 @@ dependencies = [
  "plumb-format",
  "plumb-semantics",
  "plumb-syntax",
+ "rayon",
  "serde",
  "serde_json",
  "sha2",

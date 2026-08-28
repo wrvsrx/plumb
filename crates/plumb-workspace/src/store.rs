@@ -185,6 +185,13 @@ pub struct SqliteSemanticStore {
     connection: Arc<Mutex<SqliteConnection>>,
 }
 
+pub(crate) struct StoredGeneration<'a> {
+    pub path: &'a Path,
+    pub revision: i64,
+    pub source: &'a str,
+    pub output: Option<&'a DocumentOutput>,
+}
+
 impl std::fmt::Debug for SqliteSemanticStore {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
@@ -314,24 +321,46 @@ impl SqliteSemanticStore {
             .lock()
             .map_err(|_| StoreError::LockPoisoned)?;
         connection.transaction::<_, StoreError, _>(|connection| {
-            delete_document_rows(connection, &path)?;
-            let (title, title_range) = output.map_or_else(
-                || (fallback_title(&path), 0..0),
-                |output| document_title(output, &path),
-            );
-            diesel::insert_into(documents::table)
-                .values((
-                    documents::path.eq(path_bytes(&path)),
-                    documents::revision.eq(revision),
-                    documents::content_hash.eq(Self::content_hash(source).to_vec()),
-                    documents::valid.eq(output.is_some()),
-                    documents::title.eq(title),
-                    documents::title_start.eq(to_i64(title_range.start)?),
-                    documents::title_end.eq(to_i64(title_range.end)?),
-                ))
-                .execute(connection)?;
-            if let Some(output) = output {
-                insert_output(connection, &path, output)?;
+            replace_generation(connection, &path, revision, source, output)
+        })
+    }
+
+    pub(crate) fn reconcile_generations(
+        &self,
+        retained_paths: &[PathBuf],
+        generations: &[StoredGeneration<'_>],
+        prune_missing: bool,
+    ) -> StoreResult<()> {
+        let retained_paths = retained_paths
+            .iter()
+            .map(|path| normalize(path))
+            .collect::<std::collections::HashSet<_>>();
+        let mut connection = self
+            .connection
+            .lock()
+            .map_err(|_| StoreError::LockPoisoned)?;
+        connection.transaction::<_, StoreError, _>(|connection| {
+            if prune_missing {
+                let stored_paths = documents::table
+                    .select(documents::path)
+                    .load::<Vec<u8>>(connection)?
+                    .into_iter()
+                    .map(path_from_bytes)
+                    .collect::<StoreResult<Vec<_>>>()?;
+                for path in stored_paths {
+                    if !retained_paths.contains(&path) {
+                        delete_document_rows(connection, &path)?;
+                    }
+                }
+            }
+            for generation in generations {
+                replace_generation(
+                    connection,
+                    &normalize(generation.path),
+                    generation.revision,
+                    generation.source,
+                    generation.output,
+                )?;
             }
             Ok(())
         })
@@ -991,6 +1020,35 @@ fn producer_version_key() -> i64 {
             .try_into()
             .expect("SHA-256 prefix is eight bytes"),
     )
+}
+
+fn replace_generation(
+    connection: &mut SqliteConnection,
+    path: &Path,
+    revision: i64,
+    source: &str,
+    output: Option<&DocumentOutput>,
+) -> StoreResult<()> {
+    delete_document_rows(connection, path)?;
+    let (title, title_range) = output.map_or_else(
+        || (fallback_title(path), 0..0),
+        |output| document_title(output, path),
+    );
+    diesel::insert_into(documents::table)
+        .values((
+            documents::path.eq(path_bytes(path)),
+            documents::revision.eq(revision),
+            documents::content_hash.eq(SqliteSemanticStore::content_hash(source).to_vec()),
+            documents::valid.eq(output.is_some()),
+            documents::title.eq(title),
+            documents::title_start.eq(to_i64(title_range.start)?),
+            documents::title_end.eq(to_i64(title_range.end)?),
+        ))
+        .execute(connection)?;
+    if let Some(output) = output {
+        insert_output(connection, path, output)?;
+    }
+    Ok(())
 }
 
 fn insert_output(

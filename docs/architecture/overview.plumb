@@ -104,6 +104,14 @@ dot paths。CLI、LSP 与 Web 共享同一 scanner；LSP root 仍由 client 的
 `"workspaceFolders"/`"rootUri" 决定，server 不重新向上 discovery。ignored open document 可以作为
 ephemeral buffer snapshot 参与 document features，关闭后不属于 disk index。
 
+scanner 输出进入 plumb-workspace-owned batch indexer。batch indexer 以 bounded worker pool 并行读取 files，
+只对 content-hash cache misses 执行 parse 与 document semantics，按 normalized path deterministic order
+返回 source/revision/cache-hit records 和 read failures。persistent backend 在 serialized transaction 中批量
+发布 changed generations 并移除不再属于完整 scan 的 closed generations；memory backend 从同一批 prepared
+documents 建立 snapshots。LSP、CLI 与 Web 不得各自复制 read/parse/index loop。取消 batch 时不得发布尚未
+完成的 partial generation set；consumer 必须将 read、scan、cancel 或 store failure 投影为 incomplete index，
+不能把 partial negative query 表示成 complete。
+
 reference CodeLens 是 workspace reverse-reference query 的 LSP projection。`"references_to_document"
 聚合 current-valid documents 中的 document/anchor links 与 task references，并保留真实 same-document
 occurrences；Graph 等 consumer 可以按自己的 edge policy 隐藏 self-edge。`"references_to" 继续查询单个 explicit anchor。server 只为 current-valid metadata 与 anchors
