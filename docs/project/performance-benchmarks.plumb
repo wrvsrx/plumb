@@ -341,3 +341,28 @@ observation 的实现 epoch 与 response contract 不同，该相对值只作为
 普通 tests 固定 memory/SQLite/open-overlay metrics parity、101 documents 的 100/1 cursor continuation、legacy
 route absence 与 Web task authoring。Graph metrics 仍扫描 lightweight facts；若 workspace task 数量继续增长，
 后续可把 aggregation 下推到 store，但不得恢复无界 record hydration。
+
+`# 16. Persistent batch preparation ownership on 2026-08-29
+
+commit `"75ed307" 后，persistent batch cache miss 在 worker 完成 document semantics 后立即释放
+ParsedDocument 的 lossless tree 与 typed recovered tree，只把 source、revision 和 DocumentOutput 保留到
+serialized reconcile transaction。Memory backend 仍保留完整 ParsedDocument 以建立 DocumentEntry；publication
+atomicity、cache identity、deterministic ordering、cancellation 和 retained-source contract 不变。
+
+同一 176-document、1,408-task deterministic Criterion SQLite cold workload 使用 10 samples、1 s warmup 与
+约 6.1 s measurement；midpoint 为 117.23 ms，此前同机同 workload 为 117.96 ms，差异约 0.6%，没有观察到
+明显 latency 回退。
+
+真实 `"~/Syncthing/Apps/zettelkasten" workspace profile 扫描 223 files，使用 release binary、独立临时 SQLite
+database、5 次 cold runs，profiler 只输出 counts、timing 和 `"/proc/self/status" memory：
+
+`- index median 为 1.047 s，samples range 为 1.032--1.068 s；此前 batch cold median 为 1.597 s。该历史比较
+ 同时包含此后其它实现变化，只作为当前 release observation，不把约 34.5% 差异全部归因于 ownership change。
+`- peak median 从此前 333,304 KiB 降至 296,304 KiB，约降低 11.1%；当前 samples range 为
+ 295,996--296,492 KiB，已接近此前 SQLite serial peak 295,544 KiB。
+`- steady resident median 从此前 276,360 KiB 降至 239,960 KiB，约降低 13.2%；当前 samples range 为
+ 239,908--239,988 KiB，接近此前 SQLite serial resident 238,988 KiB。
+
+Workspace 115 tests 固定 memory/SQLite、invalid source、cache reuse、prune 与 cancel-before-publication behavior。
+这些 process memory observations 包含 allocator、Rayon workers、SQLite page cache 与 runtime，不等同于 syntax
+tree allocation 的精确 retained bytes。

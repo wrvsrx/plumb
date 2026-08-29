@@ -1358,6 +1358,24 @@
  regression 固定通过。后台 analysis 仍是默认路径；只有抢先到达且没有 refresh contract 的显式 navigation
  request 承担同步 document-local analysis latency。
 
+`- 降低 SQLite cold batch indexing 峰值内存
+
+ `+ task
+
+ `@ release-persistent-prepared-syntax
+
+ `= created|2026-08-29T08:58:00+08:00
+ `= done|2026-08-29T09:00:37+08:00
+
+ `note Persistent prepare 使用独立 typed generation，只保留 source、revision 与 DocumentOutput；每个 cache miss
+ 完成 semantics 后立即释放 ParsedDocument 的 lossless/typed trees。Memory backend 仍保留完整 parsed snapshot，
+ store schema、transaction atomicity、ordering、cache identity 与 retained-source result contract 不变。
+
+ `note Workspace 115 tests 通过。1,408-task deterministic SQLite cold midpoint 为 117.23 ms，此前为 117.96 ms；
+ 真实 223-file workspace 的 5-run peak median 从 333,304 降至 296,304 KiB，约降低 11.1%，steady resident
+ median 从 276,360 降至 239,960 KiB，约降低 13.2%。完整记录见
+ `->[performance benchmark points|performance-benchmarks.plumb]。
+
 `# Neovim plugin
 
 `- 避免 format 后重置 Neovim fold 状态
