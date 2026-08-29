@@ -1338,6 +1338,26 @@
  done page 10-sample median 约 35.72 ms、191,241 bytes；完整记录见
  `->[performance benchmark points|performance-benchmarks.plumb]。
 
+`- 保证 pending revision 的 semantic navigation 确定性
+
+ `+ task
+
+ `@ complete-pending-navigation-semantics
+
+ `= created|2026-08-29T08:50:00+08:00
+ `= done|2026-08-29T08:56:04+08:00
+
+ `note Workspace 提供 current revision pending 检查与同步 completion API，复用 PendingDocumentAnalysis 和
+ path/revision/Arc identity guard，不把 document-local analyzer 复制到 adapter。
+
+ `note LSP definition 与 hover 在显式请求抢先到达时补齐 source 及必要的 open target；references 在 resolution 前
+ 补齐所有可能贡献结果的 open pending documents。同步路径取消同 generation 的 queued publication，安装后发布
+ diagnostics 与可用 refresh；不回退旧 output，也不等待同一 event loop 才能安装的 background notification。
+
+ `note Workspace 115 tests 与 LSP stdio 77 tests 通过，原先偶发失败的 optimistic path rename 后立即 definition
+ regression 固定通过。后台 analysis 仍是默认路径；只有抢先到达且没有 refresh contract 的显式 navigation
+ request 承担同步 document-local analysis latency。
+
 `# Neovim plugin
 
 `- 避免 format 后重置 Neovim fold 状态

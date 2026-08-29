@@ -3,17 +3,3 @@
 本页只记录可以直接实施和验收的工作。方向、约束和 deferred design 继续放在
 `->[roadmap|roadmap.plumb]；已经结束的任务及其验收记录保存在
 `->[completed tasks|completed-tasks.plumb]。
-
-`- 保证 pending revision 的 semantic navigation 确定性
-
- `+ task
-
- `@ complete-pending-navigation-semantics
-
- `= created|2026-08-29T08:50:00+08:00
-
- `note didChange 后立即到达的 definition、references 与 hover 必须同步补齐 current ParsedDocument 的
- document-local semantics，不能因 background analysis 尚未安装而返回 temporary empty result。
-
- `note 同步 fallback 取消同 generation 的 queued publication，保留 path/revision/Arc identity guard；open pending
- target document 的 anchor resolution 在补齐目标 output 后重试。Workspace tests 与 LSP stdio regression 固定行为。
