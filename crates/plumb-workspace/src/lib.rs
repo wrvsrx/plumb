@@ -33,6 +33,7 @@ mod navigation;
 mod scan;
 mod search;
 mod store;
+mod task_predicate;
 mod task_query;
 mod task_sort;
 mod tasks;
