@@ -3,3 +3,20 @@
 本页只记录可以直接实施和验收的工作。方向、约束和 deferred design 继续放在
 `->[roadmap|roadmap.plumb]；已经结束的任务及其验收记录保存在
 `->[completed tasks|completed-tasks.plumb]。
+
+`- 管理 semantic cache 生命周期并隔离测试 cache
+
+ `+ task
+
+ `@ manage-semantic-cache-lifecycle
+
+ `= created|2026-08-29T08:20:00+08:00
+
+ `note 共享 store lease 在 version namespace 上持有 shared filesystem lock；maintenance 以 nonblocking exclusive
+ lock 判断 active，不能删除正在被 LSP、Web 或其它进程使用的 namespace。
+
+ `note `"plumb cache status" 报告 workspace/site namespaces 的 version、active state、database count 与 bytes；
+ `"plumb cache prune" 默认清理非当前版本，`"--all" 才包含当前版本，并报告 removed/skipped/unmanaged。
+
+ `note LSP/Web integration child processes 使用 test-owned `"PLUMB_CACHE_DIR" 并在结束后清理；tests 覆盖 active
+ skip、inactive prune、current-version default preservation、legacy unmanaged data 与 CLI output。

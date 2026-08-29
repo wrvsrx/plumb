@@ -62,6 +62,15 @@ workspace roots 的 deterministic hash 命名数据库；不同 binary versions 
 store-level validity check。旧版本 namespace 是 disposable derived data，可以由独立 maintenance policy 清理，
 server startup 不主动递归删除其他版本 cache。
 
+每个打开 disk-backed semantic store 的进程必须先在对应 version namespace 的固定 lease file 上取得 shared
+filesystem lock，并持有到最后一个 cloned store 释放。`"plumb cache status" 只读统计 workspace/site version
+namespaces 的 database 数量、bytes 与 active state；`"plumb cache prune" 默认只考虑非当前 package version，
+显式 `"--all" 才考虑当前 version。Prune 必须先 nonblocking 取得 namespace exclusive lock，失败时报告并跳过
+active namespace；成功时只删除该 namespace 内可重建数据，保留 lease file 与 namespace directory，从而让等待
+lock 的新进程在同一 inode 上继续。旧 layout 中没有 version namespace/lease 的文件只能由 status 报告为
+unmanaged，不能自动删除。测试启动 LSP 或 Web child process 时必须设置 test-owned `"PLUMB_CACHE_DIR"，不得向
+用户 production cache 写入 temporary workspace roots。
+
 persistent store 的 production implementation 使用 Diesel typed schema、models、transactions 与 query
 composition；不得在 workspace、Web 或 protocol adapters 中散布 SQL strings、column ordinals 或 row decoding。
 少数 Diesel query DSL 无法清楚表达且有独立 query-plan tests 的 SQLite operation 可以封装 raw SQL，但它仍
