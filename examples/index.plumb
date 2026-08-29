@@ -10,6 +10,7 @@ exercise the implemented language server, exporter, and notes features.
 `- `->[Metadata code-action scratchpad|metadata-scratch.plumb]
 `- `->[Exporter playground|plumb-export.plumb]
 `- `->[Notes playground|plumb-notes.plumb]
+`- `->[Intentional diagnostics|diagnostics.plumb]
 
 `# Suggested commands
 

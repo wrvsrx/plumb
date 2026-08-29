@@ -63,6 +63,23 @@ fn project_plumb_documents_are_strictly_valid() {
 }
 
 #[test]
+fn docs_have_explicit_titles() {
+    let root = repository_root();
+    let mut files = Vec::new();
+    collect_plumb_files(&root.join("docs"), &mut files);
+
+    for path in files {
+        let source = fs::read_to_string(&path)
+            .unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display()));
+        assert!(
+            source.starts_with("`= title|"),
+            "{} must start with explicit title metadata",
+            path.strip_prefix(&root).unwrap_or(&path).display()
+        );
+    }
+}
+
+#[test]
 fn guide_does_not_duplicate_project_status() {
     let guide = repository_root().join("docs/guide");
     let mut files = Vec::new();

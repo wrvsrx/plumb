@@ -1,3 +1,5 @@
+`= title|Neovim LSP folding 编辑期延迟 patch 总结
+
 `# Neovim LSP folding 编辑期延迟 patch 总结
 
 本文记录 `"~/Documents/neovim" 中 `"wip/lsp-folding-defer-evaluate" 分支上的 folding patch 与配套的

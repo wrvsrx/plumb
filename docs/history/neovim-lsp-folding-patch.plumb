@@ -1,3 +1,5 @@
+`= title|Neovim LSP folding patch 总结
+
 `# Neovim LSP folding patch 总结
 
 本文记录 `"~/Documents/neovim" 中 `"fix/lsp-fold-reconciliation" 分支上的实验性 patch，供继续推动

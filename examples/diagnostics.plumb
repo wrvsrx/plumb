@@ -1,0 +1,31 @@
+`= title|plumb intentional diagnostics
+
+This document is the only playground source expected to emit semantic diagnostics.
+The CLI regression test fixes every code and keeps all other examples clean.
+
+`# Links
+
+`- Missing same-file anchor: `->[missing|#missing-anchor]
+`- Missing document: `->[missing file|missing-target.plumb]
+
+`# Duplicate anchor
+
+`node First duplicate target.
+
+ `@ duplicate-anchor
+
+`node Second duplicate target.
+
+ `@ duplicate-anchor
+
+`# Invalid event
+
+`- Event without a positional schedule and title
+
+ `+ event
+
+`# Images
+
+`img[missing source]
+
+`img[unresolved image|=[src|static/missing.png]]

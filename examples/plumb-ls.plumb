@@ -1,7 +1,7 @@
 `= title|plumb lsp playground
 
-Use this file with `"plumb lsp" attached. The final diagnostics section contains
-intentional semantic errors; the entire file remains syntactically valid.
+Use this file with `"plumb lsp" attached. Intentional semantic errors live in
+`->[the diagnostics playground|diagnostics.plumb] so this workflow document remains clean.
 
 `# Document symbols
 
@@ -46,15 +46,15 @@ Try go-to-definition, hover, find references, and rename on these links:
 
 Try completion after each relevant introducer in a temporary edit:
 
-`- At line start, type a backtick followed by `"t" for Task or `"e" for Event; Task includes `"created".
+`- At line start, type a backtick followed by a hyphen and choose Task or Event; Task includes `"created".
 `- Type a backtick followed by a hyphen or arrow for Link and Autolink; continue with `"->[" for Link only or `"->\"" for Autolink only. A standalone opening bracket offers neither.
 `- Start a link label with `"->[" and select a document title.
-`- Complete a path in `"->[target]{:[to plumb-]}".
-`- Complete a fragment in `"->[target]{:[to plumb-export.plumb#]}".
-`- Complete a same-file fragment in `"->[target]{:[to #]}".
+`- Complete a path in `"->[target|plumb-]".
+`- Complete a fragment in `"->[target|plumb-export.plumb#]".
+`- Complete a same-file fragment in `"->[target|#]".
 `- Complete an Autolink document path inside ``->"plumb-".
 `- Complete a raw fragment inside ``->"plumb-export.plumb#".
-`- Complete an image path in `"img[alt]{:[src static/]}".
+`- Complete an image path in `"img[alt|=[src|static/]]".
 
 `# Rename
 
@@ -85,13 +85,13 @@ Place the cursor in this task and request `"Add task created timestamp"：
 
 Hover and document symbols also expose this event and its task association:
 
-`- 2026-07-30T14:00:00+08:00--15:00 Inspect event hover
+`- 2026-07-30T14:00:00+08:00--15:00|Inspect event hover
 
  `+ event
 
  `@ event-symbol
 
- `== tasks #missing-created
+ `= tasks|#missing-created
 
 Place the cursor in this task and request Complete or Cancel. Hover shows its
 state, id, and timestamps:
@@ -102,8 +102,8 @@ state, id, and timestamps:
 
  `@ action-task
 
- `== created 2026-07-20T09:00:00+08:00
- `== due 2026-07-30T17:00:00+08:00
+ `= created|2026-07-20T09:00:00+08:00
+ `= due|2026-07-30T17:00:00+08:00
 
 This task is blocked while its dependency remains open, so Complete is omitted
 but Cancel remains available:
@@ -120,7 +120,7 @@ but Cancel remains available:
 
  `@ blocked-action
 
- `== depends #open-dependency
+ `= depends|#open-dependency
 
 Completing this recurring task closes the current instance and appends the next
 instance with an advanced due date and a `"prev" reference:
@@ -131,54 +131,11 @@ instance with an advanced due date and a `"prev" reference:
 
  `@ recurring-action
 
- `== due 2026-07-27T17:00:00+08:00
- `== recur P1W
+ `= due|2026-07-27T17:00:00+08:00
+ `= recur|P1W
 
 `# Export target
 
  `@ export-target
 
 The exporter playground links to this explicit anchor.
-
-`# Intentional diagnostics
-
-The following valid syntax deliberately produces semantic diagnostics:
-
-`- Missing same-file anchor: `->[missing|#missing-anchor]
-`- Missing file: `->[missing file|missing-target.plumb]
-`- Missing cross-file anchor: `->[missing heading|plumb-export.plumb#missing-anchor]
-
-`anchor First duplicate target.
-
- `@ duplicate-anchor
-
-`anchor Second duplicate target.
-
- `@ duplicate-anchor
-
-`- Conflicting closed state
-
- `+ task
-
- `@ conflicted-task
-
- `== done 2026-07-20T09:00:00+08:00
- `== canceled 2026-07-20T10:00:00+08:00
-
-`- Self dependency
-
- `+ task
-
- `@ self-dependent
-
- `== depends #self-dependent
-
-`note Invalid task owner
-
- `+ task
-
-`img[missing source]
-
-`img[invalid source|=[src|bad path.png]]
-
-`img[unresolved image|=[src|static/missing.png]]

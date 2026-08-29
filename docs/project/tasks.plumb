@@ -3,3 +3,20 @@
 本页只记录可以直接实施和验收的工作。方向、约束和 deferred design 继续放在
 `->[roadmap|roadmap.plumb]；已经结束的任务及其验收记录保存在
 `->[completed tasks|completed-tasks.plumb]。
+
+`- 系统整理并重写全部项目文档
+
+ `+ task
+
+ `@ systematic-documentation-rewrite
+
+ `= created|2026-08-30T01:29:22+08:00
+
+ `note 修复 completed task archive 与 examples 的 current semantic projection；普通 examples 零 diagnostics，
+ intentional diagnostics 集中并固定 code/count。所有 docs 拥有 title，内部 links 可解析且 index 覆盖全部文档。
+
+ `note reference、architecture、guide、project、history、examples 与 consumer projections 各自只有一种职责；
+ 已完成设计迁入 history，performance 方法与 dated results 分离，guide 不复制 normative edge cases 或 project status。
+
+ `note Root/subpackage README、Vim help 与 bundled skill 建立明确 source/projection contract 和自动一致性门禁；
+ README 生成物 byte-for-byte 固定。整理使用分阶段 commits，不混入 language/tool behavior changes。

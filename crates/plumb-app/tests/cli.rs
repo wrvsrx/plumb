@@ -349,6 +349,83 @@ fn generated_readme_matches_its_plumb_source() {
 }
 
 #[test]
+fn completed_project_tasks_are_semantically_closed() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let project = root.join("docs/project");
+    let output = Command::new(env!("CARGO_BIN_EXE_plumb"))
+        .args([
+            "task",
+            "--root",
+            project.to_str().unwrap(),
+            "--query",
+            "path == 'completed-tasks.plumb' && state != 'done'",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        output.stdout.is_empty(),
+        "completed task archive contains open tasks:\n{}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+}
+
+#[test]
+fn example_diagnostics_are_isolated_and_exact() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let examples = root.join("examples");
+    let output = Command::new(env!("CARGO_BIN_EXE_plumb"))
+        .args([
+            "check",
+            "--root",
+            examples.to_str().unwrap(),
+            "--level",
+            "hint",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let diagnostics = String::from_utf8(output.stdout).unwrap();
+    let mut observations = diagnostics
+        .lines()
+        .map(|line| {
+            let path = line.split_once(':').map(|(path, _)| path).unwrap();
+            let code = line
+                .split_once('[')
+                .and_then(|(_, rest)| rest.split_once(']'))
+                .map(|(code, _)| code)
+                .expect("diagnostic code");
+            format!("{path}:{code}")
+        })
+        .collect::<Vec<_>>();
+    observations.sort();
+    assert_eq!(
+        observations,
+        [
+            "diagnostics.plumb:anchor.duplicate-id",
+            "diagnostics.plumb:anchor.duplicate-id.related",
+            "diagnostics.plumb:event.invalid-head-arity",
+            "diagnostics.plumb:event.missing-time",
+            "diagnostics.plumb:event.missing-title",
+            "diagnostics.plumb:image.missing-source",
+            "diagnostics.plumb:image.unresolved-file",
+            "diagnostics.plumb:link.unresolved-anchor",
+            "diagnostics.plumb:link.unresolved-path",
+            "plumb-ls.plumb:task.blocked",
+            "plumb-notes.plumb:task.blocked",
+        ]
+    );
+}
+
+#[test]
 fn checks_a_workspace_with_configurable_severity_and_error_exit_status() {
     let root = unique_temp_dir();
     std::fs::create_dir_all(root.join("nested")).unwrap();
