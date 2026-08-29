@@ -49,5 +49,6 @@ notify = "8"
 ignore = "0.4"
 percent-encoding = "2"
 rayon = "1.12"
+fs2 = "0.4"
 tokio-stream = "0.1"
 uuid = { version = "1", features = ["v4"] }

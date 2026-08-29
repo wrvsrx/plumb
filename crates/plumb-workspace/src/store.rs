@@ -20,6 +20,7 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
+use crate::cache::CacheNamespaceLease;
 use crate::{normalize, resolve_relative, task_reference_fields, task_reference_ranges};
 
 diesel::define_sql_function! {
@@ -75,6 +76,7 @@ pub enum StoreError {
     Bincode(Box<bincode::ErrorKind>),
     InvalidStoredValue,
     LockPoisoned,
+    Io(std::io::Error),
 }
 
 impl std::fmt::Display for StoreError {
@@ -86,6 +88,7 @@ impl std::fmt::Display for StoreError {
             Self::Bincode(error) => write!(formatter, "semantic record encoding: {error}"),
             Self::InvalidStoredValue => formatter.write_str("invalid persisted semantic value"),
             Self::LockPoisoned => formatter.write_str("SQLite semantic store lock poisoned"),
+            Self::Io(error) => write!(formatter, "semantic cache filesystem: {error}"),
         }
     }
 }
@@ -213,6 +216,7 @@ pub struct StoredEventTaskAssociation {
 #[derive(Clone)]
 pub struct SqliteSemanticStore {
     connection: Arc<Mutex<SqliteConnection>>,
+    _lease: Option<CacheNamespaceLease>,
 }
 
 pub(crate) struct StoredGeneration<'a> {
@@ -232,8 +236,16 @@ impl std::fmt::Debug for SqliteSemanticStore {
 
 impl SqliteSemanticStore {
     pub fn open(path: impl AsRef<Path>) -> StoreResult<Self> {
-        let url = path.as_ref().to_string_lossy();
-        Self::from_connection(SqliteConnection::establish(&url)?)
+        let path = path.as_ref();
+        let namespace = path.parent().ok_or_else(|| {
+            StoreError::Io(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "semantic cache path has no parent",
+            ))
+        })?;
+        let lease = CacheNamespaceLease::acquire(namespace).map_err(StoreError::Io)?;
+        let url = path.to_string_lossy();
+        Self::from_connection_with_lease(SqliteConnection::establish(&url)?, Some(lease))
     }
 
     pub fn open_in_memory() -> StoreResult<Self> {
@@ -268,10 +280,18 @@ impl SqliteSemanticStore {
         connection.deserialize_readonly_database_from_buffer(&image)?;
         Ok(Self {
             connection: Arc::new(Mutex::new(connection)),
+            _lease: None,
         })
     }
 
-    fn from_connection(mut connection: SqliteConnection) -> StoreResult<Self> {
+    fn from_connection(connection: SqliteConnection) -> StoreResult<Self> {
+        Self::from_connection_with_lease(connection, None)
+    }
+
+    fn from_connection_with_lease(
+        mut connection: SqliteConnection,
+        lease: Option<CacheNamespaceLease>,
+    ) -> StoreResult<Self> {
         plumb_fuzzy_score_utils::register_impl(
             &mut connection,
             |title: String,
@@ -339,6 +359,7 @@ impl SqliteSemanticStore {
         }
         Ok(Self {
             connection: Arc::new(Mutex::new(connection)),
+            _lease: lease,
         })
     }
 

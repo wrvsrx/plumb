@@ -25,6 +25,7 @@ use plumb_syntax::{
 };
 
 mod bibliography;
+mod cache;
 mod completion;
 mod documents;
 mod index;
@@ -42,6 +43,10 @@ use completion::TEST_EVENT_TITLE_COMPLETION_LIMIT as EVENT_TITLE_COMPLETION_LIMI
 pub use bibliography::{
     load_bibliography, load_bibliography_sources, Bibliography, BibliographyRecord,
     BibliographyResolution,
+};
+pub use cache::{
+    inspect_cache_namespace, prune_cache_namespace, CacheNamespaceState, CacheNamespaceUsage,
+    CachePruneOutcome,
 };
 pub use index::{
     BatchIndexError, BatchIndexFailure, BatchIndexOptions, BatchIndexResult, BatchIndexedDocument,
