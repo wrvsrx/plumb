@@ -34,8 +34,10 @@ pub fn run_server_after_initial_index_with_action(
     action: impl FnOnce(),
     second: &[Value],
 ) -> Vec<Value> {
+    let cache = TestDirectory::new();
     let mut child = Command::new(env!("CARGO_BIN_EXE_plumb"))
         .arg("lsp")
+        .env("PLUMB_CACHE_DIR", cache.path())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -99,8 +101,10 @@ pub fn run_server_after_initial_index_with_action(
 pub fn run_server_with_writer(
     write_messages: impl FnOnce(&mut std::process::ChildStdin),
 ) -> Vec<Value> {
+    let cache = TestDirectory::new();
     let mut child = Command::new(env!("CARGO_BIN_EXE_plumb"))
         .arg("lsp")
+        .env("PLUMB_CACHE_DIR", cache.path())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -160,6 +164,26 @@ pub fn unique_temp_dir() -> PathBuf {
         std::process::id(),
         COUNTER.fetch_add(1, Ordering::Relaxed)
     ))
+}
+
+struct TestDirectory(PathBuf);
+
+impl TestDirectory {
+    fn new() -> Self {
+        let path = unique_temp_dir();
+        std::fs::create_dir_all(&path).expect("create isolated LSP cache");
+        Self(path)
+    }
+
+    fn path(&self) -> &std::path::Path {
+        &self.0
+    }
+}
+
+impl Drop for TestDirectory {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
 }
 
 pub fn write_message(output: &mut impl Write, message: &Value) {

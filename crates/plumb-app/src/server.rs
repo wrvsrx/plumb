@@ -2409,11 +2409,7 @@ fn build_initial_index(roots: &[PathBuf], generation: u64) -> InitialIndexResult
 }
 
 fn semantic_cache_path(roots: &[PathBuf]) -> PathBuf {
-    let base = std::env::var_os("PLUMB_CACHE_DIR")
-        .map(PathBuf::from)
-        .or_else(|| std::env::var_os("XDG_CACHE_HOME").map(PathBuf::from))
-        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".cache")))
-        .unwrap_or_else(|| std::env::temp_dir().join("plumb-cache"));
+    let base = crate::cache_cli::cache_base_dir();
     semantic_cache_path_in(&base, env!("CARGO_PKG_VERSION"), roots)
 }
 

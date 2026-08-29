@@ -1,3 +1,4 @@
+pub mod cache_cli;
 mod folding;
 pub mod format_cli;
 mod hover;

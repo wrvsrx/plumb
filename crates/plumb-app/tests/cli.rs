@@ -13,7 +13,8 @@ fn exposes_the_unified_command_surface() {
     assert!(help.status.success());
     let help = String::from_utf8(help.stdout).unwrap();
     for command in [
-        "check", "event", "fmt", "export", "import", "migrate", "note", "site", "task", "lsp",
+        "cache", "check", "event", "fmt", "export", "import", "migrate", "note", "site", "task",
+        "lsp",
     ] {
         assert!(help.contains(command));
     }
@@ -72,6 +73,80 @@ fn exposes_the_unified_command_surface() {
         String::from_utf8_lossy(&imported.stderr)
     );
     assert_eq!(String::from_utf8(imported.stdout).unwrap(), "Paragraph.\n");
+}
+
+#[test]
+fn reports_and_prunes_only_inactive_managed_cache_namespaces() {
+    let base = unique_temp_dir();
+    let cache = base.join("plumb");
+    let old = cache.join("workspaces/0.1.0");
+    let active = cache.join("workspaces/0.2.0");
+    let current = cache.join("workspaces").join(env!("CARGO_PKG_VERSION"));
+    std::fs::create_dir_all(cache.join("site")).unwrap();
+    std::fs::write(cache.join("site/legacy.sqlite3"), b"legacy").unwrap();
+
+    let old_store = plumb_workspace::SqliteSemanticStore::open(old.join("old.sqlite3")).unwrap();
+    drop(old_store);
+    let active_store =
+        plumb_workspace::SqliteSemanticStore::open(active.join("active.sqlite3")).unwrap();
+    let current_store =
+        plumb_workspace::SqliteSemanticStore::open(current.join("current.sqlite3")).unwrap();
+    drop(current_store);
+
+    let status = Command::new(env!("CARGO_BIN_EXE_plumb"))
+        .args(["cache", "status"])
+        .env("PLUMB_CACHE_DIR", &base)
+        .output()
+        .unwrap();
+    assert!(status.status.success());
+    let status = String::from_utf8(status.stdout).unwrap();
+    assert!(status.contains("workspaces 0.1.0 inactive"), "{status}");
+    assert!(status.contains("workspaces 0.2.0 active"), "{status}");
+    assert!(
+        status.contains(&format!(
+            "workspaces {} inactive",
+            env!("CARGO_PKG_VERSION")
+        )),
+        "{status}"
+    );
+    assert!(
+        status.contains("legacy unmanaged files=1 bytes=6"),
+        "{status}"
+    );
+
+    let prune = Command::new(env!("CARGO_BIN_EXE_plumb"))
+        .args(["cache", "prune"])
+        .env("PLUMB_CACHE_DIR", &base)
+        .output()
+        .unwrap();
+    assert!(prune.status.success());
+    let prune = String::from_utf8(prune.stdout).unwrap();
+    assert!(prune.contains("preserved=1"), "{prune}");
+    assert!(prune.contains("active=1"), "{prune}");
+    assert!(prune.contains("unmanaged=1"), "{prune}");
+    assert!(!old.join("old.sqlite3").exists());
+    assert!(active.join("active.sqlite3").exists());
+    assert!(current.join("current.sqlite3").exists());
+    assert!(cache.join("site/legacy.sqlite3").exists());
+
+    let prune_all = Command::new(env!("CARGO_BIN_EXE_plumb"))
+        .args(["cache", "prune", "--all"])
+        .env("PLUMB_CACHE_DIR", &base)
+        .output()
+        .unwrap();
+    assert!(prune_all.status.success());
+    assert!(!current.join("current.sqlite3").exists());
+    assert!(active.join("active.sqlite3").exists());
+
+    drop(active_store);
+    let final_prune = Command::new(env!("CARGO_BIN_EXE_plumb"))
+        .args(["cache", "prune"])
+        .env("PLUMB_CACHE_DIR", &base)
+        .output()
+        .unwrap();
+    assert!(final_prune.status.success());
+    assert!(!active.join("active.sqlite3").exists());
+    std::fs::remove_dir_all(base).unwrap();
 }
 
 #[test]
@@ -453,6 +528,7 @@ fn serves_the_workspace_site_with_notes_and_tasks() {
     let mut child = Command::new(env!("CARGO_BIN_EXE_plumb"))
         .args(["site", "serve", "--root"])
         .arg(&root)
+        .env("PLUMB_CACHE_DIR", root.join(".cache"))
         .arg("--port")
         .arg(port.to_string())
         .args(["--exclude", "path == 'hidden.plumb'"])
@@ -613,6 +689,7 @@ fn site_renders_and_refreshes_csl_json_citations() {
     let mut child = Command::new(env!("CARGO_BIN_EXE_plumb"))
         .args(["site", "serve", "--root"])
         .arg(&root)
+        .env("PLUMB_CACHE_DIR", root.join(".cache"))
         .arg("--port")
         .arg(port.to_string())
         .stdout(Stdio::piped())

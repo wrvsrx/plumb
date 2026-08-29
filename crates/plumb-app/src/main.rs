@@ -11,6 +11,7 @@ fn main() -> ExitCode {
     let rest = args.collect::<Vec<_>>();
 
     match command.to_str() {
+        Some("cache") => plumb::cache_cli::run(rest),
         Some("fmt") => plumb::format_cli::run(delegated_args("plumb fmt", rest)),
         Some("export") => {
             if wants_help(&rest) {
@@ -78,6 +79,6 @@ fn wants_help(args: &[OsString]) -> bool {
 
 fn print_help() {
     println!(
-        "Strict plumb markup language and tooling\n\nUsage: plumb <COMMAND>\n\nCommands:\n  check               Check a workspace\n  event               Export calendar events\n  fmt                 Format documents\n  export              Emit Pandoc JSON\n  import              Read Pandoc JSON\n  migrate             Migrate an explicit syntax epoch\n  note                Query notes\n  site                Serve a workspace Web app\n  task                Query or update tasks\n  lsp                 Run the language server\n  help                Print this help"
+        "Strict plumb markup language and tooling\n\nUsage: plumb <COMMAND>\n\nCommands:\n  cache               Inspect or prune semantic caches\n  check               Check a workspace\n  event               Export calendar events\n  fmt                 Format documents\n  export              Emit Pandoc JSON\n  import              Read Pandoc JSON\n  migrate             Migrate an explicit syntax epoch\n  note                Query notes\n  site                Serve a workspace Web app\n  task                Query or update tasks\n  lsp                 Run the language server\n  help                Print this help"
     );
 }
