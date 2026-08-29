@@ -1,8 +1,8 @@
 `= title|Unified inline members design
 
 本文记录 single-envelope inline members 的设计动机与 migration boundary。当前 validity 以
-`->[core syntax reference|../reference/core-syntax.plumb] 为准，official projection 以
-`->[standard semantics reference|../reference/standard-semantics.plumb] 为准。本页中的 source
+`->[core syntax reference|../../reference/core-syntax.plumb] 为准，official projection 以
+`->[standard semantics reference|../../reference/standard-semantics.plumb] 为准。本页中的 source
 示例均为 current spelling；本页不覆盖 reference。
 
 `# 动机
@@ -179,7 +179,7 @@ compact Link 把 label 与 target 混在同一个 slot，则另设 standard-prof
 legacy syntax tree 或 structural conversion result，但不属于 legacy parser，也不能改变 generic converter
 对未知 kind 的处理。generic migration 不按 spaces 猜测 positional arity。
 
-迁移实现遵循 `->[editing architecture|../architecture/editing.plumb]：isolated legacy reader 只负责读取
+迁移实现遵循 `->[editing architecture|../../architecture/editing.plumb]：isolated legacy reader 只负责读取
 旧 source，version-specific converter 负责 tree-to-tree lowering，owned canonical rendering 与最终 byte
 edits 由 `"plumb-edit" 负责。formatter 不选择 syntax epoch、不读取 legacy tree，也不触发 migration。
 

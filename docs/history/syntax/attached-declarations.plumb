@@ -6,8 +6,8 @@
 `->[direct block ownership and raw tails|direct-block-ownership.plumb]。
 
 本文保存 attached declarations 最终设计及其取舍。该设计已经进入 current development line；validity
-与标准语义分别以 `->[core syntax reference|../reference/core-syntax.plumb] 和
-`->[standard semantics reference|../reference/standard-semantics.plumb] 为准。本页中的候选
+与标准语义分别以 `->[core syntax reference|../../reference/core-syntax.plumb] 和
+`->[standard semantics reference|../../reference/standard-semantics.plumb] 为准。本页中的候选
 比较用于解释决定，不覆盖 references。
 
 `# 目标

@@ -22,8 +22,8 @@ heading、list、metadata、link、citation、task 和 event 等含义由officia
 `- 了解项目方向：阅读 `->[愿景|project/vision.plumb]、
  `->[路线图|project/roadmap.plumb]、`->[当前任务|project/tasks.plumb] 和
  `->[已完成任务|project/completed-tasks.plumb]；已完成的 recursive ownership redesign 见
- `->[unified inline members|project/inline-members.plumb] 与
- `->[direct block ownership and raw tails|project/direct-block-ownership.plumb]。
+ `->[unified inline members|history/syntax/inline-members.plumb] 与
+ `->[direct block ownership and raw tails|history/syntax/direct-block-ownership.plumb]。
 `- 追溯设计理由：阅读 `->[语法决策记录|history/syntax-decisions.plumb] 和
  `->[djot-tools 能力审计|history/djot-tools-audit.plumb]。
 

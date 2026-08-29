@@ -1,7 +1,7 @@
 `= title|Direct block ownership and raw tails
 
 `note 本页记录已经冻结并实现的 breaking feature set；validity 以
- `->[core syntax reference|../reference/core-syntax.plumb] 为准。
+ `->[core syntax reference|../../reference/core-syntax.plumb] 为准。
 
 `# Feature list
 

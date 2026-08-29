@@ -154,7 +154,7 @@ meaning 的 compact forms 由 semantics/workspace 提供明确 intent，例如 L
 owner 不按 spaces 或已知 kind 排除表猜测 positional arity。Link compact/`"to" forms 由独立的 fixed
 profile pass 转换。单文件写入必须 atomic，输出必须经 current strict parser 验证；两个 epochs 的重叠
 spelling 使调用方必须显式提供 source epoch。规则与完整 mapping 见
-`->[unified inline members design|../project/inline-members.plumb]。
+`->[unified inline members design|../history/syntax/inline-members.plumb]。
 
 `# 10. Versioned block-group migration
 

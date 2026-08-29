@@ -1,396 +1,52 @@
-`= title|plumb performance benchmark points
+`= title|plumb performance benchmark methodology
 
-`# 1. Purpose
+本页定义仍需复用的 performance workloads、测量口径和验收原则，不保存按日期累积的结果。
+2026-08 的 backend experiments、rejected designs 与 acceptance measurements 归档在
+`->[workspace performance results|../history/performance/workspace-performance-2026-08.plumb]。
 
-本页记录 2026-08-11 大 workspace 调查中已解决的 performance problems、可复现 workload 和后续 backend
-comparison points。数值是特定机器上的 observation，不是跨机器 SLA；benchmark 必须记录 release commit、
-host、input identity、sample count 与统计量。
+`# Workload classes
 
-`# 2. Reference workload
+`- Large document：约 5.7 MB、134k lines、33,512 events，覆盖 parse、semantic generation、folding、
+ event query、record replacement 与 editor transport boundary。
+`- Task workspace：176 documents、每 document 8 tasks，共 1,408 tasks；包含 dependency chains、
+ event-task associations、state/time/priority fields、cursor pages 与 open-document overlays。
+`- Real workspace smoke：使用独立 cache、显式 test port、`"--no-watch" 和不输出 source 的 profiler；记录
+ scanned files、cache hits、response bytes、latency distribution、peak memory 与 steady resident。
 
-主要 stress document 是 `"migrated-from-khal.plumb"：5,682,790 bytes、134,054 lines、33,512 events，
-其 folding response 包含 33,512 ranges，JSON payload 约 3.18 MB。仓库 benchmark 不复制个人 notebook
-内容，而是 deterministic 生成相同数量级并覆盖 nested events、events with links、unmatched links 与大量
-explicit anchors 的 fixture。
+Deterministic fixtures 必须使用当前 strict syntax，并在 benchmark timing 外验证 parser validity、record counts
+和 memory/persistent/open-overlay result parity。个人 notebook 内容不能复制进 repository fixture。
 
-`# 3. Resolved performance problems
+`# Benchmark suites
 
-`- Syntax source offset/line lookup 使用预建 line starts 二分查找，避免 position-heavy consumers 对每个 offset
- 从文档开头线性扫描。
-`- Workspace 的 current/last-valid semantic generation 使用共享 ownership，合法 revision 不再复制整份
- DocumentOutput；notes/events/tasks command paths 也直接消费 workspace-owned source，避免再次复制大文档。
-`- Whole-document formatting 的 changed-line projection 使用 unique anchors 分段 diff，避免重复 marker lines 令
- sequence diff 退化；CLI 直接消费 formatter 已持有的 source，`"fmt --check" 不再构造并应用无用 edits。
-`- Agenda browser 不再一次 materialize 无界 event DOM；初始 render window 锚定 now，并使用 bounded paging。
-`- LSP initial workspace indexing 移到 background，不再阻塞 open-document lifecycle；generation install
- 保留 indexing 期间产生的 buffer revisions。
-`- Folding byte offset 到 UTF-16 position 的 projection 复用 line-start index，避免每个 range 从 source
- 开头重复扫描。
-`- 一个 document 的 reference CodeLens 使用 batched reverse-reference query，避免按每个 anchor 重复
- 遍历 workspace records。
-`- event-contained links 利用 source-ordered link records 二分限定候选 suffix，不再为每个 event 从头扫描
- 全部 links；后续仍计划建立 explicit containment index。
-`- unchanged didOpen/full-text update 在 normalized path 与 source bytes 相同期间重绑 revision，复用
- ParsedDocument 与 DocumentOutput，不重复 parse 和 document semantics。
+`- `"semantic_store_build"：memory/SQLite cold build 与 generation publication。
+`- `"semantic_store_warm_start"：content-hash cache hit 和 independent-process warm startup。
+`- `"semantic_store_queries_33512"：agenda、references、event title completion 与 selected-decode search。
+`- `"semantic_store_task_queries_1408"：CEL filters、relations、state、sort、cursor、candidate pushdown 和
+ selected TaskRecord hydration。
+`- `"workspace_diagnostic_round_8_of_176"：diagnostic dependency context reuse。
+`- `"open_document_generation_33512"：didChange parse stage、background semantics 与 synchronous baseline。
+`- `"workspace_batch_index_1408"：serial/batch、memory/SQLite、cold/warm indexing。
+`- `"event_containment_4000"：source-ordered lookup 与 explicit containment index。
 
-`# 4. Observed baseline
+`# Measurement contract
 
-在上述真实 stress document 与当时 release build 上，server-side observation 为：plumb unchanged update
-约 2 ms，CodeLens 约 2--6 ms，semantic tokens 约 0 ms，folding range generation 约 55 ms。
+每次发布结果必须记录 commit、host、kernel、rustc、profile、fixture identity、warmup、measurement duration、
+sample count 和 interval midpoint。报告 absolute value 与相对 baseline；wall-clock observation 不是跨机器 SLA，
+不能进入普通 correctness CI 的硬阈值。
 
-patched Neovim 0.12.4 中，JSON decode 约 18--47 ms，fold state evaluation 约 23--27 ms，
-`"vim._foldupdate" 约 291--293 ms，完整 folding handler 约 314--320 ms。end-to-end fold-ready 约
-2.50--4.52 s；instrumentation 显示 3.18 MB folding body 开始到接收完成约 4--42 ms，主要等待发生在 server
-response 开始之前。
+比较必须覆盖完整 observable path。不得把只 decode records 的 baseline 与同时执行 score/order/hydration 的
+新路径比较，也不得把 editor transport wait 归因于 server parse 或 query。Response size、time to first byte、
+total time、database/WAL bytes、peak memory 与 steady resident 分开记录。
 
-绕过 Neovim 的 minimal synchronous LSP client 中，didOpen write 约 8 ms，CodeLens/semantic data 约
-343 ms 可用，fold response header 约 422 ms，body 约 798 ms 完成，parsed result 约 851 ms 可用。
-Neovim instrumentation 中，5.82 MB didOpen 先进入 asynchronous stdin write queue；后续请求保持 protocol
-ordering 并排在该 write 后。该 transport wait 不能归因于 plumb parse、fold generation、JSON decode 或
-fold installation，backend benchmark 必须单独报告 server 与 editor end-to-end boundary。
+`# Acceptance
 
-`# 5. Backend comparison matrix
+性能改动必须先由普通 tests 固定 result parity、query completeness、revision provenance、open-document
+precedence、cursor behavior、generation atomicity、failure propagation 和 bounded work。Benchmark 不能替代
+correctness evidence。
 
-原 process-local backend 与 SQLite persistent semantic backend 必须在同一 release binary、同一 fixture、
-同一 host 上分别测量：
+常用 hot path 不得以明显 latency、memory 或 write-amplification 回退换取单一指标改善。选择性优化必须同时
+测量低选择性反例；异步化必须分别报告 event-loop latency 与 total CPU work；persistent optimization 必须证明
+未 decode 或 hydrate 未选 records。
 
-`- cold build：空 cache 扫描、parse、document semantics、workspace index/store commit。
-`- warm startup：cache identity 全部命中，到 complete workspace query 可用。
-`- reverse references：document target、single anchor 与 batched CodeLens anchors。
-`- event query：时间范围 agenda、event-task association 与 contained-link lookup。
-`- unchanged reopen：disk snapshot 转 open revision，不重复 document-local computation。
-`- open overlay：一个或多个 open documents 遮蔽 disk generation 后的 query latency 与 result parity。
-`- save replacement：1K、10K 与 33,512-event document generation 的 transaction latency。
-`- resources：steady-state resident memory、peak build memory、database bytes 与 write amplification。
-
-每个 point 同时报告 absolute value 和相对 process-local baseline。wall-clock benchmark 不进入普通 correctness
-CI 的硬阈值；普通 CI 固定 result parity、cache identity、generation atomicity、document shadowing 和已知
-algorithmic work bounds。
-
-`# 6. SQLite backend comparison on 2026-08-11
-
-commit `"43b339e" 后的 benchmark harness 使用 33,512 events、3,351 references、2,038,805 source bytes
-的 deterministic workload。host 为 Intel Core i9-9980XE、Linux 6.18.39、rustc 1.97.1；Criterion 使用
-release profile。下列数值取 reported interval 的 midpoint：
-
-`- cold build：process-local memory backend 176.70 ms；SQLite backend 654.63 ms，SQLite 为 3.70x，
- 即回退约 270%。该路径同时执行 parse、document semantics 与首次 persistent transaction。
-`- warm startup：SQLite content-hash hit 7.91 ms；原 backend 必须重新执行约 176.70 ms cold build，warm
- SQLite 快约 22.3x。独立 process 的首次 page-cache observation 为 23.94 ms，因此 cold OS cache 会缩小
- 但不会消除该收益。
-`- batched reverse references：memory 3.98 ms，SQLite 3.32 ms，SQLite 快约 16.7%。
-`- agenda range：memory 25.26 ms，SQLite 65.12 ms，SQLite 慢约 2.58x。SQL time index 限定候选后，
- 命中 EventRecord 的 Bincode decode 仍是独立成本；该回退不能描述为性能提升。
-`- open overlay：SQLite disk generation 被一个完整 open document 遮蔽后，reverse-reference query 为
- 2.35 ms，结果 parity 由普通 tests 固定。
-`- full document replacement：33,512-event generation transaction 为 701.52 ms；它只在稳定 disk
- revision 发布时发生，不在 didChange/逐键路径执行。
-
-`# 7. Diesel/Web observation on 2026-08-11
-
-Diesel migration 后同一 host 的 release benchmark 中，batched reverse references 约 3.77 ms；33,512-event
-agenda 的完整 record decode 约 62.15 ms，说明仅改写 query API 不能消除无界 decode。1K 与 10K event
-generation replacement 分别约 13 ms 与 185 ms，较迁移前约回退 9% 与 10%。
-
-真实 notebook 包含 176 documents 与 1,297 tasks。debug Web server 的 `"GET /api/tasks" 仍约 2.18 s，
-response 约 964 KB。task mutation 改为只替换一个
-document generation、watcher 对相同 disk bytes 去重并返回空 `"204" 后，`"工作时专心.plumb" 的 complete
-request 从约 4.66 s 降到 41.7 ms。paired test 在操作后恢复原文件，前后 SHA-256 相同。
-
-进一步把 standard state preset 映射到 Diesel typed task queries、一次性读取 blocked source relation，且将
-完整 result 与 authoring candidates 拆分后，默认 `"ready + blocked" query 的 warm debug latency 为
-118--152 ms，response 约 73 KB；1,298 条紧凑 candidates 只在打开 authoring UI 时加载，约 61 ms、378 KB。
-paired complete observation 为 mutation 91.6 ms 加 query refresh 205.9 ms，总计约 0.30 s，恢复后文件 hash
-仍相同。显式 `"done" 全集仍约 1.47 s、658 KB；该路径需要后续 cursor pagination，不能视为已经解决。
-
-Linux process profile 中，memory backend cold build 的 peak/resident 为 217,584 KiB。SQLite cold build
-peak 为 207,672 KiB，事务完成后 resident 为 165,992 KiB；新 process warm startup 的 peak 为
-23,428 KiB、resident 为 12,628 KiB，相比原 backend resident 降低约 94.2%。该值包含 allocator、SQLite
-page cache 与 process runtime，不等同于 semantic records 的精确 retained bytes。
-
-Bincode semantic records 下，首次 transaction 尚有 WAL 时 database、WAL 与 shared-memory files 合计
-45,562,232 bytes；重新打开并 checkpoint 后合计 22,618,112 bytes。此前 JSON record prototype 为
-75,262,976 bytes，且同一 agenda query 约 84.66 ms；binary record encoding 同时降低 size 与 decode
-latency，但没有消除 agenda 相对 memory backend 的回退。
-
-`# 7. SQLite TEMP open-document overlay experiment on 2026-08-11
-
-`"semantic_overlay" release harness 在同一个 SQLite connection 中保留 main closed generations，并用
-`"temp_store=MEMORY" 的 `"open_documents/anchors/links/semantic_references/tasks/events" 保存 open generation。
-`"effective_events" 与 `"effective_references" TEMP views 使用 `"UNION ALL"，且 main branch 通过
-`"NOT EXISTS open_documents" 实现 complete-document shadow。每类 record 在 generation transaction 中只
-prepare 一次 insert statement；agenda records 和 direct-link references 与当前 Rust overlay 做 exact parity
-assertion 后才进入 measurement。
-
-同一 host、相同 deterministic workload 和 Criterion release profile 的 publication midpoint 为：
-
-`- 1,000 events：当前 Rust parse、semantics 与 generation replacement 为 4.79 ms；pre-analyzed TEMP
- publication 为 3.28 ms；parse、semantics 与 TEMP publication 合计 8.32 ms，是当前路径的 1.74x。
-`- 10,000 events：当前路径 85.13 ms；pre-analyzed TEMP publication 37.45 ms；完整 TEMP path
- 138.95 ms，是当前路径的 1.63x。
-`- 33,512 events：当前路径 314.37 ms；pre-analyzed TEMP publication 130.99 ms；完整 TEMP path
- 498.10 ms，是当前路径的 1.58x。
-`- 十次连续 33,512-event updates：当前路径 3.31 s；pre-analyzed TEMP publication 1.32 s；完整 TEMP
- path 5.04 s，是当前路径的 1.52x。连续 replacement 没有观察到超线性累积。
-
-Prepared-statement reuse 是结果成立的必要条件。prototype 每行重新 prepare 的早期 observation 中，33,512
-events 的 TEMP-only/full publication 分别约 291/654 ms；transaction 内按 record kind 复用 statement 后降为
-约 131/498 ms。后续实现和 benchmark 不得退回 per-row prepare。
-
-33,512-event open generation 上的统一查询 midpoint 为：
-
-`- agenda range：当前 Rust overlay 25.49 ms；SQL effective view 34.79 ms，SQL 慢约 36.5%。
-`- reverse references：当前 Rust overlay 4.02 ms；SQL effective view 2.24 ms，SQL 快约 44.3%。
-
-结论不是统一 SQL 不可行：document shadow 可以完整封装在 TEMP views 中，且 reference-style indexed query
-已有收益。阻碍是 publication 而非 overlay correctness；在当前 full-document parse/semantics 下，每次
-didChange 同步发布 TEMP generation 会给 33,512-event document 额外增加约 184 ms，并把已有约 314 ms 的
-更新扩大到约 498 ms。不能用 document-size threshold 隐藏该成本。生产重构应先获得 incremental semantic
-generation/record diff，或定义 asynchronous generation publication 与 revision consistency；在此之前保留
-Rust open-document output 与 document-granularity query composition 的总体 latency 更低。
-
-`# 8. Unified TEMP SQL production rollback on 2026-08-11
-
-commit `"2f85c76" 曾将 prototype 扩展为生产实现：closed generations 位于 SQLite main tables，open
-generations 位于 connection-local TEMP tables，所有跨文档 query 通过 `"effective_*" views 统一。该实现
-随后被撤回；以下数据作为 rejected design 的实测记录保留，不描述当前 backend。
-
-相同 33,512-event release workload 相对第一阶段 SQLite plus Rust overlay baseline 的 midpoint 为：
-
-`- 单次 open update：314.37 ms 增至 491.57 ms，回退 56.4%。
-`- 十次连续 open updates：3.31 s 增至 5.59 s，回退 69.0%。
-`- open agenda：25.49 ms 增至 47.59 ms，回退 86.7%。
-`- persistent/site agenda：25.49 ms 增至 30.80 ms，回退 20.8%。
-`- open reverse references：4.02 ms 增至 6.58 ms，回退 63.7%。
-`- warm startup：7.91 ms 增至 8.67 ms，回退 9.6%。
-`- warm persistent resident memory：12.6 MiB 增至 13.5 MiB，回退约 6.7%；open in-memory resident
- memory 从 217.6 MiB 降至 215.8 MiB，差异不显著。
-
-第二阶段删除 Rust/SQL dual query composition，工程收益是单一 relational query path；但第一阶段已经通过
-persistent SQLite 获得约 22.3x warm startup 和约 94.2% warm resident memory reduction。第二阶段没有重复
-获得这些核心收益，反而使 full-generation TEMP publication 进入 didChange，并让 SQLite VM、effective view、
-row conversion 与 record decode 进入 open-document query。因此当前实现恢复 persistent SQLite closed
-generations plus Rust open overlay。只有 incremental semantic record diff 或异步 publication 能先移除逐键
-full-generation cost，且完整 production parity benchmark 不再显示明显常用 query regression 时，才重新评估
-统一 SQL open generations；不能以 document-size threshold 规避该设计成本。
-
-`# 9. Diesel relation and task-page acceptance on 2026-08-28
-
-commit `"0a232a7" 的 release benchmark 使用 176 documents、每篇 8 tasks 的 deterministic workload，共
-1,408 tasks；每个 document 包含 dependency chain 与一个 event-task association。host 为 Intel Core
-i9-9980XE、Linux 6.18.45、rustc 1.97.1；Criterion 每项 warmup 1 s、measurement 5 s、20 samples。下列数值
-取 reported interval midpoint：
-
-`- process-local memory filtered cursor page 为 12.812 ms；Diesel persistent page 为 14.417 ms，约为
- memory 的 1.13x。requested limit 50 按完整 document boundary 扩展后只 decode 56 个 full TaskRecord，未
- decode 其余 1,352 个 records。
-`- 显式 `"directly_blocking" reverse-relation CEL page 为 14.694 ms；indexed event-task reverse lookup 为
- 23.836 us。
-`- 一个完整 open document 遮蔽 persistent generation 后的同一 page 为 14.598 ms；benchmark setup 在计时前
- 对 memory/persistent page 与 memory/persistent open-overlay page 作 exact parity assertion。
-`- query-plan tests 固定 active state/wait、event-task target 与 task source/due order queries 使用对应 typed
- indexes；corrupt-record test 证明 lightweight fact query 不 decode Bincode record，page lookup 只 decode
- selected keys。
-
-真实 notebook paired smoke 使用同一 release host、独立 dedicated ports 与 `"--no-watch"，baseline 为
-`"cc9287d"，当前实现为 `"0a232a7"；每版完成 workspace startup 后先 warmup 一次，再记录 10 个 loopback
-samples。两版结果都是 214 indexed documents；done query 的 requested limit 50 因 document boundary 扩展为
-75 tasks，`"complete=false" 且返回 next cursor：
-
-`- done page total-time median 从 232.5 ms 降至 38.3 ms，约快 6.1x；response 分别为 80,571 与
- 80,618 bytes，差异来自新的 opaque cursor spelling。
-`- `"directly_blocking.size() > 0" query total-time median 从 49.3 ms 降至 34.2 ms，约快 1.44x；两版
- response 都是 22,887 bytes。
-
-这些 wall-clock observation 不是跨机器 SLA。它们与 ordinary tests 中的 query-plan、open-overlay、adapter、
-stale/query-mismatch cursor、non-UTF-8 path 和 page-only decode assertions 共同作为 backend 验收证据。
-
-Web task mutation benchmark 使用 deterministic 生成的 176 documents、约 1,300 tasks workspace，并固定
-包含 recurring task 的 status operation。measurement 分开记录 guarded edit、changed-document snapshot
-replacement、当前 task query 和 JSON response；不得把 loopback connect time 当作 server latency。
-
-mutation hot path 不得重新 scan 或分析未变化 documents，也不得在成功响应后由同一 browser revision
-立即重复 task query 或触发 graph/task/event workspace refresh。integration test 以 instrumentation 证明
-一次 mutation 只读取并替换 target document，并证明 response revision/result 可由 browser 直接安装。
-真实 notebook smoke benchmark 记录 response size、time to first byte 与 total time；性能验收以优化前同一
-commit build 的 paired measurement 为基线，不把依赖 host 的绝对 wall-clock 数字写成跨机器 SLA。
-
-`# 10. Batch workspace indexing on 2026-08-29
-
-commit `"3f849b0" 后的 `"workspace_batch_index_1408" Criterion workload 使用当前 list facet syntax 生成
-176 documents、1,408 tasks，每个 document 同时包含 dependency chain 与 event-task association。host 为
-Intel Core i9-9980XE、Linux 6.18.45、rustc 1.97.1；release profile warmup 1 s、measurement 5 s、
-10 samples。serial baseline 重现此前 adapter 的 read/insert loop；batch path 使用一次 typed identity query、
-bounded read/analysis workers 和 serialized multi-generation transaction。下列数值取 reported interval midpoint：
-
-`- memory cold 从 18.452 ms 降至 10.856 ms，约快 1.70x，latency 降低约 41.2%。
-`- SQLite cold 从 371.19 ms 降至 117.96 ms，约快 3.15x，latency 降低约 68.2%。
-`- SQLite warm 从 2.5377 ms 降至 2.1644 ms，约快 1.17x，latency 降低约 14.7%；batch path 的一次
- identity query 取代逐 document SQLite lookup，全部 hit 时不打开 publication transaction。
-
-真实 `"~/Syncthing/Apps/zettelkasten" workspace paired profile 使用同一 release binary、223 scanned files，
-四种 mode 交错执行，各 10 samples，profiler 只输出 counts、timings 与 process memory，不输出 source：
-
-`- memory serial/batch index median 分别为 504.409 ms 与 507.717 ms，batch 慢约 0.7%；samples ranges
- 分别为 497.791--529.554 ms 与 494.097--521.534 ms，该差异落在 observation noise 内，不能宣称提升。
-`- SQLite serial/batch cold median 分别为 1,793.988 ms 与 1,596.988 ms，batch 快约 11.0%。
-`- 单次 `"/proc/self/status" observation 中，memory serial/batch peak 分别为 329,684/329,704 KiB；SQLite
- serial/batch peak 为 295,544/333,304 KiB，steady resident 为 238,988/276,360 KiB。batch transaction
- 降低 commit latency 但提高 SQLite cold publication memory；该 tradeoff 必须保留在后续 chunking/streaming
- 设计的 baseline 中，不能只报告 latency。
-
-worker policy 对 stored path set 已完全命中的 warm path 使用 sequential reads；cold misses 只有在 files 和
-miss payload 都不存在单一大 document 主导时才并行。真实 notebook 的大 document 因此不会与大量 small
-documents 竞争 allocator。普通 tests 固定 path ordering、partial cache hit、invalid document、read failure、
-complete-scan pruning、memory/SQLite behavior 与 cancel-before-publication atomicity；LSP stdio、Web lazy cache
-和 notes scanner tests 固定 adapter integration。
-
-旧 `"semantic_overlay" rusqlite prototype harness 已移除；历史 experiment 与 rollback 数据保留在前述章节，
-不再作为当前 backend 的可执行 plumbing。当前 `"semantic_store" harness 统一覆盖 Diesel CRUD/generation、
-relation lookup、task typed-fact page 与 open overlay。
-
-`# 11. Event title completion query on 2026-08-29
-
-commit `"211e973" 后，event title completion 不再调用完整 persistent event record query。Store 使用
-covering `"events(title, path)" index，只读取 grouped title/count rows；case-sensitive prefix 在 SQLite
-中对 UTF-8 bytes 比较，open paths 在 aggregation 前排除。Workspace 再合并 current-valid open output 并
-执行原有 frequency/title ordering 与 50-item limit。
-
-同一 33,512-event deterministic release workload、30 samples、1 s warmup 与 5 s measurement 中，
-`"Event 12" prefix/title-count query midpoint 为 2.9518 ms；旧完整 `"EventRecord" Bincode decode
-baseline 为 50.960 ms。新 hot path 约快 17.3x，latency 降低约 94.2%。Corrupt-record correctness test
-证明该 query 不读取 `"record" BLOB；普通 tests 固定 disk/open-overlay、literal wildcard、case、count、
-ordering 与 LSP projection。
-
-`# 12. Lightweight workspace search on 2026-08-29
-
-commit `"88af858" 后，无 CEL filter 的 persistent task/event search 不再先 decode 全部 semantic records。
-Task search 在 typed facts 与 persistent/open dependency overlay 上计算 workflow state、fuzzy score 和 effective
-priority，limit 后只按 source key hydration selected records。Event search 把同一个 deterministic Rust fuzzy
-scorer 注册为 SQLite function，在 database 内完成 score、ordering 与 `"limit + 1" completeness boundary；
-只把有界 lightweight facts 送回 protocol-neutral merge layer。Open records 直接借用 immutable snapshot。
-
-同一 33,512-event deterministic release workload、30 samples、1 s warmup 与 5 s measurement 中，query 为
-`"Event 12"、limit 为 50。旧式 baseline 完整 decode EventRecord，执行相同 title/id/path fuzzy score、
-deterministic ordering 与 limit；midpoint 为 60.426 ms。新完整 workspace search（包括 SQLite scoring、fact
-projection、selected EventRecord decode 和 response hydration）midpoint 为 49.206 ms，约快 1.23x、latency
-降低约 18.6%。单独 full decode 不包含 scoring/ordering，不能作为该端到端比较的 baseline。
-
-Correctness tests 将未命中的 task/event Bincode BLOB 改为无效 bytes，仍取得 selected task due 与 event
-association fields；另以全 persistent dependency chain 固定 priority propagation，并由既有 workflow、overlay、
-truncation 与 filtered-CEL tests 保持 observable parity。
-
-`# 13. Shared diagnostic dependency snapshot on 2026-08-29
-
-commit `"839464f" 后，protocol-neutral diagnostics 暴露 immutable WorkspaceDiagnosticContext。LSP 一轮
-open-document publication 只构造一个 context；task graph 从 typed task facts、dependency relations、anchor
-identities 与 open overlay 建立，不再 decode 全量 TaskRecord，也不为每个 document/edge 重复 target query。
-单 document convenience query 仍按需建立自己的 context。
-
-Criterion workload 使用 176 documents、每 document 8 tasks，共 1,408 tasks；其中 8 documents 作为 current
-open overlay。release profile 使用 10 samples、1 s warmup 与 5 s measurement。旧 adapter-equivalent baseline
-对 8 个 open documents 分别调用 convenience diagnostics，因此重建 8 次 context；midpoint 为 46.906 ms。
-新路径先构造一次 context，再对同样 8 个 documents 调用 context-bound diagnostics；midpoint 为 6.9113 ms，
-约快 6.79x、latency 降低约 85.3%。两条路径都包含相同 document diagnostics 与 target resolution work，差异
-只来自 dependency snapshot reuse。
-
-Correctness tests 在破坏 persistent task/anchor Bincode BLOB 后仍构造 cycle graph，并固定 open document
-replacement 会遮蔽 disk relations。Workspace 107 tests 与 LSP 77 个 stdio tests 保持 diagnostics、target refresh、
-workflow、folding 和 lifecycle observable behavior。
-
-`# 14. Asynchronous open-document semantics on 2026-08-29
-
-didOpen 保持同步，以保证没有 refresh protocol 的 document requests 立即取得 current semantic output。didChange
-同步 parse 并安装 ParsedDocument，再把完整 document semantic analysis 交给 spawn-blocking。结果只有在 path、
-revision 和 ParsedDocument Arc identity 都仍匹配时才安装；per-path generation token 在新 revision 或 close 时使旧
-queued work 失效。Pending valid revision 的 workspace query 标为 partial，并遮蔽同 path persistent generation。
-
-`"open_document_generation_33512" Criterion workload 使用同一 33,512-event deterministic source；release
-profile 使用 10 samples、1 s warmup 与 5 s measurement。下列数值取 reported interval midpoint：
-
-`- 旧同步完整 insert 为 306.02 ms；didChange 同步 parse stage 为 109.45 ms，主线程阶段约快 2.80x，latency
- 降低约 64.2%。
-`- 后台 semantic stage 为 156.41 ms。Parse 与 semantic 两阶段合计不能与同步 midpoint 直接相加比较 allocator
- overlap，也不能把主线程 latency 改善描述为总 CPU work 降低。
-
-Workspace tests 固定 out-of-order、same-version different-source、close-before-install、pending completeness 和
-persistent shadow behavior；server token test 固定新 revision 与 close 对 queued generation 的取消。LSP 77 个
-stdio tests 覆盖 didOpen synchronous request behavior、didChange pending folding 与 task authoring fallback。
-
-`# 15. Bounded Web task collection on 2026-08-29
-
-commit `"00027e7" 与 `"5b07a6a" 后，Web 不再暴露返回完整 workspace task snapshot 的
-`"GET /api/tasks"。Task view 与 authoring E2E 统一使用 shared `"TaskPageQuery" 的 bounded
-`"POST /api/query" response；graph 的 per-document task/open-task counts 直接从 typed task facts 聚合，
-不 hydrate TaskRecord，也不构造 task relations。
-
-同一 176-document、1,408-task deterministic release workload、20 samples、1 s warmup 与 5 s measurement 中，
-下列数值取 reported interval midpoint：
-
-`- done task 全集 hydration 为 18.090 ms；requested limit 100 的首个 bounded page 为 13.347 ms，约快
- 1.36x。由于完整 document boundary，首个 page 实际 hydration 104 records；主要收益是给 hydration 与
- serialization 建立上界，而不是消除 filter/sort 的全部 CPU work。
-`- 全部 task page hydration 为 13.588 ms；只聚合 per-document metrics 为 2.9472 ms，约快 4.61x、
- latency 降低约 78.3%。
-
-真实 `"~/Syncthing/Apps/zettelkasten" workspace smoke 使用独立 cache、dedicated port 与 `"--no-watch"；
-done preset、source sort、limit 100 的 10-sample total-time median 约 35.72 ms，response 为 191,241 bytes。
-历史无界路径约 1.47 s、658 KB，因此本次 observable path 约快 41x、response bytes 降低约 71%；两次
-observation 的实现 epoch 与 response contract 不同，该相对值只作为迁移效果，不是同一 commit 的 microbenchmark。
-
-普通 tests 固定 memory/SQLite/open-overlay metrics parity、101 documents 的 100/1 cursor continuation、legacy
-route absence 与 Web task authoring。Graph metrics 仍扫描 lightweight facts；若 workspace task 数量继续增长，
-后续可把 aggregation 下推到 store，但不得恢复无界 record hydration。
-
-`# 16. Persistent batch preparation ownership on 2026-08-29
-
-commit `"75ed307" 后，persistent batch cache miss 在 worker 完成 document semantics 后立即释放
-ParsedDocument 的 lossless tree 与 typed recovered tree，只把 source、revision 和 DocumentOutput 保留到
-serialized reconcile transaction。Memory backend 仍保留完整 ParsedDocument 以建立 DocumentEntry；publication
-atomicity、cache identity、deterministic ordering、cancellation 和 retained-source contract 不变。
-
-同一 176-document、1,408-task deterministic Criterion SQLite cold workload 使用 10 samples、1 s warmup 与
-约 6.1 s measurement；midpoint 为 117.23 ms，此前同机同 workload 为 117.96 ms，差异约 0.6%，没有观察到
-明显 latency 回退。
-
-真实 `"~/Syncthing/Apps/zettelkasten" workspace profile 扫描 223 files，使用 release binary、独立临时 SQLite
-database、5 次 cold runs，profiler 只输出 counts、timing 和 `"/proc/self/status" memory：
-
-`- index median 为 1.047 s，samples range 为 1.032--1.068 s；此前 batch cold median 为 1.597 s。该历史比较
- 同时包含此后其它实现变化，只作为当前 release observation，不把约 34.5% 差异全部归因于 ownership change。
-`- peak median 从此前 333,304 KiB 降至 296,304 KiB，约降低 11.1%；当前 samples range 为
- 295,996--296,492 KiB，已接近此前 SQLite serial peak 295,544 KiB。
-`- steady resident median 从此前 276,360 KiB 降至 239,960 KiB，约降低 13.2%；当前 samples range 为
- 239,908--239,988 KiB，接近此前 SQLite serial resident 238,988 KiB。
-
-Workspace 115 tests 固定 memory/SQLite、invalid source、cache reuse、prune 与 cancel-before-publication behavior。
-这些 process memory observations 包含 allocator、Rayon workers、SQLite page cache 与 runtime，不等同于 syntax
-tree allocation 的精确 retained bytes。
-
-`# 17. Safe CEL task candidate pushdown on 2026-08-30
-
-commits `"6e730b1" 与 `"89abd23" 后，task filter planner 从 CEL Program AST 提取可证明 exact/total 的 leading
-conjunct prefixes，生成 typed candidate IR。Store 只从固定 column/operator/state spelling 生成 SQL，user literals
-全部使用 bind parameters；persistent candidate facts 与 open facts 合并后仍执行完整原始 CEL Program。
-
-第一阶段支持 direct string/integer columns 的 equality、null checks、non-null guarded integer ordering、boolean
-constants，以及不依赖 dependency/open-overlay resolution 的 done/canceled/conflicted/waiting state。Unsupported
-function、ready/blocked/actionable、relation list、path、comprehension 或 unsafe nullable ordering 结束当前 branch
-的提取。Group 内 OR 只有每个 branch 都有 necessary candidate 才下推；planner 在第一个 partial group 后停止，
-不以 later SQL condition 隐藏 earlier CEL error。
-
-`"semantic_store_task_queries_1408" 使用 176 documents、每 document 8 tasks，共 1,408 tasks。Selective workload
-只让每 8 个 documents 中一个 document 的 8 tasks 为 done，共 176 matching tasks；source sort、requested limit
-100 按 document boundary 返回 104 tasks。Criterion release profile 使用 20 samples、1 s warmup 与约 6 s
-measurement，下列数值取 interval midpoint：
-
-`- 无法下推但等价的 `"state in ['done']" full typed-fact scan 为 10.988 ms。
-`- 可下推的 `"state == 'done'" SQL candidate page 为 5.8513 ms，约快 1.88x、latency 降低约 46.7%。
-`- 所有 1,408 tasks 都为 done 的低选择性反例为 13.143 ms；此前不含 candidate pushdown 的同 workload
- midpoint 为 13.347 ms，未观察到需要 cost gate 的明显回退。
-
-Correctness tests 在非 candidate TaskRecord Bincode 损坏后仍用窄化 identity/closure 与 relation rows 计算 selected
-task 的 blocked/depends facts；bind value 包含 SQL punctuation 时只匹配 exact title。Differential tests 固定
-memory/persistent、open document precedence、nullable not-equal、guarded/unguarded ordering、waiting query instant、
-OR/AND group 和 error source parity。Query-plan test 固定 closed-state candidate 使用 state index；所有 page 仍只
-decode selected full TaskRecords。
+Rejected prototype 只有在新的 prerequisite 已满足、同一 production parity benchmark 不再显示常用路径回退时
+才可重新评估。新结果追加到按年月命名的 history 文档，本页只在 workload 或验收 contract 改变时更新。

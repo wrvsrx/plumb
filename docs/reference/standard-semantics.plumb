@@ -115,7 +115,7 @@ key/value split：
 
 generic inline children 保持 source order，并作为 owner body 的 nested inline structure 导出；specialized
 owner 可以进一步约束 child kinds。四种 member forms 与 migration rationale 见
-`->[unified inline members design|../project/inline-members.plumb]。
+`->[unified inline members design|../history/syntax/inline-members.plumb]。
 
 `# 6. Metadata
 
