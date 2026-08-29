@@ -9,8 +9,9 @@ use diesel::connection::DefaultLoadingMode;
 use diesel::connection::SimpleConnection;
 use diesel::dsl::{count_star, exists, not, sql};
 use diesel::prelude::*;
-use diesel::sql_types::{Binary, Bool, Nullable, Text};
-use diesel::sqlite::SqliteConnection;
+use diesel::query_builder::{BoxedSqlQuery, SqlQuery};
+use diesel::sql_types::{BigInt, Binary, Bool, Integer, Nullable, Text};
+use diesel::sqlite::{Sqlite, SqliteConnection};
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
 use plumb_semantics::{
     AnchorRecord, DocumentOutput, EventRecord, LinkRecord, LinkTarget, MetadataValue, TaskField,
@@ -21,6 +22,9 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 
 use crate::cache::CacheNamespaceLease;
+use crate::task_predicate::{
+    TaskCandidatePredicate, TaskPredicateField, TaskPredicateOp, TaskPredicateValue,
+};
 use crate::{normalize, resolve_relative, task_reference_fields, task_reference_ranges};
 
 diesel::define_sql_function! {
@@ -63,6 +67,48 @@ type TaskFactRow = (
     Option<String>,
 );
 type EventFactRow = (Vec<u8>, i64, i64, i64, i64, Option<String>, String, i64);
+
+#[derive(QueryableByName)]
+struct TaskFactSqlRow {
+    #[diesel(sql_type = Binary)]
+    path: Vec<u8>,
+    #[diesel(sql_type = BigInt)]
+    revision: i64,
+    #[diesel(sql_type = BigInt)]
+    start: i64,
+    #[diesel(sql_type = BigInt)]
+    selection_start: i64,
+    #[diesel(sql_type = BigInt)]
+    selection_end: i64,
+    #[diesel(sql_type = Nullable<Text>)]
+    id: Option<String>,
+    #[diesel(sql_type = Text)]
+    title: String,
+    #[diesel(sql_type = Text)]
+    closure_state: String,
+    #[diesel(sql_type = Nullable<BigInt>)]
+    created_millis: Option<i64>,
+    #[diesel(sql_type = Nullable<BigInt>)]
+    due_millis: Option<i64>,
+    #[diesel(sql_type = Nullable<BigInt>)]
+    wait_millis: Option<i64>,
+    #[diesel(sql_type = Nullable<BigInt>)]
+    done_millis: Option<i64>,
+    #[diesel(sql_type = Nullable<BigInt>)]
+    canceled_millis: Option<i64>,
+    #[diesel(sql_type = Nullable<Integer>)]
+    priority: Option<i32>,
+    #[diesel(sql_type = BigInt)]
+    depth: i64,
+    #[diesel(sql_type = Nullable<BigInt>)]
+    parent_start: Option<i64>,
+    #[diesel(sql_type = Nullable<Text>)]
+    recur_text: Option<String>,
+    #[diesel(sql_type = Nullable<Text>)]
+    prev_text: Option<String>,
+}
+
+type TaskCandidateSql<'a> = BoxedSqlQuery<'a, Sqlite, SqlQuery>;
 
 const SCHEMA_VERSION: i64 = 6;
 const PRODUCER_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -177,6 +223,14 @@ pub struct StoredTaskFact {
     pub parent_start: Option<usize>,
     pub recur: Option<String>,
     pub prev: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct StoredTaskIdentity {
+    pub path: PathBuf,
+    pub start: usize,
+    pub id: Option<String>,
+    pub closure_state: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -688,6 +742,67 @@ impl SqliteSemanticStore {
             .order((tasks::path, tasks::start))
             .load::<TaskFactRow>(&mut *connection)?;
         decode_task_facts(rows, excluded)
+    }
+
+    pub(crate) fn task_facts_matching(
+        &self,
+        predicate: &TaskCandidatePredicate,
+        now_millis: i64,
+        excluded: &[PathBuf],
+    ) -> StoreResult<Vec<StoredTaskFact>> {
+        let mut connection = self
+            .connection
+            .lock()
+            .map_err(|_| StoreError::LockPoisoned)?;
+        let query = diesel::sql_query(
+            "SELECT tasks.path AS path, documents.revision AS revision, \
+             tasks.start AS start, tasks.selection_start AS selection_start, \
+             tasks.selection_end AS selection_end, tasks.id AS id, tasks.title AS title, \
+             tasks.closure_state AS closure_state, tasks.created_millis AS created_millis, \
+             tasks.due_millis AS due_millis, tasks.wait_millis AS wait_millis, \
+             tasks.done_millis AS done_millis, tasks.canceled_millis AS canceled_millis, \
+             tasks.priority AS priority, tasks.depth AS depth, tasks.parent_start AS parent_start, \
+             tasks.recur_text AS recur_text, tasks.prev_text AS prev_text \
+             FROM tasks INNER JOIN documents ON documents.path = tasks.path WHERE ",
+        )
+        .into_boxed::<Sqlite>();
+        let query = append_task_candidate_sql(query, predicate, now_millis)
+            .sql(" ORDER BY tasks.path, tasks.start");
+        let rows = query.load::<TaskFactSqlRow>(&mut *connection)?;
+        decode_task_fact_sql_rows(rows, excluded)
+    }
+
+    pub(crate) fn task_identities(
+        &self,
+        excluded: &[PathBuf],
+    ) -> StoreResult<Vec<StoredTaskIdentity>> {
+        let mut connection = self
+            .connection
+            .lock()
+            .map_err(|_| StoreError::LockPoisoned)?;
+        let rows = tasks::table
+            .select((tasks::path, tasks::start, tasks::id, tasks::closure_state))
+            .order((tasks::path, tasks::start))
+            .load::<(Vec<u8>, i64, Option<String>, String)>(&mut *connection)?;
+        let mut excluded = excluded
+            .iter()
+            .map(|path| normalize(path))
+            .collect::<Vec<_>>();
+        excluded.sort();
+        rows.into_iter()
+            .map(|(path, start, id, closure_state)| {
+                let path = path_from_bytes(path)?;
+                Ok(
+                    (excluded.binary_search(&path).is_err()).then_some(StoredTaskIdentity {
+                        path,
+                        start: to_usize(start)?,
+                        id,
+                        closure_state,
+                    }),
+                )
+            })
+            .filter_map(Result::transpose)
+            .collect()
     }
 
     pub fn tasks_by_keys(
@@ -1309,6 +1424,98 @@ impl SqliteSemanticStore {
     }
 }
 
+fn append_task_candidate_sql<'a>(
+    mut query: TaskCandidateSql<'a>,
+    predicate: &TaskCandidatePredicate,
+    now_millis: i64,
+) -> TaskCandidateSql<'a> {
+    match predicate {
+        TaskCandidatePredicate::Constant(value) => query.sql(if *value { "1" } else { "0" }),
+        TaskCandidatePredicate::And(predicates) | TaskCandidatePredicate::Or(predicates) => {
+            let separator = if matches!(predicate, TaskCandidatePredicate::And(_)) {
+                " AND "
+            } else {
+                " OR "
+            };
+            query = query.sql("(");
+            for (index, predicate) in predicates.iter().enumerate() {
+                if index > 0 {
+                    query = query.sql(separator);
+                }
+                query = append_task_candidate_sql(query, predicate, now_millis);
+            }
+            query.sql(")")
+        }
+        TaskCandidatePredicate::Not(predicate) => {
+            query = query.sql("(NOT ");
+            append_task_candidate_sql(query, predicate, now_millis).sql(")")
+        }
+        TaskCandidatePredicate::Compare { field, op, value } => {
+            append_task_comparison_sql(query, *field, *op, value)
+        }
+        TaskCandidatePredicate::State(state) => {
+            use crate::TaskWorkflowState;
+
+            match state {
+                TaskWorkflowState::Waiting => query
+                    .sql("(tasks.closure_state = 'open' AND tasks.wait_millis IS NOT NULL AND tasks.wait_millis > ?)")
+                    .bind::<BigInt, _>(now_millis),
+                TaskWorkflowState::Done => query.sql("(tasks.closure_state = 'done')"),
+                TaskWorkflowState::Canceled => query.sql("(tasks.closure_state = 'canceled')"),
+                TaskWorkflowState::Conflicted => {
+                    query.sql("(tasks.closure_state = 'conflicted')")
+                }
+                TaskWorkflowState::Ready | TaskWorkflowState::Blocked => {
+                    unreachable!("dependency-derived states are not candidate predicates")
+                }
+            }
+        }
+    }
+}
+
+fn append_task_comparison_sql<'a>(
+    mut query: TaskCandidateSql<'a>,
+    field: TaskPredicateField,
+    op: TaskPredicateOp,
+    value: &TaskPredicateValue,
+) -> TaskCandidateSql<'a> {
+    let column = match field {
+        TaskPredicateField::Id => "tasks.id",
+        TaskPredicateField::Title => "tasks.title",
+        TaskPredicateField::Created => "tasks.created_millis",
+        TaskPredicateField::Due => "tasks.due_millis",
+        TaskPredicateField::Priority => "tasks.priority",
+        TaskPredicateField::Wait => "tasks.wait_millis",
+        TaskPredicateField::Done => "tasks.done_millis",
+        TaskPredicateField::Canceled => "tasks.canceled_millis",
+        TaskPredicateField::Recur => "tasks.recur_text",
+        TaskPredicateField::Prev => "tasks.prev_text",
+    };
+    if matches!(value, TaskPredicateValue::Null) {
+        return query.sql(column).sql(match op {
+            TaskPredicateOp::Equal => " IS NULL",
+            TaskPredicateOp::NotEqual => " IS NOT NULL",
+            _ => unreachable!("null candidate predicates only support equality"),
+        });
+    }
+
+    let (prefix, operator, suffix) = match op {
+        TaskPredicateOp::Equal => ("COALESCE(", " = ", ", 0)"),
+        TaskPredicateOp::NotEqual => ("(NOT COALESCE(", " = ", ", 0))"),
+        TaskPredicateOp::Less => ("COALESCE(", " < ", ", 0)"),
+        TaskPredicateOp::LessEqual => ("COALESCE(", " <= ", ", 0)"),
+        TaskPredicateOp::Greater => ("COALESCE(", " > ", ", 0)"),
+        TaskPredicateOp::GreaterEqual => ("COALESCE(", " >= ", ", 0)"),
+    };
+    query = query.sql(prefix).sql(column).sql(operator).sql("?");
+    query = match value {
+        TaskPredicateValue::String(value) => query.bind::<Text, _>(value.clone()),
+        TaskPredicateValue::Integer(value) => query.bind::<BigInt, _>(*value),
+        TaskPredicateValue::Null => unreachable!(),
+    };
+    query.sql(suffix)
+}
+
 fn producer_version_key() -> i64 {
     let digest = Sha256::digest(PRODUCER_VERSION.as_bytes());
     i64::from_le_bytes(
@@ -1686,6 +1893,45 @@ fn decode_task_dependencies(
                 })()
             },
         )
+        .filter_map(Result::transpose)
+        .collect()
+}
+
+fn decode_task_fact_sql_rows(
+    rows: Vec<TaskFactSqlRow>,
+    excluded: &[PathBuf],
+) -> StoreResult<Vec<StoredTaskFact>> {
+    let mut excluded = excluded
+        .iter()
+        .map(|path| normalize(path))
+        .collect::<Vec<_>>();
+    excluded.sort();
+    rows.into_iter()
+        .map(|row| {
+            let path = path_from_bytes(row.path)?;
+            if excluded.binary_search(&path).is_ok() {
+                return Ok(None);
+            }
+            Ok(Some(StoredTaskFact {
+                path,
+                revision: row.revision,
+                start: to_usize(row.start)?,
+                selection_range: to_usize(row.selection_start)?..to_usize(row.selection_end)?,
+                id: row.id,
+                title: row.title,
+                closure_state: row.closure_state,
+                created_millis: row.created_millis,
+                due_millis: row.due_millis,
+                wait_millis: row.wait_millis,
+                done_millis: row.done_millis,
+                canceled_millis: row.canceled_millis,
+                priority: row.priority,
+                depth: to_usize(row.depth)?,
+                parent_start: row.parent_start.map(to_usize).transpose()?,
+                recur: row.recur_text,
+                prev: row.prev_text,
+            }))
+        })
         .filter_map(Result::transpose)
         .collect()
 }
@@ -2218,6 +2464,52 @@ mod tests {
     }
 
     #[test]
+    fn task_candidate_query_binds_values_and_preserves_cel_null_equality() {
+        let store = SqliteSemanticStore::open_in_memory().unwrap();
+        let source = concat!(
+            "`- Quote ' OR 1=1 --\n\n `+ task\n\n `@ quoted\n",
+            "`- Prioritized\n\n `+ task\n\n `@ prioritized\n\n `= priority|3\n",
+        );
+        store
+            .replace(Path::new("tasks.plumb"), 1, source, Some(&analyzed(source)))
+            .unwrap();
+
+        let quoted = TaskCandidatePredicate::Compare {
+            field: TaskPredicateField::Title,
+            op: TaskPredicateOp::Equal,
+            value: TaskPredicateValue::String("Quote ' OR 1=1 --".to_string()),
+        };
+        let facts = store.task_facts_matching(&quoted, 0, &[]).unwrap();
+        assert_eq!(facts.len(), 1);
+        assert_eq!(facts[0].id.as_deref(), Some("quoted"));
+
+        let not_three = TaskCandidatePredicate::Compare {
+            field: TaskPredicateField::Priority,
+            op: TaskPredicateOp::NotEqual,
+            value: TaskPredicateValue::Integer(3),
+        };
+        let facts = store.task_facts_matching(&not_three, 0, &[]).unwrap();
+        assert_eq!(facts.len(), 1);
+        assert_eq!(facts[0].id.as_deref(), Some("quoted"));
+
+        let positive = TaskCandidatePredicate::And(vec![
+            TaskCandidatePredicate::Compare {
+                field: TaskPredicateField::Priority,
+                op: TaskPredicateOp::NotEqual,
+                value: TaskPredicateValue::Null,
+            },
+            TaskCandidatePredicate::Compare {
+                field: TaskPredicateField::Priority,
+                op: TaskPredicateOp::Greater,
+                value: TaskPredicateValue::Integer(2),
+            },
+        ]);
+        let facts = store.task_facts_matching(&positive, 0, &[]).unwrap();
+        assert_eq!(facts.len(), 1);
+        assert_eq!(facts[0].id.as_deref(), Some("prioritized"));
+    }
+
+    #[test]
     fn queries_only_open_tasks_whose_wait_has_elapsed() {
         let store = SqliteSemanticStore::open_in_memory().unwrap();
         let source = "`- Ready\n\n `+ task\n\n `@ ready\n\n`- Waiting\n\n `+ task\n\n `@ waiting\n\n `= wait|2026-08-12T10:00:00Z\n\n`- Done\n\n `+ task\n\n `@ done\n\n `= done|2026-08-10T10:00:00Z\n\n`- Canceled\n\n `+ task\n\n `@ canceled\n\n `= canceled|2026-08-10T10:00:00Z\n";
@@ -2371,6 +2663,29 @@ mod tests {
         assert!(
             plan.iter()
                 .any(|row| row.detail.contains("tasks_state_wait")),
+            "{}",
+            plan.iter()
+                .map(|row| row.detail.as_str())
+                .collect::<Vec<_>>()
+                .join("; ")
+        );
+    }
+
+    #[test]
+    fn task_candidate_state_query_uses_a_state_index() {
+        let store = SqliteSemanticStore::open_in_memory().unwrap();
+        let mut connection = store.connection.lock().unwrap();
+        let plan = diesel::sql_query(
+            "EXPLAIN QUERY PLAN SELECT tasks.path, tasks.start FROM tasks \
+             INNER JOIN documents ON documents.path = tasks.path \
+             WHERE tasks.closure_state = 'done' ORDER BY tasks.path, tasks.start",
+        )
+        .load::<QueryPlanRow>(&mut *connection)
+        .unwrap();
+        assert!(
+            plan.iter().any(|row| {
+                row.detail.contains("tasks_state_due") || row.detail.contains("tasks_state_wait")
+            }),
             "{}",
             plan.iter()
                 .map(|row| row.detail.as_str())

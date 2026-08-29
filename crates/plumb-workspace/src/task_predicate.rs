@@ -364,6 +364,7 @@ mod tests {
     fn translates_null_checks_and_non_dependency_workflow_states() {
         assert!(prefix("due == null && state == 'waiting'").complete);
         assert!(prefix("id != null && id == 'task'").complete);
+        assert!(prefix("priority != null && priority < -2").complete);
         assert!(!prefix("state == 'ready'").complete);
         assert!(!prefix("state == 'blocked'").complete);
     }

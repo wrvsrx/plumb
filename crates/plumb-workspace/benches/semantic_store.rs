@@ -90,6 +90,30 @@ fn done_task_fixture(documents: usize, tasks: usize) -> SqliteFixture {
     }
 }
 
+fn selective_done_task_fixture(documents: usize, tasks: usize) -> SqliteFixture {
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("semantic.sqlite3");
+    let store = SqliteSemanticStore::open(&database).unwrap();
+    let mut workspace = Workspace::with_sqlite_store(store.clone());
+    for document in 0..documents {
+        let path = format!("selective-done-{document:03}.plumb");
+        let mut source = task_document_source(document, tasks, "");
+        if document % 8 == 0 {
+            source = source.replace(
+                "\n `= priority|",
+                "\n `= done|2026-08-28T12:00:00Z\n `= priority|",
+            );
+        }
+        workspace.insert_disk(&path, 0, &source).unwrap();
+    }
+    SqliteFixture {
+        _directory: directory,
+        database,
+        store,
+        workspace,
+    }
+}
+
 fn batch_index_files(documents: usize, tasks: usize) -> (tempfile::TempDir, Vec<PathBuf>) {
     let directory = tempfile::tempdir().unwrap();
     let mut paths = Vec::with_capacity(documents);
@@ -397,6 +421,25 @@ fn benchmark_task_queries(c: &mut Criterion) {
         done_page.tasks.len()
     );
 
+    let selective_done = selective_done_task_fixture(document_count, tasks_per_document);
+    let mut candidate_done_query = done_page_query.clone();
+    candidate_done_query.filter_groups[0].filters[0].expression = "state == 'done'".to_string();
+    let mut full_scan_done_query = candidate_done_query.clone();
+    full_scan_done_query.filter_groups[0].filters[0].expression = "state in ['done']".to_string();
+    let candidate_done_page = selective_done
+        .workspace
+        .query_task_page(&candidate_done_query)
+        .unwrap()
+        .value;
+    let full_scan_done_page = selective_done
+        .workspace
+        .query_task_page(&full_scan_done_query)
+        .unwrap()
+        .value;
+    assert_eq!(candidate_done_page.tasks, full_scan_done_page.tasks);
+    assert_eq!(candidate_done_page.complete, full_scan_done_page.complete);
+    assert_eq!(candidate_done_page.tasks.len(), 104);
+
     let target = TaskRef {
         path: PathBuf::from("tasks-000.plumb"),
         id: "task-000-00".to_string(),
@@ -449,6 +492,24 @@ fn benchmark_task_queries(c: &mut Criterion) {
     });
     group.bench_function("sqlite_done_first_page", |b| {
         b.iter(|| black_box(done.workspace.query_task_page(&done_page_query)));
+    });
+    group.bench_function("sqlite_selective_done_full_fact_scan", |b| {
+        b.iter(|| {
+            black_box(
+                selective_done
+                    .workspace
+                    .query_task_page(&full_scan_done_query),
+            )
+        });
+    });
+    group.bench_function("sqlite_selective_done_sql_candidate", |b| {
+        b.iter(|| {
+            black_box(
+                selective_done
+                    .workspace
+                    .query_task_page(&candidate_done_query),
+            )
+        });
     });
     group.finish();
 }

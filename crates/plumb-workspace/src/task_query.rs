@@ -11,7 +11,8 @@ use super::{
     truncate_complete_task_documents, QueryResult, TaskRef, TaskSortFacts, TaskSortOrder,
     TaskWaitReason, TaskWorkflowState, Workspace, WorkspaceQueryError,
 };
-use crate::store::{StoredTaskDependency, StoredTaskFact, StoredTaskKey};
+use crate::store::{StoredTaskDependency, StoredTaskFact, StoredTaskIdentity, StoredTaskKey};
+use crate::task_predicate::{task_candidate_prefix, TaskCandidatePredicate};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TaskQueryFilter {
@@ -151,7 +152,7 @@ impl Workspace {
     pub fn task_document_metrics(
         &self,
     ) -> Result<QueryResult<Vec<TaskDocumentMetrics>>, TaskPageQueryError> {
-        let (facts, _) = task_facts(self)?;
+        let (facts, _) = task_facts(self, None, 0)?;
         let mut metrics = BTreeMap::<PathBuf, (usize, usize)>::new();
         for fact in facts {
             let counts = metrics.entry(fact.key.path).or_default();
@@ -175,28 +176,14 @@ impl Workspace {
         query: &TaskPageQuery,
     ) -> Result<QueryResult<TaskPage>, TaskPageQueryError> {
         let filters = compile_filters(&query.filter_groups)?;
-        let (mut facts, open_records) = task_facts(self)?;
-        let identities = facts
-            .iter()
-            .filter_map(|fact| {
-                fact.id.as_ref().map(|id| {
-                    (
-                        TaskRef {
-                            path: fact.key.path.clone(),
-                            id: id.clone(),
-                        },
-                        fact.key.clone(),
-                    )
-                })
-            })
-            .collect::<HashMap<_, _>>();
-        let relations = task_relations(self, &facts, &open_records, &identities)?;
+        let candidate = task_candidate_predicate(&filters);
+        let (mut facts, open_records) =
+            task_facts(self, candidate.as_ref(), query.now.timestamp_millis())?;
+        let (identities, task_refs_by_key, states) =
+            task_identity_context(self, &facts, candidate.is_some())?;
+        let relations = task_relations(self, &open_records, &identities, &states)?;
         let dependencies = dependencies_by_source(&relations);
-        let dependents = dependents_by_target(&relations, &facts);
-        let states = facts
-            .iter()
-            .map(|fact| (fact.key.clone(), fact.closure_state))
-            .collect::<HashMap<_, _>>();
+        let dependents = dependents_by_target(&relations, &task_refs_by_key);
 
         for fact in &mut facts {
             let blocked = dependencies.get(&fact.key).is_some_and(|targets| {
@@ -378,8 +365,29 @@ fn compile_filters(
         .collect()
 }
 
+fn task_candidate_predicate(groups: &[Vec<CompiledFilter>]) -> Option<TaskCandidatePredicate> {
+    let mut candidates = Vec::new();
+    for group in groups {
+        let prefixes = group
+            .iter()
+            .map(|filter| task_candidate_prefix(filter.program.expression()))
+            .collect::<Vec<_>>();
+        let complete = prefixes.iter().all(|prefix| prefix.complete);
+        let group_candidate =
+            TaskCandidatePredicate::or(prefixes.into_iter().filter_map(|prefix| prefix.predicate))?;
+        candidates.push(group_candidate);
+        if !complete {
+            break;
+        }
+    }
+    TaskCandidatePredicate::and(candidates)
+        .filter(|predicate| !matches!(predicate, TaskCandidatePredicate::Constant(true)))
+}
+
 fn task_facts(
     workspace: &Workspace,
+    candidate: Option<&TaskCandidatePredicate>,
+    now_millis: i64,
 ) -> Result<(Vec<TaskFact>, HashMap<TaskKey, TaskRecord>), TaskPageQueryError> {
     let mut facts = Vec::new();
     let mut open_records = HashMap::new();
@@ -405,15 +413,102 @@ fn task_facts(
         }
     }
     if let Some(store) = &workspace.disk_store {
-        facts.extend(
-            store
-                .task_facts(&workspace.open_paths())?
-                .into_iter()
-                .map(fact_from_stored),
-        );
+        let stored = if let Some(candidate) = candidate {
+            store.task_facts_matching(candidate, now_millis, &workspace.open_paths())?
+        } else {
+            store.task_facts(&workspace.open_paths())?
+        };
+        facts.extend(stored.into_iter().map(fact_from_stored));
     }
     facts.sort_by(|left, right| left.key.cmp(&right.key));
     Ok((facts, open_records))
+}
+
+type TaskIdentityContext = (
+    HashMap<TaskRef, TaskKey>,
+    HashMap<TaskKey, TaskRef>,
+    HashMap<TaskKey, TaskState>,
+);
+
+fn task_identity_context(
+    workspace: &Workspace,
+    facts: &[TaskFact],
+    candidate_applied: bool,
+) -> Result<TaskIdentityContext, TaskPageQueryError> {
+    let mut identities = HashMap::new();
+    let mut task_refs_by_key = HashMap::new();
+    let mut states = HashMap::new();
+    for fact in facts {
+        insert_task_identity(
+            &mut identities,
+            &mut task_refs_by_key,
+            &mut states,
+            fact.key.clone(),
+            fact.id.clone(),
+            fact.closure_state,
+        );
+    }
+    if candidate_applied {
+        if let Some(store) = &workspace.disk_store {
+            for identity in store.task_identities(&workspace.open_paths())? {
+                insert_stored_task_identity(
+                    &mut identities,
+                    &mut task_refs_by_key,
+                    &mut states,
+                    identity,
+                );
+            }
+        }
+    }
+    Ok((identities, task_refs_by_key, states))
+}
+
+fn insert_stored_task_identity(
+    identities: &mut HashMap<TaskRef, TaskKey>,
+    task_refs_by_key: &mut HashMap<TaskKey, TaskRef>,
+    states: &mut HashMap<TaskKey, TaskState>,
+    identity: StoredTaskIdentity,
+) {
+    let key = TaskKey {
+        path: identity.path,
+        start: identity.start,
+    };
+    insert_task_identity(
+        identities,
+        task_refs_by_key,
+        states,
+        key,
+        identity.id,
+        task_state_from_name(&identity.closure_state),
+    );
+}
+
+fn insert_task_identity(
+    identities: &mut HashMap<TaskRef, TaskKey>,
+    task_refs_by_key: &mut HashMap<TaskKey, TaskRef>,
+    states: &mut HashMap<TaskKey, TaskState>,
+    key: TaskKey,
+    id: Option<String>,
+    state: TaskState,
+) {
+    states.insert(key.clone(), state);
+    if let Some(id) = id {
+        let task_ref = TaskRef {
+            path: key.path.clone(),
+            id,
+        };
+        identities.insert(task_ref.clone(), key.clone());
+        task_refs_by_key.insert(key, task_ref);
+    }
+}
+
+fn task_state_from_name(name: &str) -> TaskState {
+    match name {
+        "done" => TaskState::Done,
+        "canceled" => TaskState::Canceled,
+        "conflicted" => TaskState::Conflicted,
+        _ => TaskState::Open,
+    }
 }
 
 fn fact_from_record(
@@ -486,14 +581,10 @@ fn fact_from_stored(stored: StoredTaskFact) -> TaskFact {
 
 fn task_relations(
     workspace: &Workspace,
-    facts: &[TaskFact],
     open_records: &HashMap<TaskKey, TaskRecord>,
     identities: &HashMap<TaskRef, TaskKey>,
+    states: &HashMap<TaskKey, TaskState>,
 ) -> Result<Vec<TaskRelation>, TaskPageQueryError> {
-    let fact_keys = facts
-        .iter()
-        .map(|fact| fact.key.clone())
-        .collect::<HashSet<_>>();
     let mut relations = workspace
         .disk_store
         .as_ref()
@@ -501,7 +592,7 @@ fn task_relations(
         .transpose()?
         .unwrap_or_default()
         .into_iter()
-        .filter_map(|relation| relation_from_stored(relation, &fact_keys, identities))
+        .filter_map(|relation| relation_from_stored(relation, states, identities))
         .collect::<Vec<_>>();
     for (source, task) in open_records {
         for dependency in &task.depends {
@@ -528,7 +619,7 @@ fn task_relations(
 
 fn relation_from_stored(
     relation: StoredTaskDependency,
-    fact_keys: &HashSet<TaskKey>,
+    states: &HashMap<TaskKey, TaskState>,
     identities: &HashMap<TaskRef, TaskKey>,
 ) -> Option<TaskRelation> {
     let source = TaskKey {
@@ -539,7 +630,7 @@ fn relation_from_stored(
         path: relation.target_path,
         id: relation.target_id,
     };
-    (fact_keys.contains(&source) && identities.contains_key(&target))
+    (states.contains_key(&source) && identities.contains_key(&target))
         .then_some(TaskRelation { source, target })
 }
 
@@ -574,25 +665,11 @@ fn dependencies_by_source(relations: &[TaskRelation]) -> HashMap<TaskKey, Vec<Ta
 
 fn dependents_by_target(
     relations: &[TaskRelation],
-    facts: &[TaskFact],
+    task_refs_by_key: &HashMap<TaskKey, TaskRef>,
 ) -> HashMap<TaskRef, Vec<TaskRef>> {
-    let sources = facts
-        .iter()
-        .filter_map(|fact| {
-            fact.id.as_ref().map(|id| {
-                (
-                    fact.key.clone(),
-                    TaskRef {
-                        path: fact.key.path.clone(),
-                        id: id.clone(),
-                    },
-                )
-            })
-        })
-        .collect::<HashMap<_, _>>();
     let mut values = HashMap::<TaskRef, Vec<TaskRef>>::new();
     for relation in relations {
-        if let Some(source) = sources.get(&relation.source) {
+        if let Some(source) = task_refs_by_key.get(&relation.source) {
             values
                 .entry(relation.target.clone())
                 .or_default()
@@ -1202,6 +1279,22 @@ mod tests {
             },
         ];
 
+        let compiled = compile_filters(&filtered.filter_groups).unwrap();
+        let candidate = task_candidate_predicate(&compiled).unwrap();
+        let (candidate_facts, _) = task_facts(
+            &workspace,
+            Some(&candidate),
+            filtered.now.timestamp_millis(),
+        )
+        .unwrap();
+        assert_eq!(
+            candidate_facts
+                .iter()
+                .map(|fact| fact.id.as_deref().unwrap())
+                .collect::<Vec<_>>(),
+            ["dependent", "done"]
+        );
+
         let page = workspace.query_task_page(&filtered).unwrap().value;
         assert_eq!(page.tasks.len(), 1);
         assert_eq!(page.tasks[0].task.id.as_ref().unwrap().value, "dependent");
@@ -1213,6 +1306,156 @@ mod tests {
                 .map(|task| (task.path.as_path(), task.id.as_str()))
                 .collect::<Vec<_>>(),
             [(Path::new("b.plumb"), "target")]
+        );
+    }
+
+    #[test]
+    fn sql_candidates_keep_full_cel_dependency_context_and_skip_other_records() {
+        let mut memory = Workspace::new();
+        populate(&mut memory, false);
+        let store = SqliteSemanticStore::open_in_memory().unwrap();
+        let mut persistent = Workspace::with_sqlite_store(store.clone());
+        populate(&mut persistent, true);
+        let mut filtered = query();
+        filtered.sort.clear();
+        filtered.filter_groups = vec![TaskQueryFilterGroup {
+            filters: vec![TaskQueryFilter {
+                source: "custom:blocked".to_string(),
+                expression: "title == 'Dependent' && blocked".to_string(),
+            }],
+        }];
+
+        let expected = memory.query_task_page(&filtered).unwrap().value;
+        let compiled = compile_filters(&filtered.filter_groups).unwrap();
+        let candidate = task_candidate_predicate(&compiled).unwrap();
+        let (candidate_facts, _) = task_facts(
+            &persistent,
+            Some(&candidate),
+            filtered.now.timestamp_millis(),
+        )
+        .unwrap();
+        assert_eq!(candidate_facts.len(), 1);
+        assert_eq!(candidate_facts[0].id.as_deref(), Some("dependent"));
+
+        store
+            .execute_batch_for_test("UPDATE tasks SET record = X'00' WHERE title <> 'Dependent'")
+            .unwrap();
+        let actual = persistent.query_task_page(&filtered).unwrap().value;
+        assert_eq!(actual, expected);
+        assert_eq!(actual.tasks[0].state, TaskWorkflowState::Blocked);
+        assert_eq!(actual.tasks[0].depends_on[0].id, "target");
+    }
+
+    #[test]
+    fn candidate_pushdown_preserves_nullable_error_and_short_circuit_order() {
+        let mut memory = Workspace::new();
+        populate(&mut memory, false);
+        let store = SqliteSemanticStore::open_in_memory().unwrap();
+        let mut persistent = Workspace::with_sqlite_store(store);
+        populate(&mut persistent, true);
+
+        for expression in [
+            "state == 'done' && priority > 0",
+            "priority > 0 && state == 'done'",
+        ] {
+            let mut filtered = query();
+            filtered.filter_groups = vec![TaskQueryFilterGroup {
+                filters: vec![TaskQueryFilter {
+                    source: expression.to_string(),
+                    expression: expression.to_string(),
+                }],
+            }];
+            let memory_error = memory.query_task_page(&filtered).unwrap_err();
+            let persistent_error = persistent.query_task_page(&filtered).unwrap_err();
+            assert_eq!(memory_error.to_string(), persistent_error.to_string());
+            assert!(memory_error.to_string().contains("Done"));
+        }
+
+        let leading = compile_filters(&[TaskQueryFilterGroup {
+            filters: vec![TaskQueryFilter {
+                source: "leading".to_string(),
+                expression: "state == 'done' && priority > 0".to_string(),
+            }],
+        }])
+        .unwrap();
+        assert!(task_candidate_predicate(&leading).is_some());
+        let unsafe_order = compile_filters(&[TaskQueryFilterGroup {
+            filters: vec![TaskQueryFilter {
+                source: "unsafe".to_string(),
+                expression: "priority > 0 && state == 'done'".to_string(),
+            }],
+        }])
+        .unwrap();
+        assert!(task_candidate_predicate(&unsafe_order).is_none());
+    }
+
+    #[test]
+    fn sql_candidates_obey_open_document_precedence() {
+        let store = SqliteSemanticStore::open_in_memory().unwrap();
+        let mut workspace = Workspace::with_sqlite_store(store);
+        populate(&mut workspace, true);
+        workspace.open_document("c.plumb", 2, "`- Reopened\n\n `+ task\n\n `@ reopened\n");
+        let mut filtered = query();
+        filtered.filter_groups = vec![TaskQueryFilterGroup {
+            filters: vec![TaskQueryFilter {
+                source: "done".to_string(),
+                expression: "state == 'done'".to_string(),
+            }],
+        }];
+
+        assert!(workspace
+            .query_task_page(&filtered)
+            .unwrap()
+            .value
+            .tasks
+            .is_empty());
+    }
+
+    #[test]
+    fn waiting_state_candidate_matches_memory_at_the_query_instant() {
+        let source = concat!(
+            "`- Waiting\n\n `+ task\n\n `@ waiting\n\n `= wait|2026-08-29T12:00:00Z\n",
+            "`- Ready\n\n `+ task\n\n `@ ready\n\n `= wait|2026-08-27T12:00:00Z\n",
+        );
+        let mut memory = Workspace::new();
+        memory.insert("tasks.plumb", 1, source);
+        let store = SqliteSemanticStore::open_in_memory().unwrap();
+        let mut persistent = Workspace::with_sqlite_store(store);
+        persistent.insert_disk("tasks.plumb", 1, source).unwrap();
+        let mut filtered = query();
+        filtered.filter_groups = vec![TaskQueryFilterGroup {
+            filters: vec![TaskQueryFilter {
+                source: "waiting".to_string(),
+                expression: "state == 'waiting'".to_string(),
+            }],
+        }];
+
+        let expected = memory.query_task_page(&filtered).unwrap().value;
+        let actual = persistent.query_task_page(&filtered).unwrap().value;
+        assert_eq!(actual, expected);
+        assert_eq!(actual.tasks.len(), 1);
+        assert_eq!(actual.tasks[0].task.id.as_ref().unwrap().value, "waiting");
+    }
+
+    #[test]
+    fn nullable_not_equal_candidate_matches_cel_null_semantics() {
+        let mut memory = Workspace::new();
+        populate(&mut memory, false);
+        let store = SqliteSemanticStore::open_in_memory().unwrap();
+        let mut persistent = Workspace::with_sqlite_store(store);
+        populate(&mut persistent, true);
+        let mut filtered = query();
+        filtered.sort = vec![TaskSortOrder::Source];
+        filtered.filter_groups = vec![TaskQueryFilterGroup {
+            filters: vec![TaskQueryFilter {
+                source: "not-three".to_string(),
+                expression: "priority != 3".to_string(),
+            }],
+        }];
+
+        assert_eq!(
+            persistent.query_task_page(&filtered).unwrap().value,
+            memory.query_task_page(&filtered).unwrap().value
         );
     }
 }
