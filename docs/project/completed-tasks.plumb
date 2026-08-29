@@ -649,7 +649,7 @@
  `note 移除旧 rusqlite `"semantic_overlay" harness，并将 relation、task-page、decoded-row 与 open-overlay parity
   benchmark 合并进 `"semantic_store"。release synthetic benchmark、真实 notebook baseline/current paired samples、
   host、commit、sample count 与 response sizes 记录在
-  `->[`()[performance benchmark points]|performance-benchmarks.plumb]。
+  `->[`()[performance benchmark points]|../history/performance/workspace-performance-2026-08.plumb]。
  `note `"cargo test --workspace"、workspace all-target warning gate、tree-sitter strict-alignment check 与 project
   document strict validation 全部通过；现有 latency 与 concurrency observation 仍不支持仅为该 workload 引入
   async database driver 或 connection pool。
@@ -671,7 +671,7 @@
  `note memory 与 SQLite backend 的 reverse references、agenda ordering 和 open-overlay result parity 已由普通
   tests 固定；LSP lifecycle、watcher、search、navigation、rename、completion 与 editing integration tests
   覆盖 persistent backend adapters。
- `note release benchmark 记录在 `->[`()[performance benchmark points]|performance-benchmarks.plumb]：
+ `note release benchmark 记录在 `->[`()[performance benchmark points]|../history/performance/workspace-performance-2026-08.plumb]：
   33,512-event workload 的 warm startup 快约 22.3x、warm resident memory 降低约 94.2%；cold build 慢
   约 3.70x、agenda range 慢约 2.58x、完整 generation replacement 约 701.52 ms，因此不宣称总体提升。
 
@@ -690,7 +690,7 @@
   resident-memory 收益；33,512-event workload 的 open update、ten-update burst、agenda 与 reverse
   references 分别回退约 56%、69%、87% 与 64%，不适合进入逐键编辑路径。
  `note rejected production 数据与重新评估条件记录在
-  `->[`()[performance benchmark points]|performance-benchmarks.plumb]；在 incremental semantic diff
+  `->[`()[performance benchmark points]|../history/performance/workspace-performance-2026-08.plumb]；在 incremental semantic diff
   或 asynchronous publication 解决 full-generation cost 前，不以 large-document threshold 重引入。
 
 `- Workspace scanner 不递归进入目录 symlink
@@ -1188,7 +1188,7 @@
 
  1.17x；真实 223-file notebook 的 SQLite cold median 提升约 11%，memory 差异落在 noise 内。SQLite batch
  peak-memory tradeoff 和完整 measurement 记录在
- `->[`()[performance benchmark points]|performance-benchmarks.plumb]。
+ `->[`()[performance benchmark points]|../history/performance/workspace-performance-2026-08.plumb]。
 
 `- 对齐 roadmap、tasks 与已经完成的实现
 
@@ -1298,7 +1298,7 @@
 
  `note 33,512-event release benchmark 中，同步完整 insert midpoint 为 306.02 ms，didChange 同步 parse stage 为
  109.45 ms，主线程阶段约快 2.80x；后台 semantic stage 为 156.41 ms。完整 measurement 与异步化不降低总 CPU
- work 的限制记录在 `->[`()[performance benchmark points]|performance-benchmarks.plumb]。
+ work 的限制记录在 `->[`()[performance benchmark points]|../history/performance/workspace-performance-2026-08.plumb]。
 
 `- 管理 semantic cache 生命周期并隔离测试 cache
 
@@ -1340,7 +1340,7 @@
  `note 1,408-task release benchmark 中，done 全集/首个 bounded page midpoint 分别为 18.090/13.347 ms；完整
  task hydration 与 document metrics 分别为 13.588/2.9472 ms，metrics 约快 4.61x。真实 notebook 的 100-item
  done page 10-sample median 约 35.72 ms、191,241 bytes；完整记录见
- `->[performance benchmark points|performance-benchmarks.plumb]。
+ `->[performance benchmark points|../history/performance/workspace-performance-2026-08.plumb]。
 
 `- 保证 pending revision 的 semantic navigation 确定性
 
@@ -1378,7 +1378,7 @@
  `note Workspace 115 tests 通过。1,408-task deterministic SQLite cold midpoint 为 117.23 ms，此前为 117.96 ms；
  真实 223-file workspace 的 5-run peak median 从 333,304 降至 296,304 KiB，约降低 11.1%，steady resident
  median 从 276,360 降至 239,960 KiB，约降低 13.2%。完整记录见
- `->[performance benchmark points|performance-benchmarks.plumb]。
+ `->[performance benchmark points|../history/performance/workspace-performance-2026-08.plumb]。
 
 `- 将安全 CEL task predicates 下推为 SQLite candidates
 
@@ -1405,7 +1405,7 @@
  `note 1,408-task selective-done release benchmark 中，full typed-fact scan midpoint 为 10.988 ms，SQL candidate
  为 5.8513 ms，约快 1.88x、latency 降低约 46.7%。所有 tasks 都匹配时 midpoint 为 13.143 ms，未相对
  既有 13.347 ms baseline 观察到回退。完整记录见
- `->[performance benchmark points|performance-benchmarks.plumb]。
+ `->[performance benchmark points|../history/performance/workspace-performance-2026-08.plumb]。
 
 `# Neovim plugin
 

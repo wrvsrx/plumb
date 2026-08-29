@@ -117,7 +117,7 @@ Bincode semantic records 下，首次 transaction 尚有 WAL 时 database、WAL 
 75,262,976 bytes，且同一 agenda query 约 84.66 ms；binary record encoding 同时降低 size 与 decode
 latency，但没有消除 agenda 相对 memory backend 的回退。
 
-`# 7. SQLite TEMP open-document overlay experiment on 2026-08-11
+`# 8. SQLite TEMP open-document overlay experiment on 2026-08-11
 
 `"semantic_overlay" release harness 在同一个 SQLite connection 中保留 main closed generations，并用
 `"temp_store=MEMORY" 的 `"open_documents/anchors/links/semantic_references/tasks/events" 保存 open generation。
@@ -153,7 +153,7 @@ didChange 同步发布 TEMP generation 会给 33,512-event document 额外增加
 generation/record diff，或定义 asynchronous generation publication 与 revision consistency；在此之前保留
 Rust open-document output 与 document-granularity query composition 的总体 latency 更低。
 
-`# 8. Unified TEMP SQL production rollback on 2026-08-11
+`# 9. Unified TEMP SQL production rollback on 2026-08-11
 
 commit `"2f85c76" 曾将 prototype 扩展为生产实现：closed generations 位于 SQLite main tables，open
 generations 位于 connection-local TEMP tables，所有跨文档 query 通过 `"effective_*" views 统一。该实现
@@ -178,7 +178,7 @@ generations plus Rust open overlay。只有 incremental semantic record diff 或
 full-generation cost，且完整 production parity benchmark 不再显示明显常用 query regression 时，才重新评估
 统一 SQL open generations；不能以 document-size threshold 规避该设计成本。
 
-`# 9. Diesel relation and task-page acceptance on 2026-08-28
+`# 10. Diesel relation and task-page acceptance on 2026-08-28
 
 commit `"0a232a7" 的 release benchmark 使用 176 documents、每篇 8 tasks 的 deterministic workload，共
 1,408 tasks；每个 document 包含 dependency chain 与一个 event-task association。host 为 Intel Core
@@ -219,7 +219,7 @@ mutation hot path 不得重新 scan 或分析未变化 documents，也不得在�
 真实 notebook smoke benchmark 记录 response size、time to first byte 与 total time；性能验收以优化前同一
 commit build 的 paired measurement 为基线，不把依赖 host 的绝对 wall-clock 数字写成跨机器 SLA。
 
-`# 10. Batch workspace indexing on 2026-08-29
+`# 11. Batch workspace indexing on 2026-08-29
 
 commit `"3f849b0" 后的 `"workspace_batch_index_1408" Criterion workload 使用当前 list facet syntax 生成
 176 documents、1,408 tasks，每个 document 同时包含 dependency chain 与 event-task association。host 为
@@ -253,7 +253,7 @@ complete-scan pruning、memory/SQLite behavior 与 cancel-before-publication ato
 不再作为当前 backend 的可执行 plumbing。当前 `"semantic_store" harness 统一覆盖 Diesel CRUD/generation、
 relation lookup、task typed-fact page 与 open overlay。
 
-`# 11. Event title completion query on 2026-08-29
+`# 12. Event title completion query on 2026-08-29
 
 commit `"211e973" 后，event title completion 不再调用完整 persistent event record query。Store 使用
 covering `"events(title, path)" index，只读取 grouped title/count rows；case-sensitive prefix 在 SQLite
@@ -266,7 +266,7 @@ baseline 为 50.960 ms。新 hot path 约快 17.3x，latency 降低约 94.2%。C
 证明该 query 不读取 `"record" BLOB；普通 tests 固定 disk/open-overlay、literal wildcard、case、count、
 ordering 与 LSP projection。
 
-`# 12. Lightweight workspace search on 2026-08-29
+`# 13. Lightweight workspace search on 2026-08-29
 
 commit `"88af858" 后，无 CEL filter 的 persistent task/event search 不再先 decode 全部 semantic records。
 Task search 在 typed facts 与 persistent/open dependency overlay 上计算 workflow state、fuzzy score 和 effective
@@ -284,7 +284,7 @@ Correctness tests 将未命中的 task/event Bincode BLOB 改为无效 bytes，�
 association fields；另以全 persistent dependency chain 固定 priority propagation，并由既有 workflow、overlay、
 truncation 与 filtered-CEL tests 保持 observable parity。
 
-`# 13. Shared diagnostic dependency snapshot on 2026-08-29
+`# 14. Shared diagnostic dependency snapshot on 2026-08-29
 
 commit `"839464f" 后，protocol-neutral diagnostics 暴露 immutable WorkspaceDiagnosticContext。LSP 一轮
 open-document publication 只构造一个 context；task graph 从 typed task facts、dependency relations、anchor
@@ -302,7 +302,7 @@ Correctness tests 在破坏 persistent task/anchor Bincode BLOB 后仍构造 cyc
 replacement 会遮蔽 disk relations。Workspace 107 tests 与 LSP 77 个 stdio tests 保持 diagnostics、target refresh、
 workflow、folding 和 lifecycle observable behavior。
 
-`# 14. Asynchronous open-document semantics on 2026-08-29
+`# 15. Asynchronous open-document semantics on 2026-08-29
 
 didOpen 保持同步，以保证没有 refresh protocol 的 document requests 立即取得 current semantic output。didChange
 同步 parse 并安装 ParsedDocument，再把完整 document semantic analysis 交给 spawn-blocking。结果只有在 path、
@@ -321,7 +321,7 @@ Workspace tests 固定 out-of-order、same-version different-source、close-befo
 persistent shadow behavior；server token test 固定新 revision 与 close 对 queued generation 的取消。LSP 77 个
 stdio tests 覆盖 didOpen synchronous request behavior、didChange pending folding 与 task authoring fallback。
 
-`# 15. Bounded Web task collection on 2026-08-29
+`# 16. Bounded Web task collection on 2026-08-29
 
 commit `"00027e7" 与 `"5b07a6a" 后，Web 不再暴露返回完整 workspace task snapshot 的
 `"GET /api/tasks"。Task view 与 authoring E2E 统一使用 shared `"TaskPageQuery" 的 bounded
@@ -346,7 +346,7 @@ observation 的实现 epoch 与 response contract 不同，该相对值只作为
 route absence 与 Web task authoring。Graph metrics 仍扫描 lightweight facts；若 workspace task 数量继续增长，
 后续可把 aggregation 下推到 store，但不得恢复无界 record hydration。
 
-`# 16. Persistent batch preparation ownership on 2026-08-29
+`# 17. Persistent batch preparation ownership on 2026-08-29
 
 commit `"75ed307" 后，persistent batch cache miss 在 worker 完成 document semantics 后立即释放
 ParsedDocument 的 lossless tree 与 typed recovered tree，只把 source、revision 和 DocumentOutput 保留到
@@ -371,7 +371,7 @@ Workspace 115 tests 固定 memory/SQLite、invalid source、cache reuse、prune 
 这些 process memory observations 包含 allocator、Rayon workers、SQLite page cache 与 runtime，不等同于 syntax
 tree allocation 的精确 retained bytes。
 
-`# 17. Safe CEL task candidate pushdown on 2026-08-30
+`# 18. Safe CEL task candidate pushdown on 2026-08-30
 
 commits `"6e730b1" 与 `"89abd23" 后，task filter planner 从 CEL Program AST 提取可证明 exact/total 的 leading
 conjunct prefixes，生成 typed candidate IR。Store 只从固定 column/operator/state spelling 生成 SQL，user literals
