@@ -245,12 +245,18 @@ impl WebWorkspace {
                 metric.degree += 1;
             }
         }
-        for task in self.tasks()?.tasks {
-            if let Some(metric) = metrics.get_mut(&task.document_id) {
-                metric.task_count += 1;
-                if matches!(task.state.as_str(), "ready" | "waiting" | "blocked") {
-                    metric.open_task_count += 1;
-                }
+        for summary in self
+            .workspace
+            .task_document_metrics()
+            .map_err(|error| error.to_string())?
+            .value
+        {
+            if let Some(metric) = self
+                .document_id(&summary.path)
+                .and_then(|document_id| metrics.get_mut(document_id))
+            {
+                metric.task_count += summary.tasks;
+                metric.open_task_count += summary.open_tasks;
             }
         }
         Ok(metrics)

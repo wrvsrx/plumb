@@ -179,7 +179,6 @@ fn router(state: AppState) -> Router {
         .route("/api/query", post(query))
         .route("/api/query-presets", get(query_presets))
         .route("/api/graph", get(graph))
-        .route("/api/tasks", get(tasks))
         .route("/api/task-candidates", get(task_candidates))
         .route("/api/task/{document_id}/{action}", post(update_task))
         .route("/api/events", get(event_snapshot))
@@ -238,13 +237,6 @@ async fn index(State(state): State<AppState>) -> Response {
         "current": state.current,
     });
     secure_html(render_index(&config, "/", "/"))
-}
-
-async fn tasks(State(state): State<AppState>) -> Response {
-    match state.workspace.read().await.tasks() {
-        Ok(snapshot) => Json(snapshot).into_response(),
-        Err(error) => (StatusCode::INTERNAL_SERVER_ERROR, error).into_response(),
-    }
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -1083,14 +1075,26 @@ mod tests {
         let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(value["tasks"]["tasks"].as_array().unwrap().len(), 1);
 
-        let response = app
+        let legacy = app
             .clone()
             .oneshot(Request::get("/api/tasks").body(Body::empty()).unwrap())
             .await
             .unwrap();
+        assert_eq!(legacy.status(), StatusCode::NOT_FOUND);
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::post("/api/query")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(r#"{"view":"tasks","limit":100,"traversal":{}}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
         let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
         let tasks: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        let document = &tasks["documents"][0];
+        let document = &tasks["tasks"]["documents"][0];
         let request = json!({
             "revision": document["revision"],
             "task": {

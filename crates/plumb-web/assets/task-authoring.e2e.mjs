@@ -86,8 +86,12 @@ await evaluate(`(async () => {
 })()`);
 
 const result = await evaluate(`(async () => {
-  const snapshot = await fetch('/api/tasks').then((response) => response.json());
-  const task = snapshot.tasks.find((candidate) => candidate.title === window.__plumbE2eTaskTitle);
+  const result = await fetch('/api/query', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ view: 'tasks', limit: 100, traversal: {} }),
+  }).then((response) => response.json());
+  const task = result.tasks.tasks.find((candidate) => candidate.title === window.__plumbE2eTaskTitle);
   return {
     notification: document.querySelector('#notification').textContent,
     title: task?.title,
