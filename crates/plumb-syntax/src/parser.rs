@@ -487,9 +487,7 @@ impl Parser<'_> {
     }
 
     fn raw_tail_quote_count(&self, index: usize, indent: usize) -> Option<usize> {
-        let Some(line) = self.lines.0.get(index) else {
-            return None;
-        };
+        let line = self.lines.0.get(index)?;
         let start = line.start + indent;
         if line.blank || line.has_tab_indent || line.indent != indent {
             return None;
@@ -607,7 +605,7 @@ impl Parser<'_> {
             let child_indent = child_start - line.start;
             if self.block_dispatch(index, child_indent).is_some() {
                 let head = self.parse_inline_segments(
-                    &mut vec![InlineSegment {
+                    &mut [InlineSegment {
                         start: head_start,
                         end: child_start,
                     }],
@@ -898,7 +896,7 @@ impl Parser<'_> {
 
     fn parse_inline_segments(
         &mut self,
-        segments: &mut Vec<InlineSegment>,
+        segments: &mut [InlineSegment],
         _group_content: bool,
     ) -> InlineContent {
         let start = segments.first().map_or(0, |segment| segment.start);
