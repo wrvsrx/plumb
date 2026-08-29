@@ -254,6 +254,25 @@ dependency endpoints，并按 target identity 建立 lookup；不得为每个 ca
 database query。Persistent rows 排除 open source documents 后与 open-buffer relations 合并，继续保持 document-
 granularity overlay precedence 和 deterministic source ordering。
 
+Task filter planner 可以从每个 CEL Program 的 AST 提取 candidate predicate，但只接受从左到右的 leading
+conjunct prefix：每个 extracted conjunct 必须对 task fact schema 上所有可能值返回确定 boolean，且 SQLite
+truth set 与 CEL 完全一致。Nullable ordering 只有在同一 prefix 已用 non-null predicate 建立短路 guard 后才能
+提取；无法证明的 conjunct 结束该 branch 的提取。SQL 不能隐藏本应先发生的 CEL runtime error。
+
+Filter group 内的多个 Program 仍按 OR 解释，groups 之间仍按 source order AND。一个 OR group 只有每个 branch
+都提供 candidate necessary condition 时才能形成 SQL OR；否则该 group 不缩小 candidate。Planner 可以继续越过
+完全由 exact predicates 表达的 leading groups；遇到第一个仍需 CEL 的 group 时，只能使用该 group 自身的安全
+candidate 并停止，不能提前执行 later groups 以隐藏 earlier CEL error。Open-document facts 始终执行完整 CEL；
+persistent candidate facts 与 open facts 合并后仍执行原始完整 Program，而不是执行改写后的 residual expression。
+
+第一阶段 candidate IR 支持 direct typed task columns 的 null/equality、non-null guarded integer ordering、boolean
+literals，以及无需 dependency/open-overlay resolution 的 closed/waiting workflow-state equality。Ready、blocked、
+actionable、wait_reasons、relation lists、path projection、string functions、comprehensions 与其它 CEL constructs
+保持 Rust-only。Store candidate query 只返回 lightweight facts；identity/closure 与 relation context 可以用更窄的
+typed rows 补齐，但不能因此 hydrate 未命中 TaskRecord。Differential tests 必须固定 memory、persistent、
+open-overlay、nullable error/short-circuit、OR/AND groups 与 query failure parity；query-plan/corrupt-record tests
+证明 candidate filtering 使用 bind values、typed indexes 且只 decode selected full records。
+
 Task cursor page 绑定 normalized filter、sort keys 与 workspace revision。cursor 是 opaque continuation identity，
 不得解释为 row offset；失配或 stale cursor 必须拒绝。分页先在 lightweight typed facts 上完成 filter、tree
 aggregation 与 deterministic ordering，再只 decode 当前 page 的完整 records。一个 page 可以越过 requested

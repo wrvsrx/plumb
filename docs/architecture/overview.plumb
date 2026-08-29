@@ -76,7 +76,8 @@ composition；不得在 workspace、Web 或 protocol adapters 中散布 SQL stri
 少数 Diesel query DSL 无法清楚表达且有独立 query-plan tests 的 SQLite operation 可以封装 raw SQL，但它仍
 属于 store module，不形成第二套 repository API。Diesel schema、migration、generation transaction 与 typed
 row decoding 已实现；task dependency relation、active/blocked lookup、standard task state filtering 与 Web task
-query adapter 已下沉。event-task relation、通用 CEL filter/order/cursor pagination 仍未实现。
+query adapter 已下沉。Event-task relation、task cursor page 与 CEL candidate pushdown 也由同一 store boundary
+承担；protocol-neutral layer 仍拥有完整 CEL evaluation、tree aggregation 和 observable query semantics。
 CEL reverse task dependency facts 使用 store-owned Diesel batch relation query 与 open-buffer overlay 合成，Web、
 CLI 和其他 adapters 不逐 task 查询 dependents，也不接触 relation table schema。
 
@@ -106,6 +107,12 @@ database query 职责。Task dependency 与 event-task association 必须投影�
 document generation 的 relation rows，并建立 target-side indexes；query 不得先 decode 无界 Bincode records
 或 materialize 完整 workspace collection 后再执行这些集合运算。Rust semantic pipeline 继续决定 relation
 事实，Diesel store 只原子保存和查询这些事实，不重新解释 task/event semantics。
+
+Task CEL optimization 先把 parsed CEL AST 中可证明 exact 且 total 的 typed predicate 降为 protocol-neutral
+candidate IR，再由 store 编译为带 bind parameters 的 SQLite condition。Store 只能从固定 column、operator、
+derived-state spelling 与 typed literal 白名单生成 SQL；不得拼接 CEL source 或 user values。SQL 结果只是完整
+CEL result 的 candidate superset，原始 CEL Program 仍对每个 candidate 作最终求值并拥有 bool/error semantics。
+不支持、类型不确定或依赖 open-overlay relation 的 expression 保持 Rust-only，不得用近似 SQL 改变结果。
 
 Web task collection 只通过 shared TaskPageQuery 暴露 bounded page、complete 与 opaque next cursor；不存在返回
 全部 tasks 的 legacy snapshot endpoint。Task authoring 的 document list 来自 page response，reference candidate

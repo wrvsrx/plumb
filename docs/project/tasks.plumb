@@ -3,3 +3,20 @@
 本页只记录可以直接实施和验收的工作。方向、约束和 deferred design 继续放在
 `->[roadmap|roadmap.plumb]；已经结束的任务及其验收记录保存在
 `->[completed tasks|completed-tasks.plumb]。
+
+`- 将安全 CEL task predicates 下推为 SQLite candidates
+
+ `+ task
+
+ `@ push-safe-task-cel-predicates
+
+ `= created|2026-08-30T00:54:39+08:00
+
+ `note 从 CEL Program AST 提取 exact/total leading conjuncts，生成 typed candidate IR；store 使用固定
+ columns/operators 与 bind parameters 查询 persistent lightweight facts，不能解析或拼接 CEL source。
+
+ `note SQL 只缩小 persistent candidates，open overlay 与所有 candidates 仍执行完整原始 CEL。保留 nullable
+ runtime error、short-circuit、group OR/source-order AND、workflow、relation、priority、cursor 与 hydration parity。
+
+ `note tests 覆盖 direct fields、null guards、unsafe ordering fallback、partial AND、OR groups、open overlay、
+ corrupt noncandidate records 与 query plan；benchmark 对比 full typed-fact scan 与 SQL candidate page。
