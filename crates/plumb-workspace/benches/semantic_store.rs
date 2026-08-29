@@ -69,6 +69,27 @@ fn task_fixtures(documents: usize, tasks: usize) -> (Workspace, SqliteFixture) {
     )
 }
 
+fn done_task_fixture(documents: usize, tasks: usize) -> SqliteFixture {
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("semantic.sqlite3");
+    let store = SqliteSemanticStore::open(&database).unwrap();
+    let mut workspace = Workspace::with_sqlite_store(store.clone());
+    for document in 0..documents {
+        let path = format!("done-{document:03}.plumb");
+        let source = task_document_source(document, tasks, "").replace(
+            "\n `= priority|",
+            "\n `= done|2026-08-28T12:00:00Z\n `= priority|",
+        );
+        workspace.insert_disk(&path, 0, &source).unwrap();
+    }
+    SqliteFixture {
+        _directory: directory,
+        database,
+        store,
+        workspace,
+    }
+}
+
 fn batch_index_files(documents: usize, tasks: usize) -> (tempfile::TempDir, Vec<PathBuf>) {
     let directory = tempfile::tempdir().unwrap();
     let mut paths = Vec::with_capacity(documents);
@@ -318,6 +339,64 @@ fn benchmark_task_queries(c: &mut Criterion) {
         .value;
     assert!(!relation_page.tasks.is_empty());
 
+    let mut all_tasks_query = page_query.clone();
+    all_tasks_query.text.clear();
+    all_tasks_query.filter_groups.clear();
+    all_tasks_query.sort = vec![TaskSortOrder::Source];
+    all_tasks_query.limit = usize::MAX;
+    assert_eq!(
+        sqlite
+            .workspace
+            .query_task_page(&all_tasks_query)
+            .unwrap()
+            .value
+            .tasks
+            .len(),
+        document_count * tasks_per_document
+    );
+    assert_eq!(
+        sqlite
+            .workspace
+            .task_document_metrics()
+            .unwrap()
+            .value
+            .len(),
+        document_count
+    );
+
+    let done = done_task_fixture(document_count, tasks_per_document);
+    let mut done_full_query = page_query.clone();
+    done_full_query.text.clear();
+    done_full_query.filter_groups = vec![TaskQueryFilterGroup {
+        filters: vec![TaskQueryFilter {
+            source: "benchmark:done".to_string(),
+            expression: "state == 'done'".to_string(),
+        }],
+    }];
+    done_full_query.sort = vec![TaskSortOrder::Source];
+    done_full_query.limit = usize::MAX;
+    let done_full = done
+        .workspace
+        .query_task_page(&done_full_query)
+        .unwrap()
+        .value;
+    assert_eq!(done_full.tasks.len(), document_count * tasks_per_document);
+    let mut done_page_query = done_full_query.clone();
+    done_page_query.limit = 100;
+    let done_page = done
+        .workspace
+        .query_task_page(&done_page_query)
+        .unwrap()
+        .value;
+    assert!(!done_page.complete);
+    assert!(done_page.next_cursor.is_some());
+    assert!(done_page.tasks.len() < done_full.tasks.len());
+    eprintln!(
+        "semantic_store_done_task_page/requested_{}_decoded_full_records: {}",
+        done_page_query.limit,
+        done_page.tasks.len()
+    );
+
     let target = TaskRef {
         path: PathBuf::from("tasks-000.plumb"),
         id: "task-000-00".to_string(),
@@ -358,6 +437,18 @@ fn benchmark_task_queries(c: &mut Criterion) {
     });
     group.bench_function("sqlite_open_overlay_page", |b| {
         b.iter(|| black_box(sqlite_overlay.query_task_page(&page_query)));
+    });
+    group.bench_function("sqlite_all_tasks_full", |b| {
+        b.iter(|| black_box(sqlite.workspace.query_task_page(&all_tasks_query)));
+    });
+    group.bench_function("sqlite_task_document_metrics", |b| {
+        b.iter(|| black_box(sqlite.workspace.task_document_metrics()));
+    });
+    group.bench_function("sqlite_done_full", |b| {
+        b.iter(|| black_box(done.workspace.query_task_page(&done_full_query)));
+    });
+    group.bench_function("sqlite_done_first_page", |b| {
+        b.iter(|| black_box(done.workspace.query_task_page(&done_page_query)));
     });
     group.finish();
 }

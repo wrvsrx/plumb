@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use cel::{Context, ExecutionError, Program, Value};
@@ -57,6 +57,13 @@ pub struct TaskPage {
     pub tasks: Vec<WorkspaceTask>,
     pub complete: bool,
     pub next_cursor: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TaskDocumentMetrics {
+    pub path: PathBuf,
+    pub tasks: usize,
+    pub open_tasks: usize,
 }
 
 #[derive(Debug)]
@@ -141,6 +148,28 @@ struct CompiledFilter {
 }
 
 impl Workspace {
+    pub fn task_document_metrics(
+        &self,
+    ) -> Result<QueryResult<Vec<TaskDocumentMetrics>>, TaskPageQueryError> {
+        let (facts, _) = task_facts(self)?;
+        let mut metrics = BTreeMap::<PathBuf, (usize, usize)>::new();
+        for fact in facts {
+            let counts = metrics.entry(fact.key.path).or_default();
+            counts.0 += 1;
+            counts.1 += usize::from(fact.closure_state == TaskState::Open);
+        }
+        Ok(self.query_result(
+            metrics
+                .into_iter()
+                .map(|(path, (tasks, open_tasks))| TaskDocumentMetrics {
+                    path,
+                    tasks,
+                    open_tasks,
+                })
+                .collect(),
+        ))
+    }
+
     pub fn query_task_page(
         &self,
         query: &TaskPageQuery,
@@ -975,6 +1004,53 @@ mod tests {
     }
 
     #[test]
+    fn task_document_metrics_match_memory_persistent_and_open_overlays() {
+        let mut memory = Workspace::new();
+        populate(&mut memory, false);
+        let store = SqliteSemanticStore::open_in_memory().unwrap();
+        let mut persistent = Workspace::with_sqlite_store(store);
+        populate(&mut persistent, true);
+
+        assert_eq!(
+            persistent.task_document_metrics().unwrap().value,
+            memory.task_document_metrics().unwrap().value
+        );
+        assert_eq!(
+            persistent.task_document_metrics().unwrap().value,
+            vec![
+                TaskDocumentMetrics {
+                    path: PathBuf::from("a.plumb"),
+                    tasks: 2,
+                    open_tasks: 2,
+                },
+                TaskDocumentMetrics {
+                    path: PathBuf::from("b.plumb"),
+                    tasks: 1,
+                    open_tasks: 1,
+                },
+                TaskDocumentMetrics {
+                    path: PathBuf::from("c.plumb"),
+                    tasks: 1,
+                    open_tasks: 0,
+                },
+            ]
+        );
+
+        persistent.insert("c.plumb", 2, "`- Reopened\n\n `+ task\n\n `@ reopened\n");
+        assert_eq!(
+            persistent
+                .task_document_metrics()
+                .unwrap()
+                .value
+                .into_iter()
+                .find(|metrics| metrics.path == Path::new("c.plumb"))
+                .unwrap()
+                .open_tasks,
+            1
+        );
+    }
+
+    #[test]
     fn task_page_cel_relations_follow_open_document_precedence() {
         let store = SqliteSemanticStore::open_in_memory().unwrap();
         let mut workspace = Workspace::with_sqlite_store(store);
@@ -1040,6 +1116,45 @@ mod tests {
             workspace.query_task_page(&stale),
             Err(TaskPageQueryError::Cursor(_))
         ));
+    }
+
+    #[test]
+    fn done_task_pages_are_bounded_and_continue_with_an_opaque_cursor() {
+        let mut workspace = Workspace::new();
+        for index in 0..101 {
+            workspace.insert(
+                format!("{index:03}.plumb"),
+                1,
+                format!(
+                    "`- Done {index}\n\n `+ task\n\n `@ done-{index}\n\n `= done|2026-08-28T10:00:00Z\n"
+                ),
+            );
+        }
+        let mut first_query = query();
+        first_query.limit = 100;
+        first_query.sort = vec![TaskSortOrder::Source];
+        first_query.filter_groups = vec![TaskQueryFilterGroup {
+            filters: vec![TaskQueryFilter {
+                source: "done".to_string(),
+                expression: "state == 'done'".to_string(),
+            }],
+        }];
+
+        let first = workspace.query_task_page(&first_query).unwrap().value;
+        assert_eq!(first.tasks.len(), 100);
+        assert!(!first.complete);
+        assert!(first.next_cursor.is_some());
+
+        let second = workspace
+            .query_task_page(&TaskPageQuery {
+                cursor: first.next_cursor,
+                ..first_query
+            })
+            .unwrap()
+            .value;
+        assert_eq!(second.tasks.len(), 1);
+        assert!(second.complete);
+        assert!(second.next_cursor.is_none());
     }
 
     #[test]

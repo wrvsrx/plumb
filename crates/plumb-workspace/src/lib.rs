@@ -65,8 +65,8 @@ pub use search::{
     WorkspaceSearchError,
 };
 pub use task_query::{
-    TaskPage, TaskPageQuery, TaskPageQueryError, TaskQueryFilter, TaskQueryFilterGroup,
-    WorkspaceTask,
+    TaskDocumentMetrics, TaskPage, TaskPageQuery, TaskPageQueryError, TaskQueryFilter,
+    TaskQueryFilterGroup, WorkspaceTask,
 };
 pub use task_sort::{
     sort_task_records, sort_task_records_by, truncate_complete_task_documents, TaskSortFacts,
