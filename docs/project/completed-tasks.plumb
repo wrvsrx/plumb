@@ -1431,6 +1431,26 @@
  CLI byte-for-byte 固定三组 projection。Vim help public entrypoints、bundled skill current spellings、docs titles、
  guide status ownership、examples diagnostics、archive closure 与 index reachability 均有 automated gates。
 
+`- 修复 block identity rename 吞并 declaration layout
+
+ `+ task
+
+ `@ fix-block-identity-rename-range
+
+ `= created|2026-08-30T02:04:34+08:00
+ `= done|2026-08-30T02:23:14+08:00
+
+ `note `"test.plumb" 中 task 的 direct `"@ task" declaration 被投影为完整 child block range；anchor/task/event
+ id 使用 `"range.start + 1" 猜 value boundary，导致 prepareRename/edit 从 `"@" marker 一直覆盖到下一 facet 前。
+
+ `note Current syntax AttrItem::Id/Class 同时保存 full declaration/member range 与 exact value range。AnchorRecord、
+ TaskField、EventField 和 plumb-edit validated token rewrite 只使用 value range；full range 继续用于 ownership、
+ remove/move、formatting 与 persistent source spelling。Semantic store schema generation 提升到 7，清除旧 range rows。
+
+ `note Protocol-neutral test 对原始 `"@ task" source 应用 rename，只得到 `"@ renamed"，并覆盖 inline `"@[id]"；
+ LSP prepareRename/rename 固定 UTF-16 range 为 id 文本四字符。Syntax 20、semantics 78、workspace 128、rename stdio
+ 12 tests、全 workspace tests、all-target check 与 Clippy warning gate 通过。
+
 `# Neovim plugin
 
 `- 避免 format 后重置 Neovim fold 状态
