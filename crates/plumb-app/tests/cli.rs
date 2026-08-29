@@ -587,10 +587,16 @@ fn serves_the_workspace_site_with_notes_and_tasks() {
     let (status, _, _) = http_get(address, "/resource/../../Cargo.toml");
     assert_eq!(status, 404);
 
-    let (status, _, tasks) = http_get(address, "/api/tasks");
+    let (status, _, legacy) = http_get(address, "/api/tasks");
+    assert_eq!(status, 404, "{legacy}");
+    let (status, _, tasks) = http_post_json(
+        address,
+        "/api/query",
+        r#"{"view":"tasks","limit":100,"traversal":{}}"#,
+    );
     assert_eq!(status, 200, "{tasks}");
     let tasks: serde_json::Value = serde_json::from_str(&tasks).unwrap();
-    let task = &tasks["tasks"][0];
+    let task = &tasks["tasks"]["tasks"][0];
     assert_eq!(task["title"], "Ship release");
     assert_eq!(task["state"], "ready");
     assert_eq!(task["locator"]["kind"], "offset");
@@ -611,11 +617,15 @@ fn serves_the_workspace_site_with_notes_and_tasks() {
     assert_eq!(status, 204, "{body}");
     assert!(body.is_empty());
     assert!(headers.contains("x-plumb-revision: 2"), "{headers}");
-    let (status, _, updated_tasks) = http_get(address, "/api/tasks");
+    let (status, _, updated_tasks) = http_post_json(
+        address,
+        "/api/query",
+        r#"{"view":"tasks","limit":100,"traversal":{}}"#,
+    );
     assert_eq!(status, 200, "{updated_tasks}");
     let updated_tasks = serde_json::from_str::<serde_json::Value>(&updated_tasks).unwrap();
-    assert_eq!(updated_tasks["tasks"][0]["state"], "done");
-    assert!(updated_tasks["tasks"][0]["done"]
+    assert_eq!(updated_tasks["tasks"]["tasks"][0]["state"], "done");
+    assert!(updated_tasks["tasks"]["tasks"][0]["done"]
         .as_str()
         .is_some_and(|timestamp| timestamp.starts_with("2026-")));
     assert!(std::fs::read_to_string(root.join("a.plumb"))
