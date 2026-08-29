@@ -63,6 +63,53 @@ fn definition_resolves_a_file_name_containing_spaces() {
 }
 
 #[test]
+fn task_identity_rename_replaces_only_the_declaration_value() {
+    let uri = lsp_types::Url::from_file_path("/tmp/plumb-rename-task-position.plumb").unwrap();
+    let source = "`- Task\n\n `@ task\n\n `+ task\n\n `= created|2026-08-30T01:57:30+08:00\n";
+    let messages = [
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {
+                "processId": null, "rootUri": null,
+                "capabilities": { "workspace": { "workspaceEdit": { "documentChanges": true } } }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": {
+                "uri": uri, "languageId": "plumb", "version": 1, "text": source
+            }}
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 2, "method": "textDocument/prepareRename",
+            "params": { "textDocument": { "uri": uri }, "position": { "line": 2, "character": 4 } }
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 3, "method": "textDocument/rename",
+            "params": { "textDocument": { "uri": uri }, "position": { "line": 2, "character": 4 }, "newName": "renamed" }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 4, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+    let output = run_server(&messages);
+    let expected_range = json!({
+        "start": { "line": 2, "character": 4 },
+        "end": { "line": 2, "character": 8 }
+    });
+    assert_eq!(response(&output, 2)["result"]["range"], expected_range);
+    assert_eq!(response(&output, 2)["result"]["placeholder"], "task");
+    assert_eq!(
+        response(&output, 3)["result"]["documentChanges"][0]["edits"][0]["range"],
+        expected_range
+    );
+    assert_eq!(
+        response(&output, 3)["result"]["documentChanges"][0]["edits"][0]["newText"],
+        "renamed"
+    );
+}
+
+#[test]
 fn document_references_resolve_metadata_and_reference_components() {
     let root = unique_temp_dir();
     std::fs::create_dir_all(&root).unwrap();
