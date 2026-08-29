@@ -3,20 +3,3 @@
 本页只记录可以直接实施和验收的工作。方向、约束和 deferred design 继续放在
 `->[roadmap|roadmap.plumb]；已经结束的任务及其验收记录保存在
 `->[completed tasks|completed-tasks.plumb]。
-
-`- 移除无界 Web task snapshot 并轻量聚合 graph task metrics
-
- `+ task
-
- `@ remove-unbounded-web-task-snapshot
-
- `= created|2026-08-29T08:36:00+08:00
-
- `note 删除未被正式 frontend 使用的 `"GET /api/tasks"；task authoring E2E 与 server tests 改走
- `"POST /api/query" 的 bounded TaskPageQuery response，保留 documents、complete 与 nextCursor contract。
-
- `note Workspace 从 persistent/open typed task facts 聚合 per-document total/open counts；graph metrics 不 hydrate
- TaskRecord、不构造 depends/directly-blocking/previous relations，也不调用 legacy full snapshot。
-
- `note tests 固定 memory/SQLite/open-overlay parity、100-item done page cursor、HTTP route absence 与 graph metric
- parity；benchmark 对比 legacy full done snapshot 与 bounded first page，并记录 response bytes。

@@ -1315,6 +1315,29 @@
  `note LSP stdio 与 Web integration child processes 使用 test-owned `"PLUMB_CACHE_DIR"；完整 stdio run 前后
  production cache file count 保持不变。Workspace 112 tests、CLI 13 tests 与 all-target warning gate 通过。
 
+`- 移除无界 Web task snapshot 并轻量聚合 graph task metrics
+
+ `+ task
+
+ `@ remove-unbounded-web-task-snapshot
+
+ `= created|2026-08-29T08:36:00+08:00
+ `= done|2026-08-29T08:48:26+08:00
+
+ `note 删除未被正式 frontend 使用的 `"GET /api/tasks"；task authoring E2E 与 server tests 改走
+ `"POST /api/query" 的 bounded TaskPageQuery response，保留 documents、complete 与 nextCursor contract。
+
+ `note Workspace 从 persistent/open typed task facts 聚合 per-document total/open counts；graph metrics 不 hydrate
+ TaskRecord、不构造 depends/directly-blocking/previous relations，也不调用 legacy full snapshot。
+
+ `note tests 固定 memory/SQLite/open-overlay parity、100-item done page cursor、HTTP route absence 与 graph metric
+ parity。Workspace 114 tests 与 Web 30 tests 通过。
+
+ `note 1,408-task release benchmark 中，done 全集/首个 bounded page midpoint 分别为 18.090/13.347 ms；完整
+ task hydration 与 document metrics 分别为 13.588/2.9472 ms，metrics 约快 4.61x。真实 notebook 的 100-item
+ done page 10-sample median 约 35.72 ms、191,241 bytes；完整记录见
+ `->[performance benchmark points|performance-benchmarks.plumb]。
+
 `# Neovim plugin
 
 `- 避免 format 后重置 Neovim fold 状态

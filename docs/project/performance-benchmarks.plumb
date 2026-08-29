@@ -316,3 +316,28 @@ profile 使用 10 samples、1 s warmup 与 5 s measurement。下列数值取 rep
 Workspace tests 固定 out-of-order、same-version different-source、close-before-install、pending completeness 和
 persistent shadow behavior；server token test 固定新 revision 与 close 对 queued generation 的取消。LSP 77 个
 stdio tests 覆盖 didOpen synchronous request behavior、didChange pending folding 与 task authoring fallback。
+
+`# 15. Bounded Web task collection on 2026-08-29
+
+commit `"00027e7" 与 `"5b07a6a" 后，Web 不再暴露返回完整 workspace task snapshot 的
+`"GET /api/tasks"。Task view 与 authoring E2E 统一使用 shared `"TaskPageQuery" 的 bounded
+`"POST /api/query" response；graph 的 per-document task/open-task counts 直接从 typed task facts 聚合，
+不 hydrate TaskRecord，也不构造 task relations。
+
+同一 176-document、1,408-task deterministic release workload、20 samples、1 s warmup 与 5 s measurement 中，
+下列数值取 reported interval midpoint：
+
+`- done task 全集 hydration 为 18.090 ms；requested limit 100 的首个 bounded page 为 13.347 ms，约快
+ 1.36x。由于完整 document boundary，首个 page 实际 hydration 104 records；主要收益是给 hydration 与
+ serialization 建立上界，而不是消除 filter/sort 的全部 CPU work。
+`- 全部 task page hydration 为 13.588 ms；只聚合 per-document metrics 为 2.9472 ms，约快 4.61x、
+ latency 降低约 78.3%。
+
+真实 `"~/Syncthing/Apps/zettelkasten" workspace smoke 使用独立 cache、dedicated port 与 `"--no-watch"；
+done preset、source sort、limit 100 的 10-sample total-time median 约 35.72 ms，response 为 191,241 bytes。
+历史无界路径约 1.47 s、658 KB，因此本次 observable path 约快 41x、response bytes 降低约 71%；两次
+observation 的实现 epoch 与 response contract 不同，该相对值只作为迁移效果，不是同一 commit 的 microbenchmark。
+
+普通 tests 固定 memory/SQLite/open-overlay metrics parity、101 documents 的 100/1 cursor continuation、legacy
+route absence 与 Web task authoring。Graph metrics 仍扫描 lightweight facts；若 workspace task 数量继续增长，
+后续可把 aggregation 下推到 store，但不得恢复无界 record hydration。
