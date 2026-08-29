@@ -54,6 +54,7 @@ id、facets 与 named properties；core 不维护 semantic registry，也不校�
 `"plumb-workspace" 保存 revision-bound document snapshots、last-valid outputs、cross-document indexes 和 guarded operation preconditions。稳定 disk generations 使用可重建 SQLite projection；open documents 以整个 document 为单位遮蔽 disk rows。
 
 Cache identity、lease/prune lifecycle、typed query columns、CEL candidate pushdown、relation indexes、batch indexing 与 failure/completeness contract 见 `->[workspace storage and queries|workspace.plumb]。Semantic dependency 与 query behavior 见 `->[semantic analysis|semantic-analysis.plumb]；syntax mutations 见 `->[editing|editing.plumb]。
+
 `# 5. Consumers
 
 `- `"plumb" 是唯一 user-facing binary；`"lsp"、`"fmt"、`"export"、`"import"、`"note"、`"task"、`"event"、

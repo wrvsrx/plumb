@@ -1,6 +1,7 @@
 `= title|plumb workspace storage and queries
 
-本页定义 document snapshots、persistent semantic store、open overlay、workspace queries、cache lifecycle 与 batch indexing 的实现 contract。crate/data-flow 总览见 `->[architecture overview|overview.plumb]。
+本页定义 document snapshots、persistent semantic store、open overlay、workspace queries、cache lifecycle 与
+batch indexing 的实现 contract。crate/data-flow 总览见 `->[architecture overview|overview.plumb]。
 
 `# 1. Snapshot, persistence and queries
 

@@ -1407,6 +1407,30 @@
  既有 13.347 ms baseline 观察到回退。完整记录见
  `->[performance benchmark points|../history/performance/workspace-performance-2026-08.plumb]。
 
+`- 系统整理并重写全部项目文档
+
+ `+ task
+
+ `@ systematic-documentation-rewrite
+
+ `= created|2026-08-30T01:29:22+08:00
+ `= done|2026-08-30T01:58:14+08:00
+
+ `note Completed archive 的 71 个旧 `"==" closure fields 已通过 current property spelling 和 plumb-edit
+ migration 修复；86/86 records 均由当前 task query 识别为 done，并增加 completion-time snapshot contract。
+
+ `note Playground 已迁移 current task/event properties、positional Links、Image src、transparent containers 与
+ completion examples。9 条 warning/note 集中在 `"diagnostics.plumb"，另精确允许两条 blocked workflow hints；
+ 其它新增 code/path 会使 CLI regression 失败。
+
+ `note Attached declarations、unified members、direct ownership、Neovim fork experiments 与 dated performance
+ results 已进入 topic history；project performance 只保留 reusable methodology。Architecture overview 抽出独立
+ workspace storage/query contract；完整 docs index 可达所有 26 个 docs documents，internal check 零 diagnostics。
+
+ `note Root、Neovim plugin 与 tree-sitter README 均以 `"README.plumb" 为 authority 并生成 adjacent Markdown；
+ CLI byte-for-byte 固定三组 projection。Vim help public entrypoints、bundled skill current spellings、docs titles、
+ guide status ownership、examples diagnostics、archive closure 与 index reachability 均有 automated gates。
+
 `# Neovim plugin
 
 `- 避免 format 后重置 Neovim fold 状态
