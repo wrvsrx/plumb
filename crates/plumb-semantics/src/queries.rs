@@ -232,7 +232,7 @@ fn direct_block_attribute_context(
                 }
                 completions.retain(|candidate| candidate.label.starts_with(query));
             }
-            "+" | _ => {}
+            _ => {}
         }
         return Some(AttributeCompletionContext {
             replace: declaration.range.start..offset,

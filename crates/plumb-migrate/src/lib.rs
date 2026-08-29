@@ -774,7 +774,7 @@ fn map_legacy_value_associations(blocks: &mut [OwnedBlock]) {
     }
 }
 
-fn split_legacy_compact_head(head: &mut Vec<OwnedInline>) {
+fn split_legacy_compact_head(head: &mut [OwnedInline]) {
     if head
         .iter()
         .any(|inline| matches!(inline, OwnedInline::ArgumentSeparator))

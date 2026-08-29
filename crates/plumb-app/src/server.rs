@@ -1425,14 +1425,12 @@ impl LanguageServer for ServerState {
                             location_for(&self.workspace, &source_path, &reference.source_range)
                         })
                         .collect::<Vec<_>>();
-                    if params.context.include_declaration {
-                        if self.workspace.get(&target_path).is_some() {
-                            if let Some(declaration) =
-                                location_for(&self.workspace, &target_path, &(0..0))
-                            {
-                                locations.insert(0, declaration);
-                            }
-                        }
+                    let declaration = (params.context.include_declaration
+                        && self.workspace.get(&target_path).is_some())
+                    .then(|| location_for(&self.workspace, &target_path, &(0..0)))
+                    .flatten();
+                    if let Some(declaration) = declaration {
+                        locations.insert(0, declaration);
                     }
                     Ok(Some(locations))
                 }
@@ -1738,19 +1736,18 @@ impl LanguageServer for ServerState {
                     self.completion_indentation,
                     &timestamp,
                 );
-                if include_link_labels {
-                    if self.index_complete {
-                        if let Some(context) = link_completion_context(&entry.parsed, offset) {
-                            let candidates = self
-                                .complete_query(self.workspace.complete_link(&path, &context))
-                                .map_err(workspace_query_response_error)?;
-                            items.extend(completion_items(
-                                &entry.parsed.source,
-                                candidates,
-                                CompletionItemKind::FILE,
-                            ));
-                        }
-                    }
+                let link_context = (include_link_labels && self.index_complete)
+                    .then(|| link_completion_context(&entry.parsed, offset))
+                    .flatten();
+                if let Some(context) = link_context {
+                    let candidates = self
+                        .complete_query(self.workspace.complete_link(&path, &context))
+                        .map_err(workspace_query_response_error)?;
+                    items.extend(completion_items(
+                        &entry.parsed.source,
+                        candidates,
+                        CompletionItemKind::FILE,
+                    ));
                 }
                 return Ok(Some(items));
             }

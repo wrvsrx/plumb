@@ -205,12 +205,8 @@ fn highlight_plumb(source: &str) -> String {
 }
 
 fn verbatim_block_quote_count(source: &str) -> Option<usize> {
-    let Some(rest) = source.strip_prefix('`') else {
-        return None;
-    };
-    let Some((kind, suffix)) = rest.split_once('"') else {
-        return None;
-    };
+    let rest = source.strip_prefix('`')?;
+    let (kind, suffix) = rest.split_once('"')?;
     if kind.chars().any(char::is_whitespace) {
         return None;
     }

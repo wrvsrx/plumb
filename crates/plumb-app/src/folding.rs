@@ -237,7 +237,7 @@ fn format_time(datetime: &DateTime<FixedOffset>) -> String {
     datetime.format("%H:%M").to_string()
 }
 
-fn line_indent<'a>(source: &'a str, range_start: usize) -> &'a str {
+fn line_indent(source: &str, range_start: usize) -> &str {
     let line_start = source[..range_start]
         .rfind('\n')
         .map_or(0, |newline| newline + 1);
@@ -264,7 +264,7 @@ pub(crate) fn ranges(
         pending_headings.extend(heading.children.iter().rev());
     }
 
-    collect_block_ranges(source, &document.blocks, &mut byte_ranges);
+    collect_block_ranges(&document.blocks, &mut byte_ranges);
 
     byte_ranges.sort_by_key(|(range, _, _)| (range.start, std::cmp::Reverse(range.end)));
     byte_ranges.dedup_by(|(left, _, _), (right, _, _)| left == right);
@@ -291,7 +291,6 @@ pub(crate) fn ranges(
 }
 
 fn collect_block_ranges(
-    source: &str,
     blocks: &[Block],
     byte_ranges: &mut Vec<(std::ops::Range<usize>, std::ops::Range<usize>, bool)>,
 ) {
@@ -309,7 +308,7 @@ fn collect_block_ranges(
                         include_trailing_blank,
                     ));
                 }
-                collect_block_ranges(source, &parsed.children, byte_ranges);
+                collect_block_ranges(&parsed.children, byte_ranges);
             }
             Block::Verbatim(verbatim) => {
                 byte_ranges.push((verbatim.range.clone(), verbatim.range.clone(), false));

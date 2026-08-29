@@ -87,7 +87,7 @@ enum PreparedDocument {
         path: PathBuf,
         revision: i64,
         source: String,
-        output: Option<plumb_semantics::DocumentOutput>,
+        output: Option<Box<plumb_semantics::DocumentOutput>>,
     },
 }
 
@@ -225,7 +225,7 @@ impl Workspace {
             }
             let parsed = parse(document.source);
             if persistent {
-                let output = parsed.valid_syntax().map(analyze_document);
+                let output = parsed.valid_syntax().map(analyze_document).map(Box::new);
                 return Some(PreparedDocument::Persistent {
                     path: document.path,
                     revision: document.revision,
@@ -275,7 +275,7 @@ impl Workspace {
                         path,
                         revision: *revision,
                         source,
-                        output: output.as_ref(),
+                        output: output.as_deref(),
                     }
                 })
                 .collect::<Vec<_>>();

@@ -130,7 +130,7 @@ impl Workspace {
         path: &Path,
         task: &TaskRecord,
     ) -> Result<Vec<ResolvedTaskDependency>, WorkspaceQueryError> {
-        let path = normalize(path.as_ref());
+        let path = normalize(path);
         let mut dependencies = task
             .depends
             .iter()

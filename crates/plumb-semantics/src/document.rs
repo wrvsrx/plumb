@@ -418,12 +418,14 @@ fn collect_inlines(
                 if kind == "->" {
                     collect_verbatim_autolink(
                         source,
-                        range.clone(),
-                        kind_range.clone(),
-                        text,
-                        text_range.clone(),
-                        *quote_count,
-                        attrs,
+                        VerbatimAutolink {
+                            range: range.clone(),
+                            kind_range: kind_range.clone(),
+                            text,
+                            text_range: text_range.clone(),
+                            quote_count: *quote_count,
+                            attrs,
+                        },
                         output,
                     );
                 }
@@ -433,16 +435,28 @@ fn collect_inlines(
     }
 }
 
-fn collect_verbatim_autolink(
-    source: &str,
+struct VerbatimAutolink<'a> {
     range: Range<usize>,
     kind_range: Range<usize>,
-    text: &str,
+    text: &'a str,
     text_range: Range<usize>,
     quote_count: usize,
-    attrs: &Attributes,
+    attrs: &'a Attributes,
+}
+
+fn collect_verbatim_autolink(
+    source: &str,
+    input: VerbatimAutolink<'_>,
     output: &mut DocumentOutput,
 ) {
+    let VerbatimAutolink {
+        range,
+        kind_range,
+        text,
+        text_range,
+        quote_count,
+        attrs,
+    } = input;
     if let Some(conflict) = attrs.items.iter().find_map(|item| match item {
         AttrItem::Pair { key, range, .. } if key == "to" => Some(range.clone()),
         _ => None,
@@ -738,12 +752,14 @@ fn collect_link(
     if let [InlineArgumentRef::Verbatim(argument)] = arguments.as_slice() {
         collect_verbatim_autolink(
             source,
-            range,
-            kind_range,
-            &argument.text,
-            argument.text_range.clone(),
-            argument.quote_count,
-            attrs,
+            VerbatimAutolink {
+                range,
+                kind_range,
+                text: &argument.text,
+                text_range: argument.text_range.clone(),
+                quote_count: argument.quote_count,
+                attrs,
+            },
             output,
         );
         return;

@@ -588,14 +588,14 @@ impl SqliteSemanticStore {
             .collect::<Vec<_>>();
         excluded.sort();
         rows.into_iter()
-            .filter_map(|(path, id)| {
-                Some((|| {
+            .map(|(path, id)| {
+                (|| {
                     let path = path_from_bytes(path)?;
                     if excluded.binary_search(&path).is_ok() {
                         return Ok(None);
                     }
                     Ok(Some((path, id)))
-                })())
+                })()
             })
             .filter_map(Result::transpose)
             .collect()
@@ -838,8 +838,8 @@ impl SqliteSemanticStore {
             .collect::<Vec<_>>();
         excluded.sort();
         rows.into_iter()
-            .filter_map(|(path, start, target_path)| {
-                Some((|| {
+            .map(|(path, start, target_path)| {
+                (|| {
                     let path = path_from_bytes(path)?;
                     let target_path = path_from_bytes(target_path)?;
                     if excluded.binary_search(&path).is_ok()
@@ -851,7 +851,7 @@ impl SqliteSemanticStore {
                         path,
                         start: to_usize(start)?,
                     }))
-                })())
+                })()
             })
             .filter_map(Result::transpose)
             .collect()
@@ -1276,7 +1276,7 @@ impl SqliteSemanticStore {
             .collect::<Vec<_>>();
         excluded.sort();
         rows.into_iter()
-            .filter_map(
+            .map(
                 |(
                     source_path,
                     target_path,
@@ -1288,7 +1288,7 @@ impl SqliteSemanticStore {
                     id_start,
                     id_end,
                 )| {
-                    Some((|| {
+                    (|| {
                         let source_path = path_from_bytes(source_path)?;
                         if excluded.binary_search(&source_path).is_ok() {
                             return Ok(None);
@@ -1301,7 +1301,7 @@ impl SqliteSemanticStore {
                             path_range: convert_range(optional_range(path_start, path_end))?,
                             id_range: convert_range(optional_range(id_start, id_end))?,
                         }))
-                    })())
+                    })()
                 },
             )
             .filter_map(|result| result.transpose())
@@ -1640,8 +1640,8 @@ fn decode_records<T: DeserializeOwned>(
         .map(|path| normalize(path))
         .collect::<Vec<_>>();
     excluded.sort();
-    rows.filter_map(|row| {
-        Some((|| {
+    rows.map(|row| {
+        (|| {
             let (path, revision, record) = row?;
             let path = path_from_bytes(path)?;
             if excluded.binary_search(&path).is_ok() {
@@ -1652,7 +1652,7 @@ fn decode_records<T: DeserializeOwned>(
                 revision,
                 record: bincode::deserialize(&record)?,
             }))
-        })())
+        })()
     })
     .filter_map(Result::transpose)
     .collect()
@@ -1668,9 +1668,9 @@ fn decode_task_dependencies(
         .collect::<Vec<_>>();
     excluded.sort();
     rows.into_iter()
-        .filter_map(
+        .map(
             |(source_path, source_start, source_id, target_path, target_id, source)| {
-                Some((|| {
+                (|| {
                     let source_path = path_from_bytes(source_path)?;
                     if excluded.binary_search(&source_path).is_ok() {
                         return Ok(None);
@@ -1683,7 +1683,7 @@ fn decode_task_dependencies(
                         target_id,
                         source,
                     }))
-                })())
+                })()
             },
         )
         .filter_map(Result::transpose)
@@ -1700,7 +1700,7 @@ fn decode_task_facts(
         .collect::<Vec<_>>();
     excluded.sort();
     rows.into_iter()
-        .filter_map(
+        .map(
             |(
                 path,
                 revision,
@@ -1721,7 +1721,7 @@ fn decode_task_facts(
                 recur,
                 prev,
             )| {
-                Some((|| {
+                (|| {
                     let path = path_from_bytes(path)?;
                     if excluded.binary_search(&path).is_ok() {
                         return Ok(None);
@@ -1745,7 +1745,7 @@ fn decode_task_facts(
                         recur,
                         prev,
                     }))
-                })())
+                })()
             },
         )
         .filter_map(Result::transpose)
@@ -1762,9 +1762,9 @@ fn decode_event_facts(
         .collect::<Vec<_>>();
     excluded.sort();
     rows.into_iter()
-        .filter_map(
+        .map(
             |(path, revision, start, selection_start, selection_end, id, title, depth)| {
-                Some((|| {
+                (|| {
                     let path = path_from_bytes(path)?;
                     if excluded.binary_search(&path).is_ok() {
                         return Ok(None);
@@ -1778,7 +1778,7 @@ fn decode_event_facts(
                         title,
                         depth: to_usize(depth)?,
                     }))
-                })())
+                })()
             },
         )
         .filter_map(Result::transpose)
@@ -2052,7 +2052,7 @@ mod tests {
     #[test]
     fn readonly_snapshot_is_isolated_from_later_replacements() {
         let directory = tempfile::tempdir().unwrap();
-        let store = SqliteSemanticStore::open(&directory.path().join("semantic.sqlite3")).unwrap();
+        let store = SqliteSemanticStore::open(directory.path().join("semantic.sqlite3")).unwrap();
         let first = "`- First\n\n `+ task\n\n `@ first\n";
         store
             .replace(Path::new("tasks.plumb"), 1, first, Some(&analyzed(first)))

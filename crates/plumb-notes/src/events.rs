@@ -553,7 +553,7 @@ mod tests {
         workspace.insert(
             root.join("explicit.plumb"),
             1,
-            &format!("`- 2026-07-31T14:00:00Z|Explicit {{\n\n `+ event\n\n `= uid|{uid}\n}}\n"),
+            format!("`- 2026-07-31T14:00:00Z|Explicit {{\n\n `+ event\n\n `= uid|{uid}\n}}\n"),
         );
         let loaded = LoadedWorkspace {
             root: root.clone(),

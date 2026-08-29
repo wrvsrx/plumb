@@ -1672,7 +1672,7 @@ mod tests {
             let mut output = String::new();
             render_owned_inline(&inline, true, 0, &mut output, true);
             assert!(output.starts_with("`owner[|"), "{output}");
-            assert!(parse(&format!("{output}\n")).is_valid(), "{output}");
+            assert!(parse(format!("{output}\n")).is_valid(), "{output}");
         }
     }
 

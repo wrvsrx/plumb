@@ -625,9 +625,13 @@ impl Workspace {
             .values()
             .filter_map(|entry| entry.current.as_ref().map(|current| (entry, current)))
             .flat_map(|(entry, current)| {
-                current.output.tasks.tasks.iter().filter_map(|task| {
-                    states
-                        .contains(
+                current
+                    .output
+                    .tasks
+                    .tasks
+                    .iter()
+                    .filter(|task| {
+                        states.contains(
                             &derive_task_workflow_state(
                                 task,
                                 blocked.contains(&(entry.path.clone(), task.range.start)),
@@ -635,11 +639,11 @@ impl Workspace {
                             )
                             .0,
                         )
-                        .then(|| WorkspaceTaskKey {
-                            path: entry.path.clone(),
-                            start: task.selection_range.start,
-                        })
-                })
+                    })
+                    .map(|task| WorkspaceTaskKey {
+                        path: entry.path.clone(),
+                        start: task.selection_range.start,
+                    })
             })
             .collect::<Vec<_>>();
         if let Some(store) = &self.disk_store {
@@ -1469,7 +1473,7 @@ impl Workspace {
         let mut events = self
             .open_events_for_page()
             .into_iter()
-            .filter(|event| cursor.map_or(true, |cursor| event_after_cursor(event, cursor)))
+            .filter(|event| cursor.is_none_or(|cursor| event_after_cursor(event, cursor)))
             .collect::<Vec<_>>();
         let Some(store) = &self.disk_store else {
             events.sort_by(compare_workspace_events);

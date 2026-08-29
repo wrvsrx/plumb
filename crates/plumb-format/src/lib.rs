@@ -32,8 +32,8 @@ pub fn format_parsed(parsed: &ParsedDocument) -> Result<String, FormatError> {
 
     let mut formatter = Formatter::default();
     let body = &parsed.syntax.blocks;
-    formatter.blocks(&body, 0);
-    if !terminal_verbatim(&body) && !formatter.output.is_empty() {
+    formatter.blocks(body, 0);
+    if !terminal_verbatim(body) && !formatter.output.is_empty() {
         formatter.output.push('\n');
     }
     Ok(formatter.output)

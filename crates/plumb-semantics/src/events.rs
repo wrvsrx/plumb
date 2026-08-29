@@ -372,8 +372,7 @@ fn collect_event_diagnostics(
         date.or(context.date.as_deref()),
         timezone.or(context.timezone.as_deref()),
     );
-    if event.at.is_none() && event.start.is_none() && event.when.is_some() {
-        let when = event.when.as_ref().expect("schedule exists");
+    if let (None, None, Some(when)) = (&event.at, &event.start, &event.when) {
         let code = match result {
             Err(EventWhenError::MissingDate) => "event.missing-date-context",
             Err(EventWhenError::InvalidDate) => "event.invalid-date",
