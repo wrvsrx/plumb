@@ -553,34 +553,33 @@ impl ServerState {
             .retain(|rename| !(rename.old_removed && rename.new_seen));
     }
 
-    fn reference_target_at(
-        &self,
-        path: &Path,
-        offset: usize,
-    ) -> Result<Option<ResolvedTarget>, WorkspaceQueryError> {
-        self.complete_query(self.workspace.reference_target_at(path, offset))
-    }
-
-    fn target_at(
-        &self,
-        path: &Path,
-        offset: usize,
-    ) -> Result<Option<ResolvedTarget>, WorkspaceQueryError> {
-        self.complete_query(self.workspace.target_at(path, offset))
-    }
-
     fn target_at_with_lazy_load(
         &mut self,
         path: &Path,
         offset: usize,
     ) -> Result<Option<ResolvedTarget>, WorkspaceQueryError> {
-        let Some(target) = self.target_at(path, offset)? else {
+        self.complete_pending_navigation_documents([path.to_path_buf()]);
+        let Some(mut target) = self.navigation_query(self.workspace.target_at(path, offset))?
+        else {
             return Ok(None);
         };
+        if let ResolvedTarget::UnresolvedAnchor {
+            path: target_path, ..
+        } = &target
+        {
+            if self.complete_pending_navigation_documents([target_path.clone()]) {
+                let Some(retried) =
+                    self.navigation_query(self.workspace.target_at(path, offset))?
+                else {
+                    return Ok(None);
+                };
+                target = retried;
+            }
+        }
         if !self.load_unresolved_target(&target) {
             return Ok(Some(target));
         }
-        self.target_at(path, offset)
+        self.navigation_query(self.workspace.target_at(path, offset))
     }
 
     fn reference_target_at_with_lazy_load(
@@ -588,13 +587,29 @@ impl ServerState {
         path: &Path,
         offset: usize,
     ) -> Result<Option<ResolvedTarget>, WorkspaceQueryError> {
-        let Some(target) = self.reference_target_at(path, offset)? else {
+        self.complete_pending_navigation_documents([path.to_path_buf()]);
+        let Some(mut target) =
+            self.navigation_query(self.workspace.reference_target_at(path, offset))?
+        else {
             return Ok(None);
         };
+        if let ResolvedTarget::UnresolvedAnchor {
+            path: target_path, ..
+        } = &target
+        {
+            if self.complete_pending_navigation_documents([target_path.clone()]) {
+                let Some(retried) =
+                    self.navigation_query(self.workspace.reference_target_at(path, offset))?
+                else {
+                    return Ok(None);
+                };
+                target = retried;
+            }
+        }
         if !self.load_unresolved_target(&target) {
             return Ok(Some(target));
         }
-        self.reference_target_at(path, offset)
+        self.navigation_query(self.workspace.reference_target_at(path, offset))
     }
 
     fn load_unresolved_target(&mut self, target: &ResolvedTarget) -> bool {
@@ -618,6 +633,34 @@ impl ServerState {
         if let Ok(source) = fs::read_to_string(path) {
             self.workspace.open_document(path, 0, source);
         }
+    }
+
+    fn complete_pending_navigation_documents(
+        &mut self,
+        paths: impl IntoIterator<Item = PathBuf>,
+    ) -> bool {
+        let mut completed = false;
+        for path in paths {
+            if !self.workspace.document_analysis_pending(&path) {
+                continue;
+            }
+            self.document_analysis_tokens.cancel(&path);
+            completed |= self.workspace.complete_pending_document_analysis(&path);
+        }
+        if completed {
+            self.publish_all_open_diagnostics();
+            self.refresh_code_lenses();
+            self.refresh_folding_ranges();
+        }
+        completed
+    }
+
+    fn navigation_query<T>(
+        &self,
+        result: Result<QueryResult<T>, WorkspaceQueryError>,
+    ) -> Result<T, WorkspaceQueryError> {
+        self.require_index_complete()?;
+        Ok(result?.value)
     }
 
     fn complete_query<T>(
@@ -1273,6 +1316,7 @@ impl LanguageServer for ServerState {
         let position = params.text_document_position_params;
         if let Ok(path) = position.text_document.uri.to_file_path() {
             self.ensure_request_document(&path);
+            self.complete_pending_navigation_documents([normalize(&path)]);
         }
         let result = (|| {
             let Some(path) = position.text_document.uri.to_file_path().ok() else {
@@ -1335,6 +1379,9 @@ impl LanguageServer for ServerState {
         if let Ok(path) = position.text_document.uri.to_file_path() {
             self.ensure_request_document(&path);
         }
+        self.complete_pending_navigation_documents(
+            self.open_documents.values().cloned().collect::<Vec<_>>(),
+        );
         let result = (|| {
             let Some(path) = position.text_document.uri.to_file_path().ok() else {
                 return Ok(None);
@@ -1491,6 +1538,7 @@ impl LanguageServer for ServerState {
         let position = params.text_document_position_params;
         if let Ok(path) = position.text_document.uri.to_file_path() {
             self.ensure_request_document(&path);
+            self.complete_pending_navigation_documents([normalize(&path)]);
         }
         let result = (|| {
             let Some(path) = position.text_document.uri.to_file_path().ok() else {
@@ -1649,7 +1697,7 @@ impl LanguageServer for ServerState {
                 }));
             }
             let Some(target) = self
-                .target_at(&path, offset)
+                .target_at_with_lazy_load(&path, offset)
                 .map_err(workspace_query_response_error)?
             else {
                 return Ok(None);
