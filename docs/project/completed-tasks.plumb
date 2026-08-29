@@ -1296,6 +1296,25 @@
  109.45 ms，主线程阶段约快 2.80x；后台 semantic stage 为 156.41 ms。完整 measurement 与异步化不降低总 CPU
  work 的限制记录在 `->[`()[performance benchmark points]|performance-benchmarks.plumb]。
 
+`- 管理 semantic cache 生命周期并隔离测试 cache
+
+ `+ task
+
+ `@ manage-semantic-cache-lifecycle
+
+ `= created|2026-08-29T08:20:00+08:00
+ `= done|2026-08-29T08:32:05+08:00
+
+ `note Disk-backed SqliteSemanticStore 在 version namespace 的固定 lease file 上持有 shared filesystem lock；
+ maintenance 只有 nonblocking exclusive lock 成功时才删除 namespace 内的可重建数据。Active 与没有 lease 的
+ unmanaged namespace 都只报告，不删除。
+
+ `note 新增 `"plumb cache status" 与 `"plumb cache prune [--all]"；默认保留当前 package version，`"--all"
+ 才考虑当前版本。CLI 黑盒测试固定 inactive prune、active skip、current preservation 和 legacy unmanaged data。
+
+ `note LSP stdio 与 Web integration child processes 使用 test-owned `"PLUMB_CACHE_DIR"；完整 stdio run 前后
+ production cache file count 保持不变。Workspace 112 tests、CLI 13 tests 与 all-target warning gate 通过。
+
 `# Neovim plugin
 
 `- 避免 format 后重置 Neovim fold 状态

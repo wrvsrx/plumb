@@ -34,6 +34,15 @@ message。`"--level error|warning|hint" 选择最低显示 severity；默认 `"w
 Warning 并省略 Hint。只有 Error 令 command 返回 nonzero，Warning 与 Hint 不改变退出状态。筛选后无
 diagnostic 时不输出内容并返回成功。
 
+`# Cache
+
+`"plumb cache status" 显示 semantic cache root，并按 workspace/site 与 binary version 报告 active state、
+database/file 数量和 bytes。没有 lease 的旧 layout 数据显示为 unmanaged。
+
+`"plumb cache prune" 删除非当前 binary version 中未被进程使用的可重建 cache；当前版本默认保留。显式
+`"plumb cache prune --all" 也会考虑当前版本。LSP、Web 或其它进程仍持有的 active namespace，以及无法用
+lease 证明未被使用的 unmanaged 数据，始终只报告而不删除。server startup 不自动清理其它版本。
+
 `# Playground
 
 `"examples/index.plumb" 及同目录文档覆盖 core syntax 和 official semantics，可用于 editor、
