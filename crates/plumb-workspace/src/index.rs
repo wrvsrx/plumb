@@ -76,11 +76,27 @@ struct ReadDocument {
     source: String,
 }
 
-struct PreparedDocument {
-    path: PathBuf,
-    revision: i64,
-    parsed: Arc<ParsedDocument>,
-    current: Option<Arc<VersionedDocumentOutput>>,
+enum PreparedDocument {
+    Memory {
+        path: PathBuf,
+        revision: i64,
+        parsed: Arc<ParsedDocument>,
+        current: Option<Arc<VersionedDocumentOutput>>,
+    },
+    Persistent {
+        path: PathBuf,
+        revision: i64,
+        source: String,
+        output: Option<plumb_semantics::DocumentOutput>,
+    },
+}
+
+impl PreparedDocument {
+    fn path(&self) -> &Path {
+        match self {
+            Self::Memory { path, .. } | Self::Persistent { path, .. } => path,
+        }
+    }
 }
 
 impl Workspace {
@@ -202,18 +218,29 @@ impl Workspace {
         let balanced_misses = misses.len() > 1
             && largest_miss_bytes <= 256 * 1024
             && largest_miss_bytes.saturating_mul(2) <= total_miss_bytes;
+        let persistent = self.disk_store.is_some();
         let prepare = |document: ReadDocument| {
             if cancelled() {
                 return None;
             }
-            let parsed = Arc::new(parse(document.source));
-            let current = parsed.valid_syntax().map(|syntax| {
+            let parsed = parse(document.source);
+            if persistent {
+                let output = parsed.valid_syntax().map(analyze_document);
+                return Some(PreparedDocument::Persistent {
+                    path: document.path,
+                    revision: document.revision,
+                    source: parsed.source,
+                    output,
+                });
+            }
+            let parsed = Arc::new(parsed);
+            let current = parsed.valid_syntax().map(analyze_document).map(|output| {
                 Arc::new(VersionedDocumentOutput {
                     revision: document.revision,
-                    output: Arc::new(analyze_document(syntax)),
+                    output: Arc::new(output),
                 })
             });
-            Some(PreparedDocument {
+            Some(PreparedDocument::Memory {
                 path: document.path,
                 revision: document.revision,
                 parsed,
@@ -229,19 +256,27 @@ impl Workspace {
             return Err(BatchIndexError::Cancelled);
         }
         let mut prepared = prepared.into_iter().flatten().collect::<Vec<_>>();
-        prepared.sort_by(|left, right| left.path.cmp(&right.path));
+        prepared.sort_by(|left, right| left.path().cmp(right.path()));
 
         if let Some(store) = &self.disk_store {
             let generations = prepared
                 .iter()
-                .map(|document| StoredGeneration {
-                    path: &document.path,
-                    revision: document.revision,
-                    source: &document.parsed.source,
-                    output: document
-                        .current
-                        .as_ref()
-                        .map(|current| current.output.as_ref()),
+                .map(|document| {
+                    let PreparedDocument::Persistent {
+                        path,
+                        revision,
+                        source,
+                        output,
+                    } = document
+                    else {
+                        unreachable!("persistent workspace prepares persistent generations")
+                    };
+                    StoredGeneration {
+                        path,
+                        revision: *revision,
+                        source,
+                        output: output.as_ref(),
+                    }
                 })
                 .collect::<Vec<_>>();
             if !generations.is_empty() || stored_paths_changed {
@@ -249,18 +284,27 @@ impl Workspace {
             }
         } else {
             for document in prepared {
+                let PreparedDocument::Memory {
+                    path,
+                    revision,
+                    parsed,
+                    current,
+                } = document
+                else {
+                    unreachable!("memory workspace prepares memory snapshots")
+                };
                 let previous_last_valid = self
                     .documents
-                    .get(&document.path)
+                    .get(&path)
                     .and_then(|entry| entry.last_valid.clone());
-                let last_valid = document.current.clone().or(previous_last_valid);
+                let last_valid = current.clone().or(previous_last_valid);
                 self.documents.insert(
-                    document.path.clone(),
+                    path.clone(),
                     crate::DocumentEntry {
-                        path: document.path,
-                        revision: document.revision,
-                        parsed: document.parsed,
-                        current: document.current,
+                        path,
+                        revision,
+                        parsed,
+                        current,
                         last_valid,
                     },
                 );
