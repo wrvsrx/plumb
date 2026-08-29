@@ -5229,6 +5229,28 @@ mod tests {
     }
 
     #[test]
+    fn completes_only_the_current_valid_pending_document_analysis() {
+        let mut workspace = Workspace::new();
+        workspace
+            .begin_document_revision("pending.plumb", 2, "`# Current\n `@ current\n")
+            .unwrap();
+        workspace.begin_document_revision("invalid.plumb", 1, "`broken[\n");
+
+        assert!(workspace.document_analysis_pending("pending.plumb"));
+        assert!(!workspace.document_analysis_pending("invalid.plumb"));
+        assert!(workspace.complete_pending_document_analysis("pending.plumb"));
+        assert!(!workspace.document_analysis_pending("pending.plumb"));
+        assert!(!workspace.complete_pending_document_analysis("pending.plumb"));
+        assert_eq!(
+            workspace
+                .anchors_named(Path::new("pending.plumb"), "current")
+                .unwrap()
+                .len(),
+            1
+        );
+    }
+
+    #[test]
     fn rebinds_identical_source_without_rebuilding_document_outputs() {
         let source = "`- 2026-08-11T09:00:00+08:00|Meeting\n\n `+ event\n";
         let mut workspace = Workspace::new();

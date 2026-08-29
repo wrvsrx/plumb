@@ -161,6 +161,28 @@ impl Workspace {
         true
     }
 
+    pub fn document_analysis_pending(&self, path: impl AsRef<Path>) -> bool {
+        self.documents
+            .get(&normalize(path.as_ref()))
+            .is_some_and(|entry| entry.parsed.is_valid() && entry.current.is_none())
+    }
+
+    pub fn complete_pending_document_analysis(&mut self, path: impl AsRef<Path>) -> bool {
+        let path = normalize(path.as_ref());
+        let Some(entry) = self.documents.get(&path) else {
+            return false;
+        };
+        if !entry.parsed.is_valid() || entry.current.is_some() {
+            return false;
+        }
+        let pending = PendingDocumentAnalysis {
+            path,
+            revision: entry.revision,
+            parsed: Arc::clone(&entry.parsed),
+        };
+        self.install_document_analysis(pending.analyze())
+    }
+
     pub fn rebind_revision_if_source(
         &mut self,
         path: impl AsRef<Path>,
