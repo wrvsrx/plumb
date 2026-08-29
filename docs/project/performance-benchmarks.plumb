@@ -297,3 +297,22 @@ open overlay。release profile 使用 10 samples、1 s warmup 与 5 s measuremen
 Correctness tests 在破坏 persistent task/anchor Bincode BLOB 后仍构造 cycle graph，并固定 open document
 replacement 会遮蔽 disk relations。Workspace 107 tests 与 LSP 77 个 stdio tests 保持 diagnostics、target refresh、
 workflow、folding 和 lifecycle observable behavior。
+
+`# 14. Asynchronous open-document semantics on 2026-08-29
+
+didOpen 保持同步，以保证没有 refresh protocol 的 document requests 立即取得 current semantic output。didChange
+同步 parse 并安装 ParsedDocument，再把完整 document semantic analysis 交给 spawn-blocking。结果只有在 path、
+revision 和 ParsedDocument Arc identity 都仍匹配时才安装；per-path generation token 在新 revision 或 close 时使旧
+queued work 失效。Pending valid revision 的 workspace query 标为 partial，并遮蔽同 path persistent generation。
+
+`"open_document_generation_33512" Criterion workload 使用同一 33,512-event deterministic source；release
+profile 使用 10 samples、1 s warmup 与 5 s measurement。下列数值取 reported interval midpoint：
+
+`- 旧同步完整 insert 为 306.02 ms；didChange 同步 parse stage 为 109.45 ms，主线程阶段约快 2.80x，latency
+ 降低约 64.2%。
+`- 后台 semantic stage 为 156.41 ms。Parse 与 semantic 两阶段合计不能与同步 midpoint 直接相加比较 allocator
+ overlap，也不能把主线程 latency 改善描述为总 CPU work 降低。
+
+Workspace tests 固定 out-of-order、same-version different-source、close-before-install、pending completeness 和
+persistent shadow behavior；server token test 固定新 revision 与 close 对 queued generation 的取消。LSP 77 个
+stdio tests 覆盖 didOpen synchronous request behavior、didChange pending folding 与 task authoring fallback。

@@ -3,22 +3,3 @@
 本页只记录可以直接实施和验收的工作。方向、约束和 deferred design 继续放在
 `->[roadmap|roadmap.plumb]；已经结束的任务及其验收记录保存在
 `->[completed tasks|completed-tasks.plumb]。
-
-`- 异步生成 open-document semantics
-
- `+ task
-
- `@ async-open-document-semantics
-
- `= created|2026-08-29T07:58:00+08:00
-
- `note Workspace 将 parse-current-revision 与 install-current-valid-output 拆成 revision-safe API；LSP 同步安装
- ParsedDocument，后台分析 valid syntax，并以 path/revision/Arc identity guard 原子安装。
-
- `note 每个 open path 的新 revision 取消旧 queued generation；running analyzer 可以结束但 stale result 必须
- 丢弃。Pending 期间 workspace semantic query 标为 partial，不读取同 path persistent generation；syntax
- diagnostics 立即发布，semantic diagnostics 在成功安装后发布。
-
- `note tests 覆盖 out-of-order completion、same-version different bytes、close/reopen、invalid revision、queued
- cancellation、pending request behavior 与 stdio responsiveness；benchmark 分开记录 parse、semantic analysis、
- synchronous handler time 和 end-to-end current generation latency。

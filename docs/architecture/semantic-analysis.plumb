@@ -123,10 +123,12 @@ tree、typed tree 与 document-local output，不能按 request 深拷贝这些 
 derived index 仍由各 workspace owner 独立持有。创建不同 source bytes 的 revision 必须分配新的 parsed
 payload，相同 bytes 的 revision rebind 保留原 shared allocation。
 
-LSP didOpen/didChange 将 current source 的 parse 与 document-local semantic generation 分成两个 revision-safe
-阶段。Server event loop 同步安装新的 immutable ParsedDocument，使 syntax diagnostics、formatting、folding、
-symbols over recovered syntax 与 completion context 立即观察新 bytes；syntax-valid revision 的 semantic analysis
-在 blocking worker 上运行。Result 必须携带 normalized path、protocol revision 与 parsed allocation identity，
+LSP didChange 将 current source 的 parse 与 document-local semantic generation 分成两个 revision-safe 阶段；
+didOpen 保持同步生成完整初始 snapshot，因为 document symbols 等 LSP 3.17 requests 没有对应 refresh signal，
+不能在首次请求返回 temporary empty result 后要求 client 自动重试。didChange 在 server event loop 同步安装新的
+immutable ParsedDocument，使 syntax diagnostics、formatting、folding与 recovered completion context 立即观察
+新 bytes；syntax-valid revision 的 semantic analysis 在 blocking worker 上运行。Result 必须携带 normalized
+path、protocol revision 与 parsed allocation identity，
 只有三者仍与 current entry 相同才原子安装 current-valid output。较新 revision、close/reopen 或相同 revision 的
 不同 bytes 都使旧 result stale；stale result 不发布 diagnostics、refresh 或 indexes。Queued job 在 analysis 前
 检查 per-path cancellation generation；已经进入当前不可中断 analyzer 的 stale job可以完成计算，但其 result

@@ -1271,6 +1271,31 @@
  `note 176 documents、1,408 tasks、8 open buffers 的 release benchmark 中，每 document 重建 context 的
  publication round midpoint 为 46.906 ms，共享 context 为 6.9113 ms，约快 6.79x、latency 降低约 85.3%。
 
+`- 异步生成 open-document semantics
+
+ `+ task
+
+ `@ async-open-document-semantics
+
+ `= created|2026-08-29T07:58:00+08:00
+ `= done|2026-08-29T08:09:51+08:00
+
+ `note Workspace 将 parse-current-revision 与 install-current-valid-output 拆成 revision-safe API；LSP didOpen
+ 保持同步，didChange 只同步安装 ParsedDocument，再用 spawn-blocking 分析 valid syntax，并以
+ path/revision/Arc identity guard 原子安装。
+
+ `note 每个 open path 的 generation token 使新 revision 与 close 操作取消旧 queued work；running analyzer 可以
+ 结束但 stale result 必须丢弃。Pending 期间 workspace semantic query 标为 partial，不读取同 path persistent
+ generation；syntax diagnostics 立即发布，semantic diagnostics 在成功安装后刷新。
+
+ `note tests 覆盖 out-of-order completion、same-version different bytes、close-before-install、invalid revision、
+ queued cancellation、pending persistent-shadow behavior 与 immediate code action/folding requests。Workspace 110
+ tests、LSP 77 个 stdio tests、project documents 和 all-target warning gate 通过。
+
+ `note 33,512-event release benchmark 中，同步完整 insert midpoint 为 306.02 ms，didChange 同步 parse stage 为
+ 109.45 ms，主线程阶段约快 2.80x；后台 semantic stage 为 156.41 ms。完整 measurement 与异步化不降低总 CPU
+ work 的限制记录在 `->[`()[performance benchmark points]|performance-benchmarks.plumb]。
+
 `# Neovim plugin
 
 `- 避免 format 后重置 Neovim fold 状态
