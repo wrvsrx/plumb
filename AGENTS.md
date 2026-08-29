@@ -347,3 +347,17 @@ plumb export README.plumb | pandoc --from=json --to=gfm --wrap=none \
 Commit `README.plumb` and `README.md` together. The CLI integration test compares
 the committed Markdown byte-for-byte with a fresh export, so the generation must
 remain deterministic and the consistency check must pass before committing.
+
+`contrib/nvim/README.plumb` and `tree-sitter-plumb/README.plumb` are likewise the
+authoritative package README sources. Regenerate their adjacent Markdown projections
+with the same pipeline:
+
+```sh
+plumb export contrib/nvim/README.plumb | pandoc --from=json --to=gfm --wrap=none \
+  --lua-filter=scripts/readme.lua --output=contrib/nvim/README.md
+plumb export tree-sitter-plumb/README.plumb | pandoc --from=json --to=gfm --wrap=none \
+  --lua-filter=scripts/readme.lua --output=tree-sitter-plumb/README.md
+```
+
+Commit each `.plumb` source with its generated `.md`; the same CLI integration test
+checks all three README pairs byte-for-byte.

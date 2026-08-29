@@ -1,5 +1,8 @@
 `= title|plumb 工具链指南
 
+本页记录当前 release 的 commands、inputs、outputs 与 failure behavior。未来方向只进入 roadmap，
+内部 crate/store contracts 只进入 architecture。
+
 `# Build and test
 
 `text

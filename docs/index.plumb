@@ -1,45 +1,76 @@
-`= title|plumb 文档
+`= title|plumb 文档索引
 
-plumb 是一门严格、语义中立的 markup language。手写 parser 是语法有效性的唯一权威；
-heading、list、metadata、link、citation、task 和 event 等含义由official semantic profile 提供。
+plumb 是严格、语义中立的 markup language。Hand-written parser 决定 syntax validity；heading、list、metadata、
+link、citation、task、event 与 table 等含义由 official semantic profile 提供。本索引覆盖 repository 中全部
+current specification、implementation contract、user guide、project state 和 historical record。
 
 `# 阅读路径
 
-`- 第一次使用 plumb：从 `->[语法指南|guide/syntax.plumb] 开始，再阅读
- `->[标准扩展指南|guide/semantics.plumb]。
-`- 管理 notes workspace：阅读 `->[workspace 指南|guide/workspace.plumb]。
-`- 配置 editor：阅读 `->[editor integration 指南|guide/editor-integration.plumb]；当前实现
- 覆盖 Neovim 0.12。
-`- 使用 build、check、format 与 import/export：阅读
+`- 第一次使用：先读 `->[语法指南|guide/syntax.plumb] 和
+ `->[标准语义指南|guide/semantics.plumb]。
+`- 管理个人 workspace：读 `->[workspace 指南|guide/workspace.plumb] 和
  `->[工具链指南|guide/toolchain.plumb]。
-`- 查询精确规则：阅读 `->[core syntax reference|reference/core-syntax.plumb]、
- `->[standard semantics reference|reference/standard-semantics.plumb] 和
- `->[diagnostics reference|reference/diagnostics.plumb]。
-`- 开发 plumb：阅读 `->[架构总览|architecture/overview.plumb]、
- `->[semantic analysis|architecture/semantic-analysis.plumb] 和
- `->[syntax tree|architecture/syntax-tree.plumb]；涉及 authoring operation 时再阅读
- `->[syntax editing|architecture/editing.plumb]。
-`- 了解项目方向：阅读 `->[愿景|project/vision.plumb]、
- `->[路线图|project/roadmap.plumb]、`->[当前任务|project/tasks.plumb] 和
- `->[已完成任务|project/completed-tasks.plumb]；已完成的 recursive ownership redesign 见
- `->[unified inline members|history/syntax/inline-members.plumb] 与
- `->[direct block ownership and raw tails|history/syntax/direct-block-ownership.plumb]。
-`- 追溯设计理由：阅读 `->[语法决策记录|history/syntax-decisions.plumb] 和
- `->[djot-tools 能力审计|history/djot-tools-audit.plumb]。
+`- 配置 Neovim、LSP 和 tree-sitter：读 `->[editor integration|guide/editor-integration.plumb]。
+`- 实现 syntax、semantics、workspace 或 editing：从 `->[architecture overview|architecture/overview.plumb] 开始。
+`- 查询精确规则：直接进入 reference；guide、project 和 history 都不覆盖 reference。
 
 `# 权威顺序
 
-文档发生冲突时，按以下顺序判断：
+`. `->[Core syntax reference|reference/core-syntax.plumb] 决定 syntax validity 与 recovery。
+`. `->[Standard semantics reference|reference/standard-semantics.plumb] 决定 official semantic profile。
+`. `->[Diagnostics reference|reference/diagnostics.plumb] 决定 diagnostic ownership、publication 和 stability。
+`. `"architecture/" 决定 official tooling 的实现边界和 observable contracts。
+`. `"guide/" 解释当前 release；`"project/" 记录方向；`"history/" 保存时间快照。
 
-`. `"`reference/core-syntax.plumb" 决定 core syntax validity。
-`. `"`reference/standard-semantics.plumb" 决定官方 semantic profile。
-`. `"`architecture/" 决定官方工具链的实现边界。
-`. `"`guide/" 解释如何使用当前 release。
-`. `"`project/" 与 `"`history/" 记录方向和背景，不覆盖当前规范。
+`# Architecture
 
-`# 状态归属
+`- `->[Architecture overview|architecture/overview.plumb]：data flow、consumers、crate 和 tree-sitter/export boundaries。
+`- `->[Workspace storage and queries|architecture/workspace.plumb]：snapshots、SQLite、cache、overlay、queries 与 indexing。
+`- `->[Semantic analysis|architecture/semantic-analysis.plumb]：typed inputs、dependencies、queries、operations 与 diagnostics。
+`- `->[Lossless syntax tree|architecture/syntax-tree.plumb]：fidelity、recovered/valid views 与 incremental identity。
+`- `->[Syntax editing|architecture/editing.plumb]：owned syntax、mutations、formatting intents 与 migrations。
 
-`"`guide/" 只描述当前 release 已提供的行为，不复制实现进度或 TODO。尚未完成、需要继续验证和
-deferred 的工作统一记录在 `->[路线图|project/roadmap.plumb]；可直接实施和验收的工作统一
-记录在 `->[当前任务|project/tasks.plumb]。标准 profile 明确排除的语义仍由
-`->[standard semantics reference|reference/standard-semantics.plumb] 定义。
+`# User guides
+
+`- `->[Syntax guide|guide/syntax.plumb]
+`- `->[Standard semantics guide|guide/semantics.plumb]
+`- `->[Workspace guide|guide/workspace.plumb]
+`- `->[Toolchain guide|guide/toolchain.plumb]
+`- `->[Editor integration guide|guide/editor-integration.plumb]
+
+Guides 只描述当前 release，不保存 TODO、prototype 进度或 historical alternatives。Edge cases 和 normative
+exclusions 链接到 reference，不在多个 guides 中复制规则表。
+
+`# Project state
+
+`- `->[Vision|project/vision.plumb]：项目目标和长期边界。
+`- `->[Roadmap|project/roadmap.plumb]：尚未冻结或仍需评估的方向。
+`- `->[Current tasks|project/tasks.plumb]：可以直接实施和验收的工作。
+`- `->[Completed tasks|project/completed-tasks.plumb]：带 done timestamp 的验收快照。
+`- `->[Performance benchmark methodology|project/performance-benchmarks.plumb]：当前 workload 与测量 contract。
+
+`# Historical records
+
+`- `->[Syntax decision record|history/syntax-decisions.plumb]
+`- `->[Djot-tools capability audit|history/djot-tools-audit.plumb]
+`- `->[Attached declarations redesign|history/syntax/attached-declarations.plumb]
+`- `->[Unified inline members design|history/syntax/inline-members.plumb]
+`- `->[Direct block ownership and raw tails|history/syntax/direct-block-ownership.plumb]
+`- `->[Neovim folding reconciliation experiment|history/neovim/lsp-folding-patch.plumb]
+`- `->[Neovim folding edit-delay experiment|history/neovim/lsp-folding-defer-editing.plumb]
+`- `->[Workspace performance results 2026-08|history/performance/workspace-performance-2026-08.plumb]
+
+History 中的 “current” 只指记录日期。每份历史记录必须说明 snapshot boundary，并链接现行 reference、
+architecture 或 guide；不能作为新实现的 requirement source。
+
+`# Executable and packaged documentation
+
+`- `"README.plumb" 生成根目录 `"README.md"。
+`- `"examples/index.plumb" 链接 current workflows 与 isolated diagnostics fixture。
+`- `"contrib/nvim/README.plumb" 投影 plugin setup/API；Vim help 位于
+ `"contrib/nvim/doc/plumb.txt"。
+`- `"tree-sitter-plumb/README.plumb" 投影 lenient grammar consumer docs。
+`- `"skills/plumb-markup/" 是随 release 分发的 portable projection；repository 内冲突时仍以 reference 为准。
+
+Root/subpackage README 生成物、Vim help、bundled skill 和 examples 都进入 automated documentation gates；它们
+不能独立发明 syntax、semantics、capabilities 或 project status。

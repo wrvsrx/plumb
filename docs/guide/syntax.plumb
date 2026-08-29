@@ -1,7 +1,8 @@
 `= title|plumb 语法指南
 
 plumb 使用反引号引入特殊结构。特殊 spelling 一旦开始就必须完整合法；错误不会静默退化为
-普通文本。
+普通文本。本页只介绍 current syntax 的常用写法；完整 validity、precedence 与 recovery
+见 `->[core syntax reference|../reference/core-syntax.plumb]。
 
 `# Paragraph 与 marked block
 

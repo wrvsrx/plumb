@@ -1,5 +1,8 @@
 `= title|plumb workspace 指南
 
+本页说明 current user workflows。Snapshot、SQLite projection、cache lease、open-overlay precedence 与 query
+completeness 的实现 contract 见 `->[workspace architecture|../architecture/workspace.plumb]。
+
 `# Workspace root
 
 `".plumb/" directory 标记一个 plumb workspace root。省略 `"--root" 的 workspace commands 从当前

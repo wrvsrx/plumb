@@ -1,6 +1,8 @@
 `= title|plumb 标准语义指南
 
 core 只识别结构；本页介绍官方工具链赋予常用 marker、inline kind、direct declarations 与 children 的语义。
+本文保留 happy path 和组合示例；field validation、target classification、diagnostics、export lowering 与明确排除项
+统一见 `->[standard semantics reference|../reference/standard-semantics.plumb]。
 
 `# Heading
 

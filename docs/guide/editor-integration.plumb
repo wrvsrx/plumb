@@ -1,5 +1,8 @@
 `= title|plumb editor integration 指南
 
+本页是当前 release 的 editor-facing guide。Protocol lifecycle 与 query invariants 见
+`->[semantic analysis architecture|../architecture/semantic-analysis.plumb]；fork experiments 只保存在 history。
+
 `# LSP boundary
 
 `"plumb lsp" 提供 diagnostics、document symbols、definition、references、hover、completion、rename、

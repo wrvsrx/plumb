@@ -304,48 +304,75 @@ fn bundled_neovim_plugin_matches_the_binary_version() {
 }
 
 #[test]
+fn bundled_neovim_help_covers_public_entrypoints() {
+    let help = include_str!("../../../contrib/nvim/doc/plumb.txt");
+    for entrypoint in [
+        ":PlumbNotes",
+        ":PlumbTasks",
+        "require('plumb').setup(opts)",
+        "require('plumb').config()",
+        "require('plumb').foldtext()",
+        "require('plumb.search').search_notes(opts)",
+        "require('plumb.search').search_tasks(opts)",
+        "require('plumb.search').live_search(...)",
+        ":checkhealth plumb",
+    ] {
+        assert!(help.contains(entrypoint), "plumb.txt omits {entrypoint}");
+    }
+}
+
+#[test]
 fn generated_readme_matches_its_plumb_source() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let exported = Command::new(env!("CARGO_BIN_EXE_plumb"))
-        .arg("export")
-        .arg(root.join("README.plumb"))
-        .output()
-        .unwrap();
-    assert!(
-        exported.status.success(),
-        "{}",
-        String::from_utf8_lossy(&exported.stderr)
-    );
+    for (source, generated) in [
+        ("README.plumb", "README.md"),
+        ("contrib/nvim/README.plumb", "contrib/nvim/README.md"),
+        (
+            "tree-sitter-plumb/README.plumb",
+            "tree-sitter-plumb/README.md",
+        ),
+    ] {
+        let exported = Command::new(env!("CARGO_BIN_EXE_plumb"))
+            .arg("export")
+            .arg(root.join(source))
+            .output()
+            .unwrap();
+        assert!(
+            exported.status.success(),
+            "{source}: {}",
+            String::from_utf8_lossy(&exported.stderr)
+        );
 
-    let mut pandoc = Command::new("pandoc")
-        .args(["--from=json", "--to=gfm", "--wrap=none"])
-        .arg(format!(
-            "--lua-filter={}",
-            root.join("scripts/readme.lua").display()
-        ))
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .expect("pandoc is required to verify the generated README");
-    pandoc
-        .stdin
-        .take()
-        .unwrap()
-        .write_all(&exported.stdout)
-        .unwrap();
-    let markdown = pandoc.wait_with_output().unwrap();
-    assert!(
-        markdown.status.success(),
-        "{}",
-        String::from_utf8_lossy(&markdown.stderr)
-    );
+        let mut pandoc = Command::new("pandoc")
+            .args(["--from=json", "--to=gfm", "--wrap=none"])
+            .arg(format!(
+                "--lua-filter={}",
+                root.join("scripts/readme.lua").display()
+            ))
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("pandoc is required to verify generated READMEs");
+        pandoc
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(&exported.stdout)
+            .unwrap();
+        let markdown = pandoc.wait_with_output().unwrap();
+        assert!(
+            markdown.status.success(),
+            "{source}: {}",
+            String::from_utf8_lossy(&markdown.stderr)
+        );
 
-    let committed = std::fs::read(root.join("README.md")).unwrap();
-    assert_eq!(
-        markdown.stdout, committed,
-        "README.md is stale; regenerate it with the command documented in AGENTS.md"
-    );
+        let committed = std::fs::read(root.join(generated)).unwrap();
+        assert_eq!(
+            markdown.stdout, committed,
+            "{generated} is stale; regenerate it with the command documented in AGENTS.md"
+        );
+    }
 }
 
 #[test]

@@ -1,4 +1,4 @@
-*plumb.txt*                 plumb.nvim                 Last change: 2026-08-07
+*plumb.txt*                 plumb.nvim                 Last change: 2026-08-30
 
 =============================================================================
 CONTENTS                                                        *plumb-contents*

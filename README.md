@@ -28,11 +28,17 @@ cargo run -- export document.plumb | pandoc --from=json --to=gfm
 
 - [标准语义指南](docs/guide/semantics.plumb)
 
+- [Workspace 指南](docs/guide/workspace.plumb)
+
 - [工具链指南](docs/guide/toolchain.plumb)
 
 - [Editor integration 指南](docs/guide/editor-integration.plumb)
 
 - [Core syntax reference](docs/reference/core-syntax.plumb)
+
+- [Standard semantics reference](docs/reference/standard-semantics.plumb)
+
+- [Diagnostics reference](docs/reference/diagnostics.plumb)
 
 - [架构总览](docs/architecture/overview.plumb)
 

@@ -1,9 +1,11 @@
 `= title|Unified inline members design
 
-本文记录 single-envelope inline members 的设计动机与 migration boundary。当前 validity 以
+`note 本页是 2026-08-25 unified inline members adoption snapshot，记录设计动机与 migration boundary。
+
+现行 validity 以
 `->[core syntax reference|../../reference/core-syntax.plumb] 为准，official projection 以
 `->[standard semantics reference|../../reference/standard-semantics.plumb] 为准。本页中的 source
-示例均为 current spelling；本页不覆盖 reference。
+示例用于解释 adoption commit；本页不覆盖 reference。
 
 `# 动机
 

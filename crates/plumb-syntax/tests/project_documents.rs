@@ -124,6 +124,35 @@ fn bundled_skill_plumb_examples_are_strictly_valid() {
 }
 
 #[test]
+fn bundled_skill_tracks_current_standard_spellings() {
+    let root = repository_root().join("skills/plumb-markup");
+    let skill = fs::read_to_string(root.join("SKILL.md")).unwrap();
+    let semantics = fs::read_to_string(root.join("references/standard-semantics.md")).unwrap();
+
+    for required in [
+        "`+ task` or `+ event` facets",
+        "Letter prefixes such as `t`/`task` and `e`/`event` offer no",
+        "`()[container|+[notice]]",
+        "`->[same-file target|#intro]",
+    ] {
+        assert!(
+            skill.contains(required) || semantics.contains(required),
+            "bundled skill omits current spelling {required:?}"
+        );
+    }
+    for obsolete in [
+        "A task uses the specialized `task` marker",
+        "An event uses the specialized `event` marker",
+        "type a backtick followed by `task`",
+    ] {
+        assert!(
+            !skill.contains(obsolete) && !semantics.contains(obsolete),
+            "bundled skill still advertises obsolete spelling {obsolete:?}"
+        );
+    }
+}
+
+#[test]
 fn editing_adapters_do_not_depend_directly_on_the_formatter() {
     let root = repository_root();
     let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
