@@ -165,6 +165,8 @@ current result。consumer 必须能区分 current、last-valid 与 partial works
 稳定 disk snapshot 的 semantic output 可以投影到 persistent workspace store，但 persistent projection
 不是 syntax cache，也不是新的 semantic authority。projection 必须保留 query 所需 provenance，并以
 document generation 原子发布；query 不得观察一半属于旧 generation、一半属于新 generation 的 records。
+Typed record range meaning 改变时必须提升 semantic store schema generation，即使 Bincode field shape 未改变；
+旧 generation 不能因 source hash 与 package version 相同而继续提供过时 token ranges。
 open document 的 current-valid 或 last-valid state 保留在内存中，并以整个 document 为单位遮蔽同 path
 的 disk generation。didChange 不触发 persistent write；didSave、external disk change 或 initial indexing
 只有在确认 disk bytes identity 后才能发布新 generation。
