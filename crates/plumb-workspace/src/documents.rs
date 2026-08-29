@@ -6,8 +6,9 @@ use plumb_semantics::analyze_document;
 use plumb_syntax::parse;
 
 use crate::{
-    normalize, DocumentEntry, QueryCompleteness, QueryProvenance, QueryResult, SqliteSemanticStore,
-    StoreError, VersionedDocumentOutput, Workspace, WorkspaceQueryError,
+    normalize, DocumentEntry, PendingDocumentAnalysis, PreparedDocumentAnalysis, QueryCompleteness,
+    QueryProvenance, QueryResult, SqliteSemanticStore, StoreError, VersionedDocumentOutput,
+    Workspace, WorkspaceQueryError,
 };
 
 impl Workspace {
@@ -30,9 +31,19 @@ impl Workspace {
         };
         QueryResult {
             value,
-            completeness: QueryCompleteness::Complete,
+            completeness: if self.semantic_generation_pending() {
+                QueryCompleteness::Partial
+            } else {
+                QueryCompleteness::Complete
+            },
             provenance,
         }
+    }
+
+    fn semantic_generation_pending(&self) -> bool {
+        self.documents
+            .values()
+            .any(|entry| entry.parsed.is_valid() && entry.current.is_none())
     }
 
     pub fn insert_disk(
@@ -93,30 +104,61 @@ impl Workspace {
         revision: i64,
         source: impl Into<String>,
     ) -> &DocumentEntry {
+        if let Some(pending) = self.begin_document_revision(path.as_ref(), revision, source) {
+            let installed = self.install_document_analysis(pending.analyze());
+            debug_assert!(
+                installed,
+                "synchronous analysis must install its own revision"
+            );
+        }
+        self.documents
+            .get(&normalize(path.as_ref()))
+            .expect("just inserted")
+    }
+
+    pub fn begin_document_revision(
+        &mut self,
+        path: impl AsRef<Path>,
+        revision: i64,
+        source: impl Into<String>,
+    ) -> Option<PendingDocumentAnalysis> {
         let path = normalize(path.as_ref());
         let parsed = Arc::new(parse(source));
         let previous_last_valid = self
             .documents
             .get(&path)
             .and_then(|entry| entry.last_valid.clone());
-        let current = parsed.valid_syntax().map(|valid| {
-            Arc::new(VersionedDocumentOutput {
-                revision,
-                output: Arc::new(analyze_document(valid)),
-            })
-        });
-        let last_valid = current.clone().or(previous_last_valid);
         self.documents.insert(
             path.clone(),
             DocumentEntry {
                 path: path.clone(),
                 revision,
-                parsed,
-                current,
-                last_valid,
+                parsed: Arc::clone(&parsed),
+                current: None,
+                last_valid: previous_last_valid,
             },
         );
-        self.documents.get(&path).expect("just inserted")
+        parsed.is_valid().then_some(PendingDocumentAnalysis {
+            path,
+            revision,
+            parsed,
+        })
+    }
+
+    pub fn install_document_analysis(&mut self, analysis: PreparedDocumentAnalysis) -> bool {
+        let Some(entry) = self.documents.get_mut(&analysis.path) else {
+            return false;
+        };
+        if entry.revision != analysis.revision || !Arc::ptr_eq(&entry.parsed, &analysis.parsed) {
+            return false;
+        }
+        let current = Arc::new(VersionedDocumentOutput {
+            revision: analysis.revision,
+            output: analysis.output,
+        });
+        entry.current = Some(Arc::clone(&current));
+        entry.last_valid = Some(current);
+        true
     }
 
     pub fn rebind_revision_if_source(
@@ -130,6 +172,9 @@ impl Workspace {
             return false;
         };
         if entry.parsed.source != source {
+            return false;
+        }
+        if entry.parsed.is_valid() && entry.current.is_none() {
             return false;
         }
         entry.revision = revision;
@@ -150,6 +195,10 @@ impl Workspace {
         entry.current = Some(rebound.clone());
         entry.last_valid = Some(rebound);
         true
+    }
+
+    pub fn overlay_document_entry(&mut self, entry: DocumentEntry) {
+        self.documents.insert(normalize(&entry.path), entry);
     }
 
     pub fn remove(&mut self, path: impl AsRef<Path>) -> Option<DocumentEntry> {

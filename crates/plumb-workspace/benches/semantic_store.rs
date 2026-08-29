@@ -397,6 +397,42 @@ fn benchmark_diagnostic_round(c: &mut Criterion) {
     group.finish();
 }
 
+fn benchmark_open_document_generation(c: &mut Criterion) {
+    let count = 33_512;
+    let (_, source) = workload(count, count / 10, "");
+    let mut parsed_workspace = Workspace::new();
+    let pending = parsed_workspace
+        .begin_document_revision("events.plumb", 1, source.clone())
+        .unwrap();
+    let mut group = c.benchmark_group("open_document_generation_33512");
+    group.sample_size(10);
+    group.bench_function("synchronous_insert", |b| {
+        b.iter_batched(
+            || source.clone(),
+            |source| {
+                let mut workspace = Workspace::new();
+                let revision = workspace.insert("events.plumb", 1, source).revision;
+                black_box(revision)
+            },
+            BatchSize::LargeInput,
+        );
+    });
+    group.bench_function("did_change_parse_stage", |b| {
+        b.iter_batched(
+            || source.clone(),
+            |source| {
+                let mut workspace = Workspace::new();
+                black_box(workspace.begin_document_revision("events.plumb", 1, source))
+            },
+            BatchSize::LargeInput,
+        );
+    });
+    group.bench_function("background_semantic_stage", |b| {
+        b.iter(|| black_box(pending.clone().analyze()))
+    });
+    group.finish();
+}
+
 fn benchmark_batch_index(c: &mut Criterion) {
     let document_count = 176;
     let tasks_per_document = 8;
@@ -587,7 +623,7 @@ criterion_group! {
     name = benches;
     config = configuration();
     targets = benchmark_build, benchmark_warm_start, benchmark_queries, benchmark_replacement,
-        benchmark_task_queries, benchmark_diagnostic_round, benchmark_batch_index,
-        benchmark_event_containment
+        benchmark_task_queries, benchmark_diagnostic_round, benchmark_open_document_generation,
+        benchmark_batch_index, benchmark_event_containment
 }
 criterion_main!(benches);

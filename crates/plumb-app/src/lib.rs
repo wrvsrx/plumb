@@ -14,7 +14,7 @@ use async_lsp::panic::CatchUnwindLayer;
 use async_lsp::router::Router;
 use async_lsp::server::LifecycleLayer;
 use async_lsp::tracing::TracingLayer;
-use server::{InitialIndexResult, ServerState};
+use server::{DocumentAnalysisResult, InitialIndexResult, ServerState};
 use tower::ServiceBuilder;
 use tracing::Level;
 
@@ -24,6 +24,9 @@ pub async fn run_lsp() {
         let mut router = Router::from_language_server(ServerState::new(client.clone()));
         router.request::<search::PlumbSearchRequest, _>(|state, params| state.search(params));
         router.event::<InitialIndexResult>(|state, result| state.finish_initial_index(result));
+        router.event::<DocumentAnalysisResult>(|state, result| {
+            state.finish_document_analysis(result)
+        });
         ServiceBuilder::new()
             .layer(TracingLayer::default())
             .layer(LifecycleLayer::default())

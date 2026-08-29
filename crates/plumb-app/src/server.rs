@@ -2,6 +2,8 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::ops::ControlFlow;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 
 use async_lsp::{ClientSocket, ErrorCode, LanguageClient, LanguageServer, ResponseError};
 use chrono::{Local, SecondsFormat};
@@ -40,9 +42,9 @@ use plumb_syntax::Diagnostic;
 use plumb_workspace::{
     load_bibliography, load_bibliography_sources, normalize, scan_workspace_files,
     BatchIndexOptions, Bibliography, BibliographyResolution, CompletionCandidate, PathRenameInput,
-    QueryResult, RenameError, ResolvedTarget, ResourceOperation, SearchRecord, SearchRecordKind,
-    SqliteSemanticStore, Workspace, WorkspaceDiagnosticContext, WorkspaceEdit,
-    WorkspaceOperationError, WorkspaceQueryError, WorkspaceSearchError,
+    PreparedDocumentAnalysis, QueryResult, RenameError, ResolvedTarget, ResourceOperation,
+    SearchRecord, SearchRecordKind, SqliteSemanticStore, Workspace, WorkspaceDiagnosticContext,
+    WorkspaceEdit, WorkspaceOperationError, WorkspaceQueryError, WorkspaceSearchError,
 };
 use sha2::{Digest, Sha256};
 
@@ -88,6 +90,36 @@ pub(crate) struct ServerState {
     index_complete: bool,
     index_generation: u64,
     pending_path_renames: Vec<PendingPathRename>,
+    document_analysis_tokens: DocumentAnalysisTokens,
+}
+
+#[derive(Default)]
+struct DocumentAnalysisTokens {
+    paths: HashMap<PathBuf, Arc<AtomicU64>>,
+}
+
+impl DocumentAnalysisTokens {
+    fn next(&mut self, path: &Path) -> (Arc<AtomicU64>, u64) {
+        let token = self
+            .paths
+            .entry(path.to_path_buf())
+            .or_insert_with(|| Arc::new(AtomicU64::new(0)))
+            .clone();
+        let generation = token.fetch_add(1, Ordering::AcqRel).wrapping_add(1);
+        (token, generation)
+    }
+
+    fn is_current(&self, path: &Path, generation: u64) -> bool {
+        self.paths
+            .get(path)
+            .is_some_and(|token| token.load(Ordering::Acquire) == generation)
+    }
+
+    fn cancel(&mut self, path: &Path) {
+        if let Some(token) = self.paths.remove(path) {
+            token.fetch_add(1, Ordering::AcqRel);
+        }
+    }
 }
 
 pub(crate) struct InitialIndexResult {
@@ -96,6 +128,12 @@ pub(crate) struct InitialIndexResult {
     indexed: usize,
     cache_hits: usize,
     complete: bool,
+}
+
+pub(crate) struct DocumentAnalysisResult {
+    path: PathBuf,
+    generation: u64,
+    analysis: PreparedDocumentAnalysis,
 }
 
 struct PendingPathRename {
@@ -133,25 +171,67 @@ impl ServerState {
             index_complete: false,
             index_generation: 0,
             pending_path_renames: Vec::new(),
+            document_analysis_tokens: DocumentAnalysisTokens::default(),
         }
     }
 
-    fn update(&mut self, uri: Url, version: i32, text: String) {
+    fn update(&mut self, uri: Url, version: i32, text: String, background: bool) {
         let Ok(path) = uri.to_file_path() else {
             return;
         };
         let path = normalize(&path);
         let revision = i64::from(version);
+        let (token, generation) = self.document_analysis_tokens.next(&path);
         if !self
             .workspace
             .rebind_revision_if_source(&path, revision, &text)
         {
-            self.workspace.insert(&path, revision, text);
+            if background {
+                let pending = self
+                    .workspace
+                    .begin_document_revision(&path, revision, text);
+                if let Some(pending) = pending {
+                    let client = self.client.clone();
+                    let analysis_path = path.clone();
+                    tokio::task::spawn_blocking(move || {
+                        if token.load(Ordering::Acquire) != generation {
+                            return;
+                        }
+                        let analysis = pending.analyze();
+                        if token.load(Ordering::Acquire) == generation {
+                            let _ = client.emit(DocumentAnalysisResult {
+                                path: analysis_path,
+                                generation,
+                                analysis,
+                            });
+                        }
+                    });
+                }
+            } else {
+                self.workspace.insert(&path, revision, text);
+            }
         }
         self.open_documents.insert(uri, path);
         self.publish_all_open_diagnostics();
         self.refresh_code_lenses();
         self.refresh_folding_ranges();
+    }
+
+    pub(crate) fn finish_document_analysis(
+        &mut self,
+        result: DocumentAnalysisResult,
+    ) -> ControlFlow<async_lsp::Result<()>> {
+        if !self
+            .document_analysis_tokens
+            .is_current(&result.path, result.generation)
+            || !self.workspace.install_document_analysis(result.analysis)
+        {
+            return ControlFlow::Continue(());
+        }
+        self.publish_all_open_diagnostics();
+        self.refresh_code_lenses();
+        self.refresh_folding_ranges();
+        ControlFlow::Continue(())
     }
 
     fn publish_all_open_diagnostics(&self) {
@@ -315,14 +395,11 @@ impl ServerState {
         let open = self
             .open_documents
             .values()
-            .filter_map(|path| {
-                let entry = self.workspace.get(path)?;
-                Some((path.clone(), entry.revision, entry.parsed.source.clone()))
-            })
+            .filter_map(|path| self.workspace.get(path).cloned())
             .collect::<Vec<_>>();
         self.workspace = result.workspace;
-        for (path, revision, source) in open {
-            self.workspace.insert(path, revision, source);
+        for entry in open {
+            self.workspace.overlay_document_entry(entry);
         }
         self.index_complete = result.complete;
         self.notify_index_progress(WorkDoneProgress::Report(WorkDoneProgressReport {
@@ -842,7 +919,7 @@ impl LanguageServer for ServerState {
 
     fn did_open(&mut self, params: DidOpenTextDocumentParams) -> Self::NotifyResult {
         let document = params.text_document;
-        self.update(document.uri, document.version, document.text);
+        self.update(document.uri, document.version, document.text, false);
         ControlFlow::Continue(())
     }
 
@@ -852,6 +929,7 @@ impl LanguageServer for ServerState {
                 params.text_document.uri,
                 params.text_document.version,
                 change.text,
+                true,
             );
         }
         ControlFlow::Continue(())
@@ -860,6 +938,7 @@ impl LanguageServer for ServerState {
     fn did_close(&mut self, params: DidCloseTextDocumentParams) -> Self::NotifyResult {
         let uri = params.text_document.uri;
         if let Some(path) = self.open_documents.remove(&uri) {
+            self.document_analysis_tokens.cancel(&path);
             let (files, complete) = self.scanned_files();
             self.index_complete &= complete;
             if files.binary_search(&path).is_ok() {
@@ -2415,6 +2494,23 @@ mod tests {
     use plumb_syntax::parse;
 
     use super::*;
+
+    #[test]
+    fn newer_document_analysis_generations_cancel_queued_and_closed_work() {
+        let path = Path::new("note.plumb");
+        let mut tokens = DocumentAnalysisTokens::default();
+        let (first_token, first) = tokens.next(path);
+        let (_, second) = tokens.next(path);
+
+        assert_ne!(first, second);
+        assert_eq!(first_token.load(Ordering::Acquire), second);
+        assert!(!tokens.is_current(path, first));
+        assert!(tokens.is_current(path, second));
+
+        tokens.cancel(path);
+        assert!(!tokens.is_current(path, second));
+        assert_ne!(first_token.load(Ordering::Acquire), second);
+    }
 
     #[test]
     fn semantic_cache_paths_are_namespaced_by_compiled_version() {

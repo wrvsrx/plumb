@@ -8,7 +8,6 @@ use plumb_edit::{
     remove_block as remove_syntax_block, replace_owned_block, replace_owned_blocks,
     AttributePosition, EditSession, OwnedAttribute, OwnedBlock, OwnedInline,
 };
-#[cfg(test)]
 use plumb_semantics::analyze_document;
 use plumb_semantics::{
     parse_task_reference_target, AnchorRecord, DocumentOutput, EventRecord, LinkCompletionContext,
@@ -375,6 +374,37 @@ pub struct DocumentEntry {
     pub parsed: Arc<ParsedDocument>,
     pub current: Option<Arc<VersionedDocumentOutput>>,
     pub last_valid: Option<Arc<VersionedDocumentOutput>>,
+}
+
+#[derive(Debug, Clone)]
+pub struct PendingDocumentAnalysis {
+    path: PathBuf,
+    revision: i64,
+    parsed: Arc<ParsedDocument>,
+}
+
+#[derive(Debug)]
+pub struct PreparedDocumentAnalysis {
+    path: PathBuf,
+    revision: i64,
+    parsed: Arc<ParsedDocument>,
+    output: Arc<DocumentOutput>,
+}
+
+impl PendingDocumentAnalysis {
+    pub fn analyze(self) -> PreparedDocumentAnalysis {
+        let output = analyze_document(
+            self.parsed
+                .valid_syntax()
+                .expect("pending semantic analysis requires valid syntax"),
+        );
+        PreparedDocumentAnalysis {
+            path: self.path,
+            revision: self.revision,
+            parsed: self.parsed,
+            output: Arc::new(output),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -3540,10 +3570,12 @@ impl Workspace {
         id: &str,
     ) -> Result<Vec<AnchorRecord>, WorkspaceQueryError> {
         let path = normalize(path);
-        if let Some(output) = self.current_output(&path) {
-            return Ok(output
-                .anchors
-                .iter()
+        if let Some(entry) = self.documents.get(&path) {
+            return Ok(entry
+                .current
+                .as_ref()
+                .into_iter()
+                .flat_map(|current| &current.output.anchors)
                 .filter(|anchor| anchor.id.value == id)
                 .cloned()
                 .collect());
@@ -3557,8 +3589,12 @@ impl Workspace {
 
     fn tasks_for_path(&self, path: &Path) -> Result<Vec<TaskRecord>, WorkspaceQueryError> {
         let path = normalize(path);
-        if let Some(output) = self.current_output(&path) {
-            return Ok(output.tasks.tasks.clone());
+        if let Some(entry) = self.documents.get(&path) {
+            return Ok(entry
+                .current
+                .as_ref()
+                .map(|current| current.output.tasks.tasks.clone())
+                .unwrap_or_default());
         }
         self.disk_store
             .as_ref()
@@ -5097,6 +5133,94 @@ mod tests {
         assert!(entry.current.is_none());
         assert_eq!(entry.last_valid.as_ref().unwrap().revision, 1);
         assert!(workspace.anchor_at("a.plumb", 0).is_none());
+    }
+
+    #[test]
+    fn installs_only_the_current_parsed_revision_analysis() {
+        let mut workspace = Workspace::new();
+        workspace.insert("a.plumb", 1, "`# Initial\n `@ initial\n");
+        let stale = workspace
+            .begin_document_revision("a.plumb", 2, "`# Stale\n `@ stale\n")
+            .unwrap()
+            .analyze();
+        assert_eq!(
+            workspace.document_paths().unwrap().completeness,
+            QueryCompleteness::Partial
+        );
+        let current = workspace
+            .begin_document_revision("a.plumb", 3, "`# Current\n `@ current\n")
+            .unwrap()
+            .analyze();
+        assert!(!workspace.install_document_analysis(stale));
+        assert!(workspace.install_document_analysis(current));
+        assert_eq!(
+            workspace.document_paths().unwrap().completeness,
+            QueryCompleteness::Complete
+        );
+        assert_eq!(
+            workspace
+                .get("a.plumb")
+                .unwrap()
+                .current
+                .as_ref()
+                .unwrap()
+                .revision,
+            3
+        );
+
+        let same_version_old = workspace
+            .begin_document_revision("a.plumb", 4, "`# Old bytes\n `@ old\n")
+            .unwrap()
+            .analyze();
+        let same_version_new = workspace
+            .begin_document_revision("a.plumb", 4, "`# New bytes\n `@ new\n")
+            .unwrap()
+            .analyze();
+        assert!(!workspace.install_document_analysis(same_version_old));
+        assert!(workspace.install_document_analysis(same_version_new));
+
+        let closed = workspace
+            .begin_document_revision("a.plumb", 5, "`# Closed\n `@ closed\n")
+            .unwrap()
+            .analyze();
+        workspace.remove("a.plumb");
+        assert!(!workspace.install_document_analysis(closed));
+    }
+
+    #[test]
+    fn pending_and_invalid_open_revisions_do_not_fall_back_to_disk_semantics() {
+        let store = SqliteSemanticStore::open_in_memory().unwrap();
+        let mut workspace = Workspace::with_sqlite_store(store);
+        workspace
+            .insert_disk("a.plumb", 1, "`# Disk\n `@ disk\n")
+            .unwrap();
+        let pending = workspace
+            .begin_document_revision("a.plumb", 2, "`# Pending\n `@ pending\n")
+            .unwrap();
+        assert!(workspace
+            .anchors_named(Path::new("a.plumb"), "disk")
+            .unwrap()
+            .is_empty());
+        assert!(workspace.install_document_analysis(pending.analyze()));
+        assert_eq!(
+            workspace
+                .anchors_named(Path::new("a.plumb"), "pending")
+                .unwrap()
+                .len(),
+            1
+        );
+
+        assert!(workspace
+            .begin_document_revision("a.plumb", 3, "`broken[\n")
+            .is_none());
+        assert_eq!(
+            workspace.document_paths().unwrap().completeness,
+            QueryCompleteness::Complete
+        );
+        assert!(workspace
+            .anchors_named(Path::new("a.plumb"), "disk")
+            .unwrap()
+            .is_empty());
     }
 
     #[test]
@@ -6867,6 +6991,36 @@ mod tests {
             workspace.add_task_created("tasks.plumb", source.find("Existing").unwrap(), timestamp),
             Err(TaskEditError::CreatedAlreadyExists)
         );
+    }
+
+    #[test]
+    fn task_authoring_operations_use_valid_syntax_while_semantics_are_pending() {
+        let timestamp = "2026-07-20T10:00:00+08:00";
+        let mut workspace = Workspace::new();
+        let list_source = "`- Convert me\n";
+        workspace
+            .begin_document_revision("tasks.plumb", 1, list_source)
+            .unwrap();
+        assert!(workspace.get("tasks.plumb").unwrap().current.is_none());
+        assert!(workspace
+            .convert_list_item_to_task(
+                "tasks.plumb",
+                list_source.find("Convert").unwrap(),
+                timestamp
+            )
+            .is_ok());
+
+        let task_source = "`- Add created\n\n `+ task\n\n `@ task\n";
+        workspace
+            .begin_document_revision("tasks.plumb", 2, task_source)
+            .unwrap();
+        assert!(workspace
+            .add_task_created(
+                "tasks.plumb",
+                task_source.find("Add created").unwrap(),
+                timestamp,
+            )
+            .is_ok());
     }
 
     #[test]

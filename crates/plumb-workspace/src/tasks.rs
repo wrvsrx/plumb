@@ -4,8 +4,8 @@ use std::path::{Path, PathBuf};
 use chrono::{DateTime, FixedOffset};
 use plumb_edit::{replace_owned_block, AttributePosition, EditSession, OwnedAttribute, OwnedBlock};
 use plumb_semantics::{
-    next_task_datetime, parse_task_reference_target, valid_task_datetime, TaskRecord,
-    TaskReferenceTarget, TaskState, TaskStatus,
+    analyze_tasks, next_task_datetime, parse_task_reference_target, valid_task_datetime,
+    TaskRecord, TaskReferenceTarget, TaskState, TaskStatus,
 };
 
 use super::{
@@ -294,7 +294,7 @@ impl Workspace {
         let entry = self
             .documents
             .get(&path)
-            .filter(|entry| entry.current.is_some())
+            .filter(|entry| entry.parsed.is_valid())
             .ok_or(TaskEditError::StaleOrInvalidDocument)?;
         let item = deepest_list_item(&entry.parsed.syntax.blocks, offset)
             .ok_or(TaskEditError::ListItemNotFound)?;
@@ -326,15 +326,21 @@ impl Workspace {
         let entry = self
             .documents
             .get(&path)
-            .filter(|entry| entry.current.is_some())
+            .filter(|entry| entry.parsed.is_valid())
             .ok_or(TaskEditError::StaleOrInvalidDocument)?;
-        let task = entry
-            .current
-            .as_ref()
-            .expect("current output checked")
-            .output
-            .tasks
-            .tasks
+        let pending_tasks;
+        let tasks = if let Some(current) = &entry.current {
+            &current.output.tasks.tasks
+        } else {
+            pending_tasks = analyze_tasks(
+                entry
+                    .parsed
+                    .valid_syntax()
+                    .expect("valid parsed document checked"),
+            );
+            &pending_tasks.tasks
+        };
+        let task = tasks
             .iter()
             .filter(|task| task.range.start <= offset && offset <= task.range.end)
             .max_by_key(|task| task.range.start)
