@@ -67,11 +67,20 @@ fn diagnostics_clear_after_a_link_is_fixed() {
                 }]
             }
         }),
-        json!({ "jsonrpc": "2.0", "id": 2, "method": "shutdown", "params": null }),
+        json!({
+            "jsonrpc": "2.0", "id": 2, "method": "textDocument/definition",
+            "params": {
+                "textDocument": { "uri": uri },
+                "position": { "line": 0, "character": 0 }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 3, "method": "shutdown", "params": null }),
         json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
     ];
 
-    let counts = diagnostic_counts(&run_server(&messages), uri);
+    let output = run_server(&messages);
+    assert_eq!(response(&output, 2)["result"]["uri"], uri);
+    let counts = diagnostic_counts(&output, uri);
     assert_eq!(counts.first(), Some(&1));
     assert_eq!(counts.last(), Some(&0));
 }
@@ -107,11 +116,20 @@ fn diagnostics_refresh_when_a_target_document_changes() {
                 "contentChanges": [{ "text": "`node Target\n\n `@ target\n" }]
             }
         }),
-        json!({ "jsonrpc": "2.0", "id": 2, "method": "shutdown", "params": null }),
+        json!({
+            "jsonrpc": "2.0", "id": 2, "method": "textDocument/definition",
+            "params": {
+                "textDocument": { "uri": target_uri },
+                "position": { "line": 0, "character": 0 }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 3, "method": "shutdown", "params": null }),
         json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
     ];
 
-    let counts = diagnostic_counts(&run_server(&messages), source_uri);
+    let output = run_server(&messages);
+    assert_eq!(response(&output, 2)["result"]["uri"], target_uri);
+    let counts = diagnostic_counts(&output, source_uri);
     assert_eq!(counts.first(), Some(&1));
     assert_eq!(counts.last(), Some(&0));
 }
