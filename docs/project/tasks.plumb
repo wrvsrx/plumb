@@ -3,3 +3,17 @@
 本页只记录可以直接实施和验收的工作。方向、约束和 deferred design 继续放在
 `->[roadmap|roadmap.plumb]；已经结束的任务及其验收记录保存在
 `->[completed tasks|completed-tasks.plumb]。
+
+`- 降低 SQLite cold batch indexing 峰值内存
+
+ `+ task
+
+ `@ release-persistent-prepared-syntax
+
+ `= created|2026-08-29T08:58:00+08:00
+
+ `note Persistent cache misses 完成 document semantics 后立即释放 ParsedDocument 的 lossless/typed trees，只把
+ source、revision 与 DocumentOutput 保留到 serialized reconcile transaction；memory backend ownership 不变。
+
+ `note tests 固定 memory/SQLite、invalid source、cache hit、prune 与 cancellation parity；Criterion 与真实 notebook
+ profile 对比优化前 SQLite batch cold latency、peak 和 steady resident，不能以明显 latency 回退换取内存下降。

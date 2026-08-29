@@ -126,6 +126,11 @@ documents 建立 snapshots。LSP、CLI 与 Web 不得各自复制 read/parse/ind
 完成的 partial generation set；consumer 必须将 read、scan、cancel 或 store failure 投影为 incomplete index，
 不能把 partial negative query 表示成 complete。
 
+Persistent prepare 的 transaction input 只保留 source bytes、revision 与 document-local semantic output；每个
+cache miss 完成 analysis 后必须在进入 serialized publication 前释放 lossless/typed syntax trees。Memory backend
+需要建立 DocumentEntry，仍保留完整 ParsedDocument。该差异只改变 transient ownership，不改变 analysis、
+generation atomicity、deterministic ordering、cache identity 或 retained-source result contract。
+
 reference CodeLens 是 workspace reverse-reference query 的 LSP projection。`"references_to_document"
 聚合 current-valid documents 中的 document/anchor links 与 task references，并保留真实 same-document
 occurrences；Graph 等 consumer 可以按自己的 edge policy 隐藏 self-edge。`"references_to" 继续查询单个 explicit anchor。server 只为 current-valid metadata 与 anchors
