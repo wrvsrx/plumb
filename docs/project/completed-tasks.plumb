@@ -1425,7 +1425,7 @@
 
  `note Attached declarations、unified members、direct ownership、Neovim fork experiments 与 dated performance
  results 已进入 topic history；project performance 只保留 reusable methodology。Architecture overview 抽出独立
- workspace storage/query contract；完整 docs index 可达所有 26 个 docs documents，internal check 零 diagnostics。
+ workspace storage/query contract；完整 docs index 可达所有 27 个 docs documents，internal check 零 diagnostics。
 
  `note Root、Neovim plugin 与 tree-sitter README 均以 `"README.plumb" 为 authority 并生成 adjacent Markdown；
  CLI byte-for-byte 固定三组 projection。Vim help public entrypoints、bundled skill current spellings、docs titles、
