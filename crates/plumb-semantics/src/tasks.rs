@@ -187,9 +187,11 @@ fn task_record(source: &str, block: &ParsedBlock, depth: usize) -> TaskRecord {
             })
             .collect(),
         id: attrs.items.iter().find_map(|item| match item {
-            AttrItem::Id { value, range } => Some(TaskField {
+            AttrItem::Id {
+                value, value_range, ..
+            } => Some(TaskField {
                 value: value.clone(),
-                range: range.start + 1..range.end,
+                range: value_range.clone(),
             }),
             AttrItem::Class { .. } | AttrItem::Pair { .. } => None,
         }),

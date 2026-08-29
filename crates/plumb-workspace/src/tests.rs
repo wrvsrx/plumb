@@ -1063,6 +1063,53 @@ fn rename_updates_declaration_and_cross_file_fragments() {
 }
 
 #[test]
+fn identity_rename_uses_exact_block_and_inline_value_ranges() {
+    let block_source = "`- Task\n\n `@ task\n\n `+ task\n\n `= created|2026-08-30T01:57:30+08:00\n";
+    let mut workspace = Workspace::new();
+    workspace.insert("task.plumb", 1, block_source);
+    let value_start = block_source.find("task\n\n `+ task").unwrap();
+    let target = workspace
+        .anchor_rename_target_at("task.plumb", value_start)
+        .unwrap();
+    assert_eq!(target.range, value_start..value_start + 4);
+    assert_eq!(
+        workspace
+            .get("task.plumb")
+            .unwrap()
+            .current
+            .as_ref()
+            .unwrap()
+            .output
+            .tasks
+            .tasks[0]
+            .id
+            .as_ref()
+            .unwrap()
+            .range,
+        target.range
+    );
+    let edit = workspace.rename_anchor(&target, "renamed").unwrap();
+    let updated = apply_document_edit(block_source.to_string(), "task.plumb", 1, edit).unwrap();
+    assert_eq!(
+        updated,
+        "`- Task\n\n `@ renamed\n\n `+ task\n\n `= created|2026-08-30T01:57:30+08:00\n"
+    );
+    assert!(parse(&updated).is_valid());
+
+    let inline_source = "Text `span[value|@[inline]] here.\n";
+    workspace.insert("inline.plumb", 2, inline_source);
+    let inline_start = inline_source.find("inline").unwrap();
+    let target = workspace
+        .anchor_rename_target_at("inline.plumb", inline_start)
+        .unwrap();
+    assert_eq!(target.range, inline_start..inline_start + "inline".len());
+    let edit = workspace.rename_anchor(&target, "renamed").unwrap();
+    let updated = apply_document_edit(inline_source.to_string(), "inline.plumb", 2, edit).unwrap();
+    assert_eq!(updated, "Text `span[value|@[renamed]] here.\n");
+    assert!(parse(&updated).is_valid());
+}
+
+#[test]
 fn completes_event_titles_by_workspace_frequency_and_prefix() {
     let mut workspace = Workspace::new();
     workspace.insert(

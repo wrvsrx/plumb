@@ -237,10 +237,12 @@ impl Attributes {
 pub enum AttrItem {
     Id {
         value: String,
+        value_range: SourceRange,
         range: SourceRange,
     },
     Class {
         value: String,
+        value_range: SourceRange,
         range: SourceRange,
     },
     Pair {

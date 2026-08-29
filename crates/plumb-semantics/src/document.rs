@@ -710,24 +710,25 @@ fn collect_anchor(
     first_ids: &mut HashMap<String, Range<usize>>,
     output: &mut DocumentOutput,
 ) {
-    let Some((value, item_range)) = attrs.items.iter().find_map(|item| match item {
-        AttrItem::Id { value, range } => Some((value, range)),
+    let Some((value, value_range)) = attrs.items.iter().find_map(|item| match item {
+        AttrItem::Id {
+            value, value_range, ..
+        } => Some((value, value_range)),
         AttrItem::Class { .. } | AttrItem::Pair { .. } => None,
     }) else {
         return;
     };
-    let value_range = item_range.start + 1..item_range.end;
     let id = direct_source_backed(source, value.clone(), value_range.clone());
     if let Some(first) = first_ids.get(value) {
         output.diagnostics.push(Diagnostic {
             code: "anchor.duplicate-id",
             severity: DiagnosticSeverity::Warning,
             message: format!("duplicate explicit anchor id '{value}'"),
-            range: value_range,
+            range: value_range.clone(),
             related: vec![first.clone()],
         });
     } else {
-        first_ids.insert(value.clone(), value_range);
+        first_ids.insert(value.clone(), value_range.clone());
     }
     output.anchors.push(AnchorRecord {
         id,

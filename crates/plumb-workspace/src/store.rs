@@ -110,7 +110,7 @@ struct TaskFactSqlRow {
 
 type TaskCandidateSql<'a> = BoxedSqlQuery<'a, Sqlite, SqlQuery>;
 
-const SCHEMA_VERSION: i64 = 6;
+const SCHEMA_VERSION: i64 = 7;
 const PRODUCER_VERSION: &str = env!("CARGO_PKG_VERSION");
 const MIGRATIONS: EmbeddedMigrations = embed_migrations!("migrations");
 
@@ -2345,6 +2345,24 @@ mod tests {
             .contains_current(Path::new("a.plumb"), source)
             .unwrap());
         assert_eq!(reopened.tasks(&[]).unwrap()[0].record.title, "Persistent");
+    }
+
+    #[test]
+    fn schema_generation_change_discards_stale_range_records() {
+        let directory = tempfile::tempdir().unwrap();
+        let database = directory.path().join("semantic.sqlite3");
+        let source = "`- Task\n\n `@ task\n\n `+ task\n";
+        let store = SqliteSemanticStore::open(&database).unwrap();
+        store
+            .replace(Path::new("task.plumb"), 1, source, Some(&analyzed(source)))
+            .unwrap();
+        store
+            .execute_batch_for_test("UPDATE cache_meta SET value = 6 WHERE key = 'schema_version'")
+            .unwrap();
+        drop(store);
+
+        let reopened = SqliteSemanticStore::open(&database).unwrap();
+        assert!(reopened.documents().unwrap().is_empty());
     }
 
     #[cfg(unix)]

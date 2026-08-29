@@ -63,22 +63,26 @@ fn project_block_attributes(source: &str, blocks: &[Block]) -> Vec<AttrItem> {
                 return None;
             }
             if mark.marker == "+" {
-                let value = block.head.plain_text();
+                let head = block.head.trim_boundary_padding();
+                let value = head.plain_text();
                 if value.is_empty() {
                     return None;
                 }
                 return Some(AttrItem::Class {
                     value,
+                    value_range: head.range.clone(),
                     range: block.range.clone(),
                 });
             }
             if mark.marker == "@" {
-                let value = block.head.plain_text();
+                let head = block.head.trim_boundary_padding();
+                let value = head.plain_text();
                 if value.is_empty() {
                     return None;
                 }
                 return Some(AttrItem::Id {
                     value,
+                    value_range: head.range.clone(),
                     range: block.range.clone(),
                 });
             }
@@ -135,7 +139,8 @@ fn project_inline_attribute(source: &str, inline: &Inline) -> Option<AttrItem> {
         }
         return Some(AttrItem::Class {
             value,
-            range: argument_range(argument),
+            value_range: argument_range(argument),
+            range: range.clone(),
         });
     }
     if kind == "@" {
@@ -148,6 +153,7 @@ fn project_inline_attribute(source: &str, inline: &Inline) -> Option<AttrItem> {
         }
         return Some(AttrItem::Id {
             value,
+            value_range: argument_range(argument),
             range: range.clone(),
         });
     }
@@ -1969,5 +1975,39 @@ mod tests {
         ] {
             assert_eq!(parser.line_index_at_offset(offset), expected, "{offset}");
         }
+    }
+
+    #[test]
+    fn projected_declarations_preserve_full_and_value_ranges() {
+        let source = "`- Task\n\n `@ task\n\n `+ task\n";
+        let parsed = parse(source);
+        assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
+        let Block::Parsed(owner) = &parsed.syntax.blocks[0] else {
+            panic!("expected owner");
+        };
+        let attrs = &owner.mark.as_ref().unwrap().attrs.items;
+        let AttrItem::Id {
+            value,
+            value_range,
+            range,
+        } = &attrs[0]
+        else {
+            panic!("expected id");
+        };
+        assert_eq!(value, "task");
+        assert_eq!(&source[value_range.clone()], "task");
+        assert_eq!(&source[range.clone()], "`@ task\n\n");
+
+        let AttrItem::Class {
+            value,
+            value_range,
+            range,
+        } = &attrs[1]
+        else {
+            panic!("expected class");
+        };
+        assert_eq!(value, "task");
+        assert_eq!(&source[value_range.clone()], "task");
+        assert_eq!(&source[range.clone()], "`+ task\n");
     }
 }
