@@ -366,3 +366,31 @@ database、5 次 cold runs，profiler 只输出 counts、timing 和 `"/proc/self
 Workspace 115 tests 固定 memory/SQLite、invalid source、cache reuse、prune 与 cancel-before-publication behavior。
 这些 process memory observations 包含 allocator、Rayon workers、SQLite page cache 与 runtime，不等同于 syntax
 tree allocation 的精确 retained bytes。
+
+`# 17. Safe CEL task candidate pushdown on 2026-08-30
+
+commits `"6e730b1" 与 `"89abd23" 后，task filter planner 从 CEL Program AST 提取可证明 exact/total 的 leading
+conjunct prefixes，生成 typed candidate IR。Store 只从固定 column/operator/state spelling 生成 SQL，user literals
+全部使用 bind parameters；persistent candidate facts 与 open facts 合并后仍执行完整原始 CEL Program。
+
+第一阶段支持 direct string/integer columns 的 equality、null checks、non-null guarded integer ordering、boolean
+constants，以及不依赖 dependency/open-overlay resolution 的 done/canceled/conflicted/waiting state。Unsupported
+function、ready/blocked/actionable、relation list、path、comprehension 或 unsafe nullable ordering 结束当前 branch
+的提取。Group 内 OR 只有每个 branch 都有 necessary candidate 才下推；planner 在第一个 partial group 后停止，
+不以 later SQL condition 隐藏 earlier CEL error。
+
+`"semantic_store_task_queries_1408" 使用 176 documents、每 document 8 tasks，共 1,408 tasks。Selective workload
+只让每 8 个 documents 中一个 document 的 8 tasks 为 done，共 176 matching tasks；source sort、requested limit
+100 按 document boundary 返回 104 tasks。Criterion release profile 使用 20 samples、1 s warmup 与约 6 s
+measurement，下列数值取 interval midpoint：
+
+`- 无法下推但等价的 `"state in ['done']" full typed-fact scan 为 10.988 ms。
+`- 可下推的 `"state == 'done'" SQL candidate page 为 5.8513 ms，约快 1.88x、latency 降低约 46.7%。
+`- 所有 1,408 tasks 都为 done 的低选择性反例为 13.143 ms；此前不含 candidate pushdown 的同 workload
+ midpoint 为 13.347 ms，未观察到需要 cost gate 的明显回退。
+
+Correctness tests 在非 candidate TaskRecord Bincode 损坏后仍用窄化 identity/closure 与 relation rows 计算 selected
+task 的 blocked/depends facts；bind value 包含 SQL punctuation 时只匹配 exact title。Differential tests 固定
+memory/persistent、open document precedence、nullable not-equal、guarded/unguarded ordering、waiting query instant、
+OR/AND group 和 error source parity。Query-plan test 固定 closed-state candidate 使用 state index；所有 page 仍只
+decode selected full TaskRecords。

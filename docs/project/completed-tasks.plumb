@@ -1376,6 +1376,33 @@
  median 从 276,360 降至 239,960 KiB，约降低 13.2%。完整记录见
  `->[performance benchmark points|performance-benchmarks.plumb]。
 
+`- 将安全 CEL task predicates 下推为 SQLite candidates
+
+ `+ task
+
+ `@ push-safe-task-cel-predicates
+
+ `= created|2026-08-30T00:54:39+08:00
+ `= done|2026-08-30T01:17:12+08:00
+
+ `note CEL adapter 从 Program AST 提取 exact/total leading conjunct prefixes 并生成 typed candidate IR；支持
+ direct string/integer fields 的 equality、null guards、guarded integer ordering、boolean constants，以及
+ closed/waiting state。Ready、blocked、relation lists、path、string functions 与 comprehensions 保持 CEL-only。
+
+ `note Store 从固定 column/operator/state whitelist 生成 Diesel BoxedSqlQuery，所有 literals 使用 typed bind；
+ persistent query 只返回 candidate lightweight facts。全量窄化 identity/closure rows 与 batch relations 保留
+ dependency target、blocked 和 directly_blocking context；open documents 始终执行完整 CEL。
+
+ `note 所有 candidates 最终重新执行原始完整 CEL Program。Tests 固定 nullable runtime error、short-circuit、
+ group OR/source-order AND、memory/SQLite/open-overlay、waiting state、bind injection、relation context、corrupt
+ noncandidate Bincode、query plan 与 selected-record hydration parity。Workspace 126 tests、Web 30 tests、LSP
+ 77 个 stdio tests、全 workspace tests、all-target check 与 Clippy warning gate 通过。
+
+ `note 1,408-task selective-done release benchmark 中，full typed-fact scan midpoint 为 10.988 ms，SQL candidate
+ 为 5.8513 ms，约快 1.88x、latency 降低约 46.7%。所有 tasks 都匹配时 midpoint 为 13.143 ms，未相对
+ 既有 13.347 ms baseline 观察到回退。完整记录见
+ `->[performance benchmark points|performance-benchmarks.plumb]。
+
 `# Neovim plugin
 
 `- 避免 format 后重置 Neovim fold 状态
