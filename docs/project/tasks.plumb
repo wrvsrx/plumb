@@ -3,3 +3,18 @@
 本页只记录可以直接实施和验收的工作。方向、约束和 deferred design 继续放在
 `->[roadmap|roadmap.plumb]；已经结束的任务及其验收记录保存在
 `->[completed tasks|completed-tasks.plumb]。
+
+`- 修复 block identity rename 吞并 declaration layout
+
+ `+ task
+
+ `@ fix-block-identity-rename-range
+
+ `= created|2026-08-30T02:04:34+08:00
+
+ `note `"test.plumb" 中 task 的 direct `"@ task" declaration 被投影为完整 child block range；rename 因
+ `"range.start + 1" 猜测 value boundary，把 `"@"、空行和后续 `"+ task" facet 一并替换。
+
+ `note Syntax attribute projection 增加 exact id/class value range；anchor/task/event fields、prepareRename 与
+ plumb-edit token rewrite 使用该 range。Tests 固定 block/inline identity、indentation、declaration order、
+ source application 与 LSP UTF-16 edit range。

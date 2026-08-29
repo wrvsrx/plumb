@@ -27,7 +27,10 @@ heading 不生成 implicit id。只有 direct `"@" identity declaration 产生 a
 `# 3. Anchors
 
 任意 block/inline syntax owner 的 direct `"@" declaration 产生显式 anchor。document 内 id 必须唯一。
-anchor 保存 source document、id、owner 和 selection range。跨文件 index 只使用最新 valid snapshot。
+anchor 保存 source document、id、owner、完整 declaration provenance 和精确 id value range。跨文件 index 只使用
+最新 valid snapshot。Editor rename 从 id value 触发时，`"prepareRename" range 与 declaration rewrite 必须只覆盖
+decoded id 对应的 source token；不得包含 `"@" marker、boundary padding、layout blank、sibling declaration 或
+owner body。Block 与 inline identity declaration 使用同一个 value-range contract。
 
 `"Add explicit id" authoring operation 只用于 syntax-valid document 中 cursor 命中的最深 marked
 block；paragraph、inline owner、anonymous verbatim block 与已有 id 的 block 不提供 operation。marked

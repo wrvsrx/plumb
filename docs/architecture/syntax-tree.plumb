@@ -40,6 +40,11 @@ declaration children 投影的 `"Attributes" view，以及 optional singular `"R
 children。paragraph 只有 inline content且没有 children/raw payload。anonymous verbatim block 直接暴露
 opener、每行 structural prefix 与 raw payload ranges；它没有 marker、head 或 children。
 
+Projected id/class items 同时保留完整 declaration/member range 与精确 plain value range。完整 range 用于
+ownership、remove/move、persistent source spelling 和 formatting；value range 用于 anchor/task/event fields、
+selection、rename 与其它 token rewrites。Consumer 不得用 `"full_range.start + constant" 猜测 value boundary，
+因为 block declaration 可以包含 indentation、introducer、marker、padding、layout 与 following siblings。
+
 marked block raw tail 的 typed structure 是 owner 上的 optional singular field：quote-run boundary token、
 quote count 与 payload ranges 都直接属于 owner，不产生 anonymous payload child 或额外 ownership node。因而一个 marked block
 可以拥有一个 ordinary anonymous verbatim child，也可以拥有自己的 raw tail，两者在 tree 中不同。

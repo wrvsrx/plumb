@@ -118,6 +118,10 @@ anchor/document rename 是 valid revision 上的机械 token rewrite。它们通
 range 并产生 ordered minimal edits，但不触发 subtree formatting。workspace 继续负责 multi-document
 grouping、expected revisions、resource operations 与 atomicity requirements。
 
+Anchor rename 的 validated range 来自 typed identity value range，不从完整 declaration range 推导。对
+`"`@ task" block declaration，rewrite 只替换 `"task" bytes；marker、padding、line ending、空白分隔与后续
+facet/property siblings 必须逐 byte 保持。Inline `"@[id]" 使用其 first argument value range 遵循同一规则。
+
 raw replacement 只对这种已有 typed token ownership 的机械 rewrite 开放。Block insert/replace/remove/move、
 declaration mutation、conversion 与 formatting 不得使用 raw `"TextEdit::replace" 绕过 owned syntax 或 edit
 session。
