@@ -288,17 +288,17 @@ fn push_block_pair_completion(
         return;
     }
     let new_text = match key {
-        "created" => "`= created|",
-        "due" => "`= due|",
-        "wait" => "`= wait|",
-        "recur" => "`= recur|",
-        "prev" => "`= prev|",
-        "depends" => "`= depends|",
-        "priority" => "`= priority|0",
-        "date" => "`= date|",
-        "timezone" => "`= timezone|",
-        "tasks" => "`= tasks|",
-        "language" => "`= language|",
+        "created" => "`= created | ",
+        "due" => "`= due | ",
+        "wait" => "`= wait | ",
+        "recur" => "`= recur | ",
+        "prev" => "`= prev | ",
+        "depends" => "`= depends | ",
+        "priority" => "`= priority | 0",
+        "date" => "`= date | ",
+        "timezone" => "`= timezone | ",
+        "tasks" => "`= tasks | ",
+        "language" => "`= language | ",
         _ => return,
     };
     candidates.push(AttributeCompletion {
@@ -1256,7 +1256,7 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["prev", "priority"]
         );
-        assert_eq!(context.completions[1].new_text, "`= priority|0");
+        assert_eq!(context.completions[1].new_text, "`= priority | 0");
     }
 
     #[test]
@@ -1270,7 +1270,7 @@ mod tests {
                 .iter()
                 .map(|item| (item.label, item.new_text))
                 .collect::<Vec<_>>(),
-            [("prev", "`= prev|"), ("priority", "`= priority|0")]
+            [("prev", "`= prev | "), ("priority", "`= priority | 0")]
         );
     }
 

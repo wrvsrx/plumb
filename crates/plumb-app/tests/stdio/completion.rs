@@ -682,10 +682,10 @@ fn completes_task_and_event_only_from_the_list_marker() {
     assert!(list_item_items[0]["textEdit"]["newText"]
         .as_str()
         .unwrap()
-        .starts_with("`- ${1:Task}\n\n  `+ task\n\n  `= created|"));
+        .starts_with("`- ${1:Task}\n\n  `+ task\n\n  `= created | "));
     assert_eq!(
         list_item_items[1]["textEdit"]["newText"],
-        "`- ${1:09:00}|${2:Event}\n\n  `+ event"
+        "`- ${1:09:00} | ${2:Event}\n\n  `+ event"
     );
     assert!(response(&output, 6)["result"].is_null());
 
@@ -720,7 +720,7 @@ fn completes_task_and_event_only_from_the_list_marker() {
     assert_eq!(fallback_items.len(), 4);
     assert_eq!(fallback_items[0]["label"], "Task");
     let fallback_task = fallback_items[0]["textEdit"]["newText"].as_str().unwrap();
-    assert!(fallback_task.starts_with("`-\n `+ task\n\n `= created|"));
+    assert!(fallback_task.starts_with("`-\n `+ task\n\n `= created | "));
     assert_eq!(fallback_items[0]["insertTextFormat"], 1);
     assert!(fallback_items[0].get("insertTextMode").is_none());
     std::fs::remove_dir_all(root).unwrap();
@@ -778,7 +778,7 @@ fn projects_nested_task_completion_for_adjusted_indentation() {
         json!({ "start": { "line": 2, "character": 1 }, "end": { "line": 2, "character": 3 } })
     );
     let replacement = items[0]["textEdit"]["newText"].as_str().unwrap();
-    assert!(replacement.starts_with("`- ${1:Task}\n\n `+ task\n\n `= created|"));
+    assert!(replacement.starts_with("`- ${1:Task}\n\n `+ task\n\n `= created | "));
 
     let adjusted = replacement
         .replace("${1:Task}", "Task")
@@ -1004,7 +1004,7 @@ fn completes_attributes_with_protocol_ranges_and_snippets() {
         .iter()
         .find(|item| item["label"] == "priority")
         .unwrap();
-    assert_eq!(priority["textEdit"]["newText"], "`= priority|${1:0}");
+    assert_eq!(priority["textEdit"]["newText"], "`= priority | ${1:0}");
     assert_eq!(priority["textEdit"]["range"]["start"]["character"], 2);
     assert_eq!(priority["insertTextFormat"], 2);
     let image = &response(&output, 3)["result"][0];
@@ -1068,7 +1068,7 @@ fn completes_recursive_direct_members() {
         .iter()
         .find(|item| item["label"] == "priority")
         .unwrap();
-    assert_eq!(priority["textEdit"]["newText"], "`= priority|${1:0}");
+    assert_eq!(priority["textEdit"]["newText"], "`= priority | ${1:0}");
     assert!(response(&output, 3)["result"].is_null());
     std::fs::remove_dir_all(root).unwrap();
 }

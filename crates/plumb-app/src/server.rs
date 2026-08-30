@@ -2647,8 +2647,8 @@ mod tests {
             .join("\n");
 
         assert_eq!(adjusted, absolute.replace("\n\n", "\n \n"));
-        assert!(absolute.contains("\n\n  `= created|"));
-        assert!(relative.contains("\n\n `= created|"));
+        assert!(absolute.contains("\n\n  `= created | "));
+        assert!(relative.contains("\n\n `= created | "));
         assert!(!absolute.contains(" {"));
         assert!(!absolute.contains("\n}"));
         assert!(!relative.contains(" {"));

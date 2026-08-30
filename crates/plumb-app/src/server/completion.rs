@@ -10,8 +10,8 @@ pub(super) fn attribute_completion_text(text: &str, snippets: bool) -> String {
         format!("{prefix}|${{1}}]")
     } else if let Some(prefix) = text.strip_suffix("[]") {
         format!("{prefix}[${{1}}]")
-    } else if text == "`= priority|0" {
-        "`= priority|${1:0}".to_string()
+    } else if text == "`= priority | 0" {
+        "`= priority | ${1:0}".to_string()
     } else if text.ends_with(' ') {
         format!("{text}${{1}}")
     } else {
@@ -106,9 +106,9 @@ pub(super) fn task_construct_template(block_indent: &str, timestamp: &str) -> Co
         label: "Task",
         detail: "plumb task list item",
         snippet: format!(
-            "`- ${{1:Task}}\n\n{block_indent}`+ task\n\n{block_indent}`= created|{timestamp}"
+            "`- ${{1:Task}}\n\n{block_indent}`+ task\n\n{block_indent}`= created | {timestamp}"
         ),
-        plain: format!("`-\n{block_indent}`+ task\n\n{block_indent}`= created|{timestamp}"),
+        plain: format!("`-\n{block_indent}`+ task\n\n{block_indent}`= created | {timestamp}"),
         uses_block_indentation: true,
     }
 }
@@ -117,8 +117,8 @@ fn event_construct_template(block_indent: &str) -> ConstructTemplate {
     ConstructTemplate {
         label: "Event",
         detail: "plumb event list item",
-        snippet: format!("`- ${{1:09:00}}|${{2:Event}}\n\n{block_indent}`+ event"),
-        plain: format!("`- 09:00|Event\n\n{block_indent}`+ event"),
+        snippet: format!("`- ${{1:09:00}} | ${{2:Event}}\n\n{block_indent}`+ event"),
+        plain: format!("`- 09:00 | Event\n\n{block_indent}`+ event"),
         uses_block_indentation: true,
     }
 }
