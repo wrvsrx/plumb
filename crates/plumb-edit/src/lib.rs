@@ -162,6 +162,17 @@ pub fn aligned_associations(entries: &[(&str, &str)]) -> Vec<OwnedBlock> {
     blocks
 }
 
+pub fn render_authored_text_arguments(arguments: &[&str]) -> String {
+    let arguments = arguments
+        .iter()
+        .map(|argument| owned_authored_text(argument))
+        .collect::<Vec<_>>();
+    let head = padded_owned_arguments(arguments);
+    let mut rendered = String::new();
+    render_owned_inlines(&head, false, 0, &mut rendered);
+    rendered
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EditError {
     InvalidRange,
@@ -307,17 +318,9 @@ impl OwnedBlock {
     }
 
     fn padded_association(key: impl Into<String>, value: impl Into<String>) -> Self {
-        let mut head = owned_authored_text(&key.into());
-        head.push(OwnedInline::Space(" ".to_string()));
-        head.push(OwnedInline::ArgumentSeparator);
-        head.push(OwnedInline::Space(" ".to_string()));
-        head.extend(owned_authored_text(&value.into()));
-        Self::Parsed {
-            marker: Some("=".into()),
-            head,
-            children: Vec::new(),
-            raw: None,
-        }
+        let mut block = Self::marked("=", "");
+        block.set_head_text_arguments([key.into(), value.into()]);
+        block
     }
 
     pub fn marked(marker: impl Into<String>, head: impl Into<String>) -> Self {
@@ -468,6 +471,37 @@ impl OwnedBlock {
         if let Self::Parsed { head, .. } = self {
             *head = owned_authored_text(&text.into());
         }
+    }
+
+    pub fn set_head_arguments(&mut self, arguments: Vec<Vec<OwnedInline>>) {
+        if let Self::Parsed { head, .. } = self {
+            *head = padded_owned_arguments(arguments);
+        }
+    }
+
+    pub fn set_head_text_arguments<I, S>(&mut self, arguments: I)
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.set_head_arguments(
+            arguments
+                .into_iter()
+                .map(|argument| owned_authored_text(&argument.into()))
+                .collect(),
+        );
+    }
+
+    pub fn prepend_head_argument(&mut self, argument: Vec<OwnedInline>) {
+        if let Self::Parsed { head, .. } = self {
+            let mut arguments = split_owned_arguments(std::mem::take(head));
+            arguments.insert(0, argument);
+            *head = padded_owned_arguments(arguments);
+        }
+    }
+
+    pub fn prepend_head_text_argument(&mut self, argument: impl Into<String>) {
+        self.prepend_head_argument(owned_authored_text(&argument.into()));
     }
 
     pub fn set_marker(&mut self, value: impl Into<String>) {
@@ -1511,13 +1545,9 @@ fn align_owned_argument_run(blocks: &mut [OwnedBlock], argument_count: usize) {
 }
 
 fn normalized_owned_arguments(head: &[OwnedInline]) -> Vec<Vec<OwnedInline>> {
-    let mut arguments = vec![Vec::new()];
-    for inline in head {
-        if matches!(inline, OwnedInline::ArgumentSeparator) {
-            arguments.push(Vec::new());
-        } else {
-            arguments.last_mut().unwrap().push(inline.clone());
-        }
+    let mut arguments = split_owned_arguments(head.to_vec());
+    if arguments.is_empty() {
+        return arguments;
     }
     let last = arguments.len() - 1;
     for (index, argument) in arguments.iter_mut().enumerate() {
@@ -1529,6 +1559,38 @@ fn normalized_owned_arguments(head: &[OwnedInline]) -> Vec<Vec<OwnedInline>> {
         }
     }
     arguments
+}
+
+fn split_owned_arguments(head: Vec<OwnedInline>) -> Vec<Vec<OwnedInline>> {
+    if head.is_empty() {
+        return Vec::new();
+    }
+    let mut arguments = vec![Vec::new()];
+    for inline in head {
+        if matches!(inline, OwnedInline::ArgumentSeparator) {
+            arguments.push(Vec::new());
+        } else {
+            arguments.last_mut().unwrap().push(inline);
+        }
+    }
+    arguments
+}
+
+fn padded_owned_arguments(mut arguments: Vec<Vec<OwnedInline>>) -> Vec<OwnedInline> {
+    for argument in &mut arguments {
+        trim_owned_padding_start(argument);
+        trim_owned_padding_end(argument);
+    }
+    let mut head = Vec::new();
+    for (index, argument) in arguments.into_iter().enumerate() {
+        if index > 0 {
+            head.push(OwnedInline::Space(" ".to_string()));
+            head.push(OwnedInline::ArgumentSeparator);
+            head.push(OwnedInline::Space(" ".to_string()));
+        }
+        head.extend(argument);
+    }
+    head
 }
 
 fn trim_owned_padding_start(argument: &mut Vec<OwnedInline>) {
@@ -2130,6 +2192,33 @@ mod tests {
             formatted,
             "`= title   | Example\n`= created | 2026-08-26T00:00:00+08:00\n"
         );
+    }
+
+    #[test]
+    fn structured_arguments_share_one_padding_renderer() {
+        assert_eq!(
+            render_authored_text_arguments(&["09:00", "Event"]),
+            "09:00 | Event"
+        );
+        assert_eq!(
+            render_authored_text_arguments(&["key|part", "value[part]"]),
+            "key`|part | value`[part`]"
+        );
+
+        let mut event = OwnedBlock::marked("-", "old");
+        event.set_head_text_arguments(["09:00", "Event"]);
+        assert_eq!(event.format().unwrap(), "`- 09:00 | Event\n");
+    }
+
+    #[test]
+    fn prepending_a_structured_argument_preserves_rich_title_content() {
+        let source = "`- title `*[rich]\n";
+        let parsed = parse(source);
+        let mut owned = OwnedBlock::from_syntax(source, &parsed.syntax.blocks[0]);
+        owned.prepend_head_text_argument("09:00");
+        let formatted = owned.format().unwrap();
+        assert_eq!(formatted, "`- 09:00 | title `*[rich]\n");
+        assert!(parse(&formatted).is_valid(), "{formatted}");
     }
 
     #[test]
