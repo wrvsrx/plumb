@@ -256,6 +256,10 @@ title value 不定义 document identity。named Link、Autolink 与 task referen
 可以从 declaration 或任意 reference occurrence 发起。跨文件 `"`path.plumb#id" 的 path 与 fragment
 按 cursor 所在 component 分别查询 document 与 anchor references。`"includeDeclaration" 只控制结果中
 是否额外包含 document offset 0 或 explicit anchor declaration，不因 request position 改变 occurrence 集合。
+reference occurrence identity 是 source document 与被查询 target component 的精确 source range。同一个
+Link source node 即使同时投影为 event-to-task association 等 relation fact，也只产生一个 navigation、
+CodeLens 和 rename occurrence；不同 source ranges 仍分别计数。relation query 可以保留同一 source node
+产生的不同 semantic roles，但不得把它们重复投影为 source occurrences。
 document reverse references 保留真实 same-document occurrences；Graph 等 consumer 可以独立隐藏 self-edge。
 
 `# 8. Images

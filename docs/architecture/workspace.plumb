@@ -98,6 +98,10 @@ occurrences；Graph 等 consumer 可以按自己的 edge policy 隐藏 self-edge
 生成 lenses，count 与 command locations 来自同一次 query，避免 UI title 与执行结果偏移。一个 document 的
 CodeLens projection 必须通过一次 batched reverse-reference query 同时取得 document occurrence 与所有 direct
 explicit-anchor occurrences，不得为每个 anchor 重新遍历 workspace records。
+workspace query composition 以 source document 与被查询 target component 的精确 source range 作为
+occurrence identity，并在 persistent rows 与 open overlay 合并后统一去重。一个 Link 同时作为普通 link
+record 和 event-to-task association 的 source 时仍只产生一个 occurrence；adapter 与 rename operation
+不得各自补做不同的去重规则。
 `"plumb.showReferences" 是 client-side command，不把 editor UI 行为放入 protocol-neutral workspace。
 
 workspace identity 使用 normalized document path/URI boundary。跨文件 query 必须说明 index
