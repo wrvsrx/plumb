@@ -3,6 +3,7 @@ use std::{collections::HashMap, ops::Range};
 use plumb_syntax::{
     AttrItem, Attributes, Block, Inline, InlineMember, ParsedBlock, ParsedDocument,
 };
+use unicode_width::UnicodeWidthStr;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TextEdit {
@@ -69,6 +70,112 @@ pub fn format(parsed: &ParsedDocument, scope: FormatScope) -> Result<Vec<TextEdi
             new_text: edit.new_text,
         })
         .collect())
+}
+
+pub fn align_block_arguments(
+    parsed: &ParsedDocument,
+    offset: usize,
+) -> Result<Vec<TextEdit>, EditError> {
+    if parsed.valid_syntax().is_none() || offset > parsed.source.len() {
+        return Ok(Vec::new());
+    }
+    let Some((siblings, index)) = deepest_sibling_at(&parsed.syntax.blocks, offset) else {
+        return Ok(Vec::new());
+    };
+    let Some((marker, argument_count)) = alignment_shape(&parsed.source, &siblings[index]) else {
+        return Ok(Vec::new());
+    };
+
+    let same_shape = |block: &Block| {
+        alignment_shape(&parsed.source, block)
+            .is_some_and(|shape| shape == (marker, argument_count))
+    };
+    let start = (0..index)
+        .rev()
+        .take_while(|candidate| same_shape(&siblings[*candidate]))
+        .last()
+        .unwrap_or(index);
+    let end = (index + 1..siblings.len())
+        .take_while(|candidate| same_shape(&siblings[*candidate]))
+        .last()
+        .map_or(index + 1, |candidate| candidate + 1);
+    if end - start < 2 {
+        return Ok(Vec::new());
+    }
+
+    let blocks = siblings[start..end]
+        .iter()
+        .map(|block| match block {
+            Block::Parsed(block) => block,
+            Block::Verbatim(_) => unreachable!("alignment shape accepts only parsed blocks"),
+        })
+        .collect::<Vec<_>>();
+    let mut widths = vec![0; argument_count - 1];
+    for block in &blocks {
+        for (column, maximum) in widths.iter_mut().enumerate() {
+            *maximum = (*maximum).max(argument_alignment_width(&parsed.source, block, column));
+        }
+    }
+
+    let mut edits = Vec::new();
+    for block in blocks {
+        for column in 0..argument_count {
+            let raw = &block.head.arguments[column].range;
+            let content = block
+                .head
+                .argument(column)
+                .filter(|content| !content.items.is_empty());
+            let leading = content
+                .as_ref()
+                .map_or_else(|| raw.clone(), |content| raw.start..content.range.start);
+            let trailing = content
+                .as_ref()
+                .map_or_else(|| raw.clone(), |content| content.range.end..raw.end);
+            let leading_spaces = usize::from(column > 0);
+            let trailing_spaces = (column + 1 < argument_count).then(|| {
+                widths[column] - argument_alignment_width(&parsed.source, block, column) + 1
+            });
+
+            if content.is_none() {
+                let spaces = leading_spaces + trailing_spaces.unwrap_or(0);
+                push_changed_padding_edit(parsed, &mut edits, raw.clone(), spaces)?;
+                continue;
+            }
+            if column > 0 {
+                push_changed_padding_edit(parsed, &mut edits, leading, leading_spaces)?;
+            }
+            if let Some(spaces) = trailing_spaces {
+                push_changed_padding_edit(parsed, &mut edits, trailing, spaces)?;
+            }
+        }
+    }
+    edits.sort_by_key(|edit| edit.range.start);
+    Ok(edits)
+}
+
+pub fn aligned_associations(entries: &[(&str, &str)]) -> Vec<OwnedBlock> {
+    let widths = entries
+        .iter()
+        .map(|(key, _)| UnicodeWidthStr::width(escape_authored_text(key).as_str()))
+        .collect::<Vec<_>>();
+    let maximum = widths.iter().copied().max().unwrap_or(0);
+    entries
+        .iter()
+        .zip(widths)
+        .map(|((key, value), width)| {
+            let mut head = owned_authored_text(key);
+            head.push(OwnedInline::Space(" ".repeat(maximum - width + 1)));
+            head.push(OwnedInline::ArgumentSeparator);
+            head.push(OwnedInline::Space(" ".to_string()));
+            head.extend(owned_authored_text(value));
+            OwnedBlock::Parsed {
+                marker: Some("=".to_string()),
+                head,
+                children: Vec::new(),
+                raw: None,
+            }
+        })
+        .collect()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1195,6 +1302,66 @@ fn parsed_block_with_range<'a>(
     None
 }
 
+fn deepest_sibling_at(blocks: &[Block], offset: usize) -> Option<(&[Block], usize)> {
+    for (index, block) in blocks.iter().enumerate() {
+        if block.range().start <= offset && offset <= block.range().end {
+            if let Some(found) = deepest_sibling_at(block.children(), offset) {
+                return Some(found);
+            }
+            return Some((blocks, index));
+        }
+    }
+    None
+}
+
+fn alignment_shape<'a>(source: &str, block: &'a Block) -> Option<(&'a str, usize)> {
+    let Block::Parsed(block) = block else {
+        return None;
+    };
+    let marker = block.mark.as_ref()?.marker.as_str();
+    let argument_count = block.head.arguments.len();
+    let head = &source[block.head.range.clone()];
+    (block.children.is_empty()
+        && block.raw.is_none()
+        && argument_count >= 2
+        && !head.contains(['\r', '\n', '\t']))
+    .then_some((marker, argument_count))
+}
+
+fn argument_alignment_width(source: &str, block: &ParsedBlock, column: usize) -> usize {
+    let raw = &block.head.arguments[column].range;
+    let content = block
+        .head
+        .argument(column)
+        .filter(|content| !content.items.is_empty());
+    if column == 0 {
+        let line_start = source[..block.range.start]
+            .rfind('\n')
+            .map_or(0, |newline| newline + 1);
+        let content_end = content
+            .as_ref()
+            .map_or(raw.start, |content| content.range.end);
+        UnicodeWidthStr::width(&source[line_start..content_end])
+    } else {
+        content.as_ref().map_or(0, |content| {
+            UnicodeWidthStr::width(&source[content.range.clone()])
+        })
+    }
+}
+
+fn push_changed_padding_edit(
+    parsed: &ParsedDocument,
+    edits: &mut Vec<TextEdit>,
+    range: Range<usize>,
+    spaces: usize,
+) -> Result<(), EditError> {
+    let replacement = " ".repeat(spaces);
+    if parsed.source[range.clone()] != replacement {
+        edits.push(TextEdit::replace(parsed, range, replacement)?);
+    }
+    Ok(())
+}
+
 fn trailing_line_breaks(source: &str) -> usize {
     source
         .as_bytes()
@@ -1674,6 +1841,100 @@ mod tests {
             assert!(output.starts_with("`owner[|"), "{output}");
             assert!(parse(format!("{output}\n")).is_valid(), "{output}");
         }
+    }
+
+    #[test]
+    fn aligns_all_argument_columns_by_unicode_display_width() {
+        let source = "`row 名|一|x\n`row alphabet | 二二 |yy\n";
+        let parsed = parse(source);
+        let edits = align_block_arguments(&parsed, source.find('名').unwrap()).unwrap();
+        let aligned = apply_text_edits(source.to_string(), edits).unwrap();
+        assert_eq!(
+            aligned,
+            "`row 名       | 一   | x\n`row alphabet | 二二 | yy\n"
+        );
+        assert!(
+            align_block_arguments(&parse(&aligned), aligned.find('名').unwrap())
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn alignment_uses_combining_width_and_stays_within_the_maximal_sibling_run() {
+        let source =
+            "`outer\n `row e\u{301}|x\n `row 界|yy\n `other break|run\n `row a|z\n `row aa|zz\n";
+        let parsed = parse(source);
+        let edits = align_block_arguments(&parsed, source.find("e\u{301}").unwrap()).unwrap();
+        let aligned = apply_text_edits(source.to_string(), edits).unwrap();
+        assert!(aligned.contains(" `row e\u{301}  | x\n `row 界 | yy\n"));
+        assert!(aligned.contains(" `row a|z\n `row aa|zz\n"));
+    }
+
+    #[test]
+    fn alignment_is_unavailable_for_ineligible_or_already_aligned_runs() {
+        for source in [
+            "`row a  | b\n`row aa | b\n",
+            "`row a\t|b\n`row aa|b\n",
+            "`row a|b\n`row aa|b\n `child detail\n",
+            "`row a|b\n`row aa|b\n\n|\"\n payload\n",
+        ] {
+            let parsed = parse(source);
+            assert!(parsed.is_valid(), "{source:?}: {:?}", parsed.diagnostics);
+            assert!(align_block_arguments(&parsed, source.find("row").unwrap())
+                .unwrap()
+                .is_empty());
+        }
+    }
+
+    #[test]
+    fn alignment_preserves_empty_arguments_and_escaped_boundary_spaces() {
+        let source =
+            "`row |x||z\n`row long|yy|q|z\n`other break|run\n`row ` a` |x\n`row longer|y\n";
+        let parsed = parse(source);
+        let before = parsed.syntax.blocks[..2]
+            .iter()
+            .map(|block| match block {
+                Block::Parsed(block) => (0..block.head.arguments.len())
+                    .map(|index| block.head.argument_plain_text(index).unwrap())
+                    .collect::<Vec<_>>(),
+                Block::Verbatim(_) => unreachable!(),
+            })
+            .collect::<Vec<_>>();
+        let edits = align_block_arguments(&parsed, source.find("|x||").unwrap()).unwrap();
+        let aligned = apply_text_edits(source.to_string(), edits).unwrap();
+        let reparsed = parse(&aligned);
+        let after = reparsed.syntax.blocks[..2]
+            .iter()
+            .map(|block| match block {
+                Block::Parsed(block) => (0..block.head.arguments.len())
+                    .map(|index| block.head.argument_plain_text(index).unwrap())
+                    .collect::<Vec<_>>(),
+                Block::Verbatim(_) => unreachable!(),
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(after, before);
+
+        let escaped = aligned.find("` a` ").unwrap();
+        let escaped_edits = align_block_arguments(&reparsed, escaped).unwrap();
+        let escaped_aligned = apply_text_edits(aligned, escaped_edits).unwrap();
+        assert!(
+            escaped_aligned.contains("`row ` a`   | x\n"),
+            "{escaped_aligned:?}"
+        );
+    }
+
+    #[test]
+    fn creates_aligned_association_groups() {
+        let metadata = aligned_associations(&[
+            ("title", "Example"),
+            ("created", "2026-08-26T00:00:00+08:00"),
+        ]);
+        let formatted = format_owned_blocks(&metadata, "\n").unwrap();
+        assert_eq!(
+            formatted,
+            "`= title   | Example\n`= created | 2026-08-26T00:00:00+08:00\n"
+        );
     }
 
     #[test]

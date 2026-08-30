@@ -1850,6 +1850,7 @@ version = "0.36.2-dev"
 dependencies = [
  "plumb-format",
  "plumb-syntax",
+ "unicode-width 0.2.2",
 ]
 
 [[package]]

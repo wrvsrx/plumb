@@ -7,3 +7,4 @@ license.workspace = true
 [dependencies]
 plumb-syntax = { path = "../plumb-syntax" }
 plumb-format = { path = "../plumb-format" }
+unicode-width.workspace = true
