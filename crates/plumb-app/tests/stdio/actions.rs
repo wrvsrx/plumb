@@ -496,7 +496,7 @@ fn converts_event_shorthand_with_a_refactor_action() {
     assert_eq!(change["textDocument"]["version"], 3);
     let replacement = change["edits"][0]["newText"].as_str().unwrap();
     assert!(
-        replacement.starts_with("`- 11:10--11:20|relax: `\"phone\"\n"),
+        replacement.starts_with("`- 11:10--11:20 | relax: `\"phone\"\n"),
         "{replacement}"
     );
     assert!(replacement.contains(" `+ event\n"), "{replacement}");
@@ -576,9 +576,9 @@ fn converts_selected_event_shorthands_with_a_refactor_action() {
         .collect::<String>();
     assert_eq!(replacements.matches("`+ event").count(), 3);
     assert!(!replacements.contains("@plumb.local"));
-    assert!(replacements.contains("`- 10:00--10:20|first\n"));
-    assert!(replacements.contains("`- 10:20--10:30|second\n"));
-    assert!(replacements.contains("`- 10:30--10:40|third\n"));
+    assert!(replacements.contains("`- 10:00--10:20 | first\n"));
+    assert!(replacements.contains("`- 10:20--10:30 | second\n"));
+    assert!(replacements.contains("`- 10:30--10:40 | third\n"));
 }
 
 #[test]
@@ -812,7 +812,7 @@ fn recurring_task_action_closes_current_and_appends_next_instance() {
     assert_eq!(edits.len(), 1);
     let replacement = edits[0]["newText"].as_str().unwrap();
     assert!(replacement.contains("`@ weekly-review-2026-07-20"));
-    assert!(replacement.contains("`= done|"));
+    assert!(replacement.contains("`= done | "));
     assert!(replacement.contains("`@ weekly-review-2026-07-27"));
     assert!(replacement.contains("`= due     | 2026-07-27T09:00:00+08:00"));
     assert!(replacement.contains("`= prev    | #weekly-review-2026-07-20"));
@@ -920,7 +920,7 @@ fn canceling_a_recurring_task_appends_the_next_instance() {
     assert_eq!(edits.len(), 1);
     let replacement = edits[0]["newText"].as_str().unwrap();
     assert!(replacement.contains("`@ weekly-review-2026-07-20"));
-    assert!(replacement.contains("`= canceled|"));
+    assert!(replacement.contains("`= canceled | "));
     assert!(replacement.contains("`@ weekly-review-2026-07-27"));
     assert!(replacement.contains("`= due     | 2026-07-27T09:00:00+08:00"));
     assert!(replacement.contains("`= prev    | #weekly-review-2026-07-20"));

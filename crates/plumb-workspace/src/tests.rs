@@ -2372,7 +2372,7 @@ fn task_status_formats_the_complete_owner_subtree() {
     let edited = apply_single_edit(source, &operation);
 
     assert!(edited.contains("`@ parent"));
-    assert!(edited.contains("`= done|2026-07-21T22:00:00+08:00"));
+    assert!(edited.contains("`= done | 2026-07-21T22:00:00+08:00"));
     assert!(edited.contains("\n `- Child\n\n`# Following"));
     assert_eq!(plumb_format::format(&edited).unwrap(), edited);
 }
@@ -2393,7 +2393,7 @@ fn task_authoring_operations_convert_items_and_add_created() {
     let mut converted = source.to_string();
     converted.replace_range(edit.range.clone(), &edit.new_text);
     assert!(
-        converted.contains(" `- Nested\n\n  `+ task\n\n  `= created|2026-07-20T10:00:00+08:00\n")
+        converted.contains(" `- Nested\n\n  `+ task\n\n  `= created | 2026-07-20T10:00:00+08:00\n")
     );
 
     let outer_conversion = workspace
@@ -2403,7 +2403,7 @@ fn task_authoring_operations_convert_items_and_add_created() {
             outer_conversion.document_changes[0].edits[0]
                 .new_text
                 .contains(
-                "`- Outer\n\n `+ task\n\n `@ outer\n\n `+ keep\n\n `= created|2026-07-20T10:00:00+08:00\n"
+                "`- Outer\n\n `+ task\n\n `@ outer\n\n `+ keep\n\n `= created | 2026-07-20T10:00:00+08:00\n"
             ),
             "{}",
             outer_conversion.document_changes[0].edits[0].new_text
@@ -2640,7 +2640,7 @@ fn task_status_cursor_falls_back_from_closed_child_to_open_parent() {
     let mut edited = source.to_string();
     edited.replace_range(operation.range.clone(), &operation.new_text);
     assert!(edited.contains("`@ outer"));
-    assert!(edited.contains("`= done|2026-07-20T12:00:00Z"));
+    assert!(edited.contains("`= done | 2026-07-20T12:00:00Z"));
     assert_eq!(edited.matches("`= done|2026-07-20T09:00:00Z").count(), 1);
     assert!(matches!(
         workspace.set_task_status_by_id(
@@ -2728,7 +2728,7 @@ fn recurring_task_status_advances_and_clones_the_task_losslessly() {
     }
 
     assert!(edited.contains("`@ monthly-review-2026-01-31"));
-    assert!(edited.contains("`= done|2026-01-31T10:00:00+08:00"));
+    assert!(edited.contains("`= done | 2026-01-31T10:00:00+08:00"));
     assert!(edited.contains("`@ monthly-review-2026-02-28"));
     assert!(edited.contains("`= created | 2026-01-31T10:00:00+08:00"));
     assert!(edited.contains("`= due     | 2026-02-28T09:00:00+08:00"));
@@ -3228,7 +3228,7 @@ fn converts_event_shorthand_list_item_in_place() {
     assert!(!converted.contains("event-uids"), "{converted}");
     assert!(converted.contains("`= date     | 2026-05-21"));
     assert!(converted.contains("`= timezone | +08:00"));
-    assert!(converted.contains("`- 11:10--11:20|relax: phone\n\n `+ event\n"));
+    assert!(converted.contains("`- 11:10--11:20 | relax: phone\n\n `+ event\n"));
     assert!(!converted.contains("start="));
     assert!(!converted.contains("end="));
     assert_eq!(plumb_format::format(&converted).unwrap(), converted);
@@ -3246,7 +3246,7 @@ fn converts_event_shorthand_list_item_in_place() {
     assert!(kept.contains("`+ kind"), "{kept}");
     assert!(kept.contains("\n `+ event\n"), "{kept}");
     assert!(
-        kept.contains("`- 11:00--11:20|review\n\n `+ event\n"),
+        kept.contains("`- 11:00--11:20 | review\n\n `+ event\n"),
         "{kept}"
     );
 
@@ -3261,7 +3261,7 @@ fn converts_event_shorthand_list_item_in_place() {
             .unwrap(),
     );
     assert!(
-            rich.contains("`- 11:00|wheel: distinguish `code[|\"[nix develop]\"|=[language|sh]] and `*[normal] shell\n\n `+ event\n"),
+            rich.contains("`- 11:00 | wheel: distinguish `code[|\"[nix develop]\"|=[language|sh]] and `*[normal] shell\n\n `+ event\n"),
             "{rich}"
         );
 
@@ -3298,8 +3298,8 @@ fn converts_selected_event_shorthands_in_one_edit() {
     .unwrap();
     assert_eq!(converted.matches("`+ event").count(), 3, "{converted}");
     assert!(!converted.contains("event-uids"), "{converted}");
-    assert!(converted.contains("`- 10:00--10:20|first\n\n `+ event\n"));
-    assert!(converted.contains("`- 10:20--10:30|second `\"code\"\n\n `+ event\n"));
+    assert!(converted.contains("`- 10:00--10:20 | first\n\n `+ event\n"));
+    assert!(converted.contains("`- 10:20--10:30 | second `\"code\"\n\n `+ event\n"));
     assert!(converted.contains("`- ordinary item"));
     assert!(!converted.contains("date=2026-08-01"));
     assert!(!converted.contains("timezone=\"+08:00\""));
@@ -3334,7 +3334,7 @@ fn infers_open_event_ends_from_adjacent_selected_siblings() {
     )
     .unwrap();
     assert!(
-        converted.contains("`- 18:00--18:30|事件 1\n\n `+ event\n"),
+        converted.contains("`- 18:00--18:30 | 事件 1\n\n `+ event\n"),
         "{converted}"
     );
     assert!(converted.contains("`- 18:30-- 事件 2"), "{converted}");
@@ -3347,7 +3347,7 @@ fn infers_open_event_ends_from_adjacent_selected_siblings() {
     let first_converted =
         apply_text_edits(source.to_string(), first.document_changes[0].edits.clone()).unwrap();
     assert!(
-        first_converted.contains("`- 18:00--18:30|事件 1\n\n `+ event\n"),
+        first_converted.contains("`- 18:00--18:30 | 事件 1\n\n `+ event\n"),
         "{first_converted}"
     );
     assert_eq!(
@@ -3372,15 +3372,15 @@ fn infers_open_event_ends_from_adjacent_selected_siblings() {
     )
     .unwrap();
     assert!(
-        chained.contains("`- 18:00--18:30|first\n\n `+ event\n"),
+        chained.contains("`- 18:00--18:30 | first\n\n `+ event\n"),
         "{chained}"
     );
     assert!(
-        chained.contains("`- 18:30--19:00|second\n\n `+ event\n"),
+        chained.contains("`- 18:30--19:00 | second\n\n `+ event\n"),
         "{chained}"
     );
     assert!(
-        chained.contains("`- 19:00--20:00|third\n\n `+ event\n"),
+        chained.contains("`- 19:00--20:00 | third\n\n `+ event\n"),
         "{chained}"
     );
     assert_eq!(chained.matches("`+ event").count(), 3, "{chained}");
@@ -3420,7 +3420,7 @@ fn creates_updates_and_deletes_events_with_guarded_canonical_edits() {
     assert!(!created_source.contains("#e0001"), "{created_source}");
     assert!(!created_source.contains("event-uids"), "{created_source}");
     assert!(
-        created_source.contains("`- 14:00--15:00|Review\n\n `+ event\n"),
+        created_source.contains("`- 14:00--15:00 | Review\n\n `+ event\n"),
         "{created_source}"
     );
     assert!(
@@ -3448,7 +3448,7 @@ fn creates_updates_and_deletes_events_with_guarded_canonical_edits() {
         .unwrap();
     let multi_day_source = apply_single_edit(source, &multi_day);
     assert!(
-        multi_day_source.contains("`- 14:00--2026-08-02T14:00|Conference\n\n `+ event\n"),
+        multi_day_source.contains("`- 14:00--2026-08-02T14:00 | Conference\n\n `+ event\n"),
         "{multi_day_source}"
     );
     let multi_day_parsed = plumb_syntax::parse(multi_day_source);
@@ -3481,7 +3481,7 @@ fn creates_updates_and_deletes_events_with_guarded_canonical_edits() {
     let updated_source = apply_single_edit(&created_source, &updated);
     assert!(updated_source.contains("Updated review"));
     assert!(
-        updated_source.contains("`- 16:00|Updated review\n\n `+ event\n"),
+        updated_source.contains("`- 16:00 | Updated review\n\n `+ event\n"),
         "{updated_source}"
     );
     assert!(!updated_source.contains("tasks.plumb#write"));
@@ -3528,7 +3528,7 @@ fn creates_updates_and_deletes_events_with_guarded_canonical_edits() {
         "{recreated_source}"
     );
     assert!(
-        recreated_source.contains("`- 17:00|Next\n\n `+ event\n"),
+        recreated_source.contains("`- 17:00 | Next\n\n `+ event\n"),
         "{recreated_source}"
     );
 
@@ -3581,7 +3581,7 @@ fn updating_an_event_preserves_semantic_uid_and_opaque_when_property() {
     assert!(updated.contains("`= uid|legacy@example"), "{updated}");
     assert!(updated.contains("`= when|14:00"), "{updated}");
     assert!(
-        updated.contains("`- 15:00|Updated\n\n `+ event\n"),
+        updated.contains("`- 15:00 | Updated\n\n `+ event\n"),
         "{updated}"
     );
 }

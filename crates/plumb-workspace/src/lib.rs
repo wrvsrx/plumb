@@ -4262,7 +4262,12 @@ fn set_event_head(owned: &mut OwnedBlock, input: &EventInput) {
     };
     head.splice(
         0..0,
-        [OwnedInline::Text(schedule), OwnedInline::ArgumentSeparator],
+        [
+            OwnedInline::Text(schedule),
+            OwnedInline::Space(" ".to_string()),
+            OwnedInline::ArgumentSeparator,
+            OwnedInline::Space(" ".to_string()),
+        ],
     );
 }
 
@@ -4274,7 +4279,12 @@ fn prepend_event_schedule(owned: &mut OwnedBlock, input: &EventInput) {
     };
     head.splice(
         0..0,
-        [OwnedInline::Text(schedule), OwnedInline::ArgumentSeparator],
+        [
+            OwnedInline::Text(schedule),
+            OwnedInline::Space(" ".to_string()),
+            OwnedInline::ArgumentSeparator,
+            OwnedInline::Space(" ".to_string()),
+        ],
     );
 }
 

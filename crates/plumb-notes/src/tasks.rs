@@ -399,7 +399,7 @@ mod tests {
         )
         .unwrap();
         let updated = std::fs::read_to_string(path).unwrap();
-        assert!(updated.contains("`= done|2026-07-20T12:00:00+08:00"));
+        assert!(updated.contains("`= done | 2026-07-20T12:00:00+08:00"));
         std::fs::remove_dir_all(root).unwrap();
     }
 
@@ -440,10 +440,12 @@ mod tests {
         )
         .unwrap();
 
-        assert!(std::fs::read_to_string(first).unwrap().contains("`= done|"));
+        assert!(std::fs::read_to_string(first)
+            .unwrap()
+            .contains("`= done | "));
         assert!(std::fs::read_to_string(second)
             .unwrap()
-            .contains("`= done|"));
+            .contains("`= done | "));
         std::fs::remove_dir_all(root).unwrap();
     }
 
