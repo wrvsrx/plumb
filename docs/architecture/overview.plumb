@@ -196,6 +196,10 @@ materialize document entry，并在该 Web revision 内复用。旧 snapshot 不
 因此后续 filesystem change 不能改变进行中 request 观察到的 source 或 semantic output。
 
 统一 binary 可以依赖共享 layers，但 shared libraries 不能依赖 CLI protocol types。
+`"plumb-semantics" 可以依赖 `"plumb-edit" 的 semantics-neutral owned argument data/纯 authored-fragment
+renderer，以便 recovered completion 与 valid-tree operations 共享 authoring spelling；semantic analysis 不得
+因此启动 formatter、创建 `"EditSession" 或应用 edits。`"plumb-edit" 继续不依赖 `"plumb-semantics"，避免
+authoring policy 反向取得 semantic authority。
 
 Web presentation 不得取得或持有无界 event collection。Agenda 使用 server-side 有界 cursor page：没有显式
 selection 时初始 page 锚定当前时间并分别取得相邻的 earlier/later records；显式 selection 位于当前 page
