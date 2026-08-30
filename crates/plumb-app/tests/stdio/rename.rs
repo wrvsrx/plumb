@@ -328,6 +328,76 @@ fn task_references_support_navigation_and_rename() {
 }
 
 #[test]
+fn event_task_link_is_one_code_lens_reference_and_one_rename_edit() {
+    let root = unique_temp_dir();
+    std::fs::create_dir_all(&root).unwrap();
+    let target = root.join("tasks.plumb");
+    let source = root.join("events.plumb");
+    let target_text = "`- Target\n\n `+ task\n\n `@ target\n";
+    let source_text = "`- 2026-08-28T10:00|Linked `->[Target|tasks.plumb#target]\n\n `+ event\n";
+    std::fs::write(&target, target_text).unwrap();
+    std::fs::write(&source, source_text).unwrap();
+    let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
+    let target_uri = lsp_types::Url::from_file_path(&target).unwrap();
+    let source_uri = lsp_types::Url::from_file_path(&source).unwrap();
+    let target_id = source_position(target_text, "target", 0);
+    let messages = [
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {
+                "processId": null,
+                "rootUri": root_uri,
+                "workspaceFolders": [{ "uri": root_uri, "name": "test" }],
+                "capabilities": { "workspace": { "workspaceEdit": {
+                    "documentChanges": true
+                } } }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": {
+                "uri": source_uri, "languageId": "plumb", "version": 1, "text": source_text
+            }}
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 2, "method": "textDocument/codeLens",
+            "params": { "textDocument": { "uri": target_uri } }
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 3, "method": "textDocument/rename",
+            "params": {
+                "textDocument": { "uri": target_uri },
+                "position": { "line": target_id.0, "character": target_id.1 },
+                "newName": "renamed"
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 4, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+
+    let output = run_server_after_initial_index(&messages);
+    let lenses = response(&output, 2)["result"].as_array().unwrap();
+    assert_eq!(lenses[1]["command"]["title"], "1 reference");
+    let changes = response(&output, 3)["result"]["documentChanges"]
+        .as_array()
+        .unwrap();
+    assert_eq!(changes.len(), 2);
+    assert_eq!(
+        changes
+            .iter()
+            .find(|change| change["textDocument"]["uri"] == source_uri.as_str())
+            .unwrap()["edits"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn path_rename_is_optimistic_and_reconciles_failed_client_application() {
     let root = unique_temp_dir();
     std::fs::create_dir_all(&root).unwrap();

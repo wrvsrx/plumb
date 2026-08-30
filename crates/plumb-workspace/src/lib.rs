@@ -1063,6 +1063,10 @@ impl Workspace {
                 .cmp(&right.0)
                 .then(left.1.source_range.start.cmp(&right.1.source_range.start))
         });
+        let mut seen = HashSet::new();
+        references.retain(|(path, reference)| {
+            seen.insert(reference_occurrence_key(path, &reference.id_range))
+        });
         Ok(self.query_result(references))
     }
 
@@ -1072,18 +1076,25 @@ impl Workspace {
     ) -> Result<QueryResult<Vec<(PathBuf, DocumentReference)>>, WorkspaceQueryError> {
         let target_path = normalize(target_path.as_ref());
         let mut references = Vec::new();
+        let mut seen = HashSet::new();
         if let Some(store) = &self.disk_store {
             let open = self.open_paths();
             let stored = store.references_to(&target_path, None, &open)?;
-            references.extend(stored.into_iter().map(|reference| {
-                (
+            for reference in stored {
+                let component_range = reference
+                    .path_range
+                    .clone()
+                    .or(reference.id_range.clone())
+                    .unwrap_or_else(|| reference.source_range.clone());
+                push_document_reference(
+                    &mut references,
+                    &mut seen,
                     reference.source_path,
-                    DocumentReference {
-                        source_range: reference.source_range,
-                        target_path: target_path.clone(),
-                    },
-                )
-            }));
+                    reference.source_range,
+                    component_range,
+                    &target_path,
+                );
+            }
             {
                 let anchors = store.anchors(&[])?;
                 let mut ids = anchors
@@ -1098,15 +1109,21 @@ impl Workspace {
                         continue;
                     }
                     let stored = store.references_to(&target_path, Some(&id), &open)?;
-                    references.extend(stored.into_iter().map(|reference| {
-                        (
+                    for reference in stored {
+                        let component_range = reference
+                            .path_range
+                            .clone()
+                            .or(reference.id_range.clone())
+                            .unwrap_or_else(|| reference.source_range.clone());
+                        push_document_reference(
+                            &mut references,
+                            &mut seen,
                             reference.source_path,
-                            DocumentReference {
-                                source_range: reference.source_range,
-                                target_path: target_path.clone(),
-                            },
-                        )
-                    }));
+                            reference.source_range,
+                            component_range,
+                            &target_path,
+                        );
+                    }
                 }
             }
         }
@@ -1118,30 +1135,40 @@ impl Workspace {
                 if resolved_document_path(self.resolve_link_value(&entry.path, link)?).as_ref()
                     == Some(&target_path)
                 {
-                    references.push((
+                    let component_range = link
+                        .path_range
+                        .clone()
+                        .or(link.fragment_range.clone())
+                        .unwrap_or_else(|| link.target.range.clone());
+                    push_document_reference(
+                        &mut references,
+                        &mut seen,
                         entry.path.clone(),
-                        DocumentReference {
-                            source_range: link.selection_range.clone(),
-                            target_path: target_path.clone(),
-                        },
-                    ));
+                        link.selection_range.clone(),
+                        component_range,
+                        &target_path,
+                    );
                 }
             }
             for task in &current.output.tasks.tasks {
-                for (_, range, target) in task_reference_fields(task) {
+                for (source, range, target) in task_reference_fields(task) {
                     if resolved_document_path(
                         self.resolve_task_reference_target(&entry.path, &target)?,
                     )
                     .as_ref()
                         == Some(&target_path)
                     {
-                        references.push((
+                        let (document_range, _) =
+                            task_reference_component_ranges(source, range, &target)
+                                .unwrap_or_else(|| (range.clone(), range.clone()));
+                        push_document_reference(
+                            &mut references,
+                            &mut seen,
                             entry.path.clone(),
-                            DocumentReference {
-                                source_range: range.clone(),
-                                target_path: target_path.clone(),
-                            },
-                        ));
+                            range.clone(),
+                            document_range,
+                            &target_path,
+                        );
                     }
                 }
             }
@@ -1155,13 +1182,20 @@ impl Workspace {
                     .as_ref()
                         == Some(&target_path)
                     {
-                        references.push((
+                        let (document_range, _) = task_reference_component_ranges(
+                            &reference.source,
+                            &reference.range,
+                            &reference.target,
+                        )
+                        .unwrap_or_else(|| (reference.range.clone(), reference.range.clone()));
+                        push_document_reference(
+                            &mut references,
+                            &mut seen,
                             entry.path.clone(),
-                            DocumentReference {
-                                source_range: reference.range.clone(),
-                                target_path: target_path.clone(),
-                            },
-                        ));
+                            reference.range.clone(),
+                            document_range,
+                            &target_path,
+                        );
                     }
                 }
             }
@@ -1181,38 +1215,54 @@ impl Workspace {
     ) -> Result<QueryResult<DocumentReverseReferences>, WorkspaceQueryError> {
         let target_path = normalize(target_path.as_ref());
         let mut references = DocumentReverseReferences::default();
+        let mut document_occurrences = HashSet::new();
+        let mut anchor_occurrences = HashSet::new();
         if let Some(store) = &self.disk_store {
             let open = self.open_paths();
             let document_references = store.references_to(&target_path, None, &open)?;
-            references
-                .document
-                .extend(
-                    document_references
-                        .into_iter()
-                        .map(|reference| ReferenceOccurrence {
-                            source_path: reference.source_path,
-                            source_range: reference.source_range,
-                        }),
+            for reference in document_references {
+                let component_range = reference
+                    .path_range
+                    .or(reference.id_range)
+                    .unwrap_or_else(|| reference.source_range.clone());
+                push_reference_occurrence(
+                    &mut references.document,
+                    &mut document_occurrences,
+                    reference.source_path,
+                    reference.source_range,
+                    component_range,
                 );
+            }
             for target_id in target_ids {
                 if self.anchors_named(&target_path, target_id)?.len() != 1 {
                     continue;
                 }
                 let anchor_references =
                     store.references_to(&target_path, Some(target_id), &open)?;
-                let occurrences = anchor_references
-                    .into_iter()
-                    .map(|reference| ReferenceOccurrence {
-                        source_path: reference.source_path,
-                        source_range: reference.source_range,
-                    })
-                    .collect::<Vec<_>>();
-                references.document.extend(occurrences.iter().cloned());
-                references
-                    .anchors
-                    .entry(target_id.clone())
-                    .or_default()
-                    .extend(occurrences);
+                for reference in anchor_references {
+                    let document_range = reference
+                        .path_range
+                        .clone()
+                        .or(reference.id_range.clone())
+                        .unwrap_or_else(|| reference.source_range.clone());
+                    let anchor_range = reference
+                        .id_range
+                        .unwrap_or_else(|| reference.source_range.clone());
+                    push_reference_occurrence(
+                        &mut references.document,
+                        &mut document_occurrences,
+                        reference.source_path.clone(),
+                        reference.source_range.clone(),
+                        document_range,
+                    );
+                    push_reference_occurrence(
+                        references.anchors.entry(target_id.clone()).or_default(),
+                        &mut anchor_occurrences,
+                        reference.source_path,
+                        reference.source_range,
+                        anchor_range,
+                    );
+                }
             }
         }
         for entry in self.documents.values() {
@@ -1222,21 +1272,37 @@ impl Workspace {
             for link in &current.output.links {
                 collect_reverse_reference(
                     &mut references,
+                    &mut document_occurrences,
+                    &mut anchor_occurrences,
                     &target_path,
                     target_ids,
                     &entry.path,
                     link.selection_range.clone(),
+                    link.path_range
+                        .clone()
+                        .or(link.fragment_range.clone())
+                        .unwrap_or_else(|| link.target.range.clone()),
+                    link.fragment_range
+                        .clone()
+                        .unwrap_or_else(|| link.target.range.clone()),
                     self.resolve_link_value(&entry.path, link)?,
                 );
             }
             for task in &current.output.tasks.tasks {
-                for (_, range, target) in task_reference_fields(task) {
+                for (source, range, target) in task_reference_fields(task) {
+                    let (document_range, anchor_range) =
+                        task_reference_component_ranges(source, range, &target)
+                            .unwrap_or_else(|| (range.clone(), range.clone()));
                     collect_reverse_reference(
                         &mut references,
+                        &mut document_occurrences,
+                        &mut anchor_occurrences,
                         &target_path,
                         target_ids,
                         &entry.path,
                         range.clone(),
+                        document_range,
+                        anchor_range,
                         self.resolve_task_reference_target(&entry.path, &target)?,
                     );
                 }
@@ -1245,12 +1311,22 @@ impl Workspace {
                 for reference in
                     &self.event_task_references_in_output(&entry.path, &current.output, event)?
                 {
+                    let (document_range, anchor_range) = task_reference_component_ranges(
+                        &reference.source,
+                        &reference.range,
+                        &reference.target,
+                    )
+                    .unwrap_or_else(|| (reference.range.clone(), reference.range.clone()));
                     collect_reverse_reference(
                         &mut references,
+                        &mut document_occurrences,
+                        &mut anchor_occurrences,
                         &target_path,
                         target_ids,
                         &entry.path,
                         reference.range.clone(),
+                        document_range,
+                        anchor_range,
                         self.resolve_task_reference_target(&entry.path, &reference.target)?,
                     );
                 }
@@ -4606,31 +4682,95 @@ fn resolved_document_path(target: ResolvedTarget) -> Option<PathBuf> {
 
 fn collect_reverse_reference(
     references: &mut DocumentReverseReferences,
+    document_occurrences: &mut HashSet<(PathBuf, usize, usize)>,
+    anchor_occurrences: &mut HashSet<(PathBuf, usize, usize)>,
     target_path: &Path,
     target_ids: &HashSet<String>,
     source_path: &Path,
     source_range: std::ops::Range<usize>,
+    document_component_range: std::ops::Range<usize>,
+    anchor_component_range: std::ops::Range<usize>,
     resolved: ResolvedTarget,
 ) {
     if resolved_document_path(resolved.clone()).as_deref() == Some(target_path) {
-        references.document.push(ReferenceOccurrence {
-            source_path: source_path.to_path_buf(),
-            source_range: source_range.clone(),
-        });
+        push_reference_occurrence(
+            &mut references.document,
+            document_occurrences,
+            source_path.to_path_buf(),
+            source_range.clone(),
+            document_component_range,
+        );
     }
     let ResolvedTarget::Anchor { path, id, .. } = resolved else {
         return;
     };
     if path == target_path && target_ids.contains(&id) {
-        references
-            .anchors
-            .entry(id)
-            .or_default()
-            .push(ReferenceOccurrence {
-                source_path: source_path.to_path_buf(),
-                source_range,
-            });
+        push_reference_occurrence(
+            references.anchors.entry(id).or_default(),
+            anchor_occurrences,
+            source_path.to_path_buf(),
+            source_range,
+            anchor_component_range,
+        );
     }
+}
+
+fn push_document_reference(
+    references: &mut Vec<(PathBuf, DocumentReference)>,
+    seen: &mut HashSet<(PathBuf, usize, usize)>,
+    source_path: PathBuf,
+    source_range: std::ops::Range<usize>,
+    component_range: std::ops::Range<usize>,
+    target_path: &Path,
+) {
+    if seen.insert(reference_occurrence_key(&source_path, &component_range)) {
+        references.push((
+            source_path,
+            DocumentReference {
+                source_range,
+                target_path: target_path.to_path_buf(),
+            },
+        ));
+    }
+}
+
+fn push_reference_occurrence(
+    references: &mut Vec<ReferenceOccurrence>,
+    seen: &mut HashSet<(PathBuf, usize, usize)>,
+    source_path: PathBuf,
+    source_range: std::ops::Range<usize>,
+    component_range: std::ops::Range<usize>,
+) {
+    if seen.insert(reference_occurrence_key(&source_path, &component_range)) {
+        references.push(ReferenceOccurrence {
+            source_path,
+            source_range,
+        });
+    }
+}
+
+fn reference_occurrence_key(
+    source_path: &Path,
+    component_range: &std::ops::Range<usize>,
+) -> (PathBuf, usize, usize) {
+    (
+        source_path.to_path_buf(),
+        component_range.start,
+        component_range.end,
+    )
+}
+
+fn task_reference_component_ranges(
+    source: &str,
+    range: &std::ops::Range<usize>,
+    target: &TaskReferenceTarget,
+) -> Option<(std::ops::Range<usize>, std::ops::Range<usize>)> {
+    let target_id = match target {
+        TaskReferenceTarget::Internal { id } | TaskReferenceTarget::External { id, .. } => id,
+        TaskReferenceTarget::Invalid => return None,
+    };
+    let (path_range, id_range) = task_reference_ranges(source, range, target_id)?;
+    Some((path_range.unwrap_or_else(|| id_range.clone()), id_range))
 }
 
 fn reference_occurrence_order(

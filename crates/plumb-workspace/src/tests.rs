@@ -210,9 +210,57 @@ fn sqlite_event_task_relations_match_memory_and_obey_document_overlays() {
             .len(),
         1
     );
+    for workspace in [&memory, &sqlite] {
+        assert_eq!(
+            workspace
+                .references_to("tasks.plumb", "target")
+                .unwrap()
+                .value
+                .len(),
+            1
+        );
+        assert_eq!(
+            workspace
+                .references_to_document("tasks.plumb")
+                .unwrap()
+                .value
+                .len(),
+            1
+        );
+        let reverse = workspace
+            .reverse_references_for_document("tasks.plumb", &HashSet::from(["target".to_string()]))
+            .unwrap()
+            .value;
+        assert_eq!(reverse.document.len(), 1);
+        assert_eq!(reverse.anchors["target"].len(), 1);
+    }
+
+    let rename_target = memory
+        .anchor_rename_target_at("tasks.plumb", target_source.rfind("target").unwrap())
+        .unwrap();
+    let rename = memory.rename_anchor(&rename_target, "renamed").unwrap();
+    assert_eq!(rename.document_changes.len(), 2);
+    assert_eq!(
+        rename
+            .document_changes
+            .iter()
+            .find(|document| document.path == Path::new("events.plumb"))
+            .unwrap()
+            .edits
+            .len(),
+        1
+    );
+
+    sqlite.open_document("events.plumb", 1, event_source);
+    let overlay_references = sqlite.references_to("tasks.plumb", "target").unwrap();
+    assert_eq!(
+        overlay_references.provenance,
+        QueryProvenance::PersistentWithOverlay
+    );
+    assert_eq!(overlay_references.value.len(), 1);
 
     memory.insert("events.plumb", 1, "No events.\n");
-    sqlite.open_document("events.plumb", 1, "No events.\n");
+    sqlite.open_document("events.plumb", 2, "No events.\n");
     assert_eq!(
         sqlite.events_for_task(&target).unwrap().value,
         memory.events_for_task(&target).unwrap().value
@@ -2935,14 +2983,14 @@ fn resolves_event_task_associations_and_queries_time_ranges() {
             .value,
         Some(ResolvedTarget::Document { ref path }) if path == Path::new("tasks.plumb")
     ));
-    assert_eq!(
-        workspace
-            .references_to("tasks.plumb", "write")
-            .unwrap()
-            .value
-            .len(),
-        5
-    );
+    let references = workspace
+        .references_to("tasks.plumb", "write")
+        .unwrap()
+        .value;
+    assert_eq!(references.len(), 3);
+    assert!(references
+        .windows(2)
+        .all(|pair| pair[0].1.id_range != pair[1].1.id_range));
     assert_eq!(
         workspace
             .referenced_documents_from("events.plumb")
@@ -3037,6 +3085,14 @@ fn event_task_associations_use_overlapping_containment_index_ranges() {
             .value
             .len(),
         1
+    );
+    assert_eq!(
+        workspace
+            .references_to("tasks.plumb", "write")
+            .unwrap()
+            .value
+            .len(),
+        4
     );
 
     workspace.insert(
