@@ -111,6 +111,10 @@ separator column in the cursor's maximal run of direct sibling blocks when the
 run contains at least two blocks with the same marker and argument count. Each
 head must be single-line and each block must have no children or raw tail. The
 action is omitted for tabs, ineligible runs, and source that is already aligned.
+Structured authoring puts one ASCII space on both sides of every block argument
+separator it generates or rewrites, even for a single block. Alignment only
+adds left padding beyond that base and never makes the formatter rewrite
+untouched source.
 
 ## Links
 
@@ -294,6 +298,8 @@ first `+ task` facet plus `created`, or add `created` to an existing task; both 
 RFC 3339 timestamp. Task create/update, closure, and recurrence operations align
 the direct `=` property run they mutate with the same Unicode display-width
 policy. IDs, facets, ordinary children, and argument-arity changes split runs.
+Single generated properties use `key | value`. Task construct completion uses
+the same base padding for its `created` property.
 Construct completion is prefix-sensitive. A bare backtick offers no candidates.
 At line start, a backtick followed by a hyphen offers Task, Event, Link, and
 Autolink. Letter prefixes such as `t`/`task` and `e`/`event` offer no construct
@@ -448,7 +454,8 @@ An event needs an explicit id only when referenced. A shorthand without an
 explicit date or timezone inherits valid document metadata
 before falling back to the operation's local date and offset.
 Event create/update and shorthand conversion align the direct `=` property run
-they mutate. A title-only update does not align existing opaque properties.
+they mutate. Generated or rewritten schedule/title heads use `schedule | title`.
+A title-only update does not align existing opaque properties.
 Trailing `--` is an authoring-only inferred end. Conversion takes the start of
 the immediately following sibling list-item shorthand and writes an explicit
 interval schedule. Batch inference requires both siblings in the selection; a

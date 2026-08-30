@@ -232,13 +232,15 @@ ordinary inline context 都以反引号加连字符或箭头 prefix 提供 Link 
 CSL JSON files 补全 ids。`"t"/`"task" 与 `"e"/`"event" prefix 不提供 construct candidate；单独
 opening bracket prefix 也不提供候选。snippet-capable client
 使用 tab stops。Task completion 的默认非空 title 与自动生成的 `"created" child 之间保留一个 blank
-separator；不支持 snippet 的 empty-head fallback 则不插入该空行。completion 根据 client 的 multiline
+separator；不支持 snippet 的 empty-head fallback 则不插入该空行。Task 的 `"created" property 与 Event 的
+schedule/title head 在 `"|" 两侧生成一个基础 ASCII-space padding。direct property-name completion 也使用
+`"key | value" spelling。completion 根据 client 的 multiline
 insertion mode 投影缩进，因此在顶层或嵌套位置都生成相同的 direct-child structure；使用
 `"adjustIndentation" 的 client 可以在 nested blank separator 上保留接受位置的 base indentation。
 CodeAction 包括 argument alignment、metadata insertion、explicit id、event shorthand conversion、task conversion、
 created insertion 和 task status operations。`"Align arguments" 只在 cursor 所在的连续同 marker、同 argument
 数量、单行且无 children/raw 的 sibling run 对齐后会产生非空 edit 时提供；它使用 Unicode display width 对齐全部 `"|"
-columns，并在 separator 两侧保留 padding。metadata insertion 只在 cursor 精确位于 document start（byte offset 0）
+columns，在基础 padding 上只增加 separator 左侧空格。metadata insertion 只在 cursor 精确位于 document start（byte offset 0）
 时提供，并自动对齐生成的 `"title" 与 `"created"；event shorthand 的具体格式见
 `->[Event|semantics.plumb]。whole-document 与 range formatting 使用同一个 canonical formatter。
 Whole-document formatting 由 protocol-neutral formatter 产生 non-overlapping line-diff edits，LSP 只做

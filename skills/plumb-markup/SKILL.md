@@ -57,7 +57,10 @@ insertion applies the same policy to its generated `title` and `created` pair.
 Structured Task/Event authoring also aligns the direct `=` property run that it
 actually mutates in the same edit. IDs, facets, ordinary children, and arity
 changes split runs; unrelated head/identity/move operations do not align
-existing properties.
+existing properties. Every block argument separator newly generated or actually
+rewritten by structured authoring has one ASCII space on both sides even when
+there is no sibling run; alignment only adds more left padding. Task/Event
+construct and direct-property completion use the same base padding.
 
 ## Authority
 

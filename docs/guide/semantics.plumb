@@ -359,8 +359,9 @@ vdir exporter 从 workspace-relative path、schedule 与 title 确定性派生 U
 显式 date 写入 event override；省略 date/timezone 时优先继承 document metadata，缺少对应 metadata 时
 才使用 operation 当前本地日期/offset。选中多行时可执行 `"Convert selected items to events"
 批量转换范围内匹配 shorthand 的 list items；不匹配或已是 event 的 item 保持不变。
-Event create/edit 与 shorthand conversion 对齐实际 mutation 的连续 direct `"=" property run；只改
-title 时不整理已有 opaque properties。
+Event create/edit 与 shorthand conversion 生成的 schedule/title head 及实际 mutation properties 都在
+`"|" 两侧使用基础 padding；连续 direct `"=" property run 再按 Unicode width 对齐。只改 title 时不整理
+已有 opaque properties。
 只写 trailing `"--" 时，结束时间取紧邻的下一条 sibling shorthand start；转换会把结果固化为完整
 schedule。没有下一条的 chain 末项暂不转换，普通 item 或其他 block 会中断推断；给末项写显式 end 后即可
 一次转换整条 chain。
@@ -430,7 +431,7 @@ cursor 位于普通 list item 时，`"Convert to task" code action 将 marker �
 已有 task 缺少 `"created" 时，`"Add task created timestamp" 可以补录。两者使用执行时的本地
 RFC 3339 timestamp。Task create/edit、complete/cancel 与 recurrence clone 在同一次 edit 中按 Unicode
 display width 对齐它们实际 mutation 的连续 direct `"=" property run；id、facet、ordinary child 或不同
-arity 会切断 run，单独 property 不额外添加 alignment padding。
+arity 会切断 run。单独 property 仍使用 `"key | value" 基础 padding，但不增加 alignment padding。
 
 `"created"、`"due"、`"wait"、`"done" 与 `"canceled" 必须是 RFC 3339 timestamp property。非法值发布
 `"task.invalid-datetime" warning，不参与 state 或 operations。完成或取消 nested task 时只格式化该
