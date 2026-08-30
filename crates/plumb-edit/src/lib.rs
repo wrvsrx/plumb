@@ -154,28 +154,12 @@ pub fn align_block_arguments(
 }
 
 pub fn aligned_associations(entries: &[(&str, &str)]) -> Vec<OwnedBlock> {
-    let widths = entries
+    let mut blocks = entries
         .iter()
-        .map(|(key, _)| UnicodeWidthStr::width(escape_authored_text(key).as_str()))
+        .map(|(key, value)| OwnedBlock::association(*key, *value))
         .collect::<Vec<_>>();
-    let maximum = widths.iter().copied().max().unwrap_or(0);
-    entries
-        .iter()
-        .zip(widths)
-        .map(|((key, value), width)| {
-            let mut head = owned_authored_text(key);
-            head.push(OwnedInline::Space(" ".repeat(maximum - width + 1)));
-            head.push(OwnedInline::ArgumentSeparator);
-            head.push(OwnedInline::Space(" ".to_string()));
-            head.extend(owned_authored_text(value));
-            OwnedBlock::Parsed {
-                marker: Some("=".to_string()),
-                head,
-                children: Vec::new(),
-                raw: None,
-            }
-        })
-        .collect()
+    align_owned_sibling_arguments(&mut blocks);
+    blocks
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -379,6 +363,12 @@ impl OwnedBlock {
         }
     }
 
+    pub fn with_aligned_attributes(mut self, attributes: Vec<OwnedAttribute>) -> Self {
+        self = self.with_attributes(attributes);
+        self.align_direct_property_runs();
+        self
+    }
+
     pub fn with_children(mut self, children: Vec<OwnedBlock>) -> Self {
         match &mut self {
             Self::Parsed {
@@ -400,17 +390,37 @@ impl OwnedBlock {
 
     pub fn retain_attributes(&mut self, mut predicate: impl FnMut(&OwnedAttribute) -> bool) {
         if let Self::Parsed { children, .. } = self {
-            children.retain(|child| owned_declaration(child).as_ref().is_none_or(&mut predicate));
+            let mut retained = Vec::with_capacity(children.len());
+            let mut removed_property_positions = Vec::new();
+            for child in std::mem::take(children) {
+                let Some(attribute) = owned_declaration(&child) else {
+                    retained.push(child);
+                    continue;
+                };
+                if predicate(&attribute) {
+                    retained.push(child);
+                } else if matches!(attribute, OwnedAttribute::Pair { .. }) {
+                    removed_property_positions.push(retained.len());
+                }
+            }
+            *children = retained;
+            for position in removed_property_positions {
+                align_owned_property_run_near(children, position);
+            }
         }
     }
 
     pub fn push_attribute(&mut self, attribute: OwnedAttribute) {
         if let Self::Parsed { children, .. } = self {
+            let align_properties = matches!(attribute, OwnedAttribute::Pair { .. });
             let index = children
                 .iter()
                 .rposition(|child| owned_declaration(child).is_some())
                 .map_or(0, |index| index + 1);
             children.insert(index, attribute.into_block());
+            if align_properties {
+                align_owned_property_run_at(children, index);
+            }
         } else {
             panic!("anonymous raw blocks have no attributes");
         }
@@ -418,7 +428,11 @@ impl OwnedBlock {
 
     pub fn prepend_attribute(&mut self, attribute: OwnedAttribute) {
         if let Self::Parsed { children, .. } = self {
+            let align_properties = matches!(attribute, OwnedAttribute::Pair { .. });
             children.insert(0, attribute.into_block());
+            if align_properties {
+                align_owned_property_run_at(children, 0);
+            }
         } else {
             panic!("anonymous raw blocks have no attributes");
         }
@@ -427,6 +441,12 @@ impl OwnedBlock {
     pub fn extend_attributes(&mut self, attributes: impl IntoIterator<Item = OwnedAttribute>) {
         for attribute in attributes {
             self.push_attribute(attribute);
+        }
+    }
+
+    fn align_direct_property_runs(&mut self) {
+        if let Self::Parsed { children, .. } = self {
+            align_owned_sibling_arguments(children);
         }
     }
 
@@ -521,27 +541,15 @@ fn owned_declaration(block: &OwnedBlock) -> Option<OwnedAttribute> {
     if !children.is_empty() {
         return None;
     }
-    let plain = |items: &[OwnedInline]| {
-        items.iter().try_fold(String::new(), |mut output, inline| {
-            match inline {
-                OwnedInline::Text(text) | OwnedInline::Space(text) => output.push_str(text),
-                OwnedInline::SoftBreak
-                | OwnedInline::ArgumentSeparator
-                | OwnedInline::Element { .. }
-                | OwnedInline::Verbatim { .. } => return None,
-            }
-            Some(output)
-        })
-    };
     match marker.as_str() {
-        "@" => Some(OwnedAttribute::Id(plain(head)?)),
-        "+" => Some(OwnedAttribute::Class(plain(head)?)),
+        "@" => Some(OwnedAttribute::Id(plain_owned_argument(head)?)),
+        "+" => Some(OwnedAttribute::Class(plain_owned_argument(head)?)),
         "=" => {
             let separator = head
                 .iter()
                 .position(|inline| matches!(inline, OwnedInline::ArgumentSeparator))?;
-            let key = plain(&head[..separator])?;
-            let value = plain(&head[separator + 1..])?;
+            let key = plain_owned_argument(&head[..separator])?;
+            let value = plain_owned_argument(&head[separator + 1..])?;
             (!key.is_empty() && !value.is_empty()).then_some(OwnedAttribute::Pair {
                 key,
                 value: OwnedValue::Bare(value),
@@ -549,6 +557,22 @@ fn owned_declaration(block: &OwnedBlock) -> Option<OwnedAttribute> {
         }
         _ => None,
     }
+}
+
+fn plain_owned_argument(items: &[OwnedInline]) -> Option<String> {
+    let mut items = items.to_vec();
+    trim_owned_padding_start(&mut items);
+    trim_owned_padding_end(&mut items);
+    items.iter().try_fold(String::new(), |mut output, inline| {
+        match inline {
+            OwnedInline::Text(text) | OwnedInline::Space(text) => output.push_str(text),
+            OwnedInline::SoftBreak
+            | OwnedInline::ArgumentSeparator
+            | OwnedInline::Element { .. }
+            | OwnedInline::Verbatim { .. } => return None,
+        }
+        Some(output)
+    })
 }
 
 pub fn replace_owned_block(
@@ -1362,6 +1386,163 @@ fn push_changed_padding_edit(
     Ok(())
 }
 
+fn align_owned_sibling_arguments(blocks: &mut [OwnedBlock]) {
+    let mut start = 0;
+    while start < blocks.len() {
+        let Some(argument_count) = owned_property_argument_count(&blocks[start]) else {
+            start += 1;
+            continue;
+        };
+        let mut end = start + 1;
+        while end < blocks.len()
+            && owned_property_argument_count(&blocks[end]) == Some(argument_count)
+        {
+            end += 1;
+        }
+        if end - start >= 2 {
+            align_owned_argument_run(&mut blocks[start..end], argument_count);
+        }
+        start = end;
+    }
+}
+
+fn align_owned_property_run_near(blocks: &mut [OwnedBlock], position: usize) {
+    if position < blocks.len() && owned_property_argument_count(&blocks[position]).is_some() {
+        align_owned_property_run_at(blocks, position);
+    } else if position > 0 && owned_property_argument_count(&blocks[position - 1]).is_some() {
+        align_owned_property_run_at(blocks, position - 1);
+    }
+}
+
+fn align_owned_property_run_at(blocks: &mut [OwnedBlock], index: usize) {
+    let Some(argument_count) = blocks.get(index).and_then(owned_property_argument_count) else {
+        return;
+    };
+    let start = (0..index)
+        .rev()
+        .take_while(|candidate| {
+            owned_property_argument_count(&blocks[*candidate]) == Some(argument_count)
+        })
+        .last()
+        .unwrap_or(index);
+    let end = (index + 1..blocks.len())
+        .take_while(|candidate| {
+            owned_property_argument_count(&blocks[*candidate]) == Some(argument_count)
+        })
+        .last()
+        .map_or(index + 1, |candidate| candidate + 1);
+    if end - start >= 2 {
+        align_owned_argument_run(&mut blocks[start..end], argument_count);
+    }
+}
+
+fn owned_property_argument_count(block: &OwnedBlock) -> Option<usize> {
+    let OwnedBlock::Parsed {
+        marker,
+        head,
+        children,
+        raw,
+    } = block
+    else {
+        return None;
+    };
+    let argument_count = head
+        .iter()
+        .filter(|inline| matches!(inline, OwnedInline::ArgumentSeparator))
+        .count()
+        + 1;
+    let mut rendered = String::new();
+    render_owned_inlines(head, true, 0, &mut rendered);
+    (marker.as_deref() == Some("=")
+        && children.is_empty()
+        && raw.is_none()
+        && argument_count >= 2
+        && !rendered.contains(['\r', '\n', '\t']))
+    .then_some(argument_count)
+}
+
+fn align_owned_argument_run(blocks: &mut [OwnedBlock], argument_count: usize) {
+    let mut normalized = blocks
+        .iter()
+        .map(|block| {
+            let OwnedBlock::Parsed { head, .. } = block else {
+                unreachable!("owned property run contains parsed blocks")
+            };
+            normalized_owned_arguments(head)
+        })
+        .collect::<Vec<_>>();
+    let mut widths = vec![0; argument_count - 1];
+    for arguments in &normalized {
+        for (column, maximum) in widths.iter_mut().enumerate() {
+            *maximum = (*maximum).max(owned_argument_width(&arguments[column]));
+        }
+    }
+    for (block, arguments) in blocks.iter_mut().zip(&mut normalized) {
+        let OwnedBlock::Parsed { head, .. } = block else {
+            unreachable!("owned property run contains parsed blocks")
+        };
+        head.clear();
+        for (column, argument) in std::mem::take(arguments).into_iter().enumerate() {
+            if column > 0 {
+                head.push(OwnedInline::Space(" ".to_string()));
+            }
+            let width = owned_argument_width(&argument);
+            head.extend(argument);
+            if column + 1 < argument_count {
+                head.push(OwnedInline::Space(" ".repeat(widths[column] - width + 1)));
+                head.push(OwnedInline::ArgumentSeparator);
+            }
+        }
+    }
+}
+
+fn normalized_owned_arguments(head: &[OwnedInline]) -> Vec<Vec<OwnedInline>> {
+    let mut arguments = vec![Vec::new()];
+    for inline in head {
+        if matches!(inline, OwnedInline::ArgumentSeparator) {
+            arguments.push(Vec::new());
+        } else {
+            arguments.last_mut().unwrap().push(inline.clone());
+        }
+    }
+    let last = arguments.len() - 1;
+    for (index, argument) in arguments.iter_mut().enumerate() {
+        if index > 0 {
+            trim_owned_padding_start(argument);
+        }
+        if index < last {
+            trim_owned_padding_end(argument);
+        }
+    }
+    arguments
+}
+
+fn trim_owned_padding_start(argument: &mut Vec<OwnedInline>) {
+    while let Some(OwnedInline::Space(space)) = argument.first_mut() {
+        *space = space.trim_start_matches(' ').to_string();
+        if !space.is_empty() {
+            break;
+        }
+        argument.remove(0);
+    }
+}
+
+fn trim_owned_padding_end(argument: &mut Vec<OwnedInline>) {
+    while let Some(OwnedInline::Space(space)) = argument.last_mut() {
+        *space = space.trim_end_matches(' ').to_string();
+        if !space.is_empty() {
+            break;
+        }
+        argument.pop();
+    }
+}
+
+fn owned_argument_width(argument: &[OwnedInline]) -> usize {
+    let mut rendered = String::new();
+    render_owned_inlines(argument, true, 0, &mut rendered);
+    UnicodeWidthStr::width(rendered.as_str())
+}
+
 fn trailing_line_breaks(source: &str) -> usize {
     source
         .as_bytes()
@@ -1934,6 +2115,70 @@ mod tests {
         assert_eq!(
             formatted,
             "`= title   | Example\n`= created | 2026-08-26T00:00:00+08:00\n"
+        );
+    }
+
+    #[test]
+    fn property_mutations_align_only_the_affected_direct_runs() {
+        let source =
+            "`- Task\n `+ task\n `@ task-id\n `= due|tomorrow\n `= priority|20\n `note Keep\n";
+        let parsed = parse(source);
+        let mut owned = OwnedBlock::from_syntax(source, &parsed.syntax.blocks[0]);
+        owned.push_attribute(OwnedAttribute::quoted("created", "now"));
+        let formatted = owned.format().unwrap();
+        assert!(
+            formatted.contains(" `= due      | tomorrow\n `= priority | 20\n `= created  | now\n"),
+            "{formatted:?}"
+        );
+        assert!(formatted.contains(" `note Keep\n"));
+
+        owned.retain_attributes(
+            |attribute| !matches!(attribute, OwnedAttribute::Pair { key, .. } if key == "priority"),
+        );
+        let removed = owned.format().unwrap();
+        assert!(
+            removed.contains(" `= due     | tomorrow\n `= created | now\n"),
+            "{removed:?}"
+        );
+    }
+
+    #[test]
+    fn non_property_mutations_do_not_align_existing_runs() {
+        let source = "`- Task\n `= due|tomorrow\n `= priority|20\n";
+        let parsed = parse(source);
+        let mut owned = OwnedBlock::from_syntax(source, &parsed.syntax.blocks[0]);
+        owned.prepend_attribute(OwnedAttribute::id("task-id"));
+        assert!(owned
+            .format()
+            .unwrap()
+            .contains(" `= due|tomorrow\n `= priority|20\n"));
+
+        let attributes = owned.attributes();
+        let unaligned = owned.clone().with_attributes(attributes.clone());
+        assert!(unaligned
+            .format()
+            .unwrap()
+            .contains(" `= due|tomorrow\n `= priority|20\n"));
+        let aligned = owned.with_aligned_attributes(attributes);
+        assert!(aligned
+            .format()
+            .unwrap()
+            .contains(" `= due      | tomorrow\n `= priority | 20\n"));
+    }
+
+    #[test]
+    fn property_removal_does_not_align_a_separate_opaque_run() {
+        let source = "`- Event\n `= date|2026-08-30\n `= timezone|+08:00\n `@ split\n `= uid|opaque\n `= when|legacy\n";
+        let parsed = parse(source);
+        let mut owned = OwnedBlock::from_syntax(source, &parsed.syntax.blocks[0]);
+        owned.retain_attributes(
+            |attribute| !matches!(attribute, OwnedAttribute::Pair { key, .. } if key == "date"),
+        );
+        let formatted = owned.format().unwrap();
+        assert!(formatted.contains(" `= timezone|+08:00\n"), "{formatted:?}");
+        assert!(
+            formatted.contains(" `= uid|opaque\n `= when|legacy\n"),
+            "{formatted:?}"
         );
     }
 
