@@ -1,5 +1,6 @@
 use std::ops::Range;
 
+use plumb_edit::render_authored_text_arguments;
 use plumb_syntax::{
     AttrItem, AttrValue, Attributes, Block, Inline, InlineArgumentRef, InlineContent, InlineMember,
     ParsedBlock, ParsedDocument,
@@ -97,7 +98,7 @@ pub fn citation_completion_context(
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AttributeCompletion {
     pub label: &'static str,
-    pub new_text: &'static str,
+    pub new_text: String,
     pub detail: &'static str,
 }
 
@@ -189,7 +190,7 @@ fn direct_block_attribute_context(
             "@" if query.is_empty() && owner_mark.attrs.id().is_none() => {
                 completions.push(AttributeCompletion {
                     label: "id",
-                    new_text: "`@ ",
+                    new_text: "`@ ".to_string(),
                     detail: "explicit id",
                 });
             }
@@ -272,7 +273,7 @@ fn direct_block_value_context(
             replace: range.clone(),
             completions: vec![AttributeCompletion {
                 label: "tex",
-                new_text: "tex",
+                new_text: "tex".to_string(),
                 detail: "standard TeX math language",
             }],
         })
@@ -287,23 +288,16 @@ fn push_block_pair_completion(
     if !include {
         return;
     }
-    let new_text = match key {
-        "created" => "`= created | ",
-        "due" => "`= due | ",
-        "wait" => "`= wait | ",
-        "recur" => "`= recur | ",
-        "prev" => "`= prev | ",
-        "depends" => "`= depends | ",
-        "priority" => "`= priority | 0",
-        "date" => "`= date | ",
-        "timezone" => "`= timezone | ",
-        "tasks" => "`= tasks | ",
-        "language" => "`= language | ",
+    let value = match key {
+        "created" | "due" | "wait" | "recur" | "prev" | "depends" | "date" | "timezone"
+        | "tasks" | "language" => "",
+        "priority" => "0",
         _ => return,
     };
+    let arguments = render_authored_text_arguments(&[key, value]);
     candidates.push(AttributeCompletion {
         label: key,
-        new_text,
+        new_text: format!("`= {arguments}"),
         detail,
     });
 }
@@ -417,7 +411,7 @@ fn inline_member_attribute_context(
                         replace: value_range,
                         completions: vec![AttributeCompletion {
                             label: "tex",
-                            new_text: "tex",
+                            new_text: "tex".to_string(),
                             detail: "standard TeX math language",
                         }],
                     });
@@ -437,14 +431,14 @@ fn inline_member_attribute_context(
             "img" | "file" if attrs.value("src").is_none() && "src".starts_with(query) => {
                 AttributeCompletion {
                     label: "src",
-                    new_text: "=[src|]",
+                    new_text: "=[src|]".to_string(),
                     detail: "resource source",
                 }
             }
             "$" if attrs.value("language").is_none() && "language".starts_with(query) => {
                 AttributeCompletion {
                     label: "language",
-                    new_text: "=[language|]",
+                    new_text: "=[language|]".to_string(),
                     detail: "raw content language",
                 }
             }
@@ -1268,7 +1262,7 @@ mod tests {
             context
                 .completions
                 .iter()
-                .map(|item| (item.label, item.new_text))
+                .map(|item| (item.label, item.new_text.as_str()))
                 .collect::<Vec<_>>(),
             [("prev", "`= prev | "), ("priority", "`= priority | 0")]
         );

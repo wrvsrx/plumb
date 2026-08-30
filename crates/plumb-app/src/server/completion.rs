@@ -1,4 +1,5 @@
 use super::*;
+use plumb_edit::render_authored_text_arguments;
 
 pub(super) fn attribute_completion_text(text: &str, snippets: bool) -> String {
     if !snippets {
@@ -102,23 +103,24 @@ pub(super) fn completion_indentation(
 }
 
 pub(super) fn task_construct_template(block_indent: &str, timestamp: &str) -> ConstructTemplate {
+    let created = render_authored_text_arguments(&["created", timestamp]);
     ConstructTemplate {
         label: "Task",
         detail: "plumb task list item",
-        snippet: format!(
-            "`- ${{1:Task}}\n\n{block_indent}`+ task\n\n{block_indent}`= created | {timestamp}"
-        ),
-        plain: format!("`-\n{block_indent}`+ task\n\n{block_indent}`= created | {timestamp}"),
+        snippet: format!("`- ${{1:Task}}\n\n{block_indent}`+ task\n\n{block_indent}`= {created}"),
+        plain: format!("`-\n{block_indent}`+ task\n\n{block_indent}`= {created}"),
         uses_block_indentation: true,
     }
 }
 
 fn event_construct_template(block_indent: &str) -> ConstructTemplate {
+    let head = render_authored_text_arguments(&["${1:09:00}", "${2:Event}"]);
+    let plain_head = render_authored_text_arguments(&["09:00", "Event"]);
     ConstructTemplate {
         label: "Event",
         detail: "plumb event list item",
-        snippet: format!("`- ${{1:09:00}} | ${{2:Event}}\n\n{block_indent}`+ event"),
-        plain: format!("`- 09:00 | Event\n\n{block_indent}`+ event"),
+        snippet: format!("`- {head}\n\n{block_indent}`+ event"),
+        plain: format!("`- {plain_head}\n\n{block_indent}`+ event"),
         uses_block_indentation: true,
     }
 }

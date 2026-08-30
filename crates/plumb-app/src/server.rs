@@ -1844,7 +1844,7 @@ impl LanguageServer for ServerState {
                                 text_edit: Some(CompletionTextEdit::Edit(LspTextEdit::new(
                                     byte_range_to_lsp(&entry.parsed.source, &context.replace),
                                     attribute_completion_text(
-                                        candidate.new_text,
+                                        &candidate.new_text,
                                         self.supports_completion_snippets,
                                     ),
                                 ))),

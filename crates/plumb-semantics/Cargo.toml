@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+plumb-edit = { path = "../plumb-edit" }
 plumb-syntax = { path = "../plumb-syntax" }
 chrono.workspace = true
 serde.workspace = true
