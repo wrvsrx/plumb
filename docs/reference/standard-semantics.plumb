@@ -507,7 +507,8 @@ schedule 的 `"when"、
 解析后的 `"at"、`"start"、`"end"、`"tasks" 与 `"now"。
 Web Agenda 通过 revision-guarded operations 创建、编辑和删除 event；首版只支持 online mutations。
 Event create/update 与 shorthand conversion 对其 property mutation 所在的连续 direct `"=" run 应用 syntax
-editing 定义的 Unicode argument-alignment policy。
+editing 定义的 Unicode argument-alignment policy。它们生成或重写的 schedule/title head 与 property
+separator 即使没有可对齐 sibling，也在 `"|" 两侧使用一个基础 ASCII-space padding。
 Pandoc export 保留 item 原有 bullet/ordered list kind；消费 `"event" facet，其他 opaque declarations 保持不变。
 
 editor authoring operation `"Convert to event" 只在 cursor 命中的单个 list item head 以完整 event
@@ -673,7 +674,8 @@ authoring operations 使用执行时的本地 RFC 3339 timestamp：`"Convert to 
 缺少 `"created" 的最深 enclosing task 补录时间。后者不受 task state、dependency 或 recurrence
 限制。两者都保留已有 declaration children，并返回 revision-guarded edits。Task create、field update、
 status closure 与 recurrence clone 对其 property mutation 所在的连续 direct `"=" run 应用 syntax editing
-定义的 Unicode argument-alignment policy；不跨越 id、facet 或 ordinary child。
+定义的 Unicode argument-alignment policy；不跨越 id、facet 或 ordinary child。新生成或实际重写的单个
+property 也在 `"|" 两侧使用一个基础 ASCII-space padding。
 
 construct completion 是 prefix-sensitive 的 semantics-neutral authoring interface。bare backtick 不提供
 candidate；已输入至少一个 marker character 后，completion 根据 syntax owner、source position 与 semantic
@@ -713,6 +715,8 @@ owner base indentation。client 声明支持 per-item
 则使用 legacy `"adjustIndentation" projection。adapter 只能在 client 声明支持 per-item mode 时设置
 candidate 的 `"insertTextMode"。heading、ordinary list item 与其他
 inline-verbatim spelling 本身没有额外声明时保持可直接输入。
+Task skeleton 的 `"created" property 与 Event skeleton 的 schedule/title head 都使用 `" | " 基础 padding；
+direct property-name completion 生成的完整 `"=" block 同样使用该 spelling。
 
 export 按 document-local closure state 在 task item 的首个 paragraph 添加可见 marker：open 为 `"☐"，done 为 `"☒"，canceled
 为 `"⊘"，conflicted 为 `"⚠"。其中 `"☐"/`"☒" 使用 Pandoc task-list 约定，使支持该约定的 writer

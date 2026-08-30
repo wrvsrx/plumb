@@ -128,6 +128,11 @@ session。
 
 `# 8. Argument alignment
 
+Structured authoring 新生成或实际重写一个包含两个及以上 head arguments 的 block 时，每个 bare `"|"
+两侧默认各生成一个 ASCII-space boundary padding；该基础 padding 不要求存在 sibling run。Task/Event
+construct completion 等生成完整 block 的 recovered-source assist 同样遵守。Operation 只对自己生成或实际
+mutation 的 head/property 应用该规则，不回填未触及的既有 source。Formatter 保留 padding，但不全局补写。
+
 `"Align arguments" 是 valid syntax tree 上的显式、protocol-neutral whitespace rewrite，不属于 ordinary
 formatter。Operation 从 cursor 命中的最深 parsed block 出发，选择包含它的 maximal direct-sibling run；run
 必须至少包含两个 blocks，并且每个 block 都具有完全相同的 marker、相同且不少于两个的 head argument
@@ -139,7 +144,8 @@ Operation 对每个 argument column 使用 source spelling 的 Unicode display w
 遵循 locked `"unicode-width" implementation，不按 UTF-8 byte length 或 Unicode scalar count 对齐。它只
 重写 bare `"|" 邻接的 direct ASCII-space boundary padding，不改变 parsed/verbatim content、escaped spaces、
 separator token、marker、indentation、line ending 或 block layout。每个 separator column 对齐到该 run 的
-最大 content width，且 `"|" 两侧至少保留一个 ASCII space；所有 separator columns 独立对齐。
+最大 content width；它以 structured authoring 的两侧单空格为基础，只增加 `"|" 左侧 padding。所有
+separator columns 独立对齐。
 
 结果没有 byte change 时 operation 不可用，adapter 不发布 Code Action。LSP 将可用 operation 投影为
 `"refactor.rewrite" kind、title 为 `"Align arguments" 的 Code Action。formatter 只保留 operation 产生的
