@@ -501,12 +501,12 @@ fn converts_event_shorthand_with_a_refactor_action() {
     );
     assert!(replacement.contains(" `+ event\n"), "{replacement}");
     assert!(
-        replacement.contains(" `= date|2026-05-21\n"),
+        replacement.contains(" `= date     | 2026-05-21\n"),
         "{replacement}"
     );
     let timezone = Local::now().fixed_offset().format("%:z").to_string();
     assert!(
-        replacement.contains(&format!(" `= timezone|{timezone}\n")),
+        replacement.contains(&format!(" `= timezone | {timezone}\n")),
         "{replacement}"
     );
     assert!(!replacement.contains("#e0001"), "{replacement}");
@@ -814,8 +814,8 @@ fn recurring_task_action_closes_current_and_appends_next_instance() {
     assert!(replacement.contains("`@ weekly-review-2026-07-20"));
     assert!(replacement.contains("`= done|"));
     assert!(replacement.contains("`@ weekly-review-2026-07-27"));
-    assert!(replacement.contains("`= due|2026-07-27T09:00:00+08:00"));
-    assert!(replacement.contains("`= prev|#weekly-review-2026-07-20"));
+    assert!(replacement.contains("`= due     | 2026-07-27T09:00:00+08:00"));
+    assert!(replacement.contains("`= prev    | #weekly-review-2026-07-20"));
 }
 
 #[test]
@@ -922,8 +922,8 @@ fn canceling_a_recurring_task_appends_the_next_instance() {
     assert!(replacement.contains("`@ weekly-review-2026-07-20"));
     assert!(replacement.contains("`= canceled|"));
     assert!(replacement.contains("`@ weekly-review-2026-07-27"));
-    assert!(replacement.contains("`= due|2026-07-27T09:00:00+08:00"));
-    assert!(replacement.contains("`= prev|#weekly-review-2026-07-20"));
+    assert!(replacement.contains("`= due     | 2026-07-27T09:00:00+08:00"));
+    assert!(replacement.contains("`= prev    | #weekly-review-2026-07-20"));
 }
 
 #[test]

@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, FixedOffset};
-use plumb_edit::{replace_owned_block, AttributePosition, EditSession, OwnedAttribute, OwnedBlock};
+use plumb_edit::{replace_owned_block, EditSession, OwnedAttribute, OwnedBlock};
 use plumb_semantics::{
     analyze_tasks, next_task_datetime, parse_task_reference_target, valid_task_datetime,
     TaskRecord, TaskReferenceTarget, TaskState, TaskStatus,
@@ -350,17 +350,10 @@ impl Workspace {
         }
         let block = parsed_block_with_range(&entry.parsed.syntax.blocks, &task.range)
             .ok_or(TaskEditError::TaskNotFound)?;
-        let mark = block.mark.as_ref().ok_or(TaskEditError::TaskNotFound)?;
-        let mut edit = EditSession::new(&entry.parsed, block.range.clone())
+        let mut owned = OwnedBlock::from_parsed(&entry.parsed.source, block);
+        owned.push_attribute(OwnedAttribute::quoted("created", timestamp));
+        let edit = replace_owned_block(&entry.parsed, block.range.clone(), &owned)
             .map_err(|_| TaskEditError::GeneratedInvalid)?;
-        edit.insert_attribute(
-            &mark.attrs,
-            mark.marker_range.end,
-            AttributePosition::Last,
-            OwnedAttribute::quoted("created", timestamp),
-        )
-        .map_err(|_| TaskEditError::GeneratedInvalid)?;
-        let edit = edit.finish().map_err(|_| TaskEditError::GeneratedInvalid)?;
         Ok(single_document_edit(entry, path, edit))
     }
 
@@ -767,7 +760,7 @@ pub(super) fn owned_authored_task(
 ) -> OwnedBlock {
     let mut attributes = vec![OwnedAttribute::class("task"), OwnedAttribute::id(id)];
     append_authored_task_fields(&mut attributes, input, timestamp);
-    OwnedBlock::marked("-", &input.title).with_attributes(attributes)
+    OwnedBlock::marked("-", &input.title).with_aligned_attributes(attributes)
 }
 
 pub(super) fn updated_owned_task(
@@ -779,11 +772,11 @@ pub(super) fn updated_owned_task(
 ) -> OwnedBlock {
     let mut owned = OwnedBlock::from_parsed(source, block);
     owned.set_head_text(&input.title);
-    let mut attributes = owned.attributes();
-    attributes.retain(|attribute| {
+    owned.retain_attributes(|attribute| {
         !matches!(attribute, OwnedAttribute::Pair { key, .. }
             if matches!(key.as_str(), "created" | "due" | "wait" | "recur" | "prev" | "depends" | "priority"))
     });
+    let mut attributes = Vec::new();
     append_authored_task_fields(
         &mut attributes,
         input,
@@ -791,7 +784,8 @@ pub(super) fn updated_owned_task(
             .as_ref()
             .map_or(timestamp, |created| created.value.as_str()),
     );
-    owned.with_attributes(attributes)
+    owned.extend_attributes(attributes);
+    owned
 }
 
 fn append_authored_task_fields(

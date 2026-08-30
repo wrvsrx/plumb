@@ -2295,8 +2295,8 @@ fn task_status_operation_is_guarded_and_formats_the_affected_block() {
     let mut edited = source.to_string();
     edited.replace_range(operation.range.clone(), &operation.new_text);
     assert!(edited.contains("`@ write"));
-    assert!(edited.contains("`= due|2026-07-21T09:00:00Z"));
-    assert!(edited.contains("`= done|2026-07-20T12:00:00+08:00"));
+    assert!(edited.contains("`= due  | 2026-07-21T09:00:00Z"));
+    assert!(edited.contains("`= done | 2026-07-20T12:00:00+08:00"));
     assert_eq!(plumb_format::format(&edited).unwrap(), edited);
 }
 
@@ -2319,9 +2319,11 @@ fn task_status_targets_an_explicitly_anchored_nested_task() {
     edited.replace_range(edit.range.clone(), &edit.new_text);
 
     assert!(edited.contains("`@ task-c2cf5756"));
-    assert!(edited.contains("`= done|2026-07-22T22:41:21+08:00"));
+    assert!(edited.contains("`= done    | 2026-07-22T22:41:21+08:00"));
     assert_eq!(
-        edited.matches("`= done|2026-07-22T22:41:21+08:00").count(),
+        edited
+            .matches("`= done    | 2026-07-22T22:41:21+08:00")
+            .count(),
         1
     );
     assert_eq!(plumb_format::format(&edited).unwrap(), edited);
@@ -2348,7 +2350,7 @@ fn task_status_formats_multiline_attributes_with_a_long_head() {
 
     assert_eq!(
             edited,
-            "`- `->[如何在 nix 中检查 IFD|如何在 nix 中检查 IFD.plumb]\n\n `+ task\n\n `= created|2026-07-21T14:37:59+08:00\n `= done|2026-07-21T21:52:24+08:00\n"
+            "`- `->[如何在 nix 中检查 IFD|如何在 nix 中检查 IFD.plumb]\n\n `+ task\n\n `= created | 2026-07-21T14:37:59+08:00\n `= done    | 2026-07-21T21:52:24+08:00\n"
         );
     assert_eq!(plumb_format::format(&edited).unwrap(), edited);
 }
@@ -2413,7 +2415,7 @@ fn task_authoring_operations_convert_items_and_add_created() {
         .unwrap();
     assert!(created.document_changes[0].edits[0]
         .new_text
-        .contains("`= created|2026-07-20T10:00:00+08:00"));
+        .contains("`= created | 2026-07-20T10:00:00+08:00"));
     assert_eq!(
         workspace.add_task_created("tasks.plumb", nested_offset, timestamp),
         Err(TaskEditError::TaskNotFound)
@@ -2728,10 +2730,10 @@ fn recurring_task_status_advances_and_clones_the_task_losslessly() {
     assert!(edited.contains("`@ monthly-review-2026-01-31"));
     assert!(edited.contains("`= done|2026-01-31T10:00:00+08:00"));
     assert!(edited.contains("`@ monthly-review-2026-02-28"));
-    assert!(edited.contains("`= created|2026-01-31T10:00:00+08:00"));
-    assert!(edited.contains("`= due|2026-02-28T09:00:00+08:00"));
-    assert!(edited.contains("`= wait|2026-02-28T09:00:00+08:00"));
-    assert!(edited.contains("`= prev|#monthly-review-2026-01-31"));
+    assert!(edited.contains("`= created | 2026-01-31T10:00:00+08:00"));
+    assert!(edited.contains("`= due     | 2026-02-28T09:00:00+08:00"));
+    assert!(edited.contains("`= wait    | 2026-02-28T09:00:00+08:00"));
+    assert!(edited.contains("`= prev    | #monthly-review-2026-01-31"));
     assert_eq!(edited.matches("nested").count(), 1);
     assert_eq!(edited.matches("`= done|2026-01-20").count(), 1);
     let parsed = parse(&edited);
@@ -2813,10 +2815,14 @@ fn recurring_task_completion_preserves_canonical_layout() {
     let mut edited = source.to_string();
     edited.replace_range(edit.range.clone(), &edit.new_text);
 
-    assert!(edited.contains("`= done|2026-07-21T18:01:12+08:00"));
-    assert!(edited.contains("`= prev|#控制饮食-2026-07-20"));
+    assert!(edited.contains("`= done     | 2026-07-21T18:01:12+08:00"));
+    assert!(
+        edited.contains("`= prev    | #控制饮食-2026-07-20"),
+        "{edited}"
+    );
     assert!(edited.contains("`# 锻炼相关任务"));
-    assert_eq!(edited.matches("`= priority|-5").count(), 2);
+    assert_eq!(edited.matches("`= priority | -5").count(), 1);
+    assert_eq!(edited.matches("`= priority|-5").count(), 1);
     assert_eq!(plumb_format::format(&edited).unwrap(), edited);
 }
 
@@ -3220,8 +3226,8 @@ fn converts_event_shorthand_list_item_in_place() {
     assert!(converted.contains("\n `+ event\n"), "{converted}");
     assert!(!converted.contains("#e0001"), "{converted}");
     assert!(!converted.contains("event-uids"), "{converted}");
-    assert!(converted.contains("`= date|2026-05-21"));
-    assert!(converted.contains("`= timezone|+08:00"));
+    assert!(converted.contains("`= date     | 2026-05-21"));
+    assert!(converted.contains("`= timezone | +08:00"));
     assert!(converted.contains("`- 11:10--11:20|relax: phone\n\n `+ event\n"));
     assert!(!converted.contains("start="));
     assert!(!converted.contains("end="));
@@ -3417,6 +3423,12 @@ fn creates_updates_and_deletes_events_with_guarded_canonical_edits() {
         created_source.contains("`- 14:00--15:00|Review\n\n `+ event\n"),
         "{created_source}"
     );
+    assert!(
+        created_source.contains(
+            " `= date     | 2026-07-30\n `= timezone | +08:00\n `= tasks    | tasks.plumb#write\n"
+        ),
+        "{created_source}"
+    );
     assert_eq!(
         plumb_format::format(&created_source).unwrap(),
         created_source
@@ -3605,7 +3617,7 @@ fn creates_nested_tasks_and_updates_fields_without_losing_owned_content() {
     let created_source = apply_single_edit(source, &created);
     assert!(created_source.contains("\n  `+ task\n"), "{created_source}");
     assert!(created_source.contains("`@ task-"), "{created_source}");
-    assert!(created_source.contains("`= priority|-2"));
+    assert!(created_source.contains("`= priority | -2"));
     assert!(created_source.contains("`note Keep details"));
 
     workspace.insert("tasks.plumb", 5, created_source.clone());
@@ -3629,8 +3641,9 @@ fn creates_nested_tasks_and_updates_fields_without_losing_owned_content() {
         )
         .unwrap();
     let updated_source = apply_single_edit(&created_source, &updated);
-    assert!(updated_source.contains("`= custom|keep"));
+    assert!(updated_source.contains("`= custom  | keep"));
     assert!(updated_source.contains("`@ parent"));
+    assert!(updated_source.contains("`= created | 2026-07-31T11:00:00Z"));
     assert!(updated_source.contains("`= created|2026-07-01T09:00:00Z"));
     assert!(updated_source.contains("`note Keep details"));
     assert!(updated_source.contains("Nested"));
@@ -3656,8 +3669,8 @@ fn creates_nested_tasks_and_updates_fields_without_losing_owned_content() {
         )
         .unwrap();
     let patched_source = apply_single_edit(&updated_source, &patched);
-    assert!(patched_source.contains("`= priority|9"));
-    assert!(patched_source.contains("`= due|2026-09-01T10:00:00Z"));
+    assert!(patched_source.contains("`= priority | 9"));
+    assert!(patched_source.contains("`= due      | 2026-09-01T10:00:00Z"));
     assert!(patched_source.contains("#other"), "{patched_source}");
 }
 
@@ -3908,10 +3921,13 @@ fn updates_and_moves_task_subtrees_in_one_original_revision_operation() {
         updated.contains(" `- Updated idless child\n\n  `+ task\n"),
         "{updated}"
     );
-    assert!(updated.contains("`= custom|keep"), "{updated}");
+    assert!(updated.contains("`= custom   | keep"), "{updated}");
     assert!(updated.contains("`note Keep details"), "{updated}");
-    assert!(updated.contains("`= due|2026-08-15T02:30:00Z"), "{updated}");
-    assert!(updated.contains("`= priority|-3"), "{updated}");
+    assert!(
+        updated.contains("`= due      | 2026-08-15T02:30:00Z"),
+        "{updated}"
+    );
+    assert!(updated.contains("`= priority | -3"), "{updated}");
     let parsed = parse(&updated);
     assert!(parsed.is_valid(), "{updated}\n{:?}", parsed.diagnostics);
     assert_eq!(plumb_format::format(&updated).unwrap(), updated);
@@ -3958,7 +3974,10 @@ fn updates_and_moves_task_subtrees_in_one_original_revision_operation() {
     assert_eq!(cross_root.document_changes[0].edits.len(), 2);
     let cross_root_updated = apply_document_edit(updated, "tasks.plumb", 18, cross_root).unwrap();
     assert!(cross_root_updated.contains(" `- Cross-root child\n\n  `+ task\n"));
-    assert!(cross_root_updated.contains("`= custom|keep"));
+    assert!(
+        cross_root_updated.contains("`= custom   | keep"),
+        "{cross_root_updated}"
+    );
     assert!(
         parse(&cross_root_updated).is_valid(),
         "{cross_root_updated}"

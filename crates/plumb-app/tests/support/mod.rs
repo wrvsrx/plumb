@@ -139,10 +139,10 @@ pub fn response(messages: &[Value], id: u64) -> &Value {
 }
 
 pub fn attribute_value<'a>(text: &'a str, key: &str) -> &'a str {
-    let needle = format!("`= {key}|");
-    text.split_once(&needle)
-        .and_then(|(_, value)| value.lines().next())
-        .map(str::trim_end)
+    text.lines()
+        .filter_map(|line| line.trim_start().strip_prefix("`= "))
+        .filter_map(|line| line.split_once('|'))
+        .find_map(|(candidate, value)| (candidate.trim_end() == key).then(|| value.trim()))
         .expect("attribute value")
 }
 

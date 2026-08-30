@@ -2601,11 +2601,7 @@ impl Workspace {
         );
         owned.prepend_attribute(OwnedAttribute::class("event"));
         strip_event_shorthand_prefix(&mut owned, title_start)?;
-        let mut attributes = owned.attributes();
-        attributes.extend(event_attributes(&input, &current.output.metadata));
-        if !attributes.is_empty() {
-            owned = owned.with_attributes(attributes);
-        }
+        owned.extend_attributes(event_attributes(&input, &current.output.metadata));
         prepend_event_schedule(&mut owned, &input);
         let event_edit = replace_owned_block(&entry.parsed, item.range.clone(), &owned)
             .map_err(|_| EventShorthandError::GeneratedInvalid)?;
@@ -3151,12 +3147,10 @@ impl Workspace {
             .ok_or(EventEditError::EventNotFound)?;
         let mut owned = OwnedBlock::from_parsed(&entry.parsed.source, block);
         set_event_head(&mut owned, input);
-        let mut attributes = owned.attributes();
-        attributes.retain(|attribute| {
+        owned.retain_attributes(|attribute| {
             !matches!(attribute, OwnedAttribute::Pair { key, .. } if matches!(key.as_str(), "date" | "timezone" | "at" | "start" | "end" | "tasks"))
         });
-        attributes.extend(event_attributes(input, &current.output.metadata));
-        owned = owned.with_attributes(attributes);
+        owned.extend_attributes(event_attributes(input, &current.output.metadata));
         let mut edit = EditSession::new(&entry.parsed, event.range.clone())
             .map_err(|_| EventEditError::GeneratedInvalid)?;
         edit.replace_block(event.range.clone(), &owned)
@@ -4287,7 +4281,7 @@ fn prepend_event_schedule(owned: &mut OwnedBlock, input: &EventInput) {
 fn owned_event(input: &EventInput, metadata: &MetadataOutput) -> OwnedBlock {
     let mut attributes = vec![OwnedAttribute::class("event")];
     attributes.extend(event_attributes(input, metadata));
-    let mut event = OwnedBlock::marked("-", "").with_attributes(attributes);
+    let mut event = OwnedBlock::marked("-", "").with_aligned_attributes(attributes);
     set_event_head(&mut event, input);
     event
 }
