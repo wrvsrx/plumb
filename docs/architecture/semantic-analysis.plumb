@@ -29,10 +29,10 @@ normalized AST 只在具体 consumer 能证明 typed views 不足时 materialize
  diagnostics。public authoritative analysis entry points 不接受裸 `"Document" 或独立 source 参数；
  valid view 同时提供同一次 parse 的 source 与 syntax tree。
 `- recovered editor queries：只能通过显式命名、按 consumer 所需字段窄化的 recovered entry point
- 消费裸 `"Document"，且不产生 authoritative semantic diagnostics 或完整 document records。heading
- folding projection 使用 `"analyze_recovered_headings"；citation completion 可以使用
- `"recovered_bibliography_sources" 读取 source-backed bibliography declarations。两者不能借此调用或
- 发布其他 semantic passes 的结果。
+消费裸 `"Document"，且不产生 authoritative semantic diagnostics 或完整 document records。heading
+folding projection 使用 `"analyze_recovered_headings"；citation completion 可以使用
+`"recovered_bibliography_sources" 读取 source-backed bibliography declarations。两者不能借此调用或
+发布其他 semantic passes 的结果。
 `- workspace analysis：组合 document outputs，产生 resolution、reverse edges、cycles 等 indexes。
 `- query：读取 immutable context，返回当前请求的结果，不改变 state。
 `- operation：验证 preconditions，提出 guarded text/resource effects，不直接应用。
@@ -317,6 +317,9 @@ revision 的 byte edits。
 consumer 不渲染 owned nodes、不计算 subtree indentation/line-ending replacement，也不把结构删除或移动
 降级为 raw token replacement。anchor/document rename 通过 `"plumb-edit" 验证 token ranges，并保持
 ordered minimal edits。incomplete-source completion 属于 recovery assist，不伪装成 authoritative mutation。
+当 recovered completion 生成完整 block arguments 时，semantic query 可以调用 `"plumb-edit" 的纯
+authored-fragment renderer 取得统一 separator/padding spelling；renderer 不读取 tree 或产生 mutation，query
+继续拥有 recovered context 与 replacement range。
 
 Formatting 使用同一 syntax-only edit contract：consumer 传入当前 `"ParsedDocument" 和 scope，
 `"plumb-edit" 返回 byte edits；LSP/CLI/Web 不直接依赖 `"plumb-format" 或重新 parse revision source。

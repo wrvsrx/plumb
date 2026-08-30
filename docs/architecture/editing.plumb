@@ -23,6 +23,11 @@ owned nodes 可以从 strict typed syntax view detach，也可以由 operation �
 valid intermediate source；最终 layout 始终由 `"plumb-format" canonicalize。operation 不拼接完整 CST
 block、手工计算 multiline attribute layout 或复制 subtree indentation。
 
+Block head arguments 通过 `"plumb-edit" 的 structured arguments API 构造、替换或 prepend；semantic/workspace
+caller 不得在 flat `"OwnedInline" sequence 中手工插入 `"ArgumentSeparator" 或 boundary `"Space" 来表达
+argument layout。该 API 是基础 `" | " padding policy 的唯一实现，并同时供 `"OwnedBlock" mutation 与
+不绑定 revision 的纯 authored-fragment renderer 使用。
+
 owned inline element rendering 保证 first member 是 parsed argument。operation 未提供 members 时输出 empty
 first argument；若构造的首项是 verbatim argument 或 child，renderer 在其前插入 empty parsed argument，
 使后续 member 经过显式 `"|" boundary 输出。
@@ -164,6 +169,12 @@ adapter 串联第二次 alignment edit。
 completion、delimiter closure 等 assists 可能运行在 incomplete recovered source 上，此时不存在可安全
 mutation 的 valid owner node。它们可以返回局部 recovery text replacement，但不得伪装成 authoritative
 owned-syntax mutation，也不得进入 authoring finalization pipeline。
+
+Recovered assist 可以调用 `"plumb-edit" 的纯 structured-argument renderer 生成 candidate fragment；该调用
+不接收 recovered tree、不建立 `"EditSession"、不应用 edit，也不把 snippet placeholder 解释为 plumb
+syntax。Semantic query 仍拥有 candidate intent 与 recovered replacement range，LSP 只添加 snippet/indent
+projection。Valid-tree operation 与 recovered assist 因而共享 separator/padding policy，而不共享 mutation
+authority。
 
 当 completion replacement 自身生成一个完整 construct 时，它仍必须遵守对应 canonical structural layout，
 不能因绕过 authoring finalization 而选择不同的 separator 或 indentation。Snippet placeholders 与 client
