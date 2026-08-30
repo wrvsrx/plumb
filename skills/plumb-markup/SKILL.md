@@ -48,6 +48,13 @@ owner and offers declared standard facets, property names, and finite values whi
 suppressing unique properties already present. Custom elements remain allowed.
 Link/Image paths and anchors continue to use workspace-aware value completion.
 
+The `Align arguments` code action is offered only when the cursor's maximal run
+of direct sibling blocks has the same marker and argument count, has at least
+two single-line childless/rawless blocks, and needs padding changes. It aligns
+every bare `|` column with locked Unicode display widths, leaves tabs and
+multiline heads alone, and keeps at least one ASCII space on each side. Metadata
+insertion applies the same policy to its generated `title` and `created` pair.
+
 ## Authority
 
 Treat this bundled skill as the portable guide for the release that shipped

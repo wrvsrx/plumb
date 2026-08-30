@@ -120,7 +120,13 @@ definition/list structure，`"="/`"+" 是不进入 rendered body 的 map/sequenc
 `"metadata.invalid-created" warning，但不使 core syntax 无效。空文档也可以通过
 `"Insert document metadata" code action 创建带默认 filename title 与当前 created 的 metadata；
 该 action 只在 cursor 精确位于 document start（byte offset 0）时提供，并在 byte 0 插入 direct
-`"title" 与 `"created" declarations。
+`"title" 与 `"created" declarations。两个 scalar 保持同行，并按最长 key 对齐 separator：
+
+`plumb
+
+|"
+  `= title   | Example
+  `= created | 2026-08-30T00:00:00+08:00
 
 `# Link
 

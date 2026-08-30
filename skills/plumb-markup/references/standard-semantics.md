@@ -60,8 +60,8 @@ attribute-class container. Both unsupported declarations remain outside the
 projected body.
 
 ```plumb
-`= title|Document title
-`= created|2026-07-20T09:00:00+08:00
+`= title   | Document title
+`= created | 2026-07-20T09:00:00+08:00
 
 `= tags
  `+ plumb
@@ -103,7 +103,14 @@ layout, base indentation, and document line ending. Current facet-form source
 remains unchanged.
 
 The metadata insertion action creates `title` from the filename stem and
-`created` from the current local RFC 3339 timestamp.
+`created` from the current local RFC 3339 timestamp. It aligns their `|`
+separators by Unicode display width with at least one ASCII space on each side.
+
+The `Align arguments` code action applies the same padding policy to every
+separator column in the cursor's maximal run of direct sibling blocks when the
+run contains at least two blocks with the same marker and argument count. Each
+head must be single-line and each block must have no children or raw tail. The
+action is omitted for tabs, ineligible runs, and source that is already aligned.
 
 ## Links
 
