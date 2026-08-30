@@ -126,7 +126,27 @@ raw replacement 只对这种已有 typed token ownership 的机械 rewrite 开�
 declaration mutation、conversion 与 formatting 不得使用 raw `"TextEdit::replace" 绕过 owned syntax 或 edit
 session。
 
-`# 8. Recovered-source assists
+`# 8. Argument alignment
+
+`"Align arguments" 是 valid syntax tree 上的显式、protocol-neutral whitespace rewrite，不属于 ordinary
+formatter。Operation 从 cursor 命中的最深 parsed block 出发，选择包含它的 maximal direct-sibling run；run
+必须至少包含两个 blocks，并且每个 block 都具有完全相同的 marker、相同且不少于两个的 head argument
+数量、单一 physical-line head、zero children 和 absent raw tail。不同 marker、argument arity、parent、普通
+paragraph、verbatim block、children/raw owner 或其他 sibling 结束 run。head 含 soft break、tab 或无法按固定
+Unicode display-width policy 计算的 source 时不提供 operation。
+
+Operation 对每个 argument column 使用 source spelling 的 Unicode display width；combining 与 wide characters
+遵循 locked `"unicode-width" implementation，不按 UTF-8 byte length 或 Unicode scalar count 对齐。它只
+重写 bare `"|" 邻接的 direct ASCII-space boundary padding，不改变 parsed/verbatim content、escaped spaces、
+separator token、marker、indentation、line ending 或 block layout。每个 separator column 对齐到该 run 的
+最大 content width，且 `"|" 两侧至少保留一个 ASCII space；所有 separator columns 独立对齐。
+
+结果没有 byte change 时 operation 不可用，adapter 不发布 Code Action。LSP 将可用 operation 投影为
+`"refactor.rewrite" kind、title 为 `"Align arguments" 的 Code Action。formatter 只保留 operation 产生的
+boundary padding，不主动对其他 sibling runs 执行全局对齐。Authoring operation 新建一组需要对齐的
+associations 时复用同一 display-width 与 padding policy，不通过 adapter 重新调用 Code Action。
+
+`# 9. Recovered-source assists
 
 completion、delimiter closure 等 assists 可能运行在 incomplete recovered source 上，此时不存在可安全
 mutation 的 valid owner node。它们可以返回局部 recovery text replacement，但不得伪装成 authoritative
@@ -142,7 +162,7 @@ indentation；这是 client projection 允许的唯一 non-canonical whitespace�
 tree-sitter 不参与 mutation、formatting 或 range authority；它仍只服务 editor highlighting、folding、
 indentation、text objects 和 injections。
 
-`# 9. Versioned inline-member migration
+`# 10. Versioned inline-member migration
 
 single-envelope inline members 是 breaking syntax change，提供显式 versioned migration；ordinary
 formatter 不得把旧 slots/attached groups 静默改写成新 members，ordinary strict parser 不保留
@@ -160,7 +180,7 @@ profile pass 转换。单文件写入必须 atomic，输出必须经 current str
 spelling 使调用方必须显式提供 source epoch。规则与完整 mapping 见
 `->[unified inline members design|../history/syntax/inline-members.plumb]。
 
-`# 10. Versioned block-group migration
+`# 11. Versioned block-group migration
 
 删除 block attached groups 与 named verbatim opener 是 breaking syntax change。`"plumb migrate" 提供显式
 legacy epoch；ordinary parser 不识别 old groups，formatter 不静默迁移。converter 使用 frozen legacy tree
@@ -177,7 +197,7 @@ legacy epoch；ordinary parser 不识别 old groups，formatter 不静默迁移�
 converter 产出 current owned syntax，经 `"plumb-edit" canonical rendering、strict reparse 与 atomic write。
 migration 不根据 marker spelling 猜 source epoch，也不把 old attached content 与 ordinary children 交错。
 
-`# 11. Versioned block-head argument migration
+`# 12. Versioned block-head argument migration
 
 在 head/paragraph 统一使用 bare `"|" 分隔 parsed arguments 之前，official semantic profile 对少数
 block markers 直接从 flat head items 识别 space-delimited compact arguments。显式迁移该 epoch 使用

@@ -168,7 +168,9 @@ document start（byte offset 0）时提供；edit 在 byte offset 0 插入 direc
 `"created"。title 默认取 filename stem；created 使用 operation 时刻的本地
 RFC 3339 timestamp。标准 `"date" scalar 使用 `"YYYY-MM-DD"；标准 `"timezone" scalar 使用 numeric
 UTC offset（例如 `"+08:00"），为 event 提供默认 local-time context。生成布局与 formatter 一致：
-properties 位于 document column，scalar 优先写在 property head 中。
+properties 位于 document column，scalar 优先写在 property head 中。生成的 `"title" 与 `"created"
+associations 使用 syntax editing 定义的 argument-alignment policy：按本组最长 key 的 Unicode display width
+补齐 `"|" 前的 ASCII-space padding，并在 `"|" 后保留一个 ASCII space。
 
 标准 `"created" metadata value 必须是 scalar，并且是带 timezone 的完整 RFC 3339 timestamp。
 非法值发布 `"metadata.invalid-created" warning；它不改变 core syntax validity，依赖时间的 query、
