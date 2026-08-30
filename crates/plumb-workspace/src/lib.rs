@@ -153,6 +153,12 @@ pub enum MetadataInsertError {
     GeneratedInvalid,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ArgumentAlignmentError {
+    StaleOrInvalidDocument,
+    Unavailable,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ExplicitIdError {
     StaleOrInvalidDocument,
@@ -2488,10 +2494,7 @@ impl Workspace {
             return Err(MetadataInsertError::CursorNotAtDocumentStart);
         }
 
-        let metadata = [
-            OwnedBlock::association("title", title),
-            OwnedBlock::association("created", created),
-        ];
+        let metadata = plumb_edit::aligned_associations(&[("title", title), ("created", created)]);
         let affected = 0..if entry.parsed.syntax.blocks.is_empty() {
             entry.parsed.source.len()
         } else {
@@ -2505,6 +2508,25 @@ impl Workspace {
             .finish()
             .map_err(|_| MetadataInsertError::GeneratedInvalid)?;
         Ok(single_document_edit(entry, path, edit))
+    }
+
+    pub fn align_block_arguments(
+        &self,
+        path: impl AsRef<Path>,
+        offset: usize,
+    ) -> Result<WorkspaceEdit, ArgumentAlignmentError> {
+        let path = normalize(path.as_ref());
+        let entry = self
+            .documents
+            .get(&path)
+            .filter(|entry| entry.current.is_some())
+            .ok_or(ArgumentAlignmentError::StaleOrInvalidDocument)?;
+        let edits = plumb_edit::align_block_arguments(&entry.parsed, offset)
+            .map_err(|_| ArgumentAlignmentError::StaleOrInvalidDocument)?;
+        if edits.is_empty() {
+            return Err(ArgumentAlignmentError::Unavailable);
+        }
+        Ok(single_document_edits(entry, path, edits))
     }
 
     pub fn create_event(

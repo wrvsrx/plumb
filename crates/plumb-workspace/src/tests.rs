@@ -2841,7 +2841,7 @@ fn inserts_metadata_with_revision_and_escaped_title() {
     assert_eq!(document.edits[0].range, 0..0);
     assert_eq!(
         document.edits[0].new_text,
-        "`= title|my``note\n`= created|2026-07-19T12:34:56+08:00\n\n"
+        "`= title   | my``note\n`= created | 2026-07-19T12:34:56+08:00\n\n"
     );
 }
 
@@ -2859,7 +2859,7 @@ fn inserts_formatted_metadata_into_an_empty_document() {
     assert_eq!(document.edits[0].range, 0..0);
     assert_eq!(
         document.edits[0].new_text,
-        "`= title|empty\n`= created|2026-07-22T12:34:56+08:00\n"
+        "`= title   | empty\n`= created | 2026-07-22T12:34:56+08:00\n"
     );
     assert_eq!(
         plumb_format::format(&document.edits[0].new_text).unwrap(),
@@ -2878,7 +2878,26 @@ fn metadata_insertion_preserves_crlf() {
 
     assert_eq!(
         edit.document_changes[0].edits[0].new_text,
-        "`= title|note\r\n`= created|2026-07-19T12:34:56+08:00\r\n\r\n"
+        "`= title   | note\r\n`= created | 2026-07-19T12:34:56+08:00\r\n\r\n"
+    );
+}
+
+#[test]
+fn aligns_block_arguments_with_a_guarded_workspace_edit() {
+    let source = "`row 名|one\n`row alphabet|two\n";
+    let mut workspace = Workspace::new();
+    workspace.insert("rows.plumb", 7, source);
+    let edit = workspace
+        .align_block_arguments("rows.plumb", source.find('名').unwrap())
+        .unwrap();
+    assert_eq!(edit.document_changes[0].expected_revision, 7);
+    let aligned = apply_document_edit(source.to_string(), "rows.plumb", 7, edit).unwrap();
+    assert_eq!(aligned, "`row 名       | one\n`row alphabet | two\n");
+
+    workspace.insert("rows.plumb", 8, &aligned);
+    assert_eq!(
+        workspace.align_block_arguments("rows.plumb", aligned.find('名').unwrap()),
+        Err(ArgumentAlignmentError::Unavailable)
     );
 }
 
