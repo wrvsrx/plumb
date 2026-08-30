@@ -291,7 +291,9 @@ explicit id when another task must reference it.
 
 The LSP can convert an ordinary list item by preserving its marker and adding the
 first `+ task` facet plus `created`, or add `created` to an existing task; both use the operation's local
-RFC 3339 timestamp.
+RFC 3339 timestamp. Task create/update, closure, and recurrence operations align
+the direct `=` property run they mutate with the same Unicode display-width
+policy. IDs, facets, ordinary children, and argument-arity changes split runs.
 Construct completion is prefix-sensitive. A bare backtick offers no candidates.
 At line start, a backtick followed by a hyphen offers Task, Event, Link, and
 Autolink. Letter prefixes such as `t`/`task` and `e`/`event` offer no construct
@@ -445,6 +447,8 @@ and preserves the remaining inline tree and ordered members.
 An event needs an explicit id only when referenced. A shorthand without an
 explicit date or timezone inherits valid document metadata
 before falling back to the operation's local date and offset.
+Event create/update and shorthand conversion align the direct `=` property run
+they mutate. A title-only update does not align existing opaque properties.
 Trailing `--` is an authoring-only inferred end. Conversion takes the start of
 the immediately following sibling list-item shorthand and writes an explicit
 interval schedule. Batch inference requires both siblings in the selection; a

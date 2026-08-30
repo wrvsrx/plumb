@@ -54,6 +54,10 @@ two single-line childless/rawless blocks, and needs padding changes. It aligns
 every bare `|` column with locked Unicode display widths, leaves tabs and
 multiline heads alone, and keeps at least one ASCII space on each side. Metadata
 insertion applies the same policy to its generated `title` and `created` pair.
+Structured Task/Event authoring also aligns the direct `=` property run that it
+actually mutates in the same edit. IDs, facets, ordinary children, and arity
+changes split runs; unrelated head/identity/move operations do not align
+existing properties.
 
 ## Authority
 
