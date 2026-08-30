@@ -98,7 +98,7 @@ fn inserts_metadata_code_action_only_for_valid_documents_without_metadata() {
     assert_eq!(change["edits"][0]["range"]["start"]["line"], 0);
     assert_eq!(change["edits"][0]["range"]["start"]["character"], 0);
     let new_text = change["edits"][0]["newText"].as_str().unwrap();
-    let prefix = "`= title|metadata-action\n`= created|";
+    let prefix = "`= title   | metadata-action\n`= created | ";
     let created = new_text
         .strip_prefix(prefix)
         .and_then(|suffix| suffix.strip_suffix("\n\n"))
@@ -161,6 +161,94 @@ fn omits_metadata_code_action_when_cursor_is_not_at_document_start() {
 }
 
 #[test]
+fn aligns_block_arguments_only_when_the_sibling_run_needs_it() {
+    let uri = "file:///tmp/argument-alignment.plumb";
+    let source = "`row a|one|x\n`row alphabet|two|y\n";
+    let aligned = "`row a        | one | x\n`row alphabet | two | y\n";
+    let tabbed = "`row a\t|one|x\n`row alphabet|two|y\n";
+    let request = |id| {
+        json!({
+            "jsonrpc": "2.0", "id": id, "method": "textDocument/codeAction",
+            "params": {
+                "textDocument": { "uri": uri },
+                "range": {
+                    "start": { "line": 0, "character": 5 },
+                    "end": { "line": 0, "character": 5 }
+                },
+                "context": { "diagnostics": [], "only": ["refactor.rewrite"] }
+            }
+        })
+    };
+    let messages = [
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {
+                "processId": null, "rootUri": null,
+                "capabilities": {
+                    "workspace": { "workspaceEdit": { "documentChanges": true } }
+                }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": {
+                "uri": uri, "languageId": "plumb", "version": 3, "text": source
+            }}
+        }),
+        request(2),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didChange",
+            "params": {
+                "textDocument": { "uri": uri, "version": 4 },
+                "contentChanges": [{ "text": aligned }]
+            }
+        }),
+        request(3),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didChange",
+            "params": {
+                "textDocument": { "uri": uri, "version": 5 },
+                "contentChanges": [{ "text": tabbed }]
+            }
+        }),
+        request(4),
+        json!({ "jsonrpc": "2.0", "id": 5, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+
+    let output = run_server(&messages);
+    let action = response(&output, 2)["result"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|action| action["title"] == "Align arguments")
+        .unwrap();
+    assert_eq!(action["kind"], "refactor.rewrite");
+    assert_eq!(
+        action["edit"]["documentChanges"][0]["textDocument"]["version"],
+        3
+    );
+    assert_eq!(
+        apply_ascii_lsp_edits(
+            source,
+            action["edit"]["documentChanges"][0]["edits"]
+                .as_array()
+                .unwrap()
+        ),
+        aligned
+    );
+    for id in [3, 4] {
+        assert!(response(&output, id)["result"]
+            .as_array()
+            .map(|actions| actions
+                .iter()
+                .all(|action| action["title"] != "Align arguments"))
+            .unwrap_or(true));
+    }
+}
+
+#[test]
 fn inserts_metadata_into_an_empty_document_over_stdio() {
     let uri = "file:///tmp/empty-note.plumb";
     let messages = [
@@ -213,7 +301,7 @@ fn inserts_metadata_into_an_empty_document_over_stdio() {
         json!({ "line": 0, "character": 0 })
     );
     let generated = change["edits"][0]["newText"].as_str().unwrap();
-    assert!(generated.starts_with("`= title|empty-note\n`= created|"));
+    assert!(generated.starts_with("`= title   | empty-note\n`= created | "));
     let parsed = plumb_syntax::parse(generated);
     assert!(
         plumb_edit::format(&parsed, plumb_edit::FormatScope::Document)
@@ -640,6 +728,39 @@ fn offers_guarded_task_status_code_actions() {
         let timestamp = attribute_value(new_text, attribute);
         chrono::DateTime::parse_from_rfc3339(timestamp).unwrap();
     }
+}
+
+fn apply_ascii_lsp_edits(source: &str, edits: &[serde_json::Value]) -> String {
+    let mut edits = edits
+        .iter()
+        .map(|edit| {
+            let offset = |position: &serde_json::Value| {
+                let line = position["line"].as_u64().unwrap() as usize;
+                let character = position["character"].as_u64().unwrap() as usize;
+                let line_start = if line == 0 {
+                    0
+                } else {
+                    source
+                        .match_indices('\n')
+                        .map(|(offset, _)| offset + 1)
+                        .nth(line - 1)
+                        .unwrap()
+                };
+                line_start + character
+            };
+            let range = &edit["range"];
+            (
+                offset(&range["start"])..offset(&range["end"]),
+                edit["newText"].as_str().unwrap().to_string(),
+            )
+        })
+        .collect::<Vec<_>>();
+    edits.sort_by_key(|(range, _)| std::cmp::Reverse(range.start));
+    let mut output = source.to_string();
+    for (range, new_text) in edits {
+        output.replace_range(range, &new_text);
+    }
+    output
 }
 
 #[test]

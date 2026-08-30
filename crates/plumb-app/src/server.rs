@@ -1932,6 +1932,19 @@ impl LanguageServer for ServerState {
                 }
                 if let Some(edit) = self
                     .workspace
+                    .align_block_arguments(&path, offset)
+                    .ok()
+                    .and_then(|edit| workspace_edit_to_lsp(&self.workspace, edit))
+                {
+                    actions.push(CodeActionOrCommand::CodeAction(CodeAction {
+                        title: "Align arguments".to_string(),
+                        kind: Some(CodeActionKind::REFACTOR_REWRITE),
+                        edit: Some(edit),
+                        ..CodeAction::default()
+                    }));
+                }
+                if let Some(edit) = self
+                    .workspace
                     .add_explicit_id(&path, offset)
                     .ok()
                     .and_then(|edit| workspace_edit_to_lsp(&self.workspace, edit))
