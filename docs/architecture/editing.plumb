@@ -146,6 +146,13 @@ separator token、marker、indentation、line ending 或 block layout。每个 s
 boundary padding，不主动对其他 sibling runs 执行全局对齐。Authoring operation 新建一组需要对齐的
 associations 时复用同一 display-width 与 padding policy，不通过 adapter 重新调用 Code Action。
 
+Structured authoring operation 在一个 owner 中新增、替换、删除或重排 direct `"=" property 时，必须在
+同一个 owned-syntax transaction 内对包含受影响 property 的 maximal eligible direct-sibling run 应用上述
+alignment policy。Task/Event create、field update、status closure 与 recurrence clone 均遵守该规则。
+只新增或修改 id/facet、只改 head/title、只移动 block，或未触及 property 的其他 operation 不得借机对齐
+已有 property runs；这些手写 source 继续由显式 Code Action 处理。Operation 不得先提交领域 edit，再从
+adapter 串联第二次 alignment edit。
+
 `# 9. Recovered-source assists
 
 completion、delimiter closure 等 assists 可能运行在 incomplete recovered source 上，此时不存在可安全

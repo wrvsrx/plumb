@@ -506,6 +506,8 @@ Event CEL context 提供 `"path"、`"id"、`"title"、source-backed `"uid"、`"d
 schedule 的 `"when"、
 解析后的 `"at"、`"start"、`"end"、`"tasks" 与 `"now"。
 Web Agenda 通过 revision-guarded operations 创建、编辑和删除 event；首版只支持 online mutations。
+Event create/update 与 shorthand conversion 对其 property mutation 所在的连续 direct `"=" run 应用 syntax
+editing 定义的 Unicode argument-alignment policy。
 Pandoc export 保留 item 原有 bullet/ordered list kind；消费 `"event" facet，其他 opaque declarations 保持不变。
 
 editor authoring operation `"Convert to event" 只在 cursor 命中的单个 list item head 以完整 event
@@ -669,7 +671,9 @@ diagnostics 也不改变 nesting 只形成 display tree、只有 `"depends" 建�
 authoring operations 使用执行时的本地 RFC 3339 timestamp：`"Convert to task" 把 cursor 命中的最深
 普通 `"-"/`"." item 转为 task 时，保留 marker、添加首个 direct `"+ task" facet 和 `"created" property；`"Add task created timestamp" 为
 缺少 `"created" 的最深 enclosing task 补录时间。后者不受 task state、dependency 或 recurrence
-限制。两者都保留已有 declaration children，并返回 revision-guarded edits。
+限制。两者都保留已有 declaration children，并返回 revision-guarded edits。Task create、field update、
+status closure 与 recurrence clone 对其 property mutation 所在的连续 direct `"=" run 应用 syntax editing
+定义的 Unicode argument-alignment policy；不跨越 id、facet 或 ordinary child。
 
 construct completion 是 prefix-sensitive 的 semantics-neutral authoring interface。bare backtick 不提供
 candidate；已输入至少一个 marker character 后，completion 根据 syntax owner、source position 与 semantic
