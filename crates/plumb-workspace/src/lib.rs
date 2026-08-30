@@ -4256,36 +4256,13 @@ fn event_attributes(input: &EventInput, metadata: &MetadataOutput) -> Vec<OwnedA
 fn set_event_head(owned: &mut OwnedBlock, input: &EventInput) {
     let (_, _, schedule) =
         compact_event_schedule(input).expect("event input is validated before authoring");
-    owned.set_head_text(&input.title);
-    let OwnedBlock::Parsed { head, .. } = owned else {
-        return;
-    };
-    head.splice(
-        0..0,
-        [
-            OwnedInline::Text(schedule),
-            OwnedInline::Space(" ".to_string()),
-            OwnedInline::ArgumentSeparator,
-            OwnedInline::Space(" ".to_string()),
-        ],
-    );
+    owned.set_head_text_arguments([schedule, input.title.clone()]);
 }
 
 fn prepend_event_schedule(owned: &mut OwnedBlock, input: &EventInput) {
     let (_, _, schedule) =
         compact_event_schedule(input).expect("event input is validated before authoring");
-    let OwnedBlock::Parsed { head, .. } = owned else {
-        return;
-    };
-    head.splice(
-        0..0,
-        [
-            OwnedInline::Text(schedule),
-            OwnedInline::Space(" ".to_string()),
-            OwnedInline::ArgumentSeparator,
-            OwnedInline::Space(" ".to_string()),
-        ],
-    );
+    owned.prepend_head_text_argument(schedule);
 }
 
 fn owned_event(input: &EventInput, metadata: &MetadataOutput) -> OwnedBlock {
