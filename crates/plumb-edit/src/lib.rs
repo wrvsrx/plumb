@@ -156,7 +156,7 @@ pub fn align_block_arguments(
 pub fn aligned_associations(entries: &[(&str, &str)]) -> Vec<OwnedBlock> {
     let mut blocks = entries
         .iter()
-        .map(|(key, value)| OwnedBlock::association(*key, *value))
+        .map(|(key, value)| OwnedBlock::padded_association(*key, *value))
         .collect::<Vec<_>>();
     align_owned_sibling_arguments(&mut blocks);
     blocks
@@ -271,7 +271,7 @@ impl OwnedAttribute {
                     OwnedValue::Bare(value) | OwnedValue::Quoted(value) => value,
                 };
                 format!(
-                    "`= {}|{}",
+                    "`= {} | {}",
                     escape_authored_text(key),
                     escape_authored_text(value)
                 )
@@ -287,7 +287,7 @@ impl OwnedAttribute {
                 let value = match value {
                     OwnedValue::Bare(value) | OwnedValue::Quoted(value) => value,
                 };
-                OwnedBlock::association(key, value)
+                OwnedBlock::padded_association(key, value)
             }
         }
     }
@@ -297,6 +297,20 @@ impl OwnedBlock {
     pub fn association(key: impl Into<String>, value: impl Into<String>) -> Self {
         let mut head = owned_authored_text(&key.into());
         head.push(OwnedInline::ArgumentSeparator);
+        head.extend(owned_authored_text(&value.into()));
+        Self::Parsed {
+            marker: Some("=".into()),
+            head,
+            children: Vec::new(),
+            raw: None,
+        }
+    }
+
+    fn padded_association(key: impl Into<String>, value: impl Into<String>) -> Self {
+        let mut head = owned_authored_text(&key.into());
+        head.push(OwnedInline::Space(" ".to_string()));
+        head.push(OwnedInline::ArgumentSeparator);
+        head.push(OwnedInline::Space(" ".to_string()));
         head.extend(owned_authored_text(&value.into()));
         Self::Parsed {
             marker: Some("=".into()),
@@ -1696,10 +1710,10 @@ mod tests {
     #[test]
     fn block_attributes_escape_argument_delimiters() {
         let attribute = OwnedAttribute::bare("key|part", "value[part]");
-        assert_eq!(attribute.render_block(), "`= key`|part|value`[part`]");
+        assert_eq!(attribute.render_block(), "`= key`|part | value`[part`]");
 
         let formatted = attribute.into_block().format().unwrap();
-        assert_eq!(formatted, "`= key`|part|value`[part`]\n");
+        assert_eq!(formatted, "`= key`|part | value`[part`]\n");
         assert!(parse(&formatted).is_valid(), "{formatted}");
     }
 
@@ -1793,7 +1807,7 @@ mod tests {
         let edit = session.finish().unwrap();
         assert_eq!(
             edit.new_text,
-            "`task Work\n\n `@ work\n\n `= created|2026-08-26T00:00:00+08:00\n"
+            "`task Work\n\n `@ work\n\n `= created | 2026-08-26T00:00:00+08:00\n"
         );
     }
 
@@ -1840,7 +1854,7 @@ mod tests {
         let edit = session.finish().unwrap();
         let edited = apply_text_edits(source.to_string(), vec![edit]).unwrap();
         assert!(parse(&edited).is_valid(), "{edited}");
-        assert!(edited.contains("`= created|2026-07-20T10:00:00+08:00"));
+        assert!(edited.contains("`= created | 2026-07-20T10:00:00+08:00"));
         assert!(edited.contains("`task Existing"));
     }
 
@@ -1962,8 +1976,8 @@ mod tests {
             .unwrap();
         let inserted =
             apply_text_edits(source.to_string(), vec![insert.finish().unwrap()]).unwrap();
-        assert!(inserted.find("`@ old").unwrap() < inserted.find("`= due|tomorrow").unwrap());
-        assert!(inserted.find("`= due|tomorrow").unwrap() < inserted.find("`+ keep").unwrap());
+        assert!(inserted.find("`@ old").unwrap() < inserted.find("`= due | tomorrow").unwrap());
+        assert!(inserted.find("`= due | tomorrow").unwrap() < inserted.find("`+ keep").unwrap());
         assert!(inserted.contains("`note before"));
         assert!(inserted.contains("`note after"));
 
@@ -2158,7 +2172,7 @@ mod tests {
         assert!(unaligned
             .format()
             .unwrap()
-            .contains(" `= due|tomorrow\n `= priority|20\n"));
+            .contains(" `= due | tomorrow\n `= priority | 20\n"));
         let aligned = owned.with_aligned_attributes(attributes);
         assert!(aligned
             .format()
