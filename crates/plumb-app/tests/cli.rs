@@ -1,7 +1,7 @@
 use std::io::{BufRead, BufReader, Read, Write};
-use std::net::{TcpListener, TcpStream};
+use std::net::TcpStream;
 use std::path::PathBuf;
-use std::process::{Command, Output, Stdio};
+use std::process::{Child, Command, Output, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 #[test]
@@ -628,18 +628,18 @@ fn serves_the_workspace_site_with_notes_and_tasks() {
     )
     .unwrap();
 
-    let port = available_port();
-    let mut child = Command::new(env!("CARGO_BIN_EXE_plumb"))
-        .args(["site", "serve", "--root"])
-        .arg(&root)
-        .env("PLUMB_CACHE_DIR", root.join(".cache"))
-        .arg("--port")
-        .arg(port.to_string())
-        .args(["--exclude", "path == 'hidden.plumb'"])
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
+    let mut child = TestChild::new(
+        Command::new(env!("CARGO_BIN_EXE_plumb"))
+            .args(["site", "serve", "--root"])
+            .arg(&root)
+            .env("PLUMB_CACHE_DIR", root.join(".cache"))
+            .args(["--port", "0"])
+            .args(["--exclude", "path == 'hidden.plumb'"])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap(),
+    );
     let mut output_reader = BufReader::new(child.stdout.take().unwrap());
     let mut error_reader = BufReader::new(child.stderr.take().unwrap());
     let mut url = String::new();
@@ -799,17 +799,17 @@ fn site_renders_and_refreshes_csl_json_citations() {
         r#"[{"id":"smith2004","type":"book","title":"First Edition","author":[{"family":"Smith"}],"issued":{"date-parts":[[2004]]}}]"#,
     )
     .unwrap();
-    let port = available_port();
-    let mut child = Command::new(env!("CARGO_BIN_EXE_plumb"))
-        .args(["site", "serve", "--root"])
-        .arg(&root)
-        .env("PLUMB_CACHE_DIR", root.join(".cache"))
-        .arg("--port")
-        .arg(port.to_string())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
+    let mut child = TestChild::new(
+        Command::new(env!("CARGO_BIN_EXE_plumb"))
+            .args(["site", "serve", "--root"])
+            .arg(&root)
+            .env("PLUMB_CACHE_DIR", root.join(".cache"))
+            .args(["--port", "0"])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap(),
+    );
     let mut output_reader = BufReader::new(child.stdout.take().unwrap());
     let mut url = String::new();
     output_reader.read_line(&mut url).unwrap();
@@ -931,10 +931,33 @@ fn unique_temp_dir() -> PathBuf {
     ))
 }
 
-fn available_port() -> u16 {
-    TcpListener::bind("127.0.0.1:0")
-        .unwrap()
-        .local_addr()
-        .unwrap()
-        .port()
+struct TestChild(Child);
+
+impl TestChild {
+    fn new(child: Child) -> Self {
+        Self(child)
+    }
+}
+
+impl std::ops::Deref for TestChild {
+    type Target = Child;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl std::ops::DerefMut for TestChild {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl Drop for TestChild {
+    fn drop(&mut self) {
+        if self.0.try_wait().ok().flatten().is_none() {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
 }
