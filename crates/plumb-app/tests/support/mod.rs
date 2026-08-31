@@ -1,28 +1,35 @@
-use std::io::{BufRead, BufReader, Read, Write};
+use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
-use std::process::{Command, Stdio};
+use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::mpsc::{Receiver, RecvTimeoutError};
+use std::thread::JoinHandle;
+use std::time::Duration;
 
 use serde_json::{json, Value};
 
 pub fn run_server(messages: &[Value]) -> Vec<Value> {
-    run_server_with_writer(|stdin| {
-        for message in messages {
-            write_message(stdin, message);
-        }
-    })
+    let mut session = LspTestSession::new();
+    session.send_until_shutdown(messages);
+    session.wait_for_pending_responses();
+    session.send_shutdown(messages, &[]);
+    session.finish()
 }
 
-pub fn run_server_with_pause(first: &[Value], second: &[Value]) -> Vec<Value> {
-    run_server_with_writer(|stdin| {
-        for message in first {
-            write_message(stdin, message);
-        }
-        std::thread::sleep(std::time::Duration::from_millis(100));
-        for message in second {
-            write_message(stdin, message);
-        }
-    })
+pub fn run_server_after_response(first: &[Value], second: &[Value]) -> Vec<Value> {
+    let mut session = LspTestSession::new();
+    session.send_all(first);
+    let response_id = first
+        .iter()
+        .rev()
+        .find_map(|message| message.get("id"))
+        .expect("first LSP batch contains a request")
+        .clone();
+    session.wait_for_response(&response_id);
+    session.send_until_shutdown(second);
+    session.wait_for_pending_responses();
+    session.send_shutdown(first, second);
+    session.finish()
 }
 
 pub fn run_server_after_initial_index(messages: &[Value]) -> Vec<Value> {
@@ -34,107 +41,181 @@ pub fn run_server_after_initial_index_with_action(
     action: impl FnOnce(),
     second: &[Value],
 ) -> Vec<Value> {
-    let cache = TestDirectory::new();
-    let mut child = Command::new(env!("CARGO_BIN_EXE_plumb"))
-        .arg("lsp")
-        .env("PLUMB_CACHE_DIR", cache.path())
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .expect("start plumb lsp");
-    let stdout = child.stdout.take().expect("child stdout");
-    let (sender, receiver) = std::sync::mpsc::channel();
-    let reader = std::thread::spawn(move || {
-        let mut input = BufReader::new(stdout);
-        while let Some(message) = read_message(&mut input) {
-            if sender.send(message).is_err() {
-                break;
-            }
-        }
-    });
-    let stdin = child.stdin.as_mut().expect("child stdin");
-    for message in first.iter().take(2) {
-        write_message(stdin, message);
-    }
-    let mut output = Vec::new();
-    loop {
-        let message = receiver
-            .recv_timeout(std::time::Duration::from_secs(10))
-            .expect("initial workspace index completes");
-        let complete = message["method"] == "$/progress"
-            && message["params"]["token"] == "plumb-ls-index"
-            && message["params"]["value"]["kind"] == "end";
-        output.push(message);
-        if complete {
-            break;
-        }
-    }
-    for (index, message) in first.iter().enumerate().skip(2) {
-        write_message(stdin, message);
-        if second.is_empty() && index + 3 == first.len() {
-            std::thread::sleep(std::time::Duration::from_millis(100));
-        }
-    }
+    let mut session = LspTestSession::new();
+    session.send_all(&first[..2]);
+    session.wait_for(initial_index_complete);
+    session.send_until_shutdown(&first[2..]);
     if !second.is_empty() {
-        std::thread::sleep(std::time::Duration::from_millis(100));
+        session.wait_for_pending_responses();
         action();
-        for (index, message) in second.iter().enumerate() {
-            write_message(stdin, message);
-            if index + 3 == second.len() {
-                std::thread::sleep(std::time::Duration::from_millis(100));
-            }
-        }
+        session.send_until_shutdown(second);
     }
-    drop(child.stdin.take());
-    let status = child.wait_with_output().expect("wait for plumb-ls");
-    assert!(
-        status.status.success(),
-        "plumb lsp failed: {}",
-        String::from_utf8_lossy(&status.stderr)
-    );
-    reader.join().expect("join LSP stdout reader");
-    output.extend(receiver.try_iter());
-    output
+    session.wait_for_pending_responses();
+    session.send_shutdown(first, second);
+    session.finish()
 }
 
-pub fn run_server_with_writer(
-    write_messages: impl FnOnce(&mut std::process::ChildStdin),
-) -> Vec<Value> {
-    let cache = TestDirectory::new();
-    let mut child = Command::new(env!("CARGO_BIN_EXE_plumb"))
-        .arg("lsp")
-        .env("PLUMB_CACHE_DIR", cache.path())
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .expect("start plumb lsp");
-    {
-        let stdin = child.stdin.as_mut().expect("child stdin");
-        write_messages(stdin);
+pub struct LspTestSession {
+    child: Option<Child>,
+    stdin: Option<ChildStdin>,
+    receiver: Receiver<Value>,
+    reader: Option<JoinHandle<()>>,
+    output: Vec<Value>,
+    pending_response_ids: Vec<Value>,
+    _cache: TestDirectory,
+}
+
+impl LspTestSession {
+    pub fn new() -> Self {
+        let cache = TestDirectory::new();
+        let mut child = Command::new(env!("CARGO_BIN_EXE_plumb"))
+            .arg("lsp")
+            .env("PLUMB_CACHE_DIR", cache.path())
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("start plumb lsp");
+        let stdin = child.stdin.take().expect("child stdin");
+        let stdout = child.stdout.take().expect("child stdout");
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let reader = std::thread::spawn(move || {
+            let mut input = BufReader::new(stdout);
+            while let Some(message) = read_message(&mut input) {
+                if sender.send(message).is_err() {
+                    break;
+                }
+            }
+        });
+        Self {
+            child: Some(child),
+            stdin: Some(stdin),
+            receiver,
+            reader: Some(reader),
+            output: Vec::new(),
+            pending_response_ids: Vec::new(),
+            _cache: cache,
+        }
     }
-    drop(child.stdin.take());
-    let mut stdout = String::new();
-    child
-        .stdout
-        .take()
-        .expect("child stdout")
-        .read_to_string(&mut stdout)
-        .expect("read stdout");
-    let output = child.wait_with_output().expect("wait for plumb-ls");
-    assert!(
-        output.status.success(),
-        "plumb lsp failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    read_messages(&stdout)
+
+    pub fn send(&mut self, message: &Value) {
+        if message.get("method").is_some() && message["method"] != "shutdown" {
+            if let Some(id) = message.get("id") {
+                self.pending_response_ids.push(id.clone());
+            }
+        }
+        write_message(self.stdin.as_mut().expect("open LSP stdin"), message);
+    }
+
+    pub fn send_all(&mut self, messages: &[Value]) {
+        for message in messages {
+            self.send(message);
+        }
+    }
+
+    pub fn wait_for(&mut self, predicate: impl Fn(&Value) -> bool) -> Value {
+        if let Some(message) = self.output.iter().find(|message| predicate(message)) {
+            return message.clone();
+        }
+        loop {
+            let message = match self.receiver.recv_timeout(Duration::from_secs(10)) {
+                Ok(message) => message,
+                Err(RecvTimeoutError::Timeout) => panic!("timed out waiting for LSP message"),
+                Err(RecvTimeoutError::Disconnected) => {
+                    panic!("LSP stdout closed before expected message")
+                }
+            };
+            let matched = predicate(&message);
+            self.output.push(message.clone());
+            if matched {
+                return message;
+            }
+        }
+    }
+
+    pub fn wait_for_response(&mut self, id: &Value) -> Value {
+        self.wait_for(|message| message.get("method").is_none() && message.get("id") == Some(id))
+    }
+
+    pub fn wait_for_pending_responses(&mut self) {
+        let pending = std::mem::take(&mut self.pending_response_ids);
+        for id in pending {
+            self.wait_for_response(&id);
+        }
+    }
+
+    pub fn finish(mut self) -> Vec<Value> {
+        self.stdin.take();
+        let status = self
+            .child
+            .take()
+            .expect("LSP child")
+            .wait_with_output()
+            .expect("wait for plumb-ls");
+        self.reader
+            .take()
+            .expect("LSP stdout reader")
+            .join()
+            .expect("join LSP stdout reader");
+        self.output.extend(self.receiver.try_iter());
+        assert!(
+            status.status.success(),
+            "plumb lsp failed: {}",
+            String::from_utf8_lossy(&status.stderr)
+        );
+        std::mem::take(&mut self.output)
+    }
+
+    fn send_until_shutdown(&mut self, messages: &[Value]) {
+        for message in messages {
+            if message["method"] == "shutdown" {
+                break;
+            }
+            self.send(message);
+        }
+    }
+
+    fn send_shutdown(&mut self, first: &[Value], second: &[Value]) {
+        let shutdown = first
+            .iter()
+            .chain(second)
+            .find(|message| message["method"] == "shutdown")
+            .expect("LSP exchange contains shutdown");
+        let shutdown_id = shutdown.get("id").expect("shutdown request id").clone();
+        self.send(shutdown);
+        self.wait_for_response(&shutdown_id);
+        let exit = first
+            .iter()
+            .chain(second)
+            .find(|message| message["method"] == "exit")
+            .expect("LSP exchange contains exit");
+        self.send(exit);
+    }
+}
+
+impl Drop for LspTestSession {
+    fn drop(&mut self) {
+        self.stdin.take();
+        if let Some(mut child) = self.child.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+        if let Some(reader) = self.reader.take() {
+            let _ = reader.join();
+        }
+    }
+}
+
+fn initial_index_complete(message: &Value) -> bool {
+    message["method"] == "$/progress"
+        && message["params"]["token"] == "plumb-ls-index"
+        && message["params"]["value"]["kind"] == "end"
 }
 
 pub fn response(messages: &[Value], id: u64) -> &Value {
     messages
         .iter()
-        .find(|message| message.get("id") == Some(&json!(id)))
+        .find(|message| message.get("method").is_none() && message.get("id") == Some(&json!(id)))
         .unwrap_or_else(|| panic!("response {id} missing from {messages:#?}"))
 }
 
@@ -191,24 +272,6 @@ pub fn write_message(output: &mut impl Write, message: &Value) {
     write!(output, "Content-Length: {}\r\n\r\n", body.len()).expect("write header");
     output.write_all(&body).expect("write body");
     output.flush().expect("flush message");
-}
-
-fn read_messages(mut input: &str) -> Vec<Value> {
-    let mut messages = Vec::new();
-    while let Some(header_end) = input.find("\r\n\r\n") {
-        let header = &input[..header_end];
-        let length = header
-            .lines()
-            .find_map(|line| line.strip_prefix("Content-Length: "))
-            .expect("content length")
-            .parse::<usize>()
-            .expect("numeric content length");
-        let body_start = header_end + 4;
-        let body_end = body_start + length;
-        messages.push(serde_json::from_str(&input[body_start..body_end]).expect("JSON-RPC body"));
-        input = &input[body_end..];
-    }
-    messages
 }
 
 fn read_message(input: &mut impl BufRead) -> Option<Value> {

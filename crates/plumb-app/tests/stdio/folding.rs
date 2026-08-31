@@ -1,7 +1,8 @@
 use serde_json::json;
 
 use crate::support::{
-    response, run_server, run_server_after_initial_index, run_server_with_pause, unique_temp_dir,
+    response, run_server, run_server_after_initial_index, run_server_after_response,
+    unique_temp_dir,
 };
 
 #[test]
@@ -322,7 +323,7 @@ fn folds_with_locally_determined_labels_before_initial_index_completes() {
         json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
     ];
 
-    let output = run_server_with_pause(&first, &shutdown);
+    let output = run_server_after_response(&first, &shutdown);
     let folding_index = output
         .iter()
         .position(|message| message.get("id") == Some(&json!(2)))

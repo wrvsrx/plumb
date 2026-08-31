@@ -4,7 +4,7 @@ use serde_json::{json, Value};
 
 use crate::support::{
     response, run_server, run_server_after_initial_index,
-    run_server_after_initial_index_with_action, run_server_with_pause, unique_temp_dir,
+    run_server_after_initial_index_with_action, unique_temp_dir,
 };
 
 fn source_position(source: &str, needle: &str, occurrence: usize) -> (usize, usize) {
@@ -715,15 +715,11 @@ fn path_rename_watcher_clears_a_missing_optimistic_target() {
         json!({ "jsonrpc": "2.0", "id": 4, "method": "shutdown", "params": null }),
         json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
     ];
-    let remove = std::thread::spawn({
-        let old_target = old_target.clone();
-        move || {
-            std::thread::sleep(std::time::Duration::from_millis(30));
-            std::fs::remove_file(old_target).unwrap();
-        }
-    });
-    let output = run_server_with_pause(&first, &second);
-    remove.join().unwrap();
+    let output = run_server_after_initial_index_with_action(
+        &first,
+        || std::fs::remove_file(&old_target).unwrap(),
+        &second,
+    );
     assert!(response(&output, 3)["result"].is_null());
     assert!(!old_target.exists());
     assert!(!new_target.exists());

@@ -1,7 +1,8 @@
 use serde_json::json;
 
 use crate::support::{
-    response, run_server, run_server_after_initial_index, run_server_with_pause, unique_temp_dir,
+    response, run_server, run_server_after_initial_index, run_server_after_response,
+    unique_temp_dir,
 };
 
 #[cfg(unix)]
@@ -319,7 +320,7 @@ fn structured_search_rejects_requests_before_initial_index() {
         json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
     ];
 
-    let output = run_server_with_pause(&first, &second);
+    let output = run_server_after_response(&first, &second);
     assert_eq!(response(&output, 2)["error"]["code"], -32002);
 }
 
@@ -345,7 +346,7 @@ fn structured_search_marks_failed_workspace_scans_incomplete() {
         json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
     ];
 
-    let output = run_server_with_pause(
+    let output = run_server_after_response(
         &messages[..messages.len() - 2],
         &messages[messages.len() - 2..],
     );
