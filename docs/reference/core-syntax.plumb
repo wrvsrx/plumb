@@ -409,3 +409,61 @@ parser 使用 reject-but-recover：
 core 不定义 emphasis、strong、quote、thematic break、table、HTML、automatic link 或 implicit
 heading id。formatter policy、normalized AST 和 incremental node identity 也不属于 syntax
 validity。
+
+`# 13. Recursive owner epoch implementation target
+
+本节是下一次 breaking syntax epoch 的 normative implementation target，状态为尚未实现。第 1--12 节在
+迁移完成前继续描述 executable current parser；实现切换的同一提交必须删除被本节取代的旧规则，不能让
+两个 epoch 同时成为 current syntax。完整设计动机见
+`->[recursive owner proposal|../project/recursive-syntax-proposal.plumb]。
+
+`## 13.1 Block dispatch and ownership
+
+每个 nonblank physical line 恰好开始一个 block，不存在 paragraph continuation 或 soft break。newline
+分隔 siblings；较深 indentation 把后续 block 归为前一个 parsed block 的 children。anonymous 与 marked
+parsed block 都可拥有 children；verbatim block 不能拥有 children。blank line 只是 layout，显式 empty
+anonymous block 写作只含 empty group 的一行。
+
+block start 的 introducer 后读取 maximal marker。marker 后为 line ending 或 ASCII SpaceRun 时产生 marked
+parsed block；marker 后立即为 opening brace 或同一行 quote envelope 时，该行产生 anonymous parsed block，
+其 head 从 marked inline owner 开始。single quote 后立即 line ending 产生 anonymous block raw；非空 marker
+加 single quote后立即 line ending 产生 marked block raw。其他 nonblank line 产生 anonymous parsed block。
+
+第一个 child 建立 column，siblings 精确匹配，dedent 必须回到已有 column。canonical child column 是 owner
+column 加一。tab 与 non-ASCII whitespace 不能建立 parsed structure。
+
+`## 13.2 Inline contents and data
+
+InlineContents 是 source-ordered Text、SpaceRun、Group 与 Verbatim sequence。direct 一个或多个 ASCII
+spaces 产生一个 lossless SpaceRun；leading/trailing runs 是 boundary padding，internal run 在当前 depth
+分隔 positional data，run width 不产生 empty datum。一个 datum 是一个或多个没有 direct SpaceRun 分隔的
+adjacent terms；empty datum 只能由 empty anonymous group 明示。
+
+anonymous group 写作 braces envelope；marked group 写作 introducer、nonempty marker 与紧邻 braces envelope。
+group 可以递归但不能跨 physical line；整个 group 在 parent depth 是一个 term。marker 不进入 group content，
+operator-inside spelling 不作为 alias。brackets 与 pipe 恢复 ordinary text。literal backtick、opening brace、
+closing brace 分别使用 double introducer、introducer-brace escapes；其他 introducer dispatch 不完整时是 error。
+
+core 保存 group 的 source-ordered InlineContents，不区分 argument/child variants，不解释 direct `"@"、`"="、
+`"+" 或其他 marker。typed positional datum view 由 direct SpaceRun 投影；semantic profile 才能消费已声明的
+direct marked owners，未知 marker 保持 ordinary content。
+
+`## 13.3 Inline verbatim
+
+compact inline verbatim 是 introducer、optional marker、single quote、允许为空的 payload 与 closing quote。
+single quote 后立即 opening brace 时必须 dispatch 为 full envelope，而不能解释为 compact payload：full
+envelope 是一至多个 opening quotes、opening brace、opaque payload、closing brace 与相同 quote run。payload
+中的最小 closing-like sequence 决定 quote strength；compact payload 不能含 quote 或以 opening brace 开始。
+两种 spelling 产生同一个 optional-marker Verbatim node且限制在一条 physical line。
+
+`## 13.4 Block verbatim
+
+anonymous/marked block raw opener 分别是 introducer-single-quote 与 introducer-marker-single-quote，必须独占
+physical line。每条 payload line 先匹配 opener indentation，再匹配一个 structural ASCII space；只 strip
+该额外 space，其后 bytes 完整保留。第一条缺 margin 的 line 结束 payload并重新进入普通 block dispatch。
+raw blank line 也必须显式携带 margin。payload、empty payload 与 EOF 不需要 closing fence 或 quote strength。
+
+旧 pipe raw-tail、quote-count block margin、brackets member envelope、pipe argument/member separator、soft-break
+continuation 与 delimiter-escaped pipe/bracket 不属于本 epoch；它们只由 explicit member-envelope-v1 migration
+读取。new parser 对旧 special spelling 按新 epoch 的 ordinary/special rules 处理或发布 syntax error，不进行
+版本猜测。

@@ -128,3 +128,23 @@ precedence、ordering、recovery 与 lossless token coverage；lenient tree-sitt
   syntax.tab-indentation
   syntax.partial-indent
   syntax.short-verbatim-indent
+
+`# 7. Recursive owner epoch diagnostic target
+
+本节与 core syntax 第 13 节同步，状态为尚未实现。epoch 切换后删除不再可产生的 raw-tail、bracket/member、
+soft-break 与 quote-count margin diagnostics，并冻结以下 ownership：
+
+`- block entry error 在当前 physical line 恢复；invalid marked entry 可以建立 recovered marked block placeholder，
+ 但 anonymous parsed block 仍可接管后续 indented children。
+`- unmatched opening/closing brace 分别由 `"syntax.unclosed-inline-group" 与
+ `"syntax.unexpected-inline-group-close" 拥有；两者在当前 physical line 恢复。
+`- illegal introducer-brace/backtick/marker/quote dispatch 使用最具体的 `"syntax.invalid-inline-dispatch" 或
+ `"syntax.invalid-block-dispatch"，不 fallback 为 text。
+`- compact/full inline verbatim 缺失 closer 使用 `"syntax.unclosed-verbatim"，在当前 physical line 恢复；
+ quote-strength mismatch 指向最小 conflicting closer。
+`- block raw line 缺 structural margin 时正常结束 payload；只有 structural prefix 中出现 tab、落入非法
+ indentation stack column 或试图把 raw line作为错误 partial child 时发布 structural diagnostic。
+`- bare brackets 与 pipe 在新 epoch 中是 ordinary text，不拥有 delimiter diagnostic。
+
+member-envelope-v1 source validity 与 migration failure 由 isolated legacy parser/converter 报告，不发布成
+current document diagnostics。

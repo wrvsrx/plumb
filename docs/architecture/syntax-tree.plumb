@@ -99,3 +99,42 @@ source layout 仍由 formatter 决定。
 
 当前 contract 不承诺跨 revision `"NodeId" reuse。incremental parsing、source-map identity 和 text
 canonicalization 必须作为同一设计问题解决；实现优化不能泄漏为不稳定的 public identity。
+
+`# 9. Recursive owner epoch target
+
+本节状态为尚未实现，并与 core syntax 第 13 节绑定。epoch 切换后 typed tree 统一为 optional-marker owner：
+
+`rust
+|"
+ struct Block {
+     marker: Option<Marker>,
+     content: BlockContent,
+     children: Vec<Block>,
+ }
+
+ enum BlockContent {
+     Parsed(InlineContents),
+     Verbatim(RawText),
+ }
+
+ enum InlineElement {
+     Text(TextRun),
+     Space(SpaceRun),
+     Group {
+         marker: Option<Marker>,
+         content: InlineContents,
+     },
+     Verbatim {
+         marker: Option<Marker>,
+         payload: RawText,
+     },
+ }
+
+`"InlineContents" 直接保存 spaces 与 owners，不保存拥有独立 storage 的 argument/member projection。
+positional data 是按 direct SpaceRun 计算的 borrowed/ranged typed view；它不能复制、重排或从 lossless sequence
+移除 separator。anonymous/marked parsed block 共享 children field；verbatim BlockContent 强制 children 为空。
+
+删除 typed tree 中的 raw-tail optional field、`"InlineMember"、parsed/verbatim argument variants、soft break
+与 bracket/pipe separator ranges。marker separator、group delimiters、verbatim delimiters、structural margin 和
+escapes 仍由 source-backed token ranges 覆盖。plain-text traversal 展开 group content并保留 semantic spaces；
+kind-specific consumers 通过 positional view 读取 data，不能自行按 source string split。
