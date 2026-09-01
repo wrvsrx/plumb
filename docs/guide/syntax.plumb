@@ -1,221 +1,149 @@
-`= title|plumb 语法指南
+`= title plumb syntax guide
 
-plumb 使用反引号引入特殊结构。特殊 spelling 一旦开始就必须完整合法；错误不会静默退化为
-普通文本。本页只介绍 current syntax 的常用写法；完整 validity、precedence 与 recovery
-见 `->[core syntax reference|../reference/core-syntax.plumb]。
+本文介绍 current recursive-owner syntax。精确 validity/recovery 以
+`->{{core syntax reference} ../reference/core-syntax.plumb} 为准；旧 brackets/pipe epoch 只由 migration reader
+处理。
 
-`# Paragraph 与 marked block
+`# Blocks and indentation
 
-普通文本组成 paragraph。marked block 由一个反引号、非空 marker 和可选
-head 构成：
+每条 nonblank physical line 开始一个 block。普通 line 是 anonymous parsed block；反引号加 marker 是 marked
+block：
 
-`plumb
+`plumb"
+ ordinary paragraph
+ `note Head content
 
-|"
-  普通 paragraph。
+newline 分隔 blocks，indentation 建立 children。anonymous/marked parsed block 都可以拥有 children；canonical
+indentation 是一格 ASCII space：
 
-  `note 一条有 head 的 block
-  `note 带 direct children
-   `@ stable
-   `+ warning
-   `= level|2
+`plumb"
+ parent
+  child
 
-block 可以拥有缩进 children。第一个 child 建立 sibling column；formatter 无论 head 是否为空，
-都把 children 放在 owner column 加一：
+`plumb"
+ `parent Head
+  `child One
+  `child Two
 
-`plumb
+没有 continuation line：physical newline 始终是 block boundary。blank line 只是 layout。显式 empty anonymous
+block 写作 `"{}"。
 
-|"
-  `- Parent
+block marker 后必须是 ASCII space 或 line ending。marker 紧邻 brace/quote 时是 inline owner，因此：
 
-     Child paragraph.
+`plumb"
+ `note content
+ `note{content}
 
-     `- Nested block
+前者是 marked block，后者是 anonymous block 内的 marked inline group。
 
-空行后的缩进 paragraph 是 child；没有空行的缩进普通文本会继续前一行的 head。
+`# Inline data and groups
 
-paragraph 与 block head 都包含 ordered parsed arguments。first argument 没有前导 separator，后续
-arguments 用当前 depth 的 bare `"|" 分隔；紧邻 argument boundary 的 ASCII spaces 是 padding，typed
-argument view 会从两端移除，但 lossless source 与 formatter 原样保留。连续 pipes 或只有 padding 的区域会产生
-empty arguments。普通 ASCII space 始终产生 `"Inline::Space"，不会建立 argument boundary；literal pipe
-写成 `` `|"：
+inline sequence losslessly 保存 Text 与 ASCII SpaceRun。direct one-or-more spaces 在当前 depth 分隔 positional
+data；空格数量是 formatting，不产生 empty datum。一个 datum 也可以由多个 adjacent terms 组成：
 
-`plumb
+`plumb"
+ prefix`!{strong}suffix
+ `row Alice   10   {}
 
-|"
-  `row 14:00--15:30|Parser review
-  `row Language server|Waiting||Optional note
-  ordinary first argument|second argument
+anonymous group `"{...}" 在 parent 中占一个 term，用于 multiword positional value；marked group 把 marker
+放在 braces 外：
 
-marker 后第一个 ASCII space 同时是 head 的首个 `"Inline::Space"；typed first argument 会把它作为 boundary
-padding 移除。tab 或其他 whitespace 不能打开 head。block children 位于完整 head argument sequence 之后。
-每层 nested parsed argument 都独立通过 typed view trim，因此 `"`()[ value ]" 投影为 `"value"。确实需要
-argument 以 ASCII space 开头或结尾时，用 backtick-space 把该 space 写成 literal text：
+`plumb"
+ {guide with spaces}
+ `!{strong}
+ `->{{guide page} {Project Guide.plumb}}
+ `node{visible `@{stable} `={key value}}
 
-`plumb
+group 可以 nesting，但不跨 physical line。empty group `"{}" 是 explicit empty datum。brackets 与 pipe 是
+ordinary text。
 
-|"
-  `row ` Alice` |10
-  `kind[` value` ]
+`# Escapes
 
-空 head 的 first child 也可以与 parent 写在同一行；child introducer column 决定后续对齐：
+parsed text 只有三种 introducer escape：
 
-`plumb
+`plumb"
+ `` literal backtick
+ `{ literal opening brace
+ `} literal closing brace
 
-|"
-  `- `- a
-     `- b
+不要使用 Markdown backslash escape。tab/control 在 parsed content 非法；verbatim payload 可以保留任意 bytes。
 
-`# Inline element
+`# Inline verbatim
 
-具名 inline element 使用 `"`kind[content]"，content 会继续解析 nested inline：
+常见 raw 使用 compact quote pair，可带 opaque marker且允许 empty：
 
-`plumb
+`plumb"
+ `"cargo test"
+ `$"x^2"
+ `$""
 
-|"
-  See `term[outer `term[inner] text].
+payload 含 quote 或以 brace 开头时使用 full envelope；closing-like collision 通过增加 quote strength 解决：
 
-同一个 owner 在一对 brackets 内拥有 `"|" 分隔的 ordered members。ordinary content 是 argument，
-省略 introducer 且独占 member 的具名 element 是 child：
+`plumb"
+ `"{raw containing "quotes"}"
+ `""{raw containing }" safely}""
 
-`plumb
+两种 spelling 产生同一个 Verbatim node，且只能占一条 physical line。
 
-|"
-  `pair[first|second]
-  `pair[`*[rich first]|second with spaces|note[child]]
-  `pair[|"[raw]"]
+`# Block verbatim
 
-first member 固定为 parsed argument 且可以为空；后续 argument 与 child 可以交错。只有当前 depth 的 pipe
-建立 member boundary；member 两端的 direct ASCII spaces 是 typed padding。每个 nested parsed argument
-也独立 trim；padding 不会把 full verbatim argument 或 introducer-elided child 改判为普通 argument。
-verbatim argument 也只能出现在 pipe 后，如上面的第三行。core 保存统一的 source order，不解释 kind、
-argument 含义或数量。
+own-line quote opener 进入 indentation-terminated raw。anonymous/marked forms：
 
-element 可以跨属于同一 paragraph/head 的 continuation lines：
+`plumb"
+ `"
+  anonymous raw
 
-`plumb
+`plumb"
+ `rust"
+  fn main() {}
 
-|"
-  See `term[first line
-  second line].
+payload 每行携带 opener indentation 加一 structural space；只 strip 这一格，其余 bytes 完整保留。raw blank
+line 也必须携带 margin。没有 closing fence、quote-count margin 或 raw tail。
 
-id、facet、property 或普通 structural child 也放在同一 envelope：
+verbatim block 不能拥有 parsed children。需要 id/properties 时使用 ordinary wrapper 与 marked raw child：
 
-`plumb
+`plumb"
+ `()
+  `@ example
+  `= language rust
+  `rust"
+   fn main() {}
 
-|"
-  `term[value|@[stable]|+[warning]|=[level|2]]
+`# Direct ownership
 
-inline element 即使 first argument 为空也必须写出 `"[]" delimiter；不存在 zero-member element 或裸
-`"warning" shorthand：
+block direct children 与 inline group direct content 使用同一个 recursive model。official profile 把 direct
+leaf `"@"、`"+"、`"=" owners 投影为 id/facet/property；core 仍保留 generic source order：
 
-`plumb
+`plumb"
+ `node Head
+  `@ stable
+  `+ notice
+  `= level 2
 
-|"
-  `warning[]
+`plumb"
+ `node{visible `@{stable} `+{notice} `={level 2}}
 
-需要字面 closing bracket 时写两个反引号再跟 closing bracket。
+property/definition 没有 children 时 first datum 是 key/term，remaining data sequence 是 value/body；有
+children 时完整 head 是 key/term，children 是 value/body：
 
-`# Verbatim
+`plumb"
+ `= title Document title
+ `: {Term with spaces} Inline body
 
-inline verbatim 适合 code、路径和其他不需要 inline parsing 的内容：
+`plumb"
+ `= author
+  `= name Alice
 
-`plumb
+`plumb"
+ `: Term with spaces
+  Block definition body
 
-|"
-  Run `"cargo test".
-  A literal quote: `"[say "hello"]".
+`# Migration
 
-引号数量决定 closing delimiter 的强度。只有 payload 中出现较短 closing spelling 时才增加
-引号。
+former brackets member envelope、pipe separators、continuation lines、quote-count block margin 和 raw tail 使用：
 
-anonymous verbatim block 由 introducer 与一个或多个 quotes 开始；quote count 声明 raw payload 的
-ASCII-space structural margin。它是没有 head 或 children 的 raw leaf：
+`plumb"
+ plumb migrate --from member-envelope-v1 FILES...
 
-`plumb
-
-|"
-  `"
-   anonymous raw
-
-具名 raw 使用普通 marked block 的 terminal raw tail。owner 可以先拥有任意 direct children，再由与
-owner column 对齐、独占一行的 quote run 进入 raw phase：
-
-`plumb
-
-|"
-  `rust
-   `@ example
-
-  |"
-   fn main() {
-       println!("hello");
-   }
-
-quote count 声明 raw payload 的 ASCII-space structural margin；没有 children 时 boundary 紧接 head，存在
-children 时最后一个 child 与 boundary 之间保留空行。结构缩进后的 payload bytes 会原样保留。内部空行
-可以完全空白；尾部空行只有带完整 structural margin
-才属于 payload，否则它是 block layout。verbatim block 没有 closing fence。
-
-`# Document root
-
-document 是 implicit root owner，保存 source-ordered top-level blocks。brace 是 ordinary parsed text，
-不建立 ownership structure。顶层 declaration 是普通 marked block；例如 official semantic profile
-使用 direct `"=" 表达 document metadata：
-
-`plumb
-
-|"
-  `= title|Document title
-
-  Body paragraph.
-
-`# Direct ownership 与 raw tail
-
-document 与 marked block 都用同一个 source-ordered direct children sequence 表达 ownership。declaration
-与普通 structural children 可以任意交错；core 不根据 marker spelling 改变结构：
-
-`plumb
-
-|"
-  `node Head
-   `@ intro
-   `+ note
-   `= level|2
-   `note ordinary child
-
-  `node A long head that
-   wraps across lines
-
-   `= created|2026-08-07T09:00:00+08:00
-
-core syntax 不解释 `"+"、`"@" 或 `"="。official semantic profile 将 direct `"+" child 投影为 facet，
-将 direct `"@" declaration 投影为 identity，将 direct `"=" association 投影为 property，并从 owner
-的普通 body projection 中过滤已消费 declarations。
-
-raw tail 是 marked owner 的 optional singular field，不是 child。quote run 之后永久进入 raw phase，
-所以 raw tail 必须位于全部 children 后，结构上也不能出现第二个 payload。匿名 raw 需要 declarations
-或普通 children 时，使用 `"()" explicit owner 与同一个 raw-tail form。
-
-旧 postfix `"{}" group 与 `"{#id .class key=value}" slot 都不属于 current syntax；brace 只作为
-ordinary text 保留。legacy 文件必须显式使用 `"plumb migrate --from attached-v1"，formatter 不读取旧语法。
-已经移除 attached groups、但 block association、compact definition 或 event 仍用旧 space boundary 的
-文件使用 `"plumb migrate --from head-space-v1"；该 converter 只把旧 recognizer 确认的 separator token
-最小替换为 `"|"，不会重新格式化其余 source。
-
-`# Escape
-
-两个连续反引号产生一个字面反引号：
-
-`plumb
-
-|"
-  ``note is text, not a block.
-
-单个反引号加 ASCII space、`"`["、`"]" 或 `"|" 是 delimiter 的字面转义，在任何 parsed position 无条件成立；
-backtick-space 产生 literal `"Inline::Text" space，因此不会被 boundary trim 移除。
-裸 brackets 与 inline member boundary 上的 pipe 是结构拼写。brace 是 ordinary text，不需要 escape。
-不要使用 Markdown 的 backslash escape，也不要假设 punctuation 在所有位置都有特殊含义。
-
-完整 grammar、indentation 与 recovery 规则见
-`->[core syntax reference|../reference/core-syntax.plumb]。
+CLI 先用 frozen legacy parser strict-parse，再通过 current owned syntax输出并用 current parser验证。`"--check"
+只报告需要迁移的 files；path replacement atomic。不要用 global string replacement 模拟 converter。

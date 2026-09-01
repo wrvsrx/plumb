@@ -1,7 +1,6 @@
-`= title|djot-tools capability audit
+`= title djot-tools capability audit
 
-本页记录 plumb 早期从 djot-tools 提取的产品能力，不表示 syntax 或 crate compatibility。当前功能
-与计划分别以 `"`guide/" 和 `"`project/roadmap.plumb" 为准。
+本页记录 plumb 早期从 djot-tools 提取的产品能力，不表示 syntax 或 crate compatibility。当前功能 与计划分别以 `"`guide/" 和 `"`project/roadmap.plumb" 为准。
 
 `# 值得保留的能力
 
@@ -22,11 +21,8 @@
 
 `# 架构经验
 
-LSP 的 byte-offset/UTF-16 mapping、async-lsp notification wiring、workspace snapshot、last-valid index、
-revision-guarded operation 和 Pandoc AST lowering 可以复用设计模式，但应复制到 plumb 自己的 layers，
-避免两个年轻项目形成同步发布依赖。
+LSP 的 byte-offset/UTF-16 mapping、async-lsp notification wiring、workspace snapshot、last-valid index、 revision-guarded operation 和 Pandoc AST lowering 可以复用设计模式，但应复制到 plumb 自己的 layers， 避免两个年轻项目形成同步发布依赖。
 
 `# 后续评估项
 
-persistent cache、static-site export、math macros、structured output 和 live UI 只有在 plumb workflow
-出现实际需求后才进入 roadmap；Djot 项目曾经规划过不构成 plumb requirement。
+persistent cache、static-site export、math macros、structured output 和 live UI 只有在 plumb workflow 出现实际需求后才进入 roadmap；Djot 项目曾经规划过不构成 plumb requirement。

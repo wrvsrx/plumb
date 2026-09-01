@@ -1,46 +1,51 @@
-`= title|completed plumb tasks
+`= title completed plumb tasks
 
-本页归档已经结束的任务及其验收记录。可以直接实施的工作只记录在
-`->[`()[current tasks]|tasks.plumb]；方向、约束和 deferred design 继续放在
-`->[roadmap|roadmap.plumb]。
+本页归档已经结束的任务及其验收记录。可以直接实施的工作只记录在 `->{`(){{current tasks}} tasks.plumb}；方向、约束和 deferred design 继续放在 `->{roadmap roadmap.plumb}。
 
 `note 每条记录是任务完成时的验收快照。记录中的 “current”、实现选择和限制均以其 done timestamp 为
-时间边界，可能已被后续任务取代；现行 syntax、semantics 和 architecture 只以 reference 与 architecture
-文档为准。Archive properties 使用当前 task spelling，确保所有记录仍可被 project toolchain 查询为 done。
+
+时间边界，可能已被后续任务取代；现行 syntax、semantics 和 architecture 只以 reference 与 architecture 文档为准。Archive properties 使用当前 task spelling，确保所有记录仍可被 project toolchain 查询为 done。
 
 `# Core syntax
 
-`- 同步 lenient mirror 的统一 delimiter escape 集
+`- 实现 recursive owner syntax 与 member-envelope-v1 migration
+ `+ task
 
+ `@ recursive-owner-syntax
+
+ `= created 2026-09-02T00:00:00+08:00
+ `= done 2026-09-02T05:06:52+08:00
+
+ `note strict parser 与 lossless tree 已切换 optional-marker recursive owners：physical lines/indentation组织 block，direct SpaceRun投影 data，anonymous/marked braces groups递归；inline parser使用 explicit frame stack并覆盖 20,000-depth valid/recovered regression。
+ `note inline/block verbatim支持 optional marker、compact/full inline envelope与 fixed one-space block margin；删除 continuation、InlineMember、pipe separators、quote-count block margin与 raw tail。formatter、plumb-edit、semantics、import/export、Workspace、Web、CLI/LSP 全部同步 current shape。
+ `note 新增 frozen plumb-syntax-legacy-v2 与 `"plumb migrate --from member-envelope-v1"；converter从 typed legacy tree生成 current owned syntax，覆盖 arguments、inline children、raw tails、repository documents、invalid rejection与 generated-output idempotence，并保持更早 migration epochs最终输出 current syntax。
+ `note tree-sitter grammar/scanner/queries、strict-alignment corpus、Neovim injection E2E、repository plumb documents、guides/references、three README sources/projections与 bundled skill 已迁移。Cargo workspace all-target tests、all-target check、Clippy `"-D warnings"、project document graph、tree-sitter corpus/query/strict alignment全部通过。
+
+`- 同步 lenient mirror 的统一 delimiter escape 集
  `+ task
 
  `@ lenient-unified-escape-sync
 
- `= done|2026-08-15T19:40:00+08:00
+ `= done 2026-08-15T19:40:00+08:00
 
  `note external scanner 的 dispatch 分类把 introducer 后紧跟的全部四个结构 delimiter 认作
 
- escape，grammar 的 bracket_escape 扩展为两种 bracket 并进入 inline_content；head_continuation
- 获得 trailing opener 槽位并可接 children，scan_paragraph_continue 对独占 opener 的 continuation
- line 让位给 same-indent layout token，修复折行 head 后 own-line opener 的解析。
+ escape，grammar 的 bracket_escape 扩展为两种 bracket 并进入 inline_content；head_continuation 获得 trailing opener 槽位并可接 children，scan_paragraph_continue 对独占 opener 的 continuation line 让位给 same-indent layout token，修复折行 head 后 own-line opener 的解析。
 
  `note 在 nix develop 环境重新 generate；corpus 新增统一 escape、continuation 行尾 opener（含
 
- children）与折行 head 后 own-line opener 四个用例，44/44 通过；strict-alignment 门在
- strict-parser fixture（含统一 escape 与 continuation opener 用例）上与 strict parser 完全一致。
+ children）与折行 head 后 own-line opener 四个用例，44/44 通过；strict-alignment 门在 strict-parser fixture（含统一 escape 与 continuation opener 用例）上与 strict parser 完全一致。
 
 `- 实现统一 body indentation 与 quote-count verbatim margin
-
  `+ task
 
  `@ unified-body-indentation
 
- `= done|2026-08-07T18:00:00+08:00
+ `= done 2026-08-07T18:00:00+08:00
 
  `note strict parser 统一 ordinary body、deferred head、next-line attached-group 与 expanded group 的
 
- canonical body column 为 owner column 加一；next-line opener 建立后续 children 的 sibling column，同时
- 继续接受合法的更深 structural columns。
+ canonical body column 为 owner column 加一；next-line opener 建立后续 children 的 sibling column，同时 继续接受合法的更深 structural columns。
 
  `note verbatim block 读取完整 opening quote run，quote count 声明 ASCII-space raw-body margin；single-quote
 
@@ -52,17 +57,14 @@
 
  `note formatter、owned edit/import serializer、LSP completion、notes preview、tree-sitter mirror、guide 与
 
- bundled skill 已同步；formatter canonicalize verbatim 为 N=1，非终端 block 加一个无缩进 separator，EOF
- terminal block 不添加 layout blank。strict corpus、formatter、LSP/CLI、project documents 与 workspace gates
- 全部通过。
+ bundled skill 已同步；formatter canonicalize verbatim 为 N=1，非终端 block 加一个无缩进 separator，EOF terminal block 不添加 layout blank。strict corpus、formatter、LSP/CLI、project documents 与 workspace gates 全部通过。
 
 `- 建立 strict parser normative corpus
-
  `+ task
 
  `@ strict-parser-corpus
 
- `= done|2026-07-21T15:49:26+08:00
+ `= done 2026-07-21T15:49:26+08:00
 
  `note 将 core syntax reference 中每条 valid、invalid 与 recovery rule 映射为 executable fixture。
  `note 固定 typed structural projection、diagnostic code、range、related ranges、precedence 和 deterministic ordering。
@@ -70,13 +72,12 @@
  `note Corpus 属于 hand-written strict parser；不得使用 lenient tree-sitter corpus 代替 syntax authority。
 
 `- 将 block nesting 改为 explicit stack
-
  `+ task
 
  `@ explicit-block-stack
 
- `= depends|#strict-parser-corpus
- `= done|2026-07-21T15:49:26+08:00
+ `= depends #strict-parser-corpus
+ `= done 2026-07-21T15:49:26+08:00
 
  `note 使用 block frames 保存 structural column、parent、head/children phase 和 recovery state，移除 Rust block recursion。
  `note Dedent 可以一次关闭多个 frames；partial dedent、blank line、same-line first child 和 verbatim margin 行为保持不变。
@@ -84,13 +85,12 @@
  `note 增加数万层 valid/malformed block nesting stress tests，并验证不 panic、stack overflow 或无限循环。
 
 `- 补齐 token-granular lossless tree
-
  `+ task
 
  `@ token-lossless-tree
 
- `= depends|#explicit-block-stack
- `= done|2026-07-21T15:49:26+08:00
+ `= depends #explicit-block-stack
+ `= done 2026-07-21T15:49:26+08:00
 
  `note 为 introducers、literal escapes、markers/kinds、delimiters、attribute punctuation、trivia、indentation、line endings、payload 和 malformed regions 建立 source-backed leaves。
  `note Leaves 按 source order 非空、无重叠、无空洞；拼接 leaf bytes 必须逐字节等于原始 UTF-8 source。
@@ -98,13 +98,12 @@
  `note Typed recovered/valid views 继续投影 marker、head、children、attributes 与 inline structures，extensions 不直接依赖 trivia layout。
 
 `- 添加任意 UTF-8 lossless property tests
-
  `+ task
 
  `@ lossless-properties
 
- `= depends|#token-lossless-tree #strict-parser-corpus
- `= done|2026-07-21T15:49:26+08:00
+ `= depends #token-lossless-tree #strict-parser-corpus
+ `= done 2026-07-21T15:49:26+08:00
 
  `note 使用 generated arbitrary UTF-8 与结构化 cases 覆盖 quote runs、deep nesting、indent/dedent、unclosed constructs、CRLF/LF 和 multibyte characters。
  `note 验证 parser 不 panic 或无限循环，全部 ranges 位于 UTF-8 boundaries 且不越界，并满足 leaf reconstruction invariant。
@@ -112,12 +111,11 @@
  `note 将 property failure 保存为最小 regression fixture，并在需要时再补 cargo-fuzz，不把 fuzzing 本身设为首个 release gate。
 
 `- 对齐 multiline block attribute delimiters
-
  `+ task
 
  `@ aligned-block-attribute-delimiters
 
- `= done|2026-07-21T01:08:27+08:00
+ `= done 2026-07-21T01:08:27+08:00
 
  `note Syntax 只要求非空 continuation 缩进严格大于 owner structural column；items 与 closing brace 的相互对齐不影响 validity。
  `note Newline 等价于 attribute whitespace；closing brace 可以紧跟最后一个 item，也可以出现在任意合法 continuation column。
@@ -128,12 +126,11 @@
  `note 同步 strict parser、tree-sitter grammar/corpus、core syntax reference、guide、formatter tests 和 bundled skill。
 
 `- 支持 same-line first child
-
  `+ task
 
  `@ same-line-first-child
 
- `= done|2026-07-20T13:00:12+08:00
+ `= done 2026-07-20T13:00:12+08:00
 
  `note 保持 empty-head marked block 在下一 physical line 以缩进 block 开始 children 的现有行为。
  `note Head 为空时，head separator 后的 block-only entry 成为 first child，而不是 inline dispatch error。
@@ -143,12 +140,11 @@
  `note 同步 strict parser、lossless ranges、tree-sitter grammar/corpus、reference、guide 和 bundled skill。
 
 `- 实现跨行 parsed inline elements
-
  `+ task
 
  `@ multiline-parsed-inline
 
- `= done|2026-07-20T13:00:12+08:00
+ `= done 2026-07-20T13:00:12+08:00
 
  `note 允许 element 跨越原本属于同一 enclosing InlineContent 的 physical continuation lines。
  `note 移除 structural indentation、保留额外 spaces，并把合法 continuation newline lower 为 SoftBreak。
@@ -158,15 +154,13 @@
  `note 完成后更新 parser gap、core syntax reference、guide、playground 和 bundled skill。
 
 `- 设计并实现 multiline shared attributes
-
  `+ task
 
  `@ multiline-attributes
 
- `= done|2026-07-20T13:00:12+08:00
+ `= done 2026-07-20T13:00:12+08:00
 
- `note 本任务记录的 shared attribute grammar 已被 attached declarations 取代；旧 slots 现在只由冻结的
-  0.17 migration reader 接受，current syntax 使用 recursive attached groups。
+ `note 本任务记录的 shared attribute grammar 已被 attached declarations 取代；旧 slots 现在只由冻结的 0.17 migration reader 接受，current syntax 使用 recursive attached groups。
  `note Block mark、parsed inline、inline verbatim 和 verbatim block 继续共享一个 attribute grammar。
  `note Opening brace 后允许 newline；最初版本要求 dynamic attr column，后续语法放宽为仅检查 owner boundary。
  `note Physical newline 等价于 attribute whitespace；quoted value 仍限制在一条 physical line。
@@ -176,55 +170,39 @@
  `note 更新 core syntax/diagnostics references、guide、playground 和 bundled skill。
 
 `- 实现 attached collection/association projection
-
  `+ task
 
  `@ attached-declarations
 
- `= done|2026-08-07T04:19:38+08:00
+ `= done 2026-08-07T04:19:38+08:00
 
- `note 冻结 recursive attached group ownership：document/marked block 使用 ordinary blocks，parsed/verbatim
-  inline 与 verbatim opener 使用 ordinary inline elements，并支持 marked-block compact trailing group。
- `note 正文与 attached scope 共用 `"-" collection-member、`":" key/value association 与 `"@" identity
-  declaration typed views；标准 projection 将 direct declarations解释为 facet、property 与 id。
- `note inline/block verbatim 统一为 optional opaque kind 加 quote envelope；compact raw 和 strengthened
-  bracket form lower 到同一个 typed view，verbatim block 不再依赖 attribute-only opener。
- `note current parser 拒绝 `"{#id .class key=value}"；isolated 0.17 reader 与
-  `"plumb migrate-attributes" 提供 source-ordered、atomic、idempotent 显式迁移，并处理 autolink、math、
-  language kind 与 legacy metadata root。
- `note 同步 strict/lossless parser、standard extensions、owned edits、formatter、workspace、export/import、
-  CLI/LSP、tree-sitter grammar/queries/corpus、references、guides、history、examples与 bundled skill；
-  Rust workspace tests、project document checks 和 tree-sitter corpus 均覆盖最终 spelling。
+ `note 冻结 recursive attached group ownership：document/marked block 使用 ordinary blocks，parsed/verbatim inline 与 verbatim opener 使用 ordinary inline elements，并支持 marked-block compact trailing group。
+ `note 正文与 attached scope 共用 `"-" collection-member、`":" key/value association 与 `"@" identity declaration typed views；标准 projection 将 direct declarations解释为 facet、property 与 id。
+ `note inline/block verbatim 统一为 optional opaque kind 加 quote envelope；compact raw 和 strengthened bracket form lower 到同一个 typed view，verbatim block 不再依赖 attribute-only opener。
+ `note current parser 拒绝 `"{{#id .class key=value}}"；isolated 0.17 reader 与 `"plumb migrate-attributes" 提供 source-ordered、atomic、idempotent 显式迁移，并处理 autolink、math、 language kind 与 legacy metadata root。
+ `note 同步 strict/lossless parser、standard extensions、owned edits、formatter、workspace、export/import、 CLI/LSP、tree-sitter grammar/queries/corpus、references、guides、history、examples与 bundled skill； Rust workspace tests、project document checks 和 tree-sitter corpus 均覆盖最终 spelling。
 
 `- 实现统一 attached group attachment sites
-
  `+ task
 
  `@ unified-attached-group-sites
 
- `= done|2026-08-07T18:26:42+08:00
+ `= done 2026-08-07T18:26:42+08:00
 
- `note strict parser 按 owner category 实现 inline tight、block-header spaced 与 document structural
-  attachment；marked/verbatim block 同时支持 compact inline group 和 expanded block group。
- `note 空 head、空 group、verbatim expanded group 后的 raw payload、brace escapes、单 owner 单 group、
-  compact trailing source 与 document 单行 group 按 core syntax reference 解析和恢复。
- `note 发布并固定 `"syntax.duplicate-attached-group"、`"syntax.trailing-after-attached-group" 与
-  `"syntax.invalid-document-group" 的 ranges、precedence、recovery 和 lossless coverage。
- `note 旧 tight verbatim opener group 与 owner 后续独立 structural-line group 直接非法；没有增加
-  compatibility parser、migration reader 或 migrator。
- `note 同步 typed/lossless tree、formatter/edit、extensions/workspace/LSP consumers、tree-sitter
-  grammar/queries/corpus、references、guides、examples 与 bundled skill，并通过 workspace warning gate、
-  strict/lossless/property tests、project document checks 与 tree-sitter corpus。
+ `note strict parser 按 owner category 实现 inline tight、block-header spaced 与 document structural attachment；marked/verbatim block 同时支持 compact inline group 和 expanded block group。
+ `note 空 head、空 group、verbatim expanded group 后的 raw payload、brace escapes、单 owner 单 group、 compact trailing source 与 document 单行 group 按 core syntax reference 解析和恢复。
+ `note 发布并固定 `"syntax.duplicate-attached-group"、`"syntax.trailing-after-attached-group" 与 `"syntax.invalid-document-group" 的 ranges、precedence、recovery 和 lossless coverage。
+ `note 旧 tight verbatim opener group 与 owner 后续独立 structural-line group 直接非法；没有增加 compatibility parser、migration reader 或 migrator。
+ `note 同步 typed/lossless tree、formatter/edit、extensions/workspace/LSP consumers、tree-sitter grammar/queries/corpus、references、guides、examples 与 bundled skill，并通过 workspace warning gate、 strict/lossless/property tests、project document checks 与 tree-sitter corpus。
 
 `# Standard extensions
 
 `- 支持向空文档插入 metadata
-
  `+ task
 
  `@ insert-metadata-into-empty-document
 
- `= done|2026-07-22T04:42:12+08:00
+ `= done 2026-07-22T04:42:12+08:00
 
  `note 空文档是 valid document；Insert document metadata code action 必须在 offset 0 可用。
  `note Workspace operation 生成 revision-guarded edit，并使用 filename 作为默认 title、本地 RFC 3339 时间作为 created。
@@ -232,12 +210,11 @@
  `note 结果必须符合 formatter canonical layout；增加 workspace operation 与 LSP code action 的 empty-document regression tests。
 
 `- Lint metadata created timestamp
-
  `+ task
 
  `@ lint-metadata-created
 
- `= done|2026-07-22T04:42:12+08:00
+ `= done 2026-07-22T04:42:12+08:00
 
  `note Metadata extension 将标准 created 字段解析为完整 RFC 3339 timestamp，不接受模糊日期或无 timezone 的值。
  `note 非法值发布 metadata.invalid-created warning，range 指向 created value，不影响 strict syntax validity 或其他 metadata facts。
@@ -245,12 +222,11 @@
  `note 未知 metadata keys 继续允许且不发布 warning；增加 extension diagnostics、workspace 传递与 LSP range tests。
 
 `- 添加 explicit id code action
-
  `+ task
 
  `@ add-explicit-id
 
- `= done|2026-07-21T16:17:35+08:00
+ `= done 2026-07-21T16:17:35+08:00
 
  `note Cursor 命中的最深 marked/verbatim block 尚无 id 时提供 Add explicit id；paragraph 与 inline owner 不提供。
  `note Marked block 使用非空 plain head 生成 slug，空 head 回退 marker；verbatim block 回退 block。
@@ -260,12 +236,11 @@
  `note 覆盖 nested owner、existing/multiline attributes、duplicate slug、invalid revision 和 LSP UTF-16 mapping。
 
 `- 支持 `".->" Autolink
-
  `+ task
 
  `@ standard-autolink
 
- `= done|2026-07-21T01:52:18+08:00
+ `= done 2026-07-21T01:52:18+08:00
 
  `note 只有 inline verbatim 上的 `".->" class 产生 autolink facet；其他 owner 发布 `"link.invalid-owner"，且不生成 link record。
  `note Verbatim payload 同时作为显示 label 与 target，必须是非空 absolute URI；relative path 与 fragment 继续使用显式 `"`->" link。
@@ -275,12 +250,11 @@
  `note Export 产生 label 与 target 相同的 Pandoc Link，并补齐 extension、LSP hover、export、metadata、playground 与 bundled skill tests/docs。
 
 `- 支持 `".->" relative file Autolinks 与 `".plumb" completion
-
  `+ task
 
  `@ relative-autolinks
 
- `= done|2026-07-22T05:38:10+08:00
+ `= done 2026-07-22T05:38:10+08:00
 
  `note 将 `".->" target 从 absolute URI 放宽为 absolute URI 或 raw relative path，不增加 `".file" 或 `".path" spelling。
  `note Relative path 以 source document 所在目录为基准；raw spelling 不做 percent encode/decode 或 normalization，`"#" 只用于 explicit anchor，仍拒绝 backslash 与 control。
@@ -291,14 +265,13 @@
  `note 复用现有 link completion context、workspace candidate ordering 和 last-valid cross-document index；补齐 resolution、hover、definition、export、LSP completion、guide、playground 与 bundled skill tests/docs。
 
 `- 支持 `"img" standard image extension
-
  `+ task
 
  `@ standard-image
 
- `= done|2026-07-22T05:38:10+08:00
+ `= done 2026-07-22T05:38:10+08:00
 
- `note `"[img[alt]{src="target"}]" 是唯一 image spelling；parsed inline content 是 alt content，`"src" 是必需且非空的 URI reference。
+ `note `"{img[alt]{src="target"}}" 是唯一 image spelling；parsed inline content 是 alt content，`"src" 是必需且非空的 URI reference。
  `note `"src" 接受 absolute URI 或相对 source document 所在目录的 URI-reference file path；保留原始 spelling，并继续使用 percent-encoding 与 URI validity rules。
  `note Empty alt 合法；非空 alt 保留 parsed inline content。缺失、空或无效 src 发布 `"image.missing-source" 或 `"image.invalid-source" semantic diagnostic。
  `note Export lower 为 Pandoc Image，并保留未消费的 explicit id、classes 和 key/value attributes；image-only paragraph 仍是只含 Image 的 paragraph。
@@ -306,58 +279,53 @@
  `note Core parser 不增加 image special case；补齐 extension、export、metadata、LSP、guide、playground 和 bundled skill tests/docs。Figure、caption、numbering 与 cross-reference 继续 deferred。
 
 `- 支持 `"file" standard attachment extension
-
  `+ task
 
  `@ standard-file-attachment
 
- `= done|2026-07-28T21:45:09+08:00
+ `= done 2026-07-28T21:45:09+08:00
 
- `note `"[file[label]{src="target"}]" 使用 parsed content 作为 portable fallback label，`"src" 是必需且非空的 absolute URI 或 raw relative file target；缺失、无效与 unresolved local target 分别发布稳定 semantic/workspace diagnostics。
+ `note `"{file[label]{src="target"}}" 使用 parsed content 作为 portable fallback label，`"src" 是必需且非空的 absolute URI 或 raw relative file target；缺失、无效与 unresolved local target 分别发布稳定 semantic/workspace diagnostics。
  `note Export lower 为带 `"data-plumb-marker=file" 的 Pandoc Link，import 恢复原 spelling；不支持 preview 的 writer 与 MIME 始终保留可点击 fallback。
  `note Workspace 复用受控 file resolution、hover、definition 与任意文件 completion；Web 只把已索引且 MIME 为 video 的 local attachment 增强为带 controls 和 fallback link 的播放器，普通 Link 不按 MIME 隐式提升。
  `note 覆盖 extension、workspace、export/import、dynamic/static Web target、resource copy、symlink-root containment、guide、reference 与 bundled skill tests/docs。
 
 `- 确认并补齐 `"img" export
-
  `+ task
 
  `@ verify-image-export
 
- `= done|2026-07-23T23:15:48+08:00
+ `= done 2026-07-23T23:15:48+08:00
 
- `note 已确认 `"plumb export" 将 `code"[img[alt]|=[src|target]]" lower 为 Pandoc Image，并覆盖 metadata、inline image、image-only paragraph、empty alt 与 raw relative src。
+ `note 已确认 `"plumb export" 将 `code"img[alt]|=[src|target]" lower 为 Pandoc Image，并覆盖 metadata、inline image、image-only paragraph、empty alt 与 raw relative src。
  `note 现有 lowering 已完整；focused regression tests 固定 parsed alt inlines、消费 `"src"、保留 explicit id/classes/key-value attributes、empty target title 与 image-only paragraph 不增加 wrapper。
 
 `- Image src completion 原样插入相对路径
-
  `+ task
 
  `@ raw-image-src-completion
 
- `= done|2026-07-23T21:19:55+08:00
+ `= done 2026-07-23T21:19:55+08:00
 
  `note Cursor 位于 `"img" 的 `"src" value 时，图片文件 completion 原样插入相对 source document 的 UTF-8 path，不做 percent encode、percent decode 或 filesystem path escaping；仍生成 quoted attribute value 必需的 quote/backslash syntax escapes。
  `note 保留 absolute URI 的现有 URI validity rules；覆盖中文、空格、括号、percent character 与 quoted attribute value 必需的 quote/backslash handling。
 
 `- Image 文件检查使用原始相对路径
-
  `+ task
 
  `@ raw-image-src-resolution
 
- `= done|2026-07-23T21:19:55+08:00
+ `= done 2026-07-23T21:19:55+08:00
 
  `note 解析 `"img" 的相对 `"src" 并检查目标文件是否存在时，直接按 source spelling 相对 document directory 查找，不先做 percent encode、percent decode 或额外 escaping。
  `note Hover、definition 与 missing-file diagnostic 复用同一 resolved target；覆盖中文、空格、括号、percent character、存在与不存在的文件。
 
 `- 提供 backtick construct completion
-
  `+ task
 
  `@ construct-completion
 
- `= done|2026-07-22T16:32:30+08:00
+ `= done 2026-07-22T16:32:30+08:00
 
  `note 单个 backtick 在 line start 提供 Task、Autolink 与 Link，Task 用当前本地 RFC 3339 timestamp 创建 `"created"；其他 ordinary inline context 提供 Autolink 与 Link。heading、ordinary list item 与 inline verbatim 不提供 candidates。
  `note 双 backtick literal escape、attributes 与 verbatim payload 不提供 candidates；context detection 保持 protocol-neutral。
@@ -365,146 +333,135 @@
  `note 覆盖 block/inline context、explicit Autolink 选择、snippet fallback 与 stdio tests，并更新 guide、playground 和 bundled skill；普通 bare/incomplete verbatim 不推测 link 意图。
 
 `- 补全输入中的 attributes
-
  `+ task
 
  `@ attribute-completion
 
- `= depends|#construct-completion
- `= created|2026-07-31T16:43:38+08:00
- `= done|2026-07-31T17:28:15+08:00
+ `= depends #construct-completion
+ `= created 2026-07-31T16:43:38+08:00
+ `= done 2026-07-31T17:28:15+08:00
 
  `note Cursor 位于 marked block、parsed inline、inline verbatim 或 verbatim block 的完整或未闭合 attribute slot 时提供 context-aware completion；protocol-neutral completion context 必须从 recovered syntax view 判断 owner、已有 id/classes/pairs 与当前输入位置，LSP 只负责 UTF-16 range、trigger 和 completion item 映射。
  `note 候选来自已组合 standard extensions 对 owner kind/facet 声明的 classes、pair keys 与有限枚举 values，例如 task fields、Link `"to"、Image `"src" 和 math `"language"；不得在 core 固化 semantic attributes，也不得因 registry 未声明而阻止用户输入 custom attributes。
  `note 已存在的唯一 id 或 pair key 不重复建议；可重复 classes 按其扩展约束处理。插入必须生成合法 attribute token 或 quoted value，复用 path、anchor、datetime、task reference 等现有专项 completion，并保留用户已输入的其他 attributes 与 multiline layout。
- `note 明确 `"{"、whitespace、`"."、`"#"、`"=" 与 quoted-value 内的触发和 replacement ranges；覆盖空/部分输入、owner-specific filtering、duplicate suppression、invalid/recovered syntax、nested inline、multiline attributes、snippet capability 与 stdio LSP tests，并同步 guide 和 bundled skill。
+ `note 明确 `"{{}"、whitespace、`"."、`"#"、`"=" 与 quoted-value 内的触发和 replacement ranges；覆盖空/部分输入、owner-specific filtering、duplicate suppression、invalid/recovered syntax、nested inline、multiline attributes、snippet capability 与 stdio LSP tests，并同步 guide 和 bundled skill。
 
 `- 在 LSP 中补全 task `"depends" references
-
  `+ task
 
  `@ task-depends-completion
 
- `= created|2026-08-04T15:37:31+08:00
- `= done|2026-08-04T16:02:15+08:00
+ `= created 2026-08-04T15:37:31+08:00
+ `= done 2026-08-04T16:02:15+08:00
 
  `note Cursor 位于有效 task 的 quoted `"depends" value 时，补全 same-file `"#id" 与 cross-file `"`path.plumb#id" task references；候选显示 task title、relative document path 与 derived workflow state，并复用 workspace 的 latest-valid/open-buffer-precedence index。
  `note 根据当前 reference token 与 `".plumb#" separator 计算 replacement range，保留 raw relative path spelling 与 value 中其他 references；不得建议当前 task 自身或同一 value 中已经存在的 target，且只建议可解析为 TaskRecord 的 explicit anchors。
  `note 补齐空值、多个 references、含空格 path、UTF-16 range、未闭合 quoted value、invalid/recovered owner、cross-file completion ordering 与 stdio LSP regression tests，并同步 editor guide。
 
 `- 优化 metadata fold text
-
  `+ task
 
  `@ metadata-fold-text
 
- `= created|2026-08-04T15:37:31+08:00
- `= done|2026-08-04T16:02:15+08:00
+ `= created 2026-08-04T15:37:31+08:00
+ `= done 2026-08-04T16:02:15+08:00
 
  `note Client 支持 `"foldingRange.foldingRange.collapsedText" 时，顶层有效 metadata fold 使用 document title 生成紧凑且可区分的 label，并保留 block opener 的原始结构缩进；title 缺失或不可用时使用稳定的 metadata fallback，不从 recovered invalid metadata 猜测内容。
  `note Label 必须保持单行，正确处理 Unicode、inline-verbatim scalar、空 title 与过长 title；metadata facts、document symbols、rename identity 和 source range authority 不因展示文本改变。
  `note 覆盖 valid/invalid metadata、title fallback、nested non-metadata `"meta" block、capability disabled、UTF-16 与 stdio LSP tests，并更新 editor guide。
 
 `- 允许折叠单行 event 与 task
-
  `+ task
 
  `@ single-line-task-event-folds
 
- `= created|2026-08-04T15:37:31+08:00
- `= done|2026-08-04T16:02:15+08:00
+ `= created 2026-08-04T15:37:31+08:00
+ `= done 2026-08-04T16:02:15+08:00
 
  `note 即使 task 或 event owner 只占一条 physical line，也提供语义 fold，使它与带 children 的同类 block 使用一致的 collapsed text；range 不能包含 trailing blank 或 following sibling，也不能为制造多行范围而吞入相邻 source。
  `note 按 client 的 line-folding capability 选择合法 range 表达；协议或 client 无法显示单行 fold 时保持 source range authority 并明确降级行为，不发布伪造范围。
  `note 覆盖 top-level/nested task、event、相邻 single-line siblings、document EOF、range limit、collapsed-text capability 与 Neovim 0.12 展示的 regression tests，并更新 editor guide。
 
 `- 使用固定宽度 state symbols 对齐 task fold text
-
  `+ task
 
  `@ aligned-task-fold-symbols
 
- `= depends|#disjoint-task-workflow-states
- `= created|2026-08-05T03:46:54+08:00
- `= done|2026-08-05T03:46:54+08:00
+ `= depends #disjoint-task-workflow-states
+ `= created 2026-08-05T03:46:54+08:00
+ `= done 2026-08-05T03:46:54+08:00
 
  `note 使用五个 ASCII symbols：ready `"-"、waiting `"~"、blocked `"!"、done `"+"、canceled `"x"；conflicted 组合为 `"+x"。state slot 固定为两列，后接两个分隔空格，使同级 task title 对齐且不依赖 Unicode display width。
  `note 保留原始结构缩进，Neovim foldtext wrapper 按 `"+"、`"x" 与 `"+x" 继续应用 closed-task semantic highlight；覆盖六种 workflow states 与 nested task alignment。
 
 `- 将 task depends completion 拆分为 path 与 id 两阶段
-
  `+ task
 
  `@ staged-task-depends-completion
 
- `= depends|#task-depends-completion
- `= created|2026-08-05T03:46:54+08:00
- `= done|2026-08-05T03:46:54+08:00
+ `= depends #task-depends-completion
+ `= created 2026-08-05T03:46:54+08:00
+ `= done 2026-08-05T03:46:54+08:00
 
  `note 当前 reference 尚无 `"#" 时只列出包含可选 explicit task id 的 documents，插入 same-file `"#" 或 cross-file `"`path.plumb#"；已有 `"#" 时只列出所选 document 的 task ids，并只替换 id fragment。`"#" 作为 LSP trigger character 触发第二阶段。
  `note 两阶段均保留同一 value 中其他 references，排除 owner 自身、已存在 dependencies、idless tasks 与 non-task anchors，并覆盖 path/id replacement ranges、spaces、same-file、cross-file、ordering 和 stdio LSP tests。
 
 `- 沿 depends 传播 task effective priority
-
  `+ task
 
  `@ dependency-priority-propagation
 
- `= depends|#signed-task-priority
- `= created|2026-08-05T03:46:54+08:00
- `= done|2026-08-05T03:46:54+08:00
+ `= depends #signed-task-priority
+ `= created 2026-08-05T03:46:54+08:00
+ `= done 2026-08-05T03:46:54+08:00
 
  `note effective priority 从 dependent 传播给仍 open 的 dependency，并沿多级 dependency chains 继续传播；传播后的 priority 再提升 dependency ancestors 与 virtual document node。closed dependency 不传播，cycles 使用单调 maximum 收敛。
  `note source `"priority" 与 CEL own-priority fact 保持原值；共享 workspace search projection 另行发布 effective priority，CLI 与 Web Priority sort 共用该值。过滤后只有 retained tasks 参与传播，覆盖 cross-file、transitive、ancestor、closed target、negative values、cycles 与 stable sorting tests。
 
 `- 为第一层 metadata entries 提供 fold text
-
  `+ task
 
  `@ metadata-entry-fold-text
 
- `= depends|#metadata-fold-text
- `= created|2026-08-05T03:46:54+08:00
- `= done|2026-08-05T03:46:54+08:00
+ `= depends #metadata-fold-text
+ `= created 2026-08-05T03:46:54+08:00
+ `= done 2026-08-05T03:46:54+08:00
 
  `note 顶层有效 metadata 的第一层 entry fold 使用 `"key  scalar value"；inline scalar 与 verbatim value 规范为单行并截断，list、map、null 或不可展示 value 稳定回退为 `"key"。不为 nested invalid metadata 猜测 labels。
  `note 覆盖 title 等常规 scalar fields、Unicode、empty/complex values、indent、outer metadata label、capability disabled 与 stdio LSP tests。
 
 `- 将 task 后的一个空白分隔行包含进 fold
-
  `+ task
 
  `@ task-fold-trailing-blank
 
- `= depends|#single-line-task-event-folds
- `= created|2026-08-05T03:46:54+08:00
- `= done|2026-08-05T03:46:54+08:00
+ `= depends #single-line-task-event-folds
+ `= created 2026-08-05T03:46:54+08:00
+ `= done 2026-08-05T03:46:54+08:00
 
  `note task subtree 与下一 non-empty sibling 之间紧邻的一个 blank line 纳入 semantic fold range，使关闭 task 时不遗留孤立空行；adapter 最多向 authority range 后消费两个 line endings，不跨越下一条非空内容，不改变 parser block ownership。
  `note 仅 task semantic folds 扩张 trailing layout；event、metadata、generic block 与 heading ranges 保持原规则。覆盖 LF/CRLF、无 blank、一个/多个 blanks、nested task、EOF 与相邻 sibling regression tests。
 
 `- 支持标准 div 与 span 透明容器
-
  `+ task
 
  `@ standard-div-span
 
- `= done|2026-07-20T13:00:12+08:00
+ `= done 2026-07-20T13:00:12+08:00
 
  `note 将 `"div" marked block 与 `"span" parsed inline kind 冻结为 standard extension spellings。
  `note `"div" 保留 generic block 的 head/children behavior；`"span" 保留 parsed inline content behavior。
  `note 两者只提供 container ownership，不增加 presentation、section、warning 或其他隐式 semantics。
- `note Export 分别产生 Pandoc Div/Span，并省略冗余的 `"[data-plumb-marker="div"]" 与 `"[data-plumb-marker="span"]"。
+ `note Export 分别产生 Pandoc Div/Span，并省略冗余的 `"{data-plumb-marker="div"}" 与 `"{data-plumb-marker="span"}"。
  `note 其他 generic marker/kind 继续导出 data-plumb-marker，core parser 和 syntax tree 不增加 special cases。
  `note 更新 extension/export tests、standard extension reference、guide、playground 和 bundled skill。
 
 `- 支持 `".$" standard math facet
-
  `+ task
 
  `@ standard-math
 
- `= done|2026-07-20T13:00:12+08:00
+ `= done 2026-07-20T13:00:12+08:00
 
  `note Inline verbatim 与 verbatim block 上的 `".$" 分别产生 inline math 和 display math。
  `note `".$" 默认使用 TeX input；可选 `"language=tex"，暂不支持其他 math input languages。
@@ -516,12 +473,11 @@
  `note 更新 standard extension reference、guide、playground 和 bundled skill。
 
 `- 将 `".task" 标准语义限制到 list item
-
  `+ task
 
  `@ restrict-task-owner
 
- `= done|2026-07-20T13:00:12+08:00
+ `= done 2026-07-20T13:00:12+08:00
 
  `note Task recognizer 只为 `"-" 和 `"." marker 生成 TaskRecord。
  `note `".task" 出现在其他 marker 上时发布 `"task.invalid-owner"，且不生成 TaskRecord。
@@ -529,13 +485,12 @@
  `note 更新 extension、export、LSP、CLI tests，以及 standard extension reference 和 bundled skill。
 
 `- 添加 list item 转 task code action
-
  `+ task
 
  `@ convert-list-item-to-task
 
- `= depends|#restrict-task-owner
- `= done|2026-07-20T13:00:22+08:00
+ `= depends #restrict-task-owner
+ `= done 2026-07-20T13:00:22+08:00
 
  `note Cursor 位于非 task 的 `"-" 或 `"." item 内时提供 Convert to task。
  `note 同一次 operation 添加 `".task" 和本地 RFC 3339 `"created" timestamp，并保留已有 attributes。
@@ -543,13 +498,12 @@
  `note Nested list 中只转换 cursor 命中的最深 item，并覆盖无 attributes 与已有 attributes 的 tests。
 
 `- 添加 task created timestamp code action
-
  `+ task
 
  `@ add-task-created
 
- `= depends|#restrict-task-owner
- `= done|2026-07-20T13:00:22+08:00
+ `= depends #restrict-task-owner
+ `= done 2026-07-20T13:00:22+08:00
 
  `note Cursor 位于缺少 `"created" 的 task 内时提供 Add task created timestamp。
  `note 使用 action 执行时的本地 RFC 3339 timestamp；已有 `"created" 时不提供 action。
@@ -557,12 +511,11 @@
  `note 复用转换 action 的 attribute-edit、timestamp 和 guarded-operation primitives，并增加 LSP tests。
 
 `- 规范化 recurring task clone layout
-
  `+ task
 
  `@ format-recurring-task-clone
 
- `= done|2026-07-21T16:50:14+08:00
+ `= done 2026-07-21T16:50:14+08:00
 
  `note 新 instance 与 closed instance 保持 source-adjacent，不额外插入 blank line。
  `note 使用 plumb-format library canonicalize generated task，而不是复制原 source layout。
@@ -570,17 +523,14 @@
  `note 覆盖 top-level、nested task、long attributes、children、CRLF、strict parse 与 LSP edits。
 
 `- 支持可关联 task 的标准 event 与只读 calendar projection
-
  `+ task
 
  `@ standard-event-extension
 
- `= created|2026-07-30T00:40:49+08:00
- `= done|2026-07-30T01:59:31+08:00
+ `= created 2026-07-30T00:40:49+08:00
+ `= done 2026-07-30T01:59:31+08:00
 
- `note 本任务记录的是当时已经完成、后来被取代的 identity 设计。当前 event extension 不解释 source
-  `"uid" 或 metadata `"event-uids"；vdir UID 由 workspace-relative path、head schedule 与 title
-  确定性派生，权威规则见 standard extensions reference。
+ `note 本任务记录的是当时已经完成、后来被取代的 identity 设计。当前 event extension 不解释 source `"uid" 或 metadata `"event-uids"；vdir UID 由 workspace-relative path、head schedule 与 title 确定性派生，权威规则见 standard extensions reference。
  `note 只有 `"-" 或 `"." list item 上的 `".event" class 产生 EventRecord；head 是 title，children 是 details，source nesting 只形成 display tree，不表示时间包含或排序。
  `note Event time 使用继承 metadata root context 的 quoted `"when"：start 可用 reduced-precision `"TIME"、覆盖 date 的 `"YYYY-MM-DDTTIME" 或自包含完整 RFC 3339 timestamp；显式 offset 要求包含秒，interval `"START--TIME" 的 end 继承 start date/offset。任意 marked block 的 `"date"/`"timezone" 沿 subtree scoped inheritance，最近 ancestor 优先且 dedent 后恢复 parent context；`"when" override 只作用于当前 event。旧 `"at"/`"start"/`"end" 不具有 event semantics。首版不支持 running、all-day、floating time、recurrence、reminder 或 attendee semantics。
  `note `"tasks" 使用与 task `"depends" 相同的 same-file `"#id" 和 cross-file `"`path.plumb#id" reference-list spelling，但只建立 event-to-task association，不产生 dependency、task state 或隐式 task lifecycle event。Target 必须解析到 TaskRecord；workspace 建立 task-to-event reverse index，并提供 deterministic range/overlap queries。
@@ -591,17 +541,15 @@
  `note `".plumb" 始终是唯一 writable source；首版不导入外部 iCalendar 修改、不实现 CalDAV client、不让 vdirsyncer 或 Calendar 回写 source。覆盖 strict extension/workspace tests、Web guarded-edit tests、RFC 5545 escaping/folding/CRLF fixtures、真实 khal read-only discovery，以及 reference、guide、roadmap、playground 和 bundled skill 更新。
 
 `- 将 event shorthand 转换为 event
-
  `+ task
 
  `@ event-shorthand-code-action
 
- `= depends|#standard-event-extension
- `= created|2026-08-01T12:38:58+08:00
- `= done|2026-08-01T12:38:58+08:00
+ `= depends #standard-event-extension
+ `= created 2026-08-01T12:38:58+08:00
+ `= done 2026-08-01T12:38:58+08:00
 
- `note 本任务中的自动 `"eNNNN" id 与 metadata UID mapping 已被后续设计取代。当前 conversion 只把
-  schedule 固化在 head，并追加 event facet 及必要 date/timezone overrides；它不生成 id 或 UID data。
+ `note 本任务中的自动 `"eNNNN" id 与 metadata UID mapping 已被后续设计取代。当前 conversion 只把 schedule 固化在 head，并追加 event facet 及必要 date/timezone overrides；它不生成 id 或 UID data。
  `note `"Convert to event" refactor CodeAction 只转换 cursor 命中的单个 list item；head 以 `"TIME TITLE" 或 `"TIME--TIME TITLE" shorthand 开头，并允许 start 具有 `"YYYY-MM-DDT" prefix；title 可含任意合法 parsed/verbatim inline。
  `note `"TIME" 支持两位 `"HH"、`"HH:MM" 与 `"HH:MM:SS" reduced precision；缺失低位补零，省略 date/timezone 时优先继承 document metadata、缺少对应 metadata 时使用 operation 本地日期/offset，区间 end local time 早于 start 时解释为次日，相等无效。
  `note trailing `"TIME-- TITLE" 从紧邻的下一条 selected sibling shorthand start 推断 end 并固化；单项转换可读取未选中的紧邻 next sibling。普通 block 中断，缺少 next 的 chain 末项保持不变，显式 end 优先。
@@ -609,97 +557,61 @@
  `note 覆盖带/不带 date 的全部 time precision、point/explicit/inferred interval、nested 与 interrupted sibling chains、已有 attributes/id 保留、已是 event 的 item 拒绝、invalid/ambiguous spelling、rich inline structure/attributes preservation、formatter fixed point 和 stdio CodeAction availability tests；同步 reference 与 guides。
 
 `- 定义并实现 block table 语义
-
  `+ task
 
  `@ block-table-semantics
 
- `= done|2026-08-28T21:05:30+08:00
+ `= done 2026-08-28T21:05:30+08:00
 
- `note 标准 profile 已实现 `"table" owner、compact/expanded rows、header rows、row-header cells、empty/rich
-  cells、column consistency 与结构 ownership diagnostics；table structural `"-" 不进入普通 list，expanded
-  cell body 恢复普通 block semantics。
- `note typed positional arguments 只移除当前 depth 两端的 direct ASCII-space padding，lossless source 与
-  formatter 保留原 bytes，nested content 不递归 trim；因此 compact table 可以对齐 source 而不改变 cell value。
- `note Pandoc Table lowering/import 覆盖可表示 subset 与 semantic round trip；semantics、export、import、CLI
-  integration 和 project-document tests 已覆盖，reference、guide 与 bundled skill 已同步。
+ `note 标准 profile 已实现 `"table" owner、compact/expanded rows、header rows、row-header cells、empty/rich cells、column consistency 与结构 ownership diagnostics；table structural `"-" 不进入普通 list，expanded cell body 恢复普通 block semantics。
+ `note typed positional arguments 只移除当前 depth 两端的 direct ASCII-space padding，lossless source 与 formatter 保留原 bytes，nested content 不递归 trim；因此 compact table 可以对齐 source 而不改变 cell value。
+ `note Pandoc Table lowering/import 覆盖可表示 subset 与 semantic round trip；semantics、export、import、CLI integration 和 project-document tests 已覆盖，reference、guide 与 bundled skill 已同步。
 
 `# Workspace indexing
 
 `- 用 Diesel 建立关系化 workspace query backend
-
  `+ task
 
  `@ diesel-workspace-query-backend
 
- `= done|2026-08-28T02:02:45+08:00
+ `= done 2026-08-28T02:02:45+08:00
 
- `note SqliteSemanticStore 的 schema migrations、generation transaction、CRUD、typed row decoding 与 cache
-  invalidation 已迁移到 Diesel；memory/persistent parity、non-UTF-8 path round-trip、warm reuse 与 query failure
-  propagation 由 protocol-neutral tests 固定。
- `note task dependencies 与 event-task associations 作为带 source generation 的 typed relation rows 发布，identity、
-  target、state、time 与 ordering indexes 由 query-plan tests 覆盖；Rust semantics 仍是事实权威，database 不解析
-  source 或重新推导 meaning。
- `note task query 先通过 Diesel 读取 lightweight typed facts 与批量 relation endpoints，在 protocol-neutral layer
-  完成 demand-driven CEL、workflow state、effective priority、tree aggregation、deterministic ordering 与 opaque
-  document-group cursor，只 decode 当前 page；Web adapter 不再自行 merge、filter、sort 或分页，也不会为了
-  document revision 列表 materialize lazy semantic outputs。
- `note event pages 使用 Diesel stable-key order/cursor/hard limit；Web mutation 只发布 changed document generation，
-  browser 按 workspace revision 合并 watcher notifications，authoring candidates 保持 bounded lazy query。
- `note 移除旧 rusqlite `"semantic_overlay" harness，并将 relation、task-page、decoded-row 与 open-overlay parity
-  benchmark 合并进 `"semantic_store"。release synthetic benchmark、真实 notebook baseline/current paired samples、
-  host、commit、sample count 与 response sizes 记录在
-  `->[`()[performance benchmark points]|../history/performance/workspace-performance-2026-08.plumb]。
- `note `"cargo test --workspace"、workspace all-target warning gate、tree-sitter strict-alignment check 与 project
-  document strict validation 全部通过；现有 latency 与 concurrency observation 仍不支持仅为该 workload 引入
-  async database driver 或 connection pool。
+ `note SqliteSemanticStore 的 schema migrations、generation transaction、CRUD、typed row decoding 与 cache invalidation 已迁移到 Diesel；memory/persistent parity、non-UTF-8 path round-trip、warm reuse 与 query failure propagation 由 protocol-neutral tests 固定。
+ `note task dependencies 与 event-task associations 作为带 source generation 的 typed relation rows 发布，identity、 target、state、time 与 ordering indexes 由 query-plan tests 覆盖；Rust semantics 仍是事实权威，database 不解析 source 或重新推导 meaning。
+ `note task query 先通过 Diesel 读取 lightweight typed facts 与批量 relation endpoints，在 protocol-neutral layer 完成 demand-driven CEL、workflow state、effective priority、tree aggregation、deterministic ordering 与 opaque document-group cursor，只 decode 当前 page；Web adapter 不再自行 merge、filter、sort 或分页，也不会为了 document revision 列表 materialize lazy semantic outputs。
+ `note event pages 使用 Diesel stable-key order/cursor/hard limit；Web mutation 只发布 changed document generation， browser 按 workspace revision 合并 watcher notifications，authoring candidates 保持 bounded lazy query。
+ `note 移除旧 rusqlite `"semantic_overlay" harness，并将 relation、task-page、decoded-row 与 open-overlay parity benchmark 合并进 `"semantic_store"。release synthetic benchmark、真实 notebook baseline/current paired samples、 host、commit、sample count 与 response sizes 记录在 `->{`(){{performance benchmark points}} ../history/performance/workspace-performance-2026-08.plumb}。
+ `note `"cargo test --workspace"、workspace all-target warning gate、tree-sitter strict-alignment check 与 project document strict validation 全部通过；现有 latency 与 concurrency observation 仍不支持仅为该 workload 引入 async database driver 或 connection pool。
 
 `- 建立 persistent semantic workspace store
-
  `+ task
 
  `@ persistent-semantic-workspace
 
- `= done|2026-08-11T05:10:19+08:00
+ `= done 2026-08-11T05:10:19+08:00
 
- `note SQLite 只保存 closed disk documents 的 semantic projection、source identity 与 generation metadata；
-  syntax tree 和 source text 不持久化。Open buffer 在内存中按整份 document 遮蔽同路径 disk generation，
-  query 不进行 record-level merge，didChange 不写 persistent store。
- `note 初始扫描以 content hash 命中 persistent generation 时跳过 parse 与 document semantics；didSave、close、
-  watcher change 和 reindex 才在 transaction 中原子替换稳定 disk generation。LSP cache 按 normalized
-  workspace identity 隔离，schema 或 producer version 不匹配时丢弃 disposable derived records。
- `note memory 与 SQLite backend 的 reverse references、agenda ordering 和 open-overlay result parity 已由普通
-  tests 固定；LSP lifecycle、watcher、search、navigation、rename、completion 与 editing integration tests
-  覆盖 persistent backend adapters。
- `note release benchmark 记录在 `->[`()[performance benchmark points]|../history/performance/workspace-performance-2026-08.plumb]：
-  33,512-event workload 的 warm startup 快约 22.3x、warm resident memory 降低约 94.2%；cold build 慢
-  约 3.70x、agenda range 慢约 2.58x、完整 generation replacement 约 701.52 ms，因此不宣称总体提升。
+ `note SQLite 只保存 closed disk documents 的 semantic projection、source identity 与 generation metadata； syntax tree 和 source text 不持久化。Open buffer 在内存中按整份 document 遮蔽同路径 disk generation， query 不进行 record-level merge，didChange 不写 persistent store。
+ `note 初始扫描以 content hash 命中 persistent generation 时跳过 parse 与 document semantics；didSave、close、 watcher change 和 reindex 才在 transaction 中原子替换稳定 disk generation。LSP cache 按 normalized workspace identity 隔离，schema 或 producer version 不匹配时丢弃 disposable derived records。
+ `note memory 与 SQLite backend 的 reverse references、agenda ordering 和 open-overlay result parity 已由普通 tests 固定；LSP lifecycle、watcher、search、navigation、rename、completion 与 editing integration tests 覆盖 persistent backend adapters。
+ `note release benchmark 记录在 `->{`(){{performance benchmark points}} ../history/performance/workspace-performance-2026-08.plumb}： 33,512-event workload 的 warm startup 快约 22.3x、warm resident memory 降低约 94.2%；cold build 慢 约 3.70x、agenda range 慢约 2.58x、完整 generation replacement 约 701.52 ms，因此不宣称总体提升。
 
 `- 撤回 unified SQLite open generations
-
  `+ task
 
  `@ rollback-unified-sql-open-generations
 
- `= done|2026-08-11T14:10:00+08:00
+ `= done 2026-08-11T14:10:00+08:00
 
- `note production experiment 曾把 open documents 发布到 connection-local SQLite TEMP tables，并通过
-  `"effective_*" views 统一 closed/open query；当前实现恢复 persistent SQLite closed generations 加
-  Rust open-document overlay。
- `note 统一 SQL 的主要收益是删除 dual query composition，不会重复获得第一阶段已有的 warm startup 与
-  resident-memory 收益；33,512-event workload 的 open update、ten-update burst、agenda 与 reverse
-  references 分别回退约 56%、69%、87% 与 64%，不适合进入逐键编辑路径。
- `note rejected production 数据与重新评估条件记录在
-  `->[`()[performance benchmark points]|../history/performance/workspace-performance-2026-08.plumb]；在 incremental semantic diff
-  或 asynchronous publication 解决 full-generation cost 前，不以 large-document threshold 重引入。
+ `note production experiment 曾把 open documents 发布到 connection-local SQLite TEMP tables，并通过 `"effective_*" views 统一 closed/open query；当前实现恢复 persistent SQLite closed generations 加 Rust open-document overlay。
+ `note 统一 SQL 的主要收益是删除 dual query composition，不会重复获得第一阶段已有的 warm startup 与 resident-memory 收益；33,512-event workload 的 open update、ten-update burst、agenda 与 reverse references 分别回退约 56%、69%、87% 与 64%，不适合进入逐键编辑路径。
+ `note rejected production 数据与重新评估条件记录在 `->{`(){{performance benchmark points}} ../history/performance/workspace-performance-2026-08.plumb}；在 incremental semantic diff 或 asynchronous publication 解决 full-generation cost 前，不以 large-document threshold 重引入。
 
 `- Workspace scanner 不递归进入目录 symlink
-
  `+ task
 
  `@ do-not-follow-directory-symlinks
 
- `= done|2026-07-22T04:42:12+08:00
+ `= done 2026-07-22T04:42:12+08:00
 
  `note 使用 DirEntry file type 区分真实目录与 symlink，只递归扫描真实目录。
  `note 默认不跟随指向 workspace 内部或外部的目录 symlink，避免重复索引、循环、越界扫描与 watcher 语义不一致。
@@ -707,28 +619,23 @@
  `note 增加 workspace root 内含 symlinked repository snapshot 和 symlink cycle 的 tests，验证 completion、references 与 note/task indexes 不产生重复 records。
 
 `- 建立 event containment 索引
-
  `+ task
 
  `@ event-containment-index
 
- `= done|2026-08-28T21:05:30+08:00
+ `= done 2026-08-28T21:05:30+08:00
 
- `note document output 使用共享 ordered links 上可重叠的 `"EventLinkRange" records 表示 containment，nested
-  events 可以关联同一 link 而不复制 source-backed records；production event-task association consumers 已统一
-  使用 indexed query。
- `note semantic overlap、revision replacement 与 memory-size tests 已覆盖；Criterion 同时比较 build、legacy
-  binary query、indexed query 和 memory overhead，保持现有 association semantics。
+ `note document output 使用共享 ordered links 上可重叠的 `"EventLinkRange" records 表示 containment，nested events 可以关联同一 link 而不复制 source-backed records；production event-task association consumers 已统一 使用 indexed query。
+ `note semantic overlap、revision replacement 与 memory-size tests 已覆盖；Criterion 同时比较 build、legacy binary query、indexed query 和 memory overhead，保持现有 association semantics。
 
 `# Editor search
 
 `- 建立 protocol-neutral note/task search records
-
  `+ task
 
  `@ search-records
 
- `= done|2026-07-22T04:42:12+08:00
+ `= done 2026-07-22T04:42:12+08:00
 
  `note 从 plumb-workspace current valid snapshots 投影 search records；open buffer 继续覆盖 disk snapshot。
  `note Note record 包含 metadata title 或 filename fallback、path 与 document location。
@@ -737,13 +644,12 @@
  `note Search model 不依赖 LSP、CLI、Neovim 或具体 picker，也不把 full-text body search 混入 semantic records。
 
 `- 通过 workspace/symbol 搜索 notes 与 tasks
-
  `+ task
 
  `@ workspace-symbol-search
 
- `= depends|#search-records
- `= done|2026-07-22T04:42:12+08:00
+ `= depends #search-records
+ `= done 2026-07-22T04:42:12+08:00
 
  `note Advertise standard workspace symbol capability；普通 LSP clients 不需要 plumb-specific plugin。
  `note 支持 note QUERY、task QUERY 与无 prefix 的 combined search，匹配 title、id 和 relative path。
@@ -751,13 +657,12 @@
  `note Query 为空与超出 limit 的行为必须 bounded；ordering、open-buffer precedence、invalid revisions 和 cancellation 需要 black-box tests。
 
 `- 添加 plumb/search custom LSP request
-
  `+ task
 
  `@ structured-editor-search
 
- `= depends|#search-records
- `= done|2026-07-22T04:42:12+08:00
+ `= depends #search-records
+ `= done 2026-07-22T04:42:12+08:00
 
  `note 使用不带 dollar prefix 的 versioned JSON-RPC method，并在 initialize experimental.plumb.search 中声明 schema version。
  `note Params 包含 note/task kind、structured query 与 limit；result 返回 typed items、Location、provenance 和 complete flag。
@@ -766,13 +671,12 @@
  `note workspace/executeCommand 只用于 actions，不代替 search request；full-text body search 继续 deferred。
 
 `- 提供仓库内 Neovim search integration
-
  `+ task
 
  `@ neovim-search-integration
 
- `= depends|#structured-editor-search #workspace-symbol-search
- `= done|2026-07-22T04:42:12+08:00
+ `= depends #structured-editor-search #workspace-symbol-search
+ `= done 2026-07-22T04:42:12+08:00
 
  `note 在 contrib/nvim 提供无 plugin manager 依赖的 Lua module，暴露 search_notes 与 search_tasks。
  `note Native adapter 使用 vim.ui.input/select，显示 title、path、state/due，并通过 returned Location 跳转。
@@ -781,25 +685,23 @@
  `note 只有 LSP setup、pickers 与 task actions 的 public configuration surface 稳定后，才评估抽离独立 plumb.nvim；tree-sitter 不属于 plugin API。
 
 `- 讨论并调整 block-level reference CodeLens 位置
-
  `+ task
 
  `@ block-reference-codelens-position
 
- `= done|2026-07-23T23:09:37+08:00
+ `= done 2026-07-23T23:09:37+08:00
 
  `note 已与用户确认 block-level reference CodeLens 绑定 item 的 block opener，使 CodeLens 显示在 item 上方；inline anchor 继续绑定 explicit `"#id" range。
  `note 位置选择比较了 `"#id"、block opener 与 item head；block opener 在 single-line、multiline attributes 和 nested item 中都稳定表示 item 起点。
  `note 覆盖 heading、list/task item、generic marked block、verbatim block、multiline attributes、nested item 与 Neovim 0.12 原生 virt_lines_above 展示的 regression tests。
 
 `- 支持从 document declaration 与 reference occurrences 查找 references
-
  `+ task
 
  `@ metadata-document-references
 
- `= created|2026-07-28T17:02:27+08:00
- `= done|2026-07-28T17:33:38+08:00
+ `= created 2026-07-28T17:02:27+08:00
+ `= done 2026-07-28T17:33:38+08:00
 
  `note 顶层有效 `"meta" opener 是当前 document 的声明位置；cursor target resolution 应将它映射为 document target，并与 metadata 上的 document rename、file-reference CodeLens 和 workspace reverse-reference index 共用同一身份模型，不在 LSP adapter 添加独立特判。
  `note `"textDocument/references" 必须能从 declaration 或任意 reference occurrence 发起；同一个 target identity 在两种位置产生相同 reference occurrences，`"includeDeclaration" 只控制是否额外返回 declaration，不能依赖 request position 改变结果集合。
@@ -809,24 +711,22 @@
  `note references 结果与 metadata CodeLens count 必须来自相同 latest-valid/open-buffer-precedence index，并覆盖 declaration/reference query parity、path/fragment component ranges、same-file self-reference、cross-file links、task prev/depends、invalid revision、zero references、includeDeclaration 和 CodeLens parity 的 workspace 与 stdio LSP regression tests。
 
 `- 从 metadata 重命名文件时隐藏扩展名
-
  `+ task
 
  `@ metadata-rename-hide-extension
 
- `= created|2026-08-02T20:31:52+08:00
- `= done|2026-08-02T21:34:21+08:00
+ `= created 2026-08-02T20:31:52+08:00
+ `= done 2026-08-02T21:34:21+08:00
 
  `note 从顶层有效 `"meta" opener 发起 document rename 时，`"prepareRename" placeholder 与编辑器 rename input 只显示当前 filename stem，不显示 `".plumb" extension。
  `note 用户提交不带 extension 的新名称后，resource rename target 与所有 document reference edits 必须自动保留 `".plumb"；覆盖 prepare/rename stdio regression tests，并继续拒绝已有 target 与 workspace 外 target。
 
 `- 说明 Neovim 如何列出 notes、tasks 与 references
-
  `+ task
 
  `@ document-neovim-lsp-entrypoints
 
- `= done|2026-07-27T01:32:33+08:00
+ `= done 2026-07-27T01:32:33+08:00
 
  `note 在 Neovim integration 文档中区分用于 notes/tasks 的 `"plumb/search" custom request 与用于 CodeLens references 的 `"plumb.showReferences" client-side command，说明各自不是 server-side `"workspace/executeCommand"。
  `note 给出可直接调用的 Lua API、单行 `":lua"、user command 与 keymap examples，覆盖列出 notes、列出 tasks、显示当前 metadata 或 explicit anchor references，并说明需要 attached plumb client 与对应 capabilities。
@@ -834,13 +734,12 @@
  `note 以 Neovim 0.12 验证所有示例，并让文档示例进入 regression checks，防止 Lua API、request schema 或 command arguments 漂移。
 
 `- 允许检查整个 workspace（基于 cli）
-
  `+ task
 
  `@ check-workspace-from-cli
 
- `= created|2026-07-23T22:59:57+08:00
- `= done|2026-07-23T23:29:11+08:00
+ `= created 2026-07-23T22:59:57+08:00
+ `= done 2026-07-23T23:29:11+08:00
 
  `note 提供 `"plumb check --root DIR"，省略 root 时检查当前目录；复用 note/task scanner，不递归进入 directory symlink。
  `note 复用 `"Workspace::diagnostics" 汇总 strict syntax、extension 与 cross-document diagnostics，不在 CLI adapter 重复分析逻辑。
@@ -848,43 +747,34 @@
  `note Error/Warning 返回 nonzero，Hint 只报告；覆盖 clean workspace、nested file、syntax error、unresolved reference、blocked-task hint、Unicode position 与 unified binary help/exit tests。
 
 `- 在任意 document metadata entry 上提供文档 hover
-
  `+ task
 
  `@ document-metadata-hover
 
- `= done|2026-08-28T21:05:30+08:00
+ `= done 2026-08-28T21:05:30+08:00
 
- `note protocol-neutral workspace query 能在 byte offset 0 或任意 top-level direct `"=" subtree 内定位 document
-  metadata；LSP 显示完整 projected summary，并把 hover range 限定为当前命中的 entry。普通 nested property
-  不命中，Link、citation 与其他更具体 semantic targets 保持更高优先级。
- `note stdio tests 覆盖 entry children、分散且与 body 交错的 metadata、nested properties，以及 Link/Citation
-  precedence。
+ `note protocol-neutral workspace query 能在 byte offset 0 或任意 top-level direct `"=" subtree 内定位 document metadata；LSP 显示完整 projected summary，并把 hover range 限定为当前命中的 entry。普通 nested property 不命中，Link、citation 与其他更具体 semantic targets 保持更高优先级。
+ `note stdio tests 覆盖 entry children、分散且与 body 交错的 metadata、nested properties，以及 Link/Citation precedence。
 
 `- 让 folding 在 workspace 索引期间保持可用
-
  `+ task
 
  `@ folding-before-index-complete
 
- `= done|2026-08-28T21:05:30+08:00
+ `= done 2026-08-28T21:05:30+08:00
 
- `note folding request 在 initial index 未完成时立即返回 recovered structural ranges 和本地可确定 labels；
-  dependency facts 尚不完整时只降级不确定 task 的 custom label，不省略 fold 或阻塞 response。
- `note 声明 `"experimental.plumb.foldingRangeRefreshSupport" 的 client 会在 initial index 安装及后续 dependency
-  revisions 后收到 `"workspace/foldingRange/refresh"；未声明的 client 不接收未知 request。Protocol tests 覆盖
-  initial-index race、本地/不确定 labels、结构 folds 与 capability gate。
+ `note folding request 在 initial index 未完成时立即返回 recovered structural ranges 和本地可确定 labels； dependency facts 尚不完整时只降级不确定 task 的 custom label，不省略 fold 或阻塞 response。
+ `note 声明 `"experimental.plumb.foldingRangeRefreshSupport" 的 client 会在 initial index 安装及后续 dependency revisions 后收到 `"workspace/foldingRange/refresh"；未声明的 client 不接收未知 request。Protocol tests 覆盖 initial-index race、本地/不确定 labels、结构 folds 与 capability gate。
 
 `# Workspace visualization
 
 `- 提供浏览器中的 workspace 连接图与只读笔记视图
-
  `+ task
 
  `@ workspace-graph-visualization
 
- `= created|2026-07-23T23:46:33+08:00
- `= done|2026-07-24T00:29:54+08:00
+ `= created 2026-07-23T23:46:33+08:00
+ `= done 2026-07-24T00:29:54+08:00
 
  `note 建立 shared Web document model：从 plumb-workspace current valid snapshots 投影 graph records 与只读 document records；document node 包含 opaque id、title、relative path 和 source location，edge 覆盖 named Link、Autolink、task prev 与 task depends，并保留 kind 和 source range。
  `note Graph model 同时支持整个 workspace 与当前 document 的 bounded neighborhood；定义 direction、depth、node/edge kind filter、deterministic ordering、limit、truncated/incomplete 和 unresolved target contract。Layout coordinates 属于 frontend state，不进入 language、workspace 或 LSP semantics。
@@ -899,27 +789,25 @@
  `note 2026-07-24 本机 debug build 使用 1000 个互链 documents 测得首次 server ready 126 ms、单文件更新发布新 revision 429 ms、ready-state RSS 29144 KiB；baseline fixture 从 `"note-000.plumb" 到 `"note-999.plumb"，每篇含 metadata title 与一条指向下一篇的 Link。
 
 `- Web serve 不主动打开浏览器
-
  `+ task
 
  `@ site-serve-never-opens-browser
 
- `= depends|#workspace-graph-visualization
- `= created|2026-07-30T00:44:31+08:00
- `= done|2026-07-30T01:59:31+08:00
+ `= depends #workspace-graph-visualization
+ `= created 2026-07-30T00:44:31+08:00
+ `= done 2026-07-30T01:59:31+08:00
 
  `note `"plumb site serve" 只负责启动 server，并在 stdout 输出 ready URL、在 stderr 输出 lifecycle log；进程不得调用 platform browser launcher，是否以及如何打开 URL 始终由调用者、editor integration 或用户决定。
  `note 删除 `"--no-open" CLI option、ServeConfig field、browser-launch branch 与不再使用的 dependency；`"--help" 不再列出该 option，传入旧 option 按普通 unknown argument 失败，不保留反向 flag 或 deprecated alias。
  `note 更新 workspace guide 与已完成 Web viewer task 中关于自动打开浏览器的旧表述，并覆盖 default invocation 不启动 browser、stdout URL contract、help/unknown-option behavior 和现有 explicit test-port server tests。
 
 `- 在 Web app 中管理 workspace tasks
-
  `+ task
 
  `@ web-task-management
 
- `= created|2026-07-25T21:51:56+08:00
- `= done|2026-07-27T01:43:15+08:00
+ `= created 2026-07-25T21:51:56+08:00
+ `= done 2026-07-27T01:43:15+08:00
 
  `note 提供 task list、document grouping、text search 和 State filter；actionable、due、wait、wait reason 与 dependency 等低频条件通过 custom CEL 表达。复用 plumb-notes 的 task facts 与 CEL query，不在 frontend 重建 task semantics。
  `note task detail 显示 source document、title、derived state、timestamps、dependencies 和 child tasks，并能在 graph、note preview 与 task view 之间保持当前 document context。
@@ -929,14 +817,13 @@
  `note workspace watcher 更新时增量刷新 task list 与当前 task detail，不重置 graph layout、active filters 或 selection；覆盖 recurring completion、dependency blocked、conflicted state、stale revision、deleted task 和 ignored document tests。
 
 `- 在 Web UI 中结构化创建和编辑 tasks
-
  `+ task
 
  `@ web-structured-task-editing
 
- `= depends|#web-task-management
- `= created|2026-07-31T16:43:38+08:00
- `= done|2026-07-31T19:23:23+08:00
+ `= depends #web-task-management
+ `= created 2026-07-31T16:43:38+08:00
+ `= done 2026-07-31T19:23:23+08:00
 
  `note Tasks view 提供结构化 create/edit UI，覆盖 title、source document、parent task/list position，以及标准 `"created"、`"due"、`"wait"、`"recur"、`"prev"、`"depends" 和 `"priority" fields；state 是派生值，关闭继续通过既有 Complete/Cancel operations，不能直接编辑 `"state" 或伪造 closure state。
  `note Datetime、priority、recurrence 与 dependency 使用对应的 date/time、numeric、select/reference controls，并显示 field-level validation；dependency picker 使用 workspace task identity 和可读 source context，提交 raw same-file/cross-file references 时仍由共享 task semantics 校验 unresolved target、cycle 与 operation eligibility。
@@ -944,14 +831,13 @@
  `note 创建成功后选中新 task，编辑成功后原位刷新且保留 filters、sort 和 document context；stale revision、external edit、parse/semantic invalid document 或 operation failure 不覆盖 source，返回可操作的 field/global error 并刷新最新 snapshot。覆盖 top-level/nested create、reparent/position change、partial field update、custom attribute preservation、multiline layout、concurrent edit、mobile controls、mutation security 与 browser E2E tests。
 
 `- 优化 Web Tasks 任务编辑 UI
-
  `+ task
 
  `@ improve-web-task-edit-ui
 
- `= depends|#web-structured-task-editing
- `= created|2026-08-02T20:51:07+08:00
- `= done|2026-08-02T21:06:01+08:00
+ `= depends #web-structured-task-editing
+ `= created 2026-08-02T20:51:07+08:00
+ `= done 2026-08-02T21:06:01+08:00
 
  `note `"New Task" 是 Tasks workspace-level action，放在 task list toolbar 或等价的固定创建入口；选中 task 后的 detail sidebar 不再显示该 action，避免把创建新 task 误解为当前 task 的操作。
  `note task detail 中可编辑的现有 properties 可直接点击进入匹配类型的 inline control，或打开已聚焦该 property 的 editor；保存与取消必须保留当前 selection、filters、sort、scroll position 和 keyboard focus，不能要求先进入独立的完整 Edit form 才能修改单个 property。
@@ -959,13 +845,12 @@
  `note 所有 inline add/edit 继续提交 typed intent、task identity 与 expected revision，复用 shared guarded authoring operations 和 field-level validation；覆盖无 selection/有 selection、空与已有 property、keyboard/mobile interaction、save/cancel、stale revision、mutation pending 和 browser E2E regression tests。
 
 `- 统一 Graph 与 Tasks 的 Web query pipeline
-
  `+ task
 
  `@ web-query-pipeline
 
- `= created|2026-07-27T00:28:45+08:00
- `= done|2026-07-27T01:13:41+08:00
+ `= created 2026-07-27T00:28:45+08:00
+ `= done 2026-07-27T01:13:41+08:00
 
  `note UI 使用可追加的 filter chips：`"+" 打开服务端注册的 filter-type menu，选中后显示可移除 chip。添加 grouped filter 时使用 registry 中的第一个选项作为默认值，例如 State 默认为 Ready；点击已添加的 grouped filter 打开多选 popover，且至少保留一个选项。Preset 包含稳定 id、label、CEL expression 与 optional group；同 group（例如 task state）的选项合并为一个多选 filter 并使用 logical OR，不同 groups 与 ungrouped presets 使用 logical AND。
  `note custom CEL 使用可追加、可移除的独立条件输入。Fuzzy 与 CEL 显示为同形 query clauses，但 fuzzy 不伪装成 CEL predicate。每个 selected preset 与每条 custom expression 分别 compile、分别报告 source/position error，再逐项 AND evaluate；不要拼接生成 CEL source。没有 preset 等价于 `"true"，不提供 `"All" chip。
@@ -980,28 +865,26 @@
  `note URL query parameters、JSON request 与 UI state 能无损往返 filters、query 和 sort。CEL 错误保留 last successful result；覆盖互斥 preset replacement、多个 preset AND、custom error provenance、empty query、stable source order、subtree sorting、Graph filtered endpoints、direct route load、refresh、back/forward 与 revision refresh tests。
 
 `- Tasks 页面默认启用 State: Ready filter
-
  `+ task
 
  `@ default-ready-task-filter
 
- `= depends|#web-query-pipeline
- `= created|2026-07-30T00:40:49+08:00
- `= done|2026-07-30T01:59:31+08:00
+ `= depends #web-query-pipeline
+ `= created 2026-07-30T00:40:49+08:00
+ `= done 2026-07-30T01:59:31+08:00
 
  `note 首次进入 `"/tasks" 且 URL 没有显式 filter state 时预选 State grouped filter 的 Ready preset，使默认结果只包含 ready tasks；这不同于用户手动添加 State filter 时选择 registry 第一个 option 的现有行为。
  `note URL 中显式存在 filters 时必须完整恢复该状态，包括非 Ready state、多个 state、已移除全部 presets 或 shared/bookmarked query；默认值不能覆盖 refresh、back/forward、popstate 或用户在当前 session 的选择。
  `note Dynamic server 覆盖 direct Tasks navigation、Graph-to-Tasks navigation、empty/explicit URL state、filter removal、refresh、history navigation 和 URL round-trip frontend tests。
 
 `- 定义互斥 task workflow states
-
  `+ task
 
  `@ disjoint-task-workflow-states
 
- `= depends|#default-ready-task-filter
- `= created|2026-08-04T15:11:23+08:00
- `= done|2026-08-05T03:19:04+08:00
+ `= depends #default-ready-task-filter
+ `= created 2026-08-04T15:11:23+08:00
+ `= done 2026-08-05T03:19:04+08:00
 
  `note shared task model 按固定 precedence 推导唯一 state：同时存在 valid done/canceled 是 conflicted；只有 done 是 done；只有 canceled 是 canceled；其余先判断 valid future wait 为 waiting，再判断 open dependency 为 blocked，否则为 ready。invalid datetime 不参与推导。
  `note waiting 优先于 blocked，但 wait_reasons 仍按 time、dependency 记录全部成立的 reasons，blocked fact 在任何 open dependency 存在时仍为 true；actionable 仅等价于 state 为 ready。State 是 derived read-only fact，不成为可写 task attribute。
@@ -1009,27 +892,25 @@
  `note 覆盖全部六种 states、future wait 与 open dependency 同时存在时的 precedence、overlap facts、CEL filters、Web snapshots 和 LSP fold labels，并同步 reference 与 guides。
 
 `- 按显式优先级排序 CLI 与 Web tasks
-
  `+ task
 
  `@ task-priority-sorting
 
- `= created|2026-07-30T17:23:47+08:00
- `= done|2026-07-30T17:32:21+08:00
+ `= created 2026-07-30T17:23:47+08:00
+ `= done 2026-07-30T17:32:21+08:00
 
  `note 标准 task `"priority" field 是非负整数，数值越大越优先；非法值产生 extension diagnostic，且不参与排序或 CEL facts。
  `note `"plumb task" 与 Web task snapshot 默认按 priority 降序、due 升序和 source order 递归排列 sibling subtrees；排序必须保持 parent/descendant layout 和 subtree 连续性。
  `note Web structured query 增加 Priority sort，server query 使用 shared task model 的 CEL facts 和排序规则，并覆盖根任务、nested sibling 与 descendant preservation tests。
 
 `- 允许 task priority 使用负数
-
  `+ task
 
  `@ signed-task-priority
 
- `= depends|#task-priority-sorting
- `= created|2026-07-30T17:36:54+08:00
- `= done|2026-07-31T02:41:18+08:00
+ `= depends #task-priority-sorting
+ `= created 2026-07-30T17:36:54+08:00
+ `= done 2026-07-31T02:41:18+08:00
 
  `note 将标准 `"priority" field 从非负整数调整为有符号整数；数值越大越优先，缺失值按 `"0" 处理，因此正数提前、负数延后，显式 `"priority=0" 与缺失值具有相同排序权重。
  `note 共享 task model 使用明确的有符号整数范围，超出范围或非整数继续发布 `"task.invalid-priority"，且非法值不进入 CEL facts；recurring task clone 与 export 必须原样保留合法 priority attribute。
@@ -1038,14 +919,13 @@
  `note CLI、dynamic/static Web Priority sort 与 nested sibling subtree sorting 使用同一 effective-priority 比较规则，并覆盖正数、零、缺失、负数、deep descendant promotion、negative descendant non-demotion、document aggregation、极值、非法值、stable tie-break 和 subtree continuity tests；同步更新 reference、guide 与 bundled skill。
 
 `- 支持 Web tasks 多键排序
-
  `+ task
 
  `@ multi-key-task-sorting
 
- `= depends|#signed-task-priority
- `= created|2026-07-31T16:42:17+08:00
- `= done|2026-07-31T17:37:23+08:00
+ `= depends #signed-task-priority
+ `= created 2026-07-31T16:42:17+08:00
+ `= done 2026-07-31T17:37:23+08:00
 
  `note Web Tasks sort state 从单个 mode 改为有序 sort-key 列表；初次进入且 URL 没有 `"sort" parameter 时默认显示一个可删除的 Priority key，行为类似默认 State: Ready filter。用户可以添加 Priority、Due 或 Relevance key、删除 key，并通过 drag-and-drop 调整优先顺序；同时提供 keyboard 与上移/下移 controls，保证移动端和无障碍操作可用，并提供恢复默认 Priority 的 action。
  `note Priority 固定按 effective priority 降序，Due 固定升序且缺失值最后，Relevance 固定降序；重复 key 在 URL、request 与 UI normalization 时只保留第一次出现。没有 fuzzy input 时 Relevance 不改变顺序，直接交给下一个 key。
@@ -1053,14 +933,13 @@
  `note URL 必须区分无 `"sort" parameter、显式空 `"?sort=" 和重复参数：无 parameter 初始化默认 `"priority"，显式空值恢复空列表并只使用 Source fallback，`"?sort=due&sort=priority" 按 Due、Priority 顺序恢复。structured request 与 history round-trip 保留相同语义，覆盖 direct load、refresh、back/forward、shared URL、key add/remove/reorder、duplicate normalization、empty fuzzy relevance、filtered aggregation 与 stable Source fallback tests。
 
 `- 修复 Tasks 页面排序 key 越界
-
  `+ task
 
  `@ fix-task-sort-key-overflow
 
- `= depends|#multi-key-task-sorting
- `= created|2026-08-01T11:26:18+08:00
- `= done|2026-08-02T21:06:01+08:00
+ `= depends #multi-key-task-sorting
+ `= created 2026-08-01T11:26:18+08:00
+ `= done 2026-08-02T21:06:01+08:00
 
  `note 排序 key 必须受 Tasks filter panel 可用宽度约束；标签、拖拽柄、上移、下移与删除 controls 不得撑破容器、遮挡相邻内容或造成页面级横向滚动。
  `note 在窄侧栏与移动端保留完整 label 和可操作 controls；需要时让单个 key 内部换行或调整 responsive layout，不能依靠裁掉文字或隐藏 keyboard controls 掩盖越界。
@@ -1069,37 +948,32 @@
 `# Workspace performance and maintenance
 
 `- 评估 notes interactive mode 的旧 dependency generations
-
  `+ task
 
  `@ deduplicate-notes-interactive-dependencies
 
- `= created|2026-08-29T03:28:53+08:00
- `= done|2026-08-29T04:45:55+08:00
+ `= created 2026-08-29T03:28:53+08:00
+ `= done 2026-08-29T04:45:55+08:00
 
  `note 当前 skim 0.10 保留 fuzzy multi-selection、inline preview、custom Ctrl-N create action、terminal I/O 与
 
- single-binary packaging；dependency tree 为 400 行，隔离 clean release build 为 95.7 s/731 MiB，统一 plumb
- release binary 为 24,701,864 bytes。
+ single-binary packaging；dependency tree 为 400 行，隔离 clean release build 为 95.7 s/731 MiB，统一 plumb release binary 为 24,701,864 bytes。
 
  `note skim 5.6.6 with default features disabled 已实际解析和 check：它删除 clap 3、syn 1、bitflags 1、旧 nix 与
 
- unicode-width 0.1，但新增约百个 Ratatui、PTY、terminal rendering dependencies，并同时出现 nix 0.28、0.29、
- 0.31；library API 也不兼容当前 picker。skim 1-4 已使用同一类较重 TUI architecture。
+ unicode-width 0.1，但新增约百个 Ratatui、PTY、terminal rendering dependencies，并同时出现 nix 0.28、0.29、 0.31；library API 也不兼容当前 picker。skim 1-4 已使用同一类较重 TUI architecture。
 
  `note 轻量 nucleo-picker 支持 fuzzy multi-selection 与 custom key events，但当前明确不支持 preview，不能保持交互
 
- contract。收益不足以覆盖迁移和 dependency expansion，因此 Cargo.toml/Cargo.lock 已恢复原状；只有候选库同时
- 提供 preview/custom create/multi-selection 且 dependency tree 明显收缩时再重新评估。
+ contract。收益不足以覆盖迁移和 dependency expansion，因此 Cargo.toml/Cargo.lock 已恢复原状；只有候选库同时 提供 preview/custom create/multi-selection 且 dependency tree 明显收缩时再重新评估。
 
 `- 控制本地 Cargo build artifacts 增长
-
  `+ task
 
  `@ control-cargo-build-artifacts
 
- `= created|2026-08-29T03:28:53+08:00
- `= done|2026-08-29T04:38:43+08:00
+ `= created 2026-08-29T03:28:53+08:00
+ `= done 2026-08-29T04:38:43+08:00
 
  `note 只读 baseline 显示长期 root target 为 245 GiB，其中 incremental 129 GiB、debug deps 112 GiB、release
 
@@ -1107,22 +981,19 @@
 
  `note 隔离的 clean workspace all-target build 中，full debug 使用 3.8 GiB/53.36 s，dev debug=1 使用
 
- 2.8 GiB/49.78 s，磁盘减少约 26%，同时保留 line numbers、function symbols、breakpoints 与 backtraces；需要完整
- locals/types 的调试 invocation 可以用 CARGO_PROFILE_DEV_DEBUG=2 覆盖。
+ 2.8 GiB/49.78 s，磁盘减少约 26%，同时保留 line numbers、function symbols、breakpoints 与 backtraces；需要完整 locals/types 的调试 invocation 可以用 CARGO_PROFILE_DEV_DEBUG=2 覆盖。
 
  `note contributor policy 保留 incremental；只有 contributor 明确确认 target path、disk size 并接受约 50 s clean
 
- rebuild 时才手动运行 cargo clean --profile dev。普通 build、test 和 release 不自动清 cache，也不要求未安装的
- cargo-sweep；现有 root target 未被本任务删除。
+ rebuild 时才手动运行 cargo clean --profile dev。普通 build、test 和 release 不自动清 cache，也不要求未安装的 cargo-sweep；现有 root target 未被本任务删除。
 
 `- 让 semantic-store profiling fixture 使用当前语法
-
  `+ task
 
  `@ current-semantic-store-profile-fixture
 
- `= created|2026-08-29T03:28:53+08:00
- `= done|2026-08-29T04:32:32+08:00
+ `= created 2026-08-29T03:28:53+08:00
+ `= done 2026-08-29T04:32:32+08:00
 
  `note Criterion benchmark 与 manual profiler 现复用 benchmark-only canonical fixture generator；event 使用当前
 
@@ -1130,74 +1001,63 @@
 
  `note generator 在 benchmark timing 外通过 strict parser，并验证 target task、source event 与 link record 数量；
 
- 20-event manual profiler 的 memory、SQLite cold 和同 database SQLite warm 路径均运行成功，warm reopen 继续命中
- persistent generation。
+ 20-event manual profiler 的 memory、SQLite cold 和同 database SQLite warm 路径均运行成功，warm reopen 继续命中 persistent generation。
 
  `note cargo check -p plumb-workspace --all-targets 通过，Criterion 与 example 不再维护两份会独立漂移的 event
 
  workload source。
 
 `- 按 capability 拆分 plumb-workspace implementation
-
  `+ task
 
  `@ split-workspace-capabilities
 
- `= created|2026-08-29T03:28:53+08:00
- `= done|2026-08-29T04:29:50+08:00
+ `= created 2026-08-29T03:28:53+08:00
+ `= done 2026-08-29T04:29:50+08:00
 
  `note Workspace 继续作为 public facade；document lifecycle/overlay、batch indexing、navigation resources 与
 
- completion candidates 由直接持有 implementation 的 capability modules 负责，没有增加 forwarding-only
- wrapper，也没有改变 public API、revision guard、cache、editing 或 adapter observable behavior。
+ completion candidates 由直接持有 implementation 的 capability modules 负责，没有增加 forwarding-only wrapper，也没有改变 public API、revision guard、cache、editing 或 adapter observable behavior。
 
  `note task query、workflow、authoring mutations 与 persistent store 已有职责模块继续保留；架构 reference 明确
 
- capability 只能依赖 shared workspace model、semantic records、plumb-edit intent 和 store query API，LSP、Web、
- CLI adapter types 不得进入 protocol-neutral crate。
+ capability 只能依赖 shared workspace model、semantic records、plumb-edit intent 和 store query API，LSP、Web、 CLI adapter types 不得进入 protocol-neutral crate。
 
  `note plumb-workspace 101 个 tests 与 cargo check --workspace --all-targets 通过；batch indexer 的 LSP、Web、notes
 
  adapter integration coverage 在同一实现线上通过，拆分未建立第二份 semantic authority。
 
 `- 建立共享的 protocol-neutral batch workspace indexer
-
  `+ task
 
  `@ batch-workspace-indexer
 
- `= created|2026-08-29T03:28:53+08:00
- `= done|2026-08-29T04:15:57+08:00
+ `= created 2026-08-29T03:28:53+08:00
+ `= done 2026-08-29T04:15:57+08:00
 
  `note plumb-workspace 统一拥有 batch indexer；LSP、Web 与 notes CLI 已移除各自的 initial read/parse/index
 
- loop。完整 scan 在同一 SQLite transaction 中发布 changed generations 并清理 stale closed generations；
- incomplete scan 不把 partial negative result 表示成 complete。
+ loop。完整 scan 在同一 SQLite transaction 中发布 changed generations 并清理 stale closed generations； incomplete scan 不把 partial negative result 表示成 complete。
 
  `note batch identity 使用一次 typed path/content-hash query，只分析 cache misses；读取与分析按 file/miss byte
 
- distribution 自适应使用 bounded Rayon workers，单一大 document 主导时保持 sequential，source retention
- 只为 Web lazy snapshot 显式启用。
+ distribution 自适应使用 bounded Rayon workers，单一大 document 主导时保持 sequential，source retention 只为 Web lazy snapshot 显式启用。
 
  `note tests 覆盖 deterministic path order、memory/SQLite、warm/partial hit、invalid/read failure、complete-scan
 
- pruning 与 cancel-before-publication；LSP 77 个 stdio tests、Web warm lazy cache 和 notes scanner integration
- 全部通过。
+ pruning 与 cancel-before-publication；LSP 77 个 stdio tests、Web warm lazy cache 和 notes scanner integration 全部通过。
 
  `note synthetic 1,408-task workload 的 memory cold、SQLite cold 与 SQLite warm 分别提升约 1.70x、3.15x 和
 
- 1.17x；真实 223-file notebook 的 SQLite cold median 提升约 11%，memory 差异落在 noise 内。SQLite batch
- peak-memory tradeoff 和完整 measurement 记录在
- `->[`()[performance benchmark points]|../history/performance/workspace-performance-2026-08.plumb]。
+ 1.17x；真实 223-file notebook 的 SQLite cold median 提升约 11%，memory 差异落在 noise 内。SQLite batch peak-memory tradeoff 和完整 measurement 记录在 `->{`(){{performance benchmark points}} ../history/performance/workspace-performance-2026-08.plumb}。
 
 `- 对齐 roadmap、tasks 与已经完成的实现
-
  `+ task
 
  `@ reconcile-project-backlog
 
- `= created|2026-08-29T03:28:53+08:00
- `= done|2026-08-29T04:15:57+08:00
+ `= created 2026-08-29T03:28:53+08:00
+ `= done 2026-08-29T04:15:57+08:00
 
  `note roadmap 已移除完成的 persistent cache/indexed CEL prefilter 评估，将已实现 table 从 deferred
 
@@ -1205,275 +1065,265 @@
 
  `note 当前可执行 backlog 全部使用 explicit ids、边界、依赖与验收条件；完成记录只存在于本页，默认
 
- ready/waiting query 不再返回已完成工作；capability split 的已满足 dependency 保留在本页 history，不在
- active task file 中形成 unresolved edge。
+ ready/waiting query 不再返回已完成工作；capability split 的已满足 dependency 保留在本页 history，不在 active task file 中形成 unresolved edge。
 
  `note 已对照 reference、architecture、performance benchmarks 与 archived records；roadmap 不再复制
 
  actionable task 或已交付功能，guide 未加入 implementation status。
 
 `- 有界查询 workspace event title completion
-
  `+ task
 
  `@ bound-event-title-completion
 
- `= created|2026-08-29T07:10:00+08:00
- `= done|2026-08-29T07:23:46+08:00
+ `= created 2026-08-29T07:10:00+08:00
+ `= done 2026-08-29T07:23:46+08:00
 
  `note Persistent query 现在只读取 typed title/count，在 SQLite 内完成 case-sensitive prefix filter 与
- exact-title aggregation，不反序列化 EventRecord。Open overlay 继续按 document shadow 后合并 frequency，
- 保持既有 ordering、prefix 与 50-item observable behavior。
+
+ exact-title aggregation，不反序列化 EventRecord。Open overlay 继续按 document shadow 后合并 frequency， 保持既有 ordering、prefix 与 50-item observable behavior。
 
  `note store test 破坏全部 event Bincode BLOB 后仍能完成 title query，并覆盖大小写、literal wildcard、
- open-path exclusion 与 count；workspace overlay、102 个 workspace tests、LSP stdio completion 和
- project-document strict validation 全部通过。
+
+ open-path exclusion 与 count；workspace overlay、102 个 workspace tests、LSP stdio completion 和 project-document strict validation 全部通过。
 
  `note 33,512-event release benchmark 中完整 EventRecord decode midpoint 为 50.960 ms，新的
+
  `"Event 12" prefix/title-count query 为 2.9518 ms，约快 17.3x、latency 降低约 94.2%。
 
 `- 有界解码 workspace search
-
  `+ task
 
  `@ bound-workspace-search-records
 
- `= created|2026-08-29T07:25:00+08:00
- `= done|2026-08-29T07:45:12+08:00
+ `= created 2026-08-29T07:25:00+08:00
+ `= done 2026-08-29T07:45:12+08:00
 
  `note 无 CEL filter 的 task search 现在先读取 typed facts 与 dependency relations，计算 workflow state、
- fuzzy score 和 effective priority 后只 decode selected keys；event search 在 SQLite 内调用同一 deterministic
- Rust fuzzy scorer 完成 score/order/limit，再只返回 lightweight facts 和 selected records。CEL-filtered search
- 暂时保留完整 semantic record evaluation。
+
+ fuzzy score 和 effective priority 后只 decode selected keys；event search 在 SQLite 内调用同一 deterministic Rust fuzzy scorer 完成 score/order/limit，再只返回 lightweight facts 和 selected records。CEL-filtered search 暂时保留完整 semantic record evaluation。
 
  `note persistent dependency relations 与 open-document overlay 统一参与 blocked/effective-priority projection，
- 修复了 closed generation 之间漏传 priority 的旧行为；open records 直接借用 immutable snapshot，不为搜索
- 克隆完整 collection。Corrupt-BLOB tests 证明未命中 task/event records 不会被 decode，105 个 workspace tests
- 与 all-target check 通过。
+
+ 修复了 closed generation 之间漏传 priority 的旧行为；open records 直接借用 immutable snapshot，不为搜索 克隆完整 collection。Corrupt-BLOB tests 证明未命中 task/event records 不会被 decode，105 个 workspace tests 与 all-target check 通过。
 
  `note 33,512-event release benchmark 中，旧式 full decode + 相同 fuzzy score/order/50-item limit midpoint 为
+
  60.426 ms；新 selected-decode search 为 49.206 ms，约快 1.23x、latency 降低约 18.6%。
 
 `- 共享 workspace diagnostic dependency snapshot
-
  `+ task
 
  `@ share-diagnostic-dependency-snapshot
 
- `= created|2026-08-29T07:50:00+08:00
- `= done|2026-08-29T07:53:53+08:00
+ `= created 2026-08-29T07:50:00+08:00
+ `= done 2026-08-29T07:53:53+08:00
 
  `note 新增 protocol-neutral immutable WorkspaceDiagnosticContext；单 document diagnostics convenience query
- 按需构造，LSP 的整轮 open-document publication 只构造一次并共享。Context query failure 会终止整轮，
- 不发布来自不同 dependency snapshots 的混合结果。
+
+ 按需构造，LSP 的整轮 open-document publication 只构造一次并共享。Context query failure 会终止整轮， 不发布来自不同 dependency snapshots 的混合结果。
 
  `note task graph 现在从 typed task facts、typed dependency relations、typed anchor identities 与 open overlay
- 构造，只连接唯一 anchor/唯一 task targets，不 decode 全量 TaskRecord 或逐 edge 查询。Corrupt task/anchor
- BLOB 与 open-overlay cycle tests 通过；workspace 107 tests、LSP 77 个 stdio tests 和 all-target warning gate
- 全部通过。
+
+ 构造，只连接唯一 anchor/唯一 task targets，不 decode 全量 TaskRecord 或逐 edge 查询。Corrupt task/anchor BLOB 与 open-overlay cycle tests 通过；workspace 107 tests、LSP 77 个 stdio tests 和 all-target warning gate 全部通过。
 
  `note 176 documents、1,408 tasks、8 open buffers 的 release benchmark 中，每 document 重建 context 的
+
  publication round midpoint 为 46.906 ms，共享 context 为 6.9113 ms，约快 6.79x、latency 降低约 85.3%。
 
 `- 异步生成 open-document semantics
-
  `+ task
 
  `@ async-open-document-semantics
 
- `= created|2026-08-29T07:58:00+08:00
- `= done|2026-08-29T08:09:51+08:00
+ `= created 2026-08-29T07:58:00+08:00
+ `= done 2026-08-29T08:09:51+08:00
 
  `note Workspace 将 parse-current-revision 与 install-current-valid-output 拆成 revision-safe API；LSP didOpen
- 保持同步，didChange 只同步安装 ParsedDocument，再用 spawn-blocking 分析 valid syntax，并以
- path/revision/Arc identity guard 原子安装。
+
+ 保持同步，didChange 只同步安装 ParsedDocument，再用 spawn-blocking 分析 valid syntax，并以 path/revision/Arc identity guard 原子安装。
 
  `note 每个 open path 的 generation token 使新 revision 与 close 操作取消旧 queued work；running analyzer 可以
- 结束但 stale result 必须丢弃。Pending 期间 workspace semantic query 标为 partial，不读取同 path persistent
- generation；syntax diagnostics 立即发布，semantic diagnostics 在成功安装后刷新。
+
+ 结束但 stale result 必须丢弃。Pending 期间 workspace semantic query 标为 partial，不读取同 path persistent generation；syntax diagnostics 立即发布，semantic diagnostics 在成功安装后刷新。
 
  `note tests 覆盖 out-of-order completion、same-version different bytes、close-before-install、invalid revision、
- queued cancellation、pending persistent-shadow behavior 与 immediate code action/folding requests。Workspace 110
- tests、LSP 77 个 stdio tests、project documents 和 all-target warning gate 通过。
+
+ queued cancellation、pending persistent-shadow behavior 与 immediate code action/folding requests。Workspace 110 tests、LSP 77 个 stdio tests、project documents 和 all-target warning gate 通过。
 
  `note 33,512-event release benchmark 中，同步完整 insert midpoint 为 306.02 ms，didChange 同步 parse stage 为
- 109.45 ms，主线程阶段约快 2.80x；后台 semantic stage 为 156.41 ms。完整 measurement 与异步化不降低总 CPU
- work 的限制记录在 `->[`()[performance benchmark points]|../history/performance/workspace-performance-2026-08.plumb]。
+
+ 109.45 ms，主线程阶段约快 2.80x；后台 semantic stage 为 156.41 ms。完整 measurement 与异步化不降低总 CPU work 的限制记录在 `->{`(){{performance benchmark points}} ../history/performance/workspace-performance-2026-08.plumb}。
 
 `- 管理 semantic cache 生命周期并隔离测试 cache
-
  `+ task
 
  `@ manage-semantic-cache-lifecycle
 
- `= created|2026-08-29T08:20:00+08:00
- `= done|2026-08-29T08:32:05+08:00
+ `= created 2026-08-29T08:20:00+08:00
+ `= done 2026-08-29T08:32:05+08:00
 
  `note Disk-backed SqliteSemanticStore 在 version namespace 的固定 lease file 上持有 shared filesystem lock；
- maintenance 只有 nonblocking exclusive lock 成功时才删除 namespace 内的可重建数据。Active 与没有 lease 的
- unmanaged namespace 都只报告，不删除。
+
+ maintenance 只有 nonblocking exclusive lock 成功时才删除 namespace 内的可重建数据。Active 与没有 lease 的 unmanaged namespace 都只报告，不删除。
 
  `note 新增 `"plumb cache status" 与 `"plumb cache prune [--all]"；默认保留当前 package version，`"--all"
+
  才考虑当前版本。CLI 黑盒测试固定 inactive prune、active skip、current preservation 和 legacy unmanaged data。
 
  `note LSP stdio 与 Web integration child processes 使用 test-owned `"PLUMB_CACHE_DIR"；完整 stdio run 前后
+
  production cache file count 保持不变。Workspace 112 tests、CLI 13 tests 与 all-target warning gate 通过。
 
 `- 移除无界 Web task snapshot 并轻量聚合 graph task metrics
-
  `+ task
 
  `@ remove-unbounded-web-task-snapshot
 
- `= created|2026-08-29T08:36:00+08:00
- `= done|2026-08-29T08:48:26+08:00
+ `= created 2026-08-29T08:36:00+08:00
+ `= done 2026-08-29T08:48:26+08:00
 
  `note 删除未被正式 frontend 使用的 `"GET /api/tasks"；task authoring E2E 与 server tests 改走
+
  `"POST /api/query" 的 bounded TaskPageQuery response，保留 documents、complete 与 nextCursor contract。
 
  `note Workspace 从 persistent/open typed task facts 聚合 per-document total/open counts；graph metrics 不 hydrate
+
  TaskRecord、不构造 depends/directly-blocking/previous relations，也不调用 legacy full snapshot。
 
  `note tests 固定 memory/SQLite/open-overlay parity、100-item done page cursor、HTTP route absence 与 graph metric
+
  parity。Workspace 114 tests 与 Web 30 tests 通过。
 
  `note 1,408-task release benchmark 中，done 全集/首个 bounded page midpoint 分别为 18.090/13.347 ms；完整
- task hydration 与 document metrics 分别为 13.588/2.9472 ms，metrics 约快 4.61x。真实 notebook 的 100-item
- done page 10-sample median 约 35.72 ms、191,241 bytes；完整记录见
- `->[performance benchmark points|../history/performance/workspace-performance-2026-08.plumb]。
+
+ task hydration 与 document metrics 分别为 13.588/2.9472 ms，metrics 约快 4.61x。真实 notebook 的 100-item done page 10-sample median 约 35.72 ms、191,241 bytes；完整记录见 `->{{performance benchmark points} ../history/performance/workspace-performance-2026-08.plumb}。
 
 `- 保证 pending revision 的 semantic navigation 确定性
-
  `+ task
 
  `@ complete-pending-navigation-semantics
 
- `= created|2026-08-29T08:50:00+08:00
- `= done|2026-08-29T08:56:04+08:00
+ `= created 2026-08-29T08:50:00+08:00
+ `= done 2026-08-29T08:56:04+08:00
 
  `note Workspace 提供 current revision pending 检查与同步 completion API，复用 PendingDocumentAnalysis 和
+
  path/revision/Arc identity guard，不把 document-local analyzer 复制到 adapter。
 
  `note LSP definition 与 hover 在显式请求抢先到达时补齐 source 及必要的 open target；references 在 resolution 前
- 补齐所有可能贡献结果的 open pending documents。同步路径取消同 generation 的 queued publication，安装后发布
- diagnostics 与可用 refresh；不回退旧 output，也不等待同一 event loop 才能安装的 background notification。
+
+ 补齐所有可能贡献结果的 open pending documents。同步路径取消同 generation 的 queued publication，安装后发布 diagnostics 与可用 refresh；不回退旧 output，也不等待同一 event loop 才能安装的 background notification。
 
  `note Workspace 115 tests 与 LSP stdio 77 tests 通过，原先偶发失败的 optimistic path rename 后立即 definition
- regression 固定通过。后台 analysis 仍是默认路径；只有抢先到达且没有 refresh contract 的显式 navigation
- request 承担同步 document-local analysis latency。
+
+ regression 固定通过。后台 analysis 仍是默认路径；只有抢先到达且没有 refresh contract 的显式 navigation request 承担同步 document-local analysis latency。
 
 `- 降低 SQLite cold batch indexing 峰值内存
-
  `+ task
 
  `@ release-persistent-prepared-syntax
 
- `= created|2026-08-29T08:58:00+08:00
- `= done|2026-08-29T09:00:37+08:00
+ `= created 2026-08-29T08:58:00+08:00
+ `= done 2026-08-29T09:00:37+08:00
 
  `note Persistent prepare 使用独立 typed generation，只保留 source、revision 与 DocumentOutput；每个 cache miss
- 完成 semantics 后立即释放 ParsedDocument 的 lossless/typed trees。Memory backend 仍保留完整 parsed snapshot，
- store schema、transaction atomicity、ordering、cache identity 与 retained-source result contract 不变。
+
+ 完成 semantics 后立即释放 ParsedDocument 的 lossless/typed trees。Memory backend 仍保留完整 parsed snapshot， store schema、transaction atomicity、ordering、cache identity 与 retained-source result contract 不变。
 
  `note Workspace 115 tests 通过。1,408-task deterministic SQLite cold midpoint 为 117.23 ms，此前为 117.96 ms；
- 真实 223-file workspace 的 5-run peak median 从 333,304 降至 296,304 KiB，约降低 11.1%，steady resident
- median 从 276,360 降至 239,960 KiB，约降低 13.2%。完整记录见
- `->[performance benchmark points|../history/performance/workspace-performance-2026-08.plumb]。
+
+ 真实 223-file workspace 的 5-run peak median 从 333,304 降至 296,304 KiB，约降低 11.1%，steady resident median 从 276,360 降至 239,960 KiB，约降低 13.2%。完整记录见 `->{{performance benchmark points} ../history/performance/workspace-performance-2026-08.plumb}。
 
 `- 将安全 CEL task predicates 下推为 SQLite candidates
-
  `+ task
 
  `@ push-safe-task-cel-predicates
 
- `= created|2026-08-30T00:54:39+08:00
- `= done|2026-08-30T01:17:12+08:00
+ `= created 2026-08-30T00:54:39+08:00
+ `= done 2026-08-30T01:17:12+08:00
 
  `note CEL adapter 从 Program AST 提取 exact/total leading conjunct prefixes 并生成 typed candidate IR；支持
- direct string/integer fields 的 equality、null guards、guarded integer ordering、boolean constants，以及
- closed/waiting state。Ready、blocked、relation lists、path、string functions 与 comprehensions 保持 CEL-only。
+
+ direct string/integer fields 的 equality、null guards、guarded integer ordering、boolean constants，以及 closed/waiting state。Ready、blocked、relation lists、path、string functions 与 comprehensions 保持 CEL-only。
 
  `note Store 从固定 column/operator/state whitelist 生成 Diesel BoxedSqlQuery，所有 literals 使用 typed bind；
- persistent query 只返回 candidate lightweight facts。全量窄化 identity/closure rows 与 batch relations 保留
- dependency target、blocked 和 directly_blocking context；open documents 始终执行完整 CEL。
+
+ persistent query 只返回 candidate lightweight facts。全量窄化 identity/closure rows 与 batch relations 保留 dependency target、blocked 和 directly_blocking context；open documents 始终执行完整 CEL。
 
  `note 所有 candidates 最终重新执行原始完整 CEL Program。Tests 固定 nullable runtime error、short-circuit、
- group OR/source-order AND、memory/SQLite/open-overlay、waiting state、bind injection、relation context、corrupt
- noncandidate Bincode、query plan 与 selected-record hydration parity。Workspace 126 tests、Web 30 tests、LSP
- 77 个 stdio tests、全 workspace tests、all-target check 与 Clippy warning gate 通过。
+
+ group OR/source-order AND、memory/SQLite/open-overlay、waiting state、bind injection、relation context、corrupt noncandidate Bincode、query plan 与 selected-record hydration parity。Workspace 126 tests、Web 30 tests、LSP 77 个 stdio tests、全 workspace tests、all-target check 与 Clippy warning gate 通过。
 
  `note 1,408-task selective-done release benchmark 中，full typed-fact scan midpoint 为 10.988 ms，SQL candidate
- 为 5.8513 ms，约快 1.88x、latency 降低约 46.7%。所有 tasks 都匹配时 midpoint 为 13.143 ms，未相对
- 既有 13.347 ms baseline 观察到回退。完整记录见
- `->[performance benchmark points|../history/performance/workspace-performance-2026-08.plumb]。
+
+ 为 5.8513 ms，约快 1.88x、latency 降低约 46.7%。所有 tasks 都匹配时 midpoint 为 13.143 ms，未相对 既有 13.347 ms baseline 观察到回退。完整记录见 `->{{performance benchmark points} ../history/performance/workspace-performance-2026-08.plumb}。
 
 `- 系统整理并重写全部项目文档
-
  `+ task
 
  `@ systematic-documentation-rewrite
 
- `= created|2026-08-30T01:29:22+08:00
- `= done|2026-08-30T01:58:14+08:00
+ `= created 2026-08-30T01:29:22+08:00
+ `= done 2026-08-30T01:58:14+08:00
 
  `note Completed archive 的 71 个旧 `"==" closure fields 已通过 current property spelling 和 plumb-edit
+
  migration 修复；86/86 records 均由当前 task query 识别为 done，并增加 completion-time snapshot contract。
 
  `note Playground 已迁移 current task/event properties、positional Links、Image src、transparent containers 与
- completion examples。9 条 warning/note 集中在 `"diagnostics.plumb"，另精确允许两条 blocked workflow hints；
- 其它新增 code/path 会使 CLI regression 失败。
+
+ completion examples。9 条 warning/note 集中在 `"diagnostics.plumb"，另精确允许两条 blocked workflow hints； 其它新增 code/path 会使 CLI regression 失败。
 
  `note Attached declarations、unified members、direct ownership、Neovim fork experiments 与 dated performance
- results 已进入 topic history；project performance 只保留 reusable methodology。Architecture overview 抽出独立
- workspace storage/query contract；完整 docs index 可达所有 27 个 docs documents，internal check 零 diagnostics。
+
+ results 已进入 topic history；project performance 只保留 reusable methodology。Architecture overview 抽出独立 workspace storage/query contract；完整 docs index 可达所有 27 个 docs documents，internal check 零 diagnostics。
 
  `note Root、Neovim plugin 与 tree-sitter README 均以 `"README.plumb" 为 authority 并生成 adjacent Markdown；
- CLI byte-for-byte 固定三组 projection。Vim help public entrypoints、bundled skill current spellings、docs titles、
- guide status ownership、examples diagnostics、archive closure 与 index reachability 均有 automated gates。
+
+ CLI byte-for-byte 固定三组 projection。Vim help public entrypoints、bundled skill current spellings、docs titles、 guide status ownership、examples diagnostics、archive closure 与 index reachability 均有 automated gates。
 
 `- 修复 block identity rename 吞并 declaration layout
-
  `+ task
 
  `@ fix-block-identity-rename-range
 
- `= created|2026-08-30T02:04:34+08:00
- `= done|2026-08-30T02:23:14+08:00
+ `= created 2026-08-30T02:04:34+08:00
+ `= done 2026-08-30T02:23:14+08:00
 
  `note `"test.plumb" 中 task 的 direct `"@ task" declaration 被投影为完整 child block range；anchor/task/event
+
  id 使用 `"range.start + 1" 猜 value boundary，导致 prepareRename/edit 从 `"@" marker 一直覆盖到下一 facet 前。
 
  `note Current syntax AttrItem::Id/Class 同时保存 full declaration/member range 与 exact value range。AnchorRecord、
- TaskField、EventField 和 plumb-edit validated token rewrite 只使用 value range；full range 继续用于 ownership、
- remove/move、formatting 与 persistent source spelling。Semantic store schema generation 提升到 7，清除旧 range rows。
+
+ TaskField、EventField 和 plumb-edit validated token rewrite 只使用 value range；full range 继续用于 ownership、 remove/move、formatting 与 persistent source spelling。Semantic store schema generation 提升到 7，清除旧 range rows。
 
  `note Protocol-neutral test 对原始 `"@ task" source 应用 rename，只得到 `"@ renamed"，并覆盖 inline `"@[id]"；
- LSP prepareRename/rename 固定 UTF-16 range 为 id 文本四字符。Syntax 20、semantics 78、workspace 128、rename stdio
- 12 tests、全 workspace tests、all-target check 与 Clippy warning gate 通过。
+
+ LSP prepareRename/rename 固定 UTF-16 range 为 id 文本四字符。Syntax 20、semantics 78、workspace 128、rename stdio 12 tests、全 workspace tests、all-target check 与 Clippy warning gate 通过。
 
 `# Neovim plugin
 
 `- 避免 format 后重置 Neovim fold 状态
-
  `+ task
 
  `@ preserve-neovim-fold-state-after-format
 
- `= created|2026-08-04T15:37:31+08:00
- `= done|2026-08-04T16:02:15+08:00
+ `= created 2026-08-04T15:37:31+08:00
+ `= done 2026-08-04T16:02:15+08:00
 
  `note 复现并定位 Neovim 使用 `"vim.lsp.foldexpr()" 时 formatting edits 触发 fold ranges 重算后的状态丢失：执行 `"zM"、用 `"zo" 打开特定 block、修改并 format 后，该 block 必须保持用户选择的打开状态，而不是随新的全局 fold level 再次关闭。
  `note 已定位根因为 whole-document formatting 使用覆盖完整 source 的单个 edit；protocol-neutral formatter 现对 canonical output 做 line diff，只返回 source-ordered、non-overlapping changed-line edits，LSP adapter 只映射 protocol positions，未变化 blocks 不再被 Neovim 当作重写，且 formatter semantics 保持不变。
  `note Native `"vim.lsp.buf.format()" 与 format-on-save 共用该 handler；Neovim 0.12 headless E2E 覆盖 `"zM" 后用 `"zo" 打开特定 task、format 修改该 task 内缩进后，closed sibling 与 manually opened task 各自保持状态。Integration docs 已说明机制与 single-line fold 边界。
 
 `- 开发完整的 Neovim plugin
-
  `+ task
 
  `@ neovim-plugin
 
- `= depends|#neovim-search-integration
- `= done|2026-07-27T02:00:53+08:00
+ `= depends #neovim-search-integration
+ `= done 2026-07-27T02:00:53+08:00
 
  `note 将 `"contrib/nvim" 整理为标准 `"ftdetect/"、`"lua/plumb/" 与 `"doc/" runtime layout；用户在 editor config 中显式 setup，使启用时机与配置透明。setup 保持轻量，search 与 CodeLens implementation modules 在实际调用时加载；plugin manager-specific filetype lazy loading 是可选的外层优化。
  `note 统一 LSP lifecycle、root detection、client capabilities、workspace watching、commands、CodeLens refresh 与 buffer attach/detach；支持多个 buffers、多个 workspace roots 和重复 setup，不能泄漏 autocmds、commands 或 clients。

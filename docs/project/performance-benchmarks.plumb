@@ -1,28 +1,21 @@
-`= title|plumb performance benchmark methodology
+`= title plumb performance benchmark methodology
 
-本页定义仍需复用的 performance workloads、测量口径和验收原则，不保存按日期累积的结果。
-2026-08 的 backend experiments、rejected designs 与 acceptance measurements 归档在
-`->[workspace performance results|../history/performance/workspace-performance-2026-08.plumb]。
+本页定义仍需复用的 performance workloads、测量口径和验收原则，不保存按日期累积的结果。 2026-08 的 backend experiments、rejected designs 与 acceptance measurements 归档在 `->{{workspace performance results} ../history/performance/workspace-performance-2026-08.plumb}。
 
 `# Workload classes
 
-`- Large document：约 5.7 MB、134k lines、33,512 events，覆盖 parse、semantic generation、folding、
- event query、record replacement 与 editor transport boundary。
-`- Task workspace：176 documents、每 document 8 tasks，共 1,408 tasks；包含 dependency chains、
- event-task associations、state/time/priority fields、cursor pages 与 open-document overlays。
-`- Real workspace smoke：使用独立 cache、显式 test port、`"--no-watch" 和不输出 source 的 profiler；记录
- scanned files、cache hits、response bytes、latency distribution、peak memory 与 steady resident。
+`- Large document：约 5.7 MB、134k lines、33,512 events，覆盖 parse、semantic generation、folding、 event query、record replacement 与 editor transport boundary。
+`- Task workspace：176 documents、每 document 8 tasks，共 1,408 tasks；包含 dependency chains、 event-task associations、state/time/priority fields、cursor pages 与 open-document overlays。
+`- Real workspace smoke：使用独立 cache、显式 test port、`"--no-watch" 和不输出 source 的 profiler；记录 scanned files、cache hits、response bytes、latency distribution、peak memory 与 steady resident。
 
-Deterministic fixtures 必须使用当前 strict syntax，并在 benchmark timing 外验证 parser validity、record counts
-和 memory/persistent/open-overlay result parity。个人 notebook 内容不能复制进 repository fixture。
+Deterministic fixtures 必须使用当前 strict syntax，并在 benchmark timing 外验证 parser validity、record counts 和 memory/persistent/open-overlay result parity。个人 notebook 内容不能复制进 repository fixture。
 
 `# Benchmark suites
 
 `- `"semantic_store_build"：memory/SQLite cold build 与 generation publication。
 `- `"semantic_store_warm_start"：content-hash cache hit 和 independent-process warm startup。
 `- `"semantic_store_queries_33512"：agenda、references、event title completion 与 selected-decode search。
-`- `"semantic_store_task_queries_1408"：CEL filters、relations、state、sort、cursor、candidate pushdown 和
- selected TaskRecord hydration。
+`- `"semantic_store_task_queries_1408"：CEL filters、relations、state、sort、cursor、candidate pushdown 和 selected TaskRecord hydration。
 `- `"workspace_diagnostic_round_8_of_176"：diagnostic dependency context reuse。
 `- `"open_document_generation_33512"：didChange parse stage、background semantics 与 synchronous baseline。
 `- `"workspace_batch_index_1408"：serial/batch、memory/SQLite、cold/warm indexing。
@@ -30,23 +23,14 @@ Deterministic fixtures 必须使用当前 strict syntax，并在 benchmark timin
 
 `# Measurement contract
 
-每次发布结果必须记录 commit、host、kernel、rustc、profile、fixture identity、warmup、measurement duration、
-sample count 和 interval midpoint。报告 absolute value 与相对 baseline；wall-clock observation 不是跨机器 SLA，
-不能进入普通 correctness CI 的硬阈值。
+每次发布结果必须记录 commit、host、kernel、rustc、profile、fixture identity、warmup、measurement duration、 sample count 和 interval midpoint。报告 absolute value 与相对 baseline；wall-clock observation 不是跨机器 SLA， 不能进入普通 correctness CI 的硬阈值。
 
-比较必须覆盖完整 observable path。不得把只 decode records 的 baseline 与同时执行 score/order/hydration 的
-新路径比较，也不得把 editor transport wait 归因于 server parse 或 query。Response size、time to first byte、
-total time、database/WAL bytes、peak memory 与 steady resident 分开记录。
+比较必须覆盖完整 observable path。不得把只 decode records 的 baseline 与同时执行 score/order/hydration 的 新路径比较，也不得把 editor transport wait 归因于 server parse 或 query。Response size、time to first byte、 total time、database/WAL bytes、peak memory 与 steady resident 分开记录。
 
 `# Acceptance
 
-性能改动必须先由普通 tests 固定 result parity、query completeness、revision provenance、open-document
-precedence、cursor behavior、generation atomicity、failure propagation 和 bounded work。Benchmark 不能替代
-correctness evidence。
+性能改动必须先由普通 tests 固定 result parity、query completeness、revision provenance、open-document precedence、cursor behavior、generation atomicity、failure propagation 和 bounded work。Benchmark 不能替代 correctness evidence。
 
-常用 hot path 不得以明显 latency、memory 或 write-amplification 回退换取单一指标改善。选择性优化必须同时
-测量低选择性反例；异步化必须分别报告 event-loop latency 与 total CPU work；persistent optimization 必须证明
-未 decode 或 hydrate 未选 records。
+常用 hot path 不得以明显 latency、memory 或 write-amplification 回退换取单一指标改善。选择性优化必须同时 测量低选择性反例；异步化必须分别报告 event-loop latency 与 total CPU work；persistent optimization 必须证明 未 decode 或 hydrate 未选 records。
 
-Rejected prototype 只有在新的 prerequisite 已满足、同一 production parity benchmark 不再显示常用路径回退时
-才可重新评估。新结果追加到按年月命名的 history 文档，本页只在 workload 或验收 contract 改变时更新。
+Rejected prototype 只有在新的 prerequisite 已满足、同一 production parity benchmark 不再显示常用路径回退时 才可重新评估。新结果追加到按年月命名的 history 文档，本页只在 workload 或验收 contract 改变时更新。

@@ -1,34 +1,22 @@
-`= title|Unified inline members design
+`= title Unified inline members design
 
 `note 本页是 2026-08-25 unified inline members adoption snapshot，记录设计动机与 migration boundary。
 
-现行 validity 以
-`->[core syntax reference|../../reference/core-syntax.plumb] 为准，official projection 以
-`->[standard semantics reference|../../reference/standard-semantics.plumb] 为准。本页中的 source
-示例用于解释 adoption commit；本页不覆盖 reference。
+现行 validity 以 `->{{core syntax reference} ../../reference/core-syntax.plumb} 为准，official projection 以 `->{{standard semantics reference} ../../reference/standard-semantics.plumb} 为准。本页中的 source 示例用于解释 adoption commit；本页不覆盖 reference。
 
 `# 动机
 
-旧版 block owner 通过 head 与 indentation 同时表达 positional content 和 ordinary children，而 inline
-owner 通过连续 slots 表达 positional arguments，再通过独立 `"{}" attached group 表达 ownership。
-这曾让同一个 owner 需要两套递归 boundary，并让 attached data 看起来像独立 attribute container，而不是
-owner 拥有的 ordinary elements；current syntax 已用本页设计替换该结构。
+旧版 block owner 通过 head 与 indentation 同时表达 positional content 和 ordinary children，而 inline owner 通过连续 slots 表达 positional arguments，再通过独立 `"{{}}" attached group 表达 ownership。 这曾让同一个 owner 需要两套递归 boundary，并让 attached data 看起来像独立 attribute container，而不是 owner 拥有的 ordinary elements；current syntax 已用本页设计替换该结构。
 
-current syntax 让一个 inline owner 只使用一对 `"[]" envelope。envelope 内的 ordered members 以 `"|"
-分隔；member 自身的 form 同时决定它是 argument 还是 direct child，以及它使用 parsed content 还是
-verbatim payload。ownership 因而来自递归 nesting，不来自 marker/kind 的标准语义。
+current syntax 让一个 inline owner 只使用一对 `"" envelope。envelope 内的 ordered members 以 `"|" 分隔；member 自身的 form 同时决定它是 argument 还是 direct child，以及它使用 parsed content 还是 verbatim payload。ownership 因而来自递归 nesting，不来自 marker/kind 的标准语义。
 
-opening bracket 后固定存在 first parsed argument，它可以为空。这个 head-like member 不写前导 `"|"，
-其余三种 form 只能在 separator 后 dispatch；因此每个 owner 都有稳定的 parsed head，且不存在
-zero-member element。
+opening bracket 后固定存在 first parsed argument，它可以为空。这个 head-like member 不写前导 `"|"， 其余三种 form 只能在 separator 后 dispatch；因此每个 owner 都有稳定的 parsed head，且不存在 zero-member element。
 
 `# 四种 member
 
 member 形成以下正交组合：
 
-`plumb
-
-|"
+`plumb"
   parsed argument     `node[ordinary content]
   verbatim argument   `node[|"[raw content]"]
   parsed child        `node[head|note[parsed child]]
@@ -42,93 +30,58 @@ member 形成以下正交组合：
 `- 非空 kind 后跟 full quote/bracket envelope 开始 verbatim child；child spelling省略 introducer。
 `- 后续 boundary 上的其他 source 开始 parsed argument；其中 nested inline element 继续显式使用 introducer。
 
-因此有 introducer 的 nested element 属于 argument content，而省略 introducer、独占 member 的 element
-是 owner 的 direct child：
+因此有 introducer 的 nested element 属于 argument content，而省略 introducer、独占 member 的 element 是 owner 的 direct child：
 
-`plumb
-
-|"
+`plumb"
   `node[head|`note[value]]
   `node[head|note[value]]
 
-第一行的 second member 是包含一个普通 inline element 的 parsed argument；第二行的 second member 是
-direct parsed child。verbatim argument 与 child 同样由 kind presence 区分：
+第一行的 second member 是包含一个普通 inline element 的 parsed argument；第二行的 second member 是 direct parsed child。verbatim argument 与 child 同样由 kind presence 区分：
 
-`plumb
-
-|"
+`plumb"
   `node[head|"[raw argument]"|code"[raw child]"]
 
-parsed/verbatim child 必须恰好占满一个 member；完整 child 后只能出现当前 owner 的 `"|" 或 closing
-bracket。child 可以使用同一 member grammar 递归拥有 arguments 与 children。core 不保留 kind 集合，
-因此任意词法良构 kind 都可以建立 child；`"@"、`"+" 与 `"=" 的含义仍完全属于 semantic profile。
+parsed/verbatim child 必须恰好占满一个 member；完整 child 后只能出现当前 owner 的 `"|" 或 closing bracket。child 可以使用同一 member grammar 递归拥有 arguments 与 children。core 不保留 kind 集合， 因此任意词法良构 kind 都可以建立 child；`"@"、`"+" 与 `"=" 的含义仍完全属于 semantic profile。
 
 `# Separator 与 source order
 
-current syntax 取消 consecutive `"][" positional slots，统一使用当前 envelope 内的 `"|" 分隔 ordered
-members：
+current syntax 取消 consecutive `"][" positional slots，统一使用当前 envelope 内的 `"|" 分隔 ordered members：
 
-`plumb
-
-|"
+`plumb"
   `->[Guide|guide.plumb|@[main]|+[external]|=[rel|nofollow]]
 
-`"|" 只作用于当前 bracket depth；verbatim payload 中的 `"|" 是 raw byte，nested child 内的 `"|"
-属于 nested owner。parsed content 中的 literal pipe 必须使用 delimiter escape。inline member 内的 space
-始终属于当前 argument content，不建立 member boundary；canonical source 不把 padding spaces 添加到
-`"|" 两侧。
+`"|" 只作用于当前 bracket depth；verbatim payload 中的 `"|" 是 raw byte，nested child 内的 `"|" 属于 nested owner。parsed content 中的 literal pipe 必须使用 delimiter escape。inline member 内的 space 始终属于当前 argument content，不建立 member boundary；canonical source 不把 padding spaces 添加到 `"|" 两侧。
 
-first parsed argument 后，argument 与 child 可以任意交错。syntax tree 必须按 source order 保存统一的
-member sequence，而不是
-分别存储两个会丢失交错位置的 vectors：
+first parsed argument 后，argument 与 child 可以任意交错。syntax tree 必须按 source order 保存统一的 member sequence，而不是 分别存储两个会丢失交错位置的 vectors：
 
-`plumb
-
-|"
+`plumb"
   InlineMember = ParsedArgument | VerbatimArgument | ParsedChild | VerbatimChild
 
-semantic consumer 可以分别过滤 argument 与 child views，但不得重排 source。guide 可以推荐在 first
-argument 后先写其余 arguments、再写 declaration children，parser、formatter 与 authoritative operations
-不强制后续顺序。
+semantic consumer 可以分别过滤 argument 与 child views，但不得重排 source。guide 可以推荐在 first argument 后先写其余 arguments、再写 declaration children，parser、formatter 与 authoritative operations 不强制后续顺序。
 
 `# Block 与 inline 的 separator
 
-head、paragraph 与 inline owner 全部使用当前 depth 的 bare `"|" 建立 positional boundary；space 在
-所有位置都属于当前 parsed argument。block/paragraph 没有 bracket envelope，但仍具有至少一个 first
-parsed argument，后续 argument 与 inline owner 一样不需要为 multiword content 添加 container：
+head、paragraph 与 inline owner 全部使用当前 depth 的 bare `"|" 建立 positional boundary；space 在 所有位置都属于当前 parsed argument。block/paragraph 没有 bracket envelope，但仍具有至少一个 first parsed argument，后续 argument 与 inline owner 一样不需要为 multiword content 添加 container：
 
-`plumb
-
-|"
+`plumb"
   `event 14:00--15:30|Parser review
   `row Language server|Waiting||Optional note
   `->[Guide page|guide.plumb]
 
-block direct children 仍由 newline/indentation 建立，并位于完整 head argument sequence 之后；它们不与
-head arguments 交错。lexer 与 lossless tree 在所有位置保存 whitespace 和 separator token identity，
-typed tree 直接暴露 argument view，semantic recognizer 不按 whitespace 二次切分 source。
+block direct children 仍由 newline/indentation 建立，并位于完整 head argument sequence 之后；它们不与 head arguments 交错。lexer 与 lossless tree 在所有位置保存 whitespace 和 separator token identity， typed tree 直接暴露 argument view，semantic recognizer 不按 whitespace 二次切分 source。
 
 `# Semantic projection
 
-syntax 根据 member form 区分 arguments 与 direct children，不根据 kind spelling 排除 declarations。
-official semantics 从 ordered arguments 中计算 positional arity；interleaved children 不占用 argument
-index。以 Link 为例，first argument 是 label，second argument 是 target：
+syntax 根据 member form 区分 arguments 与 direct children，不根据 kind spelling 排除 declarations。 official semantics 从 ordered arguments 中计算 positional arity；interleaved children 不占用 argument index。以 Link 为例，first argument 是 label，second argument 是 target：
 
-`plumb
-
-|"
+`plumb"
   `->[Guide|@[main]|guide.plumb|note[recommended]]
 
-这里 target 仍是 `"guide.plumb"；不能通过寻找“第二个不是 `"@"、`"+"、`"=" 的 member”来猜测
-target，否则 custom child 或未来新增 relation spelling 会改变旧 source 的 positional interpretation。
+这里 target 仍是 `"guide.plumb"；不能通过寻找“第二个不是 `"@"、`"+"、`"=" 的 member”来猜测 target，否则 custom child 或未来新增 relation spelling 会改变旧 source 的 positional interpretation。
 
-direct children 是一等结构，不等同于 declarations。standard semantics 可以把 direct `"@"、`"+"、
-`"=" children 分别投影为 identity、membership 与 association，也可以按 owner kind 解释普通 structural
-children。block list item 的 nested list item 就是普通 child，而不是 positional argument；inline owner
-同样需要定义非 declaration child 的 body projection。
+direct children 是一等结构，不等同于 declarations。standard semantics 可以把 direct `"@"、`"+"、 `"=" children 分别投影为 identity、membership 与 association，也可以按 owner kind 解释普通 structural children。block list item 的 nested list item 就是普通 child，而不是 positional argument；inline owner 同样需要定义非 declaration child 的 body projection。
 
-generic inline child 已按 source order lower 为 owner inline body 中的 nested inline structure；
-owner declaration projection 消费 declaration children，specialized owner 再约束普通 children 的 projection。
+generic inline child 已按 source order lower 为 owner inline body 中的 nested inline structure； owner declaration projection 消费 declaration children，specialized owner 再约束普通 children 的 projection。
 
 `# 与旧 syntax 的替换关系
 
@@ -137,23 +90,16 @@ owner declaration projection 消费 declaration children，specialized owner 再
 `- single envelope members 取代 parsed inline consecutive slots。
 `- introducer-elided child members 取代 inline attached group 的 ownership boundary。
 `- relation kind 的 semantic meaning 不进入 core dispatch。
-`- compact inline verbatim 仍可作为 standalone inline node；需要 owner children 的 verbatim value
- 使用含 verbatim argument 的 full member envelope。
-`- block attached group 已由 direct block ownership 取代；document 与 marked block 都让 declarations 和
- ordinary blocks 共用同一 ordered child sequence。具名 raw payload 成为 marked owner 的 terminal field。
+`- compact inline verbatim 仍可作为 standalone inline node；需要 owner children 的 verbatim value 使用含 verbatim argument 的 full member envelope。
+`- block attached group 已由 direct block ownership 取代；document 与 marked block 都让 declarations 和 ordinary blocks 共用同一 ordered child sequence。具名 raw payload 成为 marked owner 的 terminal field。
 
 这是 breaking syntax change；current parser 不包含 legacy compatibility branch。
 
 `# Migration
 
-实现同时提供显式、versioned migration，而不是让 formatter 或 ordinary parser 静默接受两套 syntax。
-每个 parser 只解析自己版本的 core syntax，并产出该版本的 lossless syntax tree；legacy parser 不把
-attached group 解释成 attributes，也不直接产出 current children。parser 之后的 hardcoded structural
-converter 才把旧节点 lowering 为 current owned syntax：
+实现同时提供显式、versioned migration，而不是让 formatter 或 ordinary parser 静默接受两套 syntax。 每个 parser 只解析自己版本的 core syntax，并产出该版本的 lossless syntax tree；legacy parser 不把 attached group 解释成 attributes，也不直接产出 current children。parser 之后的 hardcoded structural converter 才把旧节点 lowering 为 current owned syntax：
 
-`plumb
-
-|"
+`plumb"
   legacy source
     -> legacy parser
     -> legacy syntax tree
@@ -162,28 +108,17 @@ converter 才把旧节点 lowering 为 current owned syntax：
     -> plumb-edit canonical rendering
     -> current strict-parser validation
 
-这里的 hardcoded 指 source/target syntax epoch 之间固定的节点映射，不表示按 `"@"、`"+"、`"="
-等 semantic spelling 在 parser 内 dispatch。以 ownership 为例，converter 根据 old attached-group node
-与它的 direct content 建立 current direct children，保留原有 kind、payload、source order 与 nesting；
-它不需要先判断 child 是 identity、facet、association 还是 opaque element。
+这里的 hardcoded 指 source/target syntax epoch 之间固定的节点映射，不表示按 `"@"、`"+"、`"=" 等 semantic spelling 在 parser 内 dispatch。以 ownership 为例，converter 根据 old attached-group node 与它的 direct content 建立 current direct children，保留原有 kind、payload、source order 与 nesting； 它不需要先判断 child 是 identity、facet、association 还是 opaque element。
 
 structural converter 必须执行：
 
 `- consecutive slots 按 source order 转为 `"|" arguments。
 `- inline attached group 中的 direct elements 转为 introducer-elided child members。
-`- declaration vocabulary 的 epoch-level spelling change 由显式、固定的 syntax mapping 转写；opaque
- elements 保留 kind、payload、ordering 与 nesting。
-`- 单文件写入必须 atomic、转换规则必须 deterministic，并在输出后使用新 strict parser 验证。两个
- syntax epochs 有部分重叠 spelling，因此调用方必须显式提供 source epoch，不能靠 source 猜测。
+`- declaration vocabulary 的 epoch-level spelling change 由显式、固定的 syntax mapping 转写；opaque elements 保留 kind、payload、ordering 与 nesting。
+`- 单文件写入必须 atomic、转换规则必须 deterministic，并在输出后使用新 strict parser 验证。两个 syntax epochs 有部分重叠 spelling，因此调用方必须显式提供 source epoch，不能靠 source 猜测。
 
-若旧 spelling 把一个 standard-profile value 压缩进无法由 syntax shape 无损拆分的 content，例如旧版
-compact Link 把 label 与 target 混在同一个 slot，则另设 standard-profile migration pass。该 pass 消费
-legacy syntax tree 或 structural conversion result，但不属于 legacy parser，也不能改变 generic converter
-对未知 kind 的处理。generic migration 不按 spaces 猜测 positional arity。
+若旧 spelling 把一个 standard-profile value 压缩进无法由 syntax shape 无损拆分的 content，例如旧版 compact Link 把 label 与 target 混在同一个 slot，则另设 standard-profile migration pass。该 pass 消费 legacy syntax tree 或 structural conversion result，但不属于 legacy parser，也不能改变 generic converter 对未知 kind 的处理。generic migration 不按 spaces 猜测 positional arity。
 
-迁移实现遵循 `->[editing architecture|../../architecture/editing.plumb]：isolated legacy reader 只负责读取
-旧 source，version-specific converter 负责 tree-to-tree lowering，owned canonical rendering 与最终 byte
-edits 由 `"plumb-edit" 负责。formatter 不选择 syntax epoch、不读取 legacy tree，也不触发 migration。
+迁移实现遵循 `->{{editing architecture} ../../architecture/editing.plumb}：isolated legacy reader 只负责读取 旧 source，version-specific converter 负责 tree-to-tree lowering，owned canonical rendering 与最终 byte edits 由 `"plumb-edit" 负责。formatter 不选择 syntax epoch、不读取 legacy tree，也不触发 migration。
 
-后续 block ownership 与 raw-tail mapping 见
-`->[direct block ownership and raw tails|direct-block-ownership.plumb]。
+后续 block ownership 与 raw-tail mapping 见 `->{{direct block ownership and raw tails} direct-block-ownership.plumb}。

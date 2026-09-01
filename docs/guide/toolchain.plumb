@@ -1,71 +1,47 @@
-`= title|plumb 工具链指南
+`= title plumb 工具链指南
 
-本页记录当前 release 的 commands、inputs、outputs 与 failure behavior。未来方向只进入 roadmap，
-内部 crate/store contracts 只进入 architecture。
+本页记录当前 release 的 commands、inputs、outputs 与 failure behavior。未来方向只进入 roadmap， 内部 crate/store contracts 只进入 architecture。
 
 `# Build and test
 
-`text
-
-|"
+`text"
   nix develop
   cargo test --workspace
   cargo check --workspace --all-targets
 
 tree-sitter grammar 使用独立 shell 生成和测试：
 
-`text
-
-|"
+`text"
   nix develop .#tree-sitter-plumb -c tree-sitter generate
   nix develop .#tree-sitter-plumb -c tree-sitter test
 
 generated parser sources 不属于 repository source，不应提交。
 
-workspace discovery、ignore、note/task、graph 与 site 见
-`->[workspace 指南|workspace.plumb]；editor setup 与交互工作流见
-`->[editor integration 指南|editor-integration.plumb]。
+workspace discovery、ignore、note/task、graph 与 site 见 `->{{workspace 指南} workspace.plumb}；editor setup 与交互工作流见 `->{{editor integration 指南} editor-integration.plumb}。
 
 `# Check
 
-`"plumb check --root DIR" 检查 workspace index 中的 `"..plumb" files；省略 `"--root" 时使用
-`->[workspace marker discovery|workspace.plumb]。它复用与 LSP 相同的 strict syntax、semantic
-和 cross-document diagnostics。
+`"plumb check --root DIR" 检查 workspace index 中的 `"..plumb" files；省略 `"--root" 时使用 `->{{workspace marker discovery} workspace.plumb}。它复用与 LSP 相同的 strict syntax、semantic 和 cross-document diagnostics。
 
-diagnostics 按 relative path 和 source range 稳定排序，输出 `"path:line:column"、severity、code 与
-message。`"--level error|warning|hint" 选择最低显示 severity；默认 `"warning"，因此显示 Error 与
-Warning 并省略 Hint。只有 Error 令 command 返回 nonzero，Warning 与 Hint 不改变退出状态。筛选后无
-diagnostic 时不输出内容并返回成功。
+diagnostics 按 relative path 和 source range 稳定排序，输出 `"path:line:column"、severity、code 与 message。`"--level error|warning|hint" 选择最低显示 severity；默认 `"warning"，因此显示 Error 与 Warning 并省略 Hint。只有 Error 令 command 返回 nonzero，Warning 与 Hint 不改变退出状态。筛选后无 diagnostic 时不输出内容并返回成功。
 
 `# Cache
 
-`"plumb cache status" 显示 semantic cache root，并按 workspace/site 与 binary version 报告 active state、
-database/file 数量和 bytes。没有 lease 的旧 layout 数据显示为 unmanaged。
+`"plumb cache status" 显示 semantic cache root，并按 workspace/site 与 binary version 报告 active state、 database/file 数量和 bytes。没有 lease 的旧 layout 数据显示为 unmanaged。
 
-`"plumb cache prune" 删除非当前 binary version 中未被进程使用的可重建 cache；当前版本默认保留。显式
-`"plumb cache prune --all" 也会考虑当前版本。LSP、Web 或其它进程仍持有的 active namespace，以及无法用
-lease 证明未被使用的 unmanaged 数据，始终只报告而不删除。server startup 不自动清理其它版本。
+`"plumb cache prune" 删除非当前 binary version 中未被进程使用的可重建 cache；当前版本默认保留。显式 `"plumb cache prune --all" 也会考虑当前版本。LSP、Web 或其它进程仍持有的 active namespace，以及无法用 lease 证明未被使用的 unmanaged 数据，始终只报告而不删除。server startup 不自动清理其它版本。
 
 `# Playground
 
-`"examples/index.plumb" 及同目录文档覆盖 core syntax 和 official semantics，可用于 editor、
-diagnostics 和 export smoke test。
+`"examples/index.plumb" 及同目录文档覆盖 core syntax 和 official semantics，可用于 editor、 diagnostics 和 export smoke test。
 
 `# LSP
 
-`"plumb lsp" 提供 strict syntax 与 semantic diagnostics、document symbols、definition、references、
-hover、completion、anchor/document rename、metadata insertion、task conversion/created/status actions、
-metadata document-reference 与 explicit-anchor CodeLens、task semantic tokens 和 whole-document
-formatting。server 会扫描 workspace，并在 editor 支持时
-监听 `"..plumb" 与 `".ignore" file changes。ignore rule 变化会 resynchronize disk index；ignored
-document 若作为 open buffer 存在，仍由 open-buffer snapshot 覆盖 disk index。
+`"plumb lsp" 提供 strict syntax 与 semantic diagnostics、document symbols、definition、references、 hover、completion、anchor/document rename、metadata insertion、task conversion/created/status actions、 metadata document-reference 与 explicit-anchor CodeLens、task semantic tokens 和 whole-document formatting。server 会扫描 workspace，并在 editor 支持时 监听 `"..plumb" 与 `".ignore" file changes。ignore rule 变化会 resynchronize disk index；ignored document 若作为 open buffer 存在，仍由 open-buffer snapshot 覆盖 disk index。
 
-标准 `"workspace/symbol" 支持 `"note QUERY"、`"task QUERY"、`"event QUERY" 和无 prefix 的混合搜索，
-结果包含可跳转 Location。`"plumb/search" custom request 提供 schema version 3 的 typed records：
+标准 `"workspace/symbol" 支持 `"note QUERY"、`"task QUERY"、`"event QUERY" 和无 prefix 的混合搜索， 结果包含可跳转 Location。`"plumb/search" custom request 提供 schema version 3 的 typed records：
 
-`json
-
-|"
+`json"
   {
     "kind": "task",
     "query": "review",
@@ -73,66 +49,42 @@ document 若作为 open buffer 存在，仍由 open-buffer snapshot 覆盖 disk 
     "limit": 100
   }
 
-`"kind"、`"query" 和 `"filter" 可省略；kind 可以是 `"note"、`"task" 或 `"event"，filter 使用 shared CEL
-facts。task result 的 `"state" 是 ready、waiting、blocked、done、canceled 或 conflicted，并用 `"waitReasons"
-报告 time/dependency reasons；event result 可携带 `"start"、`"end" 与 `"tasks"。result 还包含 items、Location、revision provenance 和 complete；limit 上限为 200。invalid CEL
-使用 InvalidParams，initial index 前使用 ServerNotInitialized，workspace scan 不完整时 complete 为 false，
-Location 等内部 invariant 失败使用 InternalError，cancellation 使用 RequestCancelled。initialize response
-的 `"experimental.plumb.search" 声明 method 与 schemaVersion。
+`"kind"、`"query" 和 `"filter" 可省略；kind 可以是 `"note"、`"task" 或 `"event"，filter 使用 shared CEL facts。task result 的 `"state" 是 ready、waiting、blocked、done、canceled 或 conflicted，并用 `"waitReasons" 报告 time/dependency reasons；event result 可携带 `"start"、`"end" 与 `"tasks"。result 还包含 items、Location、revision provenance 和 complete；limit 上限为 200。invalid CEL 使用 InvalidParams，initial index 前使用 ServerNotInitialized，workspace scan 不完整时 complete 为 false， Location 等内部 invariant 失败使用 InternalError，cancellation 使用 RequestCancelled。initialize response 的 `"experimental.plumb.search" 声明 method 与 schemaVersion。
 
-client configuration、completion、CodeAction、CodeLens、search 与 Web app integration 见
-`->[editor integration 指南|editor-integration.plumb]。
+client configuration、completion、CodeAction、CodeLens、search 与 Web app integration 见 `->{{editor integration 指南} editor-integration.plumb}。
 
-direct declaration/member completion 由 recovered syntax owner 决定：task/event properties、Link target、
-Image/File 的 `"src"，以及 verbatim math/language 会按上下文提供。block owner 生成普通 marked
-children，inline owner 生成 single-envelope child members；已存在的唯一 property 不会重复建议。
-Link/Image path、anchor 等 content 继续使用 workspace-aware candidates。
-旧 attribute slot spelling 不属于 current editor grammar，也不提供 completion。
+direct declaration completion 由 recovered syntax owner 决定：task/event properties、Link target、Image/File 的
+`"src" 与 math language 按上下文提供。block owner 生成 marked child，inline owner 生成 direct marked group；
+已存在的 unique property 不重复建议。Link/Image path/anchor 使用 workspace-aware candidates。
 
 `# Format
 
-`"plumb fmt" 对 syntax-valid document 进行 canonical formatting。所有 marked block 的 children 都比
-owner 深一列，不随 marker width 或 head 是否为空改变。parent head 与 children 之间、subtree 与后继
-sibling 之间使用空行；当前 sibling 是否
-拥有 children 不影响它前面的间距，因此同 marker 的 leaf-to-parent 与 leaf-to-leaf siblings 保持
-紧凑。anonymous verbatim opener 与 marked raw-tail boundary 都保留 source quote count，并按该 count
-输出 ASCII-space structural margin。没有 children 的 marked owner 不在 head 与 raw tail 之间插入空行；
-存在 children 时保留最后一个 child 与 raw tail 之间的分隔空行。
+`"plumb fmt" 对 syntax-valid document canonicalize recursive owners。anonymous/marked parsed owner 的 children
+统一深一列；owner 与 first child 之间 one line ending，different sibling kinds 可保留一个 blank separator。
+direct datum boundary 默认 one ASCII space；explicit Align arguments 可以扩大 SpaceRun。Group 使用 braces，
+literal braces/backtick 使用 introducer escape。
 
-formatter 按 source order 格式化 direct children，raw tail 始终位于 children 后。inline members 保持
-single envelope 与 source order。
+inline verbatim 选择 minimal compact/full quote strength。block verbatim 使用 optional marker + one quote 与 one
+structural-space payload margin；formatter 保持 typed raw bytes与 final newline，不存在 raw tail。
 
-formatter 为 inline verbatim 选择最小安全 quote count，不重排普通文本，不改变 declaration/member
-顺序，也不解释 marker、facet、property、heading、list、metadata 或 task semantics。相同 syntax tree 的
-输出使用固定的 official semantic profile；包含 syntax error 的 document 会被拒绝。
+formatter 不重排普通 text/direct owners，也不解释 marker semantics；syntax error document 被拒绝。
 
 不带 path 时从 stdin 读取并写到 stdout；带 path 时原地更新：
 
-`text
-
-|"
+`text"
   plumb fmt document.plumb
   cat document.plumb | plumb fmt > formatted.plumb
   plumb fmt --check docs/*.plumb
 
-`"--check" 不写文件；任一输入需要重新格式化时返回非零状态。LSP 使用同一个 formatter 实现
-`"textDocument/formatting" 与 `"textDocument/rangeFormatting"，editor 的 tab size 不改变
-canonical alignment policy。protocol-neutral formatter 对 whole-document canonical output 做 line diff，
-使用两侧均 unique 且顺序一致的 unchanged lines 分隔局部差异，并返回按 source order 排列、互不重叠的
-最小 changed-line edits；LSP 只转换 byte ranges，不把 unchanged blocks 包含在 replacement 中。
+`"--check" 不写文件；任一输入需要重新格式化时返回非零状态。LSP 使用同一个 formatter 实现 `"textDocument/formatting" 与 `"textDocument/rangeFormatting"，editor 的 tab size 不改变 canonical alignment policy。protocol-neutral formatter 对 whole-document canonical output 做 line diff， 使用两侧均 unique 且顺序一致的 unchanged lines 分隔局部差异，并返回按 source order 排列、互不重叠的 最小 changed-line edits；LSP 只转换 byte ranges，不把 unchanged blocks 包含在 replacement 中。
 
-range formatting 不把 selection 扩展到只被部分命中的 structure：空 selection 或只包含 block
-局部内容时返回空 edits；完整包含一个 owner block 时格式化其完整 subtree；完整包含多个 blocks 时
-只选择其中 maximal blocks，并把相邻同级 blocks 合并为连续 group。每个 group 只替换 block content
-及 group 内部 layout，不改变 selection 外的前后分隔空白；syntax-invalid document 返回 `"null"。
+range formatting 不把 selection 扩展到只被部分命中的 structure：空 selection 或只包含 block 局部内容时返回空 edits；完整包含一个 owner block 时格式化其完整 subtree；完整包含多个 blocks 时 只选择其中 maximal blocks，并把相邻同级 blocks 合并为连续 group。每个 group 只替换 block content 及 group 内部 layout，不改变 selection 外的前后分隔空白；syntax-invalid document 返回 `"null"。
 
 `# Export
 
 `"plumb export" 直接产生 Pandoc JSON AST。Pandoc 只作为 writer：
 
-`text
-
-|"
+`text"
   plumb export document.plumb | pandoc -f json -t html -o document.html
   cat document.plumb | plumb export | pandoc -f json -o document.pdf
 
@@ -140,26 +92,14 @@ syntax error、无效 metadata 或其他阻止 authoritative semantics 的错误
 
 `# Import
 
-`"plumb import" 读取 Pandoc JSON AST，并在 stdout 产生 syntax-valid、canonical formatted plumb。
-省略 path 时从 stdin 读取：
+`"plumb import" 读取 Pandoc JSON AST，并在 stdout 产生 syntax-valid、canonical formatted plumb。 省略 path 时从 stdin 读取：
 
-`text
-
-|"
+`text"
   pandoc source.md -t json | plumb import > document.plumb
   plumb import document.json > document.plumb
 
-importer 覆盖 `"plumb export" 当前产生的标准 profile，并保证受支持 AST 的
-`"export -> import -> export" semantic round-trip。包括 metadata、paragraph、heading、bullet/decimal
-ordered list、definition、table、quote、Div、CodeBlock，以及 text、inline styles、Code、Link、File、Image、
-simple citation、inline math 和 Span。Table 支持 inline/rich/empty cells、caption、attributes、连续 header
-rows 与一致的 row-header prefix。
+importer 覆盖 `"plumb export" 当前产生的标准 profile，并保证受支持 AST 的 `"export -> import -> export" semantic round-trip。包括 metadata、paragraph、heading、bullet/decimal ordered list、definition、table、quote、Div、CodeBlock，以及 text、inline styles、Code、Link、File、Image、 simple citation、inline math 和 Span。Table 支持 inline/rich/empty cells、caption、attributes、连续 header rows 与一致的 row-header prefix。
 
-Pandoc 中不存在标准 plumb 表示的 node 会明确失败，不会静默丢失内容。例如 figure、raw
-HTML、horizontal rule、line block、footnote、复杂 citation、非 decimal 或非 1 起始 ordered list
-当前均不受支持。Table 的 rowspan、colspan、alignment、column widths、foot 与复杂 body grouping 也不可表示。
-Pandoc attribute name 不能表示为 declaration name，或 Link/Image property 与 target tuple 冲突时也会失败。
-importer 不读取 Pandoc Markdown source；需要先让 Pandoc 输出 JSON。
+Pandoc 中不存在标准 plumb 表示的 node 会明确失败，不会静默丢失内容。例如 figure、raw HTML、horizontal rule、line block、footnote、复杂 citation、非 decimal 或非 1 起始 ordered list 当前均不受支持。Table 的 rowspan、colspan、alignment、column widths、foot 与复杂 body grouping 也不可表示。 Pandoc attribute name 不能表示为 declaration name，或 Link/Image property 与 target tuple 冲突时也会失败。 importer 不读取 Pandoc Markdown source；需要先让 Pandoc 输出 JSON。
 
-项目方向与尚需验证的工作统一记录在 `->[路线图|../project/roadmap.plumb]；可直接实施的
-工作见 `->[当前任务|../project/tasks.plumb]。本指南不复制实现进度。
+项目方向与尚需验证的工作统一记录在 `->{路线图 ../project/roadmap.plumb}；可直接实施的 工作见 `->{当前任务 ../project/tasks.plumb}。本指南不复制实现进度。

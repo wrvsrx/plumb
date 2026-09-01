@@ -1,22 +1,19 @@
-`= title|plumb playground
-`= created|2026-07-20T00:00:00+08:00
+`= title plumb playground
+`= created 2026-07-20T00:00:00+08:00
 
-Open this directory as a workspace after building the toolchain. These documents
-exercise the implemented language server, exporter, and notes features.
+Open this directory as a workspace after building the toolchain. These documents exercise the implemented language server, exporter, and notes features.
 
 `# Start here
 
-`- `->[Language server playground|plumb-ls.plumb]
-`- `->[Metadata code-action scratchpad|metadata-scratch.plumb]
-`- `->[Exporter playground|plumb-export.plumb]
-`- `->[Notes playground|plumb-notes.plumb]
-`- `->[Intentional diagnostics|diagnostics.plumb]
+`- `->{{Language server playground} plumb-ls.plumb}
+`- `->{{Metadata code-action scratchpad} metadata-scratch.plumb}
+`- `->{{Exporter playground} plumb-export.plumb}
+`- `->{{Notes playground} plumb-notes.plumb}
+`- `->{{Intentional diagnostics} diagnostics.plumb}
 
 `# Suggested commands
 
-`sh
-
-|"
+`sh"
   nix develop -c cargo build --workspace
   cargo run -q -p plumb -- export examples/plumb-export.plumb | pandoc -f json -t markdown
   cargo run -q -p plumb -- note --root examples --query 'title.matches("playground")'
@@ -26,5 +23,4 @@ exercise the implemented language server, exporter, and notes features.
   cargo run -q -p plumb -- task --root examples --query 'blocked'
   cargo run -q -p plumb -- event --root examples
 
-The linked files intentionally reference each other so workspace navigation and
-reverse-reference queries return useful results.
+The linked files intentionally reference each other so workspace navigation and reverse-reference queries return useful results.

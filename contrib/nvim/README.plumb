@@ -1,25 +1,20 @@
-`= title|plumb Neovim Lua modules
+`= title plumb Neovim Lua modules
 
 `# User guide
 
-完整的 Neovim 0.12、LSP、tree-sitter、workspace 与 authoring setup 见
-`->[editor integration 指南|../../docs/guide/editor-integration.plumb]。本文只记录 packaged Lua
-modules 的调用接口。
+完整的 Neovim 0.12、LSP、tree-sitter、workspace 与 authoring setup 见 `->{{editor integration 指南} ../../docs/guide/editor-integration.plumb}。本文只记录 packaged Lua modules 的调用接口。
 
 `# Setup
 
 把该 directory 加入 Neovim `"runtimepath" 后，在打开首个 plumb buffer 前显式调用 setup：
 
-`lua
-
-|"
+`lua"
   require('plumb').setup({
     command = 'plumb',
     lsp = { root_markers = { '.plumb', '.git' } },
     codelens = { picker = 'snacks' },
     search = { picker = 'snacks', task_filter = 'state == "ready"' },
   })
-
   vim.keymap.set('n', '<leader>pn', function()
     require('plumb.search').search_notes()
   end)
@@ -27,90 +22,46 @@ modules 的调用接口。
     require('plumb.search').search_tasks({ filter = 'actionable' })
   end)
 
-setup 默认启用 LSP、CodeLens 与 search，不创建 keymaps；`"lsp"、`"codelens" 与 `"search" 都可用
-`"enabled = false" 单独关闭，并可直接传入 `"on_attach" 等 function-valued options：
+setup 默认启用 LSP、CodeLens 与 search，不创建 keymaps；`"lsp"、`"codelens" 与 `"search" 都可用 `"enabled = false" 单独关闭，并可直接传入 `"on_attach" 等 function-valued options：
 
-`lua
-
-|"
+`lua"
   require('plumb').setup({
     lsp = { on_attach = function(client, bufnr) end },
   })
 
-standard ftplugin 对 plumb buffers 设置 buffer-local `"expandtab"、`"shiftwidth=1" 与跟随它的
-`"softtabstop"，并在 filetype 变化时恢复这些选项。它保留用户的 `"tabstop"，避免改变 verbatim payload
-中真实 tab bytes 的显示宽度。
+standard ftplugin 对 plumb buffers 设置 buffer-local `"expandtab"、`"shiftwidth=1" 与跟随它的 `"softtabstop"，并在 filetype 变化时恢复这些选项。它保留用户的 `"tabstop"，避免改变 verbatim payload 中真实 tab bytes 的显示宽度。
 
-modules 要求 Neovim 0.12。`"plumb.search" 还要求 attached plumb LSP 声明
-`"experimental.plumb.search" schema version 3。native search 使用 `"vim.ui.input/select"；`"live_search"
-接受 picker adapter，并负责 debounce、request cancellation、stale-result suppression、locations 和
-incomplete-result state。
+modules 要求 Neovim 0.12。`"plumb.search" 还要求 attached plumb LSP 声明 `"experimental.plumb.search" schema version 3。native search 使用 `"vim.ui.input/select"；`"live_search" 接受 picker adapter，并负责 debounce、request cancellation、stale-result suppression、locations 和 incomplete-result state。
 
-plugin 不修改 window-local folding settings。`"plumb lsp" 仍提供 folding ranges 与 task
-`"collapsedText"；editor configuration 决定是否使用 `"vim.lsp.foldexpr()" 与
-`"require('plumb').foldtext()"。后者包装原生 `"vim.lsp.foldtext()"，并为 waiting、blocked、done、canceled、
-conflicted task 的整条 label 使用独立 fold highlight groups；ready 保持原样。waiting、blocked、done、
-conflicted 保持原有 DiagnosticInfo、DiagnosticHint、Comment、DiagnosticWarn links。Canceled 使用 resolved
-`"Comment" 的弱化颜色，并叠加 DiagnosticDeprecated 的删除线而不继承它的颜色。这不会改变 task body 的
-semantic highlight。LSP protocol 自身不传递 fold label highlight。
-LSP formatting 只返回 changed-line edits，因此原生 `"vim.lsp.buf.format()" 和 format-on-save 不会用整篇
-replacement 重置未变化 blocks 的 window-local fold overrides。server 会向
-`"lineFoldingOnly" client 返回 `"startLine == endLine" 的单行 task/event range；支持这类 range
-的 editor 还需要 `"foldminlines = 0" 才能关闭只占一个 screen line 的 fold。上游
-Neovim 0.12 的 LSP fold adapter 会忽略这类 range；plugin 不提供额外的 folding-range adapter。
+plugin 不修改 window-local folding settings。`"plumb lsp" 仍提供 folding ranges 与 task `"collapsedText"；editor configuration 决定是否使用 `"vim.lsp.foldexpr()" 与 `"require('plumb').foldtext()"。后者包装原生 `"vim.lsp.foldtext()"，并为 waiting、blocked、done、canceled、 conflicted task 的整条 label 使用独立 fold highlight groups；ready 保持原样。waiting、blocked、done、 conflicted 保持原有 DiagnosticInfo、DiagnosticHint、Comment、DiagnosticWarn links。Canceled 使用 resolved `"Comment" 的弱化颜色，并叠加 DiagnosticDeprecated 的删除线而不继承它的颜色。这不会改变 task body 的 semantic highlight。LSP protocol 自身不传递 fold label highlight。 LSP formatting 只返回 changed-line edits，因此原生 `"vim.lsp.buf.format()" 和 format-on-save 不会用整篇 replacement 重置未变化 blocks 的 window-local fold overrides。server 会向 `"lineFoldingOnly" client 返回 `"startLine == endLine" 的单行 task/event range；支持这类 range 的 editor 还需要 `"foldminlines = 0" 才能关闭只占一个 screen line 的 fold。上游 Neovim 0.12 的 LSP fold adapter 会忽略这类 range；plugin 不提供额外的 folding-range adapter。
 
-plugin 默认把 `"task + completed" 与 `"task + canceled" semantic tokens 链接到 `"Comment"，淡化完整
-closed task block。自定义 `"@lsp.typemod.task.completed.plumb" 与
-`"@lsp.typemod.task.canceled.plumb" highlight groups 可以覆盖该默认值。
+plugin 默认把 `"task + completed" 与 `"task + canceled" semantic tokens 链接到 `"Comment"，淡化完整 closed task block。自定义 `"@lsp.typemod.task.completed.plumb" 与 `"@lsp.typemod.task.canceled.plumb" highlight groups 可以覆盖该默认值。
 
 `# Installation
 
-Nix 提供 `"plumb.passthru.neovim-plugin"，可直接加入 `"programs.neovim.plugins"；主 package 也把源码
-安装在 `"share/plumb/contrib/nvim"。binary 与 Lua runtime 来自同一 package version。
-`":checkhealth plumb" 会检查 binary version 与 active client。plugin 与 binary 要求 exact release version
-match；Cargo regression test 强制 `"version.lua" 跟 workspace version 同步。
+Nix 提供 `"plumb.passthru.neovim-plugin"，可直接加入 `"programs.neovim.plugins"；主 package 也把源码 安装在 `"share/plumb/contrib/nvim"。binary 与 Lua runtime 来自同一 package version。 `":checkhealth plumb" 会检查 binary version 与 active client。plugin 与 binary 要求 exact release version match；Cargo regression test 强制 `"version.lua" 跟 workspace version 同步。
 
-tree-sitter parser 与 queries 独立发行，不属于 plugin runtime 或 setup API。Nix 通过
-`"plumb.passthru.tree-sitter-plumb" 提供 parser；editor configuration 负责安装并调用
-`"vim.treesitter.start()"。
+tree-sitter parser 与 queries 独立发行，不属于 plugin runtime 或 setup API。Nix 通过 `"plumb.passthru.tree-sitter-plumb" 提供 parser；editor configuration 负责安装并调用 `"vim.treesitter.start()"。
 
 lazy.nvim 使用 source checkout 时：
 
-`lua
-
-|"
+`lua"
   {
     dir = '/path/to/plumb/contrib/nvim',
     ft = 'plumb',
     opts = {},
   }
 
-不配置 plugin manager lazy loading 时，setup 仍只直接加载轻量入口与 LSP 配置；search 和 CodeLens
-implementation modules 在对应 command 实际执行时才加载。
+不配置 plugin manager lazy loading 时，setup 仍只直接加载轻量入口与 LSP 配置；search 和 CodeLens implementation modules 在对应 command 实际执行时才加载。
 
-不用 plugin manager 时，在打开首个 plumb buffer 前执行
-`"vim.opt.runtimepath:prepend('/path/to/plumb/contrib/nvim')"。
-repository-local parser override 与 packaged-default highlight reset 只属于 `"dev/nvim.lua"，不进入正式
-plugin API。开发配置会让 checkout setup 强制重置 plumb-owned semantic-token 与 fold-only default groups；
-正式 setup 继续保留已有用户和 colorscheme overrides。
+不用 plugin manager 时，在打开首个 plumb buffer 前执行 `"vim.opt.runtimepath:prepend('/path/to/plumb/contrib/nvim')"。 repository-local parser override 与 packaged-default highlight reset 只属于 `"dev/nvim.lua"，不进入正式 plugin API。开发配置会让 checkout setup 强制重置 plumb-owned semantic-token 与 fold-only default groups； 正式 setup 继续保留已有用户和 colorscheme overrides。
 
 `# Commands and API
 
-setup 只注册 `"PlumbNotes" 与 `"PlumbTasks"。References CodeLens 使用 `"vim.lsp.codelens.run()"；
-formatting、rename、CodeAction 与 task operations 使用 Neovim 原生 LSP API；Web app 通过
-`"plumb site serve" CLI 启动。完整 public Lua API 和 default-free keymap examples 见 editor integration
-guide 与 `"doc/plumb.txt"。
+setup 只注册 `"PlumbNotes" 与 `"PlumbTasks"。References CodeLens 使用 `"vim.lsp.codelens.run()"； formatting、rename、CodeAction 与 task operations 使用 Neovim 原生 LSP API；Web app 通过 `"plumb site serve" CLI 启动。完整 public Lua API 和 default-free keymap examples 见 editor integration guide 与 `"doc/plumb.txt"。
 
 `# Reference CodeLens
 
-`"plumb lsp" 在顶层 metadata 上显示 `"N file references"，并在每个 explicit anchor 上显示
-`"N references" CodeLens。前者统计其他 documents 中指向当前文件的 reference occurrences。
-command id 是 `"plumb.showReferences"，arguments 是 target URI、target position 和完整 reference locations。
-setup 为 Neovim 注册一个轻量 client-side command handler，首次执行时才加载 `"plumb.codelens"。
-`"plumb.codelens.setup({ picker = 'snacks' })" 可用于独立配置 handler，并把 CodeLens 已
-携带的 locations 直接转换为 Snacks file picker items；它不会重复发送 LSP references request。picker
-提供 file preview、jump、tagstack 和 single-result auto-confirm。
+`"plumb lsp" 在顶层 metadata 上显示 `"N file references"，并在每个 explicit anchor 上显示 `"N references" CodeLens。前者统计其他 documents 中指向当前文件的 reference occurrences。 command id 是 `"plumb.showReferences"，arguments 是 target URI、target position 和完整 reference locations。 setup 为 Neovim 注册一个轻量 client-side command handler，首次执行时才加载 `"plumb.codelens"。 `"plumb.codelens.setup({ picker = 'snacks' })" 可用于独立配置 handler，并把 CodeLens 已 携带的 locations 直接转换为 Snacks file picker items；它不会重复发送 LSP references request。picker 提供 file preview、jump、tagstack 和 single-result auto-confirm。
 
-默认 `"picker = 'quickfix'" 会把 locations 写入 quickfix list 并打开 quickfix window。请求 Snacks
-但 module 不可用时会 warning 并回退 quickfix；0 references 时只显示提示。其他 editor 可以使用同一
-arguments contract 接入自己的 references UI。
+默认 `"picker = 'quickfix'" 会把 locations 写入 quickfix list 并打开 quickfix window。请求 Snacks 但 module 不可用时会 warning 并回退 quickfix；0 references 时只显示提示。其他 editor 可以使用同一 arguments contract 接入自己的 references UI。

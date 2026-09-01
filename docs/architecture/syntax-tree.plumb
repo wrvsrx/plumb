@@ -1,122 +1,37 @@
-`= title|plumb lossless syntax tree
+`= title plumb lossless syntax tree
 
 `# 1. Purpose
 
-strict parser 对任意 UTF-8 source 产生 recovered lossless tree。tree 服务 diagnostics、editor
-queries、source-preserving edits 和 semantic analyses；它不是已经解释语义的 document AST。
+strict parser 对任意 UTF-8 source 产生 recovered lossless tree。tree 服务 diagnostics、editor queries、
+source-preserving edits 与 semantic analyses；它不是 interpreted semantic AST。
 
 `# 2. Fidelity
 
-所有 source-backed leaf tokens 使用 UTF-8 half-open byte ranges，按 source order 无重叠、无空洞
-覆盖输入。拼接 leaf bytes 必须逐字节等于 source。
+所有 source-backed leaf 使用 UTF-8 half-open byte ranges，按 source order 无重叠、无空洞覆盖 input。拼接
+leaf bytes 必须逐 byte 等于 source。tree 保存 indentation、spaces、line endings、introducers、escapes、
+markers、group/verbatim delimiters、raw payload、layout 与 malformed bytes。
 
-tree 保留 trivia、structural indentation、line endings、delimiters、direct ownership、payload 和 malformed
-source。非空 source 的 leaf token 非空；空 source 产生 range `"[[0, 0)]" 的 document root。
-
-missing token 不作为 synthetic leaf 插入，由 diagnostic 和 insertion fix 表达。node range 从其
-source-backed descendants 推导。
+nonempty source leaf 非空；empty source 产生 range `"[0, 0)" root。missing token 不插 synthetic leaf，由
+diagnostic/fix 表达。node range 从 source-backed descendants 推导。
 
 `# 3. Public representation
 
-`"ParsedDocument" 同时持有原始 source、`"LosslessTree"、typed `"Document" 与 diagnostics。
-`"LosslessTree" 当前是 range 加按 source order 排列的 `"SyntaxToken" sequence；每个 token 暴露 kind、
-range，以及从同一 source 取 text 的方法。token kinds 包括 text、whitespace、indentation、line ending、
-introducer、escape、marker、inline kind、inline/raw-tail delimiter、raw payload
-和 error。
+ParsedDocument 同时持有 original source、LosslessTree、typed Document 与 diagnostics。LosslessTree 是 root
+range 加 source-ordered SyntaxToken sequence；kind 包含 text、whitespace、indentation、line ending、
+introducer、escape、marker、inline kind、delimiter、raw payload 与 error。
 
-typed `"Document" 表达 paragraph、marked block、anonymous verbatim block、inline element、inline
-verbatim、text、space 和 soft break。paragraph 与 marked-block head 暴露至少一个 source-ordered
-parsed argument；每个 argument 保留 optional separator range、content range 与 inline items，顶层
-separator 不作为 text item。parsed inline element 暴露 source-ordered `"InlineMember" sequence：
-valid element 的 first member 始终是可以为空的 parsed argument，后续 parsed/verbatim arguments 与
-parsed/verbatim children 各自保留 delimiter、separator 和 content ranges；
-每个 head/paragraph argument 内容中的连续 ASCII space/tab 产生独立 `"Inline::Space"；
-普通 marker/kind 保持原始 spelling；typed tree 不区分 heading、list、
-link 或 task。它与 token sequence 在同一次 parse 中产生，不是第二套 parser。
+typed structure 统一为 optional-marker recursive owners：
 
-document 保存一个 source-ordered top-level `"blocks" sequence，并可从 direct declaration blocks 投影
-generic attribute view。marked block 暴露 marker、head、一个 source-ordered children sequence、从 direct
-declaration children 投影的 `"Attributes" view，以及 optional singular `"RawPayload"。projection 不改变
-children。paragraph 只有 inline content且没有 children/raw payload。anonymous verbatim block 直接暴露
-opener、每行 structural prefix 与 raw payload ranges；它没有 marker、head 或 children。
-
-Projected id/class items 同时保留完整 declaration/member range 与精确 plain value range。完整 range 用于
-ownership、remove/move、persistent source spelling 和 formatting；value range 用于 anchor/task/event fields、
-selection、rename 与其它 token rewrites。Consumer 不得用 `"full_range.start + constant" 猜测 value boundary，
-因为 block declaration 可以包含 indentation、introducer、marker、padding、layout 与 following siblings。
-
-marked block raw tail 的 typed structure 是 owner 上的 optional singular field：quote-run boundary token、
-quote count 与 payload ranges 都直接属于 owner，不产生 anonymous payload child 或额外 ownership node。因而一个 marked block
-可以拥有一个 ordinary anonymous verbatim child，也可以拥有自己的 raw tail，两者在 tree 中不同。
-
-`# 4. Recovered and valid views
-
-lossless token stream 与 typed recovered tree 始终存在。`"recovered_syntax()" 返回 recovered `"Document"
-view；`"valid_syntax()" 只在没有 error diagnostics 时返回不可由 consumer 构造的 `"ValidDocument"
-view。该 valid view 同时借用同一次 parse 的 source 与 typed tree；authoritative consumer 不另外接收
-可与 tree 不匹配的 source。official semantic analysis、export 与 valid-tree authoring API 只接受
-`"ValidDocument"；面向编辑中无效 source 的 completion、folding 等 recovered query 则显式接受
-recovered `"Document"。因此 Rust type boundary 保证 semantic analyses 不会误把 recovery choice 当作
-author intent。
-
-访问两种 view 不会重新 parse。typed nodes 保存 marker、declaration projection 和 inline text，
-但所有 ownership 与 diagnostics 仍由 source ranges 定位。
-
-`# 5. Recovery representation
-
-malformed source bytes 标为 error tokens 并继续参与 lossless coverage；已有 token boundaries 保留，
-所以一个 malformed region 可以由连续多个 error leaves 表示。virtual indentation 或
-missing delimiter 只存在于 diagnostics/fixes，不进入 source-backed leaf sequence。
-
-recovery boundary 必须 deterministic，使相同 source 产生稳定 tree、diagnostic ordering 和 edit
-ranges。
-
-block 与 parsed-inline nesting 使用 explicit work stacks；typed block/inline tree 的 destruction 与
-plain-text traversal 也使用 iterative walk。语言不从 Rust call stack 获得 nesting depth limit。
-
-`# 6. Lenient incremental tree
-
-tree-sitter mirror 的 external scanner state 必须完整 serialize/deserialize 所有会影响后续 indentation、
-dedent、verbatim dispatch 与 inline/block ownership 的字段。对同一 source，fresh full parse、Neovim buffer
-parse、injection discovery 触发的 reparse 与任意合法 incremental edit sequence 必须产生等价 node kinds/ranges；
-scanner state round-trip 不得引入 `"ERROR" node。该约束只保证 editor tree stability，不改变 strict parser
-的 syntax authority。
-
-`# 7. Future normalized AST
-
-可能的 normalized model 会包含 parsed block、anonymous verbatim block，以及 `"Text"、`"SoftBreak"、`"Span"
-和 `"Verbatim" inline variants。它只在 exporter 或其他 concrete consumer 证明 typed views 不足时加入。
-
-normalized model 不取代 lossless tree，不改变 syntax validity，也不把 semantic profile meanings 放回
-core。
-
-`"plumb-edit" 的 owned syntax nodes 不是 normalized semantic AST。它们只是 typed syntax view 的
-source-independent、可构造 counterpart，用于插入或替换 generic blocks、inlines、direct ownership data
-与 raw tails；最终
-source layout 仍由 formatter 决定。
-
-`# 8. Incremental identity
-
-当前 contract 不承诺跨 revision `"NodeId" reuse。incremental parsing、source-map identity 和 text
-canonicalization 必须作为同一设计问题解决；实现优化不能泄漏为不稳定的 public identity。
-
-`# 9. Recursive owner epoch target
-
-本节状态为尚未实现，并与 core syntax 第 13 节绑定。epoch 切换后 typed tree 统一为 optional-marker owner：
-
-`rust
-|"
+`rust"
  struct Block {
      marker: Option<Marker>,
      content: BlockContent,
      children: Vec<Block>,
  }
-
  enum BlockContent {
      Parsed(InlineContents),
      Verbatim(RawText),
  }
-
  enum InlineElement {
      Text(TextRun),
      Space(SpaceRun),
@@ -130,11 +45,63 @@ canonicalization 必须作为同一设计问题解决；实现优化不能泄漏
      },
  }
 
-`"InlineContents" 直接保存 spaces 与 owners，不保存拥有独立 storage 的 argument/member projection。
-positional data 是按 direct SpaceRun 计算的 borrowed/ranged typed view；它不能复制、重排或从 lossless sequence
-移除 separator。anonymous/marked parsed block 共享 children field；verbatim BlockContent 强制 children 为空。
+current Rust API 用 ParsedBlock/VerbatimBlock enum variants 表达 BlockContent，但 observable ownership 与上面
+model 等价。anonymous/marked parsed blocks 共享 children；VerbatimBlock children 固定为空。
 
-删除 typed tree 中的 raw-tail optional field、`"InlineMember"、parsed/verbatim argument variants、soft break
-与 bracket/pipe separator ranges。marker separator、group delimiters、verbatim delimiters、structural margin 和
-escapes 仍由 source-backed token ranges 覆盖。plain-text traversal 展开 group content并保留 semantic spaces；
-kind-specific consumers 通过 positional view 读取 data，不能自行按 source string split。
+`# 4. Inline data projection
+
+InlineContents 直接保存唯一一份 source-ordered elements，包括 direct SpaceRun。typed positional data 是按
+direct SpaceRun 计算的 ranged projection：每项只保存 item/range indexes，不复制、移除或重排 separator。
+repeated spaces 不产生 empty datum；empty Group 是 explicit empty datum。
+
+Group content 递归使用同一 structure。没有 InlineMember、parsed/verbatim argument variants、SoftBreak 或
+bracket/pipe separator ranges。generic direct declaration view 可以从 direct marked owners 投影 id/facet/pair
+ranges，但 underlying owner sequence 保持不变。
+
+plain-text traversal 展开 anonymous/generic group、保留 SpaceRun，并让 semantic profile 对 Link 等 known
+owners选择 visible data。kind-specific consumer 必须使用 typed datum/declaration views，不能自行按 source
+string split。
+
+`# 5. Source ranges
+
+marker 保存 introducer-inclusive owner range 与 exact marker_range。Group/Verbatim 保存完整 envelope、content/
+text range；VerbatimBlock 保存 opener、quote 与 raw source span。raw typed text 已 strip exactly one structural
+margin，但 source token ranges 继续覆盖 margins 与 original line endings。
+
+projected declaration item 同时保存 full direct-owner range 与 precise key/value range。remove/move 使用 full
+range；rename/selection/reference 使用 value range。consumer 不得用 `"full_start + constant" 猜测 token
+boundary。
+
+`# 6. Recovered and valid views
+
+lossless tokens 与 typed recovered Document 始终存在。recovered_syntax 返回同一次 parse 的 recovered tree；
+valid_syntax 只在没有 error diagnostic 时返回不可由 consumer 构造的 ValidDocument，同时借用 source/tree。
+
+official semantic analysis、export 与 valid-tree authoring 只接受 ValidDocument。面向 invalid editing state 的
+completion、folding 等显式接受 recovered Document。访问任一 view 不重新 parse。
+
+`# 7. Recovery representation
+
+malformed bytes 标为 error tokens 并继续参与 complete coverage；existing token boundaries 保留。virtual
+indentation 或 missing closer 只存在于 diagnostics/fixes，不进入 source-backed leaves。recovery boundary 必须
+deterministic，使 same source 的 tree、diagnostic order 与 edit ranges 稳定。
+
+block nesting 使用 explicit work stack；typed block/inline destruction 与 traversal 也不能从 Rust call stack
+获得 language depth limit。inline parser 的 arbitrary nesting implementation 必须由 deep-corpus regression
+证明不会 stack overflow。
+
+`# 8. Owned syntax and legacy reader
+
+plumb-edit OwnedBlock/OwnedInline 是 syntax view 的 source-independent constructible counterpart，不是 normalized
+semantic AST。它负责 insertion/replacement/move 与 canonical rendering；adapter 不手写 subtree syntax。
+
+plumb-syntax-legacy-v2 是 frozen member-envelope reader，只输入 migration。它不进入 current parser、semantics、
+editor 或 formatter。converter 从 legacy typed tree 生成 current owned syntax并由 current parser重新验证。
+
+`# 9. Lenient tree and identity
+
+tree-sitter mirror 只服务 editor ergonomics。fresh/full/incremental parses 必须在同 source 上产生等价 current
+node kinds/ranges；scanner state round-trip 不引入 ERROR。它不改变 strict parser authority。
+
+当前 contract 不承诺 cross-revision NodeId reuse。incremental identity、source-map 与 canonicalization 必须作为
+同一设计问题解决；优化不能泄漏不稳定 public identity。

@@ -1,19 +1,14 @@
-`= title|plumb workspace 指南
+`= title plumb workspace 指南
 
-本页说明 current user workflows。Snapshot、SQLite projection、cache lease、open-overlay precedence 与 query
-completeness 的实现 contract 见 `->[workspace architecture|../architecture/workspace.plumb]。
+本页说明 current user workflows。Snapshot、SQLite projection、cache lease、open-overlay precedence 与 query completeness 的实现 contract 见 `->{{workspace architecture} ../architecture/workspace.plumb}。
 
 `# Workspace root
 
-`".plumb/" directory 标记一个 plumb workspace root。省略 `"--root" 的 workspace commands 从当前
-directory 向上选择最近的 marker；找不到 marker 时使用当前 directory。显式 `"--root DIR" 始终优先，
-不会继续向上 discovery。
+`".plumb/" directory 标记一个 plumb workspace root。省略 `"--root" 的 workspace commands 从当前 directory 向上选择最近的 marker；找不到 marker 时使用当前 directory。显式 `"--root DIR" 始终优先， 不会继续向上 discovery。
 
 一个较大的 notes directory 可以包含 nested workspace：
 
-`text
-
-|"
+`text"
   notes/
     .plumb/
     .ignore
@@ -22,137 +17,73 @@ directory 向上选择最近的 marker；找不到 marker 时使用当前 direct
       .plumb/
       note.plumb
 
-从 `"notes/" 工作时，parent workspace 的 ignore policy 生效；从 `"notes/private/" 工作时，更近的
-marker 建立独立 root，不读取 parent ignore rules。
+从 `"notes/" 工作时，parent workspace 的 ignore policy 生效；从 `"notes/private/" 工作时，更近的 marker 建立独立 root，不读取 parent ignore rules。
 
 `# Ignore
 
-每个 workspace root 使用 gitignore-style `".ignore" 控制 index。规则从 root 向下分层生效，但不读取
-root parent、`".gitignore"、Git global ignore 或 `".git/info/exclude"。dot files 和 dot directories
-没有内置特殊处理，需要排除时显式声明：
+每个 workspace root 使用 gitignore-style `".ignore" 控制 index。规则从 root 向下分层生效，但不读取 root parent、`".gitignore"、Git global ignore 或 `".git/info/exclude"。dot files 和 dot directories 没有内置特殊处理，需要排除时显式声明：
 
-`gitignore
-
-|"
+`gitignore"
   .git/
   .obsidian/
   private/
 
-scanner 不进入 directory symlink；扩展名为 `"..plumb" 的 file symlink 仍可索引。ignored documents
-不进入 check、note/task、LSP workspace index、graph 或 site。editor 直接打开 ignored document 时，
-LSP 仍分析当前 buffer；关闭后不保留在 index。
+scanner 不进入 directory symlink；扩展名为 `"..plumb" 的 file symlink 仍可索引。ignored documents 不进入 check、note/task、LSP workspace index、graph 或 site。editor 直接打开 ignored document 时， LSP 仍分析当前 buffer；关闭后不保留在 index。
 
-`".ignore" 是 discovery policy，不是 filesystem security boundary。若某个 ignored subtree 仍需要完整
-workspace features，应显式将其作为 root，或在其中创建 `".plumb/"。
+`".ignore" 是 discovery policy，不是 filesystem security boundary。若某个 ignored subtree 仍需要完整 workspace features，应显式将其作为 root，或在其中创建 `".plumb/"。
 
 `# Note and task queries
 
 `"plumb note" 与 `"plumb task" 提供 document/task CEL query、interactive picker 和 task operations：
 
-`text
-
-|"
+`text"
   plumb note --query 'title.contains("parser")'
   plumb note --interactive
   plumb task --query 'state == "ready" && due < now'
   plumb task complete notes/tasks.plumb#write-parser
   plumb task cancel notes/tasks.plumb#obsolete-task
 
-task output 默认是 nested table；`"--flat" 省略 nesting indentation，`"--no-heading" 适合脚本。
-complete/cancel 使用带 revision guard 的 shared operation 修改文件。
+task output 默认是 nested table；`"--flat" 省略 nesting indentation，`"--no-heading" 适合脚本。 complete/cancel 使用带 revision guard 的 shared operation 修改文件。
 
 `# Web app
 
-`"plumb site serve --root DIR" 启动默认只监听 `"127.0.0.1" 的本地 Web server，并在 stdout 输出 ready
-URL；进程不主动打开浏览器。`"--current path.plumb" 初始选择一个 note，`"--port" 指定 port。server
-监听 `"..plumb" 与 `".ignore" changes，并通过 SSE 更新 graph；ignored document 的内容变化不会发布
-workspace revision。
+`"plumb site serve --root DIR" 启动默认只监听 `"127.0.0.1" 的本地 Web server，并在 stdout 输出 ready URL；进程不主动打开浏览器。`"--current path.plumb" 初始选择一个 note，`"--port" 指定 port。server 监听 `"..plumb" 与 `".ignore" changes，并通过 SSE 更新 graph；ignored document 的内容变化不会发布 workspace revision。
 
-浏览器提供 workspace/local graph、incoming/outgoing direction、depth、edge-kind filters、search、pan、
-zoom、node labels、node selection 与 note preview。同一 document 内的 references 不产生 self-edge。
-unresolved document targets 显示为独立 node。
+浏览器提供 workspace/local graph、incoming/outgoing direction、depth、edge-kind filters、search、pan、 zoom、node labels、node selection 与 note preview。同一 document 内的 references 不产生 self-edge。 unresolved document targets 显示为独立 node。
 
-`"/graph"、`"/tasks" 与 `"/agenda" 在连接图、任务工作台和日程之间切换，并把 fuzzy query、CEL、preset chips、sort、
-selection 与 graph traversal 写入 URL。`"+" menu 的 server-registered presets 覆盖 task state、actionable、
-due、wait/dependency 和 graph connectivity/task counts；custom CEL 与 presets 分别验证后使用 logical AND。
-Tasks 在 URL 没有显式 preset state 时默认启用 `"State: Ready"。每个 document 是 task forest 的
-虚拟结构节点。Tasks sort 是可增删和重排的 Priority、Due、Relevance keys；无显式 URL state 时
-默认为 Priority，显式空列表只使用固定 Source tie-break。Priority 降序，Due 升序且缺失值最后，
-Relevance 降序；无 fuzzy query 时 Relevance 不改变顺序。所有 keys 只递归排序同一 parent 下的
-sibling subtrees，因此 document 和 parent/subtask subtree 始终连续。Priority 取 subtree 最大
-effective priority，Due 取 subtree 最早 due，Relevance 取 subtree 最大 fuzzy score。过滤先确定当前结果集合，未显示的 task
-不会参与这些聚合；详情显示 derived
-state、timestamps、dependencies 与 child tasks。`"New Task" 是主 toolbar 的 Tasks-only action：切到 Tasks 时显示，
-切到 Graph 或 Agenda 时隐藏，并且不随 detail selection 移动。
-点击 detail 中已有的 editable property 会原位打开对应 control；`"Add property" 列出当前缺失的标准 editable fields。
-两种操作都复用 revision-guarded task authoring，derived state 与 closure fields 保持只读。
+`"/graph"、`"/tasks" 与 `"/agenda" 在连接图、任务工作台和日程之间切换，并把 fuzzy query、CEL、preset chips、sort、 selection 与 graph traversal 写入 URL。`"+" menu 的 server-registered presets 覆盖 task state、actionable、 due、wait/dependency 和 graph connectivity/task counts；custom CEL 与 presets 分别验证后使用 logical AND。 Tasks 在 URL 没有显式 preset state 时默认启用 `"State: Ready"。每个 document 是 task forest 的 虚拟结构节点。Tasks sort 是可增删和重排的 Priority、Due、Relevance keys；无显式 URL state 时 默认为 Priority，显式空列表只使用固定 Source tie-break。Priority 降序，Due 升序且缺失值最后， Relevance 降序；无 fuzzy query 时 Relevance 不改变顺序。所有 keys 只递归排序同一 parent 下的 sibling subtrees，因此 document 和 parent/subtask subtree 始终连续。Priority 取 subtree 最大 effective priority，Due 取 subtree 最早 due，Relevance 取 subtree 最大 fuzzy score。过滤先确定当前结果集合，未显示的 task 不会参与这些聚合；详情显示 derived state、timestamps、dependencies 与 child tasks。`"New Task" 是主 toolbar 的 Tasks-only action：切到 Tasks 时显示， 切到 Graph 或 Agenda 时隐藏，并且不随 detail selection 移动。 点击 detail 中已有的 editable property 会原位打开对应 control；`"Add property" 列出当前缺失的标准 editable fields。 两种操作都复用 revision-guarded task authoring，derived state 与 closure fields 保持只读。
 
-Agenda 按 at 或 start、path 和 source position 显示 point/closed/running events。Loopback server 上可以从已索引 document
-创建 event，或通过 revision-guarded operation 编辑、删除已有 event。Event detail
-显示 at/start/end、details 与 task references。Event form 显式选择 Point 或 Interval，空 interval
-end 表示 running，不能再用空 end 表示 point。Agenda 初次打开时定位到当前时间；`"Now" button 随时跳回
-当前时间，即使当天没有 event 也显示当天和当前时间 marker。大 agenda 只渲染当前时间附近的有界 window，
-使用 Earlier/Later controls 按页浏览其余 events；显式 URL selection 会打开包含目标 event 的 window。
-Mobile Web mutation 初版要求在线，不缓存待提交 edits。
+Agenda 按 at 或 start、path 和 source position 显示 point/closed/running events。Loopback server 上可以从已索引 document 创建 event，或通过 revision-guarded operation 编辑、删除已有 event。Event detail 显示 at/start/end、details 与 task references。Event form 显式选择 Point 或 Interval，空 interval end 表示 running，不能再用空 end 表示 point。Agenda 初次打开时定位到当前时间；`"Now" button 随时跳回 当前时间，即使当天没有 event 也显示当天和当前时间 marker。大 agenda 只渲染当前时间附近的有界 window， 使用 Earlier/Later controls 按页浏览其余 events；显式 URL selection 会打开包含目标 event 的 window。 Mobile Web mutation 初版要求在线，不缓存待提交 edits。
 
-`"plumb event --root DIR export-vdir --output DIR" 将 workspace events 原子投影到受管理 vdir，每个 event
-对应一个 `"..ics" file。khal calendar 配置使用该目录并设置 `"readonly = true"；`".plumb" 仍是唯一
-writable source，Calendar 修改不会回写。
+`"plumb event --root DIR export-vdir --output DIR" 将 workspace events 原子投影到受管理 vdir，每个 event 对应一个 `"..ics" file。khal calendar 配置使用该目录并设置 `"readonly = true"；`".plumb" 仍是唯一 writable source，Calendar 修改不会回写。
 
-open task 无论是否具有 explicit id 都可以一键 complete 或 cancel，不弹 confirmation dialog；request
-pending 时当前 task 的 mutation buttons disabled。dependency-waiting task 不能 complete。operation 使用
-server-issued id 或 source-offset locator，携带 document revision guard 并复用 shared task edit，因此
-recurring completion 仍生成下一实例；success/error 使用 non-blocking notification，conflict 后重新读取
-snapshot。
+open task 无论是否具有 explicit id 都可以一键 complete 或 cancel，不弹 confirmation dialog；request pending 时当前 task 的 mutation buttons disabled。dependency-waiting task 不能 complete。operation 使用 server-issued id 或 source-offset locator，携带 document revision guard 并复用 shared task edit，因此 recurring completion 仍生成下一实例；success/error 使用 non-blocking notification，conflict 后重新读取 snapshot。
 
-Tasks detail 的 `"New task" 与 `"Edit" 打开结构化表单。创建时选择 source document；创建和编辑都可设置
-title、parent、同层 position、created、due、wait、priority、recurrence、previous task 与 dependencies。
-Datetime 使用本地 date/time control，保存时转为 RFC 3339；priority 是 signed integer，recurrence 从标准
-interval 中选择并要求同时设置 due。state 由 task semantics 推导，表单不允许直接修改；关闭 task 仍使用
-Complete 或 Cancel。
+Tasks detail 的 `"New task" 与 `"Edit" 打开结构化表单。创建时选择 source document；创建和编辑都可设置 title、parent、同层 position、created、due、wait、priority、recurrence、previous task 与 dependencies。 Datetime 使用本地 date/time control，保存时转为 RFC 3339；priority 是 signed integer，recurrence 从标准 interval 中选择并要求同时设置 due。state 由 task semantics 推导，表单不允许直接修改；关闭 task 仍使用 Complete 或 Cancel。
 
-Parent 与 position 只列出目标 document 中已索引的 tasks。Previous task 和 dependencies 显示可读 title、
-source path 与 explicit id，并向 server 提交 opaque document identity 和 task locator；same-file 或
-cross-file reference spelling 由 shared authoring operation 生成。创建操作生成 explicit id 与 created
-timestamp；编辑保留不属于标准表单的 declaration children、nested tasks 和其它 child blocks。
+Parent 与 position 只列出目标 document 中已索引的 tasks。Previous task 和 dependencies 显示可读 title、 source path 与 explicit id，并向 server 提交 opaque document identity 和 task locator；same-file 或 cross-file reference spelling 由 shared authoring operation 生成。创建操作生成 explicit id 与 created timestamp；编辑保留不属于标准表单的 declaration children、nested tasks 和其它 child blocks。
 
-所有 create/edit requests 携带 document revision。server 在写入前再次比较 indexed source 与 disk source，
-应用 owned syntax edit，并验证结果仍是严格有效的 plumb；stale revision、external edit、invalid field、
-unresolved dependency 或 dependency cycle 都不会覆盖文件。失败时表单显示 field/global error 并刷新 snapshot；
-成功时保持当前 filters、sort 与 document context，并选中新建或更新后的 task。
+所有 create/edit requests 携带 document revision。server 在写入前再次比较 indexed source 与 disk source， 应用 owned syntax edit，并验证结果仍是严格有效的 plumb；stale revision、external edit、invalid field、 unresolved dependency 或 dependency cycle 都不会覆盖文件。失败时表单显示 field/global error 并刷新 snapshot； 成功时保持当前 filters、sort 与 document context，并选中新建或更新后的 task。
 
-非-loopback `"--host" 默认禁用 task mutations；只有显式添加 `"--allow-mutations" 才启用。browser mutation
-必须是 same-origin JSON POST，server route 只接受已索引的 opaque document id 与 server-issued task
-locator，不接受 filesystem path；source-offset locator 还必须精确匹配当前 revision 中 task block 的
-opener start。把 server 暴露到非-loopback network 前需要自行提供访问控制。
+非-loopback `"--host" 默认禁用 task mutations；只有显式添加 `"--allow-mutations" 才启用。browser mutation 必须是 same-origin JSON POST，server route 只接受已索引的 opaque document id 与 server-issued task locator，不接受 filesystem path；source-offset locator 还必须精确匹配当前 revision 中 task block 的 opener start。把 server 暴露到非-loopback network 前需要自行提供访问控制。
 
 反向代理后的 HTTPS mutation 使用 `"--public-origin" 显式声明 browser 访问的 origin，例如：
 
-`sh
-
-|"
+`sh"
  plumb site serve --host 127.0.0.1 --port 3000 \
    --public-origin https://zettelkasten.example.org:9162
 
-该 option 只接受没有 path/query/fragment/userinfo 的 HTTP(S) origin，并要求 mutation request 的 browser
-`"Origin" 完全匹配；server 不把代理 headers 当作可信 origin。配置后，缺少 `"Origin" 的 mutation request
-也会被拒绝。
+该 option 只接受没有 path/query/fragment/userinfo 的 HTTP(S) origin，并要求 mutation request 的 browser `"Origin" 完全匹配；server 不把代理 headers 当作可信 origin。配置后，缺少 `"Origin" 的 mutation request 也会被拒绝。
 
-server URL 单独写入 stdout；启动状态、task mutation、所有 non-GET requests 和任何 HTTP 4xx/5xx
-responses 写入 stderr。task operation 同时记录 received、rejected reason 或 completed，例如：
+server URL 单独写入 stdout；启动状态、task mutation、所有 non-GET requests 和任何 HTTP 4xx/5xx responses 写入 stderr。task operation 同时记录 received、rejected reason 或 completed，例如：
 
-`text
-
-|"
+`text"
   plumb site serve: received task complete for DOCUMENT (Id { id: "TASK" })
   plumb site serve: POST /api/task/DOCUMENT/complete -> 409
 
 `"--exclude EXPR" 使用 note CEL fields 隐藏 predicate 为 true 的 node 及其 connections：
 
-`text
-
-|"
+`text"
   plumb site serve --exclude 'path in ["closed.plumb", "diary.plumb"]'
 
-`".ignore" 与 graph CEL 的职责不同：前者阻止 document 进入整个 workspace index；后者保留 document
-的其它工具能力，只从 graph projection 移除 node、degree、local traversal 和 force layout effects。
+`".ignore" 与 graph CEL 的职责不同：前者阻止 document 进入整个 workspace index；后者保留 document 的其它工具能力，只从 graph projection 移除 node、degree、local traversal 和 force layout effects。

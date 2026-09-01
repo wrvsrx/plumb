@@ -1,8 +1,6 @@
-`= title|plumb roadmap
+`= title plumb roadmap
 
-本页只记录尚未完成或需要继续验证的工作。当前可用 surface 见
-`->[工具链指南|../guide/toolchain.plumb]；已经冻结的规则见 `"`reference/"；可以直接
-实施和验收的 TODO 见 `->[tasks|tasks.plumb]。
+本页只记录尚未完成或需要继续验证的工作。当前可用 surface 见 `->{工具链指南 ../guide/toolchain.plumb}；已经冻结的规则见 `"`reference/"；可以直接 实施和验收的 TODO 见 `->{tasks tasks.plumb}。
 
 `# Authoring tools
 
@@ -20,16 +18,8 @@
 `# Semantic profile
 
 `- 只有具体需求出现后再设计 structured citation cluster、locator、affix 和 citation modes。
-`- thematic break 和其他尚未定义的 presentation semantics 需要独立 proposal，不进入
- core reserved syntax。
+`- thematic break 和其他尚未定义的 presentation semantics 需要独立 proposal，不进入 core reserved syntax。
 `- normalized AST 只在 typed views 无法满足 concrete consumer 时引入。
-
-`# Core syntax redesign
-
-`->[Recursive owner syntax proposal|recursive-syntax-proposal.plumb] 记录一套尚未冻结、尚未实现的 breaking
-candidate：以 optional-marker recursive owners 统一 block/inline，使用 braces 分组 inline data，并移除
-brackets member envelope 与 pipe argument separator。审核完成前 current reference、guide、parser 与
-migration contract 都维持不变。
 
 `# Workspace and notes
 
@@ -38,5 +28,4 @@ migration contract 都维持不变。
 
 `# Release policy
 
-0.x 阶段遵循 semantic-ish versioning：仅 fixes 发布 `"0.x.(y+1)"；新增 feature 或 behavior change
-发布 `"0.(x+1).y"。release commit 统一更新 workspace version 和 lockfile，tag 后进入下一 dev version。
+0.x 阶段遵循 semantic-ish versioning：仅 fixes 发布 `"0.x.(y+1)"；新增 feature 或 behavior change 发布 `"0.(x+1).y"。release commit 统一更新 workspace version 和 lockfile，tag 后进入下一 dev version。

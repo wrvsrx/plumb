@@ -1,241 +1,166 @@
 # Core Syntax
 
-Read this file completely before authoring plumb source. Core is strict and
-semantics-neutral: it recognizes source structure but does not assign meaning
-to marker names, inline kinds, direct children, or raw payloads.
+Read this file completely before authoring plumb. Core is strict and
+semantics-neutral: marker names remain opaque syntax.
 
 ## Blocks
 
-Ordinary text forms paragraphs. A marked block starts with one backtick, a
-nonempty marker, and an optional head:
+Every nonblank physical line starts one block. A line not beginning with a
+block marker is an anonymous parsed block. A marked block uses one backtick, a
+nonempty marker, and optional content separated by ASCII space:
 
 ```plumb
-Paragraph text.
-
-`marker Head text
-`marker Another head
+ordinary paragraph
+`note
+`note Head content
 ```
 
-The marker may contain any non-whitespace, non-control Unicode scalar except
-backtick, double quote, brackets, and pipe. It is case-sensitive and kept
-losslessly.
-
-A block can have indented children. The first child establishes the child
-column; sibling children use exactly that column. Canonical formatting uses one
-additional space. Dedent returns to an existing outer indentation level.
+Newline separates blocks. A more-indented following block becomes a child of
+the preceding parsed block. The first child establishes its column; siblings
+must match it and dedent must return to an established column. Canonical
+indentation adds one ASCII space.
 
 ```plumb
+parent
+ child
+
 `parent Head
  `child One
  `child Two
-`grandchild Three
 ```
 
-An empty-head marked block may put its first marked/verbatim child after
-ASCII-space head padding on the same physical line. That child's introducer column
-establishes the sibling column:
+Anonymous and marked parsed blocks can own children. A verbatim block cannot.
+Blank lines are layout and do not create empty blocks. Write `{}` on its own
+line when an explicit empty anonymous block is needed. There are no paragraph
+or head continuation lines: every physical newline is a block boundary.
+
+## Marker Dispatch
+
+A block marker must be followed by ASCII space or line ending. When a marker is
+immediately followed by `{` or by a same-line quote envelope, it belongs to an
+inline owner in an anonymous block:
 
 ```plumb
-`- `- First
-   `- Second
+`note content
+`note{content}
 ```
 
-A nonblank indented plain line immediately following a marked head, without an
-intervening blank line, continues that head. Put a blank line before an
-indented paragraph child. Only marked blocks can own children.
+The first line is a marked block. The second is an anonymous block containing a
+marked inline group.
 
-Block heads and paragraphs contain one or more ordered parsed arguments. The
-first argument has no leading separator; a bare `|` at the current inline depth
-starts each later argument. Direct ASCII spaces at argument boundaries are
-typed padding: semantic consumers trim them while lossless source and formatting
-preserve them. Ordinary ASCII space always produces inline space and never an
-argument boundary. Each nested parsed argument is independently projected
-through the same trimmed view. Consecutive separators create empty arguments,
-and `` `| `` writes a literal pipe. The first ASCII space after a block marker
-is the first inline space in its lossless head; the typed first argument trims
-it as boundary padding. A tab or other whitespace cannot open a marked head:
+Markers are nonempty, case-sensitive runs excluding whitespace, controls,
+backtick, double quote, and braces. Brackets and pipe are ordinary marker/text
+characters in this epoch.
+
+## Inline Contents and Data
+
+Inline contents losslessly preserve Text, ASCII SpaceRun, Group, and Verbatim
+elements. One or more direct ASCII spaces separate positional data at the
+current depth. Repeated spaces still represent one boundary and never create an
+empty datum. Adjacent terms without a direct space form one rich datum.
 
 ```plumb
-`event 14:00--15:30|Parser review
-`row Language server|Waiting||Optional note
-
-ordinary first argument|second argument
+prefix`!{strong}suffix
+`row Alice   10   {}
 ```
 
-Use backtick-space for a literal boundary space. It produces parsed text rather
-than inline space, so typed trimming preserves it:
+`{content}` is an anonymous group and occupies one term in its parent.
+`` `kind{content} `` is a marked group. Group-internal spaces do not split the
+parent datum.
 
 ```plumb
-`row ` Alice` |10
-`kind[` value` ]
+{guide with spaces}
+`->{{guide with spaces} {Project Guide.plumb}}
+`node{visible `@{stable} `={key value}}
 ```
 
-Two backticks escape the introducer and produce a literal backtick:
+Groups may nest but may not cross a physical line. `{}` is an explicit empty
+datum. The marker is outside the group and is not its first datum.
+
+## Escapes
+
+Backtick is the sole introducer. Parsed text has three escapes:
 
 ```plumb
-``marker is literal text
-``kind `[content`] is literal text
+`` literal backtick
+`{ literal opening brace
+`} literal closing brace
 ```
 
-## Document Root
-
-The document is an implicit root owner. It contains one source-ordered sequence
-of top-level blocks. Braces are ordinary parsed text and never establish an
-ownership site. Semantic profiles may interpret ordinary top-level marker
-spellings as document declarations.
-
-```plumb
-`= title|Document title
-
-Body paragraph.
-```
-
-## Direct Ownership And Raw Tails
-
-Every marked block owns one source-ordered sequence of directly indented
-children. Declarations and ordinary structural children may interleave; core
-does not interpret their marker spellings.
-
-```plumb
-`node Head
- `@ intro
- `+ note
- `= level|2
- `note ordinary child
-
-`task A head that wraps
- across lines
-
- `= created|2026-08-07T09:00:00+08:00
-
-```
-
-A marked block may have one terminal raw tail after all children. Put `|` and
-one or more quotes on the owner's introducer column, then indent each nonempty
-payload line by the quote count:
-
-```plumb
-`rust
- `@ example
-|"
- fn main() {}
-```
-
-The boundary is an optional singular owner field, not a child. Once it appears,
-the owner remains in raw phase and cannot resume parsed structure. An anonymous
-raw leaf uses a backtick and one or more quotes and enters raw phase
-immediately:
-
-```plumb
-`"
- anonymous raw
-```
-
-It has no head or children. When raw content needs declarations or ordinary
-children, use the explicit transparent `()` marker and a raw tail. Braces,
-including the removed postfix `{...}` and `{#id .class key=value}`
-spellings, are ordinary current parsed text; use the explicit migration command
-for legacy ownership syntax.
-
-## Parsed Inline Elements
-
-A parsed inline element has a nonempty kind and ordered members:
-
-```plumb
-`kind[content|@[stable]|+[class]|=[key|value]]
-`outer[before `inner[nested] after|child[value]|code"[raw]"]
-```
-
-Bare `[` and `]` are always structural: an unescaped opening bracket is legal
-only right after an inline kind and an unescaped closing bracket closes the
-current element. A member-level `|` is structural. Literal brackets and parsed
-argument pipes use the single-backtick escape; braces are ordinary text.
-Parsed inline elements may cross continuation lines belonging to the same paragraph/head; those
-boundaries become soft breaks. Blank lines, dedents, block-only entries, and
-EOF remain hard boundaries.
-
-Core does not interpret kinds. For example, `*[text]` and `_[text]` are generic
-inline elements unless the official semantic profile explicitly defines them.
-
-The opening `[` is mandatory and the kind must be nonempty; there is no
-anonymous element. Every element has a first parsed argument, which may be empty;
-`kind[]` therefore contains one empty parsed argument. A bare `` `kind`` is
-invalid, and there is no zero-member element.
-
-A parsed inline element uses one envelope with `|`-separated ordered members:
-
-```plumb
-`kind[only]
-`kind[first|second]
-`kind[first|child[value]|"[raw argument]"|code"[raw child]"]
-```
-
-The first member is always a parsed argument. In later members, a nonempty kind
-followed by `[` is an introducer-elided parsed child, while a kind followed by a
-full quote/bracket envelope is a verbatim child. Full unkinded verbatim
-envelopes are arguments only after a `|`; use `kind[|"[raw]"]` when the first
-parsed argument is empty. Compact quotes inside members remain parsed text;
-compact verbatim is available only as an introduced standalone inline.
-Arguments and children may interleave after the first argument. Only `|`
-separates members; direct ASCII boundary spaces are typed padding. Every nested
-parsed argument is independently trimmed, and padding around a later member
-does not change its verbatim-argument or parsed/verbatim-child classification.
-Use `` `|`` for a literal pipe inside parsed argument content. Core preserves
-source order but does not assign kind-specific meaning or arity.
+Brackets, pipe, and ordinary double quote need no escaping. Malformed special
+entries are parse errors, never fallback text. Parsed tabs and controls are
+invalid outside verbatim payloads.
 
 ## Inline Verbatim
 
-Compact inline verbatim starts with a backtick, an optional opaque kind, and a
-single double-quoted nonempty raw payload:
+Compact anonymous or marked inline verbatim uses one quote pair and permits an
+empty payload:
 
 ```plumb
 `"cargo test"
-`rust"let x = 1;"
 `$"x^2"
+`$""
 ```
 
-For an empty payload, multiple opening quotes, or a payload containing a quote,
-use a strengthened quote-and-bracket envelope;
-the closing bracket must be followed by the same quote count:
+When the payload contains a quote or begins with `{`, use the full envelope: a
+quote run, opening brace, opaque payload, closing brace, and the same quote run.
+Increase quote strength until the payload contains no matching closing-like
+sequence.
 
 ```plumb
-`"[contains " safely]"
-`rust""[contains ]" safely]""
+`"{raw containing "quotes"}"
+`""{raw containing }" safely}""
 ```
 
-Raw content stays on one physical line and is not parsed. Standalone inline
-verbatim has no children; use a full element with a verbatim argument when an
-owner also needs children.
+The quote run followed immediately by `{` always dispatches to full verbatim,
+so that spelling is never interpreted as compact raw beginning with a brace.
+Inline raw stays on one physical line.
 
-## Block Raw
+## Block Verbatim
 
-An anonymous verbatim block uses a backtick and one or more opening quotes, then
-ends the opener line immediately. The quote count declares the number of ASCII
-structural spaces on each nonempty raw-body line:
+An own-line backtick plus quote opens anonymous block raw. Put an opaque marker
+before the quote for marked raw:
 
 ```plumb
 `"
  anonymous raw
+
+`rust"
+ fn main() {}
 ```
 
-The body ends at the first nonblank line indented less than that margin. After
-the structural spaces, preserve payload spaces, tabs, line endings, and
-syntax-like text exactly. Internal blank lines need no margin. A trailing blank
-line belongs to the payload only when it carries the complete declared margin;
-the first marginless trailing blank ends the payload and becomes block layout.
-There is no closing fence. An empty anonymous verbatim block is valid.
-Named block raw uses a terminal `|` plus quote-run boundary on the owner column. The
-quote count declares the raw-body structural margin just as it does for an
-anonymous opener. Canonical formatting preserves an existing quote count and
-its matching margin without changing raw payload bytes; newly owned raw payloads
-default to one quote. A childless owner's boundary is adjacent to its head,
-while an owner with children keeps one blank separator before the boundary.
+Each payload line starts with the opener indentation plus one structural ASCII
+space. Strip exactly that space and preserve every following byte. A raw blank
+line must carry the margin. The first line lacking it ends raw and is processed
+as a normal block. Empty payload and EOF are valid; there is no closing fence,
+raw tail, or quote-count block margin.
 
-## Avoid Markdown And Djot Assumptions
+Raw cannot own parsed children. Wrap it when declarations are needed:
 
-- Do not write `# heading`, `- item`, fenced code blocks, or Markdown links
-  without the plumb backtick introducer and envelopes.
-- Do not assume punctuation is globally special.
-- Escape literal ASCII space, `[`, `]`, or member-level `|` with a single backtick.
-  Braces are ordinary. There is no general backslash escape language.
-- Do not turn a syntax error into literal text. Repair the intended structure.
+```plumb
+`()
+ `@ example
+ `= language rust
+ `rust"
+  fn main() {}
+```
+
+## Root and Declarations
+
+The document is an implicit root owning top-level blocks. Core stores every
+direct child in source order and does not reserve `@`, `+`, or `=`. The standard
+profile projects those direct marked owners as id, facet, and property
+declarations. The same projection works for direct marked groups inside an
+inline owner.
+
+## Strictness and Recovery
+
+Any syntax error makes the document invalid for semantic analysis and export.
+The parser still returns a recovered typed tree, complete diagnostics, and a
+lossless token stream that reconstructs every input byte. Block errors recover
+at physical lines; group and inline-verbatim errors recover at the current line;
+partial dedent recovers at an existing outer column.
+
+Use `plumb migrate --from member-envelope-v1` for the removed bracket member
+envelope, pipe separators, continuation lines, delimiter-escaped brackets and
+pipe, quote-count block margin, and marked raw-tail syntax.

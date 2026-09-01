@@ -1,242 +1,104 @@
-`= title|plumb syntax editing
+`= title plumb syntax editing
 
 `# 1. Boundary
 
-`"plumb-edit" 是 valid strict syntax tree 上的 protocol-neutral mutation 与 finalization layer。它依赖
-`"plumb-syntax" 和 `"plumb-format"，不依赖 official semantics、workspace、LSP 或 filesystem。
+plumb-edit 是 valid strict syntax tree 上的 protocol-neutral mutation/finalization layer。它依赖 plumb-syntax 与
+plumb-format，不依赖 semantics、workspace、LSP 或 filesystem。LSP/CLI/Web/workspace adapters 传同一
+ParsedDocument revision 与 mutation intent，只翻译/apply returned byte edits。
 
-semantics 与 workspace 决定 operation intent 和 target；edit layer 只执行 syntax mutation、验证
-source ranges、canonicalize affected complete block subtree，并产生针对原 revision 的 text edit。
+adapter 不得直接调用 plumb-format、重复 parse 已有 revision、手算 indentation/delimiters 或拼 subtree text。
+raw token replacement 只用于 validated mechanical rename；structure changes 使用 owned syntax。
 
-`"plumb-syntax" 继续只负责 parse 与 lossless/typed tree，不接收 mutation。本文所称统一 core editing
-boundary 是 `"plumb-edit"：LSP、CLI、Web 和 workspace 等 adapter/host 不直接调用 formatter，也不自行
-serialize CST replacement。`"plumb-format" 是 edit layer 使用的 canonical rendering policy，不是 editing
-consumer 的入口。
+`# 2. Owned recursive syntax
 
-`# 2. Owned syntax
+OwnedBlock/OwnedInline 是 source-independent constructible counterpart，不是 semantic AST。Owned block 表达
+optional marker、parsed head/direct children 或 terminal verbatim payload；Owned inline 表达 Text、Space、
+anonymous/marked Group 与 optional-marker Verbatim。
 
-新增内容使用 semantics-neutral `"OwnedBlock"、`"OwnedInline"、`"OwnedAttribute" 和 `"OwnedValue"。
-owned nodes 表达 marker、direct declarations、包含 explicit argument separators 的 head、children、raw tail 与 inline structure，不携带 source
-ranges，也不识别 metadata、task、link 或其他 semantic profile meanings。
+positional arguments 由 structured API 构造：caller 传 ordered data，edit layer 决定 SpaceRun、anonymous group
+与 empty group。caller 不在 flat sequence 中手工插 delimiter。property/definition helper 按 first datum +
+remaining sequence生成 current shape。
 
-owned nodes 可以从 strict typed syntax view detach，也可以由 operation 构造。serializer 只负责生成
-valid intermediate source；最终 layout 始终由 `"plumb-format" canonicalize。operation 不拼接完整 CST
-block、手工计算 multiline attribute layout 或复制 subtree indentation。
+generic declarations仍可由 OwnedAttribute convenience 转成 direct `"@"/`"+"/`"=" owners；meaning 不进入 edit
+layer。Owned conversion from syntax 必须把 InlineContent datum ranges 投影回 owned boundaries，使 property
+retain/remove/update 能识别 current source。
 
-Block head arguments 通过 `"plumb-edit" 的 structured arguments API 构造、替换或 prepend；semantic/workspace
-caller 不得在 flat `"OwnedInline" sequence 中手工插入 `"ArgumentSeparator" 或 boundary `"Space" 来表达
-argument layout。该 API 是基础 `" | " padding policy 的唯一实现，并同时供 `"OwnedBlock" mutation 与
-不绑定 revision 的纯 authored-fragment renderer 使用。
+`# 3. Canonical rendering
 
-owned inline element rendering 保证 first member 是 parsed argument。operation 未提供 members 时输出 empty
-first argument；若构造的首项是 verbatim argument 或 child，renderer 在其前插入 empty parsed argument，
-使后续 member 经过显式 `"|" boundary 输出。
+canonical rules：
 
-owned syntax 是 mutation intent 的 data model，不是预先渲染的 replacement text。Consumer 可以按 semantic
-语义修改 detached owned tree，但只有 edit layer 可以把它映射回 source ranges、indentation、line endings
-与 text edits。
+`- child column 是 owner column 加一 ASCII space。
+`- marked block content 与 marker 之间 one ASCII space；anonymous block无 marker prefix。
+`- ordinary direct datum boundary输出 one ASCII space；explicit alignment 可以增加 SpaceRun width。
+`- group boundary不保留 leading/trailing padding；empty datum输出 `"{}"。
+`- literal backtick/braces 使用 core introducer escapes；brackets/pipe ordinary。
+`- inline verbatim优先 compact quote；quote/leading-brace/closing collision 使用 minimal full quote strength。
+`- block verbatim opener optional marker + one quote；每个 raw line只增加 one structural margin，并逐 byte 保持
+ typed payload。
+`- raw blank payload line输出 margin；terminal raw 不添加 synthetic closing/layout bytes。
 
-`# 3. Declaration mutations
+formatter 不插 physical wrapping，因为 newline 是 block boundary。CRLF edits 保持 document line ending。
 
-统一 property API 将 insert、replace 与 remove 分开。insert 必须显式给出 `"First"、`"Last"、`"Before(index)"
-或 `"After(index)"；不存在隐式 append policy。一次 transaction 可以依次应用多个显式 insertion。
-owner 以 ordinary direct block/inline child 表达 id、facet 与 named property。新 owner、whole-owner
-rewrite 与 generated source 一律写 recursive direct-child syntax。block declaration insertion 必须插入
-owner 的 source-ordered children sequence；inline declaration insertion 必须插入 ordered members。
+`# 4. Spacing between blocks
 
-replace 与 remove 使用明确 item index。edit layer 不按 semantic name 猜测顺序，也不重新排列 opaque
-elements；formatter 只处理 whitespace、wrapping 和 indentation。
+owner 与 first child 之间 one line ending。direct siblings same marker、previous childless 时紧凑相邻；different
+marker、subtree/semantic separation 可保留一个 blank separator。verbatim payload 与 following block 分隔但不
+让 layout blank进入 payload。range formatting 使用 following sibling 作为 read-only spacing context，不扩大
+mutation range。
 
-`## Canonical block ownership 与 raw-tail layout
+`# 5. TextEdit invariants
 
-普通 children、declaration children 与 deferred head continuation统一使用 owner column 加一，不按 marker
-width 对齐 conceptual head column。document body 与 marked-block children 使用同一套 sibling spacing：前一个
-parsed block 没有 children 且前后 marker 相同时只用一个 line ending；前一个 block 有 children、marker
-不同或任一 sibling 不是 parsed block 时使用一个 blank separator；前一个 block 的 terminal descendant
-有 raw payload 时同样保证一个 blank separator。direct ownership、document metadata projection 与
-其他 semantic profile meaning 不得改变这套 syntax-only spacing。
+TextEdit 使用 UTF-8 half-open byte range，必须位于同一 ParsedDocument source boundaries。一个 edit batch ranges
+non-overlap；apply 从后向前。revision-guarded WorkspaceEdit 每个 DocumentEdit 携 expected revision，resource
+operation 与 text edit order deterministic。
 
-marked block raw tail 的 `"N" quote-run boundary 与 owner column 对齐，payload 使用 owner column 加
-`"N" 个 ASCII-space structural margin。owner 没有 children 时，boundary 紧接 head line；存在 children 时，
-children 与 boundary 之间使用普通异类 sibling separator。boundary 后立即进入 payload，不插入属于 payload
-的隐式 blank line。anonymous verbatim opener 与 marked raw-tail boundary 都保留 parsed quote count；owned
-syntax 新建 raw payload 时默认 `"N = 1"。formatter 同步重写每条非空 raw-body line 的 structural prefix，
-不得改变 typed raw payload 的任何 byte。内部 empty payload line 保持无缩进；trailing empty payload line
-加完整的 `"N" structural spaces，以免被解析为 layout。非终端 verbatim 与后续 block 之间输出一个无缩进 blank
-separator；终端 verbatim 在 EOF 不添加 layout blank，并保留 payload 是否带 final newline。quote count
-是 raw structural margin 的 source-level 声明，不按 closing-delimiter collision 重新选择。
+format document 先生成 canonical source，再使用 anchored line diff 产生 non-overlapping changed-line edits；
+fallback whole replacement 只在 diff projection 无法重建 canonical output 时使用。contained-block formatting只
+选择 selection 完整包含的 maximal subtrees。
 
-`# 4. Block mutations
+`# 6. Structural mutations
 
-block API 支持插入 owned blocks、插入 sibling blocks、用 owned block 替换完整 block，以及删除完整
-block。sibling insertion 从 revision snapshot 的 owner column 推导 base indentation，保留 LF/CRLF，
-再由 formatter 使用相邻 sibling 作为 read-only spacing context。
+replace/insert/remove/move 只接受完整 syntax node ranges。replace/move 从 current syntax 构造 OwnedBlock，修改
+owned tree，再由 edit renderer决定 braces/spaces/indentation。不能截取 source fragment后自行 dedent/reindent。
 
-metadata insertion 使用 ordinary top-level `"=" owned blocks；recurring-task clone 使用 owned block
-insertion。recurring task operation 在
-owned declaration children 上移除旧 instance state、设置 next instance fields，不再对 source slice 做相对 range
-replacement。
+direct declaration insert position使用 First/Last/Before/After typed item。anonymous/marked parsed owner 均可拥有
+declaration children；verbatim leaf 需要先使用 wrapper structure。
 
-一次用户 authoring intent 如果同时修改 block 内容与结构位置，workspace 必须在原 revision 的同一个 owned
-syntax transaction 中完成两者，并返回一个 guarded `"WorkspaceEdit"。transaction 先从原 tree detach 完整
-subtree，在 owned subtree 上应用内容 mutation，再把同一个 subtree 插入目标位置；idless owner 不依赖修改后的
-head 或重新查询来定位。adapter 不得应用部分 edit、parse 中间 source，再发起第二个 workspace operation。
-同 parent reorder、跨 parent move、top-level 与 nested 之间的 move 都遵守这一规则；opaque direct children 随
-完整 subtree 保留。目标是 source subtree 本身或其 descendant 时，operation 必须拒绝 placement。
+Task/Event/metadata operations 先在 semantics/workspace 解析 intent，再调用 generic owned mutations。status field
+update 要 retain opaque declarations/body，property remove/add后重新 align 受影响的 direct property run，并格式化
+完整 task subtree。
 
-`# 5. Finalization
+`# 7. Alignment
 
-`"EditSession" 绑定一个 valid `"ParsedDocument" revision 和 affected complete block range。commit：
+Align arguments 在 current syntax 中对 direct SpaceRun boundaries操作。eligible run 是至少两个 same-marker、
+same datum count、single-line、childless、non-verbatim sibling blocks。每个 column 使用 locked unicode-width
+display width；只改 direct separator spaces，不改 content、groups、verbatim、marker、indentation 或 line ending。
 
-`. 验证所有 logical mutation ranges 位于 UTF-8 boundaries 和 affected range 内。
-`. 拒绝 overlapping 或 ambiguous logical edits。
-`. 在内存副本应用 logical mutations。
-`. 使用 strict parser 与 `"plumb-format" canonicalize affected complete subtree。
-`. 将 modified ranges 映射回原 revision，产生一个连续 `"TextEdit"。
+ordinary formatter canonicalize boundary 至 one space；explicit alignment在该基础上增加 padding。table compact
+rows 因每个 direct datum 是 cell，alignment不改变 arity。tabs 或 incompatible shapes 时 operation unavailable。
 
-format scope 外 source 必须逐字节不变。children 随 owner subtree canonicalize；相邻 sibling 只提供
-spacing context，不进入 editable scope。empty document insertion format 整个新文档。
+`# 8. Recovered-source assists
 
-`# 6. Formatting intent
+completion 可以对 local invalid prefix 返回 replacement，但不是 authoritative valid-tree mutation。construct
+snippets 仍必须展开为 current syntax：
 
-formatting 与 mutation 共用同一 revision-bound edit boundary。Protocol-neutral format request 绑定已有
-`"ParsedDocument"，scope 只有：
+`- Link `"`->{{${1:label}} ${2:target}}"。
+`- Citation `"`cite{${1:id}}"。
+`- Task/Event 使用 list item 与 direct facet children，property使用 spaces。
+`- nested completion 根据 client insertTextMode 只投影 base indentation；relative child depth保持一格。
 
-`- `"Document"：format 当前 revision 的完整 document。
-`- `"ContainedBlocks(selection)"：由 edit layer 在现有 valid tree 中解析 selection，选择其中 maximal
- complete block subtrees；空 selection 不隐式选择 cursor owner。
+apply 后的 source 必须 strict-valid且 formatter fixed point。bare/incomplete verbatim payload不猜测 construct。
 
-consumer 不传 source string 让 formatter 重新 parse，也不传预先计算的 replacement。edit layer 把 scope
-解析为 syntax nodes，调用 canonical renderer，并返回 source-ordered、non-overlapping `"TextEdit" list。
-同一 revision 只使用 workspace/CLI 已持有的 `"ParsedDocument"；formatter 不重新 parse。LSP 只负责
-byte range 到 protocol position 的转换，CLI/Web 只负责 revision validation、应用 edits 与 I/O。
+`# 9. Versioned migration
 
-whole-document format 可以产生 changed-line minimal edits。canonical rendering 不重排 syntax nodes；line
-diff 因而先把 source 与 rendered output 中两侧均 unique、内容相同且顺序单调的 lines 作为 deterministic
-anchors，再在相邻 anchors 之间计算 Myers diff。没有可用 anchor 的 interval 仍直接计算 Myers diff；
-算法不使用 wall-clock deadline 或依赖机器速度的 fallback。range format 只编辑 scope 选中的 complete
-subtrees。无论 adapter 如何应用，使用同一 request 必须得到相同 byte edits。
+plumb-migrate owns explicit syntax-epoch conversion。member-envelope-v1 使用 frozen plumb-syntax-legacy-v2；current
+parser 不保留 compatibility branch。converter 从 legacy typed tree构造 current OwnedDocument：
 
-`# 7. Token rewrites
+`- old block arguments按 semantic-safe policy映射为 current data/groups。
+`- old inline arguments在需要 spaces 时加 anonymous group；children变 direct marked groups。
+`- old raw tail无 children/head时变 marked VerbatimBlock；有 declarations/children时使用 transparent wrapper +
+ marked raw child。
+`- old quote strength/raw bytes/direct ownership保持。
 
-anchor/document rename 是 valid revision 上的机械 token rewrite。它们通过 `"plumb-edit" 验证 source
-range 并产生 ordered minimal edits，但不触发 subtree formatting。workspace 继续负责 multi-document
-grouping、expected revisions、resource operations 与 atomicity requirements。
-
-Anchor rename 的 validated range 来自 typed identity value range，不从完整 declaration range 推导。对
-`"`@ task" block declaration，rewrite 只替换 `"task" bytes；marker、padding、line ending、空白分隔与后续
-facet/property siblings 必须逐 byte 保持。Inline `"@[id]" 使用其 first argument value range 遵循同一规则。
-
-raw replacement 只对这种已有 typed token ownership 的机械 rewrite 开放。Block insert/replace/remove/move、
-declaration mutation、conversion 与 formatting 不得使用 raw `"TextEdit::replace" 绕过 owned syntax 或 edit
-session。
-
-`# 8. Argument alignment
-
-Structured authoring 新生成或实际重写一个包含两个及以上 head arguments 的 block 时，每个 bare `"|"
-两侧默认各生成一个 ASCII-space boundary padding；该基础 padding 不要求存在 sibling run。Task/Event
-construct completion 等生成完整 block 的 recovered-source assist 同样遵守。Operation 只对自己生成或实际
-mutation 的 head/property 应用该规则，不回填未触及的既有 source。Formatter 保留 padding，但不全局补写。
-
-`"Align arguments" 是 valid syntax tree 上的显式、protocol-neutral whitespace rewrite，不属于 ordinary
-formatter。Operation 从 cursor 命中的最深 parsed block 出发，选择包含它的 maximal direct-sibling run；run
-必须至少包含两个 blocks，并且每个 block 都具有完全相同的 marker、相同且不少于两个的 head argument
-数量、单一 physical-line head、zero children 和 absent raw tail。不同 marker、argument arity、parent、普通
-paragraph、verbatim block、children/raw owner 或其他 sibling 结束 run。head 含 soft break、tab 或无法按固定
-Unicode display-width policy 计算的 source 时不提供 operation。
-
-Operation 对每个 argument column 使用 source spelling 的 Unicode display width；combining 与 wide characters
-遵循 locked `"unicode-width" implementation，不按 UTF-8 byte length 或 Unicode scalar count 对齐。它只
-重写 bare `"|" 邻接的 direct ASCII-space boundary padding，不改变 parsed/verbatim content、escaped spaces、
-separator token、marker、indentation、line ending 或 block layout。每个 separator column 对齐到该 run 的
-最大 content width；它以 structured authoring 的两侧单空格为基础，只增加 `"|" 左侧 padding。所有
-separator columns 独立对齐。
-
-结果没有 byte change 时 operation 不可用，adapter 不发布 Code Action。LSP 将可用 operation 投影为
-`"refactor.rewrite" kind、title 为 `"Align arguments" 的 Code Action。formatter 只保留 operation 产生的
-boundary padding，不主动对其他 sibling runs 执行全局对齐。Authoring operation 新建一组需要对齐的
-associations 时复用同一 display-width 与 padding policy，不通过 adapter 重新调用 Code Action。
-
-Structured authoring operation 在一个 owner 中新增、替换、删除或重排 direct `"=" property 时，必须在
-同一个 owned-syntax transaction 内对包含受影响 property 的 maximal eligible direct-sibling run 应用上述
-alignment policy。Task/Event create、field update、status closure 与 recurrence clone 均遵守该规则。
-只新增或修改 id/facet、只改 head/title、只移动 block，或未触及 property 的其他 operation 不得借机对齐
-已有 property runs；这些手写 source 继续由显式 Code Action 处理。Operation 不得先提交领域 edit，再从
-adapter 串联第二次 alignment edit。
-
-`# 9. Recovered-source assists
-
-completion、delimiter closure 等 assists 可能运行在 incomplete recovered source 上，此时不存在可安全
-mutation 的 valid owner node。它们可以返回局部 recovery text replacement，但不得伪装成 authoritative
-owned-syntax mutation，也不得进入 authoring finalization pipeline。
-
-Recovered assist 可以调用 `"plumb-edit" 的纯 structured-argument renderer 生成 candidate fragment；该调用
-不接收 recovered tree、不建立 `"EditSession"、不应用 edit，也不把 snippet placeholder 解释为 plumb
-syntax。Semantic query 仍拥有 candidate intent 与 recovered replacement range，LSP 只添加 snippet/indent
-projection。Valid-tree operation 与 recovered assist 因而共享 separator/padding policy，而不共享 mutation
-authority。
-
-当 completion replacement 自身生成一个完整 construct 时，它仍必须遵守对应 canonical structural layout，
-不能因绕过 authoring finalization 而选择不同的 separator 或 indentation。Snippet placeholders 与 client
-indentation projection 由 assist 层持有；展开后的非空 block head 与 children 之间使用一个 blank separator，
-empty head 与第一个 child 之间只使用一个 line ending。LSP `"adjustIndentation" 会把接受位置的 base
-indentation 添加到所有 continuation lines，因而 nested completion 的 blank separator 可以只包含该 base
-indentation；这是 client projection 允许的唯一 non-canonical whitespace，不得改变非空行的相对缩进。
-
-tree-sitter 不参与 mutation、formatting 或 range authority；它仍只服务 editor highlighting、folding、
-indentation、text objects 和 injections。
-
-`# 10. Versioned inline-member migration
-
-single-envelope inline members 是 breaking syntax change，提供显式 versioned migration；ordinary
-formatter 不得把旧 slots/attached groups 静默改写成新 members，ordinary strict parser 不保留
-两套等价入口。
-
-CLI 使用 isolated legacy reader 读取旧 revision，再把 lossless
-structure 转为 semantics-neutral owned members；新 source 的 rendering、canonicalization、strict reparse
-与 byte edit production 仍由 `"plumb-edit" 统一拥有。adapter、workspace 与 migration reader 都不得自行
-拼接 nested inline replacement text。
-
-纯 syntax conversion 保留 slot/group source order、opaque kind、raw payload 与 nesting。依赖 standard
-meaning 的 compact forms 由 semantics/workspace 提供明确 intent，例如 Link label/target split；generic
-owner 不按 spaces 或已知 kind 排除表猜测 positional arity。Link compact/`"to" forms 由独立的 fixed
-profile pass 转换。单文件写入必须 atomic，输出必须经 current strict parser 验证；两个 epochs 的重叠
-spelling 使调用方必须显式提供 source epoch。规则与完整 mapping 见
-`->[unified inline members design|../history/syntax/inline-members.plumb]。
-
-`# 11. Versioned block-group migration
-
-删除 block attached groups 与 named verbatim opener 是 breaking syntax change。`"plumb migrate" 提供显式
-legacy epoch；ordinary parser 不识别 old groups，formatter 不静默迁移。converter 使用 frozen legacy tree
-执行固定 structural mapping：
-
-`- document attached content 与 marked-block attached content 按原顺序转为 owner direct children。
-`- former attached children 排在 owner 原 ordinary children 之前；两个旧 sequences 各自保持 source order。
-`- named verbatim block 转为同 kind 的 empty-head marked block；former attached content 成为 direct children，
- bare raw-tail boundary 承载原 payload。
-`- anonymous verbatim 没有 attached content 时保留 anonymous compact form；有 attached content 时转为
- `"()" explicit owner、direct children 与 bare raw tail。
-`- brace-rich raw payload 逐 byte 保持；parsed content 中旧 structural braces 只由 legacy parser 解释。
-
-converter 产出 current owned syntax，经 `"plumb-edit" canonical rendering、strict reparse 与 atomic write。
-migration 不根据 marker spelling 猜 source epoch，也不把 old attached content 与 ordinary children 交错。
-
-`# 12. Versioned block-head argument migration
-
-在 head/paragraph 统一使用 bare `"|" 分隔 parsed arguments 之前，official semantic profile 对少数
-block markers 直接从 flat head items 识别 space-delimited compact arguments。显式迁移该 epoch 使用
-`"plumb migrate --from head-space-v1"；current parser/formatter 不根据 marker spelling 静默改写空格。
-
-converter 只对 source 中仍只有一个 head argument 的下列旧 compact forms 产生 minimal byte edit：
-
-`- childless `"=" association：first item 必须是旧 profile 接受的 nonempty Text、inline Verbatim 或单一
- argument 的 `"()" element；紧随的 `"Inline::Space" 与 nonempty remainder 之间是 key/value boundary。
-`- childless `":" definition：first inline item 与紧随的 `"Inline::Space"、nonempty remainder 之间是
- term/inline-body boundary。
-`- `"event"：first inline item 必须是 nonempty Text；紧随的 `"Inline::Space" 与 nonempty remainder
- 之间是 schedule/title boundary，是否有 children 不改变该规则。
-
-每个匹配的完整 Space token range 替换为一个 bare `"|"；其他 source bytes、line endings、indentation、
-raw payload 与 already-migrated multi-argument heads 保持 byte-identical。converter 递归遍历 direct children，
-拒绝含 current syntax errors 的输入，应用 edits 后必须通过 current strict parser；重复执行是 idempotent。
-CLI 对每个 path 保持 atomic replacement，`"--check" 只报告需要迁移的 paths，不写文件。
+generated source必须 current strict-parse；invalid legacy input拒绝。CLI path writes atomic，`"--check" 不写入。
+更早 attached/document-group/head-space/task-event-marker converters 最终也输出 current syntax。

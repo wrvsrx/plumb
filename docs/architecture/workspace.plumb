@@ -1,108 +1,35 @@
-`= title|plumb workspace storage and queries
+`= title plumb workspace storage and queries
 
-本页定义 document snapshots、persistent semantic store、open overlay、workspace queries、cache lifecycle 与
-batch indexing 的实现 contract。crate/data-flow 总览见 `->[architecture overview|overview.plumb]。
+本页定义 document snapshots、persistent semantic store、open overlay、workspace queries、cache lifecycle 与 batch indexing 的实现 contract。crate/data-flow 总览见 `->{{architecture overview} overview.plumb}。
 
 `# 1. Snapshot, persistence and queries
 
-`"plumb-workspace" 保存 document snapshots、revision、last-valid semantic outputs、dependency indexes
-和 guarded edit preconditions。稳定 disk revision 的 semantic projection 使用可重建的 SQLite store
-持久化；未打开 document 不要求在进程启动时恢复 source、syntax tree 或完整 Rust semantic object graph。
-SQLite cache identity 至少包含 normalized path、source content hash、semantic schema version 与 producer
-version；identity 不匹配的记录不能参与 query，并在 background indexing 后按 document transaction 替换。
-production cache path 使用编译进 user-facing binary 的 package version 建立 namespace，再以 normalized
-workspace roots 的 deterministic hash 命名数据库；不同 binary versions 不打开、清空或覆盖彼此的 cache。
-数据库内部继续保存并校验 semantic schema version 与 producer version，因此 path namespace 不能替代
-store-level validity check。旧版本 namespace 是 disposable derived data，可以由独立 maintenance policy 清理，
-server startup 不主动递归删除其他版本 cache。
+`"plumb-workspace" 保存 document snapshots、revision、last-valid semantic outputs、dependency indexes 和 guarded edit preconditions。稳定 disk revision 的 semantic projection 使用可重建的 SQLite store 持久化；未打开 document 不要求在进程启动时恢复 source、syntax tree 或完整 Rust semantic object graph。 SQLite cache identity 至少包含 normalized path、source content hash、semantic schema version 与 producer version；identity 不匹配的记录不能参与 query，并在 background indexing 后按 document transaction 替换。 production cache path 使用编译进 user-facing binary 的 package version 建立 namespace，再以 normalized workspace roots 的 deterministic hash 命名数据库；不同 binary versions 不打开、清空或覆盖彼此的 cache。 数据库内部继续保存并校验 semantic schema version 与 producer version，因此 path namespace 不能替代 store-level validity check。旧版本 namespace 是 disposable derived data，可以由独立 maintenance policy 清理， server startup 不主动递归删除其他版本 cache。
 
-每个打开 disk-backed semantic store 的进程必须先在对应 version namespace 的固定 lease file 上取得 shared
-filesystem lock，并持有到最后一个 cloned store 释放。`"plumb cache status" 只读统计 workspace/site version
-namespaces 的 database 数量、bytes 与 active state；`"plumb cache prune" 默认只考虑非当前 package version，
-显式 `"--all" 才考虑当前 version。Prune 必须先 nonblocking 取得 namespace exclusive lock，失败时报告并跳过
-active namespace；成功时只删除该 namespace 内可重建数据，保留 lease file 与 namespace directory，从而让等待
-lock 的新进程在同一 inode 上继续。旧 layout 中没有 version namespace/lease 的文件只能由 status 报告为
-unmanaged，不能自动删除。测试启动 LSP 或 Web child process 时必须设置 test-owned `"PLUMB_CACHE_DIR"，不得向
-用户 production cache 写入 temporary workspace roots。
+每个打开 disk-backed semantic store 的进程必须先在对应 version namespace 的固定 lease file 上取得 shared filesystem lock，并持有到最后一个 cloned store 释放。`"plumb cache status" 只读统计 workspace/site version namespaces 的 database 数量、bytes 与 active state；`"plumb cache prune" 默认只考虑非当前 package version， 显式 `"--all" 才考虑当前 version。Prune 必须先 nonblocking 取得 namespace exclusive lock，失败时报告并跳过 active namespace；成功时只删除该 namespace 内可重建数据，保留 lease file 与 namespace directory，从而让等待 lock 的新进程在同一 inode 上继续。旧 layout 中没有 version namespace/lease 的文件只能由 status 报告为 unmanaged，不能自动删除。测试启动 LSP 或 Web child process 时必须设置 test-owned `"PLUMB_CACHE_DIR"，不得向 用户 production cache 写入 temporary workspace roots。
 
-persistent store 的 production implementation 使用 Diesel typed schema、models、transactions 与 query
-composition；不得在 workspace、Web 或 protocol adapters 中散布 SQL strings、column ordinals 或 row decoding。
-少数 Diesel query DSL 无法清楚表达且有独立 query-plan tests 的 SQLite operation 可以封装 raw SQL，但它仍
-属于 store module，不形成第二套 repository API。Diesel schema、migration、generation transaction 与 typed
-row decoding 已实现；task dependency relation、active/blocked lookup、standard task state filtering 与 Web task
-query adapter 已下沉。Event-task relation、task cursor page 与 CEL candidate pushdown 也由同一 store boundary
-承担；protocol-neutral layer 仍拥有完整 CEL evaluation、tree aggregation 和 observable query semantics。
-CEL reverse task dependency facts 使用 store-owned Diesel batch relation query 与 open-buffer overlay 合成，Web、
-CLI 和其他 adapters 不逐 task 查询 dependents，也不接触 relation table schema。
+persistent store 的 production implementation 使用 Diesel typed schema、models、transactions 与 query composition；不得在 workspace、Web 或 protocol adapters 中散布 SQL strings、column ordinals 或 row decoding。 少数 Diesel query DSL 无法清楚表达且有独立 query-plan tests 的 SQLite operation 可以封装 raw SQL，但它仍 属于 store module，不形成第二套 repository API。Diesel schema、migration、generation transaction 与 typed row decoding 已实现；task dependency relation、active/blocked lookup、standard task state filtering 与 Web task query adapter 已下沉。Event-task relation、task cursor page 与 CEL candidate pushdown 也由同一 store boundary 承担；protocol-neutral layer 仍拥有完整 CEL evaluation、tree aggregation 和 observable query semantics。 CEL reverse task dependency facts 使用 store-owned Diesel batch relation query 与 open-buffer overlay 合成，Web、 CLI 和其他 adapters 不逐 task 查询 dependents，也不接触 relation table schema。
 
-open buffer 以 normalized document path 为单位完整遮蔽同 path 的 persisted disk projection。一个 query
-中的 source document 只能来自 open-buffer snapshot 或 SQLite active generation 之一，不能逐 record
-混合两个 revision。didOpen/didChange 只更新内存 snapshot；只有 host 已确认的稳定 disk revision 才能
-提交 persistent store。关闭 buffer 后，workspace 必须读取与实际 disk bytes identity 一致的 persisted
-generation，或先重新分析 disk source。create/change/remove 只使相关 documents 与 dependents invalidated。
+open buffer 以 normalized document path 为单位完整遮蔽同 path 的 persisted disk projection。一个 query 中的 source document 只能来自 open-buffer snapshot 或 SQLite active generation 之一，不能逐 record 混合两个 revision。didOpen/didChange 只更新内存 snapshot；只有 host 已确认的稳定 disk revision 才能 提交 persistent store。关闭 buffer 后，workspace 必须读取与实际 disk bytes identity 一致的 persisted generation，或先重新分析 disk source。create/change/remove 只使相关 documents 与 dependents invalidated。
 
-Persistent query row 携带的 revision 只表示该 cached projection 的 provenance。Web 或其他 authoring adapter
-向 guarded mutation 投影 revision token 时，必须使用当前 live document snapshot revision；source identity 命中而
-复用旧 persistent generation 时，不得把旧 row revision 暴露为当前 mutation precondition。
+Persistent query row 携带的 revision 只表示该 cached projection 的 provenance。Web 或其他 authoring adapter 向 guarded mutation 投影 revision token 时，必须使用当前 live document snapshot revision；source identity 命中而 复用旧 persistent generation 时，不得把旧 row revision 暴露为当前 mutation precondition。
 
-open-buffer snapshot 的跨文档 records 保留在 Rust `"DocumentOutput" overlay 中；workspace query 将
-persistent SQLite rows 排除 open paths 后与 overlay results 合成。不得把每次 didChange 的完整 generation
-同步发布到 SQLite TEMP tables：该统一 SQL 模型没有增加第一阶段已经获得的 warm-start 与 closed-workspace
-memory 收益，却会把大 open document 的 publication 和常用 query latency 带入逐键路径。query composition
-必须集中在 protocol-neutral workspace layer，并以 parity tests 防止两侧 semantic rules 分歧。
+open-buffer snapshot 的跨文档 records 保留在 Rust `"DocumentOutput" overlay 中；workspace query 将 persistent SQLite rows 排除 open paths 后与 overlay results 合成。不得把每次 didChange 的完整 generation 同步发布到 SQLite TEMP tables：该统一 SQL 模型没有增加第一阶段已经获得的 warm-start 与 closed-workspace memory 收益，却会把大 open document 的 publication 和常用 query latency 带入逐键路径。query composition 必须集中在 protocol-neutral workspace layer，并以 parity tests 防止两侧 semantic rules 分歧。
 
-syntax tree 不进入 persistent store。document analysis 仍先产生 protocol-neutral `"DocumentOutput"；
-workspace 将其中跨文档 query 所需的 semantic records 作为一个 document generation 原子投影到 SQLite。
-store 是 source 的 disposable derivative：transaction failure、schema migration 或 corruption 可以丢弃并
-重建，不能改变 source validity 或 semantic meaning。
+syntax tree 不进入 persistent store。document analysis 仍先产生 protocol-neutral `"DocumentOutput"； workspace 将其中跨文档 query 所需的 semantic records 作为一个 document generation 原子投影到 SQLite。 store 是 source 的 disposable derivative：transaction failure、schema migration 或 corruption 可以丢弃并 重建，不能改变 source validity 或 semantic meaning。
 
-筛选、排序、cursor pagination、identity lookup、time overlap 与正反 relation lookup 属于 persistent
-database query 职责。Task dependency 与 event-task association 必须投影为带 source/target identity 和
-document generation 的 relation rows，并建立 target-side indexes；query 不得先 decode 无界 Bincode records
-或 materialize 完整 workspace collection 后再执行这些集合运算。Rust semantic pipeline 继续决定 relation
-事实，Diesel store 只原子保存和查询这些事实，不重新解释 task/event semantics。
+筛选、排序、cursor pagination、identity lookup、time overlap 与正反 relation lookup 属于 persistent database query 职责。Task dependency 与 event-task association 必须投影为带 source/target identity 和 document generation 的 relation rows，并建立 target-side indexes；query 不得先 decode 无界 Bincode records 或 materialize 完整 workspace collection 后再执行这些集合运算。Rust semantic pipeline 继续决定 relation 事实，Diesel store 只原子保存和查询这些事实，不重新解释 task/event semantics。
 
-Task CEL optimization 先把 parsed CEL AST 中可证明 exact 且 total 的 typed predicate 降为 protocol-neutral
-candidate IR，再由 store 编译为带 bind parameters 的 SQLite condition。Store 只能从固定 column、operator、
-derived-state spelling 与 typed literal 白名单生成 SQL；不得拼接 CEL source 或 user values。SQL 结果只是完整
-CEL result 的 candidate superset，原始 CEL Program 仍对每个 candidate 作最终求值并拥有 bool/error semantics。
-不支持、类型不确定或依赖 open-overlay relation 的 expression 保持 Rust-only，不得用近似 SQL 改变结果。
+Task CEL optimization 先把 parsed CEL AST 中可证明 exact 且 total 的 typed predicate 降为 protocol-neutral candidate IR，再由 store 编译为带 bind parameters 的 SQLite condition。Store 只能从固定 column、operator、 derived-state spelling 与 typed literal 白名单生成 SQL；不得拼接 CEL source 或 user values。SQL 结果只是完整 CEL result 的 candidate superset，原始 CEL Program 仍对每个 candidate 作最终求值并拥有 bool/error semantics。 不支持、类型不确定或依赖 open-overlay relation 的 expression 保持 Rust-only，不得用近似 SQL 改变结果。
 
-Web task collection 只通过 shared TaskPageQuery 暴露 bounded page、complete 与 opaque next cursor；不存在返回
-全部 tasks 的 legacy snapshot endpoint。Task authoring 的 document list 来自 page response，reference candidate
-使用独立 bounded candidate query。Graph 的 per-document task/open-task metrics 从 lightweight typed task facts
-聚合，不 hydrate TaskRecord，也不解析 task relations。
+Web task collection 只通过 shared TaskPageQuery 暴露 bounded page、complete 与 opaque next cursor；不存在返回 全部 tasks 的 legacy snapshot endpoint。Task authoring 的 document list 来自 page response，reference candidate 使用独立 bounded candidate query。Graph 的 per-document task/open-task metrics 从 lightweight typed task facts 聚合，不 hydrate TaskRecord，也不解析 task relations。
 
-workspace boundary 由显式 root 或 consumer 的 `".plumb/" discovery 决定。protocol-neutral scanner
-使用 root-scoped `".ignore" 做 traversal pruning，不读取 parent 或 Git ignore sources，也不默认排除
-dot paths。CLI、LSP 与 Web 共享同一 scanner；LSP root 仍由 client 的
-`"workspaceFolders"/`"rootUri" 决定，server 不重新向上 discovery。ignored open document 可以作为
-ephemeral buffer snapshot 参与 document features，关闭后不属于 disk index。
+workspace boundary 由显式 root 或 consumer 的 `".plumb/" discovery 决定。protocol-neutral scanner 使用 root-scoped `".ignore" 做 traversal pruning，不读取 parent 或 Git ignore sources，也不默认排除 dot paths。CLI、LSP 与 Web 共享同一 scanner；LSP root 仍由 client 的 `"workspaceFolders"/`"rootUri" 决定，server 不重新向上 discovery。ignored open document 可以作为 ephemeral buffer snapshot 参与 document features，关闭后不属于 disk index。
 
-scanner 输出进入 plumb-workspace-owned batch indexer。batch indexer 以 bounded worker pool 并行读取 files，
-只对 content-hash cache misses 执行 parse 与 document semantics，按 normalized path deterministic order
-返回 source/revision/cache-hit records 和 read failures。persistent backend 在 serialized transaction 中批量
-发布 changed generations 并移除不再属于完整 scan 的 closed generations；memory backend 从同一批 prepared
-documents 建立 snapshots。LSP、CLI 与 Web 不得各自复制 read/parse/index loop。取消 batch 时不得发布尚未
-完成的 partial generation set；consumer 必须将 read、scan、cancel 或 store failure 投影为 incomplete index，
-不能把 partial negative query 表示成 complete。
+scanner 输出进入 plumb-workspace-owned batch indexer。batch indexer 以 bounded worker pool 并行读取 files， 只对 content-hash cache misses 执行 parse 与 document semantics，按 normalized path deterministic order 返回 source/revision/cache-hit records 和 read failures。persistent backend 在 serialized transaction 中批量 发布 changed generations 并移除不再属于完整 scan 的 closed generations；memory backend 从同一批 prepared documents 建立 snapshots。LSP、CLI 与 Web 不得各自复制 read/parse/index loop。取消 batch 时不得发布尚未 完成的 partial generation set；consumer 必须将 read、scan、cancel 或 store failure 投影为 incomplete index， 不能把 partial negative query 表示成 complete。
 
-Persistent prepare 的 transaction input 只保留 source bytes、revision 与 document-local semantic output；每个
-cache miss 完成 analysis 后必须在进入 serialized publication 前释放 lossless/typed syntax trees。Memory backend
-需要建立 DocumentEntry，仍保留完整 ParsedDocument。该差异只改变 transient ownership，不改变 analysis、
-generation atomicity、deterministic ordering、cache identity 或 retained-source result contract。
+Persistent prepare 的 transaction input 只保留 source bytes、revision 与 document-local semantic output；每个 cache miss 完成 analysis 后必须在进入 serialized publication 前释放 lossless/typed syntax trees。Memory backend 需要建立 DocumentEntry，仍保留完整 ParsedDocument。该差异只改变 transient ownership，不改变 analysis、 generation atomicity、deterministic ordering、cache identity 或 retained-source result contract。
 
-reference CodeLens 是 workspace reverse-reference query 的 LSP projection。`"references_to_document"
-聚合 current-valid documents 中的 document/anchor links 与 task references，并保留真实 same-document
-occurrences；Graph 等 consumer 可以按自己的 edge policy 隐藏 self-edge。`"references_to" 继续查询单个 explicit anchor。server 只为 current-valid metadata 与 anchors
-生成 lenses，count 与 command locations 来自同一次 query，避免 UI title 与执行结果偏移。一个 document 的
-CodeLens projection 必须通过一次 batched reverse-reference query 同时取得 document occurrence 与所有 direct
-explicit-anchor occurrences，不得为每个 anchor 重新遍历 workspace records。
-workspace query composition 以 source document 与被查询 target component 的精确 source range 作为
-occurrence identity，并在 persistent rows 与 open overlay 合并后统一去重。一个 Link 同时作为普通 link
-record 和 event-to-task association 的 source 时仍只产生一个 occurrence；adapter 与 rename operation
-不得各自补做不同的去重规则。
-`"plumb.showReferences" 是 client-side command，不把 editor UI 行为放入 protocol-neutral workspace。
+reference CodeLens 是 workspace reverse-reference query 的 LSP projection。`"references_to_document" 聚合 current-valid documents 中的 document/anchor links 与 task references，并保留真实 same-document occurrences；Graph 等 consumer 可以按自己的 edge policy 隐藏 self-edge。`"references_to" 继续查询单个 explicit anchor。server 只为 current-valid metadata 与 anchors 生成 lenses，count 与 command locations 来自同一次 query，避免 UI title 与执行结果偏移。一个 document 的 CodeLens projection 必须通过一次 batched reverse-reference query 同时取得 document occurrence 与所有 direct explicit-anchor occurrences，不得为每个 anchor 重新遍历 workspace records。 workspace query composition 以 source document 与被查询 target component 的精确 source range 作为 occurrence identity，并在 persistent rows 与 open overlay 合并后统一去重。一个 Link 同时作为普通 link record 和 event-to-task association 的 source 时仍只产生一个 occurrence；adapter 与 rename operation 不得各自补做不同的去重规则。 `"plumb.showReferences" 是 client-side command，不把 editor UI 行为放入 protocol-neutral workspace。
 
-workspace identity 使用 normalized document path/URI boundary。跨文件 query 必须说明 index
-completeness；不能把 partial result 表示成 complete negative result。
+workspace identity 使用 normalized document path/URI boundary。跨文件 query 必须说明 index completeness；不能把 partial result 表示成 complete negative result。

@@ -1,150 +1,73 @@
-`= title|plumb diagnostics reference
+`= title plumb diagnostics reference
 
-`# 1. Diagnostic ownership
+`# 1. Ownership
 
- syntax diagnostics 只报告 syntax。official semantics 报告 semantic profile violations；workspace
+syntax diagnostics 只报告 core syntax。official semantics 报告 marker/profile violations；workspace 报告
+cross-document resolution、identity 与 dependency；protocol adapters 不重新解释错误。
 
-分析报告跨文档 resolution、identity 和 dependency 问题；protocol adapters 不重新解释这些错误。
+每条 diagnostic 包含 stable code、severity、UTF-8 half-open source range、message 与 optional related
+ranges。missing token 不作为 synthetic lossless leaf。
 
-每条 diagnostic 包含稳定 code、severity、message 和 source range。可修复错误可以附带 edit，
-但缺失 token 不作为 synthetic syntax-tree leaf。
+`# 2. Publication
 
-`# 2. Publication policy
-
-每个 revision 都发布当前 recovered tree 的 syntax diagnostics。只有当前 revision syntax-valid 时，
-才合并同 revision 的 semantic diagnostics。last-valid semantic outputs 可以继续服务跨文件查询，
-但不能伪装成当前文档的 diagnostics。
-
-export 只接受 valid authoritative view。LSP completion 等 editor assist 可以显式查询 recovered view。
+每个 revision 都发布 recovered tree 的 syntax diagnostics。只有 current revision syntax-valid 时才合并同
+revision semantic diagnostics。last-valid semantic outputs 可以继续服务 cross-file queries，但不能伪装成
+current diagnostics。export 与 authoritative edits 只接受 ValidDocument；completion/folding 可以显式查询
+recovered view。
 
 `# 3. Syntax categories
 
-syntax diagnostics 分为：
+`- structural：top-level indentation、tab indentation、partial dedent 与 illegal parsed control。
+`- lexical/dispatch：incomplete introducer、invalid marker、marker 后非法 whitespace、不能完成的 inline/block
+ entry。
+`- group：unexpected closing brace、physical line 结束前 unclosed group。
+`- inline verbatim：compact/full envelope missing closer 或 quote-strength mismatch。
 
-`- structural：indentation、partial dedent、非法 structural tab、verbatim margin。
-`- lexical：非法 marker/kind token 或 control character。
-`- delimiter/dispatch：非法 introducer entry、inline、anonymous verbatim 或 block raw tail。
-`- ownership：unattached raw-tail boundary、unattached bracket、unexpected element close、unexpected member
- separator、member close 前未结束的 verbatim 或 completed child member 后的 trailing content。bare brace
- 是 ordinary text，不拥有 delimiter diagnostics。
+brackets 与 pipe 是 ordinary text，不发布 delimiter diagnostics。bare braces 永远 special；literal brace 使用
+introducer escape。block raw 缺 structural margin 的 line 正常结束 payload，不是 error；该 line 随后按普通
+block grammar 诊断。
 
-inline element 的 opening bracket 后固定开始 first parsed argument；该位置不执行 verbatim argument 或
-introducer-elided child dispatch。full-verbatim-like source 中的 bare opening bracket 因而由
-`"syntax.unattached-bracket" 拥有；first child spelling 同样由该 diagnostic 拒绝。经过首个 member
-separator 后才启用另外三种 member form。
+legacy member-envelope validity/migration failure 只由 isolated legacy parser/converter 报告，不混入 current
+document diagnostics。
 
-owner column 上的 `"|QUOTES" 只有在 indentation stack 仍持有一个可接收 raw tail 的 marked owner 时才合法；
-否则发布 `"syntax.unattached-raw-tail"。raw tail 是单值 terminal field：进入 payload 后所有满足 margin
-的 bytes 都是 raw，因此不存在 duplicate-tail diagnostic。
+`# 4. Precedence and recovery
 
-同一 source range 和根因只发布最具体的错误。structural error 优先于由错误结构派生的 generic
-delimiter error。
+block-start error 在 current physical line 恢复。invalid block introducer 可以建立 recovered placeholder owner，
+使随后 indentation/folding boundary 稳定；ordinary inline error 不建立 block owner。
 
-Current parser 不识别旧 attribute slot spelling；brace 是 ordinary text，因此不会为 legacy braces 发布
-专用 syntax diagnostic。版本识别与错误属于显式 legacy parser/converter boundary。
+`"syntax.unclosed-inline-group" 与 `"syntax.unexpected-inline-group-close" 在 current physical line 恢复；
+`"syntax.unclosed-verbatim" 在 line ending/EOF 恢复。structural tab/partial dedent 优先于由错误 indentation
+派生的 generic dispatch error。同一 range/root cause 只发布最具体 code；独立错误按 source/recovery order
+稳定排序。
 
-当前固定 precedence 包括：孤立 block introducer 的 `"syntax.incomplete-introducer" 优先于同 range
-的 `"syntax.invalid-inline-dispatch"；`"syntax.invalid-marker" 优先于派生的
-`"syntax.invalid-block-dispatch"；verbatim payload margin 的 `"syntax.short-verbatim-indent" 优先于
-同 range 的 `"syntax.partial-indent"。独立根因继续按 source/recovery order 发布。
+`# 5. Current syntax codes
 
-`# 4. Recovery boundaries
+`text"
+ syntax.incomplete-introducer
+ syntax.invalid-block-dispatch
+ syntax.invalid-inline-dispatch
+ syntax.unclosed-inline-group
+ syntax.unexpected-inline-group-close
+ syntax.unclosed-verbatim
+ syntax.tab-indentation
+ syntax.partial-indent
 
-`- block-start error：当前 physical line。block column 上独占 physical line 的孤立 introducer
- 保持 `"syntax.incomplete-introducer"，并在 recovered typed tree 中建立 empty-marker marked block
- placeholder；它按普通 marked block indentation rule 接管紧随的 children，使输入 marker 首字符前后的
- owner boundary 与 folding range 保持稳定。该 placeholder 不进入 valid authoritative view；ordinary inline
- position 的孤立 introducer 不建立 block owner。
-`- raw-tail boundary：只接管 indentation stack 上同 column、尚未关闭的 marked owner；无主 boundary
- 在当前 physical line 恢复。
-`- unattached bracket：当前 structural line 或 enclosing inline boundary。
-`- parsed inline error：blank、dedent、block-only entry 或 EOF 前。
-`- inline verbatim error：当前 physical line ending 或 EOF。
-`- partial dedent：补到最接近的合法 outer column 后继续当前 line。
+新增或重命名 code 是 editor/test automation interface change，必须同步 normative corpus、range/precedence 与
+recovery assertions。lenient tree-sitter corpus 不能代替 strict parser corpus。
 
-recovery 的目标是报告后续独立错误并保留 source，不是把 malformed spelling 当作 text。
+`# 6. Semantic categories
 
-`# 5. Semantic categories
+official profile 至少区分：
 
-official semantic profile 至少区分：
-
-`- association：inline `"=" 不是恰好两个 arguments 时发布 `"association.invalid-arity"。
-`- table：非 declaration 的非法 direct child 发布 `"table.invalid-child"；compact/expanded row 中的
- 非法 child 分别发布 `"table.compact-row-child"/`"table.expanded-row-child"；zero-column row、effective
- column count 不一致、header row 位于 body row 后以及 body rows 无法形成一致 row-header prefix，分别发布
- `"table.empty-row"、`"table.column-count-mismatch"、`"table.header-after-body" 与
- `"table.inconsistent-row-headers"。diagnostic 归 table recognizer，普通 list recognizer 不重复报告。
-`- heading/anchor：非法 heading level、duplicate anchor。
-`- metadata：duplicate/invalid key、invalid location、unsupported 或 mixed value shape，以及
- `"metadata.invalid-created" RFC 3339 timestamp warning。document root 上的 direct `"@"/`"+" 分别发布
- `"document.unsupported-identity"/`"document.unsupported-facet" warning，两者都不进入 rendered body。
-`- link/reference：缺失或无效 target、conflicting autolink property、missing document/anchor、
- ambiguous anchor 或 unresolved file。
-`- image：missing/invalid src 或 unresolved local file。
-`- file：missing/invalid src 或 unresolved local attachment。
-`- citation：空 id、nested 或 unsupported citation shape，无效/缺失 bibliography file、无效
- CSL JSON、duplicate id，以及无 bibliography 或已声明 bibliography 时 unresolved 或 ambiguous citation id。
-`- task：`"task.invalid-datetime"、`"task.invalid-priority"、无效 recur/reference、互斥 closure state、
- self dependency、cycle、blocked completion、`"task.done-with-open-dependency" 和
- `"task.done-with-open-descendant" closure consistency warnings。
-`- event：`"event.invalid-head-arity"、missing/invalid title/time/date/timezone、`"event.invalid-uid" empty explicit UID、invalid interval，以及
- invalid/unresolved/ambiguous/non-task reference。
-`- facet：`"facet.task-event-conflict" 表示同一 list item 同时声明互斥的 task 与 event facets；冲突
- item 不产生任一 semantic record。
+`- association/property：invalid key/arity/value shape。
+`- heading/anchor：invalid level、duplicate explicit id。
+`- metadata：duplicate/invalid key、invalid location、mixed/unsupported value、invalid created timestamp、
+ unsupported document identity/facet。
+`- link/image/file/citation：missing/invalid target/source/id 与 workspace unresolved/ambiguous target。
+`- task/event：invalid fields/reference/time/interval/recurrence/closure state、dependency consistency 与 mutually
+ exclusive facets。
+`- table：invalid row child、empty row、column mismatch、header-after-body、inconsistent row-header prefix。
 `- math：invalid owner 或 unsupported input language。
 
-semantic diagnostic 应指向最小 source-backed field range。由多个 documents 共同形成的问题可以
-携带 related locations。
-
-两条 task closure consistency warnings 的 primary range 是 parent `"done" value；同文件 open
-dependency/descendant 使用 related ranges。跨文件 open dependency 计入 message 数量，但当前
-protocol-neutral related range 不携带 path，因此不伪造到 source document。
-
-`# 6. Stability
-
-diagnostic code 是 editor、test 和 automation 的接口；重写 message 不应改变 code。新增更精确
-diagnostic 时，应更新 syntax/semantic fixtures，并验证 recovery 后续 diagnostics 不回退。
-
-strict parser normative corpus 固定 typed structural projection、code、primary/related ranges、
-precedence、ordering、recovery 与 lossless token coverage；lenient tree-sitter corpus 不能代替它。
-
-当前 core codes：
-
-`text
-
-|"
-  syntax.incomplete-introducer
-  syntax.invalid-block-dispatch
-  syntax.invalid-inline-dispatch
-  syntax.invalid-verbatim-block-dispatch
-  syntax.invalid-marker
-  syntax.unattached-raw-tail
-  syntax.unattached-bracket
-  syntax.unexpected-element-close
-  syntax.trailing-after-inline-member
-  syntax.unclosed-inline
-  syntax.unclosed-verbatim
-  syntax.unclosed-verbatim-member
-  syntax.tab-indentation
-  syntax.partial-indent
-  syntax.short-verbatim-indent
-
-`# 7. Recursive owner epoch diagnostic target
-
-本节与 core syntax 第 13 节同步，状态为尚未实现。epoch 切换后删除不再可产生的 raw-tail、bracket/member、
-soft-break 与 quote-count margin diagnostics，并冻结以下 ownership：
-
-`- block entry error 在当前 physical line 恢复；invalid marked entry 可以建立 recovered marked block placeholder，
- 但 anonymous parsed block 仍可接管后续 indented children。
-`- unmatched opening/closing brace 分别由 `"syntax.unclosed-inline-group" 与
- `"syntax.unexpected-inline-group-close" 拥有；两者在当前 physical line 恢复。
-`- illegal introducer-brace/backtick/marker/quote dispatch 使用最具体的 `"syntax.invalid-inline-dispatch" 或
- `"syntax.invalid-block-dispatch"，不 fallback 为 text。
-`- compact/full inline verbatim 缺失 closer 使用 `"syntax.unclosed-verbatim"，在当前 physical line 恢复；
- quote-strength mismatch 指向最小 conflicting closer。
-`- block raw line 缺 structural margin 时正常结束 payload；只有 structural prefix 中出现 tab、落入非法
- indentation stack column 或试图把 raw line作为错误 partial child 时发布 structural diagnostic。
-`- bare brackets 与 pipe 在新 epoch 中是 ordinary text，不拥有 delimiter diagnostic。
-
-member-envelope-v1 source validity 与 migration failure 由 isolated legacy parser/converter 报告，不发布成
-current document diagnostics。
+semantic diagnostic 指向最小 source-backed field；cross-document problem 可以携带 related locations。adapter
+不得用 guessed offset 替代 syntax/semantic layer 的 precise range。
