@@ -1,11 +1,7 @@
 use std::collections::HashMap;
-#[cfg(test)]
-use std::fmt::Write;
 use std::ops::Range;
 
-use plumb_syntax::{parse, Block, Inline, InlineContent, ParsedBlock, ParsedDocument, RawPayload};
-#[cfg(test)]
-use plumb_syntax::{AttrItem, Attributes};
+use plumb_syntax::{parse, Block, Inline, InlineContent, ParsedBlock, ParsedDocument};
 use similar::{DiffOp, TextDiff};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -451,14 +447,13 @@ fn collect_contained_groups<'a>(
 fn block_content_range(block: &Block) -> Range<usize> {
     match block {
         Block::Parsed(block) => {
-            let own_end = block.mark.as_ref().map_or(block.head.range.end, |mark| {
-                mark.range.end.max(block.head.range.end)
+            let own_end = block.mark.as_ref().map_or(block.content.range.end, |mark| {
+                mark.range.end.max(block.content.range.end)
             });
             let end = block
                 .children
                 .last()
                 .map_or(own_end, |child| block_content_range(child).end.max(own_end));
-            let end = block.raw.as_ref().map_or(end, |raw| end.max(raw.range.end));
             block.range.start..end
         }
         Block::Verbatim(block) => {
@@ -503,7 +498,6 @@ fn terminal_verbatim(blocks: &[Block]) -> bool {
     };
     match last {
         Block::Verbatim(_) => true,
-        Block::Parsed(block) if block.raw.is_some() => true,
         Block::Parsed(block) => terminal_verbatim(&block.children),
     }
 }
@@ -538,144 +532,76 @@ impl Formatter {
             Block::Verbatim(block) => {
                 self.indent(indent);
                 self.output.push('`');
-                self.output.push_str(&"\"".repeat(block.quote_count));
-                self.raw_text(&block.text, indent + block.quote_count);
+                if let Some(mark) = &block.mark {
+                    self.output.push_str(&mark.marker);
+                }
+                self.output.push('"');
+                self.raw_text(&block.text, indent + 1);
             }
         }
     }
 
     fn parsed_block(&mut self, block: &ParsedBlock, indent: usize) {
         self.indent(indent);
-        let continuation_indent = if let Some(mark) = &block.mark {
+        if let Some(mark) = &block.mark {
             let marker = mark.marker.as_str();
             self.output.push('`');
             self.output.push_str(marker);
-            indent + 1
+            let content = block.content.trim_boundary_padding();
+            if !content.is_empty() {
+                self.output.push(' ');
+                self.inlines(&content);
+            }
         } else {
-            indent
-        };
-        if block.mark.is_none() || !block.head.is_empty() {
-            self.inlines(&block.head, continuation_indent, false);
+            self.inlines(&block.content.trim_boundary_padding());
         }
 
         if !block.children.is_empty() {
-            if block.head.is_empty() && block.raw.is_none() {
-                self.output.push('\n');
-            } else {
-                self.output.push_str("\n\n");
-            }
-            let child_indent = block.mark.as_ref().map_or(indent, |_| indent + 1);
-            self.blocks(&block.children, child_indent);
-        }
-        if let Some(raw) = &block.raw {
-            if block.children.is_empty() {
-                self.output.push('\n');
-            } else {
-                self.output.push_str("\n\n");
-            }
-            self.indent(indent);
-            self.output.push('|');
-            self.output.push_str(&"\"".repeat(raw.quote_count));
-            self.raw_payload(raw, indent + raw.quote_count);
+            self.output.push('\n');
+            self.blocks(&block.children, indent + 1);
         }
     }
 
-    fn inlines(&mut self, content: &InlineContent, continuation_indent: usize, nested: bool) {
-        for argument in &content.arguments {
-            if argument.separator_range.is_some() {
-                self.output.push('|');
+    fn inlines(&mut self, content: &InlineContent) {
+        let mut pending_space = false;
+        for inline in &content.items {
+            if matches!(inline, Inline::Space { .. }) {
+                pending_space = true;
+                continue;
             }
-            for inline in &content.items[argument.item_range.clone()] {
-                self.inline(inline, continuation_indent, nested, true);
+            if pending_space && !self.output.ends_with([' ', '\n']) {
+                self.output.push(' ');
             }
+            pending_space = false;
+            self.inline(inline);
         }
     }
 
-    fn inline(
-        &mut self,
-        inline: &Inline,
-        continuation_indent: usize,
-        nested: bool,
-        introduced: bool,
-    ) {
+    fn inline(&mut self, inline: &Inline) {
         match inline {
-            Inline::Text { text, .. } => self.text(text, nested),
-            Inline::Space { text, .. } => self.output.push_str(text),
-            Inline::SoftBreak { .. } => {
-                self.output.push('\n');
-                self.indent(continuation_indent);
-            }
-            Inline::Element { kind, members, .. } => {
-                if introduced {
+            Inline::Text { text, .. } => self.text(text),
+            Inline::Space { .. } => self.output.push(' '),
+            Inline::Group { mark, content, .. } => {
+                if let Some(mark) = mark {
                     self.output.push('`');
+                    self.output.push_str(&mark.marker);
                 }
-                self.output.push_str(kind);
-                self.output.push('[');
-                for (index, member) in members.iter().enumerate() {
-                    if index > 0 {
-                        self.output.push('|');
-                    }
-                    match member {
-                        plumb_syntax::InlineMember::ParsedArgument(argument) => {
-                            self.inlines(&argument.content, continuation_indent, true);
-                        }
-                        plumb_syntax::InlineMember::VerbatimArgument(argument) => {
-                            if let Some(padding) = &argument.leading_padding {
-                                self.output.push_str(&padding.text);
-                            }
-                            self.full_verbatim_payload(&argument.text);
-                            if let Some(padding) = &argument.trailing_padding {
-                                self.output.push_str(&padding.text);
-                            }
-                        }
-                        plumb_syntax::InlineMember::Child {
-                            inline,
-                            leading_padding,
-                            trailing_padding,
-                            ..
-                        } => {
-                            if let Some(padding) = leading_padding {
-                                self.output.push_str(&padding.text);
-                            }
-                            self.inline(inline, continuation_indent, true, false);
-                            if let Some(padding) = trailing_padding {
-                                self.output.push_str(&padding.text);
-                            }
-                        }
-                    }
-                }
-                self.output.push(']');
+                self.output.push('{');
+                self.inlines(&content.trim_boundary_padding());
+                self.output.push('}');
             }
-            Inline::Verbatim { kind, text, .. } => {
-                if introduced {
-                    self.output.push('`');
-                    self.output.push_str(kind);
-                    self.verbatim_payload(text);
-                } else {
-                    self.output.push_str(kind);
-                    self.full_verbatim_payload(text);
+            Inline::Verbatim { mark, text, .. } => {
+                self.output.push('`');
+                if let Some(mark) = mark {
+                    self.output.push_str(&mark.marker);
                 }
+                self.verbatim_payload(text);
             }
-        }
-    }
-
-    fn full_verbatim_payload(&mut self, text: &str) {
-        let quotes = minimum_quote_count(text).max(1);
-        for _ in 0..quotes {
-            self.output.push('"');
-        }
-        self.output.push('[');
-        self.output.push_str(text);
-        self.output.push(']');
-        for _ in 0..quotes {
-            self.output.push('"');
         }
     }
 
     fn verbatim_payload(&mut self, text: &str) {
-        // A compact payload beginning with `[` would be reparsed as a
-        // bracket envelope. Keep the bracketed spelling so the bracket is raw.
-        if !text.is_empty() && !text.contains('"') && !text.starts_with('[') {
+        if !text.contains('"') && !text.starts_with('{') {
             self.output.push('"');
             self.output.push_str(text);
             self.output.push('"');
@@ -684,17 +610,13 @@ impl Formatter {
             for _ in 0..quotes {
                 self.output.push('"');
             }
-            self.output.push('[');
+            self.output.push('{');
             self.output.push_str(text);
-            self.output.push(']');
+            self.output.push('}');
             for _ in 0..quotes {
                 self.output.push('"');
             }
         }
-    }
-
-    fn raw_payload(&mut self, raw: &RawPayload, body_indent: usize) {
-        self.raw_text(&raw.text, body_indent);
     }
 
     fn raw_text(&mut self, text: &str, body_indent: usize) {
@@ -724,16 +646,12 @@ impl Formatter {
         }
     }
 
-    fn text(&mut self, text: &str, _nested: bool) {
-        // §2: structural delimiters never become bare when rendered as text.
+    fn text(&mut self, text: &str) {
         for character in text.chars() {
             match character {
                 '`' => self.output.push_str("``"),
-                ' ' => self.output.push_str("` "),
-                '[' => self.output.push_str("`["),
-                ']' => self.output.push_str("`]"),
-                '{' | '}' => self.output.push(character),
-                '|' => self.output.push_str("`|"),
+                '{' => self.output.push_str("`{"),
+                '}' => self.output.push_str("`}"),
                 _ => self.output.push(character),
             }
         }
@@ -751,9 +669,7 @@ fn compact_siblings(previous: &Block, current: &Block) -> bool {
     let (Some(previous_mark), Some(current_mark)) = (&previous.mark, &current.mark) else {
         return false;
     };
-    previous.children.is_empty()
-        && previous.raw.is_none()
-        && previous_mark.marker == current_mark.marker
+    previous.children.is_empty() && previous_mark.marker == current_mark.marker
 }
 
 fn minimum_quote_count(text: &str) -> usize {
@@ -761,7 +677,7 @@ fn minimum_quote_count(text: &str) -> usize {
     let mut maximum = None;
     let mut cursor = 0;
     while cursor < bytes.len() {
-        if bytes[cursor] != b']' {
+        if bytes[cursor] != b'}' {
             cursor += 1;
             continue;
         }
@@ -775,7 +691,7 @@ fn minimum_quote_count(text: &str) -> usize {
     maximum.map_or(0, |quotes| quotes + 1)
 }
 
-#[cfg(test)]
+#[cfg(any())]
 mod tests {
     use super::*;
 

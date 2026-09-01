@@ -2,7 +2,8 @@ use std::ops::Range;
 
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveTime, TimeZone};
 use plumb_syntax::{
-    AttrItem, AttrValue, Block, Diagnostic, DiagnosticSeverity, Inline, ParsedBlock, ValidDocument,
+    AttrItem, AttrValue, Block, Diagnostic, DiagnosticSeverity, Inline, InlineContent, ParsedBlock,
+    ValidDocument,
 };
 use serde::{Deserialize, Serialize};
 
@@ -175,13 +176,13 @@ fn collect_blocks(
 
         if is_event {
             let event = event_record(source, block, event_depth, &scoped_context);
-            if block.head.arguments.len() != 2 {
+            if block.content.data.len() < 2 {
                 output.diagnostics.push(Diagnostic {
                     code: "event.invalid-head-arity",
                     severity: DiagnosticSeverity::Warning,
-                    message: "an event head requires exactly a schedule and a title argument"
+                    message: "an event head requires a schedule followed by title content"
                         .to_string(),
-                    range: block.head.range.clone(),
+                    range: block.content.range.clone(),
                     related: Vec::new(),
                 });
             }
@@ -263,7 +264,7 @@ fn event_record(
 }
 
 fn event_head(block: &ParsedBlock) -> (Option<EventField>, String, Range<usize>) {
-    let when = block.head.argument(0).and_then(|content| {
+    let when = block.content.argument(0).and_then(|content| {
         let [Inline::Text { text, range }] = content.items.as_slice() else {
             return None;
         };
@@ -272,9 +273,16 @@ fn event_head(block: &ParsedBlock) -> (Option<EventField>, String, Range<usize>)
             range: range.clone(),
         })
     });
-    let title_content = block.head.argument(1);
+    let title_content = (block.content.data.len() >= 2).then(|| {
+        let first = &block.content.data[1];
+        let last = block.content.data.last().unwrap();
+        InlineContent::from_items(
+            first.range.start..last.range.end,
+            block.content.items[first.item_range.start..last.item_range.end].to_vec(),
+        )
+    });
     let title_range = title_content.as_ref().map_or_else(
-        || block.head.range.end..block.head.range.end,
+        || block.content.range.end..block.content.range.end,
         |content| content.range.clone(),
     );
     let title = title_content.as_ref().map_or_else(String::new, |content| {
@@ -298,7 +306,7 @@ fn collect_detail_lines(blocks: &[Block], lines: &mut Vec<String>) {
                 if crate::list_item_facet(block) == crate::ListItemFacet::Event {
                     continue;
                 }
-                let text = plain_text(&block.head).trim().to_string();
+                let text = plain_text(&block.content).trim().to_string();
                 if !text.is_empty() {
                     lines.push(text);
                 }

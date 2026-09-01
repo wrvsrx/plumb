@@ -2,14 +2,13 @@ use std::ops::Range;
 
 use plumb_edit::render_authored_text_arguments;
 use plumb_syntax::{
-    AttrItem, AttrValue, Attributes, Block, Inline, InlineArgumentRef, InlineContent, InlineMember,
-    ParsedBlock, ParsedDocument,
+    AttrItem, AttrValue, Attributes, Block, Inline, InlineContent, ParsedBlock, ParsedDocument,
 };
 
 use crate::document::has_uri_scheme;
 use crate::{parse_task_reference_target, TaskReferenceTarget};
 
-const LINK_OPEN: &str = "`->[";
+const LINK_OPEN: &str = "`->{";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LinkCompletionContext {
@@ -85,8 +84,8 @@ pub fn citation_completion_context(
     if offset > document.source.len() || !document.source.is_char_boundary(offset) {
         return None;
     }
-    let start = document.source[..offset].rfind("`cite[")? + "`cite[".len();
-    if document.source[start..offset].contains([']', '\n', '\r', '`']) {
+    let start = document.source[..offset].rfind("`cite{")? + "`cite{".len();
+    if document.source[start..offset].contains(['}', '\n', '\r', '`']) {
         return None;
     }
     Some(CitationCompletionContext {
@@ -130,7 +129,8 @@ fn attribute_context_in_blocks(
                 if let Some(context) = direct_block_attribute_context(block, source, offset) {
                     return Some(context);
                 }
-                if let Some(context) = attribute_context_in_inlines(&block.head, source, offset) {
+                if let Some(context) = attribute_context_in_inlines(&block.content, source, offset)
+                {
                     return Some(context);
                 }
                 if let Some(context) = attribute_context_in_blocks(&block.children, source, offset)
@@ -157,10 +157,9 @@ fn direct_block_attribute_context(
             continue;
         };
         if !declaration.children.is_empty()
-            || declaration.raw.is_some()
             || !matches!(declaration_mark.marker.as_str(), "@" | "+" | "=")
             || offset < declaration.range.start
-            || offset > declaration.head.range.end
+            || offset > declaration.content.range.end
         {
             continue;
         }
@@ -171,13 +170,15 @@ fn direct_block_attribute_context(
             return Some(context);
         }
 
-        if declaration.head.arguments.len() > 1 {
+        if declaration.content.data.len() > 1 {
             continue;
         }
         let query_start = declaration
-            .head
+            .content
             .argument(0)
-            .map_or(declaration.head.range.end, |argument| argument.range.start);
+            .map_or(declaration.content.range.end, |argument| {
+                argument.range.start
+            });
         if offset < query_start {
             continue;
         }
@@ -223,12 +224,6 @@ fn direct_block_attribute_context(
                             );
                         }
                     }
-                    _ if owner.raw.is_some() => push_block_pair_completion(
-                        &mut completions,
-                        !existing("language"),
-                        "language",
-                        "raw content language",
-                    ),
                     _ => {}
                 }
                 completions.retain(|candidate| candidate.label.starts_with(query));
@@ -251,12 +246,12 @@ fn direct_block_value_context(
 ) -> Option<AttributeCompletionContext> {
     if owner_marker != "$"
         || declaration.mark.as_ref()?.marker != "="
-        || declaration.head.argument_plain_text(0)?.as_str() != "language"
+        || declaration.content.argument_plain_text(0)?.as_str() != "language"
     {
         return None;
     }
-    let key = declaration.head.argument(0)?;
-    let value = declaration.head.argument(1)?;
+    let key = declaration.content.argument(0)?;
+    let value = declaration.content.argument(1)?;
     let [Inline::Text { text: key, .. }] = key.items.as_slice() else {
         return None;
     };
@@ -329,43 +324,24 @@ fn attribute_context_in_inlines(
 ) -> Option<AttributeCompletionContext> {
     for inline in &content.items {
         match inline {
-            Inline::Element {
-                kind,
-                members,
-                attrs,
-                ..
-            } => {
-                if let Some(context) =
-                    inline_member_attribute_context(kind, members, attrs, source, offset)
-                {
-                    return Some(context);
-                }
-                for member in members {
-                    match member {
-                        InlineMember::ParsedArgument(argument) => {
-                            if let Some(context) =
-                                attribute_context_in_inlines(&argument.content, source, offset)
-                            {
-                                return Some(context);
-                            }
-                        }
-                        InlineMember::Child { inline, .. } => {
-                            let content = InlineContent::from_items(
-                                inline_range(inline).clone(),
-                                vec![inline.as_ref().clone()],
-                            );
-                            if let Some(context) =
-                                attribute_context_in_inlines(&content, source, offset)
-                            {
-                                return Some(context);
-                            }
-                        }
-                        InlineMember::VerbatimArgument(_) => {}
+            Inline::Group { mark, content, .. } => {
+                if let Some(mark) = mark {
+                    if let Some(context) = inline_member_attribute_context(
+                        &mark.marker,
+                        content,
+                        &mark.attrs,
+                        source,
+                        offset,
+                    ) {
+                        return Some(context);
                     }
+                }
+                if let Some(context) = attribute_context_in_inlines(content, source, offset) {
+                    return Some(context);
                 }
             }
             Inline::Verbatim { .. } => {}
-            Inline::Text { .. } | Inline::Space { .. } | Inline::SoftBreak { .. } => {}
+            Inline::Text { .. } | Inline::Space { .. } => {}
         }
     }
     None
@@ -373,33 +349,27 @@ fn attribute_context_in_inlines(
 
 fn inline_member_attribute_context(
     owner_kind: &str,
-    members: &[InlineMember],
+    content: &InlineContent,
     attrs: &Attributes,
     source: &str,
     offset: usize,
 ) -> Option<AttributeCompletionContext> {
-    for member in members {
-        let InlineMember::Child { inline, .. } = member else {
-            continue;
-        };
-        let Inline::Element {
+    for datum in &content.data {
+        let [Inline::Group {
             range,
-            kind,
-            members,
+            mark: Some(mark),
+            content: declaration,
             ..
-        } = inline.as_ref()
+        }] = &content.items[datum.item_range.clone()]
         else {
             continue;
         };
-        if offset < range.start || offset > range.end || kind != "=" {
+        if offset < range.start || offset > range.end || mark.marker != "=" {
             continue;
         }
-        let arguments = members
-            .iter()
-            .filter_map(InlineMember::argument)
-            .collect::<Vec<_>>();
+        let arguments = crate::positional_data(declaration);
         if let [key, value] = arguments.as_slice() {
-            let value_range = argument_range(value);
+            let value_range = value.range.clone();
             if owner_kind == "$"
                 && key.plain_text() == "language"
                 && value_range.start <= offset
@@ -422,7 +392,7 @@ fn inline_member_attribute_context(
         let [key] = arguments.as_slice() else {
             continue;
         };
-        let key_range = argument_range(key);
+        let key_range = key.range.clone();
         if offset < key_range.start || offset > key_range.end {
             continue;
         }
@@ -431,14 +401,14 @@ fn inline_member_attribute_context(
             "img" | "file" if attrs.value("src").is_none() && "src".starts_with(query) => {
                 AttributeCompletion {
                     label: "src",
-                    new_text: "=[src|]".to_string(),
+                    new_text: "`={src {}}".to_string(),
                     detail: "resource source",
                 }
             }
             "$" if attrs.value("language").is_none() && "language".starts_with(query) => {
                 AttributeCompletion {
                     label: "language",
-                    new_text: "=[language|]".to_string(),
+                    new_text: "`={language {}}".to_string(),
                     detail: "raw content language",
                 }
             }
@@ -450,13 +420,6 @@ fn inline_member_attribute_context(
         });
     }
     None
-}
-
-fn argument_range(argument: &InlineArgumentRef<'_>) -> Range<usize> {
-    match argument {
-        InlineArgumentRef::Parsed(content) => content.range.clone(),
-        InlineArgumentRef::Verbatim(argument) => argument.text_range.clone(),
-    }
 }
 
 pub fn construct_completion_context(
@@ -530,12 +493,12 @@ fn event_title_context_in_blocks(
             continue;
         };
         if crate::list_item_facet(block) == crate::ListItemFacet::Event
-            && offset == block.head.range.end
+            && offset == block.content.range.end
         {
-            if block.head.arguments.len() != 2 {
+            if block.content.data.len() != 2 {
                 return None;
             }
-            let title_content = block.head.argument(1)?;
+            let title_content = block.content.argument(1)?;
             let title = title_content.items.as_slice();
             if title
                 .iter()
@@ -566,8 +529,7 @@ fn inline_range(inline: &Inline) -> &Range<usize> {
     match inline {
         Inline::Text { range, .. }
         | Inline::Space { range, .. }
-        | Inline::SoftBreak { range }
-        | Inline::Element { range, .. }
+        | Inline::Group { range, .. }
         | Inline::Verbatim { range, .. } => range,
     }
 }
@@ -897,7 +859,7 @@ fn blocks_find_autolink(
 ) -> Option<LinkCompletionContext> {
     blocks.iter().find_map(|block| match block {
         Block::Verbatim(_) => None,
-        Block::Parsed(block) => inlines_find_autolink(source, &block.head, offset)
+        Block::Parsed(block) => inlines_find_autolink(source, &block.content, offset)
             .or_else(|| blocks_find_autolink(source, &block.children, offset)),
     })
 }
@@ -910,12 +872,14 @@ fn inlines_find_autolink(
     content.items.iter().find_map(|inline| match inline {
         Inline::Verbatim {
             range,
-            kind,
+            mark,
             text_range,
             quote_count,
-            attrs,
             ..
-        } if text_range.start <= offset && offset <= text_range.end && kind == "->" => {
+        } if text_range.start <= offset
+            && offset <= text_range.end
+            && mark.as_ref().is_some_and(|mark| mark.marker == "->") =>
+        {
             let envelope_end = range.end;
             component_completion_context(
                 source,
@@ -925,24 +889,8 @@ fn inlines_find_autolink(
                 offset,
             )
         }
-        Inline::Element { members, .. } => members.iter().find_map(|member| match member {
-            InlineMember::ParsedArgument(argument) => {
-                inlines_find_autolink(source, &argument.content, offset)
-            }
-            InlineMember::Child { inline, .. } => inlines_find_autolink(
-                source,
-                &InlineContent::from_items(
-                    inline_range(inline).clone(),
-                    vec![inline.as_ref().clone()],
-                ),
-                offset,
-            ),
-            InlineMember::VerbatimArgument(_) => None,
-        }),
-        Inline::Verbatim { .. }
-        | Inline::Text { .. }
-        | Inline::Space { .. }
-        | Inline::SoftBreak { .. } => None,
+        Inline::Group { content, .. } => inlines_find_autolink(source, content, offset),
+        Inline::Verbatim { .. } | Inline::Text { .. } | Inline::Space { .. } => None,
     })
 }
 
@@ -992,11 +940,7 @@ fn blocks_contain_verbatim(blocks: &[Block], offset: usize) -> bool {
     blocks.iter().any(|block| match block {
         Block::Verbatim(block) => block.text_range.contains(&offset),
         Block::Parsed(block) => {
-            block
-                .raw
-                .as_ref()
-                .is_some_and(|raw| raw.text_range.contains(&offset))
-                || inlines_contain_verbatim(&block.head, offset)
+            inlines_contain_verbatim(&block.content, offset)
                 || blocks_contain_verbatim(&block.children, offset)
         }
     })
@@ -1011,7 +955,7 @@ fn blocks_attributes_contain(blocks: &[Block], offset: usize) -> bool {
                     .range
                     .as_ref()
                     .is_some_and(|range| range.contains(&offset))
-            }) || inlines_attributes_contain(&block.head, offset)
+            }) || inlines_attributes_contain(&block.content, offset)
                 || blocks_attributes_contain(&block.children, offset)
         }
     })
@@ -1019,30 +963,21 @@ fn blocks_attributes_contain(blocks: &[Block], offset: usize) -> bool {
 
 fn inlines_attributes_contain(content: &InlineContent, offset: usize) -> bool {
     content.items.iter().any(|inline| match inline {
-        Inline::Element { attrs, members, .. } => {
-            attrs
+        Inline::Group { mark, content, .. } => {
+            mark.as_ref().is_some_and(|mark| {
+                mark.attrs
+                    .range
+                    .as_ref()
+                    .is_some_and(|range| range.contains(&offset))
+            }) || inlines_attributes_contain(content, offset)
+        }
+        Inline::Verbatim { mark, .. } => mark.as_ref().is_some_and(|mark| {
+            mark.attrs
                 .range
                 .as_ref()
                 .is_some_and(|range| range.contains(&offset))
-                || members.iter().any(|member| match member {
-                    InlineMember::ParsedArgument(argument) => {
-                        inlines_attributes_contain(&argument.content, offset)
-                    }
-                    InlineMember::Child { inline, .. } => inlines_attributes_contain(
-                        &InlineContent::from_items(
-                            inline_range(inline).clone(),
-                            vec![inline.as_ref().clone()],
-                        ),
-                        offset,
-                    ),
-                    InlineMember::VerbatimArgument(_) => false,
-                })
-        }
-        Inline::Verbatim { attrs, .. } => attrs
-            .range
-            .as_ref()
-            .is_some_and(|range| range.contains(&offset)),
-        Inline::Text { .. } | Inline::Space { .. } | Inline::SoftBreak { .. } => false,
+        }),
+        Inline::Text { .. } | Inline::Space { .. } => false,
     })
 }
 
@@ -1051,22 +986,8 @@ fn inlines_contain_verbatim(content: &InlineContent, offset: usize) -> bool {
         Inline::Verbatim { text_range, .. } => {
             text_range.start <= offset && offset <= text_range.end
         }
-        Inline::Element { members, .. } => members.iter().any(|member| match member {
-            InlineMember::ParsedArgument(argument) => {
-                inlines_contain_verbatim(&argument.content, offset)
-            }
-            InlineMember::VerbatimArgument(argument) => {
-                argument.text_range.start <= offset && offset <= argument.text_range.end
-            }
-            InlineMember::Child { inline, .. } => inlines_contain_verbatim(
-                &InlineContent::from_items(
-                    inline_range(inline).clone(),
-                    vec![inline.as_ref().clone()],
-                ),
-                offset,
-            ),
-        }),
-        Inline::Text { .. } | Inline::Space { .. } | Inline::SoftBreak { .. } => false,
+        Inline::Group { content, .. } => inlines_contain_verbatim(content, offset),
+        Inline::Text { .. } | Inline::Space { .. } => false,
     })
 }
 

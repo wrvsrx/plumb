@@ -19,7 +19,7 @@ fn empty_source_has_an_empty_lossless_root() {
 
 #[test]
 fn direct_declaration_children_have_token_granularity() {
-    let source = "`node Head\n `@ id\n `+ class\n `= key|a\"b\n";
+    let source = "`node Head\n `@ id\n `+ class\n `= key a\"b\n";
     assert_eq!(
         tokens(source),
         vec![
@@ -45,7 +45,7 @@ fn direct_declaration_children_have_token_granularity() {
             (SyntaxKind::Marker, "="),
             (SyntaxKind::Whitespace, " "),
             (SyntaxKind::Text, "key"),
-            (SyntaxKind::Delimiter, "|"),
+            (SyntaxKind::Whitespace, " "),
             (SyntaxKind::Text, "a\"b"),
             (SyntaxKind::LineEnding, "\n"),
         ]
@@ -54,7 +54,7 @@ fn direct_declaration_children_have_token_granularity() {
 
 #[test]
 fn parsed_and_verbatim_inlines_expose_their_delimiters() {
-    let source = "A `span[x|+[c]] `\"raw\" Z\n";
+    let source = "A `span{x `+{c}} `\"raw\" Z\n";
     assert_eq!(
         tokens(source),
         vec![
@@ -62,14 +62,15 @@ fn parsed_and_verbatim_inlines_expose_their_delimiters() {
             (SyntaxKind::Whitespace, " "),
             (SyntaxKind::Introducer, "`"),
             (SyntaxKind::InlineKind, "span"),
-            (SyntaxKind::Delimiter, "["),
+            (SyntaxKind::Delimiter, "{"),
             (SyntaxKind::Text, "x"),
-            (SyntaxKind::Delimiter, "|"),
+            (SyntaxKind::Whitespace, " "),
+            (SyntaxKind::Introducer, "`"),
             (SyntaxKind::InlineKind, "+"),
-            (SyntaxKind::Delimiter, "["),
+            (SyntaxKind::Delimiter, "{"),
             (SyntaxKind::Text, "c"),
-            (SyntaxKind::Delimiter, "]"),
-            (SyntaxKind::Delimiter, "]"),
+            (SyntaxKind::Delimiter, "}"),
+            (SyntaxKind::Delimiter, "}"),
             (SyntaxKind::Whitespace, " "),
             (SyntaxKind::Introducer, "`"),
             (SyntaxKind::Delimiter, "\""),
@@ -84,16 +85,16 @@ fn parsed_and_verbatim_inlines_expose_their_delimiters() {
 
 #[test]
 fn strengthened_verbatim_quotes_are_individual_delimiters() {
-    let source = "`\"\"[a ]\" b]\"\"\n";
+    let source = "`\"\"{a }\" b}\"\"\n";
     assert_eq!(
         tokens(source),
         vec![
             (SyntaxKind::Introducer, "`"),
             (SyntaxKind::Delimiter, "\""),
             (SyntaxKind::Delimiter, "\""),
-            (SyntaxKind::Delimiter, "["),
-            (SyntaxKind::RawPayload, "a ]\" b"),
-            (SyntaxKind::Delimiter, "]"),
+            (SyntaxKind::Delimiter, "{"),
+            (SyntaxKind::RawPayload, "a }\" b"),
+            (SyntaxKind::Delimiter, "}"),
             (SyntaxKind::Delimiter, "\""),
             (SyntaxKind::Delimiter, "\""),
             (SyntaxKind::LineEnding, "\n"),
@@ -103,14 +104,12 @@ fn strengthened_verbatim_quotes_are_individual_delimiters() {
 
 #[test]
 fn raw_block_separates_structural_prefix_payload_and_crlf() {
-    let source = "`text\n|\"\n raw\r\n \r\n";
+    let source = "`text\"\n raw\r\n \r\n";
     assert_eq!(
         tokens(source),
         vec![
             (SyntaxKind::Introducer, "`"),
             (SyntaxKind::Marker, "text"),
-            (SyntaxKind::LineEnding, "\n"),
-            (SyntaxKind::Delimiter, "|"),
             (SyntaxKind::Delimiter, "\""),
             (SyntaxKind::LineEnding, "\n"),
             (SyntaxKind::Indentation, " "),

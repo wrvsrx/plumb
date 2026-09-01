@@ -62,10 +62,10 @@ pub fn analyze_recovered_headings(document: &Document) -> HeadingOutput {
 
         let heading = Heading {
             node_range: block.range.clone(),
-            selection_range: crate::inline_selection_range(&block.head),
+            selection_range: crate::inline_selection_range(&block.content),
             section_range: block.range.start..section_end,
             level,
-            title: plain_text(&block.head),
+            title: plain_text(&block.content),
             children: Vec::new(),
         };
         let siblings = get_heading_children_mut(&mut roots, &path);

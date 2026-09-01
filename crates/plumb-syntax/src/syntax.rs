@@ -84,10 +84,6 @@ pub enum SyntaxKind {
     Marker,
     InlineKind,
     Delimiter,
-    AttributePunctuation,
-    AttributeName,
-    AttributeValue,
-    AttributeEscape,
     RawPayload,
     Error,
 }
@@ -152,6 +148,13 @@ impl Block {
         }
     }
 
+    pub fn marker(&self) -> Option<&Mark> {
+        match self {
+            Self::Parsed(block) => block.mark.as_ref(),
+            Self::Verbatim(block) => block.mark.as_ref(),
+        }
+    }
+
     pub fn children(&self) -> &[Block] {
         match self {
             Self::Parsed(block) => &block.children,
@@ -164,29 +167,16 @@ impl Block {
 pub struct ParsedBlock {
     pub range: SourceRange,
     pub mark: Option<Mark>,
-    pub head: InlineContent,
+    pub content: InlineContent,
     pub children: Vec<Block>,
-    pub raw: Option<RawPayload>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RawPayload {
-    pub range: SourceRange,
-    pub boundary_range: SourceRange,
-    pub quote_count: usize,
-    pub text: String,
-    pub text_range: SourceRange,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VerbatimBlock {
     pub range: SourceRange,
     pub opener_range: SourceRange,
-    /// Opaque verbatim kind; an empty string is the anonymous form (§10
-    /// makes the kind optional).
-    pub kind: String,
-    pub kind_range: SourceRange,
-    pub quote_count: usize,
+    pub mark: Option<Mark>,
+    pub quote_range: SourceRange,
     pub text: String,
     pub text_range: SourceRange,
 }
@@ -194,8 +184,6 @@ pub struct VerbatimBlock {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Mark {
     pub range: SourceRange,
-    /// Nonempty in valid trees (§3 requires a nonempty marker token); an
-    /// empty string appears only in the invalid-marker recovery placeholder.
     pub marker: String,
     pub marker_range: SourceRange,
     pub attrs: Attributes,
@@ -265,13 +253,12 @@ pub struct AttrValue {
 pub struct InlineContent {
     pub range: SourceRange,
     pub items: Vec<Inline>,
-    pub arguments: Vec<InlineContentArgument>,
+    pub data: Vec<InlineDatum>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct InlineContentArgument {
+pub struct InlineDatum {
     pub range: SourceRange,
-    pub separator_range: Option<SourceRange>,
     pub item_range: std::ops::Range<usize>,
 }
 
@@ -279,20 +266,8 @@ impl Drop for InlineContent {
     fn drop(&mut self) {
         let mut pending = std::mem::take(&mut self.items);
         while let Some(inline) = pending.pop() {
-            match inline {
-                Inline::Element { members, .. } => {
-                    for member in members {
-                        match member {
-                            InlineMember::ParsedArgument(mut argument) => {
-                                pending.append(&mut argument.content.items);
-                            }
-                            InlineMember::VerbatimArgument(_) => {}
-                            InlineMember::Child { inline, .. } => pending.push(*inline),
-                        }
-                    }
-                }
-                Inline::Verbatim { .. } => {}
-                Inline::Text { .. } | Inline::Space { .. } | Inline::SoftBreak { .. } => {}
+            if let Inline::Group { mut content, .. } = inline {
+                pending.append(&mut content.items);
             }
         }
     }
@@ -300,259 +275,114 @@ impl Drop for InlineContent {
 
 impl InlineContent {
     pub fn from_items(range: SourceRange, items: Vec<Inline>) -> Self {
-        let item_count = items.len();
-        Self {
-            arguments: vec![InlineContentArgument {
-                range: range.clone(),
-                separator_range: None,
-                item_range: 0..item_count,
-            }],
-            range,
-            items,
-        }
+        let data = project_data(&items, range.clone());
+        Self { range, items, data }
     }
 
     pub fn is_empty(&self) -> bool {
-        self.arguments.iter().enumerate().all(|(index, _)| {
-            self.argument(index)
-                .is_none_or(|argument| argument.items.is_empty())
-        })
+        self.data.is_empty()
     }
 
-    pub fn argument(&self, index: usize) -> Option<InlineContent> {
-        let argument = self.arguments.get(index)?;
-        Some(trim_argument_content(
-            &self.items[argument.item_range.clone()],
-            argument.range.clone(),
+    pub fn datum(&self, index: usize) -> Option<InlineContent> {
+        let datum = self.data.get(index)?;
+        Some(InlineContent::from_items(
+            datum.range.clone(),
+            self.items[datum.item_range.clone()].to_vec(),
         ))
     }
 
+    pub fn datum_plain_text(&self, index: usize) -> Option<String> {
+        Some(self.datum(index)?.plain_text())
+    }
+
+    pub fn argument(&self, index: usize) -> Option<InlineContent> {
+        self.datum(index)
+    }
+
     pub fn argument_plain_text(&self, index: usize) -> Option<String> {
-        Some(self.argument(index)?.plain_text())
+        self.datum_plain_text(index)
     }
 
     pub fn plain_text(&self) -> String {
         let mut output = String::new();
-        for index in 0..self.arguments.len() {
-            if let Some(argument) = self.argument(index) {
-                append_plain_text(&argument.items, &mut output);
-            }
-        }
+        let trimmed = self.trim_boundary_padding();
+        append_plain_text(&trimmed.items, &mut output);
         output
     }
 
     pub fn trim_boundary_padding(&self) -> InlineContent {
-        trim_argument_content(&self.items, self.range.clone())
+        let mut start = 0;
+        let mut end = self.items.len();
+        while start < end && matches!(self.items[start], Inline::Space { .. }) {
+            start += 1;
+        }
+        while end > start && matches!(self.items[end - 1], Inline::Space { .. }) {
+            end -= 1;
+        }
+        let items = self.items[start..end].to_vec();
+        let range = match (items.first(), items.last()) {
+            (Some(first), Some(last)) => inline_range(first).start..inline_range(last).end,
+            _ => self.range.end..self.range.end,
+        };
+        InlineContent::from_items(range, items)
     }
 }
 
-fn trim_argument_content(items: &[Inline], source_range: SourceRange) -> InlineContent {
-    let mut items = items.to_vec();
-
-    while let Some(Inline::Space { text, range }) = items.first_mut() {
-        let trimmed = text.trim_start_matches(' ');
-        let removed = text.len() - trimmed.len();
-        if removed == 0 {
-            break;
-        }
-        range.start += removed;
-        *text = trimmed.to_string();
-        if text.is_empty() {
-            items.remove(0);
-        } else {
-            break;
+fn project_data(items: &[Inline], fallback: SourceRange) -> Vec<InlineDatum> {
+    let mut data = Vec::new();
+    let mut start = None;
+    for (index, item) in items.iter().enumerate() {
+        if matches!(item, Inline::Space { .. }) {
+            if let Some(item_start) = start.take() {
+                data.push(datum_from_items(items, item_start, index, fallback.clone()));
+            }
+        } else if start.is_none() {
+            start = Some(index);
         }
     }
-
-    while let Some(Inline::Space { text, range }) = items.last_mut() {
-        let trimmed = text.trim_end_matches(' ');
-        let removed = text.len() - trimmed.len();
-        if removed == 0 {
-            break;
-        }
-        range.end -= removed;
-        *text = trimmed.to_string();
-        if text.is_empty() {
-            items.pop();
-        } else {
-            break;
-        }
+    if let Some(item_start) = start {
+        data.push(datum_from_items(items, item_start, items.len(), fallback));
     }
+    data
+}
 
-    let range = match (items.first(), items.last()) {
+fn datum_from_items(
+    items: &[Inline],
+    start: usize,
+    end: usize,
+    fallback: SourceRange,
+) -> InlineDatum {
+    let range = match (items.get(start), items.get(end.saturating_sub(1))) {
         (Some(first), Some(last)) => inline_range(first).start..inline_range(last).end,
-        _ => source_range.end..source_range.end,
+        _ => fallback.end..fallback.end,
     };
-    InlineContent::from_items(range, items)
+    InlineDatum {
+        range,
+        item_range: start..end,
+    }
 }
 
-fn inline_range(inline: &Inline) -> &SourceRange {
+pub fn inline_range(inline: &Inline) -> &SourceRange {
     match inline {
         Inline::Text { range, .. }
         | Inline::Space { range, .. }
-        | Inline::SoftBreak { range }
-        | Inline::Element { range, .. }
+        | Inline::Group { range, .. }
         | Inline::Verbatim { range, .. } => range,
     }
 }
 
 fn append_plain_text(items: &[Inline], output: &mut String) {
-    enum Frame<'a> {
-        Inlines(&'a [Inline], usize),
-        Members(&'a [InlineMember], usize),
-        OwnedInline(Inline),
-        OwnedText(String),
-    }
-
-    let mut stack = vec![Frame::Inlines(items, 0)];
-    while let Some(frame) = stack.pop() {
-        match frame {
-            Frame::Inlines(items, index) => {
-                if index >= items.len() {
-                    continue;
-                }
-                stack.push(Frame::Inlines(items, index + 1));
-                match &items[index] {
-                    Inline::Text { text, .. } | Inline::Verbatim { text, .. } => {
-                        output.push_str(text);
-                    }
-                    Inline::Space { text, .. } => output.push_str(text),
-                    Inline::SoftBreak { .. } => output.push(' '),
-                    Inline::Element { members, .. } => {
-                        stack.push(Frame::Members(members, 0));
-                    }
-                }
-            }
-            Frame::Members(members, index) => {
-                if index >= members.len() {
-                    continue;
-                }
-                stack.push(Frame::Members(members, index + 1));
-                match &members[index] {
-                    InlineMember::ParsedArgument(argument) => {
-                        let mut trimmed = argument.content.trim_boundary_padding();
-                        for inline in std::mem::take(&mut trimmed.items).into_iter().rev() {
-                            stack.push(Frame::OwnedInline(inline));
-                        }
-                    }
-                    InlineMember::VerbatimArgument(argument) => {
-                        output.push_str(&argument.text);
-                    }
-                    InlineMember::Child { inline, .. } => {
-                        stack.push(Frame::Inlines(std::slice::from_ref(inline.as_ref()), 0));
-                    }
-                }
-            }
-            Frame::OwnedInline(inline) => match inline {
-                Inline::Text { text, .. }
-                | Inline::Space { text, .. }
-                | Inline::Verbatim { text, .. } => output.push_str(&text),
-                Inline::SoftBreak { .. } => output.push(' '),
-                Inline::Element { members, .. } => {
-                    for member in members.into_iter().rev() {
-                        match member {
-                            InlineMember::ParsedArgument(argument) => {
-                                let mut trimmed = argument.content.trim_boundary_padding();
-                                for inline in std::mem::take(&mut trimmed.items).into_iter().rev() {
-                                    stack.push(Frame::OwnedInline(inline));
-                                }
-                            }
-                            InlineMember::VerbatimArgument(argument) => {
-                                stack.push(Frame::OwnedText(argument.text));
-                            }
-                            InlineMember::Child { inline, .. } => {
-                                stack.push(Frame::OwnedInline(*inline));
-                            }
-                        }
-                    }
-                }
-            },
-            Frame::OwnedText(text) => output.push_str(&text),
+    let mut stack = vec![(items, 0)];
+    while let Some((items, index)) = stack.pop() {
+        if index >= items.len() {
+            continue;
         }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct InlineArgument {
-    pub range: SourceRange,
-    pub separator_range: Option<SourceRange>,
-    pub content: InlineContent,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct VerbatimArgument {
-    pub range: SourceRange,
-    pub separator_range: Option<SourceRange>,
-    pub leading_padding: Option<InlinePadding>,
-    pub trailing_padding: Option<InlinePadding>,
-    pub text: String,
-    pub text_range: SourceRange,
-    pub quote_count: usize,
-    pub bracketed: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct InlinePadding {
-    pub text: String,
-    pub range: SourceRange,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum InlineMember {
-    ParsedArgument(InlineArgument),
-    VerbatimArgument(VerbatimArgument),
-    Child {
-        range: SourceRange,
-        separator_range: SourceRange,
-        leading_padding: Option<InlinePadding>,
-        trailing_padding: Option<InlinePadding>,
-        inline: Box<Inline>,
-    },
-}
-
-impl InlineMember {
-    pub fn range(&self) -> &SourceRange {
-        match self {
-            Self::ParsedArgument(argument) => &argument.range,
-            Self::VerbatimArgument(argument) => &argument.range,
-            Self::Child { range, .. } => range,
-        }
-    }
-
-    pub fn argument(&self) -> Option<InlineArgumentRef<'_>> {
-        match self {
-            Self::ParsedArgument(argument) => Some(InlineArgumentRef::Parsed(&argument.content)),
-            Self::VerbatimArgument(argument) => Some(InlineArgumentRef::Verbatim(argument)),
-            Self::Child { .. } => None,
-        }
-    }
-
-    pub fn child(&self) -> Option<&Inline> {
-        match self {
-            Self::Child { inline, .. } => Some(inline),
-            Self::ParsedArgument(_) | Self::VerbatimArgument(_) => None,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum InlineArgumentRef<'a> {
-    Parsed(&'a InlineContent),
-    Verbatim(&'a VerbatimArgument),
-}
-
-impl InlineArgumentRef<'_> {
-    pub fn range(&self) -> SourceRange {
-        match self {
-            Self::Parsed(content) => content.trim_boundary_padding().range.clone(),
-            Self::Verbatim(argument) => argument.text_range.clone(),
-        }
-    }
-
-    pub fn plain_text(&self) -> String {
-        match self {
-            Self::Parsed(content) => content.trim_boundary_padding().plain_text(),
-            Self::Verbatim(argument) => argument.text.clone(),
+        stack.push((items, index + 1));
+        match &items[index] {
+            Inline::Text { text, .. }
+            | Inline::Space { text, .. }
+            | Inline::Verbatim { text, .. } => output.push_str(text),
+            Inline::Group { content, .. } => stack.push((&content.items, 0)),
         }
     }
 }
@@ -567,27 +397,17 @@ pub enum Inline {
         text: String,
         range: SourceRange,
     },
-    SoftBreak {
+    Group {
         range: SourceRange,
-    },
-    Element {
-        range: SourceRange,
-        /// Nonempty (§8 forbids anonymous elements; the introducer-plus-
-        /// bracket spelling is a literal escape).
-        kind: String,
-        kind_range: SourceRange,
-        members: Vec<InlineMember>,
-        attrs: Attributes,
+        mark: Option<Mark>,
+        content: InlineContent,
     },
     Verbatim {
         range: SourceRange,
-        /// Opaque kind; empty is the anonymous inline verbatim (§9).
-        kind: String,
-        kind_range: SourceRange,
+        mark: Option<Mark>,
         text: String,
         text_range: SourceRange,
         quote_count: usize,
-        bracketed: bool,
-        attrs: Attributes,
+        braced: bool,
     },
 }

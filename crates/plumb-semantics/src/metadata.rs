@@ -3,8 +3,8 @@ use std::ops::Range;
 
 use chrono::DateTime;
 use plumb_syntax::{
-    Block, Diagnostic, DiagnosticSeverity, Document, Inline, InlineContent, InlineMember,
-    ParsedBlock, ValidDocument,
+    Block, Diagnostic, DiagnosticSeverity, Document, Inline, InlineContent, ParsedBlock,
+    ValidDocument,
 };
 
 use crate::text::plain_text;
@@ -266,7 +266,7 @@ fn parse_direct_entries<'a>(
             diagnostics.push(warning(
                 "metadata.invalid-key",
                 "metadata keys must be nonempty plain text",
-                property.head.range.clone(),
+                property.content.range.clone(),
             ));
             continue;
         };
@@ -324,24 +324,19 @@ fn parse_direct_value(
 fn direct_property_parts(
     property: &ParsedBlock,
 ) -> Option<(String, Range<usize>, Option<InlineContent>)> {
-    let head = &property.head;
+    let head = &property.content;
     if !property.children.is_empty() {
-        if head.arguments.len() != 1 {
-            return None;
-        }
-        let key_content = head.argument(0)?;
+        let key_content = head.trim_boundary_padding();
         let key = plain_association_key(&key_content)?;
         return Some((key, key_content.range.clone(), None));
     }
-    if !(1..=2).contains(&head.arguments.len()) {
+    if head.data.is_empty() {
         return None;
     }
     let key_content = head.argument(0)?;
     let key = plain_association_key(&key_content)?;
     let key_range = key_content.range.clone();
-    let value = (head.arguments.len() == 2)
-        .then(|| head.argument(1))
-        .flatten();
+    let value = (head.data.len() >= 2).then(|| content_data_range(head, 1, head.data.len()));
     Some((key, key_range, value))
 }
 
@@ -361,7 +356,7 @@ fn parse_direct_children(
     }
     if let [Block::Parsed(block)] = blocks {
         if block.mark.is_none() && block.children.is_empty() {
-            let content = block.head.argument(0).unwrap_or_else(|| block.head.clone());
+            let content = block.content.trim_boundary_padding();
             return match inline_verbatim(&content) {
                 Some(text) => MetadataValue::Verbatim {
                     text: text.to_string(),
@@ -379,18 +374,18 @@ fn parse_direct_children(
                     unreachable!("plus marker implies parsed block");
                 };
                 let value = if item.children.is_empty() {
-                    let content = item.head.argument(0).unwrap_or_else(|| item.head.clone());
+                    let content = item.content.trim_boundary_padding();
                     match inline_verbatim(&content) {
                         Some(text) => MetadataValue::Verbatim {
                             text: text.to_string(),
-                            range: item.head.range.clone(),
+                            range: item.content.range.clone(),
                         },
                         None => MetadataValue::Scalar {
                             content,
-                            range: item.head.range.clone(),
+                            range: item.content.range.clone(),
                         },
                     }
-                } else if item.head.is_empty() {
+                } else if item.content.is_empty() {
                     parse_direct_children(&item.children, body_range(item), diagnostics)
                 } else {
                     diagnostics.push(warning(
@@ -442,12 +437,9 @@ fn collect_definition_lists<'a>(
         let mut current = Some(current);
         while let Some(block) = current.and_then(definition_block) {
             let (term, inline_body) = if block.children.is_empty() {
-                split_inline_arguments(&block.head)
+                split_inline_arguments(&block.content)
             } else {
-                (
-                    block.head.argument(0).unwrap_or_else(|| block.head.clone()),
-                    None,
-                )
+                (block.content.trim_boundary_padding(), None)
             };
             let projected_body_range = inline_body
                 .as_ref()
@@ -498,39 +490,29 @@ fn lint_standard_entries(entries: &[MetadataEntry], diagnostics: &mut Vec<Diagno
 
 fn inline_verbatim(content: &InlineContent) -> Option<&str> {
     let [Inline::Verbatim {
-        kind, text, attrs, ..
+        mark: None, text, ..
     }] = content.items.as_slice()
     else {
         return None;
     };
-    (kind.is_empty() && attrs.items.is_empty()).then_some(text)
+    Some(text)
 }
 
 fn plain_association_key(content: &InlineContent) -> Option<String> {
-    if let [Inline::Element {
-        kind,
-        members,
-        attrs,
+    if let [Inline::Group {
+        mark: None,
+        content,
         ..
     }] = content.items.as_slice()
     {
-        let mut arguments = members.iter().filter_map(InlineMember::argument);
-        if kind == "()" && attrs.items.is_empty() {
-            let argument = arguments.next()?;
-            if arguments.next().is_some() {
-                return None;
-            }
-            let key = argument.plain_text();
-            return (!key.is_empty()).then_some(key);
-        }
+        let key = content.plain_text();
+        return (!key.is_empty()).then_some(key);
     }
     if content.is_empty()
-        || content.items.iter().any(|item| {
-            !matches!(
-                item,
-                Inline::Text { .. } | Inline::Space { .. } | Inline::SoftBreak { .. }
-            )
-        })
+        || content
+            .items
+            .iter()
+            .any(|item| !matches!(item, Inline::Text { .. } | Inline::Space { .. }))
     {
         return None;
     }
@@ -540,8 +522,18 @@ fn plain_association_key(content: &InlineContent) -> Option<String> {
 
 fn split_inline_arguments(content: &InlineContent) -> (InlineContent, Option<InlineContent>) {
     let term = content.argument(0).unwrap_or_else(|| content.clone());
-    let body = content.argument(1);
+    let body =
+        (content.data.len() >= 2).then(|| content_data_range(content, 1, content.data.len()));
     (term, body)
+}
+
+fn content_data_range(content: &InlineContent, start: usize, end: usize) -> InlineContent {
+    let first = &content.data[start];
+    let last = &content.data[end - 1];
+    InlineContent::from_items(
+        first.range.start..last.range.end,
+        content.items[first.item_range.start..last.item_range.end].to_vec(),
+    )
 }
 
 fn definition_block(block: &Block) -> Option<&ParsedBlock> {

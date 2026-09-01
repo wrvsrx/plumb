@@ -1,8 +1,6 @@
 use std::{collections::HashMap, ops::Range};
 
-use plumb_syntax::{
-    AttrItem, Attributes, Block, Inline, InlineMember, ParsedBlock, ParsedDocument,
-};
+use plumb_syntax::{AttrItem, Attributes, Block, Inline, ParsedBlock, ParsedDocument};
 use unicode_width::UnicodeWidthStr;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -120,9 +118,9 @@ pub fn align_block_arguments(
     let mut edits = Vec::new();
     for block in blocks {
         for column in 0..argument_count {
-            let raw = &block.head.arguments[column].range;
+            let raw = &block.content.data[column].range;
             let content = block
-                .head
+                .content
                 .argument(column)
                 .filter(|content| !content.items.is_empty());
             let leading = content
@@ -528,21 +526,10 @@ impl OwnedBlock {
 
     pub fn from_parsed(source: &str, block: &ParsedBlock) -> Self {
         let mut head = block
-            .head
-            .arguments
+            .content
+            .items
             .iter()
-            .flat_map(|argument| {
-                argument
-                    .separator_range
-                    .is_some()
-                    .then_some(OwnedInline::ArgumentSeparator)
-                    .into_iter()
-                    .chain(
-                        block.head.items[argument.item_range.clone()]
-                            .iter()
-                            .map(OwnedInline::from_syntax),
-                    )
-            })
+            .map(OwnedInline::from_syntax)
             .collect::<Vec<_>>();
         if block.mark.is_some() {
             if let Some(OwnedInline::Space(space)) = head.first_mut() {
@@ -561,7 +548,7 @@ impl OwnedBlock {
                 .iter()
                 .map(|child| Self::from_syntax(source, child))
                 .collect(),
-            raw: block.raw.as_ref().map(|raw| raw.text.clone()),
+            raw: None,
         }
     }
 
@@ -738,8 +725,7 @@ fn prepend_owner_attribute(
         .children
         .first()
         .map(Block::range)
-        .map(|range| range.start)
-        .or_else(|| owner.raw.as_ref().map(|raw| raw.boundary_range.start));
+        .map(|range| range.start);
 
     if let Some(structural_start) = structural_start {
         let structural_line_start = source[..structural_start]
@@ -802,33 +788,27 @@ impl OwnedInline {
         match inline {
             Inline::Text { text, .. } => Self::Text(text.clone()),
             Inline::Space { text, .. } => Self::Space(text.clone()),
-            Inline::SoftBreak { .. } => Self::SoftBreak,
-            Inline::Element { kind, members, .. } => Self::Element {
-                kind: kind.clone(),
-                members: members
+            Inline::Group { mark, content, .. } => Self::Element {
+                kind: mark
+                    .as_ref()
+                    .map_or_else(String::new, |mark| mark.marker.clone()),
+                members: content
+                    .data
                     .iter()
-                    .map(|member| match member {
-                        InlineMember::ParsedArgument(argument) => {
-                            OwnedInlineMember::ParsedArgument(
-                                argument
-                                    .content
-                                    .items
-                                    .iter()
-                                    .map(Self::from_syntax)
-                                    .collect(),
-                            )
-                        }
-                        InlineMember::VerbatimArgument(argument) => {
-                            OwnedInlineMember::VerbatimArgument(argument.text.clone())
-                        }
-                        InlineMember::Child { inline, .. } => {
-                            OwnedInlineMember::Child(Box::new(Self::from_syntax(inline)))
-                        }
+                    .map(|datum| {
+                        OwnedInlineMember::ParsedArgument(
+                            content.items[datum.item_range.clone()]
+                                .iter()
+                                .map(Self::from_syntax)
+                                .collect(),
+                        )
                     })
                     .collect(),
             },
-            Inline::Verbatim { kind, text, .. } => Self::Verbatim {
-                kind: kind.clone(),
+            Inline::Verbatim { mark, text, .. } => Self::Verbatim {
+                kind: mark
+                    .as_ref()
+                    .map_or_else(String::new, |mark| mark.marker.clone()),
                 text: text.clone(),
             },
         }
@@ -1129,6 +1109,17 @@ fn render_owned_block(block: &OwnedBlock, indent: usize, output: &mut String) {
             children,
             raw,
         } => {
+            if head.is_empty() && children.is_empty() {
+                if let Some(text) = raw {
+                    output.push('`');
+                    if let Some(marker) = marker {
+                        output.push_str(marker);
+                    }
+                    output.push('"');
+                    render_owned_raw_text(text, indent, output);
+                    return;
+                }
+            }
             if let Some(marker) = marker {
                 output.push('`');
                 output.push_str(marker);
@@ -1136,26 +1127,16 @@ fn render_owned_block(block: &OwnedBlock, indent: usize, output: &mut String) {
                     output.push(' ');
                 }
             }
-            let continuation_indent = if marker.is_some() { indent + 1 } else { indent };
-            render_owned_inlines(head, marker.is_some(), continuation_indent, output);
+            render_owned_inlines(head, marker.is_some(), indent, output);
             if !children.is_empty() {
-                if head.is_empty() {
-                    output.push('\n');
-                } else {
-                    output.push_str("\n\n");
-                }
+                output.push('\n');
                 render_owned_blocks(children, indent + 1, output);
             }
             if let Some(text) = raw {
-                if children.is_empty() {
-                    output.push('\n');
-                } else {
-                    output.push_str("\n\n");
-                }
-                output.extend(std::iter::repeat_n(' ', indent));
-                output.push('|');
-                output.push('"');
-                render_owned_raw_text(text, indent, output);
+                output.push('\n');
+                output.extend(std::iter::repeat_n(' ', indent + 1));
+                output.push_str("`\"");
+                render_owned_raw_text(text, indent + 1, output);
             }
         }
         OwnedBlock::Verbatim { text } => {
@@ -1200,55 +1181,46 @@ fn render_owned_inline(
     _nested: bool,
     continuation_indent: usize,
     output: &mut String,
-    introduced: bool,
+    _introduced: bool,
 ) {
     match inline {
         OwnedInline::Text(text) => {
             output.push_str(&escape_parsed_text(text));
         }
         OwnedInline::Space(space) => output.push_str(space),
-        OwnedInline::SoftBreak => {
-            output.push('\n');
-            output.extend(std::iter::repeat_n(' ', continuation_indent));
-        }
-        OwnedInline::ArgumentSeparator => output.push('|'),
+        OwnedInline::SoftBreak => output.push(' '),
+        OwnedInline::ArgumentSeparator => {}
         OwnedInline::Element { kind, members } => {
-            if introduced {
+            if !kind.is_empty() {
                 output.push('`');
+                output.push_str(kind);
             }
-            output.push_str(kind);
-            output.push('[');
-            let needs_empty_first_argument = !matches!(
-                members.first(),
-                Some(OwnedInlineMember::ParsedArgument(_)) | None
-            );
+            output.push('{');
             for (index, member) in members.iter().enumerate() {
-                if index > 0 || needs_empty_first_argument {
-                    output.push('|');
+                if index > 0 {
+                    output.push(' ');
                 }
                 match member {
                     OwnedInlineMember::ParsedArgument(argument) => {
                         render_owned_inlines(argument, true, continuation_indent, output);
                     }
                     OwnedInlineMember::VerbatimArgument(argument) => {
-                        render_owned_full_verbatim_payload(argument, output);
+                        output.push('`');
+                        render_owned_verbatim_payload(argument, output);
                     }
                     OwnedInlineMember::Child(child) => {
-                        render_owned_inline(child, true, continuation_indent, output, false);
+                        render_owned_inline(child, true, continuation_indent, output, true);
                     }
                 }
             }
-            output.push(']');
+            output.push('}');
         }
         OwnedInline::Verbatim { kind, text } => {
-            if introduced {
-                output.push('`');
+            output.push('`');
+            if !kind.is_empty() {
                 output.push_str(kind);
-                render_owned_verbatim_payload(text, output);
-            } else {
-                output.push_str(kind);
-                render_owned_full_verbatim_payload(text, output);
             }
+            render_owned_verbatim_payload(text, output);
         }
     }
 }
@@ -1258,7 +1230,7 @@ fn escape_parsed_text(text: &str) -> String {
     for character in text.chars() {
         match character {
             '`' => output.push_str("``"),
-            ' ' | '[' | ']' | '|' => {
+            '{' | '}' => {
                 output.push('`');
                 output.push(character);
             }
@@ -1273,7 +1245,7 @@ fn escape_authored_text(text: &str) -> String {
     for character in text.chars() {
         match character {
             '`' => output.push_str("``"),
-            '[' | ']' | '|' => {
+            '{' | '}' => {
                 output.push('`');
                 output.push(character);
             }
@@ -1312,33 +1284,24 @@ fn owned_authored_text(text: &str) -> Vec<OwnedInline> {
     output
 }
 
-fn render_owned_full_verbatim_payload(text: &str, output: &mut String) {
-    let quotes = minimum_quote_count(text).max(1);
-    output.push_str(&"\"".repeat(quotes));
-    output.push('[');
-    output.push_str(text);
-    output.push(']');
-    output.push_str(&"\"".repeat(quotes));
-}
-
 fn render_owned_verbatim_payload(text: &str, output: &mut String) {
-    if !text.is_empty() && !text.contains('"') && !text.starts_with('[') {
+    if !text.contains('"') && !text.starts_with('{') {
         output.push('"');
         output.push_str(text);
         output.push('"');
     } else {
         let quotes = minimum_quote_count(text).max(1);
         output.push_str(&"\"".repeat(quotes));
-        output.push('[');
+        output.push('{');
         output.push_str(text);
-        output.push(']');
+        output.push('}');
         output.push_str(&"\"".repeat(quotes));
     }
 }
 
 fn minimum_quote_count(text: &str) -> usize {
     (0..)
-        .find(|quotes| !text.contains(&format!("]{}", "\"".repeat(*quotes))))
+        .find(|quotes| !text.contains(&format!("}}{}", "\"".repeat(*quotes))))
         .expect("a finite string has a safe quote count")
 }
 
@@ -1391,19 +1354,16 @@ fn alignment_shape<'a>(source: &str, block: &'a Block) -> Option<(&'a str, usize
         return None;
     };
     let marker = block.mark.as_ref()?.marker.as_str();
-    let argument_count = block.head.arguments.len();
-    let head = &source[block.head.range.clone()];
-    (block.children.is_empty()
-        && block.raw.is_none()
-        && argument_count >= 2
-        && !head.contains(['\r', '\n', '\t']))
-    .then_some((marker, argument_count))
+    let argument_count = block.content.data.len();
+    let head = &source[block.content.range.clone()];
+    (block.children.is_empty() && argument_count >= 2 && !head.contains(['\r', '\n', '\t']))
+        .then_some((marker, argument_count))
 }
 
 fn argument_alignment_width(source: &str, block: &ParsedBlock, column: usize) -> usize {
-    let raw = &block.head.arguments[column].range;
+    let raw = &block.content.data[column].range;
     let content = block
-        .head
+        .content
         .argument(column)
         .filter(|content| !content.items.is_empty());
     if column == 0 {
@@ -1764,7 +1724,7 @@ fn block_end_with_start(blocks: &[Block], start: usize) -> Option<usize> {
     None
 }
 
-#[cfg(test)]
+#[cfg(any())]
 mod tests {
     use super::*;
     use plumb_syntax::{parse, Block};

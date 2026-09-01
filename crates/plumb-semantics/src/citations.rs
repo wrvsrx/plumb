@@ -1,9 +1,6 @@
 use std::ops::Range;
 
-use plumb_syntax::{
-    Block, Diagnostic, DiagnosticSeverity, Inline, InlineArgumentRef, InlineContent, InlineMember,
-    ValidDocument,
-};
+use plumb_syntax::{Block, Diagnostic, DiagnosticSeverity, Inline, InlineContent, ValidDocument};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CitationRecord {
@@ -36,7 +33,7 @@ pub fn analyze_citations(valid: ValidDocument<'_>) -> CitationOutput {
 fn collect_blocks(blocks: &[Block], output: &mut CitationOutput) {
     for block in blocks {
         if let Block::Parsed(block) = block {
-            collect_inlines(&block.head, output);
+            collect_inlines(&block.content, output);
             for child in crate::body_children(block) {
                 collect_blocks(std::slice::from_ref(child), output);
             }
@@ -46,35 +43,34 @@ fn collect_blocks(blocks: &[Block], output: &mut CitationOutput) {
 
 fn collect_inlines(content: &InlineContent, output: &mut CitationOutput) {
     for inline in &content.items {
-        let Inline::Element {
+        let Inline::Group {
             range,
-            kind,
-            members,
+            mark,
+            content,
             ..
         } = inline
         else {
             continue;
         };
-        if kind == "cite" {
-            let arguments = members
-                .iter()
-                .filter_map(InlineMember::argument)
-                .collect::<Vec<_>>();
-            match arguments.as_slice() {
-                [argument] => match citation_argument_id(argument) {
-                    Some(id) => output.citations.push(CitationRecord {
-                        range: range.clone(),
-                        selection_range: argument_range(argument),
-                        id,
-                    }),
-                    None => output.diagnostics.push(Diagnostic {
-                        code: "citation.invalid",
-                        severity: DiagnosticSeverity::Warning,
-                        message: "a citation must contain one plain id".to_string(),
-                        range: argument_range(argument),
-                        related: Vec::new(),
-                    }),
-                },
+        if mark.as_ref().is_some_and(|mark| mark.marker == "cite") {
+            match content.data.as_slice() {
+                [_] => {
+                    let argument = content.datum(0).expect("projected datum exists");
+                    match citation_id(&argument) {
+                        Some(id) => output.citations.push(CitationRecord {
+                            range: range.clone(),
+                            selection_range: argument.range.clone(),
+                            id,
+                        }),
+                        None => output.diagnostics.push(Diagnostic {
+                            code: "citation.invalid",
+                            severity: DiagnosticSeverity::Warning,
+                            message: "a citation must contain one plain id".to_string(),
+                            range: argument.range.clone(),
+                            related: Vec::new(),
+                        }),
+                    }
+                }
                 _ => output.diagnostics.push(Diagnostic {
                     code: "citation.invalid",
                     severity: DiagnosticSeverity::Warning,
@@ -84,25 +80,8 @@ fn collect_inlines(content: &InlineContent, output: &mut CitationOutput) {
                 }),
             }
         }
-        for member in members {
-            if let InlineMember::ParsedArgument(argument) = member {
-                collect_inlines(&argument.content, output);
-            }
-        }
+        collect_inlines(content, output);
     }
-}
-
-fn citation_argument_id(argument: &InlineArgumentRef<'_>) -> Option<String> {
-    match argument {
-        InlineArgumentRef::Parsed(content) => citation_id(&content.trim_boundary_padding()),
-        InlineArgumentRef::Verbatim(argument) => {
-            (!argument.text.is_empty()).then(|| argument.text.clone())
-        }
-    }
-}
-
-fn argument_range(argument: &InlineArgumentRef<'_>) -> Range<usize> {
-    argument.range()
 }
 
 fn citation_id(content: &InlineContent) -> Option<String> {
@@ -132,7 +111,7 @@ mod tests {
 
     #[test]
     fn collects_single_plain_id_citations() {
-        let parsed = parse("See `cite[smith2004].\n\n`meta\n  `: source\n\n     `cite[roe-2020]\n");
+        let parsed = parse("See `cite{smith2004}.\n`meta\n `: source\n  `cite{roe-2020}\n");
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
         let output = analyze_citations(

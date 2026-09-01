@@ -59,7 +59,7 @@ fn collect_groups<'a>(blocks: impl IntoIterator<Item = &'a Block>, output: &mut 
             debug_assert_eq!(item_kind, kind);
             items.push(ListItemRecord {
                 range: item.range.clone(),
-                selection_range: crate::inline_selection_range(&item.head),
+                selection_range: crate::inline_selection_range(&item.content),
             });
             collect_groups(crate::body_children(item), output);
             current = if blocks
@@ -96,7 +96,7 @@ fn collect_child_groups(block: &Block, output: &mut ListOutput) {
 
 fn collect_table_cell_groups(table: &ParsedBlock, output: &mut ListOutput) {
     for row in crate::body_children(table).filter_map(parsed_dash) {
-        if !row.head.is_empty() {
+        if !row.content.is_empty() {
             continue;
         }
         for cell in crate::body_children(row).filter_map(parsed_dash) {

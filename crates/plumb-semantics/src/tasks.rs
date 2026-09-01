@@ -168,10 +168,10 @@ fn task_record(source: &str, block: &ParsedBlock, depth: usize) -> TaskRecord {
     TaskRecord {
         range: block.range.clone(),
         marker_range: mark.range.clone(),
-        selection_range: crate::inline_selection_range(&block.head),
-        title: plain_text(&block.head).trim().to_string(),
+        selection_range: crate::inline_selection_range(&block.content),
+        title: plain_text(&block.content).trim().to_string(),
         depth,
-        attribute_insert: block.head.range.end.max(mark.marker_range.end),
+        attribute_insert: block.content.range.end.max(mark.marker_range.end),
         attribute_range: attrs
             .range
             .clone()

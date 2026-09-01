@@ -55,7 +55,7 @@ pub(crate) fn inline_selection_range(
     content: &plumb_syntax::InlineContent,
 ) -> std::ops::Range<usize> {
     let mut normalized = content
-        .arguments
+        .data
         .iter()
         .enumerate()
         .filter_map(|(index, _)| content.argument(index))
@@ -68,6 +68,27 @@ pub(crate) fn inline_selection_range(
         range.end = argument.range.end;
     }
     range
+}
+
+pub(crate) fn positional_data(
+    content: &plumb_syntax::InlineContent,
+) -> Vec<plumb_syntax::InlineContent> {
+    content
+        .data
+        .iter()
+        .enumerate()
+        .filter_map(|(index, datum)| {
+            let items = &content.items[datum.item_range.clone()];
+            let declaration = matches!(
+                items,
+                [plumb_syntax::Inline::Group {
+                    mark: Some(mark),
+                    ..
+                }] if matches!(mark.marker.as_str(), "@" | "+" | "=")
+            );
+            (!declaration).then(|| content.datum(index)).flatten()
+        })
+        .collect()
 }
 
 pub fn is_document_declaration(block: &plumb_syntax::Block) -> bool {

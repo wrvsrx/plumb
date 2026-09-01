@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use plumb_syntax::{Block, Inline, InlineContent, InlineMember, ValidDocument};
+use plumb_syntax::{Block, Inline, InlineContent, ValidDocument};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InlineStyleKind {
@@ -41,7 +41,7 @@ fn collect_blocks(blocks: &[Block], output: &mut InlineStyleOutput) {
         let Block::Parsed(block) = block else {
             continue;
         };
-        collect_inlines(&block.head, output);
+        collect_inlines(&block.content, output);
         for child in crate::body_children(block) {
             collect_blocks(std::slice::from_ref(child), output);
         }
@@ -50,39 +50,32 @@ fn collect_blocks(blocks: &[Block], output: &mut InlineStyleOutput) {
 
 fn collect_inlines(content: &InlineContent, output: &mut InlineStyleOutput) {
     for inline in &content.items {
-        let Inline::Element {
+        let Inline::Group {
             range,
-            kind,
-            members,
+            mark,
+            content,
             ..
         } = inline
         else {
             continue;
         };
-        let kind = match kind.as_str() {
-            "*" => Some(InlineStyleKind::Emphasis),
-            "!" => Some(InlineStyleKind::Strong),
-            "==" => Some(InlineStyleKind::Mark),
-            "~" => Some(InlineStyleKind::Strikeout),
-            "^" => Some(InlineStyleKind::Superscript),
-            "_" => Some(InlineStyleKind::Subscript),
+        let kind = match mark.as_ref().map(|mark| mark.marker.as_str()) {
+            Some("*") => Some(InlineStyleKind::Emphasis),
+            Some("!") => Some(InlineStyleKind::Strong),
+            Some("==") => Some(InlineStyleKind::Mark),
+            Some("~") => Some(InlineStyleKind::Strikeout),
+            Some("^") => Some(InlineStyleKind::Superscript),
+            Some("_") => Some(InlineStyleKind::Subscript),
             _ => None,
         };
-        let argument_count = members
-            .iter()
-            .filter(|member| member.argument().is_some())
-            .count();
+        let argument_count = content.data.len();
         if let Some(kind) = kind.filter(|_| argument_count == 1) {
             output.styles.push(InlineStyleRecord {
                 kind,
                 range: range.clone(),
             });
         }
-        for member in members {
-            if let InlineMember::ParsedArgument(argument) = member {
-                collect_inlines(&argument.content, output);
-            }
-        }
+        collect_inlines(content, output);
     }
 }
 
@@ -94,7 +87,7 @@ mod tests {
 
     #[test]
     fn recognizes_single_symbol_inline_styles_only() {
-        let source = "`*[em `![strong]] `==[mark] `~[strike] `^[super] `_[sub] `**[generic]\n";
+        let source = "`*{em `!{strong}} `=={mark} `~{strike} `^{super} `_{sub} `**{generic}\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
@@ -118,7 +111,7 @@ mod tests {
                 InlineStyleKind::Subscript,
             ]
         );
-        assert_eq!(&source[output.styles[0].range.clone()], "`*[em `![strong]]");
-        assert_eq!(&source[output.styles[1].range.clone()], "`![strong]");
+        assert_eq!(&source[output.styles[0].range.clone()], "`*{em `!{strong}}");
+        assert_eq!(&source[output.styles[1].range.clone()], "`!{strong}");
     }
 }

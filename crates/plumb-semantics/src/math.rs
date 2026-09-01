@@ -2,7 +2,7 @@ use std::ops::Range;
 
 use plumb_syntax::{
     AttrItem, Attributes, Block, Diagnostic, DiagnosticSeverity, Inline, InlineContent,
-    InlineMember, ValidDocument,
+    ValidDocument,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -41,13 +41,8 @@ pub fn analyze_math(valid: ValidDocument<'_>) -> MathOutput {
 fn collect_blocks(blocks: &[Block], output: &mut MathOutput) {
     for block in blocks {
         match block {
-            Block::Verbatim(_) => {}
-            Block::Parsed(block) => {
-                if block.raw.is_some() {
-                    let mark = block
-                        .mark
-                        .as_ref()
-                        .expect("raw tail requires a marked owner");
+            Block::Verbatim(block) => {
+                if let Some(mark) = &block.mark {
                     recognize_verbatim(
                         &mark.marker,
                         &mark.attrs,
@@ -56,7 +51,9 @@ fn collect_blocks(blocks: &[Block], output: &mut MathOutput) {
                         output,
                     );
                 }
-                collect_inlines(&block.head, output);
+            }
+            Block::Parsed(block) => {
+                collect_inlines(&block.content, output);
                 collect_blocks(&block.children, output);
             }
         }
@@ -71,27 +68,19 @@ fn collect_inlines(content: &InlineContent, output: &mut MathOutput) {
 
 fn collect_inline(inline: &Inline, output: &mut MathOutput) {
     match inline {
-        Inline::Verbatim {
-            range, kind, attrs, ..
-        } => recognize_verbatim(kind, attrs, range.clone(), MathKind::Inline, output),
-        Inline::Element {
-            range,
-            attrs,
-            members,
-            ..
-        } => {
-            let _ = (range, attrs);
-            for member in members {
-                match member {
-                    InlineMember::ParsedArgument(argument) => {
-                        collect_inlines(&argument.content, output);
-                    }
-                    InlineMember::Child { inline, .. } => collect_inline(inline, output),
-                    InlineMember::VerbatimArgument(_) => {}
-                }
+        Inline::Verbatim { range, mark, .. } => {
+            if let Some(mark) = mark {
+                recognize_verbatim(
+                    &mark.marker,
+                    &mark.attrs,
+                    range.clone(),
+                    MathKind::Inline,
+                    output,
+                );
             }
         }
-        Inline::Text { .. } | Inline::Space { .. } | Inline::SoftBreak { .. } => {}
+        Inline::Group { content, .. } => collect_inlines(content, output),
+        Inline::Text { .. } | Inline::Space { .. } => {}
     }
 }
 

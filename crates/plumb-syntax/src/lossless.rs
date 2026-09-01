@@ -1,6 +1,6 @@
 use crate::syntax::{
-    Block, Diagnostic, Document, Inline, InlineContent, InlineMember, LosslessTree, RawPayload,
-    SourceRange, SyntaxKind, SyntaxToken, VerbatimArgument, VerbatimBlock,
+    Block, Diagnostic, Document, Inline, InlineContent, LosslessTree, SourceRange, SyntaxKind,
+    SyntaxToken, VerbatimBlock,
 };
 
 const BASELINE_PRIORITY: u8 = 10;
@@ -98,7 +98,7 @@ impl<'a> TokenBuilder<'a> {
                 Block::Parsed(block) => {
                     if let Some(mark) = &block.mark {
                         self.assign(
-                            mark.range.start..mark.range.start + 1,
+                            mark.range.start..mark.marker_range.start,
                             SyntaxKind::Introducer,
                             TYPED_PRIORITY,
                         );
@@ -108,271 +108,140 @@ impl<'a> TokenBuilder<'a> {
                             TYPED_PRIORITY,
                         );
                     }
-                    self.annotate_inlines(&block.head);
+                    self.annotate_inlines(&block.content);
                     blocks.extend(block.children.iter().rev());
-                    if let Some(raw) = &block.raw {
-                        self.assign(
-                            raw.boundary_range.clone(),
-                            SyntaxKind::Delimiter,
-                            TYPED_PRIORITY,
-                        );
-                        self.annotate_raw_payload(raw, block.range.start, false);
-                    }
                 }
-                Block::Verbatim(block) => {
-                    self.assign(
-                        block.opener_range.start..block.opener_range.start + 1,
-                        SyntaxKind::Introducer,
-                        TYPED_PRIORITY,
-                    );
-                    self.assign(
-                        block.kind_range.clone(),
-                        SyntaxKind::InlineKind,
-                        TYPED_PRIORITY,
-                    );
-                    if block.quote_count > 0 {
-                        self.assign(
-                            block.kind_range.end..block.kind_range.end + block.quote_count,
-                            SyntaxKind::Delimiter,
-                            TYPED_PRIORITY,
-                        );
-                    }
-                    self.annotate_raw_block(block);
-                }
+                Block::Verbatim(block) => self.annotate_raw_block(block),
             }
         }
     }
 
     fn annotate_inlines(&mut self, content: &InlineContent) {
-        for argument in &content.arguments {
-            if let Some(separator) = &argument.separator_range {
-                self.assign(separator.clone(), SyntaxKind::Delimiter, TYPED_PRIORITY);
-            }
-        }
         let mut contents = vec![content];
-        let mut pending = Vec::new();
-        while !contents.is_empty() || !pending.is_empty() {
-            if let Some(content) = contents.pop() {
-                pending.extend(content.items.iter().rev());
-            }
-            while let Some(inline) = pending.pop() {
+        while let Some(content) = contents.pop() {
+            for inline in content.items.iter().rev() {
                 match inline {
-                    Inline::Text { text, range } => {
-                        let kind = if matches!(
-                            self.source.get(range.clone()),
-                            Some("``" | "` " | "`[" | "`]" | "`|")
-                        ) && matches!(text.as_str(), "`" | "]")
-                        {
-                            SyntaxKind::Escape
-                        } else {
-                            SyntaxKind::Text
-                        };
+                    Inline::Text { range, .. } => {
+                        let kind = self
+                            .source
+                            .get(range.clone())
+                            .is_some_and(|text| text.starts_with('`'))
+                            .then_some(SyntaxKind::Escape)
+                            .unwrap_or(SyntaxKind::Text);
                         self.assign(range.clone(), kind, TYPED_PRIORITY);
                     }
                     Inline::Space { range, .. } => {
                         self.assign(range.clone(), SyntaxKind::Whitespace, TYPED_PRIORITY);
                     }
-                    Inline::SoftBreak { .. } => {}
-                    Inline::Element {
+                    Inline::Group {
                         range,
-                        kind_range,
-                        members,
-                        attrs,
-                        ..
+                        mark,
+                        content,
                     } => {
-                        self.assign(
-                            range.start..kind_range.start,
-                            SyntaxKind::Introducer,
-                            TYPED_PRIORITY,
-                        );
-                        self.assign(kind_range.clone(), SyntaxKind::InlineKind, TYPED_PRIORITY);
-                        self.assign(
-                            kind_range.end..kind_range.end + 1,
-                            SyntaxKind::Delimiter,
-                            TYPED_PRIORITY,
-                        );
-                        self.assign(
-                            range.end - 1..range.end,
-                            SyntaxKind::Delimiter,
-                            TYPED_PRIORITY,
-                        );
-                        for member in members.iter().rev() {
-                            match member {
-                                InlineMember::ParsedArgument(argument) => {
-                                    if let Some(separator) = &argument.separator_range {
-                                        self.assign(
-                                            separator.clone(),
-                                            SyntaxKind::Delimiter,
-                                            TYPED_PRIORITY,
-                                        );
-                                    }
-                                    contents.push(&argument.content);
-                                }
-                                InlineMember::VerbatimArgument(argument) => {
-                                    if let Some(separator) = &argument.separator_range {
-                                        self.assign(
-                                            separator.clone(),
-                                            SyntaxKind::Delimiter,
-                                            TYPED_PRIORITY,
-                                        );
-                                    }
-                                    for padding in [
-                                        argument.leading_padding.as_ref(),
-                                        argument.trailing_padding.as_ref(),
-                                    ]
-                                    .into_iter()
-                                    .flatten()
-                                    {
-                                        self.assign(
-                                            padding.range.clone(),
-                                            SyntaxKind::Whitespace,
-                                            TYPED_PRIORITY,
-                                        );
-                                    }
-                                    self.annotate_verbatim_member(argument);
-                                }
-                                InlineMember::Child {
-                                    separator_range,
-                                    leading_padding,
-                                    trailing_padding,
-                                    inline,
-                                    ..
-                                } => {
-                                    self.assign(
-                                        separator_range.clone(),
-                                        SyntaxKind::Delimiter,
-                                        TYPED_PRIORITY,
-                                    );
-                                    for padding in
-                                        [leading_padding.as_ref(), trailing_padding.as_ref()]
-                                            .into_iter()
-                                            .flatten()
-                                    {
-                                        self.assign(
-                                            padding.range.clone(),
-                                            SyntaxKind::Whitespace,
-                                            TYPED_PRIORITY,
-                                        );
-                                    }
-                                    pending.push(inline);
-                                }
-                            }
+                        let open = mark.as_ref().map_or(range.start, |mark| {
+                            self.assign(
+                                mark.range.start..mark.marker_range.start,
+                                SyntaxKind::Introducer,
+                                TYPED_PRIORITY,
+                            );
+                            self.assign(
+                                mark.marker_range.clone(),
+                                SyntaxKind::InlineKind,
+                                TYPED_PRIORITY,
+                            );
+                            mark.range.end
+                        });
+                        self.assign(open..open + 1, SyntaxKind::Delimiter, TYPED_PRIORITY);
+                        if range.end > content.range.end {
+                            self.assign(
+                                range.end - 1..range.end,
+                                SyntaxKind::Delimiter,
+                                TYPED_PRIORITY,
+                            );
                         }
-                        let _ = attrs;
+                        contents.push(content);
                     }
                     Inline::Verbatim {
                         range,
-                        kind_range,
+                        mark,
                         text_range,
                         quote_count,
-                        bracketed,
-                        attrs,
+                        braced,
                         ..
                     } => {
-                        self.assign(
-                            range.start..range.start + 1,
-                            SyntaxKind::Introducer,
-                            TYPED_PRIORITY,
-                        );
-                        self.assign(kind_range.clone(), SyntaxKind::InlineKind, TYPED_PRIORITY);
-                        let delimiter_start = kind_range.end;
-                        if *bracketed {
+                        let quote_start = mark.as_ref().map_or(range.start + 1, |mark| {
                             self.assign(
-                                delimiter_start..delimiter_start + quote_count,
-                                SyntaxKind::Delimiter,
+                                mark.range.start..mark.marker_range.start,
+                                SyntaxKind::Introducer,
                                 TYPED_PRIORITY,
                             );
                             self.assign(
-                                delimiter_start + quote_count..delimiter_start + quote_count + 1,
-                                SyntaxKind::Delimiter,
+                                mark.marker_range.clone(),
+                                SyntaxKind::InlineKind,
                                 TYPED_PRIORITY,
                             );
-                        } else {
+                            mark.range.end
+                        });
+                        if mark.is_none() {
                             self.assign(
-                                delimiter_start..delimiter_start + 1,
-                                SyntaxKind::Delimiter,
+                                range.start..range.start + 1,
+                                SyntaxKind::Introducer,
                                 TYPED_PRIORITY,
                             );
                         }
-                        self.assign(text_range.clone(), SyntaxKind::RawPayload, TYPED_PRIORITY);
-                        let close_width = if *bracketed { 1 + quote_count } else { 1 };
+                        let opening_end = quote_start + quote_count + usize::from(*braced);
                         self.assign(
-                            text_range.end..text_range.end + close_width,
+                            quote_start..opening_end,
                             SyntaxKind::Delimiter,
                             TYPED_PRIORITY,
                         );
-                        let _ = attrs;
+                        self.assign(text_range.clone(), SyntaxKind::RawPayload, RAW_PRIORITY);
+                        self.assign(
+                            text_range.end..range.end,
+                            SyntaxKind::Delimiter,
+                            TYPED_PRIORITY,
+                        );
                     }
                 }
             }
         }
     }
 
-    fn annotate_verbatim_member(&mut self, argument: &VerbatimArgument) {
-        let delimiter_start = argument.range.start;
-        if argument.bracketed {
+    fn annotate_raw_block(&mut self, block: &VerbatimBlock) {
+        let introducer = block.opener_range.start;
+        self.assign(
+            introducer..introducer + 1,
+            SyntaxKind::Introducer,
+            TYPED_PRIORITY,
+        );
+        if let Some(mark) = &block.mark {
             self.assign(
-                delimiter_start..delimiter_start + argument.quote_count,
-                SyntaxKind::Delimiter,
-                TYPED_PRIORITY,
-            );
-            self.assign(
-                delimiter_start + argument.quote_count..delimiter_start + argument.quote_count + 1,
-                SyntaxKind::Delimiter,
-                TYPED_PRIORITY,
-            );
-        } else {
-            self.assign(
-                delimiter_start..delimiter_start + 1,
-                SyntaxKind::Delimiter,
+                mark.marker_range.clone(),
+                SyntaxKind::Marker,
                 TYPED_PRIORITY,
             );
         }
         self.assign(
-            argument.text_range.clone(),
-            SyntaxKind::RawPayload,
-            TYPED_PRIORITY,
-        );
-        let close_width = if argument.bracketed {
-            1 + argument.quote_count
-        } else {
-            1
-        };
-        self.assign(
-            argument.range.end - close_width..argument.range.end,
+            block.quote_range.clone(),
             SyntaxKind::Delimiter,
             TYPED_PRIORITY,
         );
-    }
 
-    fn annotate_raw_block(&mut self, block: &VerbatimBlock) {
-        let raw = RawPayload {
-            range: block.range.clone(),
-            boundary_range: block.kind_range.end..block.kind_range.end + block.quote_count,
-            quote_count: block.quote_count,
-            text: block.text.clone(),
-            text_range: block.text_range.clone(),
-        };
-        self.annotate_raw_payload(&raw, block.range.start, true);
-    }
-
-    fn annotate_raw_payload(&mut self, raw: &RawPayload, owner_start: usize, anonymous: bool) {
-        let line_start = self.source[..owner_start]
+        let line_start = self.source[..introducer]
             .rfind('\n')
             .map_or(0, |index| index + 1);
-        let owner_indent = owner_start - line_start;
-        let body_indent = owner_indent + if anonymous { raw.quote_count } else { 1 };
-        let mut start = raw.text_range.start;
-        while start < raw.text_range.end {
-            let newline = self.source[start..raw.text_range.end]
+        let margin = introducer - line_start + 1;
+        let mut start = block.text_range.start;
+        while start < block.text_range.end {
+            let newline = self.source[start..block.text_range.end]
                 .find('\n')
                 .map(|offset| start + offset);
-            let end = newline.map_or(raw.text_range.end, |index| index + 1);
+            let end = newline.map_or(block.text_range.end, |index| index + 1);
             let mut content_end = newline.unwrap_or(end);
             if content_end > start && self.source.as_bytes()[content_end - 1] == b'\r' {
                 content_end -= 1;
             }
-            let prefix_end = (start + body_indent).min(content_end);
+            let prefix_end = (start + margin).min(content_end);
             self.assign(start..prefix_end, SyntaxKind::Indentation, RAW_PRIORITY);
             self.assign(
                 prefix_end..content_end,
@@ -410,8 +279,7 @@ impl<'a> TokenBuilder<'a> {
 fn fallback_kind(source: &str, cursor: usize) -> SyntaxKind {
     match source[cursor..].chars().next().unwrap() {
         '`' => SyntaxKind::Introducer,
-        '[' | ']' => SyntaxKind::Delimiter,
-        '#' | '.' | '=' => SyntaxKind::AttributePunctuation,
+        '{' | '}' => SyntaxKind::Delimiter,
         character if character.is_whitespace() => SyntaxKind::Whitespace,
         _ => SyntaxKind::Text,
     }
@@ -420,9 +288,6 @@ fn fallback_kind(source: &str, cursor: usize) -> SyntaxKind {
 fn atomic_kind(kind: SyntaxKind) -> bool {
     matches!(
         kind,
-        SyntaxKind::Introducer
-            | SyntaxKind::Delimiter
-            | SyntaxKind::AttributePunctuation
-            | SyntaxKind::Escape
+        SyntaxKind::Introducer | SyntaxKind::Delimiter | SyntaxKind::Escape
     )
 }

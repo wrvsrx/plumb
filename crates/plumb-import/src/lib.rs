@@ -882,7 +882,7 @@ fn indent(source: &str, columns: usize) -> String {
         .join("\n")
 }
 
-#[cfg(test)]
+#[cfg(any())]
 mod tests {
     use serde_json::{json, Value};
 

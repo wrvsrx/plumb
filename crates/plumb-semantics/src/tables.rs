@@ -125,8 +125,8 @@ fn analyze_table(table: &ParsedBlock, output: &mut TableOutput) {
 
     output.tables.push(TableRecord {
         range: table.range.clone(),
-        selection_range: crate::inline_selection_range(&table.head),
-        caption: table.head.clone(),
+        selection_range: crate::inline_selection_range(&table.content),
+        caption: table.content.clone(),
         column_count,
         row_head_columns: row_head_columns.unwrap_or(0),
         rows,
@@ -134,7 +134,7 @@ fn analyze_table(table: &ParsedBlock, output: &mut TableOutput) {
 }
 
 fn analyze_row(row: &ParsedBlock, output: &mut TableOutput) -> TableRowRecord {
-    let compact = !row.head.is_empty();
+    let compact = !row.content.is_empty();
     let cells = if compact {
         for child in crate::body_children(row) {
             output.diagnostics.push(diagnostic(
@@ -143,13 +143,13 @@ fn analyze_row(row: &ParsedBlock, output: &mut TableOutput) -> TableRowRecord {
                 child.range().clone(),
             ));
         }
-        row.head
-            .arguments
+        row.content
+            .data
             .iter()
             .enumerate()
             .map(|(index, _)| {
                 let content = row
-                    .head
+                    .content
                     .argument(index)
                     .expect("an argument descriptor has content");
                 TableCellRecord {
@@ -172,7 +172,7 @@ fn analyze_row(row: &ParsedBlock, output: &mut TableOutput) -> TableRowRecord {
                 };
                 Some(TableCellRecord {
                     range: cell.range.clone(),
-                    selection_range: crate::inline_selection_range(&cell.head),
+                    selection_range: crate::inline_selection_range(&cell.content),
                     header: has_header_facet(cell),
                 })
             })

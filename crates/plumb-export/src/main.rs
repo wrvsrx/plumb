@@ -180,10 +180,25 @@ fn lower_block_refs(blocks: &[&Block], analysis: &DocumentOutput) -> Vec<Value> 
         }
         match blocks[index] {
             Block::Verbatim(block) => {
-                output.push(json!({
-                    "t": "CodeBlock",
-                    "c": [lower_attrs(&Attributes::default(), None), block.text],
-                }));
+                let attrs = block
+                    .mark
+                    .as_ref()
+                    .map_or_else(Attributes::default, |mark| mark.attrs.clone());
+                if analysis
+                    .math
+                    .math_at_node_start(block.range.start)
+                    .is_some()
+                {
+                    output.push(json!({
+                        "t": "Para",
+                        "c": [{ "t": "Math", "c": [{ "t": "DisplayMath" }, block.text] }],
+                    }));
+                } else {
+                    output.push(json!({
+                        "t": "CodeBlock",
+                        "c": [lower_attrs(&attrs, block.mark.as_ref().map(|mark| mark.marker.as_str())), block.text],
+                    }));
+                }
             }
             Block::Parsed(parsed) => lower_parsed_block(parsed, analysis, &mut output),
         }
@@ -245,7 +260,7 @@ fn lower_list_group(blocks: &[&Block], group: &ListGroup, analysis: &DocumentOut
                 .find(|event| event.range.start == block.range.start);
             if let Some(task) = task {
                 let mut title = vec![json!({ "t": "Str", "c": task_state_marker(task.state()) })];
-                let inlines = lower_inlines(&block.head, analysis);
+                let inlines = lower_inlines(&block.content, analysis);
                 if !inlines.is_empty() {
                     title.push(json!({ "t": "Space" }));
                 }
@@ -254,8 +269,8 @@ fn lower_list_group(blocks: &[&Block], group: &ListGroup, analysis: &DocumentOut
                     "c": [lower_task_attrs(&mark.attrs), inlines],
                 }));
                 contents.push(json!({ "t": "Para", "c": title }));
-            } else if !block.head.is_empty() {
-                contents.push(json!({ "t": "Para", "c": lower_inlines(&block.head, analysis) }));
+            } else if !block.content.is_empty() {
+                contents.push(json!({ "t": "Para", "c": lower_inlines(&block.content, analysis) }));
             }
             contents.extend(lower_body(block, analysis));
             if task.is_some()
@@ -302,39 +317,11 @@ fn lower_parsed_block(block: &ParsedBlock, analysis: &DocumentOutput, output: &m
         output.push(lower_table(block, table, analysis));
         return;
     }
-    if let Some(raw) = &block.raw {
-        let mark = block.mark.as_ref().expect("a raw owner is marked");
-        if analysis
-            .math
-            .math_at_node_start(block.range.start)
-            .is_some()
-        {
-            let math = json!({
-                "t": "Math",
-                "c": [{ "t": "DisplayMath" }, raw.text],
-            });
-            let paragraph = json!({ "t": "Para", "c": [math] });
-            if has_unconsumed_math_attrs(&mark.attrs) {
-                output.push(json!({
-                    "t": "Div",
-                    "c": [lower_math_attrs(&mark.attrs), [paragraph]],
-                }));
-            } else {
-                output.push(paragraph);
-            }
-        } else {
-            output.push(json!({
-                "t": "CodeBlock",
-                "c": [lower_attrs(&mark.attrs, (mark.marker != "()").then_some(mark.marker.as_str())), raw.text],
-            }));
-        }
-        return;
-    }
     if let Some(heading) = analysis.headings.heading_at_node_start(block.range.start) {
         let attrs = &block.mark.as_ref().expect("heading has mark").attrs;
         output.push(json!({
             "t": "Header",
-            "c": [heading.level, lower_attrs(attrs, None), lower_inlines(&block.head, analysis)],
+            "c": [heading.level, lower_attrs(attrs, None), lower_inlines(&block.content, analysis)],
         }));
         output.extend(lower_body(block, analysis));
         return;
@@ -347,8 +334,8 @@ fn lower_parsed_block(block: &ParsedBlock, analysis: &DocumentOutput, output: &m
     {
         let mark = block.mark.as_ref().expect("a quote has a mark");
         let mut contents = Vec::new();
-        if !block.head.is_empty() {
-            contents.push(json!({ "t": "Para", "c": lower_inlines(&block.head, analysis) }));
+        if !block.content.is_empty() {
+            contents.push(json!({ "t": "Para", "c": lower_inlines(&block.content, analysis) }));
         }
         contents.extend(lower_body(block, analysis));
         if !mark.attrs.items.is_empty() {
@@ -363,8 +350,8 @@ fn lower_parsed_block(block: &ParsedBlock, analysis: &DocumentOutput, output: &m
 
     if let Some(mark) = &block.mark {
         let mut contents = Vec::new();
-        if !block.head.is_empty() {
-            contents.push(json!({ "t": "Para", "c": lower_inlines(&block.head, analysis) }));
+        if !block.content.is_empty() {
+            contents.push(json!({ "t": "Para", "c": lower_inlines(&block.content, analysis) }));
         }
         contents.extend(lower_body(block, analysis));
         output.push(json!({
@@ -372,7 +359,7 @@ fn lower_parsed_block(block: &ParsedBlock, analysis: &DocumentOutput, output: &m
             "c": [lower_attrs(&mark.attrs, (mark.marker != "()").then_some(mark.marker.as_str())), contents],
         }));
     } else {
-        output.push(json!({ "t": "Para", "c": lower_inlines(&block.head, analysis) }));
+        output.push(json!({ "t": "Para", "c": lower_inlines(&block.content, analysis) }));
     }
 }
 
@@ -428,12 +415,12 @@ fn lower_table_row(
         |mark| lower_table_attrs(&mark.attrs),
     );
     let cells = if record.compact {
-        row.head
-            .arguments
+        row.content
+            .data
             .iter()
             .enumerate()
             .map(|(index, _)| {
-                let content = row.head.argument(index).unwrap();
+                let content = row.content.argument(index).unwrap();
                 let blocks = if content.is_empty() {
                     Vec::new()
                 } else {
@@ -449,8 +436,9 @@ fn lower_table_row(
             .map(|(cell, _)| {
                 let mark = cell.mark.as_ref().expect("a table cell has a mark");
                 let mut blocks = Vec::new();
-                if !cell.head.is_empty() {
-                    blocks.push(json!({ "t": "Plain", "c": lower_inlines(&cell.head, analysis) }));
+                if !cell.content.is_empty() {
+                    blocks
+                        .push(json!({ "t": "Plain", "c": lower_inlines(&cell.content, analysis) }));
                 }
                 blocks.extend(lower_body(cell, analysis));
                 json!([
@@ -483,11 +471,11 @@ fn lower_table_attrs(attrs: &Attributes) -> Value {
 
 fn lower_inlines(content: &InlineContent, analysis: &DocumentOutput) -> Vec<Value> {
     let mut output = Vec::new();
-    for index in 0..content.arguments.len() {
-        if let Some(argument) = content.argument(index) {
-            lower_inline_items(&argument.items, analysis, &mut output);
-        }
-    }
+    lower_inline_items(
+        &content.trim_boundary_padding().items,
+        analysis,
+        &mut output,
+    );
     output
 }
 
@@ -496,28 +484,26 @@ fn lower_inline_items(items: &[Inline], analysis: &DocumentOutput, output: &mut 
         match inline {
             Inline::Text { text, .. } => lower_text(text, output),
             Inline::Space { text, .. } => lower_text(text, output),
-            Inline::SoftBreak { .. } => output.push(json!({ "t": "SoftBreak" })),
             Inline::Verbatim {
-                range,
-                kind,
-                text,
-                attrs,
-                ..
+                range, mark, text, ..
             } => {
+                let attrs = mark
+                    .as_ref()
+                    .map_or_else(Attributes::default, |mark| mark.attrs.clone());
                 if let Some(link) = analysis.link_at_node_start(range.start) {
                     output.push(json!({
                         "t": "Link",
-                        "c": [lower_autolink_attrs(attrs), text_inlines(text), [&link.target.value, ""]],
+                        "c": [lower_autolink_attrs(&attrs), text_inlines(text), [&link.target.value, ""]],
                     }));
                 } else if analysis.math.math_at_node_start(range.start).is_some() {
                     let math = json!({
                         "t": "Math",
                         "c": [{ "t": "InlineMath" }, text],
                     });
-                    if has_unconsumed_math_attrs(attrs) {
+                    if has_unconsumed_math_attrs(&attrs) {
                         output.push(json!({
                             "t": "Span",
-                            "c": [lower_math_attrs(attrs), [math]],
+                            "c": [lower_math_attrs(&attrs), [math]],
                         }));
                     } else {
                         output.push(math);
@@ -525,19 +511,23 @@ fn lower_inline_items(items: &[Inline], analysis: &DocumentOutput, output: &mut 
                 } else {
                     output.push(json!({
                         "t": "Code",
-                        "c": [lower_attrs(attrs, (!kind.is_empty()).then_some(kind.as_str())), text],
+                        "c": [lower_attrs(&attrs, mark.as_ref().map(|mark| mark.marker.as_str())), text],
                     }));
                 }
             }
-            Inline::Element {
+            Inline::Group {
                 range,
-                kind,
-                members,
-                attrs,
-                ..
+                mark,
+                content,
             } => {
+                let Some(mark) = mark else {
+                    output.extend(lower_inlines(content, analysis));
+                    continue;
+                };
+                let kind = mark.marker.as_str();
+                let attrs = &mark.attrs;
                 if let Some(style) = analysis.inline_styles.style_at_node_start(range.start) {
-                    let content = lower_members(members, analysis);
+                    let content = lower_group_content(content, analysis);
                     if style.kind == InlineStyleKind::Mark {
                         output.push(json!({
                             "t": "Span",
@@ -571,18 +561,18 @@ fn lower_inline_items(items: &[Inline], analysis: &DocumentOutput, output: &mut 
                 } else if let Some(image) = analysis.image_at_node_start(range.start) {
                     output.push(json!({
                         "t": "Image",
-                        "c": [lower_image_attrs(attrs), lower_first_argument(members, analysis), [&image.source.value, ""]],
+                        "c": [lower_image_attrs(attrs), lower_first_argument(content, analysis), [&image.source.value, ""]],
                     }));
                 } else if let Some(file) = analysis.file_at_node_start(range.start) {
                     output.push(json!({
                         "t": "Link",
-                        "c": [lower_file_attrs(attrs), lower_first_argument(members, analysis), [&file.source.value, ""]],
+                        "c": [lower_file_attrs(attrs), lower_first_argument(content, analysis), [&file.source.value, ""]],
                     }));
                 } else if let Some(link) = analysis.link_at_node_start(range.start) {
                     let label = if matches!(link.spelling, LinkSpelling::Verbatim { .. }) {
                         text_inlines(&link.target.value)
                     } else {
-                        lower_link_label(members, analysis)
+                        lower_link_label(content, analysis)
                     };
                     output.push(json!({
                         "t": "Link",
@@ -591,7 +581,7 @@ fn lower_inline_items(items: &[Inline], analysis: &DocumentOutput, output: &mut 
                 } else {
                     output.push(json!({
                         "t": "Span",
-                        "c": [lower_attrs(attrs, (kind != "()").then_some(kind)), lower_members(members, analysis)],
+                        "c": [lower_attrs(attrs, Some(kind)), lower_group_content(content, analysis)],
                     }));
                 }
             }
@@ -599,104 +589,47 @@ fn lower_inline_items(items: &[Inline], analysis: &DocumentOutput, output: &mut 
     }
 }
 
-fn lower_first_argument(
-    members: &[plumb_syntax::InlineMember],
-    analysis: &DocumentOutput,
-) -> Vec<Value> {
-    members
-        .iter()
-        .find_map(plumb_syntax::InlineMember::argument)
-        .map_or_else(Vec::new, |argument| lower_argument(argument, analysis))
+fn lower_first_argument(content: &InlineContent, analysis: &DocumentOutput) -> Vec<Value> {
+    positional_data(content)
+        .into_iter()
+        .next()
+        .map_or_else(Vec::new, |argument| lower_inlines(&argument, analysis))
 }
 
-fn lower_members(members: &[plumb_syntax::InlineMember], analysis: &DocumentOutput) -> Vec<Value> {
+fn lower_group_content(content: &InlineContent, analysis: &DocumentOutput) -> Vec<Value> {
     let mut output = Vec::new();
-    for member in members {
-        match member {
-            plumb_syntax::InlineMember::ParsedArgument(argument) => {
-                output.extend(lower_inlines(
-                    &argument.content.trim_boundary_padding(),
-                    analysis,
-                ));
-            }
-            plumb_syntax::InlineMember::VerbatimArgument(argument) => output.push(json!({
-                "t": "Code",
-                "c": [["", [], []], argument.text],
-            })),
-            plumb_syntax::InlineMember::Child { inline, .. } if !is_relation_child(inline) => {
-                output.extend(lower_inline_child(inline, analysis));
-            }
-            plumb_syntax::InlineMember::Child { .. } => {}
+    for inline in &content.trim_boundary_padding().items {
+        if !is_relation_child(inline) {
+            lower_inline_items(std::slice::from_ref(inline), analysis, &mut output);
         }
     }
     output
 }
 
-fn lower_link_label(
-    members: &[plumb_syntax::InlineMember],
-    analysis: &DocumentOutput,
-) -> Vec<Value> {
+fn lower_link_label(content: &InlineContent, analysis: &DocumentOutput) -> Vec<Value> {
     let mut output = Vec::new();
-    let mut argument_index = 0;
-    for member in members {
-        match member {
-            plumb_syntax::InlineMember::ParsedArgument(argument) => {
-                if argument_index == 0 {
-                    output.extend(lower_inlines(
-                        &argument.content.trim_boundary_padding(),
-                        analysis,
-                    ));
-                }
-                argument_index += 1;
-            }
-            plumb_syntax::InlineMember::VerbatimArgument(argument) => {
-                if argument_index == 0 {
-                    output.push(json!({ "t": "Code", "c": [["", [], []], argument.text] }));
-                }
-                argument_index += 1;
-            }
-            plumb_syntax::InlineMember::Child { inline, .. } if !is_relation_child(inline) => {
-                output.extend(lower_inline_child(inline, analysis));
-            }
-            plumb_syntax::InlineMember::Child { .. } => {}
-        }
+    if let Some(label) = positional_data(content).into_iter().next() {
+        output.extend(lower_inlines(&label, analysis));
     }
     output
-}
-
-fn lower_argument(
-    argument: plumb_syntax::InlineArgumentRef<'_>,
-    analysis: &DocumentOutput,
-) -> Vec<Value> {
-    match argument {
-        plumb_syntax::InlineArgumentRef::Parsed(content) => {
-            lower_inlines(&content.trim_boundary_padding(), analysis)
-        }
-        plumb_syntax::InlineArgumentRef::Verbatim(argument) => {
-            vec![json!({ "t": "Code", "c": [["", [], []], argument.text] })]
-        }
-    }
-}
-
-fn lower_inline_child(inline: &Inline, analysis: &DocumentOutput) -> Vec<Value> {
-    lower_inlines(
-        &InlineContent::from_items(inline_range(inline).clone(), vec![inline.clone()]),
-        analysis,
-    )
 }
 
 fn is_relation_child(inline: &Inline) -> bool {
-    matches!(inline, Inline::Element { kind, .. } if matches!(kind.as_str(), "@" | "+" | "="))
+    matches!(inline, Inline::Group { mark: Some(mark), .. } if matches!(mark.marker.as_str(), "@" | "+" | "="))
 }
 
-fn inline_range(inline: &Inline) -> &std::ops::Range<usize> {
-    match inline {
-        Inline::Text { range, .. }
-        | Inline::Space { range, .. }
-        | Inline::SoftBreak { range }
-        | Inline::Element { range, .. }
-        | Inline::Verbatim { range, .. } => range,
-    }
+fn positional_data(content: &InlineContent) -> Vec<InlineContent> {
+    content
+        .data
+        .iter()
+        .enumerate()
+        .filter_map(|(index, datum)| {
+            let items = &content.items[datum.item_range.clone()];
+            (!matches!(items, [inline] if is_relation_child(inline)))
+                .then(|| content.datum(index))
+                .flatten()
+        })
+        .collect()
 }
 
 fn lower_citation(citation: &CitationRecord) -> Value {

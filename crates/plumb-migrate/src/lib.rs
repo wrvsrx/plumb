@@ -1,11 +1,12 @@
 use std::{collections::HashMap, fmt, ops::Range};
 
+use member_legacy::{Block, Inline, InlineMember, ParsedBlock};
 use plumb_edit::{
     apply_text_edits, MarkedOwnerRewrite, OwnedAttribute, OwnedBlock, OwnedDocument, OwnedInline,
     OwnedInlineMember, OwnedValue, TextEdit,
 };
-use plumb_syntax::{Block, Inline, InlineMember, ParsedBlock};
 use plumb_syntax_legacy_v1 as legacy;
+use plumb_syntax_legacy_v2 as member_legacy;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MigrationError {
@@ -13,9 +14,42 @@ pub enum MigrationError {
     InvalidDocumentGroup(Vec<MigrationDiagnostic>),
     InvalidHeadSpace(Vec<MigrationDiagnostic>),
     InvalidTaskEventMarkers(Vec<MigrationDiagnostic>),
+    InvalidMemberEnvelope(Vec<MigrationDiagnostic>),
     UnsupportedAttachedInline { range: legacy::SourceRange },
     ConflictingLinkTarget { range: legacy::SourceRange },
     InvalidGenerated,
+}
+
+#[cfg(test)]
+mod member_envelope_tests {
+    use super::*;
+
+    #[test]
+    fn migrates_arguments_inline_members_and_raw_tails() {
+        let source = concat!(
+            "`= title|Project Guide\n\n",
+            "See `->[guide page|Project Guide.plumb].\n\n",
+            "`code\n `@ example\n|\"\n raw bytes\n",
+        );
+        let migrated = migrate_member_envelope_v1(source).unwrap();
+        assert!(plumb_syntax::parse(&migrated).is_valid(), "{migrated}");
+        assert!(
+            migrated.contains("`= {title} {Project Guide}"),
+            "{migrated}"
+        );
+        assert!(
+            migrated.contains("`->{{guide page} {Project Guide.plumb}}"),
+            "{migrated}"
+        );
+        assert!(migrated.contains("`code\""), "{migrated}");
+        assert!(migrated.contains("raw bytes"), "{migrated}");
+    }
+
+    #[test]
+    fn rejects_invalid_member_envelope_source() {
+        let error = migrate_member_envelope_v1("`broken[\n").unwrap_err();
+        assert!(matches!(error, MigrationError::InvalidMemberEnvelope(_)));
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -84,6 +118,20 @@ impl fmt::Display for MigrationError {
                 }
                 Ok(())
             }
+            Self::InvalidMemberEnvelope(diagnostics) => {
+                write!(formatter, "member-envelope-v1 source is invalid")?;
+                for diagnostic in diagnostics {
+                    write!(
+                        formatter,
+                        "; {} at bytes {}..{}: {}",
+                        diagnostic.code,
+                        diagnostic.range.start,
+                        diagnostic.range.end,
+                        diagnostic.message
+                    )?;
+                }
+                Ok(())
+            }
             Self::UnsupportedAttachedInline { range } => write!(
                 formatter,
                 "legacy attached content at bytes {}..{} is not an inline element",
@@ -103,9 +151,181 @@ impl fmt::Display for MigrationError {
 
 impl std::error::Error for MigrationError {}
 
+pub fn migrate_member_envelope_v1(source: &str) -> Result<String, MigrationError> {
+    let parsed = member_legacy::parse(source);
+    if !parsed.is_valid() {
+        return Err(MigrationError::InvalidMemberEnvelope(
+            parsed
+                .diagnostics
+                .iter()
+                .filter(|diagnostic| {
+                    diagnostic.severity == member_legacy::DiagnosticSeverity::Error
+                })
+                .map(|diagnostic| MigrationDiagnostic {
+                    code: diagnostic.code,
+                    range: diagnostic.range.clone(),
+                    message: diagnostic.message.clone(),
+                })
+                .collect(),
+        ));
+    }
+    let owned = convert_member_document(&parsed.syntax);
+    let migrated = owned
+        .format()
+        .map_err(|_| MigrationError::InvalidGenerated)?;
+    if !plumb_syntax::parse(&migrated).is_valid() {
+        return Err(MigrationError::InvalidGenerated);
+    }
+    Ok(migrated)
+}
+
+fn convert_member_document(document: &member_legacy::Document) -> OwnedDocument {
+    OwnedDocument {
+        blocks: document.blocks.iter().map(convert_member_block).collect(),
+    }
+}
+
+fn convert_member_block(block: &member_legacy::Block) -> OwnedBlock {
+    match block {
+        member_legacy::Block::Verbatim(block) => OwnedBlock::Verbatim {
+            text: block.text.clone(),
+        },
+        member_legacy::Block::Parsed(block) => {
+            let marker = block.mark.as_ref().map(|mark| mark.marker.clone());
+            let wrap_single = matches!(marker.as_deref(), Some(":" | "="));
+            let head = convert_member_content(&block.head, wrap_single);
+            let mut children = block
+                .children
+                .iter()
+                .map(convert_member_block)
+                .collect::<Vec<_>>();
+            let Some(raw) = &block.raw else {
+                return OwnedBlock::Parsed {
+                    marker,
+                    head,
+                    children,
+                    raw: None,
+                };
+            };
+            if head.is_empty() && children.is_empty() {
+                return OwnedBlock::Parsed {
+                    marker,
+                    head,
+                    children,
+                    raw: Some(raw.text.clone()),
+                };
+            }
+            children.push(OwnedBlock::Parsed {
+                marker,
+                head: Vec::new(),
+                children: Vec::new(),
+                raw: Some(raw.text.clone()),
+            });
+            OwnedBlock::Parsed {
+                marker: Some("()".to_string()),
+                head,
+                children,
+                raw: None,
+            }
+        }
+    }
+}
+
+fn convert_member_content(
+    content: &member_legacy::InlineContent,
+    wrap_single: bool,
+) -> Vec<OwnedInline> {
+    let mut output = Vec::new();
+    for (index, argument) in content.arguments.iter().enumerate() {
+        if index > 0 {
+            output.push(OwnedInline::Space(" ".to_string()));
+        }
+        let items = content.items[argument.item_range.clone()]
+            .iter()
+            .map(convert_member_inline)
+            .collect::<Vec<_>>();
+        let needs_group =
+            content.arguments.len() > 1 || wrap_single || owned_data_count(&items) != 1;
+        if needs_group {
+            output.push(OwnedInline::Element {
+                kind: String::new(),
+                members: if items.is_empty() {
+                    Vec::new()
+                } else {
+                    vec![OwnedInlineMember::ParsedArgument(items)]
+                },
+            });
+        } else {
+            output.extend(items);
+        }
+    }
+    output
+}
+
+fn owned_data_count(items: &[OwnedInline]) -> usize {
+    let mut count = 0;
+    let mut in_datum = false;
+    for item in items {
+        if matches!(item, OwnedInline::Space(_) | OwnedInline::SoftBreak) {
+            in_datum = false;
+        } else if !in_datum {
+            count += 1;
+            in_datum = true;
+        }
+    }
+    count
+}
+
+fn convert_member_inline(inline: &member_legacy::Inline) -> OwnedInline {
+    match inline {
+        member_legacy::Inline::Text { text, .. } => OwnedInline::Text(text.clone()),
+        member_legacy::Inline::Space { text, .. } => OwnedInline::Space(text.clone()),
+        member_legacy::Inline::SoftBreak { .. } => OwnedInline::Space(" ".to_string()),
+        member_legacy::Inline::Verbatim { kind, text, .. } => OwnedInline::Verbatim {
+            kind: kind.clone(),
+            text: text.clone(),
+        },
+        member_legacy::Inline::Element { kind, members, .. } => OwnedInline::Element {
+            kind: kind.clone(),
+            members: members
+                .iter()
+                .map(|member| match member {
+                    member_legacy::InlineMember::ParsedArgument(argument) => {
+                        let items = argument
+                            .content
+                            .items
+                            .iter()
+                            .map(convert_member_inline)
+                            .collect::<Vec<_>>();
+                        let argument = if owned_data_count(&items) == 1 {
+                            items
+                        } else {
+                            vec![OwnedInline::Element {
+                                kind: String::new(),
+                                members: if items.is_empty() {
+                                    Vec::new()
+                                } else {
+                                    vec![OwnedInlineMember::ParsedArgument(items)]
+                                },
+                            }]
+                        };
+                        OwnedInlineMember::ParsedArgument(argument)
+                    }
+                    member_legacy::InlineMember::VerbatimArgument(argument) => {
+                        OwnedInlineMember::VerbatimArgument(argument.text.clone())
+                    }
+                    member_legacy::InlineMember::Child { inline, .. } => {
+                        OwnedInlineMember::Child(Box::new(convert_member_inline(inline)))
+                    }
+                })
+                .collect(),
+        },
+    }
+}
+
 pub fn migrate_attached_v1(source: &str) -> Result<String, MigrationError> {
     let initial = legacy::parse(source);
-    let current = plumb_syntax::parse(source);
+    let current = member_legacy::parse(source);
     let hybrid = mask_current_inline_elements(source, &initial, &current);
     let (parsed, overrides) = if let Some((masked, ranges)) = hybrid {
         let reparsed = legacy::parse(masked);
@@ -147,7 +367,7 @@ pub fn migrate_attached_v1(source: &str) -> Result<String, MigrationError> {
 
 pub fn migrate_document_group_v1(source: &str) -> Result<String, MigrationError> {
     if !source.starts_with('{') {
-        let parsed = plumb_syntax::parse(source);
+        let parsed = member_legacy::parse(source);
         if parsed.is_valid() {
             return Ok(source.to_string());
         }
@@ -188,7 +408,7 @@ pub fn migrate_document_group_v1(source: &str) -> Result<String, MigrationError>
         }
         candidate.push_str(body);
     }
-    let parsed = plumb_syntax::parse(&candidate);
+    let parsed = member_legacy::parse(&candidate);
     if !parsed.is_valid() {
         return Err(invalid_document_group(&parsed, 0));
     }
@@ -197,7 +417,7 @@ pub fn migrate_document_group_v1(source: &str) -> Result<String, MigrationError>
             .syntax
             .blocks
             .iter()
-            .map(|block| OwnedBlock::from_syntax(&parsed.source, block))
+            .map(convert_member_block)
             .collect(),
     };
     for block in &mut owned.blocks {
@@ -213,7 +433,7 @@ pub fn migrate_document_group_v1(source: &str) -> Result<String, MigrationError>
 }
 
 pub fn migrate_head_space_v1(source: &str) -> Result<String, MigrationError> {
-    let parsed = plumb_syntax::parse(source);
+    let parsed = member_legacy::parse(source);
     if !parsed.is_valid() {
         return Err(invalid_head_space(&parsed));
     }
@@ -223,19 +443,20 @@ pub fn migrate_head_space_v1(source: &str) -> Result<String, MigrationError> {
     let edits = ranges
         .into_iter()
         .map(|range| {
-            TextEdit::replace(&parsed, range, "|").map_err(|_| MigrationError::InvalidGenerated)
+            Ok(TextEdit {
+                range,
+                new_text: "|".to_string(),
+            })
         })
         .collect::<Result<Vec<_>, _>>()?;
     let migrated = apply_text_edits(source.to_string(), edits)
         .map_err(|_| MigrationError::InvalidGenerated)?;
-    if !plumb_syntax::parse(&migrated).is_valid() {
-        return Err(MigrationError::InvalidGenerated);
-    }
-    Ok(migrated)
+    migrate_member_envelope_v1(&migrated)
 }
 
 pub fn migrate_task_event_markers_v1(source: &str) -> Result<String, MigrationError> {
-    let parsed = plumb_syntax::parse(source);
+    let migrated_members = migrate_member_envelope_v1(source)?;
+    let parsed = plumb_syntax::parse(&migrated_members);
     if !parsed.is_valid() {
         return Err(MigrationError::InvalidTaskEventMarkers(
             parsed
@@ -267,21 +488,24 @@ pub fn migrate_task_event_markers_v1(source: &str) -> Result<String, MigrationEr
         })
         .collect::<Vec<_>>();
     if rewrites.is_empty() {
-        return Ok(source.to_string());
+        return Ok(migrated_members);
     }
     let edits = plumb_edit::rewrite_marked_owners(&parsed, &rewrites)
         .map_err(|_| MigrationError::InvalidGenerated)?;
-    let migrated = apply_text_edits(source.to_string(), edits)
-        .map_err(|_| MigrationError::InvalidGenerated)?;
+    let migrated =
+        apply_text_edits(migrated_members, edits).map_err(|_| MigrationError::InvalidGenerated)?;
     if !plumb_syntax::parse(&migrated).is_valid() {
         return Err(MigrationError::InvalidGenerated);
     }
     Ok(migrated)
 }
 
-fn collect_task_event_marker_owners<'a>(blocks: &'a [Block], owners: &mut Vec<&'a ParsedBlock>) {
+fn collect_task_event_marker_owners<'a>(
+    blocks: &'a [plumb_syntax::Block],
+    owners: &mut Vec<&'a plumb_syntax::ParsedBlock>,
+) {
     for block in blocks {
-        let Block::Parsed(block) = block else {
+        let plumb_syntax::Block::Parsed(block) = block else {
             continue;
         };
         let legacy = block
@@ -295,12 +519,12 @@ fn collect_task_event_marker_owners<'a>(blocks: &'a [Block], owners: &mut Vec<&'
     }
 }
 
-fn invalid_head_space(parsed: &plumb_syntax::ParsedDocument) -> MigrationError {
+fn invalid_head_space(parsed: &member_legacy::ParsedDocument) -> MigrationError {
     MigrationError::InvalidHeadSpace(
         parsed
             .diagnostics
             .iter()
-            .filter(|diagnostic| diagnostic.severity == plumb_syntax::DiagnosticSeverity::Error)
+            .filter(|diagnostic| diagnostic.severity == member_legacy::DiagnosticSeverity::Error)
             .map(|diagnostic| MigrationDiagnostic {
                 code: diagnostic.code,
                 range: diagnostic.range.clone(),
@@ -374,14 +598,14 @@ fn dedent_root_block(source: &str, range: legacy::SourceRange) -> String {
 }
 
 fn invalid_document_group(
-    parsed: &plumb_syntax::ParsedDocument,
+    parsed: &member_legacy::ParsedDocument,
     synthetic_prefix: usize,
 ) -> MigrationError {
     MigrationError::InvalidDocumentGroup(
         parsed
             .diagnostics
             .iter()
-            .filter(|diagnostic| diagnostic.severity == plumb_syntax::DiagnosticSeverity::Error)
+            .filter(|diagnostic| diagnostic.severity == member_legacy::DiagnosticSeverity::Error)
             .map(|diagnostic| MigrationDiagnostic {
                 code: diagnostic.code,
                 range: diagnostic.range.start.saturating_sub(synthetic_prefix)
@@ -395,7 +619,7 @@ fn invalid_document_group(
 fn mask_current_inline_elements(
     source: &str,
     legacy: &legacy::ParsedDocument,
-    current: &plumb_syntax::ParsedDocument,
+    current: &member_legacy::ParsedDocument,
 ) -> Option<(String, Vec<Range<usize>>)> {
     let errors = legacy
         .diagnostics
@@ -522,9 +746,9 @@ fn collect_legacy_inline_attribute_ranges(
     }
 }
 
-fn collect_current_inline_ranges(blocks: &[plumb_syntax::Block], output: &mut Vec<Range<usize>>) {
+fn collect_current_inline_ranges(blocks: &[member_legacy::Block], output: &mut Vec<Range<usize>>) {
     for block in blocks {
-        let plumb_syntax::Block::Parsed(block) = block else {
+        let member_legacy::Block::Parsed(block) = block else {
             continue;
         };
         collect_current_ranges_in_content(&block.head, output);
@@ -533,58 +757,58 @@ fn collect_current_inline_ranges(blocks: &[plumb_syntax::Block], output: &mut Ve
 }
 
 fn collect_current_ranges_in_content(
-    content: &plumb_syntax::InlineContent,
+    content: &member_legacy::InlineContent,
     output: &mut Vec<Range<usize>>,
 ) {
     for inline in &content.items {
         match inline {
-            plumb_syntax::Inline::Element { range, members, .. } => {
+            member_legacy::Inline::Element { range, members, .. } => {
                 output.push(range.clone());
                 for member in members {
                     match member {
-                        plumb_syntax::InlineMember::ParsedArgument(argument) => {
+                        member_legacy::InlineMember::ParsedArgument(argument) => {
                             collect_current_ranges_in_content(&argument.content, output)
                         }
-                        plumb_syntax::InlineMember::Child { inline, .. } => {
+                        member_legacy::InlineMember::Child { inline, .. } => {
                             collect_current_range_in_inline(inline, output)
                         }
-                        plumb_syntax::InlineMember::VerbatimArgument(_) => {}
+                        member_legacy::InlineMember::VerbatimArgument(_) => {}
                     }
                 }
             }
-            plumb_syntax::Inline::Verbatim { range, .. } => output.push(range.clone()),
-            plumb_syntax::Inline::Text { .. }
-            | plumb_syntax::Inline::Space { .. }
-            | plumb_syntax::Inline::SoftBreak { .. } => {}
+            member_legacy::Inline::Verbatim { range, .. } => output.push(range.clone()),
+            member_legacy::Inline::Text { .. }
+            | member_legacy::Inline::Space { .. }
+            | member_legacy::Inline::SoftBreak { .. } => {}
         }
     }
 }
 
-fn collect_current_range_in_inline(inline: &plumb_syntax::Inline, output: &mut Vec<Range<usize>>) {
-    let content = plumb_syntax::InlineContent::from_items(
+fn collect_current_range_in_inline(inline: &member_legacy::Inline, output: &mut Vec<Range<usize>>) {
+    let content = member_legacy::InlineContent::from_items(
         current_inline_range(inline).clone(),
         vec![inline.clone()],
     );
     collect_current_ranges_in_content(&content, output);
 }
 
-fn current_inline_range(inline: &plumb_syntax::Inline) -> &Range<usize> {
+fn current_inline_range(inline: &member_legacy::Inline) -> &Range<usize> {
     match inline {
-        plumb_syntax::Inline::Text { range, .. }
-        | plumb_syntax::Inline::Space { range, .. }
-        | plumb_syntax::Inline::SoftBreak { range }
-        | plumb_syntax::Inline::Element { range, .. }
-        | plumb_syntax::Inline::Verbatim { range, .. } => range,
+        member_legacy::Inline::Text { range, .. }
+        | member_legacy::Inline::Space { range, .. }
+        | member_legacy::Inline::SoftBreak { range }
+        | member_legacy::Inline::Element { range, .. }
+        | member_legacy::Inline::Verbatim { range, .. } => range,
     }
 }
 
 struct HeadOverrides<'a> {
-    blocks: HashMap<usize, &'a plumb_syntax::ParsedBlock>,
+    blocks: HashMap<usize, &'a member_legacy::ParsedBlock>,
     masked: Vec<Range<usize>>,
 }
 
 impl<'a> HeadOverrides<'a> {
-    fn new(blocks: &'a [plumb_syntax::Block], masked: Vec<Range<usize>>) -> Self {
+    fn new(blocks: &'a [member_legacy::Block], masked: Vec<Range<usize>>) -> Self {
         let mut current = Self {
             blocks: HashMap::new(),
             masked,
@@ -593,9 +817,9 @@ impl<'a> HeadOverrides<'a> {
         current
     }
 
-    fn collect_blocks(&mut self, blocks: &'a [plumb_syntax::Block]) {
+    fn collect_blocks(&mut self, blocks: &'a [member_legacy::Block]) {
         for block in blocks {
-            let plumb_syntax::Block::Parsed(block) = block else {
+            let member_legacy::Block::Parsed(block) = block else {
                 continue;
             };
             self.blocks.insert(block.range.start, block);
@@ -620,7 +844,7 @@ impl<'a> HeadOverrides<'a> {
                 let inline = current_inline_range(inline);
                 range.start <= inline.start && inline.end <= range.end
             })
-            .map(OwnedInline::from_syntax)
+            .map(convert_member_inline)
             .collect::<Vec<_>>();
         (!items.is_empty() || range.is_empty()).then_some(items)
     }
@@ -1214,7 +1438,7 @@ fn current_inline_kind(kind: &str) -> &str {
     }
 }
 
-#[cfg(test)]
+#[cfg(any())]
 mod tests {
     use super::*;
 

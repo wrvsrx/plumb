@@ -3895,7 +3895,7 @@ fn deepest_block_id_target(blocks: &[Block], offset: usize) -> Option<BlockIdTar
             Block::Parsed(block) => {
                 if let Some(mark) = &block.mark {
                     if result.is_none() || (depth, block.range.start) > result_position {
-                        let title = block.head.plain_text();
+                        let title = block.content.plain_text();
                         result = Some(BlockIdTarget {
                             block_range: block.range.clone(),
                             attrs: &mark.attrs,
@@ -4083,14 +4083,14 @@ fn parse_event_shorthand_head(
     metadata: &MetadataOutput,
     inferred_end: Option<ShorthandStart>,
 ) -> Result<(EventInput, usize), EventShorthandError> {
-    let argument = syntax
-        .head
-        .argument(0)
-        .ok_or(EventShorthandError::InvalidShorthand)?;
-    let shorthand = &source[argument.range.clone()];
+    let content = syntax.content.trim_boundary_padding();
+    if content.is_empty() {
+        return Err(EventShorthandError::InvalidShorthand);
+    }
+    let shorthand = &source[content.range.clone()];
     let (mut input, title_start) =
         parse_event_shorthand_with_title_start(shorthand, now, Some(metadata), inferred_end)?;
-    let plain = syntax.head.plain_text();
+    let plain = syntax.content.plain_text();
     let title = plain
         .get(title_start..)
         .map(str::trim)
@@ -4110,7 +4110,7 @@ fn inferred_end_from_sibling(
     if !matches!(mark.marker.as_str(), "-" | ".") || mark.attrs.has_class("event") {
         return None;
     }
-    let argument = sibling.head.argument(0)?;
+    let argument = sibling.content.argument(0)?;
     let shorthand = &source[argument.range.clone()];
     let separator = shorthand
         .char_indices()
@@ -4301,8 +4301,8 @@ fn convert_shorthands_in_block(
             );
         }
     }
-    if syntax.head.range.start < selection.end
-        && selection.start < syntax.head.range.end
+    if syntax.content.range.start < selection.end
+        && selection.start < syntax.content.range.end
         && syntax
             .mark
             .as_ref()
@@ -4310,7 +4310,7 @@ fn convert_shorthands_in_block(
     {
         let inferred_end = next_sibling
             .filter(|next| {
-                next.head.range.start < selection.end && selection.start < next.head.range.end
+                next.content.range.start < selection.end && selection.start < next.content.range.end
             })
             .and_then(|next| inferred_end_from_sibling(source, next, now, metadata));
         if let Ok((input, title_start)) =

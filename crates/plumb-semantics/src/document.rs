@@ -4,7 +4,7 @@ use std::path::Path;
 
 use plumb_syntax::{
     AttrItem, AttrValue, Attributes, Block, Diagnostic, DiagnosticSeverity, Document, Inline,
-    InlineArgumentRef, InlineContent, InlineMember, ValidDocument,
+    InlineContent, ValidDocument,
 };
 use serde::{Deserialize, Serialize};
 use url::Url;
@@ -234,7 +234,7 @@ fn association_arity_diagnostics(document: &Document) -> Vec<Diagnostic> {
         if let Some(block) = blocks.pop() {
             match block {
                 Block::Parsed(block) => {
-                    contents.push(&block.head);
+                    contents.push(&block.content);
                     blocks.extend(crate::body_children(block));
                 }
                 Block::Verbatim(_) => {}
@@ -247,18 +247,13 @@ fn association_arity_diagnostics(document: &Document) -> Vec<Diagnostic> {
         }
         while let Some(inline) = inlines.pop() {
             match inline {
-                Inline::Element {
+                Inline::Group {
                     range,
-                    kind,
-                    members,
-                    attrs,
-                    ..
+                    mark,
+                    content,
                 } => {
-                    let argument_count = members
-                        .iter()
-                        .filter(|member| member.argument().is_some())
-                        .count();
-                    if kind == "=" && argument_count != 2 {
+                    let argument_count = crate::positional_data(content).len();
+                    if mark.as_ref().is_some_and(|mark| mark.marker == "=") && argument_count != 2 {
                         diagnostics.push(Diagnostic {
                             code: "association.invalid-arity",
                             severity: DiagnosticSeverity::Warning,
@@ -268,19 +263,10 @@ fn association_arity_diagnostics(document: &Document) -> Vec<Diagnostic> {
                             related: Vec::new(),
                         });
                     }
-                    for member in members.iter().rev() {
-                        match member {
-                            InlineMember::ParsedArgument(argument) => {
-                                contents.push(&argument.content);
-                            }
-                            InlineMember::Child { inline, .. } => inlines.push(inline),
-                            InlineMember::VerbatimArgument(_) => {}
-                        }
-                    }
-                    let _ = attrs;
+                    contents.push(content);
                 }
                 Inline::Verbatim { .. } => {}
-                Inline::Text { .. } | Inline::Space { .. } | Inline::SoftBreak { .. } => {}
+                Inline::Text { .. } | Inline::Space { .. } => {}
             }
         }
     }
@@ -298,9 +284,7 @@ fn collect_blocks(
         match block {
             Block::Parsed(parsed) => {
                 if let Some(mark) = &parsed.mark {
-                    let kind = if parsed.raw.is_some() {
-                        AnchorKind::VerbatimBlock
-                    } else if output
+                    let kind = if output
                         .headings
                         .heading_at_node_start(parsed.range.start)
                         .is_some()
@@ -314,17 +298,29 @@ fn collect_blocks(
                         &mark.attrs,
                         kind,
                         parsed.range.clone(),
-                        crate::inline_selection_range(&parsed.head),
+                        crate::inline_selection_range(&parsed.content),
                         first_ids,
                         output,
                     );
                 }
-                collect_inlines(source, &parsed.head, first_ids, output);
+                collect_inlines(source, &parsed.content, first_ids, output);
                 for child in crate::body_children(parsed) {
                     collect_blocks(source, std::slice::from_ref(child), first_ids, output);
                 }
             }
-            Block::Verbatim(_) => {}
+            Block::Verbatim(block) => {
+                if let Some(mark) = &block.mark {
+                    collect_anchor(
+                        source,
+                        &mark.attrs,
+                        AnchorKind::VerbatimBlock,
+                        block.range.clone(),
+                        block.range.clone(),
+                        first_ids,
+                        output,
+                    );
+                }
+            }
         }
     }
 }
@@ -337,100 +333,80 @@ fn collect_inlines(
 ) {
     for inline in &content.items {
         match inline {
-            Inline::Element {
+            Inline::Group {
                 range,
-                kind,
-                kind_range,
-                members,
-                attrs,
-                ..
+                mark,
+                content,
             } => {
-                let selection_range = members
-                    .iter()
-                    .find_map(InlineMember::argument)
-                    .map_or_else(|| range.clone(), |argument| argument_range(&argument));
-                collect_anchor(
-                    source,
-                    attrs,
-                    AnchorKind::Inline,
-                    range.clone(),
-                    selection_range.clone(),
-                    first_ids,
-                    output,
-                );
-                if kind == "->" {
-                    collect_link(
+                let selection_range = crate::positional_data(content)
+                    .first()
+                    .map_or_else(|| range.clone(), |datum| datum.range.clone());
+                if let Some(mark) = mark {
+                    collect_anchor(
                         source,
-                        range.clone(),
-                        kind_range.clone(),
-                        members,
-                        attrs,
-                        output,
-                    );
-                } else if kind == "img" {
-                    collect_image(
-                        source,
+                        &mark.attrs,
+                        AnchorKind::Inline,
                         range.clone(),
                         selection_range.clone(),
-                        attrs,
+                        first_ids,
                         output,
                     );
-                } else if kind == "file" {
-                    collect_file(source, range.clone(), selection_range, attrs, output);
-                }
-                for member in members {
-                    match member {
-                        InlineMember::ParsedArgument(argument) => {
-                            collect_inlines(source, &argument.content, first_ids, output);
-                        }
-                        InlineMember::Child { inline, .. } => collect_inlines(
+                    match mark.marker.as_str() {
+                        "->" => collect_link(source, range.clone(), content, output),
+                        "img" => collect_image(
                             source,
-                            &InlineContent::from_items(
-                                inline_range(inline).clone(),
-                                vec![inline.as_ref().clone()],
-                            ),
-                            first_ids,
+                            range.clone(),
+                            selection_range.clone(),
+                            &mark.attrs,
                             output,
                         ),
-                        InlineMember::VerbatimArgument(_) => {}
+                        "file" => collect_file(
+                            source,
+                            range.clone(),
+                            selection_range,
+                            &mark.attrs,
+                            output,
+                        ),
+                        _ => {}
                     }
                 }
+                collect_inlines(source, content, first_ids, output);
             }
             Inline::Verbatim {
                 range,
-                kind,
-                kind_range,
+                mark,
                 text,
                 text_range,
                 quote_count,
-                attrs,
                 ..
             } => {
-                collect_anchor(
-                    source,
-                    attrs,
-                    AnchorKind::Inline,
-                    range.clone(),
-                    range.clone(),
-                    first_ids,
-                    output,
-                );
-                if kind == "->" {
-                    collect_verbatim_autolink(
+                if let Some(mark) = mark {
+                    collect_anchor(
                         source,
-                        VerbatimAutolink {
-                            range: range.clone(),
-                            kind_range: kind_range.clone(),
-                            text,
-                            text_range: text_range.clone(),
-                            quote_count: *quote_count,
-                            attrs,
-                        },
+                        &mark.attrs,
+                        AnchorKind::Inline,
+                        range.clone(),
+                        range.clone(),
+                        first_ids,
                         output,
                     );
+                    if mark.marker == "->" {
+                        collect_verbatim_autolink(
+                            source,
+                            VerbatimAutolink {
+                                range: range.clone(),
+                                kind_range: mark.marker_range.clone(),
+                                text,
+                                text_range: text_range.clone(),
+                                quote_count: *quote_count,
+                                attrs: &mark.attrs,
+                            },
+                            output,
+                        );
+                    }
                 }
             }
-            Inline::Text { .. } | Inline::Space { .. } | Inline::SoftBreak { .. } => {}
+            Inline::Text { .. } | Inline::Space { .. } => {}
         }
     }
 }
@@ -741,31 +717,10 @@ fn collect_anchor(
 fn collect_link(
     source: &str,
     range: Range<usize>,
-    kind_range: Range<usize>,
-    members: &[InlineMember],
-    attrs: &Attributes,
+    content: &InlineContent,
     output: &mut DocumentOutput,
 ) {
-    let arguments = members
-        .iter()
-        .filter_map(InlineMember::argument)
-        .collect::<Vec<_>>();
-    if let [InlineArgumentRef::Verbatim(argument)] = arguments.as_slice() {
-        collect_verbatim_autolink(
-            source,
-            VerbatimAutolink {
-                range,
-                kind_range,
-                text: &argument.text,
-                text_range: argument.text_range.clone(),
-                quote_count: argument.quote_count,
-                attrs,
-            },
-            output,
-        );
-        return;
-    }
-    let Some((selection_range, target)) = positional_link_parts(source, members) else {
+    let Some((selection_range, target)) = positional_link_parts(source, content) else {
         output.diagnostics.push(Diagnostic {
             code: "link.missing-target",
             severity: DiagnosticSeverity::Warning,
@@ -786,42 +741,40 @@ fn collect_link(
 
 fn positional_link_parts(
     source: &str,
-    members: &[InlineMember],
+    content: &InlineContent,
 ) -> Option<(Range<usize>, SourceBacked<String>)> {
-    let arguments = members
-        .iter()
-        .filter_map(InlineMember::argument)
-        .collect::<Vec<_>>();
+    let arguments = crate::positional_data(content);
     let [label, target] = arguments.as_slice() else {
         return None;
     };
-    Some((
-        argument_range(label),
-        source_backed_argument(source, target)?,
-    ))
+    Some((label.range.clone(), source_backed_argument(source, target)?))
 }
 
-fn argument_range(argument: &InlineArgumentRef<'_>) -> Range<usize> {
-    argument.range()
-}
-
-fn source_backed_argument(
-    source: &str,
-    argument: &InlineArgumentRef<'_>,
-) -> Option<SourceBacked<String>> {
-    match argument {
-        InlineArgumentRef::Parsed(content) => {
-            let content = content.trim_boundary_padding();
-            source_backed_inline_items(source, &content.items)
-        }
-        InlineArgumentRef::Verbatim(argument) if !argument.text.is_empty() => Some(SourceBacked {
-            raw: source[argument.text_range.clone()].to_string(),
-            value: argument.text.clone(),
-            range: argument.text_range.clone(),
-            decoded_boundaries: (argument.text_range.start..=argument.text_range.end).collect(),
-        }),
-        InlineArgumentRef::Verbatim(_) => None,
+fn source_backed_argument(source: &str, argument: &InlineContent) -> Option<SourceBacked<String>> {
+    let argument = argument.trim_boundary_padding();
+    if let [Inline::Verbatim {
+        mark: None,
+        text,
+        text_range,
+        ..
+    }] = argument.items.as_slice()
+    {
+        return (!text.is_empty()).then(|| SourceBacked {
+            raw: source[text_range.clone()].to_string(),
+            value: text.clone(),
+            range: text_range.clone(),
+            decoded_boundaries: (text_range.start..=text_range.end).collect(),
+        });
     }
+    if let [Inline::Group {
+        mark: None,
+        content,
+        ..
+    }] = argument.items.as_slice()
+    {
+        return source_backed_inline_items(source, &content.items);
+    }
+    source_backed_inline_items(source, &argument.items)
 }
 
 fn source_backed_inline_items(source: &str, items: &[Inline]) -> Option<SourceBacked<String>> {
@@ -835,8 +788,7 @@ fn source_backed_inline_items(source: &str, items: &[Inline]) -> Option<SourceBa
             Inline::Text { text, range } | Inline::Space { text, range } => {
                 (text.as_str(), range.clone())
             }
-            Inline::SoftBreak { range } => (" ", range.clone()),
-            Inline::Element { .. } | Inline::Verbatim { .. } => return None,
+            Inline::Group { .. } | Inline::Verbatim { .. } => return None,
         };
         let source_text = &source[source_range.clone()];
         let escaped_single = text.chars().count() == 1 && source_text.len() != text.len();
@@ -869,8 +821,7 @@ fn inline_range(inline: &Inline) -> &Range<usize> {
     match inline {
         Inline::Text { range, .. }
         | Inline::Space { range, .. }
-        | Inline::SoftBreak { range }
-        | Inline::Element { range, .. }
+        | Inline::Group { range, .. }
         | Inline::Verbatim { range, .. } => range,
     }
 }
