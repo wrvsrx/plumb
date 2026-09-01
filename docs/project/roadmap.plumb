@@ -24,6 +24,13 @@
  core reserved syntax。
 `- normalized AST 只在 typed views 无法满足 concrete consumer 时引入。
 
+`# Core syntax redesign
+
+`->[Recursive owner syntax proposal|recursive-syntax-proposal.plumb] 记录一套尚未冻结、尚未实现的 breaking
+candidate：以 optional-marker recursive owners 统一 block/inline，使用 braces 分组 inline data，并移除
+brackets member envelope 与 pipe argument separator。审核完成前 current reference、guide、parser 与
+migration contract 都维持不变。
+
 `# Workspace and notes
 
 `- 评估 query-selected/interactive batch operations 与 structured output。

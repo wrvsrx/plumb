@@ -45,6 +45,7 @@ exclusions 链接到 reference，不在多个 guides 中复制规则表。
 
 `- `->[Vision|project/vision.plumb]：项目目标和长期边界。
 `- `->[Roadmap|project/roadmap.plumb]：尚未冻结或仍需评估的方向。
+`- `->[Recursive owner syntax proposal|project/recursive-syntax-proposal.plumb]：下一版 core syntax 的待审核、未实现候选。
 `- `->[Current tasks|project/tasks.plumb]：可以直接实施和验收的工作。
 `- `->[Completed tasks|project/completed-tasks.plumb]：带 done timestamp 的验收快照。
 `- `->[Performance benchmark methodology|project/performance-benchmarks.plumb]：当前 workload 与测量 contract。

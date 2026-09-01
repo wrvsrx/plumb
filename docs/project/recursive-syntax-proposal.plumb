@@ -1,0 +1,439 @@
+`= title|recursive owner syntax proposal
+
+本文记录下一版 core syntax 的待审核候选，不描述当前 release，也不覆盖
+`->[core syntax reference|../reference/core-syntax.plumb]。实现、migration、guide、bundled skill 与
+tree-sitter grammar 都尚未开始；审核冻结前不得把本文示例当作有效 plumb source。
+
+`# 目标
+
+`- 使用同一个 owner model 表达 block 与 inline structure。
+`- block level 只依赖 newline、indentation 与 marker；inline level 只依赖 ASCII space、group 与 marker。
+`- 删除 parsed inline 的 brackets envelope 和 pipe argument separator。
+`- 保留 source-ordered、lossless spaces，同时让 positional datum 拥有稳定边界。
+`- 只保留一套 inline verbatim 和一套 block verbatim，并允许 optional opaque marker。
+`- core 继续 semantics-neutral；marker spelling 的含义仍由 official semantic profile 提供。
+
+这不是严格 Lisp spelling。传统 s-expression 把 operator 放在 list 内；本方案把 marker 放在 owner
+外部，使 block 与 inline 具有相同的 optional-marker shape。更准确的名称是 recursive owner expression。
+
+`# Structural model
+
+候选 lossless model：
+
+`rust
+|"
+ struct Block {
+     marker: Option<Marker>,
+     content: BlockContent,
+     children: Vec<Block>,
+ }
+
+ enum BlockContent {
+     Parsed(InlineContents),
+     Verbatim(RawText),
+ }
+
+ struct InlineContents {
+     elements: Vec<InlineElement>,
+ }
+
+ enum InlineElement {
+     Text(TextRun),
+     Space(SpaceRun),
+     Group {
+         marker: Option<Marker>,
+         content: InlineContents,
+     },
+     Verbatim {
+         marker: Option<Marker>,
+         payload: RawText,
+     },
+ }
+
+所有 parsed block，包括 marker 为 null 的 anonymous block，都可以拥有 indented children。verbatim
+block 的 content 已经是 terminal raw payload，不能再拥有 structural children。document 是隐式 root
+owner，拥有 top-level blocks。
+
+`# Lexical entries
+
+反引号仍是唯一 introducer。marker 非空且 case-sensitive，不能包含 whitespace、control、反引号、
+braces 或 double quote。ASCII space 是唯一 inline separator 和 parsed block marker/head separator；tab
+与其他 whitespace 在 parsed source 中非法，只能出现在 verbatim payload。
+
+parsed text 中只有以下 spellings special：
+
+`plumb
+|"
+ ``    literal backtick
+ `{    literal opening brace
+ `}    literal closing brace
+
+ordinary double quote、brackets 和 pipe 都是普通 text。反引号开始的其他不完整或非法 entry 是 hard parse
+error，不 fallback 为 literal text。
+
+`# Block grammar
+
+每个 nonblank physical line 开始一个 block。newline 分隔 sibling blocks；较深 indentation 使后续 block
+成为前一个 parsed block 的 child。第一个 child 建立 child column，siblings 必须精确使用同一 column，
+dedent 必须回到已存在的 column。canonical indentation 是 owner column 加一个 ASCII space。
+
+blank line 是 layout，不产生 block，也不独自终止 indentation ownership。需要显式 empty anonymous block
+时使用只含 empty group 的一行：
+
+`plumb
+|"
+ {}
+
+`## Parsed blocks
+
+不以合法 block marker entry 开始的 nonblank line产生 anonymous parsed block：
+
+`plumb
+|"
+ ordinary paragraph
+ {one grouped datum}
+ `->{guide guide.plumb}
+
+合法 marked parsed block 由 introducer、marker，以及 line ending 或一个 ASCII SpaceRun 组成：
+
+`plumb
+|"
+ `note
+ `note content
+ `note {content with spaces}
+
+marker 后的 SpaceRun 保存在 lossless InlineContents 中，但 typed datum view 把它视为 boundary padding。
+marker 后立即出现 opening brace 或同一行 inline verbatim payload 时不构成 block marker entry；整行是
+anonymous block，其 content 从 marked inline element 开始。因此下面两行属于不同 syntax categories：
+
+`plumb
+|"
+ `note content
+ `note{content}
+
+第一行是 marker 为 note 的 block；第二行是 anonymous block，包含 marker 为 note 的 inline group。
+
+anonymous 与 marked parsed blocks 使用完全相同的 child ownership：
+
+`plumb
+|"
+ parent
+  child
+
+ `note parent
+  child
+
+当前候选不提供 continuation line：除 verbatim payload 外，每个 physical line 恰好开始一个 block。
+因此 source wrapping 是 semantic block boundary，不是 soft break。
+
+`# Inline grammar
+
+`## Terms, spaces and data
+
+InlineContents 是 Text、SpaceRun、Group 与 Verbatim 的 lossless sequence。一个或多个 direct ASCII spaces
+产生一个 SpaceRun；source width 完整保留。SpaceRun 在当前 inline depth 分隔 positional data，但不会因
+多个 spaces 产生 empty datum。leading 和 trailing SpaceRun 是 boundary padding。
+
+一个 datum 是一个或多个没有 direct SpaceRun 分隔的 adjacent terms。相邻 text 与 inline owner 可以形成
+一个 rich datum：
+
+`plumb
+|"
+ prefix`!{strong}suffix
+
+需要让含 direct spaces 的内容在 parent 中占据一个 datum 时，使用 anonymous group：
+
+`plumb
+|"
+ {guide with spaces}
+ {Project Guide.plumb}
+
+group 内的 spaces 仍存在并分隔 inner data，但整个 group 在 parent depth 是一个 term。显式 empty datum
+写作 empty group；不能依靠连续 spaces 表达：
+
+`plumb
+|"
+ {}
+
+`## Anonymous and marked groups
+
+Braces 是唯一 parsed inline grouping envelope，可以递归 nesting，但不能跨 physical line：
+
+`plumb
+|"
+ {anonymous group}
+ {outer {inner group}}
+
+marker 紧邻 opening brace 产生 marked inline group：
+
+`plumb
+|"
+ `!{strong content}
+ `->{guide guide.plumb}
+ `->{ {guide with spaces} {Project Guide.plumb} }
+
+上例最后一行的 direct leading/trailing spaces 是 group boundary padding；canonical formatter 会移除它们。
+建议 spelling 是：
+
+`plumb
+|"
+ `->{{guide with spaces} {Project Guide.plumb}}
+
+anonymous group 与 marked group 只有 marker presence 不同；marker 不是 group content 的第一个 datum。
+因此候选不再保留等价的 operator-inside spelling。
+
+`# Verbatim
+
+`## Inline verbatim
+
+anonymous inline verbatim 的 compact form 是 introducer、opening quote、single-line payload 与 closing
+quote。optional marker 可以位于 quote 前：
+
+`plumb
+|"
+ `"cargo test"
+ `$"x^2"
+ `$""
+
+empty compact payload 合法。compact form 是 full form 在单 quote strength 下的简写：
+
+`plumb
+|"
+ `"{cargo test}"
+ `$"{x^2}"
+
+full form 使用一个或多个 opening quotes、opening brace、opaque payload、closing brace 与相同 quote
+run。选择 payload 中没有出现 closing brace 加该 quote run 的最小 strength：
+
+`plumb
+|"
+ `"{raw containing "quotes"}"
+ `""{raw containing }" safely}""
+ `""{{literal braces}}""
+
+quote run 后立即出现 opening brace 时必须 dispatch 为 full form，不能同时解释成以 brace 开头和结尾的
+compact payload。compact payload 因此不能包含 double quote，也不能以 opening brace 开始；后者使用
+strengthened full form 表达。full form 的 payload 不解析 braces、backticks、spaces 或 quotes。两种 form
+产生同一个 Verbatim node，不产生额外 group nesting。inline verbatim 不能跨 physical line。
+
+`## Block verbatim
+
+block raw opener 必须独占 physical line。anonymous form 是 introducer 加一个 quote；marked form 在 quote
+前加入 marker：
+
+`plumb
+|"
+ `"
+  anonymous raw
+
+ `rust"
+  fn main() {}
+
+opener 后每个 payload line 必须先具有 opener indentation，再具有一个 structural ASCII space；parser
+strip 恰好该额外 space，保留其后的所有 bytes，包括更多 leading spaces。第一个没有该 margin 的
+physical line 结束 payload 并作为普通
+block 重新处理。需要保留的 raw blank line 也必须包含 structural margin。EOF、empty payload 与 payload
+中的任意 quote/braces/backtick 都合法；block raw 不需要 closing fence 或 quote strength。
+
+block raw 的 marker 直接属于 verbatim block，而不是 wrapper marker；下例不含 anonymous payload child：
+
+`rust
+|"
+ Block {
+     marker: Some("rust"),
+     content: Verbatim("fn main() {}\n"),
+     children: [],
+ }
+
+需要 metadata 或普通 children 时，用普通 owner 包住 verbatim child：
+
+`plumb
+|"
+ `code
+  `@ example
+  `= language rust
+  `rust"
+   fn main() {}
+
+`# Ownership and semantic projection
+
+core 只保存 source-ordered ownership：block children 属于 enclosing block；inline group contents 属于
+enclosing group。core 不把 `"@"、`"="、`"+" 或其他 marker 固化为 declarations，也不为 inline
+contents 建立独立 argument/child node kinds。
+
+official semantic profile 可以把 direct marked owners 投影成 id、property 或 facet，并从 kind-specific
+positional view 排除这些 declarations。未识别 marker 仍是 ordinary content。推荐把 declarations 放在
+visible content 后或 block children 前，但 syntax 不强制顺序：
+
+`plumb
+|"
+ `node{visible `@{stable} `={key value}}
+
+ `node visible
+  `@ stable
+  `= key value
+
+这项简化有明确代价：旧 inline member grammar 可以从 delimiter shape 区分 parsed/verbatim argument 与
+parsed/verbatim child；候选 syntax 不能在 semantics-neutral core 中做同样分类。若审核要求 syntax 层
+保证 first member 必须是 argument，必须重新引入额外 boundary 或 member tag，不能只靠当前 braces 与
+spaces 推导。
+
+`# Standard semantic examples
+
+以下只说明 candidate syntax 如何承载现有 semantic shapes；最终 arity 与 validation 仍属于
+`->[standard semantics reference|../reference/standard-semantics.plumb] 的后续新版本。
+
+`## Definitions and properties
+
+definition 的 first datum 是 term，剩余 head data 组成 inline value：
+
+`plumb
+|"
+ `: orange a type of fruit
+ `: {key with spaces} value with spaces
+
+有 non-declaration children 时，完整 head 是 term，children 是 block value：
+
+`plumb
+|"
+ `: orange
+  a type of fruit
+
+property 使用相同投影。leaf property 的 first datum 是 key，剩余 head data 是 value；有 value children
+时完整 head 是 key：
+
+`plumb
+|"
+ `= title plumb title
+ `= {key with spaces} value with spaces
+
+ `= author
+  `= name Alice
+
+`## Links
+
+Link 的 first positional datum 是 label，second positional datum 是 target。含 spaces 的 datum 使用 group
+或 verbatim；后续 direct declarations 不占 positional index：
+
+`plumb
+|"
+ this is a link: `->{guide guide.plumb}
+ this is also a link: `->{{guide with spaces} {Project Guide.plumb}}
+ this is also a link: `->{{guide with spaces} `"Project Guide.plumb"}
+ `->{guide guide.plumb `@{guide-link}}
+
+同 label/target 的 autolink 使用 marked verbatim shorthand：
+
+`plumb
+|"
+ `->"guide.plumb"
+
+`## Lists, tasks and events
+
+list item head 是 visible inline contents，task/event 仍由 direct facet child 提供：
+
+`plumb
+|"
+ `- Implement parser
+  `+ task
+  `@ write-parser
+  `= created 2026-09-02T09:00:00+08:00
+
+Event 的 first datum 是 schedule，剩余 head data 组成 title，因此 title 不需要独立 delimiter：
+
+`plumb
+|"
+ `- 14:00--15:00 Parser review
+  `+ event
+  `= date 2026-09-02
+
+`## Tables
+
+table 的 direct list-item children 是 rows。nonempty row head 的每个 direct datum 是一个 compact cell；
+一个或多个 spaces 都只是 cell separator，因此 formatter 可以用较宽 SpaceRun 对齐而不改变 arity：
+
+`plumb
+|"
+ `table
+  `- name    age
+   `+ header
+
+  `- Alice   10
+  `- Bob     20
+
+含 spaces 的 cell 使用 anonymous group。empty group 表示 empty cell：
+
+`plumb
+|"
+ `table
+  `- name             description
+   `+ header
+
+  `- {Alice Smith}    {project owner}
+  `- Bob              {}
+
+empty-head row 使用 direct non-declaration children 作为 expanded block cells：
+
+`plumb
+|"
+ `table
+  `-
+   `+ header
+   name
+   age
+
+  `-
+   {Alice Smith}
+   10
+
+compact cells 来自 row head，expanded cells 来自 row children；添加 `"+ header" 或其他 declaration child
+不会改变 nonempty row 的 compact interpretation。
+
+`# Formatting contract
+
+`- lossless tree 始终保存每个 SpaceRun 的 source width。
+`- ordinary canonical formatting 在 datum boundaries 输出一个 ASCII space。
+`- kind-specific alignment 可以增加 separator SpaceRun，但不能增加 empty datum 或改变 arity。
+`- group boundary 不输出 leading/trailing padding；需要 value 中的 boundary space 时使用 verbatim。
+`- structural indentation 默认 owner column 加一；verbatim payload 只调整 structural margin，不修改 raw
+ bytes。
+`- formatter 不通过 physical wrapping 插入 newline，因为 newline 是 block boundary。
+
+`# Expressiveness and ambiguity audit
+
+`## Deliberately expressible
+
+`- anonymous/marked parsed blocks with or without children。
+`- anonymous/marked inline groups，包括 empty group 与 arbitrary nesting。
+`- adjacent inline terms without spaces，以及 grouped multi-datum positional value。
+`- empty positional datum，通过 `"{}" 明示，而不是通过 repeated separator 猜测。
+`- inline raw 的 empty、quotes、braces 与 closing-like payload，通过 full envelope strength 表达。
+`- block raw 的任意 multiline bytes，通过 indentation margin 表达。
+`- 一个 ordinary block 恰好包含一个 verbatim block child。
+
+`## Context rules that prevent ambiguity
+
+`- block marker 后只能是 line ending 或 ASCII space；marker 紧邻 brace 一定是 inline group。
+`- quote 后同一行存在 payload/closer时是 inline verbatim；single quote 后立即 line ending 时是 block raw。
+`- braces 只在 parsed inline depth 分组；verbatim payload 中永远 opaque。
+`- direct SpaceRun 只在当前 inline depth 分隔 data；nested group 内的 spaces 不影响 parent arity。
+`- indentation 只在 block level 建立 ownership；inline group 不能跨 line ending。
+
+`## Costs requiring explicit approval
+
+`- hard-wrapped paragraph 不再存在；每个 physical line 都是 block。
+`- syntax tree 不再区分 inline argument 与 inline child，declaration classification 下沉到 semantic profile。
+`- repeated spaces 不表达 empty arguments；必须使用 empty group。
+`- literal braces 需要 introducer escape；bracket 与 pipe 恢复为 ordinary text。
+`- operator-inside group 与 marker-outside group 不同时保留，避免两个 canonical spellings。
+`- verbatim block 不能同时直接拥有 parsed children；需要 wrapper block。
+
+`# Implementation boundary
+
+审核通过后应先用本文冻结后的规则替换 authoritative core syntax，并同步 diagnostics 与 syntax-tree
+contract；在 reference 更新前不得修改 parser。实现顺序应为 strict parser/lossless views、format/edit、
+semantic projection、migration、tree-sitter/editor adapters，最后才更新 guides、examples 与 bundled skill。
+
+migration 必须通过 versioned parser 和 `"plumb-edit" owned mutation 完成，不使用 global text replacement。
+本文尚未指定旧 source 与新 source 的 exact migration mapping，也未指定 release version；这两项应在
+开始实现前加入 actionable tasks。
