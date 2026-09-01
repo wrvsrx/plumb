@@ -13,7 +13,6 @@
    codelens = { picker = 'snacks' },
    search = { picker = 'snacks', task_filter = 'state == "ready"' },
  })
-
  vim.keymap.set('n', '<leader>pn', function()
    require('plumb.search').search_notes()
  end)
