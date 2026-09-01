@@ -479,7 +479,7 @@ fn last_day_of_month(year: i32, month: u32) -> Option<u32> {
 
 #[cfg(test)]
 mod tests {
-    use plumb_syntax::parse;
+    use crate::parse_legacy as parse;
 
     use super::*;
 
@@ -500,20 +500,20 @@ mod tests {
         assert_eq!(task.title, "Write parser");
         assert_eq!(task.depth, 0);
         assert_eq!(
-            &source[task.attribute_insert..task.attribute_insert + 1],
+            &parsed.source[task.attribute_insert..task.attribute_insert + 1],
             "\n"
         );
         assert_eq!(task.id.as_ref().unwrap().value, "write");
         assert_eq!(task.state(), TaskState::Open);
         assert_eq!(task.depends.len(), 3);
-        assert_eq!(&source[task.depends[0].range.clone()], "#draft");
+        assert_eq!(&parsed.source[task.depends[0].range.clone()], "#draft");
         assert!(matches!(
             task.depends[1].target,
             TaskReferenceTarget::External { ref path, ref id }
                 if path == "other notes.plumb" && id == "review"
         ));
         assert_eq!(
-            &source[task.depends[1].range.clone()],
+            &parsed.source[task.depends[1].range.clone()],
             "other notes.plumb#review"
         );
         assert!(matches!(
@@ -575,7 +575,7 @@ mod tests {
     #[test]
     fn direct_dependency_values_keep_exact_source_ranges() {
         let source =
-            "`- Review\n  `+ task\n  `@ review\n  `= depends|Project Plan.plumb#build #local\n";
+            "`- Review\n `+ task\n `@ review\n `= depends Project Plan.plumb#build #local\n";
         let parsed = plumb_syntax::parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let output = analyze_tasks(

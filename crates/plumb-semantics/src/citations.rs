@@ -127,7 +127,7 @@ mod tests {
 
     #[test]
     fn diagnoses_invalid_citation_content() {
-        let parsed = parse("`cite[plain text] `cite[@one] `cite[one;two] `cite[`*[nested]].\n");
+        let parsed = parse("`cite{{plain text}} `cite{@one} `cite{one;two} `cite{`*{nested}}.\n");
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
         let output = analyze_citations(

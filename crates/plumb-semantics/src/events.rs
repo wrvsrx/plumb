@@ -566,8 +566,8 @@ fn resolved_field(value: DateTime<FixedOffset>, when: &Option<EventField>) -> Ev
 
 #[cfg(test)]
 mod tests {
+    use crate::parse_legacy as parse;
     use chrono::DateTime;
-    use plumb_syntax::parse;
 
     use super::*;
 
@@ -600,10 +600,7 @@ mod tests {
             "2026-07-31T09:00:00+08:00"
         );
         assert_eq!(event.tasks.len(), 2);
-        assert_eq!(
-            &source[event.tasks[1].range.clone()],
-            "Project A.plumb#remote"
-        );
+        assert_eq!(event.tasks[1].source, "Project A.plumb#remote");
         assert_eq!(output.events[1].depth, 1);
     }
 

@@ -5,14 +5,10 @@ pub(super) fn attribute_completion_text(text: &str, snippets: bool) -> String {
     if !snippets {
         return text.to_string();
     }
-    if let Some(prefix) = text.strip_suffix(" ]") {
-        format!("{prefix} ${{1}}]")
-    } else if let Some(prefix) = text.strip_suffix("|]") {
-        format!("{prefix}|${{1}}]")
-    } else if let Some(prefix) = text.strip_suffix("[]") {
-        format!("{prefix}[${{1}}]")
-    } else if text == "`= priority | 0" {
-        "`= priority | ${1:0}".to_string()
+    if let Some(prefix) = text.strip_suffix(" {}") {
+        format!("{prefix} ${{1}}")
+    } else if text == "`= priority 0" {
+        "`= priority ${1:0}".to_string()
     } else if text.ends_with(' ') {
         format!("{text}${{1}}")
     } else {
@@ -107,7 +103,7 @@ pub(super) fn task_construct_template(block_indent: &str, timestamp: &str) -> Co
     ConstructTemplate {
         label: "Task",
         detail: "plumb task list item",
-        snippet: format!("`- ${{1:Task}}\n\n{block_indent}`+ task\n\n{block_indent}`= {created}"),
+        snippet: format!("`- ${{1:Task}}\n{block_indent}`+ task\n\n{block_indent}`= {created}"),
         plain: format!("`-\n{block_indent}`+ task\n\n{block_indent}`= {created}"),
         uses_block_indentation: true,
     }
@@ -119,8 +115,8 @@ fn event_construct_template(block_indent: &str) -> ConstructTemplate {
     ConstructTemplate {
         label: "Event",
         detail: "plumb event list item",
-        snippet: format!("`- {head}\n\n{block_indent}`+ event"),
-        plain: format!("`- {plain_head}\n\n{block_indent}`+ event"),
+        snippet: format!("`- {head}\n{block_indent}`+ event"),
+        plain: format!("`- {plain_head}\n{block_indent}`+ event"),
         uses_block_indentation: true,
     }
 }
@@ -150,8 +146,8 @@ pub(super) fn construct_completion_items(
             vec![ConstructTemplate {
                 label: "Citation",
                 detail: "plumb citation",
-                snippet: "`cite[${1:id}]".to_string(),
-                plain: "`cite[]".to_string(),
+                snippet: "`cite{${1:id}}".to_string(),
+                plain: "`cite{}".to_string(),
                 uses_block_indentation: false,
             }],
         ),
@@ -205,8 +201,8 @@ fn link_construct_template() -> ConstructTemplate {
     ConstructTemplate {
         label: "Link",
         detail: "plumb link",
-        snippet: "`->[${1:label}|${2:target}]".to_string(),
-        plain: "`->[|]".to_string(),
+        snippet: "`->{{${1:label}} ${2:target}}".to_string(),
+        plain: "`->{{} {}}".to_string(),
         uses_block_indentation: false,
     }
 }
@@ -216,7 +212,7 @@ fn autolink_construct_template() -> ConstructTemplate {
         label: "Autolink",
         detail: "plumb autolink",
         snippet: "`->\"${1:path}\"".to_string(),
-        plain: "`->\"[]\"".to_string(),
+        plain: "`->\"\"".to_string(),
         uses_block_indentation: false,
     }
 }

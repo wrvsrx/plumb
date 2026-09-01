@@ -58,7 +58,7 @@ fn exposes_the_unified_command_surface() {
     assert!(formatted.status.success());
     assert_eq!(
         String::from_utf8(formatted.stdout).unwrap(),
-        "`meta\n `: title\n\n  Unified command\n"
+        "`meta\n `: title\n  Unified command\n"
     );
 
     let exported = run_with_stdin(&["export"], "Paragraph.\n");
@@ -152,7 +152,7 @@ fn reports_and_prunes_only_inactive_managed_cache_namespaces() {
 #[test]
 fn migrates_an_explicit_syntax_epoch_from_stdin_and_paths() {
     let source = "`->[guide]{`:[to guide.plumb] `-[external]}\n";
-    let expected = "`->[guide|guide.plumb|+[external]]\n";
+    let expected = "`->{guide guide.plumb `+{external}}\n";
 
     let stdin = run_with_stdin(&["migrate", "--from", "attached-v1"], source);
     assert!(
@@ -161,6 +161,24 @@ fn migrates_an_explicit_syntax_epoch_from_stdin_and_paths() {
         String::from_utf8_lossy(&stdin.stderr)
     );
     assert_eq!(String::from_utf8(stdin.stdout).unwrap(), expected);
+
+    let member = run_with_stdin(
+        &["migrate", "--from", "member-envelope-v1"],
+        "`= title|Guide\n\n`->[guide page|Project Guide.plumb]\n",
+    );
+    assert!(
+        member.status.success(),
+        "{}",
+        String::from_utf8_lossy(&member.stderr)
+    );
+    let member = String::from_utf8(member.stdout).unwrap();
+    assert_eq!(
+        member,
+        "`= title Guide\n\n`->{{guide page} {Project Guide.plumb}}\n"
+    );
+    let repeated = run_with_stdin(&["migrate", "--from", "member-envelope-v1"], &member);
+    assert!(repeated.status.success());
+    assert_eq!(String::from_utf8(repeated.stdout).unwrap(), member);
 
     let current_group = run_with_stdin(
         &["migrate", "--from", "document-group-v1"],
@@ -173,7 +191,7 @@ fn migrates_an_explicit_syntax_epoch_from_stdin_and_paths() {
     );
     assert_eq!(
         String::from_utf8(current_group.stdout).unwrap(),
-        "`= title|Current\n\n`->[guide|guide.plumb]\n"
+        "`= title Current\n\n`->{guide guide.plumb}\n"
     );
 
     let head_spaces = run_with_stdin(
@@ -187,7 +205,7 @@ fn migrates_an_explicit_syntax_epoch_from_stdin_and_paths() {
     );
     assert_eq!(
         String::from_utf8(head_spaces.stdout).unwrap(),
-        "`= title|Current title\n\n`event 14:00|Review\n"
+        "`= title Current title\n\n`event 14:00 Review\n"
     );
 
     let root = unique_temp_dir();
@@ -226,7 +244,7 @@ fn migrates_task_event_markers_from_stdin() {
     assert!(migrated.status.success());
     assert_eq!(
         String::from_utf8(migrated.stdout).unwrap(),
-        "`- Work\n\n `+ task\n"
+        "`- Work\n `+ task\n"
     );
 }
 
@@ -237,7 +255,7 @@ fn exports_events_as_a_khal_readonly_vdir() {
     std::fs::create_dir_all(&root).unwrap();
     std::fs::write(
         root.join("agenda.plumb"),
-        "`= date|2026-07-30\n`= timezone|+08:00\n\n`- 14:00--15:00|Parser review\n `+ event\n `@ review\n `= tasks|#write\n",
+        "`= date 2026-07-30\n`= timezone +08:00\n\n`- 14:00--15:00 Parser review\n `+ event\n `@ review\n `= tasks #write\n",
     )
     .unwrap();
     let exported = Command::new(env!("CARGO_BIN_EXE_plumb"))
@@ -471,7 +489,7 @@ fn checks_a_workspace_with_configurable_severity_and_error_exit_status() {
 
     std::fs::write(
         root.join("nested/broken.plumb"),
-        "See `->[missing|missing.plumb#id].\n",
+        "See `->{missing missing.plumb#id}.\n",
     )
     .unwrap();
     let broken = Command::new(env!("CARGO_BIN_EXE_plumb"))
@@ -490,7 +508,7 @@ fn checks_a_workspace_with_configurable_severity_and_error_exit_status() {
 
     std::fs::write(
         root.join("tasks.plumb"),
-        "`- Draft\n `+ task\n `@ draft\n`- Review\n `+ task\n `@ review\n `= depends|#draft\n",
+        "`- Draft\n `+ task\n `@ draft\n`- Review\n `+ task\n `@ review\n `= depends #draft\n",
     )
     .unwrap();
     let default = Command::new(env!("CARGO_BIN_EXE_plumb"))
@@ -574,7 +592,7 @@ fn discovers_workspace_markers_and_applies_ignore_files() {
 
 #[test]
 fn round_trips_the_exported_standard_profile_through_import() {
-    let source = "`= title|Import test\n\n`# Intro\n `@ intro\n\nParagraph with `*[emphasis], `![strong], `==[mark], `~[strike], `^[super], `_[sub], and `->[a link|other.plumb#id].\n\n`> Quoted\n `@ quote\n `+ source\n\n`task Item\n `@ task\n `= created|2026-07-23T17:00:00+08:00\n\n`table People\n `- name  | age\n  `+ header\n `- Alice | 10\n\n`rust\n `@ code\n\n|\"\n fn main() {}\n";
+    let source = "`= title Import test\n\n`# Intro\n `@ intro\n\nParagraph with `*{emphasis}, `!{strong}, `=={mark}, `~{strike}, `^{super}, `_{sub}, and `->{{a link} other.plumb#id}.\n\n`> Quoted\n `@ quote\n `+ source\n\n`- Item\n `+ task\n `@ task\n `= created 2026-07-23T17:00:00+08:00\n\n`table People\n `- name    age\n  `+ header\n `- Alice   10\n\n`()\n `@ code\n `rust\"\n  fn main() {}\n";
     let first = run_with_stdin(&["export"], source);
     assert!(
         first.status.success(),
@@ -618,13 +636,13 @@ fn serves_the_workspace_site_with_notes_and_tasks() {
     std::fs::write(root.join("private/note.plumb"), "Private note.\n").unwrap();
     std::fs::write(
         root.join("a.plumb"),
-        "`= title|Alpha\n\nSee `->[Beta|b.plumb#beta].\n\n`img[icon|=[src|assets/icon.png]]\n\n`- Ship release\n `+ task\n `= created|2026-07-25T10:00:00+08:00\n",
+        "`= title Alpha\n\nSee `->{Beta b.plumb#beta}.\n\n`img{icon `={src assets/icon.png}}\n\n`- Ship release\n `+ task\n `= created 2026-07-25T10:00:00+08:00\n",
     )
     .unwrap();
     std::fs::write(root.join("b.plumb"), "`# Beta\n `@ beta\n").unwrap();
     std::fs::write(
         root.join("hidden.plumb"),
-        "Hidden index. `->[Alpha|a.plumb].\n",
+        "Hidden index. `->{Alpha a.plumb}.\n",
     )
     .unwrap();
 
@@ -734,11 +752,11 @@ fn serves_the_workspace_site_with_notes_and_tasks() {
         .is_some_and(|timestamp| timestamp.starts_with("2026-")));
     assert!(std::fs::read_to_string(root.join("a.plumb"))
         .unwrap()
-        .contains("`= done    | 2026-"));
+        .contains("`= done 2026-"));
 
     std::fs::write(
         root.join("a.plumb"),
-        "`= title|Alpha updated\n\nSee `->[Beta|b.plumb#beta].\n",
+        "`= title Alpha updated\n\nSee `->{Beta b.plumb#beta}.\n",
     )
     .unwrap();
     let mut refreshed = false;
@@ -790,7 +808,7 @@ fn site_renders_and_refreshes_csl_json_citations() {
     std::fs::create_dir_all(root.join("static")).unwrap();
     std::fs::write(
         root.join("note.plumb"),
-        "`= title|Citation note\n`= bibliography|static/library.json\n\nSee `cite[smith2004].\n",
+        "`= title Citation note\n`= bibliography static/library.json\n\nSee `cite{smith2004}.\n",
     )
     .unwrap();
     let bibliography = root.join("static/library.json");

@@ -297,11 +297,13 @@ fn collect_block_ranges(
     for (index, block) in blocks.iter().enumerate() {
         match block {
             Block::Parsed(parsed) => {
-                if let Some(mark) = &parsed.mark {
-                    let include_trailing_blank = !is_heading_marker(&mark.marker)
+                if parsed.mark.is_some() || !parsed.children.is_empty() {
+                    let include_trailing_blank = parsed.mark.as_ref().is_some_and(|mark| {
+                        !is_heading_marker(&mark.marker)
                         && blocks.get(index + 1).is_some_and(|next| {
                             matches!(next, Block::Parsed(next) if next.mark.as_ref().is_some_and(|next_mark| next_mark.marker == mark.marker))
-                        });
+                        })
+                    });
                     byte_ranges.push((
                         parsed.range.clone(),
                         parsed.range.clone(),

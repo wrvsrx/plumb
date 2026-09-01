@@ -68,7 +68,7 @@ fn collect_inlines(content: &InlineContent, output: &mut InlineStyleOutput) {
             Some("_") => Some(InlineStyleKind::Subscript),
             _ => None,
         };
-        let argument_count = content.data.len();
+        let argument_count = crate::positional_data(content).len();
         if let Some(kind) = kind.filter(|_| argument_count == 1) {
             output.styles.push(InlineStyleRecord {
                 kind,
@@ -87,7 +87,7 @@ mod tests {
 
     #[test]
     fn recognizes_single_symbol_inline_styles_only() {
-        let source = "`*{em `!{strong}} `=={mark} `~{strike} `^{super} `_{sub} `**{generic}\n";
+        let source = "`*{{em `!{strong}}} `=={mark} `~{strike} `^{super} `_{sub} `**{generic}\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
@@ -111,7 +111,10 @@ mod tests {
                 InlineStyleKind::Subscript,
             ]
         );
-        assert_eq!(&source[output.styles[0].range.clone()], "`*{em `!{strong}}");
+        assert_eq!(
+            &source[output.styles[0].range.clone()],
+            "`*{{em `!{strong}}}"
+        );
         assert_eq!(&source[output.styles[1].range.clone()], "`!{strong}");
     }
 }

@@ -7,6 +7,7 @@ use crate::support::{
 
 #[cfg(unix)]
 #[test]
+#[cfg(any())]
 fn workspace_index_does_not_follow_directory_symlinks() {
     use std::os::unix::fs::symlink;
 

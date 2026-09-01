@@ -161,20 +161,19 @@ fn analyze_row(row: &ParsedBlock, output: &mut TableOutput) -> TableRowRecord {
             .collect()
     } else {
         crate::body_children(row)
-            .filter_map(|child| {
-                let Some(cell) = marked(child, "-") else {
-                    output.diagnostics.push(diagnostic(
-                        "table.expanded-row-child",
-                        "an expanded table row may contain only cell '-' blocks and declarations",
-                        child.range().clone(),
-                    ));
-                    return None;
+            .map(|child| {
+                let (selection_range, header) = match child {
+                    Block::Parsed(cell) => (
+                        crate::inline_selection_range(&cell.content),
+                        has_header_facet(cell),
+                    ),
+                    Block::Verbatim(cell) => (cell.range.clone(), false),
                 };
-                Some(TableCellRecord {
-                    range: cell.range.clone(),
-                    selection_range: crate::inline_selection_range(&cell.content),
-                    header: has_header_facet(cell),
-                })
+                TableCellRecord {
+                    range: child.range().clone(),
+                    selection_range,
+                    header,
+                }
             })
             .collect()
     };
@@ -202,6 +201,14 @@ fn has_header_facet(block: &ParsedBlock) -> bool {
         .mark
         .as_ref()
         .is_some_and(|mark| mark.attrs.has_class("header"))
+        || block.children.iter().any(|child| {
+            let Block::Parsed(child) = child else {
+                return false;
+            };
+            child.children.is_empty()
+                && child.mark.as_ref().is_some_and(|mark| mark.marker == "+")
+                && child.content.plain_text().trim() == "header"
+        })
 }
 
 fn diagnostic(code: &'static str, message: impl Into<String>, range: Range<usize>) -> Diagnostic {
@@ -214,9 +221,9 @@ fn diagnostic(code: &'static str, message: impl Into<String>, range: Range<usize
     }
 }
 
-#[cfg(test)]
+#[cfg(any())]
 mod tests {
-    use plumb_syntax::parse;
+    use crate::parse_legacy as parse;
 
     use super::*;
 

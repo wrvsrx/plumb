@@ -25,23 +25,23 @@ struct SqliteFixture {
 }
 
 fn task_document_source(document: usize, tasks: usize, suffix: &str) -> String {
-    let mut source = format!("`= title|Task document {document}{suffix}\n\n");
+    let mut source = format!("`= title Task document {document}{suffix}\n\n");
     for task in 0..tasks {
         let id = format!("task-{document:03}-{task:02}");
         source.push_str(&format!(
-            "`- Task {document:03}/{task:02}{suffix}\n\n `+ task\n\n `@ {id}\n\n `= priority|{}\n `= due|2026-08-{:02}T10:00:00Z\n",
+            "`- Task {document:03}/{task:02}{suffix}\n `+ task\n\n `@ {id}\n\n `= priority {}\n `= due 2026-08-{:02}T10:00:00Z\n",
             (document + task) % 31,
             (document + task) % 28 + 1,
         ));
         if task > 0 {
             source.push_str(&format!(
-                " `= depends|#task-{document:03}-{:02}\n",
+                " `= depends #task-{document:03}-{:02}\n",
                 task - 1
             ));
         }
     }
     source.push_str(&format!(
-        "\n`- 09:00|Review {document:03}{suffix}\n\n `+ event\n\n `= date|2026-08-28\n `= timezone|+00:00\n `= tasks|#task-{document:03}-00\n"
+        "\n`- 09:00 Review {document:03}{suffix}\n `+ event\n\n `= date 2026-08-28\n `= timezone +00:00\n `= tasks #task-{document:03}-00\n"
     ));
     source
 }
@@ -77,8 +77,8 @@ fn done_task_fixture(documents: usize, tasks: usize) -> SqliteFixture {
     for document in 0..documents {
         let path = format!("done-{document:03}.plumb");
         let source = task_document_source(document, tasks, "").replace(
-            "\n `= priority|",
-            "\n `= done|2026-08-28T12:00:00Z\n `= priority|",
+            "\n `= priority ",
+            "\n `= done 2026-08-28T12:00:00Z\n `= priority ",
         );
         workspace.insert_disk(&path, 0, &source).unwrap();
     }
@@ -100,8 +100,8 @@ fn selective_done_task_fixture(documents: usize, tasks: usize) -> SqliteFixture 
         let mut source = task_document_source(document, tasks, "");
         if document % 8 == 0 {
             source = source.replace(
-                "\n `= priority|",
-                "\n `= done|2026-08-28T12:00:00Z\n `= priority|",
+                "\n `= priority ",
+                "\n `= done 2026-08-28T12:00:00Z\n `= priority ",
             );
         }
         workspace.insert_disk(&path, 0, &source).unwrap();
@@ -713,7 +713,7 @@ fn event_containment_source(events: usize) -> String {
     let mut source = String::with_capacity(events * 180);
     for index in 0..events {
         source.push_str(&format!(
-            "`- 2026-08-28T10:00:00Z|Outer {index} `->[outer|target.plumb#task]\n\n `+ event\n\n `- 2026-08-28T11:00:00Z|Nested {index} `->[nested|target.plumb#task]\n\n  `+ event\n"
+            "`- 2026-08-28T10:00:00Z Outer {index} `->{{outer target.plumb#task}}\n `+ event\n `- 2026-08-28T11:00:00Z Nested {index} `->{{nested target.plumb#task}}\n  `+ event\n"
         ));
     }
     source

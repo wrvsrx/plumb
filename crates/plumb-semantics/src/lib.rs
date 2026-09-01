@@ -12,6 +12,14 @@ mod tables;
 mod tasks;
 mod text;
 
+#[cfg(test)]
+fn parse_legacy(source: impl Into<String>) -> plumb_syntax::ParsedDocument {
+    let source = source.into();
+    let migrated = plumb_migrate::migrate_member_envelope_v1(&source)
+        .unwrap_or_else(|error| panic!("cannot migrate semantic fixture: {error}"));
+    plumb_syntax::parse(migrated)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ListItemFacet {
     None,
@@ -63,11 +71,29 @@ pub(crate) fn inline_selection_range(
     let Some(first) = normalized.next() else {
         return content.range.end..content.range.end;
     };
-    let mut range = first.range.clone();
+    let mut range = datum_selection_range(&first);
     for argument in normalized {
-        range.end = argument.range.end;
+        range.end = datum_selection_range(&argument).end;
     }
     range
+}
+
+pub(crate) fn datum_selection_range(
+    content: &plumb_syntax::InlineContent,
+) -> std::ops::Range<usize> {
+    match content.items.as_slice() {
+        [plumb_syntax::Inline::Group {
+            mark: None,
+            content,
+            ..
+        }] => content.range.clone(),
+        [plumb_syntax::Inline::Verbatim {
+            mark: None,
+            text_range,
+            ..
+        }] => text_range.clone(),
+        _ => content.range.clone(),
+    }
 }
 
 pub(crate) fn positional_data(
@@ -102,20 +128,17 @@ pub fn is_document_declaration(block: &plumb_syntax::Block) -> bool {
 }
 
 pub fn is_block_declaration(
-    owner: &plumb_syntax::ParsedBlock,
+    _owner: &plumb_syntax::ParsedBlock,
     child: &plumb_syntax::Block,
 ) -> bool {
-    let Some(mark) = &owner.mark else {
+    let plumb_syntax::Block::Parsed(child) = child else {
         return false;
     };
-    mark.attrs.items.iter().any(|item| {
-        let range = match item {
-            plumb_syntax::AttrItem::Id { range, .. }
-            | plumb_syntax::AttrItem::Class { range, .. }
-            | plumb_syntax::AttrItem::Pair { range, .. } => range,
-        };
-        range == child.range()
-    })
+    child.children.is_empty()
+        && child
+            .mark
+            .as_ref()
+            .is_some_and(|mark| matches!(mark.marker.as_str(), "@" | "+" | "="))
 }
 
 pub fn body_children(

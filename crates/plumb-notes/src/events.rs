@@ -301,6 +301,15 @@ mod tests {
     use crate::LoadedWorkspace;
     use plumb_workspace::Workspace;
 
+    fn insert_legacy(
+        workspace: &mut Workspace,
+        path: impl AsRef<Path>,
+        revision: i64,
+        source: impl AsRef<str>,
+    ) {
+        workspace.insert(path, revision, crate::migrate_test_source(source.as_ref()));
+    }
+
     #[test]
     fn exports_managed_vdir_with_escaped_folded_crlf_events_and_stale_cleanup() {
         let root = std::env::temp_dir().join(format!(
@@ -312,7 +321,7 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();
         let source = "`= date|2026-07-30\n`= timezone|+08:00\n\n`- 14:00--15:30|Review, parser; semantics with a deliberately long summary that must be folded safely\n\n `+ event\n\n `= tasks|#write\n\n `note First line\n";
         let mut workspace = Workspace::new();
-        workspace.insert(root.join("events.plumb"), 1, source);
+        insert_legacy(&mut workspace, root.join("events.plumb"), 1, source);
         let mut loaded = LoadedWorkspace {
             root: root.clone(),
             workspace,
@@ -350,7 +359,8 @@ mod tests {
         assert_eq!(std::fs::read_to_string(item.path()).unwrap(), ical);
         assert!(!output.join("stale.ics").exists());
 
-        loaded.workspace.insert(
+        insert_legacy(
+            &mut loaded.workspace,
             root.join("events.plumb"),
             2,
             source.replace("First line", "Updated detail"),
@@ -381,7 +391,8 @@ mod tests {
         ));
         std::fs::create_dir_all(&root).unwrap();
         let mut workspace = Workspace::new();
-        workspace.insert(
+        insert_legacy(
+            &mut workspace,
             root.join("point.plumb"),
             1,
             "`= date|2026-07-30\n`= timezone|+08:00\n\n`- 14:00|Reminder\n\n `+ event\n",
@@ -402,7 +413,8 @@ mod tests {
         assert!(!point.contains("DTEND:"));
 
         let mut workspace = Workspace::new();
-        workspace.insert(
+        insert_legacy(
+            &mut workspace,
             root.join("running.plumb"),
             1,
             "`= date|2026-07-30\n`= timezone|+08:00\n\n`- Work\n\n `+ event\n",
@@ -503,12 +515,14 @@ mod tests {
         ));
         std::fs::create_dir_all(&root).unwrap();
         let mut workspace = Workspace::new();
-        workspace.insert(
+        insert_legacy(
+            &mut workspace,
             root.join("first.plumb"),
             1,
             "`- 2026-07-30T14:00:00Z|First\n\n `+ event\n\n `= uid|shared@example\n",
         );
-        workspace.insert(
+        insert_legacy(
+            &mut workspace,
             root.join("second.plumb"),
             1,
             "`- 2026-07-31T14:00:00Z|Second\n\n `+ event\n\n `= uid|shared@example\n",
@@ -532,7 +546,8 @@ mod tests {
         ));
         std::fs::create_dir_all(&root).unwrap();
         let mut workspace = Workspace::new();
-        workspace.insert(
+        insert_legacy(
+            &mut workspace,
             root.join("derived.plumb"),
             1,
             "`- 2026-07-30T14:00:00Z|Derived\n\n `+ event\n",
@@ -550,7 +565,8 @@ mod tests {
         let uid = derived_uid(&preliminary, &root.join("derived.plumb"), derived_event);
 
         let mut workspace = preliminary.workspace;
-        workspace.insert(
+        insert_legacy(
+            &mut workspace,
             root.join("explicit.plumb"),
             1,
             format!("`- 2026-07-31T14:00:00Z|Explicit {{\n\n `+ event\n\n `= uid|{uid}\n}}\n"),
@@ -568,7 +584,7 @@ mod tests {
     fn loaded_with_source(root: &Path, relative: &str, source: &str) -> LoadedWorkspace {
         std::fs::create_dir_all(root.join("notes")).unwrap();
         let mut workspace = Workspace::new();
-        workspace.insert(root.join(relative), 1, source);
+        insert_legacy(&mut workspace, root.join(relative), 1, source);
         LoadedWorkspace {
             root: root.to_path_buf(),
             workspace,

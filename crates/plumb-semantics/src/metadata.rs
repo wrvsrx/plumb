@@ -446,7 +446,7 @@ fn collect_definition_lists<'a>(
                 .map_or_else(|| body_range(block), |body| body.range.clone());
             definitions.push(DefinitionRecord {
                 range: block.range.clone(),
-                term_range: term.range.clone(),
+                term_range: crate::datum_selection_range(&term),
                 term,
                 inline_body,
                 body_range: projected_body_range,
@@ -505,6 +505,13 @@ fn plain_association_key(content: &InlineContent) -> Option<String> {
         ..
     }] = content.items.as_slice()
     {
+        if content
+            .items
+            .iter()
+            .any(|inline| !matches!(inline, Inline::Text { .. } | Inline::Space { .. }))
+        {
+            return None;
+        }
         let key = content.plain_text();
         return (!key.is_empty()).then_some(key);
     }
@@ -575,7 +582,7 @@ fn warning(code: &'static str, message: impl Into<String>, range: Range<usize>) 
 
 #[cfg(test)]
 mod tests {
-    use plumb_syntax::parse;
+    use crate::parse_legacy as parse;
 
     use super::*;
 
@@ -823,11 +830,14 @@ mod tests {
                 .as_deref(),
             Some("inline body")
         );
-        assert_eq!(&source[definitions[0].body_range.clone()], "inline body");
+        assert_eq!(
+            &parsed.source[definitions[0].body_range.clone()],
+            "inline body"
+        );
         assert_eq!(definitions[1].term.plain_text(), "term with spaces");
         assert!(definitions[1].inline_body.is_none());
         assert_eq!(
-            &source[definitions[1].term_range.clone()],
+            &parsed.source[definitions[1].term_range.clone()],
             "term with spaces"
         );
     }

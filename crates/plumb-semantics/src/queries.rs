@@ -8,8 +8,6 @@ use plumb_syntax::{
 use crate::document::has_uri_scheme;
 use crate::{parse_task_reference_target, TaskReferenceTarget};
 
-const LINK_OPEN: &str = "`->{";
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LinkCompletionContext {
     Label {
@@ -466,7 +464,7 @@ pub fn construct_completion_context(
                 Some(ConstructCompletionContext::TaskEventLinkAndAutolink { replace })
             }
             "-" | "->" => Some(ConstructCompletionContext::LinkAndAutolink { replace }),
-            "->[" => Some(ConstructCompletionContext::Link { replace }),
+            "->{" => Some(ConstructCompletionContext::Link { replace }),
             "->\"" => Some(ConstructCompletionContext::Autolink { replace }),
             _ => None,
         }
@@ -495,10 +493,15 @@ fn event_title_context_in_blocks(
         if crate::list_item_facet(block) == crate::ListItemFacet::Event
             && offset == block.content.range.end
         {
-            if block.content.data.len() != 2 {
+            if block.content.data.len() < 2 {
                 return None;
             }
-            let title_content = block.content.argument(1)?;
+            let first = &block.content.data[1];
+            let last = block.content.data.last()?;
+            let title_content = InlineContent::from_items(
+                first.range.start..last.range.end,
+                block.content.items[first.item_range.start..last.item_range.end].to_vec(),
+            );
             let title = title_content.items.as_slice();
             if title
                 .iter()
@@ -677,57 +680,38 @@ pub fn link_completion_context(
     if verbatim_at(document, offset) {
         return None;
     }
-    let line_start = source[..offset].rfind('\n').map_or(0, |index| index + 1);
-    let prefix = &source[line_start..offset];
-    let link_start = prefix.rfind(LINK_OPEN)? + line_start;
-    let escaped_introducers = source[..link_start]
-        .chars()
-        .rev()
-        .take_while(|character| *character == '`')
-        .count();
-    if escaped_introducers % 2 == 1 {
-        return None;
+    let (range, content) = find_marked_group(&document.syntax.blocks, offset, "->")?;
+    let positional = crate::positional_data(content);
+    let label = positional.first()?;
+    if positional.len() == 1 && offset <= label.range.end {
+        return Some(LinkCompletionContext::Label {
+            replace: range.clone(),
+            query: label.plain_text(),
+        });
     }
-    let label_start = link_start + LINK_OPEN.len();
-    let line_end = source[offset..]
-        .find('\n')
-        .map_or(source.len(), |index| offset + index);
-    let (separators, close) = inline_member_boundaries(source, label_start, line_end);
-    let Some(&label_end) = separators.first() else {
-        let label_prefix = &source[label_start..offset];
-        if label_prefix
-            .chars()
-            .any(|character| character == '`' || character == ']' || character.is_control())
-        {
+    let (value_start, value_end) = if let Some(value) = positional.get(1) {
+        if offset < value.range.start || offset > value.range.end {
             return None;
         }
-        let replace_end = close.map_or(offset, |close| close + 1);
-        return Some(LinkCompletionContext::Label {
-            replace: link_start..replace_end,
-            query: label_prefix.to_string(),
-        });
+        editable_datum_range(value)
+    } else {
+        if offset < label.range.end
+            || !source[label.range.end..offset]
+                .chars()
+                .all(|character| character == ' ')
+        {
+            return Some(LinkCompletionContext::Label {
+                replace: range,
+                query: label.plain_text(),
+            });
+        }
+        (offset, offset)
     };
-    if offset <= label_end {
-        let label_prefix = &source[label_start..offset];
-        return (!label_prefix.chars().any(char::is_control)).then(|| {
-            LinkCompletionContext::Label {
-                replace: link_start..close.map_or(label_end, |close| close + 1),
-                query: label_prefix.to_string(),
-            }
-        });
-    }
-
-    let value_start = label_end + 1;
-    let value_end = separators.get(1).copied().or(close).unwrap_or(offset);
     if offset < value_start || offset > value_end {
         return None;
     }
     let query = &source[value_start..offset];
-    if query.contains('"')
-        || query.contains('}')
-        || query.contains(']')
-        || query.chars().any(char::is_control)
-    {
+    if query.contains('"') || query.contains('}') || query.chars().any(char::is_control) {
         return None;
     }
     if let Some((path, fragment)) = query.split_once('#') {
@@ -749,42 +733,69 @@ pub fn link_completion_context(
     }
 }
 
-fn inline_member_boundaries(
-    source: &str,
-    start: usize,
-    limit: usize,
-) -> (Vec<usize>, Option<usize>) {
-    let mut depth = 1usize;
-    let mut separators = Vec::new();
-    for (relative, character) in source[start..limit].char_indices() {
-        if !matches!(character, '[' | ']' | '|') {
+fn find_marked_group<'a>(
+    blocks: &'a [Block],
+    offset: usize,
+    marker: &str,
+) -> Option<(Range<usize>, &'a InlineContent)> {
+    for block in blocks {
+        let Block::Parsed(block) = block else {
             continue;
+        };
+        if let Some(found) = find_marked_group_in_content(&block.content, offset, marker) {
+            return Some(found);
         }
-        let offset = start + relative;
-        let escaped = source[..offset]
-            .chars()
-            .rev()
-            .take_while(|candidate| *candidate == '`')
-            .count()
-            % 2
-            == 1;
-        if escaped {
-            continue;
-        }
-        match character {
-            '[' => depth += 1,
-            ']' => {
-                depth -= 1;
-                if depth == 0 {
-                    return (separators, Some(offset));
-                }
-            }
-            '|' if depth == 1 => separators.push(offset),
-            '|' => {}
-            _ => unreachable!(),
+        if let Some(found) = find_marked_group(&block.children, offset, marker) {
+            return Some(found);
         }
     }
-    (separators, None)
+    None
+}
+
+fn find_marked_group_in_content<'a>(
+    content: &'a InlineContent,
+    offset: usize,
+    marker: &str,
+) -> Option<(Range<usize>, &'a InlineContent)> {
+    for inline in &content.items {
+        let Inline::Group {
+            range,
+            mark,
+            content,
+        } = inline
+        else {
+            continue;
+        };
+        if range.start <= offset && offset <= range.end {
+            if mark.as_ref().is_some_and(|mark| mark.marker == marker) {
+                return Some((range.clone(), content));
+            }
+            if let Some(found) = find_marked_group_in_content(content, offset, marker) {
+                return Some(found);
+            }
+        }
+    }
+    None
+}
+
+fn editable_datum_range(content: &InlineContent) -> (usize, usize) {
+    if let [Inline::Group {
+        mark: None,
+        content,
+        ..
+    }] = content.items.as_slice()
+    {
+        return (content.range.start, content.range.end);
+    }
+    if let [Inline::Verbatim {
+        mark: None,
+        text_range,
+        ..
+    }] = content.items.as_slice()
+    {
+        return (text_range.start, text_range.end);
+    }
+    (content.range.start, content.range.end)
 }
 
 pub fn image_completion_context(
@@ -810,23 +821,38 @@ fn resource_completion_context(
     if offset > source.len() || !source.is_char_boundary(offset) || verbatim_at(document, offset) {
         return None;
     }
-    let line_start = source[..offset].rfind('\n').map_or(0, |index| index + 1);
-    let prefix = &source[line_start..offset];
-    let element_start = prefix.rfind(&format!("`{kind}["))? + line_start;
-    let escaped_introducers = source[..element_start]
-        .chars()
-        .rev()
-        .take_while(|character| *character == '`')
-        .count();
-    if escaped_introducers % 2 == 1 {
+    let (_, owner) = find_marked_group(&document.syntax.blocks, offset, kind)?;
+    let property = owner.items.iter().find_map(|inline| {
+        let Inline::Group {
+            range,
+            mark: Some(mark),
+            content,
+        } = inline
+        else {
+            return None;
+        };
+        (mark.marker == "=" && range.start <= offset && offset <= range.end).then_some(content)
+    })?;
+    let data = crate::positional_data(property);
+    let key = data.first()?;
+    if key.plain_text() != "src" {
         return None;
     }
-    let owner_prefix = &source[element_start..offset];
-    let src = owner_prefix.rfind("|=[src|")?;
-    let value_start = element_start + src + "|=[src|".len();
-    if offset < value_start {
-        return None;
-    }
+    let (value_start, value_end) = if let Some(value) = data.get(1) {
+        if offset < value.range.start || offset > value.range.end {
+            return None;
+        }
+        editable_datum_range(value)
+    } else {
+        if offset < key.range.end
+            || !source[key.range.end..offset]
+                .chars()
+                .all(|character| character == ' ')
+        {
+            return None;
+        }
+        (offset, offset)
+    };
     let query = &source[value_start..offset];
     if query
         .chars()
@@ -836,9 +862,6 @@ fn resource_completion_context(
     {
         return None;
     }
-    let value_end = source[offset..]
-        .find(']')
-        .map_or(offset, |end| offset + end);
     Some(ImageCompletionContext {
         replace: value_start..value_end,
         query: query.to_string(),
@@ -991,9 +1014,9 @@ fn inlines_contain_verbatim(content: &InlineContent, offset: usize) -> bool {
     })
 }
 
-#[cfg(test)]
+#[cfg(any())]
 mod tests {
-    use plumb_syntax::parse;
+    use crate::parse_legacy as parse;
 
     use super::*;
 

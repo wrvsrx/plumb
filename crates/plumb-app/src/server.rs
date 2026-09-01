@@ -2647,8 +2647,8 @@ mod tests {
             .join("\n");
 
         assert_eq!(adjusted, absolute.replace("\n\n", "\n \n"));
-        assert!(absolute.contains("\n\n  `= created | "));
-        assert!(relative.contains("\n\n `= created | "));
+        assert!(absolute.contains("\n\n  `= created "));
+        assert!(relative.contains("\n\n `= created "));
         assert!(!absolute.contains(" {"));
         assert!(!absolute.contains("\n}"));
         assert!(!relative.contains(" {"));
@@ -2686,7 +2686,7 @@ mod tests {
     #[test]
     fn folds_heading_sections_and_multiline_syntax_blocks() {
         let parsed = parse(
-            "`# Top\n\nIntro.\n\n`## Child\n\n`div Details\n\n body\n\n `text\n\n |\"\n  raw\n`# Next\n\nTail.\n",
+            "`# Top\n\nIntro.\n\n`## Child\n\n`div Details\n\n body\n\n `text\"\n  raw\n`# Next\n\nTail.\n",
         );
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let ranges = folding_ranges(&parsed.source, &parsed.syntax, None, None, false);
@@ -2695,7 +2695,7 @@ mod tests {
                 .iter()
                 .map(|range| (range.start_line, range.end_line))
                 .collect::<Vec<_>>(),
-            [(0, 13), (4, 13), (6, 13), (10, 13), (14, 16)]
+            [(0, 11), (4, 11), (6, 11), (10, 11), (12, 14)]
         );
         assert!(ranges.iter().all(|range| {
             range.start_character.is_none()
@@ -2725,7 +2725,7 @@ mod tests {
     #[test]
     fn keeps_task_owner_fold_while_typing_its_marker() {
         for opener in ["`", "`t", "`ta", "`tas", "`task"] {
-            let parsed = parse(format!("{opener}\n `= created|now\n"));
+            let parsed = parse(format!("{opener}\n `= created now\n"));
             assert_eq!(
                 folding_ranges(&parsed.source, &parsed.syntax, None, None, false)
                     .iter()
@@ -2766,7 +2766,7 @@ mod tests {
     #[test]
     fn closed_task_tokens_preserve_nested_task_states() {
         let parsed = parse(
-            "`- Closed parent\n\n `+ task\n\n `= done|2026-07-27T10:00:00+08:00\n\n `note Parent detail\n\n `- Open child\n\n  `+ task\n\n `note Parent tail\n\n`- Canceled\n\n `+ task\n\n `= canceled|2026-07-27T10:01:00+08:00\n\n`- Conflicted\n\n `+ task\n\n `= done|2026-07-27T10:02:00+08:00\n\n `= canceled|2026-07-27T10:03:00+08:00\n",
+            "`- Closed parent\n\n `+ task\n\n `= done 2026-07-27T10:00:00+08:00\n\n `note Parent detail\n\n `- Open child\n\n  `+ task\n\n `note Parent tail\n\n`- Canceled\n\n `+ task\n\n `= canceled 2026-07-27T10:01:00+08:00\n\n`- Conflicted\n\n `+ task\n\n `= done 2026-07-27T10:02:00+08:00\n\n `= canceled 2026-07-27T10:03:00+08:00\n",
         );
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let tasks = analyze_tasks(
@@ -2787,7 +2787,7 @@ mod tests {
 
     #[test]
     fn maps_metadata_facts_to_nested_symbols() {
-        let parsed = parse("`= title|Document title\n`= author\n `= name|Alice\n");
+        let parsed = parse("`= title Document title\n`= author\n `= name Alice\n");
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let output = analyze_metadata(
             parsed

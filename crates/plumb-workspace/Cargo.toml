@@ -25,6 +25,7 @@ uuid.workspace = true
 [dev-dependencies]
 criterion.workspace = true
 plumb-format = { path = "../plumb-format" }
+plumb-migrate = { path = "../plumb-migrate" }
 tempfile = "3"
 
 [[bench]]

@@ -15,14 +15,16 @@ use plumb_semantics::{
     TaskDependency, TaskDependencyCompletionContext, TaskRecord, TaskReferenceTarget, TaskState,
 };
 #[cfg(test)]
-use plumb_semantics::{
-    EventTitleCompletionContext, FileCompletionContext, ImageCompletionContext, TaskStatus,
-};
-#[cfg(test)]
-use plumb_syntax::parse;
+use plumb_semantics::{EventTitleCompletionContext, FileCompletionContext, TaskStatus};
 use plumb_syntax::{
     Attributes, Block, Diagnostic, DiagnosticSeverity, ParsedBlock, ParsedDocument,
 };
+
+#[cfg(test)]
+fn parse(source: impl Into<String>) -> ParsedDocument {
+    let source = source.into();
+    plumb_syntax::parse(crate::documents::migrate_test_source(&source))
+}
 
 mod bibliography;
 mod cache;
@@ -3219,7 +3221,7 @@ impl Workspace {
                             label: title.clone(),
                             detail: relative.clone(),
                             new_text: format!(
-                                "`->[{}|{}]",
+                                "`->{{{{{}}} {{{}}}}}",
                                 escape_parsed_text(&title),
                                 escape_parsed_text(&relative)
                             ),
@@ -3384,7 +3386,7 @@ impl Workspace {
                                 label: title.clone(),
                                 detail: relative.clone(),
                                 new_text: format!(
-                                    "`->[{}|{}]",
+                                    "`->{{{{{}}} {{{}}}}}",
                                     escape_parsed_text(&title),
                                     escape_parsed_text(&relative)
                                 ),
@@ -4683,6 +4685,7 @@ fn resolved_document_path(target: ResolvedTarget) -> Option<PathBuf> {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn collect_reverse_reference(
     references: &mut DocumentReverseReferences,
     document_occurrences: &mut HashSet<(PathBuf, usize, usize)>,
@@ -4810,9 +4813,8 @@ fn task_reference_fields(
 fn escape_parsed_text(value: &str) -> String {
     value
         .replace('`', "``")
-        .replace('[', "`[")
-        .replace(']', "`]")
-        .replace('|', "`|")
+        .replace('{', "`{")
+        .replace('}', "`}")
 }
 
 fn valid_bare_attribute_value(value: &str) -> bool {

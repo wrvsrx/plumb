@@ -71,9 +71,11 @@ fn docs_have_explicit_titles() {
     for path in files {
         let source = fs::read_to_string(&path)
             .unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display()));
+        let parsed = parse(source);
+        assert!(parsed.is_valid(), "{} must be valid", path.display());
         assert!(
-            source.starts_with("`= title|"),
-            "{} must start with explicit title metadata",
+            parsed.syntax.attrs.value("title").is_some(),
+            "{} must contain explicit title metadata",
             path.strip_prefix(&root).unwrap_or(&path).display()
         );
     }
@@ -132,8 +134,8 @@ fn bundled_skill_tracks_current_standard_spellings() {
     for required in [
         "`+ task` or `+ event` facets",
         "Letter prefixes such as `t`/`task` and `e`/`event` offer no",
-        "`()[container|+[notice]]",
-        "`->[same-file target|#intro]",
+        "`(){container `+{notice}}",
+        "`->{same-file target #intro}",
     ] {
         assert!(
             skill.contains(required) || semantics.contains(required),

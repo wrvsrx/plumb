@@ -629,16 +629,13 @@ impl Formatter {
         if has_final_newline {
             lines.pop();
         }
-        let last_content = lines.iter().rposition(|line| !line.is_empty());
         for (index, line) in lines.iter().enumerate() {
             if index > 0 {
                 self.output.push('\n');
             }
+            self.indent(body_indent);
             if !line.is_empty() {
-                self.indent(body_indent);
                 self.output.push_str(line);
-            } else if last_content.is_none_or(|last| index > last) {
-                self.indent(body_indent);
             }
         }
         if has_final_newline {

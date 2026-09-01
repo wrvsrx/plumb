@@ -360,6 +360,7 @@ fn lower_parsed_block(block: &ParsedBlock, analysis: &DocumentOutput, output: &m
         }));
     } else {
         output.push(json!({ "t": "Para", "c": lower_inlines(&block.content, analysis) }));
+        output.extend(lower_body(block, analysis));
     }
 }
 
@@ -431,18 +432,18 @@ fn lower_table_row(
             .collect::<Vec<_>>()
     } else {
         plumb_semantics::body_children(row)
-            .filter_map(parsed_dash)
             .zip(&record.cells)
             .map(|(cell, _)| {
-                let mark = cell.mark.as_ref().expect("a table cell has a mark");
-                let mut blocks = Vec::new();
-                if !cell.content.is_empty() {
-                    blocks
-                        .push(json!({ "t": "Plain", "c": lower_inlines(&cell.content, analysis) }));
-                }
-                blocks.extend(lower_body(cell, analysis));
+                let attrs = match cell {
+                    Block::Parsed(cell) => cell
+                        .mark
+                        .as_ref()
+                        .map_or_else(Attributes::default, |mark| mark.attrs.clone()),
+                    Block::Verbatim(_) => Attributes::default(),
+                };
+                let blocks = lower_block_refs(&[cell], analysis);
                 json!([
-                    lower_table_attrs(&mark.attrs),
+                    lower_table_attrs(&attrs),
                     { "t": "AlignDefault" },
                     1,
                     1,
@@ -581,7 +582,7 @@ fn lower_inline_items(items: &[Inline], analysis: &DocumentOutput, output: &mut 
                 } else {
                     output.push(json!({
                         "t": "Span",
-                        "c": [lower_attrs(attrs, Some(kind)), lower_group_content(content, analysis)],
+                        "c": [lower_attrs(attrs, (kind != "()").then_some(kind)), lower_group_content(content, analysis)],
                     }));
                 }
             }
@@ -750,6 +751,12 @@ fn has_unconsumed_math_attrs(attrs: &Attributes) -> bool {
 mod tests {
     use super::*;
 
+    fn export(source: &str) -> Result<Value, String> {
+        let source =
+            plumb_migrate::migrate_member_envelope_v1(source).map_err(|error| error.to_string())?;
+        super::export(&source)
+    }
+
     #[test]
     fn exports_heading_paragraph_and_generic_block() {
         let document =
@@ -803,8 +810,8 @@ mod tests {
 
     #[test]
     fn exports_compact_and_expanded_tables() {
-        let source = "`table People\n `- name  | age\n  `+ header\n `-\n  `- Alice\n   `+ header\n  `- 10\n `-\n  `- Bob\n   `+ header\n  `- 20\n\n   `note Approximate\n";
-        let document = export(source).unwrap();
+        let source = "`table People\n `- name    age\n  `+ header\n `-\n  Alice\n   `+ header\n  10\n `-\n  Bob\n   `+ header\n  20\n   `note Approximate\n";
+        let document = super::export(source).unwrap();
         let table = &document["blocks"][0];
 
         assert_eq!(table["t"], "Table");
@@ -919,7 +926,7 @@ mod tests {
 
     #[test]
     fn rejects_syntax_errors() {
-        assert!(export("`broken[\n").is_err());
+        assert!(super::export("`broken{\n").is_err());
     }
 
     #[test]

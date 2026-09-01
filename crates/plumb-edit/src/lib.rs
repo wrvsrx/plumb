@@ -117,8 +117,8 @@ pub fn align_block_arguments(
 
     let mut edits = Vec::new();
     for block in blocks {
-        for column in 0..argument_count {
-            let raw = &block.content.data[column].range;
+        for (column, datum) in block.content.data.iter().enumerate() {
+            let raw = &datum.range;
             let content = block
                 .content
                 .argument(column)
@@ -280,7 +280,7 @@ impl OwnedAttribute {
                     OwnedValue::Bare(value) | OwnedValue::Quoted(value) => value,
                 };
                 format!(
-                    "`= {} | {}",
+                    "`= {} {}",
                     escape_authored_text(key),
                     escape_authored_text(value)
                 )
@@ -305,6 +305,7 @@ impl OwnedAttribute {
 impl OwnedBlock {
     pub fn association(key: impl Into<String>, value: impl Into<String>) -> Self {
         let mut head = owned_authored_text(&key.into());
+        head.push(OwnedInline::Space(" ".to_string()));
         head.push(OwnedInline::ArgumentSeparator);
         head.extend(owned_authored_text(&value.into()));
         Self::Parsed {
@@ -525,23 +526,33 @@ impl OwnedBlock {
     }
 
     pub fn from_parsed(source: &str, block: &ParsedBlock) -> Self {
-        let mut head = block
+        let marker = block.mark.as_ref().map(|mark| mark.marker.clone());
+        let mut argument_ranges = block
             .content
-            .items
+            .data
             .iter()
-            .map(OwnedInline::from_syntax)
+            .map(|datum| datum.item_range.clone())
             .collect::<Vec<_>>();
-        if block.mark.is_some() {
-            if let Some(OwnedInline::Space(space)) = head.first_mut() {
-                debug_assert!(space.starts_with(' '));
-                space.remove(0);
-                if space.is_empty() {
-                    head.remove(0);
-                }
+        if matches!(marker.as_deref(), Some("=" | ":")) && argument_ranges.len() > 2 {
+            let value_start = argument_ranges[1].start;
+            let value_end = argument_ranges.last().unwrap().end;
+            argument_ranges.truncate(1);
+            argument_ranges.push(value_start..value_end);
+        }
+        let mut head = Vec::new();
+        for (index, range) in argument_ranges.into_iter().enumerate() {
+            if index > 0 {
+                head.push(OwnedInline::ArgumentSeparator);
+                head.push(OwnedInline::Space(" ".to_string()));
             }
+            head.extend(
+                block.content.items[range]
+                    .iter()
+                    .map(OwnedInline::from_syntax),
+            );
         }
         Self::Parsed {
-            marker: block.mark.as_ref().map(|mark| mark.marker.clone()),
+            marker,
             head,
             children: block
                 .children
@@ -758,10 +769,7 @@ fn prepend_owner_attribute(
     }
 
     let indent = " ".repeat(owner_indent.len() + 1);
-    let replacement = format!(
-        "{newline}{newline}{indent}{}{newline}",
-        attribute.render_block()
-    );
+    let replacement = format!("{newline}{indent}{}{newline}", attribute.render_block());
     if let Some(line_end) = owner_line_end {
         let break_start = if source[..line_end].ends_with('\r') {
             line_end - 1
@@ -1155,8 +1163,8 @@ fn render_owned_raw_text(text: &str, indent: usize, output: &mut String) {
         if index > 0 {
             output.push('\n');
         }
+        output.extend(std::iter::repeat_n(' ', indent + 1));
         if !line.is_empty() {
-            output.extend(std::iter::repeat_n(' ', indent + 1));
             output.push_str(line);
         }
     }
@@ -1491,9 +1499,6 @@ fn align_owned_argument_run(blocks: &mut [OwnedBlock], argument_count: usize) {
         };
         head.clear();
         for (column, argument) in std::mem::take(arguments).into_iter().enumerate() {
-            if column > 0 {
-                head.push(OwnedInline::Space(" ".to_string()));
-            }
             let width = owned_argument_width(&argument);
             head.extend(argument);
             if column + 1 < argument_count {
@@ -1544,7 +1549,6 @@ fn padded_owned_arguments(mut arguments: Vec<Vec<OwnedInline>>) -> Vec<OwnedInli
     let mut head = Vec::new();
     for (index, argument) in arguments.into_iter().enumerate() {
         if index > 0 {
-            head.push(OwnedInline::Space(" ".to_string()));
             head.push(OwnedInline::ArgumentSeparator);
             head.push(OwnedInline::Space(" ".to_string()));
         }

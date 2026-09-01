@@ -10,3 +10,6 @@ plumb-syntax = { path = "../plumb-syntax" }
 chrono.workspace = true
 serde.workspace = true
 url.workspace = true
+
+[dev-dependencies]
+plumb-migrate = { path = "../plumb-migrate" }

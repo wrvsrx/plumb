@@ -121,6 +121,27 @@ fn representative_valid_and_invalid_sources_are_lossless() {
     }
 }
 
+#[test]
+fn deeply_nested_groups_do_not_use_the_call_stack() {
+    let depth = 20_000;
+    let valid = format!("{}x{}\n", "{".repeat(depth), "}".repeat(depth));
+    let parsed = parse(valid.clone());
+    assert!(parsed.is_valid(), "{:?}", parsed.diagnostics.first());
+    assert_eq!(parsed.lossless.reconstruct(&parsed.source), valid);
+
+    let invalid = format!("{}x\n", "{".repeat(depth));
+    let parsed = parse(invalid);
+    assert!(!parsed.is_valid());
+    assert_eq!(
+        parsed
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.code == "syntax.unclosed-inline-group")
+            .count(),
+        depth
+    );
+}
+
 proptest! {
     #[test]
     fn arbitrary_utf8_is_lossless(source in any::<String>()) {

@@ -116,9 +116,9 @@ fn render_metadata_entry(key: &str, value: &MetaValue) -> Result<String, String>
     if matches!(value, MetaValue::MetaString(value) if !value.contains(['\n', '\r']))
         || matches!(value, MetaValue::MetaInlines(_))
     {
-        return Ok(format!("`= {key}|{value_source}"));
+        return Ok(format!("`= {key} {value_source}"));
     }
-    Ok(format!("`= {key}\n{}", indent(&value_source, 2)))
+    Ok(format!("`= {key}\n{}", indent(&value_source, 1)))
 }
 
 fn render_metadata_value(value: &MetaValue) -> Result<String, String> {
@@ -135,7 +135,7 @@ fn render_metadata_value(value: &MetaValue) -> Result<String, String> {
                 if value.contains('\n')
                     || matches!(value.lines().next(), Some(line) if line.starts_with('`'))
                 {
-                    items.push(format!("`+\n{}", indent(&value, 2)));
+                    items.push(format!("`+\n{}", indent(&value, 1)));
                 } else {
                     items.push(format!("`+ {value}"));
                 }
@@ -298,7 +298,19 @@ fn render_table_row(
             .iter()
             .map(render_compact_table_cell)
             .collect::<Result<Vec<_>, _>>()?;
-        format!("`- {}", cells.join("|"))
+        let cells = cells
+            .into_iter()
+            .map(|cell| {
+                if cell.is_empty() {
+                    "{}".to_string()
+                } else if cell.contains(' ') {
+                    format!("{{{cell}}}")
+                } else {
+                    cell
+                }
+            })
+            .collect::<Vec<_>>();
+        format!("`- {}", cells.join(" "))
     } else {
         let cells = row
             .cells
@@ -357,7 +369,7 @@ fn render_expanded_table_cell(cell: &Cell, header: bool) -> Result<String, Strin
         Some((head, children)) => (Some(head), children),
         None => (None, cell.content.as_slice()),
     };
-    let mut output = head.map_or_else(|| "`-".to_string(), |head| format!("`- {head}"));
+    let mut output = head.unwrap_or_else(|| "{}".to_string());
     let mut attrs = render_attrs(&cell.attr, None)?;
     if header {
         if !attrs.is_empty() {
@@ -377,13 +389,34 @@ fn render_list(marker: &str, items: &[Vec<Block>]) -> Result<String, String> {
     let mut output = Vec::new();
     for item in items {
         let (attrs, blocks) = unwrap_attributed_blocks(item);
+        if let Some((task_attrs, title, children)) = task_item_parts(blocks) {
+            let mut rendered = format!("`{marker} {}", render_inlines(title, false)?);
+            let mut declarations = "`+ task".to_string();
+            let projected = render_attrs(task_attrs, None)?;
+            if !projected.is_empty() {
+                declarations.push('\n');
+                declarations.push_str(&projected);
+            }
+            let outer = render_attrs(attrs, None)?;
+            if !outer.is_empty() {
+                declarations.push('\n');
+                declarations.push_str(&outer);
+            }
+            append_block_attrs(&mut rendered, &declarations);
+            if !children.is_empty() {
+                rendered.push('\n');
+                rendered.push_str(&indent(&render_blocks(children)?, 1));
+            }
+            output.push(rendered);
+            continue;
+        }
         let attrs = render_attrs(attrs, None)?;
         if let Some((head, children)) = split_head(blocks)? {
             let mut rendered = format!("`{marker} {head}");
             append_block_attrs(&mut rendered, &attrs);
             if !children.is_empty() {
                 rendered.push('\n');
-                rendered.push_str(&indent(&render_blocks(children)?, 2));
+                rendered.push_str(&indent(&render_blocks(children)?, 1));
             }
             output.push(rendered);
         } else {
@@ -392,12 +425,27 @@ fn render_list(marker: &str, items: &[Vec<Block>]) -> Result<String, String> {
             append_block_attrs(&mut rendered, &attrs);
             if !children.is_empty() {
                 rendered.push('\n');
-                rendered.push_str(&indent(&children, 2));
+                rendered.push_str(&indent(&children, 1));
             }
             output.push(rendered);
         }
     }
     Ok(output.join("\n"))
+}
+
+fn task_item_parts(blocks: &[Block]) -> Option<(&Attr, &[Inline], &[Block])> {
+    let (Block::Para(inlines) | Block::Plain(inlines)) = blocks.first()? else {
+        return None;
+    };
+    let [Inline::Str(marker), Inline::Space, Inline::Span(attrs, title)] = inlines.as_slice()
+    else {
+        return None;
+    };
+    matches!(marker.as_str(), "☐" | "☒" | "⊘" | "⚠").then_some((
+        attrs,
+        title.as_slice(),
+        &blocks[1..],
+    ))
 }
 
 fn render_definitions(entries: &[(Vec<Inline>, Vec<Vec<Block>>)]) -> Result<String, String> {
@@ -414,7 +462,7 @@ fn render_definitions(entries: &[(Vec<Inline>, Vec<Vec<Block>>)]) -> Result<Stri
         let body = render_blocks(blocks)?;
         if !body.is_empty() {
             entry.push_str("\n\n");
-            entry.push_str(&indent(&body, 2));
+            entry.push_str(&indent(&body, 1));
         }
         output.push(entry);
     }
@@ -428,7 +476,7 @@ fn render_container(marker: &str, attrs: &Attr, blocks: &[Block]) -> Result<Stri
         append_block_attrs(&mut output, &attrs);
         if !children.is_empty() {
             output.push_str("\n\n");
-            output.push_str(&indent(&render_blocks(children)?, 2));
+            output.push_str(&indent(&render_blocks(children)?, 1));
         }
         Ok(output)
     } else {
@@ -441,7 +489,7 @@ fn render_container(marker: &str, attrs: &Attr, blocks: &[Block]) -> Result<Stri
             let mut output = format!("`{marker}");
             append_block_attrs(&mut output, &attrs);
             output.push('\n');
-            output.push_str(&indent(&body, 2));
+            output.push_str(&indent(&body, 1));
             Ok(output)
         }
     }
@@ -500,7 +548,7 @@ fn render_inlines(inlines: &[Inline], bracketed: bool) -> Result<String, String>
                     output.push_str(&render_element("file", &attrs, label)?);
                 } else {
                     output.push_str(&format!(
-                        "`->[{}|{}{}]",
+                        "`->{{{{{}}} {}{}}}",
                         render_inlines(label, true)?,
                         render_verbatim_argument(&target.url),
                         render_inline_children(&attrs, Some("data-plumb-marker"))?
@@ -529,7 +577,7 @@ fn render_inlines(inlines: &[Inline], bracketed: bool) -> Result<String, String>
                     return Err("complex citation has no standard plumb representation".into());
                 }
                 require_attr_name(&citation.citation_id, "citation id")?;
-                output.push_str(&format!("`cite[{}]", citation.citation_id));
+                output.push_str(&format!("`cite{{{}}}", citation.citation_id));
             }
             Inline::Span(attrs, content) => {
                 if let Some(attrs) = without_first_class(attrs, "mark") {
@@ -598,7 +646,7 @@ fn render_inlines(inlines: &[Inline], bracketed: bool) -> Result<String, String>
 fn render_element(marker: &str, attrs: &Attr, content: &[Inline]) -> Result<String, String> {
     require_marker(marker)?;
     Ok(format!(
-        "`{marker}[{}{}]",
+        "`{marker}{{{}{}}}",
         render_inlines(content, true)?,
         render_inline_children(attrs, Some("data-plumb-marker"))?
     ))
@@ -616,7 +664,7 @@ fn render_verbatim(text: &str, attrs: &Attr) -> Result<String, String> {
         }
         let quotes = minimum_quote_count(text).max(1);
         return Ok(format!(
-            "`{kind}{}[{}]{}",
+            "`{kind}{}{{{}}}{}",
             "\"".repeat(quotes),
             text,
             "\"".repeat(quotes),
@@ -624,7 +672,7 @@ fn render_verbatim(text: &str, attrs: &Attr) -> Result<String, String> {
     }
     let owner_kind = if kind.is_empty() { "code" } else { &kind };
     Ok(format!(
-        "`{owner_kind}[|{}{}]",
+        "`{owner_kind}{{{}{}}}",
         render_verbatim_argument(text),
         children
     ))
@@ -632,23 +680,29 @@ fn render_verbatim(text: &str, attrs: &Attr) -> Result<String, String> {
 
 fn render_verbatim_argument(text: &str) -> String {
     let quotes = minimum_quote_count(text).max(1);
-    format!("{}[{}]{}", "\"".repeat(quotes), text, "\"".repeat(quotes))
+    format!(
+        "`{}{{{}}}{}",
+        "\"".repeat(quotes),
+        text,
+        "\"".repeat(quotes)
+    )
 }
 
 fn render_verbatim_block(attrs: &Attr, text: &str) -> Result<String, String> {
     let (kind, attrs) = promoted_verbatim_attrs(attrs, true);
     let attrs = render_attrs(&attrs, None)?;
-    if kind.is_empty() && attrs.is_empty() {
-        let mut output = "`\"".to_string();
+    if attrs.is_empty() {
+        let mut output = format!("`{kind}\"");
         append_raw_payload(&mut output, text);
         return Ok(output);
     }
 
-    let owner = if kind.is_empty() { "()" } else { &kind };
-    let mut output = format!("`{owner}");
+    let mut output = "`()".to_string();
     append_block_attrs(&mut output, &attrs);
-    output.push_str("\n\n|\"");
-    append_raw_payload(&mut output, text);
+    let mut raw = format!("`{kind}\"");
+    append_raw_payload(&mut raw, text);
+    output.push('\n');
+    output.push_str(&indent(&raw, 1));
     Ok(output)
 }
 
@@ -660,16 +714,13 @@ fn append_raw_payload(output: &mut String, text: &str) {
         if has_final_newline {
             lines.pop();
         }
-        let last_content = lines.iter().rposition(|line| !line.is_empty());
         for (index, line) in lines.iter().enumerate() {
             if index > 0 {
                 output.push('\n');
             }
+            output.push(' ');
             if !line.is_empty() {
-                output.push(' ');
                 output.push_str(line);
-            } else if last_content.is_none_or(|last| index > last) {
-                output.push(' ');
             }
         }
         if has_final_newline {
@@ -694,11 +745,11 @@ fn render_attrs(attrs: &Attr, consumed_pair: Option<&str>) -> Result<String, Str
         }
         require_attr_name(key, "attribute key")?;
         let value = if value.is_empty() {
-            "`\"[]\"".to_string()
+            "`\"\"".to_string()
         } else {
             escape_block_text(value)
         };
-        items.push(format!("`= {}|{value}", escape_block_text(key)));
+        items.push(format!("`= {} {value}", escape_block_text(key)));
     }
     Ok(if items.is_empty() {
         String::new()
@@ -711,11 +762,11 @@ fn render_inline_children(attrs: &Attr, consumed_pair: Option<&str>) -> Result<S
     let mut members = Vec::new();
     if !attrs.identifier.is_empty() {
         require_attr_name(&attrs.identifier, "attribute id")?;
-        members.push(format!("@[{}]", escape_text(&attrs.identifier, true)));
+        members.push(format!(" `@{{{}}}", escape_text(&attrs.identifier, true)));
     }
     for class in &attrs.classes {
         require_attr_name(class, "attribute class")?;
-        members.push(format!("+[{}]", escape_text(class, true)));
+        members.push(format!(" `+{{{}}}", escape_text(class, true)));
     }
     for (key, value) in &attrs.attributes {
         if consumed_pair == Some(key.as_str()) {
@@ -723,20 +774,17 @@ fn render_inline_children(attrs: &Attr, consumed_pair: Option<&str>) -> Result<S
         }
         require_attr_name(key, "attribute key")?;
         members.push(format!(
-            "=[{}|{}]",
+            " `={{{} {}}}",
             escape_text(key, true),
             render_verbatim_argument(value)
         ));
     }
-    Ok(members
-        .into_iter()
-        .map(|member| format!("|{member}"))
-        .collect())
+    Ok(members.into_iter().collect())
 }
 
 fn append_block_attrs(output: &mut String, attrs: &str) {
     if !attrs.is_empty() {
-        output.push_str("\n\n");
+        output.push('\n');
         output.push_str(&indent(attrs, 1));
     }
 }
@@ -744,9 +792,8 @@ fn append_block_attrs(output: &mut String, attrs: &str) {
 fn escape_block_text(value: &str) -> String {
     value
         .replace('`', "``")
-        .replace('[', "`[")
-        .replace(']', "`]")
-        .replace('|', "`|")
+        .replace('{', "`{")
+        .replace('}', "`}")
 }
 
 fn promoted_verbatim_attrs(attrs: &Attr, block: bool) -> (String, Attr) {
@@ -758,6 +805,13 @@ fn promoted_verbatim_attrs(attrs: &Attr, block: bool) -> (String, Attr) {
         remaining.classes.remove(index);
         "$".to_string()
     } else if block {
+        if let Some(index) = remaining
+            .attributes
+            .iter()
+            .position(|(key, _)| key == "data-plumb-marker")
+        {
+            return (remaining.attributes.remove(index).1, remaining);
+        }
         let language = remaining
             .attributes
             .iter()
@@ -846,7 +900,7 @@ fn require_attr_name(value: &str, what: &str) -> Result<(), String> {
 
 fn minimum_quote_count(text: &str) -> usize {
     let mut quotes = 0;
-    for (index, _) in text.match_indices(']') {
+    for (index, _) in text.match_indices('}') {
         let following = text[index + 1..]
             .chars()
             .take_while(|character| *character == '"')
@@ -859,9 +913,7 @@ fn minimum_quote_count(text: &str) -> usize {
 fn escape_text(text: &str, bracketed: bool) -> String {
     let text = text.replace('`', "``");
     if bracketed {
-        text.replace('[', "`[")
-            .replace(']', "`]")
-            .replace('|', "`|")
+        text.replace('{', "`{").replace('}', "`}")
     } else {
         text
     }
@@ -870,16 +922,33 @@ fn escape_text(text: &str, bracketed: bool) -> String {
 fn indent(source: &str, columns: usize) -> String {
     let prefix = " ".repeat(columns);
     source
-        .lines()
+        .split_inclusive('\n')
         .map(|line| {
-            if line.is_empty() {
-                String::new()
+            let content = line.strip_suffix('\n').unwrap_or(line);
+            if content.is_empty() {
+                line.to_string()
             } else {
                 format!("{prefix}{line}")
             }
         })
-        .collect::<Vec<_>>()
-        .join("\n")
+        .collect::<String>()
+}
+
+#[cfg(test)]
+mod recursive_tests {
+    use super::*;
+
+    #[test]
+    fn nested_marked_raw_keeps_payload_adjacent_to_opener() {
+        let attrs = Attr {
+            identifier: String::new(),
+            classes: Vec::new(),
+            attributes: vec![("data-plumb-marker".to_string(), "rust".to_string())],
+        };
+        let raw = render_verbatim_block(&attrs, "fn main() {}\n").unwrap();
+        assert_eq!(raw, "`rust\"\n fn main() {}\n");
+        assert_eq!(indent(&raw, 1), " `rust\"\n  fn main() {}\n");
+    }
 }
 
 #[cfg(any())]

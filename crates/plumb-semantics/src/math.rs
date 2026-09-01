@@ -34,18 +34,23 @@ impl MathOutput {
 pub fn analyze_math(valid: ValidDocument<'_>) -> MathOutput {
     let document = valid.syntax();
     let mut output = MathOutput::default();
-    collect_blocks(&document.blocks, &mut output);
+    collect_blocks(&document.blocks, None, &mut output);
     output
 }
 
-fn collect_blocks(blocks: &[Block], output: &mut MathOutput) {
+fn collect_blocks(blocks: &[Block], inherited: Option<&Attributes>, output: &mut MathOutput) {
     for block in blocks {
         match block {
             Block::Verbatim(block) => {
                 if let Some(mark) = &block.mark {
+                    let attrs = if mark.attrs.items.is_empty() {
+                        inherited.unwrap_or(&mark.attrs)
+                    } else {
+                        &mark.attrs
+                    };
                     recognize_verbatim(
                         &mark.marker,
-                        &mark.attrs,
+                        attrs,
                         block.range.clone(),
                         MathKind::Display,
                         output,
@@ -54,7 +59,11 @@ fn collect_blocks(blocks: &[Block], output: &mut MathOutput) {
             }
             Block::Parsed(block) => {
                 collect_inlines(&block.content, output);
-                collect_blocks(&block.children, output);
+                collect_blocks(
+                    &block.children,
+                    block.mark.as_ref().map(|mark| &mark.attrs),
+                    output,
+                );
             }
         }
     }
@@ -120,7 +129,7 @@ fn pair<'a>(attrs: &'a Attributes, wanted: &str) -> Option<(&'a str, Range<usize
 
 #[cfg(test)]
 mod tests {
-    use plumb_syntax::parse;
+    use crate::parse_legacy as parse;
 
     use super::*;
 

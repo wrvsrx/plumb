@@ -1857,6 +1857,7 @@ dependencies = [
 name = "plumb-export"
 version = "0.37.2-dev"
 dependencies = [
+ "plumb-migrate",
  "plumb-semantics",
  "plumb-syntax",
  "serde_json",
@@ -1899,6 +1900,7 @@ dependencies = [
  "clap 4.6.2",
  "comfy-table",
  "crossterm",
+ "plumb-migrate",
  "plumb-semantics",
  "plumb-syntax",
  "plumb-workspace",
@@ -1914,6 +1916,7 @@ version = "0.37.2-dev"
 dependencies = [
  "chrono",
  "plumb-edit",
+ "plumb-migrate",
  "plumb-syntax",
  "serde",
  "url",
@@ -1954,6 +1957,7 @@ dependencies = [
  "notify",
  "percent-encoding",
  "plumb-export",
+ "plumb-migrate",
  "plumb-semantics",
  "plumb-workspace",
  "serde",
@@ -1980,6 +1984,7 @@ dependencies = [
  "libsqlite3-sys",
  "plumb-edit",
  "plumb-format",
+ "plumb-migrate",
  "plumb-semantics",
  "plumb-syntax",
  "rayon",

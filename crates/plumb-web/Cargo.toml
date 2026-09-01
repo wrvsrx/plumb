@@ -23,4 +23,5 @@ tokio-stream = { version = "0.1", features = ["sync"] }
 url.workspace = true
 
 [dev-dependencies]
+plumb-migrate = { path = "../plumb-migrate" }
 tower = { version = "0.5", features = ["util"] }

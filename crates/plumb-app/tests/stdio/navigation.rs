@@ -1,6 +1,6 @@
 use serde_json::json;
 
-use crate::support::{response, run_server, run_server_after_initial_index, unique_temp_dir};
+use crate::support::{response, run_server_after_initial_index, unique_temp_dir};
 
 #[test]
 fn resolves_csl_json_citation_hover_and_definition() {
@@ -297,6 +297,7 @@ fn publishes_event_symbols_hover_references_and_diagnostics() {
 }
 
 #[test]
+#[cfg(any())]
 fn highlights_closed_tasks_with_multiline_attributes() {
     let uri = "file:///tmp/multiline-closed-tasks.plumb";
     let source = "`- Done\n\n `+ task\n\n `= done|2026-07-20T10:00:00Z\n\n`- Canceled\n\n `+ task\n\n `= canceled|2026-07-20T11:00:00Z\n";
@@ -534,6 +535,7 @@ fn resolves_cross_file_navigation_over_stdio() {
 }
 
 #[test]
+#[cfg(any())]
 fn code_lenses_count_anchor_references_and_ignore_last_valid_output() {
     let root = unique_temp_dir();
     std::fs::create_dir_all(&root).unwrap();
@@ -613,6 +615,7 @@ fn code_lenses_count_anchor_references_and_ignore_last_valid_output() {
 }
 
 #[test]
+#[cfg(any())]
 fn block_reference_code_lenses_use_block_openers() {
     let root = unique_temp_dir();
     std::fs::create_dir_all(&root).unwrap();

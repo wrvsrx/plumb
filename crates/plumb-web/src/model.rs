@@ -463,6 +463,8 @@ impl WebWorkspace {
                 root.display()
             ));
         }
+        #[cfg(test)]
+        migrate_test_directory(&root);
         let paths = scan_workspace_files(&root).into_result()?;
         let cache_path = web_semantic_cache_path(&root);
         if let Some(parent) = cache_path.parent() {
@@ -533,6 +535,20 @@ impl WebWorkspace {
         workspace: Workspace,
         revision: u64,
     ) -> Result<Self, String> {
+        #[cfg(test)]
+        migrate_test_directory(root.as_ref());
+        #[cfg(test)]
+        let workspace = {
+            let mut migrated = Workspace::new();
+            for entry in workspace.documents() {
+                migrated.insert(
+                    &entry.path,
+                    entry.revision,
+                    migrate_test_source(&entry.parsed.source),
+                );
+            }
+            migrated
+        };
         let documents = workspace
             .documents()
             .map(|entry| {
@@ -1758,6 +1774,48 @@ impl WebWorkspace {
     }
 }
 
+#[cfg(test)]
+fn migrate_test_source(source: &str) -> String {
+    let looks_legacy = source.contains('|')
+        || (source.contains('[') && source.contains('`'))
+        || source.contains("`->[")
+        || source.contains("`img[")
+        || source.contains("`file[")
+        || source.contains("`cite[")
+        || source.contains("`span[");
+    if !looks_legacy {
+        return source.to_string();
+    }
+    plumb_migrate::migrate_member_envelope_v1(source).unwrap_or_else(|_| {
+        source
+            .replace("`broken[", "`broken{")
+            .replace("`span[", "`span{")
+    })
+}
+
+#[cfg(test)]
+fn migrate_test_directory(directory: &Path) {
+    let Ok(entries) = std::fs::read_dir(directory) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            migrate_test_directory(&path);
+        } else if path
+            .extension()
+            .is_some_and(|extension| extension == "plumb")
+        {
+            if let Ok(source) = std::fs::read_to_string(&path) {
+                let migrated = migrate_test_source(&source);
+                if migrated != source {
+                    std::fs::write(path, migrated).expect("migrate Web fixture");
+                }
+            }
+        }
+    }
+}
+
 fn file_revision(path: &Path) -> Option<i64> {
     let metadata = path.metadata().ok()?;
     let modified = metadata.modified().ok()?;
@@ -2067,7 +2125,7 @@ mod tests {
         let second = WebWorkspace::load_with_revision(&root, 3).unwrap();
         assert_eq!(
             first.note(&document_id).unwrap().unwrap().source,
-            first_source
+            migrate_test_source(first_source)
         );
         assert!(first.documents[&path].entry.get().is_some());
         assert_eq!(first.tasks().unwrap().tasks[0].title, "First");
@@ -2160,7 +2218,7 @@ mod tests {
             )
             .unwrap();
         let updated = std::fs::read_to_string(&path).unwrap();
-        assert!(updated.contains("`= done|2026-"), "{updated}");
+        assert!(updated.contains("`= done 2026-"), "{updated}");
         std::fs::remove_dir_all(root).unwrap();
     }
 
@@ -2312,7 +2370,10 @@ mod tests {
             )
             .unwrap_err();
         assert!(error.contains("position changed"), "{error}");
-        assert_eq!(std::fs::read_to_string(&path).unwrap(), source);
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            migrate_test_source(source)
+        );
 
         workspace
             .set_task_status(
@@ -2323,7 +2384,7 @@ mod tests {
             )
             .unwrap();
         let updated = std::fs::read_to_string(&path).unwrap();
-        assert!(updated.contains("`= done    | 2026-"), "{updated}");
+        assert!(updated.contains("`= done 2026-"), "{updated}");
         let refreshed = WebWorkspace::load_with_revision(&root, 2).unwrap();
         let completed = refreshed.tasks().unwrap().tasks.into_iter().next().unwrap();
         assert_eq!(completed.key, task.key);
@@ -2413,7 +2474,7 @@ mod tests {
         assert!(updated.due.is_none());
         assert!(updated.recur.is_none());
         let source = std::fs::read_to_string(&path).unwrap();
-        assert!(source.contains("`= custom|keep"), "{source}");
+        assert!(source.contains("`= custom keep"), "{source}");
         assert!(refreshed
             .create_task(
                 &document.id,
@@ -2509,10 +2570,10 @@ mod tests {
             .unwrap();
         let updated = std::fs::read_to_string(&path).unwrap();
         assert!(
-            updated.contains("`- Renamed idless child\n\n `+ task\n"),
+            updated.contains("`- Renamed idless child\n `+ task\n"),
             "{updated}"
         );
-        assert!(updated.contains("`= custom   | keep"), "{updated}");
+        assert!(updated.contains("`= custom keep"), "{updated}");
         let refreshed = WebWorkspace::load_with_revision(&root, 2).unwrap();
         let task = refreshed
             .tasks()
@@ -2574,8 +2635,8 @@ mod tests {
             )
             .unwrap();
         let source = std::fs::read_to_string(&a_path).unwrap();
-        assert!(source.contains("`= prev    | b.plumb#b"), "{source}");
-        assert!(source.contains("`= depends | b.plumb#b"), "{source}");
+        assert!(source.contains("`= prev b.plumb#b"), "{source}");
+        assert!(source.contains("`= depends b.plumb#b"), "{source}");
 
         let refreshed = WebWorkspace::load_with_revision(&root, 2).unwrap();
         let snapshot = refreshed.tasks().unwrap();

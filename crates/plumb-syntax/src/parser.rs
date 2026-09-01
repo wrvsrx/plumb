@@ -73,7 +73,7 @@ impl<'a> Parser<'a> {
         }
 
         while levels.len() > 1 {
-            close_level(&mut levels);
+            close_level(self.source, &mut levels);
         }
         let blocks = levels.pop().expect("root level exists").blocks;
         Document {
@@ -114,7 +114,7 @@ impl<'a> Parser<'a> {
             }
         } else if effective_indent < current_indent {
             while levels.len() > 1 && effective_indent < levels.last().unwrap().indent {
-                close_level(levels);
+                close_level(self.source, levels);
             }
             if effective_indent != levels.last().unwrap().indent {
                 self.error(
@@ -284,10 +284,176 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_inline_content(&mut self, range: SourceRange) -> InlineContent {
-        let (items, _) = self.parse_inline_sequence(range.start, range.end, false);
-        InlineContent::from_items(range, items)
+        let mut frames = vec![InlineFrame::root(range.clone())];
+        let mut cursor = range.start;
+        while cursor < range.end {
+            let byte = self.source.as_bytes()[cursor];
+            match byte {
+                b' ' => {
+                    let start = cursor;
+                    while cursor < range.end && self.source.as_bytes()[cursor] == b' ' {
+                        cursor += 1;
+                    }
+                    frames.last_mut().unwrap().items.push(Inline::Space {
+                        text: self.source[start..cursor].to_string(),
+                        range: start..cursor,
+                    });
+                }
+                b'{' => {
+                    frames.push(InlineFrame::group(cursor, None));
+                    cursor += 1;
+                }
+                b'}' if frames.len() > 1 => {
+                    close_inline_frame(self.source, &mut frames, cursor + 1, cursor);
+                    cursor += 1;
+                }
+                b'}' => {
+                    self.error(
+                        "syntax.unexpected-inline-group-close",
+                        "closing brace has no enclosing inline group",
+                        cursor..cursor + 1,
+                    );
+                    frames.last_mut().unwrap().items.push(Inline::Text {
+                        text: "}".to_string(),
+                        range: cursor..cursor + 1,
+                    });
+                    cursor += 1;
+                }
+                b'`' => {
+                    let start = cursor;
+                    while cursor < range.end && self.source.as_bytes()[cursor] == b'`' {
+                        cursor += 1;
+                    }
+                    let count = cursor - start;
+                    let pair_width = count / 2 * 2;
+                    if pair_width > 0 {
+                        frames.last_mut().unwrap().items.push(Inline::Text {
+                            text: "`".repeat(pair_width / 2),
+                            range: start..start + pair_width,
+                        });
+                    }
+                    if count.is_multiple_of(2) {
+                        continue;
+                    }
+                    let introducer = start + pair_width;
+                    let after = introducer + 1;
+                    if after >= range.end {
+                        self.error(
+                            "syntax.invalid-inline-dispatch",
+                            "an introducer must start an escape, marked group, or verbatim value",
+                            introducer..after,
+                        );
+                        cursor = after;
+                        continue;
+                    }
+                    match self.source.as_bytes()[after] {
+                        b'{' | b'}' => {
+                            frames.last_mut().unwrap().items.push(Inline::Text {
+                                text: self.source[after..after + 1].to_string(),
+                                range: introducer..after + 1,
+                            });
+                            cursor = after + 1;
+                        }
+                        b'"' => {
+                            let (verbatim, next) =
+                                self.parse_inline_verbatim(introducer, after, range.end, None);
+                            frames.last_mut().unwrap().items.push(verbatim);
+                            cursor = next;
+                        }
+                        _ => {
+                            let marker_end = scan_marker(self.source, after, range.end);
+                            if marker_end == after {
+                                self.error(
+                                    "syntax.invalid-inline-dispatch",
+                                    "invalid character after inline introducer",
+                                    introducer..after + 1,
+                                );
+                                cursor = after;
+                                continue;
+                            }
+                            let mark = Mark {
+                                range: introducer..marker_end,
+                                marker: self.source[after..marker_end].to_string(),
+                                marker_range: after..marker_end,
+                                attrs: Default::default(),
+                            };
+                            if marker_end < range.end {
+                                match self.source.as_bytes()[marker_end] {
+                                    b'{' => {
+                                        frames.push(InlineFrame::group(marker_end, Some(mark)));
+                                        cursor = marker_end + 1;
+                                        continue;
+                                    }
+                                    b'"' => {
+                                        let (verbatim, next) = self.parse_inline_verbatim(
+                                            introducer,
+                                            marker_end,
+                                            range.end,
+                                            Some(mark),
+                                        );
+                                        frames.last_mut().unwrap().items.push(verbatim);
+                                        cursor = next;
+                                        continue;
+                                    }
+                                    _ => {}
+                                }
+                            }
+                            self.error(
+                                "syntax.invalid-inline-dispatch",
+                                "an inline marker must be followed immediately by a group or quote",
+                                introducer..marker_end,
+                            );
+                            frames.last_mut().unwrap().items.push(Inline::Text {
+                                text: self.source[after..marker_end].to_string(),
+                                range: introducer..marker_end,
+                            });
+                            cursor = marker_end;
+                        }
+                    }
+                }
+                b'\t' | 0x00..=0x1f | 0x7f => {
+                    let width = self.source[cursor..].chars().next().unwrap().len_utf8();
+                    self.error(
+                        "syntax.invalid-inline-dispatch",
+                        "tabs and control characters are invalid in parsed inline content",
+                        cursor..cursor + width,
+                    );
+                    frames.last_mut().unwrap().items.push(Inline::Text {
+                        text: self.source[cursor..cursor + width].to_string(),
+                        range: cursor..cursor + width,
+                    });
+                    cursor += width;
+                }
+                _ => {
+                    let start = cursor;
+                    cursor += self.source[cursor..].chars().next().unwrap().len_utf8();
+                    while cursor < range.end {
+                        let next = self.source.as_bytes()[cursor];
+                        if matches!(next, b' ' | b'{' | b'}' | b'`' | b'\t' | 0x00..=0x1f | 0x7f) {
+                            break;
+                        }
+                        cursor += self.source[cursor..].chars().next().unwrap().len_utf8();
+                    }
+                    frames.last_mut().unwrap().items.push(Inline::Text {
+                        text: self.source[start..cursor].to_string(),
+                        range: start..cursor,
+                    });
+                }
+            }
+        }
+        while frames.len() > 1 {
+            let open = frames.last().unwrap().open;
+            self.error(
+                "syntax.unclosed-inline-group",
+                "inline group is not closed before the physical line ends",
+                open..range.end,
+            );
+            close_inline_frame(self.source, &mut frames, range.end, range.end);
+        }
+        InlineContent::from_items(range, frames.pop().unwrap().items)
     }
 
+    #[cfg(any())]
     fn parse_inline_sequence(
         &mut self,
         mut cursor: usize,
@@ -362,6 +528,7 @@ impl<'a> Parser<'a> {
         (items, cursor)
     }
 
+    #[cfg(any())]
     fn parse_introducer_run(&mut self, start: usize, end: usize, items: &mut Vec<Inline>) -> usize {
         let mut run_end = start;
         while run_end < end && self.source.as_bytes()[run_end] == b'`' {
@@ -448,6 +615,7 @@ impl<'a> Parser<'a> {
         }
     }
 
+    #[cfg(any())]
     fn parse_group(&mut self, open: usize, end: usize, mark: Option<Mark>) -> (Inline, usize) {
         let (items, close) = self.parse_inline_sequence(open + 1, end, true);
         let (range_end, content_end) = if close < end && self.source.as_bytes()[close] == b'}' {
@@ -570,6 +738,62 @@ enum BlockDispatch {
     },
 }
 
+struct InlineFrame {
+    open: usize,
+    mark: Option<Mark>,
+    items: Vec<Inline>,
+    root_range: Option<SourceRange>,
+}
+
+impl InlineFrame {
+    fn root(range: SourceRange) -> Self {
+        Self {
+            open: range.start,
+            mark: None,
+            items: Vec::new(),
+            root_range: Some(range),
+        }
+    }
+
+    fn group(open: usize, mark: Option<Mark>) -> Self {
+        Self {
+            open,
+            mark,
+            items: Vec::new(),
+            root_range: None,
+        }
+    }
+}
+
+fn close_inline_frame(
+    source: &str,
+    frames: &mut Vec<InlineFrame>,
+    range_end: usize,
+    content_end: usize,
+) {
+    let frame = frames.pop().expect("group frame exists");
+    debug_assert!(frame.root_range.is_none());
+    let range_start = frame
+        .mark
+        .as_ref()
+        .map_or(frame.open, |mark| mark.range.start);
+    let content = InlineContent::from_items(frame.open + 1..content_end, frame.items);
+    let mut mark = frame.mark;
+    if let Some(mark) = &mut mark {
+        mark.attrs = attributes_from_inlines(source, &content);
+    }
+    let group = Inline::Group {
+        range: range_start..range_end,
+        mark,
+        content,
+    };
+    frames
+        .last_mut()
+        .expect("group has a parent frame")
+        .items
+        .push(group);
+}
+
 struct Level {
     indent: usize,
     owner: Option<ParsedBlock>,
@@ -586,10 +810,14 @@ impl Level {
     }
 }
 
-fn close_level(levels: &mut Vec<Level>) {
+fn close_level(source: &str, levels: &mut Vec<Level>) {
     let level = levels.pop().expect("nested level exists");
     let mut owner = level.owner.expect("nested level has an owner");
     owner.children = level.blocks;
+    let attrs = attributes_from_blocks(source, &owner.children);
+    if let Some(mark) = &mut owner.mark {
+        mark.attrs = attrs;
+    }
     if let Some(last) = owner.children.last() {
         owner.range.end = last.range().end;
     }
@@ -678,40 +906,7 @@ fn find_full_verbatim_close(
 }
 
 fn project_attributes(source: &str, document: &mut Document) {
-    project_block_list(source, &mut document.blocks);
     document.attrs = attributes_from_blocks(source, &document.blocks);
-}
-
-fn project_block_list(source: &str, blocks: &mut [Block]) {
-    for block in blocks {
-        let Block::Parsed(block) = block else {
-            continue;
-        };
-        project_inline_attributes(source, &mut block.content);
-        project_block_list(source, &mut block.children);
-        let attrs = attributes_from_blocks(source, &block.children);
-        if let Some(mark) = &mut block.mark {
-            mark.attrs = attrs;
-        }
-    }
-}
-
-fn project_inline_attributes(source: &str, content: &mut InlineContent) {
-    for inline in &mut content.items {
-        let Inline::Group {
-            mark,
-            content: nested,
-            ..
-        } = inline
-        else {
-            continue;
-        };
-        project_inline_attributes(source, nested);
-        let attrs = attributes_from_inlines(source, nested);
-        if let Some(mark) = mark {
-            mark.attrs = attrs;
-        }
-    }
 }
 
 fn attributes_from_blocks(source: &str, blocks: &[Block]) -> Attributes {
@@ -719,11 +914,13 @@ fn attributes_from_blocks(source: &str, blocks: &[Block]) -> Attributes {
         let Block::Parsed(block) = block else {
             return None;
         };
-        (!block.children.is_empty())
-            .then_some(None)
-            .unwrap_or_else(|| {
-                declaration_from_content(source, block.mark.as_ref()?, &block.content)
-            })
+        if !block.children.is_empty() {
+            None
+        } else {
+            let mut item = declaration_from_content(source, block.mark.as_ref()?, &block.content)?;
+            *attr_range_mut(&mut item) = block.range.clone();
+            Some(item)
+        }
     }))
 }
 
@@ -731,6 +928,7 @@ fn attributes_from_inlines(source: &str, content: &InlineContent) -> Attributes 
     attributes_from_items(content.data.iter().filter_map(|datum| {
         let items = &content.items[datum.item_range.clone()];
         let [Inline::Group {
+            range,
             mark: Some(mark),
             content,
             ..
@@ -738,7 +936,9 @@ fn attributes_from_inlines(source: &str, content: &InlineContent) -> Attributes 
         else {
             return None;
         };
-        declaration_from_content(source, mark, content)
+        let mut item = declaration_from_content(source, mark, content)?;
+        *attr_range_mut(&mut item) = range.clone();
+        Some(item)
     }))
 }
 
@@ -796,12 +996,7 @@ fn declaration_from_content(
                     decoded: value,
                     raw: source[value_range.clone()].to_string(),
                     range: value_range.clone(),
-                    quoted: matches!(
-                        content_for_range(content, 1, content.data.len())
-                            .items
-                            .as_slice(),
-                        [Inline::Verbatim { .. }]
-                    ),
+                    quoted: true,
                 },
                 range: mark.range.start..value_range.end,
             })
@@ -833,6 +1028,14 @@ fn plain_scalar(content: &InlineContent) -> Option<String> {
 }
 
 fn attr_range(item: &AttrItem) -> &SourceRange {
+    match item {
+        AttrItem::Id { range, .. }
+        | AttrItem::Class { range, .. }
+        | AttrItem::Pair { range, .. } => range,
+    }
+}
+
+fn attr_range_mut(item: &mut AttrItem) -> &mut SourceRange {
     match item {
         AttrItem::Id { range, .. }
         | AttrItem::Class { range, .. }

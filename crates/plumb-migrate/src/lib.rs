@@ -33,16 +33,14 @@ mod member_envelope_tests {
         );
         let migrated = migrate_member_envelope_v1(source).unwrap();
         assert!(plumb_syntax::parse(&migrated).is_valid(), "{migrated}");
-        assert!(
-            migrated.contains("`= {title} {Project Guide}"),
-            "{migrated}"
-        );
+        assert!(migrated.contains("`= title Project Guide"), "{migrated}");
         assert!(
             migrated.contains("`->{{guide page} {Project Guide.plumb}}"),
             "{migrated}"
         );
         assert!(migrated.contains("`code\""), "{migrated}");
         assert!(migrated.contains("raw bytes"), "{migrated}");
+        assert_eq!(migrate_member_envelope_v1(&migrated).unwrap(), migrated);
     }
 
     #[test]
@@ -152,6 +150,9 @@ impl fmt::Display for MigrationError {
 impl std::error::Error for MigrationError {}
 
 pub fn migrate_member_envelope_v1(source: &str) -> Result<String, MigrationError> {
+    if plumb_syntax::parse(source).is_valid() && !has_member_envelope_signal(source) {
+        return Ok(source.to_string());
+    }
     let parsed = member_legacy::parse(source);
     if !parsed.is_valid() {
         return Err(MigrationError::InvalidMemberEnvelope(
@@ -179,25 +180,76 @@ pub fn migrate_member_envelope_v1(source: &str) -> Result<String, MigrationError
     Ok(migrated)
 }
 
+fn has_member_envelope_signal(source: &str) -> bool {
+    if source.contains('|') {
+        return true;
+    }
+    let bytes = source.as_bytes();
+    let mut cursor = 0;
+    while cursor < bytes.len() {
+        if bytes[cursor] != b'`' {
+            cursor += 1;
+            continue;
+        }
+        let mut run_end = cursor;
+        while run_end < bytes.len() && bytes[run_end] == b'`' {
+            run_end += 1;
+        }
+        if (run_end - cursor) % 2 == 0 {
+            cursor = run_end;
+            continue;
+        }
+        let mut marker_end = run_end;
+        while marker_end < bytes.len()
+            && !matches!(
+                bytes[marker_end],
+                b' ' | b'\t' | b'\r' | b'\n' | b'`' | b'"' | b'[' | b']' | b'|'
+            )
+        {
+            marker_end += 1;
+        }
+        if marker_end > run_end && bytes.get(marker_end) == Some(&b'[') {
+            return true;
+        }
+        cursor = marker_end.max(run_end + 1);
+    }
+    false
+}
+
 fn convert_member_document(document: &member_legacy::Document) -> OwnedDocument {
     OwnedDocument {
-        blocks: document.blocks.iter().map(convert_member_block).collect(),
+        blocks: document
+            .blocks
+            .iter()
+            .map(|block| convert_member_block(block, None))
+            .collect(),
     }
 }
 
-fn convert_member_block(block: &member_legacy::Block) -> OwnedBlock {
+fn convert_member_block(block: &member_legacy::Block, parent_marker: Option<&str>) -> OwnedBlock {
     match block {
         member_legacy::Block::Verbatim(block) => OwnedBlock::Verbatim {
             text: block.text.clone(),
         },
         member_legacy::Block::Parsed(block) => {
             let marker = block.mark.as_ref().map(|mark| mark.marker.clone());
-            let wrap_single = matches!(marker.as_deref(), Some(":" | "="));
-            let head = convert_member_content(&block.head, wrap_single);
+            let policy = if matches!(marker.as_deref(), Some(":" | "="))
+                || block
+                    .mark
+                    .as_ref()
+                    .is_some_and(|mark| mark.attrs.has_class("event"))
+            {
+                BlockArgumentPolicy::FirstThenRest
+            } else if parent_marker == Some("table") || block.head.arguments.len() > 1 {
+                BlockArgumentPolicy::Positional
+            } else {
+                BlockArgumentPolicy::Whole
+            };
+            let head = convert_member_content(&block.head, policy);
             let mut children = block
                 .children
                 .iter()
-                .map(convert_member_block)
+                .map(|child| convert_member_block(child, marker.as_deref()))
                 .collect::<Vec<_>>();
             let Some(raw) = &block.raw else {
                 return OwnedBlock::Parsed {
@@ -231,9 +283,16 @@ fn convert_member_block(block: &member_legacy::Block) -> OwnedBlock {
     }
 }
 
+#[derive(Clone, Copy)]
+enum BlockArgumentPolicy {
+    Whole,
+    Positional,
+    FirstThenRest,
+}
+
 fn convert_member_content(
     content: &member_legacy::InlineContent,
-    wrap_single: bool,
+    policy: BlockArgumentPolicy,
 ) -> Vec<OwnedInline> {
     let mut output = Vec::new();
     for (index, argument) in content.arguments.iter().enumerate() {
@@ -244,8 +303,11 @@ fn convert_member_content(
             .iter()
             .map(convert_member_inline)
             .collect::<Vec<_>>();
-        let needs_group =
-            content.arguments.len() > 1 || wrap_single || owned_data_count(&items) != 1;
+        let needs_group = match policy {
+            BlockArgumentPolicy::Whole => false,
+            BlockArgumentPolicy::Positional => owned_data_count(&items) != 1,
+            BlockArgumentPolicy::FirstThenRest => index == 0 && owned_data_count(&items) != 1,
+        };
         if needs_group {
             output.push(OwnedInline::Element {
                 kind: String::new(),
@@ -417,7 +479,7 @@ pub fn migrate_document_group_v1(source: &str) -> Result<String, MigrationError>
             .syntax
             .blocks
             .iter()
-            .map(convert_member_block)
+            .map(|block| convert_member_block(block, None))
             .collect(),
     };
     for block in &mut owned.blocks {

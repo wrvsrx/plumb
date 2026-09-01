@@ -122,12 +122,15 @@ impl<'a> TokenBuilder<'a> {
             for inline in content.items.iter().rev() {
                 match inline {
                     Inline::Text { range, .. } => {
-                        let kind = self
+                        let kind = if self
                             .source
                             .get(range.clone())
                             .is_some_and(|text| text.starts_with('`'))
-                            .then_some(SyntaxKind::Escape)
-                            .unwrap_or(SyntaxKind::Text);
+                        {
+                            SyntaxKind::Escape
+                        } else {
+                            SyntaxKind::Text
+                        };
                         self.assign(range.clone(), kind, TYPED_PRIORITY);
                     }
                     Inline::Space { range, .. } => {

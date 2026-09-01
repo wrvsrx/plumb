@@ -305,8 +305,8 @@ fn diagnostic(code: &'static str, message: String, range: Range<usize>) -> Diagn
 
 #[cfg(test)]
 mod tests {
+    use crate::parse;
     use plumb_semantics::analyze_document;
-    use plumb_syntax::parse;
 
     use super::*;
 

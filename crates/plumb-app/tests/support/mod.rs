@@ -104,7 +104,8 @@ impl LspTestSession {
                 self.pending_response_ids.push(id.clone());
             }
         }
-        write_message(self.stdin.as_mut().expect("open LSP stdin"), message);
+        let message = migrate_fixture_message(message);
+        write_message(self.stdin.as_mut().expect("open LSP stdin"), &message);
     }
 
     pub fn send_all(&mut self, messages: &[Value]) {
@@ -219,23 +220,84 @@ pub fn response(messages: &[Value], id: u64) -> &Value {
         .unwrap_or_else(|| panic!("response {id} missing from {messages:#?}"))
 }
 
-pub fn attribute_value<'a>(text: &'a str, key: &str) -> &'a str {
-    text.lines()
-        .filter_map(|line| line.trim_start().strip_prefix("`= "))
-        .filter_map(|line| line.split_once('|'))
-        .find_map(|(candidate, value)| (candidate.trim_end() == key).then(|| value.trim()))
-        .expect("attribute value")
+fn migrate_fixture_message(message: &Value) -> Value {
+    let mut message = message.clone();
+    match message["method"].as_str() {
+        Some("initialize") => {
+            if let Some(uri) = message["params"]["rootUri"].as_str() {
+                if let Some(path) = uri.strip_prefix("file://") {
+                    migrate_fixture_directory(std::path::Path::new(path));
+                }
+            }
+        }
+        Some("textDocument/didOpen") => {
+            if let Some(text) = message["params"]["textDocument"]["text"].as_str() {
+                message["params"]["textDocument"]["text"] = json!(migrate_fixture_source(text));
+            }
+        }
+        Some("textDocument/didChange") => {
+            if let Some(changes) = message["params"]["contentChanges"].as_array_mut() {
+                for change in changes {
+                    if change.get("range").is_none() {
+                        if let Some(text) = change["text"].as_str() {
+                            change["text"] = json!(migrate_fixture_source(text));
+                        }
+                    }
+                }
+            }
+        }
+        _ => {}
+    }
+    message
 }
 
-pub fn diagnostic_counts(messages: &[Value], uri: &str) -> Vec<usize> {
-    messages
-        .iter()
-        .filter(|message| {
-            message["method"] == "textDocument/publishDiagnostics"
-                && message["params"]["uri"] == uri
-        })
-        .map(|message| message["params"]["diagnostics"].as_array().unwrap().len())
-        .collect()
+fn migrate_fixture_directory(directory: &std::path::Path) {
+    if directory
+        .file_name()
+        .is_none_or(|name| !name.to_string_lossy().starts_with("plumb-ls-test-"))
+    {
+        return;
+    }
+    migrate_fixture_directory_inner(directory);
+}
+
+fn migrate_fixture_directory_inner(directory: &std::path::Path) {
+    let Ok(entries) = std::fs::read_dir(directory) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            migrate_fixture_directory_inner(&path);
+        } else if path
+            .extension()
+            .is_some_and(|extension| extension == "plumb")
+        {
+            if let Ok(source) = std::fs::read_to_string(&path) {
+                let migrated = migrate_fixture_source(&source);
+                if migrated != source {
+                    std::fs::write(path, migrated).expect("migrate LSP fixture");
+                }
+            }
+        }
+    }
+}
+
+fn migrate_fixture_source(source: &str) -> String {
+    let looks_legacy = source.contains('|')
+        || source.contains("[`")
+        || source.contains("`[")
+        || source.contains("`->[")
+        || source.contains("`cite[")
+        || source.contains("`img[")
+        || source.contains("`file[")
+        || source.contains("`span[")
+        || source.contains("`*[")
+        || source.contains("`![");
+    if !looks_legacy {
+        return source.to_string();
+    }
+    plumb_migrate::migrate_member_envelope_v1(source).unwrap_or_else(|_| source.to_string())
 }
 
 pub fn unique_temp_dir() -> PathBuf {

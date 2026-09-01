@@ -747,7 +747,10 @@ fn positional_link_parts(
     let [label, target] = arguments.as_slice() else {
         return None;
     };
-    Some((label.range.clone(), source_backed_argument(source, target)?))
+    Some((
+        crate::datum_selection_range(label),
+        source_backed_argument(source, target)?,
+    ))
 }
 
 fn source_backed_argument(source: &str, argument: &InlineContent) -> Option<SourceBacked<String>> {
@@ -1004,7 +1007,7 @@ pub(crate) fn attr_source_backed(source: &str, value: &AttrValue) -> SourceBacke
 
 #[cfg(test)]
 mod tests {
-    use plumb_syntax::parse;
+    use crate::parse_legacy as parse;
 
     use super::*;
 
@@ -1022,8 +1025,8 @@ mod tests {
     }
 
     #[test]
-    fn verbatim_blocks_create_syntax_neutral_anchors() {
-        let parsed = parse("`text\n `@ example\n\n|\"\n raw text\n");
+    fn verbatim_wrappers_create_syntax_neutral_anchors() {
+        let parsed = plumb_syntax::parse("`()\n `@ example\n `text\"\n  raw text\n");
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let output = analyze_document(
             parsed
@@ -1031,13 +1034,13 @@ mod tests {
                 .expect("semantic analysis requires valid syntax"),
         );
         assert_eq!(output.anchors.len(), 1);
-        assert_eq!(output.anchors[0].kind, AnchorKind::VerbatimBlock);
+        assert_eq!(output.anchors[0].kind, AnchorKind::Block);
     }
 
     #[test]
     fn recognizes_compact_and_expanded_positional_links() {
-        let source = "`->[guide|target.plumb]\n`->[guide page|\"[Project Guide.plumb#intro]\"]\n`->[`*[external]|https://example.test]\n";
-        let parsed = parse(source);
+        let source = "`->{guide target.plumb}\n`->{{guide page} `\"Project Guide.plumb#intro\"}\n`->{`*{external} https://example.test}\n";
+        let parsed = plumb_syntax::parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
         let output = analyze_document(
@@ -1072,7 +1075,7 @@ mod tests {
         );
         assert_eq!(
             &source[output.links[2].selection_range.clone()],
-            "`*[external]"
+            "`*{external}"
         );
         assert_eq!(output.links[2].target_kind, LinkTarget::External);
     }
@@ -1116,8 +1119,8 @@ mod tests {
 
     #[test]
     fn positional_link_ranges_map_utf8_and_escaped_delimiters() {
-        let source = "`->[目标|目录/项`].plumb#章节]\n";
-        let parsed = parse(source);
+        let source = "`->{目标 目录/项].plumb#章节}\n";
+        let parsed = plumb_syntax::parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
         let output = analyze_document(
@@ -1127,16 +1130,16 @@ mod tests {
         );
         assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
         let link = &output.links[0];
-        assert_eq!(link.target.raw, "目录/项`].plumb#章节");
+        assert_eq!(link.target.raw, "目录/项].plumb#章节");
         assert_eq!(link.target.value, "目录/项].plumb#章节");
-        assert_eq!(&source[link.path_range.clone().unwrap()], "目录/项`].plumb");
+        assert_eq!(&source[link.path_range.clone().unwrap()], "目录/项].plumb");
         assert_eq!(&source[link.fragment_range.clone().unwrap()], "章节");
     }
 
     #[test]
     fn diagnoses_associations_with_more_than_two_slots_inside_attachments() {
-        let source = "`span[value|=[key|value|extra]]\n";
-        let parsed = parse(source);
+        let source = "`span{value `={key value extra}}\n";
+        let parsed = plumb_syntax::parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
         let output = analyze_document(
@@ -1149,12 +1152,12 @@ mod tests {
             .iter()
             .find(|diagnostic| diagnostic.code == "association.invalid-arity")
             .expect("invalid association arity diagnostic");
-        assert_eq!(&source[diagnostic.range.clone()], "=[key|value|extra]");
+        assert_eq!(&source[diagnostic.range.clone()], "`={key value extra}");
     }
 
     #[test]
     fn link_kind_is_not_a_standard_link() {
-        let parsed = parse("`link[generic|=[to|other.plumb#target]]\n");
+        let parsed = plumb_syntax::parse("`link{generic `={to other.plumb#target}}\n");
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
         let output = analyze_document(

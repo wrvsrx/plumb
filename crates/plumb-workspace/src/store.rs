@@ -2142,8 +2142,8 @@ fn path_from_bytes(bytes: Vec<u8>) -> StoreResult<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::parse;
     use plumb_semantics::analyze_document;
-    use plumb_syntax::parse;
 
     fn analyzed(source: &str) -> DocumentOutput {
         let parsed = parse(source);

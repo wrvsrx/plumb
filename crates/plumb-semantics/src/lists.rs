@@ -99,8 +99,10 @@ fn collect_table_cell_groups(table: &ParsedBlock, output: &mut ListOutput) {
         if !row.content.is_empty() {
             continue;
         }
-        for cell in crate::body_children(row).filter_map(parsed_dash) {
-            collect_groups(crate::body_children(cell), output);
+        for cell in crate::body_children(row) {
+            if let Block::Parsed(cell) = cell {
+                collect_groups(crate::body_children(cell), output);
+            }
         }
     }
 }
