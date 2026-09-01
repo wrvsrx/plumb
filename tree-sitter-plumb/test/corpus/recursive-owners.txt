@@ -1,0 +1,342 @@
+==================
+Physical lines are blocks
+==================
+
+one line
+two physical lines
+
+`note marked
+anonymous owner
+ child
+
+---
+
+(document
+  (blank_line)
+  (paragraph
+    (inline_content
+      (text)
+      (space)
+      (text)))
+  (paragraph
+    (inline_content
+      (text)
+      (space)
+      (text)
+      (space)
+      (text)))
+  (blank_line)
+  (marked_block
+    (introducer)
+    (marker)
+    (inline_content
+      (space)
+      (text)))
+  (paragraph
+    (inline_content
+      (text)
+      (space)
+      (text))
+    (block_body
+      (paragraph
+        (inline_content
+          (text))))))
+
+==================
+Marked and anonymous children
+==================
+
+`parent Head
+ `child One
+ anonymous child
+  grandchild
+`sibling Done
+
+---
+
+(document
+  (blank_line)
+  (marked_block
+    (introducer)
+    (marker)
+    (inline_content
+      (space)
+      (text))
+    (block_body
+      (marked_block
+        (introducer)
+        (marker)
+        (inline_content
+          (space)
+          (text)))
+      (paragraph
+        (inline_content
+          (text)
+          (space)
+          (text))
+        (block_body
+          (paragraph
+            (inline_content
+              (text)))))))
+  (marked_block
+    (introducer)
+    (marker)
+    (inline_content
+      (space)
+      (text))))
+
+==================
+Anonymous and marked groups
+==================
+
+Before {guide with spaces} and `!{strong}.
+`->{ {guide page} {Project Guide.plumb} `@{guide-link} }
+Empty {} and nested {outer {inner}}.
+
+---
+
+(document
+  (blank_line)
+  (paragraph
+    (inline_content
+      (text)
+      (space)
+      (anonymous_group
+        (inline_content
+          (text)
+          (space)
+          (text)
+          (space)
+          (text)))
+      (space)
+      (text)
+      (space)
+      (marked_group
+        (introducer)
+        (inline_kind)
+        (inline_content
+          (text)))
+      (text)))
+  (paragraph
+    (inline_content
+      (marked_group
+        (introducer)
+        (inline_kind)
+        (inline_content
+          (space)
+          (anonymous_group
+            (inline_content
+              (text)
+              (space)
+              (text)))
+          (space)
+          (anonymous_group
+            (inline_content
+              (text)
+              (space)
+              (text)))
+          (space)
+          (marked_group
+            (introducer)
+            (inline_kind)
+            (inline_content
+              (text)))
+          (space)))))
+  (paragraph
+    (inline_content
+      (text)
+      (space)
+      (anonymous_group)
+      (space)
+      (text)
+      (space)
+      (text)
+      (space)
+      (anonymous_group
+        (inline_content
+          (text)
+          (space)
+          (anonymous_group
+            (inline_content
+              (text)))))
+      (text))))
+
+==================
+Escapes and ordinary punctuation
+==================
+
+`` backtick, `{ opening, `} closing.
+Brackets [are] and pipe | is ordinary.
+
+---
+
+(document
+  (blank_line)
+  (paragraph
+    (inline_content
+      (introducer_escape)
+      (space)
+      (text)
+      (space)
+      (brace_escape)
+      (space)
+      (text)
+      (space)
+      (brace_escape)
+      (space)
+      (text)))
+  (paragraph
+    (inline_content
+      (text)
+      (space)
+      (text)
+      (space)
+      (text)
+      (space)
+      (text)
+      (space)
+      (text)
+      (space)
+      (text)
+      (space)
+      (text))))
+
+==================
+Inline verbatim
+==================
+
+`"raw" `$"x^2" `$""
+`"{raw containing "quotes"}"
+`""{raw containing }" safely}""
+
+---
+
+(document
+  (blank_line)
+  (paragraph
+    (inline_content
+      (inline_verbatim
+        (introducer)
+        (raw_text))
+      (space)
+      (inline_verbatim
+        (introducer)
+        (verbatim_kind)
+        (raw_text))
+      (space)
+      (inline_verbatim
+        (introducer)
+        (verbatim_kind)
+        (raw_text))))
+  (paragraph
+    (inline_content
+      (inline_verbatim
+        (introducer)
+        (raw_text))))
+  (paragraph
+    (inline_content
+      (inline_verbatim
+        (introducer)
+        (raw_text)))))
+
+==================
+Anonymous and marked block verbatim
+==================
+
+`"
+ anonymous raw
+
+`rust"
+ fn main() {}
+ 
+ more raw
+next
+
+---
+
+(document
+  (blank_line)
+  (verbatim_block
+    (introducer)
+    (verbatim_open)
+    (raw_text))
+  (blank_line)
+  (verbatim_block
+    (introducer)
+    (verbatim_kind)
+    (verbatim_open)
+    (raw_text)
+    (raw_text)
+    (raw_text))
+  (paragraph
+    (inline_content
+      (text))))
+
+==================
+Raw child with declarations wrapper
+==================
+
+`()
+ `@ example
+ `= language rust
+ `rust"
+  fn main() {}
+
+---
+
+(document
+  (blank_line)
+  (marked_block
+    (introducer)
+    (marker)
+    (block_body
+      (marked_block
+        (introducer)
+        (marker)
+        (inline_content
+          (space)
+          (text)))
+      (marked_block
+        (introducer)
+        (marker)
+        (inline_content
+          (space)
+          (text)
+          (space)
+          (text)))
+      (verbatim_block
+        (introducer)
+        (verbatim_kind)
+        (verbatim_open)
+        (raw_text)))))
+
+==================
+Incomplete groups recover at the line
+==================
+
+Before `kind{open
+next
+Unexpected } close
+
+---
+
+(document
+  (blank_line)
+  (paragraph
+    (inline_content
+      (text)
+      (space)
+      (incomplete_marked_group
+        (introducer)
+        (inline_kind)
+        (inline_content
+          (text)))))
+  (paragraph
+    (inline_content
+      (text)))
+  (paragraph
+    (inline_content
+      (text)
+      (space))
+    (ERROR
+      (space))))

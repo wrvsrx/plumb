@@ -2,11 +2,21 @@ The intentionally lenient tree-sitter grammar for plumb editor tooling. The hand
 
 # Core-only CST
 
-The grammar represents plumb's core surface syntax with generic nodes such as `marked_block`、`marker`、`paragraph`、`verbatim_block`、`raw_tail` and `inline_element`。 Marker and inline kind tokens remain opaque. It deliberately does not create nodes such as `heading`、`list_item`、`quote`、`task`、`emphasis` or `link`。 Those interpretations belong to semantic typed views, analyses, and future consumer-specific lowering.
+The grammar represents current core syntax with generic `marked_block`、`paragraph`、`block_body`、
 
-`verbatim_block` is the anonymous block raw leaf; `inline_verbatim` is the single-line inline raw form. A named block raw payload belongs to a regular `marked_block` through its optional terminal `raw_tail` field, so its opaque language kind is the owner's `marker`. Anonymous opener and marked raw-tail quote counts both declare their raw payload's ASCII-space structural margin. Anonymous block raw has no kind. The recovery-only `incomplete_inline_element` node keeps subsequent blocks parseable while a document is being edited; it does not make malformed syntax valid to the strict parser.
+`verbatim_block`、`marked_group`、`anonymous_group` and `inline_verbatim` nodes. Marker/kind tokens remain opaque;
 
-Parsed inline elements use the current single-envelope member model. Top-level `member_separator` nodes divide ordered arguments and children; `inline_child` wraps a recursive `inline_element` or `inline_verbatim` without assigning meaning to its kind. The first member is always parsed content and may be empty; `verbatim_argument` represents a later raw positional member. Inline owners use only this single envelope; block and document ownership use source-ordered direct children, with no postfix attached-group nodes.
+heading/list/task/link meanings belong to official semantics。
+
+`verbatim_block` directly owns optional `verbatim_kind` and indentation-terminated payload with fixed one-space margin。
+
+`inline_verbatim` covers compact/full single-line raw。Recovery-only incomplete group nodes keep later blocks parseable；
+
+they do not make source strict-valid。
+
+ASCII `space` nodes remain lossless datum boundaries。Braces recursively group inline content；there are no member,
+
+argument-separator, continuation or raw-tail nodes。
 
 # Source and generated files
 
@@ -51,9 +61,13 @@ Generated parser sources and binary packages are produced for releases in a Nix 
 
 # Neovim editor queries
 
-`queries/highlights.scm` uses Neovim's standard tree-sitter capture names and only highlights the generic core CST. It does not interpret marker or inline kind values semantically. Marker and parsed/inline-verbatim kind nodes receive generic token captures; raw highlighting is limited to payload nodes and does not override the kind capture. Bare introducers and argument/member separators share the muted `@punctuation.delimiter` capture so syntax scaffolding does not compete with marker/kind/content; ordinary ASCII spaces are explicit `space` nodes. Literal delimiter escapes, including backtick-space, remain `@string.escape` and recovery remains `@error`.
+`queries/highlights.scm` only highlights generic CST。marker/kind receive keyword captures；introducer/braces are muted
 
-`queries/folds.scm` and `queries/indents.scm` cover generic block structure。 `queries/textobjects.scm` publishes `block.outer`、`block.inner`、`inline.outer` and `inline.inner` captures。`queries/injections.scm` uses the marker of a marked block with a raw tail as the injection language and treats the `$` marker as TeX。Anonymous block raw has no injection language. Inline verbatim does not expose a separate raw-content node yet, so it is not an injection target.
+punctuation，backtick/brace escapes are string escapes，raw payloads use markup.raw，recovery uses error。
+
+fold/indent/textobject queries cover block_body、groups and verbatim。injections use marked VerbatimBlock kind as language；
+
+`$` selects LaTeX，anonymous raw has no language。
 
 Build the parser explicitly through the locked Nix environment:
 

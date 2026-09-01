@@ -1,33 +1,23 @@
-; Core block and inline envelopes. Marker and kind meanings remain opaque.
+; Core block and inline owners. Marker meanings remain opaque.
 (introducer) @punctuation.delimiter
 (introducer_escape) @string.escape
-(bracket_escape) @string.escape
-(pipe_escape) @string.escape
-(space_escape) @string.escape
+(brace_escape) @string.escape
 (marker) @keyword
 (inline_kind) @keyword
 (verbatim_kind) @keyword
 
-; Parsed inline delimiters.
-(inline_element
-  "[" @punctuation.bracket
-  "]" @punctuation.bracket)
-
-(member_separator) @punctuation.delimiter
-(argument_separator) @punctuation.delimiter
+[
+  "{"
+  "}"
+] @punctuation.bracket
 
 (verbatim_open) @punctuation.delimiter
-(raw_tail_open) @punctuation.delimiter
 
-; Raw payloads are syntax nodes because they change the lexical mode.
 ((inline_verbatim (raw_text) @markup.raw)
   (#set! priority 90))
-((verbatim_argument (raw_text) @markup.raw)
-  (#set! priority 90))
 (verbatim_block (raw_text) @markup.raw.block)
-(raw_tail (raw_text) @markup.raw.block)
 
-; Recovery nodes represent incomplete editor input, not valid strict syntax.
 [
-  (incomplete_inline_element)
+  (incomplete_marked_group)
+  (incomplete_anonymous_group)
 ] @error

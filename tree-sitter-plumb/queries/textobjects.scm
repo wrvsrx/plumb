@@ -4,16 +4,12 @@
   (paragraph)
 ] @block.outer
 
-[
-  (block_body)
-  (headed_body)
-  (raw_tail)
-] @block.inner
+(block_body) @block.inner
 
 [
-  (inline_element)
+  (marked_group)
+  (anonymous_group)
   (inline_verbatim)
 ] @inline.outer
 
-(parsed_inline_content) @inline.inner
-(verbatim_argument) @inline.inner
+(inline_content) @inline.inner

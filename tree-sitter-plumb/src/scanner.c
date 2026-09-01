@@ -1,9 +1,8 @@
 // plumb external scanner.
 //
 // Locality budget (core syntax reference §2): scanner state carries only the
-// indentation stack and the verbatim margin. Inline token recognition stays
-// on one physical line; raw blank runs look ahead to the next nonblank line so
-// internal blank payload and trailing block layout remain distinguishable.
+// indentation stack and the fixed block-verbatim margin. Inline token
+// recognition stays on one physical line.
 
 #include "tree_sitter/parser.h"
 
@@ -118,23 +117,7 @@ static bool scan_raw_code_line(Scanner *scanner, TSLexer *lexer,
       lexer->result_symbol = RAW_CODE_LINE;
       return true;
     }
-    if (spaces > 0) return false;
-
-    for (;;) {
-      take(lexer);
-      uint32_t next_spaces = 0;
-      while (lexer->lookahead == ' ' && next_spaces < verbatim_indent) {
-        take(lexer);
-        next_spaces++;
-      }
-      if (lexer->lookahead == '\n') continue;
-      if (lexer->lookahead == 0 || next_spaces < verbatim_indent) return false;
-      while (lexer->lookahead != '\n' && lexer->lookahead != 0) take(lexer);
-      if (lexer->lookahead == '\n') take(lexer);
-      lexer->mark_end(lexer);
-      lexer->result_symbol = RAW_CODE_LINE;
-      return true;
-    }
+    return false;
   }
   if (spaces < verbatim_indent) {
     uint16_t current = scanner->indents[scanner->depth];
@@ -175,7 +158,7 @@ static bool scan_strengthened_close(TSLexer *lexer, uint16_t quotes) {
   take(lexer);
 
   while (lexer->lookahead != 0 && lexer->lookahead != '\n') {
-    if (lexer->lookahead != ']') {
+    if (lexer->lookahead != '}') {
       take(lexer);
       continue;
     }
@@ -195,9 +178,10 @@ static bool scan_strengthened_close(TSLexer *lexer, uint16_t quotes) {
 }
 
 static bool scan_verbatim_close(TSLexer *lexer, uint16_t quotes) {
-  if (lexer->lookahead == '[') {
+  if (lexer->lookahead == '{') {
     return scan_strengthened_close(lexer, quotes);
   }
+  if (quotes >= 2) return true;
   if (quotes != 1 || lexer->lookahead == '\n' || lexer->lookahead == 0) {
     return false;
   }
@@ -214,10 +198,11 @@ static bool scan_verbatim_close(TSLexer *lexer, uint16_t quotes) {
 // Dispatch lookahead may advance the lexer, but must not mark or emit a token.
 static enum BacktickDispatch classify_verbatim_after_open(TSLexer *lexer,
                                                           uint16_t quotes) {
-  if (lexer->lookahead == '[') {
+  if (lexer->lookahead == '{') {
     return scan_strengthened_close(lexer, quotes) ? BACKTICK_INLINE_VERBATIM
                                                    : BACKTICK_VERBATIM_BLOCK;
   }
+  if (quotes >= 2) return BACKTICK_INLINE_VERBATIM;
   if (quotes != 1 || lexer->lookahead == '\n' || lexer->lookahead == 0) {
     return BACKTICK_VERBATIM_BLOCK;
   }
@@ -234,18 +219,16 @@ static enum BacktickDispatch classify_verbatim_after_open(TSLexer *lexer,
 
 static bool is_name_char(int32_t character) {
   return character != 0 && character != ' ' && character != '\t' &&
-         character != '\n' && character != '\r' && character != '[' &&
-         character != ']' && character != '`' && character != '"' &&
-         character != '|' &&
+         character != '\n' && character != '\r' && character != '{' &&
+         character != '}' && character != '`' && character != '"' &&
          !(character >= 0x01 && character <= 0x1f) &&
          !(character >= 0x7f && character <= 0x9f);
 }
 
 static enum BacktickDispatch classify_backtick_dispatch(TSLexer *lexer) {
   take(lexer);
-  if (lexer->lookahead == '`' || lexer->lookahead == '[' ||
-      lexer->lookahead == ']' || lexer->lookahead == '|' ||
-      lexer->lookahead == ' ') {
+  if (lexer->lookahead == '`' || lexer->lookahead == '{' ||
+      lexer->lookahead == '}') {
     return BACKTICK_ESCAPE;
   }
 
@@ -259,7 +242,7 @@ static enum BacktickDispatch classify_backtick_dispatch(TSLexer *lexer) {
     take(lexer);
     has_kind = true;
   }
-  if (has_kind && lexer->lookahead == '[') return BACKTICK_PARSED_INLINE;
+  if (has_kind && lexer->lookahead == '{') return BACKTICK_PARSED_INLINE;
   if (lexer->lookahead == '"') {
     uint16_t quotes = scan_quote_run(lexer);
     return scan_verbatim_close(lexer, quotes) ? BACKTICK_INLINE_VERBATIM
@@ -287,7 +270,7 @@ static bool scan_verbatim_block_open(Scanner *scanner, TSLexer *lexer,
     return valid_symbols[INLINE_VERBATIM_TOKEN];
   }
 
-  scanner->verbatim_margin = quotes;
+  scanner->verbatim_margin = 1;
   lexer->result_symbol = VERBATIM_BLOCK_OPEN;
   return true;
 }
@@ -319,7 +302,7 @@ static bool scan_inline_verbatim_body(TSLexer *lexer) {
 static bool scan_inline_verbatim_member_body(TSLexer *lexer) {
   if (lexer->lookahead != '"') return false;
   uint16_t quotes = scan_quote_run(lexer);
-  if (lexer->lookahead != '[' || !scan_strengthened_close(lexer, quotes)) {
+  if (lexer->lookahead != '{' || !scan_strengthened_close(lexer, quotes)) {
     return false;
   }
   lexer->mark_end(lexer);
@@ -335,8 +318,8 @@ static bool scan_inline_child_kind(TSLexer *lexer) {
   lexer->mark_end(lexer);
   if (lexer->lookahead == '"') {
     scan_quote_run(lexer);
-    if (lexer->lookahead != '[') return false;
-  } else if (lexer->lookahead != '[') {
+    if (lexer->lookahead != '{') return false;
+  } else if (lexer->lookahead != '{') {
     return false;
   }
   lexer->result_symbol = INLINE_CHILD_KIND;

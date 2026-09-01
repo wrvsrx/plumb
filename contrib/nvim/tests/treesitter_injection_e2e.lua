@@ -25,7 +25,7 @@ local function parse_injection(lines, language)
   return bufnr, parser:trees()[1]:root(), tree:root()
 end
 
-local diary_lines = { '`= title|diary', '' }
+local diary_lines = { '`= title diary', '' }
 for index = 1, 100 do
   diary_lines[#diary_lines + 1] = '`### 2026-08-' .. string.format('%02d', (index - 1) % 31 + 1)
   diary_lines[#diary_lines + 1] = ''
@@ -43,14 +43,10 @@ assert(
 vim.api.nvim_buf_delete(diary_buf, { force = true })
 
 local plumb_buf, _, plumb_root = parse_injection({
-  '`plumb',
-  '',
-  ' `@ recursive-example',
-  '',
-  '|"',
+  '`plumb"',
   ' `- xixi',
-  '  `= recur|P1D',
-  '',
+  '  `= recur P1D',
+  ' ',
   ' `# some',
 }, 'plumb')
 assert(not plumb_root:has_error(), 'recursive plumb injection must parse without errors')
@@ -60,9 +56,7 @@ assert(plumb_tree:find('block_body', 1, true), 'recursive injection must preserv
 vim.api.nvim_buf_delete(plumb_buf, { force = true })
 
 local python_buf, outer_root, python_root = parse_injection({
-  '`python',
-  '',
-  '|"',
+  '`python"',
   ' def greet(name):',
   '     if name:',
   '         return f"hello {name}"',
