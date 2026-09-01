@@ -8,3 +8,4 @@ license.workspace = true
 plumb-edit = { path = "../plumb-edit" }
 plumb-syntax = { path = "../plumb-syntax" }
 plumb-syntax-legacy-v1 = { path = "../plumb-syntax-legacy-v1" }
+plumb-syntax-legacy-v2 = { path = "../plumb-syntax-legacy-v2" }

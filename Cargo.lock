@@ -1887,6 +1887,7 @@ dependencies = [
  "plumb-edit",
  "plumb-syntax",
  "plumb-syntax-legacy-v1",
+ "plumb-syntax-legacy-v2",
 ]
 
 [[package]]
@@ -1929,6 +1930,13 @@ dependencies = [
 
 [[package]]
 name = "plumb-syntax-legacy-v1"
+version = "0.37.2-dev"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "plumb-syntax-legacy-v2"
 version = "0.37.2-dev"
 dependencies = [
  "serde",
