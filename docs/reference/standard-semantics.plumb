@@ -23,8 +23,9 @@ direct marked groups：
 `plumb"
  `node{visible `@{stable} `+{notice} `={level 2}}
 
-id/facet value 必须是一个 nonempty plain datum。property first datum 是 nonempty plain key，remaining data
-sequence 是 value。recognized declarations 不占 owner positional indexes，并从 rendered body/details 中过滤；
+id/facet value 必须是一个 nonempty plain positional element。property first positional element是 nonempty plain
+key，remaining elements sequence是 value。recognized declarations与 whitespace不占 owner positional indexes，
+并从 rendered body/details 中过滤；
 underlying core sequence 不删除、不重排。unknown marked owner 保持 ordinary content。
 
 declarations 可以 source-order interleave。duplicate/owner-specific constraints由对应 recognizer 诊断。显式 id
@@ -48,8 +49,8 @@ plain content 生成，fallback marker/block，并在 document 内加 numeric su
 `"-" 与 `"." 是 bullet/ordered item。相邻同 marker siblings 形成 list；marker 切换或 intervening body block
 结束 group。nested item 形成 nested list。ordered list 固定从 1 开始；`"item" generic。
 
-`":" 是 definition entry。没有 non-declaration children 时，first datum 是 term，remaining head data 共同形成
-inline body；multiword term 使用 anonymous group。存在 body children 时，完整 trimmed head 是 term，children
+`":" 是 definition entry。没有 non-declaration children 时，first positional element是 term，remaining head
+elements共同形成 inline body；multi-element term使用 anonymous group。存在 body children 时，完整 trimmed head 是 term，children
 形成 block body：
 
 `plumb"
@@ -78,7 +79,7 @@ document identity 是 normalized workspace-relative path。direct top-level `"="
  `= author
   `= name Alice
 
-leaf property first datum 是 key，remaining data sequence 是 scalar value；key with spaces 用 anonymous group。
+leaf property first positional element是 key，remaining elements是 scalar value；key with spaces 用 anonymous group。
 有 children 时完整 head 是 key，children value shape 是：
 
 `- zero children/null。
@@ -96,10 +97,10 @@ stem，created 取 operation local RFC 3339；通过 plumb-edit 生成 current s
 
 `# 6. Links
 
-唯一 standard Link kind 是 `"->"。direct declaration不占 positional index。一个 non-declaration datum 产生
-derived-label Link：原 datum 是 rich label，其递归 Stringify value 是 target。两个或更多 data 产生
-explicit-label Link：first 是 rich label，所有 remaining data 共同形成 target，并在相邻 data 间产生一个
-semantic space后递归 Stringify。两种 arity 都是同一种 Link semantic record；zero data invalid：
+唯一 standard Link kind 是 `"->"。direct declaration与 whitespace不占 positional index。一个 non-declaration
+element产生 derived-label Link：原 element是 rich label，其递归 Stringify value 是 target。两个或更多 elements
+产生 explicit-label Link：first 是 rich label，所有 remaining source-ordered elements共同形成 target，保留其间
+internal whitespace后递归 Stringify。两种 arity 都是同一种 Link semantic record；zero positional elements invalid：
 
 `plumb"
  `->{guide.plumb}
@@ -112,11 +113,11 @@ semantic space后递归 Stringify。两种 arity 都是同一种 Link semantic r
  `->{{external target} https://example.test}
 
 Stringify 递归遍历 Text、SpaceRun、SoftBreak、Group 与 Verbatim；envelope/marker不贡献字符，每层 direct
-declaration被过滤，positional data之间产生一个 semantic space。empty Stringify invalid。Link 对 enclosing
+declaration被过滤，argument内部 whitespace run各产生一个 semantic space。empty Stringify invalid。Link 对 enclosing
 plain-text projection只贡献原 rich label；target 不进入 title/details/scalar。
 
-因此 multi-datum target不需要 anonymous group；derived-label Link 的 multiword target仍必须作为一个 group datum
-或 compact verbatim payload，否则 first datum会成为 explicit label，remaining data会成为 target。
+derived-label Link 的 multi-element target必须使用一个 anonymous Group或 compact verbatim payload，否则 first
+element会成为 explicit label，remaining elements会成为 target。direct adjacency本身不建立隐式组合。
 
 URI scheme 或 `"//" prefix 是 absolute/network target；其他是 source-document-relative raw filesystem path。
 不 percent encode/decode/normalize；UTF-8、spaces、`"%"、`"?" literal。`"#" 唯一分隔 explicit anchor，path
@@ -131,7 +132,7 @@ marked inline verbatim 是 derived-label Link 的 compact spelling：
 
 payload nonempty，同时作为 label/target；上面的 one-verbatim-argument group 与 compact marked inline verbatim
 spelling semantic-equivalent。Link record与 graph edge不按 derived/explicit label 或 parsed/verbatim spelling分类。
-completion 在 explicit-label Link target、derived-label Link datum 与 compact payload 的 explicit anchor component
+completion 在 explicit-label Link target、derived-label Link element 与 compact payload 的 explicit anchor component
 提供 workspace documents/anchors；delimiter collision 使用 full quote strength，不改 raw path。
 
 `# 7. Images and file attachments
@@ -171,7 +172,7 @@ declarations 通过 Pandoc inner Div 保留。
 ordinary owner content/children/declarations。anonymous block/group 与 explicit `"()" owner 是不同 syntax
 category，但 official export 的 visible wrapper transparent。
 
-六种 inline style marker 每个要求 exactly one non-declaration datum：
+六种 inline style marker 每个要求 exactly one non-declaration positional element：
 
 `plumb"
  `*{emphasis}
@@ -181,7 +182,7 @@ category，但 official export 的 visible wrapper transparent。
  `^{superscript}
  `_{subscript}
 
-rich content 含 direct spaces 时使用 anonymous group 形成 one outer datum。export 分别为 Emph、Strong、mark
+rich content含多个 direct elements时使用 anonymous Group形成 one outer element。export 分别为 Emph、Strong、mark
 Span、Strikeout、Superscript、Subscript；presentation italic/bold 不是独立 semantics。
 
 `# 10. Tasks
@@ -225,7 +226,7 @@ list item 通过 direct `"+ event" facet 成为 event，与 task facet mutually 
   `= timezone +08:00
   `= tasks #write-parser
 
-first head datum 是 nonempty plain schedule，所有 remaining head data 共同形成 nonempty title；event 不再使用
+first head positional element是 nonempty plain schedule，所有 remaining head elements共同形成 nonempty title；event 不再使用
 kind-specific pipe parser。body children details。schedule 是 point START 或 half-open START--END。START 接受
 HH/HH:MM/HH:MM:SS、YYYY-MM-DDTTIME 或 full RFC 3339；END 接受 TIME/date-time 并继承 start offset，time-only
 end 早于 start 时 rollover next day。resolved end 必须 later。
@@ -236,7 +237,7 @@ deterministically derivation；source uid/when opaque。vdir export 是 managed 
 
 `# 12. Tables
 
-`"table" direct `"-" children 是 rows。nonempty row head 的每个 direct datum 是 compact inline cell；SpaceRun
+`"table" direct `"-" children 是 rows。nonempty row head 的每个 direct positional element是 compact inline cell；SpaceRun
 width 是 formatting padding，不改变 columns，empty group 是 empty cell：
 
 `plumb"
@@ -289,5 +290,5 @@ margin/raw-tail source 使用：
 更早 attached/document-group/head-space/task-event-marker epochs 仍由各 frozen reader/converter 输入，并最终输出
 current syntax。earlier attributed-verbatim Link 的 frozen intermediate
 `"{code[|"[label]"|=[to|target]]}" 由 member-envelope-v1 恢复成 positional Link，不把 `"to" 保留为
-generic child。ordinary property 仍保持 first datum key、remaining data value。migration 完成后才运行 official
+generic child。ordinary property 仍保持 first element key、remaining elements value。migration 完成后才运行 official
 semantics；current parser 不进行 epoch detection。

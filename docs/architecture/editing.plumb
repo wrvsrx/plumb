@@ -15,13 +15,13 @@ OwnedBlock/OwnedInline 是 source-independent constructible counterpart，不是
 optional marker、parsed head/direct children 或 terminal verbatim payload；Owned inline 表达 Text、Space、
 anonymous/marked Group 与 optional-marker Verbatim。
 
-positional arguments 由 structured API 构造：caller 传 ordered data，edit layer 决定 SpaceRun、anonymous group
-与 empty group。caller 不在 flat sequence 中手工插 delimiter。property/definition helper 按 first datum +
-remaining sequence生成 current shape。
+positional arguments 由 structured API 构造：caller 传 ordered element arguments，edit layer 决定 SpaceRun、
+anonymous Group与 empty Group。caller 不在 flat sequence 中手工插 delimiter。property/definition helper 按
+first element + remaining sequence生成 current shape。
 
 generic declarations仍可由 OwnedAttribute convenience 转成 direct `"@"/`"+"/`"=" owners；meaning 不进入 edit
-layer。Owned conversion from syntax 必须把 InlineContent datum ranges 投影回 owned boundaries，使 property
-retain/remove/update 能识别 current source。
+layer。Owned conversion from syntax直接保持 InlineContent elements与 SpaceRun，使 property retain/remove/update
+能识别 first/rest boundaries；不得重建 hidden datum descriptors。
 
 `# 3. Canonical rendering
 
@@ -29,8 +29,8 @@ canonical rules：
 
 `- child column 是 owner column 加一 ASCII space。
 `- marked block content 与 marker 之间 one ASCII space；anonymous block无 marker prefix。
-`- ordinary direct datum boundary输出 one ASCII space；explicit alignment 可以增加 SpaceRun width。
-`- group boundary不保留 leading/trailing padding；empty datum输出 `"{}"。
+`- ordinary direct element boundary在需要 separator时输出 one ASCII space；explicit alignment 可以增加 SpaceRun width。
+`- group boundary不保留 leading/trailing padding；empty positional element输出 `"{}"。
 `- literal backtick/braces 使用 core introducer escapes；brackets/pipe ordinary。
 `- inline verbatim优先 compact quote；quote/leading-brace/closing collision 使用 minimal full quote strength。
 `- block verbatim opener optional marker + one quote；每个 raw line只增加 one structural margin，并逐 byte 保持
@@ -73,15 +73,15 @@ update 要 retain opaque declarations/body，property remove/add后重新 align 
 
 `# 7. Alignment
 
-Align arguments 在 current syntax 中对 direct SpaceRun boundaries操作。eligible run 是至少两个 same-marker、
-same datum count、single-line、childless、non-verbatim sibling blocks。每个 column 使用 locked unicode-width
-display width；每个 edit替换 adjacent datum ranges之间现有的完整 direct SpaceRun，不在 datum boundary插入额外
+Align arguments 在 current syntax 中对 direct positional element之间的 SpaceRun boundaries操作。eligible run 是
+至少两个 same-marker、same positional-element count、single-line、childless、non-verbatim sibling blocks。每个
+column 使用 locked unicode-width display width；每个 edit替换 adjacent element ranges之间现有的完整 direct SpaceRun，不在 boundary插入额外
 padding。只改 separator spaces，不改 content、groups、verbatim、marker、indentation 或 line ending；对已对齐 run
 再次执行必须返回 zero edits。
 
-ordinary formatter canonicalize unaligned boundary 至 one space；若 eligible same-marker run 的每个后续 datum 已有
+ordinary formatter canonicalize unaligned boundary 至 one space；若 eligible same-marker run 的每个后续 element已有
 一致 display start column，则保留 direct SpaceRun widths，使 explicit alignment成为 formatter fixed point。formatter
-不主动对齐 unaligned run。table compact rows 因每个 direct datum 是 cell，alignment不改变 arity。tabs 或
+不主动对齐 unaligned run。table compact rows 因每个 direct positional element是 cell，alignment不改变 arity。tabs 或
 incompatible shapes 时 operation unavailable。
 
 `# 8. Recovered-source assists

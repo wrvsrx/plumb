@@ -48,21 +48,22 @@ typed structure 统一为 optional-marker recursive owners：
 current Rust API 用 ParsedBlock/VerbatimBlock enum variants 表达 BlockContent，但 observable ownership 与上面
 model 等价。anonymous/marked parsed blocks 共享 children；VerbatimBlock children 固定为空。
 
-`# 4. Inline data projection
+`# 4. Inline element contract
 
-InlineContents 直接保存唯一一份 source-ordered elements，包括 direct SpaceRun 与 SoftBreak。typed positional data
-按 direct SpaceRun/SoftBreak 计算 ranged projection：每项只保存 item/range indexes，不复制、移除或重排
-separator。SoftBreak range覆盖 physical line ending与下一行 structural continuation indentation，typed plain-text
-projection视为一个 semantic space。
-repeated spaces 不产生 empty datum；empty Group 是 explicit empty datum。
+InlineContents 只保存唯一一份 source-ordered elements，包括 direct SpaceRun 与 SoftBreak；没有 InlineDatum、
+segment、argument descriptor或对应的 stored range/index projection。Text 在 direct whitespace、special entry或
+boundary处结束，Group/Verbatim各自是 parent depth的一个 element。SoftBreak range覆盖 physical line ending与
+下一行 structural continuation indentation，typed plain-text projection视为一个 semantic space。
+SpaceRun/SoftBreak不占 semantic positional index；repeated whitespace不产生 empty value，empty Group 是 explicit
+empty positional element。
 
 Group content 递归使用同一 structure。没有 InlineMember、parsed/verbatim argument variants 或 bracket/pipe
 separator ranges。generic direct declaration view 可以从 direct marked owners 投影 id/facet/pair
 ranges，但 underlying owner sequence 保持不变。
 
 plain-text traversal 展开 anonymous/generic group、保留 SpaceRun，并让 semantic profile 对 Link 等 known
-owners选择 visible data。kind-specific consumer 必须使用 typed datum/declaration views，不能自行按 source
-string split。
+owners选择 visible elements。kind-specific consumer直接在 element sequence上过滤 declarations与 whitespace并
+声明 first/rest、each或 exactly-one binding，不能自行按 source string split。
 
 `# 5. Source ranges
 

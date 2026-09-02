@@ -30,7 +30,7 @@ quote 或 braces。ASCII space 是唯一 parsed separator；tab、其他 control
 
 每条 nonblank physical line开始一个 block，或在第 5 节条件下继续 preceding parsed owner 的 InlineContents。普通
 line 产生 anonymous parsed block。introducer-marker 后为 line ending 或 ASCII SpaceRun 时产生 marked parsed
-block；marker 后的 SpaceRun 进入 lossless InlineContents，但 typed boundary view 不把它算作首 datum content。
+block；marker 后的 SpaceRun 进入 lossless InlineContents，但不占 positional element index。
 
 marker 紧邻 opening brace 或同一行 quote envelope 时不构成 block marker entry：整行是 anonymous parsed
 block，inline parser 从 marked group/verbatim 开始。因此：
@@ -69,16 +69,17 @@ zero 开始。structural tab
 
 verbatim block 的 content 是 terminal raw payload，因此不能拥有 structural children。
 
-`# 5. InlineContents、continuation、SpaceRun 与 datum
+`# 5. InlineContents、continuation 与 positional elements
 
 InlineContents losslessly 保存 source-ordered Text、SpaceRun、SoftBreak、Group 与 Verbatim。一个或多个 direct ASCII
-spaces 产生一个 SpaceRun；leading/trailing runs 是 boundary padding，internal run 在当前 inline depth
-分隔 positional data。SpaceRun width 完整保留，但 repeated spaces 不产生 empty datum。
+spaces 产生一个 SpaceRun。Text 在 direct space、special entry 或 content boundary处结束；Group/Verbatim 各自在
+parent depth始终是一个 element。SpaceRun width 完整保留，SpaceRun 与 SoftBreak 不占 positional index，
+repeated spaces 不产生 empty positional element。
 
 parsed owner 后立即出现的更深缩进 plain line继续该 owner 的 InlineContents；plain line 不能是 marked/verbatim
 block entry，且 owner 与 continuation 之间不能有 blank line。第一条 continuation 建立 continuation column；连续
 continuation lines 必须匹配该 column。physical boundary 与 structural indentation losslessly 形成 SoftBreak，typed
-datum/plain-text projection把它视为一个 semantic space。formatter 不保留 physical wrapping，而把 SoftBreak
+plain-text/argument projection把它视为一个 semantic space。formatter 不保留 physical wrapping，而把 SoftBreak
 规范化为一个 ASCII space。
 
 blank line 结束 continuation phase；其后的更深缩进 plain line是 anonymous child block。marked/verbatim child 由
@@ -90,14 +91,15 @@ introducer dispatch消除二义性，不要求前置 blank line：
 
 相对地，`"`= title" 后先出现 blank line，再出现缩进的 `"block value" 时，后者是 anonymous child。
 
-一个 datum 是一个或多个没有 direct SpaceRun/SoftBreak 分隔的 adjacent terms。相邻 text/owner 可以形成 rich datum：
+direct adjacency不合并 elements：
 
 `plumb"
  prefix`!{strong}suffix
 
-empty datum 只能写作 empty anonymous group，不从 repeated separators 推测。typed datum view 保存每个 datum
-的 item/range projection；Space elements 仍只存一份并留在 lossless sequence。plain-text projection 保留
-semantic spaces，kind-specific consumer 不得自行 split source string。
+上例是 `"Text(prefix)"、`"Group(!, strong)"、`"Text(suffix)" 三个 positional elements。需要多个 adjacent
+elements共同占一个 semantic argument时使用 anonymous Group。empty positional element只能写作 empty anonymous
+Group，不从 repeated whitespace推测。InlineContents 不保存 datum/segment projection；kind-specific consumer
+在 semantic layer声明 element binding，不能自行 split source string。
 
 `# 6. Anonymous 与 marked groups
 
@@ -110,8 +112,8 @@ marker 与紧邻 braces：
  `->{{guide with spaces} {Project Guide.plumb}}
  `node{visible `@{stable} `={key value}}
 
-group 可以 arbitrary nesting，但不能跨 physical line。整个 group 在 parent depth 是一个 term；group 内
-SpaceRun 只影响 inner data。marker 是 owner field，不是 content 的 first datum。empty group 合法。
+group 可以 arbitrary nesting，但不能跨 physical line。整个 group 在 parent depth 是一个 element；group 内
+elements不改变 parent count。marker 是 owner field，不是 content 的 first positional element。empty group 合法。
 
 core 保存 group 的 source-ordered InlineContents，不区分 argument/child variants，也不解释 `"@"、`"+"、
 `"=" spelling。generic direct-declaration projection可以从 direct marked owners 提取 ranges/value，但不得
@@ -169,8 +171,9 @@ empty payload、EOF 和 payload 中任意 syntax-like bytes 合法。没有 clos
 `# 9. Direct declaration projection
 
 document 与 parsed owner 都保存一个 source-ordered direct sequence。generic projection 可以识别 direct
-leaf-shaped `"@"、`"+" 与 `"=" owners：id/facet 的 visible value 必须是一个 plain datum；property 使用
-first datum 作为 key、remaining data sequence 作为 value。完整 declaration range 与 key/value range 都
+leaf-shaped `"@"、`"+" 与 `"=" owners：id/facet 的 visible value 必须是一个 plain positional element；property
+使用 first positional element作为 key、remaining element sequence作为 value。whitespace 与 recognized direct
+declarations不占 positional index。完整 declaration range 与 key/value range 都
 source-backed。inline group 使用同一 projection。
 
 该 projection 不把 declaration 从 tree 移除。semantic profile 决定是否消费、filter、validate 或保留；
