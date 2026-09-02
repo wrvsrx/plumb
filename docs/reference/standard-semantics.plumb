@@ -267,7 +267,7 @@ drop。
 
 `# 14. Migration
 
-current profile 只解释 recursive-owner epoch。former `"[]"/`"|" member-envelope、continuation、quote-count block
+current profile 只解释 recursive-owner epoch。former `"[]"/`"|" member-envelope、quote-count block
 margin/raw-tail source 使用：
 
 `plumb"

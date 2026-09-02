@@ -28,8 +28,8 @@ quote 或 braces。ASCII space 是唯一 parsed separator；tab、其他 control
 
 `# 3. Block dispatch
 
-每条 nonblank physical line 恰好开始一个 block，不存在 paragraph/head continuation 或 SoftBreak。普通 line
-产生 anonymous parsed block。introducer-marker 后为 line ending 或 ASCII SpaceRun 时产生 marked parsed
+每条 nonblank physical line开始一个 block，或在第 5 节条件下继续 preceding parsed owner 的 InlineContents。普通
+line 产生 anonymous parsed block。introducer-marker 后为 line ending 或 ASCII SpaceRun 时产生 marked parsed
 block；marker 后的 SpaceRun 进入 lossless InlineContents，但 typed boundary view 不把它算作首 datum content。
 
 marker 紧邻 opening brace 或同一行 quote envelope 时不构成 block marker entry：整行是 anonymous parsed
@@ -60,7 +60,8 @@ dedent 必须返回 indentation stack 中已有 column。canonical child column 
   `child one
   `child two
 
-blank line 是 layout，不建立 block 或改变 indentation。top-level block 从 column zero 开始。structural tab
+blank line 是 layout，不建立 block 或改变 indentation，但会阻断 inline continuation。top-level block 从 column
+zero 开始。structural tab
 是 error。需要 explicit empty anonymous block 时使用 empty group：
 
 `plumb"
@@ -68,13 +69,28 @@ blank line 是 layout，不建立 block 或改变 indentation。top-level block 
 
 verbatim block 的 content 是 terminal raw payload，因此不能拥有 structural children。
 
-`# 5. InlineContents、SpaceRun 与 datum
+`# 5. InlineContents、continuation、SpaceRun 与 datum
 
-InlineContents losslessly 保存 source-ordered Text、SpaceRun、Group 与 Verbatim。一个或多个 direct ASCII
+InlineContents losslessly 保存 source-ordered Text、SpaceRun、SoftBreak、Group 与 Verbatim。一个或多个 direct ASCII
 spaces 产生一个 SpaceRun；leading/trailing runs 是 boundary padding，internal run 在当前 inline depth
 分隔 positional data。SpaceRun width 完整保留，但 repeated spaces 不产生 empty datum。
 
-一个 datum 是一个或多个没有 direct SpaceRun 分隔的 adjacent terms。相邻 text/owner 可以形成 rich datum：
+parsed owner 后立即出现的更深缩进 plain line继续该 owner 的 InlineContents；plain line 不能是 marked/verbatim
+block entry，且 owner 与 continuation 之间不能有 blank line。第一条 continuation 建立 continuation column；连续
+continuation lines 必须匹配该 column。physical boundary 与 structural indentation losslessly 形成 SoftBreak，typed
+datum/plain-text projection把它视为一个 semantic space。formatter 不保留 physical wrapping，而把 SoftBreak
+规范化为一个 ASCII space。
+
+blank line 结束 continuation phase；其后的更深缩进 plain line是 anonymous child block。marked/verbatim child 由
+introducer dispatch消除二义性，不要求前置 blank line：
+
+`plumb"
+ `= title
+  inline value
+
+相对地，`"`= title" 后先出现 blank line，再出现缩进的 `"block value" 时，后者是 anonymous child。
+
+一个 datum 是一个或多个没有 direct SpaceRun/SoftBreak 分隔的 adjacent terms。相邻 text/owner 可以形成 rich datum：
 
 `plumb"
  prefix`!{strong}suffix
@@ -172,6 +188,7 @@ ValidDocument。authoritative semantics、export 与 valid-tree mutation 只接�
 `# 11. Recovery
 
 `- malformed block entry：current physical line。
+`- continuation partial indent：发布 structural diagnostic，并在 established continuation/owner column恢复。
 `- unmatched group opener/closer：current physical line；不消费下一 block。
 `- unclosed inline verbatim：current physical line ending/EOF。
 `- structural tab/partial dedent：发布最具体 structural diagnostic，并在最近合法 column 继续。
@@ -182,8 +199,8 @@ stack；语言不从 Rust call stack 获得 nesting depth limit。
 
 `# 12. Removed member-envelope epoch
 
-bracket inline envelope、pipe argument/member separator、paragraph continuation、SoftBreak、delimiter-escaped
-brackets/pipe、quote-count block margin 与 pipe raw-tail 都不是 current syntax。isolated
+bracket inline envelope、pipe argument/member separator、delimiter-escaped brackets/pipe、quote-count block margin 与
+pipe raw-tail 都不是 current syntax。isolated
 `"plumb-syntax-legacy-v2" 只服务 explicit migration：
 
 `plumb"

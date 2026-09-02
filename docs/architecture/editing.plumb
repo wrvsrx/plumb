@@ -37,14 +37,15 @@ canonical rules：
  typed payload。
 `- raw blank payload line输出 margin；terminal raw 不添加 synthetic closing/layout bytes。
 
-formatter 不插 physical wrapping，因为 newline 是 block boundary。CRLF edits 保持 document line ending。
+formatter 不插 physical wrapping；parsed continuation SoftBreak规范化为一个 ASCII space。CRLF edits 保持 document
+line ending。
 
 `# 4. Spacing between blocks
 
-owner 与 first child 之间 one line ending。direct siblings same marker、previous childless 时紧凑相邻；different
-marker、subtree/semantic separation 可保留一个 blank separator。verbatim payload 与 following block 分隔但不
-让 layout blank进入 payload。range formatting 使用 following sibling 作为 read-only spacing context，不扩大
-mutation range。
+owner 与 marked/verbatim first child 之间 one line ending；anonymous first child 前保留一个 blank separator，避免
+把 child 重解析为 inline continuation。direct siblings same marker、previous childless 时紧凑相邻；different marker、
+subtree/semantic separation 可保留一个 blank separator。verbatim payload 与 following block 分隔但不让 layout
+blank进入 payload。range formatting 使用 following sibling 作为 read-only spacing context，不扩大 mutation range。
 
 `# 5. TextEdit invariants
 
@@ -95,6 +96,8 @@ plumb-migrate owns explicit syntax-epoch conversion。member-envelope-v1 使用 
 parser 不保留 compatibility branch。converter 从 legacy typed tree构造 current OwnedDocument：
 
 `- old block arguments按 semantic-safe policy映射为 current data/groups。
+`- old SoftBreak continuation映射为 current semantic space；anonymous child保持 structural child，并由 formatter
+ 输出 required blank boundary。
 `- old inline arguments在需要 spaces 时加 anonymous group；children变 direct marked groups。
 `- former attributed-verbatim Link 经 earlier converter 形成的
  `"{code[|"[label]"|=[to|target]]}" 必须恢复为 current Link：verbatim label 是 first datum，

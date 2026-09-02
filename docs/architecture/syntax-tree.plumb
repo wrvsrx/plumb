@@ -50,12 +50,14 @@ model 等价。anonymous/marked parsed blocks 共享 children；VerbatimBlock ch
 
 `# 4. Inline data projection
 
-InlineContents 直接保存唯一一份 source-ordered elements，包括 direct SpaceRun。typed positional data 是按
-direct SpaceRun 计算的 ranged projection：每项只保存 item/range indexes，不复制、移除或重排 separator。
+InlineContents 直接保存唯一一份 source-ordered elements，包括 direct SpaceRun 与 SoftBreak。typed positional data
+按 direct SpaceRun/SoftBreak 计算 ranged projection：每项只保存 item/range indexes，不复制、移除或重排
+separator。SoftBreak range覆盖 physical line ending与下一行 structural continuation indentation，typed plain-text
+projection视为一个 semantic space。
 repeated spaces 不产生 empty datum；empty Group 是 explicit empty datum。
 
-Group content 递归使用同一 structure。没有 InlineMember、parsed/verbatim argument variants、SoftBreak 或
-bracket/pipe separator ranges。generic direct declaration view 可以从 direct marked owners 投影 id/facet/pair
+Group content 递归使用同一 structure。没有 InlineMember、parsed/verbatim argument variants 或 bracket/pipe
+separator ranges。generic direct declaration view 可以从 direct marked owners 投影 id/facet/pair
 ranges，但 underlying owner sequence 保持不变。
 
 plain-text traversal 展开 anonymous/generic group、保留 SpaceRun，并让 semantic profile 对 Link 等 known
