@@ -4112,8 +4112,8 @@ fn inferred_end_from_sibling(
     if !matches!(mark.marker.as_str(), "-" | ".") || mark.attrs.has_class("event") {
         return None;
     }
-    let argument = sibling.content.argument(0)?;
-    let shorthand = &source[argument.range.clone()];
+    let content = sibling.content.trim_boundary_padding();
+    let shorthand = &source[content.range.clone()];
     let separator = shorthand
         .char_indices()
         .find_map(|(index, character)| matches!(character, ' ' | '\t').then_some(index))?;
@@ -4562,6 +4562,22 @@ fn link_path_rename_edit(
     path_range: &std::ops::Range<usize>,
     replacement: String,
 ) -> Result<TextEdit, RenameError> {
+    if matches!(link.spelling, LinkSpelling::Positional) && link.target_element_count > 1 {
+        let path_end = match &link.target_kind {
+            LinkTarget::Document { path } => path.len(),
+            LinkTarget::Anchor {
+                path: Some(path), ..
+            } => path.len(),
+            _ => return Err(RenameError::InvalidPath),
+        };
+        let mut new_text =
+            escape_parsed_text(&format!("{replacement}{}", &link.target.value[path_end..]));
+        for declaration in &link.target_declaration_ranges {
+            new_text.push(' ');
+            new_text.push_str(&entry.parsed.source[declaration.clone()]);
+        }
+        return validated_token_edit(entry, link.target_range.clone(), new_text);
+    }
     let LinkSpelling::Verbatim {
         envelope,
         quote_count,

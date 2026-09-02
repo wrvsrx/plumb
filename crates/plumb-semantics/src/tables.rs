@@ -134,7 +134,8 @@ fn analyze_table(table: &ParsedBlock, output: &mut TableOutput) {
 }
 
 fn analyze_row(row: &ParsedBlock, output: &mut TableOutput) -> TableRowRecord {
-    let compact = !row.content.is_empty();
+    let view = crate::owner_semantic_view(&row.content);
+    let compact = !view.positional.is_empty();
     let cells = if compact {
         for child in crate::body_children(row) {
             output.diagnostics.push(diagnostic(
@@ -143,20 +144,12 @@ fn analyze_row(row: &ParsedBlock, output: &mut TableOutput) -> TableRowRecord {
                 child.range().clone(),
             ));
         }
-        row.content
-            .data
+        view.positional
             .iter()
-            .enumerate()
-            .map(|(index, _)| {
-                let content = row
-                    .content
-                    .argument(index)
-                    .expect("an argument descriptor has content");
-                TableCellRecord {
-                    selection_range: content.range.clone(),
-                    range: content.range.clone(),
-                    header: false,
-                }
+            .map(|content| TableCellRecord {
+                selection_range: content.range.clone(),
+                range: content.range.clone(),
+                header: false,
             })
             .collect()
     } else {

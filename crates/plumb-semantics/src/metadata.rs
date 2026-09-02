@@ -332,13 +332,11 @@ fn direct_property_parts(
         let key = plain_association_key(&key_content)?;
         return Some((key, key_content.range.clone(), None));
     }
-    if head.data.is_empty() {
-        return None;
-    }
-    let key_content = head.argument(0)?;
-    let key = plain_association_key(&key_content)?;
-    let key_range = key_content.range.clone();
-    let value = (head.data.len() >= 2).then(|| content_data_range(head, 1, head.data.len()));
+    let view = crate::owner_semantic_view(head);
+    let arguments = view.split_first()?;
+    let key = plain_association_key(arguments.first)?;
+    let key_range = arguments.first.range.clone();
+    let value = arguments.rest_content();
     Some((key, key_range, value))
 }
 
@@ -448,7 +446,7 @@ fn collect_definition_lists<'a>(
                 .map_or_else(|| body_range(block), |body| body.range.clone());
             definitions.push(DefinitionRecord {
                 range: block.range.clone(),
-                term_range: crate::datum_selection_range(&term),
+                term_range: crate::element_selection_range(&term),
                 term,
                 inline_body,
                 body_range: projected_body_range,
@@ -533,19 +531,11 @@ fn plain_association_key(content: &InlineContent) -> Option<String> {
 }
 
 fn split_inline_arguments(content: &InlineContent) -> (InlineContent, Option<InlineContent>) {
-    let term = content.argument(0).unwrap_or_else(|| content.clone());
-    let body =
-        (content.data.len() >= 2).then(|| content_data_range(content, 1, content.data.len()));
-    (term, body)
-}
-
-fn content_data_range(content: &InlineContent, start: usize, end: usize) -> InlineContent {
-    let first = &content.data[start];
-    let last = &content.data[end - 1];
-    InlineContent::from_items(
-        first.range.start..last.range.end,
-        content.items[first.item_range.start..last.item_range.end].to_vec(),
-    )
+    let view = crate::owner_semantic_view(content);
+    let Some(arguments) = view.split_first() else {
+        return (content.clone(), None);
+    };
+    (arguments.first.clone(), arguments.rest_content())
 }
 
 fn definition_block(block: &Block) -> Option<&ParsedBlock> {

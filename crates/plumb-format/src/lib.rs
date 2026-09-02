@@ -1,7 +1,9 @@
 use std::collections::HashMap;
 use std::ops::Range;
 
-use plumb_syntax::{parse, Block, Inline, InlineContent, ParsedBlock, ParsedDocument};
+use plumb_syntax::{
+    inline_range, parse, Block, Inline, InlineContent, ParsedBlock, ParsedDocument,
+};
 use similar::{DiffOp, TextDiff};
 use unicode_width::UnicodeWidthStr;
 
@@ -730,14 +732,17 @@ fn alignment_shape<'a>(source: &str, block: &'a Block) -> Option<(&'a str, usize
         return None;
     };
     let marker = block.mark.as_ref()?.marker.as_str();
-    let datum_count = block.content.data.len();
+    let element_count = block.content.positional_elements().count();
     let content = &source[block.content.range.clone()];
-    (block.children.is_empty() && datum_count >= 2 && !content.contains(['\r', '\n', '\t']))
-        .then_some((marker, datum_count))
+    (block.children.is_empty()
+        && element_count >= 2
+        && !content.contains(['\r', '\n', '\t'])
+        && positional_elements_have_space_boundaries(source, &block.content))
+    .then_some((marker, element_count))
 }
 
-fn run_columns_are_aligned(source: &str, blocks: &[Block], datum_count: usize) -> bool {
-    (1..datum_count).all(|column| {
+fn run_columns_are_aligned(source: &str, blocks: &[Block], element_count: usize) -> bool {
+    (1..element_count).all(|column| {
         let mut starts = blocks.iter().map(|block| {
             let Block::Parsed(block) = block else {
                 unreachable!("alignment shape accepts only parsed blocks")
@@ -750,11 +755,35 @@ fn run_columns_are_aligned(source: &str, blocks: &[Block], datum_count: usize) -
 }
 
 fn argument_start_column(source: &str, block: &ParsedBlock, column: usize) -> usize {
-    let start = block.content.data[column].range.start;
+    let start = inline_range(
+        block
+            .content
+            .positional_elements()
+            .nth(column)
+            .expect("alignment column exists"),
+    )
+    .start;
     let line_start = source[..block.range.start]
         .rfind('\n')
         .map_or(0, |newline| newline + 1);
     UnicodeWidthStr::width(&source[line_start..start])
+}
+
+fn positional_elements_have_space_boundaries(source: &str, content: &InlineContent) -> bool {
+    if content.items.iter().any(|inline| {
+        matches!(
+            inline,
+            Inline::Group { mark: Some(mark), .. }
+                if matches!(mark.marker.as_str(), "@" | "+" | "=")
+        )
+    }) {
+        return false;
+    }
+    let elements = content.positional_elements().collect::<Vec<_>>();
+    elements.windows(2).all(|elements| {
+        let gap = inline_range(elements[0]).end..inline_range(elements[1]).start;
+        !gap.is_empty() && source[gap].bytes().all(|byte| byte == b' ')
+    })
 }
 
 fn minimum_quote_count(text: &str) -> usize {

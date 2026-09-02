@@ -332,10 +332,8 @@ fn append_plain_text(items: &[Inline], output: &mut String) {
         }
         stack.push((items, index + 1));
         match &items[index] {
-            Inline::Text { text, .. }
-            | Inline::Space { text, .. }
-            | Inline::Verbatim { text, .. } => output.push_str(text),
-            Inline::SoftBreak { .. } => output.push(' '),
+            Inline::Text { text, .. } | Inline::Verbatim { text, .. } => output.push_str(text),
+            Inline::Space { .. } | Inline::SoftBreak { .. } => output.push(' '),
             Inline::Group { content, .. } => stack.push((&content.items, 0)),
         }
     }

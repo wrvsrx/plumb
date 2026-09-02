@@ -62,23 +62,18 @@ pub(crate) fn table_structural_item_starts(
 pub(crate) fn inline_selection_range(
     content: &plumb_syntax::InlineContent,
 ) -> std::ops::Range<usize> {
-    let mut normalized = content
-        .data
-        .iter()
-        .enumerate()
-        .filter_map(|(index, _)| content.argument(index))
-        .filter(|argument| !argument.items.is_empty());
-    let Some(first) = normalized.next() else {
+    let view = owner_semantic_view(content);
+    let Some(first) = view.positional.first() else {
         return content.range.end..content.range.end;
     };
-    let mut range = datum_selection_range(&first);
-    for argument in normalized {
-        range.end = datum_selection_range(&argument).end;
+    let mut range = element_selection_range(first);
+    if let Some(last) = view.positional.last() {
+        range.end = element_selection_range(last).end;
     }
     range
 }
 
-pub(crate) fn datum_selection_range(
+pub(crate) fn element_selection_range(
     content: &plumb_syntax::InlineContent,
 ) -> std::ops::Range<usize> {
     match content.items.as_slice() {
@@ -96,13 +91,17 @@ pub(crate) fn datum_selection_range(
     }
 }
 
-pub(crate) struct OwnerSemanticView {
+pub struct OwnerSemanticView<'a> {
+    content: &'a plumb_syntax::InlineContent,
     pub positional: Vec<plumb_syntax::InlineContent>,
+    item_indices: Vec<usize>,
 }
 
-pub(crate) struct FirstRestView<'a> {
+pub struct FirstRestView<'a> {
     pub first: &'a plumb_syntax::InlineContent,
     pub rest: &'a [plumb_syntax::InlineContent],
+    content: &'a plumb_syntax::InlineContent,
+    rest_indices: &'a [usize],
 }
 
 impl FirstRestView<'_> {
@@ -111,48 +110,112 @@ impl FirstRestView<'_> {
     }
 
     pub fn rest_plain_text(&self) -> String {
-        let mut output = String::new();
-        for (index, datum) in self.rest.iter().enumerate() {
-            if index > 0 {
-                output.push(' ');
-            }
-            output.push_str(&text::plain_text(datum));
-        }
-        output
+        self.rest_content()
+            .map_or_else(String::new, |content| text::plain_text(&content))
+    }
+
+    pub fn rest_content(&self) -> Option<plumb_syntax::InlineContent> {
+        semantic_content_from_indices(self.content, self.rest_indices)
+    }
+
+    pub fn rest_has_declarations(&self) -> bool {
+        let (Some(first), Some(last)) = (self.rest_indices.first(), self.rest_indices.last())
+        else {
+            return false;
+        };
+        self.content.items[*first..=*last]
+            .iter()
+            .any(is_inline_declaration)
+    }
+
+    pub fn rest_declaration_ranges(&self) -> Vec<std::ops::Range<usize>> {
+        let (Some(first), Some(last)) = (self.rest_indices.first(), self.rest_indices.last())
+        else {
+            return Vec::new();
+        };
+        self.content.items[*first..=*last]
+            .iter()
+            .filter(|inline| is_inline_declaration(inline))
+            .map(|inline| plumb_syntax::inline_range(inline).clone())
+            .collect()
     }
 }
 
-impl OwnerSemanticView {
+impl OwnerSemanticView<'_> {
     pub fn split_first(&self) -> Option<FirstRestView<'_>> {
         let (first, rest) = self.positional.split_first()?;
-        Some(FirstRestView { first, rest })
+        Some(FirstRestView {
+            first,
+            rest,
+            content: self.content,
+            rest_indices: self.item_indices.get(1..).unwrap_or_default(),
+        })
+    }
+
+    pub fn visible_content(&self) -> Option<plumb_syntax::InlineContent> {
+        semantic_content_from_indices(self.content, &self.item_indices)
     }
 }
 
-pub(crate) fn owner_semantic_view(content: &plumb_syntax::InlineContent) -> OwnerSemanticView {
+pub fn owner_semantic_view(content: &plumb_syntax::InlineContent) -> OwnerSemanticView<'_> {
     let mut positional = Vec::new();
-    for (index, datum) in content.data.iter().enumerate() {
-        let items = &content.items[datum.item_range.clone()];
-        let declaration = matches!(
-            items,
-            [plumb_syntax::Inline::Group {
-                mark: Some(mark),
-                ..
-            }] if matches!(mark.marker.as_str(), "@" | "+" | "=")
-        );
-        if !declaration {
-            if let Some(datum) = content.datum(index) {
-                positional.push(datum);
-            }
+    let mut item_indices = Vec::new();
+    for (index, inline) in content.items.iter().enumerate() {
+        if !inline.is_whitespace() && !is_inline_declaration(inline) {
+            positional.push(plumb_syntax::InlineContent::from_items(
+                plumb_syntax::inline_range(inline).clone(),
+                vec![inline.clone()],
+            ));
+            item_indices.push(index);
         }
     }
-    OwnerSemanticView { positional }
+    OwnerSemanticView {
+        content,
+        positional,
+        item_indices,
+    }
 }
 
-pub(crate) fn positional_data(
+pub(crate) fn positional_elements(
     content: &plumb_syntax::InlineContent,
 ) -> Vec<plumb_syntax::InlineContent> {
     owner_semantic_view(content).positional
+}
+
+fn semantic_content_from_indices(
+    content: &plumb_syntax::InlineContent,
+    indices: &[usize],
+) -> Option<plumb_syntax::InlineContent> {
+    let (first, last) = (*indices.first()?, *indices.last()?);
+    let mut items = Vec::new();
+    for inline in &content.items[first..=last] {
+        if is_inline_declaration(inline) {
+            continue;
+        }
+        if inline.is_whitespace()
+            && items
+                .last()
+                .is_some_and(plumb_syntax::Inline::is_whitespace)
+        {
+            continue;
+        }
+        items.push(inline.clone());
+    }
+    Some(plumb_syntax::InlineContent::from_items(
+        plumb_syntax::inline_range(&content.items[first]).start
+            ..plumb_syntax::inline_range(&content.items[last]).end,
+        items,
+    ))
+}
+
+fn is_inline_declaration(inline: &plumb_syntax::Inline) -> bool {
+    matches!(
+        inline,
+        plumb_syntax::Inline::Group {
+            mark: Some(mark),
+            ..
+        } if matches!(mark.marker.as_str(), "@" | "+" | "=")
+    )
 }
 
 pub fn is_document_declaration(block: &plumb_syntax::Block) -> bool {

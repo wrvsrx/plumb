@@ -2147,6 +2147,42 @@ fn document_rename_preserves_rich_derived_link_label_structure() {
 }
 
 #[test]
+fn document_rename_normalizes_multi_element_targets_and_preserves_declarations() {
+    let mut workspace = Workspace::new();
+    workspace.insert("notes/a.plumb", 1, "`# A\n `@ a\n");
+    let reference = "`->{label `!{a.}`@{link-id}plumb#a}\n";
+    workspace.insert("notes/b.plumb", 2, reference);
+    let link = &workspace
+        .get("notes/b.plumb")
+        .unwrap()
+        .current
+        .as_ref()
+        .unwrap()
+        .output
+        .links[0];
+    assert_eq!(link.target.value, "a.plumb#a");
+    assert_eq!(link.target_element_count, 2);
+    assert_eq!(link.target_declaration_ranges.len(), 1);
+    let target = workspace
+        .path_rename_target_at("notes/b.plumb", link.path_range.as_ref().unwrap().start)
+        .unwrap();
+    let edit = workspace
+        .rename_document(&target, "archive/a.plumb")
+        .unwrap();
+    let incoming = edit
+        .document_changes
+        .iter()
+        .find(|document| document.path == Path::new("notes/b.plumb"))
+        .unwrap();
+    let mut edited = reference.to_string();
+    for text_edit in incoming.edits.iter().rev() {
+        edited.replace_range(text_edit.range.clone(), &text_edit.new_text);
+    }
+    assert_eq!(edited, "`->{label archive/a.plumb#a `@{link-id}}\n");
+    assert!(parse(edited).is_valid());
+}
+
+#[test]
 fn resolves_open_task_dependencies_and_blocked_state() {
     let mut workspace = Workspace::new();
     workspace.insert(

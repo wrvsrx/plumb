@@ -81,6 +81,9 @@ pub struct LinkRecord {
     pub target: SourceBacked<String>,
     pub target_kind: LinkTarget,
     pub spelling: LinkSpelling,
+    pub target_range: Range<usize>,
+    pub target_element_count: usize,
+    pub target_declaration_ranges: Vec<Range<usize>>,
     pub path_range: Option<Range<usize>>,
     pub fragment_range: Option<Range<usize>>,
 }
@@ -252,13 +255,12 @@ fn association_arity_diagnostics(document: &Document) -> Vec<Diagnostic> {
                     mark,
                     content,
                 } => {
-                    let argument_count = crate::positional_data(content).len();
-                    if mark.as_ref().is_some_and(|mark| mark.marker == "=") && argument_count != 2 {
+                    let argument_count = crate::positional_elements(content).len();
+                    if mark.as_ref().is_some_and(|mark| mark.marker == "=") && argument_count < 2 {
                         diagnostics.push(Diagnostic {
                             code: "association.invalid-arity",
                             severity: DiagnosticSeverity::Warning,
-                            message: "inline '=' association requires exactly two arguments"
-                                .to_string(),
+                            message: "inline '=' association requires a key and value".to_string(),
                             range: range.clone(),
                             related: Vec::new(),
                         });
@@ -338,9 +340,9 @@ fn collect_inlines(
                 mark,
                 content,
             } => {
-                let selection_range = crate::positional_data(content)
+                let selection_range = crate::positional_elements(content)
                     .first()
-                    .map_or_else(|| range.clone(), |datum| datum.range.clone());
+                    .map_or_else(|| range.clone(), |element| element.range.clone());
                 if let Some(mark) = mark {
                     collect_anchor(
                         source,
@@ -454,13 +456,19 @@ fn collect_verbatim_link(source: &str, input: VerbatimLink<'_>, output: &mut Doc
         return;
     }
     let envelope = range.start..attrs.range.as_ref().map_or(range.end, |range| range.start);
+    let target_range = text_range.clone();
     push_link(
         range,
         text_range.clone(),
         direct_source_backed(source, text.to_string(), text_range),
-        LinkSpelling::Verbatim {
-            envelope,
-            quote_count,
+        LinkSourceProjection {
+            spelling: LinkSpelling::Verbatim {
+                envelope,
+                quote_count,
+            },
+            target_range,
+            target_element_count: 1,
+            target_declaration_ranges: Vec::new(),
         },
         classify_raw_target(text),
         output,
@@ -721,12 +729,32 @@ fn collect_link(
         return;
     };
     let derived_label = arguments.rest.is_empty();
-    let target_data = if derived_label {
-        std::slice::from_ref(arguments.first)
+    let target_range = if derived_label {
+        arguments.first.range.clone()
     } else {
-        arguments.rest
+        arguments
+            .rest_range()
+            .expect("explicit Link has target elements")
     };
-    let Some(target) = stringify_target(source, target_data) else {
+    let target_element_count = if derived_label {
+        1
+    } else {
+        arguments.rest.len()
+    };
+    let target_declaration_ranges = if derived_label {
+        Vec::new()
+    } else {
+        arguments.rest_declaration_ranges()
+    };
+    let target_content = if derived_label {
+        Some(arguments.first.clone())
+    } else {
+        arguments.rest_content()
+    };
+    let Some(target) = target_content
+        .as_ref()
+        .and_then(|content| stringify_target(source, content))
+    else {
         output.diagnostics.push(Diagnostic {
             code: "link.invalid-target",
             severity: DiagnosticSeverity::Warning,
@@ -755,37 +783,36 @@ fn collect_link(
     };
     push_link(
         range,
-        crate::datum_selection_range(arguments.first),
+        crate::element_selection_range(arguments.first),
         target,
-        LinkSpelling::Positional,
+        LinkSourceProjection {
+            spelling: LinkSpelling::Positional,
+            target_range,
+            target_element_count,
+            target_declaration_ranges,
+        },
         classification,
         output,
     );
 }
 
-fn stringify_target(source: &str, data: &[InlineContent]) -> Option<SourceBacked<String>> {
+fn stringify_target(source: &str, content: &InlineContent) -> Option<SourceBacked<String>> {
     let mut builder = StringifyBuilder::default();
-    stringify_data(source, data, &mut builder);
+    stringify_content(source, content, &mut builder);
     builder.finish(source)
 }
 
 fn stringify_content(source: &str, content: &InlineContent, output: &mut StringifyBuilder) {
     let view = crate::owner_semantic_view(content);
-    stringify_data(source, &view.positional, output);
-}
-
-fn stringify_data(source: &str, data: &[InlineContent], output: &mut StringifyBuilder) {
-    for (index, datum) in data.iter().enumerate() {
-        if index > 0 {
-            let previous = &data[index - 1];
-            output.append_text(source, " ", previous.range.end..datum.range.start);
-        }
-        for inline in &datum.items {
+    if let Some(content) = view.visible_content() {
+        for inline in &content.items {
             match inline {
-                Inline::Text { text, range } | Inline::Space { text, range } => {
+                Inline::Text { text, range } => {
                     output.append_text(source, text, range.clone());
                 }
-                Inline::SoftBreak { range } => output.append_text(source, " ", range.clone()),
+                Inline::Space { range, .. } | Inline::SoftBreak { range } => {
+                    output.append_text(source, " ", range.clone());
+                }
                 Inline::Verbatim {
                     text, text_range, ..
                 } => output.append_text(source, text, text_range.clone()),
@@ -842,14 +869,27 @@ impl StringifyBuilder {
     }
 }
 
+struct LinkSourceProjection {
+    spelling: LinkSpelling,
+    target_range: Range<usize>,
+    target_element_count: usize,
+    target_declaration_ranges: Vec<Range<usize>>,
+}
+
 fn push_link(
     range: Range<usize>,
     selection_range: Range<usize>,
     target: SourceBacked<String>,
-    spelling: LinkSpelling,
+    source: LinkSourceProjection,
     classification: (LinkTarget, Option<Range<usize>>, Option<Range<usize>>),
     output: &mut DocumentOutput,
 ) {
+    let LinkSourceProjection {
+        spelling,
+        target_range,
+        target_element_count,
+        target_declaration_ranges,
+    } = source;
     let (target_kind, path_decoded, fragment_decoded) = classification;
     let path_range = path_decoded.and_then(|decoded| target.source_range(decoded));
     let fragment_range = fragment_decoded.and_then(|decoded| target.source_range(decoded));
@@ -859,6 +899,9 @@ fn push_link(
         target,
         target_kind,
         spelling,
+        target_range,
+        target_element_count,
+        target_declaration_ranges,
         path_range,
         fragment_range,
     });
@@ -1162,7 +1205,7 @@ mod tests {
     }
 
     #[test]
-    fn diagnoses_associations_with_more_than_two_slots_inside_attachments() {
+    fn associations_bind_all_elements_after_the_key_as_value() {
         let source = "`span{value `={key value extra}}\n";
         let parsed = plumb_syntax::parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
@@ -1172,12 +1215,17 @@ mod tests {
                 .valid_syntax()
                 .expect("semantic analysis requires valid syntax"),
         );
-        let diagnostic = output
-            .diagnostics
-            .iter()
-            .find(|diagnostic| diagnostic.code == "association.invalid-arity")
-            .expect("invalid association arity diagnostic");
-        assert_eq!(&source[diagnostic.range.clone()], "`={key value extra}");
+        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+        let Block::Parsed(block) = &parsed.syntax.blocks[0] else {
+            panic!("expected parsed block");
+        };
+        let Inline::Group {
+            mark: Some(mark), ..
+        } = &block.content.items[0]
+        else {
+            panic!("expected marked inline group");
+        };
+        assert_eq!(mark.attrs.value("key"), Some("value extra"));
     }
 
     #[test]

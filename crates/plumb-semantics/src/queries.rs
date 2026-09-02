@@ -167,15 +167,14 @@ fn direct_block_attribute_context(
             return Some(context);
         }
 
-        if declaration.content.data.len() > 1 {
+        let view = crate::owner_semantic_view(&declaration.content);
+        if view.positional.len() > 1 {
             continue;
         }
-        let query_start = declaration
-            .content
-            .argument(0)
-            .map_or(declaration.content.range.end, |argument| {
-                argument.range.start
-            });
+        let query_start = view
+            .positional
+            .first()
+            .map_or(declaration.content.range.end, |element| element.range.start);
         if offset < query_start {
             continue;
         }
@@ -241,14 +240,15 @@ fn direct_block_value_context(
     source: &str,
     offset: usize,
 ) -> Option<AttributeCompletionContext> {
-    if owner_marker != "$"
-        || declaration.mark.as_ref()?.marker != "="
-        || declaration.content.argument_plain_text(0)?.as_str() != "language"
-    {
+    if owner_marker != "$" || declaration.mark.as_ref()?.marker != "=" {
         return None;
     }
-    let key = declaration.content.argument(0)?;
-    let value = declaration.content.argument(1)?;
+    let view = crate::owner_semantic_view(&declaration.content);
+    let arguments = view.split_first()?;
+    let [value] = arguments.rest else {
+        return None;
+    };
+    let key = arguments.first;
     let [Inline::Text { text: key, .. }] = key.items.as_slice() else {
         return None;
     };
@@ -351,42 +351,47 @@ fn inline_member_attribute_context(
     source: &str,
     offset: usize,
 ) -> Option<AttributeCompletionContext> {
-    for datum in &content.data {
-        let [Inline::Group {
+    for inline in &content.items {
+        let Inline::Group {
             range,
             mark: Some(mark),
             content: declaration,
             ..
-        }] = &content.items[datum.item_range.clone()]
+        } = inline
         else {
             continue;
         };
         if offset < range.start || offset > range.end || mark.marker != "=" {
             continue;
         }
-        let arguments = crate::positional_data(declaration);
-        if let [key, value] = arguments.as_slice() {
-            let value_range = value.range.clone();
-            if owner_kind == "$"
-                && key.plain_text() == "language"
-                && value_range.start <= offset
-                && offset <= value_range.end
-            {
-                let query = &source[value_range.start..offset];
-                if "tex".starts_with(query) {
-                    return Some(AttributeCompletionContext {
-                        replace: value_range,
-                        completions: vec![AttributeCompletion {
-                            label: "tex",
-                            new_text: "tex".to_string(),
-                            detail: "standard TeX math language",
-                        }],
-                    });
+        let view = crate::owner_semantic_view(declaration);
+        if let Some(arguments) = view.split_first() {
+            if let [value] = arguments.rest {
+                let key = arguments.first;
+                let value_range = value.range.clone();
+                if owner_kind == "$"
+                    && key.plain_text() == "language"
+                    && value_range.start <= offset
+                    && offset <= value_range.end
+                {
+                    let query = &source[value_range.start..offset];
+                    if "tex".starts_with(query) {
+                        return Some(AttributeCompletionContext {
+                            replace: value_range,
+                            completions: vec![AttributeCompletion {
+                                label: "tex",
+                                new_text: "tex".to_string(),
+                                detail: "standard TeX math language",
+                            }],
+                        });
+                    }
                 }
+                continue;
+            } else if !arguments.rest.is_empty() {
+                continue;
             }
-            continue;
         }
-        let [key] = arguments.as_slice() else {
+        let [key] = view.positional.as_slice() else {
             continue;
         };
         let key_range = key.range.clone();
@@ -489,15 +494,12 @@ fn event_title_context_in_blocks(
         if crate::list_item_facet(block) == crate::ListItemFacet::Event
             && offset == block.content.range.end
         {
-            if block.content.data.len() < 2 {
+            let view = crate::owner_semantic_view(&block.content);
+            let arguments = view.split_first()?;
+            if arguments.rest.is_empty() || arguments.rest_has_declarations() {
                 return None;
             }
-            let first = &block.content.data[1];
-            let last = block.content.data.last()?;
-            let title_content = InlineContent::from_items(
-                first.range.start..last.range.end,
-                block.content.items[first.item_range.start..last.item_range.end].to_vec(),
-            );
+            let title_content = arguments.rest_content()?;
             let title = title_content.items.as_slice();
             if title
                 .iter()
@@ -757,7 +759,7 @@ fn find_marked_group_in_content<'a>(
     None
 }
 
-fn editable_datum_range(content: &InlineContent) -> (usize, usize) {
+fn editable_element_range(content: &InlineContent) -> (usize, usize) {
     if let [Inline::Group {
         mark: None,
         content,
@@ -778,8 +780,8 @@ fn editable_datum_range(content: &InlineContent) -> (usize, usize) {
 }
 
 fn editable_data_range(data: &[InlineContent]) -> Option<(usize, usize)> {
-    let (start, _) = editable_datum_range(data.first()?);
-    let (_, end) = editable_datum_range(data.last()?);
+    let (start, _) = editable_element_range(data.first()?);
+    let (_, end) = editable_element_range(data.last()?);
     Some((start, end))
 }
 
@@ -818,16 +820,17 @@ fn resource_completion_context(
         };
         (mark.marker == "=" && range.start <= offset && offset <= range.end).then_some(content)
     })?;
-    let data = crate::positional_data(property);
-    let key = data.first()?;
+    let view = crate::owner_semantic_view(property);
+    let arguments = view.split_first()?;
+    let key = arguments.first;
     if key.plain_text() != "src" {
         return None;
     }
-    let (value_start, value_end) = if let Some(value) = data.get(1) {
+    let (value_start, value_end) = if let Some(value) = arguments.rest_content() {
         if offset < value.range.start || offset > value.range.end {
             return None;
         }
-        editable_datum_range(value)
+        editable_element_range(&value)
     } else {
         if offset < key.range.end
             || !source[key.range.end..offset]

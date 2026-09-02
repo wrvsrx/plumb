@@ -53,24 +53,22 @@ fn collect_inlines(content: &InlineContent, output: &mut CitationOutput) {
             continue;
         };
         if mark.as_ref().is_some_and(|mark| mark.marker == "cite") {
-            match content.data.as_slice() {
-                [_] => {
-                    let argument = content.datum(0).expect("projected datum exists");
-                    match citation_id(&argument) {
-                        Some(id) => output.citations.push(CitationRecord {
-                            range: range.clone(),
-                            selection_range: argument.range.clone(),
-                            id,
-                        }),
-                        None => output.diagnostics.push(Diagnostic {
-                            code: "citation.invalid",
-                            severity: DiagnosticSeverity::Warning,
-                            message: "a citation must contain one plain id".to_string(),
-                            range: argument.range.clone(),
-                            related: Vec::new(),
-                        }),
-                    }
-                }
+            let view = crate::owner_semantic_view(content);
+            match view.positional.as_slice() {
+                [argument] => match citation_id(argument) {
+                    Some(id) => output.citations.push(CitationRecord {
+                        range: range.clone(),
+                        selection_range: argument.range.clone(),
+                        id,
+                    }),
+                    None => output.diagnostics.push(Diagnostic {
+                        code: "citation.invalid",
+                        severity: DiagnosticSeverity::Warning,
+                        message: "a citation must contain one plain id".to_string(),
+                        range: argument.range.clone(),
+                        related: Vec::new(),
+                    }),
+                },
                 _ => output.diagnostics.push(Diagnostic {
                     code: "citation.invalid",
                     severity: DiagnosticSeverity::Warning,
@@ -127,7 +125,8 @@ mod tests {
 
     #[test]
     fn diagnoses_invalid_citation_content() {
-        let parsed = parse("`cite{{plain text}} `cite{@one} `cite{one;two} `cite{`*{nested}}.\n");
+        let parsed =
+            parse("`cite{{plain text}} `cite{@one} `cite{one;two} `cite{one`*{nested}}.\n");
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
         let output = analyze_citations(
@@ -141,5 +140,9 @@ mod tests {
             .diagnostics
             .iter()
             .all(|diagnostic| diagnostic.code == "citation.invalid"));
+        assert_eq!(
+            &parsed.source[output.diagnostics[3].range.clone()],
+            "`cite{one`*{nested}}"
+        );
     }
 }

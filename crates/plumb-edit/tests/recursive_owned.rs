@@ -35,6 +35,14 @@ fn owned_syntax_renders_recursive_groups_and_space_arguments() {
 }
 
 #[test]
+fn owned_conversion_preserves_adjacent_element_boundaries() {
+    let source = "`note prefix`!{strong}suffix\n";
+    let parsed = parse(source);
+    let block = OwnedBlock::from_syntax(source, &parsed.syntax.blocks[0]);
+    assert_eq!(block.format().unwrap(), source);
+}
+
+#[test]
 fn owned_marked_raw_has_no_intermediate_payload_node() {
     let block = OwnedBlock::Parsed {
         marker: Some("rust".to_string()),
@@ -83,6 +91,18 @@ fn explicit_argument_alignment_is_a_format_fixed_point() {
             .unwrap()
             .is_empty()
     );
+    assert!(plumb_edit::format(&parsed, FormatScope::Document)
+        .unwrap()
+        .is_empty());
+}
+
+#[test]
+fn adjacency_is_not_treated_as_alignment_padding() {
+    let source = "`row a`!{x}b\n`row aa`!{x}b\n";
+    let parsed = parse(source);
+    assert!(align_block_arguments(&parsed, source.find("row").unwrap())
+        .unwrap()
+        .is_empty());
     assert!(plumb_edit::format(&parsed, FormatScope::Document)
         .unwrap()
         .is_empty());

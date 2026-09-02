@@ -68,7 +68,7 @@ fn collect_inlines(content: &InlineContent, output: &mut InlineStyleOutput) {
             Some("_") => Some(InlineStyleKind::Subscript),
             _ => None,
         };
-        let argument_count = crate::positional_data(content).len();
+        let argument_count = crate::positional_elements(content).len();
         if let Some(kind) = kind.filter(|_| argument_count == 1) {
             output.styles.push(InlineStyleRecord {
                 kind,
@@ -116,5 +116,25 @@ mod tests {
             "`*{{em `!{strong}}}"
         );
         assert_eq!(&source[output.styles[1].range.clone()], "`!{strong}");
+    }
+
+    #[test]
+    fn adjacency_creates_multiple_style_elements_unless_grouped() {
+        let source = "`!{one`*{two}} `!{{one`*{two}}}\n";
+        let parsed = parse(source);
+        assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
+        let output = analyze_inline_styles(parsed.valid_syntax().unwrap());
+        assert_eq!(
+            output
+                .styles
+                .iter()
+                .map(|style| (style.kind, &source[style.range.clone()]))
+                .collect::<Vec<_>>(),
+            [
+                (InlineStyleKind::Emphasis, "`*{two}"),
+                (InlineStyleKind::Strong, "`!{{one`*{two}}}"),
+                (InlineStyleKind::Emphasis, "`*{two}"),
+            ]
+        );
     }
 }

@@ -343,10 +343,10 @@ fn convert_member_content(
             .collect::<Vec<_>>();
         let needs_group = match policy {
             BlockArgumentPolicy::Whole => false,
-            BlockArgumentPolicy::Positional => owned_data_count(&items) != 1,
+            BlockArgumentPolicy::Positional => owned_element_count(&items) != 1,
             BlockArgumentPolicy::FirstThenRest => {
                 index == 0
-                    && owned_data_count(&items) != 1
+                    && owned_element_count(&items) != 1
                     && !content.items[argument.item_range.clone()]
                         .iter()
                         .any(|inline| matches!(inline, member_legacy::Inline::SoftBreak { .. }))
@@ -368,18 +368,11 @@ fn convert_member_content(
     output
 }
 
-fn owned_data_count(items: &[OwnedInline]) -> usize {
-    let mut count = 0;
-    let mut in_datum = false;
-    for item in items {
-        if matches!(item, OwnedInline::Space(_) | OwnedInline::SoftBreak) {
-            in_datum = false;
-        } else if !in_datum {
-            count += 1;
-            in_datum = true;
-        }
-    }
-    count
+fn owned_element_count(items: &[OwnedInline]) -> usize {
+    items
+        .iter()
+        .filter(|item| !matches!(item, OwnedInline::Space(_) | OwnedInline::SoftBreak))
+        .count()
 }
 
 fn convert_member_inline(inline: &member_legacy::Inline) -> OwnedInline {
@@ -424,7 +417,7 @@ fn convert_member_argument(argument: &member_legacy::InlineArgument) -> Vec<Owne
         .iter()
         .map(convert_member_inline)
         .collect::<Vec<_>>();
-    if owned_data_count(&items) == 1 {
+    if owned_element_count(&items) == 1 {
         items
     } else {
         vec![OwnedInline::Element {

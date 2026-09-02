@@ -1,6 +1,8 @@
 use std::{collections::HashMap, ops::Range};
 
-use plumb_syntax::{AttrItem, Attributes, Block, Inline, ParsedBlock, ParsedDocument};
+use plumb_syntax::{
+    inline_range, AttrItem, Attributes, Block, Inline, InlineContent, ParsedBlock, ParsedDocument,
+};
 use unicode_width::UnicodeWidthStr;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -117,9 +119,10 @@ pub fn align_block_arguments(
 
     let mut edits = Vec::new();
     for block in blocks {
+        let elements = block.content.positional_elements().collect::<Vec<_>>();
         for (column, width) in widths.iter().enumerate() {
             let separator =
-                block.content.data[column].range.end..block.content.data[column + 1].range.start;
+                inline_range(elements[column]).end..inline_range(elements[column + 1]).start;
             let spaces = *width - argument_alignment_width(&parsed.source, block, column) + 1;
             push_changed_padding_edit(parsed, &mut edits, separator, spaces)?;
         }
@@ -504,30 +507,8 @@ impl OwnedBlock {
 
     pub fn from_parsed(source: &str, block: &ParsedBlock) -> Self {
         let marker = block.mark.as_ref().map(|mark| mark.marker.clone());
-        let mut argument_ranges = block
-            .content
-            .data
-            .iter()
-            .map(|datum| datum.item_range.clone())
-            .collect::<Vec<_>>();
-        if matches!(marker.as_deref(), Some("=" | ":")) && argument_ranges.len() > 2 {
-            let value_start = argument_ranges[1].start;
-            let value_end = argument_ranges.last().unwrap().end;
-            argument_ranges.truncate(1);
-            argument_ranges.push(value_start..value_end);
-        }
-        let mut head = Vec::new();
-        for (index, range) in argument_ranges.into_iter().enumerate() {
-            if index > 0 {
-                head.push(OwnedInline::ArgumentSeparator);
-                head.push(OwnedInline::Space(" ".to_string()));
-            }
-            head.extend(
-                block.content.items[range]
-                    .iter()
-                    .map(OwnedInline::from_syntax),
-            );
-        }
+        let content = block.content.trim_boundary_padding();
+        let head = content.items.iter().map(OwnedInline::from_syntax).collect();
         Self::Parsed {
             marker,
             head,
@@ -565,18 +546,74 @@ fn owned_declaration(block: &OwnedBlock) -> Option<OwnedAttribute> {
         return None;
     }
     match marker.as_str() {
-        "@" => Some(OwnedAttribute::Id(plain_owned_argument(head)?)),
-        "+" => Some(OwnedAttribute::Class(plain_owned_argument(head)?)),
+        "@" => {
+            let elements = owned_positional_indices(head);
+            (elements.len() == 1)
+                .then(|| plain_owned_element(&head[elements[0]]))
+                .flatten()
+                .map(OwnedAttribute::Id)
+        }
+        "+" => {
+            let elements = owned_positional_indices(head);
+            (elements.len() == 1)
+                .then(|| plain_owned_element(&head[elements[0]]))
+                .flatten()
+                .map(OwnedAttribute::Class)
+        }
         "=" => {
-            let separator = head
-                .iter()
-                .position(|inline| matches!(inline, OwnedInline::ArgumentSeparator))?;
-            let key = plain_owned_argument(&head[..separator])?;
-            let value = plain_owned_argument(&head[separator + 1..])?;
+            let elements = owned_positional_indices(head);
+            let key = plain_owned_element(head.get(*elements.first()?)?)?;
+            let value_start = *elements.get(1)?;
+            let value_end = *elements.last()?;
+            let value = plain_owned_argument(
+                &head[value_start..=value_end]
+                    .iter()
+                    .filter(|inline| {
+                        !matches!(inline, OwnedInline::ArgumentSeparator)
+                            && !owned_inline_declaration(inline)
+                    })
+                    .cloned()
+                    .collect::<Vec<_>>(),
+            )?;
             (!key.is_empty() && !value.is_empty()).then_some(OwnedAttribute::Pair {
                 key,
                 value: OwnedValue::Bare(value),
             })
+        }
+        _ => None,
+    }
+}
+
+fn owned_positional_indices(items: &[OwnedInline]) -> Vec<usize> {
+    items
+        .iter()
+        .enumerate()
+        .filter_map(|(index, inline)| {
+            (!matches!(
+                inline,
+                OwnedInline::Space(_) | OwnedInline::SoftBreak | OwnedInline::ArgumentSeparator
+            ) && !owned_inline_declaration(inline))
+            .then_some(index)
+        })
+        .collect()
+}
+
+fn owned_inline_declaration(inline: &OwnedInline) -> bool {
+    matches!(
+        inline,
+        OwnedInline::Element { kind, .. } if matches!(kind.as_str(), "@" | "+" | "=")
+    )
+}
+
+fn plain_owned_element(inline: &OwnedInline) -> Option<String> {
+    match inline {
+        OwnedInline::Text(text) => Some(text.clone()),
+        OwnedInline::Verbatim { kind, text } if kind.is_empty() => Some(text.clone()),
+        OwnedInline::Element { kind, members } if kind.is_empty() => {
+            let [OwnedInlineMember::ParsedArgument(content)] = members.as_slice() else {
+                return None;
+            };
+            plain_owned_argument(content)
         }
         _ => None,
     }
@@ -589,10 +626,11 @@ fn plain_owned_argument(items: &[OwnedInline]) -> Option<String> {
     items.iter().try_fold(String::new(), |mut output, inline| {
         match inline {
             OwnedInline::Text(text) | OwnedInline::Space(text) => output.push_str(text),
-            OwnedInline::SoftBreak
-            | OwnedInline::ArgumentSeparator
-            | OwnedInline::Element { .. }
-            | OwnedInline::Verbatim { .. } => return None,
+            OwnedInline::SoftBreak => output.push(' '),
+            OwnedInline::Element { .. } | OwnedInline::Verbatim { .. } => {
+                output.push_str(&plain_owned_element(inline)?)
+            }
+            OwnedInline::ArgumentSeparator => return None,
         }
         Some(output)
     })
@@ -778,17 +816,14 @@ impl OwnedInline {
                 kind: mark
                     .as_ref()
                     .map_or_else(String::new, |mark| mark.marker.clone()),
-                members: content
-                    .data
-                    .iter()
-                    .map(|datum| {
+                members: (!content.is_empty())
+                    .then(|| {
+                        let content = content.trim_boundary_padding();
                         OwnedInlineMember::ParsedArgument(
-                            content.items[datum.item_range.clone()]
-                                .iter()
-                                .map(Self::from_syntax)
-                                .collect(),
+                            content.items.iter().map(Self::from_syntax).collect(),
                         )
                     })
+                    .into_iter()
                     .collect(),
             },
             Inline::Verbatim { mark, text, .. } => Self::Verbatim {
@@ -1349,31 +1384,47 @@ fn alignment_shape<'a>(source: &str, block: &'a Block) -> Option<(&'a str, usize
         return None;
     };
     let marker = block.mark.as_ref()?.marker.as_str();
-    let argument_count = block.content.data.len();
+    let argument_count = block.content.positional_elements().count();
     let head = &source[block.content.range.clone()];
-    (block.children.is_empty() && argument_count >= 2 && !head.contains(['\r', '\n', '\t']))
-        .then_some((marker, argument_count))
+    (block.children.is_empty()
+        && argument_count >= 2
+        && !head.contains(['\r', '\n', '\t'])
+        && positional_elements_have_space_boundaries(source, &block.content))
+    .then_some((marker, argument_count))
 }
 
 fn argument_alignment_width(source: &str, block: &ParsedBlock, column: usize) -> usize {
-    let raw = &block.content.data[column].range;
-    let content = block
+    let element = block
         .content
-        .argument(column)
-        .filter(|content| !content.items.is_empty());
+        .positional_elements()
+        .nth(column)
+        .expect("alignment column exists");
+    let raw = inline_range(element);
     if column == 0 {
         let line_start = source[..block.range.start]
             .rfind('\n')
             .map_or(0, |newline| newline + 1);
-        let content_end = content
-            .as_ref()
-            .map_or(raw.start, |content| content.range.end);
-        UnicodeWidthStr::width(&source[line_start..content_end])
+        UnicodeWidthStr::width(&source[line_start..raw.end])
     } else {
-        content.as_ref().map_or(0, |content| {
-            UnicodeWidthStr::width(&source[content.range.clone()])
-        })
+        UnicodeWidthStr::width(&source[raw.clone()])
     }
+}
+
+fn positional_elements_have_space_boundaries(source: &str, content: &InlineContent) -> bool {
+    if content.items.iter().any(|inline| {
+        matches!(
+            inline,
+            Inline::Group { mark: Some(mark), .. }
+                if matches!(mark.marker.as_str(), "@" | "+" | "=")
+        )
+    }) {
+        return false;
+    }
+    let elements = content.positional_elements().collect::<Vec<_>>();
+    elements.windows(2).all(|elements| {
+        let gap = inline_range(elements[0]).end..inline_range(elements[1]).start;
+        !gap.is_empty() && source[gap].bytes().all(|byte| byte == b' ')
+    })
 }
 
 fn push_changed_padding_edit(
@@ -1449,11 +1500,10 @@ fn owned_property_argument_count(block: &OwnedBlock) -> Option<usize> {
     else {
         return None;
     };
-    let argument_count = head
-        .iter()
-        .filter(|inline| matches!(inline, OwnedInline::ArgumentSeparator))
-        .count()
-        + 1;
+    if head.iter().any(owned_inline_declaration) {
+        return None;
+    }
+    let argument_count = owned_positional_indices(head).len();
     let mut rendered = String::new();
     render_owned_inlines(head, true, 0, &mut rendered);
     (marker.as_deref() == Some("=")
@@ -1497,7 +1547,17 @@ fn align_owned_argument_run(blocks: &mut [OwnedBlock], argument_count: usize) {
 }
 
 fn normalized_owned_arguments(head: &[OwnedInline]) -> Vec<Vec<OwnedInline>> {
-    let mut arguments = split_owned_arguments(head.to_vec());
+    let mut arguments = if head
+        .iter()
+        .any(|inline| matches!(inline, OwnedInline::ArgumentSeparator))
+    {
+        split_owned_arguments(head.to_vec())
+    } else {
+        owned_positional_indices(head)
+            .into_iter()
+            .map(|index| vec![head[index].clone()])
+            .collect()
+    };
     if arguments.is_empty() {
         return arguments;
     }
@@ -1532,6 +1592,12 @@ fn padded_owned_arguments(mut arguments: Vec<Vec<OwnedInline>>) -> Vec<OwnedInli
     for argument in &mut arguments {
         trim_owned_padding_start(argument);
         trim_owned_padding_end(argument);
+        if owned_positional_indices(argument).len() > 1 {
+            *argument = vec![OwnedInline::Element {
+                kind: String::new(),
+                members: vec![OwnedInlineMember::ParsedArgument(std::mem::take(argument))],
+            }];
+        }
     }
     let mut head = Vec::new();
     for (index, argument) in arguments.into_iter().enumerate() {
@@ -2271,6 +2337,17 @@ mod tests {
 #[cfg(test)]
 mod apply_tests {
     use super::*;
+
+    #[test]
+    fn structured_multi_element_arguments_remain_recognizable_properties() {
+        let mut block = OwnedBlock::marked("=", "");
+        block.set_head_text_arguments(["title", "Project Guide"]);
+        assert_eq!(
+            owned_declaration(&block),
+            Some(OwnedAttribute::bare("title", "Project Guide"))
+        );
+        assert_eq!(block.format().unwrap(), "`= title {Project Guide}\n");
+    }
 
     #[test]
     fn applies_valid_edits_back_to_front_and_rejects_invalid_sets() {

@@ -7,17 +7,18 @@ pub fn plain_text(content: &InlineContent) -> String {
 }
 
 fn append_content(content: &InlineContent, output: &mut String) {
-    for inline in &content.items {
-        append_inline(inline, output);
+    let view = crate::owner_semantic_view(content);
+    if let Some(content) = view.visible_content() {
+        for inline in &content.items {
+            append_inline(inline, output);
+        }
     }
 }
 
 fn append_inline(inline: &Inline, output: &mut String) {
     match inline {
-        Inline::Text { text, .. } | Inline::Space { text, .. } | Inline::Verbatim { text, .. } => {
-            output.push_str(text)
-        }
-        Inline::SoftBreak { .. } => output.push(' '),
+        Inline::Text { text, .. } | Inline::Verbatim { text, .. } => output.push_str(text),
+        Inline::Space { .. } | Inline::SoftBreak { .. } => output.push(' '),
         Inline::Group { mark, content, .. } => {
             if mark.as_ref().is_some_and(|mark| mark.marker == "->") {
                 let view = crate::owner_semantic_view(content);

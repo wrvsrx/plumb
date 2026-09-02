@@ -78,9 +78,11 @@ fn projects_recursive_inline_forms_and_verbatim_math() {
 }
 
 #[test]
-fn first_rest_consumers_bind_trailing_data_and_ignore_declarations() {
+fn first_rest_consumers_bind_trailing_elements_and_ignore_declarations() {
     let source = concat!(
         "See `->{Guide Project `@{link-target} Guide.plumb}.\n",
+        "`->{prefix`!{strong}suffix}\n",
+        "`->{{prefix`!{strong}suffix} target.plumb}\n",
         "`- 2026-09-03T14:00:00+08:00 Parser `@{event-title} review meeting\n",
         " `+ event\n",
     );
@@ -91,8 +93,15 @@ fn first_rest_consumers_bind_trailing_data_and_ignore_declarations() {
         "{:?}",
         output.events.diagnostics
     );
-    assert_eq!(output.links.len(), 1);
+    assert_eq!(output.links.len(), 3);
     assert_eq!(output.links[0].target.value, "Project Guide.plumb");
+    assert_eq!(output.links[1].target.value, "strongsuffix");
+    assert_eq!(&source[output.links[1].selection_range.clone()], "prefix");
+    assert_eq!(output.links[2].target.value, "target.plumb");
+    assert_eq!(
+        &source[output.links[2].selection_range.clone()],
+        "prefix`!{strong}suffix"
+    );
     assert_eq!(output.events.events.len(), 1);
     assert_eq!(output.events.events[0].title, "Parser review meeting");
 }
@@ -134,6 +143,10 @@ fn table_spaces_form_cells_and_expanded_rows_use_anonymous_children() {
     let table = &expanded.tables.tables[0];
     assert_eq!(table.column_count, 2);
     assert!(table.rows.iter().all(|row| !row.compact));
+
+    let adjacent = analyze("`table\n `- A`!{B}C\n");
+    let row = &adjacent.tables.tables[0].rows[0];
+    assert_eq!(row.cells.len(), 3);
 }
 
 #[test]

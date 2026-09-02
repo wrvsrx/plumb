@@ -4,9 +4,9 @@ use std::io::{self, Read};
 use std::process::ExitCode;
 
 use plumb_semantics::{
-    analyze_document, is_document_declaration, CitationRecord, DocumentOutput, InlineStyleKind,
-    LinkSpelling, ListGroup, ListKind, MetadataBlock, MetadataEntry, MetadataValue, TableRecord,
-    TaskState,
+    analyze_document, is_document_declaration, owner_semantic_view, CitationRecord, DocumentOutput,
+    InlineStyleKind, LinkSpelling, ListGroup, ListKind, MetadataBlock, MetadataEntry,
+    MetadataValue, TableRecord, TaskState,
 };
 use plumb_syntax::{parse, AttrItem, Attributes, Block, Inline, InlineContent, ParsedBlock};
 use serde_json::{json, Map, Value};
@@ -416,12 +416,10 @@ fn lower_table_row(
         |mark| lower_table_attrs(&mark.attrs),
     );
     let cells = if record.compact {
-        row.content
-            .data
-            .iter()
-            .enumerate()
-            .map(|(index, _)| {
-                let content = row.content.argument(index).unwrap();
+        owner_semantic_view(&row.content)
+            .positional
+            .into_iter()
+            .map(|content| {
                 let blocks = if content.is_empty() {
                     Vec::new()
                 } else {
@@ -592,7 +590,8 @@ fn lower_inline_items(items: &[Inline], analysis: &DocumentOutput, output: &mut 
 }
 
 fn lower_first_argument(content: &InlineContent, analysis: &DocumentOutput) -> Vec<Value> {
-    positional_data(content)
+    owner_semantic_view(content)
+        .positional
         .into_iter()
         .next()
         .map_or_else(Vec::new, |argument| lower_inlines(&argument, analysis))
@@ -600,8 +599,8 @@ fn lower_first_argument(content: &InlineContent, analysis: &DocumentOutput) -> V
 
 fn lower_group_content(content: &InlineContent, analysis: &DocumentOutput) -> Vec<Value> {
     let mut output = Vec::new();
-    for inline in &content.trim_boundary_padding().items {
-        if !is_relation_child(inline) {
+    if let Some(content) = owner_semantic_view(content).visible_content() {
+        for inline in &content.items {
             lower_inline_items(std::slice::from_ref(inline), analysis, &mut output);
         }
     }
@@ -610,28 +609,10 @@ fn lower_group_content(content: &InlineContent, analysis: &DocumentOutput) -> Ve
 
 fn lower_link_label(content: &InlineContent, analysis: &DocumentOutput) -> Vec<Value> {
     let mut output = Vec::new();
-    if let Some(label) = positional_data(content).into_iter().next() {
+    if let Some(label) = owner_semantic_view(content).positional.into_iter().next() {
         output.extend(lower_inlines(&label, analysis));
     }
     output
-}
-
-fn is_relation_child(inline: &Inline) -> bool {
-    matches!(inline, Inline::Group { mark: Some(mark), .. } if matches!(mark.marker.as_str(), "@" | "+" | "="))
-}
-
-fn positional_data(content: &InlineContent) -> Vec<InlineContent> {
-    content
-        .data
-        .iter()
-        .enumerate()
-        .filter_map(|(index, datum)| {
-            let items = &content.items[datum.item_range.clone()];
-            (!matches!(items, [inline] if is_relation_child(inline)))
-                .then(|| content.datum(index))
-                .flatten()
-        })
-        .collect()
 }
 
 fn lower_citation(citation: &CitationRecord) -> Value {

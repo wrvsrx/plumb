@@ -1079,14 +1079,16 @@ fn content_from_elements(content: &InlineContent, elements: &[(usize, &Inline)])
     let (first, last) = (elements.first().unwrap().0, elements.last().unwrap().0);
     let range = crate::inline_range(elements.first().unwrap().1).start
         ..crate::inline_range(elements.last().unwrap().1).end;
-    InlineContent::from_items(
-        range,
-        content.items[first..=last]
-            .iter()
-            .filter(|inline| !is_direct_declaration(inline))
-            .cloned()
-            .collect(),
-    )
+    let mut items = Vec::new();
+    for inline in &content.items[first..=last] {
+        if is_direct_declaration(inline)
+            || (inline.is_whitespace() && items.last().is_some_and(Inline::is_whitespace))
+        {
+            continue;
+        }
+        items.push(inline.clone());
+    }
+    InlineContent::from_items(range, items)
 }
 
 fn plain_scalar(content: &InlineContent) -> Option<String> {
