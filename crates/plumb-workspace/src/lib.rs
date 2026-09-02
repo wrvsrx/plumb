@@ -3267,7 +3267,7 @@ impl Workspace {
                     })
                 })
                 .collect(),
-            LinkCompletionContext::AutolinkPath {
+            LinkCompletionContext::VerbatimPath {
                 replace,
                 envelope,
                 quote_count,
@@ -3282,7 +3282,7 @@ impl Workspace {
                         return None;
                     }
                     let relative = relative_path(&from, &entry.path)?;
-                    if !valid_autolink_completion_path(&relative) {
+                    if !valid_verbatim_link_completion_path(&relative) {
                         return None;
                     }
                     let title = versioned
@@ -3337,7 +3337,7 @@ impl Workspace {
                     })
                     .unwrap_or_default()
             }
-            LinkCompletionContext::AutolinkAnchor {
+            LinkCompletionContext::VerbatimAnchor {
                 path,
                 replace,
                 query,
@@ -3427,7 +3427,7 @@ impl Workspace {
                         })
                     }));
                 }
-                LinkCompletionContext::AutolinkPath {
+                LinkCompletionContext::VerbatimPath {
                     replace,
                     envelope,
                     quote_count,
@@ -3439,7 +3439,7 @@ impl Workspace {
                             return None;
                         }
                         let relative = relative_path(&from, &document.path)?;
-                        if !valid_autolink_completion_path(&relative) {
+                        if !valid_verbatim_link_completion_path(&relative) {
                             return None;
                         }
                         let title = if document.title.is_empty() {
@@ -3470,7 +3470,7 @@ impl Workspace {
                     replace,
                     query,
                 }
-                | LinkCompletionContext::AutolinkAnchor {
+                | LinkCompletionContext::VerbatimAnchor {
                     path,
                     replace,
                     query,
@@ -4546,7 +4546,7 @@ fn unique_id(base: &str, reserved: &HashSet<String>) -> String {
     unreachable!()
 }
 
-fn valid_autolink_completion_path(path: &str) -> bool {
+fn valid_verbatim_link_completion_path(path: &str) -> bool {
     !path.contains('#')
         && !path
             .chars()

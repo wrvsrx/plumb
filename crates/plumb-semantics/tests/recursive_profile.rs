@@ -109,9 +109,9 @@ fn current_recovered_completion_contexts_follow_brace_data() {
         "smi"
     );
 
-    let autolink = parse("See `->{Usage");
+    let derived_link = parse("See `->{Usage");
     assert!(matches!(
-        link_completion_context(&autolink, autolink.source.len()),
+        link_completion_context(&derived_link, derived_link.source.len()),
         Some(LinkCompletionContext::Path { query, parsed: true, .. }) if query == "Usage"
     ));
 
@@ -133,12 +133,12 @@ fn current_recovered_completion_contexts_follow_brace_data() {
     let construct = parse("Text `->{");
     assert!(matches!(
         construct_completion_context(&construct, construct.source.len()),
-        Some(ConstructCompletionContext::Link { .. })
+        Some(ConstructCompletionContext::ParsedLink { .. })
     ));
 }
 
 #[test]
-fn current_parsed_autolinks_complete_paths_and_anchors() {
+fn current_derived_links_complete_paths_and_anchors() {
     let (source, cursor) = strip_cursor("See `->{doc.pl|umb}\n");
     let value_start = source.find("doc.plumb").unwrap();
     assert_eq!(

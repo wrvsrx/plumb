@@ -4,7 +4,7 @@
 
 Paragraph with `text"raw text" and ``escaped introducer.
 
-Autolink `->"inbox.plumb".
+Verbatim Link `->"inbox.plumb".
 
 `->"something.plumb"
 

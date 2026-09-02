@@ -1296,8 +1296,8 @@ fn rename_rejects_pair_style_or_invalid_ids() {
 #[cfg(any())]
 fn completes_paths_and_only_explicit_anchors() {
     let mut workspace = Workspace::new();
-    let autolink_path =
-        |replace: std::ops::Range<usize>, query: &str| LinkCompletionContext::AutolinkPath {
+    let verbatim_link_path =
+        |replace: std::ops::Range<usize>, query: &str| LinkCompletionContext::VerbatimPath {
             envelope: replace.clone(),
             replace,
             quote_count: 0,
@@ -1321,7 +1321,7 @@ fn completes_paths_and_only_explicit_anchors() {
     workspace.insert("notes/brace{draft}].plumb", 1, "`# Braces\n");
     workspace.insert("notes/quote\"name.plumb", 1, "`# Quote\n");
     let paths = workspace
-        .complete_link("notes/current.plumb", &autolink_path(10..13, "guide"))
+        .complete_link("notes/current.plumb", &verbatim_link_path(10..13, "guide"))
         .unwrap()
         .value;
     assert_eq!(paths[0].label, "design.plumb");
@@ -1379,20 +1379,20 @@ fn completes_paths_and_only_explicit_anchors() {
         .value;
     assert_eq!(quote_path[0].label, "quote\"name.plumb");
     assert_eq!(quote_path[0].new_text, "quote\"name.plumb");
-    let spaced_autolink = workspace
-        .complete_link("notes/current.plumb", &autolink_path(0..0, "project"))
+    let spaced_verbatim_link = workspace
+        .complete_link("notes/current.plumb", &verbatim_link_path(0..0, "project"))
         .unwrap()
         .value;
-    assert_eq!(spaced_autolink[0].label, "Project Plan.plumb");
-    assert_eq!(spaced_autolink[0].new_text, "Project Plan.plumb");
+    assert_eq!(spaced_verbatim_link[0].label, "Project Plan.plumb");
+    assert_eq!(spaced_verbatim_link[0].new_text, "Project Plan.plumb");
     let unicode = workspace
-        .complete_link("notes/current.plumb", &autolink_path(0..0, "中文"))
+        .complete_link("notes/current.plumb", &verbatim_link_path(0..0, "中文"))
         .unwrap()
         .value;
     assert_eq!(unicode[0].label, "中文笔记.plumb");
     assert_eq!(unicode[0].new_text, "中文笔记.plumb");
     let parentheses = workspace
-        .complete_link("notes/current.plumb", &autolink_path(0..0, "草稿"))
+        .complete_link("notes/current.plumb", &verbatim_link_path(0..0, "草稿"))
         .unwrap()
         .value;
     assert_eq!(parentheses[0].label, "方案 (草稿).plumb");
@@ -1400,7 +1400,7 @@ fn completes_paths_and_only_explicit_anchors() {
     let closing_bracket = workspace
         .complete_link(
             "notes/current.plumb",
-            &LinkCompletionContext::AutolinkPath {
+            &LinkCompletionContext::VerbatimPath {
                 replace: 2..3,
                 envelope: 0..5,
                 quote_count: 0,
@@ -1431,7 +1431,7 @@ fn completes_paths_and_only_explicit_anchors() {
     let spaced_anchor = workspace
         .complete_link(
             "notes/current.plumb",
-            &LinkCompletionContext::AutolinkAnchor {
+            &LinkCompletionContext::VerbatimAnchor {
                 path: "Project Plan.plumb".to_string(),
                 replace: 0..0,
                 query: "road".to_string(),
@@ -2081,7 +2081,7 @@ fn document_rename_rewrites_incoming_and_outgoing_relative_paths() {
 }
 
 #[test]
-fn document_rename_strengthens_autolink_delimiters() {
+fn document_rename_strengthens_verbatim_link_delimiters() {
     let mut workspace = Workspace::new();
     workspace.insert("notes/a.plumb", 1, "`# A\n  `@ a\n");
     let reference = "`->\"a.plumb#a\"\n";
@@ -2114,7 +2114,7 @@ fn document_rename_strengthens_autolink_delimiters() {
 }
 
 #[test]
-fn document_rename_preserves_rich_parsed_autolink_label_structure() {
+fn document_rename_preserves_rich_derived_link_label_structure() {
     let mut workspace = Workspace::new();
     workspace.insert("notes/a.plumb", 1, "`# A\n\n `@ a\n");
     let reference = "`->{`!{a.plumb#a}}\n";
@@ -2127,7 +2127,6 @@ fn document_rename_preserves_rich_parsed_autolink_label_structure() {
         .unwrap()
         .output
         .links[0];
-    assert!(link.automatic);
     let target = workspace
         .path_rename_target_at("notes/b.plumb", link.path_range.as_ref().unwrap().start)
         .unwrap();

@@ -387,7 +387,7 @@ fn completion_from_a_subdirectory_inserts_a_relative_path() {
 }
 
 #[test]
-fn completes_and_navigates_relative_autolinks_files_and_images() {
+fn completes_and_navigates_relative_verbatim_links_files_and_images() {
     let root = unique_temp_dir();
     let static_dir = root.join("static");
     std::fs::create_dir_all(&static_dir).unwrap();
@@ -409,15 +409,15 @@ fn completes_and_navigates_relative_autolinks_files_and_images() {
     let image_uri = lsp_types::Url::from_file_path(&image).unwrap();
     let attachment_uri = lsp_types::Url::from_file_path(&attachment).unwrap();
     let lines = source.lines().collect::<Vec<_>>();
-    let autolink_path_cursor = lines[0].find("tar").unwrap() + "tar".len();
-    let autolink_anchor_cursor = lines[1].find("#an").unwrap() + "#an".len();
+    let verbatim_link_path_cursor = lines[0].find("tar").unwrap() + "tar".len();
+    let verbatim_link_anchor_cursor = lines[1].find("#an").unwrap() + "#an".len();
     let image_query_cursor = lines[2].find("static/im").unwrap() + "static/im".len();
-    let autolink_definition = lines[4].find("target note.plumb").unwrap() + 2;
+    let verbatim_link_definition = lines[4].find("target note.plumb").unwrap() + 2;
     let image_definition = lines[5].find("static/image").unwrap() + 2;
     let unicode_cursor = lines[6][..lines[6].find("中文").unwrap() + "中文".len()]
         .encode_utf16()
         .count();
-    let attachment_autolink = lines[7].find("manual draft").unwrap() + 2;
+    let attachment_verbatim_link = lines[7].find("manual draft").unwrap() + 2;
     let attachment_link = lines[8].find("manual draft").unwrap() + 2;
     let messages = [
         json!({
@@ -439,14 +439,14 @@ fn completes_and_navigates_relative_autolinks_files_and_images() {
             "jsonrpc": "2.0", "id": 2, "method": "textDocument/completion",
             "params": {
                 "textDocument": { "uri": current_uri },
-                "position": { "line": 0, "character": autolink_path_cursor }
+                "position": { "line": 0, "character": verbatim_link_path_cursor }
             }
         }),
         json!({
             "jsonrpc": "2.0", "id": 3, "method": "textDocument/completion",
             "params": {
                 "textDocument": { "uri": current_uri },
-                "position": { "line": 1, "character": autolink_anchor_cursor }
+                "position": { "line": 1, "character": verbatim_link_anchor_cursor }
             }
         }),
         json!({
@@ -474,7 +474,7 @@ fn completes_and_navigates_relative_autolinks_files_and_images() {
             "jsonrpc": "2.0", "id": 7, "method": "textDocument/definition",
             "params": {
                 "textDocument": { "uri": current_uri },
-                "position": { "line": 4, "character": autolink_definition }
+                "position": { "line": 4, "character": verbatim_link_definition }
             }
         }),
         json!({
@@ -488,14 +488,14 @@ fn completes_and_navigates_relative_autolinks_files_and_images() {
             "jsonrpc": "2.0", "id": 9, "method": "textDocument/hover",
             "params": {
                 "textDocument": { "uri": current_uri },
-                "position": { "line": 7, "character": attachment_autolink }
+                "position": { "line": 7, "character": attachment_verbatim_link }
             }
         }),
         json!({
             "jsonrpc": "2.0", "id": 10, "method": "textDocument/definition",
             "params": {
                 "textDocument": { "uri": current_uri },
-                "position": { "line": 7, "character": attachment_autolink }
+                "position": { "line": 7, "character": attachment_verbatim_link }
             }
         }),
         json!({
@@ -510,14 +510,17 @@ fn completes_and_navigates_relative_autolinks_files_and_images() {
     ];
 
     let output = run_server_after_initial_index(&messages);
-    let autolink_path = response(&output, 2)["result"]
+    let verbatim_link_path = response(&output, 2)["result"]
         .as_array()
         .unwrap()
         .iter()
         .find(|item| item["label"] == "target note.plumb")
-        .expect("autolink document path completion");
-    assert_eq!(autolink_path["detail"], "Target note");
-    assert_eq!(autolink_path["textEdit"]["newText"], "target note.plumb");
+        .expect("verbatim link document path completion");
+    assert_eq!(verbatim_link_path["detail"], "Target note");
+    assert_eq!(
+        verbatim_link_path["textEdit"]["newText"],
+        "target note.plumb"
+    );
 
     let anchor = response(&output, 3)["result"]
         .as_array()
@@ -551,7 +554,7 @@ fn completes_and_navigates_relative_autolinks_files_and_images() {
         .unwrap()
         .iter()
         .find(|item| item["label"] == "中文笔记 [草稿].plumb")
-        .expect("Unicode autolink completion");
+        .expect("Unicode verbatim link completion");
     assert_eq!(
         unicode_completion["textEdit"]["newText"],
         "中文笔记 [草稿].plumb"
@@ -672,11 +675,10 @@ fn completes_task_and_event_only_from_the_list_marker() {
     assert!(response(&output, 4)["result"].is_null());
 
     let list_item_items = response(&output, 5)["result"].as_array().unwrap();
-    assert_eq!(list_item_items.len(), 4);
+    assert_eq!(list_item_items.len(), 3);
     assert_eq!(list_item_items[0]["label"], "Task");
     assert_eq!(list_item_items[1]["label"], "Event");
     assert_eq!(list_item_items[2]["label"], "Link");
-    assert_eq!(list_item_items[3]["label"], "Autolink");
     assert_eq!(list_item_items[0]["insertTextMode"], 1);
     assert_eq!(list_item_items[1]["insertTextMode"], 1);
     assert!(list_item_items[0]["textEdit"]["newText"]
@@ -922,14 +924,12 @@ fn narrows_link_constructs_from_the_shared_marker_prefix() {
 
     for id in [3, 4] {
         let items = response(&output, id)["result"].as_array().unwrap();
-        assert_eq!(items.len(), 2);
+        assert_eq!(items.len(), 1);
         assert_eq!(items[0]["label"], "Link");
-        assert_eq!(items[1]["label"], "Autolink");
         assert_eq!(
             items[0]["textEdit"]["newText"],
             "`->[${1:label}|${2:target}]"
         );
-        assert_eq!(items[1]["textEdit"]["newText"], "`->\"${1:path}\"");
     }
 
     let link = response(&output, 5)["result"].as_array().unwrap();
@@ -940,12 +940,12 @@ fn narrows_link_constructs_from_the_shared_marker_prefix() {
         json!({ "start": { "line": 3, "character": 5 }, "end": { "line": 3, "character": 9 } })
     );
 
-    let autolink = response(&output, 6)["result"].as_array().unwrap();
-    assert_eq!(autolink.len(), 1);
-    assert_eq!(autolink[0]["label"], "Autolink");
-    assert_eq!(autolink[0]["textEdit"]["newText"], "`->\"${1:path}\"");
+    let verbatim_link = response(&output, 6)["result"].as_array().unwrap();
+    assert_eq!(verbatim_link.len(), 1);
+    assert_eq!(verbatim_link[0]["label"], "Link");
+    assert_eq!(verbatim_link[0]["textEdit"]["newText"], "`->\"${1:path}\"");
     assert_eq!(
-        autolink[0]["textEdit"]["range"],
+        verbatim_link[0]["textEdit"]["range"],
         json!({ "start": { "line": 4, "character": 5 }, "end": { "line": 4, "character": 9 } })
     );
     std::fs::remove_dir_all(root).unwrap();

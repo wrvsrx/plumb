@@ -57,7 +57,7 @@ fn publishes_new_group_diagnostics_and_heading_symbols() {
 #[test]
 fn completes_current_link_and_task_constructs() {
     let uri = "file:///tmp/current-completion.plumb";
-    let source = "Text `->{\n`-";
+    let source = "Text `->{\n`-\nText `->\"";
     let messages = [
         initialize("file:///tmp"),
         json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
@@ -75,16 +75,26 @@ fn completes_current_link_and_task_constructs() {
             "jsonrpc": "2.0", "id": 3, "method": "textDocument/completion",
             "params": { "textDocument": { "uri": uri }, "position": { "line": 1, "character": 2 } }
         }),
-        json!({ "jsonrpc": "2.0", "id": 4, "method": "shutdown", "params": null }),
+        json!({
+            "jsonrpc": "2.0", "id": 4, "method": "textDocument/completion",
+            "params": { "textDocument": { "uri": uri }, "position": { "line": 2, "character": 9 } }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 5, "method": "shutdown", "params": null }),
         json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
     ];
     let output = run_server(&messages);
     let link = &response(&output, 2)["result"][0];
     assert_eq!(link["label"], "Link");
     assert_eq!(link["textEdit"]["newText"], "`->{{${1:label}} ${2:target}}");
-    let task = response(&output, 3)["result"]
-        .as_array()
-        .unwrap()
+    let constructs = response(&output, 3)["result"].as_array().unwrap();
+    assert_eq!(
+        constructs
+            .iter()
+            .map(|item| item["label"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        ["Task", "Event", "Link"]
+    );
+    let task = constructs
         .iter()
         .find(|item| item["label"] == "Task")
         .unwrap();
@@ -92,6 +102,9 @@ fn completes_current_link_and_task_constructs() {
         .as_str()
         .unwrap()
         .contains("`= created "));
+    let verbatim_link = &response(&output, 4)["result"][0];
+    assert_eq!(verbatim_link["label"], "Link");
+    assert_eq!(verbatim_link["textEdit"]["newText"], "`->\"${1:path}\"");
 }
 
 #[test]

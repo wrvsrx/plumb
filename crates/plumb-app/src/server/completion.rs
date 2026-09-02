@@ -130,7 +130,7 @@ pub(super) fn construct_completion_items(
 ) -> Vec<CompletionItem> {
     let block_indent = match (&context, completion_indentation.projection) {
         (
-            ConstructCompletionContext::TaskEventLinkAndAutolink { replace },
+            ConstructCompletionContext::TaskEventLink { replace },
             CompletionIndentationProjection::AsIs,
         ) => {
             let line_start = source[..replace.start]
@@ -151,23 +151,20 @@ pub(super) fn construct_completion_items(
                 uses_block_indentation: false,
             }],
         ),
-        ConstructCompletionContext::TaskEventLinkAndAutolink { replace } => (
+        ConstructCompletionContext::TaskEventLink { replace } => (
             replace,
             vec![
                 task_construct_template(&block_indent, timestamp),
                 event_construct_template(&block_indent),
                 link_construct_template(),
-                autolink_construct_template(),
             ],
         ),
-        ConstructCompletionContext::LinkAndAutolink { replace } => (
-            replace,
-            vec![link_construct_template(), autolink_construct_template()],
-        ),
-        ConstructCompletionContext::Autolink { replace } => {
-            (replace, vec![autolink_construct_template()])
+        ConstructCompletionContext::VerbatimLink { replace } => {
+            (replace, vec![verbatim_link_construct_template()])
         }
-        ConstructCompletionContext::Link { replace } => (replace, vec![link_construct_template()]),
+        ConstructCompletionContext::ParsedLink { replace } => {
+            (replace, vec![link_construct_template()])
+        }
     };
     templates
         .into_iter()
@@ -207,10 +204,10 @@ fn link_construct_template() -> ConstructTemplate {
     }
 }
 
-fn autolink_construct_template() -> ConstructTemplate {
+fn verbatim_link_construct_template() -> ConstructTemplate {
     ConstructTemplate {
-        label: "Autolink",
-        detail: "plumb autolink",
+        label: "Link",
+        detail: "plumb verbatim link",
         snippet: "`->\"${1:path}\"".to_string(),
         plain: "`->\"\"".to_string(),
         uses_block_indentation: false,

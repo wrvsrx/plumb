@@ -19,7 +19,7 @@ pub enum LinkCompletionContext {
         query: String,
         parsed: bool,
     },
-    AutolinkPath {
+    VerbatimPath {
         replace: Range<usize>,
         envelope: Range<usize>,
         quote_count: usize,
@@ -31,7 +31,7 @@ pub enum LinkCompletionContext {
         replace: Range<usize>,
         query: String,
     },
-    AutolinkAnchor {
+    VerbatimAnchor {
         path: String,
         replace: Range<usize>,
         query: String,
@@ -69,10 +69,9 @@ pub struct CitationCompletionContext {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConstructCompletionContext {
     Citation { replace: Range<usize> },
-    TaskEventLinkAndAutolink { replace: Range<usize> },
-    LinkAndAutolink { replace: Range<usize> },
-    Autolink { replace: Range<usize> },
-    Link { replace: Range<usize> },
+    TaskEventLink { replace: Range<usize> },
+    ParsedLink { replace: Range<usize> },
+    VerbatimLink { replace: Range<usize> },
 }
 
 pub fn citation_completion_context(
@@ -434,9 +433,9 @@ pub fn construct_completion_context(
         .find_map(|(index, character)| (character == '`').then_some(index))?;
     let prefix = &source[introducer..offset];
     let marker_prefix = prefix.strip_prefix('`')?;
-    let autolink_opener = marker_prefix == "->\"";
+    let verbatim_link_opener = marker_prefix == "->\"";
     if source[..introducer].ends_with('`')
-        || (!autolink_opener && blocks_contain_verbatim(&document.syntax.blocks, introducer))
+        || (!verbatim_link_opener && blocks_contain_verbatim(&document.syntax.blocks, introducer))
         || document.diagnostics.iter().any(|diagnostic| {
             diagnostic.code == "syntax.unclosed-verbatim"
                 && diagnostic.range.start < introducer
@@ -460,12 +459,9 @@ pub fn construct_completion_context(
         Some(ConstructCompletionContext::Citation { replace })
     } else {
         match marker_prefix {
-            "-" if block_position => {
-                Some(ConstructCompletionContext::TaskEventLinkAndAutolink { replace })
-            }
-            "-" | "->" => Some(ConstructCompletionContext::LinkAndAutolink { replace }),
-            "->{" => Some(ConstructCompletionContext::Link { replace }),
-            "->\"" => Some(ConstructCompletionContext::Autolink { replace }),
+            "-" if block_position => Some(ConstructCompletionContext::TaskEventLink { replace }),
+            "-" | "->" | "->{" => Some(ConstructCompletionContext::ParsedLink { replace }),
+            "->\"" => Some(ConstructCompletionContext::VerbatimLink { replace }),
             _ => None,
         }
     }
@@ -675,7 +671,7 @@ pub fn link_completion_context(
     if offset > source.len() || !source.is_char_boundary(offset) {
         return None;
     }
-    if let Some(context) = autolink_completion_context(document, offset) {
+    if let Some(context) = verbatim_link_completion_context(document, offset) {
         return Some(context);
     }
     if verbatim_at(document, offset) {
@@ -853,26 +849,26 @@ fn resource_completion_context(
     })
 }
 
-fn autolink_completion_context(
+fn verbatim_link_completion_context(
     document: &ParsedDocument,
     offset: usize,
 ) -> Option<LinkCompletionContext> {
-    blocks_find_autolink(&document.source, &document.syntax.blocks, offset)
+    blocks_find_verbatim_link(&document.source, &document.syntax.blocks, offset)
 }
 
-fn blocks_find_autolink(
+fn blocks_find_verbatim_link(
     source: &str,
     blocks: &[Block],
     offset: usize,
 ) -> Option<LinkCompletionContext> {
     blocks.iter().find_map(|block| match block {
         Block::Verbatim(_) => None,
-        Block::Parsed(block) => inlines_find_autolink(source, &block.content, offset)
-            .or_else(|| blocks_find_autolink(source, &block.children, offset)),
+        Block::Parsed(block) => inlines_find_verbatim_link(source, &block.content, offset)
+            .or_else(|| blocks_find_verbatim_link(source, &block.children, offset)),
     })
 }
 
-fn inlines_find_autolink(
+fn inlines_find_verbatim_link(
     source: &str,
     content: &InlineContent,
     offset: usize,
@@ -897,7 +893,7 @@ fn inlines_find_autolink(
                 offset,
             )
         }
-        Inline::Group { content, .. } => inlines_find_autolink(source, content, offset),
+        Inline::Group { content, .. } => inlines_find_verbatim_link(source, content, offset),
         Inline::Verbatim { .. }
         | Inline::Text { .. }
         | Inline::Space { .. }
@@ -918,7 +914,7 @@ fn component_completion_context(
     }
     if let Some((path, fragment)) = prefix.split_once('#') {
         let fragment_start = range.start + path.len() + 1;
-        return Some(LinkCompletionContext::AutolinkAnchor {
+        return Some(LinkCompletionContext::VerbatimAnchor {
             path: path.to_string(),
             replace: fragment_start..range.end,
             query: fragment.to_string(),
@@ -927,7 +923,7 @@ fn component_completion_context(
     let path_end = source[offset..range.end]
         .find('#')
         .map_or(range.end, |separator| offset + separator);
-    Some(LinkCompletionContext::AutolinkPath {
+    Some(LinkCompletionContext::VerbatimPath {
         replace: range.start..path_end,
         envelope,
         quote_count,
@@ -1029,7 +1025,7 @@ mod tests {
             let start = source.rfind('`').unwrap();
             assert_eq!(
                 construct_completion_context(&parsed, source.len()),
-                Some(ConstructCompletionContext::LinkAndAutolink {
+                Some(ConstructCompletionContext::ParsedLink {
                     replace: start..source.len()
                 })
             );
@@ -1046,7 +1042,7 @@ mod tests {
             let start = source.rfind('`').unwrap();
             assert_eq!(
                 construct_completion_context(&parsed, source.len()),
-                Some(ConstructCompletionContext::TaskEventLinkAndAutolink {
+                Some(ConstructCompletionContext::TaskEventLink {
                     replace: start..source.len()
                 })
             );
@@ -1056,27 +1052,27 @@ mod tests {
             let start = source.rfind('`').unwrap();
             assert_eq!(
                 construct_completion_context(&parsed, source.len()),
-                Some(ConstructCompletionContext::LinkAndAutolink {
+                Some(ConstructCompletionContext::ParsedLink {
                     replace: start..source.len()
                 })
             );
         }
-        let block_autolink = parse("`[");
-        assert_eq!(construct_completion_context(&block_autolink, 2), None);
-        let old_autolink = parse("Text `[");
+        let block_legacy_link = parse("`[");
+        assert_eq!(construct_completion_context(&block_legacy_link, 2), None);
+        let old_link = parse("Text `[");
         assert_eq!(
-            construct_completion_context(&old_autolink, old_autolink.source.len()),
+            construct_completion_context(&old_link, old_link.source.len()),
             None
         );
-        let link = parse("Text `->[");
+        let link = parse("Text `->{");
         assert_eq!(
             construct_completion_context(&link, link.source.len()),
-            Some(ConstructCompletionContext::Link { replace: 5..9 })
+            Some(ConstructCompletionContext::ParsedLink { replace: 5..9 })
         );
-        let autolink = parse("Text `->\"");
+        let verbatim_link = parse("Text `->\"");
         assert_eq!(
-            construct_completion_context(&autolink, autolink.source.len()),
-            Some(ConstructCompletionContext::Autolink { replace: 5..9 })
+            construct_completion_context(&verbatim_link, verbatim_link.source.len()),
+            Some(ConstructCompletionContext::VerbatimLink { replace: 5..9 })
         );
         for source in ["Text `t", "Text `e", "`tx", "`eventual"] {
             let parsed = parse(source);
@@ -1361,12 +1357,12 @@ mod tests {
     }
 
     #[test]
-    fn completes_paths_and_anchors_inside_autolinks() {
+    fn completes_paths_and_anchors_inside_verbatim_links() {
         let (path, cursor) = strip_cursor("See `->\"do|c.plumb\"\n");
         let value_start = path.find("doc.plumb").unwrap();
         assert_eq!(
             completion_context(&path, cursor),
-            Some(LinkCompletionContext::AutolinkPath {
+            Some(LinkCompletionContext::VerbatimPath {
                 replace: value_start..value_start + "doc.plumb".len(),
                 envelope: path.find('`').unwrap()..path.find('"').unwrap() + "\"doc.plumb\"".len(),
                 quote_count: 1,
@@ -1379,7 +1375,7 @@ mod tests {
         let fragment_start = anchor.find("target").unwrap();
         assert_eq!(
             completion_context(&anchor, cursor),
-            Some(LinkCompletionContext::AutolinkAnchor {
+            Some(LinkCompletionContext::VerbatimAnchor {
                 path: "doc.plumb".to_string(),
                 replace: fragment_start..fragment_start + "target".len(),
                 query: "ta".to_string(),
@@ -1391,7 +1387,7 @@ mod tests {
     }
 
     #[test]
-    fn does_not_guess_that_verbatim_is_an_autolink() {
+    fn does_not_guess_that_unmarked_verbatim_is_a_link() {
         let incomplete = "See `\"do";
         assert_eq!(completion_context(incomplete, incomplete.len()), None);
 

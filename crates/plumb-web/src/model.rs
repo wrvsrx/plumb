@@ -1535,14 +1535,13 @@ impl WebWorkspace {
                 .expect("document id is current-valid");
             let operation_workspace = self.operation_workspace(path)?;
             for link in &current.output.links {
-                let kind = if link.automatic { "autolink" } else { "link" };
                 self.push_resolved_edge(
                     &mut nodes,
                     &mut ghost_ids,
                     &mut edges,
                     path,
                     source_id,
-                    kind,
+                    "link",
                     link.target.value.as_str(),
                     link.selection_range.clone(),
                     operation_workspace
@@ -2037,15 +2036,7 @@ mod tests {
                 .iter()
                 .filter(|edge| edge.kind == "link")
                 .count(),
-            2
-        );
-        assert_eq!(
-            graph
-                .edges
-                .iter()
-                .filter(|edge| edge.kind == "autolink")
-                .count(),
-            2
+            4
         );
         assert!(graph.edges.iter().any(|edge| edge.kind == "task-prev"));
         assert!(graph.edges.iter().any(|edge| edge.kind == "task-depends"));

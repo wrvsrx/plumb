@@ -378,8 +378,8 @@ fn publishes_completed_task_consistency_diagnostics() {
 }
 
 #[test]
-fn hovers_verbatim_autolinks_with_the_original_uri() {
-    let uri = "file:///tmp/verbatim-autolink.plumb";
+fn hovers_verbatim_links_with_the_original_uri() {
+    let uri = "file:///tmp/verbatim-link.plumb";
     let source = "Visit `->\"https://example.test/a%20b\".\n";
     let messages = [
         json!({

@@ -81,7 +81,6 @@ pub struct LinkRecord {
     pub target: SourceBacked<String>,
     pub target_kind: LinkTarget,
     pub spelling: LinkSpelling,
-    pub automatic: bool,
     pub path_range: Option<Range<usize>>,
     pub fragment_range: Option<Range<usize>>,
 }
@@ -392,9 +391,9 @@ fn collect_inlines(
                         output,
                     );
                     if mark.marker == "->" {
-                        collect_verbatim_autolink(
+                        collect_verbatim_link(
                             source,
-                            VerbatimAutolink {
+                            VerbatimLink {
                                 range: range.clone(),
                                 kind_range: mark.marker_range.clone(),
                                 text,
@@ -412,7 +411,7 @@ fn collect_inlines(
     }
 }
 
-struct VerbatimAutolink<'a> {
+struct VerbatimLink<'a> {
     range: Range<usize>,
     kind_range: Range<usize>,
     text: &'a str,
@@ -421,12 +420,8 @@ struct VerbatimAutolink<'a> {
     attrs: &'a Attributes,
 }
 
-fn collect_verbatim_autolink(
-    source: &str,
-    input: VerbatimAutolink<'_>,
-    output: &mut DocumentOutput,
-) {
-    let VerbatimAutolink {
+fn collect_verbatim_link(source: &str, input: VerbatimLink<'_>, output: &mut DocumentOutput) {
+    let VerbatimLink {
         range,
         kind_range,
         text,
@@ -448,36 +443,28 @@ fn collect_verbatim_autolink(
         });
         return;
     }
-    if !valid_autolink_target(text) {
+    if !valid_derived_link_target(text) {
         output.diagnostics.push(Diagnostic {
-            code: "link.invalid-autolink-target",
+            code: "link.invalid-target",
             severity: DiagnosticSeverity::Warning,
-            message: "autolink target must be a nonempty absolute URI or raw relative path"
-                .to_string(),
+            message: "link target must be a nonempty absolute URI or raw relative path".to_string(),
             range: text_range,
             related: Vec::new(),
         });
         return;
     }
-    let (target_kind, path_decoded, fragment_decoded) = classify_raw_target(text);
-    let path_range = path_decoded
-        .map(|decoded| text_range.start + decoded.start..text_range.start + decoded.end);
-    let fragment_range = fragment_decoded
-        .map(|decoded| text_range.start + decoded.start..text_range.start + decoded.end);
     let envelope = range.start..attrs.range.as_ref().map_or(range.end, |range| range.start);
-    output.links.push(LinkRecord {
+    push_link(
         range,
-        selection_range: text_range.clone(),
-        target: direct_source_backed(source, text.to_string(), text_range),
-        target_kind,
-        spelling: LinkSpelling::Verbatim {
+        text_range.clone(),
+        direct_source_backed(source, text.to_string(), text_range),
+        LinkSpelling::Verbatim {
             envelope,
             quote_count,
         },
-        automatic: true,
-        path_range,
-        fragment_range,
-    });
+        classify_raw_target(text),
+        output,
+    );
 }
 
 fn valid_uri_reference(target: &str) -> bool {
@@ -507,7 +494,7 @@ fn valid_uri_reference(target: &str) -> bool {
     Url::parse(target).is_ok() || base.join(target).is_ok()
 }
 
-fn valid_autolink_target(target: &str) -> bool {
+fn valid_derived_link_target(target: &str) -> bool {
     if target.is_empty()
         || target
             .chars()
@@ -723,7 +710,7 @@ fn collect_link(
     output: &mut DocumentOutput,
 ) {
     let view = crate::owner_semantic_view(content);
-    let (label, target, automatic) = match view.positional.as_slice() {
+    let (label, target, derived_label) = match view.positional.as_slice() {
         [target] => (target, target, true),
         [label, target] => (label, target, false),
         _ => {
@@ -747,23 +734,27 @@ fn collect_link(
         });
         return;
     };
-    if automatic && !valid_autolink_target(&target.value) {
+    if derived_label && !valid_derived_link_target(&target.value) {
         output.diagnostics.push(Diagnostic {
-            code: "link.invalid-autolink-target",
+            code: "link.invalid-target",
             severity: DiagnosticSeverity::Warning,
-            message: "autolink target must be a nonempty absolute URI or raw relative path"
-                .to_string(),
+            message: "link target must be a nonempty absolute URI or raw relative path".to_string(),
             range: target.range.clone(),
             related: Vec::new(),
         });
         return;
     }
+    let classification = if derived_label {
+        classify_raw_target(&target.value)
+    } else {
+        classify_target(&target.value)
+    };
     push_link(
         range,
         crate::datum_selection_range(label),
         target,
         LinkSpelling::Positional,
-        automatic,
+        classification,
         output,
     );
 }
@@ -848,14 +839,10 @@ fn push_link(
     selection_range: Range<usize>,
     target: SourceBacked<String>,
     spelling: LinkSpelling,
-    automatic: bool,
+    classification: (LinkTarget, Option<Range<usize>>, Option<Range<usize>>),
     output: &mut DocumentOutput,
 ) {
-    let (target_kind, path_decoded, fragment_decoded) = if automatic {
-        classify_raw_target(&target.value)
-    } else {
-        classify_target(&target.value)
-    };
+    let (target_kind, path_decoded, fragment_decoded) = classification;
     let path_range = path_decoded.and_then(|decoded| target.source_range(decoded));
     let fragment_range = fragment_decoded.and_then(|decoded| target.source_range(decoded));
     output.links.push(LinkRecord {
@@ -864,7 +851,6 @@ fn push_link(
         target,
         target_kind,
         spelling,
-        automatic,
         path_range,
         fragment_range,
     });
@@ -1075,20 +1061,16 @@ mod tests {
             .iter()
             .all(|link| link.spelling == LinkSpelling::Positional));
         assert_eq!(output.links[0].target.value, "guide.plumb");
-        assert!(output.links[0].automatic);
         assert_eq!(output.links[1].target.value, "styled.plumb");
-        assert!(output.links[1].automatic);
         assert_eq!(
             &source[output.links[1].path_range.clone().unwrap()],
             "styled.plumb"
         );
         assert_eq!(output.links[2].target.value, "Project Guide.plumb#intro");
-        assert!(output.links[2].automatic);
         assert_eq!(
             &source[output.links[2].fragment_range.clone().unwrap()],
             "intro"
         );
-        assert!(!output.links[3].automatic);
         assert_eq!(output.links[3].target.value, "target.plumb");
         assert_eq!(
             output.links[3].target_kind,
@@ -1204,7 +1186,7 @@ mod tests {
     }
 
     #[test]
-    fn recognizes_inline_verbatim_autolinks_without_normalizing_the_target() {
+    fn recognizes_inline_verbatim_links_without_normalizing_the_target() {
         let source = "Visit `->\"https://example.test/a%20b\" or `->\"https://[::1]/\".\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
@@ -1223,7 +1205,7 @@ mod tests {
     }
 
     #[test]
-    fn recognizes_relative_autolink_targets() {
+    fn recognizes_relative_verbatim_link_targets() {
         let source = "`->\"other.plumb\"\n`->\"other notes.plumb#section\"\n`->\"../assets/a b.pdf\"\n`->\"../assets/100% done?.pdf\"\n`->\"#local\"\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
@@ -1348,7 +1330,7 @@ mod tests {
     }
 
     #[test]
-    fn diagnoses_invalid_autolink_targets_and_ignores_arrow_facets() {
+    fn diagnoses_invalid_derived_link_targets_and_ignores_arrow_facets() {
         let source = "`->\"[]\"\n`->\"https://example.test/bad path\"\n`->\"https://example.test/%zz\"\n`->\"doc.plumb#one#two\"\n`span[text|+[->]]\n\n`note head\n `+ ->\n\n`()\n `+ ->\n\n|\"\n raw\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
@@ -1367,10 +1349,10 @@ mod tests {
         assert_eq!(
             codes,
             [
-                "link.invalid-autolink-target",
-                "link.invalid-autolink-target",
-                "link.invalid-autolink-target",
-                "link.invalid-autolink-target",
+                "link.invalid-target",
+                "link.invalid-target",
+                "link.invalid-target",
+                "link.invalid-target",
             ]
         );
     }

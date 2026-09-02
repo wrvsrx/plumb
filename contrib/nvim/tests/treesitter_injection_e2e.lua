@@ -38,7 +38,7 @@ local diary_parser = vim.treesitter.get_parser(diary_buf, 'plumb')
 diary_parser:parse(true)
 assert(
   not diary_parser:trees()[1]:root():has_error(),
-  'repeated headings and Unicode autolinks must survive scanner state round-trips'
+  'repeated headings and Unicode verbatim links must survive scanner state round-trips'
 )
 vim.api.nvim_buf_delete(diary_buf, { force = true })
 

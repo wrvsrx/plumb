@@ -495,7 +495,7 @@ fn lower_inline_items(items: &[Inline], analysis: &DocumentOutput, output: &mut 
                 if let Some(link) = analysis.link_at_node_start(range.start) {
                     output.push(json!({
                         "t": "Link",
-                        "c": [lower_autolink_attrs(&attrs), text_inlines(text), [&link.target.value, ""]],
+                        "c": [lower_verbatim_link_attrs(&attrs), text_inlines(text), [&link.target.value, ""]],
                     }));
                 } else if analysis.math.math_at_node_start(range.start).is_some() {
                     let math = json!({
@@ -688,7 +688,7 @@ fn has_unconsumed_facet_attrs(attrs: &Attributes, facet: &str) -> bool {
     })
 }
 
-fn lower_autolink_attrs(attrs: &Attributes) -> Value {
+fn lower_verbatim_link_attrs(attrs: &Attributes) -> Value {
     lower_attrs_filtered(attrs, None, |class| class == "->", |_| false)
 }
 
@@ -942,7 +942,7 @@ mod tests {
     }
 
     #[test]
-    fn exports_verbatim_autolinks_in_body_and_metadata() {
+    fn exports_verbatim_links_in_body_and_metadata() {
         let source = "`= homepage|`->\"https://example.test/meta\"\n\nBody `->\"https://example.test/a%20b\".\n";
         let document = export(source).unwrap();
         let metadata_link = &document["meta"]["homepage"]["c"][0];

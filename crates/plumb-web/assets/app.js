@@ -632,7 +632,6 @@ import {
     if (isHighlightedLink(link)) return link.kind === 'task-depends' ? '#d94b3d' : '#188578';
     if (link.kind === 'task-depends') return 'rgba(217, 75, 61, 0.32)';
     if (link.kind === 'task-prev') return 'rgba(215, 165, 34, 0.32)';
-    if (link.kind === 'autolink') return 'rgba(24, 133, 120, 0.28)';
     return 'rgba(120, 124, 126, 0.22)';
   }
 

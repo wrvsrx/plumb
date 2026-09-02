@@ -1728,7 +1728,7 @@ impl LanguageServer for ServerState {
             if let Some(context) = construct_completion_context(&entry.parsed, offset) {
                 let timestamp = Local::now().to_rfc3339_opts(SecondsFormat::Secs, false);
                 let include_link_labels =
-                    matches!(context, ConstructCompletionContext::Link { .. });
+                    matches!(context, ConstructCompletionContext::ParsedLink { .. });
                 let mut items = construct_completion_items(
                     &entry.parsed.source,
                     context,
@@ -1860,7 +1860,7 @@ impl LanguageServer for ServerState {
                         &context,
                         plumb_semantics::LinkCompletionContext::Label { .. }
                             | plumb_semantics::LinkCompletionContext::Path { .. }
-                            | plumb_semantics::LinkCompletionContext::AutolinkPath { .. }
+                            | plumb_semantics::LinkCompletionContext::VerbatimPath { .. }
                     ) {
                         CompletionItemKind::FILE
                     } else {
