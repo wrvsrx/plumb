@@ -42,10 +42,12 @@ line ending。
 
 `# 4. Spacing between blocks
 
-owner 与 marked/verbatim first child 之间 one line ending；anonymous first child 前保留一个 blank separator，避免
-把 child 重解析为 inline continuation。direct siblings same marker、previous childless 时紧凑相邻；different marker、
-subtree/semantic separation 可保留一个 blank separator。verbatim payload 与 following block 分隔但不让 layout
-blank进入 payload。range formatting 使用 following sibling 作为 read-only spacing context，不扩大 mutation range。
+nonempty owner content 与 first child 之间保留一个 blank separator；empty-content owner 与 marked/verbatim first
+child 之间 one line ending。anonymous first child 无论 owner content 是否为空都保留 blank separator，避免重解析为
+inline continuation。该策略让 visible head 与 structural body分组，同时让 empty-head collection/container保持紧凑。
+direct siblings same marker、previous childless 时紧凑相邻；different marker、subtree/semantic separation 可保留一个
+blank separator。verbatim payload 与 following block 分隔但不让 layout blank进入 payload。range formatting 使用
+following sibling 作为 read-only spacing context，不扩大 mutation range。
 
 `# 5. TextEdit invariants
 
