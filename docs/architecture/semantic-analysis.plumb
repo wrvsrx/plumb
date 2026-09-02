@@ -88,6 +88,11 @@ inline owner semantic projection统一识别 direct declaration并投影 positio
 marker重新过滤。Link target Stringify在该 projection上递归，并产生 decoded byte boundary到 source byte
 boundary的映射；跳过 marker/envelope时 boundary可以跨 source gap。
 
+固定 first/rest 字段的 semantic consumer使用 owner projection 的共享 split：first positional datum保持独立，
+所有 remaining positional data组成一个 logical rest argument。rest不包含 interleaved direct declarations，相邻
+data之间产生一个 semantic space。Link 使用 first/rest 形成 explicit label/target，Event 使用它形成
+schedule/title；core tree与 lossless datum sequence不因该 semantic binding改变。
+
 completion 可以读取 current recovered view 与其他 documents 的 last-valid indexes。definition、references、 hover 和 rename 默认要求当前 target 具有 valid semantic record。
 
 document analysis output 在共享 source-ordered link storage 之外保存 event containment index。每个 event record 对应一个可重叠的 link index range；nested events 可以引用同一 link record，不复制 source-backed link data。构建在 links 与 events 已按 source 排序后以 monotonic boundary search 完成；workspace 的 event-task association、diagnostics、navigation、reverse references 与 event query 统一调用 indexed contained-links query，不各自重做 byte-range join。revision replacement 原子替换 links 与 ranges，不能让 新 event 观察旧 link storage。

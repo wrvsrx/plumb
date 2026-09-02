@@ -97,15 +97,16 @@ stem，created 取 operation local RFC 3339；通过 plumb-edit 生成 current s
 `# 6. Links
 
 唯一 standard Link kind 是 `"->"。direct declaration不占 positional index。一个 non-declaration datum 产生
-derived-label Link：原 datum 是 rich label，其递归 Stringify value 是 target。两个 data 产生 explicit-label
-Link：first 是 rich label，second 的 Stringify value 是 target。两种 arity 都是同一种 Link semantic record；
-zero 或超过两个 data invalid：
+derived-label Link：原 datum 是 rich label，其递归 Stringify value 是 target。两个或更多 data 产生
+explicit-label Link：first 是 rich label，所有 remaining data 共同形成 target，并在相邻 data 间产生一个
+semantic space后递归 Stringify。两种 arity 都是同一种 Link semantic record；zero data invalid：
 
 `plumb"
  `->{guide.plumb}
  `->{`"guide.plumb"}
  `->{`!{guide.plumb}}
  `->{guide guide.plumb}
+ `->{guide Project Guide.plumb}
  `->{{guide page} {Project Guide.plumb}}
  `->{{cross-file target} guide.plumb#intro `@{cross-file}}
  `->{{external target} https://example.test}
@@ -113,6 +114,9 @@ zero 或超过两个 data invalid：
 Stringify 递归遍历 Text、SpaceRun、SoftBreak、Group 与 Verbatim；envelope/marker不贡献字符，每层 direct
 declaration被过滤，positional data之间产生一个 semantic space。empty Stringify invalid。Link 对 enclosing
 plain-text projection只贡献原 rich label；target 不进入 title/details/scalar。
+
+因此 multi-datum target不需要 anonymous group；derived-label Link 的 multiword target仍必须作为一个 group datum
+或 compact verbatim payload，否则 first datum会成为 explicit label，remaining data会成为 target。
 
 URI scheme 或 `"//" prefix 是 absolute/network target；其他是 source-document-relative raw filesystem path。
 不 percent encode/decode/normalize；UTF-8、spaces、`"%"、`"?" literal。`"#" 唯一分隔 explicit anchor，path
