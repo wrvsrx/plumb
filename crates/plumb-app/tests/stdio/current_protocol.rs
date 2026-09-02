@@ -121,6 +121,97 @@ fn formats_recursive_children_with_one_structural_space() {
 }
 
 #[test]
+fn aligned_arguments_are_idempotent_across_code_action_and_formatting() {
+    let uri = "file:///tmp/current-alignment.plumb";
+    let source = "`= a one\n`= long two\n";
+    let aligned = "`= a    one\n`= long two\n";
+    let code_action = |id| {
+        json!({
+            "jsonrpc": "2.0", "id": id, "method": "textDocument/codeAction",
+            "params": {
+                "textDocument": { "uri": uri },
+                "range": {
+                    "start": { "line": 0, "character": 4 },
+                    "end": { "line": 0, "character": 4 }
+                },
+                "context": { "diagnostics": [], "only": ["refactor.rewrite"] }
+            }
+        })
+    };
+    let messages = [
+        initialize("file:///tmp"),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": {
+                "uri": uri, "languageId": "plumb", "version": 1, "text": source
+            }}
+        }),
+        code_action(2),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didChange",
+            "params": {
+                "textDocument": { "uri": uri, "version": 2 },
+                "contentChanges": [{ "text": aligned }]
+            }
+        }),
+        code_action(3),
+        json!({
+            "jsonrpc": "2.0", "id": 4, "method": "textDocument/formatting",
+            "params": { "textDocument": { "uri": uri }, "options": {
+                "tabSize": 4, "insertSpaces": true
+            }}
+        }),
+        json!({ "jsonrpc": "2.0", "id": 5, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+    let output = run_server(&messages);
+    let action = response(&output, 2)["result"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|action| action["title"] == "Align arguments")
+        .unwrap();
+    let edits = action["edit"]["documentChanges"][0]["edits"]
+        .as_array()
+        .unwrap();
+    assert_eq!(apply_ascii_edits(source, edits), aligned);
+    assert!(response(&output, 3)["result"]
+        .as_array()
+        .is_none_or(|actions| actions
+            .iter()
+            .all(|action| action["title"] != "Align arguments")));
+    assert_eq!(response(&output, 4)["result"], json!([]));
+}
+
+fn apply_ascii_edits(source: &str, edits: &[serde_json::Value]) -> String {
+    let mut output = source.to_string();
+    for edit in edits.iter().rev() {
+        let range = &edit["range"];
+        let start_line = range["start"]["line"].as_u64().unwrap() as usize;
+        let start_character = range["start"]["character"].as_u64().unwrap() as usize;
+        let end_line = range["end"]["line"].as_u64().unwrap() as usize;
+        let end_character = range["end"]["character"].as_u64().unwrap() as usize;
+        let offsets = |line: usize, character: usize| {
+            let line_start = if line == 0 {
+                0
+            } else {
+                output
+                    .match_indices('\n')
+                    .map(|(offset, _)| offset + 1)
+                    .nth(line - 1)
+                    .unwrap()
+            };
+            line_start + character
+        };
+        let start = offsets(start_line, start_character);
+        let end = offsets(end_line, end_character);
+        output.replace_range(start..end, edit["newText"].as_str().unwrap());
+    }
+    output
+}
+
+#[test]
 fn returns_task_fold_and_status_actions_for_current_properties() {
     let uri = "file:///tmp/current-task.plumb";
     let source = "`- Current task\n `+ task\n `@ current\n `= created 2026-09-02T09:00:00+08:00\n";

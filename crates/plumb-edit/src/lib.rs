@@ -117,34 +117,11 @@ pub fn align_block_arguments(
 
     let mut edits = Vec::new();
     for block in blocks {
-        for (column, datum) in block.content.data.iter().enumerate() {
-            let raw = &datum.range;
-            let content = block
-                .content
-                .argument(column)
-                .filter(|content| !content.items.is_empty());
-            let leading = content
-                .as_ref()
-                .map_or_else(|| raw.clone(), |content| raw.start..content.range.start);
-            let trailing = content
-                .as_ref()
-                .map_or_else(|| raw.clone(), |content| content.range.end..raw.end);
-            let leading_spaces = usize::from(column > 0);
-            let trailing_spaces = (column + 1 < argument_count).then(|| {
-                widths[column] - argument_alignment_width(&parsed.source, block, column) + 1
-            });
-
-            if content.is_none() {
-                let spaces = leading_spaces + trailing_spaces.unwrap_or(0);
-                push_changed_padding_edit(parsed, &mut edits, raw.clone(), spaces)?;
-                continue;
-            }
-            if column > 0 {
-                push_changed_padding_edit(parsed, &mut edits, leading, leading_spaces)?;
-            }
-            if let Some(spaces) = trailing_spaces {
-                push_changed_padding_edit(parsed, &mut edits, trailing, spaces)?;
-            }
+        for (column, width) in widths.iter().enumerate() {
+            let separator =
+                block.content.data[column].range.end..block.content.data[column + 1].range.start;
+            let spaces = *width - argument_alignment_width(&parsed.source, block, column) + 1;
+            push_changed_padding_edit(parsed, &mut edits, separator, spaces)?;
         }
     }
     edits.sort_by_key(|edit| edit.range.start);

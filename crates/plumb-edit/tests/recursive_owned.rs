@@ -75,9 +75,14 @@ fn explicit_argument_alignment_is_a_format_fixed_point() {
     let parsed = parse(source);
     let edits = align_block_arguments(&parsed, source.find("a one").unwrap()).unwrap();
     let aligned = apply_text_edits(source.to_string(), edits).unwrap();
-    assert_eq!(aligned, "`= a      one\n`= long   two\n");
+    assert_eq!(aligned, "`= a    one\n`= long two\n");
 
     let parsed = parse(aligned);
+    assert!(
+        align_block_arguments(&parsed, parsed.source.find("a    one").unwrap())
+            .unwrap()
+            .is_empty()
+    );
     assert!(plumb_edit::format(&parsed, FormatScope::Document)
         .unwrap()
         .is_empty());
