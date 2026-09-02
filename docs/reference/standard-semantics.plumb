@@ -149,7 +149,7 @@ empty image alt 合法，src 必须 nonempty。image export 为 Pandoc Image；f
 
 `# 8. Citations
 
-首个 profile 只接受一个 nonempty plain id：
+首个 profile 只接受 exactly one nonempty plain positional element作为 id：
 
 `plumb"
  See `cite{smith2004}.

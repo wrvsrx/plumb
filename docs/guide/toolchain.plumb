@@ -61,7 +61,7 @@ direct declaration completion 由 recovered syntax owner 决定：task/event pro
 
 `"plumb fmt" 对 syntax-valid document canonicalize recursive owners。anonymous/marked parsed owner 的 children
 统一深一列；owner 与 first child 之间 one line ending，different sibling kinds 可保留一个 blank separator。
-direct datum boundary 默认 one ASCII space；explicit Align arguments 可以扩大 SpaceRun。eligible same-marker run 已有
+需要 separator的 direct element boundary默认 one ASCII space；explicit Align arguments 可以扩大 SpaceRun。eligible same-marker run 已有
 一致 argument columns 时 formatter 保留这些 widths；formatter 不主动对齐普通 source。Group 使用 braces，literal
 braces/backtick 使用 introducer escape。
 

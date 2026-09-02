@@ -33,10 +33,10 @@ Inside the repository, `docs/reference/core-syntax.plumb`,
 - A marked block starts with backtick plus a nonempty marker. A block marker is
   followed by ASCII space or line ending. A marker immediately followed by `{`
   or an inline quote envelope belongs to an inline owner instead.
-- Inline content losslessly preserves Text, ASCII SpaceRun, and continuation
-  SoftBreak elements. Direct spaces and SoftBreaks separate positional data at
-  the current inline depth. Repeated spaces do not create empty data; write `{}`
-  for an explicit empty datum.
+- Inline content losslessly preserves Text, ASCII SpaceRun, continuation
+  SoftBreak, Group, and Verbatim elements. Each Text/Group/Verbatim is one
+  positional element; whitespace elements occupy no positional index. Direct
+  adjacency never merges elements. Write `{}` for an explicit empty element.
 - `{content}` is one anonymous group in its parent. `` `kind{content} `` is a
   marked group. Groups recurse and stay on one physical line.
 - Use `` `` `` for a literal backtick, `` `{ `` for a literal opening brace,
@@ -52,8 +52,8 @@ Inside the repository, `docs/reference/core-syntax.plumb`,
 - The document is an implicit root owner. Direct top-level `=` blocks are
   metadata. Direct `@`, `+`, and `=` children project as id, facet, and property
   declarations under the official profile; core keeps them as generic owners.
-- For leaf `=`/`:` blocks, the first datum is the key/term and remaining head
-  data form the value/body. With structural children, the complete head is the
+- For leaf `=`/`:` blocks, the first positional element is the key/term and
+  remaining elements form the value/body. With structural children, the complete head is the
   key/term and children form the value/body.
 - Use `plumb migrate --from member-envelope-v1` for the former `[]`/`|`,
   quote-count block margin, and raw-tail epoch. Do not emulate
@@ -105,9 +105,9 @@ Inline `$"x^2" math.
 
 Use `-` and `.` for list items and direct leaf `+ task` or `+ event` facets.
 Letter prefixes such as `t`/`task` and `e`/`event` offer no legacy construct
-completion. Use `->` as the sole Link kind: one datum derives its label from
-the target; with two or more data, the first is the explicit label and all
-remaining data form the target. Marked verbatim `` `->"target" `` is the
+completion. Use `->` as the sole Link kind: one element derives its label from
+the target; with two or more elements, the first is the explicit label and all
+remaining elements form the target. Marked verbatim `` `->"target" `` is the
 compact derived-label spelling.
 
 `()` is the transparent block/inline container. Inline ownership is written as

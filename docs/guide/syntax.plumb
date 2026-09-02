@@ -36,16 +36,18 @@ block marker 后必须是 ASCII space 或 line ending。marker 紧邻 brace/quot
 
 前者是 marked block，后者是 anonymous block 内的 marked inline group。
 
-`# Inline data and groups
+`# Inline elements and groups
 
-inline sequence losslessly 保存 Text 与 ASCII SpaceRun。direct one-or-more spaces 在当前 depth 分隔 positional
-data；空格数量是 formatting，不产生 empty datum。一个 datum 也可以由多个 adjacent terms 组成：
+inline sequence losslessly 保存 Text、ASCII SpaceRun、SoftBreak、Group 与 Verbatim。Text 在 space、special entry
+或 boundary处结束；每个 Text/Group/Verbatim 是一个 positional element，SpaceRun/SoftBreak不占 positional index。
+空格数量是 formatting，不产生 empty element；adjacency不会合并 elements：
 
 `plumb"
  prefix`!{strong}suffix
  `row Alice   10   {}
 
-anonymous group `"{...}" 在 parent 中占一个 term，用于 multiword positional value；marked group 把 marker
+上例第一行产生 Text、Group、Text 三个 positional elements。anonymous group `"{...}" 在 parent 中占一个
+element，用于让多个 inner elements共同形成一个 positional value；marked group 把 marker
 放在 braces 外：
 
 `plumb"
@@ -54,7 +56,7 @@ anonymous group `"{...}" 在 parent 中占一个 term，用于 multiword positio
  `->{{guide page} {Project Guide.plumb}}
  `node{visible `@{stable} `={key value}}
 
-group 可以 nesting，但不跨 physical line。empty group `"{}" 是 explicit empty datum。brackets 与 pipe 是
+group 可以 nesting，但不跨 physical line。empty group `"{}" 是 explicit empty positional element。brackets 与 pipe 是
 ordinary text。
 
 `# Escapes
@@ -123,7 +125,7 @@ leaf `"@"、`"+"、`"=" owners 投影为 id/facet/property；core 仍保留 gene
 `plumb"
  `node{visible `@{stable} `+{notice} `={level 2}}
 
-property/definition 没有 children 时 first datum 是 key/term，remaining data sequence 是 value/body；有
+property/definition 没有 children 时 first positional element是 key/term，remaining elements是 value/body；有
 children 时完整 head 是 key/term，children 是 value/body：
 
 `plumb"

@@ -32,7 +32,7 @@ cursor 位于尚无 id 的 heading/generic marked block 时，Add explicit id �
 
 ordered list 固定从 1 开始。
 
-`":" 是 definition entry。没有 children 时 first datum 是 term、remaining head 是 inline body；有 children 时
+`":" 是 definition entry。没有 children 时 first positional element是 term、remaining head elements是 inline body；有 children 时
 完整 head 是 term、children 是 body：
 
 `plumb"
@@ -42,7 +42,7 @@ ordered list 固定从 1 开始。
 
 `# Table
 
-`"table" direct `"-" children 是 rows。compact row 每个 direct datum 是 cell；SpaceRun 可以 padding 对齐但
+`"table" direct `"-" children 是 rows。compact row 每个 direct positional element是 cell；SpaceRun 可以 padding 对齐但
 不改变 arity：
 
 `plumb"
@@ -92,8 +92,8 @@ value 可以是 null、一个 paragraph scalar、`"+" sequence、nested `"=" map
 
 `# Link
 
-`"->" 使用 one or more non-declaration data：one datum 产生 derived-label Link，原 rich datum 是 label且
-Stringify value 是 target；two or more data产生 explicit-label Link，first 是 label，所有 remaining data共同
+`"->" 使用 one or more non-declaration positional elements：one element产生 derived-label Link，原 rich element是 label且
+Stringify value 是 target；two or more elements产生 explicit-label Link，first 是 label，所有 remaining elements共同
 形成 target：
 
 `plumb"
@@ -106,8 +106,9 @@ Stringify value 是 target；two or more data产生 explicit-label Link，first 
   `->{website https://example.test}
 
 本地 anchor 必须显式存在。跨文件 target 使用相对 `"..plumb" path。explicit-label Link 的 rest target 是 raw
-filesystem path；相邻 data之间产生一个 semantic space，中文、spaces、parentheses 与 percent characters 都按字面
-保留，不进行 URL encode/decode。derived-label Link 的 multiword target仍需要一个 group datum或 verbatim spelling。
+filesystem path；原 source 有 whitespace时才产生 semantic space，adjacent elements直接拼接。中文、spaces、
+parentheses 与 percent characters 都按字面保留，不进行 URL encode/decode。derived-label Link 的 multi-element
+target需要一个 anonymous Group或 verbatim spelling。
 
 旧 consecutive slots 与 inline attached group 不属于 current syntax；使用 `"plumb migrate --from attached-v1" 显式迁移，formatter 不读取 legacy syntax。
 
@@ -126,7 +127,7 @@ strength。`"..plumb" path 与 explicit anchor 可以由 LSP 补全。自定义 
 `"->"。
 
 ordinary inline `"-"/`"->" prefix 只提供 canonical parsed Link template；`"->{" 保持该候选，`"->\"" 提供
-compact verbatim Link template。完成后的 one-datum/two-or-more-data forms分别使用 derived/explicit label。
+compact verbatim Link template。完成后的 one-element/two-or-more-element forms分别使用 derived/explicit label。
 
 `# Image
 
@@ -224,7 +225,7 @@ bullet 或 ordered list item 添加 direct leaf `"+ event" facet 后成为 event
    `= timezone +08:00
    `= tasks #write-parser
 
-first datum 是 schedule，remaining head data 是 nonempty title。schedule 使用 `"HH"、`"HH:MM"、`"HH:MM:SS"
+first positional element是 schedule，remaining head elements是 nonempty title。schedule 使用 `"HH"、`"HH:MM"、`"HH:MM:SS"
 point 或 `"START--END" interval，并继承 date/timezone context。tasks 关联 explicit task ids；event/task facets
 mutually exclusive。完整边界见 standard semantics reference。
 

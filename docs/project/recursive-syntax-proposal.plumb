@@ -353,3 +353,49 @@ compact cells 来自 row head，expanded cells 来自 row children；添加 `"+ 
 实现采用 isolated plumb-syntax-legacy-v2、plumb-edit owned conversion 与 current strict revalidation；current
 parser 没有 compatibility branch。strict parser、format/edit、semantics、import/export、workspace、LSP、
 tree-sitter、repository documents 与 bundled skill 已同步；current contract 仍由 reference/architecture 决定。
+
+`# Implemented follow-up: element-based positional binding
+
+本节记录 2026-09-03 后续决定，现已进入 current reference 与 implementation，并 supersede 本文前面基于 datum
+projection 的规则。`->{{core syntax reference} ../reference/core-syntax.plumb}、syntax-tree architecture 与
+standard semantics 是 current authority；strict parser typed view、semantic consumers、formatter/edit、tests、
+guide 与 bundled skill 已同步。
+
+不再在 direct inline elements 上投影 datum 或 segment 中间层。InlineContents 只包含 source-ordered
+InlineElement sequence；Text、SpaceRun、SoftBreak、Group 与 Verbatim 都是 elements。Text 在 direct space、
+special entry 或 boundary处结束，Group/Verbatim 各自始终是 parent depth 的一个 element。例如：
+
+`plumb"
+ prefix`!{strong}suffix
+
+必须产生三个 positional elements：`"Text(prefix)"、`"Group(!, strong)" 与 `"Text(suffix)"；它们不会因为
+direct adjacency而合并。Group 内部拥有自己的 InlineContents，inner spaces 与 elements不改变 parent element
+count。
+
+SpaceRun 与 SoftBreak 保持 lossless elements，但不占 positional index；leading/trailing whitespace是 boundary
+padding，argument 内部的每个 whitespace run投影为一个 semantic space。recognized direct `"@"、`"+"、`"="
+declaration elements同样不占 positional index；consumer elide declaration后不能把其两侧 formatting spaces
+变成额外 positional values。
+
+fixed first/rest consumer直接切分 elements，而不是先切 datum：first positional element单独形成 first
+argument；其后的 source-ordered elements形成 rest argument，trim boundary whitespace、filter direct
+declarations，并保留 non-declaration elements之间的内部 whitespace。Link 与 Event 的结果分别是
+label/target 与 schedule/title。
+
+`plumb"
+ `->{guide Project Guide.plumb}
+ `- 14:00 Parser review meeting
+  `+ event
+ `->{prefix`!{strong}suffix}
+
+上例依次解释为 `"guide" / `"Project Guide.plumb"、`"14:00" / `"Parser review meeting"，以及
+`"prefix" / `"strongsuffix"。最后一例明确证明 adjacency不会建立隐式组合。若多个 adjacent elements必须共同
+占据 first argument，使用 anonymous group：
+
+`plumb"
+ `->{{prefix`!{strong}suffix} target.plumb}
+
+derived-label Link 只在过滤 declarations 与 whitespace后恰有一个 positional element时成立；multiword target
+使用 anonymous group 或 compact verbatim spelling。其他 consumer也必须显式声明 element binding：property 与
+definition 使用 first/rest，table compact row 的每个 positional element 是一个 cell，inline style 与 citation
+要求 exactly one positional element。不得保留一套仅供部分 consumers 使用的 hidden datum grouping。

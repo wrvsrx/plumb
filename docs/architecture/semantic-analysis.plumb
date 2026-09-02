@@ -41,8 +41,8 @@ record identity 不能依赖 unstable allocation address。跨 revision reuse �
 
 analyses 只增加自己拥有的 records/diagnostics，不能删除其他 analysis 所需的 source data。组合冲突必须 产生显式 diagnostic 或使用在 standard profile 中冻结的 rule，不能依赖 Rust module 调用顺序。generic export 在标准 semantic lowering 后仍保留未消费的 declaration children。
 
-Link analysis 从 Group content 过滤 direct declarations；one remaining datum形成 derived label/target，two or more
-remaining data使用 first/rest 形成 explicit label/target。unknown marked groups 保持 ordinary content。legacy Link
+Link analysis 从 Group content 过滤 direct declarations与 whitespace；one remaining element形成 derived label/target，
+two or more remaining elements使用 first/rest 形成 explicit label/target。unknown marked groups 保持 ordinary content。legacy Link
 conversion 属于 versioned migration，不进入 current pipeline。
 
 `# 6. Dependencies and invalidation
@@ -85,14 +85,14 @@ Persistent generation 可以从 host 已保存的同 revision source snapshot �
 
 query context 至少包含 request document/revision、cursor 或 target、workspace completeness、cancellation 和 configuration。结果必须说明 provenance；candidate ordering 应 deterministic。
 
-inline owner semantic projection统一识别 direct declaration并投影 positional data；kind consumer不得各自按
+inline owner semantic projection统一识别 direct declaration并投影 positional elements；kind consumer不得各自按
 marker重新过滤。Link target Stringify在该 projection上递归，并产生 decoded byte boundary到 source byte
 boundary的映射；跳过 marker/envelope时 boundary可以跨 source gap。
 
-固定 first/rest 字段的 semantic consumer使用 owner projection 的共享 split：first positional datum保持独立，
-所有 remaining positional data组成一个 logical rest argument。rest不包含 interleaved direct declarations，相邻
-data之间产生一个 semantic space。Link 使用 first/rest 形成 explicit label/target，Event 使用它形成
-schedule/title；core tree与 lossless datum sequence不因该 semantic binding改变。
+固定 first/rest 字段的 semantic consumer使用 owner projection 的共享 split：first positional element保持独立，
+所有 remaining positional elements组成一个 logical rest argument。rest不包含 interleaved direct declarations，
+保留 non-declaration elements之间的 whitespace/adjacency。Link 使用 first/rest 形成 explicit label/target，Event
+使用它形成 schedule/title；core tree与唯一 lossless element sequence不因该 semantic binding改变。
 
 completion 可以读取 current recovered view 与其他 documents 的 last-valid indexes。definition、references、 hover 和 rename 默认要求当前 target 具有 valid semantic record。
 

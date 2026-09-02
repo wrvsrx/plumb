@@ -98,19 +98,21 @@ apply 后的 source 必须 strict-valid且 formatter fixed point。bare/incomple
 rich one-argument Link rename 使用 Stringify 的 source mapping；当 decoded component跨 nested envelope时，替换该
 mapped source range并允许将被跨越的 presentation markup规范化为 plain escaped target，不猜测如何分配字符到多个
 semantic owners。compact verbatim仍优先 token edit，delimiter collision时 strengthen whole envelope。
+explicit Link target跨多个 positional elements时，document rename替换完整 rest target span并生成 plain escaped
+target，保留 fragment；span 内 interleaved direct declarations按原 source order移到新 target之后，不删除 declaration。
 
 `# 9. Versioned migration
 
 plumb-migrate owns explicit syntax-epoch conversion。member-envelope-v1 使用 frozen plumb-syntax-legacy-v2；current
 parser 不保留 compatibility branch。converter 从 legacy typed tree构造 current OwnedDocument：
 
-`- old block arguments按 semantic-safe policy映射为 current data/groups。
+`- old block arguments按 semantic-safe policy映射为 current elements/groups。
 `- old SoftBreak continuation映射为 current semantic space；anonymous child保持 structural child，并由 formatter
  输出 required blank boundary。
 `- old inline arguments在需要 spaces 时加 anonymous group；children变 direct marked groups。
 `- former attributed-verbatim Link 经 earlier converter 形成的
- `"{code[|"[label]"|=[to|target]]}" 必须恢复为 current Link：verbatim label 是 first datum，
- `"to" value 是 second datum，property owner不保留为 rendered/generic child。
+ `"{code[|"[label]"|=[to|target]]}" 必须恢复为 current Link：verbatim label 是 first element，
+ `"to" value 进入 rest target，property owner不保留为 rendered/generic child。
 `- old raw tail无 children/head时变 marked VerbatimBlock；有 declarations/children时使用 transparent wrapper +
  marked raw child。
 `- old quote strength/raw bytes/direct ownership保持。

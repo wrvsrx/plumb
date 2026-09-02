@@ -56,21 +56,22 @@ Markers are nonempty, case-sensitive runs excluding whitespace, controls,
 backtick, double quote, and braces. Brackets and pipe are ordinary marker/text
 characters in this epoch.
 
-## Inline Contents and Data
+## Inline Contents and Elements
 
 Inline contents losslessly preserve Text, ASCII SpaceRun, Group, and Verbatim
-elements. One or more direct ASCII spaces separate positional data at the
-current depth. Repeated spaces still represent one boundary and never create an
-empty datum. Adjacent terms without a direct space form one rich datum.
+elements. Text ends at direct whitespace, a special entry, or the content
+boundary. Every Text, Group, and Verbatim is one positional element; SpaceRun
+and SoftBreak occupy no positional index. Repeated spaces never create an empty
+element, and direct adjacency never merges elements.
 
 ```plumb
 prefix`!{strong}suffix
 `row Alice   10   {}
 ```
 
-`{content}` is an anonymous group and occupies one term in its parent.
+`{content}` is an anonymous group and occupies one element in its parent.
 `` `kind{content} `` is a marked group. Group-internal spaces do not split the
-parent datum.
+parent element count.
 
 ```plumb
 {guide with spaces}
@@ -79,7 +80,7 @@ parent datum.
 ```
 
 Groups may nest but may not cross a physical line. `{}` is an explicit empty
-datum. The marker is outside the group and is not its first datum.
+positional element. The marker is outside the group and is not its first element.
 
 ## Escapes
 

@@ -29,8 +29,8 @@ marker form one list; nested items form nested lists.
 `. Second
 ```
 
-`:` is a definition entry. Without structural children, its first datum is the
-term and all remaining head data form the inline body. Group a multiword term.
+`:` is a definition entry. Without structural children, its first positional
+element is the term and all remaining head elements form the inline body. Group a multi-element term.
 With children, the complete head is the term and children are the block body.
 
 ```plumb
@@ -56,7 +56,7 @@ from workspace-relative path, so top-level `@` and `+` are unsupported.
  `= name Alice
 ```
 
-A leaf property uses its first datum as key and all remaining head data as
+A leaf property uses its first positional element as key and all remaining head elements as
 value. Group a key containing spaces. With children, the complete head is the
 key and children form a null, scalar, `+` sequence, nested `=` map, or one
 verbatim value. Metadata `+` is non-rendered sequence data; `-` remains a
@@ -69,10 +69,10 @@ recognized direct declarations; unknown marked owners remain visible content.
 
 ## Links
 
-`->` is the sole Link inline kind. With one non-declaration datum, its rich
+`->` is the sole Link inline kind. With one non-declaration element, its rich
 source is the derived label and its recursive string value is the target. With
-two or more data, the first is an explicit label and all remaining data
-stringify to one target with a semantic space between adjacent data.
+two or more elements, the first is an explicit label and all remaining elements
+stringify to one target, preserving whitespace and direct adjacency.
 
 ```plumb
 `->{guide.plumb}
@@ -148,7 +148,7 @@ The six standard inline styles are:
 `_{subscript}
 ```
 
-Each requires one positional datum. Use an anonymous group when styled content
+Each requires one positional element. Use an anonymous group when styled content
 contains direct spaces plus nested inline structure.
 
 ## Tasks
@@ -176,7 +176,7 @@ completion. Task/Event completion starts from list-marker context.
 ## Events
 
 A list item becomes an event through direct leaf `+ event`. The first head
-datum is schedule and all remaining head data form title, so ordinary multiword
+positional element is schedule and all remaining head elements form title, so ordinary multiword
 titles need no group.
 
 ```plumb
@@ -193,7 +193,7 @@ Schedules accept a point or `START--END`; document/ancestor `date` and
 
 ## Tables
 
-`table` owns direct `-` rows. Every direct row-head datum is a compact cell;
+`table` owns direct `-` rows. Every direct row-head positional element is a compact cell;
 one or more spaces are one separator, so formatter alignment does not change
 arity. Group a multiword cell and use `{}` for an empty cell.
 
