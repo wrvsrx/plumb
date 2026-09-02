@@ -188,17 +188,22 @@ export 产生 Pandoc BlockQuote。quote 上未消费的 declarations 通过内�
 
 `# Inline styles
 
-常用 inline styles 使用简短 kind：
+常用 inline styles 使用简短 kind，并消费全部 visible content：
 
 `plumb"
-  `*[emphasis]
-  `![strong]
-  `==[mark]
-  `~[strikeout]
-  `^[superscript]
-  `_[subscript]
+  `*{emphasis with spaces}
+  `!{prefix`*{nested}suffix}
+  `=={mark}
+  `~{strikeout}
+  `^{superscript}
+  `_{subscript}
+  `!{}
 
-除 mark 使用 Pandoc `"Span.mark" 外，其余分别产生 Pandoc Emph、Strong、Strikeout、Superscript 与 Subscript。未消费的 declaration children 通过 Span 保存。`"**"、`"em"、`"strong"、`"mark" 不是 aliases；italic/bold 是 emphasis/strong 的常见渲染，不需要独立 spelling。
+style 接受 zero or more Text/Space/Group/Verbatim elements，不做 positional arity validation；direct declarations
+从 visible body过滤并作为 attributes保留。anonymous Group只在 style owner作为父级 positional value时用于组合，
+style body自身不需要额外分组。除 mark 使用 Pandoc `"Span.mark" 外，其余分别产生 Pandoc Emph、Strong、
+Strikeout、Superscript 与 Subscript。`"**"、`"em"、`"strong"、`"mark" 不是 aliases；italic/bold 是
+emphasis/strong 的常见渲染，不需要独立 spelling。
 
 `# Math
 

@@ -141,15 +141,18 @@ The six standard inline styles are:
 
 ```plumb
 `*{emphasis}
-`!{strong}
+`!{strong content with spaces}
+`!{prefix`*{nested}suffix}
 `=={mark}
 `~{strikeout}
 `^{superscript}
 `_{subscript}
+`!{}
 ```
 
-Each requires one positional element. Use an anonymous group when styled content
-contains direct spaces plus nested inline structure.
+Each is a content container and accepts zero or more visible elements. Direct
+declarations become attributes rather than visible style content. Multiple
+elements inside a style need no anonymous group.
 
 ## Tasks
 

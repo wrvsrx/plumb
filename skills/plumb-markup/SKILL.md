@@ -113,7 +113,10 @@ compact derived-label spelling.
 `()` is the transparent block/inline container. Inline ownership is written as
 `` `(){container `+{notice}} ``. A standard same-file Link is
 `` `->{same-file target #intro} ``. `$` on inline or block verbatim is TeX math.
+The six standard inline styles are whole-content containers: they accept zero
+or more visible elements, including spaces and nested styles, while direct
+declarations remain attributes.
 
-`table` owns direct `-` rows. Nonempty row-head data are compact cells; an empty
+`table` owns direct `-` rows. Nonempty row-head positional elements are compact cells; an empty
 row uses direct non-declaration block children as expanded cells. Direct
 `+ header` marks leading header rows or expanded row-header cells.
