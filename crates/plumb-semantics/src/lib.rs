@@ -96,25 +96,34 @@ pub(crate) fn datum_selection_range(
     }
 }
 
+pub(crate) struct OwnerSemanticView {
+    pub positional: Vec<plumb_syntax::InlineContent>,
+}
+
+pub(crate) fn owner_semantic_view(content: &plumb_syntax::InlineContent) -> OwnerSemanticView {
+    let mut positional = Vec::new();
+    for (index, datum) in content.data.iter().enumerate() {
+        let items = &content.items[datum.item_range.clone()];
+        let declaration = matches!(
+            items,
+            [plumb_syntax::Inline::Group {
+                mark: Some(mark),
+                ..
+            }] if matches!(mark.marker.as_str(), "@" | "+" | "=")
+        );
+        if !declaration {
+            if let Some(datum) = content.datum(index) {
+                positional.push(datum);
+            }
+        }
+    }
+    OwnerSemanticView { positional }
+}
+
 pub(crate) fn positional_data(
     content: &plumb_syntax::InlineContent,
 ) -> Vec<plumb_syntax::InlineContent> {
-    content
-        .data
-        .iter()
-        .enumerate()
-        .filter_map(|(index, datum)| {
-            let items = &content.items[datum.item_range.clone()];
-            let declaration = matches!(
-                items,
-                [plumb_syntax::Inline::Group {
-                    mark: Some(mark),
-                    ..
-                }] if matches!(mark.marker.as_str(), "@" | "+" | "=")
-            );
-            (!declaration).then(|| content.datum(index)).flatten()
-        })
-        .collect()
+    owner_semantic_view(content).positional
 }
 
 pub fn is_document_declaration(block: &plumb_syntax::Block) -> bool {

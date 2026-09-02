@@ -932,9 +932,13 @@ mod tests {
 
     #[test]
     fn exports_links_from_shared_document_facts() {
-        let document = export("See `->[target|other.plumb#id].\n").unwrap();
+        let document =
+            export("See `->{target other.plumb#id} and `->{`!{other.plumb}}.\n").unwrap();
         assert_eq!(document["blocks"][0]["c"][2]["t"], "Link");
         assert_eq!(document["blocks"][0]["c"][2]["c"][2][0], "other.plumb#id");
+        assert_eq!(document["blocks"][0]["c"][6]["t"], "Link");
+        assert_eq!(document["blocks"][0]["c"][6]["c"][1][0]["t"], "Strong");
+        assert_eq!(document["blocks"][0]["c"][6]["c"][2][0], "other.plumb");
     }
 
     #[test]

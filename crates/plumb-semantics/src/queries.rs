@@ -681,33 +681,17 @@ pub fn link_completion_context(
     if verbatim_at(document, offset) {
         return None;
     }
-    let (range, content) = find_marked_group(&document.syntax.blocks, offset, "->")?;
+    let (_, content) = find_marked_group(&document.syntax.blocks, offset, "->")?;
     let positional = crate::positional_data(content);
-    let label = positional.first()?;
-    if positional.len() == 1 && offset <= label.range.end {
-        return Some(LinkCompletionContext::Label {
-            replace: range.clone(),
-            query: label.plain_text(),
-        });
-    }
-    let (value_start, value_end) = if let Some(value) = positional.get(1) {
-        if offset < value.range.start || offset > value.range.end {
-            return None;
-        }
-        editable_datum_range(value)
-    } else {
-        if offset < label.range.end
-            || !source[label.range.end..offset]
-                .chars()
-                .all(|character| character == ' ')
-        {
-            return Some(LinkCompletionContext::Label {
-                replace: range,
-                query: label.plain_text(),
-            });
-        }
-        (offset, offset)
+    let value = match positional.as_slice() {
+        [target] => target,
+        [_, target] => target,
+        _ => return None,
     };
+    if offset < value.range.start || offset > value.range.end {
+        return None;
+    }
+    let (value_start, value_end) = editable_datum_range(value);
     if offset < value_start || offset > value_end {
         return None;
     }

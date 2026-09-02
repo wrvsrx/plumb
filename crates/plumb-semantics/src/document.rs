@@ -81,6 +81,7 @@ pub struct LinkRecord {
     pub target: SourceBacked<String>,
     pub target_kind: LinkTarget,
     pub spelling: LinkSpelling,
+    pub automatic: bool,
     pub path_range: Option<Range<usize>>,
     pub fragment_range: Option<Range<usize>>,
 }
@@ -473,6 +474,7 @@ fn collect_verbatim_autolink(
             envelope,
             quote_count,
         },
+        automatic: true,
         path_range,
         fragment_range,
     });
@@ -720,87 +722,106 @@ fn collect_link(
     content: &InlineContent,
     output: &mut DocumentOutput,
 ) {
-    let Some((selection_range, target)) = positional_link_parts(source, content) else {
+    let view = crate::owner_semantic_view(content);
+    let (label, target, automatic) = match view.positional.as_slice() {
+        [target] => (target, target, true),
+        [label, target] => (label, target, false),
+        _ => {
+            output.diagnostics.push(Diagnostic {
+                code: "link.missing-target",
+                severity: DiagnosticSeverity::Warning,
+                message: "link requires one or two positional arguments".to_string(),
+                range,
+                related: Vec::new(),
+            });
+            return;
+        }
+    };
+    let Some(target) = stringify_target(source, target) else {
         output.diagnostics.push(Diagnostic {
-            code: "link.missing-target",
+            code: "link.invalid-target",
             severity: DiagnosticSeverity::Warning,
-            message: "link requires exactly two positional arguments".to_string(),
-            range,
+            message: "link target must stringify to a nonempty value".to_string(),
+            range: target.range.clone(),
             related: Vec::new(),
         });
         return;
     };
+    if automatic && !valid_autolink_target(&target.value) {
+        output.diagnostics.push(Diagnostic {
+            code: "link.invalid-autolink-target",
+            severity: DiagnosticSeverity::Warning,
+            message: "autolink target must be a nonempty absolute URI or raw relative path"
+                .to_string(),
+            range: target.range.clone(),
+            related: Vec::new(),
+        });
+        return;
+    }
     push_link(
         range,
-        selection_range,
+        crate::datum_selection_range(label),
         target,
         LinkSpelling::Positional,
+        automatic,
         output,
     );
 }
 
-fn positional_link_parts(
-    source: &str,
-    content: &InlineContent,
-) -> Option<(Range<usize>, SourceBacked<String>)> {
-    let arguments = crate::positional_data(content);
-    let [label, target] = arguments.as_slice() else {
-        return None;
-    };
-    Some((
-        crate::datum_selection_range(label),
-        source_backed_argument(source, target)?,
-    ))
+fn stringify_target(source: &str, content: &InlineContent) -> Option<SourceBacked<String>> {
+    let mut builder = StringifyBuilder::default();
+    stringify_content(source, content, &mut builder);
+    builder.finish(source)
 }
 
-fn source_backed_argument(source: &str, argument: &InlineContent) -> Option<SourceBacked<String>> {
-    let argument = argument.trim_boundary_padding();
-    if let [Inline::Verbatim {
-        mark: None,
-        text,
-        text_range,
-        ..
-    }] = argument.items.as_slice()
-    {
-        return (!text.is_empty()).then(|| SourceBacked {
-            raw: source[text_range.clone()].to_string(),
-            value: text.clone(),
-            range: text_range.clone(),
-            decoded_boundaries: (text_range.start..=text_range.end).collect(),
-        });
-    }
-    if let [Inline::Group {
-        mark: None,
-        content,
-        ..
-    }] = argument.items.as_slice()
-    {
-        return source_backed_inline_items(source, &content.items);
-    }
-    source_backed_inline_items(source, &argument.items)
-}
-
-fn source_backed_inline_items(source: &str, items: &[Inline]) -> Option<SourceBacked<String>> {
-    let first = items.first()?;
-    let last = items.last()?;
-    let range = inline_range(first).start..inline_range(last).end;
-    let mut value = String::new();
-    let mut decoded_boundaries = vec![range.start];
-    for inline in items {
-        let (text, source_range) = match inline {
-            Inline::Text { text, range } | Inline::Space { text, range } => {
-                (text.as_str(), range.clone())
+fn stringify_content(source: &str, content: &InlineContent, output: &mut StringifyBuilder) {
+    let view = crate::owner_semantic_view(content);
+    for (index, datum) in view.positional.iter().enumerate() {
+        if index > 0 {
+            let previous = &view.positional[index - 1];
+            output.append_text(source, " ", previous.range.end..datum.range.start);
+        }
+        for inline in &datum.items {
+            match inline {
+                Inline::Text { text, range } | Inline::Space { text, range } => {
+                    output.append_text(source, text, range.clone());
+                }
+                Inline::SoftBreak { range } => output.append_text(source, " ", range.clone()),
+                Inline::Verbatim {
+                    text, text_range, ..
+                } => output.append_text(source, text, text_range.clone()),
+                Inline::Group { content, .. } => stringify_content(source, content, output),
             }
-            Inline::SoftBreak { range } => (" ", range.clone()),
-            Inline::Group { .. } | Inline::Verbatim { .. } => return None,
-        };
+        }
+    }
+}
+
+#[derive(Default)]
+struct StringifyBuilder {
+    value: String,
+    decoded_boundaries: Vec<usize>,
+    range: Option<Range<usize>>,
+}
+
+impl StringifyBuilder {
+    fn append_text(&mut self, source: &str, text: &str, source_range: Range<usize>) {
+        if text.is_empty() {
+            return;
+        }
+        if self.decoded_boundaries.is_empty() {
+            self.decoded_boundaries.push(source_range.start);
+            self.range = Some(source_range.clone());
+        } else {
+            *self.decoded_boundaries.last_mut().unwrap() = source_range.start;
+            self.range.as_mut().unwrap().end = source_range.end;
+        }
         let source_text = &source[source_range.clone()];
         let escaped_single = text.chars().count() == 1 && source_text.len() != text.len();
         for (offset, character) in text.char_indices() {
-            value.push(character);
+            self.value.push(character);
             for byte in 1..=character.len_utf8() {
                 let decoded_end = offset + byte == text.len();
-                decoded_boundaries.push(if decoded_end {
+                self.decoded_boundaries.push(if decoded_end {
                     source_range.end
                 } else if escaped_single {
                     source_range.start
@@ -810,24 +831,15 @@ fn source_backed_inline_items(source: &str, items: &[Inline]) -> Option<SourceBa
             }
         }
     }
-    if value.is_empty() {
-        return None;
-    }
-    Some(SourceBacked {
-        raw: source[range.clone()].to_string(),
-        value,
-        range,
-        decoded_boundaries,
-    })
-}
 
-fn inline_range(inline: &Inline) -> &Range<usize> {
-    match inline {
-        Inline::Text { range, .. }
-        | Inline::Space { range, .. }
-        | Inline::SoftBreak { range }
-        | Inline::Group { range, .. }
-        | Inline::Verbatim { range, .. } => range,
+    fn finish(self, source: &str) -> Option<SourceBacked<String>> {
+        let range = self.range?;
+        (!self.value.is_empty()).then(|| SourceBacked {
+            raw: source[range.clone()].to_string(),
+            value: self.value,
+            range,
+            decoded_boundaries: self.decoded_boundaries,
+        })
     }
 }
 
@@ -836,9 +848,14 @@ fn push_link(
     selection_range: Range<usize>,
     target: SourceBacked<String>,
     spelling: LinkSpelling,
+    automatic: bool,
     output: &mut DocumentOutput,
 ) {
-    let (target_kind, path_decoded, fragment_decoded) = classify_target(&target.value);
+    let (target_kind, path_decoded, fragment_decoded) = if automatic {
+        classify_raw_target(&target.value)
+    } else {
+        classify_target(&target.value)
+    };
     let path_range = path_decoded.and_then(|decoded| target.source_range(decoded));
     let fragment_range = fragment_decoded.and_then(|decoded| target.source_range(decoded));
     output.links.push(LinkRecord {
@@ -847,6 +864,7 @@ fn push_link(
         target,
         target_kind,
         spelling,
+        automatic,
         path_range,
         fragment_range,
     });
@@ -1041,7 +1059,7 @@ mod tests {
 
     #[test]
     fn recognizes_compact_and_expanded_positional_links() {
-        let source = "`->{guide target.plumb}\n`->{{guide page} `\"Project Guide.plumb#intro\"}\n`->{`*{external} https://example.test}\n";
+        let source = "`->{guide.plumb}\n`->{`!{styled.plumb}}\n`->{`\"Project Guide.plumb#intro\" `@{rich}}\n`->{guide target.plumb}\n`->{{guide page} `\"Project Guide.plumb#intro\"}\n`->{`*{external} https://example.test}\n";
         let parsed = plumb_syntax::parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
@@ -1051,35 +1069,50 @@ mod tests {
                 .expect("semantic analysis requires valid syntax"),
         );
         assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
-        assert_eq!(output.links.len(), 3);
+        assert_eq!(output.links.len(), 6);
         assert!(output
             .links
             .iter()
             .all(|link| link.spelling == LinkSpelling::Positional));
-        assert_eq!(output.links[0].target.value, "target.plumb");
+        assert_eq!(output.links[0].target.value, "guide.plumb");
+        assert!(output.links[0].automatic);
+        assert_eq!(output.links[1].target.value, "styled.plumb");
+        assert!(output.links[1].automatic);
         assert_eq!(
-            output.links[0].target_kind,
+            &source[output.links[1].path_range.clone().unwrap()],
+            "styled.plumb"
+        );
+        assert_eq!(output.links[2].target.value, "Project Guide.plumb#intro");
+        assert!(output.links[2].automatic);
+        assert_eq!(
+            &source[output.links[2].fragment_range.clone().unwrap()],
+            "intro"
+        );
+        assert!(!output.links[3].automatic);
+        assert_eq!(output.links[3].target.value, "target.plumb");
+        assert_eq!(
+            output.links[3].target_kind,
             LinkTarget::Document {
                 path: "target.plumb".to_string()
             }
         );
         assert_eq!(
-            &source[output.links[1].selection_range.clone()],
+            &source[output.links[4].selection_range.clone()],
             "guide page"
         );
-        assert_eq!(output.links[1].target.value, "Project Guide.plumb#intro");
+        assert_eq!(output.links[4].target.value, "Project Guide.plumb#intro");
         assert_eq!(
-            output.links[1].target_kind,
+            output.links[4].target_kind,
             LinkTarget::Anchor {
                 path: Some("Project Guide.plumb".to_string()),
                 fragment: "intro".to_string()
             }
         );
         assert_eq!(
-            &source[output.links[2].selection_range.clone()],
+            &source[output.links[5].selection_range.clone()],
             "`*{external}"
         );
-        assert_eq!(output.links[2].target_kind, LinkTarget::External);
+        assert_eq!(output.links[5].target_kind, LinkTarget::External);
     }
 
     #[test]

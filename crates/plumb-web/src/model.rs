@@ -5,7 +5,7 @@ use std::sync::{Arc, OnceLock};
 
 use cel::{Context, Program, Value};
 use chrono::{Local, SecondsFormat};
-use plumb_semantics::{DocumentOutput, LinkSpelling, TaskRecord, TaskStatus};
+use plumb_semantics::{DocumentOutput, TaskRecord, TaskStatus};
 use plumb_workspace::{
     apply_document_edit, display_workspace_path as display_path, load_bibliography, normalize,
     scan_workspace_files, search_score, sort_task_records_by, ApplyDocumentEditError,
@@ -1535,10 +1535,7 @@ impl WebWorkspace {
                 .expect("document id is current-valid");
             let operation_workspace = self.operation_workspace(path)?;
             for link in &current.output.links {
-                let kind = match link.spelling {
-                    LinkSpelling::Positional => "link",
-                    LinkSpelling::Verbatim { .. } => "autolink",
-                };
+                let kind = if link.automatic { "autolink" } else { "link" };
                 self.push_resolved_edge(
                     &mut nodes,
                     &mut ghost_ids,
@@ -2022,7 +2019,7 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(
             root.join("a.plumb"),
-            "`= title|Alpha\n\n`- Old\n\n `+ task\n\n `@ old\n`- A\n\n `+ task\n\n `@ a\n\n `= prev|b.plumb#b\n `= depends|b.plumb#b\n`- Recurring instance\n\n `+ task\n\n `@ recur\n\n `= prev|#old\n\nSee `->[B|b.plumb#b], `->\"b.plumb#b\", `->[self|#a], `->[self again|#a], and `->[missing|missing.plumb].\n",
+            "`= title Alpha\n\n`- Old\n\n `+ task\n\n `@ old\n`- A\n\n `+ task\n\n `@ a\n\n `= prev b.plumb#b\n `= depends b.plumb#b\n`- Recurring instance\n\n `+ task\n\n `@ recur\n\n `= prev #old\n\nSee `->{B b.plumb#b}, `->\"b.plumb#b\", `->{b.plumb#b}, `->{self #a}, `->{self again #a}, and `->{missing missing.plumb}.\n",
         )
         .unwrap();
         std::fs::write(root.join("b.plumb"), "`- Beta\n\n `+ task\n\n `@ b\n").unwrap();
@@ -2042,7 +2039,14 @@ mod tests {
                 .count(),
             2
         );
-        assert!(graph.edges.iter().any(|edge| edge.kind == "autolink"));
+        assert_eq!(
+            graph
+                .edges
+                .iter()
+                .filter(|edge| edge.kind == "autolink")
+                .count(),
+            2
+        );
         assert!(graph.edges.iter().any(|edge| edge.kind == "task-prev"));
         assert!(graph.edges.iter().any(|edge| edge.kind == "task-depends"));
         let limited = workspace
