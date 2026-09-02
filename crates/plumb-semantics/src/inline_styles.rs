@@ -68,8 +68,7 @@ fn collect_inlines(content: &InlineContent, output: &mut InlineStyleOutput) {
             Some("_") => Some(InlineStyleKind::Subscript),
             _ => None,
         };
-        let argument_count = crate::positional_elements(content).len();
-        if let Some(kind) = kind.filter(|_| argument_count == 1) {
+        if let Some(kind) = kind {
             output.styles.push(InlineStyleRecord {
                 kind,
                 range: range.clone(),
@@ -119,8 +118,8 @@ mod tests {
     }
 
     #[test]
-    fn adjacency_creates_multiple_style_elements_unless_grouped() {
-        let source = "`!{one`*{two}} `!{{one`*{two}}}\n";
+    fn styles_accept_zero_or_more_visible_elements() {
+        let source = "`!{one`*{two}} `!{{one`*{two}}} `!{} `!{visible `@{styled} text}\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let output = analyze_inline_styles(parsed.valid_syntax().unwrap());
@@ -130,10 +129,13 @@ mod tests {
                 .iter()
                 .map(|style| (style.kind, &source[style.range.clone()]))
                 .collect::<Vec<_>>(),
-            [
+            vec![
+                (InlineStyleKind::Strong, "`!{one`*{two}}"),
                 (InlineStyleKind::Emphasis, "`*{two}"),
                 (InlineStyleKind::Strong, "`!{{one`*{two}}}"),
                 (InlineStyleKind::Emphasis, "`*{two}"),
+                (InlineStyleKind::Strong, "`!{}"),
+                (InlineStyleKind::Strong, "`!{visible `@{styled} text}"),
             ]
         );
     }

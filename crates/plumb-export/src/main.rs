@@ -1066,6 +1066,20 @@ mod tests {
     }
 
     #[test]
+    fn exports_multi_element_and_empty_inline_styles() {
+        let document = export("`!{strong text and `*{nested}} `!{}\n").unwrap();
+        let inlines = document["blocks"][0]["c"].as_array().unwrap();
+        assert_eq!(inlines[0]["t"], "Strong");
+        assert!(inlines[0]["c"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|inline| inline["t"] == "Emph"));
+        assert_eq!(inlines[2]["t"], "Strong");
+        assert_eq!(inlines[2]["c"], json!([]));
+    }
+
+    #[test]
     fn exports_inline_and_display_math_with_attribute_wrappers() {
         let source = "Inline `$\"x^2\".\n\n`$\n\n|\"\n E = mc^2\n`$\n `@ display\n `+ numbered\n\n|\"\n a = b\n";
         let document = export(source).unwrap();
