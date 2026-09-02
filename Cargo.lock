@@ -1819,7 +1819,7 @@ dependencies = [
 
 [[package]]
 name = "plumb"
-version = "0.38.0"
+version = "0.38.1-dev"
 dependencies = [
  "async-lsp",
  "chrono",
@@ -1846,7 +1846,7 @@ dependencies = [
 
 [[package]]
 name = "plumb-edit"
-version = "0.38.0"
+version = "0.38.1-dev"
 dependencies = [
  "plumb-format",
  "plumb-syntax",
@@ -1855,7 +1855,7 @@ dependencies = [
 
 [[package]]
 name = "plumb-export"
-version = "0.38.0"
+version = "0.38.1-dev"
 dependencies = [
  "plumb-migrate",
  "plumb-semantics",
@@ -1865,7 +1865,7 @@ dependencies = [
 
 [[package]]
 name = "plumb-format"
-version = "0.38.0"
+version = "0.38.1-dev"
 dependencies = [
  "plumb-syntax",
  "similar",
@@ -1874,7 +1874,7 @@ dependencies = [
 
 [[package]]
 name = "plumb-import"
-version = "0.38.0"
+version = "0.38.1-dev"
 dependencies = [
  "pandoc_types",
  "plumb-edit",
@@ -1884,7 +1884,7 @@ dependencies = [
 
 [[package]]
 name = "plumb-migrate"
-version = "0.38.0"
+version = "0.38.1-dev"
 dependencies = [
  "plumb-edit",
  "plumb-syntax",
@@ -1894,7 +1894,7 @@ dependencies = [
 
 [[package]]
 name = "plumb-notes"
-version = "0.38.0"
+version = "0.38.1-dev"
 dependencies = [
  "cel",
  "chrono",
@@ -1913,7 +1913,7 @@ dependencies = [
 
 [[package]]
 name = "plumb-semantics"
-version = "0.38.0"
+version = "0.38.1-dev"
 dependencies = [
  "chrono",
  "plumb-edit",
@@ -1925,7 +1925,7 @@ dependencies = [
 
 [[package]]
 name = "plumb-syntax"
-version = "0.38.0"
+version = "0.38.1-dev"
 dependencies = [
  "proptest",
  "serde",
@@ -1934,21 +1934,21 @@ dependencies = [
 
 [[package]]
 name = "plumb-syntax-legacy-v1"
-version = "0.38.0"
+version = "0.38.1-dev"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "plumb-syntax-legacy-v2"
-version = "0.38.0"
+version = "0.38.1-dev"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "plumb-web"
-version = "0.38.0"
+version = "0.38.1-dev"
 dependencies = [
  "axum",
  "cel",
@@ -1972,7 +1972,7 @@ dependencies = [
 
 [[package]]
 name = "plumb-workspace"
-version = "0.38.0"
+version = "0.38.1-dev"
 dependencies = [
  "bincode",
  "cel",
