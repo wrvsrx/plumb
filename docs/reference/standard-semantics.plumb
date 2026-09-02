@@ -96,9 +96,10 @@ stem，created 取 operation local RFC 3339；通过 plumb-edit 生成 current s
 
 `# 6. Links
 
-唯一 standard Link kind 是 `"->"。direct declaration不占 positional index。一个 non-declaration datum 是
-Autolink：原 datum 是 rich label，其递归 Stringify value 是 target。两个 data 是 named Link：first 是 rich label，
-second 的 Stringify value 是 target。zero 或超过两个 data invalid：
+唯一 standard Link kind 是 `"->"。direct declaration不占 positional index。一个 non-declaration datum 产生
+derived-label Link：原 datum 是 rich label，其递归 Stringify value 是 target。两个 data 产生 explicit-label
+Link：first 是 rich label，second 的 Stringify value 是 target。两种 arity 都是同一种 Link semantic record；
+zero 或超过两个 data invalid：
 
 `plumb"
  `->{guide.plumb}
@@ -117,7 +118,7 @@ URI scheme 或 `"//" prefix 是 absolute/network target；其他是 source-docum
 不 percent encode/decode/normalize；UTF-8、spaces、`"%"、`"?" literal。`"#" 唯一分隔 explicit anchor，path
 不能含 `"#"。control、backslash、absolute filesystem path invalid。
 
-marked inline verbatim 是 one-verbatim-argument Autolink 的 compact spelling：
+marked inline verbatim 是 derived-label Link 的 compact spelling：
 
 `plumb"
  `->"https://example.test/a%20b"
@@ -125,9 +126,9 @@ marked inline verbatim 是 one-verbatim-argument Autolink 的 compact spelling�
  `->"../assets/manual draft.pdf"
 
 payload nonempty，同时作为 label/target；上面的 one-verbatim-argument group 与 compact marked inline verbatim
-spelling semantic-equivalent。
-completion 在 named Link target、one-argument Autolink 与 compact payload 的 explicit anchor component提供 workspace
-documents/anchors；delimiter collision 使用 full quote strength，不改 raw path。
+spelling semantic-equivalent。Link record与 graph edge不按 derived/explicit label 或 parsed/verbatim spelling分类。
+completion 在 explicit-label Link target、derived-label Link datum 与 compact payload 的 explicit anchor component
+提供 workspace documents/anchors；delimiter collision 使用 full quote strength，不改 raw path。
 
 `# 7. Images and file attachments
 
