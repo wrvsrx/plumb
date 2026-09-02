@@ -105,9 +105,9 @@ Inline `$"x^2" math.
 
 Use `-` and `.` for list items and direct leaf `+ task` or `+ event` facets.
 Letter prefixes such as `t`/`task` and `e`/`event` offer no legacy construct
-completion. Use `->` as the sole Link kind: one datum is an Autolink and two
-data are label/target. Marked verbatim `` `->"target" `` is the compact
-one-verbatim-argument spelling.
+completion. Use `->` as the sole Link kind: one datum derives its label from
+the target and two data are label/target. Marked verbatim `` `->"target" ``
+is the compact derived-label spelling.
 
 `()` is the transparent block/inline container. Inline ownership is written as
 `` `(){container `+{notice}} ``. A standard same-file Link is

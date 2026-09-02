@@ -252,7 +252,7 @@ Link 的 first positional datum 是 label，second positional datum 是 target�
  this is also a link: `->{{guide with spaces} `"Project Guide.plumb"}
  `->{guide guide.plumb `@{guide-link}}
 
-同 label/target 的 autolink 使用 marked verbatim shorthand：
+derived-label Link 使用 marked verbatim shorthand：
 
 `plumb"
  `->"guide.plumb"

@@ -92,8 +92,8 @@ value 可以是 null、一个 paragraph scalar、`"+" sequence、nested `"=" map
 
 `# Link
 
-`"->" 使用 one/two non-declaration data：one datum 是 Autolink，原 rich datum 是 label且 Stringify value 是
-target；two data 是 named Link 的 label/target：
+`"->" 使用 one/two non-declaration data：one datum 产生 derived-label Link，原 rich datum 是 label且
+Stringify value 是 target；two data 产生 explicit-label Link，分别提供 label/target：
 
 `plumb"
   `->{guide.plumb}
@@ -107,7 +107,7 @@ target；two data 是 named Link 的 label/target：
 
 旧 consecutive slots 与 inline attached group 不属于 current syntax；使用 `"plumb migrate --from attached-v1" 显式迁移，formatter 不读取 legacy syntax。
 
-one-verbatim-argument Autolink 可以使用 compact spelling：
+derived-label Link 可以使用 compact verbatim spelling：
 
 `plumb"
   `->"https://example.test/a%20b"
@@ -115,13 +115,13 @@ one-verbatim-argument Autolink 可以使用 compact spelling：
   `->"guide.plumb#intro"
   `->"../assets/manual draft.pdf"
 
-payload 同时作为 label 与 target，并保留原始 spelling。parsed one-argument 与 compact Autolink 使用相同 target
+payload 同时作为 label 与 target，并保留原始 spelling。parsed one-argument 与 compact Link 使用相同 target
 classification：absolute/network target 按 URI 检查，relative target 是当前 document 目录下的 raw filesystem
 path。`"#" 分隔 explicit anchor；payload 含 double quote 或 closing-like sequence 时增加 inline verbatim quote
 strength。`"..plumb" path 与 explicit anchor 可以由 LSP 补全。自定义 label 使用 two-argument `"->"。
 
-ordinary inline `"-"/`"->" prefix 提供 Link/Autolink；`"->{" 提供 parsed two-argument Link template，但完成后的
-one-argument form按 Autolink解释；`"->\"" 只保留 compact Autolink。
+ordinary inline `"-"/`"->" prefix 只提供 canonical parsed Link template；`"->{" 保持该候选，`"->\"" 提供
+compact verbatim Link template。完成后的 one/two-argument forms仍分别使用 derived/explicit label。
 
 `# Image
 

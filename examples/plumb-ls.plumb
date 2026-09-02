@@ -26,9 +26,9 @@ Try go-to-definition, hover, find references, and rename on these links:
 `- Cross-file anchor: `->{{Exporter conclusion} plumb-export.plumb#export-target}
 `- Cross-file document: `->{{Notes playground} plumb-notes.plumb}
 `- Repeated reference: `->{{Exporter conclusion} plumb-export.plumb#export-target}
-`- External autolink hover: `->"https://example.test/a%20b"
-`- Relative document Autolink: `->"plumb-export.plumb#export-target"
-`- Relative file Autolink: `->"static/plumb-pipeline.svg"
+`- External verbatim Link hover: `->"https://example.test/a%20b"
+`- Relative document Link: `->"plumb-export.plumb#export-target"
+`- Relative file Link: `->"static/plumb-pipeline.svg"
 `- Image file hover and definition: `img{pipeline `={src static/plumb-pipeline.svg}}
 
 `anchor Rename this id to update its references.
@@ -40,14 +40,14 @@ Try go-to-definition, hover, find references, and rename on these links:
 Try completion after each relevant introducer in a temporary edit:
 
 `- At line start, type a backtick followed by a hyphen and choose Task or Event; Task includes `"created".
-`- Type a backtick followed by a hyphen or arrow for Link and Autolink; continue with `"->[" for Link only or `"->\"" for Autolink only. A standalone opening bracket offers neither.
-`- Start a link label with `"->[" and select a document title.
-`- Complete a path in `"->[target|plumb-]".
-`- Complete a fragment in `"->[target|plumb-export.plumb#]".
-`- Complete a same-file fragment in `"->[target|#]".
-`- Complete an Autolink document path inside ``->"plumb-".
+`- Type a backtick followed by a hyphen or arrow for canonical Link completion; continue with `"->\"" for its compact verbatim spelling. A standalone opening brace offers neither.
+`- Start a link label with `"->{" and select a document title.
+`- Complete a path in `"->{target plumb-}".
+`- Complete a fragment in `"->{target plumb-export.plumb#}".
+`- Complete a same-file fragment in `"->{target #}".
+`- Complete a verbatim Link document path inside ``->"plumb-".
 `- Complete a raw fragment inside ``->"plumb-export.plumb#".
-`- Complete an image path in `"img[alt|=[src|static/]]".
+`- Complete an image path in `"img{alt `={src static/}}".
 
 `# Rename
  `@ rename

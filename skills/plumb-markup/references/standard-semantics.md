@@ -69,9 +69,9 @@ recognized direct declarations; unknown marked owners remain visible content.
 
 ## Links
 
-`->` is the sole Link inline kind. One non-declaration datum is an Autolink: its
-rich source is the label and its recursive string value is the target. With two
-data, the first is label and the second stringifies to target.
+`->` is the sole Link inline kind. With one non-declaration datum, its rich
+source is the derived label and its recursive string value is the target. With
+two data, the first is an explicit label and the second stringifies to target.
 
 ```plumb
 `->{guide.plumb}
@@ -86,7 +86,7 @@ The target is omitted from containing plain-text projections. A target with a
 scheme or `//` is external; other targets are raw relative filesystem paths.
 `#` separates an explicit anchor.
 
-Marked verbatim is the compact one-verbatim-argument Autolink spelling:
+Marked verbatim is the compact derived-label Link spelling:
 
 ```plumb
 `->"https://example.test/a%20b"
