@@ -154,6 +154,11 @@ Each is a content container and accepts zero or more visible elements. Direct
 declarations become attributes rather than visible style content. Multiple
 elements inside a style need no anonymous group.
 
+For brace/space documents authored before element-based positional binding,
+run `plumb migrate --from inline-datum-v1`. It groups old adjacent-element
+datums so Link, property, definition, Event, table, and citation meanings are
+preserved; whole-content styles remain equivalent.
+
 ## Tasks
 
 A list item becomes a task through direct leaf `+ task`:

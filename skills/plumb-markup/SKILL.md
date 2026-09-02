@@ -58,6 +58,9 @@ Inside the repository, `docs/reference/core-syntax.plumb`,
 - Use `plumb migrate --from member-envelope-v1` for the former `[]`/`|`,
   quote-count block margin, and raw-tail epoch. Do not emulate
   the converter with global text replacement.
+- Use `plumb migrate --from inline-datum-v1` only for brace/space source from
+  the immediately preceding epoch where adjacent elements formed one datum.
+  It wraps multi-element runs in marked owners and is idempotent.
 
 ## Standard Spelling
 
