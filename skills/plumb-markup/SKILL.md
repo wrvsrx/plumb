@@ -26,15 +26,17 @@ Inside the repository, `docs/reference/core-syntax.plumb`,
 
 ## Core Rules
 
-- A nonblank physical line starts one block. Newline separates blocks;
-  indentation gives a parsed block direct children. Anonymous and marked parsed
-  blocks may own children. There are no continuation lines.
+- A nonblank physical line starts one block, except that an immediately
+  indented plain line with no intervening blank continues the preceding parsed
+  owner's inline content. A blank ends continuation; a following indented plain
+  line is an anonymous child. Anonymous and marked parsed blocks may own children.
 - A marked block starts with backtick plus a nonempty marker. A block marker is
   followed by ASCII space or line ending. A marker immediately followed by `{`
   or an inline quote envelope belongs to an inline owner instead.
-- Inline content losslessly preserves Text and ASCII SpaceRun elements. Direct
-  spaces separate positional data at the current inline depth. Repeated spaces
-  do not create empty data; write `{}` for an explicit empty datum.
+- Inline content losslessly preserves Text, ASCII SpaceRun, and continuation
+  SoftBreak elements. Direct spaces and SoftBreaks separate positional data at
+  the current inline depth. Repeated spaces do not create empty data; write `{}`
+  for an explicit empty datum.
 - `{content}` is one anonymous group in its parent. `` `kind{content} `` is a
   marked group. Groups recurse and stay on one physical line.
 - Use `` `` `` for a literal backtick, `` `{ `` for a literal opening brace,
@@ -54,7 +56,7 @@ Inside the repository, `docs/reference/core-syntax.plumb`,
   data form the value/body. With structural children, the complete head is the
   key/term and children form the value/body.
 - Use `plumb migrate --from member-envelope-v1` for the former `[]`/`|`,
-  continuation-line, quote-count block margin, and raw-tail epoch. Do not emulate
+  quote-count block margin, and raw-tail epoch. Do not emulate
   the converter with global text replacement.
 
 ## Standard Spelling

@@ -6,8 +6,8 @@
 
 `# Blocks and indentation
 
-每条 nonblank physical line 开始一个 block。普通 line 是 anonymous parsed block；反引号加 marker 是 marked
-block：
+每条 nonblank physical line 开始一个 block，或作为 preceding parsed owner 的 plain continuation。普通 line 是
+anonymous parsed block；反引号加 marker 是 marked block：
 
 `plumb"
  ordinary paragraph
@@ -17,16 +17,16 @@ newline 分隔 blocks，indentation 建立 children。anonymous/marked parsed bl
 indentation 是一格 ASCII space：
 
 `plumb"
- parent
-  child
+ `parent
+  `child
 
 `plumb"
  `parent Head
   `child One
   `child Two
 
-没有 continuation line：physical newline 始终是 block boundary。blank line 只是 layout。显式 empty anonymous
-block 写作 `"{}"。
+立即缩进且没有前置 blank 的 plain line继续 owner inline content；typed projection把 boundary视为一个 space。
+blank line结束 continuation，之后的缩进 plain line成为 anonymous child。显式 empty anonymous block 写作 `"{}"。
 
 block marker 后必须是 ASCII space 或 line ending。marker 紧邻 brace/quote 时是 inline owner，因此：
 
@@ -136,11 +136,11 @@ children 时完整 head 是 key/term，children 是 value/body：
 
 `plumb"
  `: Term with spaces
-  Block definition body
+  `() Block definition body
 
 `# Migration
 
-former brackets member envelope、pipe separators、continuation lines、quote-count block margin 和 raw tail 使用：
+former brackets member envelope、pipe separators、quote-count block margin 和 raw tail 使用：
 
 `plumb"
  plumb migrate --from member-envelope-v1 FILES...

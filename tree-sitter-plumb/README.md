@@ -14,9 +14,9 @@ heading/list/task/link meanings belong to official semantics。
 
 they do not make source strict-valid。
 
-ASCII `space` nodes remain lossless datum boundaries。Braces recursively group inline content；there are no member,
+ASCII `space` and `soft_break` nodes remain lossless datum boundaries。Braces recursively group inline content；there
 
-argument-separator, continuation or raw-tail nodes。
+are no member, argument-separator or raw-tail nodes。
 
 # Source and generated files
 

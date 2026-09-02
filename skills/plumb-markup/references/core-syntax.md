@@ -5,9 +5,10 @@ semantics-neutral: marker names remain opaque syntax.
 
 ## Blocks
 
-Every nonblank physical line starts one block. A line not beginning with a
-block marker is an anonymous parsed block. A marked block uses one backtick, a
-nonempty marker, and optional content separated by ASCII space:
+Every nonblank physical line starts one block, except for an immediately
+indented plain continuation line. A line not beginning with a block marker is
+an anonymous parsed block. A marked block uses one backtick, a nonempty marker,
+and optional content separated by ASCII space:
 
 ```plumb
 ordinary paragraph
@@ -22,6 +23,7 @@ indentation adds one ASCII space.
 
 ```plumb
 parent
+
  child
 
 `parent Head
@@ -30,9 +32,11 @@ parent
 ```
 
 Anonymous and marked parsed blocks can own children. A verbatim block cannot.
-Blank lines are layout and do not create empty blocks. Write `{}` on its own
-line when an explicit empty anonymous block is needed. There are no paragraph
-or head continuation lines: every physical newline is a block boundary.
+An immediately indented plain line without an intervening blank continues the
+preceding parsed owner's inline content; its boundary is a SoftBreak that typed
+projection treats as one semantic space. A blank ends continuation, so a later
+indented plain line is an anonymous child. Write `{}` on its own line when an
+explicit empty anonymous block is needed.
 
 ## Marker Dispatch
 
@@ -162,5 +166,5 @@ at physical lines; group and inline-verbatim errors recover at the current line;
 partial dedent recovers at an existing outer column.
 
 Use `plumb migrate --from member-envelope-v1` for the removed bracket member
-envelope, pipe separators, continuation lines, delimiter-escaped brackets and
-pipe, quote-count block margin, and marked raw-tail syntax.
+envelope, pipe separators, delimiter-escaped brackets and pipe, quote-count
+block margin, and marked raw-tail syntax.
