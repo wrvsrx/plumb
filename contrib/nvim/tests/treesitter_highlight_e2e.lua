@@ -9,9 +9,9 @@ local bufnr = vim.api.nvim_create_buf(false, true)
 vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, {
   '`- xixi',
   '',
-  ' `= test|2026-08-06T00:00:00+08:00',
-  ' `= recur|P1D',
-  ' `= prev|#take-diary-2026-08-05',
+  ' `= test 2026-08-06T00:00:00+08:00',
+  ' `= recur P1D',
+  ' `= prev #take-diary-2026-08-05',
   '',
   '`# some',
   '',
@@ -25,7 +25,7 @@ assert(not root:has_error(), 'valid direct declarations must not produce an erro
 local crlf_source = table.concat({
   '`- crlf',
   '',
-  ' `= value|nested',
+  ' `= value nested',
   '',
   '',
   '`# top',
@@ -50,10 +50,6 @@ assert(captures['keyword\0->'], 'line-start inline verbatim kind must receive th
 assert(
   captures['punctuation.delimiter\0`'],
   'bare introducers must use the muted delimiter capture'
-)
-assert(
-  captures['punctuation.delimiter\0|'],
-  'argument separators must use the muted delimiter capture'
 )
 assert(
   captures['markup.raw\0"something.plumb"'],

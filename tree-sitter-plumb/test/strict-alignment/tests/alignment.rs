@@ -191,6 +191,11 @@ fn project_inline_content(content: &InlineContent, output: &mut Vec<ProjectedNod
                     children,
                 });
             }
+            Inline::SoftBreak { range } => output.push(ProjectedNode {
+                kind: "soft_break",
+                range: Some(range.clone()),
+                children: Vec::new(),
+            }),
             Inline::Text { .. } | Inline::Space { .. } => {}
         }
     }
@@ -225,6 +230,7 @@ fn projected_kind(kind: &str) -> Option<(&'static str, bool)> {
         "marker" => ("marker", true),
         "inline_kind" => ("inline_kind", true),
         "verbatim_kind" => ("verbatim_kind", true),
+        "soft_break" => ("soft_break", true),
         _ => return None,
     })
 }

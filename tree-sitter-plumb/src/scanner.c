@@ -1,8 +1,9 @@
 // plumb external scanner.
 //
 // Locality budget (core syntax reference §2): scanner state carries only the
-// indentation stack and the fixed block-verbatim margin. Inline token
-// recognition stays on one physical line.
+// indentation stack and the fixed block-verbatim margin. Parsed groups and
+// verbatim stay on one physical line; owner content may cross a plain
+// continuation boundary.
 
 #include "tree_sitter/parser.h"
 
@@ -363,7 +364,7 @@ static bool scan_inline_continue(Scanner *scanner, TSLexer *lexer) {
   }
   if (column != required) return false;
 
-  lexer->mark_end(lexer);
+  if (lexer->lookahead != ' ') return false;
   while (lexer->lookahead == ' ') take(lexer);
   if (lexer->lookahead == '\n' || lexer->lookahead == 0) return false;
   if (lexer->lookahead == '`') {
@@ -371,6 +372,7 @@ static bool scan_inline_continue(Scanner *scanner, TSLexer *lexer) {
     if (!is_inline_dispatch(dispatch)) return false;
   }
 
+  lexer->mark_end(lexer);
   lexer->result_symbol = INLINE_CONTINUE;
   return true;
 }

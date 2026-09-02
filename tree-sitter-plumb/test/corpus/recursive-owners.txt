@@ -1,5 +1,5 @@
 ==================
-Physical lines are blocks
+Physical line block boundaries
 ==================
 
 one line
@@ -7,6 +7,7 @@ two physical lines
 
 `note marked
 anonymous owner
+
  child
 
 ---
@@ -43,12 +44,50 @@ anonymous owner
           (text))))))
 
 ==================
+Plain continuation and anonymous child
+==================
+
+`= title
+ inbox
+
+`= title
+
+ block value
+
+---
+
+(document
+  (blank_line)
+  (marked_block
+    (introducer)
+    (marker)
+    (inline_content
+      (space)
+      (text)
+      (soft_break)
+      (text)))
+  (blank_line)
+  (marked_block
+    (introducer)
+    (marker)
+    (inline_content
+      (space)
+      (text))
+    (block_body
+      (paragraph
+        (inline_content
+          (text)
+          (space)
+          (text))))))
+
+==================
 Marked and anonymous children
 ==================
 
 `parent Head
  `child One
  anonymous child
+
   grandchild
 `sibling Done
 

@@ -41,6 +41,10 @@ module.exports = grammar({
 
     paragraph: $ => prec.right(seq(
       field('content', $.inline_content),
+      repeat(seq(
+        alias($._inline_continue, $.soft_break),
+        field('content', $.inline_content),
+      )),
       $._line_end,
       optional(field('body', $.block_body)),
     )),
@@ -66,6 +70,10 @@ module.exports = grammar({
     _head_inline_content: $ => seq(
       alias(token.immediate(/ +/), $.space),
       repeat($._inline_content_item),
+      repeat(seq(
+        alias($._inline_continue, $.soft_break),
+        repeat1($._inline_content_item),
+      )),
     ),
 
     inline_content: $ => prec.right(repeat1($._inline_content_item)),
