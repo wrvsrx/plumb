@@ -274,4 +274,7 @@ margin/raw-tail source 使用：
  plumb migrate --from member-envelope-v1 FILES...
 
 更早 attached/document-group/head-space/task-event-marker epochs 仍由各 frozen reader/converter 输入，并最终输出
-current syntax。migration 完成后才运行 official semantics；current parser 不进行 epoch detection。
+current syntax。earlier attributed-verbatim Link 的 frozen intermediate
+`"{code[|"[label]"|=[to|target]]}" 由 member-envelope-v1 恢复成 positional Link，不把 `"to" 保留为
+generic child。ordinary property 仍保持 first datum key、remaining data value。migration 完成后才运行 official
+semantics；current parser 不进行 epoch detection。

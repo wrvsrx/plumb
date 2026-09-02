@@ -44,6 +44,20 @@ mod member_envelope_tests {
     }
 
     #[test]
+    fn restores_attributed_verbatim_links_from_the_frozen_intermediate() {
+        let source = concat!(
+            "`= title|DeltaForce\n\n",
+            "`code[|\"[视频]\"|=[to|https://example.test/video]]\n",
+        );
+        let migrated = migrate_member_envelope_v1(source).unwrap();
+        assert_eq!(
+            migrated,
+            "`= title DeltaForce\n\n`->{`\"视频\" https://example.test/video}\n"
+        );
+        assert_eq!(migrate_member_envelope_v1(&migrated).unwrap(), migrated);
+    }
+
+    #[test]
     fn rejects_invalid_member_envelope_source() {
         let error = migrate_member_envelope_v1("`broken[\n").unwrap_err();
         assert!(matches!(error, MigrationError::InvalidMemberEnvelope(_)));
@@ -347,42 +361,92 @@ fn convert_member_inline(inline: &member_legacy::Inline) -> OwnedInline {
             kind: kind.clone(),
             text: text.clone(),
         },
-        member_legacy::Inline::Element { kind, members, .. } => OwnedInline::Element {
-            kind: kind.clone(),
-            members: members
-                .iter()
-                .map(|member| match member {
-                    member_legacy::InlineMember::ParsedArgument(argument) => {
-                        let items = argument
-                            .content
-                            .items
-                            .iter()
-                            .map(convert_member_inline)
-                            .collect::<Vec<_>>();
-                        let argument = if owned_data_count(&items) == 1 {
-                            items
-                        } else {
-                            vec![OwnedInline::Element {
-                                kind: String::new(),
-                                members: if items.is_empty() {
-                                    Vec::new()
-                                } else {
-                                    vec![OwnedInlineMember::ParsedArgument(items)]
-                                },
-                            }]
-                        };
-                        OwnedInlineMember::ParsedArgument(argument)
-                    }
-                    member_legacy::InlineMember::VerbatimArgument(argument) => {
-                        OwnedInlineMember::VerbatimArgument(argument.text.clone())
-                    }
-                    member_legacy::InlineMember::Child { inline, .. } => {
-                        OwnedInlineMember::Child(Box::new(convert_member_inline(inline)))
-                    }
-                })
-                .collect(),
-        },
+        member_legacy::Inline::Element { kind, members, .. } => {
+            if let Some(link) = convert_attributed_verbatim_link(kind, members) {
+                return link;
+            }
+            OwnedInline::Element {
+                kind: kind.clone(),
+                members: members.iter().map(convert_member).collect(),
+            }
+        }
     }
+}
+
+fn convert_member(member: &member_legacy::InlineMember) -> OwnedInlineMember {
+    match member {
+        member_legacy::InlineMember::ParsedArgument(argument) => {
+            OwnedInlineMember::ParsedArgument(convert_member_argument(argument))
+        }
+        member_legacy::InlineMember::VerbatimArgument(argument) => {
+            OwnedInlineMember::VerbatimArgument(argument.text.clone())
+        }
+        member_legacy::InlineMember::Child { inline, .. } => {
+            OwnedInlineMember::Child(Box::new(convert_member_inline(inline)))
+        }
+    }
+}
+
+fn convert_member_argument(argument: &member_legacy::InlineArgument) -> Vec<OwnedInline> {
+    let items = argument
+        .content
+        .items
+        .iter()
+        .map(convert_member_inline)
+        .collect::<Vec<_>>();
+    if owned_data_count(&items) == 1 {
+        items
+    } else {
+        vec![OwnedInline::Element {
+            kind: String::new(),
+            members: if items.is_empty() {
+                Vec::new()
+            } else {
+                vec![OwnedInlineMember::ParsedArgument(items)]
+            },
+        }]
+    }
+}
+
+fn convert_attributed_verbatim_link(
+    kind: &str,
+    members: &[member_legacy::InlineMember],
+) -> Option<OwnedInline> {
+    let [member_legacy::InlineMember::ParsedArgument(empty), member_legacy::InlineMember::VerbatimArgument(label), member_legacy::InlineMember::Child { inline, .. }] =
+        members
+    else {
+        return None;
+    };
+    if kind != "code" || !empty.content.trim_boundary_padding().items.is_empty() {
+        return None;
+    }
+    let member_legacy::Inline::Element {
+        kind: property_kind,
+        members: property_members,
+        attrs,
+        ..
+    } = inline.as_ref()
+    else {
+        return None;
+    };
+    let [member_legacy::InlineMember::ParsedArgument(key), member_legacy::InlineMember::ParsedArgument(target)] =
+        property_members.as_slice()
+    else {
+        return None;
+    };
+    if property_kind != "="
+        || key.content.trim_boundary_padding().plain_text() != "to"
+        || !attrs.items.is_empty()
+    {
+        return None;
+    }
+    Some(OwnedInline::Element {
+        kind: "->".to_string(),
+        members: vec![
+            OwnedInlineMember::VerbatimArgument(label.text.clone()),
+            OwnedInlineMember::ParsedArgument(convert_member_argument(target)),
+        ],
+    })
 }
 
 pub fn migrate_attached_v1(source: &str) -> Result<String, MigrationError> {

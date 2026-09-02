@@ -96,6 +96,9 @@ parser 不保留 compatibility branch。converter 从 legacy typed tree构造 cu
 
 `- old block arguments按 semantic-safe policy映射为 current data/groups。
 `- old inline arguments在需要 spaces 时加 anonymous group；children变 direct marked groups。
+`- former attributed-verbatim Link 经 earlier converter 形成的
+ `"{code[|"[label]"|=[to|target]]}" 必须恢复为 current Link：verbatim label 是 first datum，
+ `"to" value 是 second datum，property owner不保留为 rendered/generic child。
 `- old raw tail无 children/head时变 marked VerbatimBlock；有 declarations/children时使用 transparent wrapper +
  marked raw child。
 `- old quote strength/raw bytes/direct ownership保持。
