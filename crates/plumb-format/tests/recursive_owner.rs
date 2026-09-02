@@ -1,4 +1,5 @@
-use plumb_format::format;
+use plumb_format::{format, format_block_range};
+use plumb_syntax::parse;
 
 #[test]
 fn canonicalizes_recursive_owners_and_spaces() {
@@ -31,6 +32,24 @@ fn separates_visible_heads_but_compacts_empty_head_containers() {
         format("`container\n\n child\n").unwrap(),
         "`container\n\n child\n"
     );
+}
+
+#[test]
+fn preserves_explicitly_aligned_runs_without_aligning_ordinary_source() {
+    let aligned = "`= a    one\n`= long two\n";
+    assert_eq!(format(aligned).unwrap(), aligned);
+
+    let ordinary = "`= a one\n`= long two\n";
+    assert_eq!(format(ordinary).unwrap(), ordinary);
+
+    let inconsistent = "`= a   one\n`= long two\n";
+    assert_eq!(format(inconsistent).unwrap(), ordinary);
+
+    let parsed = parse(aligned);
+    let mut range_formatted = aligned.to_string();
+    let edit = format_block_range(aligned, parsed.syntax.blocks[0].range().clone()).unwrap();
+    range_formatted.replace_range(edit.range, &edit.new_text);
+    assert_eq!(range_formatted, aligned);
 }
 
 #[test]

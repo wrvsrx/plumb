@@ -1,4 +1,8 @@
-use plumb_edit::{OwnedBlock, OwnedInline, OwnedInlineMember};
+use plumb_edit::{
+    align_block_arguments, apply_text_edits, FormatScope, OwnedBlock, OwnedInline,
+    OwnedInlineMember,
+};
+use plumb_syntax::parse;
 
 #[test]
 fn owned_syntax_renders_recursive_groups_and_space_arguments() {
@@ -63,4 +67,18 @@ fn owned_children_follow_head_sensitive_spacing() {
     };
     assert_eq!(with_head.format().unwrap(), "`- Task\n\n `+ task\n");
     assert_eq!(empty_head.format().unwrap(), "`table\n `+ task\n");
+}
+
+#[test]
+fn explicit_argument_alignment_is_a_format_fixed_point() {
+    let source = "`= a one\n`= long two\n";
+    let parsed = parse(source);
+    let edits = align_block_arguments(&parsed, source.find("a one").unwrap()).unwrap();
+    let aligned = apply_text_edits(source.to_string(), edits).unwrap();
+    assert_eq!(aligned, "`= a      one\n`= long   two\n");
+
+    let parsed = parse(aligned);
+    assert!(plumb_edit::format(&parsed, FormatScope::Document)
+        .unwrap()
+        .is_empty());
 }

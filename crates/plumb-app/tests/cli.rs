@@ -752,7 +752,8 @@ fn serves_the_workspace_site_with_notes_and_tasks() {
         .is_some_and(|timestamp| timestamp.starts_with("2026-")));
     assert!(std::fs::read_to_string(root.join("a.plumb"))
         .unwrap()
-        .contains("`= done 2026-"));
+        .lines()
+        .any(|line| line.trim_start().starts_with("`= done") && line.contains("2026-")));
 
     std::fs::write(
         root.join("a.plumb"),

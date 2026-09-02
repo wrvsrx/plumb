@@ -8,6 +8,7 @@ autobins = false
 [dependencies]
 plumb-syntax = { path = "../plumb-syntax" }
 similar.workspace = true
+unicode-width.workspace = true
 
 [lib]
 name = "plumb_format"

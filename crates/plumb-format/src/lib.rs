@@ -3,6 +3,7 @@ use std::ops::Range;
 
 use plumb_syntax::{parse, Block, Inline, InlineContent, ParsedBlock, ParsedDocument};
 use similar::{DiffOp, TextDiff};
+use unicode_width::UnicodeWidthStr;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FormatError {
@@ -26,7 +27,7 @@ pub fn format_parsed(parsed: &ParsedDocument) -> Result<String, FormatError> {
         return Err(FormatError::InvalidSyntax);
     }
 
-    let mut formatter = Formatter::default();
+    let mut formatter = Formatter::new(&parsed.source);
     let body = &parsed.syntax.blocks;
     formatter.blocks(body, 0);
     if !terminal_verbatim(body) && !formatter.output.is_empty() {
@@ -350,8 +351,9 @@ fn format_contained_group(source: &str, blocks: &[Block], first: usize, last: us
     let indent = source[line_start..block_start].chars().count();
     let edit_range = block_start..block_content_range(selected.last().unwrap()).end;
 
-    let mut formatter = Formatter::default();
-    formatter.blocks(selected, indent);
+    let mut formatter = Formatter::new(source);
+    let aligned = aligned_block_flags(source, blocks);
+    formatter.blocks_with_alignment(selected, indent, &aligned[first..=last]);
     let prefix = " ".repeat(indent);
     let mut new_text = formatter
         .output
@@ -385,8 +387,9 @@ fn format_block_group(source: &str, blocks: &[Block], first: usize, last: usize)
         );
     let indent = source[line_start..block_start].chars().count();
 
-    let mut formatter = Formatter::default();
-    formatter.blocks(selected, indent);
+    let mut formatter = Formatter::new(source);
+    let aligned = aligned_block_flags(source, blocks);
+    formatter.blocks_with_alignment(selected, indent, &aligned[first..=last]);
     if let Some(following) = following {
         if compact_siblings(selected.last().unwrap(), following) {
             formatter.output.push('\n');
@@ -502,13 +505,26 @@ fn terminal_verbatim(blocks: &[Block]) -> bool {
     }
 }
 
-#[derive(Default)]
-struct Formatter {
+struct Formatter<'a> {
+    source: &'a str,
     output: String,
 }
 
-impl Formatter {
+impl<'a> Formatter<'a> {
+    fn new(source: &'a str) -> Self {
+        Self {
+            source,
+            output: String::new(),
+        }
+    }
+
     fn blocks(&mut self, blocks: &[Block], indent: usize) {
+        let aligned = aligned_block_flags(self.source, blocks);
+        self.blocks_with_alignment(blocks, indent, &aligned);
+    }
+
+    fn blocks_with_alignment(&mut self, blocks: &[Block], indent: usize, aligned: &[bool]) {
+        debug_assert_eq!(blocks.len(), aligned.len());
         for (index, block) in blocks.iter().enumerate() {
             if index > 0 {
                 let previous = &blocks[index - 1];
@@ -522,13 +538,13 @@ impl Formatter {
                     self.output.push_str("\n\n");
                 }
             }
-            self.block(block, indent);
+            self.block(block, indent, aligned[index]);
         }
     }
 
-    fn block(&mut self, block: &Block, indent: usize) {
+    fn block(&mut self, block: &Block, indent: usize, preserve_alignment: bool) {
         match block {
-            Block::Parsed(block) => self.parsed_block(block, indent),
+            Block::Parsed(block) => self.parsed_block(block, indent, preserve_alignment),
             Block::Verbatim(block) => {
                 self.indent(indent);
                 self.output.push('`');
@@ -541,7 +557,7 @@ impl Formatter {
         }
     }
 
-    fn parsed_block(&mut self, block: &ParsedBlock, indent: usize) {
+    fn parsed_block(&mut self, block: &ParsedBlock, indent: usize, preserve_alignment: bool) {
         self.indent(indent);
         let content = block.content.trim_boundary_padding();
         let has_content = !content.is_empty();
@@ -551,7 +567,7 @@ impl Formatter {
             self.output.push_str(marker);
             if has_content {
                 self.output.push(' ');
-                self.inlines(&content);
+                self.inlines_with_spacing(&content, preserve_alignment);
             }
         } else {
             self.inlines(&content);
@@ -570,16 +586,28 @@ impl Formatter {
     }
 
     fn inlines(&mut self, content: &InlineContent) {
-        let mut pending_space = false;
+        self.inlines_with_spacing(content, false);
+    }
+
+    fn inlines_with_spacing(&mut self, content: &InlineContent, preserve_spaces: bool) {
+        let mut pending_space = None;
         for inline in &content.items {
-            if matches!(inline, Inline::Space { .. } | Inline::SoftBreak { .. }) {
-                pending_space = true;
-                continue;
+            match inline {
+                Inline::Space { text, .. } => {
+                    pending_space = Some(if preserve_spaces { text.len() } else { 1 });
+                    continue;
+                }
+                Inline::SoftBreak { .. } => {
+                    pending_space = Some(1);
+                    continue;
+                }
+                _ => {}
             }
-            if pending_space && !self.output.ends_with([' ', '\n']) {
-                self.output.push(' ');
+            if let Some(width) = pending_space.take() {
+                if !self.output.ends_with([' ', '\n']) {
+                    self.output.extend(std::iter::repeat_n(' ', width));
+                }
             }
-            pending_space = false;
             self.inline(inline);
         }
     }
@@ -675,6 +703,58 @@ fn compact_siblings(previous: &Block, current: &Block) -> bool {
         return false;
     };
     previous.children.is_empty() && previous_mark.marker == current_mark.marker
+}
+
+fn aligned_block_flags(source: &str, blocks: &[Block]) -> Vec<bool> {
+    let mut aligned = vec![false; blocks.len()];
+    let mut start = 0;
+    while start < blocks.len() {
+        let Some(shape) = alignment_shape(source, &blocks[start]) else {
+            start += 1;
+            continue;
+        };
+        let mut end = start + 1;
+        while end < blocks.len() && alignment_shape(source, &blocks[end]) == Some(shape) {
+            end += 1;
+        }
+        if end - start >= 2 && run_columns_are_aligned(source, &blocks[start..end], shape.1) {
+            aligned[start..end].fill(true);
+        }
+        start = end;
+    }
+    aligned
+}
+
+fn alignment_shape<'a>(source: &str, block: &'a Block) -> Option<(&'a str, usize)> {
+    let Block::Parsed(block) = block else {
+        return None;
+    };
+    let marker = block.mark.as_ref()?.marker.as_str();
+    let datum_count = block.content.data.len();
+    let content = &source[block.content.range.clone()];
+    (block.children.is_empty() && datum_count >= 2 && !content.contains(['\r', '\n', '\t']))
+        .then_some((marker, datum_count))
+}
+
+fn run_columns_are_aligned(source: &str, blocks: &[Block], datum_count: usize) -> bool {
+    (1..datum_count).all(|column| {
+        let mut starts = blocks.iter().map(|block| {
+            let Block::Parsed(block) = block else {
+                unreachable!("alignment shape accepts only parsed blocks")
+            };
+            argument_start_column(source, block, column)
+        });
+        let first = starts.next().expect("alignment run is nonempty");
+        starts.all(|start| start == first)
+    })
+}
+
+fn argument_start_column(source: &str, block: &ParsedBlock, column: usize) -> usize {
+    let start = block.content.data[column].range.start;
+    let line_start = source[..block.range.start]
+        .rfind('\n')
+        .map_or(0, |newline| newline + 1);
+    UnicodeWidthStr::width(&source[line_start..start])
 }
 
 fn minimum_quote_count(text: &str) -> usize {

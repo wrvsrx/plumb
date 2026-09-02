@@ -2218,7 +2218,17 @@ mod tests {
             )
             .unwrap();
         let updated = std::fs::read_to_string(&path).unwrap();
-        assert!(updated.contains("`= done 2026-"), "{updated}");
+        assert!(
+            updated.lines().any(|line| {
+                let mut fields = line.split_whitespace();
+                fields.next() == Some("`=")
+                    && fields.next() == Some("done")
+                    && fields
+                        .next()
+                        .is_some_and(|value| value.starts_with("2026-"))
+            }),
+            "{updated}"
+        );
         std::fs::remove_dir_all(root).unwrap();
     }
 
@@ -2384,7 +2394,17 @@ mod tests {
             )
             .unwrap();
         let updated = std::fs::read_to_string(&path).unwrap();
-        assert!(updated.contains("`= done 2026-"), "{updated}");
+        assert!(
+            updated.lines().any(|line| {
+                let mut fields = line.split_whitespace();
+                fields.next() == Some("`=")
+                    && fields.next() == Some("done")
+                    && fields
+                        .next()
+                        .is_some_and(|value| value.starts_with("2026-"))
+            }),
+            "{updated}"
+        );
         let refreshed = WebWorkspace::load_with_revision(&root, 2).unwrap();
         let completed = refreshed.tasks().unwrap().tasks.into_iter().next().unwrap();
         assert_eq!(completed.key, task.key);
@@ -2573,7 +2593,12 @@ mod tests {
             updated.contains("`- Renamed idless child\n\n `+ task\n"),
             "{updated}"
         );
-        assert!(updated.contains("`= custom keep"), "{updated}");
+        assert!(
+            updated
+                .lines()
+                .any(|line| line.split_whitespace().eq(["`=", "custom", "keep"])),
+            "{updated}"
+        );
         let refreshed = WebWorkspace::load_with_revision(&root, 2).unwrap();
         let task = refreshed
             .tasks()
@@ -2635,8 +2660,18 @@ mod tests {
             )
             .unwrap();
         let source = std::fs::read_to_string(&a_path).unwrap();
-        assert!(source.contains("`= prev b.plumb#b"), "{source}");
-        assert!(source.contains("`= depends b.plumb#b"), "{source}");
+        assert!(
+            source
+                .lines()
+                .any(|line| line.split_whitespace().eq(["`=", "prev", "b.plumb#b"])),
+            "{source}"
+        );
+        assert!(
+            source
+                .lines()
+                .any(|line| line.split_whitespace().eq(["`=", "depends", "b.plumb#b"])),
+            "{source}"
+        );
 
         let refreshed = WebWorkspace::load_with_revision(&root, 2).unwrap();
         let snapshot = refreshed.tasks().unwrap();

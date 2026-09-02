@@ -17,7 +17,11 @@ fn recursive_owner_workspace_edits_use_current_properties() {
         .unwrap();
     let changed = &edit.document_changes[0];
     let updated = apply_text_edits(source.to_string(), changed.edits.clone()).unwrap();
-    assert!(updated.contains("`= done 2026-09-02T10:00:00+08:00"));
+    assert!(updated.lines().any(|line| line.split_whitespace().eq([
+        "`=",
+        "done",
+        "2026-09-02T10:00:00+08:00"
+    ])));
     assert!(plumb_syntax::parse(&updated).is_valid());
 
     let mut metadata_workspace = Workspace::new();
@@ -27,7 +31,7 @@ fn recursive_owner_workspace_edits_use_current_properties() {
         .unwrap();
     assert_eq!(
         metadata.document_changes[0].edits[0].new_text,
-        "`= title empty\n`= created 2026-09-02T10:00:00+08:00\n"
+        "`= title   empty\n`= created 2026-09-02T10:00:00+08:00\n"
     );
 }
 
