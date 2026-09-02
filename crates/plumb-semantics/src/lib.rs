@@ -100,6 +100,35 @@ pub(crate) struct OwnerSemanticView {
     pub positional: Vec<plumb_syntax::InlineContent>,
 }
 
+pub(crate) struct FirstRestView<'a> {
+    pub first: &'a plumb_syntax::InlineContent,
+    pub rest: &'a [plumb_syntax::InlineContent],
+}
+
+impl FirstRestView<'_> {
+    pub fn rest_range(&self) -> Option<std::ops::Range<usize>> {
+        Some(self.rest.first()?.range.start..self.rest.last()?.range.end)
+    }
+
+    pub fn rest_plain_text(&self) -> String {
+        let mut output = String::new();
+        for (index, datum) in self.rest.iter().enumerate() {
+            if index > 0 {
+                output.push(' ');
+            }
+            output.push_str(&text::plain_text(datum));
+        }
+        output
+    }
+}
+
+impl OwnerSemanticView {
+    pub fn split_first(&self) -> Option<FirstRestView<'_>> {
+        let (first, rest) = self.positional.split_first()?;
+        Some(FirstRestView { first, rest })
+    }
+}
+
 pub(crate) fn owner_semantic_view(content: &plumb_syntax::InlineContent) -> OwnerSemanticView {
     let mut positional = Vec::new();
     for (index, datum) in content.data.iter().enumerate() {

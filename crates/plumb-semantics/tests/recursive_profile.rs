@@ -78,6 +78,43 @@ fn projects_recursive_inline_forms_and_verbatim_math() {
 }
 
 #[test]
+fn first_rest_consumers_bind_trailing_data_and_ignore_declarations() {
+    let source = concat!(
+        "See `->{Guide Project `@{link-target} Guide.plumb}.\n",
+        "`- 2026-09-03T14:00:00+08:00 Parser `@{event-title} review meeting\n",
+        " `+ event\n",
+    );
+    let output = analyze(source);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    assert!(
+        output.events.diagnostics.is_empty(),
+        "{:?}",
+        output.events.diagnostics
+    );
+    assert_eq!(output.links.len(), 1);
+    assert_eq!(output.links[0].target.value, "Project Guide.plumb");
+    assert_eq!(output.events.events.len(), 1);
+    assert_eq!(output.events.events[0].title, "Parser review meeting");
+}
+
+#[test]
+fn event_declarations_do_not_satisfy_the_required_rest_argument() {
+    let output = analyze(concat!(
+        "`- 2026-09-03T14:00:00+08:00 `@{event-id}\n",
+        " `+ event\n",
+    ));
+    assert_eq!(
+        output
+            .events
+            .diagnostics
+            .iter()
+            .map(|diagnostic| diagnostic.code)
+            .collect::<Vec<_>>(),
+        ["event.invalid-head-arity", "event.missing-title"]
+    );
+}
+
+#[test]
 fn table_spaces_form_cells_and_expanded_rows_use_anonymous_children() {
     let compact = analyze(concat!(
         "`table\n",
@@ -158,6 +195,17 @@ fn current_derived_links_complete_paths_and_anchors() {
             path: "doc.plumb".to_string(),
             replace: fragment_start..fragment_start + "target".len(),
             query: "ta".to_string(),
+        })
+    );
+
+    let (source, cursor) = strip_cursor("See `->{Guide Project Gu|ide.plumb}\n");
+    let value_start = source.find("Project Guide.plumb").unwrap();
+    assert_eq!(
+        link_completion_context(&parse(&source), cursor),
+        Some(LinkCompletionContext::Path {
+            replace: value_start..value_start + "Project Guide.plumb".len(),
+            query: "Project Gu".to_string(),
+            parsed: true,
         })
     );
 }

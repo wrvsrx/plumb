@@ -20,8 +20,9 @@ fn append_inline(inline: &Inline, output: &mut String) {
         Inline::SoftBreak { .. } => output.push(' '),
         Inline::Group { mark, content, .. } => {
             if mark.as_ref().is_some_and(|mark| mark.marker == "->") {
-                if let Some(label) = content.datum(0) {
-                    append_content(&label, output);
+                let view = crate::owner_semantic_view(content);
+                if let Some(arguments) = view.split_first() {
+                    append_content(arguments.first, output);
                 }
                 return;
             }
@@ -40,6 +41,7 @@ mod tests {
     fn standard_links_contribute_only_their_label_to_container_text() {
         let source = concat!(
             "`node Link `->{{guide page} target.plumb} tail\n",
+            "`node Declared `->{`@{link-id} {guide page} Project Guide.plumb} tail\n",
             "`node Generic `kind{first second `note{child}} tail\n",
         );
         let parsed = parse(source);
@@ -55,7 +57,11 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(
             texts,
-            ["Link guide page tail", "Generic first second child tail"]
+            [
+                "Link guide page tail",
+                "Declared guide page tail",
+                "Generic first second child tail"
+            ]
         );
     }
 }

@@ -678,16 +678,14 @@ pub fn link_completion_context(
         return None;
     }
     let (_, content) = find_marked_group(&document.syntax.blocks, offset, "->")?;
-    let positional = crate::positional_data(content);
-    let value = match positional.as_slice() {
-        [target] => target,
-        [_, target] => target,
-        _ => return None,
+    let view = crate::owner_semantic_view(content);
+    let arguments = view.split_first()?;
+    let target_data = if arguments.rest.is_empty() {
+        std::slice::from_ref(arguments.first)
+    } else {
+        arguments.rest
     };
-    if offset < value.range.start || offset > value.range.end {
-        return None;
-    }
-    let (value_start, value_end) = editable_datum_range(value);
+    let (value_start, value_end) = editable_data_range(target_data)?;
     if offset < value_start || offset > value_end {
         return None;
     }
@@ -777,6 +775,12 @@ fn editable_datum_range(content: &InlineContent) -> (usize, usize) {
         return (text_range.start, text_range.end);
     }
     (content.range.start, content.range.end)
+}
+
+fn editable_data_range(data: &[InlineContent]) -> Option<(usize, usize)> {
+    let (start, _) = editable_datum_range(data.first()?);
+    let (_, end) = editable_datum_range(data.last()?);
+    Some((start, end))
 }
 
 pub fn image_completion_context(

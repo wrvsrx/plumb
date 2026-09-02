@@ -2,8 +2,7 @@ use std::ops::Range;
 
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveTime, TimeZone};
 use plumb_syntax::{
-    AttrItem, AttrValue, Block, Diagnostic, DiagnosticSeverity, Inline, InlineContent, ParsedBlock,
-    ValidDocument,
+    AttrItem, AttrValue, Block, Diagnostic, DiagnosticSeverity, Inline, ParsedBlock, ValidDocument,
 };
 use serde::{Deserialize, Serialize};
 
@@ -176,7 +175,7 @@ fn collect_blocks(
 
         if is_event {
             let event = event_record(source, block, event_depth, &scoped_context);
-            if block.content.data.len() < 2 {
+            if crate::owner_semantic_view(&block.content).positional.len() < 2 {
                 output.diagnostics.push(Diagnostic {
                     code: "event.invalid-head-arity",
                     severity: DiagnosticSeverity::Warning,
@@ -264,8 +263,10 @@ fn event_record(
 }
 
 fn event_head(block: &ParsedBlock) -> (Option<EventField>, String, Range<usize>) {
-    let when = block.content.argument(0).and_then(|content| {
-        let [Inline::Text { text, range }] = content.items.as_slice() else {
+    let view = crate::owner_semantic_view(&block.content);
+    let arguments = view.split_first();
+    let when = arguments.as_ref().and_then(|arguments| {
+        let [Inline::Text { text, range }] = arguments.first.items.as_slice() else {
             return None;
         };
         Some(EventField {
@@ -273,21 +274,14 @@ fn event_head(block: &ParsedBlock) -> (Option<EventField>, String, Range<usize>)
             range: range.clone(),
         })
     });
-    let title_content = (block.content.data.len() >= 2).then(|| {
-        let first = &block.content.data[1];
-        let last = block.content.data.last().unwrap();
-        InlineContent::from_items(
-            first.range.start..last.range.end,
-            block.content.items[first.item_range.start..last.item_range.end].to_vec(),
-        )
-    });
-    let title_range = title_content.as_ref().map_or_else(
-        || block.content.range.end..block.content.range.end,
-        |content| content.range.clone(),
-    );
-    let title = title_content.as_ref().map_or_else(String::new, |content| {
-        plain_text(content).trim().to_string()
-    });
+    let title_range = arguments
+        .as_ref()
+        .and_then(|arguments| arguments.rest_range())
+        .unwrap_or(block.content.range.end..block.content.range.end);
+    let title = arguments
+        .as_ref()
+        .map(|arguments| arguments.rest_plain_text().trim().to_string())
+        .unwrap_or_default();
     (when, title, title_range)
 }
 

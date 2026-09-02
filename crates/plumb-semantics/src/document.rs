@@ -710,26 +710,30 @@ fn collect_link(
     output: &mut DocumentOutput,
 ) {
     let view = crate::owner_semantic_view(content);
-    let (label, target, derived_label) = match view.positional.as_slice() {
-        [target] => (target, target, true),
-        [label, target] => (label, target, false),
-        _ => {
-            output.diagnostics.push(Diagnostic {
-                code: "link.missing-target",
-                severity: DiagnosticSeverity::Warning,
-                message: "link requires one or two positional arguments".to_string(),
-                range,
-                related: Vec::new(),
-            });
-            return;
-        }
+    let Some(arguments) = view.split_first() else {
+        output.diagnostics.push(Diagnostic {
+            code: "link.missing-target",
+            severity: DiagnosticSeverity::Warning,
+            message: "link requires at least one positional argument".to_string(),
+            range,
+            related: Vec::new(),
+        });
+        return;
     };
-    let Some(target) = stringify_target(source, target) else {
+    let derived_label = arguments.rest.is_empty();
+    let target_data = if derived_label {
+        std::slice::from_ref(arguments.first)
+    } else {
+        arguments.rest
+    };
+    let Some(target) = stringify_target(source, target_data) else {
         output.diagnostics.push(Diagnostic {
             code: "link.invalid-target",
             severity: DiagnosticSeverity::Warning,
             message: "link target must stringify to a nonempty value".to_string(),
-            range: target.range.clone(),
+            range: arguments
+                .rest_range()
+                .unwrap_or_else(|| arguments.first.range.clone()),
             related: Vec::new(),
         });
         return;
@@ -751,7 +755,7 @@ fn collect_link(
     };
     push_link(
         range,
-        crate::datum_selection_range(label),
+        crate::datum_selection_range(arguments.first),
         target,
         LinkSpelling::Positional,
         classification,
@@ -759,17 +763,21 @@ fn collect_link(
     );
 }
 
-fn stringify_target(source: &str, content: &InlineContent) -> Option<SourceBacked<String>> {
+fn stringify_target(source: &str, data: &[InlineContent]) -> Option<SourceBacked<String>> {
     let mut builder = StringifyBuilder::default();
-    stringify_content(source, content, &mut builder);
+    stringify_data(source, data, &mut builder);
     builder.finish(source)
 }
 
 fn stringify_content(source: &str, content: &InlineContent, output: &mut StringifyBuilder) {
     let view = crate::owner_semantic_view(content);
-    for (index, datum) in view.positional.iter().enumerate() {
+    stringify_data(source, &view.positional, output);
+}
+
+fn stringify_data(source: &str, data: &[InlineContent], output: &mut StringifyBuilder) {
+    for (index, datum) in data.iter().enumerate() {
         if index > 0 {
-            let previous = &view.positional[index - 1];
+            let previous = &data[index - 1];
             output.append_text(source, " ", previous.range.end..datum.range.start);
         }
         for inline in &datum.items {
