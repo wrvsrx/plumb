@@ -95,6 +95,9 @@ snippets 仍必须展开为 current syntax：
 `- nested completion 根据 client insertTextMode 只投影 base indentation；relative child depth保持一格。
 
 apply 后的 source 必须 strict-valid且 formatter fixed point。bare/incomplete verbatim payload不猜测 construct。
+rich one-argument Link rename 使用 Stringify 的 source mapping；当 decoded component跨 nested envelope时，替换该
+mapped source range并允许将被跨越的 presentation markup规范化为 plain escaped target，不猜测如何分配字符到多个
+semantic owners。compact verbatim仍优先 token edit，delimiter collision时 strengthen whole envelope。
 
 `# 9. Versioned migration
 
