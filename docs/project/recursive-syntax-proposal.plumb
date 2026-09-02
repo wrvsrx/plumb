@@ -244,10 +244,12 @@ property 使用相同投影。leaf property 的 first datum 是 key，剩余 hea
 
 `## Links
 
-Link 的 first positional datum 是 label，second positional datum 是 target。含 spaces 的 datum 使用 group 或 verbatim；后续 direct declarations 不占 positional index：
+Link 的 first positional datum 是 explicit label，所有 remaining positional data共同形成 target；后续 direct
+declarations不占 positional index。derived-label Link 的 multiword target使用 group 或 verbatim：
 
 `plumb"
  this is a link: `->{guide guide.plumb}
+ this link target contains spaces: `->{guide Project Guide.plumb}
  this is also a link: `->{{guide with spaces} {Project Guide.plumb}}
  this is also a link: `->{{guide with spaces} `"Project Guide.plumb"}
  `->{guide guide.plumb `@{guide-link}}

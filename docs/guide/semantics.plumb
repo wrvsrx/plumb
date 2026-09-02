@@ -92,18 +92,22 @@ value 可以是 null、一个 paragraph scalar、`"+" sequence、nested `"=" map
 
 `# Link
 
-`"->" 使用 one/two non-declaration data：one datum 产生 derived-label Link，原 rich datum 是 label且
-Stringify value 是 target；two data 产生 explicit-label Link，分别提供 label/target：
+`"->" 使用 one or more non-declaration data：one datum 产生 derived-label Link，原 rich datum 是 label且
+Stringify value 是 target；two or more data产生 explicit-label Link，first 是 label，所有 remaining data共同
+形成 target：
 
 `plumb"
   `->{guide.plumb}
   `->{`!{guide.plumb}}
   `->{{same document} #intro}
   `->{{another document} guide.plumb}
+  `->{guide Project Guide.plumb}
   `->{{another anchor} guide.plumb#intro `@{guide}}
   `->{website https://example.test}
 
-本地 anchor 必须显式存在。跨文件 target 使用相对 `"..plumb" path。named Link 的 target argument 是 raw filesystem path；中文、spaces、parentheses 与 percent characters 都按字面保留，不进行 URL encode/decode。
+本地 anchor 必须显式存在。跨文件 target 使用相对 `"..plumb" path。explicit-label Link 的 rest target 是 raw
+filesystem path；相邻 data之间产生一个 semantic space，中文、spaces、parentheses 与 percent characters 都按字面
+保留，不进行 URL encode/decode。derived-label Link 的 multiword target仍需要一个 group datum或 verbatim spelling。
 
 旧 consecutive slots 与 inline attached group 不属于 current syntax；使用 `"plumb migrate --from attached-v1" 显式迁移，formatter 不读取 legacy syntax。
 
@@ -118,10 +122,11 @@ derived-label Link 可以使用 compact verbatim spelling：
 payload 同时作为 label 与 target，并保留原始 spelling。parsed one-argument 与 compact Link 使用相同 target
 classification：absolute/network target 按 URI 检查，relative target 是当前 document 目录下的 raw filesystem
 path。`"#" 分隔 explicit anchor；payload 含 double quote 或 closing-like sequence 时增加 inline verbatim quote
-strength。`"..plumb" path 与 explicit anchor 可以由 LSP 补全。自定义 label 使用 two-argument `"->"。
+strength。`"..plumb" path 与 explicit anchor 可以由 LSP 补全。自定义 label 使用 first/rest explicit-label
+`"->"。
 
 ordinary inline `"-"/`"->" prefix 只提供 canonical parsed Link template；`"->{" 保持该候选，`"->\"" 提供
-compact verbatim Link template。完成后的 one/two-argument forms仍分别使用 derived/explicit label。
+compact verbatim Link template。完成后的 one-datum/two-or-more-data forms分别使用 derived/explicit label。
 
 `# Image
 

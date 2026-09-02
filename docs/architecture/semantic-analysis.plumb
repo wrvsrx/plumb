@@ -41,8 +41,9 @@ record identity 不能依赖 unstable allocation address。跨 revision reuse �
 
 analyses 只增加自己拥有的 records/diagnostics，不能删除其他 analysis 所需的 source data。组合冲突必须 产生显式 diagnostic 或使用在 standard profile 中冻结的 rule，不能依赖 Rust module 调用顺序。generic export 在标准 semantic lowering 后仍保留未消费的 declaration children。
 
-named Link analysis 从 Group content 过滤 direct declarations，first/second remaining data 是 label/target；unknown
-marked groups 保持 ordinary content。legacy Link conversion 属于 versioned migration，不进入 current pipeline。
+Link analysis 从 Group content 过滤 direct declarations；one remaining datum形成 derived label/target，two or more
+remaining data使用 first/rest 形成 explicit label/target。unknown marked groups 保持 ordinary content。legacy Link
+conversion 属于 versioned migration，不进入 current pipeline。
 
 `# 6. Dependencies and invalidation
 

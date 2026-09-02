@@ -140,7 +140,8 @@ LSP semantic tokens 将 done task 的完整 block 标为 `"task + completed"，�
 
 construct completion 按 marker prefix 与 syntax owner 触发：bare introducer 不提供候选；line-start `"-" 提供
 Task/Event/Link，ordinary inline `"-"/`"->" 只提供 canonical parsed Link。`"->{" 保持 parsed Link template；
-`"->\"" 提供同名 compact verbatim Link。完成后 one/two data分别使用 derived/explicit label。`"c" 至 `"cite" prefix
+`"->\"" 提供同名 compact verbatim Link。完成后 one-datum/two-or-more-data forms分别使用 derived/explicit
+label。`"c" 至 `"cite" prefix
 提供 Citation snippet，完整/recovered `"cite{...}" 从 declared CSL
 files补全 ids；legacy task/event marker prefixes 不提供候选。
 

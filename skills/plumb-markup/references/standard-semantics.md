@@ -71,12 +71,14 @@ recognized direct declarations; unknown marked owners remain visible content.
 
 `->` is the sole Link inline kind. With one non-declaration datum, its rich
 source is the derived label and its recursive string value is the target. With
-two data, the first is an explicit label and the second stringifies to target.
+two or more data, the first is an explicit label and all remaining data
+stringify to one target with a semantic space between adjacent data.
 
 ```plumb
 `->{guide.plumb}
 `->{`!{guide.plumb}}
 `->{same-file target #intro}
+`->{guide Project Guide.plumb}
 `->{{other document} guide.plumb}
 `->{{cross-file target} guide.plumb#intro `@{cross-file}}
 `->{{Project guide} `"Project Guide.plumb"}
