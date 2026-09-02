@@ -77,8 +77,10 @@ Align arguments 在 current syntax 中对 direct SpaceRun boundaries操作。eli
 same datum count、single-line、childless、non-verbatim sibling blocks。每个 column 使用 locked unicode-width
 display width；只改 direct separator spaces，不改 content、groups、verbatim、marker、indentation 或 line ending。
 
-ordinary formatter canonicalize boundary 至 one space；explicit alignment在该基础上增加 padding。table compact
-rows 因每个 direct datum 是 cell，alignment不改变 arity。tabs 或 incompatible shapes 时 operation unavailable。
+ordinary formatter canonicalize unaligned boundary 至 one space；若 eligible same-marker run 的每个后续 datum 已有
+一致 display start column，则保留 direct SpaceRun widths，使 explicit alignment成为 formatter fixed point。formatter
+不主动对齐 unaligned run。table compact rows 因每个 direct datum 是 cell，alignment不改变 arity。tabs 或
+incompatible shapes 时 operation unavailable。
 
 `# 8. Recovered-source assists
 
