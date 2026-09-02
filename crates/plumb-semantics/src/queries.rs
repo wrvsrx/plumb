@@ -339,7 +339,7 @@ fn attribute_context_in_inlines(
                 }
             }
             Inline::Verbatim { .. } => {}
-            Inline::Text { .. } | Inline::Space { .. } => {}
+            Inline::Text { .. } | Inline::Space { .. } | Inline::SoftBreak { .. } => {}
         }
     }
     None
@@ -532,6 +532,7 @@ fn inline_range(inline: &Inline) -> &Range<usize> {
     match inline {
         Inline::Text { range, .. }
         | Inline::Space { range, .. }
+        | Inline::SoftBreak { range }
         | Inline::Group { range, .. }
         | Inline::Verbatim { range, .. } => range,
     }
@@ -913,7 +914,10 @@ fn inlines_find_autolink(
             )
         }
         Inline::Group { content, .. } => inlines_find_autolink(source, content, offset),
-        Inline::Verbatim { .. } | Inline::Text { .. } | Inline::Space { .. } => None,
+        Inline::Verbatim { .. }
+        | Inline::Text { .. }
+        | Inline::Space { .. }
+        | Inline::SoftBreak { .. } => None,
     })
 }
 
@@ -1000,7 +1004,7 @@ fn inlines_attributes_contain(content: &InlineContent, offset: usize) -> bool {
                 .as_ref()
                 .is_some_and(|range| range.contains(&offset))
         }),
-        Inline::Text { .. } | Inline::Space { .. } => false,
+        Inline::Text { .. } | Inline::Space { .. } | Inline::SoftBreak { .. } => false,
     })
 }
 
@@ -1010,7 +1014,7 @@ fn inlines_contain_verbatim(content: &InlineContent, offset: usize) -> bool {
             text_range.start <= offset && offset <= text_range.end
         }
         Inline::Group { content, .. } => inlines_contain_verbatim(content, offset),
-        Inline::Text { .. } | Inline::Space { .. } => false,
+        Inline::Text { .. } | Inline::Space { .. } | Inline::SoftBreak { .. } => false,
     })
 }
 

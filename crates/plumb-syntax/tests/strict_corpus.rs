@@ -99,6 +99,7 @@ fn append_inline_shape(items: &[Inline], output: &mut String) {
                 output.push_str(&format!("[{}]", text.escape_default()));
             }
             Inline::Space { text, .. } => output.push_str(&format!("S{}", text.len())),
+            Inline::SoftBreak { .. } => output.push('B'),
             Inline::Group { mark, content, .. } => {
                 output.push('G');
                 output.push_str(mark.as_ref().map_or("_", |mark| mark.marker.as_str()));

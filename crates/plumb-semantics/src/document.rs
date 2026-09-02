@@ -266,7 +266,7 @@ fn association_arity_diagnostics(document: &Document) -> Vec<Diagnostic> {
                     contents.push(content);
                 }
                 Inline::Verbatim { .. } => {}
-                Inline::Text { .. } | Inline::Space { .. } => {}
+                Inline::Text { .. } | Inline::Space { .. } | Inline::SoftBreak { .. } => {}
             }
         }
     }
@@ -406,7 +406,7 @@ fn collect_inlines(
                     }
                 }
             }
-            Inline::Text { .. } | Inline::Space { .. } => {}
+            Inline::Text { .. } | Inline::Space { .. } | Inline::SoftBreak { .. } => {}
         }
     }
 }
@@ -791,6 +791,7 @@ fn source_backed_inline_items(source: &str, items: &[Inline]) -> Option<SourceBa
             Inline::Text { text, range } | Inline::Space { text, range } => {
                 (text.as_str(), range.clone())
             }
+            Inline::SoftBreak { range } => (" ", range.clone()),
             Inline::Group { .. } | Inline::Verbatim { .. } => return None,
         };
         let source_text = &source[source_range.clone()];
@@ -824,6 +825,7 @@ fn inline_range(inline: &Inline) -> &Range<usize> {
     match inline {
         Inline::Text { range, .. }
         | Inline::Space { range, .. }
+        | Inline::SoftBreak { range }
         | Inline::Group { range, .. }
         | Inline::Verbatim { range, .. } => range,
     }

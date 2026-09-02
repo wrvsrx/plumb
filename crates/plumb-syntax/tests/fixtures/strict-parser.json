@@ -21,8 +21,15 @@
     "diagnostics": []
   },
   {
+    "name": "plain continuation differs from anonymous child",
+    "source": "`= title\n inbox\n\n`= title\n\n block value\n",
+    "valid": true,
+    "blocks": "P=(2:S1T[title]BT[inbox]);P=(1:S1T[title]){P_(2:T[block]S1T[value]);};",
+    "diagnostics": []
+  },
+  {
     "name": "anonymous block owns children",
-    "source": "parent\n child\n  grandchild\nsibling\n",
+    "source": "parent\n\n child\n\n  grandchild\nsibling\n",
     "valid": true,
     "blocks": "P_(1:T[parent]){P_(1:T[child]){P_(1:T[grandchild]);};};P_(1:T[sibling]);",
     "diagnostics": []

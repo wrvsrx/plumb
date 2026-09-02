@@ -2,10 +2,22 @@ use plumb_format::format;
 
 #[test]
 fn canonicalizes_recursive_owners_and_spaces() {
-    let source = "`node   head   value\n   `child{  nested   value  }\n";
+    let source = "`node   head   value\n\n   `child{  nested   value  }\n";
     let formatted = format(source).unwrap();
-    assert_eq!(formatted, "`node head value\n `child{nested value}\n");
+    assert_eq!(formatted, "`node head value\n\n `child{nested value}\n");
     assert_eq!(format(&formatted).unwrap(), formatted);
+}
+
+#[test]
+fn canonicalizes_continuations_but_preserves_anonymous_child_boundaries() {
+    assert_eq!(
+        format("`= title\n inline value\n").unwrap(),
+        "`= title inline value\n"
+    );
+    assert_eq!(
+        format("`= title\n\n block value\n").unwrap(),
+        "`= title\n\n block value\n"
+    );
 }
 
 #[test]

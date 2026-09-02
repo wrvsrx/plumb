@@ -136,6 +136,7 @@ impl<'a> TokenBuilder<'a> {
                     Inline::Space { range, .. } => {
                         self.assign(range.clone(), SyntaxKind::Whitespace, TYPED_PRIORITY);
                     }
+                    Inline::SoftBreak { .. } => {}
                     Inline::Group {
                         range,
                         mark,

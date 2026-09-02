@@ -85,7 +85,7 @@ fn table_spaces_form_cells_and_expanded_rows_use_anonymous_children() {
     let expanded = analyze(concat!(
         "`table\n",
         " `-\n  `+ header\n  name\n  age\n",
-        " `-\n  {Alice Smith}\n  10\n",
+        " `-\n\n  {Alice Smith}\n  10\n",
     ));
     let table = &expanded.tables.tables[0];
     assert_eq!(table.column_count, 2);

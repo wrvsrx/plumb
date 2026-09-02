@@ -146,10 +146,12 @@ fn bibliography_source(value: &MetadataValue) -> Option<BibliographySource> {
         }
         MetadataValue::Scalar { content, range }
             if !content.is_empty()
-                && content
-                    .items
-                    .iter()
-                    .all(|inline| matches!(inline, Inline::Text { .. } | Inline::Space { .. })) =>
+                && content.items.iter().all(|inline| {
+                    matches!(
+                        inline,
+                        Inline::Text { .. } | Inline::Space { .. } | Inline::SoftBreak { .. }
+                    )
+                }) =>
         {
             let value = content.plain_text();
             (!value.is_empty()).then(|| BibliographySource {
@@ -505,21 +507,24 @@ fn plain_association_key(content: &InlineContent) -> Option<String> {
         ..
     }] = content.items.as_slice()
     {
-        if content
-            .items
-            .iter()
-            .any(|inline| !matches!(inline, Inline::Text { .. } | Inline::Space { .. }))
-        {
+        if content.items.iter().any(|inline| {
+            !matches!(
+                inline,
+                Inline::Text { .. } | Inline::Space { .. } | Inline::SoftBreak { .. }
+            )
+        }) {
             return None;
         }
         let key = content.plain_text();
         return (!key.is_empty()).then_some(key);
     }
     if content.is_empty()
-        || content
-            .items
-            .iter()
-            .any(|item| !matches!(item, Inline::Text { .. } | Inline::Space { .. }))
+        || content.items.iter().any(|item| {
+            !matches!(
+                item,
+                Inline::Text { .. } | Inline::Space { .. } | Inline::SoftBreak { .. }
+            )
+        })
     {
         return None;
     }

@@ -56,7 +56,9 @@ fn assert_lossless(parsed: &ParsedDocument) {
         }
         for inline in &content.items {
             match inline {
-                Inline::Text { range, .. } | Inline::Space { range, .. } => {
+                Inline::Text { range, .. }
+                | Inline::Space { range, .. }
+                | Inline::SoftBreak { range } => {
                     assert_range(&parsed.source, range);
                 }
                 Inline::Group {

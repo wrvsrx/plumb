@@ -89,7 +89,7 @@ fn collect_inline(inline: &Inline, output: &mut MathOutput) {
             }
         }
         Inline::Group { content, .. } => collect_inlines(content, output),
-        Inline::Text { .. } | Inline::Space { .. } => {}
+        Inline::Text { .. } | Inline::Space { .. } | Inline::SoftBreak { .. } => {}
     }
 }
 

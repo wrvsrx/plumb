@@ -557,7 +557,12 @@ impl Formatter {
         }
 
         if !block.children.is_empty() {
-            self.output.push('\n');
+            if matches!(block.children.first(), Some(Block::Parsed(child)) if child.mark.is_none())
+            {
+                self.output.push_str("\n\n");
+            } else {
+                self.output.push('\n');
+            }
             self.blocks(&block.children, indent + 1);
         }
     }
@@ -565,7 +570,7 @@ impl Formatter {
     fn inlines(&mut self, content: &InlineContent) {
         let mut pending_space = false;
         for inline in &content.items {
-            if matches!(inline, Inline::Space { .. }) {
+            if matches!(inline, Inline::Space { .. } | Inline::SoftBreak { .. }) {
                 pending_space = true;
                 continue;
             }
@@ -581,6 +586,7 @@ impl Formatter {
         match inline {
             Inline::Text { text, .. } => self.text(text),
             Inline::Space { .. } => self.output.push(' '),
+            Inline::SoftBreak { .. } => self.output.push(' '),
             Inline::Group { mark, content, .. } => {
                 if let Some(mark) = mark {
                     self.output.push('`');

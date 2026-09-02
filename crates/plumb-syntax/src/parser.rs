@@ -67,9 +67,21 @@ impl<'a> Parser<'a> {
                 );
             }
 
+            let preceded_by_blank = index > 0 && self.lines[index - 1].blank;
+            let previous_indent = index
+                .checked_sub(1)
+                .map_or(line.indent, |previous| self.lines[previous].indent);
             let (block, next_index) = self.parse_block(index);
             index = next_index;
-            self.place_block(&mut levels, line.indent, block);
+            if !preceded_by_blank && line.indent > levels.last().expect("root level exists").indent
+            {
+                match self.append_plain_continuation(&mut levels, &line, previous_indent, block) {
+                    None => continue,
+                    Some(block) => self.place_block(&mut levels, line.indent, block),
+                }
+            } else {
+                self.place_block(&mut levels, line.indent, block);
+            }
         }
 
         while levels.len() > 1 {
@@ -81,6 +93,46 @@ impl<'a> Parser<'a> {
             blocks,
             range: 0..self.source.len(),
         }
+    }
+
+    fn append_plain_continuation(
+        &mut self,
+        levels: &mut [Level],
+        line: &Line,
+        previous_indent: usize,
+        block: Block,
+    ) -> Option<Block> {
+        let Block::Parsed(mut continuation) = block else {
+            return Some(block);
+        };
+        if continuation.mark.is_some() {
+            return Some(Block::Parsed(continuation));
+        }
+        let level = levels.last_mut().expect("root level exists");
+        let Some(Block::Parsed(owner)) = level.blocks.last_mut() else {
+            return Some(Block::Parsed(continuation));
+        };
+
+        if previous_indent > level.indent && previous_indent != line.indent {
+            self.error(
+                "syntax.partial-indent",
+                "continuation indentation must match its established column",
+                line.start..line.start + line.indent,
+            );
+        }
+
+        let boundary_start = owner.content.range.end;
+        let boundary_end = line.start + line.indent;
+        owner.content.items.push(Inline::SoftBreak {
+            range: boundary_start..boundary_end,
+        });
+        owner.content.items.append(&mut continuation.content.items);
+        owner.content = InlineContent::from_items(
+            owner.content.range.start..continuation.content.range.end,
+            std::mem::take(&mut owner.content.items),
+        );
+        owner.range.end = continuation.range.end;
+        None
     }
 
     fn place_block(&mut self, levels: &mut Vec<Level>, indent: usize, block: Block) {
@@ -1021,7 +1073,10 @@ fn plain_scalar(content: &InlineContent) -> Option<String> {
         .all(|inline| {
             matches!(
                 inline,
-                Inline::Text { .. } | Inline::Space { .. } | Inline::Verbatim { mark: None, .. }
+                Inline::Text { .. }
+                    | Inline::Space { .. }
+                    | Inline::SoftBreak { .. }
+                    | Inline::Verbatim { mark: None, .. }
             )
         })
         .then(|| content.plain_text())

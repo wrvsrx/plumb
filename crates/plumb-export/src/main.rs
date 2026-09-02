@@ -485,6 +485,7 @@ fn lower_inline_items(items: &[Inline], analysis: &DocumentOutput, output: &mut 
         match inline {
             Inline::Text { text, .. } => lower_text(text, output),
             Inline::Space { text, .. } => lower_text(text, output),
+            Inline::SoftBreak { .. } => lower_text(" ", output),
             Inline::Verbatim {
                 range, mark, text, ..
             } => {
@@ -810,7 +811,7 @@ mod tests {
 
     #[test]
     fn exports_compact_and_expanded_tables() {
-        let source = "`table People\n `- name    age\n  `+ header\n `-\n  Alice\n   `+ header\n  10\n `-\n  Bob\n   `+ header\n  20\n   `note Approximate\n";
+        let source = "`table People\n `- name    age\n  `+ header\n `-\n\n  Alice\n   `+ header\n  10\n `-\n\n  Bob\n   `+ header\n  20\n   `note Approximate\n";
         let document = super::export(source).unwrap();
         let table = &document["blocks"][0];
 
@@ -1147,6 +1148,14 @@ mod tests {
                 "c": "",
             })
         );
+    }
+
+    #[test]
+    fn inline_and_block_metadata_scalars_have_equal_values() {
+        let inline = export("`= title\n inbox\n").unwrap();
+        let block = export("`= title\n\n inbox\n").unwrap();
+        assert_eq!(inline["meta"]["title"], block["meta"]["title"]);
+        assert_eq!(inline["meta"]["title"]["c"][0]["c"], "inbox");
     }
 
     #[test]

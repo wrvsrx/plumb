@@ -796,6 +796,7 @@ impl OwnedInline {
         match inline {
             Inline::Text { text, .. } => Self::Text(text.clone()),
             Inline::Space { text, .. } => Self::Space(text.clone()),
+            Inline::SoftBreak { .. } => Self::Space(" ".to_string()),
             Inline::Group { mark, content, .. } => Self::Element {
                 kind: mark
                     .as_ref()
@@ -1137,7 +1138,14 @@ fn render_owned_block(block: &OwnedBlock, indent: usize, output: &mut String) {
             }
             render_owned_inlines(head, marker.is_some(), indent, output);
             if !children.is_empty() {
-                output.push('\n');
+                if matches!(
+                    children.first(),
+                    Some(OwnedBlock::Parsed { marker: None, .. })
+                ) {
+                    output.push_str("\n\n");
+                } else {
+                    output.push('\n');
+                }
                 render_owned_blocks(children, indent + 1, output);
             }
             if let Some(text) = raw {

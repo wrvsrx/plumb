@@ -58,6 +58,30 @@ mod member_envelope_tests {
     }
 
     #[test]
+    fn preserves_inline_continuation_and_anonymous_child_categories() {
+        let source = concat!(
+            "`= title\n",
+            " inbox\n",
+            "`= created|2026-09-02T00:00:00+08:00\n",
+            "`= summary\n",
+            "\n",
+            " block value\n",
+        );
+        let migrated = migrate_member_envelope_v1(source).unwrap();
+        assert_eq!(
+            migrated,
+            concat!(
+                "`= title inbox\n",
+                "`= created 2026-09-02T00:00:00+08:00\n",
+                "`= summary\n",
+                "\n",
+                " block value\n",
+            )
+        );
+        assert_eq!(migrate_member_envelope_v1(&migrated).unwrap(), migrated);
+    }
+
+    #[test]
     fn rejects_invalid_member_envelope_source() {
         let error = migrate_member_envelope_v1("`broken[\n").unwrap_err();
         assert!(matches!(error, MigrationError::InvalidMemberEnvelope(_)));
@@ -320,7 +344,13 @@ fn convert_member_content(
         let needs_group = match policy {
             BlockArgumentPolicy::Whole => false,
             BlockArgumentPolicy::Positional => owned_data_count(&items) != 1,
-            BlockArgumentPolicy::FirstThenRest => index == 0 && owned_data_count(&items) != 1,
+            BlockArgumentPolicy::FirstThenRest => {
+                index == 0
+                    && owned_data_count(&items) != 1
+                    && !content.items[argument.item_range.clone()]
+                        .iter()
+                        .any(|inline| matches!(inline, member_legacy::Inline::SoftBreak { .. }))
+            }
         };
         if needs_group {
             output.push(OwnedInline::Element {

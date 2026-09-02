@@ -17,6 +17,7 @@ fn append_inline(inline: &Inline, output: &mut String) {
         Inline::Text { text, .. } | Inline::Space { text, .. } | Inline::Verbatim { text, .. } => {
             output.push_str(text)
         }
+        Inline::SoftBreak { .. } => output.push(' '),
         Inline::Group { mark, content, .. } => {
             if mark.as_ref().is_some_and(|mark| mark.marker == "->") {
                 if let Some(label) = content.datum(0) {

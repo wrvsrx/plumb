@@ -313,10 +313,20 @@ impl InlineContent {
     pub fn trim_boundary_padding(&self) -> InlineContent {
         let mut start = 0;
         let mut end = self.items.len();
-        while start < end && matches!(self.items[start], Inline::Space { .. }) {
+        while start < end
+            && matches!(
+                self.items[start],
+                Inline::Space { .. } | Inline::SoftBreak { .. }
+            )
+        {
             start += 1;
         }
-        while end > start && matches!(self.items[end - 1], Inline::Space { .. }) {
+        while end > start
+            && matches!(
+                self.items[end - 1],
+                Inline::Space { .. } | Inline::SoftBreak { .. }
+            )
+        {
             end -= 1;
         }
         let items = self.items[start..end].to_vec();
@@ -332,7 +342,7 @@ fn project_data(items: &[Inline], fallback: SourceRange) -> Vec<InlineDatum> {
     let mut data = Vec::new();
     let mut start = None;
     for (index, item) in items.iter().enumerate() {
-        if matches!(item, Inline::Space { .. }) {
+        if matches!(item, Inline::Space { .. } | Inline::SoftBreak { .. }) {
             if let Some(item_start) = start.take() {
                 data.push(datum_from_items(items, item_start, index, fallback.clone()));
             }
@@ -366,6 +376,7 @@ pub fn inline_range(inline: &Inline) -> &SourceRange {
     match inline {
         Inline::Text { range, .. }
         | Inline::Space { range, .. }
+        | Inline::SoftBreak { range }
         | Inline::Group { range, .. }
         | Inline::Verbatim { range, .. } => range,
     }
@@ -382,6 +393,7 @@ fn append_plain_text(items: &[Inline], output: &mut String) {
             Inline::Text { text, .. }
             | Inline::Space { text, .. }
             | Inline::Verbatim { text, .. } => output.push_str(text),
+            Inline::SoftBreak { .. } => output.push(' '),
             Inline::Group { content, .. } => stack.push((&content.items, 0)),
         }
     }
@@ -395,6 +407,9 @@ pub enum Inline {
     },
     Space {
         text: String,
+        range: SourceRange,
+    },
+    SoftBreak {
         range: SourceRange,
     },
     Group {

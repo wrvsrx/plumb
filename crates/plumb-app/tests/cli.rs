@@ -58,7 +58,7 @@ fn exposes_the_unified_command_surface() {
     assert!(formatted.status.success());
     assert_eq!(
         String::from_utf8(formatted.stdout).unwrap(),
-        "`meta\n `: title\n  Unified command\n"
+        "`meta\n `: title\n\n  Unified command\n"
     );
 
     let exported = run_with_stdin(&["export"], "Paragraph.\n");
