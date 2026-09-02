@@ -75,7 +75,9 @@ update 要 retain opaque declarations/body，property remove/add后重新 align 
 
 Align arguments 在 current syntax 中对 direct SpaceRun boundaries操作。eligible run 是至少两个 same-marker、
 same datum count、single-line、childless、non-verbatim sibling blocks。每个 column 使用 locked unicode-width
-display width；只改 direct separator spaces，不改 content、groups、verbatim、marker、indentation 或 line ending。
+display width；每个 edit替换 adjacent datum ranges之间现有的完整 direct SpaceRun，不在 datum boundary插入额外
+padding。只改 separator spaces，不改 content、groups、verbatim、marker、indentation 或 line ending；对已对齐 run
+再次执行必须返回 zero edits。
 
 ordinary formatter canonicalize unaligned boundary 至 one space；若 eligible same-marker run 的每个后续 datum 已有
 一致 display start column，则保留 direct SpaceRun widths，使 explicit alignment成为 formatter fixed point。formatter
