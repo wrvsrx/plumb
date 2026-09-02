@@ -50,10 +50,6 @@ fn assert_lossless(parsed: &ParsedDocument) {
 
     while let Some(content) = contents.pop() {
         assert_range_or_empty(&parsed.source, &content.range);
-        for datum in &content.data {
-            assert_range_or_empty(&parsed.source, &datum.range);
-            assert!(datum.item_range.end <= content.items.len());
-        }
         for inline in &content.items {
             match inline {
                 Inline::Text { range, .. }

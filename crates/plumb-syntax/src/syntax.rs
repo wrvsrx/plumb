@@ -253,13 +253,6 @@ pub struct AttrValue {
 pub struct InlineContent {
     pub range: SourceRange,
     pub items: Vec<Inline>,
-    pub data: Vec<InlineDatum>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct InlineDatum {
-    pub range: SourceRange,
-    pub item_range: std::ops::Range<usize>,
 }
 
 impl Drop for InlineContent {
@@ -275,32 +268,15 @@ impl Drop for InlineContent {
 
 impl InlineContent {
     pub fn from_items(range: SourceRange, items: Vec<Inline>) -> Self {
-        let data = project_data(&items, range.clone());
-        Self { range, items, data }
+        Self { range, items }
     }
 
     pub fn is_empty(&self) -> bool {
-        self.data.is_empty()
+        self.positional_elements().next().is_none()
     }
 
-    pub fn datum(&self, index: usize) -> Option<InlineContent> {
-        let datum = self.data.get(index)?;
-        Some(InlineContent::from_items(
-            datum.range.clone(),
-            self.items[datum.item_range.clone()].to_vec(),
-        ))
-    }
-
-    pub fn datum_plain_text(&self, index: usize) -> Option<String> {
-        Some(self.datum(index)?.plain_text())
-    }
-
-    pub fn argument(&self, index: usize) -> Option<InlineContent> {
-        self.datum(index)
-    }
-
-    pub fn argument_plain_text(&self, index: usize) -> Option<String> {
-        self.datum_plain_text(index)
+    pub fn positional_elements(&self) -> impl DoubleEndedIterator<Item = &Inline> {
+        self.items.iter().filter(|inline| !inline.is_whitespace())
     }
 
     pub fn plain_text(&self) -> String {
@@ -335,40 +311,6 @@ impl InlineContent {
             _ => self.range.end..self.range.end,
         };
         InlineContent::from_items(range, items)
-    }
-}
-
-fn project_data(items: &[Inline], fallback: SourceRange) -> Vec<InlineDatum> {
-    let mut data = Vec::new();
-    let mut start = None;
-    for (index, item) in items.iter().enumerate() {
-        if matches!(item, Inline::Space { .. } | Inline::SoftBreak { .. }) {
-            if let Some(item_start) = start.take() {
-                data.push(datum_from_items(items, item_start, index, fallback.clone()));
-            }
-        } else if start.is_none() {
-            start = Some(index);
-        }
-    }
-    if let Some(item_start) = start {
-        data.push(datum_from_items(items, item_start, items.len(), fallback));
-    }
-    data
-}
-
-fn datum_from_items(
-    items: &[Inline],
-    start: usize,
-    end: usize,
-    fallback: SourceRange,
-) -> InlineDatum {
-    let range = match (items.get(start), items.get(end.saturating_sub(1))) {
-        (Some(first), Some(last)) => inline_range(first).start..inline_range(last).end,
-        _ => fallback.end..fallback.end,
-    };
-    InlineDatum {
-        range,
-        item_range: start..end,
     }
 }
 
@@ -425,4 +367,10 @@ pub enum Inline {
         quote_count: usize,
         braced: bool,
     },
+}
+
+impl Inline {
+    pub fn is_whitespace(&self) -> bool {
+        matches!(self, Self::Space { .. } | Self::SoftBreak { .. })
+    }
 }

@@ -3,70 +3,70 @@
     "name": "anonymous parsed block",
     "source": "ordinary paragraph\n",
     "valid": true,
-    "blocks": "P_(2:T[ordinary]S1T[paragraph]);",
+    "blocks": "P_(T[ordinary]S1T[paragraph]);",
     "diagnostics": []
   },
   {
     "name": "marked parsed block",
     "source": "`note content here\n",
     "valid": true,
-    "blocks": "Pnote(2:S1T[content]S1T[here]);",
+    "blocks": "Pnote(S1T[content]S1T[here]);",
     "diagnostics": []
   },
   {
     "name": "marked inline at block start",
     "source": "`note{content}\n",
     "valid": true,
-    "blocks": "P_(1:Gnote[1:T[content]]);",
+    "blocks": "P_(Gnote[T[content]]);",
     "diagnostics": []
   },
   {
     "name": "plain continuation differs from anonymous child",
     "source": "`= title\n inbox\n\n`= title\n\n block value\n",
     "valid": true,
-    "blocks": "P=(2:S1T[title]BT[inbox]);P=(1:S1T[title]){P_(2:T[block]S1T[value]);};",
+    "blocks": "P=(S1T[title]BT[inbox]);P=(S1T[title]){P_(T[block]S1T[value]);};",
     "diagnostics": []
   },
   {
     "name": "anonymous block owns children",
     "source": "parent\n\n child\n\n  grandchild\nsibling\n",
     "valid": true,
-    "blocks": "P_(1:T[parent]){P_(1:T[child]){P_(1:T[grandchild]);};};P_(1:T[sibling]);",
+    "blocks": "P_(T[parent]){P_(T[child]){P_(T[grandchild]);};};P_(T[sibling]);",
     "diagnostics": []
   },
   {
     "name": "spaces project data without empty slots",
     "source": "`row Alice   10    {}\n",
     "valid": true,
-    "blocks": "Prow(3:S1T[Alice]S3T[10]S4G_[0:]);",
+    "blocks": "Prow(S1T[Alice]S3T[10]S4G_[]);",
     "diagnostics": []
   },
   {
     "name": "nested anonymous and marked groups",
     "source": "before {guide with `!{strong text}} after\n",
     "valid": true,
-    "blocks": "P_(3:T[before]S1G_[3:T[guide]S1T[with]S1G![2:T[strong]S1T[text]]]S1T[after]);",
+    "blocks": "P_(T[before]S1G_[T[guide]S1T[with]S1G![T[strong]S1T[text]]]S1T[after]);",
     "diagnostics": []
   },
   {
     "name": "brace and backtick escapes",
     "source": "`{literal`} and ``tick\n",
     "valid": true,
-    "blocks": "P_(3:T[{]T[literal]T[}]S1T[and]S1T[`]T[tick]);",
+    "blocks": "P_(T[{]T[literal]T[}]S1T[and]S1T[`]T[tick]);",
     "diagnostics": []
   },
   {
     "name": "compact anonymous and marked verbatim",
     "source": "`\"raw\" `$\"x^2\" `$\"\"\n",
     "valid": true,
-    "blocks": "P_(3:V_[raw]S1V$[x^2]S1V$[]);",
+    "blocks": "P_(V_[raw]S1V$[x^2]S1V$[]);",
     "diagnostics": []
   },
   {
     "name": "strengthened verbatim",
     "source": "`\"{raw containing \"quotes\"}\"\n",
     "valid": true,
-    "blocks": "P_(1:V_{raw containing \\\"quotes\\\"});",
+    "blocks": "P_(V_{raw containing \\\"quotes\\\"});",
     "diagnostics": []
   },
   {
@@ -80,35 +80,35 @@
     "name": "marked block verbatim",
     "source": "`rust\"\n fn main() {}\nnext\n",
     "valid": true,
-    "blocks": "Vrust(fn main() {}\\n);P_(1:T[next]);",
+    "blocks": "Vrust(fn main() {}\\n);P_(T[next]);",
     "diagnostics": []
   },
   {
     "name": "unclosed inline group",
     "source": "before {open\nnext\n",
     "valid": false,
-    "blocks": "P_(2:T[before]S1G_[1:T[open]]);P_(1:T[next]);",
+    "blocks": "P_(T[before]S1G_[T[open]]);P_(T[next]);",
     "diagnostics": ["syntax.unclosed-inline-group"]
   },
   {
     "name": "unexpected group close",
     "source": "before } after\n",
     "valid": false,
-    "blocks": "P_(3:T[before]S1T[}]S1T[after]);",
+    "blocks": "P_(T[before]S1T[}]S1T[after]);",
     "diagnostics": ["syntax.unexpected-inline-group-close"]
   },
   {
     "name": "unclosed inline verbatim",
     "source": "before `\"raw\nnext\n",
     "valid": false,
-    "blocks": "P_(2:T[before]S1V_[raw]);P_(1:T[next]);",
+    "blocks": "P_(T[before]S1V_[raw]);P_(T[next]);",
     "diagnostics": ["syntax.unclosed-verbatim"]
   },
   {
     "name": "pipe and brackets are text",
     "source": "ordinary [pipe|text]\n",
     "valid": true,
-    "blocks": "P_(2:T[ordinary]S1T[[pipe|text]]);",
+    "blocks": "P_(T[ordinary]S1T[[pipe|text]]);",
     "diagnostics": []
   }
 ]

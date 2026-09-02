@@ -977,14 +977,13 @@ fn attributes_from_blocks(source: &str, blocks: &[Block]) -> Attributes {
 }
 
 fn attributes_from_inlines(source: &str, content: &InlineContent) -> Attributes {
-    attributes_from_items(content.data.iter().filter_map(|datum| {
-        let items = &content.items[datum.item_range.clone()];
-        let [Inline::Group {
+    attributes_from_items(content.items.iter().filter_map(|inline| {
+        let Inline::Group {
             range,
             mark: Some(mark),
             content,
             ..
-        }] = items
+        } = inline
         else {
             return None;
         };
@@ -1011,9 +1010,15 @@ fn declaration_from_content(
     mark: &Mark,
     content: &InlineContent,
 ) -> Option<AttrItem> {
+    let elements = content
+        .items
+        .iter()
+        .enumerate()
+        .filter(|(_, inline)| !inline.is_whitespace() && !is_direct_declaration(inline))
+        .collect::<Vec<_>>();
     match mark.marker.as_str() {
-        "@" | "+" if content.data.len() == 1 => {
-            let value = content.datum(0)?;
+        "@" | "+" if elements.len() == 1 => {
+            let value = content_from_element(elements[0].1);
             let value_text = plain_scalar(&value)?;
             let value_range = value.range.clone();
             let range = mark.range.start..value_range.end;
@@ -1031,16 +1036,15 @@ fn declaration_from_content(
                 })
             }
         }
-        "=" if content.data.len() >= 2 => {
-            let key_content = content.datum(0)?;
+        "=" if elements.len() >= 2 => {
+            let key_content = content_from_element(elements[0].1);
             let key = plain_scalar(&key_content)?;
             if key.is_empty() {
                 return None;
             }
-            let first_value = content.data.get(1)?;
-            let last_value = content.data.last()?;
-            let value_range = first_value.range.start..last_value.range.end;
-            let value = content_for_range(content, 1, content.data.len()).plain_text();
+            let value_content = content_from_elements(content, &elements[1..]);
+            let value_range = value_content.range.clone();
+            let value = value_content.plain_text();
             Some(AttrItem::Pair {
                 key,
                 key_range: key_content.range.clone(),
@@ -1057,16 +1061,44 @@ fn declaration_from_content(
     }
 }
 
-fn content_for_range(content: &InlineContent, start: usize, end: usize) -> InlineContent {
-    let first = &content.data[start];
-    let last = &content.data[end - 1];
+fn is_direct_declaration(inline: &Inline) -> bool {
+    matches!(
+        inline,
+        Inline::Group {
+            mark: Some(mark),
+            ..
+        } if matches!(mark.marker.as_str(), "@" | "+" | "=")
+    )
+}
+
+fn content_from_element(inline: &Inline) -> InlineContent {
+    InlineContent::from_items(crate::inline_range(inline).clone(), vec![inline.clone()])
+}
+
+fn content_from_elements(content: &InlineContent, elements: &[(usize, &Inline)]) -> InlineContent {
+    let (first, last) = (elements.first().unwrap().0, elements.last().unwrap().0);
+    let range = crate::inline_range(elements.first().unwrap().1).start
+        ..crate::inline_range(elements.last().unwrap().1).end;
     InlineContent::from_items(
-        first.range.start..last.range.end,
-        content.items[first.item_range.start..last.item_range.end].to_vec(),
+        range,
+        content.items[first..=last]
+            .iter()
+            .filter(|inline| !is_direct_declaration(inline))
+            .cloned()
+            .collect(),
     )
 }
 
 fn plain_scalar(content: &InlineContent) -> Option<String> {
+    let content = content.trim_boundary_padding();
+    if let [Inline::Group {
+        mark: None,
+        content,
+        ..
+    }] = content.items.as_slice()
+    {
+        return plain_scalar(content);
+    }
     content
         .items
         .iter()

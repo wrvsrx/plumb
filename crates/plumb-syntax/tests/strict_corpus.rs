@@ -86,7 +86,7 @@ fn block_shape(blocks: &[Block]) -> String {
 }
 
 fn inline_shape(content: &InlineContent) -> String {
-    let mut output = format!("{}:", content.data.len());
+    let mut output = String::new();
     append_inline_shape(&content.items, &mut output);
     output
 }
