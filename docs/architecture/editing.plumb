@@ -119,3 +119,8 @@ parser 不保留 compatibility branch。converter 从 legacy typed tree构造 cu
 
 generated source必须 current strict-parse；invalid legacy input拒绝。CLI path writes atomic，`"--check" 不写入。
 更早 attached/document-group/head-space/task-event-marker converters 最终也输出 current syntax。
+
+inline-datum-v1 converter读取 current parser产生的 lossless element sequence，但只在 caller显式声明旧 epoch时
+应用旧 whitespace-delimited datum规则。marked owner中的每个 adjacent multi-element run变成一个 anonymous Group；
+existing anonymous Group不作为再次 wrapping site，但其中的 marked descendants继续递归。没有需要 wrapping 的
+source必须原样返回；generated source必须 strict-valid且第二次 migration为 byte-identical no-op。
