@@ -103,7 +103,7 @@ pub(super) fn task_construct_template(block_indent: &str, timestamp: &str) -> Co
     ConstructTemplate {
         label: "Task",
         detail: "plumb task list item",
-        snippet: format!("`- ${{1:Task}}\n{block_indent}`+ task\n\n{block_indent}`= {created}"),
+        snippet: format!("`- ${{1:Task}}\n\n{block_indent}`+ task\n\n{block_indent}`= {created}"),
         plain: format!("`-\n{block_indent}`+ task\n\n{block_indent}`= {created}"),
         uses_block_indentation: true,
     }
@@ -115,8 +115,8 @@ fn event_construct_template(block_indent: &str) -> ConstructTemplate {
     ConstructTemplate {
         label: "Event",
         detail: "plumb event list item",
-        snippet: format!("`- {head}\n{block_indent}`+ event"),
-        plain: format!("`- {plain_head}\n{block_indent}`+ event"),
+        snippet: format!("`- {head}\n\n{block_indent}`+ event"),
+        plain: format!("`- {plain_head}\n\n{block_indent}`+ event"),
         uses_block_indentation: true,
     }
 }

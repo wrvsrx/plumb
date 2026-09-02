@@ -1138,10 +1138,12 @@ fn render_owned_block(block: &OwnedBlock, indent: usize, output: &mut String) {
             }
             render_owned_inlines(head, marker.is_some(), indent, output);
             if !children.is_empty() {
-                if matches!(
-                    children.first(),
-                    Some(OwnedBlock::Parsed { marker: None, .. })
-                ) {
+                if !head.is_empty()
+                    || matches!(
+                        children.first(),
+                        Some(OwnedBlock::Parsed { marker: None, .. })
+                    )
+                {
                     output.push_str("\n\n");
                 } else {
                     output.push('\n');

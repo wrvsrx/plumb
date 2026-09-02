@@ -40,3 +40,27 @@ fn owned_marked_raw_has_no_intermediate_payload_node() {
     };
     assert_eq!(block.format().unwrap(), "`rust\"\n fn main() {}\n");
 }
+
+#[test]
+fn owned_children_follow_head_sensitive_spacing() {
+    let child = OwnedBlock::Parsed {
+        marker: Some("+".to_string()),
+        head: vec![OwnedInline::Text("task".to_string())],
+        children: Vec::new(),
+        raw: None,
+    };
+    let with_head = OwnedBlock::Parsed {
+        marker: Some("-".to_string()),
+        head: vec![OwnedInline::Text("Task".to_string())],
+        children: vec![child.clone()],
+        raw: None,
+    };
+    let empty_head = OwnedBlock::Parsed {
+        marker: Some("table".to_string()),
+        head: Vec::new(),
+        children: vec![child],
+        raw: None,
+    };
+    assert_eq!(with_head.format().unwrap(), "`- Task\n\n `+ task\n");
+    assert_eq!(empty_head.format().unwrap(), "`table\n `+ task\n");
+}

@@ -117,7 +117,7 @@ fn formats_recursive_children_with_one_structural_space() {
     let output = run_server(&messages);
     let edits = response(&output, 2)["result"].as_array().unwrap();
     assert_eq!(edits.len(), 1);
-    assert_eq!(edits[0]["newText"], " `child Example\n");
+    assert_eq!(edits[0]["newText"], "\n `child Example\n");
 }
 
 #[test]

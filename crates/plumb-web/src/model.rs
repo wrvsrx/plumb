@@ -2570,7 +2570,7 @@ mod tests {
             .unwrap();
         let updated = std::fs::read_to_string(&path).unwrap();
         assert!(
-            updated.contains("`- Renamed idless child\n `+ task\n"),
+            updated.contains("`- Renamed idless child\n\n `+ task\n"),
             "{updated}"
         );
         assert!(updated.contains("`= custom keep"), "{updated}");

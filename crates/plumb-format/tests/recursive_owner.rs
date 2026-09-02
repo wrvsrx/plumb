@@ -21,6 +21,19 @@ fn canonicalizes_continuations_but_preserves_anonymous_child_boundaries() {
 }
 
 #[test]
+fn separates_visible_heads_but_compacts_empty_head_containers() {
+    assert_eq!(
+        format("`- Task\n `+ task\n").unwrap(),
+        "`- Task\n\n `+ task\n"
+    );
+    assert_eq!(format("`table\n `- row\n").unwrap(), "`table\n `- row\n");
+    assert_eq!(
+        format("`container\n\n child\n").unwrap(),
+        "`container\n\n child\n"
+    );
+}
+
+#[test]
 fn preserves_verbatim_payload_while_normalizing_margin() {
     let source = "`rust\"\n   fn main() {}\n    indented\n";
     let formatted = format(source).unwrap();

@@ -543,21 +543,23 @@ impl Formatter {
 
     fn parsed_block(&mut self, block: &ParsedBlock, indent: usize) {
         self.indent(indent);
+        let content = block.content.trim_boundary_padding();
+        let has_content = !content.is_empty();
         if let Some(mark) = &block.mark {
             let marker = mark.marker.as_str();
             self.output.push('`');
             self.output.push_str(marker);
-            let content = block.content.trim_boundary_padding();
-            if !content.is_empty() {
+            if has_content {
                 self.output.push(' ');
                 self.inlines(&content);
             }
         } else {
-            self.inlines(&block.content.trim_boundary_padding());
+            self.inlines(&content);
         }
 
         if !block.children.is_empty() {
-            if matches!(block.children.first(), Some(Block::Parsed(child)) if child.mark.is_none())
+            if has_content
+                || matches!(block.children.first(), Some(Block::Parsed(child)) if child.mark.is_none())
             {
                 self.output.push_str("\n\n");
             } else {

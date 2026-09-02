@@ -3007,7 +3007,7 @@ fn resolves_event_task_associations_and_queries_time_ranges() {
         1,
         "`- Write\n\n `+ task\n\n `@ write\n\n`node Plain\n  `@ plain\n",
     );
-    let events = "`= date|2026-07-30\n`= timezone|+08:00\n\n`- 10:30|Early\n\n `+ event\n\n `= timezone|+05:00\n`- 11:00|`->[Write|tasks.plumb#write]\n\n `+ event\n`- 12:00|`->[Write|tasks.plumb#write]\n\n `+ event\n\n `= tasks\n`- 14:00--15:00|Review\n\n `+ event\n\n `@ review\n\n `= uid|review@example\n `= tasks|tasks.plumb#write\n`- 15:00|Point\n\n `+ event\n\n `= tasks|tasks.plumb#plain missing.plumb#task bad\n";
+    let events = "`= date 2026-07-30\n`= timezone +08:00\n\n`- 10:30 Early\n\n `+ event\n\n `= timezone +05:00\n`- 11:00 `->{Write tasks.plumb#write}\n\n `+ event\n`- 12:00 `->{Write tasks.plumb#write}\n\n `+ event\n\n `= tasks\n`- 14:00--15:00 Review\n\n `+ event\n\n `@ review\n\n `= uid review@example\n `= tasks tasks.plumb#write\n`- 15:00 Point\n\n `+ event\n\n `= tasks tasks.plumb#plain missing.plumb#task bad\n";
     workspace.insert("events.plumb", 2, events);
 
     let target = TaskRef {

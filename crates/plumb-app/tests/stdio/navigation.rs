@@ -51,15 +51,15 @@ fn resolves_csl_json_citation_hover_and_definition() {
 #[test]
 fn hovers_document_metadata_from_each_top_level_entry_subtree() {
     let uri = "file:///tmp/document-metadata-hover.plumb";
-    let source = "`= title|Document\n\n`note Body\n `= nested|ordinary\n\n`= tags\n `+ plumb\n `+ notes\n\n`= related|`->[site|https://example.test]\n";
+    let source = "`= title Document\n\n`note Body\n\n `= nested ordinary\n\n`= tags\n\n `+ plumb\n `+ notes\n\n`= related `->{site https://example.test}\n";
     let requests = [
         (2, 0, 10),
-        (3, 5, 4),
-        (4, 6, 5),
-        (5, 9, 5),
-        (6, 9, 25),
+        (3, 6, 4),
+        (4, 8, 5),
+        (5, 11, 5),
+        (6, 11, 25),
         (7, 2, 7),
-        (8, 3, 5),
+        (8, 4, 5),
     ];
     let mut messages = vec![
         json!({
@@ -98,8 +98,8 @@ fn hovers_document_metadata_from_each_top_level_entry_subtree() {
         assert!(value.contains("`related`: site"), "{value}");
     }
     assert_eq!(response(&output, 2)["result"]["range"]["start"]["line"], 0);
-    assert_eq!(response(&output, 4)["result"]["range"]["start"]["line"], 5);
-    assert_eq!(response(&output, 5)["result"]["range"]["start"]["line"], 9);
+    assert_eq!(response(&output, 4)["result"]["range"]["start"]["line"], 6);
+    assert_eq!(response(&output, 5)["result"]["range"]["start"]["line"], 11);
     assert_eq!(
         response(&output, 6)["result"]["contents"]["value"],
         "**External link**\n\n`https://example.test`"
@@ -115,7 +115,7 @@ fn publishes_task_symbols_hover_and_workspace_diagnostics() {
     let blockers_path = root.join("blockers.plumb");
     let tasks_path = root.join("tasks.plumb");
     let blocker_source = "`- Draft dependency\n\n `+ task\n\n `@ draft\n";
-    let task_source = "`- Review task\n\n `+ task\n\n `@ review\n `= due|not-a-date\n `= recur|P1M1D\n `= depends|blockers.plumb#draft\n\n `- Nested task\n\n  `+ task\n\n  `@ nested\n  `= done|2026-07-20T10:00:00Z\n\n`note Invalid owner\n\n `+ task\n\n`span[not raw|+[$]]\n";
+    let task_source = "`- Review task\n\n `+ task\n\n `@ review\n `= due not-a-date\n `= recur P1M1D\n `= depends blockers.plumb#draft\n\n `- Nested task\n\n  `+ task\n\n  `@ nested\n  `= done 2026-07-20T10:00:00Z\n\n`note Invalid owner\n\n `+ task\n\n`span{not raw `+{$}}\n";
     std::fs::write(&blockers_path, blocker_source).unwrap();
     std::fs::write(&tasks_path, task_source).unwrap();
     let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
