@@ -397,5 +397,6 @@ label/target 与 schedule/title。
 
 derived-label Link 只在过滤 declarations 与 whitespace后恰有一个 positional element时成立；multiword target
 使用 anonymous group 或 compact verbatim spelling。其他 consumer也必须显式声明 element binding：property 与
-definition 使用 first/rest，table compact row 的每个 positional element 是一个 cell，inline style 与 citation
-要求 exactly one positional element。不得保留一套仅供部分 consumers 使用的 hidden datum grouping。
+definition 使用 first/rest，table compact row 的每个 positional element 是一个 cell，citation要求 exactly one
+positional element。Inline style 是 zero-or-more whole-content container，不做 positional arity validation。不得保留
+一套仅供部分 consumers 使用的 hidden datum grouping。

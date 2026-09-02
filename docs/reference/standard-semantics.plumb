@@ -172,18 +172,22 @@ declarations 通过 Pandoc inner Div 保留。
 ordinary owner content/children/declarations。anonymous block/group 与 explicit `"()" owner 是不同 syntax
 category，但 official export 的 visible wrapper transparent。
 
-六种 inline style marker 每个要求 exactly one non-declaration positional element：
+六种 inline style marker 都是 content containers：消费 zero or more source-ordered visible elements作为完整 style
+body，不建立 positional arity。direct declarations从 visible body过滤并保留为 attributes；whitespace 与 adjacency
+按普通 InlineContents projection处理：
 
 `plumb"
- `*{emphasis}
- `!{strong}
+ `*{emphasis with spaces}
+ `!{prefix`*{nested}suffix}
  `=={mark}
  `~{strikeout}
  `^{superscript}
  `_{subscript}
+ `!{}
 
-rich content含多个 direct elements时使用 anonymous Group形成 one outer element。export 分别为 Emph、Strong、mark
-Span、Strikeout、Superscript、Subscript；presentation italic/bold 不是独立 semantics。
+因此 style 内的 multi-element content不需要 anonymous Group；style owner自身在 parent depth已经是一个 element。
+export 分别为 Emph、Strong、mark Span、Strikeout、Superscript、Subscript；presentation italic/bold 不是独立
+semantics。
 
 `# 10. Tasks
 

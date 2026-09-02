@@ -45,6 +45,9 @@ Link analysis 从 Group content 过滤 direct declarations与 whitespace；one r
 two or more remaining elements使用 first/rest 形成 explicit label/target。unknown marked groups 保持 ordinary content。legacy Link
 conversion 属于 versioned migration，不进入 current pipeline。
 
+Inline style 是 whole-content consumer，不做 positional split或 arity validation；它消费 owner projection过滤
+declarations后的 zero-or-more visible elements。Citation仍是 exactly-one positional-element consumer。
+
 `# 6. Dependencies and invalidation
 
 analysis dependencies 通过 Rust types、函数 inputs 和固定 pipeline 明确表达。workspace 以 document revision、configuration 和直接 dependency output identity 形成 cache/invalidation boundary。document change 只 invalidates 直接或传递依赖其 outputs 的 computations；实现可以先采用整体 document output， 但不得声称不存在的动态 descriptor 或任意 output registry。
