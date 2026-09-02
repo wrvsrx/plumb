@@ -180,6 +180,21 @@ fn migrates_an_explicit_syntax_epoch_from_stdin_and_paths() {
     assert!(repeated.status.success());
     assert_eq!(String::from_utf8(repeated.stdout).unwrap(), member);
 
+    let datum = run_with_stdin(
+        &["migrate", "--from", "inline-datum-v1"],
+        "`node prefix`!{strong}suffix\n",
+    );
+    assert!(
+        datum.status.success(),
+        "{}",
+        String::from_utf8_lossy(&datum.stderr)
+    );
+    let datum = String::from_utf8(datum.stdout).unwrap();
+    assert_eq!(datum, "`node {prefix`!{strong}suffix}\n");
+    let repeated = run_with_stdin(&["migrate", "--from", "inline-datum-v1"], &datum);
+    assert!(repeated.status.success());
+    assert_eq!(String::from_utf8(repeated.stdout).unwrap(), datum);
+
     let current_group = run_with_stdin(
         &["migrate", "--from", "document-group-v1"],
         "{\n `= title|Current\n}\n\n`->[guide|guide.plumb]\n",

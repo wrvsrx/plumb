@@ -13,6 +13,7 @@ enum SourceEpoch {
     HeadSpaceV1,
     TaskEventMarkersV1,
     MemberEnvelopeV1,
+    InlineDatumV1,
 }
 
 #[derive(Debug, Parser)]
@@ -85,6 +86,7 @@ fn migrate_source(epoch: SourceEpoch, source: &str, name: &str) -> Result<String
         SourceEpoch::HeadSpaceV1 => plumb_migrate::migrate_head_space_v1(source),
         SourceEpoch::TaskEventMarkersV1 => plumb_migrate::migrate_task_event_markers_v1(source),
         SourceEpoch::MemberEnvelopeV1 => plumb_migrate::migrate_member_envelope_v1(source),
+        SourceEpoch::InlineDatumV1 => plumb_migrate::migrate_inline_datum_v1(source),
     }
     .map_err(|error| format!("{name}: {error}"))
 }

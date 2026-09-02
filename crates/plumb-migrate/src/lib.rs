@@ -15,9 +15,45 @@ pub enum MigrationError {
     InvalidHeadSpace(Vec<MigrationDiagnostic>),
     InvalidTaskEventMarkers(Vec<MigrationDiagnostic>),
     InvalidMemberEnvelope(Vec<MigrationDiagnostic>),
+    InvalidInlineDatum(Vec<MigrationDiagnostic>),
     UnsupportedAttachedInline { range: legacy::SourceRange },
     ConflictingLinkTarget { range: legacy::SourceRange },
     InvalidGenerated,
+}
+
+#[cfg(test)]
+mod inline_datum_tests {
+    use super::*;
+
+    #[test]
+    fn wraps_old_adjacent_runs_and_is_idempotent() {
+        let source = concat!(
+            "`node prefix`!{strong}suffix\n",
+            "`node visible `@{id}\n",
+            "`node visible`@{not-id}\n",
+            "`table\n",
+            " `- A`!{B}C 10\n",
+            "Text `->{prefix`!{strong}suffix}\n",
+        );
+        let migrated = migrate_inline_datum_v1(source).unwrap();
+        assert!(migrated.contains("`node {prefix`!{strong}suffix}"));
+        assert!(migrated.contains("`node visible `@{id}"));
+        assert!(migrated.contains("`node {visible`@{not-id}}"));
+        assert!(migrated.contains("`- {A`!{B}C} 10"));
+        assert!(migrated.contains("`->{{prefix`!{strong}suffix}}"));
+        assert!(plumb_syntax::parse(&migrated).is_valid());
+        assert_eq!(migrate_inline_datum_v1(&migrated).unwrap(), migrated);
+    }
+
+    #[test]
+    fn returns_unchanged_source_verbatim_and_rejects_invalid_input() {
+        let source = "`node  one   two\n";
+        assert_eq!(migrate_inline_datum_v1(source).unwrap(), source);
+        assert!(matches!(
+            migrate_inline_datum_v1("`broken{\n"),
+            Err(MigrationError::InvalidInlineDatum(_))
+        ));
+    }
 }
 
 #[cfg(test)]
@@ -168,6 +204,20 @@ impl fmt::Display for MigrationError {
                 }
                 Ok(())
             }
+            Self::InvalidInlineDatum(diagnostics) => {
+                write!(formatter, "inline-datum-v1 source is invalid")?;
+                for diagnostic in diagnostics {
+                    write!(
+                        formatter,
+                        "; {} at bytes {}..{}: {}",
+                        diagnostic.code,
+                        diagnostic.range.start,
+                        diagnostic.range.end,
+                        diagnostic.message
+                    )?;
+                }
+                Ok(())
+            }
             Self::UnsupportedAttachedInline { range } => write!(
                 formatter,
                 "legacy attached content at bytes {}..{} is not an inline element",
@@ -186,6 +236,114 @@ impl fmt::Display for MigrationError {
 }
 
 impl std::error::Error for MigrationError {}
+
+pub fn migrate_inline_datum_v1(source: &str) -> Result<String, MigrationError> {
+    let parsed = plumb_syntax::parse(source);
+    if !parsed.is_valid() {
+        return Err(MigrationError::InvalidInlineDatum(
+            parsed
+                .diagnostics
+                .iter()
+                .filter(|diagnostic| diagnostic.severity == plumb_syntax::DiagnosticSeverity::Error)
+                .map(|diagnostic| MigrationDiagnostic {
+                    code: diagnostic.code,
+                    range: diagnostic.range.clone(),
+                    message: diagnostic.message.clone(),
+                })
+                .collect(),
+        ));
+    }
+    let mut owned = OwnedDocument {
+        blocks: parsed
+            .syntax
+            .blocks
+            .iter()
+            .map(|block| OwnedBlock::from_syntax(source, block))
+            .collect(),
+    };
+    if !migrate_inline_datum_blocks(&mut owned.blocks) {
+        return Ok(source.to_string());
+    }
+    let migrated = owned
+        .format()
+        .map_err(|_| MigrationError::InvalidGenerated)?;
+    if !plumb_syntax::parse(&migrated).is_valid() {
+        return Err(MigrationError::InvalidGenerated);
+    }
+    Ok(migrated)
+}
+
+fn migrate_inline_datum_blocks(blocks: &mut [OwnedBlock]) -> bool {
+    let mut changed = false;
+    for block in blocks {
+        let OwnedBlock::Parsed {
+            marker,
+            head,
+            children,
+            ..
+        } = block
+        else {
+            continue;
+        };
+        changed |= migrate_inline_datum_inlines(head, marker.is_some());
+        changed |= migrate_inline_datum_blocks(children);
+    }
+    changed
+}
+
+fn migrate_inline_datum_inlines(inlines: &mut Vec<OwnedInline>, wrap_runs: bool) -> bool {
+    let mut changed = false;
+    for inline in inlines.iter_mut() {
+        let OwnedInline::Element { kind, members } = inline else {
+            continue;
+        };
+        for member in members {
+            match member {
+                OwnedInlineMember::ParsedArgument(content) => {
+                    changed |= migrate_inline_datum_inlines(content, !kind.is_empty());
+                }
+                OwnedInlineMember::Child(child) => {
+                    let mut nested = vec![child.as_ref().clone()];
+                    changed |= migrate_inline_datum_inlines(&mut nested, false);
+                    **child = nested.pop().expect("child remains present");
+                }
+                OwnedInlineMember::VerbatimArgument(_) => {}
+            }
+        }
+    }
+    if !wrap_runs {
+        return changed;
+    }
+
+    let mut migrated = Vec::with_capacity(inlines.len());
+    let mut pending = Vec::new();
+    let flush = |pending: &mut Vec<OwnedInline>, migrated: &mut Vec<OwnedInline>| {
+        if pending.len() > 1 {
+            migrated.push(OwnedInline::Element {
+                kind: String::new(),
+                members: vec![OwnedInlineMember::ParsedArgument(std::mem::take(pending))],
+            });
+            true
+        } else {
+            migrated.append(pending);
+            false
+        }
+    };
+    for inline in std::mem::take(inlines) {
+        if matches!(
+            inline,
+            OwnedInline::Space(_) | OwnedInline::SoftBreak | OwnedInline::ArgumentSeparator
+        ) {
+            changed |= flush(&mut pending, &mut migrated);
+            migrated.push(inline);
+        } else {
+            pending.push(inline);
+        }
+    }
+    changed |= flush(&mut pending, &mut migrated);
+    *inlines = migrated;
+    changed
+}
 
 pub fn migrate_member_envelope_v1(source: &str) -> Result<String, MigrationError> {
     if plumb_syntax::parse(source).is_valid() && !has_member_envelope_signal(source) {
