@@ -139,8 +139,9 @@ LSP semantic tokens 将 done task 的完整 block 标为 `"task + completed"，�
   end)
 
 construct completion 按 marker prefix 与 syntax owner 触发：bare introducer 不提供候选；line-start `"-" 提供
-Task/Event/Link/Autolink，ordinary inline `"-"/`"->" 提供 Link/Autolink。`"->{" 只提供 Link，`"->\""
-只提供 Autolink。`"c" 至 `"cite" prefix 提供 Citation snippet，完整/recovered `"cite{...}" 从 declared CSL
+Task/Event/Link/Autolink，ordinary inline `"-"/`"->" 提供 Link/Autolink。`"->{" 提供 parsed Link template；完成后
+one datum按 Autolink解释、two data按 named Link解释。`"->\"" 只提供 compact Autolink。`"c" 至 `"cite" prefix
+提供 Citation snippet，完整/recovered `"cite{...}" 从 declared CSL
 files补全 ids；legacy task/event marker prefixes 不提供候选。
 
 snippets 使用 current braces/space syntax：Link `"`->{{label} target}"，properties `"`= key value"。Task/Event

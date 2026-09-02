@@ -69,11 +69,13 @@ recognized direct declarations; unknown marked owners remain visible content.
 
 ## Links
 
-`->` is the sole Link inline kind. The first non-declaration datum is label and
-the second is target. Group data containing spaces or use anonymous verbatim
-for a raw path.
+`->` is the sole Link inline kind. One non-declaration datum is an Autolink: its
+rich source is the label and its recursive string value is the target. With two
+data, the first is label and the second stringifies to target.
 
 ```plumb
+`->{guide.plumb}
+`->{`!{guide.plumb}}
 `->{same-file target #intro}
 `->{{other document} guide.plumb}
 `->{{cross-file target} guide.plumb#intro `@{cross-file}}
@@ -84,7 +86,7 @@ The target is omitted from containing plain-text projections. A target with a
 scheme or `//` is external; other targets are raw relative filesystem paths.
 `#` separates an explicit anchor.
 
-When label and target are identical, use marked verbatim Autolink:
+Marked verbatim is the compact one-verbatim-argument Autolink spelling:
 
 ```plumb
 `->"https://example.test/a%20b"
