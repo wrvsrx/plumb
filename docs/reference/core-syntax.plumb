@@ -200,24 +200,8 @@ ValidDocument。authoritative semantics、export 与 valid-tree mutation 只接�
 同一根因只发布最具体 diagnostic。missing token 不成为 synthetic source leaf。block nesting 使用 explicit
 stack；语言不从 Rust call stack 获得 nesting depth limit。
 
-`# 12. Removed member-envelope epoch
+`# 12. Current syntax only
 
-bracket inline envelope、pipe argument/member separator、delimiter-escaped brackets/pipe、quote-count block margin 与
-pipe raw-tail 都不是 current syntax。isolated
-`"plumb-syntax-legacy-v2" 只服务 explicit migration：
-
-`plumb"
- plumb migrate --from member-envelope-v1 FILES...
-
-current parser 不识别或猜测 legacy epoch。converter 必须从 legacy typed tree 生成 new owned syntax，保持
-raw payload、direct ownership 与 official semantic projection；不得使用 global whitespace replacement。
-
-紧邻 current epoch 之前的 `"inline-datum-v1" 使用相同 braces/space surface syntax，但把没有 direct
-SpaceRun/SoftBreak 分隔的 adjacent elements投影为一个 datum。它不属于 current typed tree；显式迁移使用：
-
-`plumb"
- plumb migrate --from inline-datum-v1 FILES...
-
-converter 在 marked block/group content 中把每个包含多个 adjacent elements 的旧 datum包成一个 anonymous Group，
-并递归处理 anonymous Group 内的 marked descendants；anonymous Group自身不再次建立 migration boundary，因此
-generated current source再次执行必须 byte-identical。current parser不按 source 猜测该 epoch。
+core 只定义并解析本页描述的 current syntax。parser、typed tree、formatter、editor tooling 与 CLI 都不识别、
+检测或转换历史 syntax epoch；仓库不提供 legacy parser 或 migration command。历史 source 必须在进入 plumb
+toolchain 前由外部、版本匹配的工具转换。

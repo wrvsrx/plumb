@@ -283,22 +283,6 @@ block lower Para。plumb export 直接产生 Pandoc JSON，只把 Pandoc 当 wri
 profile 生成 current strict syntax，无法表示的 figure/raw HTML/footnote/complex citation 等必须 reject，不 silent
 drop。
 
-`# 14. Migration
+`# 14. Version boundary
 
-current profile 只解释 recursive-owner epoch。former `"[]"/`"|" member-envelope、quote-count block
-margin/raw-tail source 使用：
-
-`plumb"
- plumb migrate --from member-envelope-v1 FILES...
-
-更早 attached/document-group/head-space/task-event-marker epochs 仍由各 frozen reader/converter 输入，并最终输出
-current syntax。earlier attributed-verbatim Link 的 frozen intermediate
-`"{code[|"[label]"|=[to|target]]}" 由 member-envelope-v1 恢复成 positional Link，不把 `"to" 保留为
-generic child。ordinary property 仍保持 first element key、remaining elements value。migration 完成后才运行 official
-semantics；current parser 不进行 epoch detection。
-
-`"inline-datum-v1" 与 current syntax共享 braces/space spelling，但旧 semantic positional view会合并 direct
-adjacent elements。`"plumb migrate --from inline-datum-v1" 在所有 marked block/group owners中把 multi-element
-old datum包装成 anonymous Group，从而保持 Link/property/definition/Event/table/citation等 positional binding；
-whole-content Inline style在 wrapper前后 semantic-equivalent。standalone direct declaration保持 direct，旧 epoch
-中与普通 element adjacent而未形成 declaration的 spelling会随整个旧 datum一起进入 Group。converter必须幂等。
+official profile 只解释 current syntax。semantic analysis 不检测历史 epoch，也不在分析前执行 source migration。

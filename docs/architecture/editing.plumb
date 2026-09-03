@@ -101,26 +101,7 @@ semantic owners。compact verbatim仍优先 token edit，delimiter collision时 
 explicit Link target跨多个 positional elements时，document rename替换完整 rest target span并生成 plain escaped
 target，保留 fragment；span 内 interleaved direct declarations按原 source order移到新 target之后，不删除 declaration。
 
-`# 9. Versioned migration
+`# 9. Version boundary
 
-plumb-migrate owns explicit syntax-epoch conversion。member-envelope-v1 使用 frozen plumb-syntax-legacy-v2；current
-parser 不保留 compatibility branch。converter 从 legacy typed tree构造 current OwnedDocument：
-
-`- old block arguments按 semantic-safe policy映射为 current elements/groups。
-`- old SoftBreak continuation映射为 current semantic space；anonymous child保持 structural child，并由 formatter
- 输出 required blank boundary。
-`- old inline arguments在需要 spaces 时加 anonymous group；children变 direct marked groups。
-`- former attributed-verbatim Link 经 earlier converter 形成的
- `"{code[|"[label]"|=[to|target]]}" 必须恢复为 current Link：verbatim label 是 first element，
- `"to" value 进入 rest target，property owner不保留为 rendered/generic child。
-`- old raw tail无 children/head时变 marked VerbatimBlock；有 declarations/children时使用 transparent wrapper +
- marked raw child。
-`- old quote strength/raw bytes/direct ownership保持。
-
-generated source必须 current strict-parse；invalid legacy input拒绝。CLI path writes atomic，`"--check" 不写入。
-更早 attached/document-group/head-space/task-event-marker converters 最终也输出 current syntax。
-
-inline-datum-v1 converter读取 current parser产生的 lossless element sequence，但只在 caller显式声明旧 epoch时
-应用旧 whitespace-delimited datum规则。marked owner中的每个 adjacent multi-element run变成一个 anonymous Group；
-existing anonymous Group不作为再次 wrapping site，但其中的 marked descendants继续递归。没有需要 wrapping 的
-source必须原样返回；generated source必须 strict-valid且第二次 migration为 byte-identical no-op。
+editing 只接收 current parser 的 recovered/valid tree 或 current owned syntax。edit layer 不拥有 legacy reader、
+syntax epoch detection 或 source migration API。

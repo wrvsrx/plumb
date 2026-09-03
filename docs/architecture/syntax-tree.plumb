@@ -93,13 +93,10 @@ block nesting 使用 explicit work stack；typed block/inline destruction 与 tr
 获得 language depth limit。inline parser 的 arbitrary nesting implementation 必须由 deep-corpus regression
 证明不会 stack overflow。
 
-`# 8. Owned syntax and legacy reader
+`# 8. Owned syntax
 
 plumb-edit OwnedBlock/OwnedInline 是 syntax view 的 source-independent constructible counterpart，不是 normalized
 semantic AST。它负责 insertion/replacement/move 与 canonical rendering；adapter 不手写 subtree syntax。
-
-plumb-syntax-legacy-v2 是 frozen member-envelope reader，只输入 migration。它不进入 current parser、semantics、
-editor 或 formatter。converter 从 legacy typed tree 生成 current owned syntax并由 current parser重新验证。
 
 `# 9. Lenient tree and identity
 
