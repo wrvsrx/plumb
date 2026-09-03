@@ -140,21 +140,6 @@ children 时完整 head 是 key/term，children 是 value/body：
  `: Term with spaces
   `() Block definition body
 
-`# Migration
+`# Version boundary
 
-former brackets member envelope、pipe separators、quote-count block margin 和 raw tail 使用：
-
-`plumb"
- plumb migrate --from member-envelope-v1 FILES...
-
-CLI 先用 frozen legacy parser strict-parse，再通过 current owned syntax输出并用 current parser验证。`"--check"
-只报告需要迁移的 files；path replacement atomic。不要用 global string replacement 模拟 converter。
-
-如果 source 已经使用 braces/space syntax，但来自 adjacent elements会合并为 datum 的紧邻前一 epoch，使用：
-
-`plumb"
- plumb migrate --from inline-datum-v1 FILES...
-
-converter 把 marked owners中的 multi-element old datum包装成 anonymous Group，以保持 Link、property、definition、
-Event、table 与 citation positional binding。它不会猜测 source epoch；只在明确知道文件属于旧 datum epoch时运行。
-`"--check"、atomic replacement 与 idempotence contract同上。
+工具链只接受本指南描述的 current syntax，不检测或转换历史 syntax epoch。

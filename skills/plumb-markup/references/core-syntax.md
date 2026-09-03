@@ -166,12 +166,5 @@ lossless token stream that reconstructs every input byte. Block errors recover
 at physical lines; group and inline-verbatim errors recover at the current line;
 partial dedent recovers at an existing outer column.
 
-Use `plumb migrate --from member-envelope-v1` for the removed bracket member
-envelope, pipe separators, delimiter-escaped brackets and pipe, quote-count
-block margin, and marked raw-tail syntax.
-
-Use `plumb migrate --from inline-datum-v1` for brace/space source authored
-under the immediately preceding datum projection. It wraps adjacent
-multi-element runs in marked owners with anonymous groups, preserves standalone
-declarations, and is idempotent. Do not run it on source authored for current
-element binding merely because adjacency is present.
+The toolchain accepts only this current syntax. It does not detect or convert
+historical syntax epochs.

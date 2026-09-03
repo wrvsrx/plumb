@@ -350,17 +350,15 @@ compact cells 来自 row head，expanded cells 来自 row children；添加 `"+ 
 
 `# Implemented boundary
 
-实现采用 isolated plumb-syntax-legacy-v2、plumb-edit owned conversion 与 current strict revalidation；current
-parser 没有 compatibility branch。strict parser、format/edit、semantics、import/export、workspace、LSP、
-tree-sitter、repository documents 与 bundled skill 已同步；current contract 仍由 reference/architecture 决定。
+实现最终只保留 current strict parser。format/edit、semantics、import/export、workspace、LSP、tree-sitter、
+repository documents 与 bundled skill 已同步；current contract 仍由 reference/architecture 决定。
 
 `# Implemented follow-up: element-based positional binding
 
 本节记录 2026-09-03 后续决定，现已进入 current reference 与 implementation，并 supersede 本文前面基于 datum
 projection 的规则。`->{{core syntax reference} ../reference/core-syntax.plumb}、syntax-tree architecture 与
 standard semantics 是 current authority；strict parser typed view、semantic consumers、formatter/edit、tests、
-guide 与 bundled skill 已同步。旧 datum projection 的 brace/space source通过显式
-`"plumb migrate --from inline-datum-v1" 转换，converter保持 standalone declarations并保证幂等。
+guide 与 bundled skill 已同步。仓库不再包含旧 datum projection reader 或 converter。
 
 不再在 direct inline elements 上投影 datum 或 segment 中间层。InlineContents 只包含 source-ordered
 InlineElement sequence；Text、SpaceRun、SoftBreak、Group 与 Verbatim 都是 elements。Text 在 direct space、

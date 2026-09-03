@@ -110,7 +110,7 @@ filesystem path；原 source 有 whitespace时才产生 semantic space，adjacen
 parentheses 与 percent characters 都按字面保留，不进行 URL encode/decode。derived-label Link 的 multi-element
 target需要一个 anonymous Group或 verbatim spelling。
 
-旧 consecutive slots 与 inline attached group 不属于 current syntax；使用 `"plumb migrate --from attached-v1" 显式迁移，formatter 不读取 legacy syntax。
+旧 consecutive slots 与 inline attached group 不属于 current syntax，formatter 与其他工具均不读取这些历史写法。
 
 derived-label Link 可以使用 compact verbatim spelling：
 
