@@ -734,9 +734,7 @@ mod tests {
     use super::*;
 
     fn export(source: &str) -> Result<Value, String> {
-        let source =
-            plumb_migrate::migrate_member_envelope_v1(source).map_err(|error| error.to_string())?;
-        super::export(&source)
+        super::export(source)
     }
 
     #[test]
@@ -752,7 +750,8 @@ mod tests {
 
     #[test]
     fn exports_adjacent_and_nested_items_as_bullet_lists() {
-        let source = "`- One\n\n`- Two\n  `+ task\n  `@ two\n  `= priority|-5\n\n  `- Nested\n\nParagraph.\n";
+        let source =
+            "`- One\n\n`- Two\n `+ task\n `@ two\n `= priority -5\n\n `- Nested\n\nParagraph.\n";
         let document = export(source).unwrap();
         let blocks = document["blocks"].as_array().unwrap();
 
@@ -778,7 +777,7 @@ mod tests {
     #[test]
     fn document_declarations_do_not_split_exported_body_lists() {
         let document =
-            export("`- First\n`= title|Between\n`+ journal\n`@ unsupported\n`- Second\n").unwrap();
+            export("`- First\n`= title Between\n`+ journal\n`@ unsupported\n`- Second\n").unwrap();
         let blocks = document["blocks"].as_array().unwrap();
 
         assert_eq!(document["meta"]["title"]["c"][0]["c"], "Between");
@@ -810,7 +809,7 @@ mod tests {
 
     #[test]
     fn exports_visible_task_state_markers() {
-        let source = "`- Open\n  `+ task\n`- Done\n  `+ task\n  `= done|2026-07-25T15:00:00+08:00\n`- Canceled\n  `+ task\n  `= canceled|2026-07-25T15:00:00+08:00\n`- Conflicted\n  `+ task\n  `= done|2026-07-25T15:00:00+08:00\n  `= canceled|2026-07-25T15:01:00+08:00\n";
+        let source = "`- Open\n `+ task\n`- Done\n `+ task\n `= done 2026-07-25T15:00:00+08:00\n`- Canceled\n `+ task\n `= canceled 2026-07-25T15:00:00+08:00\n`- Conflicted\n `+ task\n `= done 2026-07-25T15:00:00+08:00\n `= canceled 2026-07-25T15:01:00+08:00\n";
         let document = export(source).unwrap();
         let items = document["blocks"][0]["c"].as_array().unwrap();
         let markers = items
@@ -853,7 +852,7 @@ mod tests {
 
     #[test]
     fn exports_quote_head_children_nesting_and_attributes() {
-        let source = "`> Quoted head\n\n   Quoted body.\n\n   `> Nested quote\n     `@ nested\n     `+ source\n     `= cite|book\n\n`quote Generic\n";
+        let source = "`> Quoted head\n\n Quoted body.\n\n `> Nested quote\n  `@ nested\n  `+ source\n  `= cite book\n\n`quote Generic\n";
         let document = export(source).unwrap();
         let blocks = document["blocks"].as_array().unwrap();
 
@@ -886,7 +885,7 @@ mod tests {
 
     #[test]
     fn exports_adjacent_definitions_and_preserves_definition_attributes() {
-        let source = "`: Term\n\n   Definition.\n\n`: Tagged\n  `@ tag\n  `+ kind\n  `= key|value\n\n  `- First\n  `- Second\n";
+        let source = "`: Term\n\n Definition.\n\n`: Tagged\n `@ tag\n `+ kind\n `= key value\n\n `- First\n `- Second\n";
         let document = export(source).unwrap();
         let blocks = document["blocks"].as_array().unwrap();
 
@@ -927,7 +926,7 @@ mod tests {
 
     #[test]
     fn exports_verbatim_links_in_body_and_metadata() {
-        let source = "`= homepage|`->\"https://example.test/meta\"\n\nBody `->\"https://example.test/a%20b\".\n";
+        let source = "`= homepage `->\"https://example.test/meta\"\n\nBody `->\"https://example.test/a%20b\".\n";
         let document = export(source).unwrap();
         let metadata_link = &document["meta"]["homepage"]["c"][0];
         assert_eq!(metadata_link["t"], "Link");
@@ -942,7 +941,7 @@ mod tests {
 
     #[test]
     fn exports_standard_images_in_body_and_metadata() {
-        let source = "`= cover|`img[Cover|=[src|static/cover.png]]\n\nBefore `img[Rich `em[alt]|=[src|\"[static/a b.webp]\"]|@[image]|+[wide]|=[loading|lazy]] after.\n\n`img[|=[src|https://example.test/decorative.svg]]\n";
+        let source = "`= cover `img{Cover `={src static/cover.png}}\n\nBefore `img{{Rich `!{alt}} `={src `\"static/a b.webp\"} `@{image} `+{wide} `={loading lazy}} after.\n\n`img{`={src https://example.test/decorative.svg}}\n";
         let document = export(source).unwrap();
 
         let metadata_image = &document["meta"]["cover"]["c"][0];
@@ -962,7 +961,7 @@ mod tests {
             json!(["image", ["wide"], [["loading", "lazy"]]])
         );
         assert_eq!(body_image["c"][1][0]["c"], "Rich");
-        assert_eq!(body_image["c"][1][2]["t"], "Span");
+        assert_eq!(body_image["c"][1][2]["t"], "Strong");
         assert_eq!(body_image["c"][2], json!(["static/a b.webp", ""]));
 
         let image_only_paragraph = &document["blocks"][1];
@@ -981,7 +980,7 @@ mod tests {
     #[test]
     fn exports_file_attachments_as_portable_links_with_fallback_content() {
         let document = export(
-            "Watch `file[Demo `![video]|=[src|\"[static/demo video.mp4]\"]|@[demo]|+[wide]|=[download|yes]].\n",
+            "Watch `file{{Demo `!{video}} `={src `\"static/demo video.mp4\"} `@{demo} `+{wide} `={download yes}}.\n",
         )
         .unwrap();
         let file = &document["blocks"][0]["c"][2];
@@ -1001,7 +1000,7 @@ mod tests {
 
     #[test]
     fn exports_link_kind_as_a_generic_span() {
-        let document = export("`link[target|=[to|other.plumb#id]]\n").unwrap();
+        let document = export("`link{target `={to other.plumb#id}}\n").unwrap();
         let inline = &document["blocks"][0]["c"][0];
 
         assert_eq!(inline["t"], "Span");
@@ -1013,7 +1012,7 @@ mod tests {
 
     #[test]
     fn exports_verbatim_envelopes_as_pandoc_code() {
-        let document = export("Use `\"cargo check\".\n\n`rust\n\n|\"\n fn main() {}\n").unwrap();
+        let document = export("Use `\"cargo check\".\n\n`rust\"\n fn main() {}\n").unwrap();
         assert_eq!(document["blocks"][0]["c"][2]["t"], "Code");
         assert_eq!(document["blocks"][0]["c"][2]["c"][1], "cargo check");
         assert_eq!(document["blocks"][1]["t"], "CodeBlock");
@@ -1022,7 +1021,7 @@ mod tests {
 
     #[test]
     fn exports_paren_transparent_containers_without_redundant_markers() {
-        let document = export("`() Body\n  `@ box\n  `+ note\n\n`()[text|+[mark]]\n").unwrap();
+        let document = export("`() Body\n `@ box\n `+ note\n\n`(){text `+{mark}}\n").unwrap();
         let div_attrs = &document["blocks"][0]["c"][0];
         assert_eq!(div_attrs, &json!(["box", ["note"], []]));
         let span_attrs = &document["blocks"][1]["c"][0]["c"][0];
@@ -1037,7 +1036,7 @@ mod tests {
     #[test]
     fn exports_symbolic_inline_styles_and_preserves_attributes() {
         let document = export(
-            "`*[em `![strong]] `==[mark|@[marked]|+[keep]] `~[strike] `^[super] `_[sub] `**[generic]\n",
+            "`*{em `!{strong}} `=={mark `@{marked} `+{keep}} `~{strike} `^{super} `_{sub} `**{generic}\n",
         )
         .unwrap();
         let inlines = document["blocks"][0]["c"].as_array().unwrap();
@@ -1081,7 +1080,7 @@ mod tests {
 
     #[test]
     fn exports_inline_and_display_math_with_attribute_wrappers() {
-        let source = "Inline `$\"x^2\".\n\n`$\n\n|\"\n E = mc^2\n`$\n `@ display\n `+ numbered\n\n|\"\n a = b\n";
+        let source = "Inline `$\"x^2\".\n\n`$\"\n E = mc^2\n\n`()\n `@ display\n `+ numbered\n\n `$\"\n  a = b\n";
         let document = export(source).unwrap();
         assert_eq!(document["blocks"][0]["c"][2]["t"], "Math");
         assert_eq!(document["blocks"][0]["c"][2]["c"][0]["t"], "InlineMath");
@@ -1101,7 +1100,7 @@ mod tests {
 
     #[test]
     fn exports_math_inside_rich_metadata_scalars() {
-        let source = "`= formula|Area `$\"\\pi r^2\"\n";
+        let source = "`= formula Area `$\"\\pi r^2\"\n";
         let document = export(source).unwrap();
         assert_eq!(document["meta"]["formula"]["t"], "MetaInlines");
         let math = document["meta"]["formula"]["c"]
@@ -1116,7 +1115,7 @@ mod tests {
 
     #[test]
     fn lifts_typed_metadata_out_of_the_document_body() {
-        let source = "`= title|Rich `*[title]\n`= tags\n\n `+ plumb\n `+ tools\n\n`= macros\n\n `+\n  `+ `\"nearSet\"\n  `+ `\"\\mathscr{C}\"\n  `+ 0\n\n`= author\n\n `= name|Alice\n\n`= source\n\n `\"\n  raw\n  \n  \n`= empty\n\n`# Section\n";
+        let source = "`= title Rich `*{title}\n`= tags\n `+ plumb\n `+ tools\n\n`= macros\n `+\n  `+ `\"nearSet\"\n  `+ `\"\\mathscr{C}\"\n  `+ 0\n\n`= author\n `= name Alice\n\n`= source\n `\"\n  raw\n  \n  \n`= empty\n\n`# Section\n";
         let document = export(source).unwrap();
 
         assert_eq!(document["blocks"].as_array().unwrap().len(), 1);
@@ -1162,7 +1161,7 @@ mod tests {
 
     #[test]
     fn metadata_export_keeps_first_duplicate_and_rejects_unsupported_values() {
-        let duplicate = export("`= title|First\n`= title|Second\n").unwrap();
+        let duplicate = export("`= title First\n`= title Second\n").unwrap();
         assert_eq!(duplicate["meta"]["title"]["c"][0]["c"], "First");
 
         let rendered_sequence = export("`= tags\n `- old-rendered-item\n");
@@ -1180,7 +1179,7 @@ mod tests {
 
     #[test]
     fn exports_single_citations_in_body_and_metadata_without_a_pandoc_reader() {
-        let document = export("`= source|`cite[roe2020]\n\nSee `cite[smith2004].\n").unwrap();
+        let document = export("`= source `cite{roe2020}\n\nSee `cite{smith2004}.\n").unwrap();
 
         assert_eq!(document["meta"]["source"]["c"][0]["t"], "Cite");
         let cite = &document["blocks"][0]["c"][2];

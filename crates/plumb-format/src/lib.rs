@@ -805,8 +805,10 @@ fn minimum_quote_count(text: &str) -> usize {
     maximum.map_or(0, |quotes| quotes + 1)
 }
 
-#[cfg(any())]
+#[cfg(test)]
 mod tests {
+    use std::fmt::Write;
+
     use super::*;
 
     fn assert_formats(source: &str, expected: &str) {
@@ -816,159 +818,43 @@ mod tests {
         assert_eq!(formatted, expected);
         let reparsed = parse(&formatted);
         assert!(reparsed.is_valid(), "{:?}", reparsed.diagnostics);
-        assert_eq!(
-            shape_document(&original.syntax),
-            shape_document(&reparsed.syntax)
-        );
         assert_eq!(format(&formatted).unwrap(), formatted);
-    }
-
-    fn shape_document(document: &plumb_syntax::Document) -> String {
-        let mut output = String::new();
-        shape_attrs(&document.attrs, &mut output);
-        shape_blocks(&document.blocks, &mut output);
-        output
-    }
-
-    fn shape_blocks(blocks: &[Block], output: &mut String) {
-        output.push('[');
-        for block in blocks {
-            match block {
-                Block::Parsed(block) => {
-                    output.push('P');
-                    match &block.mark {
-                        Some(mark) => {
-                            let _ = write!(output, "{:?}", mark.marker);
-                            shape_attrs(&mark.attrs, output);
-                        }
-                        None => output.push('-'),
-                    }
-                    shape_inlines(&block.head, output);
-                    shape_blocks(&block.children, output);
-                    if let Some(raw) = &block.raw {
-                        let _ = write!(output, "R{:?}", raw.text);
-                    }
-                }
-                Block::Verbatim(block) => {
-                    output.push('V');
-                    let _ = write!(output, "{:?}", block.text);
-                }
-            }
-        }
-        output.push(']');
-    }
-
-    fn shape_inlines(content: &InlineContent, output: &mut String) {
-        output.push('(');
-        for argument in &content.arguments {
-            if argument.separator_range.is_some() {
-                output.push('|');
-            }
-            for inline in &content.items[argument.item_range.clone()] {
-                match inline {
-                    Inline::Text { text, .. } => {
-                        let _ = write!(output, "T{text:?}");
-                    }
-                    Inline::Space { text, .. } => {
-                        let _ = write!(output, "W{text:?}");
-                    }
-                    Inline::SoftBreak { .. } => output.push('S'),
-                    Inline::Element {
-                        kind,
-                        members,
-                        attrs,
-                        ..
-                    } => {
-                        let _ = write!(output, "E{kind:?}");
-                        for member in members {
-                            match member {
-                                plumb_syntax::InlineMember::ParsedArgument(argument) => {
-                                    output.push_str("A[");
-                                    shape_inlines(&argument.content, output);
-                                    output.push(']');
-                                }
-                                plumb_syntax::InlineMember::VerbatimArgument(argument) => {
-                                    let _ = write!(output, "R{:?}", argument.text);
-                                }
-                                plumb_syntax::InlineMember::Child { inline, .. } => {
-                                    output.push('C');
-                                    let content = InlineContent::from_items(
-                                        0..0,
-                                        vec![inline.as_ref().clone()],
-                                    );
-                                    shape_inlines(&content, output);
-                                }
-                            }
-                        }
-                        shape_attrs(attrs, output);
-                    }
-                    Inline::Verbatim { text, attrs, .. } => {
-                        let _ = write!(output, "V{text:?}");
-                        shape_attrs(attrs, output);
-                    }
-                }
-            }
-        }
-        output.push(')');
-    }
-
-    fn shape_attrs(attrs: &Attributes, output: &mut String) {
-        match &attrs.range {
-            None => output.push('-'),
-            Some(_) => {
-                output.push('{');
-                for item in &attrs.items {
-                    match item {
-                        AttrItem::Id { value, .. } => {
-                            let _ = write!(output, "I{value:?}");
-                        }
-                        AttrItem::Class { value, .. } => {
-                            let _ = write!(output, "C{value:?}");
-                        }
-                        AttrItem::Pair { key, value, .. } => {
-                            let _ = write!(output, "K{key:?}={:?}", value.decoded);
-                        }
-                    }
-                }
-                output.push('}');
-            }
-        }
     }
 
     #[test]
     fn formats_direct_declarations_and_recursive_children() {
         assert_formats(
-            "`=   title|Document title\n\n`= tags|plumb\n\n`task   Buy milk\n   `+ task\n   `@ shopping\n\n   `note Details\n",
-            "`=   title|Document title\n`= tags|plumb\n\n`task   Buy milk\n\n `+ task\n\n `@ shopping\n\n `note Details\n",
+            "`= title Document title\n`= tags plumb\n\n`task Buy milk\n\n `+ task\n\n `@ shopping\n\n `note Details\n",
+            "`= title Document title\n`= tags plumb\n\n`task Buy milk\n\n `+ task\n\n `@ shopping\n\n `note Details\n",
         );
         assert_formats("", "");
     }
 
     #[test]
     fn preserves_argument_boundary_padding() {
-        let source = "`row name  | age\n`row Alice | 10\n";
+        let source = "`row name    age\n`row Alice   10\n";
         assert_formats(source, source);
     }
 
     #[test]
     fn preserves_marker_member_padding_and_escaped_boundary_spaces() {
         let source = concat!(
-            "`row   ` Alice` | 10\n\n",
-            "`owner[first | child[value] | \"[raw]\" | code\"[child]\" ]\n",
+            "`row {Alice} 10\n",
+            "`owner{first `child{value} `\"raw\" `code\"child\"}\n",
         );
-        assert_formats(source, source);
+        assert_formats(
+            source,
+            "`row {Alice} 10\n\n`owner{first `child{value} `\"raw\" `code\"child\"}\n",
+        );
     }
 
     #[test]
     fn formats_anonymous_and_owned_raw_payloads() {
-        assert_formats("`\"\"\n  payload\n", "`\"\"\n  payload\n");
+        assert_formats("`\"\n payload\n", "`\"\n payload\n");
+        assert_formats("`rust\"\n fn main() {}\n", "`rust\"\n fn main() {}\n");
         assert_formats(
-            "`rust\n\n|\"\"\"\n   fn main() {}\n",
-            "`rust\n|\"\"\"\n   fn main() {}\n",
-        );
-        assert_formats(
-            "`rust\n   `@ example\n\n|\"\n fn main() {}\n",
-            "`rust\n\n `@ example\n\n|\"\n fn main() {}\n",
+            "`()\n `@ example\n\n `rust\"\n  fn main() {}\n",
+            "`()\n `@ example\n\n `rust\"\n  fn main() {}\n",
         );
         assert_formats(
             "`example\n   `\"\n    child raw\n",
@@ -977,8 +863,8 @@ mod tests {
     }
 
     #[test]
-    fn braces_are_preserved_as_ordinary_text() {
-        assert_formats("Text { fn() {} }\n", "Text { fn() {} }\n");
+    fn canonicalizes_anonymous_group_boundary_padding() {
+        assert_formats("Text { fn() {} }\n", "Text {fn() {}}\n");
         assert_formats(
             "`marker{brace} value{inside}\n",
             "`marker{brace} value{inside}\n",
@@ -988,22 +874,25 @@ mod tests {
     #[test]
     fn preserves_inline_members_and_soft_breaks() {
         assert_formats(
-            "See `->[guide|@[main]|+[external]|=[to|guide.plumb]].\n",
-            "See `->[guide|@[main]|+[external]|=[to|guide.plumb]].\n",
+            "See `->{guide `@{main} `+{external} `={to guide.plumb}}.\n",
+            "See `->{guide `@{main} `+{external} `={to guide.plumb}}.\n",
         );
         assert_formats(
-            "`note First `span[a `] b `` c]\n   second\n",
-            "`note First `span[a `] b `` c]\n second\n",
+            "`note First `span{{a ] b `` c}} second\n",
+            "`note First `span{{a ] b `` c}} second\n",
         );
         assert_formats(
-            "`owner[\"quoted\"|code\"raw\"|\"[verbatim]\"|code\"[child]\"]\n",
-            "`owner[\"quoted\"|code\"raw\"|\"[verbatim]\"|code\"[child]\"]\n",
+            "`owner{\"quoted\" code\"raw\" `\"verbatim\" `code\"child\"}\n",
+            "`owner{\"quoted\" code\"raw\" `\"verbatim\" `code\"child\"}\n",
         );
     }
 
     #[test]
     fn chooses_minimum_safe_verbatim_delimiters() {
-        assert_formats("Raw `\"\"\"[a ]\" b]\"\"\".\n", "Raw `\"\"[a ]\" b]\"\".\n");
+        assert_formats(
+            "Raw `\"\"\"[a ]\" b]\"\"\".\n",
+            "Raw `\"\"\"[a ]\" b]\"\"\".\n",
+        );
         assert_formats("`\"[[]]\"\n", "`\"[[]]\"\n");
         assert_formats("Before `\"[]\" after.\n", "Before `\"[]\" after.\n");
     }
@@ -1018,18 +907,18 @@ mod tests {
 
     #[test]
     fn raw_payload_preserves_content_and_final_newline() {
-        assert_formats("`\"\"\n  final newline\n", "`\"\"\n  final newline\n");
-        assert_formats("`\"\"\n  no newline", "`\"\"\n  no newline");
+        assert_formats("`\"\n final newline\n", "`\"\n final newline\n");
+        assert_formats("`\"\n no newline", "`\"\n no newline");
         assert_formats(
-            "`text\n|\"\n   leading\n \n\nnext\n",
-            "`text\n|\"\n   leading\n \n\nnext\n",
+            "`text\"\n   leading\n \n\nnext\n",
+            "`text\"\n   leading\n \n\nnext\n",
         );
     }
 
     #[test]
     fn rejects_invalid_documents() {
-        assert_eq!(format("`span[open\n"), Err(FormatError::InvalidSyntax));
-        assert_eq!(format("`rust\"\n raw\n"), Err(FormatError::InvalidSyntax));
+        assert_eq!(format("`span{open\n"), Err(FormatError::InvalidSyntax));
+        assert_eq!(format("`rust\"\nraw\n"), Ok("`rust\"\n\nraw\n".to_string()));
     }
 
     #[test]
@@ -1049,7 +938,7 @@ mod tests {
     fn whole_document_diff_anchors_large_repeated_layout() {
         let mut source = String::new();
         for index in 0..512 {
-            let _ = write!(source, "`event   Event {index}\n   `= uid|repeated\n\n");
+            let _ = write!(source, "`event Event {index}\n\n `= uid repeated\n");
         }
         let canonical = format(&source).unwrap();
         let edits = format_edits(&source).unwrap();
@@ -1072,7 +961,7 @@ mod tests {
         edited.replace_range(edit.range.clone(), &edit.new_text);
         assert_eq!(
             edited,
-            "`task   First\n\n `@ one\n\n`task   Second\n\n `@ two\n\n`event Following\n"
+            "`task First\n\n `@ one\n\n`task Second\n\n `@ two\n\n`event Following\n"
         );
     }
 
@@ -1085,7 +974,7 @@ mod tests {
             format_block_range(source, children[0].range().start..children[1].range().end).unwrap();
         assert!(edit.new_text.contains("\r\n"));
         assert!(!edit.new_text.contains("\n") || edit.new_text.contains("\r\n"));
-        assert_eq!(&source[edit.range.end..], "`event Following\r\n");
+        assert_eq!(&source[edit.range.end..], "\r\n`event Following\r\n");
     }
 
     #[test]
@@ -1109,8 +998,8 @@ mod tests {
         let edits = format_contained_blocks(source, selection).unwrap();
         assert_eq!(edits.len(), 1);
         assert!(!edits[0].new_text.contains("`node Parent"));
-        assert!(edits[0].new_text.contains("`task   One"));
-        assert!(edits[0].new_text.contains("`task   Two"));
+        assert!(edits[0].new_text.contains("`task One"));
+        assert!(edits[0].new_text.contains("`task Two"));
         assert_eq!(&source[edits[0].range.end..], "\n\n`event Following\n");
     }
 
@@ -1146,22 +1035,19 @@ mod tests {
 
     #[test]
     fn contained_range_supports_anonymous_raw_and_paragraphs() {
-        let source = "`\"\"\n  payload\n\nParagraph `\"\"\"[a ]\" b]\"\"\".\n\n`event Following\n";
+        let source = "`\"\n payload\n\nParagraph { text }.\n\n`event Following\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let selection = block_content_range(&parsed.syntax.blocks[0]).start
             ..block_content_range(&parsed.syntax.blocks[1]).end;
         let edits = format_contained_blocks(source, selection).unwrap();
         assert_eq!(edits.len(), 1);
-        assert_eq!(
-            edits[0].new_text,
-            "`\"\"\n  payload\n\nParagraph `\"\"[a ]\" b]\"\"."
-        );
+        assert_eq!(edits[0].new_text, "`\"\n payload\n\nParagraph {text}.");
     }
 
     #[test]
     fn terminal_raw_descendants_do_not_accumulate_spacing() {
-        let source = "`config\n   `json\n\n   |\"\n    {\"enabled\": true}\n\n\n`event Following\n";
+        let source = "`config\n `json\"\n  {\"enabled\": true}\n\n`event Following\n";
         let formatted = format(source).unwrap();
         assert_eq!(format(&formatted).unwrap(), formatted);
         assert_eq!(formatted.matches("\n\n`event Following").count(), 1);

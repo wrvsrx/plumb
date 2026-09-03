@@ -916,11 +916,8 @@ impl LanguageServer for ServerState {
                         resolve_provider: Some(false),
                         trigger_characters: Some(vec![
                             "`".to_string(),
-                            "t".to_string(),
-                            "e".to_string(),
                             "-".to_string(),
                             ">".to_string(),
-                            "[".to_string(),
                             "\"".to_string(),
                             "/".to_string(),
                             "#".to_string(),
@@ -1858,8 +1855,7 @@ impl LanguageServer for ServerState {
                 if let Some(context) = link_completion_context(&entry.parsed, offset) {
                     let kind = if matches!(
                         &context,
-                        plumb_semantics::LinkCompletionContext::Label { .. }
-                            | plumb_semantics::LinkCompletionContext::Path { .. }
+                        plumb_semantics::LinkCompletionContext::Path { .. }
                             | plumb_semantics::LinkCompletionContext::VerbatimPath { .. }
                     ) {
                         CompletionItemKind::FILE

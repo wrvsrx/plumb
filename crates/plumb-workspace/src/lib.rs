@@ -15,15 +15,16 @@ use plumb_semantics::{
     TaskDependency, TaskDependencyCompletionContext, TaskRecord, TaskReferenceTarget, TaskState,
 };
 #[cfg(test)]
-use plumb_semantics::{EventTitleCompletionContext, FileCompletionContext, TaskStatus};
+use plumb_semantics::{
+    EventTitleCompletionContext, FileCompletionContext, ImageCompletionContext, TaskStatus,
+};
 use plumb_syntax::{
     Attributes, Block, Diagnostic, DiagnosticSeverity, ParsedBlock, ParsedDocument,
 };
 
 #[cfg(test)]
 fn parse(source: impl Into<String>) -> ParsedDocument {
-    let source = source.into();
-    plumb_syntax::parse(crate::documents::migrate_test_source(&source))
+    plumb_syntax::parse(source)
 }
 
 mod bibliography;
@@ -3201,35 +3202,6 @@ impl Workspace {
     ) -> Result<QueryResult<Vec<CompletionCandidate>>, WorkspaceQueryError> {
         let from = normalize(from.as_ref());
         let mut candidates: Vec<CompletionCandidate> = match context {
-            LinkCompletionContext::Label { replace, query } => self
-                .documents
-                .values()
-                .filter_map(|entry| {
-                    let versioned = entry.current.as_ref().or(entry.last_valid.as_ref())?;
-                    if entry.path == from {
-                        return None;
-                    }
-                    let relative = relative_path(&from, &entry.path)?;
-                    let title = versioned
-                        .output
-                        .metadata
-                        .document_title()
-                        .filter(|title| !title.is_empty())
-                        .unwrap_or_else(|| relative.clone());
-                    (fuzzy_match(&relative, query) || fuzzy_match(&title, query)).then(|| {
-                        CompletionCandidate {
-                            label: title.clone(),
-                            detail: relative.clone(),
-                            new_text: format!(
-                                "`->{{{{{}}} {{{}}}}}",
-                                escape_parsed_text(&title),
-                                escape_parsed_text(&relative)
-                            ),
-                            replace: replace.clone(),
-                        }
-                    })
-                })
-                .collect(),
             LinkCompletionContext::Path {
                 replace,
                 query,
@@ -3370,31 +3342,6 @@ impl Workspace {
         if let Some(store) = &self.disk_store {
             let open = self.open_paths();
             match context {
-                LinkCompletionContext::Label { replace, query } => {
-                    candidates.extend(store.documents()?.into_iter().filter_map(|document| {
-                        if open.binary_search(&document.path).is_ok() || document.path == from {
-                            return None;
-                        }
-                        let relative = relative_path(&from, &document.path)?;
-                        let title = if document.title.is_empty() {
-                            relative.clone()
-                        } else {
-                            document.title
-                        };
-                        (fuzzy_match(&relative, query) || fuzzy_match(&title, query)).then(|| {
-                            CompletionCandidate {
-                                label: title.clone(),
-                                detail: relative.clone(),
-                                new_text: format!(
-                                    "`->{{{{{}}} {{{}}}}}",
-                                    escape_parsed_text(&title),
-                                    escape_parsed_text(&relative)
-                                ),
-                                replace: replace.clone(),
-                            }
-                        })
-                    }));
-                }
                 LinkCompletionContext::Path {
                     replace,
                     query,

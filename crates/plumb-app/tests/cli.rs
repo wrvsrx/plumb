@@ -13,14 +13,12 @@ fn exposes_the_unified_command_surface() {
     assert!(help.status.success());
     let help = String::from_utf8(help.stdout).unwrap();
     for command in [
-        "cache", "check", "event", "fmt", "export", "import", "migrate", "note", "site", "task",
-        "lsp",
+        "cache", "check", "event", "fmt", "export", "import", "note", "site", "task", "lsp",
     ] {
         assert!(help.contains(command));
     }
-    let removed_command = ["migrate", "attributes"].join("-");
     let removed_migration = Command::new(env!("CARGO_BIN_EXE_plumb"))
-        .arg(&removed_command)
+        .arg("migrate")
         .output()
         .unwrap();
     assert!(!removed_migration.status.success());
@@ -147,120 +145,6 @@ fn reports_and_prunes_only_inactive_managed_cache_namespaces() {
     assert!(final_prune.status.success());
     assert!(!active.join("active.sqlite3").exists());
     std::fs::remove_dir_all(base).unwrap();
-}
-
-#[test]
-fn migrates_an_explicit_syntax_epoch_from_stdin_and_paths() {
-    let source = "`->[guide]{`:[to guide.plumb] `-[external]}\n";
-    let expected = "`->{guide guide.plumb `+{external}}\n";
-
-    let stdin = run_with_stdin(&["migrate", "--from", "attached-v1"], source);
-    assert!(
-        stdin.status.success(),
-        "{}",
-        String::from_utf8_lossy(&stdin.stderr)
-    );
-    assert_eq!(String::from_utf8(stdin.stdout).unwrap(), expected);
-
-    let member = run_with_stdin(
-        &["migrate", "--from", "member-envelope-v1"],
-        "`= title|Guide\n\n`->[guide page|Project Guide.plumb]\n",
-    );
-    assert!(
-        member.status.success(),
-        "{}",
-        String::from_utf8_lossy(&member.stderr)
-    );
-    let member = String::from_utf8(member.stdout).unwrap();
-    assert_eq!(
-        member,
-        "`= title Guide\n\n`->{{guide page} {Project Guide.plumb}}\n"
-    );
-    let repeated = run_with_stdin(&["migrate", "--from", "member-envelope-v1"], &member);
-    assert!(repeated.status.success());
-    assert_eq!(String::from_utf8(repeated.stdout).unwrap(), member);
-
-    let datum = run_with_stdin(
-        &["migrate", "--from", "inline-datum-v1"],
-        "`node prefix`!{strong}suffix\n",
-    );
-    assert!(
-        datum.status.success(),
-        "{}",
-        String::from_utf8_lossy(&datum.stderr)
-    );
-    let datum = String::from_utf8(datum.stdout).unwrap();
-    assert_eq!(datum, "`node {prefix`!{strong}suffix}\n");
-    let repeated = run_with_stdin(&["migrate", "--from", "inline-datum-v1"], &datum);
-    assert!(repeated.status.success());
-    assert_eq!(String::from_utf8(repeated.stdout).unwrap(), datum);
-
-    let current_group = run_with_stdin(
-        &["migrate", "--from", "document-group-v1"],
-        "{\n `= title|Current\n}\n\n`->[guide|guide.plumb]\n",
-    );
-    assert!(
-        current_group.status.success(),
-        "{}",
-        String::from_utf8_lossy(&current_group.stderr)
-    );
-    assert_eq!(
-        String::from_utf8(current_group.stdout).unwrap(),
-        "`= title Current\n\n`->{guide guide.plumb}\n"
-    );
-
-    let head_spaces = run_with_stdin(
-        &["migrate", "--from", "head-space-v1"],
-        "`= title Current title\n\n`event 14:00 Review\n",
-    );
-    assert!(
-        head_spaces.status.success(),
-        "{}",
-        String::from_utf8_lossy(&head_spaces.stderr)
-    );
-    assert_eq!(
-        String::from_utf8(head_spaces.stdout).unwrap(),
-        "`= title Current title\n\n`event 14:00 Review\n"
-    );
-
-    let root = unique_temp_dir();
-    std::fs::create_dir_all(&root).unwrap();
-    let path = root.join("legacy.plumb");
-    std::fs::write(&path, source).unwrap();
-    let check = Command::new(env!("CARGO_BIN_EXE_plumb"))
-        .args(["migrate", "--from", "attached-v1", "--check"])
-        .arg(&path)
-        .output()
-        .unwrap();
-    assert_eq!(check.status.code(), Some(1));
-    assert!(String::from_utf8_lossy(&check.stderr).contains("would migrate"));
-    assert_eq!(std::fs::read_to_string(&path).unwrap(), source);
-
-    let migrated = Command::new(env!("CARGO_BIN_EXE_plumb"))
-        .args(["migrate", "--from", "attached-v1"])
-        .arg(&path)
-        .output()
-        .unwrap();
-    assert!(
-        migrated.status.success(),
-        "{}",
-        String::from_utf8_lossy(&migrated.stderr)
-    );
-    assert_eq!(std::fs::read_to_string(&path).unwrap(), expected);
-    std::fs::remove_dir_all(root).unwrap();
-}
-
-#[test]
-fn migrates_task_event_markers_from_stdin() {
-    let migrated = run_with_stdin(
-        &["migrate", "--from", "task-event-markers-v1"],
-        "`task Work\n",
-    );
-    assert!(migrated.status.success());
-    assert_eq!(
-        String::from_utf8(migrated.stdout).unwrap(),
-        "`- Work\n `+ task\n"
-    );
 }
 
 #[test]
@@ -543,7 +427,7 @@ fn checks_a_workspace_with_configurable_severity_and_error_exit_status() {
     assert!(hints.status.success());
     assert!(String::from_utf8_lossy(&hints.stdout).contains("hint[task.blocked]"));
 
-    std::fs::write(root.join("syntax-error.plumb"), "See `broken[\n").unwrap();
+    std::fs::write(root.join("syntax-error.plumb"), "See `broken{\n").unwrap();
     let errors = Command::new(env!("CARGO_BIN_EXE_plumb"))
         .args(["check", "--root"])
         .arg(&root)

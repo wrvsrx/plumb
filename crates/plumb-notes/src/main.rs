@@ -390,34 +390,6 @@ fn severity_rank(severity: &DiagnosticSeverity) -> u8 {
 }
 
 #[cfg(test)]
-fn migrate_test_source(source: &str) -> String {
-    plumb_migrate::migrate_member_envelope_v1(source).unwrap_or_else(|_| source.to_string())
-}
-
-#[cfg(test)]
-fn migrate_test_directory(directory: &Path) {
-    let Ok(entries) = std::fs::read_dir(directory) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.is_dir() {
-            migrate_test_directory(&path);
-        } else if path
-            .extension()
-            .is_some_and(|extension| extension == "plumb")
-        {
-            if let Ok(source) = std::fs::read_to_string(&path) {
-                let migrated = migrate_test_source(&source);
-                if migrated != source {
-                    std::fs::write(path, migrated).expect("migrate notes fixture");
-                }
-            }
-        }
-    }
-}
-
-#[cfg(test)]
 mod tests {
     use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -426,7 +398,6 @@ mod tests {
     use super::*;
 
     fn load_workspace(root: &Path) -> Result<LoadedWorkspace, String> {
-        migrate_test_directory(root);
         super::load_workspace(root)
     }
 
@@ -460,12 +431,12 @@ mod tests {
         std::fs::create_dir_all(root.join("nested")).unwrap();
         std::fs::write(
             root.join("a.plumb"),
-            "`= title|First\n`= title|Second\n\n中文\n",
+            "`= title First\n`= title Second\n\n中文\n",
         )
         .unwrap();
         std::fs::write(
             root.join("nested/b.plumb"),
-            "See `->[missing|missing.plumb#id].\n",
+            "See `->{missing missing.plumb#id}.\n",
         )
         .unwrap();
         let loaded = load_workspace(&root).unwrap();
@@ -490,7 +461,7 @@ mod tests {
         std::fs::remove_file(root.join("nested/b.plumb")).unwrap();
         std::fs::write(
             root.join("tasks.plumb"),
-            "`- Draft\n\n `+ task\n\n `@ draft\n`- Review\n\n `+ task\n\n `@ review\n\n `= depends|#draft\n",
+            "`- Draft\n\n `+ task\n\n `@ draft\n`- Review\n\n `+ task\n\n `@ review\n\n `= depends #draft\n",
         )
         .unwrap();
         let loaded = load_workspace(&root).unwrap();
@@ -567,8 +538,8 @@ mod tests {
     fn queries_transitive_referrers() {
         let root = unique_temp_dir();
         std::fs::create_dir_all(&root).unwrap();
-        std::fs::write(root.join("index.plumb"), "`->[topic|topic.plumb]\n").unwrap();
-        std::fs::write(root.join("topic.plumb"), "`->[leaf|leaf.plumb]\n").unwrap();
+        std::fs::write(root.join("index.plumb"), "`->{topic topic.plumb}\n").unwrap();
+        std::fs::write(root.join("topic.plumb"), "`->{leaf leaf.plumb}\n").unwrap();
         std::fs::write(root.join("leaf.plumb"), "Leaf note.\n").unwrap();
         let loaded = load_workspace(&root).unwrap();
         let leaf = normalize(&root.join("leaf.plumb"));
@@ -594,12 +565,12 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(
             root.join("index.plumb"),
-            "`- Index\n\n `+ task\n\n `@ index\n\n `= prev|topic.plumb#topic\n",
+            "`- Index\n\n `+ task\n\n `@ index\n\n `= prev topic.plumb#topic\n",
         )
         .unwrap();
         std::fs::write(
             root.join("topic.plumb"),
-            "`- Topic\n\n `+ task\n\n `@ topic\n\n `= depends|leaf.plumb#leaf\n",
+            "`- Topic\n\n `+ task\n\n `@ topic\n\n `= depends leaf.plumb#leaf\n",
         )
         .unwrap();
         std::fs::write(root.join("leaf.plumb"), "`- Leaf\n\n `+ task\n\n `@ leaf\n").unwrap();
@@ -627,7 +598,7 @@ mod tests {
         std::fs::create_dir_all(root.join("docs")).unwrap();
         std::fs::write(
             root.join("docs/semantics.plumb"),
-            "`= title|Semantics `em[Guide]\n\n`# Heading\n",
+            "`= title Semantics `*{Guide}\n\n`# Heading\n",
         )
         .unwrap();
         std::fs::write(root.join("notes.plumb"), "`# Notes\n").unwrap();

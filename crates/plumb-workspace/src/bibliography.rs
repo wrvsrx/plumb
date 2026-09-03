@@ -314,7 +314,7 @@ mod tests {
     fn loads_plain_csl_json_and_resolves_citations() {
         let root = tempfile::tempdir().unwrap();
         std::fs::write(root.path().join("refs.json"), r#"[{"id":"smith2004","title":"Book","author":[{"family":"Smith"}],"issued":{"date-parts":[[2004]]}}]"#).unwrap();
-        let parsed = parse("`= bibliography|refs.json\n\n`cite[smith2004]\n");
+        let parsed = parse("`= bibliography refs.json\n\n`cite{smith2004}\n");
         let analysis = analyze_document(
             parsed
                 .valid_syntax()
@@ -345,7 +345,7 @@ mod tests {
         )
         .unwrap();
         let parsed =
-            parse("`= bibliography\n `+ missing.json\n `+ duplicate.json\n\n`cite[unknown]\n");
+            parse("`= bibliography\n\n `+ missing.json\n `+ duplicate.json\n\n`cite{unknown}\n");
         let analysis = analyze_document(
             parsed
                 .valid_syntax()
@@ -372,7 +372,7 @@ mod tests {
     #[test]
     fn diagnoses_citations_without_a_declared_bibliography() {
         let root = tempfile::tempdir().unwrap();
-        let parsed = parse("See `cite[smith2004]\n");
+        let parsed = parse("See `cite{smith2004}\n");
         let analysis = analyze_document(
             parsed
                 .valid_syntax()
@@ -394,7 +394,7 @@ mod tests {
         let root = parent.path().join("workspace");
         std::fs::create_dir(&root).unwrap();
         std::fs::write(parent.path().join("outside.json"), "[]").unwrap();
-        let parsed = parse("`= bibliography|../outside.json\n");
+        let parsed = parse("`= bibliography ../outside.json\n");
         let analysis = analyze_document(
             parsed
                 .valid_syntax()
@@ -412,7 +412,7 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let text = r#"[{"title":"same","id":"same"}]"#;
         std::fs::write(root.path().join("refs.json"), text).unwrap();
-        let parsed = parse("`= bibliography|refs.json\n");
+        let parsed = parse("`= bibliography refs.json\n");
         let analysis = analyze_document(
             parsed
                 .valid_syntax()

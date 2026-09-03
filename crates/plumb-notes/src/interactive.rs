@@ -195,7 +195,7 @@ fn highlight_plumb(source: &str) -> String {
             lines.push(ansi(line, "35"));
         } else if trimmed.starts_with("`#") {
             lines.push(ansi(line, "1;34"));
-        } else if line.contains("`->[") {
+        } else if line.contains("`->{") || line.contains("`->\"") {
             lines.push(ansi(line, "32"));
         } else {
             lines.push(line.to_string());
@@ -245,7 +245,7 @@ mod tests {
             editor_command("'code editor' --wait").unwrap(),
             ("code editor".to_string(), vec!["--wait".to_string()])
         );
-        let preview = preview_text("topic.plumb", "`# Topic\n  `@ topic\n\nSee `->[x|x].\n");
+        let preview = preview_text("topic.plumb", "`# Topic\n\n `@ topic\n\nSee `->{x x}.\n");
         assert!(preview.contains("topic.plumb"));
         assert!(preview.contains("\x1b[1;34m"));
         assert!(preview.contains("\x1b[32m"));
@@ -253,11 +253,10 @@ mod tests {
 
     #[test]
     fn preview_highlights_metadata_and_verbatim_blocks() {
-        let preview =
-            highlight_plumb("`= title|Preview\n\n`rust\"\n  fn main() {}\n\n`# Heading\n");
-        assert!(preview.contains("\x1b[35m`= title|Preview\x1b[0m"));
+        let preview = highlight_plumb("`= title Preview\n\n`rust\"\n fn main() {}\n\n`# Heading\n");
+        assert!(preview.contains("\x1b[35m`= title Preview\x1b[0m"));
         assert!(preview.contains("\x1b[36m`rust\"\x1b[0m"));
-        assert!(preview.contains("\x1b[90m  fn main() {}\x1b[0m"));
+        assert!(preview.contains("\x1b[90m fn main() {}\x1b[0m"));
         assert!(preview.contains("\x1b[1;34m`# Heading\x1b[0m"));
     }
 }

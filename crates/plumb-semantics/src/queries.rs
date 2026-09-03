@@ -10,10 +10,6 @@ use crate::{parse_task_reference_target, TaskReferenceTarget};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LinkCompletionContext {
-    Label {
-        replace: Range<usize>,
-        query: String,
-    },
     Path {
         replace: Range<usize>,
         query: String,
@@ -1005,9 +1001,9 @@ fn inlines_contain_verbatim(content: &InlineContent, offset: usize) -> bool {
     })
 }
 
-#[cfg(any())]
+#[cfg(test)]
 mod tests {
-    use crate::parse_legacy as parse;
+    use plumb_syntax::parse;
 
     use super::*;
 
@@ -1022,12 +1018,12 @@ mod tests {
 
         for prefix in ["`t", "`ta", "`task", "`e", "`ev", "`event"] {
             let source = format!(
-                "`- something\n `+ task\n `= created|2026-08-09T10:55:24+08:00\n\n{prefix}"
+                "`- something\n\n `+ task\n\n `= created 2026-08-09T10:55:24+08:00\n\n{prefix}\n"
             );
             let parsed = parse(&source);
             assert_eq!(construct_completion_context(&parsed, source.len()), None);
         }
-        for source in ["`span[x|=[key|value]]`-", "`\"raw\"`-"] {
+        for source in ["`span{x `={key value}}`-", "`\"raw\"`-"] {
             let parsed = parse(source);
             let start = source.rfind('`').unwrap();
             assert_eq!(
@@ -1037,7 +1033,7 @@ mod tests {
                 })
             );
         }
-        let after_verbatim = "`rust\n|\"\n raw\n`t";
+        let after_verbatim = "`rust\"\n raw\n\n`t\n";
         let parsed = parse(after_verbatim);
         assert_eq!(
             construct_completion_context(&parsed, after_verbatim.len()),
@@ -1066,7 +1062,7 @@ mod tests {
         }
         let block_legacy_link = parse("`[");
         assert_eq!(construct_completion_context(&block_legacy_link, 2), None);
-        let old_link = parse("Text `[");
+        let old_link = parse("Text [\n");
         assert_eq!(
             construct_completion_context(&old_link, old_link.source.len()),
             None
@@ -1108,7 +1104,7 @@ mod tests {
             construct_completion_context(&verbatim, verbatim_offset),
             None
         );
-        let attribute = parse("`node Head\n `= key|``\n");
+        let attribute = parse("`node Head\n\n `= key ``\n");
         let attribute_offset = attribute.source.rfind("``").unwrap() + 1;
         assert_eq!(
             construct_completion_context(&attribute, attribute_offset),
@@ -1118,7 +1114,7 @@ mod tests {
 
     #[test]
     fn identifies_recovered_citation_id_completion() {
-        let recovered = parse("See `cite[smi");
+        let recovered = parse("See `cite{smi");
         assert_eq!(
             citation_completion_context(&recovered, recovered.source.len()),
             Some(CitationCompletionContext {
@@ -1126,7 +1122,7 @@ mod tests {
                 query: "smi".to_string(),
             })
         );
-        let complete = parse("See `cite[smith2004].");
+        let complete = parse("See `cite{smith2004}.\n");
         assert_eq!(
             citation_completion_context(&complete, 13),
             Some(CitationCompletionContext {
@@ -1138,7 +1134,7 @@ mod tests {
 
     #[test]
     fn locates_plain_event_title_completion_at_head_end() {
-        let source = "`- 09:00|rela\n `+ event".to_string();
+        let source = "`- 09:00 rela\n\n `+ event\n".to_string();
         let cursor = source.find("rela").unwrap() + "rela".len();
         assert_eq!(
             event_title_completion_context(&parse(&source), cursor),
@@ -1148,21 +1144,14 @@ mod tests {
             })
         );
 
-        let empty = "`- 09:00|\n `+ event".to_string();
-        let cursor = "`- 09:00|".len();
-        assert_eq!(
-            event_title_completion_context(&parse(&empty), cursor),
-            Some(EventTitleCompletionContext {
-                replace: cursor..cursor,
-                query: String::new(),
-            })
-        );
+        let (empty, cursor) = strip_cursor("`- 09:00|\n\n `+ event\n");
+        assert_eq!(event_title_completion_context(&parse(&empty), cursor), None);
 
         for marked in [
-            "`event 09:00|",
-            "`event 09:00|`*[relax]|",
-            "`event 09:00|re|lax",
-            "`task 09:00 relax|",
+            "`event 09:00|\n",
+            "`event 09:00 `*{relax}|\n",
+            "`event 09:00 re|lax\n",
+            "`task {09:00 relax}|\n",
         ] {
             let (source, cursor) = strip_cursor(marked);
             assert_eq!(
@@ -1174,7 +1163,7 @@ mod tests {
 
     #[test]
     fn completes_standard_attributes_from_recovered_owner_context() {
-        let (task, cursor) = strip_cursor("`- Work\n `+ task\n `= created|now\n `= pr|\n");
+        let (task, cursor) = strip_cursor("`- Work\n\n `+ task\n\n `= created now\n `= pr|\n");
         let context = attribute_completion_context(&parse(&task), cursor).unwrap();
         assert_eq!(context.replace, task.find("`= pr").unwrap()..cursor);
         assert_eq!(
@@ -1185,12 +1174,12 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["prev", "priority"]
         );
-        assert_eq!(context.completions[1].new_text, "`= priority | 0");
+        assert_eq!(context.completions[1].new_text, "`= priority 0");
     }
 
     #[test]
     fn completes_direct_declaration_children_with_the_owners_ordinary_syntax() {
-        let (task, cursor) = strip_cursor("`- Work\n `+ task\n `= pr|\n");
+        let (task, cursor) = strip_cursor("`- Work\n\n `+ task\n\n `= pr|\n");
         let context = attribute_completion_context(&parse(&task), cursor).unwrap();
         assert_eq!(context.replace, task.find("`= pr").unwrap()..cursor);
         assert_eq!(
@@ -1199,14 +1188,14 @@ mod tests {
                 .iter()
                 .map(|item| (item.label, item.new_text.as_str()))
                 .collect::<Vec<_>>(),
-            [("prev", "`= prev | "), ("priority", "`= priority | 0")]
+            [("prev", "`= prev "), ("priority", "`= priority 0")]
         );
     }
 
     #[test]
     fn identifies_task_dependency_tokens_and_preserves_other_references() {
         let (source, cursor) = strip_cursor(
-            "`- Review\n `+ task\n `@ review\n `= depends|#done Project Plan.plumb#dr|aft #later\n",
+            "`- Review\n\n `+ task\n\n `@ review\n\n `= depends #done Project Plan.plumb#dr|aft #later\n",
         );
         let current_start = source.find("Project Plan.plumb#draft").unwrap();
         let context = task_dependency_completion_context(&parse(&source), cursor).unwrap();
@@ -1227,24 +1216,19 @@ mod tests {
             ]
         );
 
-        let (empty, cursor) = strip_cursor("`- Review\n `+ task\n `= depends|#done |\n");
-        let context = task_dependency_completion_context(&parse(&empty), cursor).unwrap();
-        assert_eq!(context.replace, cursor..cursor);
-        assert_eq!(context.query, "");
+        let (empty, cursor) = strip_cursor("`- Review\n\n `+ task\n\n `= depends #done |\n");
         assert_eq!(
-            context.existing,
-            vec![TaskReferenceTarget::Internal {
-                id: "done".to_string()
-            }]
+            task_dependency_completion_context(&parse(&empty), cursor),
+            None
         );
 
-        let (non_task, cursor) = strip_cursor("`- Plain item\n `= depends|#dr|aft\n");
+        let (non_task, cursor) = strip_cursor("`- Plain item\n\n `= depends #dr|aft\n");
         assert_eq!(
             task_dependency_completion_context(&parse(&non_task), cursor),
             None
         );
 
-        let (recovered, cursor) = strip_cursor("`- Review\n `+ task\n `= depends|#dr|aft\n");
+        let (recovered, cursor) = strip_cursor("`- Review\n\n `+ task\n\n `= depends #dr|aft\n");
         let context = task_dependency_completion_context(&parse(&recovered), cursor).unwrap();
         assert_eq!(context.query, "#dr");
         assert_eq!(&recovered[context.replace], "#draft");
@@ -1252,45 +1236,42 @@ mod tests {
 
     #[test]
     fn suppresses_duplicate_attributes_and_completes_enum_values() {
-        let (task, cursor) = strip_cursor("`- Work\n `+ task\n `= priority|2\n `= |\n");
+        let (task, cursor) = strip_cursor("`- Work\n\n `+ task\n\n `= priority 2\n `= |\n");
         let context = attribute_completion_context(&parse(&task), cursor).unwrap();
         assert!(!context
             .completions
             .iter()
             .any(|item| item.label == "priority"));
 
-        let (quoted, cursor) = strip_cursor("`- Work\n `+ task\n `= due|2026-|\n");
+        let (quoted, cursor) = strip_cursor("`- Work\n\n `+ task\n\n `= due 2026-|\n");
         assert_eq!(attribute_completion_context(&parse(&quoted), cursor), None);
     }
 
     #[test]
     fn finds_incomplete_path_and_anchor_contexts() {
-        let label = "See `->[Usage";
+        let label = "See `->{Usage";
         assert_eq!(
             completion_context(label, label.len()),
-            Some(LinkCompletionContext::Label {
-                replace: 4..13,
+            Some(LinkCompletionContext::Path {
+                replace: 8..13,
                 query: "Usage".to_string(),
+                parsed: true,
             })
         );
-        let closed_label = "See `->[Usage]";
+        let closed_label = "See `->{Usage}\n";
         assert_eq!(
-            completion_context(closed_label, closed_label.len() - 1),
-            Some(LinkCompletionContext::Label {
-                replace: 4..14,
+            completion_context(closed_label, closed_label.len() - 2),
+            Some(LinkCompletionContext::Path {
+                replace: 8..13,
                 query: "Usage".to_string(),
+                parsed: true,
             })
         );
-        let escaped = "See ``->[Usage";
+        let escaped = "See ``->{Usage";
         assert_eq!(completion_context(escaped, escaped.len()), None);
-        let old_kind = "See `link[Usage";
+        let old_kind = "See `link{Usage";
         assert_eq!(completion_context(old_kind, old_kind.len()), None);
-        let strengthened = "See ```->[Usage";
-        assert!(matches!(
-            completion_context(strengthened, strengthened.len()),
-            Some(LinkCompletionContext::Label { .. })
-        ));
-        let path = "See `->[x|doc";
+        let path = "See `->{x doc";
         let path_start = path.find("doc").unwrap();
         assert_eq!(
             completion_context(path, path.len()),
@@ -1300,7 +1281,7 @@ mod tests {
                 parsed: true,
             })
         );
-        let anchor = "See `->[x|doc.plumb#tar";
+        let anchor = "See `->{x doc.plumb#tar";
         let fragment_start = anchor.find("tar").unwrap();
         assert_eq!(
             completion_context(anchor, anchor.len()),
@@ -1314,7 +1295,7 @@ mod tests {
 
     #[test]
     fn replaces_complete_target_components_around_the_cursor() {
-        let (path, cursor) = strip_cursor("See `->[x|do|c.plumb#target]\n");
+        let (path, cursor) = strip_cursor("See `->{x do|c.plumb#target}\n");
         let value_start = path.find("doc.plumb").unwrap();
         let separator = path.find("#target").unwrap();
         assert_eq!(
@@ -1326,7 +1307,7 @@ mod tests {
             })
         );
 
-        let (anchor, cursor) = strip_cursor("See `->[x|doc.plumb#ta|rget]\n");
+        let (anchor, cursor) = strip_cursor("See `->{x doc.plumb#ta|rget}\n");
         let fragment_start = anchor.find("target").unwrap();
         assert_eq!(
             completion_context(&anchor, cursor),
@@ -1337,7 +1318,7 @@ mod tests {
             })
         );
 
-        let (empty, cursor) = strip_cursor("See `->[x||]\n");
+        let (empty, cursor) = strip_cursor("See `->{x {|}}\n");
         assert_eq!(
             completion_context(&empty, cursor),
             Some(LinkCompletionContext::Path {
@@ -1350,15 +1331,15 @@ mod tests {
 
     #[test]
     fn ignores_link_like_text_inside_verbatim_payloads() {
-        let closed = "`\"[raw `->[x]{to=\"doc|\"}]\"";
+        let closed = "`\"{raw `->{x doc|}}\"\n";
         let (closed, cursor) = strip_cursor(closed);
         assert_eq!(completion_context(&closed, cursor), None);
 
-        let unclosed = "`\"[raw `->[x]{to=\"doc|\"}";
+        let unclosed = "`\"raw `->{x doc|}";
         let (unclosed, cursor) = strip_cursor(unclosed);
         assert_eq!(completion_context(&unclosed, cursor), None);
 
-        let block = "`text\n|\"\n raw `->[x]{to=\"doc|\"}\n";
+        let block = "`text\"\n raw `->{x doc|}\n";
         let (block, cursor) = strip_cursor(block);
         assert_eq!(completion_context(&block, cursor), None);
     }
@@ -1389,7 +1370,7 @@ mod tests {
             })
         );
 
-        let (ordinary, cursor) = strip_cursor("See `\"doc.pl|umb\"");
+        let (ordinary, cursor) = strip_cursor("See `\"doc.pl|umb\"\n");
         assert_eq!(completion_context(&ordinary, cursor), None);
     }
 
@@ -1406,7 +1387,7 @@ mod tests {
 
     #[test]
     fn completes_image_source_values_in_valid_and_recovered_documents() {
-        let (valid, cursor) = strip_cursor("`img[Alt|=[src|static/im|age.png]]\n");
+        let (valid, cursor) = strip_cursor("`img{Alt `={src static/im|age.png}}\n");
         let value_start = valid.find("static/image.png").unwrap();
         assert_eq!(
             image_completion(&valid, cursor),
@@ -1416,7 +1397,7 @@ mod tests {
             })
         );
 
-        let (recovered, cursor) = strip_cursor("`img[Alt|=[src|static/im|");
+        let (recovered, cursor) = strip_cursor("`img{Alt `={src static/im|");
         assert_eq!(
             image_completion(&recovered, cursor),
             Some(ImageCompletionContext {
@@ -1425,10 +1406,10 @@ mod tests {
             })
         );
 
-        let (external, cursor) = strip_cursor("`img[Alt|=[src|https:|//example.test/a.png]]\n");
+        let (external, cursor) = strip_cursor("`img{Alt `={src https:|//example.test/a.png}}\n");
         assert_eq!(image_completion(&external, cursor), None);
 
-        let (literal_path, cursor) = strip_cursor("`img[Alt|=[src|static/a#b?quote\"|]]\n");
+        let (literal_path, cursor) = strip_cursor("`img{Alt `={src static/a#b?quote\"|}}\n");
         let value_start = literal_path.find("static/a#b?quote\"").unwrap();
         assert_eq!(
             image_completion(&literal_path, cursor),
@@ -1441,7 +1422,7 @@ mod tests {
 
     #[test]
     fn completes_file_source_values_without_confusing_images() {
-        let (file, cursor) = strip_cursor("`file[Demo|=[src|static/de|mo.mp4]]\n");
+        let (file, cursor) = strip_cursor("`file{Demo `={src static/de|mo.mp4}}\n");
         let value_start = file.find("static/demo.mp4").unwrap();
         assert_eq!(
             file_completion_context(&parse(&file), cursor),

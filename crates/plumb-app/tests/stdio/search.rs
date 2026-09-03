@@ -7,7 +7,6 @@ use crate::support::{
 
 #[cfg(unix)]
 #[test]
-#[cfg(any())]
 fn workspace_index_does_not_follow_directory_symlinks() {
     use std::os::unix::fs::symlink;
 
@@ -18,15 +17,15 @@ fn workspace_index_does_not_follow_directory_symlinks() {
     let source = root.join("current.plumb");
     let target = root.join("target.plumb");
     let target_source =
-        "`= title|Target\n\n`# Target\n\n `@ anchor\n\n`- Target work\n\n `+ task\n\n `@ work\n";
+        "`= title Target\n\n`# Target\n\n `@ anchor\n\n`- Target work\n\n `+ task\n\n `@ work\n";
     let anchor_line = target_source
         .lines()
         .position(|line| line.contains("`@ anchor"))
         .unwrap();
-    std::fs::write(&source, "`->[").unwrap();
+    std::fs::write(&source, "`->{{}}").unwrap();
     std::fs::write(&target, target_source).unwrap();
     std::fs::write(snapshot.join("target.plumb"), target_source).unwrap();
-    let reference_source = "`->[Target|target.plumb#anchor]\n";
+    let reference_source = "`->{Target target.plumb#anchor}\n";
     std::fs::write(root.join("reference.plumb"), reference_source).unwrap();
     std::fs::write(snapshot.join("reference.plumb"), reference_source).unwrap();
     std::fs::write(root.join("linked-source.txt"), "`= title\n\n Linked file\n").unwrap();
@@ -50,14 +49,14 @@ fn workspace_index_does_not_follow_directory_symlinks() {
         json!({
             "jsonrpc": "2.0", "method": "textDocument/didOpen",
             "params": { "textDocument": {
-                "uri": source_uri, "languageId": "plumb", "version": 1, "text": "`->["
+                "uri": source_uri, "languageId": "plumb", "version": 1, "text": "`->{{}}"
             }}
         }),
         json!({
             "jsonrpc": "2.0", "id": 2, "method": "textDocument/completion",
             "params": {
                 "textDocument": { "uri": source_uri },
-                "position": { "line": 0, "character": 4 }
+                "position": { "line": 0, "character": 5 }
             }
         }),
         json!({
@@ -79,20 +78,16 @@ fn workspace_index_does_not_follow_directory_symlinks() {
     let output = run_server_after_initial_index(&messages);
     let items = response(&output, 2)["result"].as_array().unwrap();
     assert_eq!(
-        items.iter().filter(|item| item["label"] == "Link").count(),
-        1
-    );
-    assert_eq!(
         items
             .iter()
-            .filter(|item| item["label"] == "Target")
+            .filter(|item| item["label"] == "target.plumb")
             .count(),
         1
     );
     assert_eq!(
         items
             .iter()
-            .filter(|item| item["label"] == "Linked file")
+            .filter(|item| item["label"] == "linked.plumb")
             .count(),
         1
     );
@@ -135,12 +130,12 @@ fn searches_workspace_symbols_and_structured_records_over_stdio() {
     std::fs::write(&note, "`= title\n\n Disk title\n").unwrap();
     std::fs::write(
         &tasks,
-        "`- Review parser\n\n `+ task\n\n `@ review\n `= due|2026-07-23T12:00:00+08:00\n",
+        "`- Review parser\n\n `+ task\n\n `@ review\n\n `= due 2026-07-23T12:00:00+08:00\n",
     )
     .unwrap();
     std::fs::write(
         &events,
-        "`= date|2026-07-30\n`= timezone|+08:00\n\n`- 14:00--15:00|Review meeting\n\n `+ event\n\n `@ review-event\n `= tasks|tasks.plumb#review\n",
+        "`= date 2026-07-30\n`= timezone +08:00\n\n`- 14:00--15:00 Review meeting\n\n `+ event\n\n `@ review-event\n\n `= tasks tasks.plumb#review\n",
     )
     .unwrap();
     for index in 0..105 {
@@ -202,7 +197,7 @@ fn searches_workspace_symbols_and_structured_records_over_stdio() {
             "jsonrpc": "2.0", "method": "textDocument/didChange",
             "params": {
                 "textDocument": { "uri": note_uri, "version": 10 },
-                "contentChanges": [{ "text": "`span[broken\n" }]
+                "contentChanges": [{ "text": "`span{broken\n" }]
             }
         }),
         json!({

@@ -1017,17 +1017,17 @@ mod tests {
             (
                 "a.plumb",
                 concat!(
-                    "`- Parent\n\n `+ task\n\n `@ parent\n\n `= priority|-1\n",
-                    " `- Dependent\n\n  `+ task\n\n  `@ dependent\n  `= priority|20\n  `= depends|b.plumb#target\n",
+                    "`- Parent\n\n `+ task\n\n `@ parent\n\n `= priority -1\n",
+                    " `- Dependent\n\n  `+ task\n\n  `@ dependent\n  `= priority 20\n  `= depends b.plumb#target\n",
                 ),
             ),
             (
                 "b.plumb",
-                "`- Target\n\n `+ task\n\n `@ target\n\n `= priority|1\n",
+                "`- Target\n\n `+ task\n\n `@ target\n\n `= priority 1\n",
             ),
             (
                 "c.plumb",
-                "`- Done\n\n `+ task\n\n `@ done\n\n `= done|2026-08-27T12:00:00Z\n",
+                "`- Done\n\n `+ task\n\n `@ done\n\n `= done 2026-08-27T12:00:00Z\n",
             ),
         ];
         for (path, source) in documents {
@@ -1203,7 +1203,7 @@ mod tests {
                 format!("{index:03}.plumb"),
                 1,
                 format!(
-                    "`- Done {index}\n\n `+ task\n\n `@ done-{index}\n\n `= done|2026-08-28T10:00:00Z\n"
+                    "`- Done {index}\n\n `+ task\n\n `@ done-{index}\n\n `= done 2026-08-28T10:00:00Z\n"
                 ),
             );
         }
@@ -1414,8 +1414,8 @@ mod tests {
     #[test]
     fn waiting_state_candidate_matches_memory_at_the_query_instant() {
         let source = concat!(
-            "`- Waiting\n\n `+ task\n\n `@ waiting\n\n `= wait|2026-08-29T12:00:00Z\n",
-            "`- Ready\n\n `+ task\n\n `@ ready\n\n `= wait|2026-08-27T12:00:00Z\n",
+            "`- Waiting\n\n `+ task\n\n `@ waiting\n\n `= wait 2026-08-29T12:00:00Z\n",
+            "`- Ready\n\n `+ task\n\n `@ ready\n\n `= wait 2026-08-27T12:00:00Z\n",
         );
         let mut memory = Workspace::new();
         memory.insert("tasks.plumb", 1, source);

@@ -54,8 +54,6 @@ impl Workspace {
     ) -> Result<bool, StoreError> {
         let path = normalize(path.as_ref());
         let source = source.into();
-        #[cfg(test)]
-        let source = migrate_test_source(&source);
         let Some(store) = &self.disk_store else {
             self.insert(path, revision, source);
             return Ok(false);
@@ -126,8 +124,6 @@ impl Workspace {
     ) -> Option<PendingDocumentAnalysis> {
         let path = normalize(path.as_ref());
         let source = source.into();
-        #[cfg(test)]
-        let source = migrate_test_source(&source);
         let parsed = Arc::new(parse(source));
         let previous_last_valid = self
             .documents
@@ -318,22 +314,4 @@ fn document_entry_from_source(path: PathBuf, revision: i64, source: &str) -> Doc
         current: current.clone(),
         last_valid: current,
     }
-}
-
-#[cfg(test)]
-pub(crate) fn migrate_test_source(source: &str) -> String {
-    let looks_legacy = source.contains('|')
-        || (source.contains('[') && source.contains('`'))
-        || source.contains("`->[")
-        || source.contains("`img[")
-        || source.contains("`file[")
-        || source.contains("`cite[");
-    if !looks_legacy {
-        return source.to_string();
-    }
-    plumb_migrate::migrate_member_envelope_v1(source).unwrap_or_else(|_| {
-        source
-            .replace("`broken[", "`broken{")
-            .replace("`span[", "`span{")
-    })
 }

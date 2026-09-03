@@ -577,14 +577,14 @@ fn warning(code: &'static str, message: impl Into<String>, range: Range<usize>) 
 
 #[cfg(test)]
 mod tests {
-    use crate::parse_legacy as parse;
+    use plumb_syntax::parse;
 
     use super::*;
 
     #[test]
     fn groups_definition_lists_and_projects_metadata_values() {
         let parsed = parse(
-            "`= title|Document `em[title]\n`= tags\n\n `+ plumb\n `+ parser\n\n`= macros\n\n `+\n  `+ `\"name\"\n  `+ `\"expansion\"\n  `+ 1\n\n`= author\n\n `= name|Alice\n\n`= source\n\n `\"\n  raw\n\n`: term\n\n Definition.\n",
+            "`= title Document `em{title}\n`= tags\n\n `+ plumb\n `+ parser\n\n`= macros\n\n `+\n  `+ `\"name\"\n  `+ `\"expansion\"\n  `+ 1\n\n`= author\n\n `= name Alice\n\n`= source\n\n `\"\n  raw\n\n`: term\n\n Definition.\n",
         );
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let output = analyze_metadata(
@@ -623,7 +623,7 @@ mod tests {
     #[test]
     fn projects_recursive_document_metadata() {
         let parsed = parse(
-            "`= title|Document `em[title]\n`= tags\n `+ plumb\n `+ parser\n`= macros\n `+\n  `+ `\"name\"\n  `+ `\"expansion\"\n`= author\n `= name|Alice\n`= empty\n\nBody.\n",
+            "`= title Document `em{title}\n`= tags\n\n `+ plumb\n `+ parser\n\n`= macros\n\n `+\n  `+ `\"name\"\n  `+ `\"expansion\"\n\n`= author\n\n `= name Alice\n\n`= empty\n\nBody.\n",
         );
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let output = analyze_metadata(
@@ -677,7 +677,7 @@ mod tests {
     #[test]
     fn declarations_can_interleave_with_body_and_reject_document_facets() {
         let parsed = parse(
-            "`= title|Root\n\nBody before.\n\n`+ journal\n\nBody after.\n\n`= created|2026-08-26T00:00:00+08:00\n",
+            "`= title Root\n\nBody before.\n\n`+ journal\n\nBody after.\n\n`= created 2026-08-26T00:00:00+08:00\n",
         );
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let output = analyze_metadata(
@@ -702,7 +702,7 @@ mod tests {
 
     #[test]
     fn document_title_requires_a_scalar_value() {
-        let parsed = parse("`= title\n `+ Not a scalar\n\n`= title|Later scalar\n");
+        let parsed = parse("`= title\n\n `+ Not a scalar\n\n`= title Later scalar\n");
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         assert_eq!(
             analyze_metadata(
@@ -778,7 +778,7 @@ mod tests {
     #[test]
     fn diagnoses_document_declaration_violations() {
         let parsed = parse(
-            "`= `*[bad key] value\n`= duplicate\n`= duplicate\n`+\n`+ `*[not plain]\n`@ forbidden\n",
+            "`= {`*{{bad key}} value}\n`= duplicate\n`= duplicate\n\n`+\n`+ `*{{not plain}}\n\n`@ forbidden\n",
         );
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let output = analyze_metadata(
@@ -805,7 +805,7 @@ mod tests {
 
     #[test]
     fn definitions_use_head_arguments_or_children_for_their_body() {
-        let source = "`: term|inline body\n\n`: term with spaces\n\n  child body\n";
+        let source = "`: term inline body\n`: {term with spaces}\n\n child body\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
@@ -839,7 +839,7 @@ mod tests {
 
     #[test]
     fn document_metadata_uses_head_arguments_or_children_for_associations() {
-        let source = "`= title|plumb title\n`= key with spaces|inline value\n`= child key with spaces\n\n child value\n";
+        let source = "`= title plumb title\n`= {key with spaces} inline value\n`= {child key with spaces}\n\n child value\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
@@ -869,7 +869,7 @@ mod tests {
 
     #[test]
     fn lints_only_the_standard_created_timestamp() {
-        let parsed = parse("`= created|2026-07-22T12:34:56+08:00\n`= custom|not-a-date\n");
+        let parsed = parse("`= created 2026-07-22T12:34:56+08:00\n`= custom not-a-date\n");
         let output = analyze_metadata(
             parsed
                 .valid_syntax()
@@ -877,7 +877,7 @@ mod tests {
         );
         assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
 
-        let parsed = parse("`= created|2026-07-22 12:34:56\n");
+        let parsed = parse("`= created 2026-07-22 12:34:56\n");
         let output = analyze_metadata(
             parsed
                 .valid_syntax()

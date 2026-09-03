@@ -5,7 +5,9 @@ pub(super) fn attribute_completion_text(text: &str, snippets: bool) -> String {
     if !snippets {
         return text.to_string();
     }
-    if let Some(prefix) = text.strip_suffix(" {}") {
+    if let Some(prefix) = text.strip_suffix(" {}}") {
+        format!("{prefix} ${{1}}") + "}"
+    } else if let Some(prefix) = text.strip_suffix(" {}") {
         format!("{prefix} ${{1}}")
     } else if text == "`= priority 0" {
         "`= priority ${1:0}".to_string()
@@ -110,12 +112,11 @@ pub(super) fn task_construct_template(block_indent: &str, timestamp: &str) -> Co
 }
 
 fn event_construct_template(block_indent: &str) -> ConstructTemplate {
-    let head = render_authored_text_arguments(&["${1:09:00}", "${2:Event}"]);
     let plain_head = render_authored_text_arguments(&["09:00", "Event"]);
     ConstructTemplate {
         label: "Event",
         detail: "plumb event list item",
-        snippet: format!("`- {head}\n\n{block_indent}`+ event"),
+        snippet: format!("`- ${{1:09:00}} ${{2:Event}}\n\n{block_indent}`+ event"),
         plain: format!("`- {plain_head}\n\n{block_indent}`+ event"),
         uses_block_indentation: true,
     }

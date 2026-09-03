@@ -196,6 +196,7 @@ pub enum OwnedBlock {
         raw: Option<String>,
     },
     Verbatim {
+        marker: Option<String>,
         text: String,
     },
 }
@@ -259,11 +260,7 @@ impl OwnedAttribute {
                 let value = match value {
                     OwnedValue::Bare(value) | OwnedValue::Quoted(value) => value,
                 };
-                format!(
-                    "`= {} {}",
-                    escape_authored_text(key),
-                    escape_authored_text(value)
-                )
+                format!("`= {}", render_authored_text_arguments(&[key, value]))
             }
         }
     }
@@ -341,12 +338,12 @@ impl OwnedBlock {
                     raw,
                 }
             }
-            Self::Verbatim { text } => {
+            Self::Verbatim { marker, text } => {
                 if attributes.is_empty() {
-                    Self::Verbatim { text }
+                    Self::Verbatim { marker, text }
                 } else {
                     Self::Parsed {
-                        marker: Some("()".into()),
+                        marker: marker.or_else(|| Some("()".into())),
                         head: Vec::new(),
                         children: attributes
                             .into_iter()
@@ -500,6 +497,7 @@ impl OwnedBlock {
         match block {
             Block::Parsed(block) => Self::from_parsed(source, block),
             Block::Verbatim(block) => Self::Verbatim {
+                marker: block.mark.as_ref().map(|mark| mark.marker.clone()),
                 text: block.text.clone(),
             },
         }
@@ -1169,8 +1167,12 @@ fn render_owned_block(block: &OwnedBlock, indent: usize, output: &mut String) {
                 render_owned_raw_text(text, indent + 1, output);
             }
         }
-        OwnedBlock::Verbatim { text } => {
-            output.push_str("`\"");
+        OwnedBlock::Verbatim { marker, text } => {
+            output.push('`');
+            if let Some(marker) = marker {
+                output.push_str(marker);
+            }
+            output.push('"');
             render_owned_raw_text(text, indent, output);
         }
     }
@@ -1781,18 +1783,18 @@ fn block_end_with_start(blocks: &[Block], start: usize) -> Option<usize> {
     None
 }
 
-#[cfg(any())]
+#[cfg(test)]
 mod tests {
     use super::*;
     use plumb_syntax::{parse, Block};
 
     #[test]
-    fn block_attributes_escape_argument_delimiters() {
-        let attribute = OwnedAttribute::bare("key|part", "value[part]");
-        assert_eq!(attribute.render_block(), "`= key`|part | value`[part`]");
+    fn block_attributes_group_keys_containing_spaces() {
+        let attribute = OwnedAttribute::bare("key part", "value[part]");
+        assert_eq!(attribute.render_block(), "`= {key part} value[part]");
 
         let formatted = attribute.into_block().format().unwrap();
-        assert_eq!(formatted, "`= key`|part | value`[part`]\n");
+        assert_eq!(formatted, "`= {key part} value[part]\n");
         assert!(parse(&formatted).is_valid(), "{formatted}");
     }
 
@@ -1810,15 +1812,15 @@ mod tests {
         let formatted = block.format().unwrap();
         assert_eq!(
             formatted,
-            "`rust\n\n `@ example\n\n `note nested\n\n|\"\n fn main() {}\n"
+            "`rust\n `@ example\n\n `note nested\n\n `\"\n  fn main() {}\n"
         );
         let parsed = parse(&formatted);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let [Block::Parsed(owner)] = parsed.syntax.blocks.as_slice() else {
             panic!("expected parsed raw owner");
         };
-        assert_eq!(owner.children.len(), 2);
-        assert!(owner.raw.is_some());
+        assert_eq!(owner.children.len(), 3);
+        assert!(matches!(owner.children.last(), Some(Block::Verbatim(_))));
     }
 
     #[test]
@@ -1829,14 +1831,17 @@ mod tests {
             children: Vec::new(),
             raw: Some("fn main() {}\n".into()),
         };
-        assert_eq!(block.format().unwrap(), "`rust\n|\"\n fn main() {}\n");
+        assert_eq!(block.format().unwrap(), "`rust\"\n fn main() {}\n");
     }
 
     #[test]
     fn adding_attributes_explicitizes_anonymous_raw() {
-        let block = OwnedBlock::Verbatim { text: "raw".into() }
-            .with_attributes(vec![OwnedAttribute::id("example")]);
-        assert_eq!(block.format().unwrap(), "`()\n\n `@ example\n\n|\"\n raw");
+        let block = OwnedBlock::Verbatim {
+            marker: None,
+            text: "raw".into(),
+        }
+        .with_attributes(vec![OwnedAttribute::id("example")]);
+        assert_eq!(block.format().unwrap(), "`()\n `@ example\n\n `\"\n  raw");
     }
 
     #[test]
@@ -1886,7 +1891,7 @@ mod tests {
         let edit = session.finish().unwrap();
         assert_eq!(
             edit.new_text,
-            "`task Work\n\n `@ work\n\n `= created | 2026-08-26T00:00:00+08:00\n"
+            "`task Work\n\n `@ work\n\n `= created 2026-08-26T00:00:00+08:00\n"
         );
     }
 
@@ -1914,7 +1919,7 @@ mod tests {
 
     #[test]
     fn appending_a_declaration_before_a_following_sibling_stays_valid() {
-        let source = "`task Closed\n\n `@ closed\n\n `= done|2026-07-20T09:00:00Z\n\n`task Existing\n\n `@ existing\n";
+        let source = "`task Closed\n\n `@ closed\n\n `= done 2026-07-20T09:00:00Z\n\n`task Existing\n\n `@ existing\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let Block::Parsed(task) = &parsed.syntax.blocks[0] else {
@@ -1933,7 +1938,7 @@ mod tests {
         let edit = session.finish().unwrap();
         let edited = apply_text_edits(source.to_string(), vec![edit]).unwrap();
         assert!(parse(&edited).is_valid(), "{edited}");
-        assert!(edited.contains("`= created | 2026-07-20T10:00:00+08:00"));
+        assert!(edited.contains("`= created 2026-07-20T10:00:00+08:00\n"));
         assert!(edited.contains("`task Existing"));
     }
 
@@ -1960,7 +1965,7 @@ mod tests {
         let edited = apply_text_edits(source.to_string(), edits).unwrap();
         assert_eq!(
             edited,
-            "`- First\n\n `+ task\n\n `@ first\n\n`- Second\n\n `+ event\n"
+            "`- First\n\n `+ task\n\n `@ first\n\n`- Second\n `+ event\n"
         );
         assert!(parse(&edited).is_valid(), "{edited}");
         assert_eq!(
@@ -1990,7 +1995,7 @@ mod tests {
         )
         .unwrap();
         let edited = apply_text_edits(source.to_string(), edits).unwrap();
-        assert_eq!(edited, "`- Work\r\n\r\n `+ task\r\n");
+        assert_eq!(edited, "`- Work\r\n `+ task\r\n");
         assert!(parse(&edited).is_valid(), "{edited:?}");
     }
 
@@ -2006,7 +2011,7 @@ mod tests {
             .is_empty());
 
         assert_eq!(
-            format(&parse("`broken[\n"), FormatScope::Document),
+            format(&parse("`broken{\n"), FormatScope::Document),
             Err(EditError::GeneratedInvalid)
         );
         assert_eq!(
@@ -2037,7 +2042,7 @@ mod tests {
     #[test]
     fn attribute_positions_replace_and_remove_single_declaration_blocks() {
         let source =
-            "`task Work\n `note before\n `@ old\n `+ keep\n `= created|now\n `note after\n";
+            "`task Work\n\n `note before\n\n `@ old\n\n `+ keep\n\n `= created now\n\n `note after\n";
         let parsed = parse(source);
         let Block::Parsed(task) = &parsed.syntax.blocks[0] else {
             panic!("expected task");
@@ -2055,8 +2060,8 @@ mod tests {
             .unwrap();
         let inserted =
             apply_text_edits(source.to_string(), vec![insert.finish().unwrap()]).unwrap();
-        assert!(inserted.find("`@ old").unwrap() < inserted.find("`= due | tomorrow").unwrap());
-        assert!(inserted.find("`= due | tomorrow").unwrap() < inserted.find("`+ keep").unwrap());
+        assert!(inserted.find("`@ old").unwrap() < inserted.find("`= due tomorrow\n").unwrap());
+        assert!(inserted.find("`= due tomorrow\n").unwrap() < inserted.find("`+ keep").unwrap());
         assert!(inserted.contains("`note before"));
         assert!(inserted.contains("`note after"));
 
@@ -2072,13 +2077,13 @@ mod tests {
         let mut remove = EditSession::new(&parsed, task.range.clone()).unwrap();
         remove.remove_attribute(&mark.attrs, 2).unwrap();
         let removed = apply_text_edits(source.to_string(), vec![remove.finish().unwrap()]).unwrap();
-        assert!(!removed.contains("`= created|now"));
+        assert!(!removed.contains("`= created now\n"));
         assert!(removed.contains("`+ keep"));
     }
 
     #[test]
     fn owned_syntax_round_trips_inline_members_children_and_raw() {
-        let source = "`node Head `span[text|@[id]|+[opaque]|=[key|bare]] and `\"raw\"\n `@ owner\n `child Body\n\n|\"\n payload\n";
+        let source = "`() Head `span{text `@{id} `+{opaque} `={key bare}} and `\"raw\"\n\n `@ owner\n\n `child Body\n\n `node\"\n  payload\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let owned = OwnedBlock::from_syntax(source, &parsed.syntax.blocks[0]);
@@ -2089,14 +2094,14 @@ mod tests {
             "{formatted}\n{:?}",
             reparsed.diagnostics
         );
-        assert!(formatted.contains("`span[text|@[id]|+[opaque]|=[key|bare]]"));
+        assert!(formatted.contains("`span{text `@{id} `+{opaque} `={key bare}}"));
         assert!(formatted.contains("`@ owner"));
         assert!(formatted.contains("`child Body"));
-        assert!(formatted.contains("\n|\"\n payload"));
+        assert!(formatted.contains("`node\"\n  payload"));
     }
 
     #[test]
-    fn owned_elements_insert_an_empty_first_argument_before_other_member_forms() {
+    fn owned_elements_accept_non_text_first_elements() {
         for first in [
             OwnedInlineMember::VerbatimArgument("raw".into()),
             OwnedInlineMember::Child(Box::new(OwnedInline::Element {
@@ -2112,21 +2117,18 @@ mod tests {
             };
             let mut output = String::new();
             render_owned_inline(&inline, true, 0, &mut output, true);
-            assert!(output.starts_with("`owner[|"), "{output}");
+            assert!(output.starts_with("`owner{"), "{output}");
             assert!(parse(format!("{output}\n")).is_valid(), "{output}");
         }
     }
 
     #[test]
     fn aligns_all_argument_columns_by_unicode_display_width() {
-        let source = "`row 名|一|x\n`row alphabet | 二二 |yy\n";
+        let source = "`row 名 一 x\n`row alphabet 二二 yy\n";
         let parsed = parse(source);
         let edits = align_block_arguments(&parsed, source.find('名').unwrap()).unwrap();
         let aligned = apply_text_edits(source.to_string(), edits).unwrap();
-        assert_eq!(
-            aligned,
-            "`row 名       | 一   | x\n`row alphabet | 二二 | yy\n"
-        );
+        assert_eq!(aligned, "`row 名       一   x\n`row alphabet 二二 yy\n");
         assert!(
             align_block_arguments(&parse(&aligned), aligned.find('名').unwrap())
                 .unwrap()
@@ -2137,21 +2139,21 @@ mod tests {
     #[test]
     fn alignment_uses_combining_width_and_stays_within_the_maximal_sibling_run() {
         let source =
-            "`outer\n `row e\u{301}|x\n `row 界|yy\n `other break|run\n `row a|z\n `row aa|zz\n";
+            "`outer\n `row e\u{301} x\n `row 界 yy\n\n `other break run\n\n `row a z\n `row aa zz\n";
         let parsed = parse(source);
         let edits = align_block_arguments(&parsed, source.find("e\u{301}").unwrap()).unwrap();
         let aligned = apply_text_edits(source.to_string(), edits).unwrap();
-        assert!(aligned.contains(" `row e\u{301}  | x\n `row 界 | yy\n"));
-        assert!(aligned.contains(" `row a|z\n `row aa|zz\n"));
+        assert!(aligned.contains(" `row e\u{301}  x\n `row 界 yy\n"));
+        assert!(aligned.contains(" `row a z\n `row aa zz\n"));
     }
 
     #[test]
     fn alignment_is_unavailable_for_ineligible_or_already_aligned_runs() {
         for source in [
-            "`row a  | b\n`row aa | b\n",
-            "`row a\t|b\n`row aa|b\n",
-            "`row a|b\n`row aa|b\n `child detail\n",
-            "`row a|b\n`row aa|b\n\n|\"\n payload\n",
+            "`row a  b\n`row aa b\n",
+            "`row a b\n`other aa b\n",
+            "`row a b\n`row aa b\n\n `child detail\n",
+            "`row a b\n\n`() aa b\n\n `row\"\n  payload\n",
         ] {
             let parsed = parse(source);
             assert!(parsed.is_valid(), "{source:?}: {:?}", parsed.diagnostics);
@@ -2164,38 +2166,54 @@ mod tests {
     #[test]
     fn alignment_preserves_empty_arguments_and_escaped_boundary_spaces() {
         let source =
-            "`row |x||z\n`row long|yy|q|z\n`other break|run\n`row ` a` |x\n`row longer|y\n";
+            "`row {} x {} z\n`row long yy q z\n\n`other break run\n\n`row {a} x\n`row longer y\n";
         let parsed = parse(source);
         let before = parsed.syntax.blocks[..2]
             .iter()
             .map(|block| match block {
-                Block::Parsed(block) => (0..block.head.arguments.len())
-                    .map(|index| block.head.argument_plain_text(index).unwrap())
+                Block::Parsed(block) => block
+                    .content
+                    .positional_elements()
+                    .map(|inline| {
+                        plumb_syntax::InlineContent::from_items(
+                            plumb_syntax::inline_range(inline).clone(),
+                            vec![inline.clone()],
+                        )
+                        .plain_text()
+                    })
                     .collect::<Vec<_>>(),
                 Block::Verbatim(_) => unreachable!(),
             })
             .collect::<Vec<_>>();
-        let edits = align_block_arguments(&parsed, source.find("|x||").unwrap()).unwrap();
+        let edits = align_block_arguments(&parsed, source.find("{} x {} z\n").unwrap()).unwrap();
         let aligned = apply_text_edits(source.to_string(), edits).unwrap();
         let reparsed = parse(&aligned);
         let after = reparsed.syntax.blocks[..2]
             .iter()
             .map(|block| match block {
-                Block::Parsed(block) => (0..block.head.arguments.len())
-                    .map(|index| block.head.argument_plain_text(index).unwrap())
+                Block::Parsed(block) => block
+                    .content
+                    .positional_elements()
+                    .map(|inline| {
+                        plumb_syntax::InlineContent::from_items(
+                            plumb_syntax::inline_range(inline).clone(),
+                            vec![inline.clone()],
+                        )
+                        .plain_text()
+                    })
                     .collect::<Vec<_>>(),
                 Block::Verbatim(_) => unreachable!(),
             })
             .collect::<Vec<_>>();
         assert_eq!(after, before);
 
-        let escaped = aligned.find("` a` ").unwrap();
+        let escaped = aligned.find("{a}").unwrap();
         let escaped_edits = align_block_arguments(&reparsed, escaped).unwrap();
         let escaped_aligned = apply_text_edits(aligned, escaped_edits).unwrap();
-        assert!(
-            escaped_aligned.contains("`row ` a`   | x\n"),
-            "{escaped_aligned:?}"
-        );
+        assert!(parse(&escaped_aligned).is_valid(), "{escaped_aligned:?}");
+        assert!(align_block_arguments(&parse(&escaped_aligned), escaped)
+            .unwrap()
+            .is_empty());
     }
 
     #[test]
@@ -2207,7 +2225,7 @@ mod tests {
         let formatted = format_owned_blocks(&metadata, "\n").unwrap();
         assert_eq!(
             formatted,
-            "`= title   | Example\n`= created | 2026-08-26T00:00:00+08:00\n"
+            "`= title   Example\n`= created 2026-08-26T00:00:00+08:00\n"
         );
     }
 
@@ -2215,39 +2233,39 @@ mod tests {
     fn structured_arguments_share_one_padding_renderer() {
         assert_eq!(
             render_authored_text_arguments(&["09:00", "Event"]),
-            "09:00 | Event"
+            "09:00 Event"
         );
         assert_eq!(
-            render_authored_text_arguments(&["key|part", "value[part]"]),
-            "key`|part | value`[part`]"
+            render_authored_text_arguments(&["key part", "value[part]"]),
+            "{key part} value[part]"
         );
 
         let mut event = OwnedBlock::marked("-", "old");
         event.set_head_text_arguments(["09:00", "Event"]);
-        assert_eq!(event.format().unwrap(), "`- 09:00 | Event\n");
+        assert_eq!(event.format().unwrap(), "`- 09:00 Event\n");
     }
 
     #[test]
     fn prepending_a_structured_argument_preserves_rich_title_content() {
-        let source = "`- title `*[rich]\n";
+        let source = "`- title `*{rich}\n";
         let parsed = parse(source);
         let mut owned = OwnedBlock::from_syntax(source, &parsed.syntax.blocks[0]);
         owned.prepend_head_text_argument("09:00");
         let formatted = owned.format().unwrap();
-        assert_eq!(formatted, "`- 09:00 | title `*[rich]\n");
+        assert_eq!(formatted, "`- 09:00 {title `*{rich}}\n");
         assert!(parse(&formatted).is_valid(), "{formatted}");
     }
 
     #[test]
     fn property_mutations_align_only_the_affected_direct_runs() {
         let source =
-            "`- Task\n `+ task\n `@ task-id\n `= due|tomorrow\n `= priority|20\n `note Keep\n";
+            "`- Task\n\n `+ task\n\n `@ task-id\n\n `= due tomorrow\n `= priority 20\n\n `note Keep\n";
         let parsed = parse(source);
         let mut owned = OwnedBlock::from_syntax(source, &parsed.syntax.blocks[0]);
         owned.push_attribute(OwnedAttribute::quoted("created", "now"));
         let formatted = owned.format().unwrap();
         assert!(
-            formatted.contains(" `= due      | tomorrow\n `= priority | 20\n `= created  | now\n"),
+            formatted.contains(" `= due      tomorrow\n `= priority 20\n `= created  now\n"),
             "{formatted:?}"
         );
         assert!(formatted.contains(" `note Keep\n"));
@@ -2257,47 +2275,47 @@ mod tests {
         );
         let removed = owned.format().unwrap();
         assert!(
-            removed.contains(" `= due     | tomorrow\n `= created | now\n"),
+            removed.contains(" `= due     tomorrow\n `= created now\n"),
             "{removed:?}"
         );
     }
 
     #[test]
     fn non_property_mutations_do_not_align_existing_runs() {
-        let source = "`- Task\n `= due|tomorrow\n `= priority|20\n";
+        let source = "`- Task\n\n `= due tomorrow\n `= priority 20\n";
         let parsed = parse(source);
         let mut owned = OwnedBlock::from_syntax(source, &parsed.syntax.blocks[0]);
         owned.prepend_attribute(OwnedAttribute::id("task-id"));
         assert!(owned
             .format()
             .unwrap()
-            .contains(" `= due|tomorrow\n `= priority|20\n"));
+            .contains(" `= due tomorrow\n `= priority 20\n"));
 
         let attributes = owned.attributes();
         let unaligned = owned.clone().with_attributes(attributes.clone());
         assert!(unaligned
             .format()
             .unwrap()
-            .contains(" `= due | tomorrow\n `= priority | 20\n"));
+            .contains(" `= due tomorrow\n `= priority 20\n"));
         let aligned = owned.with_aligned_attributes(attributes);
         assert!(aligned
             .format()
             .unwrap()
-            .contains(" `= due      | tomorrow\n `= priority | 20\n"));
+            .contains(" `= due      tomorrow\n `= priority 20\n"));
     }
 
     #[test]
     fn property_removal_does_not_align_a_separate_opaque_run() {
-        let source = "`- Event\n `= date|2026-08-30\n `= timezone|+08:00\n `@ split\n `= uid|opaque\n `= when|legacy\n";
+        let source = "`- Event\n\n `= date 2026-08-30\n `= timezone +08:00\n\n `@ split\n\n `= uid opaque\n `= when legacy\n";
         let parsed = parse(source);
         let mut owned = OwnedBlock::from_syntax(source, &parsed.syntax.blocks[0]);
         owned.retain_attributes(
             |attribute| !matches!(attribute, OwnedAttribute::Pair { key, .. } if key == "date"),
         );
         let formatted = owned.format().unwrap();
-        assert!(formatted.contains(" `= timezone|+08:00\n"), "{formatted:?}");
+        assert!(formatted.contains(" `= timezone +08:00\n"), "{formatted:?}");
         assert!(
-            formatted.contains(" `= uid|opaque\n `= when|legacy\n"),
+            formatted.contains(" `= uid opaque\n `= when legacy\n"),
             "{formatted:?}"
         );
     }
@@ -2316,7 +2334,7 @@ mod tests {
         assert_eq!(edit.range, 0..0);
         assert_eq!(
             edit.new_text,
-            "`= title|Example\n`= created|2026-08-26T00:00:00+08:00\n\n"
+            "`= title Example\n`= created 2026-08-26T00:00:00+08:00\n\n"
         );
 
         let first = parsed.syntax.blocks[0].range().clone();

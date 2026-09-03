@@ -45,7 +45,7 @@ fn whole_document_formatting_keeps_unchanged_blocks_out_of_edits() {
 #[test]
 fn whole_document_formatting_handles_repeated_marker_lines() {
     let uri = "file:///tmp/repeated-marker-format.plumb";
-    let source = "`task aaa bbb ccc ddd eee fff ggg hhh iii jjj kkk lll mmm nnn ooo ppp\n `= created|now\n\n       `note Detail\n\n`task Following\n `= created|later\n";
+    let source = "`task aaa bbb ccc ddd eee fff ggg hhh iii jjj kkk lll mmm nnn ooo ppp\n\n       `= created now\n\n        `note Detail\n\n`task Following\n\n       `= created later\n";
     let messages = [
         json!({
             "jsonrpc": "2.0", "id": 1, "method": "initialize",
@@ -71,7 +71,7 @@ fn whole_document_formatting_handles_repeated_marker_lines() {
 
     let output = run_server(&messages);
     let edits = response(&output, 2)["result"].as_array().unwrap();
-    assert_eq!(edits.len(), 3);
+    assert_eq!(edits.len(), 2);
     let formatted = apply_ascii_lsp_edits(source, edits);
     assert!(plumb_syntax::parse(&formatted).is_valid(), "{formatted}");
     let parsed = plumb_syntax::parse(&formatted);
@@ -109,7 +109,7 @@ fn formats_valid_documents_and_declines_invalid_revisions() {
             "jsonrpc": "2.0", "method": "textDocument/didChange",
             "params": {
                 "textDocument": { "uri": uri, "version": 2 },
-                "contentChanges": [{ "text": "`span[open\n" }]
+                "contentChanges": [{ "text": "`span{open\n" }]
             }
         }),
         json!({
@@ -221,7 +221,7 @@ fn range_formatting_formats_only_complete_contained_blocks() {
             "jsonrpc": "2.0", "method": "textDocument/didChange",
             "params": {
                 "textDocument": { "uri": uri, "version": 2 },
-                "contentChanges": [{ "text": "`span[open\n" }]
+                "contentChanges": [{ "text": "`span{open\n" }]
             }
         }),
         json!({

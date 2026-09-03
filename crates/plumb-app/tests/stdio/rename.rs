@@ -3,9 +3,22 @@ use std::path::PathBuf;
 use serde_json::{json, Value};
 
 use crate::support::{
-    response, run_server_after_initial_index, run_server_after_initial_index_with_action,
-    unique_temp_dir,
+    response, run_server, run_server_after_initial_index,
+    run_server_after_initial_index_with_action, unique_temp_dir,
 };
+
+fn source_position(source: &str, needle: &str, occurrence: usize) -> (usize, usize) {
+    let offset = source.match_indices(needle).nth(occurrence).unwrap().0;
+    let line_start = source[..offset]
+        .rfind('\n')
+        .map_or(0, |newline| newline + 1);
+    let line = source[..line_start]
+        .bytes()
+        .filter(|byte| *byte == b'\n')
+        .count();
+    let character = source[line_start..offset].encode_utf16().count();
+    (line, character)
+}
 
 #[test]
 fn definition_resolves_a_file_name_containing_spaces() {
@@ -13,7 +26,7 @@ fn definition_resolves_a_file_name_containing_spaces() {
     std::fs::create_dir_all(&root).unwrap();
     let source = root.join("source.plumb");
     let target = root.join("other file.plumb");
-    let source_text = "See `->[topic|other file.plumb#topic].\n";
+    let source_text = "See `->{topic {other file.plumb#topic}}.\n";
     std::fs::write(&source, source_text).unwrap();
     std::fs::write(&target, "`node Topic\n  `@ topic\n").unwrap();
     let source_uri = lsp_types::Url::from_file_path(&source).unwrap();
@@ -50,10 +63,9 @@ fn definition_resolves_a_file_name_containing_spaces() {
 }
 
 #[test]
-#[cfg(any())]
 fn task_identity_rename_replaces_only_the_declaration_value() {
     let uri = lsp_types::Url::from_file_path("/tmp/plumb-rename-task-position.plumb").unwrap();
-    let source = "`- Task\n\n `@ task\n\n `+ task\n\n `= created|2026-08-30T01:57:30+08:00\n";
+    let source = "`- Task\n\n `@ task\n\n `+ task\n\n `= created 2026-08-30T01:57:30+08:00\n";
     let messages = [
         json!({
             "jsonrpc": "2.0", "id": 1, "method": "initialize",
@@ -98,7 +110,6 @@ fn task_identity_rename_replaces_only_the_declaration_value() {
 }
 
 #[test]
-#[cfg(any())]
 fn document_references_resolve_metadata_and_reference_components() {
     let root = unique_temp_dir();
     std::fs::create_dir_all(&root).unwrap();
@@ -106,9 +117,9 @@ fn document_references_resolve_metadata_and_reference_components() {
     let source = root.join("source.plumb");
     let lonely = root.join("lonely.plumb");
     let target_text =
-        "`= title|Target\n\n`# Section\n  `@ section\n\nSee `->[self|target.plumb].\n";
-    let source_text = "See `->[document|target.plumb].\nSee `->[section|target.plumb#section].\n\n`- Review\n  `+ task\n  `= prev|target.plumb#section\n  `= depends|target.plumb#section\n";
-    let lonely_text = "`= title|Lonely\n";
+        "`= title Target\n\n`# Section\n\n `@ section\n\nSee `->{self target.plumb}.\n";
+    let source_text = "See `->{document target.plumb}. See `->{section target.plumb#section}.\n\n`- Review\n\n `+ task\n\n `= prev target.plumb#section\n `= depends target.plumb#section\n";
+    let lonely_text = "`= title Lonely\n";
     std::fs::write(&target, target_text).unwrap();
     std::fs::write(&source, source_text).unwrap();
     std::fs::write(&lonely, lonely_text).unwrap();
@@ -199,14 +210,13 @@ fn document_references_resolve_metadata_and_reference_components() {
 }
 
 #[test]
-#[cfg(any())]
 fn task_references_support_navigation_and_rename() {
     let root = unique_temp_dir();
     std::fs::create_dir_all(&root).unwrap();
     let target = root.join("Project Plan.plumb");
     let source = root.join("review.plumb");
     let target_text = "`- Draft\n  `+ task\n  `@ draft\n";
-    let source_text = "`- Review\n  `+ task\n  `@ review\n  `= prev|Project Plan.plumb#draft\n  `= depends|Project Plan.plumb#draft\n";
+    let source_text = "`- Review\n\n `+ task\n\n `@ review\n\n `= prev Project Plan.plumb#draft\n `= depends Project Plan.plumb#draft\n";
     std::fs::write(&target, target_text).unwrap();
     std::fs::write(&source, source_text).unwrap();
     let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
@@ -318,14 +328,13 @@ fn task_references_support_navigation_and_rename() {
 }
 
 #[test]
-#[cfg(any())]
 fn event_task_link_is_one_code_lens_reference_and_one_rename_edit() {
     let root = unique_temp_dir();
     std::fs::create_dir_all(&root).unwrap();
     let target = root.join("tasks.plumb");
     let source = root.join("events.plumb");
     let target_text = "`- Target\n\n `+ task\n\n `@ target\n";
-    let source_text = "`- 2026-08-28T10:00|Linked `->[Target|tasks.plumb#target]\n\n `+ event\n";
+    let source_text = "`- 2026-08-28T10:00 Linked `->{Target tasks.plumb#target}\n\n `+ event\n";
     std::fs::write(&target, target_text).unwrap();
     std::fs::write(&source, source_text).unwrap();
     let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
@@ -396,8 +405,8 @@ fn path_rename_is_optimistic_and_reconciles_failed_client_application() {
     let new_target = root.join("new.plumb");
     let source = root.join("source.plumb");
     let target_text = "`# Target\n  `@ target\n";
-    let old_source = "See `->[target|old.plumb#target].\n";
-    let new_source = "See `->[target|new.plumb#target].\n";
+    let old_source = "See `->{target old.plumb#target}.\n";
+    let new_source = "See `->{target new.plumb#target}.\n";
     std::fs::write(&old_target, target_text).unwrap();
     std::fs::write(&source, old_source).unwrap();
     let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
@@ -484,7 +493,7 @@ fn document_start_renames_the_current_document_without_changing_title() {
     let incoming = root.join("incoming.plumb");
     let current_source = "`= title\n\n Stable title\n";
     std::fs::write(&current, current_source).unwrap();
-    std::fs::write(&incoming, "`->[current|current.plumb]\n").unwrap();
+    std::fs::write(&incoming, "`->{current current.plumb}\n").unwrap();
     let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
     let current_uri = lsp_types::Url::from_file_path(&current).unwrap();
     let incoming_uri = lsp_types::Url::from_file_path(&incoming).unwrap();
@@ -566,8 +575,8 @@ fn path_rename_watcher_confirms_a_successful_filesystem_rename() {
     let new_target = root.join("new.plumb");
     let source = root.join("source.plumb");
     let target_text = "`# Target\n  `@ target\n";
-    let old_source = "See `->[target|old.plumb#target].\n";
-    let new_source = "See `->[target|new.plumb#target].\n";
+    let old_source = "See `->{target old.plumb#target}.\n";
+    let new_source = "See `->{target new.plumb#target}.\n";
     std::fs::write(&old_target, target_text).unwrap();
     std::fs::write(&source, old_source).unwrap();
     let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
@@ -647,8 +656,8 @@ fn path_rename_watcher_clears_a_missing_optimistic_target() {
     let old_target = root.join("old.plumb");
     let new_target = root.join("new.plumb");
     let source = root.join("source.plumb");
-    let old_source = "See `->[target|old.plumb#target].\n";
-    let new_source = "See `->[target|new.plumb#target].\n";
+    let old_source = "See `->{target old.plumb#target}.\n";
+    let new_source = "See `->{target new.plumb#target}.\n";
     std::fs::write(&old_target, "`# Target\n  `@ target\n").unwrap();
     std::fs::write(&source, old_source).unwrap();
     let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
@@ -763,7 +772,6 @@ fn path_rename_rejects_a_target_outside_the_workspace() {
 }
 
 #[test]
-#[cfg(any())]
 fn definition_and_hover_lazily_load_targets_without_a_workspace_root() {
     let root = unique_temp_dir();
     std::fs::create_dir_all(&root).unwrap();
@@ -772,7 +780,7 @@ fn definition_and_hover_lazily_load_targets_without_a_workspace_root() {
     let link_target = root.join("link target.plumb");
     let hover_target = root.join("hover target.plumb");
     let file_target = root.join("file target.plumb");
-    let source_text = "`- Review\n  `+ task\n  `= depends|task target.plumb#draft\n\nSee `->[note|link target.plumb#note].\nSee `->[hover|hover target.plumb#hover].\nSee `->[file|file target.plumb].\n";
+    let source_text = "`- Review\n\n `+ task\n\n `= depends task target.plumb#draft\n\nSee `->{note {link target.plumb#note}}. See `->{hover {hover target.plumb#hover}}. See `->{file {file target.plumb}}.\n";
     std::fs::write(&source, source_text).unwrap();
     std::fs::write(&task_target, "`- Draft\n  `+ task\n  `@ draft\n").unwrap();
     std::fs::write(&link_target, "`node Note\n  `@ note\n").unwrap();
@@ -870,7 +878,7 @@ fn run_path_rename_precondition_test(
     std::fs::create_dir_all(&root).unwrap();
     let old_target = root.join("old.plumb");
     let source = root.join("source.plumb");
-    let source_text = "See `->[target|old.plumb#target].\n";
+    let source_text = "See `->{target old.plumb#target}.\n";
     std::fs::write(&old_target, "`# Target\n  `@ target\n").unwrap();
     std::fs::write(&source, source_text).unwrap();
     if create_target {

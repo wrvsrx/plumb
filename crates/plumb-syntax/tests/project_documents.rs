@@ -155,6 +155,46 @@ fn bundled_skill_tracks_current_standard_spellings() {
 }
 
 #[test]
+fn workspace_uses_only_the_current_parser_and_keeps_tests_enabled() {
+    let root = repository_root();
+    let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
+    let output = Command::new(cargo)
+        .args(["metadata", "--format-version", "1", "--no-deps"])
+        .current_dir(&root)
+        .output()
+        .expect("run cargo metadata");
+    assert!(output.status.success());
+    let metadata: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let package_names = metadata["packages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|package| package["name"].as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        package_names
+            .iter()
+            .copied()
+            .filter(|name| name.starts_with("plumb-syntax"))
+            .collect::<Vec<_>>(),
+        ["plumb-syntax"]
+    );
+    assert!(!package_names.contains(&"plumb-migrate"));
+
+    let mut rust_files = Vec::new();
+    collect_files_with_extension(&root.join("crates"), "rs", &mut rust_files);
+    let disabled_cfg = ["cfg(", "any())"].concat();
+    for path in rust_files {
+        let source = fs::read_to_string(&path).unwrap();
+        assert!(
+            !source.contains(&disabled_cfg),
+            "{} silently disables code or tests with an always-false cfg",
+            path.display()
+        );
+    }
+}
+
+#[test]
 fn editing_adapters_do_not_depend_directly_on_the_formatter() {
     let root = repository_root();
     let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
@@ -202,6 +242,25 @@ fn collect_markdown_files(directory: &Path, files: &mut Vec<PathBuf>) {
         if path.is_dir() {
             collect_markdown_files(&path, files);
         } else if path.extension().is_some_and(|extension| extension == "md") {
+            files.push(path);
+        }
+    }
+}
+
+fn collect_files_with_extension(directory: &Path, extension: &str, files: &mut Vec<PathBuf>) {
+    let mut entries = fs::read_dir(directory)
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    entries.sort_by_key(|entry| entry.path());
+    for entry in entries {
+        let path = entry.path();
+        if path.is_dir() {
+            collect_files_with_extension(&path, extension, files);
+        } else if path
+            .extension()
+            .is_some_and(|candidate| candidate == extension)
+        {
             files.push(path);
         }
     }

@@ -225,7 +225,6 @@ mod tests {
     use super::*;
 
     fn load_workspace(root: &Path) -> Result<LoadedWorkspace, String> {
-        crate::migrate_test_directory(root);
         super::load_workspace(root)
     }
 
@@ -240,7 +239,7 @@ mod tests {
         .unwrap();
         std::fs::write(
             root.join("tasks.plumb"),
-            "`- Review\n\n `+ task\n\n `@ review\n\n `= depends|deps.plumb#draft\n\n `- Nested\n\n  `+ task\n\n  `@ nested\n\n  `= done|2026-07-20T09:00:00Z\n",
+            "`- Review\n\n `+ task\n\n `@ review\n\n `= depends deps.plumb#draft\n\n `- Nested\n\n  `+ task\n\n  `@ nested\n\n  `= done 2026-07-20T09:00:00Z\n",
         )
         .unwrap();
         let loaded = load_workspace(&root).unwrap();
@@ -275,7 +274,7 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(
             root.join("tasks.plumb"),
-            "`- Low\n\n `+ task\n\n `@ low\n\n `= priority|1\n\n `- Low child\n\n  `+ task\n\n  `@ low-child\n\n  `= priority|99\n\n`- High\n\n `+ task\n\n `@ high\n\n `= priority|10\n\n `- Later child\n\n  `+ task\n\n  `@ later-child\n\n  `= priority|2\n\n  `- Grandchild\n\n   `+ task\n\n   `@ grandchild\n\n `- First child\n\n  `+ task\n\n  `@ first-child\n\n  `= priority|8\n",
+            "`- Low\n\n `+ task\n\n `@ low\n\n `= priority 1\n\n `- Low child\n\n  `+ task\n\n  `@ low-child\n\n  `= priority 99\n\n`- High\n\n `+ task\n\n `@ high\n\n `= priority 10\n\n `- Later child\n\n  `+ task\n\n  `@ later-child\n\n  `= priority 2\n\n  `- Grandchild\n\n   `+ task\n\n   `@ grandchild\n\n `- First child\n\n  `+ task\n\n  `@ first-child\n\n  `= priority 8\n",
         )
         .unwrap();
 
@@ -304,7 +303,7 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(
             root.join("tasks.plumb"),
-            "`- Medium\n\n `+ task\n\n `@ medium\n\n `= priority|20\n`- Blocker\n\n `+ task\n\n `@ blocker\n\n `= priority|-5\n`- Urgent\n\n `+ task\n\n `@ urgent\n\n `= priority|50\n `= depends|#blocker\n",
+            "`- Medium\n\n `+ task\n\n `@ medium\n\n `= priority 20\n\n`- Blocker\n\n `+ task\n\n `@ blocker\n\n `= priority -5\n\n`- Urgent\n\n `+ task\n\n `@ urgent\n\n `= priority 50\n `= depends #blocker\n",
         )
         .unwrap();
 
@@ -330,17 +329,17 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(
             root.join("a.plumb"),
-            "`- Deferred\n\n `+ task\n\n `@ deferred\n\n `= priority|-10\n\n `- More deferred\n\n  `+ task\n\n  `@ more-deferred\n\n  `= priority|-20\n\n`- Normal\n\n `+ task\n\n `@ normal\n",
+            "`- Deferred\n\n `+ task\n\n `@ deferred\n\n `= priority -10\n\n `- More deferred\n\n  `+ task\n\n  `@ more-deferred\n\n  `= priority -20\n\n`- Normal\n\n `+ task\n\n `@ normal\n",
         )
         .unwrap();
         std::fs::write(
             root.join("b.plumb"),
-            "`- Important\n\n `+ task\n\n `@ important\n\n `= priority|10\n",
+            "`- Important\n\n `+ task\n\n `@ important\n\n `= priority 10\n",
         )
         .unwrap();
         std::fs::write(
             root.join("c.plumb"),
-            "`- Promoted root\n\n `+ task\n\n `@ promoted\n\n `= priority|-5\n\n `- Urgent descendant\n\n  `+ task\n\n  `@ urgent\n\n  `= priority|50\n",
+            "`- Promoted root\n\n `+ task\n\n `@ promoted\n\n `= priority -5\n\n `- Urgent descendant\n\n  `+ task\n\n  `@ urgent\n\n  `= priority 50\n",
         )
         .unwrap();
 
@@ -369,12 +368,12 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(
             root.join("a.plumb"),
-            "`- Closed\n\n `+ task\n\n `@ closed\n\n `= priority|100\n `= done|2026-07-31T10:00:00Z\n`- Low active\n\n `+ task\n\n `@ low\n\n `= priority|1\n",
+            "`- Closed\n\n `+ task\n\n `@ closed\n\n `= priority 100\n `= done 2026-07-31T10:00:00Z\n\n`- Low active\n\n `+ task\n\n `@ low\n\n `= priority 1\n",
         )
         .unwrap();
         std::fs::write(
             root.join("b.plumb"),
-            "`- Important active\n\n `+ task\n\n `@ important\n\n `= priority|10\n",
+            "`- Important active\n\n `+ task\n\n `@ important\n\n `= priority 10\n",
         )
         .unwrap();
 

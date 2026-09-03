@@ -12,14 +12,6 @@ mod tables;
 mod tasks;
 mod text;
 
-#[cfg(test)]
-fn parse_legacy(source: impl Into<String>) -> plumb_syntax::ParsedDocument {
-    let source = source.into();
-    let migrated = plumb_migrate::migrate_member_envelope_v1(&source)
-        .unwrap_or_else(|error| panic!("cannot migrate semantic fixture: {error}"));
-    plumb_syntax::parse(migrated)
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ListItemFacet {
     None,

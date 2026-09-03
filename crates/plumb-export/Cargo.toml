@@ -12,6 +12,3 @@ path = "src/main.rs"
 plumb-syntax = { path = "../plumb-syntax" }
 plumb-semantics = { path = "../plumb-semantics" }
 serde_json.workspace = true
-
-[dev-dependencies]
-plumb-migrate = { path = "../plumb-migrate" }

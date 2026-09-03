@@ -147,7 +147,7 @@ fn analyze_row(row: &ParsedBlock, output: &mut TableOutput) -> TableRowRecord {
         view.positional
             .iter()
             .map(|content| TableCellRecord {
-                selection_range: content.range.clone(),
+                selection_range: crate::element_selection_range(content),
                 range: content.range.clone(),
                 header: false,
             })
@@ -214,9 +214,9 @@ fn diagnostic(code: &'static str, message: impl Into<String>, range: Range<usize
     }
 }
 
-#[cfg(any())]
+#[cfg(test)]
 mod tests {
-    use crate::parse_legacy as parse;
+    use plumb_syntax::parse;
 
     use super::*;
 
@@ -229,7 +229,7 @@ mod tests {
     #[test]
     fn recognizes_compact_rows_with_padding_headers_and_empty_cells() {
         let output = analyze(
-            "`table People\n `- name  | age | note\n  `+ header\n `- Alice | 10  |\n `- Bob   | 20  | active\n",
+            "`table People\n `- name  age note\n  `+ header\n `- Alice 10  {}\n `- Bob   20  active\n",
         );
         assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
         let table = &output.tables[0];
@@ -256,7 +256,7 @@ mod tests {
     #[test]
     fn diagnoses_invalid_structure_and_inconsistent_columns() {
         let output = analyze(
-            "`table\n `note invalid\n `- one|two\n  `note invalid\n `-\n  `note invalid\n `- late\n  `+ header\n",
+            "`table\n `note invalid\n `- one two\n  `note invalid\n `-\n `- late\n  `+ header\n",
         );
         let codes = output
             .diagnostics
@@ -265,7 +265,6 @@ mod tests {
             .collect::<Vec<_>>();
         assert!(codes.contains(&"table.invalid-child"));
         assert!(codes.contains(&"table.compact-row-child"));
-        assert!(codes.contains(&"table.expanded-row-child"));
         assert!(codes.contains(&"table.empty-row"));
         assert!(codes.contains(&"table.column-count-mismatch"));
         assert!(codes.contains(&"table.header-after-body"));

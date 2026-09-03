@@ -21,6 +21,3 @@ sha2.workspace = true
 shlex.workspace = true
 skim.workspace = true
 uuid.workspace = true
-
-[dev-dependencies]
-plumb-migrate = { path = "../plumb-migrate" }

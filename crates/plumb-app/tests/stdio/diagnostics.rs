@@ -9,7 +9,7 @@ fn syntax_invalid_revision_does_not_publish_bibliography_diagnostics() {
     let source_path = root.join("invalid.plumb");
     let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
     let source_uri = lsp_types::Url::from_file_path(&source_path).unwrap();
-    let source = "`= bibliography|missing.json\n\n`span[open\n";
+    let source = "`= bibliography missing.json\n\n`span{open\n";
     let messages = [
         json!({
             "jsonrpc": "2.0", "id": 1, "method": "initialize",
@@ -38,7 +38,7 @@ fn syntax_invalid_revision_does_not_publish_bibliography_diagnostics() {
         .as_array()
         .unwrap();
     assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
-    assert_eq!(diagnostics[0]["code"], "syntax.unclosed-inline");
+    assert_eq!(diagnostics[0]["code"], "syntax.unclosed-inline-group");
     std::fs::remove_dir_all(root).unwrap();
 }
 
@@ -55,7 +55,7 @@ fn diagnostics_clear_after_a_link_is_fixed() {
             "jsonrpc": "2.0", "method": "textDocument/didOpen",
             "params": { "textDocument": {
                 "uri": uri, "languageId": "plumb", "version": 1,
-                "text": "See `->[missing|#missing].\n"
+                "text": "See `->{missing #missing}.\n"
             }}
         }),
         json!({
@@ -63,7 +63,7 @@ fn diagnostics_clear_after_a_link_is_fixed() {
             "params": {
                 "textDocument": { "uri": uri, "version": 2 },
                 "contentChanges": [{
-                    "text": "`node Target\n\n `@ target\n\nSee `->[target|#target].\n"
+                    "text": "`node Target\n\n `@ target\n\nSee `->{target #target}.\n"
                 }]
             }
         }),
@@ -99,7 +99,7 @@ fn diagnostics_refresh_when_a_target_document_changes() {
             "jsonrpc": "2.0", "method": "textDocument/didOpen",
             "params": { "textDocument": {
                 "uri": source_uri, "languageId": "plumb", "version": 1,
-                "text": "See `->[target|diagnostic-target.plumb#target].\n"
+                "text": "See `->{target diagnostic-target.plumb#target}.\n"
             }}
         }),
         json!({
@@ -167,7 +167,7 @@ fn publishes_diagnostics_and_returns_heading_symbols_over_stdio() {
             "method": "textDocument/didChange",
             "params": {
                 "textDocument": { "uri": "file:///tmp/first.plumb", "version": 2 },
-                "contentChanges": [{ "text": "`span[open\n" }]
+                "contentChanges": [{ "text": "`span{open\n" }]
             }
         }),
         json!({ "jsonrpc": "2.0", "id": 3, "method": "shutdown", "params": null }),
@@ -183,7 +183,7 @@ fn publishes_diagnostics_and_returns_heading_symbols_over_stdio() {
     assert!(capabilities["completionProvider"]["triggerCharacters"]
         .as_array()
         .unwrap()
-        .contains(&json!("[")));
+        .contains(&json!("{")));
     assert!(capabilities["completionProvider"]["triggerCharacters"]
         .as_array()
         .unwrap()
@@ -202,7 +202,7 @@ fn publishes_diagnostics_and_returns_heading_symbols_over_stdio() {
     assert_eq!(diagnostics["params"]["version"], 2);
     assert_eq!(
         diagnostics["params"]["diagnostics"][0]["code"],
-        "syntax.unclosed-inline"
+        "syntax.unclosed-inline-group"
     );
 }
 
@@ -245,7 +245,7 @@ fn nests_anchors_and_tasks_under_their_containing_headings() {
 
 #[test]
 fn publishes_metadata_diagnostics_and_nested_symbols_over_stdio() {
-    let source = "`= title\n\n Document title\n\n`= author\n `= name\n\n  Alice\n\n`= title\n\n`= created\n\n yesterday\n\nInvalid `cite[@old-style].\n";
+    let source = "`= title\n\n Document title\n\n`= author\n\n `= name\n\n  Alice\n\n`= title\n`= created\n\n yesterday\n\nInvalid `cite{@old-style}.\n";
     let messages = [
         json!({
             "jsonrpc": "2.0",

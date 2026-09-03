@@ -479,13 +479,13 @@ fn last_day_of_month(year: i32, month: u32) -> Option<u32> {
 
 #[cfg(test)]
 mod tests {
-    use crate::parse_legacy as parse;
+    use plumb_syntax::parse;
 
     use super::*;
 
     #[test]
     fn collects_task_facets_fields_dependencies_and_nesting() {
-        let source = "`- Write parser\n `+ task\n `@ write\n `= created|2026-07-20T09:00:00+08:00\n `= due|2026-07-21T09:00:00+08:00\n `= wait|2026-07-20T12:00:00+08:00\n `= recur|P1W\n `= prev|#old\n `= depends|#draft other notes.plumb#review third.plumb#done\n\n `note Details\n\n `- Nested task\n  `+ task\n  `= done|2026-07-20T10:00:00+08:00\n";
+        let source = "`- Write parser\n `+ task\n `@ write\n `= created 2026-07-20T09:00:00+08:00\n `= due 2026-07-21T09:00:00+08:00\n `= wait 2026-07-20T12:00:00+08:00\n `= recur P1W\n `= prev #old\n `= depends #draft other notes.plumb#review third.plumb#done\n\n `note Details\n\n `- Nested task\n  `+ task\n  `= done 2026-07-20T10:00:00+08:00\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
@@ -594,7 +594,7 @@ mod tests {
 
     #[test]
     fn reports_local_task_state_and_recurrence_diagnostics() {
-        let source = "`- Conflict\n  `+ task\n  `= done|2026-07-20T09:00:00Z\n  `= canceled|2026-07-20T10:00:00Z\n`- Invalid recurrence\n  `+ task\n  `= due|not-a-date\n  `= recur|P1M1D\n`- Invalid datetimes\n  `+ task\n  `= created|2026-07-20T09:00:00Z\n  `= wait|tomorrow\n  `= done|later\n  `= canceled|never\n";
+        let source = "`- Conflict\n `+ task\n `= done 2026-07-20T09:00:00Z\n `= canceled 2026-07-20T10:00:00Z\n`- Invalid recurrence\n `+ task\n `= due not-a-date\n `= recur P1M1D\n`- Invalid datetimes\n `+ task\n `= created 2026-07-20T09:00:00Z\n `= wait tomorrow\n `= done later\n `= canceled never\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
@@ -633,7 +633,7 @@ mod tests {
 
     #[test]
     fn parses_signed_task_priority_and_rejects_out_of_range_values() {
-        let source = "`- Maximum\n  `+ task\n  `= priority|2147483647\n`- Deferred\n  `+ task\n  `= priority|-12\n`- Minimum\n  `+ task\n  `= priority|-2147483648\n`- Too large\n  `+ task\n  `= priority|2147483648\n`- Too small\n  `+ task\n  `= priority|-2147483649\n`- Invalid\n  `+ task\n  `= priority|soon\n";
+        let source = "`- Maximum\n `+ task\n `= priority 2147483647\n`- Deferred\n `+ task\n `= priority -12\n`- Minimum\n `+ task\n `= priority -2147483648\n`- Too large\n `+ task\n `= priority 2147483648\n`- Too small\n `+ task\n `= priority -2147483649\n`- Invalid\n `+ task\n `= priority soon\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
@@ -665,7 +665,7 @@ mod tests {
     #[test]
     fn reports_missing_due_only_when_the_attribute_is_absent() {
         let source =
-            "`- Missing due\n  `+ task\n  `= recur|P1W\n`- Invalid due\n  `+ task\n  `= due|invalid\n  `= recur|P1W\n";
+            "`- Missing due\n `+ task\n `= recur P1W\n`- Invalid due\n `+ task\n `= due invalid\n `= recur P1W\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 

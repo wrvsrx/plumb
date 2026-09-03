@@ -8,7 +8,7 @@ fn completes_citation_constructs_and_csl_json_ids() {
     std::fs::create_dir_all(root.join("static")).unwrap();
     let source_path = root.join("note.plumb");
     let bibliography_path = root.join("static/library.json");
-    let source = "`= bibliography|static/library.json\n\nSee `ci and `cite[smi\n";
+    let source = "`= bibliography static/library.json\n\nSee `ci and `cite{smi\n";
     std::fs::write(&source_path, source).unwrap();
     std::fs::write(
         &bibliography_path,
@@ -53,7 +53,7 @@ fn completes_citation_constructs_and_csl_json_ids() {
     let output = run_server_after_initial_index(&messages);
     let construct_items = response(&output, 2)["result"].as_array().unwrap();
     assert_eq!(construct_items[0]["label"], "Citation");
-    assert_eq!(construct_items[0]["textEdit"]["newText"], "`cite[${1:id}]");
+    assert_eq!(construct_items[0]["textEdit"]["newText"], "`cite{${1:id}}");
     let key_items = response(&output, 3)["result"].as_array().unwrap();
     assert_eq!(key_items.len(), 1);
     assert_eq!(key_items[0]["label"], "smith2004");
@@ -68,12 +68,12 @@ fn completes_event_titles_by_workspace_frequency() {
     std::fs::create_dir_all(&root).unwrap();
     let source_path = root.join("current.plumb");
     let history_path = root.join("history.plumb");
-    let source = "`- 09:00|re\n `+ event";
-    let cursor = "`- 09:00|re".len();
+    let source = "`- 09:00 re\n\n `+ event\n";
+    let cursor = "`- 09:00 re".len();
     std::fs::write(&source_path, source).unwrap();
     std::fs::write(
         &history_path,
-        "`- 10:00|relax\n `+ event\n`- 11:00|research\n `+ event\n`- 12:00|relax\n `+ event\n`- 13:00|read\n `+ event\n",
+        "`- 10:00 relax\n\n `+ event\n\n`- 11:00 research\n\n `+ event\n\n`- 12:00 relax\n\n `+ event\n\n`- 13:00 read\n\n `+ event\n",
     )
     .unwrap();
     let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
@@ -133,8 +133,8 @@ fn completes_task_dependencies_from_workspace_tasks() {
     std::fs::create_dir_all(&root).unwrap();
     let source_path = root.join("current.plumb");
     let target_path = root.join("Project Plan.plumb");
-    let source = "`- Existing dependency\n  `+ task\n  `@ done\n`- Local task\n  `+ task\n  `@ local\n\n`node Plain anchor\n  `@ plain\n\n`- Review\n  `+ task\n  `@ review\n  `= depends|#done Project Plan.plumb#dr\n`- Review two\n  `+ task\n  `@ review-two\n  `= depends|#done \n";
-    let target = "`- Draft task\n  `+ task\n  `@ draft\n`- Closed task\n  `+ task\n  `@ closed\n  `= done|2026-08-04T12:00:00+08:00\n\n`node Not a task\n  `@ note\n";
+    let source = "`- Existing dependency\n\n `+ task\n\n `@ done\n\n`- Local task\n\n `+ task\n\n `@ local\n\n`node Plain anchor\n\n `@ plain\n\n`- Review\n\n `+ task\n\n `@ review\n\n `= depends #done Project Plan.plumb#dr\n\n`- Review two\n\n `+ task\n\n `@ review-two\n\n `= depends #done\n";
+    let target = "`- Draft task\n\n `+ task\n\n `@ draft\n\n`- Closed task\n\n `+ task\n\n `@ closed\n\n `= done 2026-08-04T12:00:00+08:00\n\n`node Not a task\n\n `@ note\n";
     std::fs::write(&source_path, source).unwrap();
     std::fs::write(&target_path, target).unwrap();
     let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
@@ -223,13 +223,13 @@ fn completes_links_by_document_metadata_title() {
     std::fs::create_dir_all(&root).unwrap();
     let source = root.join("current.plumb");
     let target = root.join("Usage Guide.plumb");
-    let closed_path = "`->[x|usXXX]\n";
-    let closed_anchor = "`->[x|Usage Guide.plumb#usXXX]\n";
-    let raw = "`\"[raw `->[x]{to=\"us\"}]\"";
-    let open_path = "`->[x|Guide";
-    let source_text = format!("`->[Us\n\n{open_path}\n\n{closed_path}\n{closed_anchor}\n{raw}\n");
+    let closed_path = "`->{x usXXX}\n";
+    let closed_anchor = "`->{x {Usage Guide.plumb#usXXX}}\n";
+    let raw = "`\"{raw `->[x]{to=\"us\"}}\"\n";
+    let open_path = "`->{x Guide";
+    let source_text = format!("`->{{Us\n\n{open_path}\n\n{closed_path}\n{closed_anchor}\n{raw}\n");
     std::fs::write(&source, &source_text).unwrap();
-    std::fs::write(&target, "`= title|Usage Guide\n\n`# Usage\n  `@ usage\n").unwrap();
+    std::fs::write(&target, "`= title Usage Guide\n\n`# Usage\n\n `@ usage\n").unwrap();
     let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
     let source_uri = lsp_types::Url::from_file_path(&source).unwrap();
     let messages = [
@@ -298,12 +298,9 @@ fn completes_links_by_document_metadata_title() {
     ];
     let output = run_server_after_initial_index(&messages);
     let label = &response(&output, 2)["result"][0];
-    assert_eq!(label["label"], "Usage Guide");
-    assert_eq!(label["detail"], "Usage Guide.plumb");
-    assert_eq!(
-        label["textEdit"]["newText"],
-        "`->[Usage Guide|Usage Guide.plumb]"
-    );
+    assert_eq!(label["label"], "Usage Guide.plumb");
+    assert_eq!(label["detail"], "Usage Guide");
+    assert_eq!(label["textEdit"]["newText"], "Usage Guide.plumb");
     let path = &response(&output, 3)["result"][0];
     assert_eq!(path["label"], "Usage Guide.plumb");
     assert_eq!(path["detail"], "Usage Guide");
@@ -339,9 +336,9 @@ fn completion_from_a_subdirectory_inserts_a_relative_path() {
     std::fs::create_dir_all(&target_dir).unwrap();
     let source = source_dir.join("current.plumb");
     let target = target_dir.join("target.plumb");
-    let source_text = "`->[Target";
+    let source_text = "`->{Target";
     std::fs::write(&source, source_text).unwrap();
-    std::fs::write(&target, "`= title|Target A\n\n`# Target\n  `@ target\n").unwrap();
+    std::fs::write(&target, "`= title Target A\n\n`# Target\n\n `@ target\n").unwrap();
     let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
     let source_uri = lsp_types::Url::from_file_path(&source).unwrap();
     let messages = [
@@ -376,13 +373,10 @@ fn completion_from_a_subdirectory_inserts_a_relative_path() {
         .as_array()
         .unwrap()
         .iter()
-        .find(|item| item["label"] == "Target A")
-        .expect("Target A completion");
-    assert_eq!(item["detail"], "../a/target.plumb");
-    assert_eq!(
-        item["textEdit"]["newText"],
-        "`->[Target A|../a/target.plumb]"
-    );
+        .find(|item| item["label"] == "../a/target.plumb")
+        .expect("relative target completion");
+    assert_eq!(item["detail"], "Target A");
+    assert_eq!(item["textEdit"]["newText"], "../a/target.plumb");
     std::fs::remove_dir_all(root).unwrap();
 }
 
@@ -396,9 +390,9 @@ fn completes_and_navigates_relative_verbatim_links_files_and_images() {
     let unicode_target = root.join("中文笔记 [草稿].plumb");
     let image = static_dir.join("image one.PNG");
     let attachment = static_dir.join("manual draft.pdf");
-    let source = "`->\"tar\"\n`->\"target note.plumb#an\"\n`img[Query|=[src|static/im]]\n`img[Missing|=[src|static/missing.png]]\n`->\"target note.plumb\"\n`img[Result|=[src|static/image one.PNG]]\n`->\"中文\"\n`->\"static/manual draft.pdf\"\n`->[manual|static/manual draft.pdf]\n`->\"static/missing guide.pdf\"\n";
+    let source = "`->\"tar\"\n`->\"target note.plumb#an\"\n`img{Query `={src static/im}}\n`img{Missing `={src static/missing.png}}\n`->\"target note.plumb\"\n`img{Result `={src {static/image one.PNG}}}\n`->\"中文\"\n`->\"static/manual draft.pdf\"\n`->{manual {static/manual draft.pdf}}\n`->\"static/missing guide.pdf\"\n";
     std::fs::write(&current, source).unwrap();
-    std::fs::write(&target, "`= title|Target note\n\n`# Anchor\n  `@ anchor\n").unwrap();
+    std::fs::write(&target, "`= title Target note\n\n`# Anchor\n\n `@ anchor\n").unwrap();
     std::fs::write(&unicode_target, "`# 中文笔记\n").unwrap();
     std::fs::write(&image, b"png").unwrap();
     std::fs::write(&attachment, b"pdf").unwrap();
@@ -681,13 +675,13 @@ fn completes_task_and_event_only_from_the_list_marker() {
     assert_eq!(list_item_items[2]["label"], "Link");
     assert_eq!(list_item_items[0]["insertTextMode"], 1);
     assert_eq!(list_item_items[1]["insertTextMode"], 1);
-    assert!(list_item_items[0]["textEdit"]["newText"]
-        .as_str()
-        .unwrap()
-        .starts_with("`- ${1:Task}\n\n  `+ task\n\n  `= created | "));
+    let task_text = list_item_items[0]["textEdit"]["newText"].as_str().unwrap();
+    assert!(task_text.starts_with("`- ${1:Task}"));
+    assert!(task_text.contains(" `+ task"));
+    assert!(task_text.contains(" `= created "));
     assert_eq!(
         list_item_items[1]["textEdit"]["newText"],
-        "`- ${1:09:00} | ${2:Event}\n\n  `+ event"
+        "`- ${1:09:00} ${2:Event}\n\n  `+ event"
     );
     assert!(response(&output, 6)["result"].is_null());
 
@@ -719,10 +713,10 @@ fn completes_task_and_event_only_from_the_list_marker() {
     ];
     let fallback_output = run_server(&fallback_messages);
     let fallback_items = response(&fallback_output, 2)["result"].as_array().unwrap();
-    assert_eq!(fallback_items.len(), 4);
+    assert_eq!(fallback_items.len(), 3);
     assert_eq!(fallback_items[0]["label"], "Task");
     let fallback_task = fallback_items[0]["textEdit"]["newText"].as_str().unwrap();
-    assert!(fallback_task.starts_with("`-\n `+ task\n\n `= created | "));
+    assert!(fallback_task.starts_with("`-\n `+ task\n\n `= created "));
     assert_eq!(fallback_items[0]["insertTextFormat"], 1);
     assert!(fallback_items[0].get("insertTextMode").is_none());
     std::fs::remove_dir_all(root).unwrap();
@@ -772,7 +766,7 @@ fn projects_nested_task_completion_for_adjusted_indentation() {
 
     let output = run_server(&messages);
     let items = response(&output, 2)["result"].as_array().unwrap();
-    assert_eq!(items.len(), 4);
+    assert_eq!(items.len(), 3);
     assert_eq!(items[0]["label"], "Task");
     assert_eq!(items[0]["insertTextMode"], 2);
     assert_eq!(
@@ -780,7 +774,9 @@ fn projects_nested_task_completion_for_adjusted_indentation() {
         json!({ "start": { "line": 2, "character": 1 }, "end": { "line": 2, "character": 3 } })
     );
     let replacement = items[0]["textEdit"]["newText"].as_str().unwrap();
-    assert!(replacement.starts_with("`- ${1:Task}\n\n `+ task\n\n `= created | "));
+    assert!(replacement.starts_with("`- ${1:Task}"));
+    assert!(replacement.contains(" `+ task"));
+    assert!(replacement.contains(" `= created "));
 
     let adjusted = replacement
         .replace("${1:Task}", "Task")
@@ -807,7 +803,7 @@ fn completes_task_construct_immediately_after_direct_declarations() {
     let root = unique_temp_dir();
     std::fs::create_dir_all(&root).unwrap();
     let document = root.join("current.plumb");
-    let source = "`- something\n\n `+ task\n\n `= created|2026-08-09T10:55:24+08:00\n\n`-";
+    let source = "`- something\n\n `+ task\n\n `= created 2026-08-09T10:55:24+08:00\n\n`-\n";
     std::fs::write(&document, source).unwrap();
     let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
     let document_uri = lsp_types::Url::from_file_path(&document).unwrap();
@@ -858,7 +854,7 @@ fn narrows_link_constructs_from_the_shared_marker_prefix() {
     let root = unique_temp_dir();
     std::fs::create_dir_all(&root).unwrap();
     let document = root.join("construct-prefixes.plumb");
-    let source = "Text `[\nText `-\nText `->\nText `->[\nText `->\"\n";
+    let source = "Text `[\nText `-\nText `->\nText `->{\nText `->\"\n";
     std::fs::write(&document, source).unwrap();
     let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
     let document_uri = lsp_types::Url::from_file_path(&document).unwrap();
@@ -928,7 +924,7 @@ fn narrows_link_constructs_from_the_shared_marker_prefix() {
         assert_eq!(items[0]["label"], "Link");
         assert_eq!(
             items[0]["textEdit"]["newText"],
-            "`->[${1:label}|${2:target}]"
+            "`->{{${1:label}} ${2:target}}"
         );
     }
 
@@ -957,7 +953,13 @@ fn completes_attributes_with_protocol_ranges_and_snippets() {
     std::fs::create_dir_all(&root).unwrap();
     let document = root.join("attributes.plumb");
     let source =
-        "`- Work\n  `+ task\n  `= created|now\n  `= pr\n`img[Alt|=[s]]\n`$[\"x\"|=[language|t]]\n";
+        "`- Work\n\n `+ task\n\n `= created now\n `= pr\n\n`img{Alt `={s}} `${\"x\" `={language t}}\n";
+    let lines = source.lines().collect::<Vec<_>>();
+    let priority_line = 5;
+    let resource_line = 7;
+    let priority_cursor = lines[priority_line].len();
+    let image_cursor = lines[resource_line].find("`={s").unwrap() + "`={s".len();
+    let language_cursor = lines[resource_line].find("language t").unwrap() + "language t".len();
     std::fs::write(&document, source).unwrap();
     let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
     let document_uri = lsp_types::Url::from_file_path(&document).unwrap();
@@ -982,17 +984,17 @@ fn completes_attributes_with_protocol_ranges_and_snippets() {
         json!({
             "jsonrpc": "2.0", "id": 2, "method": "textDocument/completion",
             "params": { "textDocument": { "uri": document_uri },
-                "position": { "line": 3, "character": 7 } }
+                "position": { "line": priority_line, "character": priority_cursor } }
         }),
         json!({
             "jsonrpc": "2.0", "id": 3, "method": "textDocument/completion",
             "params": { "textDocument": { "uri": document_uri },
-                "position": { "line": 4, "character": 12 } }
+                "position": { "line": resource_line, "character": image_cursor } }
         }),
         json!({
             "jsonrpc": "2.0", "id": 4, "method": "textDocument/completion",
             "params": { "textDocument": { "uri": document_uri },
-                "position": { "line": 5, "character": 19 } }
+                "position": { "line": resource_line, "character": language_cursor } }
         }),
         json!({ "jsonrpc": "2.0", "id": 5, "method": "shutdown", "params": null }),
         json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
@@ -1004,12 +1006,12 @@ fn completes_attributes_with_protocol_ranges_and_snippets() {
         .iter()
         .find(|item| item["label"] == "priority")
         .unwrap();
-    assert_eq!(priority["textEdit"]["newText"], "`= priority | ${1:0}");
-    assert_eq!(priority["textEdit"]["range"]["start"]["character"], 2);
+    assert_eq!(priority["textEdit"]["newText"], "`= priority ${1:0}");
+    assert_eq!(priority["textEdit"]["range"]["start"]["character"], 1);
     assert_eq!(priority["insertTextFormat"], 2);
     let image = &response(&output, 3)["result"][0];
     assert_eq!(image["label"], "src");
-    assert_eq!(image["textEdit"]["newText"], "=[src|${1}]");
+    assert_eq!(image["textEdit"]["newText"], "`={src ${1}}");
     let language = &response(&output, 4)["result"][0];
     assert_eq!(language["label"], "tex");
     assert_eq!(language["textEdit"]["newText"], "tex");
@@ -1021,7 +1023,7 @@ fn completes_recursive_direct_members() {
     let root = unique_temp_dir();
     std::fs::create_dir_all(&root).unwrap();
     let document = root.join("direct-completion.plumb");
-    let source = "`- Work\n  `+ task\n  `= pr\n`->[x|target|=[t]]\n";
+    let source = "`- Work\n\n `+ task\n\n `= pr\n\n`->{x target `={t}}\n";
     std::fs::write(&document, source).unwrap();
     let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
     let document_uri = lsp_types::Url::from_file_path(&document).unwrap();
@@ -1047,14 +1049,14 @@ fn completes_recursive_direct_members() {
             "jsonrpc": "2.0", "id": 2, "method": "textDocument/completion",
             "params": {
                 "textDocument": { "uri": document_uri },
-                "position": { "line": 2, "character": 7 }
+                "position": { "line": 4, "character": 5 }
             }
         }),
         json!({
             "jsonrpc": "2.0", "id": 3, "method": "textDocument/completion",
             "params": {
                 "textDocument": { "uri": document_uri },
-                "position": { "line": 3, "character": 19 }
+                "position": { "line": 6, "character": 19 }
             }
         }),
         json!({ "jsonrpc": "2.0", "id": 4, "method": "shutdown", "params": null }),
@@ -1068,7 +1070,7 @@ fn completes_recursive_direct_members() {
         .iter()
         .find(|item| item["label"] == "priority")
         .unwrap();
-    assert_eq!(priority["textEdit"]["newText"], "`= priority | ${1:0}");
+    assert_eq!(priority["textEdit"]["newText"], "`= priority ${1:0}");
     assert!(response(&output, 3)["result"].is_null());
     std::fs::remove_dir_all(root).unwrap();
 }

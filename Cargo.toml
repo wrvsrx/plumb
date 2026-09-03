@@ -1,10 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
-  "crates/plumb-syntax-legacy-v1",
-  "crates/plumb-syntax-legacy-v2",
   "crates/plumb-syntax",
-  "crates/plumb-migrate",
   "crates/plumb-edit",
   "crates/plumb-format",
   "crates/plumb-semantics",

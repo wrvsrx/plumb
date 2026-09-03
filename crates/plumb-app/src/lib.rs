@@ -2,7 +2,6 @@ pub mod cache_cli;
 mod folding;
 pub mod format_cli;
 mod hover;
-pub mod migrate_cli;
 mod position;
 mod search;
 mod semantic_tokens;

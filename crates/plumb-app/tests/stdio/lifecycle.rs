@@ -173,7 +173,7 @@ fn watched_file_create_indexes_the_new_document() {
     let target = root.join("topic.plumb");
     let source = root.join("index.plumb");
     std::fs::write(&target, "`# Topic\n  `@ topic\n").unwrap();
-    let source_text = "See `->[topic|topic.plumb#topic].\n";
+    let source_text = "See `->{topic topic.plumb#topic}.\n";
     let target_uri = lsp_types::Url::from_file_path(&target).unwrap();
     let source_uri = lsp_types::Url::from_file_path(&source).unwrap();
     let messages = [

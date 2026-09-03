@@ -140,15 +140,11 @@ impl Workspace {
                 return None;
             }
             Some(match std::fs::read_to_string(path) {
-                Ok(source) => {
-                    #[cfg(test)]
-                    let source = crate::documents::migrate_test_source(&source);
-                    Ok(ReadDocument {
-                        path: path.clone(),
-                        revision: revision_for(path),
-                        source,
-                    })
-                }
+                Ok(source) => Ok(ReadDocument {
+                    path: path.clone(),
+                    revision: revision_for(path),
+                    source,
+                }),
                 Err(error) => Err(BatchIndexFailure {
                     path: path.clone(),
                     message: error.to_string(),

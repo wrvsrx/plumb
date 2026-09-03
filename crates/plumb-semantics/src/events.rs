@@ -560,8 +560,8 @@ fn resolved_field(value: DateTime<FixedOffset>, when: &Option<EventField>) -> Ev
 
 #[cfg(test)]
 mod tests {
-    use crate::parse_legacy as parse;
     use chrono::DateTime;
+    use plumb_syntax::parse;
 
     use super::*;
 
@@ -577,7 +577,7 @@ mod tests {
 
     #[test]
     fn collects_event_facets_ranges_and_task_references() {
-        let source = "`= date|2026-07-30\n`= timezone|+08:00\n\n`- 14:00--15:30|Review\n `+ event\n `@ review\n `= tasks|#local Project A.plumb#remote\n\n `note Details\n\n `- 09:00|Follow-up\n  `+ event\n  `= date|2026-07-31\n";
+        let source = "`= date 2026-07-30\n`= timezone +08:00\n\n`- 14:00--15:30 Review\n\n `+ event\n\n `@ review\n\n `= tasks #local Project A.plumb#remote\n\n `note Details\n\n `- 09:00 Follow-up\n\n  `+ event\n\n  `= date 2026-07-31\n";
         let output = analyze(source);
         assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
         assert_eq!(output.events.len(), 2);
@@ -600,7 +600,7 @@ mod tests {
 
     #[test]
     fn diagnoses_invalid_event_heads_and_intervals() {
-        let source = "`= date|2026-07-30\n`= timezone|+08:00\n\n`node 10:00 Generic\n  `+ event\n\n`- 10:00|Valid\n `+ event\n`-\n `+ event\n`- tomorrow|Invalid when\n `+ event\n`- 11:00--11:00|Empty interval\n `+ event\n";
+        let source = "`= date 2026-07-30\n`= timezone +08:00\n\n`node {10:00 Generic}\n\n `+ event\n\n`- 10:00 Valid\n\n `+ event\n\n`- {}\n\n `+ event\n\n`- tomorrow Invalid when\n\n `+ event\n\n`- 11:00--11:00 Empty interval\n\n `+ event\n";
         let output = analyze(source);
         assert_eq!(output.events.len(), 4);
         assert_eq!(
@@ -621,7 +621,7 @@ mod tests {
 
     #[test]
     fn projects_direct_uid_property() {
-        let source = "`= date|2026-07-30\n`= timezone|+00:00\n\n`- 10:00|Review\n  `+ event\n  `= uid|calendar@example\n";
+        let source = "`= date 2026-07-30\n`= timezone +00:00\n\n`- 10:00 Review\n\n `+ event\n\n `= uid calendar@example\n";
         let output = analyze(source);
         assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
         assert_eq!(
@@ -632,7 +632,7 @@ mod tests {
 
     #[test]
     fn diagnoses_empty_explicit_uid_without_treating_it_as_missing() {
-        let source = "`- 2026-07-30T10:00:00Z|Review\n  `+ event\n  `= uid|`\"[]\"\n";
+        let source = "`- 2026-07-30T10:00:00Z Review\n\n `+ event\n\n `= uid `\"\"\n";
         let output = analyze(source);
         assert_eq!(output.events[0].uid.as_ref().unwrap().value, "");
         assert_eq!(
@@ -647,7 +647,7 @@ mod tests {
 
     #[test]
     fn overlap_uses_half_open_ranges_and_point_events() {
-        let source = "`= date|2026-07-30\n`= timezone|+00:00\n\n`- 10:00--11:00|Range\n `+ event\n`- 11:00|Point\n `+ event\n`- 23:40--00:00|Cross midnight\n `+ event\n";
+        let source = "`= date 2026-07-30\n`= timezone +00:00\n\n`- 10:00--11:00 Range\n\n `+ event\n\n`- 11:00 Point\n\n `+ event\n\n`- 23:40--00:00 Cross midnight\n\n `+ event\n";
         let output = analyze(source);
         let start = DateTime::parse_from_rfc3339("2026-07-30T10:30:00Z").unwrap();
         let end = DateTime::parse_from_rfc3339("2026-07-30T11:00:00Z").unwrap();
@@ -663,7 +663,7 @@ mod tests {
 
     #[test]
     fn old_datetime_fields_do_not_define_event_time() {
-        let source = "`- Old|title\n  `+ event\n  `= at|2026-07-30T10:00:00Z\n";
+        let source = "`- Old title\n\n `+ event\n\n `= at 2026-07-30T10:00:00Z\n";
         let output = analyze(source);
         assert!(output.events[0].sort_datetime().is_none());
         assert_eq!(output.diagnostics[0].code, "event.missing-date-context");
@@ -672,7 +672,7 @@ mod tests {
     #[test]
     fn rfc3339_metadata_date_supplies_date_and_offset() {
         let source =
-            "`= date|`\"2026-07-30T09:15:00+08:00\"\n\n`- 23:40--00:00|Cross midnight\n `+ event\n";
+            "`= date `\"2026-07-30T09:15:00+08:00\"\n\n`- 23:40--00:00 Cross midnight\n\n `+ event\n";
         let output = analyze(source);
         assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
         assert_eq!(
@@ -687,7 +687,7 @@ mod tests {
 
     #[test]
     fn date_and_timezone_context_follow_tree_scope() {
-        let source = "`= date|2026-07-30\n`= timezone|+08:00\n\n`div\n `= date|2026-07-31\n\n `- 09:00|Inherited date\n  `+ event\n `- 10:00|Timezone override\n  `+ event\n  `= timezone|+09:00\n\n  `- 11:00|Nested inheritance\n   `+ event\n\n`- 12:00|Root sibling\n `+ event\n";
+        let source = "`= date 2026-07-30\n`= timezone +08:00\n\n`div\n `= date 2026-07-31\n\n `- 09:00 Inherited date\n\n  `+ event\n\n `- 10:00 Timezone override\n\n  `+ event\n\n  `= timezone +09:00\n\n  `- 11:00 Nested inheritance\n\n   `+ event\n\n`- 12:00 Root sibling\n\n `+ event\n";
         let output = analyze(source);
         assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
         assert_eq!(
@@ -707,7 +707,7 @@ mod tests {
 
     #[test]
     fn when_start_can_override_date_or_complete_datetime() {
-        let source = "`= timezone|+08:00\n\n`- 2026-05-02T08--09:20|Local hour\n `+ event\n`- 2026-05-02T08:22--09:20|Local minute\n `+ event\n`- 2026-05-02T08:22:31+08:00--09:20|Zoned\n `+ event\n`- 2026-05-02T23:22:31Z--09:20|Zoned overnight\n  `+ event\n  `= timezone|invalid\n";
+        let source = "`= timezone +08:00\n\n`- 2026-05-02T08--09:20 Local hour\n\n `+ event\n\n`- 2026-05-02T08:22--09:20 Local minute\n\n `+ event\n\n`- 2026-05-02T08:22:31+08:00--09:20 Zoned\n\n `+ event\n\n`- 2026-05-02T23:22:31Z--09:20 Zoned overnight\n\n `+ event\n\n `= timezone invalid\n";
         let output = analyze(source);
         assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
         assert_eq!(
@@ -742,7 +742,7 @@ mod tests {
 
     #[test]
     fn dated_when_end_inherits_start_offset_and_supports_multi_day_intervals() {
-        let source = "`- 2026-05-02T08:22:31+08:00--2026-05-05T09:20:00|Multi-day\n `+ event\n`- 2026-05-02T23:22:31Z--2026-05-03T09:20|UTC\n `+ event\n";
+        let source = "`- 2026-05-02T08:22:31+08:00--2026-05-05T09:20:00 Multi-day\n\n `+ event\n\n`- 2026-05-02T23:22:31Z--2026-05-03T09:20 UTC\n\n `+ event\n";
         let output = analyze(source);
         assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
         assert_eq!(
@@ -757,7 +757,7 @@ mod tests {
 
     #[test]
     fn dated_when_end_rejects_timezone_and_non_increasing_intervals() {
-        let source = "`- 2026-05-02T08:22:31+08:00--2026-05-03T09:20:00+08:00|Zoned end\n `+ event\n`- 2026-05-02T08:22:31+08:00--2026-05-01T09:20|Before start\n `+ event\n`- 2026-05-02T08:22:31+08:00--2026-05-02T08:22:31|Equal\n `+ event\n";
+        let source = "`- 2026-05-02T08:22:31+08:00--2026-05-03T09:20:00+08:00 Zoned end\n\n `+ event\n\n`- 2026-05-02T08:22:31+08:00--2026-05-01T09:20 Before start\n\n `+ event\n\n`- 2026-05-02T08:22:31+08:00--2026-05-02T08:22:31 Equal\n\n `+ event\n";
         let output = analyze(source);
         assert_eq!(
             output
@@ -777,7 +777,7 @@ mod tests {
     #[test]
     fn zoned_when_start_requires_full_rfc3339_time() {
         let source =
-            "`- 2026-05-02T08+08:00|Hour\n `+ event\n`- 2026-05-02T08:22+08:00|Minute\n `+ event\n";
+            "`- 2026-05-02T08+08:00 Hour\n\n `+ event\n\n`- 2026-05-02T08:22+08:00 Minute\n\n `+ event\n";
         let output = analyze(source);
         assert_eq!(
             output
@@ -792,7 +792,7 @@ mod tests {
 
     #[test]
     fn complete_when_point_needs_no_inherited_context() {
-        let output = analyze("`- 2026-05-02T08:22:31+08:00|Point\n `+ event\n");
+        let output = analyze("`- 2026-05-02T08:22:31+08:00 Point\n\n `+ event\n");
         assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
         assert_eq!(
             output.events[0].at_datetime().unwrap().to_rfc3339(),
@@ -802,7 +802,7 @@ mod tests {
 
     #[test]
     fn metadata_uid_links_have_no_event_semantics() {
-        let source = "`= date|2026-07-30\n`= timezone|+08:00\n`= event-uids\n\n `- `->[mapped@example|#review]\n  `+ event\n\n`- 09:00|Review\n `+ event\n `@ review\n `= uid|inline@example\n";
+        let source = "`= date 2026-07-30\n`= timezone +08:00\n`= event-uids\n\n `- `->{mapped@example #review}\n\n  `+ event\n\n`- 09:00 Review\n\n `+ event\n\n `@ review\n\n `= uid inline@example\n";
         let output = analyze(source);
         assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
         assert_eq!(output.events[0].title, "Review");

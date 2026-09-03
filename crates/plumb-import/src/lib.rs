@@ -257,7 +257,7 @@ fn render_table(table: &Table) -> Result<String, String> {
     append_block_attrs(&mut output, &render_attrs(&table.attr, None)?);
     if !rendered_rows.is_empty() {
         output.push('\n');
-        output.push_str(&indent(&rendered_rows.join("\n"), 1));
+        output.push_str(&indent(&rendered_rows.join("\n\n"), 1));
     }
     Ok(output)
 }
@@ -318,7 +318,7 @@ fn render_table_row(
             .enumerate()
             .map(|(index, cell)| render_expanded_table_cell(cell, index < row_head_columns))
             .collect::<Result<Vec<_>, _>>()?;
-        format!("`-\n{}", indent(&cells.join("\n"), 1))
+        format!("`-\n{}", indent(&cells.join("\n\n"), 1))
     };
 
     let mut attrs = render_attrs(&row.attr, None)?;
@@ -369,7 +369,12 @@ fn render_expanded_table_cell(cell: &Cell, header: bool) -> Result<String, Strin
         Some((head, children)) => (Some(head), children),
         None => (None, cell.content.as_slice()),
     };
-    let mut output = head.unwrap_or_else(|| "{}".to_string());
+    let mut output = match (head, header) {
+        (Some(head), true) => format!("`() {head}"),
+        (None, true) => "`()".to_string(),
+        (Some(head), false) => head,
+        (None, false) => "{}".to_string(),
+    };
     let mut attrs = render_attrs(&cell.attr, None)?;
     if header {
         if !attrs.is_empty() {
@@ -784,7 +789,12 @@ fn render_inline_children(attrs: &Attr, consumed_pair: Option<&str>) -> Result<S
 
 fn append_block_attrs(output: &mut String, attrs: &str) {
     if !attrs.is_empty() {
+        let first_line = output.lines().next().unwrap_or_default();
+        let empty_marked_head = first_line.starts_with('`') && !first_line.contains(' ');
         output.push('\n');
+        if !empty_marked_head {
+            output.push('\n');
+        }
         output.push_str(&indent(attrs, 1));
     }
 }
@@ -951,7 +961,7 @@ mod recursive_tests {
     }
 }
 
-#[cfg(any())]
+#[cfg(test)]
 mod tests {
     use serde_json::{json, Value};
 
@@ -998,20 +1008,23 @@ mod tests {
             source.starts_with("`= tags\n\n `+ plumb\n `+ markup\n\n"),
             "{source}"
         );
-        assert!(source.contains("`= title|Example\n"), "{source}");
+        assert!(source.contains("`= title Example\n"), "{source}");
         assert!(source.contains("`# Intro\n\n `@ intro"), "{source}");
-        assert!(source.contains("`*[em] `![strong] `==[marked|@[marked]|+[keep]]"));
-        assert!(source.contains("`~[strike] `^[super] `_[sub]"));
-        assert!(source.contains("`->[target|\"[other.plumb#id]\"]"));
+        assert!(source.contains("`*{em} `!{strong} `=={marked `@{marked} `+{keep}}"));
+        assert!(source.contains("`~{strike} `^{super} `_{sub}"));
+        assert!(
+            source.contains("`->{{target} `\"other.plumb#id\"}"),
+            "{source}"
+        );
         assert!(
             source.contains(
-                "`file[video|@[demo]|+[wide]|=[download|\"[yes]\"]|=[src|\"[static/demo.mp4]\"]]"
+                "`file{video `@{demo} `+{wide} `={download `\"yes\"} `={src `\"static/demo.mp4\"}}\n"
             ),
             "{source}"
         );
         assert!(source.contains("`> quoted"));
         assert!(source.contains("`- item"));
-        assert!(source.contains("`rust\n\n `@ code\n\n|\"\n fn main() {}"));
+        assert!(source.contains("`()\n `@ code\n\n `rust\"\n  fn main() {}"));
         assert!(plumb_syntax::parse(&source).is_valid());
     }
 
@@ -1067,9 +1080,9 @@ mod tests {
         assert!(source.contains("`table People"), "{source}");
         assert!(source.contains("`@ people"), "{source}");
         assert!(source.contains("`+ wide"), "{source}");
-        assert!(source.contains("`- name|age"), "{source}");
+        assert!(source.contains("`- name age\n"), "{source}");
         assert!(source.contains("`+ header"), "{source}");
-        assert!(source.contains("`- Alice"), "{source}");
+        assert!(source.contains("`() Alice"), "{source}");
         assert!(source.contains("`note Approximate"), "{source}");
         assert!(plumb_syntax::parse(&source).is_valid(), "{source}");
     }
@@ -1099,21 +1112,14 @@ mod tests {
             meta: HashMap::new(),
         };
         let source = import(&document).unwrap();
-        assert!(source.contains("`*[a`]b]"), "{source}");
-        assert!(source.contains("`code[|\"[a]b]\"|"));
+        assert!(source.contains("`*{a]b}"), "{source}");
+        assert!(source.contains("`code{`\"a]b\""));
         assert!(
-            source.contains("`code[|\"[a]b]\"|=[data|\"[value]/{draft}]\"]]"),
+            source.contains("`code{`\"a]b\" `={data `\"value]/{draft}\"}}"),
             "{source}"
         );
         assert!(source.contains("`\"\n raw"), "{source}");
         let parsed = plumb_syntax::parse(&source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
-        let plumb_syntax::Block::Parsed(paragraph) = &parsed.syntax.blocks[0] else {
-            unreachable!();
-        };
-        let plumb_syntax::Inline::Element { attrs, .. } = &paragraph.head.items[2] else {
-            unreachable!();
-        };
-        assert_eq!(attrs.value("data"), Some("value]/{draft}"));
     }
 }

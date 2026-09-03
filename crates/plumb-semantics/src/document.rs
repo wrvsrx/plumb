@@ -1064,7 +1064,7 @@ pub(crate) fn attr_source_backed(source: &str, value: &AttrValue) -> SourceBacke
 
 #[cfg(test)]
 mod tests {
-    use crate::parse_legacy as parse;
+    use plumb_syntax::parse;
 
     use super::*;
 
@@ -1151,7 +1151,7 @@ mod tests {
     #[test]
     fn indexes_overlapping_event_containment_without_copying_links() {
         let parsed = parse(
-            "`->[Before|before.plumb]\n\n`- 10:00|Outer `->[Outer|outer.plumb]\n `+ event\n `- 11:00|Nested `->[Nested|nested.plumb]\n  `+ event\n\n`->[After|after.plumb]\n",
+            "`->{Before before.plumb}\n\n`- 10:00 {Outer `->{Outer outer.plumb}}\n `+ event\n `- 11:00 {Nested `->{Nested nested.plumb}}\n  `+ event\n\n`->{After after.plumb}\n",
         );
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let output = analyze_document(parsed.valid_syntax().unwrap());
@@ -1317,7 +1317,7 @@ mod tests {
 
     #[test]
     fn recognizes_standard_images_and_diagnoses_invalid_sources() {
-        let source = "`img[Alt `em[text]|=[src|\"[static/图 像(100%).png]\"]|@[figure]|+[wide]|=[loading|lazy]]\n`img[|=[src|https://example.test/a.png]]\n`img[Missing]\n`img[Empty|=[src|]]\n`img[Invalid URI|=[src|\"[https://example.test/bad path.png]\"]]\n`img[Invalid path|=[src|bad\\path.png]]\n";
+        let source = "`img{{Alt `*{text}} `={src `\"static/图 像(100%).png\"} `@{figure} `+{wide} `={loading lazy}}\n`img{`={src https://example.test/a.png}}\n`img{Missing}\n`img{Empty `={src {}}}\n`img{{Invalid URI} `={src `\"https://example.test/bad path.png\"}}\n`img{{Invalid path} `={src bad\\path.png}}\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
@@ -1352,7 +1352,7 @@ mod tests {
 
     #[test]
     fn recognizes_standard_files_and_diagnoses_invalid_sources() {
-        let source = "`file[Demo|=[src|\"[static/demo video.mp4]\"]|@[demo]|+[wide]]\n`file[Remote|=[src|https://example.test/demo.mp4]]\n`file[Missing]\n`file[Empty|=[src|]]\n`file[Invalid URI|=[src|\"[https://example.test/bad path.mp4]\"]]\n`file[Invalid path|=[src|bad\\path.mp4]]\n";
+        let source = "`file{Demo `={src `\"static/demo video.mp4\"} `@{demo} `+{wide}}\n`file{Remote `={src https://example.test/demo.mp4}}\n`file{Missing}\n`file{Empty `={src {}}}\n`file{{Invalid URI} `={src `\"https://example.test/bad path.mp4\"}}\n`file{{Invalid path} `={src bad\\path.mp4}}\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
@@ -1387,7 +1387,7 @@ mod tests {
 
     #[test]
     fn diagnoses_invalid_derived_link_targets_and_ignores_arrow_facets() {
-        let source = "`->\"[]\"\n`->\"https://example.test/bad path\"\n`->\"https://example.test/%zz\"\n`->\"doc.plumb#one#two\"\n`span[text|+[->]]\n\n`note head\n `+ ->\n\n`()\n `+ ->\n\n|\"\n raw\n";
+        let source = "`->\"\"\n`->\"https://example.test/bad path\"\n`->\"https://example.test/%zz\"\n`->\"doc.plumb#one#two\"\n`span{text `+{->}}\n\n`note head\n `+ ->\n\n`()\n `+ ->\n\n `\"\n  raw\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
