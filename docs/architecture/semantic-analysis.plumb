@@ -54,8 +54,16 @@ analysis dependencies 通过 Rust types、函数 inputs 和固定 pipeline 明�
 
 `## 6.1 Green-identity incremental document semantics
 
-Status：尚未实现。当前 released pipeline 仍从每个 valid revision 全量建立 DocumentOutput；以下 contract 是正在
-实现的 replacement boundary。
+Status：phase 1 已实现。open-document cache warm 在 blocking worker 建立 green syntax 与 semantic revisions；
+event、citation、inline-style、math、quote、task 与 list facts 使用 relative shard ranges，并以 syntax `"Arc"
+identity 与 event document-context key复用。LSP byte change provenance贯穿 workspace/syntax；warm result 与 semantic
+result 都通过 path、revision、parsed/output allocation identity guard安装。edit抢先于 warm completion 时使用
+previous-revision absolute incremental fallback，不等待 cache。
+
+当前 headings、metadata、tables、association/anchor/link/image/file reducers仍从 compatibility `"ParsedDocument"
+或 absolute `"DocumentOutput" 计算；部分 query仍通过 compatibility projection取得 owned records。green root尚未
+成为唯一 semantic authority，semantic equality也尚未驱动 workspace dependency invalidation。以下完整 contract
+仍是这些剩余阶段的 replacement boundary。
 
 document semantics 直接消费 syntax red views，并以 green node allocation identity、semantic analyzer version 与
 explicit inherited-context key 缓存 shard-local facts。pointer-identical green subtree 只有在 context key 相同

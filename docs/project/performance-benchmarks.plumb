@@ -18,6 +18,8 @@ Deterministic fixtures 必须使用当前 strict syntax，并在 benchmark timin
 `- `"semantic_store_task_queries_1408"：CEL filters、relations、state、sort、cursor、candidate pushdown 和 selected TaskRecord hydration。
 `- `"workspace_diagnostic_round_8_of_176"：diagnostic dependency context reuse。
 `- `"open_document_generation_33512"：didChange parse stage、background semantics 与 synchronous baseline。
+  同组分别测量 document cache warm、edit 抢先时的 unwarmed fallback、warm green semantic revision，以及独立
+  green event revision/materialization；不得把 background warm CPU time计入 event-loop latency。
 `- `"incremental_parse_33512"：在同一 large document 的 start/middle/end 执行单字节 edit，分别测量 fresh 与
   previous-revision incremental strict parse；benchmark-only green shard prototype 另测 unknown/known edit range、
   pointer reuse、owned materialization 与 destruction。所有路径在 timing 外验证完整 ParsedDocument parity 与

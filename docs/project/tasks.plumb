@@ -1,3 +1,23 @@
 `= title plumb tasks
 
 本页只记录可以直接实施和验收的工作。方向、约束和 deferred design 继续放在 `->{roadmap roadmap.plumb}；已经结束的任务及其验收记录保存在 `->{{completed tasks} completed-tasks.plumb}。
+
+`- Make green syntax the sole recovered representation
+ `+ task
+ `@ green-red-syntax-views
+ `= created 2026-09-05T03:24:13+08:00
+
+ Replace eager absolute-range ParsedDocument storage with typed red views over GreenDocument. Migrate folding,
+ completion, formatting/editing and semantic inputs without reparsing or full-document materialization. Preserve
+ fresh/incremental lossless and diagnostic parity, deep-tree stack safety, and current editor behavior. Acceptance
+ requires didOpen and didChange end-to-end benchmarks with no common-path regression.
+
+`- Finish green semantic reducers and workspace deltas
+ `+ task
+ `@ green-semantic-reducers
+ `= created 2026-09-05T03:24:13+08:00
+
+ Move headings, metadata, tables, association/anchor/link/image/file facts to relative green semantic shards and
+ persistent reducers. Replace remaining eager compatibility projections in hot queries with borrowed red views.
+ Publish added/changed/removed exported summaries so pure layout or semantically equal edits do not invalidate
+ unrelated workspace dependency computations. Differential tests must cover every rule listed in semantic-analysis.

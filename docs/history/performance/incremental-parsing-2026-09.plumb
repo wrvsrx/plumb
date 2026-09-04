@@ -73,3 +73,25 @@ documents 中强制局部 reuse；character-boundary regression 对代表 source
 还必须分别测量 fresh parse、snapshot lifecycle 与 full document semantics。当前 semantics 仍约 168 ms，syntax
 revision 降到 sub-millisecond 后会成为下一主要瓶颈；仅将 tree-sitter incremental CST 放在 strict parser 前面
 不构成收益。
+
+`# Production phase 1
+
+后续 implementation 将 top-level relative green shards提升到 plumb-syntax API，并让 LSP 单 ranged change 的 byte
+provenance贯穿 workspace。2.11 MB fixture 的 production green fresh parse midpoint 为 98.5--99.1 ms，known-edit
+revision 为 0.779--0.880 ms；materialize旧 absolute ParsedDocument 仍需 62.6--63.5 ms，因此 workspace 主线程暂时
+继续安装现有 incremental ParsedDocument，green cache在 didOpen 后由 blocking worker预热。
+
+semantic component profile 的 midpoint：events 78.18 ms、lists 15.13 ms、headings 1.58 ms、metadata 2.25 ms、
+citations 3.16 ms、inline styles 3.24 ms、math 4.69 ms、quotes 1.50 ms、tasks 4.80 ms、tables 1.58 ms，完整
+DocumentOutput 166.10 ms。phase 1 将 events、citations/styles/math/quotes/tasks 与 lists保存为 syntax-identity keyed
+relative semantic shards；event date/timezone形成 explicit context key，context变化时不复用。
+
+完整 open-document semantic baseline 在同轮测量约 171.7 ms。edit抢在 cache warm 前到达时 absolute incremental
+fallback 为 79.68 ms；warm green steady-state 为 66.27 ms，相对完整分析减少约 61%。didOpen后的独立
+`"document_cache_warm" worker 为 256.94 ms，不阻塞 event loop；stale cache通过 path/revision/parsed/output
+identity拒绝。green event revision自身为 4.43 ms；旧 EventOutput eager materialization 为 18.29 ms，phase 1
+已让 open revision持有 lazy green event records与 list groups，不在 semantic analysis阶段执行该投影。
+
+这些结果仍不是完整 red-view architecture。headings、metadata、tables、association与 resource records保留现有
+reducers；compatibility ParsedDocument 仍在主线程构造。后续任务分别迁移 syntax consumers与剩余 semantic
+reducers，并用 exported-summary equality缩小 workspace invalidation。

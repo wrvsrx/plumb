@@ -118,8 +118,11 @@ ParsedDocument 的 source、tree、diagnostic order、validity、token kinds/ran
 
 `## 9.1 Production green/red target
 
-Status：尚未实现。当前 released implementation 仍使用上一段的 owned-node copy/rebase；以下 contract 是正在实现
-的 replacement boundary。
+Status：phase 1 已实现。`"GreenDocument" 以 top-level source region 为 relative-range immutable shards，known
+`"SourceChange" 直接构造 revision并复用 unchanged `"Arc<GreenShard>"；fresh/incremental property tests 证明
+materialized compatibility tree 与 strict fresh parse 相等。当前 `"ParsedDocument" 仍是多数 syntax/edit consumers
+使用的 eager absolute-range compatibility representation，green root 尚未成为唯一 authoritative storage；以下
+其余 contract 仍是 replacement boundary。
 
 每个 syntax revision 以 immutable green root 为 authoritative recovered representation。green node/token 保存
 kind、children/source text 与 subtree byte length，range 相对该 subtree；不保存 parent、revision absolute offset 或
