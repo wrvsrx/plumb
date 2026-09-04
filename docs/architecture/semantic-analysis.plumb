@@ -52,6 +52,38 @@ declarations后的 zero-or-more visible elements。Citation仍是 exactly-one po
 
 analysis dependencies 通过 Rust types、函数 inputs 和固定 pipeline 明确表达。workspace 以 document revision、configuration 和直接 dependency output identity 形成 cache/invalidation boundary。document change 只 invalidates 直接或传递依赖其 outputs 的 computations；实现可以先采用整体 document output， 但不得声称不存在的动态 descriptor 或任意 output registry。
 
+`## 6.1 Green-identity incremental document semantics
+
+Status：尚未实现。当前 released pipeline 仍从每个 valid revision 全量建立 DocumentOutput；以下 contract 是正在
+实现的 replacement boundary。
+
+document semantics 直接消费 syntax red views，并以 green node allocation identity、semantic analyzer version 与
+explicit inherited-context key 缓存 shard-local facts。pointer-identical green subtree 只有在 context key 相同
+时才能复用；date/timezone、task/event depth、table structural role 与其它 ancestor-derived input 必须进入 key。
+changed syntax 不必产生 changed semantics：重新计算的 local summary 与旧 summary 相等时，向 ancestor、following
+context 与 workspace dependents 的传播停止。
+
+跨 shard 规则由 typed document reducers 拥有，不能伪装成 local cache。reducers 至少维护 heading hierarchy 与
+section ends、list/definition adjacency、document metadata first-value/duplicate diagnostics、duplicate anchor ids、
+source order、event-link containment 和 table/task/event nesting summaries。reducer state 使用 persistent/chunked
+collections或等价结构；局部 revision 不得为了返回现有 Vec API eager clone/rebase 全部 records。
+
+semantic record 的 authoritative location 由 green owner identity 加 node-relative range 表示。adapter/query 通过
+current red revision投影 absolute byte/LSP ranges；persistent SQLite generation仍写入稳定 revision 的 absolute
+ranges，但该 serialization projection 不回流为 open-document semantic authority。
+
+SemanticRevision 输出 changed/added/removed record identities与 document exported-summary equality。workspace 只在
+exported facts 变化时 invalidates直接或传递 dependents；纯 layout edit、或 changed syntax 产生相同 semantic summary
+时，不得重建无关 dependency graph。current invalid syntax仍不进入 authoritative semantics，并保留原 last-valid
+provenance。
+
+验收必须 differential compare fresh/incremental semantic revisions，覆盖 valid/invalid transitions、UTF-8/CRLF、
+metadata context change、heading/list boundary、duplicate id、nested task/event/table、link containment 与 file-start
+range shift。测试另需证明 unchanged green identity 命中 cache、context change强制重算、semantic equality停止传播，
+以及 adapter projection与现有 observable DocumentOutput/diagnostics完全一致。benchmark 分别报告 syntax revision、
+local analysis、document reduction、absolute projection、workspace publication 与 destruction，不以省略后续阶段的
+microbenchmark 代替 end-to-end result。
+
 workspace analysis 必须声明需要 complete index，还是可以返回标明 provenance/completeness 的 partial result。依赖 output 缺失时，应返回 dependency/completeness failure，不能猜测 negative semantic result。
 
 protocol-neutral workspace query 统一返回 `"Result<QueryResult<T>, WorkspaceQueryError>"。 `"QueryResult" 分别携带 value、`"Complete"/`"Partial" completeness 与 `"Memory"、`"Persistent" 或 `"PersistentWithOverlay" provenance；不得要求 consumer 从空 collection、false 或 missing value 猜测 这些状态。需要完整结果的调用方显式调用 complete requirement，partial result 因而成为 `"WorkspaceQueryError::Incomplete"。persistent store、decode 或 lock failure 由 `"WorkspaceQueryError::Store" 保留 source error；不得 `"unwrap_or_default"、`"if let Ok" 或转换成完整 negative result。adapter 拥有的 scan/index completeness 与 query-local completeness 作逻辑与，并把 failure 映射为 protocol error，而不是 source diagnostic。

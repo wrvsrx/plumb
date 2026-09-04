@@ -116,6 +116,27 @@ ParsedDocument 的 source、tree、diagnostic order、validity、token kinds/ran
 必须分别报告 reparsed byte range、incremental parse 和 fresh parse；若 edit 使整个 document 落入 reparsed range，
 实现直接使用 fresh path，不把它报告为 reuse。
 
+`## 9.1 Production green/red target
+
+Status：尚未实现。当前 released implementation 仍使用上一段的 owned-node copy/rebase；以下 contract 是正在实现
+的 replacement boundary。
+
+每个 syntax revision 以 immutable green root 为 authoritative recovered representation。green node/token 保存
+kind、children/source text 与 subtree byte length，range 相对该 subtree；不保存 parent、revision absolute offset 或
+可变 identity。未变化 subtree 跨 revision 复用同一 allocation。red view 将 green node 与 revision root/path 组合，
+按 preceding sibling lengths 计算 parent、siblings 与 absolute UTF-8 range；typed Block/Inline/Mark/Attributes view
+不得为整个 document eager materialize 第二棵 absolute-range owned tree。
+
+incremental entry 接受 ordered byte edits，而不只接受 final source。它验证 edits 属于 previous revision、按顺序
+应用并产生 old/new affected ranges、reparsed green roots 与 reused identities。LSP UTF-16 range 只在 adapter/line
+index boundary 转成 byte edits；workspace 与 syntax 不重新比较完整 old/new source 来恢复已经存在的 provenance。
+无法证明 stable owner boundary 时允许扩大 reparse 或 fresh fallback，但 observable tree/diagnostics 必须继续与 fresh
+parse 相等。
+
+lossless tokens、syntax diagnostics 与 generic declaration projection 是 green tree 的 typed views，不另存一份
+full-document flat mutable range graph。需要 source-ordered flat token stream 的 consumer 可以遍历 red view；该投影
+可以缓存于 revision，但不得在局部 edit 后逐 token rebase unchanged suffix。
+
 `# 10. Lenient tree and identity
 
 tree-sitter mirror 只服务 editor ergonomics。fresh/full/incremental parses 必须在同 source 上产生等价 current
