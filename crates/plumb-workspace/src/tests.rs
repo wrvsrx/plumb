@@ -599,7 +599,7 @@ fn document_revisions_preserve_fresh_parse_results_across_structural_edits() {
     workspace.begin_document_revision("note.plumb", 2, changed);
 
     let current = workspace.get("note.plumb").unwrap();
-    assert_eq!(current.parsed.as_ref(), &plumb_syntax::parse(changed));
+    assert_eq!(&**current.parsed, &plumb_syntax::parse(changed));
 }
 
 #[test]
@@ -639,6 +639,55 @@ fn document_revision_analysis_matches_fresh_semantics_after_local_edit() {
         .unwrap();
     assert_eq!(current.output.as_ref(), &fresh);
     assert_eq!(current.output.reused_semantic_node_count(), 4);
+}
+
+#[test]
+fn green_revision_common_path_does_not_materialize_absolute_syntax() {
+    let old = "`= timezone +08:00\n\n`- 2026-09-05T09:00:00+08:00 Event\n `+ event\n";
+    let start = old.find("Event").unwrap();
+    let mut changed = old.to_string();
+    changed.insert_str(start, "Changed ");
+    let mut workspace = Workspace::new();
+    workspace.insert("events.plumb", 1, old);
+
+    let pending = workspace
+        .begin_document_revision_with_change(
+            "events.plumb",
+            2,
+            changed,
+            Some(plumb_syntax::SourceChange {
+                old_range: start..start,
+                new_range: start..start + "Changed ".len(),
+            }),
+        )
+        .unwrap();
+    assert!(!workspace
+        .get("events.plumb")
+        .unwrap()
+        .parsed
+        .is_materialized());
+    assert!(!pending.parsed.is_materialized());
+
+    let prepared = pending.analyze();
+    assert!(!prepared.parsed.is_materialized());
+    assert!(workspace.install_document_analysis(prepared));
+    assert!(!workspace
+        .get("events.plumb")
+        .unwrap()
+        .parsed
+        .is_materialized());
+}
+
+#[test]
+fn invalid_green_revision_exposes_diagnostics_without_materializing() {
+    let mut workspace = Workspace::new();
+    assert!(workspace
+        .begin_document_revision("invalid.plumb", 1, "`broken{\n")
+        .is_none());
+    let entry = workspace.get("invalid.plumb").unwrap();
+    assert!(!entry.parsed.is_materialized());
+    assert!(!entry.parsed.diagnostics().is_empty());
+    assert!(!entry.parsed.is_materialized());
 }
 
 #[test]

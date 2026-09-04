@@ -531,7 +531,7 @@ pub fn analyze_document(valid: ValidDocument<'_>) -> DocumentOutput {
     let syntax = Arc::new(plumb_syntax::GreenDocument::parse(
         valid.source().to_string(),
     ));
-    analyze_semantic_tree(valid, syntax, None, None)
+    analyze_semantic_tree(Some(valid), syntax, None, None)
         .expect("a valid document produces a valid semantic tree")
 }
 
@@ -539,7 +539,7 @@ pub fn analyze_green_document(
     valid: ValidDocument<'_>,
     syntax: Arc<plumb_syntax::GreenDocument>,
 ) -> Option<DocumentOutput> {
-    analyze_semantic_tree(valid, syntax, None, None)
+    analyze_semantic_tree(Some(valid), syntax, None, None)
 }
 
 pub fn analyze_document_incremental(
@@ -559,23 +559,32 @@ pub fn analyze_document_incremental(
         new_range: revision.reparsed_range,
     };
     let syntax = Arc::new(revision.document);
-    analyze_semantic_tree(valid, syntax, Some(previous), Some(&tree_change))
+    analyze_semantic_tree(Some(valid), syntax, Some(previous), Some(&tree_change))
         .expect("a valid document produces a valid semantic tree")
 }
 
+pub fn analyze_green_document_incremental(
+    syntax: Arc<plumb_syntax::GreenDocument>,
+    previous: &DocumentOutput,
+    change: &DocumentChange,
+) -> Option<DocumentOutput> {
+    analyze_semantic_tree(None, syntax, Some(previous), Some(change))
+}
+
 fn analyze_semantic_tree(
-    valid: ValidDocument<'_>,
+    valid: Option<ValidDocument<'_>>,
     syntax: Arc<plumb_syntax::GreenDocument>,
     previous: Option<&DocumentOutput>,
     change: Option<&DocumentChange>,
 ) -> Option<DocumentOutput> {
-    if valid.source() != syntax.source() || !syntax.is_valid() {
+    if !syntax.is_valid() || valid.is_some_and(|valid| valid.source() != syntax.source()) {
         return None;
     }
-    let reusable_metadata = previous.filter(|previous| can_reuse_metadata(previous, valid, change));
+    let reusable_metadata =
+        previous.filter(|previous| can_reuse_metadata(previous, &syntax, change));
     let metadata = reusable_metadata
         .map(|previous| previous.metadata().clone())
-        .unwrap_or_else(|| analyze_metadata(valid));
+        .or_else(|| valid.map(analyze_metadata))?;
     let document_declaration_end = reusable_metadata.map_or_else(
         || document_declaration_end(&syntax),
         |previous| previous.root.document_declaration_end,
@@ -583,22 +592,27 @@ fn analyze_semantic_tree(
     let headings = previous
         .filter(|previous| {
             previous.headings().headings.is_empty()
-                && !changed_blocks(valid, change).any(block_contains_heading)
+                && !changed_green_blocks(&syntax, change).any(block_contains_heading)
         })
         .map(|previous| previous.headings().clone())
-        .unwrap_or_else(|| analyze_headings(valid));
+        .or_else(|| valid.map(analyze_headings))?;
     let reusable = previous.filter(|previous| previous.metadata() == &metadata);
-    let fresh = reusable.is_none().then(|| FreshSemanticOutput {
-        citations: analyze_citations(valid),
-        inline_styles: analyze_inline_styles(valid),
-        math: analyze_math(valid),
-        quotes: analyze_quotes(valid),
-        tasks: analyze_tasks(valid),
-        events: analyze_events(valid, &metadata),
-        tables: analyze_tables(valid),
-        records: collect_document_records(valid.source(), valid.syntax(), &headings),
-        association_diagnostics: association_arity_diagnostics(valid.syntax()),
-    });
+    let fresh = if reusable.is_none() {
+        let valid = valid?;
+        Some(FreshSemanticOutput {
+            citations: analyze_citations(valid),
+            inline_styles: analyze_inline_styles(valid),
+            math: analyze_math(valid),
+            quotes: analyze_quotes(valid),
+            tasks: analyze_tasks(valid),
+            events: analyze_events(valid, &metadata),
+            tables: analyze_tables(valid),
+            records: collect_document_records(valid.source(), valid.syntax(), &headings),
+            association_diagnostics: association_arity_diagnostics(valid.syntax()),
+        })
+    } else {
+        None
+    };
     let fresh_nodes = fresh.as_ref().map(|fresh| nodes_from_fresh(fresh, &syntax));
     let reusable_nodes = reusable_node_indices(reusable, &syntax, change);
     let mut cache_hits = 0;
@@ -877,7 +891,7 @@ fn document_declaration_end(syntax: &plumb_syntax::GreenDocument) -> usize {
 
 fn can_reuse_metadata(
     previous: &DocumentOutput,
-    valid: ValidDocument<'_>,
+    syntax: &plumb_syntax::GreenDocument,
     change: Option<&DocumentChange>,
 ) -> bool {
     let Some(change) = change else {
@@ -886,21 +900,20 @@ fn can_reuse_metadata(
     if change.old_range.start < previous.root.document_declaration_end {
         return false;
     }
-    !changed_blocks(valid, Some(change)).any(crate::is_document_declaration)
+    !changed_green_blocks(syntax, Some(change)).any(crate::is_document_declaration)
 }
 
-fn changed_blocks<'a>(
-    valid: ValidDocument<'a>,
+fn changed_green_blocks<'a>(
+    syntax: &'a plumb_syntax::GreenDocument,
     change: Option<&DocumentChange>,
 ) -> impl Iterator<Item = &'a Block> {
-    let blocks = &valid.syntax().blocks;
     let range = change
         .map(|change| change.new_range.clone())
-        .unwrap_or(0..valid.source().len());
-    let start = blocks.partition_point(|block| block.range().end <= range.start);
-    blocks[start..]
-        .iter()
-        .take_while(move |block| block.range().start < range.end)
+        .unwrap_or(0..syntax.source().len());
+    syntax
+        .shards()
+        .filter(move |view| view.range().start < range.end && range.start < view.range().end)
+        .filter_map(|view| view.shard().parsed().syntax.blocks.first())
 }
 
 fn block_contains_heading(block: &Block) -> bool {

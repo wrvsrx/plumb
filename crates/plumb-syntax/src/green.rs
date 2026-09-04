@@ -2,12 +2,15 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use crate::parser::{parse, shift_attributes, shift_blocks, shift_diagnostics, shift_tokens};
-use crate::{AttrItem, Attributes, Document, LosslessTree, ParsedDocument, SourceChange};
+use crate::{
+    AttrItem, Attributes, Diagnostic, Document, LosslessTree, ParsedDocument, SourceChange,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GreenDocument {
     source: String,
     shards: Vec<Arc<GreenShard>>,
+    invalid_shards: usize,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -39,8 +42,16 @@ impl GreenDocument {
                     parsed: parse(source[window[0]..window[1]].to_string()),
                 })
             })
-            .collect();
-        Self { source, shards }
+            .collect::<Vec<_>>();
+        let invalid_shards = shards
+            .iter()
+            .filter(|shard| !shard.parsed.is_valid())
+            .count();
+        Self {
+            source,
+            shards,
+            invalid_shards,
+        }
     }
 
     pub fn reparse(&self, source: impl Into<String>) -> GreenParse {
@@ -91,23 +102,36 @@ impl GreenDocument {
             };
         }
 
+        let mut invalid_shards = 0;
         let mut shards = self
             .shards
             .iter()
             .zip(starts.iter().copied())
             .take_while(|(shard, start)| *start + shard.parsed.source.len() <= old_start)
-            .map(|(shard, _)| Arc::clone(shard))
+            .map(|(shard, _)| {
+                invalid_shards += usize::from(!shard.parsed.is_valid());
+                Arc::clone(shard)
+            })
             .collect::<Vec<_>>();
-        shards.extend(Self::parse(source[old_start..new_end].to_string()).shards);
+        let changed = Self::parse(source[old_start..new_end].to_string());
+        invalid_shards += changed.invalid_shards;
+        shards.extend(changed.shards);
         shards.extend(
             self.shards
                 .iter()
                 .zip(starts.iter().copied())
                 .filter(|(_, start)| *start >= old_end)
-                .map(|(shard, _)| Arc::clone(shard)),
+                .map(|(shard, _)| {
+                    invalid_shards += usize::from(!shard.parsed.is_valid());
+                    Arc::clone(shard)
+                }),
         );
         GreenParse {
-            document: Self { source, shards },
+            document: Self {
+                source,
+                shards,
+                invalid_shards,
+            },
             old_reparsed_range: old_start..old_end,
             reparsed_range: old_start..new_end,
         }
@@ -118,7 +142,21 @@ impl GreenDocument {
     }
 
     pub fn is_valid(&self) -> bool {
-        self.shards.iter().all(|shard| shard.parsed.is_valid())
+        self.invalid_shards == 0
+    }
+
+    pub fn diagnostics(&self) -> Vec<Diagnostic> {
+        if self.is_valid() {
+            return Vec::new();
+        }
+        let mut diagnostics = Vec::new();
+        for view in self.shards() {
+            let mut local = view.shard.parsed.diagnostics.clone();
+            shift_diagnostics(&mut local, view.offset as isize);
+            diagnostics.append(&mut local);
+        }
+        diagnostics.sort_by_key(|diagnostic| (diagnostic.range.start, diagnostic.range.end));
+        diagnostics
     }
 
     pub fn shards(&self) -> impl ExactSizeIterator<Item = GreenShardView<'_>> {

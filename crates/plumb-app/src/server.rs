@@ -280,7 +280,7 @@ impl ServerState {
         }
         let diagnostics = diagnostics
             .into_iter()
-            .map(|diagnostic| to_lsp_diagnostic(&entry.parsed.source, uri, diagnostic))
+            .map(|diagnostic| to_lsp_diagnostic(entry.parsed.source(), uri, diagnostic))
             .collect();
         let version = i32::try_from(entry.revision).ok();
         let _ = self
@@ -1046,7 +1046,7 @@ impl LanguageServer for ServerState {
             tracing::warn!(uri = %document.uri, "ignored didChange without a current document snapshot");
             return ControlFlow::Continue(());
         };
-        let text = entry.parsed.source.clone();
+        let text = entry.parsed.source().to_string();
         let line_index = self
             .open_document_line_indexes
             .get(&path)

@@ -15,7 +15,9 @@ fn green_materialization_matches_fresh_parse_for_structural_cases() {
         "\tinvalid structural tab\nnext\n",
     ] {
         let green = GreenDocument::parse(source);
-        assert_eq!(green.materialize(), parse(source), "{source:?}");
+        let fresh = parse(source);
+        assert_eq!(green.diagnostics(), fresh.diagnostics, "{source:?}");
+        assert_eq!(green.materialize(), fresh, "{source:?}");
     }
 }
 
@@ -52,7 +54,10 @@ fn green_reparse_reuses_unchanged_shards_across_range_shifts() {
 proptest! {
     #[test]
     fn arbitrary_green_documents_materialize_like_fresh_parse(source in any::<String>()) {
-        prop_assert_eq!(GreenDocument::parse(source.clone()).materialize(), parse(source));
+        let green = GreenDocument::parse(source.clone());
+        let fresh = parse(source);
+        prop_assert_eq!(green.diagnostics(), fresh.diagnostics.clone());
+        prop_assert_eq!(green.materialize(), fresh);
     }
 
     #[test]
@@ -61,6 +66,9 @@ proptest! {
         new in any::<String>(),
     ) {
         let green = GreenDocument::parse(old);
-        prop_assert_eq!(green.reparse(new.clone()).document.materialize(), parse(new));
+        let revision = green.reparse(new.clone()).document;
+        let fresh = parse(new);
+        prop_assert_eq!(revision.diagnostics(), fresh.diagnostics.clone());
+        prop_assert_eq!(revision.materialize(), fresh);
     }
 }

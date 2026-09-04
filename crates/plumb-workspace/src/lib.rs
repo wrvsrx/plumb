@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
+use std::ops::Deref;
 use std::path::{Component, Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveTime, SecondsFormat, TimeZone, Timelike};
 pub use plumb_edit::{apply_text_edits, TextEdit};
@@ -9,7 +10,8 @@ use plumb_edit::{
     AttributePosition, EditSession, OwnedAttribute, OwnedBlock, OwnedInline,
 };
 use plumb_semantics::{
-    analyze_document, analyze_document_incremental, analyze_green_document, DocumentChange,
+    analyze_document, analyze_document_incremental, analyze_green_document,
+    analyze_green_document_incremental, DocumentChange,
 };
 use plumb_semantics::{
     parse_task_reference_target, AnchorRecord, DocumentOutput, EventRecord, LinkCompletionContext,
@@ -388,41 +390,97 @@ pub struct VersionedDocumentOutput {
 pub struct DocumentEntry {
     pub path: PathBuf,
     pub revision: i64,
-    pub parsed: Arc<ParsedDocument>,
+    pub parsed: Arc<DocumentRevision>,
     pub current: Option<Arc<VersionedDocumentOutput>>,
     pub last_valid: Option<Arc<VersionedDocumentOutput>>,
+}
+
+#[derive(Debug)]
+pub struct DocumentRevision {
+    green: Arc<GreenDocument>,
+    diagnostics: Vec<Diagnostic>,
+    materialized: OnceLock<ParsedDocument>,
+}
+
+impl DocumentRevision {
+    fn from_green(green: Arc<GreenDocument>) -> Self {
+        let diagnostics = green.diagnostics();
+        Self {
+            green,
+            diagnostics,
+            materialized: OnceLock::new(),
+        }
+    }
+
+    pub fn source(&self) -> &str {
+        self.green.source()
+    }
+
+    pub fn is_valid(&self) -> bool {
+        self.diagnostics.is_empty()
+    }
+
+    pub fn diagnostics(&self) -> &[Diagnostic] {
+        &self.diagnostics
+    }
+
+    pub fn green(&self) -> &Arc<GreenDocument> {
+        &self.green
+    }
+
+    pub fn is_materialized(&self) -> bool {
+        self.materialized.get().is_some()
+    }
+}
+
+impl Deref for DocumentRevision {
+    type Target = ParsedDocument;
+
+    fn deref(&self) -> &Self::Target {
+        self.materialized.get_or_init(|| self.green.materialize())
+    }
 }
 
 #[derive(Debug, Clone)]
 pub struct PendingDocumentAnalysis {
     path: PathBuf,
     revision: i64,
-    parsed: Arc<ParsedDocument>,
+    parsed: Arc<DocumentRevision>,
     previous_output: Option<Arc<DocumentOutput>>,
     change: Option<DocumentChange>,
-    fresh_syntax: Option<Arc<GreenDocument>>,
 }
 
 #[derive(Debug)]
 pub struct PreparedDocumentAnalysis {
     path: PathBuf,
     revision: i64,
-    parsed: Arc<ParsedDocument>,
+    parsed: Arc<DocumentRevision>,
     output: Arc<DocumentOutput>,
 }
 
 impl PendingDocumentAnalysis {
     pub fn analyze(self) -> PreparedDocumentAnalysis {
-        let valid = self
-            .parsed
-            .valid_syntax()
-            .expect("pending semantic analysis requires valid syntax");
         let output = match (&self.previous_output, &self.change) {
-            (Some(previous), Some(change)) => analyze_document_incremental(valid, previous, change),
-            _ => self
-                .fresh_syntax
-                .and_then(|syntax| analyze_green_document(valid, syntax))
-                .unwrap_or_else(|| analyze_document(valid)),
+            (Some(previous), Some(change)) => analyze_green_document_incremental(
+                Arc::clone(self.parsed.green()),
+                previous,
+                change,
+            )
+            .unwrap_or_else(|| {
+                let valid = self
+                    .parsed
+                    .valid_syntax()
+                    .expect("pending semantic analysis requires valid syntax");
+                analyze_document_incremental(valid, previous, change)
+            }),
+            _ => {
+                let valid = self
+                    .parsed
+                    .valid_syntax()
+                    .expect("pending semantic analysis requires valid syntax");
+                analyze_green_document(valid, Arc::clone(self.parsed.green()))
+                    .unwrap_or_else(|| analyze_document(valid))
+            }
         };
         PreparedDocumentAnalysis {
             path: self.path,
@@ -1872,7 +1930,7 @@ impl Workspace {
         let Some(entry) = self.documents.get(&path) else {
             return Ok(self.query_result(Vec::new()));
         };
-        let mut diagnostics = entry.parsed.diagnostics.clone();
+        let mut diagnostics = entry.parsed.diagnostics().to_vec();
         let Some(current) = &entry.current else {
             return Ok(self.query_result(diagnostics));
         };
