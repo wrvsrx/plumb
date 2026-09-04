@@ -138,6 +138,14 @@ impl Workspace {
         let previous_output = previous
             .and_then(|entry| entry.current.as_ref())
             .map(|current| Arc::clone(&current.output));
+        let previous_parsed = previous.map(|entry| Arc::clone(&entry.parsed));
+        let previous_green_syntax = previous
+            .and_then(|entry| entry.current.as_ref())
+            .and_then(|current| current.green_syntax.clone());
+        let previous_green_semantics = previous
+            .and_then(|entry| entry.current.as_ref())
+            .and_then(|current| current.green_semantics.clone());
+        let pending_source_change = source_change.clone();
         let (parsed, change) = match previous {
             Some(entry) => {
                 let incremental = match source_change {
@@ -173,6 +181,10 @@ impl Workspace {
             parsed,
             previous_output,
             change,
+            previous_parsed,
+            previous_green_syntax,
+            previous_green_semantics,
+            source_change: pending_source_change,
         })
     }
 
@@ -186,6 +198,8 @@ impl Workspace {
         let current = Arc::new(VersionedDocumentOutput {
             revision: analysis.revision,
             output: analysis.output,
+            green_syntax: analysis.green_syntax,
+            green_semantics: analysis.green_semantics,
         });
         entry.current = Some(Arc::clone(&current));
         entry.last_valid = Some(current);
@@ -212,6 +226,10 @@ impl Workspace {
             parsed: Arc::clone(&entry.parsed),
             previous_output: None,
             change: None,
+            previous_parsed: None,
+            previous_green_syntax: None,
+            previous_green_semantics: None,
+            source_change: None,
         };
         self.install_document_analysis(pending.analyze())
     }
@@ -245,6 +263,8 @@ impl Workspace {
             Err(output) => Arc::new(VersionedDocumentOutput {
                 revision,
                 output: Arc::clone(&output.output),
+                green_syntax: output.green_syntax.clone(),
+                green_semantics: output.green_semantics.clone(),
             }),
         };
         entry.current = Some(rebound.clone());
@@ -337,6 +357,8 @@ fn document_entry_from_source(path: PathBuf, revision: i64, source: &str) -> Doc
         Arc::new(VersionedDocumentOutput {
             revision,
             output: Arc::new(analyze_document(valid)),
+            green_syntax: None,
+            green_semantics: None,
         })
     });
     DocumentEntry {

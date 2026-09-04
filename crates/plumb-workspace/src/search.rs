@@ -281,18 +281,19 @@ impl Workspace {
                 }
             }
             if kind.is_none_or(|kind| kind == SearchRecordKind::Event) {
-                for event in &current.output.events.events {
-                    let id = event.id.as_ref().map(|id| id.value.clone());
+                for event in current.output.events.events.views() {
+                    let id = event.id_value().map(str::to_string);
                     let fields = [
-                        event.title.as_str(),
+                        event.title(),
                         id.as_deref().unwrap_or_default(),
                         relative_path.as_str(),
                     ];
                     let Some(score) = search_score(query, &fields) else {
                         continue;
                     };
+                    let event = event.to_owned();
                     if let Some(filter) = &filter {
-                        if !filter.event_matches(&root, &entry.path, event)? {
+                        if !filter.event_matches(&root, &entry.path, &event)? {
                             continue;
                         }
                     }
@@ -546,7 +547,7 @@ impl Workspace {
         let mut matches = Vec::new();
         let mut source_starts = HashMap::<(u8, PathBuf, usize, usize), usize>::new();
         let mut open_tasks = HashMap::<StoredTaskKey, &TaskRecord>::new();
-        let mut open_events = HashMap::<StoredEventSourceKey, (i64, &EventRecord)>::new();
+        let mut open_events = HashMap::<StoredEventSourceKey, (i64, EventRecord)>::new();
         let mut task_facts = Vec::<SearchTaskFact>::new();
         let mut task_relations = Vec::<SearchTaskRelation>::new();
 
@@ -1170,7 +1171,7 @@ fn hydrate_selected_search_records(
     matches: &mut [(i64, SearchRecord)],
     source_starts: &HashMap<(u8, PathBuf, usize, usize), usize>,
     open_tasks: &HashMap<StoredTaskKey, &TaskRecord>,
-    open_events: &HashMap<StoredEventSourceKey, (i64, &EventRecord)>,
+    open_events: &HashMap<StoredEventSourceKey, (i64, EventRecord)>,
 ) -> Result<(), super::WorkspaceQueryError> {
     let mut stored_tasks = HashMap::<StoredTaskKey, TaskRecord>::new();
     let mut stored_events = HashMap::<StoredEventSourceKey, EventRecord>::new();
@@ -1254,8 +1255,8 @@ fn hydrate_selected_search_records(
                 };
                 let event = open_events
                     .get(&key)
-                    .map(|(_, event)| *event)
-                    .or_else(|| stored_events.get(&key))
+                    .map(|(_, event)| event.clone())
+                    .or_else(|| stored_events.get(&key).cloned())
                     .ok_or(super::StoreError::InvalidStoredValue)?;
                 record.at = event.at.as_ref().map(|field| field.value.clone());
                 record.start = event.start.as_ref().map(|field| field.value.clone());

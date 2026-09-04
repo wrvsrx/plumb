@@ -1655,10 +1655,10 @@ fn insert_output(
                     .eq(interval_start.map(|value| value.timestamp_millis())),
                 events::interval_end_millis
                     .eq(event.end_datetime().map(|value| value.timestamp_millis())),
-                events::record.eq(encode(event)?),
+                events::record.eq(encode(&event)?),
             ))
             .execute(connection)?;
-        for association in projected_event_task_associations(path, output, event) {
+        for association in projected_event_task_associations(path, output, &event) {
             diesel::insert_into(event_task_associations::table)
                 .values((
                     event_task_associations::source_path.eq(encoded_path.clone()),
@@ -2230,8 +2230,8 @@ mod tests {
             "`- 10:00 Second\n\n `+ event\n\n `@ second\n",
         );
         let output = analyzed(source);
-        let first_start = output.events.events[0].range.start;
-        let second = &output.events.events[1];
+        let first_start = output.events.events.get(0).unwrap().range.start;
+        let second = output.events.events.get(1).unwrap();
         store
             .replace(Path::new("events.plumb"), 7, source, Some(&output))
             .unwrap();
@@ -2610,8 +2610,8 @@ mod tests {
             "`- 2026-08-28T11:00 Explicit\n\n `+ event\n\n `= tasks tasks.plumb#task\n",
         );
         let output = analyzed(source);
-        let first_start = output.events.events[0].range.start;
-        let second_start = output.events.events[1].range.start;
+        let first_start = output.events.events.get(0).unwrap().range.start;
+        let second_start = output.events.events.get(1).unwrap().range.start;
         store
             .replace(Path::new("events.plumb"), 7, source, Some(&output))
             .unwrap();

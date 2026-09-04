@@ -1,7 +1,7 @@
 use lsp_types::{DocumentSymbol, SymbolKind};
 use plumb_semantics::{
-    AnchorRecord, EventRecord, Heading, MetadataBlock, MetadataEntry, MetadataValue, TaskRecord,
-    TaskState,
+    AnchorRecord, EventRecord, EventRecords, Heading, MetadataBlock, MetadataEntry, MetadataValue,
+    TaskRecord, TaskState,
 };
 
 use crate::position::byte_range_to_lsp;
@@ -117,9 +117,10 @@ fn task_symbol(source: &str, task: &TaskRecord) -> DocumentSymbol {
     }
 }
 
-pub(crate) fn events(source: &str, events: &[EventRecord]) -> Vec<DocumentSymbol> {
+pub(crate) fn events(source: &str, events: &EventRecords) -> Vec<DocumentSymbol> {
+    let events = events.iter().collect::<Vec<_>>();
     nested_symbols(
-        events,
+        &events,
         |event| event.depth,
         |event| event_symbol(source, event),
     )

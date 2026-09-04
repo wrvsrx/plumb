@@ -979,7 +979,7 @@ impl WebWorkspace {
                     end: event.end.as_ref().map(|field| field.value.clone()),
                     tasks: self
                         .workspace
-                        .event_task_references(&entry.path, event)
+                        .event_task_references(&entry.path, &event)
                         .map_err(|error| error.to_string())?
                         .value
                         .into_iter()
@@ -1135,7 +1135,6 @@ impl WebWorkspace {
             .events
             .iter()
             .find(|event| event.range.start == start)
-            .cloned()
             .ok_or("selected event is unavailable")?;
         let boundary = WorkspaceEventCursor {
             sort_millis: event.sort_datetime().map(|value| value.timestamp_millis()),
@@ -1213,6 +1212,8 @@ impl WebWorkspace {
                         .events
                         .events
                         .iter()
+                        .collect::<Vec<_>>()
+                        .into_iter()
                         .rev()
                         .find(|event| event.title == input.title)
                 })

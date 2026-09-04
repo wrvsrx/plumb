@@ -1754,7 +1754,7 @@ impl LanguageServer for ServerState {
                     )),
                 }));
             }
-            if let Some(event) = self.workspace.event_at(&path, offset).cloned() {
+            if let Some(event) = self.workspace.event_at(&path, offset) {
                 let Some(entry) = self.workspace.get(&path) else {
                     return Ok(None);
                 };

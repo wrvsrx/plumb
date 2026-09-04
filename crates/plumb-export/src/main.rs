@@ -173,7 +173,7 @@ fn lower_block_refs(blocks: &[&Block], analysis: &DocumentOutput) -> Vec<Value> 
             }
             if let Some(group) = analysis.lists.group_at_node_start(block.range.start) {
                 let end = index + group.items.len();
-                output.push(lower_list_group(&blocks[index..end], group, analysis));
+                output.push(lower_list_group(&blocks[index..end], &group, analysis));
                 index = end;
                 continue;
             }

@@ -1,4 +1,5 @@
 use std::ops::Range;
+use std::sync::Arc;
 
 use plumb_syntax::{Block, ParsedBlock, ValidDocument};
 
@@ -23,12 +24,101 @@ pub struct ListGroup {
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ListOutput {
-    pub groups: Vec<ListGroup>,
+    pub groups: ListGroups,
+}
+
+#[derive(Debug, Clone)]
+pub struct ListGroups {
+    storage: ListGroupStorage,
+}
+
+#[derive(Debug, Clone)]
+enum ListGroupStorage {
+    Owned(Vec<ListGroup>),
+    Green(Arc<crate::GreenListRevision>),
+}
+
+impl Default for ListGroups {
+    fn default() -> Self {
+        Self {
+            storage: ListGroupStorage::Owned(Vec::new()),
+        }
+    }
+}
+
+impl PartialEq for ListGroups {
+    fn eq(&self, other: &Self) -> bool {
+        self.iter().eq(other.iter())
+    }
+}
+
+impl Eq for ListGroups {}
+
+impl ListGroups {
+    pub fn len(&self) -> usize {
+        self.iter().count()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    pub fn get(&self, index: usize) -> Option<ListGroup> {
+        self.iter().nth(index)
+    }
+
+    pub fn iter(&self) -> Box<dyn Iterator<Item = ListGroup> + '_> {
+        match &self.storage {
+            ListGroupStorage::Owned(groups) => Box::new(groups.iter().cloned()),
+            ListGroupStorage::Green(revision) => {
+                Box::new(revision.materialize().groups.into_owned().into_iter())
+            }
+        }
+    }
+
+    pub(crate) fn push(&mut self, group: ListGroup) {
+        match &mut self.storage {
+            ListGroupStorage::Owned(groups) => groups.push(group),
+            ListGroupStorage::Green(_) => panic!("cannot append to an analyzed green revision"),
+        }
+    }
+
+    pub(crate) fn sort_by_start(&mut self) {
+        match &mut self.storage {
+            ListGroupStorage::Owned(groups) => groups.sort_by_key(|group| group.range.start),
+            ListGroupStorage::Green(_) => panic!("cannot sort an analyzed green revision"),
+        }
+    }
+
+    pub(crate) fn from_owned(groups: Vec<ListGroup>) -> Self {
+        Self {
+            storage: ListGroupStorage::Owned(groups),
+        }
+    }
+
+    pub(crate) fn from_green(revision: Arc<crate::GreenListRevision>) -> Self {
+        Self {
+            storage: ListGroupStorage::Green(revision),
+        }
+    }
+
+    pub(crate) fn into_owned(self) -> Vec<ListGroup> {
+        match self.storage {
+            ListGroupStorage::Owned(groups) => groups,
+            ListGroupStorage::Green(revision) => revision.materialize().groups.into_owned(),
+        }
+    }
 }
 
 impl ListOutput {
-    pub fn group_at_node_start(&self, start: usize) -> Option<&ListGroup> {
+    pub fn group_at_node_start(&self, start: usize) -> Option<ListGroup> {
         self.groups.iter().find(|group| group.range.start == start)
+    }
+
+    pub(crate) fn from_green(revision: Arc<crate::GreenListRevision>) -> Self {
+        Self {
+            groups: ListGroups::from_green(revision),
+        }
     }
 }
 
@@ -42,7 +132,7 @@ pub fn analyze_lists(valid: ValidDocument<'_>) -> ListOutput {
             .filter(|block| !crate::is_document_declaration(block)),
         &mut output,
     );
-    output.groups.sort_by_key(|group| group.range.start);
+    output.groups.sort_by_start();
     output
 }
 
@@ -148,20 +238,18 @@ mod tests {
                 .valid_syntax()
                 .expect("semantic analysis requires valid syntax"),
         );
-        assert_eq!(output.groups.len(), 3);
-        assert_eq!(output.groups[0].kind, ListKind::Bullet);
-        assert_eq!(output.groups[0].items.len(), 2);
-        assert_eq!(output.groups[1].items.len(), 2);
-        assert_eq!(output.groups[2].items.len(), 1);
-        assert!(output
-            .groups
+        let groups = output.groups.iter().collect::<Vec<_>>();
+        assert_eq!(groups.len(), 3);
+        assert_eq!(groups[0].kind, ListKind::Bullet);
+        assert_eq!(groups[0].items.len(), 2);
+        assert_eq!(groups[1].items.len(), 2);
+        assert_eq!(groups[2].items.len(), 1);
+        assert!(groups
             .windows(2)
             .all(|groups| groups[0].range.start < groups[1].range.start));
         assert_eq!(
-            output
-                .group_at_node_start(output.groups[0].range.start)
-                .unwrap(),
-            &output.groups[0]
+            output.group_at_node_start(groups[0].range.start).unwrap(),
+            groups[0]
         );
     }
 
@@ -177,15 +265,16 @@ mod tests {
                 .valid_syntax()
                 .expect("semantic analysis requires valid syntax"),
         );
-        assert_eq!(output.groups.len(), 4);
-        assert_eq!(output.groups[0].kind, ListKind::Bullet);
-        assert_eq!(output.groups[0].items.len(), 1);
-        assert_eq!(output.groups[1].kind, ListKind::Ordered);
-        assert_eq!(output.groups[1].items.len(), 2);
-        assert_eq!(output.groups[2].kind, ListKind::Ordered);
-        assert_eq!(output.groups[2].items.len(), 1);
-        assert_eq!(output.groups[3].kind, ListKind::Bullet);
-        assert_eq!(output.groups[3].items.len(), 1);
+        let groups = output.groups.iter().collect::<Vec<_>>();
+        assert_eq!(groups.len(), 4);
+        assert_eq!(groups[0].kind, ListKind::Bullet);
+        assert_eq!(groups[0].items.len(), 1);
+        assert_eq!(groups[1].kind, ListKind::Ordered);
+        assert_eq!(groups[1].items.len(), 2);
+        assert_eq!(groups[2].kind, ListKind::Ordered);
+        assert_eq!(groups[2].items.len(), 1);
+        assert_eq!(groups[3].kind, ListKind::Bullet);
+        assert_eq!(groups[3].items.len(), 1);
     }
 
     #[test]
@@ -198,8 +287,9 @@ mod tests {
                 .valid_syntax()
                 .expect("semantic analysis requires valid syntax"),
         );
+        let group = output.groups.get(0).unwrap();
         assert_eq!(output.groups.len(), 1);
-        assert_eq!(output.groups[0].range.start, "`item Generic block\n".len());
+        assert_eq!(group.range.start, "`item Generic block\n".len());
     }
 
     #[test]
@@ -212,8 +302,9 @@ mod tests {
                 .valid_syntax()
                 .expect("semantic analysis requires valid syntax"),
         );
+        let group = output.groups.get(0).unwrap();
         assert_eq!(output.groups.len(), 1);
-        assert_eq!(output.groups[0].items.len(), 2);
+        assert_eq!(group.items.len(), 2);
     }
 
     #[test]
@@ -224,11 +315,12 @@ mod tests {
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
         let output = analyze_lists(parsed.valid_syntax().unwrap());
+        let group = output.groups.get(0).unwrap();
         assert_eq!(output.groups.len(), 1);
-        assert_eq!(output.groups[0].items.len(), 1);
+        assert_eq!(group.items.len(), 1);
         let nested = "nested item";
         assert_eq!(
-            output.groups[0].range.start,
+            group.range.start,
             parsed.source.find(nested).unwrap() - "`- ".len()
         );
     }

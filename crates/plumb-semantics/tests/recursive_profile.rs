@@ -42,8 +42,8 @@ fn projects_metadata_tasks_events_and_document_structure() {
     assert_eq!(output.tasks.tasks.len(), 1);
     assert_eq!(output.tasks.tasks[0].title, "Implement parser");
     assert_eq!(output.events.events.len(), 1);
-    assert_eq!(output.events.events[0].title, "Parser review");
-    assert!(output.events.events[0].start.is_some());
+    assert_eq!(output.events.events.get(0).unwrap().title, "Parser review");
+    assert!(output.events.events.get(0).unwrap().start.is_some());
 }
 
 #[test]
@@ -103,7 +103,10 @@ fn first_rest_consumers_bind_trailing_elements_and_ignore_declarations() {
         "prefix`!{strong}suffix"
     );
     assert_eq!(output.events.events.len(), 1);
-    assert_eq!(output.events.events[0].title, "Parser review meeting");
+    assert_eq!(
+        output.events.events.get(0).unwrap().title,
+        "Parser review meeting"
+    );
 }
 
 #[test]

@@ -8,8 +8,11 @@ use criterion::{criterion_group, criterion_main, BatchSize, BenchmarkId, Criteri
 use plumb_semantics::{
     analyze_citations, analyze_document, analyze_events, analyze_headings, analyze_inline_styles,
     analyze_lists, analyze_math, analyze_metadata, analyze_quotes, analyze_tables, analyze_tasks,
+    GreenEventRevision,
 };
-use plumb_syntax::{parse, parse_incremental};
+use plumb_syntax::{
+    parse, parse_incremental, GreenDocument as ProductionGreenDocument, SourceChange,
+};
 use plumb_workspace::{
     search_score, BatchIndexOptions, SearchRecordKind, SqliteSemanticStore, TaskPageQuery,
     TaskQueryFilter, TaskQueryFilterGroup, TaskRef, TaskSortOrder, Workspace,
@@ -575,15 +578,50 @@ fn benchmark_open_document_generation(c: &mut Criterion) {
         );
     });
     let changed = changed_event_title(&source, source.len() / 2);
+    let changed_start = source
+        .bytes()
+        .zip(changed.bytes())
+        .position(|(old, new)| old != new)
+        .unwrap();
+    let changed_source = SourceChange {
+        old_range: changed_start..changed_start + 1,
+        new_range: changed_start..changed_start + 1,
+    };
     let mut previous_workspace = Workspace::new();
     previous_workspace.insert("events.plumb", 1, source.clone());
     let mut incremental_workspace = previous_workspace.clone();
     let incremental_pending = incremental_workspace
-        .begin_document_revision("events.plumb", 2, changed.clone())
+        .begin_document_revision_with_change(
+            "events.plumb",
+            2,
+            changed.clone(),
+            Some(changed_source.clone()),
+        )
         .unwrap();
     assert!(incremental_workspace.install_document_analysis(incremental_pending.clone().analyze()));
     let fresh = parse(changed.clone());
     let fresh_output = analyze_document(fresh.valid_syntax().unwrap());
+    let green = ProductionGreenDocument::parse(source.clone());
+    let green_events = GreenEventRevision::analyze(
+        &green,
+        &previous_workspace
+            .get("events.plumb")
+            .unwrap()
+            .current
+            .as_ref()
+            .unwrap()
+            .output
+            .metadata,
+        None,
+    )
+    .unwrap();
+    let changed_green = green
+        .reparse_from_change(changed.clone(), changed_source.clone())
+        .document;
+    let changed_metadata = &fresh_output.metadata;
+    let changed_green_events =
+        GreenEventRevision::analyze(&changed_green, changed_metadata, Some(&green_events)).unwrap();
+    assert_eq!(changed_green_events.materialize(), fresh_output.events);
     assert_eq!(
         incremental_workspace
             .get("events.plumb")
@@ -595,11 +633,51 @@ fn benchmark_open_document_generation(c: &mut Criterion) {
             .as_ref(),
         &fresh_output
     );
+    let warm_changed = changed.replacen("Event 167", "Changed event 167", 1);
+    let warm_start = changed.find("Event 167").unwrap();
+    let warm_change = SourceChange {
+        old_range: warm_start..warm_start + "Event 167".len(),
+        new_range: warm_start..warm_start + "Changed event 167".len(),
+    };
+    let warm_pending = incremental_workspace
+        .begin_document_revision_with_change(
+            "events.plumb",
+            3,
+            warm_changed.clone(),
+            Some(warm_change),
+        )
+        .unwrap();
+    let mut warm_workspace = incremental_workspace.clone();
+    assert!(warm_workspace.install_document_analysis(warm_pending.clone().analyze()));
+    let warm_fresh = parse(warm_changed);
+    let warm_fresh = analyze_document(warm_fresh.valid_syntax().unwrap());
+    assert_eq!(
+        warm_workspace
+            .get("events.plumb")
+            .unwrap()
+            .current
+            .as_ref()
+            .unwrap()
+            .output
+            .as_ref(),
+        &warm_fresh
+    );
     group.bench_function("did_change_parse_stage", |b| {
         b.iter_batched(
-            || (previous_workspace.clone(), changed.clone()),
-            |(mut workspace, source)| {
-                black_box(workspace.begin_document_revision("events.plumb", 2, source))
+            || {
+                (
+                    previous_workspace.clone(),
+                    changed.clone(),
+                    changed_source.clone(),
+                )
+            },
+            |(mut workspace, source, change)| {
+                black_box(workspace.begin_document_revision_with_change(
+                    "events.plumb",
+                    2,
+                    source,
+                    Some(change),
+                ))
             },
             BatchSize::LargeInput,
         );
@@ -607,8 +685,22 @@ fn benchmark_open_document_generation(c: &mut Criterion) {
     group.bench_function("background_semantic_stage", |b| {
         b.iter(|| black_box(pending.clone().analyze()))
     });
-    group.bench_function("incremental_semantic_stage", |b| {
+    group.bench_function("incremental_semantic_cold_green", |b| {
         b.iter(|| black_box(incremental_pending.clone().analyze()))
+    });
+    group.bench_function("incremental_semantic_warm_green", |b| {
+        b.iter(|| black_box(warm_pending.clone().analyze()))
+    });
+    group.bench_function("green_event_revision", |b| {
+        b.iter(|| {
+            black_box(
+                GreenEventRevision::analyze(&changed_green, changed_metadata, Some(&green_events))
+                    .unwrap(),
+            )
+        })
+    });
+    group.bench_function("green_event_materialize", |b| {
+        b.iter(|| black_box(changed_green_events.materialize()))
     });
     group.finish();
 }
@@ -633,6 +725,7 @@ fn benchmark_incremental_parse(c: &mut Criterion) {
     let (_, source) = workload(count, count / 10, "");
     let previous = parse(source.clone());
     let green_previous = GreenDocument::parse(source.clone());
+    let production_green_previous = ProductionGreenDocument::parse(source.clone());
     eprintln!("green_tree_shards/33512: {}", green_previous.shard_count());
     let mut group = c.benchmark_group("incremental_parse_33512");
     group.sample_size(10);
@@ -648,6 +741,10 @@ fn benchmark_incremental_parse(c: &mut Criterion) {
             .position(|(old, new)| old != new)
             .expect("benchmark edit changes one byte");
         let changed_range = changed_start..changed_start + 1;
+        let source_change = SourceChange {
+            old_range: changed_range.clone(),
+            new_range: changed_range.clone(),
+        };
         let incremental = parse_incremental(&previous, changed.clone());
         let fresh = parse(changed.clone());
         assert_eq!(incremental.document, fresh);
@@ -707,6 +804,22 @@ fn benchmark_incremental_parse(c: &mut Criterion) {
                 )
             },
         );
+        group.bench_with_input(
+            BenchmarkId::new("production_green_revision_known_edit", position),
+            &changed,
+            |b, changed| {
+                b.iter_batched(
+                    || changed.clone(),
+                    |changed| {
+                        black_box(
+                            production_green_previous
+                                .reparse_from_change(changed, source_change.clone()),
+                        )
+                    },
+                    BatchSize::LargeInput,
+                )
+            },
+        );
         group.bench_function(BenchmarkId::new("green_materialize_owned", position), |b| {
             b.iter_batched(
                 || (),
@@ -725,6 +838,27 @@ fn benchmark_incremental_parse(c: &mut Criterion) {
                 BatchSize::LargeInput,
             )
         });
+        group.bench_function(BenchmarkId::new("production_green_fresh", position), |b| {
+            b.iter_batched(
+                || changed.clone(),
+                |changed| black_box(ProductionGreenDocument::parse(changed)),
+                BatchSize::LargeInput,
+            )
+        });
+        let production_green = production_green_previous
+            .reparse_from_change(changed.clone(), source_change.clone())
+            .document;
+        assert_eq!(production_green.materialize(), fresh);
+        group.bench_function(
+            BenchmarkId::new("production_green_materialize_owned", position),
+            |b| {
+                b.iter_batched(
+                    || (),
+                    |()| black_box(production_green.materialize()),
+                    BatchSize::LargeInput,
+                )
+            },
+        );
         group.bench_with_input(
             BenchmarkId::new("green_revision_and_materialize", position),
             &changed,
@@ -915,7 +1049,7 @@ fn benchmark_event_containment(c: &mut Criterion) {
     let source = event_containment_source(2_000);
     let parsed = parse(&source);
     let output = analyze_document(parsed.valid_syntax().unwrap());
-    let event = &output.events.events[1_000];
+    let event = output.events.events.get(1_000).unwrap();
     let legacy = || {
         let first = output
             .links

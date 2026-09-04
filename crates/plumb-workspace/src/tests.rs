@@ -605,18 +605,53 @@ fn document_revision_analysis_matches_fresh_semantics_after_local_edit() {
         .unwrap();
     assert!(workspace.install_document_analysis(pending.analyze()));
 
-    let fresh = plumb_syntax::parse(changed);
+    let fresh = plumb_syntax::parse(&changed);
     let fresh = plumb_semantics::analyze_document(fresh.valid_syntax().unwrap());
+    let current = workspace
+        .get("events.plumb")
+        .unwrap()
+        .current
+        .as_ref()
+        .unwrap();
+    assert_eq!(current.output.as_ref(), &fresh);
     assert_eq!(
-        workspace
-            .get("events.plumb")
-            .unwrap()
-            .current
-            .as_ref()
-            .unwrap()
-            .output
-            .as_ref(),
-        &fresh
+        current.green_semantics.as_ref().unwrap().event_cache_hits(),
+        4
+    );
+    assert_eq!(
+        current.green_semantics.as_ref().unwrap().local_cache_hits(),
+        Some(0)
+    );
+    assert_eq!(
+        current.green_semantics.as_ref().unwrap().list_cache_hits(),
+        Some(0)
+    );
+
+    let next = changed.replace("Last", "Changed last");
+    let pending = workspace
+        .begin_document_revision("events.plumb", 3, next.clone())
+        .unwrap();
+    assert!(workspace.install_document_analysis(pending.analyze()));
+    let fresh = plumb_syntax::parse(next);
+    let fresh = plumb_semantics::analyze_document(fresh.valid_syntax().unwrap());
+    let current = workspace
+        .get("events.plumb")
+        .unwrap()
+        .current
+        .as_ref()
+        .unwrap();
+    assert_eq!(current.output.as_ref(), &fresh);
+    assert_eq!(
+        current.green_semantics.as_ref().unwrap().event_cache_hits(),
+        4
+    );
+    assert_eq!(
+        current.green_semantics.as_ref().unwrap().local_cache_hits(),
+        Some(4)
+    );
+    assert_eq!(
+        current.green_semantics.as_ref().unwrap().list_cache_hits(),
+        Some(4)
     );
 }
 
@@ -687,14 +722,6 @@ fn rebinds_identical_source_without_rebuilding_document_outputs() {
     let parsed = Arc::clone(&entry.parsed);
     let output = Arc::clone(&entry.current.as_ref().unwrap().output);
     let token_storage = entry.parsed.lossless.tokens.as_ptr();
-    let event_storage = entry
-        .current
-        .as_ref()
-        .unwrap()
-        .output
-        .events
-        .events
-        .as_ptr();
 
     assert!(workspace.rebind_revision_if_source("event.plumb", 0, source));
     let entry = workspace.get("event.plumb").unwrap();
@@ -707,17 +734,6 @@ fn rebinds_identical_source_without_rebuilding_document_outputs() {
         &output
     ));
     assert_eq!(entry.parsed.lossless.tokens.as_ptr(), token_storage);
-    assert_eq!(
-        entry
-            .current
-            .as_ref()
-            .unwrap()
-            .output
-            .events
-            .events
-            .as_ptr(),
-        event_storage
-    );
     assert!(!workspace.rebind_revision_if_source("event.plumb", 1, "changed\n"));
 }
 
@@ -3188,15 +3204,15 @@ fn event_task_associations_use_overlapping_containment_index_ranges() {
         );
 
     let output = workspace.current_output(Path::new("events.plumb")).unwrap();
-    let outer = &output.events.events[0];
-    let nested = &output.events.events[1];
+    let outer = output.events.events.get(0).unwrap();
+    let nested = output.events.events.get(1).unwrap();
     assert_eq!(output.event_link_ranges.len(), 2);
     assert_eq!(output.event_link_ranges[0].links, 1..3);
     assert_eq!(output.event_link_ranges[1].links, 2..3);
 
     assert_eq!(
         workspace
-            .event_task_references("events.plumb", outer)
+            .event_task_references("events.plumb", &outer)
             .unwrap()
             .value
             .len(),
@@ -3204,7 +3220,7 @@ fn event_task_associations_use_overlapping_containment_index_ranges() {
     );
     assert_eq!(
         workspace
-            .event_task_references("events.plumb", nested)
+            .event_task_references("events.plumb", &nested)
             .unwrap()
             .value
             .len(),
@@ -3229,7 +3245,7 @@ fn event_task_associations_use_overlapping_containment_index_ranges() {
     assert_eq!(replacement.event_link_ranges[0].links, 0..1);
     assert_eq!(
         workspace
-            .event_task_references("events.plumb", &replacement.events.events[0])
+            .event_task_references("events.plumb", &replacement.events.events.get(0).unwrap(),)
             .unwrap()
             .value
             .len(),
@@ -3412,7 +3428,7 @@ fn converts_selected_event_shorthands_in_one_edit() {
         .events
         .events;
     assert_eq!(
-        events[1].start.as_ref().unwrap().value,
+        events.get(1).unwrap().start.as_ref().unwrap().value,
         "2026-08-01T10:00:00+08:00"
     );
 }
@@ -3565,8 +3581,9 @@ fn creates_updates_and_deletes_events_with_guarded_canonical_edits() {
         .current_output(Path::new("agenda.plumb"))
         .unwrap()
         .events
-        .events[0]
-        .clone();
+        .events
+        .get(0)
+        .unwrap();
     let updated = workspace
         .update_event(
             "agenda.plumb",
@@ -3593,8 +3610,9 @@ fn creates_updates_and_deletes_events_with_guarded_canonical_edits() {
         .current_output(Path::new("agenda.plumb"))
         .unwrap()
         .events
-        .events[0]
-        .clone();
+        .events
+        .get(0)
+        .unwrap();
     let deleted = workspace
         .delete_event("agenda.plumb", updated_event.range)
         .unwrap();
@@ -3658,8 +3676,9 @@ fn updating_an_event_preserves_semantic_uid_and_opaque_when_property() {
         .current_output(Path::new("agenda.plumb"))
         .unwrap()
         .events
-        .events[0]
-        .clone();
+        .events
+        .get(0)
+        .unwrap();
     let operation = workspace
         .update_event(
             "agenda.plumb",

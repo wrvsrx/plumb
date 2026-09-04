@@ -238,6 +238,8 @@ impl Workspace {
                 Arc::new(VersionedDocumentOutput {
                     revision: document.revision,
                     output: Arc::new(output),
+                    green_syntax: None,
+                    green_semantics: None,
                 })
             });
             Some(PreparedDocument::Memory {

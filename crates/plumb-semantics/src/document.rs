@@ -12,8 +12,9 @@ use url::Url;
 use crate::{
     analyze_citations, analyze_events, analyze_headings, analyze_inline_styles, analyze_lists,
     analyze_math, analyze_metadata, analyze_quotes, analyze_tables, analyze_tasks, CitationOutput,
-    EventOutput, HeadingOutput, InlineStyleOutput, ListOutput, MathOutput, MetadataOutput,
-    QuoteOutput, TableOutput, TaskOutput,
+    EventOutput, GreenEventRevision, GreenListRevision, GreenLocalOutput, GreenLocalRevision,
+    HeadingOutput, InlineStyleOutput, ListOutput, MathOutput, MetadataOutput, QuoteOutput,
+    TableOutput, TaskOutput,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -158,6 +159,48 @@ pub struct DocumentChange {
     pub new_range: Range<usize>,
 }
 
+#[derive(Debug, Clone)]
+pub struct GreenSemanticRevision {
+    events: std::sync::Arc<GreenEventRevision>,
+    local: Option<std::sync::Arc<GreenLocalRevision>>,
+    lists: Option<std::sync::Arc<GreenListRevision>>,
+}
+
+#[derive(Debug)]
+pub struct GreenDocumentAnalysis {
+    pub output: DocumentOutput,
+    pub revision: GreenSemanticRevision,
+}
+
+impl GreenSemanticRevision {
+    pub fn from_output(
+        syntax: &plumb_syntax::GreenDocument,
+        output: &DocumentOutput,
+    ) -> Option<Self> {
+        Some(Self {
+            events: std::sync::Arc::new(GreenEventRevision::from_output(
+                syntax,
+                &output.metadata,
+                &output.events,
+            )?),
+            local: None,
+            lists: None,
+        })
+    }
+
+    pub fn event_cache_hits(&self) -> usize {
+        self.events.cache_hits()
+    }
+
+    pub fn local_cache_hits(&self) -> Option<usize> {
+        self.local.as_ref().map(|local| local.cache_hits())
+    }
+
+    pub fn list_cache_hits(&self) -> Option<usize> {
+        self.lists.as_ref().map(|lists| lists.cache_hits())
+    }
+}
+
 impl DocumentOutput {
     pub fn link_at_node_start(&self, start: usize) -> Option<&LinkRecord> {
         self.links.iter().find(|link| link.range.start == start)
@@ -183,7 +226,7 @@ impl DocumentOutput {
 pub fn analyze_document(valid: ValidDocument<'_>) -> DocumentOutput {
     let metadata = analyze_metadata(valid);
     let events = analyze_events(valid, &metadata);
-    analyze_document_with(valid, metadata, events, None)
+    analyze_document_with(valid, metadata, events, None, None, None)
 }
 
 pub fn analyze_document_incremental(
@@ -200,7 +243,57 @@ pub fn analyze_document_incremental(
         &change.old_range,
         &change.new_range,
     );
-    analyze_document_with(valid, metadata, events, Some((previous, change)))
+    analyze_document_with(
+        valid,
+        metadata,
+        events,
+        Some((previous, change)),
+        None,
+        None,
+    )
+}
+
+pub fn analyze_green_document_incremental(
+    valid: ValidDocument<'_>,
+    syntax: &plumb_syntax::GreenDocument,
+    previous: &DocumentOutput,
+    previous_revision: &GreenSemanticRevision,
+    change: &DocumentChange,
+) -> Option<GreenDocumentAnalysis> {
+    if valid.source() != syntax.source() || !syntax.is_valid() {
+        return None;
+    }
+    let metadata = analyze_metadata(valid);
+    let events = std::sync::Arc::new(GreenEventRevision::analyze(
+        syntax,
+        &metadata,
+        Some(&previous_revision.events),
+    )?);
+    let local = std::sync::Arc::new(GreenLocalRevision::analyze(
+        syntax,
+        previous_revision.local.as_deref(),
+    )?);
+    let local_output = local.materialize();
+    let lists = std::sync::Arc::new(GreenListRevision::analyze(
+        syntax,
+        previous_revision.lists.as_deref(),
+    )?);
+    let output = analyze_document_with(
+        valid,
+        metadata,
+        EventOutput::from_green(std::sync::Arc::clone(&events)),
+        Some((previous, change)),
+        Some(local_output),
+        Some(ListOutput::from_green(std::sync::Arc::clone(&lists))),
+    );
+    Some(GreenDocumentAnalysis {
+        output,
+        revision: GreenSemanticRevision {
+            events,
+            local: Some(local),
+            lists: Some(lists),
+        },
+    })
 }
 
 fn analyze_document_with(
@@ -208,6 +301,8 @@ fn analyze_document_with(
     metadata: MetadataOutput,
     events: EventOutput,
     incremental: Option<(&DocumentOutput, &DocumentChange)>,
+    local: Option<GreenLocalOutput>,
+    incremental_lists: Option<ListOutput>,
 ) -> DocumentOutput {
     let source = valid.source();
     let document = valid.syntax();
@@ -218,12 +313,23 @@ fn analyze_document_with(
             collect_document_records_incremental(valid, &headings, previous, change)
         },
     );
-    let citations = analyze_citations(valid);
-    let inline_styles = analyze_inline_styles(valid);
-    let lists = analyze_lists(valid);
-    let math = analyze_math(valid);
-    let quotes = analyze_quotes(valid);
-    let tasks = analyze_tasks(valid);
+    let (citations, inline_styles, math, quotes, tasks) = match local {
+        Some(local) => (
+            local.citations,
+            local.inline_styles,
+            local.math,
+            local.quotes,
+            local.tasks,
+        ),
+        None => (
+            analyze_citations(valid),
+            analyze_inline_styles(valid),
+            analyze_math(valid),
+            analyze_quotes(valid),
+            analyze_tasks(valid),
+        ),
+    };
+    let lists = incremental_lists.unwrap_or_else(|| analyze_lists(valid));
     let tables = analyze_tables(valid);
     let mut output = DocumentOutput {
         headings,
@@ -500,25 +606,26 @@ fn shift_range(range: &mut Range<usize>, delta: isize) {
 }
 
 fn build_event_link_ranges(
-    events: &[crate::EventRecord],
+    events: &crate::EventRecords,
     links: &[LinkRecord],
 ) -> Vec<EventLinkRange> {
-    debug_assert!(events
+    let event_ranges = events.ranges().collect::<Vec<_>>();
+    debug_assert!(event_ranges
         .windows(2)
-        .all(|events| events[0].range.start <= events[1].range.start));
+        .all(|events| events[0].start <= events[1].start));
     debug_assert!(links
         .windows(2)
         .all(|links| links[0].range.start <= links[1].range.start));
-    events
-        .iter()
+    event_ranges
+        .into_iter()
         .map(|event| {
-            let start = links.partition_point(|link| link.range.start < event.range.start);
-            let end = links.partition_point(|link| link.range.start < event.range.end);
+            let start = links.partition_point(|link| link.range.start < event.start);
+            let end = links.partition_point(|link| link.range.start < event.end);
             debug_assert!(links[start..end]
                 .iter()
-                .all(|link| link.range.end <= event.range.end));
+                .all(|link| link.range.end <= event.end));
             EventLinkRange {
-                event_start: event.range.start,
+                event_start: event.start,
                 links: start..end,
             }
         })
@@ -1404,7 +1511,7 @@ mod tests {
         let fresh = analyze_document(parse(new).valid_syntax().unwrap());
         assert_eq!(incremental, fresh);
         assert_eq!(
-            incremental.events.events[0].at.as_ref().unwrap().value,
+            incremental.events.events.get(0).unwrap().at.unwrap().value,
             "2026-09-06T09:00:00+08:00"
         );
     }
@@ -1530,8 +1637,8 @@ mod tests {
         assert_eq!(output.links.len(), 4);
         assert_eq!(output.event_link_ranges.len(), 2);
 
-        let outer = &output.events.events[0];
-        let nested = &output.events.events[1];
+        let outer = output.events.events.get(0).unwrap();
+        let nested = output.events.events.get(1).unwrap();
         assert_eq!(
             output
                 .links_contained_by_event(outer.range.start)

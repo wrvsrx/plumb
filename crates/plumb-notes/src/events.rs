@@ -52,7 +52,7 @@ fn desired_events(loaded: &LoadedWorkspace) -> Result<BTreeMap<String, String>, 
             .uid
             .as_ref()
             .map(|field| field.value.clone())
-            .unwrap_or_else(|| derived_uid(loaded, &entry.path, event));
+            .unwrap_or_else(|| derived_uid(loaded, &entry.path, &event));
         if uid.is_empty() {
             return Err(format!(
                 "event '{}' in {} has an invalid empty uid",
@@ -97,14 +97,14 @@ fn desired_events(loaded: &LoadedWorkspace) -> Result<BTreeMap<String, String>, 
         let start = start.with_timezone(&Utc);
         let tasks = loaded
             .workspace
-            .event_task_references(&entry.path, event)
+            .event_task_references(&entry.path, &event)
             .map_err(|error| error.to_string())?
             .value
             .into_iter()
             .map(|task| task.source)
             .collect::<Vec<_>>();
         let ical = render_event(
-            event,
+            &event,
             &uid,
             start,
             end.map(|end| end.with_timezone(&Utc)),
@@ -561,8 +561,16 @@ mod tests {
             .documents()
             .find(|entry| entry.path == root.join("derived.plumb"))
             .unwrap();
-        let derived_event = &derived_entry.current.as_ref().unwrap().output.events.events[0];
-        let uid = derived_uid(&preliminary, &root.join("derived.plumb"), derived_event);
+        let derived_event = derived_entry
+            .current
+            .as_ref()
+            .unwrap()
+            .output
+            .events
+            .events
+            .get(0)
+            .unwrap();
+        let uid = derived_uid(&preliminary, &root.join("derived.plumb"), &derived_event);
 
         let mut workspace = preliminary.workspace;
         insert_fixture(

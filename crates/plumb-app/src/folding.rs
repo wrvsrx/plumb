@@ -183,7 +183,7 @@ pub(crate) fn event_labels(entry: &DocumentEntry) -> HashMap<(usize, usize), Fol
         .events
         .iter()
         .filter_map(|event| {
-            let time = event_time_label(event)?;
+            let time = event_time_label(&event)?;
             let indent = line_indent(&entry.parsed.source, event.range.start);
             let marker = &entry.parsed.source[event.range.start + 1..event.range.start + 2];
             let title = if event.title.is_empty() {

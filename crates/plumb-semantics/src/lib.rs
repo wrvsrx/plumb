@@ -2,6 +2,7 @@ mod citations;
 mod document;
 mod events;
 mod headings;
+mod incremental;
 mod inline_styles;
 mod lists;
 mod math;
@@ -246,16 +247,21 @@ pub fn body_children(
 
 pub use citations::{analyze_citations, CitationOutput, CitationRecord};
 pub use document::{
-    analyze_document, analyze_document_incremental, AnchorKind, AnchorRecord, DocumentChange,
-    DocumentOutput, EventLinkRange, FileRecord, FileTarget, ImageRecord, ImageTarget, LinkRecord,
+    analyze_document, analyze_document_incremental, analyze_green_document_incremental, AnchorKind,
+    AnchorRecord, DocumentChange, DocumentOutput, EventLinkRange, FileRecord, FileTarget,
+    GreenDocumentAnalysis, GreenSemanticRevision, ImageRecord, ImageTarget, LinkRecord,
     LinkSpelling, LinkTarget, SourceBacked,
 };
-pub use events::{analyze_events, EventField, EventOutput, EventRecord};
+pub use events::{
+    analyze_events, EventField, EventOutput, EventRecord, EventRecordView, EventRecords,
+    GreenEventRevision,
+};
 pub use headings::{analyze_headings, analyze_recovered_headings, Heading, HeadingOutput};
+pub use incremental::{GreenListRevision, GreenLocalOutput, GreenLocalRevision};
 pub use inline_styles::{
     analyze_inline_styles, InlineStyleKind, InlineStyleOutput, InlineStyleRecord,
 };
-pub use lists::{analyze_lists, ListGroup, ListItemRecord, ListKind, ListOutput};
+pub use lists::{analyze_lists, ListGroup, ListGroups, ListItemRecord, ListKind, ListOutput};
 pub use math::{analyze_math, MathKind, MathOutput, MathRecord};
 pub use metadata::{
     analyze_metadata, recovered_bibliography_sources, BibliographySource, DefinitionList,

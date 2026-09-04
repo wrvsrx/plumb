@@ -8,7 +8,10 @@ use plumb_edit::{
     remove_block as remove_syntax_block, replace_owned_block, replace_owned_blocks,
     AttributePosition, EditSession, OwnedAttribute, OwnedBlock, OwnedInline,
 };
-use plumb_semantics::{analyze_document, analyze_document_incremental, DocumentChange};
+use plumb_semantics::{
+    analyze_document, analyze_document_incremental, analyze_green_document_incremental,
+    DocumentChange, GreenSemanticRevision,
+};
 use plumb_semantics::{
     parse_task_reference_target, AnchorRecord, DocumentOutput, EventRecord, LinkCompletionContext,
     LinkRecord, LinkSpelling, LinkTarget, MetadataBlock, MetadataOutput, MetadataValue,
@@ -19,7 +22,8 @@ use plumb_semantics::{
     EventTitleCompletionContext, FileCompletionContext, ImageCompletionContext, TaskStatus,
 };
 use plumb_syntax::{
-    Attributes, Block, Diagnostic, DiagnosticSeverity, ParsedBlock, ParsedDocument,
+    Attributes, Block, Diagnostic, DiagnosticSeverity, GreenDocument, ParsedBlock, ParsedDocument,
+    SourceChange,
 };
 
 #[cfg(test)]
@@ -380,6 +384,8 @@ impl<T> QueryResult<T> {
 pub struct VersionedDocumentOutput {
     pub revision: i64,
     pub output: Arc<DocumentOutput>,
+    green_syntax: Option<Arc<GreenDocument>>,
+    green_semantics: Option<Arc<GreenSemanticRevision>>,
 }
 
 #[derive(Debug, Clone)]
@@ -398,6 +404,10 @@ pub struct PendingDocumentAnalysis {
     parsed: Arc<ParsedDocument>,
     previous_output: Option<Arc<DocumentOutput>>,
     change: Option<DocumentChange>,
+    previous_parsed: Option<Arc<ParsedDocument>>,
+    previous_green_syntax: Option<Arc<GreenDocument>>,
+    previous_green_semantics: Option<Arc<GreenSemanticRevision>>,
+    source_change: Option<SourceChange>,
 }
 
 #[derive(Debug)]
@@ -406,6 +416,8 @@ pub struct PreparedDocumentAnalysis {
     revision: i64,
     parsed: Arc<ParsedDocument>,
     output: Arc<DocumentOutput>,
+    green_syntax: Option<Arc<GreenDocument>>,
+    green_semantics: Option<Arc<GreenSemanticRevision>>,
 }
 
 impl PendingDocumentAnalysis {
@@ -414,8 +426,43 @@ impl PendingDocumentAnalysis {
             .parsed
             .valid_syntax()
             .expect("pending semantic analysis requires valid syntax");
+        let mut green_syntax = None;
+        let mut green_semantics = None;
         let output = match (&self.previous_output, &self.change) {
-            (Some(previous), Some(change)) => analyze_document_incremental(valid, previous, change),
+            (Some(previous), Some(change)) => {
+                let seeded = match (self.previous_green_syntax, self.previous_green_semantics) {
+                    (Some(syntax), Some(semantics)) => Some((syntax, semantics)),
+                    _ => self.previous_parsed.as_ref().and_then(|parsed| {
+                        let syntax = Arc::new(GreenDocument::parse(parsed.source.clone()));
+                        GreenSemanticRevision::from_output(&syntax, previous)
+                            .map(|semantics| (syntax, Arc::new(semantics)))
+                    }),
+                };
+                if let Some((previous_syntax, previous_semantics)) = seeded {
+                    let parsed = self.parsed.source.clone();
+                    let syntax = Arc::new(match self.source_change {
+                        Some(change) => {
+                            previous_syntax.reparse_from_change(parsed, change).document
+                        }
+                        None => previous_syntax.reparse(parsed).document,
+                    });
+                    if let Some(analysis) = analyze_green_document_incremental(
+                        valid,
+                        &syntax,
+                        previous,
+                        &previous_semantics,
+                        change,
+                    ) {
+                        green_syntax = Some(syntax);
+                        green_semantics = Some(Arc::new(analysis.revision));
+                        analysis.output
+                    } else {
+                        analyze_document_incremental(valid, previous, change)
+                    }
+                } else {
+                    analyze_document_incremental(valid, previous, change)
+                }
+            }
             _ => analyze_document(valid),
         };
         PreparedDocumentAnalysis {
@@ -423,6 +470,8 @@ impl PendingDocumentAnalysis {
             revision: self.revision,
             parsed: self.parsed,
             output: Arc::new(output),
+            green_syntax,
+            green_semantics,
         }
     }
 }
@@ -837,7 +886,7 @@ impl Workspace {
             }
         }
         for event in &output.events.events {
-            for reference in &self.event_task_references_in_output(&path, output, event)? {
+            for reference in &self.event_task_references_in_output(&path, output, &event)? {
                 if !contains_inclusive(&reference.range, offset) {
                     continue;
                 }
@@ -1056,7 +1105,7 @@ impl Workspace {
             }
             for event in &current.output.events.events {
                 for reference in
-                    &self.event_task_references_in_output(&entry.path, &current.output, event)?
+                    &self.event_task_references_in_output(&entry.path, &current.output, &event)?
                 {
                     if let Some(reference) = self.task_anchor_reference(
                         &entry.path,
@@ -1188,7 +1237,7 @@ impl Workspace {
             }
             for event in &current.output.events.events {
                 for reference in
-                    &self.event_task_references_in_output(&entry.path, &current.output, event)?
+                    &self.event_task_references_in_output(&entry.path, &current.output, &event)?
                 {
                     if resolved_document_path(
                         self.resolve_task_reference_target(&entry.path, &reference.target)?,
@@ -1323,7 +1372,7 @@ impl Workspace {
             }
             for event in &current.output.events.events {
                 for reference in
-                    &self.event_task_references_in_output(&entry.path, &current.output, event)?
+                    &self.event_task_references_in_output(&entry.path, &current.output, &event)?
                 {
                     let (document_range, anchor_range) = task_reference_component_ranges(
                         &reference.source,
@@ -1378,7 +1427,7 @@ impl Workspace {
             }
         }
         for event in &output.events.events {
-            for reference in &self.event_task_references_in_output(&source_path, output, event)? {
+            for reference in &self.event_task_references_in_output(&source_path, output, &event)? {
                 if let Some(path) = resolved_document_path(
                     self.resolve_task_reference_target(&source_path, &reference.target)?,
                 ) {
@@ -1494,7 +1543,7 @@ impl Workspace {
         }
     }
 
-    pub fn event_at(&self, path: impl AsRef<Path>, offset: usize) -> Option<&EventRecord> {
+    pub fn event_at(&self, path: impl AsRef<Path>, offset: usize) -> Option<EventRecord> {
         self.current_output(path.as_ref())?
             .events
             .events
@@ -1521,13 +1570,12 @@ impl Workspace {
                     .output
                     .events
                     .events
-                    .iter()
+                    .views()
                     .filter(|event| event.overlaps(start, end))
-                    .cloned()
                     .map(|event| WorkspaceEvent {
                         path: entry.path.clone(),
                         revision: current.revision,
-                        event,
+                        event: event.to_owned(),
                     })
             })
             .collect::<Vec<_>>();
@@ -1642,7 +1690,6 @@ impl Workspace {
                     .events
                     .events
                     .iter()
-                    .cloned()
                     .map(|event| WorkspaceEvent {
                         path: entry.path.clone(),
                         revision: current.revision,
@@ -1670,7 +1717,7 @@ impl Workspace {
             };
             for event in &current.output.events.events {
                 if self
-                    .event_task_references_in_output(&entry.path, &current.output, event)?
+                    .event_task_references_in_output(&entry.path, &current.output, &event)?
                     .iter()
                     .map(|reference| {
                         Ok(matches!(
@@ -1685,7 +1732,7 @@ impl Workspace {
                     events.push(WorkspaceEvent {
                         path: entry.path.clone(),
                         revision: current.revision,
-                        event: event.clone(),
+                        event,
                     });
                 }
             }
@@ -1723,7 +1770,7 @@ impl Workspace {
         let path = normalize(path.as_ref());
         if let Some(current) = self.current_output(&path) {
             return Ok(
-                self.query_result(self.event_task_references_in_output(&path, current, event)?)
+                self.query_result(self.event_task_references_in_output(&path, current, &event)?)
             );
         }
         let Some(store) = &self.disk_store else {
@@ -1951,7 +1998,7 @@ impl Workspace {
     ) -> Result<Vec<Diagnostic>, WorkspaceQueryError> {
         let mut diagnostics = Vec::new();
         for event in &current.output.events.events {
-            for reference in &self.event_task_references_in_output(path, &current.output, event)? {
+            for reference in &self.event_task_references_in_output(path, &current.output, &event)? {
                 if let Some(mut diagnostic) = self.task_target_diagnostic(
                     path,
                     &reference.source,
