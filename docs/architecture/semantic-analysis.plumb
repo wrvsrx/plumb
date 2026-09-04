@@ -72,6 +72,14 @@ host 在 open/disk ownership 或 protocol revision 间转换 snapshot 时，若�
 
 LSP didChange 将 current source 的 parse 与 document-local semantic generation 分成两个 revision-safe 阶段； didOpen 保持同步生成完整初始 snapshot，因为 document symbols 等 LSP 3.17 requests 没有对应 refresh signal， 不能在首次请求返回 temporary empty result 后要求 client 自动重试。didChange 在 server event loop 同步安装新的 immutable ParsedDocument，使 syntax diagnostics、formatting、folding与 recovered completion context 立即观察 新 bytes；syntax-valid revision 的 semantic analysis 在 blocking worker 上运行。Result 必须携带 normalized path、protocol revision 与 parsed allocation identity， 只有三者仍与 current entry 相同才原子安装 current-valid output。较新 revision、close/reopen 或相同 revision 的 不同 bytes 都使旧 result stale；stale result 不发布 diagnostics、refresh 或 indexes。Queued job 在 analysis 前 检查 per-path cancellation generation；已经进入当前不可中断 analyzer 的 stale job可以完成计算，但其 result 仍必须丢弃，不得覆盖 current state。
 
+LSP 宣告 incremental text document sync。一个 didChange notification 的 content changes 按 source order 顺序
+应用，每个 ranged change 的 UTF-16 range 都以应用前面 changes 后的 current text 为坐标；没有 range 的 change
+替换全文，并可作为同一 sequence 后续 ranged changes 的新基准。Range 的 line、UTF-16 character、顺序与可选
+rangeLength 必须精确对应 source boundary，不得沿用 editor query 的 clamping projection。任一 change 无效时，
+整个 notification 不建立新 revision snapshot；adapter 记录 protocol warning 并保留前一 source，防止 client/server
+文本悄然分叉。空 contentChanges 同样不建立 revision。该传输优化不改变 strict parser authority；最终 bytes
+必须产生与同 source fresh parse 等价的 recovered tree、diagnostics 与 valid view。
+
 Semantic generation pending 时，workspace-wide semantic query 明确为 partial；adapter 不把旧 current output 冒充新 revision，也不回退到同 path 的 persistent generation。只依赖 current ParsedDocument 的上述 editor requests 继续可用。Pending revision 立即发布 current syntax diagnostics并清除旧 semantic diagnostics；成功安装 semantic output 后才重新发布该 generation 的 semantic/workspace diagnostics，并触发受影响的 refresh。
 
 Definition、references 与 hover 等没有标准 refresh request 的显式 semantic navigation 不能把 pending revision 投影为 temporary empty result。若 request source 的 current-valid output 尚未安装，LSP adapter 在处理该 request 时同步完成同一 ParsedDocument 的 document-local analysis，以相同 path、revision 与 allocation identity guard 安装结果，并取消该 generation 尚未发布的 background result；随后才执行 workspace resolution。目标 document 已经作为 open pending revision 存在且 anchor resolution 依赖其 output 时，也采用相同规则后重试 resolution。 该 fallback 可以让抢先到达的 request 承担一次完整 document-local analysis latency，但不得回退到旧 output、 等待没有协议保证的 client retry，或在 event loop 中等待只能由同一 event loop 安装的 background notification。

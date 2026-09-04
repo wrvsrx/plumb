@@ -27,9 +27,9 @@ use lsp_types::{
     ResourceOperationKind, SemanticToken, SemanticTokenModifier, SemanticTokenType, SemanticTokens,
     SemanticTokensFullOptions, SemanticTokensLegend, SemanticTokensOptions, SemanticTokensParams,
     SemanticTokensResult, SemanticTokensServerCapabilities, ServerCapabilities, SymbolInformation,
-    SymbolKind, TextDocumentEdit, TextDocumentSyncCapability, TextDocumentSyncKind,
-    TextEdit as LspTextEdit, Url, WatchKind, WorkDoneProgress, WorkDoneProgressBegin,
-    WorkDoneProgressEnd, WorkDoneProgressOptions, WorkDoneProgressReport,
+    SymbolKind, TextDocumentContentChangeEvent, TextDocumentEdit, TextDocumentSyncCapability,
+    TextDocumentSyncKind, TextEdit as LspTextEdit, Url, WatchKind, WorkDoneProgress,
+    WorkDoneProgressBegin, WorkDoneProgressEnd, WorkDoneProgressOptions, WorkDoneProgressReport,
     WorkspaceEdit as LspWorkspaceEdit, WorkspaceSymbolParams, WorkspaceSymbolResponse,
 };
 use plumb_semantics::{
@@ -55,7 +55,7 @@ use crate::hover::{
     event as event_hover, file as file_hover, image as image_hover, link as link_hover,
     metadata as metadata_hover, target as target_hover, task as task_hover,
 };
-use crate::position::{byte_range_to_lsp, position_to_offset};
+use crate::position::{byte_range_to_lsp, position_to_offset, LineIndex};
 use crate::search::{SearchItem, SearchKind, SearchParams, SearchProvenance, SearchResult};
 use crate::semantic_tokens::{closed_task_token_ranges, physical_line_ranges};
 use crate::symbols::{
@@ -76,6 +76,7 @@ pub(crate) struct ServerState {
     client: ClientSocket,
     workspace: Workspace,
     open_documents: HashMap<Url, PathBuf>,
+    open_document_line_indexes: HashMap<PathBuf, LineIndex>,
     roots: Vec<PathBuf>,
     supports_document_changes: bool,
     supports_resource_rename: bool,
@@ -157,6 +158,7 @@ impl ServerState {
             client,
             workspace: Workspace::new(),
             open_documents: HashMap::new(),
+            open_document_line_indexes: HashMap::new(),
             roots: Vec::new(),
             supports_document_changes: false,
             supports_resource_rename: false,
@@ -789,6 +791,40 @@ fn search_item(workspace: &Workspace, record: SearchRecord) -> Result<SearchItem
     })
 }
 
+fn apply_content_changes(
+    mut text: String,
+    mut line_index: LineIndex,
+    changes: Vec<TextDocumentContentChangeEvent>,
+) -> Result<(String, LineIndex), String> {
+    for change in changes {
+        let Some(range) = change.range else {
+            text = change.text;
+            line_index = LineIndex::new(&text);
+            continue;
+        };
+        let start = line_index
+            .position_to_offset(&text, range.start)
+            .ok_or_else(|| format!("invalid UTF-16 range start {:?}", range.start))?;
+        let end = line_index
+            .position_to_offset(&text, range.end)
+            .ok_or_else(|| format!("invalid UTF-16 range end {:?}", range.end))?;
+        if start > end {
+            return Err(format!("range start {start} follows end {end}"));
+        }
+        if let Some(expected) = change.range_length {
+            let actual = text[start..end].encode_utf16().count() as u32;
+            if actual != expected {
+                return Err(format!(
+                    "rangeLength {expected} does not match replaced UTF-16 length {actual}"
+                ));
+            }
+        }
+        line_index.apply_edit(start..end, &change.text);
+        text.replace_range(start..end, &change.text);
+    }
+    Ok((text, line_index))
+}
+
 impl LanguageServer for ServerState {
     type Error = ResponseError;
     type NotifyResult = ControlFlow<async_lsp::Result<()>>;
@@ -874,7 +910,7 @@ impl LanguageServer for ServerState {
             Ok(InitializeResult {
                 capabilities: ServerCapabilities {
                     text_document_sync: Some(TextDocumentSyncCapability::Kind(
-                        TextDocumentSyncKind::FULL,
+                        TextDocumentSyncKind::INCREMENTAL,
                     )),
                     document_symbol_provider: Some(OneOf::Left(true)),
                     folding_range_provider: Some(FoldingRangeProviderCapability::Simple(true)),
@@ -959,25 +995,58 @@ impl LanguageServer for ServerState {
 
     fn did_open(&mut self, params: DidOpenTextDocumentParams) -> Self::NotifyResult {
         let document = params.text_document;
+        let line_index = LineIndex::new(&document.text);
+        let path = document
+            .uri
+            .to_file_path()
+            .ok()
+            .map(|path| normalize(&path));
         self.update(document.uri, document.version, document.text, false);
+        if let Some(path) = path {
+            self.open_document_line_indexes.insert(path, line_index);
+        }
         ControlFlow::Continue(())
     }
 
     fn did_change(&mut self, params: DidChangeTextDocumentParams) -> Self::NotifyResult {
-        if let Some(change) = params.content_changes.into_iter().last() {
-            self.update(
-                params.text_document.uri,
-                params.text_document.version,
-                change.text,
-                true,
-            );
+        if params.content_changes.is_empty() {
+            return ControlFlow::Continue(());
         }
+        let document = params.text_document;
+        let Some(path) = self.open_documents.get(&document.uri).cloned() else {
+            tracing::warn!(uri = %document.uri, "ignored didChange for a document that is not open");
+            return ControlFlow::Continue(());
+        };
+        let Some(entry) = self.workspace.get(&path) else {
+            tracing::warn!(uri = %document.uri, "ignored didChange without a current document snapshot");
+            return ControlFlow::Continue(());
+        };
+        let text = entry.parsed.source.clone();
+        let line_index = self
+            .open_document_line_indexes
+            .get(&path)
+            .cloned()
+            .unwrap_or_else(|| LineIndex::new(&text));
+        let (text, line_index) = match apply_content_changes(
+            text,
+            line_index,
+            params.content_changes,
+        ) {
+            Ok(updated) => updated,
+            Err(error) => {
+                tracing::warn!(uri = %document.uri, version = document.version, %error, "ignored invalid didChange");
+                return ControlFlow::Continue(());
+            }
+        };
+        self.open_document_line_indexes.insert(path, line_index);
+        self.update(document.uri, document.version, text, true);
         ControlFlow::Continue(())
     }
 
     fn did_close(&mut self, params: DidCloseTextDocumentParams) -> Self::NotifyResult {
         let uri = params.text_document.uri;
         if let Some(path) = self.open_documents.remove(&uri) {
+            self.open_document_line_indexes.remove(&path);
             self.document_analysis_tokens.cancel(&path);
             let (files, complete) = self.scanned_files();
             self.index_complete &= complete;
@@ -2544,6 +2613,120 @@ mod tests {
     use plumb_syntax::parse;
 
     use super::*;
+
+    #[test]
+    fn applies_incremental_changes_sequentially_in_utf16_coordinates() {
+        let text = "a😀\nsecond\n".to_string();
+        let lines = LineIndex::new(&text);
+        let changes = vec![
+            TextDocumentContentChangeEvent {
+                range: Some(lsp_types::Range::new(
+                    lsp_types::Position::new(0, 0),
+                    lsp_types::Position::new(0, 1),
+                )),
+                range_length: Some(1),
+                text: "alpha".to_string(),
+            },
+            TextDocumentContentChangeEvent {
+                range: Some(lsp_types::Range::new(
+                    lsp_types::Position::new(0, 5),
+                    lsp_types::Position::new(0, 7),
+                )),
+                range_length: Some(2),
+                text: "x".to_string(),
+            },
+            TextDocumentContentChangeEvent {
+                range: Some(lsp_types::Range::new(
+                    lsp_types::Position::new(1, 6),
+                    lsp_types::Position::new(1, 6),
+                )),
+                range_length: Some(0),
+                text: "!".to_string(),
+            },
+        ];
+
+        let (text, lines) = apply_content_changes(text, lines, changes).unwrap();
+        assert_eq!(text, "alphax\nsecond!\n");
+        assert_eq!(lines, LineIndex::new(&text));
+    }
+
+    #[test]
+    fn full_change_resets_the_base_for_following_ranged_changes() {
+        let text = "old".to_string();
+        let lines = LineIndex::new(&text);
+        let changes = vec![
+            TextDocumentContentChangeEvent {
+                range: None,
+                range_length: None,
+                text: "first\nsecond".to_string(),
+            },
+            TextDocumentContentChangeEvent {
+                range: Some(lsp_types::Range::new(
+                    lsp_types::Position::new(1, 0),
+                    lsp_types::Position::new(1, 6),
+                )),
+                range_length: Some(6),
+                text: "next".to_string(),
+            },
+        ];
+
+        let (text, lines) = apply_content_changes(text, lines, changes).unwrap();
+        assert_eq!(text, "first\nnext");
+        assert_eq!(lines, LineIndex::new(&text));
+    }
+
+    #[test]
+    fn rejects_invalid_incremental_ranges_and_lengths() {
+        let text = "a😀\n";
+        for change in [
+            TextDocumentContentChangeEvent {
+                range: Some(lsp_types::Range::new(
+                    lsp_types::Position::new(0, 2),
+                    lsp_types::Position::new(0, 3),
+                )),
+                range_length: None,
+                text: String::new(),
+            },
+            TextDocumentContentChangeEvent {
+                range: Some(lsp_types::Range::new(
+                    lsp_types::Position::new(0, 1),
+                    lsp_types::Position::new(0, 3),
+                )),
+                range_length: Some(1),
+                text: String::new(),
+            },
+        ] {
+            assert!(
+                apply_content_changes(text.to_string(), LineIndex::new(text), vec![change])
+                    .is_err()
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_a_change_batch_without_returning_a_partially_updated_document() {
+        let text = "first\nsecond\n";
+        let changes = vec![
+            TextDocumentContentChangeEvent {
+                range: Some(lsp_types::Range::new(
+                    lsp_types::Position::new(0, 0),
+                    lsp_types::Position::new(0, 5),
+                )),
+                range_length: Some(5),
+                text: "changed".to_string(),
+            },
+            TextDocumentContentChangeEvent {
+                range: Some(lsp_types::Range::new(
+                    lsp_types::Position::new(9, 0),
+                    lsp_types::Position::new(9, 0),
+                )),
+                range_length: Some(0),
+                text: "invalid".to_string(),
+            },
+        ];
+        assert!(apply_content_changes(text.to_string(), LineIndex::new(text), changes).is_err());
+        assert_eq!(text, "first\nsecond\n");
+    }
 
     #[test]
     fn newer_document_analysis_generations_cancel_queued_and_closed_work() {

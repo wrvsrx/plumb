@@ -167,7 +167,24 @@ fn publishes_diagnostics_and_returns_heading_symbols_over_stdio() {
             "method": "textDocument/didChange",
             "params": {
                 "textDocument": { "uri": "file:///tmp/first.plumb", "version": 2 },
-                "contentChanges": [{ "text": "`span{open\n" }]
+                "contentChanges": [
+                    {
+                        "range": {
+                            "start": { "line": 0, "character": 0 },
+                            "end": { "line": 0, "character": 7 }
+                        },
+                        "rangeLength": 7,
+                        "text": "`span{open"
+                    },
+                    {
+                        "range": {
+                            "start": { "line": 1, "character": 0 },
+                            "end": { "line": 2, "character": 0 }
+                        },
+                        "rangeLength": 10,
+                        "text": ""
+                    }
+                ]
             }
         }),
         json!({ "jsonrpc": "2.0", "id": 3, "method": "shutdown", "params": null }),

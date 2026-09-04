@@ -6,6 +6,24 @@ use crate::support::{
 };
 
 #[test]
+fn initialize_advertises_incremental_text_synchronization() {
+    let messages = [
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": { "processId": null, "rootUri": null, "capabilities": {} }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({ "jsonrpc": "2.0", "id": 2, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+
+    assert_eq!(
+        response(&run_server(&messages), 1)["result"]["capabilities"]["textDocumentSync"],
+        2
+    );
+}
+
+#[test]
 fn did_save_does_not_crash_the_server() {
     let messages = [
         json!({
