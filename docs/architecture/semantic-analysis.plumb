@@ -65,6 +65,32 @@ previous-revision absolute incremental fallback，不等待 cache。
 成为唯一 semantic authority，semantic equality也尚未驱动 workspace dependency invalidation。以下完整 contract
 仍是这些剩余阶段的 replacement boundary。
 
+`## 6.2 Tree-based DocumentOutput replacement
+
+Status：正在实现。完成后 `"DocumentOutput" 自身是 immutable `"Arc<SemanticRoot>" 的 typed facade，不再是
+各 analyzer eager `"Vec" 的 public aggregate，也不再由 workspace旁挂另一份 `"GreenSemanticRevision" cache。
+每个 `"SemanticNode" 与一个 syntax `"Arc<GreenShard>" identity 对齐，保存该 shard 的 relative local facts、
+diagnostics 与 context-dependent summaries；root children 保持 source order并跨 revision共享 unchanged nodes。
+
+`"SemanticRoot" 只拥有 document-wide reducers：metadata first/duplicate resolution、heading hierarchy/section ends、
+list与definition adjacency、duplicate anchor ids、event-link containment以及 exported dependency summary。root reducer
+的 range 相对 document root；child record range 相对 syntax shard。root 不复制 children的完整 record vectors。
+
+公开 consumer API 使用 typed collection/view：`"output.events()"、`"output.tasks()"、`"output.links()" 等返回
+source-ordered iterator与按 identity/start查询；view把 child-relative range加 current child offset得到 absolute
+revision range，并借用不含 location 的 value payload。不得公开 mutable collection或要求 caller理解 storage 是
+fresh-owned、green-shared还是 persistent projection。
+
+需要 owned absolute records 的 SQLite publication、Pandoc lowering或 protocol response必须显式调用边界 projection，
+并只 materialize其实际消费的 records。ordinary open-document query不得先 flatten整个 SemanticRoot。DocumentOutput
+equality比较 observable typed views与 diagnostics，不比较 Arc allocation；debug/test metrics可以报告 reused child
+count，但 allocation address不是 record identity或 protocol data。
+
+fresh analysis建立同一种 SemanticRoot，不能以 monolithic compatibility variant形成第二套 authority。incremental
+analysis按 syntax identity与 context key复用 SemanticNode，只重建 changed children与受影响 reducers；完成迁移后
+删除旧 absolute-range splice、`"GreenSemanticRevision"、eager `"GreenLocalOutput::materialize" 和 public field
+访问。workspace snapshot只保存一个 `"Arc<DocumentOutput>" 与对应 syntax revision。
+
 document semantics 直接消费 syntax red views，并以 green node allocation identity、semantic analyzer version 与
 explicit inherited-context key 缓存 shard-local facts。pointer-identical green subtree 只有在 context key 相同
 时才能复用；date/timezone、task/event depth、table structural role 与其它 ancestor-derived input 必须进入 key。
