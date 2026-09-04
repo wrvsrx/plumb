@@ -165,6 +165,10 @@ semantic worker与 invalid diagnostic publication均不初始化 compatibility c
 ranges，bibliography fallback同样按 metadata shard投影。format/edit及少数 syntax-aware operations直接使用 typed
 red views仍未完成，属于 `"green-red-syntax-views" task的剩余范围。
 
+只消费 revision bytes 的 symbols、hover、semantic tokens、position conversion、Web与notes projection必须调用
+green-backed `"source()"，不能通过 compatibility ParsedDocument的 public field自动解引用。只有确实读取 typed
+absolute syntax/lossless tokens的 consumer可以初始化 lazy cache。
+
 `# 10. Lenient tree and identity
 
 tree-sitter mirror 只服务 editor ergonomics。fresh/full/incremental parses 必须在同 source 上产生等价 current
