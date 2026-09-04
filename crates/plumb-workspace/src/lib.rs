@@ -649,7 +649,7 @@ impl Workspace {
             let Some(current) = &entry.current else {
                 continue;
             };
-            for task in &current.output.tasks.tasks {
+            for task in &current.output.tasks().tasks {
                 let blocked = self.is_task_blocked_value(&entry.path, task)?;
                 if matches!(
                     derive_task_workflow_state(task, blocked, now).0,
@@ -706,7 +706,7 @@ impl Workspace {
             let Some(current) = &entry.current else {
                 continue;
             };
-            for task in &current.output.tasks.tasks {
+            for task in &current.output.tasks().tasks {
                 if self.is_task_blocked_value(&entry.path, task)? {
                     blocked.insert((entry.path.clone(), task.range.start));
                 }
@@ -719,7 +719,7 @@ impl Workspace {
             .flat_map(|(entry, current)| {
                 current
                     .output
-                    .tasks
+                    .tasks()
                     .tasks
                     .iter()
                     .filter(|task| {
@@ -825,7 +825,7 @@ impl Workspace {
 
     pub fn link_at(&self, path: impl AsRef<Path>, offset: usize) -> Option<&LinkRecord> {
         self.current_output(path.as_ref())?
-            .links
+            .links()
             .iter()
             .filter(|link| link.range.start <= offset && offset <= link.range.end)
             .max_by_key(|link| link.range.start)
@@ -833,7 +833,7 @@ impl Workspace {
 
     pub fn document_metadata(&self, path: impl AsRef<Path>) -> Option<&MetadataBlock> {
         self.current_output(path.as_ref())?
-            .metadata
+            .metadata()
             .metadata
             .as_ref()
     }
@@ -877,7 +877,7 @@ impl Workspace {
             return Ok(None);
         };
         if let Some(link) = output
-            .links
+            .links()
             .iter()
             .filter(|link| contains_inclusive(&link.range, offset))
             .max_by_key(|link| link.range.start)
@@ -892,7 +892,7 @@ impl Workspace {
             }
             return Ok(Some(target));
         }
-        for task in &output.tasks.tasks {
+        for task in &output.tasks().tasks {
             for (source, range, target) in task_reference_fields(task) {
                 if !contains_inclusive(range, offset) {
                     continue;
@@ -913,7 +913,7 @@ impl Workspace {
                 return Ok(Some(resolved));
             }
         }
-        for event in &output.events.events {
+        for event in &output.events().events {
             for reference in &self.event_task_references_in_output(&path, output, &event)? {
                 if !contains_inclusive(&reference.range, offset) {
                     continue;
@@ -970,7 +970,7 @@ impl Workspace {
 
     pub fn anchor_at(&self, path: impl AsRef<Path>, offset: usize) -> Option<&AnchorRecord> {
         self.current_output(path.as_ref())?
-            .anchors
+            .anchors()
             .iter()
             .filter(|anchor| anchor.range.start <= offset && offset <= anchor.range.end)
             .max_by_key(|anchor| anchor.range.start)
@@ -994,14 +994,14 @@ impl Workspace {
             return Ok(None);
         };
         if let Some(link) = output
-            .links
+            .links()
             .iter()
             .filter(|link| contains_inclusive(&link.range, offset))
             .max_by_key(|link| link.range.start)
         {
             return self.link_anchor_reference(&path, link);
         }
-        for task in &output.tasks.tasks {
+        for task in &output.tasks().tasks {
             if let Some(prev) = &task.prev {
                 if contains_inclusive(&prev.range, offset) {
                     let target = parse_task_reference_target(&prev.value);
@@ -1021,7 +1021,7 @@ impl Workspace {
                 );
             }
         }
-        for event in &output.events.events {
+        for event in &output.events().events {
             if let Some(reference) = event
                 .tasks
                 .iter()
@@ -1047,7 +1047,7 @@ impl Workspace {
         let Some(output) = self.current_output(&path) else {
             return Ok(self.query_result(None));
         };
-        for task in &output.tasks.tasks {
+        for task in &output.tasks().tasks {
             if let Some(prev) = &task.prev {
                 if contains_inclusive(&prev.range, offset) {
                     return Ok(self.query_result(Some(self.resolve_task_reference_target(
@@ -1066,7 +1066,7 @@ impl Workspace {
                 )));
             }
         }
-        for event in &output.events.events {
+        for event in &output.events().events {
             if let Some(reference) = event
                 .tasks
                 .iter()
@@ -1112,14 +1112,14 @@ impl Workspace {
             let Some(current) = &entry.current else {
                 continue;
             };
-            for link in &current.output.links {
+            for link in current.output.links() {
                 if let Some(reference) = self.link_anchor_reference(&entry.path, link)? {
                     if reference.target_path == target_path && reference.target_id == target_id {
                         references.push((entry.path.clone(), reference));
                     }
                 }
             }
-            for task in &current.output.tasks.tasks {
+            for task in &current.output.tasks().tasks {
                 for (source, range, target) in task_reference_fields(task) {
                     if let Some(reference) =
                         self.task_anchor_reference(&entry.path, source, range, &target)?
@@ -1131,7 +1131,7 @@ impl Workspace {
                     }
                 }
             }
-            for event in &current.output.events.events {
+            for event in &current.output.events().events {
                 for reference in
                     &self.event_task_references_in_output(&entry.path, &current.output, &event)?
                 {
@@ -1222,7 +1222,7 @@ impl Workspace {
             let Some(current) = &entry.current else {
                 continue;
             };
-            for link in &current.output.links {
+            for link in current.output.links() {
                 if resolved_document_path(self.resolve_link_value(&entry.path, link)?).as_ref()
                     == Some(&target_path)
                 {
@@ -1241,7 +1241,7 @@ impl Workspace {
                     );
                 }
             }
-            for task in &current.output.tasks.tasks {
+            for task in &current.output.tasks().tasks {
                 for (source, range, target) in task_reference_fields(task) {
                     if resolved_document_path(
                         self.resolve_task_reference_target(&entry.path, &target)?,
@@ -1263,7 +1263,7 @@ impl Workspace {
                     }
                 }
             }
-            for event in &current.output.events.events {
+            for event in &current.output.events().events {
                 for reference in
                     &self.event_task_references_in_output(&entry.path, &current.output, &event)?
                 {
@@ -1360,7 +1360,7 @@ impl Workspace {
             let Some(current) = &entry.current else {
                 continue;
             };
-            for link in &current.output.links {
+            for link in current.output.links() {
                 collect_reverse_reference(
                     &mut references,
                     &mut document_occurrences,
@@ -1379,7 +1379,7 @@ impl Workspace {
                     self.resolve_link_value(&entry.path, link)?,
                 );
             }
-            for task in &current.output.tasks.tasks {
+            for task in &current.output.tasks().tasks {
                 for (source, range, target) in task_reference_fields(task) {
                     let (document_range, anchor_range) =
                         task_reference_component_ranges(source, range, &target)
@@ -1398,7 +1398,7 @@ impl Workspace {
                     );
                 }
             }
-            for event in &current.output.events.events {
+            for event in &current.output.events().events {
                 for reference in
                     &self.event_task_references_in_output(&entry.path, &current.output, &event)?
                 {
@@ -1439,13 +1439,13 @@ impl Workspace {
             return Ok(self.query_result(Vec::new()));
         };
         let mut targets = HashSet::new();
-        for link in &output.links {
+        for link in output.links() {
             if let Some(path) = resolved_document_path(self.resolve_link_value(&source_path, link)?)
             {
                 targets.insert(path);
             }
         }
-        for task in &output.tasks.tasks {
+        for task in &output.tasks().tasks {
             for (_, _, target) in task_reference_fields(task) {
                 if let Some(path) = resolved_document_path(
                     self.resolve_task_reference_target(&source_path, &target)?,
@@ -1454,7 +1454,7 @@ impl Workspace {
                 }
             }
         }
-        for event in &output.events.events {
+        for event in &output.events().events {
             for reference in &self.event_task_references_in_output(&source_path, output, &event)? {
                 if let Some(path) = resolved_document_path(
                     self.resolve_task_reference_target(&source_path, &reference.target)?,
@@ -1573,7 +1573,7 @@ impl Workspace {
 
     pub fn event_at(&self, path: impl AsRef<Path>, offset: usize) -> Option<EventRecord> {
         self.current_output(path.as_ref())?
-            .events
+            .events()
             .events
             .iter()
             .filter(|event| event.range.start <= offset && offset <= event.range.end)
@@ -1596,7 +1596,7 @@ impl Workspace {
             .flat_map(|(entry, current)| {
                 current
                     .output
-                    .events
+                    .events()
                     .events
                     .views()
                     .filter(|event| event.overlaps(start, end))
@@ -1715,7 +1715,7 @@ impl Workspace {
             .flat_map(|(entry, current)| {
                 current
                     .output
-                    .events
+                    .events()
                     .events
                     .iter()
                     .map(|event| WorkspaceEvent {
@@ -1743,7 +1743,7 @@ impl Workspace {
             let Some(current) = &entry.current else {
                 continue;
             };
-            for event in &current.output.events.events {
+            for event in &current.output.events().events {
                 if self
                     .event_task_references_in_output(&entry.path, &current.output, &event)?
                     .iter()
@@ -1855,7 +1855,7 @@ impl Workspace {
                 continue;
             };
             let is_task = target_output
-                .tasks
+                .tasks()
                 .tasks
                 .iter()
                 .any(|task| task.id.as_ref().is_some_and(|field| field.value == id));
@@ -1902,7 +1902,7 @@ impl Workspace {
             .as_ref()
             .expect("current output checked")
             .output
-            .anchors
+            .anchors()
             .iter()
             .map(|anchor| anchor.id.value.clone())
             .collect::<HashSet<_>>();
@@ -1949,14 +1949,14 @@ impl Workspace {
         let Some(current) = &entry.current else {
             return Ok(self.query_result(diagnostics));
         };
-        diagnostics.extend(current.output.headings.diagnostics.clone());
-        diagnostics.extend(current.output.metadata.diagnostics.clone());
-        diagnostics.extend(current.output.citations.diagnostics.clone());
-        diagnostics.extend(current.output.math.diagnostics.clone());
-        diagnostics.extend(current.output.tasks.diagnostics.clone());
-        diagnostics.extend(current.output.events.diagnostics.clone());
-        diagnostics.extend(current.output.diagnostics.clone());
-        for link in &current.output.links {
+        diagnostics.extend(current.output.headings().diagnostics.clone());
+        diagnostics.extend(current.output.metadata().diagnostics.clone());
+        diagnostics.extend(current.output.citations().diagnostics.clone());
+        diagnostics.extend(current.output.math().diagnostics.clone());
+        diagnostics.extend(current.output.tasks().diagnostics.clone());
+        diagnostics.extend(current.output.events().diagnostics.clone());
+        diagnostics.extend(current.output.diagnostics().iter().cloned());
+        for link in current.output.links() {
             let (code, message) = match self.resolve_link_value(&path, link)? {
                 ResolvedTarget::UnresolvedPath { path } => (
                     "link.unresolved-path",
@@ -1984,7 +1984,7 @@ impl Workspace {
                 related: Vec::new(),
             });
         }
-        for image in &current.output.images {
+        for image in current.output.images() {
             let ResolvedTarget::UnresolvedFile { path: target } = self.resolve_image(&path, image)
             else {
                 continue;
@@ -1997,7 +1997,7 @@ impl Workspace {
                 related: Vec::new(),
             });
         }
-        for file in &current.output.files {
+        for file in current.output.files() {
             let ResolvedTarget::UnresolvedFile { path: target } = self.resolve_file(&path, file)
             else {
                 continue;
@@ -2025,7 +2025,7 @@ impl Workspace {
         current: &VersionedDocumentOutput,
     ) -> Result<Vec<Diagnostic>, WorkspaceQueryError> {
         let mut diagnostics = Vec::new();
-        for event in &current.output.events.events {
+        for event in &current.output.events().events {
             for reference in &self.event_task_references_in_output(path, &current.output, &event)? {
                 if let Some(mut diagnostic) = self.task_target_diagnostic(
                     path,
@@ -2056,7 +2056,7 @@ impl Workspace {
         graph: &HashMap<TaskRef, Vec<TaskRef>>,
     ) -> Result<Vec<Diagnostic>, WorkspaceQueryError> {
         let mut diagnostics = Vec::new();
-        let tasks = &current.output.tasks.tasks;
+        let tasks = &current.output.tasks().tasks;
         for (task_index, task) in tasks.iter().enumerate() {
             let own_ref = task.id.as_ref().map(|id| TaskRef {
                 path: path.to_path_buf(),
@@ -2263,7 +2263,7 @@ impl Workspace {
             .current_output(&path)
             .ok_or(RenameError::StaleOrInvalidDocument)?;
         if let Some(anchor) = output
-            .anchors
+            .anchors()
             .iter()
             .find(|anchor| contains_inclusive(&anchor.id.range, offset))
         {
@@ -2303,7 +2303,7 @@ impl Workspace {
             .and_then(|current| {
                 current
                     .output
-                    .anchors
+                    .anchors()
                     .iter()
                     .find(|anchor| anchor.id.value == target.id)
             })
@@ -2360,7 +2360,7 @@ impl Workspace {
     ) -> Result<PathRenameTarget, WorkspaceOperationError<RenameError>> {
         let path = normalize(path.as_ref());
         if let Some(link) = self.current_output(&path).and_then(|output| {
-            output.links.iter().find(|link| {
+            output.links().iter().find(|link| {
                 link.path_range
                     .as_ref()
                     .is_some_and(|range| contains_inclusive(range, offset))
@@ -2473,7 +2473,7 @@ impl Workspace {
             let Some(current) = &entry.current else {
                 continue;
             };
-            for link in &current.output.links {
+            for link in current.output.links() {
                 let Some(path_range) = &link.path_range else {
                     continue;
                 };
@@ -2497,7 +2497,7 @@ impl Workspace {
                     .or_default()
                     .push(link_path_rename_edit(entry, link, path_range, replacement)?);
             }
-            for task in &current.output.tasks.tasks {
+            for task in &current.output.tasks().tasks {
                 for (source, range, target) in task_reference_fields(task) {
                     let Some(reference) =
                         self.task_anchor_reference(&entry.path, source, range, &target)?
@@ -2570,7 +2570,7 @@ impl Workspace {
             .current
             .as_ref()
             .ok_or(MetadataInsertError::StaleOrInvalidDocument)?;
-        if current.output.metadata.metadata.is_some() {
+        if current.output.metadata().metadata.is_some() {
             return Err(MetadataInsertError::MetadataAlreadyExists);
         }
         if offset != 0 {
@@ -2625,7 +2625,7 @@ impl Workspace {
             .filter(|entry| entry.current.is_some())
             .ok_or(EventEditError::StaleOrInvalidDocument)?;
         let current = entry.current.as_ref().expect("current output checked");
-        let event = owned_event(input, &current.output.metadata);
+        let event = owned_event(input, &current.output.metadata());
         let (affected, after) = entry
             .parsed
             .syntax
@@ -2669,13 +2669,13 @@ impl Workspace {
         let current = entry.current.as_ref().expect("current output checked");
         let next = next_parsed_sibling(&entry.parsed.syntax.blocks, &item.range);
         let inferred_end = next.and_then(|next| {
-            inferred_end_from_sibling(&entry.parsed.source, next, now, &current.output.metadata)
+            inferred_end_from_sibling(&entry.parsed.source, next, now, &current.output.metadata())
         });
         let (input, title_start) = parse_event_shorthand_head(
             &entry.parsed.source,
             item,
             now,
-            &current.output.metadata,
+            &current.output.metadata(),
             inferred_end,
         )?;
         let mut owned = OwnedBlock::from_parsed(&entry.parsed.source, item);
@@ -2684,7 +2684,7 @@ impl Workspace {
         );
         owned.prepend_attribute(OwnedAttribute::class("event"));
         strip_event_shorthand_prefix(&mut owned, title_start)?;
-        owned.extend_attributes(event_attributes(&input, &current.output.metadata));
+        owned.extend_attributes(event_attributes(&input, &current.output.metadata()));
         prepend_event_schedule(&mut owned, &input);
         let event_edit = replace_owned_block(&entry.parsed, item.range.clone(), &owned)
             .map_err(|_| EventShorthandError::GeneratedInvalid)?;
@@ -2708,7 +2708,7 @@ impl Workspace {
             .as_ref()
             .expect("current output checked")
             .output
-            .metadata;
+            .metadata();
         let mut edits = Vec::new();
         let mut converted = 0;
         for (index, block) in entry.parsed.syntax.blocks.iter().enumerate() {
@@ -2778,7 +2778,7 @@ impl Workspace {
                 .as_ref()
                 .expect("current output checked")
                 .output
-                .tasks
+                .tasks()
                 .tasks
                 .iter()
                 .any(|candidate| candidate.range == *parent_range);
@@ -2872,7 +2872,7 @@ impl Workspace {
             .ok_or(TaskAuthoringError::StaleOrInvalidDocument)?;
         let task = current
             .output
-            .tasks
+            .tasks()
             .tasks
             .iter()
             .find(|task| task.range == task_range)
@@ -2908,7 +2908,7 @@ impl Workspace {
             .ok_or(TaskAuthoringError::StaleOrInvalidDocument)?;
         let task = current
             .output
-            .tasks
+            .tasks()
             .tasks
             .iter()
             .find(|task| task.range == task_range)
@@ -2982,7 +2982,7 @@ impl Workspace {
             .as_ref()
             .expect("current output checked")
             .output
-            .tasks
+            .tasks()
             .tasks
             .iter()
             .find(|task| task.range == task_range)
@@ -3021,7 +3021,7 @@ impl Workspace {
                     .as_ref()
                     .expect("current output checked")
                     .output
-                    .tasks
+                    .tasks()
                     .tasks
                     .iter()
                     .any(|task| task.range == *parent_range);
@@ -3118,7 +3118,7 @@ impl Workspace {
                 .as_ref()
                 .expect("current output checked")
                 .output
-                .tasks
+                .tasks()
                 .tasks
                 .iter()
                 .any(|task| task.range == *parent_range);
@@ -3221,7 +3221,7 @@ impl Workspace {
             .ok_or(EventEditError::StaleOrInvalidDocument)?;
         let event = current
             .output
-            .events
+            .events()
             .events
             .iter()
             .find(|event| event.range == event_range)
@@ -3233,7 +3233,7 @@ impl Workspace {
         owned.retain_attributes(|attribute| {
             !matches!(attribute, OwnedAttribute::Pair { key, .. } if matches!(key.as_str(), "date" | "timezone" | "at" | "start" | "end" | "tasks"))
         });
-        owned.extend_attributes(event_attributes(input, &current.output.metadata));
+        owned.extend_attributes(event_attributes(input, &current.output.metadata()));
         let mut edit = EditSession::new(&entry.parsed, event.range.clone())
             .map_err(|_| EventEditError::GeneratedInvalid)?;
         edit.replace_block(event.range.clone(), &owned)
@@ -3260,7 +3260,7 @@ impl Workspace {
             .ok_or(EventEditError::StaleOrInvalidDocument)?;
         let event = current
             .output
-            .events
+            .events()
             .events
             .iter()
             .find(|event| event.range == event_range)
@@ -3297,7 +3297,7 @@ impl Workspace {
                     let relative = relative_path(&from, &entry.path)?;
                     let title = versioned
                         .output
-                        .metadata
+                        .metadata()
                         .document_title()
                         .filter(|title| !title.is_empty())
                         .unwrap_or_else(|| relative.clone());
@@ -3339,7 +3339,7 @@ impl Workspace {
                     }
                     let title = versioned
                         .output
-                        .metadata
+                        .metadata()
                         .document_title()
                         .filter(|title| !title.is_empty())
                         .unwrap_or_else(|| relative.clone());
@@ -3376,7 +3376,7 @@ impl Workspace {
                     .map(|versioned| {
                         versioned
                             .output
-                            .anchors
+                            .anchors()
                             .iter()
                             .filter(|anchor| fuzzy_match(&anchor.id.value, query))
                             .map(|anchor| CompletionCandidate {
@@ -3405,7 +3405,7 @@ impl Workspace {
                     .map(|versioned| {
                         versioned
                             .output
-                            .anchors
+                            .anchors()
                             .iter()
                             .filter(|anchor| fuzzy_match(&anchor.id.value, query))
                             .map(|anchor| CompletionCandidate {
@@ -3539,7 +3539,7 @@ impl Workspace {
         let from = normalize(from.as_ref());
         let Some(owner) = self.current_output(&from).and_then(|output| {
             output
-                .tasks
+                .tasks()
                 .tasks
                 .iter()
                 .find(|task| task.range == context.task_range)
@@ -3576,7 +3576,7 @@ impl Workspace {
                     let versioned = entry.current.as_ref().or(entry.last_valid.as_ref())?;
                     if !versioned
                         .output
-                        .tasks
+                        .tasks()
                         .tasks
                         .iter()
                         .any(|task| eligible(&entry.path, task))
@@ -3706,7 +3706,7 @@ impl Workspace {
                 .current
                 .as_ref()
                 .into_iter()
-                .flat_map(|current| &current.output.anchors)
+                .flat_map(|current| current.output.anchors())
                 .filter(|anchor| anchor.id.value == id)
                 .cloned()
                 .collect());
@@ -3724,7 +3724,7 @@ impl Workspace {
             return Ok(entry
                 .current
                 .as_ref()
-                .map(|current| current.output.tasks.tasks.clone())
+                .map(|current| current.output.tasks().tasks.clone())
                 .unwrap_or_default());
         }
         self.disk_store
@@ -3742,7 +3742,7 @@ impl Workspace {
             .flat_map(|(entry, current)| {
                 current
                     .output
-                    .tasks
+                    .tasks()
                     .tasks
                     .iter()
                     .cloned()

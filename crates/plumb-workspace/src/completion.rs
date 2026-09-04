@@ -21,7 +21,7 @@ impl Workspace {
             let Some(versioned) = entry.current.as_ref().or(entry.last_valid.as_ref()) else {
                 continue;
             };
-            for event in &versioned.output.events.events {
+            for event in &versioned.output.events().events {
                 if !event.title.is_empty() {
                     *counts.entry(event.title.clone()).or_default() += 1;
                 }

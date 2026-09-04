@@ -23,7 +23,7 @@ fn desired_events(loaded: &LoadedWorkspace) -> Result<BTreeMap<String, String>, 
         .flat_map(|(entry, current)| {
             current
                 .output
-                .events
+                .events()
                 .events
                 .iter()
                 .map(move |event| (entry, event))
@@ -566,7 +566,7 @@ mod tests {
             .as_ref()
             .unwrap()
             .output
-            .events
+            .events()
             .events
             .get(0)
             .unwrap();

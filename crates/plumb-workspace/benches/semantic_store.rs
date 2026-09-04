@@ -630,17 +630,17 @@ fn benchmark_open_document_generation(c: &mut Criterion) {
             .as_ref()
             .unwrap()
             .output
-            .metadata,
+            .metadata(),
         None,
     )
     .unwrap();
     let changed_green = green
         .reparse_from_change(changed.clone(), changed_source.clone())
         .document;
-    let changed_metadata = &fresh_output.metadata;
+    let changed_metadata = fresh_output.metadata();
     let changed_green_events =
         GreenEventRevision::analyze(&changed_green, changed_metadata, Some(&green_events)).unwrap();
-    assert_eq!(changed_green_events.materialize(), fresh_output.events);
+    assert_eq!(&changed_green_events.materialize(), fresh_output.events());
     assert_eq!(
         incremental_workspace
             .get("events.plumb")
@@ -1071,12 +1071,12 @@ fn benchmark_event_containment(c: &mut Criterion) {
     let source = event_containment_source(2_000);
     let parsed = parse(&source);
     let output = analyze_document(parsed.valid_syntax().unwrap());
-    let event = output.events.events.get(1_000).unwrap();
+    let event = output.events().events.get(1_000).unwrap();
     let legacy = || {
         let first = output
-            .links
+            .links()
             .partition_point(|link| link.range.start < event.range.start);
-        output.links[first..]
+        output.links()[first..]
             .iter()
             .take_while(|link| link.range.start < event.range.end)
             .count()
@@ -1105,7 +1105,7 @@ fn benchmark_event_containment(c: &mut Criterion) {
     group.bench_function("index_memory_bytes", |b| {
         b.iter(|| {
             black_box(
-                output.event_link_ranges.capacity()
+                output.event_link_ranges().len()
                     * std::mem::size_of::<plumb_semantics::EventLinkRange>(),
             )
         })

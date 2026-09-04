@@ -299,8 +299,9 @@ impl ServerState {
         if let Some(bibliography) = self.bibliography_for(path) {
             diagnostics.extend(bibliography.diagnostics.clone());
             if let Some(current) = &entry.current {
-                diagnostics
-                    .extend(bibliography.citation_diagnostics(&current.output.citations.citations));
+                diagnostics.extend(
+                    bibliography.citation_diagnostics(&current.output.citations().citations),
+                );
             }
         }
         let diagnostics = diagnostics
@@ -329,7 +330,7 @@ impl ServerState {
         let root = self.workspace_root_for(path)?;
         let entry = self.workspace.get(path)?;
         let current = entry.current.as_ref()?;
-        Some(load_bibliography(root, path, &current.output.metadata))
+        Some(load_bibliography(root, path, &current.output.metadata()))
     }
 
     fn bibliography_for_completion(&self, path: &Path) -> Option<Bibliography> {
@@ -1210,26 +1211,26 @@ impl LanguageServer for ServerState {
             .map(|(entry, current)| {
                 let mut symbols = current
                     .output
-                    .headings
+                    .headings()
                     .headings
                     .iter()
                     .map(|heading| heading_symbol(&entry.parsed.source, heading))
                     .collect::<Vec<_>>();
                 let mut additional = current
                     .output
-                    .anchors
+                    .anchors()
                     .iter()
                     .filter(|anchor| {
                         anchor.kind != AnchorKind::Heading
                             && !current
                                 .output
-                                .tasks
+                                .tasks()
                                 .tasks
                                 .iter()
                                 .any(|task| task.range == anchor.range)
                             && !current
                                 .output
-                                .events
+                                .events()
                                 .events
                                 .iter()
                                 .any(|event| event.range == anchor.range)
@@ -1241,7 +1242,7 @@ impl LanguageServer for ServerState {
                         )
                     })
                     .collect::<Vec<_>>();
-                if let Some(metadata) = &current.output.metadata.metadata {
+                if let Some(metadata) = &current.output.metadata().metadata {
                     additional.push((
                         metadata.range.start,
                         metadata_symbol(&entry.parsed.source, metadata),
@@ -1250,27 +1251,27 @@ impl LanguageServer for ServerState {
                 additional.extend(
                     current
                         .output
-                        .tasks
+                        .tasks()
                         .tasks
                         .iter()
                         .filter(|task| task.depth == 0)
                         .map(|task| task.range.start)
                         .zip(task_symbols(
                             &entry.parsed.source,
-                            &current.output.tasks.tasks,
+                            &current.output.tasks().tasks,
                         )),
                 );
                 additional.extend(
                     current
                         .output
-                        .events
+                        .events()
                         .events
                         .iter()
                         .filter(|event| event.depth == 0)
                         .map(|event| event.range.start)
                         .zip(event_symbols(
                             &entry.parsed.source,
-                            &current.output.events.events,
+                            &current.output.events().events,
                         )),
                 );
                 additional.sort_by_key(|(start, _)| *start);
@@ -1445,10 +1446,15 @@ impl LanguageServer for ServerState {
             };
             let offset = position_to_offset(&entry.parsed.source, position.position);
             if let Some(citation) = entry.current.as_ref().and_then(|current| {
-                current.output.citations.citations.iter().find(|citation| {
-                    citation.selection_range.start <= offset
-                        && offset <= citation.selection_range.end
-                })
+                current
+                    .output
+                    .citations()
+                    .citations
+                    .iter()
+                    .find(|citation| {
+                        citation.selection_range.start <= offset
+                            && offset <= citation.selection_range.end
+                    })
             }) {
                 let Some(bibliography) = self.bibliography_for(&path) else {
                     return Ok(None);
@@ -1580,7 +1586,7 @@ impl LanguageServer for ServerState {
             };
             let anchor_ids = output
                 .output
-                .anchors
+                .anchors()
                 .iter()
                 .map(|anchor| anchor.id.value.clone())
                 .collect::<HashSet<_>>();
@@ -1615,7 +1621,7 @@ impl LanguageServer for ServerState {
                 title,
                 locations,
             ));
-            lenses.extend(output.output.anchors.iter().map(|anchor| {
+            lenses.extend(output.output.anchors().iter().map(|anchor| {
                 let locations = references
                     .anchors
                     .remove(&anchor.id.value)
@@ -1671,10 +1677,15 @@ impl LanguageServer for ServerState {
                 .get(&path)
                 .and_then(|entry| entry.current.as_ref())
                 .and_then(|current| {
-                    current.output.citations.citations.iter().find(|citation| {
-                        citation.selection_range.start <= offset
-                            && offset <= citation.selection_range.end
-                    })
+                    current
+                        .output
+                        .citations()
+                        .citations
+                        .iter()
+                        .find(|citation| {
+                            citation.selection_range.start <= offset
+                                && offset <= citation.selection_range.end
+                        })
                 })
             {
                 let Some(bibliography) = self.bibliography_for(&path) else {
@@ -2171,7 +2182,7 @@ impl LanguageServer for ServerState {
             .map(|(entry, current)| {
                 let mut previous_line = 0;
                 let mut previous_start = 0;
-                let data = closed_task_token_ranges(&current.output.tasks.tasks)
+                let data = closed_task_token_ranges(&current.output.tasks().tasks)
                     .into_iter()
                     .flat_map(|(byte_range, modifiers)| {
                         physical_line_ranges(&entry.parsed.source, &byte_range)

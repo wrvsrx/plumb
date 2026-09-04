@@ -250,7 +250,7 @@ pub use document::{
     analyze_document, analyze_document_incremental, analyze_green_document_incremental, AnchorKind,
     AnchorRecord, DocumentChange, DocumentOutput, EventLinkRange, FileRecord, FileTarget,
     GreenDocumentAnalysis, GreenSemanticRevision, ImageRecord, ImageTarget, LinkRecord,
-    LinkSpelling, LinkTarget, SourceBacked,
+    LinkSpelling, LinkTarget, SemanticRoot, SourceBacked,
 };
 pub use events::{
     analyze_events, EventField, EventOutput, EventRecord, EventRecordView, EventRecords,

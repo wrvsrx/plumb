@@ -759,7 +759,7 @@ impl WebWorkspace {
             };
             let Some(task) = current
                 .output
-                .tasks
+                .tasks()
                 .tasks
                 .iter()
                 .find(|task| task.selection_range == record.range)
@@ -901,7 +901,7 @@ impl WebWorkspace {
             };
             let Some(task) = current
                 .output
-                .tasks
+                .tasks()
                 .tasks
                 .iter()
                 .find(|task| task.selection_range == record.range)
@@ -962,7 +962,7 @@ impl WebWorkspace {
             let Some(document_id) = self.document_id(&entry.path).map(str::to_string) else {
                 continue;
             };
-            for event in &current.output.events.events {
+            for event in &current.output.events().events {
                 events.push(WebEvent {
                     key: format!("{document_id}:{}", event.range.start),
                     document_id: document_id.clone(),
@@ -1131,7 +1131,7 @@ impl WebWorkspace {
             .ok_or("selected event document is invalid")?;
         let event = entry
             .output
-            .events
+            .events()
             .events
             .iter()
             .find(|event| event.range.start == start)
@@ -1200,7 +1200,7 @@ impl WebWorkspace {
             .and_then(|locator| {
                 current
                     .output
-                    .events
+                    .events()
                     .events
                     .iter()
                     .find(|event| event.range.start == locator.start)
@@ -1209,7 +1209,7 @@ impl WebWorkspace {
                 input.and_then(|input| {
                     current
                         .output
-                        .events
+                        .events()
                         .events
                         .iter()
                         .collect::<Vec<_>>()
@@ -1481,7 +1481,7 @@ impl WebWorkspace {
             .and_then(|entry| entry.current.as_ref())
             .ok_or_else(|| format!("document '{}' is not semantically valid", path.display()))?
             .output
-            .metadata;
+            .metadata();
         Ok(load_bibliography(&self.root, path, metadata))
     }
 
@@ -1519,7 +1519,7 @@ impl WebWorkspace {
                 .as_ref()
                 .expect("document id is current-valid");
             let operation_workspace = self.operation_workspace(path)?;
-            for link in &current.output.links {
+            for link in current.output.links() {
                 self.push_resolved_edge(
                     &mut nodes,
                     &mut ghost_ids,
@@ -1535,7 +1535,7 @@ impl WebWorkspace {
                         .value,
                 );
             }
-            for task in &current.output.tasks.tasks {
+            for task in &current.output.tasks().tasks {
                 if let Some(prev) = &task.prev {
                     self.push_resolved_edge(
                         &mut nodes,
@@ -1675,7 +1675,7 @@ impl WebWorkspace {
         output: &'a DocumentOutput,
         locator: &WebTaskLocator,
     ) -> Option<&'a TaskRecord> {
-        output.tasks.tasks.iter().find(|task| match locator {
+        output.tasks().tasks.iter().find(|task| match locator {
             WebTaskLocator::Id { id } => task.id.as_ref().is_some_and(|field| field.value == *id),
             WebTaskLocator::Offset { offset } => task.range.start == *offset,
         })
@@ -1703,7 +1703,7 @@ impl WebWorkspace {
             let Some(current) = &entry.current else {
                 continue;
             };
-            for link in &current.output.links {
+            for link in current.output.links() {
                 if let ResolvedTarget::File { path } = self
                     .workspace
                     .resolve_link(&entry.path, link)
@@ -1713,14 +1713,14 @@ impl WebWorkspace {
                     paths.insert(path);
                 }
             }
-            for image in &current.output.images {
+            for image in current.output.images() {
                 if let ResolvedTarget::File { path } =
                     self.workspace.resolve_image(&entry.path, image)
                 {
                     paths.insert(path);
                 }
             }
-            for file in &current.output.files {
+            for file in current.output.files() {
                 if let ResolvedTarget::File { path } =
                     self.workspace.resolve_file(&entry.path, file)
                 {
@@ -1879,7 +1879,7 @@ fn task_range_in(
         .map(|current| &current.output)
         .ok_or_else(|| "task document is invalid".to_string())?;
     output
-        .tasks
+        .tasks()
         .tasks
         .iter()
         .find(|task| match locator {

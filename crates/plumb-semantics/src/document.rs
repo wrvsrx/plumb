@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::ops::Range;
 use std::path::Path;
+use std::sync::Arc;
 
 use plumb_syntax::{
     AttrItem, AttrValue, Attributes, Block, Diagnostic, DiagnosticSeverity, Document, Inline,
@@ -123,25 +124,52 @@ pub struct EventLinkRange {
     pub links: Range<usize>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DocumentOutput {
-    pub headings: HeadingOutput,
-    pub metadata: MetadataOutput,
-    pub citations: CitationOutput,
-    pub inline_styles: InlineStyleOutput,
-    pub lists: ListOutput,
-    pub math: MathOutput,
-    pub quotes: QuoteOutput,
-    pub tasks: TaskOutput,
-    pub events: EventOutput,
-    pub tables: TableOutput,
-    pub anchors: Vec<AnchorRecord>,
-    pub links: Vec<LinkRecord>,
-    pub event_link_ranges: Vec<EventLinkRange>,
-    pub images: Vec<ImageRecord>,
-    pub files: Vec<FileRecord>,
-    pub diagnostics: Vec<Diagnostic>,
-    record_diagnostics: Vec<Diagnostic>,
+    root: Arc<SemanticRoot>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct SemanticRoot {
+    pub(crate) headings: HeadingOutput,
+    pub(crate) metadata: MetadataOutput,
+    pub(crate) citations: CitationOutput,
+    pub(crate) inline_styles: InlineStyleOutput,
+    pub(crate) lists: ListOutput,
+    pub(crate) math: MathOutput,
+    pub(crate) quotes: QuoteOutput,
+    pub(crate) tasks: TaskOutput,
+    pub(crate) events: EventOutput,
+    pub(crate) tables: TableOutput,
+    pub(crate) anchors: Vec<AnchorRecord>,
+    pub(crate) links: Vec<LinkRecord>,
+    pub(crate) event_link_ranges: Vec<EventLinkRange>,
+    pub(crate) images: Vec<ImageRecord>,
+    pub(crate) files: Vec<FileRecord>,
+    pub(crate) diagnostics: Vec<Diagnostic>,
+    pub(crate) record_diagnostics: Vec<Diagnostic>,
+}
+
+impl Default for DocumentOutput {
+    fn default() -> Self {
+        Self {
+            root: Arc::new(SemanticRoot::default()),
+        }
+    }
+}
+
+impl std::ops::Deref for DocumentOutput {
+    type Target = SemanticRoot;
+
+    fn deref(&self) -> &Self::Target {
+        &self.root
+    }
+}
+
+impl std::ops::DerefMut for DocumentOutput {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        Arc::make_mut(&mut self.root)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -218,6 +246,70 @@ impl GreenSemanticRevision {
 }
 
 impl DocumentOutput {
+    pub fn headings(&self) -> &HeadingOutput {
+        &self.root.headings
+    }
+
+    pub fn metadata(&self) -> &MetadataOutput {
+        &self.root.metadata
+    }
+
+    pub fn citations(&self) -> &CitationOutput {
+        &self.root.citations
+    }
+
+    pub fn inline_styles(&self) -> &InlineStyleOutput {
+        &self.root.inline_styles
+    }
+
+    pub fn lists(&self) -> &ListOutput {
+        &self.root.lists
+    }
+
+    pub fn math(&self) -> &MathOutput {
+        &self.root.math
+    }
+
+    pub fn quotes(&self) -> &QuoteOutput {
+        &self.root.quotes
+    }
+
+    pub fn tasks(&self) -> &TaskOutput {
+        &self.root.tasks
+    }
+
+    pub fn events(&self) -> &EventOutput {
+        &self.root.events
+    }
+
+    pub fn tables(&self) -> &TableOutput {
+        &self.root.tables
+    }
+
+    pub fn anchors(&self) -> &[AnchorRecord] {
+        &self.root.anchors
+    }
+
+    pub fn links(&self) -> &[LinkRecord] {
+        &self.root.links
+    }
+
+    pub fn event_link_ranges(&self) -> &[EventLinkRange] {
+        &self.root.event_link_ranges
+    }
+
+    pub fn images(&self) -> &[ImageRecord] {
+        &self.root.images
+    }
+
+    pub fn files(&self) -> &[FileRecord] {
+        &self.root.files
+    }
+
+    pub fn diagnostics(&self) -> &[Diagnostic] {
+        &self.root.diagnostics
+    }
+
     pub fn link_at_node_start(&self, start: usize) -> Option<&LinkRecord> {
         self.links.iter().find(|link| link.range.start == start)
     }
@@ -348,33 +440,33 @@ fn analyze_document_with(
     let lists = incremental_lists.unwrap_or_else(|| analyze_lists(valid));
     let tables = analyze_tables(valid);
     let mut output = DocumentOutput {
-        headings,
-        metadata,
-        citations,
-        inline_styles,
-        lists,
-        math,
-        quotes,
-        tasks,
-        events,
-        tables,
-        anchors: records.anchors,
-        links: records.links,
-        images: records.images,
-        files: records.files,
-        record_diagnostics: records.diagnostics,
-        ..DocumentOutput::default()
+        root: Arc::new(SemanticRoot {
+            headings,
+            metadata,
+            citations,
+            inline_styles,
+            lists,
+            math,
+            quotes,
+            tasks,
+            events,
+            tables,
+            anchors: records.anchors,
+            links: records.links,
+            images: records.images,
+            files: records.files,
+            record_diagnostics: records.diagnostics,
+            ..SemanticRoot::default()
+        }),
     };
     output
         .diagnostics
         .extend(association_arity_diagnostics(document));
     output.event_link_ranges = build_event_link_ranges(&output.events.events, &output.links);
-    output
-        .diagnostics
-        .extend(output.record_diagnostics.iter().cloned());
-    output
-        .diagnostics
-        .extend(output.tables.diagnostics.iter().cloned());
+    let record_diagnostics = output.record_diagnostics.clone();
+    let table_diagnostics = output.tables.diagnostics.clone();
+    output.diagnostics.extend(record_diagnostics);
+    output.diagnostics.extend(table_diagnostics);
     output
 }
 
@@ -383,10 +475,8 @@ fn collect_document_records(
     document: &Document,
     headings: &HeadingOutput,
 ) -> RecordOutput {
-    let mut output = DocumentOutput {
-        headings: headings.clone(),
-        ..DocumentOutput::default()
-    };
+    let mut output = DocumentOutput::default();
+    output.headings = headings.clone();
     let mut first_ids: HashMap<String, Range<usize>> = HashMap::new();
     collect_blocks(source, &document.blocks, &mut first_ids, &mut output);
     output.diagnostics.sort_by_key(|diagnostic| {
@@ -396,12 +486,13 @@ fn collect_document_records(
             diagnostic.code,
         )
     });
+    let root = Arc::try_unwrap(output.root).expect("record collector owns its semantic root");
     RecordOutput {
-        anchors: output.anchors,
-        links: output.links,
-        images: output.images,
-        files: output.files,
-        diagnostics: output.diagnostics,
+        anchors: root.anchors,
+        links: root.links,
+        images: root.images,
+        files: root.files,
+        diagnostics: root.diagnostics,
     }
 }
 

@@ -32,7 +32,7 @@ pub(crate) fn metadata_labels(entry: &DocumentEntry) -> HashMap<(usize, usize), 
     let Some(metadata) = entry
         .current
         .as_ref()
-        .and_then(|current| current.output.metadata.metadata.as_ref())
+        .and_then(|current| current.output.metadata().metadata.as_ref())
     else {
         return HashMap::new();
     };
@@ -89,7 +89,7 @@ pub(crate) fn task_labels(
     let now = Local::now().fixed_offset();
     current
         .output
-        .tasks
+        .tasks()
         .tasks
         .iter()
         .filter_map(|task| {
@@ -179,7 +179,7 @@ pub(crate) fn event_labels(entry: &DocumentEntry) -> HashMap<(usize, usize), Fol
     };
     current
         .output
-        .events
+        .events()
         .events
         .iter()
         .filter_map(|event| {

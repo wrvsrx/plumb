@@ -29,21 +29,24 @@ fn projects_metadata_tasks_events_and_document_structure() {
     );
     let output = analyze(source);
     assert_eq!(
-        output.metadata.document_title().as_deref(),
+        output.metadata().document_title().as_deref(),
         Some("Project Notes")
     );
-    let metadata = output.metadata.metadata.as_ref().unwrap();
+    let metadata = output.metadata().metadata.as_ref().unwrap();
     assert!(matches!(
         metadata.entries[1].value,
         MetadataValue::List { .. }
     ));
-    assert_eq!(output.headings.headings.len(), 1);
-    assert_eq!(output.anchors.len(), 2);
-    assert_eq!(output.tasks.tasks.len(), 1);
-    assert_eq!(output.tasks.tasks[0].title, "Implement parser");
-    assert_eq!(output.events.events.len(), 1);
-    assert_eq!(output.events.events.get(0).unwrap().title, "Parser review");
-    assert!(output.events.events.get(0).unwrap().start.is_some());
+    assert_eq!(output.headings().headings.len(), 1);
+    assert_eq!(output.anchors().len(), 2);
+    assert_eq!(output.tasks().tasks.len(), 1);
+    assert_eq!(output.tasks().tasks[0].title, "Implement parser");
+    assert_eq!(output.events().events.len(), 1);
+    assert_eq!(
+        output.events().events.get(0).unwrap().title,
+        "Parser review"
+    );
+    assert!(output.events().events.get(0).unwrap().start.is_some());
 }
 
 #[test]
@@ -54,12 +57,12 @@ fn projects_recursive_inline_forms_and_verbatim_math() {
         "`$\"\n E = mc^2\n",
     );
     let output = analyze(source);
-    assert_eq!(output.links.len(), 2);
-    assert_eq!(output.links[0].target.value, "Project Guide.plumb");
-    assert_eq!(output.citations.citations.len(), 1);
+    assert_eq!(output.links().len(), 2);
+    assert_eq!(output.links()[0].target.value, "Project Guide.plumb");
+    assert_eq!(output.citations().citations.len(), 1);
     assert_eq!(
         output
-            .inline_styles
+            .inline_styles()
             .styles
             .iter()
             .map(|style| style.kind)
@@ -68,7 +71,7 @@ fn projects_recursive_inline_forms_and_verbatim_math() {
     );
     assert_eq!(
         output
-            .math
+            .math()
             .records
             .iter()
             .map(|record| record.kind)
@@ -87,24 +90,28 @@ fn first_rest_consumers_bind_trailing_elements_and_ignore_declarations() {
         " `+ event\n",
     );
     let output = analyze(source);
-    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     assert!(
-        output.events.diagnostics.is_empty(),
+        output.diagnostics().is_empty(),
         "{:?}",
-        output.events.diagnostics
+        output.diagnostics()
     );
-    assert_eq!(output.links.len(), 3);
-    assert_eq!(output.links[0].target.value, "Project Guide.plumb");
-    assert_eq!(output.links[1].target.value, "strongsuffix");
-    assert_eq!(&source[output.links[1].selection_range.clone()], "prefix");
-    assert_eq!(output.links[2].target.value, "target.plumb");
+    assert!(
+        output.events().diagnostics.is_empty(),
+        "{:?}",
+        output.events().diagnostics
+    );
+    assert_eq!(output.links().len(), 3);
+    assert_eq!(output.links()[0].target.value, "Project Guide.plumb");
+    assert_eq!(output.links()[1].target.value, "strongsuffix");
+    assert_eq!(&source[output.links()[1].selection_range.clone()], "prefix");
+    assert_eq!(output.links()[2].target.value, "target.plumb");
     assert_eq!(
-        &source[output.links[2].selection_range.clone()],
+        &source[output.links()[2].selection_range.clone()],
         "prefix`!{strong}suffix"
     );
-    assert_eq!(output.events.events.len(), 1);
+    assert_eq!(output.events().events.len(), 1);
     assert_eq!(
-        output.events.events.get(0).unwrap().title,
+        output.events().events.get(0).unwrap().title,
         "Parser review meeting"
     );
 }
@@ -117,7 +124,7 @@ fn event_declarations_do_not_satisfy_the_required_rest_argument() {
     ));
     assert_eq!(
         output
-            .events
+            .events()
             .diagnostics
             .iter()
             .map(|diagnostic| diagnostic.code)
@@ -133,7 +140,7 @@ fn table_spaces_form_cells_and_expanded_rows_use_anonymous_children() {
         " `- name    age\n  `+ header\n",
         " `- {Alice Smith}    10\n",
     ));
-    let table = &compact.tables.tables[0];
+    let table = &compact.tables().tables[0];
     assert_eq!(table.column_count, 2);
     assert_eq!(table.rows.len(), 2);
     assert!(table.rows[0].header);
@@ -143,12 +150,12 @@ fn table_spaces_form_cells_and_expanded_rows_use_anonymous_children() {
         " `-\n  `+ header\n  name\n  age\n",
         " `-\n\n  {Alice Smith}\n  10\n",
     ));
-    let table = &expanded.tables.tables[0];
+    let table = &expanded.tables().tables[0];
     assert_eq!(table.column_count, 2);
     assert!(table.rows.iter().all(|row| !row.compact));
 
     let adjacent = analyze("`table\n `- A`!{B}C\n");
-    let row = &adjacent.tables.tables[0].rows[0];
+    let row = &adjacent.tables().tables[0].rows[0];
     assert_eq!(row.cells.len(), 3);
 }
 

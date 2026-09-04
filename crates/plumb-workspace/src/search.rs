@@ -223,7 +223,7 @@ impl Workspace {
                 }
             }
             if kind.is_none_or(|kind| kind == SearchRecordKind::Task) {
-                for task in &current.output.tasks.tasks {
+                for task in &current.output.tasks().tasks {
                     let id = task.id.as_ref().map(|id| id.value.clone());
                     let fields = [
                         task.title.as_str(),
@@ -281,7 +281,7 @@ impl Workspace {
                 }
             }
             if kind.is_none_or(|kind| kind == SearchRecordKind::Event) {
-                for event in current.output.events.events.views() {
+                for event in current.output.events().events.views() {
                     let id = event.id_value().map(str::to_string);
                     let fields = [
                         event.title(),
@@ -572,7 +572,7 @@ impl Workspace {
                 }
             }
             if kind.is_none_or(|kind| kind == SearchRecordKind::Task) {
-                for task in &current.output.tasks.tasks {
+                for task in &current.output.tasks().tasks {
                     let key = StoredTaskKey {
                         path: entry.path.clone(),
                         start: task.range.start,
@@ -604,7 +604,7 @@ impl Workspace {
                 }
             }
             if kind.is_none_or(|kind| kind == SearchRecordKind::Event) {
-                for event in &current.output.events.events {
+                for event in &current.output.events().events {
                     open_events.insert(
                         StoredEventSourceKey {
                             path: entry.path.clone(),
@@ -887,7 +887,7 @@ impl Workspace {
                     .current
                     .as_ref()?
                     .output
-                    .tasks
+                    .tasks()
                     .tasks
                     .iter()
                     .find(|task| task.selection_range == record.range)
@@ -1329,7 +1329,7 @@ fn note_search_title(
 ) -> (String, std::ops::Range<usize>) {
     let title = current
         .output
-        .metadata
+        .metadata()
         .metadata
         .as_ref()
         .and_then(|metadata| metadata.entries.iter().find(|entry| entry.key == "title"))
@@ -1662,7 +1662,7 @@ impl DirectTaskDependents {
             let Some(current) = &entry.current else {
                 continue;
             };
-            for task in &current.output.tasks.tasks {
+            for task in &current.output.tasks().tasks {
                 let Some(id) = &task.id else {
                     continue;
                 };

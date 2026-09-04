@@ -32,7 +32,7 @@ fn assert_fixture(target: &str, source: &str, events: usize, references: usize) 
         target.diagnostics
     );
     let target_output = analyze_document(target.valid_syntax().unwrap());
-    assert_eq!(target_output.tasks.tasks.len(), 1);
+    assert_eq!(target_output.tasks().tasks.len(), 1);
 
     let source = parse(source);
     assert!(
@@ -41,6 +41,6 @@ fn assert_fixture(target: &str, source: &str, events: usize, references: usize) 
         source.diagnostics
     );
     let source_output = analyze_document(source.valid_syntax().unwrap());
-    assert_eq!(source_output.events.events.len(), events);
-    assert_eq!(source_output.links.len(), references);
+    assert_eq!(source_output.events().events.len(), events);
+    assert_eq!(source_output.links().len(), references);
 }

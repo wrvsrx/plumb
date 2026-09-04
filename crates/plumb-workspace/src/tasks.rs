@@ -97,7 +97,7 @@ pub(super) enum TaskTargetResolution {
 impl Workspace {
     pub fn task_at(&self, path: impl AsRef<Path>, offset: usize) -> Option<&TaskRecord> {
         self.current_output(path.as_ref())?
-            .tasks
+            .tasks()
             .tasks
             .iter()
             .filter(|task| task.range.start <= offset && offset <= task.range.end)
@@ -258,7 +258,7 @@ impl Workspace {
             .as_ref()
             .expect("current output checked")
             .output
-            .tasks
+            .tasks()
             .tasks;
         let task = tasks
             .iter()
@@ -330,7 +330,7 @@ impl Workspace {
             .ok_or(TaskEditError::StaleOrInvalidDocument)?;
         let pending_tasks;
         let tasks = if let Some(current) = &entry.current {
-            &current.output.tasks.tasks
+            &current.output.tasks().tasks
         } else {
             pending_tasks = analyze_tasks(
                 entry
@@ -423,7 +423,7 @@ impl Workspace {
             .as_ref()
             .expect("current output checked")
             .output
-            .tasks
+            .tasks()
             .tasks
             .iter()
             .find(|task| task.id.as_ref().is_some_and(|task_id| task_id.value == id))
@@ -458,7 +458,7 @@ impl Workspace {
             .ok_or(TaskEditError::StaleOrInvalidDocument)?;
         let mut reserved = current
             .output
-            .anchors
+            .anchors()
             .iter()
             .map(|anchor| anchor.id.value.clone())
             .collect::<HashSet<_>>();
@@ -481,7 +481,7 @@ impl Workspace {
         }
         let mut next = OwnedBlock::from_parsed(source, block);
         let clone_context = RecurringTaskCloneContext {
-            tasks: &current.output.tasks.tasks,
+            tasks: &current.output.tasks().tasks,
             root: task,
             next_id: &next_id,
             timestamp,
@@ -553,7 +553,7 @@ impl Workspace {
             let Some(current) = &entry.current else {
                 continue;
             };
-            for anchor in &current.output.anchors {
+            for anchor in current.output.anchors() {
                 *anchor_counts
                     .entry(TaskRef {
                         path: entry.path.clone(),
@@ -561,7 +561,7 @@ impl Workspace {
                     })
                     .or_default() += 1;
             }
-            for task in &current.output.tasks.tasks {
+            for task in &current.output.tasks().tasks {
                 let key = StoredTaskKey {
                     path: entry.path.clone(),
                     start: task.range.start,

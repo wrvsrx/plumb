@@ -37,7 +37,7 @@ impl WebWorkspace {
                     .as_ref()
                     .expect("current output checked")
                     .output
-                    .tasks
+                    .tasks()
                     .tasks
                     .iter()
                     .any(|task| task.range.start == *offset);

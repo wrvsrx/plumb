@@ -21,7 +21,7 @@ impl Workspace {
 
     pub fn image_at(&self, path: impl AsRef<Path>, offset: usize) -> Option<&ImageRecord> {
         self.current_output(path.as_ref())?
-            .images
+            .images()
             .iter()
             .filter(|image| contains_inclusive(&image.range, offset))
             .max_by_key(|image| image.range.start)
@@ -43,7 +43,7 @@ impl Workspace {
 
     pub fn file_at(&self, path: impl AsRef<Path>, offset: usize) -> Option<&FileRecord> {
         self.current_output(path.as_ref())?
-            .files
+            .files()
             .iter()
             .filter(|file| contains_inclusive(&file.range, offset))
             .max_by_key(|file| file.range.start)

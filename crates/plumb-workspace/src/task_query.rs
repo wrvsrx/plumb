@@ -396,7 +396,7 @@ fn task_facts(
             continue;
         };
         let mut ancestors = Vec::new();
-        for task in &current.output.tasks.tasks {
+        for task in &current.output.tasks().tasks {
             ancestors.truncate(task.depth);
             let key = TaskKey {
                 path: entry.path.clone(),

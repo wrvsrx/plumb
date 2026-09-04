@@ -1560,7 +1560,7 @@ fn insert_output(
     output: &DocumentOutput,
 ) -> StoreResult<()> {
     let encoded_path = path_bytes(path);
-    for anchor in &output.anchors {
+    for anchor in output.anchors() {
         diesel::insert_into(anchors::table)
             .values((
                 anchors::path.eq(encoded_path.clone()),
@@ -1570,7 +1570,7 @@ fn insert_output(
             ))
             .execute(connection)?;
     }
-    for link in &output.links {
+    for link in output.links() {
         diesel::insert_into(links::table)
             .values((
                 links::path.eq(encoded_path.clone()),
@@ -1584,7 +1584,7 @@ fn insert_output(
         }
     }
     let mut task_ancestors = Vec::new();
-    for task in &output.tasks.tasks {
+    for task in &output.tasks().tasks {
         task_ancestors.truncate(task.depth);
         let parent_start = task_ancestors.last().copied().map(to_i64).transpose()?;
         let start = to_i64(task.range.start)?;
@@ -1638,7 +1638,7 @@ fn insert_output(
             }
         }
     }
-    for event in &output.events.events {
+    for event in &output.events().events {
         let interval_start = event.at_datetime().or_else(|| event.start_datetime());
         diesel::insert_into(events::table)
             .values((
@@ -2052,7 +2052,7 @@ fn decode_event_task_associations(
 
 fn document_title(output: &DocumentOutput, path: &Path) -> (String, Range<usize>) {
     output
-        .metadata
+        .metadata()
         .metadata
         .as_ref()
         .and_then(|metadata| metadata.entries.iter().find(|entry| entry.key == "title"))
@@ -2230,8 +2230,8 @@ mod tests {
             "`- 10:00 Second\n\n `+ event\n\n `@ second\n",
         );
         let output = analyzed(source);
-        let first_start = output.events.events.get(0).unwrap().range.start;
-        let second = output.events.events.get(1).unwrap();
+        let first_start = output.events().events.get(0).unwrap().range.start;
+        let second = output.events().events.get(1).unwrap();
         store
             .replace(Path::new("events.plumb"), 7, source, Some(&output))
             .unwrap();
@@ -2439,8 +2439,8 @@ mod tests {
             "`- Second\n\n `+ task\n\n `@ second\n\n `= prev #first\n",
         );
         let output = analyzed(source);
-        let first_start = output.tasks.tasks[0].range.start;
-        let second_start = output.tasks.tasks[1].range.start;
+        let first_start = output.tasks().tasks[0].range.start;
+        let second_start = output.tasks().tasks[1].range.start;
         store
             .replace(Path::new("tasks.plumb"), 9, source, Some(&output))
             .unwrap();
@@ -2610,8 +2610,8 @@ mod tests {
             "`- 2026-08-28T11:00 Explicit\n\n `+ event\n\n `= tasks tasks.plumb#task\n",
         );
         let output = analyzed(source);
-        let first_start = output.events.events.get(0).unwrap().range.start;
-        let second_start = output.events.events.get(1).unwrap().range.start;
+        let first_start = output.events().events.get(0).unwrap().range.start;
+        let second_start = output.events().events.get(1).unwrap().range.start;
         store
             .replace(Path::new("events.plumb"), 7, source, Some(&output))
             .unwrap();

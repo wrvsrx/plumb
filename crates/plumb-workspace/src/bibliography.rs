@@ -323,7 +323,7 @@ mod tests {
         let bibliography = load_bibliography(
             root.path(),
             &root.path().join("note.plumb"),
-            &analysis.metadata,
+            analysis.metadata(),
         );
         assert!(
             bibliography.diagnostics.is_empty(),
@@ -354,7 +354,7 @@ mod tests {
         let bibliography = load_bibliography(
             root.path(),
             &root.path().join("note.plumb"),
-            &analysis.metadata,
+            analysis.metadata(),
         );
         let codes = bibliography
             .diagnostics
@@ -364,7 +364,7 @@ mod tests {
         assert!(codes.contains(&"citation.unresolved-bibliography"));
         assert!(codes.contains(&"citation.duplicate-id"));
         assert_eq!(
-            bibliography.citation_diagnostics(&analysis.citations.citations)[0].code,
+            bibliography.citation_diagnostics(&analysis.citations().citations)[0].code,
             "citation.unresolved"
         );
     }
@@ -381,9 +381,9 @@ mod tests {
         let bibliography = load_bibliography(
             root.path(),
             &root.path().join("note.plumb"),
-            &analysis.metadata,
+            analysis.metadata(),
         );
-        let diagnostics = bibliography.citation_diagnostics(&analysis.citations.citations);
+        let diagnostics = bibliography.citation_diagnostics(&analysis.citations().citations);
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].code, "citation.unresolved");
     }
@@ -400,7 +400,7 @@ mod tests {
                 .valid_syntax()
                 .expect("semantic analysis requires valid syntax"),
         );
-        let bibliography = load_bibliography(&root, &root.join("note.plumb"), &analysis.metadata);
+        let bibliography = load_bibliography(&root, &root.join("note.plumb"), analysis.metadata());
         assert_eq!(
             bibliography.diagnostics[0].code,
             "citation.invalid-bibliography-path"
@@ -421,7 +421,7 @@ mod tests {
         let bibliography = load_bibliography(
             root.path(),
             &root.path().join("note.plumb"),
-            &analysis.metadata,
+            analysis.metadata(),
         );
         let BibliographyResolution::Resolved(record) = bibliography.resolve("same") else {
             panic!()

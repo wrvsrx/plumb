@@ -71,7 +71,7 @@ pub fn export(source: &str) -> Result<Value, String> {
         return Err(format!("document has syntax errors:\n{summary}"));
     };
     let analysis = analyze_document(valid);
-    let metadata = lower_metadata(analysis.metadata.metadata.as_ref(), &analysis)?;
+    let metadata = lower_metadata(analysis.metadata().metadata.as_ref(), &analysis)?;
     Ok(json!({
         "pandoc-api-version": [1, 23, 1],
         "meta": metadata,
@@ -159,7 +159,7 @@ fn lower_block_refs(blocks: &[&Block], analysis: &DocumentOutput) -> Vec<Value> 
     while index < blocks.len() {
         if let Block::Parsed(block) = blocks[index] {
             if let Some(definitions) = analysis
-                .metadata
+                .metadata()
                 .definition_list_at_node_start(block.range.start)
             {
                 let end = index + definitions.definitions.len();
@@ -171,7 +171,7 @@ fn lower_block_refs(blocks: &[&Block], analysis: &DocumentOutput) -> Vec<Value> 
                 index = end;
                 continue;
             }
-            if let Some(group) = analysis.lists.group_at_node_start(block.range.start) {
+            if let Some(group) = analysis.lists().group_at_node_start(block.range.start) {
                 let end = index + group.items.len();
                 output.push(lower_list_group(&blocks[index..end], &group, analysis));
                 index = end;
@@ -185,7 +185,7 @@ fn lower_block_refs(blocks: &[&Block], analysis: &DocumentOutput) -> Vec<Value> 
                     .as_ref()
                     .map_or_else(Attributes::default, |mark| mark.attrs.clone());
                 if analysis
-                    .math
+                    .math()
                     .math_at_node_start(block.range.start)
                     .is_some()
                 {
@@ -249,12 +249,12 @@ fn lower_list_group(blocks: &[&Block], group: &ListGroup, analysis: &DocumentOut
             let mark = block.mark.as_ref().expect("a list item has a mark");
             let mut contents = Vec::new();
             let task = analysis
-                .tasks
+                .tasks()
                 .tasks
                 .iter()
                 .find(|task| task.range.start == block.range.start);
             let event = analysis
-                .events
+                .events()
                 .events
                 .iter()
                 .find(|event| event.range.start == block.range.start);
@@ -306,18 +306,18 @@ fn task_state_marker(state: TaskState) -> &'static str {
 
 fn lower_parsed_block(block: &ParsedBlock, analysis: &DocumentOutput, output: &mut Vec<Value>) {
     if analysis
-        .metadata
+        .metadata()
         .metadata
         .as_ref()
         .is_some_and(|metadata| metadata.range.start == block.range.start)
     {
         return;
     }
-    if let Some(table) = analysis.tables.table_at_node_start(block.range.start) {
+    if let Some(table) = analysis.tables().table_at_node_start(block.range.start) {
         output.push(lower_table(block, table, analysis));
         return;
     }
-    if let Some(heading) = analysis.headings.heading_at_node_start(block.range.start) {
+    if let Some(heading) = analysis.headings().heading_at_node_start(block.range.start) {
         let attrs = &block.mark.as_ref().expect("heading has mark").attrs;
         output.push(json!({
             "t": "Header",
@@ -328,7 +328,7 @@ fn lower_parsed_block(block: &ParsedBlock, analysis: &DocumentOutput, output: &m
     }
 
     if analysis
-        .quotes
+        .quotes()
         .quote_at_node_start(block.range.start)
         .is_some()
     {
@@ -495,7 +495,7 @@ fn lower_inline_items(items: &[Inline], analysis: &DocumentOutput, output: &mut 
                         "t": "Link",
                         "c": [lower_verbatim_link_attrs(&attrs), text_inlines(text), [&link.target.value, ""]],
                     }));
-                } else if analysis.math.math_at_node_start(range.start).is_some() {
+                } else if analysis.math().math_at_node_start(range.start).is_some() {
                     let math = json!({
                         "t": "Math",
                         "c": [{ "t": "InlineMath" }, text],
@@ -526,7 +526,7 @@ fn lower_inline_items(items: &[Inline], analysis: &DocumentOutput, output: &mut 
                 };
                 let kind = mark.marker.as_str();
                 let attrs = &mark.attrs;
-                if let Some(style) = analysis.inline_styles.style_at_node_start(range.start) {
+                if let Some(style) = analysis.inline_styles().style_at_node_start(range.start) {
                     let content = lower_group_content(content, analysis);
                     if style.kind == InlineStyleKind::Mark {
                         output.push(json!({
@@ -555,7 +555,7 @@ fn lower_inline_items(items: &[Inline], analysis: &DocumentOutput, output: &mut 
                         }
                     }
                 } else if let Some(citation) =
-                    analysis.citations.citation_at_node_start(range.start)
+                    analysis.citations().citation_at_node_start(range.start)
                 {
                     output.push(lower_citation(citation));
                 } else if let Some(image) = analysis.image_at_node_start(range.start) {
