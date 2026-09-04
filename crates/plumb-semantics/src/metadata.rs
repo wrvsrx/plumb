@@ -175,6 +175,33 @@ pub fn recovered_bibliography_sources(document: &Document) -> Vec<BibliographySo
     analyze_metadata_document(document).bibliography_sources()
 }
 
+pub fn green_recovered_bibliography_sources(
+    document: &plumb_syntax::GreenDocument,
+) -> Vec<BibliographySource> {
+    for view in document.shards() {
+        let output = analyze_metadata_document(&view.shard().parsed().syntax);
+        let has_bibliography = output.metadata.as_ref().is_some_and(|metadata| {
+            metadata
+                .entries
+                .iter()
+                .any(|entry| entry.key == "bibliography")
+        });
+        if !has_bibliography {
+            continue;
+        }
+        return output
+            .bibliography_sources()
+            .into_iter()
+            .map(|mut source| {
+                source.range.start += view.offset();
+                source.range.end += view.offset();
+                source
+            })
+            .collect();
+    }
+    Vec::new()
+}
+
 fn analyze_metadata_document(document: &Document) -> MetadataOutput {
     let mut output = MetadataOutput::default();
     collect_definition_lists(
@@ -580,6 +607,17 @@ mod tests {
     use plumb_syntax::parse;
 
     use super::*;
+
+    #[test]
+    fn green_recovered_bibliography_sources_match_materialized_projection() {
+        let source = "Prelude\n\n`= bibliography\n `+ static/first.json\n\nBody\n\n`= bibliography\n `+ static/second.json\n";
+        let parsed = parse(source);
+        let green = plumb_syntax::GreenDocument::parse(source);
+        assert_eq!(
+            green_recovered_bibliography_sources(&green),
+            recovered_bibliography_sources(parsed.recovered_syntax())
+        );
+    }
 
     #[test]
     fn groups_definition_lists_and_projects_metadata_values() {

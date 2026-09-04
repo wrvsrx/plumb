@@ -3,10 +3,12 @@ use std::path::Path;
 
 use chrono::{DateTime, FixedOffset, Local};
 use lsp_types::FoldingRange;
-use plumb_semantics::{
-    analyze_recovered_headings, EventRecord, MetadataValue, TaskRecord, TaskState,
-};
-use plumb_syntax::{Block, Document};
+#[cfg(test)]
+use plumb_semantics::analyze_recovered_headings;
+use plumb_semantics::{EventRecord, MetadataValue, TaskRecord, TaskState};
+#[cfg(test)]
+use plumb_syntax::Document;
+use plumb_syntax::{Block, GreenDocument};
 use plumb_workspace::{DocumentEntry, TaskWorkflowState, Workspace, WorkspaceQueryError};
 
 use crate::position::PositionIndex;
@@ -36,7 +38,7 @@ pub(crate) fn metadata_labels(entry: &DocumentEntry) -> HashMap<(usize, usize), 
     else {
         return HashMap::new();
     };
-    let source = &entry.parsed.source;
+    let source = entry.parsed.source();
     metadata
         .entries
         .iter()
@@ -101,8 +103,9 @@ pub(crate) fn task_labels(
                     return None;
                 }
             };
-            let indent = line_indent(&entry.parsed.source, task.range.start);
-            let marker = &entry.parsed.source[task.range.start + 1..task.range.start + 2];
+            let source = entry.parsed.source();
+            let indent = line_indent(source, task.range.start);
+            let marker = &source[task.range.start + 1..task.range.start + 2];
             let title = if task.title.is_empty() {
                 "Untitled task"
             } else {
@@ -184,8 +187,9 @@ pub(crate) fn event_labels(entry: &DocumentEntry) -> HashMap<(usize, usize), Fol
         .iter()
         .filter_map(|event| {
             let time = event_time_label(&event)?;
-            let indent = line_indent(&entry.parsed.source, event.range.start);
-            let marker = &entry.parsed.source[event.range.start + 1..event.range.start + 2];
+            let source = entry.parsed.source();
+            let indent = line_indent(source, event.range.start);
+            let marker = &source[event.range.start + 1..event.range.start + 2];
             let title = if event.title.is_empty() {
                 "Untitled event"
             } else {
@@ -244,6 +248,7 @@ fn line_indent(source: &str, range_start: usize) -> &str {
     &source[line_start..range_start]
 }
 
+#[cfg(test)]
 pub(crate) fn ranges(
     source: &str,
     document: &Document,
@@ -251,7 +256,6 @@ pub(crate) fn ranges(
     labels: Option<&HashMap<(usize, usize), FoldLabel>>,
     line_folding_only: bool,
 ) -> Vec<FoldingRange> {
-    let positions = PositionIndex::new(source);
     let headings = analyze_recovered_headings(document);
     let mut byte_ranges = Vec::new();
     let mut pending_headings = headings.headings.iter().collect::<Vec<_>>();
@@ -265,6 +269,68 @@ pub(crate) fn ranges(
     }
 
     collect_block_ranges(&document.blocks, &mut byte_ranges);
+
+    finish_ranges(source, byte_ranges, limit, labels, line_folding_only)
+}
+
+pub(crate) fn green_ranges(
+    source: &str,
+    document: &GreenDocument,
+    limit: Option<usize>,
+    labels: Option<&HashMap<(usize, usize), FoldLabel>>,
+    line_folding_only: bool,
+) -> Vec<FoldingRange> {
+    let mut byte_ranges = Vec::new();
+    let mut headings = Vec::new();
+    let mut shards = document.shards().peekable();
+    while let Some(view) = shards.next() {
+        let following_marker = shards
+            .peek()
+            .and_then(|next| top_level_marker(&next.shard().parsed().syntax.blocks));
+        let mut local_ranges = Vec::new();
+        collect_block_ranges_with_following(
+            &view.shard().parsed().syntax.blocks,
+            following_marker,
+            &mut local_ranges,
+        );
+        byte_ranges.extend(
+            local_ranges
+                .into_iter()
+                .map(|(mut range, mut label, trailing)| {
+                    shift_range(&mut range, view.offset());
+                    shift_range(&mut label, view.offset());
+                    (range, label, trailing)
+                }),
+        );
+        collect_heading_facts(
+            &view.shard().parsed().syntax.blocks,
+            view.offset(),
+            &mut headings,
+        );
+    }
+    let mut next_by_level = [None; 6];
+    for (range, level) in headings.into_iter().rev() {
+        let end = next_by_level[..usize::from(level)]
+            .iter()
+            .flatten()
+            .copied()
+            .min()
+            .unwrap_or(source.len());
+        next_by_level[usize::from(level - 1)] = Some(range.start);
+        byte_ranges.push((range.start..end, range, false));
+    }
+
+    finish_ranges(source, byte_ranges, limit, labels, line_folding_only)
+}
+
+fn finish_ranges(
+    source: &str,
+    mut byte_ranges: Vec<(std::ops::Range<usize>, std::ops::Range<usize>, bool)>,
+    limit: Option<usize>,
+    labels: Option<&HashMap<(usize, usize), FoldLabel>>,
+    line_folding_only: bool,
+) -> Vec<FoldingRange> {
+    let positions = PositionIndex::new(source);
 
     byte_ranges.sort_by_key(|(range, _, _)| (range.start, std::cmp::Reverse(range.end)));
     byte_ranges.dedup_by(|(left, _, _), (right, _, _)| left == right);
@@ -294,15 +360,24 @@ fn collect_block_ranges(
     blocks: &[Block],
     byte_ranges: &mut Vec<(std::ops::Range<usize>, std::ops::Range<usize>, bool)>,
 ) {
+    collect_block_ranges_with_following(blocks, None, byte_ranges);
+}
+
+fn collect_block_ranges_with_following(
+    blocks: &[Block],
+    following_marker: Option<&str>,
+    byte_ranges: &mut Vec<(std::ops::Range<usize>, std::ops::Range<usize>, bool)>,
+) {
     for (index, block) in blocks.iter().enumerate() {
         match block {
             Block::Parsed(parsed) => {
                 if parsed.mark.is_some() || !parsed.children.is_empty() {
                     let include_trailing_blank = parsed.mark.as_ref().is_some_and(|mark| {
                         !is_heading_marker(&mark.marker)
-                        && blocks.get(index + 1).is_some_and(|next| {
-                            matches!(next, Block::Parsed(next) if next.mark.as_ref().is_some_and(|next_mark| next_mark.marker == mark.marker))
-                        })
+                            && blocks.get(index + 1).map_or_else(
+                                || following_marker == Some(mark.marker.as_str()),
+                                |next| matches!(next, Block::Parsed(next) if next.mark.as_ref().is_some_and(|next_mark| next_mark.marker == mark.marker)),
+                            )
                     });
                     byte_ranges.push((
                         parsed.range.clone(),
@@ -317,6 +392,39 @@ fn collect_block_ranges(
             }
         }
     }
+}
+
+fn top_level_marker(blocks: &[Block]) -> Option<&str> {
+    let Block::Parsed(block) = blocks.first()? else {
+        return None;
+    };
+    block.mark.as_ref().map(|mark| mark.marker.as_str())
+}
+
+fn collect_heading_facts(
+    blocks: &[Block],
+    offset: usize,
+    output: &mut Vec<(std::ops::Range<usize>, u8)>,
+) {
+    for block in blocks {
+        let Block::Parsed(block) = block else {
+            continue;
+        };
+        if let Some(marker) = block.mark.as_ref().map(|mark| mark.marker.as_str()) {
+            if is_heading_marker(marker) {
+                output.push((
+                    block.range.start + offset..block.range.end + offset,
+                    marker.len() as u8,
+                ));
+            }
+        }
+        collect_heading_facts(&block.children, offset, output);
+    }
+}
+
+fn shift_range(range: &mut std::ops::Range<usize>, offset: usize) {
+    range.start += offset;
+    range.end += offset;
 }
 
 fn is_heading_marker(marker: &str) -> bool {
@@ -386,7 +494,9 @@ fn include_one_trailing_blank_line(source: &str, mut end: usize) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use super::{include_one_trailing_blank_line, is_heading_marker, single_line_label};
+    use super::{
+        green_ranges, include_one_trailing_blank_line, is_heading_marker, ranges, single_line_label,
+    };
 
     #[test]
     fn normalizes_and_truncates_fold_labels_on_character_boundaries() {
@@ -413,6 +523,33 @@ mod tests {
         }
         for marker in ["", "#######", "#note", "task"] {
             assert!(!is_heading_marker(marker));
+        }
+    }
+
+    #[test]
+    fn green_folding_matches_materialized_recovered_documents() {
+        for source in [
+            "`# One\n\n`## Two\n\n`# Three\n",
+            "`- One\n `- Nested\n\n`- Two\n\n`. Ordered\n",
+            "`note Parent\n `rust\"\n  code\n\n`note Sibling\n",
+            "before {unclosed\n\n`note recovered\n",
+            "`note First\r\n\r\n`note Second\r\n",
+        ] {
+            let parsed = plumb_syntax::parse(source);
+            let green = plumb_syntax::GreenDocument::parse(source);
+            for line_folding_only in [false, true] {
+                assert_eq!(
+                    green_ranges(source, &green, None, None, line_folding_only),
+                    ranges(
+                        source,
+                        parsed.recovered_syntax(),
+                        None,
+                        None,
+                        line_folding_only,
+                    ),
+                    "{source:?}"
+                );
+            }
         }
     }
 }

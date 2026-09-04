@@ -2,7 +2,8 @@ use std::ops::Range;
 
 use plumb_edit::render_authored_text_arguments;
 use plumb_syntax::{
-    AttrItem, AttrValue, Attributes, Block, Inline, InlineContent, ParsedBlock, ParsedDocument,
+    AttrItem, AttrValue, Attributes, Block, GreenDocument, Inline, InlineContent, ParsedBlock,
+    ParsedDocument,
 };
 
 use crate::document::has_uri_scheme;
@@ -87,6 +88,20 @@ pub fn citation_completion_context(
     })
 }
 
+pub fn green_citation_completion_context(
+    document: &GreenDocument,
+    offset: usize,
+) -> Option<CitationCompletionContext> {
+    green_completion_context(
+        document,
+        offset,
+        citation_completion_context,
+        |context, delta| {
+            shift_range(&mut context.replace, delta);
+        },
+    )
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AttributeCompletion {
     pub label: &'static str,
@@ -108,6 +123,20 @@ pub fn attribute_completion_context(
         return None;
     }
     attribute_context_in_blocks(&document.syntax.blocks, &document.source, offset)
+}
+
+pub fn green_attribute_completion_context(
+    document: &GreenDocument,
+    offset: usize,
+) -> Option<AttributeCompletionContext> {
+    green_completion_context(
+        document,
+        offset,
+        attribute_completion_context,
+        |context, delta| {
+            shift_range(&mut context.replace, delta);
+        },
+    )
 }
 
 fn attribute_context_in_blocks(
@@ -468,6 +497,26 @@ pub fn construct_completion_context(
     }
 }
 
+pub fn green_construct_completion_context(
+    document: &GreenDocument,
+    offset: usize,
+) -> Option<ConstructCompletionContext> {
+    green_completion_context(
+        document,
+        offset,
+        construct_completion_context,
+        |context, delta| {
+            let replace = match context {
+                ConstructCompletionContext::Citation { replace }
+                | ConstructCompletionContext::TaskEventLink { replace }
+                | ConstructCompletionContext::ParsedLink { replace }
+                | ConstructCompletionContext::VerbatimLink { replace } => replace,
+            };
+            shift_range(replace, delta);
+        },
+    )
+}
+
 pub fn event_title_completion_context(
     document: &ParsedDocument,
     offset: usize,
@@ -476,6 +525,20 @@ pub fn event_title_completion_context(
         return None;
     }
     event_title_context_in_blocks(&document.syntax.blocks, &document.source, offset)
+}
+
+pub fn green_event_title_completion_context(
+    document: &GreenDocument,
+    offset: usize,
+) -> Option<EventTitleCompletionContext> {
+    green_completion_context(
+        document,
+        offset,
+        event_title_completion_context,
+        |context, delta| {
+            shift_range(&mut context.replace, delta);
+        },
+    )
 }
 
 fn event_title_context_in_blocks(
@@ -540,6 +603,21 @@ pub fn task_dependency_completion_context(
         return None;
     }
     task_dependency_context_in_blocks(&document.syntax.blocks, &document.source, offset)
+}
+
+pub fn green_task_dependency_completion_context(
+    document: &GreenDocument,
+    offset: usize,
+) -> Option<TaskDependencyCompletionContext> {
+    green_completion_context(
+        document,
+        offset,
+        task_dependency_completion_context,
+        |context, delta| {
+            shift_range(&mut context.replace, delta);
+            shift_range(&mut context.task_range, delta);
+        },
+    )
 }
 
 fn task_dependency_context_in_blocks(
@@ -710,6 +788,30 @@ pub fn link_completion_context(
     }
 }
 
+pub fn green_link_completion_context(
+    document: &GreenDocument,
+    offset: usize,
+) -> Option<LinkCompletionContext> {
+    green_completion_context(
+        document,
+        offset,
+        link_completion_context,
+        |context, delta| match context {
+            LinkCompletionContext::Path { replace, .. }
+            | LinkCompletionContext::Anchor { replace, .. }
+            | LinkCompletionContext::VerbatimAnchor { replace, .. } => {
+                shift_range(replace, delta);
+            }
+            LinkCompletionContext::VerbatimPath {
+                replace, envelope, ..
+            } => {
+                shift_range(replace, delta);
+                shift_range(envelope, delta);
+            }
+        },
+    )
+}
+
 fn find_marked_group<'a>(
     blocks: &'a [Block],
     offset: usize,
@@ -788,11 +890,56 @@ pub fn image_completion_context(
     resource_completion_context(document, offset, "img")
 }
 
+pub fn green_image_completion_context(
+    document: &GreenDocument,
+    offset: usize,
+) -> Option<ImageCompletionContext> {
+    green_completion_context(
+        document,
+        offset,
+        image_completion_context,
+        |context, delta| {
+            shift_range(&mut context.replace, delta);
+        },
+    )
+}
+
 pub fn file_completion_context(
     document: &ParsedDocument,
     offset: usize,
 ) -> Option<FileCompletionContext> {
     resource_completion_context(document, offset, "file")
+}
+
+pub fn green_file_completion_context(
+    document: &GreenDocument,
+    offset: usize,
+) -> Option<FileCompletionContext> {
+    green_completion_context(
+        document,
+        offset,
+        file_completion_context,
+        |context, delta| {
+            shift_range(&mut context.replace, delta);
+        },
+    )
+}
+
+fn green_completion_context<T>(
+    document: &GreenDocument,
+    offset: usize,
+    query: fn(&ParsedDocument, usize) -> Option<T>,
+    shift: impl FnOnce(&mut T, usize),
+) -> Option<T> {
+    let shard = document.shard_at(offset)?;
+    let mut context = query(shard.shard().parsed(), offset.checked_sub(shard.offset())?)?;
+    shift(&mut context, shard.offset());
+    Some(context)
+}
+
+fn shift_range(range: &mut Range<usize>, delta: usize) {
+    range.start += delta;
+    range.end += delta;
 }
 
 fn resource_completion_context(
@@ -1432,6 +1579,64 @@ mod tests {
             })
         );
         assert_eq!(image_completion_context(&parse(&file), cursor), None);
+    }
+
+    #[test]
+    fn green_completion_contexts_match_materialized_queries_in_later_shards() {
+        for marked in [
+            "Prelude\n\nSee `cite{pap|}.\n",
+            "Prelude\n\n`-|\n",
+            "Prelude\n\nSee `->{guide guide.pl|umb}.\n",
+            "Prelude\n\n`img{Alt `={src static/i|mg.png}}\n",
+            "Prelude\n\n`file{Demo `={src static/d|emo.mp4}}\n",
+            "Prelude\n\n`- Task\n `+ task\n `= depends Project.plumb#ta|rget\n",
+            "Prelude\n\n`- 2026-09-05T09:00:00Z Event ti|tle\n `+ event\n",
+            "Prelude\n\n`- Task\n `+ task\n `= pri|\n",
+        ] {
+            let (source, cursor) = strip_cursor(marked);
+            let parsed = parse(&source);
+            let green = GreenDocument::parse(&source);
+            assert_eq!(
+                green_citation_completion_context(&green, cursor),
+                citation_completion_context(&parsed, cursor),
+                "citation: {source:?}"
+            );
+            assert_eq!(
+                green_construct_completion_context(&green, cursor),
+                construct_completion_context(&parsed, cursor),
+                "construct: {source:?}"
+            );
+            assert_eq!(
+                green_link_completion_context(&green, cursor),
+                link_completion_context(&parsed, cursor),
+                "link: {source:?}"
+            );
+            assert_eq!(
+                green_image_completion_context(&green, cursor),
+                image_completion_context(&parsed, cursor),
+                "image: {source:?}"
+            );
+            assert_eq!(
+                green_file_completion_context(&green, cursor),
+                file_completion_context(&parsed, cursor),
+                "file: {source:?}"
+            );
+            assert_eq!(
+                green_task_dependency_completion_context(&green, cursor),
+                task_dependency_completion_context(&parsed, cursor),
+                "task dependency: {source:?}"
+            );
+            assert_eq!(
+                green_event_title_completion_context(&green, cursor),
+                event_title_completion_context(&parsed, cursor),
+                "event title: {source:?}"
+            );
+            assert_eq!(
+                green_attribute_completion_context(&green, cursor),
+                attribute_completion_context(&parsed, cursor),
+                "attribute: {source:?}"
+            );
+        }
     }
 
     fn completion_context(source: &str, offset: usize) -> Option<LinkCompletionContext> {

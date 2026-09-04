@@ -8,6 +8,7 @@ use criterion::{criterion_group, criterion_main, BatchSize, BenchmarkId, Criteri
 use plumb_semantics::{
     analyze_citations, analyze_document, analyze_events, analyze_headings, analyze_inline_styles,
     analyze_lists, analyze_math, analyze_metadata, analyze_quotes, analyze_tables, analyze_tasks,
+    green_event_title_completion_context,
 };
 use plumb_syntax::{
     parse, parse_incremental, GreenDocument as ProductionGreenDocument, SourceChange,
@@ -684,6 +685,19 @@ fn benchmark_open_document_generation(c: &mut Criterion) {
             },
             BatchSize::LargeInput,
         )
+    });
+    let completion_cursor = source.find("Event 16756").unwrap() + "Event 16756".len();
+    let completion_green = previous_workspace
+        .get("events.plumb")
+        .unwrap()
+        .parsed
+        .green();
+    group.bench_function("green_event_title_completion", |b| {
+        b.iter(|| {
+            black_box(
+                green_event_title_completion_context(completion_green, completion_cursor).unwrap(),
+            )
+        })
     });
     group.finish();
 }

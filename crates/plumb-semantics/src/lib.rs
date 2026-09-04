@@ -262,17 +262,21 @@ pub use inline_styles::{
 pub use lists::{analyze_lists, ListGroup, ListGroups, ListItemRecord, ListKind, ListOutput};
 pub use math::{analyze_math, MathKind, MathOutput, MathRecord};
 pub use metadata::{
-    analyze_metadata, recovered_bibliography_sources, BibliographySource, DefinitionList,
-    DefinitionRecord, MetadataBlock, MetadataEntry, MetadataListItem, MetadataOutput,
-    MetadataValue,
+    analyze_metadata, green_recovered_bibliography_sources, recovered_bibliography_sources,
+    BibliographySource, DefinitionList, DefinitionRecord, MetadataBlock, MetadataEntry,
+    MetadataListItem, MetadataOutput, MetadataValue,
 };
 pub use queries::{
     attribute_completion_context, citation_completion_context, construct_completion_context,
-    event_title_completion_context, file_completion_context, image_completion_context,
-    link_completion_context, task_dependency_completion_context, AttributeCompletion,
-    AttributeCompletionContext, CitationCompletionContext, ConstructCompletionContext,
-    EventTitleCompletionContext, FileCompletionContext, ImageCompletionContext,
-    LinkCompletionContext, TaskDependencyCompletionContext,
+    event_title_completion_context, file_completion_context, green_attribute_completion_context,
+    green_citation_completion_context, green_construct_completion_context,
+    green_event_title_completion_context, green_file_completion_context,
+    green_image_completion_context, green_link_completion_context,
+    green_task_dependency_completion_context, image_completion_context, link_completion_context,
+    task_dependency_completion_context, AttributeCompletion, AttributeCompletionContext,
+    CitationCompletionContext, ConstructCompletionContext, EventTitleCompletionContext,
+    FileCompletionContext, ImageCompletionContext, LinkCompletionContext,
+    TaskDependencyCompletionContext,
 };
 pub use quotes::{analyze_quotes, QuoteOutput, QuoteRecord};
 pub use records::{RelativeSemanticRecord, SemanticRecordView, SemanticRecords};

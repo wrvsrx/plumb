@@ -33,10 +33,15 @@ use lsp_types::{
     WorkspaceEdit as LspWorkspaceEdit, WorkspaceSymbolParams, WorkspaceSymbolResponse,
 };
 use plumb_semantics::{
-    attribute_completion_context, citation_completion_context, construct_completion_context,
-    event_title_completion_context, file_completion_context, image_completion_context,
-    link_completion_context, recovered_bibliography_sources, task_dependency_completion_context,
-    AnchorKind, ConstructCompletionContext, TaskStatus,
+    green_attribute_completion_context as attribute_completion_context,
+    green_citation_completion_context as citation_completion_context,
+    green_construct_completion_context as construct_completion_context,
+    green_event_title_completion_context as event_title_completion_context,
+    green_file_completion_context as file_completion_context,
+    green_image_completion_context as image_completion_context,
+    green_link_completion_context as link_completion_context, green_recovered_bibliography_sources,
+    green_task_dependency_completion_context as task_dependency_completion_context, AnchorKind,
+    ConstructCompletionContext, TaskStatus,
 };
 use plumb_syntax::{Diagnostic, SourceChange};
 use plumb_workspace::{
@@ -48,7 +53,9 @@ use plumb_workspace::{
 };
 use sha2::{Digest, Sha256};
 
-use crate::folding::{collapsed_text_labels as fold_labels, ranges as folding_ranges};
+#[cfg(test)]
+use crate::folding::ranges as folding_ranges;
+use crate::folding::{collapsed_text_labels as fold_labels, green_ranges as green_folding_ranges};
 #[cfg(test)]
 use crate::hover::fenced_plumb;
 use crate::hover::{
@@ -313,7 +320,7 @@ impl ServerState {
         }
         let root = self.workspace_root_for(path)?;
         let entry = self.workspace.get(path)?;
-        let sources = recovered_bibliography_sources(entry.parsed.recovered_syntax());
+        let sources = green_recovered_bibliography_sources(entry.parsed.green());
         Some(load_bibliography_sources(root, path, sources))
     }
 
@@ -1276,9 +1283,9 @@ impl LanguageServer for ServerState {
             } else {
                 None
             };
-            Ok(Some(folding_ranges(
-                &entry.parsed.source,
-                entry.parsed.recovered_syntax(),
+            Ok(Some(green_folding_ranges(
+                entry.parsed.source(),
+                entry.parsed.green(),
                 self.folding_range_limit,
                 labels.as_ref(),
                 self.line_folding_only,
@@ -1825,34 +1832,36 @@ impl LanguageServer for ServerState {
             let Some(entry) = self.workspace.get(&path) else {
                 return Ok(None);
             };
-            let offset = position_to_offset(&entry.parsed.source, position.position);
-            if let Some(context) = construct_completion_context(&entry.parsed, offset) {
+            let source = entry.parsed.source();
+            let green = entry.parsed.green();
+            let offset = position_to_offset(source, position.position);
+            if let Some(context) = construct_completion_context(green, offset) {
                 let timestamp = Local::now().to_rfc3339_opts(SecondsFormat::Secs, false);
                 let include_link_labels =
                     matches!(context, ConstructCompletionContext::ParsedLink { .. });
                 let mut items = construct_completion_items(
-                    &entry.parsed.source,
+                    source,
                     context,
                     self.supports_completion_snippets,
                     self.completion_indentation,
                     &timestamp,
                 );
                 let link_context = (include_link_labels && self.index_complete)
-                    .then(|| link_completion_context(&entry.parsed, offset))
+                    .then(|| link_completion_context(green, offset))
                     .flatten();
                 if let Some(context) = link_context {
                     let candidates = self
                         .complete_query(self.workspace.complete_link(&path, &context))
                         .map_err(workspace_query_response_error)?;
                     items.extend(completion_items(
-                        &entry.parsed.source,
+                        source,
                         candidates,
                         CompletionItemKind::FILE,
                     ));
                 }
                 return Ok(Some(items));
             }
-            if let Some(context) = citation_completion_context(&entry.parsed, offset) {
+            if let Some(context) = citation_completion_context(green, offset) {
                 let Some(bibliography) = self.bibliography_for_completion(&path) else {
                     return Ok(None);
                 };
@@ -1877,7 +1886,7 @@ impl LanguageServer for ServerState {
                             kind: Some(CompletionItemKind::REFERENCE),
                             detail: Some(record.detail()),
                             text_edit: Some(CompletionTextEdit::Edit(LspTextEdit::new(
-                                byte_range_to_lsp(&entry.parsed.source, &context.replace),
+                                byte_range_to_lsp(source, &context.replace),
                                 record.id.clone(),
                             ))),
                             ..CompletionItem::default()
@@ -1885,7 +1894,7 @@ impl LanguageServer for ServerState {
                         .collect(),
                 ));
             }
-            if let Some(context) = task_dependency_completion_context(&entry.parsed, offset) {
+            if let Some(context) = task_dependency_completion_context(green, offset) {
                 let candidates = self
                     .complete_query(self.workspace.complete_task_dependency(&path, &context))
                     .map_err(workspace_query_response_error)?;
@@ -1901,7 +1910,7 @@ impl LanguageServer for ServerState {
                             label: candidate.label,
                             detail: Some(candidate.detail),
                             text_edit: Some(CompletionTextEdit::Edit(LspTextEdit::new(
-                                byte_range_to_lsp(&entry.parsed.source, &candidate.replace),
+                                byte_range_to_lsp(source, &candidate.replace),
                                 candidate.new_text,
                             ))),
                             ..CompletionItem::default()
@@ -1909,7 +1918,7 @@ impl LanguageServer for ServerState {
                         .collect(),
                 ));
             }
-            if let Some(context) = event_title_completion_context(&entry.parsed, offset) {
+            if let Some(context) = event_title_completion_context(green, offset) {
                 return Ok(Some(
                     self.complete_query(self.workspace.complete_event_title(&context))
                         .map_err(workspace_query_response_error)?
@@ -1919,7 +1928,7 @@ impl LanguageServer for ServerState {
                             kind: Some(CompletionItemKind::VALUE),
                             detail: Some(candidate.detail),
                             text_edit: Some(CompletionTextEdit::Edit(LspTextEdit::new(
-                                byte_range_to_lsp(&entry.parsed.source, &candidate.replace),
+                                byte_range_to_lsp(source, &candidate.replace),
                                 candidate.new_text,
                             ))),
                             ..CompletionItem::default()
@@ -1927,7 +1936,7 @@ impl LanguageServer for ServerState {
                         .collect(),
                 ));
             }
-            if let Some(context) = attribute_completion_context(&entry.parsed, offset) {
+            if let Some(context) = attribute_completion_context(green, offset) {
                 if !context.completions.is_empty() {
                     return Ok(Some(
                         context
@@ -1943,7 +1952,7 @@ impl LanguageServer for ServerState {
                                     InsertTextFormat::PLAIN_TEXT
                                 }),
                                 text_edit: Some(CompletionTextEdit::Edit(LspTextEdit::new(
-                                    byte_range_to_lsp(&entry.parsed.source, &context.replace),
+                                    byte_range_to_lsp(source, &context.replace),
                                     attribute_completion_text(
                                         &candidate.new_text,
                                         self.supports_completion_snippets,
@@ -1955,41 +1964,36 @@ impl LanguageServer for ServerState {
                     ));
                 }
             }
-            let (candidates, kind) =
-                if let Some(context) = link_completion_context(&entry.parsed, offset) {
-                    let kind = if matches!(
-                        &context,
-                        plumb_semantics::LinkCompletionContext::Path { .. }
-                            | plumb_semantics::LinkCompletionContext::VerbatimPath { .. }
-                    ) {
-                        CompletionItemKind::FILE
-                    } else {
-                        CompletionItemKind::REFERENCE
-                    };
-                    (
-                        self.complete_query(self.workspace.complete_link(&path, &context))
-                            .map_err(workspace_query_response_error)?,
-                        kind,
-                    )
-                } else if let Some(context) = image_completion_context(&entry.parsed, offset) {
-                    (
-                        self.workspace.complete_image_path(&path, &context),
-                        CompletionItemKind::FILE,
-                    )
+            let (candidates, kind) = if let Some(context) = link_completion_context(green, offset) {
+                let kind = if matches!(
+                    &context,
+                    plumb_semantics::LinkCompletionContext::Path { .. }
+                        | plumb_semantics::LinkCompletionContext::VerbatimPath { .. }
+                ) {
+                    CompletionItemKind::FILE
                 } else {
-                    let Some(context) = file_completion_context(&entry.parsed, offset) else {
-                        return Ok(None);
-                    };
-                    (
-                        self.workspace.complete_file_path(&path, &context),
-                        CompletionItemKind::FILE,
-                    )
+                    CompletionItemKind::REFERENCE
                 };
-            Ok(Some(completion_items(
-                &entry.parsed.source,
-                candidates,
-                kind,
-            )))
+                (
+                    self.complete_query(self.workspace.complete_link(&path, &context))
+                        .map_err(workspace_query_response_error)?,
+                    kind,
+                )
+            } else if let Some(context) = image_completion_context(green, offset) {
+                (
+                    self.workspace.complete_image_path(&path, &context),
+                    CompletionItemKind::FILE,
+                )
+            } else {
+                let Some(context) = file_completion_context(green, offset) else {
+                    return Ok(None);
+                };
+                (
+                    self.workspace.complete_file_path(&path, &context),
+                    CompletionItemKind::FILE,
+                )
+            };
+            Ok(Some(completion_items(source, candidates, kind)))
         })();
         Box::pin(async move { result.map(|items| items.map(CompletionResponse::Array)) })
     }

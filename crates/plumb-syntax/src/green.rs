@@ -168,6 +168,23 @@ impl GreenDocument {
         })
     }
 
+    pub fn shard_at(&self, offset: usize) -> Option<GreenShardView<'_>> {
+        if offset > self.source.len() || !self.source.is_char_boundary(offset) {
+            return None;
+        }
+        let mut selected = None;
+        for view in self.shards() {
+            if view.offset > offset {
+                break;
+            }
+            selected = Some(view);
+            if offset < view.range().end {
+                break;
+            }
+        }
+        selected
+    }
+
     pub fn materialize(&self) -> ParsedDocument {
         let mut blocks = Vec::new();
         let mut diagnostics = Vec::new();
