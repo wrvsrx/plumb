@@ -7,10 +7,11 @@
  `@ green-red-syntax-views
  `= created 2026-09-05T03:24:13+08:00
 
- Replace eager absolute-range ParsedDocument storage with typed red views over GreenDocument. Migrate folding,
- completion, formatting/editing and semantic inputs without reparsing or full-document materialization. Preserve
- fresh/incremental lossless and diagnostic parity, deep-tree stack safety, and current editor behavior. Acceptance
- requires didOpen and didChange end-to-end benchmarks with no common-path regression.
+ Workspace revision已改为 GreenDocument authority与 lazy ParsedDocument compatibility cache；didChange、syntax
+ diagnostics和 ordinary incremental semantics不 materialize absolute tree。继续把 folding、completion及
+ formatting/editing inputs迁移到 typed red views，最终删除 compatibility cache。保持 fresh/incremental lossless
+ 与 diagnostic parity、deep-tree stack safety和 current editor behavior；acceptance继续要求 didOpen/didChange
+ end-to-end benchmark无 common-path regression。
 
 `- Finish semantic reducer deltas and equality invalidation
  `+ task

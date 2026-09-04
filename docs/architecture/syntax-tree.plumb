@@ -140,6 +140,29 @@ lossless tokens、syntax diagnostics 与 generic declaration projection 是 gree
 full-document flat mutable range graph。需要 source-ordered flat token stream 的 consumer 可以遍历 red view；该投影
 可以缓存于 revision，但不得在局部 edit 后逐 token rebase unchanged suffix。
 
+`## 9.2 Workspace green authority transition
+
+Status：workspace green authority阶段已实现。workspace document revision以 `"Arc<GreenDocument>" 保存 source、validity、syntax diagnostics
+与 shard identity。旧 `"ParsedDocument" 只允许作为绑定该 revision的 lazy compatibility cache；format/edit及尚未
+迁移的 recovered query首次明确请求 absolute tree时可以 materialize一次，之后同 revision共享该 allocation。
+didChange source installation、syntax diagnostic publication、semantic pending判断与 ordinary green incremental
+document analysis不得触发 compatibility materialization。
+
+revision guard比较 workspace revision object identity，不比较 lazy cache是否已经初始化。相同 source rebind继续共享
+green root及已存在的 compatibility cache；不同 source必须建立新 revision。invalid green revision同样直接发布按
+current shard offsets投影的 syntax diagnostics，并保留 previous last-valid semantic output provenance。
+
+incremental semantics优先接收 current green revision、previous DocumentOutput与 shard-aligned old/new change。若 metadata、
+nonempty heading或其它 document reducer不能从 changed shards及 previous reducer state安全更新，可以仅在 blocking
+semantic worker内 materialize current compatibility tree并回退完整 reducer；该 fallback不能重新进入 LSP event loop
+的 didChange parse stage。fresh synchronous didOpen在所有 no-refresh editor requests完成 green/red迁移前仍允许建立
+compatibility tree。
+
+`"GreenDocument" 保存 invalid shard count；validity与 valid revision的 empty diagnostics projection为 O(1)，invalid
+revision才遍历 shards并投影 diagnostics。Workspace lifecycle tests必须证明 valid pending、ordinary incremental
+semantic worker与 invalid diagnostic publication均不初始化 compatibility cache。format/edit/completion/folding等
+remaining consumers直接使用 typed red views仍未完成，属于 `"green-red-syntax-views" task的剩余范围。
+
 `# 10. Lenient tree and identity
 
 tree-sitter mirror 只服务 editor ergonomics。fresh/full/incremental parses 必须在同 source 上产生等价 current
