@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use plumb_syntax::{parse, Block, Inline, ParsedDocument};
+use plumb_syntax::{parse, parse_incremental, Block, Inline, ParsedDocument};
 use proptest::prelude::*;
 
 fn assert_lossless(parsed: &ParsedDocument) {
@@ -140,9 +140,127 @@ fn deeply_nested_groups_do_not_use_the_call_stack() {
     );
 }
 
+#[test]
+fn incremental_revisions_match_fresh_parse_across_structural_boundaries() {
+    let revisions = [
+        (
+            "`note First\n\n`note Middle\n\n child\n\n`note Last\n",
+            "`note First\n\n`note Changed\n\n child\n\n`note Last\n",
+        ),
+        (
+            "`note First\r\n\r\n`note Second 😀\r\n",
+            "`note First\r\n\r\n `note Second x\r\n",
+        ),
+        (
+            "`rust\"\n fn main() {}\n\n`note After\n",
+            "`rust\"\n fn main() { println!(\"x\"); }\n\n`note After\n",
+        ),
+        (
+            "before {valid}\n\n`note After\n",
+            "before {invalid\n\n`note After\n",
+        ),
+        ("`note Existing\n", "`note Inserted\n\n`note Existing\n"),
+        ("`note First\n\n`note Removed\n", "`note First\n"),
+    ];
+    for (old, new) in revisions {
+        let previous = parse(old);
+        let incremental = parse_incremental(&previous, new).document;
+        let fresh = parse(new);
+        assert_eq!(incremental, fresh, "{old:?} -> {new:?}");
+    }
+}
+
+#[test]
+fn incremental_parse_falls_back_before_cloning_deep_reused_subtrees() {
+    let nested = format!("{}x{}", "{".repeat(2_000), "}".repeat(2_000));
+    let old = format!("{nested}\n\n`note Old\n");
+    let new = format!("{nested}\n\n`note New\n");
+    let previous = parse(old);
+    let incremental = parse_incremental(&previous, new.clone());
+    assert_eq!(incremental.reparsed_range, 0..new.len());
+    assert_eq!(incremental.document, parse(new));
+}
+
+#[test]
+fn edits_at_every_character_boundary_match_fresh_parse() {
+    let sources = [
+        "`note First\n\n `= key value\n\n`note Last\n",
+        "paragraph {with `strong{nested} content}\r\n\r\nnext\r\n",
+        "`rust\"\n fn main() {}\n more raw\n\n`note After\n",
+        "`note Parent\n child continuation\n\n `note Nested\n\n`note Sibling\n",
+        "before {unclosed\n\n`note recovered\n",
+    ];
+    for source in sources {
+        let previous = parse(source);
+        let boundaries = source
+            .char_indices()
+            .map(|(offset, _)| offset)
+            .chain(std::iter::once(source.len()))
+            .collect::<Vec<_>>();
+        for offset in boundaries {
+            for inserted in ["x", " ", "\n", "{", "`", "\""] {
+                let mut changed = source.to_string();
+                changed.insert_str(offset, inserted);
+                assert_eq!(
+                    parse_incremental(&previous, changed.clone()).document,
+                    parse(changed),
+                    "insert {inserted:?} at {offset} in {source:?}"
+                );
+            }
+            if offset < source.len() {
+                let next = offset + source[offset..].chars().next().unwrap().len_utf8();
+                let mut changed = source.to_string();
+                changed.replace_range(offset..next, "");
+                assert_eq!(
+                    parse_incremental(&previous, changed.clone()).document,
+                    parse(changed),
+                    "delete at {offset} in {source:?}"
+                );
+            }
+        }
+    }
+}
+
 proptest! {
     #[test]
     fn arbitrary_utf8_is_lossless(source in any::<String>()) {
         assert_lossless(&parse(source));
+    }
+
+    #[test]
+    fn arbitrary_incremental_revision_matches_fresh_parse(
+        old in any::<String>(),
+        new in any::<String>(),
+    ) {
+        let previous = parse(old);
+        let incremental = parse_incremental(&previous, new.clone()).document;
+        prop_assert_eq!(incremental, parse(new));
+    }
+
+    #[test]
+    fn local_owner_edits_reuse_boundaries_and_match_fresh_parse(
+        titles in prop::collection::vec("[a-z]{1,20}", 3..30),
+        selected in any::<usize>(),
+        make_invalid in any::<bool>(),
+    ) {
+        let source = titles
+            .iter()
+            .map(|title| format!("`note {title}\n\n"))
+            .collect::<String>();
+        let selected = selected % titles.len();
+        let mut changed_titles = titles;
+        if make_invalid {
+            changed_titles[selected].push('{');
+        } else {
+            changed_titles[selected].push('x');
+        }
+        let changed = changed_titles
+            .iter()
+            .map(|title| format!("`note {title}\n\n"))
+            .collect::<String>();
+        let previous = parse(source);
+        let incremental = parse_incremental(&previous, changed.clone());
+        prop_assert!(incremental.reparsed_range.end - incremental.reparsed_range.start < changed.len());
+        prop_assert_eq!(incremental.document, parse(changed));
     }
 }

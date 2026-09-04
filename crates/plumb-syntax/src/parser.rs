@@ -4,6 +4,12 @@ use crate::syntax::{
     ParsedBlock, ParsedDocument, SourceRange, VerbatimBlock,
 };
 
+#[derive(Debug, PartialEq, Eq)]
+pub struct IncrementalParse {
+    pub document: ParsedDocument,
+    pub reparsed_range: SourceRange,
+}
+
 pub fn parse(source: impl Into<String>) -> ParsedDocument {
     let source = source.into();
     let (syntax, diagnostics) = {
@@ -22,6 +28,356 @@ pub fn parse(source: impl Into<String>) -> ParsedDocument {
         syntax,
         diagnostics,
     }
+}
+
+pub fn parse_incremental(previous: &ParsedDocument, source: impl Into<String>) -> IncrementalParse {
+    let source = source.into();
+    if previous.source == source {
+        let end = source.len();
+        return IncrementalParse {
+            document: parse(source),
+            reparsed_range: 0..end,
+        };
+    }
+    let plan = incremental_plan(previous, &source);
+    if plan.old.start == 0 && plan.old.end == previous.source.len() {
+        let end = source.len();
+        return IncrementalParse {
+            document: parse(source),
+            reparsed_range: 0..end,
+        };
+    }
+
+    incremental_parse_with_plan(previous, source, plan).unwrap_or_else(|source| {
+        let end = source.len();
+        IncrementalParse {
+            document: parse(source),
+            reparsed_range: 0..end,
+        }
+    })
+}
+
+#[derive(Debug, Clone)]
+struct IncrementalPlan {
+    old: SourceRange,
+    new: SourceRange,
+}
+
+fn incremental_plan(previous: &ParsedDocument, source: &str) -> IncrementalPlan {
+    let (changed_old, _) = changed_ranges(&previous.source, source);
+    let old_start = previous
+        .syntax
+        .blocks
+        .iter()
+        .map(|block| block.range().start)
+        .take_while(|start| *start < changed_old.start)
+        .last()
+        .unwrap_or(0);
+    let common_suffix_start = changed_old.end;
+    let (old_end, new_end) = previous
+        .syntax
+        .blocks
+        .iter()
+        .map(|block| block.range().start)
+        .filter(|start| *start >= changed_old.end && *start >= common_suffix_start)
+        .find_map(|old_end| {
+            let suffix_len = previous.source.len().checked_sub(old_end)?;
+            let new_end = source.len().checked_sub(suffix_len)?;
+            (new_end >= old_start && is_line_start(source, new_end)).then_some((old_end, new_end))
+        })
+        .unwrap_or((previous.source.len(), source.len()));
+    IncrementalPlan {
+        old: old_start..old_end,
+        new: old_start..new_end,
+    }
+}
+
+fn changed_ranges(old: &str, new: &str) -> (SourceRange, SourceRange) {
+    let prefix = old
+        .chars()
+        .zip(new.chars())
+        .take_while(|(old, new)| old == new)
+        .map(|(character, _)| character.len_utf8())
+        .sum::<usize>();
+    let suffix = old[prefix..]
+        .chars()
+        .rev()
+        .zip(new[prefix..].chars().rev())
+        .take_while(|(old, new)| old == new)
+        .map(|(character, _)| character.len_utf8())
+        .sum::<usize>();
+    (prefix..old.len() - suffix, prefix..new.len() - suffix)
+}
+
+fn is_line_start(source: &str, offset: usize) -> bool {
+    offset == 0 || source.as_bytes().get(offset.wrapping_sub(1)) == Some(&b'\n')
+}
+
+fn incremental_parse_with_plan(
+    previous: &ParsedDocument,
+    source: String,
+    plan: IncrementalPlan,
+) -> Result<IncrementalParse, String> {
+    if previous
+        .syntax
+        .blocks
+        .iter()
+        .any(|block| crosses_boundary(block.range(), &plan.old))
+        || previous
+            .diagnostics
+            .iter()
+            .any(|diagnostic| crosses_boundary(&diagnostic.range, &plan.old))
+        || previous
+            .lossless
+            .tokens
+            .iter()
+            .any(|token| crosses_boundary(&token.range, &plan.old))
+        || !reuse_depth_is_bounded(previous, &plan.old)
+    {
+        return Err(source);
+    }
+
+    let mut fragment = parse(source[plan.new.clone()].to_string());
+    shift_document(&mut fragment.syntax, plan.new.start as isize);
+    shift_diagnostics(&mut fragment.diagnostics, plan.new.start as isize);
+    shift_tokens(&mut fragment.lossless.tokens, plan.new.start as isize);
+
+    let suffix_delta = plan.new.end as isize - plan.old.end as isize;
+    let mut blocks = previous
+        .syntax
+        .blocks
+        .iter()
+        .filter(|block| block.range().end <= plan.old.start)
+        .cloned()
+        .collect::<Vec<_>>();
+    blocks.append(&mut fragment.syntax.blocks);
+    let mut suffix_blocks = previous
+        .syntax
+        .blocks
+        .iter()
+        .filter(|block| block.range().start >= plan.old.end)
+        .cloned()
+        .collect::<Vec<_>>();
+    shift_blocks(&mut suffix_blocks, suffix_delta);
+    blocks.append(&mut suffix_blocks);
+
+    let mut diagnostics = previous
+        .diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.range.end <= plan.old.start)
+        .cloned()
+        .collect::<Vec<_>>();
+    diagnostics.append(&mut fragment.diagnostics);
+    let mut suffix_diagnostics = previous
+        .diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.range.start >= plan.old.end)
+        .cloned()
+        .collect::<Vec<_>>();
+    shift_diagnostics(&mut suffix_diagnostics, suffix_delta);
+    diagnostics.append(&mut suffix_diagnostics);
+    diagnostics.sort_by_key(|diagnostic| (diagnostic.range.start, diagnostic.range.end));
+
+    let mut tokens = previous
+        .lossless
+        .tokens
+        .iter()
+        .filter(|token| token.range.end <= plan.old.start)
+        .cloned()
+        .collect::<Vec<_>>();
+    tokens.append(&mut fragment.lossless.tokens);
+    let mut suffix_tokens = previous
+        .lossless
+        .tokens
+        .iter()
+        .filter(|token| token.range.start >= plan.old.end)
+        .cloned()
+        .collect::<Vec<_>>();
+    shift_tokens(&mut suffix_tokens, suffix_delta);
+    tokens.append(&mut suffix_tokens);
+
+    let mut syntax = Document {
+        attrs: Default::default(),
+        blocks,
+        range: 0..source.len(),
+    };
+    project_attributes(&source, &mut syntax);
+    let document = ParsedDocument {
+        lossless: crate::syntax::LosslessTree {
+            range: 0..source.len(),
+            tokens,
+        },
+        source,
+        syntax,
+        diagnostics,
+    };
+    Ok(IncrementalParse {
+        document,
+        reparsed_range: plan.new,
+    })
+}
+
+fn reuse_depth_is_bounded(previous: &ParsedDocument, changed: &SourceRange) -> bool {
+    const MAX_DERIVED_CLONE_DEPTH: usize = 256;
+    let reused =
+        previous.syntax.blocks.iter().filter(|block| {
+            block.range().end <= changed.start || block.range().start >= changed.end
+        });
+    let mut blocks = reused.map(|block| (block, 1)).collect::<Vec<_>>();
+    let mut contents = Vec::new();
+    while let Some((block, depth)) = blocks.pop() {
+        if depth > MAX_DERIVED_CLONE_DEPTH {
+            return false;
+        }
+        if let Block::Parsed(block) = block {
+            contents.push((&block.content, 1));
+            blocks.extend(block.children.iter().map(|child| (child, depth + 1)));
+        }
+    }
+    while let Some((content, depth)) = contents.pop() {
+        if depth > MAX_DERIVED_CLONE_DEPTH {
+            return false;
+        }
+        contents.extend(content.items.iter().filter_map(|inline| match inline {
+            Inline::Group { content, .. } => Some((content, depth + 1)),
+            _ => None,
+        }));
+    }
+    true
+}
+
+fn crosses_boundary(range: &SourceRange, boundary: &SourceRange) -> bool {
+    (range.start < boundary.start && range.end > boundary.start)
+        || (range.start < boundary.end && range.end > boundary.end)
+}
+
+fn shift_document(document: &mut Document, delta: isize) {
+    shift_attributes(&mut document.attrs, delta);
+    shift_range(&mut document.range, delta);
+    shift_blocks(&mut document.blocks, delta);
+}
+
+fn shift_blocks(blocks: &mut [Block], delta: isize) {
+    let mut pending = blocks.iter_mut().rev().collect::<Vec<_>>();
+    while let Some(block) = pending.pop() {
+        match block {
+            Block::Parsed(block) => {
+                shift_range(&mut block.range, delta);
+                if let Some(mark) = &mut block.mark {
+                    shift_mark(mark, delta);
+                }
+                shift_inline_content(&mut block.content, delta);
+                pending.extend(block.children.iter_mut().rev());
+            }
+            Block::Verbatim(block) => {
+                shift_range(&mut block.range, delta);
+                shift_range(&mut block.opener_range, delta);
+                if let Some(mark) = &mut block.mark {
+                    shift_mark(mark, delta);
+                }
+                shift_range(&mut block.quote_range, delta);
+                shift_range(&mut block.text_range, delta);
+            }
+        }
+    }
+}
+
+fn shift_inline_content(content: &mut InlineContent, delta: isize) {
+    let mut pending = vec![content];
+    while let Some(content) = pending.pop() {
+        shift_range(&mut content.range, delta);
+        for inline in &mut content.items {
+            match inline {
+                Inline::Text { range, .. }
+                | Inline::Space { range, .. }
+                | Inline::SoftBreak { range } => shift_range(range, delta),
+                Inline::Group {
+                    range,
+                    mark,
+                    content,
+                } => {
+                    shift_range(range, delta);
+                    if let Some(mark) = mark {
+                        shift_mark(mark, delta);
+                    }
+                    pending.push(content);
+                }
+                Inline::Verbatim {
+                    range,
+                    mark,
+                    text_range,
+                    ..
+                } => {
+                    shift_range(range, delta);
+                    if let Some(mark) = mark {
+                        shift_mark(mark, delta);
+                    }
+                    shift_range(text_range, delta);
+                }
+            }
+        }
+    }
+}
+
+fn shift_mark(mark: &mut Mark, delta: isize) {
+    shift_range(&mut mark.range, delta);
+    shift_range(&mut mark.marker_range, delta);
+    shift_attributes(&mut mark.attrs, delta);
+}
+
+fn shift_attributes(attributes: &mut Attributes, delta: isize) {
+    if let Some(range) = &mut attributes.range {
+        shift_range(range, delta);
+    }
+    for item in &mut attributes.items {
+        match item {
+            AttrItem::Id {
+                value_range, range, ..
+            }
+            | AttrItem::Class {
+                value_range, range, ..
+            } => {
+                shift_range(value_range, delta);
+                shift_range(range, delta);
+            }
+            AttrItem::Pair {
+                key_range,
+                value,
+                range,
+                ..
+            } => {
+                shift_range(key_range, delta);
+                shift_range(&mut value.range, delta);
+                shift_range(range, delta);
+            }
+        }
+    }
+}
+
+fn shift_diagnostics(diagnostics: &mut [Diagnostic], delta: isize) {
+    for diagnostic in diagnostics {
+        shift_range(&mut diagnostic.range, delta);
+        for related in &mut diagnostic.related {
+            shift_range(related, delta);
+        }
+    }
+}
+
+fn shift_tokens(tokens: &mut [crate::syntax::SyntaxToken], delta: isize) {
+    for token in tokens {
+        shift_range(&mut token.range, delta);
+    }
+}
+
+fn shift_range(range: &mut SourceRange, delta: isize) {
+    range.start = range
+        .start
+        .checked_add_signed(delta)
+        .expect("incremental range start remains in source");
+    range.end = range
+        .end
+        .checked_add_signed(delta)
+        .expect("incremental range end remains in source");
 }
 
 #[derive(Debug, Clone)]
