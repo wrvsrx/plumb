@@ -140,6 +140,22 @@ pub struct DocumentOutput {
     pub images: Vec<ImageRecord>,
     pub files: Vec<FileRecord>,
     pub diagnostics: Vec<Diagnostic>,
+    record_diagnostics: Vec<Diagnostic>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+struct RecordOutput {
+    anchors: Vec<AnchorRecord>,
+    links: Vec<LinkRecord>,
+    images: Vec<ImageRecord>,
+    files: Vec<FileRecord>,
+    diagnostics: Vec<Diagnostic>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DocumentChange {
+    pub old_range: Range<usize>,
+    pub new_range: Range<usize>,
 }
 
 impl DocumentOutput {
@@ -165,17 +181,49 @@ impl DocumentOutput {
 }
 
 pub fn analyze_document(valid: ValidDocument<'_>) -> DocumentOutput {
+    let metadata = analyze_metadata(valid);
+    let events = analyze_events(valid, &metadata);
+    analyze_document_with(valid, metadata, events, None)
+}
+
+pub fn analyze_document_incremental(
+    valid: ValidDocument<'_>,
+    previous: &DocumentOutput,
+    change: &DocumentChange,
+) -> DocumentOutput {
+    let metadata = analyze_metadata(valid);
+    let events = crate::events::analyze_events_incremental(
+        valid,
+        &metadata,
+        &previous.metadata,
+        &previous.events,
+        &change.old_range,
+        &change.new_range,
+    );
+    analyze_document_with(valid, metadata, events, Some((previous, change)))
+}
+
+fn analyze_document_with(
+    valid: ValidDocument<'_>,
+    metadata: MetadataOutput,
+    events: EventOutput,
+    incremental: Option<(&DocumentOutput, &DocumentChange)>,
+) -> DocumentOutput {
     let source = valid.source();
     let document = valid.syntax();
     let headings = analyze_headings(valid);
-    let metadata = analyze_metadata(valid);
+    let records = incremental.map_or_else(
+        || collect_document_records(source, document, &headings),
+        |(previous, change)| {
+            collect_document_records_incremental(valid, &headings, previous, change)
+        },
+    );
     let citations = analyze_citations(valid);
     let inline_styles = analyze_inline_styles(valid);
     let lists = analyze_lists(valid);
     let math = analyze_math(valid);
     let quotes = analyze_quotes(valid);
     let tasks = analyze_tasks(valid);
-    let events = analyze_events(valid, &metadata);
     let tables = analyze_tables(valid);
     let mut output = DocumentOutput {
         headings,
@@ -188,18 +236,267 @@ pub fn analyze_document(valid: ValidDocument<'_>) -> DocumentOutput {
         tasks,
         events,
         tables,
+        anchors: records.anchors,
+        links: records.links,
+        images: records.images,
+        files: records.files,
+        record_diagnostics: records.diagnostics,
         ..DocumentOutput::default()
     };
     output
         .diagnostics
         .extend(association_arity_diagnostics(document));
-    let mut first_ids: HashMap<String, Range<usize>> = HashMap::new();
-    collect_blocks(source, &document.blocks, &mut first_ids, &mut output);
     output.event_link_ranges = build_event_link_ranges(&output.events.events, &output.links);
+    output
+        .diagnostics
+        .extend(output.record_diagnostics.iter().cloned());
     output
         .diagnostics
         .extend(output.tables.diagnostics.iter().cloned());
     output
+}
+
+fn collect_document_records(
+    source: &str,
+    document: &Document,
+    headings: &HeadingOutput,
+) -> RecordOutput {
+    let mut output = DocumentOutput {
+        headings: headings.clone(),
+        ..DocumentOutput::default()
+    };
+    let mut first_ids: HashMap<String, Range<usize>> = HashMap::new();
+    collect_blocks(source, &document.blocks, &mut first_ids, &mut output);
+    output.diagnostics.sort_by_key(|diagnostic| {
+        (
+            diagnostic.range.start,
+            diagnostic.range.end,
+            diagnostic.code,
+        )
+    });
+    RecordOutput {
+        anchors: output.anchors,
+        links: output.links,
+        images: output.images,
+        files: output.files,
+        diagnostics: output.diagnostics,
+    }
+}
+
+fn collect_document_records_incremental(
+    valid: ValidDocument<'_>,
+    headings: &HeadingOutput,
+    previous: &DocumentOutput,
+    change: &DocumentChange,
+) -> RecordOutput {
+    if change.new_range.start == 0 && change.new_range.end == valid.source().len() {
+        return collect_document_records(valid.source(), valid.syntax(), headings);
+    }
+    let fragment = plumb_syntax::parse(valid.source()[change.new_range.clone()].to_string());
+    let Some(fragment_valid) = fragment.valid_syntax() else {
+        return collect_document_records(valid.source(), valid.syntax(), headings);
+    };
+    let fragment_headings = analyze_headings(fragment_valid);
+    let mut changed = collect_document_records(
+        fragment_valid.source(),
+        fragment_valid.syntax(),
+        &fragment_headings,
+    );
+    shift_record_output(&mut changed, change.new_range.start as isize);
+    changed
+        .diagnostics
+        .retain(|diagnostic| diagnostic.code != "anchor.duplicate-id");
+    let suffix_delta = change.new_range.end as isize - change.old_range.end as isize;
+    let mut output = RecordOutput::default();
+
+    splice_records(
+        &mut output.anchors,
+        &previous.anchors,
+        &mut changed.anchors,
+        &change.old_range,
+        suffix_delta,
+        shift_anchors,
+        |anchor| &anchor.range,
+    );
+    splice_records(
+        &mut output.links,
+        &previous.links,
+        &mut changed.links,
+        &change.old_range,
+        suffix_delta,
+        shift_links,
+        |link| &link.range,
+    );
+    splice_records(
+        &mut output.images,
+        &previous.images,
+        &mut changed.images,
+        &change.old_range,
+        suffix_delta,
+        shift_images,
+        |image| &image.range,
+    );
+    splice_records(
+        &mut output.files,
+        &previous.files,
+        &mut changed.files,
+        &change.old_range,
+        suffix_delta,
+        shift_files,
+        |file| &file.range,
+    );
+
+    output.diagnostics.extend(
+        previous
+            .record_diagnostics
+            .iter()
+            .filter(|diagnostic| {
+                diagnostic.code != "anchor.duplicate-id"
+                    && diagnostic.range.end <= change.old_range.start
+            })
+            .cloned(),
+    );
+    output.diagnostics.append(&mut changed.diagnostics);
+    let mut suffix_diagnostics = previous
+        .record_diagnostics
+        .iter()
+        .filter(|diagnostic| {
+            diagnostic.code != "anchor.duplicate-id"
+                && diagnostic.range.start >= change.old_range.end
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    shift_diagnostics(&mut suffix_diagnostics, suffix_delta);
+    output.diagnostics.append(&mut suffix_diagnostics);
+    append_duplicate_anchor_diagnostics(&output.anchors, &mut output.diagnostics);
+    output.diagnostics.sort_by_key(|diagnostic| {
+        (
+            diagnostic.range.start,
+            diagnostic.range.end,
+            diagnostic.code,
+        )
+    });
+    output
+}
+
+fn splice_records<T: Clone>(
+    output: &mut Vec<T>,
+    previous: &[T],
+    changed: &mut Vec<T>,
+    old_range: &Range<usize>,
+    suffix_delta: isize,
+    shift: fn(&mut [T], isize),
+    range: impl Fn(&T) -> &Range<usize>,
+) {
+    output.extend(
+        previous
+            .iter()
+            .filter(|record| range(record).end <= old_range.start)
+            .cloned(),
+    );
+    output.append(changed);
+    let mut suffix = previous
+        .iter()
+        .filter(|record| range(record).start >= old_range.end)
+        .cloned()
+        .collect::<Vec<_>>();
+    shift(&mut suffix, suffix_delta);
+    output.append(&mut suffix);
+}
+
+fn append_duplicate_anchor_diagnostics(
+    anchors: &[AnchorRecord],
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    let mut first_ids: HashMap<String, Range<usize>> = HashMap::new();
+    for anchor in anchors {
+        if let Some(first) = first_ids.get(&anchor.id.value) {
+            diagnostics.push(Diagnostic {
+                code: "anchor.duplicate-id",
+                severity: DiagnosticSeverity::Warning,
+                message: format!("duplicate explicit anchor id '{}'", anchor.id.value),
+                range: anchor.id.range.clone(),
+                related: vec![first.clone()],
+            });
+        } else {
+            first_ids.insert(anchor.id.value.clone(), anchor.id.range.clone());
+        }
+    }
+}
+
+fn shift_record_output(output: &mut RecordOutput, delta: isize) {
+    shift_anchors(&mut output.anchors, delta);
+    shift_links(&mut output.links, delta);
+    shift_images(&mut output.images, delta);
+    shift_files(&mut output.files, delta);
+    shift_diagnostics(&mut output.diagnostics, delta);
+}
+
+fn shift_anchors(anchors: &mut [AnchorRecord], delta: isize) {
+    for anchor in anchors {
+        shift_source_backed(&mut anchor.id, delta);
+        shift_range(&mut anchor.range, delta);
+        shift_range(&mut anchor.selection_range, delta);
+    }
+}
+
+fn shift_links(links: &mut [LinkRecord], delta: isize) {
+    for link in links {
+        shift_range(&mut link.range, delta);
+        shift_range(&mut link.selection_range, delta);
+        shift_source_backed(&mut link.target, delta);
+        match &mut link.spelling {
+            LinkSpelling::Verbatim { envelope, .. } => shift_range(envelope, delta),
+            LinkSpelling::Positional => {}
+        }
+        shift_range(&mut link.target_range, delta);
+        for range in &mut link.target_declaration_ranges {
+            shift_range(range, delta);
+        }
+        if let Some(range) = &mut link.path_range {
+            shift_range(range, delta);
+        }
+        if let Some(range) = &mut link.fragment_range {
+            shift_range(range, delta);
+        }
+    }
+}
+
+fn shift_images(images: &mut [ImageRecord], delta: isize) {
+    for image in images {
+        shift_range(&mut image.range, delta);
+        shift_range(&mut image.selection_range, delta);
+        shift_source_backed(&mut image.source, delta);
+    }
+}
+
+fn shift_files(files: &mut [FileRecord], delta: isize) {
+    for file in files {
+        shift_range(&mut file.range, delta);
+        shift_range(&mut file.selection_range, delta);
+        shift_source_backed(&mut file.source, delta);
+    }
+}
+
+fn shift_source_backed(value: &mut SourceBacked<String>, delta: isize) {
+    shift_range(&mut value.range, delta);
+    for boundary in &mut value.decoded_boundaries {
+        *boundary = boundary.checked_add_signed(delta).unwrap();
+    }
+}
+
+fn shift_diagnostics(diagnostics: &mut [Diagnostic], delta: isize) {
+    for diagnostic in diagnostics {
+        shift_range(&mut diagnostic.range, delta);
+        for related in &mut diagnostic.related {
+            shift_range(related, delta);
+        }
+    }
+}
+
+fn shift_range(range: &mut Range<usize>, delta: isize) {
+    range.start = range.start.checked_add_signed(delta).unwrap();
+    range.end = range.end.checked_add_signed(delta).unwrap();
 }
 
 fn build_event_link_ranges(
@@ -1064,9 +1361,84 @@ pub(crate) fn attr_source_backed(source: &str, value: &AttrValue) -> SourceBacke
 
 #[cfg(test)]
 mod tests {
-    use plumb_syntax::parse;
+    use plumb_syntax::{parse, parse_incremental};
 
     use super::*;
+
+    #[test]
+    fn incremental_event_analysis_matches_full_document_semantics() {
+        let old = "`= date 2026-09-05\n`= timezone +08:00\n\n`- 09:00 First\n `+ event\n\n`- 10:00 Middle\n `+ event\n\n`- 11:00 Last\n `+ event\n";
+        let new = old.replace("Middle", "Changed middle");
+        let previous = parse(old);
+        let previous_output = analyze_document(previous.valid_syntax().unwrap());
+        let current = parse_incremental(&previous, new.clone());
+        let change = DocumentChange {
+            old_range: current.old_reparsed_range,
+            new_range: current.reparsed_range,
+        };
+        let incremental = analyze_document_incremental(
+            current.document.valid_syntax().unwrap(),
+            &previous_output,
+            &change,
+        );
+        let fresh = analyze_document(parse(new).valid_syntax().unwrap());
+        assert_eq!(incremental, fresh);
+    }
+
+    #[test]
+    fn incremental_event_analysis_invalidates_changed_document_context() {
+        let old = "`= date 2026-09-05\n`= timezone +08:00\n\n`- 09:00 Event\n `+ event\n";
+        let new = old.replace("2026-09-05", "2026-09-06");
+        let previous = parse(old);
+        let previous_output = analyze_document(previous.valid_syntax().unwrap());
+        let current = parse_incremental(&previous, new.clone());
+        let change = DocumentChange {
+            old_range: current.old_reparsed_range,
+            new_range: current.reparsed_range,
+        };
+        let incremental = analyze_document_incremental(
+            current.document.valid_syntax().unwrap(),
+            &previous_output,
+            &change,
+        );
+        let fresh = analyze_document(parse(new).valid_syntax().unwrap());
+        assert_eq!(incremental, fresh);
+        assert_eq!(
+            incremental.events.events[0].at.as_ref().unwrap().value,
+            "2026-09-06T09:00:00+08:00"
+        );
+    }
+
+    #[test]
+    fn incremental_document_records_rebase_suffix_and_rebuild_global_diagnostics() {
+        let old = "`node First\n `@ same\n\nSee `->{one first.plumb#target}.\n\n`node Middle\n\n `img{old `={src old.png}}\n\n`node Last\n `@ same\n\n `file{manual `={src docs/manual.pdf}}\n";
+        let new = old.replace(
+            "`node Middle\n\n `img{old `={src old.png}}",
+            "`node Changed middle owner\n\n `img{new `={src images/new.png}}",
+        );
+        let previous = parse(old);
+        let previous_output = analyze_document(previous.valid_syntax().unwrap());
+        let current = parse_incremental(&previous, new.clone());
+        let change = DocumentChange {
+            old_range: current.old_reparsed_range,
+            new_range: current.reparsed_range,
+        };
+        let incremental = analyze_document_incremental(
+            current.document.valid_syntax().unwrap(),
+            &previous_output,
+            &change,
+        );
+        let fresh = analyze_document(parse(new).valid_syntax().unwrap());
+        assert_eq!(incremental, fresh);
+        assert_eq!(
+            incremental
+                .diagnostics
+                .iter()
+                .filter(|diagnostic| diagnostic.code == "anchor.duplicate-id")
+                .count(),
+            1
+        );
+    }
 
     #[test]
     fn only_shorthand_ids_create_anchors() {

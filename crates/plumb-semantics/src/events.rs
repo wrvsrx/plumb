@@ -105,7 +105,116 @@ pub fn analyze_events(valid: ValidDocument<'_>, metadata: &MetadataOutput) -> Ev
     output
 }
 
-#[derive(Clone, Default)]
+pub(crate) fn analyze_events_incremental(
+    valid: ValidDocument<'_>,
+    metadata: &MetadataOutput,
+    previous_metadata: &MetadataOutput,
+    previous: &EventOutput,
+    old_range: &Range<usize>,
+    new_range: &Range<usize>,
+) -> EventOutput {
+    if EventContext::from_metadata(metadata) != EventContext::from_metadata(previous_metadata)
+        || (old_range.start == 0
+            && old_range.end == valid.source().len()
+            && new_range.start == 0
+            && new_range.end == valid.source().len())
+    {
+        return analyze_events(valid, metadata);
+    }
+    let source = valid.source();
+    let fragment = plumb_syntax::parse(source[new_range.clone()].to_string());
+    let Some(fragment) = fragment.valid_syntax() else {
+        return analyze_events(valid, metadata);
+    };
+    let mut changed = analyze_events(fragment, metadata);
+    shift_event_output(&mut changed, new_range.start as isize);
+    let suffix_delta = new_range.end as isize - old_range.end as isize;
+
+    let mut output = EventOutput::default();
+    output.events.extend(
+        previous
+            .events
+            .iter()
+            .filter(|event| event.range.end <= old_range.start)
+            .cloned(),
+    );
+    output.events.append(&mut changed.events);
+    let mut suffix_events = previous
+        .events
+        .iter()
+        .filter(|event| event.range.start >= old_range.end)
+        .cloned()
+        .collect::<Vec<_>>();
+    shift_events(&mut suffix_events, suffix_delta);
+    output.events.append(&mut suffix_events);
+
+    output.diagnostics.extend(
+        previous
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.range.end <= old_range.start)
+            .cloned(),
+    );
+    output.diagnostics.append(&mut changed.diagnostics);
+    let mut suffix_diagnostics = previous
+        .diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.range.start >= old_range.end)
+        .cloned()
+        .collect::<Vec<_>>();
+    shift_diagnostics(&mut suffix_diagnostics, suffix_delta);
+    output.diagnostics.append(&mut suffix_diagnostics);
+    output
+        .diagnostics
+        .sort_by_key(|diagnostic| (diagnostic.range.start, diagnostic.range.end));
+    output
+}
+
+fn shift_event_output(output: &mut EventOutput, delta: isize) {
+    shift_events(&mut output.events, delta);
+    shift_diagnostics(&mut output.diagnostics, delta);
+}
+
+fn shift_events(events: &mut [EventRecord], delta: isize) {
+    for event in events {
+        shift_range(&mut event.range, delta);
+        shift_range(&mut event.marker_range, delta);
+        shift_range(&mut event.selection_range, delta);
+        for field in [
+            &mut event.id,
+            &mut event.uid,
+            &mut event.date,
+            &mut event.timezone,
+            &mut event.when,
+            &mut event.at,
+            &mut event.start,
+            &mut event.end,
+        ] {
+            if let Some(field) = field {
+                shift_range(&mut field.range, delta);
+            }
+        }
+        for task in &mut event.tasks {
+            shift_range(&mut task.range, delta);
+        }
+    }
+}
+
+fn shift_diagnostics(diagnostics: &mut [Diagnostic], delta: isize) {
+    for diagnostic in diagnostics {
+        shift_range(&mut diagnostic.range, delta);
+        for related in &mut diagnostic.related {
+            shift_range(related, delta);
+        }
+    }
+}
+
+fn shift_range(range: &mut Range<usize>, delta: isize) {
+    range.start = range.start.checked_add_signed(delta).unwrap();
+    range.end = range.end.checked_add_signed(delta).unwrap();
+}
+
+#[derive(Clone, Default, PartialEq, Eq)]
 struct EventContext {
     date: Option<String>,
     timezone: Option<String>,
