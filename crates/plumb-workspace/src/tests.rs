@@ -3214,9 +3214,10 @@ fn event_task_associations_use_overlapping_containment_index_ranges() {
     let output = workspace.current_output(Path::new("events.plumb")).unwrap();
     let outer = output.events().events.get(0).unwrap();
     let nested = output.events().events.get(1).unwrap();
-    assert_eq!(output.event_link_ranges().len(), 2);
-    assert_eq!(output.event_link_ranges()[0].links, 1..3);
-    assert_eq!(output.event_link_ranges()[1].links, 2..3);
+    let event_link_ranges = output.event_link_ranges();
+    assert_eq!(event_link_ranges.len(), 2);
+    assert_eq!(event_link_ranges[0].links, 1..3);
+    assert_eq!(event_link_ranges[1].links, 2..3);
 
     assert_eq!(
         workspace
@@ -3249,8 +3250,9 @@ fn event_task_associations_use_overlapping_containment_index_ranges() {
             "`= date 2026-08-11\n`= timezone +08:00\n\n`- 12:00 Replacement\n\n `+ event\n\n `->{Only tasks.plumb#write}\n",
         );
     let replacement = workspace.current_output(Path::new("events.plumb")).unwrap();
-    assert_eq!(replacement.event_link_ranges().len(), 1);
-    assert_eq!(replacement.event_link_ranges()[0].links, 0..1);
+    let event_link_ranges = replacement.event_link_ranges();
+    assert_eq!(event_link_ranges.len(), 1);
+    assert_eq!(event_link_ranges[0].links, 0..1);
     assert_eq!(
         workspace
             .event_task_references("events.plumb", &replacement.events().events.get(0).unwrap(),)

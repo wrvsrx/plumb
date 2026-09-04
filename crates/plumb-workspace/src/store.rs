@@ -1745,8 +1745,7 @@ fn projected_event_task_associations(
     }
 
     output
-        .links_contained_by_event(event.range.start)
-        .unwrap_or_default()
+        .links_contained_by_record(event)
         .iter()
         .filter_map(|link| {
             let reference = link_reference(source_path, &link)?;

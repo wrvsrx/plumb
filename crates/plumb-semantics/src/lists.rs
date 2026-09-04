@@ -1,4 +1,5 @@
 use std::ops::Range;
+use std::sync::Arc;
 
 use plumb_syntax::{Block, ParsedBlock, ValidDocument};
 
@@ -26,14 +27,46 @@ pub struct ListOutput {
     pub groups: ListGroups,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ListGroups {
-    groups: Vec<ListGroup>,
+    storage: ListGroupStorage,
+}
+
+#[derive(Debug, Clone)]
+enum ListGroupStorage {
+    Empty,
+    Owned(Vec<ListGroup>),
+    Reduced(Arc<Vec<ReducedListGroup>>),
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct ReducedListGroup {
+    pub(crate) range: Range<usize>,
+    pub(crate) kind: ListKind,
+    pub(crate) tree: Arc<crate::document::SemanticTree>,
+    pub(crate) segments: Vec<ListGroupSegment>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct ListGroupSegment {
+    pub(crate) nodes: Range<usize>,
+    pub(crate) group_index: usize,
 }
 
 impl Default for ListGroups {
     fn default() -> Self {
-        Self { groups: Vec::new() }
+        Self {
+            storage: ListGroupStorage::Empty,
+        }
+    }
+}
+
+impl std::fmt::Debug for ListGroups {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ListGroups")
+            .field("len", &self.len())
+            .finish()
     }
 }
 
@@ -47,7 +80,11 @@ impl Eq for ListGroups {}
 
 impl ListGroups {
     pub fn len(&self) -> usize {
-        self.iter().count()
+        match &self.storage {
+            ListGroupStorage::Empty => 0,
+            ListGroupStorage::Owned(groups) => groups.len(),
+            ListGroupStorage::Reduced(groups) => groups.len(),
+        }
     }
 
     pub fn is_empty(&self) -> bool {
@@ -59,20 +96,97 @@ impl ListGroups {
     }
 
     pub fn iter(&self) -> Box<dyn Iterator<Item = ListGroup> + '_> {
-        Box::new(self.groups.iter().cloned())
+        match &self.storage {
+            ListGroupStorage::Empty => Box::new(std::iter::empty()),
+            ListGroupStorage::Owned(groups) => Box::new(groups.iter().cloned()),
+            ListGroupStorage::Reduced(groups) => {
+                Box::new(groups.iter().map(ReducedListGroup::materialize))
+            }
+        }
     }
 
     pub(crate) fn push(&mut self, group: ListGroup) {
-        self.groups.push(group);
+        self.owned_mut().push(group);
     }
 
     pub(crate) fn sort_by_start(&mut self) {
-        self.groups.sort_by_key(|group| group.range.start);
+        if let ListGroupStorage::Owned(groups) = &mut self.storage {
+            groups.sort_by_key(|group| group.range.start);
+        }
     }
 
-    pub(crate) fn from_owned(groups: Vec<ListGroup>) -> Self {
-        Self { groups }
+    pub(crate) fn from_reduced(groups: Vec<ReducedListGroup>) -> Self {
+        if groups.is_empty() {
+            Self::default()
+        } else {
+            Self {
+                storage: ListGroupStorage::Reduced(Arc::new(groups)),
+            }
+        }
     }
+
+    pub(crate) fn owned_groups(&self) -> Option<&[ListGroup]> {
+        match &self.storage {
+            ListGroupStorage::Empty => None,
+            ListGroupStorage::Owned(groups) => Some(groups),
+            ListGroupStorage::Reduced(_) => {
+                panic!("a reduced list collection cannot become a child segment")
+            }
+        }
+    }
+
+    pub(crate) fn owned_group(&self, index: usize) -> Option<&ListGroup> {
+        match &self.storage {
+            ListGroupStorage::Owned(groups) => groups.get(index),
+            ListGroupStorage::Empty | ListGroupStorage::Reduced(_) => None,
+        }
+    }
+
+    pub(crate) fn reduced_groups(&self) -> Option<&[ReducedListGroup]> {
+        match &self.storage {
+            ListGroupStorage::Reduced(groups) => Some(groups),
+            ListGroupStorage::Empty | ListGroupStorage::Owned(_) => None,
+        }
+    }
+
+    fn owned_mut(&mut self) -> &mut Vec<ListGroup> {
+        if matches!(self.storage, ListGroupStorage::Empty) {
+            self.storage = ListGroupStorage::Owned(Vec::new());
+        }
+        match &mut self.storage {
+            ListGroupStorage::Owned(groups) => groups,
+            ListGroupStorage::Empty => unreachable!("empty storage was initialized"),
+            ListGroupStorage::Reduced(_) => panic!("cannot mutate reduced list groups"),
+        }
+    }
+}
+
+impl ReducedListGroup {
+    fn materialize(&self) -> ListGroup {
+        let mut items = Vec::new();
+        for segment in &self.segments {
+            for node_index in segment.nodes.clone() {
+                let (offset, group) = self
+                    .tree
+                    .list_group_segment(node_index, segment.group_index);
+                items.extend(group.items.iter().cloned().map(|mut item| {
+                    shift_range(&mut item.range, offset);
+                    shift_range(&mut item.selection_range, offset);
+                    item
+                }));
+            }
+        }
+        ListGroup {
+            range: self.range.clone(),
+            kind: self.kind,
+            items,
+        }
+    }
+}
+
+fn shift_range(range: &mut Range<usize>, delta: isize) {
+    range.start = range.start.checked_add_signed(delta).unwrap();
+    range.end = range.end.checked_add_signed(delta).unwrap();
 }
 
 impl ListOutput {

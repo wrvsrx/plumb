@@ -1761,10 +1761,7 @@ impl Workspace {
             return Ok(event.tasks.clone());
         }
         let mut references = Vec::new();
-        for link in current
-            .links_contained_by_event(event.range.start)
-            .unwrap_or_default()
-        {
+        for link in current.links_contained_by_record(event) {
             let LinkTarget::Anchor {
                 path: target_path,
                 fragment,

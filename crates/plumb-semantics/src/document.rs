@@ -10,13 +10,13 @@ use plumb_syntax::{
 use serde::{Deserialize, Serialize};
 use url::Url;
 
+use crate::lists::{ListGroupSegment, ReducedListGroup};
 use crate::records::RecordSegment;
 use crate::{
     analyze_citations, analyze_events, analyze_headings, analyze_inline_styles, analyze_lists,
     analyze_math, analyze_metadata, analyze_quotes, analyze_tables, analyze_tasks, CitationOutput,
-    EventOutput, HeadingOutput, InlineStyleOutput, ListGroup, ListGroups, ListKind, ListOutput,
-    MathOutput, MetadataOutput, QuoteOutput, RelativeSemanticRecord, SemanticRecords, TableOutput,
-    TaskOutput,
+    EventOutput, HeadingOutput, InlineStyleOutput, ListGroups, ListKind, ListOutput, MathOutput,
+    MetadataOutput, QuoteOutput, RelativeSemanticRecord, SemanticRecords, TableOutput, TaskOutput,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -178,6 +178,7 @@ pub struct DocumentOutput {
 #[derive(Debug, Clone)]
 pub struct SemanticRoot {
     tree: Arc<SemanticTree>,
+    document_declaration_end: usize,
     pub(crate) headings: HeadingOutput,
     pub(crate) metadata: MetadataOutput,
     pub(crate) citations: CitationOutput,
@@ -190,7 +191,7 @@ pub struct SemanticRoot {
     pub(crate) tables: TableOutput,
     pub(crate) anchors: SemanticRecords<AnchorRecord>,
     pub(crate) links: SemanticRecords<LinkRecord>,
-    pub(crate) event_link_ranges: Vec<EventLinkRange>,
+    first_link_start: Option<usize>,
     pub(crate) images: SemanticRecords<ImageRecord>,
     pub(crate) files: SemanticRecords<FileRecord>,
     pub(crate) diagnostics: Vec<Diagnostic>,
@@ -200,8 +201,30 @@ pub struct SemanticRoot {
 pub struct SemanticTree {
     syntax: Arc<plumb_syntax::GreenDocument>,
     nodes: Vec<SemanticNode>,
-    index: HashMap<usize, usize>,
     cache_hits: usize,
+}
+
+impl SemanticTree {
+    pub(crate) fn record_node(&self, node_index: usize) -> (isize, &SemanticNodeOutput) {
+        let node = &self.nodes[node_index];
+        (node.offset as isize, &node.output)
+    }
+
+    pub(crate) fn list_group_segment(
+        &self,
+        node_index: usize,
+        group_index: usize,
+    ) -> (isize, &crate::ListGroup) {
+        let node = &self.nodes[node_index];
+        (
+            node.offset as isize,
+            node.output
+                .lists
+                .groups
+                .owned_group(group_index)
+                .expect("a reduced list segment references local owned storage"),
+        )
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -212,7 +235,7 @@ struct SemanticNode {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct SemanticNodeOutput {
+pub(crate) struct SemanticNodeOutput {
     citations: CitationOutput,
     inline_styles: InlineStyleOutput,
     math: MathOutput,
@@ -237,10 +260,39 @@ struct FreshSemanticOutput {
     association_diagnostics: Vec<Diagnostic>,
 }
 
+#[derive(Default)]
+struct RecordProjectionIndex {
+    spans: Vec<Range<usize>>,
+    len: usize,
+}
+
+#[derive(Default)]
+struct RootProjectionIndex {
+    citations: RecordProjectionIndex,
+    inline_styles: RecordProjectionIndex,
+    math: RecordProjectionIndex,
+    quotes: RecordProjectionIndex,
+    tasks: RecordProjectionIndex,
+    events: RecordProjectionIndex,
+    tables: RecordProjectionIndex,
+    anchors: RecordProjectionIndex,
+    links: RecordProjectionIndex,
+    images: RecordProjectionIndex,
+    files: RecordProjectionIndex,
+    citation_diagnostics: Vec<Diagnostic>,
+    math_diagnostics: Vec<Diagnostic>,
+    task_diagnostics: Vec<Diagnostic>,
+    event_diagnostics: Vec<Diagnostic>,
+    table_diagnostics: Vec<Diagnostic>,
+    record_diagnostics: Vec<Diagnostic>,
+    association_diagnostics: Vec<Diagnostic>,
+}
+
 impl Default for SemanticRoot {
     fn default() -> Self {
         Self {
             tree: Arc::new(SemanticTree::empty()),
+            document_declaration_end: 0,
             headings: HeadingOutput::default(),
             metadata: MetadataOutput::default(),
             citations: CitationOutput::default(),
@@ -253,7 +305,7 @@ impl Default for SemanticRoot {
             tables: TableOutput::default(),
             anchors: SemanticRecords::default(),
             links: SemanticRecords::default(),
-            event_link_ranges: Vec::new(),
+            first_link_start: None,
             images: SemanticRecords::default(),
             files: SemanticRecords::default(),
             diagnostics: Vec::new(),
@@ -266,7 +318,6 @@ impl SemanticTree {
         Self {
             syntax: Arc::new(plumb_syntax::GreenDocument::parse(String::new())),
             nodes: Vec::new(),
-            index: HashMap::new(),
             cache_hits: 0,
         }
     }
@@ -286,7 +337,6 @@ impl PartialEq for DocumentOutput {
             && self.tables() == other.tables()
             && self.anchors() == other.anchors()
             && self.links() == other.links()
-            && self.event_link_ranges() == other.event_link_ranges()
             && self.images() == other.images()
             && self.files() == other.files()
             && self.diagnostics() == other.diagnostics()
@@ -375,8 +425,8 @@ impl DocumentOutput {
         &self.root.links
     }
 
-    pub fn event_link_ranges(&self) -> &[EventLinkRange] {
-        &self.root.event_link_ranges
+    pub fn event_link_ranges(&self) -> Vec<EventLinkRange> {
+        build_event_link_ranges(&self.root.events.events, &self.root.links)
     }
 
     pub fn images(&self) -> &SemanticRecords<ImageRecord> {
@@ -412,17 +462,68 @@ impl DocumentOutput {
     }
 
     pub fn links_contained_by_event(&self, event_start: usize) -> Option<Vec<LinkRecord>> {
-        let index = self
-            .event_link_ranges
-            .binary_search_by_key(&event_start, |range| range.event_start)
-            .ok()?;
+        let node_index = self
+            .root
+            .tree
+            .nodes
+            .partition_point(|node| node.offset <= event_start)
+            .checked_sub(1)?;
+        let node = &self.root.tree.nodes[node_index];
+        let local_start = event_start.checked_sub(node.offset)?;
+        let event = node
+            .output
+            .events
+            .events
+            .iter()
+            .find(|event| event.range.start == local_start)?;
+        self.links_contained_by_range(
+            &(event.range.start + node.offset..event.range.end + node.offset),
+        )
+    }
+
+    pub fn links_contained_by_range(&self, event: &Range<usize>) -> Option<Vec<LinkRecord>> {
+        let node_index = self
+            .root
+            .tree
+            .nodes
+            .partition_point(|node| node.offset <= event.start)
+            .checked_sub(1)?;
+        let node = &self.root.tree.nodes[node_index];
+        let local = event.start.checked_sub(node.offset)?..event.end.checked_sub(node.offset)?;
+        if local.end > node.syntax.parsed().source.len() {
+            return None;
+        }
+        if self
+            .root
+            .first_link_start
+            .is_none_or(|first| event.end <= first)
+        {
+            return Some(Vec::new());
+        }
         Some(
-            self.links
+            node.output
+                .records
+                .links
                 .iter()
-                .skip(self.event_link_ranges[index].links.start)
-                .take(self.event_link_ranges[index].links.len())
+                .filter(|link| local.start <= link.range.start && link.range.end <= local.end)
+                .map(|mut link| {
+                    link.shift(node.offset as isize);
+                    link
+                })
                 .collect(),
         )
+    }
+
+    pub fn links_contained_by_record(&self, event: &crate::EventRecord) -> Vec<LinkRecord> {
+        if self
+            .root
+            .first_link_start
+            .is_none_or(|first| event.range.end <= first)
+        {
+            return Vec::new();
+        }
+        self.links_contained_by_range(&event.range)
+            .unwrap_or_default()
     }
 }
 
@@ -430,7 +531,7 @@ pub fn analyze_document(valid: ValidDocument<'_>) -> DocumentOutput {
     let syntax = Arc::new(plumb_syntax::GreenDocument::parse(
         valid.source().to_string(),
     ));
-    analyze_semantic_tree(valid, syntax, None)
+    analyze_semantic_tree(valid, syntax, None, None)
         .expect("a valid document produces a valid semantic tree")
 }
 
@@ -438,7 +539,7 @@ pub fn analyze_green_document(
     valid: ValidDocument<'_>,
     syntax: Arc<plumb_syntax::GreenDocument>,
 ) -> Option<DocumentOutput> {
-    analyze_semantic_tree(valid, syntax, None)
+    analyze_semantic_tree(valid, syntax, None, None)
 }
 
 pub fn analyze_document_incremental(
@@ -446,21 +547,19 @@ pub fn analyze_document_incremental(
     previous: &DocumentOutput,
     change: &DocumentChange,
 ) -> DocumentOutput {
-    let syntax = Arc::new(
-        previous
-            .root
-            .tree
-            .syntax
-            .reparse_from_change(
-                valid.source().to_string(),
-                plumb_syntax::SourceChange {
-                    old_range: change.old_range.clone(),
-                    new_range: change.new_range.clone(),
-                },
-            )
-            .document,
+    let revision = previous.root.tree.syntax.reparse_from_change(
+        valid.source().to_string(),
+        plumb_syntax::SourceChange {
+            old_range: change.old_range.clone(),
+            new_range: change.new_range.clone(),
+        },
     );
-    analyze_semantic_tree(valid, syntax, Some(previous))
+    let tree_change = DocumentChange {
+        old_range: revision.old_reparsed_range,
+        new_range: revision.reparsed_range,
+    };
+    let syntax = Arc::new(revision.document);
+    analyze_semantic_tree(valid, syntax, Some(previous), Some(&tree_change))
         .expect("a valid document produces a valid semantic tree")
 }
 
@@ -468,12 +567,26 @@ fn analyze_semantic_tree(
     valid: ValidDocument<'_>,
     syntax: Arc<plumb_syntax::GreenDocument>,
     previous: Option<&DocumentOutput>,
+    change: Option<&DocumentChange>,
 ) -> Option<DocumentOutput> {
     if valid.source() != syntax.source() || !syntax.is_valid() {
         return None;
     }
-    let metadata = analyze_metadata(valid);
-    let headings = analyze_headings(valid);
+    let reusable_metadata = previous.filter(|previous| can_reuse_metadata(previous, valid, change));
+    let metadata = reusable_metadata
+        .map(|previous| previous.metadata().clone())
+        .unwrap_or_else(|| analyze_metadata(valid));
+    let document_declaration_end = reusable_metadata.map_or_else(
+        || document_declaration_end(&syntax),
+        |previous| previous.root.document_declaration_end,
+    );
+    let headings = previous
+        .filter(|previous| {
+            previous.headings().headings.is_empty()
+                && !changed_blocks(valid, change).any(block_contains_heading)
+        })
+        .map(|previous| previous.headings().clone())
+        .unwrap_or_else(|| analyze_headings(valid));
     let reusable = previous.filter(|previous| previous.metadata() == &metadata);
     let fresh = reusable.is_none().then(|| FreshSemanticOutput {
         citations: analyze_citations(valid),
@@ -487,22 +600,23 @@ fn analyze_semantic_tree(
         association_diagnostics: association_arity_diagnostics(valid.syntax()),
     });
     let fresh_nodes = fresh.as_ref().map(|fresh| nodes_from_fresh(fresh, &syntax));
-    let mut index = HashMap::with_capacity(syntax.shards().len());
+    let reusable_nodes = reusable_node_indices(reusable, &syntax, change);
     let mut cache_hits = 0;
     let nodes = syntax
         .shards()
         .enumerate()
         .map(|(node_index, view)| {
             let node_syntax = Arc::clone(view.shard());
-            let identity = Arc::as_ptr(&node_syntax) as usize;
-            let output = reusable
-                .and_then(|previous| {
-                    previous
-                        .root
-                        .tree
-                        .index
-                        .get(&identity)
-                        .map(|index| Arc::clone(&previous.root.tree.nodes[*index].output))
+            let output = reusable_nodes[node_index]
+                .map(|previous_index| {
+                    Arc::clone(
+                        &reusable
+                            .expect("reusable node index requires a previous tree")
+                            .root
+                            .tree
+                            .nodes[previous_index]
+                            .output,
+                    )
                 })
                 .map(|output| {
                     cache_hits += 1;
@@ -534,7 +648,6 @@ fn analyze_semantic_tree(
                         })
                     }
                 });
-            index.insert(identity, node_index);
             SemanticNode {
                 syntax: node_syntax,
                 offset: view.offset(),
@@ -542,47 +655,116 @@ fn analyze_semantic_tree(
             }
         })
         .collect::<Vec<_>>();
+    let projection_source =
+        previous.filter(|previous| can_rebind_projections(previous, &nodes, &reusable_nodes));
+    let mut projections = projection_source
+        .map(|_| RootProjectionIndex::default())
+        .unwrap_or_else(|| RootProjectionIndex::build(&nodes));
     let tree = Arc::new(SemanticTree {
         syntax,
         nodes,
-        index,
         cache_hits,
     });
 
     let citations = CitationOutput {
-        citations: segmented_records(&tree, |output| &output.citations.citations),
-        diagnostics: node_diagnostics(&tree, |output| &output.citations.diagnostics),
+        citations: projected_records(
+            &tree,
+            projection_source.map(|previous| &previous.root.citations.citations),
+            std::mem::take(&mut projections.citations),
+            |output| &output.citations.citations,
+        ),
+        diagnostics: std::mem::take(&mut projections.citation_diagnostics),
     };
     let inline_styles = InlineStyleOutput {
-        styles: segmented_records(&tree, |output| &output.inline_styles.styles),
+        styles: projected_records(
+            &tree,
+            projection_source.map(|previous| &previous.root.inline_styles.styles),
+            std::mem::take(&mut projections.inline_styles),
+            |output| &output.inline_styles.styles,
+        ),
     };
     let math = MathOutput {
-        records: segmented_records(&tree, |output| &output.math.records),
-        diagnostics: node_diagnostics(&tree, |output| &output.math.diagnostics),
+        records: projected_records(
+            &tree,
+            projection_source.map(|previous| &previous.root.math.records),
+            std::mem::take(&mut projections.math),
+            |output| &output.math.records,
+        ),
+        diagnostics: std::mem::take(&mut projections.math_diagnostics),
     };
     let quotes = QuoteOutput {
-        quotes: segmented_records(&tree, |output| &output.quotes.quotes),
+        quotes: projected_records(
+            &tree,
+            projection_source.map(|previous| &previous.root.quotes.quotes),
+            std::mem::take(&mut projections.quotes),
+            |output| &output.quotes.quotes,
+        ),
     };
     let tasks = TaskOutput {
-        tasks: segmented_records(&tree, |output| &output.tasks.tasks),
-        diagnostics: node_diagnostics(&tree, |output| &output.tasks.diagnostics),
+        tasks: projected_records(
+            &tree,
+            projection_source.map(|previous| &previous.root.tasks.tasks),
+            std::mem::take(&mut projections.tasks),
+            |output| &output.tasks.tasks,
+        ),
+        diagnostics: std::mem::take(&mut projections.task_diagnostics),
     };
     let events = EventOutput {
-        events: segmented_records(&tree, |output| &output.events.events),
-        diagnostics: node_diagnostics(&tree, |output| &output.events.diagnostics),
+        events: projected_records(
+            &tree,
+            projection_source.map(|previous| &previous.root.events.events),
+            std::mem::take(&mut projections.events),
+            |output| &output.events.events,
+        ),
+        diagnostics: std::mem::take(&mut projections.event_diagnostics),
     };
     let tables = TableOutput {
-        tables: segmented_records(&tree, |output| &output.tables.tables),
-        diagnostics: node_diagnostics(&tree, |output| &output.tables.diagnostics),
+        tables: projected_records(
+            &tree,
+            projection_source.map(|previous| &previous.root.tables.tables),
+            std::mem::take(&mut projections.tables),
+            |output| &output.tables.tables,
+        ),
+        diagnostics: std::mem::take(&mut projections.table_diagnostics),
     };
-    let anchors = segmented_records(&tree, |output| &output.records.anchors);
-    let links = segmented_records(&tree, |output| &output.records.links);
-    let images = segmented_records(&tree, |output| &output.records.images);
-    let files = segmented_records(&tree, |output| &output.records.files);
-    let mut record_diagnostics = node_diagnostics(&tree, |output| &output.records.diagnostics);
+    let anchors = projected_records(
+        &tree,
+        projection_source.map(|previous| &previous.root.anchors),
+        std::mem::take(&mut projections.anchors),
+        |output| &output.records.anchors,
+    );
+    let links = projected_records(
+        &tree,
+        projection_source.map(|previous| &previous.root.links),
+        std::mem::take(&mut projections.links),
+        |output| &output.records.links,
+    );
+    let images = projected_records(
+        &tree,
+        projection_source.map(|previous| &previous.root.images),
+        std::mem::take(&mut projections.images),
+        |output| &output.records.images,
+    );
+    let files = projected_records(
+        &tree,
+        projection_source.map(|previous| &previous.root.files),
+        std::mem::take(&mut projections.files),
+        |output| &output.records.files,
+    );
+    let first_link_start = links.first().map(|link| link.range.start);
+    let mut record_diagnostics = std::mem::take(&mut projections.record_diagnostics);
     record_diagnostics.retain(|diagnostic| diagnostic.code != "anchor.duplicate-id");
-    let absolute_anchors = anchors.iter().collect::<Vec<_>>();
-    append_duplicate_anchor_diagnostics(&absolute_anchors, &mut record_diagnostics);
+    let duplicate_ids_still_absent = previous.is_some_and(|previous| {
+        !previous
+            .diagnostics()
+            .iter()
+            .any(|diagnostic| diagnostic.code == "anchor.duplicate-id")
+            && anchor_ids_unchanged(&previous.root.tree, &tree)
+    });
+    if !duplicate_ids_still_absent {
+        let absolute_anchors = anchors.iter().collect::<Vec<_>>();
+        append_duplicate_anchor_diagnostics(&absolute_anchors, &mut record_diagnostics);
+    }
     record_diagnostics.sort_by_key(|diagnostic| {
         (
             diagnostic.range.start,
@@ -590,9 +772,11 @@ fn analyze_semantic_tree(
             diagnostic.code,
         )
     });
-    let lists = reduce_lists(&tree);
-    let event_link_ranges = build_event_link_ranges(&events.events, &links);
-    let mut diagnostics = node_diagnostics(&tree, |output| &output.association_diagnostics);
+    let lists = previous
+        .filter(|previous| can_rebind_lists(&previous.root.tree, &tree))
+        .and_then(|previous| rebind_lists(previous.lists(), &tree))
+        .unwrap_or_else(|| reduce_lists(&tree));
+    let mut diagnostics = std::mem::take(&mut projections.association_diagnostics);
     diagnostics.extend(record_diagnostics.iter().cloned());
     diagnostics.extend(tables.diagnostics.iter().cloned());
     diagnostics.sort_by_key(|diagnostic| {
@@ -606,6 +790,7 @@ fn analyze_semantic_tree(
     Some(DocumentOutput {
         root: Arc::new(SemanticRoot {
             tree,
+            document_declaration_end,
             headings,
             metadata,
             citations,
@@ -618,7 +803,7 @@ fn analyze_semantic_tree(
             tables,
             anchors,
             links,
-            event_link_ranges,
+            first_link_start,
             images,
             files,
             diagnostics,
@@ -626,21 +811,279 @@ fn analyze_semantic_tree(
     })
 }
 
-fn segmented_records<T: RelativeSemanticRecord>(
-    tree: &SemanticTree,
+fn reusable_node_indices(
+    previous: Option<&DocumentOutput>,
+    syntax: &plumb_syntax::GreenDocument,
+    change: Option<&DocumentChange>,
+) -> Vec<Option<usize>> {
+    let node_count = syntax.shards().len();
+    let (Some(previous), Some(change)) = (previous, change) else {
+        return vec![None; node_count];
+    };
+    let previous_nodes = &previous.root.tree.nodes;
+    let previous_prefix = previous_nodes
+        .iter()
+        .take_while(|node| {
+            node.offset + node.syntax.parsed().source.len() <= change.old_range.start
+        })
+        .count();
+    let current_prefix = syntax
+        .shards()
+        .take_while(|view| view.range().end <= change.new_range.start)
+        .count();
+    let previous_suffix = previous_nodes.partition_point(|node| node.offset < change.old_range.end);
+    let current_suffix = syntax
+        .shards()
+        .take_while(|view| view.range().start < change.new_range.end)
+        .count();
+    if previous_prefix != current_prefix
+        || previous_nodes.len() - previous_suffix != node_count - current_suffix
+    {
+        return vec![None; node_count];
+    }
+
+    syntax
+        .shards()
+        .enumerate()
+        .map(|(index, view)| {
+            let previous_index = if index < current_prefix {
+                Some(index)
+            } else if index >= current_suffix {
+                Some(previous_suffix + index - current_suffix)
+            } else {
+                None
+            }?;
+            Arc::ptr_eq(view.shard(), &previous_nodes[previous_index].syntax)
+                .then_some(previous_index)
+        })
+        .collect()
+}
+
+fn document_declaration_end(syntax: &plumb_syntax::GreenDocument) -> usize {
+    syntax
+        .shards()
+        .filter(|view| {
+            view.shard()
+                .parsed()
+                .syntax
+                .blocks
+                .first()
+                .is_some_and(crate::is_document_declaration)
+        })
+        .map(|view| view.range().end)
+        .max()
+        .unwrap_or(0)
+}
+
+fn can_reuse_metadata(
+    previous: &DocumentOutput,
+    valid: ValidDocument<'_>,
+    change: Option<&DocumentChange>,
+) -> bool {
+    let Some(change) = change else {
+        return false;
+    };
+    if change.old_range.start < previous.root.document_declaration_end {
+        return false;
+    }
+    !changed_blocks(valid, Some(change)).any(crate::is_document_declaration)
+}
+
+fn changed_blocks<'a>(
+    valid: ValidDocument<'a>,
+    change: Option<&DocumentChange>,
+) -> impl Iterator<Item = &'a Block> {
+    let blocks = &valid.syntax().blocks;
+    let range = change
+        .map(|change| change.new_range.clone())
+        .unwrap_or(0..valid.source().len());
+    let start = blocks.partition_point(|block| block.range().end <= range.start);
+    blocks[start..]
+        .iter()
+        .take_while(move |block| block.range().start < range.end)
+}
+
+fn block_contains_heading(block: &Block) -> bool {
+    let mut pending = vec![block];
+    while let Some(block) = pending.pop() {
+        let Block::Parsed(block) = block else {
+            continue;
+        };
+        if block.mark.as_ref().is_some_and(|mark| {
+            let count = mark.marker.bytes().take_while(|byte| *byte == b'#').count();
+            count == mark.marker.len() && (1..=6).contains(&count)
+        }) {
+            return true;
+        }
+        pending.extend(crate::body_children(block));
+    }
+    false
+}
+
+impl RecordProjectionIndex {
+    fn add(&mut self, node_index: usize, records: usize) {
+        if records == 0 {
+            return;
+        }
+        self.len += records;
+        match self.spans.last_mut() {
+            Some(span) if span.end == node_index => span.end += 1,
+            _ => self.spans.push(node_index..node_index + 1),
+        }
+    }
+}
+
+fn can_rebind_projections(
+    previous: &DocumentOutput,
+    current: &[SemanticNode],
+    reusable: &[Option<usize>],
+) -> bool {
+    let previous_nodes = &previous.root.tree.nodes;
+    previous_nodes.len() == current.len()
+        && previous.root.citations.diagnostics.is_empty()
+        && previous.root.math.diagnostics.is_empty()
+        && previous.root.tasks.diagnostics.is_empty()
+        && previous.root.events.diagnostics.is_empty()
+        && previous.root.tables.diagnostics.is_empty()
+        && previous.root.diagnostics.is_empty()
+        && current.iter().enumerate().all(|(index, node)| {
+            reusable[index].is_some_and(|previous_index| previous_index == index)
+                || (same_record_counts(&previous_nodes[index].output, &node.output)
+                    && node_output_diagnostics_empty(&node.output))
+        })
+}
+
+fn same_record_counts(previous: &SemanticNodeOutput, current: &SemanticNodeOutput) -> bool {
+    previous.citations.citations.len() == current.citations.citations.len()
+        && previous.inline_styles.styles.len() == current.inline_styles.styles.len()
+        && previous.math.records.len() == current.math.records.len()
+        && previous.quotes.quotes.len() == current.quotes.quotes.len()
+        && previous.tasks.tasks.len() == current.tasks.tasks.len()
+        && previous.events.events.len() == current.events.events.len()
+        && previous.tables.tables.len() == current.tables.tables.len()
+        && previous.records.anchors.len() == current.records.anchors.len()
+        && previous.records.links.len() == current.records.links.len()
+        && previous.records.images.len() == current.records.images.len()
+        && previous.records.files.len() == current.records.files.len()
+}
+
+fn node_output_diagnostics_empty(output: &SemanticNodeOutput) -> bool {
+    output.citations.diagnostics.is_empty()
+        && output.math.diagnostics.is_empty()
+        && output.tasks.diagnostics.is_empty()
+        && output.events.diagnostics.is_empty()
+        && output.tables.diagnostics.is_empty()
+        && output.records.diagnostics.is_empty()
+        && output.association_diagnostics.is_empty()
+}
+
+impl RootProjectionIndex {
+    fn build(nodes: &[SemanticNode]) -> Self {
+        let mut output = Self::default();
+        for (index, node) in nodes.iter().enumerate() {
+            let local = &node.output;
+            output.citations.add(index, local.citations.citations.len());
+            output
+                .inline_styles
+                .add(index, local.inline_styles.styles.len());
+            output.math.add(index, local.math.records.len());
+            output.quotes.add(index, local.quotes.quotes.len());
+            output.tasks.add(index, local.tasks.tasks.len());
+            output.events.add(index, local.events.events.len());
+            output.tables.add(index, local.tables.tables.len());
+            output.anchors.add(index, local.records.anchors.len());
+            output.links.add(index, local.records.links.len());
+            output.images.add(index, local.records.images.len());
+            output.files.add(index, local.records.files.len());
+            append_projected_diagnostics(
+                &mut output.citation_diagnostics,
+                &local.citations.diagnostics,
+                node.offset,
+            );
+            append_projected_diagnostics(
+                &mut output.math_diagnostics,
+                &local.math.diagnostics,
+                node.offset,
+            );
+            append_projected_diagnostics(
+                &mut output.task_diagnostics,
+                &local.tasks.diagnostics,
+                node.offset,
+            );
+            append_projected_diagnostics(
+                &mut output.event_diagnostics,
+                &local.events.diagnostics,
+                node.offset,
+            );
+            append_projected_diagnostics(
+                &mut output.table_diagnostics,
+                &local.tables.diagnostics,
+                node.offset,
+            );
+            append_projected_diagnostics(
+                &mut output.record_diagnostics,
+                &local.records.diagnostics,
+                node.offset,
+            );
+            append_projected_diagnostics(
+                &mut output.association_diagnostics,
+                &local.association_diagnostics,
+                node.offset,
+            );
+        }
+        for diagnostics in [
+            &mut output.citation_diagnostics,
+            &mut output.math_diagnostics,
+            &mut output.task_diagnostics,
+            &mut output.event_diagnostics,
+            &mut output.table_diagnostics,
+            &mut output.record_diagnostics,
+            &mut output.association_diagnostics,
+        ] {
+            diagnostics.sort_by_key(|diagnostic| (diagnostic.range.start, diagnostic.range.end));
+        }
+        output
+    }
+}
+
+fn append_projected_diagnostics(
+    output: &mut Vec<Diagnostic>,
+    diagnostics: &[Diagnostic],
+    offset: usize,
+) {
+    if diagnostics.is_empty() {
+        return;
+    }
+    let start = output.len();
+    output.extend_from_slice(diagnostics);
+    shift_diagnostics(&mut output[start..], offset as isize);
+}
+
+fn projected_records<T: RelativeSemanticRecord>(
+    tree: &Arc<SemanticTree>,
+    previous: Option<&SemanticRecords<T>>,
+    index: RecordProjectionIndex,
     records: fn(&SemanticNodeOutput) -> &SemanticRecords<T>,
 ) -> SemanticRecords<T> {
-    SemanticRecords::from_segments(
-        tree.nodes
-            .iter()
-            .filter_map(|node| {
-                Some(RecordSegment {
-                    offset: node.offset as isize,
-                    records: records(&node.output).owned_arc()?,
-                })
-            })
-            .collect(),
-    )
+    if let Some(previous) = previous.and_then(|previous| previous.rebind_tree(Arc::clone(tree))) {
+        return previous;
+    }
+    let segments = index
+        .spans
+        .iter()
+        .flat_map(|span| span.clone())
+        .map(|node_index| {
+            let (offset, output) = tree.record_node(node_index);
+            RecordSegment {
+                node_index,
+                offset,
+                records: records(output)
+                    .owned_arc()
+                    .expect("a projection span references nonempty local records"),
+            }
+        })
+        .collect();
+    SemanticRecords::from_segments(segments, records, index.len)
 }
 
 fn nodes_from_fresh(
@@ -772,30 +1215,15 @@ fn partition_diagnostics(
     partitions
 }
 
-fn node_diagnostics(
-    tree: &SemanticTree,
-    diagnostics: fn(&SemanticNodeOutput) -> &[Diagnostic],
-) -> Vec<Diagnostic> {
-    let mut output = Vec::new();
-    for node in &tree.nodes {
-        let mut local = diagnostics(&node.output).to_vec();
-        shift_diagnostics(&mut local, node.offset as isize);
-        output.append(&mut local);
-    }
-    output.sort_by_key(|diagnostic| (diagnostic.range.start, diagnostic.range.end));
-    output
-}
-
-fn reduce_lists(tree: &SemanticTree) -> ListOutput {
+fn reduce_lists(tree: &Arc<SemanticTree>) -> ListOutput {
     let mut groups = Vec::new();
-    let mut pending: Option<ListGroup> = None;
-    for node in &tree.nodes {
-        let mut local_groups = node.output.lists.groups.iter().collect::<Vec<_>>();
-        for group in &mut local_groups {
-            shift_list_group(group, node.offset as isize);
-        }
+    let mut pending: Option<ReducedListGroup> = None;
+    for (node_index, node) in tree.nodes.iter().enumerate() {
+        let local_storage = node.output.lists.groups.owned_groups();
         match root_list_role(&node.syntax) {
-            RootListRole::Transparent => groups.append(&mut local_groups),
+            RootListRole::Transparent => {
+                append_local_list_groups(&mut groups, tree, node_index, node, local_storage, None)
+            }
             RootListRole::List(kind) => {
                 let root_start = node.offset
                     + node
@@ -807,29 +1235,54 @@ fn reduce_lists(tree: &SemanticTree) -> ListOutput {
                         .expect("list role has a root block")
                         .range()
                         .start;
-                let root_index = local_groups
+                let storage =
+                    local_storage.expect("top-level list item produces local list storage");
+                let root_index = storage
                     .iter()
-                    .position(|group| group.range.start == root_start)
+                    .position(|group| group.range.start + node.offset == root_start)
                     .expect("top-level list item produces a root group");
-                let mut root = local_groups.remove(root_index);
+                let root = &storage[root_index];
+                let segment = ListGroupSegment {
+                    nodes: node_index..node_index + 1,
+                    group_index: root_index,
+                };
                 match &mut pending {
                     Some(current) if current.kind == kind => {
-                        current.range.end = root.range.end;
-                        current.items.append(&mut root.items);
+                        current.range.end = root.range.end + node.offset;
+                        if let Some(last) = current.segments.last_mut().filter(|last| {
+                            last.group_index == root_index && last.nodes.end == node_index
+                        }) {
+                            last.nodes.end += 1;
+                        } else {
+                            current.segments.push(segment);
+                        }
                     }
                     Some(_) => {
                         groups.push(pending.take().expect("pending group exists"));
-                        pending = Some(root);
+                        pending = Some(reduced_list_group(
+                            tree, node_index, node, storage, root_index,
+                        ));
                     }
-                    None => pending = Some(root),
+                    None => {
+                        pending = Some(reduced_list_group(
+                            tree, node_index, node, storage, root_index,
+                        ))
+                    }
                 }
-                groups.append(&mut local_groups);
+                append_local_list_groups(
+                    &mut groups,
+                    tree,
+                    node_index,
+                    node,
+                    Some(storage),
+                    Some(root_index),
+                );
             }
             RootListRole::Other => {
                 if let Some(group) = pending.take() {
                     groups.push(group);
                 }
-                groups.append(&mut local_groups);
+                append_local_list_groups(&mut groups, tree, node_index, node, local_storage, None);
             }
         }
     }
@@ -838,11 +1291,121 @@ fn reduce_lists(tree: &SemanticTree) -> ListOutput {
     }
     groups.sort_by_key(|group| group.range.start);
     ListOutput {
-        groups: ListGroups::from_owned(groups),
+        groups: ListGroups::from_reduced(groups),
     }
 }
 
-#[derive(Clone, Copy)]
+fn can_rebind_lists(previous: &SemanticTree, current: &SemanticTree) -> bool {
+    previous.nodes.len() == current.nodes.len()
+        && previous
+            .nodes
+            .iter()
+            .zip(&current.nodes)
+            .all(|(previous, current)| {
+                Arc::ptr_eq(&previous.output, &current.output)
+                    || (list_topology_eq(&previous.output.lists, &current.output.lists)
+                        && root_list_role(&previous.syntax) == root_list_role(&current.syntax))
+            })
+}
+
+fn anchor_ids_unchanged(previous: &SemanticTree, current: &SemanticTree) -> bool {
+    previous.nodes.len() == current.nodes.len()
+        && previous
+            .nodes
+            .iter()
+            .zip(&current.nodes)
+            .all(|(previous, current)| {
+                Arc::ptr_eq(&previous.output, &current.output)
+                    || previous
+                        .output
+                        .records
+                        .anchors
+                        .iter()
+                        .map(|anchor| anchor.id.value)
+                        .eq(current
+                            .output
+                            .records
+                            .anchors
+                            .iter()
+                            .map(|anchor| anchor.id.value))
+            })
+}
+
+fn list_topology_eq(previous: &ListOutput, current: &ListOutput) -> bool {
+    previous.groups.len() == current.groups.len()
+        && previous
+            .groups
+            .iter()
+            .zip(current.groups.iter())
+            .all(|(previous, current)| {
+                previous.kind == current.kind && previous.items.len() == current.items.len()
+            })
+}
+
+fn rebind_lists(previous: &ListOutput, tree: &Arc<SemanticTree>) -> Option<ListOutput> {
+    let groups = previous.groups.reduced_groups()?;
+    let groups = groups
+        .iter()
+        .map(|group| {
+            let first = group.segments.first()?;
+            let last = group.segments.last()?;
+            let first_node = first.nodes.start;
+            let last_node = last.nodes.end.checked_sub(1)?;
+            let (first_offset, first_group) =
+                tree.list_group_segment(first_node, first.group_index);
+            let (last_offset, last_group) = tree.list_group_segment(last_node, last.group_index);
+            Some(ReducedListGroup {
+                range: first_group.range.start.checked_add_signed(first_offset)?
+                    ..last_group.range.end.checked_add_signed(last_offset)?,
+                kind: group.kind,
+                tree: Arc::clone(tree),
+                segments: group.segments.clone(),
+            })
+        })
+        .collect::<Option<Vec<_>>>()?;
+    Some(ListOutput {
+        groups: ListGroups::from_reduced(groups),
+    })
+}
+
+fn append_local_list_groups(
+    output: &mut Vec<ReducedListGroup>,
+    tree: &Arc<SemanticTree>,
+    node_index: usize,
+    node: &SemanticNode,
+    storage: Option<&[crate::ListGroup]>,
+    excluded: Option<usize>,
+) {
+    let Some(storage) = storage else {
+        return;
+    };
+    output.extend(
+        (0..storage.len())
+            .filter(|index| Some(*index) != excluded)
+            .map(|index| reduced_list_group(tree, node_index, node, storage, index)),
+    );
+}
+
+fn reduced_list_group(
+    tree: &Arc<SemanticTree>,
+    node_index: usize,
+    node: &SemanticNode,
+    storage: &[crate::ListGroup],
+    index: usize,
+) -> ReducedListGroup {
+    let group = &storage[index];
+    ReducedListGroup {
+        range: group.range.start + node.offset..group.range.end + node.offset,
+        kind: group.kind,
+        tree: Arc::clone(tree),
+        segments: vec![ListGroupSegment {
+            nodes: node_index..node_index + 1,
+            group_index: index,
+        }],
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum RootListRole {
     Transparent,
     List(ListKind),
@@ -863,14 +1426,6 @@ fn root_list_role(shard: &plumb_syntax::GreenShard) -> RootListRole {
         Some("-") => RootListRole::List(ListKind::Bullet),
         Some(".") => RootListRole::List(ListKind::Ordered),
         _ => RootListRole::Other,
-    }
-}
-
-fn shift_list_group(group: &mut ListGroup, delta: isize) {
-    shift_range(&mut group.range, delta);
-    for item in &mut group.items {
-        shift_range(&mut item.range, delta);
-        shift_range(&mut item.selection_range, delta);
     }
 }
 
@@ -1944,6 +2499,77 @@ mod tests {
     }
 
     #[test]
+    fn semantic_tree_recomputes_metadata_and_empty_outline_fast_paths_when_introduced() {
+        let old = "Body\n";
+        let addition = "\n`= title Added\n\n`# Added heading\n";
+        let new = format!("{old}{addition}");
+        let previous = parse(old);
+        let previous_output = analyze_document(previous.valid_syntax().unwrap());
+        let current = parse(&new);
+        let incremental = analyze_document_incremental(
+            current.valid_syntax().unwrap(),
+            &previous_output,
+            &DocumentChange {
+                old_range: old.len()..old.len(),
+                new_range: old.len()..new.len(),
+            },
+        );
+        let fresh = analyze_document(current.valid_syntax().unwrap());
+
+        assert_eq!(incremental, fresh);
+        assert_eq!(
+            incremental.metadata().document_title().as_deref(),
+            Some("Added")
+        );
+        assert_eq!(incremental.headings().headings.len(), 1);
+    }
+
+    #[test]
+    fn semantic_tree_rebuilds_record_and_list_topology_when_counts_change() {
+        let old = "`- One\n\n`- Two\n\nPlain\n";
+        let replacement = "`. Two\n\n`->{guide.plumb}\n";
+        let start = old.find("`- Two").unwrap();
+        let new = format!("{}{replacement}", &old[..start]);
+        let previous = parse(old);
+        let previous_output = analyze_document(previous.valid_syntax().unwrap());
+        let current = parse(&new);
+        let incremental = analyze_document_incremental(
+            current.valid_syntax().unwrap(),
+            &previous_output,
+            &DocumentChange {
+                old_range: start..old.len(),
+                new_range: start..new.len(),
+            },
+        );
+        let fresh = analyze_document(current.valid_syntax().unwrap());
+
+        assert_eq!(incremental, fresh);
+        assert_eq!(incremental.lists().groups.len(), 2);
+        assert_eq!(incremental.links().len(), 1);
+    }
+
+    #[test]
+    fn semantic_tree_rebuilds_diagnostic_projection_when_an_error_appears() {
+        let old = "Plain\n";
+        let new = "`->{}\n";
+        let previous = parse(old);
+        let previous_output = analyze_document(previous.valid_syntax().unwrap());
+        let current = parse(new);
+        let incremental = analyze_document_incremental(
+            current.valid_syntax().unwrap(),
+            &previous_output,
+            &DocumentChange {
+                old_range: 0..old.len(),
+                new_range: 0..new.len(),
+            },
+        );
+        let fresh = analyze_document(current.valid_syntax().unwrap());
+
+        assert_eq!(incremental, fresh);
+        assert!(!incremental.diagnostics().is_empty());
+    }
+
+    #[test]
     fn only_shorthand_ids_create_anchors() {
         let parsed = parse("`# Heading\n  `@ intro\n\n`## Pair only\n  `= id|pair\n");
         let output = analyze_document(
@@ -2040,7 +2666,7 @@ mod tests {
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let output = analyze_document(parsed.valid_syntax().unwrap());
         assert_eq!(output.links.len(), 4);
-        assert_eq!(output.event_link_ranges.len(), 2);
+        assert_eq!(output.event_link_ranges().len(), 2);
 
         let outer = output.events.events.get(0).unwrap();
         let nested = output.events.events.get(1).unwrap();
