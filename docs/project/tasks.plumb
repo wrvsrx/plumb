@@ -12,12 +12,13 @@
  fresh/incremental lossless and diagnostic parity, deep-tree stack safety, and current editor behavior. Acceptance
  requires didOpen and didChange end-to-end benchmarks with no common-path regression.
 
-`- Finish green semantic reducers and workspace deltas
+`- Finish semantic reducer deltas and equality invalidation
  `+ task
  `@ green-semantic-reducers
  `= created 2026-09-05T03:24:13+08:00
 
- Move headings, metadata, tables, association/anchor/link/image/file facts to relative green semantic shards and
- persistent reducers. Replace remaining eager compatibility projections in hot queries with borrowed red views.
- Publish added/changed/removed exported summaries so pure layout or semantically equal edits do not invalidate
- unrelated workspace dependency computations. Differential tests must cover every rule listed in semantic-analysis.
+ Tree-based DocumentOutput、relative semantic shards、typed segmented collections与 workspace single-output snapshots
+ 已完成。继续把 heading/list等 document reducer state改为 persistent/chunked delta，并把 query hot path中剩余的
+ owned single-record projections替换为 borrowed typed views。发布 added/changed/removed exported summaries，使纯
+ layout或 semantic-equal edits不 invalidate无关 workspace dependency computations；differential tests覆盖
+ semantic-analysis中尚未验收的 reducer delta规则。

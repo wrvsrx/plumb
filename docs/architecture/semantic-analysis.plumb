@@ -54,31 +54,23 @@ analysis dependencies 通过 Rust types、函数 inputs 和固定 pipeline 明�
 
 `## 6.1 Green-identity incremental document semantics
 
-Status：phase 1 已实现。open-document cache warm 在 blocking worker 建立 green syntax 与 semantic revisions；
-event、citation、inline-style、math、quote、task 与 list facts 使用 relative shard ranges，并以 syntax `"Arc"
-identity 与 event document-context key复用。LSP byte change provenance贯穿 workspace/syntax；warm result 与 semantic
-result 都通过 path、revision、parsed/output allocation identity guard安装。edit抢先于 warm completion 时使用
-previous-revision absolute incremental fallback，不等待 cache。
-
-当前 headings、metadata、tables、association/anchor/link/image/file reducers仍从 compatibility `"ParsedDocument"
-或 absolute `"DocumentOutput" 计算；部分 query仍通过 compatibility projection取得 owned records。green root尚未
-成为唯一 semantic authority，semantic equality也尚未驱动 workspace dependency invalidation。以下完整 contract
-仍是这些剩余阶段的 replacement boundary。
+Status：已由第 6.2 节的统一 tree replacement取代。早期 open-document cache warm、旁挂 green semantic revision
+与 previous-revision absolute splice均已删除；本节只保留阶段名称，不能作为 current architecture的第二条路径。
 
 `## 6.2 Tree-based DocumentOutput replacement
 
-Status：正在实现。完成后 `"DocumentOutput" 自身是 immutable `"Arc<SemanticRoot>" 的 typed facade，不再是
+Status：`"DocumentOutput" tree replacement已实现。`"DocumentOutput" 自身是 immutable `"Arc<SemanticRoot>" 的 typed facade，不再是
 各 analyzer eager `"Vec" 的 public aggregate，也不再由 workspace旁挂另一份 `"GreenSemanticRevision" cache。
 每个 `"SemanticNode" 与一个 syntax `"Arc<GreenShard>" identity 对齐，保存该 shard 的 relative local facts、
 diagnostics 与 context-dependent summaries；root children 保持 source order并跨 revision共享 unchanged nodes。
 
 `"SemanticRoot" 只拥有 document-wide reducers：metadata first/duplicate resolution、heading hierarchy/section ends、
-list与definition adjacency、duplicate anchor ids、event-link containment以及 exported dependency summary。root reducer
+list与definition adjacency、duplicate anchor ids与event-link containment。root reducer
 的 range 相对 document root；child record range 相对 syntax shard。root 不复制 children的完整 record vectors。
 
 公开 consumer API 使用 typed collection/view：`"output.events()"、`"output.tasks()"、`"output.links()" 等返回
-source-ordered iterator与按 identity/start查询；view把 child-relative range加 current child offset得到 absolute
-revision range，并借用不含 location 的 value payload。不得公开 mutable collection或要求 caller理解 storage 是
+source-ordered iterator与按 start查询；view把 child-relative range加 current child offset得到 absolute revision
+range，owned iterator只投影实际访问的 record。不得公开 mutable collection或要求 caller理解 storage 是
 fresh-owned、green-shared还是 persistent projection。
 
 需要 owned absolute records 的 SQLite publication、Pandoc lowering或 protocol response必须显式调用边界 projection，
@@ -86,16 +78,17 @@ fresh-owned、green-shared还是 persistent projection。
 equality比较 observable typed views与 diagnostics，不比较 Arc allocation；debug/test metrics可以报告 reused child
 count，但 allocation address不是 record identity或 protocol data。
 
-fresh analysis建立同一种 SemanticRoot，不能以 monolithic compatibility variant形成第二套 authority。incremental
-analysis按 syntax identity与 context key复用 SemanticNode，只重建 changed children与受影响 reducers；完成迁移后
-删除旧 absolute-range splice、`"GreenSemanticRevision"、eager `"GreenLocalOutput::materialize" 和 public field
-访问。workspace snapshot只保存一个 `"Arc<DocumentOutput>" 与对应 syntax revision。
+fresh analysis先执行一次完整 profile，再按 syntax owner partition为同一种 SemanticRoot；transient full results不被
+保留为 compatibility authority。incremental analysis按 syntax identity与 metadata context key复用 SemanticNode，
+只重建 changed children与 document reducers。旧 absolute-range splice、`"GreenSemanticRevision"、eager
+`"GreenLocalOutput::materialize" 和 public field访问均已删除；workspace snapshot只保存一个
+`"Arc<DocumentOutput>"，对应 green syntax revision由该 output tree持有。
 
 document semantics 直接消费 syntax red views，并以 green node allocation identity、semantic analyzer version 与
 explicit inherited-context key 缓存 shard-local facts。pointer-identical green subtree 只有在 context key 相同
 时才能复用；date/timezone、task/event depth、table structural role 与其它 ancestor-derived input 必须进入 key。
-changed syntax 不必产生 changed semantics：重新计算的 local summary 与旧 summary 相等时，向 ancestor、following
-context 与 workspace dependents 的传播停止。
+changed syntax 不必产生 changed semantics。重新计算的 local summary 与旧 summary 相等时停止 reducer/workspace
+传播仍未实现，属于 `"green-semantic-reducers" task的剩余范围。
 
 跨 shard 规则由 typed document reducers 拥有，不能伪装成 local cache。reducers 至少维护 heading hierarchy 与
 section ends、list/definition adjacency、document metadata first-value/duplicate diagnostics、duplicate anchor ids、
@@ -106,15 +99,16 @@ semantic record 的 authoritative location 由 green owner identity 加 node-rel
 current red revision投影 absolute byte/LSP ranges；persistent SQLite generation仍写入稳定 revision 的 absolute
 ranges，但该 serialization projection 不回流为 open-document semantic authority。
 
-SemanticRevision 输出 changed/added/removed record identities与 document exported-summary equality。workspace 只在
+下一阶段的 SemanticRevision 必须输出 changed/added/removed record identities与 document exported-summary equality。workspace 只在
 exported facts 变化时 invalidates直接或传递 dependents；纯 layout edit、或 changed syntax 产生相同 semantic summary
 时，不得重建无关 dependency graph。current invalid syntax仍不进入 authoritative semantics，并保留原 last-valid
 provenance。
 
-验收必须 differential compare fresh/incremental semantic revisions，覆盖 valid/invalid transitions、UTF-8/CRLF、
+tree replacement的验收 differential compare fresh/incremental semantic revisions，覆盖 metadata context change、
+duplicate id、nested task/event/table、link containment 与 file-start range shift，并证明 unchanged green identity
+命中与 adapter observable output parity。后续 reducer delta验收还必须覆盖 valid/invalid transitions、UTF-8/CRLF、
 metadata context change、heading/list boundary、duplicate id、nested task/event/table、link containment 与 file-start
-range shift。测试另需证明 unchanged green identity 命中 cache、context change强制重算、semantic equality停止传播，
-以及 adapter projection与现有 observable DocumentOutput/diagnostics完全一致。benchmark 分别报告 syntax revision、
+range shift、semantic equality停止传播。benchmark 分别报告 syntax revision、
 local analysis、document reduction、absolute projection、workspace publication 与 destruction，不以省略后续阶段的
 microbenchmark 代替 end-to-end result。
 
