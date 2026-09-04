@@ -304,7 +304,7 @@ fn shift_document(document: &mut Document, delta: isize) {
     shift_blocks(&mut document.blocks, delta);
 }
 
-fn shift_blocks(blocks: &mut [Block], delta: isize) {
+pub(crate) fn shift_blocks(blocks: &mut [Block], delta: isize) {
     let mut pending = blocks.iter_mut().rev().collect::<Vec<_>>();
     while let Some(block) = pending.pop() {
         match block {
@@ -372,7 +372,7 @@ fn shift_mark(mark: &mut Mark, delta: isize) {
     shift_attributes(&mut mark.attrs, delta);
 }
 
-fn shift_attributes(attributes: &mut Attributes, delta: isize) {
+pub(crate) fn shift_attributes(attributes: &mut Attributes, delta: isize) {
     if let Some(range) = &mut attributes.range {
         shift_range(range, delta);
     }
@@ -401,7 +401,7 @@ fn shift_attributes(attributes: &mut Attributes, delta: isize) {
     }
 }
 
-fn shift_diagnostics(diagnostics: &mut [Diagnostic], delta: isize) {
+pub(crate) fn shift_diagnostics(diagnostics: &mut [Diagnostic], delta: isize) {
     for diagnostic in diagnostics {
         shift_range(&mut diagnostic.range, delta);
         for related in &mut diagnostic.related {
@@ -410,7 +410,7 @@ fn shift_diagnostics(diagnostics: &mut [Diagnostic], delta: isize) {
     }
 }
 
-fn shift_tokens(tokens: &mut [crate::syntax::SyntaxToken], delta: isize) {
+pub(crate) fn shift_tokens(tokens: &mut [crate::syntax::SyntaxToken], delta: isize) {
     for token in tokens {
         shift_range(&mut token.range, delta);
     }

@@ -1,7 +1,9 @@
+mod green;
 mod lossless;
 mod parser;
 mod syntax;
 
+pub use green::{GreenDocument, GreenParse, GreenShard, GreenShardView};
 pub use parser::{
     parse, parse_incremental, parse_incremental_from_change, IncrementalParse, SourceChange,
 };
