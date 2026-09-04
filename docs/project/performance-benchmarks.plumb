@@ -1,6 +1,6 @@
 `= title plumb performance benchmark methodology
 
-本页定义仍需复用的 performance workloads、测量口径和验收原则，不保存按日期累积的结果。 2026-08 的 backend experiments、rejected designs 与 acceptance measurements 归档在 `->{{workspace performance results} ../history/performance/workspace-performance-2026-08.plumb}。
+本页定义仍需复用的 performance workloads、测量口径和验收原则，不保存按日期累积的结果。 2026-08 的 backend experiments、rejected designs 与 acceptance measurements 归档在 `->{{workspace performance results} ../history/performance/workspace-performance-2026-08.plumb}；2026-09 的 incremental transport 与 strict parse measurements 归档在 `->{{incremental parsing results} ../history/performance/incremental-parsing-2026-09.plumb}。
 
 `# Workload classes
 
@@ -18,6 +18,8 @@ Deterministic fixtures 必须使用当前 strict syntax，并在 benchmark timin
 `- `"semantic_store_task_queries_1408"：CEL filters、relations、state、sort、cursor、candidate pushdown 和 selected TaskRecord hydration。
 `- `"workspace_diagnostic_round_8_of_176"：diagnostic dependency context reuse。
 `- `"open_document_generation_33512"：didChange parse stage、background semantics 与 synchronous baseline。
+`- `"incremental_parse_33512"：在同一 large document 的 start/middle/end 执行单字节 edit，分别测量 fresh 与
+  previous-revision incremental strict parse，并在 timing 外验证完整 ParsedDocument parity 与 reparsed range。
 `- `"workspace_batch_index_1408"：serial/batch、memory/SQLite、cold/warm indexing。
 `- `"event_containment_4000"：source-ordered lookup 与 explicit containment index。
 

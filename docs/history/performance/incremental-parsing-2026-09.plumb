@@ -1,0 +1,50 @@
+`= title plumb incremental transport and parsing results, 2026-09
+
+`# Scope
+
+本记录比较 LSP full/incremental document transport，以及 current hand-written strict parser 的 fresh 与
+previous-revision incremental paths。测量基于 `"c830451" 后的 topic worktree；实现提交只改变 transport、
+syntax parsing、workspace revision installation、tests 与 benchmark，不改变 document semantics。
+
+Host 为 Intel Core i9-9980XE、NixOS、Linux 6.18.48、rustc 1.97.1。Rust benchmark 使用 release profile。
+transport microbenchmark 预热 750 ms、15 samples、报告 median；Criterion 预热 1 s、measurement 约 5 s、
+10 samples，并报告 confidence interval midpoint。current deterministic fixture 为 2,112,527 bytes、
+170,914 lines、33,512 events 与 3,351 links；历史 5.7 MB workload 通过增加 title payload 得到相同结构数。
+
+`# Incremental transport
+
+2.11 MB fixture 的 full JSON serialization、stdin framing/pipe、typed deserialization 合计约 4.55 ms；
+incremental payload 加 current source clone/apply 约 0.114 ms，每次 edit 节省约 4.43 ms。5.66 MB padded
+fixture 从约 10.24 ms 降到 0.341 ms，每次 edit 节省约 9.90 ms。1.86 KB fixture 只从约 13.4 us 降到
+11.4 us，绝对收益可忽略。
+
+该 profile 使用 Rust serde_json 而非 Neovim encoder；pipe receiver 只读取正确 Content-Length framing 并
+acknowledge body，不包含 async-lsp dispatch。结论只支持减少大文档 payload、copy 与 JSON/stdio work，不把
+transport savings 归因于 parser 或 semantics。
+
+`# Incremental strict parser
+
+`"incremental_parse_33512" 在 start、middle、end 附近替换一个 ASCII title byte。每项 timing 外验证
+incremental ParsedDocument 与 fresh parse 完全相等；reparsed owner range 分别只有 56、60、60 bytes。
+
+`- start：fresh 79.61 ms；incremental 63.89 ms。
+`- middle：fresh 84.48 ms；incremental 61.14 ms。
+`- end：fresh 83.30 ms；incremental 52.59 ms。
+
+当前实现因此减少约 16--31 ms strict parse work，但仍复制全部 reused owned blocks/tokens，并对 shifted suffix
+执行 absolute-range rebase；它不是 green-tree allocation reuse。`"open_document_generation_33512" 的完整
+workspace didChange parse-stage midpoint 为 83.56 ms，与此前 full-path 83.7 ms baseline 没有显著差异。
+snapshot installation、owned payload lifecycle 与其它 O(document) work 已成为主要成本，因此不能宣称
+end-to-end latency 按局部 owner 大小缩放。
+
+`# Correctness and next boundary
+
+普通 tests 覆盖 sequential UTF-16 changes、full replacement fallback、rangeLength validation、CRLF、surrogate
+boundary、invalid notification rejection、valid/invalid recovered revisions、indentation ownership、continuation、
+verbatim、文件首尾 edit 与 deep-tree full fallback。Property tests 比较 arbitrary revisions，并在结构化多 owner
+documents 中强制局部 reuse；character-boundary regression 对代表 source 的每个 UTF-8 boundary 执行 insertion
+与 deletion。所有结果比较 source、typed tree、lossless tokens、diagnostics 与 validity。
+
+下一层若要消除剩余 O(document) clone/rebase，需要以 relative text length 和 immutable shared node 建立 green
+tree，并让 typed red views 按需计算 absolute range。该重构必须同时测量 parser、snapshot lifecycle 与 full
+document semantics；仅将 tree-sitter incremental CST 放在 strict parser 前面不构成收益。

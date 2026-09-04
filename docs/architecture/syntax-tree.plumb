@@ -98,7 +98,25 @@ block nesting 使用 explicit work stack；typed block/inline destruction 与 tr
 plumb-edit OwnedBlock/OwnedInline 是 syntax view 的 source-independent constructible counterpart，不是 normalized
 semantic AST。它负责 insertion/replacement/move 与 canonical rendering；adapter 不手写 subtree syntax。
 
-`# 9. Lenient tree and identity
+`# 9. Incremental strict parsing
+
+`"plumb-syntax" 提供 fresh parse 与 previous-revision incremental parse。incremental entry 接受完整 previous
+ParsedDocument 与 next source bytes，自行计算共同 prefix/suffix；caller 不传不可信的 parser boundary。实现只在
+两个 revision 中都能证明 top-level owner start 是独立 line boundary 时复用其外侧结果。包含 change 的最小
+top-level owner run 重新经过同一 strict block/inline parser；边界无法证明、reused token 跨越 splice，或 range
+rebase 失败时必须退回 fresh parse。
+
+复用覆盖 recovered typed blocks、syntax diagnostics 与 lossless tokens。前缀 range 不变，后缀所有 source-backed
+range 以 byte delta 统一 rebase；document-level projected declarations 从合并后的 direct blocks 重新建立。最终
+ParsedDocument 的 source、tree、diagnostic order、validity、token kinds/ranges 与对 next bytes 单独 fresh parse 的
+结果必须相等。invalid-to-invalid、valid-to-invalid、CRLF、UTF-8、indentation、continuation、verbatim boundary 与
+文件首尾 edit 都属于 differential tests 的输入范围。
+
+该阶段允许复制 existing owned nodes，不承诺 allocation identity 或 asymptotically constant splice。benchmark
+必须分别报告 reparsed byte range、incremental parse 和 fresh parse；若 edit 使整个 document 落入 reparsed range，
+实现直接使用 fresh path，不把它报告为 reuse。
+
+`# 10. Lenient tree and identity
 
 tree-sitter mirror 只服务 editor ergonomics。fresh/full/incremental parses 必须在同 source 上产生等价 current
 node kinds/ranges；scanner state round-trip 不引入 ERROR。它不改变 strict parser authority。
