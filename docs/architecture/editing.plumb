@@ -63,7 +63,9 @@ fallback whole replacement 只在 diff projection 无法重建 canonical output 
 
 green whole-document formatter逐 shard读取 local typed blocks，但 top-level sibling spacing与 explicit argument
 alignment必须跨 shard计算，observable canonical source及 line diff必须与 materialized ParsedDocument入口逐 byte
-相等。format adapter只能调用 plumb-edit的 green intent，不能自行拼接 shard output。
+相等。green contained formatting把完整覆盖的 top-level blocks组成跨 shard maximal sibling group；partial shard继续
+使用同一 local contained-group算法并把 edits平移到 document range。format adapter只能调用 plumb-edit的 green
+intent，不能自行拼接 shard output。
 
 `# 6. Structural mutations
 
