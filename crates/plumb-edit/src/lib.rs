@@ -75,6 +75,20 @@ pub fn format_green(document: &GreenDocument) -> Result<Vec<TextEdit>, EditError
     Ok(format_edits(edits))
 }
 
+pub fn format_green_contained(
+    document: &GreenDocument,
+    selection: Range<usize>,
+) -> Result<Vec<TextEdit>, EditError> {
+    let edits =
+        plumb_format::format_green_contained_blocks(document, selection).map_err(|error| {
+            match error {
+                plumb_format::FormatError::InvalidBlockRange => EditError::InvalidRange,
+                plumb_format::FormatError::InvalidSyntax => EditError::GeneratedInvalid,
+            }
+        })?;
+    Ok(format_edits(edits))
+}
+
 fn format_edits(edits: Vec<plumb_format::FormatEdit>) -> Vec<TextEdit> {
     edits
         .into_iter()

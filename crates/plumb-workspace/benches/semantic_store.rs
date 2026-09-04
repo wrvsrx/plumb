@@ -711,6 +711,38 @@ fn benchmark_open_document_generation(c: &mut Criterion) {
             )
         })
     });
+    let range_selection = formatting_entry
+        .current
+        .as_ref()
+        .unwrap()
+        .output
+        .events()
+        .events
+        .get(16_756)
+        .unwrap()
+        .range;
+    group.bench_function("green_range_format", |b| {
+        b.iter(|| {
+            black_box(
+                plumb_edit::format_green_contained(
+                    formatting_entry.parsed.green(),
+                    range_selection.clone(),
+                )
+                .unwrap(),
+            )
+        })
+    });
+    group.bench_function("materialized_range_format", |b| {
+        b.iter(|| {
+            black_box(
+                plumb_edit::format(
+                    &formatting_entry.parsed,
+                    plumb_edit::FormatScope::ContainedBlocks(range_selection.clone()),
+                )
+                .unwrap(),
+            )
+        })
+    });
     group.finish();
 }
 

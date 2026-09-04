@@ -440,6 +440,149 @@ pub fn format_parsed_contained_blocks(
     Ok(edits)
 }
 
+pub fn format_green_contained_blocks(
+    document: &GreenDocument,
+    selection: Range<usize>,
+) -> Result<Vec<FormatEdit>, FormatError> {
+    let source = document.source();
+    if !document.is_valid() {
+        return Err(FormatError::InvalidSyntax);
+    }
+    if selection.start > selection.end
+        || selection.end > source.len()
+        || !source.is_char_boundary(selection.start)
+        || !source.is_char_boundary(selection.end)
+    {
+        return Err(FormatError::InvalidBlockRange);
+    }
+    if selection.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let blocks = green_top_blocks(document);
+    let aligned = green_aligned_block_flags(
+        &blocks
+            .iter()
+            .map(|block| (block.source, block.block))
+            .collect::<Vec<_>>(),
+    );
+    let mut edits = Vec::new();
+    let mut complete_start = None;
+    for (index, block) in blocks.iter().enumerate() {
+        let range = block.absolute_range();
+        if selection.start <= range.start && range.end <= selection.end {
+            complete_start.get_or_insert(index);
+            continue;
+        }
+        if let Some(first) = complete_start.take() {
+            edits.push(format_green_contained_group(
+                source,
+                &blocks,
+                &aligned,
+                first,
+                index - 1,
+            ));
+        }
+        if range.start < selection.end && selection.start < range.end {
+            let local_selection = selection.start.saturating_sub(block.offset)
+                ..selection
+                    .end
+                    .saturating_sub(block.offset)
+                    .min(block.source.len());
+            let mut local = format_parsed_contained_blocks(block.parsed, local_selection)?;
+            for edit in &mut local {
+                edit.range.start += block.offset;
+                edit.range.end += block.offset;
+            }
+            edits.append(&mut local);
+        }
+    }
+    if let Some(first) = complete_start {
+        edits.push(format_green_contained_group(
+            source,
+            &blocks,
+            &aligned,
+            first,
+            blocks.len() - 1,
+        ));
+    }
+    edits.retain(|edit| source[edit.range.clone()] != edit.new_text);
+    edits.sort_by_key(|edit| edit.range.start);
+    if edits
+        .windows(2)
+        .any(|edits| edits[0].range.end > edits[1].range.start)
+    {
+        return Err(FormatError::InvalidBlockRange);
+    }
+    Ok(edits)
+}
+
+struct GreenTopBlock<'a> {
+    offset: usize,
+    source: &'a str,
+    parsed: &'a ParsedDocument,
+    block: &'a Block,
+}
+
+impl GreenTopBlock<'_> {
+    fn absolute_range(&self) -> Range<usize> {
+        self.block.range().start + self.offset..self.block.range().end + self.offset
+    }
+}
+
+fn green_top_blocks(document: &GreenDocument) -> Vec<GreenTopBlock<'_>> {
+    document
+        .shards()
+        .flat_map(|view| {
+            let parsed = view.shard().parsed();
+            parsed.syntax.blocks.iter().map(move |block| GreenTopBlock {
+                offset: view.offset(),
+                source: &parsed.source,
+                parsed,
+                block,
+            })
+        })
+        .collect()
+}
+
+fn format_green_contained_group(
+    source: &str,
+    blocks: &[GreenTopBlock<'_>],
+    aligned: &[bool],
+    first: usize,
+    last: usize,
+) -> FormatEdit {
+    let selected = &blocks[first..=last];
+    let mut output = String::new();
+    for (index, block) in selected.iter().enumerate() {
+        if index > 0 {
+            let previous = selected[index - 1].block;
+            if terminal_verbatim(std::slice::from_ref(previous)) {
+                while !output.ends_with("\n\n") {
+                    output.push('\n');
+                }
+            } else if compact_siblings(previous, block.block) {
+                output.push('\n');
+            } else {
+                output.push_str("\n\n");
+            }
+        }
+        let mut formatter = Formatter::new(block.source);
+        formatter.block(block.block, 0, aligned[first + index]);
+        output.push_str(&formatter.output);
+    }
+    if source.contains("\r\n") {
+        output = output.replace('\n', "\r\n");
+    }
+    let first = selected.first().unwrap();
+    let last = selected.last().unwrap();
+    FormatEdit {
+        range: first.block.range().start + first.offset
+            ..block_content_range(last.block).end + last.offset,
+        new_text: output,
+    }
+}
+
 fn format_contained_group(source: &str, blocks: &[Block], first: usize, last: usize) -> FormatEdit {
     let selected = &blocks[first..=last];
     let block_start = selected.first().unwrap().range().start;
@@ -926,6 +1069,30 @@ mod tests {
                 format_parsed_edits(&parsed),
                 "{source:?}"
             );
+            let mut selections = vec![0..source.len()];
+            collect_test_selections(&parsed.syntax.blocks, &mut selections);
+            for blocks in parsed.syntax.blocks.windows(2) {
+                selections.push(blocks[0].range().start..blocks[1].range().end);
+            }
+            for selection in selections {
+                assert_eq!(
+                    format_green_contained_blocks(&green, selection.clone()),
+                    format_parsed_contained_blocks(&parsed, selection.clone()),
+                    "{source:?} at {selection:?}"
+                );
+            }
+        }
+    }
+
+    fn collect_test_selections(blocks: &[Block], output: &mut Vec<Range<usize>>) {
+        for block in blocks {
+            output.push(block.range().clone());
+            if let Block::Parsed(block) = block {
+                if block.range.start < block.content.range.start {
+                    output.push(block.content.range.start..block.range.end);
+                }
+                collect_test_selections(&block.children, output);
+            }
         }
     }
 

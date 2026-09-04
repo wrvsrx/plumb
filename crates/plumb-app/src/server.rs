@@ -1389,11 +1389,8 @@ impl LanguageServer for ServerState {
                 let source = entry.parsed.source();
                 let selection = position_to_offset(source, params.range.start)
                     ..position_to_offset(source, params.range.end);
-                let edits = plumb_edit::format(
-                    &entry.parsed,
-                    plumb_edit::FormatScope::ContainedBlocks(selection),
-                )
-                .ok()?;
+                let edits =
+                    plumb_edit::format_green_contained(entry.parsed.green(), selection).ok()?;
                 Some(
                     edits
                         .into_iter()
