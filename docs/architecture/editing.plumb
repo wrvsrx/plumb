@@ -4,7 +4,9 @@
 
 plumb-edit 是 valid strict syntax tree 上的 protocol-neutral mutation/finalization layer。它依赖 plumb-syntax 与
 plumb-format，不依赖 semantics、workspace、LSP 或 filesystem。LSP/CLI/Web/workspace adapters 传同一
-ParsedDocument revision 与 mutation intent，只翻译/apply returned byte edits。
+green/ParsedDocument revision 与 mutation intent，只翻译/apply returned byte edits。whole-document formatting接受
+GreenDocument authority；contained formatting与 structural mutation在迁移完成前仍可接受同 revision的 lazy
+ParsedDocument compatibility view。
 
 adapter 不得直接调用 plumb-format、重复 parse 已有 revision、手算 indentation/delimiters 或拼 subtree text。
 raw token replacement 只用于 validated mechanical rename；structure changes 使用 owned syntax。
@@ -58,6 +60,10 @@ operation 与 text edit order deterministic。
 format document 先生成 canonical source，再使用 anchored line diff 产生 non-overlapping changed-line edits；
 fallback whole replacement 只在 diff projection 无法重建 canonical output 时使用。contained-block formatting只
 选择 selection 完整包含的 maximal subtrees。
+
+green whole-document formatter逐 shard读取 local typed blocks，但 top-level sibling spacing与 explicit argument
+alignment必须跨 shard计算，observable canonical source及 line diff必须与 materialized ParsedDocument入口逐 byte
+相等。format adapter只能调用 plumb-edit的 green intent，不能自行拼接 shard output。
 
 `# 6. Structural mutations
 

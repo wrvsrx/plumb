@@ -162,8 +162,9 @@ compatibility tree。
 revision才遍历 shards并投影 diagnostics。Workspace lifecycle tests必须证明 valid pending、ordinary incremental
 semantic worker与 invalid diagnostic publication均不初始化 compatibility cache。folding按 shard收集 block ranges并
 以 document reducer计算 heading sections；completion定位 cursor shard、运行同一 recovered query并平移 context
-ranges，bibliography fallback同样按 metadata shard投影。format/edit及少数 syntax-aware operations直接使用 typed
-red views仍未完成，属于 `"green-red-syntax-views" task的剩余范围。
+ranges，bibliography fallback同样按 metadata shard投影。whole-document formatting由 plumb-edit调用 green formatter，
+跨 shard保持 sibling spacing/alignment并生成同一 line diff。contained/range formatting、structural edits及少数
+syntax-aware operations直接使用 typed red views仍未完成，属于 `"green-red-syntax-views" task的剩余范围。
 
 只消费 revision bytes 的 symbols、hover、semantic tokens、position conversion、Web与notes projection必须调用
 green-backed `"source()"，不能通过 compatibility ParsedDocument的 public field自动解引用。只有确实读取 typed
