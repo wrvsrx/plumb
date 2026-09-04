@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use plumb_semantics::analyze_document;
+use plumb_semantics::{analyze_document, DocumentChange};
 use plumb_syntax::{parse, parse_incremental};
 
 use crate::{
@@ -124,10 +124,22 @@ impl Workspace {
     ) -> Option<PendingDocumentAnalysis> {
         let path = normalize(path.as_ref());
         let source = source.into();
-        let parsed = Arc::new(match self.documents.get(&path) {
-            Some(entry) => parse_incremental(&entry.parsed, source).document,
-            None => parse(source),
-        });
+        let previous = self.documents.get(&path);
+        let previous_output = previous
+            .and_then(|entry| entry.current.as_ref())
+            .map(|current| Arc::clone(&current.output));
+        let (parsed, change) = match previous {
+            Some(entry) => {
+                let incremental = parse_incremental(&entry.parsed, source);
+                let change = DocumentChange {
+                    old_range: incremental.old_reparsed_range,
+                    new_range: incremental.reparsed_range,
+                };
+                (incremental.document, Some(change))
+            }
+            None => (parse(source), None),
+        };
+        let parsed = Arc::new(parsed);
         let previous_last_valid = self
             .documents
             .get(&path)
@@ -146,6 +158,8 @@ impl Workspace {
             path,
             revision,
             parsed,
+            previous_output,
+            change,
         })
     }
 
@@ -183,6 +197,8 @@ impl Workspace {
             path,
             revision: entry.revision,
             parsed: Arc::clone(&entry.parsed),
+            previous_output: None,
+            change: None,
         };
         self.install_document_analysis(pending.analyze())
     }

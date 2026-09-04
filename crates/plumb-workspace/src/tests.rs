@@ -595,6 +595,32 @@ fn document_revisions_preserve_fresh_parse_results_across_structural_edits() {
 }
 
 #[test]
+fn document_revision_analysis_matches_fresh_semantics_after_local_edit() {
+    let old = "`= date 2026-09-05\n`= timezone +08:00\n\n`- 09:00 First\n `+ event\n\n`- 10:00 Middle\n `+ event\n\n`- 11:00 Last\n `+ event\n";
+    let changed = old.replace("Middle", "Changed middle");
+    let mut workspace = Workspace::new();
+    workspace.insert("events.plumb", 1, old);
+    let pending = workspace
+        .begin_document_revision("events.plumb", 2, changed.clone())
+        .unwrap();
+    assert!(workspace.install_document_analysis(pending.analyze()));
+
+    let fresh = plumb_syntax::parse(changed);
+    let fresh = plumb_semantics::analyze_document(fresh.valid_syntax().unwrap());
+    assert_eq!(
+        workspace
+            .get("events.plumb")
+            .unwrap()
+            .current
+            .as_ref()
+            .unwrap()
+            .output
+            .as_ref(),
+        &fresh
+    );
+}
+
+#[test]
 fn pending_and_invalid_open_revisions_do_not_fall_back_to_disk_semantics() {
     let store = SqliteSemanticStore::open_in_memory().unwrap();
     let mut workspace = Workspace::with_sqlite_store(store);

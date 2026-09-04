@@ -5,7 +5,10 @@ use std::time::Duration;
 
 use chrono::DateTime;
 use criterion::{criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion};
-use plumb_semantics::analyze_document;
+use plumb_semantics::{
+    analyze_citations, analyze_document, analyze_events, analyze_headings, analyze_inline_styles,
+    analyze_lists, analyze_math, analyze_metadata, analyze_quotes, analyze_tables, analyze_tasks,
+};
 use plumb_syntax::{parse, parse_incremental};
 use plumb_workspace::{
     search_score, BatchIndexOptions, SearchRecordKind, SqliteSemanticStore, TaskPageQuery,
@@ -573,7 +576,25 @@ fn benchmark_open_document_generation(c: &mut Criterion) {
     });
     let changed = changed_event_title(&source, source.len() / 2);
     let mut previous_workspace = Workspace::new();
-    previous_workspace.begin_document_revision("events.plumb", 1, source.clone());
+    previous_workspace.insert("events.plumb", 1, source.clone());
+    let mut incremental_workspace = previous_workspace.clone();
+    let incremental_pending = incremental_workspace
+        .begin_document_revision("events.plumb", 2, changed.clone())
+        .unwrap();
+    assert!(incremental_workspace.install_document_analysis(incremental_pending.clone().analyze()));
+    let fresh = parse(changed.clone());
+    let fresh_output = analyze_document(fresh.valid_syntax().unwrap());
+    assert_eq!(
+        incremental_workspace
+            .get("events.plumb")
+            .unwrap()
+            .current
+            .as_ref()
+            .unwrap()
+            .output
+            .as_ref(),
+        &fresh_output
+    );
     group.bench_function("did_change_parse_stage", |b| {
         b.iter_batched(
             || (previous_workspace.clone(), changed.clone()),
@@ -585,6 +606,9 @@ fn benchmark_open_document_generation(c: &mut Criterion) {
     });
     group.bench_function("background_semantic_stage", |b| {
         b.iter(|| black_box(pending.clone().analyze()))
+    });
+    group.bench_function("incremental_semantic_stage", |b| {
+        b.iter(|| black_box(incremental_pending.clone().analyze()))
     });
     group.finish();
 }
@@ -716,6 +740,40 @@ fn benchmark_incremental_parse(c: &mut Criterion) {
             },
         );
     }
+    group.finish();
+}
+
+fn benchmark_semantic_components(c: &mut Criterion) {
+    let count = 33_512;
+    let (_, source) = workload(count, count / 10, "");
+    let parsed = parse(source);
+    let valid = parsed.valid_syntax().unwrap();
+    let metadata = analyze_metadata(valid);
+    let mut group = c.benchmark_group("semantic_components_33512");
+    group.sample_size(10);
+    group.bench_function("headings", |b| {
+        b.iter(|| black_box(analyze_headings(valid)))
+    });
+    group.bench_function("metadata", |b| {
+        b.iter(|| black_box(analyze_metadata(valid)))
+    });
+    group.bench_function("citations", |b| {
+        b.iter(|| black_box(analyze_citations(valid)))
+    });
+    group.bench_function("inline_styles", |b| {
+        b.iter(|| black_box(analyze_inline_styles(valid)))
+    });
+    group.bench_function("lists", |b| b.iter(|| black_box(analyze_lists(valid))));
+    group.bench_function("math", |b| b.iter(|| black_box(analyze_math(valid))));
+    group.bench_function("quotes", |b| b.iter(|| black_box(analyze_quotes(valid))));
+    group.bench_function("tasks", |b| b.iter(|| black_box(analyze_tasks(valid))));
+    group.bench_function("events", |b| {
+        b.iter(|| black_box(analyze_events(valid, &metadata)))
+    });
+    group.bench_function("tables", |b| b.iter(|| black_box(analyze_tables(valid))));
+    group.bench_function("document", |b| {
+        b.iter(|| black_box(analyze_document(valid)))
+    });
     group.finish();
 }
 
@@ -910,6 +968,7 @@ criterion_group! {
     config = configuration();
     targets = benchmark_build, benchmark_warm_start, benchmark_queries, benchmark_replacement,
         benchmark_task_queries, benchmark_diagnostic_round, benchmark_open_document_generation,
-        benchmark_incremental_parse, benchmark_batch_index, benchmark_event_containment
+        benchmark_incremental_parse, benchmark_semantic_components, benchmark_batch_index,
+        benchmark_event_containment
 }
 criterion_main!(benches);

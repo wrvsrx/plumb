@@ -8,7 +8,7 @@ use plumb_edit::{
     remove_block as remove_syntax_block, replace_owned_block, replace_owned_blocks,
     AttributePosition, EditSession, OwnedAttribute, OwnedBlock, OwnedInline,
 };
-use plumb_semantics::analyze_document;
+use plumb_semantics::{analyze_document, analyze_document_incremental, DocumentChange};
 use plumb_semantics::{
     parse_task_reference_target, AnchorRecord, DocumentOutput, EventRecord, LinkCompletionContext,
     LinkRecord, LinkSpelling, LinkTarget, MetadataBlock, MetadataOutput, MetadataValue,
@@ -396,6 +396,8 @@ pub struct PendingDocumentAnalysis {
     path: PathBuf,
     revision: i64,
     parsed: Arc<ParsedDocument>,
+    previous_output: Option<Arc<DocumentOutput>>,
+    change: Option<DocumentChange>,
 }
 
 #[derive(Debug)]
@@ -408,11 +410,14 @@ pub struct PreparedDocumentAnalysis {
 
 impl PendingDocumentAnalysis {
     pub fn analyze(self) -> PreparedDocumentAnalysis {
-        let output = analyze_document(
-            self.parsed
-                .valid_syntax()
-                .expect("pending semantic analysis requires valid syntax"),
-        );
+        let valid = self
+            .parsed
+            .valid_syntax()
+            .expect("pending semantic analysis requires valid syntax");
+        let output = match (&self.previous_output, &self.change) {
+            (Some(previous), Some(change)) => analyze_document_incremental(valid, previous, change),
+            _ => analyze_document(valid),
+        };
         PreparedDocumentAnalysis {
             path: self.path,
             revision: self.revision,
