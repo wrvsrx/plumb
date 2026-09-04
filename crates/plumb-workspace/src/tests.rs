@@ -583,6 +583,18 @@ fn installs_only_the_current_parsed_revision_analysis() {
 }
 
 #[test]
+fn document_revisions_preserve_fresh_parse_results_across_structural_edits() {
+    let old = "`note First\n\n`note Second\n\n`note Third\n";
+    let changed = "`note First\n\n `note Second {open\n\n`note Third\n";
+    let mut workspace = Workspace::new();
+    workspace.begin_document_revision("note.plumb", 1, old);
+    workspace.begin_document_revision("note.plumb", 2, changed);
+
+    let current = workspace.get("note.plumb").unwrap();
+    assert_eq!(current.parsed.as_ref(), &plumb_syntax::parse(changed));
+}
+
+#[test]
 fn pending_and_invalid_open_revisions_do_not_fall_back_to_disk_semantics() {
     let store = SqliteSemanticStore::open_in_memory().unwrap();
     let mut workspace = Workspace::with_sqlite_store(store);

@@ -6,7 +6,7 @@ use std::time::Duration;
 use chrono::DateTime;
 use criterion::{criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion};
 use plumb_semantics::analyze_document;
-use plumb_syntax::parse;
+use plumb_syntax::{parse, parse_incremental};
 use plumb_workspace::{
     search_score, BatchIndexOptions, SearchRecordKind, SqliteSemanticStore, TaskPageQuery,
     TaskQueryFilter, TaskQueryFilterGroup, TaskRef, TaskSortOrder, Workspace,
@@ -569,12 +569,14 @@ fn benchmark_open_document_generation(c: &mut Criterion) {
             BatchSize::LargeInput,
         );
     });
+    let changed = changed_event_title(&source, source.len() / 2);
+    let mut previous_workspace = Workspace::new();
+    previous_workspace.begin_document_revision("events.plumb", 1, source.clone());
     group.bench_function("did_change_parse_stage", |b| {
         b.iter_batched(
-            || source.clone(),
-            |source| {
-                let mut workspace = Workspace::new();
-                black_box(workspace.begin_document_revision("events.plumb", 1, source))
+            || (previous_workspace.clone(), changed.clone()),
+            |(mut workspace, source)| {
+                black_box(workspace.begin_document_revision("events.plumb", 2, source))
             },
             BatchSize::LargeInput,
         );
@@ -582,6 +584,63 @@ fn benchmark_open_document_generation(c: &mut Criterion) {
     group.bench_function("background_semantic_stage", |b| {
         b.iter(|| black_box(pending.clone().analyze()))
     });
+    group.finish();
+}
+
+fn changed_event_title(source: &str, around: usize) -> String {
+    let start = source[..around.min(source.len())]
+        .rfind("Event ")
+        .or_else(|| {
+            source[around.min(source.len())..]
+                .find("Event ")
+                .map(|at| at + around)
+        })
+        .expect("event title near benchmark position");
+    let mut changed = source.to_string();
+    changed.replace_range(start..start + 1, "e");
+    changed
+}
+
+fn benchmark_incremental_parse(c: &mut Criterion) {
+    let count = 33_512;
+    let (_, source) = workload(count, count / 10, "");
+    let previous = parse(source.clone());
+    let mut group = c.benchmark_group("incremental_parse_33512");
+    group.sample_size(10);
+    for (position, around) in [
+        ("start", source.len() / 100),
+        ("middle", source.len() / 2),
+        ("end", source.len() * 99 / 100),
+    ] {
+        let changed = changed_event_title(&source, around);
+        let incremental = parse_incremental(&previous, changed.clone());
+        let fresh = parse(changed.clone());
+        assert_eq!(incremental.document, fresh);
+        let reparsed_bytes = incremental.reparsed_range.end - incremental.reparsed_range.start;
+        assert!(reparsed_bytes < source.len());
+        group.bench_with_input(
+            BenchmarkId::new("fresh", position),
+            &changed,
+            |b, changed| {
+                b.iter_batched(
+                    || changed.clone(),
+                    |changed| black_box(parse(changed)),
+                    BatchSize::LargeInput,
+                )
+            },
+        );
+        group.bench_with_input(
+            BenchmarkId::new("incremental", format!("{position}-{reparsed_bytes}-bytes")),
+            &changed,
+            |b, changed| {
+                b.iter_batched(
+                    || changed.clone(),
+                    |changed| black_box(parse_incremental(&previous, changed)),
+                    BatchSize::LargeInput,
+                )
+            },
+        );
+    }
     group.finish();
 }
 
@@ -776,6 +835,6 @@ criterion_group! {
     config = configuration();
     targets = benchmark_build, benchmark_warm_start, benchmark_queries, benchmark_replacement,
         benchmark_task_queries, benchmark_diagnostic_round, benchmark_open_document_generation,
-        benchmark_batch_index, benchmark_event_containment
+        benchmark_incremental_parse, benchmark_batch_index, benchmark_event_containment
 }
 criterion_main!(benches);

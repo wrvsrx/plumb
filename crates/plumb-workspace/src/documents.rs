@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use plumb_semantics::analyze_document;
-use plumb_syntax::parse;
+use plumb_syntax::{parse, parse_incremental};
 
 use crate::{
     normalize, DocumentEntry, PendingDocumentAnalysis, PreparedDocumentAnalysis, QueryCompleteness,
@@ -124,7 +124,10 @@ impl Workspace {
     ) -> Option<PendingDocumentAnalysis> {
         let path = normalize(path.as_ref());
         let source = source.into();
-        let parsed = Arc::new(parse(source));
+        let parsed = Arc::new(match self.documents.get(&path) {
+            Some(entry) => parse_incremental(&entry.parsed, source).document,
+            None => parse(source),
+        });
         let previous_last_valid = self
             .documents
             .get(&path)
