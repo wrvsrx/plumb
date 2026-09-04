@@ -160,8 +160,10 @@ compatibility tree。
 
 `"GreenDocument" 保存 invalid shard count；validity与 valid revision的 empty diagnostics projection为 O(1)，invalid
 revision才遍历 shards并投影 diagnostics。Workspace lifecycle tests必须证明 valid pending、ordinary incremental
-semantic worker与 invalid diagnostic publication均不初始化 compatibility cache。format/edit/completion/folding等
-remaining consumers直接使用 typed red views仍未完成，属于 `"green-red-syntax-views" task的剩余范围。
+semantic worker与 invalid diagnostic publication均不初始化 compatibility cache。folding按 shard收集 block ranges并
+以 document reducer计算 heading sections；completion定位 cursor shard、运行同一 recovered query并平移 context
+ranges，bibliography fallback同样按 metadata shard投影。format/edit及少数 syntax-aware operations直接使用 typed
+red views仍未完成，属于 `"green-red-syntax-views" task的剩余范围。
 
 `# 10. Lenient tree and identity
 
