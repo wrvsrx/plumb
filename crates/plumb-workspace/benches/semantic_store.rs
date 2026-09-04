@@ -14,8 +14,10 @@ use plumb_workspace::{
 
 #[path = "../benchmark_support.rs"]
 mod benchmark_support;
+mod green_tree_prototype;
 
 use benchmark_support::semantic_store_workload as workload;
+use green_tree_prototype::{validate_revisions as validate_green_revisions, GreenDocument};
 
 struct SqliteFixture {
     _directory: tempfile::TempDir,
@@ -602,9 +604,12 @@ fn changed_event_title(source: &str, around: usize) -> String {
 }
 
 fn benchmark_incremental_parse(c: &mut Criterion) {
+    validate_green_revisions();
     let count = 33_512;
     let (_, source) = workload(count, count / 10, "");
     let previous = parse(source.clone());
+    let green_previous = GreenDocument::parse(source.clone());
+    eprintln!("green_tree_shards/33512: {}", green_previous.shard_count());
     let mut group = c.benchmark_group("incremental_parse_33512");
     group.sample_size(10);
     for (position, around) in [
@@ -613,9 +618,23 @@ fn benchmark_incremental_parse(c: &mut Criterion) {
         ("end", source.len() * 99 / 100),
     ] {
         let changed = changed_event_title(&source, around);
+        let changed_start = source
+            .bytes()
+            .zip(changed.bytes())
+            .position(|(old, new)| old != new)
+            .expect("benchmark edit changes one byte");
+        let changed_range = changed_start..changed_start + 1;
         let incremental = parse_incremental(&previous, changed.clone());
         let fresh = parse(changed.clone());
         assert_eq!(incremental.document, fresh);
+        let green = green_previous.reparse(changed.clone());
+        assert_eq!(green.materialize(), fresh);
+        eprintln!(
+            "green_tree_reuse/{position}: {}/{} shards, {} reparsed bytes",
+            green.reused_shards_from(&green_previous),
+            green.shard_count(),
+            green.reparsed_bytes()
+        );
         let reparsed_bytes = incremental.reparsed_range.end - incremental.reparsed_range.start;
         assert!(reparsed_bytes < source.len());
         group.bench_with_input(
@@ -636,6 +655,62 @@ fn benchmark_incremental_parse(c: &mut Criterion) {
                 b.iter_batched(
                     || changed.clone(),
                     |changed| black_box(parse_incremental(&previous, changed)),
+                    BatchSize::LargeInput,
+                )
+            },
+        );
+        group.bench_with_input(
+            BenchmarkId::new("green_revision", position),
+            &changed,
+            |b, changed| {
+                b.iter_batched(
+                    || changed.clone(),
+                    |changed| black_box(green_previous.reparse(changed)),
+                    BatchSize::LargeInput,
+                )
+            },
+        );
+        group.bench_with_input(
+            BenchmarkId::new("green_revision_known_edit", position),
+            &changed,
+            |b, changed| {
+                b.iter_batched(
+                    || changed.clone(),
+                    |changed| {
+                        black_box(green_previous.reparse_changed(changed, changed_range.clone()))
+                    },
+                    BatchSize::LargeInput,
+                )
+            },
+        );
+        group.bench_function(BenchmarkId::new("green_materialize_owned", position), |b| {
+            b.iter_batched(
+                || (),
+                |()| black_box(green.materialize()),
+                BatchSize::LargeInput,
+            )
+        });
+        group.bench_function(
+            BenchmarkId::new("green_materialize_and_drop", position),
+            |b| b.iter(|| drop(black_box(green.materialize()))),
+        );
+        group.bench_function(BenchmarkId::new("green_fresh_build", position), |b| {
+            b.iter_batched(
+                || changed.clone(),
+                |changed| black_box(GreenDocument::parse(changed)),
+                BatchSize::LargeInput,
+            )
+        });
+        group.bench_with_input(
+            BenchmarkId::new("green_revision_and_materialize", position),
+            &changed,
+            |b, changed| {
+                b.iter_batched(
+                    || changed.clone(),
+                    |changed| {
+                        let green = green_previous.reparse(changed);
+                        black_box(green.materialize())
+                    },
                     BatchSize::LargeInput,
                 )
             },
