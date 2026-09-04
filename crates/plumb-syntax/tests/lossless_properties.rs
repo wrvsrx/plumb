@@ -1,6 +1,9 @@
 use std::ops::Range;
 
-use plumb_syntax::{parse, parse_incremental, Block, Inline, ParsedDocument};
+use plumb_syntax::{
+    parse, parse_incremental, parse_incremental_from_change, Block, Inline, ParsedDocument,
+    SourceChange,
+};
 use proptest::prelude::*;
 
 fn assert_lossless(parsed: &ParsedDocument) {
@@ -179,6 +182,32 @@ fn incremental_parse_falls_back_before_cloning_deep_reused_subtrees() {
     let incremental = parse_incremental(&previous, new.clone());
     assert_eq!(incremental.reparsed_range, 0..new.len());
     assert_eq!(incremental.document, parse(new));
+}
+
+#[test]
+fn known_source_change_matches_diff_discovery_and_rejects_bad_provenance() {
+    let old = "`note First\n\n`note Middle\n\n`note Last\n";
+    let previous = parse(old);
+    let start = old.find("Middle").unwrap();
+    let mut new = old.to_string();
+    new.replace_range(start..start + "Middle".len(), "Changed middle");
+    let change = SourceChange {
+        old_range: start..start + "Middle".len(),
+        new_range: start..start + "Changed middle".len(),
+    };
+    let known = parse_incremental_from_change(&previous, new.clone(), change);
+    assert_eq!(known.document, parse(new.clone()));
+    assert_eq!(known, parse_incremental(&previous, new.clone()));
+
+    let invalid = parse_incremental_from_change(
+        &previous,
+        new.clone(),
+        SourceChange {
+            old_range: 0..1,
+            new_range: 0..1,
+        },
+    );
+    assert_eq!(invalid.document, parse(new));
 }
 
 #[test]

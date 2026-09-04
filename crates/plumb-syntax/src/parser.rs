@@ -11,6 +11,12 @@ pub struct IncrementalParse {
     pub reparsed_range: SourceRange,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceChange {
+    pub old_range: SourceRange,
+    pub new_range: SourceRange,
+}
+
 pub fn parse(source: impl Into<String>) -> ParsedDocument {
     let source = source.into();
     let (syntax, diagnostics) = {
@@ -41,7 +47,27 @@ pub fn parse_incremental(previous: &ParsedDocument, source: impl Into<String>) -
             reparsed_range: 0..end,
         };
     }
-    let plan = incremental_plan(previous, &source);
+    let (old_range, new_range) = changed_ranges(&previous.source, &source);
+    parse_incremental_from_change(
+        previous,
+        source,
+        SourceChange {
+            old_range,
+            new_range,
+        },
+    )
+}
+
+pub fn parse_incremental_from_change(
+    previous: &ParsedDocument,
+    source: impl Into<String>,
+    change: SourceChange,
+) -> IncrementalParse {
+    let source = source.into();
+    if !valid_source_change(&previous.source, &source, &change) {
+        return parse_incremental(previous, source);
+    }
+    let plan = incremental_plan(previous, &source, &change.old_range);
     if plan.old.start == 0 && plan.old.end == previous.source.len() {
         let end = source.len();
         return IncrementalParse {
@@ -67,8 +93,11 @@ struct IncrementalPlan {
     new: SourceRange,
 }
 
-fn incremental_plan(previous: &ParsedDocument, source: &str) -> IncrementalPlan {
-    let (changed_old, _) = changed_ranges(&previous.source, source);
+fn incremental_plan(
+    previous: &ParsedDocument,
+    source: &str,
+    changed_old: &SourceRange,
+) -> IncrementalPlan {
     let old_start = previous
         .syntax
         .blocks
@@ -77,13 +106,12 @@ fn incremental_plan(previous: &ParsedDocument, source: &str) -> IncrementalPlan 
         .take_while(|start| *start < changed_old.start)
         .last()
         .unwrap_or(0);
-    let common_suffix_start = changed_old.end;
     let (old_end, new_end) = previous
         .syntax
         .blocks
         .iter()
         .map(|block| block.range().start)
-        .filter(|start| *start >= changed_old.end && *start >= common_suffix_start)
+        .filter(|start| *start >= changed_old.end)
         .find_map(|old_end| {
             let suffix_len = previous.source.len().checked_sub(old_end)?;
             let new_end = source.len().checked_sub(suffix_len)?;
@@ -94,6 +122,20 @@ fn incremental_plan(previous: &ParsedDocument, source: &str) -> IncrementalPlan 
         old: old_start..old_end,
         new: old_start..new_end,
     }
+}
+
+fn valid_source_change(old: &str, new: &str, change: &SourceChange) -> bool {
+    change.old_range.start <= change.old_range.end
+        && change.old_range.end <= old.len()
+        && change.new_range.start <= change.new_range.end
+        && change.new_range.end <= new.len()
+        && change.old_range.start == change.new_range.start
+        && old.is_char_boundary(change.old_range.start)
+        && old.is_char_boundary(change.old_range.end)
+        && new.is_char_boundary(change.new_range.start)
+        && new.is_char_boundary(change.new_range.end)
+        && old[..change.old_range.start] == new[..change.new_range.start]
+        && old[change.old_range.end..] == new[change.new_range.end..]
 }
 
 fn changed_ranges(old: &str, new: &str) -> (SourceRange, SourceRange) {
