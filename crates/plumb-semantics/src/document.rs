@@ -188,6 +188,22 @@ impl GreenSemanticRevision {
         })
     }
 
+    pub fn warm(syntax: &plumb_syntax::GreenDocument, output: &DocumentOutput) -> Option<Self> {
+        Some(Self {
+            events: std::sync::Arc::new(GreenEventRevision::from_output(
+                syntax,
+                &output.metadata,
+                &output.events,
+            )?),
+            local: Some(std::sync::Arc::new(GreenLocalRevision::analyze(
+                syntax, None,
+            )?)),
+            lists: Some(std::sync::Arc::new(GreenListRevision::analyze(
+                syntax, None,
+            )?)),
+        })
+    }
+
     pub fn event_cache_hits(&self) -> usize {
         self.events.cache_hits()
     }

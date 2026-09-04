@@ -404,7 +404,6 @@ pub struct PendingDocumentAnalysis {
     parsed: Arc<ParsedDocument>,
     previous_output: Option<Arc<DocumentOutput>>,
     change: Option<DocumentChange>,
-    previous_parsed: Option<Arc<ParsedDocument>>,
     previous_green_syntax: Option<Arc<GreenDocument>>,
     previous_green_semantics: Option<Arc<GreenSemanticRevision>>,
     source_change: Option<SourceChange>,
@@ -420,6 +419,39 @@ pub struct PreparedDocumentAnalysis {
     green_semantics: Option<Arc<GreenSemanticRevision>>,
 }
 
+#[derive(Debug, Clone)]
+pub struct PendingDocumentCache {
+    path: PathBuf,
+    revision: i64,
+    parsed: Arc<ParsedDocument>,
+    output: Arc<DocumentOutput>,
+}
+
+#[derive(Debug)]
+pub struct PreparedDocumentCache {
+    path: PathBuf,
+    revision: i64,
+    parsed: Arc<ParsedDocument>,
+    output: Arc<DocumentOutput>,
+    green_syntax: Arc<GreenDocument>,
+    green_semantics: Arc<GreenSemanticRevision>,
+}
+
+impl PendingDocumentCache {
+    pub fn prepare(self) -> Option<PreparedDocumentCache> {
+        let green_syntax = Arc::new(GreenDocument::parse(self.parsed.source.clone()));
+        let green_semantics = Arc::new(GreenSemanticRevision::warm(&green_syntax, &self.output)?);
+        Some(PreparedDocumentCache {
+            path: self.path,
+            revision: self.revision,
+            parsed: self.parsed,
+            output: self.output,
+            green_syntax,
+            green_semantics,
+        })
+    }
+}
+
 impl PendingDocumentAnalysis {
     pub fn analyze(self) -> PreparedDocumentAnalysis {
         let valid = self
@@ -432,11 +464,7 @@ impl PendingDocumentAnalysis {
             (Some(previous), Some(change)) => {
                 let seeded = match (self.previous_green_syntax, self.previous_green_semantics) {
                     (Some(syntax), Some(semantics)) => Some((syntax, semantics)),
-                    _ => self.previous_parsed.as_ref().and_then(|parsed| {
-                        let syntax = Arc::new(GreenDocument::parse(parsed.source.clone()));
-                        GreenSemanticRevision::from_output(&syntax, previous)
-                            .map(|semantics| (syntax, Arc::new(semantics)))
-                    }),
+                    _ => None,
                 };
                 if let Some((previous_syntax, previous_semantics)) = seeded {
                     let parsed = self.parsed.source.clone();

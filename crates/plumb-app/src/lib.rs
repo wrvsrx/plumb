@@ -14,7 +14,7 @@ use async_lsp::panic::CatchUnwindLayer;
 use async_lsp::router::Router;
 use async_lsp::server::LifecycleLayer;
 use async_lsp::tracing::TracingLayer;
-use server::{DocumentAnalysisResult, InitialIndexResult, ServerState};
+use server::{DocumentAnalysisResult, DocumentCacheResult, InitialIndexResult, ServerState};
 use tower::ServiceBuilder;
 use tracing::Level;
 
@@ -27,6 +27,7 @@ pub async fn run_lsp() {
         router.event::<DocumentAnalysisResult>(|state, result| {
             state.finish_document_analysis(result)
         });
+        router.event::<DocumentCacheResult>(|state, result| state.finish_document_cache(result));
         ServiceBuilder::new()
             .layer(TracingLayer::default())
             .layer(LifecycleLayer::default())

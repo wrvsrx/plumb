@@ -42,9 +42,10 @@ use plumb_syntax::{Diagnostic, SourceChange};
 use plumb_workspace::{
     load_bibliography, load_bibliography_sources, normalize, scan_workspace_files,
     BatchIndexOptions, Bibliography, BibliographyResolution, CompletionCandidate, PathRenameInput,
-    PreparedDocumentAnalysis, QueryResult, RenameError, ResolvedTarget, ResourceOperation,
-    SearchRecord, SearchRecordKind, SqliteSemanticStore, Workspace, WorkspaceDiagnosticContext,
-    WorkspaceEdit, WorkspaceOperationError, WorkspaceQueryError, WorkspaceSearchError,
+    PreparedDocumentAnalysis, PreparedDocumentCache, QueryResult, RenameError, ResolvedTarget,
+    ResourceOperation, SearchRecord, SearchRecordKind, SqliteSemanticStore, Workspace,
+    WorkspaceDiagnosticContext, WorkspaceEdit, WorkspaceOperationError, WorkspaceQueryError,
+    WorkspaceSearchError,
 };
 use sha2::{Digest, Sha256};
 
@@ -135,6 +136,10 @@ pub(crate) struct DocumentAnalysisResult {
     path: PathBuf,
     generation: u64,
     analysis: PreparedDocumentAnalysis,
+}
+
+pub(crate) struct DocumentCacheResult {
+    cache: PreparedDocumentCache,
 }
 
 struct PendingPathRename {
@@ -229,6 +234,26 @@ impl ServerState {
         self.refresh_folding_ranges();
     }
 
+    fn start_document_cache(&self, path: &Path) {
+        let Some(pending) = self.workspace.begin_document_cache(path) else {
+            return;
+        };
+        let client = self.client.clone();
+        tokio::task::spawn_blocking(move || {
+            if let Some(cache) = pending.prepare() {
+                let _ = client.emit(DocumentCacheResult { cache });
+            }
+        });
+    }
+
+    pub(crate) fn finish_document_cache(
+        &mut self,
+        result: DocumentCacheResult,
+    ) -> ControlFlow<async_lsp::Result<()>> {
+        self.workspace.install_document_cache(result.cache);
+        ControlFlow::Continue(())
+    }
+
     pub(crate) fn finish_document_analysis(
         &mut self,
         result: DocumentAnalysisResult,
@@ -243,6 +268,7 @@ impl ServerState {
         self.publish_all_open_diagnostics();
         self.refresh_code_lenses();
         self.refresh_folding_ranges();
+        self.start_document_cache(&result.path);
         ControlFlow::Continue(())
     }
 
@@ -1027,7 +1053,9 @@ impl LanguageServer for ServerState {
             .map(|path| normalize(&path));
         self.update(document.uri, document.version, document.text, None, false);
         if let Some(path) = path {
-            self.open_document_line_indexes.insert(path, line_index);
+            self.open_document_line_indexes
+                .insert(path.clone(), line_index);
+            self.start_document_cache(&path);
         }
         ControlFlow::Continue(())
     }

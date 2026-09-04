@@ -589,6 +589,25 @@ fn benchmark_open_document_generation(c: &mut Criterion) {
     };
     let mut previous_workspace = Workspace::new();
     previous_workspace.insert("events.plumb", 1, source.clone());
+    let cache = previous_workspace
+        .begin_document_cache("events.plumb")
+        .unwrap()
+        .prepare()
+        .unwrap();
+    assert!(previous_workspace.install_document_cache(cache));
+    let mut fallback_workspace = Workspace::new();
+    fallback_workspace.insert("events.plumb", 1, source.clone());
+    let cache_pending = fallback_workspace
+        .begin_document_cache("events.plumb")
+        .unwrap();
+    let fallback_pending = fallback_workspace
+        .begin_document_revision_with_change(
+            "events.plumb",
+            2,
+            changed.clone(),
+            Some(changed_source.clone()),
+        )
+        .unwrap();
     let mut incremental_workspace = previous_workspace.clone();
     let incremental_pending = incremental_workspace
         .begin_document_revision_with_change(
@@ -685,8 +704,11 @@ fn benchmark_open_document_generation(c: &mut Criterion) {
     group.bench_function("background_semantic_stage", |b| {
         b.iter(|| black_box(pending.clone().analyze()))
     });
-    group.bench_function("incremental_semantic_cold_green", |b| {
-        b.iter(|| black_box(incremental_pending.clone().analyze()))
+    group.bench_function("incremental_semantic_unwarmed_fallback", |b| {
+        b.iter(|| black_box(fallback_pending.clone().analyze()))
+    });
+    group.bench_function("document_cache_warm", |b| {
+        b.iter(|| black_box(cache_pending.clone().prepare()))
     });
     group.bench_function("incremental_semantic_warm_green", |b| {
         b.iter(|| black_box(warm_pending.clone().analyze()))

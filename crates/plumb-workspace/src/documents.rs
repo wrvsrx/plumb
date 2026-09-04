@@ -6,9 +6,10 @@ use plumb_semantics::{analyze_document, DocumentChange};
 use plumb_syntax::{parse, parse_incremental, parse_incremental_from_change, SourceChange};
 
 use crate::{
-    normalize, DocumentEntry, PendingDocumentAnalysis, PreparedDocumentAnalysis, QueryCompleteness,
-    QueryProvenance, QueryResult, SqliteSemanticStore, StoreError, VersionedDocumentOutput,
-    Workspace, WorkspaceQueryError,
+    normalize, DocumentEntry, PendingDocumentAnalysis, PendingDocumentCache,
+    PreparedDocumentAnalysis, PreparedDocumentCache, QueryCompleteness, QueryProvenance,
+    QueryResult, SqliteSemanticStore, StoreError, VersionedDocumentOutput, Workspace,
+    WorkspaceQueryError,
 };
 
 impl Workspace {
@@ -138,7 +139,6 @@ impl Workspace {
         let previous_output = previous
             .and_then(|entry| entry.current.as_ref())
             .map(|current| Arc::clone(&current.output));
-        let previous_parsed = previous.map(|entry| Arc::clone(&entry.parsed));
         let previous_green_syntax = previous
             .and_then(|entry| entry.current.as_ref())
             .and_then(|current| current.green_syntax.clone());
@@ -181,7 +181,6 @@ impl Workspace {
             parsed,
             previous_output,
             change,
-            previous_parsed,
             previous_green_syntax,
             previous_green_semantics,
             source_change: pending_source_change,
@@ -206,6 +205,48 @@ impl Workspace {
         true
     }
 
+    pub fn begin_document_cache(&self, path: impl AsRef<Path>) -> Option<PendingDocumentCache> {
+        let entry = self.documents.get(&normalize(path.as_ref()))?;
+        let current = entry.current.as_ref()?;
+        if current.green_syntax.is_some() && current.green_semantics.is_some() {
+            return None;
+        }
+        Some(PendingDocumentCache {
+            path: entry.path.clone(),
+            revision: entry.revision,
+            parsed: Arc::clone(&entry.parsed),
+            output: Arc::clone(&current.output),
+        })
+    }
+
+    pub fn install_document_cache(&mut self, cache: PreparedDocumentCache) -> bool {
+        let Some(entry) = self.documents.get_mut(&cache.path) else {
+            return false;
+        };
+        let Some(current) = &entry.current else {
+            return false;
+        };
+        if entry.revision != cache.revision
+            || !Arc::ptr_eq(&entry.parsed, &cache.parsed)
+            || !Arc::ptr_eq(&current.output, &cache.output)
+        {
+            return false;
+        }
+        let warmed = Arc::new(VersionedDocumentOutput {
+            revision: current.revision,
+            output: Arc::clone(&current.output),
+            green_syntax: Some(cache.green_syntax),
+            green_semantics: Some(cache.green_semantics),
+        });
+        entry.current = Some(Arc::clone(&warmed));
+        if entry.last_valid.as_ref().is_some_and(|last| {
+            last.revision == cache.revision && Arc::ptr_eq(&last.output, &cache.output)
+        }) {
+            entry.last_valid = Some(warmed);
+        }
+        true
+    }
+
     pub fn document_analysis_pending(&self, path: impl AsRef<Path>) -> bool {
         self.documents
             .get(&normalize(path.as_ref()))
@@ -226,7 +267,6 @@ impl Workspace {
             parsed: Arc::clone(&entry.parsed),
             previous_output: None,
             change: None,
-            previous_parsed: None,
             previous_green_syntax: None,
             previous_green_semantics: None,
             source_change: None,

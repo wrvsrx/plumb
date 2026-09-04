@@ -600,6 +600,12 @@ fn document_revision_analysis_matches_fresh_semantics_after_local_edit() {
     let changed = old.replace("Middle", "Changed middle");
     let mut workspace = Workspace::new();
     workspace.insert("events.plumb", 1, old);
+    let cache = workspace
+        .begin_document_cache("events.plumb")
+        .unwrap()
+        .prepare()
+        .unwrap();
+    assert!(workspace.install_document_cache(cache));
     let pending = workspace
         .begin_document_revision("events.plumb", 2, changed.clone())
         .unwrap();
@@ -620,11 +626,11 @@ fn document_revision_analysis_matches_fresh_semantics_after_local_edit() {
     );
     assert_eq!(
         current.green_semantics.as_ref().unwrap().local_cache_hits(),
-        Some(0)
+        Some(4)
     );
     assert_eq!(
         current.green_semantics.as_ref().unwrap().list_cache_hits(),
-        Some(0)
+        Some(4)
     );
 
     let next = changed.replace("Last", "Changed last");
@@ -653,6 +659,16 @@ fn document_revision_analysis_matches_fresh_semantics_after_local_edit() {
         current.green_semantics.as_ref().unwrap().list_cache_hits(),
         Some(4)
     );
+}
+
+#[test]
+fn stale_green_cache_cannot_replace_a_newer_document_revision() {
+    let mut workspace = Workspace::new();
+    workspace.insert("note.plumb", 1, "Old\n");
+    let cache = workspace.begin_document_cache("note.plumb").unwrap();
+    workspace.insert("note.plumb", 2, "New\n");
+    assert!(!workspace.install_document_cache(cache.prepare().unwrap()));
+    assert_eq!(workspace.get("note.plumb").unwrap().revision, 2);
 }
 
 #[test]
