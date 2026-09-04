@@ -1,7 +1,8 @@
 use std::{collections::HashMap, ops::Range};
 
 use plumb_syntax::{
-    inline_range, AttrItem, Attributes, Block, Inline, InlineContent, ParsedBlock, ParsedDocument,
+    inline_range, AttrItem, Attributes, Block, GreenDocument, Inline, InlineContent, ParsedBlock,
+    ParsedDocument,
 };
 use unicode_width::UnicodeWidthStr;
 
@@ -63,13 +64,25 @@ pub fn format(parsed: &ParsedDocument, scope: FormatScope) -> Result<Vec<TextEdi
         plumb_format::FormatError::InvalidBlockRange => EditError::InvalidRange,
         plumb_format::FormatError::InvalidSyntax => EditError::GeneratedInvalid,
     })?;
-    Ok(edits
+    Ok(format_edits(edits))
+}
+
+pub fn format_green(document: &GreenDocument) -> Result<Vec<TextEdit>, EditError> {
+    let edits = plumb_format::format_green_edits(document).map_err(|error| match error {
+        plumb_format::FormatError::InvalidBlockRange => EditError::InvalidRange,
+        plumb_format::FormatError::InvalidSyntax => EditError::GeneratedInvalid,
+    })?;
+    Ok(format_edits(edits))
+}
+
+fn format_edits(edits: Vec<plumb_format::FormatEdit>) -> Vec<TextEdit> {
+    edits
         .into_iter()
         .map(|edit| TextEdit {
             range: edit.range,
             new_text: edit.new_text,
         })
-        .collect())
+        .collect()
 }
 
 pub fn align_block_arguments(
@@ -2004,6 +2017,7 @@ mod tests {
         let source = "`meta\n   `= title\n\n      Unified command\n";
         let parsed = parse(source);
         let edits = format(&parsed, FormatScope::Document).unwrap();
+        assert_eq!(format_green(&GreenDocument::parse(source)).unwrap(), edits);
         let formatted = apply_text_edits(source.to_string(), edits).unwrap();
         assert_eq!(formatted, "`meta\n `= title\n\n  Unified command\n");
         assert!(format(&parse(&formatted), FormatScope::Document)

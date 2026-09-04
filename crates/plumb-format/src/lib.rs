@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::ops::Range;
 
 use plumb_syntax::{
-    inline_range, parse, Block, Inline, InlineContent, ParsedBlock, ParsedDocument,
+    inline_range, parse, Block, GreenDocument, Inline, InlineContent, ParsedBlock, ParsedDocument,
 };
 use similar::{DiffOp, TextDiff};
 use unicode_width::UnicodeWidthStr;
@@ -38,6 +38,51 @@ pub fn format_parsed(parsed: &ParsedDocument) -> Result<String, FormatError> {
     Ok(formatter.output)
 }
 
+pub fn format_green(document: &GreenDocument) -> Result<String, FormatError> {
+    if !document.is_valid() {
+        return Err(FormatError::InvalidSyntax);
+    }
+    let blocks = document
+        .shards()
+        .flat_map(|view| {
+            let source = view.shard().parsed().source.as_str();
+            view.shard()
+                .parsed()
+                .syntax
+                .blocks
+                .iter()
+                .map(move |block| (source, block))
+        })
+        .collect::<Vec<_>>();
+    let aligned = green_aligned_block_flags(&blocks);
+    let mut output = String::new();
+    for (index, ((source, block), preserve_alignment)) in blocks.iter().zip(aligned).enumerate() {
+        if index > 0 {
+            let previous = blocks[index - 1].1;
+            if terminal_verbatim(std::slice::from_ref(previous)) {
+                while !output.ends_with("\n\n") {
+                    output.push('\n');
+                }
+            } else if compact_siblings(previous, block) {
+                output.push('\n');
+            } else {
+                output.push_str("\n\n");
+            }
+        }
+        let mut formatter = Formatter::new(source);
+        formatter.block(block, 0, preserve_alignment);
+        output.push_str(&formatter.output);
+    }
+    if blocks
+        .last()
+        .is_some_and(|(_, block)| !terminal_verbatim(std::slice::from_ref(block)))
+        && !output.is_empty()
+    {
+        output.push('\n');
+    }
+    Ok(output)
+}
+
 pub fn format_edits(source: &str) -> Result<Vec<FormatEdit>, FormatError> {
     let parsed = parse(source);
     format_parsed_edits(&parsed)
@@ -46,6 +91,18 @@ pub fn format_edits(source: &str) -> Result<Vec<FormatEdit>, FormatError> {
 pub fn format_parsed_edits(parsed: &ParsedDocument) -> Result<Vec<FormatEdit>, FormatError> {
     let source = parsed.source.as_str();
     let formatted = format_parsed(parsed)?;
+    format_edits_from_output(source, formatted)
+}
+
+pub fn format_green_edits(document: &GreenDocument) -> Result<Vec<FormatEdit>, FormatError> {
+    let formatted = format_green(document)?;
+    format_edits_from_output(document.source(), formatted)
+}
+
+fn format_edits_from_output(
+    source: &str,
+    formatted: String,
+) -> Result<Vec<FormatEdit>, FormatError> {
     if formatted == source {
         return Ok(Vec::new());
     }
@@ -100,6 +157,45 @@ pub fn format_parsed_edits(parsed: &ParsedDocument) -> Result<Vec<FormatEdit>, F
         }]);
     }
     Ok(edits)
+}
+
+fn green_aligned_block_flags(blocks: &[(&str, &Block)]) -> Vec<bool> {
+    let mut aligned = vec![false; blocks.len()];
+    let mut start = 0;
+    while start < blocks.len() {
+        let (source, block) = blocks[start];
+        let Some(shape) = alignment_shape(source, block) else {
+            start += 1;
+            continue;
+        };
+        let mut end = start + 1;
+        while end < blocks.len() {
+            let (source, block) = blocks[end];
+            if alignment_shape(source, block) != Some(shape) {
+                break;
+            }
+            end += 1;
+        }
+        if end - start >= 2
+            && (1..shape.1).all(|column| {
+                let first = argument_start_column(blocks[start].0, parsed(blocks[start].1), column);
+                blocks[start + 1..end].iter().all(|(source, block)| {
+                    argument_start_column(source, parsed(block), column) == first
+                })
+            })
+        {
+            aligned[start..end].fill(true);
+        }
+        start = end;
+    }
+    aligned
+}
+
+fn parsed(block: &Block) -> &ParsedBlock {
+    let Block::Parsed(block) = block else {
+        unreachable!("alignment shape accepts only parsed blocks")
+    };
+    block
 }
 
 fn anchored_line_diff(
@@ -810,6 +906,28 @@ mod tests {
     use std::fmt::Write;
 
     use super::*;
+
+    #[test]
+    fn green_document_formatting_matches_materialized_formatting() {
+        for source in [
+            "",
+            "\n\n`note  one\n",
+            "`= name     age\n`= Alice    10\n",
+            "`- One\n `- Nested\n\n`- Two\n",
+            "`rust\"\n fn main() {}\n\n`note After\n",
+            "`note First\r\n\r\n`note Second\r\n",
+        ] {
+            let parsed = parse(source);
+            assert!(parsed.is_valid(), "{source:?}: {:?}", parsed.diagnostics);
+            let green = GreenDocument::parse(source);
+            assert_eq!(format_green(&green), format_parsed(&parsed), "{source:?}");
+            assert_eq!(
+                format_green_edits(&green),
+                format_parsed_edits(&parsed),
+                "{source:?}"
+            );
+        }
+    }
 
     fn assert_formats(source: &str, expected: &str) {
         let original = parse(source);

@@ -699,6 +699,18 @@ fn benchmark_open_document_generation(c: &mut Criterion) {
             )
         })
     });
+    let formatting_entry = previous_workspace.get("events.plumb").unwrap();
+    group.bench_function("green_document_format", |b| {
+        b.iter(|| black_box(plumb_edit::format_green(formatting_entry.parsed.green()).unwrap()))
+    });
+    group.bench_function("materialized_document_format", |b| {
+        b.iter(|| {
+            black_box(
+                plumb_edit::format(&formatting_entry.parsed, plumb_edit::FormatScope::Document)
+                    .unwrap(),
+            )
+        })
+    });
     group.finish();
 }
 

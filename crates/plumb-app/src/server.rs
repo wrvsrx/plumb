@@ -1362,8 +1362,7 @@ impl LanguageServer for ServerState {
             .and_then(|path| self.workspace.get(path))
             .and_then(|entry| {
                 let source = entry.parsed.source();
-                let edits =
-                    plumb_edit::format(&entry.parsed, plumb_edit::FormatScope::Document).ok()?;
+                let edits = plumb_edit::format_green(entry.parsed.green()).ok()?;
                 Some(
                     edits
                         .into_iter()
