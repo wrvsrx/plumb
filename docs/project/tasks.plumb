@@ -17,8 +17,9 @@
  `@ green-semantic-reducers
  `= created 2026-09-05T03:24:13+08:00
 
- Tree-based DocumentOutput、relative semantic shards、typed segmented collections与 workspace single-output snapshots
- 已完成。继续把 heading/list等 document reducer state改为 persistent/chunked delta，并把 query hot path中剩余的
- owned single-record projections替换为 borrowed typed views。发布 added/changed/removed exported summaries，使纯
+ Tree-based DocumentOutput、relative semantic shards、typed segmented collections、linear node splice、list span
+ reducer与 stable-topology projection rebind已完成。继续把 nonempty heading hierarchy/section ends及带 diagnostics
+ revision的 reducer state改为 persistent/chunked delta，并把 query hot path中剩余的 owned single-record projections
+ 替换为 borrowed typed views。发布 added/changed/removed exported summaries，使纯
  layout或 semantic-equal edits不 invalidate无关 workspace dependency computations；differential tests覆盖
  semantic-analysis中尚未验收的 reducer delta规则。

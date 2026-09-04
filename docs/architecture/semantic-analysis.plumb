@@ -90,6 +90,18 @@ explicit inherited-context key 缓存 shard-local facts。pointer-identical gree
 changed syntax 不必产生 changed semantics。重新计算的 local summary 与旧 summary 相等时停止 reducer/workspace
 传播仍未实现，属于 `"green-semantic-reducers" task的剩余范围。
 
+incremental tree revision使用 green parser返回的 old/new shard-aligned replacement range，以 prefix/replacement/suffix
+线性 splice复用 nodes，不为每个 revision重建 identity hash table。metadata只有在 edit位于上一版最后一个 document
+declaration之后且 replacement不含新的 direct `"="/`"+"/`"@" block时共享；empty heading output只有在 replacement
+不引入 nested heading时共享，其他情况回退完整 reducer。
+
+typed record projection保存 record-count topology；node index稳定、changed nodes各类 count不变且前后均无 semantic
+diagnostics时，projection spans直接重新绑定 current SemanticTree。稀疏或 query-hot collection使用 direct node
+segments，避免查询逐 node间接访问。list reducer把连续 root items压为 node-index spans，并在 local list topology
+不变时重新绑定 current tree。无既有 duplicate-id且 changed node anchor id sequence不变时，不重新 materialize全部
+anchors。event-link containment不保存 eager document vector；typed EventRecord query先用 first-link bound，再在 event
+所属 shard内解析 contained links，显式 legacy range projection才按需 materialize完整 index。
+
 跨 shard 规则由 typed document reducers 拥有，不能伪装成 local cache。reducers 至少维护 heading hierarchy 与
 section ends、list/definition adjacency、document metadata first-value/duplicate diagnostics、duplicate anchor ids、
 source order、event-link containment 和 table/task/event nesting summaries。reducer state 使用 persistent/chunked
