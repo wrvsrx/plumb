@@ -7,6 +7,7 @@ use crate::syntax::{
 #[derive(Debug, PartialEq, Eq)]
 pub struct IncrementalParse {
     pub document: ParsedDocument,
+    pub old_reparsed_range: SourceRange,
     pub reparsed_range: SourceRange,
 }
 
@@ -36,6 +37,7 @@ pub fn parse_incremental(previous: &ParsedDocument, source: impl Into<String>) -
         let end = source.len();
         return IncrementalParse {
             document: parse(source),
+            old_reparsed_range: 0..previous.source.len(),
             reparsed_range: 0..end,
         };
     }
@@ -44,6 +46,7 @@ pub fn parse_incremental(previous: &ParsedDocument, source: impl Into<String>) -
         let end = source.len();
         return IncrementalParse {
             document: parse(source),
+            old_reparsed_range: 0..previous.source.len(),
             reparsed_range: 0..end,
         };
     }
@@ -52,6 +55,7 @@ pub fn parse_incremental(previous: &ParsedDocument, source: impl Into<String>) -
         let end = source.len();
         IncrementalParse {
             document: parse(source),
+            old_reparsed_range: 0..previous.source.len(),
             reparsed_range: 0..end,
         }
     })
@@ -213,6 +217,7 @@ fn incremental_parse_with_plan(
     };
     Ok(IncrementalParse {
         document,
+        old_reparsed_range: plan.old,
         reparsed_range: plan.new,
     })
 }
