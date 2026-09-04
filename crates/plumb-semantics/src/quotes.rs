@@ -2,6 +2,8 @@ use std::ops::Range;
 
 use plumb_syntax::{Block, ValidDocument};
 
+use crate::{RelativeSemanticRecord, SemanticRecords};
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct QuoteRecord {
     pub range: Range<usize>,
@@ -9,12 +11,19 @@ pub struct QuoteRecord {
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct QuoteOutput {
-    pub quotes: Vec<QuoteRecord>,
+    pub quotes: SemanticRecords<QuoteRecord>,
 }
 
 impl QuoteOutput {
-    pub fn quote_at_node_start(&self, start: usize) -> Option<&QuoteRecord> {
+    pub fn quote_at_node_start(&self, start: usize) -> Option<QuoteRecord> {
         self.quotes.iter().find(|quote| quote.range.start == start)
+    }
+}
+
+impl RelativeSemanticRecord for QuoteRecord {
+    fn shift(&mut self, delta: isize) {
+        self.range.start = self.range.start.checked_add_signed(delta).unwrap();
+        self.range.end = self.range.end.checked_add_signed(delta).unwrap();
     }
 }
 
@@ -66,9 +75,12 @@ mod tests {
         );
         assert_eq!(output.quotes.len(), 2);
         assert_eq!(
-            &source[output.quotes[0].range.clone()],
+            &source[output.quotes.get(0).unwrap().range.clone()],
             "`> First\n  `> Nested\n"
         );
-        assert_eq!(&source[output.quotes[1].range.clone()], "`> Nested\n");
+        assert_eq!(
+            &source[output.quotes.get(1).unwrap().range.clone()],
+            "`> Nested\n"
+        );
     }
 }

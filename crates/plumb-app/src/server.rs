@@ -42,10 +42,9 @@ use plumb_syntax::{Diagnostic, SourceChange};
 use plumb_workspace::{
     load_bibliography, load_bibliography_sources, normalize, scan_workspace_files,
     BatchIndexOptions, Bibliography, BibliographyResolution, CompletionCandidate, PathRenameInput,
-    PreparedDocumentAnalysis, PreparedDocumentCache, QueryResult, RenameError, ResolvedTarget,
-    ResourceOperation, SearchRecord, SearchRecordKind, SqliteSemanticStore, Workspace,
-    WorkspaceDiagnosticContext, WorkspaceEdit, WorkspaceOperationError, WorkspaceQueryError,
-    WorkspaceSearchError,
+    PreparedDocumentAnalysis, QueryResult, RenameError, ResolvedTarget, ResourceOperation,
+    SearchRecord, SearchRecordKind, SqliteSemanticStore, Workspace, WorkspaceDiagnosticContext,
+    WorkspaceEdit, WorkspaceOperationError, WorkspaceQueryError, WorkspaceSearchError,
 };
 use sha2::{Digest, Sha256};
 
@@ -136,10 +135,6 @@ pub(crate) struct DocumentAnalysisResult {
     path: PathBuf,
     generation: u64,
     analysis: PreparedDocumentAnalysis,
-}
-
-pub(crate) struct DocumentCacheResult {
-    cache: PreparedDocumentCache,
 }
 
 struct PendingPathRename {
@@ -234,26 +229,6 @@ impl ServerState {
         self.refresh_folding_ranges();
     }
 
-    fn start_document_cache(&self, path: &Path) {
-        let Some(pending) = self.workspace.begin_document_cache(path) else {
-            return;
-        };
-        let client = self.client.clone();
-        tokio::task::spawn_blocking(move || {
-            if let Some(cache) = pending.prepare() {
-                let _ = client.emit(DocumentCacheResult { cache });
-            }
-        });
-    }
-
-    pub(crate) fn finish_document_cache(
-        &mut self,
-        result: DocumentCacheResult,
-    ) -> ControlFlow<async_lsp::Result<()>> {
-        self.workspace.install_document_cache(result.cache);
-        ControlFlow::Continue(())
-    }
-
     pub(crate) fn finish_document_analysis(
         &mut self,
         result: DocumentAnalysisResult,
@@ -268,7 +243,6 @@ impl ServerState {
         self.publish_all_open_diagnostics();
         self.refresh_code_lenses();
         self.refresh_folding_ranges();
-        self.start_document_cache(&result.path);
         ControlFlow::Continue(())
     }
 
@@ -1054,9 +1028,7 @@ impl LanguageServer for ServerState {
             .map(|path| normalize(&path));
         self.update(document.uri, document.version, document.text, None, false);
         if let Some(path) = path {
-            self.open_document_line_indexes
-                .insert(path.clone(), line_index);
-            self.start_document_cache(&path);
+            self.open_document_line_indexes.insert(path, line_index);
         }
         ControlFlow::Continue(())
     }
@@ -1238,7 +1210,7 @@ impl LanguageServer for ServerState {
                     .map(|anchor| {
                         (
                             anchor.range.start,
-                            anchor_symbol(&entry.parsed.source, anchor),
+                            anchor_symbol(&entry.parsed.source, &anchor),
                         )
                     })
                     .collect::<Vec<_>>();
@@ -1709,7 +1681,7 @@ impl LanguageServer for ServerState {
                     )),
                 }));
             }
-            if let Some(file) = self.workspace.file_at(&path, offset).cloned() {
+            if let Some(file) = self.workspace.file_at(&path, offset) {
                 let target = self.workspace.resolve_file(&path, &file);
                 let Some(entry) = self.workspace.get(&path) else {
                     return Ok(None);
@@ -1725,7 +1697,7 @@ impl LanguageServer for ServerState {
                     )),
                 }));
             }
-            if let Some(image) = self.workspace.image_at(&path, offset).cloned() {
+            if let Some(image) = self.workspace.image_at(&path, offset) {
                 let target = self.workspace.resolve_image(&path, &image);
                 let Some(entry) = self.workspace.get(&path) else {
                     return Ok(None);
@@ -1741,7 +1713,7 @@ impl LanguageServer for ServerState {
                     )),
                 }));
             }
-            if let Some(link) = self.workspace.link_at(&path, offset).cloned() {
+            if let Some(link) = self.workspace.link_at(&path, offset) {
                 let target = self
                     .complete_query(self.workspace.resolve_link(&path, &link))
                     .map_err(workspace_query_response_error)?;
@@ -1774,7 +1746,7 @@ impl LanguageServer for ServerState {
                     range: None,
                 }));
             }
-            if let Some(task) = self.workspace.task_at(&path, offset).cloned() {
+            if let Some(task) = self.workspace.task_at(&path, offset) {
                 self.require_index_complete()
                     .map_err(workspace_query_response_error)?;
                 let value = task_hover(&self.workspace, &path, &task)
@@ -3045,7 +3017,7 @@ mod tests {
         )
         .tasks;
         let ranges = closed_task_token_ranges(&tasks);
-        let open_child = &tasks[1].range;
+        let open_child = &tasks.get(1).unwrap().range;
         assert!(ranges
             .iter()
             .all(|(range, _)| { range.end <= open_child.start || range.start >= open_child.end }));

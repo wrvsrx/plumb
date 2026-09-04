@@ -233,8 +233,9 @@ impl Workspace {
                     let Some(score) = search_score(query, &fields) else {
                         continue;
                     };
-                    let blocked = self.is_task_blocked_value(&entry.path, task)?;
-                    let (task_state, wait_reasons) = derive_task_workflow_state(task, blocked, now);
+                    let blocked = self.is_task_blocked_value(&entry.path, &task)?;
+                    let (task_state, wait_reasons) =
+                        derive_task_workflow_state(&task, blocked, now);
                     let actionable = task_state == TaskWorkflowState::Ready;
                     if let Some(filter) = &filter {
                         let facts = TaskMatchFacts {
@@ -246,7 +247,7 @@ impl Workspace {
                         if !filter.task_matches(
                             &root,
                             &entry.path,
-                            task,
+                            &task,
                             self,
                             task_dependents.as_ref(),
                             facts,
@@ -546,7 +547,7 @@ impl Workspace {
         let open_set = open_paths.iter().cloned().collect::<HashSet<_>>();
         let mut matches = Vec::new();
         let mut source_starts = HashMap::<(u8, PathBuf, usize, usize), usize>::new();
-        let mut open_tasks = HashMap::<StoredTaskKey, &TaskRecord>::new();
+        let mut open_tasks = HashMap::<StoredTaskKey, TaskRecord>::new();
         let mut open_events = HashMap::<StoredEventSourceKey, (i64, EventRecord)>::new();
         let mut task_facts = Vec::<SearchTaskFact>::new();
         let mut task_relations = Vec::<SearchTaskRelation>::new();
@@ -895,7 +896,7 @@ impl Workspace {
                 continue;
             };
             for dependency in self
-                .task_dependencies_value(&record.path, task)?
+                .task_dependencies_value(&record.path, &task)?
                 .into_iter()
                 .filter(|dependency| dependency.task.state() == TaskState::Open)
             {
@@ -1170,7 +1171,7 @@ fn hydrate_selected_search_records(
     workspace: &Workspace,
     matches: &mut [(i64, SearchRecord)],
     source_starts: &HashMap<(u8, PathBuf, usize, usize), usize>,
-    open_tasks: &HashMap<StoredTaskKey, &TaskRecord>,
+    open_tasks: &HashMap<StoredTaskKey, TaskRecord>,
     open_events: &HashMap<StoredEventSourceKey, (i64, EventRecord)>,
 ) -> Result<(), super::WorkspaceQueryError> {
     let mut stored_tasks = HashMap::<StoredTaskKey, TaskRecord>::new();
@@ -1243,8 +1244,8 @@ fn hydrate_selected_search_records(
                 };
                 let task = open_tasks
                     .get(&key)
-                    .copied()
-                    .or_else(|| stored_tasks.get(&key))
+                    .cloned()
+                    .or_else(|| stored_tasks.get(&key).cloned())
                     .ok_or(super::StoreError::InvalidStoredValue)?;
                 record.due = task.due.as_ref().map(|field| field.value.clone());
             }
@@ -1465,7 +1466,7 @@ impl SemanticSearchFilter {
             context.add_variable_from_value(
                 "depends_on",
                 workspace
-                    .task_dependencies_value(path, task)?
+                    .task_dependencies_value(path, &task)?
                     .into_iter()
                     .map(|dependency| display_search_task_ref(root, &dependency.target))
                     .collect::<Vec<_>>(),
@@ -1670,7 +1671,7 @@ impl DirectTaskDependents {
                     path: entry.path.clone(),
                     id: id.value.clone(),
                 };
-                for dependency in workspace.task_dependencies_value(&entry.path, task)? {
+                for dependency in workspace.task_dependencies_value(&entry.path, &task)? {
                     by_target
                         .entry(dependency.target)
                         .or_default()

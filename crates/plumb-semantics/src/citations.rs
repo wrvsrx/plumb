@@ -2,6 +2,8 @@ use std::ops::Range;
 
 use plumb_syntax::{Block, Diagnostic, DiagnosticSeverity, Inline, InlineContent, ValidDocument};
 
+use crate::{RelativeSemanticRecord, SemanticRecords};
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CitationRecord {
     pub range: Range<usize>,
@@ -11,16 +13,28 @@ pub struct CitationRecord {
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct CitationOutput {
-    pub citations: Vec<CitationRecord>,
+    pub citations: SemanticRecords<CitationRecord>,
     pub diagnostics: Vec<Diagnostic>,
 }
 
 impl CitationOutput {
-    pub fn citation_at_node_start(&self, start: usize) -> Option<&CitationRecord> {
+    pub fn citation_at_node_start(&self, start: usize) -> Option<CitationRecord> {
         self.citations
             .iter()
             .find(|citation| citation.range.start == start)
     }
+}
+
+impl RelativeSemanticRecord for CitationRecord {
+    fn shift(&mut self, delta: isize) {
+        shift_range(&mut self.range, delta);
+        shift_range(&mut self.selection_range, delta);
+    }
+}
+
+fn shift_range(range: &mut Range<usize>, delta: isize) {
+    range.start = range.start.checked_add_signed(delta).unwrap();
+    range.end = range.end.checked_add_signed(delta).unwrap();
 }
 
 pub fn analyze_citations(valid: ValidDocument<'_>) -> CitationOutput {
@@ -119,8 +133,8 @@ mod tests {
         );
         assert!(output.diagnostics.is_empty());
         assert_eq!(output.citations.len(), 2);
-        assert_eq!(output.citations[0].id, "smith2004");
-        assert_eq!(output.citations[1].id, "roe-2020");
+        assert_eq!(output.citations.get(0).unwrap().id, "smith2004");
+        assert_eq!(output.citations.get(1).unwrap().id, "roe-2020");
     }
 
     #[test]

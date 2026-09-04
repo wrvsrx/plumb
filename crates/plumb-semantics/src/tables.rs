@@ -1,8 +1,11 @@
 use std::ops::Range;
 
 use plumb_syntax::{
-    Block, Diagnostic, DiagnosticSeverity, InlineContent, ParsedBlock, ValidDocument,
+    AttrItem, Attributes, Block, Diagnostic, DiagnosticSeverity, Inline, InlineContent,
+    ParsedBlock, ValidDocument,
 };
+
+use crate::{RelativeSemanticRecord, SemanticRecords};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TableCellRecord {
@@ -31,13 +34,100 @@ pub struct TableRecord {
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct TableOutput {
-    pub tables: Vec<TableRecord>,
+    pub tables: SemanticRecords<TableRecord>,
     pub diagnostics: Vec<Diagnostic>,
 }
 
 impl TableOutput {
-    pub fn table_at_node_start(&self, start: usize) -> Option<&TableRecord> {
+    pub fn table_at_node_start(&self, start: usize) -> Option<TableRecord> {
         self.tables.iter().find(|table| table.range.start == start)
+    }
+}
+
+impl RelativeSemanticRecord for TableRecord {
+    fn shift(&mut self, delta: isize) {
+        shift_range(&mut self.range, delta);
+        shift_range(&mut self.selection_range, delta);
+        shift_inline_content(&mut self.caption, delta);
+        for row in &mut self.rows {
+            shift_range(&mut row.range, delta);
+            for cell in &mut row.cells {
+                shift_range(&mut cell.range, delta);
+                shift_range(&mut cell.selection_range, delta);
+            }
+        }
+    }
+}
+
+fn shift_range(range: &mut Range<usize>, delta: isize) {
+    range.start = range.start.checked_add_signed(delta).unwrap();
+    range.end = range.end.checked_add_signed(delta).unwrap();
+}
+
+fn shift_inline_content(content: &mut InlineContent, delta: isize) {
+    shift_range(&mut content.range, delta);
+    for inline in &mut content.items {
+        match inline {
+            Inline::Text { range, .. }
+            | Inline::Space { range, .. }
+            | Inline::SoftBreak { range } => shift_range(range, delta),
+            Inline::Group {
+                range,
+                mark,
+                content,
+            } => {
+                shift_range(range, delta);
+                if let Some(mark) = mark {
+                    shift_range(&mut mark.range, delta);
+                    shift_range(&mut mark.marker_range, delta);
+                    shift_attributes(&mut mark.attrs, delta);
+                }
+                shift_inline_content(content, delta);
+            }
+            Inline::Verbatim {
+                range,
+                mark,
+                text_range,
+                ..
+            } => {
+                shift_range(range, delta);
+                if let Some(mark) = mark {
+                    shift_range(&mut mark.range, delta);
+                    shift_range(&mut mark.marker_range, delta);
+                    shift_attributes(&mut mark.attrs, delta);
+                }
+                shift_range(text_range, delta);
+            }
+        }
+    }
+}
+
+fn shift_attributes(attributes: &mut Attributes, delta: isize) {
+    if let Some(range) = &mut attributes.range {
+        shift_range(range, delta);
+    }
+    for item in &mut attributes.items {
+        match item {
+            AttrItem::Id {
+                value_range, range, ..
+            }
+            | AttrItem::Class {
+                value_range, range, ..
+            } => {
+                shift_range(value_range, delta);
+                shift_range(range, delta);
+            }
+            AttrItem::Pair {
+                value,
+                key_range,
+                range,
+                ..
+            } => {
+                shift_range(&mut value.range, delta);
+                shift_range(key_range, delta);
+                shift_range(range, delta);
+            }
+        }
     }
 }
 
@@ -232,7 +322,7 @@ mod tests {
             "`table People\n `- name  age note\n  `+ header\n `- Alice 10  {}\n `- Bob   20  active\n",
         );
         assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
-        let table = &output.tables[0];
+        let table = &output.tables.get(0).unwrap();
         assert_eq!(table.caption.plain_text(), "People");
         assert_eq!(table.column_count, 3);
         assert!(table.rows[0].header);
@@ -246,7 +336,7 @@ mod tests {
             "`table\n `-\n  `+ header\n  `- name\n  `- age\n `-\n  `- Alice\n   `+ header\n  `- 10\n\n   `note Approximate\n",
         );
         assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
-        let table = &output.tables[0];
+        let table = &output.tables.get(0).unwrap();
         assert_eq!(table.column_count, 2);
         assert_eq!(table.row_head_columns, 1);
         assert!(!table.rows[0].compact);

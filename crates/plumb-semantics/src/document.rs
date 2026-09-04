@@ -10,12 +10,13 @@ use plumb_syntax::{
 use serde::{Deserialize, Serialize};
 use url::Url;
 
+use crate::records::RecordSegment;
 use crate::{
     analyze_citations, analyze_events, analyze_headings, analyze_inline_styles, analyze_lists,
     analyze_math, analyze_metadata, analyze_quotes, analyze_tables, analyze_tasks, CitationOutput,
-    EventOutput, GreenEventRevision, GreenListRevision, GreenLocalOutput, GreenLocalRevision,
-    HeadingOutput, InlineStyleOutput, ListOutput, MathOutput, MetadataOutput, QuoteOutput,
-    TableOutput, TaskOutput,
+    EventOutput, HeadingOutput, InlineStyleOutput, ListGroup, ListGroups, ListKind, ListOutput,
+    MathOutput, MetadataOutput, QuoteOutput, RelativeSemanticRecord, SemanticRecords, TableOutput,
+    TaskOutput,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -49,6 +50,14 @@ pub struct AnchorRecord {
     pub kind: AnchorKind,
     pub range: Range<usize>,
     pub selection_range: Range<usize>,
+}
+
+impl RelativeSemanticRecord for AnchorRecord {
+    fn shift(&mut self, delta: isize) {
+        shift_source_backed(&mut self.id, delta);
+        shift_range(&mut self.range, delta);
+        shift_range(&mut self.selection_range, delta);
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -90,6 +99,27 @@ pub struct LinkRecord {
     pub fragment_range: Option<Range<usize>>,
 }
 
+impl RelativeSemanticRecord for LinkRecord {
+    fn shift(&mut self, delta: isize) {
+        shift_range(&mut self.range, delta);
+        shift_range(&mut self.selection_range, delta);
+        shift_source_backed(&mut self.target, delta);
+        if let LinkSpelling::Verbatim { envelope, .. } = &mut self.spelling {
+            shift_range(envelope, delta);
+        }
+        shift_range(&mut self.target_range, delta);
+        for range in &mut self.target_declaration_ranges {
+            shift_range(range, delta);
+        }
+        for range in [&mut self.path_range, &mut self.fragment_range]
+            .into_iter()
+            .flatten()
+        {
+            shift_range(range, delta);
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ImageTarget {
     External,
@@ -102,6 +132,14 @@ pub struct ImageRecord {
     pub selection_range: Range<usize>,
     pub source: SourceBacked<String>,
     pub target_kind: ImageTarget,
+}
+
+impl RelativeSemanticRecord for ImageRecord {
+    fn shift(&mut self, delta: isize) {
+        shift_range(&mut self.range, delta);
+        shift_range(&mut self.selection_range, delta);
+        shift_source_backed(&mut self.source, delta);
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -118,19 +156,28 @@ pub struct FileRecord {
     pub target_kind: FileTarget,
 }
 
+impl RelativeSemanticRecord for FileRecord {
+    fn shift(&mut self, delta: isize) {
+        shift_range(&mut self.range, delta);
+        shift_range(&mut self.selection_range, delta);
+        shift_source_backed(&mut self.source, delta);
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EventLinkRange {
     pub event_start: usize,
     pub links: Range<usize>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct DocumentOutput {
     root: Arc<SemanticRoot>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone)]
 pub struct SemanticRoot {
+    tree: Arc<SemanticTree>,
     pub(crate) headings: HeadingOutput,
     pub(crate) metadata: MetadataOutput,
     pub(crate) citations: CitationOutput,
@@ -141,14 +188,112 @@ pub struct SemanticRoot {
     pub(crate) tasks: TaskOutput,
     pub(crate) events: EventOutput,
     pub(crate) tables: TableOutput,
-    pub(crate) anchors: Vec<AnchorRecord>,
-    pub(crate) links: Vec<LinkRecord>,
+    pub(crate) anchors: SemanticRecords<AnchorRecord>,
+    pub(crate) links: SemanticRecords<LinkRecord>,
     pub(crate) event_link_ranges: Vec<EventLinkRange>,
-    pub(crate) images: Vec<ImageRecord>,
-    pub(crate) files: Vec<FileRecord>,
+    pub(crate) images: SemanticRecords<ImageRecord>,
+    pub(crate) files: SemanticRecords<FileRecord>,
     pub(crate) diagnostics: Vec<Diagnostic>,
-    pub(crate) record_diagnostics: Vec<Diagnostic>,
 }
+
+#[derive(Debug, Clone)]
+pub struct SemanticTree {
+    syntax: Arc<plumb_syntax::GreenDocument>,
+    nodes: Vec<SemanticNode>,
+    index: HashMap<usize, usize>,
+    cache_hits: usize,
+}
+
+#[derive(Debug, Clone)]
+struct SemanticNode {
+    syntax: Arc<plumb_syntax::GreenShard>,
+    offset: usize,
+    output: Arc<SemanticNodeOutput>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SemanticNodeOutput {
+    citations: CitationOutput,
+    inline_styles: InlineStyleOutput,
+    math: MathOutput,
+    quotes: QuoteOutput,
+    tasks: TaskOutput,
+    events: EventOutput,
+    lists: ListOutput,
+    tables: TableOutput,
+    records: RecordOutput,
+    association_diagnostics: Vec<Diagnostic>,
+}
+
+struct FreshSemanticOutput {
+    citations: CitationOutput,
+    inline_styles: InlineStyleOutput,
+    math: MathOutput,
+    quotes: QuoteOutput,
+    tasks: TaskOutput,
+    events: EventOutput,
+    tables: TableOutput,
+    records: RecordOutput,
+    association_diagnostics: Vec<Diagnostic>,
+}
+
+impl Default for SemanticRoot {
+    fn default() -> Self {
+        Self {
+            tree: Arc::new(SemanticTree::empty()),
+            headings: HeadingOutput::default(),
+            metadata: MetadataOutput::default(),
+            citations: CitationOutput::default(),
+            inline_styles: InlineStyleOutput::default(),
+            lists: ListOutput::default(),
+            math: MathOutput::default(),
+            quotes: QuoteOutput::default(),
+            tasks: TaskOutput::default(),
+            events: EventOutput::default(),
+            tables: TableOutput::default(),
+            anchors: SemanticRecords::default(),
+            links: SemanticRecords::default(),
+            event_link_ranges: Vec::new(),
+            images: SemanticRecords::default(),
+            files: SemanticRecords::default(),
+            diagnostics: Vec::new(),
+        }
+    }
+}
+
+impl SemanticTree {
+    fn empty() -> Self {
+        Self {
+            syntax: Arc::new(plumb_syntax::GreenDocument::parse(String::new())),
+            nodes: Vec::new(),
+            index: HashMap::new(),
+            cache_hits: 0,
+        }
+    }
+}
+
+impl PartialEq for DocumentOutput {
+    fn eq(&self, other: &Self) -> bool {
+        self.headings() == other.headings()
+            && self.metadata() == other.metadata()
+            && self.citations() == other.citations()
+            && self.inline_styles() == other.inline_styles()
+            && self.lists() == other.lists()
+            && self.math() == other.math()
+            && self.quotes() == other.quotes()
+            && self.tasks() == other.tasks()
+            && self.events() == other.events()
+            && self.tables() == other.tables()
+            && self.anchors() == other.anchors()
+            && self.links() == other.links()
+            && self.event_link_ranges() == other.event_link_ranges()
+            && self.images() == other.images()
+            && self.files() == other.files()
+            && self.diagnostics() == other.diagnostics()
+    }
+}
+
+impl Eq for DocumentOutput {}
 
 impl Default for DocumentOutput {
     fn default() -> Self {
@@ -166,18 +311,12 @@ impl std::ops::Deref for DocumentOutput {
     }
 }
 
-impl std::ops::DerefMut for DocumentOutput {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        Arc::make_mut(&mut self.root)
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 struct RecordOutput {
-    anchors: Vec<AnchorRecord>,
-    links: Vec<LinkRecord>,
-    images: Vec<ImageRecord>,
-    files: Vec<FileRecord>,
+    anchors: SemanticRecords<AnchorRecord>,
+    links: SemanticRecords<LinkRecord>,
+    images: SemanticRecords<ImageRecord>,
+    files: SemanticRecords<FileRecord>,
     diagnostics: Vec<Diagnostic>,
 }
 
@@ -185,64 +324,6 @@ struct RecordOutput {
 pub struct DocumentChange {
     pub old_range: Range<usize>,
     pub new_range: Range<usize>,
-}
-
-#[derive(Debug, Clone)]
-pub struct GreenSemanticRevision {
-    events: std::sync::Arc<GreenEventRevision>,
-    local: Option<std::sync::Arc<GreenLocalRevision>>,
-    lists: Option<std::sync::Arc<GreenListRevision>>,
-}
-
-#[derive(Debug)]
-pub struct GreenDocumentAnalysis {
-    pub output: DocumentOutput,
-    pub revision: GreenSemanticRevision,
-}
-
-impl GreenSemanticRevision {
-    pub fn from_output(
-        syntax: &plumb_syntax::GreenDocument,
-        output: &DocumentOutput,
-    ) -> Option<Self> {
-        Some(Self {
-            events: std::sync::Arc::new(GreenEventRevision::from_output(
-                syntax,
-                &output.metadata,
-                &output.events,
-            )?),
-            local: None,
-            lists: None,
-        })
-    }
-
-    pub fn warm(syntax: &plumb_syntax::GreenDocument, output: &DocumentOutput) -> Option<Self> {
-        Some(Self {
-            events: std::sync::Arc::new(GreenEventRevision::from_output(
-                syntax,
-                &output.metadata,
-                &output.events,
-            )?),
-            local: Some(std::sync::Arc::new(GreenLocalRevision::analyze(
-                syntax, None,
-            )?)),
-            lists: Some(std::sync::Arc::new(GreenListRevision::analyze(
-                syntax, None,
-            )?)),
-        })
-    }
-
-    pub fn event_cache_hits(&self) -> usize {
-        self.events.cache_hits()
-    }
-
-    pub fn local_cache_hits(&self) -> Option<usize> {
-        self.local.as_ref().map(|local| local.cache_hits())
-    }
-
-    pub fn list_cache_hits(&self) -> Option<usize> {
-        self.lists.as_ref().map(|lists| lists.cache_hits())
-    }
 }
 
 impl DocumentOutput {
@@ -286,11 +367,11 @@ impl DocumentOutput {
         &self.root.tables
     }
 
-    pub fn anchors(&self) -> &[AnchorRecord] {
+    pub fn anchors(&self) -> &SemanticRecords<AnchorRecord> {
         &self.root.anchors
     }
 
-    pub fn links(&self) -> &[LinkRecord] {
+    pub fn links(&self) -> &SemanticRecords<LinkRecord> {
         &self.root.links
     }
 
@@ -298,11 +379,11 @@ impl DocumentOutput {
         &self.root.event_link_ranges
     }
 
-    pub fn images(&self) -> &[ImageRecord] {
+    pub fn images(&self) -> &SemanticRecords<ImageRecord> {
         &self.root.images
     }
 
-    pub fn files(&self) -> &[FileRecord] {
+    pub fn files(&self) -> &SemanticRecords<FileRecord> {
         &self.root.files
     }
 
@@ -310,31 +391,54 @@ impl DocumentOutput {
         &self.root.diagnostics
     }
 
-    pub fn link_at_node_start(&self, start: usize) -> Option<&LinkRecord> {
+    pub fn semantic_node_count(&self) -> usize {
+        self.root.tree.nodes.len()
+    }
+
+    pub fn reused_semantic_node_count(&self) -> usize {
+        self.root.tree.cache_hits
+    }
+
+    pub fn link_at_node_start(&self, start: usize) -> Option<LinkRecord> {
         self.links.iter().find(|link| link.range.start == start)
     }
 
-    pub fn image_at_node_start(&self, start: usize) -> Option<&ImageRecord> {
+    pub fn image_at_node_start(&self, start: usize) -> Option<ImageRecord> {
         self.images.iter().find(|image| image.range.start == start)
     }
 
-    pub fn file_at_node_start(&self, start: usize) -> Option<&FileRecord> {
+    pub fn file_at_node_start(&self, start: usize) -> Option<FileRecord> {
         self.files.iter().find(|file| file.range.start == start)
     }
 
-    pub fn links_contained_by_event(&self, event_start: usize) -> Option<&[LinkRecord]> {
+    pub fn links_contained_by_event(&self, event_start: usize) -> Option<Vec<LinkRecord>> {
         let index = self
             .event_link_ranges
             .binary_search_by_key(&event_start, |range| range.event_start)
             .ok()?;
-        Some(&self.links[self.event_link_ranges[index].links.clone()])
+        Some(
+            self.links
+                .iter()
+                .skip(self.event_link_ranges[index].links.start)
+                .take(self.event_link_ranges[index].links.len())
+                .collect(),
+        )
     }
 }
 
 pub fn analyze_document(valid: ValidDocument<'_>) -> DocumentOutput {
-    let metadata = analyze_metadata(valid);
-    let events = analyze_events(valid, &metadata);
-    analyze_document_with(valid, metadata, events, None, None, None)
+    let syntax = Arc::new(plumb_syntax::GreenDocument::parse(
+        valid.source().to_string(),
+    ));
+    analyze_semantic_tree(valid, syntax, None)
+        .expect("a valid document produces a valid semantic tree")
+}
+
+pub fn analyze_green_document(
+    valid: ValidDocument<'_>,
+    syntax: Arc<plumb_syntax::GreenDocument>,
+) -> Option<DocumentOutput> {
+    analyze_semantic_tree(valid, syntax, None)
 }
 
 pub fn analyze_document_incremental(
@@ -342,105 +446,166 @@ pub fn analyze_document_incremental(
     previous: &DocumentOutput,
     change: &DocumentChange,
 ) -> DocumentOutput {
-    let metadata = analyze_metadata(valid);
-    let events = crate::events::analyze_events_incremental(
-        valid,
-        &metadata,
-        &previous.metadata,
-        &previous.events,
-        &change.old_range,
-        &change.new_range,
+    let syntax = Arc::new(
+        previous
+            .root
+            .tree
+            .syntax
+            .reparse_from_change(
+                valid.source().to_string(),
+                plumb_syntax::SourceChange {
+                    old_range: change.old_range.clone(),
+                    new_range: change.new_range.clone(),
+                },
+            )
+            .document,
     );
-    analyze_document_with(
-        valid,
-        metadata,
-        events,
-        Some((previous, change)),
-        None,
-        None,
-    )
+    analyze_semantic_tree(valid, syntax, Some(previous))
+        .expect("a valid document produces a valid semantic tree")
 }
 
-pub fn analyze_green_document_incremental(
+fn analyze_semantic_tree(
     valid: ValidDocument<'_>,
-    syntax: &plumb_syntax::GreenDocument,
-    previous: &DocumentOutput,
-    previous_revision: &GreenSemanticRevision,
-    change: &DocumentChange,
-) -> Option<GreenDocumentAnalysis> {
+    syntax: Arc<plumb_syntax::GreenDocument>,
+    previous: Option<&DocumentOutput>,
+) -> Option<DocumentOutput> {
     if valid.source() != syntax.source() || !syntax.is_valid() {
         return None;
     }
     let metadata = analyze_metadata(valid);
-    let events = std::sync::Arc::new(GreenEventRevision::analyze(
-        syntax,
-        &metadata,
-        Some(&previous_revision.events),
-    )?);
-    let local = std::sync::Arc::new(GreenLocalRevision::analyze(
-        syntax,
-        previous_revision.local.as_deref(),
-    )?);
-    let local_output = local.materialize();
-    let lists = std::sync::Arc::new(GreenListRevision::analyze(
-        syntax,
-        previous_revision.lists.as_deref(),
-    )?);
-    let output = analyze_document_with(
-        valid,
-        metadata,
-        EventOutput::from_green(std::sync::Arc::clone(&events)),
-        Some((previous, change)),
-        Some(local_output),
-        Some(ListOutput::from_green(std::sync::Arc::clone(&lists))),
-    );
-    Some(GreenDocumentAnalysis {
-        output,
-        revision: GreenSemanticRevision {
-            events,
-            local: Some(local),
-            lists: Some(lists),
-        },
-    })
-}
-
-fn analyze_document_with(
-    valid: ValidDocument<'_>,
-    metadata: MetadataOutput,
-    events: EventOutput,
-    incremental: Option<(&DocumentOutput, &DocumentChange)>,
-    local: Option<GreenLocalOutput>,
-    incremental_lists: Option<ListOutput>,
-) -> DocumentOutput {
-    let source = valid.source();
-    let document = valid.syntax();
     let headings = analyze_headings(valid);
-    let records = incremental.map_or_else(
-        || collect_document_records(source, document, &headings),
-        |(previous, change)| {
-            collect_document_records_incremental(valid, &headings, previous, change)
-        },
-    );
-    let (citations, inline_styles, math, quotes, tasks) = match local {
-        Some(local) => (
-            local.citations,
-            local.inline_styles,
-            local.math,
-            local.quotes,
-            local.tasks,
-        ),
-        None => (
-            analyze_citations(valid),
-            analyze_inline_styles(valid),
-            analyze_math(valid),
-            analyze_quotes(valid),
-            analyze_tasks(valid),
-        ),
+    let reusable = previous.filter(|previous| previous.metadata() == &metadata);
+    let fresh = reusable.is_none().then(|| FreshSemanticOutput {
+        citations: analyze_citations(valid),
+        inline_styles: analyze_inline_styles(valid),
+        math: analyze_math(valid),
+        quotes: analyze_quotes(valid),
+        tasks: analyze_tasks(valid),
+        events: analyze_events(valid, &metadata),
+        tables: analyze_tables(valid),
+        records: collect_document_records(valid.source(), valid.syntax(), &headings),
+        association_diagnostics: association_arity_diagnostics(valid.syntax()),
+    });
+    let fresh_nodes = fresh.as_ref().map(|fresh| nodes_from_fresh(fresh, &syntax));
+    let mut index = HashMap::with_capacity(syntax.shards().len());
+    let mut cache_hits = 0;
+    let nodes = syntax
+        .shards()
+        .enumerate()
+        .map(|(node_index, view)| {
+            let node_syntax = Arc::clone(view.shard());
+            let identity = Arc::as_ptr(&node_syntax) as usize;
+            let output = reusable
+                .and_then(|previous| {
+                    previous
+                        .root
+                        .tree
+                        .index
+                        .get(&identity)
+                        .map(|index| Arc::clone(&previous.root.tree.nodes[*index].output))
+                })
+                .map(|output| {
+                    cache_hits += 1;
+                    output
+                })
+                .unwrap_or_else(|| match &fresh_nodes {
+                    Some(nodes) => Arc::clone(&nodes[node_index]),
+                    None => {
+                        let local = node_syntax
+                            .parsed()
+                            .valid_syntax()
+                            .expect("valid green document has valid shards");
+                        let local_headings = analyze_headings(local);
+                        Arc::new(SemanticNodeOutput {
+                            citations: analyze_citations(local),
+                            inline_styles: analyze_inline_styles(local),
+                            math: analyze_math(local),
+                            quotes: analyze_quotes(local),
+                            tasks: analyze_tasks(local),
+                            events: analyze_events(local, &metadata),
+                            lists: analyze_lists(local),
+                            tables: analyze_tables(local),
+                            records: collect_document_records(
+                                local.source(),
+                                local.syntax(),
+                                &local_headings,
+                            ),
+                            association_diagnostics: association_arity_diagnostics(local.syntax()),
+                        })
+                    }
+                });
+            index.insert(identity, node_index);
+            SemanticNode {
+                syntax: node_syntax,
+                offset: view.offset(),
+                output,
+            }
+        })
+        .collect::<Vec<_>>();
+    let tree = Arc::new(SemanticTree {
+        syntax,
+        nodes,
+        index,
+        cache_hits,
+    });
+
+    let citations = CitationOutput {
+        citations: segmented_records(&tree, |output| &output.citations.citations),
+        diagnostics: node_diagnostics(&tree, |output| &output.citations.diagnostics),
     };
-    let lists = incremental_lists.unwrap_or_else(|| analyze_lists(valid));
-    let tables = analyze_tables(valid);
-    let mut output = DocumentOutput {
+    let inline_styles = InlineStyleOutput {
+        styles: segmented_records(&tree, |output| &output.inline_styles.styles),
+    };
+    let math = MathOutput {
+        records: segmented_records(&tree, |output| &output.math.records),
+        diagnostics: node_diagnostics(&tree, |output| &output.math.diagnostics),
+    };
+    let quotes = QuoteOutput {
+        quotes: segmented_records(&tree, |output| &output.quotes.quotes),
+    };
+    let tasks = TaskOutput {
+        tasks: segmented_records(&tree, |output| &output.tasks.tasks),
+        diagnostics: node_diagnostics(&tree, |output| &output.tasks.diagnostics),
+    };
+    let events = EventOutput {
+        events: segmented_records(&tree, |output| &output.events.events),
+        diagnostics: node_diagnostics(&tree, |output| &output.events.diagnostics),
+    };
+    let tables = TableOutput {
+        tables: segmented_records(&tree, |output| &output.tables.tables),
+        diagnostics: node_diagnostics(&tree, |output| &output.tables.diagnostics),
+    };
+    let anchors = segmented_records(&tree, |output| &output.records.anchors);
+    let links = segmented_records(&tree, |output| &output.records.links);
+    let images = segmented_records(&tree, |output| &output.records.images);
+    let files = segmented_records(&tree, |output| &output.records.files);
+    let mut record_diagnostics = node_diagnostics(&tree, |output| &output.records.diagnostics);
+    record_diagnostics.retain(|diagnostic| diagnostic.code != "anchor.duplicate-id");
+    let absolute_anchors = anchors.iter().collect::<Vec<_>>();
+    append_duplicate_anchor_diagnostics(&absolute_anchors, &mut record_diagnostics);
+    record_diagnostics.sort_by_key(|diagnostic| {
+        (
+            diagnostic.range.start,
+            diagnostic.range.end,
+            diagnostic.code,
+        )
+    });
+    let lists = reduce_lists(&tree);
+    let event_link_ranges = build_event_link_ranges(&events.events, &links);
+    let mut diagnostics = node_diagnostics(&tree, |output| &output.association_diagnostics);
+    diagnostics.extend(record_diagnostics.iter().cloned());
+    diagnostics.extend(tables.diagnostics.iter().cloned());
+    diagnostics.sort_by_key(|diagnostic| {
+        (
+            diagnostic.range.start,
+            diagnostic.range.end,
+            diagnostic.code,
+        )
+    });
+
+    Some(DocumentOutput {
         root: Arc::new(SemanticRoot {
+            tree,
             headings,
             metadata,
             citations,
@@ -451,23 +616,262 @@ fn analyze_document_with(
             tasks,
             events,
             tables,
-            anchors: records.anchors,
-            links: records.links,
-            images: records.images,
-            files: records.files,
-            record_diagnostics: records.diagnostics,
-            ..SemanticRoot::default()
+            anchors,
+            links,
+            event_link_ranges,
+            images,
+            files,
+            diagnostics,
         }),
+    })
+}
+
+fn segmented_records<T: RelativeSemanticRecord>(
+    tree: &SemanticTree,
+    records: fn(&SemanticNodeOutput) -> &SemanticRecords<T>,
+) -> SemanticRecords<T> {
+    SemanticRecords::from_segments(
+        tree.nodes
+            .iter()
+            .filter_map(|node| {
+                Some(RecordSegment {
+                    offset: node.offset as isize,
+                    records: records(&node.output).owned_arc()?,
+                })
+            })
+            .collect(),
+    )
+}
+
+fn nodes_from_fresh(
+    fresh: &FreshSemanticOutput,
+    syntax: &plumb_syntax::GreenDocument,
+) -> Vec<Arc<SemanticNodeOutput>> {
+    let owners = syntax.shards().map(|view| view.range()).collect::<Vec<_>>();
+    let mut citations =
+        partition_records(&fresh.citations.citations, &owners, |record| &record.range);
+    let mut citation_diagnostics =
+        partition_diagnostics(&fresh.citations.diagnostics, &owners, None);
+    let mut inline_styles =
+        partition_records(&fresh.inline_styles.styles, &owners, |record| &record.range);
+    let mut math = partition_records(&fresh.math.records, &owners, |record| &record.range);
+    let mut math_diagnostics = partition_diagnostics(&fresh.math.diagnostics, &owners, None);
+    let mut quotes = partition_records(&fresh.quotes.quotes, &owners, |record| &record.range);
+    let mut tasks = partition_records(&fresh.tasks.tasks, &owners, |record| &record.range);
+    let mut task_diagnostics = partition_diagnostics(&fresh.tasks.diagnostics, &owners, None);
+    let mut events = partition_records(&fresh.events.events, &owners, |record| &record.range);
+    let mut event_diagnostics = partition_diagnostics(&fresh.events.diagnostics, &owners, None);
+    let mut tables = partition_records(&fresh.tables.tables, &owners, |record| &record.range);
+    let mut table_diagnostics = partition_diagnostics(&fresh.tables.diagnostics, &owners, None);
+    let mut anchors = partition_records(&fresh.records.anchors, &owners, |record| &record.range);
+    let mut links = partition_records(&fresh.records.links, &owners, |record| &record.range);
+    let mut images = partition_records(&fresh.records.images, &owners, |record| &record.range);
+    let mut files = partition_records(&fresh.records.files, &owners, |record| &record.range);
+    let mut record_diagnostics = partition_diagnostics(
+        &fresh.records.diagnostics,
+        &owners,
+        Some("anchor.duplicate-id"),
+    );
+    let mut association_diagnostics =
+        partition_diagnostics(&fresh.association_diagnostics, &owners, None);
+
+    syntax
+        .shards()
+        .enumerate()
+        .map(|(index, view)| {
+            let local = view
+                .shard()
+                .parsed()
+                .valid_syntax()
+                .expect("valid green document has valid shards");
+            Arc::new(SemanticNodeOutput {
+                citations: CitationOutput {
+                    citations: std::mem::take(&mut citations[index]),
+                    diagnostics: std::mem::take(&mut citation_diagnostics[index]),
+                },
+                inline_styles: InlineStyleOutput {
+                    styles: std::mem::take(&mut inline_styles[index]),
+                },
+                math: MathOutput {
+                    records: std::mem::take(&mut math[index]),
+                    diagnostics: std::mem::take(&mut math_diagnostics[index]),
+                },
+                quotes: QuoteOutput {
+                    quotes: std::mem::take(&mut quotes[index]),
+                },
+                tasks: TaskOutput {
+                    tasks: std::mem::take(&mut tasks[index]),
+                    diagnostics: std::mem::take(&mut task_diagnostics[index]),
+                },
+                events: EventOutput {
+                    events: std::mem::take(&mut events[index]),
+                    diagnostics: std::mem::take(&mut event_diagnostics[index]),
+                },
+                lists: analyze_lists(local),
+                tables: TableOutput {
+                    tables: std::mem::take(&mut tables[index]),
+                    diagnostics: std::mem::take(&mut table_diagnostics[index]),
+                },
+                records: RecordOutput {
+                    anchors: std::mem::take(&mut anchors[index]),
+                    links: std::mem::take(&mut links[index]),
+                    images: std::mem::take(&mut images[index]),
+                    files: std::mem::take(&mut files[index]),
+                    diagnostics: std::mem::take(&mut record_diagnostics[index]),
+                },
+                association_diagnostics: std::mem::take(&mut association_diagnostics[index]),
+            })
+        })
+        .collect()
+}
+
+fn partition_records<T: RelativeSemanticRecord>(
+    records: &SemanticRecords<T>,
+    owners: &[Range<usize>],
+    range: fn(&T) -> &Range<usize>,
+) -> Vec<SemanticRecords<T>> {
+    let mut partitions = (0..owners.len()).map(|_| Vec::new()).collect::<Vec<_>>();
+    for mut record in records.iter() {
+        let record_range = range(&record).clone();
+        let index = owners
+            .partition_point(|owner| owner.start <= record_range.start)
+            .checked_sub(1)
+            .expect("a semantic record starts inside a syntax shard");
+        assert!(record_range.end <= owners[index].end);
+        record.shift(-(owners[index].start as isize));
+        partitions[index].push(record);
+    }
+    partitions
+        .into_iter()
+        .map(SemanticRecords::from_owned)
+        .collect()
+}
+
+fn partition_diagnostics(
+    diagnostics: &[Diagnostic],
+    owners: &[Range<usize>],
+    excluded_code: Option<&str>,
+) -> Vec<Vec<Diagnostic>> {
+    let mut partitions = (0..owners.len()).map(|_| Vec::new()).collect::<Vec<_>>();
+    for diagnostic in diagnostics
+        .iter()
+        .filter(|diagnostic| excluded_code != Some(diagnostic.code))
+    {
+        let index = owners
+            .partition_point(|owner| owner.start <= diagnostic.range.start)
+            .checked_sub(1)
+            .expect("a semantic diagnostic starts inside a syntax shard");
+        assert!(diagnostic.range.end <= owners[index].end);
+        let mut diagnostic = diagnostic.clone();
+        shift_diagnostics(
+            std::slice::from_mut(&mut diagnostic),
+            -(owners[index].start as isize),
+        );
+        partitions[index].push(diagnostic);
+    }
+    partitions
+}
+
+fn node_diagnostics(
+    tree: &SemanticTree,
+    diagnostics: fn(&SemanticNodeOutput) -> &[Diagnostic],
+) -> Vec<Diagnostic> {
+    let mut output = Vec::new();
+    for node in &tree.nodes {
+        let mut local = diagnostics(&node.output).to_vec();
+        shift_diagnostics(&mut local, node.offset as isize);
+        output.append(&mut local);
+    }
+    output.sort_by_key(|diagnostic| (diagnostic.range.start, diagnostic.range.end));
+    output
+}
+
+fn reduce_lists(tree: &SemanticTree) -> ListOutput {
+    let mut groups = Vec::new();
+    let mut pending: Option<ListGroup> = None;
+    for node in &tree.nodes {
+        let mut local_groups = node.output.lists.groups.iter().collect::<Vec<_>>();
+        for group in &mut local_groups {
+            shift_list_group(group, node.offset as isize);
+        }
+        match root_list_role(&node.syntax) {
+            RootListRole::Transparent => groups.append(&mut local_groups),
+            RootListRole::List(kind) => {
+                let root_start = node.offset
+                    + node
+                        .syntax
+                        .parsed()
+                        .syntax
+                        .blocks
+                        .first()
+                        .expect("list role has a root block")
+                        .range()
+                        .start;
+                let root_index = local_groups
+                    .iter()
+                    .position(|group| group.range.start == root_start)
+                    .expect("top-level list item produces a root group");
+                let mut root = local_groups.remove(root_index);
+                match &mut pending {
+                    Some(current) if current.kind == kind => {
+                        current.range.end = root.range.end;
+                        current.items.append(&mut root.items);
+                    }
+                    Some(_) => {
+                        groups.push(pending.take().expect("pending group exists"));
+                        pending = Some(root);
+                    }
+                    None => pending = Some(root),
+                }
+                groups.append(&mut local_groups);
+            }
+            RootListRole::Other => {
+                if let Some(group) = pending.take() {
+                    groups.push(group);
+                }
+                groups.append(&mut local_groups);
+            }
+        }
+    }
+    if let Some(group) = pending {
+        groups.push(group);
+    }
+    groups.sort_by_key(|group| group.range.start);
+    ListOutput {
+        groups: ListGroups::from_owned(groups),
+    }
+}
+
+#[derive(Clone, Copy)]
+enum RootListRole {
+    Transparent,
+    List(ListKind),
+    Other,
+}
+
+fn root_list_role(shard: &plumb_syntax::GreenShard) -> RootListRole {
+    let Some(block) = shard.parsed().syntax.blocks.first() else {
+        return RootListRole::Transparent;
     };
-    output
-        .diagnostics
-        .extend(association_arity_diagnostics(document));
-    output.event_link_ranges = build_event_link_ranges(&output.events.events, &output.links);
-    let record_diagnostics = output.record_diagnostics.clone();
-    let table_diagnostics = output.tables.diagnostics.clone();
-    output.diagnostics.extend(record_diagnostics);
-    output.diagnostics.extend(table_diagnostics);
-    output
+    if crate::is_document_declaration(block) {
+        return RootListRole::Transparent;
+    }
+    let Block::Parsed(block) = block else {
+        return RootListRole::Other;
+    };
+    match block.mark.as_ref().map(|mark| mark.marker.as_str()) {
+        Some("-") => RootListRole::List(ListKind::Bullet),
+        Some(".") => RootListRole::List(ListKind::Ordered),
+        _ => RootListRole::Other,
+    }
+}
+
+fn shift_list_group(group: &mut ListGroup, delta: isize) {
+    shift_range(&mut group.range, delta);
+    for item in &mut group.items {
+        shift_range(&mut item.range, delta);
+        shift_range(&mut item.selection_range, delta);
+    }
 }
 
 fn collect_document_records(
@@ -475,7 +879,7 @@ fn collect_document_records(
     document: &Document,
     headings: &HeadingOutput,
 ) -> RecordOutput {
-    let mut output = DocumentOutput::default();
+    let mut output = SemanticRoot::default();
     output.headings = headings.clone();
     let mut first_ids: HashMap<String, Range<usize>> = HashMap::new();
     collect_blocks(source, &document.blocks, &mut first_ids, &mut output);
@@ -486,135 +890,13 @@ fn collect_document_records(
             diagnostic.code,
         )
     });
-    let root = Arc::try_unwrap(output.root).expect("record collector owns its semantic root");
     RecordOutput {
-        anchors: root.anchors,
-        links: root.links,
-        images: root.images,
-        files: root.files,
-        diagnostics: root.diagnostics,
+        anchors: output.anchors,
+        links: output.links,
+        images: output.images,
+        files: output.files,
+        diagnostics: output.diagnostics,
     }
-}
-
-fn collect_document_records_incremental(
-    valid: ValidDocument<'_>,
-    headings: &HeadingOutput,
-    previous: &DocumentOutput,
-    change: &DocumentChange,
-) -> RecordOutput {
-    if change.new_range.start == 0 && change.new_range.end == valid.source().len() {
-        return collect_document_records(valid.source(), valid.syntax(), headings);
-    }
-    let fragment = plumb_syntax::parse(valid.source()[change.new_range.clone()].to_string());
-    let Some(fragment_valid) = fragment.valid_syntax() else {
-        return collect_document_records(valid.source(), valid.syntax(), headings);
-    };
-    let fragment_headings = analyze_headings(fragment_valid);
-    let mut changed = collect_document_records(
-        fragment_valid.source(),
-        fragment_valid.syntax(),
-        &fragment_headings,
-    );
-    shift_record_output(&mut changed, change.new_range.start as isize);
-    changed
-        .diagnostics
-        .retain(|diagnostic| diagnostic.code != "anchor.duplicate-id");
-    let suffix_delta = change.new_range.end as isize - change.old_range.end as isize;
-    let mut output = RecordOutput::default();
-
-    splice_records(
-        &mut output.anchors,
-        &previous.anchors,
-        &mut changed.anchors,
-        &change.old_range,
-        suffix_delta,
-        shift_anchors,
-        |anchor| &anchor.range,
-    );
-    splice_records(
-        &mut output.links,
-        &previous.links,
-        &mut changed.links,
-        &change.old_range,
-        suffix_delta,
-        shift_links,
-        |link| &link.range,
-    );
-    splice_records(
-        &mut output.images,
-        &previous.images,
-        &mut changed.images,
-        &change.old_range,
-        suffix_delta,
-        shift_images,
-        |image| &image.range,
-    );
-    splice_records(
-        &mut output.files,
-        &previous.files,
-        &mut changed.files,
-        &change.old_range,
-        suffix_delta,
-        shift_files,
-        |file| &file.range,
-    );
-
-    output.diagnostics.extend(
-        previous
-            .record_diagnostics
-            .iter()
-            .filter(|diagnostic| {
-                diagnostic.code != "anchor.duplicate-id"
-                    && diagnostic.range.end <= change.old_range.start
-            })
-            .cloned(),
-    );
-    output.diagnostics.append(&mut changed.diagnostics);
-    let mut suffix_diagnostics = previous
-        .record_diagnostics
-        .iter()
-        .filter(|diagnostic| {
-            diagnostic.code != "anchor.duplicate-id"
-                && diagnostic.range.start >= change.old_range.end
-        })
-        .cloned()
-        .collect::<Vec<_>>();
-    shift_diagnostics(&mut suffix_diagnostics, suffix_delta);
-    output.diagnostics.append(&mut suffix_diagnostics);
-    append_duplicate_anchor_diagnostics(&output.anchors, &mut output.diagnostics);
-    output.diagnostics.sort_by_key(|diagnostic| {
-        (
-            diagnostic.range.start,
-            diagnostic.range.end,
-            diagnostic.code,
-        )
-    });
-    output
-}
-
-fn splice_records<T: Clone>(
-    output: &mut Vec<T>,
-    previous: &[T],
-    changed: &mut Vec<T>,
-    old_range: &Range<usize>,
-    suffix_delta: isize,
-    shift: fn(&mut [T], isize),
-    range: impl Fn(&T) -> &Range<usize>,
-) {
-    output.extend(
-        previous
-            .iter()
-            .filter(|record| range(record).end <= old_range.start)
-            .cloned(),
-    );
-    output.append(changed);
-    let mut suffix = previous
-        .iter()
-        .filter(|record| range(record).start >= old_range.end)
-        .cloned()
-        .collect::<Vec<_>>();
-    shift(&mut suffix, suffix_delta);
-    output.append(&mut suffix);
 }
 
 fn append_duplicate_anchor_diagnostics(
@@ -634,60 +916,6 @@ fn append_duplicate_anchor_diagnostics(
         } else {
             first_ids.insert(anchor.id.value.clone(), anchor.id.range.clone());
         }
-    }
-}
-
-fn shift_record_output(output: &mut RecordOutput, delta: isize) {
-    shift_anchors(&mut output.anchors, delta);
-    shift_links(&mut output.links, delta);
-    shift_images(&mut output.images, delta);
-    shift_files(&mut output.files, delta);
-    shift_diagnostics(&mut output.diagnostics, delta);
-}
-
-fn shift_anchors(anchors: &mut [AnchorRecord], delta: isize) {
-    for anchor in anchors {
-        shift_source_backed(&mut anchor.id, delta);
-        shift_range(&mut anchor.range, delta);
-        shift_range(&mut anchor.selection_range, delta);
-    }
-}
-
-fn shift_links(links: &mut [LinkRecord], delta: isize) {
-    for link in links {
-        shift_range(&mut link.range, delta);
-        shift_range(&mut link.selection_range, delta);
-        shift_source_backed(&mut link.target, delta);
-        match &mut link.spelling {
-            LinkSpelling::Verbatim { envelope, .. } => shift_range(envelope, delta),
-            LinkSpelling::Positional => {}
-        }
-        shift_range(&mut link.target_range, delta);
-        for range in &mut link.target_declaration_ranges {
-            shift_range(range, delta);
-        }
-        if let Some(range) = &mut link.path_range {
-            shift_range(range, delta);
-        }
-        if let Some(range) = &mut link.fragment_range {
-            shift_range(range, delta);
-        }
-    }
-}
-
-fn shift_images(images: &mut [ImageRecord], delta: isize) {
-    for image in images {
-        shift_range(&mut image.range, delta);
-        shift_range(&mut image.selection_range, delta);
-        shift_source_backed(&mut image.source, delta);
-    }
-}
-
-fn shift_files(files: &mut [FileRecord], delta: isize) {
-    for file in files {
-        shift_range(&mut file.range, delta);
-        shift_range(&mut file.selection_range, delta);
-        shift_source_backed(&mut file.source, delta);
     }
 }
 
@@ -714,8 +942,9 @@ fn shift_range(range: &mut Range<usize>, delta: isize) {
 
 fn build_event_link_ranges(
     events: &crate::EventRecords,
-    links: &[LinkRecord],
+    links: &SemanticRecords<LinkRecord>,
 ) -> Vec<EventLinkRange> {
+    let links = links.iter().collect::<Vec<_>>();
     let event_ranges = events.ranges().collect::<Vec<_>>();
     debug_assert!(event_ranges
         .windows(2)
@@ -791,7 +1020,7 @@ fn collect_blocks(
     source: &str,
     blocks: &[Block],
     first_ids: &mut HashMap<String, Range<usize>>,
-    output: &mut DocumentOutput,
+    output: &mut SemanticRoot,
 ) {
     for block in blocks {
         match block {
@@ -842,7 +1071,7 @@ fn collect_inlines(
     source: &str,
     content: &InlineContent,
     first_ids: &mut HashMap<String, Range<usize>>,
-    output: &mut DocumentOutput,
+    output: &mut SemanticRoot,
 ) {
     for inline in &content.items {
         match inline {
@@ -933,7 +1162,7 @@ struct VerbatimLink<'a> {
     attrs: &'a Attributes,
 }
 
-fn collect_verbatim_link(source: &str, input: VerbatimLink<'_>, output: &mut DocumentOutput) {
+fn collect_verbatim_link(source: &str, input: VerbatimLink<'_>, output: &mut SemanticRoot) {
     let VerbatimLink {
         range,
         kind_range,
@@ -1056,7 +1285,7 @@ fn collect_image(
     range: Range<usize>,
     selection_range: Range<usize>,
     attrs: &Attributes,
-    output: &mut DocumentOutput,
+    output: &mut SemanticRoot,
 ) {
     let Some(value) = attrs.items.iter().find_map(|item| match item {
         AttrItem::Pair { key, value, .. } if key == "src" => Some(value),
@@ -1123,7 +1352,7 @@ fn collect_file(
     range: Range<usize>,
     selection_range: Range<usize>,
     attrs: &Attributes,
-    output: &mut DocumentOutput,
+    output: &mut SemanticRoot,
 ) {
     let Some(value) = attrs.items.iter().find_map(|item| match item {
         AttrItem::Pair { key, value, .. } if key == "src" => Some(value),
@@ -1192,7 +1421,7 @@ fn collect_anchor(
     range: Range<usize>,
     selection_range: Range<usize>,
     first_ids: &mut HashMap<String, Range<usize>>,
-    output: &mut DocumentOutput,
+    output: &mut SemanticRoot,
 ) {
     let Some((value, value_range)) = attrs.items.iter().find_map(|item| match item {
         AttrItem::Id {
@@ -1226,7 +1455,7 @@ fn collect_link(
     source: &str,
     range: Range<usize>,
     content: &InlineContent,
-    output: &mut DocumentOutput,
+    output: &mut SemanticRoot,
 ) {
     let view = crate::owner_semantic_view(content);
     let Some(arguments) = view.split_first() else {
@@ -1393,7 +1622,7 @@ fn push_link(
     target: SourceBacked<String>,
     source: LinkSourceProjection,
     classification: (LinkTarget, Option<Range<usize>>, Option<Range<usize>>),
-    output: &mut DocumentOutput,
+    output: &mut SemanticRoot,
 ) {
     let LinkSourceProjection {
         spelling,
@@ -1655,6 +1884,66 @@ mod tests {
     }
 
     #[test]
+    fn semantic_tree_reuses_relative_nodes_across_a_file_start_shift() {
+        let old = "`# Heading\n `@ heading\n\n`- Task `->{guide guide.plumb}\n `+ task\n `@ task\n `img{icon `={src icon.png}}\n\n`- 2026-09-05T09:00:00+08:00 Event\n `+ event\n\n`table\n `- name age\n\n`> Quote `cite{paper} `!{strong} `$\"x\"\n";
+        let prefix = "Prelude\n\n";
+        let new = format!("{prefix}{old}");
+        let previous = parse(old);
+        let previous_output = analyze_document(previous.valid_syntax().unwrap());
+        let current = parse(&new);
+        let incremental = analyze_document_incremental(
+            current.valid_syntax().unwrap(),
+            &previous_output,
+            &DocumentChange {
+                old_range: 0..0,
+                new_range: 0..prefix.len(),
+            },
+        );
+        let fresh = analyze_document(current.valid_syntax().unwrap());
+
+        assert_eq!(incremental, fresh);
+        assert_eq!(
+            incremental.reused_semantic_node_count(),
+            previous_output.semantic_node_count()
+        );
+        assert_eq!(
+            incremental.tasks().tasks.get(0).unwrap().range.start,
+            previous_output.tasks().tasks.get(0).unwrap().range.start + prefix.len()
+        );
+    }
+
+    #[test]
+    fn semantic_tree_context_change_rebuilds_all_nodes() {
+        let old = "`= date 2026-09-05\n`= timezone +08:00\n\n`- 09:00 Event\n `+ event\n";
+        let new = old.replace("2026-09-05", "2026-09-06");
+        let previous = parse(old);
+        let previous_output = analyze_document(previous.valid_syntax().unwrap());
+        let current = parse(&new);
+        let start = old.find("2026-09-05").unwrap();
+        let incremental = analyze_document_incremental(
+            current.valid_syntax().unwrap(),
+            &previous_output,
+            &DocumentChange {
+                old_range: start..start + "2026-09-05".len(),
+                new_range: start..start + "2026-09-06".len(),
+            },
+        );
+
+        assert_eq!(incremental.reused_semantic_node_count(), 0);
+        assert_eq!(
+            incremental
+                .events()
+                .events
+                .get(0)
+                .unwrap()
+                .at
+                .unwrap()
+                .value,
+            "2026-09-06T09:00:00+08:00"
+        );
+    }
+
+    #[test]
     fn only_shorthand_ids_create_anchors() {
         let parsed = parse("`# Heading\n  `@ intro\n\n`## Pair only\n  `= id|pair\n");
         let output = analyze_document(
@@ -1663,8 +1952,8 @@ mod tests {
                 .expect("semantic analysis requires valid syntax"),
         );
         assert_eq!(output.anchors.len(), 1);
-        assert_eq!(output.anchors[0].id.value, "intro");
-        assert_eq!(output.anchors[0].kind, AnchorKind::Heading);
+        assert_eq!(output.anchors.get(0).unwrap().id.value, "intro");
+        assert_eq!(output.anchors.get(0).unwrap().kind, AnchorKind::Heading);
     }
 
     #[test]
@@ -1677,7 +1966,7 @@ mod tests {
                 .expect("semantic analysis requires valid syntax"),
         );
         assert_eq!(output.anchors.len(), 1);
-        assert_eq!(output.anchors[0].kind, AnchorKind::Block);
+        assert_eq!(output.anchors.get(0).unwrap().kind, AnchorKind::Block);
     }
 
     #[test]
@@ -1697,41 +1986,50 @@ mod tests {
             .links
             .iter()
             .all(|link| link.spelling == LinkSpelling::Positional));
-        assert_eq!(output.links[0].target.value, "guide.plumb");
-        assert_eq!(output.links[1].target.value, "styled.plumb");
+        assert_eq!(output.links.get(0).unwrap().target.value, "guide.plumb");
+        assert_eq!(output.links.get(1).unwrap().target.value, "styled.plumb");
         assert_eq!(
-            &source[output.links[1].path_range.clone().unwrap()],
+            &source[output.links.get(1).unwrap().path_range.clone().unwrap()],
             "styled.plumb"
         );
-        assert_eq!(output.links[2].target.value, "Project Guide.plumb#intro");
         assert_eq!(
-            &source[output.links[2].fragment_range.clone().unwrap()],
+            output.links.get(2).unwrap().target.value,
+            "Project Guide.plumb#intro"
+        );
+        assert_eq!(
+            &source[output.links.get(2).unwrap().fragment_range.clone().unwrap()],
             "intro"
         );
-        assert_eq!(output.links[3].target.value, "target.plumb");
+        assert_eq!(output.links.get(3).unwrap().target.value, "target.plumb");
         assert_eq!(
-            output.links[3].target_kind,
+            output.links.get(3).unwrap().target_kind,
             LinkTarget::Document {
                 path: "target.plumb".to_string()
             }
         );
         assert_eq!(
-            &source[output.links[4].selection_range.clone()],
+            &source[output.links.get(4).unwrap().selection_range.clone()],
             "guide page"
         );
-        assert_eq!(output.links[4].target.value, "Project Guide.plumb#intro");
         assert_eq!(
-            output.links[4].target_kind,
+            output.links.get(4).unwrap().target.value,
+            "Project Guide.plumb#intro"
+        );
+        assert_eq!(
+            output.links.get(4).unwrap().target_kind,
             LinkTarget::Anchor {
                 path: Some("Project Guide.plumb".to_string()),
                 fragment: "intro".to_string()
             }
         );
         assert_eq!(
-            &source[output.links[5].selection_range.clone()],
+            &source[output.links.get(5).unwrap().selection_range.clone()],
             "`*{external}"
         );
-        assert_eq!(output.links[5].target_kind, LinkTarget::External);
+        assert_eq!(
+            output.links.get(5).unwrap().target_kind,
+            LinkTarget::External
+        );
     }
 
     #[test]
@@ -1783,7 +2081,7 @@ mod tests {
                 .expect("semantic analysis requires valid syntax"),
         );
         assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
-        let link = &output.links[0];
+        let link = &output.links.get(0).unwrap();
         assert_eq!(link.target.raw, "目录/项].plumb#章节");
         assert_eq!(link.target.value, "目录/项].plumb#章节");
         assert_eq!(&source[link.path_range.clone().unwrap()], "目录/项].plumb");
@@ -1840,10 +2138,19 @@ mod tests {
         );
         assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
         assert_eq!(output.links.len(), 2);
-        assert_eq!(output.links[0].target.value, "https://example.test/a%20b");
-        assert_eq!(output.links[0].target.raw, "https://example.test/a%20b");
-        assert_eq!(output.links[0].target_kind, LinkTarget::External);
-        assert_eq!(output.links[1].target.value, "https://[::1]/");
+        assert_eq!(
+            output.links.get(0).unwrap().target.value,
+            "https://example.test/a%20b"
+        );
+        assert_eq!(
+            output.links.get(0).unwrap().target.raw,
+            "https://example.test/a%20b"
+        );
+        assert_eq!(
+            output.links.get(0).unwrap().target_kind,
+            LinkTarget::External
+        );
+        assert_eq!(output.links.get(1).unwrap().target.value, "https://[::1]/");
     }
 
     #[test]
@@ -1864,36 +2171,36 @@ mod tests {
             .iter()
             .all(|link| matches!(link.spelling, LinkSpelling::Verbatim { .. })));
         assert_eq!(
-            output.links[0].target_kind,
+            output.links.get(0).unwrap().target_kind,
             LinkTarget::Document {
                 path: "other.plumb".to_string()
             }
         );
         assert_eq!(
-            output.links[1].target_kind,
+            output.links.get(1).unwrap().target_kind,
             LinkTarget::Anchor {
                 path: Some("other notes.plumb".to_string()),
                 fragment: "section".to_string()
             }
         );
         assert_eq!(
-            output.links[2].target_kind,
+            output.links.get(2).unwrap().target_kind,
             LinkTarget::File {
                 path: "../assets/a b.pdf".to_string()
             }
         );
         assert_eq!(
-            &parsed.source[output.links[1].fragment_range.clone().unwrap()],
+            &parsed.source[output.links.get(1).unwrap().fragment_range.clone().unwrap()],
             "section"
         );
         assert_eq!(
-            output.links[3].target_kind,
+            output.links.get(3).unwrap().target_kind,
             LinkTarget::File {
                 path: "../assets/100% done?.pdf".to_string()
             }
         );
         assert_eq!(
-            output.links[4].target_kind,
+            output.links.get(4).unwrap().target_kind,
             LinkTarget::Anchor {
                 path: None,
                 fragment: "local".to_string()
@@ -1913,14 +2220,20 @@ mod tests {
                 .expect("semantic analysis requires valid syntax"),
         );
         assert_eq!(output.images.len(), 2);
-        assert_eq!(output.images[0].source.value, "static/图 像(100%).png");
         assert_eq!(
-            output.images[0].target_kind,
+            output.images.get(0).unwrap().source.value,
+            "static/图 像(100%).png"
+        );
+        assert_eq!(
+            output.images.get(0).unwrap().target_kind,
             ImageTarget::File {
                 path: "static/图 像(100%).png".to_string()
             }
         );
-        assert_eq!(output.images[1].target_kind, ImageTarget::External);
+        assert_eq!(
+            output.images.get(1).unwrap().target_kind,
+            ImageTarget::External
+        );
         assert_eq!(
             output
                 .diagnostics
@@ -1948,14 +2261,20 @@ mod tests {
                 .expect("semantic analysis requires valid syntax"),
         );
         assert_eq!(output.files.len(), 2);
-        assert_eq!(output.files[0].source.value, "static/demo video.mp4");
         assert_eq!(
-            output.files[0].target_kind,
+            output.files.get(0).unwrap().source.value,
+            "static/demo video.mp4"
+        );
+        assert_eq!(
+            output.files.get(0).unwrap().target_kind,
             FileTarget::File {
                 path: "static/demo video.mp4".to_string()
             }
         );
-        assert_eq!(output.files[1].target_kind, FileTarget::External);
+        assert_eq!(
+            output.files.get(1).unwrap().target_kind,
+            FileTarget::External
+        );
         assert_eq!(
             output
                 .diagnostics

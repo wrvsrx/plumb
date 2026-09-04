@@ -2,6 +2,8 @@ use std::ops::Range;
 
 use plumb_syntax::{Block, Inline, InlineContent, ValidDocument};
 
+use crate::{RelativeSemanticRecord, SemanticRecords};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InlineStyleKind {
     Emphasis,
@@ -20,12 +22,19 @@ pub struct InlineStyleRecord {
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct InlineStyleOutput {
-    pub styles: Vec<InlineStyleRecord>,
+    pub styles: SemanticRecords<InlineStyleRecord>,
 }
 
 impl InlineStyleOutput {
-    pub fn style_at_node_start(&self, start: usize) -> Option<&InlineStyleRecord> {
+    pub fn style_at_node_start(&self, start: usize) -> Option<InlineStyleRecord> {
         self.styles.iter().find(|style| style.range.start == start)
+    }
+}
+
+impl RelativeSemanticRecord for InlineStyleRecord {
+    fn shift(&mut self, delta: isize) {
+        self.range.start = self.range.start.checked_add_signed(delta).unwrap();
+        self.range.end = self.range.end.checked_add_signed(delta).unwrap();
     }
 }
 
@@ -111,10 +120,13 @@ mod tests {
             ]
         );
         assert_eq!(
-            &source[output.styles[0].range.clone()],
+            &source[output.styles.get(0).unwrap().range.clone()],
             "`*{{em `!{strong}}}"
         );
-        assert_eq!(&source[output.styles[1].range.clone()], "`!{strong}");
+        assert_eq!(
+            &source[output.styles.get(1).unwrap().range.clone()],
+            "`!{strong}"
+        );
     }
 
     #[test]

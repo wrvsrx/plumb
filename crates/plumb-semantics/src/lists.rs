@@ -1,5 +1,4 @@
 use std::ops::Range;
-use std::sync::Arc;
 
 use plumb_syntax::{Block, ParsedBlock, ValidDocument};
 
@@ -29,20 +28,12 @@ pub struct ListOutput {
 
 #[derive(Debug, Clone)]
 pub struct ListGroups {
-    storage: ListGroupStorage,
-}
-
-#[derive(Debug, Clone)]
-enum ListGroupStorage {
-    Owned(Vec<ListGroup>),
-    Green(Arc<crate::GreenListRevision>),
+    groups: Vec<ListGroup>,
 }
 
 impl Default for ListGroups {
     fn default() -> Self {
-        Self {
-            storage: ListGroupStorage::Owned(Vec::new()),
-        }
+        Self { groups: Vec::new() }
     }
 }
 
@@ -68,57 +59,25 @@ impl ListGroups {
     }
 
     pub fn iter(&self) -> Box<dyn Iterator<Item = ListGroup> + '_> {
-        match &self.storage {
-            ListGroupStorage::Owned(groups) => Box::new(groups.iter().cloned()),
-            ListGroupStorage::Green(revision) => {
-                Box::new(revision.materialize().groups.into_owned().into_iter())
-            }
-        }
+        Box::new(self.groups.iter().cloned())
     }
 
     pub(crate) fn push(&mut self, group: ListGroup) {
-        match &mut self.storage {
-            ListGroupStorage::Owned(groups) => groups.push(group),
-            ListGroupStorage::Green(_) => panic!("cannot append to an analyzed green revision"),
-        }
+        self.groups.push(group);
     }
 
     pub(crate) fn sort_by_start(&mut self) {
-        match &mut self.storage {
-            ListGroupStorage::Owned(groups) => groups.sort_by_key(|group| group.range.start),
-            ListGroupStorage::Green(_) => panic!("cannot sort an analyzed green revision"),
-        }
+        self.groups.sort_by_key(|group| group.range.start);
     }
 
     pub(crate) fn from_owned(groups: Vec<ListGroup>) -> Self {
-        Self {
-            storage: ListGroupStorage::Owned(groups),
-        }
-    }
-
-    pub(crate) fn from_green(revision: Arc<crate::GreenListRevision>) -> Self {
-        Self {
-            storage: ListGroupStorage::Green(revision),
-        }
-    }
-
-    pub(crate) fn into_owned(self) -> Vec<ListGroup> {
-        match self.storage {
-            ListGroupStorage::Owned(groups) => groups,
-            ListGroupStorage::Green(revision) => revision.materialize().groups.into_owned(),
-        }
+        Self { groups }
     }
 }
 
 impl ListOutput {
     pub fn group_at_node_start(&self, start: usize) -> Option<ListGroup> {
         self.groups.iter().find(|group| group.range.start == start)
-    }
-
-    pub(crate) fn from_green(revision: Arc<crate::GreenListRevision>) -> Self {
-        Self {
-            groups: ListGroups::from_green(revision),
-        }
     }
 }
 

@@ -778,7 +778,7 @@ impl WebWorkspace {
             );
             let depends_on = if include_relations {
                 self.workspace
-                    .task_dependencies(&record.path, task)
+                    .task_dependencies(&record.path, &task)
                     .map_err(|error| error.to_string())?
                     .value
                     .into_iter()
@@ -804,7 +804,7 @@ impl WebWorkspace {
             };
             let prev_on = if include_relations {
                 self.workspace
-                    .task_previous(&record.path, task)
+                    .task_previous(&record.path, &task)
                     .map_err(|error| error.to_string())?
                     .value
                     .map(|target| display_task_ref(&self.root, &target))
@@ -1530,7 +1530,7 @@ impl WebWorkspace {
                     link.target.value.as_str(),
                     link.selection_range.clone(),
                     operation_workspace
-                        .resolve_link(path, link)
+                        .resolve_link(path, &link)
                         .map_err(|error| error.to_string())?
                         .value,
                 );
@@ -1670,11 +1670,11 @@ impl WebWorkspace {
         Ok(workspace)
     }
 
-    fn task_for_locator<'a>(
+    fn task_for_locator(
         &self,
-        output: &'a DocumentOutput,
+        output: &DocumentOutput,
         locator: &WebTaskLocator,
-    ) -> Option<&'a TaskRecord> {
+    ) -> Option<TaskRecord> {
         output.tasks().tasks.iter().find(|task| match locator {
             WebTaskLocator::Id { id } => task.id.as_ref().is_some_and(|field| field.value == *id),
             WebTaskLocator::Offset { offset } => task.range.start == *offset,
@@ -1706,7 +1706,7 @@ impl WebWorkspace {
             for link in current.output.links() {
                 if let ResolvedTarget::File { path } = self
                     .workspace
-                    .resolve_link(&entry.path, link)
+                    .resolve_link(&entry.path, &link)
                     .map_err(|error| error.to_string())?
                     .value
                 {
@@ -1715,14 +1715,14 @@ impl WebWorkspace {
             }
             for image in current.output.images() {
                 if let ResolvedTarget::File { path } =
-                    self.workspace.resolve_image(&entry.path, image)
+                    self.workspace.resolve_image(&entry.path, &image)
                 {
                     paths.insert(path);
                 }
             }
             for file in current.output.files() {
                 if let ResolvedTarget::File { path } =
-                    self.workspace.resolve_file(&entry.path, file)
+                    self.workspace.resolve_file(&entry.path, &file)
                 {
                     paths.insert(path);
                 }
@@ -2054,7 +2054,12 @@ mod tests {
         assert!(warm.documents[&path].generation_reused);
         assert!(warm.documents[&path].entry.get().is_none());
         assert_eq!(
-            warm.query_tasks(&WebQuery::default()).unwrap().tasks[0].title,
+            warm.query_tasks(&WebQuery::default())
+                .unwrap()
+                .tasks
+                .get(0)
+                .unwrap()
+                .title,
             "First"
         );
         assert!(warm.documents[&path].entry.get().is_none());
@@ -2066,8 +2071,11 @@ mod tests {
             first_source
         );
         assert!(first.documents[&path].entry.get().is_some());
-        assert_eq!(first.tasks().unwrap().tasks[0].title, "First");
-        assert_eq!(second.tasks().unwrap().tasks[0].title, "Second");
+        assert_eq!(first.tasks().unwrap().tasks.get(0).unwrap().title, "First");
+        assert_eq!(
+            second.tasks().unwrap().tasks.get(0).unwrap().title,
+            "Second"
+        );
 
         std::fs::remove_dir_all(root).unwrap();
     }
@@ -2088,16 +2096,16 @@ mod tests {
 
         let snapshot = workspace.tasks().unwrap();
         assert_eq!(snapshot.documents[0].revision, "9");
-        assert_eq!(snapshot.tasks[0].revision, "9");
+        assert_eq!(snapshot.tasks.get(0).unwrap().revision, "9");
         assert_eq!(
             workspace.task_candidates("", None, 10).unwrap()[0].revision,
             "9"
         );
         workspace
             .set_task_status(
-                &snapshot.tasks[0].document_id,
-                &snapshot.tasks[0].locator,
-                &snapshot.tasks[0].revision,
+                &snapshot.tasks.get(0).unwrap().document_id,
+                &snapshot.tasks.get(0).unwrap().locator,
+                &snapshot.tasks.get(0).unwrap().revision,
                 TaskStatus::Canceled,
             )
             .unwrap();
@@ -2360,7 +2368,7 @@ mod tests {
         let workspace = WebWorkspace::load(&root).unwrap();
         let snapshot = workspace.tasks().unwrap();
         let document = &snapshot.documents[0];
-        let parent = &snapshot.tasks[0];
+        let parent = &snapshot.tasks.get(0).unwrap();
         workspace
             .create_task(
                 &document.id,

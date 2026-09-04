@@ -1,7 +1,7 @@
 use lsp_types::{DocumentSymbol, SymbolKind};
 use plumb_semantics::{
     AnchorRecord, EventRecord, EventRecords, Heading, MetadataBlock, MetadataEntry, MetadataValue,
-    TaskRecord, TaskState,
+    SemanticRecords, TaskRecord, TaskState,
 };
 
 use crate::position::byte_range_to_lsp;
@@ -94,8 +94,9 @@ fn metadata_entry(source: &str, entry: &MetadataEntry) -> DocumentSymbol {
     }
 }
 
-pub(crate) fn tasks(source: &str, tasks: &[TaskRecord]) -> Vec<DocumentSymbol> {
-    nested_symbols(tasks, |task| task.depth, |task| task_symbol(source, task))
+pub(crate) fn tasks(source: &str, tasks: &SemanticRecords<TaskRecord>) -> Vec<DocumentSymbol> {
+    let tasks = tasks.iter().collect::<Vec<_>>();
+    nested_symbols(&tasks, |task| task.depth, |task| task_symbol(source, task))
 }
 
 fn task_symbol(source: &str, task: &TaskRecord) -> DocumentSymbol {

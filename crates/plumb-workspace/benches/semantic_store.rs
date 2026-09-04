@@ -8,7 +8,6 @@ use criterion::{criterion_group, criterion_main, BatchSize, BenchmarkId, Criteri
 use plumb_semantics::{
     analyze_citations, analyze_document, analyze_events, analyze_headings, analyze_inline_styles,
     analyze_lists, analyze_math, analyze_metadata, analyze_quotes, analyze_tables, analyze_tasks,
-    GreenEventRevision,
 };
 use plumb_syntax::{
     parse, parse_incremental, GreenDocument as ProductionGreenDocument, SourceChange,
@@ -589,25 +588,6 @@ fn benchmark_open_document_generation(c: &mut Criterion) {
     };
     let mut previous_workspace = Workspace::new();
     previous_workspace.insert("events.plumb", 1, source.clone());
-    let cache = previous_workspace
-        .begin_document_cache("events.plumb")
-        .unwrap()
-        .prepare()
-        .unwrap();
-    assert!(previous_workspace.install_document_cache(cache));
-    let mut fallback_workspace = Workspace::new();
-    fallback_workspace.insert("events.plumb", 1, source.clone());
-    let cache_pending = fallback_workspace
-        .begin_document_cache("events.plumb")
-        .unwrap();
-    let fallback_pending = fallback_workspace
-        .begin_document_revision_with_change(
-            "events.plumb",
-            2,
-            changed.clone(),
-            Some(changed_source.clone()),
-        )
-        .unwrap();
     let mut incremental_workspace = previous_workspace.clone();
     let incremental_pending = incremental_workspace
         .begin_document_revision_with_change(
@@ -620,27 +600,6 @@ fn benchmark_open_document_generation(c: &mut Criterion) {
     assert!(incremental_workspace.install_document_analysis(incremental_pending.clone().analyze()));
     let fresh = parse(changed.clone());
     let fresh_output = analyze_document(fresh.valid_syntax().unwrap());
-    let green = ProductionGreenDocument::parse(source.clone());
-    let green_events = GreenEventRevision::analyze(
-        &green,
-        &previous_workspace
-            .get("events.plumb")
-            .unwrap()
-            .current
-            .as_ref()
-            .unwrap()
-            .output
-            .metadata(),
-        None,
-    )
-    .unwrap();
-    let changed_green = green
-        .reparse_from_change(changed.clone(), changed_source.clone())
-        .document;
-    let changed_metadata = fresh_output.metadata();
-    let changed_green_events =
-        GreenEventRevision::analyze(&changed_green, changed_metadata, Some(&green_events)).unwrap();
-    assert_eq!(&changed_green_events.materialize(), fresh_output.events());
     assert_eq!(
         incremental_workspace
             .get("events.plumb")
@@ -704,25 +663,8 @@ fn benchmark_open_document_generation(c: &mut Criterion) {
     group.bench_function("background_semantic_stage", |b| {
         b.iter(|| black_box(pending.clone().analyze()))
     });
-    group.bench_function("incremental_semantic_unwarmed_fallback", |b| {
-        b.iter(|| black_box(fallback_pending.clone().analyze()))
-    });
-    group.bench_function("document_cache_warm", |b| {
-        b.iter(|| black_box(cache_pending.clone().prepare()))
-    });
-    group.bench_function("incremental_semantic_warm_green", |b| {
+    group.bench_function("incremental_semantic_tree", |b| {
         b.iter(|| black_box(warm_pending.clone().analyze()))
-    });
-    group.bench_function("green_event_revision", |b| {
-        b.iter(|| {
-            black_box(
-                GreenEventRevision::analyze(&changed_green, changed_metadata, Some(&green_events))
-                    .unwrap(),
-            )
-        })
-    });
-    group.bench_function("green_event_materialize", |b| {
-        b.iter(|| black_box(changed_green_events.materialize()))
     });
     group.finish();
 }
@@ -1072,11 +1014,10 @@ fn benchmark_event_containment(c: &mut Criterion) {
     let parsed = parse(&source);
     let output = analyze_document(parsed.valid_syntax().unwrap());
     let event = output.events().events.get(1_000).unwrap();
+    let links = output.links().iter().collect::<Vec<_>>();
     let legacy = || {
-        let first = output
-            .links()
-            .partition_point(|link| link.range.start < event.range.start);
-        output.links()[first..]
+        let first = links.partition_point(|link| link.range.start < event.range.start);
+        links[first..]
             .iter()
             .take_while(|link| link.range.start < event.range.end)
             .count()

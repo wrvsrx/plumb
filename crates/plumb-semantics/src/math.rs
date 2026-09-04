@@ -5,6 +5,8 @@ use plumb_syntax::{
     ValidDocument,
 };
 
+use crate::{RelativeSemanticRecord, SemanticRecords};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MathKind {
     Inline,
@@ -19,15 +21,22 @@ pub struct MathRecord {
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct MathOutput {
-    pub records: Vec<MathRecord>,
+    pub records: SemanticRecords<MathRecord>,
     pub diagnostics: Vec<Diagnostic>,
 }
 
 impl MathOutput {
-    pub fn math_at_node_start(&self, start: usize) -> Option<&MathRecord> {
+    pub fn math_at_node_start(&self, start: usize) -> Option<MathRecord> {
         self.records
             .iter()
             .find(|record| record.range.start == start)
+    }
+}
+
+impl RelativeSemanticRecord for MathRecord {
+    fn shift(&mut self, delta: isize) {
+        self.range.start = self.range.start.checked_add_signed(delta).unwrap();
+        self.range.end = self.range.end.checked_add_signed(delta).unwrap();
     }
 }
 

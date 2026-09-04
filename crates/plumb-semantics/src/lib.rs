@@ -2,13 +2,13 @@ mod citations;
 mod document;
 mod events;
 mod headings;
-mod incremental;
 mod inline_styles;
 mod lists;
 mod math;
 mod metadata;
 mod queries;
 mod quotes;
+mod records;
 mod tables;
 mod tasks;
 mod text;
@@ -44,9 +44,9 @@ pub(crate) fn table_structural_item_starts(
         .tables
         .iter()
         .flat_map(|table| {
-            table.rows.iter().flat_map(|row| {
+            table.rows.into_iter().flat_map(|row| {
                 std::iter::once(row.range.start)
-                    .chain(row.cells.iter().map(|cell| cell.range.start))
+                    .chain(row.cells.into_iter().map(|cell| cell.range.start))
             })
         })
         .collect()
@@ -247,17 +247,14 @@ pub fn body_children(
 
 pub use citations::{analyze_citations, CitationOutput, CitationRecord};
 pub use document::{
-    analyze_document, analyze_document_incremental, analyze_green_document_incremental, AnchorKind,
+    analyze_document, analyze_document_incremental, analyze_green_document, AnchorKind,
     AnchorRecord, DocumentChange, DocumentOutput, EventLinkRange, FileRecord, FileTarget,
-    GreenDocumentAnalysis, GreenSemanticRevision, ImageRecord, ImageTarget, LinkRecord,
-    LinkSpelling, LinkTarget, SemanticRoot, SourceBacked,
+    ImageRecord, ImageTarget, LinkRecord, LinkSpelling, LinkTarget, SemanticRoot, SourceBacked,
 };
 pub use events::{
     analyze_events, EventField, EventOutput, EventRecord, EventRecordView, EventRecords,
-    GreenEventRevision,
 };
 pub use headings::{analyze_headings, analyze_recovered_headings, Heading, HeadingOutput};
-pub use incremental::{GreenListRevision, GreenLocalOutput, GreenLocalRevision};
 pub use inline_styles::{
     analyze_inline_styles, InlineStyleKind, InlineStyleOutput, InlineStyleRecord,
 };
@@ -277,6 +274,7 @@ pub use queries::{
     LinkCompletionContext, TaskDependencyCompletionContext,
 };
 pub use quotes::{analyze_quotes, QuoteOutput, QuoteRecord};
+pub use records::{RelativeSemanticRecord, SemanticRecordView, SemanticRecords};
 pub use tables::{analyze_tables, TableCellRecord, TableOutput, TableRecord, TableRowRecord};
 pub use tasks::{
     analyze_tasks, next_task_datetime, parse_task_reference_target, valid_task_datetime,

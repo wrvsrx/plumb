@@ -405,7 +405,7 @@ fn task_facts(
             facts.push(fact_from_record(
                 key.clone(),
                 current.revision,
-                task,
+                &task,
                 ancestors.last().copied(),
             ));
             ancestors.push(task.range.start);
@@ -1143,7 +1143,10 @@ mod tests {
 
         let page = workspace.query_task_page(&relation_query).unwrap().value;
         assert_eq!(page.tasks.len(), 1);
-        assert_eq!(page.tasks[0].task.id.as_ref().unwrap().value, "target");
+        assert_eq!(
+            page.tasks.get(0).unwrap().task.id.as_ref().unwrap().value,
+            "target"
+        );
 
         workspace.open_document(
             "a.plumb",
@@ -1297,10 +1300,15 @@ mod tests {
 
         let page = workspace.query_task_page(&filtered).unwrap().value;
         assert_eq!(page.tasks.len(), 1);
-        assert_eq!(page.tasks[0].task.id.as_ref().unwrap().value, "dependent");
-        assert_eq!(page.tasks[0].state, TaskWorkflowState::Blocked);
         assert_eq!(
-            page.tasks[0]
+            page.tasks.get(0).unwrap().task.id.as_ref().unwrap().value,
+            "dependent"
+        );
+        assert_eq!(page.tasks.get(0).unwrap().state, TaskWorkflowState::Blocked);
+        assert_eq!(
+            page.tasks
+                .get(0)
+                .unwrap()
                 .depends_on
                 .iter()
                 .map(|task| (task.path.as_path(), task.id.as_str()))
@@ -1342,8 +1350,11 @@ mod tests {
             .unwrap();
         let actual = persistent.query_task_page(&filtered).unwrap().value;
         assert_eq!(actual, expected);
-        assert_eq!(actual.tasks[0].state, TaskWorkflowState::Blocked);
-        assert_eq!(actual.tasks[0].depends_on[0].id, "target");
+        assert_eq!(
+            actual.tasks.get(0).unwrap().state,
+            TaskWorkflowState::Blocked
+        );
+        assert_eq!(actual.tasks.get(0).unwrap().depends_on[0].id, "target");
     }
 
     #[test]
@@ -1434,7 +1445,10 @@ mod tests {
         let actual = persistent.query_task_page(&filtered).unwrap().value;
         assert_eq!(actual, expected);
         assert_eq!(actual.tasks.len(), 1);
-        assert_eq!(actual.tasks[0].task.id.as_ref().unwrap().value, "waiting");
+        assert_eq!(
+            actual.tasks.get(0).unwrap().task.id.as_ref().unwrap().value,
+            "waiting"
+        );
     }
 
     #[test]

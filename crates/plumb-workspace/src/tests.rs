@@ -482,7 +482,7 @@ fn resolves_same_and_cross_file_explicit_anchors() {
         1,
         "See `->{local {a note.plumb#local}}. See `->{literal a%20note.plumb#literal}.\n",
     );
-    let links = &workspace
+    let links = workspace
         .get("notes/b.plumb")
         .unwrap()
         .current
@@ -490,12 +490,13 @@ fn resolves_same_and_cross_file_explicit_anchors() {
         .unwrap()
         .output
         .links();
-    for (link, expected_path, expected_id) in [
-        (&links[0], "notes/a note.plumb", "local"),
-        (&links[1], "notes/a%20note.plumb", "literal"),
+    for (index, expected_path, expected_id) in [
+        (0, "notes/a note.plumb", "local"),
+        (1, "notes/a%20note.plumb", "literal"),
     ] {
+        let link = links.get(index).unwrap();
         assert!(matches!(
-            workspace.resolve_link("notes/b.plumb", link).unwrap().value,
+            workspace.resolve_link("notes/b.plumb", &link).unwrap().value,
             ResolvedTarget::Anchor { ref path, ref id, .. }
                 if path == Path::new(expected_path) && id == expected_id
         ));
@@ -507,7 +508,14 @@ fn headings_without_ids_do_not_resolve() {
     let mut workspace = Workspace::new();
     workspace.insert("a.plumb", 1, "`# No anchor\n\nSee `->{x #No-anchor}.\n");
     let entry = workspace.get("a.plumb").unwrap();
-    let link = &entry.current.as_ref().unwrap().output.links()[0];
+    let link = &entry
+        .current
+        .as_ref()
+        .unwrap()
+        .output
+        .links()
+        .get(0)
+        .unwrap();
     assert!(matches!(
         workspace.resolve_link("a.plumb", link).unwrap().value,
         ResolvedTarget::UnresolvedAnchor { .. }
@@ -600,12 +608,6 @@ fn document_revision_analysis_matches_fresh_semantics_after_local_edit() {
     let changed = old.replace("Middle", "Changed middle");
     let mut workspace = Workspace::new();
     workspace.insert("events.plumb", 1, old);
-    let cache = workspace
-        .begin_document_cache("events.plumb")
-        .unwrap()
-        .prepare()
-        .unwrap();
-    assert!(workspace.install_document_cache(cache));
     let pending = workspace
         .begin_document_revision("events.plumb", 2, changed.clone())
         .unwrap();
@@ -620,18 +622,7 @@ fn document_revision_analysis_matches_fresh_semantics_after_local_edit() {
         .as_ref()
         .unwrap();
     assert_eq!(current.output.as_ref(), &fresh);
-    assert_eq!(
-        current.green_semantics.as_ref().unwrap().event_cache_hits(),
-        4
-    );
-    assert_eq!(
-        current.green_semantics.as_ref().unwrap().local_cache_hits(),
-        Some(4)
-    );
-    assert_eq!(
-        current.green_semantics.as_ref().unwrap().list_cache_hits(),
-        Some(4)
-    );
+    assert_eq!(current.output.reused_semantic_node_count(), 4);
 
     let next = changed.replace("Last", "Changed last");
     let pending = workspace
@@ -647,28 +638,7 @@ fn document_revision_analysis_matches_fresh_semantics_after_local_edit() {
         .as_ref()
         .unwrap();
     assert_eq!(current.output.as_ref(), &fresh);
-    assert_eq!(
-        current.green_semantics.as_ref().unwrap().event_cache_hits(),
-        4
-    );
-    assert_eq!(
-        current.green_semantics.as_ref().unwrap().local_cache_hits(),
-        Some(4)
-    );
-    assert_eq!(
-        current.green_semantics.as_ref().unwrap().list_cache_hits(),
-        Some(4)
-    );
-}
-
-#[test]
-fn stale_green_cache_cannot_replace_a_newer_document_revision() {
-    let mut workspace = Workspace::new();
-    workspace.insert("note.plumb", 1, "Old\n");
-    let cache = workspace.begin_document_cache("note.plumb").unwrap();
-    workspace.insert("note.plumb", 2, "New\n");
-    assert!(!workspace.install_document_cache(cache.prepare().unwrap()));
-    assert_eq!(workspace.get("note.plumb").unwrap().revision, 2);
+    assert_eq!(current.output.reused_semantic_node_count(), 4);
 }
 
 #[test]
@@ -1232,7 +1202,9 @@ fn identity_rename_uses_exact_block_and_inline_value_ranges() {
             .unwrap()
             .output
             .tasks()
-            .tasks[0]
+            .tasks
+            .get(0)
+            .unwrap()
             .id
             .as_ref()
             .unwrap()
@@ -1566,9 +1538,11 @@ fn completes_and_resolves_relative_image_files() {
                     .valid_syntax()
                     .expect("semantic analysis requires valid syntax")
             )
-            .images()[0]
-                .source
-                .value,
+            .images()
+            .get(0)
+            .unwrap()
+            .source
+            .value,
             candidate.label
         );
     }
@@ -1597,7 +1571,7 @@ fn completes_and_resolves_relative_image_files() {
         .link_at(&source_path, source.find("image one").unwrap())
         .unwrap();
     assert_eq!(
-        workspace.resolve_link(&source_path, link).unwrap().value,
+        workspace.resolve_link(&source_path, &link).unwrap().value,
         ResolvedTarget::File {
             path: static_dir.join("image one.PNG")
         }
@@ -1607,7 +1581,7 @@ fn completes_and_resolves_relative_image_files() {
         .unwrap();
     assert_eq!(
         workspace
-            .resolve_link(&source_path, literal_percent)
+            .resolve_link(&source_path, &literal_percent)
             .unwrap()
             .value,
         ResolvedTarget::File {
@@ -1618,7 +1592,7 @@ fn completes_and_resolves_relative_image_files() {
         .image_at(&source_path, source.find("Result").unwrap())
         .unwrap();
     assert_eq!(
-        workspace.resolve_image(&source_path, image),
+        workspace.resolve_image(&source_path, &image),
         ResolvedTarget::File {
             path: static_dir.join("image one.PNG")
         }
@@ -1627,7 +1601,7 @@ fn completes_and_resolves_relative_image_files() {
         .image_at(&source_path, source.find("Literal percent").unwrap())
         .unwrap();
     assert_eq!(
-        workspace.resolve_image(&source_path, literal_percent_image),
+        workspace.resolve_image(&source_path, &literal_percent_image),
         ResolvedTarget::File {
             path: static_dir.join("literal%20name.PNG")
         }
@@ -1678,7 +1652,7 @@ fn resolves_file_attachments_and_reports_missing_targets() {
         .file_at(&source_path, source.find("Demo").unwrap())
         .unwrap();
     assert_eq!(
-        workspace.resolve_file(&source_path, file),
+        workspace.resolve_file(&source_path, &file),
         ResolvedTarget::File {
             path: root.join("static/demo.mp4")
         }
@@ -2086,7 +2060,9 @@ fn document_rename_rewrites_incoming_and_outgoing_relative_paths() {
         .as_ref()
         .unwrap()
         .output
-        .links()[0];
+        .links()
+        .get(0)
+        .unwrap();
     let offset = link.path_range.as_ref().unwrap().start;
     let target = workspace
         .path_rename_target_at("notes/b.plumb", offset)
@@ -2123,7 +2099,9 @@ fn document_rename_strengthens_verbatim_link_delimiters() {
         .as_ref()
         .unwrap()
         .output
-        .links()[0];
+        .links()
+        .get(0)
+        .unwrap();
     let target = workspace
         .path_rename_target_at("notes/b.plumb", link.path_range.as_ref().unwrap().start)
         .unwrap();
@@ -2156,7 +2134,9 @@ fn document_rename_preserves_rich_derived_link_label_structure() {
         .as_ref()
         .unwrap()
         .output
-        .links()[0];
+        .links()
+        .get(0)
+        .unwrap();
     let target = workspace
         .path_rename_target_at("notes/b.plumb", link.path_range.as_ref().unwrap().start)
         .unwrap();
@@ -2189,7 +2169,9 @@ fn document_rename_normalizes_multi_element_targets_and_preserves_declarations()
         .as_ref()
         .unwrap()
         .output
-        .links()[0];
+        .links()
+        .get(0)
+        .unwrap();
     assert_eq!(link.target.value, "a.plumb#a");
     assert_eq!(link.target_element_count, 2);
     assert_eq!(link.target_declaration_ranges.len(), 1);
@@ -2234,7 +2216,9 @@ fn resolves_open_task_dependencies_and_blocked_state() {
         .unwrap()
         .output
         .tasks()
-        .tasks[0];
+        .tasks
+        .get(0)
+        .unwrap();
     let blockers = workspace
         .open_task_dependencies("notes/review.plumb", task)
         .unwrap()
@@ -2259,7 +2243,7 @@ fn resolves_open_task_dependencies_and_blocked_state() {
     );
     assert_eq!(
         workspace.task_at("notes/review.plumb", task.range.start),
-        Some(task)
+        Some(task.clone())
     );
 
     let diagnostics = workspace.diagnostics("notes/review.plumb").unwrap().value;
@@ -2765,9 +2749,12 @@ fn task_status_cursor_falls_back_from_closed_child_to_open_parent() {
         .unwrap();
     assert_eq!(edit.document_changes[0].edits.len(), 1);
     let operation = &edit.document_changes[0].edits[0];
-    assert!(operation.range.start <= tasks[0].range.start);
-    assert!(operation.range.end >= tasks[0].range.end);
-    assert_ne!(operation.range.start, tasks[1].attribute_insert);
+    assert!(operation.range.start <= tasks.get(0).unwrap().range.start);
+    assert!(operation.range.end >= tasks.get(0).unwrap().range.end);
+    assert_ne!(
+        operation.range.start,
+        tasks.get(1).unwrap().attribute_insert
+    );
     let mut edited = source.to_string();
     edited.replace_range(operation.range.clone(), &operation.new_text);
     assert!(edited.contains("`@ outer"));
@@ -2879,7 +2866,10 @@ fn recurring_task_status_advances_and_clones_the_task_losslessly() {
             .expect("semantic analysis requires valid syntax"),
     );
     assert_eq!(output.tasks().tasks.len(), 4);
-    assert_eq!(output.tasks().tasks[2].state(), TaskState::Open);
+    assert_eq!(
+        output.tasks().tasks.get(2).unwrap().state(),
+        TaskState::Open
+    );
 }
 
 #[test]
@@ -2895,7 +2885,9 @@ fn recurring_task_clone_preserves_crlf_and_nested_base_indent() {
         .unwrap()
         .output
         .tasks()
-        .tasks[0];
+        .tasks
+        .get(0)
+        .unwrap();
     let line_start = source[..task.range.start]
         .rfind('\n')
         .map_or(0, |offset| offset + 1);
@@ -3732,7 +3724,9 @@ fn creates_nested_tasks_and_updates_fields_without_losing_owned_content() {
         .current_output(Path::new("tasks.plumb"))
         .unwrap()
         .tasks()
-        .tasks[0]
+        .tasks
+        .get(0)
+        .unwrap()
         .clone();
     let created = workspace
         .create_task(
@@ -3762,7 +3756,9 @@ fn creates_nested_tasks_and_updates_fields_without_losing_owned_content() {
         .current_output(Path::new("tasks.plumb"))
         .unwrap()
         .tasks()
-        .tasks[0]
+        .tasks
+        .get(0)
+        .unwrap()
         .clone();
     let updated = workspace
         .update_task(
@@ -3793,7 +3789,9 @@ fn creates_nested_tasks_and_updates_fields_without_losing_owned_content() {
         .current_output(Path::new("tasks.plumb"))
         .unwrap()
         .tasks()
-        .tasks[0]
+        .tasks
+        .get(0)
+        .unwrap()
         .clone();
     let patched = workspace
         .update_task_patch(
@@ -3874,7 +3872,9 @@ fn task_authoring_rejects_invalid_fields_and_placements() {
         .current_output(Path::new("tasks.plumb"))
         .unwrap()
         .tasks()
-        .tasks[1]
+        .tasks
+        .get(1)
+        .unwrap()
         .clone();
     assert!(matches!(
         workspace.update_task_patch(
@@ -3908,9 +3908,14 @@ fn moves_task_subtrees_within_and_between_parents() {
     assert_eq!(
         tasks
             .iter()
-            .map(|task| (task.id.as_ref().unwrap().value.as_str(), task.depth))
+            .map(|task| (task.id.as_ref().unwrap().value.clone(), task.depth))
             .collect::<Vec<_>>(),
-        [("left", 0), ("a", 1), ("b", 1), ("right", 0)]
+        [
+            ("left".to_string(), 0),
+            ("a".to_string(), 1),
+            ("b".to_string(), 1),
+            ("right".to_string(), 0)
+        ]
     );
     let by_id = |id: &str| {
         tasks

@@ -95,7 +95,7 @@ pub(super) enum TaskTargetResolution {
 }
 
 impl Workspace {
-    pub fn task_at(&self, path: impl AsRef<Path>, offset: usize) -> Option<&TaskRecord> {
+    pub fn task_at(&self, path: impl AsRef<Path>, offset: usize) -> Option<TaskRecord> {
         self.current_output(path.as_ref())?
             .tasks()
             .tasks
@@ -110,7 +110,7 @@ impl Workspace {
         task: &TaskRecord,
     ) -> Result<QueryResult<Vec<ResolvedTaskDependency>>, WorkspaceQueryError> {
         let dependencies = self
-            .task_dependencies_value(path.as_ref(), task)?
+            .task_dependencies_value(path.as_ref(), &task)?
             .into_iter()
             .filter(|dependency| dependency.task.state() == TaskState::Open)
             .collect();
@@ -122,7 +122,7 @@ impl Workspace {
         path: impl AsRef<Path>,
         task: &TaskRecord,
     ) -> Result<QueryResult<Vec<ResolvedTaskDependency>>, WorkspaceQueryError> {
-        Ok(self.query_result(self.task_dependencies_value(path.as_ref(), task)?))
+        Ok(self.query_result(self.task_dependencies_value(path.as_ref(), &task)?))
     }
 
     pub(super) fn task_dependencies_value(
@@ -212,7 +212,7 @@ impl Workspace {
         path: impl AsRef<Path>,
         task: &TaskRecord,
     ) -> Result<QueryResult<bool>, WorkspaceQueryError> {
-        Ok(self.query_result(self.is_task_blocked_value(path.as_ref(), task)?))
+        Ok(self.query_result(self.is_task_blocked_value(path.as_ref(), &task)?))
     }
 
     pub(super) fn is_task_blocked_value(
@@ -221,7 +221,7 @@ impl Workspace {
         task: &TaskRecord,
     ) -> Result<bool, WorkspaceQueryError> {
         Ok(self
-            .task_dependencies_value(path, task)?
+            .task_dependencies_value(path, &task)?
             .iter()
             .any(|dependency| dependency.task.state() == TaskState::Open))
     }
@@ -232,8 +232,11 @@ impl Workspace {
         task: &TaskRecord,
         now: DateTime<FixedOffset>,
     ) -> Result<QueryResult<(TaskWorkflowState, Vec<TaskWaitReason>)>, WorkspaceQueryError> {
-        let value =
-            derive_task_workflow_state(task, self.is_task_blocked_value(path.as_ref(), task)?, now);
+        let value = derive_task_workflow_state(
+            &task,
+            self.is_task_blocked_value(path.as_ref(), &task)?,
+            now,
+        );
         Ok(self.query_result(value))
     }
 
@@ -278,7 +281,7 @@ impl Workspace {
                     TaskEditError::TaskNotFound
                 }
             })?;
-        self.task_status_edit(entry, &path, task, status, timestamp)
+        self.task_status_edit(entry, &path, &task, status, timestamp)
     }
 
     pub fn convert_list_item_to_task(
@@ -371,7 +374,7 @@ impl Workspace {
         if task.recur.is_some() && task.due.is_some() {
             if status == TaskStatus::Done
                 && self
-                    .is_task_blocked_value(path, task)
+                    .is_task_blocked_value(path, &task)
                     .map_err(WorkspaceOperationError::Query)?
             {
                 return Err(TaskEditError::TaskBlocked.into());
@@ -382,7 +385,7 @@ impl Workspace {
         }
         if status == TaskStatus::Done
             && self
-                .is_task_blocked_value(path, task)
+                .is_task_blocked_value(path, &task)
                 .map_err(WorkspaceOperationError::Query)?
         {
             return Err(TaskEditError::TaskBlocked.into());
@@ -428,7 +431,7 @@ impl Workspace {
             .iter()
             .find(|task| task.id.as_ref().is_some_and(|task_id| task_id.value == id))
             .ok_or(TaskEditError::TaskNotFound)?;
-        self.task_status_edit(entry, &path, task, status, timestamp)
+        self.task_status_edit(entry, &path, &task, status, timestamp)
     }
 
     fn recurring_task_status_edit(
@@ -480,8 +483,9 @@ impl Workspace {
             return Err(TaskEditError::TaskNotFound);
         }
         let mut next = OwnedBlock::from_parsed(source, block);
+        let tasks = current.output.tasks().tasks.iter().collect::<Vec<_>>();
         let clone_context = RecurringTaskCloneContext {
-            tasks: &current.output.tasks().tasks,
+            tasks: &tasks,
             root: task,
             next_id: &next_id,
             timestamp,

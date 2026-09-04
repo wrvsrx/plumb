@@ -3,13 +3,14 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use plumb_semantics::{analyze_document, DocumentChange};
-use plumb_syntax::{parse, parse_incremental, parse_incremental_from_change, SourceChange};
+use plumb_syntax::{
+    parse, parse_incremental, parse_incremental_from_change, GreenDocument, SourceChange,
+};
 
 use crate::{
-    normalize, DocumentEntry, PendingDocumentAnalysis, PendingDocumentCache,
-    PreparedDocumentAnalysis, PreparedDocumentCache, QueryCompleteness, QueryProvenance,
-    QueryResult, SqliteSemanticStore, StoreError, VersionedDocumentOutput, Workspace,
-    WorkspaceQueryError,
+    normalize, DocumentEntry, PendingDocumentAnalysis, PreparedDocumentAnalysis, QueryCompleteness,
+    QueryProvenance, QueryResult, SqliteSemanticStore, StoreError, VersionedDocumentOutput,
+    Workspace, WorkspaceQueryError,
 };
 
 impl Workspace {
@@ -139,26 +140,25 @@ impl Workspace {
         let previous_output = previous
             .and_then(|entry| entry.current.as_ref())
             .map(|current| Arc::clone(&current.output));
-        let previous_green_syntax = previous
-            .and_then(|entry| entry.current.as_ref())
-            .and_then(|current| current.green_syntax.clone());
-        let previous_green_semantics = previous
-            .and_then(|entry| entry.current.as_ref())
-            .and_then(|current| current.green_semantics.clone());
-        let pending_source_change = source_change.clone();
-        let (parsed, change) = match previous {
+        let (parsed, change, fresh_syntax) = match previous {
             Some(entry) => {
+                let semantic_change = source_change
+                    .as_ref()
+                    .map(|change| DocumentChange {
+                        old_range: change.old_range.clone(),
+                        new_range: change.new_range.clone(),
+                    })
+                    .unwrap_or_else(|| exact_document_change(&entry.parsed.source, &source));
                 let incremental = match source_change {
                     Some(change) => parse_incremental_from_change(&entry.parsed, source, change),
                     None => parse_incremental(&entry.parsed, source),
                 };
-                let change = DocumentChange {
-                    old_range: incremental.old_reparsed_range,
-                    new_range: incremental.reparsed_range,
-                };
-                (incremental.document, Some(change))
+                (incremental.document, Some(semantic_change), None)
             }
-            None => (parse(source), None),
+            None => {
+                let syntax = Arc::new(GreenDocument::parse(source));
+                (syntax.materialize(), None, Some(syntax))
+            }
         };
         let parsed = Arc::new(parsed);
         let previous_last_valid = self
@@ -181,9 +181,7 @@ impl Workspace {
             parsed,
             previous_output,
             change,
-            previous_green_syntax,
-            previous_green_semantics,
-            source_change: pending_source_change,
+            fresh_syntax,
         })
     }
 
@@ -197,53 +195,9 @@ impl Workspace {
         let current = Arc::new(VersionedDocumentOutput {
             revision: analysis.revision,
             output: analysis.output,
-            green_syntax: analysis.green_syntax,
-            green_semantics: analysis.green_semantics,
         });
         entry.current = Some(Arc::clone(&current));
         entry.last_valid = Some(current);
-        true
-    }
-
-    pub fn begin_document_cache(&self, path: impl AsRef<Path>) -> Option<PendingDocumentCache> {
-        let entry = self.documents.get(&normalize(path.as_ref()))?;
-        let current = entry.current.as_ref()?;
-        if current.green_syntax.is_some() && current.green_semantics.is_some() {
-            return None;
-        }
-        Some(PendingDocumentCache {
-            path: entry.path.clone(),
-            revision: entry.revision,
-            parsed: Arc::clone(&entry.parsed),
-            output: Arc::clone(&current.output),
-        })
-    }
-
-    pub fn install_document_cache(&mut self, cache: PreparedDocumentCache) -> bool {
-        let Some(entry) = self.documents.get_mut(&cache.path) else {
-            return false;
-        };
-        let Some(current) = &entry.current else {
-            return false;
-        };
-        if entry.revision != cache.revision
-            || !Arc::ptr_eq(&entry.parsed, &cache.parsed)
-            || !Arc::ptr_eq(&current.output, &cache.output)
-        {
-            return false;
-        }
-        let warmed = Arc::new(VersionedDocumentOutput {
-            revision: current.revision,
-            output: Arc::clone(&current.output),
-            green_syntax: Some(cache.green_syntax),
-            green_semantics: Some(cache.green_semantics),
-        });
-        entry.current = Some(Arc::clone(&warmed));
-        if entry.last_valid.as_ref().is_some_and(|last| {
-            last.revision == cache.revision && Arc::ptr_eq(&last.output, &cache.output)
-        }) {
-            entry.last_valid = Some(warmed);
-        }
         true
     }
 
@@ -267,9 +221,7 @@ impl Workspace {
             parsed: Arc::clone(&entry.parsed),
             previous_output: None,
             change: None,
-            previous_green_syntax: None,
-            previous_green_semantics: None,
-            source_change: None,
+            fresh_syntax: None,
         };
         self.install_document_analysis(pending.analyze())
     }
@@ -303,8 +255,6 @@ impl Workspace {
             Err(output) => Arc::new(VersionedDocumentOutput {
                 revision,
                 output: Arc::clone(&output.output),
-                green_syntax: output.green_syntax.clone(),
-                green_semantics: output.green_semantics.clone(),
             }),
         };
         entry.current = Some(rebound.clone());
@@ -391,14 +341,32 @@ impl Workspace {
     }
 }
 
+fn exact_document_change(old: &str, new: &str) -> DocumentChange {
+    let prefix = old
+        .chars()
+        .zip(new.chars())
+        .take_while(|(old, new)| old == new)
+        .map(|(character, _)| character.len_utf8())
+        .sum::<usize>();
+    let suffix = old[prefix..]
+        .chars()
+        .rev()
+        .zip(new[prefix..].chars().rev())
+        .take_while(|(old, new)| old == new)
+        .map(|(character, _)| character.len_utf8())
+        .sum::<usize>();
+    DocumentChange {
+        old_range: prefix..old.len() - suffix,
+        new_range: prefix..new.len() - suffix,
+    }
+}
+
 fn document_entry_from_source(path: PathBuf, revision: i64, source: &str) -> DocumentEntry {
     let parsed = Arc::new(parse(source));
     let current = parsed.valid_syntax().map(|valid| {
         Arc::new(VersionedDocumentOutput {
             revision,
             output: Arc::new(analyze_document(valid)),
-            green_syntax: None,
-            green_semantics: None,
         })
     });
     DocumentEntry {

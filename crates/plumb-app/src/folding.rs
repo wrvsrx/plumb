@@ -93,7 +93,7 @@ pub(crate) fn task_labels(
         .tasks
         .iter()
         .filter_map(|task| {
-            let state = match task_label_state(workspace, path, task, now, index_complete) {
+            let state = match task_label_state(workspace, path, &task, now, index_complete) {
                 Ok(Some(state)) => state,
                 Ok(None) => return None,
                 Err(error) => {

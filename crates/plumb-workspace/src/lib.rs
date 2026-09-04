@@ -9,8 +9,7 @@ use plumb_edit::{
     AttributePosition, EditSession, OwnedAttribute, OwnedBlock, OwnedInline,
 };
 use plumb_semantics::{
-    analyze_document, analyze_document_incremental, analyze_green_document_incremental,
-    DocumentChange, GreenSemanticRevision,
+    analyze_document, analyze_document_incremental, analyze_green_document, DocumentChange,
 };
 use plumb_semantics::{
     parse_task_reference_target, AnchorRecord, DocumentOutput, EventRecord, LinkCompletionContext,
@@ -23,7 +22,6 @@ use plumb_semantics::{
 };
 use plumb_syntax::{
     Attributes, Block, Diagnostic, DiagnosticSeverity, GreenDocument, ParsedBlock, ParsedDocument,
-    SourceChange,
 };
 
 #[cfg(test)]
@@ -384,8 +382,6 @@ impl<T> QueryResult<T> {
 pub struct VersionedDocumentOutput {
     pub revision: i64,
     pub output: Arc<DocumentOutput>,
-    green_syntax: Option<Arc<GreenDocument>>,
-    green_semantics: Option<Arc<GreenSemanticRevision>>,
 }
 
 #[derive(Debug, Clone)]
@@ -404,9 +400,7 @@ pub struct PendingDocumentAnalysis {
     parsed: Arc<ParsedDocument>,
     previous_output: Option<Arc<DocumentOutput>>,
     change: Option<DocumentChange>,
-    previous_green_syntax: Option<Arc<GreenDocument>>,
-    previous_green_semantics: Option<Arc<GreenSemanticRevision>>,
-    source_change: Option<SourceChange>,
+    fresh_syntax: Option<Arc<GreenDocument>>,
 }
 
 #[derive(Debug)]
@@ -415,41 +409,6 @@ pub struct PreparedDocumentAnalysis {
     revision: i64,
     parsed: Arc<ParsedDocument>,
     output: Arc<DocumentOutput>,
-    green_syntax: Option<Arc<GreenDocument>>,
-    green_semantics: Option<Arc<GreenSemanticRevision>>,
-}
-
-#[derive(Debug, Clone)]
-pub struct PendingDocumentCache {
-    path: PathBuf,
-    revision: i64,
-    parsed: Arc<ParsedDocument>,
-    output: Arc<DocumentOutput>,
-}
-
-#[derive(Debug)]
-pub struct PreparedDocumentCache {
-    path: PathBuf,
-    revision: i64,
-    parsed: Arc<ParsedDocument>,
-    output: Arc<DocumentOutput>,
-    green_syntax: Arc<GreenDocument>,
-    green_semantics: Arc<GreenSemanticRevision>,
-}
-
-impl PendingDocumentCache {
-    pub fn prepare(self) -> Option<PreparedDocumentCache> {
-        let green_syntax = Arc::new(GreenDocument::parse(self.parsed.source.clone()));
-        let green_semantics = Arc::new(GreenSemanticRevision::warm(&green_syntax, &self.output)?);
-        Some(PreparedDocumentCache {
-            path: self.path,
-            revision: self.revision,
-            parsed: self.parsed,
-            output: self.output,
-            green_syntax,
-            green_semantics,
-        })
-    }
 }
 
 impl PendingDocumentAnalysis {
@@ -458,48 +417,18 @@ impl PendingDocumentAnalysis {
             .parsed
             .valid_syntax()
             .expect("pending semantic analysis requires valid syntax");
-        let mut green_syntax = None;
-        let mut green_semantics = None;
         let output = match (&self.previous_output, &self.change) {
-            (Some(previous), Some(change)) => {
-                let seeded = match (self.previous_green_syntax, self.previous_green_semantics) {
-                    (Some(syntax), Some(semantics)) => Some((syntax, semantics)),
-                    _ => None,
-                };
-                if let Some((previous_syntax, previous_semantics)) = seeded {
-                    let parsed = self.parsed.source.clone();
-                    let syntax = Arc::new(match self.source_change {
-                        Some(change) => {
-                            previous_syntax.reparse_from_change(parsed, change).document
-                        }
-                        None => previous_syntax.reparse(parsed).document,
-                    });
-                    if let Some(analysis) = analyze_green_document_incremental(
-                        valid,
-                        &syntax,
-                        previous,
-                        &previous_semantics,
-                        change,
-                    ) {
-                        green_syntax = Some(syntax);
-                        green_semantics = Some(Arc::new(analysis.revision));
-                        analysis.output
-                    } else {
-                        analyze_document_incremental(valid, previous, change)
-                    }
-                } else {
-                    analyze_document_incremental(valid, previous, change)
-                }
-            }
-            _ => analyze_document(valid),
+            (Some(previous), Some(change)) => analyze_document_incremental(valid, previous, change),
+            _ => self
+                .fresh_syntax
+                .and_then(|syntax| analyze_green_document(valid, syntax))
+                .unwrap_or_else(|| analyze_document(valid)),
         };
         PreparedDocumentAnalysis {
             path: self.path,
             revision: self.revision,
             parsed: self.parsed,
             output: Arc::new(output),
-            green_syntax,
-            green_semantics,
         }
     }
 }
@@ -650,9 +579,9 @@ impl Workspace {
                 continue;
             };
             for task in &current.output.tasks().tasks {
-                let blocked = self.is_task_blocked_value(&entry.path, task)?;
+                let blocked = self.is_task_blocked_value(&entry.path, &task)?;
                 if matches!(
-                    derive_task_workflow_state(task, blocked, now).0,
+                    derive_task_workflow_state(&task, blocked, now).0,
                     TaskWorkflowState::Ready | TaskWorkflowState::Blocked
                 ) {
                     keys.push(WorkspaceTaskKey {
@@ -707,7 +636,7 @@ impl Workspace {
                 continue;
             };
             for task in &current.output.tasks().tasks {
-                if self.is_task_blocked_value(&entry.path, task)? {
+                if self.is_task_blocked_value(&entry.path, &task)? {
                     blocked.insert((entry.path.clone(), task.range.start));
                 }
             }
@@ -766,7 +695,7 @@ impl Workspace {
         from: impl AsRef<Path>,
         link: &LinkRecord,
     ) -> Result<QueryResult<ResolvedTarget>, WorkspaceQueryError> {
-        Ok(self.query_result(self.resolve_link_value(from.as_ref(), link)?))
+        Ok(self.query_result(self.resolve_link_value(from.as_ref(), &link)?))
     }
 
     fn resolve_link_value(
@@ -823,7 +752,7 @@ impl Workspace {
         })
     }
 
-    pub fn link_at(&self, path: impl AsRef<Path>, offset: usize) -> Option<&LinkRecord> {
+    pub fn link_at(&self, path: impl AsRef<Path>, offset: usize) -> Option<LinkRecord> {
         self.current_output(path.as_ref())?
             .links()
             .iter()
@@ -882,7 +811,7 @@ impl Workspace {
             .filter(|link| contains_inclusive(&link.range, offset))
             .max_by_key(|link| link.range.start)
         {
-            let target = self.resolve_link_value(&path, link)?;
+            let target = self.resolve_link_value(&path, &link)?;
             if link
                 .path_range
                 .as_ref()
@@ -893,7 +822,7 @@ impl Workspace {
             return Ok(Some(target));
         }
         for task in &output.tasks().tasks {
-            for (source, range, target) in task_reference_fields(task) {
+            for (source, range, target) in task_reference_fields(&task) {
                 if !contains_inclusive(range, offset) {
                     continue;
                 }
@@ -935,10 +864,10 @@ impl Workspace {
             }
         }
         if let Some(image) = self.image_at(&path, offset) {
-            return Ok(Some(self.resolve_image(&path, image)));
+            return Ok(Some(self.resolve_image(&path, &image)));
         }
         if let Some(file) = self.file_at(&path, offset) {
-            return Ok(Some(self.resolve_file(&path, file)));
+            return Ok(Some(self.resolve_file(&path, &file)));
         }
         Ok(None)
     }
@@ -968,7 +897,7 @@ impl Workspace {
         Ok(self.query_result(target))
     }
 
-    pub fn anchor_at(&self, path: impl AsRef<Path>, offset: usize) -> Option<&AnchorRecord> {
+    pub fn anchor_at(&self, path: impl AsRef<Path>, offset: usize) -> Option<AnchorRecord> {
         self.current_output(path.as_ref())?
             .anchors()
             .iter()
@@ -999,7 +928,7 @@ impl Workspace {
             .filter(|link| contains_inclusive(&link.range, offset))
             .max_by_key(|link| link.range.start)
         {
-            return self.link_anchor_reference(&path, link);
+            return self.link_anchor_reference(&path, &link);
         }
         for task in &output.tasks().tasks {
             if let Some(prev) = &task.prev {
@@ -1113,14 +1042,14 @@ impl Workspace {
                 continue;
             };
             for link in current.output.links() {
-                if let Some(reference) = self.link_anchor_reference(&entry.path, link)? {
+                if let Some(reference) = self.link_anchor_reference(&entry.path, &link)? {
                     if reference.target_path == target_path && reference.target_id == target_id {
                         references.push((entry.path.clone(), reference));
                     }
                 }
             }
             for task in &current.output.tasks().tasks {
-                for (source, range, target) in task_reference_fields(task) {
+                for (source, range, target) in task_reference_fields(&task) {
                     if let Some(reference) =
                         self.task_anchor_reference(&entry.path, source, range, &target)?
                     {
@@ -1223,7 +1152,7 @@ impl Workspace {
                 continue;
             };
             for link in current.output.links() {
-                if resolved_document_path(self.resolve_link_value(&entry.path, link)?).as_ref()
+                if resolved_document_path(self.resolve_link_value(&entry.path, &link)?).as_ref()
                     == Some(&target_path)
                 {
                     let component_range = link
@@ -1242,7 +1171,7 @@ impl Workspace {
                 }
             }
             for task in &current.output.tasks().tasks {
-                for (source, range, target) in task_reference_fields(task) {
+                for (source, range, target) in task_reference_fields(&task) {
                     if resolved_document_path(
                         self.resolve_task_reference_target(&entry.path, &target)?,
                     )
@@ -1376,11 +1305,11 @@ impl Workspace {
                     link.fragment_range
                         .clone()
                         .unwrap_or_else(|| link.target.range.clone()),
-                    self.resolve_link_value(&entry.path, link)?,
+                    self.resolve_link_value(&entry.path, &link)?,
                 );
             }
             for task in &current.output.tasks().tasks {
-                for (source, range, target) in task_reference_fields(task) {
+                for (source, range, target) in task_reference_fields(&task) {
                     let (document_range, anchor_range) =
                         task_reference_component_ranges(source, range, &target)
                             .unwrap_or_else(|| (range.clone(), range.clone()));
@@ -1440,13 +1369,14 @@ impl Workspace {
         };
         let mut targets = HashSet::new();
         for link in output.links() {
-            if let Some(path) = resolved_document_path(self.resolve_link_value(&source_path, link)?)
+            if let Some(path) =
+                resolved_document_path(self.resolve_link_value(&source_path, &link)?)
             {
                 targets.insert(path);
             }
         }
         for task in &output.tasks().tasks {
-            for (_, _, target) in task_reference_fields(task) {
+            for (_, _, target) in task_reference_fields(&task) {
                 if let Some(path) = resolved_document_path(
                     self.resolve_task_reference_target(&source_path, &target)?,
                 ) {
@@ -1473,7 +1403,7 @@ impl Workspace {
         from: &Path,
         link: &LinkRecord,
     ) -> Result<Option<AnchorReference>, WorkspaceQueryError> {
-        let ResolvedTarget::Anchor { path, id, anchor } = self.resolve_link_value(from, link)?
+        let ResolvedTarget::Anchor { path, id, anchor } = self.resolve_link_value(from, &link)?
         else {
             return Ok(None);
         };
@@ -1842,7 +1772,7 @@ impl Workspace {
             else {
                 continue;
             };
-            let resolved = self.resolve_link_value(path, link)?;
+            let resolved = self.resolve_link_value(path, &link)?;
             let ResolvedTarget::Anchor {
                 path: resolved_path,
                 id,
@@ -1957,7 +1887,7 @@ impl Workspace {
         diagnostics.extend(current.output.events().diagnostics.clone());
         diagnostics.extend(current.output.diagnostics().iter().cloned());
         for link in current.output.links() {
-            let (code, message) = match self.resolve_link_value(&path, link)? {
+            let (code, message) = match self.resolve_link_value(&path, &link)? {
                 ResolvedTarget::UnresolvedPath { path } => (
                     "link.unresolved-path",
                     format!("unresolved plumb document '{}'", path.display()),
@@ -1985,7 +1915,7 @@ impl Workspace {
             });
         }
         for image in current.output.images() {
-            let ResolvedTarget::UnresolvedFile { path: target } = self.resolve_image(&path, image)
+            let ResolvedTarget::UnresolvedFile { path: target } = self.resolve_image(&path, &image)
             else {
                 continue;
             };
@@ -1998,7 +1928,7 @@ impl Workspace {
             });
         }
         for file in current.output.files() {
-            let ResolvedTarget::UnresolvedFile { path: target } = self.resolve_file(&path, file)
+            let ResolvedTarget::UnresolvedFile { path: target } = self.resolve_file(&path, &file)
             else {
                 continue;
             };
@@ -2114,7 +2044,7 @@ impl Workspace {
             }
             if task.state() == TaskState::Done {
                 let blockers = self
-                    .task_dependencies_value(path, task)?
+                    .task_dependencies_value(path, &task)?
                     .into_iter()
                     .filter(|dependency| dependency.task.state() == TaskState::Open)
                     .collect::<Vec<_>>();
@@ -2187,7 +2117,7 @@ impl Workspace {
             }
             if task.state() == TaskState::Open {
                 let blockers = self
-                    .task_dependencies_value(path, task)?
+                    .task_dependencies_value(path, &task)?
                     .into_iter()
                     .filter(|dependency| dependency.task.state() == TaskState::Open)
                     .collect::<Vec<_>>();
@@ -2366,7 +2296,7 @@ impl Workspace {
                     .is_some_and(|range| contains_inclusive(range, offset))
             })
         }) {
-            let old_path = match self.resolve_link_value(&path, link)? {
+            let old_path = match self.resolve_link_value(&path, &link)? {
                 ResolvedTarget::Anchor { path, .. } | ResolvedTarget::Document { path } => path,
                 _ => return Err(RenameError::NotRenameable.into()),
             };
@@ -2477,7 +2407,7 @@ impl Workspace {
                 let Some(path_range) = &link.path_range else {
                     continue;
                 };
-                let resolved = self.resolve_link_value(&entry.path, link)?;
+                let resolved = self.resolve_link_value(&entry.path, &link)?;
                 let old_target = match resolved {
                     ResolvedTarget::Anchor { path, .. } | ResolvedTarget::Document { path } => path,
                     _ => continue,
@@ -2495,10 +2425,15 @@ impl Workspace {
                 grouped
                     .entry(entry.path.clone())
                     .or_default()
-                    .push(link_path_rename_edit(entry, link, path_range, replacement)?);
+                    .push(link_path_rename_edit(
+                        entry,
+                        &link,
+                        path_range,
+                        replacement,
+                    )?);
             }
             for task in &current.output.tasks().tasks {
-                for (source, range, target) in task_reference_fields(task) {
+                for (source, range, target) in task_reference_fields(&task) {
                     let Some(reference) =
                         self.task_anchor_reference(&entry.path, source, range, &target)?
                     else {
@@ -2885,7 +2820,7 @@ impl Workspace {
         )?;
         let block = parsed_block_with_range(&entry.parsed.syntax.blocks, &task.range)
             .ok_or(TaskAuthoringError::TaskNotFound)?;
-        let moved = updated_owned_task(&entry.parsed.source, block, task, input, timestamp);
+        let moved = updated_owned_task(&entry.parsed.source, block, &task, input, timestamp);
         self.move_task_owned(entry, path, task.range.clone(), placement, moved)
             .map_err(Into::into)
     }
@@ -2959,7 +2894,7 @@ impl Workspace {
         )?;
         let block = parsed_block_with_range(&entry.parsed.syntax.blocks, &task.range)
             .ok_or(TaskAuthoringError::TaskNotFound)?;
-        let owned = updated_owned_task(&entry.parsed.source, block, task, &input, timestamp);
+        let owned = updated_owned_task(&entry.parsed.source, block, &task, &input, timestamp);
         let edit = replace_owned_block(&entry.parsed, task.range.clone(), &owned)
             .map_err(|_| TaskAuthoringError::GeneratedInvalid)?;
         Ok(single_document_edit(entry, path, edit))
@@ -3579,7 +3514,7 @@ impl Workspace {
                         .tasks()
                         .tasks
                         .iter()
-                        .any(|task| eligible(&entry.path, task))
+                        .any(|task| eligible(&entry.path, &task))
                     {
                         return None;
                     }
@@ -3607,7 +3542,7 @@ impl Workspace {
                         || !self
                             .tasks_for_path(&document.path)?
                             .iter()
-                            .any(|task| eligible(&document.path, task))
+                            .any(|task| eligible(&document.path, &task))
                     {
                         continue;
                     }
@@ -3654,7 +3589,7 @@ impl Workspace {
         let mut candidates = Vec::new();
         for task in target_tasks
             .iter()
-            .filter(|task| eligible(&target_path, task))
+            .filter(|task| eligible(&target_path, &task))
         {
             let Some(id) = task.id.as_ref() else {
                 continue;
@@ -3664,7 +3599,7 @@ impl Workspace {
             }
             let (state, _) = derive_task_workflow_state(
                 task,
-                self.is_task_blocked_value(&target_path, task)?,
+                self.is_task_blocked_value(&target_path, &task)?,
                 now,
             );
             let title = if task.title.is_empty() {
@@ -3708,7 +3643,6 @@ impl Workspace {
                 .into_iter()
                 .flat_map(|current| current.output.anchors())
                 .filter(|anchor| anchor.id.value == id)
-                .cloned()
                 .collect());
         }
         self.disk_store
@@ -3724,7 +3658,7 @@ impl Workspace {
             return Ok(entry
                 .current
                 .as_ref()
-                .map(|current| current.output.tasks().tasks.clone())
+                .map(|current| current.output.tasks().tasks.iter().collect())
                 .unwrap_or_default());
         }
         self.disk_store
@@ -3745,7 +3679,6 @@ impl Workspace {
                     .tasks()
                     .tasks
                     .iter()
-                    .cloned()
                     .map(|task| (entry.path.clone(), task))
                     .collect::<Vec<_>>()
             })

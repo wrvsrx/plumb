@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::document::attr_source_backed;
 use crate::text::plain_text;
+use crate::{RelativeSemanticRecord, SemanticRecords};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TaskField {
@@ -88,8 +89,40 @@ impl TaskRecord {
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct TaskOutput {
-    pub tasks: Vec<TaskRecord>,
+    pub tasks: SemanticRecords<TaskRecord>,
     pub diagnostics: Vec<Diagnostic>,
+}
+
+impl RelativeSemanticRecord for TaskRecord {
+    fn shift(&mut self, delta: isize) {
+        shift_range(&mut self.range, delta);
+        shift_range(&mut self.marker_range, delta);
+        shift_range(&mut self.selection_range, delta);
+        self.attribute_insert = self.attribute_insert.checked_add_signed(delta).unwrap();
+        shift_range(&mut self.attribute_range, delta);
+        for field in [
+            &mut self.id,
+            &mut self.created,
+            &mut self.due,
+            &mut self.wait,
+            &mut self.done,
+            &mut self.canceled,
+            &mut self.recur,
+            &mut self.prev,
+        ] {
+            if let Some(field) = field {
+                shift_range(&mut field.range, delta);
+            }
+        }
+        for dependency in &mut self.depends {
+            shift_range(&mut dependency.range, delta);
+        }
+    }
+}
+
+fn shift_range(range: &mut Range<usize>, delta: isize) {
+    range.start = range.start.checked_add_signed(delta).unwrap();
+    range.end = range.end.checked_add_signed(delta).unwrap();
 }
 
 pub fn analyze_tasks(valid: ValidDocument<'_>) -> TaskOutput {
@@ -496,7 +529,7 @@ mod tests {
         );
         assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
         assert_eq!(output.tasks.len(), 2);
-        let task = &output.tasks[0];
+        let task = &output.tasks.get(0).unwrap();
         assert_eq!(task.title, "Write parser");
         assert_eq!(task.depth, 0);
         assert_eq!(
@@ -521,8 +554,8 @@ mod tests {
             TaskReferenceTarget::External { ref path, ref id }
                 if path == "third.plumb" && id == "done"
         ));
-        assert_eq!(output.tasks[1].depth, 1);
-        assert_eq!(output.tasks[1].state(), TaskState::Done);
+        assert_eq!(output.tasks.get(1).unwrap().depth, 1);
+        assert_eq!(output.tasks.get(1).unwrap().state(), TaskState::Done);
     }
 
     #[test]
@@ -583,7 +616,7 @@ mod tests {
                 .valid_syntax()
                 .expect("semantic analysis requires valid syntax"),
         );
-        let task = &output.tasks[0];
+        let task = &output.tasks.get(0).unwrap();
         assert_eq!(task.depends.len(), 2);
         assert_eq!(
             &source[task.depends[0].range.clone()],
@@ -603,7 +636,7 @@ mod tests {
                 .valid_syntax()
                 .expect("semantic analysis requires valid syntax"),
         );
-        assert_eq!(output.tasks[0].state(), TaskState::Conflicted);
+        assert_eq!(output.tasks.get(0).unwrap().state(), TaskState::Conflicted);
         let codes = output
             .diagnostics
             .iter()
@@ -620,15 +653,18 @@ mod tests {
                 "task.invalid-datetime",
             ]
         );
-        assert_eq!(output.tasks[1].due, None);
+        assert_eq!(output.tasks.get(1).unwrap().due, None);
         assert_eq!(
-            output.tasks[2]
+            output
+                .tasks
+                .get(2)
+                .unwrap()
                 .created
                 .as_ref()
                 .map(|field| field.value.as_str()),
             Some("2026-07-20T09:00:00Z")
         );
-        assert_eq!(output.tasks[2].state(), TaskState::Open);
+        assert_eq!(output.tasks.get(2).unwrap().state(), TaskState::Open);
     }
 
     #[test]
@@ -642,12 +678,12 @@ mod tests {
                 .valid_syntax()
                 .expect("semantic analysis requires valid syntax"),
         );
-        assert_eq!(output.tasks[0].priority, Some(i32::MAX));
-        assert_eq!(output.tasks[1].priority, Some(-12));
-        assert_eq!(output.tasks[2].priority, Some(i32::MIN));
-        assert_eq!(output.tasks[3].priority, None);
-        assert_eq!(output.tasks[4].priority, None);
-        assert_eq!(output.tasks[5].priority, None);
+        assert_eq!(output.tasks.get(0).unwrap().priority, Some(i32::MAX));
+        assert_eq!(output.tasks.get(1).unwrap().priority, Some(-12));
+        assert_eq!(output.tasks.get(2).unwrap().priority, Some(i32::MIN));
+        assert_eq!(output.tasks.get(3).unwrap().priority, None);
+        assert_eq!(output.tasks.get(4).unwrap().priority, None);
+        assert_eq!(output.tasks.get(5).unwrap().priority, None);
         assert_eq!(
             output
                 .diagnostics

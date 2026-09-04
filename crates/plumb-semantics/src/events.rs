@@ -1,17 +1,16 @@
-use std::collections::HashMap;
 use std::ops::Range;
-use std::sync::Arc;
 
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveTime, TimeZone};
 use plumb_syntax::{
-    AttrItem, AttrValue, Block, Diagnostic, DiagnosticSeverity, GreenDocument, GreenShard, Inline,
-    ParsedBlock, ValidDocument,
+    AttrItem, AttrValue, Block, Diagnostic, DiagnosticSeverity, Inline, ParsedBlock, ValidDocument,
 };
 use serde::{Deserialize, Serialize};
 
 use crate::tasks::{task_reference_fields, TaskDependency};
 use crate::text::plain_text;
-use crate::{MetadataOutput, MetadataValue};
+use crate::{
+    MetadataOutput, MetadataValue, RelativeSemanticRecord, SemanticRecordView, SemanticRecords,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EventField {
@@ -79,22 +78,20 @@ impl EventRecord {
     }
 }
 
+impl RelativeSemanticRecord for EventRecord {
+    fn shift(&mut self, delta: isize) {
+        shift_events(std::slice::from_mut(self), delta);
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct EventOutput {
     pub events: EventRecords,
     pub diagnostics: Vec<Diagnostic>,
 }
 
-#[derive(Debug, Clone)]
-pub struct EventRecords {
-    storage: EventRecordStorage,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct EventRecordView<'a> {
-    record: &'a EventRecord,
-    offset: isize,
-}
+pub type EventRecords = SemanticRecords<EventRecord>;
+pub type EventRecordView<'a> = SemanticRecordView<'a, EventRecord>;
 
 impl<'a> EventRecordView<'a> {
     pub fn range(self) -> Range<usize> {
@@ -124,324 +121,11 @@ impl<'a> EventRecordView<'a> {
     pub fn sort_datetime(self) -> Option<DateTime<FixedOffset>> {
         self.record.sort_datetime()
     }
-
-    pub fn to_owned(self) -> EventRecord {
-        let mut record = self.record.clone();
-        shift_events(std::slice::from_mut(&mut record), self.offset);
-        record
-    }
 }
 
-#[derive(Debug, Clone)]
-enum EventRecordStorage {
-    Owned(Vec<EventRecord>),
-    Green(Arc<GreenEventRevision>),
-}
-
-impl Default for EventRecords {
-    fn default() -> Self {
-        Self {
-            storage: EventRecordStorage::Owned(Vec::new()),
-        }
-    }
-}
-
-impl PartialEq for EventRecords {
-    fn eq(&self, other: &Self) -> bool {
-        self.iter().eq(other.iter())
-    }
-}
-
-impl Eq for EventRecords {}
-
-impl EventRecords {
-    pub fn len(&self) -> usize {
-        match &self.storage {
-            EventRecordStorage::Owned(events) => events.len(),
-            EventRecordStorage::Green(revision) => revision.event_count(),
-        }
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-
-    pub fn get(&self, index: usize) -> Option<EventRecord> {
-        self.iter().nth(index)
-    }
-
-    pub fn iter(&self) -> Box<dyn Iterator<Item = EventRecord> + '_> {
-        match &self.storage {
-            EventRecordStorage::Owned(events) => Box::new(events.iter().cloned()),
-            EventRecordStorage::Green(revision) => Box::new(revision.events()),
-        }
-    }
-
-    pub fn views(&self) -> Box<dyn Iterator<Item = EventRecordView<'_>> + '_> {
-        match &self.storage {
-            EventRecordStorage::Owned(events) => Box::new(
-                events
-                    .iter()
-                    .map(|record| EventRecordView { record, offset: 0 }),
-            ),
-            EventRecordStorage::Green(revision) => Box::new(revision.event_views()),
-        }
-    }
-
+impl SemanticRecords<EventRecord> {
     pub fn ranges(&self) -> Box<dyn Iterator<Item = Range<usize>> + '_> {
-        match &self.storage {
-            EventRecordStorage::Owned(events) => {
-                Box::new(events.iter().map(|event| event.range.clone()))
-            }
-            EventRecordStorage::Green(revision) => Box::new(revision.event_ranges()),
-        }
-    }
-
-    fn push(&mut self, event: EventRecord) {
-        match &mut self.storage {
-            EventRecordStorage::Owned(events) => events.push(event),
-            EventRecordStorage::Green(_) => panic!("cannot append to an analyzed green revision"),
-        }
-    }
-
-    fn append_owned(&mut self, events: &mut Vec<EventRecord>) {
-        match &mut self.storage {
-            EventRecordStorage::Owned(current) => current.append(events),
-            EventRecordStorage::Green(_) => panic!("cannot append to an analyzed green revision"),
-        }
-    }
-
-    fn from_green(revision: Arc<GreenEventRevision>) -> Self {
-        Self {
-            storage: EventRecordStorage::Green(revision),
-        }
-    }
-
-    fn from_owned(events: Vec<EventRecord>) -> Self {
-        Self {
-            storage: EventRecordStorage::Owned(events),
-        }
-    }
-}
-
-impl<'a> IntoIterator for &'a EventRecords {
-    type Item = EventRecord;
-    type IntoIter = Box<dyn Iterator<Item = EventRecord> + 'a>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.iter()
-    }
-}
-
-impl EventOutput {
-    pub fn from_green(revision: Arc<GreenEventRevision>) -> Self {
-        let diagnostics = revision.diagnostics();
-        Self {
-            events: EventRecords::from_green(revision),
-            diagnostics,
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct GreenEventRevision {
-    context: EventContext,
-    shards: Vec<GreenEventShard>,
-    index: HashMap<usize, usize>,
-    cache_hits: usize,
-}
-
-#[derive(Debug, Clone)]
-struct GreenEventShard {
-    _syntax: Arc<GreenShard>,
-    offset: usize,
-    output: Arc<EventOutput>,
-}
-
-impl GreenEventRevision {
-    pub fn from_output(
-        document: &GreenDocument,
-        metadata: &MetadataOutput,
-        output: &EventOutput,
-    ) -> Option<Self> {
-        if !document.is_valid() {
-            return None;
-        }
-        let mut index = HashMap::with_capacity(document.shards().len());
-        let output_events = output.events.iter().collect::<Vec<_>>();
-        let mut event_index = 0;
-        let mut diagnostic_index = 0;
-        let mut shards = Vec::with_capacity(document.shards().len());
-        for (shard_index, view) in document.shards().enumerate() {
-            let syntax = Arc::clone(view.shard());
-            index.insert(Arc::as_ptr(&syntax) as usize, shard_index);
-            let range = view.range();
-            let mut events = Vec::new();
-            while output_events
-                .get(event_index)
-                .is_some_and(|event| event.range.start < range.end)
-            {
-                let event = &output_events[event_index];
-                if event.range.start < range.start || event.range.end > range.end {
-                    return None;
-                }
-                events.push(event.clone());
-                event_index += 1;
-            }
-            shift_events(&mut events, -(range.start as isize));
-            let mut diagnostics = Vec::new();
-            while output
-                .diagnostics
-                .get(diagnostic_index)
-                .is_some_and(|diagnostic| diagnostic.range.start < range.end)
-            {
-                let diagnostic = &output.diagnostics[diagnostic_index];
-                if diagnostic.range.start < range.start || diagnostic.range.end > range.end {
-                    return None;
-                }
-                diagnostics.push(diagnostic.clone());
-                diagnostic_index += 1;
-            }
-            shift_diagnostics(&mut diagnostics, -(range.start as isize));
-            shards.push(GreenEventShard {
-                _syntax: syntax,
-                offset: range.start,
-                output: Arc::new(EventOutput {
-                    events: EventRecords::from_owned(events),
-                    diagnostics,
-                }),
-            });
-        }
-        if event_index != output_events.len() || diagnostic_index != output.diagnostics.len() {
-            return None;
-        }
-        Some(Self {
-            context: EventContext::from_metadata(metadata),
-            shards,
-            index,
-            cache_hits: 0,
-        })
-    }
-
-    pub fn analyze(
-        document: &GreenDocument,
-        metadata: &MetadataOutput,
-        previous: Option<&Self>,
-    ) -> Option<Self> {
-        if !document.is_valid() {
-            return None;
-        }
-        let context = EventContext::from_metadata(metadata);
-        let reusable = previous.filter(|previous| previous.context == context);
-        let mut cache_hits = 0;
-        let mut index = HashMap::with_capacity(document.shards().len());
-        let shards = document
-            .shards()
-            .enumerate()
-            .map(|(shard_index, view)| {
-                let syntax = Arc::clone(view.shard());
-                let identity = Arc::as_ptr(&syntax) as usize;
-                let output = reusable
-                    .and_then(|previous| {
-                        previous
-                            .index
-                            .get(&identity)
-                            .map(|index| Arc::clone(&previous.shards[*index].output))
-                    })
-                    .map(|output| {
-                        cache_hits += 1;
-                        output
-                    })
-                    .unwrap_or_else(|| {
-                        Arc::new(analyze_events(
-                            syntax
-                                .parsed()
-                                .valid_syntax()
-                                .expect("valid green document has valid shards"),
-                            metadata,
-                        ))
-                    });
-                index.insert(identity, shard_index);
-                GreenEventShard {
-                    _syntax: syntax,
-                    offset: view.offset(),
-                    output,
-                }
-            })
-            .collect();
-        Some(Self {
-            context,
-            shards,
-            index,
-            cache_hits,
-        })
-    }
-
-    pub fn cache_hits(&self) -> usize {
-        self.cache_hits
-    }
-
-    pub fn shard_count(&self) -> usize {
-        self.shards.len()
-    }
-
-    pub fn materialize(&self) -> EventOutput {
-        let mut output = EventOutput::default();
-        for shard in &self.shards {
-            let mut local = (*shard.output).clone();
-            shift_event_output(&mut local, shard.offset as isize);
-            let mut events = local.events.iter().collect::<Vec<_>>();
-            output.events.append_owned(&mut events);
-            output.diagnostics.append(&mut local.diagnostics);
-        }
-        output
-            .diagnostics
-            .sort_by_key(|diagnostic| (diagnostic.range.start, diagnostic.range.end));
-        output
-    }
-
-    pub fn events(&self) -> impl Iterator<Item = EventRecord> + '_ {
-        self.event_views().map(EventRecordView::to_owned)
-    }
-
-    pub fn event_views(&self) -> impl Iterator<Item = EventRecordView<'_>> + '_ {
-        self.shards.iter().flat_map(|shard| {
-            shard
-                .output
-                .events
-                .views()
-                .map(move |view| EventRecordView {
-                    record: view.record,
-                    offset: view.offset + shard.offset as isize,
-                })
-        })
-    }
-
-    pub fn event_ranges(&self) -> impl Iterator<Item = Range<usize>> + '_ {
-        self.shards.iter().flat_map(|shard| {
-            shard.output.events.ranges().map(move |mut range| {
-                shift_range(&mut range, shard.offset as isize);
-                range
-            })
-        })
-    }
-
-    pub fn event_count(&self) -> usize {
-        self.shards
-            .iter()
-            .map(|shard| shard.output.events.len())
-            .sum()
-    }
-
-    pub fn diagnostics(&self) -> Vec<Diagnostic> {
-        let mut diagnostics = Vec::new();
-        for shard in &self.shards {
-            let mut local = shard.output.diagnostics.clone();
-            shift_diagnostics(&mut local, shard.offset as isize);
-            diagnostics.append(&mut local);
-        }
-        diagnostics.sort_by_key(|diagnostic| (diagnostic.range.start, diagnostic.range.end));
-        diagnostics
+        Box::new(self.views().map(EventRecordView::range))
     }
 }
 
@@ -468,78 +152,6 @@ pub fn analyze_events(valid: ValidDocument<'_>, metadata: &MetadataOutput) -> Ev
     output
 }
 
-pub(crate) fn analyze_events_incremental(
-    valid: ValidDocument<'_>,
-    metadata: &MetadataOutput,
-    previous_metadata: &MetadataOutput,
-    previous: &EventOutput,
-    old_range: &Range<usize>,
-    new_range: &Range<usize>,
-) -> EventOutput {
-    if EventContext::from_metadata(metadata) != EventContext::from_metadata(previous_metadata)
-        || (old_range.start == 0
-            && old_range.end == valid.source().len()
-            && new_range.start == 0
-            && new_range.end == valid.source().len())
-    {
-        return analyze_events(valid, metadata);
-    }
-    let source = valid.source();
-    let fragment = plumb_syntax::parse(source[new_range.clone()].to_string());
-    let Some(fragment) = fragment.valid_syntax() else {
-        return analyze_events(valid, metadata);
-    };
-    let mut changed = analyze_events(fragment, metadata);
-    shift_event_output(&mut changed, new_range.start as isize);
-    let suffix_delta = new_range.end as isize - old_range.end as isize;
-
-    let mut output = EventOutput::default();
-    let mut prefix_events = previous
-        .events
-        .iter()
-        .filter(|event| event.range.end <= old_range.start)
-        .collect::<Vec<_>>();
-    output.events.append_owned(&mut prefix_events);
-    output
-        .events
-        .append_owned(&mut changed.events.iter().collect::<Vec<_>>());
-    let mut suffix_events = previous
-        .events
-        .iter()
-        .filter(|event| event.range.start >= old_range.end)
-        .collect::<Vec<_>>();
-    shift_events(&mut suffix_events, suffix_delta);
-    output.events.append_owned(&mut suffix_events);
-
-    output.diagnostics.extend(
-        previous
-            .diagnostics
-            .iter()
-            .filter(|diagnostic| diagnostic.range.end <= old_range.start)
-            .cloned(),
-    );
-    output.diagnostics.append(&mut changed.diagnostics);
-    let mut suffix_diagnostics = previous
-        .diagnostics
-        .iter()
-        .filter(|diagnostic| diagnostic.range.start >= old_range.end)
-        .cloned()
-        .collect::<Vec<_>>();
-    shift_diagnostics(&mut suffix_diagnostics, suffix_delta);
-    output.diagnostics.append(&mut suffix_diagnostics);
-    output
-        .diagnostics
-        .sort_by_key(|diagnostic| (diagnostic.range.start, diagnostic.range.end));
-    output
-}
-
-fn shift_event_output(output: &mut EventOutput, delta: isize) {
-    let mut events = output.events.iter().collect::<Vec<_>>();
-    shift_events(&mut events, delta);
-    output.events = EventRecords::from_owned(events);
-    shift_diagnostics(&mut output.diagnostics, delta);
-}
-
 fn shift_events(events: &mut [EventRecord], delta: isize) {
     for event in events {
         shift_range(&mut event.range, delta);
@@ -561,15 +173,6 @@ fn shift_events(events: &mut [EventRecord], delta: isize) {
         }
         for task in &mut event.tasks {
             shift_range(&mut task.range, delta);
-        }
-    }
-}
-
-fn shift_diagnostics(diagnostics: &mut [Diagnostic], delta: isize) {
-    for diagnostic in diagnostics {
-        shift_range(&mut diagnostic.range, delta);
-        for related in &mut diagnostic.related {
-            shift_range(related, delta);
         }
     }
 }
@@ -1043,64 +646,6 @@ mod tests {
 
     use super::*;
 
-    #[test]
-    fn green_event_revision_reuses_relative_semantic_shards() {
-        let old = "`= date 2026-09-05\n`= timezone +08:00\n\n`- 09:00 First\n `+ event\n\n`- 10:00 Middle\n `+ event\n\n`- 11:00 Last\n `+ event\n";
-        let old_green = GreenDocument::parse(old);
-        let old_parsed = old_green.materialize();
-        let old_metadata = crate::analyze_metadata(old_parsed.valid_syntax().unwrap());
-        let old_events = analyze_events(old_parsed.valid_syntax().unwrap(), &old_metadata);
-        let previous =
-            GreenEventRevision::from_output(&old_green, &old_metadata, &old_events).unwrap();
-        assert_eq!(previous.materialize(), old_events);
-
-        let start = old.find("Middle").unwrap();
-        let mut new = old.to_string();
-        new.replace_range(start..start + "Middle".len(), "Changed middle");
-        let new_green = old_green
-            .reparse_from_change(
-                new.clone(),
-                plumb_syntax::SourceChange {
-                    old_range: start..start + "Middle".len(),
-                    new_range: start..start + "Changed middle".len(),
-                },
-            )
-            .document;
-        let new_parsed = new_green.materialize();
-        let new_metadata = crate::analyze_metadata(new_parsed.valid_syntax().unwrap());
-        let current =
-            GreenEventRevision::analyze(&new_green, &new_metadata, Some(&previous)).unwrap();
-
-        assert_eq!(current.cache_hits() + 1, current.shard_count());
-        assert_eq!(
-            current.materialize(),
-            analyze_events(new_parsed.valid_syntax().unwrap(), &new_metadata)
-        );
-    }
-
-    #[test]
-    fn green_event_revision_invalidates_all_shards_when_context_changes() {
-        let old = "`= date 2026-09-05\n`= timezone +08:00\n\n`- 09:00 Event\n `+ event\n";
-        let old_green = GreenDocument::parse(old);
-        let old_parsed = old_green.materialize();
-        let old_metadata = crate::analyze_metadata(old_parsed.valid_syntax().unwrap());
-        let old_events = analyze_events(old_parsed.valid_syntax().unwrap(), &old_metadata);
-        let previous =
-            GreenEventRevision::from_output(&old_green, &old_metadata, &old_events).unwrap();
-        let new = old.replace("2026-09-05", "2026-09-06");
-        let new_green = old_green.reparse(new.clone()).document;
-        let new_parsed = new_green.materialize();
-        let new_metadata = crate::analyze_metadata(new_parsed.valid_syntax().unwrap());
-        let current =
-            GreenEventRevision::analyze(&new_green, &new_metadata, Some(&previous)).unwrap();
-
-        assert_eq!(current.cache_hits(), 0);
-        assert_eq!(
-            current.materialize(),
-            analyze_events(new_parsed.valid_syntax().unwrap(), &new_metadata)
-        );
-    }
-
     fn analyze(source: &str) -> EventOutput {
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
@@ -1136,7 +681,7 @@ mod tests {
             "2026-07-31T09:00:00+08:00"
         );
         assert_eq!(event.tasks.len(), 2);
-        assert_eq!(event.tasks[1].source, "Project A.plumb#remote");
+        assert_eq!(event.tasks.get(1).unwrap().source, "Project A.plumb#remote");
         assert_eq!(output.events.get(1).unwrap().depth, 1);
     }
 

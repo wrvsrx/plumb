@@ -258,7 +258,7 @@ fn lower_list_group(blocks: &[&Block], group: &ListGroup, analysis: &DocumentOut
                 .events
                 .iter()
                 .find(|event| event.range.start == block.range.start);
-            if let Some(task) = task {
+            if let Some(ref task) = task {
                 let mut title = vec![json!({ "t": "Str", "c": task_state_marker(task.state()) })];
                 let inlines = lower_inlines(&block.content, analysis);
                 if !inlines.is_empty() {
@@ -314,7 +314,7 @@ fn lower_parsed_block(block: &ParsedBlock, analysis: &DocumentOutput, output: &m
         return;
     }
     if let Some(table) = analysis.tables().table_at_node_start(block.range.start) {
-        output.push(lower_table(block, table, analysis));
+        output.push(lower_table(block, &table, analysis));
         return;
     }
     if let Some(heading) = analysis.headings().heading_at_node_start(block.range.start) {
@@ -557,7 +557,7 @@ fn lower_inline_items(items: &[Inline], analysis: &DocumentOutput, output: &mut 
                 } else if let Some(citation) =
                     analysis.citations().citation_at_node_start(range.start)
                 {
-                    output.push(lower_citation(citation));
+                    output.push(lower_citation(&citation));
                 } else if let Some(image) = analysis.image_at_node_start(range.start) {
                     output.push(json!({
                         "t": "Image",

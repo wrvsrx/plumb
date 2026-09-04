@@ -63,9 +63,12 @@ impl Bibliography {
         }
     }
 
-    pub fn citation_diagnostics(&self, citations: &[CitationRecord]) -> Vec<Diagnostic> {
+    pub fn citation_diagnostics(
+        &self,
+        citations: impl IntoIterator<Item = CitationRecord>,
+    ) -> Vec<Diagnostic> {
         citations
-            .iter()
+            .into_iter()
             .filter_map(|citation| {
                 let (code, message) = match self.resolve(&citation.id) {
                     BibliographyResolution::Resolved(_) => return None,
@@ -364,7 +367,7 @@ mod tests {
         assert!(codes.contains(&"citation.unresolved-bibliography"));
         assert!(codes.contains(&"citation.duplicate-id"));
         assert_eq!(
-            bibliography.citation_diagnostics(&analysis.citations().citations)[0].code,
+            bibliography.citation_diagnostics(analysis.citations().citations.iter())[0].code,
             "citation.unresolved"
         );
     }
@@ -383,7 +386,7 @@ mod tests {
             &root.path().join("note.plumb"),
             analysis.metadata(),
         );
-        let diagnostics = bibliography.citation_diagnostics(&analysis.citations().citations);
+        let diagnostics = bibliography.citation_diagnostics(analysis.citations().citations.iter());
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].code, "citation.unresolved");
     }

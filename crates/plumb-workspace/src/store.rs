@@ -1566,7 +1566,7 @@ fn insert_output(
                 anchors::path.eq(encoded_path.clone()),
                 anchors::id.eq(&anchor.id.value),
                 anchors::start.eq(to_i64(anchor.range.start)?),
-                anchors::record.eq(encode(anchor)?),
+                anchors::record.eq(encode(&anchor)?),
             ))
             .execute(connection)?;
     }
@@ -1576,10 +1576,10 @@ fn insert_output(
                 links::path.eq(encoded_path.clone()),
                 links::start.eq(to_i64(link.range.start)?),
                 links::end.eq(to_i64(link.range.end)?),
-                links::record.eq(encode(link)?),
+                links::record.eq(encode(&link)?),
             ))
             .execute(connection)?;
-        if let Some(reference) = link_reference(path, link) {
+        if let Some(reference) = link_reference(path, &link) {
             insert_reference(connection, &reference)?;
         }
     }
@@ -1594,7 +1594,7 @@ fn insert_output(
                 tasks::id.eq(task.id.as_ref().map(|id| id.value.as_str())),
                 tasks::title.eq(&task.title),
                 tasks::start.eq(start),
-                tasks::record.eq(encode(task)?),
+                tasks::record.eq(encode(&task)?),
                 tasks::closure_state.eq(task_state_name(task.state())),
                 tasks::created_millis.eq(task_field_millis(task.created.as_ref())),
                 tasks::due_millis.eq(task_field_millis(task.due.as_ref())),
@@ -1632,7 +1632,7 @@ fn insert_output(
                 ))
                 .execute(connection)?;
         }
-        for (source, range, target) in task_reference_fields(task) {
+        for (source, range, target) in task_reference_fields(&task) {
             if let Some(reference) = task_reference(path, source, range, &target) {
                 insert_reference(connection, &reference)?;
             }
@@ -1749,7 +1749,7 @@ fn projected_event_task_associations(
         .unwrap_or_default()
         .iter()
         .filter_map(|link| {
-            let reference = link_reference(source_path, link)?;
+            let reference = link_reference(source_path, &link)?;
             Some(StoredEventTaskAssociation {
                 source_path: source_path.to_path_buf(),
                 event_start: event.range.start,
@@ -2439,8 +2439,8 @@ mod tests {
             "`- Second\n\n `+ task\n\n `@ second\n\n `= prev #first\n",
         );
         let output = analyzed(source);
-        let first_start = output.tasks().tasks[0].range.start;
-        let second_start = output.tasks().tasks[1].range.start;
+        let first_start = output.tasks().tasks.get(0).unwrap().range.start;
+        let second_start = output.tasks().tasks.get(1).unwrap().range.start;
         store
             .replace(Path::new("tasks.plumb"), 9, source, Some(&output))
             .unwrap();

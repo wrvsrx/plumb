@@ -19,7 +19,7 @@ impl Workspace {
         }
     }
 
-    pub fn image_at(&self, path: impl AsRef<Path>, offset: usize) -> Option<&ImageRecord> {
+    pub fn image_at(&self, path: impl AsRef<Path>, offset: usize) -> Option<ImageRecord> {
         self.current_output(path.as_ref())?
             .images()
             .iter()
@@ -41,7 +41,7 @@ impl Workspace {
         }
     }
 
-    pub fn file_at(&self, path: impl AsRef<Path>, offset: usize) -> Option<&FileRecord> {
+    pub fn file_at(&self, path: impl AsRef<Path>, offset: usize) -> Option<FileRecord> {
         self.current_output(path.as_ref())?
             .files()
             .iter()

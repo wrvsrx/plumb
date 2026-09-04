@@ -40,7 +40,10 @@ fn projects_metadata_tasks_events_and_document_structure() {
     assert_eq!(output.headings().headings.len(), 1);
     assert_eq!(output.anchors().len(), 2);
     assert_eq!(output.tasks().tasks.len(), 1);
-    assert_eq!(output.tasks().tasks[0].title, "Implement parser");
+    assert_eq!(
+        output.tasks().tasks.get(0).unwrap().title,
+        "Implement parser"
+    );
     assert_eq!(output.events().events.len(), 1);
     assert_eq!(
         output.events().events.get(0).unwrap().title,
@@ -58,7 +61,10 @@ fn projects_recursive_inline_forms_and_verbatim_math() {
     );
     let output = analyze(source);
     assert_eq!(output.links().len(), 2);
-    assert_eq!(output.links()[0].target.value, "Project Guide.plumb");
+    assert_eq!(
+        output.links().get(0).unwrap().target.value,
+        "Project Guide.plumb"
+    );
     assert_eq!(output.citations().citations.len(), 1);
     assert_eq!(
         output
@@ -101,12 +107,18 @@ fn first_rest_consumers_bind_trailing_elements_and_ignore_declarations() {
         output.events().diagnostics
     );
     assert_eq!(output.links().len(), 3);
-    assert_eq!(output.links()[0].target.value, "Project Guide.plumb");
-    assert_eq!(output.links()[1].target.value, "strongsuffix");
-    assert_eq!(&source[output.links()[1].selection_range.clone()], "prefix");
-    assert_eq!(output.links()[2].target.value, "target.plumb");
     assert_eq!(
-        &source[output.links()[2].selection_range.clone()],
+        output.links().get(0).unwrap().target.value,
+        "Project Guide.plumb"
+    );
+    assert_eq!(output.links().get(1).unwrap().target.value, "strongsuffix");
+    assert_eq!(
+        &source[output.links().get(1).unwrap().selection_range.clone()],
+        "prefix"
+    );
+    assert_eq!(output.links().get(2).unwrap().target.value, "target.plumb");
+    assert_eq!(
+        &source[output.links().get(2).unwrap().selection_range.clone()],
         "prefix`!{strong}suffix"
     );
     assert_eq!(output.events().events.len(), 1);
@@ -140,7 +152,7 @@ fn table_spaces_form_cells_and_expanded_rows_use_anonymous_children() {
         " `- name    age\n  `+ header\n",
         " `- {Alice Smith}    10\n",
     ));
-    let table = &compact.tables().tables[0];
+    let table = &compact.tables().tables.get(0).unwrap();
     assert_eq!(table.column_count, 2);
     assert_eq!(table.rows.len(), 2);
     assert!(table.rows[0].header);
@@ -150,12 +162,12 @@ fn table_spaces_form_cells_and_expanded_rows_use_anonymous_children() {
         " `-\n  `+ header\n  name\n  age\n",
         " `-\n\n  {Alice Smith}\n  10\n",
     ));
-    let table = &expanded.tables().tables[0];
+    let table = &expanded.tables().tables.get(0).unwrap();
     assert_eq!(table.column_count, 2);
     assert!(table.rows.iter().all(|row| !row.compact));
 
     let adjacent = analyze("`table\n `- A`!{B}C\n");
-    let row = &adjacent.tables().tables[0].rows[0];
+    let row = &adjacent.tables().tables.get(0).unwrap().rows[0];
     assert_eq!(row.cells.len(), 3);
 }
 

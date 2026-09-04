@@ -1,4 +1,4 @@
-use plumb_semantics::{TaskRecord, TaskState};
+use plumb_semantics::{SemanticRecords, TaskRecord, TaskState};
 
 pub(crate) fn physical_line_ranges(
     source: &str,
@@ -25,7 +25,10 @@ pub(crate) fn physical_line_ranges(
     ranges
 }
 
-pub(crate) fn closed_task_token_ranges(tasks: &[TaskRecord]) -> Vec<(std::ops::Range<usize>, u32)> {
+pub(crate) fn closed_task_token_ranges(
+    tasks: &SemanticRecords<TaskRecord>,
+) -> Vec<(std::ops::Range<usize>, u32)> {
+    let tasks = tasks.iter().collect::<Vec<_>>();
     let mut children = vec![Vec::new(); tasks.len()];
     let mut ancestors: Vec<usize> = Vec::new();
     for (index, task) in tasks.iter().enumerate() {
