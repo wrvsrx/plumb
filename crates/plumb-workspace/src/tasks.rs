@@ -305,7 +305,7 @@ impl Workspace {
         if mark.attrs.has_class("task") {
             return Err(TaskEditError::TaskAlreadyExists);
         }
-        let mut owned = OwnedBlock::from_parsed(&entry.parsed.source, item);
+        let mut owned = OwnedBlock::from_parsed(entry.parsed.source(), item);
         owned.retain_attributes(
             |attribute| !matches!(attribute, OwnedAttribute::Class(value) if value == "task"),
         );
@@ -353,7 +353,7 @@ impl Workspace {
         }
         let block = parsed_block_with_range(&entry.parsed.syntax.blocks, &task.range)
             .ok_or(TaskEditError::TaskNotFound)?;
-        let mut owned = OwnedBlock::from_parsed(&entry.parsed.source, block);
+        let mut owned = OwnedBlock::from_parsed(entry.parsed.source(), block);
         owned.push_attribute(OwnedAttribute::quoted("created", timestamp));
         let edit = replace_owned_block(&entry.parsed, block.range.clone(), &owned)
             .map_err(|_| TaskEditError::GeneratedInvalid)?;
@@ -395,7 +395,7 @@ impl Workspace {
         if block.mark.is_none() {
             return Err(TaskEditError::TaskNotFound.into());
         }
-        let mut owned = OwnedBlock::from_parsed(&entry.parsed.source, block);
+        let mut owned = OwnedBlock::from_parsed(entry.parsed.source(), block);
         owned.push_attribute(OwnedAttribute::quoted(status.attribute(), timestamp));
         let mut edit = EditSession::new(&entry.parsed, block.range.clone())
             .map_err(|_| TaskEditError::GeneratedInvalid)?;
@@ -476,7 +476,7 @@ impl Workspace {
             });
         let next_id = unique_task_instance_id(&task.title, &next_due, &reserved);
 
-        let source = &entry.parsed.source;
+        let source = entry.parsed.source();
         let block = parsed_block_with_range(&entry.parsed.syntax.blocks, &task.range)
             .ok_or(TaskEditError::TaskNotFound)?;
         if block.mark.is_none() {

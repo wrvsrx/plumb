@@ -191,7 +191,7 @@ fn set_task_status_target(
         .workspace
         .get(&path)
         .ok_or_else(|| format!("task document is not indexed: {}", path.display()))?;
-    let source = entry.parsed.source.clone();
+    let source = entry.parsed.source().to_string();
     let revision = entry.revision;
     let updated = apply_document_edit(source, &path, revision, edit)
         .map_err(|error| format!("cannot apply task edit: {error:?}"))?;

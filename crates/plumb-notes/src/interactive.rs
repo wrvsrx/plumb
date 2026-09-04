@@ -71,7 +71,7 @@ pub(crate) fn run_interactive(
         sender
             .send(Arc::new(FilterItem::new(
                 display_path(root, path),
-                entry.parsed.source.clone(),
+                entry.parsed.source().to_string(),
             )))
             .map_err(|error| format!("cannot send item to skim: {error}"))?;
     }

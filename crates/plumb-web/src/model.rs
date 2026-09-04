@@ -540,7 +540,7 @@ impl WebWorkspace {
                     entry.path.clone(),
                     Arc::new(LazyDocument {
                         revision: entry.revision,
-                        source: Arc::from(entry.parsed.source.as_str()),
+                        source: Arc::from(entry.parsed.source()),
                         entry: OnceLock::new(),
                         #[cfg(test)]
                         generation_reused: false,
@@ -1352,8 +1352,8 @@ impl WebWorkspace {
             title: self.title(path),
             path: display_path(&self.root, path),
             revision: current.revision,
-            location: SourceLocation::new(&self.root, path, 0..entry.parsed.source.len()),
-            source: entry.parsed.source.clone(),
+            location: SourceLocation::new(&self.root, path, 0..entry.parsed.source().len()),
+            source: entry.parsed.source().to_string(),
             backlinks,
         }))
     }
@@ -1666,7 +1666,11 @@ impl WebWorkspace {
             .document_entry(path)?
             .ok_or_else(|| format!("document is no longer indexed: {}", path.display()))?;
         let mut workspace = self.workspace.clone();
-        workspace.open_document(&entry.path, entry.revision, entry.parsed.source.clone());
+        workspace.open_document(
+            &entry.path,
+            entry.revision,
+            entry.parsed.source().to_string(),
+        );
         Ok(workspace)
     }
 

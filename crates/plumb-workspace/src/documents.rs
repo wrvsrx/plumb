@@ -271,7 +271,7 @@ impl Workspace {
     ) -> Result<Option<DocumentEntry>, WorkspaceQueryError> {
         let path = normalize(path.as_ref());
         if let Some(entry) = self.documents.get(&path) {
-            return Ok((entry.parsed.source == source).then(|| entry.clone()));
+            return Ok((entry.parsed.source() == source).then(|| entry.clone()));
         }
         let Some(store) = &self.disk_store else {
             return Ok(None);

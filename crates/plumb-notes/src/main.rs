@@ -301,7 +301,7 @@ fn render_workspace_diagnostics(
     let mut has_failures = false;
     for entry in entries {
         let path = &entry.path;
-        let source = &entry.parsed.source;
+        let source = entry.parsed.source();
         let mut diagnostics = loaded
             .workspace
             .diagnostics(path)

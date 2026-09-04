@@ -2569,7 +2569,7 @@ impl Workspace {
 
         let metadata = plumb_edit::aligned_associations(&[("title", title), ("created", created)]);
         let affected = 0..if entry.parsed.syntax.blocks.is_empty() {
-            entry.parsed.source.len()
+            entry.parsed.source().len()
         } else {
             0
         };
@@ -2622,7 +2622,7 @@ impl Workspace {
             .blocks
             .last()
             .map(|block| (block.range().clone(), Some(block.range().clone())))
-            .unwrap_or_else(|| (0..entry.parsed.source.len(), None));
+            .unwrap_or_else(|| (0..entry.parsed.source().len(), None));
         let mut edit = EditSession::new(&entry.parsed, affected)
             .map_err(|_| EventEditError::GeneratedInvalid)?;
         if let Some(after) = after {
@@ -2659,16 +2659,16 @@ impl Workspace {
         let current = entry.current.as_ref().expect("current output checked");
         let next = next_parsed_sibling(&entry.parsed.syntax.blocks, &item.range);
         let inferred_end = next.and_then(|next| {
-            inferred_end_from_sibling(&entry.parsed.source, next, now, &current.output.metadata())
+            inferred_end_from_sibling(entry.parsed.source(), next, now, &current.output.metadata())
         });
         let (input, title_start) = parse_event_shorthand_head(
-            &entry.parsed.source,
+            entry.parsed.source(),
             item,
             now,
             &current.output.metadata(),
             inferred_end,
         )?;
-        let mut owned = OwnedBlock::from_parsed(&entry.parsed.source, item);
+        let mut owned = OwnedBlock::from_parsed(entry.parsed.source(), item);
         owned.retain_attributes(
             |attribute| !matches!(attribute, OwnedAttribute::Class(value) if value == "event"),
         );
@@ -2711,9 +2711,9 @@ impl Workspace {
                 .blocks
                 .get(index + 1)
                 .and_then(parsed_block);
-            let mut owned = OwnedBlock::from_parsed(&entry.parsed.source, parsed);
+            let mut owned = OwnedBlock::from_parsed(entry.parsed.source(), parsed);
             let count = convert_shorthands_in_block(
-                &entry.parsed.source,
+                entry.parsed.source(),
                 parsed,
                 next_sibling,
                 &mut owned,
@@ -2775,7 +2775,7 @@ impl Workspace {
             if !parent_task {
                 return Err(TaskAuthoringError::InvalidPlacement.into());
             }
-            let mut owned = OwnedBlock::from_parsed(&entry.parsed.source, parent);
+            let mut owned = OwnedBlock::from_parsed(entry.parsed.source(), parent);
             let children = owned.children_mut().expect("parsed block has children");
             let index = child_insertion_index(&parent.children, placement.after.as_ref())?;
             children.insert(index, task);
@@ -2789,7 +2789,7 @@ impl Workspace {
                 .after
                 .as_ref()
                 .or_else(|| entry.parsed.syntax.blocks.last().map(Block::range));
-            let affected = after.cloned().unwrap_or(0..entry.parsed.source.len());
+            let affected = after.cloned().unwrap_or(0..entry.parsed.source().len());
             let mut edit = EditSession::new(&entry.parsed, affected.clone())
                 .map_err(|_| TaskAuthoringError::GeneratedInvalid)?;
             if let Some(after) = after {
@@ -2875,7 +2875,7 @@ impl Workspace {
         )?;
         let block = parsed_block_with_range(&entry.parsed.syntax.blocks, &task.range)
             .ok_or(TaskAuthoringError::TaskNotFound)?;
-        let moved = updated_owned_task(&entry.parsed.source, block, &task, input, timestamp);
+        let moved = updated_owned_task(entry.parsed.source(), block, &task, input, timestamp);
         self.move_task_owned(entry, path, task.range.clone(), placement, moved)
             .map_err(Into::into)
     }
@@ -2949,7 +2949,7 @@ impl Workspace {
         )?;
         let block = parsed_block_with_range(&entry.parsed.syntax.blocks, &task.range)
             .ok_or(TaskAuthoringError::TaskNotFound)?;
-        let owned = updated_owned_task(&entry.parsed.source, block, &task, &input, timestamp);
+        let owned = updated_owned_task(entry.parsed.source(), block, &task, &input, timestamp);
         let edit = replace_owned_block(&entry.parsed, task.range.clone(), &owned)
             .map_err(|_| TaskAuthoringError::GeneratedInvalid)?;
         Ok(single_document_edit(entry, path, edit))
@@ -2979,7 +2979,7 @@ impl Workspace {
             .ok_or(TaskAuthoringError::TaskNotFound)?;
         let source = parsed_block_with_range(&entry.parsed.syntax.blocks, &task.range)
             .ok_or(TaskAuthoringError::TaskNotFound)?;
-        let moved = OwnedBlock::from_parsed(&entry.parsed.source, source);
+        let moved = OwnedBlock::from_parsed(entry.parsed.source(), source);
         self.move_task_owned(entry, path, task.range.clone(), placement, moved)
     }
 
@@ -3034,7 +3034,7 @@ impl Workspace {
                     insertion -= 1;
                 }
                 adjust_path_after_removal(&mut parent_relative, source_relative);
-                let mut owned_root = OwnedBlock::from_parsed(&entry.parsed.source, root);
+                let mut owned_root = OwnedBlock::from_parsed(entry.parsed.source(), root);
                 remove_owned_at_path(&mut owned_root, source_relative)
                     .ok_or(TaskAuthoringError::InvalidPlacement)?;
                 owned_at_path_mut(&mut owned_root, &parent_relative)
@@ -3068,7 +3068,7 @@ impl Workspace {
             let after = top_level_after.as_ref().expect("checked after");
             let ancestor = parsed_block_with_range(&entry.parsed.syntax.blocks, after)
                 .ok_or(TaskAuthoringError::InvalidPlacement)?;
-            let mut owned_ancestor = OwnedBlock::from_parsed(&entry.parsed.source, ancestor);
+            let mut owned_ancestor = OwnedBlock::from_parsed(entry.parsed.source(), ancestor);
             if !remove_owned_descendant(ancestor, &mut owned_ancestor, &task_range) {
                 return Err(TaskAuthoringError::InvalidPlacement);
             }
@@ -3089,7 +3089,7 @@ impl Workspace {
                 .iter()
                 .position(|child| child.range() == &task_range)
                 .ok_or(TaskAuthoringError::InvalidPlacement)?;
-            let mut owned_parent = OwnedBlock::from_parsed(&entry.parsed.source, parent);
+            let mut owned_parent = OwnedBlock::from_parsed(entry.parsed.source(), parent);
             owned_parent
                 .children_mut()
                 .expect("parsed parent")
@@ -3115,7 +3115,7 @@ impl Workspace {
             if !is_task {
                 return Err(TaskAuthoringError::InvalidPlacement);
             }
-            let mut owned = OwnedBlock::from_parsed(&entry.parsed.source, parent);
+            let mut owned = OwnedBlock::from_parsed(entry.parsed.source(), parent);
             let index = child_insertion_index(&parent.children, placement.after.as_ref())?;
             owned
                 .children_mut()
@@ -3218,7 +3218,7 @@ impl Workspace {
             .ok_or(EventEditError::EventNotFound)?;
         let block = parsed_block_with_range(&entry.parsed.syntax.blocks, &event.range)
             .ok_or(EventEditError::EventNotFound)?;
-        let mut owned = OwnedBlock::from_parsed(&entry.parsed.source, block);
+        let mut owned = OwnedBlock::from_parsed(entry.parsed.source(), block);
         set_event_head(&mut owned, input);
         owned.retain_attributes(|attribute| {
             !matches!(attribute, OwnedAttribute::Pair { key, .. } if matches!(key.as_str(), "date" | "timezone" | "at" | "start" | "end" | "tasks"))
@@ -4589,7 +4589,7 @@ fn link_path_rename_edit(
             escape_parsed_text(&format!("{replacement}{}", &link.target.value[path_end..]));
         for declaration in &link.target_declaration_ranges {
             new_text.push(' ');
-            new_text.push_str(&entry.parsed.source[declaration.clone()]);
+            new_text.push_str(&entry.parsed.source()[declaration.clone()]);
         }
         return validated_token_edit(entry, link.target_range.clone(), new_text);
     }

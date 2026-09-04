@@ -517,7 +517,7 @@ impl ServerState {
         let snapshot = self
             .workspace
             .get(&old_path)
-            .map(|entry| (entry.revision, entry.parsed.source.clone()))
+            .map(|entry| (entry.revision, entry.parsed.source().to_string()))
             .or_else(|| fs::read_to_string(&old_path).ok().map(|source| (0, source)));
         if let Some((revision, source)) = snapshot {
             self.workspace.open_document(&new_path, revision, source);
@@ -759,7 +759,7 @@ fn search_workspace(
 fn search_item(workspace: &Workspace, record: SearchRecord) -> Result<SearchItem, ResponseError> {
     let disk_source;
     let source = if let Some(entry) = workspace.get(&record.path) {
-        &entry.parsed.source
+        entry.parsed.source()
     } else {
         disk_source = fs::read_to_string(&record.path).map_err(|_| {
             ResponseError::new(ErrorCode::INTERNAL_ERROR, "search record lost its document")
@@ -1193,7 +1193,7 @@ impl LanguageServer for ServerState {
                     .headings()
                     .headings
                     .iter()
-                    .map(|heading| heading_symbol(&entry.parsed.source, heading))
+                    .map(|heading| heading_symbol(entry.parsed.source(), heading))
                     .collect::<Vec<_>>();
                 let mut additional = current
                     .output
@@ -1217,14 +1217,14 @@ impl LanguageServer for ServerState {
                     .map(|anchor| {
                         (
                             anchor.range.start,
-                            anchor_symbol(&entry.parsed.source, &anchor),
+                            anchor_symbol(entry.parsed.source(), &anchor),
                         )
                     })
                     .collect::<Vec<_>>();
                 if let Some(metadata) = &current.output.metadata().metadata {
                     additional.push((
                         metadata.range.start,
-                        metadata_symbol(&entry.parsed.source, metadata),
+                        metadata_symbol(entry.parsed.source(), metadata),
                     ));
                 }
                 additional.extend(
@@ -1236,7 +1236,7 @@ impl LanguageServer for ServerState {
                         .filter(|task| task.depth == 0)
                         .map(|task| task.range.start)
                         .zip(task_symbols(
-                            &entry.parsed.source,
+                            entry.parsed.source(),
                             &current.output.tasks().tasks,
                         )),
                 );
@@ -1249,7 +1249,7 @@ impl LanguageServer for ServerState {
                         .filter(|event| event.depth == 0)
                         .map(|event| event.range.start)
                         .zip(event_symbols(
-                            &entry.parsed.source,
+                            entry.parsed.source(),
                             &current.output.events().events,
                         )),
                 );
@@ -1361,7 +1361,7 @@ impl LanguageServer for ServerState {
             .ok()
             .and_then(|path| self.workspace.get(path))
             .and_then(|entry| {
-                let source = &entry.parsed.source;
+                let source = entry.parsed.source();
                 let edits =
                     plumb_edit::format(&entry.parsed, plumb_edit::FormatScope::Document).ok()?;
                 Some(
@@ -1387,7 +1387,7 @@ impl LanguageServer for ServerState {
             .ok()
             .and_then(|path| self.workspace.get(path))
             .and_then(|entry| {
-                let source = &entry.parsed.source;
+                let source = entry.parsed.source();
                 let selection = position_to_offset(source, params.range.start)
                     ..position_to_offset(source, params.range.end);
                 let edits = plumb_edit::format(
@@ -1423,7 +1423,7 @@ impl LanguageServer for ServerState {
             let Some(entry) = self.workspace.get(&path) else {
                 return Ok(None);
             };
-            let offset = position_to_offset(&entry.parsed.source, position.position);
+            let offset = position_to_offset(entry.parsed.source(), position.position);
             if let Some(citation) = entry.current.as_ref().and_then(|current| {
                 current
                     .output
@@ -1492,7 +1492,7 @@ impl LanguageServer for ServerState {
             let Some(entry) = self.workspace.get(&path) else {
                 return Ok(None);
             };
-            let offset = position_to_offset(&entry.parsed.source, position.position);
+            let offset = position_to_offset(entry.parsed.source(), position.position);
             match self
                 .target_at_with_lazy_load(&path, offset)
                 .map_err(workspace_query_response_error)?
@@ -1594,7 +1594,7 @@ impl LanguageServer for ServerState {
                 format!("{count} file references")
             };
             lenses.push(reference_code_lens(
-                &entry.parsed.source,
+                entry.parsed.source(),
                 &uri,
                 &(0..0),
                 title,
@@ -1625,7 +1625,7 @@ impl LanguageServer for ServerState {
                 } else {
                     anchor.range.start..anchor.range.start
                 };
-                reference_code_lens(&entry.parsed.source, &uri, &lens_range, title, locations)
+                reference_code_lens(entry.parsed.source(), &uri, &lens_range, title, locations)
             }));
             Ok(Some(lenses))
         })();
@@ -1649,7 +1649,7 @@ impl LanguageServer for ServerState {
                 let Some(entry) = self.workspace.get(&path) else {
                     return Ok(None);
                 };
-                position_to_offset(&entry.parsed.source, position.position)
+                position_to_offset(entry.parsed.source(), position.position)
             };
             if let Some(citation) = self
                 .workspace
@@ -1683,7 +1683,7 @@ impl LanguageServer for ServerState {
                         value: format!("**Citation:** `{}`\n\n{}", record.id, record.detail()),
                     }),
                     range: Some(byte_range_to_lsp(
-                        &entry.parsed.source,
+                        entry.parsed.source(),
                         &citation.selection_range,
                     )),
                 }));
@@ -1699,7 +1699,7 @@ impl LanguageServer for ServerState {
                         value: file_hover(&target, &file),
                     }),
                     range: Some(byte_range_to_lsp(
-                        &entry.parsed.source,
+                        entry.parsed.source(),
                         &file.selection_range,
                     )),
                 }));
@@ -1715,7 +1715,7 @@ impl LanguageServer for ServerState {
                         value: image_hover(&target, &image),
                     }),
                     range: Some(byte_range_to_lsp(
-                        &entry.parsed.source,
+                        entry.parsed.source(),
                         &image.selection_range,
                     )),
                 }));
@@ -1734,7 +1734,7 @@ impl LanguageServer for ServerState {
                             value: link_hover(&target, &link),
                         }),
                         range: Some(byte_range_to_lsp(
-                            &entry.parsed.source,
+                            entry.parsed.source(),
                             &link.selection_range,
                         )),
                     }));
@@ -1767,7 +1767,7 @@ impl LanguageServer for ServerState {
                         value,
                     }),
                     range: Some(byte_range_to_lsp(
-                        &entry.parsed.source,
+                        entry.parsed.source(),
                         &task.selection_range,
                     )),
                 }));
@@ -1782,7 +1782,7 @@ impl LanguageServer for ServerState {
                         value: event_hover(&event),
                     }),
                     range: Some(byte_range_to_lsp(
-                        &entry.parsed.source,
+                        entry.parsed.source(),
                         &event.selection_range,
                     )),
                 }));
@@ -1799,7 +1799,7 @@ impl LanguageServer for ServerState {
                         kind: MarkupKind::Markdown,
                         value: metadata_hover(&path, metadata),
                     }),
-                    range: Some(byte_range_to_lsp(&entry.parsed.source, &target.range)),
+                    range: Some(byte_range_to_lsp(entry.parsed.source(), &target.range)),
                 }));
             }
             let Some(target) = self
@@ -2016,8 +2016,8 @@ impl LanguageServer for ServerState {
             &CodeActionKind::REFACTOR_REWRITE,
         ) {
             if let Some(entry) = self.workspace.get(&path) {
-                let offset = position_to_offset(&entry.parsed.source, params.range.start);
-                let selection_end = position_to_offset(&entry.parsed.source, params.range.end);
+                let offset = position_to_offset(entry.parsed.source(), params.range.start);
+                let selection_end = position_to_offset(entry.parsed.source(), params.range.end);
                 if let Some(title) = path.file_stem().and_then(|stem| stem.to_str()) {
                     if let Some(edit) = self
                         .workspace
@@ -2119,7 +2119,7 @@ impl LanguageServer for ServerState {
         }
         if code_action_kind_requested(params.context.only.as_deref(), &CodeActionKind::QUICKFIX) {
             if let Some(entry) = self.workspace.get(&path) {
-                let offset = position_to_offset(&entry.parsed.source, params.range.start);
+                let offset = position_to_offset(entry.parsed.source(), params.range.start);
                 for (status, title, preferred) in [
                     (TaskStatus::Done, "Complete task", true),
                     (TaskStatus::Canceled, "Cancel task", false),
@@ -2161,12 +2161,12 @@ impl LanguageServer for ServerState {
                 let data = closed_task_token_ranges(&current.output.tasks().tasks)
                     .into_iter()
                     .flat_map(|(byte_range, modifiers)| {
-                        physical_line_ranges(&entry.parsed.source, &byte_range)
+                        physical_line_ranges(entry.parsed.source(), &byte_range)
                             .into_iter()
                             .map(move |range| (range, modifiers))
                     })
                     .map(|(byte_range, token_modifiers_bitset)| {
-                        let range = byte_range_to_lsp(&entry.parsed.source, &byte_range);
+                        let range = byte_range_to_lsp(entry.parsed.source(), &byte_range);
                         let delta_line = range.start.line - previous_line;
                         let delta_start = if delta_line == 0 {
                             range.start.character - previous_start
@@ -2206,7 +2206,7 @@ impl LanguageServer for ServerState {
             let Some(entry) = self.workspace.get(&path) else {
                 return Ok(None);
             };
-            let offset = position_to_offset(&entry.parsed.source, params.position);
+            let offset = position_to_offset(entry.parsed.source(), params.position);
             let target = match self.workspace.anchor_rename_target_at(&path, offset) {
                 Ok(target) => Some((target.range, target.id)),
                 Err(WorkspaceOperationError::Operation(RenameError::NotRenameable)) => None,
@@ -2238,7 +2238,7 @@ impl LanguageServer for ServerState {
                 }
             };
             Ok(Some(PrepareRenameResponse::RangeWithPlaceholder {
-                range: byte_range_to_lsp(&entry.parsed.source, &range),
+                range: byte_range_to_lsp(entry.parsed.source(), &range),
                 placeholder,
             }))
         })();
@@ -2278,8 +2278,10 @@ impl LanguageServer for ServerState {
             let Some(entry) = self.workspace.get(&path) else {
                 return Ok(None);
             };
-            let offset =
-                position_to_offset(&entry.parsed.source, params.text_document_position.position);
+            let offset = position_to_offset(
+                entry.parsed.source(),
+                params.text_document_position.position,
+            );
             match self.workspace.anchor_rename_target_at(&path, offset) {
                 Ok(target) => {
                     let edit = self
@@ -2394,7 +2396,7 @@ fn location_for(
 ) -> Option<Location> {
     let disk_source;
     let source = if let Some(entry) = workspace.get(path) {
-        &entry.parsed.source
+        entry.parsed.source()
     } else {
         disk_source = fs::read_to_string(path).ok()?;
         &disk_source
@@ -2432,7 +2434,7 @@ fn workspace_edit_to_lsp(workspace: &Workspace, edit: WorkspaceEdit) -> Option<L
     for document in edit.document_changes {
         let disk_source;
         let source = if let Some(entry) = workspace.get(&document.path) {
-            &entry.parsed.source
+            entry.parsed.source()
         } else {
             disk_source = fs::read_to_string(&document.path).ok()?;
             &disk_source

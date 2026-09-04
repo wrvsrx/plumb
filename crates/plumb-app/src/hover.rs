@@ -18,8 +18,8 @@ pub(crate) fn target(workspace: &Workspace, target: &ResolvedTarget) -> String {
             } else {
                 "Anchor"
             };
-            let line = line_number(&entry.parsed.source, anchor.range.start);
-            let preview = preview_from_offset(&entry.parsed.source, anchor.range.start, 5);
+            let line = line_number(entry.parsed.source(), anchor.range.start);
+            let preview = preview_from_offset(entry.parsed.source(), anchor.range.start, 5);
             format!(
                 "**{kind}** `#{}`\n\n`{}:{line}`\n\n{}",
                 escape_markdown_code(id),
@@ -31,8 +31,8 @@ pub(crate) fn target(workspace: &Workspace, target: &ResolvedTarget) -> String {
             let Some(entry) = workspace.get(path) else {
                 return format!("Plumb document `{}`", path.display());
             };
-            let (line, offset) = first_preview_offset(&entry.parsed.source);
-            let preview = preview_from_offset(&entry.parsed.source, offset, 5);
+            let (line, offset) = first_preview_offset(entry.parsed.source());
+            let preview = preview_from_offset(entry.parsed.source(), offset, 5);
             let location = format!("{}:{line}", path.display());
             if preview.is_empty() {
                 format!("**File**\n\n`{}`", escape_markdown_code(&location))

@@ -20,7 +20,7 @@ impl WebWorkspace {
         }
         let disk_source = std::fs::read_to_string(path)
             .map_err(|error| format!("cannot read {}: {error}", path.display()))?;
-        if disk_source != entry.parsed.source {
+        if disk_source != entry.parsed.source() {
             return Err("task document changed on disk; refresh before retrying".to_string());
         }
         let timestamp = Local::now()
@@ -249,7 +249,7 @@ impl WebWorkspace {
         }
         let disk_source = std::fs::read_to_string(path)
             .map_err(|error| format!("cannot read {}: {error}", path.display()))?;
-        if disk_source != entry.parsed.source {
+        if disk_source != entry.parsed.source() {
             return Err(format!(
                 "{kind} document changed on disk; refresh before retrying"
             ));
