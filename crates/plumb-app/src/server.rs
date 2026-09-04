@@ -38,7 +38,7 @@ use plumb_semantics::{
     link_completion_context, recovered_bibliography_sources, task_dependency_completion_context,
     AnchorKind, ConstructCompletionContext, TaskStatus,
 };
-use plumb_syntax::Diagnostic;
+use plumb_syntax::{Diagnostic, SourceChange};
 use plumb_workspace::{
     load_bibliography, load_bibliography_sources, normalize, scan_workspace_files,
     BatchIndexOptions, Bibliography, BibliographyResolution, CompletionCandidate, PathRenameInput,
@@ -177,7 +177,14 @@ impl ServerState {
         }
     }
 
-    fn update(&mut self, uri: Url, version: i32, text: String, background: bool) {
+    fn update(
+        &mut self,
+        uri: Url,
+        version: i32,
+        text: String,
+        source_change: Option<SourceChange>,
+        background: bool,
+    ) {
         let Ok(path) = uri.to_file_path() else {
             return;
         };
@@ -189,9 +196,12 @@ impl ServerState {
             .rebind_revision_if_source(&path, revision, &text)
         {
             if background {
-                let pending = self
-                    .workspace
-                    .begin_document_revision(&path, revision, text);
+                let pending = self.workspace.begin_document_revision_with_change(
+                    &path,
+                    revision,
+                    text,
+                    source_change,
+                );
                 if let Some(pending) = pending {
                     let client = self.client.clone();
                     let analysis_path = path.clone();
@@ -795,9 +805,17 @@ fn apply_content_changes(
     mut text: String,
     mut line_index: LineIndex,
     changes: Vec<TextDocumentContentChangeEvent>,
-) -> Result<(String, LineIndex), String> {
+) -> Result<(String, LineIndex, Option<SourceChange>), String> {
+    let single_change = changes.len() == 1;
+    let mut source_change = None;
     for change in changes {
         let Some(range) = change.range else {
+            if single_change {
+                source_change = Some(SourceChange {
+                    old_range: 0..text.len(),
+                    new_range: 0..change.text.len(),
+                });
+            }
             text = change.text;
             line_index = LineIndex::new(&text);
             continue;
@@ -819,10 +837,16 @@ fn apply_content_changes(
                 ));
             }
         }
+        if single_change {
+            source_change = Some(SourceChange {
+                old_range: start..end,
+                new_range: start..start + change.text.len(),
+            });
+        }
         line_index.apply_edit(start..end, &change.text);
         text.replace_range(start..end, &change.text);
     }
-    Ok((text, line_index))
+    Ok((text, line_index, source_change))
 }
 
 impl LanguageServer for ServerState {
@@ -1001,7 +1025,7 @@ impl LanguageServer for ServerState {
             .to_file_path()
             .ok()
             .map(|path| normalize(&path));
-        self.update(document.uri, document.version, document.text, false);
+        self.update(document.uri, document.version, document.text, None, false);
         if let Some(path) = path {
             self.open_document_line_indexes.insert(path, line_index);
         }
@@ -1027,7 +1051,7 @@ impl LanguageServer for ServerState {
             .get(&path)
             .cloned()
             .unwrap_or_else(|| LineIndex::new(&text));
-        let (text, line_index) = match apply_content_changes(
+        let (text, line_index, source_change) = match apply_content_changes(
             text,
             line_index,
             params.content_changes,
@@ -1039,7 +1063,7 @@ impl LanguageServer for ServerState {
             }
         };
         self.open_document_line_indexes.insert(path, line_index);
-        self.update(document.uri, document.version, text, true);
+        self.update(document.uri, document.version, text, source_change, true);
         ControlFlow::Continue(())
     }
 
@@ -2645,9 +2669,10 @@ mod tests {
             },
         ];
 
-        let (text, lines) = apply_content_changes(text, lines, changes).unwrap();
+        let (text, lines, change) = apply_content_changes(text, lines, changes).unwrap();
         assert_eq!(text, "alphax\nsecond!\n");
         assert_eq!(lines, LineIndex::new(&text));
+        assert!(change.is_none());
     }
 
     #[test]
@@ -2670,9 +2695,35 @@ mod tests {
             },
         ];
 
-        let (text, lines) = apply_content_changes(text, lines, changes).unwrap();
+        let (text, lines, change) = apply_content_changes(text, lines, changes).unwrap();
         assert_eq!(text, "first\nnext");
         assert_eq!(lines, LineIndex::new(&text));
+        assert!(change.is_none());
+    }
+
+    #[test]
+    fn single_ranged_change_preserves_byte_change_provenance() {
+        let text = "a😀\nsecond\n".to_string();
+        let lines = LineIndex::new(&text);
+        let changes = vec![TextDocumentContentChangeEvent {
+            range: Some(lsp_types::Range::new(
+                lsp_types::Position::new(0, 1),
+                lsp_types::Position::new(0, 3),
+            )),
+            range_length: Some(2),
+            text: "emoji".to_string(),
+        }];
+
+        let (text, lines, change) = apply_content_changes(text, lines, changes).unwrap();
+        assert_eq!(text, "aemoji\nsecond\n");
+        assert_eq!(lines, LineIndex::new(&text));
+        assert_eq!(
+            change,
+            Some(SourceChange {
+                old_range: 1..5,
+                new_range: 1..6,
+            })
+        );
     }
 
     #[test]

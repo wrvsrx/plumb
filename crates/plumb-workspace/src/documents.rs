@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use plumb_semantics::{analyze_document, DocumentChange};
-use plumb_syntax::{parse, parse_incremental};
+use plumb_syntax::{parse, parse_incremental, parse_incremental_from_change, SourceChange};
 
 use crate::{
     normalize, DocumentEntry, PendingDocumentAnalysis, PreparedDocumentAnalysis, QueryCompleteness,
@@ -122,6 +122,16 @@ impl Workspace {
         revision: i64,
         source: impl Into<String>,
     ) -> Option<PendingDocumentAnalysis> {
+        self.begin_document_revision_with_change(path, revision, source, None)
+    }
+
+    pub fn begin_document_revision_with_change(
+        &mut self,
+        path: impl AsRef<Path>,
+        revision: i64,
+        source: impl Into<String>,
+        source_change: Option<SourceChange>,
+    ) -> Option<PendingDocumentAnalysis> {
         let path = normalize(path.as_ref());
         let source = source.into();
         let previous = self.documents.get(&path);
@@ -130,7 +140,10 @@ impl Workspace {
             .map(|current| Arc::clone(&current.output));
         let (parsed, change) = match previous {
             Some(entry) => {
-                let incremental = parse_incremental(&entry.parsed, source);
+                let incremental = match source_change {
+                    Some(change) => parse_incremental_from_change(&entry.parsed, source, change),
+                    None => parse_incremental(&entry.parsed, source),
+                };
                 let change = DocumentChange {
                     old_range: incremental.old_reparsed_range,
                     new_range: incremental.reparsed_range,
