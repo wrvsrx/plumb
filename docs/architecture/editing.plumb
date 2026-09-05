@@ -85,6 +85,10 @@ owning shard中选择deepest marked owner并返回absolute owner identity，不�
 按 marker集合进行的cursor-targeted conversion同样由plumb-edit返回deepest complete owner range与OwnedBlock；marker
 只有 syntax筛选作用，facet或kind含义仍由semantics/workspace判断。
 
+当一次 domain mutation需要在同一 root subtree中对应多个semantic records时，plumb-edit接受root与有序absolute
+complete target ranges，一次 ownership后返回与输入同序的 owned-tree index paths。所有 target必须位于root owning
+shard并对应完整 descendant（root自身 path为空）；workspace只按 path修改OwnedBlock，不得用range重建syntax topology。
+
 Task/Event/metadata operations 先在 semantics/workspace 解析 intent，再调用 generic owned mutations。status field
 update 要 retain opaque declarations/body，property remove/add后重新 align 受影响的 direct property run，并格式化
 完整 task subtree。
