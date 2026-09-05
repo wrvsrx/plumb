@@ -3,8 +3,8 @@ use std::ops::Range;
 
 use chrono::DateTime;
 use plumb_syntax::{
-    Block, Diagnostic, DiagnosticSeverity, Document, Inline, InlineContent, ParsedBlock,
-    ValidDocument,
+    AttrItem, Attributes, Block, Diagnostic, DiagnosticSeverity, Document, Inline, InlineContent,
+    ParsedBlock, ValidDocument, ValidGreenDocument,
 };
 
 use crate::text::plain_text;
@@ -169,6 +169,263 @@ fn bibliography_source(value: &MetadataValue) -> Option<BibliographySource> {
 
 pub fn analyze_metadata(valid: ValidDocument<'_>) -> MetadataOutput {
     analyze_metadata_document(valid.syntax())
+}
+
+pub fn analyze_green_metadata(valid: ValidGreenDocument<'_>) -> MetadataOutput {
+    let mut output = MetadataOutput::default();
+    let mut pending_definitions: Option<DefinitionList> = None;
+    let mut entries = Vec::new();
+    let mut keys = HashMap::<String, Range<usize>>::new();
+    let mut metadata_range: Option<Range<usize>> = None;
+    let mut metadata_selection = None;
+    let mut unsupported = Vec::new();
+
+    for shard in valid.syntax().shards() {
+        let document = &shard.shard().parsed().syntax;
+        let offset = shard.offset() as isize;
+        let root = document.blocks.first();
+
+        let mut definitions = Vec::new();
+        collect_definition_lists(
+            document
+                .blocks
+                .iter()
+                .filter(|block| !crate::is_document_declaration(block)),
+            &mut definitions,
+        );
+        for definitions in &mut definitions {
+            shift_definition_list(definitions, offset);
+        }
+        let root_definition = root
+            .filter(|block| definition_block(block).is_some())
+            .and_then(|root| {
+                definitions.iter().position(|definitions| {
+                    definitions.range.start == root.range().start + shard.offset()
+                })
+            })
+            .map(|index| definitions.remove(index));
+        match root {
+            Some(root) if crate::is_document_declaration(root) => {}
+            Some(_) if root_definition.is_some() => {
+                let mut root = root_definition.expect("root definition checked");
+                if let Some(pending) = &mut pending_definitions {
+                    pending.range.end = root.range.end;
+                    pending.definitions.append(&mut root.definitions);
+                } else {
+                    pending_definitions = Some(root);
+                }
+            }
+            Some(_) => {
+                if let Some(pending) = pending_definitions.take() {
+                    output.definition_lists.push(pending);
+                }
+            }
+            None => {}
+        }
+        output.definition_lists.extend(definitions);
+
+        for block in &document.blocks {
+            if parsed_marker(block) == Some("=") {
+                let absolute_range =
+                    block.range().start + shard.offset()..block.range().end + shard.offset();
+                metadata_range = Some(match metadata_range {
+                    Some(range) => range.start..absolute_range.end,
+                    None => absolute_range.clone(),
+                });
+                if metadata_selection.is_none() {
+                    let Block::Parsed(property) = block else {
+                        unreachable!("property marker implies parsed block")
+                    };
+                    metadata_selection = property.mark.as_ref().map(|mark| {
+                        mark.marker_range.start + shard.offset()
+                            ..mark.marker_range.end + shard.offset()
+                    });
+                }
+
+                let mut local_diagnostics = Vec::new();
+                let mut parsed = parse_direct_entries([block], &mut local_diagnostics);
+                for entry in &mut parsed {
+                    shift_metadata_entry(entry, offset);
+                    if let Some(first) = keys.get(&entry.key) {
+                        let mut diagnostic = warning(
+                            "metadata.duplicate-key",
+                            format!("metadata key '{}' appears more than once", entry.key),
+                            entry.key_range.clone(),
+                        );
+                        diagnostic.related.push(first.clone());
+                        output.diagnostics.push(diagnostic);
+                    } else {
+                        keys.insert(entry.key.clone(), entry.key_range.clone());
+                    }
+                }
+                shift_diagnostic_ranges(&mut local_diagnostics, offset);
+                output.diagnostics.append(&mut local_diagnostics);
+                entries.append(&mut parsed);
+            }
+
+            let Block::Parsed(block) = block else {
+                continue;
+            };
+            let diagnostic = match marker(block) {
+                Some("+") => Some(warning(
+                    "document.unsupported-facet",
+                    "document root does not support facets",
+                    block.range.start + shard.offset()..block.range.end + shard.offset(),
+                )),
+                Some("@") => Some(warning(
+                    "document.unsupported-identity",
+                    "document identity is defined by its workspace-relative path",
+                    block.range.start + shard.offset()..block.range.end + shard.offset(),
+                )),
+                Some(_) | None => None,
+            };
+            unsupported.extend(diagnostic);
+        }
+    }
+    if let Some(pending) = pending_definitions {
+        output.definition_lists.push(pending);
+    }
+    output
+        .definition_lists
+        .sort_by_key(|definitions| definitions.range.start);
+    lint_standard_entries(&entries, &mut output.diagnostics);
+    output.diagnostics.extend(unsupported);
+    if let (Some(range), Some(selection_range)) = (metadata_range, metadata_selection) {
+        output.metadata = Some(MetadataBlock {
+            range,
+            selection_range,
+            entries,
+        });
+    }
+    output
+}
+
+fn shift_definition_list(definitions: &mut DefinitionList, delta: isize) {
+    shift_range(&mut definitions.range, delta);
+    for definition in &mut definitions.definitions {
+        shift_range(&mut definition.range, delta);
+        shift_inline_content(&mut definition.term, delta);
+        shift_range(&mut definition.term_range, delta);
+        if let Some(body) = &mut definition.inline_body {
+            shift_inline_content(body, delta);
+        }
+        shift_range(&mut definition.body_range, delta);
+    }
+}
+
+fn shift_metadata_entry(entry: &mut MetadataEntry, delta: isize) {
+    shift_range(&mut entry.range, delta);
+    shift_range(&mut entry.key_range, delta);
+    shift_metadata_value(&mut entry.value, delta);
+}
+
+fn shift_metadata_value(value: &mut MetadataValue, delta: isize) {
+    match value {
+        MetadataValue::Null { range }
+        | MetadataValue::Verbatim { range, .. }
+        | MetadataValue::Unsupported { range } => shift_range(range, delta),
+        MetadataValue::Scalar { content, range } => {
+            shift_inline_content(content, delta);
+            shift_range(range, delta);
+        }
+        MetadataValue::List { items, range } => {
+            shift_range(range, delta);
+            for item in items {
+                shift_range(&mut item.range, delta);
+                shift_metadata_value(&mut item.value, delta);
+            }
+        }
+        MetadataValue::Map { entries, range } => {
+            shift_range(range, delta);
+            for entry in entries {
+                shift_metadata_entry(entry, delta);
+            }
+        }
+    }
+}
+
+fn shift_inline_content(content: &mut InlineContent, delta: isize) {
+    let mut pending = vec![content];
+    while let Some(content) = pending.pop() {
+        shift_range(&mut content.range, delta);
+        for inline in &mut content.items {
+            match inline {
+                Inline::Text { range, .. }
+                | Inline::Space { range, .. }
+                | Inline::SoftBreak { range } => shift_range(range, delta),
+                Inline::Group {
+                    range,
+                    mark,
+                    content,
+                } => {
+                    shift_range(range, delta);
+                    if let Some(mark) = mark {
+                        shift_range(&mut mark.range, delta);
+                        shift_range(&mut mark.marker_range, delta);
+                        shift_attributes(&mut mark.attrs, delta);
+                    }
+                    pending.push(content);
+                }
+                Inline::Verbatim {
+                    range,
+                    mark,
+                    text_range,
+                    ..
+                } => {
+                    shift_range(range, delta);
+                    if let Some(mark) = mark {
+                        shift_range(&mut mark.range, delta);
+                        shift_range(&mut mark.marker_range, delta);
+                        shift_attributes(&mut mark.attrs, delta);
+                    }
+                    shift_range(text_range, delta);
+                }
+            }
+        }
+    }
+}
+
+fn shift_attributes(attributes: &mut Attributes, delta: isize) {
+    if let Some(range) = &mut attributes.range {
+        shift_range(range, delta);
+    }
+    for item in &mut attributes.items {
+        match item {
+            AttrItem::Id {
+                value_range, range, ..
+            }
+            | AttrItem::Class {
+                value_range, range, ..
+            } => {
+                shift_range(value_range, delta);
+                shift_range(range, delta);
+            }
+            AttrItem::Pair {
+                key_range,
+                value,
+                range,
+                ..
+            } => {
+                shift_range(key_range, delta);
+                shift_range(&mut value.range, delta);
+                shift_range(range, delta);
+            }
+        }
+    }
+}
+
+fn shift_diagnostic_ranges(diagnostics: &mut [Diagnostic], delta: isize) {
+    for diagnostic in diagnostics {
+        shift_range(&mut diagnostic.range, delta);
+        for related in &mut diagnostic.related {
+            shift_range(related, delta);
+        }
+    }
+}
+
+fn shift_range(range: &mut Range<usize>, delta: isize) {
+    range.start = range.start.checked_add_signed(delta).unwrap();
+    range.end = range.end.checked_add_signed(delta).unwrap();
 }
 
 pub fn recovered_bibliography_sources(document: &Document) -> Vec<BibliographySource> {
@@ -616,6 +873,17 @@ mod tests {
         assert_eq!(
             green_recovered_bibliography_sources(&green),
             recovered_bibliography_sources(parsed.recovered_syntax())
+        );
+    }
+
+    #[test]
+    fn green_metadata_matches_document_reducer_across_shards() {
+        let source = "`: first body\n`= title Document `em{title}\n`: second body\n\n`= tags\n `+ plumb\n `+ parser\n\n`= title Duplicate\n\n`+ unsupported\n`@ forbidden\n";
+        let parsed = parse(source);
+        let green = plumb_syntax::GreenDocument::parse(source);
+        assert_eq!(
+            analyze_green_metadata(green.valid_syntax().unwrap()),
+            analyze_metadata(parsed.valid_syntax().unwrap())
         );
     }
 

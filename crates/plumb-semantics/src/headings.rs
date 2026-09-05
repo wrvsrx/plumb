@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use plumb_syntax::{Block, Diagnostic, Document, ParsedBlock, ValidDocument};
+use plumb_syntax::{Block, Diagnostic, Document, ParsedBlock, ValidDocument, ValidGreenDocument};
 
 use crate::text::plain_text;
 
@@ -30,6 +30,20 @@ pub fn analyze_headings(valid: ValidDocument<'_>) -> HeadingOutput {
     analyze_recovered_headings(valid.syntax())
 }
 
+pub fn analyze_green_headings(valid: ValidGreenDocument<'_>) -> HeadingOutput {
+    let mut flat = Vec::new();
+    for shard in valid.syntax().shards() {
+        let mut local = Vec::new();
+        collect_headings(&shard.shard().parsed().syntax.blocks, &mut local);
+        flat.extend(
+            local
+                .into_iter()
+                .map(|block| heading_seed(block, shard.offset())),
+        );
+    }
+    build_headings(flat, valid.source().len())
+}
+
 pub fn analyze_recovered_headings(document: &Document) -> HeadingOutput {
     let mut flat = Vec::new();
     for block in document
@@ -39,12 +53,38 @@ pub fn analyze_recovered_headings(document: &Document) -> HeadingOutput {
     {
         collect_headings(std::slice::from_ref(block), &mut flat);
     }
+    build_headings(
+        flat.into_iter()
+            .map(|block| heading_seed(block, 0))
+            .collect(),
+        document.range.end,
+    )
+}
+
+struct HeadingSeed {
+    node_range: Range<usize>,
+    selection_range: Range<usize>,
+    level: u8,
+    title: String,
+}
+
+fn heading_seed(block: &ParsedBlock, offset: usize) -> HeadingSeed {
+    let shift = |range: &Range<usize>| range.start + offset..range.end + offset;
+    HeadingSeed {
+        node_range: shift(&block.range),
+        selection_range: shift(&crate::inline_selection_range(&block.content)),
+        level: heading_level(block).expect("only heading markers are collected"),
+        title: plain_text(&block.content),
+    }
+}
+
+fn build_headings(flat: Vec<HeadingSeed>, document_end: usize) -> HeadingOutput {
     let diagnostics = Vec::new();
     let mut roots: Vec<Heading> = Vec::new();
     let mut path: Vec<usize> = Vec::new();
 
-    for (index, block) in flat.iter().enumerate() {
-        let level = heading_level(block).expect("only heading markers are collected");
+    for (index, heading) in flat.iter().enumerate() {
+        let level = heading.level;
 
         while let Some(parent) = get_heading(&roots, &path) {
             if parent.level < level {
@@ -56,16 +96,16 @@ pub fn analyze_recovered_headings(document: &Document) -> HeadingOutput {
         let section_end = flat
             .iter()
             .skip(index + 1)
-            .find(|next| heading_level(next).is_some_and(|next| next <= level))
-            .map(|next| next.range.start)
-            .unwrap_or(document.range.end);
+            .find(|next| next.level <= level)
+            .map(|next| next.node_range.start)
+            .unwrap_or(document_end);
 
         let heading = Heading {
-            node_range: block.range.clone(),
-            selection_range: crate::inline_selection_range(&block.content),
-            section_range: block.range.start..section_end,
+            node_range: heading.node_range.clone(),
+            selection_range: heading.selection_range.clone(),
+            section_range: heading.node_range.start..section_end,
             level,
-            title: plain_text(&block.content),
+            title: heading.title.clone(),
             children: Vec::new(),
         };
         let siblings = get_heading_children_mut(&mut roots, &path);
@@ -151,7 +191,8 @@ mod tests {
 
     #[test]
     fn builds_heading_hierarchy() {
-        let parsed = parse("`# One\n`## Two\n`# Three\n");
+        let source = "`# One\n`## Two\n`# Three\n";
+        let parsed = parse(source);
         let output = analyze_headings(
             parsed
                 .valid_syntax()
@@ -159,5 +200,10 @@ mod tests {
         );
         assert_eq!(output.headings.len(), 2);
         assert_eq!(output.headings[0].children[0].title, "Two");
+        let green = plumb_syntax::GreenDocument::parse(source);
+        assert_eq!(
+            analyze_green_headings(green.valid_syntax().unwrap()),
+            output
+        );
     }
 }

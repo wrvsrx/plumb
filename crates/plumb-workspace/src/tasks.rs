@@ -7,7 +7,7 @@ use plumb_edit::{
     replace_green_blocks, OwnedAttribute, OwnedBlock,
 };
 use plumb_semantics::{
-    analyze_tasks, next_task_datetime, parse_task_reference_target, valid_task_datetime,
+    analyze_green_tasks, next_task_datetime, parse_task_reference_target, valid_task_datetime,
     TaskRecord, TaskReferenceTarget, TaskState, TaskStatus,
 };
 
@@ -340,11 +340,12 @@ impl Workspace {
         let tasks = if let Some(current) = &entry.current {
             &current.output.tasks().tasks
         } else {
-            pending_tasks = analyze_tasks(
+            pending_tasks = analyze_green_tasks(
                 entry
                     .parsed
+                    .green()
                     .valid_syntax()
-                    .expect("valid parsed document checked"),
+                    .expect("valid green document checked"),
             );
             &pending_tasks.tasks
         };

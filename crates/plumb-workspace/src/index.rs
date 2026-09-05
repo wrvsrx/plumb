@@ -1,8 +1,8 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use plumb_semantics::analyze_document;
-use plumb_syntax::{parse, GreenDocument};
+use plumb_semantics::analyze_green_document;
+use plumb_syntax::GreenDocument;
 use rayon::prelude::*;
 
 use crate::store::StoredGeneration;
@@ -227,24 +227,31 @@ impl Workspace {
                 return None;
             }
             if persistent {
-                let parsed = parse(document.source);
-                let output = parsed.valid_syntax().map(analyze_document).map(Box::new);
+                let green = Arc::new(GreenDocument::parse(document.source));
+                let output = green
+                    .valid_syntax()
+                    .and_then(|valid| analyze_green_document(valid, Arc::clone(&green)))
+                    .map(Box::new);
                 return Some(PreparedDocument::Persistent {
                     path: document.path,
                     revision: document.revision,
-                    source: parsed.source,
+                    source: green.source().to_string(),
                     output,
                 });
             }
             let parsed = Arc::new(DocumentRevision::from_green(Arc::new(
                 GreenDocument::parse(document.source),
             )));
-            let current = parsed.valid_syntax().map(analyze_document).map(|output| {
-                Arc::new(VersionedDocumentOutput {
-                    revision: document.revision,
-                    output: Arc::new(output),
-                })
-            });
+            let current = parsed
+                .green()
+                .valid_syntax()
+                .and_then(|valid| analyze_green_document(valid, Arc::clone(parsed.green())))
+                .map(|output| {
+                    Arc::new(VersionedDocumentOutput {
+                        revision: document.revision,
+                        output: Arc::new(output),
+                    })
+                });
             Some(PreparedDocument::Memory {
                 path: document.path,
                 revision: document.revision,

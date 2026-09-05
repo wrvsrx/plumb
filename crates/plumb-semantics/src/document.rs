@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use plumb_syntax::{
     AttrItem, AttrValue, Attributes, Block, Diagnostic, DiagnosticSeverity, Document, Inline,
-    InlineContent, ValidDocument,
+    InlineContent, ValidDocument, ValidGreenDocument,
 };
 use serde::{Deserialize, Serialize};
 use url::Url;
@@ -14,10 +14,11 @@ use crate::lists::{ListGroupSegment, ReducedListGroup};
 use crate::records::RecordSegment;
 use crate::{
     analyze_citations, analyze_events, analyze_headings, analyze_inline_styles, analyze_lists,
-    analyze_math, analyze_metadata, analyze_quotes, analyze_tables, analyze_tasks, CitationOutput,
-    EventOutput, HeadingOutput, InlineStyleOutput, ListGroups, ListKind, ListOutput, MathOutput,
-    MetadataOutput, QuoteOutput, RelativeSemanticRecord, SemanticRecords, TableOutput, TaskOutput,
+    analyze_math, analyze_quotes, analyze_tables, analyze_tasks, CitationOutput, EventOutput,
+    HeadingOutput, InlineStyleOutput, ListGroups, ListKind, ListOutput, MathOutput, MetadataOutput,
+    QuoteOutput, RelativeSemanticRecord, SemanticRecords, TableOutput, TaskOutput,
 };
+use crate::{headings::analyze_green_headings, metadata::analyze_green_metadata};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SourceBacked<T> {
@@ -243,18 +244,6 @@ pub(crate) struct SemanticNodeOutput {
     tasks: TaskOutput,
     events: EventOutput,
     lists: ListOutput,
-    tables: TableOutput,
-    records: RecordOutput,
-    association_diagnostics: Vec<Diagnostic>,
-}
-
-struct FreshSemanticOutput {
-    citations: CitationOutput,
-    inline_styles: InlineStyleOutput,
-    math: MathOutput,
-    quotes: QuoteOutput,
-    tasks: TaskOutput,
-    events: EventOutput,
     tables: TableOutput,
     records: RecordOutput,
     association_diagnostics: Vec<Diagnostic>,
@@ -531,15 +520,16 @@ pub fn analyze_document(valid: ValidDocument<'_>) -> DocumentOutput {
     let syntax = Arc::new(plumb_syntax::GreenDocument::parse(
         valid.source().to_string(),
     ));
-    analyze_semantic_tree(Some(valid), syntax, None, None)
+    analyze_semantic_tree(syntax, None, None)
         .expect("a valid document produces a valid semantic tree")
 }
 
 pub fn analyze_green_document(
-    valid: ValidDocument<'_>,
+    valid: ValidGreenDocument<'_>,
     syntax: Arc<plumb_syntax::GreenDocument>,
 ) -> Option<DocumentOutput> {
-    analyze_semantic_tree(Some(valid), syntax, None, None)
+    std::ptr::eq(valid.syntax(), syntax.as_ref())
+        .then(|| analyze_semantic_tree(syntax, None, None))?
 }
 
 pub fn analyze_document_incremental(
@@ -559,32 +549,31 @@ pub fn analyze_document_incremental(
         new_range: revision.reparsed_range,
     };
     let syntax = Arc::new(revision.document);
-    analyze_semantic_tree(Some(valid), syntax, Some(previous), Some(&tree_change))
+    analyze_semantic_tree(syntax, Some(previous), Some(&tree_change))
         .expect("a valid document produces a valid semantic tree")
 }
 
 pub fn analyze_green_document_incremental(
+    valid: ValidGreenDocument<'_>,
     syntax: Arc<plumb_syntax::GreenDocument>,
     previous: &DocumentOutput,
     change: &DocumentChange,
 ) -> Option<DocumentOutput> {
-    analyze_semantic_tree(None, syntax, Some(previous), Some(change))
+    std::ptr::eq(valid.syntax(), syntax.as_ref())
+        .then(|| analyze_semantic_tree(syntax, Some(previous), Some(change)))?
 }
 
 fn analyze_semantic_tree(
-    valid: Option<ValidDocument<'_>>,
     syntax: Arc<plumb_syntax::GreenDocument>,
     previous: Option<&DocumentOutput>,
     change: Option<&DocumentChange>,
 ) -> Option<DocumentOutput> {
-    if !syntax.is_valid() || valid.is_some_and(|valid| valid.source() != syntax.source()) {
-        return None;
-    }
+    let valid = syntax.valid_syntax()?;
     let reusable_metadata =
         previous.filter(|previous| can_reuse_metadata(previous, &syntax, change));
     let metadata = reusable_metadata
         .map(|previous| previous.metadata().clone())
-        .or_else(|| valid.map(analyze_metadata))?;
+        .unwrap_or_else(|| analyze_green_metadata(valid));
     let document_declaration_end = reusable_metadata.map_or_else(
         || document_declaration_end(&syntax),
         |previous| previous.root.document_declaration_end,
@@ -595,25 +584,8 @@ fn analyze_semantic_tree(
                 && !changed_green_blocks(&syntax, change).any(block_contains_heading)
         })
         .map(|previous| previous.headings().clone())
-        .or_else(|| valid.map(analyze_headings))?;
+        .unwrap_or_else(|| analyze_green_headings(valid));
     let reusable = previous.filter(|previous| previous.metadata() == &metadata);
-    let fresh = if reusable.is_none() {
-        let valid = valid?;
-        Some(FreshSemanticOutput {
-            citations: analyze_citations(valid),
-            inline_styles: analyze_inline_styles(valid),
-            math: analyze_math(valid),
-            quotes: analyze_quotes(valid),
-            tasks: analyze_tasks(valid),
-            events: analyze_events(valid, &metadata),
-            tables: analyze_tables(valid),
-            records: collect_document_records(valid.source(), valid.syntax(), &headings),
-            association_diagnostics: association_arity_diagnostics(valid.syntax()),
-        })
-    } else {
-        None
-    };
-    let fresh_nodes = fresh.as_ref().map(|fresh| nodes_from_fresh(fresh, &syntax));
     let reusable_nodes = reusable_node_indices(reusable, &syntax, change);
     let mut cache_hits = 0;
     let nodes = syntax
@@ -636,31 +608,28 @@ fn analyze_semantic_tree(
                     cache_hits += 1;
                     output
                 })
-                .unwrap_or_else(|| match &fresh_nodes {
-                    Some(nodes) => Arc::clone(&nodes[node_index]),
-                    None => {
-                        let local = node_syntax
-                            .parsed()
-                            .valid_syntax()
-                            .expect("valid green document has valid shards");
-                        let local_headings = analyze_headings(local);
-                        Arc::new(SemanticNodeOutput {
-                            citations: analyze_citations(local),
-                            inline_styles: analyze_inline_styles(local),
-                            math: analyze_math(local),
-                            quotes: analyze_quotes(local),
-                            tasks: analyze_tasks(local),
-                            events: analyze_events(local, &metadata),
-                            lists: analyze_lists(local),
-                            tables: analyze_tables(local),
-                            records: collect_document_records(
-                                local.source(),
-                                local.syntax(),
-                                &local_headings,
-                            ),
-                            association_diagnostics: association_arity_diagnostics(local.syntax()),
-                        })
-                    }
+                .unwrap_or_else(|| {
+                    let local = node_syntax
+                        .parsed()
+                        .valid_syntax()
+                        .expect("valid green document has valid shards");
+                    let local_headings = analyze_headings(local);
+                    Arc::new(SemanticNodeOutput {
+                        citations: analyze_citations(local),
+                        inline_styles: analyze_inline_styles(local),
+                        math: analyze_math(local),
+                        quotes: analyze_quotes(local),
+                        tasks: analyze_tasks(local),
+                        events: analyze_events(local, &metadata),
+                        lists: analyze_lists(local),
+                        tables: analyze_tables(local),
+                        records: collect_document_records(
+                            local.source(),
+                            local.syntax(),
+                            &local_headings,
+                        ),
+                        association_diagnostics: association_arity_diagnostics(local.syntax()),
+                    })
                 });
             SemanticNode {
                 syntax: node_syntax,
@@ -1097,135 +1066,6 @@ fn projected_records<T: RelativeSemanticRecord>(
         })
         .collect();
     SemanticRecords::from_segments(segments, records, index.len)
-}
-
-fn nodes_from_fresh(
-    fresh: &FreshSemanticOutput,
-    syntax: &plumb_syntax::GreenDocument,
-) -> Vec<Arc<SemanticNodeOutput>> {
-    let owners = syntax.shards().map(|view| view.range()).collect::<Vec<_>>();
-    let mut citations =
-        partition_records(&fresh.citations.citations, &owners, |record| &record.range);
-    let mut citation_diagnostics =
-        partition_diagnostics(&fresh.citations.diagnostics, &owners, None);
-    let mut inline_styles =
-        partition_records(&fresh.inline_styles.styles, &owners, |record| &record.range);
-    let mut math = partition_records(&fresh.math.records, &owners, |record| &record.range);
-    let mut math_diagnostics = partition_diagnostics(&fresh.math.diagnostics, &owners, None);
-    let mut quotes = partition_records(&fresh.quotes.quotes, &owners, |record| &record.range);
-    let mut tasks = partition_records(&fresh.tasks.tasks, &owners, |record| &record.range);
-    let mut task_diagnostics = partition_diagnostics(&fresh.tasks.diagnostics, &owners, None);
-    let mut events = partition_records(&fresh.events.events, &owners, |record| &record.range);
-    let mut event_diagnostics = partition_diagnostics(&fresh.events.diagnostics, &owners, None);
-    let mut tables = partition_records(&fresh.tables.tables, &owners, |record| &record.range);
-    let mut table_diagnostics = partition_diagnostics(&fresh.tables.diagnostics, &owners, None);
-    let mut anchors = partition_records(&fresh.records.anchors, &owners, |record| &record.range);
-    let mut links = partition_records(&fresh.records.links, &owners, |record| &record.range);
-    let mut images = partition_records(&fresh.records.images, &owners, |record| &record.range);
-    let mut files = partition_records(&fresh.records.files, &owners, |record| &record.range);
-    let mut record_diagnostics = partition_diagnostics(
-        &fresh.records.diagnostics,
-        &owners,
-        Some("anchor.duplicate-id"),
-    );
-    let mut association_diagnostics =
-        partition_diagnostics(&fresh.association_diagnostics, &owners, None);
-
-    syntax
-        .shards()
-        .enumerate()
-        .map(|(index, view)| {
-            let local = view
-                .shard()
-                .parsed()
-                .valid_syntax()
-                .expect("valid green document has valid shards");
-            Arc::new(SemanticNodeOutput {
-                citations: CitationOutput {
-                    citations: std::mem::take(&mut citations[index]),
-                    diagnostics: std::mem::take(&mut citation_diagnostics[index]),
-                },
-                inline_styles: InlineStyleOutput {
-                    styles: std::mem::take(&mut inline_styles[index]),
-                },
-                math: MathOutput {
-                    records: std::mem::take(&mut math[index]),
-                    diagnostics: std::mem::take(&mut math_diagnostics[index]),
-                },
-                quotes: QuoteOutput {
-                    quotes: std::mem::take(&mut quotes[index]),
-                },
-                tasks: TaskOutput {
-                    tasks: std::mem::take(&mut tasks[index]),
-                    diagnostics: std::mem::take(&mut task_diagnostics[index]),
-                },
-                events: EventOutput {
-                    events: std::mem::take(&mut events[index]),
-                    diagnostics: std::mem::take(&mut event_diagnostics[index]),
-                },
-                lists: analyze_lists(local),
-                tables: TableOutput {
-                    tables: std::mem::take(&mut tables[index]),
-                    diagnostics: std::mem::take(&mut table_diagnostics[index]),
-                },
-                records: RecordOutput {
-                    anchors: std::mem::take(&mut anchors[index]),
-                    links: std::mem::take(&mut links[index]),
-                    images: std::mem::take(&mut images[index]),
-                    files: std::mem::take(&mut files[index]),
-                    diagnostics: std::mem::take(&mut record_diagnostics[index]),
-                },
-                association_diagnostics: std::mem::take(&mut association_diagnostics[index]),
-            })
-        })
-        .collect()
-}
-
-fn partition_records<T: RelativeSemanticRecord>(
-    records: &SemanticRecords<T>,
-    owners: &[Range<usize>],
-    range: fn(&T) -> &Range<usize>,
-) -> Vec<SemanticRecords<T>> {
-    let mut partitions = (0..owners.len()).map(|_| Vec::new()).collect::<Vec<_>>();
-    for mut record in records.iter() {
-        let record_range = range(&record).clone();
-        let index = owners
-            .partition_point(|owner| owner.start <= record_range.start)
-            .checked_sub(1)
-            .expect("a semantic record starts inside a syntax shard");
-        assert!(record_range.end <= owners[index].end);
-        record.shift(-(owners[index].start as isize));
-        partitions[index].push(record);
-    }
-    partitions
-        .into_iter()
-        .map(SemanticRecords::from_owned)
-        .collect()
-}
-
-fn partition_diagnostics(
-    diagnostics: &[Diagnostic],
-    owners: &[Range<usize>],
-    excluded_code: Option<&str>,
-) -> Vec<Vec<Diagnostic>> {
-    let mut partitions = (0..owners.len()).map(|_| Vec::new()).collect::<Vec<_>>();
-    for diagnostic in diagnostics
-        .iter()
-        .filter(|diagnostic| excluded_code != Some(diagnostic.code))
-    {
-        let index = owners
-            .partition_point(|owner| owner.start <= diagnostic.range.start)
-            .checked_sub(1)
-            .expect("a semantic diagnostic starts inside a syntax shard");
-        assert!(diagnostic.range.end <= owners[index].end);
-        let mut diagnostic = diagnostic.clone();
-        shift_diagnostics(
-            std::slice::from_mut(&mut diagnostic),
-            -(owners[index].start as isize),
-        );
-        partitions[index].push(diagnostic);
-    }
-    partitions
 }
 
 fn reduce_lists(tree: &Arc<SemanticTree>) -> ListOutput {
@@ -2375,6 +2215,51 @@ mod tests {
     use plumb_syntax::{parse, parse_incremental};
 
     use super::*;
+
+    #[test]
+    fn green_fresh_analysis_matches_the_complete_profile() {
+        let source = "`: first body\n`= date 2026-09-05\n`: second body\n`= timezone +08:00\n\n`# Main\n `@ duplicate\n\n`## Child\n `@ duplicate\n\n`- Task\n `+ task\n `= due 2026-09-06T09:00:00+08:00\n\n`- 10:00 Event\n `+ event\n\nParagraph `->{guide guide.plumb} with `cite{source} and `*{style}.\n\n`table\n `- name age\n  `+ header\n `- Alice 10\n";
+        let parsed = parse(source);
+        let valid = parsed.valid_syntax().unwrap();
+        let headings = crate::analyze_headings(valid);
+        let metadata = crate::analyze_metadata(valid);
+        let citations = crate::analyze_citations(valid);
+        let inline_styles = crate::analyze_inline_styles(valid);
+        let lists = crate::analyze_lists(valid);
+        let math = crate::analyze_math(valid);
+        let quotes = crate::analyze_quotes(valid);
+        let tasks = crate::analyze_tasks(valid);
+        let events = crate::analyze_events(valid, &metadata);
+        let tables = crate::analyze_tables(valid);
+        let records = collect_document_records(valid.source(), valid.syntax(), &headings);
+        let mut diagnostics = association_arity_diagnostics(valid.syntax());
+        diagnostics.extend(records.diagnostics.iter().cloned());
+        diagnostics.extend(tables.diagnostics.iter().cloned());
+        diagnostics.sort_by_key(|diagnostic| {
+            (
+                diagnostic.range.start,
+                diagnostic.range.end,
+                diagnostic.code,
+            )
+        });
+
+        let output = analyze_document(valid);
+        assert_eq!(output.headings(), &headings);
+        assert_eq!(output.metadata(), &metadata);
+        assert_eq!(output.citations(), &citations);
+        assert_eq!(output.inline_styles(), &inline_styles);
+        assert_eq!(output.lists(), &lists);
+        assert_eq!(output.math(), &math);
+        assert_eq!(output.quotes(), &quotes);
+        assert_eq!(output.tasks(), &tasks);
+        assert_eq!(output.events(), &events);
+        assert_eq!(output.tables(), &tables);
+        assert_eq!(output.anchors(), &records.anchors);
+        assert_eq!(output.links(), &records.links);
+        assert_eq!(output.images(), &records.images);
+        assert_eq!(output.files(), &records.files);
+        assert_eq!(output.diagnostics(), diagnostics);
+    }
 
     #[test]
     fn incremental_event_analysis_matches_full_document_semantics() {

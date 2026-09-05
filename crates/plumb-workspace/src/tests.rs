@@ -599,7 +599,10 @@ fn document_revisions_preserve_fresh_parse_results_across_structural_edits() {
     workspace.begin_document_revision("note.plumb", 2, changed);
 
     let current = workspace.get("note.plumb").unwrap();
-    assert_eq!(&**current.parsed, &plumb_syntax::parse(changed));
+    assert_eq!(
+        current.parsed.green().materialize(),
+        plumb_syntax::parse(changed)
+    );
 }
 
 #[test]
@@ -642,7 +645,7 @@ fn document_revision_analysis_matches_fresh_semantics_after_local_edit() {
 }
 
 #[test]
-fn green_revision_common_path_does_not_materialize_absolute_syntax() {
+fn green_revision_common_path_preserves_incremental_semantics() {
     let old = "`= timezone +08:00\n\n`- 2026-09-05T09:00:00+08:00 Event\n `+ event\n";
     let start = old.find("Event").unwrap();
     let mut changed = old.to_string();
@@ -654,79 +657,54 @@ fn green_revision_common_path_does_not_materialize_absolute_syntax() {
         .begin_document_revision_with_change(
             "events.plumb",
             2,
-            changed,
+            changed.clone(),
             Some(plumb_syntax::SourceChange {
                 old_range: start..start,
                 new_range: start..start + "Changed ".len(),
             }),
         )
         .unwrap();
-    assert!(!workspace
-        .get("events.plumb")
-        .unwrap()
-        .parsed
-        .is_materialized());
-    assert!(!pending.parsed.is_materialized());
-
     let prepared = pending.analyze();
-    assert!(!prepared.parsed.is_materialized());
     assert!(workspace.install_document_analysis(prepared));
-    assert!(!workspace
-        .get("events.plumb")
-        .unwrap()
-        .parsed
-        .is_materialized());
+    let current = workspace.get("events.plumb").unwrap();
+    assert_eq!(current.parsed.source(), changed);
+    assert_eq!(
+        current
+            .current
+            .as_ref()
+            .unwrap()
+            .output
+            .events()
+            .events
+            .len(),
+        1
+    );
 }
 
 #[test]
-fn invalid_green_revision_exposes_diagnostics_without_materializing() {
+fn invalid_green_revision_exposes_diagnostics() {
     let mut workspace = Workspace::new();
     assert!(workspace
         .begin_document_revision("invalid.plumb", 1, "`broken{\n")
         .is_none());
     let entry = workspace.get("invalid.plumb").unwrap();
-    assert!(!entry.parsed.is_materialized());
     assert!(!entry.parsed.diagnostics().is_empty());
-    assert!(!entry.parsed.is_materialized());
 }
 
 #[test]
-fn single_block_structural_edits_do_not_materialize_absolute_syntax() {
-    let old = "`= date 2026-09-05\n`= timezone +08:00\n\n`- Old task\n `+ task\n `@ task\n\n`- 09:00 Event\n `+ event\n\n`- Ordinary\n`- 10:00 Shorthand\n";
-    let source = old.replace("Old task", "Task");
+fn green_revision_supports_structural_edits_without_an_absolute_tree() {
+    let source = "`= date 2026-09-05\n`= timezone +08:00\n\n`- Task\n `+ task\n `@ task\n\n`- 09:00 Event\n `+ event\n\n`- Ordinary\n`- 10:00 Shorthand\n";
     let mut workspace = Workspace::new();
-    workspace.insert("work.plumb", 1, old);
     let pending = workspace
-        .begin_document_revision("work.plumb", 2, source.clone())
+        .begin_document_revision("work.plumb", 1, source)
         .unwrap();
-    assert!(
-        !pending.parsed.is_materialized(),
-        "materialized during begin"
-    );
     let prepared = pending.analyze();
-    assert!(
-        !prepared.parsed.is_materialized(),
-        "materialized during analysis"
-    );
     assert!(workspace.install_document_analysis(prepared));
-    assert!(
-        !workspace
-            .get("work.plumb")
-            .unwrap()
-            .parsed
-            .is_materialized(),
-        "materialized during install"
-    );
 
     let entry = workspace.get("work.plumb").unwrap();
     let output = entry.current.as_ref().unwrap().output.clone();
-    assert!(
-        !entry.parsed.is_materialized(),
-        "materialized while reading output"
-    );
     let task = output.tasks().tasks.get(0).unwrap().clone();
     let event = output.events().events.get(0).unwrap().clone();
-    assert!(!entry.parsed.is_materialized());
 
     workspace
         .add_task_created("work.plumb", task.range.start, "2026-09-05T08:00:00+08:00")
@@ -829,11 +807,7 @@ fn single_block_structural_edits_do_not_materialize_absolute_syntax() {
         .document_metadata_target_at("work.plumb", source.find("date").unwrap())
         .unwrap();
 
-    assert!(!workspace
-        .get("work.plumb")
-        .unwrap()
-        .parsed
-        .is_materialized());
+    assert_eq!(workspace.get("work.plumb").unwrap().parsed.source(), source);
 
     workspace.insert("metadata.plumb", 1, "Old body\n");
     let pending = workspace
@@ -843,17 +817,16 @@ fn single_block_structural_edits_do_not_materialize_absolute_syntax() {
     workspace
         .insert_metadata("metadata.plumb", 0, "Document", "2026-09-05T11:00:00+08:00")
         .unwrap();
-    assert!(!workspace
-        .get("metadata.plumb")
-        .unwrap()
-        .parsed
-        .is_materialized());
+    assert_eq!(
+        workspace.get("metadata.plumb").unwrap().parsed.source(),
+        "Body\n"
+    );
 
     let old = "`- Old recurring\n `+ task\n `= due 2026-09-05T12:00:00+08:00\n `= recur P1D\n";
     let source = old.replace("Old recurring", "Recurring");
     workspace.insert("recurring.plumb", 1, old);
     let pending = workspace
-        .begin_document_revision("recurring.plumb", 2, source)
+        .begin_document_revision("recurring.plumb", 2, source.clone())
         .unwrap();
     assert!(workspace.install_document_analysis(pending.analyze()));
     workspace
@@ -864,11 +837,10 @@ fn single_block_structural_edits_do_not_materialize_absolute_syntax() {
             "2026-09-05T13:00:00+08:00",
         )
         .unwrap();
-    assert!(!workspace
-        .get("recurring.plumb")
-        .unwrap()
-        .parsed
-        .is_materialized());
+    assert_eq!(
+        workspace.get("recurring.plumb").unwrap().parsed.source(),
+        source
+    );
 }
 
 #[test]
@@ -936,8 +908,8 @@ fn rebinds_identical_source_without_rebuilding_document_outputs() {
     workspace.insert("event.plumb", 7, source);
     let entry = workspace.get("event.plumb").unwrap();
     let parsed = Arc::clone(&entry.parsed);
+    let green = Arc::clone(entry.parsed.green());
     let output = Arc::clone(&entry.current.as_ref().unwrap().output);
-    let token_storage = entry.parsed.lossless.tokens.as_ptr();
 
     assert!(workspace.rebind_revision_if_source("event.plumb", 0, source));
     let entry = workspace.get("event.plumb").unwrap();
@@ -949,7 +921,7 @@ fn rebinds_identical_source_without_rebuilding_document_outputs() {
         &entry.current.as_ref().unwrap().output,
         &output
     ));
-    assert_eq!(entry.parsed.lossless.tokens.as_ptr(), token_storage);
+    assert!(Arc::ptr_eq(entry.parsed.green(), &green));
     assert!(!workspace.rebind_revision_if_source("event.plumb", 1, "changed\n"));
 }
 
@@ -988,7 +960,7 @@ fn materializes_only_the_matching_persistent_generation() {
         .unwrap()
         .unwrap();
     assert_eq!(entry.revision, 7);
-    assert_eq!(entry.parsed.source, source);
+    assert_eq!(entry.parsed.source(), source);
     assert!(entry.current.is_some());
     assert!(workspace
         .document_from_source("note.plumb", "`# Changed\n")
@@ -1206,9 +1178,9 @@ fn document_metadata_targets_only_top_level_entry_subtrees_and_offset_zero() {
     let source = "`= title Document\n\n`note Body\n\n `= nested ordinary property\n\n`= tags\n\n `+ plumb\n `+ notes\n";
     let mut workspace = Workspace::new();
     workspace.insert("metadata.plumb", 1, source);
-    let entry = workspace.get("metadata.plumb").unwrap();
-    let first = entry.parsed.syntax.blocks[0].range().clone();
-    let second = entry.parsed.syntax.blocks[2].range().clone();
+    let parsed = plumb_syntax::parse(source);
+    let first = parsed.syntax.blocks[0].range().clone();
+    let second = parsed.syntax.blocks[2].range().clone();
 
     assert_eq!(
         workspace
@@ -1397,7 +1369,7 @@ fn rename_updates_declaration_and_cross_file_fragments() {
                 .get("a.plumb")
                 .unwrap()
                 .parsed
-                .source
+                .source()
                 .find("target")
                 .unwrap(),
         )
@@ -1549,7 +1521,7 @@ fn rename_rejects_pair_style_or_invalid_ids() {
                 .get("a.plumb")
                 .unwrap()
                 .parsed
-                .source
+                .source()
                 .find("real")
                 .unwrap(),
         )
@@ -3012,7 +2984,7 @@ fn task_status_operation_rejects_closed_blocked_and_recurring_tasks() {
             "`- Blocker\n\n `+ task\n\n `@ blocker\n\n`- Blocked\n\n `+ task\n\n `@ blocked\n\n `= depends #blocker\n\n`- Closed\n\n `+ task\n\n `@ closed\n\n `= done 2026-07-20T09:00:00Z\n\n`- Recurring\n\n `+ task\n\n `@ recur\n\n `= due 2026-07-21T09:00:00Z\n `= recur P1D\n",
         );
     let timestamp = "2026-07-20T12:00:00Z";
-    let source = &workspace.get("tasks.plumb").unwrap().parsed.source;
+    let source = workspace.get("tasks.plumb").unwrap().parsed.source();
     assert!(matches!(
         workspace.set_task_status(
             "tasks.plumb",

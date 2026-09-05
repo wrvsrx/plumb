@@ -4,6 +4,7 @@ use std::path::Path;
 use chrono::{DateTime, Datelike, Duration, FixedOffset, SecondsFormat, TimeZone, Timelike};
 use plumb_syntax::{
     AttrItem, AttrValue, Block, Diagnostic, DiagnosticSeverity, ParsedBlock, ValidDocument,
+    ValidGreenDocument,
 };
 use serde::{Deserialize, Serialize};
 
@@ -142,6 +143,30 @@ pub fn analyze_tasks(valid: ValidDocument<'_>) -> TaskOutput {
             &table_items,
             &mut output,
         );
+    }
+    output
+}
+
+pub fn analyze_green_tasks(valid: ValidGreenDocument<'_>) -> TaskOutput {
+    let mut output = TaskOutput::default();
+    for shard in valid.syntax().shards() {
+        let local = shard
+            .shard()
+            .parsed()
+            .valid_syntax()
+            .expect("valid green document has valid shards");
+        let local = analyze_tasks(local);
+        for mut task in local.tasks.iter() {
+            task.shift(shard.offset() as isize);
+            output.tasks.push(task);
+        }
+        for mut diagnostic in local.diagnostics {
+            shift_range(&mut diagnostic.range, shard.offset() as isize);
+            for related in &mut diagnostic.related {
+                shift_range(related, shard.offset() as isize);
+            }
+            output.diagnostics.push(diagnostic);
+        }
     }
     output
 }
@@ -515,6 +540,17 @@ mod tests {
     use plumb_syntax::parse;
 
     use super::*;
+
+    #[test]
+    fn green_task_projection_matches_complete_analysis() {
+        let source = "Prelude\n\n`- Parent\n `+ task\n `= due invalid\n\n `- Child\n  `+ task\n\n`- Sibling\n `+ task\n `= priority invalid\n";
+        let parsed = parse(source);
+        let green = plumb_syntax::GreenDocument::parse(source);
+        assert_eq!(
+            analyze_green_tasks(green.valid_syntax().unwrap()),
+            analyze_tasks(parsed.valid_syntax().unwrap())
+        );
+    }
 
     #[test]
     fn collects_task_facets_fields_dependencies_and_nesting() {

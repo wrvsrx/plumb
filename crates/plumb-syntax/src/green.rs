@@ -31,6 +31,11 @@ pub struct GreenShardView<'a> {
     shard: &'a Arc<GreenShard>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ValidGreenDocument<'a> {
+    document: &'a GreenDocument,
+}
+
 impl GreenDocument {
     pub fn parse(source: impl Into<String>) -> Self {
         let source = source.into();
@@ -145,6 +150,11 @@ impl GreenDocument {
         self.invalid_shards == 0
     }
 
+    pub fn valid_syntax(&self) -> Option<ValidGreenDocument<'_>> {
+        self.is_valid()
+            .then_some(ValidGreenDocument { document: self })
+    }
+
     pub fn diagnostics(&self) -> Vec<Diagnostic> {
         if self.is_valid() {
             return Vec::new();
@@ -223,6 +233,16 @@ impl GreenDocument {
 
     fn shard_starts(&self) -> Vec<usize> {
         self.shards().map(|view| view.offset).collect()
+    }
+}
+
+impl<'a> ValidGreenDocument<'a> {
+    pub fn source(self) -> &'a str {
+        self.document.source()
+    }
+
+    pub fn syntax(self) -> &'a GreenDocument {
+        self.document
     }
 }
 

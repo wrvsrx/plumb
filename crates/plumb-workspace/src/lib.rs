@@ -1,7 +1,6 @@
 use std::collections::{HashMap, HashSet};
-use std::ops::Deref;
 use std::path::{Component, Path, PathBuf};
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveTime, SecondsFormat, TimeZone, Timelike};
 use plumb_edit::{
@@ -12,20 +11,20 @@ use plumb_edit::{
     AttributePosition, EditError, OwnedAttribute, OwnedBlock, OwnedInline,
 };
 pub use plumb_edit::{apply_text_edits, TextEdit};
+#[cfg(test)]
 use plumb_semantics::{
-    analyze_document, analyze_document_incremental, analyze_green_document,
-    analyze_green_document_incremental, DocumentChange,
+    analyze_document, EventTitleCompletionContext, FileCompletionContext, ImageCompletionContext,
+    TaskStatus,
 };
+use plumb_semantics::{analyze_green_document, analyze_green_document_incremental, DocumentChange};
 use plumb_semantics::{
     parse_task_reference_target, AnchorRecord, DocumentOutput, EventRecord, LinkCompletionContext,
     LinkRecord, LinkSpelling, LinkTarget, MetadataBlock, MetadataOutput, MetadataValue,
     TaskDependency, TaskDependencyCompletionContext, TaskRecord, TaskReferenceTarget, TaskState,
 };
 #[cfg(test)]
-use plumb_semantics::{
-    EventTitleCompletionContext, FileCompletionContext, ImageCompletionContext, TaskStatus,
-};
-use plumb_syntax::{Diagnostic, DiagnosticSeverity, GreenDocument, ParsedDocument};
+use plumb_syntax::ParsedDocument;
+use plumb_syntax::{Diagnostic, DiagnosticSeverity, GreenDocument};
 
 #[cfg(test)]
 fn parse(source: impl Into<String>) -> ParsedDocument {
@@ -399,17 +398,12 @@ pub struct DocumentEntry {
 pub struct DocumentRevision {
     green: Arc<GreenDocument>,
     diagnostics: Vec<Diagnostic>,
-    materialized: OnceLock<ParsedDocument>,
 }
 
 impl DocumentRevision {
     fn from_green(green: Arc<GreenDocument>) -> Self {
         let diagnostics = green.diagnostics();
-        Self {
-            green,
-            diagnostics,
-            materialized: OnceLock::new(),
-        }
+        Self { green, diagnostics }
     }
 
     pub fn source(&self) -> &str {
@@ -426,18 +420,6 @@ impl DocumentRevision {
 
     pub fn green(&self) -> &Arc<GreenDocument> {
         &self.green
-    }
-
-    pub fn is_materialized(&self) -> bool {
-        self.materialized.get().is_some()
-    }
-}
-
-impl Deref for DocumentRevision {
-    type Target = ParsedDocument;
-
-    fn deref(&self) -> &Self::Target {
-        self.materialized.get_or_init(|| self.green.materialize())
     }
 }
 
@@ -460,27 +442,21 @@ pub struct PreparedDocumentAnalysis {
 
 impl PendingDocumentAnalysis {
     pub fn analyze(self) -> PreparedDocumentAnalysis {
+        let valid = self
+            .parsed
+            .green()
+            .valid_syntax()
+            .expect("pending semantic analysis requires valid syntax");
         let output = match (&self.previous_output, &self.change) {
             (Some(previous), Some(change)) => analyze_green_document_incremental(
+                valid,
                 Arc::clone(self.parsed.green()),
                 previous,
                 change,
             )
-            .unwrap_or_else(|| {
-                let valid = self
-                    .parsed
-                    .valid_syntax()
-                    .expect("pending semantic analysis requires valid syntax");
-                analyze_document_incremental(valid, previous, change)
-            }),
-            _ => {
-                let valid = self
-                    .parsed
-                    .valid_syntax()
-                    .expect("pending semantic analysis requires valid syntax");
-                analyze_green_document(valid, Arc::clone(self.parsed.green()))
-                    .unwrap_or_else(|| analyze_document(valid))
-            }
+            .expect("valid green revisions produce incremental semantics"),
+            _ => analyze_green_document(valid, Arc::clone(self.parsed.green()))
+                .expect("valid green revisions produce semantics"),
         };
         PreparedDocumentAnalysis {
             path: self.path,

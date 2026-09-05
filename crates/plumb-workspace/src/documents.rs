@@ -2,8 +2,8 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use plumb_semantics::{analyze_document, DocumentChange};
-use plumb_syntax::{parse, GreenDocument, SourceChange};
+use plumb_semantics::{analyze_green_document, DocumentChange};
+use plumb_syntax::{GreenDocument, SourceChange};
 
 use crate::{
     normalize, DocumentEntry, DocumentRevision, PendingDocumentAnalysis, PreparedDocumentAnalysis,
@@ -61,9 +61,11 @@ impl Workspace {
         if store.contains_current(&path, &source)? {
             return Ok(true);
         }
-        let parsed = parse(source);
-        let output = parsed.valid_syntax().map(analyze_document);
-        store.replace(&path, revision, &parsed.source, output.as_ref())?;
+        let green = Arc::new(GreenDocument::parse(source));
+        let output = green
+            .valid_syntax()
+            .and_then(|valid| analyze_green_document(valid, Arc::clone(&green)));
+        store.replace(&path, revision, green.source(), output.as_ref())?;
         Ok(false)
     }
 
@@ -335,10 +337,12 @@ fn document_entry_from_source(path: PathBuf, revision: i64, source: &str) -> Doc
     let parsed = Arc::new(DocumentRevision::from_green(Arc::new(
         GreenDocument::parse(source),
     )));
-    let current = parsed.valid_syntax().map(|valid| {
-        Arc::new(VersionedDocumentOutput {
-            revision,
-            output: Arc::new(analyze_document(valid)),
+    let current = parsed.green().valid_syntax().and_then(|valid| {
+        analyze_green_document(valid, Arc::clone(parsed.green())).map(|output| {
+            Arc::new(VersionedDocumentOutput {
+                revision,
+                output: Arc::new(output),
+            })
         })
     });
     DocumentEntry {

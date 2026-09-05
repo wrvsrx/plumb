@@ -143,16 +143,6 @@ impl<T: RelativeSemanticRecord> SemanticRecords<T> {
         Arc::make_mut(self.owned_mut()).push(record);
     }
 
-    pub(crate) fn from_owned(records: Vec<T>) -> Self {
-        if records.is_empty() {
-            Self::default()
-        } else {
-            Self {
-                storage: RecordStorage::Owned(Arc::new(records)),
-            }
-        }
-    }
-
     pub(crate) fn sort_by_key<K: Ord>(&mut self, mut key: impl FnMut(&T) -> K) {
         if matches!(self.storage, RecordStorage::Empty) {
             return;
