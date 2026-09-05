@@ -1955,6 +1955,7 @@ dependencies = [
  "ignore",
  "libsqlite3-sys",
  "plumb-edit",
+ "plumb-export",
  "plumb-format",
  "plumb-semantics",
  "plumb-syntax",

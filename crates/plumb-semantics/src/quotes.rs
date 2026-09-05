@@ -2,7 +2,7 @@ use std::ops::Range;
 
 use plumb_syntax::{Block, ValidDocument};
 
-use crate::{RelativeSemanticRecord, SemanticRecords};
+use crate::{RelativeSemanticRecord, SemanticRecordView, SemanticRecords};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct QuoteRecord {
@@ -14,13 +14,35 @@ pub struct QuoteOutput {
     pub quotes: SemanticRecords<QuoteRecord>,
 }
 
+pub type QuoteRecordView<'a> = SemanticRecordView<'a, QuoteRecord>;
+
+impl QuoteRecordView<'_> {
+    pub fn range(self) -> Range<usize> {
+        self.record
+            .range
+            .start
+            .checked_add_signed(self.offset)
+            .unwrap()
+            ..self
+                .record
+                .range
+                .end
+                .checked_add_signed(self.offset)
+                .unwrap()
+    }
+}
+
 impl QuoteOutput {
-    pub fn quote_at_node_start(&self, start: usize) -> Option<QuoteRecord> {
-        self.quotes.iter().find(|quote| quote.range.start == start)
+    pub fn quote_at_node_start(&self, start: usize) -> Option<QuoteRecordView<'_>> {
+        self.quotes.view_at_start(start)
     }
 }
 
 impl RelativeSemanticRecord for QuoteRecord {
+    fn start(&self) -> usize {
+        self.range.start
+    }
+
     fn shift(&mut self, delta: isize) {
         self.range.start = self.range.start.checked_add_signed(delta).unwrap();
         self.range.end = self.range.end.checked_add_signed(delta).unwrap();

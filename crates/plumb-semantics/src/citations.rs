@@ -2,7 +2,7 @@ use std::ops::Range;
 
 use plumb_syntax::{Block, Diagnostic, DiagnosticSeverity, Inline, InlineContent, ValidDocument};
 
-use crate::{RelativeSemanticRecord, SemanticDiagnostics, SemanticRecords};
+use crate::{RelativeSemanticRecord, SemanticDiagnostics, SemanticRecordView, SemanticRecords};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CitationRecord {
@@ -17,15 +17,29 @@ pub struct CitationOutput {
     pub diagnostics: SemanticDiagnostics,
 }
 
+pub type CitationRecordView<'a> = SemanticRecordView<'a, CitationRecord>;
+
+impl<'a> CitationRecordView<'a> {
+    pub fn range(self) -> Range<usize> {
+        shifted_range(&self.record.range, self.offset)
+    }
+
+    pub fn id(self) -> &'a str {
+        &self.record.id
+    }
+}
+
 impl CitationOutput {
-    pub fn citation_at_node_start(&self, start: usize) -> Option<CitationRecord> {
-        self.citations
-            .iter()
-            .find(|citation| citation.range.start == start)
+    pub fn citation_at_node_start(&self, start: usize) -> Option<CitationRecordView<'_>> {
+        self.citations.view_at_start(start)
     }
 }
 
 impl RelativeSemanticRecord for CitationRecord {
+    fn start(&self) -> usize {
+        self.range.start
+    }
+
     fn shift(&mut self, delta: isize) {
         shift_range(&mut self.range, delta);
         shift_range(&mut self.selection_range, delta);
@@ -35,6 +49,10 @@ impl RelativeSemanticRecord for CitationRecord {
 fn shift_range(range: &mut Range<usize>, delta: isize) {
     range.start = range.start.checked_add_signed(delta).unwrap();
     range.end = range.end.checked_add_signed(delta).unwrap();
+}
+
+fn shifted_range(range: &Range<usize>, delta: isize) -> Range<usize> {
+    range.start.checked_add_signed(delta).unwrap()..range.end.checked_add_signed(delta).unwrap()
 }
 
 pub fn analyze_citations(valid: ValidDocument<'_>) -> CitationOutput {

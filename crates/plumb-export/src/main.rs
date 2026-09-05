@@ -4,9 +4,9 @@ use std::io::{self, Read};
 use std::process::ExitCode;
 
 use plumb_semantics::{
-    analyze_document, is_document_declaration, owner_semantic_view, CitationRecord, DocumentOutput,
-    InlineStyleKind, LinkSpelling, ListGroup, ListKind, MetadataBlock, MetadataEntry,
-    MetadataValue, TableRecord, TaskState,
+    analyze_document, is_document_declaration, owner_semantic_view, CitationRecordView,
+    DocumentOutput, InlineStyleKind, LinkSpelling, ListGroup, ListKind, MetadataBlock,
+    MetadataEntry, MetadataValue, TableRecord, TaskState,
 };
 use plumb_syntax::{parse, AttrItem, Attributes, Block, Inline, InlineContent, ParsedBlock};
 use serde_json::{json, Map, Value};
@@ -493,7 +493,7 @@ fn lower_inline_items(items: &[Inline], analysis: &DocumentOutput, output: &mut 
                 if let Some(link) = analysis.link_at_node_start(range.start) {
                     output.push(json!({
                         "t": "Link",
-                        "c": [lower_verbatim_link_attrs(&attrs), text_inlines(text), [&link.target.value, ""]],
+                        "c": [lower_verbatim_link_attrs(&attrs), text_inlines(text), [link.target_value(), ""]],
                     }));
                 } else if analysis.math().math_at_node_start(range.start).is_some() {
                     let math = json!({
@@ -528,14 +528,14 @@ fn lower_inline_items(items: &[Inline], analysis: &DocumentOutput, output: &mut 
                 let attrs = &mark.attrs;
                 if let Some(style) = analysis.inline_styles().style_at_node_start(range.start) {
                     let content = lower_group_content(content, analysis);
-                    if style.kind == InlineStyleKind::Mark {
+                    if style.kind() == InlineStyleKind::Mark {
                         output.push(json!({
                             "t": "Span",
                             "c": [lower_mark_attrs(attrs), content],
                         }));
                     } else {
                         let semantic = json!({
-                            "t": match style.kind {
+                            "t": match style.kind() {
                                 InlineStyleKind::Emphasis => "Emph",
                                 InlineStyleKind::Strong => "Strong",
                                 InlineStyleKind::Strikeout => "Strikeout",
@@ -557,26 +557,26 @@ fn lower_inline_items(items: &[Inline], analysis: &DocumentOutput, output: &mut 
                 } else if let Some(citation) =
                     analysis.citations().citation_at_node_start(range.start)
                 {
-                    output.push(lower_citation(&citation));
+                    output.push(lower_citation(citation));
                 } else if let Some(image) = analysis.image_at_node_start(range.start) {
                     output.push(json!({
                         "t": "Image",
-                        "c": [lower_image_attrs(attrs), lower_first_argument(content, analysis), [&image.source.value, ""]],
+                        "c": [lower_image_attrs(attrs), lower_first_argument(content, analysis), [image.source_value(), ""]],
                     }));
                 } else if let Some(file) = analysis.file_at_node_start(range.start) {
                     output.push(json!({
                         "t": "Link",
-                        "c": [lower_file_attrs(attrs), lower_first_argument(content, analysis), [&file.source.value, ""]],
+                        "c": [lower_file_attrs(attrs), lower_first_argument(content, analysis), [file.source_value(), ""]],
                     }));
                 } else if let Some(link) = analysis.link_at_node_start(range.start) {
-                    let label = if matches!(link.spelling, LinkSpelling::Verbatim { .. }) {
-                        text_inlines(&link.target.value)
+                    let label = if matches!(link.spelling(), LinkSpelling::Verbatim { .. }) {
+                        text_inlines(link.target_value())
                     } else {
                         lower_link_label(content, analysis)
                     };
                     output.push(json!({
                         "t": "Link",
-                        "c": [lower_link_attrs(attrs), label, [&link.target.value, ""]],
+                        "c": [lower_link_attrs(attrs), label, [link.target_value(), ""]],
                     }));
                 } else {
                     output.push(json!({
@@ -615,17 +615,17 @@ fn lower_link_label(content: &InlineContent, analysis: &DocumentOutput) -> Vec<V
     output
 }
 
-fn lower_citation(citation: &CitationRecord) -> Value {
+fn lower_citation(citation: CitationRecordView<'_>) -> Value {
     json!({
         "t": "Cite",
         "c": [[{
-            "citationId": citation.id,
+            "citationId": citation.id(),
             "citationPrefix": [],
             "citationSuffix": [],
             "citationMode": { "t": "NormalCitation" },
             "citationNoteNum": 0,
             "citationHash": 0,
-        }], text_inlines(&format!("[{}]", citation.id))],
+        }], text_inlines(&format!("[{}]", citation.id()))],
     })
 }
 

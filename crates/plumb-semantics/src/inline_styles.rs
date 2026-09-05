@@ -2,7 +2,7 @@ use std::ops::Range;
 
 use plumb_syntax::{Block, Inline, InlineContent, ValidDocument};
 
-use crate::{RelativeSemanticRecord, SemanticRecords};
+use crate::{RelativeSemanticRecord, SemanticRecordView, SemanticRecords};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InlineStyleKind {
@@ -25,13 +25,39 @@ pub struct InlineStyleOutput {
     pub styles: SemanticRecords<InlineStyleRecord>,
 }
 
+pub type InlineStyleRecordView<'a> = SemanticRecordView<'a, InlineStyleRecord>;
+
+impl InlineStyleRecordView<'_> {
+    pub fn range(self) -> Range<usize> {
+        self.record
+            .range
+            .start
+            .checked_add_signed(self.offset)
+            .unwrap()
+            ..self
+                .record
+                .range
+                .end
+                .checked_add_signed(self.offset)
+                .unwrap()
+    }
+
+    pub fn kind(self) -> InlineStyleKind {
+        self.record.kind
+    }
+}
+
 impl InlineStyleOutput {
-    pub fn style_at_node_start(&self, start: usize) -> Option<InlineStyleRecord> {
-        self.styles.iter().find(|style| style.range.start == start)
+    pub fn style_at_node_start(&self, start: usize) -> Option<InlineStyleRecordView<'_>> {
+        self.styles.view_at_start(start)
     }
 }
 
 impl RelativeSemanticRecord for InlineStyleRecord {
+    fn start(&self) -> usize {
+        self.range.start
+    }
+
     fn shift(&mut self, delta: isize) {
         self.range.start = self.range.start.checked_add_signed(delta).unwrap();
         self.range.end = self.range.end.checked_add_signed(delta).unwrap();

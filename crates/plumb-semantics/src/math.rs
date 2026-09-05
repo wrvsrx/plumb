@@ -5,7 +5,7 @@ use plumb_syntax::{
     ValidDocument,
 };
 
-use crate::{RelativeSemanticRecord, SemanticDiagnostics, SemanticRecords};
+use crate::{RelativeSemanticRecord, SemanticDiagnostics, SemanticRecordView, SemanticRecords};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MathKind {
@@ -25,15 +25,39 @@ pub struct MathOutput {
     pub diagnostics: SemanticDiagnostics,
 }
 
+pub type MathRecordView<'a> = SemanticRecordView<'a, MathRecord>;
+
+impl MathRecordView<'_> {
+    pub fn range(self) -> Range<usize> {
+        self.record
+            .range
+            .start
+            .checked_add_signed(self.offset)
+            .unwrap()
+            ..self
+                .record
+                .range
+                .end
+                .checked_add_signed(self.offset)
+                .unwrap()
+    }
+
+    pub fn kind(self) -> MathKind {
+        self.record.kind
+    }
+}
+
 impl MathOutput {
-    pub fn math_at_node_start(&self, start: usize) -> Option<MathRecord> {
-        self.records
-            .iter()
-            .find(|record| record.range.start == start)
+    pub fn math_at_node_start(&self, start: usize) -> Option<MathRecordView<'_>> {
+        self.records.view_at_start(start)
     }
 }
 
 impl RelativeSemanticRecord for MathRecord {
+    fn start(&self) -> usize {
+        self.range.start
+    }
+
     fn shift(&mut self, delta: isize) {
         self.range.start = self.range.start.checked_add_signed(delta).unwrap();
         self.range.end = self.range.end.checked_add_signed(delta).unwrap();

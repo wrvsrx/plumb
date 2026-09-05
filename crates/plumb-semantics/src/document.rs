@@ -58,6 +58,10 @@ pub struct AnchorRecord {
 }
 
 impl RelativeSemanticRecord for AnchorRecord {
+    fn start(&self) -> usize {
+        self.range.start
+    }
+
     fn shift(&mut self, delta: isize) {
         shift_source_backed(&mut self.id, delta);
         shift_range(&mut self.range, delta);
@@ -104,7 +108,27 @@ pub struct LinkRecord {
     pub fragment_range: Option<Range<usize>>,
 }
 
+pub type LinkRecordView<'a> = crate::SemanticRecordView<'a, LinkRecord>;
+
+impl<'a> LinkRecordView<'a> {
+    pub fn range(self) -> Range<usize> {
+        shifted_range(&self.record.range, self.offset)
+    }
+
+    pub fn target_value(self) -> &'a str {
+        &self.record.target.value
+    }
+
+    pub fn spelling(self) -> &'a LinkSpelling {
+        &self.record.spelling
+    }
+}
+
 impl RelativeSemanticRecord for LinkRecord {
+    fn start(&self) -> usize {
+        self.range.start
+    }
+
     fn shift(&mut self, delta: isize) {
         shift_range(&mut self.range, delta);
         shift_range(&mut self.selection_range, delta);
@@ -139,7 +163,23 @@ pub struct ImageRecord {
     pub target_kind: ImageTarget,
 }
 
+pub type ImageRecordView<'a> = crate::SemanticRecordView<'a, ImageRecord>;
+
+impl<'a> ImageRecordView<'a> {
+    pub fn range(self) -> Range<usize> {
+        shifted_range(&self.record.range, self.offset)
+    }
+
+    pub fn source_value(self) -> &'a str {
+        &self.record.source.value
+    }
+}
+
 impl RelativeSemanticRecord for ImageRecord {
+    fn start(&self) -> usize {
+        self.range.start
+    }
+
     fn shift(&mut self, delta: isize) {
         shift_range(&mut self.range, delta);
         shift_range(&mut self.selection_range, delta);
@@ -161,7 +201,23 @@ pub struct FileRecord {
     pub target_kind: FileTarget,
 }
 
+pub type FileRecordView<'a> = crate::SemanticRecordView<'a, FileRecord>;
+
+impl<'a> FileRecordView<'a> {
+    pub fn range(self) -> Range<usize> {
+        shifted_range(&self.record.range, self.offset)
+    }
+
+    pub fn source_value(self) -> &'a str {
+        &self.record.source.value
+    }
+}
+
 impl RelativeSemanticRecord for FileRecord {
+    fn start(&self) -> usize {
+        self.range.start
+    }
+
     fn shift(&mut self, delta: isize) {
         shift_range(&mut self.range, delta);
         shift_range(&mut self.selection_range, delta);
@@ -211,6 +267,10 @@ pub struct SemanticTree {
 }
 
 impl SemanticTree {
+    pub(crate) fn node_offset(&self, node_index: usize) -> usize {
+        self.nodes[node_index].offset
+    }
+
     pub(crate) fn record_node(&self, node_index: usize) -> (isize, &SemanticNodeOutput) {
         let node = &self.nodes[node_index];
         (node.offset as isize, &node.output)
@@ -450,16 +510,16 @@ impl DocumentOutput {
         self.root.tree.cache_hits
     }
 
-    pub fn link_at_node_start(&self, start: usize) -> Option<LinkRecord> {
-        self.links.iter().find(|link| link.range.start == start)
+    pub fn link_at_node_start(&self, start: usize) -> Option<LinkRecordView<'_>> {
+        self.links.view_at_start(start)
     }
 
-    pub fn image_at_node_start(&self, start: usize) -> Option<ImageRecord> {
-        self.images.iter().find(|image| image.range.start == start)
+    pub fn image_at_node_start(&self, start: usize) -> Option<ImageRecordView<'_>> {
+        self.images.view_at_start(start)
     }
 
-    pub fn file_at_node_start(&self, start: usize) -> Option<FileRecord> {
-        self.files.iter().find(|file| file.range.start == start)
+    pub fn file_at_node_start(&self, start: usize) -> Option<FileRecordView<'_>> {
+        self.files.view_at_start(start)
     }
 
     pub fn links_contained_by_event(&self, event_start: usize) -> Option<Vec<LinkRecord>> {
@@ -1375,6 +1435,10 @@ fn shift_source_backed(value: &mut SourceBacked<String>, delta: isize) {
 fn shift_range(range: &mut Range<usize>, delta: isize) {
     range.start = range.start.checked_add_signed(delta).unwrap();
     range.end = range.end.checked_add_signed(delta).unwrap();
+}
+
+fn shifted_range(range: &Range<usize>, delta: isize) -> Range<usize> {
+    range.start.checked_add_signed(delta).unwrap()..range.end.checked_add_signed(delta).unwrap()
 }
 
 fn build_event_link_ranges(
@@ -2506,6 +2570,54 @@ mod tests {
         assert_eq!(incremental, fresh);
         assert_eq!(incremental.lists().groups.len(), 2);
         assert_eq!(incremental.links().len(), 1);
+    }
+
+    #[test]
+    fn exact_start_views_project_later_shard_ranges_without_ownership() {
+        let source = "Prelude\n\n`> Quoted\n\nSee `!{strong}, `$\"x\", `cite{smith}, and `->{guide guide.plumb}.\n\n`img{status `={src status.png}}\n\n`file{manual `={src manual.pdf}}\n";
+        let parsed = parse(source);
+        let output = analyze_document(parsed.valid_syntax().unwrap());
+        let quote_start = source.find("`> Quoted").unwrap();
+        let style_start = source.find("`!{strong}").unwrap();
+        let math_start = source.find("`$\"x\"").unwrap();
+        let citation_start = source.find("`cite{smith}").unwrap();
+        let link_start = source.find("`->{guide").unwrap();
+        let image_start = source.find("`img{").unwrap();
+        let file_start = source.find("`file{").unwrap();
+
+        assert_eq!(
+            output
+                .quotes()
+                .quote_at_node_start(quote_start)
+                .unwrap()
+                .range()
+                .start,
+            quote_start
+        );
+        let style = output
+            .inline_styles()
+            .style_at_node_start(style_start)
+            .unwrap();
+        assert_eq!(style.range().start, style_start);
+        assert_eq!(style.kind(), crate::InlineStyleKind::Strong);
+        let math = output.math().math_at_node_start(math_start).unwrap();
+        assert_eq!(math.range().start, math_start);
+        assert_eq!(math.kind(), crate::MathKind::Inline);
+        let citation = output
+            .citations()
+            .citation_at_node_start(citation_start)
+            .unwrap();
+        assert_eq!(citation.range().start, citation_start);
+        assert_eq!(citation.id(), "smith");
+        let link = output.link_at_node_start(link_start).unwrap();
+        assert_eq!(link.range().start, link_start);
+        assert_eq!(link.target_value(), "guide.plumb");
+        let image = output.image_at_node_start(image_start).unwrap();
+        assert_eq!(image.range().start, image_start);
+        assert_eq!(image.source_value(), "status.png");
+        let file = output.file_at_node_start(file_start).unwrap();
+        assert_eq!(file.range().start, file_start);
+        assert_eq!(file.source_value(), "manual.pdf");
     }
 
     #[test]

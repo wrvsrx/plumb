@@ -6,6 +6,7 @@ use plumb_syntax::Diagnostic;
 use crate::document::{SemanticNodeOutput, SemanticTree};
 
 pub trait RelativeSemanticRecord: Clone + fmt::Debug + PartialEq + Eq {
+    fn start(&self) -> usize;
     fn shift(&mut self, delta: isize);
 }
 
@@ -331,6 +332,30 @@ impl<T: RelativeSemanticRecord> SemanticRecords<T> {
         }
     }
 
+    pub fn view_at_start(&self, start: usize) -> Option<SemanticRecordView<'_, T>> {
+        match &self.storage {
+            RecordStorage::Empty => None,
+            RecordStorage::Owned(records) => record_at_start(records, start)
+                .map(|record| SemanticRecordView { record, offset: 0 }),
+            RecordStorage::Segmented(storage) => {
+                let segment_index = storage
+                    .segments
+                    .partition_point(|segment| {
+                        storage.tree.node_offset(segment.node_index) <= start
+                    })
+                    .checked_sub(1)?;
+                let segment = &storage.segments[segment_index];
+                let (offset, output) = storage.tree.record_node(segment.node_index);
+                let local_start = start.checked_add_signed(-offset)?;
+                let records = (storage.records)(output)
+                    .owned_records()
+                    .expect("a projection segment references owned local records");
+                record_at_start(records, local_start)
+                    .map(|record| SemanticRecordView { record, offset })
+            }
+        }
+    }
+
     pub(crate) fn push(&mut self, record: T) {
         Arc::make_mut(self.owned_mut()).push(record);
     }
@@ -417,11 +442,78 @@ impl<T: RelativeSemanticRecord> SemanticRecords<T> {
     }
 }
 
+fn record_at_start<T: RelativeSemanticRecord>(records: &[T], start: usize) -> Option<&T> {
+    let index = records.partition_point(|record| record.start() < start);
+    records.get(index).filter(|record| record.start() == start)
+}
+
 impl<'a, T: RelativeSemanticRecord> IntoIterator for &'a SemanticRecords<T> {
     type Item = T;
     type IntoIter = Box<dyn Iterator<Item = T> + 'a>;
 
     fn into_iter(self) -> Self::IntoIter {
         Box::new(self.iter())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use super::*;
+
+    #[derive(Debug)]
+    struct CountingRecord {
+        start: usize,
+        clones: Arc<AtomicUsize>,
+    }
+
+    impl Clone for CountingRecord {
+        fn clone(&self) -> Self {
+            self.clones.fetch_add(1, Ordering::Relaxed);
+            Self {
+                start: self.start,
+                clones: Arc::clone(&self.clones),
+            }
+        }
+    }
+
+    impl PartialEq for CountingRecord {
+        fn eq(&self, other: &Self) -> bool {
+            self.start == other.start && Arc::ptr_eq(&self.clones, &other.clones)
+        }
+    }
+
+    impl Eq for CountingRecord {}
+
+    impl RelativeSemanticRecord for CountingRecord {
+        fn start(&self) -> usize {
+            self.start
+        }
+
+        fn shift(&mut self, delta: isize) {
+            self.start = self.start.checked_add_signed(delta).unwrap();
+        }
+    }
+
+    #[test]
+    fn exact_start_view_does_not_clone_owned_records() {
+        let clones = Arc::new(AtomicUsize::new(0));
+        let mut records = SemanticRecords::default();
+        for start in [10, 20, 30] {
+            records.push(CountingRecord {
+                start,
+                clones: Arc::clone(&clones),
+            });
+        }
+
+        let record = records.view_at_start(20).unwrap();
+        assert_eq!(record.record.start, 20);
+        assert_eq!(clones.load(Ordering::Relaxed), 0);
+        assert!(records.view_at_start(25).is_none());
+        assert_eq!(clones.load(Ordering::Relaxed), 0);
+
+        assert_eq!(record.to_owned().start, 20);
+        assert_eq!(clones.load(Ordering::Relaxed), 1);
     }
 }

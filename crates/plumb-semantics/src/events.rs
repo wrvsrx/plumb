@@ -80,6 +80,10 @@ impl EventRecord {
 }
 
 impl RelativeSemanticRecord for EventRecord {
+    fn start(&self) -> usize {
+        self.range.start
+    }
+
     fn shift(&mut self, delta: isize) {
         shift_events(std::slice::from_mut(self), delta);
     }

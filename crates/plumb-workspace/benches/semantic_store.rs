@@ -739,11 +739,7 @@ fn benchmark_open_document_generation(c: &mut Criterion) {
         ));
     }
     let mut root_diagnostic_workspace = Workspace::new();
-    root_diagnostic_workspace.insert(
-        "root-diagnostics.plumb",
-        1,
-        root_diagnostic_source.clone(),
-    );
+    root_diagnostic_workspace.insert("root-diagnostics.plumb", 1, root_diagnostic_source.clone());
     let root_diagnostic_start = root_diagnostic_source.find("Invalid 5000").unwrap();
     let root_diagnostic_changed =
         root_diagnostic_source.replacen("Invalid 5000", "Changed invalid 5000", 1);
@@ -753,8 +749,7 @@ fn benchmark_open_document_generation(c: &mut Criterion) {
             2,
             root_diagnostic_changed,
             Some(SourceChange {
-                old_range: root_diagnostic_start
-                    ..root_diagnostic_start + "Invalid 5000".len(),
+                old_range: root_diagnostic_start..root_diagnostic_start + "Invalid 5000".len(),
                 new_range: root_diagnostic_start
                     ..root_diagnostic_start + "Changed invalid 5000".len(),
             }),
@@ -1209,6 +1204,18 @@ fn benchmark_event_containment(c: &mut Criterion) {
     group.finish();
 }
 
+fn benchmark_export_record_lookup(c: &mut Criterion) {
+    let mut source = String::new();
+    for index in 0..2_000 {
+        source.push_str(&format!(
+            "See `->{{{{Guide {index}}} guide-{index}.plumb}} `!{{strong {index}}} `cite{{citation-{index}}}.\n\n"
+        ));
+    }
+    c.bench_function("export_record_lookup_2000", |b| {
+        b.iter(|| black_box(plumb_export::export(black_box(&source)).unwrap()))
+    });
+}
+
 fn configuration() -> Criterion {
     Criterion::default()
         .measurement_time(Duration::from_secs(5))
@@ -1221,6 +1228,6 @@ criterion_group! {
     targets = benchmark_build, benchmark_warm_start, benchmark_queries, benchmark_replacement,
         benchmark_task_queries, benchmark_diagnostic_round, benchmark_open_document_generation,
         benchmark_incremental_parse, benchmark_semantic_components, benchmark_batch_index,
-        benchmark_event_containment
+        benchmark_event_containment, benchmark_export_record_lookup
 }
 criterion_main!(benches);

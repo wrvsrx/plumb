@@ -245,12 +245,12 @@ pub fn body_children(
         .filter(move |child| !association_value && !is_block_declaration(owner, child))
 }
 
-pub use citations::{analyze_citations, CitationOutput, CitationRecord};
+pub use citations::{analyze_citations, CitationOutput, CitationRecord, CitationRecordView};
 pub use document::{
     analyze_document, analyze_document_incremental, analyze_green_document,
     analyze_green_document_incremental, AnchorKind, AnchorRecord, DocumentChange, DocumentOutput,
-    EventLinkRange, FileRecord, FileTarget, ImageRecord, ImageTarget, LinkRecord, LinkSpelling,
-    LinkTarget, SemanticRoot, SourceBacked,
+    EventLinkRange, FileRecord, FileRecordView, FileTarget, ImageRecord, ImageRecordView,
+    ImageTarget, LinkRecord, LinkRecordView, LinkSpelling, LinkTarget, SemanticRoot, SourceBacked,
 };
 pub use events::{
     analyze_events, EventField, EventOutput, EventRecord, EventRecordView, EventRecords,
@@ -258,9 +258,10 @@ pub use events::{
 pub use headings::{analyze_headings, analyze_recovered_headings, Heading, HeadingOutput};
 pub use inline_styles::{
     analyze_inline_styles, InlineStyleKind, InlineStyleOutput, InlineStyleRecord,
+    InlineStyleRecordView,
 };
 pub use lists::{analyze_lists, ListGroup, ListGroups, ListItemRecord, ListKind, ListOutput};
-pub use math::{analyze_math, MathKind, MathOutput, MathRecord};
+pub use math::{analyze_math, MathKind, MathOutput, MathRecord, MathRecordView};
 pub use metadata::{
     analyze_metadata, green_recovered_bibliography_sources, recovered_bibliography_sources,
     BibliographySource, DefinitionList, DefinitionRecord, MetadataBlock, MetadataEntry,
@@ -278,7 +279,7 @@ pub use queries::{
     FileCompletionContext, ImageCompletionContext, LinkCompletionContext,
     TaskDependencyCompletionContext,
 };
-pub use quotes::{analyze_quotes, QuoteOutput, QuoteRecord};
+pub use quotes::{analyze_quotes, QuoteOutput, QuoteRecord, QuoteRecordView};
 pub use records::{
     RelativeSemanticRecord, SemanticDiagnostics, SemanticRecordView, SemanticRecords,
 };

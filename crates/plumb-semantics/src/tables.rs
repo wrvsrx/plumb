@@ -45,6 +45,10 @@ impl TableOutput {
 }
 
 impl RelativeSemanticRecord for TableRecord {
+    fn start(&self) -> usize {
+        self.range.start
+    }
+
     fn shift(&mut self, delta: isize) {
         shift_range(&mut self.range, delta);
         shift_range(&mut self.selection_range, delta);

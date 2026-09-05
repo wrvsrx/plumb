@@ -95,6 +95,10 @@ pub struct TaskOutput {
 }
 
 impl RelativeSemanticRecord for TaskRecord {
+    fn start(&self) -> usize {
+        self.range.start
+    }
+
     fn shift(&mut self, delta: isize) {
         shift_range(&mut self.range, delta);
         shift_range(&mut self.marker_range, delta);
