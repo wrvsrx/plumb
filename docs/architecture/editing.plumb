@@ -76,8 +76,10 @@ green structural mutation以 absolute complete block range定位唯一 owning sh
 该 shard、转换为 local range/OwnedBlock、执行 canonical replacement并把 TextEdit rebase回 document range；workspace
 不得读取 shard offset或自行平移 edit。单 target replace和 one-to-many replacement必须走该入口。document prepend/
 append、sibling insert和direct-child insert同样由plumb-edit定位首尾或验证完整 parent/sibling range；adapter只传
-OwnedBlock与位置意图。跨 top-level shards的 move在有 transaction-level green session以前仍可使用 revision lazy
-compatibility view。
+OwnedBlock与位置意图。green move transaction接受source、optional direct parent/after ranges与replacement
+OwnedBlock：same-root move只replace共同top-level root，cross-root move产生互不重叠的source removal与target insert，
+从ancestor内提升到其后方使用one-to-many root replacement。所有location/path adjustment由plumb-edit完成，move不得
+materialize revision compatibility view。
 
 direct declaration insert position使用 First/Last/Before/After typed item。anonymous/marked parsed owner 均可拥有
 declaration children；verbatim leaf 需要先使用 wrapper structure。cursor-targeted declaration insert由green入口在
