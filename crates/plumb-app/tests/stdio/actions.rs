@@ -1,7 +1,97 @@
 use chrono::Local;
 use serde_json::json;
 
-use crate::support::{attribute_value, response, run_server};
+use crate::support::{attribute_value, response, run_server, LspTestSession};
+
+#[test]
+fn recurring_task_completion_returns_semantic_tokens_and_fold_labels_without_refresh() {
+    let uri = "file:///tmp/recurring-completion-decorations.plumb";
+    let source = "`# Tasks\n\n`- Recur task\n\n `+ task\n\n `= created 2026-09-06T00:00:00Z\n `= due 2026-09-06T01:00:00Z\n `= recur P1D\n";
+    let mut session = LspTestSession::new();
+    session.send(&json!({
+        "jsonrpc":"2.0","id":1,"method":"initialize",
+        "params":{"processId":null,"rootUri":null,"capabilities":{
+            "workspace":{"workspaceEdit":{"documentChanges":true}},
+            "textDocument":{"foldingRange":{"foldingRange":{"collapsedText":true}}}
+        }}
+    }));
+    session.wait_for_response(&json!(1));
+    session.send(&json!({"jsonrpc":"2.0","method":"initialized","params":{}}));
+    session.wait_for(|message| {
+        message["method"] == "$/progress" && message["params"]["value"]["kind"] == "end"
+    });
+    session.send(&json!({
+        "jsonrpc":"2.0","method":"textDocument/didOpen",
+        "params":{"textDocument":{"uri":uri,"languageId":"plumb","version":1,"text":source}}
+    }));
+    for iteration in 0..10 {
+        let id = 10 + iteration * 4;
+        let version = 2 + iteration * 2;
+        session.send(&json!({
+            "jsonrpc":"2.0","method":"textDocument/didChange",
+            "params":{"textDocument":{"uri":uri,"version":version},"contentChanges":[{"text":source}]}
+        }));
+        session.send(&json!({
+            "jsonrpc":"2.0","id":id,"method":"textDocument/semanticTokens/full",
+            "params":{"textDocument":{"uri":uri}}
+        }));
+        session.wait_for_response(&json!(id));
+        session.send(&json!({
+            "jsonrpc":"2.0","id":id+1,"method":"textDocument/codeAction",
+            "params":{"textDocument":{"uri":uri},
+                "range":{"start":{"line":2,"character":4},"end":{"line":2,"character":4}},
+                "context":{"diagnostics":[],"only":["quickfix"]}}
+        }));
+        let actions = session.wait_for_response(&json!(id + 1));
+        let complete = actions["result"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|action| action["title"] == "Complete task")
+            .unwrap();
+        let changed = apply_ascii_lsp_edits(
+            source,
+            complete["edit"]["documentChanges"][0]["edits"]
+                .as_array()
+                .unwrap(),
+        );
+        assert_eq!(changed.matches("`- Recur task").count(), 2);
+        session.send(&json!({
+            "jsonrpc":"2.0","method":"textDocument/didChange",
+            "params":{"textDocument":{"uri":uri,"version":version+1},"contentChanges":[{"text":changed}]}
+        }));
+        session.send(&json!({
+            "jsonrpc":"2.0","id":id+2,"method":"textDocument/semanticTokens/full",
+            "params":{"textDocument":{"uri":uri}}
+        }));
+        session.send(&json!({
+            "jsonrpc":"2.0","id":id+3,"method":"textDocument/foldingRange",
+            "params":{"textDocument":{"uri":uri}}
+        }));
+        let tokens = session.wait_for_response(&json!(id + 2));
+        assert!(
+            !tokens["result"]["data"].as_array().unwrap().is_empty(),
+            "{tokens}"
+        );
+        let folds = session.wait_for_response(&json!(id + 3));
+        let ranges = folds["result"].as_array().unwrap();
+        assert!(ranges
+            .iter()
+            .any(|range| range["collapsedText"] == "`- [o]  Recur task"));
+        assert!(ranges
+            .iter()
+            .any(|range| range["collapsedText"] == "`- [ ]  Recur task"));
+    }
+    session.send(&json!({"jsonrpc":"2.0","id":100,"method":"shutdown","params":null}));
+    session.wait_for_response(&json!(100));
+    session.send(&json!({"jsonrpc":"2.0","method":"exit","params":null}));
+    assert!(!session.finish().iter().any(|message| {
+        matches!(
+            message["method"].as_str(),
+            Some("workspace/foldingRange/refresh" | "workspace/semanticTokens/refresh")
+        )
+    }));
+}
 
 #[test]
 fn inserts_metadata_code_action_only_for_valid_documents_without_metadata() {

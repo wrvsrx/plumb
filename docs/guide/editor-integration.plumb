@@ -77,7 +77,11 @@ repository development 使用 `"dev/nvim.lua" 加载当前 checkout 的 plugin�
 覆盖 raw body，anonymous/marked parsed owner有 children时覆盖完整 subtree。ordinary leaf paragraph 与 inline group
 不单独折叠。syntax error 未影响的 recovered owners仍可折叠；rangeLimit按 source order保留外层范围。
 
-首次 workspace index 进行期间，folding request 仍立即返回 structural folds。metadata、event 与可由当前 snapshot 唯一确定状态的 task 继续携带 custom text；依赖未进入当前 index snapshot 的 document、暂时无法 区分 ready 与 blocked 的 task 使用普通 opener fold text。不支持 `"workspace/foldingRange/refresh" 的 client 会在下一次 document lifecycle 或 client folding request 时更新这类降级 label；结构 fold 不受影响。 实现 `"workspace/foldingRange/refresh" 的 client 可以在 initialize client capabilities 中声明 `"experimental.plumb.foldingRangeRefreshSupport = true"；server 会在 initial index 完成及后续 dependency facts 改变后请求重新获取 folds。server initialize result 的 `"experimental.plumb.foldingRangeRefresh" 公布 request method 与 handshake path。未声明时 server 不发送 该 request；当前 Neovim 配置保持未声明状态。
+首次 workspace index 进行期间，folding request 不等待完整索引。metadata、event 与可由当前 snapshot 唯一确定状态的 task 继续携带 custom text；依赖未进入当前 index snapshot 的 document、暂时无法 区分 ready 与 blocked 的 task 使用普通 opener fold text。不支持 `"workspace/foldingRange/refresh" 的 client 会在下一次 document lifecycle 或 client folding request 时更新这类跨文件降级 label；结构 fold 不受影响。 实现 `"workspace/foldingRange/refresh" 的 client 可以在 initialize client capabilities 中声明 `"experimental.plumb.foldingRangeRefreshSupport = true"；server 会在 initial index 完成及后续 dependency facts 改变后请求重新获取 folds。server initialize result 的 `"experimental.plumb.foldingRangeRefresh" 公布 request method 与 handshake path。未声明时 server 不发送 该 request；当前 Neovim 配置保持未声明状态。
+
+编辑后，若当前文档的语义分析仍在运行，需要 custom text 的 folding request 会异步等待该 revision 完成，再一次
+返回 ranges 与 labels。这不要求 client 支持 refresh，也不等待其它文件的索引。没有 custom-text capability 或
+文档有 syntax error 时，structural folds 仍立即可用。后续编辑或关闭会取消旧 revision 的等待结果，避免混用新旧位置。
 
 客户端声明 `"foldingRange.foldingRange.collapsedText" support 时，task 与 event fold text 保留 backtick 与完整 marker。Task 使用固定五字符 state slot：ready 使用空白槽，waiting 使用波浪号，blocked 使用等号， done 使用 o，canceled 使用 x；conflicted 组合为 ox。常见状态 slot 后补齐空格， 使同级 task title 对齐，但不为 conflicted 状态改变组合表达，并保留 task block opener 的原始结构缩进。 Task text 保留 backtick 与原 list marker，后接 state 和 title。event fold 把 date、timezone、when 属性 解析出的时间（省秒、省偏移）与 title 拼成保留 backtick 与原 list marker 的摘要；时间与 title 只用一个 ASCII space 分隔，不额外插入 pipe，point 使用精确到分钟 的时间与 title，interval 追加两个短横线和结束时间。可折叠的顶层 metadata entry 使用 `"key  scalar value"，list、map、null 或不可展示 value 只使用 `"key"。label 规范为空格分隔的单行并在 80 characters 后截断。三者都保留原始结构 缩进。没有该 capability、无可靠 valid task/metadata facts 或无可用时间的 event fold 不携带 custom label。
 
@@ -112,6 +116,10 @@ plugin 不修改 window-local folding 设置。editor configuration 可以在 `"
 `# Closed task highlighting
 
 LSP semantic tokens 将 done task 的完整 block 标为 `"task + completed"，将 canceled task 标为 `"task + canceled"；同时具有两个 closure fields 的 conflicted task 携带两个 modifiers。父 task 的 range 会扣除 nested task blocks，child task 始终按自身状态着色。空行不产生 token。
+
+`"textDocument/semanticTokens/full" 在当前文档语义分析仍在运行时异步等待同一 revision，完成任务或编辑 metadata
+不会因 temporary empty response 丢失高亮。等待期间其它请求与编辑继续处理；新 revision、关闭或 request cancellation
+会结束旧请求。此处的本地结果不依赖 semantic-token refresh 或完整 workspace index。
 
 完整 plugin 默认把两种 token 链接到 `"Comment" highlight，因此 closed task 保持可读但降低对比度。 不使用 plugin 时可以直接配置 Neovim 0.12：
 

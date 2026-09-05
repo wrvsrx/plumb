@@ -218,8 +218,6 @@ LSP initial workspace indexing 不得阻塞 current open-document lifecycle 或�
 
 `"textDocument/foldingRange" 是上述 open-document exception：structural ranges 与 current-document labels 不得因 task workspace facts incomplete 而整体失败。adapter 对 task state 使用保守的 local determination， 无法证明唯一状态时只省略该 task 的 `"collapsedText"。不支持 `"workspace/foldingRange/refresh" 的 client 保留这份 response，直到 document lifecycle 或 client 自身触发下一次 folding request；不得为了等待完整 workspace index 补齐跨文件 label 而延迟 response。
 
-Status：以下 current-document semantic request waiting 尚未实现。
-
 current-valid semantic output pending 时，`"textDocument/semanticTokens/full" 异步等待同一 document revision 已在运行的
 analysis 安装，再返回该 revision 的 tokens；不能把暂时 pending 投影为 `"null" 或空 tokens。客户端需要
 `"collapsedText" 时，`"textDocument/foldingRange" 使用同一等待边界，再一次返回 structural ranges 与可确定的
@@ -231,7 +229,7 @@ invalid document 的 semantic tokens 可以立即返回 `"null"。等待只针�
 analysis 或阻塞 server event loop。new didChange、close/reopen、rename 或同 revision 不同 bytes 替换会终止旧等待者，
 以 `"ContentModified" 拒绝旧 request；不能把较新 output 配到旧 source/ranges。LSP cancellation 释放 request 的等待
 资源，但不取消其他请求共享的分析。正常 background installation 与显式 navigation 同步完成同一 revision 的路径都
-必须唤醒等待者；stale result 不唤醒较新 revision，所有终结路径释放登记。request 等待期间 formatting、recovered
+必须唤醒等待者；stale result 不唤醒较新 revision，所有终结路径释放等待资源。request 等待期间 formatting、recovered
 completion、其它 document requests 与 notifications 继续处理。
 
 当前 generation 的 worker 异常终止必须结束等待并返回 protocol internal error，不作为 source diagnostic；同一失败

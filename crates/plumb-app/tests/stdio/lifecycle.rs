@@ -6,6 +6,101 @@ use crate::support::{
 };
 
 #[test]
+fn pending_decorations_handle_cancel_new_edits_and_close_reopen_over_stdio() {
+    let uri = "file:///tmp/decoration-lifecycle.plumb";
+    let old = format!(
+        "`- Old\n `+ task\n `= done 2026-09-06T00:00:00Z\n\n{}",
+        "`- Background\n `+ task\n".repeat(2_000)
+    );
+    let latest = "`- Latest\n `+ task\n `= canceled 2026-09-06T00:00:00Z\n";
+    for operation in ["cancel", "edit", "reopen"] {
+        let mut messages = vec![
+            json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{
+                "processId":null,"rootUri":null,"capabilities":{
+                    "textDocument":{"foldingRange":{"foldingRange":{"collapsedText":true}}}
+                }
+            }}),
+            json!({"jsonrpc":"2.0","method":"initialized","params":{}}),
+            json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{
+                "textDocument":{"uri":uri,"languageId":"plumb","version":1,"text":""}
+            }}),
+            json!({"jsonrpc":"2.0","method":"textDocument/didChange","params":{
+                "textDocument":{"uri":uri,"version":2},"contentChanges":[{"text":old}]
+            }}),
+            json!({"jsonrpc":"2.0","id":2,"method":"textDocument/semanticTokens/full","params":{"textDocument":{"uri":uri}}}),
+            json!({"jsonrpc":"2.0","id":3,"method":"textDocument/foldingRange","params":{"textDocument":{"uri":uri}}}),
+        ];
+        match operation {
+            "cancel" => messages.push(json!({"jsonrpc":"2.0","method":"$/cancelRequest","params":{"id":2}})),
+            "edit" => messages.push(json!({"jsonrpc":"2.0","method":"textDocument/didChange","params":{
+                "textDocument":{"uri":uri,"version":3},"contentChanges":[{"text":latest}]
+            }})),
+            "reopen" => messages.extend([
+                json!({"jsonrpc":"2.0","method":"textDocument/didClose","params":{"textDocument":{"uri":uri}}}),
+                json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{
+                    "textDocument":{"uri":uri,"languageId":"plumb","version":1,"text":""}
+                }}),
+                json!({"jsonrpc":"2.0","method":"textDocument/didChange","params":{
+                    "textDocument":{"uri":uri,"version":2},"contentChanges":[{"text":latest}]
+                }}),
+            ]),
+            _ => unreachable!(),
+        }
+        messages.extend([
+            json!({"jsonrpc":"2.0","id":4,"method":"textDocument/semanticTokens/full","params":{"textDocument":{"uri":uri}}}),
+            json!({"jsonrpc":"2.0","id":5,"method":"textDocument/foldingRange","params":{"textDocument":{"uri":uri}}}),
+            json!({"jsonrpc":"2.0","id":6,"method":"shutdown","params":null}),
+            json!({"jsonrpc":"2.0","method":"exit","params":null}),
+        ]);
+        let output = run_server(&messages);
+        let first_tokens = response(&output, 2);
+        if first_tokens.get("error").is_some() {
+            assert_eq!(
+                first_tokens["error"]["code"],
+                if operation == "cancel" {
+                    -32800
+                } else {
+                    -32801
+                }
+            );
+        } else {
+            // Completion may win the race, but it must belong to the old source.
+            assert!(!first_tokens["result"]["data"]
+                .as_array()
+                .unwrap()
+                .is_empty());
+            assert_eq!(first_tokens["result"]["data"][4], 1);
+        }
+        let first_folds = response(&output, 3);
+        if first_folds.get("error").is_some() {
+            assert_ne!(operation, "cancel");
+            assert_eq!(first_folds["error"]["code"], -32801);
+        } else {
+            assert!(first_folds["result"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|range| range["collapsedText"] == "`- [o]  Old"));
+        }
+        let current_tokens = response(&output, 4);
+        assert!(!current_tokens["result"]["data"]
+            .as_array()
+            .unwrap()
+            .is_empty());
+        let expected = if operation == "cancel" {
+            "`- [o]  Old"
+        } else {
+            "`- [x]  Latest"
+        };
+        assert!(response(&output, 5)["result"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|range| range["collapsedText"] == expected));
+    }
+}
+
+#[test]
 fn initialize_advertises_incremental_text_synchronization() {
     let messages = [
         json!({

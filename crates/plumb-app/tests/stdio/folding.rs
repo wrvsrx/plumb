@@ -286,7 +286,7 @@ fn provides_structural_folding_for_valid_and_recovered_documents() {
 }
 
 #[test]
-fn folds_with_locally_determined_labels_before_initial_index_completes() {
+fn edited_document_decorations_finish_before_initial_workspace_index() {
     let root = unique_temp_dir();
     std::fs::create_dir_all(&root).unwrap();
     std::fs::write(root.join("large.plumb"), "Paragraph.\n\n".repeat(150_000)).unwrap();
@@ -310,8 +310,16 @@ fn folds_with_locally_determined_labels_before_initial_index_completes() {
         json!({
             "jsonrpc": "2.0", "method": "textDocument/didOpen",
             "params": { "textDocument": {
-                "uri": document_uri, "languageId": "plumb", "version": 1, "text": source
+                "uri": document_uri, "languageId": "plumb", "version": 1, "text": ""
             }}
+        }),
+        json!({
+            "jsonrpc":"2.0","method":"textDocument/didChange",
+            "params":{"textDocument":{"uri":document_uri,"version":2},"contentChanges":[{"text":source}]}
+        }),
+        json!({
+            "jsonrpc":"2.0","id":4,"method":"textDocument/semanticTokens/full",
+            "params":{"textDocument":{"uri":document_uri}}
         }),
         json!({
             "jsonrpc": "2.0", "id": 2, "method": "textDocument/foldingRange",
@@ -334,6 +342,10 @@ fn folds_with_locally_determined_labels_before_initial_index_completes() {
         assert!(folding_index < index_end);
     }
     let ranges = response(&output, 2)["result"].as_array().unwrap();
+    assert!(!response(&output, 4)["result"]["data"]
+        .as_array()
+        .unwrap()
+        .is_empty());
     let labels = ranges
         .iter()
         .filter_map(|range| range["collapsedText"].as_str())
@@ -406,7 +418,7 @@ fn refreshes_folding_after_index_only_for_declared_clients() {
 }
 
 #[test]
-fn refreshes_a_semantic_equal_fold_snapshot_observed_while_analysis_is_pending() {
+fn waits_for_semantic_equal_fold_labels_without_a_recovery_refresh() {
     let root = unique_temp_dir();
     std::fs::create_dir_all(&root).unwrap();
     let document = root.join("2026-09-05.plumb");
@@ -467,24 +479,11 @@ fn refreshes_a_semantic_equal_fold_snapshot_observed_while_analysis_is_pending()
         .unwrap()
         .iter()
         .find(|range| range["startLine"] == 4)
-        .expect("event structural fold remains available while semantics are pending");
-    assert!(pending_event.get("collapsedText").is_none());
-
-    let recovery_refresh =
-        session.wait_for_next(|message| message["method"] == "workspace/foldingRange/refresh");
-    session.send(&json!({
-        "jsonrpc": "2.0", "id": recovery_refresh["id"], "result": null
-    }));
-    session.send(&json!({
-        "jsonrpc": "2.0", "id": 3, "method": "textDocument/foldingRange",
-        "params": { "textDocument": { "uri": document_uri } }
-    }));
-    let restored = session.wait_for_response(&json!(3));
-    assert!(restored["result"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .any(|range| { range["collapsedText"] == "`- 2026-09-05T14:30--15:15 Event" }));
+        .expect("event fold waits for this revision's semantic label");
+    assert_eq!(
+        pending_event["collapsedText"],
+        "`- 2026-09-05T14:30--15:15 Event"
+    );
 
     session.send(&json!({ "jsonrpc": "2.0", "id": 4, "method": "shutdown", "params": null }));
     session.wait_for_response(&json!(4));
@@ -495,7 +494,7 @@ fn refreshes_a_semantic_equal_fold_snapshot_observed_while_analysis_is_pending()
             .iter()
             .filter(|message| message["method"] == "workspace/foldingRange/refresh")
             .count(),
-        3
+        2
     );
     std::fs::remove_dir_all(root).unwrap();
 }

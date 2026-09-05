@@ -24,10 +24,10 @@ use lsp_types::{
     NumberOrString, OneOf, OptionalVersionedTextDocumentIdentifier, PrepareRenameResponse,
     ProgressParams, ProgressParamsValue, PublishDiagnosticsParams, ReferenceParams, Registration,
     RegistrationParams, RenameFile, RenameFileOptions, RenameOptions, RenameParams, ResourceOp,
-    ResourceOperationKind, SemanticToken, SemanticTokenModifier, SemanticTokenType, SemanticTokens,
-    SemanticTokensFullOptions, SemanticTokensLegend, SemanticTokensOptions, SemanticTokensParams,
-    SemanticTokensResult, SemanticTokensServerCapabilities, ServerCapabilities, SymbolInformation,
-    SymbolKind, TextDocumentContentChangeEvent, TextDocumentEdit, TextDocumentSyncCapability,
+    ResourceOperationKind, SemanticTokenModifier, SemanticTokenType, SemanticTokensFullOptions,
+    SemanticTokensLegend, SemanticTokensOptions, SemanticTokensParams, SemanticTokensResult,
+    SemanticTokensServerCapabilities, ServerCapabilities, SymbolInformation, SymbolKind,
+    TextDocumentContentChangeEvent, TextDocumentEdit, TextDocumentSyncCapability,
     TextDocumentSyncKind, TextEdit as LspTextEdit, Url, WatchKind, WorkDoneProgress,
     WorkDoneProgressBegin, WorkDoneProgressEnd, WorkDoneProgressOptions, WorkDoneProgressReport,
     WorkspaceEdit as LspWorkspaceEdit, WorkspaceSymbolParams, WorkspaceSymbolResponse,
@@ -65,6 +65,7 @@ use crate::hover::{
 };
 use crate::position::{byte_range_to_lsp, position_to_offset, LineIndex};
 use crate::search::{SearchItem, SearchKind, SearchParams, SearchProvenance, SearchResult};
+#[cfg(test)]
 use crate::semantic_tokens::{closed_task_token_ranges, physical_line_ranges};
 use crate::symbols::{
     anchor as anchor_symbol, events as event_symbols, heading as heading_symbol,
@@ -72,6 +73,9 @@ use crate::symbols::{
 };
 
 mod completion;
+mod decorations;
+
+use decorations::{semantic_tokens, PendingDocumentReads};
 
 use completion::{
     attribute_completion_text, completion_indentation, completion_items,
@@ -100,13 +104,14 @@ pub(crate) struct ServerState {
     index_generation: u64,
     pending_path_renames: Vec<PendingPathRename>,
     document_analysis_tokens: DocumentAnalysisTokens,
-    pending_semantic_folding_paths: HashSet<PathBuf>,
+    pending_document_reads: HashMap<PathBuf, PendingDocumentReads>,
     diagnostic_context: Option<Arc<WorkspaceDiagnosticContext>>,
 }
 
 #[derive(Default)]
 struct DocumentAnalysisTokens {
     paths: HashMap<PathBuf, Arc<AtomicU64>>,
+    next_generation: u64,
 }
 
 impl DocumentAnalysisTokens {
@@ -116,7 +121,9 @@ impl DocumentAnalysisTokens {
             .entry(path.to_path_buf())
             .or_insert_with(|| Arc::new(AtomicU64::new(0)))
             .clone();
-        let generation = token.fetch_add(1, Ordering::AcqRel).wrapping_add(1);
+        self.next_generation = self.next_generation.wrapping_add(1);
+        let generation = self.next_generation;
+        token.store(generation, Ordering::Release);
         (token, generation)
     }
 
@@ -144,7 +151,7 @@ pub(crate) struct InitialIndexResult {
 pub(crate) struct DocumentAnalysisResult {
     path: PathBuf,
     generation: u64,
-    analysis: PreparedDocumentAnalysis,
+    analysis: Result<PreparedDocumentAnalysis, ()>,
 }
 
 struct PendingPathRename {
@@ -184,7 +191,7 @@ impl ServerState {
             index_generation: 0,
             pending_path_renames: Vec::new(),
             document_analysis_tokens: DocumentAnalysisTokens::default(),
-            pending_semantic_folding_paths: HashSet::new(),
+            pending_document_reads: HashMap::new(),
             diagnostic_context: None,
         }
     }
@@ -201,6 +208,7 @@ impl ServerState {
             return;
         };
         let path = normalize(&path);
+        self.pending_document_reads.remove(&path);
         let revision = i64::from(version);
         let (token, generation) = self.document_analysis_tokens.next(&path);
         let rebound = self
@@ -223,7 +231,11 @@ impl ServerState {
                         if token.load(Ordering::Acquire) != generation {
                             return;
                         }
-                        let analysis = pending.analyze();
+                        let analysis =
+                            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                                pending.analyze()
+                            }))
+                            .map_err(|_| ());
                         if token.load(Ordering::Acquire) == generation {
                             let _ = client.emit(DocumentAnalysisResult {
                                 path: analysis_path,
@@ -259,13 +271,19 @@ impl ServerState {
         {
             return ControlFlow::Continue(());
         }
-        let Some(change) = self
-            .workspace
-            .install_document_analysis_with_change(result.analysis)
-        else {
+        let Ok(analysis) = result.analysis else {
+            tracing::error!(path = %result.path.display(), "document semantic analysis failed");
+            self.fail_pending_document_reads(&result.path);
             return ControlFlow::Continue(());
         };
-        let restore_folding = self.pending_semantic_folding_paths.remove(&result.path);
+        let Some(change) = self
+            .workspace
+            .install_document_analysis_with_change(analysis)
+        else {
+            self.pending_document_reads.remove(&result.path);
+            return ControlFlow::Continue(());
+        };
+        self.finish_pending_document_reads(&result.path);
         match change {
             ExportedSemanticChange::Changed => {
                 self.publish_all_open_diagnostics();
@@ -274,9 +292,6 @@ impl ServerState {
             }
             ExportedSemanticChange::Unchanged => {
                 self.publish_open_document_diagnostics(&result.path);
-                if restore_folding && self.document_has_fold_labels(&result.path) {
-                    self.refresh_folding_ranges();
-                }
             }
         }
         ControlFlow::Continue(())
@@ -590,13 +605,11 @@ impl ServerState {
         });
     }
 
-    fn document_has_fold_labels(&self, path: &Path) -> bool {
-        self.workspace.get(path).is_some_and(|entry| {
-            !fold_labels(&self.workspace, path, entry, self.index_complete).is_empty()
-        })
-    }
-
     fn begin_path_rename(&mut self, old_path: PathBuf, new_path: PathBuf) {
+        self.pending_document_reads.remove(&old_path);
+        self.pending_document_reads.remove(&new_path);
+        self.document_analysis_tokens.cancel(&old_path);
+        self.document_analysis_tokens.cancel(&new_path);
         let snapshot = self
             .workspace
             .get(&old_path)
@@ -749,8 +762,10 @@ impl ServerState {
             }
             self.document_analysis_tokens.cancel(&path);
             if self.workspace.complete_pending_document_analysis(&path) {
-                self.pending_semantic_folding_paths.remove(&path);
+                self.finish_pending_document_reads(&path);
                 completed = true;
+            } else {
+                self.pending_document_reads.remove(&path);
             }
         }
         if completed {
@@ -1166,7 +1181,7 @@ impl LanguageServer for ServerState {
         if let Some(path) = self.open_documents.remove(&uri) {
             self.open_document_line_indexes.remove(&path);
             self.document_analysis_tokens.cancel(&path);
-            self.pending_semantic_folding_paths.remove(&path);
+            self.pending_document_reads.remove(&path);
             let (files, complete) = self.scanned_files();
             self.index_complete &= complete;
             if files.binary_search(&path).is_ok() {
@@ -1353,6 +1368,24 @@ impl LanguageServer for ServerState {
         &mut self,
         params: FoldingRangeParams,
     ) -> BoxFuture<'static, Result<Option<Vec<FoldingRange>>, Self::Error>> {
+        if let Ok(path) = params.text_document.uri.to_file_path() {
+            if self.supports_folding_collapsed_text {
+                if let Some(pending) = self.await_document_semantics(&path, true) {
+                    let limit = self.folding_range_limit;
+                    let line_only = self.line_folding_only;
+                    return Box::pin(async move {
+                        let snapshot = pending.await?;
+                        Ok(Some(green_folding_ranges(
+                            snapshot.entry.parsed.source(),
+                            snapshot.entry.parsed.green(),
+                            limit,
+                            snapshot.labels.as_ref(),
+                            line_only,
+                        )))
+                    });
+                }
+            }
+        }
         let result = (|| {
             let Some(path) = params.text_document.uri.to_file_path().ok() else {
                 return Ok(None);
@@ -1360,11 +1393,6 @@ impl LanguageServer for ServerState {
             let Some(entry) = self.workspace.get(path) else {
                 return Ok(None);
             };
-            let pending_semantic_labels = self.supports_folding_range_refresh
-                && self.supports_folding_collapsed_text
-                && entry.parsed.is_valid()
-                && entry.current.is_none();
-            let entry_path = entry.path.clone();
             let labels = if self.supports_folding_collapsed_text {
                 Some(fold_labels(
                     &self.workspace,
@@ -1382,9 +1410,6 @@ impl LanguageServer for ServerState {
                 labels.as_ref(),
                 self.line_folding_only,
             );
-            if pending_semantic_labels {
-                self.pending_semantic_folding_paths.insert(entry_path);
-            }
             Ok(Some(ranges))
         })();
         Box::pin(async move { result })
@@ -2251,47 +2276,21 @@ impl LanguageServer for ServerState {
         &mut self,
         params: SemanticTokensParams,
     ) -> BoxFuture<'static, Result<Option<SemanticTokensResult>, Self::Error>> {
+        if let Ok(path) = params.text_document.uri.to_file_path() {
+            if let Some(pending) = self.await_document_semantics(&path, false) {
+                return Box::pin(async move {
+                    let snapshot = pending.await?;
+                    Ok(semantic_tokens(&snapshot.entry))
+                });
+            }
+        }
         let tokens = params
             .text_document
             .uri
             .to_file_path()
             .ok()
             .and_then(|path| self.workspace.get(path))
-            .and_then(|entry| entry.current.as_ref().map(|current| (entry, current)))
-            .map(|(entry, current)| {
-                let mut previous_line = 0;
-                let mut previous_start = 0;
-                let data = closed_task_token_ranges(&current.output.tasks().tasks)
-                    .into_iter()
-                    .flat_map(|(byte_range, modifiers)| {
-                        physical_line_ranges(entry.parsed.source(), &byte_range)
-                            .into_iter()
-                            .map(move |range| (range, modifiers))
-                    })
-                    .map(|(byte_range, token_modifiers_bitset)| {
-                        let range = byte_range_to_lsp(entry.parsed.source(), &byte_range);
-                        let delta_line = range.start.line - previous_line;
-                        let delta_start = if delta_line == 0 {
-                            range.start.character - previous_start
-                        } else {
-                            range.start.character
-                        };
-                        previous_line = range.start.line;
-                        previous_start = range.start.character;
-                        SemanticToken {
-                            delta_line,
-                            delta_start,
-                            length: range.end.character - range.start.character,
-                            token_type: 0,
-                            token_modifiers_bitset,
-                        }
-                    })
-                    .collect();
-                SemanticTokensResult::Tokens(SemanticTokens {
-                    result_id: None,
-                    data,
-                })
-            });
+            .and_then(semantic_tokens);
         Box::pin(async move { Ok(tokens) })
     }
 
@@ -2943,6 +2942,10 @@ mod tests {
         tokens.cancel(path);
         assert!(!tokens.is_current(path, second));
         assert_ne!(first_token.load(Ordering::Acquire), second);
+        let (_, reopened) = tokens.next(path);
+        assert_ne!(reopened, first);
+        assert_ne!(reopened, second);
+        assert!(!tokens.is_current(path, second));
     }
 
     #[test]
