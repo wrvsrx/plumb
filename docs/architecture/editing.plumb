@@ -27,7 +27,8 @@ layer。Owned conversion from syntax直接保持 InlineContent elements与 Space
 
 `# 3. Canonical rendering
 
-canonical rules：
+owned syntax rendering 与已有 valid source formatting 使用不同规则。owned syntax 没有 source spelling，按以下
+canonical rules 生成：
 
 `- child column 是 owner column 加一 ASCII space。
 `- marked block content 与 marker 之间 one ASCII space；anonymous block无 marker prefix。
@@ -39,8 +40,11 @@ canonical rules：
  typed payload。
 `- raw blank payload line输出 margin；terminal raw 不添加 synthetic closing/layout bytes。
 
-formatter 不插 physical wrapping；parsed continuation SoftBreak规范化为一个 ASCII space。CRLF edits 保持 document
-line ending。
+已有 valid source 的 formatter 只管理 block layout。它保持 InlineContents 中现有的 Text、element间 SpaceRun、Group 与
+Verbatim source bytes，包括 group boundary padding、escape spelling 与 verbatim delimiter strength。formatter
+不插入、删除或折叠 physical wrapping；SoftBreak 的 line ending 保持 document style，其 structural indentation
+规范化为 owner column 加一 ASCII space。marked block 与同一 physical line 首个 content element之间规范化为 one
+ASCII space；line-end padding 不保留。CRLF edits 保持 document line ending。
 
 `# 4. Spacing between blocks
 
@@ -61,9 +65,10 @@ format document 先生成 canonical source，再使用 anchored line diff 产生
 fallback whole replacement 只在 diff projection 无法重建 canonical output 时使用。contained-block formatting只
 选择 selection 完整包含的 maximal subtrees。
 
-green whole-document formatter逐 shard读取 local typed blocks，但 top-level sibling spacing与 explicit argument
-alignment必须跨 shard计算，observable canonical source及 line diff必须与 materialized ParsedDocument入口逐 byte
-相等。green contained formatting把完整覆盖的 top-level blocks组成跨 shard maximal sibling group；partial shard继续
+green whole-document formatter逐 shard读取 local typed blocks，但 top-level sibling spacing必须跨 shard计算，且
+每个 block 的 existing inline source spelling必须从 owning shard保持；observable canonical source及 line diff必须与
+materialized ParsedDocument入口逐 byte相等。green contained formatting把完整覆盖的 top-level blocks组成跨 shard
+maximal sibling group；partial shard继续
 使用同一 local contained-group算法并把 edits平移到 document range。format adapter只能调用 plumb-edit的 green
 intent，不能自行拼接 shard output。
 
@@ -108,10 +113,9 @@ padding。只改 separator spaces，不改 content、groups、verbatim、marker�
 再次执行必须返回 zero edits。green入口在 nested run只读取 cursor owning shard；top-level run跨相邻 shards计算
 相同 shape并返回 document-absolute edits，不得为该 code action materialize完整 ParsedDocument。
 
-ordinary formatter canonicalize unaligned boundary 至 one space；若 eligible same-marker run 的每个后续 element已有
-一致 display start column，则保留 direct SpaceRun widths，使 explicit alignment成为 formatter fixed point。formatter
-不主动对齐 unaligned run。table compact rows 因每个 direct positional element是 cell，alignment不改变 arity。tabs 或
-incompatible shapes 时 operation unavailable。
+formatter 不修改 existing direct SpaceRun，因此 alignment 无需 formatter-side run detection 即为 fixed point；
+formatter 也不主动对齐 ordinary source。table compact rows 因每个 direct positional element是 cell，alignment
+不改变 arity。tabs 或 incompatible shapes 时 operation unavailable。
 
 `# 8. Recovered-source assists
 

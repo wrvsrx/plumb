@@ -3176,7 +3176,7 @@ fn inserts_metadata_with_revision_and_escaped_title() {
     assert_eq!(document.edits[0].range, 0..0);
     assert_eq!(
         document.edits[0].new_text,
-        "`= title my``note\n`= created 2026-07-19T12:34:56+08:00\n\n"
+        "`= title   my``note\n`= created 2026-07-19T12:34:56+08:00\n\n"
     );
 }
 

@@ -1867,7 +1867,6 @@ version = "0.38.1-dev"
 dependencies = [
  "plumb-syntax",
  "similar",
- "unicode-width 0.2.2",
 ]
 
 [[package]]

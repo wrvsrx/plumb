@@ -5,7 +5,6 @@ use plumb_syntax::{
     inline_range, parse, Block, GreenDocument, Inline, InlineContent, ParsedBlock, ParsedDocument,
 };
 use similar::{DiffOp, TextDiff};
-use unicode_width::UnicodeWidthStr;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FormatError {
@@ -35,7 +34,7 @@ pub fn format_parsed(parsed: &ParsedDocument) -> Result<String, FormatError> {
     if !terminal_verbatim(body) && !formatter.output.is_empty() {
         formatter.output.push('\n');
     }
-    Ok(formatter.output)
+    Ok(document_line_endings(&parsed.source, formatter.output))
 }
 
 pub fn format_green(document: &GreenDocument) -> Result<String, FormatError> {
@@ -54,9 +53,8 @@ pub fn format_green(document: &GreenDocument) -> Result<String, FormatError> {
                 .map(move |block| (source, block))
         })
         .collect::<Vec<_>>();
-    let aligned = green_aligned_block_flags(&blocks);
     let mut output = String::new();
-    for (index, ((source, block), preserve_alignment)) in blocks.iter().zip(aligned).enumerate() {
+    for (index, (source, block)) in blocks.iter().enumerate() {
         if index > 0 {
             let previous = blocks[index - 1].1;
             if terminal_verbatim(std::slice::from_ref(previous)) {
@@ -70,7 +68,7 @@ pub fn format_green(document: &GreenDocument) -> Result<String, FormatError> {
             }
         }
         let mut formatter = Formatter::new(source);
-        formatter.block(block, 0, preserve_alignment);
+        formatter.block(block, 0);
         output.push_str(&formatter.output);
     }
     if blocks
@@ -80,7 +78,15 @@ pub fn format_green(document: &GreenDocument) -> Result<String, FormatError> {
     {
         output.push('\n');
     }
-    Ok(output)
+    Ok(document_line_endings(document.source(), output))
+}
+
+fn document_line_endings(source: &str, output: String) -> String {
+    if source.contains("\r\n") {
+        output.replace('\n', "\r\n")
+    } else {
+        output
+    }
 }
 
 pub fn format_edits(source: &str) -> Result<Vec<FormatEdit>, FormatError> {
@@ -157,45 +163,6 @@ fn format_edits_from_output(
         }]);
     }
     Ok(edits)
-}
-
-fn green_aligned_block_flags(blocks: &[(&str, &Block)]) -> Vec<bool> {
-    let mut aligned = vec![false; blocks.len()];
-    let mut start = 0;
-    while start < blocks.len() {
-        let (source, block) = blocks[start];
-        let Some(shape) = alignment_shape(source, block) else {
-            start += 1;
-            continue;
-        };
-        let mut end = start + 1;
-        while end < blocks.len() {
-            let (source, block) = blocks[end];
-            if alignment_shape(source, block) != Some(shape) {
-                break;
-            }
-            end += 1;
-        }
-        if end - start >= 2
-            && (1..shape.1).all(|column| {
-                let first = argument_start_column(blocks[start].0, parsed(blocks[start].1), column);
-                blocks[start + 1..end].iter().all(|(source, block)| {
-                    argument_start_column(source, parsed(block), column) == first
-                })
-            })
-        {
-            aligned[start..end].fill(true);
-        }
-        start = end;
-    }
-    aligned
-}
-
-fn parsed(block: &Block) -> &ParsedBlock {
-    let Block::Parsed(block) = block else {
-        unreachable!("alignment shape accepts only parsed blocks")
-    };
-    block
 }
 
 fn anchored_line_diff(
@@ -460,12 +427,6 @@ pub fn format_green_contained_blocks(
     }
 
     let blocks = green_top_blocks(document);
-    let aligned = green_aligned_block_flags(
-        &blocks
-            .iter()
-            .map(|block| (block.source, block.block))
-            .collect::<Vec<_>>(),
-    );
     let mut edits = Vec::new();
     let mut complete_start = None;
     for (index, block) in blocks.iter().enumerate() {
@@ -478,7 +439,6 @@ pub fn format_green_contained_blocks(
             edits.push(format_green_contained_group(
                 source,
                 &blocks,
-                &aligned,
                 first,
                 index - 1,
             ));
@@ -501,7 +461,6 @@ pub fn format_green_contained_blocks(
         edits.push(format_green_contained_group(
             source,
             &blocks,
-            &aligned,
             first,
             blocks.len() - 1,
         ));
@@ -548,7 +507,6 @@ fn green_top_blocks(document: &GreenDocument) -> Vec<GreenTopBlock<'_>> {
 fn format_green_contained_group(
     source: &str,
     blocks: &[GreenTopBlock<'_>],
-    aligned: &[bool],
     first: usize,
     last: usize,
 ) -> FormatEdit {
@@ -568,7 +526,7 @@ fn format_green_contained_group(
             }
         }
         let mut formatter = Formatter::new(block.source);
-        formatter.block(block.block, 0, aligned[first + index]);
+        formatter.block(block.block, 0);
         output.push_str(&formatter.output);
     }
     if source.contains("\r\n") {
@@ -593,8 +551,7 @@ fn format_contained_group(source: &str, blocks: &[Block], first: usize, last: us
     let edit_range = block_start..block_content_range(selected.last().unwrap()).end;
 
     let mut formatter = Formatter::new(source);
-    let aligned = aligned_block_flags(source, blocks);
-    formatter.blocks_with_alignment(selected, indent, &aligned[first..=last]);
+    formatter.blocks(selected, indent);
     let prefix = " ".repeat(indent);
     let mut new_text = formatter
         .output
@@ -629,8 +586,7 @@ fn format_block_group(source: &str, blocks: &[Block], first: usize, last: usize)
     let indent = source[line_start..block_start].chars().count();
 
     let mut formatter = Formatter::new(source);
-    let aligned = aligned_block_flags(source, blocks);
-    formatter.blocks_with_alignment(selected, indent, &aligned[first..=last]);
+    formatter.blocks(selected, indent);
     if let Some(following) = following {
         if compact_siblings(selected.last().unwrap(), following) {
             formatter.output.push('\n');
@@ -760,12 +716,6 @@ impl<'a> Formatter<'a> {
     }
 
     fn blocks(&mut self, blocks: &[Block], indent: usize) {
-        let aligned = aligned_block_flags(self.source, blocks);
-        self.blocks_with_alignment(blocks, indent, &aligned);
-    }
-
-    fn blocks_with_alignment(&mut self, blocks: &[Block], indent: usize, aligned: &[bool]) {
-        debug_assert_eq!(blocks.len(), aligned.len());
         for (index, block) in blocks.iter().enumerate() {
             if index > 0 {
                 let previous = &blocks[index - 1];
@@ -779,13 +729,13 @@ impl<'a> Formatter<'a> {
                     self.output.push_str("\n\n");
                 }
             }
-            self.block(block, indent, aligned[index]);
+            self.block(block, indent);
         }
     }
 
-    fn block(&mut self, block: &Block, indent: usize, preserve_alignment: bool) {
+    fn block(&mut self, block: &Block, indent: usize) {
         match block {
-            Block::Parsed(block) => self.parsed_block(block, indent, preserve_alignment),
+            Block::Parsed(block) => self.parsed_block(block, indent),
             Block::Verbatim(block) => {
                 self.indent(indent);
                 self.output.push('`');
@@ -798,20 +748,18 @@ impl<'a> Formatter<'a> {
         }
     }
 
-    fn parsed_block(&mut self, block: &ParsedBlock, indent: usize, preserve_alignment: bool) {
+    fn parsed_block(&mut self, block: &ParsedBlock, indent: usize) {
         self.indent(indent);
-        let content = block.content.trim_boundary_padding();
-        let has_content = !content.is_empty();
+        let has_content = !block.content.is_empty();
         if let Some(mark) = &block.mark {
             let marker = mark.marker.as_str();
             self.output.push('`');
             self.output.push_str(marker);
             if has_content {
-                self.output.push(' ');
-                self.inlines_with_spacing(&content, preserve_alignment);
+                self.block_content(&block.content, indent, true);
             }
         } else {
-            self.inlines(&content);
+            self.block_content(&block.content, indent, false);
         }
 
         if !block.children.is_empty() {
@@ -826,74 +774,47 @@ impl<'a> Formatter<'a> {
         }
     }
 
-    fn inlines(&mut self, content: &InlineContent) {
-        self.inlines_with_spacing(content, false);
-    }
+    fn block_content(&mut self, content: &InlineContent, indent: usize, marked: bool) {
+        let first = content
+            .items
+            .iter()
+            .position(|inline| !inline.is_whitespace())
+            .expect("nonempty content has a positional element");
+        let last = content
+            .items
+            .iter()
+            .rposition(|inline| !inline.is_whitespace())
+            .expect("nonempty content has a positional element");
+        let starts_on_continuation = content.items[..first]
+            .iter()
+            .any(|inline| matches!(inline, Inline::SoftBreak { .. }));
 
-    fn inlines_with_spacing(&mut self, content: &InlineContent, preserve_spaces: bool) {
-        let mut pending_space = None;
-        for inline in &content.items {
-            match inline {
-                Inline::Space { text, .. } => {
-                    pending_space = Some(if preserve_spaces { text.len() } else { 1 });
-                    continue;
-                }
-                Inline::SoftBreak { .. } => {
-                    pending_space = Some(1);
-                    continue;
-                }
-                _ => {}
-            }
-            if let Some(width) = pending_space.take() {
-                if !self.output.ends_with([' ', '\n']) {
-                    self.output.extend(std::iter::repeat_n(' ', width));
-                }
-            }
-            self.inline(inline);
+        if marked && !starts_on_continuation {
+            self.output.push(' ');
         }
-    }
-
-    fn inline(&mut self, inline: &Inline) {
-        match inline {
-            Inline::Text { text, .. } => self.text(text),
-            Inline::Space { .. } => self.output.push(' '),
-            Inline::SoftBreak { .. } => self.output.push(' '),
-            Inline::Group { mark, content, .. } => {
-                if let Some(mark) = mark {
-                    self.output.push('`');
-                    self.output.push_str(&mark.marker);
-                }
-                self.output.push('{');
-                self.inlines(&content.trim_boundary_padding());
-                self.output.push('}');
-            }
-            Inline::Verbatim { mark, text, .. } => {
-                self.output.push('`');
-                if let Some(mark) = mark {
-                    self.output.push_str(&mark.marker);
-                }
-                self.verbatim_payload(text);
+        if starts_on_continuation {
+            self.soft_break(indent + 1);
+        }
+        let body = &content.items[first..=last];
+        for (index, inline) in body.iter().enumerate() {
+            if matches!(inline, Inline::SoftBreak { .. }) {
+                self.soft_break(indent + 1);
+            } else if matches!(inline, Inline::Space { .. })
+                && body
+                    .get(index + 1)
+                    .is_some_and(|next| matches!(next, Inline::SoftBreak { .. }))
+            {
+                // Line-end padding is layout, not inline spelling.
+            } else {
+                self.output
+                    .push_str(&self.source[inline_range(inline).clone()]);
             }
         }
     }
 
-    fn verbatim_payload(&mut self, text: &str) {
-        if !text.contains('"') && !text.starts_with('{') {
-            self.output.push('"');
-            self.output.push_str(text);
-            self.output.push('"');
-        } else {
-            let quotes = minimum_quote_count(text).max(1);
-            for _ in 0..quotes {
-                self.output.push('"');
-            }
-            self.output.push('{');
-            self.output.push_str(text);
-            self.output.push('}');
-            for _ in 0..quotes {
-                self.output.push('"');
-            }
-        }
+    fn soft_break(&mut self, indent: usize) {
+        self.output.push('\n');
+        self.indent(indent);
     }
 
     fn raw_text(&mut self, text: &str, body_indent: usize) {
@@ -920,17 +841,6 @@ impl<'a> Formatter<'a> {
         }
     }
 
-    fn text(&mut self, text: &str) {
-        for character in text.chars() {
-            match character {
-                '`' => self.output.push_str("``"),
-                '{' => self.output.push_str("`{"),
-                '}' => self.output.push_str("`}"),
-                _ => self.output.push(character),
-            }
-        }
-    }
-
     fn indent(&mut self, indent: usize) {
         self.output.extend(std::iter::repeat_n(' ', indent));
     }
@@ -944,104 +854,6 @@ fn compact_siblings(previous: &Block, current: &Block) -> bool {
         return false;
     };
     previous.children.is_empty() && previous_mark.marker == current_mark.marker
-}
-
-fn aligned_block_flags(source: &str, blocks: &[Block]) -> Vec<bool> {
-    let mut aligned = vec![false; blocks.len()];
-    let mut start = 0;
-    while start < blocks.len() {
-        let Some(shape) = alignment_shape(source, &blocks[start]) else {
-            start += 1;
-            continue;
-        };
-        let mut end = start + 1;
-        while end < blocks.len() && alignment_shape(source, &blocks[end]) == Some(shape) {
-            end += 1;
-        }
-        if end - start >= 2 && run_columns_are_aligned(source, &blocks[start..end], shape.1) {
-            aligned[start..end].fill(true);
-        }
-        start = end;
-    }
-    aligned
-}
-
-fn alignment_shape<'a>(source: &str, block: &'a Block) -> Option<(&'a str, usize)> {
-    let Block::Parsed(block) = block else {
-        return None;
-    };
-    let marker = block.mark.as_ref()?.marker.as_str();
-    let element_count = block.content.positional_elements().count();
-    let content = &source[block.content.range.clone()];
-    (block.children.is_empty()
-        && element_count >= 2
-        && !content.contains(['\r', '\n', '\t'])
-        && positional_elements_have_space_boundaries(source, &block.content))
-    .then_some((marker, element_count))
-}
-
-fn run_columns_are_aligned(source: &str, blocks: &[Block], element_count: usize) -> bool {
-    (1..element_count).all(|column| {
-        let mut starts = blocks.iter().map(|block| {
-            let Block::Parsed(block) = block else {
-                unreachable!("alignment shape accepts only parsed blocks")
-            };
-            argument_start_column(source, block, column)
-        });
-        let first = starts.next().expect("alignment run is nonempty");
-        starts.all(|start| start == first)
-    })
-}
-
-fn argument_start_column(source: &str, block: &ParsedBlock, column: usize) -> usize {
-    let start = inline_range(
-        block
-            .content
-            .positional_elements()
-            .nth(column)
-            .expect("alignment column exists"),
-    )
-    .start;
-    let line_start = source[..block.range.start]
-        .rfind('\n')
-        .map_or(0, |newline| newline + 1);
-    UnicodeWidthStr::width(&source[line_start..start])
-}
-
-fn positional_elements_have_space_boundaries(source: &str, content: &InlineContent) -> bool {
-    if content.items.iter().any(|inline| {
-        matches!(
-            inline,
-            Inline::Group { mark: Some(mark), .. }
-                if matches!(mark.marker.as_str(), "@" | "+" | "=")
-        )
-    }) {
-        return false;
-    }
-    let elements = content.positional_elements().collect::<Vec<_>>();
-    elements.windows(2).all(|elements| {
-        let gap = inline_range(elements[0]).end..inline_range(elements[1]).start;
-        !gap.is_empty() && source[gap].bytes().all(|byte| byte == b' ')
-    })
-}
-
-fn minimum_quote_count(text: &str) -> usize {
-    let bytes = text.as_bytes();
-    let mut maximum = None;
-    let mut cursor = 0;
-    while cursor < bytes.len() {
-        if bytes[cursor] != b'}' {
-            cursor += 1;
-            continue;
-        }
-        let mut quotes = 0;
-        while cursor + 1 + quotes < bytes.len() && bytes[cursor + 1 + quotes] == b'"' {
-            quotes += 1;
-        }
-        maximum = Some(maximum.map_or(quotes, |current: usize| current.max(quotes)));
-        cursor += 1 + quotes;
-    }
-    maximum.map_or(0, |quotes| quotes + 1)
 }
 
 #[cfg(test)]
@@ -1148,8 +960,8 @@ mod tests {
     }
 
     #[test]
-    fn canonicalizes_anonymous_group_boundary_padding() {
-        assert_formats("Text { fn() {} }\n", "Text {fn() {}}\n");
+    fn preserves_inline_group_source_spelling() {
+        assert_formats("Text { fn()  {} }\n", "Text { fn()  {} }\n");
         assert_formats(
             "`marker{brace} value{inside}\n",
             "`marker{brace} value{inside}\n",
@@ -1170,16 +982,21 @@ mod tests {
             "`owner{\"quoted\" code\"raw\" `\"verbatim\" `code\"child\"}\n",
             "`owner{\"quoted\" code\"raw\" `\"verbatim\" `code\"child\"}\n",
         );
+        assert_formats(
+            "`note First   \n    continuation   \n",
+            "`note First\n continuation\n",
+        );
     }
 
     #[test]
-    fn chooses_minimum_safe_verbatim_delimiters() {
+    fn preserves_inline_verbatim_delimiters() {
         assert_formats(
             "Raw `\"\"\"[a ]\" b]\"\"\".\n",
             "Raw `\"\"\"[a ]\" b]\"\"\".\n",
         );
         assert_formats("`\"[[]]\"\n", "`\"[[]]\"\n");
         assert_formats("Before `\"[]\" after.\n", "Before `\"[]\" after.\n");
+        assert_formats("Raw `\"\"{plain}\"\".\n", "Raw `\"\"{plain}\"\".\n");
     }
 
     #[test]
@@ -1320,14 +1137,14 @@ mod tests {
 
     #[test]
     fn contained_range_supports_anonymous_raw_and_paragraphs() {
-        let source = "`\"\n payload\n\nParagraph { text }.\n\n`event Following\n";
+        let source = "`\"\n   payload\n\n\nParagraph { text }.\n\n`event Following\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let selection = block_content_range(&parsed.syntax.blocks[0]).start
             ..block_content_range(&parsed.syntax.blocks[1]).end;
         let edits = format_contained_blocks(source, selection).unwrap();
         assert_eq!(edits.len(), 1);
-        assert_eq!(edits[0].new_text, "`\"\n payload\n\nParagraph {text}.");
+        assert_eq!(edits[0].new_text, "`\"\n   payload\n\nParagraph { text }.");
     }
 
     #[test]

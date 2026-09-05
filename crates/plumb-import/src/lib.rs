@@ -664,16 +664,7 @@ fn render_verbatim(text: &str, attrs: &Attr) -> Result<String, String> {
     let (kind, attrs) = promoted_verbatim_attrs(attrs, false);
     let children = render_inline_children(&attrs, None)?;
     if children.is_empty() {
-        if !text.contains('"') {
-            return Ok(format!("`{kind}\"{text}\""));
-        }
-        let quotes = minimum_quote_count(text).max(1);
-        return Ok(format!(
-            "`{kind}{}{{{}}}{}",
-            "\"".repeat(quotes),
-            text,
-            "\"".repeat(quotes),
-        ));
+        return Ok(render_verbatim_source(&kind, text));
     }
     let owner_kind = if kind.is_empty() { "code" } else { &kind };
     Ok(format!(
@@ -684,9 +675,16 @@ fn render_verbatim(text: &str, attrs: &Attr) -> Result<String, String> {
 }
 
 fn render_verbatim_argument(text: &str) -> String {
+    render_verbatim_source("", text)
+}
+
+fn render_verbatim_source(kind: &str, text: &str) -> String {
+    if !text.contains('"') && !text.starts_with('{') {
+        return format!("`{kind}\"{text}\"");
+    }
     let quotes = minimum_quote_count(text).max(1);
     format!(
-        "`{}{{{}}}{}",
+        "`{kind}{}{{{}}}{}",
         "\"".repeat(quotes),
         text,
         "\"".repeat(quotes)
@@ -958,6 +956,13 @@ mod recursive_tests {
         let raw = render_verbatim_block(&attrs, "fn main() {}\n").unwrap();
         assert_eq!(raw, "`rust\"\n fn main() {}\n");
         assert_eq!(indent(&raw, 1), " `rust\"\n  fn main() {}\n");
+    }
+
+    #[test]
+    fn authored_inline_verbatim_uses_canonical_delimiters() {
+        assert_eq!(render_verbatim_argument("plain"), "`\"plain\"");
+        assert_eq!(render_verbatim_argument("{draft}"), "`\"{{draft}}\"");
+        assert_eq!(render_verbatim_source("code", "a\"b"), "`code\"{a\"b}\"");
     }
 }
 

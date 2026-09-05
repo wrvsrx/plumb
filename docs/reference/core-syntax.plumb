@@ -79,8 +79,9 @@ repeated spaces 不产生 empty positional element。
 parsed owner 后立即出现的更深缩进 plain line继续该 owner 的 InlineContents；plain line 不能是 marked/verbatim
 block entry，且 owner 与 continuation 之间不能有 blank line。第一条 continuation 建立 continuation column；连续
 continuation lines 必须匹配该 column。physical boundary 与 structural indentation losslessly 形成 SoftBreak，typed
-plain-text/argument projection把它视为一个 semantic space。formatter 不保留 physical wrapping，而把 SoftBreak
-规范化为一个 ASCII space。
+plain-text/argument projection把它视为一个 semantic space。formatter 保留 physical wrapping，把 SoftBreak 中的
+structural indentation 规范化为 owner column 加一 ASCII space并移除 line-end padding；其余 inline source bytes
+不变。
 
 blank line 结束 continuation phase；其后的更深缩进 plain line是 anonymous child block。marked/verbatim child 由
 introducer dispatch消除二义性，不要求前置 blank line：
