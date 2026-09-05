@@ -1910,10 +1910,10 @@ impl Workspace {
         };
         diagnostics.extend(current.output.headings().diagnostics.clone());
         diagnostics.extend(current.output.metadata().diagnostics.clone());
-        diagnostics.extend(current.output.citations().diagnostics.clone());
-        diagnostics.extend(current.output.math().diagnostics.clone());
-        diagnostics.extend(current.output.tasks().diagnostics.clone());
-        diagnostics.extend(current.output.events().diagnostics.clone());
+        diagnostics.extend(current.output.citations().diagnostics.iter());
+        diagnostics.extend(current.output.math().diagnostics.iter());
+        diagnostics.extend(current.output.tasks().diagnostics.iter());
+        diagnostics.extend(current.output.events().diagnostics.iter());
         diagnostics.extend(current.output.diagnostics().iter().cloned());
         for link in current.output.links() {
             let (code, message) = match self.resolve_link_value(&path, &link)? {

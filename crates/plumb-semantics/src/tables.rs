@@ -5,7 +5,7 @@ use plumb_syntax::{
     ParsedBlock, ValidDocument,
 };
 
-use crate::{RelativeSemanticRecord, SemanticRecords};
+use crate::{RelativeSemanticRecord, SemanticDiagnostics, SemanticRecords};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TableCellRecord {
@@ -35,7 +35,7 @@ pub struct TableRecord {
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct TableOutput {
     pub tables: SemanticRecords<TableRecord>,
-    pub diagnostics: Vec<Diagnostic>,
+    pub diagnostics: SemanticDiagnostics,
 }
 
 impl TableOutput {

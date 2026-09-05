@@ -11,12 +11,13 @@ use serde::{Deserialize, Serialize};
 use url::Url;
 
 use crate::lists::{ListGroupSegment, ReducedListGroup};
-use crate::records::RecordSegment;
+use crate::records::{DiagnosticSegment, RecordSegment};
 use crate::{
     analyze_citations, analyze_events, analyze_headings, analyze_inline_styles, analyze_lists,
     analyze_math, analyze_quotes, analyze_tables, analyze_tasks, CitationOutput, EventOutput,
     HeadingOutput, InlineStyleOutput, ListGroups, ListKind, ListOutput, MathOutput, MetadataOutput,
-    QuoteOutput, RelativeSemanticRecord, SemanticRecords, TableOutput, TaskOutput,
+    QuoteOutput, RelativeSemanticRecord, SemanticDiagnostics, SemanticRecords, TableOutput,
+    TaskOutput,
 };
 use crate::{
     headings::{heading_topology_eq, reduce_heading_outputs},
@@ -261,6 +262,12 @@ struct RecordProjectionIndex {
 }
 
 #[derive(Default)]
+struct DiagnosticProjectionIndex {
+    spans: Vec<Range<usize>>,
+    len: usize,
+}
+
+#[derive(Default)]
 struct RootProjectionIndex {
     citations: RecordProjectionIndex,
     inline_styles: RecordProjectionIndex,
@@ -273,11 +280,11 @@ struct RootProjectionIndex {
     links: RecordProjectionIndex,
     images: RecordProjectionIndex,
     files: RecordProjectionIndex,
-    citation_diagnostics: Vec<Diagnostic>,
-    math_diagnostics: Vec<Diagnostic>,
-    task_diagnostics: Vec<Diagnostic>,
-    event_diagnostics: Vec<Diagnostic>,
-    table_diagnostics: Vec<Diagnostic>,
+    citation_diagnostics: DiagnosticProjectionIndex,
+    math_diagnostics: DiagnosticProjectionIndex,
+    task_diagnostics: DiagnosticProjectionIndex,
+    event_diagnostics: DiagnosticProjectionIndex,
+    table_diagnostics: DiagnosticProjectionIndex,
     record_diagnostics: Vec<Diagnostic>,
     association_diagnostics: Vec<Diagnostic>,
 }
@@ -588,15 +595,10 @@ fn analyze_semantic_tree(
     let reusable_nodes = reusable_node_indices(reusable, &syntax, change);
     let previous_nodes = previous.map(|previous| previous.root.tree.nodes.as_slice());
     let same_node_count = previous_nodes.is_some_and(|nodes| nodes.len() == reusable_nodes.len());
-    let mut projections_rebindable = same_node_count
-        && previous.is_some_and(|previous| {
-            previous.root.citations.diagnostics.is_empty()
-                && previous.root.math.diagnostics.is_empty()
-                && previous.root.tasks.diagnostics.is_empty()
-                && previous.root.events.diagnostics.is_empty()
-                && previous.root.tables.diagnostics.is_empty()
-                && previous.root.diagnostics.is_empty()
-        });
+    let mut records_rebindable = same_node_count;
+    let mut diagnostics_rebindable = same_node_count;
+    let mut root_diagnostics_stay_empty =
+        same_node_count && previous.is_some_and(|previous| previous.root.diagnostics.is_empty());
     let mut anchor_ids_rebindable = same_node_count
         && previous.is_some_and(|previous| {
             !previous
@@ -653,9 +655,14 @@ fn analyze_semantic_tree(
                 });
             if let Some(previous_node) = previous_nodes.and_then(|nodes| nodes.get(node_index)) {
                 let exact_reuse = reusable_nodes[node_index] == Some(node_index);
-                projections_rebindable &= exact_reuse
-                    || (same_record_counts(&previous_node.output, &output)
-                        && node_output_diagnostics_empty(&output));
+                records_rebindable &=
+                    exact_reuse || same_record_counts(&previous_node.output, &output);
+                diagnostics_rebindable &=
+                    exact_reuse || same_diagnostic_counts(&previous_node.output, &output);
+                root_diagnostics_stay_empty &= exact_reuse
+                    || (output.records.diagnostics.is_empty()
+                        && output.association_diagnostics.is_empty()
+                        && output.tables.diagnostics.is_empty());
                 anchor_ids_rebindable &= exact_reuse
                     || previous_node
                         .output
@@ -670,7 +677,9 @@ fn analyze_semantic_tree(
                 heading_topology_rebindable &= exact_reuse
                     || heading_topology_eq(&previous_node.output.headings, &output.headings);
             } else {
-                projections_rebindable = false;
+                records_rebindable = false;
+                diagnostics_rebindable = false;
+                root_diagnostics_stay_empty = false;
                 anchor_ids_rebindable = false;
                 lists_rebindable = false;
                 heading_topology_rebindable = false;
@@ -701,10 +710,14 @@ fn analyze_semantic_tree(
             .map(|index| (nodes[*index].offset, &nodes[*index].output.headings)),
         syntax.source().len(),
     );
-    let projection_source = previous.filter(|_| projections_rebindable);
-    let mut projections = projection_source
-        .map(|_| RootProjectionIndex::default())
-        .unwrap_or_else(|| RootProjectionIndex::build(&nodes));
+    let record_projection_source = previous.filter(|_| records_rebindable);
+    let diagnostic_projection_source = previous.filter(|_| diagnostics_rebindable);
+    let mut projections =
+        if records_rebindable && diagnostics_rebindable && root_diagnostics_stay_empty {
+            RootProjectionIndex::default()
+        } else {
+            RootProjectionIndex::build(&nodes)
+        };
     let tree = Arc::new(SemanticTree {
         syntax,
         nodes,
@@ -714,16 +727,21 @@ fn analyze_semantic_tree(
     let citations = CitationOutput {
         citations: projected_records(
             &tree,
-            projection_source.map(|previous| &previous.root.citations.citations),
+            record_projection_source.map(|previous| &previous.root.citations.citations),
             std::mem::take(&mut projections.citations),
             |output| &output.citations.citations,
         ),
-        diagnostics: std::mem::take(&mut projections.citation_diagnostics),
+        diagnostics: projected_diagnostics(
+            &tree,
+            diagnostic_projection_source.map(|previous| &previous.root.citations.diagnostics),
+            std::mem::take(&mut projections.citation_diagnostics),
+            |output| &output.citations.diagnostics,
+        ),
     };
     let inline_styles = InlineStyleOutput {
         styles: projected_records(
             &tree,
-            projection_source.map(|previous| &previous.root.inline_styles.styles),
+            record_projection_source.map(|previous| &previous.root.inline_styles.styles),
             std::mem::take(&mut projections.inline_styles),
             |output| &output.inline_styles.styles,
         ),
@@ -731,16 +749,21 @@ fn analyze_semantic_tree(
     let math = MathOutput {
         records: projected_records(
             &tree,
-            projection_source.map(|previous| &previous.root.math.records),
+            record_projection_source.map(|previous| &previous.root.math.records),
             std::mem::take(&mut projections.math),
             |output| &output.math.records,
         ),
-        diagnostics: std::mem::take(&mut projections.math_diagnostics),
+        diagnostics: projected_diagnostics(
+            &tree,
+            diagnostic_projection_source.map(|previous| &previous.root.math.diagnostics),
+            std::mem::take(&mut projections.math_diagnostics),
+            |output| &output.math.diagnostics,
+        ),
     };
     let quotes = QuoteOutput {
         quotes: projected_records(
             &tree,
-            projection_source.map(|previous| &previous.root.quotes.quotes),
+            record_projection_source.map(|previous| &previous.root.quotes.quotes),
             std::mem::take(&mut projections.quotes),
             |output| &output.quotes.quotes,
         ),
@@ -748,51 +771,66 @@ fn analyze_semantic_tree(
     let tasks = TaskOutput {
         tasks: projected_records(
             &tree,
-            projection_source.map(|previous| &previous.root.tasks.tasks),
+            record_projection_source.map(|previous| &previous.root.tasks.tasks),
             std::mem::take(&mut projections.tasks),
             |output| &output.tasks.tasks,
         ),
-        diagnostics: std::mem::take(&mut projections.task_diagnostics),
+        diagnostics: projected_diagnostics(
+            &tree,
+            diagnostic_projection_source.map(|previous| &previous.root.tasks.diagnostics),
+            std::mem::take(&mut projections.task_diagnostics),
+            |output| &output.tasks.diagnostics,
+        ),
     };
     let events = EventOutput {
         events: projected_records(
             &tree,
-            projection_source.map(|previous| &previous.root.events.events),
+            record_projection_source.map(|previous| &previous.root.events.events),
             std::mem::take(&mut projections.events),
             |output| &output.events.events,
         ),
-        diagnostics: std::mem::take(&mut projections.event_diagnostics),
+        diagnostics: projected_diagnostics(
+            &tree,
+            diagnostic_projection_source.map(|previous| &previous.root.events.diagnostics),
+            std::mem::take(&mut projections.event_diagnostics),
+            |output| &output.events.diagnostics,
+        ),
     };
     let tables = TableOutput {
         tables: projected_records(
             &tree,
-            projection_source.map(|previous| &previous.root.tables.tables),
+            record_projection_source.map(|previous| &previous.root.tables.tables),
             std::mem::take(&mut projections.tables),
             |output| &output.tables.tables,
         ),
-        diagnostics: std::mem::take(&mut projections.table_diagnostics),
+        diagnostics: projected_diagnostics(
+            &tree,
+            diagnostic_projection_source.map(|previous| &previous.root.tables.diagnostics),
+            std::mem::take(&mut projections.table_diagnostics),
+            |output| &output.tables.diagnostics,
+        ),
     };
     let anchors = projected_records(
         &tree,
-        projection_source.map(|previous| &previous.root.anchors),
+        record_projection_source.map(|previous| &previous.root.anchors),
         std::mem::take(&mut projections.anchors),
         |output| &output.records.anchors,
     );
     let links = projected_records(
         &tree,
-        projection_source.map(|previous| &previous.root.links),
+        record_projection_source.map(|previous| &previous.root.links),
         std::mem::take(&mut projections.links),
         |output| &output.records.links,
     );
     let images = projected_records(
         &tree,
-        projection_source.map(|previous| &previous.root.images),
+        record_projection_source.map(|previous| &previous.root.images),
         std::mem::take(&mut projections.images),
         |output| &output.records.images,
     );
     let files = projected_records(
         &tree,
-        projection_source.map(|previous| &previous.root.files),
+        record_projection_source.map(|previous| &previous.root.files),
         std::mem::take(&mut projections.files),
         |output| &output.records.files,
     );
@@ -817,7 +855,7 @@ fn analyze_semantic_tree(
         .unwrap_or_else(|| reduce_lists(&tree));
     let mut diagnostics = std::mem::take(&mut projections.association_diagnostics);
     diagnostics.extend(record_diagnostics.iter().cloned());
-    diagnostics.extend(tables.diagnostics.iter().cloned());
+    diagnostics.extend(tables.diagnostics.iter());
     diagnostics.sort_by_key(|diagnostic| {
         (
             diagnostic.range.start,
@@ -955,6 +993,19 @@ impl RecordProjectionIndex {
     }
 }
 
+impl DiagnosticProjectionIndex {
+    fn add(&mut self, node_index: usize, diagnostics: usize) {
+        if diagnostics == 0 {
+            return;
+        }
+        self.len += diagnostics;
+        match self.spans.last_mut() {
+            Some(span) if span.end == node_index => span.end += 1,
+            _ => self.spans.push(node_index..node_index + 1),
+        }
+    }
+}
+
 fn same_record_counts(previous: &SemanticNodeOutput, current: &SemanticNodeOutput) -> bool {
     previous.citations.citations.len() == current.citations.citations.len()
         && previous.inline_styles.styles.len() == current.inline_styles.styles.len()
@@ -969,14 +1020,12 @@ fn same_record_counts(previous: &SemanticNodeOutput, current: &SemanticNodeOutpu
         && previous.records.files.len() == current.records.files.len()
 }
 
-fn node_output_diagnostics_empty(output: &SemanticNodeOutput) -> bool {
-    output.citations.diagnostics.is_empty()
-        && output.math.diagnostics.is_empty()
-        && output.tasks.diagnostics.is_empty()
-        && output.events.diagnostics.is_empty()
-        && output.tables.diagnostics.is_empty()
-        && output.records.diagnostics.is_empty()
-        && output.association_diagnostics.is_empty()
+fn same_diagnostic_counts(previous: &SemanticNodeOutput, current: &SemanticNodeOutput) -> bool {
+    previous.citations.diagnostics.len() == current.citations.diagnostics.len()
+        && previous.math.diagnostics.len() == current.math.diagnostics.len()
+        && previous.tasks.diagnostics.len() == current.tasks.diagnostics.len()
+        && previous.events.diagnostics.len() == current.events.diagnostics.len()
+        && previous.tables.diagnostics.len() == current.tables.diagnostics.len()
 }
 
 impl RootProjectionIndex {
@@ -997,31 +1046,21 @@ impl RootProjectionIndex {
             output.links.add(index, local.records.links.len());
             output.images.add(index, local.records.images.len());
             output.files.add(index, local.records.files.len());
-            append_projected_diagnostics(
-                &mut output.citation_diagnostics,
-                &local.citations.diagnostics,
-                node.offset,
-            );
-            append_projected_diagnostics(
-                &mut output.math_diagnostics,
-                &local.math.diagnostics,
-                node.offset,
-            );
-            append_projected_diagnostics(
-                &mut output.task_diagnostics,
-                &local.tasks.diagnostics,
-                node.offset,
-            );
-            append_projected_diagnostics(
-                &mut output.event_diagnostics,
-                &local.events.diagnostics,
-                node.offset,
-            );
-            append_projected_diagnostics(
-                &mut output.table_diagnostics,
-                &local.tables.diagnostics,
-                node.offset,
-            );
+            output
+                .citation_diagnostics
+                .add(index, local.citations.diagnostics.len());
+            output
+                .math_diagnostics
+                .add(index, local.math.diagnostics.len());
+            output
+                .task_diagnostics
+                .add(index, local.tasks.diagnostics.len());
+            output
+                .event_diagnostics
+                .add(index, local.events.diagnostics.len());
+            output
+                .table_diagnostics
+                .add(index, local.tables.diagnostics.len());
             append_projected_diagnostics(
                 &mut output.record_diagnostics,
                 &local.records.diagnostics,
@@ -1034,11 +1073,6 @@ impl RootProjectionIndex {
             );
         }
         for diagnostics in [
-            &mut output.citation_diagnostics,
-            &mut output.math_diagnostics,
-            &mut output.task_diagnostics,
-            &mut output.event_diagnostics,
-            &mut output.table_diagnostics,
             &mut output.record_diagnostics,
             &mut output.association_diagnostics,
         ] {
@@ -1082,6 +1116,24 @@ fn projected_records<T: RelativeSemanticRecord>(
         })
         .collect();
     SemanticRecords::from_segments(Arc::clone(tree), segments, records, index.len)
+}
+
+fn projected_diagnostics(
+    tree: &Arc<SemanticTree>,
+    previous: Option<&SemanticDiagnostics>,
+    index: DiagnosticProjectionIndex,
+    diagnostics: fn(&SemanticNodeOutput) -> &SemanticDiagnostics,
+) -> SemanticDiagnostics {
+    if let Some(previous) = previous.and_then(|previous| previous.rebind_tree(Arc::clone(tree))) {
+        return previous;
+    }
+    let segments = index
+        .spans
+        .iter()
+        .flat_map(|span| span.clone())
+        .map(|node_index| DiagnosticSegment { node_index })
+        .collect();
+    SemanticDiagnostics::from_segments(Arc::clone(tree), segments, diagnostics, index.len)
 }
 
 fn reduce_lists(tree: &Arc<SemanticTree>) -> ListOutput {
@@ -2214,7 +2266,7 @@ mod tests {
         let records = collect_document_records(valid.source(), valid.syntax(), &headings);
         let mut diagnostics = association_arity_diagnostics(valid.syntax());
         diagnostics.extend(records.diagnostics.iter().cloned());
-        diagnostics.extend(tables.diagnostics.iter().cloned());
+        diagnostics.extend(tables.diagnostics.iter());
         diagnostics.sort_by_key(|diagnostic| {
             (
                 diagnostic.range.start,
@@ -2478,6 +2530,32 @@ mod tests {
 
         assert_eq!(incremental, fresh);
         assert!(!incremental.diagnostics().is_empty());
+    }
+
+    #[test]
+    fn semantic_tree_reuses_stable_diagnostic_topology() {
+        let old = "`- First\n `+ task\n `= priority invalid\n\n`- Second\n `+ task\n `= priority invalid\n";
+        let new = old.replace("First", "Changed first");
+        let previous = parse(old);
+        let previous_output = analyze_document(previous.valid_syntax().unwrap());
+        let current = parse(&new);
+        let start = old.find("First").unwrap();
+        let incremental = analyze_document_incremental(
+            current.valid_syntax().unwrap(),
+            &previous_output,
+            &DocumentChange {
+                old_range: start..start + "First".len(),
+                new_range: start..start + "Changed first".len(),
+            },
+        );
+        let fresh = analyze_document(current.valid_syntax().unwrap());
+
+        assert_eq!(incremental, fresh);
+        assert!(incremental
+            .tasks()
+            .diagnostics
+            .shares_segment_topology(&previous_output.tasks().diagnostics));
+        assert_eq!(incremental.tasks().diagnostics.len(), 2);
     }
 
     #[test]

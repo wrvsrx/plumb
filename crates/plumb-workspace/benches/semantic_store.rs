@@ -708,6 +708,30 @@ fn benchmark_open_document_generation(c: &mut Criterion) {
     group.bench_function("heading_incremental_semantic_tree", |b| {
         b.iter(|| black_box(heading_pending.clone().analyze()))
     });
+    let mut diagnostic_source = String::new();
+    for index in 0..10_000 {
+        diagnostic_source.push_str(&format!(
+            "`- Task {index}\n `+ task\n `= priority invalid\n\n"
+        ));
+    }
+    let mut diagnostic_workspace = Workspace::new();
+    diagnostic_workspace.insert("diagnostics.plumb", 1, diagnostic_source.clone());
+    let diagnostic_start = diagnostic_source.find("Task 5000").unwrap();
+    let diagnostic_changed = diagnostic_source.replacen("Task 5000", "Changed task 5000", 1);
+    let diagnostic_pending = diagnostic_workspace
+        .begin_document_revision_with_change(
+            "diagnostics.plumb",
+            2,
+            diagnostic_changed,
+            Some(SourceChange {
+                old_range: diagnostic_start..diagnostic_start + "Task 5000".len(),
+                new_range: diagnostic_start..diagnostic_start + "Changed task 5000".len(),
+            }),
+        )
+        .unwrap();
+    group.bench_function("diagnostic_incremental_semantic_tree", |b| {
+        b.iter(|| black_box(diagnostic_pending.clone().analyze()))
+    });
     let completion_cursor = source.find("Event 16756").unwrap() + "Event 16756".len();
     let completion_green = previous_workspace
         .get("events.plumb")

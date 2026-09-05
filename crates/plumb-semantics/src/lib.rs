@@ -279,7 +279,9 @@ pub use queries::{
     TaskDependencyCompletionContext,
 };
 pub use quotes::{analyze_quotes, QuoteOutput, QuoteRecord};
-pub use records::{RelativeSemanticRecord, SemanticRecordView, SemanticRecords};
+pub use records::{
+    RelativeSemanticRecord, SemanticDiagnostics, SemanticRecordView, SemanticRecords,
+};
 pub use tables::{analyze_tables, TableCellRecord, TableOutput, TableRecord, TableRowRecord};
 pub use tasks::{
     analyze_green_tasks, analyze_tasks, next_task_datetime, parse_task_reference_target,

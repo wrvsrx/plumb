@@ -1,6 +1,8 @@
 use std::fmt;
 use std::sync::Arc;
 
+use plumb_syntax::Diagnostic;
+
 use crate::document::{SemanticNodeOutput, SemanticTree};
 
 pub trait RelativeSemanticRecord: Clone + fmt::Debug + PartialEq + Eq {
@@ -10,6 +12,31 @@ pub trait RelativeSemanticRecord: Clone + fmt::Debug + PartialEq + Eq {
 #[derive(Clone)]
 pub struct SemanticRecords<T> {
     storage: RecordStorage<T>,
+}
+
+#[derive(Clone)]
+pub struct SemanticDiagnostics {
+    storage: DiagnosticStorage,
+}
+
+#[derive(Clone)]
+enum DiagnosticStorage {
+    Empty,
+    Owned(Arc<Vec<Diagnostic>>),
+    Segmented(SegmentedDiagnosticStorage),
+}
+
+#[derive(Debug, Clone)]
+struct SegmentedDiagnosticStorage {
+    tree: Arc<SemanticTree>,
+    segments: Arc<[DiagnosticSegment]>,
+    diagnostics: fn(&SemanticNodeOutput) -> &SemanticDiagnostics,
+    len: usize,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct DiagnosticSegment {
+    pub(crate) node_index: usize,
 }
 
 #[derive(Clone)]
@@ -52,6 +79,156 @@ impl<T> Default for SemanticRecords<T> {
             storage: RecordStorage::Empty,
         }
     }
+}
+
+impl Default for SemanticDiagnostics {
+    fn default() -> Self {
+        Self {
+            storage: DiagnosticStorage::Empty,
+        }
+    }
+}
+
+impl fmt::Debug for SemanticDiagnostics {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_tuple("SemanticDiagnostics")
+            .field(&self.iter().collect::<Vec<_>>())
+            .finish()
+    }
+}
+
+impl PartialEq for SemanticDiagnostics {
+    fn eq(&self, other: &Self) -> bool {
+        self.iter().eq(other.iter())
+    }
+}
+
+impl Eq for SemanticDiagnostics {}
+
+impl SemanticDiagnostics {
+    pub fn len(&self) -> usize {
+        match &self.storage {
+            DiagnosticStorage::Empty => 0,
+            DiagnosticStorage::Owned(diagnostics) => diagnostics.len(),
+            DiagnosticStorage::Segmented(storage) => storage.len,
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    pub fn get(&self, index: usize) -> Option<Diagnostic> {
+        self.iter().nth(index)
+    }
+
+    pub fn iter(&self) -> Box<dyn Iterator<Item = Diagnostic> + '_> {
+        match &self.storage {
+            DiagnosticStorage::Empty => Box::new(std::iter::empty()),
+            DiagnosticStorage::Owned(diagnostics) => Box::new(diagnostics.iter().cloned()),
+            DiagnosticStorage::Segmented(storage) => {
+                Box::new(storage.segments.iter().flat_map(|segment| {
+                    let (offset, output) = storage.tree.record_node(segment.node_index);
+                    (storage.diagnostics)(output)
+                        .owned_diagnostics()
+                        .expect("a diagnostic segment references owned local diagnostics")
+                        .iter()
+                        .cloned()
+                        .map(move |mut diagnostic| {
+                            shift_diagnostic(&mut diagnostic, offset);
+                            diagnostic
+                        })
+                }))
+            }
+        }
+    }
+
+    pub fn to_vec(&self) -> Vec<Diagnostic> {
+        self.iter().collect()
+    }
+
+    pub(crate) fn push(&mut self, diagnostic: Diagnostic) {
+        Arc::make_mut(self.owned_mut()).push(diagnostic);
+    }
+
+    pub(crate) fn from_segments(
+        tree: Arc<SemanticTree>,
+        segments: Vec<DiagnosticSegment>,
+        diagnostics: fn(&SemanticNodeOutput) -> &SemanticDiagnostics,
+        len: usize,
+    ) -> Self {
+        if len == 0 {
+            return Self::default();
+        }
+        Self {
+            storage: DiagnosticStorage::Segmented(SegmentedDiagnosticStorage {
+                tree,
+                segments: segments.into(),
+                diagnostics,
+                len,
+            }),
+        }
+    }
+
+    pub(crate) fn rebind_tree(&self, tree: Arc<SemanticTree>) -> Option<Self> {
+        match &self.storage {
+            DiagnosticStorage::Empty => Some(Self::default()),
+            DiagnosticStorage::Segmented(storage) => Some(Self {
+                storage: DiagnosticStorage::Segmented(SegmentedDiagnosticStorage {
+                    tree,
+                    segments: Arc::clone(&storage.segments),
+                    diagnostics: storage.diagnostics,
+                    len: storage.len,
+                }),
+            }),
+            DiagnosticStorage::Owned(_) => None,
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn shares_segment_topology(&self, other: &Self) -> bool {
+        match (&self.storage, &other.storage) {
+            (DiagnosticStorage::Empty, DiagnosticStorage::Empty) => true,
+            (DiagnosticStorage::Segmented(left), DiagnosticStorage::Segmented(right)) => {
+                Arc::ptr_eq(&left.segments, &right.segments)
+            }
+            (DiagnosticStorage::Empty | DiagnosticStorage::Owned(_), _)
+            | (_, DiagnosticStorage::Empty | DiagnosticStorage::Owned(_)) => false,
+        }
+    }
+
+    fn owned_diagnostics(&self) -> Option<&[Diagnostic]> {
+        match &self.storage {
+            DiagnosticStorage::Owned(diagnostics) => Some(diagnostics),
+            DiagnosticStorage::Empty | DiagnosticStorage::Segmented(_) => None,
+        }
+    }
+
+    fn owned_mut(&mut self) -> &mut Arc<Vec<Diagnostic>> {
+        if matches!(self.storage, DiagnosticStorage::Empty) {
+            self.storage = DiagnosticStorage::Owned(Arc::new(Vec::new()));
+        }
+        match &mut self.storage {
+            DiagnosticStorage::Owned(diagnostics) => diagnostics,
+            DiagnosticStorage::Empty => unreachable!("empty storage was initialized"),
+            DiagnosticStorage::Segmented(_) => {
+                panic!("cannot mutate analyzed segmented semantic diagnostics")
+            }
+        }
+    }
+}
+
+fn shift_diagnostic(diagnostic: &mut Diagnostic, delta: isize) {
+    shift_range(&mut diagnostic.range, delta);
+    for related in &mut diagnostic.related {
+        shift_range(related, delta);
+    }
+}
+
+fn shift_range(range: &mut std::ops::Range<usize>, delta: isize) {
+    range.start = range.start.checked_add_signed(delta).unwrap();
+    range.end = range.end.checked_add_signed(delta).unwrap();
 }
 
 impl<T: fmt::Debug> fmt::Debug for SemanticRecords<T> {

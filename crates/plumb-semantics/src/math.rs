@@ -5,7 +5,7 @@ use plumb_syntax::{
     ValidDocument,
 };
 
-use crate::{RelativeSemanticRecord, SemanticRecords};
+use crate::{RelativeSemanticRecord, SemanticDiagnostics, SemanticRecords};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MathKind {
@@ -22,7 +22,7 @@ pub struct MathRecord {
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct MathOutput {
     pub records: SemanticRecords<MathRecord>,
-    pub diagnostics: Vec<Diagnostic>,
+    pub diagnostics: SemanticDiagnostics,
 }
 
 impl MathOutput {

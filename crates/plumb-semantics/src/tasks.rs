@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::document::attr_source_backed;
 use crate::text::plain_text;
-use crate::{RelativeSemanticRecord, SemanticRecords};
+use crate::{RelativeSemanticRecord, SemanticDiagnostics, SemanticRecords};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TaskField {
@@ -91,7 +91,7 @@ impl TaskRecord {
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct TaskOutput {
     pub tasks: SemanticRecords<TaskRecord>,
-    pub diagnostics: Vec<Diagnostic>,
+    pub diagnostics: SemanticDiagnostics,
 }
 
 impl RelativeSemanticRecord for TaskRecord {
@@ -160,7 +160,7 @@ pub fn analyze_green_tasks(valid: ValidGreenDocument<'_>) -> TaskOutput {
             task.shift(shard.offset() as isize);
             output.tasks.push(task);
         }
-        for mut diagnostic in local.diagnostics {
+        for mut diagnostic in local.diagnostics.iter() {
             shift_range(&mut diagnostic.range, shard.offset() as isize);
             for related in &mut diagnostic.related {
                 shift_range(related, shard.offset() as isize);
@@ -797,6 +797,9 @@ mod tests {
         let output = analyze_tasks(parsed.valid_syntax().unwrap());
         assert!(output.tasks.is_empty());
         assert_eq!(output.diagnostics.len(), 1);
-        assert_eq!(output.diagnostics[0].code, "facet.task-event-conflict");
+        assert_eq!(
+            output.diagnostics.get(0).unwrap().code,
+            "facet.task-event-conflict"
+        );
     }
 }

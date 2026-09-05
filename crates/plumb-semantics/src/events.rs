@@ -9,7 +9,8 @@ use serde::{Deserialize, Serialize};
 use crate::tasks::{task_reference_fields, TaskDependency};
 use crate::text::plain_text;
 use crate::{
-    MetadataOutput, MetadataValue, RelativeSemanticRecord, SemanticRecordView, SemanticRecords,
+    MetadataOutput, MetadataValue, RelativeSemanticRecord, SemanticDiagnostics, SemanticRecordView,
+    SemanticRecords,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -87,7 +88,7 @@ impl RelativeSemanticRecord for EventRecord {
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct EventOutput {
     pub events: EventRecords,
-    pub diagnostics: Vec<Diagnostic>,
+    pub diagnostics: SemanticDiagnostics,
 }
 
 pub type EventRecords = SemanticRecords<EventRecord>;
@@ -759,7 +760,10 @@ mod tests {
         let source = "`- Old title\n\n `+ event\n\n `= at 2026-07-30T10:00:00Z\n";
         let output = analyze(source);
         assert!(output.events.get(0).unwrap().sort_datetime().is_none());
-        assert_eq!(output.diagnostics[0].code, "event.missing-date-context");
+        assert_eq!(
+            output.diagnostics.get(0).unwrap().code,
+            "event.missing-date-context"
+        );
     }
 
     #[test]

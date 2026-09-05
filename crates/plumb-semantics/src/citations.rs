@@ -2,7 +2,7 @@ use std::ops::Range;
 
 use plumb_syntax::{Block, Diagnostic, DiagnosticSeverity, Inline, InlineContent, ValidDocument};
 
-use crate::{RelativeSemanticRecord, SemanticRecords};
+use crate::{RelativeSemanticRecord, SemanticDiagnostics, SemanticRecords};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CitationRecord {
@@ -14,7 +14,7 @@ pub struct CitationRecord {
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct CitationOutput {
     pub citations: SemanticRecords<CitationRecord>,
-    pub diagnostics: Vec<Diagnostic>,
+    pub diagnostics: SemanticDiagnostics,
 }
 
 impl CitationOutput {
@@ -155,7 +155,7 @@ mod tests {
             .iter()
             .all(|diagnostic| diagnostic.code == "citation.invalid"));
         assert_eq!(
-            &parsed.source[output.diagnostics[3].range.clone()],
+            &parsed.source[output.diagnostics.get(3).unwrap().range],
             "`cite{one`*{nested}}"
         );
     }
