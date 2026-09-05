@@ -74,11 +74,16 @@ owned tree，再由 edit renderer决定 braces/spaces/indentation。不能截取
 
 green structural mutation以 absolute complete block range定位唯一 owning shard。plumb-edit负责验证 target完整包含于
 该 shard、转换为 local range/OwnedBlock、执行 canonical replacement并把 TextEdit rebase回 document range；workspace
-不得读取 shard offset或自行平移 edit。单 target replace和 one-to-many replacement必须走该入口。跨 top-level shards
-的 move在有 transaction-level green session以前仍可使用 revision lazy compatibility view。
+不得读取 shard offset或自行平移 edit。单 target replace和 one-to-many replacement必须走该入口。document prepend/
+append、sibling insert和direct-child insert同样由plumb-edit定位首尾或验证完整 parent/sibling range；adapter只传
+OwnedBlock与位置意图。跨 top-level shards的 move在有 transaction-level green session以前仍可使用 revision lazy
+compatibility view。
 
 direct declaration insert position使用 First/Last/Before/After typed item。anonymous/marked parsed owner 均可拥有
-declaration children；verbatim leaf 需要先使用 wrapper structure。
+declaration children；verbatim leaf 需要先使用 wrapper structure。cursor-targeted declaration insert由green入口在
+owning shard中选择deepest marked owner并返回absolute owner identity，不得要求workspace遍历materialized blocks。
+按 marker集合进行的cursor-targeted conversion同样由plumb-edit返回deepest complete owner range与OwnedBlock；marker
+只有 syntax筛选作用，facet或kind含义仍由semantics/workspace判断。
 
 Task/Event/metadata operations 先在 semantics/workspace 解析 intent，再调用 generic owned mutations。status field
 update 要 retain opaque declarations/body，property remove/add后重新 align 受影响的 direct property run，并格式化
@@ -90,7 +95,8 @@ Align arguments 在 current syntax 中对 direct positional element之间的 Spa
 至少两个 same-marker、same positional-element count、single-line、childless、non-verbatim sibling blocks。每个
 column 使用 locked unicode-width display width；每个 edit替换 adjacent element ranges之间现有的完整 direct SpaceRun，不在 boundary插入额外
 padding。只改 separator spaces，不改 content、groups、verbatim、marker、indentation 或 line ending；对已对齐 run
-再次执行必须返回 zero edits。
+再次执行必须返回 zero edits。green入口在 nested run只读取 cursor owning shard；top-level run跨相邻 shards计算
+相同 shape并返回 document-absolute edits，不得为该 code action materialize完整 ParsedDocument。
 
 ordinary formatter canonicalize unaligned boundary 至 one space；若 eligible same-marker run 的每个后续 element已有
 一致 display start column，则保留 direct SpaceRun widths，使 explicit alignment成为 formatter fixed point。formatter
