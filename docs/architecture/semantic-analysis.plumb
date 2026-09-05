@@ -216,21 +216,33 @@ LSP initial workspace indexing 不得阻塞 current open-document lifecycle 或�
 
 `"textDocument/codeLens" 是装饰性 workspace query，不得为了 initial index 阻塞 request。workspace reverse-reference query incomplete 时 adapter 立即返回 `"null" 表示暂时不可用，不能把 partial value 投影成空 lenses 或 `"0 references"，store failure 仍是 protocol error。完整 initial index 安装后，server 只向声明 `"workspace.codeLens.refreshSupport = true" 的 client 发送 `"workspace/codeLens/refresh"；未声明 support 的 client 不接收未知 request，并保留暂时不可用的结果直到 document lifecycle 或 client 自身触发下一次 CodeLens request。完整索引上的 empty/zero response 仍表示真实完整 negative result。Definition、references、rename 与 search 等需要完整 workspace facts 的显式操作不采用该装饰性降级。
 
-`"textDocument/foldingRange" 是上述 open-document exception：structural ranges 与 current-document labels 不得因 task workspace facts incomplete 而整体失败。adapter 对 task state 使用保守的 local determination， 无法证明唯一状态时只省略该 task 的 `"collapsedText"。不支持 `"workspace/foldingRange/refresh" 的 client 保留这份立即可用的 response，直到 document lifecycle 或 client 自身触发下一次 folding request；不得为等待 完整 label 延迟首次 response。
+`"textDocument/foldingRange" 是上述 open-document exception：structural ranges 与 current-document labels 不得因 task workspace facts incomplete 而整体失败。adapter 对 task state 使用保守的 local determination， 无法证明唯一状态时只省略该 task 的 `"collapsedText"。不支持 `"workspace/foldingRange/refresh" 的 client 保留这份 response，直到 document lifecycle 或 client 自身触发下一次 folding request；不得为了等待完整 workspace index 补齐跨文件 label 而延迟 response。
 
-current-valid semantic output pending 时，folding response 仍立即返回 current syntax 的 structural ranges，但依赖
-semantic output 的 metadata、Task 与 Event labels 暂时省略。若已协商 folding refresh 的 client 在该窗口实际取得
-过这种降级 snapshot，adapter 必须按 path 记录恢复义务；同 path 的 current-valid output 随后成功安装时必须补发
-一次 `"workspace/foldingRange/refresh"，即使 exported semantic summary 与上一 valid revision 相等。没有返回过降级
-snapshot 的 semantic-equal edit 不产生 refresh；stale analysis 不能清除义务，close 则清除该 path 的义务。该恢复
-refresh 只修复 client 已观察到的临时 projection，不把 local-only semantic change 重新分类为 workspace exported change。
+Status：以下 current-document semantic request waiting 尚未实现。
+
+current-valid semantic output pending 时，`"textDocument/semanticTokens/full" 异步等待同一 document revision 已在运行的
+analysis 安装，再返回该 revision 的 tokens；不能把暂时 pending 投影为 `"null" 或空 tokens。客户端需要
+`"collapsedText" 时，`"textDocument/foldingRange" 使用同一等待边界，再一次返回 structural ranges 与可确定的
+metadata、Task、Event labels。没有 label capability 或 syntax-invalid 时，folding 立即返回 recovered syntax ranges；
+invalid document 的 semantic tokens 可以立即返回 `"null"。等待只针对 current document，不等待 workspace index
+或尚缺的跨文件 dependencies；不依赖 client 的 refresh support，也不产生 pending-label 恢复 refresh 状态机。
+
+等待者绑定 normalized path、protocol revision 与 parsed allocation identity，共享正在运行的 analysis，不能重算该
+analysis 或阻塞 server event loop。new didChange、close/reopen、rename 或同 revision 不同 bytes 替换会终止旧等待者，
+以 `"ContentModified" 拒绝旧 request；不能把较新 output 配到旧 source/ranges。LSP cancellation 释放 request 的等待
+资源，但不取消其他请求共享的分析。正常 background installation 与显式 navigation 同步完成同一 revision 的路径都
+必须唤醒等待者；stale result 不唤醒较新 revision，所有终结路径释放登记。request 等待期间 formatting、recovered
+completion、其它 document requests 与 notifications 继续处理。
+
+当前 generation 的 worker 异常终止必须结束等待并返回 protocol internal error，不作为 source diagnostic；同一失败
+revision 的后续请求也立即失败，直到新的 revision 或显式 navigation 成功重建 semantics，不能等待已不存在的 worker。
 
 LSP 3.17 typed capability model 尚未定义 folding refresh support 字段；官方 adapter 因而使用初始化时的 `"capabilities.experimental.plumb.foldingRangeRefreshSupport = true" 作为显式 handshake，并在 server experimental capability 中公布 method 与 client-capability path。只有完成该 handshake 且 workspace index complete 时，server 才发送标准 `"workspace/foldingRange/refresh" request；initial index 安装以及之后可能改变跨文档 task dependency facts 的open-document/watched-file revision replacement都触发refresh。不声明support的client不接收未知request。
 
 valid open-document revision进入background analysis时，adapter只发布该document的current syntax diagnostics，不提前
 重算其它open documents或发送workspace CodeLens/Folding refresh。安装结果的exported summary变化时才发布所有open
-diagnostics并发送已协商的refresh；summary相等时只发布edited document的current diagnostics，但上述已返回的
-pending folding snapshot 仍须执行一次恢复 refresh。invalid revision与
+diagnostics并发送已协商的refresh；summary相等时只发布edited document的current diagnostics，并完成该 revision 的等待
+请求。invalid revision与
 invalid/valid transition继续走workspace-changed路径，不能借用last-valid summary抑制恢复通知。
 
 persistent workspace query 必须按需读取命中的 semantic rows，不得为了重建 process-local workspace model 而在启动时反序列化全部 document outputs。open-buffer precedence 的合并边界是 source document：persistent query 排除所有 open paths，再与这些 paths 的内存 query result 组合并作 deterministic ordering。该规则由 protocol-neutral workspace query layer 统一实现，adapter 不自行 merge 或 deduplicate records。
