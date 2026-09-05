@@ -197,8 +197,8 @@ Schedules accept a point or `START--END`; document/ancestor `date` and
 ## Tables
 
 `table` owns direct `-` rows. Every direct row-head positional element is a compact cell;
-one or more spaces are one separator, so formatter alignment does not change
-arity. Group a multiword cell and use `{}` for an empty cell.
+one or more spaces are one separator, so explicit alignment padding does not
+change arity. Group a multiword cell and use `{}` for an empty cell.
 
 ```plumb
 `table

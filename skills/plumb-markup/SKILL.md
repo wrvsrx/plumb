@@ -37,6 +37,10 @@ Inside the repository, `docs/reference/core-syntax.plumb`,
   SoftBreak, Group, and Verbatim elements. Each Text/Group/Verbatim is one
   positional element; whitespace elements occupy no positional index. Direct
   adjacency never merges elements. Write `{}` for an explicit empty element.
+- Formatting existing valid blocks preserves inline source spelling, including
+  inter-element SpaceRun widths, group padding, escapes, verbatim delimiters,
+  and continuation wrapping. It canonicalizes continuation structural
+  indentation and removes line-end padding.
 - `{content}` is one anonymous group in its parent. `` `kind{content} `` is a
   marked group. Groups recurse and stay on one physical line.
 - Use `` `` `` for a literal backtick, `` `{ `` for a literal opening brace,

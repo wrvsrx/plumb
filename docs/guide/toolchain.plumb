@@ -61,12 +61,14 @@ direct declaration completion 由 recovered syntax owner 决定：task/event pro
 
 `"plumb fmt" 对 syntax-valid document canonicalize recursive owners。anonymous/marked parsed owner 的 children
 统一深一列；owner 与 first child 之间 one line ending，different sibling kinds 可保留一个 blank separator。
-需要 separator的 direct element boundary默认 one ASCII space；explicit Align arguments 可以扩大 SpaceRun。eligible same-marker run 已有
-一致 argument columns 时 formatter 保留这些 widths；formatter 不主动对齐普通 source。Group 使用 braces，literal
-braces/backtick 使用 introducer escape。
+已有 block InlineContents 的 source spelling 保持不变，包括 element间 SpaceRun width、group boundary padding、escape spelling
+与 inline verbatim delimiter strength。formatter 保留 continuation physical wrapping，只把 continuation structural
+indentation 规范化为 owner column 加一并移除 line-end padding；marker 与同一行首个 content element之间规范化为 one ASCII space。
+explicit Align arguments 可以扩大 direct SpaceRun，formatter 不主动对齐或撤销对齐。
 
-inline verbatim 选择 minimal compact/full quote strength。block verbatim 使用 optional marker + one quote 与 one
-structural-space payload margin；formatter 保持 typed raw bytes与 final newline，不存在 raw tail。
+新建或替换 syntax 由 plumb-edit 选择 canonical group/escape 与 minimal compact/full inline verbatim quote strength。
+已有 block verbatim 使用 optional marker + one quote 与 one structural-space payload margin；formatter 保持 typed raw
+bytes与 final newline，不存在 raw tail。
 
 formatter 不重排普通 text/direct owners，也不解释 marker semantics；syntax error document 被拒绝。
 
@@ -77,7 +79,7 @@ formatter 不重排普通 text/direct owners，也不解释 marker semantics；s
   cat document.plumb | plumb fmt > formatted.plumb
   plumb fmt --check docs/*.plumb
 
-`"--check" 不写文件；任一输入需要重新格式化时返回非零状态。LSP 使用同一个 formatter 实现 `"textDocument/formatting" 与 `"textDocument/rangeFormatting"，editor 的 tab size 不改变 canonical alignment policy。protocol-neutral formatter 对 whole-document canonical output 做 line diff， 使用两侧均 unique 且顺序一致的 unchanged lines 分隔局部差异，并返回按 source order 排列、互不重叠的 最小 changed-line edits；LSP 只转换 byte ranges，不把 unchanged blocks 包含在 replacement 中。
+`"--check" 不写文件；任一输入需要重新格式化时返回非零状态。LSP 使用同一个 formatter 实现 `"textDocument/formatting" 与 `"textDocument/rangeFormatting"，editor 的 tab size 不改变 explicit Align arguments 的 display-column policy。protocol-neutral formatter 对 whole-document canonical output 做 line diff， 使用两侧均 unique 且顺序一致的 unchanged lines 分隔局部差异，并返回按 source order 排列、互不重叠的 最小 changed-line edits；LSP 只转换 byte ranges，不把 unchanged blocks 包含在 replacement 中。
 
 range formatting 不把 selection 扩展到只被部分命中的 structure：空 selection 或只包含 block 局部内容时返回空 edits；完整包含一个 owner block 时格式化其完整 subtree；完整包含多个 blocks 时 只选择其中 maximal blocks，并把相邻同级 blocks 合并为连续 group。每个 group 只替换 block content 及 group 内部 layout，不改变 selection 外的前后分隔空白；syntax-invalid document 返回 `"null"。
 

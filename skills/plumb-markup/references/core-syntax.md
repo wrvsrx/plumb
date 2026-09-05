@@ -36,7 +36,10 @@ An immediately indented plain line without an intervening blank continues the
 preceding parsed owner's inline content; its boundary is a SoftBreak that typed
 projection treats as one semantic space. A blank ends continuation, so a later
 indented plain line is an anonymous child. Write `{}` on its own line when an
-explicit empty anonymous block is needed.
+explicit empty anonymous block is needed. Formatting preserves the existing
+inline source spelling and physical wrapping while canonicalizing continuation
+structural indentation to one column beyond its owner and removing line-end
+padding.
 
 ## Marker Dispatch
 
