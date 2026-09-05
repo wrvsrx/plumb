@@ -33,6 +33,12 @@ pub struct SourceBacked<T> {
 }
 
 impl SourceBacked<String> {
+    pub(crate) fn decoded_offset(&self, source_offset: usize) -> usize {
+        self.decoded_boundaries
+            .partition_point(|boundary| *boundary <= source_offset)
+            .saturating_sub(1)
+    }
+
     pub fn source_range(&self, decoded: Range<usize>) -> Option<Range<usize>> {
         Some(
             *self.decoded_boundaries.get(decoded.start)?
@@ -2237,7 +2243,10 @@ fn collect_link(
     );
 }
 
-fn stringify_target(source: &str, content: &InlineContent) -> Option<SourceBacked<String>> {
+pub(crate) fn stringify_target(
+    source: &str,
+    content: &InlineContent,
+) -> Option<SourceBacked<String>> {
     let mut builder = StringifyBuilder::default();
     stringify_content(source, content, &mut builder);
     builder.finish(source)

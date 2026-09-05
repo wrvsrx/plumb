@@ -3,6 +3,73 @@ use serde_json::json;
 use crate::support::{response, run_server, run_server_after_initial_index, unique_temp_dir};
 
 #[test]
+fn completes_link_arguments_with_utf16_ranges_and_preserves_groups() {
+    let root = unique_temp_dir();
+    std::fs::create_dir_all(&root).unwrap();
+    let source_path = root.join("current.plumb");
+    std::fs::write(root.join("Project 中文.plumb"), "`# Guide\n `@ intro\n").unwrap();
+    let inputs = [
+        ("😀 `->{|}", "{Project 中文.plumb}", ""),
+        ("😀 `->{Pro|}", "{Project 中文.plumb}", "Pro"),
+        ("😀 `->{label |}", "Project 中文.plumb", ""),
+        (
+            "😀 `->{label Project 中|}",
+            "Project 中文.plumb",
+            "Project 中",
+        ),
+        ("😀 `->{{Project 中|}}", "Project 中文.plumb", "Project 中"),
+        ("😀 `->{{guide page} Pro|}", "Project 中文.plumb", "Pro"),
+        ("😀 `->{{Project 中文.plumb#in|}}", "intro", "in"),
+    ];
+    let source = inputs
+        .iter()
+        .map(|(input, _, _)| input.replace('|', ""))
+        .collect::<Vec<_>>()
+        .join("\n");
+    std::fs::write(&source_path, &source).unwrap();
+    let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
+    let source_uri = lsp_types::Url::from_file_path(&source_path).unwrap();
+    let mut messages = vec![
+        json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{
+            "processId":null,"rootUri":root_uri,"capabilities":{},
+            "workspaceFolders":[{"uri":root_uri,"name":"test"}]
+        }}),
+        json!({"jsonrpc":"2.0","method":"initialized","params":{}}),
+        json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{
+            "uri":source_uri,"languageId":"plumb","version":1,"text":source
+        }}}),
+    ];
+    for (line, (input, _, _)) in inputs.iter().enumerate() {
+        let character = input[..input.find('|').unwrap()].encode_utf16().count();
+        messages.push(
+            json!({"jsonrpc":"2.0","id":line+2,"method":"textDocument/completion","params":{
+                "textDocument":{"uri":source_uri},"position":{"line":line,"character":character}
+            }}),
+        );
+    }
+    messages.push(json!({"jsonrpc":"2.0","id":99,"method":"shutdown","params":null}));
+    messages.push(json!({"jsonrpc":"2.0","method":"exit","params":null}));
+    let output = run_server_after_initial_index(&messages);
+    for (line, (input, expected, query)) in inputs.iter().enumerate() {
+        let items = response(&output, (line + 2) as u64)["result"]
+            .as_array()
+            .unwrap();
+        assert_eq!(items.len(), 1, "{input}");
+        assert_eq!(items[0]["textEdit"]["newText"], *expected, "{input}");
+        let end = input[..input.find('|').unwrap()].encode_utf16().count();
+        assert_eq!(
+            items[0]["textEdit"]["range"],
+            json!({
+                "start":{"line":line,"character":end-query.encode_utf16().count()},
+                "end":{"line":line,"character":end}
+            }),
+            "{input}"
+        );
+    }
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn completes_citation_constructs_and_csl_json_ids() {
     let root = unique_temp_dir();
     std::fs::create_dir_all(root.join("static")).unwrap();
@@ -300,7 +367,7 @@ fn completes_links_by_document_metadata_title() {
     let label = &response(&output, 2)["result"][0];
     assert_eq!(label["label"], "Usage Guide.plumb");
     assert_eq!(label["detail"], "Usage Guide");
-    assert_eq!(label["textEdit"]["newText"], "Usage Guide.plumb");
+    assert_eq!(label["textEdit"]["newText"], "{Usage Guide.plumb}");
     let path = &response(&output, 3)["result"][0];
     assert_eq!(path["label"], "Usage Guide.plumb");
     assert_eq!(path["detail"], "Usage Guide");
@@ -915,26 +982,18 @@ fn narrows_link_constructs_from_the_shared_marker_prefix() {
         json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
     ];
 
-    let output = run_server(&messages);
+    let output = run_server_after_initial_index(&messages);
     assert!(response(&output, 2)["result"].is_null());
 
     for id in [3, 4] {
         let items = response(&output, id)["result"].as_array().unwrap();
         assert_eq!(items.len(), 1);
         assert_eq!(items[0]["label"], "Link");
-        assert_eq!(
-            items[0]["textEdit"]["newText"],
-            "`->{{${1:label}} ${2:target}}"
-        );
+        assert_eq!(items[0]["textEdit"]["newText"], "`->{${1:target/label}}");
     }
 
     let link = response(&output, 5)["result"].as_array().unwrap();
-    assert_eq!(link.len(), 1);
-    assert_eq!(link[0]["label"], "Link");
-    assert_eq!(
-        link[0]["textEdit"]["range"],
-        json!({ "start": { "line": 3, "character": 5 }, "end": { "line": 3, "character": 9 } })
-    );
+    assert!(link.is_empty());
 
     let verbatim_link = response(&output, 6)["result"].as_array().unwrap();
     assert_eq!(verbatim_link.len(), 1);

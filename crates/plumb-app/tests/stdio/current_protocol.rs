@@ -57,7 +57,7 @@ fn publishes_new_group_diagnostics_and_heading_symbols() {
 #[test]
 fn completes_current_link_and_task_constructs() {
     let uri = "file:///tmp/current-completion.plumb";
-    let source = "Text `->{\n`-\nText `->\"";
+    let source = "Text `->\n`-\nText `->\"";
     let messages = [
         initialize("file:///tmp"),
         json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
@@ -69,7 +69,7 @@ fn completes_current_link_and_task_constructs() {
         }),
         json!({
             "jsonrpc": "2.0", "id": 2, "method": "textDocument/completion",
-            "params": { "textDocument": { "uri": uri }, "position": { "line": 0, "character": 9 } }
+            "params": { "textDocument": { "uri": uri }, "position": { "line": 0, "character": 8 } }
         }),
         json!({
             "jsonrpc": "2.0", "id": 3, "method": "textDocument/completion",
@@ -85,7 +85,7 @@ fn completes_current_link_and_task_constructs() {
     let output = run_server(&messages);
     let link = &response(&output, 2)["result"][0];
     assert_eq!(link["label"], "Link");
-    assert_eq!(link["textEdit"]["newText"], "`->{{${1:label}} ${2:target}}");
+    assert_eq!(link["textEdit"]["newText"], "`->{${1:target/label}}");
     let constructs = response(&output, 3)["result"].as_array().unwrap();
     assert_eq!(
         constructs

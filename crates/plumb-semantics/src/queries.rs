@@ -11,6 +11,11 @@ use crate::{parse_task_reference_target, TaskReferenceTarget};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LinkCompletionContext {
+    SingleArgumentPath {
+        replace: Range<usize>,
+        query: String,
+        suffix: String,
+    },
     Path {
         replace: Range<usize>,
         query: String,
@@ -490,7 +495,7 @@ pub fn construct_completion_context(
     } else {
         match marker_prefix {
             "-" if block_position => Some(ConstructCompletionContext::TaskEventLink { replace }),
-            "-" | "->" | "->{" => Some(ConstructCompletionContext::ParsedLink { replace }),
+            "-" | "->" => Some(ConstructCompletionContext::ParsedLink { replace }),
             "->\"" => Some(ConstructCompletionContext::VerbatimLink { replace }),
             _ => None,
         }
@@ -755,31 +760,96 @@ pub fn link_completion_context(
     }
     let (_, content) = find_marked_group(&document.syntax.blocks, offset, "->")?;
     let view = crate::owner_semantic_view(content);
-    let arguments = view.split_first()?;
-    let target_data = if arguments.rest.is_empty() {
-        std::slice::from_ref(arguments.first)
-    } else {
-        arguments.rest
+    if offset < content.range.start || offset > content.range.end {
+        return None;
+    }
+    if content.items.iter().any(|inline| {
+        crate::is_inline_declaration(inline) && plumb_syntax::inline_range(inline).contains(&offset)
+    }) {
+        return None;
+    }
+    let (mut target, mut single_argument) = match view.split_first() {
+        None => (InlineContent::from_items(offset..offset, vec![]), true),
+        Some(arguments) if arguments.rest.is_empty() => {
+            if offset > arguments.first.range.end {
+                if !source[arguments.first.range.end..offset]
+                    .chars()
+                    .all(|c| c == ' ')
+                {
+                    return None;
+                }
+                (InlineContent::from_items(offset..offset, vec![]), false)
+            } else {
+                (arguments.first.clone(), true)
+            }
+        }
+        Some(arguments) => {
+            if arguments.rest_has_declarations() {
+                return None;
+            }
+            (arguments.rest_content()?, false)
+        }
     };
-    let (value_start, value_end) = editable_data_range(target_data)?;
+    while let [Inline::Group {
+        mark: None,
+        content: inner,
+        ..
+    }] = target.items.as_slice()
+    {
+        target = inner.clone();
+        single_argument = false;
+    }
+    let (value_start, value_end) = (target.range.start, target.range.end);
     if offset < value_start || offset > value_end {
         return None;
     }
-    let query = &source[value_start..offset];
-    if query.contains('"') || query.contains('}') || query.chars().any(char::is_control) {
+    let mut pending = target.items.iter().collect::<Vec<_>>();
+    while let Some(inline) = pending.pop() {
+        if crate::is_inline_declaration(inline) {
+            return None;
+        }
+        if let Inline::Group { content, .. } = inline {
+            pending.extend(content.items.iter());
+        }
+    }
+    let decoded = crate::document::stringify_target(source, &target);
+    let value = decoded
+        .as_ref()
+        .map_or("", |decoded| decoded.value.as_str());
+    let prefix_end = decoded
+        .as_ref()
+        .map_or(0, |decoded| decoded.decoded_offset(offset));
+    let query = value.get(..prefix_end)?;
+    if query.chars().any(char::is_control) {
         return None;
     }
     if let Some((path, fragment)) = query.split_once('#') {
-        let fragment_start = value_start + path.len() + 1;
+        let fragment_start = decoded
+            .as_ref()?
+            .source_range(path.len() + 1..path.len() + 1)?
+            .start;
         Some(LinkCompletionContext::Anchor {
             path: path.to_string(),
             replace: fragment_start..value_end,
             query: fragment.to_string(),
         })
     } else {
-        let path_end = source[offset..value_end]
-            .find('#')
-            .map_or(value_end, |separator| offset + separator);
+        let separator = value.find('#');
+        let path_end = separator.map_or(value_end, |index| {
+            decoded
+                .as_ref()
+                .unwrap()
+                .source_range(index..index)
+                .unwrap()
+                .start
+        });
+        if single_argument {
+            return Some(LinkCompletionContext::SingleArgumentPath {
+                replace: value_start..value_end,
+                query: query.to_string(),
+                suffix: separator.map_or_else(String::new, |index| value[index..].to_string()),
+            });
+        }
         Some(LinkCompletionContext::Path {
             replace: value_start..path_end,
             query: query.to_string(),
@@ -797,7 +867,8 @@ pub fn green_link_completion_context(
         offset,
         link_completion_context,
         |context, delta| match context {
-            LinkCompletionContext::Path { replace, .. }
+            LinkCompletionContext::SingleArgumentPath { replace, .. }
+            | LinkCompletionContext::Path { replace, .. }
             | LinkCompletionContext::Anchor { replace, .. }
             | LinkCompletionContext::VerbatimAnchor { replace, .. } => {
                 shift_range(replace, delta);
@@ -875,12 +946,6 @@ fn editable_element_range(content: &InlineContent) -> (usize, usize) {
         return (text_range.start, text_range.end);
     }
     (content.range.start, content.range.end)
-}
-
-fn editable_data_range(data: &[InlineContent]) -> Option<(usize, usize)> {
-    let (start, _) = editable_element_range(data.first()?);
-    let (_, end) = editable_element_range(data.last()?);
-    Some((start, end))
 }
 
 pub fn image_completion_context(
@@ -1215,10 +1280,7 @@ mod tests {
             None
         );
         let link = parse("Text `->{");
-        assert_eq!(
-            construct_completion_context(&link, link.source.len()),
-            Some(ConstructCompletionContext::ParsedLink { replace: 5..9 })
-        );
+        assert_eq!(construct_completion_context(&link, link.source.len()), None);
         let verbatim_link = parse("Text `->\"");
         assert_eq!(
             construct_completion_context(&verbatim_link, verbatim_link.source.len()),
@@ -1395,23 +1457,60 @@ mod tests {
     }
 
     #[test]
+    fn link_completion_binds_empty_first_and_trailing_target_arguments() {
+        for (input, query, single) in [
+            ("`->{|}", "", true),
+            ("`->{ta|}", "ta", true),
+            ("`->{xxx |}", "", false),
+            ("`->{xxx ta|}", "ta", false),
+            ("`->{xxx Project Gu|}", "Project Gu", false),
+            ("`->{{|}}", "", false),
+            ("`->{{Project Gu|}}", "Project Gu", false),
+            ("`->{{{Project Gu|}}}", "Project Gu", false),
+            ("`->{{guide page} ta|}", "ta", false),
+            ("`->{{中文`{指南|}}", "中文{指南", false),
+            ("`->{xxx ta|", "ta", false),
+            ("`->{{Project Gu|", "Project Gu", false),
+        ] {
+            let (source, cursor) = strip_cursor(input);
+            let context = completion_context(&source, cursor).unwrap_or_else(|| panic!("{input}"));
+            match context {
+                LinkCompletionContext::SingleArgumentPath { query: actual, .. } => {
+                    assert!(single, "{input}");
+                    assert_eq!(actual, query, "{input}");
+                }
+                LinkCompletionContext::Path { query: actual, .. } => {
+                    assert!(!single, "{input}");
+                    assert_eq!(actual, query, "{input}");
+                }
+                other => panic!("{input}: {other:?}"),
+            }
+            let green = plumb_syntax::GreenDocument::parse(&source);
+            assert_eq!(
+                green_link_completion_context(&green, cursor),
+                completion_context(&source, cursor)
+            );
+        }
+    }
+
+    #[test]
     fn finds_incomplete_path_and_anchor_contexts() {
         let label = "See `->{Usage";
         assert_eq!(
             completion_context(label, label.len()),
-            Some(LinkCompletionContext::Path {
+            Some(LinkCompletionContext::SingleArgumentPath {
                 replace: 8..13,
                 query: "Usage".to_string(),
-                parsed: true,
+                suffix: String::new(),
             })
         );
         let closed_label = "See `->{Usage}\n";
         assert_eq!(
             completion_context(closed_label, closed_label.len() - 2),
-            Some(LinkCompletionContext::Path {
+            Some(LinkCompletionContext::SingleArgumentPath {
                 replace: 8..13,
                 query: "Usage".to_string(),
-                parsed: true,
+                suffix: String::new(),
             })
         );
         let escaped = "See ``->{Usage";

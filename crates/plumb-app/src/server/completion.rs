@@ -199,8 +199,8 @@ fn link_construct_template() -> ConstructTemplate {
     ConstructTemplate {
         label: "Link",
         detail: "plumb link",
-        snippet: "`->{{${1:label}} ${2:target}}".to_string(),
-        plain: "`->{{} {}}".to_string(),
+        snippet: "`->{${1:target/label}}".to_string(),
+        plain: "`->{}".to_string(),
         uses_block_indentation: false,
     }
 }

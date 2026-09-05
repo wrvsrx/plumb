@@ -3076,8 +3076,31 @@ impl Workspace {
         from: impl AsRef<Path>,
         context: &LinkCompletionContext,
     ) -> Result<QueryResult<Vec<CompletionCandidate>>, WorkspaceQueryError> {
+        if let LinkCompletionContext::SingleArgumentPath {
+            replace,
+            query,
+            suffix,
+        } = context
+        {
+            let mut result = self.complete_link(
+                from,
+                &LinkCompletionContext::Path {
+                    replace: replace.clone(),
+                    query: query.clone(),
+                    parsed: true,
+                },
+            )?;
+            for candidate in &mut result.value {
+                candidate.new_text = plumb_edit::render_authored_text_arguments(&[&format!(
+                    "{}{suffix}",
+                    candidate.label
+                )]);
+            }
+            return Ok(result);
+        }
         let from = normalize(from.as_ref());
         let mut candidates: Vec<CompletionCandidate> = match context {
+            LinkCompletionContext::SingleArgumentPath { .. } => unreachable!(),
             LinkCompletionContext::Path {
                 replace,
                 query,
@@ -3218,6 +3241,7 @@ impl Workspace {
         if let Some(store) = &self.disk_store {
             let open = self.open_paths();
             match context {
+                LinkCompletionContext::SingleArgumentPath { .. } => unreachable!(),
                 LinkCompletionContext::Path {
                     replace,
                     query,

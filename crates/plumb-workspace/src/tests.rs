@@ -1584,6 +1584,88 @@ fn rename_rejects_pair_style_or_invalid_ids() {
 }
 
 #[test]
+fn link_completion_preserves_argument_binding_and_group_envelopes() {
+    for persistent in [false, true] {
+        let mut workspace = if persistent {
+            Workspace::with_sqlite_store(SqliteSemanticStore::open_in_memory().unwrap())
+        } else {
+            Workspace::new()
+        };
+        let target = "Project 中文 {Guide}.plumb";
+        if persistent {
+            workspace
+                .insert_disk(target, 1, "`# Guide\n `@ intro\n")
+                .unwrap();
+        } else {
+            workspace.insert(target, 1, "`# Guide\n `@ intro\n");
+        }
+        for (input, expected) in [
+            ("`->{|}", "`->{{Project 中文 `{Guide`}.plumb}}"),
+            ("`->{Pro|}", "`->{{Project 中文 `{Guide`}.plumb}}"),
+            (
+                "`->{Pro|#intro}",
+                "`->{{Project 中文 `{Guide`}.plumb#intro}}",
+            ),
+            ("`->{label |}", "`->{label Project 中文 `{Guide`}.plumb}"),
+            (
+                "`->{label Project 中|}",
+                "`->{label Project 中文 `{Guide`}.plumb}",
+            ),
+            ("`->{{Project 中|}}", "`->{{Project 中文 `{Guide`}.plumb}}"),
+            (
+                "`->{{{Project 中|}}}",
+                "`->{{{Project 中文 `{Guide`}.plumb}}}",
+            ),
+            (
+                "`->{{label words} Pro|}",
+                "`->{{label words} Project 中文 `{Guide`}.plumb}",
+            ),
+            (
+                "`->{{Project 中文 `{Gu|}}",
+                "`->{{Project 中文 `{Guide`}.plumb}}",
+            ),
+        ] {
+            let cursor = input.find('|').unwrap();
+            let source = input.replace('|', "");
+            let green = plumb_syntax::GreenDocument::parse(&source);
+            let context = plumb_semantics::green_link_completion_context(&green, cursor).unwrap();
+            let candidates = workspace
+                .complete_link("current.plumb", &context)
+                .unwrap()
+                .value;
+            assert_eq!(candidates.len(), 1, "{input}, persistent={persistent}");
+            let candidate = &candidates[0];
+            let mut actual = source;
+            actual.replace_range(candidate.replace.clone(), &candidate.new_text);
+            assert_eq!(actual, expected, "{input}, persistent={persistent}");
+            let parsed = plumb_syntax::parse(&actual);
+            assert!(parsed.is_valid(), "{actual}: {:?}", parsed.diagnostics);
+            workspace.insert("current.plumb", 2, &actual);
+            let output = &workspace
+                .get("current.plumb")
+                .unwrap()
+                .current
+                .as_ref()
+                .unwrap()
+                .output;
+            assert_eq!(
+                output
+                    .links()
+                    .iter()
+                    .next()
+                    .unwrap()
+                    .target
+                    .value
+                    .split('#')
+                    .next()
+                    .unwrap(),
+                target
+            );
+        }
+    }
+}
+
+#[test]
 fn completes_paths_and_only_explicit_anchors() {
     let mut workspace = Workspace::new();
     let verbatim_link_path =

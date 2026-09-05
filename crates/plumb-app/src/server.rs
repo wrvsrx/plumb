@@ -2070,6 +2070,7 @@ impl LanguageServer for ServerState {
                 let kind = if matches!(
                     &context,
                     plumb_semantics::LinkCompletionContext::Path { .. }
+                        | plumb_semantics::LinkCompletionContext::SingleArgumentPath { .. }
                         | plumb_semantics::LinkCompletionContext::VerbatimPath { .. }
                 ) {
                     CompletionItemKind::FILE

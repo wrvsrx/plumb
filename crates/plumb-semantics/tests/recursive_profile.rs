@@ -184,7 +184,7 @@ fn current_recovered_completion_contexts_follow_brace_data() {
     let derived_link = parse("See `->{Usage");
     assert!(matches!(
         link_completion_context(&derived_link, derived_link.source.len()),
-        Some(LinkCompletionContext::Path { query, parsed: true, .. }) if query == "Usage"
+        Some(LinkCompletionContext::SingleArgumentPath { query, .. }) if query == "Usage"
     ));
 
     let path = parse("See `->{x doc.plumb#ta");
@@ -202,7 +202,7 @@ fn current_recovered_completion_contexts_follow_brace_data() {
         "static/im"
     );
 
-    let construct = parse("Text `->{");
+    let construct = parse("Text `->");
     assert!(matches!(
         construct_completion_context(&construct, construct.source.len()),
         Some(ConstructCompletionContext::ParsedLink { .. })
@@ -215,10 +215,10 @@ fn current_derived_links_complete_paths_and_anchors() {
     let value_start = source.find("doc.plumb").unwrap();
     assert_eq!(
         link_completion_context(&parse(&source), cursor),
-        Some(LinkCompletionContext::Path {
+        Some(LinkCompletionContext::SingleArgumentPath {
             replace: value_start..value_start + "doc.plumb".len(),
             query: "doc.pl".to_string(),
-            parsed: true,
+            suffix: String::new(),
         })
     );
 
