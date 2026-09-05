@@ -122,12 +122,20 @@ formatter 也不主动对齐 ordinary source。table compact rows 因每个 dire
 completion 可以对 local invalid prefix 返回 replacement，但不是 authoritative valid-tree mutation。construct
 snippets 仍必须展开为 current syntax：
 
-`- Link `"`->{{${1:label}} ${2:target}}"。
+`- Link `"`->{${1:target/label}}"；placeholder 是可整体替换的首项，不另设 explicit-label snippet。
 `- Citation `"`cite{${1:id}}"。
 `- Task/Event 使用 list item 与 direct facet children，property使用 spaces。
 `- nested completion 根据 client insertTextMode 只投影 base indentation；relative child depth保持一格。
 
 apply 后的 source 必须 strict-valid且 formatter fixed point。bare/incomplete verbatim payload不猜测 construct。
+Link recovered completion按 owner positional view决定 target：首项未结束时补全单参数 target；首项后的 direct
+SpaceRun开启 explicit-label target，query包含其后全部 trailing target内容，而非最后一个 word。唯一首项是 anonymous
+Group时，组内始终是单参数 target，内部 spaces不改变 parent arity；grouped label之后的 target同样使用 rest。
+empty target与未闭合 group仍提供 completion。查询匹配沿用 workspace path/title fuzzy matching与anchor lookup。
+单参数 target插入含空格路径时由 edit layer生成一个 grouped argument，已有 fragment一同留在该 argument中；
+已在 anonymous group内时只替换其内部 target component并转义 literal introducers/braces，不再添加 envelope。
+explicit label之后允许 ungrouped multiword target。source range与query必须依据当前 recovered syntax，不能把 label、
+外围 group delimiter或direct declarations纳入 target replacement；LSP仅将 byte ranges投影为 UTF-16。
 rich one-argument Link rename 使用 Stringify 的 source mapping；当 decoded component跨 nested envelope时，替换该
 mapped source range并允许将被跨越的 presentation markup规范化为 plain escaped target，不猜测如何分配字符到多个
 semantic owners。compact verbatim仍优先 token edit，delimiter collision时 strengthen whole envelope。
