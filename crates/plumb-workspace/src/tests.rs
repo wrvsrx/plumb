@@ -591,6 +591,57 @@ fn installs_only_the_current_parsed_revision_analysis() {
 }
 
 #[test]
+fn semantic_install_classifies_local_exported_and_invalid_transitions() {
+    let mut workspace = Workspace::new();
+    workspace.insert("note.plumb", 1, "`# Alpha\n\nBody.\n");
+
+    let local = workspace
+        .begin_document_revision("note.plumb", 2, "`# Bravo\n\nChanged body.\n")
+        .unwrap()
+        .analyze();
+    assert_eq!(
+        workspace.install_document_analysis_with_change(local),
+        Some(ExportedSemanticChange::Unchanged)
+    );
+
+    let _superseded = workspace
+        .begin_document_revision("note.plumb", 3, "`# Gamma\n\nPending body.\n")
+        .unwrap();
+    let latest = workspace
+        .begin_document_revision("note.plumb", 4, "`# Delta\n\nLatest body.\n")
+        .unwrap()
+        .analyze();
+    assert_eq!(
+        workspace.install_document_analysis_with_change(latest),
+        Some(ExportedSemanticChange::Unchanged),
+        "a newer valid pending revision compares with the still-authoritative exported summary"
+    );
+
+    let exported_source = "`# Bravo\n `@ exported\n\nChanged body.\n";
+    let exported = workspace
+        .begin_document_revision("note.plumb", 5, exported_source)
+        .unwrap()
+        .analyze();
+    assert_eq!(
+        workspace.install_document_analysis_with_change(exported),
+        Some(ExportedSemanticChange::Changed)
+    );
+
+    assert!(workspace
+        .begin_document_revision("note.plumb", 6, "`broken{\n")
+        .is_none());
+    let recovered = workspace
+        .begin_document_revision("note.plumb", 7, exported_source)
+        .unwrap()
+        .analyze();
+    assert_eq!(
+        workspace.install_document_analysis_with_change(recovered),
+        Some(ExportedSemanticChange::Changed),
+        "restoring authority after an invalid revision must notify dependents"
+    );
+}
+
+#[test]
 fn document_revisions_preserve_fresh_parse_results_across_structural_edits() {
     let old = "`note First\n\n`note Second\n\n`note Third\n";
     let changed = "`note First\n\n `note Second {open\n\n`note Third\n";

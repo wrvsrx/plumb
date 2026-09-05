@@ -1,6 +1,114 @@
 use serde_json::json;
 
-use crate::support::{diagnostic_counts, response, run_server, unique_temp_dir};
+use crate::support::{diagnostic_counts, response, run_server, unique_temp_dir, LspTestSession};
+
+#[test]
+fn semantic_equal_edits_do_not_refresh_workspace_consumers() {
+    fn refresh_counts(exported_change: bool) -> (usize, usize, usize) {
+        let root = unique_temp_dir();
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join("note.plumb");
+        let dependent_path = root.join("dependent.plumb");
+        let initial = "`# Alpha\n\nBad `cite{two words}.\n";
+        let dependent = "See `->{target note.plumb#target}.\n";
+        std::fs::write(&path, initial).unwrap();
+        std::fs::write(&dependent_path, dependent).unwrap();
+        let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
+        let uri = lsp_types::Url::from_file_path(&path).unwrap();
+        let dependent_uri = lsp_types::Url::from_file_path(&dependent_path).unwrap();
+        let mut session = LspTestSession::new();
+        session.send(&json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {
+                "processId": null,
+                "rootUri": root_uri,
+                "workspaceFolders": [{ "uri": root_uri, "name": "test" }],
+                "capabilities": {
+                    "workspace": { "codeLens": { "refreshSupport": true } },
+                    "experimental": { "plumb": { "foldingRangeRefreshSupport": true } }
+                }
+            }
+        }));
+        session.wait_for_response(&json!(1));
+        session.send(&json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }));
+        session.wait_for(|message| {
+            message["method"] == "$/progress" && message["params"]["value"]["kind"] == "end"
+        });
+        session.send(&json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": {
+                "uri": uri, "languageId": "plumb", "version": 1, "text": initial
+            }}
+        }));
+        session.wait_for(|message| {
+            message["method"] == "textDocument/publishDiagnostics"
+                && message["params"]["version"] == 1
+        });
+        session.send(&json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": {
+                "uri": dependent_uri, "languageId": "plumb", "version": 1, "text": dependent
+            }}
+        }));
+        session.wait_for(|message| {
+            message["method"] == "textDocument/publishDiagnostics"
+                && message["params"]["uri"] == dependent_uri.as_str()
+                && message["params"]["version"] == 1
+        });
+
+        let changed = if exported_change {
+            "`# Bravo\n `@ target\n\nBad `cite{two words}.\n"
+        } else {
+            "`# Bravo\n\nChanged bad `cite{two words}.\n"
+        };
+        session.send(&json!({
+            "jsonrpc": "2.0", "method": "textDocument/didChange",
+            "params": {
+                "textDocument": { "uri": uri, "version": 2 },
+                "contentChanges": [{ "text": changed }]
+            }
+        }));
+        session.wait_for(|message| {
+            message["method"] == "textDocument/publishDiagnostics"
+                && message["params"]["version"] == 2
+                && message["params"]["diagnostics"]
+                    .as_array()
+                    .is_some_and(|diagnostics| {
+                        diagnostics
+                            .iter()
+                            .any(|diagnostic| diagnostic["code"] == "citation.invalid")
+                    })
+        });
+        session.send(&json!({ "jsonrpc": "2.0", "id": 2, "method": "shutdown", "params": null }));
+        session.wait_for_response(&json!(2));
+        session.send(&json!({ "jsonrpc": "2.0", "method": "exit", "params": null }));
+        let output = session.finish();
+        std::fs::remove_dir_all(root).unwrap();
+        (
+            output
+                .iter()
+                .filter(|message| message["method"] == "workspace/codeLens/refresh")
+                .count(),
+            output
+                .iter()
+                .filter(|message| message["method"] == "workspace/foldingRange/refresh")
+                .count(),
+            output
+                .iter()
+                .filter(|message| {
+                    message["method"] == "textDocument/publishDiagnostics"
+                        && message["params"]["uri"] == dependent_uri.as_str()
+                })
+                .count(),
+        )
+    }
+
+    let local_only = refresh_counts(false);
+    let exported = refresh_counts(true);
+    assert_eq!(exported.0, local_only.0 + 1);
+    assert_eq!(exported.1, local_only.1 + 1);
+    assert_eq!(exported.2, local_only.2 + 1);
+}
 
 #[test]
 fn syntax_invalid_revision_does_not_publish_bibliography_diagnostics() {

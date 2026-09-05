@@ -14,8 +14,8 @@ use plumb_syntax::{
     parse, parse_incremental, GreenDocument as ProductionGreenDocument, SourceChange,
 };
 use plumb_workspace::{
-    search_score, BatchIndexOptions, SearchRecordKind, SqliteSemanticStore, TaskPageQuery,
-    TaskQueryFilter, TaskQueryFilterGroup, TaskRef, TaskSortOrder, Workspace,
+    search_score, BatchIndexOptions, ExportedSemanticChange, SearchRecordKind, SqliteSemanticStore,
+    TaskPageQuery, TaskQueryFilter, TaskQueryFilterGroup, TaskRef, TaskSortOrder, Workspace,
 };
 
 #[path = "../benchmark_support.rs"]
@@ -1216,6 +1216,68 @@ fn benchmark_export_record_lookup(c: &mut Criterion) {
     });
 }
 
+fn benchmark_semantic_equality_publication(c: &mut Criterion) {
+    let mut task_source = String::new();
+    for index in 0..10_000 {
+        task_source.push_str(&format!(
+            "`- Task {index}\n `+ task\n `@ task-{index}\n{}\n",
+            (index > 0)
+                .then(|| format!(" `= depends #task-{}\n", index - 1))
+                .unwrap_or_default()
+        ));
+    }
+    let mut base = Workspace::new();
+    base.insert("tasks.plumb", 1, task_source);
+    base.insert("note.plumb", 1, "`# Alpha\n\nBody.\n");
+
+    let revise = |workspace: &mut Workspace, revision: i64| {
+        let source = if revision % 2 == 0 {
+            "`# Bravo\n\nChanged body.\n"
+        } else {
+            "`# Alpha\n\nBody.\n"
+        };
+        let prepared = workspace
+            .begin_document_revision("note.plumb", revision, source)
+            .unwrap()
+            .analyze();
+        workspace
+            .install_document_analysis_with_change(prepared)
+            .unwrap()
+    };
+
+    let mut unconditional = base.clone();
+    let mut unconditional_revision = 2;
+    c.bench_function(
+        "semantic_equal_publication_10000/unconditional_context",
+        |b| {
+            b.iter(|| {
+                assert_eq!(
+                    revise(&mut unconditional, unconditional_revision),
+                    ExportedSemanticChange::Unchanged
+                );
+                unconditional_revision += 1;
+                black_box(unconditional.diagnostic_context().unwrap())
+            })
+        },
+    );
+
+    let mut guarded = base;
+    let mut guarded_revision = 2;
+    c.bench_function(
+        "semantic_equal_publication_10000/exported_summary_guard",
+        |b| {
+            b.iter(|| {
+                let change = revise(&mut guarded, guarded_revision);
+                guarded_revision += 1;
+                if change == ExportedSemanticChange::Changed {
+                    black_box(guarded.diagnostic_context().unwrap());
+                }
+                black_box(change)
+            })
+        },
+    );
+}
+
 fn configuration() -> Criterion {
     Criterion::default()
         .measurement_time(Duration::from_secs(5))
@@ -1228,6 +1290,7 @@ criterion_group! {
     targets = benchmark_build, benchmark_warm_start, benchmark_queries, benchmark_replacement,
         benchmark_task_queries, benchmark_diagnostic_round, benchmark_open_document_generation,
         benchmark_incremental_parse, benchmark_semantic_components, benchmark_batch_index,
-        benchmark_event_containment, benchmark_export_record_lookup
+        benchmark_event_containment, benchmark_export_record_lookup,
+        benchmark_semantic_equality_publication
 }
 criterion_main!(benches);

@@ -385,6 +385,12 @@ pub struct VersionedDocumentOutput {
     pub output: Arc<DocumentOutput>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExportedSemanticChange {
+    Changed,
+    Unchanged,
+}
+
 #[derive(Debug, Clone)]
 pub struct DocumentEntry {
     pub path: PathBuf,
@@ -429,6 +435,7 @@ pub struct PendingDocumentAnalysis {
     revision: i64,
     parsed: Arc<DocumentRevision>,
     previous_output: Option<Arc<DocumentOutput>>,
+    previous_exported_output: Option<Arc<DocumentOutput>>,
     change: Option<DocumentChange>,
 }
 
@@ -437,6 +444,7 @@ pub struct PreparedDocumentAnalysis {
     path: PathBuf,
     revision: i64,
     parsed: Arc<DocumentRevision>,
+    previous_exported_output: Option<Arc<DocumentOutput>>,
     output: Arc<DocumentOutput>,
 }
 
@@ -462,6 +470,7 @@ impl PendingDocumentAnalysis {
             path: self.path,
             revision: self.revision,
             parsed: self.parsed,
+            previous_exported_output: self.previous_exported_output,
             output: Arc::new(output),
         }
     }

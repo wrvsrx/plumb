@@ -16,8 +16,8 @@ use crate::{
     analyze_citations, analyze_events, analyze_headings, analyze_inline_styles, analyze_lists,
     analyze_math, analyze_quotes, analyze_tables, analyze_tasks, CitationOutput, EventOutput,
     HeadingOutput, InlineStyleOutput, ListGroups, ListKind, ListOutput, MathOutput, MetadataOutput,
-    QuoteOutput, RelativeSemanticRecord, SemanticDiagnostics, SemanticRecords, TableOutput,
-    TaskOutput,
+    MetadataValue, QuoteOutput, RelativeSemanticRecord, SemanticDiagnostics, SemanticRecords,
+    TableOutput, TaskOutput,
 };
 use crate::{
     headings::{heading_topology_eq, reduce_heading_outputs},
@@ -236,6 +236,31 @@ pub struct DocumentOutput {
     root: Arc<SemanticRoot>,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct ExportedSemanticSummary<'a> {
+    output: &'a DocumentOutput,
+}
+
+impl PartialEq for ExportedSemanticSummary<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        document_title_fact(self.output.metadata()) == document_title_fact(other.output.metadata())
+            && self.output.anchors().absolute_eq(other.output.anchors())
+            && self.output.links().absolute_eq(other.output.links())
+            && self
+                .output
+                .tasks()
+                .tasks
+                .absolute_eq(&other.output.tasks().tasks)
+            && self
+                .output
+                .events()
+                .events
+                .absolute_eq(&other.output.events().events)
+    }
+}
+
+impl Eq for ExportedSemanticSummary<'_> {}
+
 #[derive(Debug, Clone)]
 pub struct SemanticRoot {
     tree: Arc<SemanticTree>,
@@ -438,6 +463,10 @@ pub struct DocumentChange {
 }
 
 impl DocumentOutput {
+    pub fn exported_semantic_summary(&self) -> ExportedSemanticSummary<'_> {
+        ExportedSemanticSummary { output: self }
+    }
+
     pub fn headings(&self) -> &HeadingOutput {
         &self.root.headings
     }
@@ -586,6 +615,21 @@ impl DocumentOutput {
         self.links_contained_by_range(&event.range)
             .unwrap_or_default()
     }
+}
+
+fn document_title_fact(metadata: &MetadataOutput) -> Option<(String, Range<usize>)> {
+    metadata
+        .metadata
+        .as_ref()?
+        .entries
+        .iter()
+        .find(|entry| entry.key == "title")
+        .and_then(|entry| match &entry.value {
+            MetadataValue::Scalar { content, .. } if !content.plain_text().is_empty() => {
+                Some((content.plain_text(), content.range.clone()))
+            }
+            _ => None,
+        })
 }
 
 pub fn analyze_document(valid: ValidDocument<'_>) -> DocumentOutput {
@@ -2618,6 +2662,44 @@ mod tests {
         let file = output.file_at_node_start(file_start).unwrap();
         assert_eq!(file.range().start, file_start);
         assert_eq!(file.source_value(), "manual.pdf");
+    }
+
+    #[test]
+    fn exported_summary_excludes_local_facts_and_tracks_workspace_records() {
+        let analyze = |source: &str| {
+            let parsed = parse(source);
+            assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
+            analyze_document(parsed.valid_syntax().unwrap())
+        };
+        let local_a = analyze("`# Alpha\n\nParagraph `!{strong} and `cite{two words}.\n");
+        let local_b = analyze("`# Bravo\n\nParagraph `$\"x\".\n");
+        assert_eq!(
+            local_a.exported_semantic_summary(),
+            local_b.exported_semantic_summary()
+        );
+
+        for exported in [
+            "`= title Note\n",
+            "`# Heading\n `@ anchor\n",
+            "See `->{target target.plumb}.\n",
+            "`- Task\n `+ task\n",
+            "`- 10:00 Event\n `+ event\n `= date 2026-09-05\n `= timezone +08:00\n",
+        ] {
+            let output = analyze(exported);
+            assert_ne!(
+                local_a.exported_semantic_summary(),
+                output.exported_semantic_summary(),
+                "exported facts from {exported:?} must invalidate workspace consumers"
+            );
+        }
+
+        let anchored = analyze("`# Heading\n `@ anchor\n");
+        let shifted = analyze("Prelude.\n\n`# Heading\n `@ anchor\n");
+        assert_ne!(
+            anchored.exported_semantic_summary(),
+            shifted.exported_semantic_summary(),
+            "observable source locations are exported facts"
+        );
     }
 
     #[test]

@@ -283,6 +283,24 @@ impl<T: RelativeSemanticRecord> SemanticRecordView<'_, T> {
 }
 
 impl<T: RelativeSemanticRecord> SemanticRecords<T> {
+    pub(crate) fn absolute_eq(&self, other: &Self) -> bool {
+        self.len() == other.len()
+            && self.views().zip(other.views()).all(|(left, right)| {
+                let left_start = left.record.start().checked_add_signed(left.offset).unwrap();
+                let right_start = right
+                    .record
+                    .start()
+                    .checked_add_signed(right.offset)
+                    .unwrap();
+                left_start == right_start
+                    && if left.offset == right.offset {
+                        left.record == right.record
+                    } else {
+                        left.to_owned() == right.to_owned()
+                    }
+            })
+    }
+
     pub fn len(&self) -> usize {
         match &self.storage {
             RecordStorage::Empty => 0,
@@ -515,5 +533,27 @@ mod tests {
 
         assert_eq!(record.to_owned().start, 20);
         assert_eq!(clones.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn absolute_equality_borrows_records_with_matching_offsets() {
+        let clones = Arc::new(AtomicUsize::new(0));
+        let records = |starts: &[usize]| {
+            let mut records = SemanticRecords::default();
+            for start in starts {
+                records.push(CountingRecord {
+                    start: *start,
+                    clones: Arc::clone(&clones),
+                });
+            }
+            records
+        };
+        let left = records(&[10, 20, 30]);
+        let right = records(&[10, 20, 30]);
+
+        assert!(left.absolute_eq(&right));
+        assert_eq!(clones.load(Ordering::Relaxed), 0);
+        assert!(!left.absolute_eq(&records(&[10, 20, 31])));
+        assert_eq!(clones.load(Ordering::Relaxed), 0);
     }
 }

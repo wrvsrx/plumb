@@ -46,10 +46,11 @@ use plumb_semantics::{
 use plumb_syntax::{Diagnostic, SourceChange};
 use plumb_workspace::{
     load_bibliography, load_bibliography_sources, normalize, scan_workspace_files,
-    BatchIndexOptions, Bibliography, BibliographyResolution, CompletionCandidate, PathRenameInput,
-    PreparedDocumentAnalysis, QueryResult, RenameError, ResolvedTarget, ResourceOperation,
-    SearchRecord, SearchRecordKind, SqliteSemanticStore, Workspace, WorkspaceDiagnosticContext,
-    WorkspaceEdit, WorkspaceOperationError, WorkspaceQueryError, WorkspaceSearchError,
+    BatchIndexOptions, Bibliography, BibliographyResolution, CompletionCandidate,
+    ExportedSemanticChange, PathRenameInput, PreparedDocumentAnalysis, QueryResult, RenameError,
+    ResolvedTarget, ResourceOperation, SearchRecord, SearchRecordKind, SqliteSemanticStore,
+    Workspace, WorkspaceDiagnosticContext, WorkspaceEdit, WorkspaceOperationError,
+    WorkspaceQueryError, WorkspaceSearchError,
 };
 use sha2::{Digest, Sha256};
 
@@ -99,6 +100,7 @@ pub(crate) struct ServerState {
     index_generation: u64,
     pending_path_renames: Vec<PendingPathRename>,
     document_analysis_tokens: DocumentAnalysisTokens,
+    diagnostic_context: Option<Arc<WorkspaceDiagnosticContext>>,
 }
 
 #[derive(Default)]
@@ -181,6 +183,7 @@ impl ServerState {
             index_generation: 0,
             pending_path_renames: Vec::new(),
             document_analysis_tokens: DocumentAnalysisTokens::default(),
+            diagnostic_context: None,
         }
     }
 
@@ -198,10 +201,11 @@ impl ServerState {
         let path = normalize(&path);
         let revision = i64::from(version);
         let (token, generation) = self.document_analysis_tokens.next(&path);
-        if !self
+        let rebound = self
             .workspace
-            .rebind_revision_if_source(&path, revision, &text)
-        {
+            .rebind_revision_if_source(&path, revision, &text);
+        let mut semantic_analysis_pending = false;
+        if !rebound {
             if background {
                 let pending = self.workspace.begin_document_revision_with_change(
                     &path,
@@ -210,6 +214,7 @@ impl ServerState {
                     source_change,
                 );
                 if let Some(pending) = pending {
+                    semantic_analysis_pending = true;
                     let client = self.client.clone();
                     let analysis_path = path.clone();
                     tokio::task::spawn_blocking(move || {
@@ -230,10 +235,16 @@ impl ServerState {
                 self.workspace.insert(&path, revision, text);
             }
         }
-        self.open_documents.insert(uri, path);
-        self.publish_all_open_diagnostics();
-        self.refresh_code_lenses();
-        self.refresh_folding_ranges();
+        self.open_documents.insert(uri.clone(), path.clone());
+        if semantic_analysis_pending {
+            self.publish_syntax_diagnostics(&uri, &path);
+        } else if rebound && background {
+            self.publish_open_document_diagnostics(&path);
+        } else {
+            self.publish_all_open_diagnostics();
+            self.refresh_code_lenses();
+            self.refresh_folding_ranges();
+        }
     }
 
     pub(crate) fn finish_document_analysis(
@@ -243,27 +254,87 @@ impl ServerState {
         if !self
             .document_analysis_tokens
             .is_current(&result.path, result.generation)
-            || !self.workspace.install_document_analysis(result.analysis)
         {
             return ControlFlow::Continue(());
         }
-        self.publish_all_open_diagnostics();
-        self.refresh_code_lenses();
-        self.refresh_folding_ranges();
+        let Some(change) = self
+            .workspace
+            .install_document_analysis_with_change(result.analysis)
+        else {
+            return ControlFlow::Continue(());
+        };
+        match change {
+            ExportedSemanticChange::Changed => {
+                self.publish_all_open_diagnostics();
+                self.refresh_code_lenses();
+                self.refresh_folding_ranges();
+            }
+            ExportedSemanticChange::Unchanged => {
+                self.publish_open_document_diagnostics(&result.path);
+            }
+        }
         ControlFlow::Continue(())
     }
 
-    fn publish_all_open_diagnostics(&self) {
+    fn publish_all_open_diagnostics(&mut self) {
+        self.diagnostic_context = None;
         let context = match self.workspace.diagnostic_context() {
-            Ok(context) => context,
+            Ok(context) => Arc::new(context),
             Err(error) => {
                 tracing::error!(%error, "workspace diagnostic context query failed");
                 return;
             }
         };
+        self.diagnostic_context = Some(Arc::clone(&context));
         for (uri, path) in &self.open_documents {
-            self.publish(uri, path, &context);
+            self.publish(uri, path, context.as_ref());
         }
+    }
+
+    fn publish_open_document_diagnostics(&mut self, path: &Path) {
+        let context = match &self.diagnostic_context {
+            Some(context) => Arc::clone(context),
+            None => match self.workspace.diagnostic_context() {
+                Ok(context) => {
+                    let context = Arc::new(context);
+                    self.diagnostic_context = Some(Arc::clone(&context));
+                    context
+                }
+                Err(error) => {
+                    tracing::error!(%error, "workspace diagnostic context query failed");
+                    return;
+                }
+            },
+        };
+        let Some((uri, _)) = self
+            .open_documents
+            .iter()
+            .find(|(_, open_path)| open_path.as_path() == path)
+        else {
+            return;
+        };
+        self.publish(uri, path, context.as_ref());
+    }
+
+    fn publish_syntax_diagnostics(&self, uri: &Url, path: &Path) {
+        let Some(entry) = self.workspace.get(path) else {
+            return;
+        };
+        let diagnostics = entry
+            .parsed
+            .diagnostics()
+            .iter()
+            .cloned()
+            .map(|diagnostic| to_lsp_diagnostic(entry.parsed.source(), uri, diagnostic))
+            .collect();
+        let version = i32::try_from(entry.revision).ok();
+        let _ = self
+            .client
+            .notify::<lsp_types::notification::PublishDiagnostics>(PublishDiagnosticsParams {
+                uri: uri.clone(),
+                diagnostics,
+                version,
+            });
     }
 
     fn publish(&self, uri: &Url, path: &Path, context: &WorkspaceDiagnosticContext) {

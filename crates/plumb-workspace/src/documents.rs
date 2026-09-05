@@ -6,9 +6,9 @@ use plumb_semantics::{analyze_green_document, DocumentChange};
 use plumb_syntax::{GreenDocument, SourceChange};
 
 use crate::{
-    normalize, DocumentEntry, DocumentRevision, PendingDocumentAnalysis, PreparedDocumentAnalysis,
-    QueryCompleteness, QueryProvenance, QueryResult, SqliteSemanticStore, StoreError,
-    VersionedDocumentOutput, Workspace, WorkspaceQueryError,
+    normalize, DocumentEntry, DocumentRevision, ExportedSemanticChange, PendingDocumentAnalysis,
+    PreparedDocumentAnalysis, QueryCompleteness, QueryProvenance, QueryResult, SqliteSemanticStore,
+    StoreError, VersionedDocumentOutput, Workspace, WorkspaceQueryError,
 };
 
 impl Workspace {
@@ -140,6 +140,10 @@ impl Workspace {
         let previous_output = previous
             .and_then(|entry| entry.current.as_ref())
             .map(|current| Arc::clone(&current.output));
+        let previous_exported_output = previous
+            .filter(|entry| entry.parsed.is_valid())
+            .and_then(|entry| entry.current.as_ref().or(entry.last_valid.as_ref()))
+            .map(|current| Arc::clone(&current.output));
         let (green, change) = match previous {
             Some(entry) => {
                 let incremental = match source_change {
@@ -174,24 +178,43 @@ impl Workspace {
             revision,
             parsed,
             previous_output,
+            previous_exported_output,
             change,
         })
     }
 
     pub fn install_document_analysis(&mut self, analysis: PreparedDocumentAnalysis) -> bool {
+        self.install_document_analysis_with_change(analysis)
+            .is_some()
+    }
+
+    pub fn install_document_analysis_with_change(
+        &mut self,
+        analysis: PreparedDocumentAnalysis,
+    ) -> Option<ExportedSemanticChange> {
         let Some(entry) = self.documents.get_mut(&analysis.path) else {
-            return false;
+            return None;
         };
         if entry.revision != analysis.revision || !Arc::ptr_eq(&entry.parsed, &analysis.parsed) {
-            return false;
+            return None;
         }
+        let change = if analysis
+            .previous_exported_output
+            .as_ref()
+            .is_some_and(|previous| {
+                previous.exported_semantic_summary() == analysis.output.exported_semantic_summary()
+            }) {
+            ExportedSemanticChange::Unchanged
+        } else {
+            ExportedSemanticChange::Changed
+        };
         let current = Arc::new(VersionedDocumentOutput {
             revision: analysis.revision,
             output: analysis.output,
         });
         entry.current = Some(Arc::clone(&current));
         entry.last_valid = Some(current);
-        true
+        Some(change)
     }
 
     pub fn document_analysis_pending(&self, path: impl AsRef<Path>) -> bool {
@@ -213,6 +236,10 @@ impl Workspace {
             revision: entry.revision,
             parsed: Arc::clone(&entry.parsed),
             previous_output: None,
+            previous_exported_output: entry
+                .last_valid
+                .as_ref()
+                .map(|current| Arc::clone(&current.output)),
             change: None,
         };
         self.install_document_analysis(pending.analyze())
