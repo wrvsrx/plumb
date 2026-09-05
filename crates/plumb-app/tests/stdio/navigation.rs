@@ -1,6 +1,8 @@
 use serde_json::json;
 
-use crate::support::{response, run_server, run_server_after_initial_index, unique_temp_dir};
+use crate::support::{
+    response, run_server, run_server_after_initial_index, unique_temp_dir, LspTestSession,
+};
 
 #[test]
 fn resolves_csl_json_citation_hover_and_definition() {
@@ -607,6 +609,98 @@ fn code_lenses_count_anchor_references_and_ignore_last_valid_output() {
     assert_eq!(lenses[2]["command"]["title"], "0 references");
     assert!(response(&output, 3)["result"].is_null());
     assert!(output
+        .iter()
+        .any(|message| message["method"] == "workspace/codeLens/refresh"));
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn code_lenses_are_unavailable_until_initial_index_then_refresh_with_complete_counts() {
+    let root = unique_temp_dir();
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(root.join("large.plumb"), "Paragraph.\n\n".repeat(150_000)).unwrap();
+    let target = root.join("target.plumb");
+    let source = root.join("source.plumb");
+    let target_text = "`= title Target\n\n`# Used\n\n `@ used\n";
+    std::fs::write(&target, target_text).unwrap();
+    std::fs::write(&source, "See `->{used target.plumb#used}.\n").unwrap();
+    let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
+    let target_uri = lsp_types::Url::from_file_path(&target).unwrap();
+
+    let mut session = LspTestSession::new();
+    session.send(&json!({
+        "jsonrpc": "2.0", "id": 1, "method": "initialize",
+        "params": {
+            "processId": null,
+            "rootUri": root_uri,
+            "workspaceFolders": [{ "uri": root_uri, "name": "test" }],
+            "capabilities": { "workspace": { "codeLens": { "refreshSupport": true } } }
+        }
+    }));
+    session.wait_for_response(&json!(1));
+    session.send(&json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }));
+    session.send(&json!({
+        "jsonrpc": "2.0", "method": "textDocument/didOpen",
+        "params": { "textDocument": {
+            "uri": target_uri, "languageId": "plumb", "version": 1, "text": target_text
+        }}
+    }));
+    session.send(&json!({
+        "jsonrpc": "2.0", "id": 2, "method": "textDocument/codeLens",
+        "params": { "textDocument": { "uri": target_uri } }
+    }));
+
+    let initial = session.wait_for_response(&json!(2));
+    assert_eq!(initial["result"], serde_json::Value::Null, "{initial:#?}");
+    session.wait_for(|message| {
+        message["method"] == "$/progress"
+            && message["params"]["token"] == "plumb-ls-index"
+            && message["params"]["value"]["kind"] == "end"
+    });
+    session.wait_for(|message| message["method"] == "workspace/codeLens/refresh");
+
+    session.send(&json!({
+        "jsonrpc": "2.0", "id": 3, "method": "textDocument/codeLens",
+        "params": { "textDocument": { "uri": target_uri } }
+    }));
+    let complete = session.wait_for_response(&json!(3));
+    let lenses = complete["result"]
+        .as_array()
+        .expect("complete CodeLens result");
+    assert_eq!(lenses.len(), 2);
+    assert_eq!(lenses[0]["command"]["title"], "1 file reference");
+    assert_eq!(lenses[1]["command"]["title"], "1 reference");
+
+    session.send(&json!({ "jsonrpc": "2.0", "id": 4, "method": "shutdown", "params": null }));
+    session.wait_for_response(&json!(4));
+    session.send(&json!({ "jsonrpc": "2.0", "method": "exit", "params": null }));
+    session.finish();
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn initial_index_does_not_refresh_code_lenses_for_unsupported_clients() {
+    let root = unique_temp_dir();
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(root.join("note.plumb"), "`= title Note\n").unwrap();
+    let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
+    let messages = [
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {
+                "processId": null,
+                "rootUri": root_uri,
+                "workspaceFolders": [{ "uri": root_uri, "name": "test" }],
+                "capabilities": {}
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({ "jsonrpc": "2.0", "id": 2, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+
+    let output = run_server_after_initial_index(&messages);
+    assert!(!output
         .iter()
         .any(|message| message["method"] == "workspace/codeLens/refresh"));
     std::fs::remove_dir_all(root).unwrap();

@@ -565,7 +565,7 @@ impl ServerState {
     }
 
     fn refresh_code_lenses(&self) {
-        if !self.supports_code_lens_refresh {
+        if !self.supports_code_lens_refresh || !self.index_complete {
             return;
         }
         let mut client = self.client.clone();
@@ -1630,18 +1630,28 @@ impl LanguageServer for ServerState {
             let Ok(uri) = Url::from_file_path(&entry.path) else {
                 return Ok(None);
             };
+            if optional_decorative_query(self.require_index_complete())
+                .map_err(workspace_query_response_error)?
+                .is_none()
+            {
+                return Ok(None);
+            }
             let anchor_ids = output
                 .output
                 .anchors()
                 .iter()
                 .map(|anchor| anchor.id.value.clone())
                 .collect::<HashSet<_>>();
-            let mut references = self
-                .complete_query(
+            let Some(mut references) = optional_decorative_query(
+                self.complete_query(
                     self.workspace
                         .reverse_references_for_document(&entry.path, &anchor_ids),
-                )
-                .map_err(workspace_query_response_error)?;
+                ),
+            )
+            .map_err(workspace_query_response_error)?
+            else {
+                return Ok(None);
+            };
             let mut lenses = Vec::new();
             let locations = references
                 .document
@@ -2420,6 +2430,16 @@ fn workspace_query_response_error(error: WorkspaceQueryError) -> ResponseError {
     )
 }
 
+fn optional_decorative_query<T>(
+    result: Result<T, WorkspaceQueryError>,
+) -> Result<Option<T>, WorkspaceQueryError> {
+    match result {
+        Ok(value) => Ok(Some(value)),
+        Err(WorkspaceQueryError::Incomplete) => Ok(None),
+        Err(error) => Err(error),
+    }
+}
+
 fn rename_operation_error(
     operation: &str,
     error: WorkspaceOperationError<RenameError>,
@@ -2719,8 +2739,27 @@ mod tests {
     use lsp_types::CompletionClientCapabilities;
     use plumb_semantics::{analyze_headings, analyze_metadata, analyze_tasks};
     use plumb_syntax::parse;
+    use plumb_workspace::StoreError;
 
     use super::*;
+
+    #[test]
+    fn decorative_queries_distinguish_incomplete_from_complete_empty_results() {
+        assert_eq!(
+            optional_decorative_query::<Vec<()>>(Err(WorkspaceQueryError::Incomplete)).unwrap(),
+            None
+        );
+        assert_eq!(
+            optional_decorative_query(Ok(Vec::<()>::new())).unwrap(),
+            Some(Vec::new())
+        );
+        assert!(matches!(
+            optional_decorative_query::<Vec<()>>(Err(WorkspaceQueryError::Store(
+                StoreError::InvalidStoredValue
+            ))),
+            Err(WorkspaceQueryError::Store(StoreError::InvalidStoredValue))
+        ));
+    }
 
     #[test]
     fn applies_incremental_changes_sequentially_in_utf16_coordinates() {
