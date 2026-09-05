@@ -98,7 +98,10 @@ declaration之后且 replacement不含新的 direct `"="/`"+"/`"@" block时共�
 
 typed record projection保存 record-count topology；node index稳定、changed nodes各类 count不变且前后均无 semantic
 diagnostics时，projection spans直接重新绑定 current SemanticTree。稀疏或 query-hot collection使用 direct node
-segments，避免查询逐 node间接访问。list reducer把连续 root items压为 node-index spans，并在 local list topology
+segments，避免查询逐 node间接访问。segment topology只保存node indexes并由storage绑定current SemanticTree；stable
+topology rebind必须共享同一Arc segment array并仅替换tree Arc，不能逐segment clone offset或record Arc。projection、
+anchor-id与list topology delta在node construction loop中同时累计，不得为每种reducer重复扫描全部nodes。list reducer把
+连续 root items压为 node-index spans，并在 local list topology
 不变时重新绑定 current tree。无既有 duplicate-id且 changed node anchor id sequence不变时，不重新 materialize全部
 anchors。event-link containment不保存 eager document vector；typed EventRecord query先用 first-link bound，再在 event
 所属 shard内解析 contained links，显式 legacy range projection才按需 materialize完整 index。
